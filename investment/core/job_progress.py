@@ -60,6 +60,11 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 900.0,
         "label": "ŷ_τ90 拟合",
     },
+    "tau-ridge": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "ŷ_τc 拟合",
+    },
     "co-ridge": {
         "stale_sec": 1800.0,
         "stuck_start_sec": 900.0,
@@ -463,6 +468,7 @@ class JobRegistry:
             "t60-ridge",
             "t75-ridge",
             "t90-ridge",
+            "tau-ridge",
             "co-ridge",
             "t0-backtest",
             "portfolio-backtest",
@@ -487,6 +493,7 @@ try:
         T60_RIDGE_JOB_PATH,
         T75_RIDGE_JOB_PATH,
         T90_RIDGE_JOB_PATH,
+        TAU_RIDGE_JOB_PATH,
         CO_RIDGE_JOB_PATH,
         T0_BACKTEST_JOB_PATH,
         PORTFOLIO_BACKTEST_JOB_PATH,
@@ -508,6 +515,7 @@ try:
     t60_ridge_job = job_registry.slot("t60-ridge", persist_path=T60_RIDGE_JOB_PATH)
     t75_ridge_job = job_registry.slot("t75-ridge", persist_path=T75_RIDGE_JOB_PATH)
     t90_ridge_job = job_registry.slot("t90-ridge", persist_path=T90_RIDGE_JOB_PATH)
+    tau_ridge_job = job_registry.slot("tau-ridge", persist_path=TAU_RIDGE_JOB_PATH)
     co_ridge_job = job_registry.slot("co-ridge", persist_path=CO_RIDGE_JOB_PATH)
     t0_backtest_job = job_registry.slot("t0-backtest", persist_path=T0_BACKTEST_JOB_PATH)
     portfolio_backtest_job = job_registry.slot(
@@ -525,6 +533,7 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     t60_ridge_job = job_registry.slot("t60-ridge")
     t75_ridge_job = job_registry.slot("t75-ridge")
     t90_ridge_job = job_registry.slot("t90-ridge")
+    tau_ridge_job = job_registry.slot("tau-ridge")
     co_ridge_job = job_registry.slot("co-ridge")
     t0_backtest_job = job_registry.slot("t0-backtest")
     portfolio_backtest_job = job_registry.slot("portfolio-backtest")

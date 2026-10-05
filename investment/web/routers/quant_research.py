@@ -198,22 +198,28 @@ def quant_co_tree_last() -> Dict[str, Any]:
 
 @router.post("/api/quant/tau-ridge")
 def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ Ridge + 时间 OOS；可选 persist 到 live/tau_ridge_model.json。"""
+    """ŷ_τ Ridge + 时间 OOS；可选 persist 到 live/tau_ridge_model.json。
+
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/tau-ridge``。
+    """
+    kwargs = dict(
+        lookback=body.lookback,
+        watching_limit=body.watching_limit,
+        ridge_lambda=body.ridge_lambda,
+        gap_trigger_pct=body.gap_trigger_pct,
+        theme_boost=body.theme_boost,
+        persist=body.persist,
+        note=body.note,
+        tau_hm=body.tau_hm,
+        force_promote=body.force_promote,
+        persist_role=body.persist_role,
+        holdout_trading_days=body.holdout_trading_days,
+        include_alpha158=bool(body.include_alpha158),
+    )
     try:
-        return deps.quant.run_tau_ridge_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            ridge_lambda=body.ridge_lambda,
-            gap_trigger_pct=body.gap_trigger_pct,
-            theme_boost=body.theme_boost,
-            persist=body.persist,
-            note=body.note,
-            tau_hm=body.tau_hm,
-            force_promote=body.force_promote,
-            persist_role=body.persist_role,
-            holdout_trading_days=body.holdout_trading_days,
-            include_alpha158=bool(body.include_alpha158),
-        )
+        if body.persist or body.sync:
+            return deps.quant.run_tau_ridge_experiment(**kwargs)
+        return deps.quant.start_tau_ridge_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

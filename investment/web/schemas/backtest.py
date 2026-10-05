@@ -33,7 +33,7 @@ class PaperReplayBacktestRequest(BaseModel):
     include_benchmark: bool = True
     benchmark_code: str = Field(
         default="pool",
-        description="超额基准：pool=观察池等权买持；或指数代码如 000300。",
+        description="超额基准：pool/tier_a=观察池可预测性 A 档等权买持；或指数代码如 000300。",
     )
     fusion_w_co: float = Field(
         default=1.0,

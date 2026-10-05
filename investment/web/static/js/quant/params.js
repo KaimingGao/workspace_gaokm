@@ -73,13 +73,21 @@ function clampRidgeLambda(v, fallback = 0) {
   return Math.min(100, n);
 }
 
-/** 观察池截断上限：对齐 WATCHING_MAX_SIZE。分组 Limit / 日K/5m / ŷ_* 拟合共用。 */
-export const BARS_WATCHING_LIMIT = 300;
+/** 日K/5m 截断：对齐观察池 WATCHING_MAX_SIZE。 */
+export const BARS_WATCHING_LIMIT = 500;
+/** ŷ_* 模型拟合截断：对齐 MODEL_FIT_MAX_SIZE（可走研究宇宙，宽于观察池）。 */
+export const MODEL_FIT_LIMIT = 1000;
 
 function clampWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(3, Math.min(BARS_WATCHING_LIMIT, Math.round(n)));
+}
+
+function clampModelFitLimit(v, fallback = MODEL_FIT_LIMIT) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(3, Math.min(MODEL_FIT_LIMIT, Math.round(n)));
 }
 
 export function clampBarsWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
@@ -148,8 +156,8 @@ export function createResearchParams(opts = {}) {
 
   function readWatchingLimit() {
     const el = getWatchingLimitEl();
-    if (el && el.value !== "") return clampWatchingLimit(el.value, BARS_WATCHING_LIMIT);
-    return BARS_WATCHING_LIMIT;
+    if (el && el.value !== "") return clampModelFitLimit(el.value, MODEL_FIT_LIMIT);
+    return MODEL_FIT_LIMIT;
   }
 
   function setPrefsHorizonDays(h) {

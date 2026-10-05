@@ -341,7 +341,7 @@ bound = ref × (1 + move_pct / 100)
 
 ŷ 截面（`sector_ret_to_tau` / `sector_ret_last_*`）与训练 ``attach_cross_section_breadth`` 同一口径：
 
-- 宇宙 = 纸面持仓 ∪ 观察池（上限 = `WATCHING_MAX_SIZE`，默认 300）
+- 宇宙 = 纸面持仓 ∪ 观察池（上限 = `WATCHING_MAX_SIZE`，默认 500；模型拟合另有 `MODEL_FIT_MAX_SIZE`=1000）
 - 板块中位对宇宙 **全员** 取中位（不再截 24 只）
 - 每个 `(日期, τ)`：一次扫池同时写出开→τ 与 30/45/60/75/90m 中位，后续头读缓存
 - live 盯盘与做 T 回测都把该宇宙的 5m 灌进同伴仓；持仓回测灌一次后复用，不清仓重灌

@@ -2,6 +2,7 @@
 
 import { getDataOfflineOnly } from "../data_offline.js";
 import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
+import { BARS_WATCHING_LIMIT } from "../quant/params.js";
 
 /**
  * @param {object} deps
@@ -37,7 +38,7 @@ export function createClusterRebalanceController(deps) {
         try {
           await ensureWarehouseTopup({
             force: false,
-            watchingLimit: 300,
+            watchingLimit: BARS_WATCHING_LIMIT,
             onStatus: (msg) => showProgress(1, msg || "增量补齐…"),
           });
         } catch (topupErr) {

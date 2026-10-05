@@ -11,7 +11,9 @@ from core.io_atomic import atomic_write_json
 from core.numbers import now_iso_local as _now_iso
 from core.paths import WATCHING_EXAMPLE_PATH, WATCHING_PATH
 
-WATCHING_MAX_SIZE = 300
+WATCHING_MAX_SIZE = 500
+# 模型拟合宇宙上限（可走 research_universe，宽于观察池）；分钟暖仓 / live 仍只读观察池
+MODEL_FIT_MAX_SIZE = 1000
 
 
 def validate_watching(data: Any) -> Dict[str, Any]:

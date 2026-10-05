@@ -125,6 +125,53 @@ class TestBenchmarkFlat(unittest.TestCase):
         self.assertLess(float(summary["excess_pct"]), 0)
         self.assertTrue(summary.get("warn_abs_pos_excess_neg"))
 
+    def test_pool_label_override_tier_a(self):
+        flat = [{"date": f"2024-01-{i+1:02d}", "close": 100.0} for i in range(10)]
+        stock_bars = {"A": flat, "B": flat}
+        result = {
+            "metrics": {"total_return_pct": 5.0},
+            "params": {"horizon_days": 1},
+            "equity_curve": [
+                {"date": "2024-01-01", "equity": 100.0},
+                {"date": "2024-01-10", "equity": 105.0},
+            ],
+        }
+        summary = build_topk_benchmark_summary(
+            result,
+            stock_bars,
+            index_code="pool",
+            lookback=10,
+            pool_label="观察池A档等权",
+        )
+        self.assertTrue(summary.get("ok"))
+        self.assertEqual(summary.get("benchmark_label"), "观察池A档等权")
+
+    def test_resolve_tier_a_benchmark_bars_filters(self):
+        from unittest.mock import patch
+
+        from core.backtest.topk_benchmark import resolve_tier_a_benchmark_bars
+
+        flat = [{"date": "2024-01-01", "close": 10.0}, {"date": "2024-01-02", "close": 11.0}]
+        stock_bars = {"000001": flat, "000002": flat, "000003": flat}
+        fake_rep = {
+            "success": True,
+            "rows": [
+                {"code": "000001", "tier": "A"},
+                {"code": "000002", "tier": "B"},
+                {"code": "000003", "tier": "A"},
+            ],
+        }
+        with patch(
+            "core.research.predictability_tiers.load_predictability_tiers_last",
+            return_value=fake_rep,
+        ):
+            out, meta = resolve_tier_a_benchmark_bars(
+                stock_bars, lookback=10, load_missing=False
+            )
+        self.assertEqual(set(out.keys()), {"000001", "000003"})
+        self.assertEqual(meta.get("label"), "观察池A档等权")
+        self.assertEqual(meta.get("n_used"), 2)
+
 
 class TestAmountFilter(unittest.TestCase):
     def test_pctile_drops_thin(self):

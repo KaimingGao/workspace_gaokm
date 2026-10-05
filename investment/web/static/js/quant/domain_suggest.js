@@ -1,6 +1,7 @@
 import { syncOverviewOo } from "./factor_corr_ui.js";
 import { researchGridHtml, metricCell } from "./research_grid.js";
 import { fmtPct, metricClass } from "./bt_result.js";
+import { formatApiDetail } from "../shared.js";
 import {
   weightSuggestLogicTip,
   weightSuggestStatusHtml as buildWeightSuggestStatusHtml,
@@ -156,18 +157,20 @@ export function installSuggest(q) {
       data = null;
     }
     if (!res.ok) {
-      const detail =
-        (data && (data.detail || data.error)) ||
-        (res.status === 404
+      const detail = formatApiDetail(
+        data && (data.detail || data.error),
+        res.status === 404
           ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
-          : `HTTP ${res.status}`);
+          : `HTTP ${res.status}`
+      );
       setBusyText(els.quantOlsSummary, detail, { busy: false });
       setQuantMeta(`截面 IC 失败 · ${detail}`, { error: true });
       return;
     }
     if (!data || !(data.success || data.ok)) {
-      setBusyText(els.quantOlsSummary, (data && data.error) || "截面 IC 失败", { busy: false });
-      setQuantMeta((data && data.error) || "截面 IC 失败", { error: true });
+      const detail = formatApiDetail(data && data.error, "截面 IC 失败");
+      setBusyText(els.quantOlsSummary, detail, { busy: false });
+      setQuantMeta(detail, { error: true });
       return;
     }
     const rows = (data.factors || []).map((f) => {
@@ -340,13 +343,13 @@ export function installSuggest(q) {
       paintOoStatus({
         state: "error",
         chip: "失败",
-        message: (data && data.error) || "拟合失败",
+        message: formatApiDetail(data && data.error, "拟合失败"),
         error: true,
       });
-      setQuantMeta((data && data.error) || "ŷ_oo 拟合失败", { error: true });
+      setQuantMeta(formatApiDetail(data && data.error, "ŷ_oo 拟合失败"), { error: true });
       if (resultEl) {
         resultEl.innerHTML = `<p class="watching-table-empty">${escapeHtml(
-          (data && data.error) || "拟合失败"
+          formatApiDetail(data && data.error, "拟合失败")
         )}</p>`;
       }
       if (paintCoef) await paintCoef(null);
@@ -423,7 +426,10 @@ export function installSuggest(q) {
         paintOoStatus({
           state: "error",
           chip: "状态",
-          message: (data && (data.error || data.detail)) || "状态读取失败",
+          message: formatApiDetail(
+            data && (data.error || data.detail),
+            "状态读取失败"
+          ),
           error: true,
         });
         if (paintCoef) await paintCoef(null);
@@ -581,7 +587,7 @@ export function installSuggest(q) {
           lookback:
             typeof readFitLookbackDays === "function" ? readFitLookbackDays("oo") : 600,
           horizon_days: 1,
-          watching_limit: 300,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           save_draft: true,
           holdout_trading_days:
@@ -596,11 +602,10 @@ export function installSuggest(q) {
       }
       stopBusy();
       if (!res.ok) {
-        const detail =
-          (data && (data.detail || data.error)) ||
-          (res.status === 404
-            ? "接口未找到：请重启 Web"
-            : `HTTP ${res.status}`);
+        const detail = formatApiDetail(
+          data && (data.detail || data.error),
+          res.status === 404 ? "接口未找到：请重启 Web" : `HTTP ${res.status}`
+        );
         paintOoStatus({
           state: "error",
           chip: "失败",
@@ -660,14 +665,17 @@ export function installSuggest(q) {
       data = null;
     }
     if (!res.ok || !data || !data.success) {
-      const msg = (data && (data.error || data.detail)) || `HTTP ${res.status}`;
+      const msg = formatApiDetail(
+        data && (data.error || data.detail),
+        `HTTP ${res.status}`
+      );
       paintOoStatus({
         state: "error",
         chip: "失败",
-        message: String(msg),
+        message: msg,
         error: true,
       });
-      setQuantMeta(String(msg), { error: true });
+      setQuantMeta(msg, { error: true });
       return;
     }
     paintOoStatus({

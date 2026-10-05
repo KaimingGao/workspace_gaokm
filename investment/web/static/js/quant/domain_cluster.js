@@ -1,10 +1,7 @@
 import { normalizeProbeCode, isUsableStockName } from "./names.js";
 import { createScoreTooltipController } from "../score_tooltip.js";
-import { syncOverviewLanding } from "./factor_corr_ui.js";
 
-const RETIRED_MSG = "分组已退役（cluster_retired）· 请用全局 ŷ_oo / factor-ols";
-
-/** 分组 / 探针 / 横截面入口已退役。公式试算标的下拉与 OOS 提示仍在。 */
+/** 分组 / 探针入口已退役；保留试算标的下拉与 OOS tip 绑定。 */
 export function installClusterProbe(q) {
   const {
     els,
@@ -24,27 +21,16 @@ export function installClusterProbe(q) {
   }
 
   function buildClusterHealthHtml() {
-    return `<p class="sub">${escapeHtml(RETIRED_MSG)}</p>`;
+    return "";
   }
 
-  async function bootstrapClusterHub() {
-    if (bootstrapClusterHub._running) return;
-    bootstrapClusterHub._running = true;
-    try {
-      setBusyText(els.quantOlsSummary, RETIRED_MSG, { busy: false });
-      if (els.quantOlsClusters) {
-        els.quantOlsClusters.hidden = false;
-        els.quantOlsClusters.innerHTML = `<p class="sub">${escapeHtml(RETIRED_MSG)}</p>`;
-      }
-      paintClusterHealth(buildClusterHealthHtml());
-      try {
-        syncOverviewLanding({ cluster_retired: true });
-      } catch (_) {
-        /* ignore */
-      }
-    } finally {
-      bootstrapClusterHub._running = false;
+  function clearRetiredHosts() {
+    // 勿覆盖 #quant-ols-summary（ŷ_oo 状态条）；遗留宿主保持空且隐藏。
+    if (els.quantOlsClusters) {
+      els.quantOlsClusters.innerHTML = "";
+      els.quantOlsClusters.hidden = true;
     }
+    paintClusterHealth("");
   }
 
   async function hydrateWatchingNamesFromApi() {
@@ -114,7 +100,7 @@ export function installClusterProbe(q) {
   function renderFactorOls(data) {
     if (!els.quantOlsSummary) return;
     if (!data || !data.success) {
-      setBusyText(els.quantOlsSummary, (data && data.error) || RETIRED_MSG, {
+      setBusyText(els.quantOlsSummary, (data && data.error) || "OLS 失败", {
         busy: false,
       });
       return;
@@ -122,7 +108,7 @@ export function installClusterProbe(q) {
     const n = data.sample_count != null ? data.sample_count : "—";
     setBusyText(
       els.quantOlsSummary,
-      `全局 OLS · n=${escapeHtml(String(n))} · 分组路径已退役`,
+      `全局 OLS · n=${escapeHtml(String(n))}`,
       { busy: false }
     );
   }
@@ -142,10 +128,10 @@ export function installClusterProbe(q) {
     });
   }
 
-  bootstrapClusterHub().catch(() => {});
+  clearRetiredHosts();
 
   return {
-    bootstrapClusterHub,
+    bootstrapClusterHub: clearRetiredHosts,
     buildClusterHealthHtml,
     fillExprCodeSelect,
     paintClusterHealth,

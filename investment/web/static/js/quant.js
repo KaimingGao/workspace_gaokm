@@ -1,5 +1,6 @@
 import {
   escapeHtml,
+  formatApiDetail,
   renderReadmeLinksHtml,
   attachReadmeLinkHandler,
   postQuantCiEval,
@@ -389,6 +390,7 @@ export function initQuant(ctx) {
       error = false,
     } = opts;
     const chipState = error ? "error" : busy ? "busy" : state;
+    const msgText = formatApiDetail(message, "");
     const metas = [];
     // 拟合时间只用 fittedAt；勿回退 promotedAt（易与启用时间混淆）
     const fitTs = fittedAt || null;
@@ -438,8 +440,8 @@ export function initQuant(ctx) {
       (metas.length
         ? `<span class="quant-rem-status-meta">${metas.join("")}</span>`
         : "") +
-      (message
-        ? `<span class="quant-rem-status-msg">${escapeHtml(message)}</span>`
+      (msgText
+        ? `<span class="quant-rem-status-msg">${escapeHtml(msgText)}</span>`
         : "") +
       (showChip
         ? `<span class="quant-pro-status-chip quant-rem-status-chip" data-state="${escapeHtml(
@@ -911,7 +913,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("oo_tree"),
-          watching_limit: 300,
+          watching_limit: readWatchingLimit(),
           horizon_days: 1,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("oo_tree"),
@@ -1034,7 +1036,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("co_tree"),
-          watching_limit: 300,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("co_tree"),
           backend: "lightgbm",
@@ -1231,13 +1233,12 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-tau-tree-summary");
     startTauTreeBusy();
     try {
-      const tauLimit = 300;
-      const res = await fetch("/api/quant/tau-tree", {
+            const res = await fetch("/api/quant/tau-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("tc_tree"),
-          watching_limit: tauLimit,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc_tree"),
           backend: "lightgbm",
@@ -1390,13 +1391,12 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-t30-tree-summary");
     startT30TreeBusy();
     try {
-      const t30Limit = 200;
-      const res = await fetch("/api/quant/t30-tree", {
+            const res = await fetch("/api/quant/t30-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t30_tree"),
-          watching_limit: t30Limit,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t30_tree"),
           backend: "lightgbm",
@@ -1514,13 +1514,12 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-t45-tree-summary");
     startT45TreeBusy();
     try {
-      const t45Limit = 200;
-      const res = await fetch("/api/quant/t45-tree", {
+            const res = await fetch("/api/quant/t45-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t45_tree"),
-          watching_limit: t45Limit,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t45_tree"),
           backend: "lightgbm",
@@ -1639,13 +1638,12 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-t60-tree-summary");
     startT60TreeBusy();
     try {
-      const t60Limit = 200;
-      const res = await fetch("/api/quant/t60-tree", {
+            const res = await fetch("/api/quant/t60-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t60_tree"),
-          watching_limit: t60Limit,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t60_tree"),
           backend: "lightgbm",
@@ -1764,13 +1762,12 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-t75-tree-summary");
     startT75TreeBusy();
     try {
-      const t75Limit = 200;
-      const res = await fetch("/api/quant/t75-tree", {
+            const res = await fetch("/api/quant/t75-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t75_tree"),
-          watching_limit: t75Limit,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t75_tree"),
           backend: "lightgbm",
@@ -1889,13 +1886,12 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-t90-tree-summary");
     startT90TreeBusy();
     try {
-      const t90Limit = 200;
-      const res = await fetch("/api/quant/t90-tree", {
+            const res = await fetch("/api/quant/t90-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t90_tree"),
-          watching_limit: t90Limit,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t90_tree"),
           backend: "lightgbm",
@@ -3013,50 +3009,23 @@ export function initQuant(ctx) {
     const runBtn = document.getElementById("quant-tau-ridge-run");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
     if (runBtn) runBtn.disabled = true;
-    let busyTimer = null;
-    const clearBusy = () => {
-      if (busyTimer) {
-        clearInterval(busyTimer);
-        busyTimer = null;
-      }
-    };
-    if (!persist) {
-      const t0 = Date.now();
-      const tick = () => {
-        const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-        let hint;
-        if (s < 30) hint = "拉观察池行情 / 分钟缓存";
-        else if (s < 120) hint = "组 τ→close 面板（含 Alpha158，满池可能数分钟）";
-        else if (s < 300) hint = "Ridge + Holdout OOS（仍在算，请勿重复点拟合）";
-        else hint = "仍在拟合 · Alpha158×满池较重，请勿重复点拟合";
-        renderRemStatus(sum, {
-          state: "busy",
-          chip: "拟合中",
-          message: `${hint} · 已 ${fmtTauTreeSec(s)}`,
-          busy: true,
-        });
-      };
-      tick();
-      busyTimer = setInterval(tick, 1000);
-    } else {
-      renderRemStatus(sum, {
-        state: "busy",
-        chip: "写入中",
-        message: forcePromote
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: persist ? "写入中" : "拟合中",
+      message: persist
+        ? forcePromote
           ? `强制写入上次拟合（${roleLabel}）…`
-          : `写入上次拟合（${roleLabel}）…`,
-        busy: true,
-      });
-    }
+          : `写入上次拟合（${roleLabel}）…`
+        : "ŷ_τc Ridge + 时间 OOS…",
+      busy: true,
+    });
     try {
-      // 满观察池（与 ŷ_oo / ŷ_co 一致）
-      const tauLimit = 300;
       const res = await fetch("/api/quant/tc-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("tc"),
-          watching_limit: tauLimit,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc"),
           include_alpha158: true,
@@ -3070,15 +3039,23 @@ export function initQuant(ctx) {
             : "",
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      clearBusy();
+      const posted = await res.json().catch(() => ({}));
+      const awaited = await awaitRidgeFitIfBackground(res, posted, {
+        persist: !!persist,
+        jobName: "tau-ridge",
+        modelPath: "/api/quant/tc-ridge/model",
+        sumEl: sum,
+        label: "ŷ_τc",
+      });
+      const data = awaited.data || {};
+      const httpOk = awaited.httpOk;
       const gate = data.promote_gate || (data.persisted && data.persisted.promote_gate) || null;
       const persistFailed =
         persist &&
         data.persisted &&
         data.persisted.success === false &&
         !data.persisted.skipped;
-      if (!res.ok || (!data.success && !persistFailed) || persistFailed) {
+      if (!httpOk || (!data.success && !persistFailed) || persistFailed) {
         const err =
           (data.persisted && data.persisted.error) ||
           (data && (data.detail || data.error)) ||
@@ -3125,16 +3102,14 @@ export function initQuant(ctx) {
       clearRemResultBox();
       await renderRemCoefTable(rm, { oos });
     } catch (err) {
-      clearBusy();
       renderRemStatus(sum, {
         state: "error",
         chip: "失败",
-        message: String(err.message || err),
+        message: describeNetworkFetchError(err),
         error: true,
       });
       throw err;
     } finally {
-      clearBusy();
       if (runBtn) runBtn.disabled = false;
     }
   }
@@ -3153,13 +3128,12 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      const onLimit = 300;
-      const res = await fetch("/api/quant/co-ridge", {
+            const res = await fetch("/api/quant/co-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("co"),
-          watching_limit: onLimit,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("co"),
           persist: !!persist,
@@ -3256,7 +3230,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("oo_rank"),
-          // 日线研究：可吃 research_universe（≤2000）；宇宙空则回退观察池≤300
+          // 日线研究：可吃 research_universe（≤2000）；宇宙空则回退观察池≤WATCHING_MAX_SIZE
           watching_limit: 2000,
           holdout_trading_days: Math.max(20, readHoldoutTradingDays("oo_rank")),
           feature_mode: _readOoRankFeatureMode(),
@@ -3428,7 +3402,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t30"),
-          watching_limit: 300,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t30"),
@@ -3618,7 +3592,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t45"),
-          watching_limit: 300,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t45"),
@@ -3807,7 +3781,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t60"),
-          watching_limit: 300,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t60"),
@@ -3996,7 +3970,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t75"),
-          watching_limit: 300,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t75"),
@@ -4185,7 +4159,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("t90"),
-          watching_limit: 300,
+          watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t90"),
@@ -4366,7 +4340,7 @@ export function initQuant(ctx) {
       renderRemStatus(sum, {
         state: "error",
         chip: "失败",
-        message: String(err.message || err),
+        message: describeNetworkFetchError(err),
         error: true,
       });
     }

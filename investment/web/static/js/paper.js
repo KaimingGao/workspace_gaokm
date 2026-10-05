@@ -61,6 +61,7 @@ import {
 } from "./data_offline.js";
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
+import { BARS_WATCHING_LIMIT } from "./quant/params.js";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2381";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
@@ -1695,7 +1696,7 @@ export function initPaper(ctx) {
     try {
       return await ensureWarehouseTopup({
         force,
-        watchingLimit: 300,
+        watchingLimit: BARS_WATCHING_LIMIT,
         onStatus: (msg) =>
           setHoldingsLoadStatus(msg || "增量补齐本地仓…", { busy: true }),
       });

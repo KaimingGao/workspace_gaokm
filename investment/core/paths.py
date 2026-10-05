@@ -97,6 +97,7 @@ T45_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t45_ridge.json")
 T60_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t60_ridge.json")
 T75_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t75_ridge.json")
 T90_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t90_ridge.json")
+TAU_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "tau_ridge.json")
 CO_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "co_ridge.json")
 
 

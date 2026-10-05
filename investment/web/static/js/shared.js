@@ -14,6 +14,45 @@ export function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
+/** FastAPI / 业务错误 detail → 可读字符串（避免 [object Object]）。 */
+export function formatApiDetail(detail, fallback = "请求失败") {
+  if (detail == null || detail === "") return fallback;
+  if (typeof detail === "string") return detail;
+  if (typeof detail === "number" || typeof detail === "boolean") return String(detail);
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (item == null) return "";
+        if (typeof item === "string") return item;
+        if (typeof item === "object") {
+          const loc = Array.isArray(item.loc)
+            ? item.loc.filter((x) => x !== "body").join(".")
+            : "";
+          const msg = item.msg || item.message || item.error;
+          if (msg) return loc ? `${loc}: ${msg}` : String(msg);
+          try {
+            return JSON.stringify(item);
+          } catch (_) {
+            return "";
+          }
+        }
+        return String(item);
+      })
+      .filter(Boolean);
+    return parts.length ? parts.join("；") : fallback;
+  }
+  if (typeof detail === "object") {
+    const msg = detail.msg || detail.message || detail.error || detail.detail;
+    if (msg != null && msg !== detail) return formatApiDetail(msg, fallback);
+    try {
+      return JSON.stringify(detail);
+    } catch (_) {
+      return fallback;
+    }
+  }
+  return String(detail);
+}
+
 /**
  * 统一加载/更新态：切换 is-busy + 文案（可选胶囊由 CSS 决定）。
  * @param {HTMLElement|null} el

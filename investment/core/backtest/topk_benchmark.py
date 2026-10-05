@@ -1,4 +1,4 @@
-"""TopK 回测相对基准（T6/T9）：默认观察池等权；也可指定指数，失败则回退池等权。"""
+"""TopK 回测相对基准（T6/T9）：默认观察池 A 档等权；也可指定指数，失败则回退池等权。"""
 
 
 import logging
@@ -6,6 +6,146 @@ import logging
 logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
+
+
+POOL_BENCH_ALIASES = frozenset(
+    {"pool", "pool_ew", "ew", "universe", "tier_a", "a", "pred_a"}
+)
+DEFAULT_POOL_BENCH_LABEL = "观察池A档等权"
+
+
+def resolve_tier_a_benchmark_bars(
+    stock_bars: Dict[str, List[dict]],
+    *,
+    lookback: int = 10,
+    load_missing: bool = True,
+) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
+    """超额基线：观察池可预测性 A 档等权买持。
+
+    优先用已加载的 ``stock_bars`` 中的 A 档；缺失时可选补拉日线。
+    无枢纽分档报告时回退为传入 ``stock_bars`` 全量（标签降为观察池等权）。
+    """
+    meta: Dict[str, Any] = {
+        "ok": False,
+        "source": "fallback_universe",
+        "label": "观察池等权",
+        "n_a": 0,
+        "n_used": 0,
+        "loaded_extra": 0,
+    }
+    bars_in = dict(stock_bars or {})
+    try:
+        from core.research.predictability_tiers import (
+            load_predictability_tiers_last,
+            tier_code_set,
+        )
+
+        tier_rep = load_predictability_tiers_last()
+    except Exception:  # noqa: BLE001 — best-effort
+        logger.debug("tier report load failed for A-bench", exc_info=True)
+        tier_rep = None
+
+    if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
+        meta["n_used"] = len(bars_in)
+        meta["ok"] = bool(bars_in)
+        meta["reason"] = "无枢纽分档；回退交易宇宙等权"
+        return bars_in, meta
+
+    a_codes = sorted(tier_code_set(tier_rep, ["A"]))
+    meta["n_a"] = len(a_codes)
+    meta["source"] = "predictability_tier_a"
+    meta["label"] = DEFAULT_POOL_BENCH_LABEL
+    if not a_codes:
+        meta["reason"] = "分档无 A；回退交易宇宙等权"
+        meta["label"] = "观察池等权"
+        meta["n_used"] = len(bars_in)
+        meta["ok"] = bool(bars_in)
+        return bars_in, meta
+
+    out: Dict[str, List[dict]] = {
+        c: bars_in[c] for c in a_codes if c in bars_in and bars_in.get(c)
+    }
+    missing = [c for c in a_codes if c not in out]
+    if missing and load_missing:
+        try:
+            from core.research.portfolio_bars import load_portfolio_stock_bars
+
+            extra, _fail, _fund = load_portfolio_stock_bars(
+                missing,
+                lookback=max(5, int(lookback or 10)),
+                fetch_fundamentals=False,
+            )
+            for c, bars in (extra or {}).items():
+                if bars:
+                    out[c] = bars
+            meta["loaded_extra"] = sum(1 for c in missing if c in out)
+        except Exception:  # noqa: BLE001
+            logger.debug("load missing A-tier bars failed", exc_info=True)
+
+    if not out:
+        meta["reason"] = "A 档无日线；回退交易宇宙等权"
+        meta["label"] = "观察池等权"
+        meta["n_used"] = len(bars_in)
+        meta["ok"] = bool(bars_in)
+        return bars_in, meta
+
+    meta["ok"] = True
+    meta["n_used"] = len(out)
+    meta["missing"] = [c for c in a_codes if c not in out]
+    return out, meta
+
+
+def _fetch_index_bars_bounded(
+    code: str,
+    *,
+    limit: int = 120,
+    timeout_sec: float = 15.0,
+) -> List[dict]:
+    """带超时拉指数日线；超时/失败返回 []，回退观察池等权（避免挂死在「挂基准…」）。
+
+    不用 ``ThreadPoolExecutor``：``shutdown(wait=True)`` 会在超时后继续等 worker。
+    """
+    import threading
+
+    try:
+        from core.data.facade import get_index_bars
+    except Exception:  # noqa: BLE001 — best-effort 降级
+        logger.debug("get_index_bars import failed", exc_info=True)
+        return []
+
+    box: Dict[str, Any] = {"raw": None, "err": None}
+    done = threading.Event()
+
+    def _worker() -> None:
+        try:
+            box["raw"] = get_index_bars(str(code or "").strip(), limit=int(limit))
+        except Exception as exc:  # noqa: BLE001
+            box["err"] = exc
+            logger.debug("index bars fetch error: %s", exc, exc_info=True)
+        finally:
+            done.set()
+
+    t = threading.Thread(
+        target=_worker, daemon=True, name=f"topk-bench-index-{str(code)[:12]}"
+    )
+    t.start()
+    if not done.wait(timeout=max(1.0, float(timeout_sec))):
+        logger.warning(
+            "index bars timeout after %.0fs code=%s · fallback pool EW",
+            float(timeout_sec),
+            code,
+        )
+        return []
+    if box["err"] is not None:
+        return []
+    raw = box["raw"]
+    if isinstance(raw, dict):
+        return list(raw.get("bars") or [])
+    if isinstance(raw, tuple):
+        return list(raw[0] or [])
+    if isinstance(raw, list):
+        return list(raw)
+    return []
 
 
 def _period_return_from_bars(bars: List[dict]) -> Optional[float]:
@@ -191,8 +331,9 @@ def build_topk_benchmark_summary(
     index_code: str = "000300",
     lookback: int = 120,
     force_pool: bool = False,
+    pool_label: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """相对基准：index_code=pool 或 force_pool → 观察池等权；否则优先指数，失败回退池等权。"""
+    """相对基准：index_code=pool / tier_a → 池等权（默认标签观察池A档等权）；否则优先指数。"""
     strat = ((result.get("metrics") or {}).get("total_return_pct"))
     params = result.get("params") or {}
     req = result.get("request") or {}
@@ -201,9 +342,13 @@ def build_topk_benchmark_summary(
     strat_dates = [str(p.get("date")) for p in strat_curve if p.get("date")]
 
     code = str(index_code or "000300").strip()
-    if code.lower() in ("pool", "pool_ew", "ew", "universe"):
+    if code.lower() in POOL_BENCH_ALIASES:
         force_pool = True
         code = "000300"
+
+    pool_lbl = str(pool_label).strip() if pool_label is not None else ""
+    if not pool_lbl:
+        pool_lbl = "观察池等权"
 
     out: Dict[str, Any] = {
         "ok": False,
@@ -226,18 +371,13 @@ def build_topk_benchmark_summary(
     index_bars: List[dict] = []
     if not force_pool:
         try:
-            from core.data.facade import get_index_bars
-
-            raw = get_index_bars(code, limit=max(40, int(lookback) + 20))
-            if isinstance(raw, dict):
-                index_bars = list(raw.get("bars") or [])
-            elif isinstance(raw, tuple):
-                index_bars = list(raw[0] or [])
-            elif isinstance(raw, list):
-                index_bars = raw
+            index_bars = _fetch_index_bars_bounded(
+                code, limit=max(40, int(lookback) + 20), timeout_sec=15.0
+            )
         except Exception as e:
-            logger.exception('unexpected error in build_topk_benchmark_summary')
+            logger.exception("unexpected error in build_topk_benchmark_summary")
             out["index_error"] = str(e)
+            index_bars = []
 
     bench_ret: Optional[float] = None
     bench_curve: List[dict] = []
@@ -260,15 +400,15 @@ def build_topk_benchmark_summary(
         if pool_bh is not None:
             bench_ret = pool_bh
             bench_curve = pool_curve
-            label = "观察池等权"
+            label = pool_lbl
             if force_pool:
                 note = (
-                    "基准=观察池（回测宇宙）各票测试窗买持收益等权平均；"
-                    "超额 = 策略累计 − 池等权。"
+                    f"基准={label}各票测试窗买持收益等权平均；"
+                    "超额 = 策略累计 − 该基准。"
                 )
             else:
                 note = (
-                    f"指数 {code} 不可用或无法对齐，回退为观察池等权；"
+                    f"指数 {code} 不可用或无法对齐，回退为 {label}；"
                     "超额 = 策略 − 池等权（非指数）。"
                 )
 

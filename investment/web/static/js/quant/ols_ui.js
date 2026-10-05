@@ -1,5 +1,5 @@
 /**
- * OLS 提示（分组路径已退役）。
+ * OLS 提示辅助（分组健康矩阵已退役，健康条留空）。
  */
 import { escapeHtml } from "../shared.js";
 
@@ -46,7 +46,7 @@ export function createOlsUi(deps) {
   }
 
   function buildClusterHealthHtml() {
-    return `<p class="sub quant-ols-health" id="quant-ols-health-note">分组已退役（cluster_retired）· 请用全局 ŷ_oo</p>`;
+    return "";
   }
 
   return {

@@ -15,7 +15,6 @@ from core.paths import (
     RETURN_SCORE_MODEL_RESEARCH_PATH,
 )
 from core.signal.return_score import ReturnScoreModel, clamp_rank_mode
-from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -389,14 +388,15 @@ def fit_watching_return_model(
         predict_oo_matrix,
     )
     from core.research.portfolio_bars import load_portfolio_stock_bars
-    from core.watching.store import read_watching
+    from core.research_universe import resolve_model_fit_codes
+    from core.watching.store import MODEL_FIT_MAX_SIZE
 
     if codes:
-        use_codes = [str(c).strip() for c in codes if str(c).strip()]
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit, codes=codes)
     else:
-        uni = read_watching()
-        use_codes = list(uni.get("watchlist") or [])
-    limit = max(3, min(int(watching_limit or 12), int(WATCHING_MAX_SIZE)))
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+    use_codes = list(resolved.get("codes") or [])
+    limit = max(3, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
     use_codes = use_codes[:limit]
     if len(use_codes) < 2:
         return {"success": False, "error": "标的不足 2 只"}

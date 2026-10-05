@@ -451,19 +451,44 @@ class QuantReplayMixin:
         if include_benchmark and result.get("success"):
             _emit("挂基准…")
             try:
-                from core.backtest.topk_benchmark import build_topk_benchmark_summary
+                from core.backtest.topk_benchmark import (
+                    POOL_BENCH_ALIASES,
+                    build_topk_benchmark_summary,
+                    resolve_tier_a_benchmark_bars,
+                )
                 from core.research.bt_excess_attach import attach_benchmark_excess
 
                 bench_code = str(benchmark_code or "pool").strip() or "pool"
+                bench_bars = stock_bars
+                pool_label = None
+                if bench_code.lower() in POOL_BENCH_ALIASES:
+                    _emit("挂基准（观察池A档等权）…")
+                    bench_bars, bench_meta = resolve_tier_a_benchmark_bars(
+                        stock_bars,
+                        lookback=int(effective_lookback or lookback),
+                        load_missing=True,
+                    )
+                    pool_label = str(
+                        (bench_meta or {}).get("label") or "观察池A档等权"
+                    )
+                    result["benchmark_universe"] = {
+                        "source": (bench_meta or {}).get("source"),
+                        "n_a": (bench_meta or {}).get("n_a"),
+                        "n_used": (bench_meta or {}).get("n_used"),
+                        "loaded_extra": (bench_meta or {}).get("loaded_extra"),
+                        "label": pool_label,
+                        "reason": (bench_meta or {}).get("reason"),
+                    }
                 result["benchmark"] = build_topk_benchmark_summary(
                     result,
-                    stock_bars,
+                    bench_bars,
                     lookback=lookback,
                     index_code=bench_code,
+                    pool_label=pool_label,
                 )
                 result = attach_benchmark_excess(
                     result,
-                    stock_bars,
+                    bench_bars,
                     index_code=bench_code,
                     lookback=lookback,
                 )

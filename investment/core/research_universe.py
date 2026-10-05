@@ -1,7 +1,8 @@
 """研究宇宙：日线截面研究用宽名单；与观察池（分钟暖仓 / live）分离。
 
-- 观察池 ``watching``：≤300，分钟暖仓、ŷ_τ* 拟合、live 打分
-- 研究宇宙 ``research_universe``：可更大，仅日线研究（Ridge / LambdaRank / Alpha158 OOS）
+- 观察池 ``watching``：≤WATCHING_MAX_SIZE（默认 500），分钟暖仓、live 打分、ŷ_* 拟合（实际只数=观察池）
+- 模型拟合上限 ``MODEL_FIT_MAX_SIZE``（默认 1000）：请求钳制，不从研究宇宙垫票
+- 研究宇宙 ``research_universe``：可更大，仅日线研究（LambdaRank / Alpha158 OOS 等）
   非空时日线研究优先用本名单；空则回退观察池。
 """
 
@@ -17,7 +18,7 @@ from core.paths import DATA_DIR
 logger = logging.getLogger(__name__)
 
 RESEARCH_UNIVERSE_PATH = os.path.join(DATA_DIR, "research_universe.json")
-# 日线研究上限；远大于观察池 300，但仍防失控
+# 日线研究上限；远大于观察池，但仍防失控
 RESEARCH_UNIVERSE_MAX_SIZE = 2000
 
 
@@ -98,7 +99,7 @@ def resolve_research_codes(
 ) -> Dict[str, Any]:
     """解析日线研究用股票列表。
 
-    优先 ``research_universe.codes``；空且 ``fallback_watching`` 时用观察池（钳制≤300）。
+    优先 ``research_universe.codes``；空且 ``fallback_watching`` 时用观察池（钳制≤WATCHING_MAX_SIZE）。
     永不驱动分钟暖仓。
     """
     from core.watching.store import WATCHING_MAX_SIZE
@@ -149,8 +150,58 @@ def resolve_research_codes(
         "note": (
             "日线研究宇宙；分钟暖仓请用观察池"
             if source == "research_universe"
-            else "研究宇宙为空，已回退观察池（≤300）"
+            else f"研究宇宙为空，已回退观察池（≤{WATCHING_MAX_SIZE}）"
         ),
+    }
+
+
+def resolve_model_fit_codes(
+    *,
+    watching_limit: Optional[int] = None,
+    codes: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """ŷ_* 拟合用股票列表：显式 codes，否则观察池（不垫 research_universe）。
+
+    上限 ``MODEL_FIT_MAX_SIZE``；实际只数 = min(请求, 上限, 观察池长度)。
+    """
+    from core.watching.store import MODEL_FIT_MAX_SIZE
+
+    try:
+        lim = int(watching_limit) if watching_limit is not None else int(MODEL_FIT_MAX_SIZE)
+    except (TypeError, ValueError):
+        lim = int(MODEL_FIT_MAX_SIZE)
+    lim = max(3, min(lim, int(MODEL_FIT_MAX_SIZE)))
+
+    if codes is not None:
+        seen: set = set()
+        out: List[str] = []
+        for c in codes:
+            s = str(c).strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
+        out = out[:lim]
+        return {
+            "ok": True,
+            "codes": out,
+            "count": len(out),
+            "source": "explicit",
+            "cap": lim,
+            "minute_warmup": False,
+            "note": "显式 codes 拟合宇宙",
+        }
+
+    pool = _watching_codes()
+    out = pool[:lim]
+    return {
+        "ok": True,
+        "codes": out,
+        "count": len(out),
+        "source": "watching",
+        "cap": lim,
+        "minute_warmup": False,
+        "note": f"观察池拟合宇宙（≤{lim}）",
     }
 
 

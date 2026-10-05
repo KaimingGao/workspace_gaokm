@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from core.watching.store import WATCHING_MAX_SIZE
+from core.watching.store import MODEL_FIT_MAX_SIZE
 
 class CrossSectionRequest(BaseModel):
     codes: Optional[list] = None
@@ -52,10 +52,10 @@ class TauRidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -88,6 +88,10 @@ class TauRidgeRequest(BaseModel):
         default=True,
         description="Ridge 吃 raw_alpha158_*（≤T−1）；与 ŷ_oo 日线 X 可能重叠",
     )
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tau-ridge",
+    )
 
 
 class OoTreeRequest(BaseModel):
@@ -95,10 +99,10 @@ class OoTreeRequest(BaseModel):
 
     lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
     )
     horizon_days: int = Field(default=1, ge=1, le=10)
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
@@ -124,10 +128,10 @@ class CoTreeRequest(BaseModel):
 
     lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -154,10 +158,10 @@ class TauTreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -189,10 +193,10 @@ class T30TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -220,10 +224,10 @@ class T45TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -251,10 +255,10 @@ class T60TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -282,10 +286,10 @@ class T75TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -313,10 +317,10 @@ class T90TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -344,10 +348,10 @@ class CoRidgeRequest(BaseModel):
 
     lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -383,7 +387,7 @@ class OoRankRequest(BaseModel):
         le=2000,
         description=(
             f"日线研究截断：优先 research_universe（可至 2000）；"
-            f"宇宙为空时回退观察池（实际仍≤{WATCHING_MAX_SIZE}）。不进分钟暖仓。"
+            f"宇宙为空时回退观察池（实际仍≤{MODEL_FIT_MAX_SIZE}）。不进分钟暖仓。"
         ),
     )
     holdout_trading_days: int = Field(
@@ -433,10 +437,10 @@ class T30RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -475,10 +479,10 @@ class T45RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -517,10 +521,10 @@ class T60RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -559,10 +563,10 @@ class T75RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -602,9 +606,9 @@ class FactorOlsClusterRequest(BaseModel):
     lookback: int = Field(default=80, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=3,
-        le=WATCHING_MAX_SIZE,
+        le=MODEL_FIT_MAX_SIZE,
     )
     select_ridge: bool = Field(
         default=True,
@@ -628,7 +632,7 @@ class BarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
     lookback: int = Field(default=600, ge=40, le=700)
-    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
+    watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     mode: str = Field(
         default="topup",
         description="topup=增量补齐到最新（短仓整窗重拉）；full=整窗强更（仓坏/复权兜底）",
@@ -644,7 +648,7 @@ class MinuteRefreshRequest(BaseModel):
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
     lookback_days: int = Field(default=120, ge=5, le=120)
-    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
+    watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     min_span_days: int = Field(default=40, ge=10, le=120)
     mode: str = Field(
         default="full",
@@ -667,10 +671,10 @@ class T90RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
+        default=MODEL_FIT_MAX_SIZE,
         ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -732,7 +736,7 @@ class ReturnModelFitRequest(BaseModel):
     codes: Optional[list] = None
     lookback: int = Field(default=600, ge=40, le=700)
     horizon_days: int = Field(default=1, ge=1, le=10)
-    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
+    watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     min_samples: int = Field(default=24, ge=8, le=500)
     save_draft: bool = True

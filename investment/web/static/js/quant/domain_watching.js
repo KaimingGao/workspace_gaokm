@@ -2,6 +2,7 @@ import { apiFetch } from "../api_client.js";
 import { getDataOfflineOnly, installDataOfflineToggle, offlineOnlyQuery } from "../data_offline.js";
 import { scoresPolicyLine } from "../data_policy.js";
 import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
+import { BARS_WATCHING_LIMIT } from "./params.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js";
@@ -97,7 +98,7 @@ export function installWatching(q) {
     try {
       return await ensureWarehouseTopup({
         force,
-        watchingLimit: 300,
+        watchingLimit: BARS_WATCHING_LIMIT,
         onStatus: (msg) =>
           setWatchingRefreshStatus(msg || "增量补齐本地仓…", {
             busy: true,

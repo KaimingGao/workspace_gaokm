@@ -6,7 +6,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.research.task import records_experiment
-from core.watching.store import WATCHING_MAX_SIZE
+from core.watching.store import MODEL_FIT_MAX_SIZE, WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ def _start_ridge_fit_job(
     kind: str,
     message: str,
     worker_fn: Any,
-    watching_limit: int = WATCHING_MAX_SIZE,
+    watching_limit: int = MODEL_FIT_MAX_SIZE,
 ) -> Dict[str, Any]:
     """Ridge 拟合入队：立刻返回 ``background=true``，心跳防 5min 误杀。"""
     import threading
@@ -683,7 +683,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -715,15 +715,13 @@ class QuantFactorMixin:
             tau_promote_gate,
         )
 
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
+        from core.research_universe import resolve_model_fit_codes
+        from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        codes = list(resolved.get("codes") or [])
+        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
+        codes = codes[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -806,7 +804,7 @@ class QuantFactorMixin:
             include_alpha158=bool(include_alpha158),
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
+        report["watching_pool_size"] = len(codes)
         report["lookback"] = lookback
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
@@ -835,6 +833,45 @@ class QuantFactorMixin:
             report, tau_model_path(), live_present=bool(load_tau_model())
         )
         return report
+
+    def start_tau_ridge_job(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        note: str = "",
+        persist_role: str = "live",
+        holdout_trading_days: int = 20,
+        tau_hm: Optional[str] = None,
+        include_alpha158: bool = True,
+        **_ignored: Any,
+    ) -> Dict[str, Any]:
+        """后台 ŷ_τc 拟合；轮询 ``GET /api/jobs/tau-ridge``。不写盘。"""
+        from core.job_progress import tau_ridge_job
+
+        kwargs = dict(
+            lookback=lookback,
+            watching_limit=watching_limit,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+            persist=False,
+            note=note or "",
+            persist_role=persist_role,
+            holdout_trading_days=holdout_trading_days,
+            tau_hm=tau_hm,
+            include_alpha158=bool(include_alpha158),
+        )
+        return _start_ridge_fit_job(
+            slot=tau_ridge_job,
+            kind="tau_ridge",
+            message="ŷ_τc 拟合中…",
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
+            worker_fn=lambda: self.run_tau_ridge_experiment(**kwargs),
+        )
 
     def get_tau_ridge_model(self) -> Dict[str, Any]:
         from core.research.tc_ridge import (
@@ -915,7 +952,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 600,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         horizon_days: int = 1,
         ridge_lambda: float = 1.0,
         holdout_trading_days: int = 20,
@@ -934,15 +971,13 @@ class QuantFactorMixin:
         )
         from core.research.return_tree import finish_return_tree_persist
 
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
+        from core.research_universe import resolve_model_fit_codes
+        from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        codes = list(resolved.get("codes") or [])
+        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
+        codes = codes[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -1022,7 +1057,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 600,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -1045,15 +1080,13 @@ class QuantFactorMixin:
         )
         from core.research.return_tree import finish_return_tree_persist
 
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
+        from core.research_universe import resolve_model_fit_codes
+        from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        codes = list(resolved.get("codes") or [])
+        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
+        codes = codes[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -1095,7 +1128,7 @@ class QuantFactorMixin:
             timing["total_s"] = round(float(total_s), 2)
             report["timing"] = timing
             report["watching_limit"] = limit
-            report["watching_pool_size"] = len(pool)
+            report["watching_pool_size"] = len(codes)
             report["lookback"] = lookback
             report["live_hook"] = False
             if report.get("success"):
@@ -1138,7 +1171,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -1163,15 +1196,13 @@ class QuantFactorMixin:
         )
         from core.research.return_tree import finish_return_tree_persist
 
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
+        from core.research_universe import resolve_model_fit_codes
+        from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        codes = list(resolved.get("codes") or [])
+        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
+        codes = codes[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -1242,7 +1273,7 @@ class QuantFactorMixin:
             include_alpha158=bool(include_alpha158),
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
+        report["watching_pool_size"] = len(codes)
         report["lookback"] = lookback
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
@@ -1295,7 +1326,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 600,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -1320,15 +1351,13 @@ class QuantFactorMixin:
             save_co_last_report,
         )
 
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
+        from core.research_universe import resolve_model_fit_codes
+        from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        codes = list(resolved.get("codes") or [])
+        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
+        codes = codes[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -1369,7 +1398,7 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
+        report["watching_pool_size"] = len(codes)
         report["lookback"] = lookback
         if report.get("success"):
             save_co_last_report(report)
@@ -1390,7 +1419,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 600,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -1462,7 +1491,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         holdout_trading_days: int = 20,
         feature_mode: str = "raw",
         pair_preset: str = "wide",
@@ -1608,7 +1637,7 @@ class QuantFactorMixin:
         horizon: str,
         *,
         lookback: int = 120,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -1634,15 +1663,13 @@ class QuantFactorMixin:
         hn = horizon[1:]
         task = f"{horizon}_ridge"
 
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
+        from core.research_universe import resolve_model_fit_codes
+        from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        codes = list(resolved.get("codes") or [])
+        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
+        codes = codes[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -1713,7 +1740,7 @@ class QuantFactorMixin:
                 "task": task,
                 "minute_period": period,
                 "watching_limit": limit,
-                "watching_pool_size": len(pool),
+                "watching_pool_size": len(codes),
                 "minute_cache_only": True,
                 "minute_codes_miss": minute_codes_miss,
             }
@@ -1726,7 +1753,7 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
+        report["watching_pool_size"] = len(codes)
         report["lookback"] = lookback
         report["minute_period"] = period
         report["minute_codes_hit"] = minute_hit
@@ -1810,7 +1837,7 @@ class QuantFactorMixin:
         horizon: str,
         *,
         lookback: int = 120,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -1898,7 +1925,7 @@ class QuantFactorMixin:
         horizon: str,
         *,
         lookback: int = 120,
-        watching_limit: int = WATCHING_MAX_SIZE,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -1922,15 +1949,13 @@ class QuantFactorMixin:
         task = f"{horizon}_tree"
         head = f"y_{horizon}_tree"
 
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
+        from core.research_universe import resolve_model_fit_codes
+        from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        codes = list(resolved.get("codes") or [])
+        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
+        codes = codes[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -1992,7 +2017,7 @@ class QuantFactorMixin:
                 "head": head,
                 "minute_period": period,
                 "watching_limit": limit,
-                "watching_pool_size": len(pool),
+                "watching_pool_size": len(codes),
                 "minute_cache_only": True,
                 "minute_codes_miss": minute_codes_miss,
                 "live_hook": False,
@@ -2010,7 +2035,7 @@ class QuantFactorMixin:
             backend=backend,
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
+        report["watching_pool_size"] = len(codes)
         report["lookback"] = lookback
         report["minute_period"] = period
         report["minute_codes_hit"] = minute_hit

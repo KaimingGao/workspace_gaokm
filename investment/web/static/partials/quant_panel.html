@@ -395,7 +395,7 @@
         <div hidden aria-hidden="true">
           <input type="hidden" id="quant-horizon" value="1" />
           <input type="hidden" id="quant-ridge-lambda" value="1.0" />
-          <input type="hidden" id="quant-watching-limit" value="300" />
+          <input type="hidden" id="quant-watching-limit" value="1000" />
           <button type="button" id="quant-horizon-save-default" tabindex="-1">存为默认</button>
           <div id="quant-factor-list" class="quant-weight-table-wrap"></div>
           <div id="quant-weight-suggest" class="quant-sub"></div>
@@ -929,7 +929,8 @@
               </p>
               <p>
                 <strong>宇宙</strong>：日线优先 <code>research_universe.json</code>（可宽于观察池，≤2000）；
-                空则回退观察池。分钟暖仓 / live 仍只读观察池（≤300），勿把宽名单塞进 watching。
+                空则回退观察池。分钟暖仓 / live 仍只读观察池（≤500），勿把宽名单塞进 watching。
+                模型拟合默认可吃研究宇宙至 1000。
               </p>
             </div>
           </details>
