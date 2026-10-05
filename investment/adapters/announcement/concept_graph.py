@@ -8,17 +8,14 @@ from typing import Any, Dict, List, Optional, Set
 from core.concept_graph_store import (
     DEFAULT_CONCEPT_HINTS,
     _norm_code,
-    stock_in_penalty_concepts,
 )
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "DEFAULT_CONCEPT_HINTS",
     "build_code_concept_index",
     "enrich_regulatory_with_concepts",
     "fetch_concept_members",
-    "stock_in_penalty_concepts",
 ]
 
 
@@ -27,7 +24,7 @@ def fetch_concept_members(concept: str, *, limit: int = 300) -> List[str]:
     name = str(concept or "").strip()
     if not name:
         return []
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "stock_board_concept_cons_em", None)

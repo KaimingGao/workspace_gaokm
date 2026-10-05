@@ -286,7 +286,7 @@ flowchart TB
 | 单测 | `python3 -m unittest discover -s tests -v` |
 | 黄金路径 | `evals/run_checklist.py`（`--mock --presets` 与 CI 同款） |
 | 本地 CI | `scripts/ci_quant.sh` |
-| 日更 | `scripts/daily_*.sh` + cron / macOS launchd（[quant-ops](quant.md#量化运维)） |
+| 日更 | `scripts/daily_*.sh` + cron / macOS launchd（[quant.md · 运维](quant.md#量化运维)） |
 
 安装与环境变量见 [development.md · 快速上手](development.md#快速上手)；扩展 Skill / 限制见 [development.md](development.md)。
 
@@ -298,7 +298,7 @@ flowchart TB
 强化学习视角（Policy/Reward ↔ 策略/风控；**未实现**在线 RL）见 **[architecture.md · RL 视角](architecture.md#强化学习rl视角)**。  
 舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[architecture.md · 舆情层](architecture.md#舆情层)**。
 
-**P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。历史 P 记录见 [quant-upgrade.md](archive/quant-upgrade.md)（归档）。
+**P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。历史 P 总览见 [quant-summary.md](archive/quant-summary.md)。
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
@@ -833,59 +833,7 @@ SKILL_SPECS = (
 | `adapters/market/` | 跨工具行情 / 日线 I/O |
 | `data/*.json` | 持仓、纸面、规则配置 |
 
-### prompts.py 的用途
-
-文件：[`agent/prompts.py`](../agent/prompts.py)。  
-它**不取数、不算规则**，只定义「AI 如何服务量化工作流」——属于认知层的**行为说明书**。真正选哪个 Skill 仍由 LLM + `tool_config.json` 完成；`prompts` 负责约束角色、偏好路由、回复结构和合规红线。
-
-#### 在链路中的位置
-
-```text
-InvestmentAgent 启动
-  → messages = [{ role: system, content: SYSTEM_PROMPT }]   ← prompts 注入
-  → 用户问题 / tool 结果不断 append
-  → 每轮 llm.chat(messages, tools=...)
-  → 最终回复若缺免责声明 → Agent 用 DISCLAIMER 兜底追加
-```
-
-`reset` 会清空对话，但**保留**这条 `system`（再次使用同一 `SYSTEM_PROMPT`）。
-
-#### 导出内容
-
-| 符号 | 用途 | 是否已被 Agent 使用 |
-|------|------|---------------------|
-| `SYSTEM_PROMPT` | 主系统提示：身份、工具清单、路由规则、输出结构、买入类问题必答节、拒答边界 | **是**（`messages[0]`） |
-| `DISCLAIMER` | 「以上为量化研究与模拟结论，市场有风险，不保证收益，不代客下单。」 | **是**（`_ensure_disclaimer` 兜底；也写在 SYSTEM_PROMPT 里） |
-| `ANALYSIS_HINT` | 解读类补充提示（事实→观察→风险） | 已定义，当前 Agent **未自动注入**（预留） |
-| `SHORT_HORIZON_HINT` | 短线 1～3 天用语约束 | 已定义，当前 Agent **未自动注入**（预留） |
-
-#### SYSTEM_PROMPT 解决什么问题
-
-| 块 | 作用 |
-|----|------|
-| 角色定位 | **量化助手**：解释信号/策略结论与回测模拟结果，非持牌投顾 |
-| 可用工具列表 | 与 `registry` 中 10 个 Skill 对齐的自然语言说明，辅助选工具 |
-| 路由规则 | 软引导（如持仓→`position`；「是否可以买入」→至少 `quote+kline+signal`），**不是**代码 if/else |
-| 输出要求 | 数字须来自工具；高信息密度；建议须与事实一致 |
-| 「是否可以买入」必答节 | 「策略结论：是否买入」：规则结论 + 依据 + 失效条件 |
-| 拒答边界 | 保证收益、代客下单、内幕/违法等 |
-
-扩写策略时优先改 `SYSTEM_PROMPT` 的「信息密度」与路由，而不是加长客套话。
-
-#### 与 `tool_config.json` 的分工
-
-| | `prompts.py` | `tool_config.json` |
-|--|--------------|---------------------|
-| 粒度 | 全局行为（整次对话） | 单个工具的说明书（name/description/parameters） |
-| 影响 | 怎么答、答到什么程度、合规 | 什么时候适合调这个工具、参数怎么填 |
-| 修改时机 | 改话术策略、路由偏好、合规 | 新增/调整某个 Skill 的对外描述 |
-
-扩 Skill 时：除注册 `registry` 外，通常还要在 `SYSTEM_PROMPT` 的「可用工具 / 路由规则」里补一行，否则模型可能不知道新工具的使用场景。
-
-#### 和代码兜底的关系
-
-- **模型侧**：`SYSTEM_PROMPT` 要求结尾自带免责声明、禁止荐股口吻。  
-- **代码侧**：`InvestmentAgent._ensure_disclaimer` 在命中投资相关关键词且回复缺少 `DISCLAIMER` 时**强制追加**——双保险，不依赖模型每次都记得写。
+`prompts.py` 的角色、导出内容与 `tool_config.json` 分工见 [development.md · prompts 说明](development.md#promptspy-说明)。
 
 ### LLM 与配置
 
@@ -923,172 +871,6 @@ InvestmentAgent 启动
 
 ---
 
----
----
-
-## 系统架构图与模块全景（Mermaid）
-
-[← 文档索引](README.md) · 产品主轴见 [design-spine.md](design-spine.md) · 命名约定见 [§ Service 命名约定](#service-命名约定) · 目录树见 [§ 代码目录结构](#代码目录结构)
-
-**版本**：2026-08-22  
-**定位**：本地 **策略验证** 单体（量化研究 + 模拟账本 + AI 编排）；不接实盘 OMS。
-
----
-
-## 1. 系统定位
-
-| 做 | 不做 |
-|----|------|
-| 观察名单、历史回测、纸面模拟买卖与调仓 | 真实券商下单、代客交易 |
-| 用真实行情做研究与盯市 | 保证收益、持牌投顾 |
-| AI 编排与解释（不改数字） | 微服务 / Redis / 全站 SPA |
-
-**产品主路径**：观察 → 模拟（纸面）→ 回溯（研究台）。对外称「模拟」，内部 canonical 名 `paper`。
-
-**因果主轴**（业务）：
-
-```text
-已发生事实 → 清洗门禁 → Alpha/Risk 估计 → 验证（回测·纸面）→ 动作 → 人审 promote
-```
-
-**工程主轴**（实现）：
-
-```text
-接入 → Application Service → Domain Facade（DS/SS/BS）→ core → 存储 / 外部源
-旁路：Agent → Skills → 同上门面（LLM 只解释，不改 score/stance）
-```
-
----
-
-## 2. 架构图
-
-### 2.1 业务逻辑框架
-
-```mermaid
-flowchart TB
-  subgraph facts [已发生事实]
-    F1[价量 K 线]
-    F2[财务 · 资讯]
-    F3[账本 · 配置]
-  end
-
-  subgraph gate [清洗门禁]
-    G[quality · PIT · adjust]
-  end
-
-  subgraph estimate [影响估计]
-    A[Alpha · 因子 → ŷ · stance]
-    R[Risk · 限额 · 预算]
-  end
-
-  subgraph verify [验证]
-    V[回测 · OOS · 纸面五问]
-  end
-
-  subgraph act [动作]
-    W[观察 · 建仓 · 调仓]
-  end
-
-  subgraph ai [AI 旁路]
-    AI[编排 · 解释 · 不改数字]
-  end
-
-  P[人审 promote]
-
-  facts --> gate
-  gate --> A
-  gate --> R
-  A --> V
-  R --> V
-  V --> W
-  AI -.-> W
-  W --> P
-  P -.-> A
-```
-
-### 2.2 系统工程分层
-
-```mermaid
-flowchart TB
-  subgraph access [接入层]
-    WEB[web/app.py · routers]
-    CLI[main.py · run_web.py]
-    JS[paper.js · quant.js · dashboard.js]
-  end
-
-  subgraph app [Application Service]
-    SVC[services/*<br/>Paper · Watching · Chat · Platform]
-    QS[quant/services<br/>QuantService]
-  end
-
-  subgraph bypass [旁路]
-    AG[agent/]
-    SK[skills/*/handler]
-  end
-
-  subgraph facade [Domain Facade]
-    DS[DS · data_service]
-    SS[SS · signal_service]
-    BS[BS · backtest_service]
-  end
-
-  subgraph domain [领域 core]
-    CORE[signal · backtest · paper* · risk · store]
-  end
-
-  subgraph infra [底座]
-    DB[(bars.db · JSON)]
-    EXT[腾讯 · AkShare]
-    JOB[job_progress]
-  end
-
-  access --> SVC
-  access --> QS
-  access --> AG
-  JS --> SVC
-  JS --> QS
-  AG --> SK
-  SK --> QS
-  SK --> DS
-  SVC --> DS
-  SVC --> SS
-  QS --> DS
-  QS --> SS
-  QS --> BS
-  DS --> CORE
-  SS --> CORE
-  BS --> CORE
-  CORE --> DB
-  CORE --> EXT
-  JOB --> CORE
-```
-
-### 2.3 请求主路径
-
-```text
-① 纸面 / 观察
-   UI → /api/paper|watching → PaperService / WatchingService
-        → DS + SS + core.paper* → bars.db / paper.json
-
-② 量化研究台
-   UI → /api/quant/* → QuantService (Mixin)
-        → DS / SS / BS + quant/research → Job 轮询
-
-③ AI 对话
-   Chat → Agent (FC≤5) → Skill handler → DS/SS/BS/QS
-        → 自然语言解释（不改 score / stance_label）
-```
-
-### 2.4 两类 Service（命名）
-
-| 文档叫法 | 代码落点 | 职责 |
-|----------|----------|------|
-| **Application Service** | `services/*` · `QuantService` | 用例组装；Web/CLI API 边界 |
-| **Domain Facade** | `core/data/facade` · `signal_service` · `backtest_service` | DS 读 / SS 分 / BS 回测；单一领域出口 |
-
-详见 [§ Service 命名约定](#service-命名约定)。
-
----
 
 ## 3. 分层模块说明与代码组成
 
@@ -1402,75 +1184,6 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 
 ---
 
-## 5. 技术栈摘要
-
-| 层 | 选型 |
-|----|------|
-| 后端 | Python 3.10+ · FastAPI · Uvicorn |
-| 前端 | 原生 HTML/CSS/JS（ES modules）· Lightweight Charts |
-| AI | 通义千问（DashScope HTTP）· 自研 Agent + Skills |
-| 行情 | 腾讯 qt · AkShare · pandas |
-| 存储 | JSON 账本/配置 · SQLite WAL（bars 默认） |
-| 任务 | 进程内 Job 槽 + JSON 落盘；AkShare ProcessPool |
-
----
-
-## 6. 入口与验收
-
-| 入口 | 命令 / URL |
-|------|-------------|
-| Web | `python run_web.py` → `http://127.0.0.1:8000` |
-| CLI | `python main.py` |
-| 单元测试 | `cd investment && python3 -m unittest discover -s tests` |
-| 工程轨验收 | `python3 -m unittest tests.test_store tests.test_a2_job_runtime tests.test_a3_backtest_service` |
-
----
-
-## 7. 相关文档
-
-| 文档 | 内容 |
-|------|------|
-| [design-spine.md](design-spine.md) | 产品因果链、北极星、能力地图 |
-| [architecture.md](architecture.md) | 控制论视角、金字塔、技术栈详表 |
-| [architecture.md · 目录结构](architecture.md#代码目录结构) | 目录树与 Canonical 入口 |
-| [architecture.md · 数据层](architecture.md#数据层) | 存储选型与 DataService 契约 |
-| [quant.md](quant.md) | 量化因子、IC、OLS 细节 |
-| [quant-ui.md](quant-ui.md) | Web 主路径与 UI 契约 |
-| [architecture.md · 框架梳理](architecture.md) | 工程债与合理性分析 |
-| [architecture.md · A 轨升级](architecture.md) | 工程结构轨 A0–A4 |
-
----
-
-## 8. 架构图（ASCII 速查）
-
-```text
-                    ┌─────────────────────────────────────┐
-                    │  Web / CLI / WS（接入）              │
-                    └──────────────┬──────────────────────┘
-                                   │
-           ┌───────────────────────┼───────────────────────┐
-           ▼                       ▼                       ▼
-   ┌───────────────┐      ┌───────────────┐      ┌───────────────┐
-   │ services/*    │      │ QuantService  │      │ Agent+Skills  │
-   │ Application   │      │ Application   │      │ （旁路）       │
-   └───────┬───────┘      └───────┬───────┘      └───────┬───────┘
-           │                      │                      │
-           └──────────────────────┼──────────────────────┘
-                                  ▼
-                    ┌─────────────────────────────────────┐
-                    │  DS · SS · BS（Domain Facade）       │
-                    └──────────────┬──────────────────────┘
-                                   ▼
-                    ┌─────────────────────────────────────┐
-                    │  core（signal · backtest · paper · risk）│
-                    └──────────────┬──────────────────────┘
-                          ┌────────┴────────┐
-                          ▼                 ▼
-                   bars.db / JSON      腾讯 / AkShare
-```
-
----
-
 ## 代码目录结构
 
 [← 文档索引](README.md) · 完整架构说明见 [architecture.md](architecture.md)
@@ -1665,7 +1378,7 @@ flowchart LR
 |----|------|------|
 | **对外读口** | `core/ports/market.py` · `fetch_minute_bars` | 与日线 `get_bars` 并列；ports 由 `adapters.bind` 注入 |
 | **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 东财→新浪/腾讯（有数则跳过 BS）→BaoStock · merge · 落盘；`fetch_a_minute_bars_isolated` 子进程隔离 |
-| **东财（AkShare）** | `_fetch_em_minute_bars` | `ak.stock_zh_a_hist_min_em`；`adapters/market/ak_lock` 进程内串行 |
+| **东财（AkShare）** | `_fetch_em_minute_bars` | `ak.stock_zh_a_hist_min_em`；`core.data.ak_lock` 进程内串行 |
 | **新浪/腾讯** | `adapters/market/sina_tx_minute.py` | 近端；东财空时启用，有数则跳过 BaoStock |
 | **BaoStock** | `adapters/market/baostock_minute.py` | `query_history_k_data_plus`；子进程 + 超时 kill |
 | **本地仓** | `core/store.py` · `store_bars_sqlite.py` | `load/save/merge_minute_cache`；默认 SQLite `minute_bars` |
@@ -3207,44 +2920,22 @@ def migrate(store_dir):
 
 ## 子目录 README 索引
 
-各代码目录均有 `README.md` 说明职责与入口。Web 量化面板 **运维状态 → 浏览子目录 README** 可在线阅读；API：`GET /api/readme?dir=<路径>`。
+各代码目录的 `README.md` 说明职责与入口。Web 量化面板 **运维状态 → 浏览子目录 README** 可在线阅读；API：`GET /api/readme?dir=<路径>`。
 
 | 目录 | README |
 |------|--------|
 | `agent/` | [agent/README.md](../agent/README.md) |
 | `core/` | [core/README.md](../core/README.md) |
-| `core/backtest/` | [core/backtest/README.md](../core/backtest/README.md) |
-| `core/signal/` | [core/signal/README.md](../core/signal/README.md) |
-| `core/signal/factors/` | [core/signal/factors/README.md](../core/signal/factors/README.md) |
 | `data/` | [data/README.md](../data/README.md) |
 | `data/reports/` | [data/reports/README.md](../data/reports/README.md) |
-| `data/store/` | [data/store/README.md](../data/store/README.md) |
 | `docs/` | [docs/README.md](../docs/README.md) |
 | `evals/` | [evals/README.md](../evals/README.md) |
 | `quant/` | [quant/README.md](../quant/README.md) |
-| `quant/ops/` | [quant/ops/README.md](../quant/ops/README.md) |
-| `quant/research/` | [quant/research/README.md](../quant/research/README.md) |
 | `quant/services/` | [quant/services/README.md](../quant/services/README.md) |
-| `quant/skill/` | [quant/skill/README.md](../quant/skill/README.md) |
 | `research/` | [research/README.md](../research/README.md) |
 | `scripts/` | [scripts/README.md](../scripts/README.md) |
-| `scripts/launchd/` | [scripts/launchd/README.md](../scripts/launchd/README.md) |
 | `services/` | [services/README.md](../services/README.md) |
 | `skills/` | [skills/README.md](../skills/README.md) |
-| `skills/advise/` | [skills/advise/README.md](../skills/advise/README.md) |
-| `skills/backtest/` | [skills/backtest/README.md](../skills/backtest/README.md) |
 | `adapters/market/` | [adapters/market/README.md](../adapters/market/README.md) |
-| `skills/compare/` | [skills/compare/README.md](../skills/compare/README.md) |
-| `skills/fundamentals/` | [skills/fundamentals/README.md](../skills/fundamentals/README.md) |
-| `skills/index/` | [skills/index/README.md](../skills/index/README.md) |
-| `skills/kline/` | [skills/kline/README.md](../skills/kline/README.md) |
-| `skills/news/` | [skills/news/README.md](../skills/news/README.md) |
-| `skills/peer/` | [skills/peer/README.md](../skills/peer/README.md) |
-| `skills/position/` | [skills/position/README.md](../skills/position/README.md) |
-| `skills/quant/` | [skills/quant/README.md](../skills/quant/README.md) |
-| `skills/quote/` | [skills/quote/README.md](../skills/quote/README.md) |
-| `skills/screen/` | [skills/screen/README.md](../skills/screen/README.md) |
-| `skills/signal/` | [skills/signal/README.md](../skills/signal/README.md) |
 | `tests/` | [tests/README.md](../tests/README.md) |
 | `web/` | [web/README.md](../web/README.md) |
-| `web/static/` | [web/static/README.md](../web/static/README.md) |

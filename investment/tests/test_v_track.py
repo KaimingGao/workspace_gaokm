@@ -99,7 +99,7 @@ class TestV0SampleDiscipline(unittest.TestCase):
                 {"as_of": "2024-09-30", "roe": 12.0, "profit_growth": 1.2, "source": "akshare_financial_indicator"},
             ]
             with patch(
-                "skills.fundamentals.engine.fetch_cn_financial_series",
+                "adapters.fundamentals.engine.fetch_cn_financial_series",
                 return_value=series,
             ):
                 out = ingest_real_fundamentals_history(

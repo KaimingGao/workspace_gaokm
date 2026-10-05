@@ -1,5 +1,6 @@
 /**
- * 观察池分档：研究套 ŷ_oo · Holdout 前半 OOS 打档 → last；回测/live 复用档位。
+ * 观察池分档：研究套 ŷ_oo · Holdout 前半 OOS 打档 → last；
+ * live 档位跟随历史回测「分档」勾选（见 domain_backtest live-sync）。
  */
 export function installResearchUniverseUi(q) {
   const { on, apiFetch, escapeHtml, readHoldoutTradingDays, readFitLookbackDays } = q;
@@ -46,9 +47,9 @@ export function installResearchUniverseUi(q) {
   }
 
   function liveBit() {
-    if (!liveStatus || !liveStatus.enabled) return "未启用 live";
+    if (!liveStatus || !liveStatus.enabled) return "live 随回测（未开）";
     const allow = (liveStatus.allowed_tiers || ["A", "B"]).join("") || "AB";
-    return `live ${allow}`;
+    return `live 随回测 ${allow}`;
   }
 
   function fmtHit(v) {
@@ -273,63 +274,9 @@ export function installResearchUniverseUi(q) {
     return data;
   }
 
-  async function promoteLive() {
-    if (
-      !window.confirm(
-        "启用 live？将复用当前研究套 ŷ_oo Holdout 前半分档；调仓新开只留 A+B（持仓保留）。"
-      )
-    ) {
-      return;
-    }
-    setStatus("busy", "启用", "写入 live active…");
-    const { ok, data, error } = await apiFetch(
-      "/api/quant/research-universe/predictability-tiers/promote",
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }
-    );
-    if (!ok || !data || data.ok === false) {
-      setStatus(
-        "error",
-        "失败",
-        String(error || data?.detail || data?.error || "启用失败")
-      );
-      return;
-    }
-    applyLive(data.live || { enabled: true, allowed_tiers: ["A", "B"] });
-    if (lastTiers) applyTiers(lastTiers);
-    else setStatus("ok", "live", liveBit());
-  }
-
-  async function demoteLive() {
-    if (!window.confirm("关闭 live 分档闸？调仓将不再按档过滤。")) return;
-    setStatus("busy", "关闭", "清除 live active…");
-    const { ok, data, error } = await apiFetch(
-      "/api/quant/research-universe/predictability-tiers/demote",
-      { method: "POST" }
-    );
-    if (!ok || !data || data.ok === false) {
-      setStatus(
-        "error",
-        "失败",
-        String(error || data?.detail || data?.error || "关闭失败")
-      );
-      return;
-    }
-    applyLive(data.live || { enabled: false });
-    if (lastTiers) applyTiers(lastTiers);
-    else setStatus("ok", "已关", "live 闸已关");
-  }
-
   on("quant-ru-tiers", "click", (e) => {
     e.preventDefault();
     void loadTiers({ useLast: false });
-  });
-  on("quant-ru-tiers-promote", "click", (e) => {
-    e.preventDefault();
-    void promoteLive();
-  });
-  on("quant-ru-tiers-demote", "click", (e) => {
-    e.preventDefault();
-    void demoteLive();
   });
 
   if (document.getElementById("quant-section-research-universe")) {

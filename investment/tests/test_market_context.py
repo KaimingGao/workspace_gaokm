@@ -14,7 +14,7 @@ from core.market.sentiment_prior import build_market_sentiment_prior
 from core.regulatory_prior import build_ipo_drain_prior, build_regulatory_prior
 from core.signal.factors.tail_anomaly import score_tail_anomaly
 from core.signal.regime import assess_regime
-from skills.announcement.engine import scan_regulatory_notices
+from adapters.announcement.engine import scan_regulatory_notices
 
 
 class TestMarketContext(unittest.TestCase):

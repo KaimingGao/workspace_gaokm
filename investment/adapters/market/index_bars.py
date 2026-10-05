@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
     """拉取指数日线。返回 (bars, label)。"""
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
 

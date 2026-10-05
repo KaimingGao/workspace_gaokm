@@ -241,7 +241,7 @@ def _save_disk_spot(rows: List[dict]) -> None:
 
 
 def _fetch_a_spot_live() -> List[dict]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
 

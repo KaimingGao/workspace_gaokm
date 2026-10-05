@@ -5,12 +5,10 @@ from __future__ import annotations
 import unittest
 
 from core.market.prior_policy import apply_market_priors_to_buy, apply_market_priors_to_hold
+from core.concept_graph_store import stock_in_penalty_concepts
 from core.regulatory_prior import build_ipo_drain_prior, build_regulatory_prior
 from core.signal.regime import assess_regime
-from skills.announcement.concept_graph import (
-    enrich_regulatory_with_concepts,
-    stock_in_penalty_concepts,
-)
+from adapters.announcement.concept_graph import enrich_regulatory_with_concepts
 
 
 class TestMarketContextEnhancements(unittest.TestCase):

@@ -24,7 +24,7 @@ load_env_file(os.path.join(ROOT_DIR, ".env"))
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 try:
-    from adapters.market.ak_lock import install_akshare_lock
+    from core.data.ak_lock import install_akshare_lock
 
     install_akshare_lock()
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

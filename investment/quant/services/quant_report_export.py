@@ -43,19 +43,26 @@ def _fmt_heuristic(v: Any, *, digits: int = 1) -> str:
         return str(v)
 
 
-def _heuristic_from_row(row: Optional[dict]) -> Optional[float]:
-    if not isinstance(row, dict):
-        return None
+def _legacy_heuristic_checker():
+    """解析 ``looks_like_legacy_heuristic_score``，失败时降级为阈值判断。"""
     try:
         from core.signal.score_display import looks_like_legacy_heuristic_score
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in quant_report_export.py", exc_info=True)
 
-        def looks_like_legacy_heuristic_score(value):  # type: ignore
+        def looks_like_legacy_heuristic_score(value, **_kw):  # type: ignore
             try:
                 return float(value) >= 10.0
             except (TypeError, ValueError):
                 return False
+
+    return looks_like_legacy_heuristic_score
+
+
+def _heuristic_from_row(row: Optional[dict]) -> Optional[float]:
+    if not isinstance(row, dict):
+        return None
+    looks_like_legacy_heuristic_score = _legacy_heuristic_checker()
 
     for key in ("heuristic_score", "heuristic"):
         v = row.get(key)
@@ -80,16 +87,7 @@ def _yhat_from_row(row: Optional[dict]) -> Optional[float]:
     """从簿/成交行取 ŷ%（优先 predicted / blend / cluster，拒收 heuristic）。"""
     if not isinstance(row, dict):
         return None
-    try:
-        from core.signal.score_display import looks_like_legacy_heuristic_score
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_report_export.py", exc_info=True)
-
-        def looks_like_legacy_heuristic_score(value):  # type: ignore
-            try:
-                return float(value) >= 10.0
-            except (TypeError, ValueError):
-                return False
+    looks_like_legacy_heuristic_score = _legacy_heuristic_checker()
 
     for key in (
         "predicted_score_blend",

@@ -1,0 +1,23 @@
+{
+  "experiment_id": "factor_cs_ic_20261005_102740_c7f48cd5",
+  "model_type": "factor_cs_ic",
+  "status": "completed",
+  "config": {
+    "lookback": 80,
+    "horizon_days": 3,
+    "watching_limit": 12,
+    "min_names": 5,
+    "pit_fundamentals": true
+  },
+  "metrics": {
+    "stock_count": 12,
+    "oos_guard_ok": true
+  },
+  "artifacts": {},
+  "tags": {
+    "fundamentals_pit": "true"
+  },
+  "created_at": "2026-10-05T10:27:40",
+  "updated_at": "2026-10-05T10:27:40",
+  "duration_sec": 0.62
+}

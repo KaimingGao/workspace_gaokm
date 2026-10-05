@@ -5,6 +5,19 @@
 import { escapeHtml } from "../shared.js";
 import { metricCell, researchGridHtml } from "./research_grid.js";
 
+function fmtFitTs(iso) {
+  const s = String(iso || "").trim();
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) {
+    return s.replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 16);
+  }
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(
+    d.getHours()
+  )}:${p(d.getMinutes())}`;
+}
+
 function fmtPct(v) {
   if (v == null || !Number.isFinite(Number(v))) return "—";
   return `${(Number(v) * 100).toFixed(1)}%`;
@@ -470,9 +483,15 @@ export function treeReportHtml(data, opts = {}) {
     icDelta,
   });
 
+  const fittedAt =
+    data.fitted_at ||
+    (data.tree_return_model && data.tree_return_model.fitted_at) ||
+    (data.return_model && data.return_model.fitted_at) ||
+    "";
   const meta =
     `<div class="quant-tree-meta">` +
     [
+      fittedAt ? metaCell("拟合", fmtFitTs(fittedAt)) : "",
       metaCell("角色", "影子 · 不写 live · 回测选 Tree", "is-flags"),
       metaCell("引擎", engine, engineChip),
       metaCell("结构", `${nEst} 棵 · 深 ${depth}`),

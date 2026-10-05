@@ -581,6 +581,7 @@ def _prepare_matrix(
         )
         meta["complete_sample_count"] = n
         meta["active_feature_count"] = len(active)
+        meta["complete_row_indices"] = [int(i) for i in rows_idx.tolist()]
         return x_c, y_c, active, excluded, meta
 
     excluded = (
@@ -624,22 +625,32 @@ def _fit_design(
     y: np.ndarray,
     *,
     ridge_lambda: float,
+    sample_weights: Optional[np.ndarray] = None,
 ) -> Optional[Dict[str, Any]]:
     n, p_aug = design_z.shape
     p = p_aug - 1
     if n < 4 or p < 1 or n < p + 3:
         return None
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
+    x_fit = design_z
+    y_fit = y
+    if sample_weights is not None and int(sample_weights.shape[0]) == n:
+        sw = np.sqrt(np.maximum(sample_weights.astype(np.float64), 0.0))
+        keep = np.isfinite(sw) & (sw > 0)
+        if int(keep.sum()) < max(4, p + 3):
+            return None
+        x_fit = design_z[keep] * sw[keep, None]
+        y_fit = y[keep] * sw[keep]
     if lam > 0:
         sqrt_l = math.sqrt(lam)
         extra = np.zeros((p, p_aug), dtype=np.float64)
         extra[:, 1:] = np.eye(p, dtype=np.float64) * sqrt_l
         beta = _qr_solve_np(
-            np.vstack([design_z, extra]),
-            np.concatenate([y, np.zeros(p, dtype=np.float64)]),
+            np.vstack([x_fit, extra]),
+            np.concatenate([y_fit, np.zeros(p, dtype=np.float64)]),
         )
     else:
-        beta = _qr_solve_np(design_z, y)
+        beta = _qr_solve_np(x_fit, y_fit)
     if beta is None:
         return None
     y_mean = float(y.sum()) / n
@@ -664,6 +675,7 @@ def _ols_matrix(
     excluded: List[str],
     *,
     ridge_lambda: float,
+    sample_weights: Optional[np.ndarray] = None,
 ) -> Optional[Dict[str, Any]]:
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     pos = {name: i for i, name in enumerate(active)}
@@ -675,7 +687,9 @@ def _ols_matrix(
         design = np.empty((y.shape[0], len(work) + 1), dtype=np.float64)
         design[:, 0] = 1.0
         design[:, 1:] = x_z[:, cols]
-        fit = _fit_design(design, y, ridge_lambda=lam)
+        fit = _fit_design(
+            design, y, ridge_lambda=lam, sample_weights=sample_weights
+        )
         if fit is not None:
             break
         if lam > 0:
@@ -703,6 +717,39 @@ def _ols_matrix(
     }
 
 
+def _align_row_weights(
+    sample_weights: Optional[Sequence[float]],
+    *,
+    n_full: int,
+    row_pos: Optional[np.ndarray],
+    complete_idx: Optional[Sequence[int]],
+) -> Optional[np.ndarray]:
+    if sample_weights is None:
+        return None
+    w = np.asarray(list(sample_weights), dtype=np.float64)
+    if w.ndim != 1:
+        return None
+    if row_pos is None:
+        if int(w.shape[0]) != int(n_full):
+            return None
+        sliced = w
+    else:
+        if int(w.shape[0]) == int(row_pos.size):
+            sliced = w
+        elif int(w.shape[0]) == int(n_full):
+            sliced = w[row_pos]
+        else:
+            return None
+    if complete_idx is None:
+        return sliced
+    idxs = [int(i) for i in complete_idx]
+    if not idxs or max(idxs) >= int(sliced.shape[0]):
+        return None
+    out = sliced[np.asarray(idxs, dtype=np.int64)]
+    out = np.where(np.isfinite(out) & (out > 0), out, 1e-6)
+    return out.astype(np.float64, copy=False)
+
+
 def fit_oo_ridge_matrix(
     x: np.ndarray,
     y: np.ndarray,
@@ -714,8 +761,12 @@ def fit_oo_ridge_matrix(
     min_samples: int = 24,
     fitted_as_of: Optional[str] = None,
     label_demean: bool = False,
+    sample_weights: Optional[Sequence[float]] = None,
 ) -> Tuple[Any, Dict[str, Any]]:
-    """在矩阵上拟合 ŷ_oo，返回 ``(ReturnScoreModel | None, report)``。"""
+    """在矩阵上拟合 ŷ_oo，返回 ``(ReturnScoreModel | None, report)``。
+
+    ``sample_weights`` 与全表 ``y`` 等长（或与 ``row_idx`` 等长）；√w 加权最小二乘。
+    """
     from core.research.label_demean import (
         annotate_label_demean,
         demean_labels,
@@ -724,8 +775,9 @@ def fit_oo_ridge_matrix(
     from core.signal.return_score import ReturnScoreModel
 
     y = np.asarray(y, dtype=np.float64)
+    n_full = int(y.shape[0])
     row_pos = None if row_idx is None else np.asarray(row_idx, dtype=np.int64)
-    n_raw = int(y.shape[0] if row_pos is None else row_pos.size)
+    n_raw = int(n_full if row_pos is None else row_pos.size)
     need = max(8, int(min_samples or 24))
     if n_raw < need:
         return None, {
@@ -776,7 +828,20 @@ def fit_oo_ridge_matrix(
             y_fit = y_c
             if use_dm:
                 y_fit, y_mean = demean_labels(y_c)
-            fit = _ols_matrix(x_z, y_fit, active, excluded, ridge_lambda=lam)
+            row_w = _align_row_weights(
+                sample_weights,
+                n_full=n_full,
+                row_pos=row_pos,
+                complete_idx=prep_meta.get("complete_row_indices"),
+            )
+            fit = _ols_matrix(
+                x_z,
+                y_fit,
+                active,
+                excluded,
+                ridge_lambda=lam,
+                sample_weights=row_w,
+            )
             if fit is not None and use_dm:
                 fit = restore_intercept_after_demean(fit, y_mean)
 
@@ -813,7 +878,19 @@ def fit_oo_ridge_matrix(
         "ridge_lambda": lam,
         "ridge_lambda_selected": lam,
         "prep_meta": prep_meta,
+        "weighted_ols": bool(sample_weights is not None),
     }
+    if sample_weights is not None:
+        aligned = _align_row_weights(
+            sample_weights,
+            n_full=n_full,
+            row_pos=row_pos,
+            complete_idx=prep_meta.get("complete_row_indices"),
+        )
+        if aligned is not None and aligned.size:
+            report["mean_sample_weight"] = round(
+                float(aligned.sum() / max(1, int(aligned.size))), 4
+            )
     if use_dm:
         annotate_label_demean(report, enabled=True, y_mean=y_mean)
         if fit.get("intercept_demeaned") is not None:

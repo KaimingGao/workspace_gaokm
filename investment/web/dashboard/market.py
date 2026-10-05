@@ -170,7 +170,7 @@ def _build_market_context_dashboard() -> Dict[str, Any]:
     priors = build_market_priors(ctx)
     macro_hist = None
     try:
-        from skills.macro.history import load_macro_history_index
+        from adapters.macro.history import load_macro_history_index
 
         macro_hist = load_macro_history_index()
     except Exception:

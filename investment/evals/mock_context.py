@@ -129,7 +129,7 @@ def _patch_daily_bars(stack, mock_cfg: dict) -> None:
 
     if "index_bars" not in mock_cfg:
         stack.enter_context(
-            patch("skills.index.engine.fetch_index_bars", return_value=([], ""))
+            patch("adapters.index.engine.fetch_index_bars", return_value=([], ""))
         )
         try:
             stack.enter_context(
@@ -152,17 +152,17 @@ def _patch_fundamentals(stack, mock_cfg: dict) -> None:
     spot = fin.get("spot")
     if spot is not None:
         stack.enter_context(
-            patch("skills.fundamentals.engine.fetch_cn_spot_row", return_value=spot)
+            patch("adapters.fundamentals.engine.fetch_cn_spot_row", return_value=spot)
         )
     stack.enter_context(
         patch(
-            "skills.fundamentals.engine.fetch_cn_valuation_latest",
+            "adapters.fundamentals.engine.fetch_cn_valuation_latest",
             return_value=fin.get("valuation") or {},
         )
     )
     stack.enter_context(
         patch(
-            "skills.fundamentals.engine.fetch_cn_financial_latest",
+            "adapters.fundamentals.engine.fetch_cn_financial_latest",
             return_value=fin.get("financial") or {},
         )
     )
@@ -170,7 +170,7 @@ def _patch_fundamentals(stack, mock_cfg: dict) -> None:
     if rmc is not None:
         stack.enter_context(
             patch(
-                "skills.fundamentals.engine.resolve_market_code",
+                "adapters.fundamentals.engine.resolve_market_code",
                 return_value=tuple(rmc),
             )
         )
@@ -199,7 +199,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
             str(mock_cfg.get("index_label") or "沪深300"),
         )
         stack.enter_context(
-            patch("skills.index.engine.fetch_index_bars", return_value=(ib, ilabel))
+            patch("adapters.index.engine.fetch_index_bars", return_value=(ib, ilabel))
         )
         stack.enter_context(
             patch("skills.backtest.engine.fetch_index_bars", return_value=(ib, ilabel))
@@ -209,7 +209,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
     if rmc is not None:
         tup = tuple(rmc)
         stack.enter_context(
-            patch("skills.index.engine.resolve_market_code", return_value=tup)
+            patch("adapters.index.engine.resolve_market_code", return_value=tup)
         )
         stack.enter_context(
             patch("skills.backtest.engine.resolve_market_code", return_value=tup)
@@ -218,7 +218,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
             patch("adapters.market.history.resolve_market_code", return_value=tup)
         )
         stack.enter_context(
-            patch("skills.fundamentals.engine.resolve_market_code", return_value=tup)
+            patch("adapters.fundamentals.engine.resolve_market_code", return_value=tup)
         )
 
     _patch_fundamentals(stack, mock_cfg)

@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "build_relative",
-    "default_benchmark",
-    "fetch_index_bars",
 ]
 
 

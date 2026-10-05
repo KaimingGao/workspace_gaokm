@@ -54,7 +54,7 @@ class TestWatching(unittest.TestCase):
             }
 
             with patch(
-                "skills.screen.engine.StockScreener"
+                "adapters.screen.engine.StockScreener"
             ) as mock_cls, patch(
                 "adapters.market.quote_api.StockAPI.query",
                 side_effect=lambda code: {
@@ -63,7 +63,7 @@ class TestWatching(unittest.TestCase):
                     "stock_name": str(code),
                 },
             ), patch(
-                "skills.screen.engine.fetch_a_spot",
+                "adapters.screen.engine.fetch_a_spot",
                 return_value=[],
             ):
                 mock_cls.return_value.screen.return_value = fake_screen
@@ -119,7 +119,7 @@ class TestWatching(unittest.TestCase):
     def test_search_stocks_mapping(self):
         from adapters.market.stock_search import search_stocks
 
-        with patch("skills.screen.engine.fetch_a_spot", return_value=[]):
+        with patch("adapters.screen.engine.fetch_a_spot", return_value=[]):
             out = search_stocks("茅台", limit=5)
         self.assertTrue(out["success"])
         codes = [x["stock_code"] for x in out["items"]]
@@ -150,7 +150,7 @@ class TestWatching(unittest.TestCase):
         """曾用名：哈飞股份→中直；中船股份→中船科技。"""
         from adapters.market.stock_search import search_stocks
 
-        with patch("skills.screen.engine.fetch_a_spot", return_value=[]):
+        with patch("adapters.screen.engine.fetch_a_spot", return_value=[]):
             hafei = search_stocks("哈飞股份", limit=5)
             cssc = search_stocks("中船股份", limit=5)
         self.assertTrue(hafei["success"])

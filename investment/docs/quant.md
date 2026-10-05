@@ -693,7 +693,7 @@ score_bars → sub_scores（特征）
 
 ---
 
-> **P6～P22 升级**详见 [quant-upgrade.md](archive/quant-upgrade.md)；一页总览见 [quant-summary.md](archive/quant-summary.md)；**日常运维与 preset**见 **[§ 量化运维](#量化运维)**。
+> **P6～P33 升级总览**见 [quant-summary.md](archive/quant-summary.md)；**日常运维与 preset**见 **[§ 量化运维](#量化运维)**。
 
 ---
 
@@ -1838,7 +1838,7 @@ curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
 ## 相关文档
 
 - [量化原理](#量化原理与实现逻辑) — 量化原理；[机器学习视角](quant.md#机器学习视角如何理解量化)
-- [quant-upgrade.md](archive/quant-upgrade.md) — P6～P33 升级与落地状态
+- [quant-summary.md](archive/quant-summary.md) — P6～P33 升级总览
 - [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角) — 投顾层 cron 说明
 
 ---

@@ -50,7 +50,7 @@ LIVE_CONFIG_MANIFEST_PATH = os.path.join(LIVE_DIR, "live_config_manifest.json")
 REBALANCE_CS_10_PATH = os.path.join(LIVE_DIR, "rebalance_cs_10.json")
 RETURN_SCORE_MODEL_DRAFT_PATH = os.path.join(QUANT_REPORTS_DIR, "last_return_score_model.json")
 RETURN_SCORE_MODEL_ACTIVE_PATH = os.path.join(LIVE_DIR, "return_score_model_active.json")
-# 可预测性分档：影子 last vs 调仓闸 active（显式启用后才进 live）
+# 可预测性分档：影子 last vs 调仓闸 active（档位跟随历史回测勾选）
 PREDICTABILITY_TIERS_LAST_PATH = os.path.join(LIVE_DIR, "predictability_tiers_last.json")
 PREDICTABILITY_TIERS_ACTIVE_PATH = os.path.join(LIVE_DIR, "predictability_tiers_active.json")
 # 研究套：供历史回测；与 active（执行套）分离，对齐 τ / co 的 *_research.json

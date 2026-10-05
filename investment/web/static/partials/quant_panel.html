@@ -109,12 +109,12 @@
     </div>
   </section>
 
-  <!-- 观察池分档：y_oo 命中 · Holdout 前半 · 回测/live 复用档位 -->
+  <!-- 观察池分档：y_oo 命中 · Holdout 前半 · live 随历史回测分档勾选 -->
   <section class="dashboard-section quant-section" id="quant-section-research-universe" aria-labelledby="quant-section-research-universe-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        研究套 ŷ_oo · Holdout 前半 OOS · 「启用 live」后调仓只开 A+B
+        研究套 ŷ_oo · Holdout 前半 OOS · live 档位跟随历史回测「分档」勾选
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -131,13 +131,11 @@
                 用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡片上的 <strong>Holdout</strong> 前半打分；
                 日线面板窗对齐 ŷ_oo 卡片 <strong>训练窗</strong>。无研究套时才 Holdout 前现训。
                 A 档：命中率 &gt;60%、IC &gt;0、有效日 N &gt;6。
-                「启用 live」后调仓新开只留 A+B（持仓保留）。
+                调仓 live 过滤跟随历史回测页「分档」勾选（持仓保留）；不勾则不过滤。
               </p>
             </div>
           </details>
           <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="用研究套 ŷ_oo + ŷ_oo 卡片训练窗，在 Holdout 前半重算分档">观察池分档</button>
-          <button type="button" id="quant-ru-tiers-promote" class="dialog-btn secondary" title="复用当前分档启用 live；调仓按 A+B 过滤新开">启用 live</button>
-          <button type="button" id="quant-ru-tiers-demote" class="dialog-btn secondary" title="关闭 live 分档闸">关闭 live</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-ru-body">

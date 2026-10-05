@@ -36,7 +36,7 @@ def _compile_patterns() -> List[re.Pattern]:
 
 
 def _safe_notice_rows(*, limit: int = 200) -> List[dict]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     for fn_name in ("stock_notice_report", "stock_individual_notice_report"):
@@ -62,7 +62,7 @@ def _safe_notice_rows(*, limit: int = 200) -> List[dict]:
 
 
 def _fetch_ipo_calendar() -> List[dict]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     rows: List[dict] = []

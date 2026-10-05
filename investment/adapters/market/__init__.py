@@ -1,17 +1,6 @@
-"""市场数据出站适配器（腾讯行情 · AkShare 日线/分钟 · 指数等）。"""
+"""市场数据出站适配器（腾讯行情 · AkShare 日线/分钟 · 指数等）。
 
-from adapters.market.history import (
-    bars_from_quote_fallback,
-    fetch_daily_bars,
-    normalize_bars,
-    resolve_market_code,
-)
-from adapters.market.quote_api import StockAPI
-
-__all__ = [
-    "StockAPI",
-    "normalize_bars",
-    "resolve_market_code",
-    "fetch_daily_bars",
-    "bars_from_quote_fallback",
-]
+子模块直 import：
+- 行情 / 日线 / 指数 / 分钟线等 → ``adapters.market.<module>``
+（如 ``from adapters.market.quote_api import StockAPI``）
+"""

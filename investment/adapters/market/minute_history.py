@@ -191,7 +191,7 @@ def _fetch_em_minute_bars(
             base_delay_sec=gap if gap > 0 else float(MINUTE_FETCH_DELAY_MAX_SEC),
             max_delay_sec=float(MINUTE_FETCH_DELAY_MAX_SEC),
         )
-        from adapters.market.ak_lock import import_akshare
+        from core.data.ak_lock import import_akshare
 
         ak = import_akshare()
 
@@ -308,7 +308,7 @@ def _maybe_fetch_sina_minute_bars(
     ``lookback_days`` 不传给该接口（窗口由 akshare 固定）。``sina_minute`` 不在此调用。
     """
     del lookback_days  # 接口不接受回看天数
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     symbol = _ak_sina_symbol(bare)
     period_s = str(period or "5")

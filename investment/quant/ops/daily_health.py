@@ -8,14 +8,15 @@ from typing import Any, Dict, Optional
 
 from core.watching.health import check_watching_health
 from quant.services.quant_report_index import list_quant_reports
-from services.daily_service import DailyRunService
 
 
 def build_daily_health(
     *,
-    daily: Optional[DailyRunService] = None,
+    daily: Optional[Any] = None,
     report_limit: int = 5,
 ) -> Dict[str, Any]:
+    from services.daily_service import DailyRunService
+
     svc = daily or DailyRunService()
     last = svc.load_last_run()
     watching = check_watching_health()

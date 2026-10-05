@@ -1,5 +1,5 @@
 from agent.contracts import BaseSkillHandler
-from skills.screen.engine import StockScreener
+from adapters.screen.engine import StockScreener
 
 
 class ScreenHandler(BaseSkillHandler):

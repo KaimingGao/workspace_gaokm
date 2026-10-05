@@ -13,7 +13,7 @@ DEFAULT_CONCEPT_FOR_DRAIN = ("机器人", "人形机器人", "人工智能", "�
 
 
 def _fetch_concept_board_amount(concept: str) -> Optional[float]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "stock_board_concept_name_em", None)

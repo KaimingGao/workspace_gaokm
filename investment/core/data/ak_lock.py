@@ -7,7 +7,7 @@ leaves the Web UI stuck on loading with no response.
 Call ``install_akshare_lock()`` once at process start (also safe to call
 lazily before first AkShare use).
 
-从 adapters/market/ak_lock.py 下沉到 core 层，消除 core → skills 反向依赖。
+AkShare 进程内串行锁，canonical location。
 
 获取锁带超时：某次远端挂死后，后续调用不再无限等锁（日线/分钟 Job 会「卡住」）。
 挂死线程仍可能占着锁；超时后本进程内后续 AkShare 会快速失败，需重启 Web 清残线程。

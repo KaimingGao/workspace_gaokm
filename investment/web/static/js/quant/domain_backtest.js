@@ -483,6 +483,28 @@ export function installBacktest(q) {
     return out;
   }
 
+  let _livePredTierSyncTimer = null;
+
+  /** 历史回测分档勾选 → live 调仓闸（空=关）。仅 /replay 桌同步，避免研究枢纽误关闸。 */
+  function syncLivePredTiersFromDesk() {
+    if (!isReplayDesk()) return;
+    if (typeof apiFetch !== "function") return;
+    if (!document.getElementById("quant-pred-tier-checks")) return;
+    if (_livePredTierSyncTimer) {
+      clearTimeout(_livePredTierSyncTimer);
+      _livePredTierSyncTimer = null;
+    }
+    const tiers = readPredictabilityTiers();
+    _livePredTierSyncTimer = setTimeout(() => {
+      _livePredTierSyncTimer = null;
+      void apiFetch("/api/quant/research-universe/predictability-tiers/live-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allowed_tiers: tiers }),
+      }).catch(() => {});
+    }, 180);
+  }
+
   function markReplayRestored(at) {
     const meta = document.getElementById("replay-meta");
     if (meta) {
@@ -985,6 +1007,7 @@ export function installBacktest(q) {
       applyScoreBackend("quant-score-backend", prefs.score_backend);
     }
     restoreFillClock(prefs.fill_clock);
+    syncLivePredTiersFromDesk();
     return true;
   }
 
@@ -2183,7 +2206,10 @@ export function installBacktest(q) {
       const el = document.getElementById(id);
       if (!el || el.dataset.wired === "1") continue;
       el.dataset.wired = "1";
-      el.addEventListener("change", () => persistReplayDeskPrefs());
+      el.addEventListener("change", () => {
+        persistReplayDeskPrefs();
+        syncLivePredTiersFromDesk();
+      });
     }
   }
 
@@ -2196,7 +2222,11 @@ export function installBacktest(q) {
     window.addEventListener("investment-replay-desk-persist", () => persistReplayDeskPrefs());
   }
   initExecutionRuleForms()
-    .then(() => restoreReplayDeskPrefs())
+    .then(() => {
+      const restored = restoreReplayDeskPrefs();
+      // 无本地偏好时也按当前勾选同步 live（默认 A+B）
+      if (!restored) syncLivePredTiersFromDesk();
+    })
     .catch(() => {});
 
   return {

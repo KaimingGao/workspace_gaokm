@@ -192,6 +192,25 @@ class TestHorizonTree(unittest.TestCase):
         self.assertEqual(src, "ridge")
         self.assertEqual(y, 1.25)
 
+    def test_stamp_tree_fitted_at_on_report_and_model(self):
+        from core.research.horizon_tree import stamp_tree_fitted_at
+
+        skipped = stamp_tree_fitted_at({"success": False})
+        self.assertIsNone(skipped.get("fitted_at"))
+
+        report = {
+            "success": True,
+            "tree_return_model": {"feature_names": ["a"], "backend": "lightgbm"},
+        }
+        stamp_tree_fitted_at(report)
+        self.assertTrue(report.get("fitted_at"))
+        self.assertEqual(
+            report["tree_return_model"].get("fitted_at"), report["fitted_at"]
+        )
+        first = report["fitted_at"]
+        stamp_tree_fitted_at(report)
+        self.assertEqual(report["fitted_at"], first)
+
 
 if __name__ == "__main__":
     unittest.main()

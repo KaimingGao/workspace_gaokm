@@ -35,7 +35,7 @@ def fetch_cn_spot_row(code: str) -> Optional[dict]:
 
 def fetch_cn_valuation_latest(code: str) -> Dict[str, Any]:
     """估值最新一条：乐咕优先；缺失时回退东方财富 ``stock_value_em``（含 PE/PB）。"""
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     code = str(code).zfill(6)
@@ -203,7 +203,7 @@ def _pick_financial_row_ths(row: dict) -> Dict[str, Any]:
 
 def _fetch_cn_financial_rows(code: str) -> List[dict]:
     """拉取 A 股财务分析指标全表行（升序，旧→新）。主接口空则回退同花顺摘要。"""
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     code = str(code).zfill(6)
@@ -297,7 +297,7 @@ def spot_to_metrics(row: dict) -> Dict[str, Any]:
 
 def fetch_hk_spot_row(code: str) -> Optional[dict]:
     """港股现货表中取单行（PE/市值等，字段随 akshare 版本变化）。"""
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
 

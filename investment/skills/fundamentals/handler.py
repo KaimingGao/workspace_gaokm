@@ -1,5 +1,5 @@
 from agent.contracts import BaseSkillHandler
-from skills.fundamentals.engine import build_fundamentals
+from adapters.fundamentals.engine import build_fundamentals
 
 
 class FundamentalsHandler(BaseSkillHandler):

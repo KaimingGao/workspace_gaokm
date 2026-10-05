@@ -161,6 +161,23 @@ def pack_tree_return_model(
     return out
 
 
+def stamp_tree_fitted_at(report: Dict[str, Any]) -> Dict[str, Any]:
+    """成功拟合的树报告打 ``fitted_at``，并写进 ``tree_return_model``。"""
+    from core.research.holdout import stamp_fitted_at
+
+    if not isinstance(report, dict) or not report.get("success"):
+        return report
+    stamp_fitted_at(report)
+    ts = report.get("fitted_at")
+    if not ts:
+        return report
+    for key in ("tree_return_model", "return_model"):
+        nested = report.get(key)
+        if isinstance(nested, dict) and not nested.get("fitted_at"):
+            nested["fitted_at"] = ts
+    return report
+
+
 def _stored_feature_z(
     rm: Dict[str, Any],
 ) -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, float]]]:
@@ -842,4 +859,5 @@ def fit_horizon_tree_report(
         ),
     }
     attach_holdout_meta(report, split_meta)
+    stamp_tree_fitted_at(report)
     return report

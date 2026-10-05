@@ -30,7 +30,7 @@ class TestD0AnnIngest(unittest.TestCase):
         self.assertIsNotNone(chosen)
 
     def test_pick_financial_row_ann(self):
-        from skills.fundamentals.engine import _pick_financial_row
+        from adapters.fundamentals.engine import _pick_financial_row
 
         row = {
             "日期": "2024-06-30",

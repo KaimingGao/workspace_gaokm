@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.news.engine import (
+from adapters.news.engine import (
     _JSONP_CB,
     build_news,
     fetch_news_rows,
@@ -31,12 +31,12 @@ class TestNews(unittest.TestCase):
             {"新闻标题": "标题B", "发布时间": "t2", "文章来源": "s2"},
         ]
         with patch(
-            "skills.news.engine.query_quote",
+            "adapters.news.engine.query_quote",
             return_value={"success": True, "stock_code": "600519", "stock_name": "贵州茅台"},
         ), patch(
-            "skills.news.engine.resolve_market_code", return_value=("CN", "600519")
+            "adapters.news.engine.resolve_market_code", return_value=("CN", "600519")
         ), patch(
-            "skills.news.engine.fetch_news_rows", return_value=rows
+            "adapters.news.engine.fetch_news_rows", return_value=rows
         ):
             result = build_news("茅台", limit=5)
         self.assertTrue(result["success"])
@@ -62,7 +62,7 @@ class TestNews(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.text = text
         mock_resp.raise_for_status = MagicMock()
-        with patch("skills.news.engine.requests.get", return_value=mock_resp) as get:
+        with patch("adapters.news.engine.requests.get", return_value=mock_resp) as get:
             rows = fetch_news_rows("300750", timeout=3)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["新闻标题"], "宁德时代涨停")
@@ -72,7 +72,7 @@ class TestNews(unittest.TestCase):
 
     def test_fetch_news_rows_propagates_timeout(self):
         with patch(
-            "skills.news.engine.requests.get",
+            "adapters.news.engine.requests.get",
             side_effect=requests_timeout(),
         ):
             with self.assertRaises(Exception) as ctx:

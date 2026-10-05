@@ -909,6 +909,9 @@ def fit_tau_tree_report(
         ),
     }
     attach_holdout_meta(report, split_meta)
+    from core.research.horizon_tree import stamp_tree_fitted_at
+
+    stamp_tree_fitted_at(report)
     return report
 
 

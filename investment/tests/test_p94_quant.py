@@ -17,7 +17,7 @@ class TestP94QuantServiceMixins(unittest.TestCase):
         from quant.services.quant_service_config import QuantConfigMixin
         from quant.services.quant_service_factors import QuantFactorMixin
         from quant.services.quant_service_ops import QuantOpsMixin
-        from quant.services.quant_service_portfolio import QuantPortfolioMixin
+        from quant.services.quant_service_replay import QuantPortfolioMixin
 
         self.assertTrue(issubclass(QuantService, QuantConfigMixin))
         self.assertTrue(issubclass(QuantService, QuantFactorMixin))

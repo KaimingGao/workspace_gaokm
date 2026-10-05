@@ -4,7 +4,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
 logger = logging.getLogger(__name__)
 
@@ -361,7 +361,7 @@ def quant_research_universe_predictability_tiers(
 def quant_research_universe_predictability_tiers_last(
     slim: bool = Query(False, description="去掉 ŷ/实现序列，只留档位摘要"),
 ) -> Dict[str, Any]:
-    """读取上次可预测性分档影子报告 + live 启用状态。"""
+    """读取上次可预测性分档影子报告 + live 闸状态（档位随历史回测勾选）。"""
     from core.research.predictability_tiers import (
         live_tier_status,
         load_predictability_tiers_last,
@@ -410,52 +410,24 @@ def quant_research_universe_predictability_tiers_last(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/api/quant/research-universe/predictability-tiers/live")
-def quant_research_universe_predictability_tiers_live() -> Dict[str, Any]:
-    """当前 live 分档闸状态。"""
-    from core.research.predictability_tiers import live_tier_status
-
-    try:
-        st = live_tier_status()
-        return {"success": True, **st}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/research-universe/predictability-tiers/promote")
-def quant_research_universe_predictability_tiers_promote() -> Dict[str, Any]:
-    """把上次影子分档写入 active，调仓按 A+B 过滤新开。"""
+@router.post("/api/quant/research-universe/predictability-tiers/live-sync")
+def quant_research_universe_predictability_tiers_live_sync(
+    body: Optional[Dict[str, Any]] = Body(default=None),
+) -> Dict[str, Any]:
+    """历史回测「分档」勾选 → live 闸。allowed_tiers 空=关闭；非空=启用。"""
     from core.research.predictability_tiers import (
         live_tier_status,
-        promote_predictability_tiers_to_live,
+        sync_predictability_tiers_live,
     )
 
     try:
-        out = promote_predictability_tiers_to_live()
-        if not out.get("ok"):
-            raise HTTPException(status_code=400, detail=out.get("error") or "启用失败")
+        payload = body if isinstance(body, dict) else {}
+        tiers = payload.get("allowed_tiers")
+        if tiers is None:
+            tiers = payload.get("predictability_tiers")
+        out = sync_predictability_tiers_live(tiers if isinstance(tiers, list) else [])
+        # 尚无 last 时勾选无法开闸：软失败（200），前端不弹错
         return {**out, "live": live_tier_status()}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/research-universe/predictability-tiers/demote")
-def quant_research_universe_predictability_tiers_demote() -> Dict[str, Any]:
-    """关闭 live 分档闸（删 active）。"""
-    from core.research.predictability_tiers import (
-        clear_predictability_tiers_live,
-        live_tier_status,
-    )
-
-    try:
-        out = clear_predictability_tiers_live()
-        if not out.get("ok"):
-            raise HTTPException(status_code=500, detail=out.get("error") or "关闭失败")
-        return {**out, "live": live_tier_status()}
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

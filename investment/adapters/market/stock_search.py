@@ -195,7 +195,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 def _fetch_code_name_live() -> List[Tuple[str, str]]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "stock_info_a_code_name", None)

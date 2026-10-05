@@ -130,7 +130,7 @@ def _fetch_us_sina_bars(
         ).strip().lower()
     if not sym:
         return [], "empty"
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "index_us_stock_sina", None)
@@ -150,7 +150,7 @@ def _fetch_us_sina_bars(
 
 def _fetch_sox_macro_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
     """东方财富 SOX 宏观序列（费城半导体备用）。"""
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "macro_global_sox_index", None)
@@ -176,7 +176,7 @@ def _fetch_sox_macro_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
 
 def _fetch_a50_spot_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
     """A50 主力合约现货（futures_global_hist 不可用时）。"""
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "futures_global_spot_em", None)
@@ -217,7 +217,7 @@ def _fetch_a50_spot_bars(*, limit: int = 30) -> Tuple[List[dict], str]:
 
 def _fetch_cnh_boc(*, limit: int = 30) -> Tuple[List[dict], Optional[float], Optional[float], str]:
     """央行中间价 USD/CNY（CNH 不可达时的流动性 proxy）。"""
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "currency_boc_safe", None)
@@ -246,7 +246,7 @@ def _fetch_cnh_boc(*, limit: int = 30) -> Tuple[List[dict], Optional[float], Opt
 
 
 def _fetch_global_index_akshare(name: str, *, limit: int = 30) -> Tuple[List[dict], str]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "index_global_hist_em", None)
@@ -334,7 +334,7 @@ def _fetch_a50_futures(*, limit: int = 30) -> Tuple[List[dict], str]:
     got = _call_with_timeout(_fetch_a50_spot_bars, limit=limit, timeout=30)
     if isinstance(got, tuple) and got[0]:
         return got
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     for fn_name in ("futures_global_hist_em", "futures_foreign_hist"):
@@ -412,7 +412,7 @@ def _fetch_us10y_fred() -> Tuple[Optional[float], Optional[float], str]:
 
 
 def _fetch_us10y_akshare() -> Tuple[Optional[float], Optional[float], str]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "bond_zh_us_rate", None)

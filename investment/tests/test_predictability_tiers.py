@@ -381,6 +381,15 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertTrue(meta2.get("unrestricted"))
                 self.assertEqual(kept2, ["000001", "000003"])
 
+                from core.research.predictability_tiers import sync_predictability_tiers_live
+
+                syn = sync_predictability_tiers_live(["A"])
+                self.assertTrue(syn.get("ok"))
+                self.assertEqual(syn.get("allowed_tiers"), ["A"])
+                syn_off = sync_predictability_tiers_live([])
+                self.assertTrue(syn_off.get("synced"))
+                self.assertFalse(syn_off.get("enabled"))
+
         with tempfile.TemporaryDirectory() as td2:
             with patch(
                 "core.research.predictability_tiers.predictability_tiers_last_path",

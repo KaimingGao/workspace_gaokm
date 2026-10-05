@@ -18,7 +18,8 @@
 
 落盘：
 - ``predictability_tiers_last.json``：影子报告（研究枢纽）
-- ``predictability_tiers_active.json``：显式「启用 live」后调仓才按档过滤；持仓始终保留
+- ``predictability_tiers_active.json``：live 调仓闸；档位跟随历史回测「分档」勾选
+  （有勾选且有 last → 过滤；不勾 → 不过滤）。持仓始终保留。
 """
 
 from __future__ import annotations
@@ -77,6 +78,16 @@ def save_predictability_tiers_last(report: Dict[str, Any]) -> None:
     path = predictability_tiers_last_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
+    # live 已开时刷新报告内容，保留回测勾选的 allowed_tiers
+    try:
+        active = load_predictability_tiers_active()
+        if active:
+            promote_predictability_tiers_to_live(
+                report,
+                allowed_tiers=active.get("allowed_tiers") or DEFAULT_LIVE_ALLOWED,
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("refresh predictability_tiers active after last failed", exc_info=True)
 
 
 _SLIM_ROW_KEYS = ("code", "name", "tier", "hit_rate", "n_valid", "n_days", "ic")
@@ -177,7 +188,7 @@ def promote_predictability_tiers_to_live(
             or ((src.get("tier_dates") or src.get("ledger_dates") or [None])[-1])
         ),
         "report": src,
-        "note": "显式启用：调仓按 allowed_tiers 过滤新开；持仓保留。不改 watching。",
+        "note": "live 随历史回测分档勾选：调仓按 allowed_tiers 过滤新开；持仓保留。不改 watching。",
     }
     path = predictability_tiers_active_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -207,6 +218,28 @@ def clear_predictability_tiers_live() -> Dict[str, Any]:
     except Exception:  # noqa: BLE001
         logger.debug("manifest after tier demote failed", exc_info=True)
     return {"ok": True, "path": path, "cleared": existed}
+
+
+def sync_predictability_tiers_live(
+    allowed_tiers: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """历史回测「分档」勾选 → live 闸。空=关闭；非空=启用（须已有 last）。"""
+    raw = [
+        str(t).strip().upper()
+        for t in (allowed_tiers or [])
+        if str(t or "").strip()
+    ]
+    allow = [t for t in ("A", "B", "C") if t in set(raw)]
+    if not allow:
+        out = clear_predictability_tiers_live()
+        return {**out, "synced": True, "enabled": False, "allowed_tiers": []}
+    out = promote_predictability_tiers_to_live(allowed_tiers=allow)
+    return {
+        **out,
+        "synced": True,
+        "enabled": bool(out.get("ok")),
+        "allowed_tiers": allow,
+    }
 
 
 def live_tier_status() -> Dict[str, Any]:
@@ -882,7 +915,8 @@ def build_holdout_half_tiers(
 ) -> Dict[str, Any]:
     """研究枢纽协议：研究套 ŷ_oo 在 Holdout 前半 OOS 按票分档。
 
-    落盘 last；回测/live 复用档位过滤宇宙。回测天数独立。live 须再「启用 live」。
+    落盘 last；回测/live 复用档位过滤宇宙。回测天数独立。
+    live 档位跟随历史回测「分档」勾选。
     ``lookback``：日线面板窗，与页顶 ŷ_oo 训练窗对齐。
     """
     head_n = _normalize_head(head)
@@ -1001,7 +1035,7 @@ def build_holdout_half_tiers(
         "note": (
             f"{src_note} · Holdout 前半 {tier_n} 日分档 · 面板 {panel_lb} 日；"
             f"A 为命中率>{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、IC>0、N>{DEFAULT_A_MIN_N}；"
-            "落盘 last；「启用 live」后调仓按 A+B 过滤；"
+            "落盘 last；live 档位跟随历史回测「分档」勾选；"
             "回测天数用独立 lookback。"
         ),
     }

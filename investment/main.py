@@ -45,7 +45,7 @@ def main():
         print("  export DASHSCOPE_ENDPOINT=https://ws-7hpevbps1ivbjf03.cn-beijing.maas.aliyuncs.com/compatible-mode/v1")
         print("  export DASHSCOPE_MODEL=qwen-plus")
         print("\n提示：无 LLM 时仍可直接测试行情模块：")
-        print("  python3 -c \"from adapters.market import StockAPI; print(StockAPI.query('茅台'))\"")
+        print("  python3 -c \"from adapters.market.quote_api import StockAPI; print(StockAPI.query('茅台'))\"")
         sys.exit(1)
 
     if not llm.is_available():

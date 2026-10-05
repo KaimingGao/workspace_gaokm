@@ -4,7 +4,7 @@
 ----
 AkShare 底层 py_mini_racer 在同一进程内并发调用会 FATAL 整个进程
 （address_pool_manager Check failed），故 core 有全局 RLock 串行化所有调用
-（adapters/market/ak_lock.py）。这导致 80 票批量取数串行 → rebalance 卡顿。
+（core.data.ak_lock）。这导致 80 票批量取数串行 → rebalance 卡顿。
 
 方案
 ----

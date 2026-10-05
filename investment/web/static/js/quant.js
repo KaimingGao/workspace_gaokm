@@ -83,7 +83,7 @@ const { installResearchUniverseUi } = await import(
 const { createFactorIcUi } = await import(
   `./quant/factor_ic_ui.js?v=${encodeURIComponent(_QV)}`
 );
-const { treeReportHtml, treeFitCollapsed } = await import(
+const { treeReportHtml } = await import(
   `./quant/tree_report.js?v=${encodeURIComponent(_QV)}`
 );
 
@@ -944,19 +944,7 @@ export function initQuant(ctx) {
         renderOoTreeCompare({ success: false, error: String(err) });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
-        : "无 Alpha158";
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "已拟合" });
       renderOoTreeCompare(data);
     } finally {
       stopOoTreeBusy();
@@ -982,19 +970,7 @@ export function initQuant(ctx) {
       renderOoTreeCompare({ success: false, error: data.note || "尚无上次对照" });
       return;
     }
-    const timingMsg = fmtTauTreeTiming(data);
-    const a158Bit = data.include_alpha158
-      ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
-      : "无 Alpha158";
-    renderRemStatus(sum, {
-      state: "ok",
-      chip: "上次",
-      message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
-        .filter(Boolean)
-        .join(" · "),
-      oos: data.oos || {},
-      sampleCount: data.sample_count,
-    });
+    paintTreeFitStatus(sum, data, { chip: "上次" });
     renderOoTreeCompare(data);
   }
 
@@ -1092,19 +1068,7 @@ export function initQuant(ctx) {
         renderCoTreeCompare({ success: false, error: String(err) });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
-        : "无 Alpha158";
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "已拟合" });
       renderCoTreeCompare(data);
     } finally {
       stopCoTreeBusy();
@@ -1150,19 +1114,7 @@ export function initQuant(ctx) {
         renderCoTreeCompare({ success: false, error: data.note || "尚无上次对照" });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
-        : "无 Alpha158";
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "上次",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "上次" });
       renderCoTreeCompare(data);
     } catch (err) {
       const aborted = err && (err.name === "AbortError" || err.code === 20);
@@ -1200,43 +1152,29 @@ export function initQuant(ctx) {
     return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
-  function fmtTauTreeTiming(data) {
-    const t = data && data.timing;
-    if (!t || typeof t !== "object") return "";
-    const total = t.total_s != null ? t.total_s : t.fit_s;
-    const parts = [];
-    if (total != null && Number.isFinite(Number(total))) {
-      parts.push(`用时 ${fmtTauTreeSec(total)}`);
-    }
-    const segs = [];
-    if (t.bars_s != null) segs.push(`行情 ${fmtTauTreeSec(t.bars_s)}`);
-    if (t.panel_s != null) segs.push(`面板 ${fmtTauTreeSec(t.panel_s)}`);
-    if (t.tree_s != null) segs.push(`树 ${fmtTauTreeSec(t.tree_s)}`);
-    if (t.ridge_s != null) segs.push(`Ridge ${fmtTauTreeSec(t.ridge_s)}`);
-    if (segs.length) parts.push(segs.join(" / "));
-    return parts.join(" · ");
-  }
-
-function tauTreeHyperBits(data) {
-    const hyper = (data && data.hyperparams) || {};
-    const n =
-      hyper.n_estimators != null && Number.isFinite(Number(hyper.n_estimators))
-        ? Number(hyper.n_estimators)
-        : 300;
-    const depth =
-      hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
-        ? Number(hyper.max_depth)
-        : 6;
-    const engine = formatTreeBackend((data && data.backend) || "");
-    const bi = Number(hyper.best_iteration);
-    const best =
-      Number.isFinite(bi) && bi > 0 && Number.isFinite(n) && bi < n
-        ? `best@${bi}`
-        : "";
-    const warn = treeFitCollapsed(data)
-      ? "best_iteration 过小 · 回测回退 Ridge · 请重新拟合"
-      : "";
-    return [engine, `${n} 棵 · 深度 ${depth}`, best, warn].filter(Boolean).join(" · ");
+  function paintTreeFitStatus(el, data, extra = {}) {
+    const src = data && typeof data === "object" ? data : {};
+    const rm =
+      (src.tree_return_model && typeof src.tree_return_model === "object"
+        ? src.tree_return_model
+        : null) ||
+      (src.return_model && typeof src.return_model === "object"
+        ? src.return_model
+        : null) ||
+      {};
+    // 引擎 / Alpha158 / 用时已在对照报告里，卡头只留拟合时间 + 芯片
+    renderRemStatus(el, {
+      state: extra.state || "ok",
+      chip: extra.chip || "已拟合",
+      message: extra.message !== undefined ? extra.message : "",
+      oos: extra.oos !== undefined ? extra.oos : src.oos || {},
+      sampleCount:
+        extra.sampleCount !== undefined ? extra.sampleCount : src.sample_count,
+      fittedAt:
+        extra.fittedAt !== undefined
+          ? extra.fittedAt
+          : src.fitted_at || rm.fitted_at || null,
+    });
   }
 
   function stopTauTreeBusy() {
@@ -1335,19 +1273,7 @@ function tauTreeHyperBits(data) {
         renderTauTreeCompare({ success: false, error: String(err) });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
-        : "无 Alpha158";
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "已拟合" });
       renderTauTreeCompare(data);
     } finally {
       stopTauTreeBusy();
@@ -1391,19 +1317,7 @@ function tauTreeHyperBits(data) {
         renderTauTreeCompare({ success: false, error: data.note || "尚无上次对照" });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
-        : "无 Alpha158";
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "上次",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "上次" });
       renderTauTreeCompare(data);
     } catch (err) {
       const aborted = err && (err.name === "AbortError" || err.code === 20);
@@ -1517,16 +1431,7 @@ function tauTreeHyperBits(data) {
         renderT30TreeCompare({ success: false, error: String(err) });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "已拟合" });
       renderT30TreeCompare(data);
     } finally {
       stopT30TreeBusy();
@@ -1552,16 +1457,7 @@ function tauTreeHyperBits(data) {
       renderT30TreeCompare({ success: false, error: data.note || "尚无上次对照" });
       return;
     }
-    const timingMsg = fmtTauTreeTiming(data);
-    renderRemStatus(sum, {
-      state: "ok",
-      chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-        .filter(Boolean)
-        .join(" · "),
-      oos: data.oos || {},
-      sampleCount: data.sample_count,
-    });
+    paintTreeFitStatus(sum, data, { chip: "上次" });
     renderT30TreeCompare(data);
   }
 
@@ -1661,16 +1557,7 @@ function tauTreeHyperBits(data) {
         });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "已拟合" });
       renderT45TreeCompare(data);
     } finally {
       stopT45TreeBusy();
@@ -1696,16 +1583,7 @@ function tauTreeHyperBits(data) {
       renderT45TreeCompare({ success: false, error: data.note || "尚无上次对照" });
       return;
     }
-    const timingMsg = fmtTauTreeTiming(data);
-    renderRemStatus(sum, {
-      state: "ok",
-      chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-        .filter(Boolean)
-        .join(" · "),
-      oos: data.oos || {},
-      sampleCount: data.sample_count,
-    });
+    paintTreeFitStatus(sum, data, { chip: "上次" });
     renderT45TreeCompare(data);
   }
   let t60TreeBusyTimer = null;
@@ -1804,16 +1682,7 @@ function tauTreeHyperBits(data) {
         });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "已拟合" });
       renderT60TreeCompare(data);
     } finally {
       stopT60TreeBusy();
@@ -1839,16 +1708,7 @@ function tauTreeHyperBits(data) {
       renderT60TreeCompare({ success: false, error: data.note || "尚无上次对照" });
       return;
     }
-    const timingMsg = fmtTauTreeTiming(data);
-    renderRemStatus(sum, {
-      state: "ok",
-      chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-        .filter(Boolean)
-        .join(" · "),
-      oos: data.oos || {},
-      sampleCount: data.sample_count,
-    });
+    paintTreeFitStatus(sum, data, { chip: "上次" });
     renderT60TreeCompare(data);
   }
   let t75TreeBusyTimer = null;
@@ -1947,16 +1807,7 @@ function tauTreeHyperBits(data) {
         });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "已拟合" });
       renderT75TreeCompare(data);
     } finally {
       stopT75TreeBusy();
@@ -1982,16 +1833,7 @@ function tauTreeHyperBits(data) {
       renderT75TreeCompare({ success: false, error: data.note || "尚无上次对照" });
       return;
     }
-    const timingMsg = fmtTauTreeTiming(data);
-    renderRemStatus(sum, {
-      state: "ok",
-      chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-        .filter(Boolean)
-        .join(" · "),
-      oos: data.oos || {},
-      sampleCount: data.sample_count,
-    });
+    paintTreeFitStatus(sum, data, { chip: "上次" });
     renderT75TreeCompare(data);
   }
   let t90TreeBusyTimer = null;
@@ -2090,16 +1932,7 @@ function tauTreeHyperBits(data) {
         });
         return;
       }
-      const timingMsg = fmtTauTreeTiming(data);
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
+      paintTreeFitStatus(sum, data, { chip: "已拟合" });
       renderT90TreeCompare(data);
     } finally {
       stopT90TreeBusy();
@@ -2125,16 +1958,7 @@ function tauTreeHyperBits(data) {
       renderT90TreeCompare({ success: false, error: data.note || "尚无上次对照" });
       return;
     }
-    const timingMsg = fmtTauTreeTiming(data);
-    renderRemStatus(sum, {
-      state: "ok",
-      chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
-        .filter(Boolean)
-        .join(" · "),
-      oos: data.oos || {},
-      sampleCount: data.sample_count,
-    });
+    paintTreeFitStatus(sum, data, { chip: "上次" });
     renderT90TreeCompare(data);
   }
 

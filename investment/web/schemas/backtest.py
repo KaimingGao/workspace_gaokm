@@ -107,12 +107,12 @@ class PaperReplayBacktestRequest(BaseModel):
         default=False,
         description=(
             "复用研究枢纽 Holdout 前半分档过滤宇宙（须先跑「观察池分档」）；"
-            "回测天数仍用 lookback（与 Holdout 独立）。研究套须在 Holdout 前训练。"
+            "回测天数仍用 lookback（与 Holdout 独立）。桌面勾选同步到 live 调仓闸。"
         ),
     )
     predictability_tiers: Optional[list] = Field(
         default=None,
-        description="允许入回测的可预测性档，默认 [\"A\",\"B\"]。仅 use_predictability_tiers 时生效。",
+        description="允许入回测/live 的可预测性档，默认 [\"A\",\"B\"]。仅 use_predictability_tiers 时生效。",
     )
     holdout_trading_days: Optional[int] = Field(
         default=None,

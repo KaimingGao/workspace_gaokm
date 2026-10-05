@@ -7,7 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.index.engine import build_relative, _pct
+from adapters.index.engine import build_relative, _pct
 from skills.index.handler import IndexHandler
 
 
@@ -41,13 +41,13 @@ class TestIndex(unittest.TestCase):
             "stock_name": "贵州茅台",
         }
         with patch(
-            "skills.index.engine.query_quote", return_value=fake_quote
+            "adapters.index.engine.query_quote", return_value=fake_quote
         ), patch(
-            "skills.index.engine.resolve_market_code", return_value=("CN", "600519")
+            "adapters.index.engine.resolve_market_code", return_value=("CN", "600519")
         ), patch(
-            "skills.index.engine.bars_and_source", return_value=(stock, "mock")
+            "adapters.index.engine.bars_and_source", return_value=(stock, "mock")
         ), patch(
-            "skills.index.engine.fetch_index_bars", return_value=(index, "沪深300")
+            "adapters.index.engine.fetch_index_bars", return_value=(index, "沪深300")
         ):
             result = build_relative("茅台", days=20)
 

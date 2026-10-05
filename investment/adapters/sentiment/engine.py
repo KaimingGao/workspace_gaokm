@@ -29,7 +29,7 @@ def _pick(row: dict, *keys: str) -> Any:
 
 
 def _fetch_zt_pool(date_s: str) -> List[dict]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "stock_zt_pool_em", None)
@@ -39,7 +39,7 @@ def _fetch_zt_pool(date_s: str) -> List[dict]:
 
 
 def _fetch_zt_previous(date_s: str) -> List[dict]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "stock_zt_pool_previous_em", None)
@@ -49,7 +49,7 @@ def _fetch_zt_previous(date_s: str) -> List[dict]:
 
 
 def _fetch_zt_broken(date_s: str) -> List[dict]:
-    from adapters.market.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "stock_zt_pool_zbgc_em", None)

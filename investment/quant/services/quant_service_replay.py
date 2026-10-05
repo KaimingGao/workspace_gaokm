@@ -700,6 +700,7 @@ class QuantReplayMixin:
             min_samples=int(kwargs.get("min_samples") or 24),
             save_draft=bool(kwargs.get("save_draft", True)),
             holdout_trading_days=int(kwargs.get("holdout_trading_days") or 20),
+            label_demean=bool(kwargs.get("label_demean") or False),
         )
 
     def promote_return_score_model(

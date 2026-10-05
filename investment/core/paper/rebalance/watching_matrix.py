@@ -109,7 +109,7 @@ def _apply_universe_fit_tier_filter(
     *,
     keep: Sequence[str] = (),
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """可预测性分档 live 闸：有 active 则按档过滤；无则不过滤。持仓 keep 始终保留。"""
+    """可预测性分档 live 闸：有 active（随历史回测分档勾选）则按档过滤；无则不过滤。持仓 keep 始终保留。"""
     from core.research.predictability_tiers import filter_codes_by_predictability_live
 
     return filter_codes_by_predictability_live(codes, keep=keep)

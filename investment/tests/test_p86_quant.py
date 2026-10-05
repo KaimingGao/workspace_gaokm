@@ -51,7 +51,7 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertIn("coefficients", out)
 
     def test_qr_ols_recovers_known_beta(self):
-        from quant.research.factor_ols import _fit_ols_once
+        from core.research.factor_ols_fit import _fit_ols_once
 
         xs = []
         ys = []
@@ -70,7 +70,7 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertAlmostEqual(fit["r_squared"] or 0.0, 1.0, places=4)
 
     def test_qr_ols_rejects_exact_collinear(self):
-        from quant.research.factor_ols import _fit_ols_once, _ols_with_intercept
+        from core.research.factor_ols_fit import _fit_ols_once, _ols_with_intercept
 
         xs = [{"a": float(i), "b": float(2 * i)} for i in range(20)]
         ys = [1.0 + 0.5 * float(i) for i in range(20)]
@@ -83,7 +83,7 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertIn("b", fit.get("dropped_collinear") or [])
 
     def test_ridge_keeps_collinear_and_shrinks(self):
-        from quant.research.factor_ols import _fit_ols_once, _ols_with_intercept
+        from core.research.factor_ols_fit import _fit_ols_once, _ols_with_intercept
 
         xs = []
         ys = []
@@ -116,7 +116,7 @@ class TestP86FactorOls(unittest.TestCase):
             self.assertLess(slope_l2(ridge), slope_l2(ols) + 1e-9)
 
     def test_prepare_drops_constant_on_complete_panel(self):
-        from quant.research.factor_ols import _prepare_complete_panel
+        from core.research.factor_ols_fit import _prepare_complete_panel
 
         # a 在全样本有波动；完整行上 a 常数 → 应剔除
         xs = [
@@ -143,7 +143,7 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertIn("c", active)
 
     def test_prepare_drops_low_variance(self):
-        from quant.research.factor_ols import _prepare_complete_panel
+        from core.research.factor_ols_fit import _prepare_complete_panel
 
         # low: 准常数（σ≪5）；hi1/hi2: 正常波动（保留≥2 个以免触发 relax）
         xs = []
@@ -170,7 +170,7 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertIn("low", names)
 
     def test_prepare_impute_keys_keeps_incomplete_rows(self):
-        from quant.research.factor_ols import _prepare_complete_panel
+        from core.research.factor_ols_fit import _prepare_complete_panel
 
         xs = []
         for i in range(24):

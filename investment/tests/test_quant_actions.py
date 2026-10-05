@@ -6,8 +6,7 @@ import unittest
 
 from quant.services.action_map import action_map
 from quant.services.quant_service import QuantService
-from quant.services.quant_service_portfolio import QuantPortfolioMixin
-from quant.services.quant_service_replay import QuantReplayMixin
+from quant.services.quant_service_replay import QuantPortfolioMixin, QuantReplayMixin
 
 
 class TestQuantActions(unittest.TestCase):

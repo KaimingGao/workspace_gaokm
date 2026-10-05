@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.fundamentals.engine import build_fundamentals, spot_to_metrics
+from adapters.fundamentals.engine import build_fundamentals, spot_to_metrics
 from skills.fundamentals.handler import FundamentalsHandler
 
 
@@ -30,14 +30,14 @@ class TestFundamentals(unittest.TestCase):
         }
         spot = {"代码": "600519", "名称": "贵州茅台", "最新价": 1500, "市盈率-动态": 22.0, "市净率": 7.5}
 
-        with patch("skills.fundamentals.engine.query_quote", return_value=fake_quote), patch(
-            "skills.fundamentals.engine.resolve_market_code", return_value=("CN", "600519")
+        with patch("adapters.fundamentals.engine.query_quote", return_value=fake_quote), patch(
+            "adapters.fundamentals.engine.resolve_market_code", return_value=("CN", "600519")
         ), patch(
-            "skills.fundamentals.engine.fetch_cn_spot_row", return_value=spot
+            "adapters.fundamentals.engine.fetch_cn_spot_row", return_value=spot
         ), patch(
-            "skills.fundamentals.engine.fetch_cn_valuation_latest", return_value={}
+            "adapters.fundamentals.engine.fetch_cn_valuation_latest", return_value={}
         ), patch(
-            "skills.fundamentals.engine.fetch_cn_financial_latest",
+            "adapters.fundamentals.engine.fetch_cn_financial_latest",
             return_value={"roe": 28.0, "revenue_growth": 12.0, "profit_growth": 10.0, "as_of": "2024-12-31", "source": "mock"},
         ):
             result = build_fundamentals("茅台")
@@ -65,10 +65,10 @@ class TestFundamentals(unittest.TestCase):
             "price_raw": 43.28,
             "change_raw": -7.76,
         }
-        with patch("skills.fundamentals.engine.query_quote", return_value=fake_quote), patch(
-            "skills.fundamentals.engine.resolve_market_code", return_value=("HK", "01024")
+        with patch("adapters.fundamentals.engine.query_quote", return_value=fake_quote), patch(
+            "adapters.fundamentals.engine.resolve_market_code", return_value=("HK", "01024")
         ), patch(
-            "skills.fundamentals.engine.fetch_hk_spot_row",
+            "adapters.fundamentals.engine.fetch_hk_spot_row",
             return_value={"代码": "01024", "市盈率": 22.5, "总市值": "1800亿"},
         ):
             result = build_fundamentals("快手")

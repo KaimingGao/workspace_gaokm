@@ -129,25 +129,7 @@ python3 main.py
 5. 末尾附带风险声明（量化研究与模拟 / 不保证收益 / 不代客下单）。
 ```
 
-**一次实盘拉取到的行情事实示例**（数字会随交易日变化，以下为某次采样）：
-
-| 项目 | 示例值 |
-|------|--------|
-| 标的 | 快手-W（01024.HK） |
-| 现价 | HK$43.28 |
-| 当日涨跌 | -7.76%（-HK$3.64） |
-| 日内区间 | 开 47.18 / 高 47.40 / 低 43.06 |
-| 成交量 | 约 8363 万 |
-| 短线评分（1～3 天） | 约 38.9 / 100（偏弱） |
-| 短线失效参考 | 约 HK$41.98（现价约 -3%） |
-| 评分数据源 | 可能为 `quote_fallback`（港股日线未拉到时因子偏粗） |
-
-**解读结构示例（逻辑示意，非实时结论）**：
-
-1. **事实**：当日大跌、开高走低，短线分偏低 → 近 1～3 天动能偏弱。  
-2. **短期持仓参考**：偏观望/防守；已持仓关注能否站稳低点附近，跌破失效位则降低短线优先级；未持仓不宜把急跌直接当成必反弹信号。  
-3. **长期持仓参考**：长期看生意（短视频/电商/广告变现、竞争与盈利质量），单日大跌多属波动；加减仓宜基于基本面与仓位纪律，而非仅凭当日阴线。  
-4. **风险**：策略结论不等于下单指令，不保证收益。
+> 行情数字随交易日变化，不固定。解读结构（事实 → 短期观察 → 长期参考 → 风险声明）见 [§ 判断是否买入的依据](#判断是否买入的依据是什么)。
 
 ### 路径 B：无 LLM 时复现数据层（调试用）
 
@@ -157,7 +139,7 @@ python3 main.py
 cd investment
 
 # 1) 行情
-python3 -c "from adapters.market import StockAPI; import json; print(json.dumps(StockAPI.query('快手'), ensure_ascii=False, indent=2))"
+python3 -c "from adapters.market.quote_api import StockAPI; import json; print(json.dumps(StockAPI.query('快手'), ensure_ascii=False, indent=2))"
 # 等价：StockAPI.query('01024')
 
 # 2) 短线观察池 / 评分
@@ -194,7 +176,7 @@ python3 evals/run_checklist.py --mock --presets          # golden + preset 校�
 python3 run_web.py                                       # Web → 顶栏工具页
 ```
 
-详见 [quant.md](quant.md)（入门概念 + 运维）· [quant-upgrade.md](archive/quant-upgrade.md)。
+详见 [quant.md](quant.md)（入门概念 + 运维）· [quant-summary.md](archive/quant-summary.md)（P6～P33 总览）。
 
 ## 无 LLM 时直接测模块
 
@@ -203,7 +185,7 @@ Skill 可脱离 Agent 单独调用，便于调试数据层：
 ```bash
 cd investment
 # 行情
-python3 -c "from adapters.market import StockAPI; print(StockAPI.query('茅台'))"
+python3 -c "from adapters.market.quote_api import StockAPI; print(StockAPI.query('茅台'))"
 
 # 短线观察池（无 akshare 时自动用行情退化评分）
 python3 -c "from skills.signal.handler import SignalHandler; print(SignalHandler().execute({'parameters':{'stock_codes':['茅台','招商银行'],'horizon_days':3}}))"
@@ -295,7 +277,7 @@ Web 量化面板：quant preset daily 完成后自动加载 **Markdown 导出预
 
 顶栏 **「纸面」** → 净值曲线、初始化、跑观察池、**每日任务**。  
 顶栏 **「持仓」** → 规则 action / stance；**「打开量化」** / **「量化对照」** 跳转量化联动面板。  
-顶栏 **「量化」** → watching / 横截面 / 组合回测 / diff / daily preset 运维等，详见 [quant-ops.md](quant.md#量化运维)。
+顶栏 **「量化」** → watching / 横截面 / 组合回测 / diff / daily preset 运维等，详见 [quant.md · 量化运维](quant.md#量化运维)。
 
 ## 扩展新 Skill（约定）
 
@@ -338,6 +320,56 @@ Web 量化面板：quant preset daily 完成后自动加载 **Markdown 导出预
 | 模拟持仓与规则 | `data/paper.json` / `position_rules.json` | `position` |
 
 ---
+
+## prompts.py 说明
+
+<a id="promptspy-说明"></a>
+
+文件：[`agent/prompts.py`](../agent/prompts.py)。它**不取数、不算规则**，只定义「AI 如何服务量化工作流」——认知层的**行为说明书**。选哪个 Skill 由 LLM + `tool_config.json` 完成；`prompts` 负责约束角色、路由偏好、回复结构与合规红线。
+
+**在链路中的位置**：
+
+```text
+InvestmentAgent 启动
+  → messages = [{ role: system, content: SYSTEM_PROMPT }]   ← prompts 注入
+  → 用户问题 / tool 结果不断 append
+  → 每轮 llm.chat(messages, tools=...)
+  → 最终回复若缺免责声明 → Agent 用 DISCLAIMER 兜底追加
+```
+
+`reset` 清空对话但**保留**这条 `system`。
+
+**导出内容**：
+
+| 符号 | 用途 | 是否已被 Agent 使用 |
+|------|------|---------------------|
+| `SYSTEM_PROMPT` | 主系统提示：身份、工具清单、路由规则、输出结构、买入类问题必答节、拒答边界 | **是**（`messages[0]`） |
+| `DISCLAIMER` | 「以上为量化研究与模拟结论，市场有风险，不保证收益，不代客下单。」 | **是**（`_ensure_disclaimer` 兜底；也写在 SYSTEM_PROMPT 里） |
+| `ANALYSIS_HINT` | 解读类补充提示（事实→观察→风险） | 已定义，当前 Agent **未自动注入**（预留） |
+| `SHORT_HORIZON_HINT` | 短线 1～3 天用语约束 | 已定义，当前 Agent **未自动注入**（预留） |
+
+**SYSTEM_PROMPT 解决什么问题**：
+
+| 块 | 作用 |
+|----|------|
+| 角色定位 | 量化助手：解释信号/策略结论与回测模拟结果，非持牌投顾 |
+| 可用工具列表 | 与 `registry` 中 10 个 Skill 对齐的自然语言说明，辅助选工具 |
+| 路由规则 | 软引导（如持仓→`position`；「是否可以买入」→至少 `quote+kline+signal`），**不是**代码 if/else |
+| 输出要求 | 数字须来自工具；高信息密度；建议须与事实一致 |
+| 「是否可以买入」必答节 | 「策略结论：是否买入」：规则结论 + 依据 + 失效条件 |
+| 拒答边界 | 保证收益、代客下单、内幕/违法等 |
+
+**与 `tool_config.json` 的分工**：
+
+| | `prompts.py` | `tool_config.json` |
+|--|--------------|---------------------|
+| 粒度 | 全局行为（整次对话） | 单个工具的说明书 |
+| 影响 | 怎么答、答到什么程度、合规 | 什么时候适合调这个工具、参数怎么填 |
+| 修改时机 | 改话术策略、路由偏好、合规 | 新增/调整某个 Skill 的对外描述 |
+
+**和代码兜底的关系**：
+- 模型侧：`SYSTEM_PROMPT` 要求结尾自带免责声明、禁止荐股口吻。
+- 代码侧：`InvestmentAgent._ensure_disclaimer` 命中投资关键词且回复缺少 `DISCLAIMER` 时**强制追加**——双保险。
 
 ---
 

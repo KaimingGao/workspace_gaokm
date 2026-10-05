@@ -10,6 +10,7 @@
 | `index_bars.py` | 指数日线 |
 | `stock_search.py` | 名称/代码搜索 |
 | `ak_worker.py` | AkShare 进程池 |
-| `ak_lock.py` | 兼容导出 → `core.data.ak_lock` |
+
+AkShare 串行锁：`core.data.ak_lock`（进程内串行；不再在 adapters 层 re-export）。
 
 绑定入口：`adapters.bind.bind_market_adapters`。

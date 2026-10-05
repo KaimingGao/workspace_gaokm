@@ -71,7 +71,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
                 return _Frame()
 
         with patch(
-            "adapters.market.ak_lock.import_akshare", return_value=_Ak()
+            "core.data.ak_lock.import_akshare", return_value=_Ak()
         ), patch(
             "core.http_retry.call_with_retry", side_effect=lambda fn, **_k: fn()
         ), patch.dict(os.environ):
@@ -130,7 +130,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
 
                 return _Frame()
 
-        with patch("adapters.market.ak_lock.import_akshare", return_value=_Ak()), patch(
+        with patch("core.data.ak_lock.import_akshare", return_value=_Ak()), patch(
             "adapters.market.sina_minute.fetch_sina_tx_minute_bars"
         ) as old:
             bars, meta = mh._maybe_fetch_sina_minute_bars(
