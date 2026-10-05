@@ -119,7 +119,7 @@ flowchart LR
 | 监控自动改 `signal_config` | 把告警当成已验证的因果结论并静默执行 |
 | 券商 OMS 未闸门上线 | 把「影响估计」直接变成不可撤销的真实下单 |
 
-更细的逻辑链（数据→信号→因子→倾向→动作）见下文；PIT 约定见 [architecture.md · 数据层](architecture.md#数据层)；风控对照见 [architecture.md · 风控层](architecture.md#风控层)。
+更细的逻辑链（数据→信号→因子→倾向→动作）见下文；PIT 约定见 [architecture.md · 数据层](component/data.md#数据层data-layer)；风控对照见 [architecture.md · 风控层](component/risk.md#风控模型risk-layer)。
 
 ---
 
@@ -174,7 +174,7 @@ flowchart LR
 | 频率 | 来源 | 缓存 |
 |------|------|------|
 | 日线 | AkShare 等 · DataService | `daily` / `bars.db` |
-| 5m 分钟 | AkShare 东财（近）+ BaoStock（深） | `minute_bars`；强更见 [architecture · 分钟线采集](architecture.md#分钟线采集架构akshare--baostock) |
+| 5m 分钟 | AkShare 东财（近）+ BaoStock（深） | `minute_bars`；强更见 [architecture · 分钟线采集](component/data.md#分钟线采集架构akshare--baostock) |
 
 分钟数据服务于 **path 标签 / 做 T 回测 / Worker 5m 盯盘**。调仓 rank_lots 主排序是 ŷ_oo 与 ŷ_τc 的加权。
 
@@ -396,7 +396,7 @@ flowchart LR
 |----|------|------|
 | 清洗门禁 | **已落地** | `allows_production_score`；`score_stock` 对 thin/empty/fallback → `hard_reject` |
 | 复权策略进 manifest | **已落地** | `adjust_policy=qfq` 顶层字段；`summarize_data_quality.gated_count` |
-| PIT 最小约定 | **文档化** | [architecture.md · 数据层](architecture.md#数据层) |
+| PIT 最小约定 | **文档化** | [architecture.md · 数据层](component/data.md#数据层data-layer) |
 | OOS 失败标红 | **已落地** | `oos_summary.failed`；组合回测指标卡 / 摘要 `down` |
 | optimize 进调仓建议 | **已落地** | `last_optimize` / `target_weights` 进 ops_report 与日更/横截面；新开仓受目标仓上限 |
 | StrategySpec 限额 | **已落地** | `StrategySpec.risk` / `paper.rules` 调仓前门禁；只读暴露在仪表盘，策略中心不挂审计折叠 |
@@ -565,7 +565,7 @@ bars (+ quote / 基本面)
 | **回溯** | 历史上若 score≥阈值则持有 N 日 | 回测引擎 / StrategySpec |
 | **对话「能不能买」** | 只输出倾向标签 | stance；AI 不得改写 |
 
-StrategySpec（如 `short_conservative` + 成本模型 `simple_cn`）把信号参数、纸面规则、风控限额绑成可版本化规格。见 [architecture.md · 策略层](architecture.md#策略层)、[architecture.md · 风控层](architecture.md#风控层)。
+StrategySpec（如 `short_conservative` + 成本模型 `simple_cn`）把信号参数、纸面规则、风控限额绑成可版本化规格。见 [architecture.md · 策略层](component/strategy.md#策略层strategy-layer)、[architecture.md · 风控层](component/risk.md#风控模型risk-layer)。
 
 产品主路径三件事（**观察 ≠ 模拟**）：
 
@@ -711,7 +711,7 @@ data/*.json   → 配置与账本落盘
 | 基本面 `fundamentals` | A 股 PE/PB/ROE/增速等 | 中 |
 | 同行 `peer` | 预设同业组横向对比 | 中低 |
 | 相对强弱 `index` | 近 N 日相对沪深300/恒生超额 | 中 |
-| 资讯 `news` | 标题摘要（非全文研报） | 中低；数值化舆情见 [architecture.md · 舆情层](architecture.md#舆情层) |
+| 资讯 `news` | 标题摘要（非全文研报） | 中低；数值化舆情见 [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment--alt-data) |
 | 持仓 `position` | 文件/临时 holdings + 可配置规则 | 中 |
 | 解读/咨询 | prompt + 多工具串联 | 中 |
 | 产品形态 | CLI + Web | MVP |
@@ -731,7 +731,7 @@ data/*.json   → 配置与账本落盘
 | **阶段** | **策略验证**（回测 + 纸面） | 研究 → 仿真 → **实盘** |
 | 输出 | 自然语言策略解读（旁路）+ 确定性 score/stance | 确定性信号 → 回测 → 执行 → 监控 |
 | 决策 | 规则事实为主；LLM 合成解释 | 策略代码为主，LLM 可选做解读 |
-| 数据 | DataService + 观察池增量/快照缓存（见 [architecture.md · 数据层](architecture.md#数据层)） | 统一 DataService、完整 PIT、本地历史库 / 多源对齐 |
+| 数据 | DataService + 观察池增量/快照缓存（见 [architecture.md · 数据层](component/data.md#数据层data-layer)） | 统一 DataService、完整 PIT、本地历史库 / 多源对齐 |
 | 验证 | 回测 · OOS/WF · IC · 简化归因 · evals | 回测、样本外、IC/IR、完整归因、冲击模型 |
 | 交易 | **现行不代客下单**（纸面验证） | OMS / 券商 API |
 
@@ -743,7 +743,7 @@ data/*.json   → 配置与账本落盘
 |------|------|----------------|--------|
 | **A 量化研究台** | 历史库、回测、因子报告；LLM 只解释 JSON | 复用 `signal/scorer`、`history` | **P4 已落地** |
 | **B 半自动量化** | 定时信号、纸面账户、净值曲线 Web | 在 A 之上加调度与持久化 | **P5 已落地** |
-| **C 生产量化** | 实盘/仿真、风控、OMS |  largely 新建，仅复用因子；风控演进见 [architecture.md · 风控层](architecture.md#风控层) | 远期 |
+| **C 生产量化** | 实盘/仿真、风控、OMS |  largely 新建，仅复用因子；风控演进见 [architecture.md · 风控层](component/risk.md#风控模型risk-layer) | 远期 |
 
 **继续不做**：自动下单、保证收益、黑盒荐股。
 
@@ -1008,7 +1008,7 @@ Data(PIT/缓存) → Factors/Signal → Strategy(版本) → Backtest/OOS → Pa
 3. **晋级闸门**：research 配置 diff → 人工确认 → promote 到 paper 使用的策略版本（禁止静默覆盖 `signal_config`，延续现有纪律）。  
 4. 回测 CLI / `paper/run` / 调仓预演均声明 `strategy_id@version`。
 
-**产出**：`core/backtest/strategies.py`（或 `core/strategy/`）扩展；单测；`architecture.md#策略层` 更新。
+**产出**：`core/backtest/strategies.py`（或 `core/strategy/`）扩展；单测；`component/strategy.md#策略层strategy-layer` 更新。
 
 ### Q3 · 端口封死 + 可复现契约
 
@@ -1251,7 +1251,7 @@ N1 ──► N2 ──► N3 ──► N4 ──► N5 ──►（闸门）N6
 
 ### 架构升级 D1–D6（骨架）
 
-对应 [architecture.md · 控制论闭环](architecture.md#控制论视角感知决策执行反馈闭环) 的工程补强；**不**开通实盘 OMS / 在线 RL（RL 概念映射见 [architecture.md · RL 视角](architecture.md#强化学习rl视角)）。
+对应 [architecture.md · 控制论闭环](architecture.md#控制论视角感知决策执行反馈闭环) 的工程补强；**不**开通实盘 OMS / 在线 RL（RL 概念映射见 [architecture.md · RL 视角](component/rl.md#强化学习rl视角)）。
 
 | 编号 | 方向 | 落点 | API |
 |------|------|------|-----|

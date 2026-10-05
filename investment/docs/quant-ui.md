@@ -140,7 +140,7 @@ python3 run_web.py
 7. 确认后，表下 **建仓记录** 按日分组展示（名称 · 股数 · 价 · 金额），与模拟页交易记录同构；无历史流水时用当前持仓兜底
 
 建仓一律按现价假买、不打分，成交后在模拟页持仓标为 **手动**。  
-舆情细节见 [architecture.md · 舆情层](architecture.md#舆情层)。
+舆情细节见 [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment--alt-data)。
 
 ### ③ 对话：解读与问答
 
@@ -224,9 +224,9 @@ python3 run_web.py
 | [**quant-ui-gap.md**](quant-ui.md#web-ui-相对专业量化终端的差距分析) | **相对专业量化终端的 UI/功能差距**（边界外 / 路径内 / 取向） |
 | [**quant-ui-upgrade.md**](quant-ui.md#web-ui-全面优化升级方案) | **全面升级方案**（W0–W4 · 验收 · 下一刀） |
 | [quant.md · 入门概念](quant.md#量化入门概念) | 名词 · 测试类型 · 涨跌归因边界 |
-| [architecture.md · 策略层](architecture.md#策略层) | 策略图纸（进阶） |
-| [architecture.md · 风控层](architecture.md#风控层) | 风控 |
-| [architecture.md · 数据层](architecture.md#数据层) | 数据 |
+| [architecture.md · 策略层](component/strategy.md#策略层strategy-layer) | 策略图纸（进阶） |
+| [architecture.md · 风控层](component/risk.md#风控模型risk-layer) | 风控 |
+| [architecture.md · 数据层](component/data.md#数据层data-layer) | 数据 |
 | [quant.md](quant.md) | 原理 |
 | [development.md · 快速上手](development.md#快速上手) | 安装 |
 

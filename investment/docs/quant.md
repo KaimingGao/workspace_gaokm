@@ -1,6 +1,6 @@
 # 量化原理与实现逻辑
 
-[← 文档索引](README.md) · **产品主轴**见 [design-spine.md](design-spine.md) · 入门名词见 **[§ 量化入门概念](#量化入门概念)** · **Web 面板用法**见 [量化研究台说明书](quant-ui.md) · 策略层抽象见 [architecture.md · 策略层](architecture.md#策略层)
+[← 文档索引](README.md) · **产品主轴**见 [design-spine.md](design-spine.md) · 入门名词见 **[§ 量化入门概念](#量化入门概念)** · **Web 面板用法**见 [量化研究台说明书](quant-ui.md) · 策略层抽象见 [architecture.md · 策略层](component/strategy.md#策略层strategy-layer)
 
 本节说明本项目 **量化研究台** 的设计原理与代码实现路径：数字与结论由 **确定性 Python** 计算，LLM 只解读 JSON，**不得改写** `score` / `stance_label`。各阶段交付物见 [升级规划](design-spine.md#能力评估与升级规划路线图视角)；此处聚焦 **为什么这样设计** 与 **代码里怎么串**。
 
@@ -387,7 +387,7 @@ python3 research/t0_backtest_run.py --code 茅台 --json
 
 ### 第五层：数据缓存与可复现（`core/store.py`）
 
-数据层全景（采集 / 清洗 / 存储 / 服务 / 监控、PIT 边界、演进）见 **[architecture.md · 数据层](architecture.md#数据层)**。本节只记日线缓存与可复现。
+数据层全景（采集 / 清洗 / 存储 / 服务 / 监控、PIT 边界、演进）见 **[architecture.md · 数据层](component/data.md#数据层data-layer)**。本节只记日线缓存与可复现。
 
 **路径**：`data/store/daily/{CN|HK|US}/{code}.json`（不入 git）
 
@@ -506,7 +506,7 @@ Walk-forward（第三层）≈ **时间序列交叉验证**，而非 random K-fo
 | accuracy / F1 | PnL、回撤、换手、成本 |
 | 过拟合 → 验证掉点 | 过拟合 → **回测很美、样本外很差** |
 
-回测模拟的是 **策略 PnL 路径**，更接近 **offline policy evaluation**（强化学习术语），而非单纯「分类准确率」。Policy / Reward / Environment 与本仓库边界见 [architecture.md · RL 视角](architecture.md#强化学习rl视角)。
+回测模拟的是 **策略 PnL 路径**，更接近 **offline policy evaluation**（强化学习术语），而非单纯「分类准确率」。Policy / Reward / Environment 与本仓库边界见 [architecture.md · RL 视角](component/rl.md#强化学习rl视角)。
 
 #### stance / hard_reject = 决策层（非模型本体）
 
@@ -707,7 +707,7 @@ score_bars → sub_scores（特征）
 | 信号 | 加权 + hard_reject + stance 降档 | 多策略组合、优化器 |
 | 回测 | 单票/组合 + 成本/撮合近似 + 简化归因 | 事件驱动、冲击模型、完整 Brinson/因子归因 |
 | 执行 | 纸面 JSON | OMS、券商 API |
-| 风控 | 纸面止损/仓位上限 + 行业限额 + regime（详见 [architecture.md · 风控层](architecture.md#风控层)） | 实时止损、VaR、限额、多风险因子 |
+| 风控 | 纸面止损/仓位上限 + 行业限额 + regime（详见 [architecture.md · 风控层](component/risk.md#风控模型risk-layer)） | 实时止损、VaR、限额、多风险因子 |
 | 决策 | stance 规则 + LLM 解读 | 纯代码为主 |
 
 
@@ -913,11 +913,11 @@ python3 research/paper_run.py --init
 |------|------|
 | [Web 说明书](quant-ui.md) | 五页说明书 |
 | [策略层说明](architecture.md) | 策略层与设计文档模板 |
-| [architecture.md · 风控层](architecture.md#风控层) | 风控 · Alpha×Risk |
-| [architecture.md · RL 视角](architecture.md#强化学习rl视角) | 强化学习视角（远期） |
-| [architecture.md · 舆情层](architecture.md#舆情层) | 舆情 → 风险分（研究向） |
+| [architecture.md · 风控层](component/risk.md#风控模型risk-layer) | 风控 · Alpha×Risk |
+| [architecture.md · RL 视角](component/rl.md#强化学习rl视角) | 强化学习视角（远期） |
+| [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment--alt-data) | 舆情 → 风险分（研究向） |
 | [量化原理](#量化原理与实现逻辑) | 量化原理 |
-| [architecture.md · 数据层](architecture.md#数据层) | 数据层与 PIT 边界 |
+| [architecture.md · 数据层](component/data.md#数据层data-layer) | 数据层与 PIT 边界 |
 | [architecture.md](architecture.md) | 系统架构 |
 
 ---
@@ -1503,7 +1503,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 
 - 目标：滚动夏普 / 卡玛，约束回撤与成本（与北极星分子同构）。  
 - 方法：网格 / 贝叶斯搜索 + walk-forward；或离线策略评估（IPS）——**先不要上在线 RL**。  
-- 与 [architecture.md · RL 视角](architecture.md#强化学习rl视角) 一致：纸面是 Environment；今日 Policy 仍须可审计、人审 promote。
+- 与 [architecture.md · RL 视角](component/rl.md#强化学习rl视角) 一致：纸面是 Environment；今日 Policy 仍须可审计、人审 promote。
 
 **L4 — 表示 / 模型升级（样本够再做）**
 
@@ -1562,7 +1562,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 日更 | `core/schedule_jobs.py` · [quant.md · 运维](quant.md#量化运维) |
 | 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名） |
 | 产品定位 | [design-spine.md](design-spine.md) · [quant.md · 入门概念](quant.md#量化入门概念) |
-| RL 边界 | [architecture.md · RL 视角](architecture.md#强化学习rl视角) |
+| RL 边界 | [architecture.md · RL 视角](component/rl.md#强化学习rl视角) |
 
 ---
 
