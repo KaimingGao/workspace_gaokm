@@ -565,7 +565,7 @@ bars (+ quote / 基本面)
 | **回溯** | 历史上若 score≥阈值则持有 N 日 | 回测引擎 / StrategySpec |
 | **对话「能不能买」** | 只输出倾向标签 | stance；AI 不得改写 |
 
-StrategySpec（如 `signal_v1` + 成本模型 `simple_cn`）把信号参数、纸面规则、风控限额绑成可版本化规格。见 [architecture.md · 策略层](architecture.md#策略层)、[architecture.md · 风控层](architecture.md#风控层)。
+StrategySpec（如 `short_conservative` + 成本模型 `simple_cn`）把信号参数、纸面规则、风控限额绑成可版本化规格。见 [architecture.md · 策略层](architecture.md#策略层)、[architecture.md · 风控层](architecture.md#风控层)。
 
 产品主路径三件事（**观察 ≠ 模拟**）：
 
@@ -579,7 +579,7 @@ StrategySpec（如 `signal_v1` + 成本模型 `simple_cn`）把信号参数、�
 
 | 用户感知 | 系统真实能力 | 校准 |
 |----------|--------------|------|
-| **(1)** 不定期手动「策略调仓」，用一段时间纸面表现验 `short` / `short_conservative` | 交易执行：预演→确认；持仓标 `strategy`；净值可累积 | **结构层验证**：截面 Alpha → 持仓结构 → 持有期收益；**纸面流程验证**，不是完整科学验证。名单/建仓常来自数据中心**人工**；持仓可混手动+策略，归因不干净。应配合历史回测、五问、风控、北极星 Corr/TE |
+| **(1)** 不定期手动「策略调仓」，用一段时间纸面表现验 `short_conservative` | 交易执行：预演→确认；持仓标 `strategy`；净值可累积 | **结构层验证**：截面 Alpha → 持仓结构 → 持有期收益；**纸面流程验证**，不是完整科学验证。名单/建仓常来自数据中心**人工**；持仓可混手动+策略，归因不干净。应配合历史回测、五问、风控、北极星 Corr/TE |
 | **(2)** 「做 T 回测」验 T 策略 | 做 T 回测 + 预演/确认做 T（ExecutionSpec overlay）；刷新恢复上次落盘，不重跑 | **执行 overlay 验证**：底仓上 5m 往返价差；**非**独立选股 Alpha；仅 5m 第一触达（已删除日线模拟） |
 
 **策略调仓 vs 底仓做 T（产品定义）**
@@ -751,7 +751,7 @@ data/*.json   → 配置与账本落盘
 
 | 阶段 | 交付物 | 状态 |
 |------|--------|------|
-| **P4.1** | `core/backtest/engine.py` + `backtest` Skill（signal_v1 walk-forward） | **已落地** |
+| **P4.1** | `core/backtest/engine.py` + `backtest` Skill（short_conservative walk-forward） | **已落地** |
 | **P4.2** | 日线本地缓存 `data/store/`、质量标记 | **已落地** |
 | **P4.3** | 回测报告扩展：基准对比、分层收益、参数扫描 CLI | **已落地** |
 | **P4.4** | evals 增加「信号可复现性」（同输入同输出，不依赖 LLM） | **已落地** |
@@ -771,7 +771,7 @@ data/*.json   → 配置与账本落盘
 
 **目录**：`core/backtest/engine.py`（引擎） + `skills/backtest/`（Agent 工具）
 
-**策略 `signal_v1`**：Walk-forward 调用 `score_bars`（详见 [量化原理 · 第三层](quant.md#第三层历史回测walk-forward)）；分数 ≥ `min_score` 且非 `hard_reject` 时，模拟持有 `horizon_days` 日；输出胜率、均收益、累计收益、最大回撤、夏普近似。
+**策略 `short_conservative`**：Walk-forward 调用 `score_bars`（详见 [量化原理 · 第三层](quant.md#第三层历史回测walk-forward)）；分数 ≥ `min_score` 且非 `hard_reject` 时，模拟持有 `horizon_days` 日；输出胜率、均收益、累计收益、最大回撤、夏普近似。
 
 **局限（须在回复中说明）**：未含手续费/滑点/涨跌停/T+1；与 live `signal` 的 `quote_fallback` 数据源可能不一致；**研究结果 ≠ 实盘建议**。
 
@@ -985,7 +985,7 @@ Data(PIT/缓存) → Factors/Signal → Strategy(版本) → Backtest/OOS → Pa
 | 阶段 | 主题 | 周期（建议） | 依赖 | 验收标准 | 状态 |
 |------|------|--------------|------|----------|------|
 | **Q1** | 重心与契约 | 1～2 周 | — | 文档/叙事一致；architecture 主轴=量化管线 | **已落地** |
-| **Q2** | Strategy 生命周期 | 2～3 周 | Q1 | `StrategySpec` 收编 signal_v1；research→paper 有显式 promote | **已落地** |
+| **Q2** | Strategy 生命周期 | 2～3 周 | Q1 | `StrategySpec` 收编 short_conservative；research→paper 有显式 promote | **已落地** |
 | **Q3** | 数据端口 + 运行清单 | 2～3 周 | Q1 | `core` 经 ports；每次回测/调仓写出 manifest | **已落地** |
 | **Q4** | 风控 + 成交默认 | 2～3 周 | Q2 | DD/限额进调仓前；默认 `simple_cn` | **已落地** |
 | **Q5**（可选） | 产品重力 | 1～2 周 | Q2 | 调仓/回溯优先；深度买入长文可选 | **已落地** |
@@ -1004,7 +1004,7 @@ Data(PIT/缓存) → Factors/Signal → Strategy(版本) → Backtest/OOS → Pa
 ### Q2 · Strategy 对象与生命周期（核心）
 
 1. 定义 `StrategySpec`（宇宙、参数、风控钩子、成交模型、版本号）。  
-2. 将现有 `signal_v1` + `paper.rules` 相关阈值收进第一版 Strategy。  
+2. 将现有 `short_conservative` + `paper.rules` 相关阈值收进第一版 Strategy。  
 3. **晋级闸门**：research 配置 diff → 人工确认 → promote 到 paper 使用的策略版本（禁止静默覆盖 `signal_config`，延续现有纪律）。  
 4. 回测 CLI / `paper/run` / 调仓预演均声明 `strategy_id@version`。
 

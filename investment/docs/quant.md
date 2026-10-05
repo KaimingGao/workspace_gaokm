@@ -163,7 +163,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 ### 第三层：历史回测（Walk-forward）
 
 **模块**：`core/backtest/engine.py`（`backtest_signal_on_bars`）  
-**Skill**：`backtest`（`strategy=signal_v1`）
+**Skill**：`backtest`（`strategy=short_conservative`）
 
 #### 原理：避免前视偏差
 
@@ -605,7 +605,7 @@ score_bars → sub_scores（特征）
 ŷ = α + Σ βᵢ · zᵢ     # ReturnScoreModel → predicted_score = 选股真源
 ```
 
-训练 / 打分 / 回测 / 复盘 / 纸面执行的时间口径与产物流转见 **[quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)**。
+训练 / 打分 / 回测 / 纸面执行的时间口径与产物流转见 **[quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)**。
 
 | 层级 | 现在是什么 | 不是什么 |
 |------|------------|----------|
@@ -927,9 +927,9 @@ python3 research/paper_run.py --init
 
 ## predicted_score（ŷ）全链路
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 复盘细节 [quant.md · 复盘](quant.md#昨日复盘score-review) · 运维定时 [quant.md · 运维](quant.md#量化运维) · **盘中/实时增强** [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · **τ 契约与分组升级** [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级)
+[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 运维定时 [quant.md · 运维](quant.md#量化运维) · **盘中/实时增强** [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · **τ 契约与分组升级** [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级)
 
-本文梳理 **训练 → 打分 → 回测 / 复盘 / 验证 → 纸面执行** 的同一套时间口径与产物流转。  
+本文梳理 **训练 → 打分 → 回测 / 验证 → 纸面执行** 的同一套时间口径与产物流转。  
 目标：任何人看到页面上的「评分 / score / ŷ」，都能回答「它在预测什么、该和谁对账、会不会自动改 β」。
 
 > **实时 / 主题日**：ŷ_oo 主轴不变；开盘缺口与剩余收益头见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。  
@@ -970,7 +970,7 @@ python3 research/paper_run.py --init
 站在交易日 \(t\) 打分时：只用 **\(t\) 及以前** 已完成的日线（及 PIT 财务等）算因子。  
 \(t\) 日盘中若尚无当日完整 K 线，实际因子截止日通常是 **上一交易日 \(t-1\)**。
 
-### 2.2 标签 \(y\)（训练与复盘同一公式）
+### 2.2 标签 \(y\)（训练与验证同一公式）
 
 \[
 y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 100
@@ -993,17 +993,16 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 \]
 
 写入 / 展示字段多为 `predicted_score` / `score`（收益分，单位 %）。  
-方向命中：\(\mathrm{sign}(\hat y)=\mathrm{sign}(y)\)（\(|\hat y|<0.05\%\) 视为无方向，见复盘）。
+方向命中：\(\mathrm{sign}(\hat y)=\mathrm{sign}(y)\)（\(|\hat y|<0.05\%\) 视为无方向）。
 
 ### 2.4 `horizon_days` 默认（易混）
 
 | 来源 | 常见默认 | 用途 |
 |------|----------|------|
-| `signal_config.scoring.horizon_days` | **1**（现网；曾长期为 3） | 配置契约；打分 / 复盘 / promote 校验 |
+| `signal_config.scoring.horizon_days` | **1**（现网；曾长期为 3） | 配置契约；打分 / 回测 / promote 校验 |
 | 研究枢纽「持有期」`#quant-horizon` | **1** | **跑分组** 读页面时；产品 `/replay` 不读此项 |
-| 昨日复盘 Horizon 下拉 | **1**（可选更长） | 对账标签长度 |
 
-**原则**：估 β、打 ŷ、复盘 \(r_h\)、回测持有期应使用**同一 \(h\)**；改 UI 持有期后需重跑分组并 promote，再谈 live 一致性。
+**原则**：估 β、打 ŷ、回测持有期应使用**同一 \(h\)**；改 UI 持有期后需重跑分组并 promote，再谈 live 一致性。
 
 > **方法论**：日级趋势与做 T 方向采用 **多频率 · 多目标 · Ensemble/Bagging**，见 [design-spine · 预估方法论](design-spine.md#预估方法论)。
 
@@ -1030,7 +1029,7 @@ C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scal
 **硬规则**
 
 1. 两套字段并存；禁止用 τ 特征改写 `predicted_score` 却仍对账 oo 标签。  
-2. 复盘分别报 IC(ŷ_oo, y_oo) 与 IC(ŷ_τ, y_τ)；ŷ_τ 对账 **open→close**。  
+2. 验证分别报 IC(ŷ_oo, y_oo) 与 IC(ŷ_τ, y_τ)；ŷ_τ 对账 **open→close**。  
 3. **禁止** 把缺口折进 ŷ_oo / 校准。ŷ_oo 已在估今开→明开；融合时把 **ŷ_τ 用缺口抬到昨收口径**，不要把 ŷ_oo 映成 rem 再与 ŷ_τ 加权。  
 4. **禁止** `ŷ_oo_rem + ŷ_τ`：ŷ_τ 已是完整 OC 预估，再加 ŷ_oo_rem 会双重计数。  
 5. **两套模型独立训练、互不依赖**。ŷ_oo 不进 τ 的标签/特征；τ 不残差化 ŷ_oo。ŷ_oo_rem 只是映射，不是第三套模型。权重只在决策时合成 ŷ_trade。  
@@ -1136,7 +1135,7 @@ open(t-1) ──y_co(t)──► open(t) ──y_τ(t)──► close(t)
 3. \(y_{\mathrm{ON}}\) 规划为 **风控旁路**（缩仓 / 撤买单），**默认不进主排序**；落地前以 `gap_risk` · `event_prior` 作弱替代。  
 4. 执行：收盘前减仓若要 **挡当夜隔夜**，须 **当日收盘前可成交**。纸面 `next_open`：**盘中按现价可成交**；**收盘后**只挂次日开盘，**挡不住当夜**。回测默认 `next_open` 仍是信号日收盘决策、次日开盘成交（见 [quant.md · 运维](quant.md#量化运维)）。
 
-规划字段：`predicted_score_on` / `y_spec_co` / `data/live/co_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/co-ridge`（轮询 `GET /api/jobs/co-ridge`）。
+规划字段：`predicted_score_on` / `y_spec_co` / `data/live/co_ridge_model.json`；验证 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/co-ridge`（轮询 `GET /api/jobs/co-ridge`）。
 
 曾试过 ŷ_next（下一窗 VWAP）与 ŷ_r（\(C/C_r\)）作做 T 研究头；OOS 符号命中约 50%，已从枢纽下线，不进 T0 闸。
 
@@ -1312,9 +1311,7 @@ score_stock(code) 续——
     └── F1 闸：buy_passes_tau_gate() → ŷ_τ ≥ min_predicted_score_tau → 否则 risk_budget_skips
 
 【复盘层】
-  score_ledger 冻结 ŷ_oo + ŷ_τ
-    → h 日后回填 realized (y_oo) + realized_tau (y_τ)
-    → 分别报 IC / 方向命中 / 错票归因（库函数；枢纽单日验收条已下线）
+  score_ledger 已删除；持仓 Realization 走纸面归因轨
 ```
 
 ### 4.4 F1 买入闸门（纸面执行）
@@ -1366,17 +1363,9 @@ score_stock(code) 续——
 与契约对齐的部分：
 
 - 每个交易日 \(t\)：仅用到 \(t\) 开盘可得信息打分；
-- ŷ 标签窗口仍是 `scoring.horizon_days`（打分 / 复盘），与 rank_lots **无固定持有期截断**（未过入场 / ranking&lt;0 / hard_reject 清仓；无减仓档）；
+- ŷ 标签窗口仍是 `scoring.horizon_days`（打分 / 回测），与 rank_lots **无固定持有期截断**（未过入场 / ranking&lt;0 / hard_reject 清仓；无减仓档）；
 - 日报 **含成本**，lookback 默认 30（可选 30/60/90）；对齐 `/replay` 的 α / rank入场 / rank强；
 - 大宇宙先扫本地缓存再截断，避免 `watching[:40]` 丢掉后面有日线的票。
-
-与复盘的差异（执行假设）：
-
-| | 昨日复盘 | paper_replay（默认） |
-|--|----------|------------------|
-| 验证对象 | 单票 ŷ 方向 vs \(r_h\) | 组合 rank_lots 净值 / 成交账 |
-| 成交 | 概念上 close→close 标签 | 每个交易日所选调仓钟 5m 价手数 |
-| 排序 | 账本冻结 ŷ | y_fuse / y_on ranking |
 
 UI 横轴：权益/日收益按**交易日**；解读时勿与「ŷ 决策日」混为一谈。
 
@@ -1395,45 +1384,18 @@ UI 横轴：权益/日收益按**交易日**；解读时勿与「ŷ 决策日」
 
 ---
 
-## 6. 复盘链（昨日复盘 / 账本）
+## 6. 复盘链（已下线）
 
-详见 [quant.md · 复盘](quant.md#昨日复盘score-review)（覆盖范围、薄样本、日线前置以该页为准）。
-
-```text
-分池 scored_all（优先）→ 冻结 score_ledger/YYYYMMDD.json（行带 in_book）
-                       → 回填 r_h = close[as_of+h]/close[as_of]-1
-                       → 复盘默认滤簿 · 校准用全量
-```
-
-**宇宙**：冻结优先 **`cluster_book.scored_all`**（打分宇宙），回退 `book`。复盘默认 **`in_book`**；校准 Isotonic 用账本**全量行**，以覆盖负 ŷ / 门槛下。不含纸面持仓并集。
-
-目的拆分：复盘检验 **簿的合理性**；校准学 **全轴 g(ŷ)**。持仓 Realization 走纸面归因轨。
-
-### 6.1 两种常见「正确对账」例子（\(h=1\)）
-
-| 何时算分 | 因子截止（决策日） | 应对齐的实现 |
-|----------|-------------------|--------------|
-| \(T\) 日 17:00 后（已有 \(T\) 收） | \(t=T\) | \(T\!\to\!T\!+\!1\) 收盘收益 ≈ **\(T\!+\!1\) 日涨跌** |
-| \(T\) 日 10:00（通常无 \(T\) 日线） | \(t=T\!-\!1\) | \(T\!-\!1\!\to\!T\) ≈ **\(T\) 日收盘涨跌** |
-
-日历上「在 \(T\) 日点冻结」≠ 决策日一定是 \(T\)：应对齐 **因子实际截止日**。  
-冻结写入已走 `resolve_freeze_as_of`：按本地日线末根推断截止日，禁止「会话日标签 + 昨收因子」；会话日账本在复盘 chip 标未到期。  
-\(T\) 日闭市前拉日线，可靠末根多为 \(T\!-\!1\)；完整 \(T\) 日 K 线须收盘后再拉。刚冻的会话日账本在 as_of+\(h\) 日线未到前会报 **薄样本**——应选更早决策日，而非指望「再刷一次日线」变出未来收盘。
-
-### 6.2 单票时间线
-
-冻结 ŷ 曲线的横轴日期 = **决策日 `as_of`**（账本文件日）。  
-与「日涨跌%」同图叠放时：只能看形态；**准确度**须把 ŷ 与错开 \(h\) 后的实现收益比。
+`core/score_ledger/`、复盘 HTTP、日更回填与日报冻结均已删除。持仓 Realization 现走纸面归因轨。
 
 ---
 
-## 7. 验证链（不止复盘）
+## 7. 验证链（多维度）
 
 | 层级 | 做什么 | 典型出口 |
 |------|--------|----------|
 | 样本内 / 组 OOS | 跑分组附带组门禁、ΔOOS 等 | 枢纽分组卡 |
 | 截面 IC | 决策日 ŷ 与 \(r_h\) 的截面相关 | 池 IC / 研究臂 |
-| 账本复盘 | 冻结 ŷ vs 实现 \(r_h\) 方向命中 | 昨日复盘 |
 | paper_replay | 历史组合可交易性（rank_lots、成本、T+1） | `/replay` · portfolio-backtest |
 | Live 健康 | 映射年龄、滚动 ŷ IC、覆盖率 | `assess_cluster_live_health`；可 demote |
 | 成熟闸门 | 研究→纸面准入软硬项 | `maturity_gate` |
@@ -1451,8 +1413,7 @@ flowchart TD
   end
   subgraph daily [日更 · 不改 β]
     B[刷新日线 / watching] --> R[refresh 分池簿]
-    R --> L[冻结 score_ledger]
-    L --> C[paper_daily 调仓循环]
+    R --> C[paper_daily 调仓循环]
   end
   subgraph human [人审执行]
     C --> V[交易执行：预演]
@@ -1466,7 +1427,7 @@ flowchart TD
 | 时刻 | 任务 | 改 β？ |
 |------|------|--------|
 | ~16:30 | advisor / paper 相关 | 否 |
-| ~16:35 | `paper_daily` | 否（可 demote + 刷新簿 + 账本） |
+| ~16:35 | `paper_daily` | 否（可 demote + 刷新簿） |
 | ~17:00 | `daily_quant` 日报等 | 否 |
 | 人择时 | 跑分组 → promote | **是** |
 
@@ -1482,8 +1443,6 @@ flowchart TD
 |------|----------|------|----------|
 | 跑分组 / 估 β | 面板日线（含 PIT） | `return_model` β | 样本内 / 组 OOS（研究） |
 | live 打分 | 决策日 \(t\) 因子 | ŷ% | —（预测） |
-| 冻结账本 | 选定 `as_of`（对齐因子截止） | **宇宙** `scored_all`（优先）→ ledger；行带 `in_book` | 校准用全量；复盘默认簿；待 \(h\) 日后回填 |
-| 昨日复盘 | 已冻结簿 ŷ | 命中 / 归因（检验簿合理性） | \(r_h\) close→close；不含持仓并集 |
 | paper_replay | 历史各 \(t\) 开盘 | 组合曲线 / 分票贡献 / 成交账 | rank_lots 日收益 |
 | 纸面调仓 | 当日可得 ŷ（可补持仓分） | 持仓变动 | 事后用纸面归因 / 净值，非簿命中率 |
 
@@ -1493,9 +1452,9 @@ flowchart TD
 
 1. **「score 预测当天涨跌」** — 仅当 \(h=1\) 且决策日是昨收时，才近似「今天相对昨收」；若配置仍为 \(h=3\) 则预测的是 **未来 3 日累计**（现网默认已对齐 \(h=1\)）。  
 2. **「每天定时更新 β」** — 没有；日更只重打分 / 调仓 / 冻结。  
-3. **「表上 score 和涨跌并排 = 验证」** — 仅直觉；严谨验证用复盘错开 \(h\)。  
+3. **「表上 score 和涨跌并排 = 验证」** — 仅直觉；严谨验证需错开 \(h\) 对齐实现收益。  
 4. **「冻结日 = 决策日」** — 冻结已按因子截止解析；历史错标的会话日账本可删，UI 会标未到期。  
-5. **「回测 = 复盘」** — 标签同源，组合截断与默认次日开盘不同。
+5. **「回测 = 验证」** — 标签同源，组合截断与默认次日开盘不同。
 
 ---
 
@@ -1508,7 +1467,7 @@ flowchart TD
 
 | 数据 | 内容 | 主要服务 |
 |------|------|----------|
-| **A. 预测–实现账本** | `score_ledger` + `outcomes`：\(\hat y\)、\(r_h\)、`sign_hit`、因子/行业/分组归因 | **抬 ŷ 校准与选股区分度**（IC / 偏差） |
+| **A. 预测–实现账本** | `score_ledger` 已删除；现以纸面归因的 ŷ vs 实现替代 | **抬 ŷ 校准与选股区分度**（IC / 偏差） |
 | **B. 纸面决策轨迹** | 预演→确认、持仓、成本、风控拦截、净值曲线 | **抬交易策略与 Realization**（能否落地、是否过拟合回测） |
 
 A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要。
@@ -1574,7 +1533,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 
 | 意图 | 已有 | 下一步算法增量 |
 |------|------|----------------|
-| 准不准可见 | ledger / outcomes / 复盘归因 | 残差面板 + 分层 IC 仪表 |
+| 准不准可见 | 研究枢纽 IC 时序 / 纸面归因 | 残差面板 + 分层 IC 仪表 |
 | 错了停手 | auto demote · refit 提示 | 工况门控 \(p(\text{hit})\) |
 | 幅度校准 | —（g(ŷ) 已删除） | 不复活校准层；先把 ŷ 头与 OOS 做稳 |
 | 交易参数 | rank_lots / rules / fit-gap | 纸面轨迹上的参数搜索 + Realization 约束 |
@@ -1649,7 +1608,7 @@ bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord 
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `PAPER_DAILY_SIMULATE_BUY` | `0` | `1` 时日更模拟买入 |
-| `PAPER_DAILY_STRATEGY` | `short` | 策略 ID |
+| `PAPER_DAILY_STRATEGY` | `short_conservative` | 策略 ID |
 
 **Web / API**：
 
@@ -1840,124 +1799,3 @@ curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
 - [量化原理](#量化原理与实现逻辑) — 量化原理；[机器学习视角](quant.md#机器学习视角如何理解量化)
 - [quant-summary.md](archive/quant-summary.md) — P6～P33 升级总览
 - [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角) — 投顾层 cron 说明
-
----
-
-## 昨日复盘（Score Review）
-
-[← 文档索引](README.md) · 全链路见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)
-
-**研究枢纽不再展示此页**。`core/score_ledger/`、复盘 HTTP、日更回填与日报冻结都已删除。下面是旧口径记录。校准 g(ŷ) **已删除**。`data/reports/score_ledger/` 历史 JSON 不删。
-
-对账 **决策日 `as_of` 的 ŷ 方向** 与 **h 日实现收益**，解释错票（因子失效 / 个股特异 / 行业 / 分组）。不改权、不 promote。
-
----
-
-## 1. 口径
-
-| 符号 | 含义 |
-|------|------|
-| `as_of` | 打分决策日（站在哪一天预测；须对齐因子截止，见下） |
-| \(h\) | `horizon_days`（默认 3，UI 可切 1；应与 live / 分组同一 \(h\)） |
-| \(r_h\) | \((\mathrm{close}[as\_of+h] / \mathrm{close}[as\_of] - 1) \times 100\) |
-| 方向命中 | \(\mathrm{sign}(\hat y)=\mathrm{sign}(r_h)\)；\(\lvert\hat y\rvert < 0.05\%\) → **无方向**（不计入命中分母的「有方向样本」） |
-
-实现已删除（原 `core/score_ledger/`）。
-
----
-
-## 2. 覆盖范围（账本宇宙 · 复盘簿内）
-
-| 集合 | 是否进账本 | 是否进默认复盘 | 说明 |
-|------|------------|----------------|------|
-| `scored_all`（打分宇宙） | **是**（优先） | **否**（`in_book=false`） | 全量行含负 ŷ / 门槛下；原校准拟合用此切片 |
-| 分池簿 `book` | **是**（标记 `in_book`） | **是** | 簿 OOS 体检 |
-| 无 `scored_all` 时仅 `book` | 回退 | 是 | 兼容旧书 |
-| 纸面持仓 | **否** | **否** | Realization 另轨 |
-| 观察池 watching | **否**（除非也在宇宙） | 仅当在簿内 | — |
-
-冻结后：`n_universe ≈ |scored_all|`，复盘 `n_scored ≈ |book|`。旧账本无 `in_book` 时复盘仍用全文件行（当时即簿）。
-
-**为何复盘仍滤簿**：簿复盘回答「选进来的对不对」；校准回答「任意 ŷ 的幅度映射」。二者同账本、分用途。
-
-两类样本对照：
-
-| 轨 | 数据 | 回答的问题 |
-|----|------|------------|
-| **A. 预测–实现账本** | `score_ledger` 全量 + outcomes | 校准 / 截面 IC；复盘 UI 默认簿切片 |
-| **B. 纸面决策轨迹** | 持仓、调仓、成本、净值 | 做得对不对、能否落地 |
-
----
-
-## 3. 冻结决策日与日线前置
-
-### 3.1 `resolve_freeze_as_of`
-
-- 默认对齐本地日线多数末根（`infer_feature_as_of`）或上一交易日。
-- 请求的 `as_of` **晚于**因子截止 → **下调**到因子截止；禁止「会话日标签 + 昨收因子」。
-- 会话日账本在 UI chip 标 **未到期**（`immature`）；复盘默认不选未到期日。
-
-### 3.2 日线何时才有「今天」
-
-A 股日线主源 `stock_zh_a_hist`：**当日收盘价请在收盘后获取**。
-
-| 拉取时机 | 可靠末根 | 能否冻成会话日 \(T\) |
-|----------|----------|----------------------|
-| \(T\) 日闭市前 | 通常 **\(T\!-\!1\)** | 否（会 remap 到 \(T\!-\!1\)） |
-| \(T\) 日收盘后（实务常 16:30–17:00+） | 可含 **\(T\)** | 是（本地 `date_max≥T`） |
-
-注意：缓存未过期且条数够时，`bars_warmup` / 普通 `get_bars` 可能**不补**「缺今天这根」的缺口；收盘后若要用 \(T\) 冻账本，需确认宇宙 `date_max` 已到 \(T\)（必要时对末根偏旧的票强制增量补拉）。
-
-### 3.3 薄样本（`data_thin`）
-
-回填需要本地日线同时有 `close[as_of]` 与 `close[as_of+h]`。
-
-- 刚冻的 **会话日** 账本：即使 h=1，也要等 **下一交易日收盘** 才能对账 → UI：`薄样本 N · as_of+h 日线未到，请选更早决策日`。
-- h>1 全部薄样本时，后端可自动降到 **h=1** 再试（`horizon_fallback_from`）；若 h=1 仍薄，只能选更早决策日或等日线。
-- 「刷新日线」解决的是**已到期**决策日缺 bar；**不能**让未到期的 as_of+h 提前出现。
-
----
-
-## 4. 数据与写入
-
-| 路径 | 内容 |
-|------|------|
-| `data/reports/score_ledger/YYYYMMDD.json` | 冻结 ŷ / top 因子分解 / sector / cluster（来源多为 `cluster_book`） |
-| `data/reports/score_ledger/YYYYMMDD.outcomes.json` | `realized_h` / `sign_hit` / 薄样本缺失计数 |
-
-写入已停。目录里只剩历史 JSON。分池簿冻结与 UI「冻结打分」已下线。
-
----
-
-## 5. API
-
-复盘 HTTP（`score-review`、`score-ledger`、series、freeze、delete、outcomes、tau-shadow、nowcast-shadow）已删除。
-
----
-
-## 6. UI（研究枢纽）
-
-- **ŷ_τ 卡**：拟合 / 启用 / 状态；单日 τ·nowcast 验收条已下线（系数表一行：y · OOS·τ 锚点 · 拟合 KPI）
-- **IC 时序**：嵌在 ŷ_oo 卡内，夹在跨组健康矩阵与一组一表之间；截面 IC · ŷ残差对照
-- **回测–纸面拟合**：不占研究枢纽。Corr/TE 在交易执行北极星；启发式 API 仍是 `POST /api/ops/fit-gap`
-
-### ŷ 可视化（同轨）
-
-| 面 | 内容 |
-|----|------|
-| 评分 tooltip | 因子 **贡献条**（∝\|β·z\|）+ 原拆解表 |
-| `/watching` | 观察池 ŷ **直方图** + 买/持门槛竖线；点票看 **ŷ 时间线**（账本） |
-| `/quant` 分组 | 组头 **ŷ strip**（组内排序分布） |
-| `/replay` IC | **零轴**参考线 |
-
----
-
-## 7. 运维速查
-
-| 现象 | 含义 | 怎么做 |
-|------|------|--------|
-| 薄样本 = 账本只数，命中 — | as_of+h 日线未到（常为冻了今天） | 选更早决策日；或等下一交易日后再回填 |
-| 冻今天被下调到昨天 | 本地无今日完整日线 | 收盘后刷日线再冻 |
-| 账本行很多、复盘仍只有簿长 | 宇宙已冻；复盘滤 `in_book` | 正常；校准用全量 |
-| 校准曲线仍无负半轴 | 旧账本尚为仅簿样本 | 重新「冻结打分」+ 回填后再「拟合校准」 |
-| 持仓票不在复盘表 | 设计如此 | 用纸面持仓 / 归因看 Realization |
