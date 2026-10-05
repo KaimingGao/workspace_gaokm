@@ -694,7 +694,6 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
         include_alpha158: bool = True,
-        label_demean: bool = True,
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
@@ -702,7 +701,6 @@ class QuantFactorMixin:
         开则训 09:30…做 T 11:00 网格，否则 open。
         ``include_alpha158``：默认 True，Ridge 吃 ``raw_alpha158_*``（≤T−1）。
         日线与 ŷ_oo / ŷ_co 同源（``load_portfolio_stock_bars``）。
-        ``label_demean``：训练标签去均值（默认 True，与历史 τc 口径一致）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.signal.dual_score import get_dual_score_cfg
@@ -806,7 +804,6 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
             include_alpha158=bool(include_alpha158),
-            label_demean=bool(label_demean),
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -1306,13 +1303,11 @@ class QuantFactorMixin:
         note: str = "",
         persist_role: str = "live",
         holdout_trading_days: int = 20,
-        label_demean: bool = False,
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。
 
         日线与 ŷ_oo 同源（``load_portfolio_stock_bars``：lookback 外再垫 Alpha158 窗），
         决策日与 ŷ_oo 对齐。
-        ``label_demean``：训练标签去均值（默认关）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
@@ -1372,7 +1367,6 @@ class QuantFactorMixin:
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
             holdout_trading_days=holdout_trading_days,
-            label_demean=bool(label_demean),
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -1403,7 +1397,6 @@ class QuantFactorMixin:
         note: str = "",
         persist_role: str = "live",
         holdout_trading_days: int = 20,
-        label_demean: bool = False,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_co 拟合；轮询 ``GET /api/jobs/co-ridge``。不写盘。"""
@@ -1419,7 +1412,6 @@ class QuantFactorMixin:
             note=note or "",
             persist_role=persist_role,
             holdout_trading_days=holdout_trading_days,
-            label_demean=bool(label_demean),
         )
         return _start_ridge_fit_job(
             slot=co_ridge_job,

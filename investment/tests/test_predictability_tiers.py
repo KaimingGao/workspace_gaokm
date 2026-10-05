@@ -53,8 +53,10 @@ class TestPredictabilityTiers(unittest.TestCase):
         from core.research.predictability_tiers import assign_tier
 
         self.assertEqual(assign_tier(0.61, 7, ic=0.1), "A")
-        self.assertEqual(assign_tier(0.60, 25, ic=0.2), "B")  # 命中率须 >60%
-        self.assertEqual(assign_tier(0.61, 6, ic=0.2), "B")  # N 须 >6
+        self.assertEqual(assign_tier(0.60, 6, ic=0.1), "A")  # 命中率 ≥60% 且 N ≥ 6 且 IC > 0
+        self.assertEqual(assign_tier(0.60, 25, ic=0.2), "A")
+        self.assertEqual(assign_tier(0.599, 25, ic=0.2), "B")  # 命中率须 ≥60%
+        self.assertEqual(assign_tier(0.61, 5, ic=0.2), "B")  # N 须 ≥6
         self.assertEqual(assign_tier(0.61, 7, ic=0.0), "B")
         self.assertEqual(assign_tier(0.61, 7, ic=-0.05), "B")
         self.assertEqual(assign_tier(0.61, 7), "B")  # 无 IC 不进 A

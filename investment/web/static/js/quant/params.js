@@ -1,11 +1,11 @@
 /**
- * 研究台参数：持有期 / Ridge / 聚类 K / 观察池 Limit / Holdout / 分头训练窗 / 分头去均值。
+ * 研究台参数：持有期 / Ridge / 聚类 K / 观察池 Limit / Holdout / 分头训练窗。
  */
 
 export const DEFAULT_HOLDOUT_TRADING_DAYS = 20;
 export const HOLDOUT_DAYS_STORAGE_KEY = "quant_holdout_trading_days";
 
-/** 各模型卡独立 Holdout / 训练窗 / 去均值。 */
+/** 各模型卡独立 Holdout / 训练窗。 */
 export const FIT_PARAM_HEADS = [
   "oo",
   "tc",
@@ -44,13 +44,6 @@ export const HOLDOUT_DAYS_STORAGE_KEYS = Object.fromEntries(
 );
 export const FIT_LOOKBACK_MIN = 40;
 export const FIT_LOOKBACK_MAX = 700;
-
-export const DEFAULT_LABEL_DEMEAN = false;
-/** 旧页顶全局 key；hydrate 时迁移到分头 key。 */
-export const LABEL_DEMEAN_STORAGE_KEY_LEGACY = "quant_label_demean";
-export const LABEL_DEMEAN_STORAGE_KEYS = Object.fromEntries(
-  FIT_PARAM_HEADS.map((h) => [h, `quant_label_demean_${h}`])
-);
 
 export function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
   const n = Number(v);
@@ -102,7 +95,7 @@ export function readClusterKFromEl(el) {
 }
 
 /**
- * @param {{ getHorizonEl?: () => HTMLElement|null, getRidgeEl?: () => HTMLElement|null, getClusterKEl?: () => HTMLElement|null, getWatchingLimitEl?: () => HTMLElement|null, getHoldoutEl?: (head: string) => HTMLElement|null, getFitLookbackEl?: (head: string) => HTMLElement|null, getLabelDemeanEl?: (head: string) => HTMLElement|null, initialHorizon?: number }} opts
+ * @param {{ getHorizonEl?: () => HTMLElement|null, getRidgeEl?: () => HTMLElement|null, getClusterKEl?: () => HTMLElement|null, getWatchingLimitEl?: () => HTMLElement|null, getHoldoutEl?: (head: string) => HTMLElement|null, getFitLookbackEl?: (head: string) => HTMLElement|null, initialHorizon?: number }} opts
  */
 export function createResearchParams(opts = {}) {
   let prefsHorizonDays = clampHorizonDays(opts.initialHorizon ?? 3, 3);
@@ -122,9 +115,6 @@ export function createResearchParams(opts = {}) {
       if (h === "oo") return document.getElementById("quant-holdout-days");
       return document.getElementById(`quant-holdout-days-${h}`);
     });
-  const getLabelDemeanEl =
-    opts.getLabelDemeanEl ||
-    ((head) => document.getElementById(`quant-label-demean-${head}`));
   const getFitLookbackEl =
     opts.getFitLookbackEl ||
     ((head) => document.getElementById(`quant-fit-lookback-${head}`));
@@ -274,64 +264,6 @@ export function createResearchParams(opts = {}) {
     }
   }
 
-  function _labelDemeanKey(head) {
-    const h = String(head || "").trim().toLowerCase();
-    return LABEL_DEMEAN_STORAGE_KEYS[h] || null;
-  }
-
-  function readLabelDemean(head) {
-    const h = String(head || "oo").trim().toLowerCase();
-    const key = _labelDemeanKey(h);
-    const el = getLabelDemeanEl(h);
-    let on;
-    if (el) {
-      on = !!el.checked;
-    } else {
-      try {
-        const saved = key ? localStorage.getItem(key) : null;
-        if (saved === "1" || saved === "0") {
-          on = saved === "1";
-        } else {
-          on = localStorage.getItem(LABEL_DEMEAN_STORAGE_KEY_LEGACY) === "1";
-        }
-      } catch (_) {
-        on = DEFAULT_LABEL_DEMEAN;
-      }
-    }
-    if (key) {
-      try {
-        localStorage.setItem(key, on ? "1" : "0");
-      } catch (_) {}
-    }
-    return on;
-  }
-
-  function hydrateLabelDemean() {
-    let legacy = null;
-    try {
-      const raw = localStorage.getItem(LABEL_DEMEAN_STORAGE_KEY_LEGACY);
-      if (raw === "1" || raw === "0") legacy = raw === "1";
-    } catch (_) {}
-    for (const head of FIT_PARAM_HEADS) {
-      const el = getLabelDemeanEl(head);
-      if (!el) continue;
-      const key = _labelDemeanKey(head);
-      try {
-        const saved = key ? localStorage.getItem(key) : null;
-        if (saved === "1" || saved === "0") {
-          el.checked = saved === "1";
-        } else if (legacy != null) {
-          el.checked = legacy;
-        } else {
-          el.checked = DEFAULT_LABEL_DEMEAN;
-        }
-      } catch (_) {
-        el.checked = DEFAULT_LABEL_DEMEAN;
-      }
-      el.addEventListener("change", () => readLabelDemean(head));
-    }
-  }
-
   return {
     clampHorizonDays,
     clampRidgeLambda,
@@ -347,8 +279,6 @@ export function createResearchParams(opts = {}) {
     hydrateHoldoutTradingDays,
     readFitLookbackDays,
     hydrateFitLookbackDays,
-    readLabelDemean,
-    hydrateLabelDemean,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   };

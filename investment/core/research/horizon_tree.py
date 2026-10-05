@@ -136,7 +136,6 @@ def pack_tree_return_model(
         "feature_names": names,
         "impute_means": _means_dict(names, np.asarray(impute_means, dtype=np.float64)),
         "schema": str(schema),
-        "y_demeaned": False,
         "y_spec": (
             {
                 "unit": "pct",
@@ -812,7 +811,6 @@ def fit_horizon_tree_report(
                 "oos": _theme_counts(metas_te),
                 "all": _theme_counts(metas),
             },
-            "y_label_mean": round(float(np.mean(y_tr)), 6) if y_tr.size else None,
             "tau": live_hm,
             "tau_grid": list(grid),
             "target": target,

@@ -88,10 +88,6 @@ class TauRidgeRequest(BaseModel):
         default=True,
         description="Ridge 吃 raw_alpha158_*（≤T−1）；与 ŷ_oo 日线 X 可能重叠",
     )
-    label_demean: bool = Field(
-        default=True,
-        description="训练标签全局去均值，截距加回；默认 True（历史 ŷ_τc 口径）",
-    )
 
 
 class OoTreeRequest(BaseModel):
@@ -369,10 +365,6 @@ class CoRidgeRequest(BaseModel):
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
-    )
-    label_demean: bool = Field(
-        default=False,
-        description="训练标签全局去均值，截距加回；供拟合/回测对照",
     )
     note: str = Field(default="", max_length=200)
     sync: bool = Field(
@@ -749,10 +741,6 @@ class ReturnModelFitRequest(BaseModel):
         ge=3,
         le=60,
         description="近 N 个交易日 Holdout，只测不训（与 ŷ_oo 卡片 Holdout 共用）",
-    )
-    label_demean: bool = Field(
-        default=False,
-        description="训练标签全局去均值，截距加回；供拟合/回测对照",
     )
 
 

@@ -92,7 +92,7 @@ def fit_co_tree_report(
     t0 = time.perf_counter()
     from core.research.panel_matrix import (
         collect_co_compact,
-        demeaned_ridge_oos,
+        keepall_ridge_oos,
         finite_name_set,
         named_columns,
         raw_alpha158_finite,
@@ -190,7 +190,6 @@ def fit_co_tree_report(
         subsample=subsample,
         feature_zscore=True,
     )
-    y_tr = np.asarray(ys_tr, dtype=np.float64)
     from core.research.horizon_tree import pack_tree_return_model
 
     return_model = pack_tree_return_model(
@@ -206,7 +205,7 @@ def fit_co_tree_report(
     )
 
     t_ridge0 = time.perf_counter()
-    _, ridge_preds = demeaned_ridge_oos(
+    _, ridge_preds = keepall_ridge_oos(
         X_ridge[row_tr],
         ys_tr,
         X_ridge[row_te],
@@ -224,7 +223,6 @@ def fit_co_tree_report(
             "n_train": len(ys_tr),
             "n_test": len(ys_te),
             "holdout_trading_days": hold_n,
-            "y_label_mean": round(float(np.mean(y_tr)), 6) if y_tr.size else None,
             "label": "open[T+1]/close[T]-1",
         }
     )

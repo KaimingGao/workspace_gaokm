@@ -1071,7 +1071,7 @@ def fit_oo_rank_report(
     model["feature_mode"] = feat_mode
     model["pair_preset"] = preset_key
 
-    research_model = make_research_model(fit_tr, y_mean=0.0)
+    research_model = make_research_model(fit_tr)
     for k in (
         "y_spec",
         "horizon_days",

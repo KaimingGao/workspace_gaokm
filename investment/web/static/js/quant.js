@@ -106,14 +106,11 @@ export function initQuant(ctx) {
     hydrateHoldoutTradingDays,
     readFitLookbackDays,
     hydrateFitLookbackDays,
-    readLabelDemean,
-    hydrateLabelDemean,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   } = researchParams;
   hydrateHoldoutTradingDays();
   hydrateFitLookbackDays();
-  hydrateLabelDemean();
   const factorMeta = createFactorMetaCache();
   const {
     factorMetaByName,
@@ -211,7 +208,7 @@ export function initQuant(ctx) {
     ctx, on, els, state, escapeHtml, apiFetch, downloadBlob, downloadJson,
     fmtPct, metricClass, researchGridHtml, metricCell,
     clampHorizonDays, syncHorizonInputs, readHorizonDays, readRidgeLambda, readClusterK,
-    readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, readLabelDemean,
+    readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays,
     setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
     factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
@@ -905,18 +902,10 @@ export function initQuant(ctx) {
     box.innerHTML = treeReportHtml(data, { head: "oo" });
   }
 
-  function readReturnTreeFitFlags(kind) {
-    const a158 = document.getElementById(`quant-${kind}-tree-alpha158`);
-    return {
-      include_alpha158: !a158 || a158.checked !== false,
-    };
-  }
-
   async function runOoTree() {
     const sum = document.getElementById("quant-oo-tree-summary");
     startOoTreeBusy();
     try {
-      const flags = readReturnTreeFitFlags("oo");
       const res = await fetch("/api/quant/oo-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -927,8 +916,7 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("oo_tree"),
           backend: "lightgbm",
-          include_alpha158: flags.include_alpha158,
-          label_demean: readLabelDemean("oo_tree"),
+          include_alpha158: true,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1041,7 +1029,6 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-co-tree-summary");
     startCoTreeBusy();
     try {
-      const flags = readReturnTreeFitFlags("co");
       const res = await fetch("/api/quant/co-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1051,8 +1038,7 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("co_tree"),
           backend: "lightgbm",
-          include_alpha158: flags.include_alpha158,
-          label_demean: readLabelDemean("co_tree"),
+          include_alpha158: true,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1246,7 +1232,6 @@ export function initQuant(ctx) {
     startTauTreeBusy();
     try {
       const tauLimit = 300;
-      const flags = readReturnTreeFitFlags("tau");
       const res = await fetch("/api/quant/tau-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1256,8 +1241,7 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc_tree"),
           backend: "lightgbm",
-          include_alpha158: flags.include_alpha158,
-          label_demean: readLabelDemean("tc_tree"),
+          include_alpha158: true,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -3076,7 +3060,6 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc"),
           include_alpha158: true,
-          label_demean: readLabelDemean("tc"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -3179,7 +3162,6 @@ export function initQuant(ctx) {
           watching_limit: onLimit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("co"),
-          label_demean: readLabelDemean("co"),
           persist: !!persist,
           persist_role: persistRole || "live",
           note: persist ? `ui co promote ${persistRole}` : "",
@@ -3277,7 +3259,6 @@ export function initQuant(ctx) {
           // 日线研究：可吃 research_universe（≤2000）；宇宙空则回退观察池≤300
           watching_limit: 2000,
           holdout_trading_days: Math.max(20, readHoldoutTradingDays("oo_rank")),
-          label_demean: readLabelDemean("oo_rank"),
           feature_mode: _readOoRankFeatureMode(),
           pair_preset: _readOoRankPairPreset(),
           topk_track: 10,

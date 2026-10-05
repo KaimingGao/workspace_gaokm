@@ -70,7 +70,7 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 
 /** Quant domain: backtest */
 export function installBacktest(q) {
-  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl, readHoldoutTradingDays, readLabelDemean } = q;
+  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl, readHoldoutTradingDays } = q;
   const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
   const { renderAttributionTablesHtml, renderScoreIcHtml, renderReplayStockContribHtml } = q;
   const { researchGridHtml, metricCell } = q;
@@ -338,8 +338,6 @@ export function installBacktest(q) {
           horizon_days,
           watching_limit: 12,
           save_draft: true,
-          label_demean:
-            typeof readLabelDemean === "function" ? readLabelDemean("oo") : false,
         }),
       });
       if (!ok || !data || !data.success) {

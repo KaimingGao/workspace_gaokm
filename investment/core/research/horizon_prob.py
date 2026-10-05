@@ -474,7 +474,6 @@ def _irls_logistic(
 def _stamp_prob_model(fit: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(fit or {})
     out["head_kind"] = "prob"
-    out["y_demeaned"] = False
     spec = dict(out.get("y_spec") or {}) if isinstance(out.get("y_spec"), dict) else {}
     spec["unit"] = "prob"
     spec.setdefault("label", "I(window_return>0)")
@@ -682,13 +681,11 @@ def train_eval_horizon_prob(
         if ys_all_pct
         else None
     )
-    model["y_demeaned"] = False
     model = _stamp_prob_model(model)
 
     research = dict(fit)
     research["model_role"] = "research"
     research["y_label_mean"] = round(y_mean_pct, 6)
-    research["y_demeaned"] = False
     research = _stamp_prob_model(research)
     return {
         "fit": fit,

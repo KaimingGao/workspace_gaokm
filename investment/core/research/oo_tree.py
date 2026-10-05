@@ -185,7 +185,7 @@ def fit_oo_tree_report(
     ``include_alpha158=True`` 时树吃 Alpha158。特征按训练集做总体 z-score，与 ŷ_oo Ridge 同口径；标签仍是百分点。
     LightGBM：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2。
     """
-    from core.research.panel_matrix import demeaned_ridge_oos, finite_name_set, named_columns
+    from core.research.panel_matrix import keepall_ridge_oos, finite_name_set, named_columns
     from core.research.tc_ridge import TAU_MIN_STD_EXEMPT
 
     t0 = time.perf_counter()
@@ -287,10 +287,9 @@ def fit_oo_tree_report(
         kind="return",
         y_label="open[T+1]/open[T]-1",
     )
-    y_tr = np.asarray(ys_tr, dtype=np.float64)
 
     t_ridge0 = time.perf_counter()
-    _, ridge_preds = demeaned_ridge_oos(
+    _, ridge_preds = keepall_ridge_oos(
         X_ridge[row_tr],
         ys_tr,
         X_ridge[row_te],
@@ -308,7 +307,6 @@ def fit_oo_tree_report(
             "n_train": len(ys_tr),
             "n_test": len(ys_te),
             "holdout_trading_days": hold_n,
-            "y_label_mean": round(float(np.mean(y_tr)), 6) if y_tr.size else None,
             "label": "open[T+1]/open[T]-1",
         }
     )

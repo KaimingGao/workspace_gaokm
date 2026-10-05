@@ -9,7 +9,7 @@ import {
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, readLabelDemean, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
 
 
@@ -601,8 +601,6 @@ export function installSuggest(q) {
           save_draft: true,
           holdout_trading_days:
             typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays("oo") : 20,
-          label_demean:
-            typeof readLabelDemean === "function" ? readLabelDemean("oo") : false,
         }),
       });
       let data = null;

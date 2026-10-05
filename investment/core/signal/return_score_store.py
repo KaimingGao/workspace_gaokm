@@ -373,12 +373,10 @@ def fit_watching_return_model(
     min_samples: int = 24,
     save_draft: bool = True,
     holdout_trading_days: int = 20,
-    label_demean: bool = False,
 ) -> Dict[str, Any]:
     """研究池堆叠面板拟合收益模型 + Holdout OOS，可选落草稿。
 
     近 ``holdout_trading_days`` 个交易日只测；全样本重估 β 写入草稿（执行口径）。
-    ``label_demean``：训练标签减全局均值，截距加回（落盘 ``y_demeaned``）。
     """
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
@@ -454,7 +452,6 @@ def fit_watching_return_model(
         ridge_lambda=ridge_lambda,
         min_samples=min_samples,
         fitted_as_of=as_of,
-        label_demean=bool(label_demean),
     )
     oos: Dict[str, Any] = {
         "n_train": len(train_idx),
@@ -486,7 +483,6 @@ def fit_watching_return_model(
         ridge_lambda=ridge_lambda,
         min_samples=min_samples,
         fitted_as_of=as_of,
-        label_demean=bool(label_demean),
     )
     if model is None:
         return {
@@ -514,8 +510,6 @@ def fit_watching_return_model(
             "excluded_features": report.get("excluded_features"),
         },
         "note": "已拟合因子系数模型 + Holdout OOS；save_draft 后可人审启用研究/执行。",
-        "label_demean": bool(label_demean),
-        "y_demeaned": bool(label_demean),
     }
     if research_model is not None:
         out["research_model"] = research_model.to_dict()
@@ -523,8 +517,6 @@ def fit_watching_return_model(
             out["research_ols"] = {
                 "r_squared": research_report.get("r_squared"),
                 "ridge_lambda": research_report.get("ridge_lambda"),
-                "y_demeaned": research_report.get("y_demeaned"),
-                "y_label_mean": research_report.get("y_label_mean"),
             }
     attach_holdout_meta(out, split_meta)
     if save_draft:
@@ -537,9 +529,6 @@ def fit_watching_return_model(
                 "r_squared": report.get("r_squared"),
                 "ridge_lambda": ridge_lambda,
                 "holdout_trading_days": oos.get("holdout_trading_days"),
-                "label_demean": bool(label_demean),
-                "y_demeaned": bool((report or {}).get("y_demeaned")),
-                "y_label_mean": (report or {}).get("y_label_mean"),
             },
             oos=oos,
         )

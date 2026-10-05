@@ -752,7 +752,7 @@ def predict_ridge_matrix(
     return out
 
 
-def demeaned_ridge_oos(
+def keepall_ridge_oos(
     X_tr: np.ndarray,
     y_tr: Sequence[float],
     X_te: np.ndarray,
@@ -762,13 +762,13 @@ def demeaned_ridge_oos(
     sample_weights: Optional[Sequence[float]] = None,
     min_std_exempt: Optional[Sequence[str]] = None,
 ) -> Tuple[Dict[str, Any], List[Optional[float]]]:
-    """训练标签去均值后拟合，预测加回均值。失败时退回零截距。"""
+    """训练集 keep-all Ridge，测试集预测。失败时退回训练均值截距。"""
     y_arr = np.asarray(list(y_tr), dtype=np.float64)
     n = int(y_arr.shape[0])
     y_mean = sum(float(v) for v in y_arr) / max(1, n)
     fit = fit_keepall_ridge_matrix(
         X_tr,
-        y_arr - y_mean,
+        y_arr,
         names,
         ridge_lambda=ridge_lambda,
         sample_weights=sample_weights,
@@ -778,13 +778,14 @@ def demeaned_ridge_oos(
     if not fit.get("success"):
         fit = {
             "success": True,
-            "intercept": 0.0,
+            "intercept": round(float(y_mean), 6),
             "coefficients": {},
             "active_features": [],
             "zscore_means": {},
             "zscore_stds": {},
         }
     te = np.asarray(X_te, dtype=np.float64)
-    preds_dm = predict_ridge_matrix(fit, te, names) if te.ndim == 2 and te.shape[0] else []
-    preds = [(float(p) + y_mean) if p is not None else None for p in preds_dm]
+    preds = (
+        predict_ridge_matrix(fit, te, names) if te.ndim == 2 and te.shape[0] else []
+    )
     return fit, preds

@@ -213,7 +213,6 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             holdout_trading_days=body.holdout_trading_days,
             include_alpha158=bool(body.include_alpha158),
-            label_demean=bool(body.label_demean),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -257,7 +256,6 @@ def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
         note=body.note,
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
-        label_demean=bool(body.label_demean),
     )
     try:
         if body.persist or body.sync:

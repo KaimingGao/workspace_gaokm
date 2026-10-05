@@ -527,7 +527,6 @@ def fit_tau_ridge_report(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     include_alpha158: bool = True,
-    label_demean: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ 头 Ridge + Holdout OOS。
 
@@ -536,7 +535,6 @@ def fit_tau_ridge_report(
     默认近 ``holdout_trading_days`` 个交易日只测；训练段 β 为研究模型，
     全样本重估为执行模型。
     ``include_alpha158``：默认 True，面板附加 ``raw_alpha158_*``（≤T−1）。
-    ``label_demean``：默认 True（历史口径）；训练标签减全局均值，截距加回。
     """
     tau_key = str(tau_hm or "open").strip() or "open"
     use_minute = tau_key.lower() not in ("", "open")
@@ -630,19 +628,12 @@ def fit_tau_ridge_report(
         feat_names, list(TAU_MIN_STD_EXEMPT)
     )
 
-    from core.research.label_demean import annotate_label_demean, demean_labels
-
-    use_dm = bool(label_demean)
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
     y_tr = np.asarray(ys_tr, dtype=np.float64)
-    if use_dm:
-        y_fit, y_mean = demean_labels(y_tr)
-    else:
-        y_fit, y_mean = y_tr, 0.0
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
-        y_fit,
+        y_tr,
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=weights,
@@ -660,13 +651,9 @@ def fit_tau_ridge_report(
             "note": "Z 方差不足，ŷ_τ 用训练均值",
         }
 
-    preds_dm = (
+    preds_te = (
         predict_ridge_matrix(fit, X_fit[row_te], feat_names) if len(test_idx) else []
     )
-    preds_te = [
-        (float(p) + y_mean) if (use_dm and p is not None) else p
-        for p in (preds_dm or [])
-    ]
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     by_tau = _oos_by_tau(preds_te, ys_te, metas_te) if ys_te and use_minute else {}
     bucket_pack = _oos_sign_buckets(preds_te, ys_te) if ys_te else {}
@@ -691,7 +678,6 @@ def fit_tau_ridge_report(
         "neg_recall": bucket_pack.get("neg_recall"),
         "n_pos": bucket_pack.get("n_pos"),
         "n_neg": bucket_pack.get("n_neg"),
-        "y_label_mean": round(y_mean, 6),
         "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": target,
@@ -707,19 +693,6 @@ def fit_tau_ridge_report(
         except Exception:  # noqa: BLE001
             logger.debug("tau attach_daily_cs_ic failed", exc_info=True)
     research_model = dict(fit)
-    if use_dm:
-        try:
-            research_model["intercept"] = round(
-                float(fit.get("intercept") or 0.0) + y_mean, 6
-            )
-        except (TypeError, ValueError):
-            research_model["intercept"] = round(y_mean, 6)
-        research_model["intercept_demeaned"] = round(
-            float(fit.get("intercept") or 0.0), 6
-        )
-        annotate_label_demean(research_model, enabled=True, y_mean=y_mean)
-    else:
-        annotate_label_demean(research_model, enabled=False, y_mean=0.0)
     research_model["model_role"] = "research"
 
     w_all = (
@@ -728,13 +701,9 @@ def fit_tau_ridge_report(
         else None
     )
     y_all = np.asarray(ys_use, dtype=np.float64)
-    if use_dm:
-        y_all_fit, y_mean_all = demean_labels(y_all)
-    else:
-        y_all_fit, y_mean_all = y_all, 0.0
     fit_full = fit_keepall_ridge_matrix(
         X_fit,
-        y_all_fit,
+        y_all,
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=w_all,
@@ -742,16 +711,6 @@ def fit_tau_ridge_report(
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
-    y_mean = y_mean_all
-    if use_dm:
-        try:
-            model["intercept"] = round(float(model.get("intercept") or 0.0) + y_mean, 6)
-        except (TypeError, ValueError):
-            model["intercept"] = round(y_mean, 6)
-        model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
-        annotate_label_demean(model, enabled=True, y_mean=y_mean)
-    else:
-        annotate_label_demean(model, enabled=False, y_mean=0.0)
     model["horizon_mode"] = "tau_to_close"
     model["target"] = target
     model["residualized"] = False
@@ -773,10 +732,10 @@ def fit_tau_ridge_report(
             + ("；Z+raw_alpha158_*" if include_alpha158 else "；Z-only")
             if use_minute
             else (
-                "Z[+Alpha158] τ→close（开盘 price[τ]=open）；demean+theme_day+yclose/mom3+tau_lag1/ma5"
+                "Z[+Alpha158] τ→close（开盘 price[τ]=open）；theme_day+yclose/mom3+tau_lag1/ma5"
                 "+raw_alpha158_*；live 写 y_τc"
                 if include_alpha158
-                else "Z-only τ→close（开盘 price[τ]=open）；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 写 y_τc"
+                else "Z-only τ→close（开盘 price[τ]=open）；theme_day+yclose/mom3+tau_lag1/ma5；live 写 y_τc"
             )
         ),
     }

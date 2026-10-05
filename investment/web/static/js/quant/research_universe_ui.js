@@ -131,7 +131,7 @@ export function installResearchUniverseUi(q) {
     const headNote = [
       `ŷ_oo Holdout OOS`,
       `Holdout${hold} · 前半${tierN}日`,
-      `A 命中>${Math.round(aHit * 100)}% · IC>0 · N>${aMinN}`,
+      `A 命中≥${Math.round(aHit * 100)}% · IC>0 · N≥${aMinN}`,
       `B≥${Math.round(bHit * 100)}%`,
       liveBit(),
     ].join(" · ");

@@ -760,18 +760,12 @@ def fit_oo_ridge_matrix(
     ridge_lambda: float = 1.0,
     min_samples: int = 24,
     fitted_as_of: Optional[str] = None,
-    label_demean: bool = False,
     sample_weights: Optional[Sequence[float]] = None,
 ) -> Tuple[Any, Dict[str, Any]]:
     """在矩阵上拟合 ŷ_oo，返回 ``(ReturnScoreModel | None, report)``。
 
     ``sample_weights`` 与全表 ``y`` 等长（或与 ``row_idx`` 等长）；√w 加权最小二乘。
     """
-    from core.research.label_demean import (
-        annotate_label_demean,
-        demean_labels,
-        restore_intercept_after_demean,
-    )
     from core.signal.return_score import ReturnScoreModel
 
     y = np.asarray(y, dtype=np.float64)
@@ -800,8 +794,6 @@ def fit_oo_ridge_matrix(
     z_means: Dict[str, float] = {}
     z_stds: Dict[str, float] = {}
     fit = None
-    y_mean = 0.0
-    use_dm = bool(label_demean)
     if x_c is not None and y_c is not None and active:
         from core.research.beta_accuracy import apply_collinearity_on_columns
         from core.signal.factors.meta.collinearity import TREND_FAMILY
@@ -825,9 +817,6 @@ def fit_oo_ridge_matrix(
             active = list(kept)
         if active:
             x_z, z_means, z_stds = _zscore_matrix(x_c, active)
-            y_fit = y_c
-            if use_dm:
-                y_fit, y_mean = demean_labels(y_c)
             row_w = _align_row_weights(
                 sample_weights,
                 n_full=n_full,
@@ -836,14 +825,12 @@ def fit_oo_ridge_matrix(
             )
             fit = _ols_matrix(
                 x_z,
-                y_fit,
+                y_c,
                 active,
                 excluded,
                 ridge_lambda=lam,
                 sample_weights=row_w,
             )
-            if fit is not None and use_dm:
-                fit = restore_intercept_after_demean(fit, y_mean)
 
     if not fit:
         raw_n = prep_meta.get("raw_sample_count", n_raw)
@@ -891,12 +878,6 @@ def fit_oo_ridge_matrix(
             report["mean_sample_weight"] = round(
                 float(aligned.sum() / max(1, int(aligned.size))), 4
             )
-    if use_dm:
-        annotate_label_demean(report, enabled=True, y_mean=y_mean)
-        if fit.get("intercept_demeaned") is not None:
-            report["intercept_demeaned"] = fit.get("intercept_demeaned")
-    else:
-        annotate_label_demean(report, enabled=False, y_mean=0.0)
     model = ReturnScoreModel.from_ols_report(report, fitted_as_of=fitted_as_of)
     return model, report
 

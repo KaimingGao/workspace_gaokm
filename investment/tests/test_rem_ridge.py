@@ -207,7 +207,6 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertTrue(str(report.get("schema") or "").startswith("tau_ridge_v"))
         rm = report["return_model"]
         self.assertIn("coefficients", rm)
-        self.assertTrue(rm.get("y_demeaned"))
         self.assertEqual((rm.get("y_spec") or {}).get("tau"), "open")
         coefs = rm.get("coefficients") or {}
         self.assertNotIn("momentum", coefs)

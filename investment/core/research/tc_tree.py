@@ -697,7 +697,7 @@ def fit_tau_tree_report(
     )
     from core.research.panel_matrix import (
         collect_tau_compact,
-        demeaned_ridge_oos,
+        keepall_ridge_oos,
         finite_name_set,
         named_columns,
         raw_alpha158_finite,
@@ -831,7 +831,7 @@ def fit_tau_tree_report(
         if use_theme_weights
         else None
     )
-    _, ridge_preds = demeaned_ridge_oos(
+    _, ridge_preds = keepall_ridge_oos(
         X_ridge[row_tr],
         ys_tr,
         X_ridge[row_te],
@@ -853,7 +853,6 @@ def fit_tau_tree_report(
                 "oos": _theme_counts(metas_te),
                 "all": _theme_counts(metas),
             },
-            "y_label_mean": round(float(np.mean(y_tr)), 6) if y_tr.size else None,
             "tau": tau_key,
         }
     )

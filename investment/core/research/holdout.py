@@ -241,19 +241,9 @@ def resolve_ridge_split(
     return train_idx, test_idx, pack
 
 
-def make_research_model(
-    train_fit: Dict[str, Any],
-    *,
-    y_mean: float = 0.0,
-) -> Dict[str, Any]:
-    """Holdout 训练集拟合 → 研究套 ``return_model``（截距加回训练均值）。"""
+def make_research_model(train_fit: Dict[str, Any]) -> Dict[str, Any]:
+    """Holdout 训练集拟合 → 研究套 ``return_model``。"""
     research = dict(train_fit or {})
-    try:
-        research["intercept"] = round(
-            float(research.get("intercept") or 0.0) + float(y_mean or 0.0), 6
-        )
-    except (TypeError, ValueError):
-        research["intercept"] = round(float(y_mean or 0.0), 6)
     research["model_role"] = MODEL_ROLE_RESEARCH
     return research
 

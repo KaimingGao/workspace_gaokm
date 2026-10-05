@@ -12,7 +12,7 @@
 默认池 = 观察池；可选 research_universe（pool=ledger 已废弃，等同 watching）。
 
 档位（默认）：
-- A：命中率 > 0.60，且 IC > 0，且有效日 n > 6
+- A：命中率 ≥ 0.60，且 IC > 0，且有效日 n ≥ 6
 - B：命中率 ≥ 0.50 但未同时满足 A 的三项
 - C：命中率 < 0.50，或无有效样本
 
@@ -329,7 +329,7 @@ def assign_tier(
     ic: Optional[float] = None,
     a_min_n: int = DEFAULT_A_MIN_N,
 ) -> str:
-    """A：命中率 > a_hit、IC > 0、有效日 n > a_min_n。未进 A 时按 B 命中率下限分 B/C。
+    """A：命中率 ≥ a_hit、IC > 0、有效日 n ≥ a_min_n。未进 A 时按 B 命中率下限分 B/C。
 
     ``min_n`` 保留给旧调用，不再参与升 A。
     """
@@ -351,7 +351,7 @@ def assign_tier(
         except (TypeError, ValueError):
             ic_f = float("nan")
         ic_ok = math.isfinite(ic_f) and ic_f > 0.0
-    if n > a_n and hr > a_thr and ic_ok:
+    if n >= a_n and hr >= a_thr and ic_ok:
         return "A"
     if hr >= b_thr:
         return "B"
@@ -1034,7 +1034,7 @@ def build_holdout_half_tiers(
         },
         "note": (
             f"{src_note} · Holdout 前半 {tier_n} 日分档 · 面板 {panel_lb} 日；"
-            f"A 为命中率>{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、IC>0、N>{DEFAULT_A_MIN_N}；"
+            f"A 为命中率≥{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、IC>0、N≥{DEFAULT_A_MIN_N}；"
             "落盘 last；live 档位跟随历史回测「分档」勾选；"
             "回测天数用独立 lookback。"
         ),

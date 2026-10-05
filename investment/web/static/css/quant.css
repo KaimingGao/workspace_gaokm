@@ -4628,21 +4628,6 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   flex-shrink: 0;
 }
 
-.quant-inline-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--q-fs-micro, 12px);
-  color: var(--q-muted, #667);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-}
-
-.quant-inline-check input {
-  margin: 0;
-}
-
 .quant-inline-num {
   display: inline-flex;
   align-items: baseline;
@@ -4756,13 +4741,11 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-actions {
   justify-content: flex-end;
 }
 
-body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-num,
-body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-check {
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-num {
   color: var(--ink-2);
 }
 
-body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-num > span:first-child,
-body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-check > span {
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-num > span:first-child {
   letter-spacing: 0.04em;
 }
 
