@@ -556,23 +556,20 @@ function slotYhat(r, dayHost) {
   };
 }
 
-/** 本轮 r 真值：close[T]/price(τ)−1；缺字段时用日收 / 该根 5m C。 */
+/** 本轮 r 真值：close[T]/price(τ)−1。先槽位/扫描，再用日收对该根 5m C。日级 r 不能盖住本钟。 */
 function slotRRealizedNum(d, slotRow, hm, slotScores) {
   const n =
     slotYNum(slotRow, ["r_realized", "y_r_realized"]) ??
-    slotYNum(slotScores, ["r_realized", "y_r_realized"]) ??
-    slotYNum(d, ["r_realized", "y_r_realized"]);
+    slotYNum(slotScores, ["r_realized", "y_r_realized"]);
   if (n != null) return n;
   const scan = scanRowForHm(d, hm);
-  if (!scan) return null;
-  const stored = slotYNum(scan, ["r_realized", "y_r_realized"]);
-  if (stored != null) return stored;
-  const c = Number(scan.c);
-  const dayC = Number(d && d.close);
-  if (Number.isFinite(c) && c > 0 && Number.isFinite(dayC) && dayC > 0) {
-    return (dayC / c - 1) * 100;
+  if (scan) {
+    const stored = slotYNum(scan, ["r_realized", "y_r_realized"]);
+    if (stored != null) return stored;
+    const fromBar = priceTauToClosePct(scan.c, d && d.close);
+    if (fromBar != null) return fromBar;
   }
-  return null;
+  return slotYNum(d, ["r_realized", "y_r_realized"]);
 }
 
 /** 本轮 y_τ30 真值：mean(price(τ⊕25/30/35))/price(τ)−1；只读扫描/槽位已落盘字段。 */
@@ -978,21 +975,77 @@ function _horizonProbAgree(pUp, realPct) {
   return (pUp > 0.5) === (realPct > 0);
 }
 
-function pickTauRealized(d) {
-  let n =
-    pickScoreNum(d, "tau_realized") ??
-    (d.tau_realized != null && Number.isFinite(Number(d.tau_realized))
-      ? Number(d.tau_realized)
-      : null);
-  if (n == null) {
-    const o = Number(d.open);
-    const c = Number(d.close);
-    if (Number.isFinite(o) && Number.isFinite(c) && o > 0) {
-      n = (c / o - 1) * 100;
+function isClockTauHost(host) {
+  return !!(
+    host &&
+    typeof host === "object" &&
+    (host.t0_slot_focus || host._scan_score_row || host.t0_slot_hm)
+  );
+}
+
+/** close[T]/price(τ)−1。时钟行不用日级 close/open（那是 τ=open 的标签）。 */
+function clockTauRealizedNum(slotHost, dayHost) {
+  if (!isClockTauHost(slotHost)) return null;
+  const day = dayHost && typeof dayHost === "object" ? dayHost : slotHost;
+  const hm = String(slotHost.t0_slot_hm || "").slice(0, 5);
+  const scan =
+    slotHost._scan_score_row && typeof slotHost._scan_score_row === "object"
+      ? slotHost._scan_score_row
+      : scanRowForHm(day, hm) || scanRowForHm(slotHost, hm);
+  const stored =
+    finiteRtauNum(scan && scan.r_realized) ??
+    finiteRtauNum(scan && scan.y_r_realized);
+  if (stored != null) return stored;
+  const ps = day.price_space && typeof day.price_space === "object" ? day.price_space : {};
+  const dayC = finitePosPx(ps.daily_close) ?? finitePosPx(day.close) ?? finitePosPx(slotHost.close);
+  const fromBar = priceTauToClosePct(
+    finitePosPx(scan && scan.c) ?? finitePosPx(slotHost.bar_c),
+    dayC
+  );
+  if (fromBar != null) return fromBar;
+  return (
+    finiteRtauNum(slotHost.r_realized) ??
+    finiteRtauNum(slotHost.y_r_realized) ??
+    finiteRtauNum(slotHost.scores && slotHost.scores.r_realized) ??
+    finiteRtauNum(slotHost.scores && slotHost.scores.y_r_realized)
+  );
+}
+
+function priceTauToClosePct(priceTau, closePx) {
+  const p = finitePosPx(priceTau);
+  const c = finitePosPx(closePx);
+  if (p == null || c == null) return null;
+  return (c / p - 1) * 100;
+}
+
+function pickTauRealized(d, predHost) {
+  const day = d && typeof d === "object" ? d : null;
+  const slot = predHost && typeof predHost === "object" ? predHost : null;
+  const clock = slot && isClockTauHost(slot) ? slot : null;
+  let n = null;
+  if (clock) {
+    n = clockTauRealizedNum(clock, day && day !== clock ? day : clock);
+  } else if (day) {
+    n =
+      pickScoreNum(day, "tau_realized") ??
+      (day.tau_realized != null && Number.isFinite(Number(day.tau_realized))
+        ? Number(day.tau_realized)
+        : null);
+    if (n == null) {
+      const o = Number(day.open);
+      const c = Number(day.close);
+      if (Number.isFinite(o) && Number.isFinite(c) && o > 0) {
+        n = (c / o - 1) * 100;
+      }
     }
   }
   if (n == null) return { text: "—", tip: TAU_REALIZED_TITLE, n: null };
-  const pred = pickScoreNum(d, "y_tau") ?? pickScoreNum(d, "direction_score");
+  const predSrc = clock || day;
+  const pred =
+    finiteRtauNum(predSrc && predSrc["y_τc"]) ??
+    finiteRtauNum(predSrc && predSrc.y_tau) ??
+    (predSrc ? pickScoreNum(predSrc, "y_tau") : null) ??
+    (predSrc ? pickScoreNum(predSrc, "direction_score") : null);
   const agree = _signAgree(pred, n);
   return {
     text: fmtRtauPct(n),
@@ -1972,8 +2025,14 @@ function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtr
     }
   }
   const pr = showRealized
-    ? pickTauRealized(realHost || d)
+    ? pickTauRealized(realHost || d, d)
     : { n: null, tip: TAU_REALIZED_TITLE };
+  if (showRealized && pr && pr.n != null && predNum != null) {
+    pr.agree = _signAgree(predNum, pr.n);
+    pr.tip =
+      TAU_REALIZED_TITLE +
+      (pr.agree === true ? " · 与 ŷ_τc 同号" : pr.agree === false ? " · 与 ŷ_τc 异号" : "");
+  }
   const agreeCls = predRealizedAgreeCls(pr, showRealized);
   const tipParts = [
     predNum != null || predTxt !== "—" ? Y_TAU_TITLE : "暂无 ŷ_τc",
@@ -3986,11 +4045,13 @@ function scanYhlPred(r) {
   return r.y_hl ?? r.predicted_score_hl ?? r.y_path ?? r.predicted_score_path;
 }
 
-function scanYocReal(d) {
-  // 与主表 pickTauRealized 同口径：scores/feats 优先，再顶层，再日 K 开→收。
-  // 勿只读顶层 tau_realized——已落账预演会留下早盘末价快照。
-  const pack = pickTauRealized(d);
-  return pack && pack.n != null ? pack.n : null;
+function scanYocReal(r, d) {
+  // 本根 price(τ)→close。不用日级 tau_realized（close/open），否则每钟括号相同。
+  const stored = finiteRtauNum(r && r.r_realized) ?? finiteRtauNum(r && r.y_r_realized);
+  if (stored != null) return stored;
+  const ps = d && d.price_space && typeof d.price_space === "object" ? d.price_space : {};
+  const dayC = finitePosPx(d && d.close) ?? finitePosPx(ps.daily_close);
+  return priceTauToClosePct(r && r.c, dayC);
 }
 
 function fmtScanPick(pick) {
@@ -4079,7 +4140,6 @@ function closeBandScanTitleHtml(d) {
 function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
   const scan = Array.isArray(d?.close_band_scan) ? d.close_band_scan : [];
   if (!scan.length) return "";
-  const ocReal = scanYocReal(d);
   const body = scan
     .map((r) => {
       if (!r || typeof r !== "object") return "";
@@ -4108,7 +4168,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
           r.y_t75_realized ?? r.t75_realized
         )
       );
-      const yocTxt = fmtScanPredReal(scanYocPred(r), ocReal);
+      const yocTxt = fmtScanPredReal(scanYocPred(r), scanYocReal(r, d));
       const pickTxt = fmtScanPick(r.pick);
       const skipTxt = skips || "—";
       return (
