@@ -38,7 +38,7 @@
 | **rank_lots** | 观察池 live + `paper_replay` | **生产主路径** | 未过入场、缺 ranking 或 hard_reject 清仓 | ranking>rank入场 按分数买，过 rank强买 lot_strong_amount 否则 lot_base_amount |
 | **持仓规则** | `holding_rules` | 逐票规则引擎 | 单票信号扫描驱动卖出 | 按规则引擎加仓 |
 
-横截面 TopK（`simulate_cross_section_rebalance` / λ 同号闸）与分池簿已删除。live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_replay`）。
+live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_replay`）。
 
 ---
 
@@ -51,9 +51,8 @@
 | **ranking** | w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 调仓排序。rot=price(τ)/open[T]−1；基准 τ→open[T+1]；ŷ_τc 已是 τ→close；w_co 默认 1 |
 | **residual** | w_τc·ŷ_τc + w_oc·remaining(ŷ_oc) | 研究对照。做 T 主分是 ŷ_τc 估 C_τ；remaining(ŷ_oc) 不进破带 |
 | ŷ_co | 隔夜 close[T]→open[T+1] | 经 w_co 几何叠进 ŷ_τc；w_co=0 时不进 ranking |
-| ŷ_hl（旧名 ŷ_path） | 分钟K形状 | ŷ_hl 挂成交明细、进做 T 同号闸；**不进调仓入场** |
 
-历史回测成交明细列序为股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完时剩余按收盘市值计入卖出总额）/ **ranking** 预估(真实)（真实=(open[T+1]−price(τ))/open[T]）/ y_oo / y_oc / y_co / **y_hl**（开盘 Z 挂分；成交钟>09:30 随前缀重算）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。缺模型/缺分显示 —。
+历史回测成交明细列序为股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完时剩余按收盘市值计入卖出总额）/ **ranking** 预估(真实)（真实=(open[T+1]−price(τ))/open[T]）/ y_oo / y_τc / y_co。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。缺模型/缺分显示 —。
 
 未过入场（含可选 y_oo>0 / y_oc>0）的已持仓 → **清仓**。过入场则开仓或加仓。当日打不上分（缺 ranking）不能假装过门槛，按清仓处理。无「持」动作。
 
@@ -66,17 +65,17 @@
 | `rank_strong` | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0；关=不看。缺分不拦 |
-| `fusion_w_oo` | 0.6 | ŷ_oo 融合权重（旧键 fusion_w_trade） |
-| `fusion_w_oc` | 0.4 | ŷ_τc∘隔夜 头权重（键名仍是 fusion_w_oc；旧键 fusion_w_nowcast） |
-| `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数（别名 y_on_alpha）；0=不叠 |
-| `cash_floor` | 0 | 不留现金地板。现金不够该手则缩到整百（最少一手）；仍买不起才跳过。强档买不下先试基础手数。旧 50 万配置忽略。 |
+| `fusion_w_oo` | 0.6 | ŷ_oo 融合权重 |
+| `fusion_w_oc` | 0.4 | ŷ_τc∘隔夜 头权重（键名 fusion_w_oc） |
+| `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数；0=不叠 |
+| `cash_floor` | 0 | 不留现金地板。现金不够该手则缩到整百（最少一手）；仍买不起才跳过。强档买不下先试基础手数。 |
 | `holdings_mv_cap` | 150_000 | **live** 持仓市值上限；本笔将超则跳过该买。历史回测为 0（不限） |
 | `max_positions` | 策略限额 | 仅持仓规则日循环 / 风控仍可读；**rank_lots 开/加不再用它截断** |
 | 初始现金（回测） | 200_000 | 历史回测默认本金，表单可改；不留地板 |
 
-OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank_lots`（仍认旧键 `path_matrix`）。
+配置写在 `execution.rebalance_timing.rank_lots`（仍认旧键 `path_matrix`）。
 
-观察池还可按枢纽「观察池分档」A/B/C 收缩宇宙（`/replay` 勾选，同步 live 闸）。只影响 **live / 回测 rank_lots 新开/加**；已持仓仍可卖/清。回测天数仍用独立 lookback。**做 T 不套分档**（只在已持底仓上 overlay；v6 估 ĉ / 选腿不吃 ŷ_oo）。未映射票在未选满三档时不进新买。OOS 失败禁买与分档过滤独立。
+观察池还可按枢纽「观察池分档」A/B/C 收缩宇宙（`/replay` 勾选，同步 live 闸）。只影响 **live / 回测 rank_lots 新开/加**；已持仓仍可卖/清。回测天数仍用独立 lookback。**做 T 不套分档**（只在已持底仓上 overlay；v6 估 ĉ / 选腿不吃 ŷ_oo）。未映射票在未选满三档时不进新买。
 
 ---
 
@@ -93,7 +92,7 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 5. ranking &gt; rank强 → lot_strong_amount，否则 lot_base_amount（live 与回测同一对；缺省 2 万 / 1 万）。按成交价换算整手；不够一手则买一手。买不下则缩到整百，最少一手。
 6. 若缩到一手仍使现金不够（含手续费）→ 跳过该买。
 
-历史回测成交与 live 不同：ŷ_oo 仍是 **09:30 开盘信息集**。ŷ_τc 随所选 **调仓时间**：09:30 用开盘 Z（`use_minute_tau=False`）；09:35–10:00 用截至该钟的 5 分钟前缀重算（与做 T `rescore_scores_at_fixed_prefix` 同路径，`use_minute_tau=True`）。前缀注入分钟小包/截面后按 `features_tau` 重拆 ŷ_τc，成交明细组成表与做 T 扫描该钟同口径。买卖价取该钟 5 分钟 K——09:30 用首根开盘（无分钟则日开盘），其后用该档收盘。**买入**缺该根则跳过（`reason`＝无有效报价）。**清仓**缺该根则回退：该钟之后～10:00 下一根 → 09:30 / 日开盘（账上 `缺HH:MM回退…`；`constraints.sell_px_fallback`）。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺仓不当开盘锚）。**有窗口分钟时**复用做 T 日分价闸（`resolve_t0_price_space`）：共用框「日分价闸」默认开；`|日开/分开−1|` 或 `|日昨/分昨−1|` 超阈（默认 5%，跟做 T 配置）则该票当日 skip（`price_space_mismatch`）；比的是开/昨收锚，**不是**成交价。关闸不拦，仍记错位次数。live 自动调仓 / 手动预演窗口 = 已保存 fill_clock～10:00（默认 09:30）；到点后现价成交一次，ŷ_τc 用因果末根 5m（≤10:00），不走此闸。
+历史回测成交与 live 不同：ŷ_oo 仍是 **09:30 开盘信息集**。ŷ_τc 随所选 **调仓时间**：09:30 用开盘 Z（`use_minute_tau=False`）；09:35–10:00 用截至该钟的 5 分钟前缀重算（与做 T `rescore_scores_at_fixed_prefix` 同路径，`use_minute_tau=True`）。前缀注入分钟小包/截面后按 `features_tau` 重拆 ŷ_τc，成交明细组成表与做 T 扫描该钟同口径。买卖价取该钟 5 分钟 K——09:30 用首根开盘（无分钟则日开盘），其后用该档收盘。**买入**缺该根则跳过（`reason`＝无有效报价）。**清仓**缺该根则回退：该钟之后～10:00 下一根 → 09:30 / 日开盘（账上 `缺HH:MM回退…`；`constraints.sell_px_fallback`）。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺仓不当开盘锚）。**有窗口分钟时**复用做 T 日分价闸（`resolve_t0_price_space`）：共用框「日分价闸」默认开；`|日昨/分昨−1|` 超阈（默认 5%，跟做 T 配置；0=关）则该票当日 skip（`price_space_mismatch`）；比的是昨收锚，**不是**成交价。关闸不拦，仍记错位次数。live 自动调仓 / 手动预演窗口 = 已保存 fill_clock～10:00（默认 09:30）；到点后现价成交一次，ŷ_τc 用因果末根 5m（≤10:00），不走此闸。
 
 ### 4.2 关键参数
 
@@ -104,21 +103,21 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 | `rank_strong` | 0.001 | 超过买 lot_strong_amount，否则 lot_base_amount |
 | `lot_base_amount` | 10000 | 入场金额（元）；按价换算整手，不够一手则买一手；与历史回测表单同一键 |
 | `lot_strong_amount` | 20000 | 强档金额；不少于 lot_base_amount |
-| `fusion_w_oo` | 0.6 | ŷ_oo 权重（旧键 fusion_w_trade） |
-| `fusion_w_oc` | 0.4 | ŷ_τc∘隔夜 头权重（键名仍是 fusion_w_oc；旧键 fusion_w_nowcast） |
-| `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数（别名 y_on_alpha） |
+| `fusion_w_oo` | 0.6 | ŷ_oo 权重 |
+| `fusion_w_oc` | 0.4 | ŷ_τc∘隔夜 头权重（键名 fusion_w_oc） |
+| `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0 |
 | `cash_floor` | 0 | 不留现金地板；现金不够该手则缩到整百（最少一手） |
 | `holdings_mv_cap` | 150_000 | live 持仓市值上限；历史回测为 0 |
 | `fill_clock` | 09:30 | **仅历史回测**：5m 成交钟 09:30–10:00；>09:30 时 ŷ_τc 用该钟前缀重算 |
-| `price_space_gate` | 开 | **仅历史回测**：共用框「日分价闸」。有分钟时 |日开/分开−1| 或 |日昨/分昨−1| 超阈则 skip；阈跟做 T（默认 5%）。关则不拦，仍记错位次数 |
+| `price_space_gate` | 开 | **仅历史回测**：共用框「日分价闸」。有分钟时 |日昨/分昨−1| 超阈则 skip；阈跟做 T（默认 5%，0=关）。关则不拦，仍记错位次数 |
 
-配置键优先 `rebalance_timing.rank_lots`，仍认旧键 `path_matrix`。旧 λ / 同号闸 / pending_exit 已删除。
+配置键优先 `rebalance_timing.rank_lots`，仍认旧键 `path_matrix`。
 
 ### 4.3 动作码
 
-`open` / `add` / `exit` / `skip`（无有效报价、日分价错位、现金不足、T+1 不可卖、OOS）。历史回测 `/replay` 成交账动作列展示 `reason`，可下 CSV；跳过腿不计命中率。命中率对照 `sign(ranking)=sign(realized_ranking)`，最后一个交易日无次日开、不进分母。净值图下方 **分票贡献** 表按窗口盯市盈亏排序（贡献%=盈亏/回测本金）。
+`open` / `add` / `exit` / `skip`（无有效报价、日分价错位、现金不足、T+1 不可卖）。历史回测 `/replay` 成交账动作列展示 `reason`，可下 CSV；跳过腿不计命中率。命中率对照 `sign(ranking)=sign(realized_ranking)`，最后一个交易日无次日开、不进分母。净值图下方 **分票贡献** 表按窗口盯市盈亏排序（贡献%=盈亏/回测本金）。
 
 ---
 
@@ -257,18 +256,6 @@ core/
 | `only_if_hold` | 仅 stance ∈ {wait, probe, buy_light} 时允许做 T |
 
 调仓卖出时若做 T 已开 leg1（持仓被做 T 占用），会跳过该票的调仓卖出（`load_rebalance_t0_sell_blocks`），避免与做 T 抢仓。
-
----
-
-## 11. 已下线设计（避免误用）
-
-| 旧机制 | 现状 |
-|--------|------|
-| 分池簿调仓（cluster_book） | 已删除 |
-| 横截面 TopK（`simulate_cross_section_rebalance` / λ 同号闸） | 已删除；Follow 与回测统一 `rank_lots` |
-| 横截面 sizing 用 `cash × ratio` | 已改为 `min(spendable, equity × ratio)` |
-| 软超限整批拦买 | 已改为逐笔缩量 |
-| 循环内串行 AkShare | 已改为开环批量预取 |
 
 ---
 

@@ -1195,17 +1195,20 @@ investment/
 │   ├── data/                    # facade · service · policy · pit · coverage · quality
 │   ├── signal_service.py        # 上层打分口（ŷ 信封 / 生产门禁）
 │   ├── store.py · store_bars_sqlite.py
-│   ├── ports/                   # market · adapters · signal（skills 经 ports_bind 注入）
+│   ├── ports/                   # market · registry · signal（经 adapters.bind 注入）
 │   ├── signal/                  # Service · scorer · factors · config · score_stock
 │   ├── backtest/                # walk-forward · topk_backtest · strategies
 │   ├── stance.py · advise.py · facts.py · position.py
-│   ├── paper/                   # 账本 · exec · cycle · rebalance
+│   ├── paper/                   # 账本 · exec · cycle · rebalance（`from core.paper import …`）
 │   ├── market/                  # symbols · calendar · context
 │   ├── watching/                # 观察池 store · health · insights
+│   ├── t0/ · risk/ · research/  # T+0 · 风控门禁 · 研究模型
 │   ├── job_progress.py · schedule_jobs.py · run_manifest.py
 │   ├── decision_record.py · memory_store.py · feedback_suggest.py
 │   ├── observation.py · order_prefill.py · alert_outbound.py
-│   └── sentiment.py · t0/
+│   └── sentiment.py
+├── adapters/                    # 出站 I/O（market / news / fundamentals / …）
+│   └── bind.py                  # 默认实现登记到 core.ports
 ├── quant/                       # 量化研究台
 │   ├── services/                # QuantService、报告、持仓联动
 │   ├── ops/                     # daily preset、健康检查
@@ -1214,21 +1217,20 @@ investment/
 ├── services/                    # 应用服务
 │   ├── paper_service.py         # PaperService 组装
 │   ├── paper_account.py · paper_jobs.py · paper_trades.py · paper_helpers.py
-│   ├── chat_service.py · portfolio_service.py · daily_service.py
-│   └── watching_service.py · platform_service.py · …
+│   ├── chat_service.py · daily_service.py · eval_service.py
+│   └── watching_service.py · platform_service.py · position_stance.py
 ├── main.py                      # CLI
 ├── run_web.py                   # Web：uvicorn
 ├── web/
-│   ├── app.py · deps.py · schemas.py · routers/
-│   └── static/js/
-│       ├── paper.js             # 模拟页编排
-│       └── paper/fmt.js · chart.js
+│   ├── app.py · deps.py · schemas.py
+│   ├── routers/                 # chat · paper · watching · daily · quant* · strategy · …
+│   └── static/js/               # paper/ · quant/ · watching_*
 ├── agent/                       # 编排层 + 认知层（正本）
-├── skills/
-│   ├── ports_bind.py            # 行情/信号适配器注册
-│   ├── common/                  # quote_api · history（ports 实现侧）
-│   └── <name>/                  # handler + engine + tool_config
+├── skills/                      # Agent 工具（registry 13 个）；handler + shim
+│   ├── quote/ compare/ screen/ signal/ backtest/ …
+│   └── quant/                   # tool_config；实现在 quant/skill/
 ├── research/                    # 薄 CLI（逻辑在 core/quant；读数经 DataService）
+├── scripts/                     # 日更 / 回归 / 对照
 ├── data/                        # JSON 状态 · store/ · jobs/paper.json
 ├── evals/ · tests/
 └── docs/                        # 本目录
@@ -1258,11 +1260,11 @@ investment/
 | 因子打分 | `core/signal/scorer.py`（实现）· 出口经 SignalService |
 | BS（Domain Facade） | `core/backtest_service.py` · `core/backtest/`（`BacktestService` · `engine`） |
 | TopK 权重 | `core/backtest/topk_weights.py`（`topk_backtest` 再导出） |
-| 纸面账本 | `core/paper.py` + `paper_exec` + `paper_cycle` |
+| 纸面账本 | `core/paper/`（`ledger` · `exec` · `cycle` · `rebalance`） |
 | 风控门禁 | `core/risk/checks.py` |
 | QuantService（Application Service） | `quant/services/quant_service.py` |
 | Agent quant Skill | `quant/skill/` · 注册 `skills/quant/` |
-| 模拟账本 | `core/paper.py`（`paper.json`）；对话 position 默认读此 |
+| 模拟账本 | `core/paper/`（`paper.json`）；对话 position 默认读此 |
 | 观察池 | `core/watching/` |
 | 研究 CLI | `research/*.py` |
 | Job 轮询 | `GET /api/jobs/{name}`（纸面兼容 `/api/paper/job`；Ridge 长拟合：`t30-ridge`…`t90-ridge` · `co-ridge`） |
@@ -2380,7 +2382,8 @@ Reward = 收益 − 回撤惩罚 − 成本 …
 | `quant/` | 研究台 **Application Service** `QuantService` + `quant/research` + Agent `quant/skill` | 见 [quant/services/README.md](../quant/services/README.md) |
 | `web/` | FastAPI + 静态 UI（`/watching` `/follow` `/replay`） | `js/paper/*` 子模块 |
 | `agent/` | LLM 编排、registry、prompts | 正本（原 `advisor/` 已删） |
-| `skills/` | Agent 工具 + `common/`（ports 实现）+ `ports_bind` | 消费侧经 DataService/ports |
+| `skills/` | Agent 工具（handler + shim）；I/O 在 `adapters/` | 消费侧经 DataService / `adapters.bind` |
+| `adapters/` | 出站行情/资讯/基本面等 I/O | `bind.py` 注入 `core.ports` |
 | `data/` | JSON 状态、日线缓存、`jobs/` | — |
 | `research/` | 薄 CLI（读数经 DataService） | — |
 | `evals/` | 黄金用例 + repro | — |

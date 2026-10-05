@@ -176,6 +176,23 @@ python3 evals/run_checklist.py --mock --presets          # golden + preset 校�
 python3 run_web.py                                       # Web → 顶栏工具页
 ```
 
+### 研究脚本速查
+
+README 仅列最常用命令；以下脚本按需调用：
+
+| 脚本 | 用途 |
+|------|------|
+| `python3 research/watching_run.py --init` / `--refresh --sync-paper` | 观察名单初始化 / 刷新并同步纸面 |
+| `python3 research/paper_run.py --init` / `--run` | 纸面账户初始化 / 运行 |
+| `python3 research/paper_rebalance_run.py --top-k 3 --json` | 纸面调仓（Top-K） |
+| `python3 research/cross_section_run.py --limit 10` | 横截面回测 |
+| `python3 research/t0_backtest_run.py --code 茅台 --json` | 底仓做T模拟 |
+| `python3 research/threshold_suggest_run.py --code 茅台 --json` | 阈值建议 |
+| `python3 research/factor_experiment.py --code 茅台` | 因子实验 |
+| `python3 research/quant_export_run.py --format html -o /tmp/quant_daily.html` | 量化报告导出 |
+| `bash scripts/daily_quant.sh && bash scripts/daily_check.sh` | 每日量化 + 校验 |
+| `bash scripts/ci_quant.sh` | 本地 CI 全量（单测 · repro · checklist · daily eval-mock） |
+
 详见 [quant.md](quant.md)（入门概念 + 运维）· [quant-summary.md](archive/quant-summary.md)（P6～P33 总览）。
 
 ## 无 LLM 时直接测模块
