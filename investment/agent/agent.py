@@ -9,6 +9,7 @@ from typing import Dict, List
 
 from agent.artifacts import build_artifact
 from agent.contracts import SkillHandler
+from agent.context import build_session_context
 from agent.llm_client import (
     LLMClient,
     add_usage,
@@ -55,7 +56,10 @@ class InvestmentAgent:
 
     def chat(self, user_input: str) -> str:
         # 热更新 prompts / LLM 模型（平台改 .env 后无需重启会话）
-        self.messages[0] = {"role": "system", "content": SYSTEM_PROMPT}
+        # 注入会话上下文（纸面持仓 / 观察池 / 近期决策 / 简报），让 Agent 感知用户当前状态
+        ctx = build_session_context()
+        system_content = SYSTEM_PROMPT + ("\n\n" + ctx if ctx else "")
+        self.messages[0] = {"role": "system", "content": system_content}
         from agent.llm_client import resolve_llm_model
 
         model, source = resolve_llm_model()
@@ -64,7 +68,7 @@ class InvestmentAgent:
             self.llm.model_source = source
             self.llm._tested = False
             self.llm._available = None
-        effective = build_user_hints(user_input)
+        effective = build_user_hints(user_input, llm=self.llm)
         self.messages.append({"role": "user", "content": effective})
         turn_usage = empty_usage()
         self.last_artifacts = []
