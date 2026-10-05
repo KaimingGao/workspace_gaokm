@@ -26,7 +26,7 @@ const FACTOR_CN = {
   idio_momentum: "特异动量",
   overheat: "过热",
 };
-export function factorCN(name) {
+function factorCN(name) {
   return FACTOR_CN[name] || name;
 }
 
@@ -65,7 +65,7 @@ export function setProStatusChip(idOrEl, state, text) {
  * @param {string} [state] is-good | is-bad | is-mid | is-empty | ''
  * @param {{ signed?: boolean }} [opts] signed=true → A 股红涨绿跌（IC 等）
  */
-export function setProOverviewKpi(key, valueText, subText, state, opts = {}) {
+function setProOverviewKpi(key, valueText, subText, state, opts = {}) {
   const host = document.getElementById("quant-pro-overview-kpis");
   if (!host) return;
   const card = host.querySelector(`.quant-pro-kpi-card[data-kpi="${key}"]`);
@@ -294,26 +294,6 @@ export function syncOverviewFromClusters(data) {
   overviewPack.oosN = oos.n > 0 ? oos.n : null;
   overviewPack.icPos = clusterIcPosRatio(data);
   paintOverviewEod();
-}
-
-/** 命中率（0–1 或已是百分比）→ ŷ_oo 卡副文案（无 OOS 计数时） */
-export function syncOverviewHit(hitRate, subText) {
-  let pct = Number(hitRate);
-  if (!Number.isFinite(pct)) return;
-  if (pct <= 1.0001) pct *= 100;
-  if (overviewPack.k == null) return;
-  if (overviewPack.oosN) {
-    paintOverviewEod();
-    return;
-  }
-  const st = pct >= 55 ? "is-good" : pct >= 50 ? "is-mid" : "is-bad";
-  const mode = overviewPack.mode;
-  const modeLabel =
-    mode === "active" ? "执行" : mode === "shadow" ? "对照" : "";
-  const sub = [subText != null ? String(subText) : `命中 ${pct.toFixed(0)}%`, modeLabel]
-    .filter(Boolean)
-    .join(" · ");
-  setProOverviewKpi("eod", `${overviewPack.k} 组`, sub, st);
 }
 
 /** live 状态 → 落地卡，并补 ŷ_oo mode */

@@ -1,5 +1,5 @@
 import { normalizeProbeCode, isUsableStockName } from "./names.js";
-import { createScoreTooltipController } from "../score_tooltip.js?v=p2746";
+import { createScoreTooltipController } from "../score_tooltip.js";
 import { syncOverviewLanding } from "./factor_corr_ui.js";
 
 const RETIRED_MSG = "分组已退役（cluster_retired）· 请用全局 ŷ_oo / factor-ols";
@@ -10,7 +10,6 @@ export function installClusterProbe(q) {
     els,
     state,
     escapeHtml,
-    setQuantMeta,
     setBusyText,
     oosGateTipHtml,
   } = q;
@@ -128,12 +127,6 @@ export function installClusterProbe(q) {
     );
   }
 
-  async function saveUniverseFitTiers() {
-    // 守卫测保留符号；universe-fit-tiers 已随分组退役
-    setQuantMeta(RETIRED_MSG, { error: true });
-    void "/api/quant/cluster-live/universe-fit-tiers";
-  }
-
   function wireOosGateTips(host) {
     if (!host) return;
     oosGateTips.bindAttrTip(host, {
@@ -157,8 +150,6 @@ export function installClusterProbe(q) {
     fillExprCodeSelect,
     paintClusterHealth,
     renderFactorOls,
-    renderMergedFactorTable: () => {},
-    saveUniverseFitTiers,
     wireOosGateTips,
   };
 }

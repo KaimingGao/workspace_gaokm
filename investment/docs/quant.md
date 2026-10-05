@@ -1148,7 +1148,7 @@ open(t-1) ──y_co(t)──► open(t) ──y_τ(t)──► close(t)
 ## 3. 训练链：从日线到组 β（**已退役** · `cluster_retired`）
 
 > **2026-09**：分组 OLS / live 映射 / promote / 分池簿已下线（HTTP 410 · 模块删除）。
-> 下文保留作历史说明；**勿再按路径实现**。现研究台日线走 `cluster_bars_*` 增量/强更，ŷ 走 `factor_ols` / dual_score / τ 等非分组路径。
+> 下文保留作历史说明；**勿再按路径实现**。现研究台日线走 `bars_*` 增量/强更，ŷ 走 `factor_ols` / dual_score / τ 等非分组路径。
 
 ```mermaid
 flowchart LR
@@ -1170,7 +1170,7 @@ flowchart LR
 
 - β / 分组 **不会**在固定钟点自动更新；`paper_daily` / `daily_quant` 不跑 OLS 分组。
 - 原链路：单票 OLS β → 聚类成组 → 组池 `return_model` → promote → live `cluster_weights_*`；含 auto-k、贪心换组、拟合档 A/B/C、分池簿。
-- 现替代：日线/分钟走 `cluster-bars` / `cluster-minute` 刷新；ŷ 走非分组 `factor_ols` / dual_score / τ。
+- 现替代：日线/分钟走 `/api/quant/bars` / `/api/quant/minute` 刷新；ŷ 走非分组 `factor_ols` / dual_score / τ。
 
 相关实现（**均已删除 / 410**）：~~`factor_ols_clusters.py`~~ · ~~`core/signal/cluster/*`~~ · ~~`cluster_greedy_refine`~~ · ~~`cluster_wf_audit`~~ · ~~`cluster_panels`~~ · ~~`web/schemas/cluster.py`~~。残留只读：`partition_loss._metrics_from_pred_act`（IC 探针）· `return_score.py`（非分组 ŷ）· `yhat_viz` 直方图。
 

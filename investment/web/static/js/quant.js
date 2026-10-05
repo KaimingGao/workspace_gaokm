@@ -11,8 +11,8 @@ import { apiFetch } from "./api_client.js";
 import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p2746";
-import { fmtScore, scoreCls } from "./paper/fmt.js?v=p2544";
+import { createScoreTooltipController } from "./score_tooltip.js";
+import { fmtScore, scoreCls } from "./paper/fmt.js";
 import {
   defaultScoringFloors,
   mergeScoringFloors,
@@ -27,8 +27,8 @@ import {
 import { createResearchParams } from "./quant/params.js";
 import { createFactorMetaCache } from "./quant/factor_meta.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
-import { createBtTablesUi } from "./quant/bt_tables.js?v=p2261";
-import { installClusterProbe } from "./quant/domain_cluster.js?v=p2746";
+import { createBtTablesUi } from "./quant/bt_tables.js";
+import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installExportInterpret } from "./quant/domain_export.js";
 import { loadAndRenderFactorIR, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
@@ -68,11 +68,11 @@ const { installBacktest } = await import(
 const { installStrategy } = await import(
   `./quant/domain_strategy.js?v=${encodeURIComponent(_QV)}`
 );
-const { installClusterBarsUi } = await import(
-  `./quant/cluster_bars_ui.js?v=${encodeURIComponent(_QV)}`
+const { installBarsUi } = await import(
+  `./quant/bars_ui.js?v=${encodeURIComponent(_QV)}`
 );
-const { installClusterMinuteUi } = await import(
-  `./quant/cluster_minute_ui.js?v=${encodeURIComponent(_QV)}`
+const { installMinuteUi } = await import(
+  `./quant/minute_ui.js?v=${encodeURIComponent(_QV)}`
 );
 const { installBarsIntegrityUi } = await import(
   `./quant/bars_integrity_ui.js?v=${encodeURIComponent(_QV)}`
@@ -235,8 +235,8 @@ export function initQuant(ctx) {
   const backtest = installBacktest(q);
   const cluster = installClusterProbe(q);
   const suggest = installSuggest(q);
-  const clusterBars = installClusterBarsUi(q);
-  const clusterMinute = installClusterMinuteUi(q);
+  const barsUi = installBarsUi(q);
+  const minuteUi = installMinuteUi(q);
   installBarsIntegrityUi(q);
   const researchUniverse = installResearchUniverseUi(q);
   const strategy = installStrategy(q);
@@ -245,8 +245,8 @@ export function initQuant(ctx) {
   q.backtest = backtest;
   q.cluster = cluster;
   q.suggest = suggest;
-  q.clusterBars = clusterBars;
-  q.clusterMinute = clusterMinute;
+  q.barsUi = barsUi;
+  q.minuteUi = minuteUi;
   q.researchUniverse = researchUniverse;
   q.strategy = strategy;
   q.exportDomain = exportDomain;
@@ -4955,8 +4955,10 @@ export function initQuant(ctx) {
     const id = String(location.hash || "").replace(/^#/, "");
     if (!id) return;
     const sec = document.getElementById(id);
-    if (!sec?.classList.contains("quant-section-secondary")) return;
-    const fold = sec.querySelector("details.quant-secondary-fold");
+    if (!sec) return;
+    const fold = sec.querySelector(
+      "details.quant-secondary-fold, details.quant-primary-fold"
+    );
     if (fold) fold.open = true;
   };
   openSecondaryByHash();

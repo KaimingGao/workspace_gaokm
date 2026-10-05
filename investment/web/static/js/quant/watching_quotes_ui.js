@@ -34,7 +34,7 @@ export function formatWatchingChg(changePercent) {
 }
 
 /** 从「1780.00元」一类展示串取出数值。 */
-export function parseWatchingPx(raw) {
+function parseWatchingPx(raw) {
   if (raw == null || raw === "") return NaN;
   if (typeof raw === "number") return Number.isFinite(raw) ? raw : NaN;
   const m = String(raw).replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
@@ -42,7 +42,7 @@ export function parseWatchingPx(raw) {
 }
 
 /** 昨收：显式字段或由现价+涨跌反推。 */
-export function resolvePrevClose(q) {
+function resolvePrevClose(q) {
   if (!q || typeof q !== "object") return null;
   for (const k of ["prev_close", "last_close", "yc", "pre_close", "yesterday_close"]) {
     const v = parseWatchingPx(q[k]);
@@ -96,7 +96,7 @@ export function formatOpenDisplay(q, { unit, currency } = {}) {
 }
 
 /** 开盘相对昨收缺口 %。昨收由 resolvePrevClose 解析。 */
-export function gapPctFromQuote(q) {
+function gapPctFromQuote(q) {
   if (!q || typeof q !== "object") return null;
   const open = parseWatchingPx(q.open);
   const prev = resolvePrevClose(q);
@@ -120,9 +120,7 @@ export function withQuoteGap(it, quoteLike) {
   return { ...it, gap_pct: g, predicted_score_blend_vs: "", predicted_score_blend_cal_vs: "" };
 }
 
-export const RANKING_TITLE = "ranking · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 预估(真实)：(open[T+1]−price(τ))/open[T]";
-
-export function formatWatchingMarketLabel(market) {
+function formatWatchingMarketLabel(market) {
   const m = String(market || "").toUpperCase();
   if (m === "CN") return "A股";
   if (m === "HK") return "港股";

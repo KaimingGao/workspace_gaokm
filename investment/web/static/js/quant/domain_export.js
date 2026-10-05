@@ -38,24 +38,5 @@ export function installExportInterpret(q) {
 
   return {
     openReadmeViewer,
-    ensureDailyPreview: async () => {},
-    loadOpsPanel: async () => {},
-    loadOpsPackageTree: async () => {},
-    openDailyFold: () => {},
-    previewQuantExport: async () => ({ success: false, deprecated: true }),
-    runDailyWithPreset: async () => ({ success: false, deprecated: true }),
-    runQuantInterpret: async () => ({ success: false, deprecated: true }),
-    setQuantInterpretContent: () => {},
-    showQuantInterpretPanel: () => {},
-    syncDailyFoldSummary: () => {},
-    loadDailyArchive: async () => {},
-    renderDailyArchive: () => {},
-    deleteDailyArchive: async () => {},
-    renderPresetFlags: () => {},
-    renderQuantPackageTree: () => "",
-    resolveLlmAvailable: async () => false,
-    applyExportPreviewHeadingIds: () => {},
-    renderExportMarkdownPreview: () => {},
-    renderExportPreviewToc: () => {},
   };
 }

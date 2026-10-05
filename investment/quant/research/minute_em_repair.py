@@ -72,7 +72,7 @@ def hms_of_bars(bars: Sequence[dict]) -> Set[str]:
     return hms
 
 
-def repair_cluster_minute_from_em(
+def repair_minute_from_em(
     *,
     watching_limit: int = WATCHING_MAX_SIZE,
     lookback_days: int = 90,

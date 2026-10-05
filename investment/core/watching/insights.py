@@ -65,10 +65,10 @@ def _insight_cache_stamp() -> str:
     ver = "cluster_retired"
     bars_gen = ""
     try:
-        from core.paths import CLUSTER_BARS_REFRESH_JOB_PATH, CLUSTER_MINUTE_REFRESH_JOB_PATH
+        from core.paths import BARS_REFRESH_JOB_PATH, MINUTE_REFRESH_JOB_PATH
 
         bits = []
-        for path in (CLUSTER_BARS_REFRESH_JOB_PATH, CLUSTER_MINUTE_REFRESH_JOB_PATH):
+        for path in (BARS_REFRESH_JOB_PATH, MINUTE_REFRESH_JOB_PATH):
             if path and os.path.isfile(path):
                 bits.append(str(int(os.path.getmtime(path))))
         bars_gen = ",".join(bits)

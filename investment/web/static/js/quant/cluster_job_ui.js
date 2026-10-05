@@ -34,7 +34,7 @@ export function jobTimings(job, pollStartedAt) {
   return { elapsed, heartbeat };
 }
 
-export function jobEtaSec(job, elapsed) {
+function jobEtaSec(job, elapsed) {
   const cur = Number(job?.current);
   const tot = Number(job?.total);
   if (cur > 0 && tot > cur && elapsed != null && elapsed > 2) {
@@ -43,7 +43,7 @@ export function jobEtaSec(job, elapsed) {
   return null;
 }
 
-export function buildClusterJobFacts(job, { pollStartedAt } = {}) {
+function buildClusterJobFacts(job, { pollStartedAt } = {}) {
   const facts = [];
   const cur = Number(job?.current);
   const tot = Number(job?.total);

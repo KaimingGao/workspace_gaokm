@@ -1,7 +1,7 @@
 /**
  * 观察面板编排用纯函数：刷新文案 · 名单映射 · 壳层显隐字段。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
+import { escapeHtml } from "../shared.js";
 
 export function formatRefreshStats(refresh) {
   const r = refresh || {};
@@ -97,24 +97,7 @@ export function applyWatchingOverviewKpis(opts = {}) {
   }
 }
 
-export function formatYhatLayerMeta(label, pack, { buy = false } = {}) {
-  if (!pack || !pack.n) return `${label} —`;
-  const f = (x) =>
-    x != null && Number.isFinite(x) ? Number(x).toFixed(2) : "—";
-  return [
-    `${label} μ ${f(pack.mean)}%`,
-    `med ${f(pack.median)}%`,
-    pack.pct_pos != null ? `>0 ${(pack.pct_pos * 100).toFixed(0)}%` : null,
-    buy && pack.pct_above_buy != null
-      ? `≥买门 ${(pack.pct_above_buy * 100).toFixed(0)}%`
-      : null,
-    `n=${pack.n}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-export function watchingQuantListHtml(wl, names, escapeHtml = defaultEscapeHtml) {
+export function watchingQuantListHtml(wl, names, esc = escapeHtml) {
   const list = Array.isArray(wl) ? wl : [];
   if (!list.length) return '<li class="sub">watchlist 为空</li>';
   const nm = Array.isArray(names) ? names : [];
@@ -122,7 +105,7 @@ export function watchingQuantListHtml(wl, names, escapeHtml = defaultEscapeHtml)
     .map((c, i) => {
       const name = (nm[i] && String(nm[i]).trim()) || "";
       const label = name ? `${c} ${name}` : String(c);
-      return `<li>${escapeHtml(label)}</li>`;
+      return `<li>${esc(label)}</li>`;
     })
     .join("");
 }

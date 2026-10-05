@@ -20,7 +20,7 @@ function _sleep(ms) {
 }
 
 /**
- * @param {string} pollPath e.g. /api/jobs/cluster-bars-refresh
+ * @param {string} pollPath e.g. /api/jobs/bars-refresh
  * @param {string|null} jobId
  * @param {{ label?: string, timeoutMs?: number, onStatus?: (msg: string) => void, fetchImpl?: typeof apiFetch }} [opts]
  */
@@ -146,15 +146,15 @@ export async function ensureWarehouseTopup(opts = {}) {
     if (typeof onStatus === "function") onStatus("增量补齐日 K · 5m…");
     const [bars, minute] = await Promise.all([
       runOneTopup(
-        "/api/quant/cluster-bars/refresh",
+        "/api/quant/bars/refresh",
         barsBody,
-        "/api/jobs/cluster-bars-refresh",
+        "/api/jobs/bars-refresh",
         { label: "增量补齐日 K", onStatus, fetchImpl }
       ),
       runOneTopup(
-        "/api/quant/cluster-minute/refresh",
+        "/api/quant/minute/refresh",
         minuteBody,
-        "/api/jobs/cluster-minute-refresh",
+        "/api/jobs/minute-refresh",
         { label: "增量补齐 5m", onStatus, fetchImpl }
       ),
     ]);

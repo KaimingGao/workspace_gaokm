@@ -1,9 +1,9 @@
 /**
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js?v=p2544";
-import { withQuoteGap } from "./watching_quotes_ui.js?v=p2389";
+import { escapeHtml } from "../shared.js";
+import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js";
+import { withQuoteGap } from "./watching_quotes_ui.js";
 
 export function isOosFailedItem(it) {
   if (!it || typeof it !== "object") return false;
@@ -22,7 +22,7 @@ export function isSingleHeadItem(it) {
   return head === "single_oo" || head === "single_tau";
 }
 
-export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
+export function singleHeadBadgeHtml(it, esc = escapeHtml) {
   const head = String((it && it.dual_score_head) || "");
   const win = String((it && it.dual_score_window) || "");
   const tauInTrade =
@@ -38,12 +38,12 @@ export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
   } else if (head === "single_oo") {
     title = "ranking 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲";
   }
-  return `<span class="watching-single-head-badge" title="${escapeHtml(
+  return `<span class="watching-single-head-badge" title="${esc(
     title
   )}">单</span>`;
 }
 
-export function yCheckBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
+export function yCheckBadgeHtml(it, esc = escapeHtml) {
   const check = String((it && it.y_check) || "");
   if (!check || check === "ok") return "";
   const labels = {
@@ -56,20 +56,20 @@ export function yCheckBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
     text: "校",
     title: `Y·EOD 校验：${check}`,
   };
-  return `<span class="watching-y-check-badge is-${escapeHtml(
+  return `<span class="watching-y-check-badge is-${esc(
     check
-  )}" title="${escapeHtml(pack.title)}">${escapeHtml(pack.text)}</span>`;
+  )}" title="${esc(pack.title)}">${esc(pack.text)}</span>`;
 }
 
-export function oosFailedBadgeHtml(escapeHtml = defaultEscapeHtml) {
+export function oosFailedBadgeHtml(esc = escapeHtml) {
   return (
-    `<span class="watching-oos-badge" title="${escapeHtml(
+    `<span class="watching-oos-badge" title="${esc(
       "OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照"
     )}">OOS</span>`
   );
 }
 
-export function formatWatchingExcess(it) {
+function formatWatchingExcess(it) {
   // 主表只显示百分比；强弱标签进 title，避免窄列 ellipsis 看起来像空值
   if (it.excess_return_pct != null && !Number.isNaN(Number(it.excess_return_pct))) {
     return `${Number(it.excess_return_pct) >= 0 ? "+" : ""}${Number(it.excess_return_pct).toFixed(1)}%`;
@@ -78,7 +78,7 @@ export function formatWatchingExcess(it) {
   return null;
 }
 
-export function formatWatchingExcessTitle(it) {
+function formatWatchingExcessTitle(it) {
   const base = formatWatchingExcess(it);
   if (!base) return "";
   if (it.excess_label) return `${base} ${it.excess_label}`;
@@ -237,19 +237,18 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
 export function buildWatchingScoreCellHtml(
   { scoreText, scoreDetail, scoreTitle, scoreNum, belowMin, singleHead, dualScoreHead, yCheck },
   scoreClsFn,
-  escapeHtml = defaultEscapeHtml
+  esc = escapeHtml
 ) {
-  const esc = escapeHtml;
   const badges = [];
   if (singleHead) {
     badges.push(
       singleHeadBadgeHtml(
         { dual_score_head: dualScoreHead, dual_score_single_head: true },
-        escapeHtml
+        esc
       )
     );
   }
-  const yBadge = yCheckBadgeHtml({ y_check: yCheck }, escapeHtml);
+  const yBadge = yCheckBadgeHtml({ y_check: yCheck }, esc);
   if (yBadge) badges.push(yBadge);
   return (
     `<span class="watching-score-cell paper-hold-score has-tip ${esc(
@@ -262,12 +261,11 @@ export function buildWatchingScoreCellHtml(
   );
 }
 
-export function buildWatchingYScoreCellHtml(
+function buildWatchingYScoreCellHtml(
   { text, num, title, detail, tip = "eod", skin = "eod" },
   scoreClsFn,
-  escapeHtml = defaultEscapeHtml
+  esc = escapeHtml
 ) {
-  const esc = escapeHtml;
   const shown = text != null && text !== "" ? text : "—";
   const cls = scoreClsFn(num);
   const skinCls =
@@ -292,7 +290,7 @@ export function buildWatchingYScoreCellHtml(
   );
 }
 
-export function buildWatchingCalScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
+export function buildWatchingCalScoreCellHtml(disp, scoreClsFn, esc = escapeHtml) {
   return buildWatchingYScoreCellHtml(
     {
       text: disp.scoreEodText,
@@ -303,11 +301,11 @@ export function buildWatchingCalScoreCellHtml(disp, scoreClsFn, escapeHtml = def
       skin: "eod",
     },
     scoreClsFn,
-    escapeHtml
+    esc
   );
 }
 
-export function buildWatchingTauScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
+export function buildWatchingTauScoreCellHtml(disp, scoreClsFn, esc = escapeHtml) {
   return buildWatchingYScoreCellHtml(
     {
       text: disp.scoreTauText,
@@ -318,11 +316,11 @@ export function buildWatchingTauScoreCellHtml(disp, scoreClsFn, escapeHtml = def
       skin: "tau",
     },
     scoreClsFn,
-    escapeHtml
+    esc
   );
 }
 
-export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
+export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, esc = escapeHtml) {
   return buildWatchingYScoreCellHtml(
     {
       text: disp.scoreOnText,
@@ -333,7 +331,7 @@ export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, escapeHtml = defa
       skin: "on",
     },
     scoreClsFn,
-    escapeHtml
+    esc
   );
 }
 

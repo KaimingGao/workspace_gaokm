@@ -37,9 +37,9 @@ CLUSTER_BOOK_NOWCAST_SHADOW_PATH = os.path.join(LIVE_DIR, "cluster_book_nowcast_
 CLUSTER_REPORT_CACHE_PATH = os.path.join(LIVE_DIR, "cluster_report_cache.json")
 # 最近一次成功分组（历史；分组 OLS 已退役）
 CLUSTER_LAST_REPORT_PATH = os.path.join(LIVE_DIR, "cluster_last_report.json")
-# 当日首次分组已强制刷新日线到最新（按会话日标记，避免同日重复打网）
-CLUSTER_BARS_FORCED_SESSION_PATH = os.path.join(
-    LIVE_DIR, "cluster_bars_forced_session.json"
+# 当日已强制刷新观察池日线到最新（按会话日标记，避免同日重复打网）
+BARS_FORCED_SESSION_PATH = os.path.join(
+    LIVE_DIR, "bars_forced_session.json"
 )
 # FH1：指针指向版本化 artifact；active 文件为镜像兼容层（历史；勿再 promote）
 CLUSTER_POINTER_PATH = os.path.join(LIVE_DIR, "cluster_pointer.json")
@@ -89,8 +89,8 @@ PAPER_JOB_PATH = os.path.join(JOBS_DIR, "paper.json")
 T0_BACKTEST_JOB_PATH = os.path.join(JOBS_DIR, "t0_backtest.json")
 PORTFOLIO_BACKTEST_JOB_PATH = os.path.join(JOBS_DIR, "portfolio_backtest.json")
 QUANT_OLS_CLUSTERS_JOB_PATH = os.path.join(JOBS_DIR, "quant_ols_clusters.json")
-CLUSTER_BARS_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_bars_refresh.json")
-CLUSTER_MINUTE_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_minute_refresh.json")
+BARS_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "bars_refresh.json")
+MINUTE_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "minute_refresh.json")
 CHAT_JOB_PATH = os.path.join(JOBS_DIR, "chat.json")
 T30_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t30_ridge.json")
 T45_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t45_ridge.json")

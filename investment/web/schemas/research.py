@@ -624,7 +624,7 @@ class FactorOlsClusterRequest(BaseModel):
     )
 
 
-class ClusterBarsRefreshRequest(BaseModel):
+class BarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
     lookback: int = Field(default=600, ge=40, le=700)
@@ -635,11 +635,11 @@ class ClusterBarsRefreshRequest(BaseModel):
     )
     sync: bool = Field(
         default=False,
-        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/cluster-bars-refresh",
+        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/bars-refresh",
     )
 
 
-class ClusterMinuteRefreshRequest(BaseModel):
+class MinuteRefreshRequest(BaseModel):
     """观察池 5m 分钟线预热（ŷ_hl / T0 回测）。"""
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
@@ -658,7 +658,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
     )
     sync: bool = Field(
         default=False,
-        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/cluster-minute-refresh",
+        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/minute-refresh",
     )
 
 

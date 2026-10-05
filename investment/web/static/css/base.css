@@ -2927,7 +2927,7 @@ canvas#paper-chart-fallback[hidden] {
 .follow-ops-load-status.is-busy::before,
 .dashboard-updated[data-state="loading"]::before,
 .watching-toolbar-meta.is-busy::before,
-.quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg::before,
+.quant-desk-status-strip.is-busy .quant-desk-status-msg::before,
 .strategy-mctx-meta.is-busy::before {
   content: "";
   flex-shrink: 0;
@@ -2970,7 +2970,7 @@ canvas#paper-chart-fallback[hidden] {
 .follow-holdings-load-status.is-busy,
 .follow-ops-load-status.is-busy,
 .watching-toolbar-meta.is-busy,
-.quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg,
+.quant-desk-status-strip.is-busy .quant-desk-status-msg,
 .dashboard-updated[data-state="loading"] {
   color: var(--ink-2);
 }
@@ -3043,7 +3043,7 @@ canvas#paper-chart-fallback[hidden] {
   .follow-ops-load-status.is-busy::before,
   .dashboard-updated[data-state="loading"]::before,
   .watching-toolbar-meta.is-busy::before,
-  .quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg::before,
+  .quant-desk-status-strip.is-busy .quant-desk-status-msg::before,
   .strategy-mctx-meta.is-busy::before,
   .dialog-btn.is-busy::after,
   .dialog-btn[aria-busy="true"]::after,
@@ -3063,7 +3063,7 @@ canvas#paper-chart-fallback[hidden] {
   .follow-ops-load-status.is-busy::before,
   .dashboard-updated[data-state="loading"]::before,
   .watching-toolbar-meta.is-busy::before,
-  .quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg::before,
+  .quant-desk-status-strip.is-busy .quant-desk-status-msg::before,
   .strategy-mctx-meta.is-busy::before {
     background-color: var(--ui-busy);
     box-shadow:

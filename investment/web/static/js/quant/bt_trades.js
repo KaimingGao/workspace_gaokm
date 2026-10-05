@@ -21,7 +21,7 @@ const {
   Y_ON_TITLE,
 } = await import(`../paper/fmt.js?v=${encodeURIComponent(_V)}`);
 
-export const BT_SIM_TRADE_COLS_BASE = [
+const BT_SIM_TRADE_COLS_BASE = [
   { id: "signal", label: "信号日", widthPct: 9 },
   { id: "entry", label: "买入日", widthPct: 9 },
   { id: "exit", label: "卖出日", widthPct: 9 },
@@ -343,7 +343,7 @@ export const BT_LEDGER_TRADE_COLS = [
   },
 ];
 
-export function sortLedgerTradeLegs(legs) {
+function sortLedgerTradeLegs(legs) {
   const sideRank = (r) => {
     const s = String(r.side || "").toLowerCase();
     const skipped = String(r.status || "") === "skipped";
@@ -363,7 +363,7 @@ export function sortLedgerTradeLegs(legs) {
   });
 }
 
-export function attachLedgerOpenCost(legs) {
+function attachLedgerOpenCost(legs) {
   const pos = Object.create(null);
   return (legs || []).map((raw) => {
     const r = { ...raw };
@@ -490,7 +490,7 @@ function _fusionFromReplayParams(params) {
   return { fusion_w_oo: wOo, fusion_w_oc: wOc, fusion_w_co: wCo };
 }
 
-export function buildLedgerTradeRow(r, i, deps) {
+function buildLedgerTradeRow(r, i, deps) {
   const fw = _fusionFromReplayParams((deps && deps.params) || (deps && deps.request));
   r = {
     ...r,
@@ -696,7 +696,7 @@ export function curveLedgerDays(curve) {
   return out;
 }
 
-export function buildLedgerDayRow(day, meta) {
+function buildLedgerDayRow(day, meta) {
   const cash = meta && meta.cash != null ? meta.cash : null;
   const nHold = meta && meta.nHold != null ? meta.nHold : null;
   const equity = meta && meta.equity != null ? meta.equity : null;
@@ -842,7 +842,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
 }
 
 /** @param {Array<object>} legs */
-export function sortSimTradeLegs(legs) {
+function sortSimTradeLegs(legs) {
   return (legs || []).slice().sort((a, b) => {
     const ae = String(a.entry_date || a.signal_date || "");
     const be = String(b.entry_date || b.signal_date || "");
@@ -865,7 +865,7 @@ export function sortSimTradeLegs(legs) {
  *   scoreCls: (v: unknown) => string,
  * }} deps
  */
-export function buildSimTradeRow(r, i, deps) {
+function buildSimTradeRow(r, i, deps) {
   const nameByCode = deps.nameByCode || {};
   const { fmtPct, metricClass, fmtScore, scoreCls } = deps;
   const code = String(r.stock_code || "").trim();

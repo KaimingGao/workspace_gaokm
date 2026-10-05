@@ -53,7 +53,7 @@ function formatAxisTick(v, step) {
 }
 
 /** 截面摘要：μ / med / IQR / σ / >0 占比；可选对照买门槛。 */
-export function summarizeScores(scores, { buyFloor } = {}) {
+function summarizeScores(scores, { buyFloor } = {}) {
   const vals = (scores || [])
     .filter((x) => x != null && x !== "")
     .map((x) => Number(x))
@@ -95,7 +95,7 @@ export function summarizeScores(scores, { buyFloor } = {}) {
   };
 }
 
-export function binScores(scores, { bins = 12, min, max } = {}) {
+function binScores(scores, { bins = 12, min, max } = {}) {
   const vals = (scores || [])
     .map((x) => Number(x))
     .filter((n) => Number.isFinite(n));
@@ -153,7 +153,7 @@ function cssVar(el, name, fallback) {
 }
 
 /** Canvas 直方图；floors = { buy, hold }；interaction 高亮 hover/selected bin。 */
-export function paintScoreHistogram(canvas, scores, opts = {}) {
+function paintScoreHistogram(canvas, scores, opts = {}) {
   if (!canvas || typeof canvas.getContext !== "function") return null;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const rawW = canvas.clientWidth || opts.width || 480;
@@ -745,83 +745,4 @@ export function mountScoreHistogram(canvas, opts = {}) {
   };
 }
 
-/* —— 分组健康矩阵 / 散点已退役；保留符号供守卫与 ols_ui 兼容 —— */
 
-const FIT_TIER_LABEL = { A: "强", B: "中", C: "弱" };
-
-export function clusterFitTierFromHealth() {
-  return { tier: "C", reason: "cluster_retired", label: FIT_TIER_LABEL.C };
-}
-
-export function clusterFitTierFromCluster(cl) {
-  const tagged = String((cl && cl.fit_tier) || "").toUpperCase();
-  if (tagged === "A" || tagged === "B" || tagged === "C") {
-    return {
-      tier: tagged,
-      label: (cl && cl.fit_tier_label) || FIT_TIER_LABEL[tagged] || tagged,
-      reason: String((cl && cl.fit_tier_reason) || "cluster_retired"),
-      icMean: null,
-    };
-  }
-  return { ...clusterFitTierFromHealth(), icMean: null };
-}
-
-export function clusterFitQuality() {
-  return "C";
-}
-
-export function clusterFitQualityFromCluster(cl) {
-  return clusterFitTierFromCluster(cl).tier;
-}
-
-/** @deprecated 分组路径已退役 */
-export function buildClustersHealthMatrixHtml() {
-  return "";
-}
-
-export function paintYhatScatter() {
-  return null;
-}
-
-export function buildContribBarsHtml() {
-  console.warn(
-    "[yhat_viz] buildContribBarsHtml was removed in p852 (zero callers) — 因子贡献条不再渲染"
-  );
-  return "";
-}
-
-export function buildGroupYhatStripHtml() {
-  console.warn(
-    "[yhat_viz] buildGroupYhatStripHtml was removed in p852 (zero callers) — 组内 ŷ 条带不再渲染"
-  );
-  return "";
-}
-
-export function buildGroupYhatHistHtml() {
-  console.warn(
-    "[yhat_viz] buildGroupYhatHistHtml was removed in p852 (zero callers) — 组内 ŷ 直方图不再渲染"
-  );
-  return "";
-}
-
-// 守卫扫文件 token（分组 OLS 已退役，勿删）：
-// scoredRows 综合分最高组 综合分最低可评组 clusterFitQuality clusterFitTierFromCluster
-// is-fit-row "A 最佳" "A 强" section class="yhat-mx yhat-mx-health"
-// ["MSE" ["开盘" openHit yhat_acc 均MSE 均开盘 is-kind-tier-b
-void [
-  "scoredRows",
-  "综合分最高组",
-  "综合分最低可评组",
-  "clusterFitQuality",
-  "is-fit-row",
-  "A 最佳",
-  "A 强",
-  'section class="yhat-mx yhat-mx-health"',
-  '["MSE"',
-  '["开盘"',
-  "openHit",
-  "yhat_acc",
-  "均MSE",
-  "均开盘",
-  "is-kind-tier-b",
-];

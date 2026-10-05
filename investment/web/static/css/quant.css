@@ -4123,6 +4123,55 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   margin: 0;
 }
 
+/* ŷ_oo / ŷ_τc / ŷ_co：可折叠，默认展开。
+   details 保持 UA 的 block，才能在收起时藏住卡片；flex 会拆掉这个行为。 */
+.quant-page .quant-primary-fold {
+  margin: 0;
+  min-width: 0;
+  border: none;
+  background: transparent;
+}
+
+.quant-page .quant-primary-fold-sum {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0 0 2px;
+  user-select: none;
+}
+
+.quant-page .quant-primary-fold-sum::-webkit-details-marker,
+.quant-page .quant-primary-fold-sum::marker {
+  display: none;
+  content: "";
+}
+
+.quant-page .quant-primary-fold-sum::after {
+  content: "▸";
+  margin-left: auto;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+
+.quant-page .quant-primary-fold[open] > .quant-primary-fold-sum::after {
+  content: "▾";
+}
+
+.quant-page .quant-primary-fold-sum:hover .dashboard-section-title {
+  color: var(--accent);
+}
+
+.quant-page .quant-primary-fold > .dashboard-card.quant-pro-card {
+  margin: 8px 0 0;
+  min-width: 0;
+}
+
 /* 主路径 fold：开合面板，summary 作状态条 */
 .quant-page .quant-fold-panel {
   margin: 0;
@@ -5048,7 +5097,7 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   line-height: 1.3;
 }
 
-.quant-cluster-bars-strip {
+.quant-desk-status-strip {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -5074,12 +5123,12 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   animation: quant-bars-head-pulse 1.35s ease-in-out infinite;
 }
 
-.quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg {
+.quant-desk-status-strip.is-busy .quant-desk-status-msg {
   display: inline-flex;
   align-items: center;
 }
 
-.quant-cluster-bars-strip.is-busy .quant-pro-status-chip[data-state="idle"] {
+.quant-desk-status-strip.is-busy .quant-pro-status-chip[data-state="idle"] {
   display: none;
 }
 
@@ -5087,10 +5136,10 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   animation: quant-pro-pulse 1.1s ease-in-out infinite;
 }
 
-.quant-bars-card.is-busy #quant-cluster-bars-refresh.is-busy:disabled,
-.quant-bars-card.is-busy #quant-cluster-bars-topup.is-busy:disabled,
-.quant-minute-card.is-busy #quant-cluster-minute-refresh.is-busy:disabled,
-.quant-minute-card.is-busy #quant-cluster-minute-topup.is-busy:disabled {
+.quant-bars-card.is-busy #quant-bars-refresh.is-busy:disabled,
+.quant-bars-card.is-busy #quant-bars-topup.is-busy:disabled,
+.quant-minute-card.is-busy #quant-minute-refresh.is-busy:disabled,
+.quant-minute-card.is-busy #quant-minute-topup.is-busy:disabled {
   animation: quant-pro-pulse 1.1s ease-in-out infinite;
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
   color: var(--accent);
@@ -5122,17 +5171,13 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   }
 }
 
-.quant-cluster-bars-msg {
+.quant-desk-status-msg {
   flex: 1 1 12rem;
   font-size: var(--q-fs-caption, 0.75rem);
   color: var(--ink-2);
   font-family: var(--font-mono);
   line-height: 1.35;
   min-width: 0;
-}
-
-.quant-cluster-bars-btn {
-  flex-shrink: 0;
 }
 
 /* ── 日线 desk：context strip + KPI + 覆盖条 + 分布 ── */
@@ -8321,6 +8366,29 @@ body[data-page="quant"] .quant-page > .dashboard-section.quant-section > .dashbo
 }
 
 body[data-page="quant"] .quant-page > .dashboard-section.quant-section > .dashboard-section-head .dashboard-section-desc {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: var(--q-fs-caption);
+  color: var(--ink-3);
+  line-height: var(--sys-lh-snug, 1.35);
+}
+
+body[data-page="quant"] .quant-page .quant-primary-fold-sum {
+  padding: 0 0 2px;
+  gap: 6px 12px;
+}
+
+body[data-page="quant"] .quant-page .quant-primary-fold-sum .dashboard-section-title {
+  margin: 0;
+  font-size: var(--q-fs-section);
+  font-weight: var(--sys-fw-display, 700);
+  letter-spacing: 0.02em;
+  line-height: var(--sys-lh-tight, 1.2);
+  color: var(--ink);
+}
+
+body[data-page="quant"] .quant-page .quant-primary-fold-sum .dashboard-section-desc {
   margin: 0;
   flex: 1 1 12rem;
   min-width: 0;

@@ -20,12 +20,12 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 600.0,
         "label": "对话任务",
     },
-    "cluster-bars-refresh": {
+    "bars-refresh": {
         "stale_sec": 480.0,
         "stuck_start_sec": 420.0,
         "label": "日线更新",
     },
-    "cluster-minute-refresh": {
+    "minute-refresh": {
         "stale_sec": 900.0,
         "stuck_start_sec": 600.0,
         "label": "分钟线预热",
@@ -478,8 +478,8 @@ job_registry = JobRegistry()
 try:
     from core.paths import (
         CHAT_JOB_PATH,
-        CLUSTER_BARS_REFRESH_JOB_PATH,
-        CLUSTER_MINUTE_REFRESH_JOB_PATH,
+        BARS_REFRESH_JOB_PATH,
+        MINUTE_REFRESH_JOB_PATH,
         PAPER_JOB_PATH,
         QUANT_OLS_CLUSTERS_JOB_PATH,
         T30_RIDGE_JOB_PATH,
@@ -496,11 +496,11 @@ try:
     quant_ols_clusters_job = job_registry.slot(
         "quant-ols-clusters", persist_path=QUANT_OLS_CLUSTERS_JOB_PATH
     )
-    cluster_bars_refresh_job = job_registry.slot(
-        "cluster-bars-refresh", persist_path=CLUSTER_BARS_REFRESH_JOB_PATH
+    bars_refresh_job = job_registry.slot(
+        "bars-refresh", persist_path=BARS_REFRESH_JOB_PATH
     )
-    cluster_minute_refresh_job = job_registry.slot(
-        "cluster-minute-refresh", persist_path=CLUSTER_MINUTE_REFRESH_JOB_PATH
+    minute_refresh_job = job_registry.slot(
+        "minute-refresh", persist_path=MINUTE_REFRESH_JOB_PATH
     )
     chat_job = job_registry.slot("chat", persist_path=CHAT_JOB_PATH)
     t30_ridge_job = job_registry.slot("t30-ridge", persist_path=T30_RIDGE_JOB_PATH)
@@ -517,8 +517,8 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     logger.debug("catch except Exception: in job_progress.py", exc_info=True)
     paper_job = job_registry.slot("paper")
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
-    cluster_bars_refresh_job = job_registry.slot("cluster-bars-refresh")
-    cluster_minute_refresh_job = job_registry.slot("cluster-minute-refresh")
+    bars_refresh_job = job_registry.slot("bars-refresh")
+    minute_refresh_job = job_registry.slot("minute-refresh")
     chat_job = job_registry.slot("chat")
     t30_ridge_job = job_registry.slot("t30-ridge")
     t45_ridge_job = job_registry.slot("t45-ridge")

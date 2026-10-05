@@ -82,7 +82,7 @@ function _fuseHitFromTrades(rows, { lastDay = "" } = {}) {
  * 历史回测页概览 KPI（纯数据，无 DOM）。
  * 兼容完整回测结果（metrics+benchmark）与摘要顶层字段。
  */
-export function buildReplayOverviewKpis(data, { source = "" } = {}) {
+function buildReplayOverviewKpis(data, { source = "" } = {}) {
   const blank = (sub) => ({ value: "—", sub, empty: true, cls: "" });
   if (!data || data.success === false) {
     return {
@@ -218,7 +218,7 @@ function _kpiMoney(v) {
 /**
  * 做 T 回测概览 KPI（纯数据）。
  */
-export function buildReplayT0Kpis(data) {
+function buildReplayT0Kpis(data) {
   const blank = (sub) => ({ value: "—", sub, empty: true, cls: "" });
   if (!data || data.success === false) {
     return {

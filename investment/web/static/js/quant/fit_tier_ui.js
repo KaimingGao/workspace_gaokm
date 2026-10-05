@@ -1,47 +1,29 @@
 /**
  * 分组拟合档 A/B/C 徽标：四页股票名共用。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
+import { escapeHtml } from "../shared.js";
 
-export const FIT_TIER_LABEL = { A: "强", B: "中", C: "弱" };
-export const FIT_TIER_TIP = {
+const FIT_TIER_LABEL = { A: "强", B: "中", C: "弱" };
+const FIT_TIER_TIP = {
   A: "A 强：OOS 过门且截面 IC、ICIR>0 且 ŷOOS>0",
   B: "B 中：OOS 过门且 ŷOOS>0，未达 A",
   C: "C 弱：未过/ŷOOS≤0/跳过/单票/无模型（默认不进 live/回测）",
 };
 
 let _map = {};
-let _loaded = false;
 
-export function normalizeFitTier(raw) {
+function normalizeFitTier(raw) {
   const t = String(raw || "").trim().toUpperCase();
   return t === "A" || t === "B" || t === "C" ? t : "";
 }
 
-export function getFitTierMap() {
-  return _map;
-}
-
-export function getFitTierForCode(code) {
+function getFitTierForCode(code) {
   const c = String(code || "").trim();
   return c ? normalizeFitTier(_map[c]) : "";
 }
 
-export function ingestFitTierMap(raw) {
-  const src = raw && typeof raw === "object" ? raw : {};
-  const next = {};
-  Object.keys(src).forEach((k) => {
-    const t = normalizeFitTier(src[k]);
-    const code = String(k || "").trim();
-    if (code && t) next[code] = t;
-  });
-  _map = next;
-  _loaded = true;
-  return _map;
-}
-
-export function fitTierBadgeHtml(tier, { escapeHtml, reason } = {}) {
-  const esc = escapeHtml || defaultEscapeHtml;
+function fitTierBadgeHtml(tier, { escapeHtml: esc, reason } = {}) {
+  esc = esc || escapeHtml;
   const t = normalizeFitTier(tier);
   if (!t) return "";
   const label = FIT_TIER_LABEL[t] || t;
@@ -106,7 +88,6 @@ export function stampFitTierBadges(root) {
 
 export async function ensureFitTierMap(root) {
   // cluster_retired：分组拟合档已退役，不再请求 /api/quant/cluster-live/fit-tiers
-  _loaded = true;
   _map = {};
   stampFitTierBadges(root);
   return _map;

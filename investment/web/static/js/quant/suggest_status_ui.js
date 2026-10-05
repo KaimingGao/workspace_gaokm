@@ -1,7 +1,7 @@
 /**
  * 权重建议状态条 / 逻辑 tip / 单元格 tip 文案。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
+import { escapeHtml } from "../shared.js";
 
 /**
  * @param {object} suggest
@@ -77,23 +77,23 @@ export function factorWeightSuggestCellTip(name, row, suggest, sourceTipMap) {
 /**
  * @param {object} suggest
  * @param {{
- *   escapeHtml?: typeof defaultEscapeHtml,
+ *   escapeHtml?: typeof escapeHtml,
  *   parseOosGateReason: (gate: object) => string,
  * }} deps
  */
 export function weightSuggestStatusHtml(suggest, deps) {
-  const escapeHtml = (deps && deps.escapeHtml) || defaultEscapeHtml;
+  const esc = (deps && deps.escapeHtml) || escapeHtml;
   const parseOosGateReason = deps && deps.parseOosGateReason;
   if (!suggest || !suggest.success) return "";
   const lines = (suggest.rationale || []).slice(0, 4);
   const gate = suggest.oos_gate || {};
   const gateAttr =
     gate && typeof gate === "object" && Object.keys(gate).length
-      ? ` data-oos-gate="${escapeHtml(JSON.stringify(gate))}"`
+      ? ` data-oos-gate="${esc(JSON.stringify(gate))}"`
       : "";
   let gateLine = "";
   if (gate.skipped) {
-    gateLine = `<span class="sub has-oos-tip"${gateAttr}>OOS 门禁：已跳过（${escapeHtml(
+    gateLine = `<span class="sub has-oos-tip"${gateAttr}>OOS 门禁：已跳过（${esc(
       parseOosGateReason(gate)
     )}）· promote_ready=否</span>`;
   } else if (gate.ok && gate.passed) {
@@ -102,11 +102,11 @@ export function weightSuggestStatusHtml(suggest, deps) {
       gate.delta_excess_pp != null && gate.delta_excess_pp !== ""
         ? ` · Δ超额 ${gate.delta_excess_pp}pp`
         : "";
-    gateLine = `<span class="sub up has-oos-tip"${gateAttr}>OOS 门禁：通过${escapeHtml(
+    gateLine = `<span class="sub up has-oos-tip"${gateAttr}>OOS 门禁：通过${esc(
       d + ex
     )} · 仍须人审</span>`;
   } else if (gate.ok) {
-    gateLine = `<span class="sub down has-oos-tip"${gateAttr}>OOS 门禁：未过（${escapeHtml(
+    gateLine = `<span class="sub down has-oos-tip"${gateAttr}>OOS 门禁：未过（${esc(
       parseOosGateReason(gate)
     )}）· 不建议 promote</span>`;
   }
@@ -115,15 +115,15 @@ export function weightSuggestStatusHtml(suggest, deps) {
     ...((suggest.redundancy_warnings || []).slice(0, 1)),
   ];
   const warnHtml = warns.length
-    ? `<span class="sub">${warns.map((w) => escapeHtml(String(w))).join(" · ")}</span>`
+    ? `<span class="sub">${warns.map((w) => esc(String(w))).join(" · ")}</span>`
     : "";
   return (
-    `<strong>权重建议</strong>（${escapeHtml(String(suggest.ic_mode || "—"))}` +
+    `<strong>权重建议</strong>（${esc(String(suggest.ic_mode || "—"))}` +
     `${suggest.promote_ready ? " · promote_ready" : ""}）<br/>` +
-    (lines.length ? lines.map((l) => `${escapeHtml(String(l))}<br/>`).join("") : "") +
+    (lines.length ? lines.map((l) => `${esc(String(l))}<br/>`).join("") : "") +
     (gateLine ? `${gateLine}<br/>` : "") +
     (warnHtml ? `${warnHtml}<br/>` : "") +
-    `<span class="sub">${escapeHtml(
+    `<span class="sub">${esc(
       (suggest.config_diff && suggest.config_diff.apply_note) ||
         "导出 diff 可手动合并；不自动写盘"
     )}</span>`

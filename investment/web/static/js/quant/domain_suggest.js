@@ -51,10 +51,6 @@ export function installSuggest(q) {
         }))
       );
       state.lastFactorPanelForMerge = data;
-      // 不预填 IC：等用户点分析；若已有 OLS 则仍可显示 OLS 列
-      if (state.lastOlsForMerge || state.lastWeightSuggestForMerge) {
-        q.cluster.renderMergedFactorTable();
-      }
     } catch (err) {
       if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
     }
@@ -110,7 +106,6 @@ export function installSuggest(q) {
     if (!panel || !panel.success) {
       state.lastFactorPanelForMerge = null;
       state.lastWeightSuggestForMerge = null;
-      q.cluster.renderMergedFactorTable();
       return;
     }
     const rows = panel.rows || [];
@@ -125,7 +120,6 @@ export function installSuggest(q) {
     if (suggest && (suggest.success || suggest.suggested_weights)) {
       state.lastWeightSuggestForMerge = suggest;
     }
-    q.cluster.renderMergedFactorTable();
   }
 
   function renderWeightDiffTable(suggest) {
@@ -289,7 +283,6 @@ export function installSuggest(q) {
       };
       state.lastWeightSuggestForMerge = sug;
       if (sug.factor_ols && sug.factor_ols.success) state.lastOlsForMerge = sug.factor_ols;
-      q.cluster.renderMergedFactorTable();
       if (els.quantWeightSuggest) els.quantWeightSuggest.innerHTML = weightSuggestStatusHtml(sug);
       state.quantLastWeightDiff = sug.config_diff || null;
       const nOk = rows.filter((r) => r.ic != null).length;
@@ -306,14 +299,6 @@ export function installSuggest(q) {
       return;
     }
     renderFactorExperiment(exp, sug);
-  }
-
-  async function runFactorOlsClustersSuggest(opts) {
-    void opts;
-    const msg = "分组已退役（cluster_retired）· 请用全局 ŷ_oo 拟合";
-    setBusyText(els.quantOlsSummary, msg, { busy: false });
-    setQuantMeta(msg);
-    return { success: false, error: "cluster_retired", cluster_retired: true };
   }
 
   function weightDiffTableHtml(suggest) {
@@ -712,7 +697,6 @@ export function installSuggest(q) {
     renderWeightDiffTable,
     runFactorCsIcSuggest,
     runFactorIcSuggest,
-    runFactorOlsClustersSuggest,
     runReturnModelFit,
     runReturnModelPromote,
     weightDiffTableHtml,

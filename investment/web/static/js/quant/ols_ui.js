@@ -1,17 +1,10 @@
 /**
  * OLS 提示（分组路径已退役）。
- * 保留 oosGate* 与守卫测所需符号。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-// 守卫扫文件：clusterFitTierFromCluster / "tier-b" / quant-ols-health / fitTierBadgeForCode
-import { clusterFitTierFromCluster } from "./yhat_viz.js";
-import { fitTierBadgeForCode } from "./fit_tier_ui.js";
+import { escapeHtml } from "../shared.js";
 
 export function createOlsUi(deps) {
-  const esc = deps.escapeHtml || defaultEscapeHtml;
-  void clusterFitTierFromCluster;
-  void fitTierBadgeForCode;
-  void "tier-b";
+  const esc = deps.escapeHtml || escapeHtml;
 
   function parseOosGateReason(gate) {
     const reasonRaw = String((gate && gate.reason) || "").trim();

@@ -902,7 +902,7 @@ SKILL_SPECS = (
 | `quant` | `web/routers/quant.py` | `/api/quant` 研究台主路由 |
 | `quant_config` | `web/routers/quant_config.py` | 信号/策略配置 |
 | `quant_research` | `web/routers/quant_research.py` | 因子/OLS/截面研究 |
-| `quant_cluster` | `web/routers/quant_cluster.py` | 分组/簇池 |
+| `quant_cluster` | `web/routers/quant_cluster.py` | 日/分钟仓刷新 · 分组 OLS 410 |
 | `quant_backtest` | `web/routers/quant_backtest.py` | TopK/组合回测 |
 | `quant_dashboard` | `web/routers/quant_dashboard.py` | 研究台仪表盘 |
 | `evals` | `web/routers/evals.py` | Golden eval |
@@ -1122,7 +1122,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 目录 | 组成 | 功能 |
 |------|------|------|
 | `quant/services/` | 见 §3.2 | Application Service |
-| `quant/research/` | `factor_ols.py` · `cluster_bars_*` / `cluster_minute_*` · `portfolio_*.py` · `t0_backtest.py` | 因子 OLS、观察池日/分钟仓、组合对照（**分组 OLS 已退役**） |
+| `quant/research/` | `factor_ols.py` · `bars_*` / `minute_*` · `portfolio_*.py` · `t0_backtest.py` | 因子 OLS、观察池日/分钟仓、组合对照（**分组 OLS 已退役**） |
 | `quant/ops/` | daily preset、健康检查 | 运维脚本支撑 |
 | `quant/skill/` | `engine.py` + handler | Agent `quant(task=...)` 引擎 |
 
@@ -1370,7 +1370,7 @@ flowchart LR
 
 做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **adapters 层**，单票读口经 `core.ports.market.fetch_minute_bars`；观察池 **强更 / 增量补齐** 直调 `fetch_a_minute_bars_isolated`（子进程超时 kill），**不**在业务里直连接 AkShare / BaoStock。
 
-**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_cluster_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗；均走 **子进程隔离**），本地仓表/路径与日 K 不同。
+**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗；均走 **子进程隔离**），本地仓表/路径与日 K 不同。
 
 ### 分层与入口
 
@@ -1383,7 +1383,7 @@ flowchart LR
 | **BaoStock** | `adapters/market/baostock_minute.py` | `query_history_k_data_plus`；子进程 + 超时 kill |
 | **本地仓** | `core/store.py` · `store_bars_sqlite.py` | `load/save/merge_minute_cache`；默认 SQLite `minute_bars` |
 | **批量预热** | `core/schedule_jobs._minute_warmup_core` | 逐票 `fetch_a_minute_bars_isolated`（子进程 + 超时 kill）；schedule / Web **强更 5m** |
-| **Web 增量/强更** | `quant/research/cluster_minute_status.py` | `GET …/status` · `POST …/refresh`（topup/full/repair）· Job `cluster-minute-refresh` |
+| **Web 增量/强更** | `quant/research/minute_status.py` | `GET …/status` · `POST …/refresh`（topup/full/repair）· Job `minute-refresh` |
 
 ### 单票拉取流程（`fetch_a_minute_bars`）
 
@@ -1465,9 +1465,9 @@ flowchart TD
 | 入口 | 行为 |
 |------|------|
 | `POST /api/schedule/run` · `kind=minute_warmup` | `_minute_warmup_core`：逐票子进程隔离；默认 `skip_em=False`（东财→新浪/腾讯，有数则跳过 BaoStock） |
-| Web 量化台 · **强更 5m** | `POST /api/quant/cluster-minute/refresh` → 后台 Job `cluster-minute-refresh`（同上核心） |
+| Web 量化台 · **强更 5m** | `POST /api/quant/minute/refresh` → 后台 Job `minute-refresh`（同上核心） |
 | Web 量化台 · **增量补齐 5m** | 同 Job · `mode=topup`：`_minute_topup_core` 亦走子进程隔离（缺/短全窗 · 近端 skip_em） |
-| 状态 | `GET /api/quant/cluster-minute/status`（Ready 近 40 交易日无缺等）· `GET /api/jobs/cluster-minute-refresh` |
+| 状态 | `GET /api/quant/minute/status`（Ready 近 40 交易日无缺等）· `GET /api/jobs/minute-refresh` |
 
 每只票在 **子进程** 内：东财（可 skip）→ 新浪/腾讯（仅当前仍空；有数则跳过 BaoStock）→ BaoStock；各源间隔默认 **20s**。单票超时默认 **90s** 后 kill 子进程并继续下一只（不占主进程 `ak_lock`）。**已 Ready** 则跳过远端。
 
@@ -1644,7 +1644,7 @@ flowchart TD
 ### 采集运维
 
 - `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 默认东财→新浪/腾讯，有数则跳过 BaoStock · 子进程隔离 · 各源 20s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
-- Web 分钟强更：`POST /api/quant/cluster-minute/refresh` · `GET /api/quant/cluster-minute/status` · Job `GET /api/jobs/cluster-minute-refresh`
+- Web 分钟强更：`POST /api/quant/minute/refresh` · `GET /api/quant/minute/status` · Job `GET /api/jobs/minute-refresh`
 - 验证宇宙卫生：`GET /api/ops/validation-hygiene` · `POST /api/ops/validation-prepare`
 - 舆情 as_of：`GET /api/ops/sentiment-as-of?code=&as_of=`
 - 覆盖率字段：`coverage` / `data_coverage`（mapped、stale、levels）
@@ -1686,7 +1686,7 @@ flowchart LR
 | 覆盖率 | `core/data_coverage.py` |
 | 路径 | `core/paths.py`（`STORE_DIR`） |
 | 调度预热 | `core/schedule_jobs.py`（`bars_warmup` · `minute_warmup` · `spot_refresh` · `fundamentals_warmup`） |
-| 观察池分钟状态/强更 | `quant/research/cluster_minute_status.py` · `quant/services/quant_service_factors.py` |
+| 观察池分钟状态/强更 | `quant/research/minute_status.py` · `quant/services/quant_service_factors.py` |
 | 现货筛选 | `skills/screen/engine.py` |
 | 基本面 / 资讯 | `skills/fundamentals/engine.py` · `skills/news/engine.py` |
 
@@ -2464,7 +2464,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | **F-B5** | quant.js 功能域迁出 | `quant/` 工厂 + **6 域** `domain_*`；watching helpers→`watching_*_ui`·`watching_panel_ui`；分组结果按需展开因子表（避免主线程卡在「分组中…」）；建议 tip→`suggest_status_ui`；已修回测 `min_score:55`→`portfolioBtScoreFloorPayload`；`ASSET_V=p670` |
 | **FH0** | mode 未硬门禁组 ŷ | `score_stock` / `cross_section` / live topk：仅 `active` 写主分；`shadow` 对照；`off` 不算组 ŷ；`max_oos_fail_rate` 默认 0.5；契约测 `test_cluster_mode_yhat_gate` |
 | **FH1** | 晋升非原子 / 半晋升只告警 | ~~`cluster_pointer.json`~~ **分组 promote 已退役**；路径常量仍保留只读 |
-| **FH2** | 分组同步占 worker | ~~Job `quant-ols-clusters`~~ **已退役**；日/分钟强更用 `cluster-bars-refresh` / `cluster-minute-refresh` |
+| **FH2** | 分组同步占 worker | ~~Job `quant-ols-clusters`~~ **已退役**；日/分钟强更用 `bars-refresh` / `minute-refresh` |
 | **FH3** | core→services · legacy 55 | `core/signal/score_view.py`；守卫禁 services；`rank.min_score` deprecated |
 | **FH4** | 静默 except | `score_stock.warnings`（舆情）；promote/mode manifest 失败进 warnings；`test_fh4_score_warnings` |
 | **FH5** | 分组默认非 PIT | ~~`cluster_panels`~~ **已随分组退役删除**；PIT 旗标由现研究面板路径承接 |

@@ -2,11 +2,11 @@
  * 研究台参数：持有期 / Ridge / 聚类 K / 观察池 Limit / Holdout / 分头训练窗。
  */
 
-export const DEFAULT_HOLDOUT_TRADING_DAYS = 20;
-export const HOLDOUT_DAYS_STORAGE_KEY = "quant_holdout_trading_days";
+const DEFAULT_HOLDOUT_TRADING_DAYS = 20;
+const HOLDOUT_DAYS_STORAGE_KEY = "quant_holdout_trading_days";
 
 /** 各模型卡独立 Holdout / 训练窗。 */
-export const FIT_PARAM_HEADS = [
+const FIT_PARAM_HEADS = [
   "oo",
   "tc",
   "co",
@@ -33,25 +33,25 @@ function _defaultLookbackForHead(head) {
 }
 
 /** 拟合用日线训练窗（交易日）；与回测「窗口」独立。 */
-export const DEFAULT_FIT_LOOKBACK = Object.fromEntries(
+const DEFAULT_FIT_LOOKBACK = Object.fromEntries(
   FIT_PARAM_HEADS.map((h) => [h, _defaultLookbackForHead(h)])
 );
-export const FIT_LOOKBACK_STORAGE_KEYS = Object.fromEntries(
+const FIT_LOOKBACK_STORAGE_KEYS = Object.fromEntries(
   FIT_PARAM_HEADS.map((h) => [h, `quant_fit_lookback_${h}`])
 );
-export const HOLDOUT_DAYS_STORAGE_KEYS = Object.fromEntries(
+const HOLDOUT_DAYS_STORAGE_KEYS = Object.fromEntries(
   FIT_PARAM_HEADS.map((h) => [h, `quant_holdout_trading_days_${h}`])
 );
-export const FIT_LOOKBACK_MIN = 40;
-export const FIT_LOOKBACK_MAX = 700;
+const FIT_LOOKBACK_MIN = 40;
+const FIT_LOOKBACK_MAX = 700;
 
-export function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
+function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(1, Math.min(60, Math.round(n)));
 }
 
-export function clampFitLookbackDays(v, fallback = 120) {
+function clampFitLookbackDays(v, fallback = 120) {
   const n = Number(v);
   const fb = Number(fallback);
   const base = Number.isFinite(fb) ? fb : 120;
@@ -67,7 +67,7 @@ export function clampHorizonDays(v, fallback = 1) {
   return Math.max(1, Math.min(10, Math.round(n)));
 }
 
-export function clampRidgeLambda(v, fallback = 0) {
+function clampRidgeLambda(v, fallback = 0) {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0) return fallback;
   return Math.min(100, n);
@@ -76,7 +76,7 @@ export function clampRidgeLambda(v, fallback = 0) {
 /** 观察池截断上限：对齐 WATCHING_MAX_SIZE。分组 Limit / 日K/5m / ŷ_* 拟合共用。 */
 export const BARS_WATCHING_LIMIT = 300;
 
-export function clampWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
+function clampWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(3, Math.min(BARS_WATCHING_LIMIT, Math.round(n)));
@@ -87,7 +87,7 @@ export function clampBarsWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
 }
 
 /** @returns {number|null} 空=自动 */
-export function readClusterKFromEl(el) {
+function readClusterKFromEl(el) {
   if (!el || el.value === "" || el.value == null) return null;
   const n = Number(el.value);
   if (!Number.isFinite(n)) return null;

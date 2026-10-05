@@ -4,7 +4,7 @@
 import { escapeHtml } from "../shared.js";
 
 /** 与 Python FAMILY_META 顺序一致 */
-export const FACTOR_FAMILY_DEFS = [
+const FACTOR_FAMILY_DEFS = [
   { id: "trend", label: "趋势", tip: "价格方向、均线、形态；OLS 趋势族共线只打这一组" },
   { id: "value_quality", label: "价值质量", tip: "基本面：估值、盈利收益率、质量、成长、股息" },
   { id: "liquidity_flow", label: "流动性", tip: "成交、冲击成本、资金流" },
@@ -52,7 +52,7 @@ const SOURCE_OVERRIDE = {
 };
 
 /** 已退役 raw_basis 因子（旧分组报告键；表格不再展示） */
-export const REMOVED_RAW_BASIS_NAMES = new Set([
+const REMOVED_RAW_BASIS_NAMES = new Set([
   "mom3_pct",
   "mom5_pct",
   "mom_overheat",
@@ -163,7 +163,7 @@ export function classifyFactor(name, meta) {
 }
 
 /** ŷ_τc 开盘/截面特征不在因子注册表，本地兜底注释。 */
-export const TAU_FEAT_META = {
+const TAU_FEAT_META = {
   gap_pct: {
     label: "跳空 %",
     description:

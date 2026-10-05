@@ -1,13 +1,13 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js?v=p2746";
-import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
-import { truncateStockName, watchingNameSpanHtml } from "./names.js";
+import { renderPaperT0 } from "../paper/t0_ui.js";
+import { mergeScoringFloors } from "./scoring.js";
+import { watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2594";
-import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2512";
+import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js";
+import { initExecutionRuleForms } from "../paper/execution_forms.js";
 
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -49,13 +49,13 @@ const {
 } = await import(`./bt_result.js?v=${encodeURIComponent(_V)}`);
 
 /** Top-K 净值图横轴只展示最近 N 个自然日（含末日）。 */
-export const TOPK_NAV_CHART_WINDOW_DAYS = 15;
+const TOPK_NAV_CHART_WINDOW_DAYS = 15;
 
 function _curvePointDate(p) {
   return String((p && (p.date || p.ts || p.time)) || "").slice(0, 10);
 }
 
-export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS) {
+function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS) {
   const rows = Array.isArray(series) ? series : [];
   if (!rows.length) return rows;
   const last = _curvePointDate(rows[rows.length - 1]);
@@ -1732,10 +1732,6 @@ export function installBacktest(q) {
     return state.quantScoringFloors;
   }
 
-  function portfolioBtScoreFloorPayload(rankMode) {
-    return buildBtScoreFloorPayload(state.quantScoringFloors, rankMode);
-  }
-
   function restoreLastT0Backtest() {
     const metricsEl = els.quantT0Metrics || document.getElementById("paper-t0-metrics");
     if (!isReplayDesk() || !metricsEl) return Promise.resolve();
@@ -2242,7 +2238,6 @@ export function installBacktest(q) {
     paintIcChart,
     paintNeutralCompareChart,
     paintPortfolioChart,
-    portfolioBtScoreFloorPayload,
     readPortfolioBtParams,
     renderAttributionTables,
     renderBtTradesTable,

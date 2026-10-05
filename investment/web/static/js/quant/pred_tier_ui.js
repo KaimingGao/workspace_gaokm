@@ -2,7 +2,7 @@
  * 观察池可预测性分档（A/B/C），供数据中心主表。
  * 读上次「观察池分档」影子报告，表内不重算。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
+import { escapeHtml } from "../shared.js";
 
 const TIER_RANK = { A: 0, B: 1, C: 2 };
 const TIER_TIP = {
@@ -31,8 +31,8 @@ function fmtHit(v) {
   return `${(Number(v) * 100).toFixed(1)}%`;
 }
 
-export function predTierBadgeHtml(code, escapeHtml) {
-  const esc = escapeHtml || defaultEscapeHtml;
+export function predTierBadgeHtml(code, esc) {
+  esc = esc || escapeHtml;
   const info = getPredTier(code);
   const t = info ? String(info.tier || "").trim().toUpperCase() : "";
   if (t !== "A" && t !== "B" && t !== "C") {
@@ -60,7 +60,7 @@ export function predTierBadgeHtml(code, escapeHtml) {
   );
 }
 
-export function ingestPredTierReport(data) {
+function ingestPredTierReport(data) {
   const next = {};
   const rows = data && Array.isArray(data.rows) ? data.rows : [];
   rows.forEach((r) => {

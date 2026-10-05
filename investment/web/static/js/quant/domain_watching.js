@@ -1,15 +1,13 @@
 import { apiFetch } from "../api_client.js";
 import { getDataOfflineOnly, installDataOfflineToggle, offlineOnlyQuery } from "../data_offline.js";
-import { scoresPolicyLine } from "../data_policy.js?v=p1736";
+import { scoresPolicyLine } from "../data_policy.js";
 import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
-import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js?v=p2544";
+import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js";
 import { watchingNameFromEl, applyWatchingNameEl } from "./names.js";
-import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
-import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2749";
+import { renderWatchingHoldings } from "./watching_holdings.js";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan, renderWatchingWatchTableFallback, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
@@ -24,7 +22,7 @@ import {
   buildWatchingInsightsNativeFields,
   isOosFailedItem,
   oosFailedBadgeHtml,
-} from "./watching_insights_ui.js?v=p2544";
+} from "./watching_insights_ui.js";
 import {
   parseWatchingVolume,
   formatWatchingChg,
@@ -33,7 +31,7 @@ import {
   buildWatchingQuotesStatusText,
   buildWatchingQuotesErrorStatus,
   withQuoteGap,
-} from "./watching_quotes_ui.js?v=p2389";
+} from "./watching_quotes_ui.js";
 import {
   watchingBuildInvalidTip,
   watchingBuildTitleText,
@@ -52,7 +50,7 @@ import {
   applyWatchingPanelShell,
   watchingChartSeriesFromPoints,
   watchingChartLabelText,
-} from "./watching_panel_ui.js?v=p1221";
+} from "./watching_panel_ui.js";
 
 const WATCHING_SORT_STORAGE = "watching_table_sort_v2";
 const WATCHING_SORT_KEYS = new Set([
@@ -66,7 +64,6 @@ const WATCHING_SORT_KEYS = new Set([
   "excess",
   "vol",
 ]);
-const Q_COLORS = ["#9ca3af", "#93c5fd", "#60a5fa", "#34d399", "#059669", "#047857", "#065f46"];
 
 /** Quant domain: watching */
 export function installWatching(q) {
@@ -1265,7 +1262,7 @@ export function installWatching(q) {
       state.watchingGridReady = false;
       if (watchTable) watchTable.innerHTML = "";
       if (els.quantWatchingList) els.quantWatchingList.innerHTML = "";
-      renderWatchingHoldings({}, [], []);
+      renderWatchingHoldingsView({}, [], []);
       return data;
     }
     wireWatchingSearch();
@@ -1294,7 +1291,7 @@ export function installWatching(q) {
       /* overview optional */
     }
     await renderWatchingWatchTable(wl, names, paperCodes, uni.watchlist_scores || {});
-    renderWatchingHoldings(
+    renderWatchingHoldingsView(
       uni.watchlist_holdings || {},
       names,
       paperCtx.buildLogs || []
@@ -1463,7 +1460,7 @@ export function installWatching(q) {
       const data = await res.json().catch(() => ({}));
       if (seq !== watchingBuildSeq) return;
       if (!res.ok) throw new Error(data.detail || res.statusText);
-      renderWatchingBuildPlan(data);
+      renderWatchingBuildPlanView(data);
       setWatchingBuildStatus("");
     } catch (err) {
       if (seq !== watchingBuildSeq) return;
@@ -1536,8 +1533,8 @@ export function installWatching(q) {
     }
   }
 
-  function renderWatchingBuildPlan(plan) {
-    renderWatchingBuildPlanHtml(plan, {
+  function renderWatchingBuildPlanView(plan) {
+    renderWatchingBuildPlan(plan, {
       bodyEl: document.getElementById("watching-build-body"),
       confirmBtnEl: document.getElementById("watching-build-confirm"),
       mode: state.watchingBuildMode,
@@ -1548,8 +1545,8 @@ export function installWatching(q) {
     });
   }
 
-  function renderWatchingHoldings(holdingsMap, names, buildLogs) {
-    renderWatchingHoldingsHtml(holdingsMap, names, buildLogs, {
+  function renderWatchingHoldingsView(holdingsMap, names, buildLogs) {
+    renderWatchingHoldings(holdingsMap, names, buildLogs, {
       sectionEl: document.getElementById("watching-holdings-section"),
       tableEl: document.getElementById("watching-holdings-table"),
     });
@@ -2121,8 +2118,8 @@ export function installWatching(q) {
     refreshWatchingSortHeaders,
     removeSelectedWatchingItems,
     removeWatchingWatchItem,
-    renderWatchingBuildPlan,
-    renderWatchingHoldings,
+    renderWatchingBuildPlanView,
+    renderWatchingHoldingsView,
     renderWatchingSearchResults,
     renderWatchingWatchTable,
     runWatchingSearch,

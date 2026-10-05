@@ -119,9 +119,9 @@
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <div id="quant-ru-strip" class="quant-cluster-bars-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
+        <div id="quant-ru-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
           <span id="quant-ru-chip" class="quant-pro-status-chip" data-state="idle">—</span>
-          <span id="quant-ru-msg" class="quant-cluster-bars-msg">加载上次分档…</span>
+          <span id="quant-ru-msg" class="quant-desk-status-msg">加载上次分档…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="观察池分档操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -154,15 +154,15 @@
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <div id="quant-cluster-bars-strip" class="quant-cluster-bars-strip quant-bars-desk-status quant-card-head-status is-busy" aria-live="polite">
-          <span id="quant-cluster-bars-chip" class="quant-pro-status-chip" data-state="idle">—</span>
-          <span id="quant-cluster-bars-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
+        <div id="quant-bars-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status is-busy" aria-live="polite">
+          <span id="quant-bars-chip" class="quant-pro-status-chip" data-state="idle">—</span>
+          <span id="quant-bars-msg" class="quant-desk-status-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线操作">
-          <button type="button" id="quant-cluster-bars-topup" class="dialog-btn secondary" title="写入日 K 仓（增量 · 窗 600 个交易日）：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-topup" class="dialog-btn secondary" title="写入日 K 仓（增量 · 窗 600 个交易日）：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
             增量补齐
           </button>
-          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="写入日 K 仓（整窗重拉 · 窗 600 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-refresh" class="dialog-btn secondary" title="写入日 K 仓（整窗重拉 · 窗 600 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
             强更日 K
           </button>
         </div>
@@ -238,18 +238,18 @@
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <div id="quant-cluster-minute-strip" class="quant-cluster-bars-strip quant-bars-desk-status quant-card-head-status is-busy" aria-live="polite">
-          <span id="quant-cluster-minute-chip" class="quant-pro-status-chip" data-state="idle">—</span>
-          <span id="quant-cluster-minute-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
+        <div id="quant-minute-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status is-busy" aria-live="polite">
+          <span id="quant-minute-chip" class="quant-pro-status-chip" data-state="idle">—</span>
+          <span id="quant-minute-msg" class="quant-desk-status-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线操作">
-          <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
+          <button type="button" id="quant-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐
           </button>
-          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉 · 单票子进程≤90s）。东财主窗 120 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
+          <button type="button" id="quant-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉 · 单票子进程≤90s）。东财主窗 120 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
             强更 5m
           </button>
-          <button type="button" id="quant-cluster-minute-repair" class="dialog-btn secondary" title="只打东财，回看 90 个日历日。只把比本地更齐的交易日写入，不盖短已有的一天，不打新浪。今天盘中不写。">
+          <button type="button" id="quant-minute-repair" class="dialog-btn secondary" title="只打东财，回看 90 个日历日。只把比本地更齐的交易日写入，不盖短已有的一天，不打新浪。今天盘中不写。">
             东财补缺
           </button>
         </div>
@@ -342,10 +342,11 @@
 
   <!-- ŷ_oo：全局 return_model（open→open）主轴 · 布局对齐 ŷ_τc -->
   <section class="dashboard-section quant-section" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-factors-title" class="dashboard-section-title">ŷ_oo</h3>
-      <p class="dashboard-section-desc quant-section-desc">open(T)→open(T+1) · 全局 Ridge / OLS · 主轴排序</p>
-    </header>
+    <details class="quant-primary-fold" open>
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
+        <h3 id="quant-section-factors-title" class="dashboard-section-title">ŷ_oo</h3>
+        <p class="dashboard-section-desc quant-section-desc">open(T)→open(T+1) · 全局 Ridge / OLS · 主轴排序</p>
+      </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-ols-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
@@ -405,14 +406,16 @@
         </div>
       </div>
     </div>
+    </details>
   </section>
 
   <!-- ŷ_τc：副轴独立 -->
   <section class="dashboard-section quant-section" id="quant-section-tau" aria-labelledby="quant-section-tau-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τc</h3>
-      <p class="dashboard-section-desc quant-section-desc">τ→close Ridge · 副轴 / τ 闸</p>
-    </header>
+    <details class="quant-primary-fold" open>
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
+        <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τc</h3>
+        <p class="dashboard-section-desc quant-section-desc">τ→close Ridge · 副轴 / τ 闸</p>
+      </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-tau-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
@@ -471,14 +474,16 @@
         <div id="quant-tau-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τc 因子系数表"></div>
       </div>
     </div>
+    </details>
   </section>
 
   <!-- ŷ_co：隔夜缺口；风控旁路，不进主排序 -->
   <section class="dashboard-section quant-section" id="quant-section-co" aria-labelledby="quant-section-co-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-co-title" class="dashboard-section-title">ŷ_co</h3>
-      <p class="dashboard-section-desc quant-section-desc">open[T+1]/close[T]−1 · 隔夜缺口 Ridge · 风控旁路</p>
-    </header>
+    <details class="quant-primary-fold" open>
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
+        <h3 id="quant-section-co-title" class="dashboard-section-title">ŷ_co</h3>
+        <p class="dashboard-section-desc quant-section-desc">open[T+1]/close[T]−1 · 隔夜缺口 Ridge · 风控旁路</p>
+      </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-co-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
@@ -531,6 +536,7 @@
         <div id="quant-co-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_co 因子系数表"></div>
       </div>
     </div>
+    </details>
   </section>
 
   <!-- ŷ_τ30：开盘 Z + 分钟小包 − OC 路径形状 + 30m 序列；标签 mean(price(τ⊕25/30/35))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->

@@ -205,7 +205,7 @@ export function installBarsIntegrityUi(q) {
   async function loadDaily() {
     dailyBody.textContent = "读取本地日 K…";
     const { ok, data, error } = await apiFetch(
-      "/api/quant/cluster-bars/integrity?days=60"
+      "/api/quant/bars/integrity?days=60"
     );
     if (!ok || !data || data.success === false) {
       dailyBody.textContent = (data && data.error) || error || "日线完整度读取失败";
@@ -219,7 +219,7 @@ export function installBarsIntegrityUi(q) {
   async function loadMinute() {
     minuteBody.textContent = "读取本地 5 分钟 K…";
     const { ok, data, error } = await apiFetch(
-      "/api/quant/cluster-minute/integrity?days=60"
+      "/api/quant/minute/integrity?days=60"
     );
     if (!ok || !data || data.success === false) {
       minuteBody.textContent = (data && data.error) || error || "分钟完整度读取失败";
@@ -277,7 +277,7 @@ export function installBarsIntegrityUi(q) {
     const rect = btn.getBoundingClientRect();
     placePop(box, rect);
     const { ok, data, error } = await apiFetch(
-      `/api/quant/cluster-minute/integrity-day?code=${encodeURIComponent(code)}&date=${encodeURIComponent(date)}`
+      `/api/quant/minute/integrity-day?code=${encodeURIComponent(code)}&date=${encodeURIComponent(date)}`
     );
     if (!pop || pop !== box) return;
     if (!ok || !data || data.success === false) {

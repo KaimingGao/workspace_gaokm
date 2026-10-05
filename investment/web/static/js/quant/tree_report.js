@@ -66,7 +66,7 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-export function treeFitCollapsed(data) {
+function treeFitCollapsed(data) {
   const hyper = (data && data.hyperparams) || {};
   const bi = Number(hyper.best_iteration);
   return Number.isFinite(bi) && bi > 0 && bi < 8;

@@ -1,12 +1,26 @@
-requests>=2.28.0
-akshare>=1.12.0
-baostock>=0.8.8
-python-dotenv>=1.0.0
-# akshare 运行时依赖 pandas；选股过滤逻辑本身不强制依赖
-pandas>=1.5.0
-numpy>=1.23.0
+# ===== 数据 / 行情 =====
+requests>=2.31.0
+akshare>=1.14.0
+baostock>=0.8.9
 yfinance>=0.2.40
-# Web 端（Python 3.8+ 可用 0.109.x；3.10+ 可更高）
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
+python-dotenv>=1.0.1
+
+# akshare 运行时依赖 pandas；项目本身也用 numpy/pandas 做因子与面板
+pandas>=2.0.0
+numpy>=1.24.0
+
+# ===== 模型（树 / 排序） =====
+# LightGBM 是当前唯一树后端（tau_tree / oo_tree / co_tree / horizon_tree / return_tree）
+# 及 oo_rank LambdaRank 后端；未安装时 resolve_tree_backend 抛 ImportError
+lightgbm>=4.0.0
+
+# ===== Web 端 =====
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
 httpx>=0.27.0
+# pydantic 在 web/schemas 中直接引用（fastapi 也会传递依赖，此处显式声明）
+pydantic>=2.0.0
+
+# ===== 可选依赖（按需安装） =====
+# qp_lite 权重模式使用；未安装时自动回退到 score_budget 并标记 unavailable
+# cvxpy>=1.4.0

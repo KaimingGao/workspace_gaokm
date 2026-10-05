@@ -2178,13 +2178,13 @@ class QuantFactorMixin:
         _ = kwargs
         return _cluster_retired_payload()
 
-    def cluster_bars_status(self, *, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
+    def bars_status(self, *, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
         """观察池日线末 bar 覆盖（研究枢纽 UI）。"""
-        from quant.research.cluster_bars_status import build_cluster_bars_status
+        from quant.research.bars_status import build_bars_status
 
-        return build_cluster_bars_status(watching_limit=watching_limit)
+        return build_bars_status(watching_limit=watching_limit)
 
-    def cluster_bars_integrity(
+    def bars_integrity(
         self, *, watching_limit: int = WATCHING_MAX_SIZE, days: int = 22
     ) -> Dict[str, Any]:
         """观察池日线逐日是否在仓（格子图，只读）。"""
@@ -2192,7 +2192,7 @@ class QuantFactorMixin:
 
         return build_daily_integrity(watching_limit=watching_limit, days=days)
 
-    def cluster_minute_integrity(
+    def minute_integrity(
         self, *, watching_limit: int = WATCHING_MAX_SIZE, days: int = 22
     ) -> Dict[str, Any]:
         """观察池 5 分钟逐日头/尾是否齐（格子图，只读）。"""
@@ -2200,13 +2200,13 @@ class QuantFactorMixin:
 
         return build_minute_integrity(watching_limit=watching_limit, days=days)
 
-    def cluster_minute_day_slots(self, code: str, date: str) -> Dict[str, Any]:
+    def minute_day_slots(self, code: str, date: str) -> Dict[str, Any]:
         """单票单日 48 根 5 分钟是否在仓。"""
         from quant.research.bars_integrity import build_minute_day_slots
 
         return build_minute_day_slots(code, date)
 
-    def run_cluster_bars_refresh(
+    def run_bars_refresh(
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
@@ -2215,36 +2215,36 @@ class QuantFactorMixin:
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """同步：更新观察池日线（``mode=topup|full``）。"""
-        from quant.research.cluster_bars_status import refresh_cluster_bars_only
+        from quant.research.bars_status import refresh_bars_only
 
-        return refresh_cluster_bars_only(
+        return refresh_bars_only(
             watching_limit=watching_limit,
             lookback=lookback,
             mode=mode,
             progress_cb=progress_cb,
         )
 
-    def start_cluster_bars_refresh_job(
+    def start_bars_refresh_job(
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
         lookback: int = 600,
         mode: str = "topup",
     ) -> Dict[str, Any]:
-        """后台 Job：仅更新日线；轮询 ``GET /api/jobs/cluster-bars-refresh``。"""
+        """后台 Job：仅更新日线；轮询 ``GET /api/jobs/bars-refresh``。"""
         import threading
 
-        from core.job_progress import cluster_bars_refresh_job
+        from core.job_progress import bars_refresh_job
         from quant.research.watching_universe import clamp_watching_limit
 
-        cluster_bars_refresh_job.reclaim_if_stale()
-        if cluster_bars_refresh_job.is_running():
+        bars_refresh_job.reclaim_if_stale()
+        if bars_refresh_job.is_running():
             return {
                 "ok": True,
                 "success": True,
                 "background": True,
                 "reused": True,
-                "job": cluster_bars_refresh_job.get(),
+                "job": bars_refresh_job.get(),
             }
 
         watch_limit = clamp_watching_limit(watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE)
@@ -2263,8 +2263,8 @@ class QuantFactorMixin:
         job_total = max(1, n_watch)
         phase = "增量补齐日 K…" if mode_s == "topup" else "整窗强更日 K…"
 
-        job_id = cluster_bars_refresh_job.start(
-            kind="cluster_bars_refresh",
+        job_id = bars_refresh_job.start(
+            kind="bars_refresh",
             total=job_total,
             message="排队中…",
         )
@@ -2272,7 +2272,7 @@ class QuantFactorMixin:
         def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
             t = max(1, int(tot or n_watch or 1))
             c = max(0, min(t, int(cur or 0)))
-            cluster_bars_refresh_job.update(
+            bars_refresh_job.update(
                 current=c,
                 total=t,
                 message=str(msg or phase),
@@ -2284,51 +2284,51 @@ class QuantFactorMixin:
 
             def _heartbeat() -> None:
                 while not stop_hb.wait(8.0):
-                    if not cluster_bars_refresh_job.touch(job_id=job_id):
+                    if not bars_refresh_job.touch(job_id=job_id):
                         return
 
             hb = threading.Thread(
-                target=_heartbeat, name=f"cluster-bars-hb-{job_id}", daemon=True
+                target=_heartbeat, name=f"bars-hb-{job_id}", daemon=True
             )
             hb.start()
             try:
-                if cluster_bars_refresh_job.is_cancel_requested():
-                    cluster_bars_refresh_job.finish(error="已取消", job_id=job_id)
+                if bars_refresh_job.is_cancel_requested():
+                    bars_refresh_job.finish(error="已取消", job_id=job_id)
                     return
-                result = self.run_cluster_bars_refresh(
+                result = self.run_bars_refresh(
                     watching_limit=watch_limit,
                     lookback=lookback,
                     mode=mode_s,
                     progress_cb=_progress,
                 )
-                if cluster_bars_refresh_job.is_cancel_requested():
-                    cluster_bars_refresh_job.finish(error="已取消", job_id=job_id)
+                if bars_refresh_job.is_cancel_requested():
+                    bars_refresh_job.finish(error="已取消", job_id=job_id)
                     return
                 if not result.get("success"):
-                    cluster_bars_refresh_job.finish(
+                    bars_refresh_job.finish(
                         error=str(result.get("error") or "日线更新失败"),
                         result=result,
                         job_id=job_id,
                     )
                     return
-                cluster_bars_refresh_job.finish(result=result, job_id=job_id)
+                bars_refresh_job.finish(result=result, job_id=job_id)
             except Exception as e:
-                logger.exception("unexpected error in cluster_bars_refresh worker")
-                cluster_bars_refresh_job.finish(error=str(e), job_id=job_id)
+                logger.exception("unexpected error in bars_refresh worker")
+                bars_refresh_job.finish(error=str(e), job_id=job_id)
             finally:
                 stop_hb.set()
 
         threading.Thread(
-            target=_worker, name=f"cluster-bars-{job_id}", daemon=True
+            target=_worker, name=f"bars-{job_id}", daemon=True
         ).start()
         return {
             "ok": True,
             "success": True,
             "background": True,
-            "job": cluster_bars_refresh_job.get(),
+            "job": bars_refresh_job.get(),
         }
 
-    def cluster_minute_status(
+    def minute_status(
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
@@ -2337,16 +2337,16 @@ class QuantFactorMixin:
         include_label_portrait: bool = False,
     ) -> Dict[str, Any]:
         """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
-        from quant.research.cluster_minute_status import build_cluster_minute_status
+        from quant.research.minute_status import build_minute_status
 
-        return build_cluster_minute_status(
+        return build_minute_status(
             watching_limit=watching_limit,
             period=period,
             min_span_days=min_span_days,
             include_label_portrait=include_label_portrait,
         )
 
-    def run_cluster_minute_refresh(
+    def run_minute_refresh(
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
@@ -2357,9 +2357,9 @@ class QuantFactorMixin:
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """同步：预热观察池 5m 分钟线（``mode=full|topup``）。"""
-        from quant.research.cluster_minute_status import refresh_cluster_minute_only
+        from quant.research.minute_status import refresh_minute_only
 
-        return refresh_cluster_minute_only(
+        return refresh_minute_only(
             watching_limit=watching_limit,
             period=period,
             lookback_days=lookback_days,
@@ -2368,7 +2368,7 @@ class QuantFactorMixin:
             progress_cb=progress_cb,
         )
 
-    def start_cluster_minute_refresh_job(
+    def start_minute_refresh_job(
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
@@ -2377,20 +2377,20 @@ class QuantFactorMixin:
         mode: str = "full",
         topup_lookback_days: int = 5,
     ) -> Dict[str, Any]:
-        """后台 Job：预热 5m 分钟线；轮询 ``GET /api/jobs/cluster-minute-refresh``。"""
+        """后台 Job：预热 5m 分钟线；轮询 ``GET /api/jobs/minute-refresh``。"""
         import threading
 
-        from core.job_progress import cluster_minute_refresh_job
+        from core.job_progress import minute_refresh_job
         from quant.research.watching_universe import clamp_watching_limit
 
-        cluster_minute_refresh_job.reclaim_if_stale()
-        if cluster_minute_refresh_job.is_running():
+        minute_refresh_job.reclaim_if_stale()
+        if minute_refresh_job.is_running():
             return {
                 "ok": True,
                 "success": True,
                 "background": True,
                 "reused": True,
-                "job": cluster_minute_refresh_job.get(),
+                "job": minute_refresh_job.get(),
             }
 
         watch_limit = clamp_watching_limit(watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE)
@@ -2411,8 +2411,8 @@ class QuantFactorMixin:
             "repair": "东财补缺 5m…",
         }.get(mode_s, "预热 5m…")
 
-        job_id = cluster_minute_refresh_job.start(
-            kind="cluster_minute_refresh",
+        job_id = minute_refresh_job.start(
+            kind="minute_refresh",
             total=job_total,
             message="排队中…",
         )
@@ -2420,7 +2420,7 @@ class QuantFactorMixin:
         def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
             t = max(1, int(tot or n_watch or 1))
             c = max(0, min(t, int(cur or 0)))
-            cluster_minute_refresh_job.update(
+            minute_refresh_job.update(
                 current=c,
                 total=job_total,
                 message=str(msg or phase),
@@ -2432,18 +2432,18 @@ class QuantFactorMixin:
 
             def _heartbeat() -> None:
                 while not stop_hb.wait(8.0):
-                    if not cluster_minute_refresh_job.touch(job_id=job_id):
+                    if not minute_refresh_job.touch(job_id=job_id):
                         return
 
             hb = threading.Thread(
-                target=_heartbeat, name=f"cluster-minute-hb-{job_id}", daemon=True
+                target=_heartbeat, name=f"minute-hb-{job_id}", daemon=True
             )
             hb.start()
             try:
-                if cluster_minute_refresh_job.is_cancel_requested():
-                    cluster_minute_refresh_job.finish(error="已取消", job_id=job_id)
+                if minute_refresh_job.is_cancel_requested():
+                    minute_refresh_job.finish(error="已取消", job_id=job_id)
                     return
-                result = self.run_cluster_minute_refresh(
+                result = self.run_minute_refresh(
                     watching_limit=watch_limit,
                     period=period,
                     lookback_days=lookback_days,
@@ -2451,32 +2451,32 @@ class QuantFactorMixin:
                     topup_lookback_days=topup_lookback_days,
                     progress_cb=_progress,
                 )
-                if cluster_minute_refresh_job.is_cancel_requested():
-                    cluster_minute_refresh_job.finish(error="已取消", job_id=job_id)
+                if minute_refresh_job.is_cancel_requested():
+                    minute_refresh_job.finish(error="已取消", job_id=job_id)
                     return
                 if not result.get("success"):
-                    cluster_minute_refresh_job.finish(
+                    minute_refresh_job.finish(
                         error=str(result.get("error") or "分钟预热失败"),
                         result=result,
                         job_id=job_id,
                     )
                     return
-                cluster_minute_refresh_job.finish(result=result, job_id=job_id)
+                minute_refresh_job.finish(result=result, job_id=job_id)
             except Exception as e:
-                logger.exception("unexpected error in cluster_minute_refresh worker")
-                cluster_minute_refresh_job.finish(error=str(e), job_id=job_id)
+                logger.exception("unexpected error in minute_refresh worker")
+                minute_refresh_job.finish(error=str(e), job_id=job_id)
             finally:
                 stop_hb.set()
 
         threading.Thread(
-            target=_worker, name=f"cluster-minute-{job_id}", daemon=True
+            target=_worker, name=f"minute-{job_id}", daemon=True
         ).start()
         return {
             "ok": True,
             "success": True,
             "background": True,
             "mode": mode_s,
-            "job": cluster_minute_refresh_job.get(),
+            "job": minute_refresh_job.get(),
         }
 
     def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:

@@ -1,29 +1,29 @@
 /**
  * 回测相关表格 HTML 渲染。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
-import { fmtPct as defaultFmtPct, metricClass as defaultMetricClass } from "./bt_result.js";
+import { escapeHtml } from "../shared.js";
+import { researchGridHtml, metricCell } from "./research_grid.js";
+import { fmtPct, metricClass } from "./bt_result.js";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
 
 /**
  * @param {{
- *   escapeHtml?: typeof defaultEscapeHtml,
- *   researchGridHtml?: typeof defaultResearchGridHtml,
- *   metricCell?: typeof defaultMetricCell,
- *   fmtPct?: typeof defaultFmtPct,
- *   metricClass?: typeof defaultMetricClass,
+ *   escapeHtml?: typeof escapeHtml,
+ *   researchGridHtml?: typeof researchGridHtml,
+ *   metricCell?: typeof metricCell,
+ *   fmtPct?: typeof fmtPct,
+ *   metricClass?: typeof metricClass,
  *   getWatchingNameByCode?: () => Record<string, string>,
  * }} deps
  */
 export function createBtTablesUi(deps = {}) {
-  const esc = deps.escapeHtml || defaultEscapeHtml;
-  const researchGridHtml = deps.researchGridHtml || defaultResearchGridHtml;
-  const metricCell = deps.metricCell || defaultMetricCell;
-  const fmtPct = deps.fmtPct || defaultFmtPct;
-  const mcls = deps.metricClass || defaultMetricClass;
+  const esc = deps.escapeHtml || escapeHtml;
+  const gridHtml = deps.researchGridHtml || researchGridHtml;
+  const cell = deps.metricCell || metricCell;
+  const pctFmt = deps.fmtPct || fmtPct;
+  const mcls = deps.metricClass || metricClass;
   const getWatchingNameByCode =
     deps.getWatchingNameByCode || (() => ({}));
 
@@ -41,21 +41,21 @@ export function createBtTablesUi(deps = {}) {
     }</p>`;
     if (br.ok) {
       html +=
-        `<p class="quant-trades-caption">Brinson lite · A ${fmtPct(br.allocation_pct)} · S ${fmtPct(
+        `<p class="quant-trades-caption">Brinson lite · A ${pctFmt(br.allocation_pct)} · S ${pctFmt(
           br.selection_pct
-        )} · I ${fmtPct(br.interaction_pct)} · Σ ${fmtPct(br.total_excess_pct)}</p>`;
+        )} · I ${pctFmt(br.interaction_pct)} · Σ ${pctFmt(br.total_excess_pct)}</p>`;
       const brRows = (br.by_sector || []).slice(0, 8).map((r) => ({
         sector: r.sector || "—",
         weight: r.weight_pct != null ? `${r.weight_pct}%` : "—",
-        allocation: fmtPct(r.allocation_pct),
+        allocation: pctFmt(r.allocation_pct),
         allocationCls: mcls(r.allocation_pct),
-        selection: fmtPct(r.selection_pct),
+        selection: pctFmt(r.selection_pct),
         selectionCls: mcls(r.selection_pct),
-        interaction: fmtPct(r.interaction_pct),
+        interaction: pctFmt(r.interaction_pct),
         interactionCls: mcls(r.interaction_pct),
       }));
       if (brRows.length) {
-        html += researchGridHtml(
+        html += gridHtml(
           [
             { id: "sector", label: "行业", flex: true },
             { id: "weight", label: "权重", widthPct: 14, num: true },
@@ -65,21 +65,21 @@ export function createBtTablesUi(deps = {}) {
           ],
           brRows,
           (col, d) => {
-            if (col.id === "allocation") return metricCell(d.allocation, d.allocationCls);
-            if (col.id === "selection") return metricCell(d.selection, d.selectionCls);
-            if (col.id === "interaction") return metricCell(d.interaction, d.interactionCls);
+            if (col.id === "allocation") return cell(d.allocation, d.allocationCls);
+            if (col.id === "selection") return cell(d.selection, d.selectionCls);
+            if (col.id === "interaction") return cell(d.interaction, d.interactionCls);
             return esc(d[col.id] ?? "—");
           }
         );
       }
     }
     if (fp && fp.ok) {
-      html += `<p class="quant-trades-caption">score 高低半组差 ${fmtPct(fp.score_spread_pct)} · n=${esc(
+      html += `<p class="quant-trades-caption">score 高低半组差 ${pctFmt(fp.score_spread_pct)} · n=${esc(
         String(fp.n ?? "—")
       )}</p>`;
     }
     if (byStock.length) {
-      html += researchGridHtml(
+      html += gridHtml(
         [
           { id: "name", label: "股票", flex: true },
           { id: "sector", label: "行业", widthPct: 18, center: true },
@@ -94,7 +94,7 @@ export function createBtTablesUi(deps = {}) {
             code,
             name: fullName,
             sector: r.sector || "—",
-            retText: fmtPct(ret),
+            retText: pctFmt(ret),
             retCls: mcls(ret),
             n: String(r.n ?? "—"),
           };
@@ -110,7 +110,7 @@ export function createBtTablesUi(deps = {}) {
               `<span class="watching-code-sub">${esc(d.code)}</span></div>`
             );
           }
-          if (col.id === "ret") return metricCell(d.retText, d.retCls);
+          if (col.id === "ret") return cell(d.retText, d.retCls);
           return esc(d[col.id] ?? "—");
         }
       );
@@ -118,7 +118,7 @@ export function createBtTablesUi(deps = {}) {
     if (bySector.length) {
       html +=
         `<div style="margin-top:8px">` +
-        researchGridHtml(
+        gridHtml(
           [
             { id: "sector", label: "行业", flex: true },
             { id: "count", label: "只数", widthPct: 16, num: true },
@@ -127,11 +127,11 @@ export function createBtTablesUi(deps = {}) {
           bySector.map((r) => ({
             sector: r.sector || "—",
             count: String(r.count ?? r.n ?? "—"),
-            retText: fmtPct(r.avg_return_pct),
+            retText: pctFmt(r.avg_return_pct),
             retCls: mcls(r.avg_return_pct),
           })),
           (col, d) => {
-            if (col.id === "ret") return metricCell(d.retText, d.retCls);
+            if (col.id === "ret") return cell(d.retText, d.retCls);
             return esc(d[col.id] ?? "—");
           }
         ) +
@@ -165,7 +165,7 @@ export function createBtTablesUi(deps = {}) {
       }d` +
       (sic.roll_window ? ` · 滚动窗 ${sic.roll_window}` : "") +
       `</p>` +
-      researchGridHtml(
+      gridHtml(
         [
           { id: "ic", label: "IC均值", widthPct: 14, num: true },
           { id: "std", label: "IC标准差", widthPct: 14, num: true },

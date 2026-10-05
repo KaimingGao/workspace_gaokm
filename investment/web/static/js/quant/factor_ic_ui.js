@@ -1,17 +1,17 @@
 /**
  * 因子 IC + OLS β 合并表 HTML。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
-import { metricClass as defaultMetricClass } from "./bt_result.js";
+import { escapeHtml } from "../shared.js";
+import { researchGridHtml, metricCell } from "./research_grid.js";
+import { metricClass } from "./bt_result.js";
 import { classifyFactor, isRemovedFactor, CO_FEAT_META } from "./factor_meta.js";
 
 /**
  * @param {{
- *   escapeHtml?: typeof defaultEscapeHtml,
- *   researchGridHtml?: typeof defaultResearchGridHtml,
- *   metricCell?: typeof defaultMetricCell,
- *   metricClass?: typeof defaultMetricClass,
+ *   escapeHtml?: typeof escapeHtml,
+ *   researchGridHtml?: typeof researchGridHtml,
+ *   metricCell?: typeof metricCell,
+ *   metricClass?: typeof metricClass,
  *   factorMetaByName: Record<string, object>,
  *   factorMetaByLabel: Record<string, object>,
  *   factorNameCellHtml: (name: string, label?: string, fallbackDescription?: string) => string,
@@ -19,10 +19,10 @@ import { classifyFactor, isRemovedFactor, CO_FEAT_META } from "./factor_meta.js"
  * }} deps
  */
 export function createFactorIcUi(deps) {
-  const esc = deps.escapeHtml || defaultEscapeHtml;
-  const researchGridHtml = deps.researchGridHtml || defaultResearchGridHtml;
-  const metricCell = deps.metricCell || defaultMetricCell;
-  const mcls = deps.metricClass || defaultMetricClass;
+  const esc = deps.escapeHtml || escapeHtml;
+  const gridHtml = deps.researchGridHtml || researchGridHtml;
+  const cell = deps.metricCell || metricCell;
+  const mcls = deps.metricClass || metricClass;
   const factorMetaByName = deps.factorMetaByName;
   const factorMetaByLabel = deps.factorMetaByLabel;
   const factorNameCellHtml = deps.factorNameCellHtml;
@@ -136,7 +136,7 @@ export function createFactorIcUi(deps) {
     const n = Number(v);
     if (!Number.isFinite(n)) return esc(String(v));
     const text = n.toFixed(4);
-    return metricCell(esc(text), mcls(n));
+    return cell(esc(text), mcls(n));
   }
 
   /** 因子 IC + 因子系数 β 合并为一张表（一组一表主列=β，非权重） */
@@ -301,7 +301,7 @@ export function createFactorIcUi(deps) {
           String(a.name).localeCompare(String(b.name))
       );
 
-    return researchGridHtml(
+    return gridHtml(
       [
         {
           id: "factor",
@@ -365,7 +365,7 @@ export function createFactorIcUi(deps) {
               : isGroupTsIc
                 ? `单票组时序 IC=${Number(r.ic).toFixed(4)}`
                 : `IC=${Number(r.ic).toFixed(4)}`;
-            return `<span title="${esc(tip)}">${metricCell(
+            return `<span title="${esc(tip)}">${cell(
               esc(Number(r.ic).toFixed(4)),
               cls
             )}</span>`;
@@ -389,7 +389,7 @@ export function createFactorIcUi(deps) {
           const v = Number(r.icir);
           const cls = v >= 0.25 ? "up" : v <= -0.25 ? "down" : "";
           const tip = "ICIR = 日截面 IC 均值 / 标准差";
-          return `<span title="${esc(tip)}">${metricCell(
+          return `<span title="${esc(tip)}">${cell(
             esc(v.toFixed(2)),
             cls
           )}</span>`;
@@ -562,7 +562,7 @@ export function createFactorIcUi(deps) {
    * ŷ_oc / ŷ_co Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
    * @param {{ oos?: object, head?: "tau"|"oo"|"co"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank", topN?: number } } [opts]
-   *   ``topN`` 默认 20：表体只展 |β| TopN，其余进折叠。
+   *   ``topN`` 默认 10：表体只展 |β| TopN，其余进折叠。
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
@@ -1275,11 +1275,11 @@ export function createFactorIcUi(deps) {
       if (col.id === "share") return shareCell(r);
       if (col.id === "mu") {
         if (r.mu == null) return fmtEmptyCell();
-        return metricCell(esc(r.mu.toFixed(2)), "");
+        return cell(esc(r.mu.toFixed(2)), "");
       }
       if (col.id === "sd") {
         if (r.sd == null) return fmtEmptyCell();
-        return metricCell(esc(r.sd.toFixed(2)), "");
+        return cell(esc(r.sd.toFixed(2)), "");
       }
       return fmtEmptyCell();
     };
@@ -1294,14 +1294,14 @@ export function createFactorIcUi(deps) {
       },
     };
 
-    const topNRaw = opts.topN != null ? Number(opts.topN) : 20;
+    const topNRaw = opts.topN != null ? Number(opts.topN) : 10;
     const topN =
       Number.isFinite(topNRaw) && topNRaw > 0
         ? Math.max(1, Math.min(200, Math.floor(topNRaw)))
-        : 20;
+        : 10;
     const topRows = rows.slice(0, topN);
     const restRows = rows.slice(topN);
-    const topGrid = researchGridHtml(
+    const topGrid = gridHtml(
       coefColumns,
       topRows,
       coefCellHtml,
@@ -1314,7 +1314,7 @@ export function createFactorIcUi(deps) {
           `其余 ${restRows.length} 个因子` +
           `<span class="quant-rem-coef-more-hint">按 |β| 续排 · 默认折叠</span>` +
           `</summary>` +
-          `<div class="quant-rem-coef-more-body">${researchGridHtml(
+          `<div class="quant-rem-coef-more-body">${gridHtml(
             coefColumns,
             restRows,
             coefCellHtml,

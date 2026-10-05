@@ -306,7 +306,7 @@ def _minute_warmup_core(
     # EM 全窗；子进程超时后 kill，不拖整批、不毒化主进程锁
     per_stock_timeout = minute_isolated_timeout_sec(skip_em=skip_em)
     if skip_if_ready:
-        from quant.research.cluster_minute_status import minute_cache_ready
+        from quant.research.minute_status import minute_cache_ready
 
     for i, code in enumerate(watch, start=1):
         progress_code = code
