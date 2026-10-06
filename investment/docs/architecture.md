@@ -319,7 +319,7 @@ Skill / Service / 研究 CLI
 | **AI** | 通义千问（DashScope，OpenAI 兼容 HTTP）；自研 `InvestmentAgent` + Skills |
 | **行情 / 基本面** | 腾讯 qt（现价）· AkShare（日线/选股等）· pandas |
 | **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`INVESTMENT_BARS_BACKEND=sqlite\|json`）；见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型 · [internal/sqlite-migration.md · SQLite 改造](internal/sqlite-migration.md#日分钟线缓存-sqlite-改造方案) · [internal/engineering-track.md · 工程结构轨](internal/engineering-track.md#工程结构轨a0a4) |
-| **量化主轴** | 组 OLS/Ridge β → **predicted_score（ŷ%）** 选股；`heuristic_score` / `signal_config.weights` 仅研究基线；ML 旁路见 `research/ml/` |
+| **量化主轴** | Ridge β → **predicted_score（ŷ）** 选股；0–100 规则分已退役，不再写入 `heuristic_score`；ML 旁路见 `research/ml/` |
 | **任务 / 运维** | 进程内 `POST /api/schedule/run` + shell cron / launchd；`unittest` + `evals` |
 | **部署形态** | 单机本地（默认 `127.0.0.1:8000`）；暂不接实盘 OMS |
 
