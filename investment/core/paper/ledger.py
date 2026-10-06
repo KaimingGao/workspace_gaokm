@@ -118,6 +118,10 @@ def load_paper(path: Optional[str] = None) -> dict:
     if "cash" not in data:
         raise ValueError("paper.json 缺少 cash")
     data.pop("watchlist", None)  # 已废弃：名单只在 watching，仓位只在 holdings
+    data.pop("last_cluster_pool", None)  # 分组分池已退役
+    rules = data.get("rules")
+    if isinstance(rules, dict):
+        rules.pop("cluster_mode", None)
     data.setdefault("holdings", [])
     data.setdefault("trades", [])
     data.setdefault("signal_log", [])
@@ -152,6 +156,10 @@ def holding_codes(paper: dict) -> List[str]:
 def save_paper(data: dict, path: Optional[str] = None) -> str:
     p = path or DEFAULT_PAPER_PATH
     data.pop("watchlist", None)
+    data.pop("last_cluster_pool", None)
+    rules = data.get("rules")
+    if isinstance(rules, dict):
+        rules.pop("cluster_mode", None)
     trim_paper_lists(data)
     with paper_write_lock(p):
         atomic_write_json(p, data)

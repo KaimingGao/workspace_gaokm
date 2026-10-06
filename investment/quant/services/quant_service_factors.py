@@ -1663,20 +1663,6 @@ class QuantFactorMixin:
         hn = horizon[1:]
         task = f"{horizon}_ridge"
 
-        from core.research_universe import resolve_model_fit_codes
-        from core.watching.store import MODEL_FIT_MAX_SIZE
-
-        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
-        codes = list(resolved.get("codes") or [])
-        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
-        codes = codes[:limit]
-        if len(codes) < 2:
-            return {
-                "success": False,
-                "error": f"研究池至少 2 只才可跑 ŷ_τ{hn} Ridge",
-                "task": task,
-            }
-
         if persist:
             last = load_ridge_last_report(horizon)
             if last:
@@ -1694,6 +1680,20 @@ class QuantFactorMixin:
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
                 return _attach_ridge_role_flags(out, ridge_model_path(horizon))
+
+        from core.research_universe import resolve_model_fit_codes
+        from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        codes = list(resolved.get("codes") or [])
+        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
+        codes = codes[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": f"研究池至少 2 只才可跑 ŷ_τ{hn} Ridge",
+                "task": task,
+            }
 
         period = str(minute_period or "5").strip() or "5"
         stock_bars: List[Dict[str, Any]] = []

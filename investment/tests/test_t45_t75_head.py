@@ -392,5 +392,61 @@ class T45T75GateTests(unittest.TestCase):
             self.assertIn(f"ŷ_τw={shown}", skip)
 
 
+class T75RidgeUniverseGateTests(unittest.TestCase):
+    def test_fit_requires_two_research_codes(self):
+        from unittest.mock import patch
+
+        from quant.services.quant_service import QuantService
+
+        with patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={"codes": ["600000"]},
+        ):
+            out = QuantService().run_t75_ridge_experiment(persist=False)
+        self.assertFalse(out.get("success"))
+        self.assertEqual(out.get("error"), "研究池至少 2 只才可跑 ŷ_τ75 Ridge")
+        self.assertEqual(out.get("task"), "t75_ridge")
+
+    def test_persist_research_skips_empty_pool_when_last_report_exists(self):
+        from unittest.mock import patch
+
+        from quant.services.quant_service import QuantService
+
+        last = {
+            "success": True,
+            "return_model": {"coefficients": {"gap_pct": 0.1}, "intercept": 0.0},
+            "oos": {"n_train": 10, "n_test": 2},
+        }
+        saved = {
+            "success": True,
+            "promoted_at": "2026-10-06T00:00:00Z",
+            "promote_gate": {"ok": True, "blockers": []},
+        }
+        with patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={"codes": []},
+        ) as resolve_codes, patch(
+            "core.research.horizon_ridge.load_ridge_last_report",
+            return_value=last,
+        ), patch(
+            "core.research.horizon_ridge.persist_ridge_model",
+            return_value=saved,
+        ) as persist, patch(
+            "core.research.horizon_ridge.ridge_model_path",
+            return_value="/tmp/t75_ridge_model.json",
+        ), patch(
+            "core.research.horizon_prob.horizon_promote_gate",
+            return_value={"ok": True, "blockers": []},
+        ):
+            out = QuantService().run_t75_ridge_experiment(
+                persist=True, persist_role="research"
+            )
+        resolve_codes.assert_not_called()
+        persist.assert_called_once()
+        self.assertEqual(persist.call_args.kwargs.get("role"), "research")
+        self.assertTrue(out.get("from_last_report"))
+        self.assertTrue((out.get("persisted") or {}).get("success"))
+
+
 if __name__ == "__main__":
     unittest.main()
