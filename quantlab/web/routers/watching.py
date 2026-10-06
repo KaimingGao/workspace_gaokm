@@ -10,7 +10,13 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 
 from web import deps
-from web.schemas import WatchingFile, WatchingSyncPaper, WatchingWatchAdd, WatchingWatchRemove
+from web.schemas import (
+    WatchingFile,
+    WatchingMaxSize,
+    WatchingSyncPaper,
+    WatchingWatchAdd,
+    WatchingWatchRemove,
+)
 
 router = APIRouter(tags=["watching"])
 
@@ -265,6 +271,18 @@ def watching_save(body: WatchingFile) -> Dict[str, Any]:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "path": path}
+
+
+@router.post("/api/watching/max-size")
+def watching_max_size(body: WatchingMaxSize) -> Dict[str, Any]:
+    try:
+        return deps.watching.set_max_size(body.max_size)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/api/watching/daily-chart")

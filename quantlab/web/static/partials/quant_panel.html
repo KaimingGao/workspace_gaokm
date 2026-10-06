@@ -61,6 +61,34 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-overview-title" class="dashboard-section-title">概览</h3>
       <p class="dashboard-section-desc quant-section-desc">研究宇宙 · 观察池 · 分钟 Ready · ŷ_oo · ŷ_τc · 落地</p>
+      <div class="quant-overview-pool-tools" role="group" aria-label="观察池只数">
+        <label
+          class="quant-watching-pool-slider"
+          title="观察池目标只数。200～1000，默认 300。缩小截名单并暂存；放大先恢复暂存，再从示例/研究宇宙补齐。拟合、日 K、5m 只数跟这份名单。"
+        >
+          <span class="quant-watching-pool-slider-lab">观察池</span>
+          <span class="quant-watching-pool-scale">
+            <span class="quant-watching-pool-bound" aria-hidden="true">200</span>
+            <input
+              id="quant-watching-max-size"
+              type="range"
+              min="200"
+              max="1000"
+              step="10"
+              value="300"
+              aria-label="观察池只数"
+              aria-valuemin="200"
+              aria-valuemax="1000"
+            />
+            <span class="quant-watching-pool-bound" aria-hidden="true">1000</span>
+          </span>
+          <span class="quant-watching-pool-readout">
+            <output id="quant-watching-pool-val" for="quant-watching-max-size">300</output>
+            <span class="quant-watching-pool-unit" aria-hidden="true">只</span>
+          </span>
+        </label>
+        <span id="quant-watching-pool-status" class="quant-watching-pool-status" aria-live="polite"></span>
+      </div>
     </header>
     <div class="dashboard-overview-band quant-pro-desk-top quant-overview-band">
       <div class="dashboard-kpi-row quant-pro-overview-kpis quant-kpi-row" id="quant-pro-overview-kpis" aria-label="研究全景 KPI">

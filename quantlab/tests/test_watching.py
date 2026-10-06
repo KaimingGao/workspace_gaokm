@@ -18,6 +18,7 @@ from core.watching.store import (
     validate_watching,
     watchlist_names_for,
     watchlist_origins_for,
+    write_watching,
 )
 from tests.test_signal import _rising_bars
 
@@ -30,7 +31,63 @@ class TestWatching(unittest.TestCase):
                 "watchlist": [],
             }
         )
-        self.assertEqual(data["max_size"], 30)
+        self.assertEqual(data["max_size"], 300)
+
+    def test_clamp_and_set_watching_max_size(self):
+        from core.watching.store import (
+            WATCHING_DEFAULT_SIZE,
+            WATCHING_MAX_SIZE,
+            clamp_watching_max_size,
+            set_watching_max_size,
+            write_watching,
+        )
+
+        self.assertEqual(WATCHING_DEFAULT_SIZE, 300)
+        self.assertEqual(WATCHING_MAX_SIZE, 1000)
+        self.assertEqual(clamp_watching_max_size(None), 300)
+        self.assertEqual(clamp_watching_max_size(2), 200)
+        self.assertEqual(clamp_watching_max_size(1001), 1000)
+        self.assertEqual(clamp_watching_max_size(500), 500)
+        codes = [f"{i:06d}" for i in range(1, 221)]
+        extra = [f"{i:06d}" for i in range(900000, 900010)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "watching.json")
+            write_watching(
+                {
+                    "sources": [],
+                    "watchlist": list(codes),
+                    "max_size": 220,
+                },
+                path,
+            )
+            with patch(
+                "core.watching.store._fill_codes_for_expand",
+                return_value=list(extra),
+            ):
+                shrunk = set_watching_max_size(200, path=path)
+                self.assertTrue(shrunk["ok"])
+                self.assertEqual(shrunk["max_size"], 200)
+                self.assertEqual(shrunk["count"], 200)
+                self.assertEqual(shrunk["dropped"], 20)
+                self.assertEqual(shrunk["added"], 0)
+                uni = read_watching(path)
+                self.assertEqual(uni["watchlist"], codes[:200])
+                self.assertEqual(uni["watchlist_reserve"], codes[200:])
+
+                restored = set_watching_max_size(220, path=path)
+                self.assertEqual(restored["count"], 220)
+                self.assertEqual(restored["added"], 20)
+                self.assertEqual(restored["dropped"], 0)
+                uni = read_watching(path)
+                self.assertEqual(uni["watchlist"], codes)
+                self.assertEqual(uni.get("watchlist_reserve") or [], [])
+
+                expanded = set_watching_max_size(230, path=path)
+                self.assertEqual(expanded["count"], 230)
+                self.assertEqual(expanded["added"], 10)
+                uni = read_watching(path)
+                self.assertEqual(uni["watchlist"], codes + extra)
+                self.assertFalse(expanded["over_cap"])
 
     def test_init_and_refresh_mocked(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -396,6 +453,43 @@ class TestWatchingQuotesApi(unittest.TestCase):
         self.assertIn("超时", body.get("note") or "")
         self.assertEqual(body["items"][0]["stock_code"], "600519")
         self.assertFalse(body["items"][0]["ok"])
+
+
+class TestWatchingMaxSizeApi(unittest.TestCase):
+    def test_post_max_size(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "watching.json")
+            write_watching(
+                {"sources": [], "watchlist": ["600519"], "max_size": 500},
+                path,
+            )
+            with patch("core.watching.store.WATCHING_PATH", path), patch(
+                "core.paths.WATCHING_PATH", path
+            ), patch(
+                "core.watching.store._fill_codes_for_expand",
+                return_value=["000001", "000002", "000003", "000004"],
+            ):
+                client = TestClient(web_app.app)
+                r = client.post("/api/watching/max-size", json={"max_size": 300})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body.get("ok"))
+        self.assertEqual(body.get("max_size"), 300)
+        self.assertEqual(body.get("count"), 5)
+        self.assertEqual(body.get("added"), 4)
+
+    def test_post_max_size_rejects_over_hard_cap(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+
+        client = TestClient(web_app.app)
+        r = client.post("/api/watching/max-size", json={"max_size": 1001})
+        self.assertEqual(r.status_code, 422)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import {
   jobStatusBadge,
   unwrapJobSnap,
 } from "./cluster_job_ui.js";
-import { BARS_WATCHING_LIMIT } from "./params.js";
+import { BARS_WATCHING_LIMIT, readWatchingPoolLimit } from "./params.js";
 
 /** 研究枢纽 · 观察池 5m 分钟覆盖 + 「增量补齐」/「强更 5m」 */
 export function installMinuteUi(q) {
@@ -523,7 +523,7 @@ export function installMinuteUi(q) {
 
   async function refreshCoverageKpis() {
     if (kpiInflight) return kpiInflight;
-    const limit = BARS_WATCHING_LIMIT;
+    const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
     kpiInflight = (async () => {
       const { ok, data } = await apiFetch(
         `/api/quant/minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}&include_label_portrait=0`
@@ -538,7 +538,7 @@ export function installMinuteUi(q) {
   }
 
   async function refreshStatus() {
-    const limit = BARS_WATCHING_LIMIT;
+    const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
     const base = `/api/quant/minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}`;
     const { ok, data, error } = await apiFetch(`${base}&include_label_portrait=0`);
     if (!ok) {
@@ -674,7 +674,7 @@ export function installMinuteUi(q) {
         { pollStartedAt: Date.now(), mode: modeS }
       );
       try {
-        const limit = BARS_WATCHING_LIMIT;
+        const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
         const body = {
           lookback_days: modeS === "repair" ? 90 : LOOKBACK_DAYS,
           watching_limit: limit,

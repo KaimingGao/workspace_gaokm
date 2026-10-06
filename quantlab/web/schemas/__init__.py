@@ -35,6 +35,7 @@ from web.schemas.watching import (
     WatchingWatchRemove,
     WatchingSyncPaper,
     WatchingFile,
+    WatchingMaxSize,
 )
 
 from web.schemas.research import (
@@ -114,6 +115,7 @@ __all__ = [
     "WatchingWatchRemove",
     "WatchingSyncPaper",
     "WatchingFile",
+    "WatchingMaxSize",
     "CrossSectionRequest",
     "ExprEvalRequest",
     "FactorExperimentRequest",

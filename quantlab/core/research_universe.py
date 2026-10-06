@@ -1,6 +1,6 @@
 """研究宇宙：日线截面研究用宽名单；与观察池（分钟暖仓 / live）分离。
 
-- 观察池 ``watching``：≤WATCHING_MAX_SIZE（默认 500），分钟暖仓、live 打分、ŷ_* 拟合（实际只数=观察池）
+- 观察池 ``watching``：默认 300、硬顶 ``WATCHING_MAX_SIZE``=1000；分钟暖仓、live 打分、ŷ_* 拟合（实际只数=观察池）
 - 模型拟合上限 ``MODEL_FIT_MAX_SIZE``（默认 1000）：请求钳制，不从研究宇宙垫票
 - 研究宇宙 ``research_universe``：可更大，仅日线研究（LambdaRank / Alpha158 OOS 等）
   非空时日线研究优先用本名单；空则回退观察池。
@@ -164,13 +164,9 @@ def resolve_model_fit_codes(
 
     上限 ``MODEL_FIT_MAX_SIZE``；实际只数 = min(请求, 上限, 观察池长度)。
     """
-    from core.watching.store import MODEL_FIT_MAX_SIZE
+    from core.watching.store import watching_pool_limit
 
-    try:
-        lim = int(watching_limit) if watching_limit is not None else int(MODEL_FIT_MAX_SIZE)
-    except (TypeError, ValueError):
-        lim = int(MODEL_FIT_MAX_SIZE)
-    lim = max(3, min(lim, int(MODEL_FIT_MAX_SIZE)))
+    lim = watching_pool_limit(watching_limit)
 
     if codes is not None:
         seen: set = set()

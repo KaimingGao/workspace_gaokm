@@ -389,7 +389,7 @@ Skill / Service / 研究 CLI
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
-**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、横截面排序、调仓开加、回测宇宙的范围（上限 `WATCHING_MAX_SIZE`=500）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。选股链路：观察池 → `score_stock` → 横截面 Top N；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。
+**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、横截面排序、调仓开加、回测宇宙的范围（上限默认 300、硬顶 `WATCHING_MAX_SIZE`=1000，研究枢纽可改）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。选股链路：观察池 → `score_stock` → 横截面 Top N；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。
 
 **入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。做 T 为 **overlay**，不改变「持有什么」的主线；见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。
 

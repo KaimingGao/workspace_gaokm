@@ -4708,6 +4708,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   caret-color: var(--accent, #1890ff);
 }
 
+
 .quant-inline-num input[type="number"]::-webkit-outer-spin-button,
 .quant-inline-num input[type="number"]::-webkit-inner-spin-button {
   appearance: none;
@@ -8192,6 +8193,177 @@ body[data-page="quant"] .quant-head.dashboard-head .quant-head-actions {
   flex-direction: row;
   align-items: center;
   gap: 8px;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-overview-pool-tools {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 0 auto;
+}
+
+body[data-page="quant"] .quant-watching-pool-slider {
+  --pool-pct: 12.5%;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+body[data-page="quant"] .quant-watching-pool-slider-lab {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+
+body[data-page="quant"] .quant-watching-pool-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body[data-page="quant"] .quant-watching-pool-bound {
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  min-width: 1.6rem;
+  opacity: 0.85;
+}
+
+body[data-page="quant"] .quant-watching-pool-scale .quant-watching-pool-bound:last-child {
+  min-width: 2rem;
+  text-align: left;
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8.75rem;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]:focus {
+  outline: none;
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]:focus-visible {
+  outline: none;
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  border: none;
+  border-radius: 1px;
+  background: linear-gradient(
+    to right,
+    var(--accent, #1890ff) 0 var(--pool-pct),
+    color-mix(in srgb, var(--ink) 16%, var(--line)) var(--pool-pct) 100%
+  );
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4.5px;
+  border: 1.5px solid var(--accent, #1890ff);
+  border-radius: 50%;
+  background: var(--surface, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #1890ff) 22%, transparent);
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]:hover::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #1890ff) 18%, transparent);
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #1890ff) 28%, transparent);
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]::-moz-range-track {
+  height: 2px;
+  border: none;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink) 16%, var(--line));
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]::-moz-range-progress {
+  height: 2px;
+  border: none;
+  border-radius: 1px;
+  background: var(--accent, #1890ff);
+}
+
+body[data-page="quant"] .quant-watching-pool-slider input[type="range"]::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--accent, #1890ff);
+  border-radius: 50%;
+  background: var(--surface, #fff);
+  box-shadow: none;
+}
+
+body[data-page="quant"] .quant-watching-pool-readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 3.4rem;
+  padding: 0 0 0 10px;
+  border-left: 1px solid var(--line);
+}
+
+body[data-page="quant"] .quant-watching-pool-slider output {
+  min-width: 2.15rem;
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-align: right;
+}
+
+body[data-page="quant"] .quant-watching-pool-unit {
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+body[data-page="quant"] .quant-watching-pool-status {
+  max-width: 11rem;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+body[data-page="quant"] .quant-watching-pool-status.is-error {
+  color: var(--danger, #c0392b);
 }
 
 body[data-page="quant"] .quant-head.dashboard-head .quant-desk-badge,

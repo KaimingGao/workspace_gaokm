@@ -157,6 +157,31 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="quant-bars-topup"', panel)
         self.assertIn('id="quant-watching-limit"', panel)
         self.assertIn('id="quant-watching-limit" value="1000"', panel)
+        self.assertIn('id="quant-watching-max-size"', panel)
+        self.assertIn('type="range"', panel)
+        self.assertIn('min="200"', panel)
+        self.assertIn('aria-label="观察池只数"', panel)
+        self.assertIn("quant-watching-pool-slider", panel)
+        self.assertIn("quant-overview-pool-tools", panel)
+        ov = panel[
+            panel.find('id="quant-section-overview"') : panel.find(
+                'id="quant-section-research-universe"'
+            )
+        ]
+        self.assertIn('id="quant-watching-max-size"', ov)
+        self.assertNotIn(
+            'id="quant-watching-max-size"',
+            panel[panel.find('id="quant-section-research-universe"') :],
+        )
+        self.assertIn("200～1000，默认 300", panel)
+        self.assertIn('class="quant-watching-pool-bound" aria-hidden="true">200</span>', panel)
+        self.assertIn('class="quant-watching-pool-bound" aria-hidden="true">1000</span>', panel)
+        self.assertIn("quant-watching-pool-readout", panel)
+        self.assertIn("quant-watching-pool-scale", panel)
+        ru_js = self._read("web", "static", "js", "quant", "research_universe_ui.js")
+        self.assertIn("/api/watching/max-size", ru_js)
+        self.assertIn("hydrateWatchingMaxSize", ru_js)
+        self.assertIn("syncOverviewUniverse", ru_js)
         self.assertIn("强更日 K", panel)
         self.assertIn('id="quant-bars-strip"', panel)
         self.assertIn("quant-desk-status-strip quant-bars-desk-status quant-card-head-status is-busy", panel)

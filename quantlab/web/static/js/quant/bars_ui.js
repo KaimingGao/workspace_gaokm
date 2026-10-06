@@ -8,7 +8,7 @@ import {
   jobStatusBadge,
   unwrapJobSnap,
 } from "./cluster_job_ui.js";
-import { BARS_WATCHING_LIMIT } from "./params.js";
+import { BARS_WATCHING_LIMIT, readWatchingPoolLimit } from "./params.js";
 
 /** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐」/「强更日 K」 */
 export function installBarsUi(q) {
@@ -652,7 +652,7 @@ export function installBarsUi(q) {
   }
 
   async function refreshStatus() {
-    const limit = BARS_WATCHING_LIMIT;
+    const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
     const { ok, data, error } = await apiFetch(
       `/api/quant/bars/status?watching_limit=${encodeURIComponent(limit)}`
     );
@@ -807,7 +807,7 @@ export function installBarsUi(q) {
         { pollStartedAt: Date.now(), mode: modeS }
       );
       try {
-        const limit = BARS_WATCHING_LIMIT;
+        const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
         const { ok, data, error } = await apiFetch("/api/quant/bars/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

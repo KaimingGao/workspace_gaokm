@@ -11,9 +11,19 @@ from core.io_atomic import atomic_write_json
 from core.numbers import now_iso_local as _now_iso
 from core.paths import WATCHING_EXAMPLE_PATH, WATCHING_PATH
 
-WATCHING_MAX_SIZE = 500
+WATCHING_MIN_SIZE = 200
+WATCHING_DEFAULT_SIZE = 300
+WATCHING_MAX_SIZE = 1000
 # 模型拟合宇宙上限（可走 research_universe，宽于观察池）；分钟暖仓 / live 仍只读观察池
 MODEL_FIT_MAX_SIZE = 1000
+
+
+def clamp_watching_max_size(value: Any, default: int = WATCHING_DEFAULT_SIZE) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = int(default)
+    return max(WATCHING_MIN_SIZE, min(n, WATCHING_MAX_SIZE))
 
 
 def validate_watching(data: Any) -> Dict[str, Any]:
@@ -22,8 +32,7 @@ def validate_watching(data: Any) -> Dict[str, Any]:
     sources = data.get("sources")
     if not isinstance(sources, list):
         raise ValueError("sources 须为数组")
-    max_size = int(data.get("max_size") or 30)
-    max_size = max(5, min(max_size, WATCHING_MAX_SIZE))
+    max_size = clamp_watching_max_size(data.get("max_size"), WATCHING_DEFAULT_SIZE)
     watchlist = data.get("watchlist") or []
     if not isinstance(watchlist, list):
         raise ValueError("watchlist 须为数组")
@@ -53,6 +62,12 @@ def validate_watching(data: Any) -> Dict[str, Any]:
     added = data.get("watchlist_added_at")
     if isinstance(added, list) and len(added) == len(cleaned_wl):
         out["watchlist_added_at"] = [str(x).strip() for x in added]
+    reserve = data.get("watchlist_reserve")
+    if isinstance(reserve, list):
+        head = set(cleaned_wl)
+        out["watchlist_reserve"] = [
+            c for c in _clean_code_list(reserve) if c not in head
+        ][:WATCHING_MAX_SIZE]
     return out
 
 
@@ -66,12 +81,165 @@ def read_watching(path: Optional[str] = None) -> Dict[str, Any]:
         return validate_watching(json.load(f))
 
 
+_WATCHLIST_SIDE_KEYS = ("watchlist_origins", "watchlist_names", "watchlist_added_at")
+
+
+def _clean_code_list(raw: Any) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for item in raw or []:
+        code = str(item).strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
+def _pad_side_fields(data: Dict[str, Any], old_n: int, added: int) -> None:
+    stamp = _now_iso()
+    for key in _WATCHLIST_SIDE_KEYS:
+        arr = list(data.get(key) or [])
+        if len(arr) > old_n:
+            arr = arr[:old_n]
+        while len(arr) < old_n:
+            arr.append("")
+        if key == "watchlist_origins":
+            pad = "扩容"
+        elif key == "watchlist_added_at":
+            pad = stamp
+        else:
+            pad = ""
+        arr.extend([pad] * max(0, int(added)))
+        data[key] = arr
+
+
+def _fill_codes_for_expand(data: Dict[str, Any]) -> List[str]:
+    """扩容候选：暂存 → example 观察池 → 研究宇宙。"""
+    chunks: List[str] = []
+    chunks.extend(_clean_code_list(data.get("watchlist_reserve")))
+    try:
+        if os.path.isfile(WATCHING_EXAMPLE_PATH):
+            with open(WATCHING_EXAMPLE_PATH, encoding="utf-8") as f:
+                example = json.load(f) or {}
+            chunks.extend(_clean_code_list(example.get("watchlist")))
+    except Exception:
+        logger.debug("expand watchlist: example read failed", exc_info=True)
+    try:
+        from core.research_universe import load_research_universe
+
+        uni = load_research_universe() or {}
+        chunks.extend(_clean_code_list(uni.get("codes")))
+    except Exception:
+        logger.debug("expand watchlist: research_universe read failed", exc_info=True)
+    return _clean_code_list(chunks)
+
+
+def _resize_watchlist(data: Dict[str, Any], cap: int, *, expand: bool) -> Dict[str, int]:
+    """把 watchlist 收到 cap：超出暂存；expand 时从暂存/示例/研究宇宙补齐。"""
+    n_cap = clamp_watching_max_size(cap, WATCHING_DEFAULT_SIZE)
+    wl = _clean_code_list(data.get("watchlist"))
+    reserve = _clean_code_list(data.get("watchlist_reserve"))
+    dropped = 0
+    added = 0
+    if len(wl) > n_cap:
+        overflow = wl[n_cap:]
+        dropped = len(overflow)
+        seen_head = set(wl[:n_cap])
+        reserve = overflow + [c for c in reserve if c not in seen_head and c not in overflow]
+        reserve = _clean_code_list(reserve)[:WATCHING_MAX_SIZE]
+        for key in _WATCHLIST_SIDE_KEYS:
+            arr = data.get(key)
+            if isinstance(arr, list):
+                data[key] = arr[:n_cap]
+        wl = wl[:n_cap]
+    elif expand and len(wl) < n_cap:
+        seen = set(wl)
+        need = n_cap - len(wl)
+        restored: List[str] = []
+        new_reserve: List[str] = []
+        for code in reserve:
+            if len(restored) >= need:
+                if code not in seen:
+                    new_reserve.append(code)
+                continue
+            if code in seen:
+                continue
+            seen.add(code)
+            restored.append(code)
+        if len(restored) < need:
+            for code in _fill_codes_for_expand(data):
+                if len(restored) >= need:
+                    break
+                if code in seen:
+                    continue
+                seen.add(code)
+                restored.append(code)
+        added = len(restored)
+        old_n = len(wl)
+        wl = wl + restored
+        _pad_side_fields(data, old_n, added)
+        reserve = _clean_code_list(new_reserve)[:WATCHING_MAX_SIZE]
+    data["watchlist"] = wl
+    data["watchlist_reserve"] = reserve
+    return {"dropped": dropped, "added": added, "count": len(wl)}
+
+
 def write_watching(data: dict, path: Optional[str] = None) -> str:
     p = path or WATCHING_PATH
     cleaned = validate_watching(data)
+    _resize_watchlist(cleaned, int(cleaned["max_size"]), expand=False)
     cleaned["updated_at"] = _now_iso()
     atomic_write_json(p, cleaned)
     return p
+
+
+def set_watching_max_size(max_size: int, path: Optional[str] = None) -> Dict[str, Any]:
+    """改观察池目标只数：缩小截断并暂存，放大从暂存/示例/研究宇宙补齐。"""
+    data = read_watching(path)
+    before = len(_clean_code_list(data.get("watchlist")))
+    cap = clamp_watching_max_size(max_size, WATCHING_DEFAULT_SIZE)
+    data["max_size"] = cap
+    stats = _resize_watchlist(data, cap, expand=True)
+    if stats.get("added"):
+        try:
+            data["watchlist_names"] = watchlist_names_for(data, allow_live=False)
+        except Exception:
+            logger.debug("expand watchlist: names failed", exc_info=True)
+    write_watching(data, path)
+    saved = read_watching(path)
+    n = len(_clean_code_list(saved.get("watchlist")))
+    return {
+        "ok": True,
+        "max_size": cap,
+        "count": n,
+        "dropped": int(stats.get("dropped") or 0),
+        "added": int(stats.get("added") or 0),
+        "reserve": len(_clean_code_list(saved.get("watchlist_reserve"))),
+        "over_cap": False,
+        "before": before,
+    }
+
+
+def watching_pool_limit(requested: Optional[int] = None) -> int:
+    """研究/拟合/补齐用的观察池只数：min(请求, 文件 max_size, 硬顶)。"""
+    file_cap = WATCHING_DEFAULT_SIZE
+    try:
+        file_cap = clamp_watching_max_size(
+            (read_watching() or {}).get("max_size"),
+            WATCHING_DEFAULT_SIZE,
+        )
+    except Exception:
+        logger.debug("watching_pool_limit: read_watching failed", exc_info=True)
+    hard = min(int(WATCHING_MAX_SIZE), int(MODEL_FIT_MAX_SIZE))
+    if requested is None:
+        n = file_cap
+    else:
+        try:
+            n = int(requested)
+        except (TypeError, ValueError):
+            n = file_cap
+    return max(3, min(n, file_cap, hard))
 
 
 def init_from_example(path: Optional[str] = None) -> str:
@@ -314,7 +482,7 @@ def refresh_watchlist(
             "manual": True,
         }
 
-    max_size = int(data.get("max_size") or 30)
+    max_size = clamp_watching_max_size(data.get("max_size"), WATCHING_DEFAULT_SIZE)
     merged: List[str] = []
     origins: List[str] = []
     names: List[str] = []
@@ -601,7 +769,7 @@ def add_watchlist_item(
             raise ValueError(quote.get("error") or f"无法识别「{text}」")
 
     data = read_watching(path)
-    max_size = int(data.get("max_size") or 30)
+    max_size = clamp_watching_max_size(data.get("max_size"), WATCHING_DEFAULT_SIZE)
     wl = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]
     origins = list(data.get("watchlist_origins") or [])
     names = list(data.get("watchlist_names") or [])

@@ -73,7 +73,7 @@ cat > data/watching.json << 'EOF'
 {
   "version": 1,
   "name": "default",
-  "max_size": 500,
+  "max_size": 300,
   "sources": [],
   "watchlist": ["600519", "600036", "000858"]
 }

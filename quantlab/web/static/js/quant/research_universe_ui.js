@@ -2,6 +2,8 @@
  * 观察池分档：研究套 ŷ_oo · Holdout 前半 OOS 打档 → last；
  * live 档位跟随历史回测「分档」勾选（见 domain_backtest live-sync）。
  */
+import { syncOverviewUniverse } from "./factor_corr_ui.js";
+
 export function installResearchUniverseUi(q) {
   const { on, apiFetch, escapeHtml, readHoldoutTradingDays, readFitLookbackDays } = q;
   let lastTiers = null;
@@ -18,6 +20,9 @@ export function installResearchUniverseUi(q) {
     msg: () => document.getElementById("quant-ru-msg"),
     strip: () => document.getElementById("quant-ru-strip"),
     tierTable: () => document.getElementById("quant-ru-tier-table"),
+    maxSize: () => document.getElementById("quant-watching-max-size"),
+    poolVal: () => document.getElementById("quant-watching-pool-val"),
+    poolStatus: () => document.getElementById("quant-watching-pool-status"),
   };
 
   function holdoutN() {
@@ -279,6 +284,94 @@ export function installResearchUniverseUi(q) {
     void loadTiers({ useLast: false });
   });
 
+  function clampWatchingMaxSize(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 300;
+    return Math.max(200, Math.min(1000, Math.round(n)));
+  }
+
+  function paintPoolSize(cap) {
+    const n = clampWatchingMaxSize(cap);
+    const input = el.maxSize();
+    const out = el.poolVal();
+    if (input) {
+      input.value = String(n);
+      input.setAttribute("aria-valuenow", String(n));
+      const pct = ((n - 200) / 800) * 100;
+      const host = input.closest(".quant-watching-pool-slider");
+      if (host) host.style.setProperty("--pool-pct", `${pct}%`);
+    }
+    if (out) out.value = String(n);
+    return n;
+  }
+
+  function setPoolStatus(message, isError) {
+    const st = el.poolStatus();
+    if (!st) return;
+    st.textContent = message || "";
+    st.classList.toggle("is-error", !!isError);
+  }
+
+  function syncPoolOverview(n) {
+    const count = Number(n);
+    if (!Number.isFinite(count) || count < 0) return;
+    try {
+      syncOverviewUniverse(count);
+    } catch (_) {
+      /* overview optional */
+    }
+  }
+
+  async function hydrateWatchingMaxSize() {
+    const input = el.maxSize();
+    if (!input) return;
+    try {
+      const { ok, data } = await apiFetch("/api/watching/file");
+      const watching = data && data.watching;
+      const cap = Number((watching && watching.max_size) || (data && data.max_size));
+      if (ok && Number.isFinite(cap)) paintPoolSize(cap);
+      const wl = watching && watching.watchlist;
+      if (ok && Array.isArray(wl)) {
+        syncPoolOverview(wl.filter((c) => String(c || "").trim()).length);
+      }
+    } catch (_) {
+      paintPoolSize(input.value || 300);
+    }
+  }
+
+  async function saveWatchingMaxSize() {
+    const input = el.maxSize();
+    if (!input) return;
+    const cap = paintPoolSize(input.value);
+    const { ok, data, error } = await apiFetch("/api/watching/max-size", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ max_size: cap }),
+    });
+    if (!ok || (data && data.ok === false)) {
+      const fail = (data && (data.detail || data.error)) || error || "保存失败";
+      const msg = /not found/i.test(String(fail))
+        ? "保存接口未加载，请重启 Web"
+        : String(fail);
+      setPoolStatus(msg, true);
+      return;
+    }
+    paintPoolSize(data && data.max_size != null ? data.max_size : cap);
+    setPoolStatus("", false);
+    syncPoolOverview(data && data.count);
+  }
+
+  on("quant-watching-max-size", "input", () => {
+    const input = el.maxSize();
+    if (input) paintPoolSize(input.value);
+  });
+  on("quant-watching-max-size", "change", () => {
+    void saveWatchingMaxSize();
+  });
+
+  if (el.maxSize()) {
+    void hydrateWatchingMaxSize().catch(() => {});
+  }
   if (document.getElementById("quant-section-research-universe")) {
     void loadTiers({ useLast: true, quiet: true }).catch(() => {});
   }

@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from core.watching.store import WATCHING_MAX_SIZE
+from core.watching.store import WATCHING_DEFAULT_SIZE, WATCHING_MAX_SIZE, WATCHING_MIN_SIZE
 
 
 class WatchingWatchAdd(BaseModel):
@@ -37,9 +37,20 @@ class WatchingSyncPaper(BaseModel):
 class WatchingFile(BaseModel):
     version: int = 1
     name: str = "default"
-    max_size: int = Field(default=30, ge=5, le=WATCHING_MAX_SIZE)
+    max_size: int = Field(
+        default=WATCHING_DEFAULT_SIZE, ge=WATCHING_MIN_SIZE, le=WATCHING_MAX_SIZE
+    )
     sources: list = Field(default_factory=list)
     watchlist: list = Field(default_factory=list)
     watchlist_origins: Optional[list] = None
     watchlist_names: Optional[list] = None
+
+
+class WatchingMaxSize(BaseModel):
+    max_size: int = Field(
+        default=WATCHING_DEFAULT_SIZE,
+        ge=WATCHING_MIN_SIZE,
+        le=WATCHING_MAX_SIZE,
+        description="观察池只数（200～1000，默认 300）",
+    )
 
