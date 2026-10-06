@@ -88,7 +88,7 @@ def start_experiment(
         model_type: 模型类型，如 "tc_tree" / "oo_rank" / "ridge"
         config: 训练配置（超参、因子集、数据窗口、标签等）
         experiment_id: 自定义 ID；默认自动生成
-        tags: 标签，如 {"dataset": "csi300", "author": "gaokm"}
+        tags: 标签，如 {"dataset": "csi300", "author": "your_name"}
     """
     model_type = canonical_model_type(model_type) or str(model_type or "unknown")
     exp_id = experiment_id or f"{model_type}_{_ts_slug()}_{_fingerprint(config)[:8]}"

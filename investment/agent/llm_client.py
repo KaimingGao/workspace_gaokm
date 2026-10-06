@@ -108,7 +108,7 @@ def _env_int(name: str, default: Optional[int] = None) -> Optional[int]:
 
 
 DEFAULT_QWEN_ENDPOINT = (
-    "https://ws-7hpevbps1ivbjf03.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    "https://your-workspace-id.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 )
 
 

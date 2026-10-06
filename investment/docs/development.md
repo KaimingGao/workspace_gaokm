@@ -28,7 +28,7 @@ python3 -m pip install -r requirements.txt
 
 ```bash
 export DASHSCOPE_API_KEY=your_api_key
-export DASHSCOPE_ENDPOINT=https://ws-7hpevbps1ivbjf03.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+export DASHSCOPE_ENDPOINT=https://your-workspace-id.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
 export DASHSCOPE_MODEL=qwen-plus
 # 联网搜索（默认开启）
 # export DASHSCOPE_ENABLE_SEARCH=1

@@ -42,7 +42,7 @@ def main():
         print("\n未检测到 DASHSCOPE_API_KEY。")
         print("请在 investment/.env 中填写，或执行：")
         print("  export DASHSCOPE_API_KEY=your_api_key")
-        print("  export DASHSCOPE_ENDPOINT=https://ws-7hpevbps1ivbjf03.cn-beijing.maas.aliyuncs.com/compatible-mode/v1")
+        print("  export DASHSCOPE_ENDPOINT=https://your-workspace-id.cn-beijing.maas.aliyuncs.com/compatible-mode/v1")
         print("  export DASHSCOPE_MODEL=qwen-plus")
         print("\n提示：无 LLM 时仍可直接测试行情模块：")
         print("  python3 -c \"from adapters.market.quote_api import StockAPI; print(StockAPI.query('茅台'))\"")
