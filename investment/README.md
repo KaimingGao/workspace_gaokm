@@ -216,52 +216,69 @@ class InvestmentAgent:
 
 ## 快速开始
 
-**3 步跑通最小闭环**：装依赖 → 备数据 → 跑一次回测 / 启动 Web。
+逐步操作（clone、虚拟环境、先放 3 只股票、在「历史回测」跑通调仓回测）见 **[docs/getting-started.md](docs/getting-started.md)**。下面是已经准备好环境时的命令摘要。需要 Python 3.10+。
 
 ```bash
 cd investment
-python3 -m pip install -r requirements.txt   # 需 Python 3.10+
-cp .env.example .env                          # 填入 DASHSCOPE_API_KEY / DASHSCOPE_MODEL
+python3 -m pip install -r requirements.txt
+cp .env.example .env          # 对话 / Agent 才需要；填 DASHSCOPE_API_KEY、DASHSCOPE_MODEL
+bash scripts/setup_quant.sh   # watching.json 不存在时，从 watching.example.json 复制（约 500 只）
+python3 run_web.py            # → http://127.0.0.1:8000
 ```
 
-**① 准备数据**（首次必跑，详见 [数据准备](#数据准备)）：
+第一次回测建议先按 [getting-started.md](docs/getting-started.md) 写成 3 只再跑。直接用模板整池会按每只拉日线和 5 分钟 K，时间会很长。行情、观察、回测、模拟账户不依赖 API key。Web 侧栏主路径：**数据中心 · 交易执行 · 历史回测**。
+
+不想连外网、也不配 key 时，先跑离线校验：
 
 ```bash
-bash scripts/setup_quant.sh                   # 初始化 watching + 纸面账户
-```
-
-**② 跑一次回测，验证系统跑通**：
-
-```bash
-python3 research/t0_backtest_run.py --code 茅台 --json   # 底仓做T模拟（需日线）
-# 或离线 mock 验证（无需外网 / API key）：
 python3 evals/run_checklist.py --mock
 ```
 
-**③ 启动 Web 面板**：
+要验证日线回测（需外网）：
 
 ```bash
-python3 run_web.py        # → http://127.0.0.1:8000
+python3 research/t0_backtest_run.py --code 茅台 --json
 ```
 
-- 完整选股 / 日线依赖 `akshare`；无 LLM 时可单独调 Skill 做数据层调试：
-  ```bash
-  python3 -c "from skills.quote.handler import QuoteHandler; print(QuoteHandler().execute({'parameters':{'stock_code':'茅台'}}))"
-  ```
+完整选股 / 日线依赖 `akshare`。无 LLM 时可单独调 Skill：
+
+```bash
+python3 -c "from skills.quote.handler import QuoteHandler; print(QuoteHandler().execute({'parameters':{'stock_code':'茅台'}}))"
+```
 
 ---
 
 ## 数据准备
 
-量化研究与回测依赖两类数据，首次运行需先初始化：
+量化研究与回测依赖行情缓存和两份本地 JSON。`data/watching.json`、`data/paper.json` 在 `.gitignore` 里，clone 下来没有，由 `setup_quant.sh` 生成。文件已存在时脚本会跳过，不会覆盖。
 
-| 数据 | 来源 | 初始化命令 | 说明 |
-|------|------|-----------|------|
-| 日线行情 | `akshare` / `baostock` | `bash scripts/setup_quant.sh` | 自动缓存日线，因子评分与回测的基础 |
-| 5 分钟 K 线 | `baostock` | 回测时按需拉取 | T0 做T回测必需；缺失则当日跳过 |
-| 观察名单 / 纸面账户 | 本地 JSON | `setup_quant.sh` 内置 | `data/watching.json` / `data/paper.json` |
+| 数据 | 来源 | 初始化 | 说明 |
+|------|------|--------|------|
+| 观察名单 | `data/watching.example.json` | `setup_quant.sh` 调用 `watching_run.py --init` | 复制为 `data/watching.json` |
+| 纸面账户 | 脚本内置 | 同上，`paper_run.py --init` | `data/paper.json` |
+| 日线行情 | `akshare` / `baostock` | 评分 / 回测时写入缓存 | `core/store.py`；`python3 research/daily_run.py --preset quant` 可刷新 |
+| 5 分钟 K 线 | `baostock` | 做 T 回测时按需拉取 | 缺失则当日跳过 |
 
-- 日线缓存在 `core/store.py`；可用 `python3 research/daily_run.py --preset quant` 刷新。
+只初始化观察名单：
+
+```bash
+python3 research/watching_run.py --init    # 已有 watching.json 会报错，避免覆盖
+python3 research/watching_run.py --show
+```
+
+### 观察名单（`watching.example.json`）
+
+仓库里提交的是模板 `data/watching.example.json`（约 500 只，`sources` 为空）。运行时只读写 `data/watching.json`。改自己的池子时改后者，或在 Web 观察页 / 量化面板里改；不要改 example。
+
+当前模板 `sources` 为空，表示**手动名单**：`python3 research/watching_run.py --refresh` 只补全名称，不改 `watchlist`。
+
+要让刷新按规则重算名单，在 `watching.json` 里写 `sources`（保存后需再 `--refresh` 或在页面点「刷新」）。上限是 `max_size`（最大 500）：
+
+| `type` | 含义 | 示例 |
+|--------|------|------|
+| `static` | 固定代码或名称 | `{"type": "static", "codes": ["600519", "茅台"]}` |
+| `screen` | 按条件筛选后并入（需外网行情） | `{"type": "screen", "sector": "银行", "limit": 5}` |
+
 - 无外网时可走 `evals/run_checklist.py --mock` 做离线能力校验。
 - 数据源一览与字段说明见 [docs/development.md · 数据源一览](docs/development.md#数据源一览)。
 

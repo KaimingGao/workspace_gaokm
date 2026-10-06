@@ -2,6 +2,8 @@
 
 ## 快速上手
 
+从 clone 到第一次调仓回测的逐步操作见 **[getting-started.md](getting-started.md)**。本节是环境与日常运行备忘。
+
 [← 文档索引](README.md)
 
 ## 环境要求
@@ -182,7 +184,7 @@ README 仅列最常用命令；以下脚本按需调用：
 
 | 脚本 | 用途 |
 |------|------|
-| `python3 research/watching_run.py --init` / `--refresh --sync-paper` | 观察名单初始化 / 刷新并同步纸面 |
+| `python3 research/watching_run.py --init` / `--refresh` / `--show` | 从 `watching.example.json` 生成 `watching.json`（已存在则拒绝覆盖）/ 按 `sources` 刷新（空 `sources` 只补名称）/ 查看 |
 | `python3 research/paper_run.py --init` / `--run` | 纸面账户初始化 / 运行 |
 | `python3 research/paper_rebalance_run.py --top-k 3 --json` | 纸面调仓（Top-K） |
 | `python3 research/cross_section_run.py --limit 10` | 横截面回测 |

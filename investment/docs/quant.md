@@ -1686,7 +1686,7 @@ python3 research/quant_export_run.py --format html -o data/reports/manual.html
 | 任务 | 需要先 |
 |------|--------|
 | `advisor` / `full` 纸面步骤 | `python3 research/paper_run.py --init` 或 Web「纸面」初始化 |
-| `quant` / `full` watching | 复制 `data/watching.example.json` → `data/watching.json` 并配置 sources |
+| `quant` / `full` watching | `python3 research/watching_run.py --init`（或 `bash scripts/setup_quant.sh`）：`watching.example.json` → `watching.json`。模板 `sources` 为空即手动名单；要按规则重算再写 `sources` 后 `--refresh` |
 
 失败时 CLI 退出码为 `1`，JSON 中 `failures` 列出原因；Web 返回 HTTP 422 与同样结构。
 
