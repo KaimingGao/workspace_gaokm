@@ -28,7 +28,6 @@ try:
 
     install_akshare_lock()
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-    logger.debug("catch except Exception: in app.py", exc_info=True)
     pass
 
 from web import deps  # noqa: E402
@@ -61,6 +60,7 @@ _daily = deps.daily
 _quant = deps.quant
 
 @asynccontextmanager
+
 async def _app_lifespan(app: FastAPI):
     try:
         from core.paths import PAPER_PATH

@@ -4,10 +4,6 @@
 - simple_cn：A 股简化；费率来自 CostPort（`core.backtest.cost_port`）
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 from core.backtest.cost_port import COST_MODELS, paper_simple_cn_params

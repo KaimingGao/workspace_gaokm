@@ -33,6 +33,7 @@ logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
+
 def normalize_minute_bars(rows: List[dict]) -> List[dict]:
     """统一为 datetime/date/open/high/low/close/volume。"""
     bars: List[dict] = []

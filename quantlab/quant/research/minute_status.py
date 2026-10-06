@@ -36,6 +36,7 @@ def _span_mix_bucket_keys() -> List[str]:
     """固定 ``<30d`` / ``<40d`` / ``<50d``（严→宽）。"""
     return [f"<{int(c)}d" for c in SPAN_MIX_CUTS if int(c) > 0]
 
+
 def _resolve_watching_codes(*, watching_limit: int = WATCHING_MAX_SIZE) -> List[str]:
     from quant.research.watching_universe import clamp_watching_limit, merge_cluster_universe
 

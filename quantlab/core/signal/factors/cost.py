@@ -4,10 +4,6 @@
 勿在此硬编码第二套印花税/佣金。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Dict, Optional, Tuple
 
 from core.backtest.cost_port import factor_cost_defaults

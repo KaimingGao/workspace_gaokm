@@ -259,7 +259,6 @@ def apply_tau_score_fields(
                 feats_merged, model_doc=rem_model_doc
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             formula_terms_tau = None
     if not isinstance(formula_terms_tau, dict):
         formula_terms_tau = {}
@@ -351,7 +350,6 @@ def apply_tau_score_fields(
 
         stamp_y_state(signal_item, config=config)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     return signal_item
 
@@ -392,7 +390,6 @@ def attach_dual_score_bulk(
                 )
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             # 单票失败不影响整体（attach失败时回退原item，cross_section仍能用predicted_score老路）
             out.append(dict(it) if isinstance(it, dict) else it)
     return out
@@ -438,7 +435,6 @@ def attach_dual_score_pit(
 
             rem_model_doc = load_tau_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             rem_model_doc = None
     q = quote if isinstance(quote, dict) else signal_item.get("_bt_quote")
     b = bars if bars is not None else signal_item.get("_bt_bars")
@@ -489,7 +485,6 @@ def attach_dual_score_pit(
         ep_cfg = get_event_prior_cfg()
         trigger = float(ep_cfg.get("gap_trigger_pct") or 2)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         trigger = 2.0
     theme = 0.0
     breadth = sector_gap_breadth
@@ -510,7 +505,6 @@ def attach_dual_score_pit(
             gap_trigger_pct=trigger,
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         theme = 1.0 if (gap_v is not None and abs(float(gap_v)) >= trigger) else 0.0
     feats: Dict[str, Any] = {
         "gap_pct": gap_v,
@@ -567,7 +561,6 @@ def attach_dual_score_pit(
         except Exception:  # noqa: BLE001
             logger.debug("tau alpha158 inject skipped", exc_info=True)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     # 保留刷簿已写齐的截面 Z，避免 tip/PIT 路径冲成缺特征
     prior_ft = signal_item.get("features_tau")
@@ -734,7 +727,6 @@ def attach_dual_score_pit(
             ridge_model=rem_model_doc,
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         rem_yhat = None
         y_src = ""
     ep = None
@@ -746,7 +738,6 @@ def attach_dual_score_pit(
                 "warnings": [],
             }
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             ep = None
     apply_tau_score_fields(
         signal_item,
@@ -779,7 +770,7 @@ def attach_dual_score_pit(
             gap_pct=gap_v,
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score_tau on", exc_info=True)
+        pass
     return signal_item
 
 
@@ -799,7 +790,6 @@ def _resolve_fuse_intraday(
         _, pit = prepare_eod_bars(bars, quote)
         return not bool(pit.get("rolled_to_next"))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         return False
 
 
@@ -815,7 +805,6 @@ def _eod_return_model_for_item(item: dict):
         rm, _meta = load_return_model(prefer_active=True)
         return rm
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         return None
 
 
@@ -949,7 +938,6 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
 
         z_keys = set(TAU_Z_FEATURES) | {"open_gap"}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         z_keys = {
             "gap_pct",
             "open_gap",
@@ -1025,7 +1013,6 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
     try:
         feats.update(recover_sub_scores_for_tau(item))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     if feats:
         try:
@@ -1035,7 +1022,6 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             if expl is not None:
                 return expl
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             pass
     if (
         isinstance(existing, dict)
@@ -1063,6 +1049,5 @@ def rem_factor_coefficients_public() -> Dict[str, float]:
                 continue
         return out
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         return {}
 

@@ -1,9 +1,5 @@
 """隔夜跳空风险因子（V2.1 有界扩面）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Tuple
 
 

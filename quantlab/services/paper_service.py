@@ -3,10 +3,6 @@
 拆分为 account / jobs / trades mixin；本文件只组装 PaperService。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import threading
 from typing import Optional
 

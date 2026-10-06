@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from core.watching.store import MODEL_FIT_MAX_SIZE
 
+
 class CrossSectionRequest(BaseModel):
     codes: Optional[list] = None
     limit: int = Field(default=10, ge=1, le=30)

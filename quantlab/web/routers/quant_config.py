@@ -1,9 +1,5 @@
 """量化研究台 API — config/signal-config。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
@@ -19,31 +15,31 @@ from web.schemas import (
 
 router = APIRouter(tags=["quant"])
 
-
 @router.get("/api/quant/actions")
+
 def quant_actions() -> Dict[str, Any]:
     """策略 · 历史/前瞻验证 · 对比 归属图（机器可读）。"""
     return deps.quant.action_map()
 
-
 @router.get("/api/quant/config")
+
 def quant_config() -> Dict[str, Any]:
     return deps.quant.config_summary()
 
-
 @router.get("/api/quant/package")
+
 def quant_package() -> Dict[str, Any]:
     return deps.quant.build_package_info()
 
-
 @router.get("/api/signal/config")
+
 def signal_config() -> Dict[str, Any]:
     """Canonical signal config read."""
     out = deps.quant.read_signal_config_file()
     return {**out, "canonical": True}
 
-
 @router.get("/api/signal/config/file")
+
 def signal_config_file() -> Dict[str, Any]:
     """Legacy wrapper; prefer GET /api/signal/config (canonical)."""
     out = deps.quant.read_signal_config_file()
@@ -58,8 +54,8 @@ def signal_config_file() -> Dict[str, Any]:
         "canonical": "/api/signal/config",
     }
 
-
 @router.post("/api/signal/config/scoring")
+
 def signal_config_scoring_floors(body: ScoringFloorsRequest) -> Dict[str, Any]:
     """Y0：人审写入 ŷ 买卖门槛；永不改 weights。"""
     try:
@@ -74,8 +70,8 @@ def signal_config_scoring_floors(body: ScoringFloorsRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
     return out
 
-
 @router.post("/api/signal/config/stance")
+
 def signal_config_stance_thresholds(body: StanceThresholdsRequest) -> Dict[str, Any]:
     """人审写入 stance_thresholds；永不改 weights / scoring。"""
     try:
@@ -91,8 +87,8 @@ def signal_config_stance_thresholds(body: StanceThresholdsRequest) -> Dict[str, 
         raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
     return out
 
-
 @router.get("/api/signal/config/sentiment-prior")
+
 def signal_config_sentiment_prior_get() -> Dict[str, Any]:
     """舆情先验配置只读。"""
     try:
@@ -100,8 +96,8 @@ def signal_config_sentiment_prior_get() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/signal/config/sentiment-prior")
+
 def signal_config_sentiment_prior_save(body: SentimentPriorRequest) -> Dict[str, Any]:
     """兼容旧入口；产品强制 mode=off（仅徽章）。"""
     try:
@@ -118,8 +114,8 @@ def signal_config_sentiment_prior_save(body: SentimentPriorRequest) -> Dict[str,
         raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
     return out
 
-
 @router.get("/api/signal/config/market-prior")
+
 def signal_config_market_prior_get() -> Dict[str, Any]:
     """M 层 prior（cross_market）配置只读。"""
     try:
@@ -127,8 +123,8 @@ def signal_config_market_prior_get() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/signal/config/market-prior")
+
 def signal_config_market_prior_save(body: MarketPriorRequest) -> Dict[str, Any]:
     """人审写入 cross_market.mode 等；强制不进 ŷ；不改 weights。"""
     try:
@@ -154,8 +150,8 @@ def signal_config_market_prior_save(body: MarketPriorRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
     return out
 
-
 @router.get("/api/signal/config/dual-score")
+
 def signal_config_dual_score_get() -> Dict[str, Any]:
     """双层 ŷ fusion 只读。"""
     try:
@@ -163,8 +159,8 @@ def signal_config_dual_score_get() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/signal/config/dual-score")
+
 def signal_config_dual_score_save(body: DualScoreRequest) -> Dict[str, Any]:
     """人审写入 dual_score.fusion_mode 等；不改 weights / scoring。"""
     try:
@@ -183,16 +179,16 @@ def signal_config_dual_score_save(body: DualScoreRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
     return out
 
-
 @router.get("/api/signal/config/diff-preview")
+
 def signal_config_diff_preview(code: str = "茅台", use_saved: bool = True) -> Dict[str, Any]:
     try:
         return deps.quant.build_config_diff_preview(code=code, use_saved=use_saved)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/signal/config/diff-export")
+
 def signal_config_diff_export(code: str = "茅台", use_saved: bool = True) -> Dict[str, Any]:
     try:
         result = deps.quant.export_config_diff_bundle(code=code, use_saved=use_saved)

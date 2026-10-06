@@ -18,6 +18,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- test_p57_quant.py::TestP57QuantTaskCatalog ---
+
 class TestP57QuantTaskCatalog(unittest.TestCase):
     def test_prompt_tasks_match_engine(self):
         route_tasks = [task for task, _ in QUANT_TASK_ROUTES]

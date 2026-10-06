@@ -1,9 +1,5 @@
 """截面因子相关性（研究只读，V2.1 去冗）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple

@@ -94,7 +94,6 @@ def backtest_portfolio_defaults(
 
         min_pred = float(resolve_buy_floor())
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in strategy.py", exc_info=True)
         min_pred = 1.0
     max_pos = int(
         risk.get("max_positions")
@@ -210,7 +209,6 @@ def promote_strategy(
                 f" · [factor_health warn] {guard.get('error') or 'proxy weight'}"
             )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in strategy.py", exc_info=True)
         logger.warning("factor_health guard failed during promote", exc_info=True)
     spec = get_strategy_spec(strategy)
     if overrides:
@@ -253,7 +251,6 @@ def promote_strategy(
             },
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in strategy.py", exc_info=True)
         logger.warning("append_ttm_event failed during promote", exc_info=True)
     try:
         from core.live_config_manifest import write_live_config_manifest
@@ -262,6 +259,5 @@ def promote_strategy(
             note=f"after promote_strategy {spec.get('strategy_id')}"
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in strategy.py", exc_info=True)
         logger.warning("write_live_config_manifest failed during promote", exc_info=True)
     return entry

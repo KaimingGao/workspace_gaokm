@@ -64,7 +64,6 @@ def audit_code_sources(
     try:
         dq = summarize_data_quality(code_list, limit=lookback) or {}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in data_consistency.py", exc_info=True)
         dq = {}
 
     status = "ok"

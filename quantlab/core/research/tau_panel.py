@@ -1342,7 +1342,6 @@ def gap_atr_from_hist(
 
         atr = atr_pct_from_bars(list(hist_bars or []), int(window))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in tau_panel.py", exc_info=True)
         atr = None
     if atr is None or float(atr) < 1e-6:
         return None
@@ -1370,7 +1369,6 @@ def sector_gap_reference_by_code(
     try:
         from core.portfolio_optimize import _sector_for
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in tau_panel.py", exc_info=True)
         def _sector_for(code: str, m: Optional[Dict[str, str]] = None) -> str:  # type: ignore
             return str((m or {}).get(code) or "")
 
@@ -1643,7 +1641,6 @@ def attach_cross_section_breadth(
 
             sm = load_sector_map() or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in tau_panel.py", exc_info=True)
             sm = {}
 
     breadth_by_date: Dict[str, float] = {}

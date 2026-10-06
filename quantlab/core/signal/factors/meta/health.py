@@ -1,9 +1,5 @@
 """X3 · 生产面因子健康：有源 / proxy / 稀疏 / 权重冲突。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 # 无真数据 ingest、仅代理或常稀疏的因子
@@ -31,7 +27,6 @@ def assess_factor_health(*, config: Optional[dict] = None) -> Dict[str, Any]:
 
             config = load_signal_config()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in factor_health.py", exc_info=True)
             config = {}
     weights = dict((config or {}).get("weights") or {})
     rows: List[Dict[str, Any]] = []

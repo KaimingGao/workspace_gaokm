@@ -111,7 +111,6 @@ class QuantFollowMixin:
 
                 save_last_t0_backtest(out)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_service_follow.py", exc_info=True)
                 logger.warning("上次做 T 回测结果落盘失败", exc_info=True)
         return out
 

@@ -3,10 +3,6 @@
 纸面阶段：不碰实盘；约束前移到横截面选股，避免簿内占坑买时被 clip。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 DEFAULT_BOOK_CONSTRAINTS: Dict[str, Any] = {
@@ -28,7 +24,6 @@ def get_book_constraints_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         if isinstance(raw, dict):
             out.update(raw)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         pass
     mode = str(out.get("tau_fail_mode") or "defer").strip().lower()
     if mode not in ("defer", "exclude", "off"):
@@ -62,7 +57,6 @@ def resolve_book_risk_limits(
         if risk.get("max_positions") is not None:
             max_positions = int(risk["max_positions"])
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         pass
     rules = {}
     if isinstance(paper, dict):
@@ -73,7 +67,6 @@ def resolve_book_risk_limits(
 
             rules = (load_paper() or {}).get("rules") or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
             rules = {}
     raw_mto = rules.get("max_turnover_pct", rules.get("max_turnover"))
     if raw_mto is not None:
@@ -88,7 +81,6 @@ def resolve_book_risk_limits(
         if isinstance(cs, dict) and cs.get("max_names") is not None:
             max_positions = max(max_positions, int(cs.get("max_names") or max_positions))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         pass
     return {
         "max_position_pct": float(max_position_pct),
@@ -105,7 +97,6 @@ def tradeable_block_reason(code: str, quote: Optional[dict]) -> Optional[str]:
 
         return _buy_match_block_reason(code, quote)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         q = quote or {}
         if not q:
             return None
@@ -122,7 +113,6 @@ def _tau_ok(row: dict) -> bool:
         ok, _ = buy_passes_tau_gate(row)
         return bool(ok)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         return True
 
 
@@ -137,7 +127,6 @@ def _y_check_ok(row: dict, dual_cfg: Optional[dict] = None) -> bool:
         )
         return bool(ok)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         return True
 
 
@@ -151,7 +140,6 @@ def _y_check_rank(row: dict, dual_cfg: Optional[dict] = None) -> int:
             )
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         return 9
 
 
@@ -162,7 +150,6 @@ def _rank_score(row: dict, dual_cfg: Optional[dict] = None) -> float:
         v = rank_key_for_item(row, config={"dual_score": dual_cfg} if dual_cfg else None)
         return float(v) if v is not None else float(row.get("score") or 0.0)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         try:
             return float(row.get("score") or 0.0)
         except (TypeError, ValueError):
@@ -180,7 +167,6 @@ def _sector_of(row: dict, sector_map: Optional[dict]) -> str:
         sm = sector_map if sector_map is not None else load_sector_map()
         return str(_sector_for(code, sm) or "其他")
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in book_constraints.py", exc_info=True)
         return "其他"
 
 

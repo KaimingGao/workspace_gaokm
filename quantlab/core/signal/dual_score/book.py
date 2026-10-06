@@ -41,14 +41,12 @@ def dual_score_book_fields(
         # 调用方多为刚算完的 signal_item；保留 PIT window，勿时钟误刷
         align_trade_score_fields(work, write_score=False, refresh_window=False)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     try:
         from core.signal.y_state import stamp_y_state
 
         stamp_y_state(work)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     try:
         cfg = get_dual_score_cfg()
@@ -84,7 +82,6 @@ def dual_score_book_fields(
                 "window": win,
             }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         live_fusion = "blend"
         live_w = {
             "w_oo": 0.5,
@@ -109,7 +106,6 @@ def dual_score_book_fields(
                 )
             formula_terms_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             formula_terms_r = None
     score_formula_tau = work.get("score_formula_tau") or format_tau_formula_string(
         formula_terms_tau
@@ -127,7 +123,7 @@ def dual_score_book_fields(
         if ytc is not None:
             write_y_τc(work, ytc)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
+        pass
     try:
         from core.signal.yhat_windows import stamp_window_scores
         from core.paper.rebalance.path_matrix import get_path_matrix_cfg

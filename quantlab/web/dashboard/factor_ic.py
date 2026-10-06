@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
-
-logger = logging.getLogger(__name__)
 
 
 def _factor_label(name: str) -> str:
@@ -15,7 +12,6 @@ def _factor_label(name: str) -> str:
 
         return str(factor_label(name) or name)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return str(name)
 
 
@@ -93,7 +89,6 @@ def _ic_series_from_cluster_cache(lookback: int) -> Optional[Dict[str, Any]]:
     try:
         from core.paths import CLUSTER_REPORT_CACHE_PATH
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return None
 
     if not os.path.isfile(CLUSTER_REPORT_CACHE_PATH):
@@ -104,7 +99,6 @@ def _ic_series_from_cluster_cache(lookback: int) -> Optional[Dict[str, Any]]:
         with open(CLUSTER_REPORT_CACHE_PATH, encoding="utf-8") as fh:
             cached = _json.load(fh)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return None
     if not isinstance(cached, dict):
         return None

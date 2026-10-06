@@ -433,7 +433,6 @@ def qp_lite_weights(
     try:
         problem.solve(solver=cp.SCS, warm_start=True, verbose=False)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in budget.py", exc_info=True)
         try:
             problem.solve(verbose=False)
         except Exception as e:
@@ -464,7 +463,6 @@ def qp_lite_weights(
         if stats is not None and getattr(stats, "solver_name", None):
             solver_name = str(stats.solver_name)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in budget.py", exc_info=True)
         pass
     meta.update(
         {

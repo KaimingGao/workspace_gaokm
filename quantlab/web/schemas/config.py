@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+
 class ScoringFloorsRequest(BaseModel):
     """Y0 · 人审写入 ŷ 滞回门槛（不改 weights）。"""
 

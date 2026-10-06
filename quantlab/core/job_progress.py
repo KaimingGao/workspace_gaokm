@@ -1,9 +1,5 @@
 """简单内存任务进度（Web 轮询用）+ 多槽 JobRegistry；paper 槽可落盘抗 reload。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 import threading
@@ -308,7 +304,6 @@ class JobProgress:
 
                     result = json_safe(result)
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in job_progress.py", exc_info=True)
                     pass
             self._job["result"] = result
             if not error:
@@ -478,7 +473,6 @@ class JobRegistry:
             slots = list(self._slots.values())
         return [s.policy() for s in slots]
 
-
 # 全局注册表；paper / ols / chat 落盘抗 uvicorn reload
 job_registry = JobRegistry()
 try:
@@ -522,7 +516,6 @@ try:
         "portfolio-backtest", persist_path=PORTFOLIO_BACKTEST_JOB_PATH
     )
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-    logger.debug("catch except Exception: in job_progress.py", exc_info=True)
     paper_job = job_registry.slot("paper")
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
     bars_refresh_job = job_registry.slot("bars-refresh")

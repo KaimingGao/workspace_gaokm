@@ -125,7 +125,6 @@ def _days_since(iso: Optional[str]) -> Optional[int]:
             dt = datetime.strptime(raw[:10], "%Y-%m-%d")
         return max(0, (datetime.now() - dt).days)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         return None
 
 
@@ -142,7 +141,6 @@ def _finalize_insight_trade_fields(out: Dict[str, Any]) -> None:
 
         align_trade_score_fields(out, write_score=True, refresh_window=False)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
 
 
@@ -215,7 +213,6 @@ def _fill_valuation_from_em(
 
             pack = fetch_valuation_pack(code) or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             return code, None, None
         return code, _f(pack.get("pe")), _f(pack.get("pb"))
 
@@ -226,7 +223,6 @@ def _fill_valuation_from_em(
             try:
                 code, pe, pb = fut.result()
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
                 continue
             if pe is None and pb is None:
                 continue
@@ -253,13 +249,11 @@ def _spot_valuation_map(codes: List[str]) -> Dict[str, Dict[str, Optional[float]
                 "pb": spot_to_float(spot_row_get(row, "pb")),
             }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
 
     try:
         _fill_valuation_from_em(want, out)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
     return out
 
@@ -274,7 +268,6 @@ def _attach_oos_flag(out: Dict[str, Any]) -> None:
         out["oos_failed"] = resolve_oos_status(out) == OOS_FAIL
         return
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
     src = str(out.get("return_model_source") or "")
     out["oos_failed"] = src.startswith("oos_failed") or str(
@@ -394,7 +387,6 @@ def _insight_quote_bars(
                 )
             b = list(pack.get("bars") or [])
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             b = []
     if not q.get("success") and q.get("price_raw") is None and q.get("open") is None:
         if use_offline:
@@ -429,7 +421,6 @@ def _insight_quote_bars(
                 if isinstance(q2, dict) and q2.get("success"):
                     q = q2
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
                 pass
     return q, b
 
@@ -509,7 +500,6 @@ def _hydrate_insight_tau_fields(
         trade_day = resolve_minute_tau_trade_date(q, b)
         gap = resolve_open_t(q, b, trade_day=trade_day).get("gap_pct")
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         gap = None
     if gap is None:
         gap = _f(out.get("gap_pct"))
@@ -555,7 +545,6 @@ def _hydrate_insight_tau_fields(
         _stamp_insight_ranking(out, paper_ctx)
         return
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
     try:
         from core.signal.dual_score import (
@@ -603,7 +592,6 @@ def _hydrate_insight_tau_fields(
             merge.update(out)
             out.update(get_default_signal_service().book_fields(merge, paper=paper_ctx))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
         try:
             from core.signal.dual_score import ensure_formula_terms_tau
@@ -615,11 +603,9 @@ def _hydrate_insight_tau_fields(
                 out["formula_terms_tau"] = expl
                 out["score_formula_terms_tau"] = expl
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
         _finalize_insight_trade_fields(out)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         _finalize_insight_trade_fields(out)
 
 
@@ -646,7 +632,6 @@ def _enrich_book_insight_display_fields(
         )
         bars = list(pack.get("bars") or [])
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         bars = []
 
     if out.get("volume_ratio") is None and bars:
@@ -657,7 +642,6 @@ def _enrich_book_insight_display_fields(
             if vr is not None:
                 out["volume_ratio"] = round(float(vr), 2)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
 
     if out.get("excess_return_pct") is None and bars:
@@ -673,7 +657,6 @@ def _enrich_book_insight_display_fields(
             if ex is not None:
                 _apply_excess_label(out, float(ex), item)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
 
     if out.get("excess_return_pct") is None and out.get("excess_label") is None:
@@ -768,7 +751,6 @@ def _insight_one(
                 out.update(get_default_signal_service().book_fields(item, paper=paper_ctx))
                 _sanitize_heuristic_yhat_fields(out, item)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
         tau_asof = str(out.get("as_of_tau") or item.get("as_of_tau") or "")[:10]
         sess = ""
@@ -813,7 +795,6 @@ def _insight_one(
             out["min_score"] = gate["min_score"]
             out["below_min_score"] = gate["below_min_score"]
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             out["min_score"] = None
             out["below_min_score"] = False
         _finalize_insight_trade_fields(out)
@@ -838,7 +819,6 @@ def _insight_one(
                     }
                 ) or None
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
                 out["score_formula"] = None
         out["volume"] = quote.get("volume")
         factors = item.get("factors") or {}
@@ -905,7 +885,6 @@ def build_watching_insights(
         if os.path.isfile(PAPER_PATH):
             paper_ctx = load_paper(PAPER_PATH)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         paper_ctx = None
 
     valuation_by = _spot_valuation_map(cleaned)
@@ -1023,7 +1002,6 @@ def load_insights_cache() -> Optional[List[Dict[str, Any]]]:
                     added_map[key] = fallback
         codes = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         return None
     if not codes:
         return None

@@ -1,9 +1,5 @@
 """QuantService · 配置 / 策略列表（P94 拆分）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 from core.signal.config import get_signal_config_path, load_signal_config

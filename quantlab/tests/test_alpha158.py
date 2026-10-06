@@ -54,6 +54,7 @@ def _synth_bars(n: int = 80, seed: int = 42) -> List[dict]:
 
 # ---------------- 1. 字段数验证 ----------------
 
+
 def test_alpha158_field_count():
     """正好 158 个数值字段（除 omit_sub_score 等元标记）。"""
     bars = _synth_bars(80)
@@ -104,6 +105,7 @@ def test_alpha158_rolling_count():
 
 # ---------------- 2. kbar 公式验证 ----------------
 
+
 def test_alpha158_kbar_formulas():
     """合成 OHLC 手算 kbar 字段。"""
     o, h, l, c = 10.0, 12.0, 9.0, 11.0
@@ -134,6 +136,7 @@ def test_alpha158_price_formulas():
 
 
 # ---------------- 3. rolling 公式验证（手算几个） ----------------
+
 
 def test_alpha158_roc_ma_std():
     """手算 ROC5/MA5/STD5。"""
@@ -181,6 +184,7 @@ def test_alpha158_rolling_specific_values():
 
 # ---------------- 4. 历史不足处理 ----------------
 
+
 def test_alpha158_insufficient_history():
     """bars < 61 返回 omit + 标记。"""
     bars = _synth_bars(30)
@@ -221,6 +225,7 @@ def test_alpha158_zero_close():
 
 # ---------------- 5. 注册机制 ----------------
 
+
 def test_alpha158_registered():
     """注册表包含 alpha158。"""
     names = registered_factor_names()
@@ -244,6 +249,7 @@ def test_alpha158_compute_factor_dispatch():
 
 # ---------------- 6. _research_sub_scores 集成 ----------------
 
+
 def test_alpha158_research_sub_scores_injects_raw():
     """_research_sub_scores 把 raw_alpha158_* 注入 row。"""
     from core.research.panel import _research_sub_scores
@@ -261,6 +267,7 @@ def test_alpha158_research_sub_scores_injects_raw():
 
 
 # ---------------- 7. build_oo_rank_day_panels 端到端 ----------------
+
 
 def test_alpha158_day_panel_e2e():
     """build_oo_rank_day_panels 引入 alpha158 后特征列 +158。
@@ -291,6 +298,7 @@ def test_alpha158_day_panel_e2e():
 
 
 # ---------------- 8. Ridge 特征胶水 ----------------
+
 
 def test_expand_ridge_feature_names_drops_constant_score():
     from core.signal.factors.alpha158 import expand_ridge_feature_names

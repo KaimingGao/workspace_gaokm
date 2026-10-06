@@ -928,7 +928,6 @@ SKILL_SPECS = (
 
 - 协议：`POST {DASHSCOPE_ENDPOINT}/chat/completions`（OpenAI 兼容）。
 - 变量：`DASHSCOPE_API_KEY` / `DASHSCOPE_ENDPOINT` / `DASHSCOPE_MODEL`（默认 `qwen-plus`）；联网搜索见 `DASHSCOPE_ENABLE_SEARCH`。
-- 迁移期仍可读旧变量 `DOUBAO_*`（不推荐）。
 - 无 LLM 时：可直接 `import skills.*.handler` 测数据层（见下文示例）。
 
 ### Token 消耗统计

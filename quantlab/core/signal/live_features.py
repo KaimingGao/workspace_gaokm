@@ -148,7 +148,6 @@ def live_decision_as_of(*, bars: Optional[List[dict]] = None) -> str:
 
         return resolve_session_date()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in live_features.py", exc_info=True)
         from datetime import datetime
 
         return datetime.now().strftime("%Y-%m-%d")
@@ -168,7 +167,6 @@ def resolve_live_fundamentals(
 
             config = load_signal_config()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in live_features.py", exc_info=True)
             config = {}
     fund_cfg = dict((config or {}).get("fundamentals") or {})
     pit_mode = str(fund_cfg.get("pit_mode") or "as_of").strip().lower()
@@ -228,7 +226,6 @@ def infer_fundamentals_depth(stock_code: str, *, quote: Optional[dict] = None) -
 
         market = str(resolve_market_code(code) or "CN").upper()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in live_features.py", exc_info=True)
         if code.startswith(("0", "3", "6")) and len(code) == 6:
             market = "CN"
         elif code.endswith(".HK") or code.startswith("0") and len(code) == 5:
@@ -266,7 +263,6 @@ def build_quality_policy_snapshot(*, config: Optional[dict] = None) -> Dict[str,
 
             config = load_signal_config()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in live_features.py", exc_info=True)
             config = {}
     fund = (config or {}).get("fundamentals") or {}
     regime = (config or {}).get("regime") or {}

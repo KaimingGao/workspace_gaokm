@@ -7,10 +7,6 @@
 - 组合调仓：按真实换手计费（续持不扣往返）
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence
 

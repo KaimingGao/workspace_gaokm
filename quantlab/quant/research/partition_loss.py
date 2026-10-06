@@ -5,11 +5,8 @@
 
 from __future__ import annotations
 
-import logging
 import math
 from typing import Any, Dict, Optional, Sequence, Tuple
-
-logger = logging.getLogger(__name__)
 
 # 与 τ `_sign_hit` 同门槛：|ŷ|<0.05% 无方向，不进开盘命中分母
 SIGN_HIT_MIN_ABS = 0.05
@@ -94,7 +91,6 @@ def _metrics_from_pred_act(
             primary=False,
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in partition_loss.py", exc_info=True)
         _ic_ann = {
             "ic": None if ic is None else round(float(ic), 4),
             "ic_kind": "chrono_pearson",

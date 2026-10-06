@@ -15,6 +15,7 @@ _DAY_MIN = 10
 _DAY_MAX = 90
 
 # A 股 5 分钟：上午 09:35–11:30、下午 13:05–15:00，共 48 根。标的是该根结束时刻。
+
 def five_minute_slots() -> List[str]:
     out: List[str] = []
 

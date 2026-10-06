@@ -13,10 +13,6 @@
 撮合约束（涨跌停 / T+1 / 滑点档）见 `core.backtest.matching`（MatchPort 研究近似，非交易所）。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List
 
 # —— simple_cn 法定/券商简化费率（bps 为权威单位）——

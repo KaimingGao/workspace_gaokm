@@ -32,9 +32,7 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if not (
-        os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("DOUBAO_API_KEY")
-    ):
+    if not os.environ.get("DASHSCOPE_API_KEY"):
         print(
             "DASHSCOPE_API_KEY 未设置；Agent 回归需 LLM。可在 .env 或环境中配置。",
             file=sys.stderr,

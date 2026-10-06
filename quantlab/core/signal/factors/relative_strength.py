@@ -1,9 +1,5 @@
 """相对强弱因子（P6.2）：个股 vs 基准超额收益。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional, Tuple
 
 

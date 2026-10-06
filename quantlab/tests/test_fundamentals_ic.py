@@ -28,6 +28,7 @@ def _long_bars(n: int = 35):
     return bars
 
 # --- test_p50_quant.py::TestP50FundamentalsIcExperiment ---
+
 class TestP50FundamentalsIcExperiment(unittest.TestCase):
     def test_config_enables_ic_fundamentals(self):
         cfg = load_signal_config(reload=True)

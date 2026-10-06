@@ -1,15 +1,12 @@
 """统一 LLM 调用客户端（HTTP + token 计量 + 简易 cache）。
 
 封装：
-- 多后端（trae/chat/glm 等）配置选择与降级
+- 阿里云百炼 / DashScope OpenAI 兼容（默认 Qwen + 可选联网搜索）
 - prompt_tokens / completion_tokens / reasoning_tokens / calls 的累计计量
-- chat/complete/image 调用的超时、重试、错误映射（对上层抛语义异常）
+- chat 调用的超时、重试、错误映射（对上层抛语义异常）
 - 同 prompt 短窗口内的 LRU cache（仅 deterministic 温度下启用）
 """
 
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 import time
@@ -106,7 +103,6 @@ def _env_int(name: str, default: Optional[int] = None) -> Optional[int]:
     except ValueError:
         return default
 
-
 DEFAULT_QWEN_ENDPOINT = (
     "https://your-workspace-id.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 )
@@ -150,21 +146,16 @@ class LLMClient:
     """阿里云百炼 / DashScope OpenAI 兼容客户端（默认 Qwen + 可选联网搜索）。"""
 
     def __init__(self, api_key: str = None, endpoint: str = None, model: str = None):
-        # DASHSCOPE_* 优先；DOUBAO_* 仅作迁移期兼容
-        self.api_key = api_key or _env_first("DASHSCOPE_API_KEY", "DOUBAO_API_KEY")
+        self.api_key = api_key or _env_first("DASHSCOPE_API_KEY")
         self.endpoint = (
             endpoint
-            or _env_first("DASHSCOPE_ENDPOINT", "DOUBAO_ENDPOINT", default=DEFAULT_QWEN_ENDPOINT)
+            or _env_first("DASHSCOPE_ENDPOINT", default=DEFAULT_QWEN_ENDPOINT)
         ).rstrip("/")
         resolved_model, model_source = resolve_llm_model(model)
         self.model = resolved_model
         self.model_source = model_source
-        self.chat_timeout = _env_float(
-            "DASHSCOPE_TIMEOUT", _env_float("DOUBAO_TIMEOUT", 180.0)
-        )
-        self.probe_timeout = _env_float(
-            "DASHSCOPE_PROBE_TIMEOUT", _env_float("DOUBAO_PROBE_TIMEOUT", 30.0)
-        )
+        self.chat_timeout = _env_float("DASHSCOPE_TIMEOUT", 180.0)
+        self.probe_timeout = _env_float("DASHSCOPE_PROBE_TIMEOUT", 30.0)
         self.enable_search = _env_bool("DASHSCOPE_ENABLE_SEARCH", True)
         self.search_strategy = _env_first("DASHSCOPE_SEARCH_STRATEGY", default="max")
         self.search_freshness = _env_int("DASHSCOPE_SEARCH_FRESHNESS", 7)
@@ -207,7 +198,6 @@ class LLMClient:
             self._last_error = None
             return True
         except Exception as e:
-            logger.exception('unexpected error in is_available')
             friendly = _friendly_request_error(e, kind="探测")
             self._last_error = friendly
             self._available = False
@@ -263,7 +253,6 @@ class LLMClient:
                 error_data = response.json()
                 error_msg = error_data.get("error", {}).get("message", str(response.status_code))
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in llm_client.py", exc_info=True)
                 error_msg = str(response.status_code)
             raise Exception(f"API 调用失败 ({response.status_code}): {error_msg}")
 
@@ -319,9 +308,6 @@ class LLMClient:
                     time.sleep(0.8 * (attempt + 1))
                     continue
                 raise Exception(_friendly_request_error(e, kind="调用")) from e
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in llm_client.py", exc_info=True)
-                raise
         raise Exception(_friendly_request_error(last_err or Exception("unknown"), kind="调用"))
 
     def extract_function_calls(self, response: Dict) -> List[Dict]:

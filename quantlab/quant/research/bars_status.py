@@ -47,7 +47,6 @@ def _last_bar_date_for_code(code: str) -> Optional[str]:
             return None
         return date_key(meta.get("date_max")) or None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in bars_status.py", exc_info=True)
         return None
 
 
@@ -63,7 +62,6 @@ def _cached_daily_bar_count(code: str) -> Optional[int]:
             return None
         return int(meta.get("bar_count") or 0)
     except Exception:  # noqa: BLE001
-        logger.debug("catch except Exception: in bars_status.py", exc_info=True)
         return None
 
 
@@ -84,7 +82,6 @@ def build_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, A
 
         watchlist = list((read_watching() or {}).get("watchlist") or [])
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in bars_status.py", exc_info=True)
         watchlist = []
 
     uni = merge_cluster_universe(
@@ -240,7 +237,6 @@ def refresh_bars_only(
 
         watchlist = list((read_watching() or {}).get("watchlist") or [])
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in bars_status.py", exc_info=True)
         watchlist = []
 
     uni = merge_cluster_universe(
@@ -269,7 +265,7 @@ def refresh_bars_only(
         try:
             progress_cb(msg, int(cur or 0), int(tot or n_codes or 1))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in bars_status.py", exc_info=True)
+            pass
 
     # full_codes：整窗（无仓、条数短于拉取窗、或 mode=full）。末根已齐时增量会跳过远端，短仓必须整窗。
     # tail_codes：末 bar 落后，但本地条数已够，只补缺口。

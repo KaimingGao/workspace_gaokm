@@ -1,9 +1,5 @@
 """趋势族共线性摘要（FS1）：辅助人审 β，不自动删因子。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 TREND_FAMILY = (

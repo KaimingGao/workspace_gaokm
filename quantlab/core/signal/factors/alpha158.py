@@ -168,6 +168,7 @@ def _to_arrays(bars: List[dict]) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np
 
 # ---------------- kbar 因子（9 个）----------------
 
+
 def _kbar_fields(close: float, open_: float, high: float, low: float) -> dict:
     """当日 K 线形态，全部用当日 OHLC。"""
     rng = high - low
@@ -188,6 +189,7 @@ def _kbar_fields(close: float, open_: float, high: float, low: float) -> dict:
 
 # ---------------- price 因子（4 个）----------------
 
+
 def _price_fields(close: float, open_: float, high: float, low: float) -> dict:
     """当日价相对收盘；VWAP 用 (high+low+close)/3 近似。"""
     vwap = (high + low + close) / 3.0
@@ -200,6 +202,7 @@ def _price_fields(close: float, open_: float, high: float, low: float) -> dict:
 
 
 # ---------------- rolling 因子（29 操作 × 5 窗口 = 145 个）----------------
+
 
 def _safe_corr(x: np.ndarray, y: np.ndarray) -> Optional[float]:
     """两数组相关系数；方差为 0 返回 None。"""
@@ -357,6 +360,7 @@ def _rolling_fields(
 
 
 # ---------------- 主入口 ----------------
+
 
 def score_alpha158(bars: List[dict]) -> Tuple[float, dict]:
     """计算 Alpha158 因子集。

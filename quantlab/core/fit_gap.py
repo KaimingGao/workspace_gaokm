@@ -1,9 +1,5 @@
 """回测–纸面拟合落差启发式归因（V1.3 · 运营加深）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 
@@ -130,7 +126,6 @@ def _append_quality_policy_hint(hints: List[Dict[str, str]]) -> "Optional[Dict[s
         )
         return qp
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
         return None
 
 
@@ -149,7 +144,7 @@ def _append_factor_health_hint(hints: List[Dict[str, str]]) -> None:
                 }
             )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
+        pass
 
 
 def _append_realization_hints(hints: List[Dict[str, str]], rz: Dict[str, Any]) -> None:
@@ -324,7 +319,7 @@ def _append_horizon_and_y_spec_hints(
             }
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
+        pass
 
 
 def _append_rebalance_freq_hint(

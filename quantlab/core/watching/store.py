@@ -106,7 +106,6 @@ def _resolve_entry(raw: str, hint_name: str = "") -> tuple:
     try:
         quote = get_quote(text)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_store.py", exc_info=True)
         return text, hint
     if quote.get("success") and quote.get("stock_code"):
         code = str(quote["stock_code"])
@@ -226,7 +225,6 @@ def watchlist_origins_for(data: dict) -> List[str]:
             try:
                 resolved, _ = _resolve_entry(raw_s)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in watching_store.py", exc_info=True)
                 resolved = ""
             if resolved and resolved not in code_to_label:
                 code_to_label[resolved] = label
@@ -263,7 +261,6 @@ def watchlist_names_for(data: dict, *, allow_live: bool = True) -> List[str]:
                     # 离线：非纯数字文本当显示名；纯代码留给名单空名，由 insights 补
                     code, name = "", ("" if raw_s.isdigit() else _clean_name(raw_s))
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in watching_store.py", exc_info=True)
                 code, name = "", raw_s
             if code and name:
                 code_to_name[code] = name
@@ -283,7 +280,6 @@ def watchlist_names_for(data: dict, *, allow_live: bool = True) -> List[str]:
             if name:
                 names[i] = name
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_store.py", exc_info=True)
             pass
     return names
 
@@ -332,7 +328,6 @@ def refresh_watchlist(
 
             get_spot()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_store.py", exc_info=True)
             pass
 
     for i, src in enumerate(sources):
@@ -765,7 +760,6 @@ def list_watchlist_quotes(
         try:
             part = batch_get_quotes(chunk) or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_store.py", exc_info=True)
             part = {}
         if isinstance(part, dict):
             quotes_by.update(part)

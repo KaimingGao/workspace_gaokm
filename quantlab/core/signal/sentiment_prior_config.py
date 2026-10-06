@@ -1,9 +1,5 @@
 """人审写入 ``signal_config.sentiment.prior``（不改 weights / 不进 ŷ）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, Optional

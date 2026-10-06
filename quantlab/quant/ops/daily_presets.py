@@ -1,9 +1,5 @@
 """每日任务 preset（Web / CLI / cron 共用）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 

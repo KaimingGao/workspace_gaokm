@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
-
-logger = logging.getLogger(__name__)
 
 from web import deps
 from web.dashboard.paper_helpers import (
@@ -17,6 +14,7 @@ from web.dashboard.paper_helpers import (
     _holdings_from_paper,
     _load_raw_paper,
 )
+
 
 def _live_holdings_by_code(paper: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """盯市持仓（相对昨收 change_pct + 现价市值）。行情失败时返回 {}。"""
@@ -27,7 +25,6 @@ def _live_holdings_by_code(paper: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
         summary = mark_to_market(paper)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in portfolio_views.py", exc_info=True)
         return {}
     out: Dict[str, Dict[str, Any]] = {}
     for row in summary.get("holdings") or []:
@@ -50,7 +47,6 @@ def _build_sector_heatmap() -> Dict[str, Any]:
 
             smap = load_sector_map()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
             smap = {}
 
         live_by_code = _live_holdings_by_code(paper)
@@ -194,7 +190,6 @@ def _build_signals(limit: int = 20) -> Dict[str, Any]:
                 if n and n != c:
                     name_by_code[c] = n
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
             pass
 
         def _with_name(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -240,7 +235,6 @@ def _build_signals(limit: int = 20) -> Dict[str, Any]:
                     deps.paper, paper, limit=max(limit * 2, 40)
                 )
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
                 op_log = (paper.get("operation_log") or [])[-max(limit * 2, 40) :]
             trade_types = {
                 "buy",
@@ -342,7 +336,6 @@ def _build_allocation() -> Dict[str, Any]:
 
             smap = load_sector_map()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
             smap = {}
 
         for h in holdings:

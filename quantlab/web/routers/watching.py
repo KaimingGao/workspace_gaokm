@@ -304,7 +304,6 @@ def watching_daily_chart(code: str, lookback: int = 60) -> Dict[str, Any]:
         if quote.get("success"):
             name = str(quote.get("stock_name") or "").strip() or c
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching.py", exc_info=True)
         pass
 
     return {

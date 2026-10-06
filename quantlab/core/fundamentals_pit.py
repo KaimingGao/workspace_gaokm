@@ -311,7 +311,6 @@ def merge_local_fundamentals_snapshot(
     try:
         panel = load_fundamentals_panel(code_s)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in fundamentals_pit.py", exc_info=True)
         return metrics
     history = panel.get("history") or []
     if not history:
@@ -358,7 +357,6 @@ def resolve_fundamentals_for_score(
 
                 metrics = enrich_fundamentals_metrics(code, metrics) or metrics
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in fundamentals_pit.py", exc_info=True)
                 pass
             return {
                 "ok": bool(metrics),
@@ -381,7 +379,6 @@ def resolve_fundamentals_for_score(
 
                     metrics = enrich_fundamentals_metrics(code, metrics) or metrics
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in fundamentals_pit.py", exc_info=True)
                     pass
                 return {
                     "ok": bool(metrics),
@@ -425,7 +422,6 @@ def resolve_fundamentals_for_score(
 
             metrics = enrich_fundamentals_metrics(code, metrics) or metrics
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in fundamentals_pit.py", exc_info=True)
             pass
         if ann_miss and ann_pol in ("zero_weight", "omit"):
             return {

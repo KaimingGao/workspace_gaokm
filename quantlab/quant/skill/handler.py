@@ -4,9 +4,6 @@
 异常消息统一加上 error_prefix，避免把底层栈信息直接透出给用户。
 """
 
-import logging
-
-logger = logging.getLogger(__name__)
 from agent.contracts import BaseSkillHandler
 from quant.skill.engine import QuantEngine
 

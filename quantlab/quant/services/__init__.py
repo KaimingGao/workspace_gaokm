@@ -1,6 +1,4 @@
-import logging
 
-logger = logging.getLogger(__name__)
 from quant.services.portfolio_quant_bridge import build_portfolio_quant_bridge
 from quant.services.quant_interpret import (
     build_rule_based_interpret,

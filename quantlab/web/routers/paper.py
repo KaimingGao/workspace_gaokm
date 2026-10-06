@@ -1,9 +1,5 @@
 """纸面账户 API（模拟交易）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
@@ -26,14 +22,14 @@ from web.schemas import (
 
 router = APIRouter(tags=["paper"])
 
-
 @router.get("/api/paper")
+
 def paper_status(lite: bool = False) -> Dict[str, Any]:
     """账户摘要。lite=1 时跳过盯市/打分，供数据中心快速取已持码。"""
     return deps.paper.status(lite=bool(lite))
 
-
 @router.get("/api/paper/holding-scores")
+
 def paper_holding_scores(offline_only: bool = True) -> Dict[str, Any]:
     """持仓 ŷ：默认仅本地仓。UI 恒传 offline_only=true；可拉远端先走增量补齐。"""
     try:
@@ -45,8 +41,8 @@ def paper_holding_scores(offline_only: bool = True) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/paper/execution")
+
 def paper_execution(channel: str = "paper") -> Dict[str, Any]:
     """生效 ExecutionSpec（含做 T overlay）；channel=paper|backtest。"""
     ch = (channel or "paper").strip().lower()
@@ -57,8 +53,8 @@ def paper_execution(channel: str = "paper") -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/paper/execution/diff")
+
 def paper_execution_diff() -> Dict[str, Any]:
     """纸面覆盖 vs 策略 Spec 默认。"""
     try:
@@ -66,8 +62,8 @@ def paper_execution_diff() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/execution")
+
 def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict[str, Any]:
     """保存账户级做T / coupling 覆盖（不改 StrategySpec 源）。"""
     try:
@@ -146,8 +142,8 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-
 @router.post("/api/paper/execution/reset")
+
 def paper_execution_reset() -> Dict[str, Any]:
     """清除账户级覆盖，恢复策略默认。"""
     try:
@@ -157,8 +153,8 @@ def paper_execution_reset() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/paper/holding-chart")
+
 def paper_holding_chart(code: str, lookback: int = 60) -> Dict[str, Any]:
     """单只持仓日线收盘 / 相对成本浮盈曲线。"""
     try:
@@ -170,16 +166,16 @@ def paper_holding_chart(code: str, lookback: int = 60) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/init")
+
 def paper_init() -> Dict[str, Any]:
     try:
         return deps.paper.init()
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
-
 @router.post("/api/paper/deposit")
+
 def paper_deposit(body: PaperDepositRequest) -> Dict[str, Any]:
     """假账注资（增加现金）。"""
     try:
@@ -191,8 +187,8 @@ def paper_deposit(body: PaperDepositRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/withdraw")
+
 def paper_withdraw(body: PaperDepositRequest) -> Dict[str, Any]:
     """假账减资（减少现金）。"""
     try:
@@ -204,8 +200,8 @@ def paper_withdraw(body: PaperDepositRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/reset")
+
 def paper_reset() -> Dict[str, Any]:
     """测试基线回零：保留持仓，盈亏与曲线从当前净值重新起算。"""
     try:
@@ -215,8 +211,8 @@ def paper_reset() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/cost-model")
+
 def paper_cost_model(body: PaperCostModelRequest) -> Dict[str, Any]:
     """切换模拟成交成本模型（zero | simple_cn）。"""
     try:
@@ -228,8 +224,8 @@ def paper_cost_model(body: PaperCostModelRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/run")
+
 def paper_run(body: PaperRunRequest) -> Dict[str, Any]:
     try:
         if body.background:
@@ -248,14 +244,14 @@ def paper_run(body: PaperRunRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/paper/job")
+
 def paper_job() -> Dict[str, Any]:
     out = deps.paper.get_job()
     return {**out, "deprecated": True, "canonical": "/api/jobs/paper"}
 
-
 @router.post("/api/paper/rebalance")
+
 def paper_rebalance(body: PaperRebalanceRequest) -> Dict[str, Any]:
     try:
         from core.signal.score_display import json_safe
@@ -278,8 +274,8 @@ def paper_rebalance(body: PaperRebalanceRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/buy")
+
 def paper_buy(body: PaperBuyRequest) -> Dict[str, Any]:
     """手动加仓（金额或股数，现价假买）。"""
     if body.amount is None and body.shares is None:
@@ -297,8 +293,8 @@ def paper_buy(body: PaperBuyRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/sell")
+
 def paper_sell(body: PaperSellRequest) -> Dict[str, Any]:
     """手动减仓 / 清仓。勾选多只时整仓卖出。"""
     try:
@@ -314,8 +310,8 @@ def paper_sell(body: PaperSellRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/t0")
+
 def paper_t0(body: PaperT0Request | None = None) -> Dict[str, Any]:
     """纸面底仓做 T（非实盘）。默认 dry_run 预演；confirm=true 才写账。
     仅 5m 第一触达；缺分钟线的票跳过（已删除日线模拟）。"""
@@ -330,8 +326,8 @@ def paper_t0(body: PaperT0Request | None = None) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/paper/t0/auto")
+
 def paper_t0_auto_get() -> Dict[str, Any]:
     """自动做 T 配置与上次运行摘要。"""
     try:
@@ -341,8 +337,8 @@ def paper_t0_auto_get() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/t0/auto")
+
 def paper_t0_auto_post(body: PaperT0AutoRequest | None = None) -> Dict[str, Any]:
     """保存自动做 T 开关/调度，或立即运行（run_now）。"""
     try:
@@ -367,8 +363,8 @@ def paper_t0_auto_post(body: PaperT0AutoRequest | None = None) -> Dict[str, Any]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/paper/t0/worker")
+
 def paper_t0_worker_get() -> Dict[str, Any]:
     """自动做 T 后台 worker 状态（是否运行中）。"""
     try:
@@ -376,8 +372,8 @@ def paper_t0_worker_get() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/t0/worker")
+
 def paper_t0_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
     """启动/停止 Web 内后台 worker。"""
     try:
@@ -385,8 +381,8 @@ def paper_t0_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/paper/rebalance/worker")
+
 def paper_rebalance_worker_get() -> Dict[str, Any]:
     """自动调仓后台 worker 状态。"""
     try:
@@ -394,8 +390,8 @@ def paper_rebalance_worker_get() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/rebalance/worker")
+
 def paper_rebalance_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
     """启动/停止 Web 内自动调仓后台 worker。"""
     try:
@@ -403,8 +399,8 @@ def paper_rebalance_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/t0/last-run/delete")
+
 def paper_t0_last_run_delete(body: PaperT0DeleteRequest) -> Dict[str, Any]:
     """删除落账明细；默认冲正对应做 T 成交腿。"""
     try:
@@ -419,8 +415,8 @@ def paper_t0_last_run_delete(body: PaperT0DeleteRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/t0/intraday/clear")
+
 def paper_t0_intraday_clear(body: PaperT0IntradayClearRequest) -> Dict[str, Any]:
     """清理今日盯盘状态（不冲正账本）。"""
     try:
@@ -434,8 +430,8 @@ def paper_t0_intraday_clear(body: PaperT0IntradayClearRequest) -> Dict[str, Any]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/paper/clear-records")
+
 def paper_clear_records(body: dict) -> Dict[str, Any]:
     """清除交易记录或资金记录。body.category: 'trading' | 'fund'。"""
     category = (body.get("category") or "").strip()
@@ -450,14 +446,14 @@ def paper_clear_records(body: dict) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/paper/risk-blocks")
+
 def paper_risk_blocks(limit: int = 40) -> Dict[str, Any]:
     """最近 risk_block 流水（供标注有效率）。"""
     return deps.paper.list_risk_blocks(limit=limit)
 
-
 @router.post("/api/paper/risk-blocks/annotate")
+
 def paper_risk_block_annotate(body: dict) -> Dict[str, Any]:
     """标注 risk_block.meta.outcome = true_positive|false_positive|unknown|clear。"""
     outcome = str((body or {}).get("outcome") or "").strip()

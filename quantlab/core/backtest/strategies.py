@@ -1,9 +1,5 @@
 """回测策略注册表（P9.3）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
@@ -14,7 +10,6 @@ def _strategy_t0_overlay(**overrides: Any) -> Dict[str, Any]:
     from core.execution import DEFAULT_T0_OVERLAY
 
     return {**DEFAULT_T0_OVERLAY, **overrides}
-
 
 STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
     "short_conservative": {

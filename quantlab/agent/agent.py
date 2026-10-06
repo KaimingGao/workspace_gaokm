@@ -1,10 +1,7 @@
 """量化 Agent：多轮对话 + 多工具调度（可多轮串联工具）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
+import logging
 from typing import Dict, List
 
 from agent.artifacts import build_artifact
@@ -19,7 +16,6 @@ from agent.llm_client import (
 )
 from agent.prompts import DISCLAIMER, SYSTEM_PROMPT
 from agent.registry import (
-    TOOL_NAMES,
     get_handler,
     load_tool_definitions,
 )
@@ -30,6 +26,8 @@ from agent.routing import (
     prepare_tool_params,
 )
 
+logger = logging.getLogger(__name__)
+
 MAX_TOOL_ROUNDS = 5
 
 _EMPTY_REPLY_HINT = (
@@ -38,8 +36,7 @@ _EMPTY_REPLY_HINT = (
     "③ 暂时设 DASHSCOPE_ENABLE_SEARCH=0 后重试。"
 )
 
-# 对外兼容：仍可 from agent.agent import TOOL_NAMES
-__all__ = ["Agent", "TOOL_NAMES", "MAX_TOOL_ROUNDS"]
+__all__ = ["Agent", "MAX_TOOL_ROUNDS"]
 
 
 class Agent:
@@ -121,7 +118,6 @@ class Agent:
                         build_artifact(tool_name, params, result)
                     )
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in agent.py", exc_info=True)
                     pass
 
                 self.messages.append(

@@ -4,10 +4,6 @@
 避免同时存在硬编码加减分与因子双计。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 

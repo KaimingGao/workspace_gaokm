@@ -1,12 +1,8 @@
 """量化研究台 API — factor research。"""
 
-
-import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
-
-logger = logging.getLogger(__name__)
 
 from web import deps
 from web.schemas import (
@@ -39,13 +35,13 @@ from web.schemas import (
 
 router = APIRouter(tags=["quant"])
 
-
 @router.get("/api/quant/factors")
+
 def quant_factors() -> Any:
     return deps.quant.list_factors()
 
-
 @router.get("/api/quant/factor-panel")
+
 def quant_factor_panel(
     code: str = "茅台",
     with_experiment: bool = False,
@@ -62,8 +58,8 @@ def quant_factor_panel(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/cross-section")
+
 def quant_cross_section(body: CrossSectionRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_cross_section(
@@ -75,8 +71,8 @@ def quant_cross_section(body: CrossSectionRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/factor-experiment")
+
 def quant_factor_experiment(body: FactorExperimentRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_factor_experiment(
@@ -87,8 +83,8 @@ def quant_factor_experiment(body: FactorExperimentRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/factor-ols")
+
 def quant_factor_ols(body: FactorExperimentRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_factor_ols_experiment(
@@ -100,8 +96,8 @@ def quant_factor_ols(body: FactorExperimentRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/factor-ols-pool")
+
 def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
     """研究池堆叠时序 OLS；显式触发，默认不进页自动跑。"""
     try:
@@ -114,8 +110,8 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/oo-tree")
+
 def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
     """ŷ_oo_tree + 同 Holdout Ridge；写入 oo_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
     try:
@@ -131,8 +127,8 @@ def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/oo-tree/last")
+
 def quant_oo_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_oo_tree（oo_tree_last_report.json）；不进打分。"""
     try:
@@ -140,8 +136,8 @@ def quant_oo_tree_last() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/tau-tree")
+
 def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
     """ŷ_τ_tree + 同 Holdout Ridge；写入 tc_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
     try:
@@ -159,8 +155,8 @@ def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/tau-tree/last")
+
 def quant_tau_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_τ_tree（tau_tree_last_report.json）；不进打分。"""
     try:
@@ -168,8 +164,8 @@ def quant_tau_tree_last() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/co-tree")
+
 def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
     """ŷ_co_tree + 同 Holdout Ridge；写入 co_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
     try:
@@ -186,8 +182,8 @@ def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/co-tree/last")
+
 def quant_co_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_co_tree（co_tree_last_report.json）；不进打分。"""
     try:
@@ -195,8 +191,8 @@ def quant_co_tree_last() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/tau-ridge")
+
 def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
     """ŷ_τ Ridge + 时间 OOS；可选 persist 到 live/tau_ridge_model.json。
 
@@ -223,8 +219,8 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/yhat-residual/shadow")
+
 def quant_yhat_residual_shadow(body: YhatResidualShadowRequest) -> Dict[str, Any]:
     """ŷ 行业残差 on/off：同截面 TopK 重叠影子对照（不写盘）。"""
     try:
@@ -236,8 +232,8 @@ def quant_yhat_residual_shadow(body: YhatResidualShadowRequest) -> Dict[str, Any
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/tau-ridge/model")
+
 def quant_tau_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_τ 模型（主路径 tau_ridge_model.json；可读旧 rem 文件）。"""
     try:
@@ -245,8 +241,8 @@ def quant_tau_ridge_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/co-ridge")
+
 def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
     """隔夜缺口 Ridge：open[T+1]/close[T]-1 + 时间 OOS；可选 persist 到 live。
 
@@ -270,8 +266,8 @@ def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/co-ridge/model")
+
 def quant_co_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_co 模型（主路径 co_ridge_model.json；可读旧 on 文件）。"""
     try:
@@ -279,8 +275,8 @@ def quant_co_ridge_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/oo-rank")
+
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
     """ŷ_oo_rank LambdaRank（影子头）；OOS 对照 Ridge ŷ_oo；不进 live ranking。"""
     try:
@@ -301,8 +297,8 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/oo-rank/model")
+
 def quant_oo_rank_model() -> Dict[str, Any]:
     """读取已落盘的 ŷ_oo_rank 影子模型。"""
     try:
@@ -310,8 +306,8 @@ def quant_oo_rank_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/research-universe")
+
 def quant_research_universe_get(coverage: bool = False) -> Dict[str, Any]:
     """日线研究宇宙看板：名单 KPI · ∩观察池 · 可选日线覆盖。分钟暖仓不读此名单。"""
     from core.research_universe import build_research_universe_board
@@ -321,8 +317,8 @@ def quant_research_universe_get(coverage: bool = False) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/research-universe/predictability-tiers")
+
 def quant_research_universe_predictability_tiers(
     holdout: int = 20,
     min_n: int = 20,
@@ -360,8 +356,8 @@ def quant_research_universe_predictability_tiers(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/research-universe/predictability-tiers/last")
+
 def quant_research_universe_predictability_tiers_last(
     slim: bool = Query(False, description="去掉 ŷ/实现序列，只留档位摘要"),
 ) -> Dict[str, Any]:
@@ -413,8 +409,8 @@ def quant_research_universe_predictability_tiers_last(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/research-universe/predictability-tiers/live-sync")
+
 def quant_research_universe_predictability_tiers_live_sync(
     body: Optional[Dict[str, Any]] = Body(default=None),
 ) -> Dict[str, Any]:
@@ -435,8 +431,8 @@ def quant_research_universe_predictability_tiers_live_sync(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.put("/api/quant/research-universe")
+
 def quant_research_universe_put(body: Dict[str, Any]) -> Dict[str, Any]:
     """写入日线研究宇宙 codes（去重，上限 2000）。不改观察池、不触发分钟暖仓。"""
     from core.research_universe import save_research_universe
@@ -450,8 +446,8 @@ def quant_research_universe_put(body: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/research-universe/sync-watching")
+
 def quant_research_universe_sync_watching() -> Dict[str, Any]:
     """用当前观察池覆盖研究宇宙（不触发分钟暖仓）。"""
     from core.research_universe import (
@@ -466,8 +462,8 @@ def quant_research_universe_sync_watching() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/research-universe/sync-cached-daily")
+
 def quant_research_universe_sync_cached_daily() -> Dict[str, Any]:
     """用本地日 K 仓（约 1200）覆盖研究宇宙；不改观察池、不暖仓。"""
     from core.research_universe import (
@@ -482,20 +478,20 @@ def quant_research_universe_sync_cached_daily() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/tc-ridge")
+
 def quant_tc_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
     """ŷ_τc Ridge。与 ``/api/quant/tau-ridge`` 同一套 live 模型（tau_ridge_model.json）。"""
     return quant_tau_ridge(body)
 
-
 @router.get("/api/quant/tc-ridge/model")
+
 def quant_tc_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_τc 模型（tau_ridge_model.json）。"""
     return quant_tau_ridge_model()
 
-
 @router.post("/api/quant/t30-ridge")
+
 def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
     """ŷ_τ30 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1 + 时间 OOS；可选 persist。
 
@@ -520,8 +516,8 @@ def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t30-ridge/model")
+
 def quant_t30_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_τ30 模型（若有）。"""
     try:
@@ -529,8 +525,8 @@ def quant_t30_ridge_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t45-ridge")
+
 def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
     """ŷ_τ45 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1 + 时间 OOS；可选 persist。
 
@@ -555,8 +551,8 @@ def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t45-ridge/model")
+
 def quant_t45_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_τ45 模型（若有）。"""
     try:
@@ -564,8 +560,8 @@ def quant_t45_ridge_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t60-ridge")
+
 def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
     """ŷ_τ60 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1 + 时间 OOS；可选 persist。
 
@@ -590,8 +586,8 @@ def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t60-ridge/model")
+
 def quant_t60_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_τ60 模型（若有）。"""
     try:
@@ -599,8 +595,8 @@ def quant_t60_ridge_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t75-ridge")
+
 def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
     """ŷ_τ75 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1 + 时间 OOS；可选 persist。
 
@@ -625,8 +621,8 @@ def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t75-ridge/model")
+
 def quant_t75_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_τ75 模型（若有）。"""
     try:
@@ -634,8 +630,8 @@ def quant_t75_ridge_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t90-ridge")
+
 def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
     """ŷ_τ90 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1 + 时间 OOS；可选 persist。
 
@@ -660,8 +656,8 @@ def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t90-ridge/model")
+
 def quant_t90_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_τ90 模型（若有）。"""
     try:
@@ -669,8 +665,8 @@ def quant_t90_ridge_model() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t30-tree")
+
 def quant_t30_tree(body: T30TreeRequest) -> Dict[str, Any]:
     """ŷ_τ30_tree + 同 Holdout Ridge；写入 t30_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
@@ -687,8 +683,8 @@ def quant_t30_tree(body: T30TreeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t30-tree/last")
+
 def quant_t30_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_τ30_tree（t30_tree_last_report.json）；不进打分。"""
     try:
@@ -696,8 +692,8 @@ def quant_t30_tree_last() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t45-tree")
+
 def quant_t45_tree(body: T45TreeRequest) -> Dict[str, Any]:
     """ŷ_τ45_tree + 同 Holdout Ridge；写入 t45_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
@@ -714,8 +710,8 @@ def quant_t45_tree(body: T45TreeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t45-tree/last")
+
 def quant_t45_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_τ45_tree（t45_tree_last_report.json）；不进打分。"""
     try:
@@ -723,8 +719,8 @@ def quant_t45_tree_last() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t60-tree")
+
 def quant_t60_tree(body: T60TreeRequest) -> Dict[str, Any]:
     """ŷ_τ60_tree + 同 Holdout Ridge；写入 t60_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
@@ -741,8 +737,8 @@ def quant_t60_tree(body: T60TreeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t60-tree/last")
+
 def quant_t60_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_τ60_tree（t60_tree_last_report.json）；不进打分。"""
     try:
@@ -750,8 +746,8 @@ def quant_t60_tree_last() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t75-tree")
+
 def quant_t75_tree(body: T75TreeRequest) -> Dict[str, Any]:
     """ŷ_τ75_tree + 同 Holdout Ridge；写入 t75_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
@@ -768,8 +764,8 @@ def quant_t75_tree(body: T75TreeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t75-tree/last")
+
 def quant_t75_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_τ75_tree（t75_tree_last_report.json）；不进打分。"""
     try:
@@ -777,8 +773,8 @@ def quant_t75_tree_last() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/t90-tree")
+
 def quant_t90_tree(body: T90TreeRequest) -> Dict[str, Any]:
     """ŷ_τ90_tree + 同 Holdout Ridge；写入 t90_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
@@ -795,8 +791,8 @@ def quant_t90_tree(body: T90TreeRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/t90-tree/last")
+
 def quant_t90_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_τ90_tree（t90_tree_last_report.json）；不进打分。"""
     try:
@@ -804,8 +800,8 @@ def quant_t90_tree_last() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/factor-cs-ic")
+
 def quant_factor_cs_ic(body: FactorCsIcRequest) -> Dict[str, Any]:
     """S1 · 研究池逐因子日频截面 IC（Pearson + Spearman）；不写 config。"""
     try:
@@ -819,8 +815,8 @@ def quant_factor_cs_ic(body: FactorCsIcRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/weight-suggest")
+
 def quant_weight_suggest(body: WeightSuggestRequest) -> Dict[str, Any]:
     try:
         return deps.quant.suggest_weights(
@@ -836,8 +832,8 @@ def quant_weight_suggest(body: WeightSuggestRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/threshold-suggest")
+
 def quant_threshold_suggest(body: ThresholdSuggestRequest) -> Dict[str, Any]:
     try:
         return deps.quant.suggest_thresholds(
@@ -848,7 +844,6 @@ def quant_threshold_suggest(body: ThresholdSuggestRequest) -> Dict[str, Any]:
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
 
 _CORR_UNIVERSE = 40
 
@@ -881,8 +876,8 @@ def _watching_factor_items(limit: int = _CORR_UNIVERSE):
     note = "" if items else "观察池日线不足，没有截面因子分"
     return items, "watching_bars", note
 
-
 @router.get("/api/quant/factor-ir")
+
 def quant_factor_ir(
     lookback: int = 60,
     horizon_days: int = 3,
@@ -931,9 +926,8 @@ def quant_factor_ir(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
-
 @router.post("/api/quant/expr-eval")
+
 def quant_expr_eval(body: ExprEvalRequest) -> Dict[str, Any]:
     """DSL 表达式因子求值：本票时序值与 IC，以及观察池截面 Rank IC。"""
     try:
@@ -946,8 +940,8 @@ def quant_expr_eval(body: ExprEvalRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/research-task")
+
 def quant_research_task(body: ResearchTaskRequest) -> Dict[str, Any]:
     """按注册表跑一个研究头，并写入实验记录。"""
     try:
@@ -955,8 +949,8 @@ def quant_research_task(body: ResearchTaskRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/experiments")
+
 def quant_experiments(
     model_type: Optional[str] = None,
     limit: int = 50,

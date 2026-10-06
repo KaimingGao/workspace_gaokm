@@ -1,14 +1,10 @@
 """市场级快照读写：macro / market_sentiment / announcement（非 PIT 盘前上下文）。"""
 
-
-import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from core.paths import STORE_DIR
 from core.store import load_snapshot_cache, save_snapshot_cache
-
-logger = logging.getLogger(__name__)
 
 KIND_MACRO = "macro"
 KIND_MARKET_SENTIMENT = "market_sentiment"
@@ -77,7 +73,6 @@ def market_context_dir(kind: str) -> str:
 
     safe = "".join(ch for ch in str(kind) if ch.isalnum() or ch in ("_", "-")).lower()
     return os.path.join(STORE_DIR, safe)
-
 
 __all__ = [
     "KIND_ANNOUNCEMENT",

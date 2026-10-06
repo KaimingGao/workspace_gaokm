@@ -1,9 +1,5 @@
 """买卖建议领域管线：facts → stance → 结构化输出。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import os
 from typing import Any, Dict
 
@@ -66,6 +62,5 @@ def evaluate_buy_advice(params: dict) -> Dict[str, Any]:
             if rec.get("ok"):
                 out["decision_id"] = (rec.get("record") or {}).get("id")
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in advise.py", exc_info=True)
             pass
     return out

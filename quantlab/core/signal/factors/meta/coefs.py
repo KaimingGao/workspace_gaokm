@@ -4,10 +4,6 @@
 归一化 |β| 仅供旧路径/诊断展示，不是选股权。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 

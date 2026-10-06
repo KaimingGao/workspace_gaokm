@@ -416,7 +416,6 @@ def _b_track_gate(fund: dict, add) -> None:
             action="平台样本覆盖 → 缺 ann 清单 → ingest-history / 预热财务",
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in maturity_gate.py", exc_info=True)
         add(
             "b_track",
             "ann_missing_ops",

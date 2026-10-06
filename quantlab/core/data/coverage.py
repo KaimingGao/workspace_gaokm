@@ -1,9 +1,5 @@
 """观察池 / 纸面日线采集覆盖率（M1.2）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
@@ -22,7 +18,6 @@ def _codes_from_watching() -> List[str]:
             uni = json.load(f)
         return [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in data_coverage.py", exc_info=True)
         return []
 
 
@@ -35,7 +30,6 @@ def _codes_from_paper(paper_path: Optional[str] = None) -> List[str]:
 
         paper = load_paper(path)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in data_coverage.py", exc_info=True)
         return []
     out: List[str] = []
     seen = set()

@@ -878,7 +878,7 @@ cd quantlab
 # 工作日收盘后：纸面观察池 + 离线 mock checklist
 python3 research/daily_run.py --paper-run --eval-mock --json
 
-# 可选：周末跑全量 Agent 回归（需 DOUBAO_API_KEY）
+# 可选：周末跑全量 Agent 回归（需 DASHSCOPE_API_KEY）
 python3 research/daily_run.py --eval-agent --json
 ```
 

@@ -1,9 +1,5 @@
 """DecisionRecord：一次可审计的建议快照（输入 → stance → 失效条件）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 import time

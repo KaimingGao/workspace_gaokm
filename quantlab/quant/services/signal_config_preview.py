@@ -1,9 +1,5 @@
 """signal_config 权重/阈值 diff 预览（P20.1，只读、不写盘）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Any, Dict, Optional
 

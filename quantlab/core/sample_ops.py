@@ -227,7 +227,6 @@ def ingest_real_fundamentals_history(
 
                 code_list = list(universe_codes() or [])
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in sample_ops.py", exc_info=True)
                 code_list = []
 
     updated: List[Dict[str, Any]] = []

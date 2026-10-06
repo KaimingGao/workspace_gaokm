@@ -3,10 +3,6 @@
 禁止把时序 Pearson、全样本回放 IC 与主 IC 混称为同一个「IC」。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 # 主验收口径

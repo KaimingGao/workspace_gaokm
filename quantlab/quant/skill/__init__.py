@@ -1,6 +1,4 @@
-import logging
 
-logger = logging.getLogger(__name__)
 from quant.skill.engine import AVAILABLE_TASKS, QuantEngine
 from quant.skill.handler import QuantHandler
 

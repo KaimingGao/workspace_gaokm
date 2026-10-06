@@ -9,10 +9,6 @@
   - <60分：梯度减仓
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Dict, Optional, Tuple
 
 

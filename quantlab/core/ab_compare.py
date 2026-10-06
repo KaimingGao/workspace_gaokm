@@ -1,9 +1,5 @@
 """S2.2 · A/B 对照指纹：两套配置/结果并排，供验证包与研究导出。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import hashlib
 import json
 from datetime import datetime

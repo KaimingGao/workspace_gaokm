@@ -15,6 +15,7 @@ import numpy as np
 
 # ========== 工具：从 R0 模块导入（延迟导入避免循环） ==========
 
+
 def _import_r0():
     from core.backtest_curve_store import _curve_points, _paper_daily_equities
     from core.north_star import compute_realization
@@ -23,6 +24,7 @@ def _import_r0():
 
 
 # ========== 模块1：拟合度趋势 + 量化归因 ==========
+
 
 def rolling_realization(
     paper_snapshots: Sequence[dict],
@@ -210,6 +212,7 @@ def quantify_fit_gap_attribution(
 
 # ========== 模块3：收益归因接入北极星 ==========
 
+
 def north_star_attribution(
     portfolio_returns: np.ndarray,
     factor_returns: np.ndarray,
@@ -263,6 +266,7 @@ def north_star_attribution(
 
 
 # ========== 模块5：三项乘积 + 退化告警 ==========
+
 
 def composite_north_star_score(
     sharpe: Optional[float],

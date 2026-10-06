@@ -62,6 +62,9 @@ class TestP102FrontendJs(unittest.TestCase):
             html,
             r'<script[^>]+marked/marked\.min\.js[^>]*\sdefer',
         )
+        self.assertNotIn("logo-mark", html)
+        self.assertIn("logo-text", html)
+        self.assertIn("QuantLab", html)
 
 
 if __name__ == "__main__":

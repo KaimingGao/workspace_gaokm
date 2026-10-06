@@ -96,7 +96,6 @@ def _asof_complete_bar_dt(now: Optional[datetime] = None) -> Optional[datetime]:
 
         as_of_s = expected_latest_daily_bar_date(now=now)
     except Exception:
-        logger.debug("catch except Exception: in history.py", exc_info=True)
         return None
     return _parse_bar_date(as_of_s)
 

@@ -7,10 +7,6 @@
 4. 信号冷却期：避免重复推荐同一股票
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Dict, List, Optional, Tuple
 
 

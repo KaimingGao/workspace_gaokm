@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       with_agent:
-        description: Run full Agent golden regression (needs DASHSCOPE_API_KEY or DOUBAO_API_KEY secret)
+        description: Run full Agent golden regression (needs DASHSCOPE_API_KEY secret)
         type: boolean
         default: false
 
@@ -81,5 +81,4 @@ jobs:
       - name: Agent golden regression
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
-          DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
         run: python3 evals/run_agent_regression.py

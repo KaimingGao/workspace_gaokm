@@ -3,15 +3,11 @@
 BarsResult / DataEnvelope 提供属性访问；as_dict() 与历史 dict 契约对齐。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
-
 @dataclass
+
 class QualityMeta:
     level: str = "empty"
     bar_count: int = 0
@@ -42,8 +38,8 @@ class QualityMeta:
             "pseudo_dates": self.pseudo_dates,
         }
 
-
 @dataclass
+
 class PitMeta:
     bars_pit: bool = False
     as_of: Optional[str] = None
@@ -65,8 +61,8 @@ class PitMeta:
         out.update(self.extras)
         return out
 
-
 @dataclass
+
 class BarsResult:
     """日线读结果信封。"""
 
@@ -112,8 +108,8 @@ class BarsResult:
     def get(self, key: str, default: Any = None) -> Any:
         return self.as_dict().get(key, default)
 
-
 @dataclass
+
 class DataEnvelope:
     """通用读结果（quote / minute / fundamentals / news / spot）。"""
 

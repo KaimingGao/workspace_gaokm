@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from core.watching.store import WATCHING_MAX_SIZE
 
+
 class WatchingWatchAdd(BaseModel):
     query: str = Field(..., min_length=1, max_length=64)
     sync_paper: bool = False

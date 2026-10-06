@@ -78,7 +78,6 @@ def score_and_rank_watching(
 
         _nopt = neutralize_options_from_config(cfg)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
         _nopt = {
             "industry_residual": bool(cs_cfg.get("industry_residual", True)),
             "size_residual": bool(cs_cfg.get("size_residual", True)),
@@ -208,7 +207,6 @@ def score_and_rank_watching(
 
                 rem_doc = load_tau_model()
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
                 rem_doc = None
             for it in items:
                 if not isinstance(it, dict):
@@ -299,7 +297,6 @@ def score_and_rank_watching(
                         meta["dual_score_y_gated"] = int(meta.get("dual_score_y_gated") or 0) + 1
                         continue
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
                     pass
                 sort_key = rank_key_for_item(it, config=cfg)
                 if sort_key is None:
@@ -420,6 +417,5 @@ def score_window_as_item(
 
             sec = _sector_for(code, load_sector_map())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
             sec = None
     return score_bars_as_item(code, scored, sector=sec, market_cap=mcap)

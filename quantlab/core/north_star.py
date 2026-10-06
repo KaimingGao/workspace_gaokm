@@ -253,7 +253,6 @@ def summarize_risk_blocks(
                 iso = dt.isocalendar()
                 week = f"{iso[0]}-W{iso[1]:02d}"
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in north_star.py", exc_info=True)
                 day = raw[:10] if len(raw) >= 10 else raw
                 week = day
         return day, week
@@ -441,7 +440,6 @@ def build_north_star_report(
         try:
             ttm_stage = summarize_ttm_stages()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in north_star.py", exc_info=True)
             ttm_stage = None
         r1["ttm_stage"] = ttm_stage
 
@@ -450,7 +448,6 @@ def build_north_star_report(
         try:
             block_audit_summary = summarize_block_audit(op_log)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in north_star.py", exc_info=True)
             block_audit_summary = None
         r1["block_audit"] = block_audit_summary
 
@@ -474,7 +471,6 @@ def build_north_star_report(
             from core.north_star_pro import north_star_degradation_report
             r1["degradation"] = north_star_degradation_report(sharpe_series, corr_series, ttm_series, window=3)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in north_star.py", exc_info=True)
             r1["degradation"] = {"alerts": {}, "any_degrading": False, "degrading_dimensions": []}
     except Exception as _exc:
         logger.exception('unexpected error in build_north_star_report')

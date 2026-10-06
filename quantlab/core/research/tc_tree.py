@@ -74,6 +74,7 @@ def lgb_best_iteration_collapsed(best_iter: Any) -> bool:
     except (TypeError, ValueError):
         return False
 
+
 def _panel_lgb_hyper() -> Dict[str, Any]:
     q = dict(PANEL_LGB)
     return {

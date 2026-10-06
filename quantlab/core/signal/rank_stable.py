@@ -1,9 +1,5 @@
 """稳定排序键：主分相同按代码升序，避免回测/纸面因遍历序选不同票。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Tuple
 
 

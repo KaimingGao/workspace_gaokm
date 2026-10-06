@@ -1,9 +1,6 @@
 """项目路径常量（单一事实源）。"""
 
 
-import logging
-
-logger = logging.getLogger(__name__)
 import os
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

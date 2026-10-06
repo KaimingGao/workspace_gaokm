@@ -86,7 +86,6 @@ def build_portfolio_quant_bridge(
 
             watchlist = list(read_watching(WATCHING_PATH).get("watchlist") or [])
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in portfolio_quant_bridge.py", exc_info=True)
             watchlist = []
 
     watch_set: Set[str] = set(watchlist)
@@ -100,7 +99,6 @@ def build_portfolio_quant_bridge(
         saved = QuantService().load_last_daily()
         daily_empty = bool(saved.get("empty"))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in portfolio_quant_bridge.py", exc_info=True)
         daily_empty = True
 
     quant_block: Dict[str, Any] = {

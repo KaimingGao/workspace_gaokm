@@ -1,13 +1,13 @@
 ---
 description: 观察/模拟/策略/回溯四页主表宽度与排版规范（隶属 Web UI 标准）
-globs: quantlab/web/static/styles.css,quantlab/web/static/js/{quant,paper}.js,quantlab/web/static/partials/{watching,follow,strategy,replay}_panel.html,quantlab/docs/quant-ui.md,quantlab/docs/quant-ui-standard.md
+globs: quantlab/web/static/css/**/*.css,quantlab/web/static/js/{quant,paper}.js,quantlab/web/static/partials/{watching,follow,strategy,replay}_panel.html,quantlab/docs/quant-ui.md
 alwaysApply: false
 ---
 
 # 四页主表布局规范
 
 适用页面：`/watching` · `/follow` · `/strategy` · `/replay`。  
-整站 UI 契约见 [docs/quant-ui-standard.md](quantlab/docs/quant-ui-standard.md) 与 `quantlab-web-ui.mdc`。
+整站 UI 契约见 [docs/quant-ui.md](quantlab/docs/quant-ui.md) 与 `quantlab-web-ui.mdc`。
 
 ## 必须遵守
 
@@ -28,5 +28,5 @@ alwaysApply: false
 
 ## 改样式时
 
-优先改四页共用选择器块（`styles.css` 中「四页表格容器同宽」一段），再改单页列宽百分比。
+优先改四页共用选择器块（`web/static/css/` 中「四页表格容器同宽」一段），再改单页列宽百分比。
 改完 bump `quantlab/web/asset_version.py` 的 `ASSET_V`。

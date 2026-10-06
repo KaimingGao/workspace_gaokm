@@ -1,9 +1,5 @@
 """基本面指标桥接：供 value/quality 因子使用（P46 + R1 PIT）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -89,7 +85,6 @@ def fetch_score_fundamentals(
             return None
         return normalize_fundamentals_metrics(result)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in fundamentals_bridge.py", exc_info=True)
         return None
 
 
@@ -131,7 +126,6 @@ def fetch_fundamentals_batch(
                     else None
                 )
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in fundamentals_bridge.py", exc_info=True)
                 metrics = None
         if metrics:
             out[key] = metrics

@@ -1646,7 +1646,7 @@ bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord 
 35 16 * * 1-5 cd /path/to/quantlab && bash scripts/daily_paper.sh >> data/logs/paper-daily.log 2>&1
 ```
 
-可选周末 Agent 回归（需 `DOUBAO_API_KEY`）：
+可选周末 Agent 回归（需 `DASHSCOPE_API_KEY`）：
 
 ```cron
 0 10 * * 6 cd /path/to/quantlab && python3 research/daily_run.py --eval-agent --json
@@ -1719,7 +1719,7 @@ Agent：`quant(task=daily_presets)` 列出 preset；`quant(task=config_diff)` �
 
 ### Agent 周末回归（P24，可选）
 
-需 `DOUBAO_API_KEY`，**不**加入 `ci_quant.sh` / PR CI：
+需 `DASHSCOPE_API_KEY`，**不**加入 `ci_quant.sh` / PR CI：
 
 ```bash
 bash scripts/agent_regression.sh

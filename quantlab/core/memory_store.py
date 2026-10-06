@@ -5,9 +5,6 @@
 """
 
 
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 import time
@@ -39,11 +36,7 @@ _DEFAULT: Dict[str, Any] = {
 def _env_llm_model() -> str:
     from core.env import read_env_key
 
-    for name in ("DASHSCOPE_MODEL", "DOUBAO_MODEL"):
-        raw = read_env_key(name)
-        if raw:
-            return raw
-    return ""
+    return read_env_key("DASHSCOPE_MODEL")
 
 
 def normalize_llm_model(value: Any, *, default: str = DEFAULT_LLM_MODEL) -> str:

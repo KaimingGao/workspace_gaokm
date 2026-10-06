@@ -3,10 +3,6 @@
 文档称 Application Service，不是 Domain Facade；向下调 DS/SS/BS 与 PaperService。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from quant.services.quant_service_compare import QuantCompareMixin
 from quant.services.quant_service_config import QuantConfigMixin
 from quant.services.quant_service_factors import QuantFactorMixin

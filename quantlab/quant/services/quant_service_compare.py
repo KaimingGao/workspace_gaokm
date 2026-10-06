@@ -1,9 +1,5 @@
 """QuantService · ③ 持仓联动摘要（只读）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict
 
 

@@ -7,10 +7,6 @@
 4. 均线动量（均线的加速度）
 """
 
-import logging
-
-logger = logging.getLogger(__name__)
-
 from typing import List, Optional
 
 

@@ -114,7 +114,6 @@ def _annotate_include_gate(sent: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         out["include_in_score"] = bool(cfg.get("include_in_score", False))
         out["role"] = str(cfg.get("role") or "prior")
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in sentiment.py", exc_info=True)
         out["include_in_score"] = False
         out["role"] = "prior"
     return out
@@ -247,7 +246,6 @@ def _write_cache(code: str, payload: Dict[str, Any]) -> str:
     try:
         append_headline_history(code, payload)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in sentiment.py", exc_info=True)
         pass
     return path
 
@@ -368,7 +366,6 @@ def sentiment_as_of(
 
         factor_score, _meta = score_alt_sentiment([], sentiment=sent)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in sentiment.py", exc_info=True)
         factor_score = 50.0
     return {
         "ok": n > 0,
@@ -1065,7 +1062,6 @@ def score_headlines_llm(
         os.makedirs(LLM_SENTIMENT_DIR, exist_ok=True)
         atomic_write_json(_llm_cache_path(code_key), payload)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in sentiment.py", exc_info=True)
         pass
 
     return _annotate_include_gate(payload)

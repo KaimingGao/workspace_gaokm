@@ -1,9 +1,5 @@
 """Daily / quant 运维健康聚合（P17.3）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 from core.watching.health import check_watching_health

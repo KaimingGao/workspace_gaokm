@@ -1,9 +1,5 @@
 """统一观测信封（Skill / Job / Agent 共用）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import time
 import uuid
 from typing import Any, Dict, Optional

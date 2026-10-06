@@ -1,9 +1,5 @@
 """Y 轨：ŷ 买卖门槛人审写盘（只改 scoring.*，永不改 weights）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, Optional

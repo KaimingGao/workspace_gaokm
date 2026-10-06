@@ -6,10 +6,6 @@
 便捷 dict API：``from core.data.facade import get_quote, get_bars``。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.data.gate import (

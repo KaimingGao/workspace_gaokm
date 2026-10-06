@@ -1,9 +1,5 @@
 """V3.3 · score_budget vs risk_parity_lite 目标权重对照（同宇宙）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 

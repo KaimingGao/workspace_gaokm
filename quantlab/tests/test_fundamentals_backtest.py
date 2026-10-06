@@ -21,6 +21,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- p51_fund.py::TestP51BacktestFundamentals ---
+
 class TestP51BacktestFundamentals(unittest.TestCase):
     def test_config_enables_backtest_fundamentals(self):
         cfg = load_signal_config(reload=True)

@@ -130,6 +130,7 @@ def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
         "profit_factor": report.get("profit_factor"),
     }
 
+
 def _slot_round_tally(day: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """多轮日：按槽位分向记账；缺槽位明细则回落单日口径。"""
     rows = day.get("t0_slot_results")

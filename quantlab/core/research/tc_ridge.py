@@ -1061,7 +1061,6 @@ def explain_tau_prediction(
     try:
         from core.signal.factors.meta.registry import factor_label
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in tau_ridge.py", exc_info=True)
         factor_label = lambda k: str(k)  # noqa: E731
 
     terms: List[Dict[str, Any]] = []

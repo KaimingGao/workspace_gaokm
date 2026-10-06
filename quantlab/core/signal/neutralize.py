@@ -1,9 +1,5 @@
 """横截面因子中性化（P47）：对 sub_scores 做 z-score / rank 后再加权。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple

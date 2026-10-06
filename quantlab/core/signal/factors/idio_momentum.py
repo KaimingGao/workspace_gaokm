@@ -1,9 +1,5 @@
 """特异动量因子（V2.1）：个股收益对指数回归残差（市场中性后的动量）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 

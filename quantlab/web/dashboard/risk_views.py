@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List
-
-logger = logging.getLogger(__name__)
 
 from web.dashboard.paper_helpers import (
     _equity_curve_from_paper,
@@ -177,7 +174,6 @@ def _build_factor_exposure() -> Dict[str, Any]:
                 "over_limit_sectors": [x for x in over if x],
             }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         pass
 
     # Sector exposure fallback
@@ -188,7 +184,6 @@ def _build_factor_exposure() -> Dict[str, Any]:
 
         smap = load_sector_map()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         smap = {}
 
     for h in holdings:

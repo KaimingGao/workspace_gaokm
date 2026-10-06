@@ -1,9 +1,5 @@
 """非交易指令通道：订单预填导出（人工到券商 App 确认）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import csv
 import io
 import time

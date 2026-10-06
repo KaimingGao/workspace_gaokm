@@ -1,8 +1,5 @@
 """质量因子（P46 / V2.1）：ROE only；增速已拆至 growth 因子。"""
 
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Optional
 
 from core.numbers import to_float as _to_float

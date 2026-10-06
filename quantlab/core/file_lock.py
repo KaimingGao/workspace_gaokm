@@ -12,10 +12,6 @@ macOS/Linux 用 fcntl.flock；无 fcntl 时退化为仅线程锁（仍防同进�
 同线程可重入：``with path_lock: ... save_paper()``（内部再次 path_lock）不会自锁。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import os
 import threading
 import time
@@ -79,8 +75,8 @@ def _release_flock_state(key: str) -> None:
     except OSError:
         pass
 
-
 @contextmanager
+
 def path_lock(path: str, *, timeout_sec: Optional[float] = 60.0) -> Iterator[None]:
     """对 ``path`` 取排他锁（线程 + ``path.lock`` 文件）。
 

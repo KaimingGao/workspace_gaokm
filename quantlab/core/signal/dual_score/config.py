@@ -1,9 +1,5 @@
 """双层 ŷ fusion：人审写盘（只改 dual_score.*，永不改 weights / scoring）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, Optional

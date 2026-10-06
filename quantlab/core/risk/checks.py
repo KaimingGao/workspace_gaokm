@@ -1,9 +1,5 @@
 """账户 / 组合风控门禁（Q4 + N3 行业集中度 · R3 结构化原因码）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -31,7 +27,6 @@ def check_account_risk(
         try:
             spec_risk = get_strategy_spec(str(sid)).get("risk") or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in checks.py", exc_info=True)
             spec_risk = {}
 
     max_dd = float(spec_risk.get("max_drawdown_pct") or 20.0)

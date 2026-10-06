@@ -520,7 +520,6 @@ class PaperAccountMixin:
 
                 north_star = build_north_star_report(paper)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper_account.py", exc_info=True)
                 north_star = None
         exposure = None
         try:
@@ -528,7 +527,6 @@ class PaperAccountMixin:
 
             exposure = build_exposure_matrix(paper, summary)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in paper_account.py", exc_info=True)
             exposure = None
         ops = paper.get("last_ops_report") or None
         if isinstance(ops, dict) and exposure and not ops.get("exposure"):
@@ -848,7 +846,6 @@ class PaperAccountMixin:
                 "risk_blocks"
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in paper_account.py", exc_info=True)
             pass
         return out
 

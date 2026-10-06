@@ -102,7 +102,6 @@ class MarketDataService:
         try:
             return dict(self.ports.quote.batch_query(batch) or {})
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in service.py", exc_info=True)
             return {}
 
     def get_index_bars(
@@ -116,7 +115,6 @@ class MarketDataService:
         try:
             bars, label = self.ports.index.fetch_index(raw, limit=int(limit or 120))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in service.py", exc_info=True)
             bars, label = [], "empty"
         bars = list(bars or [])
         data_source = str(label or "index")
@@ -381,7 +379,6 @@ class MarketDataService:
             try:
                 return [self.get_bars(codes[0], limit=limit, **kwargs).as_dict()]
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in service.py", exc_info=True)
                 _bump_metric("pool_worker_failed")
                 return [self._empty_bars_pack(codes[0])]
 
@@ -396,7 +393,6 @@ class MarketDataService:
                 try:
                     out_map[code] = fut.result().as_dict()
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in service.py", exc_info=True)
                     _bump_metric("pool_worker_failed")
                     out_map[code] = self._empty_bars_pack(code)
         return [out_map.get(c) or self._empty_bars_pack(c) for c in codes]
@@ -711,7 +707,6 @@ class MarketDataService:
             try:
                 rows = self.ports.spot.load_disk(max_age_hours=SPOT_DISK_MAX_AGE_HOURS)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in service.py", exc_info=True)
                 rows = None
             rows = list(rows or [])
             has_rows = bool(rows)
@@ -742,7 +737,6 @@ class MarketDataService:
             if last:
                 src = str(last)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in service.py", exc_info=True)
             pass
         has_rows = bool(rows)
         data = {

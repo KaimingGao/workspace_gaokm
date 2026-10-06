@@ -1,9 +1,5 @@
 """原子 JSON 写盘（同目录唯一 tmp + os.replace）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 import tempfile

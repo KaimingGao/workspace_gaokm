@@ -1,31 +1,31 @@
 """quant 包 / shim / README / CI 守卫（合并原 P28 / P31·package / P34–P35 / P39–P44）。"""
 
+import ast
+import glob
+import importlib
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import importlib
-import ast
-import glob
-from unittest.mock import patch
 from agent.routing import infer_quant_task, prepare_tool_params
-from quant.skill.engine import AVAILABLE_TASKS, QuantEngine
-from quant.ops.shim_audit import audit_quant_shim_imports, main as shim_audit_main
-from quant.ops.package_info import REMOVED_SHIM_PATHS, build_quant_package_info
-from quant.ops.shim_audit import audit_quant_shim_imports
-from core.readme_index import REPO_README_DIRS, build_readme_index
-from quant.ops.package_info import build_quant_package_info
-from core.readme_index import ARCHITECTURE_SECTION_ANCHOR, REPO_README_DIRS, architecture_link_line, build_readme_index, normalize_readme_dir, read_repo_readme
+from core.readme_index import (
+    ARCHITECTURE_SECTION_ANCHOR,
+    REPO_README_DIRS,
+    build_readme_index,
+    normalize_readme_dir,
+    read_repo_readme,
+)
 from evals.readme_check import check_readme_coverage
+from quant.ops.package_info import REMOVED_SHIM_PATHS, build_quant_package_info
+from quant.ops.shim_audit import audit_quant_shim_imports, main as shim_audit_main
+from quant.skill.engine import AVAILABLE_TASKS, QuantEngine
 from services.eval_service import EvalService
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 TESTS_DIR = os.path.join(ROOT, "tests")
 LEGACY_MODULES = (
     "advisor",
@@ -58,6 +58,7 @@ WORKFLOW_PATH = os.path.join(REPO_ROOT, ".github", "workflows", "quantlab-ci.yml
 CI_QUANT_PATH = os.path.join(ROOT, "scripts", "ci_quant.sh")
 
 # --- test_p28_quant.py::TestP28QuantPackage ---
+
 class TestP28QuantPackage(unittest.TestCase):
     def test_quant_package_exports(self):
         import quant
@@ -77,6 +78,7 @@ class TestP28QuantPackage(unittest.TestCase):
         self.assertEqual(quant_spec, "quant.skill.handler.QuantHandler")
 
 # --- test_p31_quant.py::TestP32QuantPackageInfo ---
+
 class TestP32QuantPackageInfo(unittest.TestCase):
     def test_build_quant_package_info(self):
         from quant.ops.package_info import build_quant_package_info
@@ -109,6 +111,7 @@ class TestP32QuantPackageInfo(unittest.TestCase):
         self.assertIn("skill", body["subpackages"])
 
 # --- test_p31_quant.py::TestP33CanonicalCliImports ---
+
 class TestP33CanonicalCliImports(unittest.TestCase):
     def test_preset_check_imports_quant_ops(self):
         import evals.preset_check as mod
@@ -124,6 +127,7 @@ class TestP33CanonicalCliImports(unittest.TestCase):
         self.assertIs(mod.DAILY_PRESETS, canonical)
 
 # --- test_p34_quant.py::TestP34CanonicalTestImports ---
+
 class TestP34CanonicalTestImports(unittest.TestCase):
     def test_quant_tests_use_canonical_imports(self):
         offenders = []
@@ -135,6 +139,7 @@ class TestP34CanonicalTestImports(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 # --- test_p35_quant.py::TestP35PackageInfoRouting ---
+
 class TestP35PackageInfoRouting(unittest.TestCase):
     def test_infer_package_info(self):
         self.assertEqual(infer_quant_task("quant 包结构有哪些模块"), "package_info")
@@ -146,6 +151,7 @@ class TestP35PackageInfoRouting(unittest.TestCase):
         self.assertIn("package_info", AVAILABLE_TASKS)
 
 # --- test_p35_quant.py::TestP35PackageInfoTask ---
+
 class TestP35PackageInfoTask(unittest.TestCase):
     @patch("quant.services.quant_service.QuantService.build_package_info")
     def test_package_info_task(self, mock_info):
@@ -161,6 +167,7 @@ class TestP35PackageInfoTask(unittest.TestCase):
         self.assertEqual(out["module_count"], 12)
 
 # --- test_p39_quant.py::TestP39ShimImportAudit ---
+
 class TestP39ShimImportAudit(unittest.TestCase):
     def test_audit_passes_on_repo(self):
         out = audit_quant_shim_imports()
@@ -171,6 +178,7 @@ class TestP39ShimImportAudit(unittest.TestCase):
         self.assertEqual(shim_audit_main([]), 0)
 
 # --- test_p40_quant.py::TestP40GithubCiImportAudit ---
+
 class TestP40GithubCiImportAudit(unittest.TestCase):
     def test_workflow_runs_quant_import_audit(self):
         self.assertTrue(os.path.isfile(WORKFLOW_PATH), WORKFLOW_PATH)
@@ -198,6 +206,7 @@ class TestP40GithubCiImportAudit(unittest.TestCase):
         self.assertIn("import audit", cmds["github"])
 
 # --- test_p41_quant.py::TestP41ShimsRemoved ---
+
 class TestP41ShimsRemoved(unittest.TestCase):
     def test_removed_shim_files_absent(self):
         still_present = []
@@ -216,6 +225,7 @@ class TestP41ShimsRemoved(unittest.TestCase):
         self.assertTrue(os.path.isfile(path))
 
 # --- test_p42_quant.py::TestP42ReadmeIndex ---
+
 class TestP42ReadmeIndex(unittest.TestCase):
     def test_all_expected_dirs_have_readme(self):
         out = build_readme_index()
@@ -229,6 +239,7 @@ class TestP42ReadmeIndex(unittest.TestCase):
         self.assertEqual(idx.get("present_count"), len(REPO_README_DIRS))
 
 # --- test_p43_quant.py::TestP43ReadmeContentApi ---
+
 class TestP43ReadmeContentApi(unittest.TestCase):
     def test_read_repo_readme_agent(self):
         out = read_repo_readme("agent")
@@ -264,6 +275,7 @@ class TestP43ReadmeContentApi(unittest.TestCase):
         self.assertIn("../quant/README.md", text)
 
 # --- test_p43_quant.py::TestP43ReadmeWebApi ---
+
 class TestP43ReadmeWebApi(unittest.TestCase):
     def test_readme_api(self):
         try:
@@ -293,6 +305,7 @@ class TestP43ReadmeWebApi(unittest.TestCase):
         self.assertEqual(data["entries"][0]["dir"], REPO_README_DIRS[0])
 
 # --- test_p44_quant.py::TestP44ReadmeCheck ---
+
 class TestP44ReadmeCheck(unittest.TestCase):
     def test_check_readme_coverage_ok(self):
         out = check_readme_coverage()
@@ -313,6 +326,7 @@ class TestP44ReadmeCheck(unittest.TestCase):
         self.assertTrue(report["readme"].get("ok"))
 
 # --- test_p44_quant.py::TestP44ReadmeEvalsApi ---
+
 class TestP44ReadmeEvalsApi(unittest.TestCase):
     def test_evals_readme_api(self):
         try:

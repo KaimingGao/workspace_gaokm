@@ -1,9 +1,5 @@
 """资金流因子（V2.1）：默认 OHLCV MFI 代理；可传入 money_flow 真值快照。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
 

@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 from web import deps
 
+
 def _load_raw_paper() -> Dict[str, Any]:
     """只读落盘纸面（不盯市），避免仪表盘与行情/AkShare 锁互拖。"""
     path = getattr(deps.paper, "path", None)
@@ -21,7 +22,6 @@ def _load_raw_paper() -> Dict[str, Any]:
         paper = load_paper(path)
         return paper if isinstance(paper, dict) else {}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return {}
 
 
@@ -92,7 +92,6 @@ def _equity_curve_with_live(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
         work["snapshots"] = snapshots_for_ui(paper, summary)
         return _equity_curve_from_paper(work)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return _equity_curve_from_paper(paper)
 
 
@@ -125,7 +124,6 @@ def _holding_sector(h: Dict[str, Any], sector_map: Optional[Dict[str, str]] = No
 
         return str(_sector_for(code, sector_map if sector_map is not None else load_sector_map()))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return "其他"
 
 
@@ -142,7 +140,6 @@ def _north_star_from_paper(paper: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
         return build_north_star_report(paper)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return None
 
 
@@ -176,7 +173,6 @@ def _fetch_index_bars_bounded(
     try:
         from core.data.facade import get_index_bars
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return []
 
     box: Dict[str, Any] = {"raw": None, "err": None}

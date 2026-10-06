@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.ports.registry import call, set_adapter
-
-logger = logging.getLogger(__name__)
 
 # 供测试 / 启动显式绑定
 set_market_adapter = set_adapter

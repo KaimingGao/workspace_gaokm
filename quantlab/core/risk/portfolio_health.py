@@ -1,9 +1,5 @@
 """纸面组合健康度：暴露 · 过程跳过 · α 衰减告警（研究台，非实盘）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -39,7 +35,6 @@ def build_portfolio_health(
 
             pap = load_paper()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in portfolio_health.py", exc_info=True)
             pap = {}
     limits = resolve_book_risk_limits(paper=pap if isinstance(pap, dict) else None)
     risk = check_account_risk(pap if isinstance(pap, dict) else {})

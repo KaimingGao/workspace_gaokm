@@ -310,6 +310,7 @@ _register(
     "微软 Qlib Alpha158 158 个 OHLCV 衍生因子（kbar+price+rolling），sub_score 不加权，仅暴露 raw_alpha158_* 字段供 Ridge/LightGBM/LambdaRank 消费。",
 )
 
+
 def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
     """列出注册因子；include_meta=True 时附 FM1 sourced/proxy 状态。"""
     proxy_meta = {}
@@ -319,7 +320,6 @@ def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
 
             proxy_meta = dict(PROXY_OR_UNSOURCED)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in factor_registry.py", exc_info=True)
             proxy_meta = {}
     out: List[Dict[str, str]] = []
     for k, v in _REGISTRY.items():
@@ -527,7 +527,6 @@ def run_factor_experiment(
             )
             metrics = resolved.get("metrics") if resolved.get("ok") else None
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in factor_registry.py", exc_info=True)
             metrics = None
         if metrics:
             pit_hits += 1
@@ -562,7 +561,6 @@ def run_factor_experiment(
                     fundamentals=day_fund,
                 )
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in factor_registry.py", exc_info=True)
                 continue
             c0 = bars[i]["close"]
             c1 = bars[i + horizon_days]["close"]

@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+
 class PaperRunRequest(BaseModel):
     simulate_buy: bool = False
     background: bool = False

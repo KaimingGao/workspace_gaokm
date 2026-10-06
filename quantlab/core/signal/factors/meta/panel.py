@@ -1,9 +1,5 @@
 """因子面板：注册表 + 权重 + IC 合并展示（P48）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.signal.config import load_signal_config

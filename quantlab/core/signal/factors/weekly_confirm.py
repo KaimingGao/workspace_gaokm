@@ -7,10 +7,6 @@
 4. 周线量能（周成交量变化）
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 

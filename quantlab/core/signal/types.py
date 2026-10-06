@@ -3,10 +3,6 @@
 ScoreResult / BookResult 提供属性访问；as_dict() 与历史 dict 契约对齐。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -25,8 +21,8 @@ def _opt_float(raw: Any) -> Optional[float]:
     except (TypeError, ValueError):
         return None
 
-
 @dataclass
+
 class ScoreResult:
     """单票打分信封。``as_dict()`` 保持 ``score_stock`` 历史形状。"""
 
@@ -80,7 +76,6 @@ class ScoreResult:
 
             rank_key = rank_key_for_item(item)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in types.py", exc_info=True)
             rank_key = blend if blend is not None else predicted
         code = str(
             pack.get("stock_code")
@@ -131,8 +126,8 @@ class ScoreResult:
     def get(self, key: str, default: Any = None) -> Any:
         return self.as_dict().get(key, default)
 
-
 @dataclass
+
 class BookResult:
     """横截面 / 分池簿信封。``as_dict()`` 保持 ``rank_*`` 历史形状。"""
 

@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+
 class StrategyPromoteRequest(BaseModel):
     strategy: str = Field(default="short_conservative", min_length=1, max_length=64)
     note: str = Field(default="", max_length=500)

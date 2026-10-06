@@ -4,10 +4,6 @@
 规范见会话方案：展示投影 · 校验 · 过滤 · 按时刻读分量。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, Optional, Sequence, Tuple
 
@@ -69,7 +65,6 @@ def get_y_state_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
             if isinstance(dual.get("y_state"), dict):
                 src = dict(dual["y_state"])
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in y_state.py", exc_info=True)
             src = {}
     trust_p = src.pop("trust", None)
     rank_p = src.pop("book_check_rank", None)
@@ -149,7 +144,6 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
         if rv is not None and rv > 0:
             return round(math.sqrt(rv), 6), "rem_residual_var"
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in y_state.py", exc_info=True)
         pass
     try:
         from core.signal.dual_score import get_dual_score_cfg
@@ -159,7 +153,6 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
         if ve is not None and ve > 0:
             return round(math.sqrt(ve), 6), "eod_residual_var"
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in y_state.py", exc_info=True)
         pass
     return None, "none"
 
@@ -394,7 +387,6 @@ def build_y_state(
 
             rem_oc = rem_label_is_open_to_close(load_tau_model())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in y_state.py", exc_info=True)
             rem_oc = None
 
     # 路径均值：ŷ_trade
@@ -509,7 +501,6 @@ def summarize_y_checks(items: Sequence[Optional[dict]]) -> Dict[str, Any]:
                 st = build_y_state(it)
                 c = str(st.get("check") or "")
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in y_state.py", exc_info=True)
                 c = ""
         if not c:
             continue
@@ -525,7 +516,6 @@ def summarize_y_checks(items: Sequence[Optional[dict]]) -> Dict[str, Any]:
         for ck, cnt in sorted(counts.items(), key=lambda kv: -kv[1])
     ]
     return {"n": n, "by_check": counts, "rows": by_rows}
-
 
 CHECK_LABEL_ZH = {
     CHECK_OK: "校验通过",

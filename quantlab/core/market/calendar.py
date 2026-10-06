@@ -3,9 +3,6 @@
 非交易所官方全文；用于研究日对齐。停牌仅提供关键词 hint，不伪造全日停牌库。
 """
 
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 from datetime import datetime

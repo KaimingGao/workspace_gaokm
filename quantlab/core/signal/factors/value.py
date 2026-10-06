@@ -1,9 +1,5 @@
 """估值因子（P46）：PE/PB 适中区间加分，极端估值降分。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 

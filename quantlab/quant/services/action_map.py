@@ -6,10 +6,6 @@ API URL 不变（P94）；本模块只提供归属说明与机器可读映射。
 共享打分：`core/signal/scorer.score_bars` + `compute_buy_stance`（模拟与回溯共用）。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List
 
 # 与 docs/quant-ui.md · quant-concepts.md 一致

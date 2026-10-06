@@ -30,7 +30,6 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
 
         quotes = batch_get_quotes([s[0] for s in specs]) or {}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         quotes = {}
 
     for symbol, name, code in specs:
@@ -42,7 +41,6 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
 
                 q = get_quote(symbol) or {}
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
                 q = {}
         close = None
         change_pct = None

@@ -1,9 +1,5 @@
 """生产 ŷ 门禁（纯函数）：启发式 0–100 不得冒充 predicted_score。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Mapping, Optional, Tuple
 
 SCALE_YHAT = "predicted_yhat"
@@ -32,7 +28,6 @@ def infer_score_scale(item: Optional[Mapping[str, Any]]) -> str:
         if is_heuristic_score_scale(dict(item)):
             return SCALE_HEURISTIC
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in gate.py", exc_info=True)
         if str(item.get("return_model_source") or "") == "oos_failed_heuristic":
             return SCALE_HEURISTIC
     if (

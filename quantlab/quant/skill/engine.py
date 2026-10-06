@@ -1,9 +1,5 @@
 """quant Skill：量化研究台（组合回测、横截面、对照、建议）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 AVAILABLE_TASKS = (

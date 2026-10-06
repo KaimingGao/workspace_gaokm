@@ -1,9 +1,5 @@
 """Daily preset / health API。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
@@ -16,8 +12,8 @@ from web.schemas import DailyRunRequest
 
 router = APIRouter(tags=["daily"])
 
-
 @router.get("/api/daily/presets")
+
 def daily_presets() -> Dict[str, Any]:
     return {
         "success": True,
@@ -25,18 +21,18 @@ def daily_presets() -> Dict[str, Any]:
         "bt_defaults": daily_bt_option_defaults(),
     }
 
-
 @router.get("/api/daily/last")
+
 def daily_last() -> Dict[str, Any]:
     return deps.daily.load_last_run()
 
-
 @router.get("/api/daily/health")
+
 def daily_health() -> Dict[str, Any]:
     return deps.quant.build_health_summary()
 
-
 @router.post("/api/daily/run")
+
 def daily_run(body: DailyRunRequest) -> Any:
     try:
         result = deps.daily.run(

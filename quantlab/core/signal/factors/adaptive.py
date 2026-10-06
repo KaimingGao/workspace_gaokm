@@ -6,10 +6,6 @@
 - 连续亏损时触发风控
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Dict, List, Optional, Tuple
 
 

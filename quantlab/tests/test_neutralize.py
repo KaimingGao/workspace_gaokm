@@ -35,6 +35,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- test_p47_quant.py::TestP47Neutralize ---
+
 class TestP47Neutralize(unittest.TestCase):
     def test_skips_when_sample_too_small(self):
         items = [_item("A", 70, {"momentum": 70})]
@@ -163,6 +164,7 @@ class TestP47Neutralize(unittest.TestCase):
         self.assertIn("predicted_score", result["note"])
 
 # --- test_p49_quant.py::TestP49PortfolioNeutralization ---
+
 class TestP49PortfolioNeutralization(unittest.TestCase):
     def test_portfolio_backtest_uses_neutralization_by_default(self):
         stock_bars = {

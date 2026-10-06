@@ -58,7 +58,6 @@ def _research_sub_scores(
                         # 非数值（如 rs_source="index"）跳过
                         pass
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in panel.py", exc_info=True)
             row[key] = None
     return row
 
@@ -96,7 +95,6 @@ def _resolve_factor_names(
             if names:
                 return names
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in panel.py", exc_info=True)
         pass
     return base
 
@@ -165,7 +163,6 @@ def collect_subscore_forward_panel(
             )
             metrics = resolved.get("metrics") if resolved.get("ok") else None
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in panel.py", exc_info=True)
             metrics = None
         fund_cache[decision_date] = metrics
         return metrics
@@ -181,7 +178,6 @@ def collect_subscore_forward_panel(
             pack = sentiment_as_of(stock_code, decision_date)
             sent = pack.get("sentiment") if pack.get("ok") else None
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in panel.py", exc_info=True)
             sent = None
         sent_cache[decision_date] = sent
         return sent

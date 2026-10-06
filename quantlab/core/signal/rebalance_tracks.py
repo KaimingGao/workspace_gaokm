@@ -4,10 +4,6 @@
 买卖门槛分轨，禁止 0–100 与 ŷ% 混比。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional, Tuple
 
 TRACK_PREDICTED = "predicted"
@@ -40,7 +36,6 @@ def get_rebalance_tracks_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
 
         cfg = config if isinstance(config, dict) else load_signal_config()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         cfg = config if isinstance(config, dict) else {}
     cs = (cfg or {}).get("cluster_scoring") if isinstance(cfg, dict) else {}
     if not isinstance(cs, dict):
@@ -91,7 +86,6 @@ def _infer_item_scale(item: Optional[dict]) -> str:
 
         return str(infer_score_scale(item) or "")
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         return str((item or {}).get("score_scale") or "") if isinstance(item, dict) else ""
 
 
@@ -170,7 +164,6 @@ def resolve_score_track(item: Optional[dict]) -> str:
         if is_heuristic_score_scale(item):
             return TRACK_HEURISTIC
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         if str(item.get("return_model_source") or "") == "oos_failed_heuristic":
             return TRACK_HEURISTIC
         if str(item.get("score_scale") or "") == "heuristic_0_100":
@@ -250,7 +243,6 @@ def buy_gate_for_item(
 
         gate = eod_gate_score_for_item(item)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         gate = item.get("predicted_score")
     try:
         gate_f = float(gate) if gate is not None and gate != "" else None
@@ -293,7 +285,6 @@ def hold_decision_for_item(
             if sc is not None:
                 sc = float(sc)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
             sc = None
         if sc is None:
             try:

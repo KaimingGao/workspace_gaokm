@@ -1,9 +1,5 @@
 """信号扫描端口。默认经 adapters.bind 注入；单测可 set_adapter 覆盖。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, Optional
 
 from core.ports.registry import call

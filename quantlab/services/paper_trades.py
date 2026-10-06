@@ -1265,7 +1265,6 @@ def _rebalance_report_from_legs(
                     row_out.get("score_scale") or src.get("score_scale") or ""
                 ) == "heuristic_0_100"
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
             pass
         rows.append(row_out)
     def _sort_key(row: dict) -> tuple:
@@ -1962,7 +1961,6 @@ class PaperTradesMixin:
                     )
                     stance_by_code[c] = st.get("stance_code")
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
                 stance_by_code = {}
 
         if not dry_run:

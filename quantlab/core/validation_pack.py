@@ -109,7 +109,6 @@ def build_validation_pack(
             backtest_params=slim_bt.get("params") or {},
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in validation_pack.py", exc_info=True)
         pass
 
     # FM3 · 中性化配置指纹

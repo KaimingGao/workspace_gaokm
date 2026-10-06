@@ -134,7 +134,6 @@ class PlatformService:
             try:
                 save_paper(paper, PAPER_PATH)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
                 pass
         return {"ok": True, "cached": False, "north_star": report}
 
@@ -151,7 +150,6 @@ class PlatformService:
             try:
                 paper = load_paper(PAPER_PATH)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
                 paper = None
         return sample_status(paper=paper)
 
@@ -249,7 +247,6 @@ class PlatformService:
             if os.path.isfile(PAPER_PATH):
                 ss = sample_status(paper=load_paper(PAPER_PATH))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in platform_service.py", exc_info=True)
             pass
         core = None
         try:
@@ -311,7 +308,6 @@ class PlatformService:
                     if isinstance(last_opt, dict) and last_opt.get("weight_mode"):
                         paper_ops["weight_mode"] = last_opt.get("weight_mode")
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in platform_service.py", exc_info=True)
             pass
 
         snaps = list((paper or {}).get("snapshots") or []) if paper else []
@@ -337,7 +333,6 @@ class PlatformService:
                         else None,
                     }
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
                 pass
 
         day_diff = build_curve_day_diff(snaps, bt_curve)

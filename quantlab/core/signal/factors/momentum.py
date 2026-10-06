@@ -5,10 +5,6 @@
 - 后续可加：residual_momentum、双均线斜率、ROC 平滑等
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 

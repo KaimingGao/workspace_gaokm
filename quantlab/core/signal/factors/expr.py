@@ -42,19 +42,15 @@
 
 from __future__ import annotations
 
-import logging
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
-
 _EPS = 1e-12
 
 # bars 中支持的字段
 _FIELD_KEYS = ("close", "open", "high", "low", "volume", "vwap")
-
 
 # --------------------------------------------------------------------------- #
 # 1. 词法分析
@@ -105,10 +101,10 @@ def _tokenize(src: str) -> List[Tuple[str, str]]:
         raise ValueError(f"表达式含非法字符: {c!r} (位置 {i})")
     return tokens
 
-
 # --------------------------------------------------------------------------- #
 # 2. 语法分析（递归下降）
 # --------------------------------------------------------------------------- #
+
 class _Node:
     pass
 
@@ -232,10 +228,10 @@ def parse_expr(src: str) -> _Node:
         raise ValueError("空表达式")
     return _Parser(tokens).parse()
 
-
 # --------------------------------------------------------------------------- #
 # 3. 求值
 # --------------------------------------------------------------------------- #
+
 class _BarsCtx:
     """单票 bars 上下文：把 bars 转成各字段的 numpy 数组。
 
@@ -407,7 +403,6 @@ def _eval_call(node: _Call, ctx: _BarsCtx, pos: int) -> float:
         return float(np.cov(wx, wy)[0, 1])
 
     raise ValueError(f"未知函数: {name}")
-
 
 # --------------------------------------------------------------------------- #
 # 4. 向量化求值（窗口常数时一次扫完；非常数窗口回退逐点）
@@ -665,10 +660,10 @@ def _bar_date(bar: dict, _i: int) -> Optional[str]:
     raw = str((bar or {}).get("date") or (bar or {}).get("trade_date") or "")[:10]
     return raw or None
 
-
 # --------------------------------------------------------------------------- #
 # 5. 对外接口
 # --------------------------------------------------------------------------- #
+
 def eval_expr_series(expr: str, bars: Sequence[dict]) -> np.ndarray:
     """求值表达式在每根 bar 上的值，返回与 bars 等长的 ndarray。"""
     ctx = _BarsCtx(bars)
@@ -849,7 +844,6 @@ def cross_section_rank_ic(
             {"date": d, "value": float(v)} for d, v in zip(ic_dates, ics)
         ],
     }
-
 
 # --------------------------------------------------------------------------- #
 # 6. 因子元信息（语法说明）

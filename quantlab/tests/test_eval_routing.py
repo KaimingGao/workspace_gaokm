@@ -42,6 +42,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- test_p15_quant.py::TestQuantRouting ---
+
 class TestQuantRouting(unittest.TestCase):
     def test_is_quant_question(self):
         self.assertTrue(is_quant_question("观察池组合 historically 表现如何"))
@@ -58,6 +59,7 @@ class TestQuantRouting(unittest.TestCase):
         self.assertIn(QUANT_HINT, hinted)
 
 # --- test_p15_quant.py::TestGoldenQuantCase ---
+
 class TestGoldenQuantCase(unittest.TestCase):
     def test_quant_portfolio_routing_expect(self):
         case = next(c for c in load_cases() if c["id"] == "quant_portfolio_backtest")
@@ -70,6 +72,7 @@ class TestGoldenQuantCase(unittest.TestCase):
         self.assertIn("metrics", result)
 
 # --- test_p17_quant.py::TestInferQuantHealthRouting ---
+
 class TestInferQuantHealthRouting(unittest.TestCase):
     def test_infer_health_task(self):
         from agent.routing import infer_quant_task
@@ -77,6 +80,7 @@ class TestInferQuantHealthRouting(unittest.TestCase):
         self.assertEqual(infer_quant_task("量化系统状态怎么样"), "health")
 
 # --- test_p18_quant.py::TestQuantHealthGolden ---
+
 class TestQuantHealthGolden(unittest.TestCase):
     def test_quant_health_case_offline(self):
         case = next(c for c in load_cases() if c["id"] == "quant_health")
@@ -87,6 +91,7 @@ class TestQuantHealthGolden(unittest.TestCase):
         self.assertEqual(quant.get("task"), "health")
 
 # --- test_p20_quant.py::TestQuantWeightDiffGolden ---
+
 class TestQuantWeightDiffGolden(unittest.TestCase):
     def test_quant_weight_diff_offline(self):
         case = next(c for c in load_cases() if c["id"] == "quant_weight_diff")
@@ -96,6 +101,7 @@ class TestQuantWeightDiffGolden(unittest.TestCase):
         self.assertTrue((quant.get("config_diff") or {}).get("success"))
 
 # --- test_p23_quant.py::TestP23QuantRouting ---
+
 class TestP23QuantRouting(unittest.TestCase):
     def test_infer_config_diff_task(self):
         self.assertEqual(infer_quant_task("signal_config diff 怎么合并"), "config_diff")
@@ -113,6 +119,7 @@ class TestP23QuantRouting(unittest.TestCase):
         self.assertEqual(params.get("task"), "daily_presets")
 
 # --- test_p23_quant.py::TestP23QuantTasks ---
+
 class TestP23QuantTasks(unittest.TestCase):
     def test_available_tasks_include_p23(self):
         self.assertIn("config_diff", AVAILABLE_TASKS)
@@ -137,6 +144,7 @@ class TestP23QuantTasks(unittest.TestCase):
         self.assertEqual(names, {p["name"] for p in list_daily_presets()})
 
 # --- test_p24_quant.py::TestP24PortfolioBridge ---
+
 class TestP24PortfolioBridge(unittest.TestCase):
     @patch("quant.services.quant_service.QuantService.load_last_daily")
     @patch("os.path.isfile")
@@ -178,6 +186,7 @@ class TestP24PortfolioBridge(unittest.TestCase):
         self.assertEqual(out["task"], "portfolio_bridge")
 
 # --- test_p24_quant.py::TestP24Routing ---
+
 class TestP24Routing(unittest.TestCase):
     def test_infer_portfolio_bridge(self):
         self.assertEqual(infer_quant_task("持仓和量化怎么对照"), "portfolio_bridge")
@@ -188,6 +197,7 @@ class TestP24Routing(unittest.TestCase):
         self.assertIn("portfolio_bridge", AVAILABLE_TASKS)
 
 # --- test_p24_quant.py::TestP24WebBridgeApi ---
+
 class TestP24WebBridgeApi(unittest.TestCase):
     def test_portfolio_quant_bridge_api(self):
         try:
@@ -208,6 +218,7 @@ class TestP24WebBridgeApi(unittest.TestCase):
         self.assertTrue(res.json()["success"])
 
 # --- test_p25_quant.py::TestP25GoldenPortfolioBridge ---
+
 class TestP25GoldenPortfolioBridge(unittest.TestCase):
     def test_case_exists_and_routing(self):
         case = next(c for c in load_cases() if c["id"] == "quant_portfolio_bridge")
@@ -218,6 +229,7 @@ class TestP25GoldenPortfolioBridge(unittest.TestCase):
         self.assertTrue(run["skill_runs"][0]["result"].get("success"))
 
 # --- test_p25_quant.py::TestP25EvalService ---
+
 class TestP25EvalService(unittest.TestCase):
     def test_summary_includes_case_count(self):
         summary = EvalService().summary()
@@ -231,6 +243,7 @@ class TestP25EvalService(unittest.TestCase):
         self.assertTrue(report["presets"]["ok"])
 
 # --- test_p25_quant.py::TestP25EvalsApi ---
+
 class TestP25EvalsApi(unittest.TestCase):
     def test_evals_summary_api(self):
         try:
@@ -277,6 +290,7 @@ class TestP25EvalsApi(unittest.TestCase):
         self.assertEqual(data["total"], 1)
 
 # --- test_p26_quant.py::TestP26EvalRoutingMap ---
+
 class TestP26EvalRoutingMap(unittest.TestCase):
     def test_all_routing_expect_ok(self):
         out = build_eval_routing_map()
@@ -291,6 +305,7 @@ class TestP26EvalRoutingMap(unittest.TestCase):
         self.assertGreaterEqual(out["with_expect"], 5)
 
 # --- test_p26_quant.py::TestP26Api ---
+
 class TestP26Api(unittest.TestCase):
     def test_evals_routing_api(self):
         try:
@@ -308,6 +323,7 @@ class TestP26Api(unittest.TestCase):
         self.assertEqual(data["ok_count"], data["with_expect"])
 
 # --- test_p31_quant.py::TestP31EvalRouting ---
+
 class TestP31EvalRouting(unittest.TestCase):
     def test_build_eval_routing_map_from_quant_ops(self):
         from quant.ops.eval_routing_map import build_eval_routing_map
@@ -322,6 +338,7 @@ class TestP31EvalRouting(unittest.TestCase):
         self.assertTrue(out["success"])
 
 # --- test_p36_quant.py::TestP36GoldenPackageInfo ---
+
 class TestP36GoldenPackageInfo(unittest.TestCase):
     def test_golden_case_exists(self):
         ids = {c["id"] for c in load_cases()}
@@ -349,6 +366,7 @@ class TestP36GoldenPackageInfo(unittest.TestCase):
         self.assertEqual(row["inferred"].get("quant_task"), "package_info")
 
 # --- test_p36_quant.py::TestP36QuantEnginePackageInfo ---
+
 class TestP36QuantEnginePackageInfo(unittest.TestCase):
     def test_engine_without_mock_uses_real_package_info(self):
         out = QuantEngine().run({"task": "package_info"})
@@ -357,6 +375,7 @@ class TestP36QuantEnginePackageInfo(unittest.TestCase):
         self.assertGreaterEqual(out.get("module_count", 0), 10)
 
 # --- test_p37_quant.py::TestP37QuantOnlyFilter ---
+
 class TestP37QuantOnlyFilter(unittest.TestCase):
     def test_filter_quant_cases(self):
         quant = filter_quant_cases(load_cases())
@@ -386,12 +405,13 @@ class TestP37QuantOnlyFilter(unittest.TestCase):
         self.assertEqual(code, 2)
     def test_agent_check_requires_api_key(self):
         with patch.dict(
-            os.environ, {"DASHSCOPE_API_KEY": "", "DOUBAO_API_KEY": ""}, clear=False
+            os.environ, {"DASHSCOPE_API_KEY": ""}, clear=False
         ):
             code = run_agent_check_main(["--quant-only"])
         self.assertEqual(code, 2)
 
 # --- test_p37_quant.py::TestP37EvalSummaryCommands ---
+
 class TestP37EvalSummaryCommands(unittest.TestCase):
     def test_summary_includes_quant_regression_commands(self):
         summary = EvalService().summary()
@@ -401,6 +421,7 @@ class TestP37EvalSummaryCommands(unittest.TestCase):
         self.assertIn("quant_package_info", summary["quant_case_ids"])
 
 # --- test_p38_quant.py::TestP38EvalServiceQuantOnly ---
+
 class TestP38EvalServiceQuantOnly(unittest.TestCase):
     def test_run_quant_only_mock(self):
         report = EvalService().run(
@@ -427,6 +448,7 @@ class TestP38EvalServiceQuantOnly(unittest.TestCase):
         self.assertIn("quant_*", report.get("error", ""))
 
 # --- test_p38_quant.py::TestP38EvalsApiQuantOnly ---
+
 class TestP38EvalsApiQuantOnly(unittest.TestCase):
     def test_evals_run_quant_only_api(self):
         try:

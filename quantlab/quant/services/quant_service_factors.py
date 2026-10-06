@@ -183,7 +183,6 @@ def _start_ridge_fit_job(
 
         n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         n_watch_all = watching_limit
     cap = max(1, int(watching_limit or WATCHING_MAX_SIZE))
     n_watch = min(n_watch_all, cap) if n_watch_all else cap
@@ -646,7 +645,6 @@ class QuantFactorMixin:
                 try:
                     packed = svc.score_one(str(code)).as_dict()
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                     continue
                 if not isinstance(packed, dict):
                     continue
@@ -790,7 +788,6 @@ class QuantFactorMixin:
                             row["minute_bars"] = mb
                             minute_hit += 1
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                     pass
             stock_bars.append(row)
         report = fit_tau_ridge_report(
@@ -2281,7 +2278,6 @@ class QuantFactorMixin:
 
             n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             n_watch_all = watch_limit
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         # 进度分母=观察池真实票数（与 5m Job 一致；不再 +5 垫高）
@@ -2427,7 +2423,6 @@ class QuantFactorMixin:
 
             n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             n_watch_all = watch_limit
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(1, n_watch)
@@ -2725,7 +2720,6 @@ class QuantFactorMixin:
             if len(rows) >= 3:
                 suggestion["trend_collinearity"] = trend_family_collinearity(rows)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             pass
         return suggestion
 

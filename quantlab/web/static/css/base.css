@@ -156,7 +156,10 @@ body {
 }
 
 .app-shell.side-collapsed .logo-text {
-  display: none;
+  font-size: 10px;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  text-align: center;
 }
 
 .app-shell.side-collapsed .side-nav-item {
@@ -1105,13 +1108,6 @@ html[data-density="compact"] .ai-drawer-head {
   color: inherit;
 }
 
-.logo-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  font-size: 0.95rem;
-}
-
 .logo-text {
   font-size: 1rem;
   font-weight: 700;
@@ -1372,12 +1368,33 @@ dialog h2 {
   box-shadow: 0 1px 4px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(0, 0, 0, 0.2);
 }
 
-.dialog-btn.secondary:disabled {
+.dialog-btn.secondary:disabled,
+.dialog-btn.primary:disabled,
+.dialog-btn.warn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   pointer-events: none;
   box-shadow: none;
   transform: none;
+}
+
+.dialog-btn.primary {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.dialog-btn.warn {
+  background: linear-gradient(135deg, var(--warn, #f59e0b) 0%, var(--gold-hover, #d97706) 100%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.dialog-btn.warn:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--gold-hover, #fbbf24) 0%, var(--warn, #f59e0b) 100%);
+  color: #fff;
 }
 
 .dialog-btn.secondary {

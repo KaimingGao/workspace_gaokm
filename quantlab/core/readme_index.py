@@ -1,9 +1,6 @@
 """仓库子目录 README 覆盖索引（P42）与内容读取（P43）。"""
 
 
-import logging
-
-logger = logging.getLogger(__name__)
 import os
 from typing import Any, Dict, List, Optional
 

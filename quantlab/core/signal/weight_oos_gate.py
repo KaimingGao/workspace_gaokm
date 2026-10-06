@@ -6,10 +6,6 @@
 - 目的：验证枢纽方案是否在样本外不劣于人工基线；过门 ≠ 自动 promote
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 # 产品语义（UI / API note 同源）
@@ -47,7 +43,6 @@ def _metrics_from_backtest(
 
             enriched = attach_benchmark_excess(bt, stock_bars or {})
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
             enriched = bt
 
     m = enriched.get("metrics") or {}
@@ -84,7 +79,6 @@ def _shared_oos_backtest_kwargs(
 
         d = backtest_portfolio_defaults()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         d = {
             "weight_mode": "equal",
             "max_position_pct": 25.0,
@@ -143,7 +137,6 @@ def _heuristic_oos_floor(min_score: float) -> float:
         buy, _ = heuristic_floors()
         return float(buy)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         return 55.0
 
 
@@ -154,7 +147,6 @@ def _predicted_oos_floor() -> float:
 
         return float(resolve_buy_floor())
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         return 1.0
 
 
@@ -316,7 +308,6 @@ def _compare_arms(
 
         excess_cmp = compare_arms_excess(baseline_m, research_m)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         excess_cmp = {
             "baseline_excess_pct": baseline_m.get("excess_pct"),
             "research_excess_pct": research_m.get("excess_pct"),
@@ -513,7 +504,7 @@ def evaluate_research_oos(
         try:
             progress_cb(msg, int(cur or 0), int(tot or 1))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
+            pass
 
     def _arm_cb(arm: str):
         def _cb(msg: str, cur: int = 0, tot: int = 0) -> None:
@@ -558,7 +549,7 @@ def evaluate_research_oos(
                         "stock_count": len(stock_bars),
                     }
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
+                pass
         _emit("研究臂", 0, 1)
         res_bt = _run_topk_predicted(
             stock_bars,

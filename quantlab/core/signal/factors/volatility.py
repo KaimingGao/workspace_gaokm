@@ -5,10 +5,6 @@
 - 后续可加：rolling_std、downside_deviation、BollingerBand 宽度等
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 from core.signal.factors.volume_price import _avg

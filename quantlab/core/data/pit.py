@@ -5,10 +5,6 @@
 - 基本面/资讯：本模块不伪造历史；调用方须标明 non_pit。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 

@@ -5,10 +5,6 @@
 不自动写 ``signal_config``。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.signal.config import get_stance_thresholds, load_signal_config
@@ -94,7 +90,6 @@ def _fit_yhat_model_on_bars(
             max_window=30,
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in threshold_suggest.py", exc_info=True)
         return None
     model, _rep = fit_return_model_from_panel(
         xs,
@@ -585,7 +580,6 @@ def suggest_stance_thresholds_from_watching_oos(
 
             global_model, _ = load_return_model(prefer_active=True)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in threshold_suggest.py", exc_info=True)
             global_model = None
 
     best_waits: List[float] = []

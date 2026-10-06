@@ -8,10 +8,6 @@
 5. 波动率特征 - 日内波动模式
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 from core.backtest.matching import (

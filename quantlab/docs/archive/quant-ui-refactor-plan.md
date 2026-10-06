@@ -1,8 +1,8 @@
 # Web UI 全面升级 · 壳层简史与索引
 
-[← quant-ui-standard](../quant-ui-standard.md) · 差距 [quant-ui-gap](../quant-ui-gap.md) · **现行升级方案 [quant-ui-upgrade](../quant-ui-upgrade.md)** · 产品主轴 [design-spine](../design-spine.md)
+[← 研究台说明书](../quant-ui.md) · 产品主轴 [design-spine](../design-spine.md)
 
-> **排期与交付以 [quant-ui-upgrade.md](../quant-ui-upgrade.md) 为准**（W0–W4）。本文仅保留壳 / AI 已完成记录，避免与全面方案双源。
+> **排期与交付以 [quant-ui.md · 升级方案](../quant-ui.md#web-ui-全面优化升级方案) 为准**（W0–W4）。本文仅保留壳 / AI 已完成记录，避免与全面方案双源。
 
 ## 0. 定位（已定）
 

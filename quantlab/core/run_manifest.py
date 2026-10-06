@@ -1,8 +1,5 @@
 """运行清单（Q3）：每次回测 / 调仓写出可复现指纹。"""
 
-import logging
-
-logger = logging.getLogger(__name__)
 import hashlib
 import json
 import os

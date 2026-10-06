@@ -3,10 +3,6 @@
 实现侧仍走 core.ports.registry / adapters.bind；此处只定契约。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
@@ -65,8 +61,8 @@ class SnapshotStorePort(Protocol):
         self, kind: str, code: str, data: Any, *, data_source: str, as_of: Optional[str] = None
     ) -> str: ...
 
-
 @dataclass
+
 class MarketPorts:
     quote: QuotePort
     bars: BarsPort
@@ -151,7 +147,6 @@ class _SpotAdapter:
             if impl is not None:
                 return getattr(impl, "last_source", None)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in ports.py", exc_info=True)
             pass
         return None
 

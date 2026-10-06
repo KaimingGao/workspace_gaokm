@@ -1,9 +1,5 @@
 """用户意图路由：LLM 意图分类优先，关键词兜底（单一事实源）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 from typing import Any, Dict, Optional
 
@@ -39,7 +35,6 @@ BUY_QUESTION_KEYS = (
 )
 
 ANALYSIS_KEYS = DEEP_ANALYSIS_KEYWORDS
-
 
 SHORT_HORIZON_KEYS = (
     "短线",

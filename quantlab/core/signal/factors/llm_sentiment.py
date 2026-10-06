@@ -4,10 +4,6 @@
 LLM 情绪打分逻辑见 ``core.sentiment.score_headlines_llm``。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 

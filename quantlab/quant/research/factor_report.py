@@ -1,9 +1,5 @@
 """因子 IC/IR 报告（P7.2 / P50 全因子 + fundamentals）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.signal.factors.meta.corr import pearson_with_reason
@@ -42,7 +38,6 @@ def _resolve_fund_for_day(
         )
         metrics = resolved.get("metrics") if resolved.get("ok") else None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in factor_report.py", exc_info=True)
         metrics = None
     cache[decision_date] = metrics
     return metrics

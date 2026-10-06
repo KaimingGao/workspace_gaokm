@@ -4,10 +4,6 @@
 来源徽章：真源 / 代理 / 旁路。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core.signal.factors.meta.health import PROXY_OR_UNSOURCED
@@ -190,7 +186,6 @@ def _default_factor_groups() -> Dict[str, List[str]]:
         if isinstance(groups, dict) and groups:
             return {str(k): [str(x) for x in (v or [])] for k, v in groups.items()}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in factor_taxonomy.py", exc_info=True)
         pass
     from core.signal.config import DEFAULT_SIGNAL_CONFIG
 

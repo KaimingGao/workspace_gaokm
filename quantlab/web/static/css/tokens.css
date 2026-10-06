@@ -655,6 +655,12 @@ html[data-theme="dark"] .dialog-btn.primary {
   border-color: var(--accent);
 }
 
+html[data-theme="dark"] .dialog-btn.warn {
+  background: var(--warn);
+  color: #fff;
+  border-color: var(--warn);
+}
+
 html[data-theme="dark"] .topbar-ai-btn {
   --ai-wash: #1a1d24;
   --ai-ink: var(--accent-hover);

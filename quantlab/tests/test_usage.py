@@ -76,7 +76,7 @@ class TestUsage(unittest.TestCase):
                 write_memory({"llm_model": "qwen-max"}, path=path)
             with patch("core.env.default_env_path", return_value=env_path), patch.dict(
                 os.environ,
-                {"DASHSCOPE_MODEL": "", "DOUBAO_MODEL": ""},
+                {"DASHSCOPE_MODEL": ""},
                 clear=False,
             ), patch("core.memory_store.MEMORY_PATH", path):
                 model, source = resolve_llm_model()
@@ -94,9 +94,6 @@ class TestUsage(unittest.TestCase):
                     "DASHSCOPE_ENABLE_SEARCH": "1",
                     "DASHSCOPE_SEARCH_STRATEGY": "max",
                     "DASHSCOPE_SEARCH_FRESHNESS": "7",
-                    "DOUBAO_API_KEY": "",
-                    "DOUBAO_ENDPOINT": "",
-                    "DOUBAO_MODEL": "",
                 },
                 clear=False,
             ), patch("core.env.default_env_path", return_value=env_path):

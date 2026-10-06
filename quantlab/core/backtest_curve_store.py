@@ -1,9 +1,5 @@
 """Persist and load last portfolio backtest equity curve for north-star realization."""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 from datetime import datetime
@@ -83,7 +79,6 @@ def save_last_backtest_curve(
 
             snaps = list((load_paper(PAPER_PATH) or {}).get("snapshots") or [])
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in backtest_curve_store.py", exc_info=True)
             snaps = []
 
     span = paper_date_span(snaps) if align_to_paper and snaps else None

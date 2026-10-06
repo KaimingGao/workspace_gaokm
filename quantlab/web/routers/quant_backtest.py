@@ -1,9 +1,5 @@
 """量化研究台 API — backtesting。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
@@ -102,8 +98,8 @@ def _t0_backtest_kwargs(body: T0BacktestRequest) -> Dict[str, Any]:
         "score_model_role": body.score_model_role,
     }
 
-
 @router.post("/api/quant/t0-backtest")
+
 def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
     """做 T 回测。默认入队 ``GET /api/jobs/t0-backtest``；``sync=true`` 同步（单测）。"""
     try:
@@ -148,8 +144,8 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "score_backend": body.score_backend,
     }
 
-
 @router.post("/api/quant/portfolio-backtest")
+
 def quant_portfolio_backtest(body: PaperReplayBacktestRequest) -> Dict[str, Any]:
     """调仓回测。默认入队 ``GET /api/jobs/portfolio-backtest``；``sync=true`` 同步（单测）。"""
     try:
@@ -160,8 +156,8 @@ def quant_portfolio_backtest(body: PaperReplayBacktestRequest) -> Dict[str, Any]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/last-portfolio-backtest")
+
 def quant_last_portfolio_backtest() -> Dict[str, Any]:
     """最近一次成功产品回测（``/replay`` 刷新恢复，不重跑）。"""
     try:
@@ -171,8 +167,8 @@ def quant_last_portfolio_backtest() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/last-t0-backtest")
+
 def quant_last_t0_backtest() -> Dict[str, Any]:
     """最近一次成功做 T 回测（``/follow`` 刷新恢复，不重跑）。"""
     try:
@@ -182,8 +178,8 @@ def quant_last_t0_backtest() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/param-grid")
+
 def quant_param_grid() -> Dict[str, Any]:
     """参数网格已下线（lookback×K 属 TopK 研究探针；产品回测只认 paper_replay）。"""
     raise HTTPException(
@@ -191,8 +187,8 @@ def quant_param_grid() -> Dict[str, Any]:
         detail="参数网格已下线；产品回测只认 paper_replay / rank_lots",
     )
 
-
 @router.post("/api/quant/portfolio-neutral-compare")
+
 def quant_portfolio_neutral_compare() -> Dict[str, Any]:
     """中性化对照研究口已下线（ŷ 路径开关空转；日报也不再嵌入）。"""
     raise HTTPException(
@@ -200,8 +196,8 @@ def quant_portfolio_neutral_compare() -> Dict[str, Any]:
         detail="中性化对照研究口已下线；产品回测只认 paper_replay / rank_lots",
     )
 
-
 @router.post("/api/quant/ab-compare")
+
 def quant_ab_compare(body: AbCompareRequest) -> Dict[str, Any]:
     """S2 · A/B 对照指纹。"""
     try:
@@ -219,8 +215,8 @@ def quant_ab_compare(body: AbCompareRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/return-model/fit")
+
 def quant_return_model_fit(body: ReturnModelFitRequest) -> Dict[str, Any]:
     try:
         return deps.quant.fit_return_score_model(
@@ -236,8 +232,8 @@ def quant_return_model_fit(body: ReturnModelFitRequest) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.post("/api/quant/return-model/promote")
+
 def quant_return_model_promote(body: ReturnModelPromoteRequest) -> Dict[str, Any]:
     try:
         return deps.quant.promote_return_score_model(
@@ -247,8 +243,8 @@ def quant_return_model_promote(body: ReturnModelPromoteRequest) -> Dict[str, Any
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/quant/return-model/status")
+
 def quant_return_model_status() -> Dict[str, Any]:
     try:
         return deps.quant.return_score_model_status()

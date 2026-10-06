@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from core.signal.score_view import (
     _build_score_formula,
     build_score_formula,
@@ -14,8 +12,6 @@ from core.signal.score_view import (
 from core.signal.score_view import (
     active_return_model_payload as _active_return_model_payload,
 )
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "_active_return_model_payload",

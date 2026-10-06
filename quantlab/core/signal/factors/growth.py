@@ -1,8 +1,5 @@
 """成长因子（V2.1）：盈利/营收增速；从 quality 拆出以免与 ROE 双计。"""
 
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional, Tuple
 
 from core.numbers import to_float as _to_float

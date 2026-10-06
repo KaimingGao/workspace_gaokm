@@ -66,7 +66,6 @@ def _parse_dt(raw: Any) -> Optional[datetime]:
             return datetime.fromisoformat(s[:19])
         return datetime.fromisoformat(s)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in block_audit.py", exc_info=True)
         return None
 
 

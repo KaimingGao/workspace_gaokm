@@ -1,9 +1,5 @@
 """生产门禁与复权标签（纯函数）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Optional, Tuple
 
 from core.data.policy import DEFAULT_ADJUST_POLICY

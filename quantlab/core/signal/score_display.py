@@ -4,10 +4,6 @@
 缺省键 → 默认 +1（ŷ&lt;1% 不入簿）；显式 ``null`` → 不设下限（研究用）。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, Optional
 
@@ -41,7 +37,6 @@ def json_safe(obj: Any) -> Any:
         try:
             return json_safe(item())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_display.py", exc_info=True)
             return None
     return obj
 
@@ -73,7 +68,6 @@ def looks_like_legacy_heuristic_score(
             if scale == SCALE_YHAT:
                 return False
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_display.py", exc_info=True)
             pass
     if value is None:
         return False
@@ -81,7 +75,6 @@ def looks_like_legacy_heuristic_score(
         return float(value) >= 10.0
     except (TypeError, ValueError):
         return False
-
 
 # 长多默认：ŷ≥+1% 才入簿/建议买入
 DEFAULT_MIN_PREDICTED_SCORE = 1.0
@@ -106,7 +99,6 @@ def selection_min_score(paper: Optional[dict] = None) -> Optional[float]:
             return None
         return float(mp)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_display.py", exc_info=True)
         return float(DEFAULT_MIN_PREDICTED_SCORE)
 
 
@@ -132,7 +124,6 @@ def resolve_buy_floor(
     floor = selection_min_score(paper)
     return float(floor) if floor is not None else float("-inf")
 
-
 # 持仓卖出门槛：分池调仓仅当 ŷ < 该值才卖（默认 -1%）；与买入门槛形成滞回
 # 产品滞回：买≥+1% / 卖<-1%，中间带持仓不因微弱衰减清仓；横截面另有「不在 TopK→卖」
 DEFAULT_MIN_HOLD_PREDICTED_SCORE = -1.0
@@ -156,7 +147,6 @@ def resolve_hold_floor(
             return float("-inf")
         return float(mp)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_display.py", exc_info=True)
         return float(DEFAULT_MIN_HOLD_PREDICTED_SCORE)
 
 
@@ -216,7 +206,6 @@ def annotate_score_gate(
                 }
             sc = eod_gate_score_for_item(item)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_display.py", exc_info=True)
             sc = None
     if sc is None:
         try:

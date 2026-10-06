@@ -1,9 +1,5 @@
 """纸面调仓 / 日循环流水线（从 paper.py 拆出，降低单文件集中度）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List
 
 from core.paper.costs import resolve_cost_model
@@ -129,7 +125,6 @@ def _resolve_strategy_spec(paper: dict, strategy: str) -> None:
 
             strategy_spec = apply_strategy_to_paper(paper, strategy)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
             from core.backtest.strategies import get_strategy
 
             try:
@@ -137,7 +132,6 @@ def _resolve_strategy_spec(paper: dict, strategy: str) -> None:
                 paper_rules = paper.get("rules") or {}
                 paper["rules"] = {**paper_rules, **(strategy_spec.get("params") or {})}
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
                 pass
 
 
@@ -179,7 +173,6 @@ def _check_pre_rebalance_risk(paper: dict):
         pre_summary = mark_to_market(paper)
         risk_gate = check_account_risk(paper, pre_summary)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         risk_gate = {"ok": True, "blocks": [], "warnings": []}
     return risk_gate, pre_summary
 
@@ -203,7 +196,6 @@ def _optimize_target_weights(paper: dict, pool: list, strategy: str) -> None:
             ),
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         paper["last_optimize"] = None
 
 
@@ -240,7 +232,6 @@ def _build_cash_impact(
     try:
         equity_before = float((pre_summary or {}).get("equity") or 0) or None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         equity_before = None
     max_turnover_pct = None
     raw_mto = (paper.get("rules") or {}).get(
@@ -267,7 +258,6 @@ def _build_cash_impact(
             min_cash_pct=resolve_min_cash_pct(paper.get("rules") or {}),
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         buy_amount = round(sum(float(t.get("amount") or 0) for t in new_trades), 2)
         sell_amount = round(sum(float(t.get("amount") or 0) for t in sell_trades), 2)
         cash_after = float((summary or {}).get("cash") or paper.get("cash") or 0)
@@ -308,7 +298,6 @@ def _summarize_data_quality(pool: list, holding_codes: list):
                 "adjust_policy": raw_dq.get("adjust_policy"),
             }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         dq = None
     return dq, codes
 
@@ -325,7 +314,6 @@ def _assess_strategy_health(paper: dict, summary, codes: list, holding_codes: li
             codes=codes or holding_codes,
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         monitor = {"ok": True, "alerts": [], "level": "ok"}
     return monitor
 
@@ -367,7 +355,6 @@ def _build_and_write_manifest(
         )
         manifest["path"] = write_run_manifest(manifest)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         pass
     return manifest
 
@@ -548,7 +535,6 @@ def _build_rebalance_report(
                     ) == "heuristic_0_100"
                 row["in_book"] = code in book_codes
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
                 pass
 
     # 按 ŷ_trade 降序（缺则 ŷ_τ / EOD）
@@ -559,7 +545,6 @@ def _build_rebalance_report(
             key=lambda x: rank_key_for_item(x) or 0, reverse=True
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         rebalance_report.sort(key=lambda x: x.get("score") or 0, reverse=True)
 
     try:
@@ -567,7 +552,6 @@ def _build_rebalance_report(
 
         attach_change_pct_to_rebalance_report(rebalance_report, summary=summary)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         pass
 
     return rebalance_report
@@ -596,7 +580,6 @@ def _assemble_extras_and_ops_report(
         metrics, north_star = merge_north_star_into_metrics(paper, metrics)
         paper["last_north_star"] = north_star
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         pass
     try:
         from core.data.consistency import audit_code_sources
@@ -604,7 +587,6 @@ def _assemble_extras_and_ops_report(
 
         source_audit = audit_code_sources(holding_codes(paper) or [])
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         source_audit = None
     attribution = {}
     try:
@@ -612,7 +594,6 @@ def _assemble_extras_and_ops_report(
 
         attribution = build_paper_attribution_lite(paper, summary) or {}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         attribution = {"ok": False, "reason": "attribution_error"}
 
     ops_report = build_ops_report(

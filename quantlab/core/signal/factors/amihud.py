@@ -1,9 +1,5 @@
 """Amihud 非流动性因子（V2.1）：高价格冲击降分，相对 liquidity（活跃度）正交。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Tuple
 

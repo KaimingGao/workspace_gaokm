@@ -76,7 +76,6 @@ def resolve_validation_codes(
 
                 watching_codes = universe_codes()
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in validation_universe.py", exc_info=True)
                 watching_codes = []
         codes = [str(c).strip() for c in (watching_codes or []) if str(c).strip()]
         source = "watching"

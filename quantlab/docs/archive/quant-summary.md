@@ -151,7 +151,7 @@ python3 evals/run_checklist.py --mock --quant-only --presets
 python3 evals/run_agent_check.py --case quant_package_info
 ```
 
-需 `DOUBAO_API_KEY`。
+需 `DASHSCOPE_API_KEY`。
 
 ---
 

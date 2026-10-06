@@ -33,6 +33,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- test_p16_quant.py::TestDailyPresets ---
+
 class TestDailyPresets(unittest.TestCase):
     def test_list_presets(self):
         names = {p["name"] for p in list_daily_presets()}
@@ -57,6 +58,7 @@ class TestDailyPresets(unittest.TestCase):
             resolve_daily_preset("nope")
 
 # --- test_p16_quant.py::TestDailyLastRun ---
+
 class TestDailyLastRun(unittest.TestCase):
     def test_eval_mock_writes_last_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -74,6 +76,7 @@ class TestDailyLastRun(unittest.TestCase):
             self.assertEqual(saved["steps"][0]["name"], "eval_mock")
 
 # --- test_p16_quant.py::TestDailyRunCliPreset ---
+
 class TestDailyRunCliPreset(unittest.TestCase):
     def test_cli_preset_requires_valid(self):
         from research import daily_run
@@ -82,6 +85,7 @@ class TestDailyRunCliPreset(unittest.TestCase):
             daily_run.main(["--preset", "nope"])
 
 # --- test_p16_quant.py::TestDailyWebPresets ---
+
 class TestDailyWebPresets(unittest.TestCase):
     def test_api_presets(self):
         from fastapi.testclient import TestClient
@@ -194,6 +198,7 @@ class TestDailyWebPresets(unittest.TestCase):
         self.assertIn("paper_horizon_days", bt)
 
 # --- test_p17_quant.py::TestWatchingHealth ---
+
 class TestWatchingHealth(unittest.TestCase):
     def test_missing_watching(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -234,6 +239,7 @@ class TestWatchingHealth(unittest.TestCase):
         self.assertTrue(any("手动模式" in w for w in out["warnings"]))
 
 # --- test_p17_quant.py::TestDailyHealth ---
+
 class TestDailyHealth(unittest.TestCase):
     def test_build_health_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -250,6 +256,7 @@ class TestDailyHealth(unittest.TestCase):
         self.assertTrue(out["success"])
 
 # --- test_p17_quant.py::TestQuantHealthTask ---
+
 class TestQuantHealthTask(unittest.TestCase):
     def test_health_task(self):
         engine = QuantEngine()
@@ -260,6 +267,7 @@ class TestQuantHealthTask(unittest.TestCase):
         self.assertTrue(out["ok"])
 
 # --- test_p17_quant.py::TestQuantHealthApi ---
+
 class TestQuantHealthApi(unittest.TestCase):
     def test_api_daily_health(self):
         from fastapi.testclient import TestClient
@@ -289,6 +297,7 @@ class TestQuantHealthApi(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
 
 # --- test_p18_quant.py::TestWatchingFileApi ---
+
 class TestWatchingFileApi(unittest.TestCase):
     def test_read_watching_file_missing(self):
         with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "data")) as tmp:
@@ -314,6 +323,7 @@ class TestWatchingFileApi(unittest.TestCase):
         self.assertTrue(res.json()["exists"])
 
 # --- test_p18_quant.py::TestDailyCheck ---
+
 class TestDailyCheck(unittest.TestCase):
     def test_missing_file_ok_by_default(self):
         with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "data")) as tmp:
@@ -330,6 +340,7 @@ class TestDailyCheck(unittest.TestCase):
         self.assertEqual(code, 1)
 
 # --- test_p19_quant.py::TestSignalConfigRead ---
+
 class TestSignalConfigRead(unittest.TestCase):
     def test_read_signal_config_file(self):
         out = read_signal_config_file(reload=True)
@@ -342,6 +353,7 @@ class TestSignalConfigRead(unittest.TestCase):
         self.assertIn("stance_thresholds", out["config"])
 
 # --- test_p19_quant.py::TestQuantPaperPreset ---
+
 class TestQuantPaperPreset(unittest.TestCase):
     def test_quant_paper_preset(self):
         names = {p["name"] for p in list_daily_presets()}
@@ -353,6 +365,7 @@ class TestQuantPaperPreset(unittest.TestCase):
         self.assertTrue(flags["export_quant_report"])
 
 # --- test_p19_quant.py::TestSignalConfigApi ---
+
 class TestSignalConfigApi(unittest.TestCase):
     def test_api_signal_config(self):
         from fastapi.testclient import TestClient
@@ -367,6 +380,7 @@ class TestSignalConfigApi(unittest.TestCase):
         self.assertIn("config", data)
 
 # --- test_p19_quant.py::TestQuantPaperCli ---
+
 class TestQuantPaperCli(unittest.TestCase):
     def test_cli_preset_quant_paper_resolves(self):
         from quant.ops.daily_presets import resolve_daily_preset
@@ -376,6 +390,7 @@ class TestQuantPaperCli(unittest.TestCase):
         self.assertTrue(out["flags"]["paper_rebalance"])
 
 # --- test_p20_quant.py::TestConfigDiffPreview ---
+
 class TestConfigDiffPreview(unittest.TestCase):
     def test_preview_from_report(self):
         report = {
@@ -420,6 +435,7 @@ class TestConfigDiffPreview(unittest.TestCase):
         self.assertTrue(res.json()["readonly"])
 
 # --- test_p21_quant.py::TestDiffBundleExport ---
+
 class TestDiffBundleExport(unittest.TestCase):
     def test_export_bundle_from_preview(self):
         preview = build_config_diff_preview(
@@ -453,6 +469,7 @@ class TestDiffBundleExport(unittest.TestCase):
         self.assertIn("merged_patch", res.json())
 
 # --- test_p21_quant.py::TestPresetCheck ---
+
 class TestPresetCheck(unittest.TestCase):
     def test_quant_paper_preset_flags(self):
         out = check_daily_presets()
@@ -460,6 +477,7 @@ class TestPresetCheck(unittest.TestCase):
         self.assertIn("quant_paper", out.get("checked") or [])
 
 # --- test_p21_quant.py::TestSignalDiffExportCli ---
+
 class TestSignalDiffExportCli(unittest.TestCase):
     def test_cli_mocked(self):
         from research import signal_diff_export_run
@@ -474,6 +492,7 @@ class TestSignalDiffExportCli(unittest.TestCase):
         self.assertEqual(code, 0)
 
 # --- test_p22_quant.py::TestQuantPaperDailyIntegration ---
+
 class TestQuantPaperDailyIntegration(unittest.TestCase):
     @patch("core.watching.health.check_watching_health")
     def test_quant_paper_preset_runs_rebalance(self, mock_health):
@@ -563,6 +582,7 @@ class TestQuantPaperDailyIntegration(unittest.TestCase):
         paper.rebalance.assert_not_called()
 
 # --- test_p22_quant.py::TestCiPresetCheck ---
+
 class TestCiPresetCheck(unittest.TestCase):
     def test_preset_check_cli(self):
         code = run_preset_check_main([])
@@ -573,6 +593,7 @@ class TestCiPresetCheck(unittest.TestCase):
         self.assertIn("quant_paper", out["checked"])
 
 # --- test_p69_quant.py::TestP69DailyAutoExportPreview ---
+
 class TestP69DailyAutoExportPreview(unittest.TestCase):
     def test_quant_presets_include_export_flag(self):
         from quant.ops.daily_presets import DAILY_PRESETS

@@ -1,9 +1,5 @@
 """环境变量加载（CLI / Web 共用）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import os
 import tempfile
 from typing import Dict, Optional
@@ -133,10 +129,7 @@ def persist_llm_model_to_env(model: str, path: Optional[str] = None) -> Dict[str
     raw = str(model or "").strip()
     if not raw:
         out = upsert_env_key("DASHSCOPE_MODEL", "", path=path)
-        os.environ.pop("DOUBAO_MODEL", None)
         return {**out, "cleared": True}
     if len(raw) > 128 or " " in raw:
         return {"ok": False, "reason": "invalid model name"}
-    out = upsert_env_key("DASHSCOPE_MODEL", raw, path=path)
-    os.environ.pop("DOUBAO_MODEL", None)
-    return out
+    return upsert_env_key("DASHSCOPE_MODEL", raw, path=path)

@@ -40,6 +40,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- test_p15_quant.py::TestHtmlExport ---
+
 class TestHtmlExport(unittest.TestCase):
     def test_render_html(self):
         report = {
@@ -59,6 +60,7 @@ class TestHtmlExport(unittest.TestCase):
         self.assertEqual(out["format"], "html")
 
 # --- test_p16_quant.py::TestQuantReportExports ---
+
 class TestQuantReportExports(unittest.TestCase):
     def test_save_report_exports(self):
         report = {
@@ -78,6 +80,7 @@ class TestQuantReportExports(unittest.TestCase):
             self.assertIn("量化研究日报", body)
 
 # --- test_p17_quant.py::TestQuantReportIndex ---
+
 class TestQuantReportIndex(unittest.TestCase):
     def test_list_and_read_reports(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,6 +136,7 @@ class TestQuantReportIndex(unittest.TestCase):
         self.assertFalse(out["success"])
 
 # --- test_p26_quant.py::TestP26ReportShareUrl ---
+
 class TestP26ReportShareUrl(unittest.TestCase):
     def test_share_url_in_list(self):
         import tempfile
@@ -148,6 +152,7 @@ class TestP26ReportShareUrl(unittest.TestCase):
         )
 
 # --- test_p26_quant.py::TestP26Api ---
+
 class TestP26Api(unittest.TestCase):
     def test_quant_reports_share_url(self):
         try:
@@ -203,6 +208,7 @@ class TestP26Api(unittest.TestCase):
         self.assertEqual(kwargs.get("date"), "2026-07-19")
 
 # --- test_p27_quant.py::TestP27ExecutiveSummary ---
+
 class TestP27ExecutiveSummary(unittest.TestCase):
     def _sample_report(self):
         return {
@@ -257,6 +263,7 @@ class TestP27ExecutiveSummary(unittest.TestCase):
         self.assertGreaterEqual(out["executive_summary"]["bullet_count"], 1)
 
 # --- test_p27_quant.py::TestP27ExportSummaryApi ---
+
 class TestP27ExportSummaryApi(unittest.TestCase):
     def test_api_quant_export_summary(self):
         try:
@@ -281,6 +288,7 @@ class TestP27ExportSummaryApi(unittest.TestCase):
         self.assertEqual(res.json()["bullet_count"], 2)
 
 # --- test_p67_quant.py::TestP67ExportPreviewToc ---
+
 class TestP67ExportPreviewToc(unittest.TestCase):
     def _sample_report(self):
         return {
@@ -323,6 +331,7 @@ class TestP67ExportPreviewToc(unittest.TestCase):
         self.assertIn("cross-section", [e["anchor"] for e in res.json()["export_toc"]["entries"]])
 
 # --- test_p75_quant.py::TestP75ExecutiveSummaryScoreStats ---
+
 class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
     def test_cross_section_ranking_key(self):
         cs = {
@@ -348,6 +357,7 @@ class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
         self.assertTrue(any("1.250%" in b or "1.25" in b for b in out["bullets"]))
 
 # --- test_p80_quant.py::TestP80CrossSectionExportSection ---
+
 class TestP80CrossSectionExportSection(unittest.TestCase):
     def _cs(self):
         return {
@@ -378,6 +388,7 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
         self.assertIn("cross-section", out["content"])
 
 # --- test_p91_quant.py::TestP91FactorOlsExport ---
+
 class TestP91FactorOlsExport(unittest.TestCase):
     def _report(self):
         bars = rising_bars(100)

@@ -3,10 +3,6 @@
 用于行情与公开源：瞬时超时、连接错误可重试；4xx（除 429）不重试。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import random
 import time
 from typing import Any, Callable, Optional, TypeVar

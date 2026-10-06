@@ -1,9 +1,5 @@
 """因子面板 OLS 拟合（domain 层；不依赖 quant）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 

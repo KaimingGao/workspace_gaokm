@@ -1,9 +1,5 @@
 """日线字段辅助：成交额与成交量分离（模拟验证诚实度）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 

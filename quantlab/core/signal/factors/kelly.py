@@ -9,10 +9,6 @@ f = (胜率 × 盈亏比 - 1) / 盈亏比
 - 盈亏比: 平均盈利 / 平均亏损
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional, Tuple
 
 

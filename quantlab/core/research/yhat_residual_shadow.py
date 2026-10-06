@@ -4,10 +4,6 @@
 ``cross_section.yhat_residual``。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import copy
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 

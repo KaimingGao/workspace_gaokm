@@ -1,8 +1,5 @@
 """Golden eval 服务（Web / CLI 共用）。"""
 
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, List, Optional

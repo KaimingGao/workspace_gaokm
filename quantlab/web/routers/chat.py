@@ -1,9 +1,5 @@
 """对话 / 会话 API。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -14,8 +10,8 @@ from web.schemas import ChatAsyncResponse, ChatRequest, ChatResponse
 
 router = APIRouter(tags=["chat"])
 
-
 @router.post("/api/chat", response_model=ChatResponse)
+
 def chat(
     body: ChatRequest,
     x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id"),
@@ -43,8 +39,8 @@ def chat(
         primary_tab=out.get("primary_tab") or primary_tab(out.get("artifacts") or []),
     )
 
-
 @router.post("/api/chat/async", response_model=ChatAsyncResponse)
+
 def chat_async(
     body: ChatRequest,
     x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id"),
@@ -64,15 +60,15 @@ def chat_async(
         job=out.get("job") or {},
     )
 
-
 @router.get("/api/chat/job")
+
 def chat_job() -> Dict[str, Any]:
     """兼容别名；规范入口 ``/api/jobs/chat``。"""
     out = deps.chat.get_job()
     return {**out, "deprecated": True, "canonical": "/api/jobs/chat"}
 
-
 @router.post("/api/reset")
+
 def reset(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")) -> Dict[str, Any]:
     sid, agent = deps.chat.reset(x_session_id)
     return {
@@ -81,8 +77,8 @@ def reset(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id
         "session_usage": agent.get_session_usage(),
     }
 
-
 @router.get("/api/usage")
+
 def usage(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")) -> Dict[str, Any]:
     sid, agent = deps.chat.get_or_create(x_session_id)
     return {

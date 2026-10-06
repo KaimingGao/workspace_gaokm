@@ -44,7 +44,6 @@ def _read_json(path: str) -> Optional[Dict[str, Any]]:
             data = json.load(f)
         return data if isinstance(data, dict) else None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in live_config_manifest.py", exc_info=True)
         return None
 
 

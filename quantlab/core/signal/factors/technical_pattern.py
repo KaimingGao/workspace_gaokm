@@ -7,9 +7,6 @@
 4. 趋势强度（ADX、均线斜率）
 """
 
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 from core.numbers import calc_sma as _calc_ma

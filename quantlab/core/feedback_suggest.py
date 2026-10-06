@@ -3,10 +3,6 @@
 生产选股门槛为 ŷ 滞回（scoring.*）；rank.min_score 字段已下线。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 from typing import Any, Dict, Optional
 
@@ -41,7 +37,6 @@ def suggest_config_feedback(
 
         append_ttm_event(TTM_EVENT_IDEA, ref="feedback_suggest")
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in feedback_suggest.py", exc_info=True)
         pass
 
     bt = backtest_metrics or {}

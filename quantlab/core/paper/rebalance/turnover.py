@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List, Optional, Tuple
-
-logger = logging.getLogger(__name__)
 
 
 def clip_shares_to_turnover_budget(
@@ -62,7 +59,6 @@ def resolve_buy_turnover_budget(
     _sell_excess = max(0.0, _single_side_amt - sell_amt)
     buy_budget_amt = _single_side_amt + min(_sell_excess, _single_side_amt)
     return sell_amt, buy_amt_so_far, buy_budget_amt
-
 
 
 def compute_turnover_stats(

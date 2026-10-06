@@ -118,7 +118,6 @@ class SignalService:
 
             return dict(dual_score_book_fields(item, rank_cfg=rank_cfg, paper=paper) or {})
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in service.py", exc_info=True)
             return {}
 
     def annotate_item(self, item: Optional[dict]) -> Dict[str, Any]:
@@ -133,7 +132,6 @@ class SignalService:
             # 保留 score_one 的 PIT dual_score_window，勿用无行情时钟覆盖
             align_trade_score_fields(packed, write_score=False, refresh_window=False)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in service.py", exc_info=True)
             pass
         return packed
 
@@ -159,7 +157,6 @@ class SignalService:
         try:
             heu = is_heuristic_score_scale(packed)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in service.py", exc_info=True)
             heu = str(packed.get("return_model_source") or "") == "oos_failed_heuristic"
         if heu:
             table_score = packed.get("score_cluster")

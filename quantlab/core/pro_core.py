@@ -3,10 +3,6 @@
 见 docs/archive/pro-core-strengthen.md。不写 OMS；只加深路径内可信度。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 # 财务可用日覆盖软/硬阈值（与 maturity/DQ 同口径）
@@ -210,7 +206,6 @@ def regime_position_scale(*, regime: Optional[dict] = None) -> Dict[str, Any]:
                 "source": "apply_position_scale=false",
             }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in pro_core.py", exc_info=True)
         pass
     r = regime or {}
     label = str(r.get("label") or r.get("regime") or r.get("state") or "").lower()

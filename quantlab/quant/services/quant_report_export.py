@@ -48,7 +48,6 @@ def _legacy_heuristic_checker():
     try:
         from core.signal.score_display import looks_like_legacy_heuristic_score
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_report_export.py", exc_info=True)
 
         def looks_like_legacy_heuristic_score(value, **_kw):  # type: ignore
             try:
@@ -901,6 +900,7 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
   <p class="foot">以上为量化研究摘要（选股真源=ŷ · 主叙事=组ŷ/簿/OOS/横截面/历史回测）；市场有风险，不保证收益，不代客下单。</p>
 </body>
 </html>"""
+
 
 def export_quant_report(
     report: Optional[Dict[str, Any]] = None,

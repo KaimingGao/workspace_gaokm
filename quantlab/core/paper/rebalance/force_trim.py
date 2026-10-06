@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List, Optional, Tuple
-
-logger = logging.getLogger(__name__)
 
 
 def select_force_trim_codes(
@@ -82,7 +79,6 @@ def select_force_trim_codes_sellable(
             try:
                 reason = sell_block_fn(code, quote)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper_rebalance_force_trim.py", exc_info=True)
                 reason = None
         if reason:
             blocked.append(

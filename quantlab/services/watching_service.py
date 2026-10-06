@@ -1,9 +1,5 @@
 """观察名单应用服务：Web / CLI 与 core.watching.store 的边界。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 

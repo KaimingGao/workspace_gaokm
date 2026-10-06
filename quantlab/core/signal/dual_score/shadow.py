@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-
-logger = logging.getLogger(__name__)
 
 from core.signal.dual_score.resolve import (
     resolve_predicted_score_tau,

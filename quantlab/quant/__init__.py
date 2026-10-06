@@ -4,9 +4,6 @@
 本包聚合：services · ops · research CLI · Agent skill 适配。
 """
 
-import logging
-
-logger = logging.getLogger(__name__)
 from quant.services.quant_service import QuantService
 
 __all__ = ["QuantService"]

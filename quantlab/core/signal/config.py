@@ -1,9 +1,6 @@
 """signal / stance 配置加载（P6.1 / V2.1）。"""
 
 
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 import os
 from contextlib import contextmanager

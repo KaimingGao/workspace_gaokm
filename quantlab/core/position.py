@@ -1,10 +1,5 @@
 """持仓与 stance 交叉引用（轻量，不含完整 advise 管线）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
-
 from core.signal.service import get_default_signal_service
 from core.stance import compute_buy_stance
 

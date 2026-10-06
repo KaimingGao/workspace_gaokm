@@ -56,7 +56,6 @@ def _resolve_warmup_codes(
             if uni:
                 return uni[: max(1, int(cap))]
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
             pass
     uni_path = os.path.join(DATA_DIR, "watching.json")
     if os.path.isfile(uni_path):
@@ -243,7 +242,6 @@ def run_bars_warmup(
                 summary.get("metrics") or metrics_snapshot()
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
             pass
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
@@ -455,7 +453,6 @@ def run_spot_refresh(*, force: bool = False, enrich_sectors: bool = True) -> Dic
 
             result["data_service_metrics"] = metrics_snapshot()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
             pass
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
@@ -716,7 +713,6 @@ def run_paper_daily(
                 paper["last_north_star"] = north_star
                 save_paper(paper, PAPER_PATH)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
                 north_star = None
 
         monitor_alerts = (
@@ -775,7 +771,6 @@ def run_paper_daily(
             result["data_service_metrics"] = data_metrics_snapshot()
             result["signal_service_metrics"] = signal_metrics_snapshot()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
             pass
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path

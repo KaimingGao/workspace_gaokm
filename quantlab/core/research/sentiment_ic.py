@@ -1,9 +1,5 @@
 """FS2：alt_sentiment as_of 面板 IC（与 live 闸独立）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.research.panel import collect_subscore_forward_panel

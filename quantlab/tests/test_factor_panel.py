@@ -16,6 +16,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- test_p48_quant.py::TestP48FactorPanel ---
+
 class TestP48FactorPanel(unittest.TestCase):
     def test_panel_has_rows_with_weights(self):
         panel = build_factor_panel()
@@ -56,6 +57,7 @@ class TestP48FactorPanel(unittest.TestCase):
             self.assertIn(row["factor"], cfg["weights"])
 
 # --- test_p48_quant.py::TestP48FactorPanelApi ---
+
 class TestP48FactorPanelApi(unittest.TestCase):
     def test_factor_panel_api(self):
         try:

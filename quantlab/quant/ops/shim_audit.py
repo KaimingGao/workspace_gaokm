@@ -1,9 +1,5 @@
 """检测 quant 兼容 shim 的非法 import（P39，非破坏性守卫）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import ast
 import os
 from typing import Any, Dict, Iterable, List, Optional, Set
@@ -96,7 +92,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
     print(f"quant shim import audit OK ({out['scanned_files']} files scanned)")
     return 0
-
 
 if __name__ == "__main__":
     import sys

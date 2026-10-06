@@ -1,9 +1,5 @@
 """量化报告归档索引（P17.2）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import os
 import re
 from datetime import datetime

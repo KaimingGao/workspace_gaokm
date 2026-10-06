@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-
-logger = logging.getLogger(__name__)
 
 from web import deps
 from web.dashboard.paper_helpers import (
@@ -41,7 +38,6 @@ def _build_kpis() -> Dict[str, Any]:
 
         live_summary = mark_to_market(paper) if paper else None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         live_summary = None
     if isinstance(live_summary, dict):
         tp = live_summary.get("today_pnl_pct")
@@ -202,7 +198,6 @@ def _build_kpis() -> Dict[str, Any]:
                         "sharpe": s.get("sharpe") or s.get("rolling_sharpe") or 0,
                     })
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         pass
     if strategies and total_ret is not None:
         # 当前策略卡用纸面累计收益/本地 sharpe 覆盖全 0

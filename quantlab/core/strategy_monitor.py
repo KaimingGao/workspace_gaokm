@@ -49,7 +49,6 @@ def estimate_composite_ic(
         try:
             out = score_bars(window, quote=quote, fundamentals=None, sentiment=None)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             continue
         if out.get("hard_reject") or out.get("score") is None:
             continue
@@ -109,7 +108,6 @@ def estimate_yhat_ic(
         try:
             out = score_bars(window, quote=quote, fundamentals=None, sentiment=None)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             continue
         if out.get("hard_reject"):
             continue
@@ -118,7 +116,6 @@ def estimate_yhat_ic(
             try:
                 pred = model.predict(out.get("sub_scores") or {})
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
                 pred = None
         if pred is None:
             # 无组模型：跳过（不混 heuristic 以免污染 ŷ IC）
@@ -289,7 +286,6 @@ def assess_strategy_health(
     try:
         spec_risk = risk or (get_strategy_spec(str(sid)).get("risk") or {})
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
         spec_risk = risk or {}
 
     max_dd = float(spec_risk.get("max_drawdown_pct") or 20.0)
@@ -328,7 +324,6 @@ def assess_strategy_health(
             ic_pack = estimate_rolling_ic_for_codes(code_list)
             ic_val = ic_pack.get("rolling_ic")
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             ic_pack = {"ok": False, "rolling_ic": None}
 
     if ic_val is not None:
@@ -354,7 +349,6 @@ def assess_strategy_health(
             yhat_ic_pack = estimate_rolling_yhat_ic_for_codes(code_list)
             yhat_ic_val = yhat_ic_pack.get("rolling_ic")
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             yhat_ic_pack = {"ok": False, "rolling_ic": None}
     if yhat_ic_val is not None:
         try:

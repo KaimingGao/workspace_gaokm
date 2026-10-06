@@ -9540,9 +9540,24 @@ body[data-page="quant"] .quant-page .dialog-btn {
   line-height: 1.25;
 }
 
+body[data-page="quant"] .quant-page .dialog-btn.primary {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-color: var(--accent) !important;
+}
+
+body[data-page="quant"] .quant-page .dialog-btn.warn {
+  background: var(--warn, #f59e0b) !important;
+  color: #fff !important;
+  border-color: var(--warn, #f59e0b) !important;
+}
+
 body[data-page="quant"] .quant-page .dialog-btn.is-gate-warn {
   border-color: color-mix(in srgb, var(--warn, #b45309) 55%, var(--line)) !important;
-  color: var(--warn, #b45309) !important;
+}
+
+body[data-page="quant"] .quant-page .dialog-btn.warn.is-gate-warn {
+  color: #fff !important;
 }
 
 body[data-page="quant"] .quant-page .quant-oos-band {

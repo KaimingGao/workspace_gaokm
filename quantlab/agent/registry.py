@@ -1,9 +1,5 @@
 """Skill 单一注册表：TOOL 名 / Handler / tool_config 三者对齐。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import importlib
 import json
 import os

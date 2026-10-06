@@ -148,7 +148,6 @@ def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict
         if len(out) >= max(1, len(uniq) // 2):
             return out
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_rebalance_match.py", exc_info=True)
         logger.warning("batch_query_quotes failed; fallback per-code", exc_info=True)
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -164,17 +163,14 @@ def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict
                 try:
                     out[code] = fut.result(timeout=0)
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in paper_rebalance_match.py", exc_info=True)
                     out[code] = {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in paper_rebalance_match.py", exc_info=True)
             for code, fut in futures.items():
                 if code in out:
                     continue
                 try:
                     out[code] = fut.result(timeout=0) if fut.done() else {}
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in paper_rebalance_match.py", exc_info=True)
                     out[code] = {}
     return out
 
@@ -217,7 +213,6 @@ def _buy_match_block_reason(code: str, quote: Optional[dict]) -> Optional[str]:
             except (TypeError, ValueError):
                 pass
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_rebalance_match.py", exc_info=True)
         return None
     return None
 
@@ -260,6 +255,5 @@ def _sell_match_block_reason(code: str, quote: Optional[dict]) -> Optional[str]:
             except (TypeError, ValueError):
                 pass
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_rebalance_match.py", exc_info=True)
         return None
     return None

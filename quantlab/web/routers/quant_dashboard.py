@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Query
@@ -51,8 +50,6 @@ from web.dashboard.risk_views import (
     _build_risk_metrics,
 )
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(tags=["dashboard"])
 
 # 再导出：tests / 外部 patch 路径
@@ -76,6 +73,7 @@ __all__ = [
 ]
 
 @router.get("/api/dashboard/kpis")
+
 def dashboard_kpis() -> Dict[str, Any]:
     """核心 KPI 卡片数据。"""
     try:
@@ -83,8 +81,8 @@ def dashboard_kpis() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/nav-curve")
+
 def dashboard_nav_curve(range: str = "all", benchmark: str = "hs300") -> Dict[str, Any]:
     """累计净值曲线（归一到 100）。range: 30 | 90 | ytd | all。含基准对比与相关性。"""
     try:
@@ -138,8 +136,8 @@ def dashboard_nav_curve(range: str = "all", benchmark: str = "hs300") -> Dict[st
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/drawdown")
+
 def dashboard_drawdown(range: str = "all") -> Dict[str, Any]:
     """回撤曲线。range: 30 | 90 | ytd | all。"""
     try:
@@ -165,8 +163,8 @@ def dashboard_drawdown(range: str = "all") -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/var-historical")
+
 def dashboard_var_historical(range_key: str = Query("all", alias="range")) -> Dict[str, Any]:
     """历史模拟 VaR / CVaR 与收益直方图。
 
@@ -245,8 +243,8 @@ def dashboard_var_historical(range_key: str = Query("all", alias="range")) -> Di
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/factor-ic-series")
+
 def dashboard_factor_ic_series(
     lookback: int = 60,
     horizon_days: int = 3,
@@ -301,7 +299,6 @@ def dashboard_factor_ic_series(
                 ic_mean = mean(scores)
                 ic_std = stdev(scores) if len(scores) > 1 else 0.0
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
                 continue
             ic_ir = (ic_mean / ic_std) if ic_std > 1e-12 else 0.0
             ic_ir_annual = ic_ir * _math.sqrt(252.0 / max(int(horizon_days or 3), 1))
@@ -344,8 +341,8 @@ def dashboard_factor_ic_series(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/drawdown-chart")
+
 def dashboard_drawdown_chart(range: str = "all") -> Dict[str, Any]:
     """Dashboard 回撤时序图数据。"""
     try:
@@ -367,8 +364,8 @@ def dashboard_drawdown_chart(range: str = "all") -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/sector-heatmap")
+
 def dashboard_sector_heatmap() -> Dict[str, Any]:
     try:
         return _build_sector_heatmap()
@@ -377,8 +374,8 @@ def dashboard_sector_heatmap() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/signals")
+
 def dashboard_signals(limit: int = 20) -> Dict[str, Any]:
     try:
         return _build_signals(limit)
@@ -387,8 +384,8 @@ def dashboard_signals(limit: int = 20) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/allocation")
+
 def dashboard_allocation() -> Dict[str, Any]:
     try:
         return _build_allocation()
@@ -397,8 +394,8 @@ def dashboard_allocation() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/market-overview")
+
 def dashboard_market_overview() -> Dict[str, Any]:
     """市场监控：指数 / 涨跌家数 / 成交额 / 涨停跌停。"""
     try:
@@ -406,8 +403,8 @@ def dashboard_market_overview() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/market-context")
+
 def dashboard_market_context() -> Dict[str, Any]:
     """盘前跨市场 / 情绪 / 公告上下文。"""
     try:
@@ -415,8 +412,8 @@ def dashboard_market_context() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/risk-metrics")
+
 def dashboard_risk_metrics() -> Dict[str, Any]:
     """组合风险指标：Sharpe / Sortino / VaR / 波动率。"""
     try:
@@ -424,8 +421,8 @@ def dashboard_risk_metrics() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/factor-exposure")
+
 def dashboard_factor_exposure() -> Dict[str, Any]:
     """因子暴露分析：基于持仓的板块/风格暴露。"""
     try:
@@ -433,8 +430,8 @@ def dashboard_factor_exposure() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
 @router.get("/api/dashboard/portfolio-health")
+
 def dashboard_portfolio_health() -> Dict[str, Any]:
     """纸面组合健康度：暴露 · α 衰减告警（不依赖分组簿）。"""
     try:

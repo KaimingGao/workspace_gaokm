@@ -51,7 +51,6 @@ class QuantOpsMixin:
                         if hc and hc in codes:
                             holdings_by_code[hc] = dict(h)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
                 logger.warning("运维操作异常", exc_info=True)
         # 评分留给 insights 填充；保持字段存在以免前端判空出错
         uni["watchlist_scores"] = {}

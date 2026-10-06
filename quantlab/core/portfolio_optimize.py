@@ -16,7 +16,6 @@ def _board_for(code: str) -> str:
 
         return board_style_for(code)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         c = str(code or "").strip()
         if c.isdigit() and len(c) == 6:
             if c.startswith(("688", "689")):
@@ -59,7 +58,6 @@ def load_sector_map() -> Dict[str, str]:
         if isinstance(raw, dict):
             return {str(k): str(v) for k, v in raw.items() if k and v}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         return {}
     return {}
 
@@ -174,7 +172,6 @@ def _resolve_regime_scale(apply_regime_scale):
                 elif isinstance(pack, list):
                     index_bars = pack
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
                 index_bars = None
             regime_meta = regime_position_scale(
                 regime=assess_regime(index_bars)
@@ -214,7 +211,6 @@ def _resolve_style_caps(exposure, max_style_pct, eff_pos, eff_sec):
                 eff_pos = round(eff_pos * 0.9, 4)
                 eff_sec = round(eff_sec * 0.9, 4)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         style_caps = None
     return style_caps, eff_pos, eff_sec
 
@@ -257,7 +253,6 @@ def _filter_and_score_candidates(candidates, smap, floor):
             gate_sc = eod_gate_score_for_item(it)
             alloc_sc = decision_score_for_item(it)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
             gate_sc = None
             alloc_sc = None
         if gate_sc is None:
@@ -286,7 +281,6 @@ def _filter_and_score_candidates(candidates, smap, floor):
                 eod_trust = it.get("eod_trust")
                 y_check = it.get("y_check")
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
                 pass
         ranked.append(
             _build_ranked_row(it, code, score, sector, board, eod_trust, y_check)
@@ -391,7 +385,6 @@ def _compute_coverage(ranked):
 
         coverage = sector_coverage_report(codes_for_cov)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         coverage = {"coverage": None, "mapped": 0, "total": len(codes_for_cov)}
     return coverage
 

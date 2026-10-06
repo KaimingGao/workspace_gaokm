@@ -83,7 +83,6 @@ def _fetch_bars_isolated(
         if bars and (len(bars) >= need or offline_only):
             return bars[-int(limit) :], src
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         pass
 
     if offline_only:
@@ -108,7 +107,6 @@ def _fetch_bars_isolated(
                 return bars[-int(limit) :], src
         return [], "empty"
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         return [], "empty"
 
 
@@ -268,7 +266,6 @@ def score_stock(
     except TimeoutError:
         bars = []
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         bars = []
 
     if quote is None:
@@ -338,7 +335,6 @@ def score_stock(
         except TimeoutError:
             bars = []
         except Exception:  # noqa: BLE001
-            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             bars = []
 
     if not bars:
@@ -464,7 +460,6 @@ def score_stock(
         if fundamentals is None:
             fundamentals = merge_cached_valuation(str(code), None)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         pass
     try:
         from core.fundamentals_pit import merge_local_fundamentals_snapshot
@@ -473,7 +468,6 @@ def score_stock(
         if fundamentals is None:
             fundamentals = merge_local_fundamentals_snapshot(str(code), None)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         pass
 
     # X1：指数日线；X5：财务深度边界
@@ -490,7 +484,6 @@ def score_stock(
                 resolve_market_code(str(code)) or resolve_market_code(raw) or "CN"
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             mkt = "CN"
         idx_pack = fetch_live_index_bars(
             market=mkt, limit=75, offline_only=use_offline
@@ -629,7 +622,6 @@ def score_stock(
                 if kk and kk not in required_factor_keys:
                     required_factor_keys.append(kk)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         required_factor_keys = []
         global_model_pre = None
         weight_source = "global_missing"
@@ -666,7 +658,6 @@ def score_stock(
         sector = _sector_for(str(code), smap)
         board = _board_for(str(code))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         sector = "未分类"
         board = "其他"
 
@@ -721,7 +712,6 @@ def score_stock(
         else:
             weight_source = "global_missing"
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         predicted_score = None
         score_global = None
         score_cluster = None
@@ -979,7 +969,6 @@ def score_stock(
                     )
                     sector_breadth = br.get("breadth")
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in score_stock.py", exc_info=True)
                 logger.warning("sector gap breadth failed for %s", code, exc_info=True)
         feats = {
             "gap_pct": gap_v,
@@ -1062,7 +1051,6 @@ def score_stock(
             except Exception:  # noqa: BLE001
                 logger.debug("tau alpha158 inject skipped for %s", code, exc_info=True)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("tau Z extras skipped for %s", code, exc_info=True)
         try:
             from core.research.tau_theme import resolve_theme_day
@@ -1074,7 +1062,6 @@ def score_stock(
                 gap_trigger_pct=trigger,
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             feats["theme_day"] = (
                 1.0
                 if (gap_v is not None and abs(float(gap_v)) >= trigger)
@@ -1143,7 +1130,6 @@ def score_stock(
                         feats, trade_date=trade_day, tau_hm=pack_hm
                     )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)
 
         rem_model_doc = load_tau_model()
@@ -1189,7 +1175,7 @@ def score_stock(
                 co_model_doc=co_model_doc,
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_stock.py co", exc_info=True)
+            pass
         try:
             from core.t0.score_policy import _attach_y_path_to_item
 
@@ -1198,7 +1184,7 @@ def score_stock(
                 hist_bars=bars if isinstance(bars, list) else None,
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_stock.py path", exc_info=True)
+            pass
         trade = signal_item.get("predicted_score_tau")
         ep = build_event_prior_from_quote(
             quote,
@@ -1209,7 +1195,6 @@ def score_stock(
         )
         signal_item["event_prior"] = ep
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         logger.warning("rem/event_prior attach failed for %s", code, exc_info=True)
 
     try:

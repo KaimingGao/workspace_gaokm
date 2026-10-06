@@ -1,9 +1,5 @@
 """Evals / 黄金用例 API。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -15,47 +11,47 @@ from web.schemas import EvalRunRequest
 
 router = APIRouter(tags=["evals"])
 
-
 @router.get("/api/evals/cases")
+
 def evals_cases() -> Dict[str, Any]:
     return {"ok": True, "cases": deps.evals.list_cases()}
 
-
 @router.get("/api/evals/summary")
+
 def evals_summary() -> Dict[str, Any]:
     return deps.evals.summary()
 
-
 @router.get("/api/evals/presets")
+
 def evals_presets() -> Any:
     out = deps.evals.check_presets()
     if not out.get("ok"):
         return JSONResponse(status_code=422, content=out)
     return out
 
-
 @router.get("/api/evals/readme")
+
 def evals_readme() -> Any:
     out = deps.evals.check_readme()
     if not out.get("ok"):
         return JSONResponse(status_code=422, content=out)
     return out
 
-
 @router.get("/api/evals/routing")
+
 def evals_routing() -> Dict[str, Any]:
     return deps.evals.list_routing()
 
-
 @router.get("/api/evals/last")
+
 def evals_last() -> Dict[str, Any]:
     report = deps.evals.load_last_report()
     if not report:
         return {"ok": True, "exists": False}
     return {"ok": True, "exists": True, "report": report}
 
-
 @router.get("/api/evals/job")
+
 def evals_job() -> Dict[str, Any]:
     return {"ok": True, "job": deps.evals.get_job()}
 
@@ -76,11 +72,10 @@ def _evals_background_task(
             quant_only=quant_only,
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in evals.py", exc_info=True)
         pass
 
-
 @router.post("/api/evals/run")
+
 def evals_run(body: EvalRunRequest, background_tasks: BackgroundTasks) -> Any:
     if body.with_agent:
         llm = LLMClient()

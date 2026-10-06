@@ -202,7 +202,6 @@ def run_signal_scan(paper: dict, *, on_progress=None, stock_codes=None) -> List[
                     if str(c).strip()
                 ]
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper.py", exc_info=True)
                 codes = []
     if not codes:
         return []
@@ -386,7 +385,6 @@ def build_ops_report(
 
             out["strategy_label"] = get_strategy_spec(str(strategy_id)).get("label")
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in paper.py", exc_info=True)
             out["strategy_label"] = None
     if tw is not None:
         out["target_weights"] = tw
@@ -507,7 +505,6 @@ def append_trade_legs_to_operation_log(
     try:
         from core.paper.costs import fee_fields_from_trade, pnl_fields_from_trade
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper.py", exc_info=True)
         fee_fields_from_trade = None  # type: ignore
         pnl_fields_from_trade = None  # type: ignore
 
@@ -529,14 +526,12 @@ def append_trade_legs_to_operation_log(
             try:
                 fee_meta = fee_fields_from_trade(trade) or {}
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper.py", exc_info=True)
                 fee_meta = {}
         pnl_meta: Dict[str, Any] = {}
         if side == "sell" and pnl_fields_from_trade is not None:
             try:
                 pnl_meta = pnl_fields_from_trade(trade) or {}
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper.py", exc_info=True)
                 pnl_meta = {}
         name = trade.get("stock_name") or trade.get("stock_code") or "—"
         leg = "做T" if t0_leg or origin == "t0" else ""

@@ -18,7 +18,6 @@ def bars_session_date() -> str:
 
         return str(resolve_session_date() or "")[:10]
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in bars_daily.py", exc_info=True)
         return datetime.now().strftime("%Y-%m-%d")
 
 
@@ -41,7 +40,6 @@ def _read_forced_marker() -> Dict[str, Any]:
             doc = json.load(f)
         return doc if isinstance(doc, dict) else {}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in bars_daily.py", exc_info=True)
         return {}
 
 
@@ -79,5 +77,4 @@ def mark_force_latest_bars_done(
     try:
         atomic_write_json(BARS_FORCED_SESSION_PATH, doc)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in bars_daily.py", exc_info=True)
         logger.warning("写入当日强制日线标记失败", exc_info=True)

@@ -222,7 +222,6 @@ class ReturnScoreModel:
 
                 y_spec = build_y_spec(horizon_days=int(report.get("horizon_days") or 3))
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in return_score.py", exc_info=True)
                 y_spec = None
         return cls(
             intercept=intercept_f,
@@ -285,7 +284,6 @@ def apply_predicted_scores_by_model(
         try:
             model = resolver(code) if callable(resolver) else None
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in return_score.py", exc_info=True)
             model = None
         if model is None:
             model = default_model
@@ -397,7 +395,6 @@ def fit_return_model_from_panel(
 
         banned = unsourced_factor_names()
     except Exception:  # noqa: BLE001
-        logger.debug("catch except Exception: in return_score.py", exc_info=True)
         banned = frozenset()
     if banned:
         xs = [

@@ -113,7 +113,6 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
 
             config = load_signal_config()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             config = {}
     raw = dict(DEFAULT_DUAL_SCORE)
     raw["y_state"] = dict(DEFAULT_DUAL_SCORE.get("y_state") or {})
@@ -311,7 +310,6 @@ def resolve_predicted_score_oo(item: Optional[dict]) -> Optional[float]:
         if looks_like_legacy_heuristic_score(score_f, item=item):
             return None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         if abs(score_f) >= 10.0:
             return None
     blend = item.get("predicted_score_blend")
@@ -395,7 +393,6 @@ def compute_predicted_score_blend(
 
             rem_doc = load_tau_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             rem_doc = None
     from core.signal.dual_score.fusion import resolve_item_fusion_weights, stamp_item_fusion_weights
     from core.signal.yhat_windows import tau_model_is_open_to_close
@@ -508,7 +505,6 @@ def align_trade_score_fields(
 
             stamp_y_state(item, config=config)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             pass
         return item
     y_oo = item.get("predicted_score_eod")
@@ -528,7 +524,6 @@ def align_trade_score_fields(
 
             refresh_dual_score_window(item)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             pass
 
     tau = resolve_predicted_score_tau(item)
@@ -593,7 +588,6 @@ def align_trade_score_fields(
 
         stamp_y_state(item, config=config)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     return item
 

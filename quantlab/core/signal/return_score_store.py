@@ -162,7 +162,6 @@ def promote_return_model_draft(
                 "hint": "proxy 因子系数须为 0；确需放行在 note 写 force=1",
             }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in return_score_store.py", exc_info=True)
         model_blob = dict(raw.get("model") or {})
         pass
     _ensure_dirs()

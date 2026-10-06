@@ -1,9 +1,5 @@
 """组装 Web HTML：研究分页全页壳 + AI 抽屉。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import os
 from functools import lru_cache
 
@@ -24,7 +20,6 @@ def _current_asset_v() -> str:
         importlib.reload(av)
         return str(av.ASSET_V)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in page_html.py", exc_info=True)
         return ASSET_V
 
 _PAGE_TITLES = {
@@ -49,8 +44,8 @@ _PANEL_CLASS = {
     "platform": "quant-panel",
 }
 
-
 @lru_cache(maxsize=16)
+
 def _read(path: str) -> str:
     with open(path, encoding="utf-8") as f:
         return f.read()
@@ -100,7 +95,6 @@ def _side_nav(active: str) -> str:
     return f"""    <aside class="side-nav" aria-label="主导航">
       <div class="side-nav-brand">
         <a class="logo" href="/dashboard" title="QuantLab">
-          <span class="logo-mark" aria-hidden="true">Q</span>
           <span class="logo-text">QuantLab</span>
         </a>
       </div>

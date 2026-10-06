@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-
-logger = logging.getLogger(__name__)
 
 from web.dashboard.paper_helpers import (
     _fetch_index_bars_bounded,
@@ -66,7 +63,6 @@ def _fetch_benchmark_curve(
             if b.get("close") is not None
         ]
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return []
 
 

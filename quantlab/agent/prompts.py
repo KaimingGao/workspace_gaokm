@@ -6,9 +6,6 @@
 - 合规免责声明（DISCLAIMER）：每次对外生成文案结尾自动追加
 """
 
-import logging
-
-logger = logging.getLogger(__name__)
 DISCLAIMER = "以上为量化研究与模拟结论，市场有风险，不保证收益，不代客下单。"
 
 BUY_QUESTION_HINT = (

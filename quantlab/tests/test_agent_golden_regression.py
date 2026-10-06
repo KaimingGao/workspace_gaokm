@@ -17,6 +17,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 # --- test_p55_quant.py::TestP55AgentGoldenRegression ---
+
 class TestP55AgentGoldenRegression(unittest.TestCase):
     def test_golden_case_count(self):
         cases = load_cases()

@@ -40,7 +40,6 @@ def _resolve_symbol(raw: str, *, allow_live: bool = True) -> str:
         if code and str(code).strip():
             return str(code).strip()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in portfolio_bars.py", exc_info=True)
         pass
     if not allow_live:
         return text or digits or raw
@@ -119,7 +118,6 @@ def _load_bars_parallel(
                 try:
                     raw, sym, bars = fut.result()
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in portfolio_bars.py", exc_info=True)
                     logger.warning("portfolio cache bar load failed", exc_info=True)
                     continue
                 by_raw[str(raw)] = (str(sym), list(bars or []))

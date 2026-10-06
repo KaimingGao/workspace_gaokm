@@ -1,9 +1,5 @@
 """动态止损模块：ATR止损、移动止损、波动率调整止损。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import List, Optional, Tuple
 
 from core.signal.factors.volatility import atr_pct

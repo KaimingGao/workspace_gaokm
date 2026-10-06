@@ -1,9 +1,5 @@
 """对话轮次工具结果 → Web 右侧结果台 artifacts。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import json
 from typing import Any, Dict, List, Optional
 
@@ -172,7 +168,6 @@ def build_artifact(
     try:
         parsed = json.loads(result_raw) if isinstance(result_raw, str) else result_raw
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in artifacts.py", exc_info=True)
         parsed = {"success": False, "error": "无法解析工具结果", "raw": str(result_raw)[:500]}
     if not isinstance(parsed, dict):
         parsed = {"success": False, "error": "工具结果非对象", "value": str(parsed)[:500]}

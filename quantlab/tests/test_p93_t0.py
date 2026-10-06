@@ -5669,6 +5669,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
         self.assertTrue(locked["score_locked"])
         self.assertIn("无成交腿", locked["reason"])
 
+
 class TestT0AutoWorker(unittest.TestCase):
     def test_worker_tick_waits_outside_session(self):
         from core.t0.auto_worker import T0AutoWorker

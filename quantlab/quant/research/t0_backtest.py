@@ -19,6 +19,7 @@ T0_BT_DEFAULT_LOOKBACK = 10
 T0_BT_VIRTUAL_SHARES = 1_000.0
 T0_BT_VIRTUAL_CASH = 200_000.0
 
+
 def _fill_t0_viz_stock_names(viz: Any, *, stock_code: str, stock_name: Optional[str]) -> None:
     """点位/贡献行补股票名，避免累计 PnL / 散点 tip 只剩代码。"""
     if not isinstance(viz, dict):
@@ -444,6 +445,7 @@ def _align_daily_bars_to_minute(
         "date_max": aligned[-1].get("date"),
     }
     return aligned, meta
+
 
 def run_t0_backtest_for_code(
     code: str = "茅台",

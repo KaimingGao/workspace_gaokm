@@ -1,9 +1,5 @@
 """相关性风控模块：检测持仓股票之间的相关性，避免过度集中。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 import math
 from typing import Dict, List, Optional, Tuple
 

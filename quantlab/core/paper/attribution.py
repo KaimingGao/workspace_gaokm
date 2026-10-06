@@ -4,10 +4,6 @@
 并给出个股贡献 Top-N。研究回测归因见 ``core.backtest.attribution``。
 """
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -20,7 +16,6 @@ def _sector_for(code: str, sector: Optional[str] = None) -> str:
 
         return _sf(code, load_sector_map())
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_attribution.py", exc_info=True)
         return "其他"
 
 

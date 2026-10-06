@@ -94,7 +94,6 @@ def build_data_quality_report(
 
         ann_missing_top = ann_missing_top_codes(fund, limit=15)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in data_quality_center.py", exc_info=True)
         ann_missing_top = []
     if fund.get("ann_missing_code_ratio") is not None:
         try:
@@ -184,7 +183,6 @@ def build_data_quality_report(
             status = "warn" if status == "ok" else status
             warnings.append(f"风险拦截未标注 outcome={unlabeled_n} 条 · 策略页催办")
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in data_quality_center.py", exc_info=True)
         outcome_nudge = None
 
     io_stats: Dict[str, Any] = {}
@@ -198,7 +196,6 @@ def build_data_quality_report(
                 f"store IO 错误累计 {io_stats['io_error_count']} 次（见日志 store_io_error）"
             )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in data_quality_center.py", exc_info=True)
         io_stats = {}
 
     sector_cov = None
@@ -234,7 +231,6 @@ def build_data_quality_report(
 
         ds_metrics = metrics_snapshot()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in data_quality_center.py", exc_info=True)
         ds_metrics = {}
 
     ss_metrics: Dict[str, Any] = {}
@@ -243,7 +239,6 @@ def build_data_quality_report(
 
         ss_metrics = signal_metrics_snapshot()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in data_quality_center.py", exc_info=True)
         ss_metrics = {}
 
     return {

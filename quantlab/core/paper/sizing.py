@@ -1,9 +1,5 @@
 """模拟建仓定量：金额 / 仓位% / 股数预演与执行。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.paper.costs import (
@@ -23,7 +19,6 @@ ORIGIN_MANUAL = "manual"
 def _now_iso():
     from datetime import datetime
     return datetime.now().isoformat(timespec="seconds")
-
 
 DEFAULT_SYNC_LOT_SHARES = 200
 DEFAULT_SYNC_AMOUNT = 20_000.0  # 默认按金额建仓（元/只）
