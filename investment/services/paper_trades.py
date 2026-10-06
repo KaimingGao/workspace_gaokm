@@ -197,10 +197,26 @@ def _slim_t0_scores(raw: Any) -> Optional[dict]:
         return None
     out: Dict[str, Any] = {}
     for k, v in raw.items():
-        if k in _T0_SCORE_BULK_KEYS or str(k).startswith("formula_terms"):
+        sk = str(k)
+        if k in _T0_SCORE_BULK_KEYS or sk.startswith("formula_terms") or sk.startswith(
+            "score_formula"
+        ) or sk.startswith("features_"):
             continue
         out[k] = v
     return out or None
+
+
+def _slim_close_band_scan_row(raw: Any) -> Optional[dict]:
+    """扫描行去掉公式拆项；保留 OLHC / 带 / ŷ 标量供做 T 表展开。"""
+    slim = _slim_t0_scores(raw)
+    if not slim:
+        return None
+    scores = _slim_t0_scores(slim.get("scores"))
+    if scores:
+        slim["scores"] = scores
+    elif "scores" in slim:
+        slim.pop("scores", None)
+    return slim
 
 
 def _compact_t0_legs(trades: Any) -> List[dict]:
@@ -279,7 +295,11 @@ def _compact_t0_result_rows(results: Optional[list]) -> List[dict]:
             row["t0_slot_results"] = slots
         scan = raw.get("close_band_scan")
         if isinstance(scan, list) and scan:
-            row["close_band_scan"] = [r for r in scan if isinstance(r, dict)]
+            row["close_band_scan"] = [
+                slim
+                for slim in (_slim_close_band_scan_row(r) for r in scan)
+                if slim
+            ]
         trace = _compact_forward_trace(raw.get("forward_trace"))
         if trace:
             row["forward_trace"] = trace

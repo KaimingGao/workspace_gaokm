@@ -5820,6 +5820,9 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
                             "c": 25.7,
                             "c_tau": 25.45,
                             "r_pct": 0.95,
+                            "formula_terms_tau": {"terms": [1]},
+                            "score_formula_terms_tau": {"terms": [1]},
+                            "features_tau": {"gap_pct": 1.0},
                         }
                     ],
                     "forward_trace": [
@@ -5863,6 +5866,8 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
         self.assertNotIn("score_formula_terms", row.get("scores") or {})
         self.assertAlmostEqual(float(row["scores"]["y_tau"]), 0.08)
         self.assertEqual(row["close_band_scan"][0]["c_tau"], 25.45)
+        self.assertNotIn("formula_terms_tau", row["close_band_scan"][0])
+        self.assertNotIn("score_formula_terms_tau", row["close_band_scan"][0])
         self.assertTrue(row["forward_trace"][0]["leg1_fill"])
         self.assertNotIn("wait_reason", row["forward_trace"][0])
         self.assertEqual(row["t0_slot_results"][0]["close_band"]["c_tau"], 25.45)
