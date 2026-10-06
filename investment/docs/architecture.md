@@ -389,6 +389,8 @@ Skill / Service / 研究 CLI
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
+**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、横截面排序、调仓开加、回测宇宙的范围（上限 `WATCHING_MAX_SIZE`=500）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。选股链路：观察池 → `score_stock` → 横截面 Top N；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。
+
 **入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。做 T 为 **overlay**，不改变「持有什么」的主线；见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。
 
 **命名约定**：产品对外统一称「模拟」/URL `/follow`；内部 canonical 仍为 `paper`（`paper.json`、`/api/paper`）。旧页 `/paper` 302 到 `/follow`。
@@ -983,13 +985,13 @@ SKILL_SPECS = (
 | `meta` | `web/routers/meta.py` | 健康、版本、静态元数据 |
 | `chat` | `web/routers/chat.py` | `/api/chat` 会话 |
 | `paper` | `web/routers/paper.py` | `/api/paper` 模拟账本 |
-| `watching` | `web/routers/watching.py` | `/api/watching` 观察池 |
+| `watching` | `web/routers/watching.py` | `/api/watching` 观察池（候选宇宙 CRUD / 建仓入口） |
 | `strategy` | `web/routers/strategy.py` | 策略配置 |
 | `daily` | `web/routers/daily.py` | `/api/daily` 日报编排 |
 | `quant` | `web/routers/quant.py` | `/api/quant` 研究台主路由 |
 | `quant_config` | `web/routers/quant_config.py` | 信号/策略配置 |
 | `quant_research` | `web/routers/quant_research.py` | 因子/OLS/截面研究 |
-| `quant_cluster` | `web/routers/quant_cluster.py` | 日/分钟仓刷新 · 分组 OLS 410 |
+| `quant_cluster` | `web/routers/quant_cluster.py` | 日/分钟仓刷新（bars/minute）；分组 OLS/live 已退役（410） |
 | `quant_backtest` | `web/routers/quant_backtest.py` | TopK/组合回测 |
 | `quant_dashboard` | `web/routers/quant_dashboard.py` | 研究台仪表盘 |
 | `evals` | `web/routers/evals.py` | Golden eval |
@@ -1019,7 +1021,7 @@ SKILL_SPECS = (
 | 模块 | 路径 | 功能 |
 |------|------|------|
 | PaperService | `paper_service.py` + `paper_account.py` / `paper_jobs.py` / `paper_trades.py` / `paper_helpers.py` | 纸面账户、买卖、调仓 Job、策略晋升 |
-| WatchingService | `watching_service.py` | 观察名单 CRUD、建仓入口 |
+| WatchingService | `watching_service.py` | 观察池（候选宇宙）CRUD、建仓入口 |
 | ChatService | `chat_service.py` | Web/CLI 会话、Agent 调用 |
 | DailyService | `daily_service.py` | 每日任务（纸面 + eval + 量化） |
 | EvalService | `eval_service.py` | Golden eval 运行 |
@@ -1093,7 +1095,7 @@ SKILL_SPECS = (
 | 门面 | 模块路径 | 实现包 | 主要 API |
 |------|----------|--------|----------|
 | **DS** | `core/data/facade.py` | `core/data/` | `get_quote` · `get_bars` · `bars_and_source` · `summarize_data_quality` |
-| **SS** | `core/signal_service.py` | `core/signal/` | `score_one` · `rank_cross_section`（~~`rank_cluster_pools`~~ 已退役别名→横截面） |
+| **SS** | `core/signal_service.py` | `core/signal/` | `score_one` · `rank_cross_section` |
 | **BS** | `core/backtest_service.py` | `core/backtest/` | `run_topk`（研究探针，≠ 产品 `/replay`） · `run_signal_backtest` |
 
 **端口与绑定**（模式说明见 [§ 六边形架构](#六边形架构ports--adapters)）：
@@ -1121,7 +1123,6 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | `config.py` | `signal_config` 读写 |
 | `gate.py` | ŷ 生产门禁、scale 推断 |
 | `cross_section_batch.py` | 截面批量 |
-| `cluster/` | 分组 live：晋升/指针、排名、OOS 标签、健康、审计、证据、Job 水合 |
 | `dual_score/` | 双层 ŷ：融合、解析、τ/co 头、簿字段、影子簿、人审配置 |
 
 #### 回测 `core/backtest/`
@@ -1154,10 +1155,6 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | `context.py` · `context_store.py` · `context_merge.py` | 宏观/情绪上下文 |
 | `sentiment_prior.py` · `prior_policy.py` | 情绪 prior、买卖门禁 |
 
-#### 打分账本
-
-`core/score_ledger/` 与复盘 HTTP 已删除。分档改吃 ŷ_oo Holdout OOS。磁盘上的 `data/reports/score_ledger/` 历史 JSON 不删。
-
 #### 风控 `core/risk/`
 
 | 模块 | 功能 |
@@ -1166,6 +1163,8 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | `budget.py` · `exposure.py` | 风险预算与敞口 |
 
 #### 观察与策略
+
+**观察池** = 候选宇宙，不是账本。存储/健康/洞察在 `core/watching/`；产品定义见上文。
 
 | 模块 | 功能 |
 |------|------|
@@ -1231,7 +1230,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 类型 | 路径 | 内容 |
 |------|------|------|
 | 模拟账本 | `data/paper.json` | 持仓、资金、流水 |
-| 观察池 | `data/watching.json` | 观察名单 |
+| 观察池 | `data/watching.json` | 候选股票宇宙（watchlist + sources）；≠ 持仓 |
 | 信号配置 | `data/signal_config.json` | 因子权重、阈值 |
 | 行情缓存 | `data/store/bars.db`（默认）或 `data/store/daily/` | SQLite WAL 或 JSON |
 | Job 状态 | `data/jobs/*.json` | 长任务进度与结果 |
@@ -1356,7 +1355,7 @@ investment/
 | QuantService（Application Service） | `quant/services/quant_service.py` |
 | Agent quant Skill | `quant/skill/` · 注册 `skills/quant/` |
 | 模拟账本 | `core/paper/`（`paper.json`）；对话 position 默认读此 |
-| 观察池 | `core/watching/` |
+| 观察池 | `core/watching/`（候选宇宙；`watching.json`） |
 | 研究 CLI | `research/*.py` |
 | Job 轮询 | `GET /api/jobs/{name}`（纸面兼容 `/api/paper/job`；Ridge 长拟合：`t30-ridge`…`t90-ridge` · `co-ridge`） |
 

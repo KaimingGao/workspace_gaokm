@@ -233,8 +233,12 @@ def watchlist_origins_for(data: dict) -> List[str]:
     return [code_to_label.get(c, "筛选/合并") for c in wl]
 
 
-def watchlist_names_for(data: dict) -> List[str]:
-    """为 watchlist 每项补全股票名（优先落盘；再 static 提示；最后行情解析）。"""
+def watchlist_names_for(data: dict, *, allow_live: bool = True) -> List[str]:
+    """为 watchlist 每项补全股票名（优先落盘；再 static 提示；可选行情解析）。
+
+    ``allow_live=False``：绝不打行情（给 GET /api/watching 热路径用，避免满池空名时
+    逐只 ``get_quote`` 把前端拖到「观察名单加载超时」）。
+    """
     wl = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]
     saved = data.get("watchlist_names")
     if isinstance(saved, list) and len(saved) == len(wl):
@@ -253,7 +257,11 @@ def watchlist_names_for(data: dict) -> List[str]:
             if not raw_s or raw_s.isdigit():
                 continue
             try:
-                code, name = _resolve_entry(raw_s, raw_s)
+                if allow_live:
+                    code, name = _resolve_entry(raw_s, raw_s)
+                else:
+                    # 离线：非纯数字文本当显示名；纯代码留给名单空名，由 insights 补
+                    code, name = "", ("" if raw_s.isdigit() else _clean_name(raw_s))
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                 logger.debug("catch except Exception: in watching_store.py", exc_info=True)
                 code, name = "", raw_s
@@ -267,6 +275,8 @@ def watchlist_names_for(data: dict) -> List[str]:
         hint = code_to_name.get(code, "")
         if hint:
             names[i] = hint
+            continue
+        if not allow_live:
             continue
         try:
             _c, name = _resolve_entry(code, hint)

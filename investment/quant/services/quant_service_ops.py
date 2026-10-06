@@ -34,7 +34,8 @@ class QuantOpsMixin:
             return {"success": True, "exists": False, "path": WATCHING_PATH}
         uni = dict(data)
         uni["watchlist_origins"] = watchlist_origins_for(data)
-        uni["watchlist_names"] = watchlist_names_for(data)
+        # 热路径禁止逐只打行情：满池空名时 get_quote×N 会拖过前端 15s Abort
+        uni["watchlist_names"] = watchlist_names_for(data, allow_live=False)
 
         codes = {str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()}
         holdings_by_code = {}

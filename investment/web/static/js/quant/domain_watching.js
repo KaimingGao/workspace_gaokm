@@ -1212,7 +1212,7 @@ export function installWatching(q) {
     setWatchingRefreshStatus("正在加载观察名单…", { busy: true, owner: "panel" });
     const floorsP = hydrateWatchingScoringFloors();
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const timer = setTimeout(() => ctrl.abort(), 45000);
     let uniRes;
     let paperCtx = { held: new Map(), buildLogs: [] };
     try {
@@ -1230,7 +1230,7 @@ export function installWatching(q) {
     } catch (err) {
       const msg =
         err && err.name === "AbortError"
-          ? "观察名单加载超时，请刷新"
+          ? "观察名单加载超时（服务忙或拟合占满 CPU），请稍后刷新"
           : String((err && err.message) || err);
       setPoolMeta(msg);
       setWatchingRefreshStatus(msg, { error: true, owner: "panel" });
