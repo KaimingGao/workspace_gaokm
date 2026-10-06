@@ -216,7 +216,7 @@ class InvestmentAgent:
 
 ## 快速开始
 
-逐步操作（clone、虚拟环境、先放 3 只股票、在「历史回测」跑通调仓回测）见 **[docs/getting-started.md](docs/getting-started.md)**。下面是已经准备好环境时的命令摘要。需要 Python 3.10+。
+逐步操作（clone、虚拟环境、先放 3 只股票、在研究枢纽拉日线和分钟线、拟合并启用研究套、再跑调仓回测）见 **[docs/getting-started.md](docs/getting-started.md)**。下面是已经准备好环境时的命令摘要。需要 Python 3.10+。
 
 ```bash
 cd investment
@@ -226,7 +226,7 @@ bash scripts/setup_quant.sh   # watching.json 不存在时，从 watching.exampl
 python3 run_web.py            # → http://127.0.0.1:8000
 ```
 
-第一次回测建议先按 [getting-started.md](docs/getting-started.md) 写成 3 只再跑。直接用模板整池会按每只拉日线和 5 分钟 K，时间会很长。行情、观察、回测、模拟账户不依赖 API key。Web 侧栏主路径：**数据中心 · 交易执行 · 历史回测**。
+第一次回测建议先按 [getting-started.md](docs/getting-started.md) 写成 3 只，在研究枢纽拉数并拟合后再跑。直接用模板整池，拉数和拟合都会很久。行情、观察、回测、模拟账户不依赖 API key。Web 侧栏：**研究枢纽 · 历史回测**。
 
 不想连外网、也不配 key 时，先跑离线校验：
 
