@@ -1,7 +1,7 @@
 """日线/分钟线 bars 的 SQLite WAL 后端（A1）。
 
 配置/账本/基本面快照仍走 JSON；本模块仅服务 core.store 的 bars 读写。
-上层经 ports 无感；可用 INVESTMENT_BARS_BACKEND=json 回滚。
+上层经 ports 无感；可用 QUANTLAB_BARS_BACKEND=json 回滚。
 """
 
 from __future__ import annotations

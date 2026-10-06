@@ -18,7 +18,7 @@ from services.daily_service import DailyRunService  # noqa: E402
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Investment 每日任务")
+    parser = argparse.ArgumentParser(description="QuantLab 每日任务")
     parser.add_argument(
         "--preset",
         choices=sorted(DAILY_PRESETS.keys()),

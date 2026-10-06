@@ -120,7 +120,7 @@ class TestBaostockMinute(unittest.TestCase):
     def test_minute_baostock_timeout_policy(self):
         from core.data.policy import minute_baostock_timeout_sec
 
-        with patch.dict(os.environ, {"INVESTMENT_MINUTE_BS_TIMEOUT_SEC": "0"}, clear=False):
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_BS_TIMEOUT_SEC": "0"}, clear=False):
             self.assertEqual(minute_baostock_timeout_sec(), 0.0)
 
 
@@ -243,11 +243,11 @@ class TestBaostockMinute(unittest.TestCase):
         from core.data.policy import minute_baostock_lookback_days
 
         with patch.dict(os.environ):
-            os.environ.pop("INVESTMENT_MINUTE_BS_LOOKBACK_DAYS", None)
+            os.environ.pop("QUANTLAB_MINUTE_BS_LOOKBACK_DAYS", None)
             self.assertEqual(minute_baostock_lookback_days(), 30)
-        with patch.dict(os.environ, {"INVESTMENT_MINUTE_BS_LOOKBACK_DAYS": "15"}):
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_BS_LOOKBACK_DAYS": "15"}):
             self.assertEqual(minute_baostock_lookback_days(), 15)
-        with patch.dict(os.environ, {"INVESTMENT_MINUTE_BS_LOOKBACK_DAYS": "999"}):
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_BS_LOOKBACK_DAYS": "999"}):
             self.assertEqual(minute_baostock_lookback_days(), 90)
 
     def test_maybe_fetch_baostock_uses_30d_start(self):
@@ -263,7 +263,7 @@ class TestBaostockMinute(unittest.TestCase):
         with patch("adapters.market.baostock_minute.baostock_enabled", return_value=True), patch(
             "adapters.market.baostock_minute.fetch_baostock_minute_bars", side_effect=_fetch
         ), patch.dict(os.environ):
-            os.environ.pop("INVESTMENT_MINUTE_BS_LOOKBACK_DAYS", None)
+            os.environ.pop("QUANTLAB_MINUTE_BS_LOOKBACK_DAYS", None)
             mh._maybe_fetch_baostock_minute_bars(
                 "601988",
                 period="5",
@@ -278,25 +278,25 @@ class TestBaostockMinute(unittest.TestCase):
         from core.data.policy import minute_fetch_delay_sec, minute_warmup_skip_em
 
         with patch.dict(os.environ):
-            os.environ.pop("INVESTMENT_MINUTE_FETCH_DELAY_SEC", None)
-            os.environ.pop("INVESTMENT_MINUTE_WARMUP_SKIP_EM", None)
+            os.environ.pop("QUANTLAB_MINUTE_FETCH_DELAY_SEC", None)
+            os.environ.pop("QUANTLAB_MINUTE_WARMUP_SKIP_EM", None)
             self.assertEqual(minute_fetch_delay_sec(), 20.0)
             self.assertFalse(minute_warmup_skip_em())
-        with patch.dict(os.environ, {"INVESTMENT_MINUTE_FETCH_DELAY_SEC": "99"}):
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_FETCH_DELAY_SEC": "99"}):
             self.assertEqual(minute_fetch_delay_sec(), 30.0)
 
     def test_minute_isolated_timeout_defaults(self):
         from core.data.policy import minute_isolated_timeout_sec
 
         with patch.dict(os.environ):
-            os.environ.pop("INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC", None)
-            os.environ.pop("INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC", None)
+            os.environ.pop("QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC", None)
+            os.environ.pop("QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC", None)
             self.assertEqual(minute_isolated_timeout_sec(), 90.0)
             self.assertEqual(minute_isolated_timeout_sec(skip_em=True), 45.0)
-        with patch.dict(os.environ, {"INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC": "0"}):
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC": "0"}):
             self.assertEqual(minute_isolated_timeout_sec(), 0.0)
         with patch.dict(
-            os.environ, {"INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC": "12"}
+            os.environ, {"QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC": "12"}
         ):
             self.assertEqual(minute_isolated_timeout_sec(skip_em=True), 12.0)
 

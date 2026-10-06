@@ -209,7 +209,7 @@ export function initEvals(ctx) {
   }
 
   ctx.openEvalsPanel = openEvalsPanel;
-  window.__investmentOpenEvals = () => openEvalsPanel({ showDialog: true });
+  window.__quantlabOpenEvals = () => openEvalsPanel({ showDialog: true });
 
   const btnEvals = document.getElementById("btn-evals");
   if (btnEvals) {

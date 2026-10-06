@@ -15,7 +15,7 @@ class TestTailAnomalyView(unittest.TestCase):
         from core.store import save_minute_cache
 
         with tempfile.TemporaryDirectory() as td:
-            os.environ["INVESTMENT_STORE_DIR"] = td
+            os.environ["QUANTLAB_STORE_DIR"] = td
             bars = []
             base_dt = "2026-08-19"
             price = 10.0
@@ -57,11 +57,11 @@ class TestTailAnomalyView(unittest.TestCase):
                 self.assertIn(k, day0)
             self.assertGreater(day0["high"], day0["low"] - 1e-9)
             self.assertIn((out.get("meta") or {}).get("source"), {"cache", "stale_cache"})
-            os.environ.pop("INVESTMENT_STORE_DIR", None)
+            os.environ.pop("QUANTLAB_STORE_DIR", None)
 
     def test_build_minute_tail_view_fetches_when_cache_missing(self):
         with tempfile.TemporaryDirectory() as td:
-            os.environ["INVESTMENT_STORE_DIR"] = td
+            os.environ["QUANTLAB_STORE_DIR"] = td
             fake_bars = [
                 {
                     "date": "2026-08-28",
@@ -96,11 +96,11 @@ class TestTailAnomalyView(unittest.TestCase):
             self.assertEqual((out.get("day_bars") or [])[0].get("open"), 10.0)
             self.assertEqual((out.get("meta") or {}).get("source"), "test_fetch")
             fetch_fn.assert_called_once()
-            os.environ.pop("INVESTMENT_STORE_DIR", None)
+            os.environ.pop("QUANTLAB_STORE_DIR", None)
 
     def test_build_minute_tail_view_can_skip_fetch(self):
         with tempfile.TemporaryDirectory() as td:
-            os.environ["INVESTMENT_STORE_DIR"] = td
+            os.environ["QUANTLAB_STORE_DIR"] = td
             with mock.patch("core.ports.market.fetch_minute_bars") as fetch_fn:
                 out = build_minute_tail_view(
                     "600519",
@@ -110,13 +110,13 @@ class TestTailAnomalyView(unittest.TestCase):
             self.assertFalse(out.get("ok"))
             self.assertEqual(out.get("reason"), "no_minute_cache")
             fetch_fn.assert_not_called()
-            os.environ.pop("INVESTMENT_STORE_DIR", None)
+            os.environ.pop("QUANTLAB_STORE_DIR", None)
 
     def test_build_minute_tail_view_uses_as_of_day_not_cache_last(self):
         from core.store import save_minute_cache
 
         with tempfile.TemporaryDirectory() as td:
-            os.environ["INVESTMENT_STORE_DIR"] = td
+            os.environ["QUANTLAB_STORE_DIR"] = td
             bars = []
             for day, close in (("2026-08-27", 9.0), ("2026-08-28", 10.0)):
                 for hm in ("09:35", "09:40", "10:00", "14:55"):
@@ -143,7 +143,7 @@ class TestTailAnomalyView(unittest.TestCase):
             self.assertEqual((out.get("meta") or {}).get("date_max"), "2026-08-27")
             self.assertTrue(out.get("day_bars"))
             self.assertAlmostEqual(out["day_bars"][0]["close"], 9.0, places=4)
-            os.environ.pop("INVESTMENT_STORE_DIR", None)
+            os.environ.pop("QUANTLAB_STORE_DIR", None)
 
     def test_session_day_needs_refresh_stale_morning(self):
         from datetime import datetime
@@ -195,7 +195,7 @@ class TestTailAnomalyView(unittest.TestCase):
 
         day = "2026-08-31"
         with tempfile.TemporaryDirectory() as td:
-            os.environ["INVESTMENT_STORE_DIR"] = td
+            os.environ["QUANTLAB_STORE_DIR"] = td
             stale = []
             for hm in ("09:35", "09:40", "10:00", "10:05"):
                 stale.append(
@@ -244,7 +244,7 @@ class TestTailAnomalyView(unittest.TestCase):
             self.assertEqual((out.get("meta") or {}).get("source"), "test_refresh")
             self.assertGreaterEqual(len(out.get("day_bars") or []), 6)
             self.assertAlmostEqual(out["day_bars"][-1]["close"], 4.3, places=4)
-            os.environ.pop("INVESTMENT_STORE_DIR", None)
+            os.environ.pop("QUANTLAB_STORE_DIR", None)
 
 
 if __name__ == "__main__":

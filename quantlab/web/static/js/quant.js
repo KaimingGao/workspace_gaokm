@@ -4904,8 +4904,8 @@ export function initQuant(ctx) {
     const name = btn.getAttribute("data-factor") || "";
     const tip = btn.getAttribute("title") || name;
     const q = `请解释因子 ${name}：${tip}`;
-    if (typeof window.__investmentOpenAi === "function") {
-      window.__investmentOpenAi(q);
+    if (typeof window.__quantlabOpenAi === "function") {
+      window.__quantlabOpenAi(q);
       setTimeout(() => {
         document.getElementById("ai-drawer-form")?.requestSubmit();
       }, 40);
@@ -4989,7 +4989,7 @@ export function initQuant(ctx) {
   const hash = String(location.hash || "").replace(/^#/, "");
   // 仅数据中心注册：避免 /follow 上覆盖 paper 的当前持仓 getter
   if (page === "watching") {
-    window.__investmentGetCurrentStock = () => {
+    window.__quantlabGetCurrentStock = () => {
       if (state.watchingFocusCode) {
         return {
           code: state.watchingFocusCode,

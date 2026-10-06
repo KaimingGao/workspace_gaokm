@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 后台启停 Investment Web（uvicorn via run_web.py）
+# 后台启停 QuantLab Web（uvicorn via run_web.py）
 # 用法：./run_web.sh [start|stop|status|restart]  （无参数默认 start）
 #
 # 环境变量：WEB_HOST / WEB_PORT / WEB_RELOAD / WEB_ACCESS_LOG（同 run_web.py）

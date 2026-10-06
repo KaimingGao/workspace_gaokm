@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Investment 黄金用例回归：Skills 关键数字 checklist（可选对照 Agent 回复）。
+QuantLab 黄金用例回归：Skills 关键数字 checklist（可选对照 Agent 回复）。
 
 用法（在 quantlab/ 目录下）:
   python3 evals/run_checklist.py
@@ -244,7 +244,7 @@ def run_agent(case: dict, tokens: List[str]) -> Dict[str, Any]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Investment evals checklist")
+    parser = argparse.ArgumentParser(description="QuantLab evals checklist")
     parser.add_argument("--case", help="只跑指定 case id")
     parser.add_argument(
         "--quant-only",

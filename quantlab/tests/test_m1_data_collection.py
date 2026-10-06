@@ -192,7 +192,7 @@ class TestIncrementalFetch(unittest.TestCase):
         ) as save, patch(
             "core.store.peek_daily_cache_meta",
             return_value={"adjust_policy": "qfq"},
-        ), patch.dict(os.environ, {"INVESTMENT_DISABLE_CACHE": ""}):
+        ), patch.dict(os.environ, {"QUANTLAB_DISABLE_CACHE": ""}):
             def _ms(market, code, bars, **kwargs):
                 from core.store import merge_bars_by_date
 
@@ -251,7 +251,7 @@ class TestIncrementalFetch(unittest.TestCase):
         ), patch(
             "core.store.peek_daily_cache_meta",
             return_value={"adjust_policy": "qfq"},
-        ), patch.dict(os.environ, {"INVESTMENT_DISABLE_CACHE": ""}):
+        ), patch.dict(os.environ, {"QUANTLAB_DISABLE_CACHE": ""}):
             bars, _src = hist.fetch_daily_bars(
                 "600519",
                 limit=20,
@@ -294,7 +294,7 @@ class TestIncrementalFetch(unittest.TestCase):
         ) as fetch, patch(
             "core.store.peek_daily_cache_meta",
             return_value={"adjust_policy": "qfq"},
-        ), patch.dict(os.environ, {"INVESTMENT_DISABLE_CACHE": ""}):
+        ), patch.dict(os.environ, {"QUANTLAB_DISABLE_CACHE": ""}):
             bars, src = hist.fetch_daily_bars(
                 "600519",
                 limit=20,
@@ -389,7 +389,7 @@ class TestIncrementalFetch(unittest.TestCase):
         ), patch(
             "core.market.calendar.expected_latest_daily_bar_date",
             return_value="2026-09-04",
-        ), patch.dict(os.environ, {"INVESTMENT_DISABLE_CACHE": ""}):
+        ), patch.dict(os.environ, {"QUANTLAB_DISABLE_CACHE": ""}):
             bars, src = hist.fetch_daily_bars(
                 "600519",
                 limit=20,

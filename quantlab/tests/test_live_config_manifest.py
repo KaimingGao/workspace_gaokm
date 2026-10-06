@@ -34,7 +34,7 @@ class TestLiveConfigManifest(unittest.TestCase):
             with open(weights, "w", encoding="utf-8") as f:
                 json.dump({"version": 2, "n_mapped_codes": 3, "promoted_at": "2026-08-05T00:00:00"}, f)
 
-            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": signal}), patch(
+            with patch.dict(os.environ, {"QUANTLAB_SIGNAL_CONFIG": signal}), patch(
                 "core.paths.CLUSTER_WEIGHTS_ACTIVE_PATH", weights
             ), patch(
                 "core.paths.CLUSTER_BOOK_ACTIVE_PATH", os.path.join(live, "book.json")
@@ -62,7 +62,7 @@ class TestLiveConfigManifest(unittest.TestCase):
             signal = os.path.join(td, "signal_config.json")
             with open(signal, "w", encoding="utf-8") as f:
                 json.dump({"cluster_scoring": {"mode": "off"}, "scoring": {}}, f)
-            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": signal}), patch(
+            with patch.dict(os.environ, {"QUANTLAB_SIGNAL_CONFIG": signal}), patch(
                 "core.paths.LIVE_DIR", live
             ), patch(
                 "core.paths.SIGNAL_CONFIG_PATH", signal

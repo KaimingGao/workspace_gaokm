@@ -75,7 +75,7 @@ python3 run_web.py
 | 会话 | 请求头 `X-Session-Id`（前端存 localStorage） |
 | 端口 | 环境变量 `WEB_HOST`（默认 127.0.0.1）、`WEB_PORT`（默认 8000） |
 | 热重载 | 默认 **关**（`WEB_RELOAD=0`）。开发改 py 时设 `WEB_RELOAD=1`；热重载会中断纸面后台任务，确认调仓时勿触发。纸面/分组/网格/对话 job 落盘 `data/jobs/*.json` |
-| 日线缓存后端 | `INVESTMENT_BARS_BACKEND=sqlite`（默认）或 `json`；见 [sqlite-migration](architecture.md) · [architecture-upgrade-a](architecture.md) |
+| 日线缓存后端 | `QUANTLAB_BARS_BACKEND=sqlite`（默认）或 `json`；见 [sqlite-migration](architecture.md) · [architecture-upgrade-a](architecture.md) |
 
 Web 与 CLI 共用同一套 `Agent` / Skills / prompts；仍需配置 `DASHSCOPE_*`。
 
@@ -95,7 +95,7 @@ Web 与 CLI 共用同一套 `Agent` / Skills / prompts；仍需配置 `DASHSCOPE
 
 下面以港股 **快手-W（01024）** 为例，说明长短期观察/持仓参考的完整链路。可走两条路径：
 
-| 路径 | 怎么跑 | 是否完整 Investment |
+| 路径 | 怎么跑 | 是否完整 QuantLab |
 |------|--------|---------------------|
 | A. Agent 对话（推荐） | `python3 main.py` + 自然语言 | 是：LLM 选工具 + 解读 |
 | B. 直接调 Skill | `python3 -c ...` | 否：只跑数据层，解读需人/模型另做 |

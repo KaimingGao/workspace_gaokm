@@ -1,6 +1,6 @@
 """日线/分钟本地缓存：data/store/daily|minute 或 bars.db；快照缓存 fundamentals/news。
 
-Bars 后端由 ``INVESTMENT_BARS_BACKEND`` 选择：``sqlite``（默认）| ``json``。
+Bars 后端由 ``QUANTLAB_BARS_BACKEND`` 选择：``sqlite``（默认）| ``json``。
 配置/账本/基本面快照仍走 JSON 文件。
 """
 
@@ -40,12 +40,12 @@ _REFRESH_GUARD = threading.Lock()
 
 
 def get_store_dir() -> str:
-    return os.environ.get("INVESTMENT_STORE_DIR", STORE_DIR)
+    return os.environ.get("QUANTLAB_STORE_DIR", STORE_DIR)
 
 
 def bars_backend() -> str:
     """``sqlite`` | ``json``；非法值回退 sqlite。"""
-    raw = str(os.environ.get("INVESTMENT_BARS_BACKEND") or "sqlite").strip().lower()
+    raw = str(os.environ.get("QUANTLAB_BARS_BACKEND") or "sqlite").strip().lower()
     if raw in ("json", "file", "files"):
         return "json"
     return "sqlite"

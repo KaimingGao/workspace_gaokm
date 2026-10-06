@@ -2,7 +2,7 @@ import { initTheme } from "./js/theme.js";
 import { initAiDrawer } from "./js/ai_drawer.js";
 import { initCommandPalette } from "./js/command_palette.js";
 
-const SESSION_KEY = "investment_session_id";
+const SESSION_KEY = "quantlab_session_id";
 const page = document.body.dataset.page || "watching";
 
 try {
@@ -21,7 +21,7 @@ try {
   initCommandPalette();
   document.getElementById("btn-command-palette")?.addEventListener("click", (e) => {
     e.preventDefault();
-    window.__investmentOpenCommandPalette?.();
+    window.__quantlabOpenCommandPalette?.();
   });
 
   // Alt + Shift + G → 打开历史回测

@@ -24,7 +24,7 @@ BAOSTOCK_MINUTE_START = "2020-01-03"
 
 
 def baostock_enabled() -> bool:
-    raw = os.environ.get("INVESTMENT_MINUTE_BS_FALLBACK", "1").strip().lower()
+    raw = os.environ.get("QUANTLAB_MINUTE_BS_FALLBACK", "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 

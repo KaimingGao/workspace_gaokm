@@ -1,8 +1,8 @@
 /** 主题：浅色默认 · 深色可选；侧栏折叠 · 沪深时钟 */
 
-const THEME_KEY = "investment_theme";
-const SIDE_KEY = "investment_side_collapsed";
-const DENSITY_KEY = "investment_density";
+const THEME_KEY = "quantlab_theme";
+const SIDE_KEY = "quantlab_side_collapsed";
+const DENSITY_KEY = "quantlab_density";
 
 function currentTheme() {
   const t = document.documentElement.getAttribute("data-theme");

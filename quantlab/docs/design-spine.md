@@ -430,7 +430,7 @@ flowchart LR
 | 分数风险预算 + 高波缩放 | **已落地** | `core/risk/budget.py`；默认 `score_budget`；五问「仓位预算」 |
 | 撮合近似（T+1 / 板别涨跌停 / 跌停延后卖 / 滑点档） | **已落地** | `matching.resolve_exit_index` · 单票/TopK `skipped_limit_exit` / `exit_deferred` |
 | 收益归因（个股/行业/选股超额） | **已落地** | `core/backtest/attribution` · 组合回测 `attribution` · 回溯页指标卡 |
-| 告警出站 | **已落地** | `core/alert_outbound` · `paper_daily` → `data/alerts/` · 可选 `INVESTMENT_ALERT_WEBHOOK` |
+| 告警出站 | **已落地** | `core/alert_outbound` · `paper_daily` → `data/alerts/` · 可选 `QUANTLAB_ALERT_WEBHOOK` |
 
 粗估：相对专业对照约 **~70%～78%**；仍缺完整数仓/QP/交易所级撮合；财务 PIT 为最小路径。**N6 实盘有意推迟**（策略验证成熟后另立项）。能力地图见上文 [能力地图](#能力地图六大模块)；北极星公式见 [产品北极星](#产品北极星)。
 
@@ -726,7 +726,7 @@ data/*.json   → 配置与账本落盘
 
 ### 当前定位 vs 量化系统
 
-| 维度 | 当前 Investment | 典型量化系统（能力地图对照） |
+| 维度 | 当前 QuantLab | 典型量化系统（能力地图对照） |
 |------|-----------------|--------------------------------|
 | **阶段** | **策略验证**（回测 + 纸面） | 研究 → 仿真 → **实盘** |
 | 输出 | 自然语言策略解读（旁路）+ 确定性 score/stance | 确定性信号 → 回测 → 执行 → 监控 |
@@ -809,8 +809,8 @@ print(BacktestHandler().execute({
 
 **环境变量**：
 
-- `INVESTMENT_STORE_DIR` — 自定义缓存根目录  
-- `INVESTMENT_DISABLE_CACHE=1` — 关闭缓存，始终走 AkShare  
+- `QUANTLAB_STORE_DIR` — 自定义缓存根目录  
+- `QUANTLAB_DISABLE_CACHE=1` — 关闭缓存，始终走 AkShare  
 
 **管理 CLI**：
 
@@ -905,7 +905,7 @@ python3 research/daily_run.py --eval-agent --json
 顶栏 **「校验」** → 黄金用例 Skills checklist（**每日 eval** 一键 mock；全量 Agent 后台跑并轮询；上次结果 / 下载 JSON）。  
 顶栏 **「模拟」** → 假钱账本；对话 position 读 `paper.json`。
 
-环境变量 `INVESTMENT_PAPER_PATH` 可自定义 `paper.json` 路径。
+环境变量 `QUANTLAB_PAPER_PATH` 可自定义 `paper.json` 路径。
 
 ### P5.3 已落地：规则 stance + LLM 只解释
 
@@ -1266,7 +1266,7 @@ N1 ──► N2 ──► N3 ──► N4 ──► N5 ──►（闸门）N6
 Web：平台面板（`partials/platform_panel.html` · `js/platform.js`，`/platform`）；纸面进度轮询统一为 `GET /api/jobs/paper`。  
 单测：`tests/test_d1_d6_platform.py`。
 
-**环境变量**：`INVESTMENT_MEMORY_PATH` · `INVESTMENT_DECISIONS_PATH` · `INVESTMENT_RECORD_DECISIONS=0`（关闭 advise 自动落盘）。
+**环境变量**：`QUANTLAB_MEMORY_PATH` · `QUANTLAB_DECISIONS_PATH` · `QUANTLAB_RECORD_DECISIONS=0`（关闭 advise 自动落盘）。
 
 **继续不做**：自动下单、保证收益、黑盒荐股、密码/资金划拨进本系统。
 

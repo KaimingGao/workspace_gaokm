@@ -32,7 +32,7 @@ class TestY0ScoringFloors(unittest.TestCase):
                     },
                     f,
                 )
-            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": path}):
+            with patch.dict(os.environ, {"QUANTLAB_SIGNAL_CONFIG": path}):
                 import core.signal.config as cfg_mod
 
                 cfg_mod._cached = None
@@ -72,7 +72,7 @@ class TestStanceSave(unittest.TestCase):
                     },
                     f,
                 )
-            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": path}):
+            with patch.dict(os.environ, {"QUANTLAB_SIGNAL_CONFIG": path}):
                 import core.signal.config as cfg_mod
 
                 cfg_mod._cached = None
@@ -105,7 +105,7 @@ class TestStanceSave(unittest.TestCase):
                     },
                     f,
                 )
-            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": path}):
+            with patch.dict(os.environ, {"QUANTLAB_SIGNAL_CONFIG": path}):
                 out = save_stance_thresholds(avoid=1.0, wait=0.0, probe=0.5)
                 self.assertFalse(out["success"])
                 self.assertIn("avoid < wait < probe", out.get("error") or "")

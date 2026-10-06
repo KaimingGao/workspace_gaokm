@@ -1494,7 +1494,7 @@ export function installBacktest(q) {
         (Array.isArray(data.equity_curve) ? data.equity_curve.slice(-120) : []);
       if (Array.isArray(curve) && curve.length) {
         localStorage.setItem(
-          "investment_northstar_last_backtest",
+          "quantlab_northstar_last_backtest",
           JSON.stringify({ at: Date.now(), curve })
         );
       }
@@ -2213,7 +2213,7 @@ export function installBacktest(q) {
   wireReplayModelRole();
   wirePredTierChecks();
   if (typeof window !== "undefined") {
-    window.addEventListener("investment-replay-desk-persist", () => persistReplayDeskPrefs());
+    window.addEventListener("quantlab-replay-desk-persist", () => persistReplayDeskPrefs());
   }
   initExecutionRuleForms()
     .then(() => {

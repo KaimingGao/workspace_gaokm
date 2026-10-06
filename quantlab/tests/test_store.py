@@ -52,8 +52,8 @@ class _StoreBackendMixin:
         self._env = patch.dict(
             os.environ,
             {
-                "INVESTMENT_STORE_DIR": self.tmp,
-                "INVESTMENT_BARS_BACKEND": self.backend,
+                "QUANTLAB_STORE_DIR": self.tmp,
+                "QUANTLAB_BARS_BACKEND": self.backend,
             },
         )
         self._env.start()

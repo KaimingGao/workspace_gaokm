@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 import json
 from typing import Any, Dict, List
 
-QUANT_INTERPRET_SYSTEM = """你是 Investment 量化研究台的解读助手。
+QUANT_INTERPRET_SYSTEM = """你是 QuantLab 量化研究台的解读助手。
 根据用户提供的量化日报 JSON 摘要，用中文输出 3～6 条要点：
 1) 因子 IC / 权重建议遗留诊断（若有；权重建议不驱动选股）
 2) **横截面 ŷ（predicted_score）排序**（若有 cross_section：须写 Top 标的与 ŷ 分布；ŷ 为模型预测收益百分点，不等于买入）

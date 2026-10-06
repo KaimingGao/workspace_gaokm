@@ -1,6 +1,6 @@
 /** W4 · 观察页研究 Dock：表 | 图 可拖拽分栏，布局存 localStorage。 */
 
-const STORAGE_KEY = "investment_research_dock";
+const STORAGE_KEY = "quantlab_research_dock";
 
 function loadLayout() {
   try {
@@ -146,7 +146,7 @@ export function initResearchDock() {
     tools.appendChild(btn);
   }
 
-  window.__investmentEnsureDockSide = () => {
+  window.__quantlabEnsureDockSide = () => {
     dock.hidden = false;
     if (layout.enabled) dock.classList.remove("dock-off");
     if (chart) chart.hidden = false;

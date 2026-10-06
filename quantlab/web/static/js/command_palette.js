@@ -14,7 +14,7 @@ const COMMANDS = [
     hint: "⌘K",
     keywords: "ai 助手 命令 模型 llm",
     run: () => {
-      if (typeof window.__investmentOpenAi === "function") window.__investmentOpenAi();
+      if (typeof window.__quantlabOpenAi === "function") window.__quantlabOpenAi();
     },
   },
   {
@@ -43,8 +43,8 @@ const COMMANDS = [
     hint: "ws",
     keywords: "websocket 实况 live 重连",
     run: () => {
-      if (typeof window.__investmentConnectLiveWs === "function") {
-        window.__investmentConnectLiveWs();
+      if (typeof window.__quantlabConnectLiveWs === "function") {
+        window.__quantlabConnectLiveWs();
       }
     },
   },
@@ -61,8 +61,8 @@ const COMMANDS = [
     hint: "evals",
     keywords: "校验 evals golden checklist ci readme",
     run: () => {
-      if (typeof window.__investmentOpenEvals === "function") {
-        window.__investmentOpenEvals();
+      if (typeof window.__quantlabOpenEvals === "function") {
+        window.__quantlabOpenEvals();
       }
     },
   },
@@ -199,7 +199,7 @@ export function initCommandPalette() {
     runCommand(_visible[idx]);
   });
 
-  window.__investmentOpenCommandPalette = openPalette;
-  window.__investmentCloseCommandPalette = closePalette;
+  window.__quantlabOpenCommandPalette = openPalette;
+  window.__quantlabCloseCommandPalette = closePalette;
   renderList("");
 }

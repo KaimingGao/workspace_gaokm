@@ -57,8 +57,8 @@ def evaluate_buy_advice(params: dict) -> Dict[str, Any]:
             "市场有风险，不保证收益，不代客下单。"
         ),
     }
-    # D3：可选落盘 DecisionRecord（默认开启；测试可设 INVESTMENT_RECORD_DECISIONS=0）
-    if os.environ.get("INVESTMENT_RECORD_DECISIONS", "1") not in ("0", "false", "False"):
+    # D3：可选落盘 DecisionRecord（默认开启；测试可设 QUANTLAB_RECORD_DECISIONS=0）
+    if os.environ.get("QUANTLAB_RECORD_DECISIONS", "1") not in ("0", "false", "False"):
         try:
             from core.decision_record import record_from_advice
 

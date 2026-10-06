@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Investment Watching 管理")
+    parser = argparse.ArgumentParser(description="QuantLab Watching 管理")
     parser.add_argument("--init", action="store_true", help="从 watching.example.json 初始化")
     parser.add_argument("--refresh", action="store_true", help="按 sources 刷新 watchlist")
     parser.add_argument("--sync-paper", action="store_true", help="兼容空步骤（观察/仓位已分离）")

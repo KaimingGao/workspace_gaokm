@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""启动 Investment Web 端。"""
+"""启动 QuantLab Web 端。"""
 
 
 import os
@@ -44,7 +44,7 @@ def main():
     # 默认关 access log：轮询/worker 刷屏无业务价值；排查 HTTP 时设 WEB_ACCESS_LOG=1
     access_log = _env_flag("WEB_ACCESS_LOG", "0")
     print("=" * 60)
-    print("  Investment Web · 量化交易")
+    print("  QuantLab Web · 量化交易")
     print(f"  打开 http://{host}:{port}")
     print("  环境变量 WEB_HOST / WEB_PORT 可改监听地址")
     print(f"  WEB_RELOAD={'on' if reload else 'off'}（改代码热重载；会中断纸面后台任务）")

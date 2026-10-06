@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Investment 量化交易 CLI 入口（融合 AI 编排）。"""
+"""QuantLab 量化交易 CLI 入口（融合 AI 编排）。"""
 
 import os
 import sys
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     print("=" * 60)
-    print("  Investment · 量化交易（融合 AI）")
+    print("  QuantLab · 量化交易（融合 AI）")
     print("  能力: 行情/对比/选股/短线/K线/基本面/同行/相对强弱/资讯/持仓/投顾建议")
     print("  输入 quit/exit 退出，reset 重置对话，usage 查看 token 累计")
     print("=" * 60)

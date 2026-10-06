@@ -432,9 +432,9 @@ export function installWatching(q) {
   }
 
   function ensureResearchDock() {
-    if (typeof window.__investmentInitResearchDock === "function") {
+    if (typeof window.__quantlabInitResearchDock === "function") {
       try {
-        window.__investmentInitResearchDock();
+        window.__quantlabInitResearchDock();
       } catch (_) {
         /* ignore */
       }
@@ -446,7 +446,7 @@ export function installWatching(q) {
       }`
     )
       .then((m) => {
-        window.__investmentInitResearchDock = m.initResearchDock;
+        window.__quantlabInitResearchDock = m.initResearchDock;
         m.initResearchDock();
       })
       .catch(() => {});
@@ -1902,9 +1902,9 @@ export function installWatching(q) {
     const labelEl = document.getElementById("watching-chart-label");
     if (!section) return;
     section.hidden = false;
-    if (typeof window.__investmentEnsureDockSide === "function") {
+    if (typeof window.__quantlabEnsureDockSide === "function") {
       try {
-        window.__investmentEnsureDockSide();
+        window.__quantlabEnsureDockSide();
       } catch (_) {
         /* ignore */
       }

@@ -149,7 +149,7 @@ def migrate(store_dir: str, *, dry_run: bool = False) -> int:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Migrate bars JSON → SQLite bars.db")
-    p.add_argument("--store-dir", default=None, help="默认 INVESTMENT_STORE_DIR / data/store")
+    p.add_argument("--store-dir", default=None, help="默认 QUANTLAB_STORE_DIR / data/store")
     p.add_argument("--dry-run", action="store_true", help="只统计不写入")
     args = p.parse_args(argv)
     store = args.store_dir or get_store_dir()

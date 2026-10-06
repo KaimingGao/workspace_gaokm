@@ -14,7 +14,7 @@ DEFAULT_ENV_PATH = os.path.join(ROOT_DIR, ".env")
 
 
 def default_env_path() -> str:
-    return os.environ.get("INVESTMENT_ENV_FILE", DEFAULT_ENV_PATH)
+    return os.environ.get("QUANTLAB_ENV_FILE", DEFAULT_ENV_PATH)
 
 
 def load_env_file(path: str) -> bool:

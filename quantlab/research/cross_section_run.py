@@ -15,7 +15,7 @@ from core.signal.service import get_research_signal_service  # noqa: E402
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Investment 横截面排序")
+    parser = argparse.ArgumentParser(description="QuantLab 横截面排序")
     parser.add_argument("--codes", default="", help="逗号分隔候选（默认读 watching）")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--min-score", type=float, default=None)

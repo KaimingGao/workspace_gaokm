@@ -123,7 +123,7 @@ class TestMarketContext(unittest.TestCase):
 
     def test_snapshot_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
-            os.environ["INVESTMENT_STORE_DIR"] = tmp
+            os.environ["QUANTLAB_STORE_DIR"] = tmp
             try:
                 from core import paths
 
@@ -134,7 +134,7 @@ class TestMarketContext(unittest.TestCase):
                 self.assertTrue(meta.get("cache_hit"))
                 self.assertEqual(loaded.get("as_of"), "2026-08-19")
             finally:
-                os.environ.pop("INVESTMENT_STORE_DIR", None)
+                os.environ.pop("QUANTLAB_STORE_DIR", None)
 
     def test_build_market_priors_bundle(self):
         ctx = {
@@ -319,7 +319,7 @@ class TestMarketContextMerge(unittest.TestCase):
 class TestMarketContextRound2(unittest.TestCase):
     def test_concept_graph_cache_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
-            os.environ["INVESTMENT_STORE_DIR"] = tmp
+            os.environ["QUANTLAB_STORE_DIR"] = tmp
             try:
                 from core import paths
 
@@ -333,7 +333,7 @@ class TestMarketContextRound2(unittest.TestCase):
                 self.assertTrue(meta.get("cache_hit"))
                 self.assertIn("600001", loaded.get("code_index") or {})
             finally:
-                os.environ.pop("INVESTMENT_STORE_DIR", None)
+                os.environ.pop("QUANTLAB_STORE_DIR", None)
 
     def test_macro_view_asof(self):
         macro = {
@@ -413,7 +413,7 @@ class TestMarketContextRound3(unittest.TestCase):
 
     def test_macro_history_save(self):
         with tempfile.TemporaryDirectory() as tmp:
-            os.environ["INVESTMENT_STORE_DIR"] = tmp
+            os.environ["QUANTLAB_STORE_DIR"] = tmp
             try:
                 from core import paths
 
@@ -431,7 +431,7 @@ class TestMarketContextRound3(unittest.TestCase):
                 path = save_macro_history_index(macro)
                 self.assertTrue(os.path.isfile(path))
             finally:
-                os.environ.pop("INVESTMENT_STORE_DIR", None)
+                os.environ.pop("QUANTLAB_STORE_DIR", None)
 
     def test_facts_summary_market_context(self):
         facts = {

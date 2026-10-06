@@ -17,8 +17,8 @@ SIGNAL_CONFIG_PATH = os.path.join(DATA_DIR, "signal_config.json")
 
 
 def get_signal_config_path() -> str:
-    """统一入口：读取 INVESTMENT_SIGNAL_CONFIG 环境变量，回退到 SIGNAL_CONFIG_PATH。"""
-    return os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
+    """统一入口：读取 QUANTLAB_SIGNAL_CONFIG 环境变量，回退到 SIGNAL_CONFIG_PATH。"""
+    return os.environ.get("QUANTLAB_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
 
 
 DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {

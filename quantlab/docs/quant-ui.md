@@ -1041,7 +1041,7 @@ UI 阶段可先用现有字段；后端到位后加列，不阻塞 W1/W2 出门�
 
 | 项 | 落点 |
 |----|------|
-| 实况 → 净值曲线 | `dashboard.__investmentOnLivePaper` 合并 `snapshot_tail` |
+| 实况 → 净值曲线 | `dashboard.__quantlabOnLivePaper` 合并 `snapshot_tail` |
 | 实况 → 净值元数据 | 同步 `dash-chart-meta`（快照数 + 较上次涨跌） |
 | 实况 → 交易执行顶栏 | `live_ws` 更新 `#follow-stats` |
 | 实况 → 曲线防重复 | WebSocket 同一帧跳过重复重绘（更轻量） |

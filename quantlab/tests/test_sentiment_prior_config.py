@@ -32,8 +32,8 @@ class TestSentimentPriorConfigSave(unittest.TestCase):
                     },
                     f,
                 )
-            old = os.environ.get("INVESTMENT_SIGNAL_CONFIG")
-            os.environ["INVESTMENT_SIGNAL_CONFIG"] = path
+            old = os.environ.get("QUANTLAB_SIGNAL_CONFIG")
+            os.environ["QUANTLAB_SIGNAL_CONFIG"] = path
             try:
                 out = save_sentiment_prior(mode="gate", block_new_buys=True, note="test")
                 self.assertTrue(out.get("success"))
@@ -48,9 +48,9 @@ class TestSentimentPriorConfigSave(unittest.TestCase):
                 self.assertEqual(pub["mode"], "off")
             finally:
                 if old is None:
-                    os.environ.pop("INVESTMENT_SIGNAL_CONFIG", None)
+                    os.environ.pop("QUANTLAB_SIGNAL_CONFIG", None)
                 else:
-                    os.environ["INVESTMENT_SIGNAL_CONFIG"] = old
+                    os.environ["QUANTLAB_SIGNAL_CONFIG"] = old
                 import core.signal.config as cfg_mod
 
                 cfg_mod._cached = None

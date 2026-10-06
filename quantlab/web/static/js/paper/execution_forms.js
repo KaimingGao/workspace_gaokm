@@ -161,7 +161,7 @@ export async function initExecutionRuleForms() {
       setPathMatrixStatus(okMsg);
       applyExecutionToUi(data.execution);
       try {
-        window.dispatchEvent(new CustomEvent("investment-replay-desk-persist"));
+        window.dispatchEvent(new CustomEvent("quantlab-replay-desk-persist"));
       } catch (_) {
         /* ignore */
       }

@@ -2,7 +2,7 @@
 
 import { apiFetch } from "./api_client.js";
 
-const SESSION_KEY = "investment_session_id";
+const SESSION_KEY = "quantlab_session_id";
 
 const TAB_HREF = {
   watching: { href: "/watching", label: "去数据中心" },
@@ -34,9 +34,9 @@ function nameFromStockRow(row) {
 
 /** 当前页选中的股票：页面 hook → 图表高亮行 → 勾选/持仓选中 */
 function resolveCurrentStock() {
-  if (typeof window.__investmentGetCurrentStock === "function") {
+  if (typeof window.__quantlabGetCurrentStock === "function") {
     try {
-      const stock = window.__investmentGetCurrentStock();
+      const stock = window.__quantlabGetCurrentStock();
       if (stock && stock.code) {
         return {
           code: String(stock.code).trim(),
@@ -543,9 +543,9 @@ export function initAiDrawer() {
       );
       appendArtifactJumps(msgEl, result);
       messages.scrollTop = messages.scrollHeight;
-      if (typeof window.__investmentOnChatReply === "function") {
+      if (typeof window.__quantlabOnChatReply === "function") {
         try {
-          window.__investmentOnChatReply(result);
+          window.__quantlabOnChatReply(result);
         } catch (err) {
           console.error("[QuantLab] onChatReply", err);
         }
@@ -597,6 +597,6 @@ export function initAiDrawer() {
     send(q);
   });
 
-  window.__investmentOpenAi = openAiDrawer;
-  window.__investmentCloseAi = closeAiDrawer;
+  window.__quantlabOpenAi = openAiDrawer;
+  window.__quantlabCloseAi = closeAiDrawer;
 }

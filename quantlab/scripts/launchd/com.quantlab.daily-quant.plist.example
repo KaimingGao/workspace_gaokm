@@ -3,60 +3,60 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.investment.paper-daily</string>
+  <string>com.quantlab.daily-quant</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>CHANGE_ME/investment/scripts/daily_paper.sh</string>
+    <string>CHANGE_ME/quantlab/scripts/daily_quant.sh</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>CHANGE_ME/investment</string>
+  <string>CHANGE_ME/quantlab</string>
   <key>StartCalendarInterval</key>
   <array>
     <dict>
       <key>Weekday</key>
       <integer>1</integer>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>17</integer>
       <key>Minute</key>
-      <integer>30</integer>
+      <integer>0</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>2</integer>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>17</integer>
       <key>Minute</key>
-      <integer>30</integer>
+      <integer>0</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>3</integer>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>17</integer>
       <key>Minute</key>
-      <integer>30</integer>
+      <integer>0</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>4</integer>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>17</integer>
       <key>Minute</key>
-      <integer>30</integer>
+      <integer>0</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>5</integer>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>17</integer>
       <key>Minute</key>
-      <integer>30</integer>
+      <integer>0</integer>
     </dict>
   </array>
   <key>StandardOutPath</key>
-  <string>CHANGE_ME/investment/data/logs/paper-daily.out.log</string>
+  <string>CHANGE_ME/quantlab/data/logs/daily-quant.log</string>
   <key>StandardErrorPath</key>
-  <string>CHANGE_ME/investment/data/logs/paper-daily.err.log</string>
+  <string>CHANGE_ME/quantlab/data/logs/daily-quant.err.log</string>
 </dict>
 </plist>

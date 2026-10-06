@@ -1,7 +1,7 @@
 /**
  * 数据中心 / 交易执行共用：是否允许显式增量补齐写本地仓。
  *
- * localStorage ``investment.data_offline_only``：缺省 ``1``（仅本地仓）。
+ * localStorage ``quantlab.data_offline_only``：缺省 ``1``（仅本地仓）。
  * - 开（仅本地仓）：ŷ 只读本地；不触发增量补齐
  * - 关（可拉远端）：先走研究枢纽同源「增量补齐」写日K/5m，再只读现算 ŷ
  *
@@ -14,7 +14,7 @@ import {
   OFFLINE_TOGGLE_TITLE_ON,
 } from "./data_policy.js?v=p1736";
 
-export const DATA_OFFLINE_KEY = "investment.data_offline_only";
+export const DATA_OFFLINE_KEY = "quantlab.data_offline_only";
 
 /** @returns {boolean} true=仅本地仓（不触发增量补齐） */
 export function getDataOfflineOnly() {

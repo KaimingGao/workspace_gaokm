@@ -10,11 +10,11 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 SKILLS_DIR = os.path.join(ROOT_DIR, "skills")
 STORE_DIR = os.environ.get(
-    "INVESTMENT_STORE_DIR",
+    "QUANTLAB_STORE_DIR",
     os.path.join(DATA_DIR, "store"),
 )
 PAPER_PATH = os.environ.get(
-    "INVESTMENT_PAPER_PATH",
+    "QUANTLAB_PAPER_PATH",
     os.path.join(DATA_DIR, "paper.json"),
 )
 PAPER_EXAMPLE_PATH = os.path.join(DATA_DIR, "paper.example.json")
@@ -58,16 +58,16 @@ RETURN_SCORE_MODEL_RESEARCH_PATH = os.path.join(LIVE_DIR, "return_score_model_re
 DAILY_LAST_RUN_PATH = os.path.join(DATA_DIR, "daily_last_run.json")
 SIGNAL_CONFIG_PATH = os.path.join(DATA_DIR, "signal_config.json")
 WATCHING_PATH = os.environ.get(
-    "INVESTMENT_WATCHING_PATH",
+    "QUANTLAB_WATCHING_PATH",
     os.path.join(DATA_DIR, "watching.json"),
 )
 WATCHING_EXAMPLE_PATH = os.path.join(DATA_DIR, "watching.example.json")
 MEMORY_PATH = os.environ.get(
-    "INVESTMENT_MEMORY_PATH",
+    "QUANTLAB_MEMORY_PATH",
     os.path.join(DATA_DIR, "memory.json"),
 )
 DECISIONS_PATH = os.environ.get(
-    "INVESTMENT_DECISIONS_PATH",
+    "QUANTLAB_DECISIONS_PATH",
     os.path.join(DATA_DIR, "decisions.jsonl"),
 )
 SCHEDULE_LAST_RUN_PATH = os.path.join(DATA_DIR, "schedule_last_run.json")

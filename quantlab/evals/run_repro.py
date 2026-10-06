@@ -24,7 +24,7 @@ def load_fixtures() -> List[dict]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Investment repro evals")
+    parser = argparse.ArgumentParser(description="QuantLab repro evals")
     parser.add_argument("--case", help="只跑指定 case id")
     parser.add_argument("--json-out", help="写入 JSON 报告")
     args = parser.parse_args(argv)

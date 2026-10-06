@@ -25,12 +25,12 @@ logger = logging.getLogger(__name__)
 _AKSHARE_LOCK = threading.RLock()
 _INSTALLED = False
 
-# 等锁上限（秒）；``INVESTMENT_AK_LOCK_TIMEOUT_SEC=0`` 关闭（恢复无限等）
+# 等锁上限（秒）；``QUANTLAB_AK_LOCK_TIMEOUT_SEC=0`` 关闭（恢复无限等）
 _DEFAULT_LOCK_TIMEOUT_SEC = 90.0
 
 
 def _lock_acquire_timeout_sec() -> Optional[float]:
-    raw = os.environ.get("INVESTMENT_AK_LOCK_TIMEOUT_SEC", str(_DEFAULT_LOCK_TIMEOUT_SEC))
+    raw = os.environ.get("QUANTLAB_AK_LOCK_TIMEOUT_SEC", str(_DEFAULT_LOCK_TIMEOUT_SEC))
     try:
         v = float(raw)
     except (TypeError, ValueError):

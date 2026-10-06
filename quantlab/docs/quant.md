@@ -1658,7 +1658,7 @@ bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord 
 
 1. 复制并编辑 `scripts/launchd/*.plist.example`，将 `CHANGE_ME` 替换为项目绝对路径
 2. `mkdir -p data/logs`
-3. `launchctl load ~/Library/LaunchAgents/com.investment.daily-advisor.plist`
+3. `launchctl load ~/Library/LaunchAgents/com.quantlab.daily-advisor.plist`
 
 ---
 

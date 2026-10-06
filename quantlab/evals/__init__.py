@@ -1,1 +1,1 @@
-"""Investment 回归评估：黄金用例 + Skills checklist。"""
+"""QuantLab 回归评估：黄金用例 + Skills checklist。"""

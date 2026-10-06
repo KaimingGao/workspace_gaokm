@@ -22,7 +22,7 @@ from core.paper import (  # noqa: E402
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Investment 纸面账户")
+    parser = argparse.ArgumentParser(description="QuantLab 纸面账户")
     parser.add_argument("--path", default=DEFAULT_PAPER_PATH, help="paper.json 路径")
     parser.add_argument("--init", action="store_true", help="从 paper.example.json 初始化")
     parser.add_argument("--run", action="store_true", help="跑持仓/观察 signal 并记快照")

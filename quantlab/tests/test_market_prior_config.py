@@ -19,7 +19,7 @@ class TestMarketPriorConfig(unittest.TestCase):
             path = os.path.join(td, "signal_config.json")
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"cross_market": {"mode": "off"}}, f)
-            os.environ["INVESTMENT_SIGNAL_CONFIG"] = path
+            os.environ["QUANTLAB_SIGNAL_CONFIG"] = path
             try:
                 out = save_market_prior(
                     cross_market_mode="gate",
@@ -62,7 +62,7 @@ class TestMarketPriorConfig(unittest.TestCase):
                 self.assertEqual(pub3["ipo_drain_prior"]["mode"], "gate")
                 self.assertAlmostEqual(pub3["ipo_drain_prior"]["drain_ratio_high"], 2.5)
             finally:
-                os.environ.pop("INVESTMENT_SIGNAL_CONFIG", None)
+                os.environ.pop("QUANTLAB_SIGNAL_CONFIG", None)
                 import core.signal.config as cfg_mod
 
                 cfg_mod._cached = None

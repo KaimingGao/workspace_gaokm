@@ -3,14 +3,14 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.investment.daily-advisor</string>
+  <string>com.quantlab.paper-daily</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>CHANGE_ME/investment/scripts/daily_advisor.sh</string>
+    <string>CHANGE_ME/quantlab/scripts/daily_paper.sh</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>CHANGE_ME/investment</string>
+  <string>CHANGE_ME/quantlab</string>
   <key>StartCalendarInterval</key>
   <array>
     <dict>
@@ -55,8 +55,8 @@
     </dict>
   </array>
   <key>StandardOutPath</key>
-  <string>CHANGE_ME/investment/data/logs/daily-advisor.log</string>
+  <string>CHANGE_ME/quantlab/data/logs/paper-daily.out.log</string>
   <key>StandardErrorPath</key>
-  <string>CHANGE_ME/investment/data/logs/daily-advisor.err.log</string>
+  <string>CHANGE_ME/quantlab/data/logs/paper-daily.err.log</string>
 </dict>
 </plist>

@@ -83,8 +83,8 @@ def is_board_label(label: str | None) -> bool:
 
 
 def minute_fetch_delay_sec() -> float:
-    """东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒）；``INVESTMENT_MINUTE_FETCH_DELAY_SEC`` 可覆盖。"""
-    raw = os.environ.get("INVESTMENT_MINUTE_FETCH_DELAY_SEC", str(MINUTE_FETCH_DELAY_SEC))
+    """东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒）；``QUANTLAB_MINUTE_FETCH_DELAY_SEC`` 可覆盖。"""
+    raw = os.environ.get("QUANTLAB_MINUTE_FETCH_DELAY_SEC", str(MINUTE_FETCH_DELAY_SEC))
     try:
         v = float(raw)
     except (TypeError, ValueError):
@@ -93,8 +93,8 @@ def minute_fetch_delay_sec() -> float:
 
 
 def minute_warmup_skip_em() -> bool:
-    """批量预热默认走东财；``INVESTMENT_MINUTE_WARMUP_SKIP_EM=1`` 跳过东财（stock_zh_a_minute→BaoStock）。"""
-    raw = os.environ.get("INVESTMENT_MINUTE_WARMUP_SKIP_EM", "0").strip().lower()
+    """批量预热默认走东财；``QUANTLAB_MINUTE_WARMUP_SKIP_EM=1`` 跳过东财（stock_zh_a_minute→BaoStock）。"""
+    raw = os.environ.get("QUANTLAB_MINUTE_WARMUP_SKIP_EM", "0").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
@@ -104,15 +104,15 @@ MINUTE_WARMUP_MAX_CAL_GAP_DAYS = 4
 
 
 def minute_warmup_skip_if_ready() -> bool:
-    """批量分钟预热：本地已 Ready 则跳过远端（``INVESTMENT_MINUTE_WARMUP_SKIP_IF_READY=0`` 关闭）。"""
-    raw = os.environ.get("INVESTMENT_MINUTE_WARMUP_SKIP_IF_READY", "1").strip().lower()
+    """批量分钟预热：本地已 Ready 则跳过远端（``QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY=0`` 关闭）。"""
+    raw = os.environ.get("QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY", "1").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 def minute_warmup_ready_min_span_days() -> int:
     """与 UI Ready 闸一致：最近这么多个交易日必须无缺。默认 40。"""
     raw = os.environ.get(
-        "INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS", str(MINUTE_WARMUP_READY_MIN_SPAN_DAYS)
+        "QUANTLAB_MINUTE_WARMUP_READY_MIN_SPAN_DAYS", str(MINUTE_WARMUP_READY_MIN_SPAN_DAYS)
     )
     try:
         v = int(raw)
@@ -123,7 +123,7 @@ def minute_warmup_ready_min_span_days() -> int:
 
 def minute_warmup_stale_hours() -> float:
     raw = os.environ.get(
-        "INVESTMENT_MINUTE_WARMUP_STALE_HOURS", str(MINUTE_WARMUP_STALE_HOURS)
+        "QUANTLAB_MINUTE_WARMUP_STALE_HOURS", str(MINUTE_WARMUP_STALE_HOURS)
     )
     try:
         v = float(raw)
@@ -133,9 +133,9 @@ def minute_warmup_stale_hours() -> float:
 
 
 def minute_baostock_timeout_sec() -> float:
-    """BaoStock 分钟拉取超时（秒）；``INVESTMENT_MINUTE_BS_TIMEOUT_SEC=0`` 关闭子进程隔离。"""
+    """BaoStock 分钟拉取超时（秒）；``QUANTLAB_MINUTE_BS_TIMEOUT_SEC=0`` 关闭子进程隔离。"""
     raw = os.environ.get(
-        "INVESTMENT_MINUTE_BS_TIMEOUT_SEC", str(MINUTE_BAOSTOCK_TIMEOUT_SEC)
+        "QUANTLAB_MINUTE_BS_TIMEOUT_SEC", str(MINUTE_BAOSTOCK_TIMEOUT_SEC)
     )
     try:
         v = float(raw)
@@ -149,19 +149,19 @@ def minute_baostock_timeout_sec() -> float:
 def minute_isolated_timeout_sec(*, skip_em: bool = False) -> float:
     """观察池分钟强更/增量单票子进程超时（秒）。
 
-    ``INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC`` 覆盖东财全窗默认；
-    ``INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC`` 覆盖近端（skip_em）默认；
+    ``QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC`` 覆盖东财全窗默认；
+    ``QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC`` 覆盖近端（skip_em）默认；
     ``0`` 关闭隔离（退回进程内直调，仅单测）。
     """
     if skip_em:
         raw = os.environ.get(
-            "INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC",
+            "QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC",
             str(MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC),
         )
         default = float(MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC)
     else:
         raw = os.environ.get(
-            "INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC",
+            "QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC",
             str(MINUTE_ISOLATED_TIMEOUT_SEC),
         )
         default = float(MINUTE_ISOLATED_TIMEOUT_SEC)
@@ -175,9 +175,9 @@ def minute_isolated_timeout_sec(*, skip_em: bool = False) -> float:
 
 
 def minute_baostock_lookback_days() -> int:
-    """BaoStock 分钟回看日历日；``INVESTMENT_MINUTE_BS_LOOKBACK_DAYS`` 可覆盖。"""
+    """BaoStock 分钟回看日历日；``QUANTLAB_MINUTE_BS_LOOKBACK_DAYS`` 可覆盖。"""
     raw = os.environ.get(
-        "INVESTMENT_MINUTE_BS_LOOKBACK_DAYS", str(MINUTE_BAOSTOCK_LOOKBACK_DAYS)
+        "QUANTLAB_MINUTE_BS_LOOKBACK_DAYS", str(MINUTE_BAOSTOCK_LOOKBACK_DAYS)
     )
     try:
         v = int(raw)
@@ -187,9 +187,9 @@ def minute_baostock_lookback_days() -> int:
 
 
 def minute_em_lookback_days() -> int:
-    """东财分钟回看日历日；``INVESTMENT_MINUTE_EM_LOOKBACK_DAYS`` 可覆盖。"""
+    """东财分钟回看日历日；``QUANTLAB_MINUTE_EM_LOOKBACK_DAYS`` 可覆盖。"""
     raw = os.environ.get(
-        "INVESTMENT_MINUTE_EM_LOOKBACK_DAYS", str(MINUTE_EM_LOOKBACK_DAYS)
+        "QUANTLAB_MINUTE_EM_LOOKBACK_DAYS", str(MINUTE_EM_LOOKBACK_DAYS)
     )
     try:
         v = int(raw)

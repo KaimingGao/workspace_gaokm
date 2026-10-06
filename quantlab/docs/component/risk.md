@@ -145,7 +145,7 @@ Alpha 条目（选股择时）与 Risk 条目分开写，避免「一个大 if�
 | 行业映射 / 目标权重（N3） | `data/sector_map.json` · `core/portfolio_optimize.py` · `core/risk/budget.py`（波动缩放·分数预算·`risk_parity_lite`） |
 | 拦截标注 / 有效率（R3） | `core/risk/block_outcome.py` · `north_star.summarize_risk_blocks` · `GET/POST /api/paper/risk-blocks*` |
 | sector_map 对齐 | `core/sector_map_sync.py` |
-| 告警出站（P2++） | `core/alert_outbound.py` · `paper_daily` → `data/alerts/` · 可选 `INVESTMENT_ALERT_WEBHOOK` |
+| 告警出站（P2++） | `core/alert_outbound.py` · `paper_daily` → `data/alerts/` · 可选 `QUANTLAB_ALERT_WEBHOOK` |
 | 策略衰减监控（N5） | `core/strategy_monitor.py`（回撤 + 滚动 IC + 行业覆盖） |
 | Regime 降分 | `core/signal/regime.py` |
 | hard_reject / invalidation | `core/signal/scorer.py` · `signal_config` |

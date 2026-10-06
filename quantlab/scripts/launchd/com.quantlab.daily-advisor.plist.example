@@ -3,60 +3,60 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.investment.daily-quant</string>
+  <string>com.quantlab.daily-advisor</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>CHANGE_ME/investment/scripts/daily_quant.sh</string>
+    <string>CHANGE_ME/quantlab/scripts/daily_advisor.sh</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>CHANGE_ME/investment</string>
+  <string>CHANGE_ME/quantlab</string>
   <key>StartCalendarInterval</key>
   <array>
     <dict>
       <key>Weekday</key>
       <integer>1</integer>
       <key>Hour</key>
-      <integer>17</integer>
+      <integer>16</integer>
       <key>Minute</key>
-      <integer>0</integer>
+      <integer>30</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>2</integer>
       <key>Hour</key>
-      <integer>17</integer>
+      <integer>16</integer>
       <key>Minute</key>
-      <integer>0</integer>
+      <integer>30</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>3</integer>
       <key>Hour</key>
-      <integer>17</integer>
+      <integer>16</integer>
       <key>Minute</key>
-      <integer>0</integer>
+      <integer>30</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>4</integer>
       <key>Hour</key>
-      <integer>17</integer>
+      <integer>16</integer>
       <key>Minute</key>
-      <integer>0</integer>
+      <integer>30</integer>
     </dict>
     <dict>
       <key>Weekday</key>
       <integer>5</integer>
       <key>Hour</key>
-      <integer>17</integer>
+      <integer>16</integer>
       <key>Minute</key>
-      <integer>0</integer>
+      <integer>30</integer>
     </dict>
   </array>
   <key>StandardOutPath</key>
-  <string>CHANGE_ME/investment/data/logs/daily-quant.log</string>
+  <string>CHANGE_ME/quantlab/data/logs/daily-advisor.log</string>
   <key>StandardErrorPath</key>
-  <string>CHANGE_ME/investment/data/logs/daily-quant.err.log</string>
+  <string>CHANGE_ME/quantlab/data/logs/daily-advisor.err.log</string>
 </dict>
 </plist>

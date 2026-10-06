@@ -958,7 +958,7 @@ class TestDualScoreFields(unittest.TestCase):
                     },
                     f,
                 )
-            os.environ["INVESTMENT_SIGNAL_CONFIG"] = path
+            os.environ["QUANTLAB_SIGNAL_CONFIG"] = path
             try:
                 import core.signal.config as cfg_mod
 
@@ -985,7 +985,7 @@ class TestDualScoreFields(unittest.TestCase):
                 self.assertNotIn("minute_tau_hm", pub)
                 self.assertNotIn("minute_tau_grid", pub)
             finally:
-                os.environ.pop("INVESTMENT_SIGNAL_CONFIG", None)
+                os.environ.pop("QUANTLAB_SIGNAL_CONFIG", None)
                 import core.signal.config as cfg_mod
 
                 cfg_mod._cached = None

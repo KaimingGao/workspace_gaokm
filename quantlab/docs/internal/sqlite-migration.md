@@ -2,7 +2,7 @@
 
 [← 文档索引](../README.md) · [架构总览](../architecture.md) · [工程结构轨](./engineering-track.md#工程结构轨a0a4)
 
-> 状态：**已落地（A1）** · 双后端 `INVESTMENT_BARS_BACKEND=sqlite|json`（默认 sqlite）  
+> 状态：**已落地（A1）** · 双后端 `QUANTLAB_BARS_BACKEND=sqlite|json`（默认 sqlite）  
 > 范围：`core/store.py` + `core/store_bars_sqlite.py`；配置与账本保持 JSON  
 > 迁移：`python3 scripts/migrate_bars_to_sqlite.py [--dry-run]`（不删原 JSON）  
 > 工程轨：[§ 工程结构轨 A0–A4](./engineering-track.md#工程结构轨a0a4)
@@ -75,7 +75,7 @@ for name in os.listdir(mdir):
 
 ## 三、SQLite 建表 DDL
 
-库文件路径：`{store_dir}/bars.db`（保留 `get_store_dir()` / `INVESTMENT_STORE_DIR` 语义，目录下多一个 db 文件）。
+库文件路径：`{store_dir}/bars.db`（保留 `get_store_dir()` / `QUANTLAB_STORE_DIR` 语义，目录下多一个 db 文件）。
 
 ```sql
 PRAGMA journal_mode=WAL;          -- 并发读不阻塞写，解决"并发查询"的关键
@@ -303,7 +303,7 @@ def migrate(store_dir):
 
 | 风险 | 缓解 |
 |------|------|
-| SQLite 改造引入 bug 导致 bars 读不到 | 迁移脚本不删原 JSON；store.py 加环境变量 `INVESTMENT_BARS_BACKEND=sqlite\|json`，出问题切回 json（保留旧函数为 `_json` 后缀） |
+| SQLite 改造引入 bug 导致 bars 读不到 | 迁移脚本不删原 JSON；store.py 加环境变量 `QUANTLAB_BARS_BACKEND=sqlite\|json`，出问题切回 json（保留旧函数为 `_json` 后缀） |
 | WAL 文件增长 | 定期 `PRAGMA wal_checkpoint(TRUNCATE)`；或在 save 后偶发 checkpoint |
 | 并发写死锁 | `_write_lock` + `busy_timeout=5000` 双保险；实测无死锁 |
 | 测试 mock 点失效 | mock 点在 `adapters.market.history.load_daily_cache`（test_history.py:51），store 内部改实现不影响 mock 路径 |
@@ -328,6 +328,6 @@ def migrate(store_dir):
 ## 十一、决策点（已拍板 · A1）
 
 1. `quality` 存 JSON 串 — **采用**
-2. `INVESTMENT_BARS_BACKEND` 双后端 — **采用**（默认 `sqlite`，可切 `json`）
+2. `QUANTLAB_BARS_BACKEND` 双后端 — **采用**（默认 `sqlite`，可切 `json`）
 3. 分钟线同步迁 — **采用**（与日线同库）
 

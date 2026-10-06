@@ -2769,7 +2769,7 @@ export function initPaper(ctx) {
   ctx.reloadPaper = loadPaper;
   ctx.focusPaperHolding = focusPaperHolding;
 
-  window.__investmentGetCurrentStock = () => {
+  window.__quantlabGetCurrentStock = () => {
     const code = chartStockCode || selectedHoldCode;
     if (!code) return null;
     const holdings = (lastAccountData && lastAccountData.holdings) || [];

@@ -21,7 +21,7 @@ SINA_KLINE_URL = (
     "https://quotes.sina.cn/cn/api/jsonp_v2.php/=/CN_MarketDataService.getKLineData"
 )
 TX_MKLINE_URL = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
-_UA = "Mozilla/5.0 (compatible; investment-minute/1.0)"
+_UA = "Mozilla/5.0 (compatible; quantlab-minute/1.0)"
 SINA_MAX_COUNT = 1970
 _BARS_PER_DAY = {"1": 240, "5": 48, "15": 16, "30": 8, "60": 4}
 

@@ -4,7 +4,7 @@
 
 ### 定位
 
-Investment 是 **量化研究与模拟交易系统**（CLI + Web + 研究台），融合 **AI** 做意图理解、工具编排与结果解释：核心是信号评分、策略规则、回测与**模拟账户**；大模型不替代领域计算。  
+QuantLab 是 **量化研究与模拟交易系统**（CLI + Web + 研究台），融合 **AI** 做意图理解、工具编排与结果解释：核心是信号评分、策略规则、回测与**模拟账户**；大模型不替代领域计算。  
 **不是**持牌投资顾问产品；**现行定位 = 策略验证**（研究台 + 模拟账户），**不涉及真实账户交易、不代客下单**；模拟盈亏**不保证收益**。待策略验证成熟后再评估实盘（N6）。产品边界见 [design-spine · 产品边界](design-spine.md#产品边界现行)。
 
 **产品核心设计主轴**（现行逻辑链 + **[产品北极星](design-spine.md#产品北极星)** + [能力地图](design-spine.md#能力地图六大模块)）见 **[design-spine.md](design-spine.md)**。下文控制论与工程分层是实现结构；产品叙事以设计主轴为准。运行时选型见 **[技术栈](#技术栈)**。
@@ -318,7 +318,7 @@ Skill / Service / 研究 CLI
 | **前端增强（CDN）** | Lightweight Charts · marked；局部 React 岛（非全站 SPA） |
 | **AI** | 通义千问（DashScope，OpenAI 兼容 HTTP）；自定义 `Agent` + Skills |
 | **行情 / 基本面** | 腾讯 qt（现价）· AkShare（日线/选股等）· pandas |
-| **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`INVESTMENT_BARS_BACKEND=sqlite\|json`）；见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型 · [internal/sqlite-migration.md · SQLite 改造](internal/sqlite-migration.md#日分钟线缓存-sqlite-改造方案) · [internal/engineering-track.md · 工程结构轨](internal/engineering-track.md#工程结构轨a0a4) |
+| **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`QUANTLAB_BARS_BACKEND=sqlite\|json`）；见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型 · [internal/sqlite-migration.md · SQLite 改造](internal/sqlite-migration.md#日分钟线缓存-sqlite-改造方案) · [internal/engineering-track.md · 工程结构轨](internal/engineering-track.md#工程结构轨a0a4) |
 | **量化主轴** | Ridge β → **predicted_score（ŷ）** 选股；ML 旁路见 `research/ml/` |
 | **任务 / 运维** | 进程内 `POST /api/schedule/run` + shell cron / launchd；`unittest` + `evals` |
 | **部署形态** | 单机本地（默认 `127.0.0.1:8000`）；暂不接实盘 OMS |
@@ -1177,7 +1177,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 
 | 模块 | 功能 |
 |------|------|
-| `store.py` | 缓存读写；`INVESTMENT_BARS_BACKEND=sqlite\|json` |
+| `store.py` | 缓存读写；`QUANTLAB_BARS_BACKEND=sqlite\|json` |
 | `store_bars_sqlite.py` | 日线/分钟线 SQLite WAL |
 | `data/service.py` · `data/gate.py` | MarketDataService 与质量门禁 |
 | `pit.py` · `coverage.py` · `quality_center.py` | PIT、覆盖率、质量中心 |
@@ -1239,7 +1239,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 回测快照 | `data/last_portfolio_backtest.json` · `data/last_t0_backtest.json` | `/replay` / `/follow` 刷新恢复，不重跑 |
 | 配置备份 | `data/config_backups/` | signal_config 历史 |
 
-环境变量：`INVESTMENT_STORE_DIR` · `INVESTMENT_BARS_BACKEND`。见 [data-layer](component/data.md#数据层data-layer) · [sqlite-migration](internal/sqlite-migration.md)。
+环境变量：`QUANTLAB_STORE_DIR` · `QUANTLAB_BARS_BACKEND`。见 [data-layer](component/data.md#数据层data-layer) · [sqlite-migration](internal/sqlite-migration.md)。
 
 ---
 

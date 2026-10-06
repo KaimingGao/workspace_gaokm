@@ -56,7 +56,7 @@ function applyPaper(paper) {
       }</span></div>`;
   }
 
-  const hooks = window.__investmentLivePaperHooks;
+  const hooks = window.__quantlabLivePaperHooks;
   if (Array.isArray(hooks)) {
     for (const fn of hooks) {
       try {
@@ -66,9 +66,9 @@ function applyPaper(paper) {
       }
     }
   }
-  if (typeof window.__investmentOnLivePaper === "function") {
+  if (typeof window.__quantlabOnLivePaper === "function") {
     try {
-      window.__investmentOnLivePaper(paper);
+      window.__quantlabOnLivePaper(paper);
     } catch (_) {
       /* ignore */
     }
@@ -82,9 +82,9 @@ function applyHealth(health) {
     lamp.classList.toggle("risk-lamp-ok", !!health.ok);
     lamp.classList.toggle("risk-lamp-warn", !health.ok);
   }
-  if (typeof window.__investmentOnLiveHealth === "function") {
+  if (typeof window.__quantlabOnLiveHealth === "function") {
     try {
-      window.__investmentOnLiveHealth(health);
+      window.__quantlabOnLiveHealth(health);
     } catch (_) {
       /* ignore */
     }
@@ -92,9 +92,9 @@ function applyHealth(health) {
 }
 
 function applyAlerts(alerts) {
-  if (typeof window.__investmentRefreshAlertBell === "function") {
+  if (typeof window.__quantlabRefreshAlertBell === "function") {
     try {
-      window.__investmentRefreshAlertBell();
+      window.__quantlabRefreshAlertBell();
     } catch (_) {
       /* ignore */
     }
@@ -198,5 +198,5 @@ export function initLiveWs() {
       }
     }
   });
-  window.__investmentConnectLiveWs = connectLiveWs;
+  window.__quantlabConnectLiveWs = connectLiveWs;
 }

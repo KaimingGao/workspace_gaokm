@@ -89,7 +89,7 @@ flowchart LR
   H --> BT
 ```
 
-环境变量：`INVESTMENT_STORE_DIR` · `INVESTMENT_DISABLE_CACHE=1`（见 [roadmap · P4.2](../design-spine.md#能力评估与升级规划路线图视角)）。
+环境变量：`QUANTLAB_STORE_DIR` · `QUANTLAB_DISABLE_CACHE=1`（见 [roadmap · P4.2](../design-spine.md#能力评估与升级规划路线图视角)）。
 
 ---
 
@@ -151,9 +151,9 @@ flowchart TD
 | 深度 | 1m ≈ 近 **5 日**；5/15/30/60m 本仓默认 **120 日历日**（`MINUTE_EM_LOOKBACK_DAYS`），且易 `RemoteDisconnected` |
 | 窗口 | `start = now - lookback` 日历日，封顶策略上限 120 |
 | 复权 | 5m+ 默认 **前复权 qfq** |
-| 频控 | 每次远端拉取后 **sleep 20s**（东财 / 新浪腾讯 / BaoStock 各一次；`INVESTMENT_MINUTE_FETCH_DELAY_SEC`） |
+| 频控 | 每次远端拉取后 **sleep 20s**（东财 / 新浪腾讯 / BaoStock 各一次；`QUANTLAB_MINUTE_FETCH_DELAY_SEC`） |
 
-默认走 EM；``INVESTMENT_MINUTE_WARMUP_SKIP_EM=1`` 时批量不调 EM。
+默认走 EM；``QUANTLAB_MINUTE_WARMUP_SKIP_EM=1`` 时批量不调 EM。
 
 ### 新浪/腾讯 — 近端备 · 先于 BaoStock
 
@@ -166,7 +166,7 @@ flowchart TD
 | 深度 | `datalen` 上限约 **1023** 根（5m ≈ 20 交易日）；分钟不能按历史日期切片，只从现在往前 |
 | 复权 | 源站默认（新浪该接口通常前复权） |
 | 频控 | 拉取后同样 sleep 20s |
-| 开关 | `INVESTMENT_MINUTE_SINA_TX_FALLBACK` 默认 `1` |
+| 开关 | `QUANTLAB_MINUTE_SINA_TX_FALLBACK` 默认 `1` |
 
 补 Missing 近端 / T0 当日触达；新浪约 20 交易日；Ready 闸默认近 **40** 交易日无缺。有数则 **不再打 BaoStock**。
 
@@ -176,16 +176,16 @@ flowchart TD
 |----|------|
 | 接口 | `baostock.query_history_k_data_plus`；5/15/30/60m 约 **2020-01-03 至今** |
 | 复权 | `adjustflag=2`（前复权） |
-| 依赖 | `requirements.txt` · `baostock>=0.8.8`；`INVESTMENT_MINUTE_BS_FALLBACK=0` 可关备用 |
+| 依赖 | `requirements.txt` · `baostock>=0.8.8`；`QUANTLAB_MINUTE_BS_FALLBACK=0` 可关备用 |
 | 深度 | 本仓默认回看 **30 日历日**（`MINUTE_BAOSTOCK_LOOKBACK_DAYS`；东财主窗默认 120） |
-| 超时 | 子进程拉取，默认 **90s** kill（`MINUTE_BAOSTOCK_TIMEOUT_SEC` · `INVESTMENT_MINUTE_BS_TIMEOUT_SEC`）；`0` 关闭子进程隔离 |
+| 超时 | 子进程拉取，默认 **90s** kill（`MINUTE_BAOSTOCK_TIMEOUT_SEC` · `QUANTLAB_MINUTE_BS_TIMEOUT_SEC`）；`0` 关闭子进程隔离 |
 | 批量 | 每次拉取后同样 sleep 20s |
 
 `_maybe_fetch_baostock_minute_bars` 仅在 **新浪/腾讯未接住** 且（当前 bar **空**或 **日历跨度** `< 30 日`）时调用。东财已给出近端但短于该窗口时仍会打 BaoStock。
 
 然后 merge：**同日整段以后到源为准**（`merge_minute_bars_by_time` 默认 `lock_calendar_day`，禁止同日跨源按时间戳缝合）；重叠日若成交量中位比≈100 则先把手→股对齐。近端东财（或新浪/腾讯），远端缺口仅在未走新浪时补 BaoStock。
 
-**批量 skip_em**（`INVESTMENT_MINUTE_WARMUP_SKIP_EM=1`）：不调东财，顺序为新浪/腾讯 → BaoStock；默认 **关**。
+**批量 skip_em**（`QUANTLAB_MINUTE_WARMUP_SKIP_EM=1`）：不调东财，顺序为新浪/腾讯 → BaoStock；默认 **关**。
 
 ### 批量预热与 Web 强更
 
@@ -204,20 +204,20 @@ flowchart TD
 
 | 变量 | 默认 | 含义 |
 |------|------|------|
-| `INVESTMENT_MINUTE_WARMUP_SKIP_EM` | `0` | 批量预热/强更跳过东财（`1`=新浪/腾讯→BaoStock） |
-| `INVESTMENT_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 本地已 Ready 则跳过远端拉取 |
-| `INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 闸：最近这么多个交易日无缺 |
-| `INVESTMENT_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 闸：`fetched_at` 超过则重拉 |
-| `INVESTMENT_MINUTE_FETCH_DELAY_SEC` | `20` | 东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒） |
-| `INVESTMENT_MINUTE_BS_FALLBACK` | `1` | 是否启用 BaoStock 备用 |
-| `INVESTMENT_MINUTE_SINA_TX_FALLBACK` | `1` | 东财空时新浪/腾讯近端；有数则跳过 BaoStock |
-| `INVESTMENT_MINUTE_EM_LOOKBACK_DAYS` | `120` | 东财分钟回看日历日（上限 120） |
-| `INVESTMENT_MINUTE_BS_LOOKBACK_DAYS` | `30` | BaoStock 分钟回看日历日（上限 90） |
-| `INVESTMENT_MINUTE_BS_TIMEOUT_SEC` | `90` | BaoStock 子进程超时；`0` 关闭 |
-| `INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC` | `90` | 观察池强更/增量单票子进程超时（东财全窗）；`0` 关闭隔离 |
-| `INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC` | `45` | 同上 · skip_em 近端 |
-| `INVESTMENT_AK_LOCK_TIMEOUT_SEC` | `90` | 主进程等 `ak_lock` 上限；`0`=无限等 |
-| `INVESTMENT_BARS_BACKEND` | `sqlite` | 分钟与日线共用 bars 后端 |
+| `QUANTLAB_MINUTE_WARMUP_SKIP_EM` | `0` | 批量预热/强更跳过东财（`1`=新浪/腾讯→BaoStock） |
+| `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 本地已 Ready 则跳过远端拉取 |
+| `QUANTLAB_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 闸：最近这么多个交易日无缺 |
+| `QUANTLAB_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 闸：`fetched_at` 超过则重拉 |
+| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒） |
+| `QUANTLAB_MINUTE_BS_FALLBACK` | `1` | 是否启用 BaoStock 备用 |
+| `QUANTLAB_MINUTE_SINA_TX_FALLBACK` | `1` | 东财空时新浪/腾讯近端；有数则跳过 BaoStock |
+| `QUANTLAB_MINUTE_EM_LOOKBACK_DAYS` | `120` | 东财分钟回看日历日（上限 120） |
+| `QUANTLAB_MINUTE_BS_LOOKBACK_DAYS` | `30` | BaoStock 分钟回看日历日（上限 90） |
+| `QUANTLAB_MINUTE_BS_TIMEOUT_SEC` | `90` | BaoStock 子进程超时；`0` 关闭 |
+| `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC` | `90` | 观察池强更/增量单票子进程超时（东财全窗）；`0` 关闭隔离 |
+| `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC` | `45` | 同上 · skip_em 近端 |
+| `QUANTLAB_AK_LOCK_TIMEOUT_SEC` | `90` | 主进程等 `ak_lock` 上限；`0`=无限等 |
+| `QUANTLAB_BARS_BACKEND` | `sqlite` | 分钟与日线共用 bars 后端 |
 
 ### 与 DataService 的关系
 
@@ -287,7 +287,7 @@ flowchart TD
 
 ## 存储选型：为何是 JSON，何时才上数据库
 
-**结论（现行）**：配置与账本继续 JSON；**日线/分钟线缓存**走工程结构轨 **A1**：默认 SQLite WAL（`INVESTMENT_BARS_BACKEND=sqlite`），可回滚 `json`。账户、信号配置、交易流水仍 **本地 JSON / JSONL**——与「策略验证、观察池级规模、暂不接实盘」对齐。
+**结论（现行）**：配置与账本继续 JSON；**日线/分钟线缓存**走工程结构轨 **A1**：默认 SQLite WAL（`QUANTLAB_BARS_BACKEND=sqlite`），可回滚 `json`。账户、信号配置、交易流水仍 **本地 JSON / JSONL**——与「策略验证、观察池级规模、暂不接实盘」对齐。
 
 与 [本章 § 刻意不做](#架构总览)、[§ 工程结构轨 A0–A4](#工程结构轨a0a4)、[§ SQLite 改造](#日分钟线缓存-sqlite-改造方案) 一致：不为「专业感」把全部状态塞进一个库；行情按规模升 SQLite，配置保持可 diff。
 
@@ -298,7 +298,7 @@ flowchart TD
 | **模拟账户** | JSON | `data/paper.json` | 假钱账本（现金 · 持仓 · 成交）；非券商实盘 |
 | **观察池** | JSON | `data/watching.json` | 产品状态，非行情仓 |
 | **信号 / 规则配置** | JSON | `signal_config.json` · `position_rules.json` | 人审可改；晋升有备份约定 |
-| **日线 / 分钟线** | SQLite（默认）或 JSON | `data/store/bars.db` · 或 `daily|minute/**/*.json` | `INVESTMENT_BARS_BACKEND`；上层经 DataService / ports |
+| **日线 / 分钟线** | SQLite（默认）或 JSON | `data/store/bars.db` · 或 `daily|minute/**/*.json` | `QUANTLAB_BARS_BACKEND`；上层经 DataService / ports |
 | **基本面 / 资讯** | 按标的 JSON | `data/store/fundamentals|news/` | 快照 + PIT 面板；不进 bars.db |
 | **决策 / TTM 事件** | JSONL 追加 | `decisions.jsonl` · `ttm_events.jsonl` | 流水审计，轻量追加写 |
 | **日报 / 告警** | JSON · MD | `quant_daily.json` · `reports/` · `alerts/` | 运行时产物 |
@@ -365,7 +365,7 @@ flowchart TD
 | **DS-E3 quote/指数/惰性包** | **已落地**：paper quote/batch 经 DS；`get_index_bars`；`portfolio_bars` 离线不打 quote；lazy `core.data.__getattr__`；DQ 暴露 `data_service_metrics` |
 | **DS-E4 收口扫尾** | **已落地**：`as_dict` 保留 kind/ok；score/watching/facts/schedule/cluster/event 行情经 DS；warmup 挂 metrics；topk 指数经 DS；portfolio 最终 resolve 跟 offline 语义 |
 | **DS-E5 可观测 + 锁** | **已落地**：平台 DQ/调度 last 展示 `data_service_metrics`；`spot_refresh` 挂 metrics；`reset_metrics` 导出；框架锁业务禁直 import ports 读行情；仪表盘指数经 DS |
-| **A1 Bars SQLite** | **已落地**：`INVESTMENT_BARS_BACKEND` · `core/store_bars_sqlite.py` · `scripts/migrate_bars_to_sqlite.py`；见 [§ SQLite 改造](#日分钟线缓存-sqlite-改造方案) · [§ 工程结构轨 A0–A4](#工程结构轨a0a4) |
+| **A1 Bars SQLite** | **已落地**：`QUANTLAB_BARS_BACKEND` · `core/store_bars_sqlite.py` · `scripts/migrate_bars_to_sqlite.py`；见 [§ SQLite 改造](#日分钟线缓存-sqlite-改造方案) · [§ 工程结构轨 A0–A4](#工程结构轨a0a4) |
 | 全市场数仓 / Tick / 多源对齐 | **不做**（锁定） |
 
 ### 采集运维

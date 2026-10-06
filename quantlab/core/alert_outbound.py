@@ -60,7 +60,7 @@ def dispatch_monitor_alerts(
     webhook_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    写出告警文件；若 INVESTMENT_ALERT_WEBHOOK 或 webhook_url 有值则 POST。
+    写出告警文件；若 QUANTLAB_ALERT_WEBHOOK 或 webhook_url 有值则 POST。
     """
     items = list(alerts or [])
     if not items:
@@ -77,7 +77,7 @@ def dispatch_monitor_alerts(
         payload["extra"] = extra
 
     path = write_alert_file(payload)
-    url = (webhook_url or os.environ.get("INVESTMENT_ALERT_WEBHOOK") or "").strip()
+    url = (webhook_url or os.environ.get("QUANTLAB_ALERT_WEBHOOK") or "").strip()
     hook: Dict[str, Any] = {"ok": False, "skipped": True}
     if url:
         hook = post_webhook(url, payload)

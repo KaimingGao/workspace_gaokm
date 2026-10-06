@@ -15,7 +15,7 @@
 
 | 做 | 不做 |
 |----|------|
-| 日线/分钟线 SQLite WAL（`INVESTMENT_BARS_BACKEND`） | 微服务 / Redis / Celery / Postgres |
+| 日线/分钟线 SQLite WAL（`QUANTLAB_BARS_BACKEND`） | 微服务 / Redis / Celery / Postgres |
 | Job stale/cancel 统一；长任务可评估进程隔离 | 把 paper/watching/config 全部迁库 |
 | BacktestService 信封；按用例拆巨石 | 全站 React / Vite / Ant Design Pro |
 | paper/quant 编排继续下沉岛 | NN→生产 ŷ；OMS（N6 另立） |
@@ -24,8 +24,8 @@
 
 | 变量 | 含义 | 默认 |
 |------|------|------|
-| `INVESTMENT_BARS_BACKEND` | `sqlite` \| `json`；日线/分钟线缓存后端 | `sqlite`（无库或失败时可切 `json`） |
-| `INVESTMENT_STORE_DIR` | 缓存根目录（其下 `bars.db` 或 `daily/`） | `data/store` |
+| `QUANTLAB_BARS_BACKEND` | `sqlite` \| `json`；日线/分钟线缓存后端 | `sqlite`（无库或失败时可切 `json`） |
+| `QUANTLAB_STORE_DIR` | 缓存根目录（其下 `bars.db` 或 `daily/`） | `data/store` |
 
 ## 验收命令（本轨）
 

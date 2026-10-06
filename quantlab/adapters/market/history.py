@@ -426,7 +426,7 @@ def fetch_daily_bars(
     if not market or not code:
         return [], "empty"
 
-    disable_cache = os.environ.get("INVESTMENT_DISABLE_CACHE", "").strip().lower() in (
+    disable_cache = os.environ.get("QUANTLAB_DISABLE_CACHE", "").strip().lower() in (
         "1",
         "true",
         "yes",

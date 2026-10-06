@@ -49,11 +49,11 @@ class TestMinuteStaleFallback(unittest.TestCase):
         from core.data.policy import minute_em_lookback_days
 
         with patch.dict(os.environ):
-            os.environ.pop("INVESTMENT_MINUTE_EM_LOOKBACK_DAYS", None)
+            os.environ.pop("QUANTLAB_MINUTE_EM_LOOKBACK_DAYS", None)
             self.assertEqual(minute_em_lookback_days(), 120)
-        with patch.dict(os.environ, {"INVESTMENT_MINUTE_EM_LOOKBACK_DAYS": "15"}):
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_EM_LOOKBACK_DAYS": "15"}):
             self.assertEqual(minute_em_lookback_days(), 15)
-        with patch.dict(os.environ, {"INVESTMENT_MINUTE_EM_LOOKBACK_DAYS": "999"}):
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_EM_LOOKBACK_DAYS": "999"}):
             self.assertEqual(minute_em_lookback_days(), 120)
 
     def test_em_fetch_caps_at_120_calendar_days(self):
@@ -75,7 +75,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
         ), patch(
             "core.http_retry.call_with_retry", side_effect=lambda fn, **_k: fn()
         ), patch.dict(os.environ):
-            os.environ.pop("INVESTMENT_MINUTE_EM_LOOKBACK_DAYS", None)
+            os.environ.pop("QUANTLAB_MINUTE_EM_LOOKBACK_DAYS", None)
             mh._fetch_em_minute_bars("601988", period="5", lookback_days=200, adjust="qfq")
         expected_day = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
         self.assertEqual(captured.get("symbol"), "601988")
@@ -95,7 +95,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
 
         with patch(
             "core.http_retry.call_with_retry", side_effect=_capture
-        ), patch.dict(os.environ, {"INVESTMENT_MINUTE_FETCH_DELAY_SEC": "10"}):
+        ), patch.dict(os.environ, {"QUANTLAB_MINUTE_FETCH_DELAY_SEC": "10"}):
             mh._fetch_em_minute_bars("601988", period="5", lookback_days=30, adjust="qfq")
         self.assertEqual(captured.get("retries"), 1)
         self.assertGreaterEqual(float(captured.get("base_delay_sec") or 0), 10.0)
