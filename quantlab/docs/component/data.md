@@ -281,7 +281,7 @@ flowchart TD
 | `data/watching.json` · `paper.json` · `signal_config.json` … | 产品配置 / 账户（非行情仓） |
 | `data/reports/` | 量化日报归档 |
 
-详见 [data/README.md](../data/README.md) · [data/store/README.md](../data/store/README.md)。
+详见 [data/README.md](../../data/README.md)。
 
 ---
 

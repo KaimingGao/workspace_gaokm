@@ -801,7 +801,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       String(r.action || r.matrix_action || "").toLowerCase() === "hold" ||
       String(r.side || "").toLowerCase() === "hold";
     const skipped = String(r.status || "") === "skipped";
-    const fillPx = skipped || held ? "" : r.price ?? "";
+    const fillPx = skipped || held ? "" : (r.price ?? "");
     const cells = [
       String(r.as_of || r.signal_date || r.ts || "").slice(0, 10),
       String(r.open_date || "").slice(0, 10),

@@ -1,6 +1,6 @@
 # 升级重构开发规划（R0–R5 · 已收口）
 
-[← 文档索引](../README.md) · **现行下一程** → [strategy-validation-upgrade.md](strategy-validation-upgrade.md)（V0–V5） · 差距依据见下文与 [quant-ui-gap.md](../quant-ui-gap.md) · 产品主轴 [design-spine.md](../design-spine.md) · 历史节奏 [roadmap.md](../roadmap.md) · Web 壳层 [quant-ui-upgrade.md](../quant-ui-upgrade.md) · 工程债 [framework-review.md](../framework-review.md)
+[← 文档索引](../README.md) · **现行下一程** → [strategy-validation-upgrade.md](strategy-validation-upgrade.md)（V0–V5） · 差距依据见下文与 [quant-ui-gap.md](../quant-ui.md#web-ui-相对专业量化终端的差距分析) · 产品主轴 [design-spine.md](../design-spine.md) · 历史节奏 [roadmap.md](../design-spine.md#北极星实现规划p0p3) · Web 壳层 [quant-ui-upgrade.md](../quant-ui.md#web-ui-全面优化升级方案) · 工程债 [framework-review.md](../internal/framework-review.md)
 
 **规划日期**：2026-07-29  
 **状态**：**R0–R5 已收口**（含运营/样本包）。后续排期见 **[strategy-validation-upgrade.md](strategy-validation-upgrade.md)**。  
@@ -34,7 +34,7 @@
 | 产品北极星三项乘积 | 公式有；仪表部分可见、未成系统 KPI | **本规划第一优先级** |
 | Web 研究台 | W0–W5 已补图表/Dock/WS；缺 IDE / 真虚拟表 / 深度 Brinson UI | **跟随后端数据，不单独炫技** |
 
-详细对照：[design-spine · 达成度](../design-spine.md#达成度评估2026-07) · [quant-ui-gap](../quant-ui-gap.md) · 上一轮对话缺陷分级。
+详细对照：[design-spine · 达成度](../design-spine.md#达成度评估2026-07) · [quant-ui-gap](../quant-ui.md#web-ui-相对专业量化终端的差距分析) · 上一轮对话缺陷分级。
 
 ### 1.2 需求拷问（进本规划的门禁）
 
@@ -52,10 +52,10 @@
 | 文档 | 职责 |
 |------|------|
 | [design-spine.md](../design-spine.md) | 北极星定义 · 能力地图 · 因果链 |
-| [roadmap.md](../roadmap.md) | 历史 P0–P2++ · N1–N6 骨架说明 |
-| [quant-ui-upgrade.md](../quant-ui-upgrade.md) | Web W0–W5 已交付与 UI 下一刀 |
-| [framework-review.md](../framework-review.md) | 代码债台账（非产品缺口） |
-| [risk-layer.md](../risk-layer.md) / [data-layer.md](../data-layer.md) | 风控 / 数据域演进细节 |
+| [roadmap.md](../design-spine.md#北极星实现规划p0p3) | 历史 P0–P2++ · N1–N6 骨架说明 |
+| [quant-ui-upgrade.md](../quant-ui.md#web-ui-全面优化升级方案) | Web W0–W5 已交付与 UI 下一刀 |
+| [framework-review.md](../internal/framework-review.md) | 代码债台账（非产品缺口） |
+| [risk-layer.md](../component/risk.md) / [data-layer.md](../component/data.md) | 风控 / 数据域演进细节 |
 | **本文** | **下一程升级重构：阶段 · 交付包 · 依赖 · 验收 · 锁定取舍** |
 
 ---
@@ -70,7 +70,7 @@
 | 4 | **先仪表、再填空**：北极星 KPI 未稳前，不并行冲 Tick 数仓 / 完整 QP / OMS |
 | 5 | **研究 / 回测 / 纸面同源**：共用 `score_bars` 与 DataService 约定；禁止双套计分 |
 | 6 | **验收可演示**：每阶段至少 1 条 API/日更落盘 + 1 条 Web 可见物 + 对应测试 |
-| 7 | **UI 契约**：改壳层先改 [quant-ui-standard](../quant-ui-standard.md)；默认报告感、不学 Bloomberg 密度 |
+| 7 | **UI 契约**：改壳层先改 [quant-ui-standard](../quant-ui.md#web-ui-标准研究台)；默认报告感、不学 Bloomberg 密度 |
 
 ---
 
@@ -114,7 +114,7 @@ R0 北极星仪表硬化 ──► R1 拟合底座（财务 PIT · 成本/冲击
 
 **目标**：三项乘积从「文档公式 / 部分 UI」变成 **日更可落盘、API 可查、可回归** 的系统 KPI。
 
-> 注：仪表盘可能已有指标卡雏形（见 [quant-ui-upgrade §13](../quant-ui-upgrade.md)）；本阶段验收标准是 **后端权威计算 + 日更写入 + 与 localStorage 装饰解耦**。
+> 注：仪表盘可能已有指标卡雏形（见 [quant-ui-upgrade §13](../quant-ui.md#web-ui-全面优化升级方案)）；本阶段验收标准是 **后端权威计算 + 日更写入 + 与 localStorage 装饰解耦**。
 
 ### 4.1 交付包
 
@@ -172,7 +172,7 @@ R0 北极星仪表硬化 ──► R1 拟合底座（财务 PIT · 成本/冲击
 ### 5.3 出门标准
 
 - [x] 至少 1 条 eval / 集成测锁定「as_of 财务」无未来泄漏（`tests/test_r1_fundamentals_pit.py`）  
-- [x] [data-layer.md](../data-layer.md) 更新 PIT 约定与限制  
+- [x] [data-layer.md](../component/data.md) 更新 PIT 约定与限制  
 - [x] 观察/回溯页质量文案与后端字段对齐（回测摘要 · 财务PIT · 源审计 · 冲击 bps）  
 
 #### R1 落地摘要（2026-07-29）
@@ -206,8 +206,8 @@ R0 北极星仪表硬化 ──► R1 拟合底座（财务 PIT · 成本/冲击
 
 ### 6.3 出门标准
 
-- [x] 新人按说明书完成「改一参 → 回测 → 看扫描表」&lt; 30 分钟（见 [research/README · Idea 路径](../research/README.md#idea-标准路径)）  
-- [x] [quant-ui-standard](../quant-ui-standard.md) 增补规格编辑白名单与人审边界  
+- [x] 新人按说明书完成「改一参 → 回测 → 看扫描表」&lt; 30 分钟（见 [research/README · Idea 路径](../../research/README.md)）  
+- [x] [quant-ui-standard](../quant-ui.md#web-ui-标准研究台) 增补规格编辑白名单与人审边界  
 - [x] R0 TTM 不再长期 `unavailable`（有样本后；打点已接线；`sample_ops seed-ttm` / cycle_id 配对）  
 
 #### R2 落地摘要（2026-07-29）
@@ -225,7 +225,7 @@ R0 北极星仪表硬化 ──► R1 拟合底座（财务 PIT · 成本/冲击
 
 ## 7. R3 · 组合与风控加深
 
-**目标**：从「静态限额 + 分数预算」迈向「敞口可见 + 有效率可审计」；对齐 [risk-layer](../risk-layer.md) 演进 ②→③ 的前半。
+**目标**：从「静态限额 + 分数预算」迈向「敞口可见 + 有效率可审计」；对齐 [risk-layer](../component/risk.md) 演进 ②→③ 的前半。
 
 ### 7.1 交付包
 
@@ -244,7 +244,7 @@ R0 北极星仪表硬化 ──► R1 拟合底座（财务 PIT · 成本/冲击
 ### 7.3 出门标准
 
 - [x] 故意构造超行业上限：硬拦 + 有效率分母增加（`tests/test_r3_exposure_risk.py`；标注 outcome 后算率）  
-- [x] [risk-layer.md](../risk-layer.md) 现状表更新  
+- [x] [risk-layer.md](../component/risk.md) 现状表更新  
 - [x] 组合回测 / 调仓仍默认 `check_account_risk`  
 
 #### R3 落地摘要（2026-07-29）
@@ -291,7 +291,7 @@ Tick 逐笔回放、交易所级撮合仿真（保持「近似」定位）。
 
 ## 9. R5 · 工程重构与稳态（贯穿）
 
-**目标**：降低继续加深功能时的变更成本；消化 [framework-review](../framework-review.md) 与 UI 工程债，**不**借重构扩产品面。
+**目标**：降低继续加深功能时的变更成本；消化 [framework-review](../internal/framework-review.md) 与 UI 工程债，**不**借重构扩产品面。
 
 ### 9.1 交付包（可与 R0–R4 并行插队）
 
@@ -300,14 +300,14 @@ Tick 逐笔回放、交易所级撮合仿真（保持「近似」定位）。
 | R5.1 | **主表真虚拟化** | `virtual_table.js` 观察/持仓 ≥200 行 | ✅ 默认虚拟滚动；预算 500 行；分页仅回退 |
 | R5.2 | **paper / holdings 继续拆** | 大模块边界清晰；禁回巨型 `paper.js` | ✅ `paper/holdings_island.js` 控制器拆出 |
 | R5.3 | **服务层边界** | 新 KPI / PIT 逻辑进 `core/`，Web router 只组装 | ✅ KPI/PIT/风控在 core；router 薄封装 |
-| R5.4 | **性能预算** | 首屏 · 表 500 · 图 5y；写入手册 | ✅ [quant-ui-standard §4.1](../quant-ui-standard.md) |
+| R5.4 | **性能预算** | 首屏 · 表 500 · 图 5y；写入手册 | ✅ [quant-ui-standard §4.1](../quant-ui.md#web-ui-标准研究台) |
 | R5.5 | **文档三联更新** | spine 达成度 · roadmap 指针 · 本文进度表 | ✅ 同步 R0–R5 |
 | R5.6 | **evals 黄金路径** | 北极星 KPI · PIT · 调仓硬拦 各至少 1 例 | ✅ `evals/core_golden_paths.py` |
 
 ### 9.2 明确不做的「重构」
 
 - 全站 React/CRA、Ant Design Pro  
-- 重写 Agent 框架、为重构而换存储（SQLite/时序库）——除非 R1 PIT 证明 JSON 不可维护后再单独立项；选型理由与触发条件见 [data-layer · 存储选型](../data-layer.md#存储选型为何是-json何时才上数据库)
+- 重写 Agent 框架、为重构而换存储（SQLite/时序库）——除非 R1 PIT 证明 JSON 不可维护后再单独立项；选型理由与触发条件见 [data-layer · 存储选型](../component/data.md#存储选型为何是-json何时才上数据库)
 
 #### R5 落地摘要（2026-07-29）
 
@@ -331,7 +331,7 @@ Tick 逐笔回放、交易所级撮合仿真（保持「近似」定位）。
 | 暗色 Bloomberg 密度默认皮肤 | 须先改 quant-ui-standard；默认不改 |
 | Tick 全量仓 / 宏观全集 ETL | N5 成功 + 拟合 KPI 稳定后另评估 |
 | NN 直连生产 `score` | 禁止 |
-| 在线 RL 自动调权 | 见 [rl-layer](../rl-layer.md)；非本规划 |
+| 在线 RL 自动调权 | 见 [rl-layer](../component/rl.md)；非本规划 |
 
 ---
 

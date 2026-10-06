@@ -1,6 +1,6 @@
 # 专业核心三轨深化补强（DC / FM / RK）
 
-[← 文档索引](../README.md) · 产品主轴 [design-spine.md](../design-spine.md) · 已收口 B [beta-regression-strengthen.md](beta-regression-strengthen.md) · N6 [n6-live-gate.md](../n6-live-gate.md)
+[← 文档索引](../README.md) · 产品主轴 [design-spine.md](../design-spine.md) · 已收口 B [beta-regression-strengthen.md](beta-regression-strengthen.md) · N6 [n6-live-gate.md](../design-spine.md#n6-真实盘准入备忘仅文档--无代码)
 
 **规划日期**：2026-08-09 · **主干落地**：2026-08-09  
 **定位**：在 D/S/E/X/Y/B/C/P/EP 已收口之后，针对相对专业栈仍弱的三条路径内能力——**数据清洗加深（DC）· 因子模型硬化（FM）· 组合风控加深（RK）**——做可验收补强。  
@@ -56,7 +56,7 @@ DC0 → DC1 → DC2 → DC3
 | 4 | LLM 不改 `score` / `stance_label` / ŷ |
 | 5 | 先可信（PIT·健康门·限额可解释）再变厚（QP·大因子库） |
 | 6 | 每阶段 ≥1 API/落盘 + ≥1 Web 可见 + ≥1 测试；改静态 bump `ASSET_V` |
-| 7 | UI 遵守 [quant-ui-standard.md](quant-ui-standard.md) |
+| 7 | UI 遵守 [../quant-ui.md#web-ui-标准研究台](../quant-ui.md#web-ui-标准研究台) |
 
 ---
 

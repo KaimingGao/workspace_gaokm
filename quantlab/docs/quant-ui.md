@@ -212,7 +212,7 @@ python3 run_web.py
 | 贴边留白 | 首列 `padding-left: 18px`，末列 `padding-right: 22px` |
 | 模拟持仓 | `.follow-holdings-card` 左右不额外缩进 |
 
-实现落在 `web/static/styles.css`（「四页表格」共用块）。Cursor 规则：`.cursor/rules/quantlab-table-layout.mdc` · `.cursor/rules/quantlab-web-ui.mdc`。
+实现落在 `web/static/css/`（「四页表格」共用块）。Cursor 规则：`.cursor/rules/quantlab-table-layout.mdc` · `.cursor/rules/quantlab-web-ui.mdc`。
 
 ---
 
@@ -683,7 +683,7 @@ OMS 级盘口布局仍禁止。
 | `page_html.py` | 注入 `{{ASSET_V}}` 与 `window.__ASSET_V__` |
 | `app.js` | 所有 `import(...?v=)` 使用 `window.__ASSET_V__` |
 
-改 `styles.css` / 任一 `static/js/*` / partial 行为后：**只改 `ASSET_V`**，重启或刷新即可。  
+改 `web/static/css/` / 任一 `static/js/*` / partial 行为后：**只改 `ASSET_V`**，重启或刷新即可。  
 禁止再手写分散的 `?v=p114` / `p248` 等。
 
 ## 4.1 性能预算（R5.4）

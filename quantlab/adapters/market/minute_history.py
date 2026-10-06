@@ -212,8 +212,8 @@ def _fetch_em_minute_bars(
             else []
         )
     except Exception as e:
-        logger.warning(
-            " DEBUG: fetch_a_minute_bars em failed %s start=%s end=%s period=%s adjust=%s: %s",
+        logger.debug(
+            "fetch_a_minute_bars em failed %s start=%s end=%s period=%s adjust=%s: %s",
             bare, start_s, end_s, period, adjust, e,
         )
         return [], {}, str(e)
@@ -233,8 +233,8 @@ def _fetch_em_minute_bars(
         meta["date_min"] = date_min
         meta["date_max"] = date_max
 
-    logger.info(
-        " DEBUG: fetch_a_minute_bars em success %s start=%s end=%s period=%s adjust=%s bar_count=%s date_min=%s date_max=%s",
+    logger.debug(
+        "fetch_a_minute_bars em success %s start=%s end=%s period=%s adjust=%s bar_count=%s date_min=%s date_max=%s",
         bare, start_s, end_s, period, adjust, len(bars), date_min, date_max,
     )
 
@@ -471,7 +471,8 @@ def fetch_a_minute_bars(
             # 同日整段以 incoming（BaoStock）为准，禁止跨源缝合
             bars = merge_minute_bars_by_time(bars, bs_bars, period=period)
 
-    logger.info(" DEBUG: fetch_a_minute_bars success %s period=%s lookback_days=%s use_cache=%s max_age_hours=%s adjust=%s skip_em=%s skip_bs=%s bars_count=%s",
+    logger.debug(
+        "fetch_a_minute_bars success %s period=%s lookback_days=%s use_cache=%s max_age_hours=%s adjust=%s skip_em=%s skip_bs=%s bars_count=%s",
         code, period, lookback_days, use_cache, max_age_hours, adjust, skip_em, skip_bs, len(bars),
     )
 

@@ -87,7 +87,7 @@ Web 与 CLI 共用同一套 `Agent` / Skills / prompts；仍需配置 `DASHSCOPE
 
 ## 持仓（对话）
 
-对话问持仓时，**默认读模拟账户** [`data/paper.json`](data/paper.json)（观察页建仓后即有）。
+对话问持仓时，**默认读模拟账户** `data/paper.json`（观察页建仓后即有）。
 
 ## 使用示例：分析快手的长短期持仓参考
 

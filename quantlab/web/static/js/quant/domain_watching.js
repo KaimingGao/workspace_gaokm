@@ -442,7 +442,7 @@ export function installWatching(q) {
     }
     import(
       `../research_dock.js?v=${
-        typeof window !== "undefined" && window.__ASSET_V__ ? window.__ASSET_V__ : "p283"
+        typeof window !== "undefined" && window.__ASSET_V__ ? window.__ASSET_V__ : "dev"
       }`
     )
       .then((m) => {
@@ -1677,7 +1677,7 @@ export function installWatching(q) {
     const rows = Array.from(rowByCode.values());
     try {
       const V =
-        (typeof window !== "undefined" && window.__ASSET_V__) || "p315";
+        (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
       const mod = await import(`../watching_table_island.js?v=${V}`);
       watchTable.innerHTML =
         `<div id="watching-react-root" class="watching-react-grid-host"></div>`;

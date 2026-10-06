@@ -85,7 +85,7 @@ import { formatDailySteps, runDaily } from "./shared.js";
 /** Paper dialog/page wiring. */
 export function initPaper(ctx) {
   const _PV =
-    (typeof window !== "undefined" && window.__ASSET_V__) || "p2261";
+    (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
   void import(`./quant/fit_tier_ui.js?v=${encodeURIComponent(_PV)}`).then((m) =>
     m.ensureFitTierMap()
   );
@@ -157,7 +157,7 @@ export function initPaper(ctx) {
 
   const holdingsIsland = createHoldingsIslandController({
     getAssetV: () =>
-      (typeof window !== "undefined" && window.__ASSET_V__) || "p325",
+      (typeof window !== "undefined" && window.__ASSET_V__) || "dev",
     getSortState: () => ({ key: holdingsSortKey, dir: holdingsSortDir }),
     setSortState: (key, dir) => {
       holdingsSortKey = key;
@@ -793,7 +793,7 @@ export function initPaper(ctx) {
         : "";
     try {
       const V =
-        (typeof window !== "undefined" && window.__ASSET_V__) || "p325";
+        (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
       const mod = await import(`./holdings_table_island.js?v=${V}`);
       const res = await fetch(
         `/api/watching/sentiment?codes=${encodeURIComponent(codes.join(","))}&limit=3`
@@ -1645,7 +1645,7 @@ export function initPaper(ctx) {
     if (holdingsGrid && holdingsGridReady) {
       try {
         const V =
-          (typeof window !== "undefined" && window.__ASSET_V__) || "p1737";
+          (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
         const mod = await import(`./holdings_table_island.js?v=${V}`);
         const patches = {};
         for (const h of holdings) {

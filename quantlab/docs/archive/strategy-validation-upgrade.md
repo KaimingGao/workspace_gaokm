@@ -1,6 +1,6 @@
 # 策略验证升级重构规划（V 轨）
 
-[← 文档索引](../README.md) · 差距依据 [§1](#1-差距结论--规划输入) · 产品边界 [design-spine · 产品边界](../design-spine.md#产品边界现行) · 已收口上一程 [upgrade-refactor-plan.md](upgrade-refactor-plan.md)（R0–R5） · Web 差距 [quant-ui-gap.md](../quant-ui-gap.md) · 数据/风控域 [data-layer.md](../data-layer.md) · [risk-layer.md](../risk-layer.md)
+[← 文档索引](../README.md) · 差距依据 [§1](#1-差距结论--规划输入) · 产品边界 [design-spine · 产品边界](../design-spine.md#产品边界现行) · 已收口上一程 [upgrade-refactor-plan.md](upgrade-refactor-plan.md)（R0–R5） · Web 差距 [quant-ui-gap.md](../quant-ui.md#web-ui-相对专业量化终端的差距分析) · 数据/风控域 [data-layer.md](../component/data.md) · [risk-layer.md](../component/risk.md)
 
 **规划日期**：2026-07-29  
 **基线**：R0–R5 主干 + 运营/样本收尾已落地；能力地图粗估 **~70%～78%**；北极星三项已仪表化。  
@@ -80,9 +80,9 @@
 |------|------|
 | [design-spine.md](../design-spine.md) | 北极星 · 能力地图 · **策略验证 / N6 阶段** |
 | [upgrade-refactor-plan.md](upgrade-refactor-plan.md) | **已收口** R0–R5（仪表 · PIT 最小 · 研究吞吐 · 暴露 · 报告 · 工程稳态） |
-| [roadmap.md](../roadmap.md) | 历史 P0–P2++ · N1–N6 骨架 |
-| [quant-ui-gap.md](../quant-ui-gap.md) / [quant-ui-upgrade.md](../quant-ui-upgrade.md) | Web 差距与壳层 |
-| [data-layer.md](../data-layer.md) / [risk-layer.md](../risk-layer.md) | 域内演进细节 |
+| [roadmap.md](../design-spine.md#北极星实现规划p0p3) | 历史 P0–P2++ · N1–N6 骨架 |
+| [quant-ui-gap.md](../quant-ui.md#web-ui-相对专业量化终端的差距分析) / [quant-ui-upgrade.md](../quant-ui.md#web-ui-全面优化升级方案) | Web 差距与壳层 |
+| [data-layer.md](../component/data.md) / [risk-layer.md](../component/risk.md) | 域内演进细节 |
 | **本文** | **验证成熟度下一程：V0–V5 · 闸门 · 验收 · 锁定取舍** |
 
 ---
@@ -97,7 +97,7 @@
 | 4 | **先可信、再变厚**：PIT/成本/源审计未稳前，不并行冲完整 QP / 大规模因子库炫技 |
 | 5 | **研究 / 回测 / 纸面同源**：共用 `score_bars` 与 DataService；禁止双套计分 |
 | 6 | **验收可演示**：每阶段 ≥1 API/落盘 + ≥1 Web 可见 + 对应测试 / eval |
-| 7 | **UI 契约**：改壳先改 [quant-ui-standard](../quant-ui-standard.md)；默认报告感 |
+| 7 | **UI 契约**：改壳先改 [quant-ui-standard](../quant-ui.md#web-ui-标准研究台)；默认报告感 |
 | 8 | **样本诚实**：demo seed / densify / synthetic_demo 须可识别；不得当「策略已验证」依据 |
 
 ---
@@ -163,7 +163,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 - [x] 热门观察池真实 history 达标（非仅 ladder）— **路径已落地**（`ingest-history` / warmup 串联）；覆盖率靠运营抬升  
 - [x] PIT 单测 + 1 条 eval 锁定无未来泄漏  
 - [x] 样本覆盖页标明 demo vs 真实  
-- [x] [data-layer.md](../data-layer.md) 更新「验证宇宙」约定  
+- [x] [data-layer.md](../component/data.md) 更新「验证宇宙」约定  
 
 ---
 
@@ -217,7 +217,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 
 - [x] 新因子有单测与 IC 样本说明  
 - [x] 网格「应用最优」路径弹出 OOS 警告  
-- [x] [strategy-layer.md](../strategy-layer.md) 更新因子边界  
+- [x] [strategy-layer.md](../component/strategy.md) 更新因子边界  
 
 ---
 
@@ -241,7 +241,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 ### 7.3 出门标准
 
 - [x] 故意超限：硬拦 + 可标注 + 有效率分母增加  
-- [x] [risk-layer.md](../risk-layer.md) 更新验证阶段风控清单  
+- [x] [risk-layer.md](../component/risk.md) 更新验证阶段风控清单  
 - [x] QP 若未做，文档保留「可选 / 非闸门阻塞」— **已提供 `qp_lite`（cvxpy 可选，不可用则回退）**  
 
 ---
@@ -267,7 +267,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 
 - [x] 验证包导出可被第三人复跑关键结论  
 - [x] TTM 样本纪律写进样本覆盖  
-- [x] [research/README.md](../research/README.md) 更新「验证包」一节  
+- [x] [research/README.md](../../research/README.md) 更新「验证包」一节  
 
 ---
 
@@ -387,7 +387,7 @@ V4（吞吐）可与 V2/V3 后半并行 ─────────────�
 3. 策略页继续标注 risk_block outcome；日更替换 densified 快照  
 4. 查看 `GET /api/ops/maturity-gate`；未全绿前 **不立 N6**
 
-N6 备忘见 [n6-live-gate.md](../n6-live-gate.md)。
+N6 备忘见 [n6-live-gate.md](../design-spine.md#n6-真实盘准入备忘仅文档--无代码)。
 
 ---
 

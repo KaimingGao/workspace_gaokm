@@ -27,8 +27,8 @@
 | 目录 | 职责 | 备注 |
 |------|------|------|
 | `core/` | 领域层：信号/回测/纸面/风控/DataService/ports/定时（无 LLM/HTTP） | canonical 真相源 |
-| `services/` | Web/CLI **Application Service**（纸面拆 account/jobs/trades） | 见 [services/README.md](../services/README.md) |
-| `quant/` | 研究台 **Application Service** `QuantService` + `quant/research` + Agent `quant/skill` | 见 [quant/services/README.md](../quant/services/README.md) |
+| `services/` | Web/CLI **Application Service**（纸面拆 account/jobs/trades） | 见 [services/README.md](../../services/README.md) |
+| `quant/` | 研究台 **Application Service** `QuantService` + `quant/research` + Agent `quant/skill` | 见 [quant/services/README.md](../../quant/services/README.md) |
 | `web/` | FastAPI + 静态 UI（`/watching` `/follow` `/replay`） | `js/paper/*` 子模块 |
 | `agent/` | LLM 编排、registry、prompts | 正本（原 `advisor/` 已删） |
 | `skills/` | Agent 工具（handler + shim）；I/O 在 `adapters/` | 消费侧经 DataService / `adapters.bind` |
@@ -145,7 +145,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | 整体 | 研究台 + 纸面准实盘分层已理顺 |
 | 框架急债 | **O1–O9 / Y-S / F-C1–C3·H\* 已落地**；维持 ports 与 ŷ 单标尺 + live manifest 纪律 |
 | **下一程（工程结构轨）** | **A0–A4**：契约冻结 → Bars SQLite → Job 运行时硬化 → BacktestService + 按用例拆巨石 → 前端稳态。见 [architecture.md · A 轨升级](../architecture.md) · [architecture.md · SQLite 迁移](../architecture.md)。SS-E1～E5 / FH0–FH5 已收口 |
-| 产品缺口 | 仍见 roadmap / design-spine / predicted-score-chain（非本表） |
+| 产品缺口 | 仍见 design-spine / quant.md ŷ 全链路（非本表） |
 | 体量债 | `quant.js` 已拆域 + 工厂；巨石按用例再切归 **A3/A4**（非为拆而拆） |
 
 单测锚点：`tests/test_framework_hardening.py`（含 core 无硬 skills import、Skill→DataService）· `tests/test_m1_data_collection.py` · `tests/test_d1_d6_platform.py`。

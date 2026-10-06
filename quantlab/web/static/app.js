@@ -96,7 +96,7 @@ async function loadModule(name, path) {
   }
 }
 
-const V = (typeof window !== "undefined" && window.__ASSET_V__) || "p879";
+const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const QUANT_PAGES = new Set(["quant", "watching", "strategy", "replay", "follow", "dashboard"]);
 const PAPER_PAGES = new Set(["paper", "follow"]);
 

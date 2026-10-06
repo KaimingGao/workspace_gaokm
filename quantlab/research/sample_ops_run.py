@@ -107,10 +107,7 @@ def main(argv=None) -> int:
         if write and out.get("changed"):
             save_paper(paper, PAPER_PATH)
 
-    if args.json:
-        print(json.dumps(out, ensure_ascii=False, indent=2))
-    else:
-        print(json.dumps(out, ensure_ascii=False, indent=2))
+    print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0 if out.get("ok", True) else 1
 
 

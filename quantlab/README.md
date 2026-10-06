@@ -19,7 +19,7 @@
 
 贯穿原则：谁决定「买什么、买多少」，就归谁。人决定的走主路径；规则/策略决定的收进「进阶」，并在持仓上标出处。
 
-**产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作（[因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）；**现行** 数据 → 信号 → 因子 → 模型(ŷ) → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度（[产品北极星](docs/design-spine.md#产品北极星)）——六大模块是 [能力地图](docs/design-spine.md#能力地图六大模块)；**现行只收口研究台 + 模拟账户做策略验证**，真·实盘 OMS 待验证成熟后另立项（N6）——见 **[docs/design-spine.md](docs/design-spine.md)**。实现节奏见 **[北极星实现规划 P0–P3](docs/roadmap.md#北极星实现规划p0p3)**。
+**产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作（[因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）；**现行** 数据 → 信号 → 因子 → 模型(ŷ) → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度（[产品北极星](docs/design-spine.md#产品北极星)）——六大模块是 [能力地图](docs/design-spine.md#能力地图六大模块)；**现行只收口研究台 + 模拟账户做策略验证**，真·实盘 OMS 待验证成熟后另立项（N6）——见 **[docs/design-spine.md](docs/design-spine.md)**。实现节奏见 **[北极星实现规划 P0–P3](docs/design-spine.md#北极星实现规划p0p3)**。
 
 架构一句话：**量化领域层（`core` 信号/回测/模拟）+ Skills 取数与规则 + AI Agent（意图理解 · 工具编排 · 研究话术）**。  
 Web 主路径见 [docs/quant-ui.md](docs/quant-ui.md)（含 Web 契约与升级方案）；**已收口加强验收**见 [docs/archive/pro-core-strengthen.md](docs/archive/pro-core-strengthen.md)（DC/FM/RK）；已收口历史轨见 [docs/archive/](docs/archive/)；历史节奏见 [docs/design-spine.md · 路线图](docs/design-spine.md#能力评估与升级规划路线图视角)。

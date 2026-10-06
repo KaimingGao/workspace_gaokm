@@ -48,16 +48,16 @@ AI = 对量化系统的自然语言 RPC；危险动作仍走人审。
 
 - [x] 净值曲线 · 待办 · 动态 · Top 持仓 · 回撤/仓位
 - [x] 报告块序 · 五问 · 来源暴露 · A 股色 · 浅色默认
-- [ ] 抽屉 artifacts 跳转 → 归入 [upgrade W0.4](../quant-ui-upgrade.md#31-交付包)
+- [ ] 抽屉 artifacts 跳转 → 归入 [upgrade W0.4](../quant-ui.md#31-交付包)
 - [ ] 推送 → 归入升级方案（页内/浏览器；出站告警后端已有）
 
 ### 旧 P2 条目（已拆入 upgrade）
 
 | 旧表述 | 新落点 |
 |--------|--------|
-| Lightweight Charts | [W1](../quant-ui-upgrade.md#4-w1--专业图表与回测报告) |
-| Monaco | [W3.2](../quant-ui-upgrade.md#61-交付包按优先级)（**已退役**） |
-| 可选 React | [W4 闸门](../quant-ui-upgrade.md#7-w4--可选现代化契约闸门) |
+| Lightweight Charts | [W1](../quant-ui.md#4-w1--专业图表与回测报告) |
+| Monaco | [W3.2](../quant-ui.md#61-交付包按优先级)（**已退役**） |
+| 可选 React | [W4 闸门](../quant-ui.md#7-w4--可选现代化契约闸门) |
 | 实盘 | **边界外**（不做） |
 
 ---
@@ -69,4 +69,4 @@ AI = 对量化系统的自然语言 RPC；危险动作仍走人审。
 - [x] `/chat` 全屏对话可用
 - [x] 侧栏六业务模块，AI 不占格
 
-后续验收清单见 [quant-ui-upgrade](../quant-ui-upgrade.md) 各 W 节与 §10。
+后续验收清单见 [quant-ui-upgrade](../quant-ui.md#web-ui-全面优化升级方案) 各 W 节与 §10。

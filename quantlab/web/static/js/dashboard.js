@@ -4,7 +4,7 @@ import { escapeHtml } from "./shared.js";
 import { macroHistoryLegendHtml, paintMacroHistoryChart, runMarketContextIngest } from "./macro_context_ui.js";
 import { fetchDash, fetchDashboardBundle } from "./dashboard_api.js?v=p1234";
 
-const V = (typeof window !== "undefined" && window.__ASSET_V__) || "p803";
+const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 
 let _initiated = false;
 let _navChart = null;

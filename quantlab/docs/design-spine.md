@@ -154,7 +154,7 @@ flowchart LR
 | **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **ŷ_τw** 入场 | C_τ=price(τ)×(1+clip(ŷ_τc×scale, ±20)/100)，再对称 ±δ；y_hl **不进 C_τ / ranking** | `core/t0/close_band.py` |
 | **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 冻结 C_τ | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
-详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ) · [quant.md · y_path](quant.md#predicted_scoreŷ全链路)。
+详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ) · [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)。
 
 ### Ensemble 在本仓库的具体形态
 
@@ -434,7 +434,7 @@ flowchart LR
 
 粗估：相对专业对照约 **~70%～78%**；仍缺完整数仓/QP/交易所级撮合；财务 PIT 为最小路径。**N6 实盘有意推迟**（策略验证成熟后另立项）。能力地图见上文 [能力地图](#能力地图六大模块)；北极星公式见 [产品北极星](#产品北极星)。
 
-完整阶段规划（P0–P3、依赖顺序、锁定取舍）见 **[roadmap.md · 北极星实现规划](design-spine.md#北极星实现规划p0p3)**。
+完整阶段规划（P0–P3、依赖顺序、锁定取舍）见 **[北极星实现规划](#北极星实现规划p0p3)**。
 
 ### 与现行主轴的对齐方式
 
@@ -452,7 +452,7 @@ flowchart LR
 
 ## 北极星实现路径（N1–N6）
 
-在已落地的 **Q1–Q5** 之上推进能力地图六大模块（服务 [产品北极星](#产品北极星) 三项乘积）。子项目拆分口径见上文 [能力地图子项目拆分](#北极星子项目拆分)；详细验收与取舍见 [roadmap.md · N1–N6](design-spine.md#北极星实现路径n1n6)。
+在已落地的 **Q1–Q5** 之上推进能力地图六大模块（服务 [产品北极星](#产品北极星) 三项乘积）。子项目拆分口径见上文 [能力地图子项目拆分](#北极星子项目拆分)；详细验收与取舍见 [北极星实现路径 N1–N6](#北极星实现路径n1n6)。
 
 | 阶段 | 对应模块 | 本仓库动作 | 状态 |
 |------|----------|------------|------|
@@ -471,7 +471,7 @@ N2 ──offline──► research/ml artifact ──promote only──► N5
 
 **锁定取舍**：生产 Alpha 仍为 `score_bars` 线性加权；NN 不得直连生产 `score`；不接券商 OMS，N5 用纸面日更 + 监控代替「部署」。
 
-达成度细节见上文 [达成度评估（2026-07）](#达成度评估2026-07)；P0–P3 实现规划与下一程见 [roadmap.md · 北极星实现规划](design-spine.md#北极星实现规划p0p3)。
+达成度细节见上文 [达成度评估（2026-07）](#达成度评估2026-07)；P0–P3 实现规划与下一程见 [北极星实现规划](#北极星实现规划p0p3)。
 
 ---
 
@@ -1272,7 +1272,7 @@ Web：平台面板（`partials/platform_panel.html` · `js/platform.js`，`/plat
 
 ### 持仓规则配置
 
-编辑 [`data/position_rules.json`](data/position_rules.json) 可调阈值，例如：
+编辑 `data/position_rules.json` 可调阈值，例如：
 
 - `concentration_high`：降集中度触发权重%  
 - `take_profit_pnl` / `take_profit_day_change`：减仓锁定  

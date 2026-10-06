@@ -1,6 +1,6 @@
 # Alpha / IC 补强（P0–P3）
 
-[← 文档索引](../README.md) · ŷ 主链 [predicted-score-chain.md](../predicted-score-chain.md) · 北极星 [design-spine.md](../design-spine.md)
+[← 文档索引](../README.md) · ŷ 主链 [quant.md · ŷ 全链路](../quant.md#predicted_scoreŷ全链路) · 北极星 [design-spine.md](../design-spine.md)
 
 **状态**：主干已接线（2026-08）。默认不静默改组 β / 不自动 promote。
 

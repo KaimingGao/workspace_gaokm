@@ -240,11 +240,8 @@ def fetch_a_daily_bars(
             if bars:
                 return bars
         except Exception as e:
-            logger.warning(' DEBUG: code: %s label: %s unexpected error in fetch_a_daily_bars', code, label)
             errors.append(f"{label}: {e}")
             continue
-
-    logger.warning(' DEBUG: code: %s no bars found in fetch_a_daily_bars', code)
 
     if errors:
         fetch_a_daily_bars.last_errors = errors[-6:]  # type: ignore[attr-defined]
