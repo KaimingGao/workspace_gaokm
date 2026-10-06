@@ -1,0 +1,32 @@
+---
+description: 观察/模拟/策略/回溯四页主表宽度与排版规范（隶属 Web UI 标准）
+globs: quantlab/web/static/styles.css,quantlab/web/static/js/{quant,paper}.js,quantlab/web/static/partials/{watching,follow,strategy,replay}_panel.html,quantlab/docs/quant-ui.md,quantlab/docs/quant-ui-standard.md
+alwaysApply: false
+---
+
+# 四页主表布局规范
+
+适用页面：`/watching` · `/follow` · `/strategy` · `/replay`。  
+整站 UI 契约见 [docs/quant-ui-standard.md](quantlab/docs/quant-ui-standard.md) 与 `quantlab-web-ui.mdc`。
+
+## 必须遵守
+
+1. **同壳同宽**：`.page-main` 铺满侧栏右侧主列（`width: 100%`，禁止再设 `1000px` 居中栏）；四页 `.watching-page` / `.follow-page` / `.strategy-page` / `.replay-page` 同壳；主表与 `.quant-weight-table-wrap` 均为 `width: 100%`、`max-width: 100%`、`min-width: 0`。左右 gutter 由 `.page-main` 的 `20px` 统一提供，页内壳勿再叠一层左右 padding。
+2. **禁止横向滚动**：四页主表容器用 `overflow-x: hidden`；不要用列 `min-width: Nrem` 把表撑破容器。
+3. **固定表宽分配列**：主表 `table-layout: fixed`；列宽用 `%`，单元格 `min-width: 0`，过长 `overflow: hidden` + `text-overflow: ellipsis`。
+4. **股票名至少 6 字**：JS 截断为前 6 字 + `…`（不足 6 字全显）；列宽须容下这 6 字，**禁止**再用 CSS `text-overflow: ellipsis` 二次裁短。全名放 `title` / `data-full-name`。单行横向，不折两行、不竖排。
+5. **其它列可省略**：数值/短标签列用 `overflow: hidden` + `text-overflow: ellipsis`。
+6. **首尾贴边留白**：首列 `padding-left: 18px`，末列 `padding-right: 22px`（四页主表共用）。
+7. **模拟持仓卡不缩进**：`.follow-holdings-card` 左右 padding 为 `0`，勿再加卡片内边距把表变窄。
+
+## 不要做
+
+- 不要给观察主表设整表 `min-width: 52rem/56rem` 等强制横向滚动
+- 不要给操作列设 `min-width: 14rem` 一类会撑破 `fixed` 表的硬宽度
+- 不要只改一页壳宽/padding 而不改另外三页
+- 不要把 `.page-main` 改回固定 `width: 1000px; margin: 0 auto`（会再现两侧大留白）
+
+## 改样式时
+
+优先改四页共用选择器块（`styles.css` 中「四页表格容器同宽」一段），再改单页列宽百分比。
+改完 bump `quantlab/web/asset_version.py` 的 `ASSET_V`。
