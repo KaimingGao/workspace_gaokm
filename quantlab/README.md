@@ -19,7 +19,7 @@
 
 贯穿原则：谁决定「买什么、买多少」，就归谁。人决定的走主路径；规则/策略决定的收进「进阶」，并在持仓上标出处。
 
-**产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作（[因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）；**现行** 数据 → 信号 → 因子 → 模型(ŷ) → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度（[产品北极星](docs/design-spine.md#产品北极星)）——六大模块是 [能力地图](docs/design-spine.md#能力地图六大模块)；**现行只收口研究台 + 模拟账户做策略验证**，真·实盘 OMS 待验证成熟后另立项（N6）——见 **[docs/design-spine.md](docs/design-spine.md)**。实现节奏见 **[北极星实现规划 P0–P3](docs/design-spine.md#北极星实现规划p0p3)**。
+**产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作（[因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）；**现行** 数据 → 信号 → 因子 → 模型(ŷ) → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度（[产品北极星](docs/design-spine.md#产品北极星)）——六大模块是 [能力地图](docs/design-spine.md#能力地图六大模块)；**现行只收口研究台 + 模拟账户做策略验证**——见 **[docs/design-spine.md](docs/design-spine.md)**。实现节奏见 **[北极星实现规划 P0–P3](docs/design-spine.md#北极星实现规划p0p3)**。
 
 架构一句话：**量化领域层（`core` 信号/回测/模拟）+ Skills 取数与规则 + AI Agent（意图理解 · 工具编排 · 研究话术）**。  
 Web 主路径见 [docs/quant-ui.md](docs/quant-ui.md)（含 Web 契约与升级方案）；**已收口加强验收**见 [docs/archive/pro-core-strengthen.md](docs/archive/pro-core-strengthen.md)（DC/FM/RK）；已收口历史轨见 [docs/archive/](docs/archive/)；历史节奏见 [docs/design-spine.md · 路线图](docs/design-spine.md#能力评估与升级规划路线图视角)。
@@ -306,7 +306,7 @@ Web 主路径：**对话** · **观察** · **模拟** · **回溯**。说明见
 | 文档 | 说明 |
 |------|------|
 | [docs/architecture.md](docs/architecture.md) | **架构总览**：架构图、分层模块、目录结构、技术栈、数据/策略/风控各层 |
-| [docs/design-spine.md](docs/design-spine.md) | 产品核心设计主轴：因果链、北极星、能力地图、N1–N6 路径、两条轨、决策链路 |
+| [docs/design-spine.md](docs/design-spine.md) | 产品核心设计主轴：因果链、北极星、能力地图、实现路径、两条轨、决策链路 |
 | [docs/quant.md](docs/quant.md) | 量化层：入门概念 + score_bars/stance/回测/纸面原理 + 运维 preset & cron；含 [ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路) |
 | [docs/quant-ui.md](docs/quant-ui.md) | Web：说明书 + UI 契约与验收 + W0–W5 升级方案 |
 | [docs/development.md](docs/development.md) | 开发手册：环境安装 + 单测/evals/扩展约定 + 各 Skill 详解 |
@@ -322,4 +322,4 @@ Web 主路径：**对话** · **观察** · **模拟** · **回溯**。说明见
 
 ## 合规
 
-本仓库是 **策略验证系统**（量化研究 + 模拟账户，融合 AI 编排），**非持牌投顾问诊、现行不涉及真实账户交易、不代客下单**；策略结论与模拟盈亏**不保证收益**。待策略验证成熟后再评估实盘（N6）。细则见 [docs/development.md#合规与风险说明](docs/development.md#合规与风险说明)。
+本仓库是 **策略验证系统**（量化研究 + 模拟账户，融合 AI 编排），**非持牌投顾问诊、现行不涉及真实账户交易、不代客下单**；策略结论与模拟盈亏**不保证收益**。细则见 [docs/development.md#合规与风险说明](docs/development.md#合规与风险说明)。
