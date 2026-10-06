@@ -50,9 +50,70 @@ class TestY0ScoringFloors(unittest.TestCase):
                 self.assertEqual(raw["scoring"]["min_hold_predicted_score"], -0.5)
 
 
+class TestStanceSave(unittest.TestCase):
+    def test_save_stance_only_thresholds(self):
+        from core.signal.stance_save import save_stance_thresholds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "signal_config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "weights": {"momentum": 0.5},
+                        "scoring": {
+                            "rank_mode": "predicted_score",
+                            "min_predicted_score": 1.0,
+                        },
+                        "stance_thresholds": {
+                            "avoid": -0.5,
+                            "wait": 0.0,
+                            "probe": 0.35,
+                        },
+                    },
+                    f,
+                )
+            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": path}):
+                import core.signal.config as cfg_mod
+
+                cfg_mod._cached = None
+                out = save_stance_thresholds(
+                    avoid=-0.5, wait=0.5, probe=0.85, note="test"
+                )
+                self.assertTrue(out["success"])
+                self.assertFalse(out["signal_config_weights_touched"])
+                self.assertFalse(out.get("scoring_touched"))
+                with open(path, encoding="utf-8") as rf:
+                    raw = json.loads(rf.read())
+                self.assertEqual(raw["weights"]["momentum"], 0.5)
+                self.assertEqual(raw["scoring"]["min_predicted_score"], 1.0)
+                self.assertEqual(raw["stance_thresholds"]["wait"], 0.5)
+                self.assertEqual(raw["stance_thresholds"]["probe"], 0.85)
+
+    def test_save_stance_rejects_unordered(self):
+        from core.signal.stance_save import save_stance_thresholds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "signal_config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "stance_thresholds": {
+                            "avoid": -0.5,
+                            "wait": 0.0,
+                            "probe": 0.35,
+                        }
+                    },
+                    f,
+                )
+            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": path}):
+                out = save_stance_thresholds(avoid=1.0, wait=0.0, probe=0.5)
+                self.assertFalse(out["success"])
+                self.assertIn("avoid < wait < probe", out.get("error") or "")
+
+
 class TestY2BuyBlock(unittest.TestCase):
     def test_limit_up_skip_reason(self):
-        from core.paper_rebalance import _buy_match_block_reason
+        from core.paper.rebalance import _buy_match_block_reason
 
         reason = _buy_match_block_reason(
             "600519",
@@ -71,7 +132,14 @@ class TestY4MaturityAndPack(unittest.TestCase):
         self.assertIn("yhat_hysteresis_configured", ids)
         self.assertIn("yhat_live_health", ids)
         self.assertIn("paper_daily_streak", ids)
-        self.assertEqual(out.get("track"), "Y0-Y5")
+        track = str(out.get("track") or "")
+        self.assertIn("Y0-Y5", track)
+        # yhat_live_health 在分组退役后恒为 soft-pass
+        health = next(
+            i for i in (out.get("items") or []) if i.get("id") == "yhat_live_health"
+        )
+        self.assertTrue(health.get("ok"))
+        self.assertIn("cluster_retired", str(health.get("detail") or ""))
 
     def test_validation_pack_has_rank_mode_and_cluster(self):
         from core.validation_pack import build_validation_pack
@@ -122,20 +190,15 @@ class TestY3StanceThresholds(unittest.TestCase):
         self.assertNotEqual(th["wait"], 55.0)
 
 
-class TestY1OosFailRate(unittest.TestCase):
-    def test_max_oos_fail_rate_in_cfg(self):
-        from core.signal.cluster_live import get_cluster_scoring_cfg
+class TestY1ClusterRetired(unittest.TestCase):
+    def test_cluster_scoring_defaults_retired_off(self):
+        """get_cluster_scoring_cfg 已删；DEFAULTS 仍保留 cluster_scoring=off。"""
+        from core.signal.config import DEFAULT_SIGNAL_CONFIG
 
-        cs = get_cluster_scoring_cfg(
-            {
-                "cluster_scoring": {
-                    "enabled": True,
-                    "mode": "shadow",
-                    "max_oos_fail_rate": 0.5,
-                }
-            }
-        )
-        self.assertEqual(cs["max_oos_fail_rate"], 0.5)
+        cs = DEFAULT_SIGNAL_CONFIG.get("cluster_scoring") or {}
+        self.assertFalse(bool(cs.get("enabled")))
+        self.assertEqual(str(cs.get("mode") or "").lower(), "off")
+        self.assertEqual(cs.get("max_oos_fail_rate"), 0.5)
         self.assertIn("min_yhat_rolling_ic", cs)
         self.assertIn("min_sector_map_coverage", cs)
 

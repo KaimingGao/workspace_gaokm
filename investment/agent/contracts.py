@@ -1,7 +1,9 @@
 """编排层 / 能力层共享契约（与 README「接口设计」对齐）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 from typing import Any, Dict, Protocol, runtime_checkable
 
@@ -35,6 +37,7 @@ class BaseSkillHandler:
                 result = {"success": False, "error": "Handler 必须返回 dict"}
             return dump_tool_result(result)
         except Exception as e:
+            logger.exception('unexpected error in execute')
             return dump_tool_result(
                 {"success": False, "error": f"{self.error_prefix}：{e}"}
             )

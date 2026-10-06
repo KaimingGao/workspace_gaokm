@@ -1,6 +1,5 @@
 """advise Skill：薄适配层，委托 core.advise.evaluate_buy_advice。"""
 
-from __future__ import annotations
 
 from core.advise import evaluate_buy_advice
 

@@ -1,6 +1,5 @@
 """写出 ML 研究 artifact（N2）；不触碰生产 score。"""
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,1 +1,5 @@
-"""Investment Web UI package."""
+"""QuantLab Web UI package."""
+
+import logging
+
+logger = logging.getLogger(__name__)

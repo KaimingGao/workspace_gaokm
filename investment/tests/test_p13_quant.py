@@ -28,7 +28,56 @@ class TestThresholdSuggest(unittest.TestCase):
             max_delta=3.0,
         )
         self.assertTrue(out["success"])
+        self.assertFalse(out.get("skipped_apply"))
+        self.assertEqual(out.get("score_scale"), "heuristic")
         self.assertGreaterEqual(out["suggested_thresholds"]["wait"], 55)
+
+    def test_predicted_scale_skips_heuristic_oos(self):
+        oos = {
+            "success": True,
+            "score_scale": "heuristic_0_100",
+            "best_params": {"min_score": 50, "horizon_days": 3},
+            "test": {"metrics": {"trade_count": 10, "win_rate_pct": 58.66}},
+        }
+        out = suggest_stance_thresholds_from_oos(
+            oos,
+            current_thresholds={"avoid": -0.5, "wait": 0.0, "probe": 0.3},
+            max_delta=3.0,
+        )
+        self.assertTrue(out["success"])
+        self.assertTrue(out.get("skipped_apply"))
+        self.assertEqual(out.get("score_scale"), "predicted")
+        self.assertEqual(out["suggested_thresholds"]["wait"], 0.0)
+        self.assertEqual(out["suggested_thresholds"]["probe"], 0.3)
+        self.assertEqual(out["deltas"]["wait"], 0.0)
+        self.assertIn("ŷ%", (out.get("rationale") or [""])[0])
+        diff = format_threshold_config_diff(out)
+        self.assertTrue(diff["success"])
+        self.assertTrue(diff.get("skipped_apply"))
+        self.assertEqual(diff.get("patch"), {})
+        self.assertEqual(diff.get("changes"), {})
+
+    def test_yhat_oos_suggests_wait_step(self):
+        oos = {
+            "success": True,
+            "score_scale": "predicted_yhat",
+            "best_params": {"wait": 0.5, "min_score": 0.5, "horizon_days": 3},
+            "test": {"metrics": {"trade_count": 8, "win_rate_pct": 55.0}},
+            "model_source": "fit_train",
+        }
+        out = suggest_stance_thresholds_from_oos(
+            oos,
+            current_thresholds={"avoid": -0.5, "wait": 0.0, "probe": 0.3},
+            max_delta=0.5,
+        )
+        self.assertTrue(out["success"])
+        self.assertFalse(out.get("skipped_apply"))
+        self.assertEqual(out["suggested_thresholds"]["wait"], 0.5)
+        self.assertGreater(out["deltas"]["wait"], 0)
+        diff = format_threshold_config_diff(out)
+        self.assertTrue(diff["success"])
+        self.assertFalse(diff.get("skipped_apply"))
+        self.assertIn("stance_thresholds", diff["patch"])
 
     def test_format_threshold_diff(self):
         suggestion = suggest_stance_thresholds_from_oos(

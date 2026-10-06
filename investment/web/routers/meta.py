@@ -1,6 +1,10 @@
 """健康检查与 README 浏览。"""
 
-from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
@@ -13,7 +17,7 @@ router = APIRouter(tags=["meta"])
 
 
 @router.get("/api/health")
-def health():
+def health() -> Dict[str, Any]:
     llm = LLMClient()
     available = bool(llm.api_key) and llm.is_available()
     return {
@@ -21,6 +25,7 @@ def health():
         "llm_configured": bool(llm.api_key),
         "llm_available": available,
         "model": llm.model,
+        "model_source": getattr(llm, "model_source", "default"),
         "tools": list(TOOL_NAMES),
         "disclaimer": DISCLAIMER,
         "llm_error": None if available else llm.get_last_error(),
@@ -28,12 +33,12 @@ def health():
 
 
 @router.get("/api/readme-index")
-def readme_index():
+def readme_index() -> Dict[str, Any]:
     return build_readme_index()
 
 
 @router.get("/api/readme")
-def readme_content(dir: str):
+def readme_content(dir: str) -> Dict[str, Any]:
     try:
         out = read_repo_readme(dir)
     except ValueError as exc:

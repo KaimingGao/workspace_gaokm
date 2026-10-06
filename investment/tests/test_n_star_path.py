@@ -15,7 +15,7 @@ if ROOT not in sys.path:
 
 class TestP1QualityGate(unittest.TestCase):
     def test_allows_production_score_rules(self):
-        from core.data_service import allows_production_score
+        from core.data.facade import allows_production_score
 
         self.assertTrue(allows_production_score(quality_level="good", fallback=False)[0])
         self.assertFalse(allows_production_score(quality_level="thin", fallback=False)[0])
@@ -56,13 +56,6 @@ class TestP1QualityGate(unittest.TestCase):
         from core.signal.score_stock import score_stock
         from datetime import datetime, timedelta
 
-        quote = {
-            "success": True,
-            "stock_code": "600519",
-            "stock_name": "茅台",
-            "price": 100,
-            "change": 1.0,
-        }
         today = datetime.now().date()
         bars = [
             {
@@ -75,6 +68,16 @@ class TestP1QualityGate(unittest.TestCase):
             }
             for i in range(1, 25)
         ]
+        quote = {
+            "success": True,
+            "stock_code": "600519",
+            "stock_name": "茅台",
+            "price": 100,
+            "change": 1.0,
+            "open": 10,
+            "prev_close": 9.9,
+            "date": str(bars[-1]["date"]),
+        }
         with patch(
             "core.signal.score_stock.fetch_daily_bars",
             return_value=(bars, "akshare_cn_daily"),
@@ -84,9 +87,6 @@ class TestP1QualityGate(unittest.TestCase):
         ), patch(
             "core.signal.score_stock.load_signal_config",
             return_value={"fundamentals": {"enabled": False}},
-        ), patch(
-            "core.signal.cluster_live.lookup_code_return_model",
-            return_value=None,
         ), patch(
             "core.signal.return_score_store.load_return_model",
             return_value=(None, {}),
@@ -99,7 +99,7 @@ class TestP1QualityGate(unittest.TestCase):
 
     def test_manifest_has_adjust_policy(self):
         from core.run_manifest import build_run_manifest
-        from core.data_service import DEFAULT_ADJUST_POLICY
+        from core.data.facade import DEFAULT_ADJUST_POLICY
 
         m = build_run_manifest(kind="test", cost_model="simple_cn")
         self.assertEqual(m["adjust_policy"], DEFAULT_ADJUST_POLICY)
@@ -113,12 +113,14 @@ class TestP1QualityGate(unittest.TestCase):
         out = split_oos_summary(curve)
         self.assertTrue(out["ok"])
         self.assertTrue(out.get("failed"))
+        self.assertIsNotNone(out.get("oos_max_drawdown_pct"))
+        self.assertGreater(out["oos_max_drawdown_pct"], 0)
 
     def test_ops_report_includes_target_weights(self):
         from core.paper import build_ops_report
 
         ops = build_ops_report(
-            strategy_id="short",
+            strategy_id="short_conservative",
             optimize={
                 "ok": True,
                 "weights_pct": {"600519": 25.0, "600036": 20.0},
@@ -140,15 +142,6 @@ class TestP1QualityGate(unittest.TestCase):
         r = specs[0].get("risk") or {}
         self.assertIn("max_position_pct", r)
         self.assertIn("max_sector_pct", r)
-
-    def test_cost_compare_helper_gap(self):
-        from quant.services.quant_service_replay import _metrics_slice
-
-        sliced = _metrics_slice(
-            {"metrics": {"total_return_pct": 10.0, "max_drawdown_pct": 3.0}, "trade_count": 4}
-        )
-        self.assertEqual(sliced["total_return_pct"], 10.0)
-        self.assertEqual(sliced["trade_count"], 4)
 
     def test_rolling_walk_forward_slices(self):
         from research.split import rolling_walk_forward_slices
@@ -210,7 +203,7 @@ class TestP1QualityGate(unittest.TestCase):
 
 class TestN1DataService(unittest.TestCase):
     def test_get_bars_shape(self):
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         fake_bars = [
             {"date": "2026-01-0%d" % i, "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1}
@@ -242,7 +235,7 @@ class TestN1DataService(unittest.TestCase):
 
 class TestN2FactorAndMl(unittest.TestCase):
     def test_alt_sentiment_registered_and_skippable(self):
-        from core.signal.factor_registry import compute_configured_factors, registered_factor_names
+        from core.signal.factors.meta.registry import compute_configured_factors, registered_factor_names
 
         self.assertIn("alt_sentiment", registered_factor_names())
         bars = [
@@ -271,19 +264,41 @@ class TestN3PortfolioRisk(unittest.TestCase):
         from core.portfolio_optimize import optimize_weights
 
         cands = [
-            {"stock_code": "AAA", "score": 90, "sector": "X"},
-            {"stock_code": "BBB", "score": 88, "sector": "X"},
-            {"stock_code": "CCC", "score": 80, "sector": "Y"},
+            {
+                "stock_code": "AAA",
+                "predicted_score": 2.0,
+                "predicted_score_eod": 2.0,
+                "eod_trust": 1.0,
+                "y_check": {"ok": True},
+                "sector": "X",
+            },
+            {
+                "stock_code": "BBB",
+                "predicted_score": 1.8,
+                "predicted_score_eod": 1.8,
+                "eod_trust": 1.0,
+                "y_check": {"ok": True},
+                "sector": "X",
+            },
+            {
+                "stock_code": "CCC",
+                "predicted_score": 1.5,
+                "predicted_score_eod": 1.5,
+                "eod_trust": 1.0,
+                "y_check": {"ok": True},
+                "sector": "Y",
+            },
         ]
         out = optimize_weights(
             cands,
             max_position_pct=2.0,
             max_sector_pct=3.0,
             max_positions=5,
-            min_score=50,
+            min_score=0.5,
             sector_map={},
             weight_mode="greedy_cap",
             apply_market_vol=False,
+            apply_regime_scale=False,
         )
         self.assertTrue(out["ok"])
         self.assertLessEqual(out["sector_exposure_pct"].get("X", 0), 3.0 + 1e-6)
@@ -294,8 +309,8 @@ class TestN3PortfolioRisk(unittest.TestCase):
         from core.risk.budget import score_budget_weights
 
         ranked = [
-            {"stock_code": "A", "score": 90, "sector": "X"},
-            {"stock_code": "B", "score": 60, "sector": "Y"},
+            {"stock_code": "A", "score": 2.0, "sector": "X"},
+            {"stock_code": "B", "score": 1.0, "sector": "Y"},
         ]
         w, sec, _ = score_budget_weights(
             ranked, max_position_pct=70.0, max_sector_pct=80.0, max_positions=5
@@ -305,17 +320,32 @@ class TestN3PortfolioRisk(unittest.TestCase):
 
         out = optimize_weights(
             [
-                {"stock_code": "A", "score": 90, "sector": "X"},
-                {"stock_code": "B", "score": 60, "sector": "Y"},
+                {
+                    "stock_code": "A",
+                    "predicted_score": 2.0,
+                    "predicted_score_eod": 2.0,
+                    "eod_trust": 1.0,
+                    "y_check": {"ok": True},
+                    "sector": "X",
+                },
+                {
+                    "stock_code": "B",
+                    "predicted_score": 1.0,
+                    "predicted_score_eod": 1.0,
+                    "eod_trust": 1.0,
+                    "y_check": {"ok": True},
+                    "sector": "Y",
+                },
             ],
             max_position_pct=20.0,
             max_sector_pct=40.0,
             max_positions=5,
-            min_score=50,
+            min_score=0.5,
             sector_map={},
             weight_mode="score_budget",
             vol_scale=0.8,
             apply_market_vol=False,
+            apply_regime_scale=False,
         )
         self.assertTrue(out["ok"])
         self.assertEqual(out["weight_mode"], "score_budget")
@@ -326,7 +356,7 @@ class TestN3PortfolioRisk(unittest.TestCase):
     def test_sector_risk_block(self):
         from core.risk.checks import check_account_risk
 
-        paper = {"cash": 0, "strategy_id": "short", "holdings": []}
+        paper = {"cash": 0, "strategy_id": "short_conservative", "holdings": []}
         summary = {
             "equity": 100000,
             "max_drawdown_pct": 1.0,
@@ -366,12 +396,12 @@ class TestN4OosReport(unittest.TestCase):
         self.assertIn("regime", out["regime_summary"])
 
     def test_portfolio_request_defaults_apply_costs(self):
-        from web.schemas import PortfolioBacktestRequest
+        from web.schemas import PaperReplayBacktestRequest
 
-        body = PortfolioBacktestRequest()
+        body = PaperReplayBacktestRequest()
         self.assertTrue(body.apply_costs)
-        self.assertTrue(body.include_wf_slices)
-        self.assertEqual(body.wf_n_splits, 3)
+        self.assertFalse(hasattr(body, "include_wf_slices"))
+        self.assertEqual(body.lookback, 10)
 
 
 class TestN5Monitor(unittest.TestCase):
@@ -379,7 +409,7 @@ class TestN5Monitor(unittest.TestCase):
         from core.strategy_monitor import assess_strategy_health
 
         out = assess_strategy_health(
-            {"strategy_id": "short"},
+            {"strategy_id": "short_conservative"},
             summary={"max_drawdown_pct": 15.0, "equity": 100000, "cash": 10000},
             risk={"max_drawdown_pct": 20.0, "target_drawdown_pct": 12.0},
         )
@@ -402,7 +432,7 @@ class TestN5Monitor(unittest.TestCase):
 
         out = assess_strategy_health(
             {
-                "strategy_id": "short",
+                "strategy_id": "short_conservative",
                 "cash": 10000,
                 "holdings": [{"stock_code": "999991"}, {"stock_code": "999992"}],
             },
@@ -436,7 +466,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         from core.paper import build_ops_report
 
         ops = build_ops_report(
-            strategy_id="short",
+            strategy_id="short_conservative",
             strategy_version="1",
             cost_model="simple_cn",
             data_quality={"fallback_count": 2, "count": 5},
@@ -462,7 +492,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
 
         paper = {
             "cash": 10000,
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "strategy_version": "t",
             "cost_model": "simple_cn",
             "holdings": [
@@ -511,7 +541,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
             "core.risk.check_account_risk",
             return_value={"ok": False, "blocks": ["行业 新能源 敞口 55.0% > 上限 40%"], "warnings": [], "limits": risk},
         ), patch(
-            "core.data_service.summarize_data_quality",
+            "core.data.facade.summarize_data_quality",
             return_value={"levels": {"good": 0}, "fallback_count": 1, "count": 2},
         ), patch(
             "core.strategy_monitor.assess_strategy_health",
@@ -519,7 +549,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         ), patch(
             "core.run_manifest.write_run_manifest", return_value="/tmp/m.json"
         ):
-            out = run_daily_cycle(paper, simulate_buy=True, strategy="short")
+            out = run_daily_cycle(paper, simulate_buy=True, strategy="short_conservative")
 
         mock_buys.assert_not_called()
         self.assertTrue(out["buys_blocked"])
@@ -530,72 +560,6 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         self.assertEqual(out["data_quality"].get("fallback_count"), 1)
         types = [e.get("type") for e in paper.get("operation_log") or []]
         self.assertIn("risk_block", types)
-
-    def test_cross_section_soft_sector_budget(self):
-        """行业超限不整批 buys_blocked，走 risk_budget 缩量。"""
-        from core.paper_rebalance import simulate_cross_section_rebalance
-
-        paper = {
-            "cash": 50000,
-            "strategy_id": "short",
-            "cost_model": "simple_cn",
-            "holdings": [
-                {
-                    "stock_code": "300750",
-                    "stock_name": "宁德",
-                    "shares": 100,
-                    "cost": 200,
-                }
-            ],
-            "rules": {"max_positions": 5, "position_pct": 0.2},
-            "operation_log": [],
-            "trades": [],
-        }
-        ranking = [
-            {"stock_code": "300750", "score": 2.0, "stock_name": "宁德"},
-            {"stock_code": "600519", "score": 3.0, "stock_name": "茅台"},
-        ]
-        risk_out = {
-            "ok": False,
-            "blocks": ["行业 新能源 敞口 55.0% > 上限 40%"],
-            "block_items": [
-                {
-                    "code": "max_sector",
-                    "message": "行业 新能源 敞口 55.0% > 上限 40%",
-                    "sector": "新能源",
-                    "value": 55.0,
-                    "limit": 40.0,
-                }
-            ],
-            "warnings": [],
-            "limits": {"max_position_pct": 25.0, "max_sector_pct": 40.0},
-        }
-        with patch(
-            "core.ports.market.query_quote",
-            return_value={"success": True, "stock_name": "茅台", "price": 100},
-        ), patch(
-            "core.paper_rebalance._quote_price", return_value=100.0
-        ), patch(
-            "core.paper.mark_to_market",
-            return_value={
-                "equity": 100000,
-                "cash": 50000,
-                "max_drawdown_pct": 1,
-                "holdings": [
-                    {"stock_code": "300750", "shares": 100, "market_value": 55000, "sector": "新能源"}
-                ],
-            },
-        ), patch("core.risk.check_account_risk", return_value=risk_out), patch(
-            "core.data_service.summarize_data_quality",
-            return_value={"levels": {}, "fallback_count": 0, "count": 1},
-        ):
-            out = simulate_cross_section_rebalance(paper, ranking, top_k=2)
-
-        self.assertFalse(out["buys_blocked"])
-        self.assertIn("ops_report", out)
-        self.assertIn("data_quality", out)
-        types = [e.get("type") for e in paper.get("operation_log") or []]
-        self.assertIn("risk_budget", types)
 
 
 class TestP2PaperOpsLoop(unittest.TestCase):
@@ -616,49 +580,6 @@ class TestP2PaperOpsLoop(unittest.TestCase):
         self.assertIn("patch", out)
         self.assertFalse(out.get("auto_apply"))
 
-    def test_cross_section_ops_report_carries_monitor_alerts(self):
-        from core.paper_rebalance import simulate_cross_section_rebalance
-
-        paper = {
-            "cash": 50000,
-            "strategy_id": "short",
-            "cost_model": "simple_cn",
-            "holdings": [],
-            "rules": {"max_positions": 5, "min_score": 50, "min_hold_score": 40, "position_pct": 0.2},
-            "operation_log": [],
-            "trades": [],
-        }
-        ranking = [{"stock_code": "600519", "score": 90, "stock_name": "茅台"}]
-        alerts = [
-            {"level": "warn", "code": "drawdown_target", "message": "回撤触及预警"}
-        ]
-        with patch(
-            "core.ports.market.query_quote",
-            return_value={"success": True, "stock_name": "茅台", "price": 100},
-        ), patch(
-            "core.paper_rebalance._quote_price", return_value=100.0
-        ), patch(
-            "core.paper.mark_to_market",
-            return_value={
-                "equity": 100000,
-                "cash": 50000,
-                "max_drawdown_pct": 12.0,
-                "holdings": [],
-            },
-        ), patch(
-            "core.risk.check_account_risk",
-            return_value={"ok": True, "blocks": [], "warnings": [], "limits": {}},
-        ), patch(
-            "core.data_service.summarize_data_quality",
-            return_value={"levels": {}, "fallback_count": 0, "count": 1},
-        ), patch(
-            "core.strategy_monitor.assess_strategy_health",
-            return_value={"ok": True, "level": "warn", "alerts": alerts},
-        ):
-            out = simulate_cross_section_rebalance(paper, ranking, top_k=1)
-
-        ops = out.get("ops_report") or {}
-        self.assertEqual(ops.get("monitor_alerts"), alerts)
 
     def test_run_schedule_paper_daily_kind(self):
         from core.schedule_jobs import run_schedule
@@ -667,13 +588,13 @@ class TestP2PaperOpsLoop(unittest.TestCase):
             "ok": True,
             "kind": "paper_daily",
             "monitor_alerts": [],
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "cost_model": "simple_cn",
             "data_quality": {},
             "risk_blocks": [],
         }
         with patch("core.schedule_jobs.run_paper_daily", return_value=fake) as mocked:
-            out = run_schedule("paper_daily", simulate_buy=False, strategy="short")
+            out = run_schedule("paper_daily", simulate_buy=False, strategy="short_conservative")
         mocked.assert_called_once()
         self.assertTrue(out.get("ok"))
         self.assertEqual(out.get("kind"), "paper_daily")

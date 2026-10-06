@@ -16,33 +16,285 @@ export function metricClass(v) {
   return n > 0 ? "up" : "down";
 }
 
+function _kpiNum(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _kpiPct(v, { signed = true } = {}) {
+  const n = _kpiNum(v);
+  if (n == null) return "—";
+  const body = Math.abs(n).toFixed(2);
+  if (!signed) return `${body}%`;
+  return `${n >= 0 ? "+" : "-"}${body}%`;
+}
+
+/** |ranking| < 0.05% → 无方向，与后端 HIT_YHAT_EPS / score_ledger 同口径。 */
+const HIT_YHAT_EPS = 0.05;
+
+function _rowAsOfDay(r) {
+  return String(r.as_of || r.date || r.signal_date || "").slice(0, 10);
+}
+
+function _replayLastDay(data) {
+  const params = data && data.params && typeof data.params === "object" ? data.params : {};
+  const end = String(params.end_date || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(end)) return end;
+  const curve = Array.isArray(data && data.equity_curve) ? data.equity_curve : [];
+  for (let i = curve.length - 1; i >= 0; i -= 1) {
+    const d = String((curve[i] && curve[i].date) || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  }
+  return "";
+}
+
+function _fuseHitFromTrades(rows, { lastDay = "" } = {}) {
+  let hits = 0;
+  let n = 0;
+  const last = String(lastDay || "").slice(0, 10);
+  for (const r of rows || []) {
+    if (!r || typeof r !== "object") continue;
+    if (String(r.status || "") === "skipped" || String(r.status || "") === "held") continue;
+    if (last && _rowAsOfDay(r) === last) continue;
+    let yf = _kpiNum(r.ranking);
+    if (yf == null) yf = _kpiNum(r.y_fuse);
+    if (yf == null) {
+      const rs = _kpiNum(r.ranking_score);
+      if (rs != null) yf = rs * 100;
+    }
+    const real = _kpiNum(r.realized_ranking);
+    if (yf == null || real == null) continue;
+    if (Math.abs(yf) < HIT_YHAT_EPS) continue;
+    if (Math.abs(real) < 1e-12) continue;
+    n += 1;
+    if ((yf > 0) === (real > 0)) hits += 1;
+  }
+  if (n <= 0) return { hit_rate_pct: null, hit_n: 0, hit_hits: 0 };
+  return {
+    hit_rate_pct: Math.round((hits / n) * 1000) / 10,
+    hit_n: n,
+    hit_hits: hits,
+  };
+}
+
+/**
+ * 历史回测页概览 KPI（纯数据，无 DOM）。
+ * 兼容完整回测结果（metrics+benchmark）与摘要顶层字段。
+ */
+function buildReplayOverviewKpis(data, { source = "" } = {}) {
+  const blank = (sub) => ({ value: "—", sub, empty: true, cls: "" });
+  if (!data || data.success === false) {
+    return {
+      return: blank("先跑回测"),
+      excess: blank("相对基准"),
+      dd: blank("历史 MaxDD"),
+      win: blank("日净值>0"),
+      hit: blank("sign(ranking)=sign(真实)"),
+    };
+  }
+  const m =
+    data.metrics && typeof data.metrics === "object" ? data.metrics : data;
+  const bench = data.benchmark && typeof data.benchmark === "object" ? data.benchmark : {};
+  const ret = m.total_return_pct;
+  const win = m.win_rate_pct;
+  const dd = m.max_drawdown_pct;
+  const excess = bench.ok ? bench.excess_pct : m.excess_pct;
+  const legs =
+    data.alpha_beta_legs && typeof data.alpha_beta_legs === "object"
+      ? data.alpha_beta_legs
+      : {};
+  const src = source || (data.params ? "当次回测" : "回测");
+  const retN = _kpiNum(ret);
+  const exN = _kpiNum(excess);
+  const ddN = _kpiNum(dd);
+  const winN = _kpiNum(win);
+  const daysN = _kpiNum(m.day_count ?? (Array.isArray(data.equity_curve) ? data.equity_curve.length : null));
+  let hitRate = _kpiNum(m.hit_rate_pct);
+  let hitCount = _kpiNum(m.hit_n);
+  let hitHits = _kpiNum(m.hit_hits);
+  const tradeRows = data.sim_trades || data.trades || [];
+  const hasRankReal = (Array.isArray(tradeRows) ? tradeRows : []).some(
+    (t) => t && Object.prototype.hasOwnProperty.call(t, "realized_ranking")
+  );
+  if (hasRankReal || hitRate == null || hitCount == null) {
+    const fb = _fuseHitFromTrades(tradeRows, {
+      lastDay: _replayLastDay(data),
+    });
+    if (hasRankReal || hitRate == null) hitRate = _kpiNum(fb.hit_rate_pct);
+    if (hasRankReal || hitCount == null) hitCount = _kpiNum(fb.hit_n);
+    if (hasRankReal || hitHits == null) hitHits = _kpiNum(fb.hit_hits);
+  }
+  const excessSub =
+    exN == null
+      ? "相对基准"
+      : legs.beta_leg_approx_pct != null
+        ? `超额 · β腿≈${Number(legs.beta_leg_approx_pct).toFixed(1)}%`
+        : `相对 ${bench.benchmark_label || "基准"}`;
+  let hitSub = "sign(ranking)=sign(真实)";
+  if (hitCount != null && hitCount > 0 && hitHits != null) {
+    hitSub = `${hitHits}/${hitCount} 笔`;
+  } else if (hitCount != null && hitCount > 0) {
+    hitSub = `${hitCount} 笔`;
+  } else if (hitRate == null) {
+    hitSub = "无方向成交";
+  }
+  return {
+    return: {
+      value: _kpiPct(ret),
+      sub: src,
+      empty: retN == null,
+      cls: metricClass(retN),
+    },
+    excess: {
+      value: _kpiPct(excess),
+      sub: excessSub,
+      empty: exN == null,
+      cls: metricClass(exN),
+    },
+    dd: {
+      value: _kpiPct(dd, { signed: false }),
+      sub: "历史 MaxDD",
+      empty: ddN == null,
+      cls: ddN != null && ddN > 0 ? "down" : "",
+    },
+    win: {
+      value: winN == null ? "—" : `${winN.toFixed(1)}%`,
+      sub: daysN != null ? `${daysN} 日净值>0` : "日净值>0",
+      empty: winN == null,
+      cls: "",
+    },
+    hit: {
+      value: hitRate == null ? "—" : `${hitRate.toFixed(1)}%`,
+      sub: hitSub,
+      empty: hitRate == null,
+      cls: "",
+    },
+  };
+}
+
+const _REPLAY_KPI_IDS = {
+  return: "replay-kpi-return",
+  excess: "replay-kpi-excess",
+  dd: "replay-kpi-dd",
+  win: "replay-kpi-win",
+  hit: "replay-kpi-hit",
+};
+
+/** 把概览 KPI 写进历史回测页 DOM。 */
+export function applyReplayOverviewKpis(data, opts = {}) {
+  const pack = buildReplayOverviewKpis(data, opts);
+  Object.entries(_REPLAY_KPI_IDS).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const item = pack[key];
+    const card = el.closest(".replay-kpi-card") || el.closest(".dashboard-kpi-card");
+    el.textContent = item.value;
+    el.classList.remove("up", "down");
+    if (item.cls) el.classList.add(item.cls);
+    if (card) card.classList.toggle("is-empty", !!item.empty);
+    const sub = document.getElementById(`${id}-sub`);
+    if (sub) sub.textContent = item.sub;
+  });
+  return pack;
+}
+
+const _REPLAY_T0_KPI_IDS = {
+  return: "replay-t0-kpi-return",
+  pnl: "replay-t0-kpi-pnl",
+  win: "replay-t0-kpi-win",
+  cover: "replay-t0-kpi-cover",
+};
+
+function _kpiMoney(v) {
+  const n = _kpiNum(v);
+  if (n == null) return "—";
+  const abs = Math.abs(n).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  if (n > 0) return `+${abs}`;
+  if (n < 0) return `-${abs}`;
+  return abs;
+}
+
+/**
+ * 做 T 回测概览 KPI（纯数据）。
+ */
+function buildReplayT0Kpis(data) {
+  const blank = (sub) => ({ value: "—", sub, empty: true, cls: "" });
+  if (!data || data.success === false) {
+    return {
+      return: blank("先跑回测"),
+      pnl: blank("含敞口"),
+      win: blank("做 T 日"),
+      cover: blank("完成往返率"),
+    };
+  }
+  const ret = data.cumulative_return_pct ?? data.pnl_vs_hold_mv_pct;
+  const pnl = data.t0_pnl_with_exposure ?? data.t0_pnl_total;
+  const win = data.win_rate_pct ?? data.t0_win_rate_pct;
+  const cover = data.cover_rate_pct;
+  const days = data.t0_trade_days;
+  const retN = _kpiNum(ret);
+  const pnlN = _kpiNum(pnl);
+  const winN = _kpiNum(win);
+  const coverN = _kpiNum(cover);
+  const daysN = _kpiNum(days);
+  return {
+    return: {
+      value: _kpiPct(ret),
+      sub: retN == null ? "累计收益" : "相对本金",
+      empty: retN == null,
+      cls: metricClass(retN),
+    },
+    pnl: {
+      value: _kpiMoney(pnl),
+      sub: "含敞口",
+      empty: pnlN == null,
+      cls: metricClass(pnlN),
+    },
+    win: {
+      value: winN == null ? "—" : `${winN.toFixed(1)}%`,
+      sub: daysN != null ? `${daysN} 日` : "做 T 日",
+      empty: winN == null,
+      cls: "",
+    },
+    cover: {
+      value: coverN == null ? "—" : `${coverN.toFixed(1)}%`,
+      sub: "完成往返率",
+      empty: coverN == null,
+      cls: "",
+    },
+  };
+}
+
+/** 把做 T KPI 写进历史回测页 DOM。 */
+export function applyReplayT0Kpis(data) {
+  if (!document.getElementById("replay-t0-kpi-row")) return null;
+  const pack = buildReplayT0Kpis(data);
+  Object.entries(_REPLAY_T0_KPI_IDS).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const item = pack[key];
+    const card = el.closest(".replay-kpi-card") || el.closest(".dashboard-kpi-card");
+    el.textContent = item.value;
+    el.classList.remove("up", "down");
+    if (item.cls) el.classList.add(item.cls);
+    if (card) card.classList.toggle("is-empty", !!item.empty);
+    const sub = document.getElementById(`${id}-sub`);
+    if (sub) sub.textContent = item.sub;
+  });
+  return pack;
+}
+
 /** 研究包导出用曲线摘要（纯对象，无 DOM）。 */
 export function buildResearchCurves(result) {
   if (!result || !result.success) return null;
   const sic = result.score_ic || {};
-  const qb = result.quantile_backtest || {};
   const bench = result.benchmark || {};
-  const align = result.ic_equity_align || {};
   return {
     equity_curve: result.equity_curve || [],
     benchmark_equity_curve: bench.equity_curve || [],
     ic_series_tail: sic.ic_series_tail || [],
     ic_rolling_tail: sic.ic_rolling_tail || [],
-    quantile_curves: (qb.quantiles || []).map((r) => ({
-      label: r.label,
-      quantile: r.quantile,
-      equity_curve_tail: r.equity_curve_tail || [],
-    })),
-    long_short_equity_curve: qb.long_short_equity_curve || [],
-    ic_equity_align: align.ok
-      ? {
-          avg_return_spread_pp: align.avg_return_spread_pp,
-          aligned_favor_pos_ic: align.aligned_favor_pos_ic,
-          pos_ic: align.pos_ic,
-          neg_ic: align.neg_ic,
-          periods_tail: align.periods_tail || [],
-        }
-      : align,
   };
 }
 
@@ -124,13 +376,42 @@ export function buildPortfolioBacktestSummaryText(data) {
       ? ` · 源不一致风险 ${sa.fallback_count}`
       : "";
   const matchNote = data.params?.execution_mode
-    ? ` · 成交 ${data.params.execution_mode === "next_open" ? "次日开" : "收盘"}`
+    ? ` · 成交 ${
+        data.params.execution_mode === "open_930"
+          ? "09:30开"
+          : data.params.execution_mode === "minute_5m"
+            ? `${data.params.fill_clock || "5m"}成交`
+          : data.params.execution_mode === "next_open"
+            ? "次日开"
+            : "收盘"
+      }`
     : "";
+  const tauOff =
+    data.params?.apply_tau_buy_gate === false ||
+    data.request?.apply_tau_buy_gate === false ||
+    data.request?.rank_key === "predicted_score_eod";
+  const eng =
+    data.params?.engine || data.request?.engine || data.engine || "paper_replay";
+  const scoreAxisNote =
+    eng === "paper_replay" || eng === "rank_lots"
+      ? ""
+      : tauOff
+        ? " · 选股 ŷ_oo·关τ闸"
+        : data.params?.apply_tau_buy_gate === true
+          ? " · 选股 ranking·τ闸开"
+          : " · 选股 ŷ_oo·关τ闸";
+  const engNote =
+    eng === "topk_research"
+      ? " · 引擎 研究Top-K（已下线）"
+      : " · 引擎 rank_lots";
   const dropN = Number(
     data.params?.dropped_thin_count || (data.dropped_stocks || []).length || 0
   );
   const dropNote = dropN > 0 ? ` · 排除短序列 ${dropN}` : "";
-  const doN = Number(data.params?.dropout_n ?? data.request?.dropout_n ?? 0);
+  const doN =
+    eng === "topk_research"
+      ? Number(data.params?.dropout_n ?? data.request?.dropout_n ?? 0)
+      : 0;
   const dropoutNote = doN > 0 ? ` · dropout ${doN}` : "";
   const sic = data.score_ic || {};
   const icNote = sic.ok
@@ -141,12 +422,16 @@ export function buildPortfolioBacktestSummaryText(data) {
     : sic.reason
       ? ` · IC略 ${sic.reason}`
       : "";
-  const qb = data.quantile_backtest || {};
-  const qNote = qb.ok
-    ? qb.monotonic_increasing
-      ? ` · 分层单调↑ Q差${qb.q_high_minus_q_low_pct ?? "—"}%`
-      : ` · 分层非单调 Q差${qb.q_high_minus_q_low_pct ?? "—"}%`
+  const cashInit = Number(data.params?.initial_cash ?? data.request?.initial_cash);
+  const cashFloor = Number(data.params?.cash_floor ?? data.request?.cash_floor);
+  const cashNote = Number.isFinite(cashInit)
+    ? ` · 初始${Math.round(cashInit / 10000)}万` +
+      (Number.isFinite(cashFloor) && cashFloor > 0
+        ? `/地板${Math.round(cashFloor / 10000)}万`
+        : "")
     : "";
+  const sess = String(data.params?.session_day || "").slice(0, 10);
+  const sessNote = /^\d{4}-\d{2}-\d{2}$/.test(sess) ? ` · 含当日 ${sess}` : "";
   const bench = data.benchmark || {};
   const benchNote =
     bench.ok && bench.excess_pct != null
@@ -155,12 +440,39 @@ export function buildPortfolioBacktestSummaryText(data) {
         })` +
         (bench.ann_ir != null ? ` · IR ${bench.ann_ir}` : "")
       : "";
+  const treeState = data.params?.tree_models;
+  const treeMissing = [];
+  const treeCollapsed = [];
+  if (treeState && typeof treeState === "object") {
+    const labels = { oo: "ŷ_oo", tc: "ŷ_τc", co: "ŷ_co" };
+    for (const key of ["oo", "tc", "co"]) {
+      const st = String(treeState[key] || "");
+      if (st.includes("missing")) {
+        treeMissing.push(labels[key] || key);
+      } else if (st.includes("collapsed")) {
+        treeCollapsed.push(labels[key] || key);
+      }
+    }
+  }
+  const scoreBackend = String(
+    data.params?.score_backend || data.request?.score_backend || ""
+  ).toLowerCase();
+  const treeNote = treeCollapsed.length
+    ? ` · Tree ${treeCollapsed.join("/")} 塌成截距，已回退 Ridge`
+    : treeMissing.length
+    ? ` · Tree 未加载 ${treeMissing.join("/")}，已回退 Ridge`
+    : scoreBackend === "tree"
+      ? " · ŷ头 Tree"
+      : "";
   const text =
-    `标的 ${(data.loaded_stocks || []).length} · 共同日 ${data.params?.common_dates} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
+    `标的 ${(data.loaded_stocks || []).length}` +
+    (data.request?.lookback != null || data.params?.lookback != null
+      ? ` · lookback ${data.request?.lookback ?? data.params?.lookback}`
+      : "") +
+    ` · 交易日 ${data.params?.trade_days ?? data.params?.common_dates ?? "—"} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
-    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${dropNote}${dropoutNote}${icNote}${qNote}${benchNote}`;
-  const qBad = qb.ok && qb.monotonic_increasing === false;
-  return { text, warn: !!(oosFailed || qBad) };
+    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${dropoutNote}${icNote}${benchNote}${sessNote}${treeNote}`;
+  return { text, warn: !!oosFailed || treeMissing.length > 0 || treeCollapsed.length > 0 };
 }
 
 /** @returns {Array<{ label: string, value: string, cls?: string }>} */
@@ -206,7 +518,7 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
     { label: "最大回撤", value: fmt(m.max_drawdown_pct), cls: mcls(-(Number(m.max_drawdown_pct) || 0)) },
     { label: "平均收益", value: fmt(m.avg_return_pct), cls: mcls(m.avg_return_pct) },
     { label: "Sharpe≈", value: esc(String(m.sharpe_approx ?? "—")) },
-    { label: "共同交易日", value: esc(String(params.common_dates ?? "—")) },
+    { label: "交易日", value: esc(String(params.trade_days ?? params.common_dates ?? "—")) },
     { label: "标的数", value: esc(String((data.loaded_stocks || []).length || params.stock_count || "—")) },
     {
       label: "排除短序列",
@@ -224,6 +536,14 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
             : params.weight_mode === "equal" || !params.weight_mode
               ? "等权"
               : String(params.weight_mode)
+      ),
+    },
+    {
+      label: "选股口径",
+      value: esc(
+        params.apply_tau_buy_gate === true || data.request?.apply_tau_buy_gate === true
+          ? "ranking · τ闸开"
+          : "ŷ_oo · 关τ闸"
       ),
     },
     { label: "OOS", value: esc(String(oosLabel)), cls: oosFailed ? "down" : "" },
@@ -281,14 +601,6 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
         cls: Number(sic.positive_ic_ratio) >= 0.55 ? "" : "down",
       });
     }
-  }
-  const align = data.ic_equity_align || {};
-  if (align.ok && align.avg_return_spread_pp != null) {
-    cards.push({
-      label: "IC窗收益差",
-      value: `${Number(align.avg_return_spread_pp) >= 0 ? "+" : ""}${align.avg_return_spread_pp}pp`,
-      cls: align.aligned_favor_pos_ic === false ? "down" : mcls(align.avg_return_spread_pp),
-    });
   }
   if (cc.ok) {
     const gap = cc.return_gap_pp;
@@ -379,13 +691,12 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
 }
 
 /**
- * @param {{ escapeHtml?: typeof escapeHtml, fmtPct?: typeof fmtPct, metricClass?: typeof metricClass, researchGridHtml: Function }} deps
+ * @param {{ escapeHtml?: typeof escapeHtml, fmtPct?: typeof fmtPct, metricClass?: typeof metricClass }} deps
  */
 export function createBtResultRenderers(deps) {
   const esc = deps.escapeHtml || escapeHtml;
   const fmt = deps.fmtPct || fmtPct;
   const mcls = deps.metricClass || metricClass;
-  const researchGridHtml = deps.researchGridHtml;
 
   function renderMetricCards(host, items) {
     if (!host) return;
@@ -417,37 +728,56 @@ export function createBtResultRenderers(deps) {
     else el.classList.remove("down");
   }
 
-  function renderFitGapPanel(data) {
-    const el = document.getElementById("quant-fit-gap");
+  /** OOS + Walk-forward 稳健性条（验证台第一眼） */
+  function renderRobustnessPanel(data) {
+    const el = document.getElementById("quant-robustness");
     if (!el) return;
-    if (!data || !data.ok) {
+    if (!data || !data.success) {
       el.innerHTML = "";
       return;
     }
-    const hints = data.hints || [];
+    const oos = data.oos_summary || {};
+    const wf = data.wf_slices || {};
+    const regime = data.regime_summary || {};
+    const oosFailed = oos.ok === false || oos.failed === true;
+    const isRet = oos.is_return_pct != null ? `${Number(oos.is_return_pct).toFixed(2)}%` : "—";
+    const oosRet = oos.oos_return_pct != null ? `${Number(oos.oos_return_pct).toFixed(2)}%` : "—";
+    const oosCls = oosFailed ? "down" : "";
+    const wfMean =
+      wf.mean_test_return_pct != null ? `${Number(wf.mean_test_return_pct).toFixed(2)}%` : "—";
+    const wfPos =
+      wf.positive_test_folds != null && wf.measured_test_folds != null
+        ? `${wf.positive_test_folds}/${wf.measured_test_folds}`
+        : "—";
+    const foldN = (wf.folds || []).length || wf.fold_count || "—";
+    const regimeLabel = regime.regime || (regime.ok === false ? regime.reason || "—" : "—");
+    const mcs = data.macro_context_summary || {};
+    const macroKpi =
+      mcs.ok && mcs.avg_overseas_tech_1d_pct != null
+        ? `<div class="quant-validation-kpi"><span class="k">海外科技均</span><span class="v ${mcls(
+            mcs.avg_overseas_tech_1d_pct
+          )}">${esc(fmt(mcs.avg_overseas_tech_1d_pct))}</span></div>`
+        : "";
+    const note =
+      oosFailed
+        ? oos.reason || "OOS 未过闸：样本内好看不等于样本外有效"
+        : wf.ok === false && wf.reason
+          ? `WF：${wf.reason}`
+          : "按权益曲线切分 OOS · WF 为扩展窗测试折；网格扫描默认跳过 WF";
     el.innerHTML =
-      `<p class="quant-trades-caption">回测–纸面落差归因（启发式 · warn ${
-        data.warn_count ?? 0
-      }）</p>` +
-      researchGridHtml(
-        [
-          { id: "level", label: "级别", widthPct: 14, center: true },
-          { id: "code", label: "码", widthPct: 22 },
-          { id: "message", label: "说明", flex: true },
-        ],
-        hints.map((h) => ({
-          level: h.level || "info",
-          code: h.code || "",
-          message: h.message || "",
-          isWarn: (h.level || "") === "warn",
-        })),
-        (col, d) => esc(d[col.id] ?? "—"),
-        {
-          emptyText: "无归因项",
-          rowClass: (d) => (d.isWarn ? "down" : ""),
-        }
-      ) +
-      `<p class="quant-sub">${esc(data.note || "")} · 拟合 KPI 见 <a href="/platform">平台北极星</a></p>`;
+      `<div class="quant-validation-block">` +
+      `<p class="quant-trades-caption">稳健性 · OOS / Walk-forward</p>` +
+      `<div class="quant-validation-strip" aria-label="稳健性 KPI">` +
+      `<div class="quant-validation-kpi"><span class="k">样本内</span><span class="v">${esc(isRet)}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">OOS</span><span class="v ${oosCls}">${esc(oosRet)}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">WF均收益</span><span class="v">${esc(wfMean)}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">WF正窗</span><span class="v">${esc(String(wfPos))}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">WF折</span><span class="v">${esc(String(foldN))}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">Regime</span><span class="v">${esc(String(regimeLabel))}</span></div>` +
+      macroKpi +
+      `</div>` +
+      `<p class="quant-sub">${esc(note)}</p>` +
+      `</div>`;
   }
 
   function buildCards(data) {
@@ -457,7 +787,7 @@ export function createBtResultRenderers(deps) {
   return {
     renderMetricCards,
     renderBtScopeNote,
-    renderFitGapPanel,
+    renderRobustnessPanel,
     buildPortfolioBacktestCards: buildCards,
   };
 }

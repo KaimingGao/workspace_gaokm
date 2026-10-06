@@ -1,22 +1,20 @@
 """因子 IC/IR 报告（P7.2 / P50 全因子 + fundamentals）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
-from core.signal.factor_corr import pearson_with_reason
-from core.signal.factor_registry import registered_factor_names
+from core.signal.factors.meta.corr import pearson_with_reason
+from core.signal.factors.meta.registry import registered_factor_names
 from core.signal.scorer import score_bars
 
 
 def _forward_return(bars: List[dict], idx: int, horizon: int) -> Optional[float]:
-    if idx + horizon >= len(bars):
-        return None
-    entry = bars[idx].get("close")
-    exit_p = bars[idx + horizon].get("close")
-    if not entry:
-        return None
-    return (exit_p / entry - 1.0) * 100.0
+    from core.signal.yhat_windows import forward_oo_pct
+
+    return forward_oo_pct(bars, idx, horizon)
 
 
 def _resolve_fund_for_day(
@@ -43,7 +41,8 @@ def _resolve_fund_for_day(
             live_fallback=False,
         )
         metrics = resolved.get("metrics") if resolved.get("ok") else None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in factor_report.py", exc_info=True)
         metrics = None
     cache[decision_date] = metrics
     return metrics
@@ -76,21 +75,16 @@ def compute_factor_ic_report(
     pit_hits = 0
     pit_miss = 0
 
+    from core.signal.yhat_windows import pit_oo_window_quote
+
     n = len(bars or [])
     for i in range(min_history - 1, n - horizon_days):
         start = max(0, i - max_window + 1)
-        window = bars[start : i + 1]
-        quote = {
-            "change_raw": 0.0,
-            "price_raw": bars[i]["close"],
-        }
-        if i >= 1:
-            c0 = bars[i - 1]["close"]
-            c1 = bars[i]["close"]
-            if c0:
-                quote["change_raw"] = round((c1 / c0 - 1.0) * 100.0, 4)
+        window, quote = pit_oo_window_quote(bars, i, start)
+        if len(window) < 2:
+            continue
 
-        idx_slice = index_bars[start : i + 1] if index_bars else None
+        idx_slice = index_bars[start:i] if index_bars else None
         decision_date = str((bars[i] or {}).get("date") or "")[:10]
         day_fund = _resolve_fund_for_day(
             stock_code,

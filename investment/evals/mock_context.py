@@ -50,6 +50,9 @@ def resolve_daily_bars(spec: Any) -> Tuple[List[dict], str]:
         return [], "mock_empty"
     if spec == "rising_45":
         return rising_bars(45), "mock_daily"
+    if spec in ("rising_100", "rising_ols"):
+        # Alpha158 抬窗后研究 OLS 面板需要更长序列
+        return rising_bars(100), "mock_daily"
     if spec == "rising_21":
         return rising_bars(21), "mock_daily"
     if spec == "half_rise_21":
@@ -110,24 +113,33 @@ def _patch_daily_bars(stack, mock_cfg: dict) -> None:
         return
     bars, src = resolve_daily_bars(mock_cfg["daily_bars"])
     ret = (bars, src)
-    # 只 patch 仍存在的符号；日线入口已收敛到 core.data_service
-    for target in (
-        "core.data_service.bars_and_source",
-        "skills.common.history.fetch_daily_bars",
-        "core.signal.score_stock.fetch_daily_bars",
+    pack = {"bars": bars, "data_source": src, "production_ok": True}
+    # 只 patch 仍存在的符号；日线入口已收敛到 core.data.facade
+    for target, value in (
+        ("core.data.facade.bars_and_source", ret),
+        ("core.data.facade.bars_and_source_research", ret),
+        ("core.data.facade.get_bars", pack),
+        ("adapters.market.history.fetch_daily_bars", ret),
+        ("core.signal.score_stock.fetch_daily_bars", ret),
     ):
         try:
-            stack.enter_context(patch(target, return_value=ret))
+            stack.enter_context(patch(target, return_value=value))
         except AttributeError:
             continue
 
     if "index_bars" not in mock_cfg:
         stack.enter_context(
-            patch("skills.index.engine.fetch_index_bars", return_value=([], ""))
+            patch("adapters.index.engine.fetch_index_bars", return_value=([], ""))
         )
         try:
             stack.enter_context(
                 patch("skills.backtest.engine.fetch_index_bars", return_value=([], ""))
+            )
+        except AttributeError:
+            pass
+        try:
+            stack.enter_context(
+                patch("core.ports.market.fetch_index_bars", return_value=([], ""))
             )
         except AttributeError:
             pass
@@ -140,17 +152,17 @@ def _patch_fundamentals(stack, mock_cfg: dict) -> None:
     spot = fin.get("spot")
     if spot is not None:
         stack.enter_context(
-            patch("skills.fundamentals.engine.fetch_cn_spot_row", return_value=spot)
+            patch("adapters.fundamentals.engine.fetch_cn_spot_row", return_value=spot)
         )
     stack.enter_context(
         patch(
-            "skills.fundamentals.engine.fetch_cn_valuation_latest",
+            "adapters.fundamentals.engine.fetch_cn_valuation_latest",
             return_value=fin.get("valuation") or {},
         )
     )
     stack.enter_context(
         patch(
-            "skills.fundamentals.engine.fetch_cn_financial_latest",
+            "adapters.fundamentals.engine.fetch_cn_financial_latest",
             return_value=fin.get("financial") or {},
         )
     )
@@ -158,7 +170,7 @@ def _patch_fundamentals(stack, mock_cfg: dict) -> None:
     if rmc is not None:
         stack.enter_context(
             patch(
-                "skills.fundamentals.engine.resolve_market_code",
+                "adapters.fundamentals.engine.resolve_market_code",
                 return_value=tuple(rmc),
             )
         )
@@ -176,7 +188,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
     quote_fn = build_quote_fn(mock_cfg)
     if quote_fn is not None:
         stack.enter_context(
-            patch("skills.common.quote_api.StockAPI.query", side_effect=quote_fn)
+            patch("adapters.market.quote_api.StockAPI.query", side_effect=quote_fn)
         )
 
     _patch_daily_bars(stack, mock_cfg)
@@ -187,7 +199,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
             str(mock_cfg.get("index_label") or "沪深300"),
         )
         stack.enter_context(
-            patch("skills.index.engine.fetch_index_bars", return_value=(ib, ilabel))
+            patch("adapters.index.engine.fetch_index_bars", return_value=(ib, ilabel))
         )
         stack.enter_context(
             patch("skills.backtest.engine.fetch_index_bars", return_value=(ib, ilabel))
@@ -197,16 +209,16 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
     if rmc is not None:
         tup = tuple(rmc)
         stack.enter_context(
-            patch("skills.index.engine.resolve_market_code", return_value=tup)
+            patch("adapters.index.engine.resolve_market_code", return_value=tup)
         )
         stack.enter_context(
             patch("skills.backtest.engine.resolve_market_code", return_value=tup)
         )
         stack.enter_context(
-            patch("skills.common.history.resolve_market_code", return_value=tup)
+            patch("adapters.market.history.resolve_market_code", return_value=tup)
         )
         stack.enter_context(
-            patch("skills.fundamentals.engine.resolve_market_code", return_value=tup)
+            patch("adapters.fundamentals.engine.resolve_market_code", return_value=tup)
         )
 
     _patch_fundamentals(stack, mock_cfg)
@@ -259,7 +271,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
     watching = mock_cfg.get("watching")
     if watching is not None:
         stack.enter_context(
-            patch("core.watching_store.read_watching", return_value=watching)
+            patch("core.watching.store.read_watching", return_value=watching)
         )
         stack.enter_context(
             patch("core.signal.cross_section.read_watching", return_value=watching)

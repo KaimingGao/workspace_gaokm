@@ -1,17 +1,11 @@
 """质量因子（P46 / V2.1）：ROE only；增速已拆至 growth 因子。"""
 
-from __future__ import annotations
+import logging
 
-from typing import Any, Dict, Optional
+logger = logging.getLogger(__name__)
+from typing import Optional
 
-
-def _to_float(val: Any) -> Optional[float]:
-    if val is None:
-        return None
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return None
+from core.numbers import to_float as _to_float
 
 
 def score_quality(
@@ -20,10 +14,12 @@ def score_quality(
     fundamentals: Optional[dict] = None,
     **_kw,
 ) -> tuple[float, dict]:
+    """缺 ROE → 不进 ŷ（omit）。"""
+    _ = bars
     roe = _to_float((fundamentals or {}).get("roe"))
 
     if roe is None:
-        return 50.0, {"quality_roe": None}
+        return 50.0, {"quality_roe": None, "omit_sub_score": True}
 
     score = 50.0
     if roe >= 20.0:
@@ -35,4 +31,7 @@ def score_quality(
     else:
         score -= 10.0
 
-    return max(10.0, min(95.0, round(score, 1))), {"quality_roe": round(roe, 2)}
+    return max(10.0, min(95.0, round(score, 1))), {
+        "quality_roe": round(roe, 2),
+        "omit_sub_score": False,
+    }

@@ -1,4 +1,4 @@
-/** Shared helpers for Investment web UI modules. */
+/** Shared helpers for QuantLab web UI modules. */
 
 export function headers(ctx, extra = {}) {
   const h = { "Content-Type": "application/json", ...extra };
@@ -12,6 +12,87 @@ export function escapeHtml(text) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** FastAPI / 业务错误 detail → 可读字符串（避免 [object Object]）。 */
+export function formatApiDetail(detail, fallback = "请求失败") {
+  if (detail == null || detail === "") return fallback;
+  if (typeof detail === "string") return detail;
+  if (typeof detail === "number" || typeof detail === "boolean") return String(detail);
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (item == null) return "";
+        if (typeof item === "string") return item;
+        if (typeof item === "object") {
+          const loc = Array.isArray(item.loc)
+            ? item.loc.filter((x) => x !== "body").join(".")
+            : "";
+          const msg = item.msg || item.message || item.error;
+          if (msg) return loc ? `${loc}: ${msg}` : String(msg);
+          try {
+            return JSON.stringify(item);
+          } catch (_) {
+            return "";
+          }
+        }
+        return String(item);
+      })
+      .filter(Boolean);
+    return parts.length ? parts.join("；") : fallback;
+  }
+  if (typeof detail === "object") {
+    const msg = detail.msg || detail.message || detail.error || detail.detail;
+    if (msg != null && msg !== detail) return formatApiDetail(msg, fallback);
+    try {
+      return JSON.stringify(detail);
+    } catch (_) {
+      return fallback;
+    }
+  }
+  return String(detail);
+}
+
+/**
+ * 统一加载/更新态：切换 is-busy + 文案（可选胶囊由 CSS 决定）。
+ * @param {HTMLElement|null} el
+ * @param {string} text
+ * @param {{ busy?: boolean, error?: boolean, html?: boolean }} [opts]
+ */
+export function setUiBusy(el, text, { busy = true, error = false, html = false } = {}) {
+  if (!el) return;
+  el.classList.toggle("is-busy", !!busy && !error);
+  el.classList.toggle("is-error", !!error);
+  if (error) el.classList.remove("is-busy");
+  if (html) el.innerHTML = text == null ? "" : String(text);
+  else el.textContent = text == null ? "" : String(text);
+  if (busy && !error) el.setAttribute("aria-busy", "true");
+  else el.removeAttribute("aria-busy");
+}
+
+/**
+ * 按钮进行中：禁用 + is-busy + aria-busy，结束后还原。
+ * @template T
+ * @param {HTMLElement|null} btn
+ * @param {string} labelBusy
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T|undefined>}
+ */
+export async function withUiBusyButton(btn, labelBusy, fn) {
+  if (!btn) return fn();
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add("is-busy");
+  btn.setAttribute("aria-busy", "true");
+  if (labelBusy) btn.textContent = labelBusy;
+  try {
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("is-busy");
+    btn.removeAttribute("aria-busy");
+    btn.textContent = prev;
+  }
 }
 
 
@@ -50,27 +131,6 @@ export async function runDaily({ paperRun = false, paperBuy = false, evalMock = 
     throw new Error(data.detail || res.statusText);
   }
   return data;
-}
-
-
-export function absoluteShareUrl(path) {
-  return new URL(path, window.location.origin).href;
-}
-
-
-export async function copyShareUrl(path) {
-  const url = absoluteShareUrl(path);
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    await navigator.clipboard.writeText(url);
-    return url;
-  }
-  const ta = document.createElement("textarea");
-  ta.value = url;
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand("copy");
-  document.body.removeChild(ta);
-  return url;
 }
 
 
@@ -299,133 +359,5 @@ export function formatOpsReportHtml(ops) {
           .join("")}</ul>`
       : "")
   );
-}
-
-function cssVar(name, fallback) {
-  try {
-    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return v || fallback;
-  } catch (_) {
-    return fallback;
-  }
-}
-
-export function drawEquityChart(canvas, curve, emptyText) {
-  if (!canvas) return;
-  const g = canvas.getContext("2d");
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth || 360;
-  const h = canvas.clientHeight || 120;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  g.scale(dpr, dpr);
-  g.clearRect(0, 0, w, h);
-
-  const axis = cssVar("--line", "#e5e7eb");
-  const muted = cssVar("--ink-3", "#9ca3af");
-  const up = cssVar("--color-up", "#f5222d");
-  const down = cssVar("--color-down", "#52c41a");
-
-  const pts = (curve || [])
-    .map((p) => ({ y: Number(p.equity) }))
-    .filter((p) => Number.isFinite(p.y));
-  if (pts.length < 2) {
-    g.fillStyle = muted;
-    g.font = "12px Manrope, sans-serif";
-    g.fillText(emptyText || "暂无曲线", 12, h / 2);
-    return;
-  }
-
-  const ys = pts.map((p) => p.y);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const pad = 12;
-  const plotW = w - pad * 2;
-  const plotH = h - pad * 2;
-  const range = maxY - minY || 1;
-  const first = pts[0].y;
-  const last = pts[pts.length - 1].y;
-  const stroke = last >= first ? up : down;
-
-  g.strokeStyle = axis;
-  g.beginPath();
-  g.moveTo(pad, pad);
-  g.lineTo(pad, h - pad);
-  g.lineTo(w - pad, h - pad);
-  g.stroke();
-
-  g.strokeStyle = stroke;
-  g.lineWidth = 2;
-  g.beginPath();
-  pts.forEach((p, i) => {
-    const x = pad + (i / (pts.length - 1)) * plotW;
-    const y = pad + plotH - ((p.y - minY) / range) * plotH;
-    if (i === 0) g.moveTo(x, y);
-    else g.lineTo(x, y);
-  });
-  g.stroke();
-
-  g.fillStyle = muted;
-  g.font = "10px Manrope, sans-serif";
-  g.fillText(String(Math.round(minY)), 4, h - pad);
-  g.fillText(String(Math.round(maxY)), 4, pad + 4);
-}
-
-
-export function drawDualEquityChart(canvas, seriesA, seriesB, emptyText) {
-  if (!canvas) return;
-  const g = canvas.getContext("2d");
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth || 360;
-  const h = canvas.clientHeight || 120;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  g.scale(dpr, dpr);
-  g.clearRect(0, 0, w, h);
-
-  const norm = (curve, key) =>
-    (curve || [])
-      .map((p) => Number(p[key] ?? p.equity_norm ?? p.equity))
-      .filter((y) => Number.isFinite(y));
-  const a = norm(seriesA, "equity_norm");
-  const b = norm(seriesB, "equity");
-  const all = [...a, ...b];
-  if (all.length < 2) {
-    g.fillStyle = "#9ca3af";
-    g.font = "12px Manrope, sans-serif";
-    g.fillText(emptyText || "暂无对照曲线", 12, h / 2);
-    return;
-  }
-
-  const minY = Math.min(...all);
-  const maxY = Math.max(...all);
-  const pad = 12;
-  const plotW = w - pad * 2;
-  const plotH = h - pad * 2;
-  const range = maxY - minY || 1;
-
-  const drawLine = (pts, color) => {
-    if (pts.length < 2) return;
-    g.strokeStyle = color;
-    g.lineWidth = 2;
-    g.beginPath();
-    pts.forEach((y, i) => {
-      const x = pad + (i / (pts.length - 1)) * plotW;
-      const py = pad + plotH - ((y - minY) / range) * plotH;
-      if (i === 0) g.moveTo(x, py);
-      else g.lineTo(x, py);
-    });
-    g.stroke();
-  };
-
-  g.strokeStyle = "#e5e7eb";
-  g.beginPath();
-  g.moveTo(pad, pad);
-  g.lineTo(pad, h - pad);
-  g.lineTo(w - pad, h - pad);
-  g.stroke();
-
-  drawLine(a, "#2563eb");
-  drawLine(b, "#059669");
 }
 

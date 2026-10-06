@@ -74,7 +74,6 @@ class TestBacktestEngine(unittest.TestCase):
     def test_strategy_registry(self):
         bars = _rising_bars(50)
         names = [s["name"] for s in list_strategies()]
-        self.assertIn("short", names)
         self.assertIn("short_conservative", names)
         conservative = run_strategy_backtest(
             bars, "short_conservative", min_history=10
@@ -87,13 +86,13 @@ class TestBacktestEngine(unittest.TestCase):
 
         bars = _rising_bars(45)
         with patch(
-            "skills.backtest.engine.fetch_daily_bars",
-            return_value=(bars, "mock_daily"),
+            "skills.backtest.engine.get_bars",
+            return_value={"bars": bars, "data_source": "mock_daily"},
         ), patch(
             "skills.backtest.engine.fetch_index_bars",
             return_value=([], ""),
         ), patch(
-            "skills.backtest.engine.StockAPI.query",
+            "skills.backtest.engine.get_quote",
             return_value={
                 "success": True,
                 "stock_code": "600519",
@@ -116,7 +115,7 @@ class TestBacktestEngine(unittest.TestCase):
             )
         data = json.loads(raw)
         self.assertTrue(data["success"])
-        self.assertEqual(data["strategy"], "short")
+        self.assertEqual(data["strategy"], "short_conservative")
         self.assertEqual(len(data["results"]), 1)
         self.assertTrue(data["results"][0]["success"])
 

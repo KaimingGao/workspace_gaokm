@@ -14,11 +14,11 @@ if ROOT not in sys.path:
 
 
 class TestStrategySpec(unittest.TestCase):
-    def test_short_lifecycle(self):
+    def test_conservative_lifecycle(self):
         from core.strategy import get_strategy_spec
 
-        spec = get_strategy_spec("short")
-        self.assertEqual(spec["strategy_id"], "short")
+        spec = get_strategy_spec("short_conservative")
+        self.assertEqual(spec["strategy_id"], "short_conservative")
         self.assertEqual(spec["version"], "1.2.0")
         self.assertEqual(spec["cost_model"], "simple_cn")
         self.assertNotIn("min_score", spec["paper_rules"])
@@ -27,60 +27,14 @@ class TestStrategySpec(unittest.TestCase):
         self.assertIn("execution", spec)
         self.assertIn("t0", (spec["execution"].get("overlays") or {}))
 
-    def test_apply_strategy_strips_legacy_score_keys(self):
-        from core.strategy import apply_strategy_to_paper
-
-        paper = {
-            "rules": {
-                "min_score": 55,
-                "add_score": 60,
-                "min_hold_score": 45,
-                "reduce_score": 40,
-                "max_positions": 3,
-            },
-            "cost_model": "simple_cn",
-            "cost_model_locked": True,
-        }
-        apply_strategy_to_paper(paper, "short")
-        rules = paper["rules"]
-        self.assertNotIn("min_score", rules)
-        self.assertNotIn("add_score", rules)
-        self.assertNotIn("min_hold_score", rules)
-        self.assertNotIn("reduce_score", rules)
-        self.assertEqual(rules["max_positions"], 20)
-        self.assertEqual(rules.get("weight_mode"), "score_budget")
-
-    def test_promote_ignores_legacy_score_overrides(self):
-        from core.strategy import promote_strategy
-
-        with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "promoted.json")
-            entry = promote_strategy(
-                "short",
-                note="test",
-                path=path,
-                overrides={"min_score": 70, "max_positions": 12},
-            )
-            pr = entry["spec"]["paper_rules"]
-            self.assertNotIn("min_score", pr)
-            self.assertEqual(pr["max_positions"], 12)
-
-    def test_legacy_aliases_resolve(self):
-        from core.strategy import get_strategy_spec, resolve_strategy_id
-
-        self.assertEqual(resolve_strategy_id("signal_v1"), "short")
-        self.assertEqual(resolve_strategy_id("signal_v1_conservative"), "short_conservative")
-        self.assertEqual(get_strategy_spec("signal_v1")["strategy_id"], "short")
-        self.assertEqual(get_strategy_spec("signal_v1_conservative")["label"], "保守短线")
-
     def test_promote_writes_file(self):
         from core.strategy import load_promoted, promote_strategy
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "strategy_promoted.json")
-            entry = promote_strategy("short", note="unit", path=path)
+            entry = promote_strategy("short_conservative", note="unit", path=path)
             self.assertTrue(os.path.isfile(path))
-            self.assertEqual(entry["spec"]["strategy_id"], "short")
+            self.assertEqual(entry["spec"]["strategy_id"], "short_conservative")
             loaded = load_promoted(path)
             self.assertEqual(loaded["note"], "unit")
 
@@ -89,7 +43,7 @@ class TestRiskGate(unittest.TestCase):
     def test_drawdown_blocks(self):
         from core.risk import check_account_risk
 
-        paper = {"strategy_id": "short", "cash": 100000, "holdings": [], "cost_model": "simple_cn"}
+        paper = {"strategy_id": "short_conservative", "cash": 100000, "holdings": [], "cost_model": "simple_cn"}
         gate = check_account_risk(
             paper,
             {"equity": 80000, "max_drawdown_pct": 25.0, "holdings": []},
@@ -100,7 +54,7 @@ class TestRiskGate(unittest.TestCase):
     def test_ok_when_healthy(self):
         from core.risk import check_account_risk
 
-        paper = {"strategy_id": "short", "cash": 100000, "holdings": [], "cost_model": "simple_cn"}
+        paper = {"strategy_id": "short_conservative", "cash": 100000, "holdings": [], "cost_model": "simple_cn"}
         gate = check_account_risk(
             paper,
             {"equity": 100000, "max_drawdown_pct": 5.0, "holdings": []},
@@ -116,7 +70,7 @@ class TestRunManifest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             m = build_run_manifest(
                 kind="paper_rebalance",
-                strategy_id="short",
+                strategy_id="short_conservative",
                 strategy_version="1.0.0",
                 cost_model="simple_cn",
                 rules={"min_score": 55},
@@ -126,7 +80,7 @@ class TestRunManifest(unittest.TestCase):
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             self.assertEqual(data["fingerprint"], m["fingerprint"])
-            self.assertEqual(data["strategy_id"], "short")
+            self.assertEqual(data["strategy_id"], "short_conservative")
 
 
 class TestDefaultCost(unittest.TestCase):

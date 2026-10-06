@@ -9,7 +9,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.config import load_signal_config
-from core.signal.factor_registry import run_factor_experiment
+from core.signal.factors.meta.registry import run_factor_experiment
 from core.signal.factors.value import score_value
 from quant.research.factor_report import compute_factor_ic_report
 from tests.test_signal import _rising_bars
@@ -53,7 +53,7 @@ class TestP50FundamentalsIcExperiment(unittest.TestCase):
         self.assertGreater(score, 50.0)
 
     def test_factor_ic_report_covers_registered_factors(self):
-        from core.signal.factor_registry import registered_factor_names
+        from core.signal.factors.meta.registry import registered_factor_names
 
         bars = _long_bars()
         fundamentals = {"pe": 20.0, "pb": 2.0, "roe": 15.0}
@@ -68,7 +68,7 @@ class TestP50FundamentalsIcExperiment(unittest.TestCase):
         self.assertIsInstance(report["exclusion_reasons"], dict)
 
     def test_pearson_with_reason_codes(self):
-        from core.signal.factor_corr import pearson_with_reason
+        from core.signal.factors.meta.corr import pearson_with_reason
 
         corr, reason = pearson_with_reason([1, 2, 3], [2, 4, 6])
         self.assertIsNotNone(corr)

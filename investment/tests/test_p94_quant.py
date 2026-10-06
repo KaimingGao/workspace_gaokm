@@ -17,7 +17,7 @@ class TestP94QuantServiceMixins(unittest.TestCase):
         from quant.services.quant_service_config import QuantConfigMixin
         from quant.services.quant_service_factors import QuantFactorMixin
         from quant.services.quant_service_ops import QuantOpsMixin
-        from quant.services.quant_service_portfolio import QuantPortfolioMixin
+        from quant.services.quant_service_replay import QuantPortfolioMixin
 
         self.assertTrue(issubclass(QuantService, QuantConfigMixin))
         self.assertTrue(issubclass(QuantService, QuantFactorMixin))
@@ -28,7 +28,10 @@ class TestP94QuantServiceMixins(unittest.TestCase):
             "config_summary",
             "run_factor_experiment",
             "run_portfolio_backtest",
+            "start_portfolio_backtest_job",
             "run_t0_backtest",
+            "start_t0_backtest_job",
+            "load_last_t0_backtest",
             "build_daily_report",
             "load_last_daily",
         ):
@@ -49,6 +52,7 @@ class TestP94QuantServiceMixins(unittest.TestCase):
             "/api/paper",
             "/api/quant/config",
             "/api/quant/t0-backtest",
+            "/api/quant/last-t0-backtest",
             "/api/daily/presets",
             "/api/watching",
             "/api/evals/cases",
@@ -60,7 +64,7 @@ class TestP94QuantServiceMixins(unittest.TestCase):
         self.assertTrue(res.json().get("success"))
 
     def test_docs_mark_upgrade_as_archive(self):
-        path = os.path.join(ROOT, "docs", "quant-upgrade.md")
+        path = os.path.join(ROOT, "docs", "archive", "quant-upgrade.md")
         with open(path, encoding="utf-8") as f:
             text = f.read()
         self.assertIn("历史归档", text)

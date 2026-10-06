@@ -1,7 +1,7 @@
 {
   "version": 3,
   "weights": {
-    "momentum": 0.22,
+    "momentum": 0.2,
     "volume_price": 0.14,
     "relative_strength": 0.11,
     "volatility": 0.06,
@@ -13,6 +13,7 @@
     "technical_pattern": 0.02,
     "weekly_confirm": 0.01,
     "gap_risk": 0.01,
+    "overheat": 0.03,
     "size": 0.03,
     "earnings_yield": 0.03,
     "growth": 0.03,
@@ -20,7 +21,8 @@
     "money_flow": 0.0,
     "amihud": 0.02,
     "idio_momentum": 0.03,
-    "alt_sentiment": 0.02
+    "alt_sentiment": 0.02,
+    "tail_anomaly": 0.02
   },
   "factor_groups": {
     "trend": [
@@ -44,32 +46,74 @@
     ],
     "risk": [
       "volatility",
-      "gap_risk"
+      "gap_risk",
+      "tail_anomaly",
+      "overheat"
     ],
     "residual": [
       "relative_strength",
       "idio_momentum",
       "size"
+    ],
+    "pv_derived": [
+      "alpha158"
     ]
   },
   "hard_reject": {
     "min_bars": 2,
     "mom3_gain_max_pct": 15,
-    "mom3_loss_min_pct": -12
+    "mom3_loss_min_pct": -12,
+    "mom5_gain_max_pct": 10,
+    "day_gain_max_pct": 6,
+    "soft_reject": false,
+    "soft_scale_yhat": false
   },
   "rank": {
-    "min_score": 55,
     "default_limit": 8
   },
   "scoring": {
     "rank_mode": "predicted_score",
-    "min_predicted_score": 1.0,
-    "min_hold_predicted_score": -1.0,
-    "horizon_days": 3
+    "min_predicted_score": 0.4,
+    "min_hold_predicted_score": 0.0,
+    "horizon_days": 1
+  },
+  "dual_score": {
+    "fusion_mode": "blend",
+    "tau": "open",
+    "min_predicted_score_tau": 0.1,
+    "tau_freeze_breakglass": true,
+    "min_predicted_score_tau_relax": null,
+    "block_buy_if_tau_missing": true,
+    "w_eod": 0.0,
+    "w_oo": 0.0,
+    "w_tau": 1.0,
+    "w_mode": "fixed",
+    "theme_w_tau_boost": 1.25,
+    "eod_residual_var": 1.0,
+    "enable_cascade_shadow": true,
+    "enable_tau_shadow_book": false,
+    "enable_minute_tau": true,
+    "y_state": {
+      "enabled": true,
+      "eps_sign": 0.05,
+      "disagree_warn": 0.5,
+      "sigma_warn": 1.5,
+      "filter_buys": true,
+      "block_on": [
+        "conflict",
+        "missing_tau"
+      ],
+      "defer_on": [
+        "low_conf",
+        "single_head"
+      ],
+      "show_badge": true,
+      "scale_weights": true
+    }
   },
   "stance_thresholds": {
     "avoid": -0.5,
-    "wait": 0,
+    "wait": 0.0,
     "probe": 0.35
   },
   "stance_thresholds_heuristic": {
@@ -89,7 +133,16 @@
     "enabled": true,
     "weak_trend_days": 20,
     "weak_trend_threshold_pct": -3,
-    "score_penalty": 5
+    "score_penalty": 5,
+    "blend_width_pct": 1.0,
+    "apply_position_scale": true,
+    "macro_overlay": {
+      "enabled": true,
+      "defer_tech_drag_to_cross_market_prior": true,
+      "tech_drag_trigger_pct": -1.5,
+      "extra_penalty": 4.0,
+      "liquidity_stress_min": 1.0
+    }
   },
   "fundamentals": {
     "enabled": true,
@@ -97,18 +150,21 @@
     "use_in_ic_experiment": true,
     "use_in_backtest": true,
     "pit_mode": "as_of",
-    "missing_as_of_policy": "zero_weight"
+    "missing_as_of_policy": "zero_weight",
+    "ann_missing_policy": "zero_weight",
+    "ann_missing_code_ratio_warn": 0.3,
+    "ann_missing_code_ratio_block": 0.5
   },
   "sentiment": {
     "include_in_score": false,
     "role": "prior",
     "prior": {
-      "mode": "gate",
-      "bearish_score_min": 0.6,
+      "mode": "off",
       "block_new_buys": false,
       "scale_buy_pct": 0.6,
-      "scale_holds": true,
-      "warn_only": true
+      "scale_holds": false,
+      "warn_only": true,
+      "reduce_avoid_on_bullish": true
     },
     "append_history": true,
     "history_max_lines_per_code": 500
@@ -120,19 +176,116 @@
     "zscore_scale": 10,
     "industry_residual": true,
     "size_residual": true,
-    "size_buckets": 3
+    "size_buckets": 3,
+    "yhat_residual": false
   },
   "cluster_scoring": {
-    "mode": "active",
-    "enabled": true,
+    "mode": "off",
+    "enabled": false,
     "top_n_per_group": 10,
     "max_names": 40,
     "max_age_days": 14,
     "refit_max_age_days": 14,
-    "auto_demote_on_stale": true,
+    "auto_demote_on_stale": false,
     "max_oos_fail_rate": 0.5,
     "min_yhat_rolling_ic": 0.0,
-    "block_active_on_yhat_ic": true,
-    "min_sector_map_coverage": 0.5
+    "block_active_on_yhat_ic": false,
+    "min_sector_map_coverage": 0.5,
+    "promote_allow_worse_oos_than_active": true,
+    "rebalance_tracks": {
+      "enabled": true,
+      "oos_fail_policy": "exclude",
+      "predicted_buy_floor": null,
+      "predicted_hold_floor": null,
+      "heuristic_buy_floor": 55.0,
+      "heuristic_hold_floor": 45.0,
+      "heuristic_sleeve_max": 0,
+      "heuristic_apply_tau_gate": false
+    },
+    "book_constraints": {
+      "enabled": true,
+      "filter_untradeable": true,
+      "enforce_sector_cap": true,
+      "tau_fail_mode": "defer"
+    },
+    "universe_fit_tiers": [
+      "A",
+      "B",
+      "C"
+    ]
+  },
+  "event_prior": {
+    "mode": "gate",
+    "gap_trigger_pct": 2.0,
+    "sector_breadth_min": 0.5,
+    "soft_hold_on_theme": true,
+    "warn_only": false,
+    "rem_gate_enabled": true,
+    "rem_soft_hold_min": 0.25
+  },
+  "cross_market": {
+    "mode": "gate",
+    "tech_drag_trigger_pct": -1.5,
+    "tech_drag_severe_pct": -3.0,
+    "liquidity_stress_min": 1.0,
+    "scale_buy_pct": 0.5,
+    "scale_holds": true,
+    "sector_penalty_tags": [
+      "半导体",
+      "芯片",
+      "通信",
+      "电子",
+      "计算机",
+      "机器人",
+      "人工智能"
+    ]
+  },
+  "market_sentiment_prior": {
+    "mode": "gate",
+    "premium_ebb_pct": 0.0,
+    "broken_rate_high": 0.25,
+    "scale_buy_pct": 0.55,
+    "scale_holds": true,
+    "block_high_board": true,
+    "high_board_min": 3.0
+  },
+  "regulatory_prior": {
+    "mode": "gate",
+    "scale_buy_pct": 0.5,
+    "concept_penalty_tags": [
+      "机器人",
+      "人形机器人",
+      "半导体",
+      "芯片",
+      "人工智能"
+    ]
+  },
+  "ipo_drain_prior": {
+    "mode": "gate",
+    "drain_ratio_high": 3.0,
+    "scale_buy_pct": 0.45,
+    "concept_tags": [
+      "机器人",
+      "人形机器人",
+      "人工智能",
+      "AI"
+    ],
+    "mega_ipo_cap": 100000000000
+  },
+  "pre_market": {
+    "auto_ingest_on_paper_daily": true,
+    "stale_hours": 18.0,
+    "minute_warmup_on_ingest": true,
+    "minute_warmup_cap": 25,
+    "concept_graph_on_ingest": true,
+    "concept_graph_cap": 8
+  },
+  "market_prior_policy": {
+    "merge_mode": "min_scale"
+  },
+  "tail_anomaly": {
+    "tail_minutes": 30,
+    "prefetch_on_rank": true,
+    "prefetch_cap": 30
   }
 }

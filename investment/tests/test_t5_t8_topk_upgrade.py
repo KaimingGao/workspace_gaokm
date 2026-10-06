@@ -11,7 +11,6 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.backtest.pool_ic import compute_pool_cross_section_ic
-from core.backtest.quantile_backtest import backtest_score_quantiles, _split_quantiles
 from core.backtest.topk_backtest import apply_topk_dropout
 from core.backtest.topk_benchmark import build_topk_benchmark_summary
 from core.backtest.universe_filters import filter_universe_bars, _is_st_name
@@ -80,17 +79,6 @@ class TestUniverseFilters(unittest.TestCase):
         self.assertTrue(any(d["stock_code"] == "600001" for d in dropped))
 
 
-class TestQuantileSplit(unittest.TestCase):
-    def test_split_five(self):
-        scored = [(f"c{i}", float(i)) for i in range(10)]
-        buckets = _split_quantiles(scored, 5)
-        self.assertEqual(len(buckets), 5)
-        self.assertEqual(sum(len(b) for b in buckets), 10)
-        # lowest scores in Q1
-        self.assertEqual(buckets[0][0][0], "c0")
-        self.assertEqual(buckets[-1][-1][0], "c9")
-
-
 class TestBenchmarkFlat(unittest.TestCase):
     def test_excess_equals_strategy_when_bench_flat(self):
         flat = [{"date": f"2024-01-{i+1:02d}", "close": 100.0} for i in range(20)]
@@ -108,7 +96,7 @@ class TestBenchmarkFlat(unittest.TestCase):
             result, stock_bars, index_code="__no_such_index__", lookback=20
         )
         self.assertTrue(summary.get("ok"))
-        self.assertEqual(summary.get("benchmark_label"), "池等权买持")
+        self.assertEqual(summary.get("benchmark_label"), "观察池等权")
         self.assertAlmostEqual(float(summary["benchmark_return_pct"]), 0.0, places=1)
         self.assertAlmostEqual(float(summary["excess_pct"]), 12.5, places=1)
         self.assertGreaterEqual(len(summary.get("equity_curve") or []), 2)
@@ -133,9 +121,56 @@ class TestBenchmarkFlat(unittest.TestCase):
             result, stock_bars, index_code="pool", lookback=20, force_pool=True
         )
         self.assertTrue(summary.get("ok"))
-        self.assertEqual(summary.get("benchmark_label"), "池等权买持")
+        self.assertEqual(summary.get("benchmark_label"), "观察池等权")
         self.assertLess(float(summary["excess_pct"]), 0)
         self.assertTrue(summary.get("warn_abs_pos_excess_neg"))
+
+    def test_pool_label_override_tier_a(self):
+        flat = [{"date": f"2024-01-{i+1:02d}", "close": 100.0} for i in range(10)]
+        stock_bars = {"A": flat, "B": flat}
+        result = {
+            "metrics": {"total_return_pct": 5.0},
+            "params": {"horizon_days": 1},
+            "equity_curve": [
+                {"date": "2024-01-01", "equity": 100.0},
+                {"date": "2024-01-10", "equity": 105.0},
+            ],
+        }
+        summary = build_topk_benchmark_summary(
+            result,
+            stock_bars,
+            index_code="pool",
+            lookback=10,
+            pool_label="观察池A档等权",
+        )
+        self.assertTrue(summary.get("ok"))
+        self.assertEqual(summary.get("benchmark_label"), "观察池A档等权")
+
+    def test_resolve_tier_a_benchmark_bars_filters(self):
+        from unittest.mock import patch
+
+        from core.backtest.topk_benchmark import resolve_tier_a_benchmark_bars
+
+        flat = [{"date": "2024-01-01", "close": 10.0}, {"date": "2024-01-02", "close": 11.0}]
+        stock_bars = {"000001": flat, "000002": flat, "000003": flat}
+        fake_rep = {
+            "success": True,
+            "rows": [
+                {"code": "000001", "tier": "A"},
+                {"code": "000002", "tier": "B"},
+                {"code": "000003", "tier": "A"},
+            ],
+        }
+        with patch(
+            "core.research.predictability_tiers.load_predictability_tiers_last",
+            return_value=fake_rep,
+        ):
+            out, meta = resolve_tier_a_benchmark_bars(
+                stock_bars, lookback=10, load_missing=False
+            )
+        self.assertEqual(set(out.keys()), {"000001", "000003"})
+        self.assertEqual(meta.get("label"), "观察池A档等权")
+        self.assertEqual(meta.get("n_used"), 2)
 
 
 class TestAmountFilter(unittest.TestCase):
@@ -153,34 +188,6 @@ class TestAmountFilter(unittest.TestCase):
         self.assertIn("R", kept)
         self.assertTrue(any(d["stock_code"] == "T" for d in dropped) or "T" not in kept)
         self.assertEqual(meta["min_avg_amount_pctile"], 50)
-
-
-class TestIcEquityAlign(unittest.TestCase):
-    def test_pos_ic_window_higher_avg(self):
-        from core.backtest.ic_equity_align import align_ic_to_equity_periods
-
-        score_ic = {
-            "ok": True,
-            "ic_series_tail": [
-                {"date": "2024-01-01", "ic": 0.2},
-                {"date": "2024-01-04", "ic": 0.1},
-                {"date": "2024-01-07", "ic": -0.2},
-                {"date": "2024-01-10", "ic": -0.1},
-            ],
-        }
-        equity = [
-            {"date": "2024-01-01", "equity": 100, "return_pct": 0},
-            {"date": "2024-01-04", "equity": 105, "return_pct": 5},
-            {"date": "2024-01-07", "equity": 110.25, "return_pct": 5},
-            {"date": "2024-01-10", "equity": 108, "return_pct": -2},
-            {"date": "2024-01-13", "equity": 106, "return_pct": -1.85},
-        ]
-        out = align_ic_to_equity_periods(score_ic, equity)
-        self.assertTrue(out.get("ok"))
-        self.assertIsNotNone(out.get("avg_return_spread_pp"))
-        self.assertGreater(out["pos_ic"]["count"] + out["neg_ic"]["count"], 1)
-        # 正 IC 期初对应 +5/+5，非正对应负收益 → 应同向
-        self.assertTrue(out.get("aligned_favor_pos_ic"))
 
 
 class TestPromoteHintsShape(unittest.TestCase):
@@ -233,41 +240,35 @@ class TestPoolIcSmoke(unittest.TestCase):
         self.assertGreaterEqual(len(out["ic_series_tail"]), 3)
 
 
-class TestLongShortCurve(unittest.TestCase):
-    def test_ls_compounds_from_period_spread(self):
-        from core.backtest.quantile_backtest import _build_long_short_equity_curve
+class TestSimTradeRowHeuristicKw(unittest.TestCase):
+    def test_sim_trade_row_accepts_heuristic_score(self):
+        from core.backtest.topk_backtest import _sim_trade_row
 
-        high = [
-            {"date": "2024-01-01", "equity": 100},
-            {"date": "2024-01-04", "equity": 110},
-            {"date": "2024-01-07", "equity": 121},
-        ]
-        low = [
-            {"date": "2024-01-01", "equity": 100},
-            {"date": "2024-01-04", "equity": 100},
-            {"date": "2024-01-07", "equity": 100},
-        ]
-        curve = _build_long_short_equity_curve(high, low)
-        self.assertGreaterEqual(len(curve), 2)
-        self.assertEqual(curve[0]["equity"], 100.0)
-        # +10% then +10% vs flat → ~21%
-        self.assertGreater(curve[-1]["equity"], 120)
+        row = _sim_trade_row(
+            stock_code="600519",
+            score=0.12,
+            signal_date="2026-08-13",
+            entry_date="2026-08-14",
+            status="skipped_limit_entry",
+            heuristic_score=57.2,
+        )
+        self.assertAlmostEqual(float(row["heuristic_score"]), 57.2)
+        self.assertAlmostEqual(float(row["score"]), 0.12)
 
+    def test_call_sim_trade_row_ignores_unknown_kwargs(self):
+        from core.backtest.topk_backtest import _call_sim_trade_row
 
-class TestQuantileEngineSmoke(unittest.TestCase):
-    def test_monotonic_flag_present(self):
-        # synthetic rising drift across names — engine may or may not be mono; just structure
-        stock_bars = {
-            f"S{i}": _synth_bars(70, start=8.0 + i * 0.2, drift=0.002 + i * 0.0005)
-            for i in range(8)
-        }
-        out = backtest_score_quantiles(stock_bars, n_quantiles=5, horizon_days=3, min_names=5)
-        self.assertIn("ok", out)
-        self.assertIn("monotonic_increasing", out)
-        self.assertIn("quantiles", out)
-        self.assertIn("long_short_equity_curve", out)
-        if out.get("ok"):
-            self.assertEqual(len(out["quantiles"]), 5)
+        row = _call_sim_trade_row(
+            stock_code="600519",
+            score=0.12,
+            signal_date="2026-08-13",
+            entry_date="2026-08-14",
+            status="skipped_limit_entry",
+            heuristic_score=57.2,
+            not_a_real_field=True,
+        )
+        self.assertAlmostEqual(float(row["heuristic_score"]), 57.2)
+        self.assertNotIn("not_a_real_field", row)
 
 
 if __name__ == "__main__":

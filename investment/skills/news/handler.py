@@ -1,5 +1,5 @@
 from agent.contracts import BaseSkillHandler
-from skills.news.engine import build_news
+from adapters.news.engine import build_news
 
 
 class NewsHandler(BaseSkillHandler):

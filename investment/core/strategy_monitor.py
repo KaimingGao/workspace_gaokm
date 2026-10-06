@@ -1,7 +1,9 @@
 """策略健康 / 衰减监控（N5）：只告警与建议，不自动改权。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -46,7 +48,8 @@ def estimate_composite_ic(
             )
         try:
             out = score_bars(window, quote=quote, fundamentals=None, sentiment=None)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             continue
         if out.get("hard_reject") or out.get("score") is None:
             continue
@@ -91,14 +94,9 @@ def estimate_yhat_ic(
             "source": "yhat",
         }
 
+    # 分组 lookup_code_return_model 已退役；无组模型时下方循环跳过（不混 heuristic）
     model = None
-    if stock_code:
-        try:
-            from core.signal.cluster_live import lookup_code_return_model
-
-            model = lookup_code_return_model(str(stock_code))
-        except Exception:
-            model = None
+    _ = stock_code
 
     start_i = max(min_history - 1, n - horizon_days - max_points)
     for i in range(start_i, n - horizon_days):
@@ -110,7 +108,8 @@ def estimate_yhat_ic(
             )
         try:
             out = score_bars(window, quote=quote, fundamentals=None, sentiment=None)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             continue
         if out.get("hard_reject"):
             continue
@@ -118,7 +117,8 @@ def estimate_yhat_ic(
         if model is not None:
             try:
                 pred = model.predict(out.get("sub_scores") or {})
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
                 pred = None
         if pred is None:
             # 无组模型：跳过（不混 heuristic 以免污染 ŷ IC）
@@ -150,7 +150,7 @@ def estimate_rolling_yhat_ic_for_codes(
     horizon_days: int = 3,
 ) -> Dict[str, Any]:
     """多标的 ŷ IC 均值。"""
-    from core.data_service import get_bars
+    from core.data.facade import get_bars
 
     ics: List[float] = []
     details: List[Dict[str, Any]] = []
@@ -172,6 +172,7 @@ def estimate_rolling_yhat_ic_for_codes(
             if one.get("ic") is not None:
                 ics.append(float(one["ic"]))
         except Exception as e:
+            logger.exception('unexpected error in estimate_rolling_yhat_ic_for_codes')
             details.append(
                 {"stock_code": code, "ok": False, "ic": None, "error": str(e)}
             )
@@ -194,7 +195,7 @@ def estimate_rolling_ic_for_codes(
     horizon_days: int = 3,
 ) -> Dict[str, Any]:
     """对持仓/观察池前几只估滚动 IC，取均值（失败则跳过）。"""
-    from core.data_service import get_bars
+    from core.data.facade import get_bars
 
     ics: List[float] = []
     details: List[Dict[str, Any]] = []
@@ -214,6 +215,7 @@ def estimate_rolling_ic_for_codes(
             if one.get("ic") is not None:
                 ics.append(float(one["ic"]))
         except Exception as e:
+            logger.exception('unexpected error in estimate_rolling_ic_for_codes')
             details.append({"stock_code": code, "ok": False, "ic": None, "error": str(e)})
 
     avg = round(sum(ics) / len(ics), 4) if ics else None
@@ -227,31 +229,30 @@ def estimate_rolling_ic_for_codes(
 
 
 def sector_coverage_report(codes: Sequence[str]) -> Dict[str, Any]:
-    """行业 map 显式覆盖率；未收录的走启发式板块（限额精度弱）。"""
-    from core.portfolio_optimize import _sector_for, load_sector_map
+    """行业 map 显式覆盖率；未收录 → 未分类（DS-R2，不再当板别冒充行业）。"""
+    from core.portfolio_optimize import _board_for, _sector_for, load_sector_map, sector_map_coverage
 
     smap = load_sector_map()
-    mapped: List[str] = []
-    heuristic: List[str] = []
-    for raw in codes or []:
-        code = str(raw or "").strip()
-        if not code:
-            continue
-        if code in smap:
-            mapped.append(code)
-        else:
-            heuristic.append(code)
-    total = len(mapped) + len(heuristic)
-    coverage = round(len(mapped) / total, 3) if total else 1.0
-    sample_sectors = {c: _sector_for(c, smap) for c in (mapped + heuristic)[:12]}
+    cov = sector_map_coverage(list(codes or []), sector_map=smap)
+    sample = {}
+    for c in (list(codes or [])[:12]):
+        code = str(c or "").strip()
+        if code:
+            sample[code] = {
+                "sector": _sector_for(code, smap),
+                "board": _board_for(code),
+            }
     return {
-        "total": total,
-        "mapped": len(mapped),
-        "heuristic": len(heuristic),
-        "coverage": coverage,
-        "unmapped_codes": heuristic[:12],
-        "sectors": sample_sectors,
+        "total": cov["total"],
+        "mapped": cov["mapped"],
+        "heuristic": cov["unmapped"],  # 兼容旧字段名
+        "unmapped": cov["unmapped"],
+        "coverage": cov["coverage"],
+        "unmapped_codes": cov["unmapped_codes"][:12],
+        "sectors": {k: v["sector"] for k, v in sample.items()},
+        "boards": {k: v["board"] for k, v in sample.items()},
         "map_size": len(smap),
+        "note": "未映射码行业=未分类；板别见 boards。",
     }
 
 
@@ -284,10 +285,11 @@ def assess_strategy_health(
     alerts: List[Dict[str, str]] = []
     suggestions: List[str] = []
 
-    sid = paper.get("strategy_id") or "short"
+    sid = paper.get("strategy_id") or "short_conservative"
     try:
         spec_risk = risk or (get_strategy_spec(str(sid)).get("risk") or {})
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
         spec_risk = risk or {}
 
     max_dd = float(spec_risk.get("max_drawdown_pct") or 20.0)
@@ -325,7 +327,8 @@ def assess_strategy_health(
         try:
             ic_pack = estimate_rolling_ic_for_codes(code_list)
             ic_val = ic_pack.get("rolling_ic")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             ic_pack = {"ok": False, "rolling_ic": None}
 
     if ic_val is not None:
@@ -350,7 +353,8 @@ def assess_strategy_health(
         try:
             yhat_ic_pack = estimate_rolling_yhat_ic_for_codes(code_list)
             yhat_ic_val = yhat_ic_pack.get("rolling_ic")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             yhat_ic_pack = {"ok": False, "rolling_ic": None}
     if yhat_ic_val is not None:
         try:
@@ -368,14 +372,15 @@ def assess_strategy_health(
             suggestions.append("研究枢纽跑分组→对照重拟合；勿静默改 weights")
 
     coverage = sector_coverage_report(code_list)
-    if coverage["total"] > 0 and coverage["coverage"] < 0.5:
+    cov_r = coverage.get("coverage")
+    if coverage.get("total") and cov_r is not None and float(cov_r) < 0.5:
         alerts.append(
             {
                 "level": "info",
                 "code": "sector_map_thin",
                 "message": (
                     f"行业 map 显式覆盖 {coverage['mapped']}/{coverage['total']}"
-                    f"（{coverage['coverage']:.0%}），限额精度偏弱"
+                    f"（{float(cov_r):.0%}），限额精度偏弱"
                 ),
             }
         )

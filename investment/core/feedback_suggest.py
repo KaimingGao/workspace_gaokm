@@ -1,13 +1,13 @@
 """反馈半闭环：根据纸面/回测摘要提出 signal_config 补丁建议（不自动写盘）。
 
-生产选股门槛为 ŷ 滞回（scoring.*）；不再建议改 0–100 rank.min_score。
+生产选股门槛为 ŷ 滞回（scoring.*）；rank.min_score 字段已下线。
 """
 
-from __future__ import annotations
 
-import copy
+import logging
+
+logger = logging.getLogger(__name__)
 import json
-import os
 from typing import Any, Dict, Optional
 
 from core.paths import SIGNAL_CONFIG_PATH
@@ -40,7 +40,8 @@ def suggest_config_feedback(
         from core.north_star import TTM_EVENT_IDEA, append_ttm_event
 
         append_ttm_event(TTM_EVENT_IDEA, ref="feedback_suggest")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in feedback_suggest.py", exc_info=True)
         pass
 
     bt = backtest_metrics or {}

@@ -7,7 +7,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.config import DEFAULT_SIGNAL_CONFIG, load_signal_config
-from core.signal.factor_registry import (
+from core.signal.factors.meta.registry import (
     compute_configured_factors,
     compute_factor,
     list_factors,

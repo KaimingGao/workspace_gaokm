@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from core.paper import build_ops_report
-from core.paper_attribution import build_paper_attribution_lite
+from core.paper.attribution import build_paper_attribution_lite
 
 
 class TestPaperAttributionLite(unittest.TestCase):
@@ -51,7 +51,7 @@ class TestPaperAttributionLite(unittest.TestCase):
         self.assertAlmostEqual(out["period_return_pct"], 5.0, places=2)
 
         ops = build_ops_report(
-            strategy_id="short",
+            strategy_id="short_conservative",
             cost_model="simple_cn",
             attribution=out,
         )

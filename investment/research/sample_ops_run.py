@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """样本运营 CLI：TTM 闭环种子 · 财务 history · 纸面快照密度 · 覆盖报告。"""
 
-from __future__ import annotations
 
 import argparse
 import json

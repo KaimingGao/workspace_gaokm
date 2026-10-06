@@ -1,5 +1,5 @@
 from agent.contracts import BaseSkillHandler
-from skills.index.engine import build_relative
+from adapters.index.engine import build_relative
 
 
 class IndexHandler(BaseSkillHandler):

@@ -1,7 +1,9 @@
 """策略验证包导出（V4.1）：配置快照 + 回测摘要 + 源审计 + 成本 + 暴露 + 指纹。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 from datetime import datetime
@@ -90,27 +92,12 @@ def build_validation_pack(
         "risk_blocks": rb,
         "ab_compare": ab_compare,
         "fit_gap": None,
-        "cluster_fingerprint": None,
+        "cluster_fingerprint": {
+            "retired": True,
+            "mode": "off",
+            "error": "cluster_retired",
+        },
     }
-    try:
-        from core.signal.cluster_live import (
-            get_cluster_scoring_cfg,
-            load_active_cluster_book,
-            load_active_cluster_weights,
-        )
-
-        active = load_active_cluster_weights() or {}
-        book = load_active_cluster_book() or {}
-        cs = get_cluster_scoring_cfg()
-        pack["cluster_fingerprint"] = {
-            "version": active.get("version"),
-            "mode": cs.get("mode"),
-            "n_mapped": active.get("n_mapped_codes") or len(active.get("code_map") or {}),
-            "book_count": len(book.get("book") or []),
-            "promoted_at": active.get("promoted_at"),
-        }
-    except Exception:
-        pass
     try:
         from core.fit_gap import fit_gap_hints
 
@@ -121,13 +108,51 @@ def build_validation_pack(
             paper_ops=ops_report,
             backtest_params=slim_bt.get("params") or {},
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in validation_pack.py", exc_info=True)
         pass
+
+    # FM3 · 中性化配置指纹
+    neut = (cfg.get("neutralization") or cfg.get("cross_section") or {}) if cfg else {}
+    pack["neutralize"] = {
+        "enabled": bool(neut.get("enabled") or neut.get("apply")),
+        "method": neut.get("method") or neut.get("mode"),
+        "by": neut.get("by") or neut.get("group"),
+        "track": "FM3",
+    }
+
+    # RK3 · weight_mode 对照（缺 cvxpy 时 qp_lite → unavailable）
+    if ab_compare is None:
+        try:
+            from core.weight_mode_compare import compare_weight_modes
+
+            cands = []
+            if isinstance(ops_report, dict):
+                cands = ops_report.get("optimize_candidates") or ops_report.get(
+                    "candidates"
+                ) or []
+            if cands:
+                pack["ab_compare"] = {
+                    "weight_modes": compare_weight_modes(cands),
+                    "track": "RK3",
+                }
+            else:
+                pack["ab_compare"] = {
+                    "weight_modes": None,
+                    "track": "RK3",
+                    "note": "无 candidates；调用方可传入 ab_compare",
+                }
+        except Exception as exc:
+            logger.exception('unexpected error in build_validation_pack')
+            pack["ab_compare"] = {"weight_modes": None, "error": str(exc), "track": "RK3"}
+    else:
+        pack["ab_compare"] = ab_compare
 
     pack["fingerprint"] = _fp(
         {
             "config": cfg.get("weights"),
             "scoring": cfg.get("scoring"),
+            "neutralize": pack.get("neutralize"),
             "cluster": pack.get("cluster_fingerprint"),
             "metrics": (slim_bt.get("metrics") or {}),
             "exported_at": pack["exported_at"],
@@ -139,13 +164,13 @@ def build_validation_pack(
 def render_validation_pack_markdown(pack: dict) -> str:
     p = pack.get("pack") if "pack" in pack else pack
     lines = [
-        f"# 策略验证包",
-        f"",
+        "# 策略验证包",
+        "",
         f"- 导出时间：`{p.get('exported_at')}`",
         f"- 指纹：`{p.get('fingerprint')}`",
         f"- 说明：{p.get('note')}",
-        f"",
-        f"## 成本对照",
+        "",
+        "## 成本对照",
     ]
     cc = (p.get("backtest") or {}).get("cost_compare") or {}
     if cc:

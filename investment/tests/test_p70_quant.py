@@ -20,7 +20,7 @@ class TestP70InterpretOfflineApi(unittest.TestCase):
         mock_out = {
             "success": True,
             "source": "rule_based",
-            "interpretation": "中性化对照：规则解读测试",
+            "interpretation": "历史回测：规则解读测试",
         }
         with patch.object(deps.quant, "interpret_report", return_value=mock_out) as mocked:
             client = TestClient(web_app.app)
@@ -39,10 +39,11 @@ class TestP70InterpretOfflineApi(unittest.TestCase):
         from quant.services.quant_service import QuantService
 
         report = {
-            "portfolio_neutral_compare_summary": {
+            "portfolio_backtest_summary": {
                 "success": True,
-                "winner": "neutralized",
-                "interpretation": "中性化更优",
+                "total_return_pct": 1.2,
+                "win_rate_pct": 50,
+                "trade_count": 2,
             }
         }
         out = QuantService().interpret_report(report, use_saved=False, offline=True)

@@ -1,7 +1,9 @@
 """TTM (time-to-market) event logging and metrics."""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 import statistics

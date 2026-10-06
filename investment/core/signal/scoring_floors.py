@@ -1,10 +1,14 @@
 """Y 轨：ŷ 买卖门槛人审写盘（只改 scoring.*，永不改 weights）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, Optional
+
+from core.io_atomic import atomic_write_json
 
 
 def save_scoring_floors(
@@ -18,12 +22,10 @@ def save_scoring_floors(
     传 ``None`` 表示该项不改；显式要「关闭门槛」请传字符串 ``\"null\"`` 或使用
     ``clear_buy`` / ``clear_hold``（由 API 层解析）。
     """
-    from core.paths import SIGNAL_CONFIG_PATH
-    from core.signal.config import SIGNAL_CONFIG_PATH as CFG_PATH
-    from core.signal.config import load_signal_config
+    from core.signal.config import get_signal_config_path, load_signal_config
     from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
 
-    path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH or CFG_PATH)
+    path = get_signal_config_path()
     raw: Dict[str, Any] = {}
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:
@@ -48,10 +50,7 @@ def save_scoring_floors(
         }
 
     raw["scoring"] = scoring
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(raw, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    atomic_write_json(path, raw)
 
     # 清 load_signal_config 缓存
     import core.signal.config as cfg_mod

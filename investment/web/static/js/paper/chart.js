@@ -26,6 +26,48 @@ export function fmtAxisY(v) {
   return String(Math.round(n * 100) / 100);
 }
 
+function _pad(n, w = 2) {
+  return String(n).padStart(w, "0");
+}
+
+function localIsoMs(d = new Date()) {
+  return (
+    `${d.getFullYear()}-${_pad(d.getMonth() + 1)}-${_pad(d.getDate())}` +
+    `T${_pad(d.getHours())}:${_pad(d.getMinutes())}:${_pad(d.getSeconds())}` +
+    `.${_pad(d.getMilliseconds(), 3)}`
+  );
+}
+
+function bumpIsoMs(ts) {
+  const t = Date.parse(ts);
+  if (!Number.isFinite(t)) return localIsoMs();
+  return localIsoMs(new Date(t + 1));
+}
+
+/**
+ * 曲线历史点来自成交/调仓快照；盘中报价会变。
+ * 若现价盯市净值与末点差一截，叠一个只读「现在」点，与摘要总净值对齐。
+ */
+export function appendLiveNavPoint(points, liveEquity, nowTs) {
+  const pts = Array.isArray(points) ? points.slice() : [];
+  const eq = Number(liveEquity);
+  if (!Number.isFinite(eq)) return pts;
+  const last = pts.length ? pts[pts.length - 1] : null;
+  if (
+    last &&
+    Number.isFinite(Number(last.value)) &&
+    Math.abs(Number(last.value) - eq) <= 0.01
+  ) {
+    return pts;
+  }
+  let time = nowTs || localIsoMs();
+  if (last && last.time != null && String(last.time) >= String(time)) {
+    time = bumpIsoMs(String(last.time));
+  }
+  pts.push({ time, value: eq, live: true });
+  return pts;
+}
+
 export function niceTicks(minV, maxV, count = 4) {
   let lo = Number(minV);
   let hi = Number(maxV);

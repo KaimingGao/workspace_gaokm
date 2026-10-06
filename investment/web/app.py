@@ -1,12 +1,16 @@
 """FastAPI Web：量化交易工作台（对话 + 观察/模拟/回溯 + 校验）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import sys
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,15 +24,32 @@ load_env_file(os.path.join(ROOT_DIR, ".env"))
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 try:
-    from skills.common.ak_lock import install_akshare_lock
+    from core.data.ak_lock import install_akshare_lock
 
     install_akshare_lock()
-except Exception:
+except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+    logger.debug("catch except Exception: in app.py", exc_info=True)
     pass
 
 from web import deps  # noqa: E402
 from web.page_html import render_tool_html  # noqa: E402
-from web.routers import chat, daily, evals, live_ws, meta, paper, platform, quant, strategy, watching  # noqa: E402
+from web.routers import (  # noqa: E402
+    chat,
+    daily,
+    evals,
+    live_ws,
+    meta,
+    paper,
+    platform,
+    quant,
+    quant_backtest,
+    quant_cluster,
+    quant_config,
+    quant_dashboard,
+    quant_research,
+    strategy,
+    watching,
+)
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -39,10 +60,42 @@ _evals = deps.evals
 _daily = deps.daily
 _quant = deps.quant
 
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI):
+    try:
+        from core.paths import PAPER_PATH
+        from core.paper.rebalance.auto_worker import (
+            load_enabled_flag as _load_rebalance_enabled,
+            rebalance_auto_worker,
+        )
+        from core.t0.auto_worker import _load_enabled_flag, t0_auto_worker
+        from services.paper_service import PaperService
+
+        if _load_enabled_flag():
+            try:
+                PaperService(PAPER_PATH).set_t0_worker(True)
+            except FileNotFoundError:
+                t0_auto_worker.restore()
+        if _load_rebalance_enabled():
+            rebalance_auto_worker.restore()
+    except Exception:  # noqa: BLE001
+        logger.debug("auto worker restore skipped", exc_info=True)
+    yield
+    try:
+        from core.paper.rebalance.auto_worker import rebalance_auto_worker
+        from core.t0.auto_worker import t0_auto_worker
+
+        t0_auto_worker.stop()
+        rebalance_auto_worker.stop()
+    except Exception:  # noqa: BLE001
+        logger.debug("auto worker shutdown skipped", exc_info=True)
+
+
 app = FastAPI(
-    title="Investment · 量化交易",
-    description="量化交易 Web（融合 AI）：业务模块 + 全局 AI 命令",
+    title="QuantLab · 量化交易",
+    description="QuantLab 量化交易 Web（融合 AI）：业务模块 + 全局 AI 命令",
     version="0.1.0",
+    lifespan=_app_lifespan,
 )
 
 app.include_router(meta.router)
@@ -51,6 +104,11 @@ app.include_router(paper.router)
 app.include_router(strategy.router)
 app.include_router(daily.router)
 app.include_router(quant.router)
+app.include_router(quant_config.router)
+app.include_router(quant_research.router)
+app.include_router(quant_cluster.router)
+app.include_router(quant_backtest.router)
+app.include_router(quant_dashboard.router)
 app.include_router(watching.router)
 app.include_router(evals.router)
 app.include_router(platform.router)
@@ -58,13 +116,13 @@ app.include_router(live_ws.router)
 
 
 @app.get("/")
-def index():
-    """根路径进入数据中心（仪表盘已下线）。"""
-    return RedirectResponse(url="/watching", status_code=302)
+def index() -> RedirectResponse:
+    """根路径进入仪表盘。"""
+    return RedirectResponse(url="/dashboard", status_code=302)
 
 
 @app.get("/chat")
-def chat_page(tab: str | None = None):
+def chat_page(tab: str | None = None) -> RedirectResponse:
     """全屏对话已下线：统一走顶栏 AI 抽屉（⌘K）；旧书签重定向。"""
     if tab == "platform":
         return RedirectResponse(url="/platform", status_code=302)
@@ -72,8 +130,8 @@ def chat_page(tab: str | None = None):
 
 
 @app.get("/platform")
-def platform_page():
-    """系统设置（平台面板）：不复用全屏对话壳层。"""
+def platform_page() -> HTMLResponse:
+    """平台：审计时间线 + 纸面日更；不复用全屏对话壳层。"""
     return HTMLResponse(
         render_tool_html("platform"),
         headers={
@@ -84,7 +142,7 @@ def platform_page():
 
 
 @app.get("/quant")
-def quant_page():
+def quant_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("quant"),
         headers={"Cache-Control": "no-store"},
@@ -92,15 +150,24 @@ def quant_page():
 
 
 @app.get("/watching")
-def watching_page():
+def watching_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("watching"),
         headers={"Cache-Control": "no-store"},
     )
 
 
+@app.get("/dashboard")
+def dashboard_page() -> HTMLResponse:
+    """仪表盘：全局 KPI · 净值曲线 · 板块热力 · 信号告警。"""
+    return HTMLResponse(
+        render_tool_html("dashboard"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/strategy")
-def strategy_page():
+def strategy_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("strategy"),
         headers={"Cache-Control": "no-store"},
@@ -108,7 +175,7 @@ def strategy_page():
 
 
 @app.get("/replay")
-def replay_page():
+def replay_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("replay"),
         headers={"Cache-Control": "no-store"},
@@ -116,7 +183,7 @@ def replay_page():
 
 
 @app.get("/follow")
-def follow_page():
+def follow_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("follow"),
         headers={"Cache-Control": "no-store"},
@@ -124,16 +191,23 @@ def follow_page():
 
 
 @app.get("/paper")
-def paper_page():
+def paper_page() -> RedirectResponse:
     """旧「纸面」入口并入模拟页；API 仍为 /api/paper（内部 canonical）。"""
     return RedirectResponse(url="/follow", status_code=302)
 
 
 @app.get("/favicon.ico")
-def favicon():
-    from fastapi.responses import Response
-
+def favicon() -> Response:
     return Response(status_code=204)
+
+
+@app.middleware("http")
+async def _static_no_store(request, call_next):
+    """嵌套 ES module 无 ?v= 时避免浏览器 304 旧脚本。"""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

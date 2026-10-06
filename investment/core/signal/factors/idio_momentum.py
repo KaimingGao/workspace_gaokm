@@ -1,7 +1,9 @@
 """特异动量因子（V2.1）：个股收益对指数回归残差（市场中性后的动量）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -10,50 +12,42 @@ def _aligned_returns(
     index_bars: List[dict],
     window: int = 20,
 ) -> Tuple[List[float], List[float]]:
-    idx_by_date = {}
+    """按共同交易日对齐日收益；禁止用错位窗口估 β。"""
+    stock_by_date = {}
+    for b in stock_bars or []:
+        d = str((b or {}).get("date") or "").strip()[:10]
+        if len(d) >= 10 and (b or {}).get("close") is not None:
+            stock_by_date[d] = b
+    index_by_date = {}
     for b in index_bars or []:
-        d = str(b.get("date") or "")
-        if d:
-            idx_by_date[d] = b
+        d = str((b or {}).get("date") or "").strip()[:10]
+        if len(d) >= 10 and (b or {}).get("close") is not None:
+            index_by_date[d] = b
+
+    common = sorted(set(stock_by_date) & set(index_by_date))
+    # 需要 window 段日收益 → window+1 个收盘点
+    need = int(window) + 1
+    if len(common) < need:
+        if len(common) < 6:
+            return [], []
+        dates = common
+    else:
+        dates = common[-need:]
 
     pairs: List[Tuple[float, float]] = []
-    for i in range(1, len(stock_bars)):
-        cur = stock_bars[i]
-        prev = stock_bars[i - 1]
-        d = str(cur.get("date") or "")
-        ib = idx_by_date.get(d)
-        if not ib:
-            continue
-        # 找指数前一日
-        # 简化：用同日 close 相对前一根匹配到的 index bar 序列位置
+    for i in range(1, len(dates)):
+        d0, d1 = dates[i - 1], dates[i]
         try:
-            sc = float(cur["close"])
-            sp = float(prev["close"])
-            ic = float(ib["close"])
+            sc = float(stock_by_date[d1]["close"])
+            sp = float(stock_by_date[d0]["close"])
+            ic = float(index_by_date[d1]["close"])
+            ip = float(index_by_date[d0]["close"])
         except (TypeError, ValueError, KeyError):
             continue
-        if sp <= 0 or sc <= 0 or ic <= 0:
-            continue
-        # 指数前收：向前搜相邻交易日
-        prev_idx = None
-        for j in range(i - 1, -1, -1):
-            pd = str(stock_bars[j].get("date") or "")
-            cand = idx_by_date.get(pd)
-            if cand is not None:
-                prev_idx = cand
-                break
-        if prev_idx is None:
-            continue
-        try:
-            ip = float(prev_idx["close"])
-        except (TypeError, ValueError):
-            continue
-        if ip <= 0:
+        if sp <= 0 or sc <= 0 or ip <= 0 or ic <= 0:
             continue
         pairs.append(((sc / sp) - 1.0, (ic / ip) - 1.0))
 
-    if len(pairs) > window:
-        pairs = pairs[-window:]
     ys = [p[0] for p in pairs]
     xs = [p[1] for p in pairs]
     return ys, xs
@@ -83,9 +77,14 @@ def score_idio_momentum(
     index_bars: Optional[List[dict]] = None,
     **_kw,
 ) -> Tuple[float, Dict[str, Any]]:
-    """无指数或样本不足 → 50。"""
+    """无指数或样本不足 → 不进 ŷ（omit）。"""
     if not bars or not index_bars:
-        return 50.0, {"idio_residual": None, "ok": False, "reason": "no_index"}
+        return 50.0, {
+            "idio_residual": None,
+            "ok": False,
+            "reason": "no_index",
+            "omit_sub_score": True,
+        }
 
     ys, xs = _aligned_returns(bars, index_bars)
     resid = _ols_residual_mean(ys, xs)
@@ -95,6 +94,7 @@ def score_idio_momentum(
             "ok": False,
             "reason": "thin_sample",
             "sample_count": len(ys),
+            "omit_sub_score": True,
         }
 
     pct = resid * 100.0
@@ -114,4 +114,5 @@ def score_idio_momentum(
         "idio_residual_pct": round(pct, 3),
         "ok": True,
         "sample_count": len(ys),
+        "omit_sub_score": False,
     }

@@ -4,8 +4,10 @@
 缺省键 → 默认 +1（ŷ&lt;1% 不入簿）；显式 ``null`` → 不设下限（研究用）。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, Optional
 
@@ -22,12 +24,25 @@ def json_safe_number(value: Any) -> Any:
 
 def json_safe(obj: Any) -> Any:
     """递归把 ±inf/NaN 换成 None，供 Starlette JSONResponse（allow_nan=False）。"""
-    if isinstance(obj, float):
-        return obj if math.isfinite(obj) else None
+    if obj is None or isinstance(obj, (str, bool)):
+        return obj
     if isinstance(obj, dict):
         return {k: json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [json_safe(v) for v in obj]
+    # Python float / numpy floating（含 float32）；int 原样
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, int):
+        return obj
+    # numpy scalar（非 float 子类的 floating / integer）
+    item = getattr(obj, "item", None)
+    if callable(item):
+        try:
+            return json_safe(item())
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_display.py", exc_info=True)
+            return None
     return obj
 
 
@@ -37,8 +52,29 @@ def is_predicted_rank_mode(config: Optional[dict] = None) -> bool:
     return True
 
 
-def looks_like_legacy_heuristic_score(value: Optional[float]) -> bool:
-    """≥10 的「门槛」在短线 ŷ% 语境下视为遗留 0–100 分档。"""
+def looks_like_legacy_heuristic_score(
+    value: Optional[float],
+    *,
+    item: Optional[dict] = None,
+) -> bool:
+    """判断裸数值是否像遗留 0–100 启发式分。
+
+    有 ``item`` 时以 ``score_scale`` 为准：``predicted_yhat`` 即使 ≥10（涨停板
+    ŷ%）也不当 heuristic；``heuristic_0_100`` 则是。未标明尺 / 裸门槛配置
+    仍用 ≥10 启发式（短线 ŷ 门槛通常 |x|<10）。
+    """
+    if item is not None:
+        try:
+            from core.signal.gate import SCALE_HEURISTIC, SCALE_YHAT, infer_score_scale
+
+            scale = infer_score_scale(item)
+            if scale == SCALE_HEURISTIC:
+                return True
+            if scale == SCALE_YHAT:
+                return False
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_display.py", exc_info=True)
+            pass
     if value is None:
         return False
     try:
@@ -69,7 +105,8 @@ def selection_min_score(paper: Optional[dict] = None) -> Optional[float]:
         if mp is None or mp == "":
             return None
         return float(mp)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_display.py", exc_info=True)
         return float(DEFAULT_MIN_PREDICTED_SCORE)
 
 
@@ -97,6 +134,7 @@ def resolve_buy_floor(
 
 
 # 持仓卖出门槛：分池调仓仅当 ŷ < 该值才卖（默认 -1%）；与买入门槛形成滞回
+# 产品滞回：买≥+1% / 卖<-1%，中间带持仓不因微弱衰减清仓；横截面另有「不在 TopK→卖」
 DEFAULT_MIN_HOLD_PREDICTED_SCORE = -1.0
 
 
@@ -117,7 +155,8 @@ def resolve_hold_floor(
         if mp is None or mp == "":
             return float("-inf")
         return float(mp)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_display.py", exc_info=True)
         return float(DEFAULT_MIN_HOLD_PREDICTED_SCORE)
 
 
@@ -149,21 +188,46 @@ def annotate_score_gate(
     *,
     paper: Optional[dict] = None,
     min_score: Optional[float] = None,
+    item: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """返回 min_score / below_min_score，供观察表与持仓表展示。"""
+    """返回 min_score / below_min_score，供观察表与持仓表展示。
+
+    有 ``item`` 时门槛对比用 ``eod_gate_score_for_item``（原始 ŷ_oo），
+    与建簿 / 预演买入门槛同源；否则回退传入的 ``score``。
+    """
     if min_score is not None:
         floor: Optional[float] = json_safe_number(float(min_score))
     else:
         floor = selection_min_score(paper)
     sc = None
-    try:
-        if score is not None and score != "":
-            sc = float(score)
-    except (TypeError, ValueError):
-        sc = None
+    if isinstance(item, dict):
+        try:
+            from core.signal.dual_score import (
+                eod_gate_score_for_item,
+                is_heuristic_score_scale,
+            )
+
+            if is_heuristic_score_scale(item):
+                # heuristic 0–100 不与 ŷ% 门槛比；也不把 score 回填成 gate
+                return {
+                    "min_score": floor,
+                    "below_min_score": False,
+                    "gate_score": None,
+                }
+            sc = eod_gate_score_for_item(item)
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_display.py", exc_info=True)
+            sc = None
+    if sc is None:
+        try:
+            if score is not None and score != "":
+                sc = float(score)
+        except (TypeError, ValueError):
+            sc = None
     return {
         "min_score": floor,
         "below_min_score": bool(
             floor is not None and sc is not None and sc < floor
         ),
+        "gate_score": json_safe_number(sc) if sc is not None else None,
     }

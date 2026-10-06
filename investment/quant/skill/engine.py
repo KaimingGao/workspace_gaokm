@@ -1,14 +1,15 @@
 """quant Skill：量化研究台（组合回测、横截面、对照、建议）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 AVAILABLE_TASKS = (
     "daily_summary",
     "cross_section",
     "portfolio_backtest",
-    "portfolio_neutral_compare",
     "weight_suggest",
     "threshold_suggest",
     "interpret",
@@ -46,7 +47,7 @@ class QuantEngine:
 
         code = str(params.get("stock_code") or params.get("code") or "茅台").strip()
         default_lb = 30 if task == "t0_backtest" else 120
-        min_lb = 20 if task == "t0_backtest" else 40
+        min_lb = 10 if task == "t0_backtest" else 40
         lookback = max(
             min_lb,
             min(int(params.get("lookback") or params.get("lookback_days") or default_lb), 500),
@@ -62,9 +63,6 @@ class QuantEngine:
                 code,
                 include_cross_section=bool(params.get("include_cross_section")),
                 include_portfolio_backtest=bool(params.get("include_portfolio_backtest", True)),
-                include_portfolio_neutral_compare=bool(
-                    params.get("include_portfolio_neutral_compare", True)
-                ),
             )
             return self._compact_daily(report)
 
@@ -79,27 +77,12 @@ class QuantEngine:
 
         if task == "portfolio_backtest":
             codes = self._as_codes(params.get("codes") or params.get("stock_codes"))
+            costs = params.get("apply_costs")
             return self._svc.run_portfolio_backtest(
                 codes=codes or None,
                 lookback=lookback,
-                top_k=int(params.get("top_k") or 3),
-                horizon_days=int(params.get("horizon_days") or 3),
-                min_score=float(params.get("min_score") or 55),
-                apply_costs=bool(params.get("apply_costs")),
+                apply_costs=True if costs is None else bool(costs),
             )
-
-        if task == "portfolio_neutral_compare":
-            codes = self._as_codes(params.get("codes") or params.get("stock_codes"))
-            out = self._svc.run_portfolio_neutral_compare(
-                codes=codes or None,
-                lookback=lookback,
-                top_k=int(params.get("top_k") or 3),
-                horizon_days=int(params.get("horizon_days") or 3),
-                min_score=float(params.get("min_score") or 55),
-                apply_costs=bool(params.get("apply_costs")),
-            )
-            out["task"] = "portfolio_neutral_compare"
-            return out
 
         if task == "factor_ols":
             return self._svc.run_factor_ols_experiment(
@@ -120,15 +103,19 @@ class QuantEngine:
         if task == "t0_backtest":
             rules = {
                 "t0_ratio": params.get("t0_ratio"),
-                "sell_trigger_pct": params.get("sell_trigger_pct"),
-                "buy_trigger_pct": params.get("buy_trigger_pct"),
-                "must_cover_same_day": bool(params.get("must_cover_same_day")),
             }
-            for key in ("fill_mode", "direction", "min_range_pct", "path_mode"):
+            if params.get("must_cover_same_day_buy_then_sell") is not None:
+                rules["must_cover_same_day_buy_then_sell"] = bool(
+                    params.get("must_cover_same_day_buy_then_sell")
+                )
+            if params.get("must_cover_same_day_sell_then_buy") is not None:
+                rules["must_cover_same_day_sell_then_buy"] = bool(
+                    params.get("must_cover_same_day_sell_then_buy")
+                )
+            for key in ("fill_mode", "direction"):
                 if params.get(key) is not None:
                     rules[key] = params.get(key)
-            if "use_atr" in params:
-                rules["use_atr"] = bool(params.get("use_atr"))
+            rules["path_mode"] = "first_touch"
             from_paper = bool(params.get("from_paper"))
             if not str(code or "").strip():
                 from_paper = True
@@ -139,9 +126,7 @@ class QuantEngine:
                 rules=rules,
                 from_paper=from_paper,
                 codes=params.get("codes"),
-                compare_optimistic=bool(params.get("compare_optimistic", True)),
-                use_minute=bool(params.get("use_minute", True)),
-                compare_daily=bool(params.get("compare_daily", True)),
+                use_minute=True,
             )
 
         if task == "weight_suggest":
@@ -172,7 +157,6 @@ class QuantEngine:
                 report = self._svc.build_daily_report(
                     code,
                     include_portfolio_backtest=True,
-                    include_portfolio_neutral_compare=True,
                 )
             if offline:
                 from quant.services.quant_interpret import build_rule_based_interpret

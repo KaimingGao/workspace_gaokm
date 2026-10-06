@@ -13,12 +13,12 @@ class TestWatchingLoadFast(unittest.TestCase):
     def test_read_watching_skips_live_market(self):
         svc = QuantService()
         with patch(
-            "core.watching_store.read_watching",
+            "core.watching.store.read_watching",
             return_value={"watchlist": ["600519"], "max_size": 50},
         ), patch(
-            "core.watching_store.watchlist_names_for", return_value=["茅台"]
-        ), patch(
-            "core.watching_store.watchlist_origins_for", return_value={}
+            "core.watching.store.watchlist_names_for", return_value=["茅台"]
+        ) as names_fn, patch(
+            "core.watching.store.watchlist_origins_for", return_value={}
         ), patch(
             "core.paper.load_paper",
             return_value={
@@ -36,14 +36,31 @@ class TestWatchingLoadFast(unittest.TestCase):
         self.assertEqual(out["watching"]["watchlist"], ["600519"])
         self.assertEqual(out["watching"]["watchlist_scores"], {})
         self.assertIn("600519", out["watching"]["watchlist_holdings"])
+        names_fn.assert_called_once()
+        self.assertEqual(names_fn.call_args.kwargs.get("allow_live"), False)
         scan.assert_not_called()
         mtm.assert_not_called()
+
+    def test_watchlist_names_offline_skips_get_quote(self):
+        from unittest.mock import patch
+
+        from core.watching.store import watchlist_names_for
+
+        data = {
+            "watchlist": ["600519", "000001"],
+            "watchlist_names": ["", ""],
+            "sources": [],
+        }
+        with patch("core.watching.store._resolve_entry") as resolve:
+            names = watchlist_names_for(data, allow_live=False)
+        self.assertEqual(names, ["", ""])
+        resolve.assert_not_called()
 
     def test_paper_status_lite_skips_mtm_and_scores(self):
         svc = PaperService(path="/tmp/does-not-matter-paper.json")
         paper = {
             "name": "demo",
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "cash": 1e6,
             "holdings": [{"stock_code": "600519", "shares": 100, "cost": 10}],
             "operation_log": [{"type": "sync_paper", "ts": "2026-01-01"}],

@@ -1,7 +1,9 @@
 """Golden case 路由预期与推断对照表（P26.1 / P31 归位 quant.ops）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List
 
 from agent.routing import (

@@ -1,6 +1,6 @@
 # 架构总览
 
-[← 文档索引](README.md)
+[← 文档索引](README.md) · 架构图与命名约定见下文；目录结构见 [§ 代码目录结构](#代码目录结构)；依赖边界见 [§ 六边形架构](#六边形架构ports--adapters)
 
 ### 定位
 
@@ -88,7 +88,7 @@ flowchart TB
 
 ### 产品视角：四层金字塔与决策链路
 
-控制论四层回答「智能体如何闭环」；本节回答「**量化交易产品**如何分层、覆盖哪些能力、代码如何抽象」。与 [roadmap.md](roadmap.md) 的能力画像对照阅读：下文 **已落地** 表示仓库内可用，**规划中** 表示目标形态而非现状。
+控制论四层回答「智能体如何闭环」；本节回答「**量化交易产品**如何分层、覆盖哪些能力、代码如何抽象」。与 [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角) 的能力画像对照阅读：下文 **已落地** 表示仓库内可用，**规划中** 表示目标形态而非现状。
 
 产品本质与模块级因果链（已发生 → 影响估计 → 验证 → 动作）见 **[design-spine · 因果链](design-spine.md#因果链已发生--影响估计--动作)**。
 
@@ -113,7 +113,7 @@ flowchart TB
 | **数据感知** | 眼睛与耳朵：行情、财务、宏观、资讯等接入与清洗 | 感知层；数据层 + Skills | **已落地**：日线/现货、基本面、资讯标题等。弱：Tick 全量、宏观全集、社交舆情、完整研报 |
 | **认知推理** | 大脑：清洗、情感/事件理解、逻辑推演 | 认知层；LLM + prompts | **已落地**：NL 意图与策略结果解释。弱：显式「公司–行业–产业链」知识图谱 |
 | **决策执行** | 中枢：策略 + 风控 → 交易倾向信号 | 规划层 + 领域 `stance` / `position` | **已落地**：买入/观望/减仓等**建议倾向**、纸面与模拟做 T。**不做**：对接券商实盘下单 |
-| **反馈进化** | 自我迭代：结果回写策略 | 评估层 | **半闭环**：回测指标、纸面净值、黄金用例。弱：在线 RL 自动调参（概念见 [rl-layer.md](rl-layer.md)） |
+| **反馈进化** | 自我迭代：结果回写策略 | 评估层 | **半闭环**：回测指标、纸面净值、黄金用例。弱：在线 RL 自动调参（概念见 [component/rl.md · RL 视角](component/rl.md#强化学习rl视角)） |
 
 #### 2. 核心功能模块（盘前 → 盘后）
 
@@ -173,7 +173,7 @@ flowchart TB
 
 #### 5. 开发落地与合规红线
 
-与当前演进方式一致（详见 [roadmap.md](roadmap.md)）：
+与当前演进方式一致（详见 [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角)）：
 
 1. **从单点 Tool 做起**：先跑通单一 Skill（抓数 → JSON → 摘要），再挂上 Agent。  
 2. **本地 Agent 串联**：对话驱动多工具工作流，而不是先上大而全中台。  
@@ -185,7 +185,7 @@ flowchart TB
 ┌─────────────────────────────────────────────────────────┐
 │  接入层    main.py / run_web.py / web/app.py + routers/  │
 ├─────────────────────────────────────────────────────────┤
-│  服务层    services/* · quant/services（Mixin 门面）     │
+│  应用服务  services/* · quant/services（Application Service）│
 ├─────────────────────────────────────────────────────────┤
 │  编排层    agent/agent.py · routing.py · registry    │
 ├─────────────────────────────────────────────────────────┤
@@ -193,11 +193,116 @@ flowchart TB
 ├─────────────────────────────────────────────────────────┤
 │  适配层    skills/*/handler.py（薄包装，委托 engine/core）│
 ├─────────────────────────────────────────────────────────┤
-│  领域层    core/（facts · advise · stance · store · t0） │
+│  领域层    core/（门面 DS·SS·BS + facts · paper · risk） │
 ├─────────────────────────────────────────────────────────┤
-│  数据层    skills/common/ · AkShare · data/*.json        │
+│  端口层    core/ports/ + core/data/ports.py（契约，无 I/O） │
+├─────────────────────────────────────────────────────────┤
+│  数据层    adapters/* · AkShare/腾讯 · data/*.json         │
 └─────────────────────────────────────────────────────────┘
 ```
+
+分层回答「从上到下谁调用谁」；**依赖方向**（领域不绑死行情源）见 [§ 六边形架构（Ports & Adapters）](#六边形架构ports--adapters)。
+
+### Service 命名约定
+
+代码里大量 `*Service` **不是微服务**，而是分层里的**稳定入口**。口语与文档固定两套叫法，**文件名暂不 rename**（避免 patch 路径与 import 大面积抖动）。
+
+| 叫法 | 代码落点 | 职责 | 典型入口 |
+|------|----------|------|----------|
+| **Application Service**（应用服务） | `services/*` · `quant/services/` | Web/CLI **用例组装**；编排多步业务、定 API 边界 | `PaperService` · `WatchingService` · `QuantService` |
+| **Domain Facade**（领域门面） | `core/data/facade` · `signal_service` · `backtest_service` | **单一领域能力**的统一出口；委托 `core/data` · `signal` · `backtest` | DS · SS · BS（`get_bars` · `score_one` · `run_topk` 研究探针；产品回测走 `paper_replay`） |
+
+**原则**
+
+1. 只有「给 router / CLI / Agent 用的**用例入口**」在文档里称 **Application Service**。  
+2. `core` 里的读口 / 打分 / 回测在文档里称 **Domain Facade**（口语 **DS / SS / BS**），与业务服务**不同层**。  
+3. `QuantService` 是研究台 **Application Service**，向下调 DS/SS/BS，**不替代**领域门面。  
+4. 纯函数、helpers、engine **不要**叫 Service。  
+5. **新代码**：`services/` 与 `quant/services/` 可继续 `XxxService`；`core` 新门面优先包入口（`core.data` / `get_default_*()`），少再造并列 `XxxService` 文件名。
+
+详见 [§ 代码目录结构](#代码目录结构) · [services/README.md](../services/README.md)。
+
+### 设计模式
+
+本仓库用一套**轻量、可测试**的结构性模式组织代码，避免重型框架。核心模式、意图与代码落点如下：
+
+| 模式 | 意图 | 典型落点 |
+|------|------|----------|
+| **Facade（门面）** | 一领域封成单一稳定入口，业务只认门面 | DS `core/data/facade.py` · SS `core/signal_service.py` · BS `core/backtest_service.py` |
+| **Port & Adapter + DI**（六边形） | `core/ports/` 定出站契约，`adapters/` 供实现；`bind.py` 显式注入，测试可 `set_adapter` 替换 | `core/ports/{market,registry,signal}.py` · `core/data/ports.py` · `adapters/bind.py` |
+| **Strategy + Specification** | 同接口多实现；用 `StrategySpec` 数据对象描述策略（draft→staging→active），改策略即改数据 | `core/strategy.py` · `core/signal/factors/score_*.py` · `meta/spec.py` |
+| **Skill 体系：Protocol + Registry + Template Method** | `Protocol` 定接口 · 注册表按名查找 · 基类固定流程子类覆写 `handle`；替代继承树 | `agent/contracts.py` · `agent/registry.py` · `agent/skills/base.py` |
+| **Repository（仓储）** | 封装持久化，领域层不直连介质 | `core/store.py`（JSON）· `core/store_bars_sqlite.py`（WAL）· `core/paper/ledger.py` |
+| **Observer / Event** | 解耦状态变更与通知，多订阅者 | WebSocket `/ws/live` · Job 进度事件 · LLM 流式回调 |
+
+**设计选择**：门面薄、核心纯（计算保持纯函数，便于 evals 回归）；注册表+协议替代继承树，新增技能/因子只注册不改既有代码（开闭原则）。新功能接入见 [§ 如何扩展](#如何扩展)。
+
+### 六边形架构（Ports & Adapters）
+
+分层图是纵向切片（接入 → 编排 → 领域 → 数据）。本仓库出站 I/O 另按 **六边形 / Ports & Adapters** 组织：**领域在中心**，只依赖自己定义的端口；Web、CLI、Agent 与 AkShare/腾讯都是可替换的适配器。换数据源或 mock 测试时改 adapter，不改 `core/signal` / `core/paper`。
+
+分层图里的「适配层 `skills/`」是 **入站**（把 LLM 工具调用翻成领域调用），**不是** `adapters/` 出站包；两套「adapter」不要混读。
+
+```mermaid
+flowchart LR
+  subgraph inbound [入站适配器 Driving]
+    Web[web/ FastAPI]
+    CLI[main.py]
+    Skills[skills/ 薄 handler]
+  end
+
+  subgraph hex [领域六边形]
+    App[Application Service<br/>services · quant/services]
+    Facade[Domain Facade<br/>DS · SS · BS]
+    Domain[core<br/>信号 · 回测 · 纸面 · 风控]
+    Ports[Ports<br/>core/ports · Protocol]
+    App --> Facade --> Domain --> Ports
+  end
+
+  subgraph outbound [出站适配器 Driven]
+    Bind[adapters.bind]
+    Mkt[adapters/market]
+    News[adapters/news]
+    Fund[adapters/fundamentals]
+    Bind --> Mkt
+    Bind --> News
+    Bind --> Fund
+  end
+
+  Web --> App
+  CLI --> App
+  Skills --> Facade
+  Ports -->|registry.call| Bind
+```
+
+| 角色 | 含义 | 本仓库落点 |
+|------|------|------------|
+| **领域（六边形内部）** | 确定性计算与账本；**不** import HTTP / LLM / AkShare | `core/`（signal · backtest · paper · risk · facts） |
+| **入站适配器** | 把外部请求翻成领域调用 | `web/` · `main.py` · `skills/*/handler.py`（Agent 工具，不是行情 fetch） |
+| **出站端口（Port）** | 领域需要的能力契约：`query_quote`、`fetch_daily_bars`、`fetch_minute_bars` 等 | `core/ports/market.py` · `signal.py`；类型化 `Protocol` 在 `core/data/ports.py`（`QuotePort` · `BarsPort` · …） |
+| **出站适配器（Adapter）** | 真正打外部源 / 落盘 | `adapters/market/` · `news/` · `fundamentals/` · `screen/` · `sentiment/` 等 |
+| **绑定（DI）** | 把实现登记到注册表；首次调用 `ensure_bound()` lazy import，避免 `core` 硬依赖 `adapters` | `adapters/bind.py` → `core.ports.registry.set_adapter` |
+| **领域门面** | 业务读数走 DS，不在业务里直调 ports（DS-E5） | `core/data/facade.py` |
+
+**调用链（出站）**
+
+```text
+Skill / Service / 研究 CLI
+  → Domain Facade（优先 DS：get_quote / get_bars）
+    → core/ports/market.py（query_quote · fetch_daily_bars · …）
+      → registry.call(name) → ensure_bound()
+        → adapters.bind.bind_market_adapters()
+          → adapters.market.quote_api / history / minute_history / …
+```
+
+**硬边界（与框架债 O2 / H2 对齐）**
+
+1. **`core/` 不硬 import `skills.*` 或 `adapters.*`**；唯一例外是 `core/ports/registry.py` 在 `ensure_bound()` 里 lazy import `adapters.bind`。  
+2. **`adapters.bind` 只登记 `adapters.*`**，不再从 Skill 挂底层 fetch。Skills 只做 Agent 薄包装 + 兼容 re-export。  
+3. **业务读行情经 DS**，禁止在 `core` 业务模块里直 `import` `ports.query_quote` / `fetch_daily_bars`（允许：`core/ports/*`、`core/data/`）。  
+4. **单测替换实现**：`set_adapter("query_quote", fake_fn)` + `mark_bound()`，不必打 AkShare。见 `tests/test_framework_hardening.py`。
+
+**与其它「Port」命名**：`core/backtest/cost_port.py`（CostPort）是费率权威源，不是出站 I/O 端口；撮合近似见 `core/backtest/matching`。新增外部数据源的步骤见 [§ 如何扩展 · 新增数据源](#新增数据源)。框架收口证据见 [internal/framework-review.md](internal/framework-review.md)。
 
 ## 技术栈
 
@@ -213,7 +318,7 @@ flowchart TB
 | **前端增强（CDN）** | Lightweight Charts · marked；局部 React 岛（非全站 SPA） |
 | **AI** | 通义千问（DashScope，OpenAI 兼容 HTTP）；自研 `InvestmentAgent` + Skills |
 | **行情 / 基本面** | 腾讯 qt（现价）· AkShare（日线/选股等）· pandas |
-| **存储** | 本地 JSON / JSONL（无 SQLite / Redis）；见 [data-layer · 存储选型](data-layer.md#存储选型为何是-json何时才上数据库) |
+| **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`INVESTMENT_BARS_BACKEND=sqlite\|json`）；见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型 · [internal/sqlite-migration.md · SQLite 改造](internal/sqlite-migration.md#日分钟线缓存-sqlite-改造方案) · [internal/engineering-track.md · 工程结构轨](internal/engineering-track.md#工程结构轨a0a4) |
 | **量化主轴** | 组 OLS/Ridge β → **predicted_score（ŷ%）** 选股；`heuristic_score` / `signal_config.weights` 仅研究基线；ML 旁路见 `research/ml/` |
 | **任务 / 运维** | 进程内 `POST /api/schedule/run` + shell cron / launchd；`unittest` + `evals` |
 | **部署形态** | 单机本地（默认 `127.0.0.1:8000`）；暂不接实盘 OMS |
@@ -222,11 +327,12 @@ flowchart TB
 
 ```text
 接入     CLI (main.py) · Web (run_web.py → FastAPI web/app.py)
-服务     services/* · quant/services
+应用服务 services/* · quant/services（Application Service）
 编排     agent/（LLM Function Calling，最多 5 轮）
-领域     core/（信号 · 回测 · 纸面 · 风控 · store）
+领域门面 core/*_service（DS · SS · BS）→ core/（信号 · 回测 · 纸面 · 风控）
+端口     core/ports + adapters.bind（出站 I/O；见六边形）
 能力     skills/*（13 工具，薄 handler）
-数据     DataService + AkShare/腾讯 + data/*.json
+数据     DS + AkShare/腾讯 + data/*.json · bars.db
 前端     web/static（vanilla + CDN 图表）
 ```
 
@@ -238,7 +344,7 @@ flowchart TB
 | **Web** | `fastapi` · `uvicorn[standard]` · `httpx` |
 | **LLM** | 无官方 SDK；`agent/llm_client.py` 直接 HTTP 调 DashScope（`DASHSCOPE_*`） |
 
-**未默认安装**：SQLite ORM、React/Vite 工程、sklearn / torch（舆情或 ML 实验另装）、消息队列、Docker 编排。
+**未默认安装**：SQLAlchemy 等 ORM、React/Vite 工程、sklearn / torch（舆情或 ML 实验另装）、消息队列、Docker 编排。日线/分钟线缓存用标准库 `sqlite3`（见 `core/store_bars_sqlite.py`）。
 
 ### 前端细节
 
@@ -249,16 +355,16 @@ flowchart TB
 | Markdown | **marked** |
 | 大表 | 自研 `virtual_table.js`（可挂 React 岛根节点） |
 | 实时推送 | FastAPI **WebSocket** `/ws/live` |
-| **禁止项** | 全站 CRA / Ant Design Pro / 内嵌 Jupyter（见 [quant-ui-standard](quant-ui-standard.md)） |
+| **禁止项** | 全站 CRA / Ant Design Pro / 内嵌 Jupyter（见 [quant-ui-standard](quant-ui.md#web-ui-标准研究台)） |
 
 ### 数据与外部源
 
 | 类型 | 技术 |
 |------|------|
 | 现价 | 腾讯行情 HTTP |
-| 日线 / 选股 / 财务等 | AkShare（进程内锁串行，`skills.common.ak_lock`） |
+| 日线 / 选股 / 财务等 | AkShare（进程内 `ak_lock` 串行；研究台日 K **增量补齐**走 `ak_worker` 进程池并行） |
 | 账户 · 配置 · 缓存 · 流水 | `data/` 下 JSON / JSONL |
-| 统一读口 | `core/data_service.py` |
+| 统一读口 | `core/data/facade.py` |
 
 ### 测试与运维
 
@@ -267,29 +373,31 @@ flowchart TB
 | 单测 | `python3 -m unittest discover -s tests -v` |
 | 黄金路径 | `evals/run_checklist.py`（`--mock --presets` 与 CI 同款） |
 | 本地 CI | `scripts/ci_quant.sh` |
-| 日更 | `scripts/daily_*.sh` + cron / macOS launchd（[quant-ops](quant-ops.md)） |
+| 日更 | `scripts/daily_*.sh` + cron / macOS launchd（[quant.md · 运维](quant.md#量化运维)） |
 
-安装与环境变量见 [getting-started.md](getting-started.md)；扩展 Skill / 限制见 [development.md](development.md)。
+安装与环境变量见 [development.md · 快速上手](development.md#快速上手)；扩展 Skill / 限制见 [development.md](development.md)。
 
 ---
 
-数据层五模块（采集 / 清洗 / 存储 / 服务 / 监控）与本仓库对照、演进约定见 **[data-layer.md](data-layer.md)**（含 [JSON vs 数据库选型](data-layer.md#存储选型为何是-json何时才上数据库)）。
-策略层（选股择时 / 仓位 / 风控、输入输出、设计模板）见 **[strategy-layer.md](strategy-layer.md)**。  
-风控模型（风险因子、Alpha×Risk、演进）见 **[risk-layer.md](risk-layer.md)**。  
-强化学习视角（Policy/Reward ↔ 策略/风控；**未实现**在线 RL）见 **[rl-layer.md](rl-layer.md)**。  
-舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[sentiment-layer.md](sentiment-layer.md)**。
+数据层五模块（采集 / 清洗 / 存储 / 服务 / 监控）与本仓库对照、演进约定见 **[component/data.md · 数据层](component/data.md#数据层data-layer)**（含 § 数据层 · 存储选型）。
+策略层（选股择时 / 仓位 / 风控、输入输出、设计模板）见 **[component/strategy.md · 策略层](component/strategy.md#策略层strategy-layer)**。  
+风控模型（风险因子、Alpha×Risk、演进）见 **[component/risk.md · 风控层](component/risk.md#风控模型risk-layer)**。  
+强化学习视角（Policy/Reward ↔ 策略/风控；**未实现**在线 RL）见 **[component/rl.md · RL 视角](component/rl.md#强化学习rl视角)**。  
+舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[component/risk.md · 舆情层](component/risk.md#舆情与另类数据sentiment--alt-data)**。
 
-**P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。历史 P 记录见 [quant-upgrade.md](quant-upgrade.md)（归档）。
+**P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。历史 P 总览见 [quant-summary.md](archive/quant-summary.md)。
 
-产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant-concepts.md](quant-concepts.md)。
+产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
-**入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。
+**观察池**（Watching）：用户维护的**候选股票宇宙**（静态名单和/或 `screen` 筛选），落盘 `data/watching.json`，页 `/watching`。划定打分、行情预热、横截面排序、调仓开加、回测宇宙的范围（上限 `WATCHING_MAX_SIZE`=500）；**不是**持仓、**不是**全市场。持仓在模拟账本 `paper.json`。选股链路：观察池 → `score_stock` → 横截面 Top N；建仓只从观察页进（见下「入口边界」）。做 T 不从池新开，只 overlay 已持底仓；分钟截面常为观察池 ∪ 持仓。
+
+**入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。做 T 为 **overlay**，不改变「持有什么」的主线；见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。
 
 **命名约定**：产品对外统一称「模拟」/URL `/follow`；内部 canonical 仍为 `paper`（`paper.json`、`/api/paper`）。旧页 `/paper` 302 到 `/follow`。
 
-**领域端口**：行情与信号经 `core/ports/` 进入账本；默认适配器由 `skills.ports_bind` 注入（`market.py` 不硬 import skills），单测可 `set_adapter` 替换。上层业务读数优先走 `core.data_service`。框架梳理见 [framework-review.md](framework-review.md)。
+**领域端口**：见 [§ 六边形架构](#六边形架构ports--adapters)。行情与信号经 `core/ports/` 进入账本；默认适配器由 `adapters.bind` 注入，单测可 `set_adapter` 替换。上层业务读数优先走 `core.data.facade`。框架梳理见 [internal/framework-review.md](internal/framework-review.md)。
 
-**成交成本**：`paper.cost_model` 为 `zero` 或 `simple_cn`。费率权威源为 **CostPort**（`core/backtest/cost_port.py`）：纸面 `paper_costs`、回测 `costs`、辅助 `TransactionCostCalculator` 同源；组合回测含成本为换手计费（`cost_mode=turnover`）。建仓预演、手动买卖与策略调仓共用纸面路径。
+**成交成本**：`paper.cost_model` 为 `zero` 或 `simple_cn`。费率权威源为 **CostPort**（`core/backtest/cost_port.py`）：纸面 `core/paper/costs`、回测 `costs`、辅助 `TransactionCostCalculator` 同源；组合回测含成本为换手计费（`cost_mode=turnover`）。建仓预演、手动买卖与策略调仓共用纸面路径。
 
 **依赖方向（自顶向下）**：接入 → 服务 → 编排 → 适配 → 领域 → 数据。  
 `core/` 不 import Handler/LLM；行情经 ports；`advise` 经 `core.facts` 直接调 engine，避免 Handler JSON 往返。
@@ -410,7 +518,7 @@ flowchart LR
     position
   end
 
-  subgraph shared [skills/common]
+  subgraph shared [adapters/market]
     hist[history.py]
     api[quote_api.py]
   end
@@ -476,7 +584,7 @@ flowchart LR
   Reg --> H[handler.py<br/>BaseSkillHandler]
   Agent[InvestmentAgent] -->|function call| H
   H -->|handle| E[engine.py]
-  E --> Common[skills/common]
+  E --> Common[adapters/market]
   H -->|execute JSON| Agent
   Agent --> LLM[LLM 组织自然语言]
 ```
@@ -499,7 +607,7 @@ flowchart LR
 
 ### 执行链路示例
 
-下面用三个问法把「谁调用谁」串起来。核心约定不变：**选工具与写话术是 LLM；数字只来自 Skill / `skills/common`。**
+下面用三个问法把「谁调用谁」串起来。核心约定不变：**选工具与写话术是 LLM；数字只来自 Skill / `adapters/market`。**
 
 #### 例 1：单工具 —「茅台现价」
 
@@ -527,7 +635,7 @@ agent.chat
   → handlers["quote"].execute(...)
       → BaseSkillHandler.execute
       → QuoteHandler.handle
-      → skills.common.quote_api.StockAPI.query
+      → adapters.market.quote_api.StockAPI.query
   → llm.chat（无 tool_calls，出最终文本）
   → _ensure_disclaimer
 ```
@@ -660,7 +768,7 @@ flowchart LR
   Agent -->|chat / extract_*| LLM[LLMClient]
   Agent -->|load + validate| CFG[tool_config.json]
   H -->|handle → dict| Eng[skills/*/engine.py]
-  Eng --> Common[skills/common]
+  Eng --> Common[adapters/market]
   Common --> Data[腾讯 / AkShare / data JSON]
 ```
 
@@ -670,7 +778,7 @@ flowchart LR
 | 注册表 | `registry.SKILL_SPECS` | **硬**：tools / handlers / `tool_config.name` 三者一致 |
 | LLMClient | `llm_client.py` | Agent / main 依赖其方法表面 |
 | InvestmentAgent | `chat` / `reset` | 对外入口 |
-| 日线 / 行情 | `skills/common` | 字段约定 + 单测 |
+| 日线 / 行情 | `adapters/market` | 字段约定 + 单测 |
 
 #### 1. Skill Handler
 
@@ -725,7 +833,7 @@ SKILL_SPECS = (
 
 底层协议：`POST {DASHSCOPE_ENDPOINT}/chat/completions`（OpenAI 兼容，`tool_choice=auto`，可选 `enable_search`）。
 
-#### 4. InvestmentAgent（编排入口）
+#### 4. Agent
 
 | 方法 | 约定 |
 |------|------|
@@ -745,7 +853,7 @@ SKILL_SPECS = (
 | `note` | 可选；含免责 / 数据源说明等 |
 | 业务字段 | 各 Skill 自定义；数字须来自真实取数 |
 
-**日线 bar**（`skills/common/history.py` → `normalize_bars`）：
+**日线 bar**（`adapters/market/history.py` → `normalize_bars`）：
 
 ```text
 {date, open, high, low, close, volume}
@@ -753,7 +861,7 @@ SKILL_SPECS = (
 
 `signal` / `kline` / `index` 复用此形状；日线失败时可 `quote_fallback`，结果中带 `data_source` 区分可信度。
 
-**实时行情**（`skills.common.quote_api.StockAPI`）：
+**实时行情**（`adapters.market.quote_api.StockAPI`）：
 
 | 要点 | 说明 |
 |------|------|
@@ -761,7 +869,7 @@ SKILL_SPECS = (
 | `query(stock_code) -> dict` | `success` + `price` / `change_*` / `price_raw` 等 |
 | 缓存 | 同 symbol 约 60s |
 
-**日线**（`skills.common.history` + `core/store.py`）：`normalize_bars` / `fetch_daily_bars`（24h 本地缓存） / `bars_from_quote_fallback`。完整数据层说明见 [data-layer.md](data-layer.md)。
+**日线**（`adapters.market.history` + `core/store.py`）：`normalize_bars` / `fetch_daily_bars`（24h 本地缓存） / `bars_from_quote_fallback`。完整数据层说明见 [component/data.md · 数据层](component/data.md#数据层data-layer)。
 
 #### 6. Skill 目录与扩展步骤
 
@@ -770,7 +878,7 @@ SKILL_SPECS = (
 | `tool_config.json` | 暴露给 LLM 的函数定义 |
 | `handler.py` | `BaseSkillHandler` 子类，实现 `handle` |
 | `engine.py` | 领域逻辑（可单测 mock） |
-| 共享能力 | 放 `skills/common/`，勿挂在某一 Skill 下 |
+| 共享能力 | 放 `adapters/market/`，勿挂在某一 Skill 下 |
 
 扩展时：
 
@@ -783,7 +891,7 @@ SKILL_SPECS = (
 
 - 不在 Agent 内做关键词硬路由（路由交给 LLM + tool_config）。  
 - 不把「解读话术」做成 Skill（话术只在 LLM 侧）。  
-- 不为数据源先上完整 Repository / 时序仓（MVP 以 `common` + `store` 足够）；选型与触发条件见 [data-layer · 存储选型](data-layer.md#存储选型为何是-json何时才上数据库)；演进见 [data-layer · 演进](data-layer.md#演进m1-路径内已收口--仍待)。
+- 不为数据源先上完整 Repository / 时序仓（MVP 以 `common` + `store` 足够）；选型与触发条件见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型；演进见 § 数据层 · 演进。
 
 ### 能力分层（13 个工具）
 
@@ -796,7 +904,7 @@ SKILL_SPECS = (
 | 中长期研究 | `fundamentals` `peer` `index` `news` | 估值财务、同行、超额、资讯 |
 | 组合动作 | `position` | 本地/临时持仓 + 可配置规则 |
 
-共享模块：`skills/common/history.py`、`skills/common/quote_api.py`；领域量化引擎：`core/`（`stance` `backtest` `paper` / `paper_cycle` `store`）；CLI 包装：`research/`；研究库：`quant/research/`。框架债务见 [framework-review.md](framework-review.md)。
+共享模块：`adapters/market/history.py`、`adapters/market/quote_api.py`；领域量化引擎：`core/`（`stance` `backtest` `paper` / `paper_cycle` `store`）；CLI 包装：`research/`；研究库：`quant/research/`。框架债务见 [architecture.md · 框架梳理](architecture.md)。
 
 ### 关键模块职责
 
@@ -811,62 +919,10 @@ SKILL_SPECS = (
 | `agent/llm_client.py` | HTTP 调通义千问；解析 `tool_calls` |
 | `agent/prompts.py` | 系统提示：角色、路由偏好、输出与合规边界 |
 | `skills/*/handler.py` | 薄适配层 → engine / core |
-| `skills/common/` | 跨工具行情 / 日线 I/O |
+| `adapters/market/` | 跨工具行情 / 日线 I/O |
 | `data/*.json` | 持仓、纸面、规则配置 |
 
-### prompts.py 的用途
-
-文件：[`agent/prompts.py`](../agent/prompts.py)。  
-它**不取数、不算规则**，只定义「AI 如何服务量化工作流」——属于认知层的**行为说明书**。真正选哪个 Skill 仍由 LLM + `tool_config.json` 完成；`prompts` 负责约束角色、偏好路由、回复结构和合规红线。
-
-#### 在链路中的位置
-
-```text
-InvestmentAgent 启动
-  → messages = [{ role: system, content: SYSTEM_PROMPT }]   ← prompts 注入
-  → 用户问题 / tool 结果不断 append
-  → 每轮 llm.chat(messages, tools=...)
-  → 最终回复若缺免责声明 → Agent 用 DISCLAIMER 兜底追加
-```
-
-`reset` 会清空对话，但**保留**这条 `system`（再次使用同一 `SYSTEM_PROMPT`）。
-
-#### 导出内容
-
-| 符号 | 用途 | 是否已被 Agent 使用 |
-|------|------|---------------------|
-| `SYSTEM_PROMPT` | 主系统提示：身份、工具清单、路由规则、输出结构、买入类问题必答节、拒答边界 | **是**（`messages[0]`） |
-| `DISCLAIMER` | 「以上为量化研究与模拟结论，市场有风险，不保证收益，不代客下单。」 | **是**（`_ensure_disclaimer` 兜底；也写在 SYSTEM_PROMPT 里） |
-| `ANALYSIS_HINT` | 解读类补充提示（事实→观察→风险） | 已定义，当前 Agent **未自动注入**（预留） |
-| `SHORT_HORIZON_HINT` | 短线 1～3 天用语约束 | 已定义，当前 Agent **未自动注入**（预留） |
-
-#### SYSTEM_PROMPT 解决什么问题
-
-| 块 | 作用 |
-|----|------|
-| 角色定位 | **量化助手**：解释信号/策略结论与回测模拟结果，非持牌投顾 |
-| 可用工具列表 | 与 `registry` 中 10 个 Skill 对齐的自然语言说明，辅助选工具 |
-| 路由规则 | 软引导（如持仓→`position`；「是否可以买入」→至少 `quote+kline+signal`），**不是**代码 if/else |
-| 输出要求 | 数字须来自工具；高信息密度；建议须与事实一致 |
-| 「是否可以买入」必答节 | 「策略结论：是否买入」：规则结论 + 依据 + 失效条件 |
-| 拒答边界 | 保证收益、代客下单、内幕/违法等 |
-
-扩写策略时优先改 `SYSTEM_PROMPT` 的「信息密度」与路由，而不是加长客套话。
-
-#### 与 `tool_config.json` 的分工
-
-| | `prompts.py` | `tool_config.json` |
-|--|--------------|---------------------|
-| 粒度 | 全局行为（整次对话） | 单个工具的说明书（name/description/parameters） |
-| 影响 | 怎么答、答到什么程度、合规 | 什么时候适合调这个工具、参数怎么填 |
-| 修改时机 | 改话术策略、路由偏好、合规 | 新增/调整某个 Skill 的对外描述 |
-
-扩 Skill 时：除注册 `registry` 外，通常还要在 `SYSTEM_PROMPT` 的「可用工具 / 路由规则」里补一行，否则模型可能不知道新工具的使用场景。
-
-#### 和代码兜底的关系
-
-- **模型侧**：`SYSTEM_PROMPT` 要求结尾自带免责声明、禁止荐股口吻。  
-- **代码侧**：`InvestmentAgent._ensure_disclaimer` 在命中投资相关关键词且回复缺少 `DISCLAIMER` 时**强制追加**——双保险，不依赖模型每次都记得写。
+`prompts.py` 的角色、导出内容与 `tool_config.json` 分工见 [development.md · prompts 说明](development.md#promptspy-说明)。
 
 ### LLM 与配置
 
@@ -904,48 +960,517 @@ InvestmentAgent 启动
 
 ---
 
+
+## 3. 分层模块说明与代码组成
+
+### 3.1 接入层（Access）
+
+**功能**：HTTP/CLI/WebSocket 入口；页面路由；静态资源；请求校验与依赖注入。
+
+| 组件 | 路径 | 说明 |
+|------|------|------|
+| Web 应用 | `web/app.py` | FastAPI 主应用，挂载 routers |
+| 启动 | `run_web.py` | Uvicorn 启动 |
+| CLI | `main.py` | 命令行对话与研究入口 |
+| 路由 | `web/routers/` | 按域拆分 API（见下表） |
+| 页面拼装 | `web/page_html.py` | 服务端 HTML 模板 |
+| 前端编排 | `web/static/js/` | 原生 JS 模块（无 Node 构建） |
+| Schema | `web/schemas/` | Pydantic 请求/响应模型 |
+| 依赖 | `web/deps.py` | 服务实例注入 |
+
+**Routers 组成**：
+
+| Router | 路径 | 主要 API 前缀 |
+|--------|------|---------------|
+| `meta` | `web/routers/meta.py` | 健康、版本、静态元数据 |
+| `chat` | `web/routers/chat.py` | `/api/chat` 会话 |
+| `paper` | `web/routers/paper.py` | `/api/paper` 模拟账本 |
+| `watching` | `web/routers/watching.py` | `/api/watching` 观察池（候选宇宙 CRUD / 建仓入口） |
+| `strategy` | `web/routers/strategy.py` | 策略配置 |
+| `daily` | `web/routers/daily.py` | `/api/daily` 日报编排 |
+| `quant` | `web/routers/quant.py` | `/api/quant` 研究台主路由 |
+| `quant_config` | `web/routers/quant_config.py` | 信号/策略配置 |
+| `quant_research` | `web/routers/quant_research.py` | 因子/OLS/截面研究 |
+| `quant_cluster` | `web/routers/quant_cluster.py` | 日/分钟仓刷新（bars/minute）；分组 OLS/live 已退役（410） |
+| `quant_backtest` | `web/routers/quant_backtest.py` | TopK/组合回测 |
+| `quant_dashboard` | `web/routers/quant_dashboard.py` | 研究台仪表盘 |
+| `evals` | `web/routers/evals.py` | Golden eval |
+| `platform` | `web/routers/platform.py` | Job/Memory/Decision 等平台 API |
+| `live_ws` | `web/routers/live_ws.py` | WebSocket `/ws/live` |
+
+**前端主模块**：
+
+| 文件 | 职责 |
+|------|------|
+| `paper.js` | 模拟页总编排（子模块在 `paper/`） |
+| `quant.js` | 研究台总编排（子模块在 `quant/`） |
+| `dashboard.js` + `dashboard_api.js` | 首页仪表盘 |
+| `ai_drawer.js` | ⌘K 对话抽屉 |
+| `watching_table_island.js` | 观察池表格岛 |
+| `api_client.js` | 统一 fetch 封装 |
+| `live_ws.js` | 实时推送 |
+
+---
+
+### 3.2 Application Service 层
+
+**功能**：把多个领域能力组装成**产品用例**；对上稳定 API，对下调 Domain Facade 与 core。
+
+#### `services/` — 产品闭环
+
+| 模块 | 路径 | 功能 |
+|------|------|------|
+| PaperService | `paper_service.py` + `paper_account.py` / `paper_jobs.py` / `paper_trades.py` / `paper_helpers.py` | 纸面账户、买卖、调仓 Job、策略晋升 |
+| WatchingService | `watching_service.py` | 观察池（候选宇宙）CRUD、建仓入口 |
+| ChatService | `chat_service.py` | Web/CLI 会话、Agent 调用 |
+| DailyService | `daily_service.py` | 每日任务（纸面 + eval + 量化） |
+| EvalService | `eval_service.py` | Golden eval 运行 |
+| PlatformService | `platform_service.py` | Job / Memory / Decision / Feedback / Schedule / Prefill |
+| position_stance | `position_stance.py` | 持仓 stance 摘要 |
+
+#### `quant/services/` — 研究台
+
+| 模块 | 路径 | 功能 |
+|------|------|------|
+| QuantService | `quant_service.py` | Mixin 门面入口 |
+| Config | `quant_service_config.py` | 策略/信号配置列表 |
+| Follow | `quant_service_follow.py` | ① 模拟（T0 研究；执行归 PaperService） |
+| Replay | `quant_service_replay.py` | ② 回溯（paper_replay / rank_lots） |
+| Compare | `quant_service_compare.py` | ③ 持仓联动摘要 |
+| Factors | `quant_service_factors.py` | 因子面板、IC、OLS、截面 |
+| Ops | `quant_service_ops.py` | 日报、导出、解读、watching 运维 |
+| Portfolio | `quant_service_portfolio.py` | 组合回溯兼容入口 |
+| 报告 | `quant_report_export.py` · `quant_report_index.py` · `quant_interpret.py` | Markdown/HTML 导出、归档、LLM 解读 |
+| 桥接 | `portfolio_quant_bridge.py` · `signal_config_preview.py` · `action_map.py` | 持仓↔量化联动、配置 diff 预览、动作映射 |
+
+---
+
+### 3.3 Agent 与 Skills（旁路）
+
+**功能**：自然语言意图 → 选工具 → 调 handler → 拿 JSON 事实 → LLM 组织话术。**不得改写** `score` / `stance_label`。
+
+#### `agent/`
+
+| 模块 | 路径 | 功能 |
+|------|------|------|
+| Agent | `agent.py` | 多轮 Function Calling（≤5 轮） |
+| LLM | `llm_client.py` | 通义千问 HTTP 客户端 |
+| Prompts | `prompts.py` | 系统提示、免责声明 |
+| Registry | `registry.py` | 工具注册与 handler 查找 |
+| Routing | `routing.py` | 参数准备、结果 enrich |
+| Contracts | `contracts.py` | SkillHandler 协议 |
+
+#### `skills/` — 13 个 Agent 工具
+
+| Skill | 路径 | 功能 |
+|-------|------|------|
+| quote | `skills/quote/` | 实时行情（腾讯 qt） |
+| compare | `skills/compare/` | 多股对比 |
+| screen | `skills/screen/` | A 股条件选股 |
+| signal | `skills/signal/` | 短线观察池打分 |
+| backtest | `skills/backtest/` | 信号规则回测 |
+| quant | `skills/quant/` | 量化研究台（委托 QuantService） |
+| kline | `skills/kline/` | 日 K 形态 |
+| fundamentals | `skills/fundamentals/` | 基本面 |
+| news | `skills/news/` | 资讯标题 |
+| advise | `skills/advise/` | 买卖倾向建议 |
+| position | `skills/position/` | 持仓查询 |
+| peer | `skills/peer/` | 同业对比 |
+| index | `skills/index/` | 指数行情 |
+
+**支撑模块**：
+
+| 模块 | 路径 | 功能 |
+|------|------|------|
+| ports_bind | `adapters/bind.py` | 行情/信号适配器注入 core.ports |
+| common | `adapters/market/` | `quote_api` · `history` · AkShare 锁 |
+| 引擎（非 FC 工具） | `macro/` · `announcement/` · `market_sentiment/` | 宏观/公告/情绪，供 core 或研究调用 |
+
+---
+
+### 3.4 Domain Facade 层（DS / SS / BS）
+
+**功能**：领域能力的**唯一对外出口**；封装质量门禁、信封类型、生产/研究双轨。
+
+| 门面 | 模块路径 | 实现包 | 主要 API |
+|------|----------|--------|----------|
+| **DS** | `core/data/facade.py` | `core/data/` | `get_quote` · `get_bars` · `bars_and_source` · `summarize_data_quality` |
+| **SS** | `core/signal_service.py` | `core/signal/` | `score_one` · `rank_cross_section` |
+| **BS** | `core/backtest_service.py` | `core/backtest/` | `run_topk`（研究探针，≠ 产品 `/replay`） · `run_signal_backtest` |
+
+**端口与绑定**（模式说明见 [§ 六边形架构](#六边形架构ports--adapters)）：
+
+```text
+DS → core/ports/market.py → adapters/bind.py → adapters/market/
+SS → core/signal/service.py → scorer · factors · config · gate
+BS → core/backtest/service.py → engine · topk_backtest · topk_weights
+```
+
+---
+
+### 3.5 领域层 `core/`
+
+**功能**：确定性业务逻辑；**无 LLM、无 HTTP Handler**。live / 回测 / 纸面共用同一套规则。
+
+#### 信号与打分 `core/signal/`
+
+| 子模块 | 功能 |
+|--------|------|
+| `service.py` | SignalService 实现 |
+| `scorer.py` · `score_stock.py` | 单票打分主路径 |
+| `factors/` | 单因子 `score_*` 实现 |
+| `factors/meta/` | 注册表、面板、IC/相关、健康、分类、系数、共线、风险归因 |
+| `config.py` | `signal_config` 读写 |
+| `gate.py` | ŷ 生产门禁、scale 推断 |
+| `cross_section_batch.py` | 截面批量 |
+| `dual_score/` | 双层 ŷ：融合、解析、τ/co 头、簿字段、影子簿、人审配置 |
+
+#### 回测 `core/backtest/`
+
+| 子模块 | 功能 |
+|--------|------|
+| `service.py` | BacktestService 实现 |
+| `engine.py` | 单票 signal 回测 |
+| `paper_replay.py` | 产品历史回测（rank_lots；含分票贡献） |
+| `topk_backtest.py` | TopK 等权/加权回测（研究探针，≠ `/replay`） |
+| `topk_weights.py` | 权重计算（按用例拆分） |
+| `matching.py` | 成交撮合规则 |
+| `strategies/` | 策略模板 |
+
+#### 纸面模拟 `core/paper/`
+
+| 模块 | 职责 |
+|------|------|
+| `ledger.py` | 账本 CRUD、锁、快照、操作日志 |
+| `exec.py` · `cycle.py` | 盯市、买卖、日循环 |
+| `costs.py` · `sizing.py` | 费用、手数 |
+| `rebalance/` | 调仓编排、匹配、门禁、预取 |
+
+#### 市场 `core/market/`
+
+| 模块 | 职责 |
+|------|------|
+| `symbols.py` | A/H/US 代码解析 |
+| `calendar.py` | 交易日历、停牌过滤 |
+| `context.py` · `context_store.py` · `context_merge.py` | 宏观/情绪上下文 |
+| `sentiment_prior.py` · `prior_policy.py` | 情绪 prior、买卖门禁 |
+
+#### 风控 `core/risk/`
+
+| 模块 | 功能 |
+|------|------|
+| `checks.py` | 调仓前门禁 |
+| `budget.py` · `exposure.py` | 风险预算与敞口 |
+
+#### 观察与策略
+
+**观察池** = 候选宇宙，不是账本。存储/健康/洞察在 `core/watching/`；产品定义见上文。
+
+| 模块 | 功能 |
+|------|------|
+| `core/watching/` | 观察池存储、健康检查、洞察缓存 |
+| `stance.py` · `advise.py` · `position.py` | 倾向与建议 |
+| `strategy.py` · `strategy_monitor.py` | 策略定义与监控 |
+| `north_star.py` · `north_star_pro.py` | 北极星指标 |
+
+#### 数据与存储
+
+| 模块 | 功能 |
+|------|------|
+| `store.py` | 缓存读写；`INVESTMENT_BARS_BACKEND=sqlite\|json` |
+| `store_bars_sqlite.py` | 日线/分钟线 SQLite WAL |
+| `data/service.py` · `data/gate.py` | MarketDataService 与质量门禁 |
+| `pit.py` · `coverage.py` · `quality_center.py` | PIT、覆盖率、质量中心 |
+| `paths.py` · `env.py` | 路径与环境变量 |
+
+#### 平台与运行时
+
+| 模块 | 功能 |
+|------|------|
+| `job_progress.py` | 统一 Job 槽（paper · ols · chat · …） |
+| `schedule_jobs.py` | 定时任务 |
+| `decision_record.py` · `memory_store.py` · `feedback_suggest.py` | D 轨平台能力 |
+| `observation.py` · `order_prefill.py` | 观察记录、订单预填 |
+
+#### 研究内核（core 侧）
+
+| 模块 | 功能 |
+|------|------|
+| `core/research/` | OLS fit、walk-forward、ŷ_τ 头（`tau_ridge`）等研究算法 |
+| `t0/` | 做 T 回测内核 · `close_band` / `slots`（v6 收盘带宽）· `minute_path` · `intraday.py` · `auto_worker.py` |
+
+---
+
+### 3.6 量化研究 `quant/`
+
+**功能**：研究台专属逻辑、报告、Agent quant Skill；**不替代** core 真相源。
+
+| 目录 | 组成 | 功能 |
+|------|------|------|
+| `quant/services/` | 见 §3.2 | Application Service |
+| `quant/research/` | `factor_ols.py` · `bars_*` / `minute_*` · `portfolio_*.py` · `t0_backtest.py` | 因子 OLS、观察池日/分钟仓、组合对照（**分组 OLS 已退役**） |
+| `quant/ops/` | daily preset、健康检查 | 运维脚本支撑 |
+| `quant/skill/` | `engine.py` + handler | Agent `quant(task=...)` 引擎 |
+
+---
+
+### 3.7 研究 CLI `research/`
+
+**功能**：薄命令行入口；逻辑在 `core/` / `quant/research/`；读数经 DS。
+
+| 示例脚本 | 功能 |
+|----------|------|
+| `cross_section_run.py` | 截面排序导出 |
+| `t0_backtest_run.py` | 做 T 回测 CLI |
+
+---
+
+### 3.8 数据与持久化 `data/`
+
+| 类型 | 路径 | 内容 |
+|------|------|------|
+| 模拟账本 | `data/paper.json` | 持仓、资金、流水 |
+| 观察池 | `data/watching.json` | 候选股票宇宙（watchlist + sources）；≠ 持仓 |
+| 信号配置 | `data/signal_config.json` | 因子权重、阈值 |
+| 行情缓存 | `data/store/bars.db`（默认）或 `data/store/daily/` | SQLite WAL 或 JSON |
+| Job 状态 | `data/jobs/*.json` | 长任务进度与结果 |
+| 决策/记忆 | `data/decisions.jsonl` · `data/memory.json` | 平台 D 轨 |
+| 报告 | `data/reports/` | 量化日报归档 |
+| 回测快照 | `data/last_portfolio_backtest.json` · `data/last_t0_backtest.json` | `/replay` / `/follow` 刷新恢复，不重跑 |
+| 配置备份 | `data/config_backups/` | signal_config 历史 |
+
+环境变量：`INVESTMENT_STORE_DIR` · `INVESTMENT_BARS_BACKEND`。见 [data-layer](component/data.md#数据层data-layer) · [sqlite-migration](internal/sqlite-migration.md)。
+
+---
+
+### 3.9 质量保障
+
+| 目录 | 功能 |
+|------|------|
+| `tests/` | `unittest` 回归（store · job · backtest · quant · web API …） |
+| `evals/` | Golden 用例与 repro 脚本 |
+| `scripts/` | 迁移、日报 shell、launchd 示例 |
+
+---
+
+## 4. 模块依赖规则
+
+```text
+允许：
+  routers → Application Service → Domain Facade → core → ports → adapters
+  Agent → Skills → Application Service 或 Domain Facade
+  core 内部模块互调
+  core/ports/registry 仅 lazy import adapters.bind
+
+禁止：
+  core 硬 import web / agent / llm / skills / adapters.*（除 registry lazy bind）
+  router 直接 import core 深层实现（应经 Service/Facade）
+  业务模块绕过 DS 直调 ports 读行情
+  LLM 改写 score / stance_label 或静默写 signal_config
+  Application Service 绕过 DS/SS/BS 直碰 store（读口由 DS 封装）
+```
+
+依赖倒置细则见 [§ 六边形架构](#六边形架构ports--adapters)。
+
+---
+
+## 代码目录结构
+
+[← 文档索引](README.md) · 完整架构说明见 [architecture.md](architecture.md)
+
+```
+investment/
+├── core/                        # 领域层（确定性逻辑，无 LLM/Handler）
+│   ├── paths.py · env.py · numbers.py
+│   ├── data/                    # facade · service · policy · pit · coverage · quality
+│   ├── signal_service.py        # 上层打分口（ŷ 信封 / 生产门禁）
+│   ├── store.py · store_bars_sqlite.py
+│   ├── ports/                   # market · registry · signal（经 adapters.bind 注入）
+│   ├── signal/                  # Service · scorer · factors · config · score_stock
+│   ├── backtest/                # walk-forward · topk_backtest · strategies
+│   ├── stance.py · advise.py · facts.py · position.py
+│   ├── paper/                   # 账本 · exec · cycle · rebalance（`from core.paper import …`）
+│   ├── market/                  # symbols · calendar · context
+│   ├── watching/                # 观察池 store · health · insights
+│   ├── t0/ · risk/ · research/  # T+0 · 风控门禁 · 研究模型
+│   ├── job_progress.py · schedule_jobs.py · run_manifest.py
+│   ├── decision_record.py · memory_store.py · feedback_suggest.py
+│   ├── observation.py · order_prefill.py · alert_outbound.py
+│   └── sentiment.py
+├── adapters/                    # 出站 I/O（market / news / fundamentals / …）
+│   └── bind.py                  # 默认实现登记到 core.ports
+├── quant/                       # 量化研究台
+│   ├── services/                # QuantService、报告、持仓联动
+│   ├── ops/                     # daily preset、健康检查
+│   ├── research/                # 因子 IC、TopK 摘要、中性化对照
+│   └── skill/                   # Agent quant(task=...) 引擎与 Handler
+├── services/                    # 应用服务
+│   ├── paper_service.py         # PaperService 组装
+│   ├── paper_account.py · paper_jobs.py · paper_trades.py · paper_helpers.py
+│   ├── chat_service.py · daily_service.py · eval_service.py
+│   └── watching_service.py · platform_service.py · position_stance.py
+├── main.py                      # CLI
+├── run_web.py                   # Web：uvicorn
+├── web/
+│   ├── app.py · deps.py · schemas.py
+│   ├── routers/                 # chat · paper · watching · daily · quant* · strategy · …
+│   └── static/js/               # paper/ · quant/ · watching_*
+├── agent/                       # 编排层 + 认知层（正本）
+├── skills/                      # Agent 工具（registry 13 个）；handler + shim
+│   ├── quote/ compare/ screen/ signal/ backtest/ …
+│   └── quant/                   # tool_config；实现在 quant/skill/
+├── research/                    # 薄 CLI（逻辑在 core/quant；读数经 DataService）
+├── scripts/                     # 日更 / 回归 / 对照
+├── data/                        # JSON 状态 · store/ · jobs/paper.json
+├── evals/ · tests/
+└── docs/                        # 本目录
+```
+
+## 分层说明
+
+| 层级 | 路径 | 职责 |
+|------|------|------|
+| **Domain Facade · DS** | `core/data/facade` → `core/ports` → `adapters.bind` | 读口；业务/Skill/研究统一质量契约 |
+| **Domain Facade · SS** | `core/signal_service` → `core/signal/service` | 打分；纸面/量化/Skill 统一 ŷ 信封与生产门禁 |
+| **Domain Facade · BS** | `core/backtest_service` → `core/backtest/service` | 回测信封；TopK / signal 回测 |
+| 共享领域 | `core/signal` · `core/backtest` · `core/paper*` · `core/risk` | live / 回测 / 纸面同一套规则 |
+| **Application Service** | `services/` | Web/CLI 用例；纸面拆 account/jobs/trades |
+| **Application Service** | `quant/services/`（`QuantService`） | 研究台用例；向下调 DS/SS/BS |
+| Agent 编排 | `agent/` · `skills/*` | LLM 路由、tool loop |
+
+**命名**：文档里 **Application Service** = `services/*` 与 `QuantService`；**Domain Facade** = DS/SS/BS（`core/*_service.py`，文件名历史保留）。见 [§ Service 命名约定](#service-命名约定)。
+
+## Canonical 入口速查
+
+| 模块 | 路径 |
+|------|------|
+| DS（Domain Facade） | `core/data/facade.py` · `core/data/`（`MarketDataService` / Ports / 信封） |
+| SS（Domain Facade） | `core/signal_service.py` · `core/signal/`（`SignalService` · `ScoreResult` · gate · metrics） |
+| 行情端口 | `core/ports/market.py` · 绑定 `adapters/bind.py` |
+| 因子打分 | `core/signal/scorer.py`（实现）· 出口经 SignalService |
+| BS（Domain Facade） | `core/backtest_service.py` · `core/backtest/`（`BacktestService` · `engine`） |
+| TopK 权重 | `core/backtest/topk_weights.py`（`topk_backtest` 再导出） |
+| 纸面账本 | `core/paper/`（`ledger` · `exec` · `cycle` · `rebalance`） |
+| 风控门禁 | `core/risk/checks.py` |
+| QuantService（Application Service） | `quant/services/quant_service.py` |
+| Agent quant Skill | `quant/skill/` · 注册 `skills/quant/` |
+| 模拟账本 | `core/paper/`（`paper.json`）；对话 position 默认读此 |
+| 观察池 | `core/watching/`（候选宇宙；`watching.json`） |
+| 研究 CLI | `research/*.py` |
+| Job 轮询 | `GET /api/jobs/{name}`（纸面兼容 `/api/paper/job`；Ridge 长拟合：`t30-ridge`…`t90-ridge` · `co-ridge`） |
+
+命名约定：产品「模拟」/ `/follow` = 内部 `paper`。详见 [internal/framework-review.md · 框架梳理](internal/framework-review.md#代码框架梳理与合理性分析) · [本章](#架构总览)（含 [§ 技术栈](#技术栈)）。
+
+---
+
+## 组件文档导航
+
+| 层 | 文档 | 内容 |
+|----|------|------|
+| 数据层 | [component/data.md](component/data.md) | 采集/清洗/存储/服务/监控五模块 · 分钟线采集架构 · 存储选型 · PIT 边界 |
+| 策略层 | [component/strategy.md](component/strategy.md) | 选股/择时/仓位/风控 · 策略设计文档模板 · 默认短线策略 |
+| 风控层 | [component/risk.md](component/risk.md) | Alpha×Risk 闭环 · 风控因子 · 舆情与另类数据 |
+| RL 视角 | [component/rl.md](component/rl.md) | Policy/Reward/Env 映射 · 与现有栈衔接（远期） |
+| 框架梳理 | [internal/framework-review.md](internal/framework-review.md) | 代码框架债务台账 · 已收口/设计保留/明确不做 |
+| 工程结构轨 | [internal/engineering-track.md](internal/engineering-track.md) | A0–A4 契约冻结 → Bars SQLite → Job 硬化 → 门面 → 前端稳态 |
+| SQLite 迁移 | [internal/sqlite-migration.md](internal/sqlite-migration.md) | 日线/分钟线缓存 SQLite WAL 改造方案（已落地 A1） |
+
+---
+
+## 端到端全链路架构图
+
+```mermaid
+flowchart LR
+  subgraph Data [数据感知]
+    DS[DS<br/>core/data/facade]
+    Ports[core/ports<br/>+ adapters.bind]
+  end
+  subgraph Signal [信号打分]
+    SS[SS<br/>core/signal_service]
+    Factors[core/signal/factors<br/>+ dual_score]
+  end
+  subgraph Decision [决策倾向]
+    Stance[stance<br/>core/stance]
+    Strategy[StrategySpec<br/>core/strategy]
+  end
+  subgraph Exec [执行记账]
+    BS[BS<br/>core/backtest_service]
+    Paper[core/paper<br/>ledger/exec/cycle]
+  end
+  subgraph Feedback [反馈进化]
+    Evals[evals/<br/>黄金用例]
+    Reports[data/reports<br/>IC/回测/纸面]
+  end
+
+  DS --> Ports --> SS
+  SS --> Factors --> Stance
+  Stance --> Strategy
+  Strategy --> BS
+  BS --> Paper
+  Paper --> Evals
+  Paper --> Reports
+  Reports -.->|人审调参| SS
+  Evals -.->|回归校验| Strategy
+```
+
+| 环节 | 输入 | 输出 | 关键约束 |
+|------|------|------|----------|
+| 数据感知 | 腾讯/AkShare 行情、本地缓存 | 标准化 OHLCV + quote | PIT（无未来函数）；5m 分钟线做 T |
+| 信号打分 | bars + 因子配置 | `score` / `predicted_score(ŷ)` | 数字确定性计算；LLM 不改写 |
+| 决策倾向 | score + 规则 | `stance_label` / 调仓意图 | 人工 promote；不静默改 weights |
+| 执行记账 | 调仓意图 | 纸面成交 + 回测 PnL | 不代客下单；T+1 约束 |
+| 反馈进化 | 回测/纸面/evals | IC/IR/回撤/有效率 | 人审为主，非在线 RL |
+
+---
+
+## 如何扩展
+
+### 新增因子
+
+1. 在 `core/signal/factors/` 下新增 `score_<name>.py`，实现纯函数 `score(bars, ctx) -> float`。
+2. 在 `core/signal/factors/meta/registry.py` 注册因子名、分类、默认权重。
+3. 若需横截面中性化，在 `factor_groups` 中配置行业/规模残差。
+4. 在 `data/signal_config.json` 的 `weights` 中启用并设权重（或研究台因子面板勾选）。
+5. 跑 `python3 -m unittest tests.test_signal -v` 验证；OOS IC 建议见 [quant.md](quant.md)。
+
+### 新增策略
+
+1. 先填 [component/strategy.md · 策略设计文档模板](component/strategy.md#策略设计文档模板填空)。
+2. 在 `core/strategy.py` 的 `STRATEGY_SPECS` 新增规格（信号参数 / 纸面规则 / 风控限额 / 成本模型）。
+3. 若需自定义调仓逻辑，扩展 `core/paper/rebalance/` 或 `core/backtest/strategies/`。
+4. 通过 `POST /api/strategy/promote` 显式晋级（禁止静默覆盖生产配置）。
+5. 用 `/replay` 跑历史回测 + `/follow` 跑模拟盘验证。
+
+### 新增数据源
+
+模式见 [§ 六边形架构](#六边形架构ports--adapters)：只加出站 adapter + 绑定，不改领域计算。
+
+1. 在 `adapters/` 下新增拉取模块（如 `adapters/market/<source>.py`）。
+2. 实现 `core/ports/` 中对应 Port 接口（`fetch_*` 签名与现有一致）；若 DS 要类型化契约，同步 `core/data/ports.py` 的 `Protocol`。
+3. 在 `adapters/bind.py` 中绑定默认适配器；单测可 `set_adapter` 替换。
+4. 数据经 `core/data/facade.py`（DS）统一读口对外，业务层不直连 adapter。
+5. 若需缓存，复用 `core/store.py`（JSON）或 `core/store_bars_sqlite.py`（SQLite WAL）。
+
 ---
 
 ## 子目录 README 索引
 
-各代码目录均有 `README.md` 说明职责与入口。Web 量化面板 **运维状态 → 浏览子目录 README** 可在线阅读；API：`GET /api/readme?dir=<路径>`。
+各代码目录的 `README.md` 说明职责与入口。Web 量化面板 **运维状态 → 浏览子目录 README** 可在线阅读；API：`GET /api/readme?dir=<路径>`。
 
 | 目录 | README |
 |------|--------|
 | `agent/` | [agent/README.md](../agent/README.md) |
 | `core/` | [core/README.md](../core/README.md) |
-| `core/backtest/` | [core/backtest/README.md](../core/backtest/README.md) |
-| `core/signal/` | [core/signal/README.md](../core/signal/README.md) |
-| `core/signal/factors/` | [core/signal/factors/README.md](../core/signal/factors/README.md) |
 | `data/` | [data/README.md](../data/README.md) |
 | `data/reports/` | [data/reports/README.md](../data/reports/README.md) |
-| `data/store/` | [data/store/README.md](../data/store/README.md) |
 | `docs/` | [docs/README.md](../docs/README.md) |
 | `evals/` | [evals/README.md](../evals/README.md) |
 | `quant/` | [quant/README.md](../quant/README.md) |
-| `quant/ops/` | [quant/ops/README.md](../quant/ops/README.md) |
-| `quant/research/` | [quant/research/README.md](../quant/research/README.md) |
 | `quant/services/` | [quant/services/README.md](../quant/services/README.md) |
-| `quant/skill/` | [quant/skill/README.md](../quant/skill/README.md) |
 | `research/` | [research/README.md](../research/README.md) |
 | `scripts/` | [scripts/README.md](../scripts/README.md) |
-| `scripts/launchd/` | [scripts/launchd/README.md](../scripts/launchd/README.md) |
 | `services/` | [services/README.md](../services/README.md) |
 | `skills/` | [skills/README.md](../skills/README.md) |
-| `skills/advise/` | [skills/advise/README.md](../skills/advise/README.md) |
-| `skills/backtest/` | [skills/backtest/README.md](../skills/backtest/README.md) |
-| `skills/common/` | [skills/common/README.md](../skills/common/README.md) |
-| `skills/compare/` | [skills/compare/README.md](../skills/compare/README.md) |
-| `skills/fundamentals/` | [skills/fundamentals/README.md](../skills/fundamentals/README.md) |
-| `skills/index/` | [skills/index/README.md](../skills/index/README.md) |
-| `skills/kline/` | [skills/kline/README.md](../skills/kline/README.md) |
-| `skills/news/` | [skills/news/README.md](../skills/news/README.md) |
-| `skills/peer/` | [skills/peer/README.md](../skills/peer/README.md) |
-| `skills/position/` | [skills/position/README.md](../skills/position/README.md) |
-| `skills/quant/` | [skills/quant/README.md](../skills/quant/README.md) |
-| `skills/quote/` | [skills/quote/README.md](../skills/quote/README.md) |
-| `skills/screen/` | [skills/screen/README.md](../skills/screen/README.md) |
-| `skills/signal/` | [skills/signal/README.md](../skills/signal/README.md) |
+| `adapters/market/` | [adapters/market/README.md](../adapters/market/README.md) |
 | `tests/` | [tests/README.md](../tests/README.md) |
 | `web/` | [web/README.md](../web/README.md) |
-| `web/static/` | [web/static/README.md](../web/static/README.md) |

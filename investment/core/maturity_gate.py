@@ -1,7 +1,9 @@
 """策略验证成熟闸门（V5 / §11）只读评估。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -41,6 +43,45 @@ def evaluate_maturity_gate(
             }
         )
 
+    _data_gate(fund, add)
+    _fit_gate(ns, add)
+    _ops_gate(snaps, ttm, add)
+    _risk_gate(rb, add)
+    _eng_gate(core_paths, add)
+    _s_track_gate(add)
+    _e_track_gate(ns, add)
+    _y_track_gate(snaps, add)
+    _x_track_gate(fund, add)
+    _b_track_gate(fund, add)
+    _dc_fm_rk_gate(ss, fund, add)
+
+    hard_items = [i for i in items if i.get("severity") != "soft"]
+    soft_items = [i for i in items if i.get("severity") == "soft"]
+    hard_passed = sum(1 for i in hard_items if i["ok"])
+    soft_passed = sum(1 for i in soft_items if i["ok"])
+    passed = sum(1 for i in items if i["ok"])
+    total = len(items)
+    # N6 评审就绪：硬项全过；软项失败仍可评审但标注
+    ready = hard_passed == len(hard_items)
+    return {
+        "ok": True,
+        "ready_for_n6_review": ready,
+        "passed": passed,
+        "total": total,
+        "hard_passed": hard_passed,
+        "hard_total": len(hard_items),
+        "soft_passed": soft_passed,
+        "soft_total": len(soft_items),
+        "items": items,
+        "next_actions": [i["action"] for i in items if not i["ok"] and i.get("action")][:6],
+        "note": "硬项全部通过仅表示「可评估是否立项 N6」，不自动开通实盘。"
+        if ready
+        else "硬项未过：继续样本/拟合加深或书面豁免单项；软项为质量提示。",
+        "track": "S0-S4+Y0-Y5+X0-X5+B0-B5+DC/FM/RK",
+    }
+
+
+def _data_gate(fund: dict, add) -> None:
     real_cov = fund.get("real_multi_coverage")
     add(
         "data",
@@ -67,6 +108,8 @@ def evaluate_maturity_gate(
         action="勿用 seed-ladder 宣称已验证；改跑 ingest-history",
     )
 
+
+def _fit_gate(ns, add) -> None:
     rz = (ns.get("realization") or {}) if isinstance(ns, dict) else {}
     rz_status = str(rz.get("status") or "")
     # unavailable 不得当作「拟合可读」通过（此前几乎恒绿）
@@ -107,6 +150,8 @@ def evaluate_maturity_gate(
         action="历史回测页看落差归因卡；对齐成本模型/宇宙/调仓频率",
     )
 
+
+def _ops_gate(snaps: dict, ttm: dict, add) -> None:
     add(
         "ops",
         "paper_snapshots",
@@ -123,6 +168,9 @@ def evaluate_maturity_gate(
         f"real_events={ttm.get('real_events')} seeded={ttm.get('seeded_events')}",
         action="走真实回测/promote 链路，少用 seed-ttm",
     )
+
+
+def _risk_gate(rb: dict, add) -> None:
     labeled = int(rb.get("labeled_count") or 0)
     blocks = int(rb.get("block_count") or 0)
     outcome_need = min(20, blocks) if blocks > 0 else 0
@@ -135,6 +183,8 @@ def evaluate_maturity_gate(
         action="策略中心「拦截流水」点真拦/误拦",
     )
 
+
+def _eng_gate(core_paths, add) -> None:
     cp_ok = True if core_paths is None else bool(core_paths.get("ok"))
     add(
         "eng",
@@ -150,6 +200,8 @@ def evaluate_maturity_gate(
         "现行定位策略验证；未接 OMS（阶段约束）",
     )
 
+
+def _s_track_gate(add) -> None:
     # S4.1 · S 轨能力可达性（软项：有代码即可，不依赖运营样本）
     add(
         "s_track",
@@ -176,6 +228,8 @@ def evaluate_maturity_gate(
         action="ingest 时尽量带 ann_date；见 fundamentals_pit",
     )
 
+
+def _e_track_gate(ns, add) -> None:
     # E0 · 策略 scope 可读（软项）
     prs = (ns.get("paper_risk_strategy") or {}) if isinstance(ns, dict) else {}
     prs_status = str(prs.get("status") or "")
@@ -198,10 +252,12 @@ def evaluate_maturity_gate(
         action="策略调仓写入 origin=strategy；日更快照含 equity_strategy 后可读策略夏普",
     )
 
+
+def _y_track_gate(snaps: dict, add) -> None:
     # Y4.2 · ŷ 生产硬化闸门
     try:
-        from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
         from core.signal.config import load_signal_config
+        from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
 
         cfg = load_signal_config()
         scoring = cfg.get("scoring") or {}
@@ -216,9 +272,10 @@ def evaluate_maturity_gate(
             has_hysteresis,
             f"ŷ 滞回 buy={buy_f} hold={hold_f}（须在 scoring 显式配置）",
             severity="hard",
-            action="策略中心写入 min_predicted_score / min_hold_predicted_score",
+            action="检查 signal_config.scoring 滞回配置",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "y_track",
             "yhat_hysteresis_configured",
@@ -229,36 +286,24 @@ def evaluate_maturity_gate(
         )
 
     try:
-        from core.signal.cluster_live import (
-            assess_cluster_live_health,
-            get_cluster_scoring_cfg,
-            load_active_cluster_weights,
-        )
-
-        cs = get_cluster_scoring_cfg()
-        mode = cs.get("mode") or "off"
-        active = load_active_cluster_weights()
-        health = assess_cluster_live_health() if active else {}
-        live_ok = mode == "off" or (
-            bool(active) and bool(health.get("allow_active") or mode == "shadow")
-        )
+        # 分组 live 健康闸已下线
         add(
             "y_track",
             "yhat_live_health",
-            live_ok,
-            f"cluster mode={mode} has_active={bool(active)} "
-            f"stale={health.get('stale')} refit={health.get('refit_suggested')}",
+            True,
+            "cluster_retired",
             severity="soft",
-            action="研究枢纽刷新簿 / 跑分组→对照；陈旧则勿长期 active",
+            action="分组打分已下线，跳过 live health",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "y_track",
             "yhat_live_health",
-            False,
-            f"live 健康检查失败：{exc}",
+            True,
+            f"cluster_retired（{exc}）",
             severity="soft",
-            action="检查 cluster live 映射",
+            action="分组打分已下线",
         )
 
     # Y5.2：纸面日更连续样本
@@ -272,6 +317,8 @@ def evaluate_maturity_gate(
         action="平台/交易页运行纸面日更，积累真实净值序列",
     )
 
+
+def _x_track_gate(fund: dict, add) -> None:
     # X 轨 · 特征同构
     ann_ratio = fund.get("ann_missing_code_ratio")
     ann_ok = True
@@ -289,8 +336,8 @@ def evaluate_maturity_gate(
         action="ingest 时写入 ann_date；见 fundamentals_pit / sample_ops",
     )
     try:
-        from core.signal.factor_health import assess_factor_health
         from core.signal.config import load_signal_config as _lsc
+        from core.signal.factors.meta.health import assess_factor_health
 
         fh = assess_factor_health(config=_lsc())
         add(
@@ -306,13 +353,14 @@ def evaluate_maturity_gate(
             action="money_flow 等无真源时权重保持 0；见 factor_health",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "x_track",
             "factor_health_proxy",
             False,
             f"factor_health 失败：{exc}",
             severity="soft",
-            action="检查 core.signal.factor_health",
+            action="检查 core.signal.factors.meta.health",
         )
     add(
         "x_track",
@@ -323,6 +371,8 @@ def evaluate_maturity_gate(
         action="打分响应查 fundamentals_pit / index_meta",
     )
 
+
+def _b_track_gate(fund: dict, add) -> None:
     # B 轨
     try:
         from core.validation_universe import universe_sample_gate
@@ -337,6 +387,7 @@ def evaluate_maturity_gate(
             action="扩观察池或调 validation_universe.min_codes",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "b_track",
             "universe_min_codes",
@@ -351,7 +402,7 @@ def evaluate_maturity_gate(
         True,
         "B 轨：y_spec · 共线策略 · Ridge 选 λ · 重估 demote · OOS respect_regime",
         severity="soft",
-        action="见 docs/beta-regression-strengthen.md",
+        action="见 docs/archive/beta-regression-strengthen.md",
     )
     try:
         ann_ratio = fund.get("ann_missing_code_ratio")
@@ -364,7 +415,8 @@ def evaluate_maturity_gate(
             severity="soft",
             action="平台样本覆盖 → 缺 ann 清单 → ingest-history / 预热财务",
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in maturity_gate.py", exc_info=True)
         add(
             "b_track",
             "ann_missing_ops",
@@ -374,52 +426,89 @@ def evaluate_maturity_gate(
             action="检查 sample_ops / fundamentals store",
         )
     try:
-        from core.signal.cluster_live_health import assess_cluster_live_health
-
-        health = assess_cluster_live_health()
-        refit_ok = not bool(health.get("refit_suggested") or health.get("stale") or health.get("ic_demote"))
-        add(
-            "b_track",
-            "refit_discipline",
-            refit_ok or str(health.get("mode") or "") in ("off", "shadow"),
-            (
-                f"分组 health mode={health.get('mode')} · stale={health.get('stale')} · "
-                f"refit={health.get('refit_suggested')} · ic_demote={health.get('ic_demote')}"
-            ),
-            severity="soft",
-            action="研究枢纽跑分组重估；陈旧/IC 破线会 auto demote active→shadow",
-        )
-    except Exception as exc:
+        # 分组 promote/health 闸已下线
         add(
             "b_track",
             "refit_discipline",
             True,
-            f"health 跳过：{exc}",
+            "cluster_retired",
             severity="soft",
-            action="可忽略（无分组 live 时）",
+            action="分组打分已下线，跳过 refit/promote 闸",
+        )
+    except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
+        add(
+            "b_track",
+            "refit_discipline",
+            True,
+            f"cluster_retired（{exc}）",
+            severity="soft",
+            action="分组打分已下线",
         )
 
-    hard_items = [i for i in items if i.get("severity") != "soft"]
-    soft_items = [i for i in items if i.get("severity") == "soft"]
-    hard_passed = sum(1 for i in hard_items if i["ok"])
-    soft_passed = sum(1 for i in soft_items if i["ok"])
-    passed = sum(1 for i in items if i["ok"])
-    total = len(items)
-    # N6 评审就绪：硬项全过；软项失败仍可评审但标注
-    ready = hard_passed == len(hard_items)
-    return {
-        "ok": True,
-        "ready_for_n6_review": ready,
-        "passed": passed,
-        "total": total,
-        "hard_passed": hard_passed,
-        "hard_total": len(hard_items),
-        "soft_passed": soft_passed,
-        "soft_total": len(soft_items),
-        "items": items,
-        "next_actions": [i["action"] for i in items if not i["ok"] and i.get("action")][:6],
-        "note": "硬项全部通过仅表示「可评估是否立项 N6」，不自动开通实盘。"
-        if ready
-        else "硬项未过：继续样本/拟合加深或书面豁免单项；软项为质量提示。",
-        "track": "Y0-Y5+X0-X5+B0-B5",
-    }
+
+def _dc_fm_rk_gate(ss: dict, fund: dict, add) -> None:
+    # DC / FM / RK · 专业核心三轨
+    try:
+        from core.pro_core import assess_pit_depth
+
+        pit = assess_pit_depth(sample_status=ss, fundamentals_history=fund)
+        add(
+            "dc_track",
+            "pit_depth_soft",
+            bool(pit.get("soft_ok")),
+            (
+                f"PIT 深度 soft_ok={pit.get('soft_ok')} · "
+                f"ann_missing={pit.get('ann_missing_code_ratio')} · "
+                f"real_multi={pit.get('real_multi_coverage')} · "
+                f"label={pit.get('honest_label')}"
+            ),
+            severity="soft",
+            action="平台 DQ → 催办 ingest TopN；见 pro-core-strengthen DC0",
+        )
+        add(
+            "dc_track",
+            "pit_depth_hard",
+            bool(pit.get("ok")),
+            (
+                f"PIT 深度 hard_ok={pit.get('ok')} · "
+                f"硬阈值 ann_missing≤{pit.get('ann_missing_hard_max')}"
+            ),
+            severity="hard",
+            action="ann_missing 过高时先补财务公告日再评估 N6",
+        )
+    except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
+        add(
+            "dc_track",
+            "pit_depth_soft",
+            False,
+            f"pit_depth 失败：{exc}",
+            severity="soft",
+            action="检查 core.pro_core.assess_pit_depth",
+        )
+    try:
+        from core.paper import load_paper
+        from core.risk.block_outcome import unlabeled_digest
+
+        paper = load_paper() or {}
+        ud = unlabeled_digest(paper.get("operation_log") or []) or {}
+        unlabeled_n = int(ud.get("unlabeled_count") or 0)
+        add(
+            "rk_track",
+            "outcome_unlabeled_nudge",
+            unlabeled_n == 0,
+            f"风险拦截未标注 outcome={unlabeled_n}",
+            severity="soft",
+            action="策略页标注真拦/误拦；见 pro-core-strengthen RK2",
+        )
+    except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
+        add(
+            "rk_track",
+            "outcome_unlabeled_nudge",
+            True,
+            f"outcome 催办跳过：{exc}",
+            severity="soft",
+            action="",
+        )

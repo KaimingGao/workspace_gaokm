@@ -209,18 +209,12 @@ export function initEvals(ctx) {
   }
 
   ctx.openEvalsPanel = openEvalsPanel;
+  window.__investmentOpenEvals = () => openEvalsPanel({ showDialog: true });
 
   const btnEvals = document.getElementById("btn-evals");
   if (btnEvals) {
     btnEvals.addEventListener("click", async () => {
-      // 工具页顶栏：弹窗；对话页若误留按钮则切右侧 Tab
-      if (evalsDialog && document.body.dataset.page !== "chat") {
-        await openEvalsPanel({ showDialog: true });
-      } else if (ctx.showResultsTab) {
-        await ctx.showResultsTab("evals", { openMobile: true, load: true });
-      } else {
-        await openEvalsPanel({ showDialog: true });
-      }
+      await openEvalsPanel({ showDialog: true });
     });
   }
 
@@ -375,7 +369,7 @@ export function initEvals(ctx) {
     if (evalsPresets) evalsPresets.checked = true;
     if (evalsAgent) evalsAgent.checked = false;
     if (evalsCase) evalsCase.value = "";
-    evalsMeta.textContent = "量化 CI 同款（11 quant_* + preset）运行中…";
+    evalsMeta.textContent = "量化 CI 同款（9 quant_* + preset）运行中…";
     try {
       const data = await postQuantCiEval();
       renderEvalReport(data);

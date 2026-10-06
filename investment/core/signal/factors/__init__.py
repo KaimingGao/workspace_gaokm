@@ -1,1 +1,5 @@
-"""因子子模块。"""
+"""因子子模块：单因子 ``score_*`` 实现 + ``meta`` 平台层（注册/面板/IC/健康）。"""
+
+import logging
+
+logger = logging.getLogger(__name__)

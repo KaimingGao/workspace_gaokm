@@ -1,7 +1,9 @@
 """基于 signal/scorer 的简易历史回测（研究用途，非实盘）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,8 +29,11 @@ def _prepare_scoring_window(
     max_window: int,
     data_mode: str,
 ) -> Tuple[List[dict], str]:
-    """P6.3：full 用完整窗口；quote_fallback 模拟 live 降级。窗口强制 as_of（无未来 bar）。"""
-    from core.data_pit import window_as_of
+    """P6.3：full 用完整窗口；quote_fallback 仅显式 data_mode 时模拟 live 降级。
+
+    默认 full 路径拒绝伪日线（DS-R4）。
+    """
+    from core.data.pit import window_as_of
 
     quote = _mock_quote_from_bars(bars, index)
     mode = (data_mode or "full").strip().lower()
@@ -39,6 +44,9 @@ def _prepare_scoring_window(
         if fb:
             return fb, "quote_fallback"
     window, _meta = window_as_of(bars, index, max_window=max_window)
+    # 防御：窗口内若混入伪日期则清空
+    if any(str((b or {}).get("date") or "").lower() in ("d-1", "d0") for b in (window or [])):
+        return [], "rejected_quote_fallback"
     return window, "full_daily"
 
 
@@ -71,7 +79,9 @@ def _hold_return_pct(bars: List[dict], entry_idx: int, hold_days: int) -> Option
     return round((exit_p / entry - 1.0) * 100.0, 2)
 
 
-def _trade_metrics(returns: List[float]) -> Dict[str, Any]:
+def _trade_metrics(
+    returns: List[float], *, holding_days: int = 1
+) -> Dict[str, Any]:
     if not returns:
         return {
             "trade_count": 0,
@@ -102,7 +112,9 @@ def _trade_metrics(returns: List[float]) -> Dict[str, Any]:
         std = math.sqrt(var)
     sharpe = None
     if std > 1e-9:
-        sharpe = round((avg / std) * math.sqrt(252.0 / max(1, len(returns))), 2)
+        # 每段收益对应 holding_days 个交易日；年化 √(252/h)，不用 √(252/n)
+        h = max(1, int(holding_days or 1))
+        sharpe = round((avg / std) * math.sqrt(252.0 / h), 2)
 
     return {
         "trade_count": len(returns),
@@ -241,7 +253,7 @@ def backtest_signal_on_bars(
         cost_config_for_slippage_tier,
         resolve_exit_index,
     )
-    from core.data_pit import pit_report_for_backtest
+    from core.data.pit import pit_report_for_backtest
     from core.signal.scorer import score_bars
 
     horizon_days = max(1, min(int(horizon_days or 3), 10))
@@ -340,23 +352,24 @@ def backtest_signal_on_bars(
             exit_idx = int(exit_res["exit_index"])
             exit_bar = bars[exit_idx]
             exit_price = exit_bar["close"]
-            
+
             if not entry or not exit_price:
                 i += 1
                 continue
-            
+
             ret_pct = (exit_price / entry - 1.0) * 100.0
             gross_returns.append(ret_pct)
             net_ret = ret_pct
             if apply_costs:
-                from core.backtest.costs import apply_trade_cost
-                net_ret = apply_trade_cost(ret_pct, config=cost_config)
+                from core.backtest.costs import round_trip_cost_pct
+
+                net_ret = round(ret_pct - round_trip_cost_pct(cost_config), 4)
             returns.append(net_ret)
-            
+
             entry_date = bars[i + 1].get("date") if execution_mode == "next_open" else bars[i].get("date")
             exit_date = exit_bar.get("date")
             hold_days_actual = exit_idx - match_idx if execution_mode == "next_open" else exit_idx - i
-            
+
             trades.append(
                 {
                     "entry_date": entry_date,
@@ -381,8 +394,10 @@ def backtest_signal_on_bars(
         else:
             i += 1
 
-    metrics = _trade_metrics(returns)
-    gross_metrics = _trade_metrics(gross_returns) if apply_costs else None
+    metrics = _trade_metrics(returns, holding_days=horizon_days)
+    gross_metrics = (
+        _trade_metrics(gross_returns, holding_days=horizon_days) if apply_costs else None
+    )
     benchmark = build_benchmark_comparison(
         bars,
         trades,
@@ -403,7 +418,7 @@ def backtest_signal_on_bars(
 
     out = {
         "success": True,
-        "strategy": "short",
+        "strategy": "short_conservative",
         "bar_count": n,
         "params": {
             "horizon_days": horizon_days,
@@ -438,11 +453,12 @@ def backtest_signal_on_bars(
     }
     # D1：core 引擎默认挂源审计（不依赖 QuantService）
     try:
-        from core.data_consistency import attach_source_audit
+        from core.data.consistency import attach_source_audit
 
         codes = [str(stock_code)] if stock_code else []
         out = attach_source_audit(out, codes=codes or None)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+        logger.debug("exception caught in engine.py line 460", exc_info=True)
         pass
     return out
 
@@ -494,7 +510,7 @@ def scan_signal_parameters_oos(
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """P7.5：train 搜参，valid 选优，test 一次性评估。"""
-    from research.split import time_series_split
+    from core.research.split import time_series_split
 
     split = time_series_split(len(bars), train_ratio=train_ratio, valid_ratio=valid_ratio)
     train_bars = bars[: split.train_end]

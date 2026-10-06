@@ -58,10 +58,52 @@ class TestSelectionFloor(unittest.TestCase):
         ):
             self.assertTrue(looks_like_legacy_heuristic_score(55.0))
             self.assertFalse(looks_like_legacy_heuristic_score(1.0))
+            self.assertFalse(
+                looks_like_legacy_heuristic_score(
+                    12.5, item={"score": 12.5, "score_scale": "predicted_yhat"}
+                )
+            )
+            self.assertTrue(
+                looks_like_legacy_heuristic_score(
+                    55.0, item={"score": 55.0, "score_scale": "heuristic_0_100"}
+                )
+            )
             self.assertEqual(resolve_optimize_score_floor(None), 1.0)
             self.assertEqual(resolve_optimize_score_floor(55.0), 1.0)
             self.assertEqual(resolve_optimize_score_floor(0.5), 0.5)
             self.assertEqual(resolve_buy_floor(explicit=55.0), 1.0)
+
+    def test_annotate_score_gate_uses_eod_raw_when_item(self):
+        from core.signal.score_display import annotate_score_gate
+
+        item = {
+            "predicted_score": 1.5,
+        }
+        with patch(
+            "core.signal.config.load_signal_config",
+            return_value={"scoring": {"min_predicted_score": 0.35}},
+        ), patch(
+            "core.signal.dual_score.eod_gate_score_for_item",
+            return_value=1.5,
+        ):
+            gate = annotate_score_gate(1.5, min_score=0.35, item=item)
+            self.assertFalse(gate["below_min_score"])
+            self.assertAlmostEqual(gate["gate_score"], 1.5)
+            gate_low = annotate_score_gate(0.2, min_score=0.35)
+            self.assertTrue(gate_low["below_min_score"])
+
+    def test_heuristic_scale_skips_eod_gate(self):
+        from core.signal.score_display import annotate_score_gate
+
+        item = {
+            "score": 57.2,
+            "heuristic_score": 57.2,
+            "score_scale": "heuristic_0_100",
+            "return_model_source": "oos_failed_heuristic",
+        }
+        gate = annotate_score_gate(57.2, min_score=0.35, item=item)
+        self.assertFalse(gate["below_min_score"])
+        self.assertIsNone(gate["gate_score"])
 
 
 if __name__ == "__main__":

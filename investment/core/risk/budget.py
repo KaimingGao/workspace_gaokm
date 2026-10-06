@@ -4,8 +4,10 @@
 买入路径：``clip_buy_to_risk_budget`` 按单票/行业剩余额度缩量或跳过。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -153,7 +155,7 @@ def market_vol_scale(
         "message": "",
     }
     try:
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         pack = get_bars(index_code, limit=max(lookback, short_win * 2 + 5))
         bars = (pack or {}).get("bars") or (pack or {}).get("data") or []
@@ -194,6 +196,7 @@ def market_vol_scale(
             out["message"] = f"市场波动正常（比值 {ratio:.2f}），目标仓位不缩放"
         return out
     except Exception as e:
+        logger.exception('unexpected error in market_vol_scale')
         out["message"] = f"波动缩放不可用: {e}"
         return out
 
@@ -239,7 +242,7 @@ def score_budget_weights(
         for r in selected
     }
 
-    weights: Dict[str, float] = {c: 0.0 for c in raw}
+    weights: Dict[str, float] = dict.fromkeys(raw, 0.0)
     sector_sum: Dict[str, float] = {}
     # 多轮裁剪：超单票/行业的部分回收再分配
     pending = dict(raw)
@@ -292,6 +295,16 @@ def score_budget_weights(
         }
 
     weights = {k: v for k, v in weights.items() if v > 0.05}
+    # 故意不归一到 100%：限额裁剪后留现金（与纸面一致）
+    residual_pct = round(max(0.0, 100.0 - sum(weights.values())), 4)
+    if residual_pct > 0.05:
+        skipped.append(
+            {
+                "stock_code": "_cash_residual",
+                "reason": "cash_residual_after_clip",
+                "residual_pct": residual_pct,
+            }
+        )
     return weights, sector_sum, skipped[:20]
 
 
@@ -348,7 +361,7 @@ def risk_parity_lite_weights(
     total_budget = min(100.0, max_n * max_pos)
     raw = {c: total_budget * (inv[c] / inv_sum) for c in inv}
 
-    weights: Dict[str, float] = {c: 0.0 for c in raw}
+    weights: Dict[str, float] = dict.fromkeys(raw, 0.0)
     sector_sum: Dict[str, float] = {}
     for code, want in sorted(raw.items(), key=lambda x: -x[1]):
         row = next(r for r in selected if r["stock_code"] == code)
@@ -419,10 +432,12 @@ def qp_lite_weights(
     problem = cp.Problem(objective, constraints)
     try:
         problem.solve(solver=cp.SCS, warm_start=True, verbose=False)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in budget.py", exc_info=True)
         try:
             problem.solve(verbose=False)
         except Exception as e:
+            logger.exception('unexpected error in qp_lite_weights')
             meta["message"] = f"求解失败: {e}"
             return {}, {}, skipped, meta
 
@@ -448,7 +463,8 @@ def qp_lite_weights(
         stats = getattr(problem, "solver_stats", None)
         if stats is not None and getattr(stats, "solver_name", None):
             solver_name = str(stats.solver_name)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in budget.py", exc_info=True)
         pass
     meta.update(
         {

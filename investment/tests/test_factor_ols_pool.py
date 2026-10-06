@@ -17,10 +17,14 @@ from quant.services.quant_interpret import build_rule_based_interpret, compact_q
 
 
 
+# Alpha158 抬窗后研究面板需 ≥90 根，才够 MIN_CLUSTER_OBS / OLS 样本
+_OLS_BARS_N = 100
+
+
 class TestFactorOlsPool(unittest.TestCase):
     def test_pooled_report_stacks_two_stocks(self):
-        bars_a = rising_bars(45)
-        bars_b = rising_bars(45)
+        bars_a = rising_bars(_OLS_BARS_N)
+        bars_b = rising_bars(_OLS_BARS_N)
         # 轻微扰动第二只，避免完全共线
         for i, row in enumerate(bars_b):
             row["close"] = float(row["close"]) * (1.0 + 0.001 * (i % 7))
@@ -47,7 +51,7 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertEqual(out.get("task"), "factor_ols_pool")
 
     def test_single_report_still_works(self):
-        report = compute_factor_ols_report(rising_bars(45), horizon_days=3, min_history=12)
+        report = compute_factor_ols_report(rising_bars(_OLS_BARS_N), horizon_days=3, min_history=12)
         self.assertTrue(report.get("success"))
         self.assertEqual(report.get("mode"), "single")
         self.assertEqual(report.get("task"), "factor_ols")
@@ -55,7 +59,7 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertIsInstance(report["exclusion_reasons"], dict)
 
     def test_exclusion_reasons_for_constant_factor(self):
-        from quant.research.factor_ols import _exclusion_reasons_map
+        from core.research.factor_ols_fit import _exclusion_reasons_map
 
         reasons = _exclusion_reasons_map(
             {
@@ -142,7 +146,7 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertEqual(data.get("mode"), "watching_pooled")
 
     def test_interpret_includes_factor_ols(self):
-        ols = compute_factor_ols_report(rising_bars(45), horizon_days=3, min_history=12)
+        ols = compute_factor_ols_report(rising_bars(_OLS_BARS_N), horizon_days=3, min_history=12)
         self.assertTrue(ols.get("success"))
         compact = compact_quant_report({"success": True, "factor_ols": ols})
         self.assertIn("factor_ols", compact)
@@ -157,17 +161,21 @@ class TestFactorOlsPool(unittest.TestCase):
         """全量注册因子应出现在面板（不因 regime 白名单整列变 None）。"""
         from quant.research.factor_ols import collect_subscore_forward_panel
 
-        xs, ys = collect_subscore_forward_panel(rising_bars(50), horizon_days=3)
+        xs, ys, _dates = collect_subscore_forward_panel(
+            rising_bars(_OLS_BARS_N), horizon_days=3
+        )
         self.assertGreater(len(ys), 10)
         # 扩展因子在价量 mock 上应有观测（非 regime 导致的全缺测）
         for name in ("technical_pattern", "ma_slope", "gap_risk", "amihud"):
             present = sum(1 for row in xs if row.get(name) is not None)
             self.assertGreater(present, 0, f"{name} should not be all-missing")
 
-    def test_fit_marks_standardized(self):
-        report = compute_factor_ols_report(rising_bars(50), horizon_days=3, min_history=12)
+    def test_fit_marks_feature_zscore(self):
+        report = compute_factor_ols_report(
+            rising_bars(_OLS_BARS_N), horizon_days=3, min_history=12
+        )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertTrue(report.get("standardized"))
+        self.assertTrue(report.get("feature_zscore"))
         self.assertIn("z-score", (report.get("note") or "").lower())
         self.assertIn("regime", (report.get("note") or "").lower())
 
@@ -175,22 +183,32 @@ class TestFactorOlsPool(unittest.TestCase):
         path = os.path.join(ROOT, "web", "static", "partials", "quant_panel.html")
         with open(path, encoding="utf-8") as f:
             html = f.read()
-        # 池 OLS API 仍保留隐藏入口；探针主入口改为单票 vs 所在组
-        self.assertIn("quant-ols-pool-run", html)
+        # 池 OLS 与探针单票对照已拆除
+        self.assertNotIn("quant-ols-pool-run", html)
         self.assertIn("quant-ridge-lambda", html)
-        self.assertIn("quant-ols-code", html)
-        self.assertIn("quant-probe-run", html)
-        self.assertIn("对照验证", html)
-        self.assertIn("单票 vs 所在组", html)
+        self.assertNotIn("quant-probe-run", html)
+        self.assertNotIn("对照验证", html)
+        self.assertNotIn("单票 vs 所在组", html)
 
     def test_js_calls_pool_api(self):
-        path = os.path.join(ROOT, "web", "static", "js", "quant.js")
-        with open(path, encoding="utf-8") as f:
-            js = f.read()
-        self.assertIn("/api/quant/factor-ols-pool", js)
-        self.assertIn("runFactorOlsPoolSuggest", js)
-        self.assertIn("readOlsCode", js)
-        self.assertIn("populateOlsCodeOptions", js)
+        # 池 OLS 与探针入口已拆除；公式试算仍用观察池下拉
+        suggest = os.path.join(ROOT, "web", "static", "js", "quant", "domain_suggest.js")
+        cluster = os.path.join(ROOT, "web", "static", "js", "quant", "domain_cluster.js")
+        shell = os.path.join(ROOT, "web", "static", "js", "quant.js")
+        with open(suggest, encoding="utf-8") as f:
+            suggest_js = f.read()
+        with open(cluster, encoding="utf-8") as f:
+            cluster_js = f.read()
+        with open(shell, encoding="utf-8") as f:
+            shell_js = f.read()
+        self.assertNotIn("/api/quant/factor-ols-pool", suggest_js)
+        self.assertNotIn("runFactorOlsPoolSuggest", suggest_js)
+        self.assertNotIn("readOlsCode", cluster_js)
+        self.assertNotIn("populateOlsCodeOptions", cluster_js)
+        self.assertNotIn("populateOlsCodeOptions", shell_js)
+        self.assertNotIn("renderCrossSection", shell_js)
+        self.assertIn("fillExprCodeSelect", cluster_js)
+        self.assertIn("fillExprCodeSelect", shell_js)
 
 
 if __name__ == "__main__":

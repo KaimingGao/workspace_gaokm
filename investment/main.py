@@ -15,6 +15,18 @@ load_env_file(os.path.join(ROOT_DIR, ".env"))
 
 from agent.agent import InvestmentAgent
 
+import logging
+
+from core.market import register_symbol_resolver
+try:
+    from adapters.market.quote_api import StockAPI
+    register_symbol_resolver(StockAPI.resolve_symbol)
+except Exception:
+    logger = logging.getLogger(__name__)
+    logger.debug("StockAPI resolver not registered (skills layer unavailable at import time)")
+
+logger = logging.getLogger(__name__)
+
 
 def main():
     print("=" * 60)
@@ -30,10 +42,10 @@ def main():
         print("\n未检测到 DASHSCOPE_API_KEY。")
         print("请在 investment/.env 中填写，或执行：")
         print("  export DASHSCOPE_API_KEY=your_api_key")
-        print("  export DASHSCOPE_ENDPOINT=https://ws-7hpevbps1ivbjf03.cn-beijing.maas.aliyuncs.com/compatible-mode/v1")
+        print("  export DASHSCOPE_ENDPOINT=https://your-workspace-id.cn-beijing.maas.aliyuncs.com/compatible-mode/v1")
         print("  export DASHSCOPE_MODEL=qwen-plus")
         print("\n提示：无 LLM 时仍可直接测试行情模块：")
-        print("  python3 -c \"from skills.common import StockAPI; print(StockAPI.query('茅台'))\"")
+        print("  python3 -c \"from adapters.market.quote_api import StockAPI; print(StockAPI.query('茅台'))\"")
         sys.exit(1)
 
     if not llm.is_available():
@@ -75,6 +87,7 @@ def main():
             reply = agent.chat(user_input)
             print(f"\n投顾: {reply}\n")
         except Exception as e:
+            logger.exception('unexpected error in main')
             print(f"\n出错了: {e}\n")
 
 

@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.peer.engine import detect_group, build_peer_compare
+from adapters.peer.engine import detect_group, build_peer_compare
 from skills.peer.handler import PeerHandler
 
 
@@ -33,8 +33,8 @@ class TestPeer(unittest.TestCase):
             }
             return data.get(code, {"success": False, "error": "x"})
 
-        with patch("skills.peer.engine.StockAPI.query", side_effect=fake_query), patch(
-            "skills.peer.engine.StockAPI.resolve_symbol",
+        with patch("adapters.peer.engine.query_quote", side_effect=fake_query), patch(
+            "adapters.peer.engine.resolve_symbol",
             side_effect=lambda c: {
                 "茅台": "sh600519",
                 "贵州茅台": "sh600519",
@@ -43,7 +43,7 @@ class TestPeer(unittest.TestCase):
                 "山西汾酒": "sh600809",
             }.get(c),
         ), patch(
-            "skills.fundamentals.engine.fetch_cn_spot_row",
+            "adapters.fundamentals.engine.fetch_cn_spot_row",
             side_effect=Exception("skip network"),
         ):
             result = build_peer_compare("茅台")

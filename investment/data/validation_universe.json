@@ -1,10 +1,6 @@
 {
   "version": 1,
-  "exclude_codes": [
-    "01024",
-    "01810",
-    "茅台"
-  ],
+  "exclude_codes": [],
   "include_only": [],
-  "note": "watching−exclude。exclude 为防御性名单（旧港股码/名称脏键）；产品池已无港股。样本覆盖只统计验证宇宙，不扫 store 全目录。"
+  "note": "验证宇宙=观察池。要屏蔽某票直接从观察池删除；exclude_codes 保持空。样本覆盖只统计验证宇宙，不扫 store 全目录。"
 }

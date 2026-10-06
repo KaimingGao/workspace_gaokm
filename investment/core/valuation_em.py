@@ -4,12 +4,16 @@
 列表与研究分组共用，避免全表现货挂掉后估值因子长期「未算」。
 """
 
-from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from typing import Any, Dict, Optional
+
+from core.io_atomic import atomic_write_json
+
+logger = logging.getLogger(__name__)
 
 _FHPS_MEM: Optional[Dict[str, Any]] = None
 
@@ -45,7 +49,7 @@ def read_valuation_cache(
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
         fetched_at = float(payload.get("fetched_at") or 0)
         if fetched_at <= 0:
@@ -63,7 +67,8 @@ def read_valuation_cache(
         if all(out.get(k) is None for k in ("pe", "pb", "pe_ttm", "market_cap")):
             return None
         return out
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         return None
 
 
@@ -78,21 +83,20 @@ def write_valuation_cache(code: str, vals: Dict[str, Any]) -> None:
     path = _cache_path(code)
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "code": str(code).zfill(6),
-                    "pe": pe,
-                    "pb": pb,
-                    "pe_ttm": pe_ttm,
-                    "market_cap": mcap,
-                    "dividend_yield": dy,
-                    "fetched_at": time.time(),
-                },
-                f,
-                ensure_ascii=False,
-            )
-    except Exception:
+        atomic_write_json(
+            path,
+            {
+                "code": str(code).zfill(6),
+                "pe": pe,
+                "pb": pb,
+                "pe_ttm": pe_ttm,
+                "market_cap": mcap,
+                "dividend_yield": dy,
+                "fetched_at": time.time(),
+            },
+        )
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         pass
 
 
@@ -101,7 +105,7 @@ def _read_fhps_map_disk(*, max_age_hours: float = 36.0) -> Optional[Dict[str, fl
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
         fetched_at = float(payload.get("fetched_at") or 0)
         if fetched_at <= 0:
@@ -116,22 +120,18 @@ def _read_fhps_map_disk(*, max_age_hours: float = 36.0) -> Optional[Dict[str, fl
             if fv is not None:
                 out[str(k).zfill(6)] = fv
         return out or None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         return None
 
 
 def _write_fhps_map_disk(by_code: Dict[str, float]) -> None:
     path = _fhps_map_path()
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(
-                {"fetched_at": time.time(), "by_code": by_code},
-                f,
-                ensure_ascii=False,
-            )
-    except Exception:
-        pass
+        atomic_write_json(path, {"fetched_at": time.time(), "by_code": by_code})
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
+        logger.warning("分红配送映射写盘失败", exc_info=True)
 
 
 def _fetch_fhps_dividend_map() -> Dict[str, float]:
@@ -145,11 +145,12 @@ def _fetch_fhps_dividend_map() -> Dict[str, float]:
         return dict(disk)
     by_code: Dict[str, float] = {}
     try:
-        from skills.common.ak_lock import import_akshare
+        from core.data.ak_lock import import_akshare
 
         ak = import_akshare()
         df = ak.stock_fhps_em()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         _FHPS_MEM = {"by_code": {}}
         return {}
     if df is None or getattr(df, "empty", True):
@@ -191,10 +192,11 @@ def fetch_valuation_pack(code: str) -> Dict[str, Optional[float]]:
     pack: Dict[str, Optional[float]] = dict(cached)
     if need_val or not cached:
         try:
-            from skills.fundamentals.engine import fetch_cn_valuation_latest
+            from core.ports.market import fetch_cn_valuation_latest
 
             raw = fetch_cn_valuation_latest(str(code).zfill(6)) or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
             raw = {}
         pe = _to_float(raw.get("pe"))
         pe_ttm = _to_float(raw.get("pe_ttm"))
@@ -223,6 +225,38 @@ def fetch_valuation_pack(code: str) -> Dict[str, Optional[float]]:
     if any(pack.get(k) is not None for k in ("pe", "pb", "pe_ttm", "market_cap")):
         write_valuation_cache(code, pack)
     return pack
+
+
+def cached_valuation_metrics(
+    code: str, *, max_age_hours: float = 36.0
+) -> Optional[Dict[str, Optional[float]]]:
+    """只读本地 ``valuation_em`` 缓存（不联网）。刷簿 / skip_fundamentals 热路径用。"""
+    pack = read_valuation_cache(code, max_age_hours=max_age_hours)
+    if not pack:
+        return None
+    out = {
+        k: pack.get(k)
+        for k in ("pe", "pb", "pe_ttm", "market_cap", "dividend_yield")
+        if pack.get(k) is not None
+    }
+    return out or None
+
+
+def merge_cached_valuation(
+    code: str,
+    metrics: Optional[dict],
+    *,
+    max_age_hours: float = 36.0,
+) -> Optional[Dict[str, Any]]:
+    """把缓存估值字段并入 metrics（已有键不覆盖；无缓存则原样返回）。"""
+    pack = cached_valuation_metrics(code, max_age_hours=max_age_hours)
+    if not pack:
+        return metrics
+    out = dict(metrics or {})
+    for k, v in pack.items():
+        if out.get(k) is None and v is not None:
+            out[k] = v
+    return out
 
 
 def enrich_fundamentals_metrics(

@@ -52,7 +52,17 @@ export function createHoldingsIslandController(deps) {
       grid.on("sortChanged", (sorters) => {
         const s = Array.isArray(sorters) && sorters.length ? sorters[0] : null;
         const key = s && s.field;
-        if (key === "code" || key === "market_value" || key === "score" || key === "pnl") {
+        if (
+          key === "code" ||
+          key === "market_value" ||
+          key === "score" ||
+          key === "score_eod" ||
+          key === "score_tau" ||
+          key === "score_on" ||
+          key === "pnl" ||
+          key === "chg" ||
+          key === "tier"
+        ) {
           setSortState(key, s.dir === "asc" ? "asc" : "desc");
           persistSort();
         }

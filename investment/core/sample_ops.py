@@ -3,14 +3,17 @@
 不伪造生产分数；demo 阶梯点须标 synthetic_demo，仅用于 PIT 路径演示。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
+from core.io_atomic import atomic_write_json
 from core.store import snapshot_cache_path
 
 
@@ -142,7 +145,7 @@ def persist_fundamentals_history(
             skipped.append({"code": code, "reason": "missing_file"})
             continue
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 payload = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             skipped.append({"code": code, "reason": str(e)})
@@ -179,9 +182,7 @@ def persist_fundamentals_history(
         payload["history"] = hist
         payload["latest_as_of"] = hist[-1].get("as_of") if hist else None
         payload["history_persisted_at"] = datetime.now().isoformat(timespec="seconds")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        atomic_write_json(path, payload)
         updated.append(code)
 
     return {
@@ -222,10 +223,11 @@ def ingest_real_fundamentals_history(
                     code_list.append(name[:-5])
         if not code_list:
             try:
-                from core.data_coverage import universe_codes
+                from core.data.coverage import universe_codes
 
                 code_list = list(universe_codes() or [])
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in sample_ops.py", exc_info=True)
                 code_list = []
 
     updated: List[Dict[str, Any]] = []
@@ -241,6 +243,7 @@ def ingest_real_fundamentals_history(
         try:
             series = fetch_cn_financial_series(digits, max_points=n_pts)
         except Exception as e:
+            logger.exception('unexpected error in ingest_real_fundamentals_history')
             errors.append({"code": code, "reason": str(e)[:120]})
             continue
         if len(series) < 2:
@@ -256,7 +259,7 @@ def ingest_real_fundamentals_history(
         payload: Dict[str, Any] = {}
         if os.path.isfile(path):
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     payload = json.load(f)
             except (OSError, json.JSONDecodeError):
                 payload = {}
@@ -265,7 +268,16 @@ def ingest_real_fundamentals_history(
         for pt in series:
             metrics = {
                 k: pt.get(k)
-                for k in ("roe", "profit_growth", "revenue_growth", "eps")
+                for k in (
+                    "roe",
+                    "profit_growth",
+                    "revenue_growth",
+                    "eps",
+                    "pe",
+                    "pe_ttm",
+                    "pb",
+                    "dividend_yield",
+                )
                 if pt.get(k) is not None
             }
             if not metrics:
@@ -365,9 +377,7 @@ def ingest_real_fundamentals_history(
             }
         )
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        atomic_write_json(path, payload)
         updated.append(info)
 
     return {
@@ -417,7 +427,7 @@ def seed_fundamentals_history_ladder(
         metrics = dict(latest.get("metrics") or {})
         if not metrics:
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     payload0 = json.load(f)
                 metrics = normalize_fundamentals_metrics(payload0.get("data")) or {}
             except (OSError, json.JSONDecodeError):
@@ -452,14 +462,12 @@ def seed_fundamentals_history_ladder(
             skipped.append({"code": code, "reason": "no_new_points"})
             continue
         if write:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 payload = json.load(f)
             payload["history"] = history
             payload["latest_as_of"] = history[-1].get("as_of") if history else None
             payload["demo_ladder_at"] = datetime.now().isoformat(timespec="seconds")
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
-                f.write("\n")
+            atomic_write_json(path, payload)
         seeded.append({"code": code, "added": added, "history_count": len(history)})
 
     return {
@@ -630,7 +638,7 @@ def sample_status(
 ) -> Dict[str, Any]:
     """一屏：TTM / PIT history / 纸面快照 / 拦截标注 覆盖（含 demo 纪律）。
 
-    财务覆盖默认只扫 **验证宇宙**（watching−exclude），不把 store 里历史港股/脏键算进空码。
+    财务覆盖默认只扫 **验证宇宙**（观察池 / include_only），不把 store 里历史港股/脏键算进空码。
     """
     from core.north_star import compute_ttm_metrics, load_ttm_events, summarize_risk_blocks
     from core.paths import STORE_DIR
@@ -648,10 +656,7 @@ def sample_status(
             if name.endswith(".json") and not name.startswith("."):
                 store_codes.append(name[:-5])
     uni_set = set(uni_codes)
-    excluded = set(resolved.get("excluded") or [])
     orphans = [c for c in store_codes if c not in uni_set]
-    orphan_excluded = [c for c in orphans if c in excluded]
-    orphan_other = [c for c in orphans if c not in excluded]
 
     snaps = list((paper or {}).get("snapshots") or [])
     snap_n = len(snaps)
@@ -692,16 +697,11 @@ def sample_status(
             )
     except (TypeError, ValueError):
         pass
-    if orphan_excluded:
+    if orphans:
         discipline["warnings"].append(
-            f"store 残留已排除码 {len(orphan_excluded)} 只（旧港股/脏键），不计入覆盖；"
-            "可删 data/store/fundamentals 对应 json"
-        )
-    if orphan_other:
-        discipline["warnings"].append(
-            f"store 有 {len(orphan_other)} 只不在验证宇宙："
-            + ", ".join(orphan_other[:8])
-            + ("…" if len(orphan_other) > 8 else "")
+            f"store 有 {len(orphans)} 只不在验证宇宙："
+            + ", ".join(orphans[:8])
+            + ("…" if len(orphans) > 8 else "")
         )
     if not discipline["warnings"]:
         discipline["warnings"].append("未检测到明显演示污染标记")
@@ -747,7 +747,7 @@ def sample_status(
             "store_orphan_codes": orphans[:40],
             "store_orphan_count": len(orphans),
             "note": (
-                "覆盖仅统计验证宇宙（watching−exclude）；"
+                "覆盖仅统计验证宇宙（观察池）；"
                 "store 孤儿不计入空码。real_multi 不含仅 synthetic_demo ladder。"
             ),
         },

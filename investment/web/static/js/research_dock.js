@@ -142,7 +142,8 @@ export function initResearchDock() {
       btn.textContent = layout.enabled ? "单栏" : "双栏";
       saveLayout(layout);
     });
-    toolbar.appendChild(btn);
+    const tools = toolbar.querySelector(".watching-card-tools") || toolbar;
+    tools.appendChild(btn);
   }
 
   window.__investmentEnsureDockSide = () => {

@@ -1,7 +1,9 @@
 """B 轨 · 回归准确性：y_spec、样本指纹、共线进模、λ 网格。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -11,33 +13,72 @@ def build_y_spec(
     horizon_days: Optional[int] = None,
     include_cost: bool = False,
     halt_policy: str = "keep_bar",
-    formula: str = "close[t+h]/close[t]-1",
+    formula: str = "open[T+1]/open[T]-1",
     unit: str = "pct",
     note: str = "",
+    excess_mode: str = "none",
 ) -> Dict[str, Any]:
-    """前瞻收益标签契约（写入 return_model / OLS / cluster artifact）。"""
+    """前瞻收益标签契约（写入 return_model / OLS / cluster artifact）。
+
+    ``excess_mode``（P2b 研究臂）：
+      - ``none``：绝对收益（现网默认）
+      - ``index``：个股收益 − 同期指数收益（需面板提供 index 对齐）
+    """
     if horizon_days is None:
         try:
             from core.signal.config import load_signal_config
 
             cfg_h = (load_signal_config() or {}).get("scoring", {}).get("horizon_days")
             horizon_days = int(cfg_h) if cfg_h is not None else 3
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in beta_accuracy.py", exc_info=True)
             horizon_days = 3
     h = max(1, min(int(horizon_days or 3), 20))
+    em = str(excess_mode or "none").strip().lower()
+    if em in ("index", "excess", "vs_index", "benchmark"):
+        em = "index"
+        formula = "stock_ret[t→t+h] - index_ret[t→t+h]"
+    else:
+        em = "none"
+    base_note = (
+        f"y=(open[t+{h}]/open[t]-1)*100；"
+        "X 用到 T−1 收，T 开可进 quote；今收不进 X。"
+        "默认不含交易成本；停牌日若无 bar 则该样本跳过。"
+    )
+    if em == "index":
+        base_note = (
+            f"y=个股前瞻% − 指数同期%（excess_mode=index）；"
+            f"h={h}；研究臂，进生产须人审重跑分组。"
+        )
     return {
         "horizon_days": h,
         "formula": formula,
         "unit": unit,
         "include_cost": bool(include_cost),
         "halt_policy": str(halt_policy or "keep_bar"),
-        "note": note
-        or (
-            f"y=(close[t+{h}]/close[t]-1)*100；"
-            "默认不含交易成本；停牌日若无 bar 则该样本跳过。"
-        ),
+        "excess_mode": em,
+        "note": note or base_note,
         "track": "B2",
     }
+
+
+def apply_excess_to_forward_return(
+    stock_fwd_pct: Optional[float],
+    index_fwd_pct: Optional[float],
+    *,
+    excess_mode: str = "none",
+) -> Optional[float]:
+    """按 y_spec.excess_mode 把绝对前瞻收益映成超额（P2b）。"""
+    if stock_fwd_pct is None:
+        return None
+    em = str(excess_mode or "none").strip().lower()
+    if em in ("", "none", "absolute", "total"):
+        return float(stock_fwd_pct)
+    if em in ("index", "excess", "vs_index", "benchmark"):
+        if index_fwd_pct is None:
+            return None
+        return round(float(stock_fwd_pct) - float(index_fwd_pct), 6)
+    return float(stock_fwd_pct)
 
 
 def sample_fingerprint(
@@ -78,6 +119,31 @@ def sample_fingerprint(
     }
 
 
+MIN_CLUSTER_OBS = 24
+
+
+def fingerprint_blocker_is_group_local(msg: str, *, from_group: bool = False) -> bool:
+    """组级拦阻不连坐整份产物：单票/双票 n_names，或该组 n_obs 不足。
+
+    次新单独成组时 n_obs<24，应跳过该组回退全局 β，不应否掉其余组的对照/promote。
+    全产物自己的 ``n_obs < min_obs``（无「组内：」前缀）仍硬拦。
+    """
+    s = str(msg or "")
+    tagged = s.startswith("组内：")
+    if tagged:
+        s = s[len("组内：") :]
+    if "n_names=" in s and "min_names=" in s:
+        try:
+            n_part = s.split("n_names=")[1].split("<")[0].strip()
+            if int(float(n_part)) < 3:
+                return True
+        except (TypeError, ValueError):
+            pass
+    if (tagged or from_group) and "n_obs=" in s and "min_obs=" in s:
+        return True
+    return False
+
+
 def dates_span_from_panel_rows(
     xs: Sequence[Dict[str, Any]],
     *,
@@ -110,7 +176,7 @@ def apply_collinearity_policy(
     keep_all | drop_redundant（默认）| orthogonalize_lite（当前等同 drop_redundant 记录）。
     返回 (kept_active, dropped, meta)。
     """
-    from core.signal.factor_collinearity import TREND_FAMILY
+    from core.signal.factors.meta.collinearity import TREND_FAMILY
 
     pol = str(policy or "drop_redundant").strip().lower()
     meta: Dict[str, Any] = {
@@ -175,22 +241,47 @@ def apply_collinearity_policy(
             return 0.0
         return abs(num / (dx * dy))
 
-    dropped: List[str] = []
-    kept = set(active)
     thr = float(corr_threshold)
-    # greedy: highest |corr| pairs first
     pairs = []
     for i, a in enumerate(family):
         for b in family[i + 1 :]:
             c = _corr(a, b)
             if c is not None and abs(c) >= thr:
                 pairs.append((abs(c), a, b, c))
-    pairs.sort(reverse=True)
-    for abs_c, a, b, c in pairs:
+    return _finish_trend_drop(active, pairs, _ic, pol, meta)
+
+
+def _pearson_aligned(xa: Sequence[float], xb: Sequence[float]) -> Optional[float]:
+    """与 ``apply_collinearity_policy`` 里逐行求和的 Pearson 同一公式。"""
+    n = min(len(xa), len(xb))
+    if n < 5:
+        return None
+    aa = [float(xa[i]) for i in range(n)]
+    bb = [float(xb[i]) for i in range(n)]
+    ma, mb = sum(aa) / n, sum(bb) / n
+    num = sum((x - ma) * (y - mb) for x, y in zip(aa, bb))
+    da = math.sqrt(sum((x - ma) ** 2 for x in aa))
+    db = math.sqrt(sum((y - mb) ** 2 for y in bb))
+    if da < 1e-12 or db < 1e-12:
+        return None
+    return num / (da * db)
+
+
+def _finish_trend_drop(
+    active: List[str],
+    pairs: List[Tuple[float, str, str, float]],
+    ic_of,
+    pol: str,
+    meta: Dict[str, Any],
+) -> Tuple[List[str], List[str], Dict[str, Any]]:
+    """|corr| 从高到低贪心：留下与 y 相关更强的一侧，并保持 active 原顺序。"""
+    dropped: List[str] = []
+    kept = set(active)
+    pairs = sorted(pairs, reverse=True)
+    for _abs_c, a, b, c in pairs:
         if a not in kept or b not in kept:
             continue
-        # 保留与 y 相关更强的一侧
-        ia, ib = _ic(a), _ic(b)
+        ia, ib = ic_of(a), ic_of(b)
         drop = b if ia >= ib else a
         keep = a if drop == b else b
         kept.discard(drop)
@@ -207,9 +298,46 @@ def apply_collinearity_policy(
     meta["dropped"] = list(dropped)
     if pol == "orthogonalize_lite":
         meta["note"] = "orthogonalize_lite 当前降级为 drop_redundant（择一保留）"
-    # 保持原 active 顺序
     new_active = [n for n in active if n in kept]
     return new_active, dropped, meta
+
+
+def apply_collinearity_on_columns(
+    columns: Dict[str, Sequence[float]],
+    active: List[str],
+    ys: Sequence[float],
+    *,
+    policy: str = "drop_redundant",
+    corr_threshold: float = 0.85,
+) -> Tuple[List[str], List[str], Dict[str, Any]]:
+    """完整行上的趋势族去冗余。列已对齐且无缺测，不再为每行造字典。"""
+    from core.signal.factors.meta.collinearity import TREND_FAMILY
+
+    pol = str(policy or "drop_redundant").strip().lower()
+    meta: Dict[str, Any] = {
+        "collinearity_policy": pol,
+        "corr_threshold": float(corr_threshold),
+        "pairs": [],
+        "dropped": [],
+    }
+    n = len(ys)
+    if pol in ("keep_all", "off", "none") or len(active) < 2 or n == 0:
+        return list(active), [], meta
+    family = [name for name in active if name in TREND_FAMILY and name in columns]
+    if len(family) < 2:
+        return list(active), [], meta
+
+    def _ic(name: str) -> float:
+        return abs(_pearson_aligned(columns[name], ys) or 0.0)
+
+    thr = float(corr_threshold)
+    pairs: List[Tuple[float, str, str, float]] = []
+    for i, a in enumerate(family):
+        for b in family[i + 1 :]:
+            c = _pearson_aligned(columns[a], columns[b])
+            if c is not None and abs(c) >= thr:
+                pairs.append((abs(c), a, b, c))
+    return _finish_trend_drop(active, pairs, _ic, pol, meta)
 
 
 def select_ridge_lambda(

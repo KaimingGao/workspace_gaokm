@@ -4,13 +4,15 @@
 promote：research 配置 → 人工确认后写入 paper 使用的策略快照，禁止静默覆盖。
 """
 
-from __future__ import annotations
-
 import json
+import logging
 import os
 from copy import deepcopy
-from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from core.numbers import now_iso_local as _now_iso
+
+logger = logging.getLogger(__name__)
 
 from core.backtest.strategies import (
     DEFAULT_STRATEGY,
@@ -20,6 +22,7 @@ from core.backtest.strategies import (
     merge_strategy_params,
     resolve_strategy_id,
 )
+from core.io_atomic import atomic_write_json
 from core.paths import DATA_DIR
 
 # 重新导出，保持单入口
@@ -32,6 +35,7 @@ __all__ = [
     "resolve_strategy_id",
     "get_strategy_spec",
     "list_strategy_specs",
+    "backtest_portfolio_defaults",
     "apply_strategy_to_paper",
     "promote_strategy",
     "load_promoted",
@@ -39,10 +43,6 @@ __all__ = [
 ]
 
 PROMOTED_PATH = os.path.join(DATA_DIR, "strategy_promoted.json")
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
@@ -56,6 +56,18 @@ def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
     # paper_rules 内嵌 t0 仅作兼容；正式位置在 execution.overlays.t0
     paper_rules.pop("t0", None)
     execution = execution_from_lifecycle(extra)
+    risk = deepcopy(extra.get("risk") or {})
+    # 补全风控真源，避免回测/纸面各自散落 or 25/40/5
+    if risk.get("max_drawdown_pct") is None:
+        risk["max_drawdown_pct"] = 20.0
+    if risk.get("max_position_pct") is None:
+        risk["max_position_pct"] = 25.0
+    if risk.get("max_sector_pct") is None:
+        risk["max_sector_pct"] = 40.0
+    if risk.get("max_positions") is None:
+        risk["max_positions"] = int(paper_rules.get("max_positions") or 20)
+    if risk.get("weight_mode") is None:
+        risk["weight_mode"] = str(paper_rules.get("weight_mode") or "score_budget")
     return {
         "strategy_id": key,
         "version": str(extra.get("version") or "1.0.0"),
@@ -65,14 +77,50 @@ def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
         "paper_rules": paper_rules,
         "execution": execution,
         "cost_model": extra.get("cost_model") or "simple_cn",
-        "risk": deepcopy(
-            extra.get("risk")
-            or {
-                "max_drawdown_pct": 20.0,
-                "max_position_pct": 25.0,
-                "max_positions": int(paper_rules.get("max_positions") or 5),
-            }
+        "risk": risk,
+    }
+
+
+def backtest_portfolio_defaults(
+    strategy: str = DEFAULT_STRATEGY,
+) -> Dict[str, Any]:
+    """Top-K / 组合回测默认：权重/限额/持有期对齐纸面；K 默认 3（研究用小组合，≠纸面 max_positions）。"""
+    spec = get_strategy_spec(strategy)
+    risk = spec.get("risk") or {}
+    params = spec.get("params") or {}
+    paper_rules = spec.get("paper_rules") or {}
+    try:
+        from core.signal.score_display import resolve_buy_floor
+
+        min_pred = float(resolve_buy_floor())
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in strategy.py", exc_info=True)
+        min_pred = 1.0
+    max_pos = int(
+        risk.get("max_positions")
+        or paper_rules.get("max_positions")
+        or 20
+    )
+    return {
+        "strategy_id": spec.get("strategy_id") or DEFAULT_STRATEGY,
+        "top_k": 3,
+        "top_k_cap": max(40, max_pos),
+        "horizon_days": int(
+            paper_rules.get("horizon_days")
+            or params.get("horizon_days")
+            or 3
         ),
+        "weight_mode": str(
+            risk.get("weight_mode")
+            or paper_rules.get("weight_mode")
+            or "score_budget"
+        ),
+        "max_position_pct": float(risk.get("max_position_pct") or 25.0),
+        "max_sector_pct": float(risk.get("max_sector_pct") or 40.0),
+        "max_positions": max_pos,
+        "exclude_st": True,
+        "min_predicted_score": min_pred,
+        "min_score": float(params.get("min_score") or 55.0),
     }
 
 
@@ -80,26 +128,11 @@ def list_strategy_specs() -> List[Dict[str, Any]]:
     return [get_strategy_spec(s["name"]) for s in list_strategies()]
 
 
-# 纸面 rules 中不得再作为 live 选股门槛的遗留键（0–100 时代）
-_LEGACY_PAPER_SCORE_KEYS = (
-    "min_score",
-    "add_score",
-    "min_hold_score",
-    "reduce_score",
-)
-
-
 def apply_strategy_to_paper(paper: dict, strategy: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
-    """把策略规格合并进 paper.rules / cost_model / t0 overlay（不落盘）。
-
-    不合并 0–100 的 min_score/add_score 等；选股门槛真源为 signal_config.scoring。
-    """
+    """把策略规格合并进 paper.rules / cost_model / t0 overlay（不落盘）。"""
     spec = get_strategy_spec(strategy)
     rules = dict(paper.get("rules") or {})
     pr = deepcopy(spec.get("paper_rules") or {})
-    for k in _LEGACY_PAPER_SCORE_KEYS:
-        pr.pop(k, None)
-        rules.pop(k, None)
     rules.update(pr)
     exe = spec.get("execution") or {}
     t0_overlay = ((exe.get("overlays") or {}).get("t0")) or {}
@@ -114,6 +147,23 @@ def apply_strategy_to_paper(paper: dict, strategy: str = DEFAULT_STRATEGY) -> Di
             merged_t0 = dict(prev)
             merged_t0.update(t0_overlay)
         rules["t0"] = merged_t0
+    timing = (exe.get("rebalance_timing") or {}) if isinstance(exe, dict) else {}
+    mode = str(timing.get("execution_mode") or rules.get("execution_mode") or "next_open")
+    rules["execution_mode"] = mode
+    if isinstance(timing, dict) and timing:
+        rules["execution"] = dict(rules.get("execution") or {})
+        rules["execution"]["rebalance_timing"] = dict(timing)
+    # 风控限额写入 paper.rules，与回测/optimize 同源
+    risk = spec.get("risk") or {}
+    for rk in (
+        "max_position_pct",
+        "max_sector_pct",
+        "max_positions",
+        "weight_mode",
+        "max_drawdown_pct",
+    ):
+        if risk.get(rk) is not None and rules.get(rk) is None:
+            rules[rk] = risk[rk]
     # 回测 params.min_score 不进纸面
     paper["rules"] = rules
     if not paper.get("cost_model") or paper.get("cost_model") == "zero":
@@ -132,7 +182,7 @@ def load_promoted(path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     p = path or PROMOTED_PATH
     if not os.path.isfile(p):
         return None
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -147,14 +197,26 @@ def promote_strategy(
 
     不静默改 signal_config.json；研究侧 diff 仍走原有 config 流程。
     """
+    # FM0 · 当前 signal_config.weights 健康门（不写权，但晋级前可见）
+    try:
+        from core.signal.config import load_signal_config
+        from core.signal.factors.meta.health import guard_weights_for_promote
+
+        cfg = load_signal_config() or {}
+        guard = guard_weights_for_promote(cfg.get("weights") or {}, force=False)
+        if guard.get("blocked"):
+            # 策略晋级不改 weights；仅附警告到 note，不硬拦（权重门在写权路径）
+            note = (note or "") + (
+                f" · [factor_health warn] {guard.get('error') or 'proxy weight'}"
+            )
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in strategy.py", exc_info=True)
+        logger.warning("factor_health guard failed during promote", exc_info=True)
     spec = get_strategy_spec(strategy)
     if overrides:
         params = merge_strategy_params(strategy, overrides)
         spec["params"] = params
         for k, v in overrides.items():
-            if k in _LEGACY_PAPER_SCORE_KEYS:
-                # 0–100 选股门不进 promote；真源为 signal_config.scoring
-                continue
             if k in (spec.get("paper_rules") or {}) or k in (
                 "max_positions",
                 "position_pct",
@@ -163,9 +225,6 @@ def promote_strategy(
                 "weight_mode",
             ):
                 spec.setdefault("paper_rules", {})[k] = v
-    # 防御：规格或旧 promote 残留
-    for k in _LEGACY_PAPER_SCORE_KEYS:
-        (spec.get("paper_rules") or {}).pop(k, None)
     entry = {
         "promoted_at": _now_iso(),
         "note": note or f"promote {spec['strategy_id']}@{spec['version']}",
@@ -176,15 +235,11 @@ def promote_strategy(
     entry["execution_summary"] = {
         "t0_ratio": t0.get("t0_ratio"),
         "fill_mode": t0.get("fill_mode"),
-        "sell_trigger_pct": t0.get("sell_trigger_pct"),
-        "buy_trigger_pct": t0.get("buy_trigger_pct"),
         "coupling": (exe.get("coupling") or {}).get("t0_vs_stance"),
         "execution_version": exe.get("version"),
     }
     out = path or PROMOTED_PATH
-    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(entry, f, ensure_ascii=False, indent=2)
+    atomic_write_json(out, entry)
     try:
         from core.north_star import TTM_EVENT_PAPER, append_ttm_event
 
@@ -197,14 +252,16 @@ def promote_strategy(
                 "execution": entry.get("execution_summary"),
             },
         )
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in strategy.py", exc_info=True)
+        logger.warning("append_ttm_event failed during promote", exc_info=True)
     try:
         from core.live_config_manifest import write_live_config_manifest
 
         write_live_config_manifest(
             note=f"after promote_strategy {spec.get('strategy_id')}"
         )
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in strategy.py", exc_info=True)
+        logger.warning("write_live_config_manifest failed during promote", exc_info=True)
     return entry

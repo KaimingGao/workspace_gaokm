@@ -1,6 +1,10 @@
 """策略规格 / 晋级 API（Q2）。"""
 
-from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
@@ -11,12 +15,12 @@ router = APIRouter(tags=["strategy"])
 
 
 @router.get("/api/strategy")
-def strategy_list():
+def strategy_list() -> Dict[str, Any]:
     return deps.paper.list_strategies()
 
 
 @router.post("/api/strategy/promote")
-def strategy_promote(body: StrategyPromoteRequest):
+def strategy_promote(body: StrategyPromoteRequest) -> Dict[str, Any]:
     try:
         return deps.paper.promote_strategy(
             body.strategy,

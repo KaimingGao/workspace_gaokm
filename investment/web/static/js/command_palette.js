@@ -2,17 +2,17 @@
 
 const COMMANDS = [
   { id: "nav-watching", label: "前往 · 数据中心", hint: "/watching", href: "/watching", keywords: "home 观察 名单 建仓 首页" },
-  { id: "nav-strategy", label: "前往 · 策略中心", hint: "/strategy", href: "/strategy", keywords: "策略 限额 promote ŷ 滞回" },
-  { id: "nav-follow", label: "前往 · 交易执行", hint: "/follow", href: "/follow", keywords: "模拟 持仓 调仓" },
-  { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid" },
+  { id: "nav-strategy", label: "前往 · 策略中心", hint: "/strategy", href: "/strategy", keywords: "策略 舆情 prior 人审" },
+  { id: "nav-follow", label: "前往 · 交易执行", hint: "/follow", href: "/follow", keywords: "模拟 持仓 调仓 做T" },
+  { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid 做T" },
   { id: "nav-quant", label: "前往 · 研究枢纽", hint: "/quant", href: "/quant", keywords: "研究 因子 ic ols 运维 日报 hub" },
-  { id: "nav-platform", label: "前往 · 系统设置", hint: "platform", href: "/platform", keywords: "调度 记忆 平台 审计" },
+  { id: "nav-platform", label: "前往 · 平台", hint: "/platform", href: "/platform", keywords: "调度 审计 平台 系统设置" },
   { id: "nav-audit", label: "前往 · 审计时间线", hint: "audit", href: "/platform#platform-audit-section", keywords: "audit promote 告警" },
   {
     id: "ai-open",
-    label: "打开 AI 助手",
+    label: "打开 AI",
     hint: "⌘K",
-    keywords: "ai 助手 命令",
+    keywords: "ai 助手 命令 模型 llm",
     run: () => {
       if (typeof window.__investmentOpenAi === "function") window.__investmentOpenAi();
     },
@@ -49,18 +49,22 @@ const COMMANDS = [
     },
   },
   {
-    id: "replay-grid",
-    label: "历史回测 · 滚动到参数扫描",
-    hint: "/replay#param-grid",
-    href: "/replay#param-grid",
-    keywords: "网格 热力 参数 scan",
-  },
-  {
     id: "factor-dict",
     label: "策略 · 因子字典",
     hint: "/strategy#strategy-factor-dict",
     href: "/strategy#strategy-factor-dict",
     keywords: "因子 dictionary",
+  },
+  {
+    id: "evals-open",
+    label: "打开 · 黄金用例校验",
+    hint: "evals",
+    keywords: "校验 evals golden checklist ci readme",
+    run: () => {
+      if (typeof window.__investmentOpenEvals === "function") {
+        window.__investmentOpenEvals();
+      }
+    },
   },
 ];
 

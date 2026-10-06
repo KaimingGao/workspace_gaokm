@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -14,6 +15,7 @@ from agent.llm_client import (
     empty_usage,
     format_usage,
     parse_usage,
+    resolve_llm_model,
 )
 from unittest.mock import patch
 import requests
@@ -56,7 +58,7 @@ class TestUsage(unittest.TestCase):
 
     def test_timeout_defaults_and_friendly_error(self):
         c = LLMClient(api_key="x")
-        self.assertEqual(c.chat_timeout, 120.0)
+        self.assertEqual(c.chat_timeout, 180.0)
         self.assertEqual(c.probe_timeout, 30.0)
         err = requests.exceptions.ReadTimeout(
             "HTTPSConnectionPool(host='dashscope.aliyuncs.com', port=443): Read timed out. (read timeout=10)"
@@ -64,21 +66,41 @@ class TestUsage(unittest.TestCase):
         self.assertTrue(_is_transient_error(err))
         self.assertIn("超时", _friendly_request_error(err))
 
+    def test_llm_model_from_memory_when_env_unset(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "memory.json")
+            env_path = os.path.join(td, ".env")
+            from core.memory_store import write_memory
+
+            with patch("core.env.default_env_path", return_value=env_path):
+                write_memory({"llm_model": "qwen-max"}, path=path)
+            with patch("core.env.default_env_path", return_value=env_path), patch.dict(
+                os.environ,
+                {"DASHSCOPE_MODEL": "", "DOUBAO_MODEL": ""},
+                clear=False,
+            ), patch("core.memory_store.MEMORY_PATH", path):
+                model, source = resolve_llm_model()
+            self.assertEqual(model, "qwen-max")
+            self.assertEqual(source, "env")
+
     def test_qwen_defaults_and_search_body(self):
-        with patch.dict(
-            os.environ,
-            {
-                "DASHSCOPE_API_KEY": "sk-test",
-                "DASHSCOPE_ENABLE_SEARCH": "1",
-                "DASHSCOPE_SEARCH_STRATEGY": "max",
-                "DASHSCOPE_SEARCH_FRESHNESS": "7",
-                "DOUBAO_API_KEY": "",
-                "DOUBAO_ENDPOINT": "",
-                "DOUBAO_MODEL": "",
-            },
-            clear=False,
-        ):
-            c = LLMClient()
+        with tempfile.TemporaryDirectory() as td:
+            env_path = os.path.join(td, "missing.env")
+            with patch.dict(
+                os.environ,
+                {
+                    "DASHSCOPE_API_KEY": "sk-test",
+                    "DASHSCOPE_MODEL": "",
+                    "DASHSCOPE_ENABLE_SEARCH": "1",
+                    "DASHSCOPE_SEARCH_STRATEGY": "max",
+                    "DASHSCOPE_SEARCH_FRESHNESS": "7",
+                    "DOUBAO_API_KEY": "",
+                    "DOUBAO_ENDPOINT": "",
+                    "DOUBAO_MODEL": "",
+                },
+                clear=False,
+            ), patch("core.env.default_env_path", return_value=env_path):
+                c = LLMClient()
             self.assertEqual(c.model, "qwen-plus")
             self.assertTrue(c.enable_search)
             body = c._search_body(enable_search=True)

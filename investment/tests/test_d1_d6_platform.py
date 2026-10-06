@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from core.decision_record import build_decision_record, list_decisions, record_from_advice
+from core.decision_record import build_decision_record, clear_decisions, list_decisions, record_from_advice
 from core.feedback_suggest import suggest_config_feedback
 from core.job_progress import JobRegistry, paper_job
 from core.memory_store import (
@@ -75,6 +76,23 @@ class TestD2Memory(unittest.TestCase):
             self.assertEqual(missing["horizon_days"], 3)
             self.assertFalse(missing["memory_exists"])
 
+    def test_llm_model_preference(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "memory.json")
+            env_path = os.path.join(td, ".env")
+            with patch("core.env.default_env_path", return_value=env_path):
+                out = write_memory({"llm_model": "qwen-max"}, path=path)
+            self.assertEqual(out["preferences"].get("llm_model"), "")
+            eff = effective_preferences(path)
+            self.assertEqual(eff["llm_model"], "qwen-max")
+            self.assertEqual(eff["llm_model_source"], "env")
+            with open(env_path, encoding="utf-8") as f:
+                self.assertIn("DASHSCOPE_MODEL=qwen-max", f.read())
+            with patch("core.env.default_env_path", return_value=env_path):
+                write_memory({"llm_model": "bad model name"}, path=path)
+            with open(env_path, encoding="utf-8") as f:
+                self.assertIn("DASHSCOPE_MODEL=qwen-max", f.read())
+
 
 class TestD3Decision(unittest.TestCase):
     def test_decision_record_persist(self):
@@ -99,6 +117,12 @@ class TestD3Decision(unittest.TestCase):
             listed = list_decisions(limit=10, path=path)
             self.assertEqual(listed["count"], 1)
             self.assertEqual(listed["items"][0]["stock_code"], "600519")
+            cleared = clear_decisions(path=path)
+            self.assertTrue(cleared["ok"])
+            self.assertEqual(cleared["cleared"], 1)
+            self.assertFalse(os.path.isfile(path))
+            listed2 = list_decisions(limit=10, path=path)
+            self.assertEqual(listed2["count"], 0)
 
 
 class TestD4Feedback(unittest.TestCase):

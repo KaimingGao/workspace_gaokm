@@ -1,0 +1,1768 @@
+/* ══ DASHBOARD ══ 仪表盘：KPI、净值曲线、风险、板块、信号 */
+
+/* 平台区段：走 dashboard-section 节奏 */
+.platform-section.dashboard-section {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+/* 内联态：工具条 / 仪表盘时间戳 / results meta */
+.dashboard-updated[data-state="loading"] {
+  color: var(--ink-2);
+}
+
+/* 策略区段标题：复用 dashboard-section-*，不再自造字号/竖条 */
+.strategy-page .strategy-section-head.dashboard-section-head {
+  margin-bottom: 6px;
+}
+
+.strategy-page .dashboard-section-desc {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.dashboard-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--line);
+  margin: 0;
+}
+
+.dashboard-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.dashboard-eyebrow {
+  margin: 0;
+  font-size: var(--d-fs-micro, 0.6875rem);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+
+.dashboard-head-text h2 {
+  font-size: var(--d-fs-title, 1.125rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.dashboard-meta {
+  font-size: var(--d-fs-caption, 0.75rem);
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.dashboard-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.dashboard-updated {
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  gap: 8px;
+  line-height: 1;
+  max-width: none;
+}
+
+.dashboard-updated::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  flex: 0 0 auto;
+}
+
+/* 加载：三蓝点与「加载中」同一行（阴影点占位 + 文案） */
+.dashboard-updated[data-state="loading"] {
+  color: var(--ink-2);
+  gap: 0;
+}
+
+.dashboard-updated[data-state="loading"]::before {
+  width: var(--ui-busy-dot, 6px);
+  height: var(--ui-busy-dot, 6px);
+  margin-right: calc(var(--ui-busy-dot-gap, 9px) * 2 + 8px);
+  background: var(--ui-busy, var(--accent, #2563eb));
+  box-shadow:
+    var(--ui-busy-dot-gap, 9px) 0 0 color-mix(in srgb, var(--ui-busy, var(--accent, #2563eb)) 22%, transparent),
+    calc(var(--ui-busy-dot-gap, 9px) * 2) 0 0 color-mix(in srgb, var(--ui-busy, var(--accent, #2563eb)) 22%, transparent);
+  animation: ui-busy-dots var(--ui-busy-duration, 1.05s) ease-in-out infinite;
+}
+
+.dashboard-updated[data-state="ready"]::before {
+  background: var(--ok, #059669);
+  box-shadow: none;
+  margin-right: 0;
+  animation: none;
+}
+
+.dashboard-updated[data-state="error"]::before {
+  background: var(--danger, #ef4444);
+  box-shadow: none;
+  margin-right: 0;
+  animation: none;
+}
+
+/* Section rails（报告块序） */
+.dashboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dashboard-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+.dashboard-section-title {
+  margin: 0;
+  font-size: var(--d-fs-section, 0.875rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+
+.dashboard-section-title::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.75em;
+  margin-right: 8px;
+  vertical-align: -0.05em;
+  border-radius: 1px;
+  background: var(--accent, #1890ff);
+}
+
+.dashboard-section-desc {
+  margin: 0;
+  font-size: var(--d-fs-caption, 0.75rem);
+  color: var(--ink-3);
+}
+
+/* ——— KPI Row ——— */
+.dashboard-overview-band {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.dashboard-overview-band .dashboard-kpi-row {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.dashboard-overview-band .dashboard-kpi-row {
+  border-top: 1px solid var(--line);
+}
+
+.dashboard-kpi-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.dashboard-kpi-row-body {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+}
+
+@media (max-width: 900px) {
+  .dashboard-kpi-row-body { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .dashboard-kpi-row-body { grid-template-columns: repeat(2, 1fr); }
+}
+
+.dashboard-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 12px 7px;
+  border-right: 1px solid var(--line);
+  transition: background 0.12s ease;
+  position: relative;
+  min-width: 0;
+}
+
+.dashboard-kpi-card:last-child {
+  border-right: none;
+}
+
+.dashboard-kpi-card:hover {
+  background: var(--bg-hover);
+}
+
+.dashboard-kpi-card.is-good {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--color-up, #f5222d) 55%, transparent);
+}
+
+.dashboard-kpi-card.is-bad {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--color-down, #52c41a) 55%, transparent);
+}
+
+.dashboard-kpi-card.is-quality-good {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--d-quality-pos, var(--ok)) 55%, transparent);
+}
+
+.dashboard-kpi-card.is-quality-bad {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--d-quality-neg, var(--danger)) 55%, transparent);
+}
+
+.dashboard-kpi-label {
+  font-size: var(--d-fs-micro, 0.6875rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.dashboard-kpi-value {
+  font-family: var(--font-mono);
+  font-size: var(--d-fs-kpi, 1.25rem);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-kpi-card.is-good .dashboard-kpi-value {
+  color: var(--color-up, #f5222d);
+}
+
+.dashboard-kpi-card.is-bad .dashboard-kpi-value {
+  color: var(--color-down, #52c41a);
+}
+
+.dashboard-kpi-card.is-quality-good .dashboard-kpi-value {
+  color: var(--d-quality-pos, var(--ok));
+}
+
+.dashboard-kpi-card.is-quality-bad .dashboard-kpi-value {
+  color: var(--d-quality-neg, var(--danger));
+}
+
+.dashboard-kpi-sub {
+  font-size: var(--d-fs-micro, 0.6875rem);
+  color: var(--ink-3);
+}
+
+.dashboard-kpi-spark {
+  margin-top: 2px;
+  opacity: 0.85;
+  max-width: 72px;
+}
+
+/* Cards */
+.dashboard-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.dashboard-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+}
+
+.dashboard-card-head h3 {
+  font-size: var(--d-fs-body, 0.8125rem);
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-card-sub {
+  font-size: var(--d-fs-caption, 0.75rem);
+  color: var(--ink-3);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dashboard-card-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.dashboard-bench-toggle {
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dashboard-bench-toggle input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* NAV */
+.dashboard-nav-card {
+  min-height: 0;
+}
+
+.dashboard-nav-chart-host {
+  flex: 0 0 auto;
+  height: 200px;
+  min-height: 200px;
+  max-height: 200px;
+}
+
+.dashboard-chart-host {
+  flex: 1;
+  padding: 4px 6px;
+  min-height: 0;
+}
+
+.dashboard-range-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.dashboard-range-tabs button {
+  font-size: var(--d-fs-caption, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  font-family: var(--font-mono);
+}
+
+.dashboard-range-tabs button:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.dashboard-range-tabs button.is-active {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+
+/* Secondary: drawdown / var / sector */
+.dashboard-secondary-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1.1fr;
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-secondary-row { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 700px) {
+  .dashboard-secondary-row { grid-template-columns: 1fr; }
+}
+
+.dashboard-sector-card {
+  min-height: 0;
+}
+
+/* 定高；勿叠 .dashboard-chart-host 的 flex:1，否则回撤图会与 RO 互相撑爆 */
+.dashboard-drawdown-chart-host {
+  flex: 0 0 auto;
+  height: 160px;
+  min-height: 160px;
+  max-height: 160px;
+  overflow: hidden;
+}
+
+.dashboard-var-chart-host {
+  flex: 0 0 auto;
+  height: 132px;
+  min-height: 132px;
+  max-height: 132px;
+}
+
+.dashboard-var-card .dashboard-chart-host {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px 2px;
+}
+
+/* Sector Heatmap */
+.dashboard-sector-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 8px;
+  flex: 1;
+}
+
+@media (max-width: 700px) {
+  .dashboard-sector-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.dashboard-sector-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  border: 1px solid var(--line);
+  cursor: default;
+}
+
+.dashboard-sector-cell:hover {
+  border-color: color-mix(in srgb, var(--ink) 18%, var(--line));
+}
+
+.dashboard-sector-cell.is-up {
+  background: color-mix(in srgb, var(--color-up, #f5222d) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--color-up, #f5222d) 28%, var(--line));
+}
+
+.dashboard-sector-cell.is-down {
+  background: color-mix(in srgb, var(--color-down, #52c41a) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--color-down, #52c41a) 28%, var(--line));
+}
+
+.dashboard-sector-name {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-sector-pct {
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-sector-cell.is-up .dashboard-sector-pct { color: var(--color-up, #f5222d); }
+
+.dashboard-sector-cell.is-down .dashboard-sector-pct { color: var(--color-down, #52c41a); }
+
+.dashboard-sector-sub {
+  font-size: 0.58rem;
+  color: var(--ink-3);
+}
+
+.dashboard-sector-legend {
+  display: flex;
+  gap: 12px;
+  padding: 4px 10px 8px;
+  font-size: 0.62rem;
+  color: var(--ink-3);
+}
+
+/* Bottom: allocation / exposure / signals / strategies — 对称 2×2 */
+.dashboard-bottom-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(220px, 260px));
+  gap: 10px;
+  align-items: stretch;
+}
+
+@media (max-width: 900px) {
+  .dashboard-bottom-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .dashboard-bottom-row > .dashboard-card {
+    min-height: 220px;
+    max-height: 320px;
+  }
+
+  /* 仪表盘保留 2×2 至 720（见文末 p878） */
+  body[data-page="dashboard"] .dashboard-bottom-row,
+  body[data-page="dashboard"] .dashboard-page .dashboard-bottom-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(200px, 260px));
+  }
+}
+
+.dashboard-bottom-row > .dashboard-card {
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-allocation-card {
+  min-height: 0;
+  max-height: none;
+}
+
+.dashboard-allocation-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 8px 12px 10px;
+  min-height: 0;
+}
+
+.dashboard-leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.72rem;
+}
+
+.dashboard-leaderboard-table th {
+  text-align: left;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+}
+
+.dashboard-leaderboard-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+.dashboard-leaderboard-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-leaderboard-table td.up { color: var(--color-up, #f5222d); }
+
+.dashboard-leaderboard-table td.down { color: var(--color-down, #52c41a); }
+
+.dashboard-leaderboard-table .col-rank {
+  width: 2rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+
+.dashboard-leaderboard-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.dashboard-signal-item {
+  display: grid;
+  grid-template-columns: 4.2rem minmax(3.5rem, 1fr) 1.6rem 3.2rem auto;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 12px 5px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-left: 2px solid transparent;
+  font-size: 0.7rem;
+}
+
+.dashboard-signal-item:last-child { border-bottom: none; }
+
+.dashboard-signal-item.is-long {
+  border-left-color: color-mix(in srgb, var(--color-up, #f5222d) 70%, transparent);
+}
+
+.dashboard-signal-item.is-short {
+  border-left-color: color-mix(in srgb, var(--color-down, #52c41a) 70%, transparent);
+}
+
+.dashboard-signal-code {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-signal-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.dashboard-signal-dir {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+.dashboard-signal-item.is-long .dashboard-signal-dir { color: var(--color-up, #f5222d); }
+
+.dashboard-signal-item.is-short .dashboard-signal-dir { color: var(--color-down, #52c41a); }
+
+.dashboard-signal-score.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.dashboard-signal-time {
+  font-size: 0.6rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+
+.dashboard-allocation-body {
+  display: block;
+  padding: 8px 12px 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dashboard-allocation-legend {
+  display: block;
+  max-height: none;
+  overflow: visible;
+}
+
+.dashboard-allocation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dashboard-allocation-row {
+  display: grid;
+  grid-template-columns: 6px 70px 1fr 44px;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--d-fs-caption, 0.75rem);
+}
+
+.dashboard-allocation-swatch {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+}
+
+.dashboard-allocation-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.dashboard-allocation-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.dashboard-allocation-bar {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.dashboard-allocation-pct.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+  color: var(--ink-2);
+}
+
+.dashboard-empty {
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--ink-3);
+}
+
+/* ——— Market Overview Row ——— */
+.dashboard-market-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.dashboard-market-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 0;
+}
+
+.dashboard-market-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px 7px;
+  border-right: 1px solid var(--line);
+  transition: background 0.12s ease;
+  position: relative;
+  min-width: 0;
+}
+
+.dashboard-market-card:last-child {
+  border-right: none;
+}
+
+.dashboard-market-card:hover {
+  background: var(--bg-hover);
+}
+
+.dashboard-market-card.is-up {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--color-up, #f5222d) 50%, transparent);
+}
+
+.dashboard-market-card.is-down {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--color-down, #52c41a) 50%, transparent);
+}
+
+.dashboard-market-label {
+  font-size: var(--d-fs-micro, 0.6875rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.dashboard-market-metrics {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.dashboard-market-value {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.dashboard-market-sep {
+  margin: 0 1px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.dashboard-market-card.is-up .dashboard-market-value {
+  color: var(--color-up, #f5222d);
+}
+
+.dashboard-market-card.is-down .dashboard-market-value {
+  color: var(--color-down, #52c41a);
+}
+
+.dashboard-market-change {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-market-card.is-up .dashboard-market-change {
+  color: var(--color-up, #f5222d);
+}
+
+.dashboard-market-card.is-down .dashboard-market-change {
+  color: var(--color-down, #52c41a);
+}
+
+.dashboard-market-card.is-limit .dashboard-market-value {
+  color: var(--ink);
+}
+
+.dashboard-market-card--index {
+  gap: 1px;
+}
+
+.dashboard-market-card--index .dashboard-market-value {
+  font-size: var(--d-fs-kpi, 1.25rem);
+  line-height: 1.15;
+}
+
+.dashboard-market-sub {
+  font-size: var(--d-fs-micro, 0.6875rem);
+  color: var(--ink-3);
+}
+
+.dashboard-market-card.is-up .dashboard-market-sub,
+.dashboard-market-card.is-down .dashboard-market-sub {
+  color: var(--ink-3);
+}
+
+/* ——— Market Context (pre-market priors) ——— */
+.dashboard-market-context-row {
+  margin-top: 0;
+}
+
+body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-row {
+  margin-top: 0;
+}
+
+.dashboard-market-context-band {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 1.2%, var(--bg-card, var(--surface)));
+  padding: 0;
+  overflow: hidden;
+}
+
+.dashboard-market-context-band.is-stale {
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--warn, #d97706) 70%, transparent);
+  border-color: var(--line);
+}
+
+.dashboard-market-context-title {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  cursor: help;
+}
+
+.dashboard-market-context-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 0;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 2%, transparent);
+}
+
+.dashboard-market-context-refresh {
+  font-size: 0.62rem;
+  padding: 2px 8px;
+  min-height: 22px;
+}
+
+.dashboard-mctx-spark {
+  display: block;
+  opacity: 0.85;
+}
+
+.dashboard-market-context-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 0;
+}
+
+.dashboard-market-context-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 9px;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+  cursor: help;
+}
+
+.dashboard-market-context-card:last-child {
+  border-right: none;
+}
+
+.dashboard-market-context-label {
+  font-size: 0.58rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.dashboard-market-context-value {
+  font-size: 0.88rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-1);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.dashboard-market-context-sub {
+  font-size: 0.58rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-market-context-card.is-good .dashboard-market-context-value {
+  color: var(--color-up, #f5222d);
+}
+
+.dashboard-market-context-card.is-bad .dashboard-market-context-value {
+  color: var(--color-down, #52c41a);
+}
+
+.dashboard-market-context-card.is-fresh .dashboard-market-context-value {
+  color: var(--ok, #059669);
+}
+
+.dashboard-market-context-card.is-stale .dashboard-market-context-value {
+  color: var(--warn, #d97706);
+}
+
+.dashboard-market-context-empty {
+  padding: 8px 12px;
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  border: 1px dashed var(--line);
+  border-radius: 2px;
+  text-align: center;
+}
+
+.dashboard-mctx-history {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.dashboard-mctx-history-label {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dashboard-mctx-history .macro-hist-legend {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.macro-hist-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.62rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.macro-hist-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  flex: 0 0 auto;
+}
+
+.macro-hist-legend-swatch.is-tech {
+  background: var(--color-up, #f5222d);
+}
+
+.macro-hist-legend-swatch.is-a50 {
+  background: var(--accent, #1890ff);
+}
+
+.macro-hist-legend-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  min-width: 3.6em;
+}
+
+.macro-hist-legend-val.is-up {
+  color: var(--color-up, #f5222d);
+}
+
+.macro-hist-legend-val.is-down {
+  color: var(--color-down, #52c41a);
+}
+
+.macro-hist-legend-val.is-flat {
+  color: var(--ink-3);
+}
+
+.dashboard-mctx-history-canvas {
+  flex: 1 1 auto;
+  max-width: 100%;
+  height: 56px;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  cursor: crosshair;
+}
+
+.dashboard-mctx-history-hint {
+  margin: 0;
+  padding: 6px 10px 8px;
+  font-size: 0.65rem;
+  color: var(--ink-3);
+  border-top: 1px solid var(--line);
+}
+
+/* ——— Risk Metrics Row ——— */
+.dashboard-risk-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.dashboard-risk-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+}
+
+.dashboard-risk-strip:empty {
+  display: none;
+}
+
+.dashboard-risk-strip-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 12px;
+  min-width: 5.2rem;
+  border-right: 1px solid var(--line);
+}
+
+.dashboard-risk-strip-item:last-child {
+  border-right: none;
+}
+
+.dashboard-risk-strip-k {
+  font-size: var(--d-fs-micro, 0.6875rem);
+  color: var(--ink-3);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dashboard-risk-strip-v {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-risk-strip-item.is-quality-bad .dashboard-risk-strip-v {
+  color: var(--d-quality-neg, var(--danger));
+}
+
+.dashboard-risk-strip-item.is-quality-good .dashboard-risk-strip-v {
+  color: var(--d-quality-pos, var(--ok));
+}
+
+.dashboard-risk-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+}
+
+@media (max-width: 700px) {
+  .dashboard-risk-cards { grid-template-columns: repeat(2, 1fr); }
+}
+
+.dashboard-risk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 12px 6px;
+  border-right: 1px solid var(--line);
+  transition: background 0.12s ease;
+}
+
+.dashboard-risk-card:last-child {
+  border-right: none;
+}
+
+.dashboard-risk-card:hover {
+  background: var(--bg-hover);
+}
+
+.dashboard-risk-card.is-good {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--color-up, #f5222d) 45%, transparent);
+}
+
+.dashboard-risk-card.is-bad {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--color-down, #52c41a) 45%, transparent);
+}
+
+.dashboard-risk-card.is-quality-good {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--d-quality-pos, var(--ok)) 45%, transparent);
+}
+
+.dashboard-risk-card.is-quality-bad {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--d-quality-neg, var(--danger)) 45%, transparent);
+}
+
+.dashboard-risk-label {
+  font-size: var(--d-fs-micro, 0.6875rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.dashboard-risk-value {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.dashboard-risk-card.is-good .dashboard-risk-value {
+  color: var(--color-up, #f5222d);
+}
+
+.dashboard-risk-card.is-bad .dashboard-risk-value {
+  color: var(--color-down, #52c41a);
+}
+
+.dashboard-risk-card.is-quality-good .dashboard-risk-value {
+  color: var(--d-quality-pos, var(--ok));
+}
+
+.dashboard-risk-card.is-quality-bad .dashboard-risk-value {
+  color: var(--d-quality-neg, var(--danger));
+}
+
+/* 波动率「偏高」用质量告警色 */
+.dashboard-risk-card[data-risk="ann_vol"].is-quality-bad {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--d-quality-neg, var(--danger)) 45%, transparent);
+}
+
+.dashboard-risk-card[data-risk="ann_vol"].is-quality-bad .dashboard-risk-value {
+  color: var(--d-quality-neg, var(--danger));
+}
+
+/* ——— NAV Stats ——— */
+.dashboard-nav-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  padding: 5px 12px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+  font-size: 0.7rem;
+}
+
+.dashboard-nav-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0 10px 0 0;
+  margin-right: 10px;
+  border-right: 1px solid var(--line);
+}
+
+.dashboard-nav-stat:last-child {
+  border-right: none;
+  margin-right: 0;
+}
+
+/* ——— Sector Heatmap Legend & Sub Labels ——— */
+.dashboard-sector-legend {
+  display: flex;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 0.65rem;
+  color: var(--ink-3);
+  align-items: center;
+}
+
+.dashboard-sector-legend span {
+  font-weight: 500;
+}
+
+.dashboard-sector-sub {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  margin-top: 2px;
+  font-family: var(--font-mono);
+}
+
+/* ——— Exposure Bar ——— */
+.dashboard-exposure-body {
+  padding: 8px 12px 10px;
+  flex: 1 1 auto;
+  overflow: auto;
+  max-height: none;
+  min-height: 0;
+}
+
+.dashboard-exposure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dashboard-exposure-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 44px;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.72rem;
+}
+
+.dashboard-exposure-name {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-exposure-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.dashboard-exposure-bar {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 60%, var(--ok)) 100%);
+}
+
+.dashboard-exposure-pct {
+  text-align: right;
+  font-weight: 700;
+  color: var(--ink-2);
+  font-size: 0.68rem;
+}
+
+/* ——— Sector cell sub label ——— */
+.dashboard-sector-sub {
+  display: block;
+  font-size: 0.6rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+/* ——— Allocation legend（条带列表，勿用 auto-fit 多列） ——— */
+#dashboard-allocation-legend.dashboard-allocation-bars {
+  display: block;
+  grid-template-columns: none;
+  gap: 0;
+}
+
+/* ——— Exposure card ——— */
+.dashboard-exposure-card {
+  min-height: 0;
+}
+
+.dashboard-exposure-body {
+  max-height: none;
+}
+
+/* ——— Drawdown / VaR chart hosts（与 secondary-row 定高一致） ——— */
+.dashboard-var-card .dashboard-chart-host {
+  padding: 4px 6px;
+}
+
+.dashboard-var-hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex: 1;
+  min-height: 100px;
+  padding: 6px 8px 2px;
+}
+
+.dashboard-var-bar {
+  flex: 1 1 0;
+  min-width: 3px;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--accent, #2563eb) 78%, #fff);
+}
+
+.dashboard-var-bar.is-tail95 {
+  background: var(--warn, #faad14);
+}
+
+.dashboard-var-bar.is-tail99 {
+  background: var(--danger, #ff4d4f);
+}
+
+.dashboard-var-footnote {
+  margin: 0;
+  padding: 0 8px 6px;
+  font-size: 0.62rem;
+  color: var(--ink-3);
+}
+
+/* 卡壳 = dashboard-card */
+/* 卡头 = dashboard-card-head */
+/* 指标条 = 仪表盘 risk-strip 节奏 */
+/* 旧 chip 面板在四图内隐藏（若残留） */
+/* 图体区 */
+/* MA 线用 accent，不用紫 */
+/* β 距离条：扁平语义色（同质绿 / 警告琥珀 / 异常红） */
+/* β 棒棒糖 */
+/* ŷ 直方图 */
+/* status chip 在卡头内对齐 */
+/* ==========================================================================
+   仪表盘 · 报告台收口 (p801)
+   字号 · 质量色 · 条带配置 · compact · 空态工具类
+   ========================================================================== */
+
+.dashboard-empty--span {
+  grid-column: 1 / -1;
+}
+
+.dashboard-card-head--tools {
+  justify-content: space-between;
+}
+
+.dashboard-updated {
+  font-size: var(--d-fs-caption, 0.75rem);
+}
+
+.dashboard-bench-toggle {
+  font-size: var(--d-fs-caption, 0.75rem);
+}
+
+/* 强制覆盖旧 allocation 双写（若残留） */
+.dashboard-page .dashboard-allocation-body {
+  display: block;
+  grid-template-columns: none;
+  padding: 8px 12px 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dashboard-page .dashboard-allocation-chart {
+  display: none;
+}
+
+.dashboard-page .dashboard-bottom-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(220px, 260px));
+  align-items: stretch;
+}
+
+.dashboard-page .dashboard-bottom-row > .dashboard-card {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.dashboard-page .dashboard-exposure-card {
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .dashboard-page .dashboard-bottom-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(200px, 260px));
+  }
+}
+
+html[data-density="compact"] .dashboard-card-head {
+  padding: 6px 10px;
+}
+
+html[data-density="compact"] .dashboard-market-card {
+  padding: 6px 10px;
+}
+
+html[data-density="compact"] .dashboard-risk-card {
+  padding: 5px 10px;
+}
+
+.embed-panel .dashboard-head h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1.25;
+}
+
+.embed-panel .dashboard-meta {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+
+/* ==========================================================================
+   仪表盘 · Report Desk 专业密度 (p878)
+   对齐执行台/研究枢纽：多层框 · 离散 KPI · 定高图 · 页头 chip
+   ========================================================================== */
+
+body[data-page="dashboard"] {
+  --d-gap-page: 10px;
+  --d-gap-block: 8px;
+  --d-r: var(--sys-r-tier2, 6px);
+}
+
+body[data-page="dashboard"] .quant-body.dashboard-page {
+  gap: var(--d-gap-page);
+}
+
+/* ── 页头：紧、静、chip 对齐 ── */
+body[data-page="dashboard"] .dashboard-head {
+  align-items: flex-start;
+  gap: 12px;
+  padding: 2px 0 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+body[data-page="dashboard"] .dashboard-eyebrow {
+  margin: 0 0 2px;
+  font-size: var(--d-fs-micro, 0.6875rem);
+  font-weight: var(--sys-fw-label, 650);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+body[data-page="dashboard"] .dashboard-head-text h2 {
+  margin: 0;
+  font-size: var(--d-fs-title, 1.125rem);
+  font-weight: var(--sys-fw-display, 700);
+  letter-spacing: -0.02em;
+  line-height: var(--sys-lh-tight, 1.2);
+  color: var(--ink);
+}
+
+body[data-page="dashboard"] .dashboard-meta {
+  margin: 4px 0 0;
+  font-size: var(--d-fs-caption, 0.75rem);
+  line-height: var(--sys-lh-snug, 1.35);
+  color: var(--ink-3);
+}
+
+body[data-page="dashboard"] .dashboard-head-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+body[data-page="dashboard"] .dashboard-updated,
+body[data-page="dashboard"] .dashboard-head-actions > .dashboard-head-chip,
+body[data-page="dashboard"] .dashboard-head-actions > #dashboard-refresh {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0 10px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+body[data-page="dashboard"] .dashboard-updated {
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  gap: 8px;
+}
+
+body[data-page="dashboard"] .dashboard-head-actions > #dashboard-refresh {
+  color: var(--ink);
+  background: var(--bg-card, #fff);
+  cursor: pointer;
+}
+
+body[data-page="dashboard"] .dashboard-head-actions > #dashboard-refresh:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  color: var(--accent);
+}
+
+/* ── Section L1 底框 ── */
+body[data-page="dashboard"] .dashboard-page > .dashboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--d-gap-block);
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent, #1890ff) 55%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 97%, var(--line));
+  box-sizing: border-box;
+}
+
+body[data-page="dashboard"] .dashboard-page > .dashboard-section > .dashboard-section-head {
+  margin: 0;
+  padding: 0 0 2px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+body[data-page="dashboard"] .dashboard-page > .dashboard-section > .dashboard-section-head .dashboard-section-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--d-fs-section, 0.875rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+}
+
+body[data-page="dashboard"] .dashboard-page > .dashboard-section > .dashboard-section-head .dashboard-section-title::before {
+  display: none; /* 左边框已承担 accent，避免双竖条 */
+}
+
+body[data-page="dashboard"] .dashboard-page > .dashboard-section > .dashboard-section-head .dashboard-section-desc {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: var(--d-fs-caption, 0.75rem);
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
+/* ── L2 白卡：区段内卡片 ── */
+body[data-page="dashboard"] .dashboard-page .dashboard-card {
+  margin: 0;
+  border-radius: var(--d-r);
+  border-color: var(--line);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+body[data-page="dashboard"] .dashboard-page .dashboard-card-head {
+  min-height: 32px;
+  padding: 6px 10px;
+  box-sizing: border-box;
+}
+
+/* ── 概览：离散 KPI / 市场卡 ── */
+body[data-page="dashboard"] .dashboard-overview-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--d-gap-block);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+body[data-page="dashboard"] .dashboard-overview-band .dashboard-kpi-row,
+body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-row {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+body[data-page="dashboard"] .dashboard-overview-band .dashboard-kpi-row {
+  border-top: none;
+}
+
+body[data-page="dashboard"] .dashboard-market-cards,
+body[data-page="dashboard"] .dashboard-kpi-row-body {
+  display: grid;
+  gap: 8px;
+}
+
+body[data-page="dashboard"] .dashboard-kpi-row-body {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+body[data-page="dashboard"] .dashboard-market-card,
+body[data-page="dashboard"] .dashboard-kpi-card {
+  border: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  border-radius: var(--d-r);
+  background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
+  padding: 8px 12px;
+  min-height: 64px;
+  box-sizing: border-box;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+body[data-page="dashboard"] .dashboard-market-card:hover,
+body[data-page="dashboard"] .dashboard-kpi-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: var(--surface);
+}
+
+body[data-page="dashboard"] .dashboard-kpi-card:last-child,
+body[data-page="dashboard"] .dashboard-market-card:last-child {
+  border-right: 1px solid var(--line);
+}
+
+/* ── 风险：条带保持一体，补充卡离散 ── */
+body[data-page="dashboard"] .dashboard-risk-row {
+  border-radius: var(--d-r);
+  overflow: hidden;
+}
+
+body[data-page="dashboard"] .dashboard-risk-cards {
+  gap: 0;
+  background: var(--surface);
+}
+
+body[data-page="dashboard"] .dashboard-risk-card {
+  min-height: 52px;
+  padding: 8px 12px;
+}
+
+/* ── 风险分解：副图定高对齐 ── */
+body[data-page="dashboard"] .dashboard-secondary-row {
+  align-items: stretch;
+  gap: 8px;
+}
+
+body[data-page="dashboard"] .dashboard-secondary-row > .dashboard-card {
+  min-height: 0;
+}
+
+body[data-page="dashboard"] .dashboard-sector-grid {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 160px;
+  overflow: auto;
+}
+
+/* ── 仓位与信号：2×2 封顶，防信号列表撑爆 ── */
+body[data-page="dashboard"] .dashboard-page .dashboard-bottom-row {
+  gap: 8px;
+}
+
+body[data-page="dashboard"] .dashboard-page .dashboard-bottom-row > .dashboard-card {
+  max-height: 260px;
+}
+
+body[data-page="dashboard"] .dashboard-signals-card > [id="dashboard-signals-list"],
+body[data-page="dashboard"] .dashboard-signals-body,
+body[data-page="dashboard"] #dashboard-signals-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  max-height: none;
+}
+
+body[data-page="dashboard"] .dashboard-leaderboard-body,
+body[data-page="dashboard"] #dashboard-leaderboard {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+@media (max-width: 900px) {
+  body[data-page="dashboard"] .dashboard-kpi-row-body {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* 仓位 2×2 尽量保留到平板宽度；过早单列会把信号列表叠成超长页 */
+@media (max-width: 720px) {
+  body[data-page="dashboard"] .dashboard-page .dashboard-bottom-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  body[data-page="dashboard"] .dashboard-page .dashboard-bottom-row > .dashboard-card {
+    min-height: 200px;
+    max-height: 280px;
+    height: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  body[data-page="dashboard"] .dashboard-kpi-row-body {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

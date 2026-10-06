@@ -1,7 +1,9 @@
 """Skill 单一注册表：TOOL 名 / Handler / tool_config 三者对齐。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import importlib
 import json
 import os
@@ -61,7 +63,7 @@ def load_tool_definitions(skills_dir: str = SKILLS_DIR) -> List[dict]:
         path = os.path.join(skills_dir, name, "tool_config.json")
         if not os.path.isfile(path):
             raise FileNotFoundError(f"缺少 tool_config: {path}")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             config = json.load(f)
         cfg_name = config.get("name")
         if cfg_name != name:

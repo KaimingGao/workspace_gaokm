@@ -4,17 +4,20 @@
 
 | 路径 | 入口 | 计费形态 |
 |------|------|----------|
-| 纸面现金账 | `core.paper_costs.calc_trade_fees` | 金额级（含最低佣金） |
-| 回测单票 | `costs.apply_trade_cost` | bps 往返近似 |
-| 回测组合 TopK | `costs.rebalance_cost_pct` | **换手**（续持不扣往返） |
+| 纸面现金账 | `core.paper.costs.calc_trade_fees` | 金额级（含最低佣金） |
+| 纸面回放 | `core.backtest.paper_replay` → 同上 | 金额级（经 rank_lots） |
+| 回测单票 | `costs.round_trip_cost_pct` | bps 往返近似 |
+| 回测组合 TopK | `costs.rebalance_cost_pct` | **换手**（续持不扣往返；引擎=topk_research） |
 | 研究辅助 | `signal.factors.cost.TransactionCostCalculator` | 金额级，须同源 |
 
 撮合约束（涨跌停 / T+1 / 滑点档）见 `core.backtest.matching`（MatchPort 研究近似，非交易所）。
 """
 
-from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
+from typing import Any, Dict, List
 
 # —— simple_cn 法定/券商简化费率（bps 为权威单位）——
 SIMPLE_CN_FEE: Dict[str, float] = {
@@ -78,7 +81,7 @@ def _almost(a: float, b: float, tol: float = 1e-9) -> bool:
 def cost_port_snapshot() -> Dict[str, Any]:
     """对照纸面 / 回测 / 因子计算器与本端口；供 evals 闸门。"""
     from core.backtest.costs import DEFAULT_COSTS, load_cost_config
-    from core.paper_costs import cost_params
+    from core.paper.costs import cost_params
     from core.signal.factors.cost import DEFAULT_COST_CONFIG
 
     mismatches: List[str] = []

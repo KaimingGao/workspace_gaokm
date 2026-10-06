@@ -1,18 +1,12 @@
 """规模因子（V2.1）：log(market_cap) 适中区间加分。"""
 
-from __future__ import annotations
+import logging
 
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, Optional, Tuple
 
-
-def _to_float(val: Any) -> Optional[float]:
-    if val is None:
-        return None
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return None
+from core.numbers import to_float as _to_float
 
 
 def score_size(
@@ -21,11 +15,21 @@ def score_size(
     fundamentals: Optional[dict] = None,
     **_kw,
 ) -> Tuple[float, Dict[str, Any]]:
-    """缺市值 → 50；中盘偏好，过大/过小略降分。"""
+    """缺市值 → 不进 ŷ（``omit_sub_score``）；有市值则中盘偏好，过大/过小略降分。
+
+    占位返回值仍为 50，仅兼容旧调用；``compute_configured_factors`` 见
+    ``omit_sub_score`` 后不会写入 ``sub_scores``，避免 z-score 把「不知道」
+    当成相对训练集均值偏低 3σ。
+    """
     _ = bars
     cap = _to_float((fundamentals or {}).get("market_cap"))
     if cap is None or cap <= 0:
-        return 50.0, {"size_market_cap": None, "size_log_cap": None}
+        return 50.0, {
+            "size_market_cap": None,
+            "size_log_cap": None,
+            "size_missing": True,
+            "omit_sub_score": True,
+        }
 
     log_cap = math.log(cap)
     # A 股量级粗分：log 约 22～28（约 40 亿～1.5 万亿）中性偏正
@@ -41,4 +45,6 @@ def score_size(
     return float(score), {
         "size_market_cap": round(cap, 2),
         "size_log_cap": round(log_cap, 3),
+        "size_missing": False,
+        "omit_sub_score": False,
     }

@@ -8,9 +8,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.kline.analyzer import describe_candle, summarize_bars
+from adapters.kline.analyzer import describe_candle, summarize_bars
 from skills.kline.handler import KlineHandler
-from skills.common.history import resolve_market_code
+from adapters.market.history import resolve_market_code
 
 
 def _bear_bars():
@@ -55,9 +55,11 @@ class TestKlineHandler(unittest.TestCase):
             "price_raw": 43.28,
             "change_raw": -7.76,
         }
-        with patch("skills.kline.engine.StockAPI.query", return_value=fake_quote), patch(
-            "skills.kline.engine.fetch_daily_bars",
-            return_value=(_bear_bars(), "akshare_hk_daily"),
+        with patch(
+            "adapters.kline.engine.get_quote", return_value=fake_quote
+        ), patch(
+            "adapters.kline.engine.get_bars",
+            return_value={"bars": _bear_bars(), "data_source": "akshare_hk_daily"},
         ):
             out = KlineHandler().execute({"parameters": {"stock_code": "快手", "limit": 10}})
         data = json.loads(out)
@@ -78,9 +80,11 @@ class TestKlineHandler(unittest.TestCase):
             "high": "HK$47.40",
             "low": "HK$43.06",
         }
-        with patch("skills.kline.engine.StockAPI.query", return_value=fake_quote), patch(
-            "skills.kline.engine.fetch_daily_bars",
-            return_value=([], "empty"),
+        with patch(
+            "adapters.kline.engine.get_quote", return_value=fake_quote
+        ), patch(
+            "adapters.kline.engine.get_bars",
+            return_value={"bars": [], "data_source": "empty"},
         ):
             out = KlineHandler().execute({"parameters": {"stock_code": "快手", "limit": 5}})
         data = json.loads(out)

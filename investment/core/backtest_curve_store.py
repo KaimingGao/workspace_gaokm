@@ -1,12 +1,15 @@
 """Persist and load last portfolio backtest equity curve for north-star realization."""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.io_atomic import atomic_write_json
 from core.paths import NORTH_STAR_LAST_BACKTEST_PATH
 from core.risk_metrics import _MIN_ALIGN, _parse_ts, _safe_float
 
@@ -79,7 +82,8 @@ def save_last_backtest_curve(
             from core.paths import PAPER_PATH
 
             snaps = list((load_paper(PAPER_PATH) or {}).get("snapshots") or [])
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in backtest_curve_store.py", exc_info=True)
             snaps = []
 
     span = paper_date_span(snaps) if align_to_paper and snaps else None
@@ -114,9 +118,7 @@ def save_last_backtest_curve(
         "curve": slim,
         "meta": meta_out,
     }
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(p, payload)
     return p
 
 

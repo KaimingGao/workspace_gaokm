@@ -1,6 +1,10 @@
 """纸面账户 API（模拟交易）。"""
 
-from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
@@ -14,19 +18,36 @@ from web.schemas import (
     PaperRunRequest,
     PaperSellRequest,
     PaperT0Request,
+    PaperT0AutoRequest,
+    PaperT0WorkerRequest,
+    PaperT0DeleteRequest,
+    PaperT0IntradayClearRequest,
 )
 
 router = APIRouter(tags=["paper"])
 
 
 @router.get("/api/paper")
-def paper_status(lite: bool = False):
+def paper_status(lite: bool = False) -> Dict[str, Any]:
     """账户摘要。lite=1 时跳过盯市/打分，供数据中心快速取已持码。"""
     return deps.paper.status(lite=bool(lite))
 
 
+@router.get("/api/paper/holding-scores")
+def paper_holding_scores(offline_only: bool = True) -> Dict[str, Any]:
+    """持仓 ŷ：默认仅本地仓。UI 恒传 offline_only=true；可拉远端先走增量补齐。"""
+    try:
+        from core.signal.score_display import json_safe
+
+        return json_safe(deps.paper.holding_scores(offline_only=bool(offline_only)))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/api/paper/execution")
-def paper_execution(channel: str = "paper"):
+def paper_execution(channel: str = "paper") -> Dict[str, Any]:
     """生效 ExecutionSpec（含做 T overlay）；channel=paper|backtest。"""
     ch = (channel or "paper").strip().lower()
     if ch not in {"paper", "backtest"}:
@@ -38,7 +59,7 @@ def paper_execution(channel: str = "paper"):
 
 
 @router.get("/api/paper/execution/diff")
-def paper_execution_diff():
+def paper_execution_diff() -> Dict[str, Any]:
     """纸面覆盖 vs 策略 Spec 默认。"""
     try:
         return deps.paper.execution_diff()
@@ -47,7 +68,7 @@ def paper_execution_diff():
 
 
 @router.post("/api/paper/execution")
-def paper_execution_save(body: PaperExecutionPatchRequest | None = None):
+def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict[str, Any]:
     """保存账户级做T / coupling 覆盖（不改 StrategySpec 源）。"""
     try:
         req = body or PaperExecutionPatchRequest()
@@ -55,12 +76,55 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None):
         for k, v in (
             ("enabled", req.enabled),
             ("t0_ratio", req.t0_ratio),
-            ("sell_trigger_pct", req.sell_trigger_pct),
-            ("buy_trigger_pct", req.buy_trigger_pct),
             ("fill_mode", req.fill_mode),
+            ("fill_mode_sell_then_buy", req.fill_mode_sell_then_buy),
+            ("fill_mode_buy_then_sell", req.fill_mode_buy_then_sell),
             ("direction", req.direction),
             ("path_mode", req.path_mode),
-            ("use_atr", req.use_atr),
+            ("must_cover_same_day_sell_then_buy", req.must_cover_same_day_sell_then_buy),
+            ("must_cover_same_day_buy_then_sell", req.must_cover_same_day_buy_then_sell),
+            ("residual_w_τc", getattr(req, "residual_w_τc", None)),
+            ("residual_w_oc", getattr(req, "residual_w_oc", None)),
+            ("residual_w_mode", getattr(req, "residual_w_mode", None)),
+            ("y_tw_enter", getattr(req, "y_tw_enter", None)),
+            ("y_τc_enter", getattr(req, "y_τc_enter", None)),
+            ("y_τc_strong", getattr(req, "y_τc_strong", None)),
+            ("y_τc_enter_amount", getattr(req, "y_τc_enter_amount", None)),
+            ("y_τc_strong_amount", getattr(req, "y_τc_strong_amount", None)),
+            ("y_tw_vote_margin", getattr(req, "y_tw_vote_margin", None)),
+            ("y_tw_midpoint", getattr(req, "y_tw_midpoint", None)),
+            ("horizon_prob_backend", getattr(req, "horizon_prob_backend", None)),
+            ("t0_y_τc_target_scale", getattr(req, "t0_y_τc_target_scale", None)),
+            ("t0_close_band_delta_pct", getattr(req, "t0_close_band_delta_pct", None)),
+            ("t0_price_space_gate", getattr(req, "t0_price_space_gate", None)),
+            ("t0_price_space_max_dev_pct", getattr(req, "t0_price_space_max_dev_pct", None)),
+            ("t0_price_space_prev_dev_pct", getattr(req, "t0_price_space_prev_dev_pct", None)),
+            ("t0_round_ratio", getattr(req, "t0_round_ratio", None)),
+            ("t0_max_position_pct", getattr(req, "t0_max_position_pct", None)),
+            ("t0_slots_max_rounds", req.t0_slots_max_rounds),
+            ("t0_slots_enabled", req.t0_slots_enabled),
+            ("y_tau_exit_price_skip_buy_then_sell", req.y_tau_exit_price_skip_buy_then_sell),
+            ("y_tau_exit_price_mult_buy_then_sell", req.y_tau_exit_price_mult_buy_then_sell),
+            ("y_tau_exit_price_skip_sell_then_buy", req.y_tau_exit_price_skip_sell_then_buy),
+            ("y_tau_exit_price_mult_sell_then_buy", req.y_tau_exit_price_mult_sell_then_buy),
+            ("y_tau_exit_price_bias_buy_then_sell", req.y_tau_exit_price_bias_buy_then_sell),
+            ("y_tau_exit_price_move_min_buy_then_sell", req.y_tau_exit_price_move_min_buy_then_sell),
+            ("y_tau_exit_price_move_max_buy_then_sell", req.y_tau_exit_price_move_max_buy_then_sell),
+            ("y_tau_exit_price_bias_sell_then_buy", req.y_tau_exit_price_bias_sell_then_buy),
+            ("y_tau_exit_price_move_min_sell_then_buy", req.y_tau_exit_price_move_min_sell_then_buy),
+            ("y_tau_exit_price_move_max_sell_then_buy", req.y_tau_exit_price_move_max_sell_then_buy),
+            ("y_score_source", req.y_score_source),
+            ("t0_pm_degrade_sell_then_buy", req.t0_pm_degrade_sell_then_buy),
+            ("t0_pm_degrade_buy_then_sell", req.t0_pm_degrade_buy_then_sell),
+            ("t0_pm_chase_interval_min_sell_then_buy", req.t0_pm_chase_interval_min_sell_then_buy),
+            ("t0_pm_chase_interval_min_buy_then_sell", req.t0_pm_chase_interval_min_buy_then_sell),
+            ("t0_stop_pct_buy_then_sell", req.t0_stop_pct_buy_then_sell),
+            ("t0_stop_pct_sell_then_buy", req.t0_stop_pct_sell_then_buy),
+            ("t0_stop_arm_bars", req.t0_stop_arm_bars),
+            ("t0_stop_on_close", req.t0_stop_on_close),
+            ("t0_lock_win_arm_bars", getattr(req, "t0_lock_win_arm_bars", None)),
+            ("t0_lock_win_pct_buy_then_sell", req.t0_lock_win_pct_buy_then_sell),
+            ("t0_lock_win_pct_sell_then_buy", req.t0_lock_win_pct_sell_then_buy),
         ):
             if v is not None and k not in t0:
                 t0[k] = v
@@ -69,6 +133,8 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None):
             "coupling": req.coupling,
             "lock": req.lock,
         }
+        if isinstance(req.rebalance_timing, dict):
+            payload["rebalance_timing"] = req.rebalance_timing
         out = deps.paper.save_execution(payload, note=req.note or "")
         if not out.get("ok"):
             raise HTTPException(status_code=400, detail=out.get("errors") or out)
@@ -82,7 +148,7 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None):
 
 
 @router.post("/api/paper/execution/reset")
-def paper_execution_reset():
+def paper_execution_reset() -> Dict[str, Any]:
     """清除账户级覆盖，恢复策略默认。"""
     try:
         return deps.paper.reset_execution()
@@ -93,7 +159,7 @@ def paper_execution_reset():
 
 
 @router.get("/api/paper/holding-chart")
-def paper_holding_chart(code: str, lookback: int = 60):
+def paper_holding_chart(code: str, lookback: int = 60) -> Dict[str, Any]:
     """单只持仓日线收盘 / 相对成本浮盈曲线。"""
     try:
         return deps.paper.holding_chart(code, lookback=lookback)
@@ -106,7 +172,7 @@ def paper_holding_chart(code: str, lookback: int = 60):
 
 
 @router.post("/api/paper/init")
-def paper_init():
+def paper_init() -> Dict[str, Any]:
     try:
         return deps.paper.init()
     except FileExistsError as e:
@@ -114,7 +180,7 @@ def paper_init():
 
 
 @router.post("/api/paper/deposit")
-def paper_deposit(body: PaperDepositRequest):
+def paper_deposit(body: PaperDepositRequest) -> Dict[str, Any]:
     """假账注资（增加现金）。"""
     try:
         return deps.paper.deposit(body.amount)
@@ -127,7 +193,7 @@ def paper_deposit(body: PaperDepositRequest):
 
 
 @router.post("/api/paper/withdraw")
-def paper_withdraw(body: PaperDepositRequest):
+def paper_withdraw(body: PaperDepositRequest) -> Dict[str, Any]:
     """假账减资（减少现金）。"""
     try:
         return deps.paper.withdraw(body.amount)
@@ -140,7 +206,7 @@ def paper_withdraw(body: PaperDepositRequest):
 
 
 @router.post("/api/paper/reset")
-def paper_reset():
+def paper_reset() -> Dict[str, Any]:
     """测试基线回零：保留持仓，盈亏与曲线从当前净值重新起算。"""
     try:
         return deps.paper.reset()
@@ -151,7 +217,7 @@ def paper_reset():
 
 
 @router.post("/api/paper/cost-model")
-def paper_cost_model(body: PaperCostModelRequest):
+def paper_cost_model(body: PaperCostModelRequest) -> Dict[str, Any]:
     """切换模拟成交成本模型（zero | simple_cn）。"""
     try:
         return deps.paper.set_cost_model(body.cost_model)
@@ -164,7 +230,7 @@ def paper_cost_model(body: PaperCostModelRequest):
 
 
 @router.post("/api/paper/run")
-def paper_run(body: PaperRunRequest):
+def paper_run(body: PaperRunRequest) -> Dict[str, Any]:
     try:
         if body.background:
             return deps.paper.start_run_job(
@@ -184,33 +250,37 @@ def paper_run(body: PaperRunRequest):
 
 
 @router.get("/api/paper/job")
-def paper_job():
+def paper_job() -> Dict[str, Any]:
     out = deps.paper.get_job()
     return {**out, "deprecated": True, "canonical": "/api/jobs/paper"}
 
 
 @router.post("/api/paper/rebalance")
-def paper_rebalance(body: PaperRebalanceRequest):
+def paper_rebalance(body: PaperRebalanceRequest) -> Dict[str, Any]:
     try:
         from core.signal.score_display import json_safe
 
         return json_safe(
             deps.paper.rebalance(
                 top_k=body.top_k,
-                limit=body.limit,
-                cluster_mode=bool(body.cluster_mode),
                 dry_run=bool(body.dry_run),
                 strategy=body.strategy,
+                offline_only=bool(body.offline_only),
             )
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except TimeoutError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{e}（账本忙或上次调仓未释放锁，请稍后重试；必要时重启 web）",
+        ) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/api/paper/buy")
-def paper_buy(body: PaperBuyRequest):
+def paper_buy(body: PaperBuyRequest) -> Dict[str, Any]:
     """手动加仓（金额或股数，现价假买）。"""
     if body.amount is None and body.shares is None:
         raise HTTPException(status_code=400, detail="请填写金额或股数")
@@ -229,7 +299,7 @@ def paper_buy(body: PaperBuyRequest):
 
 
 @router.post("/api/paper/sell")
-def paper_sell(body: PaperSellRequest):
+def paper_sell(body: PaperSellRequest) -> Dict[str, Any]:
     """手动减仓 / 清仓。勾选多只时整仓卖出。"""
     try:
         return deps.paper.sell(
@@ -246,20 +316,127 @@ def paper_sell(body: PaperSellRequest):
 
 
 @router.post("/api/paper/t0")
-def paper_t0(body: PaperT0Request | None = None):
-    """纸面底仓做 T（日线代理，非实盘）。默认 dry_run 预演；confirm=true 才写账。"""
+def paper_t0(body: PaperT0Request | None = None) -> Dict[str, Any]:
+    """纸面底仓做 T（非实盘）。默认 dry_run 预演；confirm=true 才写账。
+    仅 5m 第一触达；缺分钟线的票跳过（已删除日线模拟）。"""
     try:
         req = body or PaperT0Request()
         dry_run = bool(req.dry_run) and not bool(req.confirm)
-        return deps.paper.simulate_t0(dry_run=dry_run)
+        return deps.paper.simulate_t0(dry_run=dry_run, log_source="paper_t0")
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except TimeoutError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/paper/t0/auto")
+def paper_t0_auto_get() -> Dict[str, Any]:
+    """自动做 T 配置与上次运行摘要。"""
+    try:
+        return deps.paper.t0_auto_status()
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post("/api/paper/t0/auto")
+def paper_t0_auto_post(body: PaperT0AutoRequest | None = None) -> Dict[str, Any]:
+    """保存自动做 T 开关/调度，或立即运行（run_now）。"""
+    try:
+        req = body or PaperT0AutoRequest()
+        patch: Dict[str, Any] = {}
+        if req.enabled is not None:
+            patch["enabled"] = bool(req.enabled)
+        if req.schedule:
+            patch["schedule"] = str(req.schedule).strip()
+        if patch:
+            deps.paper.save_t0_auto(patch)
+        if req.run_now:
+            return deps.paper.run_t0_auto(
+                dry_run=bool(req.dry_run),
+                force=bool(req.force),
+            )
+        return deps.paper.t0_auto_status()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/paper/t0/worker")
+def paper_t0_worker_get() -> Dict[str, Any]:
+    """自动做 T 后台 worker 状态（是否运行中）。"""
+    try:
+        return deps.paper.t0_worker_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/t0/worker")
+def paper_t0_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
+    """启动/停止 Web 内后台 worker。"""
+    try:
+        return deps.paper.set_t0_worker(bool(body.enabled))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/paper/rebalance/worker")
+def paper_rebalance_worker_get() -> Dict[str, Any]:
+    """自动调仓后台 worker 状态。"""
+    try:
+        return deps.paper.rebalance_worker_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/rebalance/worker")
+def paper_rebalance_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
+    """启动/停止 Web 内自动调仓后台 worker。"""
+    try:
+        return deps.paper.set_rebalance_worker(bool(body.enabled))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/t0/last-run/delete")
+def paper_t0_last_run_delete(body: PaperT0DeleteRequest) -> Dict[str, Any]:
+    """删除落账明细；默认冲正对应做 T 成交腿。"""
+    try:
+        return deps.paper.delete_t0_records(
+            stock_codes=list(body.stock_codes or []),
+            reverse_ledger=bool(body.reverse_ledger),
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/t0/intraday/clear")
+def paper_t0_intraday_clear(body: PaperT0IntradayClearRequest) -> Dict[str, Any]:
+    """清理今日盯盘状态（不冲正账本）。"""
+    try:
+        return deps.paper.clear_t0_intraday(
+            stock_codes=list(body.stock_codes or []) or None,
+            clear_all=bool(body.clear_all),
+            force=bool(body.force),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/api/paper/clear-records")
-def paper_clear_records(body: dict):
+def paper_clear_records(body: dict) -> Dict[str, Any]:
     """清除交易记录或资金记录。body.category: 'trading' | 'fund'。"""
     category = (body.get("category") or "").strip()
     if category not in ("trading", "fund"):
@@ -275,13 +452,13 @@ def paper_clear_records(body: dict):
 
 
 @router.get("/api/paper/risk-blocks")
-def paper_risk_blocks(limit: int = 40):
+def paper_risk_blocks(limit: int = 40) -> Dict[str, Any]:
     """最近 risk_block 流水（供标注有效率）。"""
     return deps.paper.list_risk_blocks(limit=limit)
 
 
 @router.post("/api/paper/risk-blocks/annotate")
-def paper_risk_block_annotate(body: dict):
+def paper_risk_block_annotate(body: dict) -> Dict[str, Any]:
     """标注 risk_block.meta.outcome = true_positive|false_positive|unknown|clear。"""
     outcome = str((body or {}).get("outcome") or "").strip()
     if not outcome:

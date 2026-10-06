@@ -13,7 +13,7 @@ from quant.skill.engine import QuantEngine
 
 class TestP86FactorOls(unittest.TestCase):
     def test_compute_factor_ols_on_mock_bars(self):
-        bars = rising_bars(45)
+        bars = rising_bars(100)
         report = compute_factor_ols_report(bars, horizon_days=3, min_history=12)
         self.assertTrue(report.get("success"))
         self.assertEqual(report.get("task"), "factor_ols")
@@ -24,7 +24,6 @@ class TestP86FactorOls(unittest.TestCase):
 
     def test_quant_skill_factor_ols_task(self):
         engine = QuantEngine()
-        bars = rising_bars(45)
         with apply_case_mocks(
             {
                 "quotes": {
@@ -35,7 +34,7 @@ class TestP86FactorOls(unittest.TestCase):
                         "market": "CN",
                     }
                 },
-                "daily_bars": "rising_45",
+                "daily_bars": "rising_100",
                 "resolve_market_code": ["CN", "600519"],
             }
         ):
@@ -43,7 +42,7 @@ class TestP86FactorOls(unittest.TestCase):
                 {
                     "task": "factor_ols",
                     "stock_code": "600519",
-                    "lookback": 45,
+                    "lookback": 100,
                     "horizon_days": 3,
                 }
             )
@@ -51,13 +50,8 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertEqual(out.get("task"), "factor_ols")
         self.assertIn("coefficients", out)
 
-    def test_factor_ols_cli_import(self):
-        import research.factor_ols_run as cli
-
-        self.assertTrue(callable(cli.main))
-
     def test_qr_ols_recovers_known_beta(self):
-        from quant.research.factor_ols import _fit_ols_once
+        from core.research.factor_ols_fit import _fit_ols_once
 
         xs = []
         ys = []
@@ -76,7 +70,7 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertAlmostEqual(fit["r_squared"] or 0.0, 1.0, places=4)
 
     def test_qr_ols_rejects_exact_collinear(self):
-        from quant.research.factor_ols import _fit_ols_once, _ols_with_intercept
+        from core.research.factor_ols_fit import _fit_ols_once, _ols_with_intercept
 
         xs = [{"a": float(i), "b": float(2 * i)} for i in range(20)]
         ys = [1.0 + 0.5 * float(i) for i in range(20)]
@@ -89,7 +83,7 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertIn("b", fit.get("dropped_collinear") or [])
 
     def test_ridge_keeps_collinear_and_shrinks(self):
-        from quant.research.factor_ols import _fit_ols_once, _ols_with_intercept
+        from core.research.factor_ols_fit import _fit_ols_once, _ols_with_intercept
 
         xs = []
         ys = []
@@ -122,7 +116,7 @@ class TestP86FactorOls(unittest.TestCase):
             self.assertLess(slope_l2(ridge), slope_l2(ols) + 1e-9)
 
     def test_prepare_drops_constant_on_complete_panel(self):
-        from quant.research.factor_ols import _prepare_complete_panel
+        from core.research.factor_ols_fit import _prepare_complete_panel
 
         # a 在全样本有波动；完整行上 a 常数 → 应剔除
         xs = [
@@ -138,14 +132,82 @@ class TestP86FactorOls(unittest.TestCase):
             {"a": 1.0, "b": 9.0, "c": 2.0},
         ]
         ys = [float(i) for i in range(len(xs))]
+        # 测试数据量级小；关闭 min_std 只验常数列逻辑
         xs_c, ys_c, active, excluded, meta = _prepare_complete_panel(
-            xs, ys, ["a", "b", "c"], min_samples_over_p=2
+            xs, ys, ["a", "b", "c"], min_samples_over_p=2, min_std=0.0
         )
         self.assertIsNotNone(xs_c)
         self.assertNotIn("a", active)
         self.assertIn("a", meta["dropped_constant"])
         self.assertIn("b", active)
         self.assertIn("c", active)
+
+    def test_prepare_drops_low_variance(self):
+        from core.research.factor_ols_fit import _prepare_complete_panel
+
+        # low: 准常数（σ≪5）；hi1/hi2: 正常波动（保留≥2 个以免触发 relax）
+        xs = []
+        for i in range(20):
+            xs.append(
+                {
+                    "low": 50.0 + (0.1 if i % 2 else -0.1),
+                    "hi1": 40.0 + float(i),
+                    "hi2": 60.0 - float(i) * 1.2,
+                }
+            )
+        ys = [float(i) for i in range(len(xs))]
+        _xs_c, _ys_c, active, _excl, meta = _prepare_complete_panel(
+            xs, ys, ["low", "hi1", "hi2"], min_samples_over_p=2, min_std=5.0
+        )
+        self.assertNotIn("low", active)
+        self.assertIn("hi1", active)
+        self.assertIn("hi2", active)
+        self.assertFalse(meta.get("min_std_relaxed"))
+        names = [
+            d["name"] if isinstance(d, dict) else d
+            for d in (meta.get("dropped_low_variance") or [])
+        ]
+        self.assertIn("low", names)
+
+    def test_prepare_impute_keys_keeps_incomplete_rows(self):
+        from core.research.factor_ols_fit import _prepare_complete_panel
+
+        xs = []
+        for i in range(24):
+            xs.append(
+                {
+                    "path": 10.0 + float(i),
+                    "shape_x": None if i < 10 else 0.2 + 0.02 * float(i),
+                }
+            )
+        ys = [float(i) for i in range(len(xs))]
+        orig_missing = xs[0]["shape_x"]
+        xs_drop, _ys_d, _act_d, _ex_d, meta_drop = _prepare_complete_panel(
+            xs, ys, ["path", "shape_x"], min_samples_over_p=2, min_std=0.0
+        )
+        self.assertIsNone(orig_missing)
+        self.assertEqual(len(xs_drop or []), 14)
+        self.assertFalse(meta_drop.get("imputed_keys"))
+
+        xs_keep, ys_keep, active, _excl, meta = _prepare_complete_panel(
+            xs,
+            ys,
+            ["path", "shape_x"],
+            min_samples_over_p=2,
+            min_std=0.0,
+            impute_keys=["shape_x"],
+        )
+        self.assertIsNone(xs[0]["shape_x"], msg="不得改写调用方行")
+        self.assertIsNotNone(xs_keep)
+        self.assertEqual(len(xs_keep or []), 24)
+        self.assertEqual(len(ys_keep or []), 24)
+        self.assertEqual(set(active), {"path", "shape_x"})
+        self.assertIn("shape_x", meta.get("imputed_keys") or [])
+        self.assertEqual((meta.get("impute_n_filled") or {}).get("shape_x"), 10)
+        mu = float((meta.get("impute_means") or {}).get("shape_x"))
+        filled = [row["shape_x"] for row in (xs_keep or [])[:10]]
+        self.assertTrue(filled)
+        self.assertTrue(all(abs(float(v) - mu) < 1e-9 for v in filled))
 
 
 if __name__ == "__main__":

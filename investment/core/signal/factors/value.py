@@ -1,7 +1,9 @@
 """估值因子（P46）：PE/PB 适中区间加分，极端估值降分。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 
@@ -43,10 +45,16 @@ def score_value(
     fundamentals: Optional[dict] = None,
     **_kw,
 ) -> tuple[float, dict]:
+    """缺 PE/PB → 不进 ŷ（omit）；有则适中区间加分。"""
+    _ = bars
     pe = _pick_pe(fundamentals)
     pb = _pick_pb(fundamentals)
     if pe is None and pb is None:
-        return 50.0, {"value_pe": None, "value_pb": None}
+        return 50.0, {
+            "value_pe": None,
+            "value_pb": None,
+            "omit_sub_score": True,
+        }
 
     score = 50.0
     if pe is not None:
@@ -67,7 +75,7 @@ def score_value(
         elif pb < 0.5:
             score -= 4.0
 
-    meta: Dict[str, Any] = {}
+    meta: Dict[str, Any] = {"omit_sub_score": False}
     if pe is not None:
         meta["value_pe"] = round(pe, 2)
     if pb is not None:

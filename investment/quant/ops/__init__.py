@@ -1,3 +1,8 @@
+import logging
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
 from quant.ops.daily_presets import DAILY_PRESETS, list_daily_presets, resolve_daily_preset
 
 __all__ = [
@@ -5,10 +10,12 @@ __all__ = [
     "list_daily_presets",
     "resolve_daily_preset",
     "build_daily_health",
+    "build_eval_routing_map",
+    "build_quant_package_info",
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name == "build_daily_health":
         from quant.ops.daily_health import build_daily_health
 

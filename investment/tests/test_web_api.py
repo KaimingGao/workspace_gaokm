@@ -75,22 +75,22 @@ class TestWebApi(unittest.TestCase):
         self.assertEqual(data.get("artifacts"), [])
         self.assertEqual(data.get("primary_tab"), "reply")
 
-    def test_index_redirects_to_watching(self):
+    def test_index_redirects_to_dashboard(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
         res = self.client.get("/", follow_redirects=False)
         self.assertIn(res.status_code, (301, 302, 303, 307, 308))
-        self.assertEqual(res.headers.get("location"), "/watching")
+        self.assertEqual(res.headers.get("location"), "/dashboard")
         watching = self.client.get("/watching")
         self.assertEqual(watching.status_code, 200)
-        self.assertIn("Investment", watching.text)
+        self.assertIn("QuantLab", watching.text)
         self.assertIn('data-page="watching"', watching.text)
         self.assertIn("ai-drawer", watching.text)
         self.assertIn("api-degrade-banner", watching.text)
         self.assertIn("command-palette", watching.text)
         self.assertNotIn("workspace-results", watching.text)
         self.assertNotIn("dashboard-root", watching.text)
-        self.assertNotIn(">仪表盘<", watching.text)
+        self.assertIn(">仪表盘<", watching.text)
 
     def test_chat_page_offline_redirect(self):
         if self.client is None:
@@ -151,16 +151,136 @@ class TestWebApi(unittest.TestCase):
                 {"date": "2026-01-13", "equity": 101.2, "return_pct": 1.2},
             ],
         }
-        with patch.object(deps.quant, "run_portfolio_backtest", return_value=mock_out):
+        with patch.object(deps.quant, "run_portfolio_backtest", return_value=mock_out) as run_bt:
             res = self.client.post(
                 "/api/quant/portfolio-backtest",
-                json={"codes": ["600519", "600036"], "top_k": 2, "lookback": 80},
+                json={"codes": ["600519", "600036"], "top_k": 2, "lookback": 80, "sync": True},
             )
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertTrue(data["success"])
         self.assertEqual(len(data["loaded_stocks"]), 2)
         self.assertIn("equity_curve", data)
+        kwargs = run_bt.call_args.kwargs
+        self.assertNotIn("engine", kwargs)
+        self.assertNotIn("top_k", kwargs)
+
+    def test_quant_portfolio_backtest_ignores_engine_and_skips_run_topk(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+
+        mock_out = {
+            "success": True,
+            "loaded_stocks": ["600519"],
+            "params": {"engine": "paper_replay"},
+            "metrics": {"trade_count": 0, "total_return_pct": 0.0, "win_rate_pct": 0.0},
+            "trade_count": 0,
+            "equity_curve": [],
+        }
+        with patch.object(
+            deps.quant, "run_portfolio_backtest", return_value=mock_out
+        ) as run_bt, patch(
+            "core.backtest_service.run_topk",
+            side_effect=AssertionError("product replay must not call run_topk"),
+        ):
+            res = self.client.post(
+                "/api/quant/portfolio-backtest",
+                json={
+                    "codes": ["600519", "600036"],
+                    "lookback": 30,
+                    "engine": "topk_research",
+                    "top_k": 3,
+                    "horizon_days": 3,
+                    "sync": True,
+                },
+            )
+        self.assertEqual(res.status_code, 200)
+        kwargs = run_bt.call_args.kwargs
+        self.assertNotIn("engine", kwargs)
+        self.assertNotIn("top_k", kwargs)
+        self.assertNotIn("horizon_days", kwargs)
+        self.assertEqual(kwargs.get("lookback"), 30)
+        self.assertEqual(kwargs.get("score_model_role"), "research")
+
+    def test_quant_portfolio_backtest_passes_live_score_model_role(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+
+        mock_out = {
+            "success": True,
+            "loaded_stocks": ["600519"],
+            "params": {"engine": "paper_replay"},
+            "metrics": {"trade_count": 0, "total_return_pct": 0.0, "win_rate_pct": 0.0},
+            "trade_count": 0,
+            "equity_curve": [],
+        }
+        with patch.object(deps.quant, "run_portfolio_backtest", return_value=mock_out) as run_bt:
+            res = self.client.post(
+                "/api/quant/portfolio-backtest",
+                json={
+                    "codes": ["600519"],
+                    "lookback": 30,
+                    "score_model_role": "live",
+                    "sync": True,
+                },
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(run_bt.call_args.kwargs.get("score_model_role"), "live")
+        self.assertEqual(run_bt.call_args.kwargs.get("score_backend"), "ridge")
+
+    def test_quant_portfolio_backtest_passes_tree_score_backend(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+
+        mock_out = {
+            "success": True,
+            "loaded_stocks": ["600519"],
+            "params": {"engine": "paper_replay"},
+            "metrics": {"trade_count": 0, "total_return_pct": 0.0, "win_rate_pct": 0.0},
+            "trade_count": 0,
+            "equity_curve": [],
+        }
+        with patch.object(deps.quant, "run_portfolio_backtest", return_value=mock_out) as run_bt:
+            res = self.client.post(
+                "/api/quant/portfolio-backtest",
+                json={
+                    "codes": ["600519"],
+                    "lookback": 30,
+                    "score_backend": "tree",
+                    "sync": True,
+                },
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(run_bt.call_args.kwargs.get("score_backend"), "tree")
+        self.assertEqual(run_bt.call_args.kwargs.get("score_model_role"), "research")
+
+    def test_quant_portfolio_backtest_defaults_to_job(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+
+        mock = {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "job": {"id": "abc", "status": "running", "kind": "portfolio_backtest"},
+        }
+        with patch.object(
+            deps.quant, "start_portfolio_backtest_job", return_value=mock
+        ) as started:
+            res = self.client.post(
+                "/api/quant/portfolio-backtest",
+                json={"codes": ["600519"], "lookback": 30},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["background"])
+        started.assert_called_once()
+
+    def test_quant_param_grid_gone(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+        res = self.client.post("/api/quant/param-grid", json={"max_cells": 1})
+        self.assertEqual(res.status_code, 410, res.text)
+        self.assertIn("paper_replay", str(res.json().get("detail") or ""))
 
     def test_quant_threshold_suggest_mocked(self):
         if self.client is None:
@@ -180,6 +300,30 @@ class TestWebApi(unittest.TestCase):
             )
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["success"])
+
+    def test_signal_config_stance_save_mocked(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+        mock_out = {
+            "success": True,
+            "stance_thresholds": {"avoid": -0.5, "wait": 0.5, "probe": 0.85},
+            "signal_config_weights_touched": False,
+            "scoring_touched": False,
+        }
+        with patch.object(deps.quant, "save_stance_thresholds", return_value=mock_out):
+            res = self.client.post(
+                "/api/signal/config/stance",
+                json={
+                    "avoid": -0.5,
+                    "wait": 0.5,
+                    "probe": 0.85,
+                    "note": "test",
+                },
+            )
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertTrue(body["success"])
+        self.assertEqual(body["stance_thresholds"]["wait"], 0.5)
 
     def test_quant_interpret_mocked(self):
         if self.client is None:
@@ -247,7 +391,7 @@ class TestWebApi(unittest.TestCase):
         with patch.object(deps.paper, "rebalance", return_value=mock_out):
             res = self.client.post(
                 "/api/paper/rebalance",
-                json={"top_k": 3, "limit": 10},
+                json={"top_k": 3},
             )
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -352,7 +496,7 @@ class TestWebApi(unittest.TestCase):
             path = os.path.join(tmp, "paper.json")
             deps.paper = PaperService(path)
             self.client.post("/api/paper/init")
-            with patch("skills.common.quote_api.StockAPI.query", side_effect=_q):
+            with patch("adapters.market.quote_api.StockAPI.query", side_effect=_q):
                 res = self.client.post(
                     "/api/paper/buy",
                     json={"stock_code": "600519", "amount": 5000},
@@ -402,13 +546,13 @@ class TestWebApi(unittest.TestCase):
             path = os.path.join(tmp, "paper.json")
             deps.paper = PaperService(path)
             self.client.post("/api/paper/init")
-            with patch("skills.common.quote_api.StockAPI.query", side_effect=_q):
+            with patch("adapters.market.quote_api.StockAPI.query", side_effect=_q):
                 self.client.post(
                     "/api/paper/buy",
                     json={"stock_code": "600519", "amount": 5000},
                 )
             with patch(
-                "skills.common.history.fetch_daily_bars",
+                "adapters.market.history.fetch_daily_bars",
                 return_value=(bars, "mock"),
             ):
                 res = self.client.get("/api/paper/holding-chart?code=600519")

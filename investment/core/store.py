@@ -1,13 +1,31 @@
-"""日线/分钟本地缓存：data/store/daily|minute；快照缓存 fundamentals/news。"""
+"""日线/分钟本地缓存：data/store/daily|minute 或 bars.db；快照缓存 fundamentals/news。
 
-from __future__ import annotations
+Bars 后端由 ``INVESTMENT_BARS_BACKEND`` 选择：``sqlite``（默认）| ``json``。
+配置/账本/基本面快照仍走 JSON 文件。
+"""
+
 
 import json
+import logging
 import os
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+from core.data.policy import (
+    DAILY_BARS_MAX_KEEP,
+    DAILY_CACHE_HOURS,
+    FUNDAMENTALS_HISTORY_MAX_POINTS,
+    MINUTE_BARS_MAX_KEEP,
+    QUALITY_STALE_BAR_DAYS,
+    THIN_MIN_BARS,
+)
+from core.file_lock import path_lock
+from core.io_atomic import atomic_write_json
 from core.paths import STORE_DIR
+
+logger = logging.getLogger(__name__)
 
 DAILY_SUBDIR = "daily"
 MINUTE_SUBDIR = "minute"
@@ -15,9 +33,22 @@ CACHE_VERSION = 1
 SNAPSHOT_VERSION = 1
 MINUTE_CACHE_VERSION = 1
 
+_IO_ERROR_COUNT = 0
+_IO_ERROR_LOCK = threading.Lock()
+_REFRESH_LOCKS: Dict[str, threading.Lock] = {}
+_REFRESH_GUARD = threading.Lock()
+
 
 def get_store_dir() -> str:
     return os.environ.get("INVESTMENT_STORE_DIR", STORE_DIR)
+
+
+def bars_backend() -> str:
+    """``sqlite`` | ``json``；非法值回退 sqlite。"""
+    raw = str(os.environ.get("INVESTMENT_BARS_BACKEND") or "sqlite").strip().lower()
+    if raw in ("json", "file", "files"):
+        return "json"
+    return "sqlite"
 
 
 def daily_cache_path(market: str, code: str, store_dir: Optional[str] = None) -> str:
@@ -59,32 +90,294 @@ def _parse_date(s: str) -> Optional[datetime]:
     return None
 
 
+def _note_io_error(where: str, err: BaseException) -> None:
+    global _IO_ERROR_COUNT
+    with _IO_ERROR_LOCK:
+        _IO_ERROR_COUNT += 1
+        n = _IO_ERROR_COUNT
+    logger.warning("store_io_error count=%s where=%s err=%s", n, where, err)
+
+
+def io_error_stats() -> Dict[str, Any]:
+    with _IO_ERROR_LOCK:
+        return {"io_error_count": int(_IO_ERROR_COUNT)}
+
+
+def reset_io_error_stats() -> None:
+    global _IO_ERROR_COUNT
+    with _IO_ERROR_LOCK:
+        _IO_ERROR_COUNT = 0
+
+
+@contextmanager
+def code_refresh_lock(market: str, code: str, *, kind: str = "daily") -> Iterator[None]:
+    """同票远端刷新互斥（防 thundering herd）；进程内有效。"""
+    key = f"{kind}:{str(market).upper()}:{str(code).strip().lower()}"
+    with _REFRESH_GUARD:
+        lock = _REFRESH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _REFRESH_LOCKS[key] = lock
+    with lock:
+        yield
+
+
+_DAILY_OHLCV = ("open", "high", "low", "close", "volume")
+
+
+def daily_bar_complete(bar: dict) -> bool:
+    """开高低收、成交量都有数值。0 成交量算齐；缺字段或空字符串不算。"""
+    if not isinstance(bar, dict):
+        return False
+    if not str(bar.get("date") or "").strip():
+        return False
+    for key in _DAILY_OHLCV:
+        raw = bar.get(key)
+        if raw is None or raw == "":
+            return False
+        try:
+            float(raw)
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def merge_bars_by_date(
     existing: List[dict],
     incoming: List[dict],
 ) -> List[dict]:
-    """按 date 合并日线；同日以后到为准；升序。"""
+    """按 date 合并日线；同日以后到为准；升序。
+
+    缺开高低收或成交量的新根丢掉，不覆盖已有同日，也不新插入。
+    """
     by_date: Dict[str, dict] = {}
-    for b in list(existing or []) + list(incoming or []):
-        d = str((b or {}).get("date") or "").strip()
-        if not d:
+    for b in existing or []:
+        if not isinstance(b, dict):
+            continue
+        d = str(b.get("date") or "").strip()
+        if d:
+            by_date[d] = b
+    for b in incoming or []:
+        if not isinstance(b, dict):
+            continue
+        d = str(b.get("date") or "").strip()
+        if not d or not daily_bar_complete(b):
             continue
         by_date[d] = b
     return [by_date[k] for k in sorted(by_date.keys())]
 
 
+def _minute_day(bar: dict) -> str:
+    d = str((bar or {}).get("date") or "").strip()[:10]
+    if len(d) == 10:
+        return d
+    ts = str((bar or {}).get("datetime") or "").strip()
+    return ts[:10] if len(ts) >= 10 else ""
+
+
+def _minute_slot(bar: dict) -> str:
+    """一根分钟线的时刻身份：``HH:MM``。同分钟只算一次。"""
+    ts = str((bar or {}).get("datetime") or (bar or {}).get("date") or "").strip()
+    if len(ts) >= 16 and ts[10] == " ":
+        return ts[11:16]
+    return ""
+
+
+def _minute_slots_by_day(bars: List[dict]) -> Dict[str, set]:
+    out: Dict[str, set] = {}
+    for b in bars or []:
+        if not isinstance(b, dict):
+            continue
+        day, slot = _minute_day(b), _minute_slot(b)
+        if not day or not slot:
+            continue
+        out.setdefault(day, set()).add(slot)
+    return out
+
+
+def drop_thinner_minute_days(
+    existing: List[dict],
+    incoming: List[dict],
+    *,
+    period: str = "5",
+) -> List[dict]:
+    """丢掉盖不住已有时刻的交易日。
+
+    新包某日的时刻集合必须包含本地该日已有时刻，才允许整日替换
+    （修正数值、补上新时刻）。更短、缺头、缺尾、中间换了一套时刻的新日整日放弃。
+    本地没有的日期，非空即可写入。不要求满 48 根，所以盘中半日在还没落盘时可以写入；
+    已经落盘的时刻不会被更短的新包删掉。
+    """
+    incoming_bars = [b for b in (incoming or []) if isinstance(b, dict)]
+    old_map = _minute_slots_by_day(existing or [])
+    if not old_map or not incoming_bars:
+        return incoming_bars
+    new_map = _minute_slots_by_day(incoming_bars)
+    skip = set()
+    for day, new_slots in new_map.items():
+        old_slots = old_map.get(day)
+        if not old_slots:
+            continue
+        if old_slots <= new_slots:
+            continue
+        skip.add(day)
+        logger.info(
+            "skip thinner minute day %s period=%s old=%d new=%d",
+            day,
+            period,
+            len(old_slots),
+            len(new_slots),
+        )
+    if not skip:
+        return incoming_bars
+    return [b for b in incoming_bars if _minute_day(b) not in skip]
+
+
 def merge_minute_bars_by_time(
     existing: List[dict],
     incoming: List[dict],
+    *,
+    lock_calendar_day: bool = True,
+    period: str = "5",
 ) -> List[dict]:
-    """按 datetime 合并分钟线；同时刻以后到为准；升序。"""
-    by_ts: Dict[str, dict] = {}
-    for b in list(existing or []) + list(incoming or []):
-        ts = str((b or {}).get("datetime") or (b or {}).get("date") or "").strip()
-        if not ts:
+    """按 datetime 合并分钟线；升序。
+
+    ``lock_calendar_day=True``（默认）：incoming 覆盖到的**交易日整段替换**，
+    禁止同日跨源按时间戳缝合（上午东财、下午新浪）。
+    新日时刻盖不住本地已有时刻时，该日不替换。无日期的旧日保留。
+    ``False``：旧行为，同时刻以后到为准。
+    """
+    if lock_calendar_day:
+        incoming = drop_thinner_minute_days(existing, incoming, period=period)
+    if not lock_calendar_day:
+        by_ts: Dict[str, dict] = {}
+        for b in list(existing or []) + list(incoming or []):
+            ts = str((b or {}).get("datetime") or (b or {}).get("date") or "").strip()
+            if not ts:
+                continue
+            by_ts[ts] = b
+        return [by_ts[k] for k in sorted(by_ts.keys())]
+
+    def _day(b: dict) -> str:
+        d = str((b or {}).get("date") or "").strip()[:10]
+        if len(d) == 10:
+            return d
+        ts = str((b or {}).get("datetime") or "").strip()
+        return ts[:10] if len(ts) >= 10 else ""
+
+    def _ts(b: dict) -> str:
+        return str((b or {}).get("datetime") or (b or {}).get("date") or "").strip()
+
+    by_day_old: Dict[str, Dict[str, dict]] = {}
+    for b in existing or []:
+        if not isinstance(b, dict):
             continue
-        by_ts[ts] = b
-    return [by_ts[k] for k in sorted(by_ts.keys())]
+        d, ts = _day(b), _ts(b)
+        if not d or not ts:
+            continue
+        by_day_old.setdefault(d, {})[ts] = b
+
+    touch_days: set = set()
+    by_day_new: Dict[str, Dict[str, dict]] = {}
+    for b in incoming or []:
+        if not isinstance(b, dict):
+            continue
+        d, ts = _day(b), _ts(b)
+        if not d or not ts:
+            continue
+        touch_days.add(d)
+        by_day_new.setdefault(d, {})[ts] = b
+
+    out_by_ts: Dict[str, dict] = {}
+    for d, m in by_day_old.items():
+        if d in touch_days:
+            continue
+        out_by_ts.update(m)
+    for d in touch_days:
+        out_by_ts.update(by_day_new.get(d) or {})
+    return [out_by_ts[k] for k in sorted(out_by_ts.keys())]
+
+
+def align_minute_volume_units(
+    bars: List[dict],
+    peer: List[dict],
+    *,
+    ratio_lo: float = 80.0,
+    ratio_hi: float = 120.0,
+) -> List[dict]:
+    """若重叠时刻 peer/bars 成交量中位数 ≈100，视 bars 为「手」×100→股。
+
+    无重叠或比值不在窗口内则原样返回（新列表浅拷贝 bar dict）。
+    """
+    if not bars or not peer:
+        return [dict(b) for b in (bars or []) if isinstance(b, dict)]
+    peer_by: Dict[str, dict] = {}
+    for b in peer:
+        if not isinstance(b, dict):
+            continue
+        ts = str(b.get("datetime") or b.get("date") or "").strip()
+        if ts:
+            peer_by[ts] = b
+    ratios: List[float] = []
+    for b in bars:
+        if not isinstance(b, dict):
+            continue
+        ts = str(b.get("datetime") or b.get("date") or "").strip()
+        p = peer_by.get(ts)
+        if not p:
+            continue
+        try:
+            va = float(b.get("volume") or 0)
+            vb = float(p.get("volume") or 0)
+        except (TypeError, ValueError):
+            continue
+        if va > 0 and vb > 0:
+            ratios.append(vb / va)
+    if len(ratios) < 5:
+        return [dict(b) for b in bars if isinstance(b, dict)]
+    ratios.sort()
+    med = ratios[len(ratios) // 2]
+    if not (ratio_lo <= med <= ratio_hi):
+        return [dict(b) for b in bars if isinstance(b, dict)]
+    out: List[dict] = []
+    for b in bars:
+        if not isinstance(b, dict):
+            continue
+        row = dict(b)
+        try:
+            v = float(row.get("volume") or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        if v > 0:
+            row["volume"] = float(v) * 100.0
+            row["volume_unit_scaled"] = "hand_to_share_x100"
+        out.append(row)
+    return out
+
+
+def trim_daily_bars(bars: List[dict], *, max_keep: int = DAILY_BARS_MAX_KEEP) -> List[dict]:
+    n = max(1, int(max_keep or DAILY_BARS_MAX_KEEP))
+    if not bars or len(bars) <= n:
+        return list(bars or [])
+    return list(bars[-n:])
+
+
+def trim_minute_bars(
+    bars: List[dict], *, max_keep: int = MINUTE_BARS_MAX_KEEP
+) -> List[dict]:
+    n = max(1, int(max_keep or MINUTE_BARS_MAX_KEEP))
+    if not bars or len(bars) <= n:
+        return list(bars or [])
+    return list(bars[-n:])
+
+
+def _is_pseudo_bar_date(d: Any) -> bool:
+    s = str(d or "").strip().lower()
+    if not s:
+        return True
+    if s in ("d-1", "d0", "d+1", "today", "yesterday"):
+        return True
+    return _parse_date(s) is None
 
 
 def assess_quality(
@@ -96,6 +389,7 @@ def assess_quality(
     """质量标记：good / thin / empty；附 bar 区间与备注。"""
     notes: List[str] = []
     n = len(bars or [])
+    src = str(data_source or "")
     if n == 0:
         return {
             "level": "empty",
@@ -103,28 +397,61 @@ def assess_quality(
             "first_date": None,
             "last_date": None,
             "notes": ["无日线"],
+            "pseudo_dates": False,
         }
 
     first = bars[0].get("date")
     last = bars[-1].get("date")
+    sample = list(bars[:3]) + list(bars[-3:])
+    pseudo = any(_is_pseudo_bar_date(b.get("date")) for b in sample)
+    if pseudo or "quote_fallback" in src:
+        notes.append("伪日期或 quote_fallback，不可作生产/回测日线")
+        return {
+            "level": "empty",
+            "bar_count": n,
+            "first_date": first,
+            "last_date": last,
+            "notes": notes,
+            "pseudo_dates": True,
+        }
+
     last_dt = _parse_date(str(last or ""))
     if last_dt:
         age_days = (datetime.now() - last_dt).days
-        if age_days > 10:
+        if age_days > QUALITY_STALE_BAR_DAYS:
             notes.append(f"末根 K 线偏旧({age_days}天前)")
     else:
         notes.append("末根日期无法解析")
 
-    if data_source in ("empty", "quote_fallback"):
+    if src in ("empty",) or "fallback" in src:
         notes.append("非完整日线数据源")
         level = "thin"
-    elif n < 15:
+    elif n < THIN_MIN_BARS:
         notes.append("样本偏少")
         level = "thin"
-    elif notes:
-        level = "thin"
     else:
-        level = "good"
+        # open 价质量：open[T+1]≈close[T] 占比过高可能是数据源 open 字段异常
+        exact_close = 0
+        checked = 0
+        for i in range(len(bars) - 1):
+            try:
+                o_next = float(bars[i + 1].get("open") or 0.0)
+                c_t = float(bars[i].get("close") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if c_t <= 0 or o_next <= 0:
+                continue
+            checked += 1
+            if abs(o_next / c_t - 1.0) < 0.0001:
+                exact_close += 1
+        if checked >= 20:
+            ratio = exact_close / checked
+            if ratio > 0.40:
+                notes.append(
+                    f"open≈prev_close 占比 {ratio:.0%}（>40%），open 字段疑似异常"
+                )
+
+        level = "thin" if notes else "good"
 
     if fetched_at:
         notes.append(f"缓存于 {fetched_at.isoformat(timespec='seconds')}")
@@ -135,6 +462,7 @@ def assess_quality(
         "first_date": first,
         "last_date": last,
         "notes": notes,
+        "pseudo_dates": False,
     }
 
 
@@ -143,7 +471,39 @@ def load_daily_cache(
     code: str,
     *,
     min_bars: int = 1,
-    max_age_hours: float = 24.0,
+    max_age_hours: float = DAILY_CACHE_HOURS,
+    store_dir: Optional[str] = None,
+    ignore_age: bool = False,
+) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_daily(
+            market,
+            code,
+            min_bars=min_bars,
+            max_age_hours=max_age_hours,
+            store_dir=base,
+            ignore_age=ignore_age,
+            assess_quality=assess_quality,
+        )
+    return _load_daily_cache_json(
+        market,
+        code,
+        min_bars=min_bars,
+        max_age_hours=max_age_hours,
+        store_dir=base,
+        ignore_age=ignore_age,
+    )
+
+
+def _load_daily_cache_json(
+    market: str,
+    code: str,
+    *,
+    min_bars: int = 1,
+    max_age_hours: float = DAILY_CACHE_HOURS,
     store_dir: Optional[str] = None,
     ignore_age: bool = False,
 ) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
@@ -151,15 +511,18 @@ def load_daily_cache(
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        _note_io_error(f"load_daily:{path}", e)
         return None
 
     fetched_s = payload.get("fetched_at") or ""
+    if not isinstance(fetched_s, str):
+        fetched_s = str(fetched_s) if fetched_s else ""
     try:
         fetched_at = datetime.fromisoformat(fetched_s)
-    except ValueError:
+    except (ValueError, TypeError):
         fetched_at = datetime.fromtimestamp(os.path.getmtime(path))
 
     if not ignore_age and max_age_hours > 0:
@@ -185,23 +548,23 @@ def load_daily_cache(
         "date_max": payload.get("date_max") or (bars[-1].get("date") if bars else None),
         "bar_count": payload.get("bar_count") or len(bars),
         "adjust_policy": payload.get("adjust_policy"),
+        "bars_backend": "json",
     }
     return bars, meta
 
 
-def save_daily_cache(
+def _write_daily_payload(
+    path: str,
+    *,
     market: str,
     code: str,
     bars: List[dict],
-    *,
     data_source: str,
-    stock_code: Optional[str] = None,
-    store_dir: Optional[str] = None,
-    adjust_policy: Optional[str] = "qfq",
+    stock_code: Optional[str],
+    adjust_policy: Optional[str],
 ) -> str:
-    path = daily_cache_path(market, code, store_dir)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     fetched_at = datetime.now()
+    bars = trim_daily_bars(bars)
     quality = assess_quality(bars, data_source=data_source, fetched_at=fetched_at)
     date_min = bars[0].get("date") if bars else None
     date_max = bars[-1].get("date") if bars else None
@@ -219,32 +582,145 @@ def save_daily_cache(
         "date_max": date_max,
         "adjust_policy": adjust_policy,
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    try:
+        atomic_write_json(path, payload)
+    except OSError as e:
+        _note_io_error(f"save_daily:{path}", e)
+        raise
     return path
+
+
+def save_daily_cache(
+    market: str,
+    code: str,
+    bars: List[dict],
+    *,
+    data_source: str,
+    stock_code: Optional[str] = None,
+    store_dir: Optional[str] = None,
+    adjust_policy: Optional[str] = "qfq",
+) -> str:
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.save_daily(
+            market,
+            code,
+            list(bars or []),
+            data_source=data_source,
+            stock_code=stock_code,
+            store_dir=base,
+            adjust_policy=adjust_policy,
+            assess_quality=assess_quality,
+            trim_daily_bars=trim_daily_bars,
+        )
+    path = daily_cache_path(market, code, base)
+    incoming = [b for b in (bars or []) if daily_bar_complete(b)]
+    if not incoming:
+        return path
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with path_lock(path):
+        existing: List[dict] = []
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    payload = json.load(f)
+                existing = list(payload.get("bars") or [])
+            except (OSError, json.JSONDecodeError) as e:
+                _note_io_error(f"merge_load_daily:{path}", e)
+                existing = []
+        merged = merge_bars_by_date(existing, incoming)
+        return _write_daily_payload(
+            path,
+            market=market,
+            code=code,
+            bars=merged,
+            data_source=data_source,
+            stock_code=stock_code,
+            adjust_policy=adjust_policy,
+        )
+
+
+def merge_save_daily_cache(
+    market: str,
+    code: str,
+    incoming: List[dict],
+    *,
+    data_source: str,
+    stock_code: Optional[str] = None,
+    store_dir: Optional[str] = None,
+    adjust_policy: Optional[str] = "qfq",
+) -> Tuple[str, List[dict]]:
+    """持锁读盘 → 按 date 合并 → 裁剪 → 写回（DS-R0 防丢更新）。"""
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.merge_save_daily(
+            market,
+            code,
+            list(incoming or []),
+            data_source=data_source,
+            stock_code=stock_code,
+            store_dir=base,
+            adjust_policy=adjust_policy,
+            assess_quality=assess_quality,
+            trim_daily_bars=trim_daily_bars,
+            merge_bars_by_date=merge_bars_by_date,
+        )
+    path = daily_cache_path(market, code, base)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with path_lock(path):
+        existing: List[dict] = []
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    payload = json.load(f)
+                existing = list(payload.get("bars") or [])
+            except (OSError, json.JSONDecodeError) as e:
+                _note_io_error(f"merge_load_daily:{path}", e)
+                existing = []
+        merged = merge_bars_by_date(existing, list(incoming or []))
+        _write_daily_payload(
+            path,
+            market=market,
+            code=code,
+            bars=merged,
+            data_source=data_source,
+            stock_code=stock_code,
+            adjust_policy=adjust_policy,
+        )
+        return path, merged
 
 
 def load_snapshot_cache(
     kind: str,
     code: str,
     *,
-    max_age_hours: float = 24.0,
+    max_age_hours: float = DAILY_CACHE_HOURS,
     store_dir: Optional[str] = None,
 ) -> Optional[Tuple[Any, Dict[str, Any]]]:
     path = snapshot_cache_path(kind, code, store_dir)
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        _note_io_error(f"load_snapshot:{path}", e)
         return None
     fetched_s = payload.get("fetched_at") or ""
+    if not isinstance(fetched_s, str):
+        fetched_s = str(fetched_s) if fetched_s else ""
     try:
         fetched_at = datetime.fromisoformat(fetched_s)
-    except ValueError:
+    except (ValueError, TypeError):
         fetched_at = datetime.fromtimestamp(os.path.getmtime(path))
     if max_age_hours > 0 and datetime.now() - fetched_at > timedelta(hours=max_age_hours):
+        return None
+    # 舆情 TTL 文件与快照同目录时没有 data 键；当成未命中，避免空信封当成功
+    if not isinstance(payload, dict) or "data" not in payload or payload.get("data") is None:
         return None
     data = payload.get("data")
     meta = {
@@ -272,58 +748,73 @@ def save_snapshot_cache(
     fetched_at = datetime.now()
     fetched_s = fetched_at.isoformat(timespec="seconds")
 
-    existing_history: List[dict] = []
-    if os.path.isfile(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                old = json.load(f)
-            existing_history = list(old.get("history") or [])
-        except (OSError, json.JSONDecodeError):
-            existing_history = []
+    with path_lock(path):
+        existing_history: List[dict] = []
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    old = json.load(f)
+                existing_history = list(old.get("history") or [])
+            except (OSError, json.JSONDecodeError) as e:
+                _note_io_error(f"load_snapshot_hist:{path}", e)
+                existing_history = []
 
-    payload: Dict[str, Any] = {
-        "version": SNAPSHOT_VERSION,
-        "kind": kind,
-        "code": code,
-        "data_source": data_source,
-        "fetched_at": fetched_s,
-        "non_pit": True,
-        "data": data,
-    }
+        payload: Dict[str, Any] = {
+            "version": SNAPSHOT_VERSION,
+            "kind": kind,
+            "code": code,
+            "data_source": data_source,
+            "fetched_at": fetched_s,
+            "non_pit": True,
+            "data": data,
+        }
 
-    # R1：fundamentals 维护 as_of history 面板（最小 PIT）
-    if str(kind).lower() == "fundamentals":
-        try:
-            from core.fundamentals_pit import (
-                _date_key,
-                _metrics_as_of_hint,
-                merge_history_point,
-            )
-            from core.signal.fundamentals_bridge import normalize_fundamentals_metrics
-
-            metrics = normalize_fundamentals_metrics(data) or {}
-            point_as_of = (
-                _date_key(as_of)
-                or _metrics_as_of_hint(data)
-                or _date_key(fetched_s)
-            )
-            if metrics and point_as_of:
-                payload["history"] = merge_history_point(
-                    existing_history,
-                    as_of=point_as_of,
-                    metrics=metrics,
-                    fetched_at=fetched_s,
-                    data_source=data_source,
+        if str(kind).lower() == "fundamentals":
+            try:
+                from core.fundamentals_pit import (
+                    _metrics_as_of_hint,
+                    merge_history_point,
                 )
-                payload["latest_as_of"] = point_as_of
-            elif existing_history:
-                payload["history"] = existing_history
-        except Exception:
-            if existing_history:
-                payload["history"] = existing_history
+                from core.numbers import date_key
+                from core.signal.fundamentals_bridge import normalize_fundamentals_metrics
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+                metrics = normalize_fundamentals_metrics(data) or {}
+                point_as_of = (
+                    date_key(as_of)
+                    or _metrics_as_of_hint(data)
+                    or date_key(fetched_s)
+                )
+                if metrics and point_as_of:
+                    hist = merge_history_point(
+                        existing_history,
+                        as_of=point_as_of,
+                        metrics=metrics,
+                        fetched_at=fetched_s,
+                        data_source=data_source,
+                        ann_date=metrics.get("ann_date"),
+                        available_as_of=metrics.get("valuation_as_of")
+                        or metrics.get("available_as_of"),
+                    )
+                    if len(hist) > FUNDAMENTALS_HISTORY_MAX_POINTS:
+                        hist = hist[-FUNDAMENTALS_HISTORY_MAX_POINTS:]
+                    payload["history"] = hist
+                    payload["latest_as_of"] = point_as_of
+                elif existing_history:
+                    payload["history"] = existing_history[
+                        -FUNDAMENTALS_HISTORY_MAX_POINTS:
+                    ]
+            except Exception as e:
+                logger.warning("fundamentals history merge failed: %s", e)
+                if existing_history:
+                    payload["history"] = existing_history[
+                        -FUNDAMENTALS_HISTORY_MAX_POINTS:
+                    ]
+
+        try:
+            atomic_write_json(path, payload)
+        except OSError as e:
+            _note_io_error(f"save_snapshot:{path}", e)
+            raise
     return path
 
 
@@ -333,13 +824,19 @@ def peek_daily_cache_meta(
     store_dir: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """读日线缓存元数据（不校验 TTL）。"""
-    path = daily_cache_path(market, code, store_dir)
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.peek_daily_meta(market, code, base)
+    path = daily_cache_path(market, code, base)
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        _note_io_error(f"peek_daily:{path}", e)
         return None
     bars = payload.get("bars") or []
     return {
@@ -354,6 +851,7 @@ def peek_daily_cache_meta(
         "date_min": payload.get("date_min") or (bars[0].get("date") if bars else None),
         "date_max": payload.get("date_max") or (bars[-1].get("date") if bars else None),
         "adjust_policy": payload.get("adjust_policy"),
+        "bars_backend": "json",
     }
 
 
@@ -361,13 +859,18 @@ def list_cached_symbols(
     market: Optional[str] = None,
     store_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    base = os.path.join(store_dir or get_store_dir(), DAILY_SUBDIR)
-    if not os.path.isdir(base):
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.list_daily_symbols(market, base)
+    daily_base = os.path.join(base, DAILY_SUBDIR)
+    if not os.path.isdir(daily_base):
         return []
     out: List[Dict[str, Any]] = []
-    markets = [market.upper()] if market else os.listdir(base)
+    markets = [market.upper()] if market else os.listdir(daily_base)
     for mkt in markets:
-        mdir = os.path.join(base, mkt)
+        mdir = os.path.join(daily_base, mkt)
         if not os.path.isdir(mdir):
             continue
         for name in os.listdir(mdir):
@@ -386,11 +889,76 @@ def list_cached_symbols(
                         "fetched_at": payload.get("fetched_at"),
                         "quality": payload.get("quality"),
                         "path": path,
+                        "bars_backend": "json",
                     }
                 )
             except (OSError, json.JSONDecodeError):
                 continue
     return out
+
+
+def clear_daily_cache(
+    market: Optional[str] = None,
+    store_dir: Optional[str] = None,
+) -> int:
+    """清除日线缓存；返回删除条目数（sqlite=meta 行；json=文件数）。"""
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.clear_daily(market, base)
+    daily_base = os.path.join(base, DAILY_SUBDIR)
+    if not os.path.isdir(daily_base):
+        return 0
+    removed = 0
+    markets = [market.upper()] if market else os.listdir(daily_base)
+    for mkt in markets:
+        mdir = os.path.join(daily_base, mkt)
+        if not os.path.isdir(mdir):
+            continue
+        for name in os.listdir(mdir):
+            if name.endswith(".json"):
+                try:
+                    os.remove(os.path.join(mdir, name))
+                    removed += 1
+                except OSError as e:
+                    _note_io_error(f"clear_daily:{mdir}/{name}", e)
+    return removed
+
+
+def clear_minute_cache(
+    market: Optional[str] = None,
+    *,
+    period: Optional[str] = None,
+    store_dir: Optional[str] = None,
+) -> int:
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.clear_minute(market, period=period, store_dir=base)
+    minute_base = os.path.join(base, MINUTE_SUBDIR)
+    if not os.path.isdir(minute_base):
+        return 0
+    removed = 0
+    periods = [str(period)] if period else os.listdir(minute_base)
+    for per in periods:
+        pdir = os.path.join(minute_base, per)
+        if not os.path.isdir(pdir):
+            continue
+        markets = [market.upper()] if market else os.listdir(pdir)
+        for mkt in markets:
+            mdir = os.path.join(pdir, mkt)
+            if not os.path.isdir(mdir):
+                continue
+            for name in os.listdir(mdir):
+                if name.endswith(".json"):
+                    try:
+                        os.remove(os.path.join(mdir, name))
+                        removed += 1
+                    except OSError as e:
+                        _note_io_error(f"clear_minute:{mdir}/{name}", e)
+    return removed
 
 
 def load_minute_cache(
@@ -399,23 +967,39 @@ def load_minute_cache(
     period: str = "5",
     *,
     min_bars: int = 1,
-    max_age_hours: float = 24.0,
+    max_age_hours: float = DAILY_CACHE_HOURS,
     store_dir: Optional[str] = None,
     ignore_age: bool = False,
 ) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
-    path = minute_cache_path(market, code, period, store_dir)
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_minute(
+            market,
+            code,
+            period,
+            min_bars=min_bars,
+            max_age_hours=max_age_hours,
+            store_dir=base,
+            ignore_age=ignore_age,
+        )
+    path = minute_cache_path(market, code, period, base)
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        _note_io_error(f"load_minute:{path}", e)
         return None
 
     fetched_s = payload.get("fetched_at") or ""
+    if not isinstance(fetched_s, str):
+        fetched_s = str(fetched_s) if fetched_s else ""
     try:
         fetched_at = datetime.fromisoformat(fetched_s)
-    except ValueError:
+    except (ValueError, TypeError):
         fetched_at = datetime.fromtimestamp(os.path.getmtime(path))
 
     if not ignore_age and max_age_hours > 0:
@@ -438,8 +1022,103 @@ def load_minute_cache(
         "date_max": payload.get("date_max"),
         "bar_count": payload.get("bar_count") or len(bars),
         "adjust_policy": payload.get("adjust_policy"),
+        "bars_backend": "json",
     }
     return bars, meta
+
+
+def load_minute_span_snapshot(
+    market: str,
+    code: str,
+    period: str = "5",
+    *,
+    store_dir: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """覆盖状态：跨度 + 末日 bars。sqlite 不拉全历史。"""
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_minute_span_snapshot(market, code, period, store_dir=base)
+    packed = load_minute_cache(
+        market, code, period, min_bars=1, max_age_hours=0, ignore_age=True, store_dir=base
+    )
+    if not packed:
+        return None
+    bars, meta = packed
+    by_day: Dict[str, List[dict]] = {}
+    for b in bars or []:
+        if not isinstance(b, dict):
+            continue
+        d = str(b.get("date") or str(b.get("datetime") or "")[:10])[:10]
+        if len(d) != 10:
+            continue
+        by_day.setdefault(d, []).append(b)
+    if not by_day:
+        return None
+    date_max = max(by_day.keys())
+    date_min = min(by_day.keys())
+    return {
+        "span_days": len(by_day),
+        "bar_count": int((meta or {}).get("bar_count") or len(bars or [])),
+        "fetched_at": (meta or {}).get("fetched_at"),
+        "date_min": date_min,
+        "date_max": date_max,
+        "date_max_bars": list(by_day.get(date_max) or []),
+        "adjust_policy": (meta or {}).get("adjust_policy"),
+        "bars_backend": (meta or {}).get("bars_backend") or "json",
+    }
+
+
+def load_minute_since(
+    market: str,
+    code: str,
+    period: str = "5",
+    *,
+    date_min: str,
+    store_dir: Optional[str] = None,
+    min_bars: int = 1,
+) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
+    """按日期下界拉分钟线（标签画像等）；sqlite 不扫全历史。"""
+    base = store_dir or get_store_dir()
+    d0 = str(date_min or "")[:10]
+    if len(d0) < 10:
+        return None
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_minute_since(
+            market,
+            code,
+            period,
+            date_min=d0,
+            store_dir=base,
+            min_bars=min_bars,
+        )
+    packed = load_minute_cache(
+        market,
+        code,
+        period,
+        min_bars=min_bars,
+        max_age_hours=0,
+        ignore_age=True,
+        store_dir=base,
+    )
+    if not packed:
+        return None
+    bars, meta = packed
+    clipped = [
+        b
+        for b in (bars or [])
+        if isinstance(b, dict)
+        and str(b.get("date") or str(b.get("datetime") or "")[:10])[:10] >= d0
+    ]
+    if len(clipped) < min_bars:
+        return None
+    meta_out = dict(meta or {})
+    meta_out["date_min"] = d0
+    meta_out["bar_count"] = len(clipped)
+    return clipped, meta_out
 
 
 def save_minute_cache(
@@ -453,28 +1132,62 @@ def save_minute_cache(
     store_dir: Optional[str] = None,
     adjust_policy: Optional[str] = "qfq",
 ) -> str:
-    path = minute_cache_path(market, code, period, store_dir)
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.save_minute(
+            market,
+            code,
+            list(bars or []),
+            period=period,
+            data_source=data_source,
+            stock_code=stock_code,
+            store_dir=base,
+            adjust_policy=adjust_policy,
+            trim_minute_bars=trim_minute_bars,
+        )
+    path = minute_cache_path(market, code, period, base)
+    bars = trim_minute_bars(list(bars or []))
+    if not bars:
+        return path
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fetched_at = datetime.now()
-    date_min = None
-    date_max = None
-    if bars:
-        date_min = bars[0].get("date") or str(bars[0].get("datetime") or "")[:10]
-        date_max = bars[-1].get("date") or str(bars[-1].get("datetime") or "")[:10]
-    payload = {
-        "version": MINUTE_CACHE_VERSION,
-        "market": market.upper(),
-        "code": code,
-        "stock_code": stock_code or code,
-        "period": str(period),
-        "data_source": data_source,
-        "fetched_at": fetched_at.isoformat(timespec="seconds"),
-        "bars": bars,
-        "bar_count": len(bars or []),
-        "date_min": date_min,
-        "date_max": date_max,
-        "adjust_policy": adjust_policy,
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    with path_lock(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                old_payload = json.load(f)
+            old_bars = old_payload.get("bars") or []
+            if isinstance(old_bars, list) and old_bars:
+                bars = trim_minute_bars(
+                    merge_minute_bars_by_time(
+                        old_bars, bars, period=period, lock_calendar_day=False
+                    )
+                )
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+        date_min = None
+        date_max = None
+        if bars:
+            date_min = bars[0].get("date") or str(bars[0].get("datetime") or "")[:10]
+            date_max = bars[-1].get("date") or str(bars[-1].get("datetime") or "")[:10]
+        payload = {
+            "version": MINUTE_CACHE_VERSION,
+            "market": market.upper(),
+            "code": code,
+            "stock_code": stock_code or code,
+            "period": str(period),
+            "data_source": data_source,
+            "fetched_at": fetched_at.isoformat(timespec="seconds"),
+            "bars": bars,
+            "bar_count": len(bars or []),
+            "date_min": date_min,
+            "date_max": date_max,
+            "adjust_policy": adjust_policy,
+        }
+        try:
+            atomic_write_json(path, payload)
+        except OSError as e:
+            _note_io_error(f"save_minute:{path}", e)
+            raise
     return path

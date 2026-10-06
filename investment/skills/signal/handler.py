@@ -1,5 +1,5 @@
 from agent.contracts import BaseSkillHandler
-from skills.signal.engine import SignalEngine
+from adapters.signal.engine import SignalEngine
 
 
 class SignalHandler(BaseSkillHandler):

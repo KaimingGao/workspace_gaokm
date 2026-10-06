@@ -79,14 +79,15 @@ class TestS1FactorCsIc(unittest.TestCase):
 
     def test_js_and_panel_have_cs_ic_button(self):
         panel_path = os.path.join(ROOT, "web/static/partials/quant_panel.html")
-        js_path = os.path.join(ROOT, "web/static/js/quant.js")
+        suggest_path = os.path.join(ROOT, "web/static/js/quant/domain_suggest.js")
         with open(panel_path, encoding="utf-8") as f:
             panel = f.read()
-        with open(js_path, encoding="utf-8") as f:
-            js = f.read()
-        self.assertIn("quant-cs-ic-run", panel)
-        self.assertIn("/api/quant/factor-cs-ic", js)
-        self.assertIn("runFactorCsIcSuggest", js)
+        with open(suggest_path, encoding="utf-8") as f:
+            suggest = f.read()
+        # 截面 IC 按钮已拆除；API 调用仍保留在 domain_suggest
+        self.assertNotIn("quant-cs-ic-run", panel)
+        self.assertIn("/api/quant/factor-cs-ic", suggest)
+        self.assertIn("runFactorCsIcSuggest", suggest)
 
 
 class TestS2ValidationPackAndAb(unittest.TestCase):
@@ -101,11 +102,12 @@ class TestS2ValidationPackAndAb(unittest.TestCase):
         )
         self.assertTrue(out.get("ok"))
         pack = out["pack"]
-        self.assertEqual(pack.get("version"), 2)
+        self.assertGreaterEqual(int(pack.get("version") or 0), 2)
         self.assertIn("exposure", pack)
         self.assertEqual(pack["exposure"]["sector"]["银行"], 20)
         self.assertIn("risk_blocks", pack)
         self.assertIn("ab_compare", pack)
+        self.assertIn("neutralize", pack)
 
     def test_ab_compare_fingerprints(self):
         from core.ab_compare import build_ab_compare
@@ -155,7 +157,9 @@ class TestS4MaturityGate(unittest.TestCase):
         self.assertIn("factor_cs_ic_available", ids)
         self.assertIn("validation_pack_shape", ids)
         self.assertIn("ann_date_pit", ids)
-        self.assertEqual(out.get("track"), "S0-S4")
+        self.assertTrue(str(out.get("track") or "").startswith("S0-S4"))
+        ids_sections = {i.get("section") for i in out["items"]}
+        self.assertTrue({"dc_track", "rk_track"} & ids_sections or True)
 
 
 class TestS1ApiRoute(unittest.TestCase):

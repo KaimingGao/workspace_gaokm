@@ -1,20 +1,18 @@
 """运行清单（Q3）：每次回测 / 调仓写出可复现指纹。"""
 
-from __future__ import annotations
+import logging
 
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 import os
-from datetime import datetime
 from typing import Any, Dict, Optional
 
+from core.io_atomic import atomic_write_json
+from core.numbers import now_iso_local as _now_iso
 from core.paths import DATA_DIR
 
 MANIFEST_DIR = os.path.join(DATA_DIR, "run_manifests")
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 def _hash_obj(obj: Any) -> str:
@@ -33,7 +31,7 @@ def build_run_manifest(
     data_quality: Optional[dict] = None,
     adjust_policy: Optional[str] = None,
 ) -> Dict[str, Any]:
-    from core.data_service import DEFAULT_ADJUST_POLICY
+    from core.data.facade import DEFAULT_ADJUST_POLICY
 
     dq = data_quality or (extra or {}).get("data_quality") or {}
     policy = adjust_policy or dq.get("adjust_policy") or DEFAULT_ADJUST_POLICY
@@ -68,6 +66,5 @@ def write_run_manifest(manifest: Dict[str, Any], *, dir_path: Optional[str] = No
     fp = str(manifest.get("fingerprint") or "na")
     ts = str(manifest.get("ts") or _now_iso()).replace(":", "").replace("-", "")
     path = os.path.join(d, f"{kind}_{ts}_{fp}.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, manifest)
     return path

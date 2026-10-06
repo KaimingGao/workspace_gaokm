@@ -1,0 +1,1297 @@
+/* ══ REPLAY ══ 历史回测：回测参数、结果、对照 */
+
+.replay-page {
+  --replay-gap: 8px;
+  --replay-gap-lg: 10px;
+  --replay-pad: 8px;
+  --replay-pad-x: 10px;
+  --replay-radius: var(--radius-sm);
+  gap: var(--replay-gap-lg);
+  font-size: 0.84rem;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+
+.replay-page .replay-howto {
+  margin: 0 0 var(--replay-gap, 10px);
+  padding: 6px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  background: var(--bg-1, transparent);
+}
+
+.replay-page .replay-howto summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.replay-page .replay-howto-body {
+  margin-top: 6px;
+  max-width: 56em;
+}
+
+.replay-page .replay-howto-body p {
+  margin: 0 0 6px;
+}
+
+.replay-page .replay-howto-clarify {
+  color: var(--ink-3);
+}
+
+.replay-page .replay-howto-body code {
+  font-size: 0.95em;
+}
+
+.replay-page .replay-howto-steps {
+  margin: 0 0 8px;
+  padding-left: 1.2em;
+}
+
+.replay-page .replay-howto-steps li {
+  margin: 0 0 3px;
+}
+
+.replay-page .replay-howto-timeline {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  white-space: pre;
+  border-radius: 4px;
+  background: var(--bg-2, rgba(0, 0, 0, 0.04));
+  color: var(--ink-2);
+}
+
+
+html[data-density="compact"] .replay-page {
+  --replay-gap: 6px;
+  --replay-gap-lg: 8px;
+  --replay-pad: 6px;
+  --replay-pad-x: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   历史回测页 · 专业性升级（p729）
+   字体 / 颜色 / 表格 / 机密度 四维统一
+   ═══════════════════════════════════════════════════════════ */
+
+.replay-page {
+  /* A 股语义色 */
+  --replay-up: #dc2626;
+  --replay-down: #16a34a;
+  --replay-good: #16a34a;
+  --replay-bad: #dc2626;
+  --replay-neutral: #94a3b8;
+  /* 表格色谱 */
+  --replay-head-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  --replay-head-fg: var(--ink-2);
+  --replay-stripe: color-mix(in srgb, var(--line-2) 35%, var(--surface));
+  --replay-hover: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  --replay-row-line: var(--line-2);
+  /* 收紧间距 */
+  --replay-gap: 6px;
+  --replay-gap-lg: 8px;
+  /* 全局数字等宽 */
+  font-feature-settings: "tnum" 1, "lnum" 1, "ss01" 1;
+  font-size: 0.82rem;
+}
+
+.replay-page .replay-howto {
+  padding: 5px 8px;
+  font-size: 0.7rem;
+}
+
+/* —— 5. 深色主题 —— */
+@media (prefers-color-scheme: dark) {
+  .replay-page {
+    --replay-up: #f87171;
+    --replay-down: #4ade80;
+    --replay-good: #4ade80;
+    --replay-bad: #f87171;
+    --replay-head-bg: color-mix(in srgb, var(--ink) 8%, var(--surface));
+    --replay-head-fg: var(--ink-2);
+    --replay-stripe: color-mix(in srgb, var(--line-2) 25%, var(--surface));
+    --replay-hover: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    --replay-row-line: var(--line-2);
+  }
+}
+
+/* ==========================================================================
+   历史回测 · Desk Shell 对齐交易执行 (p895)
+   L1 区段壳 → L2 白卡 → L3 控制带 · 最小圆角 2px · 终端密度
+   ========================================================================== */
+body[data-page="replay"] .replay-page,
+body[data-page="replay"] .page-main {
+  --sys-r-tier1: 2px;
+  --sys-r-tier2: 2px;
+  --sys-r-tier3: 2px;
+  --sys-r-tier4: 2px;
+  --sys-r-full: 2px;
+  --radius: 2px;
+  --radius-sm: 2px;
+  --radius-xs: 2px;
+  --replay-radius: 2px;
+  --r-fs-micro: var(--sys-fs-micro, 0.6875rem);
+  --r-fs-caption: var(--sys-fs-caption, 0.75rem);
+  --r-fs-body: var(--sys-fs-body, 0.8125rem);
+  --r-fs-section: var(--sys-fs-section, 0.875rem);
+  --r-gap-page: 10px;
+  --r-gap-block: 8px;
+}
+
+/* ── 页头 ── */
+body[data-page="replay"] .dashboard-head.quant-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: var(--surface);
+  z-index: 5;
+  isolation: isolate;
+}
+
+body[data-page="replay"] .dashboard-eyebrow {
+  margin: 0 0 2px;
+  font-size: var(--r-fs-micro);
+  font-weight: var(--sys-fw-label, 650);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  line-height: 18px;
+}
+
+body[data-page="replay"] .dashboard-head h2,
+body[data-page="replay"] .quant-head h2 {
+  margin: 0;
+  font-size: var(--sys-fs-title, 1.125rem);
+  font-weight: var(--sys-fw-display, 700);
+  letter-spacing: -0.02em;
+  line-height: var(--sys-lh-tight, 1.2);
+  color: var(--ink);
+}
+
+body[data-page="replay"] .dashboard-meta,
+body[data-page="replay"] .quant-meta,
+body[data-page="replay"] #replay-meta {
+  margin: 4px 0 0 !important;
+  font-size: var(--r-fs-caption);
+  line-height: var(--sys-lh-snug, 1.35);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+body[data-page="replay"] .replay-head-path {
+  margin: 4px 0 0;
+  font-size: var(--r-fs-caption);
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+  line-height: var(--sys-lh-snug, 1.35);
+}
+
+body[data-page="replay"] .replay-hero-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+body[data-page="replay"] .replay-hero-link:hover {
+  text-decoration: underline;
+}
+
+body[data-page="replay"] .replay-head-actions {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+body[data-page="replay"] .replay-desk-badge,
+body[data-page="replay"] .replay-desk-guard,
+body[data-page="replay"] .quant-head .quant-desk-badge.replay-desk-badge {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0 10px;
+  margin: 0;
+  border-radius: 2px !important;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body[data-page="replay"] .replay-desk-badge {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+body[data-page="replay"] .replay-desk-guard {
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  border: 1px solid var(--line);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+body[data-page="replay"] .replay-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--r-gap-page);
+  padding: 0 0 24px;
+  color: var(--ink);
+  font-size: var(--r-fs-body);
+  line-height: var(--sys-lh-snug, 1.35);
+}
+
+/* ── 调仓回测：KPI 四列（贴区段壳，不再套一层白卡） ── */
+body[data-page="replay"] .replay-overview-band {
+  display: block;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+body[data-page="replay"] .replay-kpi-row {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+body[data-page="replay"] .replay-kpi-row .dashboard-kpi-row-body {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 10px;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+}
+
+body[data-page="replay"] #replay-kpi-row .dashboard-kpi-row-body {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+}
+
+body[data-page="replay"] .replay-kpi-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 78px;
+  padding: 12px 14px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  box-shadow: none;
+  transition: border-color 0.12s ease;
+}
+
+body[data-page="replay"] .replay-kpi-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+body[data-page="replay"] .replay-kpi-card.is-empty .replay-kpi-value {
+  color: var(--ink-3);
+  opacity: 0.55;
+}
+
+body[data-page="replay"] .replay-kpi-label {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+body[data-page="replay"] .replay-kpi-value {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+body[data-page="replay"] .replay-kpi-value.up {
+  color: var(--color-up, #f5222d);
+}
+
+body[data-page="replay"] .replay-kpi-value.down {
+  color: var(--color-down, #16a34a);
+}
+
+body[data-page="replay"] .replay-kpi-sub {
+  font-size: var(--r-fs-caption, 12px);
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
+/* ── L1 区段壳 ── */
+body[data-page="replay"] .replay-page > .dashboard-section.quant-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 97%, var(--line));
+  box-shadow: none;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+body[data-page="replay"] .replay-page > .dashboard-section.quant-section > .dashboard-section-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0 0 2px;
+}
+
+body[data-page="replay"] .replay-run-head {
+  align-items: center;
+}
+
+body[data-page="replay"] .replay-pool-meta {
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--r-fs-caption);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+body[data-page="replay"] .replay-run-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px 10px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+body[data-page="replay"] .replay-run-toolbar > .dialog-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  white-space: nowrap;
+}
+
+body[data-page="replay"] .replay-lookback-field {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+body[data-page="replay"] .replay-lookback-field #quant-lookback,
+body[data-page="replay"] .replay-lookback-field #paper-t0-lookback {
+  width: 3.5rem;
+  min-width: 3.5rem;
+}
+
+body[data-page="replay"] .replay-model-field #quant-score-model-role,
+body[data-page="replay"] .replay-model-field #paper-t0-score-model-role {
+  width: 4.5rem;
+  min-width: 4.5rem;
+}
+
+body[data-page="replay"] .replay-horizon-backend-field #paper-t0-horizon-prob-backend,
+body[data-page="replay"] .replay-score-backend-field #quant-score-backend {
+  width: 5.5rem;
+  min-width: 5.5rem;
+}
+
+body[data-page="replay"] .replay-clock-field #quant-fill-clock {
+  width: 5.5rem;
+  min-width: 5.5rem;
+}
+
+body[data-page="replay"] .replay-pred-tier-field {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-three-window-check {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+body[data-page="replay"] .replay-fit-tier-field {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-fit-tier-checks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+body[data-page="replay"] .replay-fit-tier-checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+body[data-page="replay"] .replay-page .dashboard-section-title {
+  margin: 0;
+  font-size: var(--r-fs-section);
+  font-weight: var(--sys-fw-display, 700);
+  letter-spacing: 0.02em;
+  line-height: var(--sys-lh-tight, 1.2);
+  color: var(--ink);
+}
+
+body[data-page="replay"] .replay-page .dashboard-section-desc {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: var(--r-fs-caption);
+  color: var(--ink-3);
+  line-height: var(--sys-lh-snug, 1.35);
+}
+
+/* ── L2 白卡 ── */
+body[data-page="replay"] .replay-page .dashboard-card.quant-pro-card,
+body[data-page="replay"] .replay-ops-card {
+  margin: 0;
+  padding: 0 !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 2px !important;
+  background: var(--bg-card, #fff) !important;
+  box-shadow: none !important;
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+body[data-page="replay"] .replay-card-head,
+body[data-page="replay"] .replay-page .dashboard-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  min-height: 0;
+  padding: 7px 10px;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--ink) 2.2%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+}
+
+body[data-page="replay"] .replay-card-status,
+body[data-page="replay"] .replay-page .dashboard-card-head .quant-fingerprint {
+  margin: 0;
+  flex: 1 1 10rem;
+  min-width: 0;
+  font-size: var(--r-fs-caption);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
+body[data-page="replay"] .replay-card-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+body[data-page="replay"] .replay-card-body,
+body[data-page="replay"] .replay-page .quant-pro-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg-card, #fff);
+}
+
+/* ── L3 控制带 ── */
+body[data-page="replay"] .replay-control-band,
+body[data-page="replay"] .replay-page .quant-control-band {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px !important;
+  background: color-mix(in srgb, var(--ink) 1.4%, var(--bg-elevated, var(--surface)));
+}
+
+body[data-page="replay"] .replay-params-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+
+body[data-page="replay"] .replay-params-inline > #quant-portfolio-run {
+  margin-left: auto;
+}
+
+body[data-page="replay"] .replay-run-progress {
+  margin: 0;
+  flex: 0 0 auto;
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  align-self: center;
+  font-size: var(--r-fs-caption);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+body[data-page="replay"] .replay-t0-section .replay-run-head {
+  align-items: center;
+}
+
+/* ── 做 T 回测：KPI / 结果卡对齐调仓回测；规则表与归因沿用交易执行 ── */
+body[data-page="replay"] .replay-t0-section {
+  --paper-t0-r: 2px;
+  --paper-t0-gap: 10px;
+  --paper-t0-pad-x: 12px;
+  --paper-t0-pad-y: 10px;
+}
+
+body[data-page="replay"] .replay-t0-matrix {
+  --paper-t0-r: 6px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: var(--bg-card, #fff);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+body[data-page="replay"] .replay-t0-matrix .paper-t0-form {
+  margin: 0;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-page="replay"] .follow-path-matrix-box--pair,
+body[data-page="replay"] .follow-path-matrix-box--solo {
+  cursor: default;
+  grid-template-rows: auto auto;
+}
+
+body[data-page="replay"] .follow-path-matrix-box-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: end;
+}
+
+body[data-page="replay"] .follow-path-matrix-box--solo .follow-path-matrix-box-pair {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-page="replay"] .follow-path-matrix-box-slot {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+body[data-page="replay"] .follow-path-matrix-box-slot-label {
+  font-size: 0.62rem;
+  color: var(--pm-muted, var(--ink-3));
+  line-height: 1.2;
+  font-weight: 650;
+}
+
+body[data-page="replay"] .follow-path-matrix-box--pair input[type="number"],
+body[data-page="replay"] .follow-path-matrix-box--solo input[type="number"],
+body[data-page="replay"] .follow-path-matrix-box--pair input[type="text"] {
+  min-width: 0;
+  width: 100%;
+}
+
+body[data-page="replay"] .follow-path-matrix-box-slot input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0.275rem 0;
+  accent-color: var(--pm-accent);
+  justify-self: start;
+}
+
+body[data-page="replay"] .replay-t0-matrix .paper-t0-field input,
+body[data-page="replay"] .replay-t0-matrix .paper-t0-field select {
+  border-radius: 6px !important;
+}
+
+body[data-page="replay"] .replay-t0-matrix-footer {
+  padding: 8px 0 0;
+  margin: 4px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 82%, #94a3b8);
+}
+
+body[data-page="replay"] .replay-t0-matrix-footer .follow-path-matrix-actions {
+  flex-wrap: wrap;
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-metrics,
+body[data-page="replay"] .replay-t0-section #paper-t0-metrics.quant-metrics {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  gap: var(--paper-t0-gap, 8px);
+  margin: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-metrics .paper-t0-report-hero {
+  display: none;
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-viz,
+body[data-page="replay"] .replay-t0-section #paper-t0-days {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+body[data-page="replay"] .replay-page .quant-pro-field-label {
+  font-size: var(--r-fs-micro) !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-3) !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+body[data-page="replay"] .replay-page .platform-field input,
+body[data-page="replay"] .replay-page .platform-field select,
+body[data-page="replay"] .replay-page .quant-pro-field input,
+body[data-page="replay"] .replay-page .quant-pro-field select {
+  height: 28px !important;
+  font-size: var(--r-fs-body) !important;
+  border-radius: 2px !important;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+body[data-page="replay"] .replay-page #quant-benchmark-code {
+  width: 7.75rem !important;
+  min-width: 7.75rem !important;
+}
+
+body[data-page="replay"] .replay-page #quant-weight-mode {
+  width: 8.25rem !important;
+  min-width: 8.25rem !important;
+}
+
+body[data-page="replay"] .replay-page #quant-bt-engine {
+  width: 9.5rem !important;
+  min-width: 9.5rem !important;
+}
+
+body[data-page="replay"] .replay-page .dialog-btn {
+  font-size: var(--r-fs-caption) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+  border-radius: 2px !important;
+  min-height: 28px;
+  padding: 4px 12px !important;
+  line-height: 1.25;
+}
+
+body[data-page="replay"] .replay-oos-band {
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 2px !important;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  gap: 8px;
+}
+
+body[data-page="replay"] .replay-oos-band .quant-oos-band-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--accent);
+}
+
+body[data-page="replay"] .replay-oos-band .quant-oos-band-text {
+  font-size: var(--r-fs-caption);
+  color: var(--ink-2);
+  line-height: 1.35;
+}
+
+/* 摘要 / 指标 / 图 / 表 */
+body[data-page="replay"] .replay-page .quant-summary {
+  font-size: var(--r-fs-caption) !important;
+  line-height: 1.45 !important;
+  color: var(--ink-2) !important;
+  padding: 8px 10px !important;
+  border-radius: 2px !important;
+  background: color-mix(in srgb, var(--ink) 1.5%, var(--surface)) !important;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent) !important;
+}
+
+body[data-page="replay"] .replay-page .quant-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+body[data-page="replay"] .replay-page .quant-metrics > .quant-metric {
+  border-radius: 2px !important;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
+}
+
+body[data-page="replay"] .replay-page .quant-metric .lbl,
+body[data-page="replay"] .replay-page .quant-metric .label {
+  font-size: var(--r-fs-micro);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+body[data-page="replay"] .replay-page .quant-metric .val {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  /* 报告台指标卡：勿用 KPI 20px，与终端密度对齐 */
+  font-size: var(--r-fs-section, 0.875rem);
+  line-height: 1.25;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+body[data-page="replay"] .replay-page .quant-metric .val.up {
+  color: var(--color-up, var(--replay-up, #f5222d));
+}
+
+body[data-page="replay"] .replay-page .quant-metric .val.down {
+  color: var(--color-down, var(--replay-down, #52c41a));
+}
+
+body[data-page="replay"] .replay-page .quant-chart-wrap,
+body[data-page="replay"] .replay-page .quant-bt-chart-wrap {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
+}
+
+body[data-page="replay"] .replay-page .quant-chart-title {
+  font-size: var(--r-fs-caption);
+  font-weight: 700;
+  color: var(--ink-2);
+  letter-spacing: 0.02em;
+}
+
+body[data-page="replay"] .replay-page .quant-chart-nav-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0 0 0 auto;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 650 0.68rem/1.4 inherit;
+  cursor: pointer;
+}
+
+body[data-page="replay"] .replay-page .quant-chart-nav-btn:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent, #1890ff) 40%, var(--line));
+}
+
+body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-stock {
+  cursor: pointer;
+}
+
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
+  font-size: var(--r-fs-micro, 0.68rem);
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-row.is-head .watching-col-action {
+  letter-spacing: 0.02em;
+}
+
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_fuse,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_tau,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_on,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-ranking,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_hl,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-day_open,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-day_close,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-price,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-stock_ret {
+  justify-content: flex-end;
+  align-items: center;
+}
+
+body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid-row.is-chart-active {
+  background: color-mix(in srgb, var(--accent, #1890ff) 12%, var(--surface));
+}
+
+body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid-row.is-chart-active .watching-name-text {
+  color: var(--accent, #1890ff);
+}
+
+body[data-page="replay"] .replay-page .quant-chart-axis-hint {
+  font-size: var(--r-fs-micro);
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+body[data-page="replay"] .replay-page .quant-chart-host,
+body[data-page="replay"] .replay-page .dashboard-chart-host {
+  border-radius: 2px !important;
+}
+
+body[data-page="replay"] .replay-page .quant-weight-table-wrap {
+  font-size: var(--r-fs-caption);
+}
+
+body[data-page="replay"] .replay-page .quant-weight-table-wrap th {
+  font-size: var(--r-fs-micro);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  background: var(--replay-head-bg);
+}
+
+body[data-page="replay"] .replay-page .quant-weight-table-wrap td {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* 做 T 归因分析：压过 replay 主表壳，沿用交易执行 paper-t0-viz / blotter */
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .quant-sub,
+body[data-page="replay"] .replay-t0-section #paper-t0-days .quant-sub {
+  margin: 0;
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .quant-trades-caption,
+body[data-page="replay"] .replay-t0-section #paper-t0-days .quant-trades-caption {
+  margin: 0;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-3);
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .quant-weight-table-wrap,
+body[data-page="replay"] .replay-t0-section #paper-t0-days.quant-weight-table-wrap {
+  margin: 0;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-table tbody tr:nth-child(even),
+body[data-page="replay"] .replay-t0-section .paper-t0-table tbody tr:hover {
+  background: transparent;
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table th {
+  font-family: var(--font);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: color-mix(in srgb, var(--ink) 1.5%, var(--surface));
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table.quant-weight-table td {
+  padding: 6px 6px;
+  font-size: 0.78rem;
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table thead th:first-child,
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table tbody td:first-child {
+  padding-left: 12px;
+}
+
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table thead th:last-child,
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-stock-table tbody td:last-child {
+  padding-right: 12px;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table td.watching-stock {
+  white-space: normal;
+  overflow: hidden;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table td.paper-t0-col-viz-skip {
+  white-space: normal;
+  overflow: visible;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--line-2) 48%, var(--surface));
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table tbody tr.paper-t0-contrib-row:hover td {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-table thead th {
+  font-family: var(--font);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink-3);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface) 92%, var(--bg)) 0%,
+    color-mix(in srgb, var(--surface) 78%, var(--bg)) 100%
+  );
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-table thead th.num {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table td {
+  padding: 6px 8px;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table thead th:first-child,
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:first-child {
+  padding-left: 8px;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table thead th:last-child,
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:last-child {
+  padding-right: 8px;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-table tbody td:first-child {
+  padding-left: 8px;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:first-child {
+  padding-left: 8px;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-table tbody td:last-child {
+  padding-right: 8px;
+}
+
+body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:last-child {
+  padding-right: 8px;
+}
+
+/* ── 次要折叠 ── */
+body[data-page="replay"] .replay-page .dashboard-section.replay-section-secondary {
+  padding: 0;
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--ink-3) 45%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 97%, var(--line));
+}
+
+body[data-page="replay"] .replay-secondary-fold {
+  margin: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+body[data-page="replay"] .replay-secondary-fold-sum {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+body[data-page="replay"] .replay-secondary-fold-sum::-webkit-details-marker {
+  display: none;
+}
+
+body[data-page="replay"] .replay-secondary-fold-sum::after {
+  content: "▸";
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+
+body[data-page="replay"] .replay-secondary-fold[open] > .replay-secondary-fold-sum::after {
+  content: "▾";
+}
+
+body[data-page="replay"] .replay-secondary-fold-sum:hover .dashboard-section-title {
+  color: var(--accent);
+}
+
+body[data-page="replay"] .replay-secondary-fold-sum .dashboard-section-title {
+  font-size: var(--r-fs-body);
+  letter-spacing: 0.03em;
+  font-weight: 700;
+}
+
+body[data-page="replay"] .replay-secondary-fold > .dashboard-card.quant-pro-card {
+  /* 覆盖 L2 的 width:100%，否则 + 左右 margin 会撑出外框 */
+  margin: 0 8px 8px;
+  width: auto;
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
+}
+
+body[data-page="replay"] .replay-howto-body {
+  max-width: none;
+  font-size: var(--r-fs-caption);
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+body[data-page="replay"] .replay-howto-timeline {
+  border-radius: 2px !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+/* 全局 2px 收口 */
+body[data-page="replay"] .replay-page .dashboard-section,
+body[data-page="replay"] .replay-page .dashboard-card,
+body[data-page="replay"] .replay-page .quant-pro-card,
+body[data-page="replay"] .replay-page .quant-control-band,
+body[data-page="replay"] .replay-page .quant-summary,
+body[data-page="replay"] .replay-page .quant-metrics > .quant-metric,
+body[data-page="replay"] .replay-page .quant-fold,
+body[data-page="replay"] .replay-page .quant-neutral-frozen,
+body[data-page="replay"] .replay-page input,
+body[data-page="replay"] .replay-page select,
+body[data-page="replay"] .replay-page button,
+body[data-page="replay"] .replay-page .dialog-btn,
+body[data-page="replay"] .replay-desk-badge,
+body[data-page="replay"] .replay-desk-guard {
+  border-radius: 2px !important;
+}
+
+/* 日报冻结 · 中性化对照：嵌套 fold 勿沿用研究页 12px 软圆角 */
+body[data-page="replay"] .replay-page .quant-fold > summary,
+body[data-page="replay"] .replay-page .quant-neutral-frozen > summary {
+  border-radius: 0;
+}
+
+@media (max-width: 720px) {
+  body[data-page="replay"] .replay-kpi-row .dashboard-kpi-row-body {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  body[data-page="replay"] .replay-params-inline > #quant-portfolio-run {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  body[data-page="replay"] .replay-run-toolbar {
+    margin-left: 0;
+    width: 100%;
+  }
+
+}
+
+
+/* 回测忙碌：三点指示 + 胶囊/文案脉动（不用不确定进度蓝条） */
+.paper-progress-status {
+  margin: 0 0 10px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.paper-progress-status[hidden] {
+  display: none !important;
+}
+
+.paper-progress-status.is-busy {
+  animation: paper-progress-status-pulse 1.35s ease-in-out infinite;
+}
+
+.paper-progress-status.is-busy #quant-bt-progress-text,
+.paper-progress-status.is-busy #paper-t0-progress-text {
+  animation: paper-progress-text-pulse 1.35s ease-in-out infinite;
+}
+
+@keyframes paper-progress-status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ui-busy, var(--accent)) 0%, transparent);
+    border-color: var(--ui-busy-border, var(--line));
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-busy, var(--accent)) 16%, transparent);
+    border-color: color-mix(in srgb, var(--ui-busy, var(--accent)) 42%, var(--line));
+  }
+}
+
+@keyframes paper-progress-text-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paper-progress-status.is-busy,
+  .paper-progress-status.is-busy #quant-bt-progress-text,
+  .paper-progress-status.is-busy #paper-t0-progress-text {
+    animation: none;
+  }
+}
+
+/* 调仓回测分票贡献：与做 T 分票表同壳，列宽用百分比避免撑破 */
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib {
+  margin: 12px 0 0;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-contrib {
+  margin: 0;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table th {
+  font-family: var(--font);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: color-mix(in srgb, var(--ink) 1.5%, var(--surface));
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table.quant-weight-table td {
+  padding: 6px 6px;
+  font-size: 0.78rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table thead th:first-child,
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table tbody td:first-child {
+  padding-left: 12px;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table thead th:last-child,
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-viz-stock-table tbody td:last-child {
+  padding-right: 14px;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-col-stock {
+  width: 22%;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-col-viz-days,
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-col-viz-lr,
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-col-viz-shares {
+  width: 8%;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-col-viz-dt {
+  width: 12%;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-col-viz-ret,
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-col-viz-pct {
+  width: 9%;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib .paper-t0-col-pnl {
+  width: 12%;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib td.watching-stock {
+  cursor: pointer;
+}
+
+body[data-page="replay"] .replay-run-section #quant-bt-stock-contrib tbody tr.paper-t0-contrib-row:hover td {
+  background: color-mix(in srgb, var(--ink) 3.5%, var(--surface));
+}

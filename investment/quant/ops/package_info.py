@@ -1,7 +1,9 @@
 """Quant 包结构 introspection（P32，运维/文档用）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from typing import Any, Dict, List
 

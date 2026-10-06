@@ -72,9 +72,9 @@ def run_handler_case(case: dict) -> Dict[str, Any]:
     patch_targets = {}
     for key, val in patches.items():
         if key == "fetch_daily_bars":
-            patch_targets["skills.common.history.fetch_daily_bars"] = val
+            patch_targets["adapters.market.history.fetch_daily_bars"] = val
         elif key == "StockAPI.query":
-            patch_targets["skills.common.quote_api.StockAPI.query"] = val
+            patch_targets["adapters.market.quote_api.StockAPI.query"] = val
 
     from contextlib import ExitStack
 
@@ -82,12 +82,12 @@ def run_handler_case(case: dict) -> Dict[str, Any]:
         for attr, ret in patches.items():
             if attr == "quote":
                 stack.enter_context(
-                    patch("skills.common.quote_api.StockAPI.query", return_value=ret)
+                    patch("adapters.market.quote_api.StockAPI.query", return_value=ret)
                 )
             elif attr == "bars":
                 stack.enter_context(
                     patch(
-                        "skills.common.history.fetch_daily_bars",
+                        "adapters.market.history.fetch_daily_bars",
                         return_value=(ret, "fixture"),
                     )
                 )

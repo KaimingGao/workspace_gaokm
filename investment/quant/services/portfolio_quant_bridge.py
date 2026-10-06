@@ -3,8 +3,10 @@
 持仓来源：paper.json（对照仓 portfolio.json 已下线）。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from typing import Any, Dict, List, Optional, Set
 
@@ -60,6 +62,7 @@ def build_portfolio_quant_bridge(
             holdings_block["codes"] = codes
             holdings_block["count"] = len(codes)
         except Exception as e:
+            logger.exception('unexpected error in build_portfolio_quant_bridge')
             paper_block["error"] = str(e)
             holdings_block["error"] = str(e)
 
@@ -72,16 +75,18 @@ def build_portfolio_quant_bridge(
                 holdings_block["total_equity"] = adv.get("total_equity")
                 holdings_block["stance_summary"] = _stance_summary(adv.get("advice") or [])
         except Exception as e:
+            logger.exception('unexpected error in build_portfolio_quant_bridge')
             holdings_block["stance_error"] = str(e)
 
     watchlist: List[str] = []
     watching_exists = os.path.isfile(WATCHING_PATH)
     if watching_exists:
         try:
-            from core.watching_store import read_watching
+            from core.watching.store import read_watching
 
             watchlist = list(read_watching(WATCHING_PATH).get("watchlist") or [])
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in portfolio_quant_bridge.py", exc_info=True)
             watchlist = []
 
     watch_set: Set[str] = set(watchlist)
@@ -94,7 +99,8 @@ def build_portfolio_quant_bridge(
 
         saved = QuantService().load_last_daily()
         daily_empty = bool(saved.get("empty"))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in portfolio_quant_bridge.py", exc_info=True)
         daily_empty = True
 
     quant_block: Dict[str, Any] = {

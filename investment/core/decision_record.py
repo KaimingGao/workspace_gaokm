@@ -1,7 +1,9 @@
 """DecisionRecord：一次可审计的建议快照（输入 → stance → 失效条件）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 import time
@@ -67,6 +69,17 @@ def list_decisions(*, limit: int = 50, path: Optional[str] = None) -> Dict[str, 
     items = rows[-max(1, int(limit)) :]
     items.reverse()
     return {"ok": True, "path": p, "count": len(rows), "items": items}
+
+
+def clear_decisions(*, path: Optional[str] = None) -> Dict[str, Any]:
+    """清空 DecisionRecord 流水；不改策略晋升或调度 last-run。"""
+    p = path or DECISIONS_PATH
+    cleared = 0
+    if os.path.isfile(p):
+        with open(p, encoding="utf-8") as f:
+            cleared = sum(1 for line in f if line.strip())
+        os.remove(p)
+    return {"ok": True, "path": p, "cleared": cleared}
 
 
 def record_from_advice(

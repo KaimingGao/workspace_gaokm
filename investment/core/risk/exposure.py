@@ -1,7 +1,9 @@
 """持仓行业 / 风格暴露矩阵（R3.1）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -34,6 +36,20 @@ def position_size_bucket(weight_pct: float) -> str:
     return "空"
 
 
+def _holding_mv(h: dict) -> float:
+    """盯市市值优先；缺省用成本市值（手动仓常无 market_value）。"""
+    try:
+        mv = float(h.get("market_value") or 0)
+    except (TypeError, ValueError):
+        mv = 0.0
+    if mv > 0:
+        return mv
+    try:
+        return float(h.get("shares") or 0) * float(h.get("cost") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _aggregate(
     holdings: List[dict],
     equity: float,
@@ -43,7 +59,7 @@ def _aggregate(
 ) -> List[Dict[str, Any]]:
     buckets: Dict[str, Dict[str, Any]] = {}
     for h in holdings or []:
-        mv = float(h.get("market_value") or 0)
+        mv = _holding_mv(h)
         if mv <= 0:
             continue
         code = str(h.get("stock_code") or "?")
@@ -95,16 +111,15 @@ def build_exposure_matrix(
     holdings = list(sm.get("holdings") or paper.get("holdings") or [])
     equity = float(sm.get("equity") or 0)
     if equity <= 0:
-        equity = float(paper.get("cash") or 0) + sum(
-            float(h.get("market_value") or 0) for h in holdings
-        )
+        equity = float(paper.get("cash") or 0) + sum(_holding_mv(h) for h in holdings)
 
     spec_risk = risk
     if spec_risk is None:
-        sid = paper.get("strategy_id") or "short"
+        sid = paper.get("strategy_id") or "short_conservative"
         try:
             spec_risk = get_strategy_spec(str(sid)).get("risk") or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in exposure.py", exc_info=True)
             spec_risk = {}
     max_sector = float((spec_risk or {}).get("max_sector_pct") or 40.0)
     max_pos = float((spec_risk or {}).get("max_position_pct") or 25.0)
@@ -122,7 +137,7 @@ def build_exposure_matrix(
     # 单票行
     names: List[Dict[str, Any]] = []
     for h in holdings:
-        mv = float(h.get("market_value") or 0)
+        mv = _holding_mv(h)
         if mv <= 0:
             continue
         code = str(h.get("stock_code") or "?")
@@ -180,7 +195,7 @@ def build_exposure_matrix(
         "over_limit_sectors": over_sectors,
         "over_limit_names": over_names,
         "sector_count": len(sectors),
-        "note": "行业主题来自 sector_map（缺则板块启发式）；风格=板块桶。超限与 check_account_risk 同源。",
+        "note": "行业主题仅 sector_map（未映射=未分类）；风格=板别启发式。超限与 check_account_risk 同源。",
     }
 
 

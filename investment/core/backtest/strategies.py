@@ -1,73 +1,22 @@
 """回测策略注册表（P9.3）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
-DEFAULT_STRATEGY = "short"
+DEFAULT_STRATEGY = "short_conservative"
 
-# 旧 ID → 新 canonical（纸面 / promote / API 入参仍可认旧名）
-STRATEGY_ALIASES: Dict[str, str] = {
-    "signal_v1": "short",
-    "short_v1": "short",
-    "signal_v1_conservative": "short_conservative",
-}
+
+def _strategy_t0_overlay(**overrides: Any) -> Dict[str, Any]:
+    from core.execution import DEFAULT_T0_OVERLAY
+
+    return {**DEFAULT_T0_OVERLAY, **overrides}
+
 
 STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
-    "short": {
-        "label": "短线评分",
-        "description": "短线主策略：组 β → ŷ 选股；持有约 3 日；组合最多 20 只（限额见卡片，ŷ 门槛见页脚）",
-        "params": {
-            "horizon_days": 3,
-            # heuristic_score 单票 walk-forward 回测默认（0–100）；生产选股用 scoring.min_predicted_score
-            "min_score": 65.0,
-            "min_history": 12,
-            "data_mode": "full",
-            "apply_costs": True,
-        },
-        "lifecycle": {
-            "version": "1.2.0",
-            "cost_model": "simple_cn",
-            "paper_rules": {
-                # 选股门槛真源 = signal_config.scoring（ŷ 滞回）；勿再写 0–100 min_score
-                "max_positions": 20,
-                "position_pct": 0.15,
-                "horizon_days": 3,
-                "signal_limit": 8,
-                "weight_mode": "score_budget",
-            },
-            "execution": {
-                "version": "1.0.0",
-                "overlays": {
-                    "t0": {
-                        "enabled": True,
-                        "t0_ratio": 0.4,
-                        "sell_trigger_pct": 2.0,
-                        "buy_trigger_pct": 1.5,
-                        "fill_mode": "trigger",
-                        "use_atr": True,
-                        "ref": "open",
-                        "lot_size": 100,
-                    }
-                },
-                "coupling": {"t0_vs_stance": "independent"},
-                "runtime_defaults": {
-                    "paper_direction_fallback": "signal",
-                    "backtest_direction_fallback": "signal",
-                    "backtest_path_mode_no_minute": "veto",
-                    "backtest_path_mode_with_minute": "first_touch",
-                },
-            },
-            "risk": {
-                "max_drawdown_pct": 20.0,
-                "target_drawdown_pct": 12.0,
-                "max_position_pct": 25.0,
-                "max_sector_pct": 40.0,
-                "max_positions": 20,
-            },
-        },
-    },
     "short_conservative": {
         "label": "保守短线",
         "description": "更紧组合限额（最多 15 只），控制换手与回撤；选股仍走组 β → ŷ",
@@ -92,23 +41,19 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
             "execution": {
                 "version": "1.0.0",
                 "overlays": {
-                    "t0": {
-                        "enabled": True,
-                        "t0_ratio": 0.35,
-                        "sell_trigger_pct": 2.0,
-                        "buy_trigger_pct": 1.5,
-                        "fill_mode": "trigger",
-                        "use_atr": True,
-                        "ref": "open",
-                        "lot_size": 100,
-                    }
+                    "t0": _strategy_t0_overlay(t0_ratio=0.35),
                 },
                 "coupling": {"t0_vs_stance": "independent"},
                 "runtime_defaults": {
-                    "paper_direction_fallback": "signal",
-                    "backtest_direction_fallback": "signal",
-                    "backtest_path_mode_no_minute": "veto",
+                    "paper_direction_fallback": "dual_y",
+                    "backtest_direction_fallback": "dual_y",
+                    "backtest_path_mode_no_minute": "first_touch",
                     "backtest_path_mode_with_minute": "first_touch",
+                },
+                "rebalance_timing": {
+                    "execution_mode": "next_open",
+                    "open_fill_after_hm": "09:15",
+                    "open_fill_until_hm": "10:00",
                 },
             },
             "risk": {
@@ -124,8 +69,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
 
 
 def resolve_strategy_id(name: Optional[str] = None) -> str:
-    key = (name or DEFAULT_STRATEGY).strip() or DEFAULT_STRATEGY
-    return STRATEGY_ALIASES.get(key, key)
+    return (name or DEFAULT_STRATEGY).strip() or DEFAULT_STRATEGY
 
 
 def list_strategies() -> List[Dict[str, Any]]:

@@ -1,11 +1,13 @@
 """FS2：alt_sentiment as_of 面板 IC（与 live 闸独立）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.research.panel import collect_subscore_forward_panel
-from core.signal.factor_corr import pearson_with_reason
+from core.signal.factors.meta.corr import pearson_with_reason
 
 
 def compute_alt_sentiment_ic(
@@ -21,7 +23,7 @@ def compute_alt_sentiment_ic(
     code = str(stock_code or "").strip()
     if not code:
         return {"success": False, "error": "缺 stock_code", "factor": "alt_sentiment"}
-    xs, ys = collect_subscore_forward_panel(
+    xs, ys, _dates = collect_subscore_forward_panel(
         bars,
         horizon_days=horizon_days,
         index_bars=index_bars,

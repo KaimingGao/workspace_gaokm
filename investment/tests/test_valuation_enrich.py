@@ -82,6 +82,64 @@ class TestValuationEnrich(unittest.TestCase):
         self.assertAlmostEqual(pack["dividend_yield"], 0.025)
         self.assertTrue(wcache.called)
 
+    def test_merge_cached_valuation_fills_market_cap(self):
+        from core import valuation_em as ve
+
+        with patch.object(
+            ve,
+            "read_valuation_cache",
+            return_value={
+                "pe": 20.0,
+                "pb": 3.0,
+                "pe_ttm": 20.0,
+                "market_cap": 1.07e12,
+                "dividend_yield": None,
+            },
+        ):
+            out = ve.merge_cached_valuation("688981", {"roe": 0.9})
+        self.assertEqual(out["roe"], 0.9)
+        self.assertEqual(out["market_cap"], 1.07e12)
+        self.assertEqual(out["pe"], 20.0)
+
+    def test_merge_cached_valuation_no_overwrite(self):
+        from core import valuation_em as ve
+
+        with patch.object(
+            ve,
+            "read_valuation_cache",
+            return_value={"market_cap": 9e9, "pe": 99.0},
+        ):
+            out = ve.merge_cached_valuation(
+                "688981", {"market_cap": 1e12, "roe": 1.0}
+            )
+        self.assertEqual(out["market_cap"], 1e12)
+        self.assertEqual(out["pe"], 99.0)
+
+    def test_merge_local_fundamentals_snapshot_fills_roe(self):
+        from core.fundamentals_pit import merge_local_fundamentals_snapshot
+
+        with patch(
+            "core.fundamentals_pit.load_fundamentals_panel",
+            return_value={
+                "history": [
+                    {
+                        "as_of": "2026-08-13",
+                        "metrics": {
+                            "roe": 0.9,
+                            "profit_growth": 0.36,
+                            "revenue_growth": 8.07,
+                        },
+                    }
+                ]
+            },
+        ):
+            out = merge_local_fundamentals_snapshot(
+                "688981", {"market_cap": 1e12, "pe": 200.0}
+            )
+        self.assertEqual(out["market_cap"], 1e12)
+        self.assertEqual(out["roe"], 0.9)
+        self.assertEqual(out["profit_growth"], 0.36)
+
 
 class TestCsIcRequireAll(unittest.TestCase):
     def test_score_window_forwards_required_keys(self):
@@ -120,12 +178,13 @@ class TestCsIcRequireAll(unittest.TestCase):
 
 class TestPanelIcFactorNames(unittest.TestCase):
     def test_includes_fundamentals_beyond_cluster_union(self):
-        from quant.research.factor_ols_clusters import panel_ic_factor_names
+        """panel_ic_factor_names 随 factor_ols_clusters 删除；用 panel resolve 验证。"""
+        from core.research.panel import _resolve_factor_names
 
-        names = panel_ic_factor_names(
-            respect_regime=False,
-            cluster_feature_names=["momentum", "volume_price"],
-        )
+        names = list(_resolve_factor_names(respect_regime=False, index_bars=None, config=None))
+        for extra in ["momentum", "volume_price"]:
+            if extra not in names:
+                names.append(extra)
         self.assertIn("momentum", names)
         self.assertIn("value", names)
         self.assertIn("quality", names)

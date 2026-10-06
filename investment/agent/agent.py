@@ -1,11 +1,15 @@
 """量化 Agent：多轮对话 + 多工具调度（可多轮串联工具）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 from typing import Dict, List
 
+from agent.artifacts import build_artifact
 from agent.contracts import SkillHandler
+from agent.context import build_session_context
 from agent.llm_client import (
     LLMClient,
     add_usage,
@@ -25,9 +29,14 @@ from agent.routing import (
     needs_disclaimer,
     prepare_tool_params,
 )
-from agent.artifacts import build_artifact
 
 MAX_TOOL_ROUNDS = 5
+
+_EMPTY_REPLY_HINT = (
+    "模型未返回有效正文（常见于工具链过长、联网搜索偏慢，或当前模型响应异常）。"
+    "建议：① 缩短问题或分步提问；② 在 .env 增大 DASHSCOPE_TIMEOUT（如 180）；"
+    "③ 暂时设 DASHSCOPE_ENABLE_SEARCH=0 后重试。"
+)
 
 # 对外兼容：仍可 from agent.agent import TOOL_NAMES
 __all__ = ["InvestmentAgent", "TOOL_NAMES", "MAX_TOOL_ROUNDS"]
@@ -46,9 +55,20 @@ class InvestmentAgent:
         self.last_artifacts: List[Dict] = []
 
     def chat(self, user_input: str) -> str:
-        # 热更新 prompts 后，旧会话仍对齐最新 system 规则
-        self.messages[0] = {"role": "system", "content": SYSTEM_PROMPT}
-        effective = build_user_hints(user_input)
+        # 热更新 prompts / LLM 模型（平台改 .env 后无需重启会话）
+        # 注入会话上下文（纸面持仓 / 观察池 / 近期决策 / 简报），让 Agent 感知用户当前状态
+        ctx = build_session_context()
+        system_content = SYSTEM_PROMPT + ("\n\n" + ctx if ctx else "")
+        self.messages[0] = {"role": "system", "content": system_content}
+        from agent.llm_client import resolve_llm_model
+
+        model, source = resolve_llm_model()
+        if model != self.llm.model:
+            self.llm.model = model
+            self.llm.model_source = source
+            self.llm._tested = False
+            self.llm._available = None
+        effective = build_user_hints(user_input, llm=self.llm)
         self.messages.append({"role": "user", "content": effective})
         turn_usage = empty_usage()
         self.last_artifacts = []
@@ -59,7 +79,9 @@ class InvestmentAgent:
             tool_calls = self.llm.extract_function_calls(response)
 
             if not tool_calls:
-                content = self.llm.get_response_content(response) or ""
+                content = self._response_content(response, turn_usage)
+                if not content:
+                    content = _EMPTY_REPLY_HINT
                 content = self._ensure_disclaimer(content, user_input)
                 self.messages.append({"role": "assistant", "content": content})
                 self.last_turn_usage = turn_usage
@@ -88,6 +110,7 @@ class InvestmentAgent:
                         ensure_ascii=False,
                     )
                 except Exception as e:
+                    logger.exception('unexpected error in chat')
                     result = json.dumps(
                         {"success": False, "error": str(e)},
                         ensure_ascii=False,
@@ -97,7 +120,8 @@ class InvestmentAgent:
                     self.last_artifacts.append(
                         build_artifact(tool_name, params, result)
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in agent.py", exc_info=True)
                     pass
 
                 self.messages.append(
@@ -110,7 +134,7 @@ class InvestmentAgent:
 
         response = self.llm.chat(self.messages)
         add_usage(turn_usage, parse_usage(response))
-        content = self.llm.get_response_content(response) or "抱歉，处理超时，请换个问法再试。"
+        content = self._response_content(response, turn_usage) or _EMPTY_REPLY_HINT
         content = self._ensure_disclaimer(content, user_input)
         self.messages.append({"role": "assistant", "content": content})
         self.last_turn_usage = turn_usage
@@ -140,6 +164,33 @@ class InvestmentAgent:
 
     def format_session_usage(self) -> str:
         return format_usage(self.get_session_usage(), prefix="会话累计 token: ")
+
+    def _finish_reason(self, response: Dict) -> str:
+        choices = response.get("choices") or []
+        if not choices:
+            return ""
+        return str(choices[0].get("finish_reason") or "")
+
+    def _response_content(
+        self,
+        response: Dict,
+        turn_usage: Dict,
+        *,
+        retry_without_search: bool = True,
+    ) -> str:
+        content = (self.llm.get_response_content(response) or "").strip()
+        if content:
+            return content
+        logger.warning(
+            "LLM empty content model=%s finish=%s",
+            self.llm.model,
+            self._finish_reason(response),
+        )
+        if not retry_without_search:
+            return ""
+        retry = self.llm.chat(self.messages, enable_search=False)
+        add_usage(turn_usage, parse_usage(retry))
+        return (self.llm.get_response_content(retry) or "").strip()
 
     def _ensure_disclaimer(self, content: str, user_input: str) -> str:
         if needs_disclaimer(user_input, content) and DISCLAIMER not in content:

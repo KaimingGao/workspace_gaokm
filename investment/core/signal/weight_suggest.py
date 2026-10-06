@@ -1,12 +1,14 @@
 """因子权重微调建议：截面 IC/ICIR 优先，OLS / 近零降权回退（研究只读）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.signal.config import load_signal_config
-from core.signal.factor_registry import list_factors
+from core.signal.factors.meta.registry import list_factors
 
 DEFAULT_FACTOR_NAMES = {f["name"] for f in list_factors()}
 
@@ -209,7 +211,7 @@ def suggest_weights_from_ic(
 
     ic_map = _ic_index(factor_experiment)
     ols_coefs = _ols_coefficients(ols_report)
-    deltas = {k: 0.0 for k in base}
+    deltas = dict.fromkeys(base, 0.0)
     rationale: List[str] = []
     sources: Dict[str, str] = {}
 
@@ -346,7 +348,7 @@ def suggest_weights_from_ic(
             k: (0.0 if k in frozen else round(v / total, 3)) for k, v in suggested.items()
         }
 
-    from core.signal.factor_corr import redundancy_warnings_from_corr
+    from core.signal.factors.meta.corr import redundancy_warnings_from_corr
 
     redundancy_warnings = redundancy_warnings_from_corr(
         corr_report or {},
@@ -441,14 +443,15 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
     promote_ready = bool(suggestion.get("promote_ready"))
     factor_health = None
     try:
-        from core.signal.factor_health import assess_factor_health
+        from core.signal.factors.meta.health import assess_factor_health
 
         factor_health = assess_factor_health(
             config={"weights": suggestion.get("suggested_weights") or suggested}
         )
         if factor_health.get("promote_blocked"):
             promote_ready = False
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in weight_suggest.py", exc_info=True)
         factor_health = None
     apply_note = "请手动合并 patch.weights 到 signal_config.json；须先做样本外验证。"
     if factor_health and factor_health.get("blockers"):

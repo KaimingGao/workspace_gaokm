@@ -1,3 +1,12 @@
+"""Quant Skill Handler：对外暴露量化查询能力的 skill 入口。
+
+遵循 Agent Skill 契约：把 params 转发给 QuantEngine.run()，
+异常消息统一加上 error_prefix，避免把底层栈信息直接透出给用户。
+"""
+
+import logging
+
+logger = logging.getLogger(__name__)
 from agent.contracts import BaseSkillHandler
 from quant.skill.engine import QuantEngine
 

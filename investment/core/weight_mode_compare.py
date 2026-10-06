@@ -1,7 +1,9 @@
 """V3.3 · score_budget vs risk_parity_lite 目标权重对照（同宇宙）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -28,6 +30,7 @@ def compare_weight_modes(
             sector_map=sector_map or {},
             weight_mode=mode,
             apply_market_vol=False,
+            apply_regime_scale=False,
         )
         results[mode] = {
             "ok": out.get("ok"),

@@ -3,8 +3,10 @@
 与单票时序 IC（factor_report）不同：每个决策日横截面 corr(因子分, 前瞻收益)，再对日序列汇总。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -81,7 +83,7 @@ def compute_factor_cross_section_ic(
     """
     from core.backtest.engine import _mock_quote_from_bars
     from core.signal.cross_section_batch import score_window_as_item
-    from core.signal.factor_registry import registered_factor_names
+    from core.signal.factors.meta.registry import registered_factor_names
 
     if not stock_bars or len(stock_bars) < 2:
         return {"success": False, "ok": False, "error": "标的不足", "factors": []}
@@ -99,11 +101,12 @@ def compute_factor_cross_section_ic(
     date_maps = {c: _bars_by_date(b) for c, b in stock_bars.items()}
     dates = _common_dates(stock_bars)
     try:
-        from core.market_calendar import filter_trading_dates
+        from core.market.calendar import filter_trading_dates
 
         dates = filter_trading_dates(dates)
         calendar_tag = "cn_lite"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+        logger.debug("exception caught in factor_cs_ic.py line 109", exc_info=True)
         calendar_tag = "none"
     n = len(dates)
     need = min_history + horizon_days
@@ -136,7 +139,8 @@ def compute_factor_cross_section_ic(
                 metrics = fundamentals_by_code.get(code)
             fund_cache[key] = metrics
             return metrics
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+            logger.debug("exception caught in factor_cs_ic.py line 142", exc_info=True)
             metrics = (fundamentals_by_code or {}).get(code)
             fund_cache[key] = metrics
             return metrics
@@ -213,30 +217,44 @@ def compute_factor_cross_section_ic(
         if day_row["factors"] or len(score_xs) >= min_names:
             day_meta.append(day_row)
 
+    from core.signal.ic_contract import (
+        PRIMARY_IC_KIND,
+        annotate_ic_block,
+        ic_contract_banner,
+        primary_ic_from_cs_factor_row,
+    )
+
     factors_out: List[Dict[str, Any]] = []
     for f in names:
         pear = _agg_ic_series(pearson_series[f])
         spear = _agg_ic_series(spearman_series[f])
         reason = None
-        if pear["ic_mean"] is None:
-            reason = "sparse" if len(pearson_series[f]) < 3 else "other"
-        factors_out.append(
-            {
-                "factor": f,
-                "pearson": pear,
-                "spearman": spear,
-                "ic": pear.get("ic_mean"),
-                "icir": pear.get("icir"),
-                "sample_count": pear.get("day_count") or 0,
-                "exclusion_reason": reason,
-            }
-        )
+        if spear["ic_mean"] is None and pear["ic_mean"] is None:
+            reason = "sparse" if len(spearman_series[f]) < 3 else "other"
+        row = {
+            "factor": f,
+            "pearson": annotate_ic_block(pear, kind="cs_pearson", primary=False),
+            "spearman": annotate_ic_block(spear, kind="cs_spearman", primary=True),
+            # 主 IC = Spearman（P1）；Pearson 仍在 pearson 块
+            "ic": spear.get("ic_mean"),
+            "icir": spear.get("icir"),
+            "ic_pearson": pear.get("ic_mean"),
+            "icir_pearson": pear.get("icir"),
+            "sample_count": spear.get("day_count") or pear.get("day_count") or 0,
+            "exclusion_reason": reason,
+        }
+        row.update(primary_ic_from_cs_factor_row(row))
+        factors_out.append(row)
 
     score_block = {
-        "pearson": _agg_ic_series(score_pearson),
-        "spearman": _agg_ic_series(score_spearman),
+        "pearson": annotate_ic_block(
+            _agg_ic_series(score_pearson), kind="cs_pearson", primary=False
+        ),
+        "spearman": annotate_ic_block(
+            _agg_ic_series(score_spearman), kind="cs_spearman", primary=True
+        ),
     }
-    ok = any((r.get("pearson") or {}).get("ic_mean") is not None for r in factors_out)
+    ok = any((r.get("spearman") or {}).get("ic_mean") is not None for r in factors_out)
     return {
         "success": True,
         "ok": ok,
@@ -251,8 +269,10 @@ def compute_factor_cross_section_ic(
         "score_ic": score_block,
         "factors": factors_out,
         "daily_tail": day_meta[-40:],
+        "ic_contract": ic_contract_banner(),
+        "primary_ic_kind": PRIMARY_IC_KIND,
         "note": (
-            "池内逐因子日频截面 IC（Pearson + Spearman）。"
-            "与单票时序 IC 不同；不等于 Fama–MacBeth；不写生产权重。"
+            "主 IC = 日频截面 Spearman（P1）；Pearson 为辅。"
+            "与单票时序 / 组 holdout chrono Pearson 不同；不写生产权重。"
         ),
     }

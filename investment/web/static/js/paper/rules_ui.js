@@ -2,6 +2,19 @@
 
 import { escapeText } from "./fmt.js";
 
+function coerceRankChip(raw, fallback) {
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  if (n >= 0.5) {
+    if (Math.abs(n - 1) < 1e-9) return 0.01;
+    if (Math.abs(n - 1.002) < 1e-6) return 0.02;
+    return Math.max(0, n - 1);
+  }
+  if (Math.abs(n - 0.2) < 1e-6) return 0.02;
+  return n;
+}
+
 export function renderPaperRulesHtml(data) {
   if (!data || !data.initialized) return "—";
   const rules = (data && data.rules) || {};
@@ -15,15 +28,40 @@ export function renderPaperRulesHtml(data) {
     : [ratio, dir, t0.fill_mode].filter(Boolean).join(" · ") || "开";
   const chips = [
     ["horizon", `${rules.horizon_days ?? "—"} 天`],
-    ["min_score", String(rules.min_score ?? "—")],
-    ["最大持仓", String(rules.max_positions ?? "—")],
     [
-      "仓位",
-      rules.position_pct != null ? `${Math.round(rules.position_pct * 100)}%` : "—",
+      "ŷ买入",
+      rules.min_predicted_score != null
+        ? `${rules.min_predicted_score}%`
+        : rules.min_score != null
+          ? `${rules.min_score}（遗留）`
+          : "—",
     ],
+    ["最大持仓", String(rules.max_positions ?? "—")],
     ["止损", rules.stop_loss_pnl != null ? `${rules.stop_loss_pnl}%` : "—"],
     ["做T", t0Label],
   ];
+  const timing =
+    (exe.rebalance_timing && typeof exe.rebalance_timing === "object"
+      ? exe.rebalance_timing
+      : null) || {};
+  const pm =
+    (timing.rank_lots && typeof timing.rank_lots === "object"
+      ? timing.rank_lots
+      : timing.path_matrix && typeof timing.path_matrix === "object"
+        ? timing.path_matrix
+        : null);
+  if (pm) {
+    const enter = coerceRankChip(pm.rank_enter, 0.001);
+    const strong = coerceRankChip(pm.rank_strong, 0.001);
+    chips.push([
+      "rank",
+      `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`,
+    ]);
+    const alpha = pm.fusion_w_co != null ? Number(pm.fusion_w_co) : 0;
+    if (Number.isFinite(alpha)) {
+      chips.push(["w_co", Number(alpha).toFixed(alpha % 1 === 0 ? 0 : 1)]);
+    }
+  }
   if (exe.effective_hash) {
     chips.push(["exec", String(exe.effective_hash).slice(0, 8)]);
   }

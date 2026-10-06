@@ -1,3 +1,29 @@
+<div class="dashboard-head quant-head">
+  <div class="dashboard-head-text quant-head-text">
+    <p class="dashboard-eyebrow">Data Desk</p>
+    <h2>数据中心</h2>
+    <p id="watching-page-meta" class="dashboard-meta quant-meta">观察池 · ŷ 现算 · 行情独立 · 日K/5m 在研究枢纽写入</p>
+    <p class="dashboard-section-desc watching-head-path">
+      本页维护名单 → ŷ 只读本地仓 → 行情列独立 →
+      <a class="watching-hero-link" href="/quant">日K·5m</a>
+      ·
+      <a class="watching-hero-link" href="/follow">纸面调仓/做T</a>
+    </p>
+  </div>
+  <div class="dashboard-head-actions quant-head-actions watching-head-actions">
+    <label
+      class="paper-t0-toggle data-offline-toggle"
+      title="关：ŷ 只读本地日K·5m·指数；不触发增量补齐（名单与现价/浮盈不受此开关）"
+    >
+      <input type="checkbox" id="watching-data-offline" role="switch" />
+      <span class="paper-t0-toggle-track" aria-hidden="true"></span>
+      <span class="data-offline-toggle-text paper-t0-toggle-text">仅本地仓</span>
+    </label>
+    <span class="quant-desk-badge watching-desk-badge" title="长期观察名单；从此建仓进入模拟账户">观察池</span>
+    <span class="watching-desk-guard" title="本页仅维护名单与开仓；加减仓在交易执行">无实盘</span>
+  </div>
+</div>
+
 <div class="quant-body watching-page">
 
   <div id="watching-empty" class="watching-empty" hidden>
@@ -5,98 +31,204 @@
     <button type="button" id="quant-watching-init" class="dialog-btn">从模板初始化</button>
   </div>
 
-  <div class="watching-search" id="watching-search-wrap">
-    <label class="sr-only" for="watching-search-input">搜索股票</label>
-    <input
-      type="search"
-      id="watching-search-input"
-      class="watching-search-input"
-      placeholder="搜索名称或代码，选中加入观察"
-      autocomplete="off"
-      spellcheck="false"
-    />
-    <div id="watching-search-results" class="watching-search-results" hidden></div>
-  </div>
-
-  <div class="watching-toolbar" id="watching-main-actions" hidden>
-    <p id="quant-watching-meta" class="watching-toolbar-meta">加载中…</p>
-    <p
-      id="watching-refresh-status"
-      class="watching-toolbar-meta watching-refresh-status"
-      aria-live="polite"
-      hidden
-    ></p>
-  </div>
-
-  <div class="watching-watch-block" id="watching-align-grid" aria-label="观察名单">
-    <section class="watching-chart-card" id="watching-chart-section" hidden>
-      <div class="watching-chart-head">
-        <p id="watching-chart-label" class="watching-chart-label">收盘价</p>
-        <button type="button" id="watching-chart-close" class="dialog-btn secondary" title="关闭日线图">×</button>
-      </div>
-      <div class="watching-chart-canvas">
-        <div id="watching-chart" class="quant-chart-host watching-chart-host" aria-label="观察股票日线图"></div>
-      </div>
-    </section>
-    <section
-      id="watching-news-detail"
-      class="watching-news-detail"
-      hidden
-      aria-label="舆情详情"
-    >
-      <div class="watching-news-detail-head">
-        <h3 id="watching-news-detail-title" class="watching-section-title">资讯</h3>
-        <button type="button" id="watching-news-detail-close" class="dialog-btn secondary" title="关闭">×</button>
-      </div>
-      <p id="watching-news-detail-meta" class="watching-toolbar-meta"></p>
-      <ul id="watching-news-detail-list" class="watching-news-list"></ul>
-      
-      <div id="watching-news-ai-section" class="watching-news-ai-section" hidden>
-        <div class="watching-news-ai-head">
-          <span id="watching-news-ai-status" class="watching-news-ai-status">分析中…</span>
-        </div>
-        <div id="watching-news-ai-content" class="watching-news-ai-content">
-          <div class="watching-news-ai-loading">
-            <div class="watching-news-ai-spinner"></div>
-            <p>正在分析舆情数据…</p>
+  <!-- ① 概览：KPI + 路径 rail（对齐交易执行，无独立搜索白卡） -->
+  <section
+    class="dashboard-section quant-section watching-section watching-overview-section"
+    id="watching-section-intake"
+    aria-labelledby="watching-section-intake-title"
+  >
+    <header class="dashboard-section-head quant-section-head watching-section-head">
+      <h3 id="watching-section-intake-title" class="dashboard-section-title">概览</h3>
+      <p class="dashboard-section-desc quant-section-desc">名单位势 · ŷ · 路径</p>
+    </header>
+    <div class="dashboard-overview-band quant-pro-desk-top watching-overview-band">
+      <div class="dashboard-kpi-row quant-pro-overview-kpis watching-kpi-row" id="watching-kpi-row" aria-label="数据台 KPI">
+        <div class="dashboard-kpi-row-body">
+          <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="pool">
+            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">观察只数</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-pool">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-pool-sub">上限 —</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="held">
+            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">已持仓</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-held">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub">名单 ∩ 纸面</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="buy">
+            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">≥买门</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-buy">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-buy-sub">ŷ_oo 过买门槛占比</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="eod">
+            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_oo μ</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-eod">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-eod-sub">隔夜主轴 · 对涨跌</div>
           </div>
         </div>
       </div>
-    </section>
+      <nav class="quant-path-rail quant-pro-path-rail watching-path-rail" aria-label="数据中心主路径">
+        <a class="quant-path-step quant-pro-path-step watching-path-step is-active" href="#watching-section-intake" data-step="intake" data-state="active" aria-current="step">
+          <span class="quant-pro-path-num watching-path-num">1</span> 选池
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep watching-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step watching-path-step" href="#watching-section-watchlist" data-step="watchlist" data-state="idle">
+          <span class="quant-pro-path-num watching-path-num">2</span> 名单
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep watching-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step watching-path-step" href="/follow" data-step="follow" data-state="idle">
+          <span class="quant-pro-path-num watching-path-num">3</span> 交易执行
+        </a>
+      </nav>
+    </div>
+  </section>
 
-    <div id="watching-watchlist-table" class="quant-weight-table-wrap"></div>
-    <div class="watching-table-actions">
-      <span id="watching-pick-count" class="watching-pick-count">未勾选</span>
-      <div class="watching-table-action-btns">
-        <button
-          type="button"
-          id="quant-watching-remove"
-          class="dialog-btn secondary"
-          disabled
-          title="勾选后从观察名单移除（不影响模拟持仓）"
-        >
-          移除所选
-        </button>
-        <button
-          type="button"
-          id="quant-watching-sync"
-          class="dialog-btn"
-          disabled
-          title="勾选后先看每只买多少、共花多少，确认后加入模拟账户"
-        >
-          加入纸面
-        </button>
+  <!-- ② 观察名单（搜索 + ŷ_oo 截面 + 主表 · Dock）——对齐交易执行「持仓」卡 -->
+  <section
+    class="dashboard-section quant-section watching-section watching-watchlist-section"
+    id="watching-section-watchlist"
+    aria-labelledby="watching-section-watchlist-title"
+  >
+    <header class="dashboard-section-head quant-section-head watching-section-head">
+      <h3 id="watching-section-watchlist-title" class="dashboard-section-title">观察名单</h3>
+      <p class="dashboard-section-desc quant-section-desc">
+        行情 · y_oo / y_τc / ranking · 勾选后加入纸面 · 共
+        <span id="watching-holdings-count" class="watching-section-count"></span>
+        只
+      </p>
+    </header>
+    <div class="dashboard-card quant-pro-card watching-watchlist-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools watching-card-head" id="watching-main-actions">
+        <p id="quant-watching-meta" class="quant-fingerprint quant-card-head-status watching-card-status watching-toolbar-meta is-busy">加载中…</p>
+        <p
+          id="watching-refresh-status"
+          class="watching-toolbar-meta watching-refresh-status"
+          aria-live="polite"
+          hidden
+        ></p>
+        <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools"></div>
+      </div>
+      <div class="quant-pro-card-body watching-card-body watching-watchlist-body">
+        <div class="quant-control-band quant-pro-control-band watching-control-band" id="watching-search-wrap">
+          <label class="platform-field quant-pro-field watching-search-field" for="watching-search-input">
+            <span class="quant-pro-field-label watching-field-label">搜票加入</span>
+            <div class="watching-search">
+              <input
+                type="search"
+                id="watching-search-input"
+                class="watching-search-input"
+                placeholder="名称或代码，选中加入观察"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div id="watching-search-results" class="watching-search-results" hidden></div>
+            </div>
+          </label>
+          <div class="quant-oos-band watching-oos-band">
+            <span class="quant-oos-band-label">选池</span>
+            <span class="quant-oos-band-text">搜索加入长期名单；勾选后可「加入纸面」开仓</span>
+          </div>
+        </div>
+
+        <div class="yhat-viz-block watching-yhat-hist" id="watching-yhat-hist-wrap" hidden>
+          <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools watching-card-head watching-yhat-hist-head">
+            <div class="watching-yhat-hist-titles">
+              <p class="quant-fingerprint quant-card-head-status">ŷ_oo 截面分布</p>
+              <p id="watching-yhat-hist-meta" class="quant-sub watching-yhat-hist-meta-primary"></p>
+              <p id="watching-yhat-hist-meta-aux" class="quant-sub watching-yhat-hist-meta-aux"></p>
+              <p id="watching-yhat-hist-filter" class="quant-sub yhat-hist-filter" hidden></p>
+            </div>
+            <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools">
+              <ul class="yhat-hist-legend" aria-label="图例">
+                <li class="is-mu"><span class="yhat-hist-swatch is-line"></span>μ</li>
+                <li class="is-med"><span class="yhat-hist-swatch is-dash"></span>med</li>
+                <li class="is-hold"><span class="yhat-hist-swatch is-dash"></span>持门</li>
+                <li class="is-buy"><span class="yhat-hist-swatch is-dash"></span>买门</li>
+                <li class="is-zone-buy"><span class="yhat-hist-swatch is-band"></span>≥买</li>
+              </ul>
+              <button
+                type="button"
+                id="watching-yhat-hist-clear"
+                class="dialog-btn secondary yhat-hist-clear"
+                hidden
+                title="清除直方图筛选"
+              >清除筛选</button>
+            </div>
+          </div>
+          <div class="yhat-hist-stage">
+            <canvas
+              id="watching-yhat-hist"
+              class="yhat-hist-canvas"
+              width="920"
+              height="160"
+              aria-label="ŷ_oo 直方图，悬停查看箱内票，点击筛选观察表"
+            ></canvas>
+          </div>
+        </div>
+
+        <div class="watching-watch-block" id="watching-align-grid" aria-label="观察名单">
+          <section class="watching-chart-card" id="watching-chart-section" hidden>
+            <div class="watching-chart-head">
+              <p id="watching-chart-label" class="watching-chart-label">收盘价</p>
+              <button type="button" id="watching-chart-close" class="dialog-btn secondary" title="关闭日线图">×</button>
+            </div>
+            <div class="watching-chart-canvas">
+              <div id="watching-chart" class="quant-chart-host watching-chart-host" aria-label="观察股票日线图"></div>
+            </div>
+          </section>
+          <section
+            id="watching-news-detail"
+            class="watching-news-detail"
+            hidden
+            aria-label="舆情详情"
+          >
+            <div class="watching-news-detail-head">
+              <h3 id="watching-news-detail-title" class="dashboard-section-title watching-section-title">资讯</h3>
+              <button type="button" id="watching-news-detail-close" class="dialog-btn secondary" title="关闭">×</button>
+            </div>
+            <p id="watching-news-detail-meta" class="watching-toolbar-meta"></p>
+            <ul id="watching-news-detail-list" class="watching-news-list"></ul>
+
+            <div id="watching-news-ai-section" class="watching-news-ai-section" hidden>
+              <div class="watching-news-ai-head">
+                <span id="watching-news-ai-status" class="watching-news-ai-status">分析中…</span>
+              </div>
+              <div id="watching-news-ai-content" class="watching-news-ai-content">
+                <div class="watching-news-ai-loading">
+                  <div class="watching-news-ai-spinner"></div>
+                  <p>正在分析舆情数据…</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div id="watching-watchlist-table" class="quant-weight-table-wrap"></div>
+          <div class="watching-table-actions">
+            <span id="watching-pick-count" class="watching-pick-count">未勾选</span>
+            <div class="watching-table-action-btns">
+              <button
+                type="button"
+                id="quant-watching-remove"
+                class="dialog-btn secondary"
+                disabled
+                title="勾选后从观察名单移除（不影响模拟持仓）"
+              >
+                移除所选
+              </button>
+              <button
+                type="button"
+                id="quant-watching-sync"
+                class="dialog-btn"
+                disabled
+                title="勾选后先看每只买多少、共花多少，确认后加入模拟账户"
+              >
+                加入纸面
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-
-    <section class="watching-holdings-card" id="watching-holdings-section" hidden>
-      <header class="watching-log-head">
-        <h3 class="watching-section-title">建仓记录</h3>
-        <p class="watching-log-hint">从观察「加入纸面」的流水</p>
-      </header>
-      <div id="watching-holdings-table" class="paper-operation-log watching-build-log" aria-label="建仓记录"></div>
-    </section>
-  </div>
+  </section>
 
   <ul id="quant-watching-list" class="quant-list" hidden></ul>
 
@@ -110,7 +242,7 @@
   >
     <div class="watching-build-card">
       <div class="watching-build-head">
-        <h3 id="watching-build-title" class="watching-section-title">建仓预览</h3>
+        <h3 id="watching-build-title" class="dashboard-section-title watching-section-title">建仓预览</h3>
         <button type="button" id="watching-build-close" class="dialog-btn secondary" title="取消">×</button>
       </div>
       <div class="watching-build-sizing">
@@ -142,11 +274,42 @@
     </div>
   </div>
 
-  <details class="quant-fold" id="watching-data-quality-fold">
-    <summary>数据质量</summary>
-    <div class="quant-section" id="watching-data-quality">
-      <p class="quant-fingerprint" id="watching-dq-meta">打开本折叠后加载观察池质量摘要</p>
-      <div id="watching-dq-table" class="quant-weight-table-wrap"></div>
-    </div>
-  </details>
+  <!-- ③ 次要折叠：建仓记录（对齐交易执行「交易记录」） -->
+  <section
+    class="dashboard-section quant-section watching-section watching-section-secondary watching-build-log-section"
+    id="watching-section-build-log"
+    aria-labelledby="watching-section-build-log-title"
+  >
+    <details class="quant-secondary-fold watching-secondary-fold" id="watching-build-log-fold">
+      <summary class="quant-secondary-fold-sum watching-secondary-fold-sum">
+        <h3 id="watching-section-build-log-title" class="dashboard-section-title">建仓记录</h3>
+        <p class="dashboard-section-desc quant-section-desc" id="watching-build-log-desc">从观察「加入纸面」的流水</p>
+      </summary>
+      <div class="dashboard-card quant-pro-card watching-dq-card" id="watching-holdings-section">
+        <div class="quant-pro-card-body watching-card-body">
+          <div id="watching-holdings-table" class="paper-operation-log watching-build-log follow-ops-log" aria-label="建仓记录"></div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ④ 次要折叠：数据质量 -->
+  <section
+    class="dashboard-section quant-section watching-section watching-section-secondary"
+    id="watching-section-dq"
+    aria-labelledby="watching-section-dq-title"
+  >
+    <details class="quant-secondary-fold watching-secondary-fold" id="watching-data-quality-fold">
+      <summary class="quant-secondary-fold-sum watching-secondary-fold-sum">
+        <h3 id="watching-section-dq-title" class="dashboard-section-title">数据质量</h3>
+        <p class="dashboard-section-desc quant-section-desc">fallback · gated · 健康警告</p>
+      </summary>
+      <div class="dashboard-card quant-pro-card watching-dq-card">
+        <div class="quant-pro-card-body watching-card-body" id="watching-data-quality">
+          <p class="quant-fingerprint" id="watching-dq-meta">打开本折叠后加载观察池质量摘要</p>
+          <div id="watching-dq-table" class="quant-weight-table-wrap"></div>
+        </div>
+      </div>
+    </details>
+  </section>
 </div>

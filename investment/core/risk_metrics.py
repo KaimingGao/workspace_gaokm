@@ -1,7 +1,9 @@
 """Pure risk / return metrics for paper snapshots and curve alignment."""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 import statistics
 from datetime import datetime

@@ -5,11 +5,12 @@
 不自动写 ``signal_config``。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-
 
 RANK_MODES = ("predicted_score",)
 DEFAULT_RANK_MODE = "predicted_score"
@@ -25,7 +26,7 @@ class ReturnScoreModel:
     coefficients: Dict[str, float]
     z_means: Dict[str, float] = field(default_factory=dict)
     z_stds: Dict[str, float] = field(default_factory=dict)
-    standardized: bool = True
+    feature_zscore: bool = True
     horizon_days: int = 3
     sample_count: int = 0
     ridge_lambda: float = 0.0
@@ -48,7 +49,7 @@ class ReturnScoreModel:
                 x = float(raw)
             except (TypeError, ValueError):
                 continue
-            if self.standardized:
+            if self.feature_zscore:
                 mu = float(self.z_means.get(name) or 0.0)
                 sd = float(self.z_stds.get(name) or 1.0)
                 if sd < 1e-12:
@@ -64,7 +65,7 @@ class ReturnScoreModel:
         self, sub_scores: Optional[Dict[str, float]]
     ) -> Optional[Dict[str, Any]]:
         """结构化拆解 ŷ（与 ``predict`` 同口径），供悬浮注释表格渲染。"""
-        from core.signal.factor_registry import factor_label
+        from core.signal.factors.meta.registry import factor_label
 
         subs = sub_scores or {}
         if not self.coefficients:
@@ -80,7 +81,7 @@ class ReturnScoreModel:
             except (TypeError, ValueError):
                 continue
             z = x
-            if self.standardized:
+            if self.feature_zscore:
                 mu = float(self.z_means.get(name) or 0.0)
                 sd = float(self.z_stds.get(name) or 1.0)
                 if sd < 1e-12:
@@ -160,7 +161,7 @@ class ReturnScoreModel:
             coefficients=clean,
             z_means=_float_map(data.get("z_means") or data.get("zscore_means")),
             z_stds=_float_map(data.get("z_stds") or data.get("zscore_stds")),
-            standardized=bool(data.get("standardized", True)),
+            feature_zscore=bool(data.get("feature_zscore", True)),
             horizon_days=int(data.get("horizon_days") or 3),
             sample_count=int(data.get("sample_count") or 0),
             ridge_lambda=float(data.get("ridge_lambda") or 0.0),
@@ -220,14 +221,15 @@ class ReturnScoreModel:
                 from core.research.beta_accuracy import build_y_spec
 
                 y_spec = build_y_spec(horizon_days=int(report.get("horizon_days") or 3))
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in return_score.py", exc_info=True)
                 y_spec = None
         return cls(
             intercept=intercept_f,
             coefficients=clean,
             z_means=_float_map(z_means),
             z_stds=_float_map(z_stds),
-            standardized=bool(report.get("standardized", True)),
+            feature_zscore=bool(report.get("feature_zscore", True)),
             horizon_days=int(report.get("horizon_days") or 3),
             sample_count=int(report.get("sample_count") or 0),
             ridge_lambda=float(
@@ -240,6 +242,21 @@ class ReturnScoreModel:
             note="由 OLS/Ridge 报告构建；预测值为前瞻收益百分点，非 0–100 score。",
             y_spec=y_spec,
         )
+
+
+def _stamp_formula_terms(item: dict, model: Optional[ReturnScoreModel]) -> None:
+    """把 ŷ 组成写进条目，供悬浮 tip 的因子表。"""
+    if model is None or not isinstance(item, dict):
+        return
+    try:
+        expl = model.explain_prediction(item.get("sub_scores") or {})
+    except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
+        logger.debug("explain_prediction failed", exc_info=True)
+        return
+    if not expl:
+        return
+    item["score_formula_terms"] = expl
+    item["formula_terms"] = expl
 
 
 def apply_predicted_scores_by_model(
@@ -267,17 +284,22 @@ def apply_predicted_scores_by_model(
         model = None
         try:
             model = resolver(code) if callable(resolver) else None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in return_score.py", exc_info=True)
             model = None
         if model is None:
             model = default_model
         pred = model.predict(item.get("sub_scores") or {}) if model is not None else None
         item["predicted_score"] = pred
         item["rank_mode"] = "predicted_score"
+        if pred is not None:
+            item["y_oo"] = pred
+            item["predicted_score_oo"] = pred
         if model is not None:
             item["return_model_source"] = item.get("return_model_source") or "mapped"
         if write_rank_score and pred is not None:
             item["score"] = pred
+        _stamp_formula_terms(item, model)
         out.append(item)
     return out
 
@@ -310,8 +332,12 @@ def apply_predicted_scores(
         pred = model.predict(item.get("sub_scores") or {})
         item["predicted_score"] = pred
         item["rank_mode"] = "predicted_score"
+        if pred is not None:
+            item["y_oo"] = pred
+            item["predicted_score_oo"] = pred
         if write_rank_score and pred is not None:
             item["score"] = pred
+        _stamp_formula_terms(item, model)
         out.append(item)
     return out
 
@@ -341,7 +367,7 @@ def rank_by_predicted_score(
         if floor is not None and yhat < floor:
             continue
         picks.append((code, yhat))
-    picks.sort(key=lambda x: x[1], reverse=True)
+    picks.sort(key=lambda x: (-float(x[1]), str(x[0])))
     if top_k is not None:
         picks = picks[: max(1, int(top_k))]
     return picks
@@ -365,6 +391,19 @@ def fit_return_model_from_panel(
             "error": f"训练样本不足（{len(ys)} < {min_samples}）",
             "sample_count": len(ys),
         }
+    # money_flow 等 proxy / prior_only 不进 ŷ_oo 拟合（无真源）
+    try:
+        from core.signal.factors.meta.health import unsourced_factor_names
+
+        banned = unsourced_factor_names()
+    except Exception:  # noqa: BLE001
+        logger.debug("catch except Exception: in return_score.py", exc_info=True)
+        banned = frozenset()
+    if banned:
+        xs = [
+            {k: v for k, v in (row or {}).items() if str(k) not in banned}
+            for row in xs
+        ]
     report = fit_factor_ols_from_panel(
         xs,
         ys,

@@ -1,11 +1,16 @@
 """Daily preset / health API。"""
 
-from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from quant.ops.daily_presets import list_daily_presets
+from quant.research.portfolio_data import daily_bt_option_defaults
 from web import deps
 from web.schemas import DailyRunRequest
 
@@ -13,22 +18,26 @@ router = APIRouter(tags=["daily"])
 
 
 @router.get("/api/daily/presets")
-def daily_presets():
-    return {"success": True, "presets": list_daily_presets()}
+def daily_presets() -> Dict[str, Any]:
+    return {
+        "success": True,
+        "presets": list_daily_presets(),
+        "bt_defaults": daily_bt_option_defaults(),
+    }
 
 
 @router.get("/api/daily/last")
-def daily_last():
+def daily_last() -> Dict[str, Any]:
     return deps.daily.load_last_run()
 
 
 @router.get("/api/daily/health")
-def daily_health():
+def daily_health() -> Dict[str, Any]:
     return deps.quant.build_health_summary()
 
 
 @router.post("/api/daily/run")
-def daily_run(body: DailyRunRequest):
+def daily_run(body: DailyRunRequest) -> Any:
     try:
         result = deps.daily.run(
             preset=body.preset,
@@ -44,7 +53,10 @@ def daily_run(body: DailyRunRequest):
             paper_rebalance=body.paper_rebalance,
             paper_cross_section_rebalance=body.paper_cross_section_rebalance,
             export_quant_report=body.export_quant_report,
-            portfolio_neutral_compare=body.portfolio_neutral_compare,
+            lookback=body.lookback,
+            fusion_w_co=body.fusion_w_co,
+            rank_enter=body.rank_enter,
+            rank_strong=body.rank_strong,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

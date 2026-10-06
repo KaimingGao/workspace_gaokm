@@ -1,23 +1,20 @@
-# services
+# services — Application Service 层
 
-应用服务层：Web / CLI 与领域逻辑之间的 API 边界。
-
-## 模块
-
-| 模块 | 说明 |
-|------|------|
-| `chat_service.py` | 会话与 Agent 生命周期 |
-| `paper_service.py` | **模拟账户**（内部名 paper）：CRUD / 调仓 / 做 T / 成本模型 |
-| `watching_service.py` | **观察名单**：搜索 / 行情 / 舆情 / 增删 |
-| `daily_service.py` | daily preset 编排（投顾 + 量化） |
-| `eval_service.py` | Web evals API 与 checklist 封装 |
-| `platform_service.py` | D1–D6：Job/Memory/Decision/Feedback/Schedule/Prefill |
-
-## 约定
-
-- 量化实现见 `quant/`（动作归属见 `quant/services/action_map.py`）；此处不含 quant 业务逻辑
-- Web 路由在 `web/app.py` 调用这些 Service
-
-## 相关文档
+Web/CLI 与领域逻辑之间的**用例组装**边界（不是微服务、不是 Domain Facade）。
 
 - [架构总览 · 子目录索引](../docs/architecture.md#子目录-readme-索引)
+
+| 模块 | 职责 |
+|------|------|
+| `paper_service`（+ account / jobs / trades / helpers） | 纸面账户、买卖、调仓 Job |
+| `watching_service` | 观察名单 |
+| `chat_service` | 会话 |
+| `daily_service` | 每日任务编排 |
+| `eval_service` | Golden eval |
+| `platform_service` | Job / Memory / Decision / Schedule 等平台能力 |
+
+**向下**：经 **DS / SS / BS**（`core/*_service.py`，Domain Facade）进入 `core/`，不直碰 store / 外部源。
+
+**并列**：研究台 **Application Service** 在 `quant/services/QuantService`（文档与架构图称「应用服务」，不叫领域门面）。
+
+命名约定：[architecture · Service 命名约定](../docs/architecture.md#service-命名约定) · 目录结构见 [docs/architecture.md § 代码目录结构](../docs/architecture.md)

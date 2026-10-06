@@ -1,6 +1,5 @@
 """多股对比：并行拉 quote，按涨跌幅排序。"""
 
-from __future__ import annotations
 
 from typing import Callable, List, Optional
 

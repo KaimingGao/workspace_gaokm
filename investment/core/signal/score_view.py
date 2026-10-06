@@ -3,8 +3,10 @@
 原 ``services.paper_helpers`` 中逻辑迁此，避免 core→services。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 
@@ -20,7 +22,7 @@ def build_score_formula(score_info: dict) -> str:
             "coefficients": score_info.get("coefficients"),
             "z_means": score_info.get("z_means") or {},
             "z_stds": score_info.get("z_stds") or {},
-            "standardized": score_info.get("standardized", True),
+            "feature_zscore": score_info.get("feature_zscore", True),
         }
     try:
         from core.signal.return_score import ReturnScoreModel
@@ -30,13 +32,15 @@ def build_score_formula(score_info: dict) -> str:
             if isinstance(model, ReturnScoreModel)
             else ReturnScoreModel.from_dict(model)
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_view.py", exc_info=True)
         rm = None
     if rm is None:
         return ""
     try:
         return rm.format_formula(subs) or ""
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_view.py", exc_info=True)
         return ""
 
 
@@ -59,7 +63,8 @@ def active_return_model_payload(
         return {}
     try:
         d = chosen.to_dict() if hasattr(chosen, "to_dict") else dict(chosen)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_view.py", exc_info=True)
         return {}
     coefs = dict(d.get("coefficients") or {})
     coefs.pop("intercept", None)
@@ -68,7 +73,7 @@ def active_return_model_payload(
         "coefficients": coefs,
         "z_means": d.get("z_means") or {},
         "z_stds": d.get("z_stds") or {},
-        "standardized": d.get("standardized", True),
+        "feature_zscore": d.get("feature_zscore", True),
     }
 
 

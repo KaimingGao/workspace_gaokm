@@ -51,6 +51,57 @@ class TestRegimeBuckets(unittest.TestCase):
         self.assertTrue(out["buckets"])
 
 
+class TestMacroRegimeOverlay(unittest.TestCase):
+    def test_macro_enrichment_on_buckets(self):
+        from core.backtest.oos_report import (
+            macro_context_summary_for_period,
+            regime_buckets_from_trades,
+        )
+
+        bars = [{"date": f"2024-03-{i+1:02d}", "close": 100 + (i % 7) * 2} for i in range(28)]
+        trades = [
+            {"signal_date": "2024-03-20", "return_pct": 1.5},
+            {"signal_date": "2024-03-22", "return_pct": -0.5},
+        ]
+        macro_rows = {
+            "2024-03-20": {
+                "date": "2024-03-20",
+                "overseas_tech_1d_pct": -2.0,
+                "a50_1d_pct": -0.5,
+                "liquidity_stress_score": 1.2,
+            },
+            "2024-03-22": {
+                "date": "2024-03-22",
+                "overseas_tech_1d_pct": -1.0,
+                "a50_1d_pct": 0.3,
+                "liquidity_stress_score": 0.8,
+            },
+        }
+
+        class _Fake:
+            @staticmethod
+            def load_macro_history_index():
+                return {"rows": list(macro_rows.values())}
+
+        import adapters.macro.history as mh
+
+        orig = mh.load_macro_history_index
+        try:
+            mh.load_macro_history_index = _Fake.load_macro_history_index
+            out = regime_buckets_from_trades(trades, bars, window=10)
+            self.assertTrue(out["ok"])
+            self.assertTrue(out.get("macro_history_available"))
+            bucket = out["buckets"][0]
+            self.assertEqual(bucket.get("macro_dates_matched"), 2)
+            self.assertEqual(bucket.get("avg_overseas_tech_1d_pct"), -1.5)
+
+            summary = macro_context_summary_for_period(bars, trades)
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["macro_dates"], 2)
+        finally:
+            mh.load_macro_history_index = orig
+
+
 class TestSignalFillAndExport(unittest.TestCase):
     def test_export_markdown_contains_sections(self):
         from quant.services.quant_report_export import (
@@ -95,26 +146,53 @@ class TestSignalFillAndExport(unittest.TestCase):
                 {
                     "signal_date": "2024-03-20",
                     "stock_code": "600519",
-                    "score": 72,
+                    "score": 0.72,
+                    "predicted_score": 0.72,
                     "intent_price": 10.0,
                     "fill_price": 10.0,
                     "exit_price": 10.2,
                     "status": "filled",
-                }
+                },
+                {
+                    "signal_date": "2024-03-21",
+                    "stock_code": "000858",
+                    "score": 72.0,
+                    "intent_price": 11.0,
+                    "fill_price": 11.0,
+                    "exit_price": 11.1,
+                    "status": "filled",
+                },
             ],
         }
         lines = build_portfolio_backtest_markdown_lines(result)
         text = "\n".join(lines)
+        self.assertIn("分数口径", text)
+        self.assertIn("配置：", text)
+        self.assertIn("选股键=ŷ_oo", text)
+        self.assertIn("关 τ 闸", text)
+        self.assertIn("ŷ_oo", text)  # fill table header
         self.assertIn("成本对照", text)
         self.assertIn("Brinson", text)
         self.assertIn("OOS", text)
         self.assertIn("失败", text)
         self.assertIn("信号–成交", text)
+        self.assertIn("0.720%", text)
+        # heuristic 脏分不得以裸 72 / 72% 出现；标成 H72.0
+        self.assertNotRegex(text, r"\| 000858 \| 72(\.0)?%? \|")
+        self.assertIn("| 000858 | H72.0 |", text)
+
+        # params 标明 τ 开时 note 切换
+        result_tau = dict(result)
+        result_tau["params"] = {"apply_tau_buy_gate": True}
+        text_tau = "\n".join(build_portfolio_backtest_markdown_lines(result_tau))
+        self.assertIn("选股键=ranking", text_tau)
+        self.assertIn("τ 闸开", text_tau)
 
         exp = export_portfolio_backtest_report(result, fmt="markdown")
         self.assertTrue(exp["success"])
         self.assertIn("KPI", exp["content"])
         self.assertIn("portfolio_backtest_report.md", exp["filename"])
+        self.assertIn("分数口径", exp["content"])
 
 
 if __name__ == "__main__":

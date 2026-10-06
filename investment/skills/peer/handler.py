@@ -1,5 +1,5 @@
 from agent.contracts import BaseSkillHandler
-from skills.peer.engine import build_peer_compare
+from adapters.peer.engine import build_peer_compare
 
 
 class PeerHandler(BaseSkillHandler):

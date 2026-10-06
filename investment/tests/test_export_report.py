@@ -20,7 +20,7 @@ from services.daily_service import DailyRunService
 from services.eval_service import EvalService
 from quant.services.quant_service import QuantService
 from unittest.mock import MagicMock, patch
-from core.watching_health import check_watching_health
+from core.watching.health import check_watching_health
 from quant.ops.daily_health import build_daily_health
 from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
 from quant.skill.engine import QuantEngine
@@ -53,7 +53,7 @@ class TestHtmlExport(unittest.TestCase):
         }
         html = render_quant_report_html(report)
         self.assertIn("<!DOCTYPE html>", html)
-        self.assertIn("Top-K 回测摘要", html)
+        self.assertIn("历史回测摘要", html)
         out = export_quant_report(report, fmt="html")
         self.assertTrue(out["success"])
         self.assertEqual(out["format"], "html")
@@ -86,12 +86,50 @@ class TestQuantReportIndex(unittest.TestCase):
                 f.write("# test")
             listed = list_quant_reports(reports_dir=tmp, limit=10)
             self.assertEqual(listed["count"], 1)
+            self.assertEqual(listed["day_count"], 1)
             self.assertEqual(listed["reports"][0]["format"], "markdown")
+            self.assertEqual(listed["days"][0]["stamp"], "20260719")
             read = read_quant_report_file("quant_daily_20260719.md", reports_dir=tmp)
             self.assertTrue(read["success"])
             self.assertIn("# test", read["content"])
+
     def test_reject_invalid_filename(self):
         out = read_quant_report_file("../evil.txt")
+        self.assertFalse(out["success"])
+
+    def test_delete_report_day(self):
+        from quant.services.quant_report_index import delete_quant_reports
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in (
+                "quant_daily_20260719.md",
+                "quant_daily_20260719.html",
+                "quant_daily_20260720.md",
+            ):
+                with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
+                    f.write("x")
+            # score_ledger 子目录不应被误删
+            ledger_dir = os.path.join(tmp, "score_ledger")
+            os.makedirs(ledger_dir)
+            with open(os.path.join(ledger_dir, "2026-07-19.json"), "w", encoding="utf-8") as f:
+                f.write("{}")
+
+            out = delete_quant_reports(date="2026-07-19", reports_dir=tmp)
+            self.assertTrue(out["success"])
+            self.assertEqual(out["deleted_count"], 2)
+            self.assertFalse(os.path.isfile(os.path.join(tmp, "quant_daily_20260719.md")))
+            self.assertFalse(os.path.isfile(os.path.join(tmp, "quant_daily_20260719.html")))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "quant_daily_20260720.md")))
+            self.assertTrue(os.path.isfile(os.path.join(ledger_dir, "2026-07-19.json")))
+
+            listed = list_quant_reports(reports_dir=tmp, limit=10)
+            self.assertEqual(listed["day_count"], 1)
+            self.assertEqual(listed["days"][0]["stamp"], "20260720")
+
+    def test_delete_rejects_empty(self):
+        from quant.services.quant_report_index import delete_quant_reports
+
+        out = delete_quant_reports()
         self.assertFalse(out["success"])
 
 # --- test_p26_quant.py::TestP26ReportShareUrl ---
@@ -137,6 +175,33 @@ class TestP26Api(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("share_url", res.json()["reports"][0])
 
+    def test_quant_reports_delete_api(self):
+        try:
+            from fastapi.testclient import TestClient
+            import web.app as web_app
+            import web.deps as deps
+        except ImportError:
+            self.skipTest("fastapi not installed")
+
+        mock = {
+            "success": True,
+            "deleted": ["quant_daily_20260719.md", "quant_daily_20260719.html"],
+            "deleted_count": 2,
+        }
+        with unittest.mock.patch.object(
+            deps.quant, "delete_report_archive", return_value=mock
+        ) as m:
+            client = TestClient(web_app.app)
+            res = client.post(
+                "/api/quant/reports/delete",
+                json={"date": "2026-07-19"},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["deleted_count"], 2)
+        m.assert_called_once()
+        kwargs = m.call_args.kwargs
+        self.assertEqual(kwargs.get("date"), "2026-07-19")
+
 # --- test_p27_quant.py::TestP27ExecutiveSummary ---
 class TestP27ExecutiveSummary(unittest.TestCase):
     def _sample_report(self):
@@ -151,6 +216,18 @@ class TestP27ExecutiveSummary(unittest.TestCase):
                 "total_return_pct": 3.2,
                 "win_rate_pct": 58,
                 "trade_count": 5,
+                "cost_model": "simple_cn",
+                "params": {
+                    "top_k": 3,
+                    "horizon_days": 3,
+                    "yhat_horizon_days": 1,
+                    "paper_horizon_days": 3,
+                    "paper_max_positions": 20,
+                    "min_predicted_score": 0.4,
+                    "apply_costs": True,
+                    "stock_count": 99,
+                    "lookback": 120,
+                },
             },
             "weight_suggest": {"success": True},
         }
@@ -160,10 +237,16 @@ class TestP27ExecutiveSummary(unittest.TestCase):
         self.assertGreaterEqual(out["bullet_count"], 3)
         self.assertTrue(any("附录·因子 IC" in b or "因子 IC" in b for b in out["bullets"]))
         self.assertTrue(any("选股真源" in b for b in out["bullets"]))
+        self.assertTrue(any(b.startswith("配置：") and "K=3" in b for b in out["bullets"]))
+        cfg = next(b for b in out["bullets"] if b.startswith("配置："))
+        self.assertIn("≠纸面 20", cfg)
+        self.assertIn("持有 h=3日", cfg)
+        self.assertIn("ŷ标签=1日", cfg)
+        self.assertIn("ŷ≥0.4%", cfg)
     def test_markdown_includes_summary_section(self):
         md = render_quant_report_markdown(self._sample_report())
         self.assertIn("一页摘要", md)
-        self.assertIn("## Top-K 回测摘要", md)
+        self.assertIn("## 历史回测摘要", md)
     def test_html_includes_summary_section(self):
         html = render_quant_report_html(self._sample_report())
         self.assertIn("一页摘要", html)
@@ -201,16 +284,11 @@ class TestP27ExportSummaryApi(unittest.TestCase):
 class TestP67ExportPreviewToc(unittest.TestCase):
     def _sample_report(self):
         return {
-            "portfolio_neutral_compare_summary": {
+            "cross_section": {
                 "success": True,
-                "winner": "neutralized",
-                "delta": {"total_return_pct": 1.0, "win_rate_pct": 0.0, "trade_count": 0},
-                "neutralized_total_return_pct": 4.0,
-                "absolute_total_return_pct": 3.0,
-                "neutralized_win_rate_pct": 55.0,
-                "absolute_win_rate_pct": 50.0,
-                "loaded_stocks": ["600519"],
-                "interpretation": "中性化更优",
+                "ranking": [
+                    {"stock_code": "600519", "stock_name": "贵州茅台", "score": 1.25},
+                ],
             }
         }
     def test_export_includes_toc(self):
@@ -218,7 +296,8 @@ class TestP67ExportPreviewToc(unittest.TestCase):
         self.assertTrue(out.get("success"))
         toc = out.get("export_toc") or {}
         anchors = [e["anchor"] for e in toc.get("entries") or []]
-        self.assertIn("neutral-compare", anchors)
+        self.assertIn("cross-section", anchors)
+        self.assertNotIn("neutral-compare", anchors)
     def test_export_api_returns_toc(self):
         try:
             from fastapi.testclient import TestClient
@@ -234,14 +313,14 @@ class TestP67ExportPreviewToc(unittest.TestCase):
             "content": "<html></html>",
             "export_toc": {
                 "success": True,
-                "entries": [{"title": "中性化对照专节", "anchor": "neutral-compare"}],
+                "entries": [{"title": "横截面 ŷ", "anchor": "cross-section"}],
             },
         }
         with unittest.mock.patch.object(deps.quant, "export_report", return_value=mock):
             client = TestClient(web_app.app)
             res = client.get("/api/quant/export?format=html")
         self.assertEqual(res.status_code, 200)
-        self.assertIn("neutral-compare", [e["anchor"] for e in res.json()["export_toc"]["entries"]])
+        self.assertIn("cross-section", [e["anchor"] for e in res.json()["export_toc"]["entries"]])
 
 # --- test_p75_quant.py::TestP75ExecutiveSummaryScoreStats ---
 class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
@@ -249,8 +328,8 @@ class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
         cs = {
             "success": True,
             "ranking": [
-                {"stock_code": "600519", "score": 72.5},
-                {"stock_code": "600036", "score": 61.0},
+                {"stock_code": "600519", "score": 1.25},
+                {"stock_code": "600036", "score": 0.61},
             ],
         }
         self.assertEqual(len(_cross_section_ranked_list(cs)), 2)
@@ -259,14 +338,14 @@ class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
             "cross_section": {
                 "success": True,
                 "ranking": [
-                    {"stock_code": "600519", "score": 72.5},
-                    {"stock_code": "600036", "score": 61.0},
+                    {"stock_code": "600519", "score": 1.25},
+                    {"stock_code": "600036", "score": 0.61},
                 ],
             }
         }
         out = build_report_executive_summary(report)
         self.assertTrue(any("横截面 ŷ" in b for b in out["bullets"]))
-        self.assertTrue(any("72.500%" in b or "72.5" in b for b in out["bullets"]))
+        self.assertTrue(any("1.250%" in b or "1.25" in b for b in out["bullets"]))
 
 # --- test_p80_quant.py::TestP80CrossSectionExportSection ---
 class TestP80CrossSectionExportSection(unittest.TestCase):
@@ -274,8 +353,8 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
         return {
             "success": True,
             "ranking": [
-                {"stock_code": "600519", "stock_name": "贵州茅台", "score": 72.5, "score_raw": 68.0},
-                {"stock_code": "600036", "stock_name": "招商银行", "score": 61.0, "score_raw": 59.0},
+                {"stock_code": "600519", "stock_name": "贵州茅台", "score": 1.25, "score_raw": 1.10},
+                {"stock_code": "600036", "stock_name": "招商银行", "score": 0.61, "score_raw": 0.55},
             ],
             "note": "横截面排序基于 score_bars",
         }
@@ -284,7 +363,7 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
         self.assertIsNotNone(sec)
         self.assertEqual(sec["anchor"], "cross-section")
         self.assertTrue(
-            any("ŷ 72.500%" in line or "ŷ 72.5" in line for line in sec["markdown_lines"])
+            any("ŷ 1.250%" in line or "ŷ 1.25" in line for line in sec["markdown_lines"])
         )
     def test_toc_includes_cross_section(self):
         toc = build_report_export_toc({"cross_section": self._cs()})
@@ -301,7 +380,7 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
 # --- test_p91_quant.py::TestP91FactorOlsExport ---
 class TestP91FactorOlsExport(unittest.TestCase):
     def _report(self):
-        bars = rising_bars(45)
+        bars = rising_bars(100)
         ols = compute_factor_ols_report(bars, horizon_days=3, min_history=12)
         return {"success": True, "factor_ols": ols}
     def test_build_factor_ols_export_section(self):

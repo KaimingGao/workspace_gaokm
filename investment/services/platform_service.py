@@ -1,8 +1,10 @@
 """平台能力门面：Job / Memory / Decision / Feedback / Schedule / Prefill（D1–D6）。"""
 
-from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+from typing import Any, Dict, Optional
 
 from core.decision_record import list_decisions, record_from_advice
 from core.feedback_suggest import suggest_config_feedback
@@ -14,11 +16,27 @@ from core.schedule_jobs import run_schedule
 
 
 class PlatformService:
-    def list_jobs(self) -> Dict[str, Any]:
-        return {"ok": True, "jobs": job_registry.list_jobs()}
-
     def get_job(self, name: str) -> Dict[str, Any]:
-        return {"ok": True, "job": job_registry.get(name)}
+        slot = job_registry.slot(name)
+        # 轮询路径自动回收卡住的任务（日线/分钟强更等长任务）
+        if hasattr(slot, "reclaim_if_stale"):
+            slot.reclaim_if_stale()
+        return {"ok": True, "job": slot.get()}
+
+    def list_jobs(self) -> Dict[str, Any]:
+        job_registry.reclaim_all_stale()
+        jobs = []
+        for snap in job_registry.list_jobs():
+            name = (snap or {}).get("slot") or (snap or {}).get("name")
+            if name:
+                jobs.append(job_registry.slot(str(name)).get())
+            else:
+                jobs.append(snap)
+        return {
+            "ok": True,
+            "jobs": jobs,
+            "policies": job_registry.list_policies(),
+        }
 
     def get_memory(self) -> Dict[str, Any]:
         mem = read_memory()
@@ -32,6 +50,11 @@ class PlatformService:
 
     def list_decisions(self, *, limit: int = 50) -> Dict[str, Any]:
         return list_decisions(limit=limit)
+
+    def clear_audit_timeline(self) -> Dict[str, Any]:
+        from web.audit_timeline import clear_audit_timeline_logs
+
+        return clear_audit_timeline_logs()
 
     def record_advice(
         self,
@@ -101,6 +124,7 @@ class PlatformService:
             try:
                 paper = load_paper(PAPER_PATH)
             except Exception as e:
+                logger.exception('unexpected error in get_north_star')
                 return {"ok": False, "error": str(e)}
         if not refresh and isinstance(paper, dict) and paper.get("last_north_star"):
             return {"ok": True, "cached": True, "north_star": paper["last_north_star"]}
@@ -109,7 +133,8 @@ class PlatformService:
             paper["last_north_star"] = report
             try:
                 save_paper(paper, PAPER_PATH)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
                 pass
         return {"ok": True, "cached": False, "north_star": report}
 
@@ -125,7 +150,8 @@ class PlatformService:
         if os.path.isfile(PAPER_PATH):
             try:
                 paper = load_paper(PAPER_PATH)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
                 paper = None
         return sample_status(paper=paper)
 
@@ -134,16 +160,74 @@ class PlatformService:
 
         return empty_fundamentals_report()
 
+    def get_validation_hygiene(self, *, as_of: Optional[str] = None) -> Dict[str, Any]:
+        from core.validation_universe import build_validation_hygiene_report
+
+        return build_validation_hygiene_report(as_of=as_of)
+
+    def run_validation_prepare(
+        self,
+        *,
+        codes: Optional[list] = None,
+        write_excludes: bool = False,  # 已废弃，忽略
+        warmup_bars: bool = True,
+        warmup_sentiment: bool = True,
+        bars_limit: int = 60,
+    ) -> Dict[str, Any]:
+        from core.validation_universe import prepare_validation_universe
+
+        return prepare_validation_universe(
+            codes=codes,
+            write_excludes=bool(write_excludes),
+            warmup_bars=bool(warmup_bars),
+            warmup_sentiment=bool(warmup_sentiment),
+            bars_limit=int(bars_limit or 60),
+        )
+
     def get_data_quality(self, *, codes: Optional[list] = None) -> Dict[str, Any]:
         """D4 · 数据质量中心聚合。"""
-        from core.data_quality_center import build_data_quality_report
+        from core.data.quality_center import build_data_quality_report
 
         return build_data_quality_report(codes=codes)
 
+    def run_fundamentals_ingest_nudge(
+        self,
+        *,
+        codes: Optional[list] = None,
+        write: bool = True,
+        max_points: int = 8,
+    ) -> Dict[str, Any]:
+        """DC3 · 对 ann_missing TopN（或指定 codes）催办真实财务多期 ingest。"""
+        from core.pro_core import ingest_nudge_payload
+        from core.sample_ops import ingest_real_fundamentals_history, sample_status
+
+        ss = sample_status(paper=None)
+        nudge = ingest_nudge_payload(codes=codes, sample_status=ss)
+        target = list(nudge.get("codes") or [])
+        if not target:
+            return {
+                "ok": True,
+                "wrote": False,
+                "nudge": nudge,
+                "message": "无 ann_missing TopN 可催办",
+            }
+        out = ingest_real_fundamentals_history(
+            codes=target,
+            max_points=max_points,
+            write=bool(write),
+        )
+        return {
+            "ok": True,
+            "wrote": bool(write),
+            "nudge": nudge,
+            "ingest": out,
+            "track": "DC3",
+        }
+
     def get_source_audit(self, *, codes: Optional[list] = None, lookback: int = 40) -> Dict[str, Any]:
         """D1 · 独立源审计。"""
-        from core.data_consistency import audit_code_sources
-        from core.data_coverage import universe_codes
+        from core.data.consistency import audit_code_sources
+        from core.data.coverage import universe_codes
 
         code_list = [str(c).strip() for c in (codes or []) if str(c).strip()]
         if not code_list:
@@ -164,7 +248,8 @@ class PlatformService:
 
             if os.path.isfile(PAPER_PATH):
                 ss = sample_status(paper=load_paper(PAPER_PATH))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in platform_service.py", exc_info=True)
             pass
         core = None
         try:
@@ -172,6 +257,7 @@ class PlatformService:
 
             core = run_all_core_paths()
         except Exception as e:
+            logger.exception('unexpected error in get_maturity_gate')
             core = {"ok": False, "failures": [str(e)]}
         return evaluate_maturity_gate(
             sample_status=ss,
@@ -198,11 +284,13 @@ class PlatformService:
         return out
 
     def get_fit_gap(self, *, backtest_result: Optional[dict] = None) -> Dict[str, Any]:
-        from core.fit_gap import fit_gap_hints
+        from core.fit_gap import build_curve_day_diff, fit_gap_hints
+        from core.north_star import load_last_backtest_curve
 
         ns = self.get_north_star(refresh=False)
         bt = backtest_result or {}
         paper_ops: Dict[str, Any] = {}
+        paper = None
         try:
             import os
 
@@ -222,13 +310,50 @@ class PlatformService:
                     last_opt = ops_rep.get("last_optimize") or {}
                     if isinstance(last_opt, dict) and last_opt.get("weight_mode"):
                         paper_ops["weight_mode"] = last_opt.get("weight_mode")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in platform_service.py", exc_info=True)
             pass
-        return fit_gap_hints(
-            realization=((ns or {}).get("north_star") or {}).get("realization"),
+
+        snaps = list((paper or {}).get("snapshots") or []) if paper else []
+        bt_curve: list = []
+        bt_meta: Dict[str, Any] = {}
+        # 优先用本次回测结果曲线，否则落盘 last curve
+        for key in ("equity_curve", "nav_curve", "curve", "portfolio_curve"):
+            raw = bt.get(key)
+            if isinstance(raw, list) and raw:
+                bt_curve = list(raw)
+                bt_meta["source"] = f"request.{key}"
+                break
+        if not bt_curve:
+            try:
+                pack = load_last_backtest_curve()
+                if isinstance(pack, dict):
+                    bt_curve = list(pack.get("curve") or pack.get("points") or [])
+                    bt_meta = {
+                        "source": "last_backtest_curve",
+                        "saved_at": pack.get("saved_at") or pack.get("updated_at"),
+                        "params": (pack.get("meta") or {}).get("params")
+                        if isinstance(pack.get("meta"), dict)
+                        else None,
+                    }
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
+                pass
+
+        day_diff = build_curve_day_diff(snaps, bt_curve)
+        realization = ((ns or {}).get("north_star") or {}).get("realization")
+        out = fit_gap_hints(
+            realization=realization,
             cost_compare=bt.get("cost_compare"),
             source_audit=bt.get("source_audit") or bt.get("data_quality"),
             paper_ops=paper_ops or None,
-            backtest_params=bt.get("params") or bt.get("request") or {},
+            backtest_params=bt.get("params") or bt.get("request") or bt_meta.get("params") or {},
             universe=bt.get("universe"),
+            day_diff=day_diff,
         )
+        out["curve_meta"] = bt_meta
+        out["day_diff"] = day_diff
+        # 前端落差卡要直接展示 Corr/TE（不另打北极星）
+        if isinstance(realization, dict):
+            out["realization"] = realization
+        return out

@@ -1,28 +1,29 @@
 /**
- * 回测 / 横截面相关表格 HTML 渲染。
+ * 回测相关表格 HTML 渲染。
  */
-import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
-import { fmtPct as defaultFmtPct, metricClass as defaultMetricClass } from "./bt_result.js";
-import { fmtScore, scoreCls } from "../paper/fmt.js";
+import { escapeHtml } from "../shared.js";
+import { researchGridHtml, metricCell } from "./research_grid.js";
+import { fmtPct, metricClass } from "./bt_result.js";
 import { watchingNameSpanHtml } from "./names.js";
+import { fitTierBadgeForCode } from "./fit_tier_ui.js";
+
 
 /**
  * @param {{
- *   escapeHtml?: typeof defaultEscapeHtml,
- *   researchGridHtml?: typeof defaultResearchGridHtml,
- *   metricCell?: typeof defaultMetricCell,
- *   fmtPct?: typeof defaultFmtPct,
- *   metricClass?: typeof defaultMetricClass,
+ *   escapeHtml?: typeof escapeHtml,
+ *   researchGridHtml?: typeof researchGridHtml,
+ *   metricCell?: typeof metricCell,
+ *   fmtPct?: typeof fmtPct,
+ *   metricClass?: typeof metricClass,
  *   getWatchingNameByCode?: () => Record<string, string>,
  * }} deps
  */
 export function createBtTablesUi(deps = {}) {
-  const esc = deps.escapeHtml || defaultEscapeHtml;
-  const researchGridHtml = deps.researchGridHtml || defaultResearchGridHtml;
-  const metricCell = deps.metricCell || defaultMetricCell;
-  const fmtPct = deps.fmtPct || defaultFmtPct;
-  const mcls = deps.metricClass || defaultMetricClass;
+  const esc = deps.escapeHtml || escapeHtml;
+  const gridHtml = deps.researchGridHtml || researchGridHtml;
+  const cell = deps.metricCell || metricCell;
+  const pctFmt = deps.fmtPct || fmtPct;
+  const mcls = deps.metricClass || metricClass;
   const getWatchingNameByCode =
     deps.getWatchingNameByCode || (() => ({}));
 
@@ -40,21 +41,21 @@ export function createBtTablesUi(deps = {}) {
     }</p>`;
     if (br.ok) {
       html +=
-        `<p class="quant-trades-caption">Brinson lite · A ${fmtPct(br.allocation_pct)} · S ${fmtPct(
+        `<p class="quant-trades-caption">Brinson lite · A ${pctFmt(br.allocation_pct)} · S ${pctFmt(
           br.selection_pct
-        )} · I ${fmtPct(br.interaction_pct)} · Σ ${fmtPct(br.total_excess_pct)}</p>`;
+        )} · I ${pctFmt(br.interaction_pct)} · Σ ${pctFmt(br.total_excess_pct)}</p>`;
       const brRows = (br.by_sector || []).slice(0, 8).map((r) => ({
         sector: r.sector || "—",
         weight: r.weight_pct != null ? `${r.weight_pct}%` : "—",
-        allocation: fmtPct(r.allocation_pct),
+        allocation: pctFmt(r.allocation_pct),
         allocationCls: mcls(r.allocation_pct),
-        selection: fmtPct(r.selection_pct),
+        selection: pctFmt(r.selection_pct),
         selectionCls: mcls(r.selection_pct),
-        interaction: fmtPct(r.interaction_pct),
+        interaction: pctFmt(r.interaction_pct),
         interactionCls: mcls(r.interaction_pct),
       }));
       if (brRows.length) {
-        html += researchGridHtml(
+        html += gridHtml(
           [
             { id: "sector", label: "行业", flex: true },
             { id: "weight", label: "权重", widthPct: 14, num: true },
@@ -64,21 +65,21 @@ export function createBtTablesUi(deps = {}) {
           ],
           brRows,
           (col, d) => {
-            if (col.id === "allocation") return metricCell(d.allocation, d.allocationCls);
-            if (col.id === "selection") return metricCell(d.selection, d.selectionCls);
-            if (col.id === "interaction") return metricCell(d.interaction, d.interactionCls);
+            if (col.id === "allocation") return cell(d.allocation, d.allocationCls);
+            if (col.id === "selection") return cell(d.selection, d.selectionCls);
+            if (col.id === "interaction") return cell(d.interaction, d.interactionCls);
             return esc(d[col.id] ?? "—");
           }
         );
       }
     }
     if (fp && fp.ok) {
-      html += `<p class="quant-trades-caption">score 高低半组差 ${fmtPct(fp.score_spread_pct)} · n=${esc(
+      html += `<p class="quant-trades-caption">score 高低半组差 ${pctFmt(fp.score_spread_pct)} · n=${esc(
         String(fp.n ?? "—")
       )}</p>`;
     }
     if (byStock.length) {
-      html += researchGridHtml(
+      html += gridHtml(
         [
           { id: "name", label: "股票", flex: true },
           { id: "sector", label: "行业", widthPct: 18, center: true },
@@ -93,7 +94,7 @@ export function createBtTablesUi(deps = {}) {
             code,
             name: fullName,
             sector: r.sector || "—",
-            retText: fmtPct(ret),
+            retText: pctFmt(ret),
             retCls: mcls(ret),
             n: String(r.n ?? "—"),
           };
@@ -102,11 +103,14 @@ export function createBtTablesUi(deps = {}) {
           if (col.id === "name") {
             return (
               `<div class="watching-stock" title="${esc(d.name + " " + d.code)}">` +
+              `<span class="watching-name-row">` +
               watchingNameSpanHtml(d.name) +
+              fitTierBadgeForCode(d.code, { escapeHtml: esc }) +
+              `</span>` +
               `<span class="watching-code-sub">${esc(d.code)}</span></div>`
             );
           }
-          if (col.id === "ret") return metricCell(d.retText, d.retCls);
+          if (col.id === "ret") return cell(d.retText, d.retCls);
           return esc(d[col.id] ?? "—");
         }
       );
@@ -114,7 +118,7 @@ export function createBtTablesUi(deps = {}) {
     if (bySector.length) {
       html +=
         `<div style="margin-top:8px">` +
-        researchGridHtml(
+        gridHtml(
           [
             { id: "sector", label: "行业", flex: true },
             { id: "count", label: "只数", widthPct: 16, num: true },
@@ -123,11 +127,11 @@ export function createBtTablesUi(deps = {}) {
           bySector.map((r) => ({
             sector: r.sector || "—",
             count: String(r.count ?? r.n ?? "—"),
-            retText: fmtPct(r.avg_return_pct),
+            retText: pctFmt(r.avg_return_pct),
             retCls: mcls(r.avg_return_pct),
           })),
           (col, d) => {
-            if (col.id === "ret") return metricCell(d.retText, d.retCls);
+            if (col.id === "ret") return cell(d.retText, d.retCls);
             return esc(d[col.id] ?? "—");
           }
         ) +
@@ -137,315 +141,6 @@ export function createBtTablesUi(deps = {}) {
       attr.methodology || attr.note || "非完整因子暴露归因。"
     )}</p>`;
     return html;
-  }
-
-  function renderIcEquityAlignHtml(align) {
-    if (!align) return "";
-    if (!align.ok) {
-      return `<p class="quant-trades-caption">IC↔净值对齐：${esc(
-        align.reason || "不可用"
-      )}</p>`;
-    }
-    const pos = align.pos_ic || {};
-    const neg = align.neg_ic || {};
-    const spread = align.avg_return_spread_pp;
-    const favor = align.aligned_favor_pos_ic;
-    const headCls = favor === false ? " down" : "";
-    const head =
-      `<p class="quant-trades-caption${headCls}">IC↔净值对齐 · ${align.period_count ?? "—"} 期` +
-      (spread != null
-        ? ` · 正IC窗均收益−非正 ${Number(spread) >= 0 ? "+" : ""}${spread}pp`
-        : "") +
-      (favor === false ? " · ⚠正IC窗未优于非正" : favor ? " · 同向" : "") +
-      `</p>`;
-    return (
-      head +
-      researchGridHtml(
-        [
-          { id: "bucket", label: "分桶", widthPct: 18 },
-          { id: "n", label: "期数", widthPct: 12, num: true },
-          { id: "avg", label: "均期收益", widthPct: 16, num: true },
-          { id: "win", label: "胜率", widthPct: 14, num: true },
-          { id: "tot", label: "复利累计", widthPct: 16, num: true },
-          { id: "note", label: "", flex: true },
-        ],
-        [
-          {
-            bucket: "正IC窗",
-            n: String(pos.count ?? "—"),
-            avgText: pos.avg_return_pct != null ? `${pos.avg_return_pct}%` : "—",
-            avgCls: mcls(pos.avg_return_pct),
-            win: pos.win_rate_pct != null ? `${pos.win_rate_pct}%` : "—",
-            totText:
-              pos.total_return_compound_pct != null
-                ? `${pos.total_return_compound_pct}%`
-                : "—",
-            totCls: mcls(pos.total_return_compound_pct),
-            note: "",
-          },
-          {
-            bucket: "非正IC窗",
-            n: String(neg.count ?? "—"),
-            avgText: neg.avg_return_pct != null ? `${neg.avg_return_pct}%` : "—",
-            avgCls: mcls(neg.avg_return_pct),
-            win: neg.win_rate_pct != null ? `${neg.win_rate_pct}%` : "—",
-            totText:
-              neg.total_return_compound_pct != null
-                ? `${neg.total_return_compound_pct}%`
-                : "—",
-            totCls: mcls(neg.total_return_compound_pct),
-            note: "",
-          },
-        ],
-        (col, d) => {
-          if (col.id === "avg") return metricCell(d.avgText, d.avgCls);
-          if (col.id === "tot") return metricCell(d.totText, d.totCls);
-          if (col.id === "bucket") return esc(d.bucket);
-          return esc(d[col.id] ?? "—");
-        }
-      ) +
-      (align.note ? `<p class="sub">${esc(align.note)}</p>` : "")
-    );
-  }
-
-  function renderQuantileTableHtml(qb) {
-    if (!qb) return { html: "", showChart: false };
-    if (!qb.ok) {
-      return {
-        html: `<p class="quant-trades-caption">分层回测：${esc(
-          qb.reason || "不可用"
-        )}</p>`,
-        showChart: false,
-      };
-    }
-    const mono = qb.monotonic_increasing;
-    const ls = qb.q_high_minus_q_low_pct;
-    const warn = mono === false ? " · 非单调（打分区分度弱或噪声大）" : "";
-    const head =
-      `<p class="quant-trades-caption${mono === false ? " down" : ""}">分层 Q1–Q${
-        qb.n_quantiles || 5
-      } · ${qb.fold_count ?? "—"} 期` +
-      (ls != null ? ` · Q高−Q低 ${Number(ls) >= 0 ? "+" : ""}${ls}%` : "") +
-      (mono === true ? " · 单调↑" : warn) +
-      `</p>`;
-    const rows = qb.quantiles || [];
-    if (!rows.length) {
-      return { html: head, showChart: false };
-    }
-    const html =
-      head +
-      researchGridHtml(
-        [
-          { id: "label", label: "分层", widthPct: 18 },
-          { id: "ret", label: "累计收益", widthPct: 16, num: true },
-          { id: "win", label: "胜率", widthPct: 14, num: true },
-          { id: "n", label: "期数", widthPct: 12, num: true },
-          { id: "eq", label: "终值", widthPct: 14, num: true },
-          { id: "note", label: "", flex: true },
-        ],
-        rows.map((r) => ({
-          label: r.label || `Q${r.quantile}`,
-          retText:
-            r.total_return_pct != null ? `${Number(r.total_return_pct).toFixed(2)}%` : "—",
-          retCls: mcls(r.total_return_pct),
-          win: r.win_rate_pct != null ? `${Number(r.win_rate_pct).toFixed(1)}%` : "—",
-          n: String(r.trade_count ?? "—"),
-          eq: r.final_equity != null ? String(r.final_equity) : "—",
-          note: "",
-        })),
-        (col, d) => {
-          if (col.id === "ret") return metricCell(d.retText, d.retCls);
-          if (col.id === "label") return esc(d.label);
-          return esc(d[col.id] ?? "—");
-        }
-      ) +
-      (qb.note ? `<p class="sub">${esc(qb.note)}</p>` : "");
-    return { html, showChart: true };
-  }
-
-  function buildT0BacktestMetrics(data) {
-    if (!data || !data.success) return [];
-    const opt = data.optimistic_compare || {};
-    const deltaRatio = data.optimistic_delta_ratio_pct ?? opt.delta_pnl_ratio_pct;
-    return [
-      {
-        label: "含敞口净 PnL",
-        value: esc(String(data.t0_pnl_with_exposure ?? "—")),
-        cls: mcls(data.t0_pnl_with_exposure),
-      },
-      { label: "完成往返率", value: fmtPct(data.cover_rate_pct) },
-      {
-        label: "日均 PnL",
-        value: esc(String(data.avg_pnl_per_trade_day ?? "—")),
-        cls: mcls(data.avg_pnl_per_trade_day),
-      },
-      { label: "参与率", value: fmtPct(data.participate_rate_pct) },
-      { label: "乐观Δ占比", value: fmtPct(deltaRatio) },
-      { label: "相对底仓%", value: fmtPct(data.pnl_vs_hold_mv_pct) },
-      { label: "做T天数", value: esc(String(data.t0_trade_days ?? "—")) },
-      {
-        label: "累计 PnL",
-        value: esc(String(data.t0_pnl_total ?? "—")),
-        cls: mcls(data.t0_pnl_total),
-      },
-      {
-        label: "敞口 PnL",
-        value: esc(String(data.exposure_pnl_total ?? "—")),
-        cls: mcls(data.exposure_pnl_total),
-      },
-      {
-        label: "正T PnL",
-        value: esc(String(data.long_t_pnl ?? "—")),
-        cls: mcls(data.long_t_pnl),
-      },
-      {
-        label: "反T PnL",
-        value: esc(String(data.reverse_t_pnl ?? "—")),
-        cls: mcls(data.reverse_t_pnl),
-      },
-      {
-        label: "正/反日",
-        value: esc(`${data.long_t_days ?? 0}/${data.reverse_t_days ?? 0}`),
-      },
-      { label: "跳过日", value: esc(String(data.skip_days ?? "—")) },
-      { label: "信号跳过", value: esc(String(data.signal_skip_days ?? "—")) },
-      { label: "分钟路径日", value: esc(String(data.minute_path_days ?? "—")) },
-      {
-        label: "相对日线Δ",
-        value: esc(
-          String(
-            (data.daily_compare && data.daily_compare.delta_pnl != null
-              ? data.daily_compare.delta_pnl
-              : "—")
-          )
-        ),
-        cls: mcls(data.daily_compare && data.daily_compare.delta_pnl),
-      },
-    ];
-  }
-
-  function buildT0BacktestDaysHtml(data) {
-    if (!data || !data.success) return "";
-    const days = (data.days || []).filter(
-      (d) =>
-        Number(d.sold_qty) > 0 ||
-        Number(d.bought_qty) > 0 ||
-        Number(d.pnl) !== 0 ||
-        Number(d.exposure_pnl) !== 0
-    );
-    if (!days.length) {
-      return `<p class="quant-trades-caption">区间内无做 T 成交日</p>`;
-    }
-    const rows = days
-      .slice(-20)
-      .reverse()
-      .map((d) => {
-        const cls = mcls(d.pnl);
-        return (
-          `<tr><td>${esc(d.date || "")}</td>` +
-          `<td class="num">${esc(String(d.sold_qty ?? 0))}</td>` +
-          `<td class="num">${esc(String(d.covered_qty ?? 0))}</td>` +
-          `<td class="num">${esc(String(d.uncovered_qty ?? 0))}</td>` +
-          `<td class="num ${cls}">${esc(String(d.pnl ?? 0))}</td></tr>`
-        );
-      })
-      .join("");
-    return (
-      `<p class="quant-trades-caption">做 T 日明细（最多 20 条，新→旧）</p>` +
-      `<table class="quant-weight-table"><thead><tr>` +
-      `<th>日期</th><th>卖出</th><th>买回</th><th>未回补</th><th>PnL</th>` +
-      `</tr></thead><tbody>${rows}</tbody></table>`
-    );
-  }
-
-  function buildCrossSectionResult(data) {
-    if (!data || !data.success) {
-      return {
-        ok: false,
-        summary: (data && data.error) || "排序失败",
-        listHtml: `<p class="watching-table-empty">${esc(
-          (data && data.error) || "排序失败"
-        )}</p>`,
-      };
-    }
-    const neut = data.neutralization || {};
-    const neutNote = neut.applied
-      ? ` · 截面中性化(${neut.method || "zscore"})`
-      : "";
-    const summary = `Top ${data.ranked_count} / 候选 ${data.candidate_count} · min_score=${data.min_score}${neutNote}`;
-    const ranking = Array.isArray(data.ranking) ? data.ranking : [];
-    if (!ranking.length) {
-      return {
-        ok: true,
-        summary,
-        listHtml: `<p class="watching-table-empty">无排序结果</p>`,
-      };
-    }
-    const rows = ranking.map((r, i) => {
-      const code = String(r.stock_code || "").trim();
-      const name = r.stock_name || code || "—";
-      const score =
-        r.score != null && !Number.isNaN(Number(r.score))
-          ? fmtScore(r.score)
-          : "—";
-      const raw =
-        r.score_raw != null && !Number.isNaN(Number(r.score_raw))
-          ? fmtScore(r.score_raw)
-          : r.score_raw != null
-            ? String(r.score_raw)
-            : "—";
-      return {
-        rank: String(i + 1),
-        code,
-        name,
-        score,
-        scoreCls: scoreCls(r.score),
-        raw,
-        rawCls: scoreCls(r.score_raw),
-        source: r.data_source || "—",
-      };
-    });
-    const listHtml = researchGridHtml(
-      [
-        {
-          id: "rank",
-          label: "#",
-          widthPct: 8,
-          num: true,
-          headClass: "watching-col-center",
-          cellClass: "watching-col-center",
-        },
-        { id: "name", label: "股票", flex: true, cellClass: "watching-stock" },
-        { id: "score", label: "评分", widthPct: 14, num: true },
-        { id: "raw", label: "raw", widthPct: 14, num: true },
-        { id: "source", label: "源", widthPct: 22 },
-      ],
-      rows,
-      (col, d) => {
-        if (col.id === "name") {
-          return (
-            `<div class="watching-stock" title="${esc(
-              (d.name || "") + " " + (d.code || "")
-            )}">` +
-            watchingNameSpanHtml(d.name || d.code) +
-            `<span class="watching-code-sub">${esc(d.code || "")}</span></div>`
-          );
-        }
-        if (col.id === "score") {
-          return `<span class="paper-hold-score ${esc(
-            d.scoreCls || ""
-          )}">${esc(d.score ?? "—")}</span>`;
-        }
-        if (col.id === "raw") {
-          return `<span class="paper-hold-score ${esc(
-            d.rawCls || ""
-          )}">${esc(d.raw ?? "—")}</span>`;
-        }
-        return esc(d[col.id] ?? "—");
-      },
-      { emptyText: "无排序结果" }
-    );
-    return { ok: true, summary, listHtml };
   }
 
   /** @param {object|null|undefined} sic */
@@ -470,7 +165,7 @@ export function createBtTablesUi(deps = {}) {
       }d` +
       (sic.roll_window ? ` · 滚动窗 ${sic.roll_window}` : "") +
       `</p>` +
-      researchGridHtml(
+      gridHtml(
         [
           { id: "ic", label: "IC均值", widthPct: 14, num: true },
           { id: "std", label: "IC标准差", widthPct: 14, num: true },
@@ -498,13 +193,144 @@ export function createBtTablesUi(deps = {}) {
     return { html, clear: false, hideChart: false };
   }
 
+  function _fmtContribDate(v) {
+    const s = String(v || "").trim();
+    return s ? esc(s.slice(0, 10)) : "—";
+  }
+
+  function _fmtContribShares(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return "—";
+    return esc(Math.round(n).toLocaleString("zh-CN"));
+  }
+
+  function _fmtContribPct(v) {
+    const n = Number(v);
+    if (v == null || v === "" || !Number.isFinite(n)) {
+      return { text: "—", cls: "" };
+    }
+    const sign = n > 0 ? "+" : "";
+    return { text: `${sign}${n.toFixed(2)}%`, cls: mcls(n) };
+  }
+
+  function _fmtContribPnl(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  }
+
+  function renderReplayStockContribHtml(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return "";
+    const watchingNameByCode = getWatchingNameByCode();
+    const maxAbs = Math.max(1, ...list.map((r) => Math.abs(Number(r.pnl || 0))));
+    const n = list.length;
+    const totalPnl = list.reduce((s, r) => s + Number(r.pnl || 0), 0);
+    const best = [...list].sort((a, b) => Number(b.pnl || 0) - Number(a.pnl || 0))[0];
+    const worst = [...list].sort((a, b) => Number(a.pnl || 0) - Number(b.pnl || 0))[0];
+    const bestName =
+      (best && (watchingNameByCode[best.stock_code] || best.stock_name || best.stock_code)) || "";
+    const worstName =
+      (worst && (watchingNameByCode[worst.stock_code] || worst.stock_name || worst.stock_code)) || "";
+    const metaBits = [`${n} 只`, `合计 ${_fmtContribPnl(totalPnl)}`].filter(Boolean);
+    const tipBits = [
+      "分票贡献：持仓盯市盈亏合计；贡献%=盈亏/回测本金。佣金印花走现金，不进本表。",
+      best && bestName ? `贡献最大：${bestName} ${_fmtContribPnl(best.pnl)}` : null,
+      worst && worst !== best && worstName
+        ? `拖累最大：${worstName} ${_fmtContribPnl(worst.pnl)}`
+        : null,
+    ].filter(Boolean);
+    const body = list
+      .map((r) => {
+        const code = String(r.stock_code || "").trim();
+        const fullName = watchingNameByCode[code] || r.stock_name || code || "—";
+        const pnl = Number(r.pnl || 0);
+        const cls = mcls(pnl);
+        const ret = _fmtContribPct(r.return_pct);
+        const contrib = _fmtContribPct(r.contrib_pct);
+        const barW = Math.max(4, Math.round((Math.abs(pnl) / maxAbs) * 48));
+        const overnight = Number(r.overnight_pnl || 0);
+        const intraday = Number(r.intraday_pnl || 0);
+        const title = fullName && code && fullName !== code ? `${fullName} ${code}` : fullName || code;
+        return (
+          `<tr class="paper-t0-contrib-row" data-code="${esc(code)}" data-name="${esc(fullName)}">` +
+          `<td class="rebalance-stock paper-t0-col-stock watching-stock" title="${esc(title)}">` +
+          `<span class="watching-name-row">` +
+          watchingNameSpanHtml(fullName) +
+          fitTierBadgeForCode(code, { escapeHtml: esc }) +
+          `</span>` +
+          (code ? `<span class="watching-code-sub">${esc(code)}</span>` : "") +
+          `</td>` +
+          `<td class="num paper-t0-col-viz-days" title="窗口内有持仓的交易日">${esc(
+            String(r.hold_days ?? 0)
+          )}</td>` +
+          `<td class="num paper-t0-col-viz-lr" title="买入笔 / 卖出笔">${esc(
+            `${r.buy_count ?? 0}/${r.sell_count ?? 0}`
+          )}</td>` +
+          `<td class="num paper-t0-col-viz-shares" title="窗口末日持股">${_fmtContribShares(
+            r.shares_end
+          )}</td>` +
+          `<td class="paper-t0-col-viz-dt" title="首次持有日">${_fmtContribDate(r.first_date)}</td>` +
+          `<td class="paper-t0-col-viz-dt" title="末次持有日">${_fmtContribDate(r.last_date)}</td>` +
+          `<td class="num paper-t0-col-viz-ret ${ret.cls}" title="盈亏 / 日均占用资金">${esc(
+            ret.text
+          )}</td>` +
+          `<td class="num paper-t0-col-viz-pct ${contrib.cls}" title="盈亏 / 回测本金">${esc(
+            contrib.text
+          )}</td>` +
+          `<td class="num paper-t0-col-pnl ${cls} has-tip" title="${esc(
+            `盯市 ${pnl.toFixed(0)} · 隔夜 ${_fmtContribPnl(overnight)} · 当日 ${_fmtContribPnl(
+              intraday
+            )} · 条长∝|PnL|`
+          )}">` +
+          `<span class="paper-t0-viz-pnl-bar" style="width:${barW}px" aria-hidden="true"></span>` +
+          `<span class="paper-t0-viz-pnl-num">${esc(_fmtContribPnl(pnl))}</span>` +
+          `</td>` +
+          `</tr>`
+        );
+      })
+      .join("");
+    return (
+      `<section class="paper-t0-viz-contrib replay-stock-contrib-section">` +
+      `<div class="paper-t0-viz-contrib-head">` +
+      `<div class="paper-t0-viz-contrib-title-block">` +
+      `<h4>分票贡献</h4>` +
+      `<span class="paper-t0-viz-contrib-meta has-tip" title="${esc(tipBits.join("\n"))}">${esc(
+        metaBits.join(" · ")
+      )}</span>` +
+      `</div>` +
+      `<p class="paper-t0-viz-contrib-hint">持仓盯市合计 · 贡献%=盈亏/回测本金 · 点股票名看日线</p>` +
+      `</div>` +
+      `<div class="quant-weight-table-wrap paper-t0-viz-stock-wrap watching-table-scroll">` +
+      `<table class="quant-weight-table paper-t0-table paper-t0-viz-stock-table replay-stock-contrib-table">` +
+      `<colgroup>` +
+      `<col class="paper-t0-col-stock" />` +
+      `<col class="paper-t0-col-viz-days" />` +
+      `<col class="paper-t0-col-viz-lr" />` +
+      `<col class="paper-t0-col-viz-shares" />` +
+      `<col class="paper-t0-col-viz-dt" />` +
+      `<col class="paper-t0-col-viz-dt" />` +
+      `<col class="paper-t0-col-viz-ret" />` +
+      `<col class="paper-t0-col-viz-pct" />` +
+      `<col class="paper-t0-col-pnl" />` +
+      `</colgroup>` +
+      `<thead><tr class="paper-t0-contrib-head">` +
+      `<th scope="col" class="paper-t0-col-stock">股票</th>` +
+      `<th scope="col" class="paper-t0-col-viz-days num" title="窗口内有持仓的交易日">持有日</th>` +
+      `<th scope="col" class="paper-t0-col-viz-lr num" title="买入笔 / 卖出笔">买/卖</th>` +
+      `<th scope="col" class="paper-t0-col-viz-shares num" title="窗口末日持股">期末</th>` +
+      `<th scope="col" class="paper-t0-col-viz-dt" title="首次持有日">首日</th>` +
+      `<th scope="col" class="paper-t0-col-viz-dt" title="末次持有日">末日</th>` +
+      `<th scope="col" class="paper-t0-col-viz-ret num" title="盈亏 / 日均占用资金">收益%</th>` +
+      `<th scope="col" class="paper-t0-col-viz-pct num" title="盈亏 / 回测本金">贡献%</th>` +
+      `<th scope="col" class="paper-t0-col-pnl num" title="持仓盯市盈亏；条长∝|PnL|">PnL</th>` +
+      `</tr></thead><tbody>${body}</tbody></table></div></section>`
+    );
+  }
+
   return {
     renderAttributionTablesHtml,
-    renderIcEquityAlignHtml,
-    renderQuantileTableHtml,
-    buildT0BacktestMetrics,
-    buildT0BacktestDaysHtml,
-    buildCrossSectionResult,
     renderScoreIcHtml,
+    renderReplayStockContribHtml,
   };
 }

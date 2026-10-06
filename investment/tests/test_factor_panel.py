@@ -9,7 +9,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.config import load_signal_config
-from core.signal.factor_panel import build_factor_panel, build_factor_panel_rows
+from core.signal.factors.meta.panel import build_factor_panel, build_factor_panel_rows
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:

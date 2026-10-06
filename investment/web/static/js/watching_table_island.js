@@ -1,44 +1,156 @@
 /**
  * 数据中心主表 · 纯 DOM 虚拟滚动（共享 virtual_table 内核）。
  */
-
-import {
-  mountVirtualTable,
-  escapeHtml,
-  truncateName,
-} from "./virtual_table.js";
+import { Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "./paper/fmt.js?v=p2389";
 
 function numSortKey(row, key) {
   const n = Number(row?.[key]);
   return Number.isFinite(n) ? n : -Infinity;
 }
 
+/** 分档表在 mount 时注入；未加载前未知档排最后。 */
+let _predTier = {
+  rank() {
+    return 9;
+  },
+  get() {
+    return null;
+  },
+  badge() {
+    return "—";
+  },
+};
+
 function compare(id, a, b) {
+  if (id === "tier") {
+    const ta = _predTier.get(a && a.code);
+    const tb = _predTier.get(b && b.code);
+    return _predTier.rank(ta && ta.tier) - _predTier.rank(tb && tb.tier);
+  }
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
+  if (id === "score_eod") return numSortKey(a, "scoreEodNum") - numSortKey(b, "scoreEodNum");
+  if (id === "score_tau") return numSortKey(a, "scoreTauNum") - numSortKey(b, "scoreTauNum");
+  if (id === "score_on") return numSortKey(a, "scoreOnNum") - numSortKey(b, "scoreOnNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
   if (id === "chg") return numSortKey(a, "chgNum") - numSortKey(b, "chgNum");
+  if (id === "open") return numSortKey(a, "openNum") - numSortKey(b, "openNum");
   if (id === "name") {
     return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
   }
   return String(a[id] ?? "").localeCompare(String(b[id] ?? ""), "zh-CN", { numeric: true });
 }
 
-/** 短文案列居中，避免夹在数值列之间时一侧挤、一侧空 */
+/** 数据中心主表列轨：除「股票」外固定 px，避免 fr 权重把间距拉散。 */
 const COLS = [
-  { id: "picked", label: "", widthPct: 3.5, headClass: "watching-pick-cell", cellClass: "watching-pick-cell" },
-  { id: "name", label: "股票", flex: true, sortable: true, cellClass: "watching-stock" },
-  { id: "paper", label: "仓位", widthPct: 6.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "sent", label: "情绪", widthPct: 5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "price", label: "现价", widthPct: 7, num: true },
-  { id: "chg", label: "涨跌", widthPct: 6.5, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 6, num: true, sortable: true },
-  { id: "stance", label: "倾向", widthPct: 6, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "excess", label: "超额", widthPct: 7.5, num: true, sortable: true },
-  { id: "vol", label: "量", widthPct: 7, num: true, sortable: true },
-  { id: "volr", label: "量比", widthPct: 5, num: true },
-  { id: "pe", label: "PE", widthPct: 5, num: true },
-  { id: "pb", label: "PB", widthPct: 5, num: true },
+  {
+    id: "picked",
+    label: "",
+    width: 40,
+    headClass: "watching-pick-cell",
+    cellClass: "watching-pick-cell",
+    title: "勾选后可加入模拟持仓",
+  },
+  {
+    id: "name",
+    label: "股票",
+    flex: true,
+    flexMin: "10.5rem",
+    flexFr: 1,
+    sortable: true,
+    cellClass: "watching-stock",
+    title: "股票名称与代码",
+  },
+  {
+    id: "tier",
+    label: "分档",
+    width: 52,
+    sortable: true,
+    defaultDir: "asc",
+    headClass: "watching-col-center",
+    cellClass: "watching-col-center",
+    title: "可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 ranking 从高到低",
+  },
+  {
+    id: "paper",
+    label: "仓位",
+    width: 60,
+    headClass: "watching-col-center",
+    cellClass: "watching-col-center",
+    title: "是否已在模拟持仓",
+  },
+  {
+    id: "sent",
+    label: "情绪",
+    width: 36,
+    headClass: "watching-col-center",
+    cellClass: "watching-col-center",
+    title: "标题情绪摘要",
+  },
+  { id: "prev_close", label: "昨收", width: 78, num: true, title: "上一交易日收盘价" },
+  { id: "open", label: "今开", width: 78, num: true, title: "今日开盘价" },
+  { id: "price", label: "现价", width: 78, num: true, title: "最新成交价" },
+  {
+    id: "chg",
+    label: "涨跌",
+    width: 68,
+    num: true,
+    sortable: true,
+    title: "相对昨收的涨跌幅 %",
+  },
+  {
+    id: "score_eod",
+    label: "y_oo",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: "ŷ_oo · open[T]→open[T+1]（%）",
+  },
+  {
+    id: "score_tau",
+    label: "y_τc",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: Y_OC_REBALANCE_TITLE,
+  },
+  {
+    id: "score_on",
+    label: "y_co",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: "ŷ_co · close[T]→open[T+1]（对照）",
+  },
+  {
+    id: "score",
+    label: "ranking",
+    width: 94,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y watching-col-y-ranking",
+    cellClass: "watching-col-y watching-col-y-ranking",
+    title: RANKING_REBALANCE_TITLE,
+  },
+  {
+    id: "excess",
+    label: "超额",
+    width: 68,
+    num: true,
+    sortable: true,
+    title:
+      "近端个股收益 − 指数收益（%）。缺与指数对齐的日线时显示 RS+相对强弱分（0–100），不是超额收益率",
+  },
+  { id: "vol", label: "量", width: 88, num: true, sortable: true, title: "成交量" },
+  { id: "volr", label: "量比", width: 56, num: true, title: "近期成交量 / 均量" },
+  { id: "pe", label: "PE", width: 56, num: true, title: "市盈率" },
+  { id: "pb", label: "PB", width: 56, num: true, title: "市净率" },
 ];
 
 /**
@@ -46,17 +158,47 @@ const COLS = [
  * @param {{ initialSort?: Array<{column:string, dir:string}> }} [options]
  */
 export async function mountWatchingTableIsland(host, options = {}) {
+  // 嵌套模块必须带 ASSET_V，否则 virtual_table 会被浏览器缓存成旧版导致表头/表体错位
+  const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+  const { mountVirtualTable, escapeHtml, truncateName } = await import(
+    `./virtual_table.js?v=${encodeURIComponent(V)}`
+  );
+  const { fitTierBadgeForCode, ensureFitTierMap } = await import(
+    `./quant/fit_tier_ui.js?v=${encodeURIComponent(V)}`
+  );
+  const predTier = await import(`./quant/pred_tier_ui.js?v=${encodeURIComponent(V)}`);
+  _predTier = {
+    rank: predTier.predTierRank,
+    get: predTier.getPredTier,
+    badge: predTier.predTierBadgeHtml,
+  };
+  await Promise.all([ensureFitTierMap(), predTier.ensurePredTierMap()]);
+
   const api = mountVirtualTable(host, {
     columns: COLS,
     emptyText: "暂无观察",
-    rowHeight: 38,
+    rowHeight: 50,
     initialSort: options.initialSort,
     compare,
+    tiebreak: (id, a, b) => {
+      if (id !== "tier") return 0;
+      const as = numSortKey(a, "scoreNum");
+      const bs = numSortKey(b, "scoreNum");
+      const aOk = Number.isFinite(as);
+      const bOk = Number.isFinite(bs);
+      if (aOk && bOk) return bs - as;
+      if (aOk) return -1;
+      if (bOk) return 1;
+      return 0;
+    },
     rowClass: (d) =>
       [
         "watching-watch-row",
         d.isSentimentAlert ? "is-sentiment-alert" : "",
         d.isHardReject ? "is-hard-reject" : "",
+        d.yhatHistHit ? "is-yhat-hist-hit" : "",
+        d.yhatHistDim ? "is-yhat-hist-dim" : "",
+        d.oosFailed ? "is-oos-failed" : "",
       ]
         .filter(Boolean)
         .join(" "),
@@ -85,14 +227,25 @@ export async function mountWatchingTableIsland(host, options = {}) {
         );
       }
       if (col.id === "name") {
+        const oosBadge = d.oosFailed
+          ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
+          : "";
+        const fitBadge = fitTierBadgeForCode(d.code, { escapeHtml });
         return (
           `<div class="watching-stock" title="${escapeHtml((d.name || "") + " " + (d.code || ""))}">` +
+          `<span class="watching-name-row">` +
           `<span class="watching-name-text" title="${escapeHtml(d.name || "")}" data-full-name="${escapeHtml(
             d.name || ""
           )}">${escapeHtml(truncateName(d.name || d.code))}</span>` +
+          fitBadge +
+          oosBadge +
+          `</span>` +
           `<span class="watching-code-sub">${escapeHtml(d.code || "")}` +
           `<span class="watching-mkt">${escapeHtml(d.market || "")}</span></span></div>`
         );
+      }
+      if (col.id === "tier") {
+        return _predTier.badge(d.code, escapeHtml);
       }
       if (col.id === "paper") {
         return d.onPaper
@@ -113,23 +266,114 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const text = d.score != null && d.score !== "" ? String(d.score) : "—";
         const detail = d.scoreDetail || "";
         const below = !!d.scoreBelowMin;
+        const singleHead = !!d.scoreSingleHead;
+        const head = d.dualScoreHead || "";
+        const headTitle =
+          head === "single_tau"
+            ? "ranking 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲"
+            : head === "single_oo"
+              ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲"
+              : "ranking 单头降级 · 与双头票不同量纲";
+        const badges = [];
+        if (singleHead) {
+          badges.push(
+            `<span class="watching-single-head-badge" title="${escapeHtml(
+              headTitle
+            )}">单</span>`
+          );
+        }
+        const yCheck = d.yCheck || "";
+        if (yCheck && yCheck !== "ok") {
+          const yMap = {
+            conflict: ["歧", "Y·EOD 校验：双头分歧 · 降低今日执行信任"],
+            low_conf: ["弱", "Y·EOD 校验：低置信"],
+            missing_tau: ["缺τ", "Y·EOD 校验：缺 ŷ_τc"],
+            single_head: ["单", "Y·EOD 校验：单头降级"],
+          };
+          const [t, tip] = yMap[yCheck] || ["校", `Y·EOD 校验：${yCheck}`];
+          badges.push(
+            `<span class="watching-y-check-badge is-${escapeHtml(
+              yCheck
+            )}" title="${escapeHtml(tip)}">${escapeHtml(t)}</span>`
+          );
+        }
         const title = d.scoreTitle || "悬停查看收益分与因子系数";
         const signCls = d.scoreCls ? ` ${escapeHtml(String(d.scoreCls))}` : "";
         if (!detail) {
-          return `<span class="watching-score-cell paper-hold-score${signCls}">${escapeHtml(
-            text
-          )}</span>`;
+          return `<span class="watching-score-cell paper-hold-score${signCls}${
+            singleHead ? " score-single-head" : ""
+          }">${escapeHtml(text)}${badges.join("")}</span>`;
         }
         return (
           `<span class="watching-score-cell paper-hold-score has-tip${signCls}${
             below ? " score-below-min" : ""
-          }" ` +
-          `data-score-detail="${escapeHtml(detail)}" title="${escapeHtml(title)}">` +
+          }${singleHead ? " score-single-head" : ""}" ` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="ranking" title="${escapeHtml(title)}">` +
+          `${escapeHtml(text)}${badges.join("")}</span>`
+        );
+      }
+      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on") {
+        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on" };
+        const skinMap = { score_eod: "eod", score_tau: "tau", score_on: "on" };
+        const textKey =
+          col.id === "score_eod"
+            ? "scoreEod"
+            : col.id === "score_tau"
+              ? "scoreTau"
+              : "scoreOn";
+        const clsKey =
+          col.id === "score_eod"
+            ? "scoreEodCls"
+            : col.id === "score_tau"
+              ? "scoreTauCls"
+              : "scoreOnCls";
+        const titleKey =
+          col.id === "score_eod"
+            ? "scoreEodTitle"
+            : col.id === "score_tau"
+              ? "scoreTauTitle"
+              : "scoreOnTitle";
+        const text = d[textKey] != null && d[textKey] !== "" ? String(d[textKey]) : "—";
+        const detail = d.scoreDetail || "";
+        const title = d[titleKey] || "";
+        const signCls = d[clsKey] ? ` ${escapeHtml(String(d[clsKey]))}` : "";
+        const skin = skinMap[col.id];
+        if (!detail) {
+          return `<span class="watching-score-cell watching-score-${skin} paper-hold-score${signCls}">${escapeHtml(
+            text
+          )}</span>`;
+        }
+        return (
+          `<span class="watching-score-cell watching-score-${skin} paper-hold-score has-tip${signCls}" ` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="${tipMap[col.id]}" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}</span>`
         );
       }
       const v = d[col.id];
-      return v != null && v !== "" ? escapeHtml(String(v)) : "—";
+      if (v == null || v === "") return "—";
+      let text = String(v);
+      let tip = text;
+      // 超额：单元格只留 ±x.x%，强弱进 title（兼容旧 patch 仍带「强/弱/平」）
+      if (col.id === "excess") {
+        const rs = text.match(/^RS(\d+)$/);
+        if (rs) {
+          text = `RS${rs[1]}`;
+          tip =
+            `相对强弱分 ${rs[1]}（0–100）。近端超额%未算出：缺与指数对齐的日线，` +
+            "所以不是「个股 − 指数」的超额收益率。分越高表示相对基准越强。";
+        } else {
+          const m = text.match(/^([+-]?\d+(?:\.\d+)?%)/);
+          if (m) text = m[1];
+          tip = d.excessTitle || String(v);
+        }
+      } else if (col.id === "price" || col.id === "prev_close" || col.id === "open") {
+        // 「元」占宽，窄列易被裁成「…」
+        text = text.replace(/元$/u, "");
+        tip = String(v);
+      } else if (d[`${col.id}Title`]) {
+        tip = String(d[`${col.id}Title`]);
+      }
+      return `<span title="${escapeHtml(tip)}">${escapeHtml(text)}</span>`;
     },
   });
 

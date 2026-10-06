@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """纸面账户 CLI（薄封装，逻辑在 core.paper）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

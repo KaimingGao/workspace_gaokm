@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.backtest.costs import apply_trade_cost, round_trip_cost_pct
+from core.backtest.costs import round_trip_cost_pct
 from core.backtest.engine import backtest_signal_on_bars, scan_signal_parameters_oos
 from core.paper import init_from_example, load_paper, run_daily_cycle, simulate_sells
 from core.signal.config import get_stance_thresholds, load_signal_config
@@ -26,7 +26,7 @@ def _index_bars(n=25, drift=-0.002):
         price *= 1 + drift
         bars.append(
             {
-                "date": f"idx-{i}",
+                "date": f"2026-01-{i+1:02d}",
                 "open": price,
                 "high": price * 1.01,
                 "low": price * 0.99,
@@ -61,6 +61,50 @@ class TestQuantUpgrade(unittest.TestCase):
         self.assertEqual(meta["rs_source"], "index_excess")
         self.assertGreater(rs_score, 50)
 
+    def test_relative_strength_aligns_by_date(self):
+        """指数末根更旧时，应按共同交易日对齐，而非各取最后 N 根。"""
+        stock = []
+        for i in range(1, 26):
+            stock.append(
+                {
+                    "date": f"2026-01-{i:02d}",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 100.0 + i,
+                    "volume": 1e6,
+                }
+            )
+        # 指数停在 01-20，个股到 01-25
+        index = []
+        for i in range(1, 21):
+            index.append(
+                {
+                    "date": f"2026-01-{i:02d}",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 1000.0,
+                    "volume": 1e6,
+                }
+            )
+        # 对齐窗口终点应是 01-20；指数收益 0，个股 01-01→01-20 = (120-101)/101
+        excess = excess_return_pct(stock, index, window_days=19, min_compare_days=5)
+        self.assertIsNotNone(excess)
+        expected = round((120.0 / 101.0 - 1.0) * 100.0 - 0.0, 2)
+        self.assertAlmostEqual(excess, expected, places=2)
+
+    def test_relative_strength_omit_without_inputs(self):
+        score, meta = score_relative_strength(
+            stock_bars=[],
+            index_bars=None,
+            last_change=None,
+            fallback_to_last_change=True,
+        )
+        self.assertTrue(meta.get("omit_sub_score"))
+        self.assertEqual(meta.get("rs_source"), "none")
+        self.assertEqual(score, 50.0)
+
     def test_factor_contrib_and_regime(self):
         bars = _rising_bars()
         index = _index_bars(len(bars), drift=-0.004)
@@ -70,7 +114,14 @@ class TestQuantUpgrade(unittest.TestCase):
             index_bars=index,
         )
         self.assertIn("factor_contrib", result)
-        self.assertIn("momentum", result["factor_contrib"])
+        self.assertTrue(result["factor_contrib"])
+        # 弱势/高波动择时可能关掉动量；至少应留下流动性等启用因子
+        self.assertTrue(
+            any(
+                k in result["factor_contrib"]
+                for k in ("momentum", "liquidity", "volatility", "reversal", "value", "quality")
+            )
+        )
         self.assertIn("regime", result)
         if result["regime"].get("regime") == "weak":
             self.assertGreater(result["factor_contrib"].get("regime_penalty", 0), -6)
@@ -88,7 +139,7 @@ class TestQuantUpgrade(unittest.TestCase):
 
     def test_apply_costs(self):
         self.assertGreater(round_trip_cost_pct(), 0)
-        net = apply_trade_cost(5.0)
+        net = round(5.0 - round_trip_cost_pct(), 4)
         self.assertLess(net, 5.0)
 
     def test_oos_scan(self):
@@ -130,7 +181,7 @@ class TestQuantUpgrade(unittest.TestCase):
                 "stock_code": "600519",
                 "price_raw": 1800.0,
             }
-            with patch("skills.common.quote_api.StockAPI.query", return_value=fake_quote):
+            with patch("adapters.market.quote_api.StockAPI.query", return_value=fake_quote):
                 sells = simulate_sells(paper)
             self.assertGreaterEqual(len(sells), 1)
             self.assertEqual(sells[0]["side"], "sell")

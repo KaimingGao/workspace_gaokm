@@ -1,7 +1,9 @@
 """流动性因子（P45）：近端成交额活跃度，过低或异常放量均降分。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 
@@ -12,10 +14,10 @@ def _avg(values: List[float]) -> Optional[float]:
 
 
 def turnover_proxy(bar: dict) -> float:
-    """成交额代理：volume × close（normalize_bars 已统一 volume 字段）。"""
-    vol = float(bar.get("volume") or 0.0)
-    close = float(bar.get("close") or 0.0)
-    return max(0.0, vol * close)
+    """成交额：优先独立 amount，否则 volume × close。"""
+    from core.bar_fields import bar_amount
+
+    return bar_amount(bar)
 
 
 def turnover_ratio(bars: List[dict], short: int = 3, long: int = 10) -> Optional[float]:
@@ -31,9 +33,10 @@ def turnover_ratio(bars: List[dict], short: int = 3, long: int = 10) -> Optional
 
 
 def score_liquidity(bars: List[dict]) -> tuple[float, dict]:
+    """成交额活跃度；缺数据不进 ŷ（omit）。"""
     ratio = turnover_ratio(bars)
     if ratio is None:
-        return 50.0, {"turnover_ratio": None}
+        return 50.0, {"turnover_ratio": None, "omit_sub_score": True}
 
     if 0.75 <= ratio <= 1.8:
         score = 62.0 + min(18.0, (ratio - 0.75) * 12.0)
@@ -44,4 +47,4 @@ def score_liquidity(bars: List[dict]) -> tuple[float, dict]:
     else:
         score = 35.0
 
-    return round(score, 1), {"turnover_ratio": round(ratio, 2)}
+    return round(score, 1), {"turnover_ratio": round(ratio, 2), "omit_sub_score": False}

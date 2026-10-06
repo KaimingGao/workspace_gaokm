@@ -7,7 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.common.history import fetch_daily_bars, resolve_market_code
+from adapters.market.history import fetch_daily_bars, resolve_market_code
 
 
 class TestHistoryResolve(unittest.TestCase):
@@ -22,9 +22,9 @@ class TestHistoryResolve(unittest.TestCase):
             {"date": "2026-01-02", "open": 1.5, "high": 2, "low": 1.4, "close": 1.8, "volume": 12},
         ]
         with patch(
-            "skills.common.history.fetch_us_daily_bars", return_value=bars
+            "adapters.market.history.fetch_us_daily_bars", return_value=bars
         ), patch(
-            "skills.common.history.resolve_market_code", return_value=("US", "AAPL")
+            "adapters.market.history.resolve_market_code", return_value=("US", "AAPL")
         ):
             out, src = fetch_daily_bars("AAPL", limit=10)
         self.assertEqual(src, "akshare_us_daily")
@@ -43,18 +43,18 @@ class TestHistoryResolve(unittest.TestCase):
             for i in range(1, 50)
         ]
         with patch(
-            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+            "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
         ), patch(
             "core.store.peek_daily_cache_meta",
             return_value={"adjust_policy": "qfq"},
         ), patch(
-            "skills.common.history.load_daily_cache",
+            "adapters.market.history.load_daily_cache",
             side_effect=[
                 None,  # fresh miss
                 (stale_bars, {"data_source": "akshare_cn_daily:qfq"}),  # ignore_age
             ],
         ), patch(
-            "skills.common.history.fetch_a_daily_bars",
+            "adapters.market.history.fetch_a_daily_bars",
             side_effect=AssertionError("should not hit network"),
         ):
             out, src = fetch_daily_bars(
@@ -63,10 +63,57 @@ class TestHistoryResolve(unittest.TestCase):
         self.assertEqual(len(out), 40)
         self.assertTrue(str(src).startswith("cache"))
 
+    def test_offline_only_skips_network_on_cache_miss(self):
+        with patch(
+            "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
+        ), patch(
+            "core.store.peek_daily_cache_meta",
+            return_value={"adjust_policy": "qfq"},
+        ), patch(
+            "adapters.market.history.load_daily_cache",
+            return_value=None,
+        ), patch(
+            "adapters.market.history.fetch_a_daily_bars",
+            side_effect=AssertionError("should not hit network"),
+        ):
+            out, src = fetch_daily_bars(
+                "600519", limit=40, offline_only=True, incremental=False
+            )
+        self.assertEqual(out, [])
+        self.assertEqual(src, "empty")
+
+    def test_offline_only_returns_short_cache_without_network(self):
+        short = [
+            {
+                "date": f"2026-01-{i:02d}",
+                "open": 1,
+                "high": 2,
+                "low": 1,
+                "close": 1.5,
+                "volume": 10,
+            }
+            for i in range(1, 8)
+        ]
+        with patch(
+            "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
+        ), patch(
+            "core.store.peek_daily_cache_meta",
+            return_value={"adjust_policy": "qfq"},
+        ), patch(
+            "adapters.market.history.load_daily_cache",
+            return_value=(short, {"data_source": "akshare_cn_daily:qfq"}),
+        ), patch(
+            "adapters.market.history.fetch_a_daily_bars",
+            side_effect=AssertionError("should not hit network"),
+        ):
+            out, src = fetch_daily_bars("600519", limit=40, offline_only=True)
+        self.assertEqual(len(out), 7)
+        self.assertTrue(str(src).startswith("cache"))
+
     def test_fetch_a_daily_falls_back_to_sina(self):
         from types import ModuleType
 
-        from skills.common.history import fetch_a_daily_bars
+        from adapters.market.history import fetch_a_daily_bars
 
         class _DF:
             empty = False

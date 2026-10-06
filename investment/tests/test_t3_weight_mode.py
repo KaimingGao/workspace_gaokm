@@ -114,11 +114,96 @@ class TestT3WeightMode(unittest.TestCase):
             self.assertEqual(sample.get("weight_mode"), "score_budget")
 
     def test_portfolio_request_accepts_weight_mode(self):
-        from web.schemas import PortfolioBacktestRequest
+        from web.schemas import PaperReplayBacktestRequest, PortfolioBacktestRequest
 
-        body = PortfolioBacktestRequest(weight_mode="score_budget")
-        self.assertEqual(body.weight_mode, "score_budget")
-        self.assertEqual(body.max_position_pct, 40.0)
+        research = PortfolioBacktestRequest(weight_mode="score_budget")
+        self.assertEqual(research.weight_mode, "score_budget")
+        self.assertEqual(research.max_position_pct, 25.0)
+        self.assertFalse(hasattr(research, "engine"))
+
+        body = PaperReplayBacktestRequest()
+        self.assertEqual(body.fusion_w_co, 1.0)
+        self.assertFalse(hasattr(body, "y_on_alpha"))
+        self.assertFalse(hasattr(body, "fusion_w_trade"))
+        self.assertFalse(hasattr(body, "fusion_w_nowcast"))
+        self.assertEqual(body.rank_enter, 0.001)
+        self.assertEqual(body.rank_strong, 0.001)
+        self.assertEqual(body.fill_clock, "09:30")
+        self.assertEqual(body.lot_base_amount, 10000)
+        self.assertEqual(body.lot_strong_amount, 20000)
+        self.assertEqual(body.initial_cash, 200_000.0)
+        self.assertTrue(body.price_space_gate)
+        self.assertFalse(hasattr(body, "y_oo_enter"))
+        self.assertFalse(hasattr(body, "y_oc_enter"))
+        self.assertFalse(hasattr(body, "rank_exit"))
+        self.assertFalse(hasattr(body, "lot_reduce"))
+        self.assertTrue(body.y_enter_enabled)
+        self.assertFalse(hasattr(body, "y_hl_gt0"))
+        self.assertFalse(body.y_oo_gt0)
+        self.assertFalse(hasattr(body, "y_oc_gt0"))
+        self.assertFalse(hasattr(body, "universe_fit_tiers"))
+        self.assertFalse(hasattr(body, "engine"))
+        self.assertFalse(hasattr(body, "top_k"))
+
+    def test_replay_request_ignores_legacy_topk_fields(self):
+        from web.schemas import PaperReplayBacktestRequest
+
+        body = PaperReplayBacktestRequest(
+            engine="topk_research",
+            top_k=3,
+            horizon_days=3,
+            dropout_n=2,
+            lookback=40,
+        )
+        self.assertEqual(body.lookback, 40)
+        self.assertFalse(hasattr(body, "engine"))
+        self.assertFalse(hasattr(body, "top_k"))
+        self.assertFalse(hasattr(body, "horizon_days"))
+
+    def test_portfolio_request_fusion_w_co_range(self):
+        from pydantic import ValidationError
+        from web.schemas import PaperReplayBacktestRequest
+
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_co=0.5).fusion_w_co, 0.5)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_co=1).fusion_w_co, 1.0)
+        with self.assertRaises(ValidationError):
+            PaperReplayBacktestRequest(fusion_w_co=10.1)
+        with self.assertRaises(ValidationError):
+            PaperReplayBacktestRequest(fusion_w_co=-0.1)
+
+    def test_portfolio_request_fusion_weights(self):
+        from pydantic import ValidationError
+        from web.schemas import PaperReplayBacktestRequest
+
+        body = PaperReplayBacktestRequest(fusion_w_oo=0.7, fusion_w_oc=0.3)
+        self.assertEqual(body.fusion_w_oo, 0.7)
+        self.assertEqual(body.fusion_w_oc, 0.3)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_oo=0).fusion_w_oo, 0.0)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_oc=1).fusion_w_oc, 1.0)
+        with self.assertRaises(ValidationError):
+            PaperReplayBacktestRequest(fusion_w_oo=1.1)
+        with self.assertRaises(ValidationError):
+            PaperReplayBacktestRequest(fusion_w_oc=-0.1)
+
+    def test_portfolio_request_rank_thresholds(self):
+        from pydantic import ValidationError
+        from web.schemas import PaperReplayBacktestRequest
+
+        body = PaperReplayBacktestRequest(rank_enter=0.015, rank_strong=0.03)
+        self.assertEqual(body.rank_enter, 0.015)
+        self.assertEqual(body.rank_strong, 0.03)
+        # 旧乘数 1.01 仍可进请求体，服务层 coerce 成 0.01
+        self.assertEqual(PaperReplayBacktestRequest(rank_enter=1.01).rank_enter, 1.01)
+        with self.assertRaises(ValidationError):
+            PaperReplayBacktestRequest(rank_enter=-0.01)
+        with self.assertRaises(ValidationError):
+            PaperReplayBacktestRequest(rank_strong=10.1)
+        self.assertEqual(PaperReplayBacktestRequest(lookback=10).lookback, 10)
+        with self.assertRaises(ValidationError):
+            PaperReplayBacktestRequest(lookback=9)
+        # universe_fit_tiers 已移除，Pydantic 忽略多余字段
+        body = PaperReplayBacktestRequest()
+        self.assertFalse(hasattr(body, "universe_fit_tiers"))
 
 
 if __name__ == "__main__":

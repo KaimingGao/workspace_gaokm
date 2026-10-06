@@ -24,16 +24,53 @@ export function truncateName(name, max = 6) {
 }
 
 export function colStyle(col) {
-  if (col.flex) return "flex:1 1 auto;min-width:0;width:auto;";
+  // 兼容旧调用；行级已改用 grid-template-columns，单元格需可读下限，防窄屏挤成「空」
+  if (col.flex) {
+    const min = col.flexMin != null ? String(col.flexMin) : "0";
+    return `min-width:${min};`;
+  }
   if (col.widthPct != null) {
-    const w = col.widthPct;
-    return `flex:0 0 ${w}%;width:${w}%;min-width:0;max-width:${w}%;`;
+    const min = col.widthMin != null ? String(col.widthMin) : "3.1rem";
+    return `min-width:${min};`;
   }
   if (col.width != null) {
     const w = Number(col.width);
-    return `flex:0 0 ${w}px;width:${w}px;min-width:${w}px;max-width:${w}px;`;
+    return `min-width:${w}px;width:${w}px;`;
   }
-  return "flex:0 0 auto;min-width:0;";
+  return "min-width:0;";
+}
+
+/** 表头/表体共用同一套轨道，避免 flex + max-width 导致列错位 */
+export function gridTemplateColumns(columns, { shrink = false } = {}) {
+  return (columns || [])
+    .map((col) => {
+      if (col.flex) {
+        // flexMin：因子+徽章等需要更宽下限，避免被 overflow 裁切
+        const min = shrink
+          ? "0"
+          : col.flexMin != null
+            ? String(col.flexMin)
+            : "6.5rem";
+        const fr =
+          col.flexFr != null && Number(col.flexFr) > 0
+            ? Number(col.flexFr)
+            : 1.35;
+        return `minmax(${min}, ${fr}fr)`;
+      }
+      // widthPct 作相对权重（fr），并设 rem 下限，避免 % 轨在窄容器里塌成 0
+      if (col.widthPct != null) {
+        const w = Math.max(2, Number(col.widthPct) || 8);
+        const min = shrink
+          ? "0"
+          : col.widthMin != null
+            ? String(col.widthMin)
+            : "3.1rem";
+        return `minmax(${min}, ${w}fr)`;
+      }
+      if (col.width != null) return `${Number(col.width)}px`;
+      return shrink ? "minmax(0, 1fr)" : "minmax(3.1rem, 1fr)";
+    })
+    .join(" ");
 }
 
 function makeEmitter() {
@@ -71,6 +108,8 @@ function defaultCompare(id, a, b) {
  *   columns: Array<object>,
  *   emptyText?: string,
  *   rowHeight?: number,
+ *   fit?: "host",
+ *   shrinkTracks?: boolean,
  *   rootClass?: string,
  *   bodyClass?: string,
  *   initialSort?: Array<{column:string, dir:string}>,
@@ -104,6 +143,13 @@ export function mountVirtualTable(host, options = {}) {
   const bodyClass = options.bodyClass
     ? `watching-react-grid-body ${options.bodyClass}`
     : "watching-react-grid-body";
+  const fitHost = options.fit === "host";
+  const shrinkTracks =
+    options.shrinkTracks != null ? !!options.shrinkTracks : fitHost;
+  const gridCols = gridTemplateColumns(columns, { shrink: shrinkTracks });
+  const rowTrackStyle = fitHost
+    ? `display:grid;grid-template-columns:${gridCols};align-items:center;width:100%;min-width:0;box-sizing:border-box;`
+    : `display:grid;grid-template-columns:${gridCols};align-items:center;width:max-content;min-width:100%;box-sizing:border-box;`;
 
   host.innerHTML =
     `<div class="${escapeHtml(rootClass)}">` +
@@ -130,6 +176,10 @@ export function mountVirtualTable(host, options = {}) {
       let cmp = compareFn(s.id, a, b);
       if (!Number.isFinite(cmp)) cmp = 0;
       if (cmp !== 0) return cmp * dir;
+      if (typeof options.tiebreak === "function") {
+        const tb = options.tiebreak(s.id, a, b);
+        if (Number.isFinite(tb) && tb !== 0) return tb;
+      }
       return String(a.code || "").localeCompare(String(b.code || ""), "zh-CN", {
         numeric: true,
       });
@@ -137,16 +187,23 @@ export function mountVirtualTable(host, options = {}) {
     return out;
   }
 
+  function syncHeadScrollbarGutter() {
+    // 表体出现纵向滚动条时，给表头补同等右内边距，避免列与表头错位
+    const sb = Math.max(0, (bodyEl.offsetWidth || 0) - (bodyEl.clientWidth || 0));
+    headEl.style.paddingRight = sb > 0 ? `${sb}px` : "";
+  }
+
   function paintHead() {
     const s = sortState[0];
     const ctx = { sortState, rows: snapshot().rows };
     headEl.innerHTML =
-      `<div class="watching-react-grid-row is-head">` +
+      `<div class="watching-react-grid-row is-head" style="${rowTrackStyle}">` +
       columns
         .map((col) => {
           const sorted = s && s.id === col.id;
           const arrow = sorted ? (s.desc ? " ↓" : " ↑") : "";
           const extraCls = [
+            `watching-col-${col.id}`,
             col.num ? "watching-col-num" : "",
             col.sortable ? "is-sortable" : "",
             col.headClass || "",
@@ -158,17 +215,24 @@ export function mountVirtualTable(host, options = {}) {
             typeof options.headHtml === "function"
               ? options.headHtml(col, ctx)
               : `${escapeHtml(col.label || "")}${arrow}`;
+          const tipParts = [];
+          if (col.title) tipParts.push(String(col.title));
+          else if (col.label) tipParts.push(String(col.label));
+          if (col.sortable) tipParts.push("点击排序");
+          const tip = tipParts.join(" · ");
           return (
             `<div class="watching-react-grid-cell${extraCls ? ` ${extraCls}` : ""}" ` +
             `style="${colStyle(col)}" ` +
             (col.sortable
-              ? `data-sort="${escapeHtml(col.id)}" role="button" tabindex="0" title="点击排序"`
-              : `title="${escapeHtml(col.title || col.label || "")}"`) +
+              ? `data-sort="${escapeHtml(col.id)}" role="button" tabindex="0"`
+              : "") +
+            (tip ? ` title="${escapeHtml(tip)}"` : "") +
             `>${inner}</div>`
           );
         })
         .join("") +
       `</div>`;
+    syncHeadScrollbarGutter();
   }
 
   function attrsHtml(d) {
@@ -203,7 +267,7 @@ export function mountVirtualTable(host, options = {}) {
         `<div ${attrsHtml(d)} class="${escapeHtml(cls)}" ` +
         `style="position:absolute;top:0;left:0;transform:translateY(${
           i * rowHeight
-        }px);width:100%;height:${rowHeight}px;display:flex;align-items:center">` +
+        }px);height:${rowHeight}px;${rowTrackStyle}">` +
         columns
           .map((col) => {
             const extraCls = [
@@ -225,6 +289,7 @@ export function mountVirtualTable(host, options = {}) {
     html += `</div>`;
     bodyEl.innerHTML = html;
     bodyEl.scrollTop = scrollTop;
+    syncHeadScrollbarGutter();
   }
 
   function publish(kind) {
@@ -282,11 +347,24 @@ export function mountVirtualTable(host, options = {}) {
     if (!col || !col.sortable) return;
     const cur = sortState[0];
     if (cur && cur.id === id) sortState = [{ id, desc: !cur.desc }];
-    else sortState = [{ id, desc: id !== "code" && id !== "name" }];
+    else {
+      let desc = id !== "code" && id !== "name";
+      if (col.defaultDir === "asc") desc = false;
+      else if (col.defaultDir === "desc") desc = true;
+      sortState = [{ id, desc }];
+    }
     publish("sort");
   });
 
   bodyEl.addEventListener("scroll", () => paintBody(), { passive: true });
+
+  let resizeObs = null;
+  if (typeof ResizeObserver !== "undefined") {
+    resizeObs = new ResizeObserver(() => syncHeadScrollbarGutter());
+    resizeObs.observe(bodyEl);
+  } else {
+    window.addEventListener("resize", syncHeadScrollbarGutter);
+  }
 
   bodyEl.addEventListener("click", (e) => {
     const row = e.target.closest(".watching-react-grid-row[data-code]");
@@ -327,6 +405,16 @@ export function mountVirtualTable(host, options = {}) {
       publish("sort");
     },
     destroy() {
+      if (resizeObs) {
+        try {
+          resizeObs.disconnect();
+        } catch (_) {
+          /* ignore */
+        }
+        resizeObs = null;
+      } else {
+        window.removeEventListener("resize", syncHeadScrollbarGutter);
+      }
       host.innerHTML = "";
     },
     /** 暴露以便页内做全选等需要重绘表头的操作 */

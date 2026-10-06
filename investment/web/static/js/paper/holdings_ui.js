@@ -8,10 +8,30 @@ import {
   escapeText,
   fmtPct,
   metricCls,
-  fmtScore,
+  fmtTableScore,
   scoreCls,
-} from "./fmt.js";
+  resolveRankingScore,
+  resolveEodScore,
+  resolveTauScore,
+  resolveOnScore,
+  isHeuristicScoreScale,
+  Y_EOD_TITLE,
+  Y_OC_REBALANCE_TITLE,
+  Y_ON_TITLE,
+  RANKING_REBALANCE_TITLE,
+} from "./fmt.js?v=p2544";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p2746";
+import {
+  isSingleHeadItem,
+  singleHeadBadgeHtml,
+  yCheckBadgeHtml,
+} from "../quant/watching_insights_ui.js?v=p2544";
+import { formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2389";
+import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
+import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
+import { fitTierBadgeForCode } from "../quant/fit_tier_ui.js?v=p2261";
+import { predTierBadgeHtml } from "../quant/pred_tier_ui.js?v=p2749";
 
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
@@ -27,37 +47,10 @@ function sentPlaceholderHtml(code) {
 }
 
 export function buildPaperOriginBarHtml(summary) {
-  const originSummary = (summary && summary.origin_summary) || [];
-  if (!originSummary.length) return "";
-  const originBrief = originSummary
-    .map((o) => `${o.origin_label || o.origin || "—"} ${o.count}只`)
-    .join(" · ");
-  return (
-    `<details class="paper-origin-fold">` +
-    `<summary class="paper-origin-fold-summary" title="按出处汇总市值与浮盈亏">出处对照 · ${escapeText(
-      originBrief
-    )}</summary>` +
-    `<div class="paper-origin-summary" aria-label="出处对照明细">` +
-    originSummary
-      .map((o) => {
-        const key = o.origin || "unknown";
-        const pnl = o.pnl_pct;
-        const pnlText =
-          pnl == null
-            ? ""
-            : ` · ${Number(pnl) >= 0 ? "+" : ""}${Number(pnl).toFixed(1)}%`;
-        return (
-          `<span class="paper-origin-chip is-${escapeText(
-            String(key)
-          )}" title="市值占比 ${escapeText(String(o.weight_pct ?? "—"))}%">` +
-          `${escapeText(o.origin_label || key)} ${escapeText(String(o.count))}只` +
-          ` · ${escapeText(String(o.market_value ?? "—"))}${pnlText}` +
-          `</span>`
-        );
-      })
-      .join("") +
-    `</div></details>`
-  );
+  // 冗余下线：出处对照（手动 X 只 · 市值 · 浮盈亏 vs 策略 X 只）与
+  // 单只持仓表行内的出处 chip 信息重复，故整块不再渲染。
+  // 如后续恢复，把 return 上面的代码块重启用即可（原逻辑保留在 git 历史）。
+  return "";
 }
 
 export function buildPaperHoldActionBarHtml({ selectedHoldCode, holdings }) {
@@ -108,7 +101,6 @@ export function buildPaperHoldingsTableHtml({
   idPrefix = "paper-holdings",
   sentHtmlByCode = null,
 }) {
-  const fmtScoreLocal = fmtScore;
   const sentMap = sentHtmlByCode || {};
 
   function sortThHtml(label, key) {
@@ -116,14 +108,25 @@ export function buildPaperHoldingsTableHtml({
     const arrow = !active ? "" : holdingsSortDir === "asc" ? " ↑" : " ↓";
     const nextHint =
       key === "code"
-        ? "按代码排序"
+        ? "股票代码 · 点击排序"
         : key === "score"
-          ? "按评分排序"
-          : key === "pnl"
-            ? "按浮盈亏排序 · 相对持仓成本：(现价÷成本−1)×100%"
-            : "按市值排序";
+          ? `${RANKING_REBALANCE_TITLE} · 点击排序`
+            : key === "score_eod"
+            ? `${Y_EOD_TITLE} · 点击排序`
+            : key === "score_tau"
+              ? `${Y_OC_REBALANCE_TITLE} · 点击排序`
+            : key === "score_on"
+              ? `${Y_ON_TITLE} · 点击排序`
+            : key === "pnl"
+            ? "浮盈亏 = 现价 − 成本价（相对成本的浮动盈亏 %）· 点击排序"
+            : key === "chg"
+              ? "相对昨收的涨跌幅 % · 点击排序"
+              : key === "tier"
+                ? "可预测性分档 A/B/C · 同档按 ranking 从高到低 · 点击排序"
+              : "市值 = 现价 × 股数 · 点击排序";
+    const tierCls = key === "tier" ? " paper-hold-tier" : "";
     return (
-      `<th class="paper-hold-sort${active ? " is-sorted" : ""}" ` +
+      `<th class="paper-hold-sort${tierCls}${active ? " is-sorted" : ""}" ` +
       `data-sort="${key}" role="button" tabindex="0" title="${nextHint}">${label}${arrow}</th>`
     );
   }
@@ -138,14 +141,43 @@ export function buildPaperHoldingsTableHtml({
       const code = h.stock_code || "";
       const pnl = h.pnl_pct;
       const startDate = h.bought_date || "—";
-      const score = h.score;
+      const score = resolveRankingScore(h);
+      const scoreEod = resolveEodScore(h);
+      const scoreTau = resolveTauScore(h);
+      const scoreOn = resolveOnScore(h);
       const belowMin = !!h.below_min_score;
-      const scoreBase = fmtScoreLocal(score);
-      const scoreShown =
+      const hardReject = !!h.hard_reject;
+      const scoreBase = fmtTableScore(h, score);
+      let scoreShown =
         scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
-      const scoreTitle = belowMin
-        ? `低于选股门槛 ${h.min_score ?? "—"}（仍显示分数）· 悬停看详情`
-        : "悬停查看收益分与因子系数";
+      if (scoreShown === "—" && hardReject) scoreShown = "拒";
+      const scoreEodShown = fmtTableScore(h, scoreEod);
+      const scoreTauShown = fmtTableScore(h, scoreTau);
+      const scoreOnShown = fmtTableScore(h, scoreOn);
+      const singleHead = isSingleHeadItem(h);
+      const scoreTitle = hardReject
+        ? String(h.reject_reason || "硬拒绝 · 无收益分")
+        : isHeuristicScoreScale(h)
+          ? score != null
+            ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
+            : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
+          : singleHead
+            ? `ranking 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
+          : belowMin
+            ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 ranking）· 悬停看详情`
+            : RANKING_REBALANCE_TITLE;
+      const oosFailed =
+        !!h.oos_failed ||
+        isHeuristicScoreScale(h) ||
+        String(h.return_model_source || "").startsWith("oos_failed");
+      const oosBadge = oosFailed
+        ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
+        : "";
+      const singleHeadBadge = singleHead ? singleHeadBadgeHtml(h, escapeText) : "";
+      const yCheckBadge = yCheckBadgeHtml(h, escapeText);
+      const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
+      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
+      const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -165,24 +197,80 @@ export function buildPaperHoldingsTableHtml({
           ? " is-focus-holding"
           : "";
 
+      const scoreDetailJson = escapeText(watchingScoreDetail(h));
+
       return (
         `<tr data-code="${escapeText(code)}" data-shares="${escapeText(
           h.shares ?? ""
         )}" ` +
-        `class="paper-hold-row${active}${adjustActive}${focusCls}" title="点击选中并查看曲线">` +
+        `class="paper-hold-row${active}${adjustActive}${focusCls}${
+          oosFailed ? " is-oos-failed" : ""
+        }" title="点击选中并查看曲线">` +
         `<td class="paper-wl-name">` +
+        `<span class="watching-name-row">` +
         `<span class="paper-wl-name-text">${escapeText(name)}</span>` +
+        fitTierBadgeForCode(code, { escapeHtml: escapeText }) +
+        oosBadge +
+        `</span>` +
         `<span class="paper-wl-code">${escapeText(code)}</span>` +
         `</td>` +
+        `<td class="watching-col-center paper-hold-tier">${predTierBadgeHtml(code, escapeText)}</td>` +
         `<td class="watching-col-center paper-hold-sent">${
           sentMap[code] || sentPlaceholderHtml(code)
         }</td>` +
-        `<td class="num">${escapeText(h.shares ?? "—")}</td>` +
+        `<td class="num"><span class="paper-hold-shares-qty has-tip" title="${escapeText(
+          buildHoldingSharesTip(h) || `持仓 ${h.shares ?? "—"} 股`
+        )}">${escapeText(h.shares ?? "—")}</span></td>` +
+        `<td class="watching-col-center paper-hold-t0">${holdingT0BadgeHtml(
+          h.t0_intraday,
+          escapeText
+        )}</td>` +
+        `<td class="num paper-hold-prev-close" title="上一交易日收盘价">${escapeText(
+          formatPrevCloseDisplay(h, { unit: h.unit, currency: h.currency })
+        )}</td>` +
+        `<td class="num paper-hold-open" title="今日开盘价">${escapeText(
+          String(formatOpenDisplay(h, { unit: h.unit, currency: h.currency })).replace(/元$/u, "")
+        )}</td>` +
         `<td class="num paper-hold-price">${fmtPriceUnit(
           h.price,
           h.unit,
           h.currency
         )}</td>` +
+        `<td class="num paper-hold-chg has-tip ${metricCls(h.change_pct)}" ` +
+        `data-hold-chg-code="${escapeText(code)}" data-hold-chg-name="${escapeText(name)}" ` +
+        `data-hold-chg-asof="${escapeText(
+          String(h.change_asof || h.quote_as_of || h.as_of || "").slice(0, 10)
+        )}" data-hold-chg-num="${
+          h.change_pct != null && Number.isFinite(Number(h.change_pct))
+            ? escapeText(String(Number(h.change_pct)))
+            : ""
+        }" data-hold-chg-tip="${escapeText(code)}" ` +
+        `title="相对昨收 · 悬停看涨跌日5m K">${fmtPct(h.change_pct, {
+          signed: true,
+        })}</td>` +
+        `<td class="num paper-hold-score watching-score-eod has-tip ${scoreCls(
+          scoreEod
+        )}" data-score-detail="${scoreDetailJson}" data-score-tip="eod" title="${escapeText(
+          scoreEodTitle
+        )}">${escapeText(scoreEodShown)}</td>` +
+        `<td class="num paper-hold-score watching-score-tau has-tip ${scoreCls(
+          scoreTau
+        )}" data-score-detail="${scoreDetailJson}" data-score-tip="tau" title="${escapeText(
+          scoreTauTitle
+        )}">${escapeText(scoreTauShown)}</td>` +
+        `<td class="num paper-hold-score watching-score-on has-tip ${scoreCls(
+          scoreOn
+        )}" data-score-detail="${scoreDetailJson}" data-score-tip="on" title="${escapeText(
+          scoreOnTitle
+        )}">${escapeText(scoreOnShown)}</td>` +
+        `<td class="num paper-hold-score has-tip ${scoreCls(score)}${
+          belowMin ? " score-below-min" : ""
+        }${hardReject ? " score-reject" : ""}${
+          singleHead ? " score-single-head" : ""
+        }" ` +
+        `data-score-detail="${scoreDetailJson}" data-score-tip="ranking" title="${escapeText(
+          scoreTitle
+        )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
         `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
           h.cost,
           h.unit,
@@ -193,29 +281,6 @@ export function buildPaperHoldingsTableHtml({
           h.unit,
           h.currency
         )}</td>` +
-        `<td class="num paper-hold-score ${scoreCls(score)}${
-          belowMin ? " score-below-min" : ""
-        }" ` +
-        `data-score-detail="${escapeText(
-          JSON.stringify({
-            formula: h.score_formula || "",
-            reasons: h.score_reasons || [],
-            hard_reject: h.hard_reject,
-            reject_reason: h.reject_reason || "",
-            weight_source: h.weight_source || "",
-            cluster_label: h.cluster_label || "",
-            cluster_mode: h.cluster_mode || "",
-            cluster_version: h.cluster_version,
-            score_global: h.score_global,
-            score_cluster: h.score_cluster,
-            min_score: h.min_score,
-            below_min_score: belowMin,
-            return_model_source: h.return_model_source || "",
-            factor_coefficients: h.factor_coefficients || {},
-            formula_terms: h.score_formula_terms || null,
-            predicted_score: h.predicted_score != null ? h.predicted_score : score,
-          })
-        )}" title="${escapeText(scoreTitle)}">${escapeText(scoreShown)}</td>` +
         `<td class="num paper-hold-pnl ${metricCls(pnl)}">${fmtPct(pnl, {
           signed: true,
         })}</td>` +
@@ -234,10 +299,24 @@ export function buildPaperHoldingsTableHtml({
   const tableHtml =
     `<div class="paper-holdings-scroll">` +
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
-    `<th>股票</th><th class="watching-col-center">情绪</th><th>股数</th><th>现价</th><th title="持仓加权平均成本，对账用">成本</th>` +
-    `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
+    `<th title="股票名称与代码">股票</th>` +
+    `${sortThHtml("分档", "tier")}` +
+    `<th class="watching-col-center" title="标题情绪摘要">情绪</th>` +
+    `<th title="持仓股数">股数</th>` +
+    `<th class="watching-col-center paper-hold-t0-head" title="当日实时做 T：正T/反T · 盯盘/一腿/完成">做T</th>` +
+    `<th title="上一交易日收盘价">昨收</th>` +
+    `<th title="今日开盘价">今开</th>` +
+    `<th title="最新成交价">现价</th>` +
+    `${sortThHtml("涨跌", "chg")}` +
+    `${sortThHtml("y_oo", "score_eod")}` +
+    `${sortThHtml("y_τc", "score_tau")}` +
+    `${sortThHtml("y_co", "score_on")}` +
+    `${sortThHtml("ranking", "score")}` +
+    `<th title="持仓加权平均成本">成本</th>` +
+    `${sortThHtml("市值", "market_value")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +
-    `<th>开始</th><th class="paper-hold-origin">出处</th>` +
+    `<th title="建仓日期">开始</th>` +
+    `<th class="paper-hold-origin" title="仓位来源：手动 / 策略 / 混合">出处</th>` +
     `</tr></thead><tbody>${rows}</tbody></table></div>`;
 
   const action = buildPaperHoldActionBarHtml({ selectedHoldCode, holdings });

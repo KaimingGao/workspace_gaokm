@@ -69,7 +69,7 @@ class TestXTrackLiveFeatures(unittest.TestCase):
         self.assertTrue(meta.get("ann_missing"))
 
     def test_factor_health_blocks_money_flow_weight(self):
-        from core.signal.factor_health import (
+        from core.signal.factors.meta.health import (
             assess_factor_health,
             guard_weights_for_promote,
         )

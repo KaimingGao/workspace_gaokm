@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "codes": [],
+  "max_size": 2000,
+  "note": "日线研究宇宙示例。复制为 research_universe.json 后填入 codes（可宽于观察池）。分钟暖仓 / live 仍只读 watching.json，勿把宽名单塞进观察池。"
+}

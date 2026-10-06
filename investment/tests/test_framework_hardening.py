@@ -10,16 +10,16 @@ from unittest.mock import patch
 
 class TestPortsAdapters(unittest.TestCase):
     def tearDown(self) -> None:
-        from core.ports.adapters import clear_adapters
+        from core.ports.registry import clear_adapters
 
         clear_adapters()
 
     def test_set_adapter_bypasses_skills(self):
         from core.ports import market
-        from core.ports.adapters import set_adapter
+        from core.ports.registry import set_adapter
 
         set_adapter("query_quote", lambda code: {"success": True, "stock_code": code, "price_raw": 1.23})
-        from core.ports.adapters import mark_bound
+        from core.ports.registry import mark_bound
 
         mark_bound()
         q = market.query_quote("600519")
@@ -27,8 +27,8 @@ class TestPortsAdapters(unittest.TestCase):
         self.assertEqual(q["price_raw"], 1.23)
 
     def test_ensure_bound_registers_defaults(self):
-        from core.ports.adapters import clear_adapters, get_adapter
-        from skills.ports_bind import bind_market_adapters
+        from adapters.bind import bind_market_adapters
+        from core.ports.registry import clear_adapters, get_adapter
 
         clear_adapters()
         bind_market_adapters(force=True)
@@ -41,10 +41,10 @@ class TestPortsAdapters(unittest.TestCase):
         self.assertIsNotNone(get_adapter("load_disk_spot"))
         self.assertIsNotNone(get_adapter("fetch_minute_bars"))
         self.assertIsNotNone(get_adapter("fetch_cn_financial_series"))
+        self.assertIsNotNone(get_adapter("fetch_index_bars"))
 
     def test_core_has_no_hard_skills_imports(self):
-        """O2：core 内仅 adapters 可 lazy import skills.ports_bind。"""
-        import os
+        """O2：core 不得 hard import skills；registry 仅 lazy import adapters.bind。"""
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1] / "core"
@@ -53,9 +53,106 @@ class TestPortsAdapters(unittest.TestCase):
             rel = path.relative_to(root.parent)
             text = path.read_text(encoding="utf-8")
             if "from skills." in text or "import skills." in text:
-                if path.name == "adapters.py" and "skills.ports_bind" in text:
-                    continue
                 offenders.append(str(rel))
+        self.assertEqual(offenders, [])
+
+    def test_adapters_bind_has_no_skills_imports(self):
+        """出站绑定只登记 adapters.*，不再从 skills 挂实现。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "adapters"
+        offenders = []
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if "from skills." in text or "import skills." in text:
+                offenders.append(str(path.relative_to(root.parent)))
+        self.assertEqual(offenders, [])
+
+    def test_core_business_reads_via_data_service(self):
+        """DS-E5：业务模块不得直 import ports.query_quote / fetch_daily_bars。
+
+        允许：core/ports/*、core/data/ports.py（适配器）。
+        """
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "core"
+        allow = {
+            Path("ports/market.py"),
+            Path("ports/__init__.py"),
+            Path("data/ports.py"),
+        }
+        patterns = [
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bquery_quote\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bfetch_daily_bars\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bbatch_query_quotes\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bfetch_index_bars\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bfetch_a_spot\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bbuild_news\b"),
+        ]
+        offenders = []
+        for path in root.rglob("*.py"):
+            rel = path.relative_to(root)
+            if rel in allow:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for pat in patterns:
+                if pat.search(text):
+                    offenders.append(f"{rel}: {pat.pattern}")
+                    break
+        self.assertEqual(offenders, [])
+
+    def test_business_scores_via_signal_service(self):
+        """SS-E3：services / web / quant/services / skills 不得直 import score_stock / rank_*。
+
+        允许：core/signal 实现层（service · score_stock · cross_section · batch）。
+        分组 ``cluster.rank`` 已退役；仍禁止任何 ``rank_cluster_pools`` 直 import。
+        """
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        scan_dirs = [
+            root / "services",
+            root / "web",
+            root / "quant" / "services",
+            root / "skills",
+            root / "core",
+            root / "scripts",
+            root / "research",
+        ]
+        allow_core = {
+            Path("signal/service.py"),
+            Path("signal/score_stock.py"),
+            Path("signal/cross_section.py"),
+            Path("signal/cross_section_batch.py"),
+            Path("signal_service.py"),
+        }
+        patterns = [
+            re.compile(r"from\s+core\.signal\.score_stock\s+import\s+[^\n]*\bscore_stock\b"),
+            re.compile(
+                r"from\s+core\.signal\.cross_section\s+import\s+[^\n]*\brank_cross_section\b"
+            ),
+            re.compile(
+                r"from\s+core\.signal\.cluster\.rank\s+import\s+[^\n]*\brank_cluster_pools\b"
+            ),
+        ]
+        offenders = []
+        for base in scan_dirs:
+            if not base.is_dir():
+                continue
+            for path in base.rglob("*.py"):
+                rel = path.relative_to(root)
+                if base.name == "core" or str(rel).startswith("core/"):
+                    core_rel = path.relative_to(root / "core")
+                    if core_rel in allow_core:
+                        continue
+                    # core 内其它模块也不得直调打分出口（须经 SignalService）
+                text = path.read_text(encoding="utf-8")
+                for pat in patterns:
+                    if pat.search(text):
+                        offenders.append(str(rel))
+                        break
         self.assertEqual(offenders, [])
 
     def test_quant_services_has_no_skills_imports(self):
@@ -102,7 +199,7 @@ class TestPortsAdapters(unittest.TestCase):
         from skills.quote.engine import QuoteEngine
 
         with patch(
-            "core.data_service.get_quote",
+            "core.data.facade.get_quote",
             return_value={"success": True, "stock_code": "600519", "data_source": "tencent_quote"},
         ) as mock_gq:
             out = QuoteEngine().query({"stock_code": "茅台"})
@@ -143,12 +240,12 @@ class TestPaperJobPersist(unittest.TestCase):
 class TestPaperCycleExport(unittest.TestCase):
     def test_reexport_from_paper(self):
         from core import paper
-        from core import paper_cycle
+        from core.paper import cycle as paper_cycle
 
         self.assertIs(paper.run_daily_cycle, paper_cycle.run_daily_cycle)
 
     def test_run_daily_cycle_callable_with_mocks(self):
-        from core.paper_cycle import run_daily_cycle
+        from core.paper.cycle import run_daily_cycle
 
         paper = {
             "cash": 100000,
@@ -157,17 +254,17 @@ class TestPaperCycleExport(unittest.TestCase):
             "operation_log": [],
             "snapshots": [],
         }
-        with patch("core.paper_cycle.run_signal_scan", return_value=[]), patch(
-            "core.paper_cycle.simulate_sells", return_value=[]
-        ), patch("core.paper_cycle.simulate_buys", return_value=[]), patch(
-            "core.paper_cycle.mark_to_market",
+        with patch("core.paper.cycle.run_signal_scan", return_value=[]), patch(
+            "core.paper.cycle.simulate_sells", return_value=[]
+        ), patch("core.paper.cycle.simulate_buys", return_value=[]), patch(
+            "core.paper.cycle.mark_to_market",
             return_value={"cash": 100000, "equity": 100000, "position_count": 0},
-        ), patch("core.paper_cycle.append_snapshot"), patch(
-            "core.paper_cycle.summarize_data_quality", create=True
+        ), patch("core.paper.cycle.append_snapshot"), patch(
+            "core.paper.cycle.summarize_data_quality", create=True
         ):
             # summarize is imported inside function; patch data_service instead
             with patch(
-                "core.data_service.summarize_data_quality",
+                "core.data.facade.summarize_data_quality",
                 return_value={"levels": {}, "fallback_count": 0, "count": 0},
             ), patch(
                 "core.strategy_monitor.assess_strategy_health",
@@ -176,7 +273,7 @@ class TestPaperCycleExport(unittest.TestCase):
                 "core.risk.check_account_risk",
                 return_value={"ok": True, "blocks": [], "warnings": []},
             ):
-                out = run_daily_cycle(paper, simulate_buy=False, strategy="short")
+                out = run_daily_cycle(paper, simulate_buy=False, strategy="short_conservative")
         self.assertTrue(out.get("success"))
         self.assertEqual(out.get("observation_pool_count"), 0)
 

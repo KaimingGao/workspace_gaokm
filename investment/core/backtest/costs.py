@@ -7,8 +7,10 @@
 - 组合调仓：按真实换手计费（续持不扣往返）
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -214,59 +216,6 @@ def rebalance_cost_pct(
     return round(cost_bps / 100.0, 6)
 
 
-def apply_trade_cost(
-    gross_return_pct: float,
-    *,
-    config: Optional[dict] = None,
-    bars: Optional[List[dict]] = None,
-    order_value: float = 0,
-    daily_volume: float = 0,
-) -> float:
-    """从毛收益扣除往返成本（单票/旧路径）。"""
-    cost = round_trip_cost_pct(config, bars, order_value, daily_volume)
-    return round(gross_return_pct - cost, 4)
-
-
-def apply_rebalance_cost(
-    gross_return_pct: float,
-    prev_codes: Optional[Sequence[str]] = None,
-    curr_codes: Optional[Sequence[str]] = None,
-    *,
-    config: Optional[dict] = None,
-    bars: Optional[List[dict]] = None,
-    order_value: float = 0,
-    daily_volume: float = 0,
-) -> float:
-    """从毛收益扣除调仓换手成本。"""
-    cost = rebalance_cost_pct(
-        prev_codes,
-        curr_codes,
-        config=config,
-        bars=bars,
-        order_value=order_value,
-        daily_volume=daily_volume,
-    )
-    return round(float(gross_return_pct) - cost, 4)
-
-
-def net_metrics_from_gross(
-    gross_returns: list,
-    *,
-    config: Optional[dict] = None,
-    bars: Optional[List[dict]] = None,
-) -> Dict[str, Any]:
-    from core.backtest.engine import _trade_metrics
-
-    net = [apply_trade_cost(r, config=config, bars=bars) for r in gross_returns]
-    gross_m = _trade_metrics(gross_returns)
-    net_m = _trade_metrics(net)
-    return {
-        "gross": gross_m,
-        "net": net_m,
-        "cost_assumption_pct": round_trip_cost_pct(config, bars),
-    }
-
-
 def get_cost_breakdown(
     price: float,
     shares: int,
@@ -290,14 +239,14 @@ def get_cost_breakdown(
     slippage_bps = estimate_slippage(bars, cfg) if bars else float(cfg.get("base_slippage_bps", 3.0))
     slippage_cost = gross_value * slippage_bps / 10000
 
-    # 冲击成本：用末根量价估日成交额
+    # 冲击成本：优先末根独立成交额，否则量×价
     daily_volume = 0.0
     if bars:
         last = bars[-1] or {}
         try:
-            px = float(last.get("close") or price or 0)
-            vol = float(last.get("volume") or 0)
-            daily_volume = px * vol if px > 0 and vol > 0 else 0.0
+            from core.bar_fields import bar_amount
+
+            daily_volume = float(bar_amount(last) or 0.0)
         except (TypeError, ValueError):
             daily_volume = 0.0
     impact_bps = estimate_impact_cost(gross_value, daily_volume, cfg)

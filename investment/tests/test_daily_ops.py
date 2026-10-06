@@ -16,7 +16,7 @@ from services.daily_service import DailyRunService
 from services.eval_service import EvalService
 from quant.services.quant_service import QuantService
 from unittest.mock import MagicMock, patch
-from core.watching_health import check_watching_health
+from core.watching.health import check_watching_health
 from quant.ops.daily_health import build_daily_health
 from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
 from quant.skill.engine import QuantEngine
@@ -119,6 +119,79 @@ class TestDailyWebPresets(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         run_mock.assert_called_once()
         self.assertEqual(run_mock.call_args.kwargs.get("preset"), "quant")
+        self.assertIsNone(run_mock.call_args.kwargs.get("top_k"))
+        self.assertIsNone(run_mock.call_args.kwargs.get("horizon_days"))
+
+    def test_api_run_passes_bt_overrides(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+        import web.deps as deps
+
+        mock_out = {"ok": True, "preset": "quant", "steps": [], "failures": []}
+        with patch.object(deps.daily, "run", return_value=mock_out) as run_mock:
+            client = TestClient(web_app.app)
+            res = client.post(
+                "/api/daily/run",
+                json={
+                    "preset": "quant",
+                    "lookback": 30,
+                    "fusion_w_co": 0.5,
+                    "rank_enter": 0.01,
+                    "rank_strong": 0.03,
+                },
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(run_mock.call_args.kwargs.get("lookback"), 30)
+        self.assertEqual(run_mock.call_args.kwargs.get("fusion_w_co"), 0.5)
+        self.assertEqual(run_mock.call_args.kwargs.get("rank_enter"), 0.01)
+        self.assertEqual(run_mock.call_args.kwargs.get("rank_strong"), 0.03)
+
+    def test_api_run_rejects_lookback_below_10(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+
+        client = TestClient(web_app.app)
+        res = client.post(
+            "/api/daily/run",
+            json={"preset": "quant", "lookback": 9},
+        )
+        self.assertEqual(res.status_code, 422)
+
+    def test_api_run_accepts_lookback_10(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+        import web.deps as deps
+
+        mock_out = {"ok": True, "preset": "quant", "steps": [], "failures": []}
+        with patch.object(deps.daily, "run", return_value=mock_out) as run_mock:
+            client = TestClient(web_app.app)
+            res = client.post(
+                "/api/daily/run",
+                json={"preset": "quant", "lookback": 10},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(run_mock.call_args.kwargs.get("lookback"), 10)
+
+    def test_api_presets_include_bt_defaults(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+
+        client = TestClient(web_app.app)
+        res = client.get("/api/daily/presets")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        bt = data.get("bt_defaults") or {}
+        self.assertEqual(bt.get("engine"), "paper_replay")
+        self.assertEqual(bt.get("lookback"), 30)
+        self.assertEqual(float(bt.get("fusion_w_co")), 0.0)
+        self.assertAlmostEqual(float(bt.get("rank_enter") or 0), 0.012)
+        self.assertAlmostEqual(float(bt.get("rank_strong") or 0), 0.012)
+        self.assertGreaterEqual(int(bt.get("paper_max_positions") or 0), 8)
+        self.assertIn("paper_horizon_days", bt)
 
 # --- test_p17_quant.py::TestWatchingHealth ---
 class TestWatchingHealth(unittest.TestCase):
@@ -220,7 +293,7 @@ class TestWatchingFileApi(unittest.TestCase):
     def test_read_watching_file_missing(self):
         with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "data")) as tmp:
             path = os.path.join(tmp, "watching.json")
-            with patch("core.watching_store.WATCHING_PATH", path):
+            with patch("core.watching.store.WATCHING_PATH", path):
                 out = QuantService().read_watching_file()
         self.assertFalse(out["exists"])
     def test_api_watching_file(self):
@@ -402,7 +475,7 @@ class TestSignalDiffExportCli(unittest.TestCase):
 
 # --- test_p22_quant.py::TestQuantPaperDailyIntegration ---
 class TestQuantPaperDailyIntegration(unittest.TestCase):
-    @patch("core.watching_health.check_watching_health")
+    @patch("core.watching.health.check_watching_health")
     def test_quant_paper_preset_runs_rebalance(self, mock_health):
         mock_health.return_value = {
             "success": True,
@@ -439,13 +512,55 @@ class TestQuantPaperDailyIntegration(unittest.TestCase):
                 "paths": {"markdown": "/tmp/x.md"},
             }
 
-            out = DailyRunService(paper=paper).run(preset="quant_paper")
+            with patch(
+                "core.paper.rebalance.auto_worker.already_ran_today",
+                return_value=False,
+            ), patch(
+                "core.paper.rebalance.auto_worker.after_auto_rebalance_window",
+                return_value=False,
+            ):
+                out = DailyRunService(paper=paper).run(preset="quant_paper")
 
         names = [s.get("name") for s in out.get("steps") or []]
         self.assertIn("paper_rebalance", names)
         reb = next(s for s in out["steps"] if s["name"] == "paper_rebalance")
         self.assertTrue(reb.get("ok"))
         paper.rebalance.assert_called_once()
+
+    @patch("core.watching.health.check_watching_health")
+    def test_quant_paper_skips_rebalance_after_open_window(self, mock_health):
+        mock_health.return_value = {
+            "success": True,
+            "issues": [],
+            "warnings": [],
+            "watchlist_count": 3,
+        }
+        paper = MagicMock()
+        paper.exists.return_value = True
+        with patch(
+            "core.paper.rebalance.auto_worker.already_ran_today",
+            return_value=False,
+        ), patch(
+            "core.paper.rebalance.auto_worker.after_auto_rebalance_window",
+            return_value=True,
+        ), patch("quant.services.quant_service.QuantService") as qcls:
+            inst = qcls.return_value
+            inst.refresh_watching.return_value = {"success": True, "refresh": {"count": 3}}
+            inst.run_cross_section.return_value = {"success": True, "ranked_count": 3}
+            inst.build_daily_report.return_value = {
+                "success": True,
+                "factor_ic": {"sample_count": 10},
+            }
+            inst.save_daily_report.return_value = os.path.join(ROOT, "data", "quant_daily.json")
+            inst.save_report_exports.return_value = {
+                "success": True,
+                "paths": {"markdown": "/tmp/x.md"},
+            }
+            out = DailyRunService(paper=paper).run(preset="quant_paper")
+        reb = next(s for s in out["steps"] if s["name"] == "paper_rebalance")
+        self.assertTrue(reb.get("ok"))
+        self.assertTrue(reb.get("skipped"))
+        paper.rebalance.assert_not_called()
 
 # --- test_p22_quant.py::TestCiPresetCheck ---
 class TestCiPresetCheck(unittest.TestCase):

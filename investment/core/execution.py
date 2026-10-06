@@ -9,12 +9,19 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib
+import os
 import json
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.t0.config import DEFAULT_T0_RULES, load_t0_rules
+from core.t0.config import (
+    DEFAULT_T0_RULES,
+    load_t0_rules,
+)
 
 DEFAULT_COUPLING: Dict[str, Any] = {
     "t0_vs_stance": "independent",  # independent | skip_if_avoid | only_if_hold
@@ -27,48 +34,171 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
     {
         "enabled",
         "t0_ratio",
-        "sell_trigger_pct",
-        "buy_trigger_pct",
-        "must_cover_same_day",
+        "must_cover_same_day_sell_then_buy",
+        "must_cover_same_day_buy_then_sell",
         "lot_size",
         "ref",
         "fill_mode",
+        "fill_mode_sell_then_buy",
+        "fill_mode_buy_then_sell",
         "direction",
         "path_mode",
         "minute_period",
-        "min_range_pct",
-        "use_atr",
-        "atr_window",
-        "atr_sell_mult",
-        "atr_buy_mult",
-        "dir_enter",
-        "auto_strong_pct",
-        "auto_weak_pct",
-        "w_gap",
-        "w_yclose_loc",
-        "w_mom3",
-        "w_gap_atr",
+        "residual_w_τc",
+        "residual_w_oc",
+        "residual_w_mode",
+        "y_tw_enter",
+        "y_τc_enter",
+        "y_τc_strong",
+        "y_τc_enter_amount",
+        "y_τc_strong_amount",
+        "y_tw_vote_margin",
+        "y_tw_midpoint",
+        "horizon_prob_backend",
+        "t0_y_τc_target_scale",
+        "t0_close_band_delta_pct",
+        "t0_price_space_gate",
+        "t0_price_space_max_dev_pct",
+        "t0_price_space_prev_dev_pct",
+        "t0_round_ratio",
+        "t0_max_position_pct",
+        "y_tau_exit_price_skip_buy_then_sell",
+        "y_tau_exit_price_mult_buy_then_sell",
+        "y_tau_exit_price_bias_buy_then_sell",
+        "y_tau_exit_price_move_min_buy_then_sell",
+        "y_tau_exit_price_move_max_buy_then_sell",
+        "y_tau_exit_price_skip_sell_then_buy",
+        "y_tau_exit_price_mult_sell_then_buy",
+        "y_tau_exit_price_bias_sell_then_buy",
+        "y_tau_exit_price_move_min_sell_then_buy",
+        "y_tau_exit_price_move_max_sell_then_buy",
+        "y_score_source",
+        "t0_pm_degrade_sell_then_buy",
+        "t0_pm_degrade_buy_then_sell",
+        "t0_pm_chase_interval_min_sell_then_buy",
+        "t0_pm_chase_interval_min_buy_then_sell",
+        "t0_pm_chase_cap_leg1_sell_then_buy",
+        "t0_pm_chase_cap_leg1_buy_then_sell",
+        "t0_stop_pct_buy_then_sell",
+        "t0_stop_pct_sell_then_buy",
+        "t0_stop_arm_bars",
+        "t0_stop_on_close",
+        "t0_lock_win_arm_bars",
+        "t0_lock_win_pct_buy_then_sell",
+        "t0_lock_win_pct_sell_then_buy",
+        "t0_slots_enabled",
+        "t0_slots",
+        "t0_slots_max_rounds",
     }
 )
 
 DEFAULT_RUNTIME: Dict[str, Any] = {
-    "paper_direction_fallback": "signal",
-    "backtest_direction_fallback": "signal",
-    "backtest_path_mode_no_minute": "veto",
+    "paper_direction_fallback": "dual_y",
+    "backtest_direction_fallback": "dual_y",
+    # 纸面/回测：强制 first_touch（已删除日线模拟）
+    "backtest_path_mode_no_minute": "first_touch",
     "backtest_path_mode_with_minute": "first_touch",
 }
 
 # 生产默认 overlay：钉住与现行纸面/回测一致的关键行为；其余继承 DEFAULT_T0_RULES
 DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "enabled": True,
-    "t0_ratio": 0.4,
-    "sell_trigger_pct": 2.0,
-    "buy_trigger_pct": 1.5,
+    "t0_ratio": 1.0,
     "fill_mode": "trigger",
-    "use_atr": True,
+    "fill_mode_sell_then_buy": "trigger",
+    "fill_mode_buy_then_sell": "trigger",
+    "must_cover_same_day_sell_then_buy": True,
+    "must_cover_same_day_buy_then_sell": True,
     "ref": "open",
     "lot_size": 100,
-    # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 的 auto/dual_touch 双轨
+    "residual_w_τc": 0.5,
+    "residual_w_oc": 0.5,
+    "residual_w_mode": "fixed",
+    "y_tw_enter": 2.0,
+    "y_τc_enter": 0.5,
+    "y_τc_strong": 1.0,
+    "y_τc_enter_amount": 20_000.0,
+    "y_τc_strong_amount": 40_000.0,
+    "y_tw_vote_margin": 5.0,
+    "y_tw_midpoint": 47.0,
+    "horizon_prob_backend": "ridge",
+    "t0_y_τc_target_scale": 2.0,
+    "t0_close_band_delta_pct": 0.5,
+    "t0_price_space_gate": True,
+    "t0_price_space_max_dev_pct": 0.0,
+    "t0_price_space_prev_dev_pct": 5.0,
+    "t0_round_ratio": 0.4,
+    "t0_max_position_pct": 1.0,
+    "t0_slots_max_rounds": 5,
+    "y_tau_exit_price_skip_buy_then_sell": True,
+    "y_tau_exit_price_mult_buy_then_sell": 1.0,
+    "y_tau_exit_price_bias_buy_then_sell": 1.0,
+    "y_tau_exit_price_skip_sell_then_buy": True,
+    "y_tau_exit_price_mult_sell_then_buy": 1.0,
+    "y_tau_exit_price_bias_sell_then_buy": -1.0,
+    "t0_pm_degrade_sell_then_buy": "13:00",
+    "t0_pm_degrade_buy_then_sell": "13:00",
+    "t0_pm_chase_cap_leg1_sell_then_buy": True,
+    "t0_pm_chase_cap_leg1_buy_then_sell": True,
+    "t0_pm_chase_interval_min_sell_then_buy": 5,
+    "t0_pm_chase_interval_min_buy_then_sell": 5,
+    "t0_stop_pct_buy_then_sell": 1.2,
+    "t0_stop_pct_sell_then_buy": 1.2,
+    "t0_stop_arm_bars": 6,
+    "t0_stop_on_close": True,
+    "t0_lock_win_arm_bars": 6,
+    "t0_lock_win_pct_buy_then_sell": 2.0,
+    "t0_lock_win_pct_sell_then_buy": 2.0,
+    "t0_slots_enabled": True,
+    # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 双轨
+}
+
+DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
+    "execution_mode": "next_open",  # next_open=盘中现价、收盘后挂次日开盘；close=确认即成交
+    "open_fill_after_hm": "09:15",
+    "open_fill_until_hm": "10:00",
+    "pending_chase_interval_min": 10,
+    "pending_chase_eod_hm": "14:50",
+    # 策略调仓：fill_clock～10:00 rank_lots（金额与历史回测同源，缺省 1万/2万）
+    "rank_lots": {
+        "enabled": True,
+        "mode": "rank_lots",
+        "rank_enter": 0.001,
+        "rank_strong": 0.001,
+        "rank_enter_alt": 0.001,
+        "cash_floor": 0.0,
+        "holdings_mv_cap": 150000.0,
+        "fusion_w_oo": 0.6,
+        "fusion_w_oc": 0.4,
+        "fusion_w_co": 1.0,
+        "y_enter_enabled": True,
+        "y_enter_alt_enabled": True,
+        "y_oo_gt0": False,
+        "y_τc_gt0": False,
+        "fill_clock": "09:30",
+        "lot_base_amount": 10000.0,
+        "lot_strong_amount": 20000.0,
+    },
+    # 旧键：读盘仍认；写入与 rank_lots 同步
+    "path_matrix": {
+        "enabled": True,
+        "mode": "rank_lots",
+        "rank_enter": 0.001,
+        "rank_strong": 0.001,
+        "rank_enter_alt": 0.001,
+        "cash_floor": 0.0,
+        "holdings_mv_cap": 150000.0,
+        "fusion_w_oo": 0.6,
+        "fusion_w_oc": 0.4,
+        "fusion_w_co": 1.0,
+        "y_enter_enabled": True,
+        "y_enter_alt_enabled": True,
+        "y_oo_gt0": False,
+        "y_τc_gt0": False,
+        "fill_clock": "09:30",
+        "lot_base_amount": 10000.0,
+        "lot_strong_amount": 20000.0,
+    },
 }
 
 DEFAULT_EXECUTION: Dict[str, Any] = {
@@ -76,6 +206,7 @@ DEFAULT_EXECUTION: Dict[str, Any] = {
     "overlays": {"t0": deepcopy(DEFAULT_T0_OVERLAY)},
     "coupling": deepcopy(DEFAULT_COUPLING),
     "runtime_defaults": deepcopy(DEFAULT_RUNTIME),
+    "rebalance_timing": deepcopy(DEFAULT_REBALANCE_TIMING),
 }
 
 _REBALANCE_KEYS = (
@@ -85,6 +216,7 @@ _REBALANCE_KEYS = (
     "reduce_score",
     "max_positions",
     "position_pct",
+    "min_cash_pct",
     "horizon_days",
     "signal_limit",
     "stop_loss_pnl",
@@ -197,6 +329,7 @@ def _apply_channel_fallbacks(
     has_minute: Optional[bool],
     notes: List[str],
 ) -> dict:
+    _ = has_minute  # 研究回测已不按有无分钟切换 path；保留形参兼容调用方
     out = dict(raw_t0)
     ch = (channel or "paper").strip().lower()
     if ch not in {"paper", "backtest"}:
@@ -204,21 +337,29 @@ def _apply_channel_fallbacks(
 
     if "direction" not in out:
         if ch == "backtest":
-            fb = runtime.get("backtest_direction_fallback") or "signal"
+            fb = runtime.get("backtest_direction_fallback") or "dual_y"
         else:
-            fb = runtime.get("paper_direction_fallback") or "signal"
+            fb = runtime.get("paper_direction_fallback") or "dual_y"
         out["direction"] = fb
         sources["direction"] = "runtime_fallback"
         notes.append(f"{ch}: direction 未显式声明 → {fb}")
 
-    if ch == "backtest" and "path_mode" not in out:
-        if has_minute:
-            fb = runtime.get("backtest_path_mode_with_minute") or "first_touch"
-        else:
-            fb = runtime.get("backtest_path_mode_no_minute") or "veto"
-        out["path_mode"] = fb
+    # 生产仅保留 dual_y；旧 sell_then_buy/signal/auto/buy_then_sell 一律收敛
+    dir_now = str(out.get("direction") or "").strip().lower()
+    if dir_now != "dual_y":
+        notes.append(f"direction={dir_now} 已下线 → dual_y")
+        out["direction"] = "dual_y"
+        sources["direction"] = f"{sources.get('direction') or 'unknown'}→dual_y"
+
+    # 纸面/回测：强制分钟第一触达（已删除日线模拟）
+    if str(out.get("path_mode") or "") != "first_touch":
+        notes.append(f"{ch}: path_mode={out.get('path_mode')} → first_touch")
+        out["path_mode"] = "first_touch"
+        sources["path_mode"] = f"{sources.get('path_mode') or 'unknown'}→first_touch"
+    elif "path_mode" not in out:
+        out["path_mode"] = "first_touch"
         sources["path_mode"] = "runtime_fallback"
-        notes.append(f"backtest: path_mode 未显式声明 → {fb}")
+        notes.append(f"{ch}: path_mode 未显式声明 → first_touch")
 
     return out
 
@@ -276,8 +417,9 @@ def resolve_effective_execution(
         notes=notes,
     )
     t0 = load_t0_rules(raw_t0)
+    t0["t0_ratio"] = 1.0
 
-    # rebalance：Spec paper_rules ← paper.rules（非 t0 键）
+    # rebalance 规则键：Spec paper_rules ← paper.rules（非 t0）
     rebalance = deepcopy(strategy_exe.get("_paper_rules") or {})
     paper_rules = (paper or {}).get("rules") or {}
     if isinstance(paper_rules, dict):
@@ -285,11 +427,38 @@ def resolve_effective_execution(
             if k in paper_rules and paper_rules[k] is not None:
                 rebalance[k] = paper_rules[k]
 
+    # 成交时机 + rank_lots（仍认旧键 path_matrix）：Spec ← paper.rules.execution.rebalance_timing
+    timing = deepcopy(DEFAULT_REBALANCE_TIMING)
+    spec_timing = strategy_exe.get("rebalance_timing")
+    if isinstance(spec_timing, dict):
+        timing = _merge_dict(timing, spec_timing)
+    if isinstance(paper_rules, dict):
+        if paper_rules.get("execution_mode"):
+            timing["execution_mode"] = paper_rules.get("execution_mode")
+        paper_exe = paper_rules.get("execution")
+        if isinstance(paper_exe, dict):
+            if paper_exe.get("execution_mode"):
+                timing["execution_mode"] = paper_exe.get("execution_mode")
+            rt = paper_exe.get("rebalance_timing")
+            if isinstance(rt, dict):
+                timing = _merge_dict(timing, rt)
+    if isinstance(request_override, dict):
+        if request_override.get("execution_mode"):
+            timing["execution_mode"] = request_override.get("execution_mode")
+        req_t = request_override.get("rebalance_timing")
+        if isinstance(req_t, dict):
+            timing = _merge_dict(timing, req_t)
+    mode = str(timing.get("execution_mode") or "next_open").strip().lower()
+    if mode not in ("next_open", "close"):
+        mode = "next_open"
+    timing["execution_mode"] = mode
+
     execution = {
         "version": strategy_exe.get("version") or DEFAULT_EXECUTION["version"],
         "overlays": {"t0": {k: t0[k] for k in t0 if k != "note"}},
         "coupling": coupling,
         "runtime_defaults": runtime,
+        "rebalance_timing": timing,
     }
 
     hash_payload = {
@@ -301,17 +470,14 @@ def resolve_effective_execution(
             for k in (
                 "enabled",
                 "t0_ratio",
-                "sell_trigger_pct",
-                "buy_trigger_pct",
                 "fill_mode",
                 "direction",
                 "path_mode",
-                "use_atr",
-                "dir_enter",
             )
         },
         "coupling": coupling,
         "rebalance": {k: rebalance.get(k) for k in _REBALANCE_KEYS if k in rebalance},
+        "rebalance_timing": timing,
     }
 
     return {
@@ -325,9 +491,12 @@ def resolve_effective_execution(
         "t0_sources": sources,
         "coupling": coupling,
         "runtime_defaults": runtime,
+        "rebalance_timing": timing,
         "effective_hash": _effective_hash(hash_payload),
         "notes": notes,
-        "summary": _human_summary(t0, coupling, channel=(channel or "paper")),
+        "summary": _human_summary(
+            t0, coupling, channel=(channel or "paper"), timing=timing
+        ),
     }
 
 
@@ -366,48 +535,53 @@ def strip_execution_meta(rules: Optional[dict]) -> dict:
     return {k: v for k, v in rules.items() if not str(k).startswith("_")}
 
 
-def _human_summary(t0: dict, coupling: dict, *, channel: str) -> str:
+def _human_summary(
+    t0: dict, coupling: dict, *, channel: str, timing: Optional[dict] = None
+) -> str:
     ratio = t0.get("t0_ratio")
     ratio_s = f"{int(round(float(ratio) * 100))}%" if ratio is not None else "—"
-    sell = t0.get("sell_trigger_pct")
-    buy = t0.get("buy_trigger_pct")
-    trig = f"+{sell}/-{buy}%" if sell is not None and buy is not None else "—"
-    coup = (coupling or {}).get("t0_vs_stance") or "independent"
-    return (
-        f"{channel} · 仓{ratio_s} · {t0.get('direction') or '—'} · "
-        f"{t0.get('fill_mode') or '—'} · 触发{trig} · path={t0.get('path_mode') or '—'} · "
-        f"耦合={coup}"
+    sell_m = t0.get("y_tau_exit_price_mult_buy_then_sell")
+    buy_m = t0.get("y_tau_exit_price_mult_sell_then_buy")
+    trig = (
+        f"τ卖×{sell_m}/买×{buy_m}"
+        if sell_m is not None and buy_m is not None
+        else "τ闸"
     )
+    coup = (coupling or {}).get("t0_vs_stance") or "independent"
+    coup_lbl = {
+        "independent": "独立",
+        "skip_if_avoid": "avoid跳过",
+        "only_if_hold": "仅持有",
+    }.get(str(coup), str(coup))
+    fill_lbl = {
+        "trigger": "触价",
+        "mid": "中点",
+        "optimistic": "乐观",
+    }.get(str(t0.get("fill_mode") or "trigger"), str(t0.get("fill_mode") or "—"))
+    path_lbl = {
+        "first_touch": "5m首触",
+    }.get(str(t0.get("path_mode") or "first_touch"), str(t0.get("path_mode") or "—"))
+    ch_lbl = {"backtest": "回测", "paper": "纸面"}.get(str(channel), str(channel))
+    return (
+        f"{ch_lbl} · 动仓 {ratio_s} · dual_y · {path_lbl} · {trig} · {fill_lbl} · "
+        f"stance {coup_lbl} · {_timing_summary(timing)}"
+    )
+
+
+def _timing_summary(timing: Optional[dict]) -> str:
+    t = timing or {}
+    mode = str(t.get("execution_mode") or "next_open")
+    if mode == "close":
+        return "调仓：确认即成交"
+    after = t.get("open_fill_after_hm") or "09:15"
+    until = t.get("open_fill_until_hm") or "10:00"
+    return f"调仓：盘中现价 · 收盘挂次日开盘 {after}–{until}"
 
 
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     """API / Web 用精简视图。"""
     t0 = bundle.get("t0") or {}
-    # L4：只读分池合并簿（不改全局 weights）
-    cluster_book = None
-    try:
-        from core.signal.cluster_live import (
-            get_cluster_scoring_cfg,
-            load_active_cluster_book,
-            load_active_cluster_weights,
-        )
-
-        cs = get_cluster_scoring_cfg()
-        book_doc = load_active_cluster_book()
-        active = load_active_cluster_weights()
-        if book_doc and cs.get("mode") in ("shadow", "active"):
-            cluster_book = {
-                "mode": cs.get("mode"),
-                "updated_at": book_doc.get("updated_at"),
-                "name_count": len(book_doc.get("book") or []),
-                "book": (book_doc.get("book") or [])[:20],
-                "cluster_version": (active or {}).get("version"),
-                "signal_config_touched": False,
-                "note": "execution 只读分池簿；权重源见 weight_source",
-            }
-    except Exception:
-        cluster_book = None
-    return {
+    view = {
         "ok": True,
         "strategy_id": bundle.get("strategy_id"),
         "strategy_version": bundle.get("strategy_version"),
@@ -419,27 +593,98 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "t0": {
             "enabled": t0.get("enabled"),
             "t0_ratio": t0.get("t0_ratio"),
-            "sell_trigger_pct": t0.get("sell_trigger_pct"),
-            "buy_trigger_pct": t0.get("buy_trigger_pct"),
+            "must_cover_same_day_sell_then_buy": t0.get("must_cover_same_day_sell_then_buy"),
+            "must_cover_same_day_buy_then_sell": t0.get("must_cover_same_day_buy_then_sell"),
             "fill_mode": t0.get("fill_mode"),
+            "fill_mode_sell_then_buy": t0.get("fill_mode_sell_then_buy"),
+            "fill_mode_buy_then_sell": t0.get("fill_mode_buy_then_sell"),
             "direction": t0.get("direction"),
             "path_mode": t0.get("path_mode"),
-            "use_atr": t0.get("use_atr"),
-            "atr_window": t0.get("atr_window"),
-            "dir_enter": t0.get("dir_enter"),
             "ref": t0.get("ref"),
             "lot_size": t0.get("lot_size"),
             "minute_period": t0.get("minute_period"),
-            "w_gap": t0.get("w_gap"),
-            "w_yclose_loc": t0.get("w_yclose_loc"),
-            "w_mom3": t0.get("w_mom3"),
-            "w_gap_atr": t0.get("w_gap_atr"),
+            "residual_w_τc": t0.get("residual_w_τc"),
+            "residual_w_oc": t0.get("residual_w_oc"),
+            "residual_w_mode": t0.get("residual_w_mode"),
+            "y_tw_enter": t0.get("y_tw_enter"),
+            "y_τc_enter": t0.get("y_τc_enter"),
+            "y_τc_strong": t0.get("y_τc_strong"),
+            "y_τc_enter_amount": t0.get("y_τc_enter_amount"),
+            "y_τc_strong_amount": t0.get("y_τc_strong_amount"),
+            "y_tw_vote_margin": t0.get("y_tw_vote_margin"),
+            "y_tw_midpoint": t0.get("y_tw_midpoint"),
+            "horizon_prob_backend": t0.get("horizon_prob_backend"),
+            "t0_y_τc_target_scale": t0.get("t0_y_τc_target_scale"),
+            "t0_close_band_delta_pct": t0.get("t0_close_band_delta_pct"),
+            "t0_price_space_gate": t0.get("t0_price_space_gate"),
+            "t0_price_space_max_dev_pct": t0.get("t0_price_space_max_dev_pct"),
+            "t0_price_space_prev_dev_pct": t0.get("t0_price_space_prev_dev_pct"),
+            "t0_round_ratio": t0.get("t0_round_ratio"),
+            "t0_max_position_pct": t0.get("t0_max_position_pct"),
+            "y_tau_exit_price_skip_buy_then_sell": t0.get(
+                "y_tau_exit_price_skip_buy_then_sell"
+            ),
+            "y_tau_exit_price_mult_buy_then_sell": t0.get(
+                "y_tau_exit_price_mult_buy_then_sell"
+            ),
+            "y_tau_exit_price_bias_buy_then_sell": t0.get(
+                "y_tau_exit_price_bias_buy_then_sell"
+            ),
+            "y_tau_exit_price_move_min_buy_then_sell": t0.get(
+                "y_tau_exit_price_move_min_buy_then_sell"
+            ),
+            "y_tau_exit_price_move_max_buy_then_sell": t0.get(
+                "y_tau_exit_price_move_max_buy_then_sell"
+            ),
+            "y_tau_exit_price_skip_sell_then_buy": t0.get(
+                "y_tau_exit_price_skip_sell_then_buy"
+            ),
+            "y_tau_exit_price_mult_sell_then_buy": t0.get(
+                "y_tau_exit_price_mult_sell_then_buy"
+            ),
+            "y_tau_exit_price_bias_sell_then_buy": t0.get(
+                "y_tau_exit_price_bias_sell_then_buy"
+            ),
+            "y_tau_exit_price_move_min_sell_then_buy": t0.get(
+                "y_tau_exit_price_move_min_sell_then_buy"
+            ),
+            "y_tau_exit_price_move_max_sell_then_buy": t0.get(
+                "y_tau_exit_price_move_max_sell_then_buy"
+            ),
+            "y_score_source": t0.get("y_score_source"),
+            "t0_pm_degrade_sell_then_buy": t0.get("t0_pm_degrade_sell_then_buy"),
+            "t0_pm_degrade_buy_then_sell": t0.get("t0_pm_degrade_buy_then_sell"),
+            "t0_pm_chase_interval_min_sell_then_buy": t0.get(
+                "t0_pm_chase_interval_min_sell_then_buy"
+            ),
+            "t0_pm_chase_interval_min_buy_then_sell": t0.get(
+                "t0_pm_chase_interval_min_buy_then_sell"
+            ),
+            "t0_pm_chase_cap_leg1_sell_then_buy": t0.get(
+                "t0_pm_chase_cap_leg1_sell_then_buy"
+            ),
+            "t0_pm_chase_cap_leg1_buy_then_sell": t0.get(
+                "t0_pm_chase_cap_leg1_buy_then_sell"
+            ),
+            "t0_stop_pct_buy_then_sell": t0.get("t0_stop_pct_buy_then_sell"),
+            "t0_stop_pct_sell_then_buy": t0.get("t0_stop_pct_sell_then_buy"),
+            "t0_stop_arm_bars": t0.get("t0_stop_arm_bars"),
+            "t0_stop_on_close": t0.get("t0_stop_on_close"),
+            "t0_lock_win_arm_bars": t0.get("t0_lock_win_arm_bars"),
+            "t0_lock_win_pct_buy_then_sell": t0.get("t0_lock_win_pct_buy_then_sell"),
+            "t0_lock_win_pct_sell_then_buy": t0.get("t0_lock_win_pct_sell_then_buy"),
+            "t0_slots_enabled": t0.get("t0_slots_enabled"),
+            "t0_slots": t0.get("t0_slots"),
+            "t0_slots_max_rounds": t0.get("t0_slots_max_rounds"),
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
+        "rebalance_timing": bundle.get("rebalance_timing")
+        or (bundle.get("execution") or {}).get("rebalance_timing")
+        or {},
         "runtime_defaults": bundle.get("runtime_defaults") or {},
-        "cluster_book": cluster_book,
     }
+    return view
 
 
 def stance_allows_t0(
@@ -481,7 +726,12 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
     coupling_in: Optional[dict] = None
     lock = bool(raw.get("lock", True))
 
-    if isinstance(raw.get("t0"), dict) or "coupling" in raw or "overlays" in raw:
+    if (
+        isinstance(raw.get("t0"), dict)
+        or "coupling" in raw
+        or "overlays" in raw
+        or "rebalance_timing" in raw
+    ):
         t0_in = dict(raw.get("t0") or {})
         if isinstance(raw.get("overlays"), dict) and isinstance(raw["overlays"].get("t0"), dict):
             t0_in = {**t0_in, **raw["overlays"]["t0"]}
@@ -491,7 +741,15 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_in = {
             k: v
             for k, v in raw.items()
-            if k not in {"lock", "reset", "note", "coupling", "channel"}
+            if k
+            not in {
+                "lock",
+                "reset",
+                "note",
+                "coupling",
+                "channel",
+                "rebalance_timing",
+            }
         }
 
     unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
@@ -504,14 +762,29 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             {k: v for k, v in t0_in.items() if k in ALLOWED_T0_PATCH_KEYS}
         )
     except Exception as e:
+        logger.exception('unexpected error in validate_execution_patch')
         return False, {}, [f"t0 校验失败: {e}"]
 
     t0_out = {k: normalized_full[k] for k in t0_in if k in ALLOWED_T0_PATCH_KEYS and k in normalized_full}
     # enabled 等 bool
     if "enabled" in t0_in:
         t0_out["enabled"] = bool(t0_in.get("enabled"))
-    if "use_atr" in t0_in:
-        t0_out["use_atr"] = bool(t0_in.get("use_atr"))
+    if "must_cover_same_day_sell_then_buy" in t0_in:
+        t0_out["must_cover_same_day_sell_then_buy"] = bool(t0_in.get("must_cover_same_day_sell_then_buy"))
+    if "must_cover_same_day_buy_then_sell" in t0_in:
+        t0_out["must_cover_same_day_buy_then_sell"] = bool(t0_in.get("must_cover_same_day_buy_then_sell"))
+    if "t0_price_space_gate" in t0_in:
+        t0_out["t0_price_space_gate"] = bool(t0_in.get("t0_price_space_gate"))
+    if "y_tau_exit_price_skip_buy_then_sell" in t0_in:
+        t0_out["y_tau_exit_price_skip_buy_then_sell"] = bool(
+            t0_in.get("y_tau_exit_price_skip_buy_then_sell")
+        )
+    if "y_tau_exit_price_skip_sell_then_buy" in t0_in:
+        t0_out["y_tau_exit_price_skip_sell_then_buy"] = bool(
+            t0_in.get("y_tau_exit_price_skip_sell_then_buy")
+        )
+    if t0_in:
+        t0_out["t0_stop_on_close"] = True
 
     coupling_out: Dict[str, Any] = {}
     if coupling_in is not None:
@@ -526,7 +799,66 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
     if errors:
         return False, {}, errors
 
-    return True, {"t0": t0_out, "coupling": coupling_out, "lock": lock}, []
+    # 选向仅 dual_y（有 t0 补丁时才写入，避免仅改 rebalance_timing 污染 t0）
+    if t0_in:
+        t0_out["direction"] = "dual_y"
+        if "t0_ratio" in t0_in:
+            t0_out["t0_ratio"] = 1.0
+
+    timing_out: Dict[str, Any] = {}
+    raw_timing = raw.get("rebalance_timing") if isinstance(raw, dict) else None
+    if isinstance(raw_timing, dict):
+        pm_in = raw_timing.get("rank_lots")
+        if not isinstance(pm_in, dict):
+            pm_in = raw_timing.get("path_matrix")
+        if isinstance(pm_in, dict):
+            try:
+                from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+
+                pm = get_path_matrix_cfg({"rank_lots": pm_in})
+                lots = {
+                    "enabled": bool(pm.get("enabled")),
+                    "mode": "rank_lots",
+                    "rank_enter": float(pm.get("rank_enter") or 0.001),
+                    "rank_strong": float(pm.get("rank_strong") or 0.001),
+                    "rank_enter_alt": float(
+                        pm.get("rank_enter_alt")
+                        if pm.get("rank_enter_alt") is not None
+                        else pm.get("rank_enter") or 0.001
+                    ),
+                    "cash_floor": 0.0,
+                    "holdings_mv_cap": float(
+                        pm.get("holdings_mv_cap")
+                        if pm.get("holdings_mv_cap") is not None
+                        else 150_000.0
+                    ),
+                    "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
+                    "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
+                    "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else 1.0),
+                    "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
+                    "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
+                    "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
+                    "y_τc_gt0": bool(pm.get("y_τc_gt0")),
+                    "fill_clock": str(pm.get("fill_clock") or "09:30"),
+                    "lot_base_amount": float(pm.get("lot_base_amount") or 10_000.0),
+                    "lot_strong_amount": float(pm.get("lot_strong_amount") or 20_000.0),
+                }
+                timing_out["rank_lots"] = lots
+                timing_out["path_matrix"] = lots
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"rank_lots 校验失败: {e}")
+                return False, {}, errors
+        if raw_timing.get("execution_mode") is not None:
+            mode = str(raw_timing.get("execution_mode") or "next_open").strip().lower()
+            if mode not in ("next_open", "close"):
+                errors.append("rebalance_timing.execution_mode 须为 next_open|close")
+                return False, {}, errors
+            timing_out["execution_mode"] = mode
+
+    out_norm: Dict[str, Any] = {"t0": t0_out, "coupling": coupling_out, "lock": lock}
+    if timing_out:
+        out_norm["rebalance_timing"] = timing_out
+    return True, out_norm, []
 
 
 def apply_execution_patch_to_paper(
@@ -535,23 +867,53 @@ def apply_execution_patch_to_paper(
     *,
     note: str = "",
 ) -> Dict[str, Any]:
-    """写入 paper.rules.t0 / paper.rules.execution.coupling；返回生效视图 meta。"""
+    """写入 paper.rules.t0 / paper.rules.execution（coupling · rebalance_timing）。"""
     ok, normalized, errors = validate_execution_patch(patch)
     if not ok:
         return {"ok": False, "errors": errors}
 
     rules = dict(paper.get("rules") or {})
-    prev_t0 = dict(rules.get("t0") or {}) if isinstance(rules.get("t0"), dict) else {}
-    new_t0 = dict(prev_t0)
-    new_t0.update(normalized.get("t0") or {})
-    rules["t0"] = new_t0
+    t0_patch = normalized.get("t0") or {}
+    if t0_patch:
+        prev_t0 = dict(rules.get("t0") or {}) if isinstance(rules.get("t0"), dict) else {}
+        new_t0 = dict(prev_t0)
+        new_t0.update(t0_patch)
+        new_t0["t0_ratio"] = 1.0
+        rules["t0"] = {k: v for k, v in new_t0.items() if k in DEFAULT_T0_RULES}
 
+    exe = dict(rules.get("execution") or {}) if isinstance(rules.get("execution"), dict) else {}
     coupling_patch = normalized.get("coupling") or {}
     if coupling_patch:
-        exe = dict(rules.get("execution") or {}) if isinstance(rules.get("execution"), dict) else {}
         coup = dict(exe.get("coupling") or {})
         coup.update(coupling_patch)
         exe["coupling"] = coup
+
+    timing_patch = normalized.get("rebalance_timing") or {}
+    if timing_patch:
+        rt = dict(exe.get("rebalance_timing") or {})
+        if isinstance(timing_patch.get("rank_lots"), dict) or isinstance(
+            timing_patch.get("path_matrix"), dict
+        ):
+            incoming = timing_patch.get("rank_lots") or timing_patch.get("path_matrix") or {}
+            prev_pm = {}
+            if isinstance(rt.get("rank_lots"), dict):
+                prev_pm.update(rt["rank_lots"])
+            if isinstance(rt.get("path_matrix"), dict):
+                prev_pm.update(rt["path_matrix"])
+            prev_pm.update(incoming)
+            from core.paper.rebalance.path_matrix import DEFAULT_PATH_MATRIX
+
+            keep = set(DEFAULT_PATH_MATRIX)
+            prev_pm = {k: v for k, v in prev_pm.items() if k in keep}
+            rt["rank_lots"] = prev_pm
+            rt["path_matrix"] = prev_pm
+        for k, v in timing_patch.items():
+            if k in ("path_matrix", "rank_lots") or v is None:
+                continue
+            rt[k] = v
+        exe["rebalance_timing"] = rt
+
+    if coupling_patch or timing_patch:
         rules["execution"] = exe
 
     paper["rules"] = rules
@@ -570,6 +932,10 @@ def reset_paper_execution_overlay(paper: dict) -> Dict[str, Any]:
     paper["rules"] = rules
     paper.pop("t0_rules_locked", None)
     paper.pop("execution_note", None)
+    from core.strategy import apply_strategy_to_paper
+
+    sid = paper.get("strategy_id") or "short_conservative"
+    apply_strategy_to_paper(paper, str(sid))
     return {"ok": True}
 
 

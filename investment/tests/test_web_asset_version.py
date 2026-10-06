@@ -20,24 +20,20 @@ class TestAssetVersionInjection(unittest.TestCase):
 
     def test_templates_use_placeholder(self):
         base = os.path.join(ROOT, "web", "static", "templates")
-        for name in ("chat.html", "tool.html"):
-            path = os.path.join(base, name)
-            with open(path, encoding="utf-8") as f:
-                text = f.read()
-            self.assertIn("{{ASSET_V}}", text)
-            self.assertIn("window.__ASSET_V__", text)
-            self.assertNotRegex(text, r"styles\.css\?v=p\d+")
+        path = os.path.join(base, "tool.html")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("{{ASSET_V}}", text)
+        self.assertIn("window.__ASSET_V__", text)
+        self.assertNotRegex(text, r"tokens\.css\?v=p\d+")
 
     def test_render_replaces_asset_v(self):
         from web.asset_version import ASSET_V
-        from web.page_html import render_chat_html, render_tool_html
-
-        chat = render_chat_html()
-        self.assertIn(f"styles.css?v={ASSET_V}", chat)
-        self.assertIn(f'window.__ASSET_V__ = "{ASSET_V}"', chat)
-        self.assertNotIn("{{ASSET_V}}", chat)
+        from web.page_html import render_tool_html
 
         tool = render_tool_html("watching")
+        self.assertIn(f"tokens.css?v={ASSET_V}", tool)
+        self.assertIn(f'window.__ASSET_V__ = "{ASSET_V}"', tool)
         self.assertIn(f"app.js?v={ASSET_V}", tool)
         self.assertNotIn("{{ASSET_V}}", tool)
 

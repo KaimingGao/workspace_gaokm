@@ -103,7 +103,7 @@ def path_risk_block_hard_gate() -> Dict[str, Any]:
     """行业超限 → check_account_risk 硬拦 + 结构化原因码。"""
     from core.risk.checks import check_account_risk
 
-    paper = {"cash": 0, "strategy_id": "short", "holdings": []}
+    paper = {"cash": 0, "strategy_id": "short_conservative", "holdings": []}
     summary = {
         "equity": 100000,
         "max_drawdown_pct": 1.0,

@@ -1,20 +1,19 @@
 """子因子 + 前瞻收益面板对齐（研究用，不依赖 quant）。"""
 
-from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+import logging
 
-from core.signal.factor_registry import compute_factor, registered_factor_names
+logger = logging.getLogger(__name__)
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from core.signal.factors.meta.registry import compute_factor, registered_factor_names
 
 
 def _forward_return(bars: List[dict], idx: int, horizon: int) -> Optional[float]:
-    if idx + horizon >= len(bars):
-        return None
-    entry = bars[idx].get("close")
-    exit_p = bars[idx + horizon].get("close")
-    if not entry:
-        return None
-    return (exit_p / entry - 1.0) * 100.0
+    """ŷ_oo 标签：open[idx+h]/open[idx]−1（百分点）。"""
+    from core.signal.yhat_windows import forward_oo_pct
+
+    return forward_oo_pct(bars, idx, horizon)
 
 
 def _research_sub_scores(
@@ -26,12 +25,16 @@ def _research_sub_scores(
     sentiment: Optional[dict] = None,
     factor_names: Optional[Tuple[str, ...]] = None,
 ) -> Dict[str, Optional[float]]:
-    """研究用：逐个算注册因子；默认绕开 score_bars / regime。"""
+    """研究用：逐个算注册因子；默认绕开 score_bars / regime。
+
+    除了 0-100 sub_score 外，同时把 meta 中的原始信号值以
+    ``raw_<factor>_<meta_key>`` 形式放入 row，供 LTR / Ridge 使用原始信号。
+    """
     names = factor_names or registered_factor_names()
     row: Dict[str, Optional[float]] = {}
     for key in names:
         try:
-            score, _meta = compute_factor(
+            score, fac_meta = compute_factor(
                 key,
                 window,
                 quote=quote,
@@ -41,7 +44,21 @@ def _research_sub_scores(
                 money_flow=None,
             )
             row[key] = float(score)
-        except Exception:
+            # 暴露原始信号值，前缀 raw_<factor>_ 避免键冲突
+            if isinstance(fac_meta, dict):
+                for mk, mv in fac_meta.items():
+                    if mk in ("omit_sub_score", "ok"):
+                        continue
+                    # 跳过 alpha158_insufficient_history 等标记（bool 也是 int）
+                    if str(mk).startswith(f"{key}_"):
+                        continue
+                    if isinstance(mv, (int, float)) and not isinstance(mv, bool):
+                        row[f"raw_{key}_{mk}"] = float(mv)
+                    elif mv is not None:
+                        # 非数值（如 rs_source="index"）跳过
+                        pass
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in panel.py", exc_info=True)
             row[key] = None
     return row
 
@@ -51,25 +68,37 @@ def _resolve_factor_names(
     respect_regime: bool,
     index_bars: Optional[List[dict]],
     config: Optional[dict],
+    decision_date: Optional[str] = None,
+    respect_macro_regime: bool = False,
 ) -> Tuple[str, ...]:
     """X4：respect_regime=True 时与 live enabled_factors 对齐。"""
     if not respect_regime:
         return registered_factor_names()
+    base = registered_factor_names()
     try:
         from core.signal.config import load_signal_config
         from core.signal.regime import assess_regime
 
         cfg = config or load_signal_config()
-        info = assess_regime(index_bars, (cfg or {}).get("regime"))
-        adj = (info.get("adjustments") or {}) if isinstance(info, dict) else {}
+        macro = None
+        if respect_macro_regime and decision_date:
+            try:
+                from core.research.macro_asof import load_macro_view_asof
+
+                macro = load_macro_view_asof(decision_date)
+            except Exception:
+                logger.debug("macro asof for regime skipped", exc_info=True)
+        info = assess_regime(index_bars, (cfg or {}).get("regime"), macro=macro or None)
+        adj = (info or {}).get("adjustments") or {} if isinstance(info, dict) else {}
         enabled = adj.get("enabled_factors")
         if enabled:
             names = tuple(str(x) for x in enabled if str(x).strip())
             if names:
                 return names
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in panel.py", exc_info=True)
         pass
-    return registered_factor_names()
+    return base
 
 
 def collect_subscore_forward_panel(
@@ -84,21 +113,39 @@ def collect_subscore_forward_panel(
     pit_fundamentals: bool = True,
     sentiment_pit: bool = False,
     respect_regime: bool = False,
+    respect_macro_regime: bool = False,
     config: Optional[dict] = None,
-) -> Tuple[List[Dict[str, Optional[float]]], List[float]]:
+    excess_mode: str = "none",
+) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str]]:
     """对齐子因子与 forward return，供 OLS / 研究面板复用。
+
+    返回 ``(xs, ys, decision_dates)``；dates 与 xs/ys 等长（YYYY-MM-DD），供日历切分 / WF。
 
     默认全量注册因子（不经 regime 白名单）；因子可缺测（None）。
     E2：默认按决策日 PIT 解析财务。
     FS2：``sentiment_pit=True`` 时按 as_of 注入 alt_sentiment（需标题历史）。
     X4：``respect_regime=True`` 时因子集对齐 live regime.enabled_factors。
+    ``excess_mode``：none | index（P2b；index 时扣同期指数前瞻收益，缺指数则跳过该样本）。
     """
     horizon_days = max(1, min(int(horizon_days or 3), 10))
     min_history = max(5, int(min_history or 12))
+    em = str(excess_mode or "none").strip().lower()
+    if em in ("index", "excess", "vs_index", "benchmark"):
+        em = "index"
+    else:
+        em = "none"
     factor_names = _resolve_factor_names(
         respect_regime=respect_regime,
         index_bars=index_bars,
         config=config,
+        respect_macro_regime=respect_macro_regime,
+    )
+    from core.signal.factors.alpha158 import bump_window_for_alpha158
+
+    min_history, max_window = bump_window_for_alpha158(
+        factor_names,
+        min_history=min_history,
+        max_window=max_window,
     )
     fund_cache: Dict[str, Optional[dict]] = {}
     sent_cache: Dict[str, Optional[dict]] = {}
@@ -117,7 +164,8 @@ def collect_subscore_forward_panel(
                 stock_code, as_of=decision_date, live_fallback=False
             )
             metrics = resolved.get("metrics") if resolved.get("ok") else None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in panel.py", exc_info=True)
             metrics = None
         fund_cache[decision_date] = metrics
         return metrics
@@ -132,32 +180,47 @@ def collect_subscore_forward_panel(
 
             pack = sentiment_as_of(stock_code, decision_date)
             sent = pack.get("sentiment") if pack.get("ok") else None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in panel.py", exc_info=True)
             sent = None
         sent_cache[decision_date] = sent
         return sent
 
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
+    dates: List[str] = []
     n = len(bars or [])
+    idx_by_d: Dict[str, int] = {}
+    if index_bars:
+        idx_by_d = {
+            str(b.get("date") or "")[:10]: j
+            for j, b in enumerate(index_bars)
+            if b.get("date")
+        }
+    from core.signal.yhat_windows import pit_oo_window_quote
+
     for i in range(min_history - 1, n - horizon_days):
         start = max(0, i - max_window + 1)
-        window = bars[start : i + 1]
+        window, quote = pit_oo_window_quote(bars, i, start)
         if len(window) < 2:
             continue
-        quote = {"change_raw": 0.0, "price_raw": bars[i]["close"]}
-        if i >= 1:
-            c0 = bars[i - 1]["close"]
-            c1 = bars[i]["close"]
-            if c0:
-                quote["change_raw"] = round((c1 / c0 - 1.0) * 100.0, 4)
 
-        idx_slice = index_bars[start : i + 1] if index_bars else None
+        idx_slice = index_bars[start:i] if index_bars else None
         decision_date = str((bars[i] or {}).get("date") or "")[:10]
 
         fr = _forward_return(bars, i, horizon_days)
         if fr is None:
             continue
+        if em == "index":
+            from core.research.beta_accuracy import apply_excess_to_forward_return
+
+            idx_fr = None
+            j0 = idx_by_d.get(decision_date) if decision_date else None
+            if j0 is not None:
+                idx_fr = _forward_return(index_bars, j0, horizon_days)
+            fr = apply_excess_to_forward_return(fr, idx_fr, excess_mode="index")
+            if fr is None:
+                continue
 
         row = _research_sub_scores(
             window,
@@ -171,5 +234,20 @@ def collect_subscore_forward_panel(
             continue
         xs.append(row)
         ys.append(fr)
+        dates.append(decision_date)
 
-    return xs, ys
+    return xs, ys, dates
+
+
+def feature_fill_rates(xs: Sequence[dict], keys: Sequence[str]) -> Dict[str, Any]:
+    """面板特征非空率。"""
+    rows = [r for r in xs if isinstance(r, dict)]
+    n = len(rows)
+    out: Dict[str, Any] = {"n": n, "keys": {}}
+    for k in keys:
+        filled = sum(1 for r in rows if r.get(k) is not None and r.get(k) != "")
+        out["keys"][str(k)] = {
+            "filled": filled,
+            "rate": round(filled / float(n), 4) if n else None,
+        }
+    return out

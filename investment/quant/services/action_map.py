@@ -6,8 +6,10 @@ API URL 不变（P94）；本模块只提供归属说明与机器可读映射。
 共享打分：`core/signal/scorer.score_bars` + `compute_buy_stance`（模拟与回溯共用）。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List
 
 # 与 docs/quant-ui.md · quant-concepts.md 一致
@@ -37,7 +39,7 @@ ACTIONS: List[Dict[str, Any]] = [
         "apis": [
             "/api/watching/*",
             "/api/quant/portfolio-backtest",
-            "/api/quant/portfolio-neutral-compare",
+            "/api/quant/last-portfolio-backtest",
             "/api/quant/cross-section",
         ],
         "services": [
@@ -46,7 +48,7 @@ ACTIONS: List[Dict[str, Any]] = [
             "quant.services.quant_service_ops.QuantOpsMixin（watching）",
         ],
         "core": [
-            "core.watching_store",
+            "core.watching.store",
             "core.backtest.topk_backtest",
             "core.signal.cross_section",
         ],
@@ -62,13 +64,14 @@ ACTIONS: List[Dict[str, Any]] = [
             "/api/paper/rebalance",
             "/api/paper/t0",
             "/api/quant/t0-backtest",
+            "/api/quant/last-t0-backtest",
             "/api/watching/refresh?sync_paper=true",
         ],
         "services": [
             "services.paper_service.PaperService",
             "quant.services.quant_service_follow.QuantFollowMixin",
         ],
-        "core": ["core.paper", "core.paper_rebalance", "core.t0"],
+        "core": ["core.paper", "core.paper.rebalance", "core.t0"],
     },
     {
         "id": "compare",
@@ -83,10 +86,10 @@ ACTIONS: List[Dict[str, Any]] = [
             "quant.services.quant_service_compare.QuantCompareMixin",
             "quant.services.portfolio_quant_bridge",
         ],
-        "core": ["core.paper", "core.watching_store"],
+        "core": ["core.paper", "core.watching.store"],
         "notes": [
             "纸面 vs TopK 对照已下线（口径不公平）",
-            "portfolio-neutral-compare 属历史验证（规则变体对照），不是对照层",
+            "中性化对照研究口已下线（ŷ 路径开关空转）",
             "skills/compare 是行情比价 Skill，与本动作无关",
         ],
     },
@@ -123,6 +126,6 @@ def action_map() -> Dict[str, Any]:
         "actions": ACTIONS,
         "docs": [
             "docs/quant-ui.md",
-            "docs/quant-concepts.md",
+            "docs/quant.md",
         ],
     }

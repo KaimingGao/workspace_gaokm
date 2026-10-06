@@ -39,3 +39,31 @@ export function normalizeProbeCode(raw) {
     .trim()
     .replace(/\.(SH|SZ|BJ)$/i, "");
 }
+
+/**
+ * 是否可作为展示用股票名（拒绝「名=代码」伪名，避免探针下拉只剩代码）。
+ * @param {string} code
+ * @param {string} name
+ */
+export function isUsableStockName(code, name) {
+  const c = normalizeProbeCode(code);
+  const nm = String(name || "").trim().replace(/\s+/g, "");
+  if (!nm) return false;
+  if (c && nm === c) return false;
+  if (/^\d{6}$/.test(nm)) return false;
+  return true;
+}
+
+/**
+ * 从候选里取第一个可用中文名。
+ * @param {string} code
+ * @param {...(string|null|undefined)} candidates
+ */
+export function resolveStockDisplayName(code, ...candidates) {
+  for (const cand of candidates) {
+    if (isUsableStockName(code, cand)) {
+      return String(cand || "").trim().replace(/\s+/g, "");
+    }
+  }
+  return "";
+}

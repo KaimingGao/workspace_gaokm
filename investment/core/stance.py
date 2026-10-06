@@ -1,9 +1,11 @@
 """规则引擎：由 quote/signal/kline 等事实合成买卖 stance（确定性，供 LLM 引用）。"""
 
-from __future__ import annotations
+import logging
 
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
+from core.numbers import to_float as _f
 from core.signal.config import get_stance_thresholds, load_signal_config
 
 STANCE_LABELS = {
@@ -13,15 +15,6 @@ STANCE_LABELS = {
     "probe": "建议逢低分批关注但暂不追入",
     "buy_light": "可考虑轻仓试探（非追涨）",
 }
-
-
-def _f(v: Any) -> Optional[float]:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def _bad_kline_tags(tags: List[str]) -> bool:
@@ -53,10 +46,8 @@ def compute_buy_stance(
             "confidence": "low",
         }
 
+    # 主分须为 ŷ；无 predicted_score 则信息不足（不回退启发式 score）
     score = _f(signal_item.get("predicted_score"))
-    if score is None:
-        # 主分须为 ŷ；无收益分则信息不足
-        score = None
     score_kind = "predicted"
     hard_reject = bool(signal_item.get("hard_reject"))
     reject_reason = signal_item.get("reject_reason") or ""

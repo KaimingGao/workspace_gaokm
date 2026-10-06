@@ -8,18 +8,19 @@
 求解：默认 QR 最小二乘；``ridge_lambda>0`` 时用 Ridge（截距不惩罚），缓解共线与过拟合。
 """
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.research.factor_ols_fit import (
-    _exclusion_reasons_map,
     clamp_ridge_lambda,
     fit_factor_ols_from_panel,
 )
 from core.research.panel import collect_subscore_forward_panel
 
-# Backward-compatible re-exports (implementation lives in core.research).
+# Public re-exports (implementation lives in core.research).
 __all__ = [
     "clamp_ridge_lambda",
     "collect_subscore_forward_panel",
@@ -42,7 +43,7 @@ def compute_factor_ols_report(
     ridge_lambda: float = 0.0,
 ) -> Dict[str, Any]:
     """对 sub_scores 拟合 forward return 的 OLS/Ridge（研究用，不产出生产权重 patch）。"""
-    xs, ys = collect_subscore_forward_panel(
+    xs, ys, _dates = collect_subscore_forward_panel(
         bars,
         horizon_days=horizon_days,
         min_history=min_history,
@@ -89,7 +90,7 @@ def compute_factor_ols_pooled_report(
             if code:
                 skipped.append({"code": code, "reason": "无日线"})
             continue
-        xs, ys = collect_subscore_forward_panel(
+        xs, ys, _dates = collect_subscore_forward_panel(
             bars,
             horizon_days=horizon_days,
             index_bars=item.get("index_bars"),

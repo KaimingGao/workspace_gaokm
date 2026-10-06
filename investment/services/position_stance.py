@@ -1,7 +1,9 @@
 """Paper 持仓 stance 摘要（services 层隔离 skills.position）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict
 
 

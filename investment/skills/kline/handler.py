@@ -1,5 +1,5 @@
 from agent.contracts import BaseSkillHandler
-from skills.kline.engine import KlineEngine
+from adapters.kline.engine import KlineEngine
 
 
 class KlineHandler(BaseSkillHandler):

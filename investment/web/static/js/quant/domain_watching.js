@@ -1,26 +1,37 @@
 import { apiFetch } from "../api_client.js";
+import { getDataOfflineOnly, installDataOfflineToggle, offlineOnlyQuery } from "../data_offline.js";
+import { scoresPolicyLine } from "../data_policy.js";
+import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
+import { BARS_WATCHING_LIMIT } from "./params.js";
 import { renderLineChart } from "../lw_charts.js";
-import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
-import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
-import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js";
+import { syncOverviewUniverse } from "./factor_corr_ui.js";
+import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js";
+import { watchingNameFromEl, applyWatchingNameEl } from "./names.js";
+import { renderWatchingHoldings } from "./watching_holdings.js";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan, renderWatchingWatchTableFallback, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js";
+import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
   buildWatchingInsightsGridPatch,
   buildWatchingScoreCellHtml,
+  buildWatchingCalScoreCellHtml,
+  buildWatchingTauScoreCellHtml,
+  buildWatchingOnScoreCellHtml,
   buildWatchingInsightsStatusText,
   buildWatchingInsightsErrorStatus,
   buildWatchingInsightsGridErrorPatch,
   buildWatchingInsightsNativeFields,
+  isOosFailedItem,
+  oosFailedBadgeHtml,
 } from "./watching_insights_ui.js";
 import {
   parseWatchingVolume,
   formatWatchingChg,
+  formatOpenDisplay,
   buildWatchingQuoteGridPatch,
   buildWatchingQuotesStatusText,
   buildWatchingQuotesErrorStatus,
+  withQuoteGap,
 } from "./watching_quotes_ui.js";
 import {
   watchingBuildInvalidTip,
@@ -28,10 +39,13 @@ import {
   buildWatchingBuildPayload,
   watchingBuildModeUiConfig,
 } from "./watching_build_ui.js";
+import { mountScoreHistogram } from "./yhat_viz.js";
+import { defaultScoringFloors, mergeScoringFloors } from "./scoring.js";
 import {
   formatRefreshStats,
   buildWatchingNameByCode,
   watchingPoolMetaText,
+  applyWatchingOverviewKpis,
   watchingQuantListHtml,
   watchingPanelShellFlags,
   applyWatchingPanelShell,
@@ -39,9 +53,18 @@ import {
   watchingChartLabelText,
 } from "./watching_panel_ui.js";
 
-const WATCHING_SORT_STORAGE = "watching_table_sort_v1";
-const WATCHING_SORT_KEYS = new Set(["name", "chg", "score", "excess", "vol"]);
-const Q_COLORS = ["#9ca3af", "#93c5fd", "#60a5fa", "#34d399", "#059669", "#047857", "#065f46"];
+const WATCHING_SORT_STORAGE = "watching_table_sort_v2";
+const WATCHING_SORT_KEYS = new Set([
+  "name",
+  "chg",
+  "tier",
+  "score",
+  "score_eod",
+  "score_tau",
+  "score_on",
+  "excess",
+  "vol",
+]);
 
 /** Quant domain: watching */
 export function installWatching(q) {
@@ -58,6 +81,240 @@ export function installWatching(q) {
       state.watchingSortDir = saved.dir === "asc" ? "asc" : "desc";
     }
   } catch (_) { /* ignore */ }
+  if (!state.watchingSortKey) {
+    state.watchingSortKey = "tier";
+    state.watchingSortDir = "asc";
+  }
+
+  function syncWatchingDataPolicyMeta() {
+    const meta = document.getElementById("watching-page-meta");
+    if (meta) {
+      meta.textContent = `观察池 · ${scoresPolicyLine(getDataOfflineOnly())} · 写仓=增量补齐`;
+    }
+  }
+
+  async function prepareWatchingWarehouse({ force = false } = {}) {
+    if (getDataOfflineOnly()) return { ok: true, skipped: true };
+    try {
+      return await ensureWarehouseTopup({
+        force,
+        watchingLimit: BARS_WATCHING_LIMIT,
+        onStatus: (msg) =>
+          setWatchingRefreshStatus(msg || "增量补齐本地仓…", {
+            busy: true,
+            owner: "insights",
+          }),
+      });
+    } catch (err) {
+      const msg = String((err && err.message) || err || "增量补齐失败");
+      setWatchingRefreshStatus(msg, { error: true, owner: "insights" });
+      throw err;
+    }
+  }
+
+  installDataOfflineToggle(document.getElementById("watching-data-offline"), {
+    onChange: (offlineOnly) => {
+      syncWatchingDataPolicyMeta();
+      (async () => {
+        try {
+          if (!offlineOnly) await prepareWatchingWarehouse({ force: true });
+        } catch (_) {
+          /* status already set */
+        }
+        try {
+          fillWatchingInsights();
+        } catch (_) {
+          /* fill may not be ready on first tick */
+        }
+      })();
+    },
+  });
+  syncWatchingDataPolicyMeta();
+
+  function collectWatchingYhatItems() {
+    const insightBy = state.watchingInsightByCode || {};
+    const pickOo = (code, row) => {
+      const it = insightBy[watchingCodeKey(code)] || row;
+      const n =
+        row && row.scoreEodNum != null && Number.isFinite(Number(row.scoreEodNum))
+          ? Number(row.scoreEodNum)
+          : resolveEodScore(it) ?? resolveEodScore(row);
+      return n;
+    };
+    const out = [];
+    if (state.watchingGrid && state.watchingGridReady) {
+      for (const r of state.watchingGrid.getData() || []) {
+        if (!r.code) continue;
+        const n = pickOo(r.code, r);
+        if (!Number.isFinite(n)) continue;
+        out.push({
+          code: String(r.code),
+          name: r.name || "",
+          score: n,
+        });
+      }
+      return out;
+    }
+    const watchTable = document.getElementById("watching-watchlist-table");
+    watchTable?.querySelectorAll("tr[data-code]").forEach((tr) => {
+      const code = String(tr.dataset.code || "").trim();
+      if (!code) return;
+      const row = {
+        scoreEodNum: Number(tr.dataset.scoreEod),
+      };
+      const n = pickOo(code, row);
+      if (!Number.isFinite(n)) return;
+      const name =
+        tr.querySelector(".watching-name-text")?.getAttribute("data-full-name") ||
+        tr.querySelector(".watching-name-text")?.textContent ||
+        "";
+      out.push({
+        code,
+        name,
+        score: n,
+      });
+    });
+    return out;
+  }
+
+  function applyYhatHistTableFilter(sel) {
+    const clearBtn = document.getElementById("watching-yhat-hist-clear");
+    const filterMeta = document.getElementById("watching-yhat-hist-filter");
+    if (clearBtn) clearBtn.hidden = !sel;
+    if (filterMeta) {
+      if (sel) {
+        filterMeta.hidden = false;
+        filterMeta.textContent = `已筛 ${sel.count} 只 · ŷ ∈ [${sel.x0.toFixed(2)}, ${sel.x1.toFixed(2)}] · 再点同柱或 Esc 清除`;
+      } else {
+        filterMeta.hidden = true;
+        filterMeta.textContent = "";
+      }
+    }
+    const hit = sel ? new Set(sel.codes || []) : null;
+    if (state.watchingGrid && typeof state.watchingGrid.patchRows === "function") {
+      const patches = {};
+      for (const r of state.watchingGrid.getData() || []) {
+        const code = String(r.code || "");
+        if (!code) continue;
+        patches[code] = {
+          yhatHistHit: hit ? hit.has(code) : false,
+          yhatHistDim: hit ? !hit.has(code) : false,
+        };
+      }
+      state.watchingGrid.patchRows(patches);
+      return;
+    }
+    const watchTable = document.getElementById("watching-watchlist-table");
+    watchTable?.querySelectorAll("tr[data-code]").forEach((tr) => {
+      const code = String(tr.dataset.code || "");
+      tr.classList.toggle("is-yhat-hist-hit", !!(hit && hit.has(code)));
+      tr.classList.toggle("is-yhat-hist-dim", !!(hit && !hit.has(code)));
+    });
+  }
+
+  function ensureWatchingYhatHist() {
+    if (state.watchingYhatHist) return state.watchingYhatHist;
+    const canvas = document.getElementById("watching-yhat-hist");
+    if (!canvas) return null;
+    const floors = state.quantScoringFloors || defaultScoringFloors();
+    state.watchingYhatHist = mountScoreHistogram(canvas, {
+      bins: 14,
+      floors: {
+        buy: floors.min_predicted_score,
+        hold: floors.min_hold_predicted_score,
+      },
+      onSelect: (sel) => applyYhatHistTableFilter(sel),
+    });
+    const clearBtn = document.getElementById("watching-yhat-hist-clear");
+    if (clearBtn && !clearBtn.dataset.bound) {
+      clearBtn.dataset.bound = "1";
+      clearBtn.addEventListener("click", () => {
+        state.watchingYhatHist?.clearSelection();
+        applyYhatHistTableFilter(null);
+      });
+    }
+    return state.watchingYhatHist;
+  }
+
+  function paintWatchingYhatHist(scoresOrItems) {
+    const wrap = document.getElementById("watching-yhat-hist-wrap");
+    const meta = document.getElementById("watching-yhat-hist-meta");
+    if (!wrap) return;
+    let items;
+    if (Array.isArray(scoresOrItems) && scoresOrItems.length) {
+      if (typeof scoresOrItems[0] === "number") {
+        // 兼容旧调用：尽量回落成带 code 的 items
+        items = collectWatchingYhatItems();
+        if (!items.length) {
+          items = scoresOrItems
+            .filter((n) => Number.isFinite(n))
+            .map((score, i) => ({ code: `n${i}`, score }));
+        }
+      } else {
+        items = scoresOrItems;
+      }
+    } else {
+      items = collectWatchingYhatItems();
+    }
+    if (!items.length) {
+      wrap.hidden = true;
+      applyYhatHistTableFilter(null);
+      applyWatchingOverviewKpis({
+        buyPct: null,
+        n: null,
+        eodMu: null,
+        eodMed: null,
+        eodN: null,
+      });
+      if (meta) meta.textContent = "";
+      const metaAux = document.getElementById("watching-yhat-hist-meta-aux");
+      if (metaAux) metaAux.textContent = "";
+      return;
+    }
+    wrap.hidden = false;
+    const floors = state.quantScoringFloors || defaultScoringFloors();
+    const hist = ensureWatchingYhatHist();
+    if (!hist) return;
+    hist.setFloors({
+      buy: floors.min_predicted_score,
+      hold: floors.min_hold_predicted_score,
+    });
+    requestAnimationFrame(() => {
+      const pack = hist.setData(items);
+      applyYhatHistTableFilter(hist.getSelection());
+      if (pack) {
+        const f = (x, d = 2) =>
+          x != null && Number.isFinite(x) ? Number(x).toFixed(d) : "—";
+        const pos =
+          pack.pct_pos != null
+            ? `ŷ_oo>0 ${(pack.pct_pos * 100).toFixed(0)}%`
+            : null;
+        if (meta) {
+          meta.textContent = [pos, `n=${pack.n}`].filter(Boolean).join(" · ");
+        }
+        const metaAux = document.getElementById("watching-yhat-hist-meta-aux");
+        if (metaAux) {
+          metaAux.textContent = [
+            `ŷ_oo μ ${f(pack.mean)}%`,
+            `med ${f(pack.median)}%`,
+            `IQR [${f(pack.p25)}, ${f(pack.p75)}]`,
+            pack.std != null && Number.isFinite(pack.std)
+              ? `σ ${f(pack.std)}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+        }
+        applyWatchingOverviewKpis({
+          buyPct: pack.n ? pack.pct_above_buy : null,
+          n: pack.n,
+          eodMu: pack.mean,
+          eodMed: pack.median,
+          eodN: pack.n || null,
+        });
+      }
+    });
+  }
 
   async function addWatchingWatchItem(query) {
     const queryText = String(query || "").trim();
@@ -233,14 +490,19 @@ export function installWatching(q) {
     const aiContent = document.getElementById("watching-news-ai-content");
     const aiStatus = document.getElementById("watching-news-ai-status");
     if (!aiSection || !aiContent) return;
+    const gen = (state.watchingNewsAiGen = (state.watchingNewsAiGen || 0) + 1);
     aiSection.hidden = false;
     aiContent.innerHTML = WATCHING_NEWS_AI_LOADING_HTML;
     if (aiStatus) aiStatus.textContent = "分析中…";
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 50000);
     try {
       const res = await fetch(
-        `/api/watching/sentiment/${encodeURIComponent(stock_code || code)}/analysis`
+        `/api/watching/sentiment/${encodeURIComponent(stock_code || code)}/analysis`,
+        { signal: ctrl.signal }
       );
       const data = await res.json().catch(() => ({}));
+      if (gen !== state.watchingNewsAiGen) return;
       if (data.ok && data.analysis) {
         aiContent.innerHTML = buildWatchingNewsAiAnalysisHtml(data.analysis, escapeHtml);
         if (aiStatus) aiStatus.textContent = "分析完成";
@@ -252,11 +514,17 @@ export function installWatching(q) {
         if (aiStatus) aiStatus.textContent = "分析失败";
       }
     } catch (err) {
+      if (gen !== state.watchingNewsAiGen) return;
+      const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err)));
       aiContent.innerHTML = buildWatchingNewsAiErrorHtml(
-        `AI 分析请求失败: ${String(err.message || err)}`,
+        aborted
+          ? "AI 分析超时，请稍后重试"
+          : `AI 分析请求失败: ${String((err && err.message) || err)}`,
         escapeHtml
       );
-      if (aiStatus) aiStatus.textContent = "分析失败";
+      if (aiStatus) aiStatus.textContent = aborted ? "分析超时" : "分析失败";
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -270,35 +538,101 @@ export function installWatching(q) {
           .filter(Boolean);
     if (!codes.length) return;
     const gen = (state.watchingInsightsGen = (state.watchingInsightsGen || 0) + 1);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 100000);
+    state.watchingInsightByCode = {};
+    // 每批单独超时（对齐后端 batch≈90s）；勿用总时钟，否则 100 票 3 批必触发「摘要超时」
+    const chunkTimeoutMs = 95000;
     const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
+    const WATCHING_INSIGHTS_CACHE_VER = "rk3";
+
+    function shanghaiDateKey(d = new Date()) {
+      try {
+        return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(d);
+      } catch (_) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      }
+    }
+
+    function insightTauSessionDay(it) {
+      const tau = String((it && (it.as_of_tau || it.rem_tau)) || "");
+      if (tau.includes("T") && tau.length >= 10) return tau.slice(0, 10);
+      return "";
+    }
+
+    function isStaleInsightTau(it, sessionDay = shanghaiDateKey()) {
+      const day = insightTauSessionDay(it);
+      return !!(day && sessionDay && day < sessionDay);
+    }
+    const readInsightsStore = () => {
+      try {
+        const raw = localStorage.getItem("watching_insights_cache");
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed.timestamp) return null;
+        if (parsed.ver !== WATCHING_INSIGHTS_CACHE_VER) return null;
+        if (Date.now() - parsed.timestamp >= 4 * 3600 * 1000) return null;
+        return parsed;
+      } catch (_) {
+        return null;
+      }
+    };
+    const writeInsightsStore = (items, extra) => {
+      try {
+        const prev = readInsightsStore() || {};
+        const scoresByCode = { ...(prev.scoresByCode || {}) };
+        const itemsByCode = { ...(prev.itemsByCode || {}) };
+        for (const it of items || []) {
+          const code = String((it && (it.stock_code || it.code)) || "").trim();
+          if (!code) continue;
+          if (it && it.ok !== false) itemsByCode[code] = it;
+          const ranking = resolveRankingScore(it);
+          if (ranking != null && Math.abs(Number(ranking)) <= 20) {
+            scoresByCode[code] = ranking;
+          }
+        }
+        localStorage.setItem(
+          "watching_insights_cache",
+          JSON.stringify({
+            ver: WATCHING_INSIGHTS_CACHE_VER,
+            timestamp: Date.now(),
+            scoresByCode,
+            itemsByCode,
+            cacheStamp: (extra && extra.cacheStamp) || prev.cacheStamp || "",
+          })
+        );
+      } catch (_) {}
+    };
     setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
     try {
-      // 分批拉取，避免单次过长/截断；合并后再一次写入表格
-      const chunkSize = 40;
-      const items = [];
-      for (let i = 0; i < codes.length; i += chunkSize) {
-        if (gen !== state.watchingInsightsGen) return;
-        const chunk = codes.slice(i, i + chunkSize);
-        const res = await fetch(
-          `/api/watching/insights?codes=${encodeURIComponent(chunk.join(","))}`,
-          { signal: ctrl.signal }
-        );
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || res.statusText);
-        items.push(...(data.items || []));
-      }
+      await prepareWatchingWarehouse({ force: false });
+      if (gen !== state.watchingInsightsGen) return;
+    } catch (_) {
+      if (gen !== state.watchingInsightsGen) return;
+      /* 增量失败仍尝试只读现算，便于对照缺仓票 */
+    }
+    setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
+
+    const applyInsightItems = (items) => {
       if (gen !== state.watchingInsightsGen) return;
       if (useGrid && !(state.watchingGrid && state.watchingGridReady)) return;
-
       const byCode = indexByWatchingCode(items);
+      // 超时/失败空壳 ok:false：不要把已有 ŷ 刷成「—」
+      const ready = {};
+      Object.keys(byCode).forEach((k) => {
+        const it = byCode[k];
+        if (it && it.ok !== false && (it.stock_code || it.code)) ready[k] = it;
+      });
+      state.watchingInsightByCode = {
+        ...(state.watchingInsightByCode || {}),
+        ...ready,
+      };
       if (useGrid && typeof state.watchingGrid.patchRows === "function") {
         const patches = {};
         codes.forEach((code) => {
-          const it = byCode[watchingCodeKey(code)];
-          // 无回包的票保持「…」，勿用空对象刷成「—」
-          if (!it || !it.stock_code) return;
+          const it = ready[watchingCodeKey(code)];
+          if (!it) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
           patches[code] = buildWatchingInsightsGridPatch(it, row, insightDeps);
@@ -307,8 +641,8 @@ export function installWatching(q) {
         sortWatchingTableRows();
       } else if (useGrid) {
         codes.forEach((code) => {
-          const it = byCode[watchingCodeKey(code)];
-          if (!it || !it.stock_code) return;
+          const it = ready[watchingCodeKey(code)];
+          if (!it) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
           row.update(buildWatchingInsightsGridPatch(it, row, insightDeps));
@@ -316,8 +650,8 @@ export function installWatching(q) {
         sortWatchingTableRows();
       } else {
         codes.forEach((code) => {
-          const it = byCode[watchingCodeKey(code)];
-          if (!it || !it.stock_code) return;
+          const it = ready[watchingCodeKey(code)];
+          if (!it) return;
           const tr = watchTable?.querySelector(
             `tr[data-code="${String(code).replace(/"/g, "")}"]`
           );
@@ -331,22 +665,150 @@ export function installWatching(q) {
           if (scoreEl) {
             scoreEl.innerHTML = buildWatchingScoreCellHtml(disp, scoreCls, escapeHtml);
           }
+          const scoreCalEl = tr.querySelector(`[data-q='score_eod']`);
+          if (scoreCalEl) {
+            scoreCalEl.innerHTML = buildWatchingCalScoreCellHtml(
+              disp,
+              scoreCls,
+              escapeHtml
+            );
+          }
+          const scoreTauEl = tr.querySelector(`[data-q='score_tau']`);
+          if (scoreTauEl) {
+            scoreTauEl.innerHTML = buildWatchingTauScoreCellHtml(
+              disp,
+              scoreCls,
+              escapeHtml
+            );
+          }
+          const scoreOnEl = tr.querySelector(`[data-q='score_on']`);
+          if (scoreOnEl) {
+            scoreOnEl.innerHTML = buildWatchingOnScoreCellHtml(
+              disp,
+              scoreCls,
+              escapeHtml
+            );
+          }
+          const eod = resolveEodScore(it);
+          if (disp.scoreNum != null) tr.dataset.score = String(disp.scoreNum);
+          if (eod != null) tr.dataset.scoreEod = String(eod);
+          else delete tr.dataset.scoreEod;
           const fields = buildWatchingInsightsNativeFields(it);
-          setTxt("stance", fields.stance);
           setTxt("excess", fields.excess);
           if (fields.vol) setTxt("vol", fields.vol);
           setTxt("volr", fields.volr);
           setTxt("pe", fields.pe);
           setTxt("pb", fields.pb);
+          const nameRow = tr.querySelector(".watching-name-row");
+          if (nameRow) {
+            const failed = isOosFailedItem(it);
+            let badge = nameRow.querySelector(".watching-oos-badge");
+            if (failed && !badge) {
+              nameRow.insertAdjacentHTML("beforeend", oosFailedBadgeHtml(escapeHtml));
+            } else if (!failed && badge) {
+              badge.remove();
+            }
+            tr.classList.toggle("is-oos-failed", failed);
+          }
         });
       }
+      paintWatchingYhatHist();
+    };
+
+    const cachedItems = [];
+    try {
+      const store = readInsightsStore();
+      const by = (store && store.itemsByCode) || {};
+      for (const code of codes) {
+        const it = by[String(code)] || by[watchingCodeKey(code)];
+        if (it && it.ok !== false && !isStaleInsightTau(it)) cachedItems.push(it);
+      }
+    } catch (_) {}
+    if (cachedItems.length) {
+      applyInsightItems(cachedItems);
+      setWatchingRefreshStatus(
+        `摘要缓存 ${cachedItems.length}/${codes.length} · 正在核对…`,
+        { busy: true, owner: "insights" }
+      );
+    }
+
+    const items = [];
+    let timedOut = false;
+    let cachedCount = 0;
+    try {
+      // P2：首批 20 只快速回填，后续批 40 只复用连接
+      const FIRST_CHUNK = 20;
+      const chunkSize = 40;
+      const totalChunks = Math.ceil(codes.length / chunkSize) || 1;
+      let chunkIdx = 0;
+      for (let i = 0; i < codes.length; ) {
+        if (gen !== state.watchingInsightsGen) return;
+        const curSize = i === 0 ? FIRST_CHUNK : chunkSize;
+        const chunk = codes.slice(i, i + curSize);
+        chunkIdx += 1;
+        setWatchingRefreshStatus(
+          `正在加载评分… ${chunkIdx}/${totalChunks}（${items.length}/${codes.length}）`,
+          { busy: true, owner: "insights" }
+        );
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), chunkTimeoutMs);
+        let res;
+        try {
+          res = await fetch(
+            `/api/watching/insights?codes=${encodeURIComponent(chunk.join(","))}&${offlineOnlyQuery()}`,
+            { signal: ctrl.signal }
+          );
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            timedOut = true;
+            break;
+          }
+          throw err;
+        } finally {
+          clearTimeout(timer);
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        const batch = data.items || [];
+        items.push(...batch);
+        cachedCount += Number(data.cached_count) || 0;
+        applyInsightItems(batch);
+        writeInsightsStore(batch, { cacheStamp: data.cache_stamp });
+        i += curSize;
+      }
+      if (gen !== state.watchingInsightsGen) return;
       const okN = items.filter((x) => x.ok).length;
-      setWatchingRefreshStatus(buildWatchingInsightsStatusText(okN, codes.length, items), {
-        ok: true,
-        owner: "insights",
-      });
+      if (timedOut && items.length) {
+        setWatchingRefreshStatus(
+          `摘要部分超时 · 已更新 ${okN}/${codes.length}（页面仍可用）`,
+          { error: true, owner: "insights" }
+        );
+      } else if (timedOut) {
+        setWatchingRefreshStatus(buildWatchingInsightsErrorStatus({ name: "AbortError" }), {
+          error: true,
+          owner: "insights",
+        });
+      } else {
+        setWatchingRefreshStatus(buildWatchingInsightsStatusText(okN, codes.length, items, {
+          cachedCount,
+        }), {
+          ok: true,
+          owner: "insights",
+        });
+      }
+      writeInsightsStore(items);
+      paintWatchingYhatHist();
     } catch (err) {
       if (gen !== state.watchingInsightsGen) return;
+      if (items.length) {
+        applyInsightItems(items);
+        const okN = items.filter((x) => x.ok).length;
+        setWatchingRefreshStatus(
+          `摘要部分失败 · 已更新 ${okN}/${codes.length}：${String((err && err.message) || err)}`,
+          { error: true, owner: "insights" }
+        );
+        return;
+      }
       if (useGrid && state.watchingGrid && state.watchingGridReady) {
         const patches = {};
         codes.forEach((code) => {
@@ -367,8 +829,6 @@ export function installWatching(q) {
         error: true,
         owner: "insights",
       });
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -376,36 +836,93 @@ export function installWatching(q) {
     if (state.watchingGrid && state.watchingGridReady) {
       const codes = (state.watchingGrid.getData() || []).map((r) => r.code).filter(Boolean);
       if (!codes.length) return;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 20000);
-      setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
-      try {
-        const res = await fetch(
-          `/api/watching/quotes?codes=${encodeURIComponent(codes.join(","))}`,
-          { signal: ctrl.signal }
-        );
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || res.statusText);
-        const byCode = indexByWatchingCode(data.items || []);
+      // P2：分批加载——首批 20 只快速回填，剩余后台补齐
+      const FIRST_BATCH = 20;
+      const firstCodes = codes.slice(0, FIRST_BATCH);
+      const restCodes = codes.slice(FIRST_BATCH);
+      let totalOk = 0;
+      const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
+      const applyQuoteBatch = (items) => {
+        const byCode = indexByWatchingCode(items || []);
         codes.forEach((code) => {
           const it = byCode[watchingCodeKey(code)] || {};
+          if (!it.stock_code) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
-          row.update(buildWatchingQuoteGridPatch(it, row, parseWatchingVolume));
+          const insight = (state.watchingInsightByCode || {})[watchingCodeKey(code)];
+          const quotePatch = buildWatchingQuoteGridPatch(it, row, parseWatchingVolume);
+          if (insight && insight.stock_code) {
+            const merged = withQuoteGap(insight, it);
+            const scorePatch = buildWatchingInsightsGridPatch(
+              merged,
+              { getData: () => ({ ...(row.getData() || {}), ...quotePatch }) },
+              insightDeps
+            );
+            row.update({ ...quotePatch, ...scorePatch });
+          } else {
+            row.update(quotePatch);
+          }
         });
-        const okN = (data.items || []).filter((x) => x.ok).length;
-        setWatchingRefreshStatus(buildWatchingQuotesStatusText(okN, codes.length), {
-          ok: true,
-          owner: "quotes",
-        });
+        return (items || []).filter((x) => x.ok).length;
+      };
+      setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
+      const fetchQuoteBatch = async (codeList, timeoutMs) => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        try {
+          const res = await fetch(
+            `/api/watching/quotes?codes=${encodeURIComponent(codeList.join(","))}`,
+            { signal: ctrl.signal }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.detail || res.statusText);
+          return data;
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      try {
+        let data1;
+        try {
+          data1 = await fetchQuoteBatch(firstCodes, 15000);
+        } catch (_err) {
+          data1 = await fetchQuoteBatch(firstCodes, 12000);
+        }
+        totalOk += applyQuoteBatch(data1.items || []);
         sortWatchingTableRows();
+        if (restCodes.length) {
+          setWatchingRefreshStatus(
+            `行情 ${totalOk}/${codes.length} · 补齐剩余 ${restCodes.length} 只…`,
+            { busy: true, owner: "quotes" }
+          );
+        }
       } catch (err) {
         setWatchingRefreshStatus(buildWatchingQuotesErrorStatus(err), {
           error: true,
           owner: "quotes",
         });
-      } finally {
-        clearTimeout(timer);
+        return;
+      }
+      // 剩余：后台补齐（失败仅告警，不覆盖首批已回填行）
+      if (restCodes.length) {
+        try {
+          const data2 = await fetchQuoteBatch(restCodes, 20000);
+          totalOk += applyQuoteBatch(data2.items || []);
+          sortWatchingTableRows();
+        } catch (_) {
+          /* 首批已回填，剩余失败仅降级 */
+        }
+      }
+      if (totalOk === 0) {
+        setWatchingRefreshStatus("行情暂不可用，请稍后刷新", {
+          error: true,
+          owner: "quotes",
+        });
+      } else {
+        setWatchingRefreshStatus(buildWatchingQuotesStatusText(totalOk, codes.length), {
+          ok: true,
+          owner: "quotes",
+        });
       }
       return;
     }
@@ -427,6 +944,12 @@ export function installWatching(q) {
           if (el) el.textContent = val != null && val !== "" ? String(val) : "—";
         };
         setTxt("price", it.ok ? it.price : null);
+        setTxt(
+          "open",
+          it.ok
+            ? formatOpenDisplay(it, { unit: it.unit, currency: it.currency })
+            : null
+        );
         setTxt("vol", it.ok ? it.volume : null);
         const chgEl = tr.querySelector(`[data-q='chg']`);
         if (chgEl) {
@@ -437,6 +960,24 @@ export function installWatching(q) {
         }
         if (it.ok && it.stock_name) {
           applyWatchingNameEl(tr.querySelector(".watching-name-text"), it.stock_name);
+        }
+        const insight = (state.watchingInsightByCode || {})[watchingCodeKey(tr.dataset.code)];
+        if (insight && insight.stock_code) {
+          const merged = {
+            ...withQuoteGap(insight, it),
+            open: it.open,
+            open_raw: it.open_raw,
+            day_open: insight.day_open != null ? insight.day_open : it.open_raw || it.open,
+            price: it.price,
+            price_raw: it.price_raw,
+            price_tau: insight.price_tau != null ? insight.price_tau : it.price_raw || it.price,
+          };
+          const disp = buildWatchingScoreDisplay(merged, fmtScore, watchingScoreDetail);
+          const scoreEl = tr.querySelector(`[data-q='score']`);
+          if (scoreEl) {
+            scoreEl.innerHTML = buildWatchingScoreCellHtml(disp, scoreCls, escapeHtml);
+          }
+          if (disp.scoreNum != null) tr.dataset.score = String(disp.scoreNum);
         }
       });
       const okN = (data.items || []).filter((x) => x.ok).length;
@@ -456,9 +997,12 @@ export function installWatching(q) {
     if (!state.watchingGrid || !state.watchingGridReady) return;
     const codes = (state.watchingGrid.getData() || []).map((r) => r.code).filter(Boolean);
     if (!codes.length) return;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 95000);
     try {
       const res = await fetch(
-        `/api/watching/sentiment?codes=${encodeURIComponent(codes.join(","))}&limit=3`
+        `/api/watching/sentiment?codes=${encodeURIComponent(codes.join(","))}&limit=3`,
+        { signal: ctrl.signal }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || res.statusText);
@@ -469,6 +1013,8 @@ export function installWatching(q) {
       });
     } catch (_) {
       // 填充失败时保持默认状态
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -491,19 +1037,13 @@ export function installWatching(q) {
     if (c && typeof ctx.focusPaperHolding === "function") {
       ctx.focusPaperHolding(c);
     }
-    if (typeof ctx.showResultsTab === "function") {
-      ctx.showResultsTab("follow");
-      return;
-    }
     const q = c ? `?code=${encodeURIComponent(c)}` : "";
     window.location.href = `/follow${q}`;
   }
 
   async function gotoFollowTab() {
-    const page = document.body.dataset.page;
-    if (typeof ctx.showResultsTab === "function" && (page === "chat" || !page)) {
-      await ctx.showResultsTab("follow", { openMobile: true, load: true });
-    }
+    if (document.body.dataset.page === "follow") return;
+    window.location.href = "/follow";
   }
 
   function hideWatchingChart() {
@@ -552,7 +1092,6 @@ export function installWatching(q) {
       const wl = (data.watchlist || []).length;
       const eq = data.equity ?? data.nav ?? data.summary?.equity;
       el.textContent = [
-        data.name || "paper",
         `观察 ${wl} 只`,
         eq != null ? `净值 ${eq}` : null,
       ]
@@ -588,14 +1127,26 @@ export function installWatching(q) {
           (warnings.length ? ` · 告警 ${warnings.length}` : "");
       }
       // 不打开折叠也要能读到一句结论（折叠 summary 可见）
-      const foldSummary = document.querySelector(
-        "#watching-data-quality-fold > summary"
+      const foldDesc = document.querySelector(
+        "#watching-data-quality-fold > summary .dashboard-section-desc"
       );
-      if (foldSummary) {
+      if (foldDesc) {
         const fallback = dq && dq.fallback_count != null ? Number(dq.fallback_count) : null;
-        const tail =
-          warnings.length ? `告警 ${warnings.length} 条` : fallback && fallback > 0 ? `fallback ${fallback}` : "良好";
-        foldSummary.textContent = `数据质量 · ${tail}`;
+        foldDesc.textContent = warnings.length
+          ? `告警 ${warnings.length} 条`
+          : fallback && fallback > 0
+            ? `fallback ${fallback}`
+            : "良好 · fallback · gated";
+      } else {
+        const foldSummary = document.querySelector(
+          "#watching-data-quality-fold > summary"
+        );
+        if (foldSummary) {
+          const fallback = dq && dq.fallback_count != null ? Number(dq.fallback_count) : null;
+          const tail =
+            warnings.length ? `告警 ${warnings.length} 条` : fallback && fallback > 0 ? `fallback ${fallback}` : "良好";
+          foldSummary.textContent = `数据质量 · ${tail}`;
+        }
       }
       const warnRows = warnings
         .slice(0, 8)
@@ -614,10 +1165,34 @@ export function installWatching(q) {
         `<p class="quant-attr-note">质量摘要来自最近纸面调仓五问；专用逐票质量 API 后续可接。</p>`;
     } catch (err) {
       if (meta) meta.textContent = String(err.message || err);
-      const foldSummary = document.querySelector(
-        "#watching-data-quality-fold > summary"
+      const foldDesc = document.querySelector(
+        "#watching-data-quality-fold > summary .dashboard-section-desc"
       );
-      if (foldSummary) foldSummary.textContent = "数据质量 · 加载失败";
+      if (foldDesc) foldDesc.textContent = "加载失败";
+      else {
+        const foldSummary = document.querySelector(
+          "#watching-data-quality-fold > summary"
+        );
+        if (foldSummary) foldSummary.textContent = "数据质量 · 加载失败";
+      }
+    }
+  }
+
+  async function hydrateWatchingScoringFloors() {
+    if (state._scoringFloorsHydrated) return;
+    try {
+      const res = await fetch("/api/quant/strategies");
+      const data = await res.json().catch(() => ({}));
+      const floors = data && data.scoring_floors;
+      if (floors) {
+        state.quantScoringFloors = mergeScoringFloors(
+          state.quantScoringFloors,
+          floors
+        );
+        state._scoringFloorsHydrated = true;
+      }
+    } catch (_) {
+      /* 直方图用默认，后端仍读 signal_config */
     }
   }
 
@@ -627,10 +1202,17 @@ export function installWatching(q) {
       gridEl: document.getElementById("watching-align-grid"),
       mainActions: document.getElementById("watching-main-actions"),
       searchWrap: document.getElementById("watching-search-wrap"),
+      sectionEls: [
+        document.getElementById("watching-section-intake"),
+        document.getElementById("watching-section-watchlist"),
+        document.getElementById("watching-section-build-log"),
+        document.getElementById("watching-section-dq"),
+      ],
     };
     setWatchingRefreshStatus("正在加载观察名单…", { busy: true, owner: "panel" });
+    const floorsP = hydrateWatchingScoringFloors();
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const timer = setTimeout(() => ctrl.abort(), 45000);
     let uniRes;
     let paperCtx = { held: new Map(), buildLogs: [] };
     try {
@@ -644,10 +1226,11 @@ export function installWatching(q) {
       }));
       uniRes = await watchingP;
       paperCtx = await paperP;
+      await floorsP.catch(() => {});
     } catch (err) {
       const msg =
         err && err.name === "AbortError"
-          ? "观察名单加载超时，请刷新"
+          ? "观察名单加载超时（服务忙或拟合占满 CPU），请稍后刷新"
           : String((err && err.message) || err);
       setPoolMeta(msg);
       setWatchingRefreshStatus(msg, { error: true, owner: "panel" });
@@ -660,6 +1243,18 @@ export function installWatching(q) {
     applyWatchingPanelShell(watchingPanelShellFlags(!!data.exists), shellEls);
     if (!data.exists) {
       setPoolMeta("尚未创建");
+      applyWatchingOverviewKpis({
+        pool: null,
+        held: null,
+        maxSize: null,
+        buyPct: null,
+        mu: null,
+        med: null,
+        n: null,
+        eodMu: null,
+        eodMed: null,
+        eodN: null,
+      });
       const watchTable = document.getElementById("watching-watchlist-table");
       if (state.watchingGrid && typeof state.watchingGrid.destroy === "function") {
         state.watchingGrid.destroy();
@@ -668,7 +1263,7 @@ export function installWatching(q) {
       state.watchingGridReady = false;
       if (watchTable) watchTable.innerHTML = "";
       if (els.quantWatchingList) els.quantWatchingList.innerHTML = "";
-      renderWatchingHoldings({}, [], []);
+      renderWatchingHoldingsView({}, [], []);
       return data;
     }
     wireWatchingSearch();
@@ -676,11 +1271,28 @@ export function installWatching(q) {
     const uni = data.watching || {};
     const wl = uni.watchlist || [];
     const names = Array.isArray(uni.watchlist_names) ? uni.watchlist_names : [];
-    state.watchingNameByCode = buildWatchingNameByCode(wl, names);
+    // 合并而非整表替换：避免空/伪名覆盖探针已 hydrate 的真名
+    state.watchingNameByCode = {
+      ...(state.watchingNameByCode || {}),
+      ...buildWatchingNameByCode(wl, names),
+    };
     const paperN = wl.filter((c) => paperCodes.has(String(c))).length;
     setPoolMeta(watchingPoolMetaText(wl.length, paperN, uni.max_size));
+    applyWatchingOverviewKpis({
+      pool: wl.length,
+      held: paperN,
+      maxSize: uni.max_size,
+    });
+    try {
+      syncOverviewUniverse(
+        wl.length,
+        paperN ? `纸面重叠 ${paperN}` : "观察池"
+      );
+    } catch (_) {
+      /* overview optional */
+    }
     await renderWatchingWatchTable(wl, names, paperCodes, uni.watchlist_scores || {});
-    renderWatchingHoldings(
+    renderWatchingHoldingsView(
       uni.watchlist_holdings || {},
       names,
       paperCtx.buildLogs || []
@@ -691,9 +1303,13 @@ export function installWatching(q) {
     if (wl.length) {
       // quotes 会接管忙碌条；先交还 panel owner
       setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
-      fillWatchingQuotes().catch(() => {});
+      // 行情优先；舆情徽章稍后补，避免与行情抢线程池导致前端 20s 超时
+      fillWatchingQuotes()
+        .catch(() => {})
+        .finally(() => {
+          fillWatchingSentiment().catch(() => {});
+        });
       fillWatchingInsights().catch(() => {});
-      fillWatchingSentiment().catch(() => {});
     } else {
       setWatchingRefreshStatus("", { owner: "panel" });
     }
@@ -743,16 +1359,29 @@ export function installWatching(q) {
     const titleEl = document.getElementById("watching-news-detail-title");
     const metaEl = document.getElementById("watching-news-detail-meta");
     const listEl = document.getElementById("watching-news-detail-list");
+    const aiSection = document.getElementById("watching-news-ai-section");
+    const aiContent = document.getElementById("watching-news-ai-content");
+    const aiStatus = document.getElementById("watching-news-ai-status");
     if (!panel || !listEl) return;
+    const gen = (state.watchingNewsDetailGen = (state.watchingNewsDetailGen || 0) + 1);
+    // 打断上一轮 AI，避免切票后仍显示「正在分析」
+    state.watchingNewsAiGen = (state.watchingNewsAiGen || 0) + 1;
     panel.hidden = false;
     if (titleEl) titleEl.textContent = `资讯 · ${code}`;
     if (metaEl) metaEl.textContent = "加载中…";
     listEl.innerHTML = "";
+    if (aiSection) aiSection.hidden = true;
+    if (aiContent) aiContent.innerHTML = "";
+    if (aiStatus) aiStatus.textContent = "";
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
     try {
       const res = await fetch(
-        `/api/watching/sentiment/${encodeURIComponent(code)}?limit=8`
+        `/api/watching/sentiment/${encodeURIComponent(code)}?limit=8`,
+        { signal: ctrl.signal }
       );
       const data = await res.json().catch(() => ({}));
+      if (gen !== state.watchingNewsDetailGen) return;
       if (!res.ok) throw new Error(data.detail || res.statusText);
       const name = data.stock_name || code;
       const sent = data.sentiment || {};
@@ -760,14 +1389,34 @@ export function installWatching(q) {
       if (titleEl) {
         titleEl.innerHTML = buildWatchingNewsTitleHtml(name, sc, sent, sentimentBadgeHtml);
       }
-      if (metaEl) metaEl.textContent = buildWatchingNewsMetaText(data, sent);
+      let meta = buildWatchingNewsMetaText(data, sent);
+      if (data.stale || (data.error && data.from_cache)) {
+        meta = `${meta} · 缓存`;
+      }
+      if (metaEl) metaEl.textContent = meta;
       listEl.innerHTML = buildWatchingNewsListHtml(data.items || [], data);
+      // 详情用 limit=8 可能与表格批量 limit=3 标签不一致；勿回写行，避免点「中」变成「多」
       watchingSentimentByCode[String(code)] = data;
-      applySentimentToRow(code, data);
-      fetchWatchingNewsAI(code, sc);
+      if (data.ok && (data.items || []).length) {
+        fetchWatchingNewsAI(code, sc);
+      } else if (aiSection) {
+        aiSection.hidden = true;
+        if (aiContent) aiContent.innerHTML = "";
+        if (aiStatus) aiStatus.textContent = "";
+      }
     } catch (err) {
-      if (metaEl) metaEl.textContent = String(err.message || err);
-      listEl.innerHTML = `<li class="watching-news-empty">加载失败</li>`;
+      if (gen !== state.watchingNewsDetailGen) return;
+      const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err)));
+      if (metaEl) {
+        metaEl.textContent = aborted
+          ? "资讯拉取超时，请稍后重试"
+          : String((err && err.message) || err);
+      }
+      listEl.innerHTML = `<li class="watching-news-empty">${
+        aborted ? "加载超时" : "加载失败"
+      }</li>`;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -812,7 +1461,7 @@ export function installWatching(q) {
       const data = await res.json().catch(() => ({}));
       if (seq !== watchingBuildSeq) return;
       if (!res.ok) throw new Error(data.detail || res.statusText);
-      renderWatchingBuildPlan(data);
+      renderWatchingBuildPlanView(data);
       setWatchingBuildStatus("");
     } catch (err) {
       if (seq !== watchingBuildSeq) return;
@@ -885,8 +1534,8 @@ export function installWatching(q) {
     }
   }
 
-  function renderWatchingBuildPlan(plan) {
-    renderWatchingBuildPlanHtml(plan, {
+  function renderWatchingBuildPlanView(plan) {
+    renderWatchingBuildPlan(plan, {
       bodyEl: document.getElementById("watching-build-body"),
       confirmBtnEl: document.getElementById("watching-build-confirm"),
       mode: state.watchingBuildMode,
@@ -897,8 +1546,8 @@ export function installWatching(q) {
     });
   }
 
-  function renderWatchingHoldings(holdingsMap, names, buildLogs) {
-    renderWatchingHoldingsHtml(holdingsMap, names, buildLogs, {
+  function renderWatchingHoldingsView(holdingsMap, names, buildLogs) {
+    renderWatchingHoldings(holdingsMap, names, buildLogs, {
       sectionEl: document.getElementById("watching-holdings-section"),
       tableEl: document.getElementById("watching-holdings-table"),
     });
@@ -949,23 +1598,47 @@ export function installWatching(q) {
     state.watchingGrid = null;
     state.watchingGridReady = false;
     state.watchingInsightsGen = (state.watchingInsightsGen || 0) + 1;
+    state.watchingInsightByCode = {};
     if (!wl.length) {
       watchTable.innerHTML = `<p class="watching-table-empty">暂无观察 · 上方搜索加入</p>`;
       hideWatchingNewsDetail();
       updateWatchingPickCount();
+      paintWatchingYhatHist([]);
       return;
     }
     const inPaper =
       paperCodes instanceof Map
         ? paperCodes
         : new Map(Array.from(paperCodes || []).map((c) => [String(c), null]));
+    // 读取 localStorage 缓存的 insights（4h 内有效），用于初始化评分列
+    let cachedScores = {};
+    try {
+      const raw = localStorage.getItem("watching_insights_cache");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.ver === "rk3" && parsed.timestamp && Date.now() - parsed.timestamp < 4 * 3600 * 1000) {
+          cachedScores = parsed.scoresByCode || {};
+        }
+      }
+    } catch (_) {}
     const rowByCode = new Map();
     for (let i = 0; i < wl.length; i++) {
       const code = String(wl[i] || "").trim();
       if (!code) continue;
       const name = (names[i] && String(names[i]).trim()) || "—";
       const scoreRaw = scores && scores[code];
-      const scoreNum = scoreRaw == null || Number.isNaN(Number(scoreRaw)) ? null : Number(scoreRaw);
+      const cachedRaw = cachedScores[code];
+      const cachedN =
+        cachedRaw != null && !Number.isNaN(Number(cachedRaw))
+          ? Number(cachedRaw)
+          : null;
+      // 缓存若是 heuristic 0–100，丢弃（避免与 ŷ% 混列）
+      const cached =
+        cachedN != null && Math.abs(cachedN) <= 20 ? cachedN : null;
+      const scoreNum =
+        scoreRaw != null && !Number.isNaN(Number(scoreRaw)) && Math.abs(Number(scoreRaw)) <= 20
+          ? Number(scoreRaw)
+          : cached;
       const onPaper = inPaper.has(code);
       const heldShares = onPaper ? inPaper.get(code) : null;
       rowByCode.set(code, {
@@ -975,13 +1648,20 @@ export function installWatching(q) {
         market: "",
         paper: onPaper ? (heldShares != null ? `${heldShares} 股` : "已持") : "建仓",
         onPaper,
+        inBook: false,
         sentHtml: `<span class="watching-sent-badge is-neutral" data-code="${escapeHtml(code)}" title="加载中">…</span>`,
         price: "—",
+        prev_close: "—",
+        open: "—",
+        openNum: null,
         chg: "—",
         chgCls: "",
-        score: scoreNum == null ? "…" : fmtScore(scoreNum),
+        score: scoreNum == null ? "…" : fmtTableScore(null, scoreNum),
         scoreNum,
         scoreCls: scoreCls(scoreNum),
+        scoreEod: "…",
+        scoreTau: "…",
+        scoreOn: "…",
         stance: "…",
         excess: "…",
         excessNum: null,
@@ -1011,7 +1691,7 @@ export function installWatching(q) {
       grid.on("sortChanged", (sorters) => {
         const s = Array.isArray(sorters) && sorters.length ? sorters[0] : null;
         const key = s && s.field;
-        if (key === "name" || key === "score" || key === "excess" || key === "vol") {
+        if (key === "name" || key === "tier" || key === "score" || key === "excess" || key === "vol") {
           state.watchingSortKey = key;
           state.watchingSortDir = s.dir === "asc" ? "asc" : "desc";
           persistWatchingSort();
@@ -1020,13 +1700,26 @@ export function installWatching(q) {
       grid.setRows(rows);
       state.watchingGrid = grid;
       state.watchingGridReady = true;
+      void ensureFitTierMap(watchTable);
       updateWatchingPickCount();
       syncWatchingSelectAllState();
+      paintWatchingYhatHist();
     } catch (err) {
       console.warn("[watching] 虚拟表挂载失败，回退原生表", err);
       state.watchingGrid = null;
       state.watchingGridReady = false;
-      renderWatchingWatchTableFallback(rows);
+      let tierCell = () => "—";
+      try {
+        const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+        const tm = await import(`./pred_tier_ui.js?v=${encodeURIComponent(V)}`);
+        await tm.ensurePredTierMap();
+        tierCell = (code) => tm.predTierBadgeHtml(code, escapeHtml);
+      } catch (_) {
+        /* 分档缺失时该列留空 */
+      }
+      renderWatchingWatchTableFallback(rows, { tierCell });
+      void ensureFitTierMap(watchTable);
+      paintWatchingYhatHist();
     }
   }
 
@@ -1067,9 +1760,36 @@ export function installWatching(q) {
 
 
   function setPoolMeta(text) {
-    for (const id of ["quant-watching-meta", "replay-pool-meta"]) {
-      const el = document.getElementById(id);
-      if (el) el.textContent = text;
+    const msg = String(text || "");
+    const busy = /正在|加载中|拉取|刷新中|分析中/.test(msg);
+    const el = document.getElementById("quant-watching-meta");
+    if (el) {
+      el.textContent = msg;
+      el.classList.toggle("is-busy", busy);
+    }
+    // 与卡头 meta 同步概览 KPI（嵌套模块若被缓存漏掉显式调用时仍能写上）
+    const m = msg.match(
+      /观察\s+(\d+)\s*只\s*·\s*已持\s+(\d+)\/\d+\s*·\s*上限\s+(\d+|—)/
+    );
+    if (m) {
+      applyWatchingOverviewKpis({
+        pool: Number(m[1]),
+        held: Number(m[2]),
+        maxSize: m[3] === "—" ? null : Number(m[3]),
+      });
+    } else if (/尚未创建|未创建/.test(msg)) {
+      applyWatchingOverviewKpis({
+        pool: null,
+        held: null,
+        maxSize: null,
+        buyPct: null,
+        mu: null,
+        med: null,
+        n: null,
+        eodMu: null,
+        eodMed: null,
+        eodN: null,
+      });
     }
   }
 
@@ -1399,8 +2119,8 @@ export function installWatching(q) {
     refreshWatchingSortHeaders,
     removeSelectedWatchingItems,
     removeWatchingWatchItem,
-    renderWatchingBuildPlan,
-    renderWatchingHoldings,
+    renderWatchingBuildPlanView,
+    renderWatchingHoldingsView,
     renderWatchingSearchResults,
     renderWatchingWatchTable,
     runWatchingSearch,

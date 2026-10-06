@@ -1,7 +1,9 @@
 """量化日报 Markdown / HTML 导出（P14.2 / P15.2）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from statistics import median
 from typing import Any, Dict, List, Optional
@@ -10,19 +12,113 @@ from typing import Any, Dict, List, Optional
 CROSS_SECTION_TITLE = "横截面 ŷ（predicted_score）"
 WEIGHT_SUGGEST_TITLE = "权重建议（遗留诊断）"
 CLUSTER_LIVE_TITLE = "分组 live（组ŷ）"
+PORTFOLIO_BT_SECTION_TITLE = "历史回测摘要"
 SCORING_DEFAULT_NOTE = (
     "选股真源=predicted_score（ŷ）；heuristic 仅作研究 OOS 基线；过门≠自动 promote"
 )
 
 
 def _fmt_yhat(v: Any, *, digits: int = 3) -> str:
-    """收益分 ŷ 展示：百分点量纲，带 %。"""
+    """收益分 ŷ 展示：百分点量纲，带 %。
+
+    调用方应先用 ``_yhat_from_row`` 滤掉 heuristic；此处不再用 ≥10 拒收
+    （涨停板 ŷ% 完全可能 ≥10）。
+    """
     if v is None or v == "":
         return "—"
     try:
-        return f"{float(v):.{digits}f}%"
+        f = float(v)
     except (TypeError, ValueError):
         return str(v)
+    return f"{f:.{digits}f}%"
+
+
+def _fmt_heuristic(v: Any, *, digits: int = 1) -> str:
+    """规则分 0–100 展示：前缀 H，避免被读成 ŷ%。"""
+    if v is None or v == "":
+        return "—"
+    try:
+        return f"H{float(v):.{digits}f}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _legacy_heuristic_checker():
+    """解析 ``looks_like_legacy_heuristic_score``，失败时降级为阈值判断。"""
+    try:
+        from core.signal.score_display import looks_like_legacy_heuristic_score
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_report_export.py", exc_info=True)
+
+        def looks_like_legacy_heuristic_score(value, **_kw):  # type: ignore
+            try:
+                return float(value) >= 10.0
+            except (TypeError, ValueError):
+                return False
+
+    return looks_like_legacy_heuristic_score
+
+
+def _heuristic_from_row(row: Optional[dict]) -> Optional[float]:
+    if not isinstance(row, dict):
+        return None
+    looks_like_legacy_heuristic_score = _legacy_heuristic_checker()
+
+    for key in ("heuristic_score", "heuristic"):
+        v = row.get(key)
+        if v is None or v == "":
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    # 旧样本只把 0–100 写在 score 上
+    sc = row.get("score")
+    try:
+        f = float(sc) if sc is not None and sc != "" else None
+    except (TypeError, ValueError):
+        f = None
+    if f is not None and looks_like_legacy_heuristic_score(f, item=row):
+        return f
+    return None
+
+
+def _yhat_from_row(row: Optional[dict]) -> Optional[float]:
+    """从簿/成交行取 ŷ%（优先 predicted / blend / cluster，拒收 heuristic）。"""
+    if not isinstance(row, dict):
+        return None
+    looks_like_legacy_heuristic_score = _legacy_heuristic_checker()
+
+    for key in (
+        "predicted_score_blend",
+        "predicted_score",
+        "predicted_score_eod",
+        "score_cluster",
+        "score",
+        "yhat",
+    ):
+        v = row.get(key)
+        if v is None or v == "":
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if looks_like_legacy_heuristic_score(f, item=row):
+            continue
+        return f
+    return None
+
+
+def _fmt_fill_score(row: Optional[dict]) -> str:
+    """成交样本分数：有 ŷ 用 ŷ%；否则标 H（规则分），不留空列。"""
+    y = _yhat_from_row(row)
+    if y is not None:
+        return _fmt_yhat(y)
+    heu = _heuristic_from_row(row)
+    if heu is not None:
+        return _fmt_heuristic(heu)
+    return "—"
 
 
 def _scoring_meta(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -52,13 +148,9 @@ def _cross_section_ranked_list(cross_section: Dict[str, Any]) -> List[dict]:
 def _score_summary_bullet(ranked: List[dict]) -> str:
     scores = []
     for item in ranked:
-        raw = item.get("score")
-        if raw is None:
-            continue
-        try:
-            scores.append(float(raw))
-        except (TypeError, ValueError):
-            continue
+        y = _yhat_from_row(item if isinstance(item, dict) else None)
+        if y is not None:
+            scores.append(y)
     if not scores:
         return f"横截面 ŷ：Top {len(ranked)} 只"
     med = median(scores)
@@ -78,14 +170,9 @@ def summarize_cross_section_scores(cross_section: Dict[str, Any]) -> Optional[Di
     scores: List[float] = []
     top: List[Dict[str, Any]] = []
     for item in ranked[:5]:
-        raw_score = item.get("score")
-        score_f: Optional[float] = None
-        if raw_score is not None:
-            try:
-                score_f = float(raw_score)
-                scores.append(score_f)
-            except (TypeError, ValueError):
-                pass
+        score_f = _yhat_from_row(item if isinstance(item, dict) else None)
+        if score_f is not None:
+            scores.append(score_f)
         top.append(
             {
                 "stock_code": item.get("stock_code"),
@@ -187,7 +274,7 @@ def summarize_factor_ols(factor_ols: Dict[str, Any]) -> Optional[Dict[str, Any]]
             continue
     deltas.sort(key=lambda x: abs(x["delta"]), reverse=True)
     excluded = factor_ols.get("excluded_features") or []
-    z_tag = " · z-score β" if factor_ols.get("standardized") else ""
+    z_tag = " · z-score β" if factor_ols.get("feature_zscore") else ""
     try:
         lam_f = float(factor_ols.get("ridge_lambda") or 0.0)
     except (TypeError, ValueError):
@@ -356,53 +443,8 @@ def build_cluster_live_export_section(cl: Dict[str, Any]) -> Optional[Dict[str, 
     }
 
 
-def build_neutral_compare_export_section(nc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """中性化对照专节（P58：MD/HTML 导出共用）。"""
-    if not nc or not nc.get("success"):
-        return None
-
-    delta = nc.get("delta") or {}
-    stocks = ", ".join(nc.get("loaded_stocks") or []) or "—"
-    md_lines = [
-        f"- 结论：**{nc.get('winner')}** 更优",
-        f"- 中性化累计：**{nc.get('neutralized_total_return_pct')}%** · 胜率 {nc.get('neutralized_win_rate_pct')}%",
-        f"- 未中性化ŷ累计：**{nc.get('absolute_total_return_pct')}%** · 胜率 {nc.get('absolute_win_rate_pct')}%",
-        f"- Δ累计：{delta.get('total_return_pct')}% · Δ胜率：{delta.get('win_rate_pct')}% · Δ交易：{delta.get('trade_count')}",
-        f"- 标的：{stocks}",
-        f"- 解读：{nc.get('interpretation') or '—'}",
-    ]
-    if nc.get("fundamentals_count"):
-        md_lines.append(f"- 基本面快照：{nc['fundamentals_count']} 只")
-    if nc.get("note"):
-        md_lines.append(f"- _{nc['note']}_")
-
-    html_body = (
-        "<table>"
-        "<thead><tr><th>维度</th><th>中性化</th><th>未中性化ŷ</th><th>Δ</th></tr></thead><tbody>"
-        f"<tr><td>累计收益</td><td>{nc.get('neutralized_total_return_pct')}%</td>"
-        f"<td>{nc.get('absolute_total_return_pct')}%</td>"
-        f"<td>{delta.get('total_return_pct')}%</td></tr>"
-        f"<tr><td>胜率</td><td>{nc.get('neutralized_win_rate_pct')}%</td>"
-        f"<td>{nc.get('absolute_win_rate_pct')}%</td>"
-        f"<td>{delta.get('win_rate_pct')}%</td></tr>"
-        f"<tr><td>交易次数</td><td colspan=\"2\">—</td><td>{delta.get('trade_count')}</td></tr>"
-        "</tbody></table>"
-        f"<p>结论：<strong>{nc.get('winner')}</strong> · {nc.get('interpretation') or '—'}</p>"
-        f"<p class='meta'>标的：{stocks} · 「未中性化ŷ」= 未做截面中性化的 predicted_score</p>"
-    )
-    if nc.get("note"):
-        html_body += f"<p class='meta'>{nc['note']}</p>"
-
-    return {
-        "title": "中性化对照专节",
-        "anchor": "neutral-compare",
-        "markdown_lines": md_lines,
-        "html_body": html_body,
-    }
-
-
 def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
-    """导出目录：主叙事组ŷ → 横截面 → Top-K → 中性化；单票探针进附录。"""
+    """导出目录：主叙事组ŷ → 横截面 → 历史回测；单票探针进附录。"""
     entries: List[tuple] = [("一页摘要", "一页摘要")]
 
     cl = report.get("cluster_live") or {}
@@ -412,12 +454,7 @@ def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
     if cs_section:
         entries.append((cs_section["title"], cs_section["anchor"]))
     if (report.get("portfolio_backtest_summary") or {}).get("success"):
-        entries.append(("Top-K 回测摘要（ŷ）", "topk-回测摘要"))
-    nc_section = build_neutral_compare_export_section(
-        report.get("portfolio_neutral_compare_summary") or {}
-    )
-    if nc_section:
-        entries.append((nc_section["title"], nc_section["anchor"]))
+        entries.append((PORTFOLIO_BT_SECTION_TITLE, "历史回测摘要"))
 
     # 附录：单票遗留探针
     if report.get("factor_ic"):
@@ -443,7 +480,7 @@ def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
-    """量化日报一页摘要：组ŷ / 簿 / OOS / 横截面 / Top-K 优先。"""
+    """量化日报一页摘要：组ŷ / 簿 / OOS / 横截面 / 历史回测优先。"""
     bullets: List[str] = []
     scoring = _scoring_meta(report)
     bullets.append(
@@ -482,17 +519,67 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
 
     ps = report.get("portfolio_backtest_summary") or {}
     if ps.get("success"):
-        bullets.append(
-            f"Top-K 回测（ŷ）：累计 {ps.get('total_return_pct')}% · "
-            f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
-        )
+        cfg = _topk_run_config_line(ps)
+        if cfg:
+            bullets.append(cfg)
+        engine = (ps.get("params") or {}).get("engine") or ps.get("engine") or ""
+        if engine == "paper_replay":
+            bullets.append(
+                f"历史回测（rank_lots · 09:30）：累计 {ps.get('total_return_pct')}% · "
+                f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
+                f" · {_topk_score_axis_note(ps)}"
+                + (
+                    " · 无成交"
+                    if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
+                    else ""
+                )
+            )
+        else:
+            bullets.append(
+                f"Top-K 研究回测（topk_research / ŷ_oo）：累计 {ps.get('total_return_pct')}% · "
+                f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
+                f" · {_topk_score_axis_note(ps)}"
+                + (
+                    " · 无成交"
+                    if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
+                    else ""
+                )
+            )
+            pr = ps.get("paper_replay") or {}
+            if pr.get("success"):
+                bullets.append(
+                    f"纸面回放（paper_replay / 可实现）：累计 {pr.get('total_return_pct')}% · "
+                    f"回撤 {pr.get('max_drawdown_pct')}% · 成交 {pr.get('trade_count')}"
+                    f" · ≠研究腿聚合"
+                )
+            elif pr.get("error"):
+                bullets.append(f"纸面回放不可用：{pr.get('error')}")
 
-    nc = report.get("portfolio_neutral_compare_summary") or {}
-    if nc.get("success"):
-        bullets.append(
-            f"中性化对照：{nc.get('interpretation') or '—'} "
-            f"(Δ累计 {((nc.get('delta') or {}).get('total_return_pct'))}%)"
-        )
+    yc = report.get("y_check_summary") or {}
+    if yc.get("success") and (yc.get("n") or yc.get("summary_line")):
+        line = yc.get("summary_line")
+        if not line:
+            mix = " · ".join(
+                f"{(r.get('label') or r.get('check'))} {r.get('n')}"
+                for r in (yc.get("by_y_check") or yc.get("rows") or [])[:4]
+                if r.get("n")
+            )
+            line = f"Y校验 {yc.get('as_of') or '—'}：n={yc.get('n')}" + (
+                f" · {mix}" if mix else ""
+            )
+        hr = None
+        for r in yc.get("by_y_check") or []:
+            if r.get("check") == "ok" and r.get("hit_rate") is not None:
+                hr = r.get("hit_rate")
+                break
+        if hr is None and yc.get("hit_rate") is not None:
+            hr = yc.get("hit_rate")
+        if hr is not None:
+            try:
+                line += f" · 全池命中 {float(hr):.0%}"
+            except (TypeError, ValueError):
+                pass
+        bullets.append(line)
 
     # 附录探针（若有）
     ic = report.get("factor_ic") or {}
@@ -516,20 +603,23 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
 
     tsug = report.get("threshold_suggest") or {}
     if tsug.get("success"):
-        bullets.append("附录·stance 阈值建议：有（单票探针）")
+        if tsug.get("skipped_apply") or tsug.get("score_scale") == "predicted":
+            bullets.append("附录·stance 阈值：有（旧分 OOS 参考 · ŷ% 门槛未改）")
+        else:
+            bullets.append("附录·stance 阈值建议：有（启发式路径 · 须人审）")
 
     return {
         "success": True,
         "bullet_count": len(bullets),
         "bullets": bullets,
-        "note": "一页摘要；主叙事=组ŷ/簿/OOS/横截面/Top-K；过门≠自动 promote。",
+        "note": "一页摘要；主叙事=组ŷ/簿/OOS/横截面/历史回测；过门≠自动 promote。",
     }
 
 
 def render_quant_report_markdown(report: Dict[str, Any]) -> str:
     """将 quant_daily 报告渲染为 Markdown（不含自动交易建议）。"""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    parts = [f"# 量化研究日报", "", f"_生成时间 {ts}_", ""]
+    parts = ["# 量化研究日报", "", f"_生成时间 {ts}_", ""]
 
     toc = build_report_export_toc(report)
     if toc.get("markdown_lines"):
@@ -566,16 +656,32 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
     ps = report.get("portfolio_backtest_summary") or {}
     if ps.get("success"):
         detail_lines = build_portfolio_backtest_markdown_lines(ps)
-        parts.extend(_lines("Top-K 回测摘要（ŷ）", detail_lines))
+        parts.extend(_lines(PORTFOLIO_BT_SECTION_TITLE, detail_lines))
 
-    nc = report.get("portfolio_neutral_compare_summary") or {}
-    nc_section = build_neutral_compare_export_section(nc)
-    if nc_section:
-        parts.extend(
-            [f"## {nc_section['title']}", ""]
-            + nc_section["markdown_lines"]
-            + [""]
-        )
+    yc = report.get("y_check_summary") or {}
+    if yc.get("success") and (yc.get("n") or yc.get("by_y_check") or yc.get("rows")):
+        yc_lines = [
+            f"- 决策日 **{yc.get('as_of') or '—'}** · 样本 n={yc.get('n') or 0}",
+        ]
+        if yc.get("summary_line"):
+            yc_lines.append(f"- {yc.get('summary_line')}")
+        for r in yc.get("by_y_check") or yc.get("rows") or []:
+            if not isinstance(r, dict):
+                continue
+            lab = r.get("label") or r.get("check") or "—"
+            bit = f"- **{lab}**：n={r.get('n')}"
+            if r.get("hit_rate") is not None:
+                try:
+                    bit += f" · 命中 {float(r['hit_rate']):.0%}"
+                except (TypeError, ValueError):
+                    pass
+            elif r.get("share") is not None:
+                try:
+                    bit += f" · 占比 {float(r['share']):.0%}"
+                except (TypeError, ValueError):
+                    pass
+            yc_lines.append(bit)
+        parts.extend(_lines("Y(τ) 校验分桶", yc_lines))
 
     # 附录：单票遗留探针
     appendix_bits: List[str] = []
@@ -623,11 +729,23 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
         cur = tsug.get("current_thresholds") or {}
         sug = tsug.get("suggested_thresholds") or {}
         tl = [f"| {k} | {cur.get(k)} | {sug.get(k)} |" for k in cur]
+        oos_scale = ((tsug.get("oos") or {}).get("score_scale") or "")
+        agg_scale = ((tsug.get("watching_aggregate") or {}).get("score_scale") or "")
+        if oos_scale == "predicted_yhat" or agg_scale == "predicted_yhat":
+            scale_note = (
+                "ŷ% wait OOS；已跳过改门槛（与当前接近或样本不足）。"
+                if tsug.get("skipped_apply")
+                else "ŷ% wait OOS 建议；须人审后合并 stance_thresholds，不自动写盘。"
+            )
+        elif tsug.get("skipped_apply") or tsug.get("score_scale") == "predicted":
+            scale_note = "OOS 扫旧 0–100 规则分；当前 stance 为 ŷ%，已跳过自动改门槛。"
+        else:
+            scale_note = "启发式 0–100 门槛路径；须人审后合并，不自动写盘。"
         appendix_bits.extend(
             [
                 "## 附录·stance 阈值建议",
                 "",
-                "> 单票探针；门槛按收益分 ŷ%（百分点）。",
+                f"> {scale_note}",
                 "",
                 "| 阈值 | 当前 | 建议 |",
                 "| --- | ---: | ---: |",
@@ -639,15 +757,21 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
         )
         agg = tsug.get("watching_aggregate")
         if agg:
-            appendix_bits.append(
-                f"> watching 聚合：{agg.get('stock_count')} 只，中位最优 min_score={agg.get('median_best_min_score')}"
-            )
+            if (agg.get("score_scale") or "") == "predicted_yhat":
+                med = agg.get("median_best_wait", agg.get("median_best_min_score"))
+                appendix_bits.append(
+                    f"> watching 聚合：{agg.get('stock_count')} 只，中位最优 wait={med}（ŷ%）"
+                )
+            else:
+                appendix_bits.append(
+                    f"> watching 聚合：{agg.get('stock_count')} 只，中位最优 min_score={agg.get('median_best_min_score')}（旧分制）"
+                )
             appendix_bits.append("")
 
     if appendix_bits:
         parts.append("## 附录（单票遗留探针）")
         parts.append("")
-        parts.append("> 默认生成日报不跑本附录；仅 `include_legacy_probe` 或旧快照才有。")
+        parts.append("> 仅旧快照可能包含本附录；当前日报已不再生成遗留探针。")
         parts.append("")
         parts.extend(appendix_bits)
 
@@ -701,15 +825,7 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
             for line in build_portfolio_backtest_markdown_lines(ps)
             if line.startswith("- ")
         )
-        section("Top-K 回测摘要（ŷ）", f"<ul>{lis}</ul>")
-
-    nc = report.get("portfolio_neutral_compare_summary") or {}
-    nc_section = build_neutral_compare_export_section(nc)
-    if nc_section:
-        section(
-            nc_section["title"],
-            f"<div id=\"{nc_section['anchor']}\">{nc_section['html_body']}</div>",
-        )
+        section(PORTFOLIO_BT_SECTION_TITLE, f"<ul>{lis}</ul>")
 
     # 附录
     ic = report.get("factor_ic") or {}
@@ -748,9 +864,14 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
         tr = "".join(
             f"<tr><td>{k}</td><td>{cur.get(k)}</td><td>{sug.get(k)}</td></tr>" for k in cur
         )
+        meta = (
+            "OOS 扫旧 0–100 规则分；当前 stance 为 ŷ%，已跳过自动改门槛。"
+            if tsug.get("skipped_apply") or tsug.get("score_scale") == "predicted"
+            else "启发式 0–100 门槛路径；须人审后合并，不自动写盘。"
+        )
         section(
             "附录·stance 阈值建议",
-            "<p class='meta'>单票探针；门槛按收益分 ŷ%（百分点）</p>"
+            f"<p class='meta'>{meta}</p>"
             f"<table><thead><tr><th>阈值</th><th>当前</th><th>建议</th></tr></thead><tbody>{tr}</tbody></table>",
         )
 
@@ -777,7 +898,7 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
   <h1>量化研究日报</h1>
   <p class="meta">生成时间 {ts}</p>
   {body}
-  <p class="foot">以上为量化研究摘要（选股真源=ŷ · 主叙事=组ŷ/簿/OOS/横截面/Top-K）；市场有风险，不保证收益，不代客下单。</p>
+  <p class="foot">以上为量化研究摘要（选股真源=ŷ · 主叙事=组ŷ/簿/OOS/横截面/历史回测）；市场有风险，不保证收益，不代客下单。</p>
 </body>
 </html>"""
 
@@ -816,23 +937,159 @@ def export_quant_report_markdown(report: Optional[Dict[str, Any]] = None) -> Dic
     return export_quant_report(report, fmt="markdown")
 
 
+def _portfolio_bt_engine(ps: Optional[dict] = None, params: Optional[dict] = None) -> str:
+    p = params if isinstance(params, dict) else {}
+    if not p and isinstance(ps, dict):
+        p = ps.get("params") if isinstance(ps.get("params"), dict) else {}
+    return str((ps or {}).get("engine") or p.get("engine") or "")
+
+
+def _topk_score_axis_note(ps: Optional[dict] = None) -> str:
+    """历史回测 / Top-K 分数口径一句（日报 / 导出共用）。"""
+    params = (ps or {}).get("params") if isinstance(ps, dict) else None
+    if not isinstance(params, dict):
+        params = {}
+    if _portfolio_bt_engine(ps, params) == "paper_replay":
+        return "每个交易日 09:30 按 y_fuse/y_on ranking 调仓（对齐历史回测页）"
+    tau_on = params.get("apply_tau_buy_gate")
+    if tau_on is True:
+        return "选股键=ranking · τ 闸开（非默认历史路径）"
+    return "选股键=ŷ_oo · 关 τ 闸（日线无可靠分钟 τ；≠ live ranking）"
+
+
+def _paper_max_positions_for_report() -> Optional[int]:
+    try:
+        from core.strategy import backtest_portfolio_defaults
+
+        v = backtest_portfolio_defaults().get("max_positions")
+        return int(v) if v is not None else None
+    except Exception:  # noqa: BLE001 — 导出展示用，缺省不挡报告
+        logger.debug("paper max_positions fallback failed", exc_info=True)
+        return None
+
+
+def _topk_run_config_line(ps: Optional[dict] = None) -> str:
+    """日报 / 导出：历史回测 rank 参数或旧 Top-K 配置一行。"""
+    params = (ps or {}).get("params") if isinstance(ps, dict) else None
+    if not isinstance(params, dict):
+        params = {}
+    n = params.get("stock_count")
+    if n is None and isinstance(ps, dict):
+        n = len(ps.get("loaded_stocks") or []) or None
+    lookback = params.get("lookback")
+    cost = (ps or {}).get("cost_model") or params.get("cost_model") or params.get("cost_mode")
+    apply_costs = params.get("apply_costs")
+    if apply_costs is None and cost:
+        apply_costs = str(cost) not in ("zero", "off")
+
+    def _cost_bit() -> Optional[str]:
+        if apply_costs is True:
+            return f"成本={cost or '开'}"
+        if apply_costs is False:
+            return "成本=关"
+        if cost:
+            return f"成本={cost}"
+        return None
+
+    if _portfolio_bt_engine(ps, params) == "paper_replay":
+        bits = [
+            "引擎=paper_replay/rank_lots",
+            f"w_co={params.get('fusion_w_co') if params.get('fusion_w_co') is not None else '—'}",
+            f"Rank入场={params.get('rank_enter') if params.get('rank_enter') is not None else '—'}",
+            f"Rank强={params.get('rank_strong') if params.get('rank_strong') is not None else '—'}",
+        ]
+        cb = _cost_bit()
+        if cb:
+            bits.append(cb)
+        if lookback is not None:
+            bits.append(f"lookback={lookback}")
+        if n:
+            bits.append(f"池{n}")
+        return "配置：" + " · ".join(bits)
+
+    k = params.get("top_k")
+    h = params.get("horizon_days")
+    yhat_h = params.get("yhat_horizon_days")
+    paper_k = params.get("paper_max_positions")
+    if paper_k is None:
+        paper_k = _paper_max_positions_for_report()
+    paper_h = params.get("paper_horizon_days")
+    ymin = params.get("min_predicted_score")
+
+    def _as_int(v: Any) -> Optional[int]:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    k_i, paper_k_i = _as_int(k), _as_int(paper_k)
+    h_i, paper_h_i, yhat_i = _as_int(h), _as_int(paper_h), _as_int(yhat_h)
+    k_bit = f"K={k if k is not None else '—'}"
+    if k_i is not None and paper_k_i is not None and k_i != paper_k_i:
+        k_bit += f"（≠纸面 {paper_k_i}）"
+    elif k_i is not None and paper_k_i is not None:
+        k_bit += "（纸面）"
+
+    h_bit = f"持有 h={h if h is not None else '—'}日"
+    if h_i is not None and paper_h_i is not None and h_i != paper_h_i:
+        h_bit += f"（≠纸面 {paper_h_i}）"
+
+    bits = [k_bit, h_bit]
+    if yhat_i is not None:
+        bits.append(f"ŷ标签={yhat_i}日")
+    if ymin is not None:
+        bits.append(f"ŷ≥{ymin}%")
+    cb = _cost_bit()
+    if cb:
+        bits.append(cb)
+    if lookback is not None:
+        bits.append(f"lookback={lookback}")
+    if n:
+        bits.append(f"池{n}")
+    return "配置：" + " · ".join(bits)
+
+
 def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
     """R4.4 · 与回溯页块序对齐的 MD 行（KPI · 成本 · 归因 · PIT · OOS · regime · 信号成交）。"""
-    lines: List[str] = [
-        f"- 累计收益：**{ps.get('total_return_pct')}%**",
-        f"- 胜率：{ps.get('win_rate_pct')}%",
-        f"- 最大回撤：{ps.get('max_drawdown_pct')}%",
-        f"- 交易次数：{ps.get('trade_count')}",
-        f"- 标的：{', '.join(ps.get('loaded_stocks') or [])}",
-    ]
     m = ps.get("metrics") or {}
-    if m.get("total_return_pct") is not None and ps.get("total_return_pct") is None:
-        lines[0] = f"- 累计收益：**{m.get('total_return_pct')}%**"
-    if m.get("win_rate_pct") is not None and ps.get("win_rate_pct") is None:
-        lines[1] = f"- 胜率：{m.get('win_rate_pct')}%"
-    if m.get("max_drawdown_pct") is not None and ps.get("max_drawdown_pct") is None:
-        lines[2] = f"- 最大回撤：{m.get('max_drawdown_pct')}%"
-
+    total_ret = ps.get("total_return_pct")
+    if total_ret is None:
+        total_ret = m.get("total_return_pct")
+    win_rate = ps.get("win_rate_pct")
+    if win_rate is None:
+        win_rate = m.get("win_rate_pct")
+    max_dd = ps.get("max_drawdown_pct")
+    if max_dd is None:
+        max_dd = m.get("max_drawdown_pct")
+    trade_n = ps.get("trade_count")
+    if trade_n is None:
+        trade_n = m.get("trade_count")
+    engine = _portfolio_bt_engine(ps)
+    engine_label = engine or "paper_replay"
+    if engine == "paper_replay":
+        engine_bit = f"- 引擎：{engine_label}（rank_lots · 对齐历史回测）"
+    else:
+        engine_bit = f"- 引擎：{engine_label}（研究腿聚合）"
+    lines: List[str] = [
+        f"- {_topk_run_config_line(ps)}",
+        f"- 累计收益：**{total_ret}%**",
+        f"- 胜率：{win_rate}%",
+        f"- 最大回撤：{max_dd}%",
+        f"- 交易次数：{trade_n}",
+        f"- 分数口径：{_topk_score_axis_note(ps)}",
+        f"- 成本：{ps.get('cost_model') or (ps.get('params') or {}).get('cost_mode') or '—'}",
+        f"- 标的：{', '.join(ps.get('loaded_stocks') or [])}",
+        engine_bit,
+    ]
+    pr = ps.get("paper_replay") or {}
+    if engine != "paper_replay" and pr.get("success"):
+        lines.append(
+            f"- 纸面回放（可实现）：累计 **{pr.get('total_return_pct')}%** · "
+            f"回撤 {pr.get('max_drawdown_pct')}% · 成交 {pr.get('trade_count')}"
+            f" · {(pr.get('note') or '')[:80]}"
+        )
+    elif engine != "paper_replay" and isinstance(pr, dict) and pr.get("error"):
+        lines.append(f"- 纸面回放：不可用（{pr.get('error')}）")
     cc = ps.get("cost_compare") or {}
     if cc.get("ok"):
         lines.append(
@@ -906,37 +1163,6 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
     elif sic.get("reason"):
         lines.append(f"- 截面 IC：不可用（{sic.get('reason')}）")
 
-    qb = ps.get("quantile_backtest") or {}
-    if qb.get("ok"):
-        mono = "单调↑" if qb.get("monotonic_increasing") else "非单调"
-        lines.append(
-            f"- 分层：{mono} · Q高−Q低 {qb.get('q_high_minus_q_low_pct')}% · 期数 {qb.get('fold_count')}"
-        )
-        lines.append("")
-        lines.append("| 分层 | 累计收益% | 胜率% | 期数 | 终值 |")
-        lines.append("| --- | ---: | ---: | ---: | ---: |")
-        for row in qb.get("quantiles") or []:
-            lines.append(
-                f"| {row.get('label') or ''} | {row.get('total_return_pct')} | "
-                f"{row.get('win_rate_pct')} | {row.get('trade_count')} | {row.get('final_equity')} |"
-            )
-        ls_curve = qb.get("long_short_equity_curve") or []
-        if ls_curve:
-            lines.append(
-                f"- Q高−Q低终值：{(ls_curve[-1] or {}).get('equity')}（起点100）"
-            )
-        lines.append("")
-
-    align = ps.get("ic_equity_align") or {}
-    if align.get("ok"):
-        pos = align.get("pos_ic") or {}
-        neg = align.get("neg_ic") or {}
-        favor = "同向" if align.get("aligned_favor_pos_ic") else "⚠正IC窗未优于非正"
-        lines.append(
-            f"- IC↔净值对齐：{favor} · 正IC窗均 {pos.get('avg_return_pct')}% "
-            f"vs 非正 {neg.get('avg_return_pct')}% · 差 {align.get('avg_return_spread_pp')}pp"
-        )
-
     hints = ps.get("promote_hints") or []
     if hints:
         lines.append("- Promote 提示：")
@@ -963,6 +1189,29 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
                 if bench.get("warn_abs_pos_excess_neg")
                 else ""
             )
+        )
+
+    # P0：强制打印 α/β 分账（有则写；与绝对累计收益分列）
+    legs = ps.get("alpha_beta_legs") or m.get("alpha_beta_legs") or {}
+    if isinstance(legs, dict) and (
+        legs.get("alpha_leg_approx_pct") is not None
+        or legs.get("beta_leg_approx_pct") is not None
+        or legs.get("total_return_pct") is not None
+    ):
+        lines.append(
+            "- **收益分账（近似）**："
+            f"绝对 {legs.get('total_return_pct')}% · "
+            f"α腿(超额) {legs.get('alpha_leg_approx_pct')}% · "
+            f"β腿≈ {legs.get('beta_leg_approx_pct')}%"
+            + (f" · IR {legs.get('ir')}" if legs.get("ir") is not None else "")
+            + " · 多头组合绝对收益仍含市场敞口"
+        )
+
+    bex = ps.get("benchmark_excess") or {}
+    if isinstance(bex, dict) and bex.get("ok"):
+        lines.append(
+            f"- 北极星超额包：累计超额≈{bex.get('total_excess_approx_pct')}% · "
+            f"年化IR {bex.get('ann_ir')} · 对齐日 {bex.get('aligned_days')}"
         )
 
     req = ps.get("request") or {}
@@ -992,6 +1241,13 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
             for b in (rb.get("buckets") or [])[:5]
         ]
         lines.append(f"- Regime 分桶：{' · '.join(parts)}")
+    mcs = ps.get("macro_context_summary") or {}
+    if mcs.get("ok"):
+        lines.append(
+            f"- 宏观对齐：海外科技均 {mcs.get('avg_overseas_tech_1d_pct')}% · "
+            f"A50 {mcs.get('avg_a50_1d_pct')}% · "
+            f"压力 {mcs.get('avg_liquidity_stress_score')}"
+        )
 
     sa = ps.get("source_audit") or {}
     if sa.get("status"):
@@ -1004,17 +1260,21 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         lines.append("")
         lines.append("信号–成交样本（最近）：")
         lines.append("")
-        lines.append("| 信号日 | 代码 | score | 意图价 | 成交价 | 出场价 | 状态 |")
+        lines.append("| 信号日 | 代码 | ŷ_oo | 意图价 | 成交价 | 出场价 | 状态 |")
         lines.append("| --- | --- | ---: | ---: | ---: | ---: | --- |")
         for row in fills[-12:]:
             lines.append(
                 f"| {row.get('signal_date') or ''} | {row.get('stock_code') or ''} | "
-                f"{row.get('score') if row.get('score') is not None else '—'} | "
+                f"{_fmt_fill_score(row if isinstance(row, dict) else None)} | "
                 f"{row.get('intent_price') if row.get('intent_price') is not None else '—'} | "
                 f"{row.get('fill_price') if row.get('fill_price') is not None else '—'} | "
                 f"{row.get('exit_price') if row.get('exit_price') is not None else '—'} | "
                 f"{row.get('status') or '—'} |"
             )
+        lines.append("")
+        lines.append(
+            "_历史 Top-K：选股键=ŷ_oo、关 τ 闸；有 ŷ 写 `x.xxx%`，仅规则分写 `Hxx.x`；通常无 ŷ_τ_"
+        )
 
     ns = ps.get("north_star") or {}
     if ns:

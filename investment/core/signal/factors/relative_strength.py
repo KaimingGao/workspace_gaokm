@@ -1,7 +1,9 @@
 """相对强弱因子（P6.2）：个股 vs 基准超额收益。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import List, Optional, Tuple
 
 
@@ -12,15 +14,48 @@ def excess_return_pct(
     window_days: int = 20,
     min_compare_days: int = 5,
 ) -> Optional[float]:
+    """按交易日对齐后的近 N 日超额（个股收益 − 指数收益）。
+
+    禁止「各取最后 N 根」错位：指数缓存比个股旧时会把窗口算歪。
+    """
     if not stock_bars or not index_bars:
         return None
-    n = min(window_days, len(stock_bars) - 1, len(index_bars) - 1)
-    if n < min_compare_days:
+
+    stock_by_date = {}
+    for b in stock_bars or []:
+        d = str((b or {}).get("date") or "").strip()[:10]
+        if len(d) >= 10 and (b or {}).get("close") is not None:
+            stock_by_date[d] = b
+    index_by_date = {}
+    for b in index_bars or []:
+        d = str((b or {}).get("date") or "").strip()[:10]
+        if len(d) >= 10 and (b or {}).get("close") is not None:
+            index_by_date[d] = b
+
+    common = sorted(set(stock_by_date) & set(index_by_date))
+    if len(common) < min_compare_days + 1:
         return None
-    s0, s1 = stock_bars[-(n + 1)]["close"], stock_bars[-1]["close"]
-    i0, i1 = index_bars[-(n + 1)]["close"], index_bars[-1]["close"]
-    if not s0 or not i0:
+
+    end = common[-1]
+    # 需要 window_days 段收益 → window_days+1 个收盘点
+    need = int(window_days) + 1
+    if len(common) < need:
+        if len(common) < min_compare_days + 1:
+            return None
+        start = common[0]
+    else:
+        start = common[-need]
+
+    try:
+        s0 = float(stock_by_date[start]["close"])
+        s1 = float(stock_by_date[end]["close"])
+        i0 = float(index_by_date[start]["close"])
+        i1 = float(index_by_date[end]["close"])
+    except (TypeError, ValueError, KeyError):
         return None
+    if s0 <= 0 or i0 <= 0:
+        return None
+
     stock_ret = (s1 / s0 - 1.0) * 100.0
     index_ret = (i1 / i0 - 1.0) * 100.0
     return round(stock_ret - index_ret, 2)
@@ -75,13 +110,20 @@ def score_relative_strength(
             return score_from_excess(excess), {
                 "excess_return_pct": excess,
                 "rs_source": rs_source,
+                "omit_sub_score": False,
             }
 
-    if fallback_to_last_change:
+    if fallback_to_last_change and last_change is not None:
         return score_from_last_change(last_change), {
             "excess_return_pct": None,
             "rs_source": rs_source,
-            "last_change": None if last_change is None else round(last_change, 2),
+            "last_change": round(last_change, 2),
+            "omit_sub_score": False,
         }
 
-    return 50.0, {"excess_return_pct": None, "rs_source": "none"}
+    # 无指数对齐、无涨跌可回退 → 不进 ŷ
+    return 50.0, {
+        "excess_return_pct": None,
+        "rs_source": "none",
+        "omit_sub_score": True,
+    }

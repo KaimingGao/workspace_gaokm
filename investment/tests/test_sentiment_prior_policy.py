@@ -1,4 +1,4 @@
-"""舆情先验（ŷ 外）契约：不改 predicted_score；gate 可拦/缩买。"""
+"""个股舆情：仅观察徽章；调仓不读 gate。"""
 
 from __future__ import annotations
 
@@ -13,9 +13,11 @@ if ROOT not in sys.path:
 
 from core.sentiment_prior import (
     PRIOR_REASON,
+    apply_prior_restore_hold,
     apply_prior_to_buy,
     apply_prior_to_hold,
     build_sentiment_prior,
+    prior_wants_scale_hold,
 )
 from core.signal.config import signal_config_overlay
 from core.signal.return_score import ReturnScoreModel
@@ -30,7 +32,7 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                 "sentiment": {
                     "include_in_score": False,
                     "role": "prior",
-                    "prior": {"mode": "off", "bearish_score_min": 0.6},
+                    "prior": {"mode": "off"},
                 }
             }
         ):
@@ -45,14 +47,13 @@ class TestSentimentPriorPolicy(unittest.TestCase):
         self.assertNotIn("block_new_buy", types)
         self.assertNotIn("scale_buy", types)
 
-    def test_gate_block_new_buy(self):
+    def test_file_gate_is_ignored_badge_only(self):
         with signal_config_overlay(
             {
                 "sentiment": {
                     "include_in_score": False,
                     "prior": {
                         "mode": "gate",
-                        "bearish_score_min": 0.6,
                         "block_new_buys": True,
                         "scale_buy_pct": 0.5,
                     },
@@ -63,52 +64,39 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                 {"label": "bearish", "score": 0.9},
                 stock_code="600000",
             )
+        self.assertEqual(prior.get("mode"), "off")
+        self.assertTrue(prior.get("active"))
+        self.assertTrue(prior.get("risk_hints"))
+        applied = apply_prior_to_buy(prior, position_ratio=0.15)
+        self.assertFalse(applied.get("skip"))
+        self.assertAlmostEqual(float(applied.get("ratio") or 0), 0.15, places=6)
+
+    def test_apply_block_still_works_on_synthetic_pack(self):
+        prior = {
+            "active": True,
+            "actions": [{"type": "block_new_buy", "reason": PRIOR_REASON}],
+        }
         applied = apply_prior_to_buy(prior, position_ratio=0.15)
         self.assertTrue(applied.get("skip"))
         self.assertEqual(applied.get("reason"), PRIOR_REASON)
         self.assertTrue(applied.get("predicted_score_unchanged"))
 
-    def test_gate_scale_buy(self):
-        with signal_config_overlay(
-            {
-                "sentiment": {
-                    "include_in_score": False,
-                    "prior": {
-                        "mode": "gate",
-                        "bearish_score_min": 0.6,
-                        "block_new_buys": False,
-                        "scale_buy_pct": 0.5,
-                    },
-                }
-            }
-        ):
-            prior = build_sentiment_prior(
-                {"label": "bearish", "score": 0.8},
-                stock_code="600000",
-            )
+    def test_apply_scale_buy_on_synthetic_pack(self):
+        prior = {
+            "active": True,
+            "actions": [{"type": "scale_buy", "scale": 0.5, "reason": PRIOR_REASON}],
+        }
         applied = apply_prior_to_buy(prior, position_ratio=0.20)
         self.assertFalse(applied.get("skip"))
         self.assertAlmostEqual(float(applied.get("ratio") or 0), 0.10, places=6)
 
-    def test_gate_scale_hold(self):
-        with signal_config_overlay(
-            {
-                "sentiment": {
-                    "include_in_score": False,
-                    "prior": {
-                        "mode": "gate",
-                        "bearish_score_min": 0.6,
-                        "block_new_buys": False,
-                        "scale_buy_pct": 0.6,
-                        "scale_holds": True,
-                    },
-                }
-            }
-        ):
-            prior = build_sentiment_prior(
-                {"label": "bearish", "score": 0.8},
-                stock_code="600000",
-            )
+    def test_apply_scale_hold_on_synthetic_pack(self):
+        prior = {
+            "active": True,
+            "actions": [
+                {"type": "scale_hold", "scale": 0.6, "reason": PRIOR_REASON}
+            ],
+        }
         types = {a.get("type") for a in prior.get("actions") or []}
         self.assertIn("scale_hold", types)
         applied = apply_prior_to_hold(prior, shares=1000)
@@ -117,7 +105,7 @@ class TestSentimentPriorPolicy(unittest.TestCase):
         self.assertAlmostEqual(float(applied.get("sell_shares") or 0), 400.0)
         self.assertTrue(applied.get("predicted_score_unchanged"))
 
-    def test_gate_scale_hold_off_no_trim(self):
+    def test_no_trim_without_scale_hold_action(self):
         with signal_config_overlay(
             {
                 "sentiment": {
@@ -125,7 +113,7 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                     "prior": {
                         "mode": "gate",
                         "scale_buy_pct": 0.6,
-                        "scale_holds": False,
+                        "scale_holds": True,
                     },
                 }
             }
@@ -163,7 +151,7 @@ class TestSentimentPriorPolicy(unittest.TestCase):
         global_m = ReturnScoreModel(
             intercept=1.0,
             coefficients={"momentum": 0.2},
-            standardized=False,
+            feature_zscore=False,
         )
         scored = {
             "score": 50.0,
@@ -202,7 +190,6 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                         "role": "prior",
                         "prior": {
                             "mode": mode,
-                            "bearish_score_min": 0.6,
                             "block_new_buys": True,
                         },
                     },
@@ -224,7 +211,7 @@ class TestSentimentPriorPolicy(unittest.TestCase):
         self.assertIsNotNone(y0)
         self.assertEqual(y0, y1)
         prior = (out_gate.get("signal_item") or {}).get("sentiment_prior") or {}
-        self.assertEqual(prior.get("mode"), "gate")
+        self.assertEqual(prior.get("mode"), "off")
         self.assertTrue(prior.get("active"))
 
     def test_sub_scores_no_analysis_and_no_alt_when_gated(self):
@@ -253,6 +240,31 @@ class TestSentimentPriorPolicy(unittest.TestCase):
         self.assertNotIn("analysis", subs)
         for v in subs.values():
             self.assertIsInstance(v, (int, float))
+
+    def test_restore_when_prior_no_longer_scales(self):
+        bearish = {
+            "active": True,
+            "actions": [{"type": "scale_hold", "scale": 0.6}],
+        }
+        self.assertTrue(prior_wants_scale_hold(bearish))
+        blocked = apply_prior_restore_hold(
+            bearish, current_shares=600, base_shares=1000
+        )
+        self.assertFalse(blocked.get("restore"))
+
+        neutral = {"active": False, "actions": []}
+        restored = apply_prior_restore_hold(
+            neutral, current_shares=600, base_shares=1000
+        )
+        self.assertTrue(restored.get("restore"))
+        self.assertEqual(float(restored.get("buy_shares") or 0), 400.0)
+        self.assertTrue(restored.get("clear_base"))
+
+        cleared = apply_prior_restore_hold(
+            neutral, current_shares=1000, base_shares=1000
+        )
+        self.assertFalse(cleared.get("restore"))
+        self.assertTrue(cleared.get("clear_base"))
 
 
 if __name__ == "__main__":

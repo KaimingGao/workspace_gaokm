@@ -1,12 +1,13 @@
-"""组装 Web HTML：对话工作台 / 研究分页全页壳。"""
+"""组装 Web HTML：研究分页全页壳 + AI 抽屉。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from functools import lru_cache
 
 from web.asset_version import ASSET_V
-
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 PARTIALS = os.path.join(STATIC_DIR, "partials")
@@ -22,10 +23,12 @@ def _current_asset_v() -> str:
 
         importlib.reload(av)
         return str(av.ASSET_V)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in page_html.py", exc_info=True)
         return ASSET_V
 
 _PAGE_TITLES = {
+    "dashboard": "仪表盘",
     "quant": "研究枢纽",
     "watching": "数据中心",
     "paper": "模拟账户（已并入 /follow）",
@@ -36,6 +39,7 @@ _PAGE_TITLES = {
 }
 
 _PANEL_CLASS = {
+    "dashboard": "quant-panel",
     "quant": "quant-panel",
     "watching": "quant-panel",
     "paper": "quant-panel",
@@ -65,14 +69,11 @@ def _panel(name: str) -> str:
 
 
 def _with_tool_panels(html: str) -> str:
-    return (
-        html.replace("{{EVALS_PANEL}}", _partial("evals_panel.html"))
-        .replace("{{USAGE_PANEL}}", _partial("usage_panel.html"))
-    )
+    return html.replace("{{EVALS_PANEL}}", _partial("evals_panel.html"))
 
 
 def _side_nav(active: str) -> str:
-    """左侧五业务模块；AI 不占侧栏（顶栏 / ⌘K）。"""
+    """左侧导航（仪表盘 + 六业务）；AI 不占侧栏（顶栏 / ⌘K）。"""
 
     def item(page: str, href: str, label: str, sub: str, eid: str = "") -> str:
         is_on = active == page
@@ -87,19 +88,20 @@ def _side_nav(active: str) -> str:
 
     items = "\n          ".join(
         [
-            item("strategy", "/strategy", "策略中心", "策略卡 · 晋升 · 改限额", "btn-strategy"),
+            item("dashboard", "/dashboard", "仪表盘", "全局概览 · KPI · 净值曲线", "btn-dashboard"),
+            item("strategy", "/strategy", "策略中心", "M prior · 舆情徽章", "btn-strategy"),
             item("watching", "/watching", "数据中心", "观察 · 建仓入口", "btn-watching"),
-            item("follow", "/follow", "交易执行", "纸面调仓 · 做T验证", "btn-follow"),
-            item("replay", "/replay", "历史回测", "历史验证 · 归因", "btn-replay"),
+            item("follow", "/follow", "交易执行", "调仓 · 做T执行", "btn-follow"),
+            item("replay", "/replay", "历史回测", "调仓回测 · 做T回测", "btn-replay"),
             item("quant", "/quant", "研究枢纽", "因子 · 横截面 · 日报", "btn-quant"),
-            item("platform", "/platform", "平台", "态势 · 偏好 · 调度", "btn-settings"),
+            item("platform", "/platform", "平台", "调度 · 审计", "btn-settings"),
         ]
     )
     return f"""    <aside class="side-nav" aria-label="主导航">
       <div class="side-nav-brand">
-        <a class="logo" href="/watching" title="Investment">
-          <span class="logo-mark" aria-hidden="true">I</span>
-          <span class="logo-text">Investment</span>
+        <a class="logo" href="/dashboard" title="QuantLab">
+          <span class="logo-mark" aria-hidden="true">Q</span>
+          <span class="logo-text">QuantLab</span>
         </a>
       </div>
       <nav class="side-nav-list" aria-label="功能模块">
@@ -111,23 +113,14 @@ def _side_nav(active: str) -> str:
     </aside>"""
 
 
-def _topbar(active: str) -> str:
-    if active == "chat":
-        reset = (
-            '<button type="button" id="btn-reset" class="icon-btn" title="新会话" aria-label="新会话">\n'
-            '          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">\n'
-            '            <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>\n'
-            "          </svg>\n"
-            "        </button>"
-        )
-    else:
-        reset = (
-            '<a href="/watching" class="icon-btn" title="返回数据中心" aria-label="返回数据中心">\n'
-            '          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">\n'
-            '            <path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>\n'
-            "          </svg>\n"
-            "        </a>"
-        )
+def _topbar(_active: str) -> str:
+    reset = (
+        '<a href="/watching" class="icon-btn" title="返回数据中心" aria-label="返回数据中心">\n'
+        '          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">\n'
+        '            <path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>\n'
+        "          </svg>\n"
+        "        </a>"
+    )
 
     return f"""    <header class="topbar" role="banner">
       <div class="topbar-left">
@@ -140,7 +133,7 @@ def _topbar(active: str) -> str:
       </div>
       <div class="topbar-right">
         <span id="status" class="status" role="status">检测中…</span>
-        <button type="button" class="dialog-btn" id="btn-ai-open" title="AI 助手（⌘K）">AI 助手</button>
+        <button type="button" class="icon-btn topbar-ai-btn" id="btn-ai-open" title="AI（⌘K）" aria-label="打开 AI（⌘K）">AI</button>
         <button type="button" class="icon-btn" id="btn-theme-toggle" title="切换深浅色" aria-label="切换深浅色">◐</button>
       </div>
     </header>
@@ -168,28 +161,6 @@ def _apply_chrome(html: str, active: str) -> str:
     )
 
 
-def render_chat_html() -> str:
-    """全屏对话工作台（/chat）：自然语言命令的展开视图。"""
-    clear_html_cache()
-    dialogs = _partial("chat_dialogs.html")
-    return _inject_asset_v(
-        _apply_chrome(
-            _template("chat.html")
-            .replace("{{PANEL_QUANT}}", _panel("quant"))
-            .replace("{{PANEL_WATCHING}}", _panel("watching"))
-            .replace("{{PANEL_STRATEGY}}", _panel("strategy"))
-            .replace("{{PANEL_REPLAY}}", _panel("replay"))
-            .replace("{{PANEL_FOLLOW}}", _panel("follow"))
-            .replace("{{PANEL_PAPER}}", _panel("paper"))
-            .replace("{{PANEL_EVALS}}", _partial("evals_panel.html"))
-            .replace("{{PANEL_USAGE}}", _partial("usage_panel.html"))
-            .replace("{{PANEL_PLATFORM}}", _partial("platform_panel.html"))
-            .replace("{{DIALOGS}}", dialogs),
-            "chat",
-        )
-    )
-
-
 def render_tool_html(page: str) -> str:
     if page not in _PAGE_TITLES:
         raise ValueError(f"unknown page: {page}")
@@ -206,7 +177,7 @@ def render_tool_html(page: str) -> str:
     return _inject_asset_v(
         _apply_chrome(
             _template("tool.html")
-            .replace("{{TITLE}}", f"Investment · {_PAGE_TITLES[page]}")
+            .replace("{{TITLE}}", f"QuantLab · {_PAGE_TITLES[page]}")
             .replace("{{PAGE}}", page)
             .replace("{{CONTENT}}", content)
             .replace("{{EXTRA_DIALOGS}}", extras),

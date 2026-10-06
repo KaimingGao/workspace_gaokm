@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""底仓做 T 日线代理回测 CLI（仅模拟，不接实盘）。"""
+"""底仓做 T 回测 CLI（仅 5m 第一触达；非实盘）。"""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -16,23 +15,21 @@ from quant.research.t0_backtest import run_t0_backtest_for_code  # noqa: E402
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Investment 底仓做T回测（日线代理，非实盘）")
+    parser = argparse.ArgumentParser(description="Investment 底仓做T回测（5m 第一触达，非实盘）")
     parser.add_argument("--code", default="茅台")
     parser.add_argument("--lookback", type=int, default=30)
     parser.add_argument("--shares", type=float, default=1000)
     parser.add_argument("--t0-ratio", type=float, default=0.4)
-    parser.add_argument("--sell-pct", type=float, default=2.0)
-    parser.add_argument("--buy-pct", type=float, default=1.5)
     parser.add_argument("--must-cover", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     rules = {
         "t0_ratio": args.t0_ratio,
-        "sell_trigger_pct": args.sell_pct,
-        "buy_trigger_pct": args.buy_pct,
-        "must_cover_same_day": bool(args.must_cover),
     }
+    if args.must_cover:
+        rules["must_cover_same_day_buy_then_sell"] = True
+        rules["must_cover_same_day_sell_then_buy"] = True
     report = run_t0_backtest_for_code(
         args.code,
         lookback=args.lookback,

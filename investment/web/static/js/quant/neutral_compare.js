@@ -5,11 +5,6 @@ import { escapeHtml } from "../shared.js";
 import { metricClass } from "./bt_result.js";
 import { metricCell, researchGridHtml } from "./research_grid.js";
 
-export function buildNeutralCompareBriefHtml(brief, escapeHtml) {
-  const esc = escapeHtml;
-  return brief ? `<p class="sub">${esc(brief)}</p>` : "";
-}
-
 /**
  * @param {object|null} source
  * @param {HTMLElement|null} host

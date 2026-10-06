@@ -1,3 +1,14 @@
+"""Agent 提示词（prompt）与对话策略常量。
+
+含：
+- 量化买卖/持仓/诊断三类任务的系统提示词 + 用户侧 HINT 注入
+- advise() / position() / health() 工具调用的强制输出格式约束
+- 合规免责声明（DISCLAIMER）：每次对外生成文案结尾自动追加
+"""
+
+import logging
+
+logger = logging.getLogger(__name__)
 DISCLAIMER = "以上为量化研究与模拟结论，市场有风险，不保证收益，不代客下单。"
 
 BUY_QUESTION_HINT = (
@@ -33,7 +44,7 @@ MODEL_POLICY_HINT = (
 
 # 与 skills/quant/tool_config.json · quant.skill.engine.AVAILABLE_TASKS 对齐
 QUANT_TASK_ENUM = (
-    "daily_summary|cross_section|portfolio_backtest|portfolio_neutral_compare|"
+    "daily_summary|cross_section|portfolio_backtest|"
     "weight_suggest|threshold_suggest|interpret|health|"
     "config_diff|daily_presets|portfolio_bridge|package_info|factor_ols|factor_corr|t0_backtest"
 )
@@ -42,7 +53,6 @@ QUANT_TASK_ROUTES = (
     ("daily_summary", "量化日报/报告摘要"),
     ("cross_section", "横截面排序/Top N"),
     ("portfolio_backtest", "观察池组合历史回测"),
-    ("portfolio_neutral_compare", "中性化 vs 绝对分对照"),
     ("weight_suggest", "因子 IC 权重建议"),
     ("threshold_suggest", "stance 阈值 OOS 校准"),
     ("interpret", "量化日报 AI 解读"),
@@ -53,7 +63,7 @@ QUANT_TASK_ROUTES = (
     ("package_info", "quant 包结构/模块树"),
     ("factor_ols", "因子面板 OLS 实验（研究用，不写 config）"),
     ("factor_corr", "因子相关矩阵（研究用）"),
-    ("t0_backtest", "底仓做T日线代理回测（仅模拟）"),
+    ("t0_backtest", "底仓做T回测（5m第一触达，仅模拟）"),
 )
 
 QUANT_HINT = (
@@ -88,13 +98,19 @@ SYSTEM_PROMPT = (
 - news：相关资讯标题摘要
 - position：持仓规则建议（**默认读模拟账户 paper.json**；可传临时 holdings；可选 include_stance 附加 stance_label）
 
+## 盘前市场上下文（M 层 prior）
+- advise.facts 含 **market_context**（跨市场 macro / 情绪周期 / 监管 / IPO 虹吸）与 **market_prior**（对该票是否激活）。
+- M 层 prior **不改 signal.score（ŷ）**；仅影响纸面调仓执行缩放。解读买卖时：若 prior_active 为 true，须在失效条件中提及对应 warnings（如海外科技拖累、监管降温）。
+- 用户问「今天大盘环境 / 盘前上下文 / 跨市场」→ 引用 facts.market_context；无数据时提示运行 pre_market_ingest。
+- **tail_anomaly** 已进 ŷ（权重 0.02）；facts.tail_anomaly 含尾盘量比/斜率；UI 可展开分钟尾盘图，非 prior。
+
 ## 路由规则
 - 查价 → quote；多票对比 → compare；条件选股 → screen
 - 短线观察池 → signal；K线形态 → kline
 - **signal.score 为动能分（筛池/排序/回测），能否买须 advise.stance_label，不得把 score 当买入指令**
 - **能否买入/买卖建议/该不该买 → advise（必须）**；需要长文解读时可再调 fundamentals/news
 - 回测/历史表现/胜率回撤 → backtest（strategy=short；含基准对比与分层收益）
-- 量化报告/观察池组合/横截面/IC 权重/阈值校准/模拟对照/中性化对照/包结构 → quant（task="""
+- 量化报告/观察池组合/横截面/IC 权重/阈值校准/模拟对照/包结构 → quant（task="""
     + QUANT_TASK_ENUM
     + """）
 - 估值/财务/长期基本面 → fundamentals

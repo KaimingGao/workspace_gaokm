@@ -7,7 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.screen.engine import StockScreener, filter_stocks
+from adapters.screen.engine import StockScreener, filter_stocks
 
 
 def _sample_rows():
@@ -46,19 +46,19 @@ class TestScreenFilter(unittest.TestCase):
 
     def test_screener_with_fixture(self):
         screener = StockScreener()
-        with patch("skills.screen.engine.fetch_a_spot", return_value=_sample_rows()):
+        with patch("adapters.screen.engine.fetch_a_spot", return_value=_sample_rows()):
             result = screener.screen({"sector": "银行", "pe_max": 15, "limit": 5})
         self.assertTrue(result["success"])
         self.assertGreaterEqual(result["count"], 1)
         self.assertIn("不保证收益", result.get("note", ""))
 
     def test_fetch_a_spot_uses_memory_cache(self):
-        from skills.screen import engine as screen_engine
+        from adapters.screen import engine as screen_engine
 
         screen_engine.clear_spot_cache()
         rows = _sample_rows()
         with patch(
-            "skills.screen.engine._fetch_a_spot_live",
+            "adapters.screen.engine._fetch_a_spot_live",
             side_effect=[rows, RuntimeError("should not call")],
         ) as mock_live:
             first = screen_engine.fetch_a_spot()
@@ -70,14 +70,14 @@ class TestScreenFilter(unittest.TestCase):
 
     def test_fetch_a_spot_disk_fallback(self):
         import tempfile
-        from skills.screen import engine as screen_engine
+        from adapters.screen import engine as screen_engine
 
         screen_engine.clear_spot_cache()
         rows = _sample_rows()
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "spot_a_em.json")
-            with patch("skills.screen.engine._spot_disk_path", return_value=path), patch(
-                "skills.screen.engine._fetch_a_spot_live",
+            with patch("adapters.screen.engine._spot_disk_path", return_value=path), patch(
+                "adapters.screen.engine._fetch_a_spot_live",
                 side_effect=RuntimeError("Connection aborted"),
             ):
                 # 无磁盘时失败

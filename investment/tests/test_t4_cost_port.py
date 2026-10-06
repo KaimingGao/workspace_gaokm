@@ -22,7 +22,7 @@ class TestT4CostPort(unittest.TestCase):
 
     def test_paper_and_backtest_same_stamp(self):
         from core.backtest.costs import load_cost_config
-        from core.paper_costs import calc_trade_fees, cost_params
+        from core.paper.costs import calc_trade_fees, cost_params
 
         p = cost_params({})
         bt = load_cost_config()

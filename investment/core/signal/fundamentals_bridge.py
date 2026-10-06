@@ -1,7 +1,9 @@
 """基本面指标桥接：供 value/quality 因子使用（P46 + R1 PIT）。"""
 
-from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -28,8 +30,22 @@ def normalize_fundamentals_metrics(raw: Optional[dict]) -> Optional[Dict[str, An
         val = src.get(key)
         if val is not None:
             out[key] = val
-    # 透传报告期，便于落盘 history
-    for key in ("as_of", "report_date", "report_period", "end_date", "ann_date"):
+    if out.get("market_cap") is None:
+        for alt in ("total_mv", "total_market_cap", "mv"):
+            if src.get(alt) is not None:
+                out["market_cap"] = src.get(alt)
+                break
+    # 透传报告期 / 估值观测日，便于落盘 history 与 PIT 可用日
+    for key in (
+        "as_of",
+        "report_date",
+        "report_period",
+        "end_date",
+        "ann_date",
+        "valuation_as_of",
+        "financial_as_of",
+        "available_as_of",
+    ):
         if src.get(key) is not None and key not in out:
             out[key] = src.get(key)
     return out or None
@@ -66,13 +82,14 @@ def fetch_score_fundamentals(
             )
             return resolved.get("metrics")
 
-        from core.data_service import get_fundamentals
+        from core.data.facade import get_fundamentals
 
         result = get_fundamentals(stock_code)
         if not result.get("success"):
             return None
         return normalize_fundamentals_metrics(result)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in fundamentals_bridge.py", exc_info=True)
         return None
 
 
@@ -100,7 +117,7 @@ def fetch_fundamentals_batch(
             metrics = fetch_score_fundamentals(key)
         else:
             try:
-                from core.data_service import get_fundamentals
+                from core.data.facade import get_fundamentals
 
                 result = get_fundamentals(
                     key,
@@ -113,7 +130,8 @@ def fetch_fundamentals_batch(
                     if result.get("success")
                     else None
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in fundamentals_bridge.py", exc_info=True)
                 metrics = None
         if metrics:
             out[key] = metrics

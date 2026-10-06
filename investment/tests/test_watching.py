@@ -10,8 +10,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.cross_section import rank_cross_section
-from core.signal.factor_registry import list_factors, run_factor_experiment
-from core.watching_store import (
+from core.signal.factors.meta.registry import list_factors, run_factor_experiment
+from core.watching.store import (
     init_from_example,
     read_watching,
     refresh_watchlist,
@@ -54,16 +54,16 @@ class TestWatching(unittest.TestCase):
             }
 
             with patch(
-                "skills.screen.engine.StockScreener"
+                "adapters.screen.engine.StockScreener"
             ) as mock_cls, patch(
-                "skills.common.quote_api.StockAPI.query",
+                "adapters.market.quote_api.StockAPI.query",
                 side_effect=lambda code: {
                     "success": True,
                     "stock_code": str(code) if str(code).isdigit() else "600519",
                     "stock_name": str(code),
                 },
             ), patch(
-                "skills.screen.engine.fetch_a_spot",
+                "adapters.screen.engine.fetch_a_spot",
                 return_value=[],
             ):
                 mock_cls.return_value.screen.return_value = fake_screen
@@ -90,7 +90,7 @@ class TestWatching(unittest.TestCase):
             "watchlist": ["600519", "600036"],
         }
         with patch(
-            "skills.common.quote_api.StockAPI.query",
+            "adapters.market.quote_api.StockAPI.query",
             side_effect=lambda code: {
                 "success": True,
                 "stock_code": "600519" if "茅台" in str(code) else "600036",
@@ -106,7 +106,7 @@ class TestWatching(unittest.TestCase):
             "watchlist": ["600519", "600036"],
         }
         with patch(
-            "skills.common.quote_api.StockAPI.query",
+            "adapters.market.quote_api.StockAPI.query",
             side_effect=lambda code: {
                 "success": True,
                 "stock_code": "600519" if ("茅台" in str(code) or str(code) == "600519") else "600036",
@@ -117,16 +117,16 @@ class TestWatching(unittest.TestCase):
         self.assertEqual(names, ["贵州茅台", "招商银行"])
 
     def test_search_stocks_mapping(self):
-        from skills.common.stock_search import search_stocks
+        from adapters.market.stock_search import search_stocks
 
-        with patch("skills.screen.engine.fetch_a_spot", return_value=[]):
+        with patch("adapters.screen.engine.fetch_a_spot", return_value=[]):
             out = search_stocks("茅台", limit=5)
         self.assertTrue(out["success"])
         codes = [x["stock_code"] for x in out["items"]]
         self.assertTrue(any(c == "600519" for c in codes))
 
     def test_search_china_aluminum_via_mapping(self):
-        from skills.common.stock_search import search_stocks
+        from adapters.market.stock_search import search_stocks
 
         out = search_stocks("中国铝业", limit=5)
         self.assertTrue(out["success"])
@@ -134,7 +134,7 @@ class TestWatching(unittest.TestCase):
         self.assertIn("601600", codes)
 
     def test_search_uses_code_name_index(self):
-        from skills.common import stock_search as ss
+        from adapters.market import stock_search as ss
 
         with patch.object(ss, "_spot_pairs_cheap", return_value=[]), patch.object(
             ss,
@@ -148,9 +148,9 @@ class TestWatching(unittest.TestCase):
 
     def test_search_former_names_military(self):
         """曾用名：哈飞股份→中直；中船股份→中船科技。"""
-        from skills.common.stock_search import search_stocks
+        from adapters.market.stock_search import search_stocks
 
-        with patch("skills.screen.engine.fetch_a_spot", return_value=[]):
+        with patch("adapters.screen.engine.fetch_a_spot", return_value=[]):
             hafei = search_stocks("哈飞股份", limit=5)
             cssc = search_stocks("中船股份", limit=5)
         self.assertTrue(hafei["success"])
@@ -161,34 +161,38 @@ class TestWatching(unittest.TestCase):
         self.assertIn("中船科技", cssc["items"][0]["stock_name"])
 
     def test_search_strips_corp_suffix(self):
-        from skills.common import stock_search as ss
+        from adapters.market import stock_search as ss
 
         self.assertEqual(ss._query_variants("哈飞股份"), ["哈飞股份", "哈飞"])
         self.assertEqual(ss._query_variants("中船股份"), ["中船股份", "中船"])
 
     def test_list_watchlist_quotes(self):
-        from core.watching_store import list_watchlist_quotes
+        from core.watching.store import list_watchlist_quotes
 
-        def fake_query(code):
-            c = str(code)
-            if c == "600519":
-                return {
-                    "success": True,
-                    "stock_code": "600519",
-                    "stock_name": "贵州茅台",
-                    "price": "1800.00元",
-                    "price_raw": 1800.0,
-                    "change_raw": 1.25,
-                    "change_amount": "+22.00元",
-                    "open": "1780.00元",
-                    "high": "1810.00元",
-                    "low": "1775.00元",
-                    "volume": "1.20万",
-                    "market": "CN",
-                }
-            return {"success": False, "error": "nope"}
+        def fake_batch(codes):
+            out = {}
+            for code in codes:
+                c = str(code)
+                if c == "600519":
+                    out[c] = {
+                        "success": True,
+                        "stock_code": "600519",
+                        "stock_name": "贵州茅台",
+                        "price": "1800.00元",
+                        "price_raw": 1800.0,
+                        "change_raw": 1.25,
+                        "change_amount": "+22.00元",
+                        "open": "1780.00元",
+                        "high": "1810.00元",
+                        "low": "1775.00元",
+                        "volume": "1.20万",
+                        "market": "CN",
+                    }
+                else:
+                    out[c] = {"success": False, "error": "nope"}
+            return out
 
-        with patch("skills.common.quote_api.StockAPI.query", side_effect=fake_query):
+        with patch("core.ports.market.batch_query_quotes", side_effect=fake_batch):
             out = list_watchlist_quotes(codes=["600519", "000001"])
         self.assertTrue(out["ok"])
         self.assertEqual(out["count"], 2)
@@ -202,7 +206,7 @@ class TestWatching(unittest.TestCase):
         self.assertIsNone(out["items"][1]["high"])
 
     def test_add_watchlist_item(self):
-        from core.watching_store import add_watchlist_item, write_watching
+        from core.watching.store import add_watchlist_item, write_watching
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "watching.json")
@@ -216,7 +220,7 @@ class TestWatching(unittest.TestCase):
                 path,
             )
             with patch(
-                "skills.common.quote_api.StockAPI.query",
+                "adapters.market.quote_api.StockAPI.query",
                 return_value={
                     "success": True,
                     "stock_code": "000568",
@@ -231,7 +235,7 @@ class TestWatching(unittest.TestCase):
             self.assertEqual(uni.get("sources") or [], [])
 
     def test_remove_watchlist_item(self):
-        from core.watching_store import remove_watchlist_item, write_watching
+        from core.watching.store import remove_watchlist_item, write_watching
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "watching.json")
@@ -252,7 +256,7 @@ class TestWatching(unittest.TestCase):
             self.assertEqual(uni.get("sources") or [], [])
 
     def test_sync_paper_watchlist_subset(self):
-        from core.watching_store import sync_paper_watchlist, write_watching
+        from core.watching.store import sync_paper_watchlist, write_watching
 
         def _fake_query(code):
             return {
@@ -287,14 +291,15 @@ class TestWatching(unittest.TestCase):
                     },
                     f,
                 )
-            with patch("core.watching_store.read_watching", return_value=read_watching(uni_path)):
-                with patch("skills.common.quote_api.StockAPI.query", side_effect=_fake_query):
-                    out = sync_paper_watchlist(
-                        paper_path,
-                        codes=["000568", "601318", "999999"],
-                        buy=True,
-                        lot_shares=100,
-                    )
+            with patch("core.watching.store.read_watching", return_value=read_watching(uni_path)):
+                with patch("core.paper.open_fill.require_open_fill", return_value=None):
+                    with patch("core.data.facade.get_quote", side_effect=_fake_query):
+                        out = sync_paper_watchlist(
+                            paper_path,
+                            codes=["000568", "601318", "999999"],
+                            buy=True,
+                            lot_shares=100,
+                        )
             self.assertTrue(out["success"])
             self.assertTrue(out["selected"])
             # buy=True：只写入持仓，不再维护 paper.watchlist
@@ -310,7 +315,7 @@ class TestWatching(unittest.TestCase):
                 self.assertEqual(h["shares"], 100)
                 self.assertEqual(h["origin"], "manual")
             self.assertAlmostEqual(paper["cash"], 100000 - 2 * 100 * 10.0, places=2)
-            with patch("core.watching_store.read_watching", return_value=read_watching(uni_path)):
+            with patch("core.watching.store.read_watching", return_value=read_watching(uni_path)):
                 with self.assertRaises(ValueError):
                     sync_paper_watchlist(paper_path, codes=[])
 
@@ -356,6 +361,41 @@ class TestP9Quant(unittest.TestCase):
         report = run_factor_experiment(bars, horizon_days=3)
         self.assertTrue(report["success"])
         self.assertGreaterEqual(len(report["factors"]), 8)
+
+
+class TestWatchingQuotesApi(unittest.TestCase):
+    def test_placeholder_shape(self):
+        from web.routers.watching import _quotes_placeholder
+
+        out = _quotes_placeholder(["600519"], note="行情拉取超时，请稍后刷新")
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["count"], 1)
+        self.assertFalse(out["items"][0]["ok"])
+        self.assertIn("超时", out["note"])
+
+    def test_quotes_timeout_returns_200_placeholder(self):
+        import time
+
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+        from web.routers import watching as wr
+
+        def slow(_codes):
+            time.sleep(0.25)
+            return {"ok": True, "count": 0, "items": []}
+
+        with patch.object(wr, "_QUOTES_WAIT_SEC", 0.05), patch.object(
+            wr.deps.watching, "quotes", side_effect=slow
+        ):
+            client = TestClient(web_app.app)
+            r = client.get("/api/watching/quotes?codes=600519")
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body.get("ok"))
+        self.assertIn("超时", body.get("note") or "")
+        self.assertEqual(body["items"][0]["stock_code"], "600519")
+        self.assertFalse(body["items"][0]["ok"])
 
 
 if __name__ == "__main__":

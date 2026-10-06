@@ -41,6 +41,7 @@ class TestPortfolioCrossSection(unittest.TestCase):
             horizon_days=3,
             min_score=40,
             min_history=10,
+            use_live_cluster_models=False,
         )
         self.assertTrue(result["success"])
         self.assertGreaterEqual(result["trade_count"], 1)

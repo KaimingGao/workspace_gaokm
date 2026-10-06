@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
-from typing import Any, Dict, List, Optional
-
+from typing import List, Optional
 
 from core.numbers import to_float as _to_float
 from core.paths import PAPER_PATH, POSITION_RULES_PATH
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PAPER = PAPER_PATH
 DEFAULT_RULES = POSITION_RULES_PATH
@@ -36,7 +38,7 @@ def load_rules(path: Optional[str] = None) -> dict:
         path = os.path.join(ROOT_DIR, path)
     rules = dict(DEFAULT_RULE_VALUES)
     if os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f) or {}
         if isinstance(data, dict):
             for k, v in data.items():
@@ -200,6 +202,7 @@ class PositionEngine:
         try:
             portfolio = resolve_holdings_book(params or {})
         except Exception as e:
+            logger.exception('unexpected error in advise')
             return {"success": False, "error": str(e)}
 
         holdings = portfolio["holdings"]

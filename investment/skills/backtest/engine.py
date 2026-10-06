@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
-from core.backtest.topk_backtest import aggregate_stock_backtests
 from core.backtest.strategies import get_strategy, list_strategies, merge_strategy_params, run_strategy_backtest
-from core.data_service import get_bars, get_quote
+from core.backtest.topk_backtest import aggregate_stock_backtests
+from core.data.facade import get_bars, get_quote
 from core.ports.market import (
     default_benchmark,
     fetch_index_bars,
     resolve_market_code,
 )
 from core.strategy import get_strategy_spec
+
+logger = logging.getLogger(__name__)
 
 
 class BacktestEngine:
@@ -33,7 +36,7 @@ class BacktestEngine:
         return bars, label or bench
 
     def run(self, params: dict) -> dict:
-        strategy = (params.get("strategy") or "short").strip()
+        strategy = (params.get("strategy") or "short_conservative").strip()
         try:
             get_strategy(strategy)
             strategy_spec = get_strategy_spec(strategy)
@@ -69,11 +72,11 @@ class BacktestEngine:
             code = quote.get("stock_code") if quote.get("success") else str(raw)
             market, _ = resolve_market_code(raw)
 
-            pack = get_bars(raw, limit=lookback + 35)
+            pack = get_bars(raw, limit=lookback + 35, reject_quote_fallback=True)
             bars = list(pack.get("bars") or [])
             data_source = str(pack.get("data_source") or "empty")
             if not bars and quote.get("success"):
-                pack = get_bars(code, limit=lookback + 35)
+                pack = get_bars(code, limit=lookback + 35, reject_quote_fallback=True)
                 bars = list(pack.get("bars") or [])
                 data_source = str(pack.get("data_source") or "empty")
 
@@ -178,7 +181,7 @@ class BacktestEngine:
             )
             manifest["path"] = write_run_manifest(manifest)
         except Exception:
-            pass
+            logger.exception('unexpected error in run')
 
         return {
             "success": True,
