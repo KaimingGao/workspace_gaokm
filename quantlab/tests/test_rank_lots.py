@@ -184,6 +184,37 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(ridge["buys"], [])
         self.assertEqual(tree["buys"], [])
 
+    def test_y_oo_rank_passthrough_does_not_change_buy_order(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {
+                "stock_code": "600000",
+                "stock_name": "ridge高",
+                "y_fuse": 5.0,
+                "y_on": 0.0,
+                "y_oo_rank": 2,
+            },
+            {
+                "stock_code": "600001",
+                "stock_name": "rank高",
+                "y_fuse": 1.2,
+                "y_on": 0.0,
+                "y_oo_rank": 1,
+            },
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 10.0, "600001": 10.0},
+            cfg=_cfg(rank_enter=0.01, cash_floor=0.0),
+        )
+        codes = [t["stock_code"] for t in out["buys"]]
+        self.assertEqual(codes[0], "600000")
+        by = {t["stock_code"]: t for t in out["buys"]}
+        self.assertEqual(int(by["600001"]["y_oo_rank"]), 1)
+
     def test_amount_short_of_one_lot_buys_one_lot(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
@@ -780,13 +811,20 @@ class TestPlanRankLotDay(unittest.TestCase):
         )
         self.assertEqual(len(out["sells"]), 1)
         self.assertEqual(out["sells"][0]["action"], "exit")
-        self.assertEqual(out["sells"][0]["reason"], "hard_reject 清仓")
+        self.assertEqual(out["sells"][0]["reason"], "日线数据不足")
 
     def test_held_exit_reason_unit(self):
         from core.paper.rebalance.rank_lots import held_exit_reason
 
         self.assertEqual(held_exit_reason({}, None), "ranking 缺失 清仓")
         self.assertEqual(held_exit_reason({"hard_reject": True}, 0.02), "hard_reject 清仓")
+        self.assertEqual(
+            held_exit_reason(
+                {"hard_reject": True, "reject_reason": "可预测性非A档 清仓"},
+                0.02,
+            ),
+            "可预测性非A档 清仓",
+        )
         self.assertIsNone(held_exit_reason({}, 0.0))
         self.assertIsNone(held_exit_reason({}, 0.001))
         self.assertIn("<0%", held_exit_reason({}, -0.001) or "")

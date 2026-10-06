@@ -104,15 +104,59 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
     return codes, meta
 
 
+def _attach_oo_rank_scores(items: Sequence[dict]) -> None:
+    """影子 y_oo_rank：有模型则写入当日截面 1..n 名次；缺则跳过。不改 ranking / 买序。"""
+    try:
+        from core.research.oo_rank_pairwise import apply_oo_rank_scores, load_oo_rank_model
+
+        doc = load_oo_rank_model(prefer_research=False)
+        if not doc:
+            doc = load_oo_rank_model(prefer_research=True)
+        if doc:
+            apply_oo_rank_scores(list(items or []), model_doc=doc)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach live y_oo_rank failed", exc_info=True)
+
+
 def _apply_universe_fit_tier_filter(
     codes: Sequence[str],
     *,
     keep: Sequence[str] = (),
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """可预测性分档 live 闸：有 active（随历史回测分档勾选）则按档过滤；无则不过滤。持仓 keep 始终保留。"""
+    """可预测性分档 live 闸：有 active（随历史回测分档勾选）则按档过滤；无则不过滤。
+
+    持仓 keep 仍进打分；``force_exit_held``（掉出允许档）由后续标硬清仓。
+    """
     from core.research.predictability_tiers import filter_codes_by_predictability_live
 
     return filter_codes_by_predictability_live(codes, keep=keep)
+
+
+def _mark_predictability_tier_exits(
+    item_by_code: Dict[str, dict],
+    *,
+    force_exit_held: Sequence[str],
+    allowed_tiers: Sequence[str],
+) -> None:
+    """持仓掉出 live 允许档 → hard_reject，rank_lots 清仓。"""
+    exits = [str(c).strip() for c in (force_exit_held or []) if str(c).strip()]
+    if not exits:
+        return
+    allow = [
+        str(t).strip().upper()
+        for t in (allowed_tiers or [])
+        if str(t or "").strip()
+    ]
+    label = "".join(allow) if allow else "A"
+    why = f"可预测性非{label}档 清仓"
+    for code in exits:
+        item = item_by_code.get(code)
+        if not isinstance(item, dict):
+            item = {"stock_code": code}
+            item_by_code[code] = item
+        item["hard_reject"] = True
+        item["reject_reason"] = why
+        item["predictability_tier_exit"] = True
 
 
 def _resolve_report_name(
@@ -673,6 +717,20 @@ def simulate_watching_matrix_preview(
 
     rl_cfg = get_rank_lot_cfg(paper, top_k=top_k)
     k = int(rl_cfg["top_k"])
+    score_backend = "ridge"
+    _backend_ctx = None
+    try:
+        from core.research.return_tree import (
+            normalize_rebalance_score_backend,
+            rebalance_score_backend_context,
+        )
+
+        score_backend = normalize_rebalance_score_backend(rl_cfg.get("score_backend"))
+        _backend_ctx = rebalance_score_backend_context
+    except Exception:  # noqa: BLE001
+        logger.debug("watching_matrix score_backend failed", exc_info=True)
+        score_backend = "ridge"
+    rl_cfg["score_backend"] = score_backend
 
     held_codes = [
         str(h.get("stock_code") or "").strip()
@@ -736,9 +794,16 @@ def simulate_watching_matrix_preview(
     use_offline = bool(offline_only)
     # ŷ / 日K 可只读本地仓；落账必须现价，否则成本会被写成昨收
     price_offline = bool(use_offline and dry_run)
-    scored, rejected = _score_pool(
-        codes, horizon_days=horizon, offline_only=use_offline
-    )
+    if _backend_ctx is not None:
+        with _backend_ctx(score_backend):
+            scored, rejected = _score_pool(
+                codes, horizon_days=horizon, offline_only=use_offline
+            )
+    else:
+        scored, rejected = _score_pool(
+            codes, horizon_days=horizon, offline_only=use_offline
+        )
+    _attach_oo_rank_scores(scored)
     summary = mark_to_market(paper) or {}
     equity = float(summary.get("equity") or 0) or 0.0
     cash_before = float(summary.get("cash") or paper.get("cash") or 0)
@@ -771,6 +836,12 @@ def simulate_watching_matrix_preview(
         )
         if name:
             item_by_code[code]["stock_name"] = name
+
+    _mark_predictability_tier_exits(
+        item_by_code,
+        force_exit_held=list(fit_meta.get("force_exit_held") or []),
+        allowed_tiers=list(fit_meta.get("allowed_tiers") or []),
+    )
 
     prices: Dict[str, float] = {}
     opens: Dict[str, float] = {}

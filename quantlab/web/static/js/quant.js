@@ -619,6 +619,55 @@ export function initQuant(ctx) {
     if (box) box.innerHTML = "";
   }
 
+  async function paintOoRankDesk(sum, data, extra = {}) {
+    const src = data && typeof data === "object" ? data : {};
+    const rm =
+      src.return_model && typeof src.return_model === "object"
+        ? src.return_model
+        : src.coefficients && typeof src.coefficients === "object"
+          ? src
+          : null;
+    const oos = src.oos && typeof src.oos === "object" ? src.oos : {};
+    const hasBody = !!(
+      (rm && typeof rm === "object") ||
+      oos.oo_rank ||
+      oos.ridge_oo_baseline
+    );
+    const persisted = !!(src.exists && !src.shadow);
+    let message = extra.message;
+    if (message === undefined) {
+      if (!hasBody) {
+        message = src.note || "尚无影子对照";
+      } else if (persisted) {
+        message = "已落盘影子 · 成交 rank=1..n · 不进买序";
+      } else {
+        message = "刷新仍保留上次拟合";
+      }
+    }
+    renderRemStatus(sum, {
+      state: extra.state || (hasBody ? "ok" : "idle"),
+      chip:
+        extra.chip ||
+        (persisted ? "已落盘" : hasBody ? "草稿" : "待命"),
+      message,
+      fittedAt:
+        extra.fittedAt !== undefined
+          ? extra.fittedAt
+          : src.fitted_at || (rm && rm.fitted_at) || null,
+      busy: extra.busy,
+      error: extra.error,
+    });
+    if (!hasBody) {
+      clearOoRankResultBox();
+      await renderOoRankCoefTable(null);
+      return;
+    }
+    renderOoRankOosCompare(src);
+    await renderOoRankCoefTable(rm && typeof rm === "object" ? rm : {}, {
+      oos,
+    });
+  }
+
   function _fmtOoRankNum(v, digits = 4) {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -626,16 +675,30 @@ export function initQuant(ctx) {
     return n.toFixed(digits);
   }
 
-  function _readOoRankFeatureMode() {
-    const el = document.getElementById("quant-oo-rank-feature-mode");
-    const v = el && el.value ? String(el.value).trim() : "raw";
-    return ["raw", "cs_rank", "cs_z", "raw_cs"].includes(v) ? v : "raw";
-  }
-
-  function _readOoRankPairPreset() {
-    const el = document.getElementById("quant-oo-rank-pair-preset");
-    const v = el && el.value ? String(el.value).trim() : "wide";
-    return v === "topk_focus" ? "topk_focus" : "wide";
+  function _ooRankBarPair(a, b) {
+    const x = Number(a);
+    const y = Number(b);
+    const ax = Number.isFinite(x) ? x : null;
+    const by = Number.isFinite(y) ? y : null;
+    const m = Math.max(Math.abs(ax || 0), Math.abs(by || 0), 1e-12);
+    const d =
+      ax != null && by != null ? ax - by : null;
+    function bar(v, kind, lead) {
+      const w =
+        v == null ? 0 : Math.max(2, Math.round((100 * Math.abs(v)) / m));
+      const dir = v == null ? "" : v < 0 ? " is-neg" : " is-pos";
+      const leadCls = lead ? " is-lead" : "";
+      return (
+        `<span class="quant-oos-bar ${kind}${dir}${leadCls}">` +
+        `<i style="width:${v == null ? 0 : w}%"></i></span>`
+      );
+    }
+    return (
+      `<div class="quant-oos-bars" aria-hidden="true">` +
+      bar(ax, "is-lr", d != null && d > 1e-12) +
+      bar(by, "is-rg", d != null && d < -1e-12) +
+      `</div>`
+    );
   }
 
   function renderOoRankOosCompare(data) {
@@ -654,7 +717,7 @@ export function initQuant(ctx) {
     }
     const track = data.shadow_track || {};
     function delta(a, b, fallback) {
-      if (fallback != null && fallback !== "") return fallback;
+      if (fallback != null && fallback !== "") return Number(fallback);
       if (a == null || b == null) return null;
       const x = Number(a);
       const y = Number(b);
@@ -669,13 +732,19 @@ export function initQuant(ctx) {
         delta(rank.spearman, ridge.spearman, track.delta_spearman),
       ],
       [
+        "NDCG@K",
+        rank.ndcg_at_k,
+        ridge.ndcg_at_k,
+        delta(rank.ndcg_at_k, ridge.ndcg_at_k, track.delta_ndcg_at_k),
+      ],
+      [
         "TopK overlap",
         rank.topk_overlap,
         ridge.topk_overlap,
         delta(rank.topk_overlap, ridge.topk_overlap, track.delta_topk_overlap),
       ],
       [
-        "TopK 均值 y_oo%",
+        "TopK y_oo%",
         rank.topk_mean_y_oo,
         ridge.topk_mean_y_oo,
         delta(
@@ -684,49 +753,56 @@ export function initQuant(ctx) {
           track.delta_topk_mean_y_oo
         ),
       ],
-      ["Pair accuracy", rank.pair_accuracy, ridge.pair_accuracy, null],
     ];
+    let lrWins = 0;
+    let rgWins = 0;
     const body = rows
-      .map(
-        ([lab, a, b, d]) =>
-          `<tr><th scope="row">${lab}</th>` +
-          `<td class="num">${_fmtOoRankNum(a)}</td>` +
-          `<td class="num">${_fmtOoRankNum(b)}</td>` +
-          `<td class="num">${d == null ? "—" : _fmtOoRankNum(d)}</td></tr>`
-      )
+      .map(([lab, a, b, d]) => {
+        const dn = d == null || !Number.isFinite(Number(d)) ? null : Number(d);
+        if (dn != null && dn > 1e-12) lrWins += 1;
+        if (dn != null && dn < -1e-12) rgWins += 1;
+        const lrCls = dn != null && dn > 1e-12 ? "num is-best" : "num";
+        const rgCls = dn != null && dn < -1e-12 ? "num is-best" : "num";
+        const dCls =
+          dn == null ? "num" : dn > 1e-12 ? "num up" : dn < -1e-12 ? "num down" : "num";
+        const dTxt =
+          dn == null ? "—" : `${dn > 0 ? "+" : ""}${_fmtOoRankNum(dn)}`;
+        return (
+          `<tr><th scope="row">${lab}${_ooRankBarPair(a, b)}</th>` +
+          `<td class="${lrCls}">${_fmtOoRankNum(a)}</td>` +
+          `<td class="${rgCls}">${_fmtOoRankNum(b)}</td>` +
+          `<td class="${dCls}">${dTxt}</td></tr>`
+        );
+      })
       .join("");
-    const meta = data.feature_meta || {};
-    const metaBits = [
-      data.n_days != null ? `截面日 ${data.n_days}` : "",
-      data.n_train_days != null ? `训 ${data.n_train_days}` : "",
-      data.n_test_days != null ? `测 ${data.n_test_days}` : "",
-      rank.topk != null ? `TopK=${rank.topk}` : "",
-      data.sample_count != null ? `pairs≈${data.sample_count}` : "",
-      data.feature_mode || oos.feature_mode
-        ? `mode=${data.feature_mode || oos.feature_mode}`
-        : "",
-      data.pair_preset || oos.pair_preset
-        ? `preset=${data.pair_preset || oos.pair_preset}`
-        : "",
-      meta.n_features != null ? `feats=${meta.n_features}` : "",
-      meta.cs_coef_share != null
-        ? `csβ=${_fmtOoRankNum(meta.cs_coef_share)}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const modelLabel = window.formatTreeBackend
-      ? window.formatTreeBackend(data.backend || data.solver || "lambdarank")
-      : "RankNet";
+    const scored = lrWins + rgWins;
+    const pool = data.watching_tier_a_only ? "观察池 A 档" : "整观察池";
+    const hold =
+      oos.holdout_trading_days != null
+        ? `Holdout ${Number(oos.holdout_trading_days)} 日`
+        : "同窗 Holdout";
+    const nTe =
+      data.n_test_days != null ? `测 ${Number(data.n_test_days)} 日` : "";
+    const lrLead = scored > 0 && lrWins > rgWins;
+    const rgLead = scored > 0 && rgWins > lrWins;
     box.innerHTML =
-      `<div class="quant-oos-compare" aria-label="ŷ_oo_rank vs Ridge">` +
-      (metaBits
-        ? `<p class="quant-oos-compare-meta">${metaBits} · Δ = ${modelLabel} − Ridge</p>`
-        : "") +
+      `<div class="quant-oos-compare" aria-label="LambdaRank vs Ridge">` +
+      `<div class="quant-oos-board">` +
+      `<div class="quant-oos-board-card${lrLead ? " is-lead" : ""}">` +
+      `<span class="quant-oos-board-kicker">排序头</span>` +
+      `<span class="quant-oos-board-name">LambdaRank</span>` +
+      `<span class="quant-oos-board-wins">${lrWins}<small>/${scored || "—"}</small></span>` +
+      `</div>` +
+      `<div class="quant-oos-board-card${rgLead ? " is-lead" : ""}">` +
+      `<span class="quant-oos-board-kicker">回归头</span>` +
+      `<span class="quant-oos-board-name">Ridge</span>` +
+      `<span class="quant-oos-board-wins">${rgWins}<small>/${scored || "—"}</small></span>` +
+      `</div>` +
+      `</div>` +
       `<table class="quant-weight-table quant-oos-compare-table">` +
-      `<thead><tr><th>指标</th><th>${modelLabel}</th><th>Ridge ŷ_oo</th><th>Δ</th></tr></thead>` +
+      `<thead><tr><th>指标</th><th>LambdaRank</th><th>Ridge</th><th>Δ</th></tr></thead>` +
       `<tbody>${body}</tbody></table>` +
-      `<p class="quant-oos-compare-note">影子头：不进 ranking。Δ&gt;0 表示相对 Ridge 排序更贴合截面序。</p>` +
+      `<p class="quant-oos-compare-note">${hold}${nTe ? " · " + nTe : ""} · ${pool} · 旁路·成交 rank=1..n · 条长为该项相对幅度，加粗为胜出</p>` +
       `</div>`;
   }
 
@@ -2335,26 +2411,37 @@ export function initQuant(ctx) {
   })();
 
   // 轻量预填 ŷ_oo_rank 影子状态
+  const OO_RANK_TIER_A_KEY = "quant.oo_rank.watching_tier_a_only";
+  function readOoRankTierAOnly() {
+    const el = document.getElementById("quant-oo-rank-tier-a");
+    return !!(el && el.checked);
+  }
+  function hydrateOoRankTierA() {
+    const el = document.getElementById("quant-oo-rank-tier-a");
+    if (!el) return;
+    try {
+      el.checked = localStorage.getItem(OO_RANK_TIER_A_KEY) === "1";
+    } catch (_) {
+      /* ignore */
+    }
+    if (el.dataset.wired === "1") return;
+    el.dataset.wired = "1";
+    el.addEventListener("change", () => {
+      try {
+        localStorage.setItem(OO_RANK_TIER_A_KEY, el.checked ? "1" : "0");
+      } catch (_) {
+        /* ignore */
+      }
+    });
+  }
+  hydrateOoRankTierA();
   void (async () => {
     try {
       const res = await fetch("/api/quant/oo-rank/model");
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-oo-rank-summary");
       if (!sum) return;
-      if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无影子模型",
-        });
-        clearOoRankResultBox();
-        await renderOoRankCoefTable(null);
-        return;
-      }
-      paintRidgeEnableStatus(sum, data, {
-        message: "已落盘影子 · 不进 ranking",
-      });
-      renderOoRankOosCompare(data);
-      const oosRank = (data.oos && data.oos.oo_rank) || data.oos || {};
-      await renderOoRankCoefTable(data.return_model || {}, { oos: oosRank });
+      await paintOoRankDesk(sum, data);
     } catch (_) {
       /* ignore */
     }
@@ -3230,15 +3317,14 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: readFitLookbackDays("oo_rank"),
-          // 日线研究：可吃 research_universe（≤2000）；宇宙空则回退观察池≤WATCHING_MAX_SIZE
-          watching_limit: 2000,
+          watching_limit: 1000,
           holdout_trading_days: Math.max(20, readHoldoutTradingDays("oo_rank")),
-          feature_mode: _readOoRankFeatureMode(),
-          pair_preset: _readOoRankPairPreset(),
           topk_track: 10,
+          ndcg_k: 10,
           l2: 1.0,
           persist: !!persist,
           backend: "lambdarank",
+          watching_tier_a_only: readOoRankTierAOnly(),
           note: persist ? "ui oo_rank shadow persist" : "",
         }),
       });
@@ -3255,25 +3341,11 @@ export function initQuant(ctx) {
         renderOoRankCoefTable(null);
         return;
       }
-      const oosRank = (data.oos && data.oos.oo_rank) || {};
-      const track = data.shadow_track || {};
-      const delta =
-        track.delta_topk_mean_y_oo != null
-          ? `ΔTopK=${_fmtOoRankNum(track.delta_topk_mean_y_oo)}`
-          : track.delta_spearman != null
-            ? `Δρ=${_fmtOoRankNum(track.delta_spearman)}`
-            : "";
-      paintRidgeEnableStatus(sum, data, {
+      await paintOoRankDesk(sum, data, {
         persistOk: !!persist,
         justFitted: !persist,
-        message: persist
-          ? "已落盘影子（不进 live ranking）"
-          : `未写盘 · ${delta || "看对照表"} · 可点「落盘影子」`,
-        oos: oosRank,
-        sampleCount: data.sample_count,
+        message: persist ? "已落盘影子 · 成交 rank=1..n · 不进买序" : "刷新仍保留上次拟合",
       });
-      renderOoRankOosCompare(data);
-      await renderOoRankCoefTable(data.return_model || {}, { oos: oosRank });
     } catch (err) {
       renderRemStatus(sum, {
         state: "error",
@@ -4736,7 +4808,7 @@ export function initQuant(ctx) {
     e.preventDefault();
     if (
       !window.confirm(
-        "将 ŷ_oo_rank 写入影子模型文件？不进 ranking / live 调仓，仅供回测透传对照。"
+        "将 ŷ_oo_rank 写入影子模型文件？旁路对照；成交明细 rank 列为当日截面 1..n 名次（1=最高），不进 ranking / 买序。"
       )
     ) {
       return;
@@ -4766,20 +4838,7 @@ export function initQuant(ctx) {
     try {
       const res = await fetch("/api/quant/oo-rank/model");
       const data = await res.json().catch(() => ({}));
-      if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无影子模型",
-        });
-        clearOoRankResultBox();
-        await renderOoRankCoefTable(null);
-        return;
-      }
-      paintRidgeEnableStatus(sum, data, {
-        message: "已落盘影子 · 不进 ranking",
-      });
-      renderOoRankOosCompare(data);
-      const oosRank = (data.oos && data.oos.oo_rank) || data.oos || {};
-      await renderOoRankCoefTable(data.return_model || {}, { oos: oosRank });
+      await paintOoRankDesk(sum, data);
     } catch (err) {
       renderRemStatus(sum, {
         state: "error",

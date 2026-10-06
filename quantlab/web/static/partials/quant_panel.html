@@ -26,13 +26,13 @@
       →
       <a class="quant-hero-link" href="#quant-section-t90">ŷ_τ90</a>
       →
-      <a class="quant-hero-link" href="#quant-section-oo-rank">ŷ_oo_rank</a>
-      →
       <a class="quant-hero-link" href="#quant-section-oo-tree">ŷ_oo_tree</a>
       →
       <a class="quant-hero-link" href="#quant-section-tau-tree">ŷ_τc_tree</a>
       →
       <a class="quant-hero-link" href="#quant-section-co-tree">ŷ_co_tree</a>
+      →
+      <a class="quant-hero-link" href="#quant-section-oo-rank">ŷ_oo_rank</a>
       →
       <a class="quant-hero-link" href="#quant-section-t30-tree">ŷ_τ30_tree</a>
       →
@@ -159,7 +159,7 @@
                 用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡片上的 <strong>Holdout</strong> 前半打分；
                 日线面板窗对齐 ŷ_oo 卡片 <strong>训练窗</strong>。无研究套时才 Holdout 前现训。
                 A 档：命中率 ≥60%、IC &gt;0、有效日 N ≥6。
-                调仓 live 过滤跟随历史回测页「分档」勾选（持仓保留）；不勾则不过滤。
+                调仓 live 过滤跟随历史回测页「分档」勾选（掉出允许档则清仓）；不勾则不过滤。
               </p>
             </div>
           </details>
@@ -414,10 +414,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_oo 拟合日线训练窗（交易日）。与回测「窗口」独立。默认 600（40～700）。"
+            title="ŷ_oo 拟合日线训练窗（交易日）。与回测「窗口」独立。默认 600（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-oo" type="number" min="40" max="700" step="10" value="600" inputmode="numeric" aria-label="ŷ_oo 训练样本天数" />
+            <input id="quant-fit-lookback-oo" type="number" min="100" max="1000" step="10" value="600" inputmode="numeric" aria-label="ŷ_oo 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -473,10 +473,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τc 拟合日线训练窗（交易日）。分钟网格仍叠在日线之上。默认 120（40～700）。"
+            title="ŷ_τc 拟合日线训练窗（交易日）。分钟网格仍叠在日线之上。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-tc" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τc 训练样本天数" />
+            <input id="quant-fit-lookback-tc" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τc 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -519,10 +519,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_co 拟合日线训练窗（交易日）。默认 600（40～700）。"
+            title="ŷ_co 拟合日线训练窗（交易日）。默认 600（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-co" type="number" min="40" max="700" step="10" value="600" inputmode="numeric" aria-label="ŷ_co 训练样本天数" />
+            <input id="quant-fit-lookback-co" type="number" min="100" max="1000" step="10" value="600" inputmode="numeric" aria-label="ŷ_co 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -546,7 +546,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t30-title" class="dashboard-section-title">ŷ_τ30</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -565,10 +565,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ30 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ30 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t30" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ30 训练样本天数" />
+            <input id="quant-fit-lookback-t30" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ30 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -593,7 +593,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t45-title" class="dashboard-section-title">ŷ_τ45</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -612,10 +612,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ45 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ45 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t45" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ45 训练样本天数" />
+            <input id="quant-fit-lookback-t45" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ45 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -640,7 +640,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t60-title" class="dashboard-section-title">ŷ_τ60</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -659,10 +659,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ60 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ60 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t60" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ60 训练样本天数" />
+            <input id="quant-fit-lookback-t60" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ60 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -687,7 +687,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t75-title" class="dashboard-section-title">ŷ_τ75</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -706,10 +706,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ75 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ75 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t75" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ75 训练样本天数" />
+            <input id="quant-fit-lookback-t75" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ75 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -734,7 +734,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t90-title" class="dashboard-section-title">ŷ_τ90</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -753,10 +753,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ90 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ90 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t90" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ90 训练样本天数" />
+            <input id="quant-fit-lookback-t90" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ90 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -771,68 +771,6 @@
       <div class="quant-pro-card-body">
         <div id="quant-t90-result" class="quant-weight-table-wrap" aria-label="ŷ_τ90 拟合摘要"></div>
         <div id="quant-t90-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ90 因子系数表"></div>
-      </div>
-    </div>
-    </details>
-  </section>
-
-  <!-- ŷ_oo_rank：LambdaRank 影子头；不进 ranking / live 决策；次要折叠，默认收起 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
-        <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
-        <p class="dashboard-section-desc quant-section-desc">截面序 · LambdaRank · 影子对照 · 不进决策</p>
-      </summary>
-      <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
-        <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
-          <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 vs Ridge · 可选落盘影子</span>
-        </div>
-        <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
-          <label
-            class="quant-inline-num"
-            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
-          >
-            <span>Holdout</span>
-            <input id="quant-holdout-days-oo_rank" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_oo_rank Holdout 交易日数" />
-            <span aria-hidden="true">日</span>
-          </label>
-          <label
-            class="quant-inline-num"
-            title="ŷ_oo_rank 拟合日线训练窗（交易日）。默认 120（40～700）。"
-          >
-            <span>训练窗</span>
-            <input id="quant-fit-lookback-oo_rank" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_oo_rank 训练样本天数" />
-            <span aria-hidden="true">日</span>
-          </label>
-        </div>
-
-        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
-          <label class="quant-inline-field" for="quant-oo-rank-feature-mode">
-            <span class="quant-inline-field-lab">特征</span>
-            <select id="quant-oo-rank-feature-mode" class="dialog-select" title="feature_mode 消融">
-              <option value="raw" selected>raw</option>
-              <option value="cs_rank">cs_rank</option>
-              <option value="cs_z">cs_z</option>
-              <option value="raw_cs">raw+cs</option>
-            </select>
-          </label>
-          <label class="quant-inline-field" for="quant-oo-rank-pair-preset">
-            <span class="quant-inline-field-lab">采样</span>
-            <select id="quant-oo-rank-pair-preset" class="dialog-select" title="pair_preset">
-              <option value="wide" selected>wide</option>
-              <option value="topk_focus">topk_focus</option>
-            </select>
-          </label>
-          <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank + Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist" class="dialog-btn secondary" title="人审后写入 oo_rank_pairwise_model.json（仍不进 live 决策）">落盘影子</button>
-          <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取已落盘影子模型">状态</button>
-        </div>
-      </div>
-      <div class="quant-pro-card-body">
-        <div id="quant-oo-rank-result" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank OOS 对照"></div>
-        <div id="quant-oo-rank-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank 因子系数表"></div>
       </div>
     </div>
     </details>
@@ -862,10 +800,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_oo_tree 拟合日线训练窗（交易日）。默认 600（40～700）。"
+            title="ŷ_oo_tree 拟合日线训练窗（交易日）。默认 600（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-oo_tree" type="number" min="40" max="700" step="10" value="600" inputmode="numeric" aria-label="ŷ_oo_tree 训练样本天数" />
+            <input id="quant-fit-lookback-oo_tree" type="number" min="100" max="1000" step="10" value="600" inputmode="numeric" aria-label="ŷ_oo_tree 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -906,10 +844,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τc_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τc_tree 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-tc_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τc_tree 训练样本天数" />
+            <input id="quant-fit-lookback-tc_tree" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τc_tree 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -950,10 +888,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_co_tree 拟合日线训练窗（交易日）。默认 600（40～700）。"
+            title="ŷ_co_tree 拟合日线训练窗（交易日）。默认 600（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-co_tree" type="number" min="40" max="700" step="10" value="600" inputmode="numeric" aria-label="ŷ_co_tree 训练样本天数" />
+            <input id="quant-fit-lookback-co_tree" type="number" min="100" max="1000" step="10" value="600" inputmode="numeric" aria-label="ŷ_co_tree 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -965,6 +903,59 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-co-tree-result" class="quant-weight-table-wrap" aria-label="ŷ_co_tree 对照表"></div>
+      </div>
+    </div>
+    </details>
+  </section>
+
+  <!-- ŷ_oo_rank：LambdaRank 旁路对照；默认整观察池，可选只训 A 档 -->
+  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
+    <details class="quant-secondary-fold">
+      <summary class="quant-secondary-fold-sum">
+        <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
+        <p class="dashboard-section-desc quant-section-desc">截面序 · LambdaRank vs Ridge · 旁路对照 · 成交 rank=1..n · 不进买序</p>
+      </summary>
+      <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+        <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后看 vs Ridge · 可选落盘影子</span>
+        </div>
+        <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-oo_rank" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_oo_rank Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_oo_rank 拟合日线训练窗（交易日）。默认 700（100～1000）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-oo_rank" type="number" min="100" max="1000" step="10" value="700" inputmode="numeric" aria-label="ŷ_oo_rank 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-check"
+            title="开启：只训观察池可预测性 A 档（须先跑分档）。关闭：覆盖整观察池。"
+          >
+            <input id="quant-oo-rank-tier-a" type="checkbox" />
+            <span>只训 A 档</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
+          <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank + Holdout OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-oo-rank-persist" class="dialog-btn secondary" title="人审后写入 oo_rank_pairwise_model.json；成交明细 rank=当日截面 1..n，不进 ranking / 买序">落盘影子</button>
+          <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取已落盘影子模型">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-oo-rank-result" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank OOS 对照"></div>
+        <div id="quant-oo-rank-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank 因子系数表"></div>
       </div>
     </div>
     </details>
@@ -994,10 +985,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ30_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ30_tree 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t30_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ30_tree 训练样本天数" />
+            <input id="quant-fit-lookback-t30_tree" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ30_tree 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -1038,10 +1029,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ45_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ45_tree 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t45_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ45_tree 训练样本天数" />
+            <input id="quant-fit-lookback-t45_tree" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ45_tree 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -1082,10 +1073,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ60_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ60_tree 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t60_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ60_tree 训练样本天数" />
+            <input id="quant-fit-lookback-t60_tree" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ60_tree 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -1126,10 +1117,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ75_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ75_tree 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t75_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ75_tree 训练样本天数" />
+            <input id="quant-fit-lookback-t75_tree" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ75_tree 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>
@@ -1170,10 +1161,10 @@
           </label>
           <label
             class="quant-inline-num"
-            title="ŷ_τ90_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+            title="ŷ_τ90_tree 拟合日线训练窗（交易日）。默认 120（100～1000）。"
           >
             <span>训练窗</span>
-            <input id="quant-fit-lookback-t90_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ90_tree 训练样本天数" />
+            <input id="quant-fit-lookback-t90_tree" type="number" min="100" max="1000" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ90_tree 训练样本天数" />
             <span aria-hidden="true">日</span>
           </label>
         </div>

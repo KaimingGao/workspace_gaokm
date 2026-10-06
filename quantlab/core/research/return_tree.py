@@ -1,8 +1,9 @@
 """调仓 / 做 T 的 ŷ_oo / ŷ_τc / ŷ_co 树头开关。
 
-``rebalance_score_backend`` 与 ``horizon_prob_backend`` 任一为 tree 时，
-三头读 ``oo_tree_model.json`` / ``tc_tree_model.json`` / ``co_tree_model.json``，
-与研究枢纽 ŷ_*_tree 同包；缺文件的头回退 Ridge。不进交易执行。
+``ridge``：线性 Ridge（默认）。
+``tree``：三头读已落盘树，缺文件回退 Ridge。
+买序一律走融合 ranking。ŷ_oo_rank 是旁路对照，不进本开关。
+``horizon_prob_backend=tree`` 时 ŷ_τc 与 horizon 头同开。
 """
 
 from __future__ import annotations

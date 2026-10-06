@@ -341,6 +341,15 @@ export const BT_LEDGER_TRADE_COLS = [
     sortable: true,
     title: `${Y_ON_TITLE} · 预估(真实)：次日开/今日收 · 对照，不进决策`,
   },
+  {
+    id: "y_oo_rank",
+    label: "rank",
+    widthPct: 7,
+    widthMin: "5.6rem",
+    num: true,
+    sortable: true,
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 旁路对照，不进 ranking / 买序",
+  },
 ];
 
 function sortLedgerTradeLegs(legs) {
@@ -429,6 +438,29 @@ function _numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** 成交明细 rank：只认带 y_oo_rank_n 的 1..n 名次；旧相对分显示 —（避免 Math.round→0）。 */
+function _ooRankOrdinalDisplay(yRank, yRankN) {
+  if (yRank == null) {
+    return {
+      text: "—",
+      tip: "rank — · 旁路对照，不进 ranking（无影子模型或未写入）",
+    };
+  }
+  const ord = Math.round(yRank);
+  const isInt = Math.abs(yRank - ord) < 1e-9;
+  const n = yRankN != null && yRankN >= 1 ? Math.round(yRankN) : null;
+  if (n != null && isInt && ord >= 1 && ord <= n) {
+    return {
+      text: String(ord),
+      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 旁路对照，不进 ranking`,
+    };
+  }
+  return {
+    text: "—",
+    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 旁路对照，不进 ranking",
+  };
+}
+
 function _scoreClsOf(scoreCls, v) {
   return v == null ? "score-na" : scoreCls(v);
 }
@@ -514,6 +546,11 @@ function buildLedgerTradeRow(r, i, deps) {
   const rk = _numOrNull(r.ranking_score);
   const rankingPct =
     rk != null ? rk * 100 : _numOrNull(r.ranking != null ? r.ranking : r.y_fuse);
+  const yRank = _numOrNull(
+    r.y_oo_rank != null ? r.y_oo_rank : r.predicted_score_oo_rank
+  );
+  const yRankN = _numOrNull(r.y_oo_rank_n);
+  const yRankDisp = _ooRankOrdinalDisplay(yRank, yRankN);
   const rCc = _numOrNull(r.realized_cc);
   const rOn = _numOrNull(r.realized_on);
   const rTau = _numOrNull(r.realized_tau);
@@ -626,6 +663,10 @@ function buildLedgerTradeRow(r, i, deps) {
     rankingText: rankingPct == null ? "—" : fmtScore(rankingPct, { signed: true }),
     rankingCls: _scoreClsOf(scoreCls, rankingPct),
     rankingTip,
+    y_oo_rankNum: yRankDisp.text === "—" ? null : yRank,
+    y_oo_rankText: yRankDisp.text,
+    y_oo_rankCls: "",
+    y_oo_rankTip: yRankDisp.tip,
     y_onTip: onTip,
     scoreDetail,
     realizedOoNum: rOo,
@@ -791,6 +832,8 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "cash_after",
     "n_holdings",
     "equity_after",
+    "y_oo_rank",
+    "y_oo_rank_n",
   ];
   const lines = [header.join(",")];
   for (const r of attachLedgerOpenCost(sortLedgerTradeLegs(rows))) {
@@ -832,6 +875,8 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       r.cash_after ?? "",
       r.n_holdings ?? "",
       r.equity_after ?? "",
+      r.y_oo_rank ?? r.predicted_score_oo_rank ?? "",
+      r.y_oo_rank_n ?? "",
     ].map((v) => {
       const s = String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -1059,6 +1104,7 @@ const BT_TRADES_NUM_KEYS = {
   y_tau: "y_tauNum",
   y_on: "y_onNum",
   ranking: "rankingNum",
+  y_oo_rank: "y_oo_rankNum",
 };
 
 /** Virtual-table compare callback for sim trades. */
@@ -1244,6 +1290,13 @@ export function btTradesCellHtml(col, d, deps) {
       "ranking",
       d.scoreDetail
     );
+  }
+  if (col.id === "y_oo_rank") {
+    return `<span class="bt-trade-score paper-hold-score ${escapeHtml(
+      d.y_oo_rankCls || ""
+    )}" title="${escapeHtml(d.y_oo_rankTip || "")}">${escapeHtml(
+      d.y_oo_rankText || "—"
+    )}</span>`;
   }
   if (col.id === "ret") {
     return `<span class="bt-trade-ret ${d.retCls || ""}">${escapeHtml(d.retText)}</span>`;

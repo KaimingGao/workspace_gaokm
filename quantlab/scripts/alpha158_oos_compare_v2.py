@@ -1,7 +1,7 @@
 """Alpha158 引入前后 OOS IC 对比（真实数据，全量观察池）。
 
 优化：build 面板一次（含 alpha158），基线通过删除 raw_alpha158_* 字段构造。
-对照臂：线性 RankNet + 同窗 Ridge ŷ_oo；并打印 Ridge active 中 alpha158 列数。
+对照臂：同窗 Ridge ŷ_oo；并打印 Ridge active 中 alpha158 列数。
 """
 
 import sys
@@ -14,7 +14,6 @@ from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.oo_rank_pairwise import fit_oo_rank_report
 from core.research.oo_rank_panel import (
     build_oo_rank_day_panels,
-    enrich_day_panels_features,
     stack_day_panels,
 )
 from core.research.portfolio_bars import load_portfolio_stock_bars
@@ -34,24 +33,27 @@ def load_stock_bars():
 
 
 def strip_alpha158_fields(days):
-    """从面板删除 raw_alpha158_* 和 alpha158 sub_score 字段，构造基线面板。"""
+    """从矩阵面板删除 raw_alpha158_* 列，构造基线面板。"""
     stripped = []
     for day in days:
-        new_day = {
-            "date": day["date"],
-            "codes": list(day["codes"]),
-            "xs": [],
-            "ys": list(day["ys"]),
-        }
-        for row in day["xs"]:
-            if not isinstance(row, dict):
-                new_day["xs"].append(row)
-                continue
-            new_row = {
-                k: v for k, v in row.items() if "alpha158" not in str(k).lower()
+        packed = day.get("X")
+        names = list(day.get("names") or [])
+        if packed is None or not names:
+            continue
+        keep = [
+            j
+            for j, n in enumerate(names)
+            if "alpha158" not in str(n).lower()
+        ]
+        stripped.append(
+            {
+                "date": day.get("date"),
+                "codes": list(day.get("codes") or []),
+                "ys": list(day.get("ys") or []),
+                "X": packed[:, keep] if keep else packed[:, 0:0],
+                "names": [names[j] for j in keep],
             }
-            new_day["xs"].append(new_row)
-        stripped.append(new_day)
+        )
     return stripped
 
 
@@ -88,20 +90,19 @@ def run(days, backend):
         backend=backend,
     )
     elapsed = time.time() - t0
-    fm = rep.get("feature_meta") or {}
     oos = rep.get("oos") or {}
     ridge = oos.get("ridge_oo_baseline") or {}
     rank = oos.get("oo_rank") or {}
     return {
         "success": rep.get("success"),
-        "n_features": fm.get("n_features"),
+        "n_features": rep.get("n_features"),
         "n_train": rep.get("n_train_days"),
         "n_test": rep.get("n_test_days"),
         "rank_ic": rank.get("spearman"),
         "rank_topk": rank.get("topk_mean_y_oo"),
         "ridge_ic": ridge.get("spearman"),
         "ridge_topk": ridge.get("topk_mean_y_oo"),
-        "ridge_pair": ridge.get("pair_accuracy"),
+        "ridge_ndcg": ridge.get("ndcg_at_k"),
         "elapsed": round(elapsed, 1),
         "ridge_active": ridge_active_summary(days),
     }
@@ -122,9 +123,7 @@ def main():
         min_history=70,
         min_names=4,
         max_window=70,
-        feature_mode="raw",
     )
-    days_full = enrich_day_panels_features(days_full, feature_mode="raw")
     print(f"panel built: {len(days_full)} days, {time.time() - t0:.1f}s")
 
     days_base = strip_alpha158_fields(days_full)

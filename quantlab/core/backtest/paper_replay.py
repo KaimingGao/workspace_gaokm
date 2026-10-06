@@ -1777,15 +1777,29 @@ def _attach_open_yhat_heads(
     oo_rank_doc = None
     apply_oo_rank_scores = None
     try:
+        from core.research.holdout import current_scoring_model_role
         from core.research.oo_rank_pairwise import (
             apply_oo_rank_scores as _apply_oo_rank,
             load_oo_rank_model,
         )
 
         apply_oo_rank_scores = _apply_oo_rank
-        oo_rank_doc = load_oo_rank_model(prefer_research=True)
+        prefer_research = current_scoring_model_role() != "live"
+        oo_rank_doc = load_oo_rank_model(prefer_research=prefer_research)
+        if oo_rank_doc is None:
+            oo_rank_doc = load_oo_rank_model(prefer_research=not prefer_research)
     except Exception:  # noqa: BLE001
-        logger.debug("oo_rank shadow import failed", exc_info=True)
+        logger.debug("oo_rank import failed", exc_info=True)
+
+    # 影子 ŷ_oo_rank：整日截面批打分后再编 1..n 名次；不改 ranking / 买序
+    if apply_oo_rank_scores is not None and oo_rank_doc is not None:
+        try:
+            apply_oo_rank_scores(
+                [it for it in items if isinstance(it, dict)],
+                model_doc=oo_rank_doc,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("attach y_oo_rank day batch failed", exc_info=True)
 
     for it in items:
         if not isinstance(it, dict):
@@ -1805,12 +1819,6 @@ def _attach_open_yhat_heads(
             )
         except Exception:  # noqa: BLE001
             logger.debug("overlay y_oo tree failed for %s", code, exc_info=True)
-        # 影子 ŷ_oo_rank：有模型且有 sub_scores 时写入；不改 ranking
-        if apply_oo_rank_scores is not None and oo_rank_doc is not None:
-            try:
-                apply_oo_rank_scores([it], model_doc=oo_rank_doc)
-            except Exception:  # noqa: BLE001
-                logger.debug("attach y_oo_rank failed for %s", code, exc_info=True)
         if attach_dual_score_pit is not None and code:
             try:
                 xs: Dict[str, Any] = {}
@@ -2223,6 +2231,7 @@ def backtest_paper_replay(
     """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
 
     ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘树；缺模型的头回退 Ridge。
+    ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行，旁路对照，不进 ranking / 买序。
     """
     from core.research.holdout import (
         current_scoring_model_role,

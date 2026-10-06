@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field
 
 from core.watching.store import MODEL_FIT_MAX_SIZE
 
+FIT_LOOKBACK_MIN = 100
+FIT_LOOKBACK_MAX = 1000
+
 
 class CrossSectionRequest(BaseModel):
     codes: Optional[list] = None
@@ -51,7 +54,7 @@ class FactorOlsPoolRequest(BaseModel):
 class TauRidgeRequest(BaseModel):
     """open→close / τ→close ŷ_τ 头研究拟合（不写 ŷ_oo）。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -98,7 +101,7 @@ class TauRidgeRequest(BaseModel):
 class OoTreeRequest(BaseModel):
     """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，调仓回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=600, ge=40, le=700)
+    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -127,7 +130,7 @@ class OoTreeRequest(BaseModel):
 class CoTreeRequest(BaseModel):
     """ŷ_co_tree：隔夜缺口面板 Holdout vs Ridge。写入 co_tree_model.json，调仓回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=600, ge=40, le=700)
+    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -157,7 +160,7 @@ class CoTreeRequest(BaseModel):
 class TauTreeRequest(BaseModel):
     """ŷ_τc_tree：同面板 Holdout vs Ridge。写入 tc_tree_model.json，调仓回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -192,7 +195,7 @@ class TauTreeRequest(BaseModel):
 class T30TreeRequest(BaseModel):
     """ŷ_τ30_tree：同面板 Holdout vs Ridge。写入 t30_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -223,7 +226,7 @@ class T30TreeRequest(BaseModel):
 class T45TreeRequest(BaseModel):
     """ŷ_τ45_tree：同面板 Holdout vs Ridge。写入 t45_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -254,7 +257,7 @@ class T45TreeRequest(BaseModel):
 class T60TreeRequest(BaseModel):
     """ŷ_τ60_tree：同面板 Holdout vs Ridge。写入 t60_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -285,7 +288,7 @@ class T60TreeRequest(BaseModel):
 class T75TreeRequest(BaseModel):
     """ŷ_τ75_tree：同面板 Holdout vs Ridge。写入 t75_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -316,7 +319,7 @@ class T75TreeRequest(BaseModel):
 class T90TreeRequest(BaseModel):
     """ŷ_τ90_tree：同面板 Holdout vs Ridge。写入 t90_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -347,7 +350,7 @@ class T90TreeRequest(BaseModel):
 class CoRidgeRequest(BaseModel):
     """open[T+1]/close[T]-1 隔夜缺口 Ridge 拟合（风控旁路 ŷ_co）。"""
 
-    lookback: int = Field(default=600, ge=40, le=700)
+    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -379,17 +382,14 @@ class CoRidgeRequest(BaseModel):
 
 
 class OoRankRequest(BaseModel):
-    """ŷ_oo_rank LambdaRank（影子头；不进 live ranking）。"""
+    """ŷ_oo_rank LambdaRank（旁路对照；成交明细 rank=1..n；不进 ranking / 买序）。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
-        default=200,
+        default=MODEL_FIT_MAX_SIZE,
         ge=8,
-        le=2000,
-        description=(
-            f"日线研究截断：优先 research_universe（可至 2000）；"
-            f"宇宙为空时回退观察池（实际仍≤{MODEL_FIT_MAX_SIZE}）。不进分钟暖仓。"
-        ),
+        le=MODEL_FIT_MAX_SIZE,
+        description=f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。只训 A 档时在截断前先滤档。",
     )
     holdout_trading_days: int = Field(
         default=20,
@@ -397,28 +397,11 @@ class OoRankRequest(BaseModel):
         le=60,
         description="OOS holdout 交易日；oo_rank 默认 20（短窗噪声大）",
     )
-    feature_mode: str = Field(
-        default="raw",
-        description="特征消融：raw（默认，消融胜出）| cs_rank | cs_z | raw_cs",
-    )
-    pair_preset: str = Field(
-        default="wide",
-        description="pair 采样：wide（头尾约 35%）| topk_focus（约 15% + gap）",
-    )
-    top_k: Optional[int] = Field(
-        default=None,
-        ge=2,
-        le=100,
-        description="覆盖 pair_preset 的头带宽绝对下限；缺省用 preset",
-    )
-    bottom_k: Optional[int] = Field(
-        default=None,
-        ge=2,
-        le=100,
-        description="覆盖 pair_preset 的尾带宽绝对下限；缺省用 preset",
-    )
     topk_track: int = Field(
         default=10, ge=2, le=40, description="OOS TopK 跑路对照宽度"
+    )
+    ndcg_k: int = Field(
+        default=10, ge=2, le=40, description="OOS NDCG@K 的 K（与训练目标对齐）"
     )
     l2: float = Field(default=1.0, ge=0.0, le=100.0)
     backend: str = Field(
@@ -428,7 +411,11 @@ class OoRankRequest(BaseModel):
     )
     persist: bool = Field(
         default=False,
-        description="True=写入 oo_rank_pairwise_model.json（仍不进 live 决策）",
+        description="True=把上次拟合写入 oo_rank_pairwise_model.json（不重训）；成交明细编 1..n 名次，不进 ranking / 买序",
+    )
+    watching_tier_a_only: bool = Field(
+        default=False,
+        description="True=只训观察池可预测性 A 档；False=整观察池",
     )
     note: str = Field(default="", max_length=200)
 
@@ -436,7 +423,7 @@ class OoRankRequest(BaseModel):
 class T30RidgeRequest(BaseModel):
     """ŷ_τ30 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -478,7 +465,7 @@ class T30RidgeRequest(BaseModel):
 class T45RidgeRequest(BaseModel):
     """ŷ_τ45 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -520,7 +507,7 @@ class T45RidgeRequest(BaseModel):
 class T60RidgeRequest(BaseModel):
     """ŷ_τ60 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -562,7 +549,7 @@ class T60RidgeRequest(BaseModel):
 class T75RidgeRequest(BaseModel):
     """ŷ_τ75 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -632,7 +619,7 @@ class FactorOlsClusterRequest(BaseModel):
 class BarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
-    lookback: int = Field(default=600, ge=40, le=700)
+    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     mode: str = Field(
         default="topup",
@@ -670,7 +657,7 @@ class MinuteRefreshRequest(BaseModel):
 class T90RidgeRequest(BaseModel):
     """ŷ_τ90 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=700)
+    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
         default=MODEL_FIT_MAX_SIZE,
         ge=2,
@@ -735,7 +722,7 @@ class ReturnModelFitRequest(BaseModel):
     """拟合收益排序模型并可选落研究草稿。"""
 
     codes: Optional[list] = None
-    lookback: int = Field(default=600, ge=40, le=700)
+    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     horizon_days: int = Field(default=1, ge=1, le=10)
     watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)

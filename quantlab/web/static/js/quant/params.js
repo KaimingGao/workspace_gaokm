@@ -27,6 +27,7 @@ const FIT_PARAM_HEADS = [
 ];
 
 function _defaultLookbackForHead(head) {
+  if (head === "oo_rank") return 700;
   return head === "oo" || head === "co" || head === "oo_tree" || head === "co_tree"
     ? 600
     : 120;
@@ -42,8 +43,8 @@ const FIT_LOOKBACK_STORAGE_KEYS = Object.fromEntries(
 const HOLDOUT_DAYS_STORAGE_KEYS = Object.fromEntries(
   FIT_PARAM_HEADS.map((h) => [h, `quant_holdout_trading_days_${h}`])
 );
-const FIT_LOOKBACK_MIN = 40;
-const FIT_LOOKBACK_MAX = 700;
+const FIT_LOOKBACK_MIN = 100;
+const FIT_LOOKBACK_MAX = 1000;
 
 function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
   const n = Number(v);

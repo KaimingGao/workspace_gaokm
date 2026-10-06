@@ -241,7 +241,26 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-co-ridge-run", panel)
         self.assertIn("/api/quant/oo-rank", quant_js)
         self.assertIn("quant-oo-rank-run", panel)
+        self.assertIn("quant-oo-rank-tier-a", panel)
+        self.assertIn("watching_tier_a_only", quant_js)
+        self.assertIn("readOoRankTierAOnly", quant_js)
+        self.assertIn("旁路对照 · 成交 rank=1..n · 不进买序", panel)
+        self.assertNotIn("影子对照 · 不进决策", panel)
+        self.assertNotIn("旁路对照 · 不进 ranking / 买序", panel)
         self.assertIn("quant-section-oo-rank", panel)
+        self.assertIn("runOoRank", quant_js)
+        self.assertIn("paintOoRankDesk", quant_js)
+        self.assertIn("renderOoRankCoefTable(rm", quant_js)
+        self.assertIn("刷新仍保留上次拟合", quant_js)
+        self.assertNotIn("本窗 Ridge 优于 LambdaRank", quant_js)
+        self.assertNotIn("quant-oos-compare-verdict", quant_js)
+        self.assertNotIn("quant-oos-compare-title", quant_js)
+        self.assertIn("<th>LambdaRank</th><th>Ridge</th>", quant_js)
+        self.assertIn("quant-oos-board", quant_js)
+        self.assertIn("quant-oos-bar", quant_js)
+        self.assertNotIn("ΔTopK=", quant_js)
+        self.assertNotIn("不进 ranking / C_τ", panel)
+        self.assertIn("P(窗收益>0) · ŷ_τw 投票", panel)
         self.assertIn("quant-section-research-universe", panel)
         self.assertIn("quant-ru-tiers", panel)
         self.assertIn("观察池分档", panel)
@@ -279,11 +298,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-ru-kpis", ru_js)
         self.assertIn("quant-ru-hit-bar", ru_js)
         self.assertIn("loadTiers", ru_js)
-        self.assertIn("quant-oo-rank-feature-mode", panel)
-        self.assertIn("quant-oo-rank-pair-preset", panel)
-        self.assertIn("feature_mode", quant_js)
-        self.assertIn("_readOoRankFeatureMode", quant_js)
-        self.assertIn("_readOoRankPairPreset", quant_js)
+        # feature_mode 消融已下线，固定 raw；pair_preset 上一轮已删
+        self.assertNotIn("quant-oo-rank-feature-mode", panel)
+        self.assertNotIn("quant-oo-rank-pair-preset", panel)
+        self.assertNotIn("feature_mode", quant_js)
+        self.assertNotIn("_readOoRankFeatureMode", quant_js)
+        self.assertNotIn("_readOoRankPairPreset", quant_js)
         self.assertIn("runOoRank", quant_js)
         self.assertNotIn("quant-on-ridge-run", panel)
         self.assertNotIn("quant-section-on", panel)
@@ -728,6 +748,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertIn('id="quant-score-backend"', replay)
         self.assertIn(">ŷ头</span>", replay)
+        self.assertNotIn('option value="rank">Rank</option>', replay)
+        self.assertNotIn("仅供回测透传对照", quant_js)
+        self.assertIn("当日截面 1..n 名次", quant_js)
+        self.assertIn("不进 ranking / 买序", quant_js)
+        self.assertNotIn("旁路对照，不进 ranking / 买序（成交明细 rank 列）", quant_js)
         self.assertIn(">研究</option>", replay)
         self.assertIn(">执行</option>", replay)
         self.assertIn('id="paper-t0-score-model-role"', replay)
@@ -846,6 +871,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("score_model_role", bt_js)
         self.assertIn("readScoreBackend", bt_js)
         self.assertIn("score_backend: readScoreBackend", bt_js)
+        self.assertNotIn("applyRankUniverseUi", bt_js)
+        self.assertNotIn('return "rank"', bt_js)
         self.assertIn("quant-score-backend", bt_js)
         self.assertIn("paper-t0-score-model-role", bt_js)
         self.assertIn('id === "paper-t0-score-model-role" ? "live"', bt_js)
@@ -1134,6 +1161,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(trades_js.find('id: "price"'), trades_js.find('id: "stock_ret"'))
         self.assertLess(trades_js.find('id: "stock_ret"'), trades_js.find('id: "ranking"'))
         self.assertLess(trades_js.find('id: "ranking"'), trades_js.find('id: "y_fuse"'))
+        self.assertLess(trades_js.find('id: "y_on"'), trades_js.find('id: "y_oo_rank"'))
+        self.assertIn('id: "y_oo_rank"', trades_js)
+        self.assertIn('label: "rank",', trades_js)
+        self.assertIn("旁路对照，不进 ranking", trades_js)
+        self.assertIn("当日观察池截面名次", trades_js)
+        self.assertIn("1=相对分最高", trades_js)
+        self.assertIn("_ooRankOrdinalDisplay", trades_js)
+        self.assertIn("旧回测为相对分或缺池大小，请重跑", trades_js)
+        self.assertNotIn("无固定上下界", trades_js)
+        self.assertIn('"equity_after",\n    "y_oo_rank",\n    "y_oo_rank_n",', trades_js)
         self.assertIn("卖出总额/买入总额−1", trades_js)
         self.assertIn("fmtScore(rankingPct, { signed: true })", trades_js)
         self.assertIn('label: "ranking"', trades_js)
@@ -2486,6 +2523,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("readHoldoutTradingDays", js)
         self.assertIn("readHoldoutTradingDays", params_js)
         self.assertIn("FIT_PARAM_HEADS", params_js)
+        self.assertIn("FIT_LOOKBACK_MIN = 100", params_js)
+        self.assertIn("FIT_LOOKBACK_MAX = 1000", params_js)
+        self.assertIn('head === "oo_rank") return 700', params_js)
+        self.assertIn('min="100" max="1000"', panel)
+        self.assertNotIn('min="40" max="700"', panel)
+        self.assertIn("100～1000", panel)
+        self.assertNotIn("40～700", panel)
+        self.assertIn(
+            'id="quant-fit-lookback-oo_rank" type="number" min="100" max="1000" step="10" value="700"',
+            panel,
+        )
         self.assertNotIn("readLabelDemean", params_js)
         self.assertNotIn("readRecencyDecay", params_js)
         self.assertNotIn("hydrateRecencyParams", params_js)
@@ -2598,10 +2646,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
-            "quant-section-oo-rank",
             "quant-section-oo-tree",
             "quant-section-tau-tree",
             "quant-section-co-tree",
+            "quant-section-oo-rank",
             "quant-section-t30-tree",
             "quant-section-t45-tree",
             "quant-section-t60-tree",
@@ -2615,7 +2663,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
     def test_t90_coef_table_title_is_not_tau_c(self):
         ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
         self.assertIn('? "ŷ_τ90"', ic)
-        self.assertIn('${yhatTag}${useProbKpis ? " 概率头" : " 系数表"}', ic)
+        self.assertIn('${yhatTag}${', ic)
+        self.assertIn('useProbKpis ? " 概率头" : isOoRank ? " 增益" : " 系数表"', ic)
         self.assertIn("标准化斜率：右正左负", ic)
         self.assertIn("acc@0.5", ic)
         self.assertIn('useProbKpis ? "基率"', ic)
@@ -2625,7 +2674,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         js = self._read("web", "static", "js", "quant.js")
         self.assertIn("function horizonProbFitBits", js)
-        self.assertIn("promote 闸：通过（AUC/acc）", js)
+        self.assertIn("promote 闸明细只挂在「启用」按钮", js)
 
     def test_hub_fit_gap_block_removed(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")

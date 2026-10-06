@@ -34,7 +34,7 @@ export function installResearchUniverseUi(q) {
 
   function ooLookbackN() {
     if (typeof readFitLookbackDays === "function") {
-      return Math.max(40, Math.min(700, Number(readFitLookbackDays("oo")) || 120));
+      return Math.max(100, Math.min(1000, Number(readFitLookbackDays("oo")) || 120));
     }
     return 120;
   }
@@ -53,7 +53,7 @@ export function installResearchUniverseUi(q) {
 
   function liveBit() {
     if (!liveStatus || !liveStatus.enabled) return "live 随回测（未开）";
-    const allow = (liveStatus.allowed_tiers || ["A", "B"]).join("") || "AB";
+    const allow = (liveStatus.allowed_tiers || ["A"]).join("") || "A";
     return `live 随回测 ${allow}`;
   }
 

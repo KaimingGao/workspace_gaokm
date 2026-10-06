@@ -1490,45 +1490,81 @@ class QuantFactorMixin:
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
         holdout_trading_days: int = 20,
-        feature_mode: str = "raw",
-        pair_preset: str = "wide",
-        top_k: Optional[int] = None,
-        bottom_k: Optional[int] = None,
         topk_track: int = 10,
+        ndcg_k: int = 10,
         l2: float = 1.0,
         backend: str = "lambdarank",
         persist: bool = False,
         note: str = "",
+        watching_tier_a_only: bool = False,
     ) -> Dict[str, Any]:
-        """影子 ŷ_oo_rank：LambdaRank；不进 live ranking。
+        """影子 ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档。旁路对照；成交明细 rank=1..n，不进 ranking / 买序。
 
-        日线研究：优先 ``research_universe``（可宽于观察池）；空则回退观察池。
-        不触发分钟暖仓。
+        ``persist=True`` 只把上次拟合写入影子文件，不重新拉行情、不重训。
         """
         from core.data.facade import bars_and_source
-        from core.research_universe import (
-            RESEARCH_UNIVERSE_MAX_SIZE,
-            resolve_research_codes,
-        )
+        from core.research.oo_rank_panel import resolve_oo_rank_universe
         from core.research.oo_rank_pairwise import (
             fit_oo_rank_report,
+            load_oo_rank_last_report,
             load_oo_rank_model,
             oo_rank_model_path,
             persist_oo_rank_model,
             save_oo_rank_last_report,
         )
 
-        # watching_limit：研究宇宙非空时可放宽到 RESEARCH_UNIVERSE_MAX_SIZE
-        resolved = resolve_research_codes(limit=watching_limit or None)
-        codes = list(resolved.get("codes") or [])
-        pool_n = int(resolved.get("count") or 0)
-        limit = int(resolved.get("cap") or pool_n)
-        if len(codes) < 8:
+        if persist:
+            last = load_oo_rank_last_report()
+            if not last:
+                return {
+                    "success": False,
+                    "error": "尚无上次拟合，请先点拟合再落盘影子",
+                    "task": "oo_rank_pairwise",
+                    "path": oo_rank_model_path(),
+                }
+            saved = persist_oo_rank_model(last, also_research=True)
+            if not saved:
+                return {
+                    "success": False,
+                    "error": "上次拟合缺少可落盘模型",
+                    "task": "oo_rank_pairwise",
+                    "path": oo_rank_model_path(),
+                }
+            out = dict(last)
+            out["persisted"] = {"success": True, **saved}
+            out["from_last_report"] = True
+            out["path"] = oo_rank_model_path()
+            out["shadow_only"] = True
+            out["live_model_present"] = True
+            if note:
+                out["api_note"] = str(note)[:200]
+            return out
+
+        resolved = resolve_oo_rank_universe(
+            watching_tier_a_only=bool(watching_tier_a_only)
+        )
+        if not resolved.get("success"):
             return {
                 "success": False,
-                "error": "研究池至少 8 只才可跑 oo_rank pairwise（配置 research_universe 或观察池）",
+                "error": resolved.get("error") or "oo_rank_universe_failed",
                 "task": "oo_rank_pairwise",
-                "universe_source": resolved.get("source"),
+                "universe_source": resolved.get("universe_source"),
+                "watching_tier_a_only": bool(watching_tier_a_only),
+            }
+        codes = list(resolved.get("codes") or [])
+        cap = max(8, int(watching_limit or MODEL_FIT_MAX_SIZE))
+        if len(codes) > cap:
+            codes = codes[:cap]
+        pool_n = int(resolved.get("watching_pool_size") or len(codes))
+        if len(codes) < 8:
+            need = "观察池 A 档" if watching_tier_a_only else "观察池"
+            return {
+                "success": False,
+                "error": f"{need}至少 8 只才可跑 oo_rank（当前 {len(codes)}）",
+                "task": "oo_rank_pairwise",
+                "universe_source": resolved.get("universe_source"),
+                "watching_tier_a_only": bool(watching_tier_a_only),
+                "n_codes": len(codes),
             }
 
         stock_bars: List[Dict[str, Any]] = []
@@ -1540,20 +1576,18 @@ class QuantFactorMixin:
         report = fit_oo_rank_report(
             stock_bars,
             holdout_trading_days=holdout_trading_days,
-            feature_mode=feature_mode,
-            pair_preset=pair_preset,
-            top_k=top_k,
-            bottom_k=bottom_k,
             topk_track=topk_track,
+            ndcg_k=ndcg_k,
             l2=l2,
             backend=backend or "lambdarank",
             persist=False,
         )
-        report["watching_limit"] = limit
+        report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
-        report["universe_source"] = resolved.get("source")
-        report["universe_note"] = resolved.get("note")
-        report["research_universe_max"] = RESEARCH_UNIVERSE_MAX_SIZE
+        report["universe_source"] = resolved.get("universe_source")
+        report["watching_tier_a_only"] = bool(watching_tier_a_only)
+        if watching_tier_a_only:
+            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
         report["lookback"] = lookback
         if note:
             report["api_note"] = str(note)[:200]
@@ -1562,6 +1596,7 @@ class QuantFactorMixin:
             oos = report.get("oos") or {}
             rank_m = oos.get("oo_rank") or {}
             ridge_m = oos.get("ridge_oo_baseline") or {}
+
             def _delta(a, b):
                 if a is None or b is None:
                     return None
@@ -1599,7 +1634,7 @@ class QuantFactorMixin:
         )
 
         path = oo_rank_model_path()
-        doc = load_oo_rank_model(prefer_research=True)
+        persisted = load_oo_rank_model(prefer_research=True)
         last_path = oo_rank_last_report_path()
         last = None
         if os.path.isfile(last_path):
@@ -1608,25 +1643,39 @@ class QuantFactorMixin:
                     last = json.load(f)
             except Exception:  # noqa: BLE001
                 last = None
-        if not doc:
+        from core.research.holdout import model_fit_id
+
+        chosen, use_last = _select_ridge_desk_doc(persisted, last)
+        live_file = bool(persisted)
+        fitted = model_fit_id(chosen) or model_fit_id(last) or model_fit_id(persisted)
+        if not fitted:
+            fitted = _peek_model_stamp(last_path) or _peek_model_stamp(path)
+        if not chosen:
             return {
                 "success": False,
                 "exists": False,
                 "path": path,
                 "last_report_exists": bool(last),
+                "fitted_at": fitted,
+                "shadow": False,
                 "shadow_only": True,
                 "note": "尚无 ŷ_oo_rank；POST /api/quant/oo-rank persist=true",
             }
-        out = dict(doc)
+        out = dict(chosen)
         out.update(
             {
                 "success": True,
                 "exists": True,
                 "path": path,
+                "shadow": bool(use_last) or not live_file,
+                "from_last_report": bool(use_last),
                 "shadow_only": True,
                 "last_report_exists": bool(last),
+                "live_model_present": live_file,
             }
         )
+        if fitted:
+            out["fitted_at"] = fitted
         return out
 
     def _run_horizon_ridge_experiment(

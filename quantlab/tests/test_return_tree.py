@@ -25,6 +25,8 @@ class TestRebalanceScoreBackend(unittest.TestCase):
         self.assertEqual(normalize_rebalance_score_backend(None), "ridge")
         self.assertEqual(normalize_rebalance_score_backend("TREE"), "tree")
         self.assertEqual(normalize_rebalance_score_backend("lightgbm"), "tree")
+        self.assertEqual(normalize_rebalance_score_backend("lambdarank"), "ridge")
+        self.assertEqual(normalize_rebalance_score_backend("oo_rank"), "ridge")
         self.assertEqual(current_rebalance_score_backend(), "ridge")
         with rebalance_score_backend_context("tree"):
             self.assertEqual(current_rebalance_score_backend(), "tree")

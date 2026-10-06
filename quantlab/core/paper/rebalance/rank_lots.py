@@ -171,7 +171,8 @@ def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]
     入场缺 ranking 会拦；持仓缺 ranking 不能假装过门槛续持。
     """
     if isinstance(item, dict) and item.get("hard_reject"):
-        return "hard_reject 清仓"
+        why = str(item.get("reject_reason") or "").strip()
+        return why if why else "hard_reject 清仓"
     if rs is None:
         return "ranking 缺失 清仓"
     if float(rs) < 0.0:
@@ -475,6 +476,7 @@ def get_rank_lot_cfg(
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
+        "score_backend": str(pm.get("score_backend") or "ridge"),
     }
 
 
@@ -567,10 +569,12 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    # ŷ_oo_rank 影子 LambdaRank（不进 ranking）
+    # ŷ_oo_rank 影子 LambdaRank（旁路对照：当日截面 1..n 名次，不进 ranking / 买序）
     "y_oo_rank",
     "y_oo_rank_hat",
     "predicted_score_oo_rank",
+    "y_oo_rank_score",
+    "y_oo_rank_n",
     "y_oo_rank_realized",
     "oo_rank_realized",
 )
@@ -651,7 +655,7 @@ def aux_yhat_fields(
                 out["y_τw"] = yw
                 out["y_tw"] = yw
 
-    # ŷ_oo_rank 影子头：与 τ 档无关，始终透传（若有）
+    # ŷ_oo_rank 旁路：当日截面 1..n 名次（与 τ 档无关，始终透传）
     try:
         from core.research.oo_rank_pairwise import (
             pick_y_oo_rank_hat,
@@ -663,6 +667,18 @@ def aux_yhat_fields(
             out["y_oo_rank"] = y_or
             out["y_oo_rank_hat"] = y_or
             out["predicted_score_oo_rank"] = y_or
+        score_raw = item.get("y_oo_rank_score")
+        if score_raw is not None:
+            try:
+                out["y_oo_rank_score"] = float(score_raw)
+            except (TypeError, ValueError):
+                pass
+        n_pool = item.get("y_oo_rank_n")
+        if n_pool is not None:
+            try:
+                out["y_oo_rank_n"] = int(n_pool)
+            except (TypeError, ValueError):
+                pass
         r_or = pick_y_oo_rank_label(item)
         if r_or is not None:
             out["y_oo_rank_realized"] = r_or
@@ -1118,7 +1134,7 @@ def plan_rank_lot_day(
             if skip:
                 skips.append(skip)
 
-    cand: List[Tuple[float, dict, Optional[float], Optional[float]]] = []
+    cand: List[Tuple[float, dict, Optional[float]]] = []
     for code, item in item_by.items():
         if _is_oos_failed(item):
             if any(str(h.get("stock_code")) == code for h in held_rows):

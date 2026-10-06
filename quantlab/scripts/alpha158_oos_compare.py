@@ -13,7 +13,7 @@ import numpy as np
 from core.research_universe import resolve_research_codes
 from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.oo_rank_pairwise import fit_oo_rank_report
-from core.research.oo_rank_panel import build_oo_rank_day_panels, enrich_day_panels_features
+from core.research.oo_rank_panel import build_oo_rank_day_panels
 from core.signal.factors.meta.registry import _REGISTRY
 
 
@@ -38,9 +38,7 @@ def run_scenario(stock_bars, label, backend, alpha158_registered):
         min_history=70,
         min_names=4,
         max_window=70,
-        feature_mode="raw",
     )
-    days = enrich_day_panels_features(days, feature_mode="raw")
     rep = fit_oo_rank_report(
         stock_bars,
         day_panels=days,
@@ -48,7 +46,6 @@ def run_scenario(stock_bars, label, backend, alpha158_registered):
         backend=backend,
     )
     elapsed = time.time() - t0
-    fm = rep.get("feature_meta") or {}
     oos = rep.get("oos") or {}
     rank_ic = (oos.get("oo_rank") or {}).get("spearman")
     ridge_ic = (oos.get("ridge_oo_baseline") or {}).get("spearman")
@@ -58,8 +55,7 @@ def run_scenario(stock_bars, label, backend, alpha158_registered):
         "backend": backend,
         "alpha158": "on" if alpha158_registered else "off",
         "success": rep.get("success"),
-        "n_features": fm.get("n_features"),
-        "n_raw": fm.get("n_raw_features"),
+        "n_features": rep.get("n_features"),
         "n_days": rep.get("n_days"),
         "n_train": rep.get("n_train_days"),
         "n_test": rep.get("n_test_days"),
@@ -77,23 +73,27 @@ def main():
         return
 
     results = []
-    backends = ["lambdarank"]
-
-    for backend in backends:
-        # 基线：临时移除 alpha158
-        entry = _REGISTRY.pop("alpha158", None)
-        try:
-            r = run_scenario(stock_bars, "基线", backend, alpha158_registered=False)
-            results.append(r)
-            print(f"[{backend}] 基线  features={r['n_features']:>3}  rank_ic={r['rank_ic']}  ridge_ic={r['ridge_ic']}  success={r['success']}  ({r['elapsed']}s)")
-        finally:
-            if entry:
-                _REGISTRY["alpha158"] = entry
-
-        # 引入后
-        r = run_scenario(stock_bars, "引入后", backend, alpha158_registered=True)
+    # 基线：临时移除 alpha158
+    entry = _REGISTRY.pop("alpha158", None)
+    try:
+        r = run_scenario(stock_bars, "基线", "lambdarank", alpha158_registered=False)
         results.append(r)
-        print(f"[{backend}] 引入后 features={r['n_features']:>3}  rank_ic={r['rank_ic']}  ridge_ic={r['ridge_ic']}  success={r['success']}  ({r['elapsed']}s)")
+        print(
+            f"[lambdarank] 基线  features={r['n_features']:>3}  "
+            f"rank_ic={r['rank_ic']}  ridge_ic={r['ridge_ic']}  "
+            f"success={r['success']}  ({r['elapsed']}s)"
+        )
+    finally:
+        if entry:
+            _REGISTRY["alpha158"] = entry
+
+    r = run_scenario(stock_bars, "引入后", "lambdarank", alpha158_registered=True)
+    results.append(r)
+    print(
+        f"[lambdarank] 引入后 features={r['n_features']:>3}  "
+        f"rank_ic={r['rank_ic']}  ridge_ic={r['ridge_ic']}  "
+        f"success={r['success']}  ({r['elapsed']}s)"
+    )
 
     # 汇总
     print("\n=== 汇总 ===")

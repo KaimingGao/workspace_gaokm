@@ -1,6 +1,6 @@
-"""ŷ_oo_rank 消融矩阵：feature_mode × pair_preset，固定观察池 + holdout=20。
+"""ŷ_oo_rank 单段 raw holdout 验证。
 
-一次建面板，再按 mode/preset 拟合（避免 8 次重扫日线）。
+一次建面板，再拟合 LambdaRank + 同窗 Ridge ŷ_oo 对照。
 
 用法: PYTHONUNBUFFERED=1 python scripts/run_oo_rank_ablation.py
 结果: data/oo_rank_ablation_matrix.json
@@ -18,11 +18,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.data.facade import bars_and_source
-from core.research.oo_rank_panel import FEATURE_MODES, build_oo_rank_day_panels
-from core.research.oo_rank_pairwise import (
-    PAIR_PRESETS,
-    compare_oo_rank_shadow_track,
-)
+from core.research.oo_rank_panel import build_oo_rank_day_panels
+from core.research.oo_rank_pairwise import compare_oo_rank_shadow_track
 from core.watching.store import read_watching
 
 
@@ -31,14 +28,14 @@ def _log(msg: str) -> None:
 
 
 def _gate_row(rank_m: Dict[str, Any], ridge_m: Dict[str, Any], deltas: Dict[str, Any]) -> Dict[str, Any]:
-    pa = rank_m.get("pair_accuracy")
+    nd = rank_m.get("ndcg_at_k")
     sp = rank_m.get("spearman")
     sp_r = ridge_m.get("spearman")
     topk = rank_m.get("topk_mean_y_oo")
     topk_r = ridge_m.get("topk_mean_y_oo")
     d_sp = deltas.get("delta_spearman")
     checks = {
-        "pair_acc_ge_052": pa is not None and float(pa) >= 0.52,
+        "ndcg_ge_055": nd is not None and float(nd) >= 0.55,
         "spearman_beats_ridge": (
             sp is not None
             and sp_r is not None
@@ -77,83 +74,68 @@ def main() -> None:
         _log("ERROR: 有效股票不足 8 只")
         sys.exit(1)
 
-    _log("建 raw_cs 日面板（仅一次）...")
+    _log("建 raw 日面板（仅一次）...")
     base_days = build_oo_rank_day_panels(
         stock_bars,
         horizon_days=1,
         min_history=12,
         min_names=8,
-        feature_mode="raw_cs",
     )
     _log(f"截面日: {len(base_days)}")
     if len(base_days) < 8:
         _log("ERROR: 截面日不足")
         sys.exit(1)
 
-    modes = list(FEATURE_MODES)
-    presets = list(PAIR_PRESETS.keys())
+    _log("\n>>> LambdaRank + Ridge ŷ_oo 对照")
+    track = compare_oo_rank_shadow_track(
+        stock_bars,
+        holdout_trading_days=20,
+        topk_track=10,
+        ndcg_k=10,
+        l2=1.0,
+        day_panels=base_days,
+    )
     rows: List[Dict[str, Any]] = []
-
-    for mode in modes:
-        for preset in presets:
-            _log(f"\n>>> feature_mode={mode} pair_preset={preset}")
-            track = compare_oo_rank_shadow_track(
-                stock_bars,
-                holdout_trading_days=20,
-                feature_mode=mode,
-                pair_preset=preset,
-                topk_track=10,
-                l2=1.0,
-                day_panels=base_days,
-            )
-            if not track.get("success"):
-                rows.append(
-                    {
-                        "feature_mode": mode,
-                        "pair_preset": preset,
-                        "success": False,
-                        "error": track.get("error"),
-                    }
-                )
-                _log(f"  FAIL: {track.get('error')}")
-                continue
-            oos = track.get("oos") or {}
-            rank_m = oos.get("oo_rank") or {}
-            ridge_m = oos.get("ridge_oo_baseline") or {}
-            deltas = {
-                "delta_spearman": track.get("delta_spearman"),
-                "delta_topk_overlap": track.get("delta_topk_overlap"),
-                "delta_topk_mean_y_oo": track.get("delta_topk_mean_y_oo"),
-            }
-            gate = _gate_row(rank_m, ridge_m, deltas)
-            row = {
-                "feature_mode": mode,
-                "pair_preset": preset,
-                "success": True,
-                "n_days": track.get("n_days"),
-                "n_train_days": track.get("n_train_days"),
-                "n_test_days": track.get("n_test_days"),
-                "feature_meta": track.get("feature_meta"),
-                "rank": {
-                    "spearman": rank_m.get("spearman"),
-                    "pair_accuracy": rank_m.get("pair_accuracy"),
-                    "topk_overlap": rank_m.get("topk_overlap"),
-                    "topk_mean_y_oo": rank_m.get("topk_mean_y_oo"),
-                },
-                "ridge": {
-                    "spearman": ridge_m.get("spearman"),
-                    "pair_accuracy": ridge_m.get("pair_accuracy"),
-                    "topk_overlap": ridge_m.get("topk_overlap"),
-                    "topk_mean_y_oo": ridge_m.get("topk_mean_y_oo"),
-                },
-                "delta": deltas,
-                "gate": gate,
-            }
-            rows.append(row)
-            _log(
-                f"  ρ={rank_m.get('spearman')} pair={rank_m.get('pair_accuracy')} "
-                f"Δρ={deltas.get('delta_spearman')} gate={gate.get('pass')}"
-            )
+    if not track.get("success"):
+        rows.append({"success": False, "error": track.get("error")})
+        _log(f"  FAIL: {track.get('error')}")
+    else:
+        oos = track.get("oos") or {}
+        rank_m = oos.get("oo_rank") or {}
+        ridge_m = oos.get("ridge_oo_baseline") or {}
+        deltas = {
+            "delta_spearman": track.get("delta_spearman"),
+            "delta_topk_overlap": track.get("delta_topk_overlap"),
+            "delta_topk_mean_y_oo": track.get("delta_topk_mean_y_oo"),
+            "delta_ndcg_at_k": track.get("delta_ndcg_at_k"),
+        }
+        gate = _gate_row(rank_m, ridge_m, deltas)
+        row = {
+            "success": True,
+            "n_days": track.get("n_days"),
+            "n_train_days": track.get("n_train_days"),
+            "n_test_days": track.get("n_test_days"),
+            "n_features": track.get("n_features"),
+            "rank": {
+                "spearman": rank_m.get("spearman"),
+                "ndcg_at_k": rank_m.get("ndcg_at_k"),
+                "topk_overlap": rank_m.get("topk_overlap"),
+                "topk_mean_y_oo": rank_m.get("topk_mean_y_oo"),
+            },
+            "ridge": {
+                "spearman": ridge_m.get("spearman"),
+                "ndcg_at_k": ridge_m.get("ndcg_at_k"),
+                "topk_overlap": ridge_m.get("topk_overlap"),
+                "topk_mean_y_oo": ridge_m.get("topk_mean_y_oo"),
+            },
+            "delta": deltas,
+            "gate": gate,
+        }
+        rows.append(row)
+        _log(
+            f"  ρ={rank_m.get('spearman')} ndcg={rank_m.get('ndcg_at_k')} "
+            f"Δρ={deltas.get('delta_spearman')} gate={gate.get('pass')}"
+        )
 
     out = {
         "success": True,
@@ -161,6 +143,7 @@ def main() -> None:
         "n_stocks": len(stock_bars),
         "lookback": lookback,
         "holdout_trading_days": 20,
+        "ndcg_k": 10,
         "n_panel_days": len(base_days),
         "rows": rows,
         "any_gate_pass": any(

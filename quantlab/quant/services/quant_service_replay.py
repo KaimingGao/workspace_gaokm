@@ -137,6 +137,10 @@ class QuantReplayMixin:
             "n_out": len(candidates),
         }
 
+        from core.research.return_tree import normalize_rebalance_score_backend
+
+        backend = normalize_rebalance_score_backend(score_backend)
+
         pred_meta: Dict[str, Any] = {"enabled": False}
         effective_lookback = int(lookback)
         if use_predictability_tiers:
@@ -169,9 +173,9 @@ class QuantReplayMixin:
                 }
             allowed = [
                 str(t).strip().upper()
-                for t in (predictability_tiers or ["A", "B"])
+                for t in (predictability_tiers or ["A"])
                 if str(t or "").strip()
-            ] or ["A", "B"]
+            ] or ["A"]
             _emit(f"复用枢纽分档 · 回测 lookback={int(lookback)}日…")
             keep = tier_code_set(tier_rep, allowed)
             n_before = len(candidates)
@@ -349,10 +353,8 @@ class QuantReplayMixin:
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
         from core.research.holdout import normalize_backtest_model_role
-        from core.research.return_tree import normalize_rebalance_score_backend
 
         role = normalize_backtest_model_role(score_model_role)
-        backend = normalize_rebalance_score_backend(score_backend)
         _emit(f"逐日调仓 {clock} · {int(effective_lookback)} 日…")
         result = backtest_paper_replay(
             stock_bars,

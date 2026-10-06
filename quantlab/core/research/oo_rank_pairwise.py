@@ -1,8 +1,8 @@
-"""ŷ_oo_rank：LightGBM LambdaRank 影子头。
+"""ŷ_oo_rank：LightGBM LambdaRank 旁路对照。
 
 训练：按日观察池 y_oo 排序，优化 NDCG。
-推理：Booster 分数（相对分，非收益百分点）。旧 RankNet 线性包仍可读（coefficients）。
-不进 live ranking / rank_lots 入场；仅研究 OOS + 历史跑路对照。
+推理：Booster 相对分 → 当日截面编成 1..n 名次（1=最高）写入成交明细。
+旁路对照：不进 ranking / 买序。
 """
 
 from __future__ import annotations
@@ -31,33 +31,11 @@ Y_OO_RANK_LABEL_KEYS = (
 )
 FORMULA_OO_RANK = "rank(open[T+1]/open[T]-1 | watching_day)"
 SCHEMA = "oo_rank_pairwise_v1"
-# 放宽：按池比例取头/尾（约 35%），绝对下限 48；不再死守 Top10×Bottom10
-DEFAULT_TOP_K = 48
-DEFAULT_BOTTOM_K = 48
-DEFAULT_TOP_FRAC = 0.35
-DEFAULT_BOTTOM_FRAC = 0.35
-DEFAULT_MAX_PAIRS_PER_DAY = 5000
 DEFAULT_MIN_NAMES = 8
 DEFAULT_L2 = 1.0
 DEFAULT_TOPK_TRACK = 10
+DEFAULT_NDCG_K = 10
 DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK = 20
-DEFAULT_PAIR_PRESET = "wide"
-PAIR_PRESETS: Dict[str, Dict[str, float]] = {
-    "wide": {
-        "top_k": 48,
-        "bottom_k": 48,
-        "top_frac": 0.35,
-        "bottom_frac": 0.35,
-        "min_abs_gap": 0.0,
-    },
-    "topk_focus": {
-        "top_k": 20,
-        "bottom_k": 20,
-        "top_frac": 0.15,
-        "bottom_frac": 0.15,
-        "min_abs_gap": 0.5,
-    },
-}
 
 
 def _f(v: Any) -> Optional[float]:
@@ -103,6 +81,41 @@ def write_y_oo_rank_hat(item: dict, value: Optional[float]) -> None:
     item["y_oo_rank"] = v
     item["y_oo_rank_hat"] = v
     item["predicted_score_oo_rank"] = v
+
+
+def assign_oo_rank_day_ranks(items: Sequence[dict]) -> List[dict]:
+    """把当日截面相对分改成 1..n 名次（1=相对分最高）。
+
+    原始分写入 ``y_oo_rank_score``；``y_oo_rank`` / hat / predicted_score_oo_rank 改为整数名次。
+    同分按 ``stock_code`` 稳定破平。不改 ranking / 买序。
+    """
+
+    def _sort_key(it: dict) -> Tuple[float, str]:
+        raw = it.get("y_oo_rank_score")
+        if raw is None:
+            raw = pick_y_oo_rank_hat(it)
+        return (-float(raw), str(it.get("stock_code") or ""))
+
+    rows: List[dict] = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        if pick_y_oo_rank_hat(it) is None and it.get("y_oo_rank_score") is None:
+            continue
+        rows.append(it)
+    rows.sort(key=_sort_key)
+    n = len(rows)
+    for i, it in enumerate(rows):
+        if it.get("y_oo_rank_score") is None:
+            raw = pick_y_oo_rank_hat(it)
+            if raw is not None:
+                it["y_oo_rank_score"] = round(float(raw), 6)
+        rank = i + 1
+        it["y_oo_rank"] = rank
+        it["y_oo_rank_hat"] = rank
+        it["predicted_score_oo_rank"] = rank
+        it["y_oo_rank_n"] = n
+    return list(items or [])
 
 
 def write_y_oo_rank_realized(item: dict, value: Optional[float]) -> None:
@@ -156,20 +169,47 @@ def load_oo_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, An
     return _load_model_file(live)
 
 
+def stamp_oo_rank_fitted_at(report: Dict[str, Any]) -> Dict[str, Any]:
+    """成功拟合打 ``fitted_at``，并写入 ``return_model`` / 研究套。"""
+    from core.research.holdout import stamp_fitted_at
+
+    if not isinstance(report, dict) or not report.get("success"):
+        return report
+    stamp_fitted_at(report)
+    ts = report.get("fitted_at")
+    if not ts:
+        return report
+    for key in ("return_model", "return_model_research"):
+        nested = report.get(key)
+        if isinstance(nested, dict) and not nested.get("fitted_at"):
+            nested["fitted_at"] = ts
+    return report
+
+
 def save_oo_rank_last_report(report: Dict[str, Any]) -> None:
     if not isinstance(report, dict) or not report.get("success"):
         return
     if not isinstance(report.get("return_model"), dict):
         return
+    stamp_oo_rank_fitted_at(report)
     path = oo_rank_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
+
+
+def load_oo_rank_last_report() -> Optional[Dict[str, Any]]:
+    """上次拟合草稿。落盘影子只写这份，不再重训。"""
+    doc = _load_model_file(oo_rank_last_report_path())
+    if doc and doc.get("success"):
+        return doc
+    return None
 
 
 def persist_oo_rank_model(report: Dict[str, Any], *, also_research: bool = True) -> Dict[str, str]:
     """落盘执行套；可选同时写研究套（Phase1 影子默认双写同一 β）。"""
     if not isinstance(report, dict) or not report.get("success"):
         return {}
+    stamp_oo_rank_fitted_at(report)
     model = report.get("return_model")
     if not isinstance(model, dict):
         return {}
@@ -182,7 +222,6 @@ def persist_oo_rank_model(report: Dict[str, Any], *, also_research: bool = True)
         "return_model": model,
         "oos": report.get("oos"),
         "y_spec": report.get("y_spec") or model.get("y_spec"),
-        "pair_sampling": report.get("pair_sampling"),
         "note": report.get("note"),
         "n_days": report.get("n_days"),
         "n_train_days": report.get("n_train_days"),
@@ -190,6 +229,7 @@ def persist_oo_rank_model(report: Dict[str, Any], *, also_research: bool = True)
         "sample_count": report.get("sample_count"),
         "shadow_track": report.get("shadow_track"),
         "shadow_only": True,
+        "fitted_at": report.get("fitted_at"),
     }
     atomic_write_json(live, doc)
     out = {"live": live}
@@ -212,209 +252,138 @@ def persist_oo_rank_model(report: Dict[str, Any], *, also_research: bool = True)
     return out
 
 
-def _resolve_band_k(n: int, *, absolute: int, frac: float) -> int:
-    """头/尾带宽：max(绝对下限, 池比例)，且不超过 n//2。"""
-    half = max(1, int(n) // 2)
-    abs_k = max(1, int(absolute or 0))
-    try:
-        f = float(frac)
-    except (TypeError, ValueError):
-        f = 0.0
-    from_frac = int(math.ceil(n * f)) if f > 0 else 0
-    return max(1, min(half, max(abs_k, from_frac)))
-
-
-def normalize_pair_preset(preset: Optional[str]) -> str:
-    key = str(preset or DEFAULT_PAIR_PRESET).strip().lower()
-    if key in ("top_k", "topk", "focus", "narrow"):
-        key = "topk_focus"
-    if key not in PAIR_PRESETS:
-        return DEFAULT_PAIR_PRESET
-    return key
-
-
-def resolve_pair_preset(
-    pair_preset: Optional[str] = None,
-    *,
-    top_k: Optional[int] = None,
-    bottom_k: Optional[int] = None,
-    top_frac: Optional[float] = None,
-    bottom_frac: Optional[float] = None,
-    min_abs_gap: Optional[float] = None,
-) -> Dict[str, Any]:
-    """合并 pair_preset 与显式覆盖（显式非 None 优先）。"""
-    key = normalize_pair_preset(pair_preset)
-    base = dict(PAIR_PRESETS[key])
-    if top_k is not None:
-        base["top_k"] = int(top_k)
-    if bottom_k is not None:
-        base["bottom_k"] = int(bottom_k)
-    if top_frac is not None:
-        base["top_frac"] = float(top_frac)
-    if bottom_frac is not None:
-        base["bottom_frac"] = float(bottom_frac)
-    if min_abs_gap is not None:
-        base["min_abs_gap"] = float(min_abs_gap)
-    base["pair_preset"] = key
-    return base
-
-
-def sample_top_bottom_pairs(
+def _ndcg_at_k(
+    pred: Sequence[float],
     ys: Sequence[float],
-    *,
-    top_k: int = DEFAULT_TOP_K,
-    bottom_k: int = DEFAULT_BOTTOM_K,
-    top_frac: float = DEFAULT_TOP_FRAC,
-    bottom_frac: float = DEFAULT_BOTTOM_FRAC,
-    min_abs_gap: float = 0.0,
-    max_pairs: int = DEFAULT_MAX_PAIRS_PER_DAY,
-) -> List[Tuple[int, int, float]]:
-    """返回 (winner_idx, loser_idx, |Δy|)；winner 真实收益更高。
+    k: int = DEFAULT_NDCG_K,
+) -> Optional[float]:
+    """NDCG@K：gain = 真实收益的截面升序 rank（0=最差，n-1=最好）。
 
-    头/尾带宽做笛卡尔积（OOS pair accuracy）。超 ``max_pairs`` 时确定性子采样。
+    按模型预测分降序取前 K 计算 DCG，除以按真实收益降序的理想 DCG。
+    与 LambdaRank 训练目标（NDCG）对齐，聚焦头部排位质量。
     """
-    n = len(ys)
-    if n < 4:
-        return []
-    order = sorted(range(n), key=lambda i: float(ys[i]), reverse=True)
-    tk = _resolve_band_k(n, absolute=int(top_k or DEFAULT_TOP_K), frac=top_frac)
-    bk = _resolve_band_k(
-        n, absolute=int(bottom_k or DEFAULT_BOTTOM_K), frac=bottom_frac
-    )
-    tops = order[:tk]
-    bots = order[-bk:]
-    gap_floor = max(0.0, float(min_abs_gap or 0.0))
-    pairs: List[Tuple[int, int, float]] = []
-    seen = set()
-    for i in tops:
-        for j in bots:
-            if i == j:
-                continue
-            gap = float(ys[i]) - float(ys[j])
-            if gap <= gap_floor:
-                continue
-            key = (i, j)
-            if key in seen:
-                continue
-            seen.add(key)
-            pairs.append((i, j, gap))
+    n = len(pred)
+    if n < 2 or k < 1:
+        return None
+    kk = min(int(k), n)
+    order_by_ys = sorted(range(n), key=lambda i: float(ys[i]))
+    gain = [0.0] * n
+    for rank, idx in enumerate(order_by_ys):
+        gain[idx] = float(rank)
 
-    cap = max(50, int(max_pairs or DEFAULT_MAX_PAIRS_PER_DAY))
-    if len(pairs) <= cap:
-        return pairs
-    pairs.sort(key=lambda t: (-float(t[2]), int(t[0]), int(t[1])))
-    step = len(pairs) / float(cap)
-    uniq: List[Tuple[int, int, float]] = []
-    seen2 = set()
-    for m in range(cap):
-        p = pairs[min(len(pairs) - 1, int(m * step))]
-        key = (p[0], p[1])
-        if key in seen2:
-            continue
-        seen2.add(key)
-        uniq.append(p)
-    return uniq
+    pred_order = sorted(range(n), key=lambda i: float(pred[i]), reverse=True)
+    dcg = 0.0
+    for i, idx in enumerate(pred_order[:kk]):
+        dcg += gain[idx] / math.log2(i + 2)
+
+    ideal_order = sorted(range(n), key=lambda i: float(ys[i]), reverse=True)
+    idcg = 0.0
+    for i, idx in enumerate(ideal_order[:kk]):
+        idcg += gain[idx] / math.log2(i + 2)
+
+    if idcg < 1e-12:
+        return None
+    return round(dcg / idcg, 4)
+
+
+def _day_X(day: Dict[str, Any]) -> Optional[Tuple[np.ndarray, List[str]]]:
+    from core.research.oo_rank_panel import _day_matrix
+
+    return _day_matrix(day)
 
 
 def _collect_feature_names(days: Sequence[Dict[str, Any]]) -> List[str]:
     names: List[str] = []
     seen = set()
     for day in days or []:
-        for row in day.get("xs") or []:
-            if not isinstance(row, dict):
+        packed = _day_X(day)
+        if packed is None:
+            continue
+        _X, col_names = packed
+        for k in col_names:
+            if k in seen:
                 continue
-            for k, v in row.items():
-                if k in seen or v is None:
-                    continue
-                seen.add(k)
-                names.append(str(k))
+            seen.add(k)
+            names.append(k)
     return names
 
 
 def _fit_zscore(
     days: Sequence[Dict[str, Any]], feature_names: Sequence[str]
 ) -> Tuple[Dict[str, float], Dict[str, float]]:
-    means: Dict[str, float] = {}
-    stds: Dict[str, float] = {}
-    for name in feature_names:
-        vals: List[float] = []
-        for day in days:
-            for row in day.get("xs") or []:
-                if not isinstance(row, dict):
-                    continue
-                v = row.get(name)
-                if v is None:
-                    continue
-                try:
-                    fv = float(v)
-                except (TypeError, ValueError):
-                    continue
-                if fv == fv:
-                    vals.append(fv)
-        if not vals:
-            means[name] = 0.0
-            stds[name] = 1.0
-            continue
-        mu = sum(vals) / len(vals)
-        var = sum((v - mu) ** 2 for v in vals) / max(1, len(vals))
-        sd = math.sqrt(var) if var > 0 else 1.0
-        if sd < 1e-9:
-            sd = 1.0
-        means[name] = float(mu)
-        stds[name] = float(sd)
-    return means, stds
+    names = [str(n) for n in feature_names]
+    if not names:
+        return {}, {}
+    blocks: List[np.ndarray] = []
+    for day in days or []:
+        Z = _raw_day_aligned(day, names)
+        if Z is not None and Z.shape[0] > 0:
+            blocks.append(Z)
+    if blocks:
+        X = np.vstack(blocks)
+        means: Dict[str, float] = {}
+        stds: Dict[str, float] = {}
+        for j, name in enumerate(names):
+            col = X[:, j]
+            finite = col[np.isfinite(col)]
+            if finite.size <= 0:
+                means[name] = 0.0
+                stds[name] = 1.0
+                continue
+            mu = float(finite.mean())
+            var = float(((finite - mu) ** 2).mean())
+            sd = math.sqrt(var) if var > 0 else 1.0
+            if sd < 1e-9:
+                sd = 1.0
+            means[name] = mu
+            stds[name] = sd
+        return means, stds
+    return {n: 0.0 for n in names}, {n: 1.0 for n in names}
 
 
-def _z_matrix(
-    xs: Sequence[dict],
+def _raw_day_aligned(day: Dict[str, Any], feature_names: Sequence[str]) -> Optional[np.ndarray]:
+    packed = _day_X(day)
+    names = [str(n) for n in feature_names]
+    p = len(names)
+    if packed is not None:
+        X, col_names = packed
+        if list(col_names) == names:
+            return np.asarray(X, dtype=np.float64)
+        idx = {n: j for j, n in enumerate(col_names)}
+        out = np.full((X.shape[0], p), np.nan, dtype=np.float64)
+        for j, name in enumerate(names):
+            src = idx.get(name)
+            if src is not None:
+                out[:, j] = X[:, src]
+        return out
+    return None
+
+
+def _z_day(
+    day: Dict[str, Any],
     feature_names: Sequence[str],
     means: Dict[str, float],
     stds: Dict[str, float],
-) -> List[List[float]]:
-    out: List[List[float]] = []
-    for row in xs:
-        vec: List[float] = []
-        src = row if isinstance(row, dict) else {}
-        for name in feature_names:
-            v = src.get(name)
-            if v is None:
-                vec.append(0.0)
-                continue
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                vec.append(0.0)
-                continue
-            mu = float(means.get(name) or 0.0)
-            sd = float(stds.get(name) or 1.0)
-            if sd < 1e-9:
-                sd = 1.0
-            vec.append((fv - mu) / sd)
-        out.append(vec)
-    return out
+) -> Optional[np.ndarray]:
+    raw = _raw_day_aligned(day, feature_names)
+    if raw is None:
+        return None
+    mu = np.asarray([float(means.get(n) or 0.0) for n in feature_names], dtype=np.float64)
+    sd = np.asarray([float(stds.get(n) or 1.0) for n in feature_names], dtype=np.float64)
+    sd = np.where(sd < 1e-9, 1.0, sd)
+    z = (raw - mu) / sd
+    return np.where(np.isfinite(raw), z, 0.0).astype(np.float64, copy=False)
 
 
-def _rank_labels(ys: Sequence[float], *, mode: str = "rank_int") -> List[int]:
-    """日截面 ys → LambdaRank 整数标签（高 ys = 高 label）。
-
-    - ``rank_int``：等距 0..n-1（默认，LightGBM LambdaRank 文档推荐）
-    - ``gain``：按 |Δy| 加权的 bucket rank（更稀疏的分级）
-    """
+def _rank_labels(ys: Sequence[float]) -> List[int]:
+    """日截面 ys → LambdaRank 整数标签 0..n-1（高 ys = 高 label）。"""
     n = len(ys)
     if n == 0:
         return []
-    order = np.argsort(list(ys))  # 升序索引
+    order = np.argsort(list(ys))
     labels = [0] * n
-    if str(mode or "rank_int").strip().lower() == "gain":
-        # 用 ys 数值排序后的 rank 当 label（0..n-1，但相等带 Δy 权重）
-        ranks = np.empty(n, dtype=np.int64)
-        ranks[order] = np.arange(n)
-        # 把 ranks 缩放到 0..n-1 整数（已经是）
-        for i in range(n):
-            labels[i] = int(ranks[i])
-    else:
-        for rank, idx in enumerate(order):
-            labels[int(idx)] = int(rank)
+    for rank, idx in enumerate(order):
+        labels[int(idx)] = int(rank)
     return labels
 
 
@@ -430,7 +399,6 @@ def fit_lambdarank(
     num_leaves: int = 31,
     min_child_samples: int = 20,
     l2: float = 1.0,
-    label_mode: str = "rank_int",
 ) -> Dict[str, Any]:
     """LightGBM LambdaRank：按日截面 group，优化 NDCG。
 
@@ -447,17 +415,16 @@ def fit_lambdarank(
         return {"success": False, "error": "no_features"}
     means, stds = _fit_zscore(days, names)
     p = len(names)
-    X_blocks: List[List[List[float]]] = []
+    X_blocks: List[np.ndarray] = []
     y_blocks: List[List[int]] = []
     group_sizes: List[int] = []
     n_pair_days = 0
     for day in days:
-        ys = [float(y) for y in (day.get("ys") or [])]
-        xs = list(day.get("xs") or [])
-        if len(ys) < 4 or len(xs) != len(ys):
+        ys = [float(v) for v in (day.get("ys") or [])]
+        Z = _z_day(day, names, means, stds)
+        if Z is None or len(ys) < 4 or int(Z.shape[0]) != len(ys):
             continue
-        Z = _z_matrix(xs, names, means, stds)
-        labels = _rank_labels(ys, mode=label_mode)
+        labels = _rank_labels(ys)
         if len(set(labels)) < 2:
             continue  # 单 group 全同 label 学不出排序
         X_blocks.append(Z)
@@ -471,12 +438,16 @@ def fit_lambdarank(
             "n_days": n_pair_days,
             "n_groups": len(group_sizes),
         }
-    X = np.asarray([row for block in X_blocks for row in block], dtype=np.float64)
+    X = np.vstack(X_blocks)
     y = np.asarray([lab for block in y_blocks for lab in block], dtype=np.int32)
     group = np.asarray(group_sizes, dtype=np.int32)
     if X.shape[0] != y.shape[0] or X.shape[0] != int(group.sum()):
         return {"success": False, "error": "shape_mismatch"}
     lam = max(0.0, float(l2))
+    # label_gain 须覆盖全部 label；默认指数表只有 31 项，日池>31 会崩。
+    # 用线性 [0,1,2,…] 与 OOS NDCG（gain=rank）对齐。
+    n_class = int(y.max()) + 1
+    label_gain = [float(i) for i in range(n_class)]
     try:
         # 原生 lgb.train（不依赖 sklearn），objective=lambdarank
         dtrain = lgb.Dataset(X, label=y, group=group)
@@ -484,6 +455,7 @@ def fit_lambdarank(
             {
                 "objective": "lambdarank",
                 "metric": ["ndcg"],
+                "label_gain": label_gain,
                 "max_depth": max(1, int(max_depth)),
                 "num_leaves": int(num_leaves),
                 "learning_rate": float(learning_rate),
@@ -542,8 +514,6 @@ def fit_lambdarank(
         "ridge_lambda": lam,
         "sample_count": int(y.shape[0]),
         "n_pair_days": n_pair_days,
-        "n_pairs": int(y.shape[0]),  # LambdaRank 用整日 group，无 pair 数概念
-        "label_mode": str(label_mode),
         "n_groups": len(group_sizes),
     }
 
@@ -629,11 +599,50 @@ def _predict_oo_rank_rows(
     *,
     impute_missing: bool = True,
 ) -> List[Optional[float]]:
-    if _oo_rank_use_booster(model):
-        return _predict_rows_lightgbm(model, rows, impute_missing=impute_missing)
-    from core.research.tc_ridge import _predict_rows
+    """仅 LambdaRank booster；无 booster 的旧线性包不再打分。"""
+    if not _oo_rank_use_booster(model):
+        return [None] * len(list(rows or []))
+    return _predict_rows_lightgbm(model, rows, impute_missing=impute_missing)
 
-    return _predict_rows(model, list(rows), impute_missing=impute_missing)
+
+def _predict_oo_rank_matrix(
+    model: Dict[str, Any],
+    day: Dict[str, Any],
+    *,
+    impute_missing: bool = True,
+) -> List[Optional[float]]:
+    n = len(day.get("ys") or [])
+    if not _oo_rank_use_booster(model):
+        return [None] * n
+    zm = model.get("zscore_means")
+    if isinstance(zm, dict) and zm:
+        names = list(zm.keys())
+    elif isinstance(model.get("z_means"), dict) and model.get("z_means"):
+        names = list(model.get("z_means").keys())
+    else:
+        names = list((model.get("coefficients") or {}).keys())
+    if not names:
+        return [None] * n
+    import base64 as _b64
+
+    import lightgbm as lgb
+
+    means = zm if isinstance(zm, dict) else (model.get("z_means") or {})
+    stds_raw = model.get("zscore_stds")
+    stds = stds_raw if isinstance(stds_raw, dict) else (model.get("z_stds") or {})
+    z = _z_day(day, names, means, stds)
+    if z is None:
+        return [None] * n
+    b64 = str(model.get("booster_b64") or "")
+    if not b64:
+        return [None] * n
+    try:
+        text = _b64.b64decode(b64.encode("ascii")).decode("utf-8")
+        booster = lgb.Booster(model_str=text)
+        pred = booster.predict(z)
+    except Exception:  # noqa: BLE001
+        return [None] * n
+    return [round(float(v), 6) for v in pred]
 
 
 def _resolve_oo_rank_fit(
@@ -641,19 +650,20 @@ def _resolve_oo_rank_fit(
     model_doc: Optional[Dict[str, Any]] = None,
     fit: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    # booster 优先；否则线性旧包看 coefficients
-    def _is_valid(m: Dict[str, Any]) -> bool:
-        if not isinstance(m, dict):
-            return False
-        if _oo_rank_use_booster(m):
-            return True
-        return bool(m.get("coefficients"))
+    """只接受带 booster 的 LambdaRank 包（旧线性 coefficients 包不再用）。
 
-    if _is_valid(fit):
-        return fit
-    doc = model_doc
-    if doc is None:
-        doc = load_oo_rank_model(prefer_research=True)
+    显式传入的 ``fit`` / ``model_doc`` 无效时不回落磁盘，避免误用 live 影子。
+    """
+
+    def _is_valid(m: Any) -> bool:
+        return isinstance(m, dict) and _oo_rank_use_booster(m)
+
+    if fit is not None:
+        return fit if _is_valid(fit) else None
+    if model_doc is not None:
+        model = model_doc.get("return_model") if isinstance(model_doc, dict) else None
+        return model if _is_valid(model) else None
+    doc = load_oo_rank_model(prefer_research=True)
     if isinstance(doc, dict):
         model = doc.get("return_model")
         if _is_valid(model):
@@ -667,21 +677,11 @@ def predict_oo_rank_from_features(
     model_doc: Optional[Dict[str, Any]] = None,
     fit: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
-    """对单行 sub_scores 打 ŷ_oo_rank。
-
-    单票调用时若缺 ``cs_*`` 列则按 0 填（与训练 feature_mode 可能不一致）；
-    批打分请用 ``apply_oo_rank_scores``（同批挂日截面）。
-    """
+    """对单行 sub_scores 打 ŷ_oo_rank（与 y_oo 同口径，特征为原始 sub_score）。"""
     model = _resolve_oo_rank_fit(model_doc=model_doc, fit=fit)
     if not isinstance(model, dict):
         return None
     row = dict(sub_scores or {})
-    if any(str(k).endswith(("_cs_rank", "_cs_zscore")) for k in (model.get("coefficients") or {})):
-        if not any(str(k).endswith(("_cs_rank", "_cs_zscore")) for k in row):
-            logger.debug(
-                "predict_oo_rank_from_features: model expects cs_* but row has none; "
-                "impute 0 — prefer apply_oo_rank_scores for batch CS"
-            )
     preds = _predict_oo_rank_rows(model, [row], impute_missing=True)
     if not preds:
         return None
@@ -693,55 +693,29 @@ def apply_oo_rank_scores(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
     fit: Optional[Dict[str, Any]] = None,
+    assign_day_ranks: bool = True,
 ) -> List[dict]:
-    """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 ranking。
+    """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 ranking / 买序。
 
-    同批 items 视为同日观察池：先挂 ``cs_*``，再按模型 ``feature_mode`` 选列后预测。
+    特征与 ŷ_oo 同口径：原始 sub_score（fit_lambdarank 内部做样本内全局 z-score）。
+    默认 ``assign_day_ranks=True``：对本次 items 截面编 1..n 名次（1=最高分）。
     """
-    from core.research.oo_rank_panel import (
-        DEFAULT_FEATURE_MODE,
-        apply_feature_mode_to_row,
-        attach_cs_features_to_rows,
-        normalize_feature_mode,
-    )
-
     doc = model_doc
     if doc is None and fit is None:
         doc = load_oo_rank_model(prefer_research=True)
     model = _resolve_oo_rank_fit(model_doc=doc, fit=fit)
-    mode = DEFAULT_FEATURE_MODE
-    if isinstance(model, dict) and model.get("feature_mode"):
-        mode = normalize_feature_mode(model.get("feature_mode"))
-    elif isinstance(doc, dict) and doc.get("feature_mode"):
-        mode = normalize_feature_mode(doc.get("feature_mode"))
 
     out = list(items)
-    indexed: List[Tuple[int, dict]] = []
-    raw_rows: List[dict] = []
-    for i, it in enumerate(out):
+    for it in out:
         if not isinstance(it, dict):
             continue
         subs = it.get("sub_scores") or it.get("sub_scores_raw")
         if not isinstance(subs, dict):
             continue
-        indexed.append((i, it))
-        raw_rows.append(dict(subs))
-
-    if not indexed:
-        return out
-
-    if len(raw_rows) >= 2:
-        scored_rows = attach_cs_features_to_rows(raw_rows)
-    else:
-        scored_rows = raw_rows
-        logger.debug(
-            "apply_oo_rank_scores: batch size < 2, skip day CS attach"
-        )
-
-    for (_i, it), row in zip(indexed, scored_rows):
-        feat_row = apply_feature_mode_to_row(row, mode)
-        hat = predict_oo_rank_from_features(feat_row, model_doc=doc, fit=fit or model)
+        hat = predict_oo_rank_from_features(subs, model_doc=doc, fit=fit or model)
         write_y_oo_rank_hat(it, hat)
+    if assign_day_ranks:
+        assign_oo_rank_day_ranks(out)
     return out
 
 
@@ -785,29 +759,78 @@ def _topk_overlap(pred: Sequence[float], ys: Sequence[float], k: int) -> Optiona
     return round(len(pred_top & true_top) / float(kk), 4)
 
 
-def _pair_accuracy(
-    pred: Sequence[float],
-    ys: Sequence[float],
-    *,
-    top_k: int,
-    bottom_k: int,
-) -> Optional[float]:
-    pairs = sample_top_bottom_pairs(ys, top_k=top_k, bottom_k=bottom_k)
-    if len(pairs) < 5:
-        return None
-    hit = 0
-    for i, j, _gap in pairs:
-        if float(pred[i]) > float(pred[j]):
-            hit += 1
-    return round(hit / float(len(pairs)), 4)
+def _is_ridge_linear(model: Dict[str, Any]) -> bool:
+    """同窗 Ridge ŷ_oo 基线：系数包，不是 LambdaRank booster。"""
+    if not isinstance(model, dict) or _oo_rank_use_booster(model):
+        return False
+    solver = str(model.get("solver") or "").strip().lower()
+    if solver in {"lambdarank", "lightgbm_lambda"}:
+        return False
+    coefs = model.get("coefficients")
+    return isinstance(coefs, dict) and any(v is not None for v in coefs.values())
+
+
+def _predict_ridge_matrix(
+    model: Dict[str, Any], day: Dict[str, Any]
+) -> List[Optional[float]]:
+    """与 ``predict_oo_matrix`` 同口径：z-score 后线性打分；缺测跳过，不当成 0。"""
+    n = len(day.get("ys") or [])
+    coefs = model.get("coefficients") if isinstance(model.get("coefficients"), dict) else {}
+    names = [str(k) for k, v in coefs.items() if v is not None]
+    if n <= 0 or not names:
+        return [None] * n
+    raw = _raw_day_aligned(day, names)
+    if raw is None or int(raw.shape[0]) != n:
+        return [None] * n
+    means = model.get("zscore_means")
+    if not isinstance(means, dict):
+        means = model.get("z_means") if isinstance(model.get("z_means"), dict) else {}
+    stds = model.get("zscore_stds")
+    if not isinstance(stds, dict):
+        stds = model.get("z_stds") if isinstance(model.get("z_stds"), dict) else {}
+    try:
+        intercept = float(model.get("intercept") or 0.0)
+    except (TypeError, ValueError):
+        intercept = 0.0
+    feature_zscore = bool(model.get("feature_zscore", True))
+    total = np.full(n, intercept, dtype=np.float64)
+    used = np.zeros(n, dtype=bool)
+    for j, name in enumerate(names):
+        beta = coefs.get(name)
+        if beta is None:
+            continue
+        col = raw[:, j]
+        ok = np.isfinite(col)
+        if not bool(ok.any()):
+            continue
+        vals = col
+        if feature_zscore:
+            try:
+                mu = float(means.get(name) or 0.0)
+            except (TypeError, ValueError):
+                mu = 0.0
+            try:
+                sd = float(stds.get(name) or 1.0)
+            except (TypeError, ValueError):
+                sd = 1.0
+            if sd < 1e-12:
+                sd = 1.0
+            vals = (col - mu) / sd
+        total[ok] += float(beta) * vals[ok]
+        used |= ok
+    return [round(float(total[i]), 6) if used[i] else None for i in range(n)]
 
 
 def _day_scores(
     day: Dict[str, Any], fit: Dict[str, Any]
 ) -> Tuple[List[Optional[float]], List[float]]:
-    xs = list(day.get("xs") or [])
-    ys = [float(y) for y in (day.get("ys") or [])]
-    preds = _predict_oo_rank_rows(fit, xs, impute_missing=True) if xs else []
+    ys = [float(v) for v in (day.get("ys") or [])]
+    if _is_ridge_linear(fit):
+        return _predict_ridge_matrix(fit, day), ys
+    packed = _day_X(day)
+    if packed is None:
+        return [], ys
+    preds = _predict_oo_rank_matrix(fit, day, impute_missing=True)
     return preds, ys
 
 
@@ -815,13 +838,12 @@ def _oos_day_metrics(
     days: Sequence[Dict[str, Any]],
     fit: Dict[str, Any],
     *,
-    top_k: int,
-    bottom_k: int,
     topk_track: int,
+    ndcg_k: int = DEFAULT_NDCG_K,
 ) -> Dict[str, Any]:
     spearman_days: List[float] = []
     overlap_days: List[float] = []
-    pair_acc_days: List[float] = []
+    ndcg_days: List[float] = []
     topk_rets: List[float] = []
     n_scored = 0
     for day in days:
@@ -842,9 +864,9 @@ def _oos_day_metrics(
         ov = _topk_overlap(pp, yy, topk_track)
         if ov is not None:
             overlap_days.append(ov)
-        pa = _pair_accuracy(pp, yy, top_k=top_k, bottom_k=bottom_k)
-        if pa is not None:
-            pair_acc_days.append(pa)
+        nd = _ndcg_at_k(pp, yy, k=ndcg_k)
+        if nd is not None:
+            ndcg_days.append(nd)
         kk = max(1, min(int(topk_track), len(pp)))
         idx = sorted(range(len(pp)), key=lambda i: pp[i], reverse=True)[:kk]
         topk_rets.append(sum(yy[i] for i in idx) / float(kk))
@@ -859,7 +881,8 @@ def _oos_day_metrics(
         "n_rows": n_scored,
         "spearman": _mean(spearman_days),
         "topk_overlap": _mean(overlap_days),
-        "pair_accuracy": _mean(pair_acc_days),
+        "ndcg_at_k": _mean(ndcg_days),
+        "ndcg_k": int(ndcg_k),
         "topk_mean_y_oo": _mean(topk_rets),
         "topk": int(topk_track),
     }
@@ -871,20 +894,32 @@ def _fit_ridge_baseline(
     feature_names: Sequence[str],
     ridge_lambda: float = 1.0,
 ) -> Dict[str, Any]:
-    from core.research.factor_ols_fit import fit_factor_ols_from_panel
-    from core.research.oo_rank_panel import stack_day_panels
+    names = [str(n) for n in feature_names]
+    blocks: List[np.ndarray] = []
+    y_parts: List[np.ndarray] = []
+    for day in days or []:
+        raw = _raw_day_aligned(day, names)
+        ys = [float(v) for v in (day.get("ys") or [])]
+        if raw is None or len(ys) != int(raw.shape[0]):
+            continue
+        blocks.append(raw)
+        y_parts.append(np.asarray(ys, dtype=np.float64))
+    if blocks:
+        from core.research.oo_ridge_compact import fit_oo_ridge_matrix
 
-    xs, ys, _dates, _codes = stack_day_panels(days)
-    if len(ys) < 20:
-        return {"success": False, "error": f"ridge_n={len(ys)}"}
-    return fit_factor_ols_from_panel(
-        xs,
-        ys,
-        feature_names=list(feature_names),
-        ridge_lambda=float(ridge_lambda),
-        feature_zscore=True,
-        collinearity_policy="drop_redundant",
-    )
+        x = np.vstack(blocks)
+        y = np.concatenate(y_parts)
+        if int(y.shape[0]) < 20:
+            return {"success": False, "error": f"ridge_n={int(y.shape[0])}"}
+        _model, report = fit_oo_ridge_matrix(
+            x,
+            y,
+            names,
+            ridge_lambda=float(ridge_lambda),
+            horizon_days=1,
+        )
+        return report
+    return {"success": False, "error": "ridge_n=0"}
 
 
 def fit_oo_rank_report(
@@ -894,18 +929,12 @@ def fit_oo_rank_report(
     min_history: int = 12,
     min_names: int = DEFAULT_MIN_NAMES,
     holdout_trading_days: int = DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK,
-    top_k: Optional[int] = None,
-    bottom_k: Optional[int] = None,
-    top_frac: Optional[float] = None,
-    bottom_frac: Optional[float] = None,
-    min_abs_gap: Optional[float] = None,
     l2: float = DEFAULT_L2,
     topk_track: int = DEFAULT_TOPK_TRACK,
+    ndcg_k: int = DEFAULT_NDCG_K,
     ridge_lambda: float = 1.0,
     index_bars: Optional[List[dict]] = None,
     excess_mode: str = "none",
-    feature_mode: Optional[str] = None,
-    pair_preset: Optional[str] = None,
     persist: bool = False,
     day_panels: Optional[Sequence[Dict[str, Any]]] = None,
     backend: str = "lambdarank",
@@ -913,10 +942,13 @@ def fit_oo_rank_report(
 ) -> Dict[str, Any]:
     """拟合 ŷ_oo_rank + Holdout OOS，并与同窗 Ridge ŷ_oo 对照。
 
-    ``day_panels``：若已预计算日截面（含 raw），可跳过建面板；仍按 ``feature_mode`` enrich。
+    ``day_panels``：若已预计算日截面（矩阵 ``X`` 或 raw sub_score dict），可跳过建面板。
+    特征与 ŷ_oo 同口径：原始 sub_score；fit_lambdarank 内部做样本内全局 z-score。
+    默认建面板走 compact 矩阵（与 ŷ_oo 相同，逐只丢掉行 dict）。
 
     ``backend``：仅 ``"lambdarank"``（LightGBM LambdaRank，按日 group，优化 NDCG）。
     ``lightgbm_params`` 可覆盖超参。
+    OOS 指标：spearman / topk_overlap / ndcg_at_k / topk_mean_y_oo（与 Ridge 同窗对照）。
     """
     from core.research.holdout import (
         attach_holdout_meta,
@@ -924,33 +956,10 @@ def fit_oo_rank_report(
         make_research_model,
         resolve_ridge_split,
     )
-    from core.research.oo_rank_panel import (
-        DEFAULT_FEATURE_MODE,
-        build_oo_rank_day_panels,
-        enrich_day_panels_features,
-        feature_mode_meta,
-        normalize_feature_mode,
-    )
-
-    feat_mode = normalize_feature_mode(feature_mode or DEFAULT_FEATURE_MODE)
-    sampling = resolve_pair_preset(
-        pair_preset or DEFAULT_PAIR_PRESET,
-        top_k=top_k,
-        bottom_k=bottom_k,
-        top_frac=top_frac,
-        bottom_frac=bottom_frac,
-        min_abs_gap=min_abs_gap,
-    )
-    tk = int(sampling["top_k"])
-    bk = int(sampling["bottom_k"])
-    tfrac = float(sampling["top_frac"])
-    bfrac = float(sampling["bottom_frac"])
-    gap = float(sampling["min_abs_gap"])
-    preset_key = str(sampling["pair_preset"])
+    from core.research.oo_rank_panel import build_oo_rank_day_panels
 
     if day_panels is not None:
-        # 预计算面板：从 raw 副本按 mode enrich（调用方应传未过滤的 raw/raw_cs）
-        days = enrich_day_panels_features(day_panels, feature_mode=feat_mode)
+        days = list(day_panels)
     else:
         days = build_oo_rank_day_panels(
             stock_bars,
@@ -959,20 +968,15 @@ def fit_oo_rank_report(
             min_names=min_names,
             index_bars=index_bars,
             excess_mode=excess_mode,
-            feature_mode=feat_mode,
         )
-        days = enrich_day_panels_features(days, feature_mode=feat_mode)
     if len(days) < 8:
         return {
             "success": False,
             "error": f"day_panels_insufficient n_days={len(days)}（需≥8）",
             "task": "oo_rank_pairwise",
             "n_days": len(days),
-            "feature_mode": feat_mode,
-            "pair_preset": preset_key,
         }
 
-    # 用「每日一行占位日期」做 holdout：把每天重复成一行日期序列
     date_rows = [str(d["date"]) for d in days]
     hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK)
     train_idx, test_idx, split_meta = resolve_ridge_split(
@@ -989,8 +993,6 @@ def fit_oo_rank_report(
             "error": f"train_days_insufficient n={len(days_tr)}",
             "task": "oo_rank_pairwise",
             "n_days": len(days),
-            "feature_mode": feat_mode,
-            "pair_preset": preset_key,
         }
 
     feat_names = _collect_feature_names(days_tr)
@@ -1003,8 +1005,6 @@ def fit_oo_rank_report(
             "error": f"unsupported backend={backend_key}；仅支持 lambdarank",
             "task": "oo_rank_pairwise",
             "n_days": len(days),
-            "feature_mode": feat_mode,
-            "pair_preset": preset_key,
             "backend": backend_key,
         }
     lgb_kw: Dict[str, Any] = dict(l2=l2)
@@ -1021,8 +1021,6 @@ def fit_oo_rank_report(
             "error": fit_tr.get("error") or "lambdarank_fit_failed",
             "task": "oo_rank_pairwise",
             "n_days": len(days),
-            "feature_mode": feat_mode,
-            "pair_preset": preset_key,
             "backend": backend_key,
             "detail": fit_tr,
         }
@@ -1030,9 +1028,8 @@ def fit_oo_rank_report(
     oos_rank = _oos_day_metrics(
         days_te,
         fit_tr,
-        top_k=tk,
-        bottom_k=bk,
         topk_track=topk_track,
+        ndcg_k=ndcg_k,
     )
     ridge = _fit_ridge_baseline(days_tr, feature_names=feat_names, ridge_lambda=ridge_lambda)
     oos_ridge: Dict[str, Any] = {"success": bool(ridge.get("success"))}
@@ -1041,9 +1038,8 @@ def fit_oo_rank_report(
             _oos_day_metrics(
                 days_te,
                 ridge,
-                top_k=tk,
-                bottom_k=bk,
                 topk_track=topk_track,
+                ndcg_k=ndcg_k,
             )
         )
 
@@ -1060,7 +1056,7 @@ def fit_oo_rank_report(
         "unit": "score",
         "anchor": "open[T]",
         "label": "open[T+1]/open[T]-1 cross-section rank",
-        "note": "LambdaRank shadow；相对分，非收益百分点；不进 ranking",
+        "note": "LambdaRank shadow；模型输出相对分；live/回测成交明细编成当日截面 1..n 名次（1=最高）；不进 ranking / 买序",
     }
     model["y_spec"] = y_spec
     model["horizon_days"] = int(horizon_days)
@@ -1068,8 +1064,7 @@ def fit_oo_rank_report(
     model["target"] = "oo_rank"
     model["model_role"] = "live"
     model["shadow_only"] = True
-    model["feature_mode"] = feat_mode
-    model["pair_preset"] = preset_key
+    model["ndcg_k"] = int(ndcg_k)
 
     research_model = make_research_model(fit_tr)
     for k in (
@@ -1078,28 +1073,12 @@ def fit_oo_rank_report(
         "horizon_mode",
         "target",
         "shadow_only",
-        "feature_mode",
-        "pair_preset",
+        "ndcg_k",
     ):
         research_model[k] = model.get(k)
     research_model["model_role"] = "research"
     research_model["intercept"] = 0.0
 
-    feat_meta = feature_mode_meta(
-        feat_names,
-        model.get("coefficients") or {},
-        feature_mode=feat_mode,
-    )
-    pair_meta = {
-        "pair_preset": preset_key,
-        "top_k": tk,
-        "bottom_k": bk,
-        "top_frac": tfrac,
-        "bottom_frac": bfrac,
-        "min_abs_gap": gap,
-        "l2": float(l2),
-        "min_names": int(min_names),
-    }
     report: Dict[str, Any] = {
         "success": True,
         "task": "oo_rank_pairwise",
@@ -1109,28 +1088,27 @@ def fit_oo_rank_report(
         "n_days": len(days),
         "n_train_days": len(days_tr),
         "n_test_days": len(days_te),
-        "sample_count": int(model.get("n_pairs") or model.get("sample_count") or 0),
-        "feature_mode": feat_mode,
-        "pair_preset": preset_key,
-        "feature_meta": feat_meta,
+        "sample_count": int(model.get("sample_count") or 0),
+        "n_features": len(feat_names),
+        "ndcg_k": int(ndcg_k),
         "oos": {
             "oo_rank": oos_rank,
             "ridge_oo_baseline": oos_ridge,
             "holdout_trading_days": hold_n,
             "topk_track": int(topk_track),
-            "feature_mode": feat_mode,
-            "pair_preset": preset_key,
+            "ndcg_k": int(ndcg_k),
         },
         "return_model": model,
         "return_model_research": research_model,
         "y_spec": y_spec,
-        "pair_sampling": pair_meta,
         "note": (
-            f"ŷ_oo_rank = {backend_key}（preset={preset_key} · mode={feat_mode}）；"
-            "影子头，不进 live ranking；OOS 含与同窗 Ridge ŷ_oo 对照"
+            f"ŷ_oo_rank = {backend_key}；"
+            "旁路对照，不进 ranking / 买序；成交明细编当日截面 1..n 名次；"
+            "OOS 含与同窗 Ridge ŷ_oo 对照"
         ),
     }
     attach_holdout_meta(report, split_meta)
+    stamp_oo_rank_fitted_at(report)
     if persist:
         paths = persist_oo_rank_model(report, also_research=True)
         report["persisted"] = paths
@@ -1155,9 +1133,8 @@ def compare_oo_rank_shadow_track(
         "n_days": report.get("n_days"),
         "n_train_days": report.get("n_train_days"),
         "n_test_days": report.get("n_test_days"),
-        "feature_mode": report.get("feature_mode"),
-        "pair_preset": report.get("pair_preset"),
-        "feature_meta": report.get("feature_meta"),
+        "ndcg_k": report.get("ndcg_k"),
+        "n_features": report.get("n_features"),
         "oos": oos,
         "delta_topk_mean_y_oo": (
             None
@@ -1180,7 +1157,11 @@ def compare_oo_rank_shadow_track(
                 4,
             )
         ),
-        "pair_sampling": report.get("pair_sampling"),
+        "delta_ndcg_at_k": (
+            None
+            if rank_m.get("ndcg_at_k") is None or ridge_m.get("ndcg_at_k") is None
+            else round(float(rank_m["ndcg_at_k"]) - float(ridge_m["ndcg_at_k"]), 4)
+        ),
         "note": report.get("note"),
         "return_model": report.get("return_model"),
         "return_model_research": report.get("return_model_research"),
@@ -1189,26 +1170,26 @@ def compare_oo_rank_shadow_track(
 
 __all__ = [
     "DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK",
-    "DEFAULT_PAIR_PRESET",
+    "DEFAULT_NDCG_K",
+    "DEFAULT_TOPK_TRACK",
     "FORMULA_OO_RANK",
-    "PAIR_PRESETS",
     "SCHEMA",
     "Y_OO_RANK_HAT_KEYS",
     "Y_OO_RANK_LABEL_KEYS",
     "apply_oo_rank_scores",
+    "assign_oo_rank_day_ranks",
     "compare_oo_rank_shadow_track",
     "fit_oo_rank_report",
+    "load_oo_rank_last_report",
     "load_oo_rank_model",
-    "normalize_pair_preset",
     "oo_rank_last_report_path",
     "oo_rank_model_path",
     "persist_oo_rank_model",
     "pick_y_oo_rank_hat",
     "pick_y_oo_rank_label",
     "predict_oo_rank_from_features",
-    "resolve_pair_preset",
-    "sample_top_bottom_pairs",
     "save_oo_rank_last_report",
+    "stamp_oo_rank_fitted_at",
     "write_y_oo_rank_hat",
     "write_y_oo_rank_realized",
 ]

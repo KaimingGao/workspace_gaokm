@@ -725,7 +725,27 @@ class TestApplyLegOpenCost(unittest.TestCase):
 
 
 class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
-    def test_preview_keeps_held_when_tier_drops_name(self):
+    def test_mark_predictability_tier_exits(self):
+        from core.paper.rebalance.watching_matrix import _mark_predictability_tier_exits
+
+        item_by = {
+            "601318": {
+                "stock_code": "601318",
+                "predicted_score": 2.0,
+                "y_τc": 1.0,
+                "ranking": 1.5,
+            }
+        }
+        _mark_predictability_tier_exits(
+            item_by,
+            force_exit_held=["601318"],
+            allowed_tiers=["A"],
+        )
+        self.assertTrue(item_by["601318"].get("hard_reject"))
+        self.assertTrue(item_by["601318"].get("predictability_tier_exit"))
+        self.assertEqual(item_by["601318"].get("reject_reason"), "可预测性非A档 清仓")
+
+    def test_preview_force_exits_held_when_tier_drops_name(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -737,6 +757,7 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
                     "stock_name": "持仓",
                     "shares": 200,
                     "cost_price": 10.0,
+                    "buy_date": "2020-01-01",
                 }
             ],
             "rules": {"max_positions": 5, "position_pct": 0.2},
@@ -747,11 +768,14 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
             kept = [c for c in codes if c == "600519" or c in keep_set]
             return kept, {
                 "universe_fit_tiers": ["A"],
+                "allowed_tiers": ["A"],
                 "unrestricted": False,
+                "predictability_live": True,
                 "n_in": len(list(codes)),
                 "n_kept": len(kept),
                 "n_dropped": 1,
-                "n_kept_held": 1,
+                "force_exit_held": ["601318"],
+                "n_force_exit_held": 1,
             }
 
         with patch(
@@ -767,8 +791,20 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
             "core.paper.rebalance.watching_matrix._score_pool",
             return_value=(
                 [
-                    _signal_item(stock_code="600519", stock_name="贵州茅台"),
-                    _signal_item(stock_code="601318", stock_name="持仓", y_trade=-2.0),
+                    _signal_item(
+                        stock_code="600519",
+                        stock_name="贵州茅台",
+                        predicted_score=2.0,
+                        y_τc=1.0,
+                        ranking=1.5,
+                    ),
+                    _signal_item(
+                        stock_code="601318",
+                        stock_name="持仓",
+                        predicted_score=2.0,
+                        y_τc=1.0,
+                        ranking=1.5,
+                    ),
                 ],
                 [],
             ),
@@ -784,9 +820,19 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         self.assertTrue(out.get("ok") or out.get("success") is not False)
         meta = out.get("pool_meta") or {}
         fit = meta.get("fit_tiers") or {}
-        self.assertEqual(fit.get("universe_fit_tiers"), ["A"])
-        self.assertFalse(fit.get("unrestricted"))
-        self.assertEqual(fit.get("n_kept_held"), 1)
+        self.assertEqual(fit.get("force_exit_held"), ["601318"])
+        sells = out.get("sell_trades") or out.get("sells") or []
+        if not sells:
+            report = out.get("report") or []
+            sells = [
+                r
+                for r in report
+                if str(r.get("side") or "") == "sell"
+                or str(r.get("decision") or "") in {"卖出", "减仓"}
+            ]
+        self.assertTrue(sells, out)
+        reasons = " ".join(str(s.get("reason") or "") for s in sells)
+        self.assertIn("可预测性非A档", reasons)
 
     def test_row_score_payload_heads_override_stale_ranking(self):
         from core.paper.rebalance.watching_matrix import _row_score_payload

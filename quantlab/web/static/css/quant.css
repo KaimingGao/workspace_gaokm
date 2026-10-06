@@ -55,6 +55,109 @@
   background: rgba(245, 34, 45, 0.06);
 }
 
+.quant-oos-compare {
+  margin: 0 0 12px;
+}
+.quant-oos-compare-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+.quant-oos-compare-table th {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.quant-oos-compare-table td.is-best {
+  font-weight: 650;
+  background: rgba(245, 34, 45, 0.07);
+}
+.quant-oos-board {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.quant-oos-board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 1px solid var(--line, #e8e8e8);
+  border-radius: 6px;
+  background: var(--fill-1, #fafafa);
+  min-width: 0;
+}
+.quant-oos-board-card.is-lead {
+  border-color: color-mix(in srgb, var(--color-up, #cf1322) 42%, var(--line, #e8e8e8));
+  background: color-mix(in srgb, var(--color-up, #cf1322) 6%, transparent);
+}
+.quant-oos-board-kicker {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.quant-oos-board-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.quant-oos-board-wins {
+  margin-top: 2px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.quant-oos-board-wins small {
+  margin-left: 1px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.quant-oos-compare-table tbody th {
+  font-weight: 600;
+  color: var(--ink-2);
+  vertical-align: middle;
+}
+.quant-oos-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  width: min(100%, 11rem);
+}
+.quant-oos-bar {
+  display: block;
+  height: 5px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  overflow: hidden;
+}
+.quant-oos-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.quant-oos-bar.is-lr.is-lead > i {
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+.quant-oos-bar.is-rg.is-lead > i {
+  background: var(--color-up, #cf1322);
+}
+.quant-oos-bar.is-neg > i {
+  opacity: 0.72;
+}
+
+.quant-page .quant-oos-compare-table.quant-weight-table th {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .quant-copy-link {
   margin-left: 6px;
   font-size: 0.72rem;
@@ -4718,6 +4821,24 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 .quant-inline-num input[type="number"]:focus {
   outline: none;
   border-bottom-color: var(--accent, #1890ff);
+}
+
+.quant-inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--q-fs-micro, 12px);
+  color: var(--q-muted, #667);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.quant-inline-check input[type="checkbox"] {
+  margin: 0;
+  width: 0.9rem;
+  height: 0.9rem;
+  accent-color: var(--accent, #1890ff);
 }
 
 /* ŷ_* 拟合卡头：上行摘要，下行参数 | 操作 */
@@ -9776,6 +9897,11 @@ body[data-page="quant"] .quant-page .quant-weight-table-wrap th {
   text-transform: uppercase;
   color: var(--ink-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+body[data-page="quant"] .quant-page .quant-oos-compare-table.quant-weight-table th {
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 body[data-page="quant"] .quant-page .quant-weight-table-wrap td {

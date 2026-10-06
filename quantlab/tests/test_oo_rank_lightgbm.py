@@ -1,4 +1,4 @@
-"""ŷ_oo_rank LambdaRank 影子头测试。
+"""ŷ_oo_rank LambdaRank 旁路对照测试。
 
 未安装 lightgbm 时全部 skip。
 """
@@ -26,6 +26,18 @@ def _has_lightgbm() -> bool:
         return False
 
 
+def _pack_day(date_s, codes, xs, ys):
+    names = list(xs[0].keys()) if xs else []
+    X = np.array(
+        [
+            [float(row[n]) if row.get(n) is not None else np.nan for n in names]
+            for row in xs
+        ],
+        dtype=np.float64,
+    )
+    return {"date": date_s, "codes": codes, "ys": ys, "X": X, "names": names}
+
+
 def _synth_days(n_days: int = 30, n_names: int = 20, seed: int = 0):
     """特征与 y 正相关的合成截面日（mom3 强正、vol_penalty 负）。"""
     days = []
@@ -51,14 +63,7 @@ def _synth_days(n_days: int = 30, n_names: int = 20, seed: int = 0):
             )
             ys.append(y)
             codes.append(f"{i:06d}")
-        days.append(
-            {
-                "date": day.isoformat(),
-                "codes": codes,
-                "xs": xs,
-                "ys": ys,
-            }
-        )
+        days.append(_pack_day(day.isoformat(), codes, xs, ys))
         day += timedelta(days=1)
         made += 1
         d += 1
@@ -158,7 +163,13 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         self.assertTrue(fit.get("success"), fit.get("error"))
         day = days[-1]
         preds, _ys = _day_scores(day, fit)
-        row = (day.get("xs") or [{}])[0]
+        names = list(day.get("names") or [])
+        X = day.get("X")
+        row = {
+            names[j]: float(X[0, j])
+            for j in range(len(names))
+            if X is not None and names
+        }
         boost = predict_oo_rank_from_features(row, fit=fit)
         self.assertIsNotNone(preds[0])
         self.assertIsNotNone(boost)

@@ -40,7 +40,7 @@ DEFAULT_MIN_N = 20
 DEFAULT_A_HIT = 0.60
 DEFAULT_A_MIN_N = 6
 DEFAULT_B_HIT = 0.50
-DEFAULT_LIVE_ALLOWED = ("A", "B")
+DEFAULT_LIVE_ALLOWED = ("A",)
 DEFAULT_HOLDOUT_N = 20
 DEFAULT_PANEL_LOOKBACK = 120
 DEFAULT_HORIZON_DAYS = 1
@@ -188,7 +188,7 @@ def promote_predictability_tiers_to_live(
             or ((src.get("tier_dates") or src.get("ledger_dates") or [None])[-1])
         ),
         "report": src,
-        "note": "live 随历史回测分档勾选：调仓按 allowed_tiers 过滤新开；持仓保留。不改 watching。",
+        "note": "live 随历史回测分档勾选：调仓按 allowed_tiers 过滤新开；持仓掉出允许档则清仓。不改 watching。",
     }
     path = predictability_tiers_active_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -269,7 +269,11 @@ def filter_codes_by_predictability_live(
     *,
     keep: Sequence[str] = (),
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """调仓宇宙过滤：无 active → 不过滤；有则只留 allowed_tiers + keep（持仓）。"""
+    """调仓宇宙过滤：无 active → 不过滤；有则只留 allowed_tiers。
+
+    ``keep``（持仓）仍进打分名单以便估价/明细；掉出允许档的代码进
+    ``force_exit_held``，由 watching_matrix 标硬清仓。
+    """
     cleaned = [str(c).strip() for c in (codes or []) if str(c).strip()]
     keep_set = {str(c).strip() for c in (keep or []) if str(c).strip()}
     active = load_predictability_tiers_active()
@@ -280,6 +284,7 @@ def filter_codes_by_predictability_live(
             "n_in": len(cleaned),
             "n_kept": len(cleaned),
             "n_dropped": 0,
+            "force_exit_held": [],
             "reason": "no_active",
             "allowed_tiers": [],
             "universe_fit_tiers": ["A", "B", "C"],
@@ -305,12 +310,15 @@ def filter_codes_by_predictability_live(
         if c not in seen:
             seen.add(c)
             out.append(c)
+    force_exit_held = sorted(c for c in keep_set if c not in allow_codes)
     return out, {
         "predictability_live": True,
         "unrestricted": False,
         "n_in": len(cleaned),
         "n_kept": len(out),
         "n_dropped": dropped,
+        "force_exit_held": force_exit_held,
+        "n_force_exit_held": len(force_exit_held),
         "allowed_tiers": allow,
         "universe_fit_tiers": allow,
         "reason": "predictability_active",
@@ -615,7 +623,7 @@ def accumulate_holdout_oos_by_code(
 
     h_req = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
     hz = max(1, min(int(horizon_days or DEFAULT_HORIZON_DAYS), 10))
-    panel_lb = max(40, min(700, int(lookback or DEFAULT_PANEL_LOOKBACK)))
+    panel_lb = max(100, min(1000, int(lookback or DEFAULT_PANEL_LOOKBACK)))
     stock_bars, failures, _fund = load_portfolio_stock_bars(
         use_codes,
         lookback=panel_lb,
@@ -804,14 +812,14 @@ def tier_code_set(
     report: Optional[Dict[str, Any]],
     allowed: Optional[Sequence[str]] = None,
 ) -> set:
-    """从分档报告取出允许档内的代码集合。默认 A+B。"""
+    """从分档报告取出允许档内的代码集合。默认 A。"""
     allow = {
         str(t).strip().upper()
-        for t in (allowed if allowed is not None else ("A", "B"))
+        for t in (allowed if allowed is not None else DEFAULT_LIVE_ALLOWED)
         if str(t or "").strip()
     }
     if not allow:
-        allow = {"A", "B"}
+        allow = set(DEFAULT_LIVE_ALLOWED)
     out: set = set()
     if not isinstance(report, dict):
         return out

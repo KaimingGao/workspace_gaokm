@@ -75,7 +75,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 
 配置写在 `execution.rebalance_timing.rank_lots`（仍认旧键 `path_matrix`）。
 
-观察池还可按枢纽「观察池分档」A/B/C 收缩宇宙（`/replay` 勾选，同步 live 闸）。只影响 **live / 回测 rank_lots 新开/加**；已持仓仍可卖/清。回测天数仍用独立 lookback。**做 T 不套分档**（只在已持底仓上 overlay；v6 估 ĉ / 选腿不吃 ŷ_oo）。未映射票在未选满三档时不进新买。
+观察池还可按枢纽「观察池分档」A/B/C 收缩宇宙（`/replay` 勾选，同步 live 闸）。**新开/加**只进允许档；**已持仓掉出允许档 → live 硬清仓**（理由如「可预测性非 A 档 清仓」）。回测天数仍用独立 lookback。**做 T 不套分档**（只在已持底仓上 overlay；v6 估 ĉ / 选腿不吃 ŷ_oo）。未映射票在未选满三档时不进新买。
 
 ---
 
@@ -87,7 +87,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 
 1. 信息集：窗口截至**昨收**，报价用**今开**（不把今日收盘喂进特征）。过热（mom5≥10% 等）与 live `score_stock` 一样**仍算当日 ŷ**，只标 tip（`mom_chase_risk` / overheat）；**不拦开/加**。历史回测不得把过热票踢出打分名单，否则已持仓明细预估值会冻在最后一天。
 2. `ranking`：`w_oo × ((ŷ_oo+1)/(1+rot)−1) + w_oc × ((1+ŷ_τc)(1+w_co·ŷ_co)−1)`，`rot = price(τ)/open[T]−1`。两项都在 **τ→open[T+1]**；ŷ_oo 做几何剩余，ŷ_τc 已是 τ→close，不再整段减 rot。09:30 且成交价=开盘时 rot=0，左边退回 ŷ_oo。真实 label = `(open[T+1]−price(τ))/open[T]`。隔夜几何复合仍在 ŷ_τc 项里；净收益=落盘百分点÷100。缺 `y_spec_tau` 的旧行才退回开盘基准融合再减 rot。
-3. 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖手数）。过热不因此清仓。
+3. 已持仓且未过入场、缺 ranking、hard_reject、或 live 分档掉出允许档 → 清仓（T+1 可卖手数）。过热不因此清仓。
 4. 门槛1 ∪ 门槛2 过入场的票按分数买（live 受观察池容量与 `holdings_mv_cap`；历史回测面向观察池全名单、不套市值帽）：建仓或加仓。
 5. ranking &gt; rank强 → lot_strong_amount，否则 lot_base_amount（live 与回测同一对；缺省 2 万 / 1 万）。按成交价换算整手；不够一手则买一手。买不下则缩到整百，最少一手。
 6. 若缩到一手仍使现金不够（含手续费）→ 跳过该买。

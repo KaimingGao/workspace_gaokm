@@ -67,7 +67,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-score-backend-field"
-          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合，写入 oo/tc/co_tree_model.json）。缺模型的头回退 Ridge。不改交易执行。"
+          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank 旁路：成交明细 rank=当日截面 1..n 名次（1=最高），不进 ranking。"
         >
           <span class="quant-pro-field-label">ŷ头</span>
           <select id="quant-score-backend">
@@ -77,12 +77,12 @@
         </label>
         <fieldset
           class="platform-field quant-pro-field replay-lookback-field replay-pred-tier-field"
-          title="复用研究枢纽「观察池分档」过滤宇宙；勾选同步到 live 调仓。回测天数仍用左侧「窗口」（与 Holdout 独立）。须先跑枢纽分档。不勾=回测与 live 均不过滤。"
+          title="复用研究枢纽「观察池分档」过滤宇宙；勾选同步到 live 调仓（掉出允许档则清仓）。回测天数仍用左侧「窗口」。须先跑枢纽分档。不勾=回测与 live 均不过滤。"
         >
           <span class="quant-pro-field-label">分档</span>
           <span class="replay-fit-tier-checks" id="quant-pred-tier-checks">
             <label><input type="checkbox" id="quant-pred-tier-a" value="A" checked /> A</label>
-            <label><input type="checkbox" id="quant-pred-tier-b" value="B" checked /> B</label>
+            <label><input type="checkbox" id="quant-pred-tier-b" value="B" /> B</label>
             <label><input type="checkbox" id="quant-pred-tier-c" value="C" /> C</label>
           </span>
         </fieldset>

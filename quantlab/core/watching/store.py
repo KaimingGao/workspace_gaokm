@@ -14,7 +14,7 @@ from core.paths import WATCHING_EXAMPLE_PATH, WATCHING_PATH
 WATCHING_MIN_SIZE = 200
 WATCHING_DEFAULT_SIZE = 300
 WATCHING_MAX_SIZE = 1000
-# 模型拟合宇宙上限（可走 research_universe，宽于观察池）；分钟暖仓 / live 仍只读观察池
+# ŷ_* 拟合请求钳制（观察池上限）；不垫 research_universe。分钟暖仓 / live 只读观察池。
 MODEL_FIT_MAX_SIZE = 1000
 
 

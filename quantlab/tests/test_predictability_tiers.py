@@ -362,7 +362,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertTrue(ok.get("ok"))
                 st = live_tier_status()
                 self.assertTrue(st.get("enabled"))
-                self.assertEqual(st.get("allowed_tiers"), ["A", "B"])
+                self.assertEqual(st.get("allowed_tiers"), ["A"])
 
                 kept, meta = filter_codes_by_predictability_live(
                     ["000001", "000002", "000003", "000099"],
@@ -370,9 +370,11 @@ class TestPredictabilityTiers(unittest.TestCase):
                 )
                 self.assertTrue(meta.get("predictability_live"))
                 self.assertIn("000001", kept)
-                self.assertIn("000002", kept)
-                self.assertIn("000003", kept)
+                self.assertNotIn("000002", kept)
+                self.assertIn("000003", kept)  # 持仓仍进打分，待硬清仓
                 self.assertNotIn("000099", kept)
+                self.assertEqual(meta.get("force_exit_held"), ["000003"])
+                self.assertEqual(meta.get("n_force_exit_held"), 1)
 
                 clear_predictability_tiers_live()
                 st2 = live_tier_status()

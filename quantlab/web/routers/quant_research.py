@@ -278,21 +278,19 @@ def quant_co_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank LambdaRank（影子头）；OOS 对照 Ridge ŷ_oo；不进 live ranking。"""
+    """ŷ_oo_rank LambdaRank（旁路对照；成交明细 rank=1..n；不进 ranking / 买序）。persist 只落盘上次拟合，不重训。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
             holdout_trading_days=body.holdout_trading_days,
-            feature_mode=body.feature_mode,
-            pair_preset=body.pair_preset,
-            top_k=body.top_k,
-            bottom_k=body.bottom_k,
             topk_track=body.topk_track,
+            ndcg_k=body.ndcg_k,
             l2=body.l2,
             backend=body.backend,
             persist=body.persist,
             note=body.note,
+            watching_tier_a_only=body.watching_tier_a_only,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -300,7 +298,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
 @router.get("/api/quant/oo-rank/model")
 
 def quant_oo_rank_model() -> Dict[str, Any]:
-    """读取已落盘的 ŷ_oo_rank 影子模型。"""
+    """读取 ŷ_oo_rank 研究台：优先上次拟合草稿，否则已落盘影子。"""
     try:
         return deps.quant.get_oo_rank_model()
     except Exception as e:
@@ -347,7 +345,7 @@ def quant_research_universe_predictability_tiers(
             head=str(head or "oo"),
             a_hit=float(a_hit),
             b_hit=float(b_hit),
-            lookback=max(40, min(int(lookback or 120), 700)),
+            lookback=max(100, min(int(lookback or 120), 1000)),
             persist=True,
         )
         if isinstance(rep, dict):

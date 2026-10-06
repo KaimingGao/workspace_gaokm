@@ -382,7 +382,7 @@ export function installBacktest(q) {
       const tierBit = predOn ? ` · 分档${predT}` : "";
       const psBit = p.price_space_gate === false ? " · 日分价关" : "";
       const role = String(p.score_model_role || "").toLowerCase() === "live" ? "执行" : "研究";
-      const head = String(p.score_backend || "").toLowerCase() === "tree" ? "Tree" : "Ridge";
+      const head = scoreBackendLabel(p.score_backend);
       return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${role} · ${head} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
@@ -1022,6 +1022,11 @@ export function installBacktest(q) {
     el.value = String(role).toLowerCase() === "live" ? "live" : "research";
   }
 
+  function scoreBackendLabel(raw) {
+    const v = String(raw || "").toLowerCase();
+    return v === "tree" ? "Tree" : "Ridge";
+  }
+
   function readScoreBackend(id) {
     const el = document.getElementById(id);
     const v = String((el && el.value) || "ridge").toLowerCase();
@@ -1574,7 +1579,7 @@ export function installBacktest(q) {
         ? String(Number(initial_cash) / 10000).replace(/\.0$/, "")
         : "20";
       const roleLbl = score_model_role === "live" ? "执行" : "研究";
-      const headLbl = score_backend === "tree" ? "Tree" : "Ridge";
+      const headLbl = scoreBackendLabel(score_backend);
       const tierBit = use_predictability_tiers
         ? `分档${(predictability_tiers || []).join("") || "AB"}`
         : "";
@@ -1616,7 +1621,7 @@ export function installBacktest(q) {
         lot_strong_amount,
         use_predictability_tiers: !!use_predictability_tiers,
         predictability_tiers: use_predictability_tiers
-          ? predictability_tiers || ["A", "B"]
+          ? predictability_tiers || ["A"]
           : null,
         holdout_trading_days: use_predictability_tiers
           ? holdout_trading_days
@@ -2218,7 +2223,7 @@ export function installBacktest(q) {
   initExecutionRuleForms()
     .then(() => {
       const restored = restoreReplayDeskPrefs();
-      // 无本地偏好时也按当前勾选同步 live（默认 A+B）
+      // 无本地偏好时也按当前勾选同步 live（默认 A）
       if (!restored) syncLivePredTiersFromDesk();
     })
     .catch(() => {});

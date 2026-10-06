@@ -1258,28 +1258,20 @@ score_stock(code) 续——
 
 分钟 `ret_open_to_tau` 不进 ŷ_co（训练列与打分都丢掉；τ 头仍用）。
 
-### 4.3b ŷ_oo_rank（影子 pairwise LTR · 不进决策）
+### 4.3b ŷ_oo_rank（LambdaRank · 旁路对照）
 
-线性 RankNet：按日观察池对 `y_oo = open[T+1]/open[T]−1` 采 Top–Bottom pair，学相对分 `y_oo_rank = β·z`。
-特征在 raw `sub_scores` 上可挂日截面 `*_cs_rank` / `*_cs_zscore`，由 `feature_mode` 消融。
+LightGBM LambdaRank：按日观察池对 `y_oo = open[T+1]/open[T]−1` 整日分组学相对分 `s = Booster(x)`，目标函数 NDCG。
+特征与 ŷ_oo 同口径：原始 `sub_scores`（fit_lambdarank 内部做样本内全局 z-score）；不挂日截面 cs_*。
+相对分 `s` 经**当日观察池截面**编成整数名次 `y_oo_rank ∈ 1..n`（**1=相对分最高**），写入成交明细最右列 **rank**；原始分保留在 `y_oo_rank_score`。
+**不**代入 `ranking`；**不**改买序。
 
 | | |
 |--|--|
-| 训练 | `POST /api/quant/oo-rank` → `oo_rank_pairwise_model.json`（可选 persist；研究套 sidecar） |
-| 特征 | `feature_mode`：`raw`（默认；消融矩阵最优）· `cs_rank` · `cs_z` · `raw_cs`；批打分 `apply_oo_rank_scores` 同池挂 cs_* |
-| 采样 | `pair_preset`：`wide`（头尾约 35%，绝对下限 48）· `topk_focus`（约 15%，下限 20，`min_abs_gap=0.5`）；+ 随机序对；单日 pair 上限 5000 |
-| Holdout | 默认 **20** 交易日（短于 20 噪声大；UI 取 `max(20, 页顶 Holdout)`） |
-| OOS | 日截面 Spearman / TopK overlap / pair accuracy；对照同窗 Ridge ŷ_oo（`shadow_track`）；报告含 `feature_meta` |
-| 回测 | `paper_replay` 有模型时透传 `y_oo_rank`；**不**改 `ranking` / 入场 |
-| 边界 | 影子对照；不进 live `rank_lots` |
-
-**推进闸门**（连续 ≥2 段互不重叠 holdout，各 ≥20 测日，同时满足才考虑中性标签 / LGBM；否则维持影子）：
-
-- `pair_accuracy ≥ 0.52`
-- `spearman > Ridge` 且（`spearman > 0` 或 ΔSpearman ≥ +0.02）
-- `topk_mean_y_oo` 不低于 Ridge，且不持续大幅为负
-
-消融矩阵脚本：`scripts/run_oo_rank_ablation.py`（`feature_mode` × `pair_preset`）。
+| 训练宇宙 | 默认**整观察池**；勾选「只训 A 档」则只留可预测性 A 且仍在观察池内（须先跑分档） |
+| 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
+| 训练 | `POST /api/quant/oo-rank` 拟合写 last report；人审「落盘影子」只把上次拟合写入 `oo_rank_pairwise_model.json`（及研究套 sidecar），不重训 |
+| 回测 / live | 有模型时先打相对分，再按当日截面编名次写入 `y_oo_rank`；成交明细 **rank** 旁路对照。买序与入场仍走融合 ranking（Ridge / Tree ŷ头） |
+| OOS | 日截面 Spearman / TopK overlap / **NDCG@K**；对照同窗 Ridge ŷ_oo |
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_pairwise.py`。
 

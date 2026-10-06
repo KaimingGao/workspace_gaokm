@@ -623,6 +623,11 @@ export function fillPathMatrixForm(root, execution) {
     const v = String(pm.fill_clock).replace("：", ":").trim().slice(0, 5);
     if (clockEl.querySelector(`option[value="${v}"]`)) clockEl.value = v;
   }
+  const backendEl = document.getElementById("quant-score-backend");
+  if (backendEl && pm.score_backend) {
+    const bv = String(pm.score_backend).toLowerCase();
+    backendEl.value = bv === "tree" ? "tree" : "ridge";
+  }
   let lotBase = clampLotAmount(pm.lot_base_amount, 10000);
   let lotStrong = clampLotAmount(
     pm.lot_strong_amount,
@@ -739,6 +744,11 @@ export function collectPathMatrixForm(root) {
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && clockEl.value) {
     lots.fill_clock = String(clockEl.value).replace("：", ":").trim().slice(0, 5);
+  }
+  const backendEl = document.getElementById("quant-score-backend");
+  if (backendEl && backendEl.value) {
+    const bv = String(backendEl.value).toLowerCase();
+    lots.score_backend = bv === "tree" ? "tree" : "ridge";
   }
   return {
     lock: true,

@@ -2,8 +2,9 @@
 
 - 观察池 ``watching``：默认 300、硬顶 ``WATCHING_MAX_SIZE``=1000；分钟暖仓、live 打分、ŷ_* 拟合（实际只数=观察池）
 - 模型拟合上限 ``MODEL_FIT_MAX_SIZE``（默认 1000）：请求钳制，不从研究宇宙垫票
-- 研究宇宙 ``research_universe``：可更大，仅日线研究（LambdaRank / Alpha158 OOS 等）
-  非空时日线研究优先用本名单；空则回退观察池。
+- 研究宇宙 ``research_universe``：可更大，仅日线研究脚本（Alpha158 OOS 等）
+  非空时这些脚本优先用本名单；空则回退观察池。
+  ŷ_* 枢纽拟合（含 ŷ_oo_rank）只读观察池，不垫本名单。
 """
 
 from __future__ import annotations
@@ -28,8 +29,9 @@ def default_research_universe() -> Dict[str, Any]:
         "codes": [],
         "max_size": RESEARCH_UNIVERSE_MAX_SIZE,
         "note": (
-            "日线研究宇宙（可宽于观察池）。非空时 oo_rank / Alpha158 等日线拟合优先用此名单；"
-            "空则回退观察池。分钟暖仓与 live 仍只读 watching，勿把宽名单塞进观察池。"
+            "日线研究宇宙（可宽于观察池）。非空时 Alpha158 等研究脚本优先用此名单；"
+            "空则回退观察池。ŷ_* 枢纽拟合（含 ŷ_oo_rank）只读 watching。"
+            "分钟暖仓与 live 仍只读 watching，勿把宽名单塞进观察池。"
         ),
     }
 

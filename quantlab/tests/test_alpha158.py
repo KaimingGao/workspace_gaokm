@@ -288,12 +288,15 @@ def test_alpha158_day_panel_e2e():
         min_history=80,
         min_names=2,
         max_window=70,
-        feature_mode="raw",
     )
     assert len(days) > 0
-    # 第一天面板里至少一只票有 raw_alpha158_KMID
     first = days[0]
-    has_alpha158 = any("raw_alpha158_KMID" in (x or {}) for x in first["xs"])
+    names = list(first.get("names") or [])
+    X = first.get("X")
+    has_alpha158 = "raw_alpha158_KMID" in names
+    if has_alpha158 and X is not None:
+        j = names.index("raw_alpha158_KMID")
+        has_alpha158 = bool((X[:, j] == X[:, j]).any())  # 有限值；NaN != NaN
     assert has_alpha158, "面板中未出现 raw_alpha158_KMID 字段"
 
 

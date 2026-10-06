@@ -1,6 +1,6 @@
-"""跑一轮 oo_rank pairwise 影子头历史对照：RankNet vs Ridge ŷ_oo。
+"""跑一轮 oo_rank LambdaRank 旁路对照：LambdaRank vs Ridge ŷ_oo。
 
-对比 feature_mode: raw / cs_rank / cs_z / raw_cs
+特征与 ŷ_oo 同口径：原始 sub_score。
 标签: excess_mode=index（扣指数后的超额收益）
 
 用法: python scripts/run_oo_rank_shadow.py
@@ -54,21 +54,19 @@ def load_index(lookback: int = 250):
         return None
 
 
-def run_one(stock_bars, index_bars, day_panels, feature_mode: str, excess_mode: str = "index"):
+def run_one(stock_bars, index_bars, day_panels, excess_mode: str = "index"):
     print(f"\n{'=' * 70}")
-    print(f"  feature_mode={feature_mode}, excess_mode={excess_mode}")
+    print(f"  excess_mode={excess_mode}")
     print(f"{'=' * 70}")
 
     track = compare_oo_rank_shadow_track(
         stock_bars,
         holdout_trading_days=20,
-        top_k=30,
-        bottom_k=30,
         topk_track=10,
+        ndcg_k=10,
         l2=1.0,
         index_bars=index_bars,
         excess_mode=excess_mode,
-        feature_mode=feature_mode,
         day_panels=day_panels,
     )
 
@@ -92,15 +90,11 @@ def run_one(stock_bars, index_bars, day_panels, feature_mode: str, excess_mode: 
 
     print(f"  训练天数: {track.get('n_train_days')}, 验证天数: {track.get('n_test_days')}")
     print()
-    print(f"  {'':28s}  {'RankNet':>10s}  {'Ridge':>10s}  {'Δ':>10s}")
+    print(f"  {'':28s}  {'LambdaRank':>10s}  {'Ridge':>10s}  {'Δ':>10s}")
     print(f"  {'Spearman IC':28s}  {_f(rank_m.get('spearman')):>10s}  {_f(ridge_m.get('spearman')):>10s}  {_f(track.get('delta_spearman')):>10s}")
+    print(f"  {'NDCG@10':28s}  {_f(rank_m.get('ndcg_at_k'), fmt='', w=4):>10s}  {_f(ridge_m.get('ndcg_at_k'), fmt='', w=4):>10s}  {_f(track.get('delta_ndcg_at_k'), fmt='', w=4):>10s}")
     print(f"  {'Top-10 Overlap':28s}  {_f(rank_m.get('topk_overlap'), fmt='', w=4):>10s}  {_f(ridge_m.get('topk_overlap'), fmt='', w=4):>10s}  {_f(track.get('delta_topk_overlap'), fmt='', w=4):>10s}")
-    print(f"  {'Pair Accuracy':28s}  {_f(rank_m.get('pair_accuracy'), fmt='', w=4):>10s}  {_f(ridge_m.get('pair_accuracy'), fmt='', w=4):>10s}  {'':>10s}")
     print(f"  {'Top-10 均值收益(%)':28s}  {_f(rank_m.get('topk_mean_y_oo')):>9s}%  {_f(ridge_m.get('topk_mean_y_oo')):>9s}%  {_f(track.get('delta_topk_mean_y_oo')):>9s}%")
-
-    n_pairs = (track.get("return_model") or {}).get("n_pairs")
-    if n_pairs:
-        print(f"  训练 pairs 总数: {n_pairs}")
 
     return track
 
@@ -115,7 +109,6 @@ def main():
     index_bars = load_index(lookback)
     excess_mode = "index" if index_bars else "none"
 
-    # 面板只建一次（raw 模式，含原始 sub_score；cs_* 由各 mode 按需 enrich）
     print("\n构建日截面面板（raw，一次复用）...")
     day_panels = build_oo_rank_day_panels(
         stock_bars,
@@ -124,49 +117,36 @@ def main():
         min_names=8,
         index_bars=index_bars,
         excess_mode=excess_mode,
-        feature_mode="raw",
     )
     print(f"  面板天数: {len(day_panels)}")
     if day_panels:
-        n_feats = len(day_panels[0].get("xs", [{}])[0])
+        names = list(day_panels[0].get("names") or [])
+        n_feats = len(names)
         print(f"  每票特征数(raw): {n_feats}")
 
-    modes = ["raw", "cs_rank", "cs_z", "raw_cs"]
-    results = {}
+    track = run_one(stock_bars, index_bars, day_panels, excess_mode)
 
-    for mode in modes:
-        # 传 raw 面板副本；fit_oo_rank_report 内部按 feature_mode enrich
-        raw_copy = [
-            {
-                "date": d.get("date"),
-                "codes": list(d.get("codes") or []),
-                "xs": [dict(x) for x in (d.get("xs") or [])],
-                "ys": list(d.get("ys") or []),
-            }
-            for d in day_panels
-        ]
-        track = run_one(stock_bars, index_bars, raw_copy, mode, excess_mode)
-        results[mode] = track
+    if track is None:
+        return
 
     # 汇总对比
     print(f"\n{'=' * 70}")
-    print("  汇总: RankNet Top-10 均值收益(%) 对比")
+    print("  汇总: LambdaRank Top-10 均值收益(%)")
     print(f"{'=' * 70}")
-    for mode, track in results.items():
-        if track is None:
-            print(f"  {mode:10s}  FAILED")
-            continue
-        oos = track.get("oos") or {}
-        rank_m = oos.get("oo_rank") or {}
-        ridge_m = oos.get("ridge_oo_baseline") or {}
-        rv = rank_m.get("topk_mean_y_oo")
-        iv = ridge_m.get("topk_mean_y_oo")
-        print(f"  {mode:10s}  RankNet={rv:+.4f}%  Ridge={iv:+.4f}%  Δ={(rv-iv):+.4f}%" if rv is not None and iv is not None else f"  {mode:10s}  N/A")
+    oos = track.get("oos") or {}
+    rank_m = oos.get("oo_rank") or {}
+    ridge_m = oos.get("ridge_oo_baseline") or {}
+    rv = rank_m.get("topk_mean_y_oo")
+    iv = ridge_m.get("topk_mean_y_oo")
+    if rv is not None and iv is not None:
+        print(f"  LambdaRank={rv:+.4f}%  Ridge={iv:+.4f}%  Δ={(rv-iv):+.4f}%")
+    else:
+        print("  N/A")
 
     # 保存
     out_path = os.path.join(ROOT, "data", "oo_rank_shadow_result.json")
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+        json.dump(track, f, ensure_ascii=False, indent=2, default=str)
     print(f"\n  结果已保存: {out_path}")
 
 
