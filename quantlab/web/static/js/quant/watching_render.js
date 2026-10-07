@@ -392,6 +392,7 @@ export function watchingScoreDetail(it) {
     realized_t1_to_tau: it && it.realized_t1_to_tau,
     score_rem: it && (it.score_rem != null ? it.score_rem : it.predicted_score_rem),
     event_prior: eventPrior,
+    fill_clock: (it && it.fill_clock) || null,
     as_of_tau: (it && (it.as_of_tau || it.rem_tau)) || null,
     rem_tau: (it && it.rem_tau) || null,
     y_spec_tau: (it && it.y_spec_tau) || null,

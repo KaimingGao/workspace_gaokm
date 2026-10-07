@@ -1044,7 +1044,8 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
     """按做T时钟拆画像：各钟 ŷ_τc / 窗头对同钟或全日标签。
 
     优先 ``close_band_scan``（11:00 前每根 5m 前缀 ŷ）；无扫描时回退破带轮
-    ``t0_slot_results``。样本与日级对齐；缺该钟 ŷ 计 flat。越晚前缀越长，命中通常上升。
+    ``t0_slot_results``。样本与日级对齐；缺该钟 ŷ 计 flat。
+    τ→close 口径下晚钟 hit 不因开→τ 机械垫高；分钟对照看 IC。
     """
     from collections import OrderedDict
 

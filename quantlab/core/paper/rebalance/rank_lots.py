@@ -480,6 +480,60 @@ def get_rank_lot_cfg(
     }
 
 
+def _align_open_tc_to_fill(
+    item: dict,
+    *,
+    rot: Optional[float],
+) -> dict:
+    """盘中成交但 ŷ_τc 仍是开盘 Z：把 open 标签几何映到 τ→close，并写入 rot。
+
+    前缀已重算（``prefix_causal`` / 带前缀特征的 fallback）则不动。
+    幂等：始终从 ``_y_τc_before_fill_align`` 映到当前 rot，避免 ranking_pct_of
+    被持仓明细等路径二次调用时反复 remaining。
+    """
+    from core.signal.yhat_geom import remaining_at_tau
+    from core.signal.yhat_windows import pick_y_τc, write_y_τc
+
+    if not isinstance(item, dict):
+        return item
+    src = str(item.get("_score_source") or "")
+    feats0 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+    if src == "prefix_causal" or (
+        src == "prefix_open_fallback"
+        and feats0.get("ret_open_to_tau") is not None
+    ):
+        return item
+    if rot is None or abs(float(rot)) < 1e-9:
+        return item
+    raw = item.get("_y_τc_before_fill_align")
+    if raw is None:
+        raw = pick_y_τc(item)
+        if raw is None:
+            return item
+        item["_y_τc_before_fill_align"] = float(raw)
+    else:
+        try:
+            raw = float(raw)
+        except (TypeError, ValueError):
+            return item
+    prev_rot = item.get("_fill_rot_aligned")
+    try:
+        if prev_rot is not None and abs(float(prev_rot) - float(rot)) < 1e-9:
+            return item
+    except (TypeError, ValueError):
+        pass
+    y_rem = remaining_at_tau(raw, rot)
+    if y_rem is None:
+        return item
+    write_y_τc(item, y_rem)
+    feats = dict(feats0) if feats0 else {}
+    feats["ret_open_to_tau"] = float(rot)
+    item["features_tau"] = feats
+    item["ret_open_to_tau"] = float(rot)
+    item["_fill_rot_aligned"] = float(rot)
+    return item
+
+
 def ranking_pct_of(
     item: Optional[dict],
     cfg: Optional[dict] = None,
@@ -489,7 +543,7 @@ def ranking_pct_of(
 ) -> Optional[float]:
     """调仓 ranking 百分点。
 
-    τc（行上有 y_spec）：已在 τ→open[T+1]，直接透传。
+    τc（行上有 y_spec）：用成交价 rot 把 ŷ_oo 映到 τ→open[T+1]，ŷ_τc 已是 τ→close。
     缺 y_spec 的旧行：开盘基准融合再减 (price(τ)/open−1)。
 
     有 ŷ_oo/ŷ_oc 一律现算，不信落盘 ``ranking`` / ``y_fuse``（旧戳可能是 ŷ_trade）。
@@ -500,6 +554,7 @@ def ranking_pct_of(
         fusion_weights_from_cfg,
         ranking_pct,
         remaining_ranking_pct,
+        ret_open_to_tau_pct,
         tau_model_is_open_to_close,
     )
 
@@ -508,13 +563,6 @@ def ranking_pct_of(
     w_oo, w_τc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
     is_oc = tau_model_is_open_to_close(item)
-    fused = ranking_pct(item, w_oo=w_oo, w_τc=w_τc, w_co=w_co)
-    if fused is None:
-        fused = _f(item.get("ranking") or item.get("ranking_pct"))
-    if fused is None:
-        fused = _f(item.get("y_fuse"))
-    if fused is None:
-        return None
     o = _f(open_px)
     if o is None or o <= 0:
         o = _f(item.get("day_open"))
@@ -523,6 +571,19 @@ def ranking_pct_of(
         p = _f(item.get("rebalance_px"))
     if p is None or p <= 0:
         p = _f(item.get("price_tau"))
+    rot = ret_open_to_tau_pct(o, p)
+    work = item
+    if not is_oc and rot is not None:
+        work = _align_open_tc_to_fill(item, rot=rot)
+    fused = ranking_pct(
+        work, w_oo=w_oo, w_τc=w_τc, w_co=w_co, ret_open_to_tau=rot
+    )
+    if fused is None:
+        fused = _f(work.get("ranking") or work.get("ranking_pct"))
+    if fused is None:
+        fused = _f(work.get("y_fuse"))
+    if fused is None:
+        return None
     return remaining_ranking_pct(fused, open_px=o, price_tau=p, is_oc_model=is_oc)
 
 

@@ -486,6 +486,41 @@ class TestNextOpenCommit(unittest.TestCase):
         self.assertEqual(paper.get("cash"), 1.0)
         self.assertEqual(paper.get("holdings"), [])
 
+    def test_preopen_stages_until_continuous(self):
+        """09:25–09:30 有调仓腿则挂今开单，不改持仓。"""
+        from core.paper.open_fill import apply_next_open_commit
+
+        original = self._paper()
+        mutated = {**self._paper(), "cash": 1.0, "holdings": []}
+        result = {
+            "ok": True,
+            "sell_trades": [
+                {
+                    "side": "sell",
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "price": 1500.0,
+                }
+            ],
+            "buy_trades": [],
+        }
+        paper, out = apply_next_open_commit(
+            original, mutated, result, now=_dt(9, 25), dry_run=False
+        )
+        self.assertEqual(out["fill_action"], "staged")
+        self.assertTrue((paper.get("pending_orders") or {}).get("live_preopen"))
+        self.assertEqual(len(paper.get("holdings") or []), 1)
+        self.assertAlmostEqual(float(paper.get("cash") or 0), 100000.0)
+        self.assertEqual(
+            str((paper.get("pending_orders") or {}).get("target_fill_date") or "")[:10],
+            "2026-08-21",
+        )
+        _, at_open = apply_next_open_commit(
+            original, mutated, result, now=_dt(9, 30), dry_run=False
+        )
+        self.assertEqual(at_open["fill_action"], "immediate")
+
     def test_open_window_without_pending_uses_quote(self):
         from core.paper.open_fill import apply_next_open_commit
 

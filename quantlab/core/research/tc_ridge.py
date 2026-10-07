@@ -389,7 +389,11 @@ def _oos_by_tau(
     ys: List[float],
     metas: List[dict],
 ) -> Dict[str, Any]:
-    """按决策钟 τ 分层 OOS（τ→close 标签下，τ 越晚 hit 通常越高——已实现开→τ 垫高）。"""
+    """按决策钟 τ 分层 OOS。
+
+    τ→close 标签不含开→τ，晚钟 hit 不会被已实现路径机械垫高（旧 OC 口径才有）。
+    人审看各档 IC，勿把 by_tau hit 曲线当越好。
+    """
     buckets: Dict[str, Dict[str, List[Any]]] = {}
     for p, y, m in zip(preds, ys, metas):
         tau = str((m or {}).get("tau") or "open").strip() or "open"

@@ -492,6 +492,69 @@ class TestPlanRankLotDay(unittest.TestCase):
             2.0,
         )
 
+    def test_tc_ranking_uses_fill_rot_not_stale_open_features(self):
+        """τc 行：成交价 rot 必须进 ranking；开盘 Z 的 ŷ_τc 要映到 τ→close。"""
+        from core.paper.rebalance.rank_lots import ranking_pct_of
+        from core.signal.yhat_geom import remaining_at_tau
+        from core.signal.yhat_windows import ret_open_to_tau_pct
+
+        item = {
+            "y_oo": 2.0,
+            "y_τc": 1.0,
+            "y_spec_tau": {
+                "formula": "close[T]/price[τ]-1",
+                "horizon_mode": "tau_to_close",
+                "tau": "open",
+            },
+            "features_tau": {"ret_open_to_tau": 0.0},
+        }
+        cfg = _cfg(fusion_w_oo=0.5, fusion_w_oc=0.5, fusion_w_co=0.0)
+        open_px, price_tau = 100.0, 101.0
+        rot = ret_open_to_tau_pct(open_px, price_tau)
+        y_oo_rem = remaining_at_tau(2.0, rot)
+        y_tc_rem = remaining_at_tau(1.0, rot)
+        expect = 0.5 * float(y_oo_rem) + 0.5 * float(y_tc_rem)
+        got = ranking_pct_of(item, cfg, open_px=open_px, price_tau=price_tau)
+        self.assertAlmostEqual(got, expect, places=5)
+        self.assertNotAlmostEqual(got, 1.5, places=3)
+        # 二次调用不得再 remaining（持仓明细也会再走 ranking_pct_of）
+        got2 = ranking_pct_of(item, cfg, open_px=open_px, price_tau=price_tau)
+        self.assertAlmostEqual(got2, expect, places=5)
+        self.assertAlmostEqual(float(item["y_τc"]), float(y_tc_rem), places=5)
+        # 前缀已重算：ŷ_τc 不再二次 remaining
+        item_pref = {
+            "y_oo": 2.0,
+            "y_τc": 0.4,
+            "y_spec_tau": item["y_spec_tau"],
+            "_score_source": "prefix_causal",
+            "features_tau": {"ret_open_to_tau": rot},
+        }
+        expect_pref = 0.5 * float(y_oo_rem) + 0.5 * 0.4
+        got_pref = ranking_pct_of(
+            item_pref, cfg, open_px=open_px, price_tau=price_tau
+        )
+        self.assertAlmostEqual(got_pref, expect_pref, places=5)
+
+    def test_apply_prefix_accepts_open_fallback_with_feats(self):
+        from core.backtest.paper_replay import _apply_prefix_oc
+
+        item = {
+            "stock_code": "600519",
+            "y_oo": 0.8,
+            "predicted_score": 0.8,
+            "predicted_score_eod": 0.8,
+            "y_τc": 0.2,
+        }
+        live = {
+            "_score_source": "prefix_open_fallback",
+            "y_τc": -0.5,
+            "features_tau": {"ret_open_to_tau": 1.2},
+        }
+        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
+        self.assertTrue(_apply_prefix_oc(item, live, cfg))
+        self.assertAlmostEqual(float(item["y_τc"]), -0.5, places=6)
+        self.assertAlmostEqual(float(item["y_oo"]), 0.8, places=6)
+
     def test_ranking_remaining_maps_open_to_price_tau(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day, ranking_pct_of
 

@@ -1,8 +1,8 @@
 """Live 日线 PIT：ŷ_oo 周期 = T 开盘 → T+1 开盘，今收不进 X。
 
 盘中去掉未完成的 T 日 K。收盘后仍停在 T−1：周期内拟合的是 T 日 10:00 信息集，
-不把 ŷ_oo 滚到 T+1→T+2。下一交易日 09:30 才换 T。
-盘中 ŷ_trade 可融 τ；时钟 ``eod_next``（15:05 后）给做 T 闸，不改变 ŷ_oo 目标。
+不把 ŷ_oo 滚到 T+1→T+2。下一交易日 09:25（今开已定）才换 T；09:25 前仍是上一交易日。
+回测成交钟仍是 09:30–10:00。盘中 ŷ_trade 可融 τ；时钟 ``eod_next``（15:05 后）给做 T 闸，不改变 ŷ_oo 目标。
 """
 
 
@@ -13,6 +13,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 CN_TZ = timezone(timedelta(hours=8))
+# 集合竞价 09:25 定今开；连续竞价 09:30 才成交。Live 的 T 从 09:25 起。
+LIVE_SESSION_OPEN = (9, 25)
+CONTINUOUS_OPEN = (9, 30)
 _SESSION_CLOSE = (15, 5)
 
 
@@ -45,14 +48,14 @@ def asof_session_final(asof: str, *, now: Optional[datetime] = None) -> bool:
 
 
 def clock_dual_score_window(*, now: Optional[datetime] = None) -> str:
-    """无「今日报价日」时：交易日 09:30–15:05 → ``intraday``，否则 ``eod_next``。
+    """无「今日报价日」时：交易日 09:25–15:05 → ``intraday``，否则 ``eod_next``。
 
     必须看 **日历今天** 是否开市，不能用 ``resolve_session_date`` 回退到上周五，
-    否则周末白天会被误判成盘中。
+    否则周末白天会被误判成盘中。09:25 前今开未定，仍算上一交易日。
     """
     n = shanghai_now(now)
     t = (n.hour, n.minute)
-    in_hours = (9, 30) <= t < _SESSION_CLOSE
+    in_hours = LIVE_SESSION_OPEN <= t < _SESSION_CLOSE
     today = n.strftime("%Y-%m-%d")
     trading_today = n.weekday() < 5
     try:
@@ -67,10 +70,10 @@ def clock_dual_score_window(*, now: Optional[datetime] = None) -> str:
 
 
 def oo_cycle_date(*, now: Optional[datetime] = None) -> str:
-    """当前 ŷ_oo / 调仓 10:00 分的 T 日。
+    """当前 ŷ_oo / 调仓的 T 日。
 
-    交易日 09:30 起（含收盘后当晚）T=今日；次日 09:30 前仍是上一交易日。
-    周末 / 假日回退到最近已过交易日。
+    交易日 09:25 起（含收盘后当晚）T=今日；次日 09:25 前仍是上一交易日。
+    周末 / 假日回退到最近已过交易日。回测成交钟不跟这个边界。
     """
     n = shanghai_now(now)
     today = n.strftime("%Y-%m-%d")
@@ -82,7 +85,7 @@ def oo_cycle_date(*, now: Optional[datetime] = None) -> str:
         trading_today = bool(is_trading_day(today))
     except Exception:  # noqa: BLE001
         logger.debug("oo_cycle_date trading-day check failed", exc_info=True)
-    if trading_today and t >= (9, 30):
+    if trading_today and t >= LIVE_SESSION_OPEN:
         return today
     try:
         from core.market.calendar import prev_trading_day, resolve_session_date

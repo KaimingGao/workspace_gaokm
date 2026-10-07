@@ -762,6 +762,22 @@ def apply_next_open_commit(
             out["pending_orders"] = leftover
             out["note"] = "开盘窗：隔夜单尚未成交，本次未改仓"
             return paper, out
+        from core.signal.session_pit import CONTINUOUS_OPEN, shanghai_now
+
+        n_open = shanghai_now(now)
+        if (sell_trades or buy_trades) and (n_open.hour, n_open.minute) < CONTINUOUS_OPEN:
+            pending = pending_from_trades(sell_trades, buy_trades, now=now, source=source)
+            pending["live_preopen"] = True
+            stage_pending(paper, pending)
+            out["fill_action"] = "staged"
+            out["pending_orders"] = pending
+            out["staged"] = True
+            out["sell_trades"] = sell_trades
+            out["buy_trades"] = buy_trades
+            out["new_trades"] = buy_trades
+            n_legs = len(pending.get("legs") or [])
+            out["note"] = f"09:25–09:30 已挂 {n_legs} 笔开盘单，连续竞价前按今开成交"
+            return paper, out
         out["fill_action"] = "immediate"
         out["note"] = "开盘窗：无隔夜单，按现价成交"
         return mutated, out

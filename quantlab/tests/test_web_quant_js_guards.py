@@ -1057,7 +1057,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)", trades_js)
         self.assertNotIn("fuse − (price(τ)/open−1)", trades_js)
         self.assertIn("真实 次日开/今日开", trades_js)
-        self.assertIn("真实 收盘/开盘", trades_js)
+        self.assertIn("真实 close/price(τ)−1", trades_js)
+        self.assertIn("`τ=${fillClock}`", trades_js)
         self.assertIn("真实 次日开/今日收", trades_js)
         self.assertIn("真实 —（待次日开）", trades_js)
         self.assertIn("realized_oo", trades_js)
@@ -1069,7 +1070,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             trades_js,
         )
         self.assertIn("ŷ_oo ${fmtScore(yf, { signed: true })}", trades_js)
-        self.assertIn("ŷ_oc ${fmtScore(ytau, { signed: true })}", trades_js)
+        self.assertIn("ŷ_τc ${fmtScore(ytau, { signed: true })}", trades_js)
         self.assertIn("ŷ_co ${fmtScore(yo, { signed: true })}", trades_js)
         self.assertIn(
             "rk != null ? rk * 100 : _numOrNull(r.ranking != null ? r.ranking : r.y_fuse)",
@@ -1472,6 +1473,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("resolveTradeScore(live)", t0_js)
         self.assertNotIn("_t0_lock_trade", t0_js)
         tip_js = self._read("web", "static", "js", "score_tooltip.js")
+        self.assertIn("export function formatTauClockLabel", tip_js)
+        self.assertIn('if (/^open$/i.test(s)) return "09:30"', tip_js)
+        self.assertIn("formatTauClockLabel(raw)", tip_js)
         self.assertIn("ranking · 预估(真实)", tip_js)
         self.assertIn("真实=(open[T+1]−price(τ))/open[T]", tip_js)
         self.assertIn("真实 (open[T+1]−price(τ))/open[T]", tip_js)

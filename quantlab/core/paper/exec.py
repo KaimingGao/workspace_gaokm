@@ -91,7 +91,7 @@ def _quote_open(quote: dict) -> Optional[float]:
 
 
 def _pnl_session_key(now: datetime) -> str:
-    """今日收益的会话日：09:30 前 / 周末仍算上一交易日。
+    """今日收益的会话日：09:25 前 / 周末仍算上一交易日。
 
     不能用日历日。跨日会把当日盘中成交快照当成「昨收账本」，
     仪表盘出现无成交的 -0.04% 这类假亏损。

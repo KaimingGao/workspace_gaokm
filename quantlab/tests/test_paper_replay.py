@@ -2102,7 +2102,21 @@ class TestReplayMinuteFill(unittest.TestCase):
             (close_t / fill - 1.0) * 100.0,
             places=3,
         )
-        self.assertIsNotNone(sim.get("r_hat"))
+        # 成交明细 y_τc 真实值随 fill_clock，不得冻在 close/open。
+        self.assertAlmostEqual(
+            float(sim.get("realized_tau")),
+            (close_t / fill - 1.0) * 100.0,
+            places=3,
+        )
+        daily_open_buy = float(
+            next(b for b in stock_bars["600519"] if b["date"] == buy_day)["open"]
+        )
+        self.assertNotAlmostEqual(fill, daily_open_buy, places=2)
+        self.assertNotAlmostEqual(
+            float(sim.get("realized_tau")),
+            (close_t / daily_open_buy - 1.0) * 100.0,
+            places=2,
+        )
 
     def test_935_skips_when_minute_missing(self):
         stock_bars = {

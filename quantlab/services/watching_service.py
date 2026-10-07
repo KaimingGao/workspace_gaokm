@@ -94,7 +94,14 @@ class WatchingService:
 
         llm = LLMClient()
         if not llm.is_available():
-            return {"ok": False, "analysis": "AI 服务暂不可用，请检查 DASHSCOPE_API_KEY 配置"}
+            detail = (llm.get_last_error() or "").strip()
+            if not llm.api_key:
+                msg = "AI 服务暂不可用：未配置 DASHSCOPE_API_KEY"
+            elif detail:
+                msg = f"AI 服务暂不可用：{detail}"
+            else:
+                msg = "AI 服务暂不可用"
+            return {"ok": False, "analysis": msg}
 
         if sentiment_label == "bullish":
             focus = "重点解读看多的理由"

@@ -58,13 +58,21 @@ class TestSessionPit(unittest.TestCase):
         )
 
     def test_oo_cycle_date_spans_close_until_next_open(self):
-        from core.signal.session_pit import oo_cycle_date
+        from core.signal.session_pit import clock_dual_score_window, oo_cycle_date
 
         self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 18, 10, 0)), "2026-09-18")
         self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 18, 16, 0)), "2026-09-18")
         self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 19, 10, 0)), "2026-09-18")
         self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 21, 8, 0)), "2026-09-18")
+        self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 21, 9, 24)), "2026-09-18")
+        self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 21, 9, 25)), "2026-09-21")
         self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 21, 9, 30)), "2026-09-21")
+        self.assertEqual(
+            clock_dual_score_window(now=datetime(2026, 9, 21, 9, 24)), "eod_next"
+        )
+        self.assertEqual(
+            clock_dual_score_window(now=datetime(2026, 9, 21, 9, 25)), "intraday"
+        )
 
     def test_weekend_keeps_friday_oo_cycle(self):
         from core.signal.session_pit import prepare_eod_bars
@@ -183,7 +191,7 @@ class TestSessionPit(unittest.TestCase):
         self.assertEqual(pit["dual_score_window"], "eod_next")
 
     def test_offline_yesterday_quote_is_eod_next_preopen(self):
-        """次日 09:30 前仍是上一周期；ŷ_oo 不滚。"""
+        """次日 09:25 前仍是上一周期；ŷ_oo 不滚。"""
         from core.signal.session_pit import prepare_eod_bars
 
         bars = [

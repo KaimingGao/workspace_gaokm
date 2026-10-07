@@ -1604,7 +1604,12 @@ def realized_yhat_windows(
     date_maps: Dict[str, Dict[str, dict]],
     date_index: Optional[Dict[str, int]] = None,
 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """事后对照：realized_tau=close/open−1（τ=open 的 ŷ_τc）；realized_on=open[T+1]/close[T]−1（ŷ_co）。realized_cc 仅诊断。不进决策。"""
+    """事后对照窗：返回 (r_cc, r_on, r_tau_open)。
+
+    r_tau_open=close/open−1（仅复合 ŷ_oo 真值）；成交明细 ŷ_τc 真值改用
+    ``stamp_r_tau_on_row`` 的 close/price(τ)−1（随 fill_clock）。
+    r_on=open[T+1]/close[T]−1；r_cc 仅诊断。不进决策。
+    """
     d = str(day or "")[:10]
     c = str(code or "").strip()
     if not d or not c:
@@ -2073,10 +2078,23 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
     """把前缀因果 ŷ_τc 写进开盘行，重算 ranking；ŷ_oo 保持开盘头。
 
     对照头 y_hl 随前缀结果覆盖（缺分则保留开盘 Z）。调仓回测不挂 ŷ_τw / ŷ_τ30/60/90。
+    接纳 ``prefix_causal``，以及已注入前缀小包并重拆 ŷ_τc 的 ``prefix_open_fallback``
+    （否则 fallback 上算好的盘中 ŷ_τc 会被丢掉，09:50 仍用开盘 Z）。
     """
     from core.signal.yhat_windows import pick_y_oo, stamp_window_scores
 
-    if str(live.get("_score_source") or "") != "prefix_causal":
+    src = str(live.get("_score_source") or "")
+    feats = live.get("features_tau") if isinstance(live.get("features_tau"), dict) else {}
+    if src == "prefix_causal":
+        pass
+    elif (
+        src == "prefix_open_fallback"
+        and isinstance(feats, dict)
+        and feats.get("ret_open_to_tau") is not None
+        and (live.get("y_τc") is not None or live.get("predicted_score_τc") is not None)
+    ):
+        pass
+    else:
         return False
     y_oo = pick_y_oo(item)
     y_oo_field = item.get("predicted_score_eod")
@@ -2813,7 +2831,7 @@ def backtest_paper_replay(
         row["n_holdings"] = hold_by_day.get(day)
         row["equity_after"] = equity_by_day.get(day)
         code = str(row.get("stock_code") or "")
-        r_cc, r_on, r_tau = realized_yhat_windows(
+        r_cc, r_on, r_tau_open = realized_yhat_windows(
             code,
             day,
             dates=dates,
@@ -2822,11 +2840,10 @@ def backtest_paper_replay(
         )
         row["realized_cc"] = r_cc
         row["realized_on"] = r_on
-        row["realized_tau"] = r_tau
-        # ŷ_oo 真实 = 次日开/今日开。close/open 与隔夜两头都有才复合。
-        if r_tau is not None and r_on is not None:
+        # ŷ_oo 真实 = 次日开/今日开。用 τ=open 的 close/open 与隔夜复合，勿用盘中 price(τ)。
+        if r_tau_open is not None and r_on is not None:
             row["realized_oo"] = round(
-                ((1.0 + float(r_tau) / 100.0) * (1.0 + float(r_on) / 100.0) - 1.0)
+                ((1.0 + float(r_tau_open) / 100.0) * (1.0 + float(r_on) / 100.0) - 1.0)
                 * 100.0,
                 4,
             )
@@ -2837,6 +2854,11 @@ def backtest_paper_replay(
             daily_bar=(date_maps.get(code) or {}).get(day),
             minute_bars=(minute_maps.get(code) or {}).get(day) or [],
             fill_clock=clock,
+        )
+        # ŷ_τc 真实 = close[T]/price(τ)−1（随 fill_clock）；09:30 时 price(τ)=open。
+        r_tau_clock = _fnum(row.get("r_realized"))
+        row["realized_tau"] = (
+            r_tau_clock if r_tau_clock is not None else r_tau_open
         )
         try:
             from core.signal.yhat_windows import realized_ranking_pct
@@ -2852,6 +2874,12 @@ def backtest_paper_replay(
         row["fusion_w_oo"] = w_oo
         row["fusion_w_oc"] = w_τc
         row["fusion_w_co"] = alpha
+        row["fill_clock"] = clock
+        # tip：open ≡ 09:30；缺钟或仍写 open 时显式落 fill_clock（如 09:30 / 09:50）。
+        asof = str(row.get("as_of_tau") or row.get("rem_tau") or "").strip()
+        if not asof or asof.lower() == "open":
+            row["as_of_tau"] = clock
+            row["rem_tau"] = clock
         return row
 
     sim_trades = [_stamp_day_context(r) for r in _ledger_trades_to_sim(ledger_trades)]

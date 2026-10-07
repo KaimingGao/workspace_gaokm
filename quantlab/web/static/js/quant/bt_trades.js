@@ -330,7 +330,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "10rem",
     num: true,
     sortable: true,
-    title: `${Y_OC_REBALANCE_TITLE} · 预估(真实)：收盘/开盘 · 对照，不进决策`,
+    title: `${Y_OC_REBALANCE_TITLE} · 预估(真实)：close/price(τ)−1 · 对照，不进决策`,
   },
   {
     id: "y_on",
@@ -522,14 +522,38 @@ function _fusionFromReplayParams(params) {
   return { fusion_w_oo: wOo, fusion_w_oc: wOc, fusion_w_co: wCo };
 }
 
+function _fillClockFromDeps(r, deps) {
+  const fromRow = String((r && (r.fill_clock || r.as_of_tau || r.rem_tau)) || "")
+    .trim()
+    .slice(0, 5);
+  if (/^\d{2}:\d{2}$/.test(fromRow)) return fromRow;
+  if (/^open$/i.test(String((r && (r.as_of_tau || r.rem_tau)) || "").trim())) {
+    return "09:30";
+  }
+  const p = (deps && deps.params) || (deps && deps.request) || {};
+  const fromParams = String(p.fill_clock || "")
+    .trim()
+    .slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(fromParams) ? fromParams : "09:30";
+}
+
 function buildLedgerTradeRow(r, i, deps) {
   const fw = _fusionFromReplayParams((deps && deps.params) || (deps && deps.request));
+  const fillClock = _fillClockFromDeps(r, deps);
   r = {
     ...r,
     fusion_w_oo: r.fusion_w_oo != null ? r.fusion_w_oo : fw.fusion_w_oo,
     fusion_w_oc: r.fusion_w_oc != null ? r.fusion_w_oc : fw.fusion_w_oc,
     fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : fw.fusion_w_co,
-    fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : fw.fusion_w_co,
+    fill_clock: r.fill_clock != null ? r.fill_clock : fillClock,
+    as_of_tau:
+      r.as_of_tau && String(r.as_of_tau).trim().toLowerCase() !== "open"
+        ? r.as_of_tau
+        : fillClock,
+    rem_tau:
+      r.rem_tau && String(r.rem_tau).trim().toLowerCase() !== "open"
+        ? r.rem_tau
+        : fillClock,
   };
   const nameByCode = deps.nameByCode || {};
   const { fmtScore, scoreCls } = deps;
@@ -573,8 +597,11 @@ function buildLedgerTradeRow(r, i, deps) {
     .filter(Boolean)
     .join(" · ");
   const tauTip = [
-    ytau != null ? `ŷ_oc ${fmtScore(ytau, { signed: true })}` : "ŷ_oc —",
-    rTau != null ? `真实 收盘/开盘 ${fmtScore(rTau, { signed: true })}` : "真实 —",
+    `τ=${fillClock}`,
+    ytau != null ? `ŷ_τc ${fmtScore(ytau, { signed: true })}` : "ŷ_τc —",
+    rTau != null
+      ? `真实 close/price(τ)−1 ${fmtScore(rTau, { signed: true })}`
+      : "真实 —",
   ]
     .filter(Boolean)
     .join(" · ");

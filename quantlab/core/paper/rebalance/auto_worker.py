@@ -1,6 +1,7 @@
 """Web 内自动调仓后台 worker。
 
-每个交易日仅在已保存 ``fill_clock``～10:00 现价成交一次；过点不补跑、不挂开盘单。
+回测成交钟仍是 ``fill_clock``～10:00（默认 09:30）。Live 在 09:30 这一档提前到 09:25：
+今开已定，先算 ranking；09:30 前挂开盘单，09:30 后按现价成交。过 10:00 不补跑。
 手动预演 / 确认落账与 Worker 共用该窗口。
 开关与 last_run_session 持久化到 data/rebalance_auto_worker.json。
 """
@@ -15,7 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-WINDOW_AFTER = (9, 30)  # 缺配置时的默认起点；实际读 rank_lots.fill_clock
+WINDOW_AFTER = (9, 25)  # 缺配置时的默认起点；09:30 成交钟 live 提前到此刻
 WINDOW_UNTIL = (10, 0)
 TICK_INTERVAL_SEC = 30.0
 IDLE_TICK_INTERVAL_SEC = 60.0
@@ -35,16 +36,23 @@ def rebalance_fill_clock(paper: Optional[dict] = None) -> str:
 
 
 def rebalance_window_after_hm(paper: Optional[dict] = None) -> Tuple[int, int]:
+    """Live 窗起点。成交钟 09:30 时提前到 09:25；更晚的钟仍从该钟起（要等那根 5m）。"""
+    from core.signal.session_pit import CONTINUOUS_OPEN, LIVE_SESSION_OPEN
+
     clock = rebalance_fill_clock(paper)
     try:
         hh, mm = clock.split(":")
-        return int(hh), int(mm)
+        hm = (int(hh), int(mm))
     except (TypeError, ValueError):
         return WINDOW_AFTER
+    if hm == CONTINUOUS_OPEN:
+        return LIVE_SESSION_OPEN
+    return hm
 
 
 def rebalance_window_label(paper: Optional[dict] = None) -> str:
-    return f"{rebalance_fill_clock(paper)}–10:00"
+    hh, mm = rebalance_window_after_hm(paper)
+    return f"{hh:02d}:{mm:02d}–10:00"
 
 
 def _load_paper_for_clock() -> Optional[dict]:
@@ -177,7 +185,7 @@ def after_auto_rebalance_window(now: Any = None, *, paper: Optional[dict] = None
 
 
 def before_auto_rebalance_window(now: Any = None, *, paper: Optional[dict] = None) -> bool:
-    """交易日且尚未到 fill_clock。"""
+    """交易日且尚未到 live 窗起点（09:30 档为 09:25）。"""
     if not is_trading_session(now):
         return False
     return _shanghai_hm(now) < rebalance_window_after_hm(paper)
@@ -218,7 +226,6 @@ def rebalance_window_gate(
     dry_run: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """窗内返回 None；窗外拦截手动预演/落账（与自动 Worker 同一窗口）。"""
-    clock = rebalance_fill_clock(paper)
     window = rebalance_window_label(paper)
     if in_auto_rebalance_window(now, paper=paper):
         return None
@@ -232,7 +239,7 @@ def rebalance_window_gate(
     if before_auto_rebalance_window(now, paper=paper):
         return _clock_block_payload(
             fill_action="wait_clock",
-            note=f"未到调仓时间 {clock}，窗口 {window}；到点后再预演/落账",
+            note=f"未到调仓时间 {window.split('–')[0]}，窗口 {window}；到点后再预演/落账",
             paper=paper,
             dry_run=dry_run,
         )
@@ -262,9 +269,9 @@ def t0_wait_for_rebalance(now: Any = None) -> Tuple[bool, str]:
 
 
 def should_record_follow_run(fill_action: str, now: Any = None) -> bool:
-    """手动确认仅在开盘窗内现价成交时占今日自动调仓名额。"""
+    """手动确认在开盘窗内现价成交，或 09:30 前挂开盘单时，占今日自动调仓名额。"""
     action = str(fill_action or "").strip()
-    if action not in ("immediate", ""):
+    if action not in ("immediate", "staged", ""):
         return False
     return in_auto_rebalance_window(now, paper=_load_paper_for_clock())
 
@@ -421,13 +428,16 @@ class RebalanceAutoWorker:
         sess = resolve_session()
         paper = _load_paper_for_clock()
         if already_ran_today():
-            self._set_tick("今日已调仓", session=sess)
+            if str(_load_state().get("last_fill_action") or "") == "staged":
+                self._flush_preopen(sess)
+            else:
+                self._set_tick("今日已调仓", session=sess)
             return
         if not in_auto_rebalance_window(paper=paper):
             if after_auto_rebalance_window(paper=paper):
                 self._set_tick("错过开盘窗", session=sess)
             else:
-                self._set_tick(f"等待 {rebalance_fill_clock(paper)} 开盘窗", session=sess)
+                self._set_tick(f"等待 {rebalance_window_label(paper)} 开盘窗", session=sess)
             return
 
         svc = PaperService(PAPER_PATH)
@@ -439,7 +449,20 @@ class RebalanceAutoWorker:
 
         pending_msg = ""
         leftover = False
+        preopen_plan = False
+        pending_fill: Dict[str, Any] = {}
         try:
+            try:
+                from core.paper import load_paper
+
+                before = load_paper(PAPER_PATH)
+            except Exception:  # noqa: BLE001
+                logger.debug("load paper before fill_pending failed", exc_info=True)
+                before = None
+            po0 = (before or {}).get("pending_orders") if isinstance(before, dict) else None
+            preopen_plan = bool(
+                isinstance(po0, dict) and po0.get("live_preopen") and (po0.get("legs") or [])
+            )
             pending_fill = svc.fill_pending()
             if pending_fill.get("filled"):
                 n = len(pending_fill.get("trades") or [])
@@ -462,6 +485,21 @@ class RebalanceAutoWorker:
                 (pending_msg + " · " if pending_msg else "") + "挂单未完成，本次未调仓",
                 session=sess,
             )
+            return
+        if preopen_plan and pending_fill.get("filled"):
+            trades = list(pending_fill.get("trades") or [])
+            buys = sum(1 for t in trades if t.get("side") == "buy")
+            sells = sum(1 for t in trades if t.get("side") == "sell")
+            note = pending_msg or f"开盘挂单成交 · 卖 {sells} · 买 {buys}"
+            mark_run_session(
+                sess,
+                fill_action="open_fill",
+                buy_count=buys,
+                sell_count=sells,
+                note=note,
+                source="auto",
+            )
+            self._set_tick(note, session=sess)
             return
 
         with self._lock:
@@ -489,7 +527,21 @@ class RebalanceAutoWorker:
         if fill_action in CLOCK_BLOCK_ACTIONS:
             self._set_tick(str(out.get("note") or fill_action), session=sess)
             return
-        if fill_action in ("staged", "kept_pending", "open_fill_pending", "session_chase_pending"):
+        if fill_action == "staged":
+            note = str(out.get("note") or fill_action)
+            buys = len(out.get("buy_trades") or [])
+            sells = len(out.get("sell_trades") or [])
+            mark_run_session(
+                sess,
+                fill_action="staged",
+                buy_count=buys,
+                sell_count=sells,
+                note=note,
+                source="auto",
+            )
+            self._set_tick(note, session=sess)
+            return
+        if fill_action in ("kept_pending", "open_fill_pending", "session_chase_pending"):
             note = str(out.get("note") or fill_action)
             self._set_tick(note, session=sess)
             return
@@ -511,6 +563,63 @@ class RebalanceAutoWorker:
             persist_desk_from_result(out, sess, source="auto", filled=True)
         except Exception:  # noqa: BLE001
             logger.debug("persist rebalance desk after auto fill failed", exc_info=True)
+        self._set_tick(note, session=sess)
+
+    def _flush_preopen(self, sess: str) -> None:
+        """今日名额已由开盘挂单占用：只成交这批单，不再重算 ranking。"""
+        from core.paths import PAPER_PATH
+        from services.paper_service import PaperService
+
+        try:
+            from core.paper import load_paper
+
+            paper = load_paper(PAPER_PATH)
+        except Exception:  # noqa: BLE001
+            logger.debug("load paper for preopen flush failed", exc_info=True)
+            self._set_tick("今日已挂开盘单", session=sess)
+            return
+        po = paper.get("pending_orders") if isinstance(paper, dict) else None
+        if not (isinstance(po, dict) and po.get("live_preopen") and (po.get("legs") or [])):
+            mark_run_session(
+                sess,
+                fill_action="open_fill",
+                buy_count=int(_load_state().get("last_buy_count") or 0),
+                sell_count=int(_load_state().get("last_sell_count") or 0),
+                note=str(_load_state().get("last_note") or "开盘挂单已成交"),
+                source="auto",
+            )
+            self._set_tick("今日已调仓", session=sess)
+            return
+        try:
+            pending_fill = PaperService(PAPER_PATH).fill_pending()
+        except Exception:  # noqa: BLE001
+            logger.debug("preopen fill_pending failed", exc_info=True)
+            self._set_tick("开盘挂单待成交", session=sess)
+            return
+        if not pending_fill.get("filled"):
+            self._set_tick("开盘挂单待成交", session=sess)
+            return
+        try:
+            paper = load_paper(PAPER_PATH)
+        except Exception:  # noqa: BLE001
+            logger.debug("reload paper after preopen fill failed", exc_info=True)
+            paper = None
+        left = paper.get("pending_orders") if isinstance(paper, dict) else None
+        if isinstance(left, dict) and (left.get("legs") or []):
+            self._set_tick("开盘挂单未完成", session=sess)
+            return
+        trades = list(pending_fill.get("trades") or [])
+        buys = sum(1 for t in trades if t.get("side") == "buy")
+        sells = sum(1 for t in trades if t.get("side") == "sell")
+        note = f"开盘挂单成交 · 卖 {sells} · 买 {buys}"
+        mark_run_session(
+            sess,
+            fill_action="open_fill",
+            buy_count=buys,
+            sell_count=sells,
+            note=note,
+            source="auto",
+        )
         self._set_tick(note, session=sess)
 
 

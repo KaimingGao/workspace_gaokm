@@ -664,8 +664,9 @@ def build_rebalance_desk_status(
     filled_today = already_ran_today(now) or (
         aligned and bool(persisted.get("filled"))
     )
-    clock = rebalance_fill_clock(paper)
+    fill_clock = rebalance_fill_clock(paper)
     window = rebalance_window_label(paper)
+    live_start = window.split("–")[0]
     if aligned and (filled_today or phase == PHASE_DONE):
         rows = list(persisted.get("rows") or [])
         hydrate_desk_rows_from_paper(rows, paper, sess or persisted_sess)
@@ -678,7 +679,7 @@ def build_rebalance_desk_status(
     else:
         reason = {
             PHASE_WATCH: "开盘窗内监视",
-            PHASE_WAIT: f"等待 {clock} 开盘窗",
+            PHASE_WAIT: f"等待 {live_start} 开盘窗",
             PHASE_RUNNING: "正在落账",
             PHASE_HOLIDAY: "非交易日",
             PHASE_STOPPED: "等待 Worker 开盘窗落账",
@@ -721,9 +722,9 @@ def build_rebalance_desk_status(
             aligned=state_aligned,
             n=len(rows),
             enabled=enabled,
-            fill_clock=clock,
+            fill_clock=live_start,
         ),
-        "fill_clock": clock,
+        "fill_clock": fill_clock,
         "window_label": window,
         "source": str(persisted.get("source") or "") if aligned else "",
         "fill_ts": last_ts or None,

@@ -205,6 +205,31 @@ function shanghaiDateKeyTip(d = new Date()) {
   }
 }
 
+/**
+ * tip 里的 τ 钟：优先 fill_clock / 前缀钟；open→09:30；ISO→HH:MM。
+ * 避免 09:30 调仓只显示 τ=open、看不出时间。
+ */
+export function formatTauClockLabel(raw) {
+  const prefer = [
+    raw && raw.fill_clock,
+    raw && raw._score_prefix_hm,
+    raw && raw.hm,
+    raw && raw.minute_tau_hm,
+    raw && raw.as_of_tau,
+    raw && raw.rem_tau,
+  ];
+  for (const cand of prefer) {
+    const s = String(cand || "").trim();
+    if (!s) continue;
+    if (/^open$/i.test(s)) return "09:30";
+    const iso = s.match(/T(\d{2}:\d{2})/);
+    if (iso) return iso[1];
+    const hm = s.slice(0, 5);
+    if (/^\d{2}:\d{2}$/.test(hm)) return hm;
+  }
+  return "09:30";
+}
+
 /** ŷ_oo 因子日：盘中应是昨收完整 K，不是 ŷ_τc 的 τ 钟。 */
 function formatFactorAnomalyHint(raw) {
   const fa = raw && raw.factor_anomaly;
@@ -403,7 +428,7 @@ function hasTauFormulaTerms(raw) {
 function formatCompactTauTip(raw) {
   const fit = resolveTauScore(raw);
   const val = fit == null ? "—" : `${fmtSigned(fit, 2)}%`;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const tau = formatTauClockLabel(raw);
   const hasTerms = hasTauFormulaTerms(raw);
   const ySpec =
     (raw && raw.y_spec_τc && raw.y_spec_τc.formula) ||
@@ -486,7 +511,7 @@ function hasT75FormulaTerms(raw) {
 function formatCompactRTip(raw) {
   const fit = resolveYτcScore(raw);
   const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const tau = formatTauClockLabel(raw);
   const hasTerms = hasRFormulaTerms(raw);
   const feat = (raw && raw.features_tau) || {};
   const rot =
@@ -674,7 +699,7 @@ function formatCompactHorizonProbTip(raw, head) {
   if (!spec) return "";
   const fit = spec.resolve(raw);
   const fitTxt = fit == null ? "—" : fmtHorizonProb(fit);
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const tau = formatTauClockLabel(raw);
   const hasTerms = spec.hasTerms(raw);
   const feat = (raw && raw.features_tau) || {};
   let real = null;
@@ -788,7 +813,7 @@ function formatCompactTWTip(raw) {
   const y90 = resolveYT90Score(raw);
   const fit = blendYtw(y30, y60, y90, y45, y75, true);
   const fitTxt = fit == null ? "—" : fmtYtwVote(fit);
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const tau = formatTauClockLabel(raw);
   const r30Raw = raw && (raw.y_t30_realized ?? raw.t30_realized);
   const r45Raw = raw && (raw.y_t45_realized ?? raw.t45_realized);
   const r60Raw = raw && (raw.y_t60_realized ?? raw.t60_realized);
@@ -903,7 +928,7 @@ export function formatRemScoreSection(raw) {
   const lifted = resolveTauLiftedScore(raw);
   const gap = raw && resolveGapPct(raw);
   const ep = raw && raw.event_prior;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const tau = formatTauClockLabel(raw);
   const hasRem = rem != null;
   const hasGap = gap != null && Number.isFinite(Number(gap));
   const theme = !!(ep && ep.theme);

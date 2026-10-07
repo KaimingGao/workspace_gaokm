@@ -631,11 +631,16 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
     y_τc = pick_y_τc(item)
     y_co = pick_y_co(item)
     is_oc = tau_model_is_open_to_close(item)
-    ranking = ranking_pct(item, w_oo=w_oo, w_τc=w_τc, w_co=w_co)
+    o = ranking_open_px(item)
+    p = ranking_price_tau(item)
+    rot = ret_open_to_tau_pct(o, p)
+    ranking = ranking_pct(
+        item, w_oo=w_oo, w_τc=w_τc, w_co=w_co, ret_open_to_tau=rot
+    )
     ranking = remaining_ranking_pct(
         ranking,
-        open_px=ranking_open_px(item),
-        price_tau=ranking_price_tau(item),
+        open_px=o,
+        price_tau=p,
         is_oc_model=is_oc,
     )
     residual = residual_pct(item, w_pc=w_res_τc, w_oc=w_oc_r, cfg=cfg)

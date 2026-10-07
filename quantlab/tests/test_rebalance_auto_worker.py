@@ -177,7 +177,9 @@ class TestAutoRebalanceWindow(unittest.TestCase):
             "core.paper.rebalance.auto_worker.rebalance_fill_clock",
             return_value="09:30",
         ):
-            self.assertFalse(in_auto_rebalance_window(_dt(9, 29)))
+            self.assertFalse(in_auto_rebalance_window(_dt(9, 24)))
+            self.assertTrue(in_auto_rebalance_window(_dt(9, 25)))
+            self.assertTrue(in_auto_rebalance_window(_dt(9, 29)))
             self.assertTrue(in_auto_rebalance_window(_dt(9, 30)))
             self.assertTrue(in_auto_rebalance_window(_dt(9, 59)))
             self.assertFalse(in_auto_rebalance_window(_dt(10, 0)))
