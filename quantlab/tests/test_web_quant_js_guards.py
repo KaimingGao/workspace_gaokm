@@ -3145,6 +3145,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         paper = self._read("web", "static", "js", "paper.js")
         self.assertIn('target: "paper-fund-status"', paper)
+        self.assertIn("function scrollToFollowNorthStar", paper)
+        self.assertIn('a[href="#follow-north-star"]', paper)
 
     def test_t0_process_tip_has_kline_helpers(self):
         table = self._read("web", "static", "js", "paper", "t0_table.js")

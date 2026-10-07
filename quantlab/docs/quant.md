@@ -1269,11 +1269,11 @@ LightGBM LambdaRank：按日观察池对 `y_oo = open[T+1]/open[T]−1` 整日�
 |--|--|
 | 训练宇宙 | 默认**整观察池**；勾选「只训 A 档」则只留可预测性 A 且仍在观察池内（须先跑分档） |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
-| 训练 | `POST /api/quant/oo-rank` 拟合写 last report；人审「落盘影子」只把上次拟合写入 `oo_rank_pairwise_model.json`（及研究套 sidecar），不重训 |
+| 训练 | `POST /api/quant/oo-rank` 拟合写 last report；人审「落盘影子」只把上次拟合写入 `oo_rank_model.json`（及研究套 sidecar），不重训 |
 | 回测 / live | 有模型时先打相对分，再按当日截面编名次写入 `y_oo_rank`；成交明细 **rank** 旁路对照。买序与入场仍走融合 ranking（Ridge / Tree ŷ头） |
 | OOS | 日截面 Spearman / TopK overlap / **NDCG@K**；对照同窗 Ridge ŷ_oo |
 
-实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_pairwise.py`。
+实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。加载仍兼容旧文件名 `oo_rank_pairwise_*.json`。
 
 ### 4.4 双层完整调用链
 

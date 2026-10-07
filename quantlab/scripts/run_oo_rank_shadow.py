@@ -19,7 +19,7 @@ if ROOT not in sys.path:
 from core.data.facade import bars_and_source, index_bars_and_source
 from core.ports.market import default_benchmark
 from core.watching.store import read_watching
-from core.research.oo_rank_pairwise import compare_oo_rank_shadow_track
+from core.research.oo_rank_lambdarank import compare_oo_rank_shadow_track
 from core.research.oo_rank_panel import build_oo_rank_day_panels
 
 

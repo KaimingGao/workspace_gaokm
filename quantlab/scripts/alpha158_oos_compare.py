@@ -12,7 +12,7 @@ import numpy as np
 
 from core.research_universe import resolve_research_codes
 from core.research.portfolio_bars import load_portfolio_stock_bars
-from core.research.oo_rank_pairwise import fit_oo_rank_report
+from core.research.oo_rank_lambdarank import fit_oo_rank_report
 from core.research.oo_rank_panel import build_oo_rank_day_panels
 from core.signal.factors.meta.registry import _REGISTRY
 

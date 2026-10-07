@@ -73,7 +73,7 @@ def _synth_days(n_days: int = 30, n_names: int = 20, seed: int = 0):
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestOoRankLightgbmLambda(unittest.TestCase):
     def test_fit_lambdarank_success(self):
-        from core.research.oo_rank_pairwise import fit_lambdarank
+        from core.research.oo_rank_lambdarank import fit_lambdarank
 
         days = _synth_days(30, 20)
         fit = fit_lambdarank(
@@ -96,7 +96,7 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
 
     def test_predict_round_trip(self):
         """训练后 predict_oo_rank_from_features 对高/低 mom3 的排序方向正确。"""
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             fit_lambdarank,
             predict_oo_rank_from_features,
         )
@@ -125,7 +125,7 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
 
     def test_predict_handles_missing_features(self):
         """缺特征时按 z=0 填补，不返回 None。"""
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             fit_lambdarank,
             predict_oo_rank_from_features,
         )
@@ -145,7 +145,7 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         self.assertIsNotNone(out)
 
     def test_day_scores_use_booster(self):
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             _day_scores,
             fit_lambdarank,
             predict_oo_rank_from_features,
@@ -180,7 +180,7 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
 class TestOoRankReportLightgbmBackend(unittest.TestCase):
     def test_fit_oo_rank_report_backend_lightgbm(self):
         """fit_oo_rank_report(backend='lambdarank') 全流程 smoke。"""
-        from core.research.oo_rank_pairwise import fit_oo_rank_report
+        from core.research.oo_rank_lambdarank import fit_oo_rank_report
 
         days = _synth_days(40, 24, seed=3)
         report = fit_oo_rank_report(

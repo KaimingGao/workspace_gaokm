@@ -10336,6 +10336,15 @@ body[data-page="follow"] .follow-overview-metrics > #follow-north-star.follow-no
   display: contents;
 }
 
+body[data-page="follow"] .follow-overview-metrics {
+  scroll-margin-top: 12px;
+}
+
+body[data-page="follow"] .follow-overview-metrics.is-north-star-jump {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  outline-offset: 3px;
+}
+
 body[data-page="follow"] .follow-north-star-inline[hidden] {
   display: none !important;
 }

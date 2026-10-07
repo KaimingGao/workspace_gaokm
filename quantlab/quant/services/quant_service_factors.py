@@ -1504,7 +1504,7 @@ class QuantFactorMixin:
         """
         from core.data.facade import bars_and_source
         from core.research.oo_rank_panel import resolve_oo_rank_universe
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             fit_oo_rank_report,
             load_oo_rank_last_report,
             load_oo_rank_model,
@@ -1519,7 +1519,7 @@ class QuantFactorMixin:
                 return {
                     "success": False,
                     "error": "尚无上次拟合，请先点拟合再落盘影子",
-                    "task": "oo_rank_pairwise",
+                    "task": "oo_rank",
                     "path": oo_rank_model_path(),
                 }
             saved = persist_oo_rank_model(last, also_research=True)
@@ -1527,7 +1527,7 @@ class QuantFactorMixin:
                 return {
                     "success": False,
                     "error": "上次拟合缺少可落盘模型",
-                    "task": "oo_rank_pairwise",
+                    "task": "oo_rank",
                     "path": oo_rank_model_path(),
                 }
             out = dict(last)
@@ -1547,7 +1547,7 @@ class QuantFactorMixin:
             return {
                 "success": False,
                 "error": resolved.get("error") or "oo_rank_universe_failed",
-                "task": "oo_rank_pairwise",
+                "task": "oo_rank",
                 "universe_source": resolved.get("universe_source"),
                 "watching_tier_a_only": bool(watching_tier_a_only),
             }
@@ -1561,7 +1561,7 @@ class QuantFactorMixin:
             return {
                 "success": False,
                 "error": f"{need}至少 8 只才可跑 oo_rank（当前 {len(codes)}）",
-                "task": "oo_rank_pairwise",
+                "task": "oo_rank",
                 "universe_source": resolved.get("universe_source"),
                 "watching_tier_a_only": bool(watching_tier_a_only),
                 "n_codes": len(codes),
@@ -1625,31 +1625,31 @@ class QuantFactorMixin:
         return report
 
     def get_oo_rank_model(self) -> Dict[str, Any]:
-        import json
-
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
+            load_oo_rank_last_report,
             load_oo_rank_model,
             oo_rank_last_report_path,
+            oo_rank_last_report_path_legacy,
             oo_rank_model_path,
+            oo_rank_model_path_legacy,
         )
 
         path = oo_rank_model_path()
         persisted = load_oo_rank_model(prefer_research=True)
         last_path = oo_rank_last_report_path()
-        last = None
-        if os.path.isfile(last_path):
-            try:
-                with open(last_path, encoding="utf-8") as f:
-                    last = json.load(f)
-            except Exception:  # noqa: BLE001
-                last = None
+        last = load_oo_rank_last_report()
         from core.research.holdout import model_fit_id
 
         chosen, use_last = _select_ridge_desk_doc(persisted, last)
         live_file = bool(persisted)
         fitted = model_fit_id(chosen) or model_fit_id(last) or model_fit_id(persisted)
         if not fitted:
-            fitted = _peek_model_stamp(last_path) or _peek_model_stamp(path)
+            fitted = (
+                _peek_model_stamp(last_path)
+                or _peek_model_stamp(oo_rank_last_report_path_legacy())
+                or _peek_model_stamp(path)
+                or _peek_model_stamp(oo_rank_model_path_legacy())
+            )
         if not chosen:
             return {
                 "success": False,

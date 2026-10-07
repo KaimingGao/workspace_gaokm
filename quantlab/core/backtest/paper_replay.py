@@ -1783,7 +1783,7 @@ def _attach_open_yhat_heads(
     apply_oo_rank_scores = None
     try:
         from core.research.holdout import current_scoring_model_role
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             apply_oo_rank_scores as _apply_oo_rank,
             load_oo_rank_model,
         )

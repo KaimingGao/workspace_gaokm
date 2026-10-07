@@ -718,7 +718,7 @@ def aux_yhat_fields(
 
     # ŷ_oo_rank 旁路：当日截面 1..n 名次（与 τ 档无关，始终透传）
     try:
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             pick_y_oo_rank_hat,
             pick_y_oo_rank_label,
         )

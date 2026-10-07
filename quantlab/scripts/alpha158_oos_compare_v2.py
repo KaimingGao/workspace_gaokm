@@ -11,7 +11,7 @@ sys.path.insert(0, ".")
 import time
 
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
-from core.research.oo_rank_pairwise import fit_oo_rank_report
+from core.research.oo_rank_lambdarank import fit_oo_rank_report
 from core.research.oo_rank_panel import (
     build_oo_rank_day_panels,
     stack_day_panels,

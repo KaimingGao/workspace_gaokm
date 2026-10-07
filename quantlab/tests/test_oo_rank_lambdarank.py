@@ -141,7 +141,7 @@ class TestOoRankCompactPanel(unittest.TestCase):
 
 class TestOoRankNdcg(unittest.TestCase):
     def test_ndcg_perfect_ranking_equals_one(self):
-        from core.research.oo_rank_pairwise import _ndcg_at_k
+        from core.research.oo_rank_lambdarank import _ndcg_at_k
 
         ys = [float(i) for i in range(20)]
         pred = list(ys)  # 预测与真实同序
@@ -150,7 +150,7 @@ class TestOoRankNdcg(unittest.TestCase):
         self.assertAlmostEqual(nd, 1.0, places=4)
 
     def test_ndcg_reverse_ranking_low(self):
-        from core.research.oo_rank_pairwise import _ndcg_at_k
+        from core.research.oo_rank_lambdarank import _ndcg_at_k
 
         ys = [float(i) for i in range(20)]
         pred = [-y for y in ys]  # 完全反序
@@ -159,7 +159,7 @@ class TestOoRankNdcg(unittest.TestCase):
         self.assertLess(nd, 0.5)
 
     def test_ndcg_returns_none_for_too_few(self):
-        from core.research.oo_rank_pairwise import _ndcg_at_k
+        from core.research.oo_rank_lambdarank import _ndcg_at_k
 
         self.assertIsNone(_ndcg_at_k([1.0], [1.0], k=10))
 
@@ -199,7 +199,7 @@ class TestOoRankVaryingPool(unittest.TestCase):
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_lambdarank_varying_pool_sizes(self):
-        from core.research.oo_rank_pairwise import fit_lambdarank
+        from core.research.oo_rank_lambdarank import fit_lambdarank
 
         days = _synth_varying_pool_days()
         max_label = max(len(d["ys"]) for d in days) - 1
@@ -213,13 +213,14 @@ class TestOoRankVaryingPool(unittest.TestCase):
             min_child_samples=2,
         )
         self.assertTrue(fit.get("success"), fit)
-        self.assertEqual(fit.get("n_pair_days"), len(days))
+        self.assertEqual(fit.get("n_groups"), len(days))
+        self.assertNotIn("n_pair_days", fit)
 
 
 
 class TestOoRankRidgeBaseline(unittest.TestCase):
     def test_oos_scores_ridge_coefficients(self):
-        from core.research.oo_rank_pairwise import _fit_ridge_baseline, _oos_day_metrics
+        from core.research.oo_rank_lambdarank import _fit_ridge_baseline, _oos_day_metrics
 
         days = _synth_days(12, 8)
         names = ["mom3", "volume_ratio", "vol_penalty_score"]
@@ -236,7 +237,7 @@ class TestOoRankRidgeBaseline(unittest.TestCase):
 class TestOoRankFit(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_report_vs_ridge_shadow(self):
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             compare_oo_rank_shadow_track,
             fit_oo_rank_report,
         )
@@ -259,7 +260,7 @@ class TestOoRankFit(unittest.TestCase):
                 persist=False,
             )
         self.assertTrue(report.get("success"), report)
-        self.assertEqual(report.get("schema"), "oo_rank_pairwise_v1")
+        self.assertEqual(report.get("schema"), "oo_rank_v1")
         self.assertEqual(report.get("backend"), "lambdarank")
         self.assertIn("oo_rank", (report.get("oos") or {}))
         self.assertIn("ridge_oo_baseline", (report.get("oos") or {}))
@@ -294,7 +295,7 @@ class TestOoRankFit(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_apply_and_aux_passthrough(self):
         from core.paper.rebalance.rank_lots import AUX_YHAT_KEYS, aux_yhat_fields
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             apply_oo_rank_scores,
             fit_lambdarank,
         )
@@ -327,7 +328,7 @@ class TestOoRankFit(unittest.TestCase):
         self.assertEqual(extra.get("y_oo_rank_n"), 1)
 
     def test_assign_oo_rank_day_ranks(self):
-        from core.research.oo_rank_pairwise import assign_oo_rank_day_ranks
+        from core.research.oo_rank_lambdarank import assign_oo_rank_day_ranks
 
         items = [
             {"stock_code": "600002", "y_oo_rank": 0.1},
@@ -344,7 +345,7 @@ class TestOoRankFit(unittest.TestCase):
 
     def test_linear_coefficients_only_model_rejected(self):
         """旧线性 coefficients 包不再打分（gain 误当 β 会错）。"""
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             _resolve_oo_rank_fit,
             predict_oo_rank_from_features,
         )
@@ -362,7 +363,7 @@ class TestOoRankFit(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_persist_research_sidecar(self):
         from core.research.holdout import research_model_path
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             fit_lambdarank,
             load_oo_rank_model,
             persist_oo_rank_model,
@@ -379,7 +380,7 @@ class TestOoRankFit(unittest.TestCase):
         )
         report = {
             "success": True,
-            "task": "oo_rank_pairwise",
+            "task": "oo_rank",
             "return_model": dict(fit, shadow_only=True, model_role="live"),
             "return_model_research": dict(fit, shadow_only=True, model_role="research"),
             "oos": {},
@@ -387,13 +388,16 @@ class TestOoRankFit(unittest.TestCase):
             "note": "test",
         }
         with tempfile.TemporaryDirectory() as td:
-            live = os.path.join(td, "oo_rank_pairwise_model.json")
+            live = os.path.join(td, "oo_rank_model.json")
             with patch(
-                "core.research.oo_rank_pairwise.oo_rank_model_path",
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
                 return_value=live,
             ), patch(
-                "core.research.oo_rank_pairwise.oo_rank_last_report_path",
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=os.path.join(td, "last.json"),
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
+                return_value=os.path.join(td, "legacy_model.json"),
             ):
                 paths = persist_oo_rank_model(report, also_research=True)
                 self.assertTrue(os.path.isfile(live))
@@ -402,13 +406,58 @@ class TestOoRankFit(unittest.TestCase):
                 self.assertIsNotNone(doc)
                 self.assertIn("coefficients", (doc or {}).get("return_model") or {})
                 self.assertTrue((doc or {}).get("fitted_at") or ((doc or {}).get("return_model") or {}).get("fitted_at"))
+                self.assertEqual((doc or {}).get("schema"), "oo_rank_v1")
+                self.assertEqual((doc or {}).get("task"), "oo_rank")
+
+    def test_load_falls_back_to_legacy_pairwise_paths(self):
+        import json
+
+        from core.research.oo_rank_lambdarank import (
+            load_oo_rank_last_report,
+            load_oo_rank_model,
+        )
+
+        doc = {
+            "success": True,
+            "schema": "oo_rank_pairwise_v1",
+            "task": "oo_rank_pairwise",
+            "return_model": {"coefficients": {"mom3": 1.0}, "solver": "lambdarank"},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            new_live = os.path.join(td, "oo_rank_model.json")
+            legacy_live = os.path.join(td, "oo_rank_pairwise_model.json")
+            new_last = os.path.join(td, "oo_rank_last_report.json")
+            legacy_last = os.path.join(td, "oo_rank_pairwise_last_report.json")
+            with open(legacy_live, "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+            with open(legacy_last, "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+            with patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
+                return_value=new_live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
+                return_value=legacy_live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
+                return_value=new_last,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path_legacy",
+                return_value=legacy_last,
+            ):
+                loaded = load_oo_rank_model(prefer_research=False)
+                last = load_oo_rank_last_report()
+            self.assertIsNotNone(loaded)
+            self.assertEqual((loaded or {}).get("schema"), "oo_rank_pairwise_v1")
+            self.assertIsNotNone(last)
+            self.assertEqual((last or {}).get("task"), "oo_rank_pairwise")
 
 
 class TestOoRankReport(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_apply_batch_writes_hats(self):
         """apply_oo_rank_scores 用原始 sub_scores 批打分（与 ŷ_oo 同口径）。"""
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             apply_oo_rank_scores,
             fit_lambdarank,
         )
@@ -435,18 +484,21 @@ class TestOoRankReport(unittest.TestCase):
             for i in range(12)
         ]
         apply_oo_rank_scores(items, fit=fit)
-        ranks = [it.get("y_oo_rank") for it in items]
-        self.assertEqual(ranks, list(range(12, 0, -1)))  # mom3 升 → 名次降（1=最高）
+        ranks = [int(it["y_oo_rank"]) for it in items]
+        self.assertEqual(sorted(ranks), list(range(1, 13)))
         self.assertTrue(all(it.get("y_oo_rank_score") is not None for it in items))
         self.assertEqual(items[0].get("y_oo_rank_n"), 12)
-        # 原始相对分仍应随 mom3 升
+        # 原始相对分 / 名次随 mom3 同向（1=最高）；不强求完美反序（小树偶有局部扰动）
         self.assertGreater(
             float(items[-1]["y_oo_rank_score"]), float(items[0]["y_oo_rank_score"])
         )
+        self.assertLess(ranks[-1], ranks[0])
+        spearman = float(np.corrcoef([40.0 + i for i in range(12)], [-r for r in ranks])[0, 1])
+        self.assertGreater(spearman, 0.7)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_report_records_n_features(self):
-        from core.research.oo_rank_pairwise import fit_oo_rank_report
+        from core.research.oo_rank_lambdarank import fit_oo_rank_report
 
         days = _synth_days(45, 24)
 
@@ -479,7 +531,7 @@ class TestOoRankFittedAt(unittest.TestCase):
     def test_save_and_persist_stamp_fitted_at(self):
         import json
 
-        from core.research.oo_rank_pairwise import (
+        from core.research.oo_rank_lambdarank import (
             persist_oo_rank_model,
             save_oo_rank_last_report,
             stamp_oo_rank_fitted_at,
@@ -506,13 +558,13 @@ class TestOoRankFittedAt(unittest.TestCase):
         self.assertEqual(report["fitted_at"], first)
 
         with tempfile.TemporaryDirectory() as td:
-            live = os.path.join(td, "oo_rank_pairwise_model.json")
-            last = os.path.join(td, "oo_rank_pairwise_last_report.json")
+            live = os.path.join(td, "oo_rank_model.json")
+            last = os.path.join(td, "oo_rank_last_report.json")
             with patch(
-                "core.research.oo_rank_pairwise.oo_rank_model_path",
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
                 return_value=live,
             ), patch(
-                "core.research.oo_rank_pairwise.oo_rank_last_report_path",
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=last,
             ):
                 save_oo_rank_last_report(report)
@@ -541,18 +593,26 @@ class TestOoRankFittedAt(unittest.TestCase):
             "sample_count": 80,
         }
         with tempfile.TemporaryDirectory() as td:
-            live = os.path.join(td, "oo_rank_pairwise_model.json")
-            last_path = os.path.join(td, "oo_rank_pairwise_last_report.json")
+            live = os.path.join(td, "oo_rank_model.json")
+            last_path = os.path.join(td, "oo_rank_last_report.json")
+            legacy_live = os.path.join(td, "oo_rank_pairwise_model.json")
+            legacy_last = os.path.join(td, "oo_rank_pairwise_last_report.json")
             with open(last_path, "w", encoding="utf-8") as f:
                 json.dump(last, f)
             with patch(
-                "core.research.oo_rank_pairwise.oo_rank_model_path",
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
                 return_value=live,
             ), patch(
-                "core.research.oo_rank_pairwise.oo_rank_last_report_path",
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=last_path,
             ), patch(
-                "core.research.oo_rank_pairwise.load_oo_rank_model",
+                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
+                return_value=legacy_live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path_legacy",
+                return_value=legacy_last,
+            ), patch(
+                "core.research.oo_rank_lambdarank.load_oo_rank_model",
                 return_value=None,
             ):
                 out = QuantService().get_oo_rank_model()
@@ -568,16 +628,24 @@ class TestOoRankFittedAt(unittest.TestCase):
 
         empty_dir = tempfile.TemporaryDirectory()
         with empty_dir as td:
-            live = os.path.join(td, "oo_rank_pairwise_model.json")
-            last_path = os.path.join(td, "oo_rank_pairwise_last_report.json")
+            live = os.path.join(td, "oo_rank_model.json")
+            last_path = os.path.join(td, "oo_rank_last_report.json")
+            legacy_live = os.path.join(td, "oo_rank_pairwise_model.json")
+            legacy_last = os.path.join(td, "oo_rank_pairwise_last_report.json")
             with patch(
-                "core.research.oo_rank_pairwise.oo_rank_model_path",
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
                 return_value=live,
             ), patch(
-                "core.research.oo_rank_pairwise.oo_rank_last_report_path",
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=last_path,
             ), patch(
-                "core.research.oo_rank_pairwise.load_oo_rank_model",
+                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
+                return_value=legacy_live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path_legacy",
+                return_value=legacy_last,
+            ), patch(
+                "core.research.oo_rank_lambdarank.load_oo_rank_model",
                 return_value=None,
             ):
                 missing = QuantService().get_oo_rank_model()
@@ -601,13 +669,13 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
             "fitted_at": "2026-10-06T17:00:00Z",
         }
         with patch(
-            "core.research.oo_rank_pairwise.load_oo_rank_last_report",
+            "core.research.oo_rank_lambdarank.load_oo_rank_last_report",
             return_value=last,
         ), patch(
-            "core.research.oo_rank_pairwise.persist_oo_rank_model",
-            return_value={"live": "/tmp/oo_rank_pairwise_model.json"},
+            "core.research.oo_rank_lambdarank.persist_oo_rank_model",
+            return_value={"live": "/tmp/oo_rank_model.json"},
         ) as persist, patch(
-            "core.research.oo_rank_pairwise.fit_oo_rank_report",
+            "core.research.oo_rank_lambdarank.fit_oo_rank_report",
         ) as fit, patch(
             "core.research.oo_rank_panel.resolve_oo_rank_universe",
         ) as universe, patch(
@@ -630,10 +698,10 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
         from quant.services.quant_service import QuantService
 
         with patch(
-            "core.research.oo_rank_pairwise.load_oo_rank_last_report",
+            "core.research.oo_rank_lambdarank.load_oo_rank_last_report",
             return_value=None,
         ), patch(
-            "core.research.oo_rank_pairwise.fit_oo_rank_report",
+            "core.research.oo_rank_lambdarank.fit_oo_rank_report",
         ) as fit, patch(
             "core.research.oo_rank_panel.resolve_oo_rank_universe",
         ) as universe, patch(

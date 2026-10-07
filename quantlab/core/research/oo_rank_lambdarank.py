@@ -30,12 +30,20 @@ Y_OO_RANK_LABEL_KEYS = (
     "oo_rank_realized",
 )
 FORMULA_OO_RANK = "rank(open[T+1]/open[T]-1 | watching_day)"
-SCHEMA = "oo_rank_pairwise_v1"
+SCHEMA = "oo_rank_v1"
+SCHEMA_LEGACY = "oo_rank_pairwise_v1"
+TASK = "oo_rank"
+TASK_LEGACY = "oo_rank_pairwise"
 DEFAULT_MIN_NAMES = 8
 DEFAULT_L2 = 1.0
 DEFAULT_TOPK_TRACK = 10
 DEFAULT_NDCG_K = 10
 DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK = 20
+
+_MODEL_BASENAME = "oo_rank_model.json"
+_LAST_REPORT_BASENAME = "oo_rank_last_report.json"
+_MODEL_BASENAME_LEGACY = "oo_rank_pairwise_model.json"
+_LAST_REPORT_BASENAME_LEGACY = "oo_rank_pairwise_last_report.json"
 
 
 def _f(v: Any) -> Optional[float]:
@@ -129,13 +137,25 @@ def write_y_oo_rank_realized(item: dict, value: Optional[float]) -> None:
 def oo_rank_model_path() -> str:
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "oo_rank_pairwise_model.json")
+    return os.path.join(LIVE_DIR, _MODEL_BASENAME)
 
 
 def oo_rank_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "oo_rank_pairwise_last_report.json")
+    return os.path.join(LIVE_DIR, _LAST_REPORT_BASENAME)
+
+
+def oo_rank_model_path_legacy() -> str:
+    from core.paths import LIVE_DIR
+
+    return os.path.join(LIVE_DIR, _MODEL_BASENAME_LEGACY)
+
+
+def oo_rank_last_report_path_legacy() -> str:
+    from core.paths import LIVE_DIR
+
+    return os.path.join(LIVE_DIR, _LAST_REPORT_BASENAME_LEGACY)
 
 
 def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
@@ -154,19 +174,32 @@ def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
     return doc
 
 
+def _first_existing_model(*paths: str) -> Optional[Dict[str, Any]]:
+    for path in paths:
+        doc = _load_model_file(path)
+        if doc:
+            return doc
+    return None
+
+
 def load_oo_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, Any]]:
-    """加载影子模型。默认优先研究套 sidecar；缺则 live 文件。"""
+    """加载影子模型。默认优先研究套 sidecar；缺则 live 文件。
+
+    新路径优先，旧 ``oo_rank_pairwise_*.json`` 可读兼容。
+    """
     live = oo_rank_model_path()
+    legacy = oo_rank_model_path_legacy()
     if prefer_research:
         try:
             from core.research.holdout import load_research_promoted_json
 
-            doc = load_research_promoted_json(live)
-            if doc:
-                return doc
+            for path in (live, legacy):
+                doc = load_research_promoted_json(path)
+                if doc:
+                    return doc
         except Exception:  # noqa: BLE001
             logger.debug("oo_rank research load failed", exc_info=True)
-    return _load_model_file(live)
+    return _first_existing_model(live, legacy)
 
 
 def stamp_oo_rank_fitted_at(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -198,15 +231,18 @@ def save_oo_rank_last_report(report: Dict[str, Any]) -> None:
 
 
 def load_oo_rank_last_report() -> Optional[Dict[str, Any]]:
-    """上次拟合草稿。落盘影子只写这份，不再重训。"""
-    doc = _load_model_file(oo_rank_last_report_path())
+    """上次拟合草稿。落盘影子只写这份，不再重训。新路径优先，旧文件可读。"""
+    doc = _first_existing_model(
+        oo_rank_last_report_path(),
+        oo_rank_last_report_path_legacy(),
+    )
     if doc and doc.get("success"):
         return doc
     return None
 
 
 def persist_oo_rank_model(report: Dict[str, Any], *, also_research: bool = True) -> Dict[str, str]:
-    """落盘执行套；可选同时写研究套（Phase1 影子默认双写同一 β）。"""
+    """落盘执行套；可选同时写研究套（Phase1 影子默认双写同一 β）。只写新路径。"""
     if not isinstance(report, dict) or not report.get("success"):
         return {}
     stamp_oo_rank_fitted_at(report)
@@ -217,7 +253,7 @@ def persist_oo_rank_model(report: Dict[str, Any], *, also_research: bool = True)
     os.makedirs(os.path.dirname(live), exist_ok=True)
     doc = {
         "success": True,
-        "task": "oo_rank_pairwise",
+        "task": TASK,
         "schema": SCHEMA,
         "return_model": model,
         "oos": report.get("oos"),
@@ -418,7 +454,6 @@ def fit_lambdarank(
     X_blocks: List[np.ndarray] = []
     y_blocks: List[List[int]] = []
     group_sizes: List[int] = []
-    n_pair_days = 0
     for day in days:
         ys = [float(v) for v in (day.get("ys") or [])]
         Z = _z_day(day, names, means, stds)
@@ -430,13 +465,13 @@ def fit_lambdarank(
         X_blocks.append(Z)
         y_blocks.append(labels)
         group_sizes.append(len(ys))
-        n_pair_days += 1
-    if n_pair_days < 5 or not group_sizes:
+    n_groups = len(group_sizes)
+    if n_groups < 5:
         return {
             "success": False,
-            "error": f"groups_insufficient n_days={n_pair_days}（需≥5）",
-            "n_days": n_pair_days,
-            "n_groups": len(group_sizes),
+            "error": f"groups_insufficient n_days={n_groups}（需≥5）",
+            "n_days": n_groups,
+            "n_groups": n_groups,
         }
     X = np.vstack(X_blocks)
     y = np.asarray([lab for block in y_blocks for lab in block], dtype=np.int32)
@@ -513,8 +548,7 @@ def fit_lambdarank(
         "booster_b64": booster_b64,
         "ridge_lambda": lam,
         "sample_count": int(y.shape[0]),
-        "n_pair_days": n_pair_days,
-        "n_groups": len(group_sizes),
+        "n_groups": n_groups,
     }
 
 
@@ -973,7 +1007,7 @@ def fit_oo_rank_report(
         return {
             "success": False,
             "error": f"day_panels_insufficient n_days={len(days)}（需≥8）",
-            "task": "oo_rank_pairwise",
+            "task": TASK,
             "n_days": len(days),
         }
 
@@ -991,7 +1025,7 @@ def fit_oo_rank_report(
         return {
             "success": False,
             "error": f"train_days_insufficient n={len(days_tr)}",
-            "task": "oo_rank_pairwise",
+            "task": TASK,
             "n_days": len(days),
         }
 
@@ -1003,7 +1037,7 @@ def fit_oo_rank_report(
         return {
             "success": False,
             "error": f"unsupported backend={backend_key}；仅支持 lambdarank",
-            "task": "oo_rank_pairwise",
+            "task": TASK,
             "n_days": len(days),
             "backend": backend_key,
         }
@@ -1019,7 +1053,7 @@ def fit_oo_rank_report(
         return {
             "success": False,
             "error": fit_tr.get("error") or "lambdarank_fit_failed",
-            "task": "oo_rank_pairwise",
+            "task": TASK,
             "n_days": len(days),
             "backend": backend_key,
             "detail": fit_tr,
@@ -1081,7 +1115,7 @@ def fit_oo_rank_report(
 
     report: Dict[str, Any] = {
         "success": True,
-        "task": "oo_rank_pairwise",
+        "task": TASK,
         "schema": SCHEMA,
         "backend": backend_key,
         "solver": str(model.get("solver") or ""),
@@ -1174,6 +1208,9 @@ __all__ = [
     "DEFAULT_TOPK_TRACK",
     "FORMULA_OO_RANK",
     "SCHEMA",
+    "SCHEMA_LEGACY",
+    "TASK",
+    "TASK_LEGACY",
     "Y_OO_RANK_HAT_KEYS",
     "Y_OO_RANK_LABEL_KEYS",
     "apply_oo_rank_scores",
@@ -1183,7 +1220,9 @@ __all__ = [
     "load_oo_rank_last_report",
     "load_oo_rank_model",
     "oo_rank_last_report_path",
+    "oo_rank_last_report_path_legacy",
     "oo_rank_model_path",
+    "oo_rank_model_path_legacy",
     "persist_oo_rank_model",
     "pick_y_oo_rank_hat",
     "pick_y_oo_rank_label",

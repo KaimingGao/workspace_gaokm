@@ -411,7 +411,7 @@ class OoRankRequest(BaseModel):
     )
     persist: bool = Field(
         default=False,
-        description="True=把上次拟合写入 oo_rank_pairwise_model.json（不重训）；成交明细编 1..n 名次，不进 ranking / 买序",
+        description="True=把上次拟合写入 oo_rank_model.json（不重训）；成交明细编 1..n 名次，不进 ranking / 买序",
     )
     watching_tier_a_only: bool = Field(
         default=False,

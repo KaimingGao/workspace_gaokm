@@ -2000,9 +2000,38 @@ export function initPaper(ctx) {
       }
     });
 
+    // #follow-north-star 是 display:contents，没有盒子，原生锚点滚动是空操作。
+    // 滚到外层质量条（有盒子），并闪一下，重复点击也能看见。
+    function scrollToFollowNorthStar() {
+      const host = document.getElementById("follow-north-star");
+      const box =
+        (host && host.closest(".follow-overview-metrics")) ||
+        document.querySelector(".follow-overview-metrics");
+      if (!box) return;
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+      box.classList.remove("is-north-star-jump");
+      void box.offsetWidth;
+      box.classList.add("is-north-star-jump");
+      window.setTimeout(() => box.classList.remove("is-north-star-jump"), 1600);
+    }
+
+    document.addEventListener("click", (e) => {
+      const link = e.target.closest('a[href="#follow-north-star"]');
+      if (!link) return;
+      e.preventDefault();
+      if (location.hash !== "#follow-north-star") {
+        history.pushState(null, "", "#follow-north-star");
+      }
+      scrollToFollowNorthStar();
+    });
+
     const openSecondaryByHash = () => {
       const id = String(location.hash || "").replace(/^#/, "");
       if (!id) return;
+      if (id === "follow-north-star") {
+        scrollToFollowNorthStar();
+        return;
+      }
       const sec = document.getElementById(id);
       if (!sec?.classList.contains("follow-section-secondary")) return;
       const fold = sec.querySelector("details.follow-secondary-fold");
