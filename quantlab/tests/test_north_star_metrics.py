@@ -196,6 +196,38 @@ class TestNorthStarMetrics(unittest.TestCase):
         self.assertTrue(data["ok"])
         self.assertIn("north_star", data)
 
+    def test_cache_unusable_when_curve_was_reset(self):
+        from core.north_star import north_star_cache_usable
+
+        paper = {
+            "snapshots": [
+                {"ts": "2026-10-07T19:51:58.754", "equity": 199999.99},
+            ]
+        }
+        cached = {
+            "ok": True,
+            "computed_at": "2026-09-10T20:21:08",
+            "paper_risk": {
+                "rolling_sharpe": 17.0888,
+                "calmar": 2458.8012,
+                "sample_count": 14,
+                "status": "ok",
+            },
+        }
+        self.assertFalse(north_star_cache_usable(paper, cached))
+
+    def test_cache_without_sample_meta_stays_usable(self):
+        from core.north_star import north_star_cache_usable
+
+        paper = {
+            "snapshots": [
+                {"ts": "2026-01-01T10:00:00", "equity": 100000},
+                {"ts": "2026-01-02T10:00:00", "equity": 101000},
+            ]
+        }
+        cached = {"ok": True, "paper_risk": {"rolling_sharpe": 1.5}}
+        self.assertTrue(north_star_cache_usable(paper, cached))
+
 
 if __name__ == "__main__":
     unittest.main()

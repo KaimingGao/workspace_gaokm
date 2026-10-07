@@ -41,7 +41,7 @@ import {
   normalizeExecutionView,
 } from "./paper/execution_ui.js?v=p2594";
 import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2512";
-import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2572";
+import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2882";
 import { downloadBlob } from "./shared.js";
 import {
   renderPaperT0Preview as renderPaperT0PreviewUi,

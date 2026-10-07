@@ -66,6 +66,29 @@ function fmtTs(ts) {
   }
 }
 
+/** 与概览总净值同一取整：元，不保留分。 */
+function fmtOverviewYuan(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+}
+
+function resetLogPrimary(l) {
+  const detail = String((l && l.detail) || "");
+  const meta = (l && l.meta) || {};
+  let baseline = Number(meta.equity);
+  if (!Number.isFinite(baseline)) {
+    const m = detail.match(/基线\s*([0-9][0-9,]*(?:\.\d+)?)/);
+    if (m) baseline = Number(String(m[1]).replace(/,/g, ""));
+  }
+  if (!Number.isFinite(baseline)) return detail || "回零";
+  const yuan = fmtOverviewYuan(baseline);
+  if (detail.includes("基线")) {
+    return detail.replace(/基线\s*[0-9][0-9,]*(?:\.\d+)?/, `基线 ${yuan}`);
+  }
+  return `回零 · 基线 ${yuan}`;
+}
+
 function fmtLogMoney(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return "";
@@ -279,6 +302,8 @@ function renderLogItem(l, { tradeCols = false } = {}) {
     if (meta.market_prior) {
       secondaryParts.unshift("M prior · 不改 ŷ");
     }
+  } else if (l.type === "reset") {
+    primary = resetLogPrimary(l);
   } else {
     primary = String(l.detail || "—");
     if (origin && (l.type === "buy" || l.type === "sell" || l.type === "sync_paper")) {

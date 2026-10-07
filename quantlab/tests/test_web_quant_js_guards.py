@@ -3111,6 +3111,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('watching_matrix_rebalance: "调仓"', logs_ui)
         self.assertIn("ranking ${fmtScore(Number(meta.ranking)", logs_ui)
         self.assertIn("function typeLabelOf", logs_ui)
+        self.assertIn("function resetLogPrimary", logs_ui)
+        self.assertIn("maximumFractionDigits: 0", logs_ui)
         self.assertIn("!l.voided", logs_ui)
         self.assertIn("text-overflow: ellipsis", css)
         self.assertIn(".follow-overview-fund {", css)

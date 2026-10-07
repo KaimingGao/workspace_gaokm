@@ -8,9 +8,11 @@ import os
 from typing import Any, Dict, Optional
 
 from core.paper import (
+    TRADING_OPERATION_TYPES,
     _now_iso,
     append_operation_log,
     append_snapshot,
+    build_ops_report,
     init_from_example,
     load_paper,
     mark_to_market,
@@ -22,6 +24,73 @@ from core.paper.costs import enrich_operation_log_with_trade_fees
 from services.paper_helpers import _build_score_formula
 
 
+def _fmt_overview_yuan(v: Any) -> str:
+    """与概览总净值同一取整（元），避免流水基线 199999.99、卡片 200,000。"""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{n:,.0f}"
+
+
+def _apply_north_star_cache(paper: dict, report: dict) -> None:
+    """把重算后的北极星写回账户，并同步五问里的夏普/卡玛，避免回零后两处各说各话。"""
+    paper["last_north_star"] = report
+    ops = paper.get("last_ops_report")
+    if not isinstance(ops, dict):
+        return
+    sliced = build_ops_report(north_star=report).get("north_star")
+    ops["north_star"] = sliced
+    mm = ops.get("monitor_metrics")
+    pr = report.get("paper_risk") if isinstance(report.get("paper_risk"), dict) else {}
+    if isinstance(mm, dict):
+        if "rolling_sharpe" in mm:
+            mm["rolling_sharpe"] = pr.get("rolling_sharpe")
+        if "calmar" in mm:
+            mm["calmar"] = pr.get("calmar")
+        if "max_drawdown_pct" in mm:
+            mm["max_drawdown_pct"] = pr.get("max_drawdown_pct")
+
+
+def _drop_prereset_execution(paper: dict) -> None:
+    """回零保留持仓，但不再带着回零前的成交流水、开盘挂单和旧目标权重。"""
+    logs = paper.get("operation_log") or []
+    paper["operation_log"] = [
+        row
+        for row in logs
+        if not isinstance(row, dict) or row.get("type") not in TRADING_OPERATION_TYPES
+    ]
+    paper["pending_orders"] = None
+    paper.pop("last_optimize", None)
+    ops = paper.get("last_ops_report")
+    if isinstance(ops, dict):
+        ops.pop("target_weights", None)
+        ops.pop("optimize", None)
+
+
+def _blank_stale_risk_kpis(paper: dict) -> None:
+    """回零当时先抹掉旧夏普/卡玛；重算失败时概览显示 —，而不是回零前的数。"""
+    paper.pop("last_north_star", None)
+    ops = paper.get("last_ops_report")
+    if not isinstance(ops, dict):
+        return
+    ns = ops.get("north_star")
+    if isinstance(ns, dict):
+        ns["rolling_sharpe"] = None
+        ns["calmar"] = None
+        status = ns.get("status")
+        if isinstance(status, dict):
+            status["paper_risk"] = "unavailable"
+    mm = ops.get("monitor_metrics")
+    if isinstance(mm, dict):
+        if "rolling_sharpe" in mm:
+            mm["rolling_sharpe"] = None
+        if "calmar" in mm:
+            mm["calmar"] = None
+        if "max_drawdown_pct" in mm:
+            mm["max_drawdown_pct"] = None
+
+
 class PaperAccountMixin:
     def _operation_log_for_ui(self, paper: dict, *, limit: int = 50) -> list:
         logs = (paper.get("operation_log") or [])[-max(1, int(limit or 50)) :]
@@ -30,6 +99,48 @@ class PaperAccountMixin:
             paper.get("trades") or [],
             cost_model=paper.get("cost_model"),
         )
+
+    def _rebuild_north_star_inplace(self, paper: dict) -> None:
+        """就地重算北极星。调用方须已持有写锁。"""
+        try:
+            from core.north_star import build_north_star_report
+
+            report = build_north_star_report(paper)
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("rebuild north star failed", exc_info=True)
+            return
+        if isinstance(report, dict):
+            _apply_north_star_cache(paper, report)
+
+    def _persist_north_star_report(self, report: dict) -> None:
+        """读路径发现缓存早于当前曲线时写回。只补北极星字段。"""
+        try:
+            from core.north_star import north_star_cache_usable
+
+            with paper_write_lock(self.path):
+                paper = load_paper(self.path)
+                if north_star_cache_usable(paper, paper.get("last_north_star")):
+                    return
+                _apply_north_star_cache(paper, report)
+                save_paper(paper, self.path)
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("persist north star failed", exc_info=True)
+
+    def _north_star_for_status(self, paper: dict) -> Optional[dict]:
+        from core.north_star import build_north_star_report, north_star_cache_usable
+
+        cached = paper.get("last_north_star")
+        if north_star_cache_usable(paper, cached):
+            return cached
+        try:
+            report = build_north_star_report(paper)
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("north star for status failed", exc_info=True)
+            return None
+        if isinstance(report, dict):
+            self._persist_north_star_report(report)
+            return report
+        return None
 
     def _compute_holding_scores(
         self, paper: dict, summary: dict, *, offline_only: bool = True
@@ -513,14 +624,7 @@ class PaperAccountMixin:
             }
         summary = mark_to_market(paper)
         # 持仓 ŷ 不在本接口同步算（并发会卡死「加载中…」）；见 GET /api/paper/holding-scores
-        north_star = paper.get("last_north_star")
-        if not isinstance(north_star, dict):
-            try:
-                from core.north_star import build_north_star_report
-
-                north_star = build_north_star_report(paper)
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                north_star = None
+        north_star = self._north_star_for_status(paper)
         exposure = None
         try:
             from core.risk.exposure import build_exposure_matrix
@@ -668,7 +772,9 @@ class PaperAccountMixin:
         return out
 
     def reset(self) -> Dict[str, Any]:
-        """回零（测试基线）：保留持仓与现金，把当前净值当作新起点，清空曲线/成交记录。
+        """回零（测试基线）：保留持仓与现金，把当前净值当作新起点。
+
+        清空曲线、成交流水、开盘挂单和回零前的目标权重。
 
         同时写入当日 ``pnl_anchor``（回零价），使「今日收益」当日不再相对昨收，
         与累计收益同起点；下一自然日自动失效，恢复按昨收。
@@ -686,6 +792,7 @@ class PaperAccountMixin:
             paper["initial_cash"] = round(equity, 2)
             paper["trades"] = []
             paper["signal_log"] = []
+            _drop_prereset_execution(paper)
             ts = _now_iso()
             prices: Dict[str, float] = {}
             for h in summary.get("holdings") or []:
@@ -715,16 +822,19 @@ class PaperAccountMixin:
                 }
             ]
             paper["updated_at"] = ts
+            _blank_stale_risk_kpis(paper)
+            baseline = round(equity, 2)
             append_operation_log(
                 paper,
                 "reset",
-                detail=f"回零 · 基线 {round(equity, 2)} · 今日改相对回零价",
-                meta={"equity": round(equity, 2), "anchor_n": len(prices)},
+                detail=f"回零 · 基线 {_fmt_overview_yuan(baseline)} · 今日改相对回零价",
+                meta={"equity": baseline, "anchor_n": len(prices)},
             )
+            self._rebuild_north_star_inplace(paper)
             save_paper(paper, self.path)
         out = self.status()
         out["message"] = (
-            f"已回零 · 基线 {out.get('summary', {}).get('equity')} · "
+            f"已回零 · 基线 {_fmt_overview_yuan((out.get('summary') or {}).get('equity'))} · "
             f"持仓 {out.get('summary', {}).get('position_count', 0)} 只保留 · "
             f"今日收益自回零价起算"
         )
@@ -739,19 +849,13 @@ class PaperAccountMixin:
             raise FileNotFoundError("请先初始化纸面账户")
         paper = load_paper(self.path)
         logs = paper.get("operation_log") or []
-        trading_types = {
-            "buy",
-            "sell",
-            "rebalance",
-            "cluster_pool_rebalance",
-            "t0_batch",
-            "sync_paper",
-        }
         fund_types = {"init", "deposit", "withdraw", "reset"}
 
         if category == "trading":
             before = len(logs)
-            paper["operation_log"] = [l for l in logs if l.get("type") not in trading_types]
+            paper["operation_log"] = [
+                row for row in logs if row.get("type") not in TRADING_OPERATION_TYPES
+            ]
             after = len(paper["operation_log"])
             # Also clear trades array
             paper["trades"] = []

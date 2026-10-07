@@ -132,12 +132,12 @@ def _trades_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _north_star_from_paper(paper: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    from core.north_star import build_north_star_report, north_star_cache_usable
+
     cached = paper.get("last_north_star")
-    if isinstance(cached, dict) and cached.get("ok") is not False:
+    if north_star_cache_usable(paper, cached):
         return cached
     try:
-        from core.north_star import build_north_star_report
-
         return build_north_star_report(paper)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         return None

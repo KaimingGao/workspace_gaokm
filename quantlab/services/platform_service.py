@@ -115,7 +115,7 @@ class PlatformService:
         """R0 · 北极星二级指标权威包。"""
         import os
 
-        from core.north_star import build_north_star_report
+        from core.north_star import build_north_star_report, north_star_cache_usable
         from core.paper import load_paper, save_paper
         from core.paths import PAPER_PATH
 
@@ -126,11 +126,14 @@ class PlatformService:
             except Exception as e:
                 logger.exception('unexpected error in get_north_star')
                 return {"ok": False, "error": str(e)}
-        if not refresh and isinstance(paper, dict) and paper.get("last_north_star"):
-            return {"ok": True, "cached": True, "north_star": paper["last_north_star"]}
+        cached = paper.get("last_north_star") if isinstance(paper, dict) else None
+        if not refresh and north_star_cache_usable(paper, cached):
+            return {"ok": True, "cached": True, "north_star": cached}
         report = build_north_star_report(paper or {})
         if isinstance(paper, dict):
-            paper["last_north_star"] = report
+            from services.paper_account import _apply_north_star_cache
+
+            _apply_north_star_cache(paper, report)
             try:
                 save_paper(paper, PAPER_PATH)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

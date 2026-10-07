@@ -72,6 +72,7 @@ __all__ = [
     "load_ttm_events",
     "max_drawdown_pct",
     "merge_north_star_into_metrics",
+    "north_star_cache_usable",
     "paper_date_span",
     "pearson",
     "period_returns",
@@ -363,6 +364,40 @@ def merge_north_star_into_metrics(
     if legs.get("beta_leg_approx_pct") is not None:
         base["beta_leg_approx_pct"] = legs.get("beta_leg_approx_pct")
     return base, report
+
+
+def north_star_cache_usable(paper: Optional[dict], cached: Any) -> bool:
+    """回零清空曲线后，旧 ``last_north_star`` 不能再当夏普/卡玛。
+
+    无 ``sample_count`` / ``computed_at`` 的旧缓存仍视为可用，避免短样本单测被误判。
+    """
+    if not isinstance(cached, dict) or cached.get("ok") is False:
+        return False
+    snaps = []
+    for snap in (paper or {}).get("snapshots") or []:
+        if not isinstance(snap, dict):
+            continue
+        eq = _safe_float(snap.get("equity"))
+        if eq is not None and eq > 0:
+            snaps.append(snap)
+    pr = cached.get("paper_risk") if isinstance(cached.get("paper_risk"), dict) else {}
+    sample = pr.get("sample_count")
+    try:
+        sample_n = int(sample) if sample is not None else None
+    except (TypeError, ValueError):
+        sample_n = None
+    if sample_n is not None and sample_n > len(snaps):
+        return False
+    computed = str(cached.get("computed_at") or "").strip()
+    first_ts = ""
+    for snap in snaps:
+        raw = str(snap.get("ts") or snap.get("date") or "").strip()
+        if raw:
+            first_ts = raw
+            break
+    if computed and first_ts and computed < first_ts[:19]:
+        return False
+    return True
 
 
 def build_north_star_report(

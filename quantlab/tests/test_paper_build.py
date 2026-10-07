@@ -815,5 +815,111 @@ class TestSnapshotsForUiLiveOverlay(unittest.TestCase):
         self.assertEqual(paper["snapshots"][0]["equity"], 100.0)
 
 
+class TestResetClearsStaleNorthStar(unittest.TestCase):
+    def test_reset_does_not_keep_pre_reset_sharpe(self):
+        from services.paper_service import PaperService
+
+        summary = {
+            "equity": 199999.99,
+            "cash": 67603.99,
+            "stock_value": 132396.0,
+            "position_count": 1,
+            "holdings": [{"stock_code": "600519", "price": 10.0}],
+        }
+        fresh = {
+            "ok": True,
+            "computed_at": "2026-10-07T19:52:00",
+            "paper_risk": {
+                "rolling_sharpe": None,
+                "calmar": None,
+                "max_drawdown_pct": 0.0,
+                "sample_count": 1,
+                "status": "unavailable",
+            },
+            "realization": {},
+            "ttm": {},
+            "risk_blocks": {},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            svc = PaperService(path)
+            svc.init()
+            paper = load_paper(path)
+            paper["last_north_star"] = {
+                "ok": True,
+                "computed_at": "2026-09-10T20:21:08",
+                "paper_risk": {
+                    "rolling_sharpe": 17.0888,
+                    "calmar": 2458.8012,
+                    "sample_count": 14,
+                    "status": "ok",
+                },
+            }
+            paper["last_ops_report"] = {
+                "north_star": {
+                    "rolling_sharpe": 17.0888,
+                    "calmar": 2458.8012,
+                    "status": {"paper_risk": "ok"},
+                },
+                "monitor_metrics": {
+                    "rolling_sharpe": 20.3,
+                    "calmar": 2328.0,
+                    "max_drawdown_pct": 1.24,
+                },
+                "target_weights": {"600000": 10},
+                "optimize": {"ok": True, "count": 1},
+            }
+            paper["last_optimize"] = {"ok": True, "weights_pct": {"600000": 10}}
+            paper["pending_orders"] = {
+                "as_of": "2026-10-01",
+                "target_fill_date": "2026-10-08",
+                "source": "manual_sell",
+                "legs": [{"side": "sell", "stock_code": "600519", "shares": 100}],
+            }
+            paper.setdefault("operation_log", []).append(
+                {
+                    "ts": "2026-10-01T10:00:00",
+                    "type": "watching_matrix_rebalance",
+                    "detail": "矩阵 live 调仓",
+                }
+            )
+            save_paper(paper, path)
+            with patch(
+                "services.paper_account.mark_to_market", return_value=summary
+            ), patch(
+                "core.north_star.build_north_star_report", return_value=fresh
+            ):
+                out = svc.reset()
+            self.assertIn("基线 200,000", out.get("message") or "")
+            risk = (out.get("north_star") or {}).get("paper_risk") or {}
+            self.assertIsNone(risk.get("rolling_sharpe"))
+            self.assertIsNone(risk.get("calmar"))
+            saved = load_paper(path)
+            self.assertEqual(len(saved["snapshots"]), 1)
+            reset_logs = [
+                row
+                for row in (saved.get("operation_log") or [])
+                if row.get("type") == "reset"
+            ]
+            self.assertTrue(reset_logs)
+            self.assertIn("基线 200,000", reset_logs[-1].get("detail") or "")
+            self.assertEqual(reset_logs[-1]["meta"]["equity"], 199999.99)
+            self.assertFalse(saved.get("pending_orders"))
+            self.assertNotIn("last_optimize", saved)
+            self.assertNotIn("target_weights", saved.get("last_ops_report") or {})
+            self.assertFalse(
+                any(
+                    row.get("type") == "watching_matrix_rebalance"
+                    for row in (saved.get("operation_log") or [])
+                )
+            )
+            self.assertIsNone(saved["last_north_star"]["paper_risk"]["rolling_sharpe"])
+            self.assertIsNone(saved["last_ops_report"]["north_star"]["rolling_sharpe"])
+            self.assertIsNone(saved["last_ops_report"]["monitor_metrics"]["calmar"])
+            self.assertEqual(
+                saved["last_ops_report"]["monitor_metrics"]["max_drawdown_pct"], 0.0
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

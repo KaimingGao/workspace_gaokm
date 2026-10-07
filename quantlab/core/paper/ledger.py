@@ -324,6 +324,21 @@ def capture_mark_snapshot(paper: dict) -> Dict[str, Any]:
     return summary
 
 
+# 成交流水。回零与「清除交易记录」共用；资金流水（init/deposit/withdraw/reset）不在此列。
+TRADING_OPERATION_TYPES = frozenset(
+    {
+        "buy",
+        "sell",
+        "rebalance",
+        "cluster_pool_rebalance",
+        "watching_matrix_rebalance",
+        "t0_batch",
+        "t0_void",
+        "sync_paper",
+    }
+)
+
+
 OPERATION_LOG_TYPES = {
     "init": "初始化",
     "deposit": "注资",
