@@ -2,10 +2,8 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Platform Desk</p>
     <h2>平台</h2>
-    <p id="platform-meta" class="dashboard-meta quant-meta" aria-live="polite">调度 / 审计</p>
+    <p id="platform-meta" class="dashboard-meta quant-meta" aria-live="polite">调度 · 日更</p>
     <p class="dashboard-section-desc platform-head-path">
-      <a class="platform-hero-link" href="#platform-audit-section">审计</a>
-      →
       <a class="platform-hero-link" href="#platform-schedule-section">日更</a>
       →
       <a class="platform-hero-link" href="/follow">交易执行</a>
@@ -14,7 +12,7 @@
     </p>
   </div>
   <div class="dashboard-head-actions quant-head-actions platform-head-actions">
-    <span class="quant-desk-badge platform-desk-badge" title="调度纸面日更 · 审计时间线">调度 · 审计</span>
+    <span class="quant-desk-badge platform-desk-badge" title="调度纸面日更">调度 · 日更</span>
     <span class="platform-desk-guard" title="不接 OMS；日更默认不模拟买入">不代客下单</span>
   </div>
 </div>
@@ -27,7 +25,7 @@
   >
     <header class="dashboard-section-head quant-section-head platform-section-head">
       <h3 id="platform-section-overview-title" class="dashboard-section-title">概览</h3>
-      <p class="dashboard-section-desc quant-section-desc">上次调度 · 告警 · 时间线</p>
+      <p class="dashboard-section-desc quant-section-desc">上次调度 · 告警</p>
     </header>
     <div class="dashboard-overview-band quant-pro-desk-top platform-overview-band">
       <div class="dashboard-kpi-row quant-pro-overview-kpis platform-kpi-row" id="platform-kpi-row" aria-label="平台 KPI">
@@ -47,46 +45,17 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value platform-kpi-value" id="platform-kpi-alerts">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub platform-kpi-sub">last-run 条数</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card platform-kpi-card is-empty" data-kpi="events">
-            <div class="dashboard-kpi-label quant-pro-kpi-label platform-kpi-label">时间线</div>
-            <div class="dashboard-kpi-value quant-pro-kpi-value platform-kpi-value" id="platform-kpi-events">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub platform-kpi-sub">本页事件</div>
-          </div>
         </div>
       </div>
       <nav class="quant-path-rail quant-pro-path-rail platform-path-rail" aria-label="平台主路径">
-        <a class="quant-path-step quant-pro-path-step platform-path-step is-active" href="#platform-audit-section" data-step="audit" aria-current="step">
-          <span class="quant-pro-path-num">1</span> 审计
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step platform-path-step" href="#platform-schedule-section" data-step="daily">
-          <span class="quant-pro-path-num">2</span> 日更
+        <a class="quant-path-step quant-pro-path-step platform-path-step is-active" href="#platform-schedule-section" data-step="daily" aria-current="step">
+          <span class="quant-pro-path-num">1</span> 日更
         </a>
         <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step platform-path-step" href="/follow" data-step="follow">
-          <span class="quant-pro-path-num">3</span> 交易执行
+          <span class="quant-pro-path-num">2</span> 交易执行
         </a>
       </nav>
-    </div>
-  </section>
-
-  <section
-    class="dashboard-section quant-section platform-section"
-    id="platform-audit-section"
-    aria-labelledby="platform-audit-title"
-  >
-    <header class="dashboard-section-head quant-section-head platform-section-head">
-      <h3 id="platform-audit-title" class="dashboard-section-title">审计时间线</h3>
-      <p class="dashboard-section-desc quant-section-desc">决策 · 调度 · 告警 · 晋升</p>
-      <div class="quant-actions-inline platform-section-toolbar">
-        <button type="button" id="audit-timeline-refresh" class="dialog-btn secondary">刷新</button>
-        <button type="button" id="audit-timeline-clear" class="dialog-btn secondary">清理记录</button>
-      </div>
-    </header>
-    <div class="dashboard-card quant-pro-card platform-ops-card">
-      <div class="quant-pro-card-body platform-card-body">
-        <ul id="audit-timeline-list" class="platform-list"></ul>
-      </div>
     </div>
   </section>
 

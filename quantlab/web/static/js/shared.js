@@ -162,25 +162,6 @@ export function attachReadmeLinkHandler(container, ctx) {
   });
 }
 
-export async function postQuantCiEval() {
-  const res = await fetch("/api/evals/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      use_mock: true,
-      with_agent: false,
-      with_presets: true,
-      quant_only: true,
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok && res.status !== 422) {
-    throw new Error(data.detail || res.statusText);
-  }
-  return data;
-}
-
-
 export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

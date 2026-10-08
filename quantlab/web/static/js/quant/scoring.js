@@ -11,7 +11,7 @@ export function defaultScoringFloors() {
 }
 
 /**
- * Top-K / 中性化对照回测：predicted 模式发 min_predicted_score，勿硬编码 55。
+ * Top-K / 研究回测：predicted 模式发 min_predicted_score，勿硬编码 55。
  * 未水合时不发字段（勿默认 1.0，会盖掉配置 0.4）。
  * @param {ScoringFloors} floors
  * @param {string} [rankMode]

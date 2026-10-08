@@ -131,7 +131,7 @@ def chat_page(tab: str | None = None) -> RedirectResponse:
 
 @app.get("/platform")
 def platform_page() -> HTMLResponse:
-    """平台：审计时间线 + 纸面日更；不复用全屏对话壳层。"""
+    """平台：纸面日更；不复用全屏对话壳层。"""
     return HTMLResponse(
         render_tool_html("platform"),
         headers={

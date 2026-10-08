@@ -274,7 +274,7 @@ python3 evals/run_repro.py
 
 本地量化 CI 同款：`bash scripts/ci_quant.sh`（单测 · import 审计 · repro · checklist · daily eval-mock）。
 
-**Web**：顶栏 **「校验」** → 离线 mock · preset 校验 · **「CI 同款」** · **「量化 CI 同款」** · 可选 Agent · **路由对照表**（`GET /api/evals/routing`）。
+**Web**：黄金用例校验面板已下线；跑 checklist / preset / routing 用下方 CLI 与 Eval API（不再从顶栏弹窗）。
 
 **Eval API**：
 
@@ -288,7 +288,7 @@ python3 evals/run_repro.py
 
 用例定义在 `evals/golden_cases.json`（**20 cases**，含量化 `quant_*`、`quant_factor_ols`、`quant_model_policy` 等）。校验原则：**数字以 Skills 为准；Agent 回复不得出现工具结果里没有的关键数字；买入类须含免责声明。**
 
-Web 量化面板：quant preset daily 完成后自动加载 **Markdown 导出预览**（含 `#neutral-compare` / `#cross-section` TOC）；无 LLM 时「AI 解读」自动走 `POST /api/quant/interpret` · `{ "offline": true }` 规则解读。
+Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `POST /api/quant/interpret` · `{ "offline": true }` 规则解读。中性化对照导出专节已下线。
 
 生产决策为 **规则 score + stance**，未默认线性回归/复杂拟合模型；说明见 [quant.md](quant.md)。
 

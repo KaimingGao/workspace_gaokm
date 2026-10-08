@@ -38,15 +38,19 @@ class TestDocsGuards(unittest.TestCase):
         self.assertIn("候选因子数百", text)
 
     def test_quant_upgrade_links_model_policy(self):
-        text = self._read("docs", "archive", "quant-upgrade.md")
-        self.assertIn("为何不用拟合模型", text)
-        self.assertIn("quant.md#为何不用拟合模型", text)
-        self.assertIn("factor-ols", text)
+        # archive/quant-upgrade.md 已并入 quant.md；契约以现行选股真源小节
+        text = self._read("docs", "quant.md")
+        self.assertIn("选股真源：线性回归因子系数", text)
+        self.assertIn("ReturnScoreModel", text)
+        self.assertIn("factor_ols", text)
+        arch = self._read("docs", "archive", "upgrade-refactor-plan.md")
+        self.assertTrue(arch)
 
     def test_evals_readme_interpret_neutral(self):
         text = self._read("evals", "README.md")
-        self.assertIn("quant_interpret_neutral", text)
-        self.assertIn("agent_regression_quant", text)
+        self.assertIn("golden cases", text)
+        self.assertIn("架构总览", text)
+        self.assertNotIn("quant_interpret_neutral", text)
 
 
 if __name__ == "__main__":

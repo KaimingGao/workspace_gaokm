@@ -3,14 +3,13 @@ import {
   formatApiDetail,
   renderReadmeLinksHtml,
   attachReadmeLinkHandler,
-  postQuantCiEval,
   downloadBlob,
   downloadJson,
   setUiBusy,
 } from "./shared.js";
 import { apiFetch } from "./api_client.js";
 import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
-import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
+import { renderLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
 import { createScoreTooltipController } from "./score_tooltip.js";
 import { fmtScore, scoreCls } from "./paper/fmt.js";
@@ -161,7 +160,6 @@ export function initQuant(ctx) {
     quantBtProgressText: document.getElementById("quant-bt-progress-text"),
     quantBtMetrics: document.getElementById("quant-bt-metrics"),
     quantBtTrades: document.getElementById("quant-bt-trades"),
-    quantNeutralCompareTable: document.getElementById("quant-neutral-compare-table"),
     quantPortfolioChart: document.getElementById("quant-portfolio-chart"),
     quantT0Metrics: document.getElementById("paper-t0-metrics"),
     quantT0Viz: document.getElementById("paper-t0-viz"),
@@ -175,7 +173,6 @@ export function initQuant(ctx) {
 
   const state = {
     lastBacktestPack: null,
-    neutralCompareSource: null,
     quantScoringFloors: defaultScoringFloors(),
     prefsHorizonDays: getPrefsHorizonDays(),
     btTradesTableApi: null,
@@ -218,7 +215,7 @@ export function initQuant(ctx) {
     buildResearchCurves,
     truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl,
     fmtScore, scoreCls, mountVirtualTable, colStyle,
-    renderLineChart, renderDualLineChart, renderMultiLineChart,
+    renderLineChart,
     buildPortfolioBacktestSummaryText, buildPortfolioBacktestFailText,
     buildBtScoreFloorPayload, defaultScoringFloors, mergeScoringFloors,
     attachReadmeLinkHandler, renderReadmeLinksHtml,

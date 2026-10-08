@@ -1132,7 +1132,6 @@ body[data-page="replay"] .replay-page .quant-control-band,
 body[data-page="replay"] .replay-page .quant-summary,
 body[data-page="replay"] .replay-page .quant-metrics > .quant-metric,
 body[data-page="replay"] .replay-page .quant-fold,
-body[data-page="replay"] .replay-page .quant-neutral-frozen,
 body[data-page="replay"] .replay-page input,
 body[data-page="replay"] .replay-page select,
 body[data-page="replay"] .replay-page button,
@@ -1142,9 +1141,7 @@ body[data-page="replay"] .replay-desk-guard {
   border-radius: 2px !important;
 }
 
-/* 日报冻结 · 中性化对照：嵌套 fold 勿沿用研究页 12px 软圆角 */
-body[data-page="replay"] .replay-page .quant-fold > summary,
-body[data-page="replay"] .replay-page .quant-neutral-frozen > summary {
+body[data-page="replay"] .replay-page .quant-fold > summary {
   border-radius: 0;
 }
 

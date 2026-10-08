@@ -175,7 +175,7 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertNotIn("results.js", uni)
         self.assertNotIn("usage-dialog", uni)
         self.assertNotIn('id="btn-reset"', uni)
-        self.assertIn("evals-dialog", uni)
+        self.assertNotIn("evals-dialog", uni)
         with self.assertRaises(ValueError):
             render_tool_html("nope")
 

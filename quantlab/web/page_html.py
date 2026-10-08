@@ -63,10 +63,6 @@ def _panel(name: str) -> str:
     return _partial(f"{name}_panel.html")
 
 
-def _with_tool_panels(html: str) -> str:
-    return html.replace("{{EVALS_PANEL}}", _partial("evals_panel.html"))
-
-
 def _side_nav(active: str) -> str:
     """左侧导航（仪表盘 + 六业务）；AI 不占侧栏（顶栏 / ⌘K）。"""
 
@@ -89,7 +85,7 @@ def _side_nav(active: str) -> str:
             item("follow", "/follow", "交易执行", "调仓 · 做T执行", "btn-follow"),
             item("replay", "/replay", "历史回测", "调仓回测 · 做T回测", "btn-replay"),
             item("quant", "/quant", "研究枢纽", "因子 · 横截面 · 日报", "btn-quant"),
-            item("platform", "/platform", "平台", "调度 · 审计", "btn-settings"),
+            item("platform", "/platform", "平台", "调度 · 日更", "btn-settings"),
         ]
     )
     return f"""    <aside class="side-nav" aria-label="主导航">
@@ -167,7 +163,7 @@ def render_tool_html(page: str) -> str:
         f"      </div>\n"
         f"    </main>\n"
     )
-    extras = _with_tool_panels(_partial("shared_dialogs.html"))
+    extras = _partial("shared_dialogs.html")
     return _inject_asset_v(
         _apply_chrome(
             _template("tool.html")

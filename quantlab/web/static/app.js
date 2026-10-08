@@ -72,7 +72,6 @@ const ctx = {
   reloadPaper: null,
   openPlatformPanel: null,
   reloadPlatform: null,
-  openEvalsPanel: null,
 };
 
 function safeInit(name, fn) {
@@ -111,17 +110,15 @@ if (ctx.refreshHealth) {
 async function bootWorkspace() {
   const __perfT0 = typeof performance !== "undefined" ? performance.now() : Date.now();
 
-  const [paperMod, quantMod, evalsMod, platformMod] = await Promise.all([
+  const [paperMod, quantMod, platformMod] = await Promise.all([
     loadModule("paper", `./js/paper.js?v=${V}`),
     loadModule("quant", `./js/quant.js?v=${V}`),
-    loadModule("evals", `./js/evals.js?v=${V}`),
     loadModule("platform", `./js/platform.js?v=${V}`),
   ]);
 
   const failed = [];
   if (!paperMod) failed.push("paper");
   if (!quantMod) failed.push("quant");
-  if (!evalsMod) failed.push("evals");
   if (!platformMod) failed.push("platform");
 
   if (paperMod && PAPER_PAGES.has(page)) {
@@ -139,12 +136,9 @@ async function bootWorkspace() {
     const dashboardMod = await loadModule("dashboard", `./js/dashboard.js?v=${V}`);
     if (dashboardMod) safeInit("dashboard", () => dashboardMod.initDashboard(ctx));
   }
-  if (evalsMod) {
-    safeInit("evals", () => evalsMod.initEvals(ctx));
-  }
   if (page === "platform") {
     if (platformMod) safeInit("platform", () => platformMod.initPlatform(ctx));
-    // 平台页默认加载审计 / 日更
+    // 平台页默认加载日更
     if (typeof ctx.openPlatformPanel === "function") {
       await ctx.openPlatformPanel().catch((err) => console.error("[QuantLab] openPlatformPanel", err));
     }

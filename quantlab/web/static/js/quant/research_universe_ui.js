@@ -297,9 +297,6 @@ export function installResearchUniverseUi(q) {
     if (input) {
       input.value = String(n);
       input.setAttribute("aria-valuenow", String(n));
-      const pct = ((n - 200) / 800) * 100;
-      const host = input.closest(".quant-watching-pool-slider");
-      if (host) host.style.setProperty("--pool-pct", `${pct}%`);
     }
     if (out) out.value = String(n);
     return n;

@@ -6,8 +6,7 @@ const COMMANDS = [
   { id: "nav-follow", label: "前往 · 交易执行", hint: "/follow", href: "/follow", keywords: "模拟 持仓 调仓 做T" },
   { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid 做T" },
   { id: "nav-quant", label: "前往 · 研究枢纽", hint: "/quant", href: "/quant", keywords: "研究 因子 ic ols 运维 日报 hub" },
-  { id: "nav-platform", label: "前往 · 平台", hint: "/platform", href: "/platform", keywords: "调度 审计 平台 系统设置" },
-  { id: "nav-audit", label: "前往 · 审计时间线", hint: "audit", href: "/platform#platform-audit-section", keywords: "audit promote 告警" },
+  { id: "nav-platform", label: "前往 · 平台", hint: "/platform", href: "/platform", keywords: "调度 日更 平台 系统设置" },
   {
     id: "ai-open",
     label: "打开 AI",
@@ -23,48 +22,6 @@ const COMMANDS = [
     hint: "theme",
     keywords: "theme dark light 主题",
     run: () => document.getElementById("btn-theme-toggle")?.click(),
-  },
-  {
-    id: "watching-dock",
-    label: "数据中心 · 切换双栏",
-    hint: "dock",
-    keywords: "双栏 分屏 dock 研究 表图 单栏",
-    run: () => {
-      if ((document.body.dataset.page || "") !== "watching") {
-        window.location.href = "/watching";
-        return;
-      }
-      document.getElementById("btn-research-dock")?.click();
-    },
-  },
-  {
-    id: "live-refresh",
-    label: "实况 · 立即刷新推送",
-    hint: "ws",
-    keywords: "websocket 实况 live 重连",
-    run: () => {
-      if (typeof window.__quantlabConnectLiveWs === "function") {
-        window.__quantlabConnectLiveWs();
-      }
-    },
-  },
-  {
-    id: "factor-dict",
-    label: "策略 · 因子字典",
-    hint: "/strategy#strategy-factor-dict",
-    href: "/strategy#strategy-factor-dict",
-    keywords: "因子 dictionary",
-  },
-  {
-    id: "evals-open",
-    label: "打开 · 黄金用例校验",
-    hint: "evals",
-    keywords: "校验 evals golden checklist ci readme",
-    run: () => {
-      if (typeof window.__quantlabOpenEvals === "function") {
-        window.__quantlabOpenEvals();
-      }
-    },
   },
 ];
 

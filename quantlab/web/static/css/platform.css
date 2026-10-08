@@ -383,15 +383,6 @@ body[data-page="platform"] .platform-kind[data-kind="alert"] {
   border-color: color-mix(in srgb, var(--warn, #b45309) 28%, var(--line));
 }
 
-body[data-page="platform"] .platform-kind[data-kind="promote"] {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
-}
-
-body[data-page="platform"] .platform-kind[data-kind="error"] {
-  color: var(--danger, #b91c1c);
-}
-
 body[data-page="platform"] .platform-item .name {
   font-size: var(--sys-fs-body, 13px);
   font-weight: 600;

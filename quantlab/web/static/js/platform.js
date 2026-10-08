@@ -1,14 +1,4 @@
-/** Platform panel: audit / schedule. */
-import { apiFetch } from "./api_client.js";
-
-const KIND_ZH = {
-  decision: "决策",
-  schedule: "调度",
-  alert: "告警",
-  promote: "晋升",
-  error: "失败",
-  event: "事件",
-};
+/** Platform panel: schedule / paper daily. */
 
 const JOB_ZH = {
   paper_daily: "纸面日更",
@@ -183,74 +173,11 @@ export function initPlatform(ctx) {
     setMeta(
       `纸面日更完成 · 告警 ${(data.monitor_alerts || []).length} · 策略 ${data.strategy_id || "—"}`
     );
-    await loadAuditTimeline().catch(() => {});
-    return data;
-  }
-
-  async function loadAuditTimeline() {
-    const list = document.getElementById("audit-timeline-list");
-    if (!list) return null;
-    const { ok, data, error } = await apiFetch("/api/audit/timeline?limit=40");
-    if (!ok) {
-      list.innerHTML =
-        `<li class="platform-item"><div class="platform-item-main"><span class="sub">${escapeHtml(error || "加载失败")}</span></div></li>`;
-      setKpi("events", "—", true);
-      return data;
-    }
-    const items = data.items || [];
-    setKpi("events", String(items.length), !items.length);
-    if (!items.length) {
-      list.innerHTML =
-        '<li class="platform-item"><div class="platform-item-main"><span class="sub">暂无审计事件</span></div></li>';
-      return data;
-    }
-    list.innerHTML = items
-      .map((ev) => {
-        const kind = ev.kind || "event";
-        const title = ev.title || "—";
-        const ts = formatTs(ev.ts);
-        const sub = [ts, ev.detail].filter(Boolean).join(" · ");
-        const href = String(ev.href || "").trim();
-        const linked = href && href !== "/platform";
-        const titleHtml = linked
-          ? `<a href="${escapeHtml(href)}">${escapeHtml(title)}</a>`
-          : escapeHtml(title);
-        return (
-          `<li class="platform-item">` +
-          `<span class="platform-kind" data-kind="${escapeHtml(kind)}">${escapeHtml(KIND_ZH[kind] || kind)}</span>` +
-          `<div class="platform-item-main">` +
-          `<div class="name">${titleHtml}</div>` +
-          (sub ? `<div class="sub">${escapeHtml(sub)}</div>` : "") +
-          `</div></li>`
-        );
-      })
-      .join("");
-    return data;
-  }
-
-  async function clearAuditTimeline() {
-    const ok = window.confirm(
-      "清理时间线记录？将清空 DecisionRecord（decisions.jsonl）和最近出站告警快照。不改策略晋升、不删调度 last-run。不可恢复。"
-    );
-    if (!ok) return null;
-    const { ok: reqOk, data, error } = await apiFetch("/api/audit/timeline/clear", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    if (!reqOk) throw new Error(error || "清理失败");
-    const n = data.decisions_cleared || 0;
-    const alertBit = data.alerts_last_cleared ? " · 已清告警快照" : "";
-    setMeta(`已清理时间线 · DecisionRecord ${n} 条${alertBit}`);
-    await loadAuditTimeline();
     return data;
   }
 
   async function openPlatformPanel() {
-    await Promise.all([
-      loadScheduleLast().catch(() => {}),
-      loadAuditTimeline().catch(() => {}),
-    ]);
+    await loadScheduleLast().catch(() => {});
   }
 
   const on = (id, type, fn) => {
@@ -262,8 +189,6 @@ export function initPlatform(ctx) {
     });
   };
 
-  on("audit-timeline-refresh", "click", loadAuditTimeline);
-  on("audit-timeline-clear", "click", clearAuditTimeline);
   on("schedule-paper-run", "click", runPaperDaily);
   on("schedule-last-refresh", "click", loadScheduleLast);
 

@@ -33,14 +33,12 @@ REQUIRED_JS = (
     "js/shared.js",
     "js/paper.js",
     "js/quant.js",
-    "js/evals.js",
 )
 
 EXPORT_EXPECT = {
     "js/ai_drawer.js": "export function initAiDrawer",
     "js/paper.js": "export function initPaper",
     "js/quant.js": "export function initQuant",
-    "js/evals.js": "export function initEvals",
 }
 
 

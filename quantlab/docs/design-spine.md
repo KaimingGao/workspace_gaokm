@@ -902,8 +902,8 @@ python3 research/daily_run.py --eval-agent --json
 | GET | `/api/evals/job` | 后台任务状态（全量 Agent 回归） |
 | POST | `/api/evals/run` | 跑 checklist；body: `{case_id?, use_mock, with_agent, background?}` |
 
-顶栏 **「校验」** → 黄金用例 Skills checklist（**每日 eval** 一键 mock；全量 Agent 后台跑并轮询；上次结果 / 下载 JSON）。  
-顶栏 **「模拟」** → 假钱账本；对话 position 读 `paper.json`。
+黄金用例 Skills checklist 走 CLI / `POST /api/evals/run`（Web 校验弹窗已下线）。  
+交易执行页管理假钱账本；对话 position 读 `paper.json`。
 
 环境变量 `QUANTLAB_PAPER_PATH` 可自定义 `paper.json` 路径。
 

@@ -36,9 +36,6 @@ const {
   ledgerTradesCaptionHtml,
   buildLedgerTradesCsv,
 } = await import(`./bt_trades.js?v=${encodeURIComponent(_V)}`);
-const { renderNeutralCompareTable: renderNeutralCompareTableHtml } = await import(
-  `./neutral_compare.js?v=${encodeURIComponent(_V)}`
-);
 const {
   fmtPct,
   metricClass,
@@ -558,13 +555,9 @@ export function installBacktest(q) {
       if (!data || data.empty) return;
       if (data.portfolio_backtest_summary && data.portfolio_backtest_summary.success) {
         const ps = data.portfolio_backtest_summary;
-        const nc = data.portfolio_neutral_compare_summary;
         const meta = data.snapshot_meta || {};
         const at = formatSnapshotAt(meta.generated_at || data.generated_at);
-        let summary = `日报冻结摘要 · ${at} · 累计 ${ps.total_return_pct ?? "—"}% · 胜率 ${ps.win_rate_pct ?? "—"}% · 交易 ${ps.trade_count ?? "—"}`;
-        if (nc && nc.success) {
-          summary += ` · 中性化 Δ${nc.delta?.total_return_pct ?? "—"}% (${nc.winner})`;
-        }
+        const summary = `日报冻结摘要 · ${at} · 累计 ${ps.total_return_pct ?? "—"}% · 胜率 ${ps.win_rate_pct ?? "—"}% · 交易 ${ps.trade_count ?? "—"}`;
         writePortfolioSummary(summary);
         renderBtScopeNote(`${BT_SCOPE_FROZEN} · 冻结于 ${at}`, { warn: true });
         renderMetricCards(els.quantBtMetrics, [
@@ -578,15 +571,6 @@ export function installBacktest(q) {
             value: escapeHtml(frozenBtCaliber(ps)),
           },
         ]);
-        if (nc && nc.success) {
-          state.neutralCompareSource = "frozen";
-          renderNeutralCompareTable(nc, null, {
-            frozen: true,
-            frozenAt: at,
-          });
-        } else {
-          renderNeutralCompareTable(null);
-        }
         paintPortfolioChart(ps.equity_curve_tail, "无组合摘要曲线");
         applyReplayOverviewKpis(ps, { source: `冻结 ${at}` });
         setBtTradesCaption("日报仅含摘要曲线；点击「跑回测」加载完整模拟成交账");
@@ -594,22 +578,6 @@ export function installBacktest(q) {
     } catch (_) {
       /* ignore */
     }
-  }
-
-  async function paintDualPortfolioChart(seriesA, seriesB, emptyText) {
-    const host = els.quantPortfolioChart;
-    if (!host) return;
-    const legendEl = document.getElementById("quant-portfolio-legend");
-    if (legendEl) {
-      legendEl.textContent =
-        "中性化对照双曲线。起点 100；横轴近15日（持有期结束日）。蓝=截面中性化ŷ · 绿=未中性化ŷ（同一观察池与参数）。";
-    }
-    await renderDualLineChart(
-      host,
-      sliceCurveToDateWindow(seriesA),
-      sliceCurveToDateWindow(seriesB),
-      { emptyText, disableZoom: true }
-    );
   }
 
   async function paintIcChart(sic) {
@@ -657,55 +625,6 @@ export function installBacktest(q) {
       disableZoom: true,
       zeroLine: true,
     });
-  }
-
-  async function paintNeutralCompareChart(data) {
-    const nCurve = (data.neutralized && data.neutralized.equity_curve) || [];
-    const aCurve = (data.absolute && data.absolute.equity_curve) || [];
-    const toPts = (series) =>
-      (series || []).map((p, i) => {
-        const t = String(p.date || p.ts || p.time || "").slice(0, 10);
-        return {
-          time: /^\d{4}-\d{2}-\d{2}$/.test(t)
-            ? t
-            : new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10),
-          value: Number(p.equity_nav ?? p.equity_norm ?? p.equity ?? p.value),
-        };
-      });
-    const nPts = toPts(sliceCurveToDateWindow(nCurve));
-    const aPts = toPts(sliceCurveToDateWindow(aCurve));
-    const benchCurve =
-      (data.neutralized && data.neutralized.benchmark && data.neutralized.benchmark.equity_curve) ||
-      (data.absolute && data.absolute.benchmark && data.absolute.benchmark.equity_curve) ||
-      [];
-    const bPts = toPts(sliceCurveToDateWindow(benchCurve));
-    const host = els.quantPortfolioChart;
-    const legendEl = document.getElementById("quant-portfolio-legend");
-    if (!host) return;
-    const series = [];
-    if (nPts.length >= 2) {
-      series.push({ label: "中性化", color: "#2563eb", lineWidth: 2, points: nPts });
-    }
-    if (aPts.length >= 2) {
-      series.push({ label: "未中性化ŷ", color: "#059669", lineWidth: 2, points: aPts });
-    }
-    if (bPts.length >= 2) {
-      series.push({ label: "基准", color: "#9ca3af", lineWidth: 1.5, points: bPts });
-    }
-    if (series.length >= 2) {
-      if (legendEl) {
-        legendEl.textContent =
-          "中性化对照：蓝=截面中性化 · 绿=未中性化ŷ" +
-          (bPts.length >= 2 ? " · 灰=同一基准买持" : "") +
-          "。起点 100；横轴近15日；超额见对照表。";
-      }
-      await renderMultiLineChart(host, series, {
-        emptyText: "对照曲线不足",
-        disableZoom: true,
-      });
-      return;
-    }
-    await paintDualPortfolioChart(nCurve, aCurve, "对照曲线不足");
   }
 
   function buildDayDetailsMap(curve) {
@@ -798,8 +717,7 @@ export function installBacktest(q) {
     if (legendEl) {
       legendEl.textContent = fullWindow
         ? `rank_lots 净值。起点 100。${axisHint}`
-        : "rank_lots 净值（非研究独立腿）。起点 100。单线=当次回测；对照时蓝=中性化、绿=未中性化ŷ。" +
-          ` ${axisHint}`;
+        : `rank_lots 净值（非研究独立腿）。起点 100。单线=当次回测。 ${axisHint}`;
     }
     await renderLineChart(host, pts, { emptyText, disableZoom: !fullWindow });
   }
@@ -1244,10 +1162,6 @@ export function installBacktest(q) {
       ) + `<p class="quant-attr-note">${escapeHtml(ca.note || "")}</p>`;
   }
 
-  function renderNeutralCompareTable(source, targetEl, opts = {}) {
-    renderNeutralCompareTableHtml(source, targetEl || els.quantNeutralCompareTable, opts);
-  }
-
   function renderPortfolioBacktestResult(data) {
     if (!data || !data.success) {
       applyReplayOverviewKpis(null);
@@ -1276,12 +1190,7 @@ export function installBacktest(q) {
       renderBtTradesTable(data);
       return;
     }
-    if (state.neutralCompareSource === "frozen") {
-      renderBtScopeNote(
-        BT_SCOPE_LIVE + " · 下方中性化对照仍为日报冻结，请点「中性化对照」刷新。",
-        { warn: true }
-      );
-    } else {
+    {
       const bench = data.benchmark || {};
       const excessWarn =
         bench.warn_abs_pos_excess_neg
@@ -1490,8 +1399,6 @@ export function installBacktest(q) {
     const summary = buildPortfolioBacktestSummaryText(data);
     const elapsedBit = elapsed ? ` · 耗时 ${elapsed}` : "";
     writePortfolioSummary(`${summary.text}${elapsedBit}`, { error: !!summary.warn });
-    state.neutralCompareSource = null;
-    renderNeutralCompareTable(null);
     renderPortfolioBacktestResult(data);
     paintPortfolioChart(
       data.equity_curve,
@@ -2250,15 +2157,12 @@ export function installBacktest(q) {
     loadLastBacktestSnapshot,
     restoreLastPortfolioBacktest,
     restoreLastT0Backtest,
-    paintDualPortfolioChart,
     paintIcChart,
-    paintNeutralCompareChart,
     paintPortfolioChart,
     readPortfolioBtParams,
     renderAttributionTables,
     renderBtTradesTable,
     renderCostAssumptions,
-    renderNeutralCompareTable,
     renderPortfolioBacktestResult,
     renderRegimeBuckets,
     renderScoreIc,
