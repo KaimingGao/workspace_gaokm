@@ -7,7 +7,11 @@
 import { apiFetch } from "./api_client.js";
 import { getDataOfflineOnly } from "./data_offline.js";
 import { unwrapJobSnap } from "./quant/cluster_job_ui.js";
-import { BARS_WATCHING_LIMIT, clampBarsWatchingLimit } from "./quant/params.js";
+import {
+  BARS_DAILY_LOOKBACK,
+  BARS_WATCHING_LIMIT,
+  clampBarsWatchingLimit,
+} from "./quant/params.js";
 
 /** 同会话内默认 30 分钟内不重复整池 topup（force 可强制）。 */
 export const WAREHOUSE_TOPUP_TTL_MS = 30 * 60 * 1000;
@@ -129,7 +133,7 @@ export async function ensureWarehouseTopup(opts = {}) {
 
   _inflight = (async () => {
     const barsBody = {
-      lookback: 1000,
+      lookback: BARS_DAILY_LOOKBACK,
       watching_limit: watchingLimit,
       mode: "topup",
     };

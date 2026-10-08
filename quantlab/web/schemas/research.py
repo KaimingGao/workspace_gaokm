@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from core.data.policy import BARS_DAILY_LOOKBACK
 from core.watching.store import MODEL_FIT_MAX_SIZE
 
 FIT_LOOKBACK_MIN = 100
@@ -411,7 +412,11 @@ class OoRankRequest(BaseModel):
     )
     persist: bool = Field(
         default=False,
-        description="True=把上次拟合写入 oo_rank_model.json（不重训）；成交明细编 1..n 名次；不进 ranking/买序",
+        description="True=人审写入模型文件（路径由 persist_role 决定；不重训）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 oo_rank_model.json；research=研究套 *_research.json",
     )
     watching_tier_a_only: bool = Field(
         default=False,
@@ -619,7 +624,11 @@ class FactorOlsClusterRequest(BaseModel):
 class BarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
-    lookback: int = Field(default=1000, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
+    lookback: int = Field(
+        default=BARS_DAILY_LOOKBACK,
+        ge=FIT_LOOKBACK_MIN,
+        le=FIT_LOOKBACK_MAX,
+    )
     watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     mode: str = Field(
         default="topup",

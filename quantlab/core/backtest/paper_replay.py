@@ -1813,7 +1813,7 @@ def _attach_open_yhat_heads(
     except Exception:  # noqa: BLE001
         logger.debug("oo_rank import failed", exc_info=True)
 
-    # 影子 ŷ_oo_rank：整日截面批打分后再编 1..n 名次；不改 ranking / 买序
+    # ŷ_oo_rank：整日截面批打分后再编 1..n 名次；不改 ranking / 买序
     if apply_oo_rank_scores is not None and oo_rank_doc is not None:
         try:
             apply_oo_rank_scores(

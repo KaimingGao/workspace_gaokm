@@ -183,7 +183,7 @@ def _first_existing_model(*paths: str) -> Optional[Dict[str, Any]]:
 
 
 def load_oo_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, Any]]:
-    """加载影子模型。默认优先研究套 sidecar；缺则 live 文件。
+    """加载已启用模型。默认优先研究套 sidecar；缺则执行套。
 
     新路径优先，旧 ``oo_rank_pairwise_*.json`` 可读兼容。
     """
@@ -231,7 +231,7 @@ def save_oo_rank_last_report(report: Dict[str, Any]) -> None:
 
 
 def load_oo_rank_last_report() -> Optional[Dict[str, Any]]:
-    """上次拟合草稿。落盘影子只写这份，不再重训。新路径优先，旧文件可读。"""
+    """上次拟合草稿。启用研究/执行只写这份，不再重训。新路径优先，旧文件可读。"""
     doc = _first_existing_model(
         oo_rank_last_report_path(),
         oo_rank_last_report_path_legacy(),
@@ -241,16 +241,31 @@ def load_oo_rank_last_report() -> Optional[Dict[str, Any]]:
     return None
 
 
-def persist_oo_rank_model(report: Dict[str, Any], *, also_research: bool = True) -> Dict[str, str]:
-    """落盘执行套；可选同时写研究套（Phase1 影子默认双写同一 β）。只写新路径。"""
+def persist_oo_rank_model(
+    report: Dict[str, Any], *, note: str = "", role: str = "live"
+) -> Dict[str, Any]:
+    """人审启用：``role=live`` 写执行套；``role=research`` 写研究套 sidecar。只写新路径。"""
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        research_model_path,
+        select_persist_return_model,
+    )
+    from core.numbers import now_iso_utc
+
     if not isinstance(report, dict) or not report.get("success"):
-        return {}
+        return {"success": False, "error": report.get("error") if isinstance(report, dict) else "no report"}
     stamp_oo_rank_fitted_at(report)
-    model = report.get("return_model")
+    role_n, model = select_persist_return_model(report, role=role)
     if not isinstance(model, dict):
-        return {}
+        return {"success": False, "error": "return_model missing"}
+    if not _oo_rank_use_booster(model) and not model.get("coefficients"):
+        return {"success": False, "error": "return_model missing booster"}
     live = oo_rank_model_path()
-    os.makedirs(os.path.dirname(live), exist_ok=True)
+    model = dict(model)
+    model["model_role"] = role_n
+    model.pop("shadow_only", None)
+    fitted_at = report.get("fitted_at") or model.get("fitted_at")
+    promoted_at = now_iso_utc()
     doc = {
         "success": True,
         "task": TASK,
@@ -258,33 +273,34 @@ def persist_oo_rank_model(report: Dict[str, Any], *, also_research: bool = True)
         "return_model": model,
         "oos": report.get("oos"),
         "y_spec": report.get("y_spec") or model.get("y_spec"),
-        "note": report.get("note"),
+        "note": note or report.get("note") or f"oo_rank promote {role_n}",
         "n_days": report.get("n_days"),
         "n_train_days": report.get("n_train_days"),
         "n_test_days": report.get("n_test_days"),
         "sample_count": report.get("sample_count"),
         "shadow_track": report.get("shadow_track"),
-        "shadow_only": True,
-        "fitted_at": report.get("fitted_at"),
+        "fitted_at": fitted_at,
+        "promoted_at": promoted_at,
+        "model_role": role_n,
     }
-    atomic_write_json(live, doc)
-    out = {"live": live}
-    if also_research:
-        try:
-            from core.research.holdout import research_model_path
-
-            research = dict(model)
-            research["model_role"] = "research"
-            rdoc = dict(doc)
-            rdoc["return_model"] = research
-            if isinstance(report.get("return_model_research"), dict):
-                rdoc["return_model"] = report["return_model_research"]
-            rpath = research_model_path(live)
-            atomic_write_json(rpath, rdoc)
-            out["research"] = rpath
-        except Exception:  # noqa: BLE001
-            logger.debug("oo_rank research persist failed", exc_info=True)
+    path = (
+        research_model_path(live)
+        if role_n == MODEL_ROLE_RESEARCH
+        else live
+    )
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    atomic_write_json(path, doc)
     save_oo_rank_last_report(report)
+    out: Dict[str, Any] = {
+        "success": True,
+        "path": path,
+        "promoted_at": promoted_at,
+        "model_role": role_n,
+    }
+    if role_n == MODEL_ROLE_RESEARCH:
+        out["research"] = path
+    else:
+        out["live"] = path
     return out
 
 
@@ -686,7 +702,7 @@ def _resolve_oo_rank_fit(
 ) -> Optional[Dict[str, Any]]:
     """只接受带 booster 的 LambdaRank 包（旧线性 coefficients 包不再用）。
 
-    显式传入的 ``fit`` / ``model_doc`` 无效时不回落磁盘，避免误用 live 影子。
+    显式传入的 ``fit`` / ``model_doc`` 无效时不回落磁盘，避免误用执行套。
     """
 
     def _is_valid(m: Any) -> bool:
@@ -1077,7 +1093,7 @@ def fit_oo_rank_report(
             )
         )
 
-    # 全样本重估（影子执行套）
+    # 全样本重估（执行套）
     fit_full = fit_lambdarank(
         days,
         feature_names=feat_names,
@@ -1097,7 +1113,6 @@ def fit_oo_rank_report(
     model["horizon_mode"] = "oo_rank"
     model["target"] = "oo_rank"
     model["model_role"] = "live"
-    model["shadow_only"] = True
     model["ndcg_k"] = int(ndcg_k)
 
     research_model = make_research_model(fit_tr)
@@ -1106,7 +1121,6 @@ def fit_oo_rank_report(
         "horizon_days",
         "horizon_mode",
         "target",
-        "shadow_only",
         "ndcg_k",
     ):
         research_model[k] = model.get(k)
@@ -1144,7 +1158,7 @@ def fit_oo_rank_report(
     attach_holdout_meta(report, split_meta)
     stamp_oo_rank_fitted_at(report)
     if persist:
-        paths = persist_oo_rank_model(report, also_research=True)
+        paths = persist_oo_rank_model(report, role="live")
         report["persisted"] = paths
     return report
 

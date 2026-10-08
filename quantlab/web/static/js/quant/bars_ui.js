@@ -8,7 +8,11 @@ import {
   jobStatusBadge,
   unwrapJobSnap,
 } from "./cluster_job_ui.js";
-import { BARS_WATCHING_LIMIT, readWatchingPoolLimit } from "./params.js";
+import {
+  BARS_DAILY_LOOKBACK,
+  BARS_WATCHING_LIMIT,
+  readWatchingPoolLimit,
+} from "./params.js";
 
 /** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐」/「强更日 K」 */
 export function installBarsUi(q) {
@@ -811,7 +815,11 @@ export function installBarsUi(q) {
         const { ok, data, error } = await apiFetch("/api/quant/bars/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lookback: 1000, watching_limit: limit, mode: modeS }),
+          body: JSON.stringify({
+            lookback: BARS_DAILY_LOOKBACK,
+            watching_limit: limit,
+            mode: modeS,
+          }),
         });
         if (!ok) throw new Error(error || "提交失败");
         let result = data;

@@ -20,7 +20,9 @@ VALUATION_CACHE_HOURS = 36.0
 QUALITY_STALE_BAR_DAYS = 10
 THIN_MIN_BARS = 15
 QFQ_LONG_GAP_DAYS = 40
-# 观察池日 K 写入窗 1000 个交易日，再垫 Alpha158（约 62 根）。须 ≥ 拉取条数，否则增量补齐会把齐窗当成短仓反复整窗重拉。
+# 观察池日 K 写入窗（交易日）。拉取条数 = 本窗 + Alpha158 垫窗（见 bars_daily_fetch_limit）。
+BARS_DAILY_LOOKBACK = 1000
+# 须 ≥ 拉取条数，否则增量补齐会把齐窗当成短仓反复整窗重拉。
 DAILY_BARS_MAX_KEEP = 1200
 # 5m 全日约 48 根；12000 ≈ 250 交易日，供 BaoStock 回填 + path 150d 回看
 MINUTE_BARS_MAX_KEEP = 12000

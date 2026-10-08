@@ -105,7 +105,7 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
 
 
 def _attach_oo_rank_scores(items: Sequence[dict]) -> None:
-    """影子 y_oo_rank：有模型则写入当日截面 1..n 名次；缺则跳过。不改 ranking / 买序。"""
+    """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 ranking / 买序。"""
     try:
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores, load_oo_rank_model
 

@@ -14,12 +14,12 @@ if ROOT not in sys.path:
 
 class TestBarsStatus(unittest.TestCase):
     def test_keep_covers_fetch_window(self):
-        from core.data.policy import DAILY_BARS_MAX_KEEP
-        from quant.research.bars_status import BARS_DAILY_LOOKBACK, bars_daily_fetch_limit
+        from core.data.policy import BARS_DAILY_LOOKBACK, DAILY_BARS_MAX_KEEP
+        from quant.research.bars_status import bars_daily_fetch_limit
 
         self.assertEqual(BARS_DAILY_LOOKBACK, 1000)
         fetch = bars_daily_fetch_limit(BARS_DAILY_LOOKBACK)
-        self.assertEqual(fetch, 1062)
+        self.assertEqual(fetch, BARS_DAILY_LOOKBACK + 62)
         self.assertGreaterEqual(DAILY_BARS_MAX_KEEP, fetch)
 
     def test_expected_latest_before_close(self):
@@ -86,13 +86,16 @@ class TestBarsStatus(unittest.TestCase):
         self.assertEqual(st["coverage_pct"], 50.0)
 
     def test_refresh_modes_delegate(self):
-        from quant.research.bars_status import refresh_bars_only
+        from core.data.policy import BARS_DAILY_LOOKBACK, DAILY_BARS_MAX_KEEP
+        from quant.research.bars_status import bars_daily_fetch_limit, refresh_bars_only
+
+        need = bars_daily_fetch_limit(BARS_DAILY_LOOKBACK)
 
         def _last(code: str):
             return None if code == "000001" else "2026-08-22"
 
         def _count(code: str):
-            return None if code == "000001" else 1200
+            return None if code == "000001" else DAILY_BARS_MAX_KEEP
 
         class _Svc:
             def get_bars_batch(self, codes, **kwargs):
@@ -129,13 +132,15 @@ class TestBarsStatus(unittest.TestCase):
         self.assertEqual(top["bars_refresh"]["gap_count"], 1)
         self.assertEqual(full["bars_refresh"]["gap_count"], 2)
         self.assertEqual(top["bars_refresh"]["pool"], "process")
-        self.assertEqual(top["lookback"], 1000)
-        self.assertEqual(top["bars_refresh"]["fetch_limit"], 1062)
+        self.assertEqual(top["lookback"], BARS_DAILY_LOOKBACK)
+        self.assertEqual(top["bars_refresh"]["fetch_limit"], need)
         self.assertTrue(svc.called)
 
     def test_topup_full_window_when_cache_short(self):
-        from quant.research.bars_status import refresh_bars_only
+        from core.data.policy import BARS_DAILY_LOOKBACK, DAILY_BARS_MAX_KEEP
+        from quant.research.bars_status import bars_daily_fetch_limit, refresh_bars_only
 
+        need = bars_daily_fetch_limit(BARS_DAILY_LOOKBACK)
         calls = []
 
         class _Svc:
@@ -157,7 +162,7 @@ class TestBarsStatus(unittest.TestCase):
             side_effect=lambda code: "2026-08-22" if code == "600519" else "2026-08-20",
         ), patch(
             "quant.research.bars_status._cached_daily_bar_count",
-            side_effect=lambda code: 90 if code == "600519" else 1200,
+            side_effect=lambda code: 90 if code == "600519" else DAILY_BARS_MAX_KEEP,
         ), patch(
             "quant.research.bars_daily.mark_force_latest_bars_done"
         ), patch(
@@ -170,8 +175,8 @@ class TestBarsStatus(unittest.TestCase):
             top = refresh_bars_only(watching_limit=100, mode="topup")
         self.assertEqual(top["bars_refresh"]["full_count"], 1)
         self.assertEqual(top["bars_refresh"]["tail_count"], 1)
-        self.assertEqual(calls[0], (["600519"], False, 1062))
-        self.assertEqual(calls[1], (["000001"], True, 1062))
+        self.assertEqual(calls[0], (["600519"], False, need))
+        self.assertEqual(calls[1], (["000001"], True, need))
 
     def test_lag_distribution_buckets(self):
         from quant.research.bars_status import build_bars_status

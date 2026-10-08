@@ -273,7 +273,8 @@ class TestOoRankFit(unittest.TestCase):
         self.assertIsNotNone(oos_ridge.get("spearman"))
         self.assertIsNotNone(oos_ridge.get("ndcg_at_k"))
         model = report.get("return_model") or {}
-        self.assertTrue(model.get("shadow_only"))
+        self.assertNotIn("shadow_only", model)
+        self.assertEqual(model.get("model_role"), "live")
         self.assertEqual(float(model.get("intercept") or 0), 0.0)
         self.assertTrue(report.get("fitted_at"))
         self.assertEqual(model.get("fitted_at"), report.get("fitted_at"))
@@ -381,8 +382,8 @@ class TestOoRankFit(unittest.TestCase):
         report = {
             "success": True,
             "task": "oo_rank",
-            "return_model": dict(fit, shadow_only=True, model_role="live"),
-            "return_model_research": dict(fit, shadow_only=True, model_role="research"),
+            "return_model": dict(fit, model_role="live"),
+            "return_model_research": dict(fit, model_role="research"),
             "oos": {},
             "y_spec": {"formula": "rank"},
             "note": "test",
@@ -399,8 +400,12 @@ class TestOoRankFit(unittest.TestCase):
                 "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
                 return_value=os.path.join(td, "legacy_model.json"),
             ):
-                paths = persist_oo_rank_model(report, also_research=True)
+                live_out = persist_oo_rank_model(report, role="live")
+                self.assertTrue(live_out.get("success"))
                 self.assertTrue(os.path.isfile(live))
+                self.assertFalse(os.path.isfile(research_model_path(live)))
+                research_out = persist_oo_rank_model(report, role="research")
+                self.assertTrue(research_out.get("success"))
                 self.assertTrue(os.path.isfile(research_model_path(live)))
                 doc = load_oo_rank_model(prefer_research=True)
                 self.assertIsNotNone(doc)
@@ -408,6 +413,8 @@ class TestOoRankFit(unittest.TestCase):
                 self.assertTrue((doc or {}).get("fitted_at") or ((doc or {}).get("return_model") or {}).get("fitted_at"))
                 self.assertEqual((doc or {}).get("schema"), "oo_rank_v1")
                 self.assertEqual((doc or {}).get("task"), "oo_rank")
+                self.assertEqual((doc or {}).get("model_role"), "research")
+                self.assertNotIn("shadow_only", doc or {})
 
     def test_load_falls_back_to_legacy_pairwise_paths(self):
         import json
@@ -568,13 +575,16 @@ class TestOoRankFittedAt(unittest.TestCase):
                 return_value=last,
             ):
                 save_oo_rank_last_report(report)
-                persist_oo_rank_model(report, also_research=True)
+                out = persist_oo_rank_model(report, role="live")
+                self.assertTrue(out.get("success"))
             with open(live, encoding="utf-8") as f:
                 doc = json.load(f)
             with open(last, encoding="utf-8") as f:
                 last_doc = json.load(f)
             self.assertEqual(doc.get("fitted_at"), first)
             self.assertEqual(last_doc.get("fitted_at"), first)
+            self.assertEqual(doc.get("model_role"), "live")
+            self.assertTrue(doc.get("promoted_at"))
 
 
     def test_get_model_restores_last_report_without_persist(self):
@@ -673,7 +683,12 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
             return_value=last,
         ), patch(
             "core.research.oo_rank_lambdarank.persist_oo_rank_model",
-            return_value={"live": "/tmp/oo_rank_model.json"},
+            return_value={
+                "success": True,
+                "live": "/tmp/oo_rank_model.json",
+                "path": "/tmp/oo_rank_model.json",
+                "model_role": "live",
+            },
         ) as persist, patch(
             "core.research.oo_rank_lambdarank.fit_oo_rank_report",
         ) as fit, patch(
@@ -683,16 +698,20 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
             return_value=None,
         ):
             out = QuantService().run_oo_rank_experiment(
-                persist=True, note="ui oo_rank shadow persist"
+                persist=True,
+                persist_role="live",
+                note="ui oo_rank promote live",
             )
         persist.assert_called_once()
+        kwargs = persist.call_args.kwargs
+        self.assertEqual(kwargs.get("role"), "live")
         fit.assert_not_called()
         universe.assert_not_called()
         self.assertTrue(out.get("success"))
         self.assertTrue(out.get("from_last_report"))
         self.assertEqual(out.get("fitted_at"), "2026-10-06T17:00:00Z")
         self.assertTrue((out.get("persisted") or {}).get("success"))
-        self.assertEqual(out.get("api_note"), "ui oo_rank shadow persist")
+        self.assertEqual(out.get("api_note"), "ui oo_rank promote live")
 
     def test_persist_without_last_report_fails_fast(self):
         from quant.services.quant_service import QuantService

@@ -1495,19 +1495,19 @@ class QuantFactorMixin:
         l2: float = 1.0,
         backend: str = "lambdarank",
         persist: bool = False,
+        persist_role: str = "live",
         note: str = "",
         watching_tier_a_only: bool = False,
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档。成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸。
 
-        ``persist=True`` 只把上次拟合写入影子文件，不重新拉行情、不重训。
+        ``persist=True`` 只把上次拟合写入研究/执行套（由 ``persist_role`` 决定），不重新拉行情、不重训。
         """
         from core.data.facade import bars_and_source
         from core.research.oo_rank_panel import resolve_oo_rank_universe
         from core.research.oo_rank_lambdarank import (
             fit_oo_rank_report,
             load_oo_rank_last_report,
-            load_oo_rank_model,
             oo_rank_model_path,
             persist_oo_rank_model,
             save_oo_rank_last_report,
@@ -1518,27 +1518,32 @@ class QuantFactorMixin:
             if not last:
                 return {
                     "success": False,
-                    "error": "尚无上次拟合，请先点拟合再落盘影子",
+                    "error": "尚无上次拟合，请先点拟合再启用",
                     "task": "oo_rank",
                     "path": oo_rank_model_path(),
                 }
-            saved = persist_oo_rank_model(last, also_research=True)
-            if not saved:
+            saved = persist_oo_rank_model(
+                last, note=note or "", role=persist_role or "live"
+            )
+            if not saved.get("success"):
                 return {
                     "success": False,
-                    "error": "上次拟合缺少可落盘模型",
+                    "error": saved.get("error") or "上次拟合缺少可启用模型",
                     "task": "oo_rank",
                     "path": oo_rank_model_path(),
                 }
             out = dict(last)
-            out["persisted"] = {"success": True, **saved}
+            out["persisted"] = saved
             out["from_last_report"] = True
-            out["path"] = oo_rank_model_path()
-            out["shadow_only"] = True
-            out["live_model_present"] = True
+            out["path"] = saved.get("path") or oo_rank_model_path()
+            out["model_role"] = saved.get("model_role") or persist_role or "live"
             if note:
                 out["api_note"] = str(note)[:200]
-            return out
+            return _attach_ridge_role_flags(
+                out,
+                oo_rank_model_path(),
+                live_present=os.path.isfile(oo_rank_model_path()),
+            )
 
         resolved = resolve_oo_rank_universe(
             watching_tier_a_only=bool(watching_tier_a_only)
@@ -1615,14 +1620,18 @@ class QuantFactorMixin:
                 ),
             }
         if persist and report.get("success"):
-            saved = persist_oo_rank_model(report, also_research=True)
-            report["persisted"] = {"success": True, **saved}
+            saved = persist_oo_rank_model(
+                report, note=note or "", role=persist_role or "live"
+            )
+            report["persisted"] = saved
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            report["live_model_present"] = bool(load_oo_rank_model(prefer_research=False))
         report["path"] = oo_rank_model_path()
-        report["shadow_only"] = True
-        return report
+        return _attach_ridge_role_flags(
+            report,
+            oo_rank_model_path(),
+            live_present=os.path.isfile(oo_rank_model_path()),
+        )
 
     def get_oo_rank_model(self) -> Dict[str, Any]:
         from core.research.oo_rank_lambdarank import (
@@ -1641,7 +1650,7 @@ class QuantFactorMixin:
         from core.research.holdout import model_fit_id
 
         chosen, use_last = _select_ridge_desk_doc(persisted, last)
-        live_file = bool(persisted)
+        live_file = os.path.isfile(path)
         fitted = model_fit_id(chosen) or model_fit_id(last) or model_fit_id(persisted)
         if not fitted:
             fitted = (
@@ -1651,16 +1660,19 @@ class QuantFactorMixin:
                 or _peek_model_stamp(oo_rank_model_path_legacy())
             )
         if not chosen:
-            return {
-                "success": False,
-                "exists": False,
-                "path": path,
-                "last_report_exists": bool(last),
-                "fitted_at": fitted,
-                "shadow": False,
-                "shadow_only": True,
-                "note": "尚无 ŷ_oo_rank；POST /api/quant/oo-rank persist=true",
-            }
+            return _attach_ridge_role_flags(
+                {
+                    "success": False,
+                    "exists": False,
+                    "path": path,
+                    "last_report_exists": bool(last),
+                    "fitted_at": fitted,
+                    "shadow": False,
+                    "note": "尚无 ŷ_oo_rank；先拟合再启用研究/执行",
+                },
+                path,
+                live_present=False,
+            )
         out = dict(chosen)
         out.update(
             {
@@ -1669,14 +1681,12 @@ class QuantFactorMixin:
                 "path": path,
                 "shadow": bool(use_last) or not live_file,
                 "from_last_report": bool(use_last),
-                "shadow_only": True,
                 "last_report_exists": bool(last),
-                "live_model_present": live_file,
             }
         )
         if fitted:
             out["fitted_at"] = fitted
-        return out
+        return _attach_ridge_role_flags(out, path, live_present=live_file)
 
     def _run_horizon_ridge_experiment(
         self,
@@ -2281,16 +2291,17 @@ class QuantFactorMixin:
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
-        lookback: int = 1000,
+        lookback: Optional[int] = None,
         mode: str = "topup",
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """同步：更新观察池日线（``mode=topup|full``）。"""
+        from core.data.policy import BARS_DAILY_LOOKBACK
         from quant.research.bars_status import refresh_bars_only
 
         return refresh_bars_only(
             watching_limit=watching_limit,
-            lookback=lookback,
+            lookback=int(lookback or BARS_DAILY_LOOKBACK),
             mode=mode,
             progress_cb=progress_cb,
         )
@@ -2299,14 +2310,17 @@ class QuantFactorMixin:
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
-        lookback: int = 1000,
+        lookback: Optional[int] = None,
         mode: str = "topup",
     ) -> Dict[str, Any]:
         """后台 Job：仅更新日线；轮询 ``GET /api/jobs/bars-refresh``。"""
         import threading
 
+        from core.data.policy import BARS_DAILY_LOOKBACK
         from core.job_progress import bars_refresh_job
         from quant.research.watching_universe import clamp_watching_limit
+
+        lookback = int(lookback or BARS_DAILY_LOOKBACK)
 
         bars_refresh_job.reclaim_if_stale()
         if bars_refresh_job.is_running():

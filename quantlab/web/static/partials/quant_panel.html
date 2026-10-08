@@ -809,7 +809,7 @@
         </div>
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_tree 操作">
-          <button type="button" id="quant-oo-tree-run" class="dialog-btn primary" title="观察池拟合 ŷ_oo_tree（日 K 窗 600 个交易日；LightGBM + Alpha158）+ 同 Holdout Ridge 对照；写入 oo_tree_model.json。">拟合</button>
+          <button type="button" id="quant-oo-tree-run" class="dialog-btn primary" title="观察池拟合 ŷ_oo_tree（训练窗 600 个交易日；LightGBM + Alpha158）+ 同 Holdout Ridge 对照；写入 oo_tree_model.json。">拟合</button>
           <button type="button" id="quant-oo-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
@@ -897,7 +897,7 @@
         </div>
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_co_tree 操作">
-          <button type="button" id="quant-co-tree-run" class="dialog-btn primary" title="观察池拟合 ŷ_co_tree（日 K 窗 600 个交易日；LightGBM + Alpha158）+ 同 Holdout Ridge 对照；写入 co_tree_model.json。">拟合</button>
+          <button type="button" id="quant-co-tree-run" class="dialog-btn primary" title="观察池拟合 ŷ_co_tree（训练窗 600 个交易日；LightGBM + Alpha158）+ 同 Holdout Ridge 对照；写入 co_tree_model.json。">拟合</button>
           <button type="button" id="quant-co-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
@@ -908,7 +908,7 @@
     </details>
   </section>
 
-  <!-- ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档；入场闸在回测「其他」 -->
+  <!-- ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档；启用研究/执行；入场闸在回测「其他」 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -919,7 +919,7 @@
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 vs Ridge · 可选落盘影子</span>
+          <span class="quant-rem-status-msg">拟合后看 vs Ridge · 再启用研究/执行</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
           <label
@@ -949,8 +949,9 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
           <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank + Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist" class="dialog-btn secondary" title="人审后写入 oo_rank_model.json；成交明细 rank=当日截面 1..n；不进 ranking/买序；入场闸在回测「其他」勾选">落盘影子</button>
-          <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取已落盘影子模型">状态</button>
+          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 oo_rank_model_research.json，供历史回测加载；成交明细 rank=1..n；不进买序；入场闸另勾 rank&lt;30">启用研究</button>
+          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/oo_rank_model.json，供交易执行加载；成交明细 rank=1..n；不进买序；入场闸另勾 rank&lt;30">启用执行</button>
+          <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">

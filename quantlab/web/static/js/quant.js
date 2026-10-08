@@ -633,29 +633,40 @@ export function initQuant(ctx) {
       oos.oo_rank ||
       oos.ridge_oo_baseline
     );
-    const persisted = !!(src.exists && !src.shadow);
+    const flags = ridgeDiskFlags(src, {
+      persistOk: !!extra.persistOk,
+      persistRole: extra.persistRole || "",
+    });
     let message = extra.message;
     if (message === undefined) {
       if (!hasBody) {
-        message = src.note || "尚无影子对照";
-      } else if (persisted) {
-        message = "已落盘影子 · 成交 rank=1..n · 不进买序";
+        message =
+          src.note ||
+          (src.last_report_exists
+            ? "有上次拟合 · 可启用研究 / 执行"
+            : "拟合后看 vs Ridge · 再启用研究/执行");
+      } else if (extra.persistOk) {
+        message = flags.liveOn
+          ? "已落盘"
+          : flags.researchOn
+            ? "研究套已落盘 · 执行未写"
+            : "";
+      } else if (flags.liveOn || flags.researchOn) {
+        message = "草稿已更新 · 可再启用研究/执行";
       } else {
-        message = "刷新仍保留上次拟合";
+        message = "草稿已存 · 可启用研究/执行";
       }
     }
-    renderRemStatus(sum, {
-      state: extra.state || (hasBody ? "ok" : "idle"),
-      chip:
-        extra.chip ||
-        (persisted ? "已落盘" : hasBody ? "草稿" : "待命"),
+    paintRidgeEnableStatus(sum, src, {
+      persistOk: !!extra.persistOk,
+      persistRole: extra.persistRole || "",
+      justFitted: !!extra.justFitted,
       message,
+      idleMessage: "拟合后看 vs Ridge · 再启用研究/执行",
       fittedAt:
         extra.fittedAt !== undefined
           ? extra.fittedAt
           : src.fitted_at || (rm && rm.fitted_at) || null,
-      busy: extra.busy,
-      error: extra.error,
     });
     if (!hasBody) {
       clearOoRankResultBox();
@@ -2410,7 +2421,7 @@ export function initQuant(ctx) {
     }
   })();
 
-  // 轻量预填 ŷ_oo_rank 影子状态
+  // 轻量预填 ŷ_oo_rank 研究/执行状态
   const OO_RANK_TIER_A_KEY = "quant.oo_rank.watching_tier_a_only";
   function readOoRankTierAOnly() {
     const el = document.getElementById("quant-oo-rank-tier-a");
@@ -3303,12 +3314,15 @@ export function initQuant(ctx) {
     }
   }
 
-  async function runOoRank({ persist = false } = {}) {
+  async function runOoRank({ persist = false, persistRole = "live" } = {}) {
     const sum = document.getElementById("quant-oo-rank-summary");
+    const roleLabel = persistRole === "research" ? "研究套" : "执行套";
     renderRemStatus(sum, {
       state: "busy",
       chip: persist ? "写入中" : "拟合中",
-      message: persist ? "写入影子模型…" : "LambdaRank + Holdout OOS…",
+      message: persist
+        ? `写入上次拟合（${roleLabel}）…`
+        : "LambdaRank + Holdout OOS…",
       busy: true,
     });
     try {
@@ -3323,9 +3337,10 @@ export function initQuant(ctx) {
           ndcg_k: 10,
           l2: 1.0,
           persist: !!persist,
+          persist_role: persistRole || "live",
           backend: "lambdarank",
           watching_tier_a_only: readOoRankTierAOnly(),
-          note: persist ? "ui oo_rank shadow persist" : "",
+          note: persist ? `ui oo_rank promote ${persistRole}` : "",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -3341,10 +3356,18 @@ export function initQuant(ctx) {
         renderOoRankCoefTable(null);
         return;
       }
-      await paintOoRankDesk(sum, data, {
+      let status = data;
+      try {
+        const stRes = await fetch("/api/quant/oo-rank/model");
+        const stData = await stRes.json().catch(() => ({}));
+        if (stData && typeof stData === "object") {
+          status = { ...stData, ...data };
+        }
+      } catch (_) {}
+      await paintOoRankDesk(sum, status, {
         persistOk: !!persist,
+        persistRole: persistRole || "live",
         justFitted: !persist,
-        message: persist ? "已落盘影子 · 成交 rank=1..n · 不进买序" : "刷新仍保留上次拟合",
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4804,17 +4827,25 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-oo-rank-persist", "click", async (e) => {
+  on("quant-oo-rank-persist", "click", onOoRankPersistClick);
+  on("quant-oo-rank-persist-research", "click", onOoRankPersistClick);
+  async function onOoRankPersistClick(e) {
     e.preventDefault();
+    const persistRole =
+      (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
+    const target =
+      persistRole === "research"
+        ? "ŷ_oo_rank 研究套（oo_rank_model_research.json，供历史回测）"
+        : "ŷ_oo_rank 执行套（oo_rank_model.json，供交易执行）";
     if (
       !window.confirm(
-        "将 ŷ_oo_rank 写入模型文件？成交明细 rank 列为当日截面 1..n 名次（1=最高）；不进 ranking/买序；入场闸在回测「其他」勾选 rank < 30。"
+        `将 ŷ_oo_rank 写入 ${target}？成交明细 rank 列为当日截面 1..n 名次（1=最高）；不进 ranking/买序；入场闸在回测「其他」勾选 rank < 30。`
       )
     ) {
       return;
     }
     try {
-      await runOoRank({ persist: true });
+      await runOoRank({ persist: true, persistRole });
     } catch (err) {
       const sum = document.getElementById("quant-oo-rank-summary");
       renderRemStatus(sum, {
@@ -4824,7 +4855,7 @@ export function initQuant(ctx) {
         error: true,
       });
     }
-  });
+  }
 
   on("quant-oo-rank-status", "click", async (e) => {
     e.preventDefault();
@@ -4832,7 +4863,7 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "影子模型…",
+      message: "读取研究 / 执行 / 上次拟合…",
       busy: true,
     });
     try {

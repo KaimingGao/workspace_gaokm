@@ -443,7 +443,7 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (yRank == null) {
     return {
       text: "—",
-      tip: "rank — · 无影子模型或未写入；不进 ranking/买序",
+      tip: "rank — · 无已启用模型或未写入；不进 ranking/买序",
     };
   }
   const ord = Math.round(yRank);

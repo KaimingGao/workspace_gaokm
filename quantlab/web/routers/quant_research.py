@@ -278,7 +278,7 @@ def quant_co_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank LambdaRank（成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸）。persist 只落盘上次拟合，不重训。"""
+    """ŷ_oo_rank LambdaRank（成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸）。persist 只启用上次拟合，不重训。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,
@@ -289,6 +289,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             l2=body.l2,
             backend=body.backend,
             persist=body.persist,
+            persist_role=body.persist_role,
             note=body.note,
             watching_tier_a_only=body.watching_tier_a_only,
         )
@@ -298,7 +299,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
 @router.get("/api/quant/oo-rank/model")
 
 def quant_oo_rank_model() -> Dict[str, Any]:
-    """读取 ŷ_oo_rank 研究台：优先上次拟合草稿，否则已落盘影子。"""
+    """读取 ŷ_oo_rank 研究台：优先上次拟合草稿，否则已启用研究/执行套。"""
     try:
         return deps.quant.get_oo_rank_model()
     except Exception as e:
