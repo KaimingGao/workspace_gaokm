@@ -278,7 +278,7 @@ def quant_co_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank LambdaRank（旁路对照；成交明细 rank=1..n；不进 ranking / 买序）。persist 只落盘上次拟合，不重训。"""
+    """ŷ_oo_rank LambdaRank（成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸）。persist 只落盘上次拟合，不重训。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,

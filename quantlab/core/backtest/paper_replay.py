@@ -2259,6 +2259,7 @@ def backtest_paper_replay(
     y_enter_alt_enabled: Optional[bool] = None,
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
+    oo_rank_max: Optional[int] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
     score_backend: Optional[str] = None,
@@ -2266,7 +2267,8 @@ def backtest_paper_replay(
     """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
 
     ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘树；缺模型的头回退 Ridge。
-    ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行，旁路对照，不进 ranking / 买序。
+    ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行（不进买序）。
+    ``oo_rank_max`` 开则入场另须 y_oo_rank < 上限（缺分不拦）。
     """
     from core.research.holdout import (
         current_scoring_model_role,
@@ -2304,6 +2306,7 @@ def backtest_paper_replay(
         clamp_fusion_w_co,
         coerce_rank_threshold,
         get_rank_lot_cfg,
+        oo_rank_max_from_cfg,
         plan_rank_lot_day,
     )
     from core.paper.rebalance.watching_matrix import _apply_matrix_trades
@@ -2455,6 +2458,9 @@ def backtest_paper_replay(
         "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
         "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
         "y_τc_gt0": False if gt0_τc is None else bool(gt0_τc),
+        "oo_rank_max": oo_rank_max_from_cfg(
+            {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
+        ),
         "lot_base_amount": lot_base_n,
         "lot_strong_amount": lot_strong_n,
     }
@@ -2478,6 +2484,7 @@ def backtest_paper_replay(
     rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
+    rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
     rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
@@ -2986,6 +2993,7 @@ def backtest_paper_replay(
             "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
+            "oo_rank_max": rl_cfg.get("oo_rank_max"),
             "fusion_w_co": alpha,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,

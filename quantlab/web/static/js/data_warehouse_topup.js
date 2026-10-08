@@ -129,7 +129,7 @@ export async function ensureWarehouseTopup(opts = {}) {
 
   _inflight = (async () => {
     const barsBody = {
-      lookback: 600,
+      lookback: 1000,
       watching_limit: watchingLimit,
       mode: "topup",
     };

@@ -37,6 +37,8 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "y_enter_alt_enabled": True,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
+    # None=关；30=须 y_oo_rank < 30（UI「rank < 30」）
+    "oo_rank_max": None,
     # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
     "fill_clock": "09:30",
     # Live 自动调仓 / 手动预演窗口起点；止于 10:00。与回测 fill_clock 分立。
@@ -111,6 +113,16 @@ def get_path_matrix_cfg(
     out["y_enter_alt_enabled"] = coerce_cfg_bool(out.get("y_enter_alt_enabled"), True)
     out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
     out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
+    try:
+        from core.paper.rebalance.rank_lots import oo_rank_max_from_cfg
+
+        # 关闸须能清掉已存的 30：优先读 raw 里的 oo_rank_max（含 null）
+        out["oo_rank_max"] = oo_rank_max_from_cfg(
+            raw if isinstance(raw, dict) and "oo_rank_max" in raw else out
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_rank_max coerce failed", exc_info=True)
+        out["oo_rank_max"] = None
     for key, default, lo, hi in (
         ("rank_enter", 0.001, 0.0, 10.0),
         ("rank_strong", 0.001, 0.0, 10.0),

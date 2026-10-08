@@ -1,4 +1,4 @@
-"""ŷ_oo_rank LambdaRank 旁路对照测试。"""
+"""ŷ_oo_rank LambdaRank 截面名次测试。"""
 
 from __future__ import annotations
 

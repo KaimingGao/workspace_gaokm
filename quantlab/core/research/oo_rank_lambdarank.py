@@ -1,8 +1,8 @@
-"""ŷ_oo_rank：LightGBM LambdaRank 旁路对照。
+"""ŷ_oo_rank：LightGBM LambdaRank。
 
 训练：按日观察池 y_oo 排序，优化 NDCG。
 推理：Booster 相对分 → 当日截面编成 1..n 名次（1=最高）写入成交明细。
-旁路对照：不进 ranking / 买序。
+不进 ranking / 买序分数；可选 ``oo_rank_max`` 入场闸（UI「rank < 30」）。
 """
 
 from __future__ import annotations
@@ -1090,7 +1090,7 @@ def fit_oo_rank_report(
         "unit": "score",
         "anchor": "open[T]",
         "label": "open[T+1]/open[T]-1 cross-section rank",
-        "note": "LambdaRank shadow；模型输出相对分；live/回测成交明细编成当日截面 1..n 名次（1=最高）；不进 ranking / 买序",
+        "note": "LambdaRank；模型输出相对分；live/回测成交明细编成当日截面 1..n 名次（1=最高）；不进 ranking/买序；可选 oo_rank_max 入场闸",
     }
     model["y_spec"] = y_spec
     model["horizon_days"] = int(horizon_days)
@@ -1137,8 +1137,8 @@ def fit_oo_rank_report(
         "y_spec": y_spec,
         "note": (
             f"ŷ_oo_rank = {backend_key}；"
-            "旁路对照，不进 ranking / 买序；成交明细编当日截面 1..n 名次；"
-            "OOS 含与同窗 Ridge ŷ_oo 对照"
+            "不进 ranking/买序；成交明细编当日截面 1..n 名次；"
+            "可选 oo_rank_max 入场闸；OOS 含与同窗 Ridge ŷ_oo 对照"
         ),
     }
     attach_holdout_meta(report, split_meta)

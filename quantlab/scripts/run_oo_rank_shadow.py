@@ -1,4 +1,4 @@
-"""跑一轮 oo_rank LambdaRank 旁路对照：LambdaRank vs Ridge ŷ_oo。
+"""跑一轮 oo_rank LambdaRank OOS：LambdaRank vs Ridge ŷ_oo。
 
 特征与 ŷ_oo 同口径：原始 sub_score。
 标签: excess_mode=index（扣指数后的超额收益）

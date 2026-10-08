@@ -67,7 +67,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-score-backend-field"
-          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank 旁路：成交明细 rank=当日截面 1..n 名次（1=最高），不进 ranking。"
+          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank：成交明细 rank=当日截面 1..n 名次（1=最高），不进 ranking/买序；「其他」可勾 rank&lt;30 作入场闸。"
         >
           <span class="quant-pro-field-label">ŷ头</span>
           <select id="quant-score-backend">
@@ -202,9 +202,9 @@
                 <section class="follow-path-matrix-panel" data-panel="other" aria-labelledby="pm-panel-other">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
-                    <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；勾选则入场须 y&gt;0（缺分不拦）；未过门槛清仓</p>
+                    <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；勾选则入场须 y&gt;0 或 rank&lt;30（缺分不拦）；未过门槛清仓</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row5">
                     <label
                       class="follow-path-matrix-box"
                       title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。"
@@ -244,6 +244,16 @@
                         <span class="follow-path-matrix-box-desc">入场闸</span>
                       </span>
                       <input type="checkbox" name="pm_y_τc_gt0" aria-label="y_τc 大于 0" />
+                    </label>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="开=入场另须 ŷ_oo_rank 当日观察池截面名次 &lt; 30（1=相对分最高）；关=不看。缺分不拦。未过则已持仓清仓。须已落盘 oo_rank 影子模型。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">rank &lt; 30</span>
+                        <span class="follow-path-matrix-box-desc">oo_rank</span>
+                      </span>
+                      <input type="checkbox" name="pm_oo_rank_lt30" aria-label="oo_rank 名次小于 30" />
                     </label>
                   </div>
                 </section>

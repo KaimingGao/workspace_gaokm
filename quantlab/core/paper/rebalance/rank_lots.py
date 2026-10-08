@@ -180,6 +180,44 @@ def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]
     return None
 
 
+def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
+    """oo_rank 名次上限：须 y_oo_rank < 该值才过入场；None/≤0=关。"""
+    d = cfg if isinstance(cfg, dict) else {}
+    raw = d.get("oo_rank_max")
+    if raw in (None, ""):
+        return None
+    try:
+        v = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return max(1, min(v, 10_000))
+
+
+def _oo_rank_max_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
+    """ŷ_oo_rank 截面名次闸：开则须 rank < oo_rank_max。缺分不拦。"""
+    max_r = oo_rank_max_from_cfg(cfg)
+    if max_r is None:
+        return None
+    rank = None
+    if isinstance(item, dict):
+        for key in ("y_oo_rank", "y_oo_rank_hat", "predicted_score_oo_rank"):
+            raw = item.get(key)
+            if raw in (None, ""):
+                continue
+            try:
+                rank = float(raw)
+                break
+            except (TypeError, ValueError):
+                continue
+    if rank is None:
+        return None
+    if float(rank) >= float(max_r):
+        return f"oo_rank={int(rank)}≥{int(max_r)} 未过入场"
+    return None
+
+
 def rank_lot_enter_skip_reason(
     item: Optional[dict],
     cfg: Optional[dict],
@@ -190,6 +228,7 @@ def rank_lot_enter_skip_reason(
 
     ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开/不加。
     ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
+    过 OR 后可选 ``oo_rank_max``：须当日截面名次 y_oo_rank < 上限（缺分不拦）。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oo, pick_y_τc
@@ -211,6 +250,9 @@ def rank_lot_enter_skip_reason(
     gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
     y_oo_gt0, y_τc_gt0 = _y_gt0_flags(cfg_d)
 
+    def _pass_or_oo_rank() -> Optional[str]:
+        return _oo_rank_max_skip(item, cfg_d)
+
     skip = None
     if gate1_on:
         skip = _enter_profile_skip_reason(
@@ -222,7 +264,7 @@ def rank_lot_enter_skip_reason(
             y_τc_gt0=y_τc_gt0,
         )
         if skip is None:
-            return None
+            return _pass_or_oo_rank()
 
     skip_alt = None
     if gate2_on:
@@ -246,7 +288,7 @@ def rank_lot_enter_skip_reason(
             y_τc_gt0=y_τc_gt0,
         )
         if skip_alt is None:
-            return None
+            return _pass_or_oo_rank()
 
     if not gate1_on and not gate2_on:
         return "门槛1/2 均未启用"
@@ -475,6 +517,7 @@ def get_rank_lot_cfg(
         "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
+        "oo_rank_max": oo_rank_max_from_cfg(pm),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
         "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
         "score_backend": str(pm.get("score_backend") or "ridge"),
@@ -631,7 +674,7 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    # ŷ_oo_rank 影子 LambdaRank（旁路对照：当日截面 1..n 名次，不进 ranking / 买序）
+    # ŷ_oo_rank：当日截面 1..n 名次；不进 ranking/买序；可选 oo_rank_max 入场闸
     "y_oo_rank",
     "y_oo_rank_hat",
     "predicted_score_oo_rank",
@@ -647,7 +690,7 @@ def aux_yhat_fields(
     *,
     include_tau_horizons: bool = True,
 ) -> Dict[str, Any]:
-    """对照头：可选 y_τw / y_τ30… / y_oo_rank。不进 ranking。ŷ_hl 已下线。"""
+    """对照头透传：可选 y_τw / y_τ30… / y_oo_rank。不进 ranking 分数。ŷ_hl 已下线。"""
     if not isinstance(item, dict):
         return {}
     out: Dict[str, Any] = {}
@@ -717,7 +760,7 @@ def aux_yhat_fields(
                 out["y_τw"] = yw
                 out["y_tw"] = yw
 
-    # ŷ_oo_rank 旁路：当日截面 1..n 名次（与 τ 档无关，始终透传）
+    # ŷ_oo_rank：当日截面 1..n 名次（不进买序；与 τ 档无关，始终透传）
     try:
         from core.research.oo_rank_lambdarank import (
             pick_y_oo_rank_hat,
@@ -1375,6 +1418,7 @@ def plan_rank_lot_day(
         "rank_strong": rank_strong,
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
+        "oo_rank_max": oo_rank_max_from_cfg(cfg),
         "cash_floor": cash_floor,
         "holdings_mv_cap": mv_cap,
         "holdings_mv_after_plan": round(mv_sim, 2),
@@ -1419,5 +1463,6 @@ __all__ = [
     "plan_rank_lot_day",
     "ranking_pct_of",
     "rank_lot_enter_skip_reason",
+    "oo_rank_max_from_cfg",
     "y_tau_of",
 ]

@@ -348,7 +348,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 旁路对照，不进 ranking / 买序",
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 不进 ranking/买序；可选入场闸 rank&lt;N",
   },
 ];
 
@@ -443,7 +443,7 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (yRank == null) {
     return {
       text: "—",
-      tip: "rank — · 旁路对照，不进 ranking（无影子模型或未写入）",
+      tip: "rank — · 无影子模型或未写入；不进 ranking/买序",
     };
   }
   const ord = Math.round(yRank);
@@ -452,12 +452,12 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (n != null && isInt && ord >= 1 && ord <= n) {
     return {
       text: String(ord),
-      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 旁路对照，不进 ranking`,
+      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 ranking/买序`,
     };
   }
   return {
     text: "—",
-    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 旁路对照，不进 ranking",
+    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 不进 ranking/买序",
   };
 }
 

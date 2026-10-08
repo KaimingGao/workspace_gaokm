@@ -11,8 +11,8 @@ from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
-# 观察池日 K 写入窗（交易日）。仓上限见 DAILY_BARS_MAX_KEEP（800）。
-BARS_DAILY_LOOKBACK = 600
+# 观察池日 K 写入窗（交易日）。仓上限见 DAILY_BARS_MAX_KEEP（须盖住本窗 + Alpha158 垫窗）。
+BARS_DAILY_LOOKBACK = 1000
 
 
 def bars_daily_fetch_limit(lookback: int = BARS_DAILY_LOOKBACK) -> int:

@@ -802,7 +802,7 @@ export function initQuant(ctx) {
       `<table class="quant-weight-table quant-oos-compare-table">` +
       `<thead><tr><th>指标</th><th>LambdaRank</th><th>Ridge</th><th>Δ</th></tr></thead>` +
       `<tbody>${body}</tbody></table>` +
-      `<p class="quant-oos-compare-note">${hold}${nTe ? " · " + nTe : ""} · ${pool} · 旁路·成交 rank=1..n · 条长为该项相对幅度，加粗为胜出</p>` +
+      `<p class="quant-oos-compare-note">${hold}${nTe ? " · " + nTe : ""} · ${pool} · 成交 rank=1..n · 入场闸在回测 · 条长为该项相对幅度，加粗为胜出</p>` +
       `</div>`;
   }
 
@@ -4808,7 +4808,7 @@ export function initQuant(ctx) {
     e.preventDefault();
     if (
       !window.confirm(
-        "将 ŷ_oo_rank 写入影子模型文件？旁路对照；成交明细 rank 列为当日截面 1..n 名次（1=最高），不进 ranking / 买序。"
+        "将 ŷ_oo_rank 写入模型文件？成交明细 rank 列为当日截面 1..n 名次（1=最高）；不进 ranking/买序；入场闸在回测「其他」勾选 rank < 30。"
       )
     ) {
       return;

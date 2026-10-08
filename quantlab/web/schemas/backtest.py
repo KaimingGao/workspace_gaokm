@@ -81,6 +81,12 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         description="开=入场须 ŷ_τc>0；关=不看。缺分不拦。未过则已持仓清仓",
     )
+    oo_rank_max: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=500,
+        description="开则入场另须 y_oo_rank < 该值（UI「rank < 30」→30）；None/缺=关。缺分不拦。",
+    )
     initial_cash: float = Field(
         default=200_000.0,
         ge=10_000.0,

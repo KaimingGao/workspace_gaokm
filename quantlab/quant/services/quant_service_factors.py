@@ -1498,7 +1498,7 @@ class QuantFactorMixin:
         note: str = "",
         watching_tier_a_only: bool = False,
     ) -> Dict[str, Any]:
-        """影子 ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档。旁路对照；成交明细 rank=1..n，不进 ranking / 买序。
+        """ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档。成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸。
 
         ``persist=True`` 只把上次拟合写入影子文件，不重新拉行情、不重训。
         """
@@ -2281,7 +2281,7 @@ class QuantFactorMixin:
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
-        lookback: int = 600,
+        lookback: int = 1000,
         mode: str = "topup",
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
@@ -2299,7 +2299,7 @@ class QuantFactorMixin:
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
-        lookback: int = 600,
+        lookback: int = 1000,
         mode: str = "topup",
     ) -> Dict[str, Any]:
         """后台 Job：仅更新日线；轮询 ``GET /api/jobs/bars-refresh``。"""

@@ -68,6 +68,10 @@
   text-transform: none;
   letter-spacing: 0;
 }
+.quant-oos-compare-table thead th:first-child,
+.quant-oos-compare-table tbody th {
+  text-align: left;
+}
 .quant-oos-compare-table td.is-best {
   font-weight: 650;
   background: rgba(245, 34, 45, 0.07);
@@ -122,6 +126,7 @@
   font-weight: 600;
   color: var(--ink-2);
   vertical-align: middle;
+  text-align: left;
 }
 .quant-oos-bars {
   display: flex;
@@ -9902,6 +9907,10 @@ body[data-page="quant"] .quant-page .quant-weight-table-wrap th {
 body[data-page="quant"] .quant-page .quant-oos-compare-table.quant-weight-table th {
   text-transform: none;
   letter-spacing: 0;
+}
+body[data-page="quant"] .quant-page .quant-oos-compare-table.quant-weight-table thead th:first-child,
+body[data-page="quant"] .quant-page .quant-oos-compare-table.quant-weight-table tbody th {
+  text-align: left;
 }
 
 body[data-page="quant"] .quant-page .quant-weight-table-wrap td {

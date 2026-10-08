@@ -9728,6 +9728,24 @@ body[data-page="follow"] .follow-path-matrix-body--row4, body[data-page="replay"
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+body[data-page="follow"] .follow-path-matrix-body--row5, body[data-page="replay"] .follow-path-matrix-body--row5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  body[data-page="follow"] .follow-path-matrix-body--row5,
+  body[data-page="replay"] .follow-path-matrix-body--row5 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  body[data-page="follow"] .follow-path-matrix-body--row5,
+  body[data-page="replay"] .follow-path-matrix-body--row5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 body[data-page="follow"] .follow-path-matrix-box, body[data-page="replay"] .follow-path-matrix-box {
   display: grid;
   grid-template-rows: 1fr auto;

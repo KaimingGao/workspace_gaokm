@@ -54,7 +54,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 
 历史回测成交明细列序为股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完时剩余按收盘市值计入卖出总额）/ **ranking** 预估(真实)（真实=(open[T+1]−price(τ))/open[T]）/ y_oo / y_τc / y_co。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。缺模型/缺分显示 —。
 
-未过入场（含可选 y_oo>0 / y_oc>0）的已持仓 → **清仓**。过入场则开仓或加仓。当日打不上分（缺 ranking）不能假装过门槛，按清仓处理。无「持」动作。
+未过入场（含可选 y_oo>0 / y_τc>0 / oo_rank_max）的已持仓 → **清仓**。过入场则开仓或加仓。当日打不上分（缺 ranking）不能假装过门槛，按清仓处理。无「持」动作。
 
 ### 3.2 核心门槛（rank_lots）
 
@@ -65,6 +65,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `rank_strong` | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0；关=不看。缺分不拦 |
+| `oo_rank_max` | 关 | 开则入场另须 y_oo_rank &lt; 上限（UI「rank &lt; 30」→30）；缺分不拦 |
 | `fusion_w_oo` | 0.6（回测）/ live 随启动时间建议 | ŷ_oo 融合权重；Follow 单条滑条左端 |
 | `fusion_w_oc` | 0.4（回测）/ live 随启动时间建议 | ŷ_τc∘隔夜 头权重（键名 fusion_w_oc）；Follow 滑条右端 |
 | `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数；0=不叠 |
@@ -108,6 +109,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0 |
+| `oo_rank_max` | 关 | 开则另须 y_oo_rank &lt; 上限（UI「rank &lt; 30」→30） |
 | `cash_floor` | 0 | 不留现金地板；现金不够该手则缩到整百（最少一手） |
 | `holdings_mv_cap` | 150_000 | live 持仓市值上限；历史回测为 0 |
 | `fill_clock` | 09:30 | **仅历史回测**：5m 成交钟 09:30–10:00；>09:30 时 ŷ_τc 用该钟前缀重算 |

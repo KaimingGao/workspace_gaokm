@@ -1520,6 +1520,35 @@ class TestEnterGates(unittest.TestCase):
             )
         )
 
+    def test_oo_rank_max_blocks_when_rank_ge(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        skip = rank_lot_enter_skip_reason(
+            self._item(y_oo_rank=30),
+            self._cfg(oo_rank_max=30),
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("oo_rank", skip)
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(y_oo_rank=29),
+                self._cfg(oo_rank_max=30),
+                rs=0.02,
+            )
+        )
+
+    def test_oo_rank_max_missing_does_not_block(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(),
+                self._cfg(oo_rank_max=30),
+                rs=0.02,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

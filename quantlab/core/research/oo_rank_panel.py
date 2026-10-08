@@ -2,7 +2,8 @@
 
 标签与 ŷ_oo 同源：open[T+h]/open[T]−1（默认 h=1，百分点）。
 特征与 ŷ_oo 同口径：原始 sub_score（fit_lambdarank 内部做样本内全局 z-score）。
-建面板走 ŷ_oo 的 compact 矩阵（逐只折进 float64，丢掉行 dict）；旁路对照，不进 ranking / 买序。
+建面板走 ŷ_oo 的 compact 矩阵（逐只折进 float64，丢掉行 dict）；
+不进 ranking/买序分数；可选 oo_rank_max 入场闸。
 """
 
 from __future__ import annotations

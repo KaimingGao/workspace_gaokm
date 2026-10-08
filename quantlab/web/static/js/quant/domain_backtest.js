@@ -470,6 +470,8 @@ export function installBacktest(q) {
     };
     setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
     setChk("pm_y_τc_gt0", req.y_τc_gt0, false);
+    const ooMax = Number(req.oo_rank_max);
+    setChk("pm_oo_rank_lt30", Number.isFinite(ooMax) && ooMax === 30, false);
   }
 
   function readPredictabilityTiers() {
@@ -905,11 +907,15 @@ export function installBacktest(q) {
           y_enter_alt_enabled: lots.y_enter_alt_enabled,
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
+          oo_rank_max:
+            lots.oo_rank_max != null && Number(lots.oo_rank_max) > 0
+              ? Number(lots.oo_rank_max)
+              : null,
         };
       }
     }
     const enter = rankPctToScore();
-    return { rank_enter: enter, rank_strong: enter };
+    return { rank_enter: enter, rank_strong: enter, oo_rank_max: null };
   }
 
   const FILL_CLOCK_KEY = "paper.replay.fill_clock";
@@ -1565,6 +1571,7 @@ export function installBacktest(q) {
         y_enter_alt_enabled,
         y_oo_gt0,
         y_τc_gt0,
+        oo_rank_max,
         initial_cash,
         fill_clock,
         lot_base_amount,
@@ -1615,6 +1622,10 @@ export function installBacktest(q) {
         y_enter_alt_enabled,
         y_oo_gt0: y_oo_gt0 === true,
         y_τc_gt0: y_τc_gt0 === true,
+        oo_rank_max:
+          oo_rank_max != null && Number(oo_rank_max) > 0
+            ? Number(oo_rank_max)
+            : null,
         initial_cash,
         fill_clock,
         lot_base_amount,

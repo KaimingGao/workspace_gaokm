@@ -382,7 +382,7 @@ class CoRidgeRequest(BaseModel):
 
 
 class OoRankRequest(BaseModel):
-    """ŷ_oo_rank LambdaRank（旁路对照；成交明细 rank=1..n；不进 ranking / 买序）。"""
+    """ŷ_oo_rank LambdaRank（成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -411,7 +411,7 @@ class OoRankRequest(BaseModel):
     )
     persist: bool = Field(
         default=False,
-        description="True=把上次拟合写入 oo_rank_model.json（不重训）；成交明细编 1..n 名次，不进 ranking / 买序",
+        description="True=把上次拟合写入 oo_rank_model.json（不重训）；成交明细编 1..n 名次；不进 ranking/买序",
     )
     watching_tier_a_only: bool = Field(
         default=False,
@@ -619,7 +619,7 @@ class FactorOlsClusterRequest(BaseModel):
 class BarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
-    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
+    lookback: int = Field(default=1000, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     mode: str = Field(
         default="topup",

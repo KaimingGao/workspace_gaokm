@@ -80,6 +80,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertNotIn("y_hl_gt0", lots)
         self.assertFalse(lots.get("y_oo_gt0"))
         self.assertFalse(lots.get("y_τc_gt0"))
+        self.assertIsNone(lots.get("oo_rank_max"))
         self.assertEqual(lots.get("fill_clock"), "09:30")
         self.assertEqual(int(lots.get("lot_base_amount") or 0), 10000)
         self.assertEqual(int(lots.get("lot_strong_amount") or 0), 20000)
@@ -89,6 +90,34 @@ class TestPathMatrix(unittest.TestCase):
         self.assertAlmostEqual(float(pm.get("holdings_mv_cap")), 150000.0)
         self.assertEqual(int(pm.get("lot_base_amount") or 0), 10000)
         self.assertEqual(int(pm.get("lot_strong_amount") or 0), 20000)
+        self.assertIsNone(pm.get("oo_rank_max"))
+
+    def test_save_rules_persists_oo_rank_max(self):
+        from core.execution import apply_execution_patch_to_paper, validate_execution_patch
+
+        ok, norm, errs = validate_execution_patch(
+            {"rebalance_timing": {"rank_lots": {"oo_rank_max": 30}}}
+        )
+        self.assertTrue(ok, errs)
+        saved = (norm.get("rebalance_timing") or {}).get("rank_lots") or {}
+        self.assertEqual(int(saved.get("oo_rank_max") or 0), 30)
+
+        paper = {"rules": {}}
+        applied = apply_execution_patch_to_paper(
+            paper,
+            {"rebalance_timing": {"rank_lots": {"oo_rank_max": 30}}},
+        )
+        self.assertTrue(applied.get("ok"), applied)
+        lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
+        self.assertEqual(int(lots.get("oo_rank_max") or 0), 30)
+
+        cleared = apply_execution_patch_to_paper(
+            paper,
+            {"rebalance_timing": {"rank_lots": {"oo_rank_max": None}}},
+        )
+        self.assertTrue(cleared.get("ok"), cleared)
+        lots2 = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
+        self.assertIsNone(lots2.get("oo_rank_max"))
 
     def test_fill_clock_passthrough(self):
         cfg = self._cfg(fill_clock="09:40")

@@ -131,6 +131,7 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "y_enter_alt_enabled": body.y_enter_alt_enabled,
         "y_oo_gt0": body.y_oo_gt0,
         "y_τc_gt0": body.y_τc_gt0,
+        "oo_rank_max": body.oo_rank_max,
         "initial_cash": body.initial_cash,
         "fill_clock": body.fill_clock,
         "lot_base_amount": body.lot_base_amount,

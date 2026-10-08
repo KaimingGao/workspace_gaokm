@@ -191,16 +191,16 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                写入口：日常<strong>增量补齐</strong>（窗 600 个交易日：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉）·
+                写入口：日常<strong>增量补齐</strong>（窗 1000 个交易日：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉）·
                 全窗<strong>强更日 K</strong>（进程池整窗重拉；仓损坏 / 复权混用时用）· 调度 <code>bars_warmup</code>。
                 不是数据中心「刷新 watching」（那只改名单）。不写 5m、不算 ŷ。下游 ŷ_oo / OLS。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-bars-topup" class="dialog-btn secondary" title="写入日 K 仓（增量 · 窗 600 个交易日）：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-topup" class="dialog-btn secondary" title="写入日 K 仓（增量 · 窗 1000 个交易日）：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
             增量补齐
           </button>
-          <button type="button" id="quant-bars-refresh" class="dialog-btn secondary" title="写入日 K 仓（整窗重拉 · 窗 600 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-refresh" class="dialog-btn secondary" title="写入日 K 仓（整窗重拉 · 窗 1000 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
             强更日 K
           </button>
         </div>
@@ -908,12 +908,12 @@
     </details>
   </section>
 
-  <!-- ŷ_oo_rank：LambdaRank 旁路对照；默认整观察池，可选只训 A 档 -->
+  <!-- ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档；入场闸在回测「其他」 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
-        <p class="dashboard-section-desc quant-section-desc">截面序 · LambdaRank vs Ridge · 旁路对照 · 成交 rank=1..n · 不进买序</p>
+        <p class="dashboard-section-desc quant-section-desc">截面序 · LambdaRank vs Ridge · 成交 rank=1..n · 不进买序 · 入场闸见回测</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -949,7 +949,7 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
           <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank + Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist" class="dialog-btn secondary" title="人审后写入 oo_rank_model.json；成交明细 rank=当日截面 1..n，不进 ranking / 买序">落盘影子</button>
+          <button type="button" id="quant-oo-rank-persist" class="dialog-btn secondary" title="人审后写入 oo_rank_model.json；成交明细 rank=当日截面 1..n；不进 ranking/买序；入场闸在回测「其他」勾选">落盘影子</button>
           <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取已落盘影子模型">状态</button>
         </div>
       </div>

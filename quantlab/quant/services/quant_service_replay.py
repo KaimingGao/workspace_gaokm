@@ -76,6 +76,7 @@ class QuantReplayMixin:
         y_enter_alt_enabled: bool = True,
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
+        oo_rank_max: Optional[int] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
         lot_base: Optional[float] = None,
@@ -374,6 +375,7 @@ class QuantReplayMixin:
             y_enter_alt_enabled=y_enter_alt_enabled,
             y_oo_gt0=bool(y_oo_gt0),
             y_τc_gt0=bool(y_τc_gt0),
+            oo_rank_max=oo_rank_max,
             fill_clock=clock,
             minute_bars_by_code=minute_bars,
             lot_base_amount=lot_base_n,
@@ -414,6 +416,7 @@ class QuantReplayMixin:
             "y_enter_alt_enabled": bool(y_enter_alt_enabled),
             "y_oo_gt0": bool(y_oo_gt0),
             "y_τc_gt0": bool(y_τc_gt0),
+            "oo_rank_max": oo_rank_max,
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
             "lot_strong_amount": lot_strong_n,
@@ -428,6 +431,11 @@ class QuantReplayMixin:
                 f"w_co={fusion_w_co:g}；门槛1/2 入场；"
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
+                + (
+                    f"；oo_rank<{int(oo_rank_max)}"
+                    if oo_rank_max is not None and int(oo_rank_max) > 0
+                    else ""
+                )
                 + ("；ŷ头=Tree" if backend == "tree" else "；ŷ头=Ridge")
                 + f"，开加不按纸面 max_positions={max_positions} 截断）；"
                 "现金用完即止。"
