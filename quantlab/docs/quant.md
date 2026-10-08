@@ -1334,10 +1334,10 @@ LightGBM LambdaRank：按日观察池对 `y_oo = open[T+1]/open[T]−1` 整日�
 入口：历史回测页 / 日报轻量摘要 · `backtest_paper_replay`  
 （Web：默认入队 `GET /api/jobs/portfolio-backtest`，`sync=true` 才同步跑 `run_portfolio_backtest`；日报：`summarize_portfolio_backtest`）。
 
-产品回测与 live Follow 同一套 **rank_lots**：每个交易日 09:30 用 ranking 排序，按手数开/加/清仓（未过入场清仓，无「持」）。历史成交用 5 分钟 K（调仓时间 09:30–10:00）。  
+产品回测与 live Follow 同一套 **rank_lots**：按手数开/加/清仓（未过入场清仓，无「持」）。历史成交用 5 分钟 K（回测时间 09:30–10:00）；live 窗跟独立「启动时间」`live_fill_clock`（可含 09:25）。  
 `topk_research`（`backtest_topk_equal_weight`）只作研究探针（组 OOS / 权建议 OOS / 分池合成对照），**不进 `/replay`**。中性化对照研究口与 lookback×K 参数网格已下线。
 
-成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住，成交钟两边同源），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
 ### 5.1 分数口径（历史 vs live）
 

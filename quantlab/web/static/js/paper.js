@@ -39,8 +39,11 @@ import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 import {
   renderExecutionRulesHtml,
   normalizeExecutionView,
-} from "./paper/execution_ui.js?v=p2594";
-import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2512";
+  collectLiveFillClockPatch,
+  applyLiveFillClockUi,
+  liveFillClockAt,
+} from "./paper/execution_ui.js?v=p2890";
+import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2890";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2882";
 import { downloadBlob } from "./shared.js";
 import {
@@ -48,7 +51,7 @@ import {
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js?v=p2746";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2746";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2890";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2746";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
@@ -1379,6 +1382,10 @@ export function initPaper(ctx) {
       tone: lastRunTone,
     });
 
+    if (w.live_fill_clock || w.fill_clock) {
+      applyLiveFillClockUi(w.live_fill_clock || w.fill_clock);
+    }
+
     const subEl = document.getElementById("paper-rebalance-worker-sub");
     if (subEl && w.window_label) {
       subEl.textContent = `每个交易日 ${w.window_label} 现价成交一次 · 过点不补跑`;
@@ -1389,7 +1396,7 @@ export function initPaper(ctx) {
       if (!w.enabled) {
         hints.push(
           `后台 worker 已关闭；打开右侧「运行」即按已保存规则在 ${
-            w.window_label || "调仓时间–10:00"
+            w.window_label || "启动时间–10:00"
           } 现价成交一次`
         );
       } else if (!running) {
@@ -2995,6 +3002,54 @@ export function initPaper(ctx) {
   if (paperRebalanceWorkerEnabled) {
     paperRebalanceWorkerEnabled.addEventListener("change", () => {
       postRebalanceWorker(!!paperRebalanceWorkerEnabled.checked);
+    });
+  }
+
+  const paperLiveFillClock = document.getElementById("paper-live-fill-clock");
+  if (paperLiveFillClock) {
+    const paintLiveClockThumb = () => {
+      const clock = liveFillClockAt(paperLiveFillClock.value);
+      const valEl = document.getElementById("paper-live-fill-clock-value");
+      if (valEl) valEl.textContent = clock;
+      paperLiveFillClock.setAttribute(
+        "aria-valuenow",
+        String(Math.round(Number(paperLiveFillClock.value) || 0))
+      );
+      paperLiveFillClock.setAttribute("aria-valuetext", clock);
+    };
+    paperLiveFillClock.addEventListener("input", paintLiveClockThumb);
+    paperLiveFillClock.addEventListener("change", async () => {
+      paintLiveClockThumb();
+      const body = collectLiveFillClockPatch();
+      if (!body) return;
+      paperLiveFillClock.disabled = true;
+      try {
+        const res = await fetch("/api/paper/execution", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, note: "follow live 启动时间" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          const err = data.detail || data.errors || data.error || "保存失败";
+          const errEl = document.getElementById("paper-rebalance-worker-error");
+          if (errEl) {
+            errEl.hidden = false;
+            errEl.textContent = Array.isArray(err) ? err.join("; ") : String(err);
+          }
+          return;
+        }
+        if (data.execution) applyExecutionToUi(data.execution);
+        await refreshRebalanceWorkerPanel({ quiet: true });
+      } catch (err) {
+        const errEl = document.getElementById("paper-rebalance-worker-error");
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = String(err.message || err);
+        }
+      } finally {
+        paperLiveFillClock.disabled = false;
+      }
     });
   }
 

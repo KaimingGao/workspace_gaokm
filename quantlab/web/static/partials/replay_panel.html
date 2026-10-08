@@ -35,9 +35,9 @@
       <div class="replay-run-toolbar" aria-label="回测窗">
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-clock-field"
-          title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_τc 在成交钟>09:30 时用截至该钟的 5m 前缀重算。保存规则后，自动调仓与手动预演也从这个钟开始、到 10:00 结束。缺分钟：买入跳过；清仓回退该钟之后～10:00，再回退 09:30/日开盘。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺不当开盘锚）。有窗口分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
+          title="仅历史回测成交钟。成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_τc 在成交钟>09:30 时用截至该钟的 5m 前缀重算。不改 live「启动时间」（交易执行页独立配置，默认 09:30）。缺分钟：买入跳过；清仓回退该钟之后～10:00，再回退 09:30/日开盘。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺不当开盘锚）。有窗口分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
         >
-          <span class="quant-pro-field-label">时间</span>
+          <span class="quant-pro-field-label">回测时间</span>
           <select id="quant-fill-clock">
             <option value="09:30" selected>09:30</option>
             <option value="09:35">09:35</option>

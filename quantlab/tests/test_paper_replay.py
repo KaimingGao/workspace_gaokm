@@ -1966,7 +1966,9 @@ class TestStockContrib(unittest.TestCase):
 class TestReplayMinuteFill(unittest.TestCase):
     def test_clamp_fill_clock(self):
         from core.backtest.paper_replay import (
+            LIVE_FILL_CLOCKS,
             REPLAY_FILL_CLOCKS,
+            clamp_live_fill_clock,
             clamp_replay_fill_clock,
         )
 
@@ -1975,7 +1977,13 @@ class TestReplayMinuteFill(unittest.TestCase):
         self.assertEqual(clamp_replay_fill_clock("10:00"), "10:00")
         self.assertEqual(clamp_replay_fill_clock("11:00"), "09:30")
         self.assertEqual(clamp_replay_fill_clock(None), "09:30")
+        self.assertEqual(clamp_replay_fill_clock("09:25"), "09:30")  # 回测不含 09:25
         self.assertEqual(len(REPLAY_FILL_CLOCKS), 7)
+        self.assertEqual(clamp_live_fill_clock("09:25"), "09:25")
+        self.assertEqual(clamp_live_fill_clock("9:40"), "09:40")
+        self.assertEqual(clamp_live_fill_clock("11:00"), "09:30")
+        self.assertEqual(LIVE_FILL_CLOCKS[0], "09:25")
+        self.assertEqual(len(LIVE_FILL_CLOCKS), 8)
 
     def test_fill_px_0930_uses_first_open(self):
         from core.backtest.paper_replay import replay_fill_px

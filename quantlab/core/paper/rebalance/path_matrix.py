@@ -37,8 +37,10 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "y_enter_alt_enabled": True,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
-    # 调仓成交钟：自动调仓 / 手动预演窗口起点；止于 10:00。与历史回测 fill_clock 同源。
+    # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
     "fill_clock": "09:30",
+    # Live 自动调仓 / 手动预演窗口起点；止于 10:00。与回测 fill_clock 分立。
+    "live_fill_clock": "09:30",
     "score_backend": "ridge",
     # 手数：按金额/价换算整手，不够一手则买一手；保存规则写入交易执行。缺省 live 1万/2万。
     "lot_base_amount": 10_000.0,
@@ -148,14 +150,26 @@ def get_path_matrix_cfg(
         if raw.get("rank_enter_alt") in (None, ""):
             out["rank_enter_alt"] = float(out["rank_enter"])
     try:
-        from core.backtest.paper_replay import REPLAY_FILL_CLOCK, clamp_replay_fill_clock
+        from core.backtest.paper_replay import (
+            LIVE_FILL_CLOCK,
+            REPLAY_FILL_CLOCK,
+            clamp_live_fill_clock,
+            clamp_replay_fill_clock,
+        )
 
         out["fill_clock"] = clamp_replay_fill_clock(
             out.get("fill_clock"), REPLAY_FILL_CLOCK
         )
+        # 缺省独立；不回退 fill_clock，避免回测改钟拖动 live。可含 09:25。
+        raw_live = out.get("live_fill_clock")
+        if raw_live in (None, ""):
+            out["live_fill_clock"] = LIVE_FILL_CLOCK
+        else:
+            out["live_fill_clock"] = clamp_live_fill_clock(raw_live, LIVE_FILL_CLOCK)
     except Exception:  # noqa: BLE001
         logger.debug("clamp fill_clock failed", exc_info=True)
         out["fill_clock"] = "09:30"
+        out["live_fill_clock"] = "09:30"
     try:
         from core.research.return_tree import normalize_rebalance_score_backend
 

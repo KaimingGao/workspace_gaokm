@@ -21,6 +21,69 @@ def _dt(hour: int, minute: int) -> datetime:
 
 
 class TestAutoRebalanceWindow(unittest.TestCase):
+    def test_live_fill_clock_ignores_backtest_fill_clock(self):
+        from core.paper.rebalance.auto_worker import (
+            rebalance_fill_clock,
+            rebalance_window_after_hm,
+        )
+
+        paper = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {
+                            "fill_clock": "09:40",
+                            "live_fill_clock": "09:30",
+                        }
+                    }
+                }
+            }
+        }
+        self.assertEqual(rebalance_fill_clock(paper), "09:30")
+        self.assertEqual(rebalance_window_after_hm(paper), (9, 30))
+
+        paper_early = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {
+                            "fill_clock": "09:40",
+                            "live_fill_clock": "09:25",
+                        }
+                    }
+                }
+            }
+        }
+        self.assertEqual(rebalance_fill_clock(paper_early), "09:25")
+        self.assertEqual(rebalance_window_after_hm(paper_early), (9, 25))
+
+        paper_late = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {
+                            "fill_clock": "09:30",
+                            "live_fill_clock": "09:40",
+                        }
+                    }
+                }
+            }
+        }
+        self.assertEqual(rebalance_fill_clock(paper_late), "09:40")
+        self.assertEqual(rebalance_window_after_hm(paper_late), (9, 40))
+
+        # 缺 live_fill_clock 时默认 09:30，不回退回测 fill_clock
+        paper_legacy = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {"fill_clock": "09:45"}
+                    }
+                }
+            }
+        }
+        self.assertEqual(rebalance_fill_clock(paper_legacy), "09:30")
+
     def test_window_follows_fill_clock(self):
         from core.paper.rebalance.auto_worker import (
             after_auto_rebalance_window,
@@ -132,7 +195,7 @@ class TestAutoRebalanceWindow(unittest.TestCase):
             "sell_trades": [],
             "buy_trades": [],
             "rebalance_report": [],
-            "note": "已过调仓窗口 09:30–10:00，过点不补跑、不挂开盘单",
+            "note": "已过启动窗口 09:30–10:00，过点不补跑、不挂开盘单",
             "empty_reason": "miss_window",
         }
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
@@ -177,9 +240,8 @@ class TestAutoRebalanceWindow(unittest.TestCase):
             "core.paper.rebalance.auto_worker.rebalance_fill_clock",
             return_value="09:30",
         ):
-            self.assertFalse(in_auto_rebalance_window(_dt(9, 24)))
-            self.assertTrue(in_auto_rebalance_window(_dt(9, 25)))
-            self.assertTrue(in_auto_rebalance_window(_dt(9, 29)))
+            self.assertFalse(in_auto_rebalance_window(_dt(9, 25)))
+            self.assertFalse(in_auto_rebalance_window(_dt(9, 29)))
             self.assertTrue(in_auto_rebalance_window(_dt(9, 30)))
             self.assertTrue(in_auto_rebalance_window(_dt(9, 59)))
             self.assertFalse(in_auto_rebalance_window(_dt(10, 0)))
@@ -187,6 +249,18 @@ class TestAutoRebalanceWindow(unittest.TestCase):
             self.assertFalse(after_auto_rebalance_window(_dt(9, 59)))
             self.assertTrue(after_auto_rebalance_window(_dt(10, 0)))
             self.assertTrue(after_auto_rebalance_window(_dt(10, 30)))
+
+        with patch(
+            "core.paper.rebalance.auto_worker.is_trading_session",
+            return_value=True,
+        ), patch(
+            "core.paper.rebalance.auto_worker.rebalance_fill_clock",
+            return_value="09:25",
+        ):
+            self.assertFalse(in_auto_rebalance_window(_dt(9, 24)))
+            self.assertTrue(in_auto_rebalance_window(_dt(9, 25)))
+            self.assertTrue(in_auto_rebalance_window(_dt(9, 30)))
+            self.assertFalse(in_auto_rebalance_window(_dt(10, 0)))
 
     def test_t0_waits_until_rebalance_or_window_end(self):
         from core.paper.rebalance.auto_worker import t0_wait_for_rebalance
@@ -361,7 +435,7 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
                     "fill_action": "wait_clock",
                     "buy_trades": [],
                     "sell_trades": [],
-                    "note": "未到调仓时间 09:40，窗口 09:40–10:00；到点后再预演/落账",
+                    "note": "未到启动时间 09:40，窗口 09:40–10:00；到点后再预演/落账",
                 }
                 w._tick()
             from core.paper.rebalance.auto_worker import last_run_session
@@ -371,7 +445,7 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
                 return_value=path,
             ):
                 self.assertEqual(last_run_session(), "")
-                self.assertIn("未到调仓时间", w.status()["last_tick_message"])
+                self.assertIn("未到启动时间", w.status()["last_tick_message"])
 
     def test_leftover_pending_does_not_mark(self):
         from core.paper.rebalance.auto_worker import RebalanceAutoWorker
@@ -772,7 +846,21 @@ class TestFollowPanelWorkerMarkup(unittest.TestCase):
         self.assertIn('id="follow-fold-rebalance-run"', text)
         self.assertIn("今日调仓盯盘状态", text)
         self.assertIn("自动调仓后台进程", text)
-        self.assertIn("本页只在已保存调仓时间～10:00 预演/落账", text)
+        self.assertIn("本页只在启动时间～10:00 预演/落账", text)
+        self.assertIn('id="paper-live-fill-clock"', text)
+        self.assertIn('type="range"', text)
+        self.assertIn("paper-live-clock-range", text)
+        self.assertIn("启动时间", text)
+        self.assertIn("09:25", text)
+        self.assertIn("10:00", text)
+        self.assertLess(
+            text.find('id="paper-live-fill-clock"'),
+            text.find('id="paper-rebalance-worker-badge"'),
+        )
+        self.assertLess(
+            text.find('id="paper-rebalance-worker-badge"'),
+            text.find('id="paper-rebalance-worker-enabled"'),
+        )
         self.assertIn("与自动调仓同一窗口", text)
         self.assertIn("过点不补跑、不挂开盘单", text)
         self.assertNotIn("收盘后挂次日开盘单", text)

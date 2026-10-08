@@ -293,7 +293,11 @@ export function renderRebalanceRulesHtml(execution) {
     `<header class="paper-t0-spec-head">` +
     `<h4 class="paper-t0-spec-head-title">生效调仓</h4>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="调仓核心参数">` +
-    specKpi("调仓窗", `${pm.fill_clock || "09:30"}～10:00`, `现价成交一次 · ${lotB}/${lotS} 元`) +
+    specKpi(
+      "启动时间",
+      `${pm.live_fill_clock || "09:30"}～10:00`,
+      `live 自动调仓从此刻起～10:00；回测时间 ${pm.fill_clock || "09:30"} 不驱动 live`
+    ) +
     specKpi("w_co", fmtN(alpha, 1), "叠进 ŷ_τc 的隔夜系数；0=不叠") +
     specKpi("ranking", `${fmtN(wt, 2)}/${fmtN(wn, 2)}`, "w_oo / w_τc") +
     specKpi("入场", `${fmtN(Number(enter), 2)}%`, "ranking 入场；与历史回测「入场·阈值%」同一键；未过则已持仓清仓") +
@@ -623,6 +627,7 @@ export function fillPathMatrixForm(root, execution) {
     const v = String(pm.fill_clock).replace("：", ":").trim().slice(0, 5);
     if (clockEl.querySelector(`option[value="${v}"]`)) clockEl.value = v;
   }
+  applyLiveFillClockUi(pm.live_fill_clock || "09:30");
   const backendEl = document.getElementById("quant-score-backend");
   if (backendEl && pm.score_backend) {
     const bv = String(pm.score_backend).toLowerCase();
@@ -743,6 +748,7 @@ export function collectPathMatrixForm(root) {
   };
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && clockEl.value) {
+    // 仅回测钟；不写 live_fill_clock，避免拖动自动调仓窗。
     lots.fill_clock = String(clockEl.value).replace("：", ":").trim().slice(0, 5);
   }
   const backendEl = document.getElementById("quant-score-backend");
@@ -750,6 +756,72 @@ export function collectPathMatrixForm(root) {
     const bv = String(backendEl.value).toLowerCase();
     lots.score_backend = bv === "tree" ? "tree" : "ridge";
   }
+  return {
+    lock: true,
+    rebalance_timing: {
+      rank_lots: { ...lots },
+      path_matrix: { ...lots },
+    },
+  };
+}
+
+/** Live 启动时间档：09:25–10:00，每 5 分钟。 */
+export const LIVE_FILL_CLOCKS = [
+  "09:25",
+  "09:30",
+  "09:35",
+  "09:40",
+  "09:45",
+  "09:50",
+  "09:55",
+  "10:00",
+];
+
+export function liveFillClockIndex(raw, fallback = "09:30") {
+  const clock = String(raw || fallback).replace("：", ":").trim().slice(0, 5);
+  const i = LIVE_FILL_CLOCKS.indexOf(clock);
+  if (i >= 0) return i;
+  const fb = LIVE_FILL_CLOCKS.indexOf(fallback);
+  return fb >= 0 ? fb : 1;
+}
+
+export function liveFillClockAt(index) {
+  const i = Math.max(0, Math.min(LIVE_FILL_CLOCKS.length - 1, Math.round(Number(index) || 0)));
+  return LIVE_FILL_CLOCKS[i];
+}
+
+export function readLiveFillClock() {
+  const el = document.getElementById("paper-live-fill-clock");
+  if (!el) return null;
+  if (el.type === "range") return liveFillClockAt(el.value);
+  const v = String(el.value || "").replace("：", ":").trim().slice(0, 5);
+  return v || null;
+}
+
+/** 同步滑条 / 当前钟显示；拖动中不抢焦点。 */
+export function applyLiveFillClockUi(raw, { force = false } = {}) {
+  const el = document.getElementById("paper-live-fill-clock");
+  if (!el) return null;
+  if (!force && document.activeElement === el) return readLiveFillClock();
+  const clock = liveFillClockAt(liveFillClockIndex(raw));
+  const idx = liveFillClockIndex(clock);
+  if (el.type === "range") {
+    el.value = String(idx);
+    el.setAttribute("aria-valuenow", String(idx));
+    el.setAttribute("aria-valuetext", clock);
+  } else {
+    el.value = clock;
+  }
+  const valEl = document.getElementById("paper-live-fill-clock-value");
+  if (valEl) valEl.textContent = clock;
+  return clock;
+}
+
+/** 仅收集 live 启动时间（交易执行页）；不改回测 fill_clock。 */
+export function collectLiveFillClockPatch() {
+  const clock = readLiveFillClock();
+  if (!clock) return null;
+  const lots = { live_fill_clock: clock };
   return {
     lock: true,
     rebalance_timing: {

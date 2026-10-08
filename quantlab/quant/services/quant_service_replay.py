@@ -338,7 +338,7 @@ class QuantReplayMixin:
             return {
                 "success": False,
                 "error": (
-                    f"调仓时间 {clock} 需要 5 分钟 K，观察池无可用分钟缓存。"
+                    f"回测时间 {clock} 需要 5 分钟 K，观察池无可用分钟缓存。"
                     "请先在研究页预热分钟线后再跑。"
                 ),
                 "universe": {

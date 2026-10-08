@@ -725,6 +725,7 @@ def build_rebalance_desk_status(
             fill_clock=live_start,
         ),
         "fill_clock": fill_clock,
+        "live_fill_clock": fill_clock,
         "window_label": window,
         "source": str(persisted.get("source") or "") if aligned else "",
         "fill_ts": last_ts or None,

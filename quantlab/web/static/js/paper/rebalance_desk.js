@@ -256,7 +256,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     })
     .join("");
 
-  const clock = String(desk.fill_clock || "09:30").slice(0, 5);
+  const clock = String(desk.live_fill_clock || desk.fill_clock || "09:30").slice(0, 5);
   const windowLbl = desk.window_label || `${clock}–10:00`;
   const src = desk.source === "follow" ? "手动" : desk.source === "auto" ? "自动" : "";
   const hm = fmtHm(desk.fill_ts);

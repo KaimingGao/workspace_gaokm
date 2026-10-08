@@ -1,9 +1,12 @@
 """Web 内自动调仓后台 worker。
 
-回测成交钟仍是 ``fill_clock``～10:00（默认 09:30）。Live 在 09:30 这一档提前到 09:25：
-今开已定，先算 ranking；09:30 前挂开盘单，09:30 后按现价成交。过 10:00 不补跑。
+Live 窗跟 ``live_fill_clock``（启动时间，默认 09:30；可选 09:25），与回测 ``fill_clock`` 分立。
+窗起点=启动时间本身：09:25 集合竞价定开后即可算 ranking / 挂开盘单；09:30 起连续竞价现价；
+更晚要等对应 5m。过 10:00 不补跑。
 手动预演 / 确认落账与 Worker 共用该窗口。
 开关与 last_run_session 持久化到 data/rebalance_auto_worker.json。
+
+轮询：窗内 ``TICK_INTERVAL_SEC``=30s，窗外 ``IDLE_TICK_INTERVAL_SEC``=60s。
 """
 
 from __future__ import annotations
@@ -16,38 +19,36 @@ from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-WINDOW_AFTER = (9, 25)  # 缺配置时的默认起点；09:30 成交钟 live 提前到此刻
+WINDOW_AFTER = (9, 25)  # 缺配置 / 解析失败时的最早起点
 WINDOW_UNTIL = (10, 0)
 TICK_INTERVAL_SEC = 30.0
 IDLE_TICK_INTERVAL_SEC = 60.0
 
 
 def rebalance_fill_clock(paper: Optional[dict] = None) -> str:
-    """策略调仓成交钟：与历史回测 fill_clock 同源，默认 09:30。"""
+    """Live 启动时间：读 ``live_fill_clock``，默认 09:30（可含 09:25）。
+
+    不读回测 ``fill_clock``，避免 /replay 改钟拖动 live。
+    """
     try:
-        from core.backtest.paper_replay import REPLAY_FILL_CLOCK, clamp_replay_fill_clock
+        from core.backtest.paper_replay import LIVE_FILL_CLOCK, clamp_live_fill_clock
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
 
         cfg = get_rank_lot_cfg(paper)
-        return clamp_replay_fill_clock(cfg.get("fill_clock"), REPLAY_FILL_CLOCK)
+        return clamp_live_fill_clock(cfg.get("live_fill_clock"), LIVE_FILL_CLOCK)
     except Exception:  # noqa: BLE001
-        logger.debug("resolve rebalance fill_clock failed", exc_info=True)
+        logger.debug("resolve live_fill_clock failed", exc_info=True)
         return "09:30"
 
 
 def rebalance_window_after_hm(paper: Optional[dict] = None) -> Tuple[int, int]:
-    """Live 窗起点。成交钟 09:30 时提前到 09:25；更晚的钟仍从该钟起（要等那根 5m）。"""
-    from core.signal.session_pit import CONTINUOUS_OPEN, LIVE_SESSION_OPEN
-
+    """Live 窗起点＝启动时间（09:25–10:00，按所选钟点原样开窗）。"""
     clock = rebalance_fill_clock(paper)
     try:
         hh, mm = clock.split(":")
-        hm = (int(hh), int(mm))
+        return int(hh), int(mm)
     except (TypeError, ValueError):
         return WINDOW_AFTER
-    if hm == CONTINUOUS_OPEN:
-        return LIVE_SESSION_OPEN
-    return hm
 
 
 def rebalance_window_label(paper: Optional[dict] = None) -> str:
@@ -185,7 +186,7 @@ def after_auto_rebalance_window(now: Any = None, *, paper: Optional[dict] = None
 
 
 def before_auto_rebalance_window(now: Any = None, *, paper: Optional[dict] = None) -> bool:
-    """交易日且尚未到 live 窗起点（09:30 档为 09:25）。"""
+    """交易日且尚未到 live 启动时间。"""
     if not is_trading_session(now):
         return False
     return _shanghai_hm(now) < rebalance_window_after_hm(paper)
@@ -239,13 +240,13 @@ def rebalance_window_gate(
     if before_auto_rebalance_window(now, paper=paper):
         return _clock_block_payload(
             fill_action="wait_clock",
-            note=f"未到调仓时间 {window.split('–')[0]}，窗口 {window}；到点后再预演/落账",
+            note=f"未到启动时间 {window.split('–')[0]}，窗口 {window}；到点后再预演/落账",
             paper=paper,
             dry_run=dry_run,
         )
     return _clock_block_payload(
         fill_action="miss_window",
-        note=f"已过调仓窗口 {window}，过点不补跑、不挂开盘单",
+        note=f"已过启动窗口 {window}，过点不补跑、不挂开盘单",
         paper=paper,
         dry_run=dry_run,
     )
@@ -326,7 +327,9 @@ class RebalanceAutoWorker:
                 "last_note": persisted.get("last_note") or "",
                 "last_source": persisted.get("last_source") or "",
                 "in_window": in_window,
+                # fill_clock：兼容旧前端；live_fill_clock：启动时间正式键
                 "fill_clock": rebalance_fill_clock(paper),
+                "live_fill_clock": rebalance_fill_clock(paper),
                 "window_label": rebalance_window_label(paper),
                 "tick_interval_sec": interval,
             }

@@ -476,6 +476,7 @@ def get_rank_lot_cfg(
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
+        "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
         "score_backend": str(pm.get("score_backend") or "ridge"),
     }
 

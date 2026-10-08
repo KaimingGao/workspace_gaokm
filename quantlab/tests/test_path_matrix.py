@@ -212,6 +212,42 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(int(lots.get("lot_base_amount") or 0), 30000)
         self.assertEqual(int(lots.get("lot_strong_amount") or 0), 50000)
 
+    def test_live_start_clock_patch_keeps_backtest_fill_clock(self):
+        from core.execution import apply_execution_patch_to_paper
+
+        paper = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {
+                            "fill_clock": "09:40",
+                            "live_fill_clock": "09:30",
+                            "rank_enter": 0.005,
+                        },
+                        "path_matrix": {
+                            "fill_clock": "09:40",
+                            "live_fill_clock": "09:30",
+                            "rank_enter": 0.005,
+                        },
+                    }
+                }
+            }
+        }
+        applied = apply_execution_patch_to_paper(
+            paper,
+            {
+                "rebalance_timing": {
+                    "rank_lots": {"live_fill_clock": "09:35"},
+                }
+            },
+            note="follow live 启动时间",
+        )
+        self.assertTrue(applied.get("ok"), applied)
+        lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
+        self.assertEqual(lots.get("live_fill_clock"), "09:35")
+        self.assertEqual(lots.get("fill_clock"), "09:40")
+        self.assertAlmostEqual(float(lots.get("rank_enter") or 0), 0.005)
+
 
 if __name__ == "__main__":
     unittest.main()

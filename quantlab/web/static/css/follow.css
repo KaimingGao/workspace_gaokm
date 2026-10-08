@@ -10744,7 +10744,7 @@ body[data-page="follow"] .paper-t0-worker-panel.is-busy {
 body[data-page="follow"] .paper-t0-worker-top {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px 16px;
   margin-bottom: 10px;
@@ -10785,8 +10785,147 @@ body[data-page="follow"] .paper-t0-worker-sub {
 body[data-page="follow"] .paper-t0-worker-controls {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* 启动时间：标签 + 09:25～10:00 滑条 + 当前钟，位于「运行」左侧 */
+body[data-page="follow"] .paper-live-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--line));
+  cursor: default;
+  user-select: none;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+body[data-page="follow"] .paper-live-clock:hover {
+  border-color: color-mix(in srgb, var(--ink-3) 35%, var(--line));
+  background: color-mix(in srgb, var(--surface) 86%, var(--line));
+}
+
+body[data-page="follow"] .paper-live-clock:focus-within {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 45%, var(--line));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 16%, transparent);
+}
+
+body[data-page="follow"] .paper-live-clock-label {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body[data-page="follow"] .paper-live-clock-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+body[data-page="follow"] .paper-live-clock-end {
+  flex: 0 0 auto;
+  font-size: 0.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink-3);
+  opacity: 0.85;
+  line-height: 1;
+}
+
+body[data-page="follow"] .paper-live-clock-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 92px;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+body[data-page="follow"] .paper-live-clock-range:focus {
+  outline: none;
+}
+
+body[data-page="follow"] .paper-live-clock-range:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+body[data-page="follow"] .paper-live-clock-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
+    color-mix(in srgb, var(--ink-3) 28%, var(--line))
+  );
+}
+
+body[data-page="follow"] .paper-live-clock-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent, #2563eb) 70%, #1d4ed8);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+  transition: transform 0.12s ease;
+}
+
+body[data-page="follow"] .paper-live-clock-range:active::-webkit-slider-thumb {
+  transform: scale(1.08);
+}
+
+body[data-page="follow"] .paper-live-clock-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
+    color-mix(in srgb, var(--ink-3) 28%, var(--line))
+  );
+}
+
+body[data-page="follow"] .paper-live-clock-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent, #2563eb) 70%, #1d4ed8);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+}
+
+body[data-page="follow"] .paper-live-clock-value {
+  flex: 0 0 auto;
+  min-width: 2.7rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.2;
+  text-align: center;
 }
 
 body[data-page="follow"] .paper-t0-worker-badge {

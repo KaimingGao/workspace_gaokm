@@ -51,6 +51,9 @@ REPLAY_FILL_CLOCKS = (
     "10:00",
 )
 REPLAY_FILL_CLOCK = "09:30"
+# Live「启动时间」：可含集合竞价定开 09:25；回测钟仍从 09:30 起。
+LIVE_FILL_CLOCKS = ("09:25",) + REPLAY_FILL_CLOCKS
+LIVE_FILL_CLOCK = "09:30"
 
 
 def clamp_replay_initial_cash(raw: Any, default: float = REPLAY_INITIAL_CASH) -> float:
@@ -104,11 +107,15 @@ def clamp_replay_lot_pair(
     return clamp_replay_amount_pair(lot_base, lot_strong)
 
 
-def clamp_replay_fill_clock(raw: Any, default: str = REPLAY_FILL_CLOCK) -> str:
-    """09:30–10:00 每 5 分钟一档；无法解析则回默认。"""
-    fallback = str(default or REPLAY_FILL_CLOCK).strip()[:5] or REPLAY_FILL_CLOCK
-    if fallback not in REPLAY_FILL_CLOCKS:
-        fallback = REPLAY_FILL_CLOCK
+def _clamp_fill_clock(
+    raw: Any,
+    *,
+    allowed: Tuple[str, ...],
+    default: str,
+) -> str:
+    fallback = str(default or "").strip()[:5] or (allowed[0] if allowed else "09:30")
+    if fallback not in allowed:
+        fallback = allowed[0] if allowed else "09:30"
     s = str(raw or "").strip().replace("：", ":")
     if not s:
         return fallback
@@ -116,15 +123,25 @@ def clamp_replay_fill_clock(raw: Any, default: str = REPLAY_FILL_CLOCK) -> str:
     if len(digits) >= 4:
         hh, mm = digits[:2], digits[2:4]
         cand = f"{hh}:{mm}"
-        if cand in REPLAY_FILL_CLOCKS:
+        if cand in allowed:
             return cand
     head = s[:5]
     if len(head) >= 4 and head[1] == ":":
         head = f"0{head}"
     head = head[:5]
-    if head in REPLAY_FILL_CLOCKS:
+    if head in allowed:
         return head
     return fallback
+
+
+def clamp_replay_fill_clock(raw: Any, default: str = REPLAY_FILL_CLOCK) -> str:
+    """历史回测成交钟：09:30–10:00 每 5 分钟一档；无法解析则回默认。"""
+    return _clamp_fill_clock(raw, allowed=REPLAY_FILL_CLOCKS, default=default)
+
+
+def clamp_live_fill_clock(raw: Any, default: str = LIVE_FILL_CLOCK) -> str:
+    """Live 启动时间：09:25–10:00（含集合竞价定开）；无法解析则回默认。"""
+    return _clamp_fill_clock(raw, allowed=LIVE_FILL_CLOCKS, default=default)
 
 
 def _minute_bar_hm(mb: Optional[dict]) -> str:

@@ -159,7 +159,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "open_fill_until_hm": "10:00",
     "pending_chase_interval_min": 10,
     "pending_chase_eod_hm": "14:50",
-    # 策略调仓：fill_clock～10:00 rank_lots（金额与历史回测同源，缺省 1万/2万）
+    # 策略调仓：live_fill_clock～10:00；回测 fill_clock 分立（缺省金额 1万/2万）
     "rank_lots": {
         "enabled": True,
         "mode": "rank_lots",
@@ -176,6 +176,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_oo_gt0": False,
         "y_τc_gt0": False,
         "fill_clock": "09:30",
+        "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
     },
@@ -196,6 +197,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_oo_gt0": False,
         "y_τc_gt0": False,
         "fill_clock": "09:30",
+        "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
     },
@@ -816,7 +818,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                 from core.paper.rebalance.path_matrix import get_path_matrix_cfg
 
                 pm = get_path_matrix_cfg({"rank_lots": pm_in})
-                lots = {
+                # 整表校验后只回写补丁里出现的键，避免只改「启动时间」冲掉门槛/回测钟。
+                full = {
                     "enabled": bool(pm.get("enabled")),
                     "mode": "rank_lots",
                     "rank_enter": float(pm.get("rank_enter") or 0.001),
@@ -834,15 +837,27 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     ),
                     "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
                     "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
-                    "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else 1.0),
+                    "fusion_w_co": float(
+                        pm.get("fusion_w_co")
+                        if pm.get("fusion_w_co") is not None
+                        else 1.0
+                    ),
                     "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
                     "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
                     "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
                     "y_τc_gt0": bool(pm.get("y_τc_gt0")),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
+                    "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
+                    "score_backend": str(pm.get("score_backend") or "ridge"),
                     "lot_base_amount": float(pm.get("lot_base_amount") or 10_000.0),
-                    "lot_strong_amount": float(pm.get("lot_strong_amount") or 20_000.0),
+                    "lot_strong_amount": float(
+                        pm.get("lot_strong_amount") or 20_000.0
+                    ),
                 }
+                lots = {k: full[k] for k in full if k in pm_in}
+                lots["mode"] = "rank_lots"
+                if "enabled" in pm_in:
+                    lots["enabled"] = full["enabled"]
                 timing_out["rank_lots"] = lots
                 timing_out["path_matrix"] = lots
             except Exception as e:  # noqa: BLE001
