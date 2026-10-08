@@ -348,7 +348,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 不进 ranking/买序；可选入场闸 rank&lt;N",
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 已启用模型（LambdaRank/Ridge）· 不进买序；可选入场闸 rank&lt;N",
   },
 ];
 

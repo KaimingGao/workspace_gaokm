@@ -569,6 +569,13 @@ export function createFactorIcUi(deps) {
     const isOo = opts.head === "oo";
     const isCo = opts.head === "co";
     const isOoRank = opts.head === "oo_rank";
+    const _ooBe = String(rm.backend || "").trim().toLowerCase();
+    const _ooSolver = String(rm.solver || "").trim().toLowerCase();
+    // 启用自适应后 return_model 可能是 Ridge；增益文案仅 LambdaRank booster
+    const isOoRankRidge =
+      isOoRank &&
+      (_ooBe === "ridge" || (_ooSolver === "ridge" && !rm.booster_b64));
+    const isOoRankGain = isOoRank && !isOoRankRidge;
     const isT30 = opts.head === "t30";
     const isT45 = opts.head === "t45";
     const isT60 = opts.head === "t60";
@@ -922,9 +929,31 @@ export function createFactorIcUi(deps) {
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? "path 模型摘要" : isOoRank ? "oo_rank 增益摘要" : isOo ? "oo 模型摘要" : isCo ? "co 模型摘要" : isT90 ? "t90 模型摘要" : isT75 ? "t75 模型摘要" : isT60 ? "t60 模型摘要" : isT45 ? "t45 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
+        isPath
+          ? "path 模型摘要"
+          : isOoRankGain
+            ? "oo_rank 增益摘要"
+            : isOoRank
+              ? "oo_rank 系数摘要"
+              : isOo
+                ? "oo 模型摘要"
+                : isCo
+                  ? "co 模型摘要"
+                  : isT90
+                    ? "t90 模型摘要"
+                    : isT75
+                      ? "t75 模型摘要"
+                      : isT60
+                        ? "t60 模型摘要"
+                        : isT45
+                          ? "t45 模型摘要"
+                          : isT30
+                            ? "t30 模型摘要"
+                            : isR
+                              ? "r 模型摘要"
+                              : "τ 模型摘要"
       )}">` +
-      (!isOoRank && intercept != null
+      (!isOoRankGain && intercept != null
         ? kpi(
             useProbKpis ? "基率" : isR ? "执行套" : "截距",
             useProbKpis ? fmtLogitAsP(intercept) : intercept.toFixed(3),
@@ -963,9 +992,9 @@ export function createFactorIcUi(deps) {
         : "") +
       (lam != null
         ? kpi(
-            isOoRank ? "L2" : "λ",
+            isOoRankGain ? "L2" : "λ",
             lam,
-            isOoRank
+            isOoRankGain
               ? "LambdaRank λ₂（叶子惩罚）"
               : useProbKpis
                 ? "logistic Ridge L2（只罚斜率）"
@@ -1039,7 +1068,7 @@ export function createFactorIcUi(deps) {
             ? `路径 ${openN}`
             : `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
       ) +
-      (isOoRank
+      (isOoRankGain
         ? ""
         : kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数")) +
       (exclN > 0 ? kpi("省略", exclN, omitTip) : "") +
@@ -1138,7 +1167,7 @@ export function createFactorIcUi(deps) {
 
     const headLegend =
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
-      (isOoRank
+      (isOoRankGain
         ? ""
         : `<span class="quant-rem-leg is-pos">正β</span>` +
           `<span class="quant-rem-leg is-neg">负β</span>`) +
@@ -1156,7 +1185,7 @@ export function createFactorIcUi(deps) {
     const betaCell = (r) => {
       const pos = r.ols >= 0;
       const half = Math.max(6, (r.abs / maxAbs) * 50);
-      const tip = isOoRank
+      const tip = isOoRankGain
         ? `gain=${r.ols.toFixed(4)}：LightGBM 分裂增益份额（非 Ridge β）`
         : isHorizon
         ? `β=${r.ols.toFixed(4)}：因子高 1σ → logit ${pos ? "+" : ""}${r.ols.toFixed(3)}（p_up 随之升降）`
@@ -1182,7 +1211,7 @@ export function createFactorIcUi(deps) {
       const w = Math.max(2, Math.min(100, r.share));
       return (
         `<div class="quant-rem-share-cell" title="${esc(
-          `${isOoRank ? "gain 份额" : "|β|占比"} ${r.share.toFixed(1)}%`
+          `${isOoRankGain ? "gain 份额" : "|β|占比"} ${r.share.toFixed(1)}%`
         )}">` +
         `<div class="quant-rem-share-track" aria-hidden="true">` +
         `<div class="quant-rem-share-fill" style="width:${w.toFixed(1)}%"></div>` +
@@ -1209,7 +1238,7 @@ export function createFactorIcUi(deps) {
       if (r.kind === "历史") {
         return `${shown}${key}：PIT 历史真实标签（不含当日）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
       }
-      if (isOoRank) {
+      if (isOoRankGain) {
         return `${shown}${key}：T−1 日线 / Alpha158。gain 为 LambdaRank 分裂贡献份额，不是斜率符号。`;
       }
       return `${shown}${key}：T−1 日线因子。正 β 表示该值偏高时 ${yhatTag} 更高。`;
@@ -1217,7 +1246,7 @@ export function createFactorIcUi(deps) {
 
     const factorCell = (r) =>
       `<span class="quant-rem-factor">` +
-      `<span class="quant-rem-rank" title="${isOoRank ? "gain 排名" : "|β| 排名"}">${esc(String(r.rank))}</span>` +
+      `<span class="quant-rem-rank" title="${isOoRankGain ? "gain 排名" : "|β| 排名"}">${esc(String(r.rank))}</span>` +
       `<span class="quant-rem-factor-main">${factorNameCellHtml(
         r.name,
         r.label,
@@ -1240,19 +1269,19 @@ export function createFactorIcUi(deps) {
       },
       {
         id: "ols",
-        label: isOoRank ? "gain" : "β",
+        label: isOoRankGain ? "gain" : "β",
         width: 300,
         num: true,
-        title: isOoRank
+        title: isOoRankGain
           ? "LightGBM 归一化分裂增益；条向右更长=贡献更大"
           : "标准化斜率：右正左负；数值叠在彩条靠右",
       },
       {
         id: "share",
-        label: isOoRank ? "份额" : "|β|%",
+        label: isOoRankGain ? "份额" : "|β|%",
         width: 200,
         num: true,
-        title: isOoRank
+        title: isOoRankGain
           ? "gain / Σgain：相对贡献"
           : "|β| / Σ|β|：相对解释权重",
       },
@@ -1352,10 +1381,10 @@ export function createFactorIcUi(deps) {
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
       `<span class="quant-rem-coef-title">${yhatTag}${
-        useProbKpis ? " 概率头" : isOoRank ? " 增益" : " 系数表"
+        useProbKpis ? " 概率头" : isOoRankGain ? " 增益" : " 系数表"
       }</span>` +
       `<span class="quant-rem-coef-sub">${
-        isOoRank
+        isOoRankGain
           ? `按 gain 降序 · 归一化份额 · 默认 Top${topN}${
               restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
             }`

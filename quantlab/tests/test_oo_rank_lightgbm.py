@@ -200,6 +200,8 @@ class TestOoRankReportLightgbmBackend(unittest.TestCase):
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("backend"), "lambdarank")
+        self.assertIn(report.get("recommended_backend"), {"lambdarank", "ridge"})
+        self.assertIn("lambdarank", (report.get("backends") or {}))
         self.assertEqual(report.get("solver"), "lambdarank")
 
 

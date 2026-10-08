@@ -1258,10 +1258,9 @@ score_stock(code) 续——
 
 分钟 `ret_open_to_tau` 不进 ŷ_co（训练列与打分都丢掉；τ 头仍用）。
 
-### 4.3b ŷ_oo_rank（LambdaRank · 截面名次）
+### 4.3b ŷ_oo_rank（LambdaRank / Ridge · 截面名次）
 
-LightGBM LambdaRank：按日观察池对 `y_oo = open[T+1]/open[T]−1` 整日分组学相对分 `s = Booster(x)`，目标函数 NDCG。
-特征与 ŷ_oo 同口径：原始 `sub_scores`（fit_lambdarank 内部做样本内全局 z-score）；不挂日截面 cs_*。
+同窗双训：**LightGBM LambdaRank**（按日 group 优化 NDCG）与 **Ridge ŷ_oo**（回归后截面排名）。特征与 ŷ_oo 同口径：原始 `sub_scores`（LambdaRank 内部做样本内全局 z-score）；不挂日截面 cs_*。
 相对分 `s` 经**当日观察池截面**编成整数名次 `y_oo_rank ∈ 1..n`（**1=相对分最高**），写入成交明细最右列 **rank**；原始分保留在 `y_oo_rank_score`。
 **不**代入 `ranking`；**不**改买序分数。可选入场闸 `oo_rank_max`（`/replay`「其他」勾选 **rank &lt; 30** → `30`）：过 ranking 门槛后再须 `y_oo_rank < 上限`（缺分不拦；未过则已持仓清仓）。
 
@@ -1269,9 +1268,9 @@ LightGBM LambdaRank：按日观察池对 `y_oo = open[T+1]/open[T]−1` 整日�
 |--|--|
 | 训练宇宙 | 默认**整观察池**；勾选「只训 A 档」则只留可预测性 A 且仍在观察池内（须先跑分档） |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
-| 训练 | `POST /api/quant/oo-rank` 拟合写 last report；人审「启用研究 / 启用执行」按 `persist_role` 写入研究套 sidecar 或 `oo_rank_model.json`，不重训 |
-| 回测 / live | 有模型时先打相对分，再按当日截面编名次写入 `y_oo_rank`；成交明细 **rank** 列。买序仍走融合 ranking（Ridge / Tree ŷ头）。`oo_rank_max` 开则另作入场闸 |
-| OOS | 日截面 Spearman / TopK overlap / **NDCG@K**；对照同窗 Ridge ŷ_oo |
+| 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **NDCG@K** 自动落盘更强一侧（打平→LambdaRank），不重训 |
+| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **rank** 列。买序仍走融合 ranking。`oo_rank_max` 开则另作入场闸 |
+| OOS | 日截面 Spearman / TopK overlap / **NDCG@K** / TopK y_oo；LambdaRank vs Ridge 同窗对照 |
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。加载仍兼容旧文件名 `oo_rank_pairwise_*.json`。
 

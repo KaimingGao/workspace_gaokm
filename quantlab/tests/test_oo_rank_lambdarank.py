@@ -233,6 +233,39 @@ class TestOoRankRidgeBaseline(unittest.TestCase):
         self.assertIsNotNone(metrics.get("topk_overlap"))
         self.assertIsNotNone(metrics.get("topk_mean_y_oo"))
 
+    def test_select_oo_rank_backend_by_ndcg(self):
+        from core.research.oo_rank_lambdarank import select_oo_rank_backend
+
+        self.assertEqual(
+            select_oo_rank_backend(
+                {"ndcg_at_k": 0.55, "success": True},
+                {"ndcg_at_k": 0.62, "success": True},
+            ),
+            "ridge",
+        )
+        self.assertEqual(
+            select_oo_rank_backend(
+                {"ndcg_at_k": 0.62, "success": True},
+                {"ndcg_at_k": 0.55, "success": True},
+            ),
+            "lambdarank",
+        )
+        self.assertEqual(
+            select_oo_rank_backend(
+                {"ndcg_at_k": 0.5, "success": True},
+                {"ndcg_at_k": 0.5, "success": True},
+            ),
+            "lambdarank",
+        )
+        self.assertEqual(
+            select_oo_rank_backend({"ndcg_at_k": 0.4}, {"success": False}),
+            "lambdarank",
+        )
+        self.assertEqual(
+            select_oo_rank_backend(None, {"ndcg_at_k": 0.7, "success": True}),
+            "ridge",
+        )
+
 
 class TestOoRankFit(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
@@ -261,7 +294,9 @@ class TestOoRankFit(unittest.TestCase):
             )
         self.assertTrue(report.get("success"), report)
         self.assertEqual(report.get("schema"), "oo_rank_v1")
-        self.assertEqual(report.get("backend"), "lambdarank")
+        self.assertIn(report.get("backend"), {"lambdarank", "ridge"})
+        self.assertIn(report.get("recommended_backend"), {"lambdarank", "ridge"})
+        self.assertIn("lambdarank", (report.get("backends") or {}))
         self.assertIn("oo_rank", (report.get("oos") or {}))
         self.assertIn("ridge_oo_baseline", (report.get("oos") or {}))
         oos_rank = (report.get("oos") or {}).get("oo_rank") or {}
@@ -275,9 +310,14 @@ class TestOoRankFit(unittest.TestCase):
         model = report.get("return_model") or {}
         self.assertNotIn("shadow_only", model)
         self.assertEqual(model.get("model_role"), "live")
-        self.assertEqual(float(model.get("intercept") or 0), 0.0)
+        self.assertEqual(model.get("backend"), report.get("backend"))
         self.assertTrue(report.get("fitted_at"))
         self.assertEqual(model.get("fitted_at"), report.get("fitted_at"))
+        if report.get("backend") == "lambdarank":
+            self.assertEqual(float(model.get("intercept") or 0), 0.0)
+            self.assertTrue(model.get("booster_b64"))
+        else:
+            self.assertTrue(model.get("coefficients"))
 
         with patch(
             "core.research.oo_rank_panel.build_oo_rank_day_panels",
@@ -344,15 +384,15 @@ class TestOoRankFit(unittest.TestCase):
         self.assertEqual(by["600000"]["y_oo_rank_n"], 3)
         self.assertAlmostEqual(by["600000"]["y_oo_rank_score"], 1.5)
 
-    def test_linear_coefficients_only_model_rejected(self):
-        """旧线性 coefficients 包不再打分（gain 误当 β 会错）。"""
+    def test_legacy_lambdarank_coefficients_only_rejected(self):
+        """旧 LambdaRank 无 booster 的线性包不再打分（gain 误当 β 会错）。"""
         from core.research.oo_rank_lambdarank import (
             _resolve_oo_rank_fit,
             predict_oo_rank_from_features,
         )
 
         legacy = {
-            "solver": "ridge",
+            "solver": "lambdarank",
             "coefficients": {"mom3": 0.5, "volume_ratio": 0.2},
             "intercept": 0.0,
         }
@@ -360,6 +400,45 @@ class TestOoRankFit(unittest.TestCase):
         self.assertIsNone(
             predict_oo_rank_from_features({"mom3": 70.0}, fit=legacy)
         )
+
+    def test_marked_ridge_backend_scores(self):
+        """已标注 backend=ridge 的 oo_rank 包可打分编名次。"""
+        from core.research.oo_rank_lambdarank import (
+            apply_oo_rank_scores,
+            _resolve_oo_rank_fit,
+            predict_oo_rank_from_features,
+        )
+
+        ridge = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "oo_rank",
+            "horizon_mode": "oo_rank",
+            "intercept": 0.0,
+            "coefficients": {"mom3": 0.5, "volume_ratio": 0.2},
+            "feature_zscore": True,
+            "zscore_means": {"mom3": 50.0, "volume_ratio": 50.0},
+            "zscore_stds": {"mom3": 10.0, "volume_ratio": 10.0},
+        }
+        self.assertIsNotNone(_resolve_oo_rank_fit(fit=ridge))
+        hat = predict_oo_rank_from_features(
+            {"mom3": 70.0, "volume_ratio": 60.0}, fit=ridge
+        )
+        self.assertIsNotNone(hat)
+        items = [
+            {
+                "stock_code": "000001",
+                "sub_scores": {"mom3": 70.0, "volume_ratio": 60.0},
+            },
+            {
+                "stock_code": "000002",
+                "sub_scores": {"mom3": 40.0, "volume_ratio": 40.0},
+            },
+        ]
+        apply_oo_rank_scores(items, fit=ridge)
+        self.assertEqual(items[0]["y_oo_rank"], 1)
+        self.assertEqual(items[1]["y_oo_rank"], 2)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_persist_research_sidecar(self):
@@ -379,12 +458,25 @@ class TestOoRankFit(unittest.TestCase):
             subsample=1.0,
             min_child_samples=2,
         )
+        lambda_live = dict(fit, model_role="live", backend="lambdarank", target="oo_rank")
+        lambda_research = dict(
+            fit, model_role="research", backend="lambdarank", target="oo_rank"
+        )
         report = {
             "success": True,
             "task": "oo_rank",
-            "return_model": dict(fit, model_role="live"),
-            "return_model_research": dict(fit, model_role="research"),
-            "oos": {},
+            "return_model": lambda_live,
+            "return_model_research": lambda_research,
+            "backends": {
+                "lambdarank": {
+                    "return_model": lambda_live,
+                    "return_model_research": lambda_research,
+                }
+            },
+            "oos": {
+                "oo_rank": {"ndcg_at_k": 0.6, "success": True},
+                "ridge_oo_baseline": {"ndcg_at_k": 0.4, "success": True},
+            },
             "y_spec": {"formula": "rank"},
             "note": "test",
         }
@@ -414,7 +506,74 @@ class TestOoRankFit(unittest.TestCase):
                 self.assertEqual((doc or {}).get("schema"), "oo_rank_v1")
                 self.assertEqual((doc or {}).get("task"), "oo_rank")
                 self.assertEqual((doc or {}).get("model_role"), "research")
+                self.assertEqual((doc or {}).get("backend"), "lambdarank")
                 self.assertNotIn("shadow_only", doc or {})
+
+    def test_persist_auto_picks_ridge_when_ndcg_higher(self):
+        import json
+
+        from core.research.oo_rank_lambdarank import persist_oo_rank_model
+
+        lambda_m = {
+            "success": True,
+            "backend": "lambdarank",
+            "solver": "lambdarank",
+            "booster_b64": "dGVzdA==",
+            "coefficients": {"mom3": 1.0},
+            "target": "oo_rank",
+            "model_role": "live",
+        }
+        ridge_m = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "coefficients": {"mom3": 0.8, "volume_ratio": 0.2},
+            "intercept": 0.01,
+            "feature_zscore": True,
+            "zscore_means": {"mom3": 50.0, "volume_ratio": 50.0},
+            "zscore_stds": {"mom3": 10.0, "volume_ratio": 10.0},
+            "target": "oo_rank",
+            "horizon_mode": "oo_rank",
+            "model_role": "live",
+        }
+        report = {
+            "success": True,
+            "task": "oo_rank",
+            "return_model": lambda_m,
+            "return_model_research": dict(lambda_m, model_role="research"),
+            "backends": {
+                "lambdarank": {
+                    "return_model": lambda_m,
+                    "return_model_research": dict(lambda_m, model_role="research"),
+                },
+                "ridge": {
+                    "return_model": ridge_m,
+                    "return_model_research": dict(ridge_m, model_role="research"),
+                },
+            },
+            "oos": {
+                "oo_rank": {"ndcg_at_k": 0.41, "success": True},
+                "ridge_oo_baseline": {"ndcg_at_k": 0.58, "success": True},
+            },
+            "y_spec": {"formula": "rank"},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            live = os.path.join(td, "oo_rank_model.json")
+            with patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
+                return_value=live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
+                return_value=os.path.join(td, "last.json"),
+            ):
+                out = persist_oo_rank_model(report, role="live")
+            self.assertTrue(out.get("success"), out)
+            self.assertEqual(out.get("backend"), "ridge")
+            with open(live, encoding="utf-8") as f:
+                doc = json.load(f)
+            self.assertEqual(doc.get("backend"), "ridge")
+            self.assertEqual((doc.get("return_model") or {}).get("backend"), "ridge")
+            self.assertEqual((doc.get("return_model") or {}).get("solver"), "ridge")
 
     def test_load_falls_back_to_legacy_pairwise_paths(self):
         import json
@@ -527,7 +686,8 @@ class TestOoRankReport(unittest.TestCase):
         self.assertTrue(report.get("success"), report)
         self.assertNotIn("feature_mode", report)
         self.assertNotIn("feature_meta", report)
-        self.assertEqual(report.get("backend"), "lambdarank")
+        self.assertIn(report.get("backend"), {"lambdarank", "ridge"})
+        self.assertIn(report.get("recommended_backend"), {"lambdarank", "ridge"})
         self.assertEqual(report.get("ndcg_k"), 5)
         self.assertGreater(int(report.get("n_features") or 0), 0)
         self.assertNotIn("feature_mode", report.get("oos") or {})
@@ -549,10 +709,45 @@ class TestOoRankFittedAt(unittest.TestCase):
 
         report = {
             "success": True,
-            "return_model": {"coefficients": {"mom3": 1.0}, "model_role": "live"},
+            "return_model": {
+                "coefficients": {"mom3": 1.0},
+                "model_role": "live",
+                "backend": "ridge",
+                "solver": "ridge",
+                "target": "oo_rank",
+                "horizon_mode": "oo_rank",
+            },
             "return_model_research": {
                 "coefficients": {"mom3": 1.0},
                 "model_role": "research",
+                "backend": "ridge",
+                "solver": "ridge",
+                "target": "oo_rank",
+                "horizon_mode": "oo_rank",
+            },
+            "backends": {
+                "ridge": {
+                    "return_model": {
+                        "coefficients": {"mom3": 1.0},
+                        "model_role": "live",
+                        "backend": "ridge",
+                        "solver": "ridge",
+                        "target": "oo_rank",
+                        "horizon_mode": "oo_rank",
+                    },
+                    "return_model_research": {
+                        "coefficients": {"mom3": 1.0},
+                        "model_role": "research",
+                        "backend": "ridge",
+                        "solver": "ridge",
+                        "target": "oo_rank",
+                        "horizon_mode": "oo_rank",
+                    },
+                }
+            },
+            "oos": {
+                "oo_rank": {"success": False},
+                "ridge_oo_baseline": {"ndcg_at_k": 0.5, "success": True},
             },
         }
         stamp_oo_rank_fitted_at(report)

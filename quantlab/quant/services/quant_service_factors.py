@@ -1493,15 +1493,16 @@ class QuantFactorMixin:
         topk_track: int = 10,
         ndcg_k: int = 10,
         l2: float = 1.0,
-        backend: str = "lambdarank",
+        backend: str = "auto",
         persist: bool = False,
         persist_role: str = "live",
         note: str = "",
         watching_tier_a_only: bool = False,
     ) -> Dict[str, Any]:
-        """ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档。成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸。
+        """ŷ_oo_rank：同窗 LambdaRank + Ridge；默认整观察池，可选只训 A 档。
 
-        ``persist=True`` 只把上次拟合写入研究/执行套（由 ``persist_role`` 决定），不重新拉行情、不重训。
+        成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸。
+        ``persist=True`` 按 Holdout NDCG@K 自动选更强 backend 写入研究/执行套，不重训。
         """
         from core.data.facade import bars_and_source
         from core.research.oo_rank_panel import resolve_oo_rank_universe
@@ -1537,6 +1538,12 @@ class QuantFactorMixin:
             out["from_last_report"] = True
             out["path"] = saved.get("path") or oo_rank_model_path()
             out["model_role"] = saved.get("model_role") or persist_role or "live"
+            out["backend"] = saved.get("backend") or last.get("recommended_backend")
+            out["recommended_backend"] = (
+                saved.get("recommended_backend")
+                or last.get("recommended_backend")
+                or out.get("backend")
+            )
             if note:
                 out["api_note"] = str(note)[:200]
             return _attach_ridge_role_flags(
@@ -1584,7 +1591,7 @@ class QuantFactorMixin:
             topk_track=topk_track,
             ndcg_k=ndcg_k,
             l2=l2,
-            backend=backend or "lambdarank",
+            backend=backend or "auto",
             persist=False,
         )
         report["watching_limit"] = cap
@@ -1618,6 +1625,10 @@ class QuantFactorMixin:
                 "delta_topk_overlap": _delta(
                     rank_m.get("topk_overlap"), ridge_m.get("topk_overlap")
                 ),
+                "delta_ndcg_at_k": _delta(
+                    rank_m.get("ndcg_at_k"), ridge_m.get("ndcg_at_k")
+                ),
+                "recommended_backend": report.get("recommended_backend"),
             }
         if persist and report.get("success"):
             saved = persist_oo_rank_model(
@@ -1674,6 +1685,12 @@ class QuantFactorMixin:
                 live_present=False,
             )
         out = dict(chosen)
+        rm = out.get("return_model") if isinstance(out.get("return_model"), dict) else {}
+        backend = (
+            out.get("backend")
+            or out.get("recommended_backend")
+            or (rm.get("backend") if isinstance(rm, dict) else None)
+        )
         out.update(
             {
                 "success": True,
@@ -1682,6 +1699,8 @@ class QuantFactorMixin:
                 "shadow": bool(use_last) or not live_file,
                 "from_last_report": bool(use_last),
                 "last_report_exists": bool(last),
+                "backend": backend,
+                "recommended_backend": out.get("recommended_backend") or backend,
             }
         )
         if fitted:

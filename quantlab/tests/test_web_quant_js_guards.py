@@ -250,7 +250,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-oo-rank-tier-a", panel)
         self.assertIn("watching_tier_a_only", quant_js)
         self.assertIn("readOoRankTierAOnly", quant_js)
-        self.assertIn("成交 rank=1..n · 不进买序 · 入场闸见回测", panel)
+        self.assertIn(
+            "双 backend · 启用按 NDCG@K 自适应 · 成交 rank=1..n · 不进买序 · 入场闸见回测",
+            panel,
+        )
         self.assertNotIn("影子对照 · 不进决策", panel)
         self.assertNotIn("旁路对照 · 不进 ranking / 买序", panel)
         self.assertIn("quant-section-oo-rank", panel)
@@ -260,7 +263,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("paintOoRankDesk", quant_js)
         self.assertIn("paintRidgeEnableStatus", quant_js)
         self.assertIn("renderOoRankCoefTable(rm", quant_js)
-        self.assertIn("草稿已存 · 可启用研究/执行", quant_js)
+        self.assertIn("backend: \"auto\"", quant_js)
+        self.assertIn("启用按 NDCG@K 自动落盘", quant_js)
+        self.assertIn("草稿已存 · ", quant_js)
         self.assertNotIn("落盘影子", quant_js)
         self.assertNotIn("本窗 Ridge 优于 LambdaRank", quant_js)
         self.assertNotIn("quant-oos-compare-verdict", quant_js)
@@ -268,6 +273,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("<th>LambdaRank</th><th>Ridge</th>", quant_js)
         self.assertIn("quant-oos-board", quant_js)
         self.assertIn("quant-oos-bar", quant_js)
+        self.assertIn("拟合后对照 NDCG@K · 启用自动选更强 backend", panel)
+        factor_ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
+        self.assertIn("isOoRankGain", factor_ic)
+        self.assertIn("isOoRankRidge", factor_ic)
+        self.assertIn("oo_rank 系数摘要", factor_ic)
         css = self._read("web", "static", "css", "quant.css")
         self.assertIn(
             ".quant-oos-compare-table thead th:first-child,\n"
@@ -779,8 +789,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">ŷ头</span>", replay)
         self.assertNotIn('option value="rank">Rank</option>', replay)
         self.assertNotIn("仅供回测透传对照", quant_js)
-        self.assertIn("当日截面 1..n 名次", quant_js)
-        self.assertIn("不进 ranking/买序", quant_js)
+        self.assertIn("Holdout NDCG@K 自动落盘", quant_js)
+        self.assertIn("成交明细 rank=1..n", quant_js)
+        self.assertIn("不进买序", quant_js)
         self.assertIn("入场闸在回测", quant_js)
         self.assertNotIn("旁路对照，不进 ranking / 买序（成交明细 rank 列）", quant_js)
         self.assertIn(">研究</option>", replay)

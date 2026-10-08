@@ -383,7 +383,7 @@ class CoRidgeRequest(BaseModel):
 
 
 class OoRankRequest(BaseModel):
-    """ŷ_oo_rank LambdaRank（成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸）。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 rank=1..n；不进买序；可选 oo_rank_max）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -406,13 +406,13 @@ class OoRankRequest(BaseModel):
     )
     l2: float = Field(default=1.0, ge=0.0, le=100.0)
     backend: str = Field(
-        default="lambdarank",
-        description="仅 lambdarank",
+        default="auto",
+        description="auto=按 Holdout NDCG@K 推荐；也可强制 lambdarank / ridge（拟合仍双训）",
         max_length=24,
     )
     persist: bool = Field(
         default=False,
-        description="True=人审写入模型文件（路径由 persist_role 决定；不重训）",
+        description="True=按 NDCG@K 自动选 backend 写入模型文件（路径由 persist_role 决定；不重训）",
     )
     persist_role: str = Field(
         default="live",

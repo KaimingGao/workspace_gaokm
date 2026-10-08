@@ -1,4 +1,4 @@
-"""跑一轮 oo_rank LambdaRank OOS：LambdaRank vs Ridge ŷ_oo。
+"""跑一轮 oo_rank 双 backend OOS：LambdaRank vs Ridge ŷ_oo（按 NDCG@K 推荐）。
 
 特征与 ŷ_oo 同口径：原始 sub_score。
 标签: excess_mode=index（扣指数后的超额收益）
@@ -89,6 +89,9 @@ def run_one(stock_bars, index_bars, day_panels, excess_mode: str = "index"):
             return "  N/A  "
 
     print(f"  训练天数: {track.get('n_train_days')}, 验证天数: {track.get('n_test_days')}")
+    rec = track.get("recommended_backend") or track.get("backend")
+    if rec:
+        print(f"  NDCG@K 推荐 backend: {rec}")
     print()
     print(f"  {'':28s}  {'LambdaRank':>10s}  {'Ridge':>10s}  {'Δ':>10s}")
     print(f"  {'Spearman IC':28s}  {_f(rank_m.get('spearman')):>10s}  {_f(ridge_m.get('spearman')):>10s}  {_f(track.get('delta_spearman')):>10s}")

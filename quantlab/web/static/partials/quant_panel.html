@@ -908,18 +908,18 @@
     </details>
   </section>
 
-  <!-- ŷ_oo_rank：LambdaRank；默认整观察池，可选只训 A 档；启用研究/执行；入场闸在回测「其他」 -->
+  <!-- ŷ_oo_rank：LambdaRank / Ridge 双 backend；启用按 NDCG@K 自适应；入场闸在回测「其他」 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
-        <p class="dashboard-section-desc quant-section-desc">截面序 · LambdaRank vs Ridge · 成交 rank=1..n · 不进买序 · 入场闸见回测</p>
+        <p class="dashboard-section-desc quant-section-desc">截面序 · 双 backend · 启用按 NDCG@K 自适应 · 成交 rank=1..n · 不进买序 · 入场闸见回测</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 vs Ridge · 再启用研究/执行</span>
+          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
           <label
@@ -948,9 +948,9 @@
         </div>
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
-          <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池拟合 LambdaRank + Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 oo_rank_model_research.json，供历史回测加载；成交明细 rank=1..n；不进买序；入场闸另勾 rank&lt;30">启用研究</button>
-          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/oo_rank_model.json，供交易执行加载；成交明细 rank=1..n；不进买序；入场闸另勾 rank&lt;30">启用执行</button>
+          <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池同窗拟合 LambdaRank + Ridge · Holdout OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout NDCG@K 自动落盘更强 backend 到 oo_rank_model_research.json；成交 rank=1..n；不进买序；入场闸另勾 rank&lt;30">启用研究</button>
+          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="按 Holdout NDCG@K 自动落盘更强 backend 到 live/oo_rank_model.json；成交 rank=1..n；不进买序；入场闸另勾 rank&lt;30">启用执行</button>
           <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>

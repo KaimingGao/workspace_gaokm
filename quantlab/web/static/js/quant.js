@@ -644,17 +644,34 @@ export function initQuant(ctx) {
           src.note ||
           (src.last_report_exists
             ? "有上次拟合 · 可启用研究 / 执行"
-            : "拟合后看 vs Ridge · 再启用研究/执行");
+            : "拟合后对照 NDCG@K · 启用自动选更强 backend");
       } else if (extra.persistOk) {
+        const be =
+          src.backend ||
+          src.recommended_backend ||
+          (rm && rm.backend) ||
+          "";
+        const beTxt =
+          be === "ridge" ? "Ridge" : be === "lambdarank" ? "LambdaRank" : "";
+        const beSuffix = beTxt ? ` · ${beTxt}` : "";
         message = flags.liveOn
-          ? "已落盘"
+          ? `已落盘${beSuffix}`
           : flags.researchOn
-            ? "研究套已落盘 · 执行未写"
-            : "";
+            ? `研究套已落盘${beSuffix} · 执行未写`
+            : beTxt
+              ? `已启用 ${beTxt}`
+              : "";
       } else if (flags.liveOn || flags.researchOn) {
         message = "草稿已更新 · 可再启用研究/执行";
       } else {
-        message = "草稿已存 · 可启用研究/执行";
+        const rec = src.recommended_backend || (oos && oos.recommended_backend);
+        const recTxt =
+          rec === "ridge"
+            ? "启用将落盘 Ridge"
+            : rec === "lambdarank"
+              ? "启用将落盘 LambdaRank"
+              : "启用按 NDCG@K 自动选 backend";
+        message = `草稿已存 · ${recTxt}`;
       }
     }
     paintRidgeEnableStatus(sum, src, {
@@ -662,7 +679,7 @@ export function initQuant(ctx) {
       persistRole: extra.persistRole || "",
       justFitted: !!extra.justFitted,
       message,
-      idleMessage: "拟合后看 vs Ridge · 再启用研究/执行",
+      idleMessage: "拟合后对照 NDCG@K · 启用自动选更强 backend",
       fittedAt:
         extra.fittedAt !== undefined
           ? extra.fittedAt
@@ -813,8 +830,22 @@ export function initQuant(ctx) {
       `<table class="quant-weight-table quant-oos-compare-table">` +
       `<thead><tr><th>指标</th><th>LambdaRank</th><th>Ridge</th><th>Δ</th></tr></thead>` +
       `<tbody>${body}</tbody></table>` +
-      `<p class="quant-oos-compare-note">${hold}${nTe ? " · " + nTe : ""} · ${pool} · 成交 rank=1..n · 入场闸在回测 · 条长为该项相对幅度，加粗为胜出</p>` +
-      `</div>`;
+      (() => {
+        const rec =
+          data.recommended_backend ||
+          (oos && oos.recommended_backend) ||
+          (Number.isFinite(Number(rank.ndcg_at_k)) &&
+          Number.isFinite(Number(ridge.ndcg_at_k)) &&
+          Number(ridge.ndcg_at_k) > Number(rank.ndcg_at_k) + 1e-12
+            ? "ridge"
+            : "lambdarank");
+        const recLabel = rec === "ridge" ? "Ridge" : "LambdaRank";
+        return (
+          `<p class="quant-oos-compare-note">${hold}${nTe ? " · " + nTe : ""} · ${pool} · ` +
+          `启用按 NDCG@K 自动落盘 <strong>${recLabel}</strong> · 成交 rank=1..n · 入场闸在回测 · 条长为该项相对幅度，加粗为胜出</p>` +
+          `</div>`
+        );
+      })();
   }
 
   async function renderT30CoefTable(rm, opts = {}) {
@@ -3321,8 +3352,8 @@ export function initQuant(ctx) {
       state: "busy",
       chip: persist ? "写入中" : "拟合中",
       message: persist
-        ? `写入上次拟合（${roleLabel}）…`
-        : "LambdaRank + Holdout OOS…",
+        ? `按 NDCG@K 写入上次拟合（${roleLabel}）…`
+        : "LambdaRank + Ridge · Holdout OOS…",
       busy: true,
     });
     try {
@@ -3338,9 +3369,9 @@ export function initQuant(ctx) {
           l2: 1.0,
           persist: !!persist,
           persist_role: persistRole || "live",
-          backend: "lambdarank",
+          backend: "auto",
           watching_tier_a_only: readOoRankTierAOnly(),
-          note: persist ? `ui oo_rank promote ${persistRole}` : "",
+          note: persist ? `ui oo_rank promote ${persistRole} auto` : "",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -4839,7 +4870,7 @@ export function initQuant(ctx) {
         : "ŷ_oo_rank 执行套（oo_rank_model.json，供交易执行）";
     if (
       !window.confirm(
-        `将 ŷ_oo_rank 写入 ${target}？成交明细 rank 列为当日截面 1..n 名次（1=最高）；不进 ranking/买序；入场闸在回测「其他」勾选 rank < 30。`
+        `将 ŷ_oo_rank 写入 ${target}？按 Holdout NDCG@K 自动落盘 LambdaRank 或 Ridge 中更强一侧；成交明细 rank=1..n（1=最高）；不进买序；入场闸在回测「其他」勾选 rank < 30。`
       )
     ) {
       return;
