@@ -957,7 +957,7 @@ python3 research/paper_run.py --init
 |------|------|------|
 | 主字段 `predicted_score` / 入池地板 | **ŷ_oo**（组 β）；`scoring.min_predicted_score` | `rank.min_score=55`（启发式遗留，不进 ŷ 买入门） |
 | 盘中簿排序 `ŷ_trade` | `dual_score` blend：现网 **`w_oo=0, w_tau=1`** → 缺口∘ŷ_τ；收盘 `eod_next` 回到 ŷ_oo | 与调仓 rank_lots 不是同一套权 |
-| 调仓 / 纸面 ranking | `fusion_w_oo` / `fusion_w_oc`（默认 0.6 / 0.4） | `dual_score.w_*` |
+| 调仓 / 纸面 ranking | `fusion_w_oo` / `fusion_w_oc`（回测表单默认 0.6 / 0.4；live Follow 单条滑条，改启动时间建议 0.9/0.1 或 0.1/0.9） | `dual_score.w_*` |
 
 `heuristic_score` 仅研究对照基线。层 2 **不得**覆盖层 1 字段且不改标签混对账。
 

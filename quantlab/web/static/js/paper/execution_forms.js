@@ -11,7 +11,9 @@ import {
   renderExecutionDiffHtml,
   renderExecutionRulesHtml,
   renderRebalanceRulesHtml,
-} from "./execution_ui.js?v=p2890";
+  applyLiveFillClockUi,
+  applyLiveFusionWeightsUi,
+} from "./execution_ui.js?v=p2893";
 
 async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
   const ac = new AbortController();
@@ -59,6 +61,20 @@ export function applyExecutionToUi(exec) {
   if (pathMatrixForm && exec) {
     fillPathMatrixForm(pathMatrixForm, exec);
     loadDualScoreOntoForm(pathMatrixForm);
+  } else if (exec) {
+    // Follow 页无 path_matrix 表单时仍回填启动时间 / live 权。
+    const timing = exec.rebalance_timing || {};
+    const pm =
+      (timing.rank_lots && typeof timing.rank_lots === "object" && timing.rank_lots) ||
+      (timing.path_matrix && typeof timing.path_matrix === "object" && timing.path_matrix) ||
+      {};
+    if (pm.live_fill_clock || pm.fill_clock) {
+      applyLiveFillClockUi(pm.live_fill_clock || pm.fill_clock);
+    }
+    applyLiveFusionWeightsUi(
+      pm.fusion_w_oo != null ? pm.fusion_w_oo : 0.9,
+      pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.1
+    );
   }
 }
 

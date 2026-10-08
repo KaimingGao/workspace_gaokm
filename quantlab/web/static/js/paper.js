@@ -41,9 +41,11 @@ import {
   normalizeExecutionView,
   collectLiveFillClockPatch,
   applyLiveFillClockUi,
+  applyLiveFusionWeightsForClock,
+  syncLiveFusionWeightSliders,
   liveFillClockAt,
-} from "./paper/execution_ui.js?v=p2890";
-import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2890";
+} from "./paper/execution_ui.js?v=p2893";
+import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2893";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2882";
 import { downloadBlob } from "./shared.js";
 import {
@@ -51,7 +53,7 @@ import {
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js?v=p2746";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2890";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2893";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2746";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
@@ -3006,6 +3008,46 @@ export function initPaper(ctx) {
   }
 
   const paperLiveFillClock = document.getElementById("paper-live-fill-clock");
+  const paperLiveWOo = document.getElementById("paper-live-w-oo");
+  const liveRankLotsControls = [paperLiveFillClock, paperLiveWOo].filter(Boolean);
+
+  const postLiveRankLotsPatch = async (note) => {
+    const body = collectLiveFillClockPatch();
+    if (!body) return;
+    liveRankLotsControls.forEach((el) => {
+      el.disabled = true;
+    });
+    try {
+      const res = await fetch("/api/paper/execution", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, note }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        const err = data.detail || data.errors || data.error || "保存失败";
+        const errEl = document.getElementById("paper-rebalance-worker-error");
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = Array.isArray(err) ? err.join("; ") : String(err);
+        }
+        return;
+      }
+      if (data.execution) applyExecutionToUi(data.execution);
+      await refreshRebalanceWorkerPanel({ quiet: true });
+    } catch (err) {
+      const errEl = document.getElementById("paper-rebalance-worker-error");
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = String(err.message || err);
+      }
+    } finally {
+      liveRankLotsControls.forEach((el) => {
+        el.disabled = false;
+      });
+    }
+  };
+
   if (paperLiveFillClock) {
     const paintLiveClockThumb = () => {
       const clock = liveFillClockAt(paperLiveFillClock.value);
@@ -3016,40 +3058,23 @@ export function initPaper(ctx) {
         String(Math.round(Number(paperLiveFillClock.value) || 0))
       );
       paperLiveFillClock.setAttribute("aria-valuetext", clock);
+      // 拖动中预览建议配重；松手 change 时再落盘。
+      applyLiveFusionWeightsForClock(clock, { force: true });
     };
     paperLiveFillClock.addEventListener("input", paintLiveClockThumb);
     paperLiveFillClock.addEventListener("change", async () => {
       paintLiveClockThumb();
-      const body = collectLiveFillClockPatch();
-      if (!body) return;
-      paperLiveFillClock.disabled = true;
-      try {
-        const res = await fetch("/api/paper/execution", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...body, note: "follow live 启动时间" }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.ok === false) {
-          const err = data.detail || data.errors || data.error || "保存失败";
-          const errEl = document.getElementById("paper-rebalance-worker-error");
-          if (errEl) {
-            errEl.hidden = false;
-            errEl.textContent = Array.isArray(err) ? err.join("; ") : String(err);
-          }
-          return;
-        }
-        if (data.execution) applyExecutionToUi(data.execution);
-        await refreshRebalanceWorkerPanel({ quiet: true });
-      } catch (err) {
-        const errEl = document.getElementById("paper-rebalance-worker-error");
-        if (errEl) {
-          errEl.hidden = false;
-          errEl.textContent = String(err.message || err);
-        }
-      } finally {
-        paperLiveFillClock.disabled = false;
-      }
+      await postLiveRankLotsPatch("follow live 启动时间与配重");
+    });
+  }
+
+  if (paperLiveWOo) {
+    paperLiveWOo.addEventListener("input", () => {
+      syncLiveFusionWeightSliders();
+    });
+    paperLiveWOo.addEventListener("change", async () => {
+      syncLiveFusionWeightSliders();
+      await postLiveRankLotsPatch("follow live ranking 配重");
     });
   }
 

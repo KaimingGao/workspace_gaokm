@@ -10928,6 +10928,135 @@ body[data-page="follow"] .paper-live-clock-value {
   text-align: center;
 }
 
+/* 启动时间右侧：单条滑条，左 w_oo · 右 w_τc（互补） */
+body[data-page="follow"] .paper-live-weights {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--line));
+  user-select: none;
+  cursor: default;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+body[data-page="follow"] .paper-live-weights:hover {
+  border-color: color-mix(in srgb, var(--ink-3) 35%, var(--line));
+  background: color-mix(in srgb, var(--surface) 86%, var(--line));
+}
+
+body[data-page="follow"] .paper-live-weights:focus-within {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 45%, var(--line));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 16%, transparent);
+}
+
+body[data-page="follow"] .paper-live-weight-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 3.6rem;
+}
+
+body[data-page="follow"] .paper-live-weight-end.is-oo {
+  justify-content: flex-start;
+}
+
+body[data-page="follow"] .paper-live-weight-end.is-tc {
+  justify-content: flex-end;
+}
+
+body[data-page="follow"] .paper-live-weight-label {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+body[data-page="follow"] .paper-live-weight-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 88px;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+body[data-page="follow"] .paper-live-weight-range:focus {
+  outline: none;
+}
+
+body[data-page="follow"] .paper-live-weight-range:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+body[data-page="follow"] .paper-live-weight-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
+    color-mix(in srgb, var(--ink-3) 30%, var(--line))
+  );
+}
+
+body[data-page="follow"] .paper-live-weight-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent, #2563eb) 70%, #1d4ed8);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+body[data-page="follow"] .paper-live-weight-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
+    color-mix(in srgb, var(--ink-3) 30%, var(--line))
+  );
+}
+
+body[data-page="follow"] .paper-live-weight-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent, #2563eb) 70%, #1d4ed8);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+body[data-page="follow"] .paper-live-weight-value {
+  flex: 0 0 auto;
+  min-width: 2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink);
+  line-height: 1;
+  text-align: center;
+}
+
 body[data-page="follow"] .paper-t0-worker-badge {
   display: inline-flex;
   align-items: center;

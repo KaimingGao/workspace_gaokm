@@ -65,8 +65,8 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `rank_strong` | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0；关=不看。缺分不拦 |
-| `fusion_w_oo` | 0.6 | ŷ_oo 融合权重 |
-| `fusion_w_oc` | 0.4 | ŷ_τc∘隔夜 头权重（键名 fusion_w_oc） |
+| `fusion_w_oo` | 0.6（回测）/ live 随启动时间建议 | ŷ_oo 融合权重；Follow 单条滑条左端 |
+| `fusion_w_oc` | 0.4（回测）/ live 随启动时间建议 | ŷ_τc∘隔夜 头权重（键名 fusion_w_oc）；Follow 滑条右端 |
 | `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数；0=不叠 |
 | `cash_floor` | 0 | 不留现金地板。现金不够该手则缩到整百（最少一手）；仍买不起才跳过。强档买不下先试基础手数。 |
 | `holdings_mv_cap` | 150_000 | **live** 持仓市值上限；本笔将超则跳过该买。历史回测为 0（不限） |
@@ -103,15 +103,15 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `rank_strong` | 0.001 | 超过买 lot_strong_amount，否则 lot_base_amount |
 | `lot_base_amount` | 10000 | 入场金额（元）；按价换算整手，不够一手则买一手；与历史回测表单同一键 |
 | `lot_strong_amount` | 20000 | 强档金额；不少于 lot_base_amount |
-| `fusion_w_oo` | 0.6 | ŷ_oo 权重 |
-| `fusion_w_oc` | 0.4 | ŷ_τc∘隔夜 头权重（键名 fusion_w_oc） |
+| `fusion_w_oo` | 0.6（回测表单）/ live 建议见下 | ŷ_oo 权重；Follow 单条滑条左端 |
+| `fusion_w_oc` | 0.4（回测表单）/ live 建议见下 | ŷ_τc∘隔夜 头权重（键名 fusion_w_oc）；Follow 滑条右端 |
 | `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0 |
 | `cash_floor` | 0 | 不留现金地板；现金不够该手则缩到整百（最少一手） |
 | `holdings_mv_cap` | 150_000 | live 持仓市值上限；历史回测为 0 |
 | `fill_clock` | 09:30 | **仅历史回测**：5m 成交钟 09:30–10:00；>09:30 时 ŷ_τc 用该钟前缀重算 |
-| `live_fill_clock` | 09:30 | **仅 live**：UI 称「启动时间」；可选 09:25–10:00；自动调仓 / 手动预演窗口起点～10:00；不跟回测 `fill_clock` |
+| `live_fill_clock` | 09:30 | **仅 live**：UI 称「启动时间」；可选 09:25–10:00；自动调仓 / 手动预演窗口起点～10:00；不跟回测 `fill_clock`。Follow 旁单条配重滑条（左 w_oo · 右 w_τc）；改钟建议：≤09:30 → `0.9/0.1`，>09:30 → `0.1/0.9`（可手调后落盘） |
 | `price_space_gate` | 开 | **仅历史回测**：共用框「日分价闸」。有分钟时 |日昨/分昨−1| 超阈则 skip；阈跟做 T（默认 5%，0=关）。关则不拦，仍记错位次数 |
 
 配置键优先 `rebalance_timing.rank_lots`，仍认旧键 `path_matrix`。
