@@ -235,7 +235,8 @@ def score_stock(
     ``offline_only=True``：日线只用本地缓存（研究枢纽强更），不补远端；
     无传入行情时用末根日线合成 quote，不打实时行情。
     ``use_minute_tau``：None=跟随 ``enable_minute_tau``（调仓因果末根 ≤10:00）；
-    False=只用开盘 Z；True=强制并分钟小包（观察池 / 持仓表 / 自动调仓）。
+    False=开盘 Z（回测 09:30、live 启动时间 ≤09:30），不读分钟仓、不拉 5m；
+    True=强制并分钟小包（观察池 / 持仓表；live 启动时间 >09:30）。
 
     ``cluster_mode``：已废弃/退役，仅保留 API 兼容；入参忽略，输出固定
     ``cluster_mode="off"``。主分仅用全局 return_model ŷ；``score_cluster`` /
@@ -1129,6 +1130,14 @@ def score_stock(
                     feats = attach_sector_ret_cs_if_missing(
                         feats, trade_date=trade_day, tau_hm=pack_hm
                     )
+            else:
+                from core.signal.minute_tau_feats import (
+                    clear_minute_tau_pack_keys,
+                    stamp_open_clock_minute_z,
+                )
+
+                clear_minute_tau_pack_keys(feats)
+                stamp_open_clock_minute_z(feats)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)
 

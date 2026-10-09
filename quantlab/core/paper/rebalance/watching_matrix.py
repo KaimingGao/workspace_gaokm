@@ -195,13 +195,26 @@ def _resolve_report_name(
         return mapped or fallback or c
 
 
+def live_rebalance_wants_minute_tau(clock: Optional[str]) -> bool:
+    """启动时间晚于 09:30 才用当天 5m 重算 ŷ_τc。
+
+    ≤09:30 与历史回测成交钟 09:30 同口径：开盘 Z，不拉分钟线。
+    """
+    head = str(clock or "09:30").replace("：", ":").strip()[:5]
+    return bool(head) and head > "09:30"
+
+
 def _score_pool(
     codes: Sequence[str],
     *,
     horizon_days: int = 1,
     offline_only: bool = True,
+    use_minute_tau: Optional[bool] = None,
 ) -> Tuple[List[dict], List[dict]]:
-    """观察池并行 score_stock。默认仅本地缓存；``offline_only=False`` 可补远端。"""
+    """观察池并行 score_stock。默认仅本地缓存；``offline_only=False`` 可补远端。
+
+    ``use_minute_tau=False``：开盘 Z，不拉当天 5m。
+    """
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -246,6 +259,7 @@ def _score_pool(
                 skip_sentiment=True,
                 offline_only=use_offline,
                 quote_timeout=5.0 if use_offline else 8.0,
+                use_minute_tau=use_minute_tau,
             )
         except Exception as exc:  # noqa: BLE001
             return code, {"success": False, "stock_code": code, "error": str(exc)[:120]}
@@ -799,16 +813,24 @@ def simulate_watching_matrix_preview(
         logger.debug("get_scoring_horizon_days failed", exc_info=True)
         horizon = 1
     use_offline = bool(offline_only)
+    # ≤09:30 与回测 09:30 同口径：开盘 Z，不拉当天 5m。更晚的启动时间才吃前缀。
+    use_minute_tau = live_rebalance_wants_minute_tau(rl_cfg.get("live_fill_clock"))
     # ŷ / 日K 可只读本地仓；落账必须现价，否则成本会被写成昨收
     price_offline = bool(use_offline and dry_run)
     if _backend_ctx is not None:
         with _backend_ctx(score_backend):
             scored, rejected = _score_pool(
-                codes, horizon_days=horizon, offline_only=use_offline
+                codes,
+                horizon_days=horizon,
+                offline_only=use_offline,
+                use_minute_tau=use_minute_tau,
             )
     else:
         scored, rejected = _score_pool(
-            codes, horizon_days=horizon, offline_only=use_offline
+            codes,
+            horizon_days=horizon,
+            offline_only=use_offline,
+            use_minute_tau=use_minute_tau,
         )
     _attach_oo_rank_scores(scored)
     summary = mark_to_market(paper) or {}

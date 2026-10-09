@@ -35,6 +35,56 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self._fit.start()
         self.addCleanup(self._fit.stop)
 
+    def test_open_clock_scores_without_minute_bars(self):
+        from core.paper.rebalance.watching_matrix import (
+            live_rebalance_wants_minute_tau,
+            simulate_watching_matrix_preview,
+        )
+
+        self.assertFalse(live_rebalance_wants_minute_tau("09:25"))
+        self.assertFalse(live_rebalance_wants_minute_tau("09:30"))
+        self.assertFalse(live_rebalance_wants_minute_tau(None))
+        self.assertTrue(live_rebalance_wants_minute_tau("09:35"))
+
+        def _run(clock):
+            paper = {
+                "strategy_id": "short_conservative",
+                "cash": 1_000_000,
+                "holdings": [],
+                "rules": {
+                    "max_positions": 5,
+                    "position_pct": 0.2,
+                    "execution": {
+                        "rebalance_timing": {
+                            "rank_lots": {"live_fill_clock": clock},
+                        }
+                    },
+                },
+            }
+            with patch(
+                "core.paper.rebalance.watching_matrix._watching_codes",
+                return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
+            ), patch(
+                "core.paper.rebalance.watching_matrix._score_pool",
+                return_value=([_signal_item()], []),
+            ) as score, patch(
+                "core.paper.rebalance.watching_matrix._quote_px",
+                return_value=10.0,
+            ), patch(
+                "core.paper.ledger.mark_to_market",
+                return_value={"equity": 1_000_000, "cash": 1_000_000},
+            ):
+                out = simulate_watching_matrix_preview(paper, dry_run=True)
+            self.assertTrue(out.get("ok"))
+            self.assertIs(
+                score.call_args.kwargs.get("use_minute_tau"),
+                live_rebalance_wants_minute_tau(clock),
+            )
+
+        _run("09:25")
+        _run("09:30")
+        _run("09:45")
+
     def test_score_pool_seeds_watching_holdings_tau_cs(self):
         import inspect
 
