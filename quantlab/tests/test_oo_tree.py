@@ -59,6 +59,7 @@ class TestOoTree(unittest.TestCase):
             include_alpha158=False,
             n_estimators=16,
             max_depth=2,
+            window_days=0,
         )
         self.assertIsInstance(report, dict)
         self.assertEqual(report.get("task"), "oo_tree")
@@ -74,30 +75,34 @@ class TestOoTree(unittest.TestCase):
             self.assertEqual(rm.get("head_kind"), "return")
             hp = rm.get("hyperparams") or {}
             self.assertTrue(hp.get("feature_zscore"))
-            self.assertTrue(hp.get("zscore_means"))
-            self.assertTrue(hp.get("zscore_stds"))
+            self.assertEqual(hp.get("zscore_scope"), "cross_section")
+            self.assertFalse(hp.get("zscore_means"))
             oos = report["oos"]
             self.assertGreaterEqual(int(oos.get("n_test") or 0), 1)
         else:
             # 合成数据因子覆盖不足时允许失败，但错误应可读
             self.assertTrue(report.get("error"))
 
-    def test_feature_zscore_matches_ridge_and_predict(self):
-        """树特征 z 与 ŷ_oo Ridge 的训练集总体 z 一致；缺测填均值后为 0。"""
+    def test_feature_zscore_cross_section_by_day(self):
+        """有日期时按当天截面 z；两日互不借用均值。"""
         import numpy as np
 
-        from core.research.factor_ols_fit import _zscore_complete_panel
-        from core.research.horizon_tree import _row_matrix
+        from core.research.feature_standardize import cross_section_zscore_matrix
         from core.research.tc_tree import fit_lgb_holdout
 
         xs = [
-            {"a": 1.0, "b": 10.0},
-            {"a": 3.0, "b": 14.0},
-            {"a": 5.0, "b": 12.0},
-            {"a": 7.0, "b": 16.0},
+            {"a": 0.0, "b": 10.0},
+            {"a": 2.0, "b": 14.0},
+            {"a": 100.0, "b": 12.0},
+            {"a": 100.0, "b": 16.0},
         ]
         ys = [0.2, -0.1, 0.4, 0.0]
-        xs_z, mu, sd = _zscore_complete_panel(xs, ["a", "b"])
+        dates = ["d1", "d1", "d2", "d2"]
+        expect = cross_section_zscore_matrix(
+            np.asarray([[0.0, 10.0], [2.0, 14.0], [100.0, 12.0], [100.0, 16.0]]),
+            dates,
+        )
+        expect = np.where(np.isfinite(expect), expect, 0.0)
 
         seen = {}
 
@@ -114,7 +119,7 @@ class TestOoTree(unittest.TestCase):
             "core.research.tc_tree._predict_lightgbm",
             return_value=np.zeros(2, dtype=np.float64),
         ):
-            _model, _gain, hyper, means, _preds, _s = fit_lgb_holdout(
+            _model, _gain, hyper, _means, _preds, _s = fit_lgb_holdout(
                 xs,
                 ys,
                 xs[:2],
@@ -124,27 +129,21 @@ class TestOoTree(unittest.TestCase):
                 learning_rate=0.1,
                 subsample=1.0,
                 feature_zscore=True,
+                train_dates=dates,
+                test_dates=dates[:2],
             )
         self.assertTrue(hyper.get("feature_zscore"))
-        for i, row in enumerate(xs_z):
-            self.assertAlmostEqual(float(seen["x"][i, 0]), float(row["a"]), places=6)
-            self.assertAlmostEqual(float(seen["x"][i, 1]), float(row["b"]), places=6)
+        self.assertEqual(hyper.get("zscore_scope"), "cross_section")
+        self.assertFalse(hyper.get("zscore_means"))
+        np.testing.assert_allclose(seen["x"], expect, rtol=1e-6)
         np.testing.assert_allclose(seen["y"], np.asarray(ys, dtype=np.float64))
-        self.assertAlmostEqual(float(hyper["zscore_means"]["a"]), float(mu["a"]), places=6)
-        self.assertAlmostEqual(float(hyper["zscore_stds"]["b"]), float(sd["b"]), places=6)
-
-        pred_x = _row_matrix(
-            {"a": 3.0, "b": None},
-            ["a", "b"],
-            {"a": float(means[0]), "b": float(means[1])},
-            z_means=hyper["zscore_means"],
-            z_stds=hyper["zscore_stds"],
-        )
-        self.assertAlmostEqual(float(pred_x[0, 0]), float(xs_z[1]["a"]), places=6)
-        self.assertAlmostEqual(float(pred_x[0, 1]), 0.0, places=6)
 
     def test_panel_lgb_defaults(self):
-        from core.research.tc_tree import PANEL_LGB
+        from core.research.tc_tree import (
+            DEFAULT_TREE_STEP_DAYS,
+            DEFAULT_TREE_WINDOW_DAYS,
+            PANEL_LGB,
+        )
 
         self.assertEqual(int(PANEL_LGB["max_depth"]), 6)
         self.assertEqual(int(PANEL_LGB["n_estimators"]), 300)
@@ -153,6 +152,8 @@ class TestOoTree(unittest.TestCase):
         self.assertEqual(float(PANEL_LGB["lambda_l1"]), 10.0)
         self.assertEqual(float(PANEL_LGB["lambda_l2"]), 20.0)
         self.assertNotIn("early_stopping_rounds", PANEL_LGB)
+        self.assertEqual(int(DEFAULT_TREE_WINDOW_DAYS), 60)
+        self.assertEqual(int(DEFAULT_TREE_STEP_DAYS), 20)
 
     def test_panel_lgb_fit_runs_full_rounds_without_early_stop(self):
         from unittest.mock import patch
@@ -189,9 +190,12 @@ class TestOoTree(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIsNone(calls[0].get("early_stopping_rounds"))
         self.assertIsNone(calls[0].get("x_valid"))
+        self.assertIsNone(calls[0].get("init_model"))
         self.assertEqual(int(calls[0]["max_depth"]), 6)
         self.assertEqual(int(hyper["max_depth"]), 6)
         self.assertEqual(int(hyper["num_leaves"]), 64)
+        self.assertEqual(int(hyper.get("window_days") or 0), 0)
+        self.assertEqual(int(hyper.get("n_windows") or 0), 1)
         self.assertNotIn("preset", hyper)
         self.assertNotIn("early_stopping_rounds", hyper)
 
@@ -250,6 +254,16 @@ class TestOoTree(unittest.TestCase):
                 loaded = mod.load_oo_tree_last_report()
                 self.assertIsNotNone(loaded)
                 self.assertEqual((loaded or {}).get("oos", {}).get("ic"), 0.1)
+
+    def test_service_oo_tree_uses_portfolio_bars(self):
+        """与 co_tree / τc_tree 同源：勿退回逐只 bars_and_source。"""
+        import inspect
+
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        src = inspect.getsource(QuantFactorMixin.run_oo_tree_experiment)
+        self.assertIn("load_portfolio_stock_bars", src)
+        self.assertNotIn("bars_and_source", src)
 
 
 if __name__ == "__main__":

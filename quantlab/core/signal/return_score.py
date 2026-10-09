@@ -27,6 +27,7 @@ class ReturnScoreModel:
     z_means: Dict[str, float] = field(default_factory=dict)
     z_stds: Dict[str, float] = field(default_factory=dict)
     feature_zscore: bool = True
+    zscore_scope: str = ""
     horizon_days: int = 3
     sample_count: int = 0
     ridge_lambda: float = 0.0
@@ -49,7 +50,7 @@ class ReturnScoreModel:
                 x = float(raw)
             except (TypeError, ValueError):
                 continue
-            if self.feature_zscore:
+            if self._uses_frozen_z():
                 mu = float(self.z_means.get(name) or 0.0)
                 sd = float(self.z_stds.get(name) or 1.0)
                 if sd < 1e-12:
@@ -81,7 +82,7 @@ class ReturnScoreModel:
             except (TypeError, ValueError):
                 continue
             z = x
-            if self.feature_zscore:
+            if self._uses_frozen_z():
                 mu = float(self.z_means.get(name) or 0.0)
                 sd = float(self.z_stds.get(name) or 1.0)
                 if sd < 1e-12:
@@ -121,6 +122,12 @@ class ReturnScoreModel:
             + " + ".join(parts)
             + f" = {expl['total']:.3f}%"
         )
+
+    def _uses_frozen_z(self) -> bool:
+        """训练窗 μ/σ。截面标准化的输入已经是当天 z，不再套这套数。"""
+        from core.research.feature_standardize import is_cross_section_zscore
+
+        return bool(self.feature_zscore) and not is_cross_section_zscore(self)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -162,6 +169,7 @@ class ReturnScoreModel:
             z_means=_float_map(data.get("z_means") or data.get("zscore_means")),
             z_stds=_float_map(data.get("z_stds") or data.get("zscore_stds")),
             feature_zscore=bool(data.get("feature_zscore", True)),
+            zscore_scope=str(data.get("zscore_scope") or ""),
             horizon_days=int(data.get("horizon_days") or 3),
             sample_count=int(data.get("sample_count") or 0),
             ridge_lambda=float(data.get("ridge_lambda") or 0.0),
@@ -229,6 +237,7 @@ class ReturnScoreModel:
             z_means=_float_map(z_means),
             z_stds=_float_map(z_stds),
             feature_zscore=bool(report.get("feature_zscore", True)),
+            zscore_scope=str(report.get("zscore_scope") or ""),
             horizon_days=int(report.get("horizon_days") or 3),
             sample_count=int(report.get("sample_count") or 0),
             ridge_lambda=float(
@@ -243,12 +252,18 @@ class ReturnScoreModel:
         )
 
 
-def _stamp_formula_terms(item: dict, model: Optional[ReturnScoreModel]) -> None:
+def _stamp_formula_terms(
+    item: dict,
+    model: Optional[ReturnScoreModel],
+    feats: Optional[dict] = None,
+) -> None:
     """把 ŷ 组成写进条目，供悬浮 tip 的因子表。"""
     if model is None or not isinstance(item, dict):
         return
     try:
-        expl = model.explain_prediction(item.get("sub_scores") or {})
+        expl = model.explain_prediction(
+            feats if feats is not None else (item.get("sub_scores") or {})
+        )
     except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
         logger.debug("explain_prediction failed", exc_info=True)
         return
@@ -275,7 +290,8 @@ def apply_predicted_scores_by_model(
     if isinstance(model_for_code, dict):
         resolver = lambda code, _m=model_for_code: _m.get(str(code or "").strip())
 
-    for raw in entries:
+    z_rows = _batch_feature_rows(entries, default_model)
+    for i, raw in enumerate(entries):
         item = dict(raw)
         code = str(item.get("stock_code") or "").strip()
         item.pop("heuristic_score", None)
@@ -287,7 +303,15 @@ def apply_predicted_scores_by_model(
             model = None
         if model is None:
             model = default_model
-        pred = model.predict(item.get("sub_scores") or {}) if model is not None else None
+        from core.research.feature_standardize import is_cross_section_zscore
+
+        use_z = (
+            z_rows is not None
+            and model is not None
+            and is_cross_section_zscore(model)
+        )
+        feats = z_rows[i] if use_z else (item.get("sub_scores") or {})
+        pred = model.predict(feats) if model is not None else None
         item["predicted_score"] = pred
         item["rank_mode"] = "predicted_score"
         if pred is not None:
@@ -297,7 +321,7 @@ def apply_predicted_scores_by_model(
             item["return_model_source"] = item.get("return_model_source") or "mapped"
         if write_rank_score and pred is not None:
             item["score"] = pred
-        _stamp_formula_terms(item, model)
+        _stamp_formula_terms(item, model, feats if use_z else None)
         out.append(item)
     return out
 
@@ -315,6 +339,24 @@ def resolve_research_rank_mode(mode: Optional[str] = None) -> str:
     return "predicted_score"
 
 
+def _batch_feature_rows(
+    entries: Sequence[dict],
+    model: Optional[ReturnScoreModel],
+) -> Optional[List[dict]]:
+    """截面模型：用本批（同一天）的 sub_scores 做 z-score。原始分留在条目上。"""
+    from core.research.feature_standardize import is_cross_section_zscore
+
+    if model is None or not is_cross_section_zscore(model):
+        return None
+    names = [str(k) for k in (model.coefficients or {})]
+    if not names:
+        return None
+    from core.research.feature_standardize import cross_section_zscore_dicts
+
+    raws = [dict((item or {}).get("sub_scores") or {}) for item in entries]
+    return cross_section_zscore_dicts(raws, names)
+
+
 def apply_predicted_scores(
     entries: Sequence[dict],
     model: ReturnScoreModel,
@@ -322,12 +364,14 @@ def apply_predicted_scores(
     write_rank_score: bool = True,
 ) -> List[dict]:
     """为条目写入 ``predicted_score``（收益分）。"""
+    z_rows = _batch_feature_rows(entries, model)
     out: List[dict] = []
-    for raw in entries:
+    for i, raw in enumerate(entries):
         item = dict(raw)
         item.pop("heuristic_score", None)
         item.pop("rule_score", None)
-        pred = model.predict(item.get("sub_scores") or {})
+        feats = z_rows[i] if z_rows is not None else (item.get("sub_scores") or {})
+        pred = model.predict(feats)
         item["predicted_score"] = pred
         item["rank_mode"] = "predicted_score"
         if pred is not None:
@@ -335,7 +379,7 @@ def apply_predicted_scores(
             item["predicted_score_oo"] = pred
         if write_rank_score and pred is not None:
             item["score"] = pred
-        _stamp_formula_terms(item, model)
+        _stamp_formula_terms(item, model, feats if z_rows is not None else None)
         out.append(item)
     return out
 

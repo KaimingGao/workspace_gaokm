@@ -1,6 +1,6 @@
 /**
  * 观察池分档：研究套 ŷ_oo · Holdout 前半 OOS 打档 → last；
- * live 档位跟随历史回测「分档」勾选（见 domain_backtest live-sync）。
+ * 有研究套时短窗建面板；live 档位跟随历史回测「分档」勾选（domain_backtest live-sync）。
  */
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 
@@ -227,16 +227,22 @@ export function installResearchUniverseUi(q) {
       const c = lastTiers.counts || {};
       const hold = lastTiers.holdout_n != null ? lastTiers.holdout_n : "—";
       const lb = lastTiers.lookback != null ? lastTiers.lookback : "—";
+      const lbReq =
+        lastTiers.lookback_requested != null &&
+        Number(lastTiers.lookback_requested) > Number(lb)
+          ? lastTiers.lookback_requested
+          : null;
       const src =
         lastTiers.source === "oo_research_model"
           ? "研究套"
           : lastTiers.source === "oo_holdout_oos_refit"
             ? "现训"
             : "ŷ_oo";
+      const winBit = lbReq != null ? `短窗${lb}` : `窗${lb}`;
       setStatus(
         "ok",
         liveStatus && liveStatus.enabled ? "live" : "已分档",
-        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ${src} · 窗${lb} · Holdout${hold} · ${liveBit()}`
+        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ${src} · ${winBit} · Holdout${hold} · ${liveBit()}`
       );
     } else if (liveStatus && liveStatus.enabled) {
       setStatus("ok", "live", `${liveBit()} · 可先「观察池分档」刷新`);
@@ -253,7 +259,7 @@ export function installResearchUniverseUi(q) {
         useLast ? "读取中" : "分档中",
         useLast
           ? "上次 Holdout OOS 分档…"
-          : `研究套 ŷ_oo · 窗 ${lb} · Holdout ${h} 日前半（整池拉面板约需数分钟，勿刷新）…`
+          : `研究套 ŷ_oo · Holdout ${h} 日前半（短窗建面板；无研究套才吃训练窗 ${lb}）…`
       );
     }
     const url = useLast

@@ -111,14 +111,32 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
             min_child_samples=2,
         )
         self.assertTrue(fit.get("success"), fit.get("error"))
-        hi = predict_oo_rank_from_features(
-            {"mom3": 80.0, "volume_ratio": 70.0, "vol_penalty_score": 30.0},
+        from core.research.oo_rank_lambdarank import apply_oo_rank_scores
+
+        ranked = apply_oo_rank_scores(
+            [
+                {
+                    "stock_code": "hi",
+                    "sub_scores": {
+                        "mom3": 80.0,
+                        "volume_ratio": 70.0,
+                        "vol_penalty_score": 30.0,
+                    },
+                },
+                {
+                    "stock_code": "lo",
+                    "sub_scores": {
+                        "mom3": 20.0,
+                        "volume_ratio": 40.0,
+                        "vol_penalty_score": 60.0,
+                    },
+                },
+            ],
             fit=fit,
+            assign_day_ranks=False,
         )
-        lo = predict_oo_rank_from_features(
-            {"mom3": 20.0, "volume_ratio": 40.0, "vol_penalty_score": 60.0},
-            fit=fit,
-        )
+        hi = ranked[0].get("y_oo_rank")
+        lo = ranked[1].get("y_oo_rank")
         self.assertIsNotNone(hi)
         self.assertIsNotNone(lo)
         self.assertGreater(float(hi), float(lo))

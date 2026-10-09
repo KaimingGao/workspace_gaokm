@@ -121,6 +121,9 @@ def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
             horizon_days=body.horizon_days,
             ridge_lambda=body.ridge_lambda,
             holdout_trading_days=body.holdout_trading_days,
+            window_days=body.window_days,
+            step_days=body.step_days,
+            cross_section_zscore=bool(body.cross_section_zscore),
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
         )
@@ -144,11 +147,15 @@ def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
         return deps.quant.run_tau_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
+            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
             tau_hm=body.tau_hm,
             holdout_trading_days=body.holdout_trading_days,
+            window_days=body.window_days,
+            step_days=body.step_days,
+            cross_section_zscore=bool(body.cross_section_zscore),
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
         )
@@ -172,10 +179,14 @@ def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
         return deps.quant.run_co_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
+            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
             holdout_trading_days=body.holdout_trading_days,
+            window_days=body.window_days,
+            step_days=body.step_days,
+            cross_section_zscore=bool(body.cross_section_zscore),
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
         )
@@ -201,6 +212,7 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
+        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         theme_boost=body.theme_boost,
@@ -211,6 +223,7 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
         include_alpha158=bool(body.include_alpha158),
+        cross_section_zscore=bool(body.cross_section_zscore),
     )
     try:
         if body.persist or body.sync:
@@ -251,6 +264,7 @@ def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
+        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         theme_boost=body.theme_boost,
@@ -258,6 +272,7 @@ def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
         note=body.note,
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
+        cross_section_zscore=bool(body.cross_section_zscore),
     )
     try:
         if body.persist or body.sync:
@@ -292,6 +307,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             note=body.note,
             watching_tier_a_only=body.watching_tier_a_only,
+            cross_section_zscore=bool(body.cross_section_zscore),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -330,7 +346,7 @@ def quant_research_universe_predictability_tiers(
     """观察池分档：研究套 ŷ_oo 在 Holdout 前半 OOS 按票打档，落盘 last。
 
     holdout: ŷ_oo 卡片 Holdout 交易日数；前半=分档窗。
-    lookback: 日线面板窗，与 ŷ_oo 卡片训练窗对齐（缺研究套时现训也用此窗）。
+    lookback: 缺研究套现训时用的日线窗（与 ŷ_oo 训练窗对齐）；有研究套时只拉 Holdout+暖窗。
     回测天数由回测页 lookback 独立设置。
     """
     from core.research.predictability_tiers import (
@@ -499,6 +515,7 @@ def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
+        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -507,6 +524,7 @@ def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
         note=body.note,
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
+        cross_section_zscore=bool(body.cross_section_zscore),
     )
     try:
         if body.persist or body.sync:
@@ -534,6 +552,7 @@ def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
+        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -542,6 +561,7 @@ def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
         note=body.note,
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
+        cross_section_zscore=bool(body.cross_section_zscore),
     )
     try:
         if body.persist or body.sync:
@@ -569,6 +589,7 @@ def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
+        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -577,6 +598,7 @@ def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
         note=body.note,
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
+        cross_section_zscore=bool(body.cross_section_zscore),
     )
     try:
         if body.persist or body.sync:
@@ -604,6 +626,7 @@ def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
+        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -612,6 +635,7 @@ def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
         note=body.note,
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
+        cross_section_zscore=bool(body.cross_section_zscore),
     )
     try:
         if body.persist or body.sync:
@@ -639,6 +663,7 @@ def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
+        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -647,6 +672,7 @@ def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
         note=body.note,
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
+        cross_section_zscore=bool(body.cross_section_zscore),
     )
     try:
         if body.persist or body.sync:
@@ -672,6 +698,7 @@ def quant_t30_tree(body: T30TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t30_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
+            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
@@ -699,6 +726,7 @@ def quant_t45_tree(body: T45TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t45_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
+            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
@@ -726,6 +754,7 @@ def quant_t60_tree(body: T60TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t60_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
+            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
@@ -753,6 +782,7 @@ def quant_t75_tree(body: T75TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t75_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
+            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
@@ -780,6 +810,7 @@ def quant_t90_tree(body: T90TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t90_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
+            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,

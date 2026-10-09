@@ -295,6 +295,13 @@ def _score_pool(
             item["stock_code"] = code
         scored.append(item)
 
+    try:
+        from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+        rescore_fitted_cross_section(scored)
+    except Exception:  # noqa: BLE001
+        logger.debug("watching_matrix cross-section rescore failed", exc_info=True)
+
     logger.info(
         "watching_matrix score_pool n=%s scored=%s rejected=%s workers=%s elapsed=%.1fs offline_only=%s",
         len(pool),

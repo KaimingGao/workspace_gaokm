@@ -159,6 +159,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
             holdout_trading_days=5,
             n_estimators=20,
             max_depth=2,
+            window_days=0,
         )
         self.assertTrue(off.get("success"), off.get("error"))
         self.assertFalse(off.get("include_alpha158"))
@@ -170,6 +171,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
             holdout_trading_days=5,
             n_estimators=20,
             max_depth=2,
+            window_days=0,
         )
         self.assertTrue(on.get("success"), on.get("error"))
         self.assertTrue(on.get("include_alpha158"))
@@ -227,6 +229,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
             backend="lightgbm",
             holdout_trading_days=8,
             include_alpha158=False,
+            window_days=0,
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "tc_tree")

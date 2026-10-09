@@ -1,7 +1,8 @@
 """ŷ_τc_tree：独立树头，标签与 ŷ_τc 相同（τ→close，close[T]/price[τ]−1）。
 
-与 Ridge 同面板、同 Holdout。拟合写入 ``tc_tree_model.json``，
-供调仓回测「ŷ头=Tree」替换 ŷ_τc。不进交易执行。引擎仅 LightGBM。
+与 Ridge 同面板、同 Holdout。卡头可调日截面 Z / 滑窗增量（``init_model``）。
+拟合写入 ``tc_tree_model.json``，供调仓回测「ŷ头=Tree」替换 ŷ_τc。不进交易执行。
+引擎仅 LightGBM。
 """
 
 from __future__ import annotations
@@ -64,6 +65,10 @@ DEFAULT_LEARNING_RATE = float(PANEL_LGB["learning_rate"])
 DEFAULT_SUBSAMPLE = float(PANEL_LGB["subsample"])
 # stump / 旧早停产物：best_iteration 过小则推理跳过
 MIN_USABLE_LGB_TREES = 8
+# 滑窗增量：窗内行数下限；默认滑窗/步长（交易日）
+MIN_SLIDING_WINDOW_ROWS = 16
+DEFAULT_TREE_WINDOW_DAYS = 60
+DEFAULT_TREE_STEP_DAYS = 20
 
 
 def lgb_best_iteration_collapsed(best_iter: Any) -> bool:
@@ -100,6 +105,93 @@ def _lgb_train_kwargs(hyper: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def clamp_tree_window_days(v: Any, default: int = DEFAULT_TREE_WINDOW_DAYS) -> int:
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return int(default)
+    if n <= 0:
+        return 0
+    return max(1, min(500, n))
+
+
+def clamp_tree_step_days(v: Any, default: int = DEFAULT_TREE_STEP_DAYS) -> int:
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return int(default)
+    return max(1, min(200, n))
+
+
+def iter_sliding_day_windows(
+    train_dates: Sequence[str],
+    window_days: int,
+    step_days: int,
+) -> List[np.ndarray]:
+    """按排序唯一交易日滑窗，返回每窗在 ``train_dates`` 中的行下标。
+
+    ``window_days≤0`` 或训练日数不超过窗宽 → 单窗（全训练日）。
+    """
+    n = len(train_dates)
+    if n == 0:
+        return []
+    days = sorted({str(d)[:10] for d in train_dates if d})
+    win = int(window_days or 0)
+    step = max(1, int(step_days or 1))
+    if win <= 0 or len(days) <= win:
+        return [np.arange(n, dtype=np.int64)]
+
+    day_to_rows: Dict[str, List[int]] = {}
+    for i, d in enumerate(train_dates):
+        key = str(d)[:10]
+        day_to_rows.setdefault(key, []).append(i)
+
+    windows: List[np.ndarray] = []
+    start = 0
+    while start < len(days):
+        end = min(len(days), start + win)
+        day_slice = days[start:end]
+        rows: List[int] = []
+        for d in day_slice:
+            rows.extend(day_to_rows.get(d) or [])
+        if rows:
+            windows.append(np.asarray(sorted(rows), dtype=np.int64))
+        if end >= len(days):
+            break
+        start += step
+    return windows or [np.arange(n, dtype=np.int64)]
+
+
+def _split_boost_rounds(n_estimators: int, n_windows: int) -> List[int]:
+    """把总轮数均分到各窗，余数给末窗。"""
+    n_est = max(1, int(n_estimators))
+    n_w = max(1, int(n_windows))
+    base = n_est // n_w
+    rem = n_est % n_w
+    out = [max(1, base) for _ in range(n_w)]
+    if base == 0:
+        # 窗数 > 总轮数：前 n_est 窗各 1 轮，其余跳过由调用方过滤
+        return [1] * n_est + [0] * (n_w - n_est)
+    if rem:
+        out[-1] = out[-1] + rem
+    return out
+
+
+def _gain_from_booster(booster: Any, n_features: int) -> np.ndarray:
+    p = int(n_features)
+    gain = np.zeros(p, dtype=np.float64)
+    try:
+        imp = booster.feature_importance(importance_type="gain")
+        for i in range(min(p, int(imp.size))):
+            gain[i] = float(imp[i])
+    except Exception:  # noqa: BLE001
+        pass
+    total = float(np.sum(np.clip(gain, 0.0, None)))
+    if total > 1e-12:
+        gain = gain / total
+    return gain
+
+
 def fit_lgb_on_matrices(
     x_tr: np.ndarray,
     ys_tr: Sequence[float],
@@ -112,18 +204,34 @@ def fit_lgb_on_matrices(
     subsample: float,
     sample_weights: Optional[Sequence[float]] = None,
     feature_zscore: bool = False,
+    cross_section_zscore: bool = True,
+    train_dates: Optional[Sequence[str]] = None,
+    test_dates: Optional[Sequence[str]] = None,
+    window_days: int = 0,
+    step_days: int = DEFAULT_TREE_STEP_DAYS,
 ) -> Tuple[Any, np.ndarray, Dict[str, Any], np.ndarray, List[Optional[float]], float]:
     """在已折好的 float64 面板上拟合 Holdout 树。缺测为 NaN。
 
-    ``feature_zscore=True``：特征按训练集总体 z-score（与 Ridge 同开关），
-    缺测填 μ 后为 0。标签单位是百分点。
+    ``feature_zscore`` + ``cross_section_zscore``：日截面 z（需 ``train_dates``）
+    或训练窗全局 μ/σ。标签单位是百分点。
+
+    ``window_days>0`` 且训练日足够：按日滑窗，每窗 ``lgb.train(init_model=…)``
+    增量加树；总轮数均分，约等于 ``n_estimators``（滑窗仍用 ``train_dates``）。
     """
     from core.research.feature_standardize import (
         annotate_feature_zscore,
+        cross_section_zscore_matrix,
         resolve_feature_zscore,
+        stamp_cross_section_zscore,
     )
 
     use_z = resolve_feature_zscore(feature_zscore=feature_zscore, default=False)
+    use_cs = (
+        use_z
+        and bool(cross_section_zscore)
+        and train_dates is not None
+        and len(train_dates) == int(np.asarray(x_tr).shape[0])
+    )
     n_y = len(ys_tr)
     if sample_weights is not None and len(sample_weights) == n_y:
         w_tr = [float(x) for x in sample_weights]
@@ -135,16 +243,31 @@ def fit_lgb_on_matrices(
     hyper["learning_rate"] = float(learning_rate)
     hyper["subsample"] = float(subsample)
     lgb_kwargs = _lgb_train_kwargs(hyper)
+    win_d = clamp_tree_window_days(window_days, 0)
+    step_d = clamp_tree_step_days(step_days, DEFAULT_TREE_STEP_DAYS)
 
     x_raw = np.asarray(x_tr, dtype=np.float64)
     x_te_raw = np.asarray(x_te, dtype=np.float64)
-    if use_z:
+    if use_cs:
+        x_fit = cross_section_zscore_matrix(x_raw, train_dates)
+        x_fit = np.where(np.isfinite(x_fit), x_fit, 0.0)
+        if test_dates is not None and len(test_dates) == int(x_te_raw.shape[0]):
+            x_out = cross_section_zscore_matrix(x_te_raw, test_dates)
+            x_out = np.where(np.isfinite(x_out), x_out, 0.0)
+        else:
+            x_out = np.where(np.isfinite(x_te_raw), x_te_raw, 0.0)
+        means = np.zeros(int(x_fit.shape[1]), dtype=np.float64)
+        stamp_cross_section_zscore(hyper)
+        hyper["cross_section_zscore"] = True
+    elif use_z:
         z_means, z_stds = _population_z_stats(x_raw)
         x_fit = _apply_feature_z(_impute_matrix(x_raw, z_means), z_means, z_stds)
         x_out = _apply_feature_z(_impute_matrix(x_te_raw, z_means), z_means, z_stds)
         means = z_means
         names = [str(n) for n in feat_names]
         annotate_feature_zscore(hyper, True)
+        hyper["cross_section_zscore"] = False
+        hyper.pop("zscore_scope", None)
         hyper["zscore_means"] = {n: float(z_means[i]) for i, n in enumerate(names)}
         hyper["zscore_stds"] = {n: float(z_stds[i]) for i, n in enumerate(names)}
     else:
@@ -152,25 +275,73 @@ def fit_lgb_on_matrices(
         x_fit = _impute_matrix(x_raw, means)
         x_out = _impute_matrix(x_te_raw, means)
         annotate_feature_zscore(hyper, False)
+        hyper["cross_section_zscore"] = False
+        hyper.pop("zscore_scope", None)
     y_fit = np.asarray(ys_tr, dtype=np.float64)
     w_fit = np.asarray(w_tr, dtype=np.float64)
     if w_fit.shape != y_fit.shape:
         w_fit = np.ones_like(y_fit)
 
-    t0 = time.perf_counter()
-    model, gain = _fit_lightgbm(
-        x_fit,
-        y_fit,
-        w_fit,
-        n_estimators=int(hyper["n_estimators"]),
-        max_depth=int(hyper["max_depth"]),
-        learning_rate=float(hyper["learning_rate"]),
-        subsample=float(hyper["subsample"]),
-        **lgb_kwargs,
+    date_list = [str(d)[:10] for d in (train_dates or [])]
+    windows = (
+        iter_sliding_day_windows(date_list, win_d, step_d)
+        if date_list and len(date_list) == int(y_fit.shape[0])
+        else [np.arange(int(y_fit.shape[0]), dtype=np.int64)]
     )
+    # 过滤过小窗；若全被滤掉则退回全样本单窗
+    kept: List[np.ndarray] = []
+    skipped = 0
+    for idx in windows:
+        if int(idx.size) >= MIN_SLIDING_WINDOW_ROWS:
+            kept.append(idx)
+        else:
+            skipped += 1
+    if not kept:
+        kept = [np.arange(int(y_fit.shape[0]), dtype=np.int64)]
+        skipped = 0
+    # 仅一窗或未开滑窗 → 单次全样本
+    use_slide = win_d > 0 and len(kept) > 1
+    if not use_slide:
+        kept = [np.arange(int(y_fit.shape[0]), dtype=np.int64)]
+
+    rounds = _split_boost_rounds(int(hyper["n_estimators"]), len(kept))
+    # 丢掉 0 轮窗（窗数 > 总轮数时）
+    pairs = [(idx, r) for idx, r in zip(kept, rounds) if int(r) > 0]
+    if not pairs:
+        pairs = [(np.arange(int(y_fit.shape[0]), dtype=np.int64), max(1, int(hyper["n_estimators"])))]
+
+    t0 = time.perf_counter()
+    model = None
+    gain = np.zeros(int(x_fit.shape[1]), dtype=np.float64)
+    rounds_done: List[int] = []
+    for idx, n_round in pairs:
+        model, gain = _fit_lightgbm(
+            x_fit[idx],
+            y_fit[idx],
+            w_fit[idx],
+            n_estimators=int(n_round),
+            max_depth=int(hyper["max_depth"]),
+            learning_rate=float(hyper["learning_rate"]),
+            subsample=float(hyper["subsample"]),
+            init_model=model,
+            **lgb_kwargs,
+        )
+        rounds_done.append(int(n_round))
+    if model is None:
+        raise RuntimeError("LightGBM 滑窗拟合未产生模型")
     best_iter = getattr(model, "best_iteration", None)
     if best_iter is not None and int(best_iter) > 0:
         hyper["best_iteration"] = int(best_iter)
+    try:
+        total_trees = int(model.num_trees())
+    except Exception:  # noqa: BLE001
+        total_trees = int(sum(rounds_done))
+    hyper["window_days"] = int(win_d) if use_slide else 0
+    hyper["step_days"] = int(step_d) if use_slide else 0
+    hyper["n_windows"] = int(len(rounds_done))
+    hyper["rounds_per_window"] = list(rounds_done)
+    hyper["total_trees"] = total_trees
+    hyper["skipped_small_windows"] = int(skipped) if use_slide else 0
     raw = _predict_lightgbm(model, x_out)
     preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
     tree_s = round(time.perf_counter() - t0, 2)
@@ -189,10 +360,16 @@ def fit_lgb_holdout(
     subsample: float,
     sample_weights: Optional[Sequence[float]] = None,
     feature_zscore: bool = False,
+    cross_section_zscore: bool = True,
+    train_dates: Optional[Sequence[str]] = None,
+    test_dates: Optional[Sequence[str]] = None,
+    window_days: int = 0,
+    step_days: int = DEFAULT_TREE_STEP_DAYS,
 ) -> Tuple[Any, np.ndarray, Dict[str, Any], np.ndarray, List[Optional[float]], float]:
     """Holdout 树拟合。LightGBM（百分点标签）。
 
-    ``feature_zscore=True``：与 Ridge 同一特征 z-score 开关。
+    ``cross_section_zscore``：日截面 z vs 训练窗全局 μ/σ（需 ``feature_zscore``）。
+    ``window_days`` 透传滑窗增量（默认 0=全样本一次训）。
     """
     x_tr, _ = _design_matrix(xs_tr, feat_names, impute=False)
     x_te, _ = _design_matrix(xs_te, feat_names, impute=False)
@@ -207,6 +384,11 @@ def fit_lgb_holdout(
         subsample=subsample,
         sample_weights=sample_weights,
         feature_zscore=feature_zscore,
+        cross_section_zscore=cross_section_zscore,
+        train_dates=train_dates,
+        test_dates=test_dates,
+        window_days=window_days,
+        step_days=step_days,
     )
 
 
@@ -357,8 +539,10 @@ def prepare_lgb_features(
     feat_names: Sequence[str],
     *,
     feature_zscore: bool = True,
+    train_dates: Optional[Sequence[str]] = None,
+    test_dates: Optional[Sequence[str]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
-    """折 panel → 训/测矩阵；默认训练集全局特征 z-score（与 Ridge 同开关）。
+    """折 panel → 训/测矩阵。有日期时按当天截面 z-score，否则用训练集总体 μ/σ。
 
     返回 ``(x_tr, x_te, impute_means, hyper_patch)``；``hyper_patch`` 含
     ``feature_zscore`` / ``zscore_means`` / ``zscore_stds``，并入树 hyperparams。
@@ -369,6 +553,26 @@ def prepare_lgb_features(
     x_raw_te, _ = _design_matrix(xs_te, feat_names, impute=False)
     patch: Dict[str, Any] = {}
     names = [str(n) for n in feat_names]
+    if (
+        feature_zscore
+        and train_dates is not None
+        and len(train_dates) == int(x_raw_tr.shape[0])
+    ):
+        from core.research.feature_standardize import (
+            cross_section_zscore_matrix,
+            stamp_cross_section_zscore,
+        )
+
+        x_tr = cross_section_zscore_matrix(x_raw_tr, train_dates)
+        x_tr = np.where(np.isfinite(x_tr), x_tr, 0.0)
+        if test_dates is not None and len(test_dates) == int(x_raw_te.shape[0]):
+            x_te = cross_section_zscore_matrix(x_raw_te, test_dates)
+            x_te = np.where(np.isfinite(x_te), x_te, 0.0)
+        else:
+            x_te = np.where(np.isfinite(x_raw_te), x_raw_te, 0.0)
+        means = np.zeros(int(x_tr.shape[1]), dtype=np.float64)
+        stamp_cross_section_zscore(patch)
+        return x_tr, x_te, means, patch
     if feature_zscore:
         z_means, z_stds = _population_z_stats(x_raw_tr)
         x_tr = _apply_feature_z(_impute_matrix(x_raw_tr, z_means), z_means, z_stds)
@@ -487,6 +691,7 @@ def _fit_lightgbm(
     lambda_l2: Optional[float] = None,
     min_data_in_leaf: Optional[int] = None,
     num_threads: int = 1,
+    init_model: Any = None,
 ) -> Tuple[Any, np.ndarray]:
     import lightgbm as lgb
 
@@ -533,23 +738,15 @@ def _fit_lightgbm(
         "seed": 42,
         "num_threads": max(1, int(num_threads)),
     }
-    booster = lgb.train(
-        params,
-        dtrain,
-        num_boost_round=max(1, int(n_estimators)),
-    )
-    p = int(x.shape[1])
-    gain = np.zeros(p, dtype=np.float64)
-    try:
-        imp = booster.feature_importance(importance_type="gain")
-        for i in range(min(p, int(imp.size))):
-            gain[i] = float(imp[i])
-    except Exception:  # noqa: BLE001
-        pass
-    total = float(np.sum(np.clip(gain, 0.0, None)))
-    if total > 1e-12:
-        gain = gain / total
-    return booster, gain
+    train_kw: Dict[str, Any] = {
+        "params": params,
+        "train_set": dtrain,
+        "num_boost_round": max(1, int(n_estimators)),
+    }
+    if init_model is not None:
+        train_kw["init_model"] = init_model
+    booster = lgb.train(**train_kw)
+    return booster, _gain_from_booster(booster, int(x.shape[1]))
 
 
 def _predict_lightgbm(booster: Any, x: np.ndarray) -> np.ndarray:
@@ -595,6 +792,8 @@ def _fit_ridge_oos(
     use_theme_weights: bool,
     min_std_exempt: Optional[Sequence[str]] = None,
     kind: str = "pct",
+    dates_tr: Optional[Sequence[str]] = None,
+    dates_te: Optional[Sequence[str]] = None,
 ) -> Tuple[Dict[str, Any], List[Optional[float]]]:
     weights = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -618,6 +817,7 @@ def _fit_ridge_oos(
                 min_std_exempt if min_std_exempt is not None else TAU_MIN_STD_EXEMPT
             ),
             collinearity_policy="keep_all",
+            row_dates=dates_tr,
         )
         if not fit.get("success"):
             fit = {
@@ -629,7 +829,9 @@ def _fit_ridge_oos(
                 "zscore_stds": {},
                 "head_kind": "prob",
             }
-        preds = predict_p_up_rows(fit, xs_te) if xs_te else []
+        preds = (
+            predict_p_up_rows(fit, xs_te, row_dates=dates_te) if xs_te else []
+        )
         return fit, preds
     y_mean = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
     ys_tr_dm = [float(y) - y_mean for y in ys_tr]
@@ -644,6 +846,7 @@ def _fit_ridge_oos(
             min_std_exempt if min_std_exempt is not None else TAU_MIN_STD_EXEMPT
         ),
         collinearity_policy="keep_all",
+        row_dates=dates_tr,
     )
     if not fit.get("success"):
         fit = {
@@ -654,7 +857,18 @@ def _fit_ridge_oos(
             "zscore_means": {},
             "zscore_stds": {},
         }
-    preds_dm = _predict_rows(fit, xs_te) if xs_te else []
+    rows_te = xs_te
+    if xs_te and dates_te is not None and len(dates_te) == len(xs_te):
+        from core.research.feature_standardize import (
+            cross_section_zscore_dicts,
+            is_cross_section_zscore,
+        )
+
+        if is_cross_section_zscore(fit):
+            names = [str(n) for n in (fit.get("active_features") or [])]
+            if names:
+                rows_te = cross_section_zscore_dicts(xs_te, names, dates_te)
+    preds_dm = _predict_rows(fit, rows_te) if xs_te else []
     preds = [
         (float(p) + y_mean) if p is not None else None for p in (preds_dm or [])
     ]
@@ -678,12 +892,16 @@ def fit_tau_tree_report(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
     include_alpha158: bool = True,
+    window_days: int = DEFAULT_TREE_WINDOW_DAYS,
+    step_days: int = DEFAULT_TREE_STEP_DAYS,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """同面板拟合树 + Ridge OOS 对照。不写 live / 研究套模型。
 
     ``include_alpha158=True``（默认）：树吃 ``raw_alpha158_*``。LightGBM
     （深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2、百分点标签）。
-    特征按训练集做总体 z-score，与 ŷ_oo_tree 同口径；标签仍是百分点。
+    ``cross_section_zscore``：日截面 z（默认）或训练窗全局 μ/σ；标签仍是百分点。
+    ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。
     Ridge 对照仍只用 ``TAU_Z_FEATURES``（避免与 ŷ_oo 双重计权）。
     """
     t0 = time.perf_counter()
@@ -800,6 +1018,7 @@ def fit_tau_tree_report(
     ridge_feat_names = ridge_names
 
     engine = resolve_tree_backend(backend)
+    use_cs = bool(cross_section_zscore)
     model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
         X_tree[row_tr],
         ys_tr,
@@ -811,6 +1030,11 @@ def fit_tau_tree_report(
         subsample=subsample,
         sample_weights=w_tr,
         feature_zscore=True,
+        cross_section_zscore=use_cs,
+        train_dates=[dates[i] for i in train_idx],
+        test_dates=[dates[i] for i in test_idx],
+        window_days=window_days,
+        step_days=step_days,
     )
     from core.research.horizon_tree import pack_tree_return_model
 
@@ -840,6 +1064,9 @@ def fit_tau_tree_report(
         ridge_lambda=ridge_lambda,
         sample_weights=ridge_w,
         min_std_exempt=TAU_MIN_STD_EXEMPT,
+        row_dates_tr=[dates[i] for i in train_idx],
+        row_dates_te=[dates[i] for i in test_idx],
+        cross_section_zscore=use_cs,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=use_minute)
@@ -898,12 +1125,24 @@ def fit_tau_tree_report(
         "live_hook": False,
         "backtest_hook": True,
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
+        "window_days": int(hyper.get("window_days") or 0),
+        "step_days": int(hyper.get("step_days") or 0),
+        "n_windows": int(hyper.get("n_windows") or 0),
+        "cross_section_zscore": use_cs,
         "note": (
-            "ŷ_τc_tree：特征训练集 z-score（与 ŷ_oo_tree 同口径）· 同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
+            "ŷ_τc_tree："
+            + ("特征日截面 z-score · " if use_cs else "特征训练窗全局 μ/σ · ")
+            + "同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
             + (
                 "树侧含 raw_alpha158_*（Ridge Z 不含，防与 ŷ_oo 双重计权）；"
                 if include_alpha158
                 else ""
+            )
+            + (
+                f"训练日滑窗 {hyper.get('window_days')}／步 {hyper.get('step_days')}"
+                f"（{hyper.get('n_windows')} 窗 · init_model 增量 · 共 {hyper.get('total_trees')} 树）；"
+                if int(hyper.get("window_days") or 0) > 0
+                else "全样本一次训；"
             )
             + "写入 tc_tree_model.json 后，调仓回测选 Tree 替换 ŷ_τc；不进交易执行"
         ),

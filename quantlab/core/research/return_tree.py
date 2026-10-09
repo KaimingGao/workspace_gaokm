@@ -140,6 +140,8 @@ def overlay_oo_tree_on_item(
     except Exception:  # noqa: BLE001
         logger.debug("load oo tree for overlay failed", exc_info=True)
     oo_feats = oo_tree_features_from_window(window or [], quote)
+    if isinstance(oo_feats, dict) and oo_feats:
+        item["_oo_tree_raw"] = dict(oo_feats)
     y_tree = None
     if tree_doc is not None:
         try:

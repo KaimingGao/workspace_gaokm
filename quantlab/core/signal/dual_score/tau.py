@@ -392,6 +392,12 @@ def attach_dual_score_bulk(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             # 单票失败不影响整体（attach失败时回退原item，cross_section仍能用predicted_score老路）
             out.append(dict(it) if isinstance(it, dict) else it)
+    try:
+        from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+        rescore_fitted_cross_section(out)
+    except Exception:  # noqa: BLE001
+        logger.debug("dual_score bulk cross-section rescore failed", exc_info=True)
     return out
 
 

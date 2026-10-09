@@ -154,6 +154,11 @@ def pack_tree_return_model(
         out["target"] = str(target)
     if isinstance(hyperparams, dict):
         out["hyperparams"] = dict(hyperparams)
+        if str(hyperparams.get("zscore_scope") or "") == "cross_section":
+            out["zscore_scope"] = "cross_section"
+            out["feature_zscore"] = True
+            out["zscore_means"] = {}
+            out["zscore_stds"] = {}
     if eng != "lightgbm":
         raise ValueError(f"unknown tree backend={backend}；仅支持 lightgbm")
     out["booster"] = serialize_lightgbm_booster(model_obj)
@@ -180,14 +185,21 @@ def stamp_tree_fitted_at(report: Dict[str, Any]) -> Dict[str, Any]:
 def _stored_feature_z(
     rm: Dict[str, Any],
 ) -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, float]]]:
-    """训练集特征 z-score。旧模型没有这份统计时返回空，预测保持原值。"""
-    from core.research.feature_standardize import resolve_feature_zscore
+    """旧模型冻住的训练窗 μ/σ。截面模型返回空：输入已是当天 z，或由池子 rescore。"""
+    from core.research.feature_standardize import (
+        is_cross_section_zscore,
+        resolve_feature_zscore,
+    )
 
+    if is_cross_section_zscore(rm):
+        return None, None
     candidates = [rm]
     inner = rm.get("return_model") if isinstance(rm.get("return_model"), dict) else None
     if inner is not None:
         candidates.append(inner)
     for src in candidates:
+        if is_cross_section_zscore(src):
+            return None, None
         hp = src.get("hyperparams") if isinstance(src.get("hyperparams"), dict) else {}
         if not resolve_feature_zscore(src, hp, default=False):
             continue
@@ -732,7 +744,12 @@ def fit_horizon_tree_report(
         }
 
     x_tr, x_te, means, z_hyper = prepare_lgb_features(
-        xs_tr, xs_te, feat_names, feature_zscore=True
+        xs_tr,
+        xs_te,
+        feat_names,
+        feature_zscore=True,
+        train_dates=[dates[i] for i in train_idx],
+        test_dates=[dates[i] for i in test_idx],
     )
     y_tr = np.asarray(binary_labels(ys_tr), dtype=np.float64)
     w_tr = np.asarray(
@@ -797,6 +814,8 @@ def fit_horizon_tree_report(
         use_theme_weights=use_theme_weights,
         min_std_exempt=min_std_exempt,
         kind="prob",
+        dates_tr=[dates[i] for i in train_idx],
+        dates_te=[dates[i] for i in test_idx],
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=True, kind="prob")

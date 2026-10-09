@@ -323,36 +323,6 @@ export function installBacktest(q) {
     downloadBlob(blob, `${tag}_${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
-  async function fitReturnScoreModel() {
-    setQuantBtBusy(true, "拟合收益排序模型…");
-    try {
-      const { lookback, horizon_days } = readPortfolioBtParams();
-      const { ok, data, error } = await apiFetch("/api/quant/return-model/fit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lookback,
-          horizon_days,
-          watching_limit: 12,
-          save_draft: true,
-        }),
-      });
-      if (!ok || !data || !data.success) {
-        const msg = (data && (data.error || data.detail)) || error || "拟合失败";
-        writePortfolioSummary(msg, { error: true });
-        return;
-      }
-      const draft = data.draft || {};
-      const msg =
-        `ŷ模型已拟合并落草稿 n=${data.sample_count} R²=${(data.ols && data.ols.r_squared) ?? "—"}` +
-        (draft.path ? ` · ${draft.path}` : "") +
-        " · 人审 promote 后配合 scoring.rank_mode=predicted_score";
-      writePortfolioSummary(msg);
-    } finally {
-      setQuantBtBusy(false);
-    }
-  }
-
   function formatSnapshotAt(iso) {
     if (!iso) return "—";
     const s = String(iso);
@@ -2149,7 +2119,6 @@ export function installBacktest(q) {
   return {
     clearBtTradesTable,
     downloadSimTradesCsv,
-    fitReturnScoreModel,
     flattenTradesToSimLegs,
     formatFactorWeightsNote,
     formatSimStatus,

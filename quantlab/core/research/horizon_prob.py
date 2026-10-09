@@ -305,8 +305,24 @@ def predict_p_up_rows(
     xs: List[dict],
     *,
     impute_missing: bool = True,
+    row_dates: Optional[Sequence[str]] = None,
 ) -> List[Optional[float]]:
-    logits = _predict_rows(fit, xs, impute_missing=impute_missing)
+    rows = xs
+    if row_dates is not None and len(row_dates) == len(xs):
+        from core.research.feature_standardize import (
+            cross_section_zscore_dicts,
+            is_cross_section_zscore,
+        )
+
+        if is_cross_section_zscore(fit):
+            names = [
+                str(n)
+                for n in (fit.get("active_features") or [])
+                if (fit.get("coefficients") or {}).get(n) is not None
+            ]
+            if names:
+                rows = cross_section_zscore_dicts(xs, names, row_dates)
+    logits = _predict_rows(fit, rows, impute_missing=impute_missing)
     return [sigmoid(p) if p is not None else None for p in logits]
 
 
@@ -505,14 +521,18 @@ def fit_logistic_ridge_from_panel(
     sample_weights: Optional[List[float]] = None,
     min_std_exempt: Optional[Sequence[str]] = None,
     collinearity_policy: str = "drop_redundant",
+    row_dates: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """面板 logistic Ridge：先走与 OLS 相同的完整子面板 / z-score / 共线策略，再 IRLS。
 
     入模列缺测按列均值填后再挑行（标准化后 z=0），与
     ``_predict_rows(impute_missing=True)`` / live 打分一致。
+    ``cross_section_zscore=False`` 时不传日期，走训练窗全局 μ/σ。
     """
     names = [str(n) for n in (feature_names or []) if n]
     ys = [1.0 if _f(y) is not None and float(y) > 0.5 else 0.0 for y in ys_bin]
+    use_cs = bool(cross_section_zscore) and row_dates is not None
     ols = fit_factor_ols_from_panel(
         xs,
         ys,
@@ -524,6 +544,7 @@ def fit_logistic_ridge_from_panel(
         collinearity_policy=collinearity_policy,
         impute_keys=names,
         y_spec={"formula": "I(y>0)", "unit": "prob"},
+        row_dates=row_dates if use_cs else None,
     )
     if not ols.get("success"):
         return _empty_prob_fit(intercept=_logit_mean(ys), note=str(ols.get("error") or ""))
@@ -541,11 +562,20 @@ def fit_logistic_ridge_from_panel(
 
     means = ols.get("zscore_means") or ols.get("z_means") or {}
     stds = ols.get("zscore_stds") or ols.get("z_stds") or {}
+    from core.research.feature_standardize import (
+        cross_section_zscore_dicts,
+        is_cross_section_zscore,
+    )
+
+    xs_irls = xs
+    if is_cross_section_zscore(ols) and row_dates is not None and len(row_dates) == len(xs):
+        # IRLS 与推理同口径：先日截面 z，再按 μ=0/σ=1 入模
+        xs_irls = cross_section_zscore_dicts(xs, active, row_dates)
     rows_x: List[List[float]] = []
     rows_y: List[float] = []
     rows_w: List[float] = []
     w_src = list(sample_weights) if sample_weights is not None else None
-    for i, row in enumerate(xs or []):
+    for i, row in enumerate(xs_irls or []):
         src = row if isinstance(row, dict) else {}
         vec = [1.0]
         ok = True
@@ -640,6 +670,10 @@ def train_eval_horizon_prob(
     weights: Optional[List[float]],
     weights_all: Optional[List[float]],
     min_std_exempt: Sequence[str],
+    dates_tr: Optional[Sequence[str]] = None,
+    dates_te: Optional[Sequence[str]] = None,
+    dates_all: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """Holdout 训/测 + 全样本 refit。返回 p_up 预测与概率 OOS。"""
     y_mean_pct = (
@@ -649,6 +683,7 @@ def train_eval_horizon_prob(
         sum(float(y) for y in ys_all_pct) / float(len(ys_all_pct)) if ys_all_pct else 0.0
     )
     ys_tr_bin = binary_labels(ys_tr_pct)
+    use_cs = bool(cross_section_zscore)
     fit = fit_logistic_ridge_from_panel(
         xs_tr,
         ys_tr_bin,
@@ -657,8 +692,14 @@ def train_eval_horizon_prob(
         sample_weights=weights,
         min_std_exempt=list(min_std_exempt),
         collinearity_policy="drop_redundant",
+        row_dates=dates_tr if use_cs else None,
+        cross_section_zscore=use_cs,
     )
-    preds_te = predict_p_up_rows(fit, xs_te) if xs_te else []
+    preds_te = (
+        predict_p_up_rows(fit, xs_te, row_dates=dates_te if use_cs else None)
+        if xs_te
+        else []
+    )
     oos_core = oos_prob_pack(preds_te, ys_te_pct, metas_te) if ys_te_pct else {}
     oos_core["y_label_mean"] = round(y_mean_pct, 6)
     oos_core["y_up_rate_train"] = (
@@ -673,6 +714,8 @@ def train_eval_horizon_prob(
         sample_weights=weights_all,
         min_std_exempt=list(min_std_exempt),
         collinearity_policy="drop_redundant",
+        row_dates=dates_all if use_cs else None,
+        cross_section_zscore=use_cs,
     )
     model = dict(fit_full if fit_full.get("success") else fit)
     model["y_label_mean"] = round(y_mean_all, 6)

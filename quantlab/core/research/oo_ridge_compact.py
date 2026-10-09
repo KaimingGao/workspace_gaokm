@@ -1,8 +1,8 @@
 """ŷ_oo 观察池 Ridge：按只折进 float64 矩阵，避免整池 Python 字典常驻。
 
-口径与 ``fit_factor_ols_from_panel`` 的观察池默认项对齐：样本内总体 z-score、
-Ridge（截距不惩罚）、趋势族 drop_redundant、min_std=5（``raw_alpha158_*`` 豁免）、
-完整行。标签仍是百分点，不做 z-score。
+口径与观察池 Ridge 默认项对齐：Ridge（截距不惩罚）、趋势族 drop_redundant、
+min_std=5（``raw_alpha158_*`` 豁免）、完整行；特征 z 由 ``cross_section_zscore``
+选择日截面或训练窗全局 μ/σ。标签仍是百分点，不做 z-score。
 """
 
 from __future__ import annotations
@@ -641,16 +641,18 @@ def _fit_design(
             return None
         x_fit = design_z[keep] * sw[keep, None]
         y_fit = y[keep] * sw[keep]
+    xs: List[np.ndarray] = [x_fit]
+    ys: List[np.ndarray] = [y_fit]
     if lam > 0:
         sqrt_l = math.sqrt(lam)
         extra = np.zeros((p, p_aug), dtype=np.float64)
         extra[:, 1:] = np.eye(p, dtype=np.float64) * sqrt_l
-        beta = _qr_solve_np(
-            np.vstack([x_fit, extra]),
-            np.concatenate([y_fit, np.zeros(p, dtype=np.float64)]),
-        )
+        xs.append(extra)
+        ys.append(np.zeros(p, dtype=np.float64))
+    if len(xs) == 1:
+        beta = _qr_solve_np(xs[0], ys[0])
     else:
-        beta = _qr_solve_np(x_fit, y_fit)
+        beta = _qr_solve_np(np.vstack(xs), np.concatenate(ys))
     if beta is None:
         return None
     y_mean = float(y.sum()) / n
@@ -688,7 +690,10 @@ def _ols_matrix(
         design[:, 0] = 1.0
         design[:, 1:] = x_z[:, cols]
         fit = _fit_design(
-            design, y, ridge_lambda=lam, sample_weights=sample_weights
+            design,
+            y,
+            ridge_lambda=lam,
+            sample_weights=sample_weights,
         )
         if fit is not None:
             break
@@ -761,10 +766,13 @@ def fit_oo_ridge_matrix(
     min_samples: int = 24,
     fitted_as_of: Optional[str] = None,
     sample_weights: Optional[Sequence[float]] = None,
+    row_dates: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
 ) -> Tuple[Any, Dict[str, Any]]:
     """在矩阵上拟合 ŷ_oo，返回 ``(ReturnScoreModel | None, report)``。
 
     ``sample_weights`` 与全表 ``y`` 等长（或与 ``row_idx`` 等长）；√w 加权最小二乘。
+    ``cross_section_zscore=False``：训练样本内全局 μ/σ（不用日截面）。
     """
     from core.signal.return_score import ReturnScoreModel
 
@@ -816,7 +824,28 @@ def fit_oo_ridge_matrix(
             x_c = np.ascontiguousarray(x_c[:, keep_pos], dtype=np.float64)
             active = list(kept)
         if active:
-            x_z, z_means, z_stds = _zscore_matrix(x_c, active)
+            from core.research.feature_standardize import (
+                cross_section_zscore_matrix,
+                dates_for_complete_rows,
+            )
+
+            use_cs = bool(cross_section_zscore)
+            date_src = row_dates if use_cs else None
+            if date_src is not None and row_pos is not None:
+                date_src = [str(row_dates[int(i)])[:10] for i in row_pos.tolist()]
+            dates_c = dates_for_complete_rows(
+                date_src, prep_meta.get("complete_row_indices") or []
+            )
+            if (
+                use_cs
+                and dates_c is not None
+                and len(dates_c) == int(x_c.shape[0])
+            ):
+                x_z = cross_section_zscore_matrix(x_c, dates_c)
+                x_z = np.where(np.isfinite(x_z), x_z, 0.0)
+                z_means, z_stds = {}, {}
+            else:
+                x_z, z_means, z_stds = _zscore_matrix(x_c, active)
             row_w = _align_row_weights(
                 sample_weights,
                 n_full=n_full,
@@ -859,6 +888,7 @@ def fit_oo_ridge_matrix(
         "active_features": fit["active_features"],
         "excluded_features": fit["excluded_features"],
         "feature_zscore": True,
+        "zscore_scope": "cross_section" if not z_means else "",
         "zscore_means": {k: round(v, 4) for k, v in z_means.items()},
         "zscore_stds": {k: round(v, 4) for k, v in z_stds.items()},
         "solver": fit["solver"],
@@ -887,8 +917,12 @@ def predict_oo_matrix(
     x: np.ndarray,
     names: Sequence[str],
     row_idx: Sequence[int],
+    row_dates: Optional[Sequence[str]] = None,
 ) -> List[Optional[float]]:
-    """与 ``ReturnScoreModel.predict`` 相同：缺测跳过，不把缺测当成 z=0。"""
+    """与 ``ReturnScoreModel.predict`` 相同：缺测跳过，不把缺测当成 z=0。
+
+    ``row_dates`` 与整表 ``x`` 对齐。截面模型只在被打分的这些行里、按当天做 z-score。
+    """
     idx = np.asarray(list(row_idx), dtype=np.int64)
     n = int(idx.size)
     if n == 0 or model is None or not getattr(model, "coefficients", None):
@@ -897,11 +931,26 @@ def predict_oo_matrix(
     total = np.full(n, float(model.intercept), dtype=np.float64)
     used = np.zeros(n, dtype=bool)
     feature_zscore = bool(getattr(model, "feature_zscore", True))
+    scope = str(getattr(model, "zscore_scope", "") or "")
+    x_rows = x
+    row_at = idx
+    if (
+        scope == "cross_section"
+        and row_dates is not None
+        and len(row_dates) == int(np.asarray(x).shape[0])
+    ):
+        from core.research.feature_standardize import cross_section_zscore_matrix
+
+        picked = np.asarray(x, dtype=np.float64)[idx]
+        dates_sub = [str(row_dates[int(i)])[:10] for i in idx.tolist()]
+        x_rows = cross_section_zscore_matrix(picked, dates_sub)
+        row_at = np.arange(n, dtype=np.int64)
+        feature_zscore = False
     for name, beta in model.coefficients.items():
         j = name_j.get(str(name))
         if j is None:
             continue
-        col = x[idx, j]
+        col = x_rows[row_at, j]
         ok = np.isfinite(col)
         if not bool(ok.any()):
             continue

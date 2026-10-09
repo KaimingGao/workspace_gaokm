@@ -439,39 +439,6 @@ def _collect_feature_names(days: Sequence[Dict[str, Any]]) -> List[str]:
     return names
 
 
-def _fit_zscore(
-    days: Sequence[Dict[str, Any]], feature_names: Sequence[str]
-) -> Tuple[Dict[str, float], Dict[str, float]]:
-    names = [str(n) for n in feature_names]
-    if not names:
-        return {}, {}
-    blocks: List[np.ndarray] = []
-    for day in days or []:
-        Z = _raw_day_aligned(day, names)
-        if Z is not None and Z.shape[0] > 0:
-            blocks.append(Z)
-    if blocks:
-        X = np.vstack(blocks)
-        means: Dict[str, float] = {}
-        stds: Dict[str, float] = {}
-        for j, name in enumerate(names):
-            col = X[:, j]
-            finite = col[np.isfinite(col)]
-            if finite.size <= 0:
-                means[name] = 0.0
-                stds[name] = 1.0
-                continue
-            mu = float(finite.mean())
-            var = float(((finite - mu) ** 2).mean())
-            sd = math.sqrt(var) if var > 0 else 1.0
-            if sd < 1e-9:
-                sd = 1.0
-            means[name] = mu
-            stds[name] = sd
-        return means, stds
-    return {n: 0.0 for n in names}, {n: 1.0 for n in names}
-
-
 def _raw_day_aligned(day: Dict[str, Any], feature_names: Sequence[str]) -> Optional[np.ndarray]:
     packed = _day_X(day)
     names = [str(n) for n in feature_names]
@@ -488,6 +455,18 @@ def _raw_day_aligned(day: Dict[str, Any], feature_names: Sequence[str]) -> Optio
                 out[:, j] = X[:, src]
         return out
     return None
+
+
+def _z_day_cross_section(
+    day: Dict[str, Any], feature_names: Sequence[str]
+) -> Optional[np.ndarray]:
+    """当天截面 z-score。不使用其它交易日的均值和标准差。"""
+    from core.research.feature_standardize import cross_section_zscore_matrix
+
+    raw = _raw_day_aligned(day, feature_names)
+    if raw is None or int(raw.shape[0]) == 0:
+        return None
+    return cross_section_zscore_matrix(raw, ["d"] * int(raw.shape[0]))
 
 
 def _z_day(
@@ -518,6 +497,34 @@ def _rank_labels(ys: Sequence[float]) -> List[int]:
     return labels
 
 
+def _global_z_stats(
+    days: Sequence[Dict[str, Any]], feature_names: Sequence[str]
+) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """训练窗全局列向 μ/σ（与日截面互斥）。"""
+    names = [str(n) for n in feature_names]
+    blocks: List[np.ndarray] = []
+    for day in days or []:
+        raw = _raw_day_aligned(day, names)
+        if raw is not None and int(raw.shape[0]) > 0:
+            blocks.append(raw)
+    if not blocks:
+        return {}, {}
+    x = np.vstack(blocks)
+    means: Dict[str, float] = {}
+    stds: Dict[str, float] = {}
+    for j, n in enumerate(names):
+        col = x[:, j]
+        finite = col[np.isfinite(col)]
+        if int(finite.size) < 2:
+            means[n] = 0.0
+            stds[n] = 1.0
+            continue
+        means[n] = float(np.mean(finite))
+        sd = float(np.std(finite))
+        stds[n] = sd if sd >= 1e-9 else 1.0
+    return means, stds
+
+
 def fit_lambdarank(
     days: Sequence[Dict[str, Any]],
     *,
@@ -530,12 +537,14 @@ def fit_lambdarank(
     num_leaves: int = 31,
     min_child_samples: int = 20,
     l2: float = 1.0,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """LightGBM LambdaRank：按日截面 group，优化 NDCG。
 
     输出与推理共用：
     - ``coefficients``：feature importance (gain)，仅诊断
-    - ``zscore_means`` / ``zscore_stds``：推理时 z-score
+    - ``zscore_scope=cross_section``：按日截面标准化（不再落盘训练窗 μ/σ）
+    - ``cross_section_zscore=False``：训练窗全局 μ/σ
     - ``solver`` = ``lambdarank``（旧包 ``lightgbm_lambda`` 仍可读）
     - ``booster_b64``：LightGBM 模型
     """
@@ -544,14 +553,24 @@ def fit_lambdarank(
     names = list(feature_names) if feature_names else _collect_feature_names(days)
     if not names:
         return {"success": False, "error": "no_features"}
-    means, stds = _fit_zscore(days, names)
     p = len(names)
+    use_cs = bool(cross_section_zscore)
+    means: Dict[str, float] = {}
+    stds: Dict[str, float] = {}
+    if not use_cs:
+        means, stds = _global_z_stats(days, names)
     X_blocks: List[np.ndarray] = []
     y_blocks: List[List[int]] = []
     group_sizes: List[int] = []
     for day in days:
         ys = [float(v) for v in (day.get("ys") or [])]
-        Z = _z_day(day, names, means, stds)
+        Z = (
+            _z_day_cross_section(day, names)
+            if use_cs
+            else _z_day(day, names, means, stds)
+        )
+        if Z is not None:
+            Z = np.where(np.isfinite(Z), Z, 0.0)
         if Z is None or len(ys) < 4 or int(Z.shape[0]) != len(ys):
             continue
         labels = _rank_labels(ys)
@@ -628,15 +647,15 @@ def fit_lambdarank(
     except Exception:  # noqa: BLE001
         coefs = {}
     active = [n for n, w in coefs.items() if w > 0.0]
-    return {
+    out = {
         "success": True,
         "intercept": 0.0,
         "coefficients": coefs,
         "active_features": active,
-        "zscore_means": {k: round(float(means[k]), 6) for k in names},
-        "zscore_stds": {k: round(float(stds[k]), 6) for k in names},
-        "z_means": {k: round(float(means[k]), 6) for k in names},
-        "z_stds": {k: round(float(stds[k]), 6) for k in names},
+        "zscore_means": {},
+        "zscore_stds": {},
+        "z_means": {},
+        "z_stds": {},
         "feature_zscore": True,
         "solver": "lambdarank",
         "backend": "lambdarank",
@@ -645,6 +664,17 @@ def fit_lambdarank(
         "sample_count": int(y.shape[0]),
         "n_groups": n_groups,
     }
+    if use_cs:
+        from core.research.feature_standardize import stamp_cross_section_zscore
+
+        stamp_cross_section_zscore(out)
+    else:
+        out["zscore_means"] = {k: round(float(v), 6) for k, v in means.items()}
+        out["zscore_stds"] = {k: round(float(v), 6) for k, v in stds.items()}
+        out["z_means"] = dict(out["zscore_means"])
+        out["z_stds"] = dict(out["zscore_stds"])
+        out["zscore_scope"] = ""
+    return out
 
 
 def _predict_rows_lightgbm(
@@ -685,10 +715,11 @@ def _predict_rows_lightgbm(
         vec: List[float] = []
         ok = True
         src = row if isinstance(row, dict) else {}
+        cs = str(fit.get("zscore_scope") or "") == "cross_section"
         for name in names:
             v = src.get(name)
             if v is None:
-                if not impute_missing or not means:
+                if not impute_missing or not (means or cs):
                     ok = False
                     break
                 vec.append(0.0)
@@ -696,10 +727,13 @@ def _predict_rows_lightgbm(
             try:
                 fv = float(v)
             except (TypeError, ValueError):
-                if not impute_missing or not means:
+                if not impute_missing or not (means or cs):
                     ok = False
                     break
                 vec.append(0.0)
+                continue
+            if cs or not means:
+                vec.append(fv)
                 continue
             mu = float(means.get(name, 0.0))
             sd = float(stds.get(name, 1.0))
@@ -806,10 +840,17 @@ def _predict_oo_rank_matrix(
 
     import lightgbm as lgb
 
-    means = zm if isinstance(zm, dict) else (model.get("z_means") or {})
-    stds_raw = model.get("zscore_stds")
-    stds = stds_raw if isinstance(stds_raw, dict) else (model.get("z_stds") or {})
-    z = _z_day(day, names, means, stds)
+    from core.research.feature_standardize import is_cross_section_zscore
+
+    if is_cross_section_zscore(model):
+        z = _z_day_cross_section(day, names)
+        if z is not None:
+            z = np.where(np.isfinite(z), z, 0.0)
+    else:
+        means = zm if isinstance(zm, dict) else (model.get("z_means") or {})
+        stds_raw = model.get("zscore_stds")
+        stds = stds_raw if isinstance(stds_raw, dict) else (model.get("z_stds") or {})
+        z = _z_day(day, names, means, stds)
     if z is None:
         return [None] * n
     b64 = str(model.get("booster_b64") or "")
@@ -873,23 +914,42 @@ def apply_oo_rank_scores(
 ) -> List[dict]:
     """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 ranking / 买序。
 
-    特征与 ŷ_oo 同口径：原始 sub_score（fit_lambdarank 内部做样本内全局 z-score）。
+    特征按本次 items 的当天截面 z-score（与训练同口径）。
     默认 ``assign_day_ranks=True``：对本次 items 截面编 1..n 名次（1=最高分）。
     """
+    from core.research.feature_standardize import (
+        cross_section_zscore_dicts,
+        is_cross_section_zscore,
+    )
+
     doc = model_doc
     if doc is None and fit is None:
         doc = load_oo_rank_model(prefer_research=True)
     model = _resolve_oo_rank_fit(model_doc=doc, fit=fit)
 
     out = list(items)
-    for it in out:
+    raw_rows: List[dict] = []
+    slots: List[int] = []
+    for i, it in enumerate(out):
         if not isinstance(it, dict):
             continue
         subs = it.get("sub_scores") or it.get("sub_scores_raw")
         if not isinstance(subs, dict):
             continue
-        hat = predict_oo_rank_from_features(subs, model_doc=doc, fit=fit or model)
-        write_y_oo_rank_hat(it, hat)
+        raw_rows.append(dict(subs))
+        slots.append(i)
+    if is_cross_section_zscore(model) and raw_rows:
+        names = list((model or {}).get("active_features") or (model or {}).get("coefficients") or [])
+        if not names:
+            names = list(raw_rows[0].keys())
+        z_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in names])
+        hats = _predict_oo_rank_rows(model, z_rows, impute_missing=True)
+        for slot, hat in zip(slots, hats):
+            write_y_oo_rank_hat(out[slot], hat)
+    else:
+        for slot, subs in zip(slots, raw_rows):
+            hat = predict_oo_rank_from_features(subs, model_doc=doc, fit=fit or model)
+            write_y_oo_rank_hat(out[slot], hat)
     if assign_day_ranks:
         assign_oo_rank_day_ranks(out)
     return out
@@ -968,7 +1028,15 @@ def _predict_ridge_matrix(
         intercept = float(model.get("intercept") or 0.0)
     except (TypeError, ValueError):
         intercept = 0.0
+    from core.research.feature_standardize import (
+        cross_section_zscore_matrix,
+        is_cross_section_zscore,
+    )
+
     feature_zscore = bool(model.get("feature_zscore", True))
+    if is_cross_section_zscore(model):
+        raw = cross_section_zscore_matrix(raw, ["d"] * n)
+        feature_zscore = False
     total = np.full(n, intercept, dtype=np.float64)
     used = np.zeros(n, dtype=bool)
     for j, name in enumerate(names):
@@ -1069,10 +1137,12 @@ def _fit_ridge_baseline(
     *,
     feature_names: Sequence[str],
     ridge_lambda: float = 1.0,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     names = [str(n) for n in feature_names]
     blocks: List[np.ndarray] = []
     y_parts: List[np.ndarray] = []
+    date_parts: List[str] = []
     for day in days or []:
         raw = _raw_day_aligned(day, names)
         ys = [float(v) for v in (day.get("ys") or [])]
@@ -1080,6 +1150,8 @@ def _fit_ridge_baseline(
             continue
         blocks.append(raw)
         y_parts.append(np.asarray(ys, dtype=np.float64))
+        day_s = str(day.get("date") or "")[:10]
+        date_parts.extend([day_s] * len(ys))
     if blocks:
         from core.research.oo_ridge_compact import fit_oo_ridge_matrix
 
@@ -1093,6 +1165,8 @@ def _fit_ridge_baseline(
             names,
             ridge_lambda=float(ridge_lambda),
             horizon_days=1,
+            row_dates=date_parts,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         return report
     return {"success": False, "error": "ridge_n=0"}
@@ -1140,11 +1214,12 @@ def fit_oo_rank_report(
     day_panels: Optional[Sequence[Dict[str, Any]]] = None,
     backend: str = "auto",
     lightgbm_params: Optional[Dict[str, Any]] = None,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """拟合 ŷ_oo_rank：同窗 LambdaRank + Ridge，按 Holdout NDCG@K 推荐 backend。
 
     ``day_panels``：若已预计算日截面（矩阵 ``X`` 或 raw sub_score dict），可跳过建面板。
-    特征与 ŷ_oo 同口径：原始 sub_score；fit_lambdarank 内部做样本内全局 z-score。
+    特征与 ŷ_oo 同口径：原始 sub_score；``cross_section_zscore`` 控制日截面 / 全局 μ/σ。
     默认建面板走 compact 矩阵（与 ŷ_oo 相同，逐只丢掉行 dict）。
 
     ``backend``：``"auto"``（默认，按 NDCG@K 选）/ ``"lambdarank"`` / ``"ridge"``。
@@ -1209,9 +1284,11 @@ def fit_oo_rank_report(
             "n_days": len(days),
             "backend": force_backend,
         }
-    lgb_kw: Dict[str, Any] = dict(l2=l2)
+    use_cs = bool(cross_section_zscore)
+    lgb_kw: Dict[str, Any] = dict(l2=l2, cross_section_zscore=use_cs)
     if isinstance(lightgbm_params, dict) and lightgbm_params:
         lgb_kw.update(lightgbm_params)
+        lgb_kw["cross_section_zscore"] = use_cs
     fit_tr = fit_lambdarank(
         days_tr,
         feature_names=feat_names,
@@ -1234,7 +1311,10 @@ def fit_oo_rank_report(
         ndcg_k=ndcg_k,
     )
     ridge_tr = _fit_ridge_baseline(
-        days_tr, feature_names=feat_names, ridge_lambda=ridge_lambda
+        days_tr,
+        feature_names=feat_names,
+        ridge_lambda=ridge_lambda,
+        cross_section_zscore=use_cs,
     )
     oos_ridge: Dict[str, Any] = {"success": bool(ridge_tr.get("success"))}
     if ridge_tr.get("success"):
@@ -1255,7 +1335,10 @@ def fit_oo_rank_report(
     )
     lambda_live = dict(fit_full if fit_full.get("success") else fit_tr)
     ridge_full = _fit_ridge_baseline(
-        days, feature_names=feat_names, ridge_lambda=ridge_lambda
+        days,
+        feature_names=feat_names,
+        ridge_lambda=ridge_lambda,
+        cross_section_zscore=use_cs,
     )
     ridge_live = (
         dict(ridge_full)
@@ -1348,6 +1431,7 @@ def fit_oo_rank_report(
         "return_model": model,
         "return_model_research": research_model,
         "y_spec": y_spec,
+        "cross_section_zscore": use_cs,
         "note": (
             f"ŷ_oo_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
             "启用研究/执行按 NDCG@K 自动落盘更强一侧；"

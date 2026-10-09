@@ -1,7 +1,7 @@
 """ŷ_oo_rank 截面面板：按决策日聚合观察池 (X, y_oo)。
 
 标签与 ŷ_oo 同源：open[T+h]/open[T]−1（默认 h=1，百分点）。
-特征与 ŷ_oo 同口径：原始 sub_score（fit_lambdarank 内部做样本内全局 z-score）。
+特征与 ŷ_oo 同口径：原始 sub_score，按当天截面 z-score。
 建面板走 ŷ_oo 的 compact 矩阵（逐只折进 float64，丢掉行 dict）；
 不进 ranking/买序分数；可选 oo_rank_max 入场闸。
 """
@@ -175,52 +175,38 @@ def stack_day_panels(
 
 
 def resolve_oo_rank_universe(*, watching_tier_a_only: bool = False) -> Dict[str, Any]:
-    """ŷ_oo_rank 训练宇宙：默认整观察池；开启则只留分档 A 且仍在观察池内。"""
-    from core.watching.store import read_watching
+    """ŷ_oo_rank 训练宇宙：默认整观察池；开启则只留分档 A 且仍在观察池内。
 
-    try:
-        uni = read_watching()
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "success": False,
-            "error": f"读观察池失败：{exc}",
-            "codes": [],
-            "universe_source": "watching",
-        }
-    watch = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
-    if not watching_tier_a_only:
-        return {
-            "success": True,
-            "codes": watch,
-            "universe_source": "watching",
-            "watching_pool_size": len(watch),
-            "watching_tier_a_only": False,
-        }
-    from core.research.predictability_tiers import (
-        load_predictability_tiers_last,
-        tier_code_set,
+    与 ``resolve_model_fit_codes`` 共用 A 档滤池；此处不截断（调用方再按 watching_limit 截）。
+    """
+    from core.research_universe import resolve_model_fit_codes
+    from core.watching.store import MODEL_FIT_MAX_SIZE
+
+    resolved = resolve_model_fit_codes(
+        watching_limit=MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only=bool(watching_tier_a_only),
     )
-
-    last = load_predictability_tiers_last()
-    if not isinstance(last, dict) or not last.get("success"):
+    pool_n = int(resolved.get("watching_pool_size") or 0)
+    if not resolved.get("ok", True):
         return {
             "success": False,
-            "error": "无观察池分档报告，无法只训 A 档（请先跑可预测性分档）",
+            "error": resolved.get("error") or "oo_rank_universe_failed",
             "codes": [],
-            "universe_source": "watching_tier_a",
-            "watching_pool_size": len(watch),
-            "watching_tier_a_only": True,
+            "universe_source": resolved.get("source") or "watching",
+            "watching_pool_size": pool_n,
+            "watching_tier_a_only": bool(watching_tier_a_only),
         }
-    a_set = tier_code_set(last, ("A",))
-    codes = [c for c in watch if c in a_set]
-    return {
+    codes = list(resolved.get("codes") or [])
+    out: Dict[str, Any] = {
         "success": True,
         "codes": codes,
-        "universe_source": "watching_tier_a",
-        "watching_pool_size": len(watch),
-        "n_tier_a": len(codes),
-        "watching_tier_a_only": True,
+        "universe_source": resolved.get("source") or "watching",
+        "watching_pool_size": pool_n or len(codes),
+        "watching_tier_a_only": bool(watching_tier_a_only),
     }
+    if watching_tier_a_only:
+        out["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+    return out
 
 
 __all__ = [

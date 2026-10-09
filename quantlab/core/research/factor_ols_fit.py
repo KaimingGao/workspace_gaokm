@@ -510,11 +510,12 @@ def fit_factor_ols_from_panel(
     min_std: float = 5.0,
     min_std_exempt: Optional[Sequence[str]] = None,
     impute_keys: Optional[Sequence[str]] = None,
+    row_dates: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """对已对齐的 (sub_scores, forward return) 面板拟合 OLS / Ridge。
 
-    默认对入模列做样本内 z-score，使 β 为「因子高 1σ → 前瞻收益变多少百分点」；
-    负号表示偏相关为负，勿直接与 config.weights 比大小。
+    有 ``row_dates`` 时按当天截面 z-score，否则退回训练窗样本内 z-score；
+    β 为「因子高 1σ → 前瞻收益变多少百分点」。负号表示偏相关为负，勿直接与 config.weights 比大小。
     ``ridge_lambda>0`` 时收缩斜率系数（截距不惩罚），共线时尽量保留因子。
     B3：``select_ridge=True`` 时网格选 λ；``collinearity_policy`` 控趋势族冗余。
     ``sample_weights``：与 ``xs/ys`` 等长的非负样本权（组内软异质降权）；拟合时 √w 变换。
@@ -562,6 +563,7 @@ def fit_factor_ols_from_panel(
     ridge_select_meta: Dict[str, Any] = {}
     z_means: Dict[str, float] = {}
     z_stds: Dict[str, float] = {}
+    zscore_scope = ""
     fit = None
     row_weights: Optional[List[float]] = None
     if (
@@ -594,7 +596,19 @@ def fit_factor_ols_from_panel(
             prep_meta["dropped_collinear_policy"] = list(dropped_red)
         xs_fit = xs_c
         if feature_zscore and active:
-            xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)
+            from core.research.feature_standardize import (
+                cross_section_zscore_dicts,
+                dates_for_complete_rows,
+            )
+
+            dates_c = dates_for_complete_rows(
+                row_dates, prep_meta.get("complete_row_indices") or []
+            )
+            if dates_c is not None and len(dates_c) == len(xs_c):
+                xs_fit = cross_section_zscore_dicts(xs_c, active, dates_c)
+                zscore_scope = "cross_section"
+            else:
+                xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)
         if select_ridge and active and row_weights is None:
             # 加权路径跳过选 λ（验证切分与权未对齐）；沿用传入 λ
             ridge_select_meta = select_ridge_lambda(xs_fit, ys_c, list(active))
@@ -686,10 +700,16 @@ def fit_factor_ols_from_panel(
             f"Ridge λ={lam:g}：斜率 L2 收缩、截距不惩罚；缓解共线，β 仍非生产权重。"
         )
     if feature_zscore:
-        note_parts.append(
-            "系数基于样本内 z-score：β≈因子高 1σ 时前瞻收益变多少百分点；"
-            "负号=偏相关为负，勿与 config.weights 同量级对比。"
-        )
+        if zscore_scope == "cross_section":
+            note_parts.append(
+                "系数基于当天截面 z-score：β≈相对当日同伴高 1σ 时前瞻收益变多少百分点；"
+                "负号=偏相关为负，勿与 config.weights 同量级对比。"
+            )
+        else:
+            note_parts.append(
+                "系数基于样本内 z-score：β≈因子高 1σ 时前瞻收益变多少百分点；"
+                "负号=偏相关为负，勿与 config.weights 同量级对比。"
+            )
     if mode == "watching_pooled":
         note_parts.append(
             "模式：研究池堆叠时序面板（非逐日截面 Fama–MacBeth）；系数比单票稳，仍非生产权重。"
@@ -739,6 +759,7 @@ def fit_factor_ols_from_panel(
         "excluded_features": fit.get("excluded_features") or [],
         "exclusion_reasons": excl_reasons,
         "feature_zscore": bool(feature_zscore),
+        "zscore_scope": zscore_scope,
         "zscore_means": {k: round(v, 4) for k, v in z_means.items()},
         "zscore_stds": {k: round(v, 4) for k, v in z_stds.items()},
         "current_weights": {k: round(float(v), 4) for k, v in current_weights.items()},

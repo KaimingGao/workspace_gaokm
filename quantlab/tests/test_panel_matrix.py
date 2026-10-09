@@ -34,6 +34,41 @@ def _bars(n: int = 40, start: float = 10.0, seed: int = 0):
 
 
 class TestCompactBreadth(unittest.TestCase):
+    def test_build_tau_panels_drops_minute_bars(self):
+        """分钟路径 collect 后丢掉 minute_bars，避免满池 5m 常驻。"""
+        from core.research.tc_ridge import build_tau_panels_from_bars
+
+        day = "2024-02-15"
+        bars = _bars(40, 10, 0)
+        bars[-1]["date"] = day
+        mins = []
+        for hm in range(935, 1105, 5):
+            h, m = divmod(hm, 100)
+            if m >= 60:
+                continue
+            t = f"{h:02d}:{m:02d}:00"
+            mins.append(
+                {
+                    "datetime": f"{day} {t}",
+                    "date": day,
+                    "time": t,
+                    "open": 10.0,
+                    "high": 10.1,
+                    "low": 9.9,
+                    "close": 10.0,
+                    "volume": 100,
+                }
+            )
+        item = {"code": "AAA", "bars": bars, "minute_bars": mins}
+        build_tau_panels_from_bars(
+            [item],
+            tau_hm="10:30",
+            tau_grid=["10:30"],
+            min_history=12,
+            include_alpha158=False,
+        )
+        self.assertNotIn("minute_bars", item)
+
     def test_tau_matrix_matches_dict_breadth(self):
         from core.research.panel_matrix import collect_tau_compact
         from core.research.tc_ridge import TAU_Z_FEATURES, _stack_panels, build_tau_panels_from_bars

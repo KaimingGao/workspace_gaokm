@@ -292,7 +292,31 @@ def return_model_status() -> Dict[str, Any]:
                 oos_source = role_name
                 break
 
-    return {
+    def _cs_z_bit(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            return {}
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        bits: Dict[str, Any] = {}
+        if "cross_section_zscore" in meta:
+            bits["cross_section_zscore"] = bool(meta.get("cross_section_zscore"))
+        else:
+            model_blob = payload.get("model")
+            if isinstance(model_blob, dict) and (
+                model_blob.get("zscore_scope")
+                or model_blob.get("zscore_means")
+                or model_blob.get("feature_zscore") is not None
+            ):
+                from core.research.feature_standardize import is_cross_section_zscore
+
+                bits["cross_section_zscore"] = is_cross_section_zscore(model_blob)
+        return bits
+
+    # 摘要优先草稿（刚拟合 / 待启用）；否则展示套
+    fit_bits = _cs_z_bit(draft) if draft else {}
+    if "cross_section_zscore" not in fit_bits:
+        fit_bits = _cs_z_bit(display_raw)
+
+    out: Dict[str, Any] = {
         "success": True,
         "rank_mode": clamp_rank_mode(scoring.get("rank_mode")),
         "draft": {
@@ -326,6 +350,8 @@ def return_model_status() -> Dict[str, Any]:
         "oos": oos_out,
         "note": "草稿 / 研究套 / 执行套分离；回测 prefer research，交易 prefer active。",
     }
+    out.update(fit_bits)
+    return out
 
 
 def _oo_ic(preds: List[Optional[float]], ys: List[float]) -> Optional[float]:
@@ -371,10 +397,12 @@ def fit_watching_return_model(
     min_samples: int = 24,
     save_draft: bool = True,
     holdout_trading_days: int = 20,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """研究池堆叠面板拟合收益模型 + Holdout OOS，可选落草稿。
 
     近 ``holdout_trading_days`` 个交易日只测；全样本重估 β 写入草稿（执行口径）。
+    ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
     """
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
@@ -441,7 +469,7 @@ def fit_watching_return_model(
         calendar_dates=sorted(cal_days),
     )
     ys_te = [float(y_mat[i]) for i in test_idx]
-
+    use_cs = bool(cross_section_zscore)
     research_model, research_report = fit_oo_ridge_matrix(
         x_mat,
         y_mat,
@@ -451,6 +479,8 @@ def fit_watching_return_model(
         ridge_lambda=ridge_lambda,
         min_samples=min_samples,
         fitted_as_of=as_of,
+        row_dates=all_dates if use_cs else None,
+        cross_section_zscore=use_cs,
     )
     oos: Dict[str, Any] = {
         "n_train": len(train_idx),
@@ -461,7 +491,13 @@ def fit_watching_return_model(
         "label_horizon_days": int(horizon_days or 1),
     }
     if research_model is not None and ys_te:
-        preds_te = predict_oo_matrix(research_model, x_mat, feat_names, test_idx)
+        preds_te = predict_oo_matrix(
+            research_model,
+            x_mat,
+            feat_names,
+            test_idx,
+            row_dates=all_dates if use_cs else None,
+        )
         oos["ic"] = _oo_ic(preds_te, ys_te)
         oos["sign_hit"] = _oo_sign_hit(preds_te, ys_te)
         oos["n_valid"] = sum(1 for p in preds_te if p is not None)
@@ -473,7 +509,6 @@ def fit_watching_return_model(
         except Exception:  # noqa: BLE001
             logger.debug("oo attach_daily_cs_ic failed", exc_info=True)
 
-    # 全样本 → 草稿 / 执行口径
     model, report = fit_oo_ridge_matrix(
         x_mat,
         y_mat,
@@ -482,6 +517,8 @@ def fit_watching_return_model(
         ridge_lambda=ridge_lambda,
         min_samples=min_samples,
         fitted_as_of=as_of,
+        row_dates=all_dates if use_cs else None,
+        cross_section_zscore=use_cs,
     )
     if model is None:
         return {
@@ -510,6 +547,7 @@ def fit_watching_return_model(
         },
         "note": "已拟合因子系数模型 + Holdout OOS；save_draft 后可人审启用研究/执行。",
     }
+    out["cross_section_zscore"] = use_cs
     if research_model is not None:
         out["research_model"] = research_model.to_dict()
         if isinstance(research_report, dict):
@@ -528,6 +566,7 @@ def fit_watching_return_model(
                 "r_squared": report.get("r_squared"),
                 "ridge_lambda": ridge_lambda,
                 "holdout_trading_days": oos.get("holdout_trading_days"),
+                "cross_section_zscore": use_cs,
             },
             oos=oos,
         )

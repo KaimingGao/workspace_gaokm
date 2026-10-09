@@ -85,48 +85,7 @@ const overviewPack = {
   universeN: null,
   universeHint: null,
   barsPct: null,
-  k: null,
-  oosPass: null,
-  oosN: null,
-  icPos: null,
-  outliers: null,
-  mode: null,
-  research: null,
-  live: null,
-  version: null,
 };
-
-function clusterOosCounts(data) {
-  const clusters = Array.isArray(data && data.clusters) ? data.clusters : [];
-  let pass = 0;
-  let n = 0;
-  for (const cl of clusters) {
-    if (!cl || cl.singleton) continue;
-    const g = cl.oos_gate || {};
-    if (g.skipped) continue;
-    if (!g || (g.ok == null && g.passed == null && cl.oos_passed == null)) continue;
-    n += 1;
-    if ((g.ok && g.passed) || cl.oos_passed === true) pass += 1;
-  }
-  return { pass, n };
-}
-
-/** 组内 ŷ_oo 截面 IC 为正的日占比（均值）；不是 ŷ 与收益同号率。 */
-function clusterIcPosRatio(data) {
-  const clusters = Array.isArray(data && data.clusters) ? data.clusters : [];
-  const xs = [];
-  for (const cl of clusters) {
-    const sp =
-      cl &&
-      cl.factor_ic_panel &&
-      cl.factor_ic_panel.score_ic &&
-      cl.factor_ic_panel.score_ic.spearman;
-    const r = sp && Number(sp.positive_ic_ratio);
-    if (Number.isFinite(r)) xs.push(r);
-  }
-  if (!xs.length) return null;
-  return xs.reduce((a, b) => a + b, 0) / xs.length;
-}
 
 function paintOverviewUniverse() {
   const n = overviewPack.universeN;
@@ -145,74 +104,6 @@ function paintOverviewUniverse() {
     sub,
     Number(n) > 0 ? "is-mid" : "is-empty"
   );
-}
-
-function paintOverviewEod() {
-  const k = overviewPack.k;
-  if (k == null || !Number.isFinite(Number(k))) {
-    return;
-  }
-  const pass = overviewPack.oosPass;
-  const oosN = overviewPack.oosN;
-  const mode = overviewPack.mode;
-  const modeLabel =
-    mode === "active" ? "执行" : mode === "shadow" ? "对照" : mode === "off" ? "未接通" : "";
-  const parts = [];
-  if (oosN != null && oosN > 0) {
-    parts.push(`OOS ${pass}/${oosN}`);
-  } else if (overviewPack.outliers) {
-    parts.push(`${overviewPack.outliers} 离群`);
-  }
-  const icPos = overviewPack.icPos;
-  if (icPos != null && Number.isFinite(Number(icPos))) {
-    parts.push(`IC+日 ${(Number(icPos) * 100).toFixed(0)}%`);
-  }
-  if (modeLabel) parts.push(modeLabel);
-  let st = "is-mid";
-  if (oosN != null && oosN > 0) {
-    const ratio = pass / oosN;
-    st = ratio >= 0.8 ? "is-good" : ratio >= 0.5 ? "is-mid" : "is-bad";
-  }
-  setProOverviewKpi("eod", `${k} 组`, parts.join(" · ") || "分组完成", st);
-}
-
-function paintOverviewLanding() {
-  const research = overviewPack.research;
-  const live = overviewPack.live;
-  const mode = overviewPack.mode || "off";
-  if (research == null && live == null && !overviewPack.mode) return;
-  const hasR = !!research;
-  const execOn = mode === "active";
-  const shadow = mode === "shadow";
-  let val = "未启用";
-  let st = "is-empty";
-  if (hasR && execOn) {
-    val = "研究+执行";
-    st = "is-good";
-  } else if (hasR && shadow) {
-    val = "研究+对照";
-    st = "is-mid";
-  } else if (hasR) {
-    val = "仅研究";
-    st = "is-mid";
-  } else if (execOn) {
-    val = "仅执行";
-    st = "is-bad";
-  } else if (live && shadow) {
-    val = "对照 · 缺研究";
-    st = "is-bad";
-  }
-  const ver =
-    overviewPack.version != null && overviewPack.version !== ""
-      ? `v${overviewPack.version}`
-      : "";
-  const subParts = [];
-  if (ver) subParts.push(ver);
-  if (hasR) subParts.push("研究套");
-  else if (live) subParts.push("缺研究档");
-  if (execOn) subParts.push("执行 active");
-  else if (shadow) subParts.push("shadow");
-  setProOverviewKpi("landing", val, subParts.join(" · ") || "研究套 · 执行套", st);
 }
 
 /** 观察池只数 → 概览 KPI（进页拉 watching 时） */
@@ -260,58 +151,6 @@ export function syncOverviewMinute(data) {
     subBits.join(" · ") || (total > 0 ? "全员 Ready" : "Ready% · Short"),
     st
   );
-}
-
-/** 分组结果 → ŷ_oo 卡 */
-export function syncOverviewFromClusters(data) {
-  if (!data || data.success === false) return;
-  const clusters = Array.isArray(data.clusters) ? data.clusters : [];
-  const kRaw =
-    data.n_clusters != null
-      ? Number(data.n_clusters)
-      : clusters.length
-        ? clusters.length
-        : null;
-  const k = kRaw != null && Number.isFinite(kRaw) ? kRaw : null;
-  const nRaw =
-    data.universe_count != null
-      ? Number(data.universe_count)
-      : data.stock_count != null
-        ? Number(data.stock_count)
-        : Array.isArray(data.watching_codes)
-          ? data.watching_codes.length
-          : null;
-  const n = nRaw != null && Number.isFinite(nRaw) ? nRaw : null;
-  const outliers = clusters.filter((c) => c && c.outlier_singleton).length;
-  if (n != null && overviewPack.universeN == null) {
-    overviewPack.universeN = n;
-    paintOverviewUniverse();
-  }
-  if (k != null) overviewPack.k = k;
-  overviewPack.outliers = outliers || null;
-  const oos = clusterOosCounts(data);
-  overviewPack.oosPass = oos.n > 0 ? oos.pass : null;
-  overviewPack.oosN = oos.n > 0 ? oos.n : null;
-  overviewPack.icPos = clusterIcPosRatio(data);
-  paintOverviewEod();
-}
-
-/** live 状态 → 落地卡，并补 ŷ_oo mode */
-export function syncOverviewLanding(data) {
-  if (!data || data.success === false) return;
-  const cs = data.cluster_scoring || {};
-  const act = data.active || {};
-  const research = data.research || {};
-  overviewPack.mode = cs.mode || "off";
-  overviewPack.live = !!act.exists;
-  overviewPack.research = research.exists != null ? !!research.exists : null;
-  overviewPack.version = act.version != null ? act.version : null;
-  if (overviewPack.k == null && act.n_clusters != null) {
-    const nk = Number(act.n_clusters);
-    if (Number.isFinite(nk)) overviewPack.k = nk;
-  }
-  paintOverviewLanding();
-  paintOverviewEod();
 }
 
 /** 全局 ŷ_oo Holdout OOS → 概览。主值优先日频截面 IC（对齐 Qlib）；命中进副文案。 */

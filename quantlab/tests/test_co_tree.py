@@ -57,6 +57,7 @@ class TestCoTree(unittest.TestCase):
             holdout_trading_days=8,
             include_alpha158=False,
             backend="lightgbm",
+            window_days=0,
         )
         self.assertTrue(report.get("success"), report)
         self.assertEqual(report.get("task"), "co_tree")
@@ -68,8 +69,8 @@ class TestCoTree(unittest.TestCase):
         self.assertEqual(rm.get("head_kind"), "return")
         hp = rm.get("hyperparams") or {}
         self.assertTrue(hp.get("feature_zscore"))
-        self.assertTrue(hp.get("zscore_means"))
-        self.assertTrue(hp.get("zscore_stds"))
+        self.assertEqual(hp.get("zscore_scope"), "cross_section")
+        self.assertFalse(hp.get("zscore_means"))
         self.assertIn("oos", report)
         self.assertIn("ridge_oos", report)
         self.assertIn("delta_vs_ridge", report)

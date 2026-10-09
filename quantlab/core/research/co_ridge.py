@@ -38,8 +38,11 @@ def fit_co_ridge_report(
     holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
     include_alpha158: bool = True,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_co(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。
+
+    ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
     """
     from core.research.panel_matrix import (
         collect_co_compact,
@@ -87,7 +90,7 @@ def fit_co_ridge_report(
     metas_tr = [metas[i] for i in train_idx]
     metas_te = [metas[i] for i in test_idx]
 
-    weights = (
+    theme_w_tr = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
         if use_theme_weights
         else None
@@ -117,13 +120,18 @@ def fit_co_ridge_report(
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
     y_tr_arr = np.asarray(ys_tr, dtype=np.float64)
+    dates_tr = [dates[i] for i in train_idx]
+    dates_te = [dates[i] for i in test_idx]
+    use_cs = bool(cross_section_zscore)
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
         y_tr_arr,
         feat_names,
         ridge_lambda=ridge_lambda,
-        sample_weights=weights,
+        sample_weights=theme_w_tr,
         min_std_exempt=min_std_exempt,
+        row_dates=dates_tr if use_cs else None,
+        cross_section_zscore=use_cs,
     )
     if not fit.get("success"):
         mu = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
@@ -138,7 +146,14 @@ def fit_co_ridge_report(
         }
 
     preds_te = (
-        predict_ridge_matrix(fit, X_fit[row_te], feat_names) if len(test_idx) else []
+        predict_ridge_matrix(
+            fit,
+            X_fit[row_te],
+            feat_names,
+            row_dates=dates_te if use_cs else None,
+        )
+        if len(test_idx)
+        else []
     )
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     oos = {
@@ -163,7 +178,7 @@ def fit_co_ridge_report(
             logger.debug("co attach_daily_cs_ic failed", exc_info=True)
 
     research_model = make_research_model(fit)
-    w_all = (
+    theme_w_all = (
         theme_sample_weights(metas, theme_boost=theme_boost)
         if use_theme_weights
         else None
@@ -174,8 +189,10 @@ def fit_co_ridge_report(
         y_all,
         feat_names,
         ridge_lambda=ridge_lambda,
-        sample_weights=w_all,
+        sample_weights=theme_w_all,
         min_std_exempt=min_std_exempt,
+        row_dates=dates if use_cs else None,
+        cross_section_zscore=use_cs,
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
@@ -218,6 +235,7 @@ def fit_co_ridge_report(
         ),
     }
     attach_holdout_meta(report, split_meta)
+    report["cross_section_zscore"] = use_cs
     return report
 
 
@@ -326,6 +344,8 @@ def persist_co_model(
         "eval_start": report.get("eval_start"),
         "contract_note": "ŷ_co 估 open[T+1]/close[T]-1 隔夜缺口；风控旁路，不覆盖 EOD/τ 字段。",
     }
+    if isinstance(report, dict) and "cross_section_zscore" in report:
+        doc["cross_section_zscore"] = bool(report.get("cross_section_zscore"))
     path = (
         research_model_path(co_model_path())
         if role_n == MODEL_ROLE_RESEARCH

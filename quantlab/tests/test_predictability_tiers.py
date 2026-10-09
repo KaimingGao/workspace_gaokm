@@ -14,6 +14,49 @@ if ROOT not in sys.path:
 
 
 class TestPredictabilityTiers(unittest.TestCase):
+    def test_score_panel_lookback_is_short(self):
+        from core.research.predictability_tiers import _score_panel_lookback
+
+        lb = _score_panel_lookback(20, 1)
+        self.assertGreaterEqual(lb, 40)
+        self.assertLessEqual(lb, 200)
+        self.assertLess(lb, 600)
+
+    def test_accumulate_uses_short_lookback_with_research_model(self):
+        """有研究套时不应按 ŷ_oo 全训练窗（600）拉面板。"""
+        from core.research.predictability_tiers import accumulate_holdout_oos_by_code
+        from core.signal.return_score import ReturnScoreModel
+
+        captured = {}
+
+        def _fake_load(codes, **kwargs):
+            captured["lookback"] = kwargs.get("lookback")
+            captured["n_codes"] = len(list(codes or []))
+            # 最少两只、短序列即可让后续早退或走完；这里返回空导致 early fail 也够断言 lookback
+            return {}, ["no_bars"], {}
+
+        research = ReturnScoreModel(
+            intercept=0.0, coefficients={"momentum": 1.0}, feature_zscore=False
+        )
+        with patch(
+            "core.research.predictability_tiers._load_research_oo_model",
+            return_value=(research, {"ok": True, "path": "/tmp/r.json"}),
+        ), patch(
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
+            side_effect=_fake_load,
+        ):
+            out = accumulate_holdout_oos_by_code(
+                ["000001", "000002", "000003"],
+                holdout_n=20,
+                lookback=600,
+                use_research_model=True,
+            )
+        self.assertIn("lookback", captured)
+        self.assertLessEqual(int(captured["lookback"]), 200)
+        self.assertLess(int(captured["lookback"]), 600)
+        self.assertFalse(out.get("ok"))
+        self.assertEqual(out.get("lookback_requested"), 600)
+
     def test_normalize_head_is_tau_or_oo(self):
         from core.research.predictability_tiers import HEAD_OO, HEAD_TAU, _normalize_head
 
@@ -75,7 +118,6 @@ class TestPredictabilityTiers(unittest.TestCase):
     def test_split_holdout_half_dates(self):
         from core.research.predictability_tiers import (
             split_holdout_half_dates,
-            split_holdout_windows,
             tier_code_set,
         )
 
@@ -85,9 +127,6 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(split.get("tier_n"), 5)
         self.assertEqual(split["tier_dates"][-1], "2025-08-05")
         self.assertNotIn("bt_dates", split)
-
-        bare = split_holdout_windows(10)
-        self.assertFalse(bare.get("ok"))
 
         rep = {
             "rows": [
@@ -226,12 +265,13 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertFalse(meta2.get("ok"))
 
     def test_build_tiers_defaults_to_watching(self):
-        from core.research.predictability_tiers import build_predictability_tiers
+        from core.research.predictability_tiers import build_holdout_half_tiers
 
         tier_dates = [f"2025-06-{d:02d}" for d in range(1, 11)]
 
         def _fake_accumulate(codes, **kwargs):
             self.assertEqual(kwargs.get("lookback"), 120)
+            self.assertEqual(kwargs.get("holdout_n"), 20)
             self.assertTrue(kwargs.get("use_research_model", True))
             code_set = set(codes or [])
             acc = {}
@@ -287,8 +327,8 @@ class TestPredictabilityTiers(unittest.TestCase):
             "core.watching.store.read_watching",
             return_value={"watchlist": ["000001", "000002", "000003", "600000"]},
         ):
-            rep = build_predictability_tiers(
-                lookback_dates=20,
+            rep = build_holdout_half_tiers(
+                holdout_n=20,
                 min_n=5,
                 head="oo",
                 persist=False,
@@ -302,9 +342,9 @@ class TestPredictabilityTiers(unittest.TestCase):
             self.assertEqual(by["000001"]["tier"], "A")
             self.assertEqual(by["000003"]["tier"], "C")
 
-            ru = build_predictability_tiers(
+            ru = build_holdout_half_tiers(
+                holdout_n=20,
                 pool="research_universe",
-                lookback_dates=20,
                 min_n=5,
                 head="oo",
                 persist=False,
@@ -313,9 +353,9 @@ class TestPredictabilityTiers(unittest.TestCase):
             self.assertIn("000099", ru_codes)
 
             # ledger 池已废弃 → watching
-            led = build_predictability_tiers(
+            led = build_holdout_half_tiers(
+                holdout_n=20,
                 pool="ledger",
-                lookback_dates=20,
                 min_n=5,
                 head="oo",
                 persist=False,

@@ -6,9 +6,24 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.research.task import records_experiment
+from core.research.tc_tree import DEFAULT_TREE_STEP_DAYS, DEFAULT_TREE_WINDOW_DAYS
 from core.watching.store import MODEL_FIT_MAX_SIZE, WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_fit_universe(
+    *,
+    watching_limit: int,
+    watching_tier_a_only: bool = False,
+) -> Dict[str, Any]:
+    """解析拟合宇宙；失败时 ``ok=False`` 且带 ``error``。"""
+    from core.research_universe import resolve_model_fit_codes
+
+    return resolve_model_fit_codes(
+        watching_limit=watching_limit,
+        watching_tier_a_only=bool(watching_tier_a_only),
+    )
 
 
 def _cluster_retired_payload(**extra: Any) -> Dict[str, Any]:
@@ -682,6 +697,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -692,6 +708,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
         include_alpha158: bool = True,
+        cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
@@ -702,7 +719,6 @@ class QuantFactorMixin:
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.signal.dual_score import get_dual_score_cfg
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.tc_ridge import (
             fit_tau_ridge_report,
             load_tau_last_report,
@@ -713,10 +729,20 @@ class QuantFactorMixin:
             tau_promote_gate,
         )
 
-        from core.research_universe import resolve_model_fit_codes
         from core.watching.store import MODEL_FIT_MAX_SIZE
 
-        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        resolved = _resolve_fit_universe(
+            watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
+        )
+        if not resolved.get("ok", True):
+            return {
+                "success": False,
+                "error": resolved.get("error") or "拟合宇宙解析失败",
+                "task": "tc_ridge",
+                "watching_tier_a_only": bool(watching_tier_a_only),
+                "universe_source": resolved.get("source"),
+            }
         codes = list(resolved.get("codes") or [])
         limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
         codes = codes[:limit]
@@ -799,9 +825,16 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
             include_alpha158=bool(include_alpha158),
+            cross_section_zscore=bool(cross_section_zscore),
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(codes)
+        report["watching_tier_a_only"] = bool(watching_tier_a_only)
+        report["universe_source"] = resolved.get("source")
+        if watching_tier_a_only:
+            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+        report["watching_pool_size"] = int(
+            resolved.get("watching_pool_size") or len(codes)
+        )
         report["lookback"] = lookback
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
@@ -836,6 +869,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -844,6 +878,7 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         tau_hm: Optional[str] = None,
         include_alpha158: bool = True,
+        cross_section_zscore: bool = True,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_τc 拟合；轮询 ``GET /api/jobs/tau-ridge``。不写盘。"""
@@ -852,6 +887,7 @@ class QuantFactorMixin:
         kwargs = dict(
             lookback=lookback,
             watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
@@ -861,6 +897,7 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             tau_hm=tau_hm,
             include_alpha158=bool(include_alpha158),
+            cross_section_zscore=bool(cross_section_zscore),
         )
         return _start_ridge_fit_job(
             slot=tau_ridge_job,
@@ -953,14 +990,19 @@ class QuantFactorMixin:
         horizon_days: int = 1,
         ridge_lambda: float = 1.0,
         holdout_trading_days: int = 20,
+        window_days: int = DEFAULT_TREE_WINDOW_DAYS,
+        step_days: int = DEFAULT_TREE_STEP_DAYS,
+        cross_section_zscore: bool = True,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
     ) -> Dict[str, Any]:
-        """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，供调仓回测。"""
+        """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，供调仓回测。
+
+        日线与 ŷ_oo / ŷ_co_tree 同源（``load_portfolio_stock_bars``，含 Alpha158 垫窗）。
+        """
         import time
 
-        from core.data.facade import bars_and_source
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.research.oo_tree import (
             fit_oo_tree_report,
             persist_oo_tree_model,
@@ -985,21 +1027,17 @@ class QuantFactorMixin:
                 "backtest_hook": False,
             }
 
-        stock_bars: List[Dict[str, Any]] = []
         t_bars0 = time.perf_counter()
-        pad = 62
-        try:
-            from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
-
-            pad = max(40, int(ALPHA158_PANEL_WINDOW))
-        except Exception:  # noqa: BLE001
-            logger.debug("oo_tree alpha158 pad fallback", exc_info=True)
-        fetch_limit = int(lookback or 600) + pad
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=fetch_limit)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
+        loaded, _failures, _fund = load_portfolio_stock_bars(
+            codes,
+            lookback=int(lookback or 600),
+            fetch_fundamentals=False,
+        )
+        stock_bars = [
+            {"code": str(code), "bars": bars}
+            for code, bars in loaded.items()
+            if bars
+        ]
         bars_s = round(time.perf_counter() - t_bars0, 2)
         report = fit_oo_tree_report(
             stock_bars,
@@ -1008,12 +1046,22 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=include_alpha158,
+            window_days=window_days,
+            step_days=step_days,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         if isinstance(report, dict):
             timing = dict(report.get("timing") or {})
             timing["bars_s"] = bars_s
+            try:
+                total_s = bars_s + float(timing.get("fit_s") or 0.0)
+            except (TypeError, ValueError):
+                total_s = bars_s
+            timing["total_s"] = round(float(total_s), 2)
             report["timing"] = timing
             report["watching_limit"] = limit
+            report["universe_source"] = resolved.get("source")
+            report["lookback"] = lookback
             report["codes"] = [r.get("code") for r in stock_bars]
             if report.get("success"):
                 saved = persist_oo_tree_model(
@@ -1055,10 +1103,14 @@ class QuantFactorMixin:
         *,
         lookback: int = 600,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         holdout_trading_days: int = 20,
+        window_days: int = DEFAULT_TREE_WINDOW_DAYS,
+        step_days: int = DEFAULT_TREE_STEP_DAYS,
+        cross_section_zscore: bool = True,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
     ) -> Dict[str, Any]:
@@ -1069,7 +1121,6 @@ class QuantFactorMixin:
         import time
 
         from core.research.portfolio_bars import load_portfolio_stock_bars
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.co_tree import (
             fit_co_tree_report,
             persist_co_tree_model,
@@ -1077,10 +1128,23 @@ class QuantFactorMixin:
         )
         from core.research.return_tree import finish_return_tree_persist
 
-        from core.research_universe import resolve_model_fit_codes
         from core.watching.store import MODEL_FIT_MAX_SIZE
 
-        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        resolved = _resolve_fit_universe(
+            watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
+        )
+        if not resolved.get("ok", True):
+            return {
+                "success": False,
+                "error": resolved.get("error") or "拟合宇宙解析失败",
+                "task": "co_tree",
+                "head": "y_co_tree",
+                "watching_tier_a_only": bool(watching_tier_a_only),
+                "universe_source": resolved.get("source"),
+                "live_hook": False,
+                "backtest_hook": False,
+            }
         codes = list(resolved.get("codes") or [])
         limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
         codes = codes[:limit]
@@ -1114,6 +1178,9 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=include_alpha158,
+            window_days=window_days,
+            step_days=step_days,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         if isinstance(report, dict):
             timing = dict(report.get("timing") or {})
@@ -1125,7 +1192,13 @@ class QuantFactorMixin:
             timing["total_s"] = round(float(total_s), 2)
             report["timing"] = timing
             report["watching_limit"] = limit
-            report["watching_pool_size"] = len(codes)
+            report["watching_tier_a_only"] = bool(watching_tier_a_only)
+            report["universe_source"] = resolved.get("source")
+            if watching_tier_a_only:
+                report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+            report["watching_pool_size"] = int(
+                resolved.get("watching_pool_size") or len(codes)
+            )
             report["lookback"] = lookback
             report["live_hook"] = False
             if report.get("success"):
@@ -1169,11 +1242,15 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
         holdout_trading_days: int = 20,
+        window_days: int = DEFAULT_TREE_WINDOW_DAYS,
+        step_days: int = DEFAULT_TREE_STEP_DAYS,
+        cross_section_zscore: bool = True,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
     ) -> Dict[str, Any]:
@@ -1185,7 +1262,6 @@ class QuantFactorMixin:
 
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.signal.dual_score import get_dual_score_cfg
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.tc_tree import (
             fit_tau_tree_report,
             persist_tau_tree_model,
@@ -1193,10 +1269,23 @@ class QuantFactorMixin:
         )
         from core.research.return_tree import finish_return_tree_persist
 
-        from core.research_universe import resolve_model_fit_codes
         from core.watching.store import MODEL_FIT_MAX_SIZE
 
-        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        resolved = _resolve_fit_universe(
+            watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
+        )
+        if not resolved.get("ok", True):
+            return {
+                "success": False,
+                "error": resolved.get("error") or "拟合宇宙解析失败",
+                "task": "tc_tree",
+                "head": "y_tau_tree",
+                "watching_tier_a_only": bool(watching_tier_a_only),
+                "universe_source": resolved.get("source"),
+                "live_hook": False,
+                "backtest_hook": False,
+            }
         codes = list(resolved.get("codes") or [])
         limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
         codes = codes[:limit]
@@ -1268,9 +1357,18 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=bool(include_alpha158),
+            window_days=window_days,
+            step_days=step_days,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(codes)
+        report["watching_tier_a_only"] = bool(watching_tier_a_only)
+        report["universe_source"] = resolved.get("source")
+        if watching_tier_a_only:
+            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+        report["watching_pool_size"] = int(
+            resolved.get("watching_pool_size") or len(codes)
+        )
         report["lookback"] = lookback
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
@@ -1324,6 +1422,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 600,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -1331,6 +1430,7 @@ class QuantFactorMixin:
         note: str = "",
         persist_role: str = "live",
         holdout_trading_days: int = 20,
+        cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。
 
@@ -1338,7 +1438,6 @@ class QuantFactorMixin:
         决策日与 ŷ_oo 对齐。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.co_ridge import (
             fit_co_ridge_report,
             load_co_last_report,
@@ -1348,10 +1447,20 @@ class QuantFactorMixin:
             save_co_last_report,
         )
 
-        from core.research_universe import resolve_model_fit_codes
         from core.watching.store import MODEL_FIT_MAX_SIZE
 
-        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        resolved = _resolve_fit_universe(
+            watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
+        )
+        if not resolved.get("ok", True):
+            return {
+                "success": False,
+                "error": resolved.get("error") or "拟合宇宙解析失败",
+                "task": "co_ridge",
+                "watching_tier_a_only": bool(watching_tier_a_only),
+                "universe_source": resolved.get("source"),
+            }
         codes = list(resolved.get("codes") or [])
         limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
         codes = codes[:limit]
@@ -1393,9 +1502,16 @@ class QuantFactorMixin:
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
             holdout_trading_days=holdout_trading_days,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(codes)
+        report["watching_tier_a_only"] = bool(watching_tier_a_only)
+        report["universe_source"] = resolved.get("source")
+        if watching_tier_a_only:
+            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+        report["watching_pool_size"] = int(
+            resolved.get("watching_pool_size") or len(codes)
+        )
         report["lookback"] = lookback
         if report.get("success"):
             save_co_last_report(report)
@@ -1417,12 +1533,14 @@ class QuantFactorMixin:
         *,
         lookback: int = 600,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         note: str = "",
         persist_role: str = "live",
         holdout_trading_days: int = 20,
+        cross_section_zscore: bool = True,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_co 拟合；轮询 ``GET /api/jobs/co-ridge``。不写盘。"""
@@ -1431,6 +1549,7 @@ class QuantFactorMixin:
         kwargs = dict(
             lookback=lookback,
             watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
@@ -1438,6 +1557,7 @@ class QuantFactorMixin:
             note=note or "",
             persist_role=persist_role,
             holdout_trading_days=holdout_trading_days,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         return _start_ridge_fit_job(
             slot=co_ridge_job,
@@ -1498,6 +1618,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         note: str = "",
         watching_tier_a_only: bool = False,
+        cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge；默认整观察池，可选只训 A 档。
 
@@ -1593,6 +1714,7 @@ class QuantFactorMixin:
             l2=l2,
             backend=backend or "auto",
             persist=False,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
@@ -1713,6 +1835,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -1721,10 +1844,10 @@ class QuantFactorMixin:
         force_promote: bool = False,
         persist_role: str = "live",
         holdout_trading_days: int = 20,
+        cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
         """泛化 ŷ_τ horizon Ridge：horizon ∈ {t30,t45,t60,t75,t90}。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.horizon_prob import horizon_promote_gate
         from core.research.horizon_ridge import (
             fit_horizon_ridge_report,
@@ -1756,10 +1879,20 @@ class QuantFactorMixin:
                     out["promoted_at"] = saved["promoted_at"]
                 return _attach_ridge_role_flags(out, ridge_model_path(horizon))
 
-        from core.research_universe import resolve_model_fit_codes
         from core.watching.store import MODEL_FIT_MAX_SIZE
 
-        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        resolved = _resolve_fit_universe(
+            watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
+        )
+        if not resolved.get("ok", True):
+            return {
+                "success": False,
+                "error": resolved.get("error") or "拟合宇宙解析失败",
+                "task": task,
+                "watching_tier_a_only": bool(watching_tier_a_only),
+                "universe_source": resolved.get("source"),
+            }
         codes = list(resolved.get("codes") or [])
         limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
         codes = codes[:limit]
@@ -1826,9 +1959,16 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             holdout_trading_days=holdout_trading_days,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(codes)
+        report["watching_tier_a_only"] = bool(watching_tier_a_only)
+        report["universe_source"] = resolved.get("source")
+        if watching_tier_a_only:
+            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+        report["watching_pool_size"] = int(
+            resolved.get("watching_pool_size") or len(codes)
+        )
         report["lookback"] = lookback
         report["minute_period"] = period
         report["minute_codes_hit"] = minute_hit
@@ -1913,6 +2053,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -1930,6 +2071,7 @@ class QuantFactorMixin:
         kwargs = dict(
             lookback=lookback,
             watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             minute_period=minute_period,
@@ -2001,6 +2143,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
         watching_limit: int = MODEL_FIT_MAX_SIZE,
+        watching_tier_a_only: bool = False,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -2013,7 +2156,6 @@ class QuantFactorMixin:
         import time
 
         from core.data.facade import bars_and_source
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.horizon_tree import (
             fit_horizon_tree_report,
             persist_tree_model_doc,
@@ -2024,10 +2166,23 @@ class QuantFactorMixin:
         task = f"{horizon}_tree"
         head = f"y_{horizon}_tree"
 
-        from core.research_universe import resolve_model_fit_codes
         from core.watching.store import MODEL_FIT_MAX_SIZE
 
-        resolved = resolve_model_fit_codes(watching_limit=watching_limit)
+        resolved = _resolve_fit_universe(
+            watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
+        )
+        if not resolved.get("ok", True):
+            return {
+                "success": False,
+                "error": resolved.get("error") or "拟合宇宙解析失败",
+                "task": task,
+                "head": head,
+                "watching_tier_a_only": bool(watching_tier_a_only),
+                "universe_source": resolved.get("source"),
+                "live_hook": False,
+                "backtest_hook": False,
+            }
         codes = list(resolved.get("codes") or [])
         limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
         codes = codes[:limit]
@@ -2110,7 +2265,13 @@ class QuantFactorMixin:
             backend=backend,
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(codes)
+        report["watching_tier_a_only"] = bool(watching_tier_a_only)
+        report["universe_source"] = resolved.get("source")
+        if watching_tier_a_only:
+            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+        report["watching_pool_size"] = int(
+            resolved.get("watching_pool_size") or len(codes)
+        )
         report["lookback"] = lookback
         report["minute_period"] = period
         report["minute_codes_hit"] = minute_hit

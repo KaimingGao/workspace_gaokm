@@ -731,6 +731,11 @@ class QuantReplayMixin:
             min_samples=int(kwargs.get("min_samples") or 24),
             save_draft=bool(kwargs.get("save_draft", True)),
             holdout_trading_days=int(kwargs.get("holdout_trading_days") or 20),
+            cross_section_zscore=bool(
+                kwargs["cross_section_zscore"]
+                if kwargs.get("cross_section_zscore") is not None
+                else True
+            ),
         )
 
     def promote_return_score_model(

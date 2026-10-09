@@ -2,8 +2,9 @@
 
 截面广度仍要读缺口和路径收益，所以每只股票先写入矩阵，只把广度用到的十几列
 留在瘦 dict 里。Alpha158 原始列不再在全池 dict 里停留。
-Ridge 口径与 ``fit_factor_ols_from_panel`` 的 feature_zscore + √w + keep_all 一致：
-拟合用完整行，预测缺测按训练均值填（z=0）。
+Ridge 口径与 ``fit_factor_ols_from_panel`` 对齐：√w + keep_all；拟合用完整行。
+``cross_section_zscore=True``（默认）且有决策日 → 当天截面 z；``False`` → 训练窗
+全局 μ/σ。截面模型预测缺测填 z=0。
 """
 
 from __future__ import annotations
@@ -262,6 +263,7 @@ def collect_tau_compact(
         code = str(item.get("code") or item.get("stock_code") or "").strip()
         bars = list(item.get("bars") or [])
         if len(bars) < min_history + 2:
+            item.pop("minute_bars", None)
             continue
         if use_minute:
             xs, ys, dates, metas = collect_tau_intraday_panel(
@@ -275,6 +277,7 @@ def collect_tau_compact(
                 stock_code=code,
                 include_alpha158=include_alpha158,
             )
+            item.pop("minute_bars", None)
         else:
             xs, ys, dates, metas = collect_tau_open_panel(
                 bars,
@@ -436,18 +439,27 @@ def fill_rates_from_matrix(
     return out
 
 
-def _ridge_solve_np(design: np.ndarray, y: np.ndarray, ridge_lambda: float) -> Optional[np.ndarray]:
+def _ridge_solve_np(
+    design: np.ndarray,
+    y: np.ndarray,
+    ridge_lambda: float,
+) -> Optional[np.ndarray]:
+    """Ridge QR（截距列不惩罚）。"""
     from core.research.factor_ols_fit import _qr_solve_np, clamp_ridge_lambda
 
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
-    if lam <= 0 or design.shape[1] <= 1:
-        return _qr_solve_np(design, y)
     m = int(design.shape[1])
-    extra = np.zeros((m - 1, m), dtype=np.float64)
-    extra[:, 1:] = np.eye(m - 1, dtype=np.float64) * math.sqrt(lam)
-    x_aug = np.vstack([design, extra])
-    y_aug = np.concatenate([y, np.zeros(m - 1, dtype=np.float64)])
-    return _qr_solve_np(x_aug, y_aug)
+    xs: List[np.ndarray] = [design]
+    ys: List[np.ndarray] = [np.asarray(y, dtype=np.float64)]
+    if lam > 0 and m > 1:
+        extra = np.zeros((m - 1, m), dtype=np.float64)
+        extra[:, 1:] = np.eye(m - 1, dtype=np.float64) * math.sqrt(lam)
+        xs.append(extra)
+        ys.append(np.zeros(m - 1, dtype=np.float64))
+    if len(xs) == 1:
+        return _qr_solve_np(xs[0], ys[0])
+    return _qr_solve_np(np.vstack(xs), np.concatenate(ys))
+
 
 
 def _prepare_complete_matrix(
@@ -579,8 +591,14 @@ def fit_keepall_ridge_matrix(
     min_std: float = 5.0,
     min_std_exempt: Optional[Sequence[str]] = None,
     feature_zscore: bool = True,
+    row_dates: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
-    """keep-all、标准化、可选 √w。系数四舍五入口径与 dict OLS 相同。"""
+    """keep-all、标准化、可选 √w。系数四舍五入口径与 dict OLS 相同。
+
+    ``cross_section_zscore=True``（且提供 ``row_dates``）：按日截面 z。
+    ``False``：训练样本内全局 μ/σ（落盘 zscore_means/stds）。
+    """
     from core.signal.factors.alpha158 import (
         ALPHA158_FACTOR_KEY,
         is_alpha158_raw_key,
@@ -631,10 +649,30 @@ def fit_keepall_ridge_matrix(
 
     z_means: Dict[str, float] = {}
     z_stds: Dict[str, float] = {}
+    zscore_scope = ""
     beta = None
     if x_c is not None and y_c is not None and active:
         x_fit = x_c
-        if feature_zscore:
+        from core.research.feature_standardize import (
+            cross_section_zscore_matrix,
+            dates_for_complete_rows,
+        )
+
+        dates_c = (
+            dates_for_complete_rows(row_dates, idxs if isinstance(idxs, list) else [])
+            if cross_section_zscore
+            else None
+        )
+        if (
+            feature_zscore
+            and cross_section_zscore
+            and dates_c is not None
+            and len(dates_c) == int(x_fit.shape[0])
+        ):
+            x_fit = cross_section_zscore_matrix(x_fit, dates_c)
+            x_fit = np.where(np.isfinite(x_fit), x_fit, 0.0)
+            zscore_scope = "cross_section"
+        elif feature_zscore:
             eps2 = 1e-12
             means = x_fit.mean(axis=0)
             var = np.mean((x_fit - means) ** 2, axis=0)
@@ -672,6 +710,15 @@ def fit_keepall_ridge_matrix(
                 from core.research.factor_ols_fit import clamp_ridge_lambda
 
                 lam = clamp_ridge_lambda(ridge_lambda, 0.0)
+                note_bits = [
+                    (
+                        "float64 面板 Ridge；系数基于当天截面 z-score。"
+                        if zscore_scope == "cross_section"
+                        else "float64 面板 Ridge；系数基于样本内 z-score。"
+                    )
+                ]
+                if row_weights is not None:
+                    note_bits.append(" 已按 sample_weights 做加权 OLS（√w 变换）。")
                 out = {
                     "success": True,
                     "intercept": round(float(beta[0]), 6),
@@ -680,6 +727,7 @@ def fit_keepall_ridge_matrix(
                     "excluded_features": list(excluded),
                     "zscore_means": {k: round(v, 4) for k, v in z_means.items()},
                     "zscore_stds": {k: round(v, 4) for k, v in z_stds.items()},
+                    "zscore_scope": zscore_scope,
                     "feature_zscore": bool(feature_zscore),
                     "sample_count": n,
                     "n_obs": n,
@@ -689,14 +737,7 @@ def fit_keepall_ridge_matrix(
                     "collinearity_policy": "keep_all",
                     "weighted_ols": bool(row_weights is not None),
                     "prep_meta": prep_meta,
-                    "note": (
-                        "float64 面板 Ridge；系数基于样本内 z-score。"
-                        + (
-                            " 已按 sample_weights 做加权 OLS（√w 变换）。"
-                            if row_weights is not None
-                            else ""
-                        )
-                    ),
+                    "note": "".join(note_bits),
                 }
                 return out
     return {
@@ -713,18 +754,34 @@ def predict_ridge_matrix(
     fit: Dict[str, Any],
     X: np.ndarray,
     names: Sequence[str],
+    row_dates: Optional[Sequence[str]] = None,
 ) -> List[Optional[float]]:
-    """缺测按训练均值填成 z=0，与 ``_predict_rows`` 一致。"""
+    """缺测按训练均值填成 z=0。截面模型改为按 ``row_dates`` 当天标准化后再打分。"""
     coefs = fit.get("coefficients") or {}
     intercept = float(fit.get("intercept") or 0.0)
     means = fit.get("zscore_means") or fit.get("z_means") or {}
     stds = fit.get("zscore_stds") or fit.get("z_stds") or {}
+    from core.research.feature_standardize import (
+        cross_section_zscore_matrix,
+        is_cross_section_zscore,
+    )
+
+    x_arr = np.asarray(X, dtype=np.float64)
+    if (
+        row_dates is not None
+        and is_cross_section_zscore(fit)
+        and x_arr.ndim == 2
+        and len(row_dates) == int(x_arr.shape[0])
+    ):
+        x_arr = cross_section_zscore_matrix(x_arr, row_dates)
+        x_arr = np.where(np.isfinite(x_arr), x_arr, 0.0)
+        means = {}
+        stds = {}
     active = [
         n
         for n in (fit.get("active_features") or list(coefs.keys()))
         if coefs.get(n) is not None
     ]
-    x_arr = np.asarray(X, dtype=np.float64)
     if x_arr.ndim != 2 or x_arr.shape[0] == 0 or not active:
         return []
     index = {str(n): i for i, n in enumerate(names)}
@@ -761,6 +818,9 @@ def keepall_ridge_oos(
     ridge_lambda: float,
     sample_weights: Optional[Sequence[float]] = None,
     min_std_exempt: Optional[Sequence[str]] = None,
+    row_dates_tr: Optional[Sequence[str]] = None,
+    row_dates_te: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
 ) -> Tuple[Dict[str, Any], List[Optional[float]]]:
     """训练集 keep-all Ridge，测试集预测。失败时退回训练均值截距。"""
     y_arr = np.asarray(list(y_tr), dtype=np.float64)
@@ -774,6 +834,8 @@ def keepall_ridge_oos(
         sample_weights=sample_weights,
         min_std_exempt=min_std_exempt,
         feature_zscore=True,
+        row_dates=row_dates_tr if cross_section_zscore else None,
+        cross_section_zscore=bool(cross_section_zscore),
     )
     if not fit.get("success"):
         fit = {
@@ -786,6 +848,8 @@ def keepall_ridge_oos(
         }
     te = np.asarray(X_te, dtype=np.float64)
     preds = (
-        predict_ridge_matrix(fit, te, names) if te.ndim == 2 and te.shape[0] else []
+        predict_ridge_matrix(fit, te, names, row_dates=row_dates_te)
+        if te.ndim == 2 and te.shape[0]
+        else []
     )
     return fit, preds

@@ -7,7 +7,8 @@
 - ic = 票内 ŷ vs 已实现 Spearman（辅）
 
 研究套缺失时回退：在 Holdout 前样本上现训一版（不读执行套全样本，避免泄漏）。
-面板日线窗 ``lookback`` 与页顶 ŷ_oo 训练窗对齐（默认 120）。
+有研究套时面板只拉 **Holdout + 因子暖窗**（不必对齐页顶 ŷ_oo 全训练窗）；
+无研究套现训时才用传入的 ``lookback`` 全窗。
 
 默认池 = 观察池；可选 research_universe（pool=ledger 已废弃，等同 watching）。
 
@@ -35,7 +36,6 @@ from core.io_atomic import atomic_write_json
 
 SCHEMA = "predictability_tiers_v1"
 ACTIVE_SCHEMA = "predictability_tiers_active_v1"
-DEFAULT_LOOKBACK_DATES = 40
 DEFAULT_MIN_N = 20
 DEFAULT_A_HIT = 0.60
 DEFAULT_A_MIN_N = 6
@@ -58,6 +58,17 @@ POOL_LEDGER = "ledger"  # 废弃：解析为 watching
 DEFAULT_POOL = POOL_WATCHING
 
 PROTOCOL_HOLDOUT_OOS = "holdout_oos_half"
+
+
+def _score_panel_lookback(holdout_n: int, horizon_days: int = 1) -> int:
+    """有研究套时的日线窗：Holdout 测试段 + 余量（``load_portfolio_stock_bars`` 另加 Alpha158 pad）。
+
+    分档只评 Holdout 前半，不必按 ŷ_oo 训练窗（常 600）整池建面板。
+    """
+    h = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
+    hz = max(1, min(int(horizon_days or DEFAULT_HORIZON_DAYS), 10))
+    # 余量覆盖缺口日 / 切分边界；因子暖窗由 load 侧 ALPHA158 pad 提供
+    return max(40, min(200, h + hz + 16))
 
 
 def predictability_tiers_last_path() -> str:
@@ -498,25 +509,6 @@ def split_holdout_half_dates(
     }
 
 
-def split_holdout_windows(
-    holdout_n: int,
-    *,
-    test_days: Optional[Sequence[str]] = None,
-    ledger_limit: int = 90,  # noqa: ARG001 — 兼容旧签名
-) -> Dict[str, Any]:
-    """兼容入口：给定 Holdout 测试日则切前半；未给则失败（须走日线 OOS）。"""
-    if test_days is None:
-        return {
-            "ok": False,
-            "error": "分档已改吃日线 Holdout OOS；请调用 build_holdout_half_tiers",
-            "holdout_n": max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90)),
-            "n_ledger": 0,
-            "tier_dates": [],
-            "tier_n": 0,
-        }
-    return split_holdout_half_dates(test_days, holdout_n=holdout_n)
-
-
 def _resolve_pool_codes(
     *,
     codes: Optional[Sequence[str]],
@@ -604,8 +596,13 @@ def accumulate_holdout_oos_by_code(
 ) -> Dict[str, Any]:
     """用研究套 ŷ_oo（缺则 Holdout 前现训）在测试窗前半按票聚合命中。
 
+    有研究套：日线窗收成 Holdout+余量（``_score_panel_lookback``），只为打档建面板。
+    无研究套：仍用传入 ``lookback`` 全窗以便 Holdout 前现训。
+
     返回 ``ok`` / ``acc`` / ``tier_dates`` / ``split`` / ``split_meta`` 等。
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from core.research.holdout import (
         calendar_dates_from_stock_bars,
         resolve_ridge_split,
@@ -623,60 +620,7 @@ def accumulate_holdout_oos_by_code(
 
     h_req = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
     hz = max(1, min(int(horizon_days or DEFAULT_HORIZON_DAYS), 10))
-    panel_lb = max(100, min(1000, int(lookback or DEFAULT_PANEL_LOOKBACK)))
-    stock_bars, failures, _fund = load_portfolio_stock_bars(
-        use_codes,
-        lookback=panel_lb,
-        fetch_fundamentals=False,
-    )
-    if len(stock_bars) < 2:
-        return {
-            "ok": False,
-            "error": f"有效日线不足（失败 {len(failures)}）",
-            "failures": (failures or [])[:8],
-            "acc": {},
-            "tier_dates": [],
-        }
-
-    all_xs: List[Dict[str, Any]] = []
-    all_ys: List[float] = []
-    all_dates: List[str] = []
-    all_codes: List[str] = []
-    for code, bars in stock_bars.items():
-        xs, ys, dates = collect_subscore_forward_panel(
-            bars,
-            horizon_days=hz,
-            stock_code=code,
-            pit_fundamentals=False,
-        )
-        all_xs.extend(xs)
-        all_ys.extend(ys)
-        all_dates.extend(dates)
-        all_codes.extend([code] * len(dates))
-
-    if len(all_ys) < 8:
-        return {
-            "ok": False,
-            "error": f"面板样本不足（{len(all_ys)}）",
-            "acc": {},
-            "tier_dates": [],
-        }
-
-    cal_items = [{"bars": bars} for bars in stock_bars.values()]
-    train_idx, test_idx, split_meta = resolve_ridge_split(
-        all_dates,
-        holdout_trading_days=h_req,
-        label_horizon_days=hz,
-        calendar_dates=calendar_dates_from_stock_bars(cal_items),
-    )
-    if not test_idx:
-        return {
-            "ok": False,
-            "error": "Holdout 切不出测试窗",
-            "split_meta": split_meta,
-            "acc": {},
-            "tier_dates": [],
-        }
+    lookback_req = max(100, min(1000, int(lookback or DEFAULT_PANEL_LOOKBACK)))
 
     model_meta: Dict[str, Any] = {}
     research_model = None
@@ -695,6 +639,89 @@ def accumulate_holdout_oos_by_code(
                     mh,
                     hz,
                 )
+
+    # 有研究套只需评 Holdout 前半 → 短窗；现训才吃满训练窗
+    if research_model is not None:
+        panel_lb = _score_panel_lookback(h_req, hz)
+    else:
+        panel_lb = lookback_req
+
+    stock_bars, failures, _fund = load_portfolio_stock_bars(
+        use_codes,
+        lookback=panel_lb,
+        fetch_fundamentals=False,
+    )
+    if len(stock_bars) < 2:
+        return {
+            "ok": False,
+            "error": f"有效日线不足（失败 {len(failures)}）",
+            "failures": (failures or [])[:8],
+            "acc": {},
+            "tier_dates": [],
+            "lookback": panel_lb,
+            "lookback_requested": lookback_req,
+        }
+
+    def _panel_one(code: str, bars: List[dict]) -> Tuple[str, list, list, list]:
+        xs, ys, dates = collect_subscore_forward_panel(
+            bars,
+            horizon_days=hz,
+            stock_code=code,
+            pit_fundamentals=False,
+        )
+        return code, xs, ys, dates
+
+    items = list(stock_bars.items())
+    workers = max(1, min(8, len(items)))
+    panels: List[Tuple[str, list, list, list]] = []
+    if workers == 1:
+        panels = [_panel_one(c, b) for c, b in items]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = [pool.submit(_panel_one, c, b) for c, b in items]
+            for fut in as_completed(futs):
+                panels.append(fut.result())
+        # 稳定顺序，便于对照
+        order = {c: i for i, (c, _) in enumerate(items)}
+        panels.sort(key=lambda t: order.get(t[0], 0))
+
+    all_xs: List[Dict[str, Any]] = []
+    all_ys: List[float] = []
+    all_dates: List[str] = []
+    all_codes: List[str] = []
+    for code, xs, ys, dates in panels:
+        all_xs.extend(xs)
+        all_ys.extend(ys)
+        all_dates.extend(dates)
+        all_codes.extend([code] * len(dates))
+
+    if len(all_ys) < 8:
+        return {
+            "ok": False,
+            "error": f"面板样本不足（{len(all_ys)}）",
+            "acc": {},
+            "tier_dates": [],
+            "lookback": panel_lb,
+            "lookback_requested": lookback_req,
+        }
+
+    cal_items = [{"bars": bars} for bars in stock_bars.values()]
+    train_idx, test_idx, split_meta = resolve_ridge_split(
+        all_dates,
+        holdout_trading_days=h_req,
+        label_horizon_days=hz,
+        calendar_dates=calendar_dates_from_stock_bars(cal_items),
+    )
+    if not test_idx:
+        return {
+            "ok": False,
+            "error": "Holdout 切不出测试窗",
+            "split_meta": split_meta,
+            "acc": {},
+            "tier_dates": [],
+            "lookback": panel_lb,
+            "lookback_requested": lookback_req,
+        }
 
     if research_model is None:
         xs_tr = [all_xs[i] for i in train_idx]
@@ -725,6 +752,8 @@ def accumulate_holdout_oos_by_code(
                 "acc": {},
                 "tier_dates": [],
                 "model_meta": model_meta,
+                "lookback": panel_lb,
+                "lookback_requested": lookback_req,
             }
         model_source = "oo_holdout_oos_refit"
         model_meta = {
@@ -748,6 +777,8 @@ def accumulate_holdout_oos_by_code(
             "split_meta": split_meta,
             "acc": {},
             "tier_dates": [],
+            "lookback": panel_lb,
+            "lookback_requested": lookback_req,
         }
     tier_set = set(half.get("tier_dates") or [])
 
@@ -800,6 +831,8 @@ def accumulate_holdout_oos_by_code(
         "failures": (failures or [])[:8],
         "horizon_days": hz,
         "lookback": panel_lb,
+        "lookback_requested": lookback_req,
+        "panel_mode": "score_short" if model_source == "oo_research_model" else "refit_full",
         "ridge_lambda": float(
             ridge_lambda if ridge_lambda is not None else DEFAULT_RIDGE_LAMBDA
         ),
@@ -925,7 +958,8 @@ def build_holdout_half_tiers(
 
     落盘 last；回测/live 复用档位过滤宇宙。回测天数独立。
     live 档位跟随历史回测「分档」勾选。
-    ``lookback``：日线面板窗，与页顶 ŷ_oo 训练窗对齐。
+    ``lookback``：仅无研究套现训时用的日线窗（对齐页顶 ŷ_oo 训练窗）；
+    有研究套时面板走 ``_score_panel_lookback`` 短窗。
     """
     head_n = _normalize_head(head)
     if head_n == HEAD_TAU:
@@ -988,6 +1022,8 @@ def build_holdout_half_tiers(
     tier_n = int(packed.get("tier_n") or len(tier_dates))
     model_source = str(packed.get("source") or "oo_research_model")
     panel_lb = int(packed.get("lookback") or lookback or DEFAULT_PANEL_LOOKBACK)
+    lookback_req = int(packed.get("lookback_requested") or lookback or panel_lb)
+    panel_mode = str(packed.get("panel_mode") or "")
     src_note = (
         "研究套 ŷ_oo"
         if model_source == "oo_research_model"
@@ -1003,6 +1039,10 @@ def build_holdout_half_tiers(
         "head": HEAD_OO,
         "head_label": "ŷ_oo",
         "lookback": panel_lb,
+        "lookback_requested": lookback_req,
+        "panel_mode": panel_mode or (
+            "score_short" if model_source == "oo_research_model" else "refit_full"
+        ),
         "lookback_dates": tier_n,
         "min_n": min_n_req,
         "min_n_effective": min_n_eff,
@@ -1041,7 +1081,13 @@ def build_holdout_half_tiers(
             "source": resolved.get("source"),
         },
         "note": (
-            f"{src_note} · Holdout 前半 {tier_n} 日分档 · 面板 {panel_lb} 日；"
+            f"{src_note} · Holdout 前半 {tier_n} 日分档 · 面板 {panel_lb} 日"
+            + (
+                f"（短窗；请求训练窗 {lookback_req}）"
+                if model_source == "oo_research_model" and lookback_req > panel_lb
+                else ""
+            )
+            + "；"
             f"A 为命中率≥{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、IC>0、N≥{DEFAULT_A_MIN_N}；"
             "落盘 last；live 档位跟随历史回测「分档」勾选；"
             "回测天数用独立 lookback。"
@@ -1053,33 +1099,3 @@ def build_holdout_half_tiers(
         except Exception:  # noqa: BLE001
             logger.debug("persist holdout_oos_half tiers failed", exc_info=True)
     return rep
-
-
-def build_predictability_tiers(
-    codes: Optional[Sequence[str]] = None,
-    *,
-    pool: str = DEFAULT_POOL,
-    lookback_dates: int = DEFAULT_LOOKBACK_DATES,
-    ledger_dates: Optional[Sequence[str]] = None,  # noqa: ARG001 — 废弃
-    min_n: int = DEFAULT_MIN_N,
-    a_hit: float = DEFAULT_A_HIT,
-    b_hit: float = DEFAULT_B_HIT,
-    head: str = HEAD_OO,
-    watching_codes: Optional[Sequence[str]] = None,
-    persist: bool = True,
-) -> Dict[str, Any]:
-    """兼容入口：转 ``build_holdout_half_tiers``（Holdout=lookback_dates）。
-
-    ``ledger_dates`` 已忽略（分档不再读 score_ledger）。
-    """
-    return build_holdout_half_tiers(
-        holdout_n=max(2, min(int(lookback_dates or DEFAULT_LOOKBACK_DATES), 90)),
-        pool=pool,
-        min_n=min_n,
-        a_hit=a_hit,
-        b_hit=b_hit,
-        head=head,
-        watching_codes=watching_codes,
-        codes=codes,
-        persist=persist,
-    )

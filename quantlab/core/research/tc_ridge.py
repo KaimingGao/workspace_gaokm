@@ -124,13 +124,15 @@ def _predict_rows(
 ) -> List[Optional[float]]:
     """用 return_model 对行打分。
 
-    ``impute_missing=True``（默认）：缺特征按训练集均值填（标准化后 z=0），
-    避免 live 仅有 gap/部分 sub_scores 时整段返回 None。
+    ``impute_missing=True``（默认）：缺特征填 z=0（截面模型=当天均值；旧模型=训练窗均值）。
     """
+    from core.research.feature_standardize import is_cross_section_zscore
+
     coefs = fit.get("coefficients") or {}
     intercept = float(fit.get("intercept") or 0.0)
     means = fit.get("zscore_means") or fit.get("z_means") or {}
     stds = fit.get("zscore_stds") or fit.get("z_stds") or {}
+    cs = is_cross_section_zscore(fit)
     active = [
         n
         for n in (fit.get("active_features") or coefs.keys())
@@ -143,25 +145,28 @@ def _predict_rows(
         for name in active:
             v = row.get(name)
             if v is None:
-                if not impute_missing or not means:
+                if not impute_missing or not (means or cs):
                     ok = False
                     break
-                # 缺省 → 训练集均值 → z=0
+                # 缺省 → 当天（或训练）均值 → z=0
                 z = 0.0
             else:
                 try:
                     fv = float(v)
                 except (TypeError, ValueError):
-                    if not impute_missing or not means:
+                    if not impute_missing or not (means or cs):
                         ok = False
                         break
                     z = 0.0
                 else:
-                    mu = float(means.get(name, 0.0)) if means else 0.0
-                    sd = float(stds.get(name, 1.0)) if stds else 1.0
-                    if sd < 1e-9:
-                        sd = 1.0
-                    z = (fv - mu) / sd if means else fv
+                    if cs or not means:
+                        z = fv
+                    else:
+                        mu = float(means.get(name, 0.0))
+                        sd = float(stds.get(name, 1.0))
+                        if sd < 1e-9:
+                            sd = 1.0
+                        z = (fv - mu) / sd
             pred += float(coefs.get(name) or 0.0) * z
         out.append(round(pred, 6) if ok else None)
     return out
@@ -471,7 +476,9 @@ def build_tau_panels_from_bars(
     ``tau_hm=open``：开盘→收盘标签；否则用分钟价训 τ→收盘（无分钟则跳过该日）。
     ``tau_grid``：变长前缀少数时钟（共享 β）。
     ``include_alpha158``：面板附加 ``raw_alpha158_*``（≤T−1；Ridge / 树共用）。
-"""
+    分钟路径下每只票 ``collect`` 完会 ``pop`` 掉该票 ``minute_bars``（meta 已带
+    ``price_tau30…90``），避免满池 5m 常驻到拟合结束。
+    """
     use_minute = str(tau_hm or "open").strip().lower() not in ("", "open")
     grid = (
         normalize_minute_tau_grid(tau_hm=tau_hm, tau_grid=tau_grid)
@@ -480,9 +487,13 @@ def build_tau_panels_from_bars(
     )
     raw: List[Dict[str, Any]] = []
     for item in stock_bars:
+        if not isinstance(item, dict):
+            continue
         code = str(item.get("code") or item.get("stock_code") or "").strip()
         bars = list(item.get("bars") or [])
         if len(bars) < min_history + 2:
+            # 分钟线只供 collect；跳过时也丢掉，避免整池常驻
+            item.pop("minute_bars", None)
             continue
         if use_minute:
             xs, ys, dates, metas = collect_tau_intraday_panel(
@@ -496,6 +507,8 @@ def build_tau_panels_from_bars(
                 stock_code=code,
                 include_alpha158=include_alpha158,
             )
+            # meta 已带 price_tau30…90；relabel 不再需要分钟线
+            item.pop("minute_bars", None)
         else:
             xs, ys, dates, metas = collect_tau_open_panel(
                 bars,
@@ -531,6 +544,7 @@ def fit_tau_ridge_report(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     include_alpha158: bool = True,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ 头 Ridge + Holdout OOS。
 
@@ -539,6 +553,7 @@ def fit_tau_ridge_report(
     默认近 ``holdout_trading_days`` 个交易日只测；训练段 β 为研究模型，
     全样本重估为执行模型。
     ``include_alpha158``：默认 True，面板附加 ``raw_alpha158_*``（≤T−1）。
+    ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
     """
     tau_key = str(tau_hm or "open").strip() or "open"
     use_minute = tau_key.lower() not in ("", "open")
@@ -598,7 +613,7 @@ def fit_tau_ridge_report(
     metas_tr = [metas_use[i] for i in train_idx]
     metas_te = [metas_use[i] for i in test_idx]
 
-    weights = (
+    theme_w_tr = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
         if use_theme_weights
         else None
@@ -635,13 +650,18 @@ def fit_tau_ridge_report(
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
     y_tr = np.asarray(ys_tr, dtype=np.float64)
+    dates_tr = [dates_use[i] for i in train_idx]
+    dates_te = [dates_use[i] for i in test_idx]
+    use_cs = bool(cross_section_zscore)
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
         y_tr,
         feat_names,
         ridge_lambda=ridge_lambda,
-        sample_weights=weights,
+        sample_weights=theme_w_tr,
         min_std_exempt=min_std_exempt,
+        row_dates=dates_tr if use_cs else None,
+        cross_section_zscore=use_cs,
     )
     if not fit.get("success"):
         # Z 截面过弱（合成/窄池）时退回截距头
@@ -656,7 +676,14 @@ def fit_tau_ridge_report(
         }
 
     preds_te = (
-        predict_ridge_matrix(fit, X_fit[row_te], feat_names) if len(test_idx) else []
+        predict_ridge_matrix(
+            fit,
+            X_fit[row_te],
+            feat_names,
+            row_dates=dates_te if use_cs else None,
+        )
+        if len(test_idx)
+        else []
     )
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     by_tau = _oos_by_tau(preds_te, ys_te, metas_te) if ys_te and use_minute else {}
@@ -699,7 +726,7 @@ def fit_tau_ridge_report(
     research_model = dict(fit)
     research_model["model_role"] = "research"
 
-    w_all = (
+    theme_w_all = (
         theme_sample_weights(metas_use, theme_boost=theme_boost)
         if use_theme_weights
         else None
@@ -710,8 +737,10 @@ def fit_tau_ridge_report(
         y_all,
         feat_names,
         ridge_lambda=ridge_lambda,
-        sample_weights=w_all,
+        sample_weights=theme_w_all,
         min_std_exempt=min_std_exempt,
+        row_dates=dates_use if use_cs else None,
+        cross_section_zscore=use_cs,
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
@@ -809,6 +838,7 @@ def fit_tau_ridge_report(
         ),
     }
     attach_holdout_meta(report, split_meta)
+    report["cross_section_zscore"] = use_cs
     report["promote_gate"] = tau_promote_gate(report)
     return report
 
@@ -973,6 +1003,8 @@ def persist_tau_model(
             else "ŷ_τc(Z) 估 τ→close → y_τc；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
         ),
     }
+    if isinstance(report, dict) and "cross_section_zscore" in report:
+        doc["cross_section_zscore"] = bool(report.get("cross_section_zscore"))
     path = (
         research_model_path(tau_model_path())
         if role_n == MODEL_ROLE_RESEARCH
@@ -1044,7 +1076,7 @@ def explain_tau_prediction(
 ) -> Optional[Dict[str, Any]]:
     """结构化拆解 ŷ_τ（与 ``predict_tau_from_features`` 同口径），供 tip 表格。
 
-    缺特征按训练集均值填（z=0），与 live 预测一致。
+    缺特征填 z=0；截面模型输入按已标准化值理解。
     """
     doc = model_doc if model_doc is not None else load_tau_model()
     if not doc:

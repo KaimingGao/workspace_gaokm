@@ -4828,6 +4828,10 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   border-bottom-color: var(--accent, #1890ff);
 }
 
+.quant-inline-num--sm input[type="number"] {
+  width: 1.85rem;
+}
+
 .quant-inline-check {
   display: inline-flex;
   align-items: center;

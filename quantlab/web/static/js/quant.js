@@ -31,7 +31,7 @@ import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installExportInterpret } from "./quant/domain_export.js";
-import { loadAndRenderFactorIR, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
+import { loadAndRenderFactorIR, setProStatusChip, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
 
 const _QV =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -106,11 +106,22 @@ export function initQuant(ctx) {
     hydrateHoldoutTradingDays,
     readFitLookbackDays,
     hydrateFitLookbackDays,
+    readCrossSectionFitParams,
+    formatCrossSectionZBit,
+    hydrateCrossSectionZParams,
+    readTreeSlideParams,
+    formatTreeSlideBit,
+    hydrateTreeSlideParams,
+    readWatchingTierAOnly,
+    hydrateWatchingTierAOnly,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   } = researchParams;
   hydrateHoldoutTradingDays();
   hydrateFitLookbackDays();
+  hydrateCrossSectionZParams();
+  hydrateTreeSlideParams();
+  hydrateWatchingTierAOnly();
   const factorMeta = createFactorMetaCache();
   const {
     factorMetaByName,
@@ -207,6 +218,9 @@ export function initQuant(ctx) {
     fmtPct, metricClass, researchGridHtml, metricCell,
     clampHorizonDays, syncHorizonInputs, readHorizonDays, readRidgeLambda, readClusterK,
     readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays,
+    readCrossSectionFitParams, formatCrossSectionZBit,
+    readTreeSlideParams, formatTreeSlideBit,
+    readWatchingTierAOnly,
     setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
     factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
@@ -520,6 +534,14 @@ export function initQuant(ctx) {
         message = idleFallback;
       } else {
         message = "";
+      }
+    }
+    const csZBit =
+      typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(src) : "";
+    if (csZBit) {
+      // 调用方已拼过同一段则不重复
+      if (!String(message || "").includes(csZBit)) {
+        message = message ? `${csZBit} · ${message}` : csZBit;
       }
     }
     const researchAt =
@@ -1032,6 +1054,8 @@ export function initQuant(ctx) {
           horizon_days: 1,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("oo_tree"),
+          ...readTreeSlideParams("oo_tree"),
+          ...readCrossSectionFitParams("oo_tree"),
           backend: "lightgbm",
           include_alpha158: true,
         }),
@@ -1154,6 +1178,9 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("co_tree"),
+          watching_tier_a_only: readWatchingTierAOnly("co_tree"),
+          ...readTreeSlideParams("co_tree"),
+          ...readCrossSectionFitParams("co_tree"),
           backend: "lightgbm",
           include_alpha158: true,
         }),
@@ -1265,11 +1292,25 @@ export function initQuant(ctx) {
         ? src.return_model
         : null) ||
       {};
-    // 引擎 / Alpha158 / 用时已在对照报告里，卡头只留拟合时间 + 芯片
+    const csBit =
+      typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(src) : "";
+    const slideBit =
+      typeof formatTreeSlideBit === "function" ? formatTreeSlideBit(src) : "";
+    const bits = [csBit, slideBit].filter(Boolean);
+    const baseMsg = extra.message !== undefined ? extra.message : "";
+    let message = bits.join(" · ");
+    if (baseMsg) {
+      message = message
+        ? String(baseMsg).includes(message)
+          ? baseMsg
+          : `${message} · ${baseMsg}`
+        : baseMsg;
+    }
+    // 引擎 / Alpha158 / 用时已在对照报告里，卡头留日截面 Z / 滑窗摘要 + 拟合时间 + 芯片
     renderRemStatus(el, {
       state: extra.state || "ok",
       chip: extra.chip || "已拟合",
-      message: extra.message !== undefined ? extra.message : "",
+      message,
       oos: extra.oos !== undefined ? extra.oos : src.oos || {},
       sampleCount:
         extra.sampleCount !== undefined ? extra.sampleCount : src.sample_count,
@@ -1356,6 +1397,9 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc_tree"),
+          watching_tier_a_only: readWatchingTierAOnly("tc_tree"),
+          ...readTreeSlideParams("tc_tree"),
+          ...readCrossSectionFitParams("tc_tree"),
           backend: "lightgbm",
           include_alpha158: true,
         }),
@@ -1514,6 +1558,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t30_tree"),
+          watching_tier_a_only: readWatchingTierAOnly("t30_tree"),
           backend: "lightgbm",
         }),
       });
@@ -1637,6 +1682,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t45_tree"),
+          watching_tier_a_only: readWatchingTierAOnly("t45_tree"),
           backend: "lightgbm",
         }),
       });
@@ -1761,6 +1807,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t60_tree"),
+          watching_tier_a_only: readWatchingTierAOnly("t60_tree"),
           backend: "lightgbm",
         }),
       });
@@ -1885,6 +1932,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t75_tree"),
+          watching_tier_a_only: readWatchingTierAOnly("t75_tree"),
           backend: "lightgbm",
         }),
       });
@@ -2009,6 +2057,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("t90_tree"),
+          watching_tier_a_only: readWatchingTierAOnly("t90_tree"),
           backend: "lightgbm",
         }),
       });
@@ -2450,30 +2499,6 @@ export function initQuant(ctx) {
   })();
 
   // 轻量预填 ŷ_oo_rank 研究/执行状态
-  const OO_RANK_TIER_A_KEY = "quant.oo_rank.watching_tier_a_only";
-  function readOoRankTierAOnly() {
-    const el = document.getElementById("quant-oo-rank-tier-a");
-    return !!(el && el.checked);
-  }
-  function hydrateOoRankTierA() {
-    const el = document.getElementById("quant-oo-rank-tier-a");
-    if (!el) return;
-    try {
-      el.checked = localStorage.getItem(OO_RANK_TIER_A_KEY) === "1";
-    } catch (_) {
-      /* ignore */
-    }
-    if (el.dataset.wired === "1") return;
-    el.dataset.wired = "1";
-    el.addEventListener("change", () => {
-      try {
-        localStorage.setItem(OO_RANK_TIER_A_KEY, el.checked ? "1" : "0");
-      } catch (_) {
-        /* ignore */
-      }
-    });
-  }
-  hydrateOoRankTierA();
   void (async () => {
     try {
       const res = await fetch("/api/quant/oo-rank/model");
@@ -3154,7 +3179,9 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc"),
+          watching_tier_a_only: readWatchingTierAOnly("tc"),
           include_alpha158: true,
+          ...readCrossSectionFitParams("tc"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -3262,6 +3289,8 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("co"),
+          watching_tier_a_only: readWatchingTierAOnly("co"),
+          ...readCrossSectionFitParams("co"),
           persist: !!persist,
           persist_role: persistRole || "live",
           note: persist ? `ui co promote ${persistRole}` : "",
@@ -3316,7 +3345,8 @@ export function initQuant(ctx) {
             : "草稿已存 · 可启用研究/执行";
       }
       const oos = data.oos || status.oos || {};
-      paintRidgeEnableStatus(sum, status, {
+      // status 可能缺日截面 Z 字段；用本次 fit 的 data 补全摘要
+      paintRidgeEnableStatus(sum, { ...status, ...data }, {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
@@ -3367,7 +3397,8 @@ export function initQuant(ctx) {
           persist: !!persist,
           persist_role: persistRole || "live",
           backend: "auto",
-          watching_tier_a_only: readOoRankTierAOnly(),
+          watching_tier_a_only: readWatchingTierAOnly("oo_rank"),
+          ...readCrossSectionFitParams("oo_rank"),
           note: persist ? `ui oo_rank promote ${persistRole} auto` : "",
         }),
       });
@@ -3529,6 +3560,8 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t30"),
+          watching_tier_a_only: readWatchingTierAOnly("t30"),
+          ...readCrossSectionFitParams("t30"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -3719,6 +3752,8 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t45"),
+          watching_tier_a_only: readWatchingTierAOnly("t45"),
+          ...readCrossSectionFitParams("t45"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -3908,6 +3943,8 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t60"),
+          watching_tier_a_only: readWatchingTierAOnly("t60"),
+          ...readCrossSectionFitParams("t60"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -4097,6 +4134,8 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t75"),
+          watching_tier_a_only: readWatchingTierAOnly("t75"),
+          ...readCrossSectionFitParams("t75"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -4286,6 +4325,8 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           minute_period: "5",
           holdout_trading_days: readHoldoutTradingDays("t90"),
+          watching_tier_a_only: readWatchingTierAOnly("t90"),
+          ...readCrossSectionFitParams("t90"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -4914,7 +4955,7 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "live 模型…",
+      message: "读取研究 / 执行 / 上次拟合…",
       busy: true,
     });
     try {
@@ -4922,7 +4963,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
         const painted = paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无 live 模型",
+          idleMessage: data.note || "拟合后看系数 · 再启用研究/执行",
         });
         if (!data.research_exists && !data.live_model_present) {
           syncOverviewTau("未启用", "ŷ_τc 模型缺失", "text");

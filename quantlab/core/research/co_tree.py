@@ -1,8 +1,8 @@
 """ŷ_co_tree：独立树头，标签与 ŷ_co 相同（open[T+1]/close[T]−1）。
 
 隔夜缺口 Z 面板 + Holdout；对照同窗 Ridge（Z-only）。
-拟合写入 ``co_tree_model.json``，供调仓回测「ŷ头=Tree」。不进交易执行。
-引擎仅 LightGBM。
+卡头可调日截面 Z / 滑窗增量。拟合写入 ``co_tree_model.json``，供调仓回测「ŷ头=Tree」。
+不进交易执行。引擎仅 LightGBM。
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
@@ -24,6 +24,8 @@ from core.research.tc_tree import (
     DEFAULT_MAX_DEPTH,
     DEFAULT_N_ESTIMATORS,
     DEFAULT_SUBSAMPLE,
+    DEFAULT_TREE_STEP_DAYS,
+    DEFAULT_TREE_WINDOW_DAYS,
     _delta_oos,
     _importance_rows,
     _oos_pack,
@@ -83,11 +85,16 @@ def fit_co_tree_report(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
     include_alpha158: bool = True,
+    window_days: int = DEFAULT_TREE_WINDOW_DAYS,
+    step_days: int = DEFAULT_TREE_STEP_DAYS,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """隔夜缺口面板拟合 ŷ_co_tree + Ridge OOS 对照。不写 live / 研究套。
 
-    ``include_alpha158=True`` 时树吃 Alpha158。特征按训练集做总体 z-score，与 ŷ_oo_tree 同口径；标签仍是百分点。
+    ``include_alpha158=True`` 时树吃 Alpha158。标签仍是百分点。
+    ``cross_section_zscore``：日截面 z（默认）或训练窗全局 μ/σ。
     LightGBM：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2。
+    ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。
     """
     t0 = time.perf_counter()
     from core.research.panel_matrix import (
@@ -179,6 +186,7 @@ def fit_co_tree_report(
     row_te = np.asarray(test_idx, dtype=np.int64)
 
     engine = resolve_tree_backend(backend)
+    use_cs = bool(cross_section_zscore)
     model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
         X_tree[row_tr],
         ys_tr,
@@ -189,6 +197,11 @@ def fit_co_tree_report(
         learning_rate=learning_rate,
         subsample=subsample,
         feature_zscore=True,
+        cross_section_zscore=use_cs,
+        train_dates=[dates[i] for i in train_idx],
+        test_dates=[dates[i] for i in test_idx],
+        window_days=window_days,
+        step_days=step_days,
     )
     from core.research.horizon_tree import pack_tree_return_model
 
@@ -213,6 +226,9 @@ def fit_co_tree_report(
         ridge_lambda=ridge_lambda,
         sample_weights=theme_sample_weights(metas_tr, theme_boost=theme_boost),
         min_std_exempt=TAU_MIN_STD_EXEMPT,
+        row_dates_tr=[dates[i] for i in train_idx],
+        row_dates_te=[dates[i] for i in test_idx],
+        cross_section_zscore=use_cs,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
 
@@ -257,9 +273,21 @@ def fit_co_tree_report(
         "live_hook": False,
         "backtest_hook": True,
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
+        "window_days": int(hyper.get("window_days") or 0),
+        "step_days": int(hyper.get("step_days") or 0),
+        "n_windows": int(hyper.get("n_windows") or 0),
+        "cross_section_zscore": use_cs,
         "note": (
-            "ŷ_co_tree：open[T+1]/close[T]−1 · 特征训练集 z-score（与 ŷ_oo_tree 同口径）· 同 Holdout vs Ridge(Z)；"
+            "ŷ_co_tree：open[T+1]/close[T]−1 · "
+            + ("特征日截面 z-score · " if use_cs else "特征训练窗全局 μ/σ · ")
+            + "同 Holdout vs Ridge(Z)；"
             + ("树侧可含 raw_alpha158_*（≤T−1）；" if include_alpha158 else "")
+            + (
+                f"训练日滑窗 {hyper.get('window_days')}／步 {hyper.get('step_days')}"
+                f"（{hyper.get('n_windows')} 窗 · init_model 增量 · 共 {hyper.get('total_trees')} 树）；"
+                if int(hyper.get("window_days") or 0) > 0
+                else "全样本一次训；"
+            )
             + "写入 co_tree_model.json 后，调仓回测选 Tree 替换 ŷ_co；不进交易执行"
         ),
     }

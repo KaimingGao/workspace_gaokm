@@ -197,8 +197,12 @@ def fit_horizon_ridge_report(
     use_theme_weights: bool = True,
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_τ{num}=p_up + 时间 OOS。标签 = I(mean(price(τ⊕off1/off2/off3))/price(τ)−1 > 0)。"""
+    """池化拟合 ŷ_τ{num}=p_up + 时间 OOS。标签 = I(mean(price(τ⊕off1/off2/off3))/price(τ)−1 > 0)。
+
+    ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
+    """
     from core.research.tau_panel import theme_sample_weights
 
     cfg = _horizon_ridge_config(head)
@@ -268,6 +272,7 @@ def fit_horizon_ridge_report(
         if use_theme_weights
         else None
     )
+    use_cs = bool(cross_section_zscore)
     packed = train_eval_horizon_prob(
         xs_tr,
         ys_tr,
@@ -281,6 +286,10 @@ def fit_horizon_ridge_report(
         weights=weights,
         weights_all=w_all,
         min_std_exempt=min_std_exempt,
+        dates_tr=[dates[i] for i in train_idx] if use_cs else None,
+        dates_te=[dates[i] for i in test_idx] if use_cs else None,
+        dates_all=dates if use_cs else None,
+        cross_section_zscore=use_cs,
     )
     oos: Dict[str, Any] = dict(packed.get("oos_core") or {})
     oos.update(
@@ -373,6 +382,7 @@ def fit_horizon_ridge_report(
         "tau_grid": list(grid),
         "dual_score_head": dual_score_head,
         "head_kind": "prob",
+        "cross_section_zscore": use_cs,
         "note": (
             f"ŷ_τ{num}=P(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1>0)。"
             "进 ŷ_τw 投票；个股旁路闸已下线。不进 C_τ / ranking。"

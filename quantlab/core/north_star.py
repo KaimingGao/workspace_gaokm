@@ -428,7 +428,7 @@ def build_north_star_report(
     risk_eff = summarize_risk_blocks(paper.get("operation_log") or [])
     align_meta = ((bt_pack or {}).get("meta") or {}).get("align") if bt_pack else None
 
-    # ===== R1 增强：滚动拟合 / 三项乘积 / TTM 瓶颈 / 拦截审计 / 退化告警 =====
+    # ===== R1 增强：滚动实现 / 三项乘积 / TTM 瓶颈 / 拦截审计 / 退化告警 =====
     r1: Dict[str, Any] = {}
     try:
         from core.backtest_curve_store import _curve_points, _paper_daily_equities

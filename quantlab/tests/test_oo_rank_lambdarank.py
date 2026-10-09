@@ -123,6 +123,49 @@ class TestOoRankUniverse(unittest.TestCase):
         self.assertIn("分档", out.get("error") or "")
 
 
+class TestModelFitUniverseTierA(unittest.TestCase):
+    def test_resolve_model_fit_codes_tier_a(self):
+        from core.research_universe import resolve_model_fit_codes
+
+        last = {
+            "success": True,
+            "rows": [
+                {"code": "000001", "tier": "A"},
+                {"code": "000002", "tier": "B"},
+            ],
+        }
+        with patch(
+            "core.research_universe._watching_codes",
+            return_value=["000001", "000002", "000003"],
+        ), patch(
+            "core.research.predictability_tiers.load_predictability_tiers_last",
+            return_value=last,
+        ):
+            out = resolve_model_fit_codes(
+                watching_limit=1000, watching_tier_a_only=True
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out.get("codes"), ["000001"])
+        self.assertEqual(out.get("source"), "watching_tier_a")
+        self.assertEqual(out.get("n_tier_a"), 1)
+
+    def test_resolve_model_fit_codes_tier_a_needs_report(self):
+        from core.research_universe import resolve_model_fit_codes
+
+        with patch(
+            "core.research_universe._watching_codes",
+            return_value=["000001", "000002"],
+        ), patch(
+            "core.research.predictability_tiers.load_predictability_tiers_last",
+            return_value=None,
+        ):
+            out = resolve_model_fit_codes(
+                watching_limit=1000, watching_tier_a_only=True
+            )
+        self.assertFalse(out.get("ok"))
+        self.assertIn("分档", out.get("error") or "")
+
+
 class TestOoRankCompactPanel(unittest.TestCase):
     def test_group_day_matrices_keeps_views_no_xs(self):
         from core.research.oo_rank_panel import group_day_matrices

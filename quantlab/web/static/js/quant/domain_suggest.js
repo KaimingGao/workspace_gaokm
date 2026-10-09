@@ -10,7 +10,7 @@ import {
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, readCrossSectionFitParams, formatCrossSectionZBit, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
 
 
@@ -373,10 +373,13 @@ export function installSuggest(q) {
       researchOn: draftOk,
       oos: data.oos || {},
     });
+    const csZBit =
+      typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(data) : "";
     const line =
       `${data.stock_count ?? "—"} 只 · n=${data.sample_count ?? "—"}` +
       ` · R²=${ols.r_squared ?? "—"} · β ${nCoef} 项` +
-      (Number(ols.ridge_lambda) > 0 ? ` · Ridge λ=${ols.ridge_lambda}` : " · OLS");
+      (Number(ols.ridge_lambda) > 0 ? ` · Ridge λ=${ols.ridge_lambda}` : " · OLS") +
+      (csZBit ? ` · ${csZBit}` : "");
     setQuantMeta(`ŷ_oo · ${line}`);
     state.lastReturnModelFit = data;
     syncOverviewOo(data.oos || {});
@@ -451,16 +454,24 @@ export function installSuggest(q) {
         null;
       const liveOn = !!active.exists;
       const researchOn = !!research.exists;
+      const csZBit =
+        typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(data) : "";
+      const withCsZ = (msg) =>
+        csZBit && msg && !String(msg).includes(csZBit)
+          ? `${csZBit} · ${msg}`
+          : csZBit || msg || "";
       // 仅拟合成功当次：chip=已拟合；后续「状态」/启用走落盘套芯片，时间仍用草稿 saved_at
       if (justFittedOnce) {
         paintOoStatus({
           state: "ok",
           chip: "已拟合",
-          message: draft.exists
-            ? liveOn || researchOn
-              ? "草稿已更新 · 可再启用研究/执行"
-              : "草稿已存 · 可启用研究/执行"
-            : "已拟合",
+          message: withCsZ(
+            draft.exists
+              ? liveOn || researchOn
+                ? "草稿已更新 · 可再启用研究/执行"
+                : "草稿已存 · 可启用研究/执行"
+              : "已拟合"
+          ),
           sampleCount:
             draft.sample_count ||
             lastFit.sample_count ||
@@ -491,7 +502,7 @@ export function installSuggest(q) {
         paintOoStatus({
           state: "ok",
           chip,
-          message: liveOn ? "已落盘" : "研究套已落盘 · 执行未写",
+          message: withCsZ(liveOn ? "已落盘" : "研究套已落盘 · 执行未写"),
           sampleCount: active.sample_count || research.sample_count,
           fittedAt,
           researchAt: research.fitted_at || research.source_saved_at || null,
@@ -504,7 +515,7 @@ export function installSuggest(q) {
         paintOoStatus({
           state: "ok",
           chip: "仅研究",
-          message: "有草稿 · 尚未启用研究/执行",
+          message: withCsZ("有草稿 · 尚未启用研究/执行"),
           sampleCount: draft.sample_count,
           fittedAt,
           researchAt: null,
@@ -517,7 +528,7 @@ export function installSuggest(q) {
         paintOoStatus({
           state: "idle",
           chip: "待命",
-          message: "拟合后看系数 · 再启用研究/执行",
+          message: withCsZ("拟合后看系数 · 再启用研究/执行"),
           liveOn: false,
           researchOn: false,
         });
@@ -580,6 +591,7 @@ export function installSuggest(q) {
     busyTimer = setInterval(tick, 1000);
     try {
       await ensureFactorMeta();
+      const csFit = readCrossSectionFitParams("oo");
       const res = await fetch("/api/quant/return-model/fit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -592,6 +604,7 @@ export function installSuggest(q) {
           save_draft: true,
           holdout_trading_days:
             typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays("oo") : 20,
+          ...csFit,
         }),
       });
       let data = null;

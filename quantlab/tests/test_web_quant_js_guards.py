@@ -253,7 +253,26 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("无影子模型", quant_js)
         self.assertIn("quant-oo-rank-tier-a", panel)
         self.assertIn("watching_tier_a_only", quant_js)
-        self.assertIn("readOoRankTierAOnly", quant_js)
+        self.assertIn("readWatchingTierAOnly", quant_js)
+        for head in (
+            "tc",
+            "co",
+            "t30",
+            "t45",
+            "t60",
+            "t75",
+            "t90",
+            "tc_tree",
+            "co_tree",
+            "t30_tree",
+            "t45_tree",
+            "t60_tree",
+            "t75_tree",
+            "t90_tree",
+        ):
+            self.assertIn(f'id="quant-tier-a-{head}"', panel)
+            self.assertIn(f'readWatchingTierAOnly("{head}")', quant_js)
+        self.assertIn("hydrateWatchingTierAOnly", quant_js)
         self.assertIn(
             "双 backend · 启用按 NDCG@K 自适应 · 成交 rank=1..n · 不进买序 · 入场闸见回测",
             panel,
@@ -474,10 +493,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-tau-tree-run", panel)
         self.assertIn("ŷ_τc_tree", panel)
         self.assertIn("P(窗收益>0) · LightGBM", panel)
-        self.assertGreaterEqual(panel.count("LightGBM · Alpha158 · 不进 live"), 3)
-        self.assertIn("open→open LightGBM · Alpha158 · 不进 live", panel)
-        self.assertIn("τ→close LightGBM · Alpha158 · 不进 live", panel)
-        self.assertIn("close→open LightGBM · Alpha158 · 不进 live", panel)
+        self.assertGreaterEqual(panel.count("LightGBM · 滑窗增量 · 不进 live"), 3)
+        self.assertIn("open→open LightGBM · 滑窗增量 · 不进 live", panel)
+        self.assertIn("τ→close LightGBM · 滑窗增量 · 不进 live", panel)
+        self.assertIn("close→open LightGBM · 滑窗增量 · 不进 live", panel)
         self.assertNotIn('id="quant-oo-tree-qlib-lgb"', panel)
         self.assertNotIn('id="quant-tau-tree-qlib-lgb"', panel)
         self.assertNotIn('id="quant-co-tree-qlib-lgb"', panel)
@@ -2413,7 +2432,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-co-tree-result", panel)
         self.assertIn("quant-section-co-tree", panel)
         self.assertIn("P(窗收益>0) · LightGBM", panel)
-        self.assertGreaterEqual(panel.count("LightGBM · Alpha158 · 不进 live"), 3)
+        self.assertGreaterEqual(panel.count("LightGBM · 滑窗增量 · 不进 live"), 3)
         self.assertNotIn("qlib_lgb", js)
         self.assertNotIn("readReturnTreeFitFlags", js)
         self.assertIn("/api/quant/tau-tree", js)
@@ -2557,6 +2576,49 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="quant-fit-lookback-oo"', panel)
         self.assertIn('id="quant-fit-lookback-tc"', panel)
         self.assertIn('id="quant-fit-lookback-co"', panel)
+        self.assertNotIn('id="quant-fit-window-oo"', panel)
+        self.assertNotIn('id="quant-fit-window-tc"', panel)
+        self.assertNotIn('id="quant-fit-window-co"', panel)
+        # Tree 头：滑窗 / 步长（Ridge 卡无）
+        self.assertIn('id="quant-fit-window-oo_tree"', panel)
+        self.assertIn('id="quant-fit-window-tc_tree"', panel)
+        self.assertIn('id="quant-fit-window-co_tree"', panel)
+        self.assertIn('id="quant-fit-step-oo_tree"', panel)
+        self.assertIn('id="quant-fit-step-tc_tree"', panel)
+        self.assertIn('id="quant-fit-step-co_tree"', panel)
+        self.assertIn("滑窗增量", panel)
+        self.assertIn("滑窗 init_model", panel)
+        self.assertIn('id="quant-fit-cs-z-oo"', panel)
+        self.assertIn('id="quant-fit-cs-z-tc"', panel)
+        self.assertIn('id="quant-fit-cs-z-co"', panel)
+        self.assertIn('id="quant-fit-cs-z-t30"', panel)
+        self.assertIn('id="quant-fit-cs-z-t45"', panel)
+        self.assertIn('id="quant-fit-cs-z-t60"', panel)
+        self.assertIn('id="quant-fit-cs-z-t75"', panel)
+        self.assertIn('id="quant-fit-cs-z-t90"', panel)
+        self.assertIn('id="quant-fit-cs-z-oo_rank"', panel)
+        self.assertIn('id="quant-fit-cs-z-oo_tree"', panel)
+        self.assertIn('id="quant-fit-cs-z-tc_tree"', panel)
+        self.assertIn('id="quant-fit-cs-z-co_tree"', panel)
+        self.assertIn("日截面 Z", panel)
+        # 日截面 Z 在 Holdout 左侧
+        for _cs, _ho in (
+            ('id="quant-fit-cs-z-oo"', 'id="quant-holdout-days"'),
+            ('id="quant-fit-cs-z-tc"', 'id="quant-holdout-days-tc"'),
+            ('id="quant-fit-cs-z-t30"', 'id="quant-holdout-days-t30"'),
+            ('id="quant-fit-cs-z-oo_rank"', 'id="quant-holdout-days-oo_rank"'),
+            ('id="quant-fit-cs-z-oo_tree"', 'id="quant-holdout-days-oo_tree"'),
+            ('id="quant-fit-cs-z-tc_tree"', 'id="quant-holdout-days-tc_tree"'),
+            ('id="quant-fit-cs-z-co_tree"', 'id="quant-holdout-days-co_tree"'),
+        ):
+            self.assertLess(panel.index(_cs), panel.index(_ho))
+        self.assertNotIn('id="quant-fit-step-oo"', panel)
+        self.assertNotIn('id="quant-fit-boost-oo"', panel)
+        self.assertNotIn("增量×", panel)
+        self.assertNotIn("末窗×", panel)
+        self.assertNotIn("近端×", panel)
+        self.assertNotIn("增×", params_js)
+        self.assertIn('id="quant-fit-cs-z-oo"', panel)
         self.assertIn('id="quant-fit-lookback-t30"', panel)
         self.assertIn('id="quant-fit-lookback-tc_tree"', panel)
         self.assertNotIn("quant-label-demean", panel)
@@ -2576,6 +2638,42 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("holdout_trading_days", js)
         self.assertIn("readHoldoutTradingDays", js)
         self.assertIn("readHoldoutTradingDays", params_js)
+        self.assertIn("readCrossSectionFitParams", params_js)
+        self.assertIn("formatCrossSectionZBit", params_js)
+        self.assertIn("tree_return_model", params_js)
+        self.assertIn("hydrateCrossSectionZParams", params_js)
+        self.assertIn("readCrossSectionZscore", params_js)
+        self.assertIn("训练窗 / 日截面 Z / 滑窗见左侧", panel)
+        self.assertIn("readTreeSlideParams", params_js)
+        self.assertIn("formatTreeSlideBit", params_js)
+        self.assertIn("hydrateTreeSlideParams", params_js)
+        self.assertIn('readTreeSlideParams("oo_tree")', js)
+        self.assertIn('readTreeSlideParams("tc_tree")', js)
+        self.assertIn('readTreeSlideParams("co_tree")', js)
+        self.assertIn('readCrossSectionFitParams("oo_tree")', js)
+        self.assertIn('readCrossSectionFitParams("tc_tree")', js)
+        self.assertIn('readCrossSectionFitParams("co_tree")', js)
+        self.assertNotIn("clampWindowDays", params_js)
+        self.assertNotIn("DEFAULT_WINDOW_DAYS", params_js)
+        self.assertNotIn("DEFAULT_STEP_DAYS", params_js)
+        self.assertNotIn("DEFAULT_LAST_BOOST", params_js)
+        self.assertNotIn("整池拉面板约需数分钟", params_js)
+        ru_js = self._read("web", "static", "js", "quant", "research_universe_ui.js")
+        self.assertIn("短窗建面板", ru_js)
+        self.assertIn("ŷ_oo 卡片 Holdout", panel)
+        self.assertIn("Holdout+暖窗", panel)
+        self.assertNotIn("整池拉面板约需数分钟", ru_js)
+        self.assertNotIn("build_predictability_tiers", self._read("core", "research", "predictability_tiers.py"))
+        self.assertNotIn("split_holdout_windows", self._read("core", "research", "predictability_tiers.py"))
+        bt_js = self._read("web", "static", "js", "quant", "domain_backtest.js")
+        self.assertNotIn("fitReturnScoreModel", bt_js)
+        self.assertIn("formatCrossSectionZBit", js)
+        self.assertIn("CS_Z_FIT_HEADS", params_js)
+        _cs_heads = params_js[params_js.index("CS_Z_FIT_HEADS") : params_js.index("CS_Z_FIT_HEADS") + 280]
+        self.assertIn('"oo_tree"', _cs_heads)
+        self.assertIn('"tc_tree"', _cs_heads)
+        self.assertIn('"co_tree"', _cs_heads)
+        self.assertIn("cross_section_zscore", params_js)
         self.assertIn("FIT_PARAM_HEADS", params_js)
         self.assertIn("FIT_LOOKBACK_MIN = 100", params_js)
         self.assertIn("FIT_LOOKBACK_MAX = 1000", params_js)
@@ -2596,6 +2694,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("readRecencyDecay", js)
         self.assertIn('readHoldoutTradingDays("tc")', js)
         self.assertIn('readHoldoutTradingDays("co")', js)
+        self.assertIn('readCrossSectionFitParams("tc")', js)
+        self.assertIn('readCrossSectionFitParams("co")', js)
+        self.assertIn('readCrossSectionFitParams("t30")', js)
+        self.assertIn('readCrossSectionFitParams("oo_rank")', js)
         self.assertNotIn("label_demean", js)
         suggest = self._read("web", "static", "js", "quant", "domain_suggest.js")
         # 分组 OLS 已退役：前端无入口 / Job 轮询
@@ -2605,6 +2707,22 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("/api/jobs/quant-ols-clusters", suggest)
         self.assertNotIn("runFactorOlsPoolSuggest", suggest)
         self.assertIn("readHoldoutTradingDays", suggest)
+        self.assertIn("readCrossSectionFitParams", suggest)
+        self.assertIn("formatCrossSectionZBit", suggest)
+        self.assertIn("...csFit", suggest)
+        self.assertIn('readCrossSectionFitParams("oo")', suggest)
+        self.assertNotIn("cross_section_zscore: true", suggest)
+        self.assertIn("训练窗 / 日截面 Z 见左侧", panel)
+        self.assertIn(
+            'id="quant-tau-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合"',
+            panel,
+        )
+        self.assertIn(
+            'id="quant-co-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合"',
+            panel,
+        )
+        self.assertIn("读取研究 / 执行 / 上次拟合…", js)
+        self.assertIn('on("quant-tau-ridge-status"', js)
         self.assertNotIn("label_demean", suggest)
         self.assertNotIn("readLabelDemean", suggest)
         self.assertNotIn("recency_decay", suggest)
@@ -2783,13 +2901,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         css = self._read("web", "static", "css", "quant.css")
         self.assertIn('[data-kpi="eod"].is-bad', css)
         self.assertIn("quant-rem-meta-v.down", css)
-        self.assertIn("syncOverviewLanding", corr)
+        self.assertNotIn("syncOverviewLanding", corr)
+        self.assertNotIn("syncOverviewFromClusters", corr)
+        self.assertNotIn("clusterIcPosRatio", corr)
         suggest = self._read("web", "static", "js", "quant", "domain_suggest.js")
         self.assertIn("syncOverviewOo", suggest)
         self.assertIn("fromStatus.cs_ic", suggest)
         self.assertIn("syncOverviewBarsCoverage", corr)
-        self.assertIn("clusterIcPosRatio", corr)
-        self.assertIn("IC+日", corr)
         self.assertIn('data-kpi="landing"', ov)
         cluster = self._read("web", "static", "js", "quant", "domain_cluster.js")
         self.assertNotIn("syncOverviewLanding", cluster)

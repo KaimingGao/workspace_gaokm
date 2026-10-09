@@ -1974,6 +1974,12 @@ def _attach_open_yhat_heads(
                 )
         except Exception:  # noqa: BLE001
             logger.debug("attach y_co failed for %s", code, exc_info=True)
+    try:
+        from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+        rescore_fitted_cross_section(items)
+    except Exception:  # noqa: BLE001
+        logger.debug("replay cross-section rescore failed", exc_info=True)
     return items
 
 

@@ -26,6 +26,25 @@ const FIT_PARAM_HEADS = [
   "oo_rank",
 ];
 
+/** 支持「只训 A 档」的拟合头（含 ŷ_oo_rank）。 */
+const TIER_A_FIT_HEADS = [
+  "tc",
+  "co",
+  "t30",
+  "t45",
+  "t60",
+  "t75",
+  "t90",
+  "tc_tree",
+  "co_tree",
+  "t30_tree",
+  "t45_tree",
+  "t60_tree",
+  "t75_tree",
+  "t90_tree",
+  "oo_rank",
+];
+
 function _defaultLookbackForHead(head) {
   if (head === "oo_rank") return 700;
   return head === "oo" || head === "co" || head === "oo_tree" || head === "co_tree"
@@ -46,6 +65,36 @@ const HOLDOUT_DAYS_STORAGE_KEYS = Object.fromEntries(
 const FIT_LOOKBACK_MIN = 100;
 const FIT_LOOKBACK_MAX = 1000;
 
+/** 支持日截面 Z 勾选的拟合头。 */
+const CS_Z_FIT_HEADS = [
+  "oo",
+  "tc",
+  "co",
+  "t30",
+  "t45",
+  "t60",
+  "t75",
+  "t90",
+  "oo_rank",
+  "oo_tree",
+  "tc_tree",
+  "co_tree",
+];
+const CS_ZSCORE_STORAGE_KEYS = Object.fromEntries(
+  CS_Z_FIT_HEADS.map((h) => [h, `quant_fit_cs_z_${h}`])
+);
+
+/** oo/tc/co_tree：训练日滑窗 + 步长（LightGBM init_model 增量）。 */
+const TREE_SLIDE_HEADS = ["oo_tree", "tc_tree", "co_tree"];
+const DEFAULT_TREE_WINDOW_DAYS = 60;
+const DEFAULT_TREE_STEP_DAYS = 20;
+const TREE_WINDOW_STORAGE_KEYS = Object.fromEntries(
+  TREE_SLIDE_HEADS.map((h) => [h, `quant_fit_window_${h}`])
+);
+const TREE_STEP_STORAGE_KEYS = Object.fromEntries(
+  TREE_SLIDE_HEADS.map((h) => [h, `quant_fit_step_${h}`])
+);
+
 function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
@@ -60,6 +109,23 @@ function clampFitLookbackDays(v, fallback = 120) {
     return Math.max(FIT_LOOKBACK_MIN, Math.min(FIT_LOOKBACK_MAX, Math.round(base)));
   }
   return Math.max(FIT_LOOKBACK_MIN, Math.min(FIT_LOOKBACK_MAX, Math.round(n)));
+}
+
+function clampTreeWindowDays(v, fallback = DEFAULT_TREE_WINDOW_DAYS) {
+  const n = Number(v);
+  const fb = Number(fallback);
+  const base = Number.isFinite(fb) ? fb : DEFAULT_TREE_WINDOW_DAYS;
+  if (!Number.isFinite(n)) return Math.max(0, Math.min(500, Math.round(base)));
+  // 0 = 关闭滑窗（全样本一次训）
+  return Math.max(0, Math.min(500, Math.round(n)));
+}
+
+function clampTreeStepDays(v, fallback = DEFAULT_TREE_STEP_DAYS) {
+  const n = Number(v);
+  const fb = Number(fallback);
+  const base = Number.isFinite(fb) ? fb : DEFAULT_TREE_STEP_DAYS;
+  if (!Number.isFinite(n)) return Math.max(1, Math.min(200, Math.round(base)));
+  return Math.max(1, Math.min(200, Math.round(n)));
 }
 
 export function clampHorizonDays(v, fallback = 1) {
@@ -144,6 +210,15 @@ export function createResearchParams(opts = {}) {
   const getFitLookbackEl =
     opts.getFitLookbackEl ||
     ((head) => document.getElementById(`quant-fit-lookback-${head}`));
+  const getFitCsZEl =
+    opts.getFitCsZEl ||
+    ((head) => document.getElementById(`quant-fit-cs-z-${head}`));
+  const getFitWindowEl =
+    opts.getFitWindowEl ||
+    ((head) => document.getElementById(`quant-fit-window-${head}`));
+  const getFitStepEl =
+    opts.getFitStepEl ||
+    ((head) => document.getElementById(`quant-fit-step-${head}`));
 
   function syncHorizonInputs(h) {
     const v = String(clampHorizonDays(h, prefsHorizonDays));
@@ -290,6 +365,226 @@ export function createResearchParams(opts = {}) {
     }
   }
 
+  function _readStoredNum(el, key, clampFn, fallback) {
+    let n;
+    if (el && el.value !== "") {
+      n = clampFn(el.value, fallback);
+    } else {
+      try {
+        n = clampFn(localStorage.getItem(key), fallback);
+      } catch (_) {
+        n = clampFn(fallback, fallback);
+      }
+    }
+    if (el && String(el.value) !== String(n)) el.value = String(n);
+    try {
+      localStorage.setItem(key, String(n));
+    } catch (_) {}
+    return n;
+  }
+
+  function readCrossSectionZscore(head) {
+    const h = String(head || "").trim().toLowerCase();
+    if (!CS_Z_FIT_HEADS.includes(h)) return true;
+    const el = getFitCsZEl(h);
+    const key = CS_ZSCORE_STORAGE_KEYS[h];
+    let on = true;
+    if (el) {
+      on = !!el.checked;
+    } else {
+      try {
+        const saved = localStorage.getItem(key);
+        if (saved === "0") on = false;
+        else if (saved === "1") on = true;
+      } catch (_) {}
+    }
+    try {
+      localStorage.setItem(key, on ? "1" : "0");
+    } catch (_) {}
+    if (el) el.checked = on;
+    return on;
+  }
+
+  /** 拟合请求体片段：日截面 Z。 */
+  function readCrossSectionFitParams(head) {
+    return {
+      cross_section_zscore: readCrossSectionZscore(head),
+    };
+  }
+
+  /** 卡头摘要：日截面 / 全局 Z（Ridge return_model · Tree tree_return_model）。 */
+  function formatCrossSectionZBit(data) {
+    const src = data && typeof data === "object" ? data : {};
+    const meta = src.meta && typeof src.meta === "object" ? src.meta : {};
+    let cs;
+    if ("cross_section_zscore" in src) cs = src.cross_section_zscore !== false;
+    else if ("cross_section_zscore" in meta) cs = meta.cross_section_zscore !== false;
+    else {
+      const rm =
+        (src.tree_return_model &&
+          typeof src.tree_return_model === "object" &&
+          src.tree_return_model) ||
+        (src.return_model && typeof src.return_model === "object" && src.return_model) ||
+        (src.model && typeof src.model === "object" && src.model) ||
+        {};
+      const hp = rm.hyperparams && typeof rm.hyperparams === "object" ? rm.hyperparams : {};
+      if ("cross_section_zscore" in hp) cs = hp.cross_section_zscore !== false;
+      else {
+        const scope = String(rm.zscore_scope || hp.zscore_scope || "");
+        if (scope === "cross_section") cs = true;
+        else if (
+          rm.zscore_means &&
+          typeof rm.zscore_means === "object" &&
+          Object.keys(rm.zscore_means).length > 0
+        ) {
+          cs = false;
+        } else if (
+          hp.zscore_means &&
+          typeof hp.zscore_means === "object" &&
+          Object.keys(hp.zscore_means).length > 0
+        ) {
+          cs = false;
+        }
+      }
+    }
+    if (cs === undefined) return "";
+    return cs ? "日截面Z" : "全局Z";
+  }
+
+  function hydrateCrossSectionZParams() {
+    for (const head of CS_Z_FIT_HEADS) {
+      const csEl = getFitCsZEl(head);
+      if (!csEl) continue;
+      try {
+        const saved = localStorage.getItem(CS_ZSCORE_STORAGE_KEYS[head]);
+        if (saved === "0") csEl.checked = false;
+        else if (saved === "1") csEl.checked = true;
+      } catch (_) {}
+      csEl.addEventListener("change", () => readCrossSectionZscore(head));
+    }
+  }
+
+  function readTreeWindowDays(head) {
+    const h = String(head || "").trim().toLowerCase();
+    if (!TREE_SLIDE_HEADS.includes(h)) return DEFAULT_TREE_WINDOW_DAYS;
+    return _readStoredNum(
+      getFitWindowEl(h),
+      TREE_WINDOW_STORAGE_KEYS[h],
+      clampTreeWindowDays,
+      DEFAULT_TREE_WINDOW_DAYS
+    );
+  }
+
+  function readTreeStepDays(head) {
+    const h = String(head || "").trim().toLowerCase();
+    if (!TREE_SLIDE_HEADS.includes(h)) return DEFAULT_TREE_STEP_DAYS;
+    return _readStoredNum(
+      getFitStepEl(h),
+      TREE_STEP_STORAGE_KEYS[h],
+      clampTreeStepDays,
+      DEFAULT_TREE_STEP_DAYS
+    );
+  }
+
+  function readTreeSlideParams(head) {
+    return {
+      window_days: readTreeWindowDays(head),
+      step_days: readTreeStepDays(head),
+    };
+  }
+
+  /** 卡头摘要：滑窗60/20 或空（全样本）。 */
+  function formatTreeSlideBit(data) {
+    const src = data && typeof data === "object" ? data : {};
+    const hp =
+      (src.hyperparams && typeof src.hyperparams === "object" && src.hyperparams) ||
+      (src.tree_return_model &&
+        src.tree_return_model.hyperparams &&
+        typeof src.tree_return_model.hyperparams === "object" &&
+        src.tree_return_model.hyperparams) ||
+      {};
+    const w = Number(hp.window_days != null ? hp.window_days : src.window_days);
+    const s = Number(hp.step_days != null ? hp.step_days : src.step_days);
+    if (!Number.isFinite(w) || w <= 0) return "";
+    const step = Number.isFinite(s) && s > 0 ? s : DEFAULT_TREE_STEP_DAYS;
+    const nWin = Number(hp.n_windows);
+    const trees = Number(hp.total_trees);
+    let bit = `滑窗${Math.round(w)}/${Math.round(step)}`;
+    if (Number.isFinite(nWin) && nWin > 0) bit += `·${Math.round(nWin)}窗`;
+    if (Number.isFinite(trees) && trees > 0) bit += `·${Math.round(trees)}树`;
+    return bit;
+  }
+
+  function hydrateTreeSlideParams() {
+    for (const head of TREE_SLIDE_HEADS) {
+      const wEl = getFitWindowEl(head);
+      const sEl = getFitStepEl(head);
+      if (wEl) {
+        try {
+          const saved = localStorage.getItem(TREE_WINDOW_STORAGE_KEYS[head]);
+          if (saved != null && saved !== "") {
+            wEl.value = String(clampTreeWindowDays(saved, DEFAULT_TREE_WINDOW_DAYS));
+          } else if (!wEl.value) {
+            wEl.value = String(DEFAULT_TREE_WINDOW_DAYS);
+          }
+        } catch (_) {
+          if (!wEl.value) wEl.value = String(DEFAULT_TREE_WINDOW_DAYS);
+        }
+        wEl.addEventListener("change", () => readTreeWindowDays(head));
+      }
+      if (sEl) {
+        try {
+          const saved = localStorage.getItem(TREE_STEP_STORAGE_KEYS[head]);
+          if (saved != null && saved !== "") {
+            sEl.value = String(clampTreeStepDays(saved, DEFAULT_TREE_STEP_DAYS));
+          } else if (!sEl.value) {
+            sEl.value = String(DEFAULT_TREE_STEP_DAYS);
+          }
+        } catch (_) {
+          if (!sEl.value) sEl.value = String(DEFAULT_TREE_STEP_DAYS);
+        }
+        sEl.addEventListener("change", () => readTreeStepDays(head));
+      }
+    }
+  }
+
+  function tierACheckboxId(head) {
+    const h = String(head || "").trim().toLowerCase();
+    if (h === "oo_rank") return "quant-oo-rank-tier-a";
+    return `quant-tier-a-${h}`;
+  }
+
+  function tierAStorageKey(head) {
+    const h = String(head || "").trim().toLowerCase();
+    return `quant.${h}.watching_tier_a_only`;
+  }
+
+  function readWatchingTierAOnly(head) {
+    const el = document.getElementById(tierACheckboxId(head));
+    return !!(el && el.checked);
+  }
+
+  function hydrateWatchingTierAOnly() {
+    for (const head of TIER_A_FIT_HEADS) {
+      const el = document.getElementById(tierACheckboxId(head));
+      if (!el) continue;
+      try {
+        el.checked = localStorage.getItem(tierAStorageKey(head)) === "1";
+      } catch (_) {
+        /* ignore */
+      }
+      if (el.dataset.wired === "1") continue;
+      el.dataset.wired = "1";
+      el.addEventListener("change", () => {
+        try {
+          localStorage.setItem(tierAStorageKey(head), el.checked ? "1" : "0");
+        } catch (_) {
+          /* ignore */
+        }
+      });
+    }
+  }
+
   return {
     clampHorizonDays,
     clampRidgeLambda,
@@ -305,6 +600,17 @@ export function createResearchParams(opts = {}) {
     hydrateHoldoutTradingDays,
     readFitLookbackDays,
     hydrateFitLookbackDays,
+    readCrossSectionZscore,
+    readCrossSectionFitParams,
+    formatCrossSectionZBit,
+    hydrateCrossSectionZParams,
+    readTreeWindowDays,
+    readTreeStepDays,
+    readTreeSlideParams,
+    formatTreeSlideBit,
+    hydrateTreeSlideParams,
+    readWatchingTierAOnly,
+    hydrateWatchingTierAOnly,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   };
