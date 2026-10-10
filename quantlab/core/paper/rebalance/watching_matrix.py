@@ -1110,8 +1110,6 @@ def simulate_watching_matrix_preview(
             "cash_before": cash_before,
             "cash_after": float(paper.get("cash") or cash) if not dry_run else None,
             "cash_floor": rl_cfg.get("cash_floor"),
-            "cash_floor_configured": rl_cfg.get("cash_floor_configured"),
-            "cash_floor_scaled": bool(rl_cfg.get("cash_floor_scaled")),
             "turnover_pct": round(
                 (buy_amt + sell_amt) / equity * 100.0, 2
             )
@@ -1128,9 +1126,10 @@ def simulate_watching_matrix_preview(
                 "rank_enter": rl_cfg.get("rank_enter"),
                 "rank_strong": rl_cfg.get("rank_strong"),
                 "cash_floor": rl_cfg.get("cash_floor"),
-                "cash_floor_configured": rl_cfg.get("cash_floor_configured"),
-                "cash_floor_scaled": bool(rl_cfg.get("cash_floor_scaled")),
                 "holdings_mv_cap": rl_cfg.get("holdings_mv_cap"),
+                "stock_mv_cap": rl_cfg.get("stock_mv_cap"),
+                "lot_base_amount": rl_cfg.get("lot_base_amount"),
+                "lot_strong_amount": rl_cfg.get("lot_strong_amount"),
                 "fusion_w_oo": rl_cfg.get("fusion_w_oo"),
                 "fusion_w_oc": rl_cfg.get("fusion_w_oc"),
                 "fusion_w_co": rl_cfg.get("fusion_w_co"),

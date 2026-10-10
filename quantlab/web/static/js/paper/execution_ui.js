@@ -307,16 +307,24 @@ export function renderRebalanceRulesHtml(execution) {
     specKpi("入场", `${fmtN(Number(enter), 2)}%`, "ranking 入场；与历史回测「入场·阈值%」同一键；未过则已持仓清仓") +
     specKpi("强档", `${fmtN(Number(strong), 2)}%`, `ranking 强档；与历史回测「强档·阈值%」同一键；过强买 ${lotS} 元否则 ${lotB} 元`) +
     (() => {
-      const n = Number(pm.oo_rank_max);
-      if (!Number.isFinite(n) || n <= 0) return "";
+      let frac = Number(pm.oo_rank_top_frac);
+      if (!Number.isFinite(frac) || frac <= 0) {
+        const legacy = Number(pm.oo_rank_max);
+        if (pm.oo_rank_top_frac == null && Number.isFinite(legacy) && legacy > 0) {
+          frac = 0.5;
+        } else {
+          return "";
+        }
+      }
+      const pct = Math.round(frac * 100);
       return specKpi(
         "oo_rank",
-        `<${Math.round(n)}`,
-        "须当日截面名次 y_oo_rank < 上限；与历史回测「rank < 30」同一键；缺分不拦"
+        `rank < top ${pct}%`,
+        "须当日截面名次 y_oo_rank < n·比例；与历史回测「rank < top 50%」同一键；缺 rank/n 不拦"
       );
     })() +
-    specKpi("金额", `${lotB}/${lotS}`, "与历史回测入场/强档金额同一键；按成交价换算整手，不够一手则买一手；保存规则后自动调仓按此下单") +
-    specKpi("市值上限", capLbl, "本笔将超则跳过该买") +
+    specKpi("金额", `${lotB}/${lotS}`, "与历史回测入场/强档金额同一键；按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%；保存规则后自动调仓按此下单") +
+    specKpi("市值上限", capLbl, "组合持仓市值上限；本笔将超则跳过该买（另有单票≤强档×120%）") +
     `</div></header></div>`
   );
 }
@@ -622,8 +630,17 @@ export function fillPathMatrixForm(root, execution) {
   const yOcGt0 = pm.y_τc_gt0 != null ? !!pm.y_τc_gt0 : false;
   set("pm_y_oo_gt0", yOoGt0);
   set("pm_y_τc_gt0", yOcGt0);
-  const ooRankMax = Number(pm.oo_rank_max);
-  set("pm_oo_rank_lt30", Number.isFinite(ooRankMax) && ooRankMax === 30);
+  const ooRankFrac = Number(pm.oo_rank_top_frac);
+  const ooRankLegacyMax = Number(pm.oo_rank_max);
+  const ooRankTop50On =
+    (Number.isFinite(ooRankFrac) &&
+      ooRankFrac > 0 &&
+      Math.abs(ooRankFrac - 0.5) < 1e-9) ||
+    // 旧盘绝对上限：任意正值视为曾开闸 → top 50%
+    (pm.oo_rank_top_frac == null &&
+      Number.isFinite(ooRankLegacyMax) &&
+      ooRankLegacyMax > 0);
+  set("pm_oo_rank_top50", ooRankTop50On);
   const clamp01 = (v, fb) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return fb;
@@ -744,7 +761,7 @@ export function collectPathMatrixForm(root) {
   }
   const yOoGt0 = chk("pm_y_oo_gt0", false);
   const yOcGt0 = chk("pm_y_τc_gt0", false);
-  const ooRankLt30 = chk("pm_oo_rank_lt30", false);
+  const ooRankTop50 = chk("pm_oo_rank_top50", false);
   let lotBase = clampLotAmount(num("pm_lot_base_amount", 10000), 10000);
   let lotStrong = clampLotAmount(num("pm_lot_strong_amount", lotBase), lotBase);
   if (lotStrong < lotBase) lotStrong = lotBase;
@@ -759,7 +776,8 @@ export function collectPathMatrixForm(root) {
         y_enter_alt_enabled: true,
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
-        oo_rank_max: ooRankLt30 ? 30 : null,
+        oo_rank_top_frac: ooRankTop50 ? 0.5 : null,
+        oo_rank_max: null,
         fusion_w_co: Math.round(wCo * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),
         fusion_w_oo: Math.round(wOo * 1000) / 1000,

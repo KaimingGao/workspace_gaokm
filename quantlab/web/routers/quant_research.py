@@ -125,7 +125,6 @@ def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
             step_days=body.step_days,
             cross_section_zscore=bool(body.cross_section_zscore),
             backend=body.backend,
-            include_alpha158=bool(body.include_alpha158),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -157,7 +156,6 @@ def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
             step_days=body.step_days,
             cross_section_zscore=bool(body.cross_section_zscore),
             backend=body.backend,
-            include_alpha158=bool(body.include_alpha158),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -188,7 +186,6 @@ def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
             step_days=body.step_days,
             cross_section_zscore=bool(body.cross_section_zscore),
             backend=body.backend,
-            include_alpha158=bool(body.include_alpha158),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -222,7 +219,6 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
         force_promote=body.force_promote,
         persist_role=body.persist_role,
         holdout_trading_days=body.holdout_trading_days,
-        include_alpha158=bool(body.include_alpha158),
         cross_section_zscore=bool(body.cross_section_zscore),
     )
     try:
@@ -293,7 +289,7 @@ def quant_co_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge（成交 rank=1..n；不进买序；可选 oo_rank_max）。persist 按 NDCG@K 自动选 backend 启用，不重训。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge（成交 rank=1..n；不进买序；可选 oo_rank_top_frac）。persist 按 NDCG@K 自动选 backend 启用，不重训。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,
@@ -508,7 +504,7 @@ def quant_tc_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t30-ridge")
 
 def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ30 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ30 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t30-ridge``。
     """
@@ -545,7 +541,7 @@ def quant_t30_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t45-ridge")
 
 def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ45 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ45 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t45-ridge``。
     """
@@ -582,7 +578,7 @@ def quant_t45_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t60-ridge")
 
 def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ60 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ60 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t60-ridge``。
     """
@@ -619,7 +615,7 @@ def quant_t60_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t75-ridge")
 
 def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ75 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ75 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t75-ridge``。
     """
@@ -656,7 +652,7 @@ def quant_t75_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t90-ridge")
 
 def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ90 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ90 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t90-ridge``。
     """

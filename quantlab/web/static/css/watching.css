@@ -672,7 +672,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_on .watc
 
 .quant-page .quant-factor-cell > .quant-factor-name {
   flex: 0 0 auto;
-  /* 完整键名（如 raw_alpha158_VSUMD60）约 20 字，勿再在 7.5rem 处省略 */
+  /* 完整键名（如 raw_aoo_OVSUMD60）约 20 字，勿再在 7.5rem 处省略 */
   max-width: none;
   overflow: visible;
   text-overflow: unset;
@@ -2368,6 +2368,12 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   color: var(--quant-head-fg);
   padding-top: 4px;
   padding-bottom: 4px;
+}
+
+/* μ / σ 等希腊小写列名：勿被 uppercase 成 Μ / Σ */
+.quant-page .quant-research-grid .watching-react-grid-row.is-head .watching-react-grid-cell.is-case-keep {
+  text-transform: none;
+  letter-spacing: 0.02em;
 }
 
 .quant-page .quant-research-grid .watching-react-grid-cell.watching-col-num {

@@ -127,7 +127,7 @@ class TestHorizonTree(unittest.TestCase):
             "model_role": "tree",
             "intercept": 0.0,
             "total": 0.55,
-            "terms": [{"key": "raw_alpha158_KMID", "contrib": 0.4}],
+            "terms": [{"key": "raw_aoo_YKMID", "contrib": 0.4}],
         }
         with horizon_prob_backend_context("tree"), patch(
             "core.research.tc_tree.load_tau_tree_model",
@@ -150,7 +150,7 @@ class TestHorizonTree(unittest.TestCase):
             for t in (item.get("formula_terms_tau") or {}).get("terms") or []
             if isinstance(t, dict)
         }
-        self.assertIn("raw_alpha158_KMID", keys)
+        self.assertIn("raw_aoo_YKMID", keys)
         self.assertNotIn("ridge_gap", keys)
 
     def test_collapsed_stump_is_not_a_return_forecast(self):

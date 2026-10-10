@@ -45,15 +45,22 @@ def _research_sub_scores(
             )
             row[key] = float(score)
             # 暴露原始信号值，前缀 raw_<factor>_ 避免键冲突
+            # alpha_oo 开锚列用 raw_aoo_*（与 ALPHA_OO_RAW_PREFIX 一致）
             if isinstance(fac_meta, dict):
+                if str(key) == "alpha_oo":
+                    from core.signal.factors.alpha_oo import ALPHA_OO_RAW_PREFIX
+
+                    raw_prefix = ALPHA_OO_RAW_PREFIX
+                else:
+                    raw_prefix = f"raw_{key}_"
                 for mk, mv in fac_meta.items():
                     if mk in ("omit_sub_score", "ok"):
                         continue
-                    # 跳过 alpha158_insufficient_history 等标记（bool 也是 int）
+                    # 跳过 alpha_oo_insufficient_history 等标记（bool 也是 int）
                     if str(mk).startswith(f"{key}_"):
                         continue
                     if isinstance(mv, (int, float)) and not isinstance(mv, bool):
-                        row[f"raw_{key}_{mk}"] = float(mv)
+                        row[f"{raw_prefix}{mk}"] = float(mv)
                     elif mv is not None:
                         # 非数值（如 rs_source="index"）跳过
                         pass
@@ -138,9 +145,9 @@ def collect_subscore_forward_panel(
         config=config,
         respect_macro_regime=respect_macro_regime,
     )
-    from core.signal.factors.alpha158 import bump_window_for_alpha158
+    from core.signal.factors.alpha_oo import bump_window_for_alpha_oo
 
-    min_history, max_window = bump_window_for_alpha158(
+    min_history, max_window = bump_window_for_alpha_oo(
         factor_names,
         min_history=min_history,
         max_window=max_window,

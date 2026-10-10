@@ -76,11 +76,9 @@ class QuantReplayMixin:
         y_enter_alt_enabled: bool = True,
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
-        oo_rank_max: Optional[int] = None,
+        oo_rank_top_frac: Optional[float] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
-        lot_base: Optional[float] = None,
-        lot_strong: Optional[float] = None,
         lot_base_amount: Optional[float] = None,
         lot_strong_amount: Optional[float] = None,
         use_predictability_tiers: bool = False,
@@ -294,7 +292,7 @@ class QuantReplayMixin:
             backtest_paper_replay,
             clamp_replay_fill_clock,
             clamp_replay_initial_cash,
-            clamp_replay_lot_pair,
+            clamp_replay_amount_pair,
             load_replay_minute_bars,
         )
         from core.paper.rebalance.rank_lots import clamp_fusion_weight, coerce_rank_threshold
@@ -321,9 +319,9 @@ class QuantReplayMixin:
         cash = clamp_replay_initial_cash(
             REPLAY_INITIAL_CASH if initial_cash is None else initial_cash
         )
-        lot_base_n, lot_strong_n = clamp_replay_lot_pair(
-            lot_base_amount if lot_base_amount is not None else lot_base,
-            lot_strong_amount if lot_strong_amount is not None else lot_strong,
+        lot_base_n, lot_strong_n = clamp_replay_amount_pair(
+            lot_base_amount,
+            lot_strong_amount,
         )
         clock = clamp_replay_fill_clock(fill_clock, REPLAY_FILL_CLOCK)
         gate_on = True if price_space_gate is None else bool(price_space_gate)
@@ -375,7 +373,7 @@ class QuantReplayMixin:
             y_enter_alt_enabled=y_enter_alt_enabled,
             y_oo_gt0=bool(y_oo_gt0),
             y_τc_gt0=bool(y_τc_gt0),
-            oo_rank_max=oo_rank_max,
+            oo_rank_top_frac=oo_rank_top_frac,
             fill_clock=clock,
             minute_bars_by_code=minute_bars,
             lot_base_amount=lot_base_n,
@@ -416,7 +414,7 @@ class QuantReplayMixin:
             "y_enter_alt_enabled": bool(y_enter_alt_enabled),
             "y_oo_gt0": bool(y_oo_gt0),
             "y_τc_gt0": bool(y_τc_gt0),
-            "oo_rank_max": oo_rank_max,
+            "oo_rank_top_frac": oo_rank_top_frac,
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
             "lot_strong_amount": lot_strong_n,
@@ -432,8 +430,8 @@ class QuantReplayMixin:
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + (
-                    f"；oo_rank<{int(oo_rank_max)}"
-                    if oo_rank_max is not None and int(oo_rank_max) > 0
+                    f"；oo_rank<top{int(round(float(oo_rank_top_frac) * 100))}%"
+                    if oo_rank_top_frac is not None and float(oo_rank_top_frac) > 0
                     else ""
                 )
                 + ("；ŷ头=Tree" if backend == "tree" else "；ŷ头=Ridge")

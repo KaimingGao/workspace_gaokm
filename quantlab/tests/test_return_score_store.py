@@ -181,7 +181,10 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertTrue(
                     store.promote_return_model_draft(note="", role="live")["success"]
                 )
-                # 再写一份带 OOS 的新草稿（模拟重新拟合）
+                # 再写一份带 OOS 的新草稿（模拟重新拟合；隔秒避免与 source_saved_at 同戳）
+                import time
+
+                time.sleep(1.05)
                 self.assertTrue(
                     store.save_return_model_draft(model, oos=oos)["success"]
                 )
@@ -194,12 +197,13 @@ class TestReturnScoreStore(unittest.TestCase):
                 with open(active, "w", encoding="utf-8") as f:
                     json.dump(act, f)
                 st = store.return_model_status()
-                self.assertEqual(st.get("display_role"), "active")
+                # 新草稿晚于执行套 → 系数表与 OOS 都跟草稿
+                self.assertEqual(st.get("display_role"), "draft")
                 self.assertEqual((st.get("oos") or {}).get("ic"), 0.12)
                 self.assertEqual((st.get("oos") or {}).get("sign_hit"), 0.58)
 
     def test_status_prefers_newer_draft_oos_over_stale_active(self):
-        """拟合后草稿带 cs_ic；执行套仍是旧 oos 时，状态条用草稿评测。"""
+        """拟合后草稿带 cs_ic；执行套仍是旧 oos 时，系数表与状态条跟草稿。"""
         model = ReturnScoreModel(
             intercept=0.1,
             coefficients={"momentum": 0.4},
@@ -233,14 +237,19 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertTrue(
                     store.promote_return_model_draft(note="", role="live")["success"]
                 )
+                import time
+
+                time.sleep(1.05)
                 self.assertTrue(
                     store.save_return_model_draft(model, oos=new_oos)["success"]
                 )
                 st = store.return_model_status()
-                self.assertEqual(st.get("display_role"), "active")
+                self.assertEqual(st.get("display_role"), "draft")
                 self.assertEqual(st.get("oos_source"), "draft")
                 self.assertEqual((st.get("oos") or {}).get("cs_ic"), -0.018)
                 self.assertEqual((st.get("oos") or {}).get("cs_rank_ic"), -0.014)
+                coefs = (st.get("return_model") or {}).get("coefficients") or {}
+                self.assertIn("momentum", coefs)
 
 
 if __name__ == "__main__":

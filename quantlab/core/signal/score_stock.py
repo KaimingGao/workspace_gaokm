@@ -110,12 +110,12 @@ def _fetch_bars_isolated(
         return [], "empty"
 
 
-def _alpha158_fetch_limit() -> int:
-    """实盘日线窗。Alpha158 滚动要 ≥61 根，面板窗为 62。"""
+def _alpha_oo_fetch_limit() -> int:
+    """实盘日线窗。开锚 alpha_oo：hist≥60 + 今开；面板对齐窗 62。"""
     try:
-        from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 
-        return int(ALPHA158_PANEL_WINDOW)
+        return int(ALPHA_OO_PANEL_WINDOW)
     except Exception:  # noqa: BLE001
         return 62
 
@@ -254,7 +254,7 @@ def score_stock(
 
     bars = []
     data_source = "quote_fallback"
-    alpha_limit = _alpha158_fetch_limit()
+    alpha_limit = _alpha_oo_fetch_limit()
     try:
         bars, src = fetch_daily_bars(
             raw, limit=alpha_limit, timeout=10.0, offline_only=use_offline
@@ -982,7 +982,6 @@ def score_stock(
                 gap_atr_from_hist,
                 gap_vs_sector_value,
                 hist_bars_pit,
-                mom3_pct_from_hist,
                 yclose_loc_from_prev,
             )
 
@@ -996,7 +995,7 @@ def score_stock(
                     feats["yclose_loc"] = yclose_loc_from_prev(prev_b, float(open_px_z))
                 except (TypeError, ValueError):
                     pass
-            feats["mom3_pct"] = mom3_pct_from_hist(hist)
+            # 近3日动量改吃 raw_aoo_MOM3_C（inject_raw_aoo / tip 侧）
             try:
                 from core.research.tau_panel import attach_tau_lag_features
 
@@ -1043,14 +1042,23 @@ def score_stock(
                 except (TypeError, ValueError):
                     ref = None
             feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
-            # ŷ_τc 的 raw_alpha158_* 用 ≤T−1。窗长 ≥61 时这里才有值。
-            try:
-                from core.signal.factors.alpha158 import raw_alpha158_from_bars
+            # 开锚 alpha_oo：≤T−1 hist + 今开（quote 作 open_t 回退）。
+            if hist:
+                from core.signal.factors.alpha_oo import inject_raw_aoo
 
-                if hist:
-                    feats.update(raw_alpha158_from_bars(hist))
-            except Exception:  # noqa: BLE001
-                logger.debug("tau alpha158 inject skipped for %s", code, exc_info=True)
+                prev_c = None
+                if prev_b is not None:
+                    try:
+                        prev_c = float(prev_b.get("close") or 0) or None
+                    except (TypeError, ValueError):
+                        prev_c = None
+                inject_raw_aoo(
+                    feats,
+                    hist,
+                    open_t=open_px_z,
+                    prev_close=prev_c,
+                    quote=quote if isinstance(quote, dict) else None,
+                )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("tau Z extras skipped for %s", code, exc_info=True)
         try:

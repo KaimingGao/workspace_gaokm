@@ -1,7 +1,7 @@
 """ŷ_oo 观察池 Ridge：按只折进 float64 矩阵，避免整池 Python 字典常驻。
 
 口径与观察池 Ridge 默认项对齐：Ridge（截距不惩罚）、趋势族 drop_redundant、
-min_std=5（``raw_alpha158_*`` 豁免）、完整行；特征 z 由 ``cross_section_zscore``
+min_std=5（``raw_aoo_*`` 豁免）、完整行；特征 z 由 ``cross_section_zscore``
 选择日截面或训练窗全局 μ/σ。标签仍是百分点，不做 z-score。
 """
 
@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 _POOL_BATCH = 24
 
 from core.research.factor_ols_fit import _qr_solve_np, clamp_ridge_lambda
-from core.signal.factors.alpha158 import (
-    ALPHA158_FACTOR_KEY,
-    is_alpha158_raw_key,
-    merge_alpha158_min_std_exempt,
+from core.signal.factors.alpha_oo import (
+    ALPHA_OO_FACTOR_KEY,
+    is_alpha_oo_raw_key,
+    merge_alpha_oo_min_std_exempt,
 )
 
 
@@ -39,12 +39,12 @@ def _banned_factor_names() -> frozenset:
 _ALPHA_RAW_NAMES: Optional[List[str]] = None
 
 
-def alpha158_raw_names() -> List[str]:
-    """``raw_alpha158_*`` 列名，顺序与 ``score_alpha158`` 的 meta 插入顺序一致。"""
+def alpha_oo_raw_names() -> List[str]:
+    """``raw_aoo_*`` 列名，顺序与 ``score_alpha_oo`` 的 meta 插入顺序一致。"""
     global _ALPHA_RAW_NAMES
     if _ALPHA_RAW_NAMES is not None:
         return list(_ALPHA_RAW_NAMES)
-    from core.signal.factors.alpha158 import score_alpha158
+    from core.signal.factors.alpha_oo import score_alpha_oo
 
     bars: List[dict] = []
     px = 10.0
@@ -60,15 +60,17 @@ def alpha158_raw_names() -> List[str]:
                 "volume": 100000.0 + i,
             }
         )
-    _score, meta = score_alpha158(bars)
+    _score, meta = score_alpha_oo(bars)
     names: List[str] = []
     for mk, mv in (meta or {}).items():
         sk = str(mk)
-        if sk in ("omit_sub_score", "ok") or sk.startswith("alpha158_"):
+        if sk in ("omit_sub_score", "ok") or sk.startswith("alpha_oo_"):
             continue
         if isinstance(mv, bool) or not isinstance(mv, (int, float)):
             continue
-        names.append(f"raw_alpha158_{sk}")
+        from core.signal.factors.alpha_oo import ALPHA_OO_RAW_PREFIX
+
+        names.append(f"{ALPHA_OO_RAW_PREFIX}{sk}")
     _ALPHA_RAW_NAMES = names
     return list(names)
 
@@ -80,7 +82,7 @@ def _registered_ridge_names() -> List[str]:
     seen = set()
     for name in registered_factor_names():
         k = str(name or "").strip()
-        if not k or k == ALPHA158_FACTOR_KEY or k in seen:
+        if not k or k == ALPHA_OO_FACTOR_KEY or k in seen:
             continue
         seen.add(k)
         out.append(k)
@@ -98,7 +100,7 @@ class OoPanelMatrix:
         self.dates: List[str] = []
         self._banned = _banned_factor_names()
         self._widen(_registered_ridge_names())
-        self._widen(alpha158_raw_names())
+        self._widen(alpha_oo_raw_names())
 
     def _widen(self, new_names: Sequence[str]) -> None:
         fresh = [str(n) for n in new_names if str(n) not in self._index]
@@ -130,7 +132,7 @@ class OoPanelMatrix:
                 continue
             for key, val in row.items():
                 sk = str(key)
-                if sk in self._index or sk in seen or not is_alpha158_raw_key(sk):
+                if sk in self._index or sk in seen or not is_alpha_oo_raw_key(sk):
                     continue
                 if val is None:
                     continue
@@ -790,7 +792,7 @@ def fit_oo_ridge_matrix(
 
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     feature_names = [str(n) for n in names]
-    exempt = merge_alpha158_min_std_exempt(feature_names, None)
+    exempt = merge_alpha_oo_min_std_exempt(feature_names, None)
     x_c, y_c, active, excluded, prep_meta = _prepare_matrix(
         x,
         y,

@@ -1,8 +1,11 @@
-"""ŷ_τc Ridge：开盘 Z[+Alpha158]+分钟路径上拟合 τ→close（close[T]/price[τ]−1）。
+"""ŷ_τc Ridge：``alpha_τc`` 特征包上拟合 τ→close（close[T]/price[τ]−1）。
+
+**alpha_τc** := 开盘 Z（``TAU_Z_FEATURES``，含 ≤τ 分钟键）∪ ``raw_aoo_*``（alpha_oo）。
+现网固定完整 **alpha_τc**（Z∪alpha_oo）。
 
 这就是调仓 ranking 里的 ŷ_τc。打分写入 ``y_τc``（含时钟对齐）。
 供买入闸、ranking 的 τc 项、做 T 估 C_τ。与 ŷ_oo 独立，不改写 ``predicted_score``。
-默认吃 ``raw_alpha158_*``（≤T−1）；与 ŷ_oo 日线 X 可能重叠，融合权重慎设。
+``raw_aoo_*`` 与 ŷ_oo 日线 X 可能重叠，融合权重慎设。
 """
 
 from __future__ import annotations
@@ -40,9 +43,23 @@ TAU_FEATURE_EXTRA = (
     "gap_atr",
     "gap_vs_sector",
     "yclose_loc",
-    "mom3_pct",
 ) + TAU_LAG_FEATURES
-# τ 头主吃开盘 Z；可选 raw_alpha158_*（与 ŷ_oo 日线 X 可能重叠）
+# 报告/落盘元数据：特征包名（列仍是 Z + raw_aoo_*，无独立 raw_atc_*）
+ALPHA_TC_PACK_NOTE = "alpha_τc=Z ∪ alpha_oo"
+
+
+def alpha_tc_report_meta(*, n_alpha_oo_features: int = 0) -> Dict[str, Any]:
+    """拟合/promote 报告挂的特征包字段。"""
+    return {
+        "feature_pack": "alpha_τc",
+        "feature_pack_key": "alpha_tc",
+        "feature_pack_formula": "Z ∪ alpha_oo",
+        "include_alpha_oo": True,
+        "n_alpha_oo_features": int(n_alpha_oo_features or 0),
+    }
+
+
+# alpha_τc = Z ∪ alpha_oo；此处为 Z 块。近3日动量改吃 raw_aoo_MOM3_C（勿双计）
 TAU_Z_FEATURES = (
     "gap_pct",
     "sector_gap_breadth",
@@ -50,7 +67,6 @@ TAU_Z_FEATURES = (
     "gap_atr",
     "gap_vs_sector",
     "yclose_loc",
-    "mom3_pct",
 ) + MINUTE_TAU_ALL_KEYS + TAU_LAG_FEATURES
 # gap/breadth 单位是百分点或 [0,1]，勿用 0–100 分制的 min_std=5 误剔
 TAU_MIN_STD_EXEMPT = TAU_FEATURE_EXTRA + MINUTE_TAU_ALL_KEYS
@@ -469,13 +485,12 @@ def build_tau_panels_from_bars(
     gap_trigger_pct: float = 2.0,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
-    include_alpha158: bool = False,
+    include_alpha_oo: bool = False,
 ) -> List[Dict[str, Any]]:
     """``stock_bars``: ``[{code, bars, minute_bars?, index_bars?, fundamentals?}, ...]``。
 
     ``tau_hm=open``：开盘→收盘标签；否则用分钟价训 τ→收盘（无分钟则跳过该日）。
     ``tau_grid``：变长前缀少数时钟（共享 β）。
-    ``include_alpha158``：面板附加 ``raw_alpha158_*``（≤T−1；Ridge / 树共用）。
     分钟路径下每只票 ``collect`` 完会 ``pop`` 掉该票 ``minute_bars``（meta 已带
     ``price_tau30…90``），避免满池 5m 常驻到拟合结束。
     """
@@ -505,7 +520,7 @@ def build_tau_panels_from_bars(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha158=include_alpha158,
+                include_alpha_oo=include_alpha_oo,
             )
             # meta 已带 price_tau30…90；relabel 不再需要分钟线
             item.pop("minute_bars", None)
@@ -516,7 +531,7 @@ def build_tau_panels_from_bars(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha158=include_alpha158,
+                include_alpha_oo=include_alpha_oo,
             )
         if len(ys) < 4:
             continue
@@ -543,7 +558,6 @@ def fit_tau_ridge_report(
     use_theme_weights: bool = True,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
-    include_alpha158: bool = True,
     cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ 头 Ridge + Holdout OOS。
@@ -552,7 +566,6 @@ def fit_tau_ridge_report(
     ``tau_hm`` 非 open 时换信息集（前缀分钟路径）；``tau_grid`` 变长前缀共享 β。
     默认近 ``holdout_trading_days`` 个交易日只测；训练段 β 为研究模型，
     全样本重估为执行模型。
-    ``include_alpha158``：默认 True，面板附加 ``raw_alpha158_*``（≤T−1）。
     ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
     """
     tau_key = str(tau_hm or "open").strip() or "open"
@@ -568,7 +581,7 @@ def fit_tau_ridge_report(
         fit_keepall_ridge_matrix,
         named_columns,
         predict_ridge_matrix,
-        raw_alpha158_finite,
+        raw_aoo_finite,
     )
 
     X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
@@ -578,7 +591,7 @@ def fit_tau_ridge_report(
         gap_trigger_pct=gap_trigger_pct,
         tau_hm=tau_key,
         tau_grid=grid,
-        include_alpha158=include_alpha158,
+        include_alpha_oo=True,
         head="y_tc",
     )
     if len(ys) < 20:
@@ -619,31 +632,33 @@ def fit_tau_ridge_report(
         else None
     )
 
-    # 始终纳入开盘 Z 键（含 theme_day）；分钟专用键仅 minute 模式；可选 Alpha158
+    # 开盘 Z（含 theme_day）+ alpha_oo；分钟专用键仅 minute 模式
     drop_opt = set() if use_minute else set(MINUTE_TAU_ALL_KEYS)
     feat_names = [
         k for k in TAU_Z_FEATURES if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
     ]
-    if include_alpha158:
-        seen = set(feat_names)
-        for k in raw_alpha158_finite(X, col_names, train_idx):
-            if k not in seen:
-                seen.add(k)
-                feat_names.append(k)
+    seen = set(feat_names)
+    for k in raw_aoo_finite(X, col_names, train_idx):
+        if k not in seen:
+            seen.add(k)
+            feat_names.append(k)
+
+    from core.signal.factors.alpha_oo import (
+        is_alpha_oo_raw_key,
+        merge_alpha_oo_min_std_exempt,
+    )
 
     fill_keys = list(TAU_Z_FEATURES)
     seen_fill = set(fill_keys)
     for name in col_names:
-        if str(name).startswith("raw_alpha158_") and name not in seen_fill:
+        if is_alpha_oo_raw_key(str(name)) and name not in seen_fill:
             seen_fill.add(name)
             fill_keys.append(name)
     feature_fill = fill_rates_from_matrix(X, col_names, fill_keys)
     X_fit, feat_names = named_columns(X, col_names, feat_names)
     del X
 
-    from core.signal.factors.alpha158 import merge_alpha158_min_std_exempt
-
-    min_std_exempt = merge_alpha158_min_std_exempt(
+    min_std_exempt = merge_alpha_oo_min_std_exempt(
         feat_names, list(TAU_MIN_STD_EXEMPT)
     )
 
@@ -714,7 +729,7 @@ def fit_tau_ridge_report(
         "target": target,
         "residualized": False,
         "tau": tau_key,
-        "include_alpha158": bool(include_alpha158),
+        "include_alpha_oo": True,
     }
     if ys_te:
         try:
@@ -762,19 +777,14 @@ def fit_tau_ridge_report(
             "变长前缀 5m 槽共享 β；标签=τ→close（close[T]/price[τ]−1）；"
             "open 时钟 price[τ]=open；"
             "live 调仓前缀=因果末根（≤10:00）"
-            + ("；Z+raw_alpha158_*" if include_alpha158 else "；Z-only")
+            + "；alpha_τc=Z∪raw_aoo_*"
             if use_minute
-            else (
-                "Z[+Alpha158] τ→close（开盘 price[τ]=open）；theme_day+yclose/mom3+tau_lag1/ma5"
-                "+raw_alpha158_*；live 写 y_τc"
-                if include_alpha158
-                else "Z-only τ→close（开盘 price[τ]=open）；theme_day+yclose/mom3+tau_lag1/ma5；live 写 y_τc"
-            )
+            else "alpha_τc=Z∪raw_aoo_* τ→close（开盘 price[τ]=open）；theme_day+yclose+tau_lag1/ma5；live 写 y_τc"
         ),
     }
     model["extra_features"] = list(fill_keys)
     model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(TAU_LAG_FEAT_LABELS)}
-    model["include_alpha158"] = bool(include_alpha158)
+    model["include_alpha_oo"] = True
     if use_minute:
         from core.signal.minute_tau_grid import LIVE_PREFIX_CAUSAL_REBALANCE
 
@@ -788,14 +798,16 @@ def fit_tau_ridge_report(
         "target",
         "residualized",
         "live_prefix",
-        "include_alpha158",
+        "include_alpha_oo",
     ):
         if model.get(k) is not None:
             research_model[k] = model.get(k)
 
-    n_a158 = sum(
-        1 for k in (model.get("extra_features") or []) if "alpha158" in str(k).lower()
+    n_aoo = sum(
+        1 for k in (model.get("extra_features") or []) if is_alpha_oo_raw_key(str(k))
     )
+    pack = alpha_tc_report_meta(n_alpha_oo_features=n_aoo)
+    pack_note = ALPHA_TC_PACK_NOTE
     day_keys = set()
     for m, d in zip(metas_use, dates_use):
         code = ""
@@ -821,19 +833,16 @@ def fit_tau_ridge_report(
         "schema": "tau_ridge_v12",
         "target": target,
         "residualized": False,
-        "include_alpha158": bool(include_alpha158),
-        "n_alpha158_features": n_a158,
+        "include_alpha_oo": True,
+        "n_alpha_oo_features": n_aoo,
+        **pack,
         "note": (
             (
-                "ŷ_τ(Z[+Alpha158]) 变长前缀 5m 槽共享 β；τ→close 标签；OOS.by_tau；按日 OOS；live 调仓=因果末根"
-                if include_alpha158
-                else "ŷ_τ(Z) 变长前缀 5m 槽共享 β；τ→close 标签；OOS.by_tau；按日 OOS；live 调仓=因果末根"
+                f"ŷ_τc({pack_note}) 变长前缀 5m 槽共享 β；τ→close 标签；OOS.by_tau；按日 OOS；live 调仓=因果末根"
             )
             if use_minute
             else (
-                "ŷ_τ(Z[+Alpha158]) 独立估 τ→close（开盘 price[τ]=open）；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；raw_alpha158_*；与 EOD 解耦"
-                if include_alpha158
-                else "ŷ_τ(Z) 独立估 τ→close（开盘 price[τ]=open）；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；与 EOD 解耦"
+                f"ŷ_τc({pack_note}) 独立估 τ→close（开盘 price[τ]=open）；theme+|gap|；yclose_loc；PIT tau_lag1/ma5；与 EOD 解耦"
             )
         ),
     }
@@ -946,7 +955,7 @@ def persist_tau_model(
             "formula": "close[T]/price[τ]-1",
             "unit": "pct",
             "tau": "open",
-            "note": "Z[+Alpha158] τ→close" if rm.get("include_alpha158") else "Z-only τ→close",
+            "note": "alpha_τc=Z∪aoo τ→close",
         }
     tau = str(y_spec.get("tau") or rm.get("horizon_mode") or "open")
     if tau in ("open_to_close", "open→close", "tau_to_close", "τ→close"):
@@ -961,10 +970,10 @@ def persist_tau_model(
     residualized = False
     rm["target"] = target
     rm["residualized"] = residualized
-    if "include_alpha158" in report:
-        rm["include_alpha158"] = bool(report.get("include_alpha158"))
-    elif "include_alpha158" not in rm:
-        rm["include_alpha158"] = False
+    if "include_alpha_oo" in report:
+        rm["include_alpha_oo"] = bool(report.get("include_alpha_oo"))
+    elif "include_alpha_oo" not in rm:
+        rm["include_alpha_oo"] = False
 
     raw_schema = str(report.get("schema") or "tau_ridge_v12")
     if raw_schema.startswith("rem_ridge"):
@@ -973,6 +982,9 @@ def persist_tau_model(
     from core.research.holdout import model_fit_id
 
     fitted_at = model_fit_id(report)
+    pack = alpha_tc_report_meta(
+        n_alpha_oo_features=int(report.get("n_alpha_oo_features") or 0),
+    )
     doc = {
         "success": True,
         "fitted_at": fitted_at,
@@ -994,14 +1006,14 @@ def persist_tau_model(
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
-        "include_alpha158": bool(rm.get("include_alpha158")),
-        "n_alpha158_features": report.get("n_alpha158_features"),
+        "include_alpha_oo": bool(rm.get("include_alpha_oo")),
+        "n_alpha_oo_features": report.get("n_alpha_oo_features"),
         "dual_score_head": "predicted_score_tau",
         "contract_note": (
-            "ŷ_τc(Z[+Alpha158]) 估 τ→close → y_τc；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
-            if rm.get("include_alpha158")
-            else "ŷ_τc(Z) 估 τ→close → y_τc；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
+            f"ŷ_τc({ALPHA_TC_PACK_NOTE}) "
+            "估 τ→close → y_τc；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
         ),
+        **pack,
     }
     if isinstance(report, dict) and "cross_section_zscore" in report:
         doc["cross_section_zscore"] = bool(report.get("cross_section_zscore"))
@@ -1062,7 +1074,6 @@ _TAU_FEAT_LABELS = {
     "gap_atr": "缺口 / ATR",
     "gap_vs_sector": "行业相对缺口",
     "yclose_loc": "昨收位置",
-    "mom3_pct": "近3日动量 %",
     **TAU_LAG_FEAT_LABELS,
     **T30_LAG_FEAT_LABELS,
     **MINUTE_TAU_FEAT_LABELS,
@@ -1135,14 +1146,14 @@ def explain_tau_prediction(
         terms.append(term)
     if not terms and abs(intercept) < 1e-12:
         return None
-    # 旧 τ 头仍含日线 β 时：缺特征的非 Z/a158 行对 tip 无信息，只保留 Z（含缺特征）与有实值的项
-    from core.signal.factors.alpha158 import is_alpha158_raw_key
+    # 旧 τ 头仍含日线 β 时：缺特征的非 Z/aoo 行对 tip 无信息，只保留 Z（含缺特征）与有实值的项
+    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
 
     z_keys = set(TAU_Z_FEATURES) | {"open_gap"}
     slim: List[Dict[str, Any]] = []
     for t in terms:
         key = str(t.get("key") or "")
-        if t.get("note") and key not in z_keys and not is_alpha158_raw_key(key):
+        if t.get("note") and key not in z_keys and not is_alpha_oo_raw_key(key):
             continue
         slim.append(t)
     if slim:

@@ -340,7 +340,7 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertEqual(
             close_band_y_τc_round_shares(cfg, y_τc=0.6, price=80),
-            100,
+            0,
         )
 
     def test_y_τc_enter_skip_reason(self):

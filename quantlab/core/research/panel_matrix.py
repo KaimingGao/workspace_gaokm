@@ -1,7 +1,7 @@
 """把因子行折成 float64 面板，再在矩阵上做 keep-all Ridge。
 
 截面广度仍要读缺口和路径收益，所以每只股票先写入矩阵，只把广度用到的十几列
-留在瘦 dict 里。Alpha158 原始列不再在全池 dict 里停留。
+留在瘦 dict 里。alpha_oo 原始列不再在全池 dict 里停留。
 Ridge 口径与 ``fit_factor_ols_from_panel`` 对齐：√w + keep_all；拟合用完整行。
 ``cross_section_zscore=True``（默认）且有决策日 → 当天截面 z；``False`` → 训练窗
 全局 μ/σ。截面模型预测缺测填 z=0。
@@ -42,9 +42,9 @@ def _breadth_keys() -> Tuple[str, ...]:
 
 
 class PanelMatrix:
-    """按列名累积 float64 行。``raw_alpha158_*`` 可在见到数值时加列。"""
+    """按列名累积 float64 行。``raw_aoo_*`` 可在见到数值时加列。"""
 
-    def __init__(self, names: Sequence[str], *, widen_prefix: str = "raw_alpha158_"):
+    def __init__(self, names: Sequence[str], *, widen_prefix: str = "raw_aoo_"):
         self.names: List[str] = [str(n) for n in names]
         self._index: Dict[str, int] = {n: i for i, n in enumerate(self.names)}
         self._widen_prefix = str(widen_prefix or "")
@@ -235,7 +235,7 @@ def collect_tau_compact(
     gap_trigger_pct: float = 2.0,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
-    include_alpha158: bool = True,
+    include_alpha_oo: bool = True,
     head: str = "y_tc",
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。"""
@@ -252,7 +252,7 @@ def collect_tau_compact(
         else None
     )
     block = PanelMatrix(
-        names, widen_prefix="raw_alpha158_" if include_alpha158 else ""
+        names, widen_prefix="raw_aoo_" if include_alpha_oo else ""
     )
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
@@ -275,7 +275,7 @@ def collect_tau_compact(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha158=include_alpha158,
+                include_alpha_oo=include_alpha_oo,
             )
             item.pop("minute_bars", None)
         else:
@@ -285,7 +285,7 @@ def collect_tau_compact(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha158=include_alpha158,
+                include_alpha_oo=include_alpha_oo,
             )
         if len(ys) < 4:
             continue
@@ -318,13 +318,13 @@ def collect_co_compact(
     *,
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
-    include_alpha158: bool = True,
+    include_alpha_oo: bool = True,
     head: str = "y_co",
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     from core.research.co_panel import collect_co_panel
 
     block = PanelMatrix(
-        names, widen_prefix="raw_alpha158_" if include_alpha158 else ""
+        names, widen_prefix="raw_aoo_" if include_alpha_oo else ""
     )
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
@@ -340,7 +340,7 @@ def collect_co_compact(
             bars,
             min_history=min_history,
             stock_code=code,
-            include_alpha158=include_alpha158,
+            include_alpha_oo=include_alpha_oo,
         )
         if len(ys) < 4:
             continue
@@ -386,12 +386,12 @@ def named_columns(
     return np.ascontiguousarray(X[:, cols]), kept
 
 
-def raw_alpha158_finite(
+def raw_aoo_finite(
     X: np.ndarray,
     names: Sequence[str],
     row_idx: Optional[Sequence[int]] = None,
 ) -> List[str]:
-    """训练行（或全表）上至少有一个有限值的 ``raw_alpha158_*``，按列序。"""
+    """训练行（或全表）上至少有一个有限值的 ``raw_aoo_*``，按列序。"""
     if X.size == 0 or X.shape[0] == 0:
         return []
     if row_idx is None:
@@ -401,9 +401,11 @@ def raw_alpha158_finite(
         if idx.size == 0:
             return []
         view = X[idx]
+    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
+
     out: List[str] = []
     for j, name in enumerate(names):
-        if not str(name).startswith("raw_alpha158_"):
+        if not is_alpha_oo_raw_key(str(name)):
             continue
         if np.isfinite(view[:, j]).any():
             out.append(str(name))
@@ -599,23 +601,23 @@ def fit_keepall_ridge_matrix(
     ``cross_section_zscore=True``（且提供 ``row_dates``）：按日截面 z。
     ``False``：训练样本内全局 μ/σ（落盘 zscore_means/stds）。
     """
-    from core.signal.factors.alpha158 import (
-        ALPHA158_FACTOR_KEY,
-        is_alpha158_raw_key,
-        merge_alpha158_min_std_exempt,
+    from core.signal.factors.alpha_oo import (
+        ALPHA_OO_FACTOR_KEY,
+        is_alpha_oo_raw_key,
+        merge_alpha_oo_min_std_exempt,
     )
 
     y_arr = np.asarray(y, dtype=np.float64)
     x_arr = np.asarray(X, dtype=np.float64)
     feat_names = [str(n) for n in names]
-    if any(is_alpha158_raw_key(n) for n in feat_names):
-        feat_names = [n for n in feat_names if n != ALPHA158_FACTOR_KEY]
+    if any(is_alpha_oo_raw_key(n) for n in feat_names):
+        feat_names = [n for n in feat_names if n != ALPHA_OO_FACTOR_KEY]
         if x_arr.ndim == 2 and x_arr.shape[1] != len(feat_names):
             src_index = {str(n): i for i, n in enumerate(names)}
             cols = [src_index[n] for n in feat_names if n in src_index]
             x_arr = x_arr[:, cols] if cols else np.zeros((x_arr.shape[0], 0))
             feat_names = [n for n in feat_names if n in src_index]
-    exempt = merge_alpha158_min_std_exempt(feat_names, min_std_exempt)
+    exempt = merge_alpha_oo_min_std_exempt(feat_names, min_std_exempt)
     if x_arr.ndim != 2 or y_arr.ndim != 1 or x_arr.shape[0] != y_arr.shape[0]:
         return {"success": False, "error": "面板形状与标签不一致"}
     if x_arr.shape[1] != len(feat_names):

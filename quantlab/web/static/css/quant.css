@@ -58,11 +58,18 @@
 .quant-oos-compare {
   margin: 0 0 12px;
 }
-.quant-oos-compare-note {
-  margin: 8px 0 0;
+.quant-oos-compare-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0 0 8px;
+}
+.quant-oos-compare-meta-chip {
   font-size: 11px;
-  line-height: 1.45;
-  color: var(--ink-3);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  padding: 2px 0;
 }
 .quant-oos-compare-table th {
   text-transform: none;
@@ -77,44 +84,64 @@
   background: rgba(245, 34, 45, 0.07);
 }
 .quant-oos-board {
+  --oos-tree: #0f766e;
+  --oos-ridge: #64748b;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   margin: 0 0 8px;
+  align-items: stretch;
 }
 .quant-oos-board-card {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 6px 8px;
+  gap: 4px;
+  padding: 8px 10px;
   border: 1px solid var(--line, #e8e8e8);
   border-radius: 6px;
   background: var(--fill-1, #fafafa);
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--oos-head, var(--ink-3)) 70%, transparent);
   min-width: 0;
 }
+.quant-oos-board-card.is-tree {
+  --oos-head: var(--oos-tree);
+}
+.quant-oos-board-card.is-ridge {
+  --oos-head: var(--oos-ridge);
+}
 .quant-oos-board-card.is-lead {
-  border-color: color-mix(in srgb, var(--color-up, #cf1322) 42%, var(--line, #e8e8e8));
-  background: color-mix(in srgb, var(--color-up, #cf1322) 6%, transparent);
+  border-color: color-mix(in srgb, var(--oos-head) 35%, var(--line, #e8e8e8));
+  background: color-mix(in srgb, var(--oos-head) 6%, var(--surface, #fff));
+  box-shadow: inset 2px 0 0 0 var(--oos-head);
 }
 .quant-oos-board-kicker {
   font-size: 10px;
   font-weight: 650;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--ink-3);
 }
+.quant-oos-board-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
 .quant-oos-board-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink);
+  line-height: 1.2;
+  min-width: 0;
 }
 .quant-oos-board-wins {
-  margin-top: 2px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: 0.9375rem;
+  font-size: 0.95rem;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1;
   color: var(--ink);
+  flex: 0 0 auto;
 }
 .quant-oos-board-wins small {
   margin-left: 1px;
@@ -601,30 +628,6 @@
 .quant-page .quant-section-nested:first-child {
   border-top: none;
   padding-top: 0;
-}
-
-/* 参数控制带（报告风：扁直角） */
-.quant-page .quant-control-band {
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
-  padding: 7px 10px 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.quant-page .quant-control-band-compact {
-  padding: 5px 10px;
-}
-
-.quant-page .quant-control-band .quant-oos-semantics {
-  margin: 0;
-  padding-top: 4px;
-  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  max-width: none;
-  font-size: 0.66rem;
-  color: var(--ink-3);
 }
 
 .quant-page > .quant-section {
@@ -1351,14 +1354,6 @@
 
 .quant-page .quant-sub {
   margin: 0;
-}
-
-.quant-page .quant-oos-semantics {
-  margin: 2px 0 6px;
-  font-size: 0.7rem;
-  line-height: 1.4;
-  color: var(--ink-3);
-  max-width: 52em;
 }
 
 .quant-page .quant-sub:empty {
@@ -4280,47 +4275,6 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   min-width: 0;
 }
 
-/* 主路径 fold：开合面板，summary 作状态条 */
-.quant-page .quant-fold-panel {
-  margin: 0;
-  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
-  border-radius: 2px;
-  background: var(--surface);
-  overflow: hidden;
-}
-
-.quant-page .quant-fold-panel > summary {
-  list-style: none;
-  cursor: pointer;
-  padding: 5px 10px;
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--ink-3);
-  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  font-variant-numeric: tabular-nums;
-}
-
-.quant-page .quant-fold-panel > summary::-webkit-details-marker {
-  display: none;
-}
-
-.quant-page .quant-fold-panel > summary::after {
-  content: "▾";
-  float: right;
-  opacity: 0.55;
-  font-size: 0.62rem;
-}
-
-.quant-page .quant-fold-panel:not([open]) > summary::after {
-  content: "▸";
-}
-
-.quant-page .quant-fold-panel .quant-control-band {
-  margin: 0;
-}
-
 /* 帮助折叠：降噪 */
 .quant-page .quant-help-fold {
   margin: 0;
@@ -4896,10 +4850,9 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status-chip
   margin-left: auto;
 }
 
-/* 拟合摘要已并入系数表 KPI；空宿主不占 gap */
+/* 空对照宿主不占 card-body gap（对齐 v2） */
 body[data-page="quant"] .quant-page #quant-oo-result:empty,
-body[data-page="quant"] .quant-page #quant-tau-result:empty,
-body[data-page="quant"] .quant-page #quant-co-result:empty {
+body[data-page="quant"] .quant-page #quant-oo-rank-result:empty {
   display: none;
   margin: 0;
   padding: 0;
@@ -6798,18 +6751,6 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
 }
 
 /* —— β lollipop / hist 填满 —— */
-/* —— OOS 带更克制 —— */
-.quant-page .quant-oos-band {
-  padding: 6px 8px;
-  gap: 8px;
-}
-
-.quant-page .quant-oos-band-label {
-  letter-spacing: 0.06em;
-  padding: 2px 6px;
-  border-radius: 2px;
-}
-
 /* —— 次要网格更紧 —— */
 .quant-page .quant-pro-secondary-grid {
   gap: 8px;
@@ -8264,17 +8205,6 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
-.quant-page .quant-oos-band {
-  width: fit-content;
-  max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
-  border-top: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
-  border-radius: 6px;
-  padding: 8px 12px;
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  gap: 10px;
-}
-
 /* IC / 相关：空宿主不占大块；有图时仍走固定高度规则 */
 .quant-page .quant-ic-compare-grid .dashboard-chart-host.quant-ic-compare-chart:empty {
   min-height: 0;
@@ -9383,28 +9313,6 @@ body[data-page="quant"] .quant-page .quant-pro-card-body {
   background: var(--bg-card, #fff);
 }
 
-/* ── L3 控制带 ── */
-body[data-page="quant"] .quant-page .quant-control-band,
-body[data-page="quant"] .quant-page .quant-pro-control-band {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 2px !important;
-  background: color-mix(in srgb, var(--ink) 1.5%, var(--bg-elevated, var(--surface)));
-}
-
-body[data-page="quant"] .quant-page .quant-oos-band {
-  width: fit-content;
-  max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
-  border-radius: 2px !important;
-  padding: 8px 12px;
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  gap: 10px;
-}
-
 body[data-page="quant"] .quant-page .quant-pro-field input[type="number"],
 body[data-page="quant"] .quant-page .quant-inline-input,
 body[data-page="quant"] .quant-page .quant-inline-select,
@@ -9463,7 +9371,6 @@ body[data-page="quant"] .quant-page .quant-pro-kpi-card,
 body[data-page="quant"] .quant-page .quant-path-rail,
 body[data-page="quant"] .quant-page .quant-pro-path-rail,
 body[data-page="quant"] .quant-page .quant-pro-path-num,
-body[data-page="quant"] .quant-page .quant-control-band,
 body[data-page="quant"] .quant-page .quant-cluster-status,
 body[data-page="quant"] .quant-page .quant-fold,
 body[data-page="quant"] .quant-page .yhat-mx,
@@ -9771,16 +9678,6 @@ body[data-page="quant"] .quant-page .quant-pro-card-body {
   gap: var(--q-gap-block) !important;
 }
 
-/* 控制带 / 字段 / 按钮密度 */
-body[data-page="quant"] .quant-page .quant-control-band,
-body[data-page="quant"] .quant-page .quant-pro-control-band {
-  padding: 8px 10px !important;
-  gap: 8px !important;
-  border-radius: 2px !important;
-  background: color-mix(in srgb, var(--ink) 1.4%, var(--bg-elevated, var(--surface))) !important;
-  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent) !important;
-}
-
 body[data-page="quant"] .quant-page .quant-pro-field-label,
 body[data-page="quant"] .quant-page .quant-block-cap {
   font-size: var(--q-fs-micro) !important;
@@ -9867,27 +9764,6 @@ body[data-page="quant"] .quant-page .dialog-btn.is-gate-warn {
 
 body[data-page="quant"] .quant-page .dialog-btn.warn.is-gate-warn {
   color: #fff !important;
-}
-
-body[data-page="quant"] .quant-page .quant-oos-band {
-  padding: 6px 10px !important;
-  gap: 8px !important;
-  border-radius: 2px !important;
-}
-
-body[data-page="quant"] .quant-page .quant-oos-band-label {
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.08em !important;
-  text-transform: uppercase !important;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: var(--accent);
-}
-
-body[data-page="quant"] .quant-page .quant-oos-band-text {
-  font-size: var(--q-fs-caption) !important;
-  color: var(--ink-2) !important;
-  line-height: 1.35 !important;
 }
 
 /* 摘要 / 表 / 次要折叠 */
@@ -10239,12 +10115,28 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   margin-top: 0;
 }
 
-/* ŷ_oo / ŷ_oc 系数表宿主：去掉 wrap 上下 margin，避免与 card gap 叠出空白 */
+/* ŷ_* 因子表 / ŷ_oo·ŷ_oo_rank 结果宿主：清零 wrap margin（间隔靠 oos-compare 底边距 + card gap） */
 .quant-page #quant-oo-coef-table.quant-weight-table-wrap,
 .quant-page #quant-tau-coef-table.quant-weight-table-wrap,
+.quant-page #quant-co-coef-table.quant-weight-table-wrap,
+.quant-page #quant-oo-rank-coef-table.quant-weight-table-wrap,
+.quant-page #quant-t30-coef-table.quant-weight-table-wrap,
+.quant-page #quant-t45-coef-table.quant-weight-table-wrap,
+.quant-page #quant-t60-coef-table.quant-weight-table-wrap,
+.quant-page #quant-t75-coef-table.quant-weight-table-wrap,
+.quant-page #quant-t90-coef-table.quant-weight-table-wrap,
 .quant-page #quant-oo-result.quant-weight-table-wrap,
-.quant-page #quant-tau-result.quant-weight-table-wrap {
+.quant-page #quant-oo-rank-result.quant-weight-table-wrap {
   margin: 0;
+}
+
+/* ŷ_τ30…90：次要折叠卡取消左右 inset，因子表列宽与 ŷ_oo 主卡同轨 */
+body[data-page="quant"] .quant-page #quant-section-t30 .quant-secondary-fold > .dashboard-card.quant-pro-card,
+body[data-page="quant"] .quant-page #quant-section-t45 .quant-secondary-fold > .dashboard-card.quant-pro-card,
+body[data-page="quant"] .quant-page #quant-section-t60 .quant-secondary-fold > .dashboard-card.quant-pro-card,
+body[data-page="quant"] .quant-page #quant-section-t75 .quant-secondary-fold > .dashboard-card.quant-pro-card,
+body[data-page="quant"] .quant-page #quant-section-t90 .quant-secondary-fold > .dashboard-card.quant-pro-card {
+  margin: 8px 0 0 !important;
 }
 
 .quant-page .quant-rem-coef-head {
@@ -10399,25 +10291,28 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
 }
 
 .quant-page .quant-rem-coef .quant-research-grid .watching-react-grid-cell {
-  padding-left: 14px;
-  padding-right: 14px;
+  padding-left: 16px;
+  padding-right: 16px;
   border-left: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
 }
 
 .quant-page .quant-rem-coef .quant-research-grid .watching-react-grid-row > .watching-react-grid-cell:first-child {
   border-left: 0;
-  padding-left: 12px;
+  padding-left: 16px;
 }
 
 .quant-page .quant-rem-coef .quant-research-grid .watching-react-grid-row > .watching-react-grid-cell:last-child {
-  padding-right: 12px;
+  padding-right: 16px;
 }
 
 .quant-page .quant-rem-coef .quant-research-grid .watching-react-grid-row.is-head {
   min-height: 28px;
 }
 
+/* 表头全局 uppercase 会把 μ/σ 变成 Μ/Σ；系数表保留小写希腊字母（对齐 v2） */
 .quant-page .quant-rem-coef .quant-research-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
+  text-transform: none;
+  letter-spacing: 0.02em;
   border-left-color: color-mix(in srgb, var(--line) 70%, transparent);
   font-size: 0.62rem;
   letter-spacing: 0.07em;
@@ -10834,6 +10729,11 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   background: color-mix(in srgb, var(--accent, #1890ff) 70%, transparent);
 }
 
+.quant-page .quant-rem-share-fill.is-gain {
+  /* 与 |β|% 彩条同色（蓝）；对齐 v2 ŷ_oo */
+  background: color-mix(in srgb, var(--accent, #1890ff) 70%, transparent);
+}
+
 .quant-page .quant-rem-kind-chip {
   display: inline-block;
   padding: 1px 5px;
@@ -10893,9 +10793,15 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   }
 }
 
-/* ── ŷ_τ_tree / ŷ_r_tree 影子对照 ── */
+/* ── ŷ_*_tree 对照表宿主 ── */
+.quant-page #quant-oo-tree-result.quant-weight-table-wrap,
 .quant-page #quant-tau-tree-result.quant-weight-table-wrap,
-.quant-page #quant-r-tree-result.quant-weight-table-wrap {
+.quant-page #quant-co-tree-result.quant-weight-table-wrap,
+.quant-page #quant-t30-tree-result.quant-weight-table-wrap,
+.quant-page #quant-t45-tree-result.quant-weight-table-wrap,
+.quant-page #quant-t60-tree-result.quant-weight-table-wrap,
+.quant-page #quant-t75-tree-result.quant-weight-table-wrap,
+.quant-page #quant-t90-tree-result.quant-weight-table-wrap {
   overflow-x: hidden;
   width: 100%;
 }

@@ -293,12 +293,18 @@ class TestHoldingsTauOpenZAlignment(unittest.TestCase):
         present = set(fill.get("present") or [])
         for k in (
             "yclose_loc",
-            "mom3_pct",
             "sector_gap_breadth",
             "gap_vs_sector",
         ):
             self.assertIsNotNone(ft.get(k), k)
             self.assertIn(k, present, fill)
+        # 近3日动量已并入 alpha_oo
+        self.assertTrue(
+            any(str(k).startswith("raw_aoo_") for k in ft)
+            or "raw_aoo_MOM3_C" in present
+            or any(str(k).startswith("raw_aoo_") for k in present),
+            fill,
+        )
 
         asof = str(it.get("as_of_tau") or "")[:10]
         asof_hm = ""

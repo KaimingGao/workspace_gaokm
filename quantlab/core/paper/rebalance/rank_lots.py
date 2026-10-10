@@ -11,9 +11,10 @@
   - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
   - ranking > rank强 → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
-    股数 = 金额/价 向下取整到一手；不够一手则买一手
+    股数 = 金额/价 向下取整到一手；不够一手则跳过
+  - 单票持仓市值上限 = lot_strong_amount × 120%；买后将超过则跳过（防单票过重）
   - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
-    强档买不下先试入场金额，再缩。live 另受持仓市值上限约束
+    强档买不下先试入场金额，再缩。live 另受组合持仓市值上限约束
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ LOT_AMOUNT_STRONG = 20_000.0
 LOT_AMOUNT_MIN = 1_000.0
 LOT_AMOUNT_MAX = 1_000_000.0
 LOT_MIN = 100
+STOCK_MV_CAP_MULT = 1.2
 
 
 def _display_name(code: str, *cands: Any) -> str:
@@ -180,27 +182,41 @@ def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]
     return None
 
 
-def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
-    """oo_rank 名次上限：须 y_oo_rank < 该值才过入场；None/≤0=关。"""
+def oo_rank_top_frac_from_cfg(cfg: Optional[dict]) -> Optional[float]:
+    """oo_rank 相对名次闸：开则须 y_oo_rank < n·frac（UI「rank < top 50%」→0.5）。
+
+    None/≤0=关。显式 ``oo_rank_top_frac``（含 null）优先；否则旧键 ``oo_rank_max``>0 迁成 0.5。
+    """
     d = cfg if isinstance(cfg, dict) else {}
-    raw = d.get("oo_rank_max")
-    if raw in (None, ""):
+    if "oo_rank_top_frac" in d:
+        raw = d.get("oo_rank_top_frac")
+        if raw in (None, "", False):
+            return None
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if v != v or v <= 0.0 or v > 1.0:
+            return None
+        return float(v)
+    legacy = d.get("oo_rank_max")
+    if legacy in (None, ""):
         return None
     try:
-        v = int(float(raw))
+        if float(legacy) > 0:
+            return 0.5
     except (TypeError, ValueError):
         return None
-    if v <= 0:
-        return None
-    return max(1, min(v, 10_000))
+    return None
 
 
-def _oo_rank_max_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
-    """ŷ_oo_rank 截面名次闸：开则须 rank < oo_rank_max。缺分不拦。"""
-    max_r = oo_rank_max_from_cfg(cfg)
-    if max_r is None:
+def _oo_rank_top_frac_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
+    """ŷ_oo_rank 截面名次闸：开则须 rank < n·frac。缺 rank/n 不拦。"""
+    frac = oo_rank_top_frac_from_cfg(cfg)
+    if frac is None:
         return None
     rank = None
+    n_pool = None
     if isinstance(item, dict):
         for key in ("y_oo_rank", "y_oo_rank_hat", "predicted_score_oo_rank"):
             raw = item.get(key)
@@ -211,10 +227,18 @@ def _oo_rank_max_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str
                 break
             except (TypeError, ValueError):
                 continue
-    if rank is None:
+        raw_n = item.get("y_oo_rank_n")
+        if raw_n not in (None, ""):
+            try:
+                n_pool = int(raw_n)
+            except (TypeError, ValueError):
+                n_pool = None
+    if rank is None or n_pool is None or n_pool <= 0:
         return None
-    if float(rank) >= float(max_r):
-        return f"oo_rank={int(rank)}≥{int(max_r)} 未过入场"
+    thresh = float(n_pool) * float(frac)
+    if float(rank) >= thresh:
+        pct = int(round(float(frac) * 100.0))
+        return f"oo_rank={int(rank)}/{n_pool}≥top{pct}% 未过入场"
     return None
 
 
@@ -228,7 +252,7 @@ def rank_lot_enter_skip_reason(
 
     ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开/不加。
     ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
-    过 OR 后可选 ``oo_rank_max``：须当日截面名次 y_oo_rank < 上限（缺分不拦）。
+    过 OR 后可选 ``oo_rank_top_frac``：须当日截面名次 y_oo_rank < n·frac（缺 rank/n 不拦）。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oo, pick_y_τc
@@ -251,7 +275,7 @@ def rank_lot_enter_skip_reason(
     y_oo_gt0, y_τc_gt0 = _y_gt0_flags(cfg_d)
 
     def _pass_or_oo_rank() -> Optional[str]:
-        return _oo_rank_max_skip(item, cfg_d)
+        return _oo_rank_top_frac_skip(item, cfg_d)
 
     skip = None
     if gate1_on:
@@ -397,6 +421,17 @@ def clip_lot_to_cash(
     return min(sh, max_sh)
 
 
+def stock_mv_cap_from_strong(amount_strong: float) -> float:
+    """单票持仓市值上限：强档金额 × STOCK_MV_CAP_MULT（默认 120%）。"""
+    try:
+        strong = float(amount_strong)
+    except (TypeError, ValueError):
+        strong = float(LOT_AMOUNT_STRONG)
+    if strong != strong or strong <= 0:
+        strong = float(LOT_AMOUNT_STRONG)
+    return float(strong) * float(STOCK_MV_CAP_MULT)
+
+
 def _lot_amounts_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
     base = LOT_AMOUNT_BASE
     strong = LOT_AMOUNT_STRONG
@@ -408,50 +443,6 @@ def _lot_amounts_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
     base_n = _normalize_amount(base, LOT_AMOUNT_BASE)
     strong_n = max(base_n, _normalize_amount(strong, LOT_AMOUNT_STRONG))
     return base_n, strong_n
-
-
-def account_ref_equity(paper: Optional[dict]) -> float:
-    """账户规模：initial_cash、现金+成本市值、现金 三者取大。"""
-    if not isinstance(paper, dict):
-        return 0.0
-    initial = _f(paper.get("initial_cash")) or 0.0
-    cash = _f(paper.get("cash")) or 0.0
-    hv = 0.0
-    for h in paper.get("holdings") or []:
-        if not isinstance(h, dict):
-            continue
-        sh = _f(h.get("shares")) or 0.0
-        px = _f(h.get("cost")) or _f(h.get("price")) or 0.0
-        hv += sh * px
-    return max(initial, cash + hv, cash)
-
-
-def scale_cash_floor_to_account(
-    floor: float,
-    paper: Optional[dict] = None,
-) -> float:
-    """旧现金地板超过账户规模时，按净值 20% 保留现金。
-
-    产品默认地板已为 0；本函数只给显式传入的旧配置做缩放。
-    """
-    try:
-        out = float(floor)
-    except (TypeError, ValueError):
-        out = DEFAULT_CASH_FLOOR
-    if out != out:
-        out = DEFAULT_CASH_FLOOR
-    out = max(0.0, min(out, 1.0e8))
-    ref = account_ref_equity(paper)
-    if ref <= 0.0 or out <= ref + 1e-6:
-        return out
-    try:
-        from core.paper.rebalance.cash_reserve import DEFAULT_MIN_CASH_PCT
-
-        ratio = float(DEFAULT_MIN_CASH_PCT)
-    except Exception:  # noqa: BLE001
-        logger.debug("DEFAULT_MIN_CASH_PCT import failed", exc_info=True)
-        ratio = 0.20
-    return max(0.0, ref * ratio)
 
 
 def get_rank_lot_cfg(
@@ -503,8 +494,6 @@ def get_rank_lot_cfg(
             pm.get("rank_enter_alt", enter), enter
         ),
         "cash_floor": floor,
-        "cash_floor_configured": 0.0,
-        "cash_floor_scaled": False,
         "holdings_mv_cap": mv_cap,
         "top_k": k,
         "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
@@ -513,11 +502,12 @@ def get_rank_lot_cfg(
         "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else DEFAULT_FUSION_W_CO),
         "lot_base_amount": lot_base_amount,
         "lot_strong_amount": lot_strong_amount,
+        "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
         "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
         "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
-        "oo_rank_max": oo_rank_max_from_cfg(pm),
+        "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
         "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
         "score_backend": str(pm.get("score_backend") or "ridge"),
@@ -674,7 +664,7 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    # ŷ_oo_rank：当日截面 1..n 名次；不进 ranking/买序；可选 oo_rank_max 入场闸
+    # ŷ_oo_rank：当日截面 1..n 名次；不进 ranking/买序；可选 oo_rank_top_frac 入场闸
     "y_oo_rank",
     "y_oo_rank_hat",
     "predicted_score_oo_rank",
@@ -854,7 +844,6 @@ _TAU_TIP_PIN = (
     "sector_gap_breadth",
     "gap_vs_sector",
     "yclose_loc",
-    "mom3_pct",
     "tau_lag1",
     "tau_ma5",
     "ret_open_to_tau",
@@ -1138,6 +1127,7 @@ def plan_rank_lot_day(
     mv_cap = max(0.0, mv_cap)
     top_k = max(1, int(cfg.get("top_k") or 15))
     amount_base, amount_strong = _lot_amounts_from_cfg(cfg)
+    stock_cap = stock_mv_cap_from_strong(amount_strong)
     from core.paper.sizing import shares_from_amount
     px_buy = prices if isinstance(prices, dict) else {}
     px_sell = sell_prices if isinstance(sell_prices, dict) else px_buy
@@ -1335,12 +1325,26 @@ def plan_rank_lot_day(
         amt = amount_strong if is_strong else amount_base
         lots = shares_from_amount(amt, px, LOT_MIN)
         lot_kind = "strong" if is_strong else "base"
-        want = int(lots)
-        need = float(lots) * float(px)
-        if cash_sim - need < cash_floor - 1e-6 and is_strong:
-            lots = shares_from_amount(amount_base, px, LOT_MIN)
+        need = float(lots) * float(px) if lots > 0 else 0.0
+        if lots > 0 and cash_sim - need < cash_floor - 1e-6 and is_strong:
+            amt = amount_base
+            lots = shares_from_amount(amt, px, LOT_MIN)
             lot_kind = "base"
-            need = float(lots) * float(px)
+            need = float(lots) * float(px) if lots > 0 else 0.0
+        if lots <= 0:
+            skips.append(
+                {
+                    "stock_code": code,
+                    "stock_name": _display_name(code, item.get("stock_name")),
+                    "side": "buy",
+                    "action": ACTION_SKIP,
+                    "reason": f"金额 {amt:.0f} 不足一手",
+                    **dbg,
+                    "lot_kind": lot_kind,
+                }
+            )
+            continue
+        want = int(lots)
         clipped = clip_lot_to_cash(
             lots, px, cash_sim, cash_floor, lot_min=LOT_MIN
         )
@@ -1370,6 +1374,24 @@ def plan_rank_lot_day(
             lot_kind = "clipped"
             need = float(lots) * float(px)
         dbg["lot_kind"] = lot_kind
+        held_mv = float(remain_sh.get(code) or 0) * float(px)
+        if stock_cap > 0 and held_mv + need > stock_cap + 1e-6:
+            skips.append(
+                {
+                    "stock_code": code,
+                    "stock_name": _display_name(code, item.get("stock_name")),
+                    "side": "buy",
+                    "action": ACTION_SKIP,
+                    "reason": (
+                        f"单票市值将超过强档×{STOCK_MV_CAP_MULT:.0%}"
+                        f"（{stock_cap:.0f}）"
+                    ),
+                    **dbg,
+                    "stock_mv": round(held_mv, 2),
+                    "stock_mv_cap": round(stock_cap, 2),
+                }
+            )
+            continue
         if mv_cap > 0 and mv_sim + need > mv_cap + 1e-6:
             skips.append(
                 {
@@ -1418,10 +1440,11 @@ def plan_rank_lot_day(
         "rank_strong": rank_strong,
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
-        "oo_rank_max": oo_rank_max_from_cfg(cfg),
+        "oo_rank_top_frac": oo_rank_top_frac_from_cfg(cfg),
         "cash_floor": cash_floor,
         "holdings_mv_cap": mv_cap,
         "holdings_mv_after_plan": round(mv_sim, 2),
+        "stock_mv_cap": round(stock_cap, 2),
         "fusion_w_oo": w_oo,
         "fusion_w_oc": w_τc,
         "fusion_w_co": w_co,
@@ -1447,8 +1470,8 @@ __all__ = [
     "LOT_AMOUNT_MIN",
     "LOT_AMOUNT_STRONG",
     "LOT_MIN",
+    "STOCK_MV_CAP_MULT",
     "FUSION_W_CO_MAX",
-    "account_ref_equity",
     "AUX_YHAT_KEYS",
     "aux_yhat_fields",
     "tip_explain_fields",
@@ -1458,11 +1481,11 @@ __all__ = [
     "coerce_rank_threshold",
     "get_rank_lot_cfg",
     "held_exit_reason",
-    "scale_cash_floor_to_account",
     "lot_shares_for_rank",
     "plan_rank_lot_day",
+    "stock_mv_cap_from_strong",
     "ranking_pct_of",
     "rank_lot_enter_skip_reason",
-    "oo_rank_max_from_cfg",
+    "oo_rank_top_frac_from_cfg",
     "y_tau_of",
 ]

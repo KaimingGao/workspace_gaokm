@@ -78,11 +78,6 @@ def clamp_replay_amount(raw: Any, default: float = REPLAY_AMOUNT_BASE) -> float:
     return float(int(round(v / 100.0)) * 100)
 
 
-def clamp_replay_lot(raw: Any, default: float = REPLAY_AMOUNT_BASE) -> float:
-    """兼容旧名：现为金额。"""
-    return clamp_replay_amount(raw, default)
-
-
 def clamp_replay_amount_pair(
     lot_base_amount: Any = None,
     lot_strong_amount: Any = None,
@@ -98,13 +93,6 @@ def clamp_replay_amount_pair(
     if strong < base:
         strong = base
     return base, strong
-
-
-def clamp_replay_lot_pair(
-    lot_base: Any = None,
-    lot_strong: Any = None,
-) -> Tuple[float, float]:
-    return clamp_replay_amount_pair(lot_base, lot_strong)
 
 
 def _clamp_fill_clock(
@@ -1700,7 +1688,7 @@ def _required_factor_keys_from_return_models(
     *,
     cluster_models: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
-    """与 score_stock / T0 同源：ŷ β 键并集，供 FS0 补算（含 raw_alpha158_*）。
+    """与 score_stock / T0 同源：ŷ β 键并集，供 FS0 补算（含 raw_aoo_*）。
 
     cluster_models 已废弃，忽略（历史回测只用全局模型）。
     """
@@ -2256,8 +2244,6 @@ def backtest_paper_replay(
     session_now: Optional[datetime] = None,
     fill_clock: str = REPLAY_FILL_CLOCK,
     minute_bars_by_code: Optional[Dict[str, Dict[str, List[dict]]]] = None,
-    lot_base: Optional[float] = None,
-    lot_strong: Optional[float] = None,
     lot_base_amount: Optional[float] = None,
     lot_strong_amount: Optional[float] = None,
     rank_enter_alt: Optional[float] = None,
@@ -2265,7 +2251,7 @@ def backtest_paper_replay(
     y_enter_alt_enabled: Optional[bool] = None,
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
-    oo_rank_max: Optional[int] = None,
+    oo_rank_top_frac: Optional[float] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
     score_backend: Optional[str] = None,
@@ -2274,7 +2260,7 @@ def backtest_paper_replay(
 
     ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘树；缺模型的头回退 Ridge。
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行（不进买序）。
-    ``oo_rank_max`` 开则入场另须 y_oo_rank < 上限（缺分不拦）。
+    ``oo_rank_top_frac`` 开则入场另须 y_oo_rank < n·frac（缺 rank/n 不拦）。
     """
     from core.research.holdout import (
         current_scoring_model_role,
@@ -2312,7 +2298,7 @@ def backtest_paper_replay(
         clamp_fusion_w_co,
         coerce_rank_threshold,
         get_rank_lot_cfg,
-        oo_rank_max_from_cfg,
+        oo_rank_top_frac_from_cfg,
         plan_rank_lot_day,
     )
     from core.paper.rebalance.watching_matrix import _apply_matrix_trades
@@ -2338,7 +2324,7 @@ def backtest_paper_replay(
 
     date_maps = {str(c): _bars_by_date(bars) for c, bars in stock_bars.items()}
 
-    # 先解析 ŷ 模型 → required_factor_keys / Alpha158 抬窗，再铺日历垫特征窗
+    # 先解析 ŷ 模型 → required_factor_keys / alpha_oo 抬窗，再铺日历垫特征窗
     global_model: Any = None
     co_model_doc = None
     tau_model_doc = None
@@ -2361,15 +2347,15 @@ def backtest_paper_replay(
             except Exception:  # noqa: BLE001
                 logger.debug("replay tree feature keys failed", exc_info=True)
         try:
-            from core.signal.factors.alpha158 import bump_window_for_alpha158
+            from core.signal.factors.alpha_oo import bump_window_for_alpha_oo
 
-            min_history, max_window = bump_window_for_alpha158(
+            min_history, max_window = bump_window_for_alpha_oo(
                 required_factor_keys,
                 min_history=int(min_history),
                 max_window=int(max_window),
             )
         except Exception:  # noqa: BLE001
-            logger.debug("replay alpha158 window bump failed", exc_info=True)
+            logger.debug("replay alpha_oo window bump failed", exc_info=True)
         try:
             from core.research.co_ridge import load_co_model
 
@@ -2436,8 +2422,8 @@ def backtest_paper_replay(
     if strong < enter:
         strong = enter
     lot_base_n, lot_strong_n = clamp_replay_amount_pair(
-        lot_base_amount if lot_base_amount is not None else lot_base,
-        lot_strong_amount if lot_strong_amount is not None else lot_strong,
+        lot_base_amount,
+        lot_strong_amount,
     )
     gt0_τc = y_τc_gt0
     paper = _default_paper(
@@ -2464,8 +2450,10 @@ def backtest_paper_replay(
         "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
         "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
         "y_τc_gt0": False if gt0_τc is None else bool(gt0_τc),
-        "oo_rank_max": oo_rank_max_from_cfg(
-            {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
+        "oo_rank_top_frac": oo_rank_top_frac_from_cfg(
+            {"oo_rank_top_frac": oo_rank_top_frac}
+            if oo_rank_top_frac is not None
+            else {}
         ),
         "lot_base_amount": lot_base_n,
         "lot_strong_amount": lot_strong_n,
@@ -2490,7 +2478,7 @@ def backtest_paper_replay(
     rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
-    rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
+    rl_cfg["oo_rank_top_frac"] = replay_lots.get("oo_rank_top_frac")
     rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
@@ -2999,7 +2987,7 @@ def backtest_paper_replay(
             "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
-            "oo_rank_max": rl_cfg.get("oo_rank_max"),
+            "oo_rank_top_frac": rl_cfg.get("oo_rank_top_frac"),
             "fusion_w_co": alpha,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,

@@ -303,11 +303,16 @@ def pit_oo_window_quote(
     if 0 <= idx < len(bars):
         o = _f((bars[idx] or {}).get("open"))
         if o is not None and o > 0:
-            quote["price_raw"] = float(o)
+            ot = float(o)
+            quote["open"] = ot
+            quote["open_raw"] = ot
+            # 兼容仍读 price_raw 的旧因子路径；开锚 alpha_oo 只认 open(_raw)
+            quote["price_raw"] = ot
         if idx >= 1:
             prev_c = _f((bars[idx - 1] or {}).get("close"))
             if o is not None and prev_c is not None and prev_c > 0:
                 quote["change_raw"] = round((float(o) / float(prev_c) - 1.0) * 100.0, 4)
+                quote["prev_close"] = float(prev_c)
     return hist, quote
 
 

@@ -367,11 +367,9 @@ export function installSuggest(q) {
       state: "ok",
       chip: "已拟合",
       message: draftOk ? "草稿已存 · 可启用研究/执行" : "已拟合 · 草稿未落盘",
-      sampleCount: data.sample_count,
       fittedAt,
       liveOn: false,
       researchOn: draftOk,
-      oos: data.oos || {},
     });
     const csZBit =
       typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(data) : "";
@@ -383,7 +381,7 @@ export function installSuggest(q) {
     setQuantMeta(`ŷ_oo · ${line}`);
     state.lastReturnModelFit = data;
     syncOverviewOo(data.oos || {});
-    /* 与 ŷ_τc 一致：摘要进表头 KPI，不另挂 fingerprint，避免系数表上方空白 */
+    /* 与 ŷ_τc 一致：成功路径只刷系数表，不另挂 fingerprint 摘要块 */
     clearResult();
     if (paintCoef) {
       const rm = {
@@ -472,24 +470,19 @@ export function installSuggest(q) {
                 : "草稿已存 · 可启用研究/执行"
               : "已拟合"
           ),
-          sampleCount:
-            draft.sample_count ||
-            lastFit.sample_count ||
-            active.sample_count ||
-            research.sample_count,
           fittedAt,
           researchAt: research.fitted_at || research.source_saved_at || null,
           liveAt: active.fitted_at || active.source_saved_at || null,
           liveOn,
           researchOn: researchOn || !!draft.exists,
-          oos,
         });
         if (clearResult) clearResult();
         if (paintCoef) {
+          // 刚拟合：优先画本次草稿模型（新列名/新 β），勿被旧执行套 return_model 盖住
           const rm =
-            data.return_model ||
             lastFit.model ||
-            (lastFit.return_model ? lastFit.return_model : null);
+            (lastFit.return_model ? lastFit.return_model : null) ||
+            data.return_model;
           await paintCoef(rm, { oos });
         }
         return data;
@@ -503,26 +496,22 @@ export function installSuggest(q) {
           state: "ok",
           chip,
           message: withCsZ(liveOn ? "已落盘" : "研究套已落盘 · 执行未写"),
-          sampleCount: active.sample_count || research.sample_count,
           fittedAt,
           researchAt: research.fitted_at || research.source_saved_at || null,
           liveAt: active.fitted_at || active.source_saved_at || null,
           liveOn,
           researchOn,
-          oos,
         });
       } else if (draft.exists) {
         paintOoStatus({
           state: "ok",
           chip: "仅研究",
           message: withCsZ("有草稿 · 尚未启用研究/执行"),
-          sampleCount: draft.sample_count,
           fittedAt,
           researchAt: null,
           liveAt: null,
           liveOn: false,
           researchOn: true,
-          oos,
         });
       } else {
         paintOoStatus({
@@ -695,7 +684,6 @@ export function installSuggest(q) {
       state: "ok",
       chip: role === "research" ? "仅研究" : "仅执行",
       message: `已写入${roleLabel}`,
-      sampleCount: data.sample_count,
       researchAt: role === "research" ? data.promoted_at || null : null,
       liveAt: role === "live" ? data.promoted_at || null : null,
       liveOn: role === "live",

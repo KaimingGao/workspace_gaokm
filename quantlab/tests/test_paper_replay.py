@@ -351,12 +351,15 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(float(out["params"]["initial_cash"]), 150_000.0)
 
     def test_custom_lots(self):
-        from core.backtest.paper_replay import clamp_replay_lot, clamp_replay_lot_pair
+        from core.backtest.paper_replay import (
+            clamp_replay_amount,
+            clamp_replay_amount_pair,
+        )
 
-        self.assertEqual(clamp_replay_lot(150), 1000)
-        self.assertEqual(clamp_replay_lot(250), 1000)
-        self.assertEqual(clamp_replay_lot_pair(300, 200), (1000, 1000))
-        self.assertEqual(clamp_replay_lot_pair(30000, 20000), (30000, 30000))
+        self.assertEqual(clamp_replay_amount(150), 1000)
+        self.assertEqual(clamp_replay_amount(250), 1000)
+        self.assertEqual(clamp_replay_amount_pair(300, 200), (1000, 1000))
+        self.assertEqual(clamp_replay_amount_pair(30000, 20000), (30000, 30000))
         stock_bars = {
             "600519": _bars(16, step=0.5),
             "600036": _bars(16, step=0.3),
@@ -2756,7 +2759,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
         self.assertEqual(int((out.get("constraints_hit") or {}).get("tau_prefix_rescored") or 0), 0)
 
 
-class TestReplayAlpha158Align(unittest.TestCase):
+class TestReplayalpha_ooAlign(unittest.TestCase):
     def test_required_keys_from_return_models(self):
         from core.backtest.paper_replay import _required_factor_keys_from_return_models
         from core.signal.return_score import ReturnScoreModel
@@ -2765,14 +2768,14 @@ class TestReplayAlpha158Align(unittest.TestCase):
             intercept=0.0,
             coefficients={
                 "momentum": 0.1,
-                "raw_alpha158_KMID": 0.02,
-                "raw_alpha158_ROC5": -0.01,
+                "raw_aoo_YKMID": 0.02,
+                "raw_aoo_OROC5": -0.01,
             },
         )
         keys = _required_factor_keys_from_return_models({"600519": m}, None)
         self.assertIn("momentum", keys)
-        self.assertIn("raw_alpha158_KMID", keys)
-        self.assertIn("raw_alpha158_ROC5", keys)
+        self.assertIn("raw_aoo_YKMID", keys)
+        self.assertIn("raw_aoo_OROC5", keys)
 
     def test_score_open_day_passes_required_keys(self):
         from core.backtest.paper_replay import _score_open_day
@@ -2808,22 +2811,22 @@ class TestReplayAlpha158Align(unittest.TestCase):
                     max_window=62,
                     horizon_days=1,
                     cfg=None,
-                    required_factor_keys=["raw_alpha158_KMID", "momentum"],
+                    required_factor_keys=["raw_aoo_YKMID", "momentum"],
                 )
         keys = set(captured.get("required_factor_keys") or [])
-        self.assertIn("raw_alpha158_KMID", keys)
+        self.assertIn("raw_aoo_YKMID", keys)
         self.assertIn("momentum", keys)
         self.assertGreaterEqual(int(captured.get("window_n") or 0), 2)
 
-    def test_backtest_bumps_window_when_model_has_alpha158(self):
-        from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+    def test_backtest_bumps_window_when_model_has_alpha_oo(self):
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
         from core.signal.return_score import ReturnScoreModel
 
         model = ReturnScoreModel(
             intercept=0.0,
-            coefficients={"raw_alpha158_KMID": 0.05, "momentum": 0.1},
+            coefficients={"raw_aoo_YKMID": 0.05, "momentum": 0.1},
         )
-        # 足够长的日线：lookback 核心 + Alpha158 垫窗
+        # 足够长的日线：lookback 核心 + alpha_oo 垫窗
         n = 90
         stock_bars = {
             "600519": _bars(n, step=0.5),
@@ -2848,15 +2851,15 @@ class TestReplayAlpha158Align(unittest.TestCase):
                         include_session_day=False,
                     )
         self.assertTrue(out.get("success"), out.get("error"))
-        self.assertEqual(int(out["params"]["max_window"]), ALPHA158_PANEL_WINDOW)
-        self.assertEqual(int(out["params"]["min_history"]), ALPHA158_PANEL_WINDOW)
+        self.assertEqual(int(out["params"]["max_window"]), ALPHA_OO_PANEL_WINDOW)
+        self.assertEqual(int(out["params"]["min_history"]), ALPHA_OO_PANEL_WINDOW)
         self.assertIn(
-            "raw_alpha158_KMID", out["params"].get("required_factor_keys") or []
+            "raw_aoo_YKMID", out["params"].get("required_factor_keys") or []
         )
         self.assertTrue(scored.called)
         kw = scored.call_args.kwargs
-        self.assertEqual(int(kw.get("max_window") or 0), ALPHA158_PANEL_WINDOW)
-        self.assertIn("raw_alpha158_KMID", kw.get("required_factor_keys") or [])
+        self.assertEqual(int(kw.get("max_window") or 0), ALPHA_OO_PANEL_WINDOW)
+        self.assertIn("raw_aoo_YKMID", kw.get("required_factor_keys") or [])
 
 
 if __name__ == "__main__":

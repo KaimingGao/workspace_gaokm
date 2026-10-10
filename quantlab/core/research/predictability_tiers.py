@@ -61,13 +61,13 @@ PROTOCOL_HOLDOUT_OOS = "holdout_oos_half"
 
 
 def _score_panel_lookback(holdout_n: int, horizon_days: int = 1) -> int:
-    """有研究套时的日线窗：Holdout 测试段 + 余量（``load_portfolio_stock_bars`` 另加 Alpha158 pad）。
+    """有研究套时的日线窗：Holdout 测试段 + 余量（``load_portfolio_stock_bars`` 另加 alpha_oo pad）。
 
     分档只评 Holdout 前半，不必按 ŷ_oo 训练窗（常 600）整池建面板。
     """
     h = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
     hz = max(1, min(int(horizon_days or DEFAULT_HORIZON_DAYS), 10))
-    # 余量覆盖缺口日 / 切分边界；因子暖窗由 load 侧 ALPHA158 pad 提供
+    # 余量覆盖缺口日 / 切分边界；因子暖窗由 load 侧 alpha_oo pad 提供
     return max(40, min(200, h + hz + 16))
 
 

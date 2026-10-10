@@ -550,6 +550,7 @@ class TestOoRankFit(unittest.TestCase):
                 self.assertEqual((doc or {}).get("task"), "oo_rank")
                 self.assertEqual((doc or {}).get("model_role"), "research")
                 self.assertEqual((doc or {}).get("backend"), "lambdarank")
+                self.assertIn("lambdarank", ((doc or {}).get("backends") or {}))
                 self.assertNotIn("shadow_only", doc or {})
 
     def test_persist_auto_picks_ridge_when_ndcg_higher(self):
@@ -617,6 +618,8 @@ class TestOoRankFit(unittest.TestCase):
             self.assertEqual(doc.get("backend"), "ridge")
             self.assertEqual((doc.get("return_model") or {}).get("backend"), "ridge")
             self.assertEqual((doc.get("return_model") or {}).get("solver"), "ridge")
+            self.assertIn("ridge", (doc.get("backends") or {}))
+            self.assertIn("lambdarank", (doc.get("backends") or {}))
 
     def test_load_falls_back_to_legacy_pairwise_paths(self):
         import json
@@ -824,6 +827,96 @@ class TestOoRankFittedAt(unittest.TestCase):
             self.assertEqual(doc.get("model_role"), "live")
             self.assertTrue(doc.get("promoted_at"))
 
+
+    def test_get_model_merges_backends_from_last_report(self):
+        """落盘包无 backends 时，同窗 last_report 补 Ridge 供因子表 β 列。"""
+        import json
+
+        from quant.services.quant_service import QuantService
+
+        last = {
+            "success": True,
+            "return_model": {
+                "coefficients": {"mom3": 0.5},
+                "backend": "lambdarank",
+                "booster_b64": "x",
+                "fitted_at": "2026-10-06T01:00:00Z",
+            },
+            "backends": {
+                "lambdarank": {
+                    "return_model": {
+                        "coefficients": {"mom3": 0.5},
+                        "backend": "lambdarank",
+                        "booster_b64": "x",
+                    }
+                },
+                "ridge": {
+                    "return_model": {
+                        "coefficients": {"mom3": 1.2, "vol": -0.3},
+                        "backend": "ridge",
+                        "solver": "ridge",
+                    }
+                },
+            },
+            "oos": {
+                "oo_rank": {"spearman": 0.12, "ndcg_at_k": 0.55},
+                "ridge_oo_baseline": {"spearman": 0.1, "ndcg_at_k": 0.5},
+                "holdout_trading_days": 20,
+                "n_test": 40,
+            },
+            "fitted_at": "2026-10-06T01:00:00Z",
+            "sample_count": 80,
+            "holdout_trading_days": 20,
+            "n_train_days": 60,
+            "n_test_days": 20,
+        }
+        live_doc = {
+            "success": True,
+            "backend": "lambdarank",
+            "return_model": last["return_model"],
+            "oos": last["oos"],
+            "fitted_at": "2026-10-06T01:00:00Z",
+            "sample_count": 80,
+            "holdout_trading_days": 20,
+        }
+        with tempfile.TemporaryDirectory() as td:
+            live = os.path.join(td, "oo_rank_model.json")
+            last_path = os.path.join(td, "oo_rank_last_report.json")
+            legacy_live = os.path.join(td, "oo_rank_pairwise_model.json")
+            legacy_last = os.path.join(td, "oo_rank_pairwise_last_report.json")
+            with open(live, "w", encoding="utf-8") as f:
+                json.dump(live_doc, f)
+            with open(last_path, "w", encoding="utf-8") as f:
+                json.dump(last, f)
+            with patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
+                return_value=live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
+                return_value=last_path,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
+                return_value=legacy_live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_last_report_path_legacy",
+                return_value=legacy_last,
+            ), patch(
+                "core.research.oo_rank_lambdarank.load_oo_rank_model",
+                return_value=live_doc,
+            ), patch(
+                "core.research.oo_rank_lambdarank.load_oo_rank_last_report",
+                return_value=last,
+            ):
+                out = QuantService().get_oo_rank_model()
+            self.assertTrue(out.get("exists"), out)
+            self.assertIn("ridge", (out.get("backends") or {}))
+            ridge_rm = (
+                ((out.get("backends") or {}).get("ridge") or {}).get("return_model")
+                or {}
+            )
+            self.assertEqual(ridge_rm.get("backend"), "ridge")
+            self.assertIn("vol", ridge_rm.get("coefficients") or {})
+            self.assertEqual(out.get("n_train_days"), 60)
 
     def test_get_model_restores_last_report_without_persist(self):
         import json

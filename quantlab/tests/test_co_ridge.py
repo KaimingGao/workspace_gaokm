@@ -69,7 +69,7 @@ class TestCoPanel(unittest.TestCase):
         xs, ys, dates, metas = collect_co_panel(bars, stock_code="000001")
         self.assertGreater(len(ys), 5)
         self.assertEqual(len(xs), len(ys))
-        # min_history bumped for alpha158 → 与 ŷ_oo 同日起，首个决策日 index 61
+        # min_history bumped for alpha_oo → 与 ŷ_oo 同日起，首个决策日 index 61
         i = 0
         b_t = bars[61 + i]
         b_next = bars[62 + i]
@@ -94,7 +94,7 @@ class TestCoPanel(unittest.TestCase):
             if k in skip_cs:
                 continue
             self.assertIn(k, row, k)
-        self.assertIn("raw_alpha158_KMID", row)
+        self.assertIn("raw_aoo_YKMID", row)
         i = 61
         prev = bars[i - 1]
         prev2 = bars[i - 2]
@@ -111,9 +111,11 @@ class TestCoPanel(unittest.TestCase):
         self.assertGreaterEqual(float(row["yest_close_loc"]), 0.0)
         self.assertLessEqual(float(row["yest_close_loc"]), 1.0)
         self.assertIsNotNone(row["yclose_loc"])
-        self.assertIsNotNone(row["mom3_pct"])
-        self.assertIsNotNone(row["yest_range_pct"])
+        self.assertIsNotNone(row.get("raw_aoo_MOM3_C"))
+        self.assertIsNotNone(row.get("raw_aoo_YRANGE_PCT"))
         self.assertIsNotNone(row["yest_vol_ratio"])
+        self.assertNotIn("mom3_pct", row)
+        self.assertNotIn("yest_range_pct", row)
         self.assertIsNotNone(row["on_ma5"])
         self.assertAlmostEqual(float(row["dist_to_up_limit"]), 10.0 - float(row["ret_cc"]), places=3)
 
@@ -275,8 +277,8 @@ class TestCoPanel(unittest.TestCase):
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("target"), "overnight_gap")
-        self.assertTrue(report.get("include_alpha158"))
-        self.assertGreater(int(report.get("n_alpha158_features") or 0), 0)
+        self.assertTrue(report.get("include_alpha_oo"))
+        self.assertGreater(int(report.get("n_alpha_oo_features") or 0), 0)
         oos = report.get("oos") or {}
         self.assertEqual(oos.get("split_mode"), "holdout_days")
         self.assertEqual(int(oos.get("holdout_trading_days") or 0), 5)
@@ -461,7 +463,7 @@ class TestCoScoreAttach(unittest.TestCase):
             return_value={
                 "model_role": "tree",
                 "total": 0.33,
-                "terms": [{"key": "raw_alpha158_KMID", "contrib": 0.2}],
+                "terms": [{"key": "raw_aoo_YKMID", "contrib": 0.2}],
             },
         ), patch(
             "core.research.co_ridge.predict_co_from_features",
@@ -485,7 +487,7 @@ class TestCoScoreAttach(unittest.TestCase):
             for t in (item.get("formula_terms_co") or {}).get("terms") or []
             if isinstance(t, dict)
         }
-        self.assertIn("raw_alpha158_KMID", keys)
+        self.assertIn("raw_aoo_YKMID", keys)
 
     def test_ensure_formula_terms_co_refreshes_stale_z(self):
         from core.signal.dual_score.co import ensure_formula_terms_co
@@ -564,39 +566,37 @@ class TestCoScoreAttach(unittest.TestCase):
                     hydrate_holding_co_fields(row)
         self.assertAlmostEqual(float(row.get("predicted_score_on")), -0.33)
 
-    def test_co_panel_can_disable_alpha158(self):
+    def test_co_panel_can_disable_alpha_oo(self):
         from core.research.co_panel import collect_co_panel
 
         bars = _bars(40)
         xs, _, _, _ = collect_co_panel(
-            bars, stock_code="000001", include_alpha158=False
+            bars, stock_code="000001", include_alpha_oo=False
         )
         self.assertGreater(len(xs), 5)
-        self.assertFalse(any(str(k).startswith("raw_alpha158_") for k in xs[0]))
+        self.assertFalse(any(str(k).startswith("raw_aoo_") for k in xs[0]))
 
-    def test_features_co_snapshot_keeps_alpha158(self):
+    def test_features_co_snapshot_keeps_alpha_oo(self):
         from core.signal.dual_score.co import features_co_snapshot
 
         snap = features_co_snapshot(
-            {"gap_pct": 1.0, "raw_alpha158_KMID": 0.02, "noise": 9}
+            {"gap_pct": 1.0, "raw_aoo_YKMID": 0.02, "noise": 9}
         )
         self.assertEqual(snap.get("gap_pct"), 1.0)
-        self.assertEqual(snap.get("raw_alpha158_KMID"), 0.02)
+        self.assertEqual(snap.get("raw_aoo_YKMID"), 0.02)
         self.assertNotIn("noise", snap)
 
-    def test_fit_co_without_alpha158_ablation(self):
+    def test_fit_co_includes_alpha_oo(self):
         from core.research.co_ridge import fit_co_ridge_report
 
         stock_bars = [
             {"code": "A", "bars": _bars(80, 10)},
             {"code": "B", "bars": _bars(80, 12)},
         ]
-        report = fit_co_ridge_report(
-            stock_bars, include_alpha158=False, holdout_trading_days=5
-        )
+        report = fit_co_ridge_report(stock_bars, holdout_trading_days=5)
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertFalse(report.get("include_alpha158"))
-        self.assertEqual(int(report.get("n_alpha158_features") or 0), 0)
+        self.assertTrue(report.get("include_alpha_oo"))
+        self.assertGreater(int(report.get("n_alpha_oo_features") or 0), 0)
 
 
 class TestCoRidgeJob(unittest.TestCase):

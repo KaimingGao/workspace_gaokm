@@ -2,7 +2,7 @@
 
 ``ridge``：线性 Ridge（默认）。
 ``tree``：三头读已落盘树，缺文件回退 Ridge。
-买序一律走融合 ranking。ŷ_oo_rank 不进本开关（不改 ranking 分数；可选 oo_rank_max 入场闸）。
+买序一律走融合 ranking。ŷ_oo_rank 不进本开关（不改 ranking 分数；可选 oo_rank_top_frac 入场闸）。
 ``horizon_prob_backend=tree`` 时 ŷ_τc 与 horizon 头同开。
 """
 
@@ -213,7 +213,7 @@ def return_tree_model_state() -> Dict[str, str]:
 
 
 def loaded_return_tree_feature_names() -> list:
-    """已落盘树头的特征名并集，供回测抬 Alpha158 窗。"""
+    """已落盘树头的特征名并集，供回测抬 alpha_oo 窗。"""
     from core.research.co_tree import load_co_tree_model
     from core.research.oo_tree import load_oo_tree_model
     from core.research.tc_tree import load_tau_tree_model

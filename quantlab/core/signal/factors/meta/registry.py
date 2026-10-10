@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from core.signal.factors.alpha158 import score_alpha158
+from core.signal.factors.alpha_oo import score_alpha_oo
 from core.signal.factors.alt_sentiment import score_alt_sentiment
 from core.signal.factors.amihud import score_amihud
 from core.signal.factors.dividend import score_dividend
@@ -161,8 +161,11 @@ def _compute_tail_anomaly(bars, *, minute_bars=None, config=None, **_kw):
     )
 
 
-def _compute_alpha158(bars, **_kw):
-    return score_alpha158(bars)
+def _compute_alpha_oo(bars, *, quote=None, open_t=None, prev_close=None, **_kw):
+    """开锚 alpha_oo：用 quote / open_t 注入今开（PIT）。"""
+    return score_alpha_oo(
+        bars, quote=quote, open_t=open_t, prev_close=prev_close
+    )
 
 
 _register(
@@ -304,10 +307,11 @@ _register(
     "尾盘成交量占比与价格斜率：放量下行降分，疑似聪明资金抢跑。",
 )
 _register(
-    "alpha158",
-    "Alpha158因子集",
-    _compute_alpha158,
-    "微软 Qlib Alpha158 158 个 OHLCV 衍生因子（kbar+price+rolling），sub_score 不加权，仅暴露 raw_alpha158_* 字段供 Ridge/LightGBM/LambdaRank 消费。",
+    "alpha_oo",
+    "开→开因子集",
+    _compute_alpha_oo,
+    "alpha_oo（~206）：隔夜/今开 + 昨 K + 开序列滚动 + 量/滞后（含 MOM3_C）；开盘 PIT。"
+    " sub_score 不加权，仅 raw_aoo_* 进 Ridge/LightGBM/LambdaRank。",
 )
 
 
@@ -403,6 +407,8 @@ def compute_configured_factors(
     macro: Optional[dict] = None,
 ) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
     """按 weights 键计算子分；``required_keys`` 即使权为 0 也算（ŷ β 同构，FS0）。"""
+    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
+
     wmap = dict(weights or {})
     skip = {str(x).strip() for x in (skip_factors or []) if str(x).strip()}
     required = {str(x).strip() for x in (required_keys or []) if str(x).strip()}
@@ -410,9 +416,9 @@ def compute_configured_factors(
         k = str(key or "").strip()
         if k and k not in wmap and k in _REGISTRY:
             wmap[k] = 0.0
-        # FS0：Ridge β 用 raw_alpha158_* 时，触发计算 alpha158 并注入 raw 列
-        if k.startswith("raw_alpha158_") and "alpha158" in _REGISTRY and "alpha158" not in wmap:
-            wmap["alpha158"] = 0.0
+        # FS0：Ridge β 用 raw_aoo_* 时，触发计算 alpha_oo 并注入 raw 列
+        if is_alpha_oo_raw_key(k) and "alpha_oo" in _REGISTRY and "alpha_oo" not in wmap:
+            wmap["alpha_oo"] = 0.0
     sub_scores: Dict[str, float] = {}
     contribs: Dict[str, float] = {}
     meta: Dict[str, Any] = {}
@@ -461,23 +467,35 @@ def compute_configured_factors(
         meta.update(fac_meta or {})
         # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
         if isinstance(fac_meta, dict) and fac_meta.get("omit_sub_score"):
-            # Alpha158 / FS0：omit 的常数分不进加权，但 raw_* 供 Ridge β
-            need_raw = name_fac == "alpha158" or any(
-                str(r).startswith(f"raw_{name_fac}_") for r in required
+            # alpha_oo / FS0：omit 的常数分不进加权，但 raw_* 供 Ridge β
+            from core.signal.factors.alpha_oo import (
+                ALPHA_OO_RAW_PREFIX,
+                is_alpha_oo_raw_key,
+            )
+
+            need_raw = name_fac == "alpha_oo" or any(
+                is_alpha_oo_raw_key(str(r))
+                or str(r).startswith(f"raw_{name_fac}_")
+                for r in required
             )
             if need_raw:
+                raw_prefix = (
+                    ALPHA_OO_RAW_PREFIX
+                    if name_fac == "alpha_oo"
+                    else f"raw_{name_fac}_"
+                )
                 for mk, mv in fac_meta.items():
                     if mk in ("omit_sub_score", "ok"):
                         continue
                     if str(mk).startswith(f"{name_fac}_"):
-                        continue  # alpha158_insufficient_history 等标记
+                        continue  # alpha_oo_insufficient_history 等标记
                     if isinstance(mv, (int, float)) and not isinstance(mv, bool):
                         try:
                             fv = float(mv)
                         except (TypeError, ValueError):
                             continue
                         if fv == fv:  # not NaN
-                            sub_scores[f"raw_{name_fac}_{mk}"] = fv
+                            sub_scores[f"{raw_prefix}{mk}"] = fv
             continue
         sub_scores[name_fac] = round(score, 1)
         contribs[name_fac] = round(w * score, 2)
@@ -619,7 +637,7 @@ def register_expr_factor(
 
     表达式因子以 omit_sub_score 方式存在，不参与 sub_score 加权，
     而是通过 meta 中的 ``raw_<name>`` 字段暴露原始数值供 Ridge/LightGBM 等模型消费
-    （与 alpha158 的 raw_alpha158_* 机制一致）。
+    （与 alpha_oo 的 raw_aoo_* 机制一致）。
 
     Args:
         name: 因子名（唯一），建议用 ``expr_`` 前缀

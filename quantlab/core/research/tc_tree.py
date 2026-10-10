@@ -891,14 +891,13 @@ def fit_tau_tree_report(
     max_depth: int = DEFAULT_MAX_DEPTH,
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
-    include_alpha158: bool = True,
     window_days: int = DEFAULT_TREE_WINDOW_DAYS,
     step_days: int = DEFAULT_TREE_STEP_DAYS,
     cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """同面板拟合树 + Ridge OOS 对照。不写 live / 研究套模型。
 
-    ``include_alpha158=True``（默认）：树吃 ``raw_alpha158_*``。LightGBM
+    树侧固定吃 ``raw_aoo_*``（完整 alpha_τc）。LightGBM
     （深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2、百分点标签）。
     ``cross_section_zscore``：日截面 z（默认）或训练窗全局 μ/σ；标签仍是百分点。
     ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。
@@ -919,7 +918,7 @@ def fit_tau_tree_report(
         keepall_ridge_oos,
         finite_name_set,
         named_columns,
-        raw_alpha158_finite,
+        raw_aoo_finite,
     )
 
     t_panel0 = time.perf_counter()
@@ -930,7 +929,7 @@ def fit_tau_tree_report(
         gap_trigger_pct=gap_trigger_pct,
         tau_hm=tau_key,
         tau_grid=grid,
-        include_alpha158=include_alpha158,
+        include_alpha_oo=True,
         head="y_tc_tree",
     )
     panel_s = round(time.perf_counter() - t_panel0, 2)
@@ -949,11 +948,7 @@ def fit_tau_tree_report(
         }
 
     present = finite_name_set(X, col_names)
-    a158_keys = (
-        [k for k in raw_alpha158_finite(X, col_names) if k in present]
-        if include_alpha158
-        else []
-    )
+    aoo_keys = [k for k in raw_aoo_finite(X, col_names) if k in present]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -979,7 +974,7 @@ def fit_tau_tree_report(
         for k in TAU_TREE_Z_FEATURES
         if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
     ]
-    for k in a158_keys:
+    for k in aoo_keys:
         if k not in feat_names:
             feat_names.append(k)
     ridge_feat_names = [
@@ -1115,8 +1110,8 @@ def fit_tau_tree_report(
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_feat_names),
         "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
-        "include_alpha158": bool(include_alpha158),
-        "n_alpha158_features": len(a158_keys),
+        "include_alpha_oo": True,
+        "n_alpha_oo_features": len(aoo_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
         "oos": oos_boost,
@@ -1133,11 +1128,7 @@ def fit_tau_tree_report(
             "ŷ_τc_tree："
             + ("特征日截面 z-score · " if use_cs else "特征训练窗全局 μ/σ · ")
             + "同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
-            + (
-                "树侧含 raw_alpha158_*（Ridge Z 不含，防与 ŷ_oo 双重计权）；"
-                if include_alpha158
-                else ""
-            )
+            + "树侧 alpha_τc=Z∪raw_aoo_*（Ridge 对照可仅 Z）；"
             + (
                 f"训练日滑窗 {hyper.get('window_days')}／步 {hyper.get('step_days')}"
                 f"（{hyper.get('n_windows')} 窗 · init_model 增量 · 共 {hyper.get('total_trees')} 树）；"
@@ -1147,6 +1138,9 @@ def fit_tau_tree_report(
             + "写入 tc_tree_model.json 后，调仓回测选 Tree 替换 ŷ_τc；不进交易执行"
         ),
     }
+    from core.research.tc_ridge import alpha_tc_report_meta
+
+    report.update(alpha_tc_report_meta(n_alpha_oo_features=len(aoo_keys)))
     attach_holdout_meta(report, split_meta)
     from core.research.horizon_tree import stamp_tree_fitted_at
 

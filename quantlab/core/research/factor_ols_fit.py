@@ -531,24 +531,24 @@ def fit_factor_ols_from_panel(
     )
 
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
-    from core.signal.factors.alpha158 import (
-        ALPHA158_FACTOR_KEY,
+    from core.signal.factors.alpha_oo import (
+        ALPHA_OO_FACTOR_KEY,
         expand_ridge_feature_names,
-        is_alpha158_raw_key,
-        merge_alpha158_min_std_exempt,
+        is_alpha_oo_raw_key,
+        merge_alpha_oo_min_std_exempt,
     )
 
     if feature_names is None:
-        # 默认：注册因子 + 面板 raw_alpha158_*（去掉常数 alpha158 分）
+        # 默认：注册因子 + 面板 raw_aoo_*（去掉常数 alpha_oo 分）
         factor_names = expand_ridge_feature_names(xs)
     else:
         factor_names = list(feature_names)
-        # 已有 raw_alpha158_* 时丢掉常数 sub_score 列，避免假中性 50 进模
-        if any(is_alpha158_raw_key(n) for n in factor_names):
+        # 已有 raw_aoo_* 时丢掉常数 sub_score 列，避免假中性 50 进模
+        if any(is_alpha_oo_raw_key(n) for n in factor_names):
             factor_names = [
-                n for n in factor_names if str(n) != ALPHA158_FACTOR_KEY
+                n for n in factor_names if str(n) != ALPHA_OO_FACTOR_KEY
             ]
-    exempt_merged = merge_alpha158_min_std_exempt(factor_names, min_std_exempt)
+    exempt_merged = merge_alpha_oo_min_std_exempt(factor_names, min_std_exempt)
     cfg = load_signal_config()
     current_weights = dict(cfg.get("weights") or {})
     xs_c, ys_c, active, excluded, prep_meta = _prepare_complete_panel(

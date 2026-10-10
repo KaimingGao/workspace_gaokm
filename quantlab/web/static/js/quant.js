@@ -31,7 +31,13 @@ import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installExportInterpret } from "./quant/domain_export.js";
-import { loadAndRenderFactorIR, setProStatusChip, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
+import {
+  loadAndRenderFactorIR,
+  setProStatusChip,
+  syncOverviewTau,
+  syncOverviewTauOos,
+  renderFactorSummaryCards,
+} from "./quant/factor_corr_ui.js";
 
 const _QV =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -312,16 +318,6 @@ export function initQuant(ctx) {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   }
 
-  function fmtRemIc(v) {
-    const n = Number(v);
-    return Number.isFinite(n) ? n.toFixed(3) : "—";
-  }
-
-  function fmtRemHit(v) {
-    const n = Number(v);
-    return Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
-  }
-
   function fmtRemN(v) {
     const n = Number(v);
     return Number.isFinite(n) ? n.toLocaleString("en-US") : "—";
@@ -349,41 +345,22 @@ export function initQuant(ctx) {
     );
   }
 
-  function tauOpenBucket(oos) {
-    if (!oos || typeof oos !== "object") return null;
-    const b = oos.by_tau && oos.by_tau["09:30"];
-    return b && typeof b === "object" ? b : null;
-  }
-
+  /** 概览 ŷ_τc：与 ŷ_oo 同口径（日频截面 IC · 命中 · Rank）。 */
   function syncOverviewTauFromOos(oos, extraSub) {
+    if (syncOverviewTauOos(oos)) return true;
     const extra = extraSub != null && extraSub !== "" ? String(extraSub) : "";
-    const open = tauOpenBucket(oos);
-    if (open && open.sign_hit != null && Number.isFinite(Number(open.sign_hit))) {
-      const mix =
-        oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))
-          ? ` · 混合 ${fmtRemHit(oos.sign_hit)}`
-          : "";
-      syncOverviewTau(
-        open.sign_hit,
-        [`开盘 09:30${mix}`, extra].filter(Boolean).join(" · "),
-        "hit"
-      );
-      return;
+    if (extra) {
+      syncOverviewTau(extra, "ŷ_τc");
+      return true;
     }
-    if (oos && oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
-      syncOverviewTau(oos.sign_hit, extra || "ŷ_τc 命中 · τ→收", "hit");
-      return;
-    }
-    if (oos && oos.ic != null && Number.isFinite(Number(oos.ic))) {
-      syncOverviewTau(oos.ic, extra || "ŷ_τc IC", "ic");
-    }
+    return false;
   }
 
   /**
    * ŷ_* 卡头状态：拟合时间 / 研究·执行启用时间（或未写盘）；
    * 有启用态 meta 时不再叠「研究+执行」等 chip（与 meta 重复）。
    * busy / error / 尚无 meta 时仍显示 chip。
-   * OOS 指标只在系数表 KPI 条展示。
+   * Ridge 头 OOS 在系数表 KPI；ŷ_oo_rank 在上方对照板。
    */
   function renderRemStatus(el, opts = {}) {
     if (!el) return;
@@ -392,7 +369,6 @@ export function initQuant(ctx) {
       chip = "待命",
       message = "",
       fittedAt = null,
-      promotedAt = null,
       researchAt = null,
       liveAt = null,
       liveOn = null,
@@ -402,6 +378,9 @@ export function initQuant(ctx) {
     } = opts;
     const chipState = error ? "error" : busy ? "busy" : state;
     const msgText = formatApiDetail(message, "");
+    const msgInner = opts.messageHtml
+      ? String(msgText || "")
+      : escapeHtml(msgText);
     const metas = [];
     // 拟合时间只用 fittedAt；勿回退 promotedAt（易与启用时间混淆）
     const fitTs = fittedAt || null;
@@ -452,7 +431,7 @@ export function initQuant(ctx) {
         ? `<span class="quant-rem-status-meta">${metas.join("")}</span>`
         : "") +
       (msgText
-        ? `<span class="quant-rem-status-msg">${escapeHtml(msgText)}</span>`
+        ? `<span class="quant-rem-status-msg">${msgInner}</span>`
         : "") +
       (showChip
         ? `<span class="quant-pro-status-chip quant-rem-status-chip" data-state="${escapeHtml(
@@ -570,13 +549,7 @@ export function initQuant(ctx) {
       state: extra.state || painted.state,
       chip: extra.chip || painted.chip,
       message,
-      oos: extra.oos !== undefined ? extra.oos : src.oos,
-      sampleCount:
-        extra.sampleCount !== undefined ? extra.sampleCount : src.sample_count,
-      sampleCountDay:
-        extra.sampleCountDay !== undefined
-          ? extra.sampleCountDay
-          : src.sample_count_day,
+      messageHtml: !!extra.messageHtml,
       fittedAt:
         extra.fittedAt !== undefined ? extra.fittedAt : src.fitted_at || null,
       researchAt,
@@ -589,10 +562,6 @@ export function initQuant(ctx) {
     return painted;
   }
 
-  function clearRemResultBox() {
-    const box = document.getElementById("quant-tau-result");
-    if (box) box.innerHTML = "";
-  }
 
   async function renderCoCoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-co-coef-table");
@@ -611,10 +580,6 @@ export function initQuant(ctx) {
     host.innerHTML = html || "";
   }
 
-  function clearCoResultBox() {
-    const box = document.getElementById("quant-co-result");
-    if (box) box.innerHTML = "";
-  }
 
   async function renderOoRankCoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-oo-rank-coef-table");
@@ -638,14 +603,102 @@ export function initQuant(ctx) {
     if (box) box.innerHTML = "";
   }
 
+  /** backends.lambdarank 的 gain → 因子表 feature_importance（与 v2 ŷ_oo LightGBM 同壳）。 */
+  function ooRankFeatureImportance(data) {
+    if (!data || typeof data !== "object") return null;
+    if (Array.isArray(data.feature_importance) && data.feature_importance.length) {
+      return data.feature_importance;
+    }
+    const be =
+      data.backends && typeof data.backends === "object" ? data.backends : {};
+    const lr =
+      (be.lambdarank && typeof be.lambdarank === "object" && be.lambdarank) ||
+      null;
+    const pack =
+      (lr && lr.return_model_research) || (lr && lr.return_model) || null;
+    const coefs = pack && pack.coefficients;
+    if (!coefs || typeof coefs !== "object") return null;
+    const out = [];
+    for (const [key, share] of Object.entries(coefs)) {
+      const n = Number(share);
+      if (!key || !Number.isFinite(n)) continue;
+      out.push({ key: String(key), share: n });
+    }
+    return out.length ? out : null;
+  }
+
+  function _ooRankLooksRidge(rm) {
+    if (!rm || typeof rm !== "object" || !rm.coefficients) return false;
+    const be = String(rm.backend || "").trim().toLowerCase();
+    const solver = String(rm.solver || "").trim().toLowerCase();
+    if (be === "ridge" || solver === "ridge") return true;
+    // 无 booster 且非 lambdarank 包 → 按 Ridge 系数表画 β
+    if (rm.booster_b64) return false;
+    if (be === "lambdarank" || solver === "lambdarank") return false;
+    return solver === "ridge" || be === "" || solver === "";
+  }
+
+  /** 系数表优先 Ridge（与 v2 ŷ_oo 同壳）；无 Ridge 时回落当前 return_model。 */
+  function ooRankCoefModel(data) {
+    if (!data || typeof data !== "object") return null;
+    const be =
+      data.backends && typeof data.backends === "object" ? data.backends : {};
+    const ridgeBe = be.ridge && typeof be.ridge === "object" ? be.ridge : null;
+    const ridge =
+      (ridgeBe && ridgeBe.return_model_research) ||
+      (ridgeBe && ridgeBe.return_model) ||
+      null;
+    if (ridge && typeof ridge === "object" && ridge.coefficients) {
+      const model = { ...ridge };
+      model.backend = "ridge";
+      model.solver = model.solver || "ridge";
+      delete model.booster_b64;
+      return {
+        model,
+        researchModel:
+          ridgeBe && ridgeBe.return_model_research
+            ? ridgeBe.return_model_research
+            : null,
+      };
+    }
+    // 顶层研究套若是 Ridge（启用侧可能是 LambdaRank）也优先
+    const candidates = [
+      data.return_model_research,
+      data.return_model,
+      data.coefficients && typeof data.coefficients === "object" ? data : null,
+    ].filter((x) => x && typeof x === "object");
+    const ridgeTop = candidates.find((rm) => _ooRankLooksRidge(rm));
+    if (ridgeTop) {
+      const model = { ...ridgeTop };
+      model.backend = "ridge";
+      model.solver = model.solver || "ridge";
+      delete model.booster_b64;
+      return {
+        model,
+        researchModel:
+          data.return_model_research &&
+          typeof data.return_model_research === "object" &&
+          _ooRankLooksRidge(data.return_model_research)
+            ? data.return_model_research
+            : null,
+      };
+    }
+    const rm = candidates[0] || null;
+    if (!rm) return null;
+    return {
+      model: rm,
+      researchModel:
+        data.return_model_research &&
+        typeof data.return_model_research === "object"
+          ? data.return_model_research
+          : null,
+    };
+  }
+
   async function paintOoRankDesk(sum, data, extra = {}) {
     const src = data && typeof data === "object" ? data : {};
-    const rm =
-      src.return_model && typeof src.return_model === "object"
-        ? src.return_model
-        : src.coefficients && typeof src.coefficients === "object"
-          ? src
-          : null;
+    const coefPack = ooRankCoefModel(src);
+    const rm = coefPack && coefPack.model;
     const oos = src.oos && typeof src.oos === "object" ? src.oos : {};
     const hasBody = !!(
       (rm && typeof rm === "object") ||
@@ -657,6 +710,7 @@ export function initQuant(ctx) {
       persistRole: extra.persistRole || "",
     });
     let message = extra.message;
+    let messageHtml = !!extra.messageHtml;
     if (message === undefined) {
       if (!hasBody) {
         message =
@@ -681,7 +735,18 @@ export function initQuant(ctx) {
               ? `已启用 ${beTxt}`
               : "";
       } else if (flags.liveOn || flags.researchOn) {
-        message = "草稿已更新 · 可再启用研究/执行";
+        const rec =
+          src.recommended_backend ||
+          (oos && oos.recommended_backend) ||
+          src.backend ||
+          "";
+        message =
+          rec === "ridge"
+            ? "落盘 <strong>Ridge</strong>"
+            : rec === "lambdarank"
+              ? "落盘 <strong>LambdaRank</strong>"
+              : "落盘 backend 待定";
+        messageHtml = rec === "ridge" || rec === "lambdarank";
       } else {
         const rec = src.recommended_backend || (oos && oos.recommended_backend);
         const recTxt =
@@ -698,6 +763,7 @@ export function initQuant(ctx) {
       persistRole: extra.persistRole || "",
       justFitted: !!extra.justFitted,
       message,
+      messageHtml,
       idleMessage: "拟合后对照 NDCG@K · 启用自动选更强 backend",
       fittedAt:
         extra.fittedAt !== undefined
@@ -712,6 +778,8 @@ export function initQuant(ctx) {
     renderOoRankOosCompare(src);
     await renderOoRankCoefTable(rm && typeof rm === "object" ? rm : {}, {
       oos,
+      feature_importance: ooRankFeatureImportance(src),
+      researchModel: coefPack && coefPack.researchModel,
     });
   }
 
@@ -823,48 +891,64 @@ export function initQuant(ctx) {
       })
       .join("");
     const scored = lrWins + rgWins;
+    const lrLead = scored > 0 && lrWins > rgWins;
+    const rgLead = scored > 0 && rgWins > lrWins;
+    // 与 v2 双训对照同壳：is-tree / is-ridge + board-row + meta
     const pool = data.watching_tier_a_only ? "观察池 A 档" : "整观察池";
     const hold =
       oos.holdout_trading_days != null
         ? `Holdout ${Number(oos.holdout_trading_days)} 日`
-        : "同窗 Holdout";
+        : data.holdout_trading_days != null
+          ? `Holdout ${Number(data.holdout_trading_days)} 日`
+          : "同窗 Holdout";
+    const nTr =
+      data.n_train_days != null
+        ? `训 ${Number(data.n_train_days).toLocaleString("en-US")} 日`
+        : oos.n_train_days != null
+          ? `训 ${Number(oos.n_train_days).toLocaleString("en-US")} 日`
+          : data.n_train != null
+            ? `训 ${Number(data.n_train).toLocaleString("en-US")}`
+            : "";
     const nTe =
-      data.n_test_days != null ? `测 ${Number(data.n_test_days)} 日` : "";
-    const lrLead = scored > 0 && lrWins > rgWins;
-    const rgLead = scored > 0 && rgWins > lrWins;
+      data.n_test_days != null
+        ? `测 ${Number(data.n_test_days).toLocaleString("en-US")} 日`
+        : oos.n_test_days != null
+          ? `测 ${Number(oos.n_test_days).toLocaleString("en-US")} 日`
+          : data.n_test != null
+            ? `测 ${Number(data.n_test).toLocaleString("en-US")}`
+            : "";
+    const metaBits = [hold, nTr, nTe, pool].filter(Boolean);
+    const metaHtml = metaBits.length
+      ? `<div class="quant-oos-compare-meta" aria-label="Holdout 样本">` +
+        metaBits
+          .map(
+            (b) =>
+              `<span class="quant-oos-compare-meta-chip">${escapeHtml(String(b))}</span>`
+          )
+          .join("") +
+        `</div>`
+      : "";
+    const headCard = (kind, kicker, name, wins, lead) =>
+      `<div class="quant-oos-board-card is-${kind}${lead ? " is-lead" : ""}">` +
+      `<span class="quant-oos-board-kicker">${kicker}</span>` +
+      `<div class="quant-oos-board-row">` +
+      `<span class="quant-oos-board-name">${name}</span>` +
+      `<span class="quant-oos-board-wins">${wins}<small>/${
+        scored || "—"
+      }</small></span>` +
+      `</div>` +
+      `</div>`;
     box.innerHTML =
       `<div class="quant-oos-compare" aria-label="LambdaRank vs Ridge">` +
       `<div class="quant-oos-board">` +
-      `<div class="quant-oos-board-card${lrLead ? " is-lead" : ""}">` +
-      `<span class="quant-oos-board-kicker">排序头</span>` +
-      `<span class="quant-oos-board-name">LambdaRank</span>` +
-      `<span class="quant-oos-board-wins">${lrWins}<small>/${scored || "—"}</small></span>` +
+      headCard("tree", "排序头", "LambdaRank", lrWins, lrLead) +
+      headCard("ridge", "回归头", "Ridge", rgWins, rgLead) +
       `</div>` +
-      `<div class="quant-oos-board-card${rgLead ? " is-lead" : ""}">` +
-      `<span class="quant-oos-board-kicker">回归头</span>` +
-      `<span class="quant-oos-board-name">Ridge</span>` +
-      `<span class="quant-oos-board-wins">${rgWins}<small>/${scored || "—"}</small></span>` +
-      `</div>` +
-      `</div>` +
+      metaHtml +
       `<table class="quant-weight-table quant-oos-compare-table">` +
       `<thead><tr><th>指标</th><th>LambdaRank</th><th>Ridge</th><th>Δ</th></tr></thead>` +
       `<tbody>${body}</tbody></table>` +
-      (() => {
-        const rec =
-          data.recommended_backend ||
-          (oos && oos.recommended_backend) ||
-          (Number.isFinite(Number(rank.ndcg_at_k)) &&
-          Number.isFinite(Number(ridge.ndcg_at_k)) &&
-          Number(ridge.ndcg_at_k) > Number(rank.ndcg_at_k) + 1e-12
-            ? "ridge"
-            : "lambdarank");
-        const recLabel = rec === "ridge" ? "Ridge" : "LambdaRank";
-        return (
-          `<p class="quant-oos-compare-note">${hold}${nTe ? " · " + nTe : ""} · ${pool} · ` +
-          `启用按 NDCG@K 自动落盘 <strong>${recLabel}</strong> · 成交 rank=1..n · 入场闸在回测 · 条长为该项相对幅度，加粗为胜出</p>` +
-          `</div>`
-        );
-      })();
+      `</div>`;
   }
 
   async function renderT30CoefTable(rm, opts = {}) {
@@ -1057,7 +1141,6 @@ export function initQuant(ctx) {
           ...readTreeSlideParams("oo_tree"),
           ...readCrossSectionFitParams("oo_tree"),
           backend: "lightgbm",
-          include_alpha158: true,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1182,7 +1265,6 @@ export function initQuant(ctx) {
           ...readTreeSlideParams("co_tree"),
           ...readCrossSectionFitParams("co_tree"),
           backend: "lightgbm",
-          include_alpha158: true,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1306,14 +1388,11 @@ export function initQuant(ctx) {
           : `${message} · ${baseMsg}`
         : baseMsg;
     }
-    // 引擎 / Alpha158 / 用时已在对照报告里，卡头留日截面 Z / 滑窗摘要 + 拟合时间 + 芯片
+    // 引擎 / alpha_oo / 用时已在对照报告里，卡头留日截面 Z / 滑窗摘要 + 拟合时间 + 芯片
     renderRemStatus(el, {
       state: extra.state || "ok",
       chip: extra.chip || "已拟合",
       message,
-      oos: extra.oos !== undefined ? extra.oos : src.oos || {},
-      sampleCount:
-        extra.sampleCount !== undefined ? extra.sampleCount : src.sample_count,
       fittedAt:
         extra.fittedAt !== undefined
           ? extra.fittedAt
@@ -1401,7 +1480,6 @@ export function initQuant(ctx) {
           ...readTreeSlideParams("tc_tree"),
           ...readCrossSectionFitParams("tc_tree"),
           backend: "lightgbm",
-          include_alpha158: true,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2301,7 +2379,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT30PersistBtn(gate, { hasReport: true });
       clearT30ResultBox();
       await renderT30CoefTable(data.return_model || {}, {
@@ -2331,7 +2409,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT45PersistBtn(gate, { hasReport: true });
       clearT45ResultBox();
       await renderT45CoefTable(data.return_model || {}, {
@@ -2360,7 +2438,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT60PersistBtn(gate, { hasReport: true });
       clearT60ResultBox();
       await renderT60CoefTable(data.return_model || {}, {
@@ -2389,7 +2467,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT75PersistBtn(gate, { hasReport: true });
       clearT75ResultBox();
       await renderT75CoefTable(data.return_model || {}, {
@@ -2418,7 +2496,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT90PersistBtn(gate, { hasReport: true });
       clearT90ResultBox();
       await renderT90CoefTable(data.return_model || {}, {
@@ -2441,32 +2519,27 @@ export function initQuant(ctx) {
         syncTauPersistBtn(data.promote_gate, {
           hasReport: !!data.last_report_exists,
         });
-        clearRemResultBox();
         await renderRemCoefTable(null);
         return;
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      const painted = paintRidgeEnableStatus(sum, data, { gate });
+      const painted = paintRidgeEnableStatus(sum, data);
       const chip = painted.chip;
       syncTauPersistBtn(gate, { hasReport: true });
-      clearRemResultBox();
       await renderRemCoefTable(data.return_model || {}, { oos });
       // 仅当概览仍空时写入（拟合/启用后再刷）
       const card = document.querySelector(
         '#quant-pro-overview-kpis .quant-pro-kpi-card[data-kpi="tau"]'
       );
       if (card && card.classList.contains("is-empty")) {
-        syncOverviewTauFromOos(
-          oos,
-          data.shadow ? "已拟合" : painted.chip
-        );
         if (
-          !(tauOpenBucket(oos) && tauOpenBucket(oos).sign_hit != null) &&
-          !(oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) &&
-          !(oos.ic != null && Number.isFinite(Number(oos.ic)))
+          !syncOverviewTauFromOos(
+            oos,
+            data.shadow ? "已拟合" : painted.chip
+          )
         ) {
-          syncOverviewTau(chip, data.promoted_at || "ŷ_τc", "text");
+          syncOverviewTau(chip, data.promoted_at || "ŷ_τc");
         }
       }
     } catch (_) {
@@ -2485,13 +2558,11 @@ export function initQuant(ctx) {
         paintRidgeEnableStatus(sum, data, {
           idleMessage: data.note || "拟合后看系数 · 再启用研究/执行",
         });
-        clearCoResultBox();
         await renderCoCoefTable(null);
         return;
       }
       const oos = data.oos || {};
       paintRidgeEnableStatus(sum, data);
-      clearCoResultBox();
       await renderCoCoefTable(data.return_model || {}, { oos });
     } catch (_) {
       /* ignore */
@@ -3180,7 +3251,6 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc"),
           watching_tier_a_only: readWatchingTierAOnly("tc"),
-          include_alpha158: true,
           ...readCrossSectionFitParams("tc"),
           persist: !!persist,
           persist_role: persistRole || "live",
@@ -3224,7 +3294,6 @@ export function initQuant(ctx) {
           error: true,
         });
         if (!persistFailed) {
-          clearRemResultBox();
           renderRemCoefTable(null);
         }
         if (persistBtn && gate) {
@@ -3234,25 +3303,19 @@ export function initQuant(ctx) {
         return;
       }
       const oos = data.oos || {};
-      const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
-        : "无 Alpha158";
+      const packBit =
+        data.feature_pack ||
+        `alpha_τc(Z∪aoo×${data.n_alpha_oo_features != null ? data.n_alpha_oo_features : "?"})`;
       const painted = paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
-        message: persist ? "" : [a158Bit, "未写盘"].filter(Boolean).join(" · "),
-        oos,
-        sampleCount: data.sample_count,
-        promotedAt: persist
-          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
-          : data.promoted_at,
+        message: persist ? "" : [packBit, "未写盘"].filter(Boolean).join(" · "),
       });
       _tauPromoteGate = gate;
       syncTauPersistBtn(gate, { hasReport: true });
       syncOverviewTauFromOos(oos, painted.chip);
       const rm = data.return_model || {};
-      clearRemResultBox();
       await renderRemCoefTable(rm, { oos });
     } catch (err) {
       renderRemStatus(sum, {
@@ -3315,7 +3378,6 @@ export function initQuant(ctx) {
           error: true,
         });
         setQuantMeta(`ŷ_co 失败 · ${err}`, { error: true });
-        clearCoResultBox();
         renderCoCoefTable(null);
         return;
       }
@@ -3351,12 +3413,9 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
         message,
-        oos,
-        sampleCount: data.sample_count,
         fittedAt: data.fitted_at || status.fitted_at || null,
       });
       const rm = data.return_model || status.return_model || {};
-      clearCoResultBox();
       await renderCoCoefTable(rm, { oos });
     } catch (err) {
       renderRemStatus(sum, {
@@ -3421,6 +3480,19 @@ export function initQuant(ctx) {
         const stData = await stRes.json().catch(() => ({}));
         if (stData && typeof stData === "object") {
           status = { ...stData, ...data };
+          // 保留任一侧带 Ridge 的 backends，避免 β 列回落成 gain
+          const beA =
+            data.backends && typeof data.backends === "object"
+              ? data.backends
+              : null;
+          const beB =
+            stData.backends && typeof stData.backends === "object"
+              ? stData.backends
+              : null;
+          if (beA && beA.ridge) status.backends = beA;
+          else if (beB && beB.ridge) status.backends = beB;
+          else if (beA) status.backends = beA;
+          else if (beB) status.backends = beB;
         }
       } catch (_) {}
       await paintOoRankDesk(sum, status, {
@@ -3616,11 +3688,6 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
         message: persist ? "" : "未写盘",
-        oos,
-        sampleCount: data.sample_count,
-        promotedAt: persist
-          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
-          : data.promoted_at,
       });
       syncT30PersistBtn(gate, { hasReport: true });
       const rm = data.return_model || {};
@@ -3713,7 +3780,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT30PersistBtn(gate, { hasReport: true });
       clearT30ResultBox();
       await renderT30CoefTable(data.return_model || {}, {
@@ -3808,11 +3875,6 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
         message: persist ? "" : "未写盘",
-        oos,
-        sampleCount: data.sample_count,
-        promotedAt: persist
-          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
-          : data.promoted_at,
       });
       syncT45PersistBtn(gate, { hasReport: true });
       const rm = data.return_model || {};
@@ -3905,7 +3967,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT45PersistBtn(gate, { hasReport: true });
       clearT45ResultBox();
       await renderT45CoefTable(data.return_model || {}, {
@@ -3999,11 +4061,6 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
         message: persist ? "" : "未写盘",
-        oos,
-        sampleCount: data.sample_count,
-        promotedAt: persist
-          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
-          : data.promoted_at,
       });
       syncT60PersistBtn(gate, { hasReport: true });
       const rm = data.return_model || {};
@@ -4096,7 +4153,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT60PersistBtn(gate, { hasReport: true });
       clearT60ResultBox();
       await renderT60CoefTable(data.return_model || {}, {
@@ -4190,11 +4247,6 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
         message: persist ? "" : "未写盘",
-        oos,
-        sampleCount: data.sample_count,
-        promotedAt: persist
-          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
-          : data.promoted_at,
       });
       syncT75PersistBtn(gate, { hasReport: true });
       const rm = data.return_model || {};
@@ -4287,7 +4339,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT75PersistBtn(gate, { hasReport: true });
       clearT75ResultBox();
       await renderT75CoefTable(data.return_model || {}, {
@@ -4381,11 +4433,6 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
         message: persist ? "" : "未写盘",
-        oos,
-        sampleCount: data.sample_count,
-        promotedAt: persist
-          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
-          : data.promoted_at,
       });
       syncT90PersistBtn(gate, { hasReport: true });
       const rm = data.return_model || {};
@@ -4478,7 +4525,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
+      paintRidgeEnableStatus(sum, data);
       syncT90PersistBtn(gate, { hasReport: true });
       clearT90ResultBox();
       await renderT90CoefTable(data.return_model || {}, {
@@ -4863,13 +4910,11 @@ export function initQuant(ctx) {
         paintRidgeEnableStatus(sum, data, {
           idleMessage: data.note || "拟合后看系数 · 再启用研究/执行",
         });
-        clearCoResultBox();
         await renderCoCoefTable(null);
         return;
       }
       const oos = data.oos || {};
       paintRidgeEnableStatus(sum, data);
-      clearCoResultBox();
       await renderCoCoefTable(data.return_model || {}, { oos });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4908,7 +4953,7 @@ export function initQuant(ctx) {
         : "ŷ_oo_rank 执行套（oo_rank_model.json，供交易执行）";
     if (
       !window.confirm(
-        `将 ŷ_oo_rank 写入 ${target}？按 Holdout NDCG@K 自动落盘 LambdaRank 或 Ridge 中更强一侧；成交明细 rank=1..n（1=最高）；不进买序；入场闸在回测「其他」勾选 rank < 30。`
+        `将 ŷ_oo_rank 写入 ${target}？按 Holdout NDCG@K 自动落盘 LambdaRank 或 Ridge 中更强一侧；成交明细 rank=1..n（1=最高）；不进买序；入场闸在回测「其他」勾选 rank < top 50%。`
       )
     ) {
       return;
@@ -4966,25 +5011,21 @@ export function initQuant(ctx) {
           idleMessage: data.note || "拟合后看系数 · 再启用研究/执行",
         });
         if (!data.research_exists && !data.live_model_present) {
-          syncOverviewTau("未启用", "ŷ_τc 模型缺失", "text");
+          syncOverviewTau("未启用", "ŷ_τc 模型缺失");
         } else {
-          syncOverviewTau(painted.chip, data.promoted_at || "ŷ_τc 模型", "text");
+          syncOverviewTau(painted.chip, data.promoted_at || "ŷ_τc 模型");
         }
-        clearRemResultBox();
         await renderRemCoefTable(null);
         return;
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      const painted = paintRidgeEnableStatus(sum, data, { gate });
+      const painted = paintRidgeEnableStatus(sum, data);
       const chip = painted.chip;
       syncTauPersistBtn(gate, { hasReport: true });
-      if (oos.sign_hit != null || (oos.ic != null && Number.isFinite(Number(oos.ic))) || tauOpenBucket(oos)) {
-        syncOverviewTauFromOos(oos, chip);
-      } else {
-        syncOverviewTau(chip, data.promoted_at || "ŷ_τc 模型", "text");
+      if (!syncOverviewTauFromOos(oos, chip)) {
+        syncOverviewTau(chip, data.promoted_at || "ŷ_τc 模型");
       }
-      clearRemResultBox();
       await renderRemCoefTable(data.return_model || {}, { oos });
     } catch (err) {
       renderRemStatus(sum, {

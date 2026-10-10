@@ -17,7 +17,7 @@ from quant.services.quant_interpret import build_rule_based_interpret, compact_q
 
 
 
-# Alpha158 抬窗后研究面板需 ≥90 根，才够 MIN_CLUSTER_OBS / OLS 样本
+# alpha_oo 抬窗后研究面板需 ≥90 根，才够 MIN_CLUSTER_OBS / OLS 样本
 _OLS_BARS_N = 100
 
 

@@ -175,7 +175,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_enter_alt_enabled": True,
         "y_oo_gt0": False,
         "y_τc_gt0": False,
-        "oo_rank_max": None,
+        "oo_rank_top_frac": None,
         "fill_clock": "09:30",
         "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
@@ -197,7 +197,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_enter_alt_enabled": True,
         "y_oo_gt0": False,
         "y_τc_gt0": False,
-        "oo_rank_max": None,
+        "oo_rank_top_frac": None,
         "fill_clock": "09:30",
         "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
@@ -848,8 +848,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
                     "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
                     "y_τc_gt0": bool(pm.get("y_τc_gt0")),
-                    # None=关；30=UI「rank < 30」。须进白名单，否则保存后勾选被冲掉。
-                    "oo_rank_max": pm.get("oo_rank_max"),
+                    # None=关；0.5=UI「rank < top 50%」。须进白名单，否则保存后勾选被冲掉。
+                    "oo_rank_top_frac": pm.get("oo_rank_top_frac"),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
                     "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
                     "score_backend": str(pm.get("score_backend") or "ridge"),
@@ -862,6 +862,12 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                 lots["mode"] = "rank_lots"
                 if "enabled" in pm_in:
                     lots["enabled"] = full["enabled"]
+                # 旧补丁只带 oo_rank_max：迁成 oo_rank_top_frac，并清掉绝对上限键
+                if "oo_rank_top_frac" not in pm_in and "oo_rank_max" in pm_in:
+                    lots["oo_rank_top_frac"] = full.get("oo_rank_top_frac")
+                    lots["oo_rank_max"] = None
+                elif "oo_rank_top_frac" in pm_in:
+                    lots["oo_rank_max"] = None
                 timing_out["rank_lots"] = lots
                 timing_out["path_matrix"] = lots
             except Exception as e:  # noqa: BLE001

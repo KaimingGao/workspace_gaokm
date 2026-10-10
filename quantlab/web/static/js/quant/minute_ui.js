@@ -30,10 +30,6 @@ export function installMinuteUi(q) {
   const covBody = document.getElementById("quant-minute-cov-body");
   const labelTauMeta = document.getElementById("quant-minute-label-tau-meta");
   const labelTauBody = document.getElementById("quant-minute-label-tau-body");
-  const labelPathMeta = document.getElementById("quant-minute-label-path-meta");
-  const labelPathBody = document.getElementById("quant-minute-label-path-body");
-  const labelJointMeta = document.getElementById("quant-minute-label-joint-meta");
-  const labelJointBody = document.getElementById("quant-minute-label-joint-body");
   const contextStrip = document.getElementById("quant-minute-context-strip");
   const progressEl = document.getElementById("quant-minute-progress");
   const footEl = document.getElementById("quant-minute-foot");
@@ -64,6 +60,8 @@ export function installMinuteUi(q) {
 
   let inflight = null;
   let kpiInflight = null;
+  let labelPortraitGen = 0;
+  let labelPortraitPending = false;
   let jobFailure = null;
   let jobSuccess = null;
   let lastPolledJob = null;
@@ -358,75 +356,40 @@ export function installMinuteUi(q) {
     ].filter((r) => r.count > 0);
   }
 
-  function renderLabelPortrait(data) {
+  function renderLabelPortrait(data, { allowClear = false } = {}) {
     const head = `<div class="quant-bars-bar-head" aria-hidden="true"><span>Bucket</span><span>Share</span><span>N</span></div>`;
-    const lp = data && data.label_portrait;
-    if (!lp || lp.success === false) {
+    if (!data || data.success === false) {
+      if (!allowClear) return;
+      labelPortraitPending = false;
       if (labelTauMeta) labelTauMeta.textContent = "开→收";
-      if (labelPathMeta) labelPathMeta.textContent = "极值序";
-      if (labelJointMeta) labelJointMeta.textContent = "τ↔path";
       renderBarRows(labelTauBody, [], { emptyText: "暂无标签画像", head });
-      renderBarRows(labelPathBody, [], { emptyText: "暂无标签画像", head });
-      renderBarRows(labelJointBody, [], { emptyText: "暂无同号统计", head });
+      return;
+    }
+    const lp = data.label_portrait;
+    if (lp == null) {
+      const hasBars = !!labelTauBody?.querySelector(".quant-bars-bar-row");
+      if (labelPortraitPending && !hasBars) {
+        if (labelTauMeta) labelTauMeta.textContent = "统计中";
+        renderBarRows(labelTauBody, [], { emptyText: "统计 τ 标签…", head });
+      }
+      return;
+    }
+    if (lp.success === false) {
+      labelPortraitPending = false;
+      if (labelTauMeta) labelTauMeta.textContent = "开→收";
+      renderBarRows(labelTauBody, [], { emptyText: "标签画像失败", head });
       return;
     }
     const days = Number(lp.days_scanned) || 0;
     const tau = lp.tau || {};
-    const path = lp.path || {};
-    const joint = lp.joint || {};
     const tauShare =
       tau.pos_share != null && Number.isFinite(Number(tau.pos_share))
         ? `${Math.round(Number(tau.pos_share) * 1000) / 10}%+`
         : "—";
-    const pathShare =
-      path.pos_share != null && Number.isFinite(Number(path.pos_share))
-        ? `${Math.round(Number(path.pos_share) * 1000) / 10}%+`
-        : "—";
-    const sameRate =
-      joint.same_sign_rate != null && Number.isFinite(Number(joint.same_sign_rate))
-        ? `${Math.round(Number(joint.same_sign_rate) * 1000) / 10}%`
-        : "—";
-    if (labelTauMeta) labelTauMeta.textContent = `n=${days} · ${tauShare}`;
-    if (labelPathMeta) labelPathMeta.textContent = `n=${days} · ${pathShare}`;
-    if (labelJointMeta) {
-      labelJointMeta.textContent = `同号 ${sameRate}${lp.cached ? " · cache" : ""}`;
-    }
+    const cacheBit = lp.cached ? " · cache" : "";
+    if (labelTauMeta) labelTauMeta.textContent = `n=${days} · ${tauShare}${cacheBit}`;
     renderBarRows(labelTauBody, labelSignRows(tau, days), {
       emptyText: "无 τ 标签日",
-      head,
-    });
-    renderBarRows(labelPathBody, labelSignRows(path, days), {
-      emptyText: "无 path 标签日",
-      head,
-    });
-    const signedN =
-      Number(joint.signed_n) ||
-      Number(joint.same_sign || 0) + Number(joint.opposite_sign || 0);
-    const jointRows = [
-      {
-        label: "same",
-        count: Number(joint.same_sign) || 0,
-        state: "is-good",
-        title: "τ 与 path 标签同号",
-        universeTotal: signedN || days,
-      },
-      {
-        label: "opp",
-        count: Number(joint.opposite_sign) || 0,
-        state: "is-bad",
-        title: "τ 与 path 标签异号",
-        universeTotal: signedN || days,
-      },
-      {
-        label: "flat",
-        count: Number(joint.flat) || 0,
-        state: "is-mid",
-        title: "任一侧近零/缺失",
-        universeTotal: days,
-      },
-    ].filter((r) => r.count > 0);
-    renderBarRows(labelJointBody, jointRows, {
-      emptyText: "无双标签日",
       head,
     });
   }
@@ -505,7 +468,7 @@ export function installMinuteUi(q) {
     if (!data || !data.success) {
       renderContextStrip(null);
       renderCoverageBar({ universe_count: 0, cached_ok: 0, short: 0, missing: 0, span_distribution: [] });
-      renderLabelPortrait(null);
+      renderLabelPortrait(null, { allowClear: true });
       if (footEl) footEl.innerHTML = "";
       return;
     }
@@ -542,12 +505,16 @@ export function installMinuteUi(q) {
     const base = `/api/quant/minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}`;
     const { ok, data, error } = await apiFetch(`${base}&include_label_portrait=0`);
     if (!ok) {
+      labelPortraitPending = false;
+      labelPortraitGen += 1;
       paint(null);
       msgEl.textContent = error || "读取 5m 状态失败";
       setProStatusChip(chip, "error", "ERR");
       if (!inflight) setMinuteBusy(false);
       return null;
     }
+    const gen = ++labelPortraitGen;
+    labelPortraitPending = true;
     paint(data, { skipHead: !!jobFailure || !!jobSuccess });
     if (jobFailure) applyJobFailure({ message: jobFailure.errText }, jobFailure.job);
     else if (jobSuccess) applyJobSuccess(jobSuccess.job);
@@ -558,11 +525,20 @@ export function installMinuteUi(q) {
     }
     apiFetch(`${base}&include_label_portrait=1`)
       .then(({ ok: pok, data: pdata }) => {
-        if (!pok || !pdata?.success) return;
+        if (gen !== labelPortraitGen) return;
+        labelPortraitPending = false;
+        if (!pok || !pdata?.success || pdata.label_portrait == null) {
+          renderLabelPortrait({ success: true, label_portrait: { success: false } });
+          return;
+        }
         renderLabelPortrait(pdata);
         renderFoot(pdata);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (gen !== labelPortraitGen) return;
+        labelPortraitPending = false;
+        renderLabelPortrait({ success: true, label_portrait: { success: false } });
+      });
     return data;
   }
 

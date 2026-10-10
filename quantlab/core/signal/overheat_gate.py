@@ -69,7 +69,7 @@ def metrics_from_item(item: Optional[Mapping[str, Any]]) -> Dict[str, Optional[f
 
     day = _f("day_gain_pct", "last_change", "change")
     return {
-        "mom3": _f("momentum_3d", "mom3_pct", "mom3"),
+        "mom3": _f("momentum_3d", "mom3"),
         "mom5": _f("momentum_5d", "mom5_pct", "mom5"),
         "day_gain": day,
     }

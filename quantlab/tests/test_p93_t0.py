@@ -2210,14 +2210,14 @@ class TestDualYDirection(unittest.TestCase):
         self.assertAlmostEqual(packed["y_on_path"], 3.5)
 
     def test_eod_factor_bar_limit_matches_score_stock(self):
-        """EOD 窗与实盘取数同长，满足 Alpha158（≥61）。周线按末根切桶。"""
-        from core.signal.factors.alpha158 import ALPHA158_MIN_BARS, ALPHA158_PANEL_WINDOW
-        from core.signal.score_stock import _alpha158_fetch_limit
+        """EOD 窗与实盘取数同长，满足 alpha_oo（≥61）。周线按末根切桶。"""
+        from core.signal.factors.alpha_oo import ALPHA_OO_MIN_BARS, ALPHA_OO_PANEL_WINDOW
+        from core.signal.score_stock import _alpha_oo_fetch_limit
         from core.t0.score_policy import _EOD_FACTOR_BAR_LIMIT
 
-        self.assertGreaterEqual(int(ALPHA158_PANEL_WINDOW), int(ALPHA158_MIN_BARS))
-        self.assertEqual(int(_EOD_FACTOR_BAR_LIMIT), int(ALPHA158_PANEL_WINDOW))
-        self.assertEqual(int(_EOD_FACTOR_BAR_LIMIT), _alpha158_fetch_limit())
+        self.assertGreaterEqual(int(ALPHA_OO_PANEL_WINDOW), int(ALPHA_OO_MIN_BARS))
+        self.assertEqual(int(_EOD_FACTOR_BAR_LIMIT), int(ALPHA_OO_PANEL_WINDOW))
+        self.assertEqual(int(_EOD_FACTOR_BAR_LIMIT), _alpha_oo_fetch_limit())
 
     def test_paper_t0_daily_bar_limit_covers_eod_hist(self):
         """纸面预演日线须含当日 + EOD 窗，否则比回测少 1 根。"""

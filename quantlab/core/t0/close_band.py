@@ -815,7 +815,7 @@ def close_band_y_τc_round_shares(
     lot: int = 100,
     price: Optional[float] = None,
 ) -> Optional[int]:
-    """过 y_τc入场用入场金额/价，过 y_τc强用强金额。不够一手则买一手。两边都未配（≤0）则 None，走比例仓。"""
+    """过 y_τc入场用入场金额/价，过 y_τc强用强金额；不够一手返回 0。两边都未配（≤0）则 None，走比例仓。"""
     from core.paper.sizing import shares_from_amount
 
     cfg_d = cfg if isinstance(cfg, dict) else {}

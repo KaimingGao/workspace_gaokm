@@ -131,10 +131,6 @@ class TauRidgeRequest(_WatchingTierAOnly):
         description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau（开则训 09:30…11:00 网格）",
         max_length=8,
     )
-    include_alpha158: bool = Field(
-        default=True,
-        description="Ridge 吃 raw_alpha158_*（≤T−1）；与 ŷ_oo 日线 X 可能重叠",
-    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tau-ridge",
@@ -164,10 +160,6 @@ class OoTreeRequest(_TreeSlideWindow, _CrossSectionZscore):
         description="仅 lightgbm",
         max_length=16,
     )
-    include_alpha158: bool = Field(
-        default=True,
-        description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照不含",
-    )
 
 
 class CoTreeRequest(_WatchingTierAOnly, _TreeSlideWindow, _CrossSectionZscore):
@@ -193,10 +185,6 @@ class CoTreeRequest(_WatchingTierAOnly, _TreeSlideWindow, _CrossSectionZscore):
         default="lightgbm",
         description="仅 lightgbm",
         max_length=16,
-    )
-    include_alpha158: bool = Field(
-        default=True,
-        description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照仅 CO Z",
     )
 
 
@@ -228,10 +216,6 @@ class TauTreeRequest(_WatchingTierAOnly, _TreeSlideWindow, _CrossSectionZscore):
         default="lightgbm",
         description="仅 lightgbm",
         max_length=16,
-    )
-    include_alpha158: bool = Field(
-        default=True,
-        description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照不含，防与 ŷ_oo 双重计权",
     )
 
 
@@ -430,7 +414,7 @@ class CoRidgeRequest(_WatchingTierAOnly):
 
 
 class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 rank=1..n；不进买序；可选 oo_rank_max）。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 rank=1..n；不进买序；可选 oo_rank_top_frac）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -469,7 +453,7 @@ class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
 
 
 class T30RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_τ30 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
+    """ŷ_τ30 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -511,7 +495,7 @@ class T30RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
 
 
 class T45RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_τ45 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
+    """ŷ_τ45 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -553,7 +537,7 @@ class T45RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
 
 
 class T60RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_τ60 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
+    """ŷ_τ60 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -595,7 +579,7 @@ class T60RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
 
 
 class T75RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_τ75 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
+    """ŷ_τ75 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -684,7 +668,7 @@ class BarsRefreshRequest(BaseModel):
 
 
 class MinuteRefreshRequest(BaseModel):
-    """观察池 5m 分钟线预热（ŷ_hl / T0 回测）。"""
+    """观察池 5m 分钟线预热（ŷ_τc / T0 回测）。"""
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
     lookback_days: int = Field(default=120, ge=5, le=120)
@@ -707,7 +691,7 @@ class MinuteRefreshRequest(BaseModel):
 
 
 class T90RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_τ90 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
+    """ŷ_τ90 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(

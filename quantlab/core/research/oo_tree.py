@@ -68,20 +68,18 @@ def load_oo_tree_last_report() -> Optional[Dict[str, Any]]:
     return None
 
 
-def _oo_column_names(*, include_alpha158: bool) -> List[str]:
+def _oo_column_names() -> List[str]:
+    from core.research.oo_ridge_compact import alpha_oo_raw_names
     from core.signal.factors.meta.health import unsourced_factor_names
     from core.signal.factors.meta.registry import registered_factor_names
 
     banned = set(unsourced_factor_names())
     names = [n for n in registered_factor_names() if n not in banned]
-    if include_alpha158:
-        from core.research.oo_ridge_compact import alpha158_raw_names
-
-        seen = set(names)
-        for key in alpha158_raw_names():
-            if key not in seen and key not in banned:
-                seen.add(key)
-                names.append(key)
+    seen = set(names)
+    for key in alpha_oo_raw_names():
+        if key not in seen and key not in banned:
+            seen.add(key)
+            names.append(key)
     return names
 
 
@@ -90,15 +88,14 @@ def _stack_daily_panels(
     *,
     horizon_days: int = 1,
     min_history: int = 12,
-    include_alpha158: bool = True,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股写入 float64 后丢掉行 dict。返回 (X, names, ys, dates, metas, n_stocks)。"""
     from core.research.panel import collect_subscore_forward_panel
     from core.research.panel_matrix import PanelMatrix
 
     block = PanelMatrix(
-        _oo_column_names(include_alpha158=include_alpha158),
-        widen_prefix="raw_alpha158_" if include_alpha158 else "",
+        _oo_column_names(),
+        widen_prefix="raw_aoo_",
     )
     ys: List[float] = []
     dates: List[str] = []
@@ -146,26 +143,25 @@ def _stack_daily_panels(
 def _feature_names_from_matrix(
     names: Sequence[str],
     present: set,
-    *,
-    include_alpha158: bool,
 ) -> Tuple[List[str], List[str], List[str]]:
-    """返回 (tree_feats, ridge_feats, a158_keys)。proxy 已在列名里剔除。"""
+    """返回 (tree_feats, ridge_feats, aoo_keys)。proxy 已在列名里剔除。"""
+    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
     from core.signal.factors.meta.health import unsourced_factor_names
     from core.signal.factors.meta.registry import registered_factor_names
 
     banned = set(unsourced_factor_names())
     base = [n for n in registered_factor_names() if n not in banned]
     ridge_feats = [n for n in base if n in present]
-    a158_keys = [
+    aoo_keys = [
         n
         for n in names
-        if n in present and str(n).startswith("raw_alpha158_") and n not in banned
-    ] if include_alpha158 else []
+        if n in present and is_alpha_oo_raw_key(str(n)) and n not in banned
+    ]
     tree_feats = list(ridge_feats)
-    for k in a158_keys:
+    for k in aoo_keys:
         if k not in tree_feats:
             tree_feats.append(k)
-    return tree_feats, ridge_feats, a158_keys
+    return tree_feats, ridge_feats, aoo_keys
 
 
 def fit_oo_tree_report(
@@ -180,14 +176,13 @@ def fit_oo_tree_report(
     max_depth: int = DEFAULT_MAX_DEPTH,
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
-    include_alpha158: bool = True,
     window_days: int = DEFAULT_TREE_WINDOW_DAYS,
     step_days: int = DEFAULT_TREE_STEP_DAYS,
     cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """日线面板拟合 ŷ_oo_tree + Ridge OOS 对照。不写 live / 研究套。
 
-    ``include_alpha158=True`` 时树吃 Alpha158。标签仍是百分点。
+    树侧固定吃 alpha_oo（raw_aoo_*）。标签仍是百分点。
     ``cross_section_zscore``：日截面 z（默认）或训练窗全局 μ/σ。
     LightGBM：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2。
     ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。
@@ -201,7 +196,6 @@ def fit_oo_tree_report(
         stock_bars,
         horizon_days=horizon_days,
         min_history=min_history,
-        include_alpha158=include_alpha158,
     )
     panel_s = round(time.perf_counter() - t_panel0, 2)
     if len(ys) < 20:
@@ -217,10 +211,9 @@ def fit_oo_tree_report(
             "backtest_hook": False,
         }
 
-    feat_names, ridge_feat_names, a158_keys = _feature_names_from_matrix(
+    feat_names, ridge_feat_names, aoo_keys = _feature_names_from_matrix(
         col_names,
         finite_name_set(X, col_names),
-        include_alpha158=include_alpha158,
     )
     if len(feat_names) < 2:
         return {
@@ -348,8 +341,8 @@ def fit_oo_tree_report(
         },
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_feat_names),
-        "include_alpha158": bool(include_alpha158),
-        "n_alpha158_features": len(a158_keys),
+        "include_alpha_oo": True,
+        "n_alpha_oo_features": len(aoo_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
         "oos": oos_boost,
@@ -367,9 +360,7 @@ def fit_oo_tree_report(
             + ("特征日截面 z-score · " if use_cs else "特征训练窗全局 μ/σ · ")
             + "同 Holdout vs Ridge；"
             + (
-                "树侧可含 raw_alpha158_*（Ridge 对照不含 a158）；"
-                if include_alpha158
-                else ""
+                "树侧含 raw_aoo_*（Ridge 对照不含）；"
             )
             + (
                 f"训练日滑窗 {hyper.get('window_days')}／步 {hyper.get('step_days')}"
@@ -430,7 +421,7 @@ def oo_tree_features_from_window(
     window: Sequence[dict],
     quote: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """与拟合面板同一套研究因子行（含 raw_alpha158_*）。"""
+    """与拟合面板同一套研究因子行（含 raw_aoo_*）。"""
     from core.research.panel import _research_sub_scores
 
     return _research_sub_scores(

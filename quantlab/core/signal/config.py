@@ -51,7 +51,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "liquidity_flow": ["liquidity", "money_flow", "amihud", "volume_price"],
         "risk": ["volatility", "gap_risk", "tail_anomaly", "overheat"],
         "residual": ["relative_strength", "idio_momentum", "size"],
-        "pv_derived": ["alpha158"],
+        "pv_derived": ["alpha_oo"],
     },
     "hard_reject": {
         "min_bars": 2,
@@ -305,6 +305,30 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
         scoring = dict(scoring)
         scoring.pop("enable_calibration", None)
         cfg["scoring"] = scoring
+    # alpha158 → alpha_oo：旧盘 factor_groups / weights 键名改写
+    groups = cfg.get("factor_groups")
+    if isinstance(groups, dict):
+        rewritten = False
+        out_groups = dict(groups)
+        for gname, members in list(out_groups.items()):
+            if not isinstance(members, list):
+                continue
+            new_members = [
+                "alpha_oo" if str(m) == "alpha158" else m for m in members
+            ]
+            if new_members != members:
+                out_groups[gname] = new_members
+                rewritten = True
+        if rewritten:
+            cfg["factor_groups"] = out_groups
+    weights = cfg.get("weights")
+    if isinstance(weights, dict) and "alpha158" in weights:
+        weights = dict(weights)
+        if "alpha_oo" not in weights:
+            weights["alpha_oo"] = weights.pop("alpha158")
+        else:
+            weights.pop("alpha158", None)
+        cfg["weights"] = weights
     _cached = cfg
     return _apply_overlays(deepcopy(cfg))
 

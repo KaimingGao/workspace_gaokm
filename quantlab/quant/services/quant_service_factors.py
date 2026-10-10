@@ -707,14 +707,12 @@ class QuantFactorMixin:
         force_promote: bool = False,
         persist_role: str = "live",
         holdout_trading_days: int = 20,
-        include_alpha158: bool = True,
         cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
         默认用满观察池。``tau_hm`` 缺省跟随 ``dual_score.enable_minute_tau``：
         开则训 09:30…做 T 11:00 网格，否则 open。
-        ``include_alpha158``：默认 True，Ridge 吃 ``raw_alpha158_*``（≤T−1）。
         日线与 ŷ_oo / ŷ_co 同源（``load_portfolio_stock_bars``）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
@@ -824,7 +822,6 @@ class QuantFactorMixin:
             tau_hm=tau_key,
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
-            include_alpha158=bool(include_alpha158),
             cross_section_zscore=bool(cross_section_zscore),
         )
         report["watching_limit"] = limit
@@ -877,7 +874,6 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
         tau_hm: Optional[str] = None,
-        include_alpha158: bool = True,
         cross_section_zscore: bool = True,
         **_ignored: Any,
     ) -> Dict[str, Any]:
@@ -896,7 +892,6 @@ class QuantFactorMixin:
             persist_role=persist_role,
             holdout_trading_days=holdout_trading_days,
             tau_hm=tau_hm,
-            include_alpha158=bool(include_alpha158),
             cross_section_zscore=bool(cross_section_zscore),
         )
         return _start_ridge_fit_job(
@@ -994,11 +989,10 @@ class QuantFactorMixin:
         step_days: int = DEFAULT_TREE_STEP_DAYS,
         cross_section_zscore: bool = True,
         backend: Optional[str] = None,
-        include_alpha158: bool = True,
     ) -> Dict[str, Any]:
         """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，供调仓回测。
 
-        日线与 ŷ_oo / ŷ_co_tree 同源（``load_portfolio_stock_bars``，含 Alpha158 垫窗）。
+        日线与 ŷ_oo / ŷ_co_tree 同源（``load_portfolio_stock_bars``，含 alpha_oo 垫窗）。
         """
         import time
 
@@ -1045,7 +1039,6 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             holdout_trading_days=holdout_trading_days,
             backend=backend,
-            include_alpha158=include_alpha158,
             window_days=window_days,
             step_days=step_days,
             cross_section_zscore=bool(cross_section_zscore),
@@ -1112,7 +1105,6 @@ class QuantFactorMixin:
         step_days: int = DEFAULT_TREE_STEP_DAYS,
         cross_section_zscore: bool = True,
         backend: Optional[str] = None,
-        include_alpha158: bool = True,
     ) -> Dict[str, Any]:
         """ŷ_co_tree：隔夜缺口面板 Holdout vs Ridge。写入 co_tree_model.json，供调仓回测。
 
@@ -1177,7 +1169,6 @@ class QuantFactorMixin:
             theme_boost=theme_boost,
             holdout_trading_days=holdout_trading_days,
             backend=backend,
-            include_alpha158=include_alpha158,
             window_days=window_days,
             step_days=step_days,
             cross_section_zscore=bool(cross_section_zscore),
@@ -1252,7 +1243,6 @@ class QuantFactorMixin:
         step_days: int = DEFAULT_TREE_STEP_DAYS,
         cross_section_zscore: bool = True,
         backend: Optional[str] = None,
-        include_alpha158: bool = True,
     ) -> Dict[str, Any]:
         """ŷ_τ_tree：同面板 Holdout vs Ridge。写入 tc_tree_model.json，供调仓回测。
 
@@ -1356,7 +1346,6 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
             backend=backend,
-            include_alpha158=bool(include_alpha158),
             window_days=window_days,
             step_days=step_days,
             cross_section_zscore=bool(cross_section_zscore),
@@ -1434,7 +1423,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。
 
-        日线与 ŷ_oo 同源（``load_portfolio_stock_bars``：lookback 外再垫 Alpha158 窗），
+        日线与 ŷ_oo 同源（``load_portfolio_stock_bars``：lookback 外再垫 alpha_oo 窗），
         决策日与 ŷ_oo 对齐。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
@@ -1622,7 +1611,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge；默认整观察池，可选只训 A 档。
 
-        成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸。
+        成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_top_frac 入场闸。
         ``persist=True`` 按 Holdout NDCG@K 自动选更强 backend 写入研究/执行套，不重训。
         """
         from core.data.facade import bars_and_source
@@ -1807,6 +1796,45 @@ class QuantFactorMixin:
                 live_present=False,
             )
         out = dict(chosen)
+        # 因子表 β 列依赖 backends.ridge；落盘或缺包时从同窗 / 最近 last_report 补
+        def _has_ridge_backend(doc: Any) -> bool:
+            be = doc.get("backends") if isinstance(doc, dict) else None
+            if not isinstance(be, dict):
+                return False
+            pack = be.get("ridge")
+            if not isinstance(pack, dict):
+                return False
+            rm = pack.get("return_model_research") or pack.get("return_model")
+            return isinstance(rm, dict) and isinstance(rm.get("coefficients"), dict)
+
+        if not _has_ridge_backend(out) and isinstance(last, dict) and _has_ridge_backend(last):
+            same_desk = _ridge_desk_key(last) == _ridge_desk_key(chosen)
+            same_fit = bool(
+                fitted and model_fit_id(last) and model_fit_id(last) == fitted
+            )
+            # 优先同窗；否则只要 live 完全缺 ridge 也补（研究台展示用）
+            if use_last or same_desk or same_fit or not isinstance(out.get("backends"), dict):
+                be_out = (
+                    dict(out["backends"])
+                    if isinstance(out.get("backends"), dict)
+                    else {}
+                )
+                be_last = last.get("backends") if isinstance(last.get("backends"), dict) else {}
+                if isinstance(be_last.get("ridge"), dict):
+                    be_out["ridge"] = be_last["ridge"]
+                if isinstance(be_last.get("lambdarank"), dict) and "lambdarank" not in be_out:
+                    be_out["lambdarank"] = be_last["lambdarank"]
+                if be_out:
+                    out["backends"] = be_out
+        if (
+            not isinstance(out.get("oos"), dict)
+            and isinstance(last, dict)
+            and isinstance(last.get("oos"), dict)
+        ):
+            out["oos"] = last["oos"]
+        for _k in ("n_train_days", "n_test_days", "holdout_trading_days"):
+            if out.get(_k) is None and isinstance(last, dict) and last.get(_k) is not None:
+                out[_k] = last.get(_k)
         rm = out.get("return_model") if isinstance(out.get("return_model"), dict) else {}
         backend = (
             out.get("backend")

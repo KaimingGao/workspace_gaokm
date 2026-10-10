@@ -16,6 +16,8 @@
       →
       <a class="quant-hero-link" href="#quant-section-co">ŷ_co</a>
       →
+      <a class="quant-hero-link" href="#quant-section-oo-rank">ŷ_oo_rank</a>
+      →
       <a class="quant-hero-link" href="#quant-section-t30">ŷ_τ30</a>
       →
       <a class="quant-hero-link" href="#quant-section-t45">ŷ_τ45</a>
@@ -31,8 +33,6 @@
       <a class="quant-hero-link" href="#quant-section-tau-tree">ŷ_τc_tree</a>
       →
       <a class="quant-hero-link" href="#quant-section-co-tree">ŷ_co_tree</a>
-      →
-      <a class="quant-hero-link" href="#quant-section-oo-rank">ŷ_oo_rank</a>
       →
       <a class="quant-hero-link" href="#quant-section-t30-tree">ŷ_τ30_tree</a>
       →
@@ -109,10 +109,10 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">日频截面 IC</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τc：开盘 09:30 同号率（可比旧口径）；混合=09:30–11:00 全网格">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τc：Holdout 日频截面 Pearson 均值（对齐 Qlib IC）；副文案含命中与 Rank IC">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_τc</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">副轴 · τ→收</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">日频截面 IC</div>
           </div>
           <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="landing" title="研究套 sidecar 与执行套 mode（off / 对照 / 启用）">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">落地</div>
@@ -345,18 +345,6 @@
           </div>
           <div class="quant-bars-viz-panel">
             <div class="quant-bars-viz-head">
-              <span class="quant-bars-viz-title">Label co-sign</span>
-              <span class="quant-bars-viz-meta" id="quant-minute-label-joint-meta">τ↔path</span>
-            </div>
-            <div
-              class="quant-bars-viz-body quant-bars-bar-rows"
-              id="quant-minute-label-joint-body"
-              role="img"
-              aria-label="τ 与 path 标签同号构成"
-            ></div>
-          </div>
-          <div class="quant-bars-viz-panel">
-            <div class="quant-bars-viz-head">
               <span class="quant-bars-viz-title">τ label (OC)</span>
               <span class="quant-bars-viz-meta" id="quant-minute-label-tau-meta">开→收</span>
             </div>
@@ -365,18 +353,6 @@
               id="quant-minute-label-tau-body"
               role="img"
               aria-label="τ 标签正负分布"
-            ></div>
-          </div>
-          <div class="quant-bars-viz-panel">
-            <div class="quant-bars-viz-head">
-              <span class="quant-bars-viz-title">path label</span>
-              <span class="quant-bars-viz-meta" id="quant-minute-label-path-meta">极值序</span>
-            </div>
-            <div
-              class="quant-bars-viz-body quant-bars-bar-rows"
-              id="quant-minute-label-path-body"
-              role="img"
-              aria-label="path 标签正负分布"
             ></div>
           </div>
         </div>
@@ -396,7 +372,7 @@
     <details class="quant-primary-fold" open>
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-factors-title" class="dashboard-section-title">ŷ_oo</h3>
-        <p class="dashboard-section-desc quant-section-desc">open(T)→open(T+1) · 全局 Ridge / OLS · 主轴排序</p>
+        <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1]</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -438,7 +414,7 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-oo-result" class="quant-weight-table-wrap" aria-label="ŷ_oo 拟合摘要"></div>
-        <div id="quant-oo-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oo 因子系数表"></div>
+        <div id="quant-oo-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oo 因子表"></div>
         <!-- 参数与遗留宿主：隐藏，避免 flex gap；无退役按钮 -->
         <div hidden aria-hidden="true">
           <input type="hidden" id="quant-horizon" value="1" />
@@ -462,7 +438,7 @@
     <details class="quant-primary-fold" open>
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τc</h3>
-        <p class="dashboard-section-desc quant-section-desc">τ→close Ridge · 副轴 / τ 闸</p>
+        <p class="dashboard-section-desc quant-section-desc">price[τ]→close[T]</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -503,15 +479,14 @@
           </label>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作">
-          <button type="button" id="quant-tau-ridge-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc Ridge + 时间 OOS（训练窗 / 日截面 Z 见左侧；不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
+          <button type="button" id="quant-tau-ridge-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc Ridge（特征包 alpha_τc=Z∪alpha_oo）+ 时间 OOS（训练窗 / 日截面 Z 见左侧；不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
           <button type="button" id="quant-tau-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 tau_ridge_model_research.json，供历史回测加载">启用研究</button>
           <button type="button" id="quant-tau-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/tau_ridge_model.json，供交易执行加载">启用执行</button>
           <button type="button" id="quant-tau-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
-        <div id="quant-tau-result" class="quant-weight-table-wrap" aria-label="ŷ_τc 拟合摘要"></div>
-        <div id="quant-tau-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τc 因子系数表"></div>
+        <div id="quant-tau-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τc 因子表"></div>
       </div>
     </div>
     </details>
@@ -522,7 +497,7 @@
     <details class="quant-primary-fold" open>
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-co-title" class="dashboard-section-title">ŷ_co</h3>
-        <p class="dashboard-section-desc quant-section-desc">open[T+1]/close[T]−1 · 隔夜缺口 Ridge · 风控旁路</p>
+        <p class="dashboard-section-desc quant-section-desc">close[T]→open[T+1]</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -570,14 +545,74 @@
         </div>
       </div>
       <div class="quant-pro-card-body">
-        <div id="quant-co-result" class="quant-weight-table-wrap" aria-label="co 拟合摘要"></div>
-        <div id="quant-co-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_co 因子系数表"></div>
+        <div id="quant-co-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_co 因子表"></div>
       </div>
     </div>
     </details>
   </section>
 
-  <!-- ŷ_τ30：开盘 Z + 分钟小包 − OC 路径形状 + 30m 序列；标签 mean(price(τ⊕25/30/35))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <!-- ŷ_oo_rank：布局对齐 ŷ_oo / v2 · LambdaRank+Ridge 双训 · Holdout NDCG；入场闸在回测「其他」 -->
+  <section class="dashboard-section quant-section" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
+    <details class="quant-primary-fold" open>
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
+        <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
+        <p class="dashboard-section-desc quant-section-desc">双 backend · NDCG@K 择优</p>
+      </summary>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+        <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
+        </div>
+        <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
+          <label
+            class="quant-inline-check"
+            title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"
+          >
+            <input id="quant-fit-cs-z-oo_rank" type="checkbox" checked />
+            <span>日截面 Z</span>
+          </label>
+          <label
+            class="quant-inline-num quant-inline-num--sm"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-oo_rank" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_oo_rank Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_oo_rank 拟合日线训练窗（交易日）。默认 700（100～1000）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-oo_rank" type="number" min="100" max="1000" step="10" value="700" inputmode="numeric" aria-label="ŷ_oo_rank 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-check"
+            title="开启：只训观察池可预测性 A 档（须先跑分档）。关闭：覆盖整观察池。"
+          >
+            <input id="quant-oo-rank-tier-a" type="checkbox" />
+            <span>只训 A 档</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
+          <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池同窗拟合 LambdaRank + Ridge · Holdout OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout NDCG@K 自动落盘更强 backend 到 oo_rank_model_research.json；成交 rank=1..n；不进买序；入场闸另勾 rank&lt;top 50%">启用研究</button>
+          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="按 Holdout NDCG@K 自动落盘更强 backend 到 live/oo_rank_model.json；成交 rank=1..n；不进买序；入场闸另勾 rank&lt;top 50%">启用执行</button>
+          <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-oo-rank-result" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank 拟合摘要"></div>
+        <div id="quant-oo-rank-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank 因子表（Ridge β + LambdaRank gain）"></div>
+      </div>
+    </div>
+    </details>
+  </section>
+
+  <!-- ŷ_τ30：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t30" aria-labelledby="quant-section-t30-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -632,13 +667,13 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t30-result" class="quant-weight-table-wrap" aria-label="ŷ_τ30 拟合摘要"></div>
-        <div id="quant-t30-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ30 因子系数表"></div>
+        <div id="quant-t30-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ30 因子表"></div>
       </div>
     </div>
     </details>
   </section>
 
-  <!-- ŷ_τ45：与 ŷ_τc 同 X；标签 mean(price(τ⊕40/45/50))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <!-- ŷ_τ45：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t45" aria-labelledby="quant-section-t45-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -693,13 +728,13 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t45-result" class="quant-weight-table-wrap" aria-label="ŷ_τ45 拟合摘要"></div>
-        <div id="quant-t45-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ45 因子系数表"></div>
+        <div id="quant-t45-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ45 因子表"></div>
       </div>
     </div>
     </details>
   </section>
 
-  <!-- ŷ_τ60：与 ŷ_τc 同 X；标签 mean(price(τ⊕55/60/65))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <!-- ŷ_τ60：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t60" aria-labelledby="quant-section-t60-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -754,13 +789,13 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t60-result" class="quant-weight-table-wrap" aria-label="ŷ_τ60 拟合摘要"></div>
-        <div id="quant-t60-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ60 因子系数表"></div>
+        <div id="quant-t60-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ60 因子表"></div>
       </div>
     </div>
     </details>
   </section>
 
-  <!-- ŷ_τ75：与 ŷ_τc 同 X；标签 mean(price(τ⊕70/75/80))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <!-- ŷ_τ75：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t75" aria-labelledby="quant-section-t75-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -815,13 +850,13 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t75-result" class="quant-weight-table-wrap" aria-label="ŷ_τ75 拟合摘要"></div>
-        <div id="quant-t75-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ75 因子系数表"></div>
+        <div id="quant-t75-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ75 因子表"></div>
       </div>
     </div>
     </details>
   </section>
 
-  <!-- ŷ_τ90：与 ŷ_τc 同 X；标签 mean(price(τ⊕85/90/95))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <!-- ŷ_τ90：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t90" aria-labelledby="quant-section-t90-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -876,7 +911,7 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-t90-result" class="quant-weight-table-wrap" aria-label="ŷ_τ90 拟合摘要"></div>
-        <div id="quant-t90-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ90 因子系数表"></div>
+        <div id="quant-t90-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ90 因子表"></div>
       </div>
     </div>
     </details>
@@ -887,13 +922,13 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-oo-tree-title" class="dashboard-section-title">ŷ_oo_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">open→open LightGBM · 滑窗增量 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">open[T]→open[T+1]</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-oo-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">LightGBM · 滑窗 init_model · Alpha158 · 写入调仓树包</span>
+          <span class="quant-rem-status-msg">LightGBM · 滑窗 init_model · alpha_oo · 写入调仓树包</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_tree 拟合参数">
           <label
@@ -954,7 +989,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-tau-tree-title" class="dashboard-section-title">ŷ_τc_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">τ→close LightGBM · 滑窗增量 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">price[τ]→close[T]</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -1012,7 +1047,7 @@
         </div>
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_tree 操作">
-          <button type="button" id="quant-tau-tree-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc_tree（训练窗 / 日截面 Z / 滑窗见左侧；LightGBM init_model 增量 + Alpha158）。满池瓶颈在组分钟面板。">拟合</button>
+          <button type="button" id="quant-tau-tree-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc_tree（特征包 alpha_τc=Z∪alpha_oo；训练窗 / 日截面 Z / 滑窗见左侧；LightGBM init_model 增量）。满池瓶颈在组分钟面板。">拟合</button>
           <button type="button" id="quant-tau-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
@@ -1028,7 +1063,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-co-tree-title" class="dashboard-section-title">ŷ_co_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">close→open LightGBM · 滑窗增量 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">close[T]→open[T+1]</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -1092,67 +1127,6 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-co-tree-result" class="quant-weight-table-wrap" aria-label="ŷ_co_tree 对照表"></div>
-      </div>
-    </div>
-    </details>
-  </section>
-
-  <!-- ŷ_oo_rank：LambdaRank / Ridge 双 backend；启用按 NDCG@K 自适应；入场闸在回测「其他」 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
-        <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
-        <p class="dashboard-section-desc quant-section-desc">截面序 · 双 backend · 启用按 NDCG@K 自适应 · 成交 rank=1..n · 不进买序 · 入场闸见回测</p>
-      </summary>
-      <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
-        <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
-          <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
-        </div>
-        <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
-          <label
-            class="quant-inline-check"
-            title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"
-          >
-            <input id="quant-fit-cs-z-oo_rank" type="checkbox" checked />
-            <span>日截面 Z</span>
-          </label>
-          <label
-            class="quant-inline-num quant-inline-num--sm"
-            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
-          >
-            <span>Holdout</span>
-            <input id="quant-holdout-days-oo_rank" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_oo_rank Holdout 交易日数" />
-            <span aria-hidden="true">日</span>
-          </label>
-          <label
-            class="quant-inline-num"
-            title="ŷ_oo_rank 拟合日线训练窗（交易日）。默认 700（100～1000）。"
-          >
-            <span>训练窗</span>
-            <input id="quant-fit-lookback-oo_rank" type="number" min="100" max="1000" step="10" value="700" inputmode="numeric" aria-label="ŷ_oo_rank 训练样本天数" />
-            <span aria-hidden="true">日</span>
-          </label>
-          <label
-            class="quant-inline-check"
-            title="开启：只训观察池可预测性 A 档（须先跑分档）。关闭：覆盖整观察池。"
-          >
-            <input id="quant-oo-rank-tier-a" type="checkbox" />
-            <span>只训 A 档</span>
-          </label>
-        </div>
-
-        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
-          <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池同窗拟合 LambdaRank + Ridge · Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout NDCG@K 自动落盘更强 backend 到 oo_rank_model_research.json；成交 rank=1..n；不进买序；入场闸另勾 rank&lt;30">启用研究</button>
-          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="按 Holdout NDCG@K 自动落盘更强 backend 到 live/oo_rank_model.json；成交 rank=1..n；不进买序；入场闸另勾 rank&lt;30">启用执行</button>
-          <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
-        </div>
-      </div>
-      <div class="quant-pro-card-body">
-        <div id="quant-oo-rank-result" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank OOS 对照"></div>
-        <div id="quant-oo-rank-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank 因子系数表"></div>
       </div>
     </div>
     </details>

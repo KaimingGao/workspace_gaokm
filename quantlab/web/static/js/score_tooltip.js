@@ -123,7 +123,6 @@ const TAU_FEAT_LABELS = {
   gap_atr: "缺口 / ATR",
   gap_vs_sector: "行业相对缺口",
   yclose_loc: "昨收位置",
-  mom3_pct: "近3日动量 %",
   tau_lag1: "昨真实 close/open−1 %",
   tau_ma5: "近5日真实 close/open−1 均 %",
   ret_open_to_tau: "开盘→τ 收益 %",
@@ -2112,7 +2111,6 @@ function formatReasonsSection(reasons) {
 const T0_FEAT_LABELS = {
   gap_pct: "跳空 %",
   yclose_loc: "昨收位置",
-  mom3_pct: "近3日动量 %",
   gap_atr: "gap / ATR",
   atr_pct: "ATR %",
 };
@@ -2189,7 +2187,7 @@ export function formatT0DirectionDetail(raw) {
       `<div class="score-section"><div class="score-section-title">dual_y ŷ</div>${yRows}</div>`;
   }
 
-  const featKeys = ["gap_pct", "yclose_loc", "mom3_pct", "gap_atr", "atr_pct"];
+  const featKeys = ["gap_pct", "yclose_loc", "gap_atr", "atr_pct"];
   const featRows = featKeys
     .map((k) => {
       const v = feats[k];

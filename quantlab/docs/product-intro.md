@@ -58,10 +58,10 @@
 
 > 详细数学推导与参数见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓按 **ranking**（ŷ_oo 几何剩余 + ŷ_τc∘ŷ_co，基准 τ→open[T+1]）决定买卖：ranking 过入场门槛则开/加仓，未过则清仓。金额按 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）换算整手，现金不够缩到整百。
+调仓按 **ranking**（ŷ_oo 几何剩余 + ŷ_τc∘ŷ_co，基准 τ→open[T+1]）决定买卖：ranking 过入场门槛则开/加仓，未过则清仓。金额按 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）换算整手，不够一手则跳过；单票市值不超过强档×120%；现金不够缩到整百。
 
 - **实现**：`core/paper/rebalance/rank_lots.py`，观察池与历史回测共用。
-- **风控**：T+1（当日买入不可卖）、持仓市值上限（live 默认 15 万）、OOS 失败组禁新开、手续费/滑点按成本模型扣除。
+- **风控**：T+1（当日买入不可卖）、单票市值≤强档×120%、组合持仓市值上限（live 默认 15 万）、OOS 失败组禁新开、手续费/滑点按成本模型扣除。
 - **模式**：预演（dry-run，只出清单）/ 确认落账 / 历史回测。
 
 ---

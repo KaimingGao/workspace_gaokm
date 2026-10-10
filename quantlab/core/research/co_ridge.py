@@ -37,7 +37,6 @@ def fit_co_ridge_report(
     theme_boost: float = 1.5,
     holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
-    include_alpha158: bool = True,
     cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_co(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。
@@ -50,7 +49,7 @@ def fit_co_ridge_report(
         fit_keepall_ridge_matrix,
         named_columns,
         predict_ridge_matrix,
-        raw_alpha158_finite,
+        raw_aoo_finite,
     )
 
     X, col_names, ys, dates, metas, n_stocks = collect_co_compact(
@@ -58,7 +57,7 @@ def fit_co_ridge_report(
         list(CO_Z_FEATURES),
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
-        include_alpha158=include_alpha158,
+        include_alpha_oo=True,
         head="y_co",
     )
     if len(ys) < 20:
@@ -97,23 +96,25 @@ def fit_co_ridge_report(
     )
 
     feat_names = list(CO_Z_FEATURES)
-    if include_alpha158:
-        for k in raw_alpha158_finite(X, col_names, train_idx):
-            if k not in feat_names:
-                feat_names.append(k)
+    for k in raw_aoo_finite(X, col_names, train_idx):
+        if k not in feat_names:
+            feat_names.append(k)
+    from core.signal.factors.alpha_oo import (
+        is_alpha_oo_raw_key,
+        merge_alpha_oo_min_std_exempt,
+    )
+
     fill_keys = list(CO_Z_FEATURES)
     seen_fill = set(fill_keys)
     for name in col_names:
-        if str(name).startswith("raw_alpha158_") and name not in seen_fill:
+        if is_alpha_oo_raw_key(str(name)) and name not in seen_fill:
             seen_fill.add(name)
             fill_keys.append(name)
     feature_fill = fill_rates_from_matrix(X, col_names, fill_keys)
     X_fit, feat_names = named_columns(X, col_names, feat_names)
     del X
 
-    from core.signal.factors.alpha158 import merge_alpha158_min_std_exempt
-
-    min_std_exempt = merge_alpha158_min_std_exempt(
+    min_std_exempt = merge_alpha_oo_min_std_exempt(
         feat_names, list(CO_MIN_STD_EXEMPT)
     )
 
@@ -167,7 +168,7 @@ def fit_co_ridge_report(
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": "overnight_gap",
         "feature_fill": feature_fill,
-        "include_alpha158": bool(include_alpha158),
+        "include_alpha_oo": True,
     }
     if ys_te:
         try:
@@ -206,13 +207,13 @@ def fit_co_ridge_report(
         "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
     }
     model["extra_features"] = list(fill_keys)
-    model["include_alpha158"] = bool(include_alpha158)
+    model["include_alpha_oo"] = True
     model["model_role"] = "live"
-    for k in ("y_spec", "extra_features", "horizon_mode", "target", "include_alpha158"):
+    for k in ("y_spec", "extra_features", "horizon_mode", "target", "include_alpha_oo"):
         research_model[k] = model.get(k)
 
-    n_a158 = sum(
-        1 for k in (model.get("extra_features") or []) if "alpha158" in str(k).lower()
+    n_aoo = sum(
+        1 for k in (model.get("extra_features") or []) if is_alpha_oo_raw_key(str(k))
     )
     report = {
         "success": True,
@@ -225,13 +226,11 @@ def fit_co_ridge_report(
         "y_spec": dict(model.get("y_spec") or {}),
         "schema": "co_ridge_v1",
         "target": "overnight_gap",
-        "include_alpha158": bool(include_alpha158),
-        "n_alpha158_features": n_a158,
+        "include_alpha_oo": True,
+        "n_alpha_oo_features": n_aoo,
         "note": (
-            "ŷ_co(Z[+Alpha158]) 估 open[T+1]/close[T]-1；"
-            "T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后 + raw_alpha158_*；与 EOD/τ 解耦"
-            if include_alpha158
-            else "ŷ_co(Z) 估 open[T+1]/close[T]-1；T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后；与 EOD/τ 解耦"
+            "ŷ_co(Z∪alpha_oo) 估 open[T+1]/close[T]-1；"
+            "T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后 + raw_aoo_*；与 EOD/τ 解耦"
         ),
     }
     attach_holdout_meta(report, split_meta)
@@ -421,9 +420,7 @@ _CO_FEAT_LABELS = {
     "gap_atr": "缺口 / ATR",
     "gap_vs_sector": "行业相对缺口",
     "yclose_loc": "今开相对昨高低",
-    "mom3_pct": "近3日动量 %",
     "yest_close_loc": "昨收位置",
-    "yest_range_pct": "昨振幅 %",
     "yest_vol_ratio": "昨量/均量",
     "dist_to_up_limit": "距涨停 %",
 }

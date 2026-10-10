@@ -20,14 +20,14 @@ _CO_FEATURE_KEYS = CO_Z_FEATURES
 
 
 def features_co_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    from core.signal.factors.alpha158 import keep_alpha158_raw_in_row
+    from core.signal.factors.alpha_oo import keep_aoo_raw_in_row
 
     out: Dict[str, Any] = {}
     src = feats or {}
     for k in _CO_FEATURE_KEYS:
         if k in src and src.get(k) is not None and src.get(k) != "":
             out[k] = src.get(k)
-    return keep_alpha158_raw_in_row(src, dest=out)
+    return keep_aoo_raw_in_row(src, dest=out)
 
 
 def merge_co_features(
@@ -185,9 +185,7 @@ def ensure_formula_terms_co(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         "ret_cc",
         "y_on_today",
         "yclose_loc",
-        "mom3_pct",
         "yest_close_loc",
-        "yest_range_pct",
         "yest_vol_ratio",
         "dist_to_up_limit",
         "yest_gap",

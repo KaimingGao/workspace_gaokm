@@ -1,7 +1,7 @@
-"""Alpha158 引入前后 OOS IC 对比（真实数据）。
+"""alpha_oo 引入前后 OOS IC 对比（真实数据）。
 
 30 票观察池样本，185 根日线，对比 LightGBM LambdaRank / Ridge
-在基线（无 alpha158）和引入 alpha158 后的 OOS spearman IC。
+在基线（无 alpha_oo）和引入 alpha_oo 后的 OOS spearman IC。
 """
 
 import sys
@@ -28,10 +28,10 @@ def load_stock_bars():
     ]
 
 
-def run_scenario(stock_bars, label, backend, alpha158_registered):
+def run_scenario(stock_bars, label, backend, alpha_oo_registered):
     """跑一次 fit_oo_rank_report，返回 OOS IC 摘要。"""
     t0 = time.time()
-    # 预计算面板（max_window=70 保证 alpha158 有 61 根）
+    # 预计算面板（max_window=70 ≥ ALPHA_OO_PANEL_WINDOW=62：hist≥60 + 今开）
     days = build_oo_rank_day_panels(
         stock_bars,
         horizon_days=1,
@@ -53,7 +53,7 @@ def run_scenario(stock_bars, label, backend, alpha158_registered):
     return {
         "label": label,
         "backend": backend,
-        "alpha158": "on" if alpha158_registered else "off",
+        "alpha_oo": "on" if alpha_oo_registered else "off",
         "success": rep.get("success"),
         "n_features": rep.get("n_features"),
         "n_days": rep.get("n_days"),
@@ -73,10 +73,10 @@ def main():
         return
 
     results = []
-    # 基线：临时移除 alpha158
-    entry = _REGISTRY.pop("alpha158", None)
+    # 基线：临时移除 alpha_oo
+    entry = _REGISTRY.pop("alpha_oo", None)
     try:
-        r = run_scenario(stock_bars, "基线", "lambdarank", alpha158_registered=False)
+        r = run_scenario(stock_bars, "基线", "lambdarank", alpha_oo_registered=False)
         results.append(r)
         print(
             f"[lambdarank] 基线  features={r['n_features']:>3}  "
@@ -85,9 +85,9 @@ def main():
         )
     finally:
         if entry:
-            _REGISTRY["alpha158"] = entry
+            _REGISTRY["alpha_oo"] = entry
 
-    r = run_scenario(stock_bars, "引入后", "lambdarank", alpha158_registered=True)
+    r = run_scenario(stock_bars, "引入后", "lambdarank", alpha_oo_registered=True)
     results.append(r)
     print(
         f"[lambdarank] 引入后 features={r['n_features']:>3}  "
@@ -99,7 +99,7 @@ def main():
     print("\n=== 汇总 ===")
     print(f"{'backend':<20} {'场景':<8} {'features':>8} {'rank_ic':>10} {'ridge_ic':>10}")
     for r in results:
-        print(f"{r['backend']:<20} {r['alpha158']:<8} {r['n_features']:>8} {str(r['rank_ic']):>10} {str(r['ridge_ic']):>10}")
+        print(f"{r['backend']:<20} {r['alpha_oo']:<8} {r['n_features']:>8} {str(r['rank_ic']):>10} {str(r['ridge_ic']):>10}")
 
 
 if __name__ == "__main__":

@@ -54,14 +54,14 @@ class HorizonProbHelpersTests(unittest.TestCase):
         ys = []
         for i in range(40):
             z = -1.5 + 3.0 * i / 39.0
-            xs.append({"gap_pct": z, "mom3_pct": z * 0.4})
+            xs.append({"gap_pct": z, "feat_m": z * 0.4})
             ys.append(1.0 if z > 0 else 0.0)
         fit = fit_logistic_ridge_from_panel(
             xs,
             ys,
-            feature_names=["gap_pct", "mom3_pct"],
+            feature_names=["gap_pct", "feat_m"],
             ridge_lambda=1.0,
-            min_std_exempt=["gap_pct", "mom3_pct"],
+            min_std_exempt=["gap_pct", "feat_m"],
         )
         self.assertTrue(fit.get("success"), fit)
         self.assertEqual(fit.get("head_kind"), "prob")

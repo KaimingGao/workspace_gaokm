@@ -374,7 +374,7 @@ A 股 T+1 下 **正 T = 先买后卖**，**反 T = 先卖后买**。**选正/反
 | C>upper 且 ŷ_τw≤−反T入场 | 反 T（先卖） | 触发根收盘卖 | C_τ |
 | 未破带 / 缺 ŷ_τc / ŷ_τw 未过入场 | — | 本轮跳过 | — |
 
-表中 O/L/H/C 均为触发根 5m OHLC；**C 为本根收价，非日线收**。C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)，默认 scale=2；lower/upper = C_τ×(1±δ/100)。截止 **11:00** 后不开 leg1；过入场用入场金额（默认 2 万），过强用强金额（默认 4 万），按成交价换算整手。
+表中 O/L/H/C 均为触发根 5m OHLC；**C 为本根收价，非日线收**。C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)，默认 scale=2；lower/upper = C_τ×(1±δ/100)。截止 **11:00** 后不开 leg1；过入场用入场金额（默认 2 万），过强用强金额（默认 4 万），按成交价换算整手，不够一手则跳过。
 
 侧向配置后缀同枚举（`*_buy_then_sell` / `*_sell_then_buy`）。旧 `long_t`/`reverse_t`、阴阳占比 / 复合确认 / 环境闸 / 固定前缀 / 四轮确认钟 / 前序确认键已下线，加载时丢弃。
 
@@ -944,9 +944,10 @@ python3 research/paper_run.py --init
 【层 1 · ŷ_oo】历史日线（X 到 T−1 收；T 开可进 quote）→ 组 β → y_oo / predicted_score
          → 预测 open[T+1]/open[T]−1（现网 h=1）→ **入池地板 + 主字段**；收盘后 eod_next 排序
 
-【层 2 · ŷ_τc】开盘 Z + ≤τ 分钟 → y_τc
+【层 2 · ŷ_τc】alpha_τc := Z（开盘 + ≤τ 分钟）∪ alpha_oo（raw_aoo_*）→ y_τc
          → 预测 close[T]/price(τ)−1 → 调仓 ranking 的 τc 项 + 做 T 估 C_τ
          τ=open 时 price(τ)=open，等于 close/open−1。旧行 y_oc 只读
+         **超集**：alpha_τc ⊇ alpha_oo（多 Z；alpha_oo 不是 alpha_τc 的超集）
 
 【对照 · ŷ_co】隔夜缺口 → y_co（旧键 y_on 可读）；经 w_co 叠进 ŷ_τc（配置默认 1）
 ```
@@ -1013,12 +1014,12 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 | 层 | 字段 | 信息集 | 标签 \(y\) | 现网用途 |
 |----|------|--------|-----------|----------|
 | **ŷ_oo** | `y_oo` / `predicted_score` | \(X_{\le T-1}\) + T 开 quote | \(\mathrm{open}[T+1]/\mathrm{open}[T]-1\) | 入池地板；收盘后排序；调仓 ranking 成分 |
-| **ŷ_τc** | `y_τc` | \(Z_{\le\tau}\) | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 调仓 ranking 的 τc 项；做 T 估 C_τ。τ=open 时等于 close/open−1。旧行 `y_oc` / `y_tau` 只读 |
+| **ŷ_τc** | `y_τc` | **alpha_τc** \(= Z_{\le\tau} \cup\) `raw_aoo_*` | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 调仓 ranking 的 τc 项；做 T 估 C_τ。τ=open 时等于 close/open−1。旧行 `y_oc` / `y_tau` 只读 |
 | **ŷ_co** | `y_co` | 隔夜缺口头 | \(\mathrm{open}[T+1]/\mathrm{close}[T]-1\) | 经 w_co 叠进 ŷ_τc；旧键 `y_on` 可读 |
 
 ```text
 ŷ_oo      = f(X_{T-1}, O_T; β_cluster)                     # 组 β；标签 open[T+1]/open[T]−1
-ŷ_τc      = h(Z_≤τ; ρ)                                     # 标签 close[T]/price[τ]−1
+ŷ_τc      = h(alpha_τc; ρ)  # alpha_τc=Z_≤τ∪raw_aoo_*；标签 close[T]/price[τ]−1
 ranking   = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)  # rot=price(τ)/open−1；基准 τ→open[T+1]；默认 0.6/0.4
 ŷ_trade   = w_oo·ŷ_oo + w_tau·(缺口∘ŷ_τ)   # 盘中簿；现网 w_oo=0, w_tau=1；eod_next→ŷ_oo
 C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scale=2；τ=开盘时 price(τ)=open
@@ -1058,6 +1059,7 @@ C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scal
 | A2 影子簿 | 同池按 ŷ_τ 另写 `cluster_book_tau_shadow.json`；jaccard/spearman vs ŷ_oo | **已落地**（`enable_tau_shadow_book`，默认开；不驱动买入） |
 | A2 验收 | 账本 `*.tau_shadow.json` + `realized_tau`；HTTP `/tau-shadow` **已 stub** | **库保留 · 枢纽条已下线** |
 | P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
+| P0 alpha_τc | ŷ_τc 特征包 **alpha_τc := Z ∪ alpha_oo**（⊇ alpha_oo；产品固定完整包，无开关；列仍为 Z+`raw_aoo_*`，报告挂 `feature_pack`） | **已落地** |
 | P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
 | P2 融合补强 | `w_mode=theme_boost\|variance`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
@@ -1078,18 +1080,19 @@ C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scal
 
 | 符号 | 定义（% 口径 ×100 同下） | 锚点 | 现网字段 / 状态 |
 |------|---------------------------|------|-----------------|
-| **\(y_{\mathrm{oo}}(t)\)** | \(\mathrm{open}[t+1]/\mathrm{open}[t]-1\) | 今开→明开 | `predicted_score` / `y_oo` · **已落地**（旧别名 `predicted_score_eod`） |
-| **\(y_\tau(t)\)** / **\(y_{\mathrm{oc}}\)** | \(\mathrm{close}[t]/\mathrm{open}[t]-1\) | 今开→今收 | `predicted_score_tau` / `y_oc` · **已落地**（`tau_ridge`） |
-| **\(y_{\mathrm{co}}(t)\)** | \(\mathrm{open}[t+1]/\mathrm{close}[t]-1\) | 今收→明开 | `predicted_score_on` / `y_co` · **已落地**（`co_ridge`） |
+| **\(y_{\mathrm{oo}}(t)\)** | \(\mathrm{open}[t+1]/\mathrm{open}[t]-1\) | 今开→明开；**决策 = t 开盘**（X≤t−1+今开） | `predicted_score` / `y_oo` · **已落地**（旧别名 `predicted_score_eod`） |
+| **\(y_\tau(t)\)** / **\(y_{\mathrm{oc}}\)** | \(\mathrm{close}[t]/\mathrm{open}[t]-1\) | 今开→今收；**决策 = τ** | `predicted_score_tau` / `y_oc` · **已落地**（`tau_ridge`） |
+| **\(y_{\mathrm{co}}(t)\)** | \(\mathrm{open}[t+1]/\mathrm{close}[t]-1\) | 今收→明开（标签路径）；**决策 = t 开盘**（与 ŷ_oo 同时点；X 不用 close[t]） | `predicted_score_on` / `y_co` · **已落地**（`co_ridge`） |
 | ~~\(y_{\mathrm{EOD}}\)~~ | \(\mathrm{close}[t]/\mathrm{close}[t-1]-1\) | 收→收 | **已下线**（仅诊断/旧文；不对 `predicted_score`） |
 
 **open 锚周期（几何乘法，非加法）**
 
 ```text
-open(t-1) ──y_co(t)──► open(t) ──y_τ(t)──► close(t)
-                              │
-                              └── 在 t 日 τ 预估 y_co(t+1)=open(t+1)/open(t)-1
-                                  → 收盘前保守控「今开→明开」隔夜路径（风控，非主排序）
+open(t) ──y_τ(t)──► close(t) ──y_co(t)──► open(t+1)
+   │
+   ├── ŷ_oo：决策 = open(t)；估 open(t+1)/open(t)−1
+   └── ŷ_co：决策 = open(t)（同 ŷ_oo）；估 open(t+1)/close(t)−1
+       （特征只用 ≤t−1 + 今开；close[t] 仅作标签分母，不进 X）
 ```
 
 展开 \(y_{\mathrm{ON}}(t)\)（便于和已实现缺口区分）：
@@ -1141,7 +1144,7 @@ open(t-1) ──y_co(t)──► open(t) ──y_τ(t)──► close(t)
 
 **分钟 K 形状**：ŷ_hl 已下线（`path_ridge` / `path_panel` 与 `POST /api/quant/path-ridge` 已删除）。旧键 `y_hl_*` / `y_path_*` 加载时丢弃。`y_cx` / `y_tpd` **已拆除**（拟合 API / 盘中写分 / 模型文件均不再保留）。旧键 `y_path` / `y_on` 仍可读，新分不再双写。
 
-**做 T 路径头 \(y_{\mathrm{hl}}\)**：已下线。不再拟合极值序，不进 ranking、不进 \(C_\tau\)。`y_hl_strong` / `y_hl_enter` 加载时丢弃。回放不再写 `y_hl_realized`。聚类分钟画像仍用极值序符号做对照，不读模型。
+**做 T 路径头 \(y_{\mathrm{hl}}\)**：已下线。不再拟合极值序，不进 ranking、不进 \(C_\tau\)。`y_hl_strong` / `y_hl_enter` 加载时丢弃。回放不再写 `y_hl_realized`。研究枢纽分钟画像只保留 τ 开→收，不再对照极值序。
 
 ---
 
@@ -1211,8 +1214,8 @@ flowchart LR
 score_stock(code) 续——
   → gap_pct = resolve_open_t(quote, bars).gap_pct        # 开盘缺口%（今开，禁合成昨开）
   → sector_gap_breadth / gap_vs_sector / theme_day：盯盘 / 做 T 预演 / 回测共用观察池 ∪ 持仓；单票缺省时从该池补，勿默认当 z=0
-  → yclose_loc / mom3_pct / tau_lag1 / tau_ma5：昨 K 位置 + 近 3 日动量 + PIT 真实开→收滞后（开盘可得）
-  → feats = {gap_pct, sector_gap_breadth, theme_day, yclose_loc, mom3_pct, tau_lag1, tau_ma5, …}  # τ 头仅 Z
+  → yclose_loc / tau_lag1 / tau_ma5：昨 K 位置 + PIT 真实开→收滞后（开盘可得；近3日动量 / 昨振幅改吃 raw_aoo_MOM3_C / YRANGE_PCT）
+  → feats = {gap_pct, sector_gap_breadth, theme_day, yclose_loc, tau_lag1, tau_ma5, …} ∪ alpha_oo  # α_τc = Z ∪ alpha_oo
   → enable_minute_tau：≤τ 分钟小包（默认 10:30）+ 板块开→τ 截面 sector_ret_to_tau
   → tau_yhat = predict_tau_from_features(feats)           # tau_ridge 模型预测 ŷ_τ
   → ep = build_event_prior_from_quote(…)                  # 事件先验（soft hold / warn）
@@ -1248,9 +1251,9 @@ score_stock(code) 续——
 
 | 字段 | 值 | 说明 |
 |------|----|------|
-| `predicted_score_on` | ŷ_co | **open[T+1]/close[T]−1**（决策锚 close[T]，真实隔夜缺口） |
+| `predicted_score_on` | ŷ_co | **open[T+1]/close[T]−1**（标签路径收→开；**决策 = T 开盘**，与 ŷ_oo 同时点） |
 | `y_spec_co` | `{formula, anchor, unit}` | ŷ_co 标签规范 |
-| `features_co` | ret_oc / gap / yest_close_loc / yest_gap / … | T 开盘已知：T-1 路径 + 今开 Z + 昨 K 微观 + 隔夜滞后（不用 close[T]） |
+| `features_co` | ret_oc / gap / yest_close_loc / yest_gap / … | 与 ŷ_oo 同决策时点：T-1 路径 + 今开 Z + 昨 K 微观 + 隔夜滞后（不用 close[T]） |
 
 训练：`POST /api/quant/co-ridge`（默认入队 `GET /api/jobs/co-ridge`；`persist`/`sync` 同步）→ last report；人审 persist 写 `co_ridge_model.json`。**默认不进主排序**；收盘前减仓策略后续接线。改特征后须重新拟合。
 
@@ -1259,8 +1262,8 @@ score_stock(code) 续——
 | 族 | 键 | 口径 |
 |----|-----|------|
 | 路径 | `ret_oc` `ret_cc` `y_on_today` | 昨开→收、昨收→前收、今开/昨开 |
-| 开盘 Z | `gap_pct` `gap_atr` `gap_vs_sector` `sector_gap_breadth` `theme_day` `yclose_loc` `mom3_pct` `dist_to_up_limit` | 今开缺口与截面；距涨停=昨收到板剩余空间 |
-| 昨 K | `yest_close_loc` `yest_range_pct` `yest_vol_ratio` | 昨收在高低中位置、振幅、量/均量（MA 不含昨日本身） |
+| 开盘 Z | `gap_pct` `gap_atr` `gap_vs_sector` `sector_gap_breadth` `theme_day` `yclose_loc` `dist_to_up_limit` | 今开缺口与截面；距涨停=昨收到板剩余空间；近3日动量改吃 `raw_aoo_MOM3_C` |
+| 昨 K | `yest_close_loc` `yest_vol_ratio` | 昨收在高低中位置、量/均量（MA 不含昨日本身）；昨振幅改吃 `raw_aoo_YRANGE_PCT` |
 | 滞后 | `yest_gap` `on_ma5` | 上一跳隔夜与近 5 日均值；**不含**今日 `gap_pct` |
 
 分钟 `ret_open_to_tau` 不进 ŷ_co（训练列与打分都丢掉；τ 头仍用）。
@@ -1269,14 +1272,14 @@ score_stock(code) 续——
 
 同窗双训：**LightGBM LambdaRank**（按日 group 优化 NDCG）与 **Ridge ŷ_oo**（回归后截面排名）。特征与 ŷ_oo 同口径：原始 `sub_scores`；卡头 **日截面 Z**（默认开；关 → 训练窗全局 μ/σ）；不另挂日截面 cs_*。
 相对分 `s` 经**当日观察池截面**编成整数名次 `y_oo_rank ∈ 1..n`（**1=相对分最高**），写入成交明细最右列 **rank**；原始分保留在 `y_oo_rank_score`。
-**不**代入 `ranking`；**不**改买序分数。可选入场闸 `oo_rank_max`（`/replay`「其他」勾选 **rank &lt; 30** → `30`）：过 ranking 门槛后再须 `y_oo_rank < 上限`（缺分不拦；未过则已持仓清仓）。
+**不**代入 `ranking`；**不**改买序分数。可选入场闸 `oo_rank_top_frac`（`/replay`「其他」勾选 **rank &lt; top 50%** → `0.5`）：过 ranking 门槛后再须 `y_oo_rank < n·frac`（缺 rank/n 不拦；未过则已持仓清仓）。
 
 | | |
 |--|--|
 | 训练宇宙 | 默认**整观察池**；勾选「只训 A 档」则只留可预测性 A 且仍在观察池内（须先跑分档）。同控件也在 ŷ_τc / ŷ_co / ŷ_τ30…90 及其 tree 卡 |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **NDCG@K** 自动落盘更强一侧（打平→LambdaRank），不重训 |
-| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **rank** 列。买序仍走融合 ranking。`oo_rank_max` 开则另作入场闸 |
+| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **rank** 列。买序仍走融合 ranking。`oo_rank_top_frac` 开则另作入场闸 |
 | OOS | 日截面 Spearman / TopK overlap / **NDCG@K** / TopK y_oo；LambdaRank vs Ridge 同窗对照 |
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。加载仍兼容旧文件名 `oo_rank_pairwise_*.json`。
@@ -1352,9 +1355,9 @@ score_stock(code) 续——
 | 选股排序键 | **ranking** = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 同左 |
 | 宇宙 | 全部观察池（现金用完即止） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
 | 模型 | 默认**研究套**（Holdout）；表单「模型」可选**执行**测 live。调仓门槛对 ŷ 敏感，研究套参数未必适用于执行套 | 执行套 live |
-| 金额 | 表单入场/强档金额；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万） |
+| 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**5m 成交钟**默认 09:30（可选至 10:00）；缺该钟：买入跳过、清仓回退其后～10:00 再回退 09:30/日开盘；共用框「日分价闸」默认开（窗口分钟日分价错位 skip；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
-| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ ranking 预估(真实)=(open[T+1]−price(τ))/open[T] / y_oo / y_oc / y_co / y_hl（开盘 Z 挂分；成交钟>09:30 随前缀）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 | live 仍可透传对照头 |
+| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ ranking 预估(真实)=(open[T+1]−price(τ))/open[T] / y_oo / y_τc / y_co / **rank**（ŷ_oo_rank 1..n；开盘 Z 挂分；成交钟>09:30 随前缀）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 / y_hl | live 仍可透传对照头 |
 
 回测合成 paper 必须写 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，其它 live 缺省（如持仓市值帽）会漏进合成账本。
 

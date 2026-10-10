@@ -338,7 +338,7 @@ def _lot_shares(raw: float) -> int:
 
 
 def shares_from_amount(amount: Any, price: Any, lot: int = 100) -> int:
-    """按金额定股数：向下取整到手数。金额>0 但不够一手则买一手。"""
+    """按金额定股数：向下取整到手数；不够一手返回 0。"""
     try:
         amt = float(amount)
     except (TypeError, ValueError):
@@ -353,8 +353,5 @@ def shares_from_amount(amount: Any, price: Any, lot: int = 100) -> int:
         lot_i = max(int(lot or 100), 1)
     except (TypeError, ValueError):
         lot_i = 100
-    sh = int(amt / px // lot_i) * lot_i
-    if sh < lot_i:
-        return lot_i
-    return sh
+    return int(amt / px // lot_i) * lot_i
 

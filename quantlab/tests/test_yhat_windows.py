@@ -36,6 +36,9 @@ class ForwardOoTests(unittest.TestCase):
         self.assertEqual(len(window), 2)
         self.assertNotIn(bars[2], window)
         self.assertAlmostEqual(quote["price_raw"], 11.0)
+        self.assertAlmostEqual(quote["open"], 11.0)
+        self.assertAlmostEqual(quote["open_raw"], 11.0)
+        self.assertAlmostEqual(quote["prev_close"], 10.8)
         self.assertAlmostEqual(quote["change_raw"], (11.0 / 10.8 - 1.0) * 100.0, places=4)
 
 

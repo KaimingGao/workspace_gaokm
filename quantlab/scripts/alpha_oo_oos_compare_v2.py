@@ -1,7 +1,7 @@
-"""Alpha158 引入前后 OOS IC 对比（真实数据，全量观察池）。
+"""alpha_oo 引入前后 OOS IC 对比（真实数据，全量观察池）。
 
-优化：build 面板一次（含 alpha158），基线通过删除 raw_alpha158_* 字段构造。
-对照臂：同窗 Ridge ŷ_oo；并打印 Ridge active 中 alpha158 列数。
+优化：build 面板一次（含 alpha_oo），基线通过删除 raw_aoo_* 字段构造。
+对照臂：同窗 Ridge ŷ_oo；并打印 Ridge active 中 alpha_oo 列数。
 """
 
 import sys
@@ -32,18 +32,20 @@ def load_stock_bars():
     ]
 
 
-def strip_alpha158_fields(days):
-    """从矩阵面板删除 raw_alpha158_* 列，构造基线面板。"""
+def strip_alpha_oo_fields(days):
+    """从矩阵面板删除 raw_aoo_* 列，构造基线面板。"""
     stripped = []
     for day in days:
         packed = day.get("X")
         names = list(day.get("names") or [])
         if packed is None or not names:
             continue
+        from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
+
         keep = [
             j
             for j, n in enumerate(names)
-            if "alpha158" not in str(n).lower()
+            if not is_alpha_oo_raw_key(str(n))
         ]
         stripped.append(
             {
@@ -58,7 +60,7 @@ def strip_alpha158_fields(days):
 
 
 def ridge_active_summary(days):
-    """同窗堆叠 Ridge：确认 raw_alpha158_* 是否进 active。"""
+    """同窗堆叠 Ridge：确认 raw_aoo_* 是否进 active。"""
     xs, ys, _dates, _codes = stack_day_panels(days)
     if len(ys) < 40:
         return {"success": False, "error": f"n={len(ys)}"}
@@ -71,12 +73,14 @@ def ridge_active_summary(days):
         collinearity_policy="drop_redundant",
     )
     active = list(fit.get("active_features") or [])
-    n_a158 = sum(1 for a in active if "alpha158" in str(a).lower())
+    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
+
+    n_aoo = sum(1 for a in active if is_alpha_oo_raw_key(str(a)))
     return {
         "success": bool(fit.get("success")),
         "n_rows": cut,
         "n_active": len(active),
-        "n_alpha158_active": n_a158,
+        "n_alpha_oo_active": n_aoo,
         "error": fit.get("error"),
     }
 
@@ -126,39 +130,39 @@ def main():
     )
     print(f"panel built: {len(days_full)} days, {time.time() - t0:.1f}s")
 
-    days_base = strip_alpha158_fields(days_full)
+    days_base = strip_alpha_oo_fields(days_full)
     print(f"baseline panel: {len(days_base)} days")
 
-    print("\n=== 基线（无 alpha158）===")
+    print("\n=== 基线（无 alpha_oo）===")
     r = run(days_base, "lambdarank")
     ra = r["ridge_active"]
     print(
         f"  feats={r['n_features']} rank_ic={r['rank_ic']} ridge_ic={r['ridge_ic']} "
         f"ridge_topk={r['ridge_topk']} ridge_active={ra.get('n_active')} "
-        f"a158_active={ra.get('n_alpha158_active')} ({r['elapsed']}s)"
+        f"aoo_active={ra.get('n_alpha_oo_active')} ({r['elapsed']}s)"
     )
 
-    print("\n=== 引入 alpha158 后 ===")
+    print("\n=== 引入 alpha_oo 后 ===")
     r2 = run(days_full, "lambdarank")
     ra2 = r2["ridge_active"]
     print(
         f"  feats={r2['n_features']} rank_ic={r2['rank_ic']} ridge_ic={r2['ridge_ic']} "
         f"ridge_topk={r2['ridge_topk']} ridge_active={ra2.get('n_active')} "
-        f"a158_active={ra2.get('n_alpha158_active')} ({r2['elapsed']}s)"
+        f"aoo_active={ra2.get('n_alpha_oo_active')} ({r2['elapsed']}s)"
     )
 
     print("\n=== 汇总（Ridge 为重点）===")
-    hdr = f"{'场景':<10} {'feats':>6} {'ridge_ic':>10} {'ridge_topk':>12} {'active':>7} {'a158':>5}"
+    hdr = f"{'场景':<10} {'feats':>6} {'ridge_ic':>10} {'ridge_topk':>12} {'active':>7} {'aoo':>5}"
     print(hdr)
     print(
         f"{'基线':<10} {_fmt(r['n_features']):>6} {_fmt(r['ridge_ic']):>10} "
         f"{_fmt(r['ridge_topk']):>12} {_fmt(ra.get('n_active')):>7} "
-        f"{_fmt(ra.get('n_alpha158_active')):>5}"
+        f"{_fmt(ra.get('n_alpha_oo_active')):>5}"
     )
     print(
         f"{'引入后':<10} {_fmt(r2['n_features']):>6} {_fmt(r2['ridge_ic']):>10} "
         f"{_fmt(r2['ridge_topk']):>12} {_fmt(ra2.get('n_active')):>7} "
-        f"{_fmt(ra2.get('n_alpha158_active')):>5}"
+        f"{_fmt(ra2.get('n_alpha_oo_active')):>5}"
     )
 
 

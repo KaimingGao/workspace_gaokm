@@ -153,19 +153,22 @@ export function syncOverviewMinute(data) {
   );
 }
 
-/** 全局 ŷ_oo Holdout OOS → 概览。主值优先日频截面 IC（对齐 Qlib）；命中进副文案。 */
-export function syncOverviewOo(oos) {
+/**
+ * Holdout OOS → 概览 IC 卡（ŷ_oo / ŷ_τc 同口径）。
+ * 主值优先日频截面 IC（对齐 Qlib）；副文案：日频截面|拼样本 · 命中 · Rank。
+ */
+function syncOverviewIcHead(kpiKey, oos, emptySub = "日频截面 IC") {
   if (!oos || typeof oos !== "object") {
-    setProOverviewKpi("eod", "—", "日频截面 IC", "is-empty");
-    return;
+    setProOverviewKpi(kpiKey, "—", emptySub, "is-empty");
+    return false;
   }
   const cs = Number(oos.cs_ic);
   const chrono = Number(oos.ic);
   const useCs = Number.isFinite(cs);
   const ic = useCs ? cs : chrono;
   if (!Number.isFinite(ic)) {
-    setProOverviewKpi("eod", "—", "日频截面 IC", "is-empty");
-    return;
+    setProOverviewKpi(kpiKey, "—", emptySub, "is-empty");
+    return false;
   }
   // A 股：正 IC 红、负 IC 绿（不走质量色 ok/danger）
   const st = ic > 0 ? "is-good" : ic < 0 ? "is-bad" : "is-mid";
@@ -179,53 +182,29 @@ export function syncOverviewOo(oos) {
   if (useCs && Number.isFinite(Number(oos.cs_rank_ic))) {
     parts.push(`Rank ${Number(oos.cs_rank_ic).toFixed(2)}`);
   }
-  setProOverviewKpi("eod", `IC ${ic.toFixed(2)}`, parts.join(" · "), st, {
+  setProOverviewKpi(kpiKey, `IC ${ic.toFixed(2)}`, parts.join(" · "), st, {
     signed: true,
   });
+  return true;
 }
 
-/** ŷ_oc 复盘 / τ 模型 → 概览副轴 KPI
- * @param {"hit"|"ic"|"text"} mode
- */
-export function syncOverviewTau(value, subText, mode = "hit") {
-  if (mode === "text") {
-    setProOverviewKpi(
-      "tau",
-      value != null ? String(value) : "—",
-      subText != null ? String(subText) : "ŷ_oc",
-      "is-mid"
-    );
-    return;
-  }
-  const n = Number(value);
-  if (!Number.isFinite(n)) {
-    setProOverviewKpi(
-      "tau",
-      "—",
-      subText != null ? String(subText) : "ŷ_oc",
-      "is-empty"
-    );
-    return;
-  }
-  if (mode === "ic") {
-    const st = n > 0 ? "is-good" : n < 0 ? "is-bad" : "is-mid";
-    setProOverviewKpi(
-      "tau",
-      `IC ${n.toFixed(2)}`,
-      subText != null ? String(subText) : "ŷ_oc IC",
-      st,
-      { signed: true }
-    );
-    return;
-  }
-  let pct = n;
-  if (pct <= 1.0001) pct *= 100;
-  const st = pct >= 55 ? "is-good" : pct >= 50 ? "is-mid" : "is-bad";
+/** 全局 ŷ_oo Holdout OOS → 概览。 */
+export function syncOverviewOo(oos) {
+  syncOverviewIcHead("eod", oos);
+}
+
+/** 全局 ŷ_τc Holdout OOS → 概览（与 ŷ_oo 同口径）。 */
+export function syncOverviewTauOos(oos) {
+  return syncOverviewIcHead("tau", oos);
+}
+
+/** ŷ_τc 概览：无 OOS 时的文案占位（启用态 / 缺失）。有 OOS 用 syncOverviewTauOos。 */
+export function syncOverviewTau(value, subText) {
   setProOverviewKpi(
     "tau",
-    `${pct.toFixed(0)}%`,
-    subText != null ? String(subText) : "ŷ_oc 命中 · open→收",
-    st
+    value != null ? String(value) : "—",
+    subText != null ? String(subText) : "ŷ_τc",
+    "is-mid"
   );
 }
 

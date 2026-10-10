@@ -84,14 +84,13 @@ def fit_co_tree_report(
     max_depth: int = DEFAULT_MAX_DEPTH,
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
-    include_alpha158: bool = True,
     window_days: int = DEFAULT_TREE_WINDOW_DAYS,
     step_days: int = DEFAULT_TREE_STEP_DAYS,
     cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
     """隔夜缺口面板拟合 ŷ_co_tree + Ridge OOS 对照。不写 live / 研究套。
 
-    ``include_alpha158=True`` 时树吃 Alpha158。标签仍是百分点。
+    树侧固定吃 alpha_oo（raw_aoo_*）。标签仍是百分点。
     ``cross_section_zscore``：日截面 z（默认）或训练窗全局 μ/σ。
     LightGBM：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2。
     ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。
@@ -102,7 +101,7 @@ def fit_co_tree_report(
         keepall_ridge_oos,
         finite_name_set,
         named_columns,
-        raw_alpha158_finite,
+        raw_aoo_finite,
     )
     from core.research.tau_panel import theme_sample_weights
 
@@ -112,7 +111,7 @@ def fit_co_tree_report(
         list(CO_Z_FEATURES),
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
-        include_alpha158=include_alpha158,
+        include_alpha_oo=True,
         head="y_co_tree",
     )
     panel_s = round(time.perf_counter() - t_panel0, 2)
@@ -131,9 +130,9 @@ def fit_co_tree_report(
 
     present = finite_name_set(X, col_names)
     ridge_feat_names = [n for n in CO_Z_FEATURES if n in present]
-    a158_keys = raw_alpha158_finite(X, col_names) if include_alpha158 else []
+    aoo_keys = raw_aoo_finite(X, col_names)
     feat_names = list(ridge_feat_names)
-    for k in a158_keys:
+    for k in aoo_keys:
         if k not in feat_names:
             feat_names.append(k)
     if len(feat_names) < 2:
@@ -263,8 +262,8 @@ def fit_co_tree_report(
         },
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_names),
-        "include_alpha158": bool(include_alpha158),
-        "n_alpha158_features": len(a158_keys),
+        "include_alpha_oo": True,
+        "n_alpha_oo_features": len(aoo_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
         "oos": oos_boost,
@@ -281,7 +280,7 @@ def fit_co_tree_report(
             "ŷ_co_tree：open[T+1]/close[T]−1 · "
             + ("特征日截面 z-score · " if use_cs else "特征训练窗全局 μ/σ · ")
             + "同 Holdout vs Ridge(Z)；"
-            + ("树侧可含 raw_alpha158_*（≤T−1）；" if include_alpha158 else "")
+            + "树侧含 raw_aoo_*（≤T−1）；"
             + (
                 f"训练日滑窗 {hyper.get('window_days')}／步 {hyper.get('step_days')}"
                 f"（{hyper.get('n_windows')} 窗 · init_model 增量 · 共 {hyper.get('total_trees')} 树）；"

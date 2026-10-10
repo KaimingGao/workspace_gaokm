@@ -20,7 +20,7 @@ FAMILY_META: Tuple[Tuple[str, str, str], ...] = (
     (
         "pv_derived",
         "量价衍生",
-        "Qlib Alpha158 等 OHLCV 衍生；omit_sub_score，仅 raw_* 进 Ridge/树/LTR",
+        "开→开 OHLCV 衍生（alpha_oo / raw_aoo_*）；omit_sub_score，仅 raw 进 Ridge/树/LTR；ŷ_τc 特征包 alpha_τc=Z∪alpha_oo",
     ),
     ("other", "其他", "未编入 factor_groups"),
 )
@@ -34,13 +34,11 @@ EXTRA_FAMILY: Dict[str, str] = {
     "reversal": "reversal",
     "alt_sentiment": "sentiment",
     "llm_sentiment": "sentiment",
-    "alpha158": "pv_derived",
+    "alpha_oo": "pv_derived",
 }
 
 # 面板列 / Ridge 入模名：按前缀归入量价衍生
-PREFIX_FAMILY: Tuple[Tuple[str, str], ...] = (
-    ("raw_alpha158_", "pv_derived"),
-)
+PREFIX_FAMILY: Tuple[Tuple[str, str], ...] = (("raw_aoo_", "pv_derived"),)
 
 SOURCE_LABELS: Dict[str, str] = {
     "sourced": "真源",
@@ -51,7 +49,8 @@ SOURCE_LABELS: Dict[str, str] = {
 # 已退役 raw_basis 试点因子（旧分组报告可能仍带键；UI/读盘时剔除）
 REMOVED_RAW_BASIS_NAMES: frozenset = frozenset(
     {
-        "mom3_pct",
+        "mom3_pct",  # 已并入 alpha_oo · raw_aoo_MOM3_C
+        "yest_range_pct",  # 已并入 alpha_oo · raw_aoo_YRANGE_PCT
         "mom5_pct",
         "mom_overheat",
         "atr_pct_raw",
@@ -63,9 +62,15 @@ REMOVED_RAW_BASIS_NAMES: frozenset = frozenset(
     }
 )
 
+# 已退役 raw 前缀（alpha158 → alpha_oo；旧模型/报告键）
+REMOVED_RAW_PREFIXES: Tuple[str, ...] = ("raw_alpha158_",)
+
 
 def is_removed_factor(name: str) -> bool:
-    return str(name or "").strip() in REMOVED_RAW_BASIS_NAMES
+    key = str(name or "").strip()
+    if key in REMOVED_RAW_BASIS_NAMES:
+        return True
+    return any(key.startswith(p) for p in REMOVED_RAW_PREFIXES)
 
 
 def _strip_factor_dict(d: Optional[dict]) -> None:

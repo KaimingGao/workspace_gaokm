@@ -55,7 +55,6 @@ class TestCoTree(unittest.TestCase):
             stock_bars,
             ridge_lambda=1.0,
             holdout_trading_days=8,
-            include_alpha158=False,
             backend="lightgbm",
             window_days=0,
         )

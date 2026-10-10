@@ -3,7 +3,7 @@
 训练：同窗训 LambdaRank + Ridge ŷ_oo；推理：相对分 → 当日截面 1..n 名次（1=最高）。
 启用研究/执行：按 NDCG@K 自动落盘更强一侧（打平或缺指标 → lambdarank）。
 回测 / live 只消费已启用模型，无 backend 开关。
-不进 ranking / 买序；可选 ``oo_rank_max`` 入场闸（UI「rank < 30」）。
+不进 ranking / 买序；可选 ``oo_rank_top_frac`` 入场闸（UI「rank < top 50%」）。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ Y_OO_RANK_LABEL_KEYS = (
     "y_oo_rank_realized",
     "oo_rank_realized",
 )
-FORMULA_OO_RANK = "rank(open[T+1]/open[T]-1 | watching_day)"
+FORMULA_OO_RANK = "rank(open[T+1]/open[T]-1)"
 SCHEMA = "oo_rank_v1"
 SCHEMA_LEGACY = "oo_rank_pairwise_v1"
 TASK = "oo_rank"
@@ -360,6 +360,23 @@ def persist_oo_rank_model(
         "promoted_at": promoted_at,
         "model_role": role_n,
     }
+    # 研究台因子表需要 Ridge β + LambdaRank gain%；落盘一并保留双 backend
+    backends = report.get("backends")
+    if isinstance(backends, dict) and backends:
+        doc["backends"] = backends
+    if isinstance(report.get("return_model_research"), dict):
+        doc["return_model_research"] = report.get("return_model_research")
+    # 若启用侧是 LambdaRank，仍把研究套 Ridge 挂到顶层便于旧客户端
+    ridge_pack = (
+        backends.get("ridge") if isinstance(backends, dict) else None
+    )
+    if (
+        backend != "ridge"
+        and isinstance(ridge_pack, dict)
+        and isinstance(ridge_pack.get("return_model_research"), dict)
+        and not isinstance(doc.get("return_model_research"), dict)
+    ):
+        doc["return_model_research"] = ridge_pack.get("return_model_research")
     path = (
         research_model_path(live)
         if role_n == MODEL_ROLE_RESEARCH
@@ -1363,10 +1380,10 @@ def fit_oo_rank_report(
     def _pack(backend_key: str, live_m: Dict[str, Any], research_src: Dict[str, Any]) -> Dict[str, Any]:
         note = (
             "Ridge ŷ_oo 相对分；live/回测编当日截面 1..n 名次（1=最高）；"
-            "不进 ranking/买序；可选 oo_rank_max 入场闸"
+            "不进 ranking/买序；可选 oo_rank_top_frac 入场闸"
             if backend_key == "ridge"
             else "LambdaRank；模型输出相对分；live/回测成交明细编成当日截面 1..n 名次（1=最高）；"
-            "不进 ranking/买序；可选 oo_rank_max 入场闸"
+            "不进 ranking/买序；可选 oo_rank_top_frac 入场闸"
         )
         y_spec = dict(y_spec_base, backend=backend_key, note=note)
         live = _stamp_oo_rank_model_meta(
@@ -1436,7 +1453,7 @@ def fit_oo_rank_report(
             f"ŷ_oo_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
             "启用研究/执行按 NDCG@K 自动落盘更强一侧；"
             "不进 ranking/买序；成交明细编当日截面 1..n 名次；"
-            "可选 oo_rank_max 入场闸"
+            "可选 oo_rank_top_frac 入场闸"
         ),
     }
     attach_holdout_meta(report, split_meta)

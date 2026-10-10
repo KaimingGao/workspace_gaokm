@@ -26,12 +26,9 @@ class TestMinuteStatus(unittest.TestCase):
                 return {"span_days": 25, "bar_count": 200, "fetched_at": "2026-08-26T10:00:00"}
             return None
 
-        with patch("core.watching.store.read_watching", return_value={"watchlist": watch}), patch(
+        with patch("core.watching.store.read_watching", return_value={"watchlist": watch}        ), patch(
             "quant.research.minute_status._minute_snapshot_for_code",
             side_effect=_snap,
-        ), patch(
-            "quant.research.minute_status.build_minute_label_portrait",
-            return_value={"success": True, "tau": {"pos": 1}, "path": {"pos": 1}, "joint": {}},
         ), patch(
             "quant.research.bars_integrity.minute_windows_clean",
             return_value={"600519": True, "000001": False},
@@ -69,12 +66,9 @@ class TestMinuteStatus(unittest.TestCase):
                 "fetched_at": "2026-08-26T10:00:00",
             }
 
-        with patch("core.watching.store.read_watching", return_value={"watchlist": watch}), patch(
+        with patch("core.watching.store.read_watching", return_value={"watchlist": watch}        ), patch(
             "quant.research.minute_status._minute_snapshot_for_code",
             side_effect=_snap,
-        ), patch(
-            "quant.research.minute_status.build_minute_label_portrait",
-            return_value={"success": True, "tau": {}, "path": {}, "joint": {}},
         ), patch(
             "quant.research.bars_integrity.minute_windows_clean",
             return_value={"A": True, "B": True},
@@ -456,12 +450,12 @@ class TestMinuteStatus(unittest.TestCase):
     def test_label_portrait_sign_counts(self):
         from quant.research.minute_status import build_minute_label_portrait
 
-        # day1: up open→close, low then high → path+
+        # day1: up open→close
         day_up = [
             {"time": "09:35", "open": 10.0, "high": 10.1, "low": 9.9, "close": 10.0},
             {"time": "10:00", "open": 10.0, "high": 10.5, "low": 10.0, "close": 10.4},
         ]
-        # day2: down open→close, high then low → path−
+        # day2: down open→close
         day_dn = [
             {"time": "09:35", "open": 10.0, "high": 10.4, "low": 9.95, "close": 10.2},
             {"time": "10:00", "open": 10.2, "high": 10.2, "low": 9.5, "close": 9.6},
@@ -479,7 +473,10 @@ class TestMinuteStatus(unittest.TestCase):
             "core.ports.market.resolve_market_code",
             return_value=("CN", "600519"),
         ), patch(
-            "core.store.load_minute_cache",
+            "core.store.load_minute_span_snapshot",
+            return_value={"date_max": "2026-08-21", "date_min": "2026-08-20"},
+        ), patch(
+            "core.store.load_minute_since",
             return_value=(bars, {"bar_count": len(bars)}),
         ), patch(
             "core.ports.market.group_minute_bars_by_date",
@@ -490,10 +487,8 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["days_scanned"], 2)
         self.assertEqual(out["tau"]["pos"], 1)
         self.assertEqual(out["tau"]["neg"], 1)
-        self.assertEqual(out["path"]["pos"], 1)
-        self.assertEqual(out["path"]["neg"], 1)
-        self.assertEqual(out["joint"]["same_sign"], 2)
-        self.assertEqual(out["joint"]["opposite_sign"], 0)
+        self.assertNotIn("path", out)
+        self.assertNotIn("joint", out)
 
 
 if __name__ == "__main__":

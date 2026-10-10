@@ -427,7 +427,6 @@ export function createFactorIcUi(deps) {
     gap_atr: "缺口 / ATR",
     gap_vs_sector: "行业相对缺口",
     yclose_loc: "昨收位置",
-    mom3_pct: "近3日动量 %",
     tau_lag1: "昨真实 close/open−1 %",
     tau_ma5: "近5日真实 close/open−1 均 %",
     t30_lag1: "昨同钟真实 τ⊕25/30/35均 %",
@@ -502,7 +501,6 @@ export function createFactorIcUi(deps) {
     ret_cc: "昨收→前收 %",
     y_on_today: "今开/昨开 %",
     yest_close_loc: "昨收位置",
-    yest_range_pct: "昨振幅 %",
     yest_vol_ratio: "昨量/均量",
     dist_to_up_limit: "距涨停 %",
     yest_gap: "昨隔夜缺口 %",
@@ -559,9 +557,9 @@ export function createFactorIcUi(deps) {
   }
 
   /**
-   * ŷ_oc / ŷ_co Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
+   * ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank 因子表：入模因子；KPI + 双向 β 图（oo_rank 双训另含 gain%）。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"oo"|"co"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank", topN?: number } } [opts]
+   * @param {{ oos?: object, head?: "τc"|"tc"|"tau"|"oo"|"co"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank", topN?: number } } [opts]
    *   ``topN`` 默认 10：表体只展 |β| TopN，其余进折叠。
    */
   function remCoefTableHtml(rm, opts = {}) {
@@ -576,6 +574,8 @@ export function createFactorIcUi(deps) {
       isOoRank &&
       (_ooBe === "ridge" || (_ooSolver === "ridge" && !rm.booster_b64));
     const isOoRankGain = isOoRank && !isOoRankRidge;
+    // ŷ_oo_rank 画 Ridge 包时并入 LambdaRank gain（与 v2 ŷ_oo 双训同壳）
+    const isDual = isOoRank && isOoRankRidge;
     const isT30 = opts.head === "t30";
     const isT45 = opts.head === "t45";
     const isT60 = opts.head === "t60";
@@ -605,7 +605,7 @@ export function createFactorIcUi(deps) {
                   ? "ŷ_τ30"
               : opts.head === "r" || isTc
                 ? "ŷ_τc"
-                : "ŷ_oc";
+                : "ŷ_*";
     const coefs =
       rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
     const means =
@@ -624,7 +624,6 @@ export function createFactorIcUi(deps) {
       "gap_atr",
       "gap_vs_sector",
       "yclose_loc",
-      "mom3_pct",
     ]);
     const remMinuteExtra = new Set([
       "ret_open_to_tau",
@@ -689,7 +688,6 @@ export function createFactorIcUi(deps) {
       "ret_cc",
       "y_on_today",
       "yest_close_loc",
-      "yest_range_pct",
       "yest_vol_ratio",
     ]);
     const onOpenExtra = new Set([
@@ -699,7 +697,6 @@ export function createFactorIcUi(deps) {
       "gap_atr",
       "gap_vs_sector",
       "yclose_loc",
-      "mom3_pct",
       "dist_to_up_limit",
     ]);
     const histLagExtra = new Set([
@@ -727,7 +724,6 @@ export function createFactorIcUi(deps) {
       "gap_atr",
       "gap_vs_sector",
       "yclose_loc",
-      "mom3_pct",
     ]);
     const activeList = Array.isArray(rm.active_features)
       ? rm.active_features.map(String)
@@ -782,10 +778,34 @@ export function createFactorIcUi(deps) {
       .filter(Boolean);
     const absSum = rows.reduce((s, r) => s + r.abs, 0) || 1;
     const maxAbs = Math.max(...rows.map((r) => r.abs), 1e-9);
+    // 双训：把 LambdaRank gain 份额并进同一张因子表（对齐 v2 ŷ_oo）
+    const gainByKey = {};
+    const fiIn =
+      (Array.isArray(opts.feature_importance) && opts.feature_importance) ||
+      (Array.isArray(rm.feature_importance) && rm.feature_importance) ||
+      null;
+    if (isDual && fiIn) {
+      for (const g of fiIn) {
+        if (!g || typeof g !== "object") continue;
+        const k = canonLagFeatName(String(g.key || g.name || "").trim());
+        if (!k) continue;
+        const share =
+          g.share != null && Number.isFinite(Number(g.share))
+            ? Number(g.share)
+            : g.gain != null && Number.isFinite(Number(g.gain))
+              ? Number(g.gain)
+              : null;
+        if (share == null) continue;
+        gainByKey[k] = share <= 1.5 ? share * 100 : share;
+      }
+    }
+    const hasOoGain = isDual && Object.keys(gainByKey).length > 0;
     rows = rows
       .map((r) => ({
         ...r,
         share: (r.abs / absSum) * 100,
+        gainShare:
+          hasOoGain && gainByKey[r.name] != null ? gainByKey[r.name] : null,
       }))
       .sort((a, b) => b.abs - a.abs)
       .map((r, i) => ({ ...r, rank: i + 1 }));
@@ -827,7 +847,7 @@ export function createFactorIcUi(deps) {
       (isPath
         ? "extreme_order(low,high)"
         : isOoRank
-          ? "open[T+1]/open[T]-1 截面序"
+          ? "rank(open[T+1]/open[T]-1)"
         : isOo
           ? "open[T+1]/open[T]-1"
         : isCo
@@ -854,7 +874,10 @@ export function createFactorIcUi(deps) {
             ? ySpecRaw
             : `I((${String(ySpecRaw).split("·")[0].trim() || ySpecRaw})>0)`)
         : ySpecRaw;
-    const ySpec = compactYSpecFormula(ySpecProbRaw, ySpecObj);
+    const ySpec = compactYSpecFormula(ySpecProbRaw, ySpecObj).replace(
+      /\s*\|\s*watching_day\s*/g,
+      ""
+    );
     const ySpecClocks = _tauClocksFromYSpec(ySpecRaw, ySpecObj);
     const oos = opts.oos || {};
     const useProbKpis =
@@ -927,33 +950,31 @@ export function createFactorIcUi(deps) {
     const csIcTip = "对齐 Qlib IC：每日截面 Pearson 再对日平均";
     const csRankTip = "对齐 Qlib Rank IC：每日截面 Spearman 再对日平均";
 
-    const metrics =
-      `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
+    // ŷ_oo_rank：样本 n / 训 / Holdout / L2 / 入模等 KPI 下掉（对照在上方 OOS 板）
+    const metrics = isOoRank
+      ? ""
+      : `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
         isPath
           ? "path 模型摘要"
-          : isOoRankGain
-            ? "oo_rank 增益摘要"
-            : isOoRank
-              ? "oo_rank 系数摘要"
-              : isOo
-                ? "oo 模型摘要"
-                : isCo
-                  ? "co 模型摘要"
-                  : isT90
-                    ? "t90 模型摘要"
-                    : isT75
-                      ? "t75 模型摘要"
-                      : isT60
-                        ? "t60 模型摘要"
-                        : isT45
-                          ? "t45 模型摘要"
-                          : isT30
-                            ? "t30 模型摘要"
-                            : isR
-                              ? "r 模型摘要"
-                              : "τ 模型摘要"
+          : isOo
+            ? "oo 模型摘要"
+            : isCo
+              ? "co 模型摘要"
+              : isT90
+                ? "t90 模型摘要"
+                : isT75
+                  ? "t75 模型摘要"
+                  : isT60
+                    ? "t60 模型摘要"
+                    : isT45
+                      ? "t45 模型摘要"
+                      : isT30
+                        ? "t30 模型摘要"
+                        : isR
+                          ? "r 模型摘要"
+                          : "τ 模型摘要"
       )}">` +
-      (!isOoRankGain && intercept != null
+      (intercept != null
         ? kpi(
             useProbKpis ? "基率" : isR ? "执行套" : "截距",
             useProbKpis ? fmtLogitAsP(intercept) : intercept.toFixed(3),
@@ -974,7 +995,8 @@ export function createFactorIcUi(deps) {
           )
         : "") +
       (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
-      (oos.holdout_trading_days != null && Number.isFinite(Number(oos.holdout_trading_days))
+      (oos.holdout_trading_days != null &&
+      Number.isFinite(Number(oos.holdout_trading_days))
         ? kpi(
             "Holdout",
             `${Number(oos.holdout_trading_days)}日`,
@@ -992,13 +1014,11 @@ export function createFactorIcUi(deps) {
         : "") +
       (lam != null
         ? kpi(
-            isOoRankGain ? "L2" : "λ",
+            "λ",
             lam,
-            isOoRankGain
-              ? "LambdaRank λ₂（叶子惩罚）"
-              : useProbKpis
-                ? "logistic Ridge L2（只罚斜率）"
-                : "Ridge 收缩"
+            useProbKpis
+              ? "logistic Ridge L2（只罚斜率）"
+              : "Ridge 收缩"
           )
         : "") +
       (useProbKpis && oos.auc != null && Number.isFinite(Number(oos.auc))
@@ -1068,9 +1088,7 @@ export function createFactorIcUi(deps) {
             ? `路径 ${openN}`
             : `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
       ) +
-      (isOoRankGain
-        ? ""
-        : kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数")) +
+      kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数") +
       (exclN > 0 ? kpi("省略", exclN, omitTip) : "") +
       `</div>`;
 
@@ -1165,13 +1183,21 @@ export function createFactorIcUi(deps) {
       metrics +
       `</div>`;
 
-    const headLegend =
-      `<div class="quant-rem-coef-legend" aria-hidden="true">` +
-      (isOoRankGain
-        ? ""
-        : `<span class="quant-rem-leg is-pos">正β</span>` +
-          `<span class="quant-rem-leg is-neg">负β</span>`) +
-      (isPath
+    // 双训图例按行内实际类型（对齐 v2 ŷ_oo / ŷ_τc）
+    const kindLegendBits = isDual
+      ? [...new Set(rows.map((r) => r.kind).filter(Boolean))]
+          .sort()
+          .map((k) => {
+            const cls =
+              k === "开盘" || k === "路径"
+                ? "is-open"
+                : k === "分钟"
+                  ? "is-minute"
+                  : "is-eod";
+            return `<span class="quant-rem-leg ${cls}">${esc(k)}</span>`;
+          })
+          .join("")
+      : isPath
         ? `<span class="quant-rem-leg is-open">开盘</span>` +
           `<span class="quant-rem-leg is-minute">分钟</span>` +
           `<span class="quant-rem-leg is-eod">历史</span>`
@@ -1179,17 +1205,21 @@ export function createFactorIcUi(deps) {
           ? `<span class="quant-rem-leg is-open">路径</span>`
           : `<span class="quant-rem-leg is-open">开盘</span>` +
             `<span class="quant-rem-leg is-minute">分钟</span>` +
-            `<span class="quant-rem-leg is-eod">历史</span>`) +
+            `<span class="quant-rem-leg is-eod">历史</span>`;
+    const headLegend =
+      `<div class="quant-rem-coef-legend" aria-hidden="true">` +
+      (isOoRankGain
+        ? ""
+        : `<span class="quant-rem-leg is-pos">正β</span>` +
+          `<span class="quant-rem-leg is-neg">负β</span>`) +
+      kindLegendBits +
       `</div>`;
 
-    const betaCell = (r) => {
-      const pos = r.ols >= 0;
-      const half = Math.max(6, (r.abs / maxAbs) * 50);
-      const tip = isOoRankGain
-        ? `gain=${r.ols.toFixed(4)}：LightGBM 分裂增益份额（非 Ridge β）`
-        : isHorizon
-        ? `β=${r.ols.toFixed(4)}：因子高 1σ → logit ${pos ? "+" : ""}${r.ols.toFixed(3)}（p_up 随之升降）`
-        : `β=${r.ols.toFixed(4)}：因子高 1σ → ${yhatTag} 约 ${pos ? "+" : ""}${r.ols.toFixed(3)}pp`;
+    const signedBarCell = (val, scaleMax, tip) => {
+      if (val == null || !Number.isFinite(Number(val))) return fmtEmptyCell();
+      const n = Number(val);
+      const pos = n >= 0;
+      const half = Math.max(6, (Math.abs(n) / scaleMax) * 50);
       return (
         `<div class="quant-rem-beta-cell" title="${esc(tip)}">` +
         `<div class="quant-rem-beta-track is-bipolar" aria-hidden="true">` +
@@ -1202,9 +1232,18 @@ export function createFactorIcUi(deps) {
         `</div>` +
         `<span class="quant-rem-beta-num ${pos ? "is-pos" : "is-neg"}">${
           pos ? "+" : ""
-        }${r.ols.toFixed(3)}</span>` +
+        }${n.toFixed(3)}</span>` +
         `</div>`
       );
+    };
+
+    const betaCell = (r) => {
+      const tip = isOoRankGain
+        ? `gain=${r.ols.toFixed(4)}：LambdaRank 分裂增益份额（非 Ridge β）`
+        : isHorizon
+        ? `β=${r.ols.toFixed(4)}：因子高 1σ → logit ${r.ols >= 0 ? "+" : ""}${r.ols.toFixed(3)}（p_up 随之升降）`
+        : `β=${r.ols.toFixed(4)}：因子高 1σ → ${yhatTag} 约 ${r.ols >= 0 ? "+" : ""}${r.ols.toFixed(3)}pp`;
+      return signedBarCell(r.ols, maxAbs, tip);
     };
 
     const shareCell = (r) => {
@@ -1219,6 +1258,20 @@ export function createFactorIcUi(deps) {
         `<span class="quant-rem-share-num">${r.share.toFixed(1)}%</span>` +
         `</div>`
       );
+    };
+
+    const fmtGainPct = (pct) =>
+      pct < 1 ? pct.toFixed(2) : pct < 10 ? pct.toFixed(1) : pct.toFixed(0);
+
+    /** 量纲过大用科学计数（对齐 v2 ŷ_oo） */
+    const fmtMuSd = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return null;
+      const a = Math.abs(n);
+      if (a >= 1e6 || (a > 0 && a < 1e-3)) return n.toExponential(2);
+      if (a >= 1000) return n.toFixed(0);
+      if (a >= 100) return n.toFixed(1);
+      return n.toFixed(2);
     };
 
     const remFactorFallbackTip = (r) => {
@@ -1238,8 +1291,8 @@ export function createFactorIcUi(deps) {
       if (r.kind === "历史") {
         return `${shown}${key}：PIT 历史真实标签（不含当日）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
       }
-      if (isOoRankGain) {
-        return `${shown}${key}：T−1 日线 / Alpha158。gain 为 LambdaRank 分裂贡献份额，不是斜率符号。`;
+      if (isOoRank) {
+        return `${shown}${key}：开锚 alpha_oo（raw_aoo_* · ≤T−1 + 今开）。gain 为 LambdaRank 分裂贡献份额；β 为同窗 Ridge。`;
       }
       return `${shown}${key}：T−1 日线因子。正 β 表示该值偏高时 ${yhatTag} 更高。`;
     };
@@ -1254,52 +1307,121 @@ export function createFactorIcUi(deps) {
       )}</span>` +
       `</span>`;
 
+    // 列宽：因子 flex 16rem/2 · 类型 88 · μ/σ 112 · β 300（各头一致）· gain%/|β|% 340（同宽）
+    // 列序：因子 · 类型 · μ · σ · [gain%] · β · [|β|%]（oo_rank 双训无 |β|%）
+    const betaW = 300;
+    const shareW = 340;
+    const gainCol = hasOoGain
+      ? [
+          {
+            id: "gain",
+            label: "gain%",
+            width: shareW,
+            num: true,
+            headClass: "is-case-keep",
+            title:
+              "LambdaRank 增益份额（全特征归一化 Σ≈100%；条长相对 Top 表最大，对齐 v2 ŷ_oo）",
+          },
+        ]
+      : [];
     const coefColumns = [
-      { id: "factor", label: "因子", flex: true, title: "悬停因子名查看口径说明" },
+      {
+        id: "factor",
+        label: "因子",
+        flex: true,
+        flexMin: "16rem",
+        flexFr: 2,
+        title: "悬停因子名查看口径说明",
+      },
       {
         id: "kind",
         label: "类型",
-        width: 72,
+        width: 88,
         center: true,
         title: isPath
           ? "开盘=缺口 Z；分钟=≤τ 前缀小包；历史=PIT 昨样本（不含当日）"
           : isCo
             ? "路径=T 日已实现 + 开盘 Z"
-            : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；历史=PIT 昨样本（不含当日）",
-      },
-      {
-        id: "ols",
-        label: isOoRankGain ? "gain" : "β",
-        width: 300,
-        num: true,
-        title: isOoRankGain
-          ? "LightGBM 归一化分裂增益；条向右更长=贡献更大"
-          : "标准化斜率：右正左负；数值叠在彩条靠右",
-      },
-      {
-        id: "share",
-        label: isOoRankGain ? "份额" : "|β|%",
-        width: 200,
-        num: true,
-        title: isOoRankGain
-          ? "gain / Σgain：相对贡献"
-          : "|β| / Σ|β|：相对解释权重",
+            : isOoRank
+              ? "日线=开锚 alpha_oo / 注册因子"
+              : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；历史=PIT 昨样本（不含当日）",
       },
       {
         id: "mu",
         label: "μ",
-        width: 88,
+        width: 112,
         num: true,
-        title: "入模样本内原始特征均值（z-score 前）",
+        headClass: "is-case-keep",
+        title: "入模样本内原始特征均值（z-score 前；过大时用科学计数）",
       },
       {
         id: "sd",
         label: "σ",
-        width: 88,
+        width: 112,
         num: true,
-        title: "入模样本内原始特征标准差",
+        headClass: "is-case-keep",
+        title: "入模样本内原始特征标准差（z-score 前；过大时用科学计数）",
       },
+      ...(isDual ? gainCol : []),
+      {
+        id: "ols",
+        label: isOoRankGain ? "gain" : "β",
+        width: betaW,
+        num: true,
+        headClass: "is-case-keep",
+        title: isOoRankGain
+          ? "LambdaRank 归一化分裂增益；条向右更长=贡献更大"
+          : "标准化斜率：右正左负；数值叠在彩条靠右",
+      },
+      ...(isDual || isOoRank
+        ? []
+        : [
+            {
+              id: "share",
+              label: "|β|%",
+              width: shareW,
+              num: true,
+              title: "|β| / Σ|β|：相对解释权重",
+            },
+          ]),
+      ...(!isDual ? gainCol : []),
     ];
+
+    const topNRaw = opts.topN != null ? Number(opts.topN) : 10;
+    const topN =
+      Number.isFinite(topNRaw) && topNRaw > 0
+        ? Math.max(1, Math.min(200, Math.floor(topNRaw)))
+        : 10;
+    const topRows = rows.slice(0, topN);
+    const restRows = rows.slice(topN);
+    const maxGainShare = Math.max(
+      0.01,
+      ...topRows.map((r) =>
+        r.gainShare != null && Number.isFinite(Number(r.gainShare))
+          ? Number(r.gainShare)
+          : 0
+      )
+    );
+
+    const gainCell = (r) => {
+      if (r.gainShare == null || !Number.isFinite(Number(r.gainShare))) {
+        return fmtEmptyCell();
+      }
+      const pct = Number(r.gainShare);
+      const w = Math.max(6, Math.min(100, (pct / maxGainShare) * 100));
+      return (
+        `<div class="quant-rem-share-cell" title="${esc(
+          `LambdaRank gain 份额 ${fmtGainPct(pct)}%（全特征归一化 Σ≈100%；条长相对 Top 表最大）`
+        )}">` +
+        `<div class="quant-rem-share-track" aria-hidden="true">` +
+        `<div class="quant-rem-share-fill is-gain" style="width:${w.toFixed(
+          1
+        )}%"></div>` +
+        `</div>` +
+        `<span class="quant-rem-share-num">${fmtGainPct(pct)}%</span>` +
+        `</div>`
+      );
+    };
 
     const coefCellHtml = (col, r) => {
       if (col.id === "factor") return factorCell(r);
@@ -1327,19 +1449,30 @@ export function createFactorIcUi(deps) {
       }
       if (col.id === "ols") return betaCell(r);
       if (col.id === "share") return shareCell(r);
+      if (col.id === "gain") return gainCell(r);
       if (col.id === "mu") {
-        if (r.mu == null) return fmtEmptyCell();
-        return cell(esc(r.mu.toFixed(2)), "");
+        const t = fmtMuSd(r.mu);
+        if (t == null) return fmtEmptyCell();
+        const tip =
+          Math.abs(Number(r.mu)) >= 1e6
+            ? `原始均值 ${Number(r.mu).toExponential(4)}`
+            : `原始均值 ${t}`;
+        return `<span title="${esc(tip)}">${cell(esc(t), "")}</span>`;
       }
       if (col.id === "sd") {
-        if (r.sd == null) return fmtEmptyCell();
-        return cell(esc(r.sd.toFixed(2)), "");
+        const t = fmtMuSd(r.sd);
+        if (t == null) return fmtEmptyCell();
+        const tip =
+          Math.abs(Number(r.sd)) >= 1e6
+            ? `原始标准差 ${Number(r.sd).toExponential(4)}`
+            : `原始标准差 ${t}`;
+        return `<span title="${esc(tip)}">${cell(esc(t), "")}</span>`;
       }
       return fmtEmptyCell();
     };
 
     const coefGridOpts = {
-      emptyText: isCo ? "暂无 ŷ_co 入模因子" : "暂无 rem 入模因子",
+      emptyText: `暂无 ${yhatTag} 入模因子`,
       rowClass: (r) => {
         const bits = [];
         if (r && r.scanHot) bits.push("is-scan-hot");
@@ -1348,13 +1481,6 @@ export function createFactorIcUi(deps) {
       },
     };
 
-    const topNRaw = opts.topN != null ? Number(opts.topN) : 10;
-    const topN =
-      Number.isFinite(topNRaw) && topNRaw > 0
-        ? Math.max(1, Math.min(200, Math.floor(topNRaw)))
-        : 10;
-    const topRows = rows.slice(0, topN);
-    const restRows = rows.slice(topN);
     const topGrid = gridHtml(
       coefColumns,
       topRows,
@@ -1377,25 +1503,48 @@ export function createFactorIcUi(deps) {
           `</details>`
         : "";
 
-    const head =
-      `<div class="quant-rem-coef-head">` +
-      `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${yhatTag}${
-        useProbKpis ? " 概率头" : isOoRankGain ? " 增益" : " 系数表"
-      }</span>` +
-      `<span class="quant-rem-coef-sub">${
-        isOoRankGain
-          ? `按 gain 降序 · 归一化份额 · 默认 Top${topN}${
-              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-            }`
-          : useProbKpis
-          ? `按 |β| 降序 · logit · 默认 Top${topN}${
-              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-            }`
+    // 标题对齐 v2：主轴用「因子表」；oo_rank 双训同壳
+    const headTitle = isOoRank
+      ? isOoRankGain
+        ? "ŷ_oo_rank 增益"
+        : hasOoGain || isDual
+          ? "ŷ_oo_rank 因子表"
+          : "ŷ_oo_rank Ridge 系数"
+      : isOo || isTc || isCo || isHorizon
+        ? `${yhatTag} 因子表`
+        : useProbKpis
+          ? `${yhatTag} 概率头`
+          : `${yhatTag} 系数表`;
+    const headSub = isOoRank
+      ? isOoRankGain
+        ? `按 gain 降序 · 归一化份额 · 默认 Top${topN}${
+            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+          }`
+        : isDual
+          ? hasOoGain
+            ? `gain% + β（Σ≈100%）· 按 |β| 降序 · Top${topN}${
+                restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+              }`
+            : `Ridge β · 按 |β| 降序 · 默认 Top${topN}${
+                restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+              }`
           : `按 |β| 降序 · 默认 Top${topN}${
               restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
             }`
-      }</span>` +
+      : useProbKpis
+        ? `按 |β| 降序 · logit · 默认 Top${topN}${
+            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+          }`
+        : `按 |β| 降序 · 默认 Top${topN}${
+            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+          }`;
+    const head =
+      `<div class="quant-rem-coef-head">` +
+      `<div class="quant-rem-coef-head-main">` +
+      `<span class="quant-rem-coef-title">${esc(headTitle)}</span>` +
+      (headSub
+        ? `<span class="quant-rem-coef-sub">${esc(headSub)}</span>`
+        : "") +
       `</div>` +
       headLegend +
       `</div>`;

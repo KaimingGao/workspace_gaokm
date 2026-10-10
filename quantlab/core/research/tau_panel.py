@@ -1424,19 +1424,6 @@ def yclose_loc_from_prev(prev_bar: Optional[dict], open_px: float) -> Optional[f
     return round(max(0.0, min(1.0, (o - lo) / (hi - lo))), 4)
 
 
-def mom3_pct_from_hist(hist: Sequence[dict]) -> Optional[float]:
-    """近 3 日收盘动量 %（窗口末根为 T−1）。"""
-    bars = [b for b in (hist or []) if isinstance(b, dict)]
-    if len(bars) < 4:
-        return None
-    try:
-        c0 = float(bars[-4].get("close"))
-        c1 = float(bars[-1].get("close"))
-    except (TypeError, ValueError):
-        return None
-    if c0 <= 0 or c1 <= 0:
-        return None
-    return round((c1 / c0 - 1.0) * 100.0, 4)
 
 
 def collect_tau_open_panel(
@@ -1449,29 +1436,29 @@ def collect_tau_open_panel(
     stock_code: Optional[str] = None,
     respect_regime: bool = False,
     config: Optional[dict] = None,
-    include_alpha158: bool = False,
+    include_alpha_oo: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """单票 ŷ_τc 面板（τ=open，标签 close/open−1）。
 
     返回 ``(xs, ys, decision_dates, meta_rows)``。
     ``decision_dates`` = 交易日 T（开盘决策日）；ATR 窗口截止 T-1。
     只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_oo，此处不算。
-    ``include_alpha158=True`` 时附加 ≤T−1 的 ``raw_alpha158_*``（Ridge / 树共用）。
+    ``include_alpha_oo=True`` 时附加开锚 ``raw_aoo_*``（≤T−1 + 今开；Ridge / 树共用）。
     ``meta_rows`` 含 ``y_τc``。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
-    if include_alpha158:
+    if include_alpha_oo:
         try:
-            from core.signal.factors.alpha158 import bump_window_for_alpha158
+            from core.signal.factors.alpha_oo import bump_window_for_alpha_oo
 
-            min_history, max_window = bump_window_for_alpha158(
-                ("alpha158",),
+            min_history, max_window = bump_window_for_alpha_oo(
+                ("alpha_oo",),
                 min_history=min_history,
                 max_window=max_window,
             )
         except Exception:  # noqa: BLE001
-            logger.debug("tau open alpha158 window bump failed", exc_info=True)
+            logger.debug("tau open alpha_oo window bump failed", exc_info=True)
     _ = (index_bars, fundamentals, respect_regime, config)
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
@@ -1511,17 +1498,18 @@ def collect_tau_open_panel(
             "open_gap": float(gap),
             "gap_atr": gap_atr_from_hist(gap, window),
             "yclose_loc": yclose_loc_from_prev(b_prev, o),
-            "mom3_pct": mom3_pct_from_hist(window),
         }
         for k in TAU_LAG_FEATURES:
             row[k] = lags.get(k)
-        if include_alpha158:
-            try:
-                from core.signal.factors.alpha158 import raw_alpha158_from_bars
+        if include_alpha_oo:
+            from core.signal.factors.alpha_oo import inject_raw_aoo
 
-                row.update(raw_alpha158_from_bars(window))
-            except Exception:  # noqa: BLE001
-                logger.debug("tau open alpha158 inject failed", exc_info=True)
+            pc = None
+            try:
+                pc = float((b_prev or {}).get("close") or 0) or None
+            except (TypeError, ValueError, AttributeError):
+                pc = None
+            inject_raw_aoo(row, window, open_t=o, prev_close=pc)
         xs.append(row)
         ys.append(float(y))
         dates.append(date_t)
@@ -1535,7 +1523,6 @@ def collect_tau_open_panel(
                 "prev_close": pc,
                 "y_τc": float(y),
                 "yclose_loc": row.get("yclose_loc"),
-                "mom3_pct": row.get("mom3_pct"),
             }
         )
     return xs, ys, dates, metas
@@ -2051,28 +2038,28 @@ def collect_tau_intraday_panel(
     index_bars: Optional[List[dict]] = None,
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,
-    include_alpha158: bool = False,
+    include_alpha_oo: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 ŷ_τc = close[T]/price[τ]−1。
 
     τ=open 时 price[τ]=open，等于 close/open−1。
     ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 随 τ 不同**）；
     默认网格 ``09:30|09:35|…|11:00`` 每 5m（09:30 无分钟前缀只留开盘 Z；与做 T v6 扫描至 11:00 对齐；不含 13:00 / 14:00）。
-    ``include_alpha158=True`` 时附加 ≤T−1 的 ``raw_alpha158_*``（Ridge / 树共用）。
+    ``include_alpha_oo=True`` 时附加开锚 ``raw_aoo_*``（≤T−1 + 今开；Ridge / 树共用）。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
-    if include_alpha158:
+    if include_alpha_oo:
         try:
-            from core.signal.factors.alpha158 import bump_window_for_alpha158
+            from core.signal.factors.alpha_oo import bump_window_for_alpha_oo
 
-            min_history, max_window = bump_window_for_alpha158(
-                ("alpha158",),
+            min_history, max_window = bump_window_for_alpha_oo(
+                ("alpha_oo",),
                 min_history=min_history,
                 max_window=max_window,
             )
         except Exception:  # noqa: BLE001
-            logger.debug("tau intraday alpha158 window bump failed", exc_info=True)
+            logger.debug("tau intraday alpha_oo window bump failed", exc_info=True)
     _ = (index_bars, fundamentals)
     clocks = normalize_minute_tau_grid(tau_hm=tau_hm, tau_grid=tau_grid)
     xs: List[Dict[str, Optional[float]]] = []
@@ -2111,16 +2098,12 @@ def collect_tau_intraday_panel(
             tau_by_date=tau_map,
             asof_date=date_t,
         )
-        # Alpha158 只依赖 ≤T−1 日线窗，与 τ 无关；提到时钟循环外，避免满网格重复 ~19×
-        a158_feats: Dict[str, Any] = {}
-        if include_alpha158:
-            try:
-                from core.signal.factors.alpha158 import raw_alpha158_from_bars
+        # 开锚 alpha_oo：≤T−1 + 今开；与 τ 钟无关，提到循环外避免重复
+        aoo_feats: Dict[str, Any] = {}
+        if include_alpha_oo:
+            from core.signal.factors.alpha_oo import inject_raw_aoo
 
-                a158_feats = raw_alpha158_from_bars(window) or {}
-            except Exception:  # noqa: BLE001
-                logger.debug("tau intraday alpha158 inject failed", exc_info=True)
-                a158_feats = {}
+            inject_raw_aoo(aoo_feats, window, open_t=o, prev_close=pc)
         for clock in clocks:
             open_clock = is_open_minute_clock(clock)
             px_tau = price_at_tau_from_minutes(
@@ -2168,8 +2151,8 @@ def collect_tau_intraday_panel(
                 tau_hm=clock,
                 open_px=o_min if o_min and o_min > 0 else o,
             )
-            if a158_feats:
-                row.update(a158_feats)
+            if aoo_feats:
+                row.update(aoo_feats)
             xs.append(row)
             ys.append(float(y_τc))
             dates.append(date_t)

@@ -15,7 +15,7 @@ const FACTOR_FAMILY_DEFS = [
   {
     id: "pv_derived",
     label: "量价衍生",
-    tip: "Qlib Alpha158 等 OHLCV 衍生；omit_sub_score，仅 raw_* 进 Ridge/树/LTR",
+    tip: "开→开 alpha_oo（raw_aoo_*）；omit_sub_score，仅 raw 进 Ridge/树/LTR；ŷ_τc 特征包 alpha_τc=Z∪alpha_oo",
   },
   { id: "other", label: "其他", tip: "未编入 factor_groups" },
 ];
@@ -28,10 +28,10 @@ const FAMILY_MEMBERS = {
   residual: ["relative_strength", "idio_momentum", "size"],
   reversal: ["reversal"],
   sentiment: ["alt_sentiment", "llm_sentiment"],
-  pv_derived: ["alpha158"],
+  pv_derived: ["alpha_oo"],
 };
 
-const PREFIX_FAMILY = [{ prefix: "raw_alpha158_", family: "pv_derived" }];
+const PREFIX_FAMILY = [{ prefix: "raw_aoo_", family: "pv_derived" }];
 
 const SOURCE_OVERRIDE = {
   money_flow: {
@@ -53,7 +53,8 @@ const SOURCE_OVERRIDE = {
 
 /** 已退役 raw_basis 因子（旧分组报告键；表格不再展示） */
 const REMOVED_RAW_BASIS_NAMES = new Set([
-  "mom3_pct",
+  "mom3_pct", // → raw_aoo_MOM3_C
+  "yest_range_pct", // → raw_aoo_YRANGE_PCT
   "mom5_pct",
   "mom_overheat",
   "atr_pct_raw",
@@ -64,8 +65,13 @@ const REMOVED_RAW_BASIS_NAMES = new Set([
   "value_expensive",
 ]);
 
+/** 已退役 raw 前缀（alpha158 → alpha_oo） */
+const REMOVED_RAW_PREFIXES = ["raw_alpha158_"];
+
 export function isRemovedFactor(name) {
-  return REMOVED_RAW_BASIS_NAMES.has(String(name || "").trim());
+  const key = String(name || "").trim();
+  if (REMOVED_RAW_BASIS_NAMES.has(key)) return true;
+  return REMOVED_RAW_PREFIXES.some((p) => key.startsWith(p));
 }
 
 const FAMILY_ORDER = Object.fromEntries(
@@ -121,7 +127,7 @@ export function classifyFactor(name, meta) {
   const fallback = fallbackClassify(key);
 
   // 已编入本地族表 / 前缀族的因子：族标签以本地为准（避免旧 API/实验行把
-  // overheat、tail_anomaly、raw_alpha158_* 等钉死在「其他」）。
+  // overheat、tail_anomaly、raw_aoo_* 等钉死在「其他」）。
   const localFamily =
     NAME_TO_FAMILY[key] ||
     (PREFIX_FAMILY.some((r) => key.startsWith(r.prefix)) ? fallback.family : "");
@@ -488,10 +494,6 @@ const TAU_FEAT_META = {
     label: "昨收位置",
     description: "昨收在昨高低中的位置 0–1。刻画隔夜起点相对昨路径的落点。",
   },
-  mom3_pct: {
-    label: "近3日动量 %",
-    description: "近 3 个交易日收盘动量（%）。短端趋势，与开盘缺口正交补充。",
-  },
 };
 
 /** ŷ_co 路径/开盘 Z 特征（不在因子注册表）。 */
@@ -521,15 +523,10 @@ export const CO_FEAT_META = {
     description:
       "今开在昨高低中的位置 0–1。与 τ 头同源；刻画跳空落在昨路径的哪一段。",
   },
-  mom3_pct: TAU_FEAT_META.mom3_pct,
   yest_close_loc: {
     label: "昨收位置",
     description:
       "昨收在昨高低中的位置 0–1。近高收盘常伴隔夜惯性；与 yclose_loc（今开相对昨高低）互补。",
-  },
-  yest_range_pct: {
-    label: "昨振幅 %",
-    description: "昨 (最高−最低)/收盘 ×100。隔夜波动代理，开盘可得。",
   },
   yest_vol_ratio: {
     label: "昨量/均量",

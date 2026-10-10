@@ -69,7 +69,7 @@ class TestRankingScore(unittest.TestCase):
             lot_shares_for_rank(
                 0.01, 0.20, amount_base=10000, amount_strong=20000, price=200.0
             ),
-            100,
+            0,
         )
 
     def test_clip_lot_to_cash(self):
@@ -215,7 +215,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         by = {t["stock_code"]: t for t in out["buys"]}
         self.assertEqual(int(by["600001"]["y_oo_rank"]), 1)
 
-    def test_amount_short_of_one_lot_buys_one_lot(self):
+    def test_amount_short_of_one_lot_skips(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         scored = [
@@ -228,9 +228,10 @@ class TestPlanRankLotDay(unittest.TestCase):
             prices={"600000": 200.0},
             cfg=_cfg(lot_base_amount=10000, lot_strong_amount=10000),
         )
-        self.assertEqual(len(out["buys"]), 1)
-        self.assertEqual(float(out["buys"][0]["shares"]), 100)
-        self.assertAlmostEqual(float(out["buys"][0]["shares"]) * 200.0, 20_000.0)
+        self.assertEqual(out["buys"], [])
+        skips = [s for s in out.get("skips") or [] if s.get("stock_code") == "600000"]
+        self.assertEqual(len(skips), 1)
+        self.assertIn("不足一手", str(skips[0].get("reason") or ""))
 
     def test_stamps_oo_oc_not_trade_nowcast(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
@@ -975,13 +976,14 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertTrue(opened["buys"])
         self.assertEqual(opened["buys"][0]["stock_code"], "600869")
 
+        # 已持市值须低于强档×120%，否则加仓会被单票上限跳过（与本测无关）
         held = {
             "stock_code": "600869",
             "stock_name": "远东股份",
-            "shares": 200,
+            "shares": 100,
             "lots": [
                 {
-                    "shares": 200,
+                    "shares": 100,
                     "bought_at": "2026-09-07T09:30:00.000",
                     "bought_date": "2026-09-07",
                 }
@@ -1284,6 +1286,52 @@ class TestPlanRankLotDay(unittest.TestCase):
             any("持仓市值将超过上限" in str(s.get("reason") or "") for s in out["skips"])
         )
 
+    def test_stock_mv_cap_skips_add_over_strong_120pct(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        # 已持 2 万；入场再买 1 万 → 3 万 > 强档 2 万×120%=2.4 万 → 跳过
+        scored = [
+            {"stock_code": "600000", "stock_name": "重仓", "y_fuse": 1.2, "y_on": 0.0},
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[{"stock_code": "600000", "stock_name": "重仓", "shares": 200}],
+            cash=1_000_000,
+            prices={"600000": 100.0},
+            cfg=_cfg(
+                cash_floor=0.0,
+                lot_base_amount=10000,
+                lot_strong_amount=20000,
+            ),
+        )
+        self.assertEqual(out["buys"], [])
+        self.assertAlmostEqual(float(out.get("stock_mv_cap") or 0), 24_000.0)
+        skips = [s for s in out.get("skips") or [] if s.get("stock_code") == "600000"]
+        self.assertTrue(skips)
+        self.assertIn("单票市值将超过强档", str(skips[0].get("reason") or ""))
+
+    def test_stock_mv_cap_allows_add_under_strong_120pct(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        # 已持 1 万；再买 1 万 → 2 万 ≤ 2.4 万 → 可加
+        scored = [
+            {"stock_code": "600000", "stock_name": "轻仓", "y_fuse": 1.2, "y_on": 0.0},
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[{"stock_code": "600000", "stock_name": "轻仓", "shares": 100}],
+            cash=1_000_000,
+            prices={"600000": 100.0},
+            cfg=_cfg(
+                cash_floor=0.0,
+                lot_base_amount=10000,
+                lot_strong_amount=20000,
+            ),
+        )
+        self.assertEqual(len(out["buys"]), 1)
+        self.assertEqual(out["buys"][0]["action"], "add")
+        self.assertEqual(float(out["buys"][0]["shares"]), 100)
+
     def test_t0_open_leg_skips_exit(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
@@ -1311,9 +1359,10 @@ class TestGetRankLotCfg(unittest.TestCase):
         cfg = get_rank_lot_cfg({"rules": {"max_positions": 20}})
         self.assertEqual(cfg["top_k"], WATCHING_MAX_SIZE)
         self.assertAlmostEqual(float(cfg["holdings_mv_cap"]), 150_000.0)
+        self.assertAlmostEqual(float(cfg["stock_mv_cap"]), 24_000.0)
 
     def test_live_ignores_stored_cash_floor(self):
-        from core.paper.rebalance.rank_lots import get_rank_lot_cfg, scale_cash_floor_to_account
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
 
         cfg = get_rank_lot_cfg(
             {
@@ -1332,19 +1381,14 @@ class TestGetRankLotCfg(unittest.TestCase):
             }
         )
         self.assertEqual(float(cfg["cash_floor"]), 0.0)
-        self.assertFalse(cfg.get("cash_floor_scaled"))
-        self.assertAlmostEqual(
-            scale_cash_floor_to_account(500_000.0, {"initial_cash": 198_854.75}),
-            198_854.75 * 0.20,
-            places=1,
-        )
+        self.assertNotIn("cash_floor_scaled", cfg)
+        self.assertNotIn("cash_floor_configured", cfg)
 
     def test_live_cash_floor_is_zero(self):
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
 
         cfg = get_rank_lot_cfg({"initial_cash": 1_000_000, "cash": 1_000_000})
         self.assertEqual(float(cfg["cash_floor"]), 0.0)
-        self.assertFalse(cfg.get("cash_floor_scaled"))
 
     def test_explicit_top_k_can_cover_watching_pool(self):
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
@@ -1520,34 +1564,57 @@ class TestEnterGates(unittest.TestCase):
             )
         )
 
-    def test_oo_rank_max_blocks_when_rank_ge(self):
+    def test_oo_rank_top_frac_blocks_when_rank_ge_half(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
         skip = rank_lot_enter_skip_reason(
-            self._item(y_oo_rank=30),
-            self._cfg(oo_rank_max=30),
+            self._item(y_oo_rank=20, y_oo_rank_n=40),
+            self._cfg(oo_rank_top_frac=0.5),
             rs=0.02,
         )
         self.assertIsNotNone(skip)
         self.assertIn("oo_rank", skip)
         self.assertIsNone(
             rank_lot_enter_skip_reason(
-                self._item(y_oo_rank=29),
-                self._cfg(oo_rank_max=30),
+                self._item(y_oo_rank=19, y_oo_rank_n=40),
+                self._cfg(oo_rank_top_frac=0.5),
                 rs=0.02,
             )
         )
 
-    def test_oo_rank_max_missing_does_not_block(self):
+    def test_oo_rank_top_frac_missing_does_not_block(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(),
-                self._cfg(oo_rank_max=30),
+                self._cfg(oo_rank_top_frac=0.5),
                 rs=0.02,
             )
         )
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(y_oo_rank=30),
+                self._cfg(oo_rank_top_frac=0.5),
+                rs=0.02,
+            )
+        )
+
+    def test_oo_rank_top_frac_migrates_legacy_max(self):
+        """旧键 oo_rank_max>0 仅表示闸曾开启 → 迁成 frac=0.5（不再是绝对 rank&lt;30）。"""
+        from core.paper.rebalance.rank_lots import (
+            oo_rank_top_frac_from_cfg,
+            rank_lot_enter_skip_reason,
+        )
+
+        self.assertEqual(oo_rank_top_frac_from_cfg(self._cfg(oo_rank_max=30)), 0.5)
+        # 25/40 = 62.5% > 50% → 拦
+        skip = rank_lot_enter_skip_reason(
+            self._item(y_oo_rank=25, y_oo_rank_n=40),
+            self._cfg(oo_rank_max=30),
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip)
 
 
 if __name__ == "__main__":

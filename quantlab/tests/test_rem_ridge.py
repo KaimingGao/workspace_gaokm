@@ -216,13 +216,17 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("gap_vs_sector", extras)
         self.assertIn("theme_day", extras)
         self.assertIn("yclose_loc", extras)
-        self.assertIn("mom3_pct", extras)
+        self.assertTrue(any(str(k).startswith("raw_aoo_") for k in extras))
+        # 近3日动量已进 alpha_oo，不再作为 Z 列
+        self.assertNotIn("mom3_pct", extras)
         self.assertIn("tau_lag1", extras)
         self.assertIn("tau_ma5", extras)
-        self.assertTrue(report.get("include_alpha158"))
-        self.assertGreater(int(report.get("n_alpha158_features") or 0), 0)
+        self.assertTrue(report.get("include_alpha_oo"))
+        self.assertGreater(int(report.get("n_alpha_oo_features") or 0), 0)
+        self.assertEqual(report.get("feature_pack"), "alpha_τc")
+        self.assertEqual(report.get("feature_pack_formula"), "Z ∪ alpha_oo")
         self.assertTrue(
-            any(str(k).startswith("raw_alpha158_") for k in extras)
+            any(str(k).startswith("raw_aoo_") for k in extras)
         )
         self.assertNotIn("prefix_complexity", extras)
         self.assertNotIn("prefix_tpd", extras)
@@ -272,7 +276,6 @@ class TestRemRidgeFit(unittest.TestCase):
                         "sector_gap_breadth": 0.6,
                         "theme_day": 1.0,
                         "yclose_loc": 0.55,
-                        "mom3_pct": 1.2,
                     },
                     model_doc=doc,
                 )
@@ -288,7 +291,6 @@ class TestRemRidgeFit(unittest.TestCase):
                         "sector_gap_breadth": 0.6,
                         "theme_day": 1.0,
                         "yclose_loc": 0.55,
-                        "mom3_pct": 1.2,
                     },
                     model_doc=doc,
                 )
@@ -296,7 +298,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertIn("terms", expl)
                 self.assertAlmostEqual(float(expl["total"]), float(yhat), places=4)
 
-    def test_fit_tau_ridge_include_alpha158_flag(self):
+    def test_fit_tau_ridge_alpha_tc_pack(self):
         from core.research.tc_ridge import fit_tau_ridge_report
 
         stock_bars = [
@@ -305,23 +307,13 @@ class TestRemRidgeFit(unittest.TestCase):
             {"code": "C", "bars": _bars(90, 8)},
             {"code": "D", "bars": _bars(90, 15)},
         ]
-        off = fit_tau_ridge_report(
-            stock_bars, include_alpha158=False, holdout_trading_days=5
-        )
-        self.assertTrue(off.get("success"), off.get("error"))
-        self.assertFalse(off.get("include_alpha158"))
-        self.assertEqual(int(off.get("n_alpha158_features") or 0), 0)
-        extras_off = (off.get("return_model") or {}).get("extra_features") or []
-        self.assertFalse(any(str(k).startswith("raw_alpha158_") for k in extras_off))
-
-        on = fit_tau_ridge_report(
-            stock_bars, include_alpha158=True, holdout_trading_days=5
-        )
+        on = fit_tau_ridge_report(stock_bars, holdout_trading_days=5)
         self.assertTrue(on.get("success"), on.get("error"))
-        self.assertTrue(on.get("include_alpha158"))
-        self.assertGreater(int(on.get("n_alpha158_features") or 0), 0)
+        self.assertTrue(on.get("include_alpha_oo"))
+        self.assertGreater(int(on.get("n_alpha_oo_features") or 0), 0)
+        self.assertEqual(on.get("feature_pack"), "alpha_τc")
         extras_on = (on.get("return_model") or {}).get("extra_features") or []
-        self.assertTrue(any(str(k).startswith("raw_alpha158_") for k in extras_on))
+        self.assertTrue(any(str(k).startswith("raw_aoo_") for k in extras_on))
 
     def test_tau_promote_gate(self):
         from core.research.tc_ridge import tau_promote_gate

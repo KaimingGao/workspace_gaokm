@@ -124,7 +124,7 @@ class TestRebalanceScoreBackend(unittest.TestCase):
             return_value={
                 "model_role": "tree",
                 "total": 0.77,
-                "terms": [{"key": "raw_alpha158_KMID", "contrib": 0.4}],
+                "terms": [{"key": "raw_aoo_YKMID", "contrib": 0.4}],
             },
         ):
             overlay_oo_tree_on_item(item, window=[{"close": 10}], quote={"open": 10.1})
@@ -138,7 +138,7 @@ class TestRebalanceScoreBackend(unittest.TestCase):
             for t in (item.get("score_formula_terms") or {}).get("terms") or []
             if isinstance(t, dict)
         }
-        self.assertIn("raw_alpha158_KMID", keys)
+        self.assertIn("raw_aoo_YKMID", keys)
 
     def test_regression_pack_roundtrip(self):
         try:

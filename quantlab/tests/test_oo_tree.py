@@ -56,7 +56,6 @@ class TestOoTree(unittest.TestCase):
             horizon_days=1,
             ridge_lambda=1.0,
             holdout_trading_days=8,
-            include_alpha158=False,
             n_estimators=16,
             max_depth=2,
             window_days=0,

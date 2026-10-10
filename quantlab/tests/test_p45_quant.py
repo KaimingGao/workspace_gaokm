@@ -86,6 +86,39 @@ class TestP45NewFactors(unittest.TestCase):
         self.assertIn("reversal", cfg["weights"])
         self.assertIn("liquidity", cfg["weights"])
 
+    def test_alpha158_migrates_to_alpha_oo(self):
+        """旧盘 factor_groups / weights 的 alpha158 键加载时改写为 alpha_oo。"""
+        import json
+        import tempfile
+        from unittest.mock import patch
+
+        from core.signal import config as cfg_mod
+
+        payload = {
+            "factor_groups": {"pv_derived": ["alpha158"]},
+            "weights": {"alpha158": 0.0},
+        }
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False, encoding="utf-8"
+        ) as fh:
+            json.dump(payload, fh)
+            path = fh.name
+        cfg_mod._cached = None
+        try:
+            with patch.dict(os.environ, {"QUANTLAB_SIGNAL_CONFIG": path}):
+                got = load_signal_config(reload=True)
+            self.assertIn("alpha_oo", got["factor_groups"]["pv_derived"])
+            self.assertNotIn("alpha158", got["factor_groups"]["pv_derived"])
+            self.assertIn("alpha_oo", got["weights"])
+            self.assertNotIn("alpha158", got["weights"])
+        finally:
+            cfg_mod._cached = None
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            load_signal_config(reload=True)
+
 
 if __name__ == "__main__":
     unittest.main()

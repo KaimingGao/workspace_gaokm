@@ -241,30 +241,6 @@ def return_model_status() -> Dict[str, Any]:
     cfg = load_signal_config()
     scoring = cfg.get("scoring") or {}
 
-    # 研究枢纽展示优先：执行 → 研究 → 草稿（刷新页恢复系数表）
-    display_role = None
-    display_raw = None
-    for role_name, payload in (
-        ("active", active),
-        ("research", research),
-        ("draft", draft),
-    ):
-        model_blob = (payload or {}).get("model") if isinstance(payload, dict) else None
-        if isinstance(model_blob, dict) and model_blob.get("coefficients"):
-            display_role = role_name
-            display_raw = payload
-            break
-
-    return_model = None
-    if display_raw and isinstance(display_raw.get("model"), dict):
-        return_model = dict(display_raw["model"])
-        meta = display_raw.get("meta") if isinstance(display_raw.get("meta"), dict) else {}
-        if return_model.get("r_squared") is None and meta.get("r_squared") is not None:
-            return_model["r_squared"] = meta.get("r_squared")
-        if return_model.get("ridge_lambda") is None and meta.get("ridge_lambda") is not None:
-            return_model["ridge_lambda"] = meta.get("ridge_lambda")
-
-    # OOS：草稿若更新于展示套之后，优先用草稿评测（含 cs_ic）；否则展示套 → 草稿回退
     def _ts(payload: Optional[Dict[str, Any]]) -> str:
         if not isinstance(payload, dict):
             return ""
@@ -275,12 +251,61 @@ def return_model_status() -> Dict[str, Any]:
             or ""
         )
 
+    def _source_ts(payload: Optional[Dict[str, Any]]) -> str:
+        """启用套的「来源草稿时间」；用于判断草稿是否比已启用更新。"""
+        if not isinstance(payload, dict):
+            return ""
+        return str(
+            payload.get("source_saved_at")
+            or payload.get("saved_at")
+            or payload.get("promoted_at")
+            or ""
+        )
+
+    def _has_coefs(payload: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        model_blob = payload.get("model")
+        return isinstance(model_blob, dict) and bool(model_blob.get("coefficients"))
+
+    # 研究枢纽系数表：草稿 saved_at 晚于启用套 source_saved_at 时优先画草稿
+    # （刚拟合未启用也能看到新列名；promote 后 source 对齐草稿，仍画 research/active）
+    display_role = None
+    display_raw = None
+    draft_ts = _ts(draft) if _has_coefs(draft) else ""
+    live_src = max(
+        _source_ts(active) if _has_coefs(active) else "",
+        _source_ts(research) if _has_coefs(research) else "",
+    )
+    if draft_ts and (not live_src or draft_ts > live_src):
+        display_role = "draft"
+        display_raw = draft
+    else:
+        for role_name, payload in (
+            ("active", active),
+            ("research", research),
+            ("draft", draft),
+        ):
+            if _has_coefs(payload):
+                display_role = role_name
+                display_raw = payload
+                break
+
+    return_model = None
+    if display_raw and isinstance(display_raw.get("model"), dict):
+        return_model = dict(display_raw["model"])
+        meta = display_raw.get("meta") if isinstance(display_raw.get("meta"), dict) else {}
+        if return_model.get("r_squared") is None and meta.get("r_squared") is not None:
+            return_model["r_squared"] = meta.get("r_squared")
+        if return_model.get("ridge_lambda") is None and meta.get("ridge_lambda") is not None:
+            return_model["ridge_lambda"] = meta.get("ridge_lambda")
+
+    # OOS：与系数表同源；草稿更新时用草稿评测
     draft_oos = _payload_oos(draft)
     display_oos = _payload_oos(display_raw)
     oos_out = display_oos
     oos_source = display_role
     if draft_oos is not None:
-        draft_ts = _ts(draft)
         display_ts = _ts(display_raw)
         if oos_out is None or (draft_ts and draft_ts >= display_ts):
             oos_out = draft_oos

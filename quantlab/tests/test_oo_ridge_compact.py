@@ -21,7 +21,7 @@ class TestOoRidgeCompact(unittest.TestCase):
             fit_oo_ridge_matrix,
             predict_oo_matrix,
         )
-        from core.signal.factors.alpha158 import ALPHA158_FACTOR_KEY
+        from core.signal.factors.alpha_oo import ALPHA_OO_FACTOR_KEY
         from core.signal.factors.meta.health import unsourced_factor_names
         from core.signal.factors.meta.registry import registered_factor_names
 
@@ -32,7 +32,7 @@ class TestOoRidgeCompact(unittest.TestCase):
             n
             for n in registered
             if n
-            not in ("momentum", "ma_slope", "value", ALPHA158_FACTOR_KEY)
+            not in ("momentum", "ma_slope", "value", ALPHA_OO_FACTOR_KEY)
         )
         banned = unsourced_factor_names()
         rng = np.random.default_rng(7)
@@ -47,12 +47,12 @@ class TestOoRidgeCompact(unittest.TestCase):
                 "ma_slope": momentum + float(rng.normal(0.0, 0.05)),
                 "value": None if i % 11 == 0 else float(50.0 + rng.normal(0.0, 9.0)),
                 filler: float(50.0 + rng.normal(0.0, 0.2)),
-                "alpha158": 50.0,
-                "raw_alpha158_KMID": float(rng.normal(0.0, 0.15)),
+                "alpha_oo": 50.0,
+                "raw_aoo_YKMID": float(rng.normal(0.0, 0.15)),
                 "raw_other_junk": 1.0,
             }
             if i < 5:
-                row.pop("raw_alpha158_KMID")
+                row.pop("raw_aoo_YKMID")
             y = 0.03 * (momentum - 50.0) + float(rng.normal(0.0, 0.4))
             rows.append(row)
             ys.append(y)
@@ -62,9 +62,9 @@ class TestOoRidgeCompact(unittest.TestCase):
         panel.add_stock_rows(rows[:40], ys[:40], dates[:40])
         panel.add_stock_rows(rows[40:], ys[40:], dates[40:])
         x_mat, y_mat, names, _dates = panel.finalize()
-        self.assertNotIn("alpha158", names)
+        self.assertNotIn("alpha_oo", names)
         self.assertNotIn("raw_other_junk", names)
-        self.assertIn("raw_alpha158_KMID", names)
+        self.assertIn("raw_aoo_YKMID", names)
 
         _model, report = fit_oo_ridge_matrix(
             x_mat,
@@ -201,7 +201,7 @@ class TestOoRidgeCompact(unittest.TestCase):
         from core.research.oo_ridge_compact import OoPanelMatrix, _stack_blocks
 
         base = OoPanelMatrix().names
-        extra = base + ["raw_alpha158_EXTRA_TEST"]
+        extra = base + ["raw_aoo_EXTRA_TEST"]
         n = 2
         x_base = np.ones((n, len(base)), dtype=np.float64)
         x_extra = np.concatenate(
@@ -215,7 +215,7 @@ class TestOoRidgeCompact(unittest.TestCase):
                 (x_extra, np.array([3.0, 4.0]), extra, ["2024-01-04", "2024-01-05"]),
             ]
         )
-        self.assertEqual(names[-1], "raw_alpha158_EXTRA_TEST")
+        self.assertEqual(names[-1], "raw_aoo_EXTRA_TEST")
         self.assertEqual(dates, ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"])
         self.assertEqual(y.tolist(), [1.0, 2.0, 3.0, 4.0])
         self.assertTrue(np.isnan(x[0, -1]))

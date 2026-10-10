@@ -92,7 +92,7 @@ def quant_minute_status(
 ) -> Dict[str, Any]:
     """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。
 
-    默认不含标签画像；传 ``include_label_portrait=true`` 再算 τ/path 画像。
+    默认不含标签画像；传 ``include_label_portrait=true`` 再算 τ(OC) 画像。
     """
     try:
         return deps.quant.minute_status(

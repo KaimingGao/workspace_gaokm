@@ -37,14 +37,14 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "y_enter_alt_enabled": True,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
-    # None=关；30=须 y_oo_rank < 30（UI「rank < 30」）
-    "oo_rank_max": None,
+    # None=关；0.5=须 y_oo_rank < n·50%（UI「rank < top 50%」）
+    "oo_rank_top_frac": None,
     # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
     "fill_clock": "09:30",
     # Live 自动调仓 / 手动预演窗口起点；止于 10:00。与回测 fill_clock 分立。
     "live_fill_clock": "09:30",
     "score_backend": "ridge",
-    # 手数：按金额/价换算整手，不够一手则买一手；保存规则写入交易执行。缺省 live 1万/2万。
+    # 手数：按金额/价换算整手，不够一手则跳过；保存规则写入交易执行。缺省 live 1万/2万。
     "lot_base_amount": 10_000.0,
     "lot_strong_amount": 20_000.0,
 }
@@ -114,15 +114,18 @@ def get_path_matrix_cfg(
     out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
     out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
     try:
-        from core.paper.rebalance.rank_lots import oo_rank_max_from_cfg
+        from core.paper.rebalance.rank_lots import oo_rank_top_frac_from_cfg
 
-        # 关闸须能清掉已存的 30：优先读 raw 里的 oo_rank_max（含 null）
-        out["oo_rank_max"] = oo_rank_max_from_cfg(
-            raw if isinstance(raw, dict) and "oo_rank_max" in raw else out
-        )
+        # 关闸须能清掉已存的 0.5：优先读 raw（含 null）；旧键 oo_rank_max>0 迁成 0.5
+        if isinstance(raw, dict) and (
+            "oo_rank_top_frac" in raw or "oo_rank_max" in raw
+        ):
+            out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(raw)
+        else:
+            out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(out)
     except Exception:  # noqa: BLE001
-        logger.debug("oo_rank_max coerce failed", exc_info=True)
-        out["oo_rank_max"] = None
+        logger.debug("oo_rank_top_frac coerce failed", exc_info=True)
+        out["oo_rank_top_frac"] = None
     for key, default, lo, hi in (
         ("rank_enter", 0.001, 0.0, 10.0),
         ("rank_strong", 0.001, 0.0, 10.0),
@@ -202,7 +205,7 @@ def scores_from_rebalance_item(
     item: Optional[dict],
     cfg: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
-    """从调仓行抽出 ŷ_oo / ŷ_oc / ŷ_τc / ŷ_co 与 ranking / residual。"""
+    """从调仓行抽出 ŷ_oo / ŷ_τc / ŷ_co 与 ranking / residual（旧键 y_oc 只读别名）。"""
     return stamp_window_scores(item, cfg)
 
 

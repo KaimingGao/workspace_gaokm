@@ -120,8 +120,8 @@ class TestTauTreeLightgbm(unittest.TestCase):
                 schema="x",
             )
 
-    def test_fit_tau_tree_include_alpha158_flag(self):
-        """树侧可开 Alpha158；Ridge 对照特征不含 raw_alpha158_*。"""
+    def test_fit_tau_tree_alpha_tc_pack(self):
+        """树侧固定 alpha_τc；Ridge 对照特征不含 raw_aoo_*。"""
         from datetime import date, timedelta
 
         from core.research.tc_tree import fit_tau_tree_report
@@ -153,35 +153,23 @@ class TestTauTreeLightgbm(unittest.TestCase):
             {"code": "C", "bars": _bars(90, 8, 2)},
             {"code": "D", "bars": _bars(90, 15, 3)},
         ]
-        off = fit_tau_tree_report(
-            stock_bars,
-            include_alpha158=False,
-            holdout_trading_days=5,
-            n_estimators=20,
-            max_depth=2,
-            window_days=0,
-        )
-        self.assertTrue(off.get("success"), off.get("error"))
-        self.assertFalse(off.get("include_alpha158"))
-        self.assertEqual(int(off.get("n_alpha158_features") or 0), 0)
-
         on = fit_tau_tree_report(
             stock_bars,
-            include_alpha158=True,
             holdout_trading_days=5,
             n_estimators=20,
             max_depth=2,
             window_days=0,
         )
         self.assertTrue(on.get("success"), on.get("error"))
-        self.assertTrue(on.get("include_alpha158"))
-        self.assertGreater(int(on.get("n_alpha158_features") or 0), 0)
+        self.assertTrue(on.get("include_alpha_oo"))
+        self.assertEqual(on.get("feature_pack"), "alpha_τc")
+        self.assertGreater(int(on.get("n_alpha_oo_features") or 0), 0)
         self.assertTrue(
-            any(str(k).startswith("raw_alpha158_") for k in (on.get("feature_names") or []))
+            any(str(k).startswith("raw_aoo_") for k in (on.get("feature_names") or []))
         )
         self.assertFalse(
             any(
-                str(k).startswith("raw_alpha158_")
+                str(k).startswith("raw_aoo_")
                 for k in (on.get("ridge_feature_names") or [])
             )
         )
@@ -195,7 +183,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
         from core.research.tc_ridge import load_tau_model, persist_tau_model
         from datetime import date, timedelta
 
-        def _bars(n=50, start=10.0):
+        def _bars(n=90, start=10.0):
             out = []
             px = start
             d0 = date(2025, 6, 1)
@@ -217,10 +205,10 @@ class TestTauTreeLightgbm(unittest.TestCase):
             return out
 
         stock_bars = [
-            {"code": "A", "bars": _bars(50, 10)},
-            {"code": "B", "bars": _bars(50, 12)},
-            {"code": "C", "bars": _bars(50, 8)},
-            {"code": "D", "bars": _bars(50, 15)},
+            {"code": "A", "bars": _bars(90, 10)},
+            {"code": "B", "bars": _bars(90, 12)},
+            {"code": "C", "bars": _bars(90, 8)},
+            {"code": "D", "bars": _bars(90, 15)},
         ]
         report = fit_tau_tree_report(
             stock_bars,
@@ -228,7 +216,6 @@ class TestTauTreeLightgbm(unittest.TestCase):
             theme_boost=1.5,
             backend="lightgbm",
             holdout_trading_days=8,
-            include_alpha158=False,
             window_days=0,
         )
         self.assertTrue(report.get("success"), report.get("error"))

@@ -122,7 +122,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0,
         le=1_000_000,
-        description="过 y_τc入场未过强时本轮金额（元）；默认 2 万；0=走旧比例仓。按成交价换算整手，不够一手则买一手",
+        description="过 y_τc入场未过强时本轮金额（元）；默认 2 万；0=走旧比例仓。按成交价换算整手，不够一手则跳过",
     )
     y_τc_strong_amount: Optional[float] = Field(
         default=None,

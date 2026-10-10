@@ -81,11 +81,11 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         description="开=入场须 ŷ_τc>0；关=不看。缺分不拦。未过则已持仓清仓",
     )
-    oo_rank_max: Optional[int] = Field(
+    oo_rank_top_frac: Optional[float] = Field(
         default=None,
-        ge=1,
-        le=500,
-        description="开则入场另须 y_oo_rank < 该值（UI「rank < 30」→30）；None/缺=关。缺分不拦。",
+        gt=0.0,
+        le=1.0,
+        description="开则入场另须 y_oo_rank < n·frac（UI「rank < top 50%」→0.5）；None/缺=关。缺 rank/n 不拦。",
     )
     initial_cash: float = Field(
         default=200_000.0,
@@ -101,13 +101,13 @@ class PaperReplayBacktestRequest(BaseModel):
         default=10_000.0,
         ge=1_000.0,
         le=1_000_000.0,
-        description="调仓每笔金额（元）。默认 1 万；按成交价换算整手，不够一手则买一手。保存规则同步到交易执行自动调仓",
+        description="调仓入场金额（元）。默认 1 万；按成交价换算整手，不够一手则跳过。保存规则同步到交易执行自动调仓",
     )
     lot_strong_amount: float = Field(
         default=20_000.0,
         ge=1_000.0,
         le=1_000_000.0,
-        description="调仓强档金额（元）。默认 2 万；不少于入场金额；保存规则同步到交易执行",
+        description="调仓强档金额（元）。默认 2 万；不少于入场金额；单票持仓市值上限=此值×120%。保存规则同步到交易执行",
     )
     use_predictability_tiers: bool = Field(
         default=False,

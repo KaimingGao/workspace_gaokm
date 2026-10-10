@@ -14,6 +14,7 @@ from core.signal.factors.meta.panel import build_factor_panel
 from core.signal.factors.meta.registry import list_factors, registered_factor_names
 from core.signal.factors.meta.taxonomy import (
     REMOVED_RAW_BASIS_NAMES,
+    is_removed_factor,
     classify_factor,
     classify_factors,
     strip_removed_factors_from_cluster_report,
@@ -30,12 +31,12 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(classify_factor("size")["family"], "residual")
         self.assertEqual(classify_factor("reversal")["family"], "reversal")
         self.assertEqual(classify_factor("alt_sentiment")["family"], "sentiment")
-        self.assertEqual(classify_factor("alpha158")["family"], "pv_derived")
+        self.assertEqual(classify_factor("alpha_oo")["family"], "pv_derived")
         self.assertEqual(
-            classify_factor("raw_alpha158_ROC20")["family"], "pv_derived"
+            classify_factor("raw_aoo_OROC20")["family"], "pv_derived"
         )
         self.assertEqual(
-            classify_factor("raw_alpha158_ROC20")["family_label"], "量价衍生"
+            classify_factor("raw_aoo_OROC20")["family_label"], "量价衍生"
         )
 
     def test_source_badges(self):
@@ -87,17 +88,22 @@ class TestFactorTaxonomy(unittest.TestCase):
     def test_strip_removed_from_cluster_report(self):
         report = {
             "success": True,
-            "feature_names": ["momentum", "mom3_pct", "value"],
+            "feature_names": ["momentum", "mom3_pct", "value", "raw_alpha158_OPEN0"],
             "clusters": [
                 {
                     "ols": {
-                        "coefficients": {"momentum": 0.1, "mom3_pct": 0.02},
+                        "coefficients": {
+                            "momentum": 0.1,
+                            "mom3_pct": 0.02,
+                            "raw_alpha158_OPEN0": 0.01,
+                        },
                         "exclusion_reasons": {"pe_raw": "未算"},
                     },
                     "factor_ic_panel": {
                         "rows": [
                             {"factor": "momentum", "ic": 0.05},
                             {"factor": "atr_pct_raw", "ic": None},
+                            {"factor": "raw_alpha158_KMID", "ic": 0.01},
                         ],
                         "exclusion_reasons": {"vol_elevated": "未算"},
                     },
@@ -111,6 +117,10 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(cl["ols"]["exclusion_reasons"], {})
         self.assertEqual(len(cl["factor_ic_panel"]["rows"]), 1)
         self.assertEqual(cl["factor_ic_panel"]["exclusion_reasons"], {})
+
+    def test_raw_alpha158_prefix_is_removed(self):
+        self.assertTrue(is_removed_factor("raw_alpha158_OPEN0"))
+        self.assertFalse(is_removed_factor("raw_aoo_OPEN0"))
 
     def test_strip_keeps_empty_ic_rows_list(self):
         from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report

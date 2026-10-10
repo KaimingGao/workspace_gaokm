@@ -97,7 +97,7 @@ def save_last_portfolio_backtest(
 
 
 def slim_portfolio_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    """任务轮询 / 落盘共用：去掉 Alpha158 全量特征，避免 20MB JSON 把页面画空。"""
+    """任务轮询 / 落盘共用：去掉 alpha_oo 全量特征，避免 20MB JSON 把页面画空。"""
     return _slim_result(result or {})
 
 

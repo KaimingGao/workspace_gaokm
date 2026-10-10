@@ -736,11 +736,6 @@ html[data-theme="dark"] .dashboard-sector-legend span {
   color: rgba(255, 255, 255, 0.45);
 }
 
-html[data-theme="dark"] .quant-page .quant-control-band {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: #252526;
-}
-
 html[data-theme="dark"] .quant-page .quant-section-title.watching-section-title {
   color: rgba(255, 255, 255, 0.72);
 }
@@ -771,11 +766,6 @@ html[data-theme="dark"] .quant-page .quant-path-rail {
 html[data-theme="dark"] .quant-body.quant-page > .dashboard-section.quant-section {
   border-color: rgba(255, 255, 255, 0.08);
   background: #1e1e1e;
-}
-
-html[data-theme="dark"] .quant-page .quant-fold-panel {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: #252526;
 }
 
 html[data-theme="dark"] .quant-ic-compare-stats {

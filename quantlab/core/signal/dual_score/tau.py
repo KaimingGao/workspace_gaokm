@@ -39,7 +39,6 @@ _TAU_FEATURE_KEYS = (
     "gap_atr",
     "gap_vs_sector",
     "yclose_loc",
-    "mom3_pct",
 ) + MINUTE_TAU_ALL_KEYS + TAU_LAG_FEATURES
 
 _TAU_CORE_Z_KEYS = (
@@ -49,13 +48,12 @@ _TAU_CORE_Z_KEYS = (
     "gap_atr",
     "gap_vs_sector",
     "yclose_loc",
-    "mom3_pct",
 )
 
 
 
 def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    from core.signal.factors.alpha158 import keep_alpha158_raw_in_row
+    from core.signal.factors.alpha_oo import keep_aoo_raw_in_row
     from core.signal.minute_tau_feats import attach_ret_vs_sector
 
     out: Dict[str, Any] = {}
@@ -67,7 +65,7 @@ def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     for k in MINUTE_TAU_SHAPE_KEYS:
         if k in src:
             out[k] = src.get(k)
-    return keep_alpha158_raw_in_row(src, dest=out)
+    return keep_aoo_raw_in_row(src, dest=out)
 
 
 def features_tau_fill_diag(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -529,13 +527,12 @@ def attach_dual_score_pit(
         hist = hist_bars_pit(b, asof_date=asof)
         feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
         try:
-            from core.research.tau_panel import mom3_pct_from_hist, yclose_loc_from_prev
+            from core.research.tau_panel import yclose_loc_from_prev
 
             open_px = open_t_px
             prev = hist[-1] if hist else None
             if open_px is not None:
                 feats["yclose_loc"] = yclose_loc_from_prev(prev, float(open_px))
-            feats["mom3_pct"] = mom3_pct_from_hist(hist)
             try:
                 from core.research.tau_panel import attach_tau_lag_features
 
@@ -545,7 +542,7 @@ def attach_dual_score_pit(
             except Exception:  # noqa: BLE001
                 logger.debug("tau lag feats fill failed", exc_info=True)
         except Exception:  # noqa: BLE001
-            logger.debug("tau yclose/mom3 fill failed", exc_info=True)
+            logger.debug("tau yclose_loc fill failed", exc_info=True)
         ref = sector_gap_median
         if ref is None and signal_item.get("_sector_gap_median") is not None:
             try:
@@ -559,19 +556,27 @@ def attach_dual_score_pit(
                     [float(g) for g in pool if g is not None]
                 )
         feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
-        try:
-            from core.signal.factors.alpha158 import raw_alpha158_from_bars
+        if hist:
+            from core.signal.factors.alpha_oo import inject_raw_aoo
 
-            if hist:
-                feats.update(raw_alpha158_from_bars(hist))
-        except Exception:  # noqa: BLE001
-            logger.debug("tau alpha158 inject skipped", exc_info=True)
+            prev_c = None
+            try:
+                prev_c = float((hist[-1] or {}).get("close") or 0) or None
+            except (TypeError, ValueError):
+                prev_c = None
+            inject_raw_aoo(
+                feats,
+                hist,
+                open_t=open_t_px,
+                prev_close=prev_c,
+                quote=q if isinstance(q, dict) else None,
+            )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         pass
     # 保留刷簿已写齐的截面 Z，避免 tip/PIT 路径冲成缺特征
     prior_ft = signal_item.get("features_tau")
     if isinstance(prior_ft, dict):
-        # 仅用「算出来的非空」覆盖；空值不冲掉簿上齐套列（含 raw_alpha158_*）
+        # 仅用「算出来的非空」覆盖；空值不冲掉簿上齐套列（含 raw_aoo_*）
         computed = {k: v for k, v in feats.items() if v is not None and v != ""}
         feats = merge_tau_features(computed, prior_ft)
         # 无池广度时不要用弱路径算出的 theme_day=0 盖掉刷簿主题日
@@ -927,7 +932,6 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         "gap_atr",
         "gap_vs_sector",
         "yclose_loc",
-        "mom3_pct",
         "tau_lag1",
         "tau_ma5",
         "ret_open_to_tau",

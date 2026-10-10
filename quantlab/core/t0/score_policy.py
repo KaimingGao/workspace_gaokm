@@ -16,18 +16,18 @@ import copy
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 
 logger = logging.getLogger(__name__)
 
 # compute | live_book | ledger
 DEFAULT_Y_SCORE_SOURCE = "compute"
 _MIN_HIST_BARS = 16
-# 与 score_stock 实盘取数对齐。Alpha158 滚动要 ≥61 根。周线仍从头切桶，与调仓回测同一窗。
-_EOD_FACTOR_BAR_LIMIT = int(ALPHA158_PANEL_WINDOW)
+# 与 score_stock 实盘取数对齐。开锚 alpha_oo：hist≥60 + 今开（面板窗 62）。周线仍从头切桶。
+_EOD_FACTOR_BAR_LIMIT = int(ALPHA_OO_PANEL_WINDOW)
 # 做 T 回测：评估窗与因子窗分离；warmup 仅供 hist_prior，不进成交明细
 T0_BACKTEST_SCORE_WARMUP = max(_MIN_HIST_BARS + 8, _EOD_FACTOR_BAR_LIMIT)
-# 纸面预演 / Worker：须含「当日 + EOD 窗」，否则比回测少 1 根、Alpha158 整列缺特征
+# 纸面预演 / Worker：须含「当日 + EOD 窗」，否则比回测少 1 根、alpha_oo 整列缺特征
 T0_PAPER_DAILY_BAR_LIMIT = T0_BACKTEST_SCORE_WARMUP + 1
 
 # 进程内轻量缓存：回测逐日重算时复用模型句柄
@@ -157,7 +157,6 @@ _TAU_TIP_PIN_FACTORS = (
     "sector_gap_breadth",
     "gap_vs_sector",
     "yclose_loc",
-    "mom3_pct",
     "tau_lag1",
     "tau_ma5",
     "ret_open_to_tau",
@@ -206,7 +205,6 @@ def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any
         "gap_atr",
         "gap_vs_sector",
         "yclose_loc",
-        "mom3_pct",
         "tau_lag1",
         "tau_ma5",
     ) + MINUTE_TAU_ALL_KEYS + MINUTE_TAU_SHAPE_KEYS + T30_SEQ_FEATURES + T45_SEQ_FEATURES + T60_SEQ_FEATURES + T75_SEQ_FEATURES + T90_SEQ_FEATURES
@@ -477,7 +475,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "gap_atr",
                 "gap_vs_sector",
                 "yclose_loc",
-                "mom3_pct",
                 "path_lag1",
                 "path_ma5",
                 "t_hi_frac",
@@ -508,7 +505,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "gap_atr",
                 "gap_vs_sector",
                 "yclose_loc",
-                "mom3_pct",
                 "path_lag1",
                 "path_ma5",
                 "tau_lag1",
@@ -3096,7 +3092,7 @@ def compute_scores_from_bars(
         required_factor_keys = []
 
     try:
-        # EOD 因子窗与刷簿 score_stock 对齐（含 Alpha158）；τ/ATR 仍用更长 hist
+        # EOD 因子窗与刷簿 score_stock 对齐（含 alpha_oo）；τ/ATR 仍用更长 hist
         eod_hist = hist[-int(_EOD_FACTOR_BAR_LIMIT) :]
         eod_key = _eod_item_cache_key(
             raw,

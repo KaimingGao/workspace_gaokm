@@ -458,7 +458,6 @@ function slimFormulaTerms(expl, maxTerms = 10) {
     "sector_gap_breadth",
     "gap_vs_sector",
     "yclose_loc",
-    "mom3_pct",
     "tau_lag1",
     "tau_ma5",
     "ret_open_to_tau",

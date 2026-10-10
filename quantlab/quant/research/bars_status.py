@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 def bars_daily_fetch_limit(lookback: int = BARS_DAILY_LOOKBACK) -> int:
-    """拉日 K 的条数：lookback 个交易日，再垫 Alpha158 特征窗。"""
+    """拉日 K 的条数：lookback 个交易日，再垫 alpha_oo 特征窗。"""
     lb = max(40, int(lookback or BARS_DAILY_LOOKBACK))
     pad = 62
     try:
-        from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 
-        pad = max(35, int(ALPHA158_PANEL_WINDOW))
+        pad = max(35, int(ALPHA_OO_PANEL_WINDOW))
     except Exception:  # noqa: BLE001
         logger.debug("cluster daily fetch pad fallback", exc_info=True)
     return lb + pad

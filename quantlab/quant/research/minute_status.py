@@ -11,7 +11,7 @@ from concurrent.futures import (
 )
 from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.data.policy import MINUTE_EM_LOOKBACK_DAYS, MINUTE_WARMUP_READY_MIN_SPAN_DAYS
 from core.watching.store import WATCHING_MAX_SIZE
@@ -199,75 +199,6 @@ def _tau_oc_from_minute(day_bars: List[dict]) -> Optional[float]:
     return round((float(c) / float(o) - 1.0) * 100.0, 4)
 
 
-def _minute_day_extremes(minute_bars: Sequence[dict]) -> Tuple[Optional[float], Optional[float]]:
-    day_hi: Optional[float] = None
-    day_lo: Optional[float] = None
-    for bar in minute_bars or []:
-        if not isinstance(bar, dict):
-            continue
-        hi = _f(bar.get("high"))
-        lo = _f(bar.get("low"))
-        if hi is not None:
-            day_hi = hi if day_hi is None else max(day_hi, hi)
-        if lo is not None:
-            day_lo = lo if day_lo is None else min(day_lo, lo)
-    return day_hi, day_lo
-
-
-def _first_extreme_bar_indices(
-    minute_bars: Sequence[dict],
-    day_high: float,
-    day_low: float,
-    *,
-    eps: float = 1e-6,
-) -> Tuple[Optional[int], Optional[int]]:
-    low_idx: Optional[int] = None
-    high_idx: Optional[int] = None
-    for i, bar in enumerate(minute_bars or []):
-        if not isinstance(bar, dict):
-            continue
-        lo = _f(bar.get("low"))
-        hi = _f(bar.get("high"))
-        if low_idx is None and lo is not None and lo <= day_low + eps:
-            low_idx = i
-        if high_idx is None and hi is not None and hi >= day_high - eps:
-            high_idx = i
-        if low_idx is not None and high_idx is not None:
-            break
-    return low_idx, high_idx
-
-
-def _extreme_order_label(minute_bars: Sequence[dict], *, ref: float) -> Tuple[float, str]:
-    """先 low→high 则 (H−L)/ref%；先 high→low 则 (L−H)/ref%。"""
-    if ref <= 0 or not minute_bars:
-        return 0.0, "invalid_ref_or_empty"
-    day_hi, day_lo = _minute_day_extremes(minute_bars)
-    if day_hi is None or day_lo is None:
-        return 0.0, "invalid_ref_or_empty"
-    span = float(day_hi) - float(day_lo)
-    if span <= 1e-9:
-        return 0.0, "flat_range"
-    low_idx, high_idx = _first_extreme_bar_indices(minute_bars, day_hi, day_lo)
-    if low_idx is None or high_idx is None:
-        return 0.0, "invalid_ref_or_empty"
-    if low_idx == high_idx:
-        return 0.0, "same_bar_extreme"
-    span_pct = span / float(ref) * 100.0
-    if low_idx < high_idx:
-        return round(span_pct, 4), "low_then_high"
-    return round(-span_pct, 4), "high_then_low"
-
-
-def _path_label_from_minute(day_bars: List[dict]) -> Tuple[Optional[float], str]:
-    if not day_bars:
-        return None, "empty"
-    ref = _f(day_bars[0].get("open"))
-    if ref is None or ref <= 0:
-        return None, "invalid_ref_or_empty"
-    label, reason = _extreme_order_label(day_bars, ref=float(ref))
-    return float(label), str(reason or "")
-
-
 def build_minute_label_portrait(
     *,
     watching_limit: int = WATCHING_MAX_SIZE,
@@ -275,7 +206,7 @@ def build_minute_label_portrait(
     max_days_per_code: int = DEFAULT_LABEL_MAX_DAYS,
     codes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """观察池 5m 上 τ(OC) / path(极值序) 标签数量画像（含同号/异号）。"""
+    """观察池 5m 上 τ(OC) 标签数量画像。"""
     from quant.research.watching_universe import clamp_watching_limit
     from core.ports.market import group_minute_bars_by_date, resolve_market_code
     from core.store import load_minute_since, load_minute_span_snapshot
@@ -286,9 +217,6 @@ def build_minute_label_portrait(
     code_list = [str(c).strip() for c in (codes or _resolve_watching_codes(watching_limit=limit)) if str(c).strip()]
 
     tau = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
-    path = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
-    path_reason: Dict[str, int] = {}
-    joint = {"same_sign": 0, "opposite_sign": 0, "flat": 0}
     codes_with_cache = 0
     days_scanned = 0
 
@@ -332,25 +260,10 @@ def build_minute_label_portrait(
             if not day_bars:
                 continue
             days_scanned += 1
-            tau_v = _tau_oc_from_minute(day_bars)
-            path_v, reason = _path_label_from_minute(day_bars)
-            tb = _sign_bucket(tau_v)
-            pb = _sign_bucket(path_v)
+            tb = _sign_bucket(_tau_oc_from_minute(day_bars))
             tau[tb] = int(tau.get(tb) or 0) + 1
-            path[pb] = int(path.get(pb) or 0) + 1
-            if reason:
-                path_reason[reason] = int(path_reason.get(reason) or 0) + 1
-            if tb in ("pos", "neg") and pb in ("pos", "neg"):
-                if tb == pb:
-                    joint["same_sign"] += 1
-                else:
-                    joint["opposite_sign"] += 1
-            else:
-                joint["flat"] += 1
 
     tau_n = int(tau["pos"] + tau["neg"] + tau["zero"] + tau["missing"])
-    path_n = int(path["pos"] + path["neg"] + path["zero"] + path["missing"])
-    signed_n = int(joint["same_sign"] + joint["opposite_sign"])
     return {
         "success": True,
         "period": period_s,
@@ -366,25 +279,7 @@ def build_minute_label_portrait(
             if (tau["pos"] + tau["neg"])
             else None,
         },
-        "path": {
-            **path,
-            "n": path_n,
-            "pos_share": round(path["pos"] / float(path["pos"] + path["neg"]), 4)
-            if (path["pos"] + path["neg"])
-            else None,
-            "reasons": [
-                {"reason": k, "count": v}
-                for k, v in sorted(path_reason.items(), key=lambda kv: (-kv[1], kv[0]))
-            ],
-        },
-        "joint": {
-            **joint,
-            "signed_n": signed_n,
-            "same_sign_rate": round(joint["same_sign"] / float(signed_n), 4)
-            if signed_n
-            else None,
-        },
-        "note": "τ=当日分钟开→收%；path=极值序 signed (H−L)/open%；按票截断最近 max_days",
+        "note": "τ=当日分钟开→收%；按票截断最近 max_days",
     }
 
 
@@ -529,7 +424,7 @@ def build_minute_status(
         "span_distribution": dist,
         "label_portrait": label_portrait,
         "bars_backend": backend,
-        "note": "5m 分钟线本地仓；供 ŷ_hl / T0 回测 / tail_anomaly",
+        "note": "5m 分钟线本地仓；供 ŷ_τc / T0 回测 / tail_anomaly",
         "refresh_job": _minute_refresh_job_snapshot(),
     }
 
