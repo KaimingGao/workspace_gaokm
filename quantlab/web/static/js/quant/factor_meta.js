@@ -15,7 +15,7 @@ const FACTOR_FAMILY_DEFS = [
   {
     id: "pv_derived",
     label: "量价衍生",
-    tip: "ŷ_oo 日线 z_oo_* + alpha_oo/raw_aoo_*；ŷ_τc=z_τc_*∪raw_aoo_*；alpha_tc/raw_atc_* 离线对照；omit_sub_score，仅 raw 进模型",
+    tip: "ŷ_oo 日线 z_oo_*∪raw_aoo_* 全量；ŷ_τc=z_τc_*∪raw_atc_*；omit_sub_score，仅 raw 进模型",
   },
   { id: "other", label: "其他", tip: "未编入 factor_groups" },
 ];
@@ -56,8 +56,8 @@ const SOURCE_OVERRIDE = {
 
 /** 已退役 raw_basis 因子（旧分组报告键；表格不再展示） */
 const REMOVED_RAW_BASIS_NAMES = new Set([
-  "mom3_pct", // → raw_aoo_MOM3_C
-  "yest_range_pct", // → raw_aoo_YRANGE_PCT
+  "mom3_pct", // ŷ_oo→raw_aoo_MOM3_C；ŷ_τc→raw_atc_MOM3_C
+  "yest_range_pct", // ŷ_oo→raw_aoo_YRANGE_PCT；ŷ_τc→raw_atc_YRANGE_PCT
   "mom5_pct",
   "mom_overheat",
   "atr_pct_raw",

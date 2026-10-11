@@ -48,11 +48,18 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertAlmostEqual(loaded2.intercept, 0.1)
 
     def test_promote_research_and_prefer_research(self):
-        model = ReturnScoreModel(
+        live = ReturnScoreModel(
             intercept=0.2,
             coefficients={"momentum": 0.3},
             feature_zscore=False,
             sample_count=20,
+            horizon_days=1,
+        )
+        research_m = ReturnScoreModel(
+            intercept=0.11,
+            coefficients={"momentum": 0.25},
+            feature_zscore=False,
+            sample_count=12,
             horizon_days=1,
         )
         with tempfile.TemporaryDirectory() as td:
@@ -66,7 +73,18 @@ class TestReturnScoreStore(unittest.TestCase):
             ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
                 store, "LIVE_DIR", td
             ):
-                self.assertTrue(store.save_return_model_draft(model)["success"])
+                saved = store.save_return_model_draft(
+                    live, research_model=research_m
+                )
+                self.assertTrue(saved["success"])
+                self.assertTrue(saved.get("has_research_model"))
+                # 无 research_model 的旧草稿不得启用研究套
+                store.save_return_model_draft(live)
+                bad = store.promote_return_model_draft(
+                    note="research", role="research"
+                )
+                self.assertFalse(bad.get("success"))
+                store.save_return_model_draft(live, research_model=research_m)
                 prom = store.promote_return_model_draft(
                     note="research", role="research"
                 )
@@ -78,6 +96,7 @@ class TestReturnScoreStore(unittest.TestCase):
                 )
                 self.assertIsNotNone(loaded)
                 self.assertEqual(meta["role"], "research")
+                self.assertAlmostEqual(float(loaded.intercept), 0.11)
                 st = store.return_model_status()
                 self.assertTrue(st["research"]["exists"])
                 self.assertFalse(st["active"]["exists"])
@@ -99,6 +118,13 @@ class TestReturnScoreStore(unittest.TestCase):
             sample_count=30,
             horizon_days=1,
         )
+        research_m = ReturnScoreModel(
+            intercept=0.05,
+            coefficients={"momentum": 0.4, "money_flow": -0.02},
+            feature_zscore=False,
+            sample_count=18,
+            horizon_days=1,
+        )
         with tempfile.TemporaryDirectory() as td:
             draft = os.path.join(td, "draft.json")
             research = os.path.join(td, "research.json")
@@ -109,7 +135,11 @@ class TestReturnScoreStore(unittest.TestCase):
             ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
                 store, "LIVE_DIR", td
             ):
-                self.assertTrue(store.save_return_model_draft(model)["success"])
+                self.assertTrue(
+                    store.save_return_model_draft(
+                        model, research_model=research_m
+                    )["success"]
+                )
                 prom = store.promote_return_model_draft(note="", role="research")
                 self.assertTrue(prom.get("success"), prom)
                 raw = store.load_return_model_payload(research)
@@ -117,6 +147,9 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertNotIn("money_flow", coefs)
                 self.assertIn("momentum", coefs)
                 self.assertIn("money_flow", (raw or {}).get("meta", {}).get("stripped_unsourced") or [])
+                self.assertEqual(
+                    (raw or {}).get("meta", {}).get("coef_source"), "research_model"
+                )
 
     def test_draft_persists_oos_for_status(self):
         model = ReturnScoreModel(

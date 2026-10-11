@@ -943,12 +943,44 @@ export function createFactorIcUi(deps) {
     };
     const nTip = oos.holdout_trading_days != null
       ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"
-      : "全面板完整行（OOS 后重估 β）；OOS 训/测 n 见右侧 KPI";
+      : "全面板完整行（OOS 后重估 β）；OOS 训/测 n 见同区 Holdout KPI";
     const oosIcTip = oos.holdout_trading_days != null
         ? `Holdout ${oos.holdout_trading_days} 日拼样本 Pearson（旧口径）`
         : "拼样本 Pearson（旧口径）";
     const csIcTip = "对齐 Qlib IC：每日截面 Pearson 再对日平均";
     const csRankTip = "对齐 Qlib Rank IC：每日截面 Spearman 再对日平均";
+
+    // 样本 n / Holdout / 训·测：提到「按 |β| 降序…」之前（ŷ_oo / ŷ_τc / ŷ_co 等共用）
+    const sampleKpis = isOoRank
+      ? ""
+      : (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
+        (oos.holdout_trading_days != null &&
+        Number.isFinite(Number(oos.holdout_trading_days))
+          ? kpi(
+              "Holdout",
+              `${Number(oos.holdout_trading_days)}日`,
+              "近 N 个交易日不进研究套训练"
+            )
+          : "") +
+        (oos.n_train != null && Number.isFinite(Number(oos.n_train))
+          ? kpi(
+              "训 n",
+              Number(oos.n_train).toLocaleString("en-US"),
+              "研究套训练集"
+            )
+          : "") +
+        (oos.n_test != null && Number.isFinite(Number(oos.n_test))
+          ? kpi(
+              "测 n",
+              Number(oos.n_test).toLocaleString("en-US"),
+              "Holdout 样本外"
+            )
+          : "");
+    const sampleRow = sampleKpis
+      ? `<div class="quant-rem-coef-sample" role="group" aria-label="样本与 Holdout">` +
+        sampleKpis +
+        `</div>`
+      : "";
 
     // ŷ_oo_rank：样本 n / 训 / Holdout / L2 / 入模等 KPI 下掉（对照在上方 OOS 板）
     const metrics = isOoRank
@@ -994,21 +1026,6 @@ export function createFactorIcUi(deps) {
               : "Holdout 训练集截距 · 做 T 回测 / 历史验证用"
           )
         : "") +
-      (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
-      (oos.holdout_trading_days != null &&
-      Number.isFinite(Number(oos.holdout_trading_days))
-        ? kpi(
-            "Holdout",
-            `${Number(oos.holdout_trading_days)}日`,
-            "近 N 个交易日不进研究套训练"
-          )
-        : "") +
-      (oos.n_train != null && Number.isFinite(Number(oos.n_train))
-        ? kpi("训 n", Number(oos.n_train).toLocaleString("en-US"), "研究套训练集")
-        : "") +
-      (oos.n_test != null && Number.isFinite(Number(oos.n_test))
-        ? kpi("测 n", Number(oos.n_test).toLocaleString("en-US"), "Holdout 样本外")
-        : "") +
       (!useProbKpis && r2 != null
         ? kpi("R²", r2.toFixed(3), "全面板样本内拟合优度，非 OOS")
         : "") +
@@ -1051,6 +1068,36 @@ export function createFactorIcUi(deps) {
             signed: true,
             raw: oos.cs_icir,
           })
+        : "") +
+      (!useProbKpis &&
+      oos.cs_top_mean_y != null &&
+      Number.isFinite(Number(oos.cs_top_mean_y))
+        ? kpi(
+            "Top10% y",
+            Number(oos.cs_top_mean_y).toFixed(3),
+            oos.cs_proxy_note ||
+              "Holdout 日截面 ŷ 头部 10% 实现收益均值；贴近组合选股，IC↑而此项≤0 时常对应回测变差",
+            { signed: true, raw: oos.cs_top_mean_y }
+          )
+        : "") +
+      (!useProbKpis &&
+      oos.cs_ls_mean_y != null &&
+      Number.isFinite(Number(oos.cs_ls_mean_y))
+        ? kpi(
+            "LS y",
+            Number(oos.cs_ls_mean_y).toFixed(3),
+            "Holdout 日截面 ŷ 头−尾 10% 实现收益；组合多空代理",
+            { signed: true, raw: oos.cs_ls_mean_y }
+          )
+        : "") +
+      (!useProbKpis &&
+      oos.cs_top_gt0_ratio != null &&
+      Number.isFinite(Number(oos.cs_top_gt0_ratio))
+        ? kpi(
+            "Top>0日",
+            `${(Number(oos.cs_top_gt0_ratio) * 100).toFixed(0)}%`,
+            "头部 10% 日均收益 > 0 的 Holdout 日占比"
+          )
         : "") +
       (!useProbKpis && oos.ic != null && Number.isFinite(Number(oos.ic))
         ? kpi(
@@ -1170,7 +1217,7 @@ export function createFactorIcUi(deps) {
             .join("")}</span>` +
           `</div>`
         : "";
-    // ŷ_oo_rank：标签已进区块标题，因子表上不再重复 y 公式行
+    // ŷ_oo_rank：标签在区块说明（section-desc），因子表上不再重复 y 公式行
     const specY = isOoRank
       ? ""
       : `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
@@ -1299,6 +1346,12 @@ export function createFactorIcUi(deps) {
       }
       if (isOoRank) {
         return `${shown}${key}：开锚 alpha_oo（raw_aoo_* · ≤T−1 + 今开）。gain 为 LambdaRank 分裂贡献份额；β 为同窗 Ridge。`;
+      }
+      if (String(r.name || "").startsWith("raw_atc_")) {
+        return `${shown}${key}：τ 锚 alpha_tc（raw_atc_* · ≤T−1 + price[τ]）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
+      }
+      if (String(r.name || "").startsWith("raw_aoo_")) {
+        return `${shown}${key}：开锚 alpha_oo（raw_aoo_* · ≤T−1 + 今开）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
       }
       return `${shown}${key}：T−1 日线因子。正 β 表示该值偏高时 ${yhatTag} 更高。`;
     };
@@ -1548,6 +1601,7 @@ export function createFactorIcUi(deps) {
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
       `<span class="quant-rem-coef-title">${esc(headTitle)}</span>` +
+      sampleRow +
       (headSub
         ? `<span class="quant-rem-coef-sub">${esc(headSub)}</span>`
         : "") +

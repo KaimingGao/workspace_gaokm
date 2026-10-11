@@ -6,10 +6,16 @@ import math
 import numpy as np
 
 from core.signal.factors.alpha_oo import (
+    ALPHA_OO_CORE_FIELD_NAMES,
     ALPHA_OO_FIELD_NAMES,
     ALPHA_OO_MIN_BARS,
     ALPHA_OO_RAW_PREFIX,
+    Z_OO_DROP_WHEN_AOO_CORE,
+    alpha_oo_ridge_raw_names,
+    apply_aoo_core_ridge_policy,
+    expand_ridge_feature_names,
     is_alpha_oo_raw_key,
+    is_alpha_oo_ridge_raw_key,
     raw_aoo_from_bars,
     score_alpha_oo,
     _gap_fields,
@@ -44,6 +50,13 @@ def _synth_bars(n: int, seed: int = 42) -> list:
 def test_alpha_oo_field_count():
     assert len(ALPHA_OO_FIELD_NAMES) == 206
     assert len(set(ALPHA_OO_FIELD_NAMES)) == 206
+    assert len(ALPHA_OO_CORE_FIELD_NAMES) == 49
+    assert len(alpha_oo_ridge_raw_names()) == 49
+    assert "OROC5" not in ALPHA_OO_CORE_FIELD_NAMES
+    assert "OO_LAG1" in ALPHA_OO_CORE_FIELD_NAMES
+    assert "MOM3_C" in ALPHA_OO_CORE_FIELD_NAMES
+    assert "OC_LAG1" not in ALPHA_OO_CORE_FIELD_NAMES  # ≡ YKMID
+    assert "REV1_O" not in ALPHA_OO_CORE_FIELD_NAMES  # ≡ −OO_LAG1
 
 
 def test_alpha_oo_key_fields_listed():
@@ -54,6 +67,53 @@ def test_alpha_oo_key_fields_listed():
     assert "OO_LAG1" in ALPHA_OO_FIELD_NAMES
     assert "YRANGE_PCT" in ALPHA_OO_FIELD_NAMES
     assert "MOM3_C" in ALPHA_OO_FIELD_NAMES
+
+
+def test_aoo_core_ridge_policy():
+    assert is_alpha_oo_ridge_raw_key(f"{ALPHA_OO_RAW_PREFIX}GAP")
+    assert not is_alpha_oo_ridge_raw_key(f"{ALPHA_OO_RAW_PREFIX}OROC5")
+    assert Z_OO_DROP_WHEN_AOO_CORE == frozenset(
+        {"momentum", "gap_risk", "overheat"}
+    )
+    names = [
+        "z_oo_momentum",
+        "z_oo_value",
+        "z_oo_gap_risk",
+        "z_oo_overheat",
+        f"{ALPHA_OO_RAW_PREFIX}GAP",
+        f"{ALPHA_OO_RAW_PREFIX}OROC5",
+        f"{ALPHA_OO_RAW_PREFIX}YKMID",
+    ]
+    out = apply_aoo_core_ridge_policy(names)
+    assert "z_oo_momentum" not in out
+    assert "z_oo_gap_risk" not in out
+    assert "z_oo_overheat" not in out
+    assert "z_oo_value" in out
+    assert f"{ALPHA_OO_RAW_PREFIX}GAP" in out
+    assert f"{ALPHA_OO_RAW_PREFIX}YKMID" in out
+    assert f"{ALPHA_OO_RAW_PREFIX}OROC5" not in out
+
+
+def test_expand_ridge_feature_names_defaults_to_full_union():
+    xs = [
+        {
+            "momentum": 55.0,
+            "value": 40.0,
+            f"{ALPHA_OO_RAW_PREFIX}GAP": 0.01,
+            f"{ALPHA_OO_RAW_PREFIX}OROC5": -0.02,
+            f"{ALPHA_OO_RAW_PREFIX}YKMID": 0.03,
+        }
+    ]
+    names = expand_ridge_feature_names(xs)
+    assert f"{ALPHA_OO_RAW_PREFIX}GAP" in names
+    assert f"{ALPHA_OO_RAW_PREFIX}YKMID" in names
+    assert f"{ALPHA_OO_RAW_PREFIX}OROC5" in names
+    assert "z_oo_momentum" in names
+    assert "z_oo_value" in names
+    core = expand_ridge_feature_names(xs, ridge_core_only=True)
+    assert f"{ALPHA_OO_RAW_PREFIX}OROC5" not in core
+    assert "z_oo_momentum" not in core
+    assert f"{ALPHA_OO_RAW_PREFIX}GAP" in core
 
 
 def test_alpha_oo_all_fields_present():

@@ -71,6 +71,31 @@ class TestDailyCsIc(unittest.TestCase):
         self.assertFalse(oos.get("is_primary_ic"))
         self.assertEqual(oos.get("cs_ic_kind"), "cs_pearson")
         self.assertAlmostEqual(float(oos["cs_ic"]), 1.0, places=3)
+        self.assertTrue(oos.get("cs_proxy_ok"))
+        self.assertAlmostEqual(float(oos["cs_top_mean_y"]), 3.0, places=3)
+        self.assertAlmostEqual(float(oos["cs_bot_mean_y"]), 1.0, places=3)
+        self.assertAlmostEqual(float(oos["cs_ls_mean_y"]), 2.0, places=3)
+        self.assertAlmostEqual(float(oos["cs_top_gt0_ratio"]), 1.0, places=3)
+
+    def test_quantile_proxy_flags_bad_topk(self):
+        """弱正 Rank IC 也可能头部实现为负——proxy 应抓住。"""
+        from core.research.daily_cs_ic import summarize_cs_quantile_proxy
+
+        preds = []
+        ys = []
+        metas = []
+        # 每日：高 ŷ → 低 y（反选）
+        for day in ("2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"):
+            for i, code in enumerate(("a", "b", "c", "d", "e", "f", "g", "h", "i", "j")):
+                preds.append(float(i))
+                ys.append(float(-i))
+                metas.append({"date": day, "code": code})
+        out = summarize_cs_quantile_proxy(preds, ys, metas, top_frac=0.1, min_names=5)
+        self.assertTrue(out["ok"])
+        self.assertLess(float(out["cs_top_mean_y"]), 0.0)
+        self.assertGreater(float(out["cs_bot_mean_y"]), float(out["cs_top_mean_y"]))
+        self.assertLess(float(out["cs_ls_mean_y"]), 0.0)
+        self.assertEqual(float(out["cs_top_gt0_ratio"]), 0.0)
 
 
 if __name__ == "__main__":

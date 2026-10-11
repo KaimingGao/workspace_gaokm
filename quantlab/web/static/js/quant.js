@@ -1388,7 +1388,7 @@ export function initQuant(ctx) {
           : `${message} · ${baseMsg}`
         : baseMsg;
     }
-    // 引擎 / alpha_oo / 用时已在对照报告里，卡头留日截面 Z / 滑窗摘要 + 拟合时间 + 芯片
+    // 引擎 / alpha_tc / 用时已在对照报告里，卡头留日截面 Z / 滑窗摘要 + 拟合时间 + 芯片
     renderRemStatus(el, {
       state: extra.state || "ok",
       chip: extra.chip || "已拟合",
@@ -3305,8 +3305,8 @@ export function initQuant(ctx) {
       const oos = data.oos || {};
       const packBit =
         data.feature_pack ||
-        `alpha_τc(Z∪aoo×${
-          data.n_alpha_oo_features != null ? data.n_alpha_oo_features : "?"
+        `alpha_τc(Z∪atc×${
+          data.n_alpha_tc_features != null ? data.n_alpha_tc_features : "?"
         })`;
       const painted = paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,

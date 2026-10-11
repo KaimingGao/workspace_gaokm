@@ -287,6 +287,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
             panel,
         )
         self.assertIn(
+            'id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>',
+            panel,
+        )
+        self.assertIn(
+            "rank(open[T]->open[T+1]) · 双 backend · NDCG@K 择优",
+            panel,
+        )
+        self.assertNotIn(
             "ŷ_oo_rank · rank(open[T]->open[T+1])",
             panel,
         )
@@ -346,7 +354,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('"ŷ_oo_rank 因子表"', factor_ic)
         self.assertIn("const metrics = isOoRank", factor_ic)
         self.assertIn("const specY = isOoRank", factor_ic)
-        self.assertIn("标签已进区块标题", factor_ic)
+        self.assertIn("标签在区块说明", factor_ic)
         self.assertIn('"rank(open[T]->open[T+1])"', factor_ic)
         self.assertNotIn('"rank(open[T+1]/open[T]-1)"', factor_ic)
         self.assertNotIn("ooRankSampleKpis", factor_ic)

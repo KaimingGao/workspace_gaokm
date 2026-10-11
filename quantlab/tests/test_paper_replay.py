@@ -2772,7 +2772,8 @@ class TestReplayalpha_ooAlign(unittest.TestCase):
                 "raw_aoo_OROC5": -0.01,
             },
         )
-        keys = _required_factor_keys_from_return_models({"600519": m}, None)
+        # 模型 β 可要求全量 raw_aoo_*（含滚动列）；打分补算不截断
+        keys = _required_factor_keys_from_return_models(m)
         self.assertIn("momentum", keys)
         self.assertIn("raw_aoo_YKMID", keys)
         self.assertIn("raw_aoo_OROC5", keys)

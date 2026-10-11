@@ -3,9 +3,10 @@
 PIT：``hist=≤T−1`` 完整日 + ``open_t``（今开）。标签对齐 open[T+1]/open[T]−1。
 单票可算；板块截面类不在此模块（留给面板 Z）。
 
-ŷ_oo 入模注册日线为 ``z_oo_*``（见 ``z_oo``）；本包 ``raw_aoo_*`` 不变。
-ŷ_τc 现网特征包 **alpha_τc := z_τc_* ∪ alpha_oo**（见 ``tc_ridge``）；本包同时供 ŷ_oo / ŷ_co。
-``alpha_tc`` / ``raw_atc_*`` 仅作离线对照，不进现网拟合。
+计算产出全量 ``raw_aoo_*``；**ŷ_oo / ŷ_co Ridge·Tree 入模默认
+``z_oo_* ∪ raw_aoo_*``（全量）**。精简集 aoo_core=GAP+YK+LAG 仅供消融
+（``ridge_core_only=True`` / ``apply_aoo_core_ridge_policy``）。
+ŷ_τc 现网为 **alpha_τc := z_τc_* ∪ raw_atc_***，不吃本包。
 """
 
 from __future__ import annotations
@@ -140,13 +141,47 @@ ALPHA_OO_FIELD_NAMES: Tuple[str, ...] = (
     *_LAG_KEYS,
 )
 
+# 入模精简集：去掉多窗滚动/量能（Holdout 300/160/20 下全量拖累 IC）
+# 精确别名不进 β：OC_LAG1≡YKMID；REV1_O≡−OO_LAG1（否则 Ridge 共线爆炸）
+_AOO_CORE_LAG_DROP: frozenset = frozenset({"OC_LAG1", "REV1_O"})
+ALPHA_OO_CORE_FIELD_NAMES: Tuple[str, ...] = (
+    *_GAP_KEYS,
+    *_YK_KEYS,
+    *(k for k in _LAG_KEYS if k not in _AOO_CORE_LAG_DROP),
+)
+
+# 有 aoo_core 时剔除的 z_oo 裸名（与 GAP / MOM3 / 短动量双计）
+Z_OO_DROP_WHEN_AOO_CORE: frozenset = frozenset(
+    {"momentum", "gap_risk", "overheat"}
+)
+
 
 def is_alpha_oo_raw_key(name: str) -> bool:
     return str(name or "").startswith(ALPHA_OO_RAW_PREFIX)
 
 
-def collect_alpha_oo_raw_keys_from_rows(xs: Sequence[dict]) -> List[str]:
-    """从面板行收集出现过的 ``raw_aoo_*`` 列名（保序去重）。"""
+def alpha_oo_ridge_raw_names() -> Tuple[str, ...]:
+    """ŷ_oo / ŷ_co 入模用的 ``raw_aoo_*``（GAP+YK+LAG）。"""
+    return tuple(f"{ALPHA_OO_RAW_PREFIX}{k}" for k in ALPHA_OO_CORE_FIELD_NAMES)
+
+
+_ALPHA_OO_RIDGE_RAW_SET = frozenset(alpha_oo_ridge_raw_names())
+
+
+def is_alpha_oo_ridge_raw_key(name: str) -> bool:
+    """是否为现网 Ridge/Tree 允许的 ``raw_aoo_*`` 核心列。"""
+    return str(name or "") in _ALPHA_OO_RIDGE_RAW_SET
+
+
+def collect_alpha_oo_raw_keys_from_rows(
+    xs: Sequence[dict],
+    *,
+    ridge_core_only: bool = False,
+) -> List[str]:
+    """从面板行收集出现过的 ``raw_aoo_*`` 列名（保序去重）。
+
+    默认收全量；``ridge_core_only=True`` 只收 aoo_core（消融）。
+    """
     names: List[str] = []
     seen = set()
     for row in xs or []:
@@ -155,6 +190,8 @@ def collect_alpha_oo_raw_keys_from_rows(xs: Sequence[dict]) -> List[str]:
         for k, v in row.items():
             sk = str(k)
             if sk in seen or not is_alpha_oo_raw_key(sk):
+                continue
+            if ridge_core_only and not is_alpha_oo_ridge_raw_key(sk):
                 continue
             if v is None:
                 continue
@@ -167,12 +204,40 @@ def collect_alpha_oo_raw_keys_from_rows(xs: Sequence[dict]) -> List[str]:
     return names
 
 
+def apply_aoo_core_ridge_policy(names: Sequence[str]) -> List[str]:
+    """入模列策略：只留 aoo_core；有 core 时丢掉重叠 z_oo。"""
+    from core.signal.factors.z_oo import is_z_oo_key, to_legacy_key
+
+    has_core = any(is_alpha_oo_ridge_raw_key(n) for n in names or [])
+    drop_legs = Z_OO_DROP_WHEN_AOO_CORE if has_core else frozenset()
+    out: List[str] = []
+    seen = set()
+    for n in names or []:
+        k = str(n or "").strip()
+        if not k or k in seen:
+            continue
+        if is_alpha_oo_raw_key(k):
+            if not is_alpha_oo_ridge_raw_key(k):
+                continue
+        else:
+            leg = to_legacy_key(k) if is_z_oo_key(k) else k
+            if leg in drop_legs:
+                continue
+        seen.add(k)
+        out.append(k)
+    return out
+
+
 def expand_ridge_feature_names(
     xs: Sequence[dict],
     *,
     base_names: Optional[Sequence[str]] = None,
+    ridge_core_only: bool = False,
 ) -> List[str]:
-    """Ridge 入模列：注册日线 ``z_oo_*`` + 面板 ``raw_aoo_*``；去掉因子包常数分。"""
+    """Ridge 入模列：注册日线 ``z_oo_*`` + 面板 ``raw_aoo_*``；去掉因子包常数分。
+
+    默认全量并集；``ridge_core_only=True`` 时套 aoo_core 策略。
+    """
     from core.signal.factors.meta.registry import registered_factor_names
     from core.signal.factors.z_oo import (
         Z_OO_SKIP_PACKS,
@@ -196,10 +261,14 @@ def expand_ridge_feature_names(
         if canon not in seen:
             seen.add(canon)
             names.append(canon)
-    for k in collect_alpha_oo_raw_keys_from_rows(xs):
+    for k in collect_alpha_oo_raw_keys_from_rows(
+        xs, ridge_core_only=ridge_core_only
+    ):
         if k not in seen:
             seen.add(k)
             names.append(k)
+    if ridge_core_only:
+        return apply_aoo_core_ridge_policy(names)
     return names
 
 

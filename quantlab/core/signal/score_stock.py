@@ -110,14 +110,22 @@ def _fetch_bars_isolated(
         return [], "empty"
 
 
-def _alpha_oo_fetch_limit() -> int:
-    """实盘日线窗。开锚 alpha_oo：hist≥60 + 今开；面板对齐窗 62。"""
+def _alpha_pack_fetch_limit() -> int:
+    """实盘日线窗：覆盖 alpha_oo / alpha_tc 面板窗（取较大者）。"""
+    n = 62
     try:
         from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 
-        return int(ALPHA_OO_PANEL_WINDOW)
+        n = max(n, int(ALPHA_OO_PANEL_WINDOW))
     except Exception:  # noqa: BLE001
-        return 62
+        pass
+    try:
+        from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
+
+        n = max(n, int(ALPHA_TC_PANEL_WINDOW))
+    except Exception:  # noqa: BLE001
+        pass
+    return n
 
 
 def fetch_daily_bars(
@@ -254,7 +262,7 @@ def score_stock(
 
     bars = []
     data_source = "quote_fallback"
-    alpha_limit = _alpha_oo_fetch_limit()
+    alpha_limit = _alpha_pack_fetch_limit()
     try:
         bars, src = fetch_daily_bars(
             raw, limit=alpha_limit, timeout=10.0, offline_only=use_offline
@@ -976,6 +984,9 @@ def score_stock(
             "sector_gap_breadth": sector_breadth,
             "theme_day": 0.0,
         }
+        hist_for_atc = None
+        asof_for_atc = str(open_t_info.get("trade_day") or trade_day or "")[:10]
+        open_for_atc = open_t_info.get("open")
         try:
             from core.research.tau_panel import (
                 _finite_median,
@@ -985,17 +996,18 @@ def score_stock(
                 yclose_loc_from_prev,
             )
 
-            asof = str(open_t_info.get("trade_day") or trade_day or "")[:10]
+            asof = asof_for_atc
             hist = hist_bars_pit(bars, asof_date=asof)
+            hist_for_atc = hist
             feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
             open_px_z = open_t_info.get("open")
             prev_b = hist[-1] if hist else None
             if open_px_z is not None:
+                open_for_atc = open_px_z
                 try:
                     feats["yclose_loc"] = yclose_loc_from_prev(prev_b, float(open_px_z))
                 except (TypeError, ValueError):
                     pass
-            # 近3日动量改吃 raw_aoo_MOM3_C（inject_raw_aoo / tip 侧）
             try:
                 from core.research.tau_panel import attach_tau_lag_features
 
@@ -1042,23 +1054,7 @@ def score_stock(
                 except (TypeError, ValueError):
                     ref = None
             feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
-            # 开锚 alpha_oo：≤T−1 hist + 今开（quote 作 open_t 回退）。
-            if hist:
-                from core.signal.factors.alpha_oo import inject_raw_aoo
-
-                prev_c = None
-                if prev_b is not None:
-                    try:
-                        prev_c = float(prev_b.get("close") or 0) or None
-                    except (TypeError, ValueError):
-                        prev_c = None
-                inject_raw_aoo(
-                    feats,
-                    hist,
-                    open_t=open_px_z,
-                    prev_close=prev_c,
-                    quote=quote if isinstance(quote, dict) else None,
-                )
+            # 近3日动量等改吃 raw_atc_*（分钟钟后再按 price[τ] 注入）
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("tau Z extras skipped for %s", code, exc_info=True)
         try:
@@ -1148,6 +1144,46 @@ def score_stock(
                 stamp_open_clock_minute_z(feats)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)
+
+        # τ 锚 alpha_tc：在分钟小包之后按 price[τ] / 钟注入 raw_atc_*
+        try:
+            from core.signal.factors.alpha_tc import inject_raw_atc
+
+            hist = hist_for_atc
+            if not hist and asof_for_atc:
+                from core.research.tau_panel import hist_bars_pit
+
+                hist = hist_bars_pit(bars, asof_date=asof_for_atc)
+            if hist:
+                prev_c = open_t_info.get("prev_close")
+                if prev_c is None and hist:
+                    try:
+                        prev_c = float((hist[-1] or {}).get("close") or 0) or None
+                    except (TypeError, ValueError):
+                        prev_c = None
+                tau_hm_inj = "open"
+                price_tau = open_for_atc
+                if as_of_tau_override and "T" in str(as_of_tau_override):
+                    tau_hm_inj = str(as_of_tau_override).split("T", 1)[1][:5]
+                    rot = feats.get("ret_open_to_tau")
+                    if open_for_atc is not None and rot is not None:
+                        try:
+                            price_tau = float(open_for_atc) * (
+                                1.0 + float(rot) / 100.0
+                            )
+                        except (TypeError, ValueError):
+                            price_tau = open_for_atc
+                inject_raw_atc(
+                    feats,
+                    hist,
+                    open_t=open_for_atc,
+                    prev_close=prev_c,
+                    price_tau=price_tau,
+                    tau_hm=tau_hm_inj,
+                    quote=quote if isinstance(quote, dict) else None,
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau raw_atc inject skipped for %s", code, exc_info=True)
 
         rem_model_doc = load_tau_model()
         rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)

@@ -941,13 +941,14 @@ python3 research/paper_run.py --init
 ## 1. 一句话主轴
 
 ```text
-【层 1 · ŷ_oo】历史日线（X 到 T−1 收；T 开可进 quote）→ `z_oo_*`∪`raw_aoo_*` → y_oo / predicted_score；面板仍写裸名
+【层 1 · ŷ_oo】历史日线（X 到 T−1 收；T 开可进 quote）→ `z_oo_*`∪**`raw_aoo_*` 全量**（~206）→ y_oo / predicted_score；面板仍写裸名
          → 预测 open[T+1]/open[T]−1（现网 h=1）→ **入池地板 + 主字段**；收盘后 eod_next 排序
+         → aoo_core=GAP+YK+LAG 仅作消融对照（``ridge_core_only=True``）
 
-【层 2 · ŷ_τc】alpha_τc := z_τc_*（开盘 + ≤τ 分钟 Z）∪ alpha_oo（raw_aoo_*）→ y_τc
+【层 2 · ŷ_τc】alpha_τc := z_τc_*（开盘 + ≤τ 分钟 Z）∪ alpha_tc（raw_atc_*）→ y_τc
          → 预测 close[T]/price(τ)−1 → 调仓 ranking 的 τc 项 + 做 T 估 C_τ
          τ=open 时 price(τ)=open，等于 close/open−1。旧行 y_oc 只读
-         **超集**：alpha_τc ⊇ alpha_oo（多 z_τc_*；alpha_oo 不是 alpha_τc 的超集）
+         **分工**：ŷ_oo 吃 z_oo_*∪raw_aoo_*；ŷ_τc 吃 raw_atc_*（τ 锚）+ z_τc_*
 
 【对照 · ŷ_co】隔夜缺口 → y_co（旧键 y_on 可读）；经 w_co 叠进 ŷ_τc（配置默认 1）
 ```
@@ -1013,13 +1014,13 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 
 | 层 | 字段 | 信息集 | 标签 \(y\) | 现网用途 |
 |----|------|--------|-----------|----------|
-| **ŷ_oo** | `y_oo` / `predicted_score` | **`z_oo_*`**（注册日线）∪ **`raw_aoo_*`**；面板/live 裸名别名 | \(\mathrm{open}[T+1]/\mathrm{open}[T]-1\) | 入池地板；收盘后排序；调仓 ranking 成分 |
-| **ŷ_τc** | `y_τc` | **alpha_τc** \(= \) `z_τc_*` \(_{\le\tau} \cup\) `raw_aoo_*` | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 调仓 ranking 的 τc 项；做 T 估 C_τ。τ=open 时等于 close/open−1。旧行 `y_oc` / `y_tau` 只读；面板仍写裸名 `gap_pct` 等，拟合系数键用 `z_τc_*` |
+| **ŷ_oo** | `y_oo` / `predicted_score` | **`z_oo_*`**（注册日线）∪ **`raw_aoo_*` 全量**；面板/live 裸名别名 | \(\mathrm{open}[T+1]/\mathrm{open}[T]-1\) | 入池地板；收盘后排序；调仓 ranking 成分 |
+| **ŷ_τc** | `y_τc` | **alpha_τc** \(= \) `z_τc_*` \(_{\le\tau} \cup\) `raw_atc_*` | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 调仓 ranking 的 τc 项；做 T 估 C_τ。τ=open 时等于 close/open−1。旧行 `y_oc` / `y_tau` 只读；Z 裸名别名，raw 为 τ 锚 `raw_atc_*` |
 | **ŷ_co** | `y_co` | 隔夜缺口头 | \(\mathrm{open}[T+1]/\mathrm{close}[T]-1\) | 经 w_co 叠进 ŷ_τc；旧键 `y_on` 可读 |
 
 ```text
-ŷ_oo      = f(z_oo_* ∪ raw_aoo_*; β)                       # 标签 open[T+1]/open[T]−1；系数键 z_oo_*
-ŷ_τc      = h(alpha_τc; ρ)  # alpha_τc=z_τc_*∪raw_aoo_*；标签 close[T]/price[τ]−1
+ŷ_oo      = f(z_oo_* ∪ raw_aoo_*; β)                         # 全量 raw_aoo；标签 open[T+1]/open[T]−1
+ŷ_τc      = h(alpha_τc; ρ)  # alpha_τc=z_τc_*∪raw_atc_*；标签 close[T]/price[τ]−1
 ranking   = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)  # rot=price(τ)/open−1；基准 τ→open[T+1]；默认 0.6/0.4
 ŷ_trade   = w_oo·ŷ_oo + w_tau·(缺口∘ŷ_τ)   # 盘中簿；现网 w_oo=0, w_tau=1；eod_next→ŷ_oo
 C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scale=2；τ=开盘时 price(τ)=open
@@ -1059,7 +1060,7 @@ C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scal
 | A2 影子簿 | 同池按 ŷ_τ 另写 `cluster_book_tau_shadow.json`；jaccard/spearman vs ŷ_oo | **已落地**（`enable_tau_shadow_book`，默认开；不驱动买入） |
 | A2 验收 | 账本 `*.tau_shadow.json` + `realized_tau`；HTTP `/tau-shadow` **已 stub** | **库保留 · 枢纽条已下线** |
 | P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
-| P0 alpha_τc | ŷ_τc 特征包 **alpha_τc := z_τc_* ∪ alpha_oo**（⊇ alpha_oo；产品固定完整包，无开关；拟合列 `z_τc_*`+`raw_aoo_*`，面板/live 裸名别名，报告挂 `feature_pack`） | **已落地** |
+| P0 alpha_τc | ŷ_τc 特征包 **alpha_τc := z_τc_* ∪ raw_atc_***（产品固定完整包，无开关；拟合列 `z_τc_*`+`raw_atc_*`，Z 裸名别名，报告挂 `feature_pack`；schema `tau_ridge_v15`） | **已落地** |
 | P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
 | P2 融合补强 | `w_mode=theme_boost\|variance`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
@@ -1214,8 +1215,8 @@ flowchart LR
 score_stock(code) 续——
   → gap_pct = resolve_open_t(quote, bars).gap_pct        # 开盘缺口%（今开，禁合成昨开）
   → sector_gap_breadth / gap_vs_sector / theme_day：盯盘 / 做 T 预演 / 回测共用观察池 ∪ 持仓；单票缺省时从该池补，勿默认当 z=0
-  → yclose_loc / tau_lag1 / tau_ma5：昨 K 位置 + PIT 真实开→收滞后（开盘可得；近3日动量 / 昨振幅改吃 raw_aoo_MOM3_C / YRANGE_PCT）
-  → feats = {gap_pct, …} ∪ {z_τc_gap_pct, …} ∪ alpha_oo  # α_τc = z_τc_* ∪ alpha_oo；裸名与 canon 双写
+  → yclose_loc / tau_lag1 / tau_ma5：昨 K 位置 + PIT 真实开→收滞后（开盘可得；近3日动量 / 昨振幅改吃 raw_atc_MOM3_C / YRANGE_PCT）
+  → feats = {gap_pct, …} ∪ {z_τc_gap_pct, …} ∪ raw_atc_*  # α_τc = z_τc_* ∪ raw_atc_*；Z 裸名与 canon 双写
   → enable_minute_tau：≤τ 分钟小包（默认 10:30）+ 板块开→τ 截面 sector_ret_to_tau
   → tau_yhat = predict_tau_from_features(feats)           # tau_ridge 模型预测 ŷ_τ
   → ep = build_event_prior_from_quote(…)                  # 事件先验（soft hold / warn）

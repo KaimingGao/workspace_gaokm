@@ -22,7 +22,10 @@ _POOL_BATCH = 24
 from core.research.factor_ols_fit import _qr_solve_np, clamp_ridge_lambda
 from core.signal.factors.alpha_oo import (
     ALPHA_OO_FACTOR_KEY,
+    Z_OO_DROP_WHEN_AOO_CORE,
+    alpha_oo_ridge_raw_names,
     is_alpha_oo_raw_key,
+    is_alpha_oo_ridge_raw_key,
     merge_alpha_oo_min_std_exempt,
 )
 
@@ -36,52 +39,24 @@ def _banned_factor_names() -> frozenset:
         return frozenset()
 
 
-_ALPHA_RAW_NAMES: Optional[List[str]] = None
+def alpha_oo_raw_names(*, ridge_core_only: bool = False) -> List[str]:
+    """入模 ``raw_aoo_*``。默认全量；``ridge_core_only=True`` 收 aoo_core（消融）。"""
+    if ridge_core_only:
+        return list(alpha_oo_ridge_raw_names())
+    from core.signal.factors.alpha_oo import ALPHA_OO_FIELD_NAMES, ALPHA_OO_RAW_PREFIX
+
+    return [f"{ALPHA_OO_RAW_PREFIX}{k}" for k in ALPHA_OO_FIELD_NAMES]
 
 
-def alpha_oo_raw_names() -> List[str]:
-    """``raw_aoo_*`` 列名，顺序与 ``score_alpha_oo`` 的 meta 插入顺序一致。"""
-    global _ALPHA_RAW_NAMES
-    if _ALPHA_RAW_NAMES is not None:
-        return list(_ALPHA_RAW_NAMES)
-    from core.signal.factors.alpha_oo import score_alpha_oo
-
-    bars: List[dict] = []
-    px = 10.0
-    for i in range(80):
-        px *= 1.001
-        bars.append(
-            {
-                "date": f"2020-03-{(i % 28) + 1:02d}",
-                "open": px,
-                "high": px * 1.01,
-                "low": px * 0.99,
-                "close": px * 1.002,
-                "volume": 100000.0 + i,
-            }
-        )
-    _score, meta = score_alpha_oo(bars)
-    names: List[str] = []
-    for mk, mv in (meta or {}).items():
-        sk = str(mk)
-        if sk in ("omit_sub_score", "ok") or sk.startswith("alpha_oo_"):
-            continue
-        if isinstance(mv, bool) or not isinstance(mv, (int, float)):
-            continue
-        from core.signal.factors.alpha_oo import ALPHA_OO_RAW_PREFIX
-
-        names.append(f"{ALPHA_OO_RAW_PREFIX}{sk}")
-    _ALPHA_RAW_NAMES = names
-    return list(names)
-
-
-def _registered_ridge_names() -> List[str]:
+def _registered_ridge_names(*, drop_aoo_overlap: bool = False) -> List[str]:
     """入模列：注册日线 → ``z_oo_*``；不含 alpha_oo/alpha_tc 包。"""
     from core.signal.factors.z_oo import Z_OO_SKIP_PACKS, to_z_oo_key, z_oo_legacy_keys
 
     out: List[str] = []
     seen = set()
     for name in z_oo_legacy_keys():
+        if drop_aoo_overlap and name in Z_OO_DROP_WHEN_AOO_CORE:
+            continue
         k = to_z_oo_key(name)
         if not k or k in Z_OO_SKIP_PACKS or k in seen:
             continue
@@ -93,15 +68,18 @@ def _registered_ridge_names() -> List[str]:
 class OoPanelMatrix:
     """逐只追加子因子行，只保留 Ridge 会用到的列。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, ridge_core_only: bool = False) -> None:
         self.names: List[str] = []
         self._index: Dict[str, int] = {}
         self._chunks: List[np.ndarray] = []
         self._ys: List[np.ndarray] = []
         self.dates: List[str] = []
         self._banned = _banned_factor_names()
-        self._widen(_registered_ridge_names())
-        self._widen(alpha_oo_raw_names())
+        self._ridge_core_only = bool(ridge_core_only)
+        self._widen(
+            _registered_ridge_names(drop_aoo_overlap=self._ridge_core_only)
+        )
+        self._widen(alpha_oo_raw_names(ridge_core_only=self._ridge_core_only))
 
     def _widen(self, new_names: Sequence[str]) -> None:
         fresh = [str(n) for n in new_names if str(n) not in self._index]
@@ -133,9 +111,15 @@ class OoPanelMatrix:
             row = rows[i]
             if not isinstance(row, dict):
                 continue
+            accept = (
+                is_alpha_oo_ridge_raw_key
+                if self._ridge_core_only
+                else is_alpha_oo_raw_key
+            )
             for key, val in row.items():
                 sk = str(key)
-                if sk in self._index or sk in seen or not is_alpha_oo_raw_key(sk):
+                # ridge_core_only 时只发现 aoo_core；默认全量 raw_aoo_*
+                if sk in self._index or sk in seen or not accept(sk):
                     continue
                 if val is None:
                     continue
@@ -217,12 +201,12 @@ def _fill_stock(panel: OoPanelMatrix, code: str, bars: Sequence[dict], horizon_d
 
 
 def _oo_stock_job(
-    job: Tuple[str, List[dict], int],
+    job: Tuple[str, List[dict], int, bool],
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
     """子进程入口：一只股票折成矩阵后返回，字典不回传父进程。"""
-    code, bars, horizon = job
+    code, bars, horizon, ridge_core_only = job
     try:
-        panel = OoPanelMatrix()
+        panel = OoPanelMatrix(ridge_core_only=bool(ridge_core_only))
         _fill_stock(panel, str(code), bars or [], int(horizon))
         x, y, names, dates = panel.finalize()
     except Exception as exc:
@@ -254,8 +238,10 @@ def _resolve_workers(n_jobs: int, workers: Optional[int]) -> int:
 
 def _stack_blocks(
     parts: Sequence[Tuple[np.ndarray, np.ndarray, List[str], List[str]]],
+    *,
+    ridge_core_only: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
-    names = OoPanelMatrix().names
+    names = OoPanelMatrix(ridge_core_only=ridge_core_only).names
     seen = set(names)
     for _x, _y, names_i, _d in parts:
         for name in names_i:
@@ -299,8 +285,10 @@ def _stack_blocks(
 def _assemble_serial(
     items: Sequence[Tuple[str, Sequence[dict]]],
     horizon_days: int,
+    *,
+    ridge_core_only: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
-    panel = OoPanelMatrix()
+    panel = OoPanelMatrix(ridge_core_only=ridge_core_only)
     n = 0
     for code, bars in items:
         _fill_stock(panel, str(code), list(bars or []), int(horizon_days))
@@ -320,12 +308,16 @@ def _finish_serial_from(
     horizon_days: int,
     results: List[Any],
     start: int,
+    *,
+    ridge_core_only: bool = False,
 ) -> None:
     for i in range(start, len(items)):
         if results[i] is not None:
             continue
         code, bars = items[i]
-        results[i] = _oo_stock_job((str(code), list(bars or []), int(horizon_days)))
+        results[i] = _oo_stock_job(
+            (str(code), list(bars or []), int(horizon_days), bool(ridge_core_only))
+        )
 
 
 def _drain_stock_batch(
@@ -336,6 +328,8 @@ def _drain_stock_batch(
     end: int,
     results: List[Any],
     n_workers: int,
+    *,
+    ridge_core_only: bool = False,
 ) -> bool:
     """提交 ``[start, end)``。进程挂了则从失败的那只起改串行，并返回 True。"""
     from concurrent.futures import FIRST_COMPLETED, wait
@@ -344,11 +338,12 @@ def _drain_stock_batch(
     inflight: Dict[Any, int] = {}
     next_i = start
     window = max(1, int(n_workers))
+    core = bool(ridge_core_only)
 
     def _submit(i: int) -> None:
         code, bars = items[i]
         fut = pool.submit(
-            _oo_stock_job, (str(code), list(bars or []), int(horizon_days))
+            _oo_stock_job, (str(code), list(bars or []), int(horizon_days), core)
         )
         inflight[fut] = i
 
@@ -365,23 +360,25 @@ def _drain_stock_batch(
             except BrokenProcessPool:
                 logger.exception("oo ridge pool broke at %s; rest of batch is serial", code)
                 results[i] = _oo_stock_job(
-                    (str(code), list(items[i][1] or []), int(horizon_days))
+                    (str(code), list(items[i][1] or []), int(horizon_days), core)
                 )
                 for left in list(inflight):
                     left.cancel()
                     inflight.pop(left)
-                _finish_serial_from(items, horizon_days, results, next_i)
+                _finish_serial_from(
+                    items, horizon_days, results, next_i, ridge_core_only=core
+                )
                 for j in range(start, end):
                     if results[j] is None:
                         code_j, bars_j = items[j]
                         results[j] = _oo_stock_job(
-                            (str(code_j), list(bars_j or []), int(horizon_days))
+                            (str(code_j), list(bars_j or []), int(horizon_days), core)
                         )
                 return True
             except Exception:
                 logger.exception("oo ridge stock %s failed in worker; retrying serially", code)
                 results[i] = _oo_stock_job(
-                    (str(code), list(items[i][1] or []), int(horizon_days))
+                    (str(code), list(items[i][1] or []), int(horizon_days), core)
                 )
         while next_i < end and len(inflight) < window:
             _submit(next_i)
@@ -393,11 +390,14 @@ def _assemble_parallel(
     items: Sequence[Tuple[str, Sequence[dict]]],
     horizon_days: int,
     n_workers: int,
+    *,
+    ridge_core_only: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
     from concurrent.futures import ProcessPoolExecutor
 
     from core.research.oo_blas_limit import limit_blas_threads
 
+    core = bool(ridge_core_only)
     results: List[Any] = [None] * len(items)
     logger.info("oo ridge workers=%s stocks=%s", n_workers, len(items))
     start = 0
@@ -409,12 +409,21 @@ def _assemble_parallel(
             )
         except Exception:
             logger.exception("oo ridge process pool unavailable, using serial")
-            _finish_serial_from(items, horizon_days, results, start)
+            _finish_serial_from(
+                items, horizon_days, results, start, ridge_core_only=core
+            )
             break
         broke = False
         try:
             broke = _drain_stock_batch(
-                pool, items, horizon_days, start, end, results, n_workers
+                pool,
+                items,
+                horizon_days,
+                start,
+                end,
+                results,
+                n_workers,
+                ridge_core_only=core,
             )
         finally:
             try:
@@ -425,8 +434,8 @@ def _assemble_parallel(
             break
         start = end
     if any(part is None for part in results):
-        _finish_serial_from(items, horizon_days, results, 0)
-    x, y, names, dates = _stack_blocks(results)
+        _finish_serial_from(items, horizon_days, results, 0, ridge_core_only=core)
+    x, y, names, dates = _stack_blocks(results, ridge_core_only=core)
     logger.info(
         "oo ridge compact panel rows=%s cols=%s stocks=%s workers=%s",
         int(y.shape[0]),
@@ -442,13 +451,21 @@ def assemble_oo_panels(
     *,
     horizon_days: int,
     workers: Optional[int] = None,
+    ridge_core_only: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
-    """按股票顺序堆叠。满池默认两个子进程，在途任务不超过进程数。"""
+    """按股票顺序堆叠。满池默认两个子进程，在途任务不超过进程数。
+
+    ``ridge_core_only=False``（默认）：面板 ``z_oo_* ∪ raw_aoo_*`` 全量；
+    ``True`` 时只留 aoo_core + 去重叠 z_oo（消融）。
+    """
     seq = list(items)
     n_workers = _resolve_workers(len(seq), workers)
+    core = bool(ridge_core_only)
     if n_workers <= 1:
-        return _assemble_serial(seq, horizon_days)
-    return _assemble_parallel(seq, horizon_days, n_workers)
+        return _assemble_serial(seq, horizon_days, ridge_core_only=core)
+    return _assemble_parallel(
+        seq, horizon_days, n_workers, ridge_core_only=core
+    )
 
 
 def _column_finite_stats(col: np.ndarray) -> Tuple[int, float, float]:

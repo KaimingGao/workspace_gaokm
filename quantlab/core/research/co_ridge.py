@@ -95,14 +95,15 @@ def fit_co_ridge_report(
         else None
     )
 
-    feat_names = list(CO_Z_FEATURES)
-    for k in raw_aoo_finite(X, col_names, train_idx):
-        if k not in feat_names:
-            feat_names.append(k)
     from core.signal.factors.alpha_oo import (
         is_alpha_oo_raw_key,
         merge_alpha_oo_min_std_exempt,
     )
+
+    feat_names = list(CO_Z_FEATURES)
+    for k in raw_aoo_finite(X, col_names, train_idx):
+        if is_alpha_oo_raw_key(str(k)) and k not in feat_names:
+            feat_names.append(k)
 
     fill_keys = list(CO_Z_FEATURES)
     seen_fill = set(fill_keys)

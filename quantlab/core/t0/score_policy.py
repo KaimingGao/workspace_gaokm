@@ -17,17 +17,18 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
 
 logger = logging.getLogger(__name__)
 
 # compute | live_book | ledger
 DEFAULT_Y_SCORE_SOURCE = "compute"
 _MIN_HIST_BARS = 16
-# 与 score_stock 实盘取数对齐。开锚 alpha_oo：hist≥60 + 今开（面板窗 62）。周线仍从头切桶。
-_EOD_FACTOR_BAR_LIMIT = int(ALPHA_OO_PANEL_WINDOW)
+# 与 score_stock 实盘取数对齐（alpha_oo / alpha_tc 面板窗取较大者）。周线仍从头切桶。
+_EOD_FACTOR_BAR_LIMIT = max(int(ALPHA_OO_PANEL_WINDOW), int(ALPHA_TC_PANEL_WINDOW))
 # 做 T 回测：评估窗与因子窗分离；warmup 仅供 hist_prior，不进成交明细
 T0_BACKTEST_SCORE_WARMUP = max(_MIN_HIST_BARS + 8, _EOD_FACTOR_BAR_LIMIT)
-# 纸面预演 / Worker：须含「当日 + EOD 窗」，否则比回测少 1 根、alpha_oo 整列缺特征
+# 纸面预演 / Worker：须含「当日 + EOD 窗」，否则比回测少 1 根、raw 包缺特征
 T0_PAPER_DAILY_BAR_LIMIT = T0_BACKTEST_SCORE_WARMUP + 1
 
 # 进程内轻量缓存：回测逐日重算时复用模型句柄

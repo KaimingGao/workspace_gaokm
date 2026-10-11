@@ -1,11 +1,11 @@
 """ŷ_τc Ridge：``alpha_τc`` 特征包上拟合 τ→close（close[T]/price[τ]−1）。
 
-**alpha_τc** := 开盘 Z（``TAU_Z_FEATURES`` = ``z_τc_*``，含 ≤τ 分钟键）∪ ``raw_aoo_*``（alpha_oo）。
-现网固定完整 **alpha_τc**（z_τc_*∪alpha_oo）。面板/live 仍写旧裸名；``feature_get`` 双向别名。
+**alpha_τc** := 开盘 Z（``TAU_Z_FEATURES`` = ``z_τc_*``，含 ≤τ 分钟键）∪ ``raw_atc_*``（alpha_tc）。
+现网固定完整 **alpha_τc**（z_τc_*∪raw_atc_*）。面板/live 仍写旧裸名 Z；``feature_get`` 双向别名。
 
 这就是调仓 ranking 里的 ŷ_τc。打分写入 ``y_τc``（含时钟对齐）。
 供买入闸、ranking 的 τc 项、做 T 估 C_τ。与 ŷ_oo 独立，不改写 ``predicted_score``。
-``raw_aoo_*`` 与 ŷ_oo 日线 X 可能重叠，融合权重慎设。
+``raw_atc_*`` 锚 price[τ]；ŷ_oo 用开锚 ``z_oo_* ∪ raw_aoo_*`` 全量。
 """
 
 from __future__ import annotations
@@ -42,22 +42,22 @@ from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_FEAT_LA
 
 # 兼容旧引用：入模 / 豁免用 canon；裸名仍豁免（旧模型 / 旁路）
 TAU_FEATURE_EXTRA = Z_TC_FEATURE_EXTRA
-# 报告/落盘元数据：特征包名（Z 列 = z_τc_* + raw_aoo_*，无独立 raw_atc_*）
-ALPHA_TC_PACK_NOTE = "alpha_τc=z_τc_* ∪ alpha_oo"
+# 报告/落盘元数据：特征包名（Z 列 = z_τc_* + raw_atc_*）
+ALPHA_TC_PACK_NOTE = "alpha_τc=z_τc_* ∪ raw_atc_*"
 
 
-def alpha_tc_report_meta(*, n_alpha_oo_features: int = 0) -> Dict[str, Any]:
+def alpha_tc_report_meta(*, n_alpha_tc_features: int = 0) -> Dict[str, Any]:
     """拟合/promote 报告挂的特征包字段。"""
     return {
         "feature_pack": "alpha_τc",
         "feature_pack_key": "alpha_tc",
-        "feature_pack_formula": "z_τc_* ∪ alpha_oo",
-        "include_alpha_oo": True,
-        "n_alpha_oo_features": int(n_alpha_oo_features or 0),
+        "feature_pack_formula": "z_τc_* ∪ raw_atc_*",
+        "include_alpha_tc": True,
+        "n_alpha_tc_features": int(n_alpha_tc_features or 0),
     }
 
 
-# alpha_τc = z_τc_* ∪ alpha_oo；此处为 Z 块（canon）。近3日动量改吃 raw_aoo_MOM3_C（勿双计）
+# alpha_τc = z_τc_* ∪ raw_atc_*；此处为 Z 块（canon）
 TAU_Z_FEATURES = Z_TC_FIT_FEATURES
 # gap/breadth 单位是百分点或 [0,1]，勿用 0–100 分制的 min_std=5 误剔
 TAU_MIN_STD_EXEMPT = (
@@ -480,7 +480,7 @@ def build_tau_panels_from_bars(
     gap_trigger_pct: float = 2.0,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
-    include_alpha_oo: bool = False,
+    include_alpha_tc: bool = False,
 ) -> List[Dict[str, Any]]:
     """``stock_bars``: ``[{code, bars, minute_bars?, index_bars?, fundamentals?}, ...]``。
 
@@ -515,7 +515,7 @@ def build_tau_panels_from_bars(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha_oo=include_alpha_oo,
+                include_alpha_tc=include_alpha_tc,
             )
             # meta 已带 price_tau30…90；relabel 不再需要分钟线
             item.pop("minute_bars", None)
@@ -526,7 +526,7 @@ def build_tau_panels_from_bars(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha_oo=include_alpha_oo,
+                include_alpha_tc=include_alpha_tc,
             )
         if len(ys) < 4:
             continue
@@ -576,7 +576,7 @@ def fit_tau_ridge_report(
         fit_keepall_ridge_matrix,
         named_columns,
         predict_ridge_matrix,
-        raw_aoo_finite,
+        raw_atc_finite,
     )
 
     X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
@@ -586,7 +586,7 @@ def fit_tau_ridge_report(
         gap_trigger_pct=gap_trigger_pct,
         tau_hm=tau_key,
         tau_grid=grid,
-        include_alpha_oo=True,
+        include_alpha_tc=True,
         head="y_tc",
     )
     if len(ys) < 20:
@@ -627,33 +627,33 @@ def fit_tau_ridge_report(
         else None
     )
 
-    # 开盘 Z（含 theme_day）+ alpha_oo；分钟专用键仅 minute 模式
+    # 开盘 Z（含 theme_day）+ raw_atc_*；分钟专用键仅 minute 模式
     drop_opt = set() if use_minute else set(Z_TC_MINUTE_KEYS)
     feat_names = [
         k for k in TAU_Z_FEATURES if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
     ]
     seen = set(feat_names)
-    for k in raw_aoo_finite(X, col_names, train_idx):
+    for k in raw_atc_finite(X, col_names, train_idx):
         if k not in seen:
             seen.add(k)
             feat_names.append(k)
 
-    from core.signal.factors.alpha_oo import (
-        is_alpha_oo_raw_key,
-        merge_alpha_oo_min_std_exempt,
+    from core.signal.factors.alpha_tc import (
+        is_alpha_tc_raw_key,
+        merge_alpha_tc_min_std_exempt,
     )
 
     fill_keys = list(TAU_Z_FEATURES)
     seen_fill = set(fill_keys)
     for name in col_names:
-        if is_alpha_oo_raw_key(str(name)) and name not in seen_fill:
+        if is_alpha_tc_raw_key(str(name)) and name not in seen_fill:
             seen_fill.add(name)
             fill_keys.append(name)
     feature_fill = fill_rates_from_matrix(X, col_names, fill_keys)
     X_fit, feat_names = named_columns(X, col_names, feat_names)
     del X
 
-    min_std_exempt = merge_alpha_oo_min_std_exempt(
+    min_std_exempt = merge_alpha_tc_min_std_exempt(
         feat_names, list(TAU_MIN_STD_EXEMPT)
     )
 
@@ -724,7 +724,7 @@ def fit_tau_ridge_report(
         "target": target,
         "residualized": False,
         "tau": tau_key,
-        "include_alpha_oo": True,
+        "include_alpha_tc": True,
     }
     if ys_te:
         try:
@@ -772,16 +772,16 @@ def fit_tau_ridge_report(
             "变长前缀 5m 槽共享 β；标签=τ→close（close[T]/price[τ]−1）；"
             "open 时钟 price[τ]=open；"
             "live 调仓前缀=因果末根（≤10:00）"
-            + "；alpha_τc=Z∪raw_aoo_*"
+            + "；alpha_τc=z_τc_*∪raw_atc_*"
             if use_minute
-            else "alpha_τc=Z∪raw_aoo_* τ→close（开盘 price[τ]=open）；theme_day+yclose+tau_lag1/ma5；live 写 y_τc"
+            else "alpha_τc=z_τc_*∪raw_atc_* τ→close（开盘 price[τ]=open）；theme_day+yclose+tau_lag1/ma5；live 写 y_τc"
         ),
     }
     model["extra_features"] = list(fill_keys)
     model["feat_labels"] = z_tc_feat_labels(
         {**dict(MINUTE_TAU_FEAT_LABELS), **dict(TAU_LAG_FEAT_LABELS)}
     )
-    model["include_alpha_oo"] = True
+    model["include_alpha_tc"] = True
     if use_minute:
         from core.signal.minute_tau_grid import LIVE_PREFIX_CAUSAL_REBALANCE
 
@@ -795,15 +795,15 @@ def fit_tau_ridge_report(
         "target",
         "residualized",
         "live_prefix",
-        "include_alpha_oo",
+        "include_alpha_tc",
     ):
         if model.get(k) is not None:
             research_model[k] = model.get(k)
 
-    n_aoo = sum(
-        1 for k in (model.get("extra_features") or []) if is_alpha_oo_raw_key(str(k))
+    n_atc = sum(
+        1 for k in (model.get("extra_features") or []) if is_alpha_tc_raw_key(str(k))
     )
-    pack = alpha_tc_report_meta(n_alpha_oo_features=n_aoo)
+    pack = alpha_tc_report_meta(n_alpha_tc_features=n_atc)
     pack_note = ALPHA_TC_PACK_NOTE
     day_keys = set()
     for m, d in zip(metas_use, dates_use):
@@ -827,19 +827,19 @@ def fit_tau_ridge_report(
         "tau_grid": list(grid) if grid else None,
         "live_prefix": model.get("live_prefix"),
         "y_spec": dict(model.get("y_spec") or {}),
-        "schema": "tau_ridge_v14",
+        "schema": "tau_ridge_v15",
         "target": target,
         "residualized": False,
-        "include_alpha_oo": True,
-        "n_alpha_oo_features": n_aoo,
+        "include_alpha_tc": True,
+        "n_alpha_tc_features": n_atc,
         **pack,
         "note": (
             (
-                f"ŷ_τc({pack_note}) Z=z_τc_*；变长前缀 5m 槽共享 β；τ→close 标签；OOS.by_tau；按日 OOS；live 调仓=因果末根"
+                f"ŷ_τc({pack_note})；变长前缀 5m 槽共享 β；τ→close 标签；OOS.by_tau；按日 OOS；live 调仓=因果末根"
             )
             if use_minute
             else (
-                f"ŷ_τc({pack_note}) Z=z_τc_*；独立估 τ→close（开盘 price[τ]=open）；theme+|gap|；yclose_loc；PIT tau_lag1/ma5；与 EOD 解耦"
+                f"ŷ_τc({pack_note})；独立估 τ→close（开盘 price[τ]=open）；theme+|gap|；yclose_loc；PIT tau_lag1/ma5；与 EOD 解耦"
             )
         ),
     }
@@ -952,7 +952,7 @@ def persist_tau_model(
             "formula": "close[T]/price[τ]-1",
             "unit": "pct",
             "tau": "open",
-            "note": "alpha_τc=Z∪aoo τ→close",
+            "note": "alpha_τc=z_τc_*∪raw_atc_* τ→close",
         }
     tau = str(y_spec.get("tau") or rm.get("horizon_mode") or "open")
     if tau in ("open_to_close", "open→close", "tau_to_close", "τ→close"):
@@ -967,21 +967,27 @@ def persist_tau_model(
     residualized = False
     rm["target"] = target
     rm["residualized"] = residualized
-    if "include_alpha_oo" in report:
-        rm["include_alpha_oo"] = bool(report.get("include_alpha_oo"))
-    elif "include_alpha_oo" not in rm:
-        rm["include_alpha_oo"] = False
+    if "include_alpha_tc" in report:
+        rm["include_alpha_tc"] = bool(report.get("include_alpha_tc"))
+    elif "include_alpha_tc" not in rm:
+        rm["include_alpha_tc"] = True
+    # 旧包字段不再落盘
+    rm.pop("include_alpha_oo", None)
+    rm.pop("n_alpha_oo_features", None)
 
-    raw_schema = str(report.get("schema") or "tau_ridge_v14")
+    raw_schema = str(report.get("schema") or "tau_ridge_v15")
     if raw_schema.startswith("rem_ridge"):
-        raw_schema = "tau_ridge_v14"
+        raw_schema = "tau_ridge_v15"
     schema = raw_schema
     from core.research.holdout import model_fit_id
 
     fitted_at = model_fit_id(report)
-    pack = alpha_tc_report_meta(
-        n_alpha_oo_features=int(report.get("n_alpha_oo_features") or 0),
+    n_atc = int(
+        report.get("n_alpha_tc_features")
+        or report.get("n_alpha_oo_features")  # 旧报告兼容
+        or 0
     )
+    pack = alpha_tc_report_meta(n_alpha_tc_features=n_atc)
     doc = {
         "success": True,
         "fitted_at": fitted_at,
@@ -1003,8 +1009,6 @@ def persist_tau_model(
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
-        "include_alpha_oo": bool(rm.get("include_alpha_oo")),
-        "n_alpha_oo_features": report.get("n_alpha_oo_features"),
         "dual_score_head": "predicted_score_tau",
         "contract_note": (
             f"ŷ_τc({ALPHA_TC_PACK_NOTE}) "

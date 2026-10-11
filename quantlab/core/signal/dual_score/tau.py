@@ -53,7 +53,7 @@ _TAU_CORE_Z_KEYS = (
 
 
 def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    from core.signal.factors.alpha_oo import keep_aoo_raw_in_row
+    from core.signal.factors.alpha_tc import keep_atc_raw_in_row
     from core.signal.factors.z_tc import Z_TC_FIT_FEATURES, stamp_z_tc_aliases
     from core.signal.minute_tau_feats import attach_ret_vs_sector
 
@@ -70,7 +70,7 @@ def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     for k in MINUTE_TAU_SHAPE_KEYS:
         if k in src:
             out[k] = src.get(k)
-    return keep_aoo_raw_in_row(src, dest=out)
+    return keep_atc_raw_in_row(src, dest=out)
 
 
 def features_tau_fill_diag(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -562,18 +562,20 @@ def attach_dual_score_pit(
                 )
         feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
         if hist:
-            from core.signal.factors.alpha_oo import inject_raw_aoo
+            from core.signal.factors.alpha_tc import inject_raw_atc
 
             prev_c = None
             try:
                 prev_c = float((hist[-1] or {}).get("close") or 0) or None
             except (TypeError, ValueError):
                 prev_c = None
-            inject_raw_aoo(
+            inject_raw_atc(
                 feats,
                 hist,
                 open_t=open_t_px,
                 prev_close=prev_c,
+                price_tau=open_t_px,
+                tau_hm="open",
                 quote=q if isinstance(q, dict) else None,
             )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -581,7 +583,7 @@ def attach_dual_score_pit(
     # 保留刷簿已写齐的截面 Z，避免 tip/PIT 路径冲成缺特征
     prior_ft = signal_item.get("features_tau")
     if isinstance(prior_ft, dict):
-        # 仅用「算出来的非空」覆盖；空值不冲掉簿上齐套列（含 raw_aoo_*）
+        # 仅用「算出来的非空」覆盖；空值不冲掉簿上齐套列（含 raw_atc_*）
         computed = {k: v for k, v in feats.items() if v is not None and v != ""}
         feats = merge_tau_features(computed, prior_ft)
         # 无池广度时不要用弱路径算出的 theme_day=0 盖掉刷簿主题日

@@ -34,7 +34,7 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
                 {
                     "stock_code": "600519",
                     "action": "buy",
-                    "features_tau": {"raw_aoo_YKMID": 1.0},
+                    "features_tau": {"raw_atc_YKMID": 1.0},
                     "features_co": {"gap_pct": 0.1},
                     "formula_terms": {"total": 0.01, "terms": []},
                 }

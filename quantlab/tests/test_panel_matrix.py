@@ -65,7 +65,7 @@ class TestCompactBreadth(unittest.TestCase):
             tau_hm="10:30",
             tau_grid=["10:30"],
             min_history=12,
-            include_alpha_oo=False,
+            include_alpha_tc=False,
         )
         self.assertNotIn("minute_bars", item)
 
@@ -81,13 +81,15 @@ class TestCompactBreadth(unittest.TestCase):
         X, names, ys, dates, metas, n_stocks = collect_tau_compact(
             stock_bars,
             list(TAU_Z_FEATURES),
-            include_alpha_oo=False,
+            include_alpha_tc=False,
             gap_trigger_pct=0.5,
             head="test",
         )
         xs, ys_d, dates_d, metas_d = _stack_panels(
             build_tau_panels_from_bars(
-                stock_bars, include_alpha_oo=False, gap_trigger_pct=0.5
+                stock_bars,
+                include_alpha_tc=False,
+                gap_trigger_pct=0.5,
             )
         )
         self.assertGreaterEqual(n_stocks, 2)

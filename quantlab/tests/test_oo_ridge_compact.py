@@ -65,6 +65,8 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertNotIn("alpha_oo", names)
         self.assertNotIn("raw_other_junk", names)
         self.assertIn("raw_aoo_YKMID", names)
+        self.assertIn("raw_aoo_OROC5", names)  # 现网全量 raw_aoo_*
+        self.assertIn("z_oo_momentum", names)
 
         _model, report = fit_oo_ridge_matrix(
             x_mat,
@@ -247,7 +249,7 @@ class TestOoRidgeCompact(unittest.TestCase):
         from core.research.oo_ridge_compact import _oo_stock_job
 
         with self.assertRaises(RuntimeError) as ctx:
-            _oo_stock_job(("600000", [], "bad-horizon"))
+            _oo_stock_job(("600000", [], "bad-horizon", True))
         self.assertIn("600000", str(ctx.exception))
 
 

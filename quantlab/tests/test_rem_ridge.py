@@ -216,17 +216,17 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("z_τc_gap_vs_sector", extras)
         self.assertIn("z_τc_theme_day", extras)
         self.assertIn("z_τc_yclose_loc", extras)
-        self.assertTrue(any(str(k).startswith("raw_aoo_") for k in extras))
-        # 近3日动量已进 alpha_oo，不再作为 Z 列
+        self.assertTrue(any(str(k).startswith("raw_atc_") for k in extras))
+        # 近3日动量已进 alpha_tc，不再作为 Z 列
         self.assertNotIn("mom3_pct", extras)
         self.assertIn("z_τc_tau_lag1", extras)
         self.assertIn("z_τc_tau_ma5", extras)
-        self.assertTrue(report.get("include_alpha_oo"))
-        self.assertGreater(int(report.get("n_alpha_oo_features") or 0), 0)
+        self.assertTrue(report.get("include_alpha_tc"))
+        self.assertGreater(int(report.get("n_alpha_tc_features") or 0), 0)
         self.assertEqual(report.get("feature_pack"), "alpha_τc")
-        self.assertEqual(report.get("feature_pack_formula"), "z_τc_* ∪ alpha_oo")
+        self.assertEqual(report.get("feature_pack_formula"), "z_τc_* ∪ raw_atc_*")
         self.assertTrue(
-            any(str(k).startswith("raw_aoo_") for k in extras)
+            any(str(k).startswith("raw_atc_") for k in extras)
         )
         self.assertNotIn("prefix_complexity", extras)
         self.assertNotIn("prefix_tpd", extras)
@@ -260,13 +260,13 @@ class TestRemRidgeFit(unittest.TestCase):
                 else:
                     saved = blocked
                 self.assertTrue(saved.get("success"), saved)
-                self.assertEqual(saved.get("schema"), "tau_ridge_v14")
+                self.assertEqual(saved.get("schema"), "tau_ridge_v15")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
                 from core.research.tc_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v14")
+                self.assertEqual(doc.get("schema"), "tau_ridge_v15")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_tau_from_features(
@@ -309,11 +309,11 @@ class TestRemRidgeFit(unittest.TestCase):
         ]
         on = fit_tau_ridge_report(stock_bars, holdout_trading_days=5)
         self.assertTrue(on.get("success"), on.get("error"))
-        self.assertTrue(on.get("include_alpha_oo"))
-        self.assertGreater(int(on.get("n_alpha_oo_features") or 0), 0)
+        self.assertTrue(on.get("include_alpha_tc"))
+        self.assertGreater(int(on.get("n_alpha_tc_features") or 0), 0)
         self.assertEqual(on.get("feature_pack"), "alpha_τc")
         extras_on = (on.get("return_model") or {}).get("extra_features") or []
-        self.assertTrue(any(str(k).startswith("raw_aoo_") for k in extras_on))
+        self.assertTrue(any(str(k).startswith("raw_atc_") for k in extras_on))
 
     def test_tau_promote_gate(self):
         from core.research.tc_ridge import tau_promote_gate

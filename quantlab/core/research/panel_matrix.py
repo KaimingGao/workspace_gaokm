@@ -42,9 +42,9 @@ def _breadth_keys() -> Tuple[str, ...]:
 
 
 class PanelMatrix:
-    """按列名累积 float64 行。``raw_aoo_*`` 可在见到数值时加列。"""
+    """按列名累积 float64 行。``widen_prefix``（如 ``raw_atc_`` / ``raw_aoo_``）可在见到数值时加列。"""
 
-    def __init__(self, names: Sequence[str], *, widen_prefix: str = "raw_aoo_"):
+    def __init__(self, names: Sequence[str], *, widen_prefix: str = ""):
         self.names: List[str] = [str(n) for n in names]
         self._index: Dict[str, int] = {n: i for i, n in enumerate(self.names)}
         self._widen_prefix = str(widen_prefix or "")
@@ -255,10 +255,13 @@ def collect_tau_compact(
     gap_trigger_pct: float = 2.0,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
-    include_alpha_oo: bool = True,
+    include_alpha_tc: bool = True,
     head: str = "y_tc",
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
-    """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。"""
+    """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
+
+    现网默认 ``include_alpha_tc=True``（raw_atc_*）。
+    """
     from core.research.tau_panel import (
         collect_tau_intraday_panel,
         collect_tau_open_panel,
@@ -271,9 +274,8 @@ def collect_tau_compact(
         if use_minute
         else None
     )
-    block = PanelMatrix(
-        names, widen_prefix="raw_aoo_" if include_alpha_oo else ""
-    )
+    widen = "raw_atc_" if include_alpha_tc else ""
+    block = PanelMatrix(names, widen_prefix=widen)
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
@@ -295,7 +297,7 @@ def collect_tau_compact(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha_oo=include_alpha_oo,
+                include_alpha_tc=include_alpha_tc,
             )
             item.pop("minute_bars", None)
         else:
@@ -305,7 +307,7 @@ def collect_tau_compact(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha_oo=include_alpha_oo,
+                include_alpha_tc=include_alpha_tc,
             )
         if len(ys) < 4:
             continue
@@ -426,6 +428,32 @@ def raw_aoo_finite(
     out: List[str] = []
     for j, name in enumerate(names):
         if not is_alpha_oo_raw_key(str(name)):
+            continue
+        if np.isfinite(view[:, j]).any():
+            out.append(str(name))
+    return out
+
+
+def raw_atc_finite(
+    X: np.ndarray,
+    names: Sequence[str],
+    row_idx: Optional[Sequence[int]] = None,
+) -> List[str]:
+    """训练行（或全表）上至少有一个有限值的 ``raw_atc_*``，按列序。"""
+    if X.size == 0 or X.shape[0] == 0:
+        return []
+    if row_idx is None:
+        view = X
+    else:
+        idx = np.asarray(list(row_idx), dtype=np.int64)
+        if idx.size == 0:
+            return []
+        view = X[idx]
+    from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
+
+    out: List[str] = []
+    for j, name in enumerate(names):
+        if not is_alpha_tc_raw_key(str(name)):
             continue
         if np.isfinite(view[:, j]).any():
             out.append(str(name))

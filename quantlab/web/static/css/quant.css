@@ -10164,6 +10164,53 @@ body[data-page="quant"] .quant-page #quant-section-t90 .quant-secondary-fold > .
   color: var(--ink);
 }
 
+/* 样本 n / Holdout / 训·测：夹在标题与「按 |β| 降序…」之间 · 一行文字，不要 KPI 表格格 */
+.quant-page .quant-rem-coef-sample {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 2px;
+  min-width: 0;
+  font-size: var(--q-fs-micro, 0.6875rem);
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.quant-page .quant-rem-coef-sample .quant-rem-coef-kpi {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.quant-page .quant-rem-coef-sample .quant-rem-coef-kpi + .quant-rem-coef-kpi::before {
+  content: "·";
+  margin-right: 6px;
+  margin-left: 4px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.quant-page .quant-rem-coef-sample .quant-rem-coef-kpi-k {
+  font-size: inherit;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-rem-coef-sample .quant-rem-coef-kpi-v {
+  font-size: inherit;
+  font-weight: 650;
+  max-width: none;
+  color: var(--ink-2, var(--ink));
+}
+
 .quant-page .quant-rem-coef-sub {
   font-size: var(--q-fs-micro, 0.6875rem);
   color: var(--ink-3);

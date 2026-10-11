@@ -128,9 +128,13 @@ def fit_co_tree_report(
             "backtest_hook": False,
         }
 
+    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
+
     present = finite_name_set(X, col_names)
     ridge_feat_names = [n for n in CO_Z_FEATURES if n in present]
-    aoo_keys = raw_aoo_finite(X, col_names)
+    aoo_keys = [
+        k for k in raw_aoo_finite(X, col_names) if is_alpha_oo_raw_key(str(k))
+    ]
     feat_names = list(ridge_feat_names)
     for k in aoo_keys:
         if k not in feat_names:
@@ -280,7 +284,7 @@ def fit_co_tree_report(
             "ŷ_co_tree：open[T+1]/close[T]−1 · "
             + ("特征日截面 z-score · " if use_cs else "特征训练窗全局 μ/σ · ")
             + "同 Holdout vs Ridge(Z)；"
-            + "树侧含 raw_aoo_*（≤T−1）；"
+            + "树侧含全量 raw_aoo_*（≤T−1）；"
             + (
                 f"训练日滑窗 {hyper.get('window_days')}／步 {hyper.get('step_days')}"
                 f"（{hyper.get('n_windows')} 窗 · init_model 增量 · 共 {hyper.get('total_trees')} 树）；"

@@ -153,6 +153,85 @@ def summarize_daily_cs_ic(
     }
 
 
+def summarize_cs_quantile_proxy(
+    preds: Sequence[Optional[float]],
+    ys: Sequence[float],
+    metas: Sequence[Any],
+    *,
+    top_frac: float = 0.1,
+    min_names: int = 5,
+) -> Dict[str, Any]:
+    """Holdout 日截面分位收益 proxy（比 IC 更贴近 TopK / 组合选股）。
+
+    每日按 ŷ 排序取头/尾 ``top_frac``，再对日平均：
+
+    - ``cs_top_mean_y``：头部实现收益均值（组合关心的方向）
+    - ``cs_bot_mean_y``：尾部实现收益均值
+    - ``cs_ls_mean_y``：多空价差 top−bot
+    - ``cs_top_gt0_ratio``：头部日均收益 > 0 的日占比
+    """
+    frac = float(top_frac or 0.1)
+    if not math.isfinite(frac) or frac <= 0.0 or frac >= 0.5:
+        frac = 0.1
+    min_names = max(2, int(min_names or 5))
+    by_sec = _group_by_section(preds, ys, metas)
+    top_daily: List[float] = []
+    bot_daily: List[float] = []
+    ls_daily: List[float] = []
+    gt0_daily: List[float] = []
+    daily_rows: List[Dict[str, Any]] = []
+    for sec in sorted(by_sec):
+        xs, zs = by_sec[sec]
+        n = len(xs)
+        if n < min_names:
+            continue
+        k = max(1, int(math.ceil(frac * n)))
+        if 2 * k > n:
+            k = max(1, n // 2)
+        order = sorted(range(n), key=lambda i: xs[i], reverse=True)
+        top_y = [zs[i] for i in order[:k]]
+        bot_y = [zs[i] for i in order[-k:]]
+        mt = sum(top_y) / float(len(top_y))
+        mb = sum(bot_y) / float(len(bot_y))
+        ls = mt - mb
+        top_daily.append(mt)
+        bot_daily.append(mb)
+        ls_daily.append(ls)
+        gt0_daily.append(1.0 if mt > 0.0 else 0.0)
+        daily_rows.append(
+            {
+                "date": sec.split("|", 1)[0],
+                "section": sec,
+                "n_names": n,
+                "k": k,
+                "top_mean_y": round(mt, 6),
+                "bot_mean_y": round(mb, 6),
+                "ls_mean_y": round(ls, 6),
+            }
+        )
+
+    def _mean(xs: Sequence[float]) -> Optional[float]:
+        if not xs:
+            return None
+        return float(sum(xs) / float(len(xs)))
+
+    n_days = len(top_daily)
+    return {
+        "ok": n_days > 0,
+        "cs_top_frac": frac,
+        "cs_top_mean_y": _mean(top_daily),
+        "cs_bot_mean_y": _mean(bot_daily),
+        "cs_ls_mean_y": _mean(ls_daily),
+        "cs_top_gt0_ratio": _mean(gt0_daily),
+        "cs_proxy_day_count": n_days,
+        "cs_proxy_note": (
+            f"日截面按 ŷ 取头/尾 {frac:.0%} 实现收益再对日平均；"
+            "贴近 TopK 选股，IC 升而此项为负时回测常变差。"
+        ),
+        "cs_proxy_daily_tail": daily_rows[-40:],
+    }
+
+
 def attach_daily_cs_ic(
     oos: Dict[str, Any],
     preds: Sequence[Optional[float]],
@@ -160,8 +239,9 @@ def attach_daily_cs_ic(
     metas: Sequence[Any],
     *,
     min_names: int = 5,
+    top_frac: float = 0.1,
 ) -> Dict[str, Any]:
-    """把日频截面 IC 写入 oos；标注既有 ``ic`` 为 chrono_pearson。"""
+    """把日频截面 IC + 分位收益 proxy 写入 oos；标注既有 ``ic`` 为 chrono_pearson。"""
     out = oos if isinstance(oos, dict) else {}
     if out.get("ic") is not None and out.get("ic_kind") is None:
         annotated = annotate_ic_block(
@@ -183,4 +263,12 @@ def attach_daily_cs_ic(
                 out["cs_ok"] = val
             else:
                 out[key] = val
+    proxy = summarize_cs_quantile_proxy(
+        preds, ys, metas, top_frac=top_frac, min_names=min_names
+    )
+    for key, val in proxy.items():
+        if key == "ok":
+            out["cs_proxy_ok"] = val
+        elif key.startswith("cs_"):
+            out[key] = val
     return out

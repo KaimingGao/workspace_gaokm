@@ -40,8 +40,13 @@ def save_return_model_draft(
     *,
     meta: Optional[Dict[str, Any]] = None,
     oos: Optional[Dict[str, Any]] = None,
+    research_model: Optional[Any] = None,
+    research_ols: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """写入研究草稿 ``data/reports/last_return_score_model.json``。"""
+    """写入研究草稿 ``data/reports/last_return_score_model.json``。
+
+    ``model`` = 全样本执行套草稿；``research_model`` = Holdout 前训练集 β（研究套）。
+    """
     _ensure_dirs()
     payload = {
         "version": 2,
@@ -55,6 +60,13 @@ def save_return_model_draft(
         "oos": dict(oos or {}) if isinstance(oos, dict) else {},
         "note": "研究草稿（因子系数产物）；启用研究/执行后才进回测或 live 横截面。",
     }
+    if research_model is not None:
+        if hasattr(research_model, "to_dict"):
+            payload["research_model"] = research_model.to_dict()
+        elif isinstance(research_model, dict):
+            payload["research_model"] = dict(research_model)
+    if isinstance(research_ols, dict) and research_ols:
+        payload["research_ols"] = dict(research_ols)
     payload["saved_at"] = payload["fitted_at"]
     atomic_write_json(RETURN_SCORE_MODEL_DRAFT_PATH, payload)
     return {
@@ -64,6 +76,7 @@ def save_return_model_draft(
         "saved_at": payload["saved_at"],
         "sample_count": model.sample_count,
         "n_coefs": len(model.coefficients),
+        "has_research_model": bool(payload.get("research_model")),
     }
 
 
@@ -137,7 +150,19 @@ def promote_return_model_draft(
             "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
         }
     force = "force=1" in str(note or "") or "force:true" in str(note or "").lower()
-    model_blob = dict(raw.get("model") or {})
+    # 研究套必须用 Holdout 前训练集 β；缺 research_model 时拒绝（勿把全样本草稿当研究套）
+    if role_n == "research":
+        src_blob = raw.get("research_model")
+        if not isinstance(src_blob, dict) or not (src_blob.get("coefficients") or {}):
+            return {
+                "success": False,
+                "error": "草稿缺少 research_model（Holdout 训练集 β）；请重新拟合后再启用研究套",
+                "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
+                "hint": "旧草稿只含全样本 model；拟合会同时写入 research_model",
+            }
+        model_blob = dict(src_blob)
+    else:
+        model_blob = dict(raw.get("model") or {})
     coefs_in = dict(model_blob.get("coefficients") or {})
     stripped_proxy: list = []
     try:
@@ -163,14 +188,17 @@ def promote_return_model_draft(
                 "hint": "proxy 因子系数须为 0；确需放行在 note 写 force=1",
             }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        model_blob = dict(raw.get("model") or {})
+        if role_n == "research":
+            model_blob = dict(raw.get("research_model") or {})
+        else:
+            model_blob = dict(raw.get("model") or {})
         pass
     _ensure_dirs()
     promoted_at = _utc_now()
     if role_n == "research":
         target = RETURN_SCORE_MODEL_RESEARCH_PATH
         payload_role = "research"
-        note_out = "研究套 ŷ_oo；供历史回测加载（prefer_research）。"
+        note_out = "研究套 ŷ_oo（Holdout 前训练集 β）；供历史回测加载（prefer_research）。"
     else:
         target = RETURN_SCORE_MODEL_ACTIVE_PATH
         payload_role = "active"
@@ -179,7 +207,10 @@ def promote_return_model_draft(
         **(raw.get("meta") or {}),
         "promote_note": str(note or ""),
         "persist_role": role_n,
+        "coef_source": "research_model" if role_n == "research" else "model",
     }
+    if isinstance(raw.get("research_ols"), dict):
+        meta_out["research_ols"] = dict(raw.get("research_ols") or {})
     if stripped_proxy:
         meta_out["stripped_unsourced"] = list(stripped_proxy)
     fitted_at = raw.get("fitted_at") or raw.get("saved_at")
@@ -584,6 +615,15 @@ def fit_watching_return_model(
             }
     attach_holdout_meta(out, split_meta)
     if save_draft:
+        research_ols_blob = out.get("research_ols")
+        if not isinstance(research_ols_blob, dict) and isinstance(
+            research_report, dict
+        ):
+            research_ols_blob = {
+                "r_squared": research_report.get("r_squared"),
+                "ridge_lambda": research_report.get("ridge_lambda"),
+                "sample_count": research_report.get("sample_count"),
+            }
         saved = save_return_model_draft(
             model,
             meta={
@@ -596,6 +636,10 @@ def fit_watching_return_model(
                 "cross_section_zscore": use_cs,
             },
             oos=oos,
+            research_model=research_model,
+            research_ols=research_ols_blob
+            if isinstance(research_ols_blob, dict)
+            else None,
         )
         out["draft"] = saved
     return out

@@ -84,7 +84,7 @@ def _oo_column_names() -> List[str]:
         if n not in banned and n not in Z_OO_SKIP_PACKS
     ]
     seen = set(names)
-    for key in alpha_oo_raw_names():
+    for key in alpha_oo_raw_names(ridge_core_only=False):
         if key not in seen and key not in banned:
             seen.add(key)
             names.append(key)
@@ -101,9 +101,10 @@ def _stack_daily_panels(
     from core.research.panel import collect_subscore_forward_panel
     from core.research.panel_matrix import PanelMatrix
 
+    # 列集预声明 z_oo ∪ 全量 raw_aoo；不 widen 避免无关键渗入
     block = PanelMatrix(
         _oo_column_names(),
-        widen_prefix="raw_aoo_",
+        widen_prefix="",
     )
     ys: List[float] = []
     dates: List[str] = []
@@ -173,7 +174,7 @@ def _feature_names_from_matrix(
         for n in z_oo_legacy_keys()
         if n not in banned and n not in Z_OO_SKIP_PACKS
     ]
-    ridge_feats = [n for n in base if n in present]
+    z_feats = [n for n in base if n in present]
     aoo_keys = [
         n
         for n in names
@@ -182,10 +183,9 @@ def _feature_names_from_matrix(
         and n not in banned
         and to_legacy_key(str(n)) not in banned
     ]
-    tree_feats = list(ridge_feats)
-    for k in aoo_keys:
-        if k not in tree_feats:
-            tree_feats.append(k)
+    # 树与 Ridge 对照同列：现网 ŷ_oo = z_oo ∪ 全量 raw_aoo
+    tree_feats = list(z_feats) + [n for n in aoo_keys if n not in set(z_feats)]
+    ridge_feats = list(tree_feats)
     return tree_feats, ridge_feats, aoo_keys
 
 
@@ -207,7 +207,7 @@ def fit_oo_tree_report(
 ) -> Dict[str, Any]:
     """日线面板拟合 ŷ_oo_tree + Ridge OOS 对照。不写 live / 研究套。
 
-    树侧固定吃 alpha_oo（raw_aoo_*）。标签仍是百分点。
+    树与 Ridge 对照均吃 ``z_oo_* ∪ raw_aoo_*`` 全量。标签仍是百分点。
     ``cross_section_zscore``：日截面 z（默认）或训练窗全局 μ/σ。
     LightGBM：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2。
     ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。
@@ -385,7 +385,7 @@ def fit_oo_tree_report(
             + ("特征日截面 z-score · " if use_cs else "特征训练窗全局 μ/σ · ")
             + "同 Holdout vs Ridge；"
             + (
-                "树侧含 raw_aoo_*（Ridge 对照不含）；"
+                "树与 Ridge 对照均含 z_oo_*∪raw_aoo_* 全量；"
             )
             + (
                 f"训练日滑窗 {hyper.get('window_days')}／步 {hyper.get('step_days')}"

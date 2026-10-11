@@ -335,7 +335,8 @@ _register(
     "开→开因子集",
     _compute_alpha_oo,
     "alpha_oo（~206）：隔夜/今开 + 昨 K + 开序列滚动 + 量/滞后（含 MOM3_C）；开盘 PIT。"
-    " sub_score 不加权，仅 raw_aoo_* 进 Ridge/LightGBM/LambdaRank；ŷ_τc=z_τc_*∪alpha_oo。",
+    " sub_score 不加权；入模默认 z_oo_*∪raw_aoo_* 全量；"
+    " ŷ_τc=z_τc_*∪raw_atc_*。",
 )
 _register(
     "alpha_tc",
@@ -474,7 +475,7 @@ def compute_configured_factors(
         # FS0：Ridge β 用 raw_aoo_* 时，触发计算 alpha_oo 并注入 raw 列
         if is_alpha_oo_raw_key(k) and "alpha_oo" in _REGISTRY and "alpha_oo" not in wmap:
             wmap["alpha_oo"] = 0.0
-        # raw_atc_* → 触发 alpha_tc（离线对照；显式 required 时仍可算）
+        # raw_atc_* → 触发 alpha_tc（ŷ_τc 现网；显式 required 时计算）
         if is_alpha_tc_raw_key(k) and "alpha_tc" in _REGISTRY and "alpha_tc" not in wmap:
             wmap["alpha_tc"] = 0.0
     sub_scores: Dict[str, float] = {}

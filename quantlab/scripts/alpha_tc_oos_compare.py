@@ -1,15 +1,11 @@
-"""离线 A/B：ŷ_τc 的 Z-only vs alpha_τc（Z ∪ raw_aoo_*）。
+"""离线 Holdout 烟测：现网 alpha_τc（z_τc_* ∪ raw_atc_*）。
 
-现网已回退 Z∪alpha_oo；本脚本对照「只吃 Z」与「完整包」。
-``raw_atc_*`` 不进现网，见 ``alpha_tc.py`` 模块注释。
-
-观察池最多 300 股；近 ``train_days+holdout_days`` 个交易日；
-Holdout 末段只测；**不落盘 / 不 promote**。
+τ=open；Holdout 末段只测；**不落盘 / 不 promote**。
 
 用法（在 quantlab/ 下）::
 
-    .venv/bin/python scripts/alpha_tc_oos_compare.py
-    .venv/bin/python scripts/alpha_tc_oos_compare.py --max-names 300 --train-days 160 --holdout-days 40
+    .venv/bin/python scripts/alpha_tc_oos_compare.py \\
+        --max-names 300 --train-days 120 --holdout-days 20
 """
 
 from __future__ import annotations
@@ -47,24 +43,28 @@ from core.research.tc_ridge import (
 )
 from core.research.tau_panel import theme_sample_weights
 from core.research_universe import resolve_research_codes
-from core.signal.factors.alpha_oo import (
-    ALPHA_OO_MIN_BARS,
-    is_alpha_oo_raw_key,
+from core.signal.factors.alpha_tc import (
+    ALPHA_TC_MIN_BARS,
+    is_alpha_tc_raw_key,
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
 
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="ŷ_τc offline A/B: Z-only vs Z∪raw_aoo_*"
+        description="ŷ_τc Holdout smoke: z_τc_*∪raw_atc_*"
     )
     p.add_argument("--max-names", type=int, default=300)
-    p.add_argument("--train-days", type=int, default=160)
-    p.add_argument("--holdout-days", type=int, default=40)
+    p.add_argument("--train-days", type=int, default=120)
+    p.add_argument("--holdout-days", type=int, default=20)
     p.add_argument("--ridge-lambda", type=float, default=1.0)
     p.add_argument("--gap-trigger", type=float, default=2.0)
     p.add_argument("--theme-boost", type=float, default=1.5)
-    p.add_argument("--min-history", type=int, default=ALPHA_OO_MIN_BARS)
+    p.add_argument(
+        "--min-history",
+        type=int,
+        default=int(ALPHA_TC_MIN_BARS),
+    )
     return p.parse_args()
 
 
@@ -77,7 +77,7 @@ def load_stock_bars(max_names: int, lookback: int) -> List[Dict[str, Any]]:
         offline_ok=True,
         fetch_fundamentals=False,
     )
-    need = int(ALPHA_OO_MIN_BARS) + 2
+    need = int(ALPHA_TC_MIN_BARS) + 2
     return [
         {"code": c, "bars": b}
         for c, b in stock_bars_dict.items()
@@ -120,7 +120,7 @@ def _filter_last_calendar_days(
     )
 
 
-def _finite_aoo(
+def _finite_atc(
     X: np.ndarray,
     names: Sequence[str],
     row_idx: Sequence[int],
@@ -130,21 +130,34 @@ def _finite_aoo(
     view = X[np.asarray(list(row_idx), dtype=np.int64)]
     out: List[str] = []
     for j, name in enumerate(names):
-        if not is_alpha_oo_raw_key(str(name)):
+        if not is_alpha_tc_raw_key(str(name)):
             continue
         if np.isfinite(view[:, j]).any():
             out.append(str(name))
     return out
 
 
-def fit_arm(
+def _z_open_names(col_names: Sequence[str]) -> List[str]:
+    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
+
+    have = set(col_names)
+    return [
+        k
+        for k in TAU_Z_FEATURES
+        if k not in TAU_FIT_DROP_ALIASES
+        and k not in Z_TC_MINUTE_KEYS
+        and k not in MINUTE_TAU_ALL_KEYS
+        and k in have
+    ]
+
+
+def fit_holdout(
     X: np.ndarray,
     col_names: Sequence[str],
     ys: Sequence[float],
     dates: Sequence[str],
     metas: Sequence[dict],
     *,
-    arm: str,
     holdout_days: int,
     calendar: Sequence[str],
     ridge_lambda: float,
@@ -155,27 +168,17 @@ def fit_arm(
         holdout_trading_days=holdout_days,
         calendar_dates=calendar,
     )
-    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
-
-    z_base = [
-        k
-        for k in TAU_Z_FEATURES
-        if k not in TAU_FIT_DROP_ALIASES
-        and k not in Z_TC_MINUTE_KEYS
-        and k not in MINUTE_TAU_ALL_KEYS
-        and k in set(col_names)
-    ]
+    z_base = _z_open_names(col_names)
     feat_names = list(z_base)
     seen = set(feat_names)
-    if arm == "aoo":
-        for k in _finite_aoo(X, col_names, train_idx):
-            if k not in seen:
-                seen.add(k)
-                feat_names.append(k)
+    for k in _finite_atc(X, col_names, train_idx):
+        if k not in seen:
+            seen.add(k)
+            feat_names.append(k)
 
     min_std_exempt = list(TAU_MIN_STD_EXEMPT)
     for n in feat_names:
-        if is_alpha_oo_raw_key(str(n)) and str(n) not in min_std_exempt:
+        if is_alpha_tc_raw_key(str(n)) and str(n) not in min_std_exempt:
             min_std_exempt.append(str(n))
 
     X_fit, feat_names = named_columns(X, col_names, feat_names)
@@ -201,7 +204,6 @@ def fit_arm(
     if not fit.get("success"):
         return {
             "success": False,
-            "arm": arm,
             "error": fit.get("error") or "fit failed",
             "split": split_meta,
         }
@@ -219,7 +221,7 @@ def fit_arm(
     )
     buckets = _oos_sign_buckets(preds, ys_te) if ys_te else {}
     active = list(fit.get("active_features") or [])
-    n_aoo = sum(1 for a in active if is_alpha_oo_raw_key(str(a)))
+    n_raw = sum(1 for a in active if is_alpha_tc_raw_key(str(a)))
     oos: Dict[str, Any] = {
         "n_train": len(ys_tr),
         "n_test": len(ys_te),
@@ -240,24 +242,21 @@ def fit_arm(
     except Exception:  # noqa: BLE001
         pass
 
-    fill_keys = list(z_base) + [
-        k for k in feat_names if is_alpha_oo_raw_key(k)
-    ]
+    fill_keys = list(z_base) + [k for k in feat_names if is_alpha_tc_raw_key(k)]
     return {
         "success": True,
-        "arm": arm,
-        "label": "Z-only" if arm == "z" else "Z∪raw_aoo_*",
+        "label": "现网 z_τc_* ∪ raw_atc_*",
         "n_features": len(feat_names),
         "n_active": len(active),
-        "n_aoo_active": n_aoo,
+        "n_raw_active": n_raw,
         "n_train_days": split_meta.get("n_train_days"),
         "n_test_days": split_meta.get("n_test_days"),
         "fit_end": split_meta.get("fit_end"),
         "eval_start": split_meta.get("eval_start"),
         "oos": oos,
-        "feature_fill_n": fill_rates_from_matrix(X_fit, feat_names, fill_keys[:8]).get(
-            "n"
-        ),
+        "feature_fill_n": fill_rates_from_matrix(
+            X_fit, feat_names, fill_keys[:8]
+        ).get("n"),
     }
 
 
@@ -271,9 +270,9 @@ def _fmt(v: Any, nd: int = 4) -> str:
     return str(v)
 
 
-def _print_arm(r: Dict[str, Any]) -> None:
+def _print_report(r: Dict[str, Any]) -> None:
     oos = r.get("oos") or {}
-    print(f"\n=== {r.get('label')} ({r.get('arm')}) ===")
+    print(f"\n=== {r.get('label')} ===")
     if not r.get("success"):
         print(f"  FAIL: {r.get('error')}")
         return
@@ -283,12 +282,28 @@ def _print_arm(r: Dict[str, Any]) -> None:
     )
     print(
         f"  features={r.get('n_features')} active={r.get('n_active')} "
-        f"aoo_active={r.get('n_aoo_active')}"
+        f"raw_active={r.get('n_raw_active')}"
+    )
+    print(
+        f"  samples train/test={oos.get('n_train')}/{oos.get('n_test')}"
     )
     print(
         f"  IC={_fmt(oos.get('ic'))}  hit={_fmt(oos.get('sign_hit'))}  "
-        f"cs_ic={_fmt(oos.get('cs_ic'))}  cs_rank_icir={_fmt(oos.get('cs_rank_icir'))}"
+        f"resid_var={_fmt(oos.get('residual_var'))}"
     )
+    print(
+        f"  cs_ic={_fmt(oos.get('cs_ic'))}  "
+        f"cs_rank_ic={_fmt(oos.get('cs_rank_ic'))}  "
+        f"cs_rank_icir={_fmt(oos.get('cs_rank_icir'))}"
+    )
+    theme = oos.get("by_theme") or {}
+    if theme:
+        t = theme.get("theme") or {}
+        n = theme.get("normal") or {}
+        print(
+            f"  theme hit={_fmt(t.get('sign_hit'))} n={t.get('n')}  "
+            f"normal hit={_fmt(n.get('sign_hit'))} n={n.get('n')}"
+        )
 
 
 def main() -> int:
@@ -309,7 +324,6 @@ def main() -> int:
         print("ERROR: too few stocks with enough bars")
         return 1
 
-    t1 = time.time()
     from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
 
     z_names = [
@@ -319,61 +333,48 @@ def main() -> int:
         and k not in Z_TC_MINUTE_KEYS
         and k not in MINUTE_TAU_ALL_KEYS
     ]
+    cal_all = calendar_dates_from_stock_bars(stock_bars)
+
+    t1 = time.time()
+    print("\nbuilding panel (z_τc_* ∪ raw_atc_*) …")
     X, names, ys, dates, metas, n_stocks = collect_tau_compact(
         stock_bars,
         z_names,
         min_history=int(args.min_history),
         gap_trigger_pct=float(args.gap_trigger),
-        include_alpha_oo=True,
-        head="y_tc_ab",
+        include_alpha_tc=True,
+        head="y_tc",
     )
+    n_raw = sum(1 for n in names if is_alpha_tc_raw_key(str(n)))
     print(
-        f"panel: stocks={n_stocks} rows={len(ys)} cols={len(names)} "
-        f"({time.time() - t1:.1f}s)"
+        f"  stocks={n_stocks} rows={len(ys)} cols={len(names)} "
+        f"raw_cols={n_raw} ({time.time() - t1:.1f}s)"
     )
-    n_aoo = sum(1 for n in names if is_alpha_oo_raw_key(str(n)))
-    print(f"  columns raw_aoo_={n_aoo}")
-
-    cal_all = calendar_dates_from_stock_bars(stock_bars)
     X, names, ys, dates, metas, cal = _filter_last_calendar_days(
         X, names, ys, dates, metas, cal_all, n_days=window_days
     )
     print(
-        f"calendar window: {len(cal)} days "
-        f"[{cal[0] if cal else '—'} … {cal[-1] if cal else '—'}]  rows={len(ys)}"
+        f"  calendar window: {len(cal)} days "
+        f"[{cal[0] if cal else '—'} … {cal[-1] if cal else '—'}]  "
+        f"rows={len(ys)}"
     )
     if len(cal) < holdout_days + 20:
         print("ERROR: calendar too short for requested split")
         return 1
-
-    r_z = fit_arm(
+    r = fit_holdout(
         X,
         names,
         ys,
         dates,
         metas,
-        arm="z",
         holdout_days=holdout_days,
         calendar=cal,
         ridge_lambda=float(args.ridge_lambda),
         theme_boost=float(args.theme_boost),
     )
-    r_aoo = fit_arm(
-        X,
-        names,
-        ys,
-        dates,
-        metas,
-        arm="aoo",
-        holdout_days=holdout_days,
-        calendar=cal,
-        ridge_lambda=float(args.ridge_lambda),
-        theme_boost=float(args.theme_boost),
-    )
-    _print_arm(r_z)
-    _print_arm(r_aoo)
-    print(f"\ndone in {time.time() - t0:.1f}s")
-    return 0 if r_z.get("success") and r_aoo.get("success") else 1
+    _print_report(r)
+    print(f"\ndone in {time.time() - t0:.1f}s (no persist)")
+    return 0 if r.get("success") else 1
 
 
 if __name__ == "__main__":

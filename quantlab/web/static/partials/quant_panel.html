@@ -479,7 +479,7 @@
           </label>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作">
-          <button type="button" id="quant-tau-ridge-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc Ridge（特征包 alpha_τc=Z∪alpha_oo）+ 时间 OOS（训练窗 / 日截面 Z 见左侧；不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
+          <button type="button" id="quant-tau-ridge-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc Ridge（特征包 alpha_τc=Z∪raw_atc_*）+ 时间 OOS（训练窗 / 日截面 Z 见左侧；不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
           <button type="button" id="quant-tau-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 tau_ridge_model_research.json，供历史回测加载">启用研究</button>
           <button type="button" id="quant-tau-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/tau_ridge_model.json，供交易执行加载">启用执行</button>
           <button type="button" id="quant-tau-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
@@ -555,8 +555,8 @@
   <section class="dashboard-section quant-section" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
     <details class="quant-primary-fold" open>
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
-        <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank · rank(open[T]->open[T+1])</h3>
-        <p class="dashboard-section-desc quant-section-desc">双 backend · NDCG@K 择优</p>
+        <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
+        <p class="dashboard-section-desc quant-section-desc">rank(open[T]->open[T+1]) · 双 backend · NDCG@K 择优</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -1047,7 +1047,7 @@
         </div>
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_tree 操作">
-          <button type="button" id="quant-tau-tree-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc_tree（特征包 alpha_τc=Z∪alpha_oo；训练窗 / 日截面 Z / 滑窗见左侧；LightGBM init_model 增量）。满池瓶颈在组分钟面板。">拟合</button>
+          <button type="button" id="quant-tau-tree-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc_tree（特征包 alpha_τc=Z∪raw_atc_*；训练窗 / 日截面 Z / 滑窗见左侧；LightGBM init_model 增量）。满池瓶颈在组分钟面板。">拟合</button>
           <button type="button" id="quant-tau-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>

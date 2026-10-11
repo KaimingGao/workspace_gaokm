@@ -20,8 +20,8 @@ FAMILY_META: Tuple[Tuple[str, str, str], ...] = (
     (
         "pv_derived",
         "量价衍生",
-        "ŷ_oo 日线 z_oo_* + alpha_oo/raw_aoo_*；ŷ_τc=z_τc_*∪raw_aoo_*；"
-        "alpha_tc/raw_atc_* 离线；omit_sub_score，仅 raw 进模型",
+        "ŷ_oo 日线 z_oo_*∪raw_aoo_* 全量；ŷ_τc=z_τc_*∪raw_atc_*；"
+        "omit_sub_score，仅 raw 进模型",
     ),
     ("other", "其他", "未编入 factor_groups"),
 )
@@ -56,8 +56,8 @@ SOURCE_LABELS: Dict[str, str] = {
 # 已退役 raw_basis 试点因子（旧分组报告可能仍带键；UI/读盘时剔除）
 REMOVED_RAW_BASIS_NAMES: frozenset = frozenset(
     {
-        "mom3_pct",  # 已并入 alpha_oo · raw_aoo_MOM3_C
-        "yest_range_pct",  # 已并入 alpha_oo · raw_aoo_YRANGE_PCT
+        "mom3_pct",  # ŷ_oo→raw_aoo_MOM3_C；ŷ_τc→raw_atc_MOM3_C
+        "yest_range_pct",  # ŷ_oo→raw_aoo_YRANGE_PCT；ŷ_τc→raw_atc_YRANGE_PCT
         "mom5_pct",
         "mom_overheat",
         "atr_pct_raw",

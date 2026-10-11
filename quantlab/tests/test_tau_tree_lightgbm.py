@@ -121,7 +121,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
             )
 
     def test_fit_tau_tree_alpha_tc_pack(self):
-        """树侧固定 alpha_τc；Ridge 对照特征不含 raw_aoo_*。"""
+        """树侧固定 alpha_τc；Ridge 对照特征不含 raw_atc_*。"""
         from datetime import date, timedelta
 
         from core.research.tc_tree import fit_tau_tree_report
@@ -161,15 +161,15 @@ class TestTauTreeLightgbm(unittest.TestCase):
             window_days=0,
         )
         self.assertTrue(on.get("success"), on.get("error"))
-        self.assertTrue(on.get("include_alpha_oo"))
+        self.assertTrue(on.get("include_alpha_tc"))
         self.assertEqual(on.get("feature_pack"), "alpha_τc")
-        self.assertGreater(int(on.get("n_alpha_oo_features") or 0), 0)
+        self.assertGreater(int(on.get("n_alpha_tc_features") or 0), 0)
         self.assertTrue(
-            any(str(k).startswith("raw_aoo_") for k in (on.get("feature_names") or []))
+            any(str(k).startswith("raw_atc_") for k in (on.get("feature_names") or []))
         )
         self.assertFalse(
             any(
-                str(k).startswith("raw_aoo_")
+                str(k).startswith("raw_atc_")
                 for k in (on.get("ridge_feature_names") or [])
             )
         )
