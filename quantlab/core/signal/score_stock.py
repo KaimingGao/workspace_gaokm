@@ -1042,9 +1042,10 @@ def score_stock(
                 except (TypeError, ValueError):
                     ref = None
             feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
-            # 开锚 alpha_oo：≤T−1 hist + 今开（quote 作 open_t 回退）。
+            # τ 锚 alpha_tc + 旧开锚 alpha_oo（兼容未轮换模型）。
             if hist:
                 from core.signal.factors.alpha_oo import inject_raw_aoo
+                from core.signal.factors.alpha_tc import inject_raw_atc
 
                 prev_c = None
                 if prev_b is not None:
@@ -1052,12 +1053,22 @@ def score_stock(
                         prev_c = float(prev_b.get("close") or 0) or None
                     except (TypeError, ValueError):
                         prev_c = None
+                qdict = quote if isinstance(quote, dict) else None
+                inject_raw_atc(
+                    feats,
+                    hist,
+                    open_t=open_px_z,
+                    prev_close=prev_c,
+                    price_tau=open_px_z,
+                    tau_hm="open",
+                    quote=qdict,
+                )
                 inject_raw_aoo(
                     feats,
                     hist,
                     open_t=open_px_z,
                     prev_close=prev_c,
-                    quote=quote if isinstance(quote, dict) else None,
+                    quote=qdict,
                 )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("tau Z extras skipped for %s", code, exc_info=True)

@@ -37,6 +37,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
     def test_factor_meta_strips_legacy_alpha158_prefix(self):
         meta = self._read("web", "static", "js", "quant", "factor_meta.js")
         self.assertIn('prefix: "raw_aoo_"', meta)
+        self.assertIn('prefix: "raw_atc_"', meta)
+        self.assertIn("alpha_tc", meta)
         self.assertIn('REMOVED_RAW_PREFIXES = ["raw_alpha158_"]', meta)
         self.assertIn("key.startsWith(p)", meta)
         self.assertNotIn('prefix: "raw_alpha158_"', meta)

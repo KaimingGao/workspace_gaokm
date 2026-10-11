@@ -15,7 +15,7 @@ const FACTOR_FAMILY_DEFS = [
   {
     id: "pv_derived",
     label: "量价衍生",
-    tip: "开→开 alpha_oo（raw_aoo_*）；omit_sub_score，仅 raw 进 Ridge/树/LTR；ŷ_τc 特征包 alpha_τc=Z∪alpha_oo",
+    tip: "alpha_oo/raw_aoo_*（开锚）+ alpha_tc/raw_atc_*（τ 锚）；omit_sub_score，仅 raw 进模型；ŷ_τc=raw_atc_*∪Z_cs",
   },
   { id: "other", label: "其他", tip: "未编入 factor_groups" },
 ];
@@ -28,10 +28,13 @@ const FAMILY_MEMBERS = {
   residual: ["relative_strength", "idio_momentum", "size"],
   reversal: ["reversal"],
   sentiment: ["alt_sentiment", "llm_sentiment"],
-  pv_derived: ["alpha_oo"],
+  pv_derived: ["alpha_oo", "alpha_tc"],
 };
 
-const PREFIX_FAMILY = [{ prefix: "raw_aoo_", family: "pv_derived" }];
+const PREFIX_FAMILY = [
+  { prefix: "raw_aoo_", family: "pv_derived" },
+  { prefix: "raw_atc_", family: "pv_derived" },
+];
 
 const SOURCE_OVERRIDE = {
   money_flow: {

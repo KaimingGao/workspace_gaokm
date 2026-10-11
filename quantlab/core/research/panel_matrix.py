@@ -235,7 +235,8 @@ def collect_tau_compact(
     gap_trigger_pct: float = 2.0,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
-    include_alpha_oo: bool = True,
+    include_alpha_tc: bool = True,
+    include_alpha_oo: bool = False,
     head: str = "y_tc",
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。"""
@@ -251,9 +252,15 @@ def collect_tau_compact(
         if use_minute
         else None
     )
-    block = PanelMatrix(
-        names, widen_prefix="raw_aoo_" if include_alpha_oo else ""
-    )
+    if include_alpha_tc and include_alpha_oo:
+        widen = "raw_a"  # raw_aoo_* + raw_atc_*
+    elif include_alpha_tc:
+        widen = "raw_atc_"
+    elif include_alpha_oo:
+        widen = "raw_aoo_"
+    else:
+        widen = ""
+    block = PanelMatrix(names, widen_prefix=widen)
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
@@ -275,6 +282,7 @@ def collect_tau_compact(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
+                include_alpha_tc=include_alpha_tc,
                 include_alpha_oo=include_alpha_oo,
             )
             item.pop("minute_bars", None)
@@ -285,6 +293,7 @@ def collect_tau_compact(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
+                include_alpha_tc=include_alpha_tc,
                 include_alpha_oo=include_alpha_oo,
             )
         if len(ys) < 4:
@@ -406,6 +415,32 @@ def raw_aoo_finite(
     out: List[str] = []
     for j, name in enumerate(names):
         if not is_alpha_oo_raw_key(str(name)):
+            continue
+        if np.isfinite(view[:, j]).any():
+            out.append(str(name))
+    return out
+
+
+def raw_atc_finite(
+    X: np.ndarray,
+    names: Sequence[str],
+    row_idx: Optional[Sequence[int]] = None,
+) -> List[str]:
+    """训练行（或全表）上至少有一个有限值的 ``raw_atc_*``，按列序。"""
+    if X.size == 0 or X.shape[0] == 0:
+        return []
+    if row_idx is None:
+        view = X
+    else:
+        idx = np.asarray(list(row_idx), dtype=np.int64)
+        if idx.size == 0:
+            return []
+        view = X[idx]
+    from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
+
+    out: List[str] = []
+    for j, name in enumerate(names):
+        if not is_alpha_tc_raw_key(str(name)):
             continue
         if np.isfinite(view[:, j]).any():
             out.append(str(name))

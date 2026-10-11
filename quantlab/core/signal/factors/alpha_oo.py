@@ -3,7 +3,7 @@
 PIT：``hist=≤T−1`` 完整日 + ``open_t``（今开）。标签对齐 open[T+1]/open[T]−1。
 单票可算；板块截面类不在此模块（留给面板 Z）。
 
-ŷ_τc 特征包 **alpha_τc := Z ∪ alpha_oo**（超集；报告元数据见 ``tc_ridge.alpha_tc_report_meta``）。
+ŷ_τc 已改吃 **alpha_τc := raw_atc_* ∪ Z_cs**（见 ``alpha_tc`` / ``tc_ridge``）；本包仍供 ŷ_oo / ŷ_co。
 """
 
 from __future__ import annotations

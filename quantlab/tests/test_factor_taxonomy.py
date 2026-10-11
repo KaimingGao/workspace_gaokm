@@ -32,8 +32,12 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(classify_factor("reversal")["family"], "reversal")
         self.assertEqual(classify_factor("alt_sentiment")["family"], "sentiment")
         self.assertEqual(classify_factor("alpha_oo")["family"], "pv_derived")
+        self.assertEqual(classify_factor("alpha_tc")["family"], "pv_derived")
         self.assertEqual(
             classify_factor("raw_aoo_OROC20")["family"], "pv_derived"
+        )
+        self.assertEqual(
+            classify_factor("raw_atc_PROC20")["family"], "pv_derived"
         )
         self.assertEqual(
             classify_factor("raw_aoo_OROC20")["family_label"], "量价衍生"

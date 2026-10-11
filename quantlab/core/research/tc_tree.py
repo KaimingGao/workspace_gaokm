@@ -26,10 +26,11 @@ from core.research.tau_panel import (
     theme_sample_weights,
 )
 from core.research.tc_ridge import (
-    MINUTE_TAU_ALL_KEYS,
+    MINUTE_TAU_CS_KEYS,
     TAU_FIT_DROP_ALIASES,
     TAU_HORIZON_TREE_SHAPE_FEATURES,
     TAU_MIN_STD_EXEMPT,
+    TAU_Z_CS_FEATURES,
     TAU_Z_FEATURES,
     _ic,
     _oos_by_tau,
@@ -43,9 +44,10 @@ from core.research.tc_ridge import (
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
-TREE_SCHEMA = "tau_tree_shadow_v2"
+TREE_SCHEMA = "tau_tree_shadow_v3"
 TREE_HEAD = "y_tau_tree"
-TAU_TREE_Z_FEATURES = with_horizon_tree_shape(TAU_Z_FEATURES)
+# 树：Z_cs + 未并入 atc 的路径 shape（t_hi_frac 等）
+TAU_TREE_Z_FEATURES = with_horizon_tree_shape(TAU_Z_CS_FEATURES)
 
 # LightGBM：深度 6、叶子 64、300 轮、lr=0.2、λ₁/λ₂=10/20；标签是百分点
 PANEL_LGB = {
@@ -897,11 +899,11 @@ def fit_tau_tree_report(
 ) -> Dict[str, Any]:
     """同面板拟合树 + Ridge OOS 对照。不写 live / 研究套模型。
 
-    树侧固定吃 ``raw_aoo_*``（完整 alpha_τc）。LightGBM
-    （深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2、百分点标签）。
+    树侧吃完整 alpha_τc（``raw_atc_*`` ∪ Z_cs）+ 未并入 atc 的路径 shape。
+    LightGBM（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2、百分点标签）。
     ``cross_section_zscore``：日截面 z（默认）或训练窗全局 μ/σ；标签仍是百分点。
     ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。
-    Ridge 对照仍只用 ``TAU_Z_FEATURES``（避免与 ŷ_oo 双重计权）。
+    Ridge 对照同包（Z_cs ∪ raw_atc_*，无额外 tree shape）。
     """
     t0 = time.perf_counter()
     tau_key = str(tau_hm or "open").strip() or "open"
@@ -918,18 +920,23 @@ def fit_tau_tree_report(
         keepall_ridge_oos,
         finite_name_set,
         named_columns,
-        raw_aoo_finite,
+        raw_atc_finite,
     )
 
     t_panel0 = time.perf_counter()
+    # 面板列仍含全量 Z（广度/诊断）+ shape；入模再筛
+    panel_names = list(
+        dict.fromkeys(list(TAU_Z_FEATURES) + list(TAU_TREE_Z_FEATURES))
+    )
     X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
         stock_bars,
-        list(TAU_TREE_Z_FEATURES),
+        panel_names,
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
         tau_hm=tau_key,
         tau_grid=grid,
-        include_alpha_oo=True,
+        include_alpha_tc=True,
+        include_alpha_oo=False,
         head="y_tc_tree",
     )
     panel_s = round(time.perf_counter() - t_panel0, 2)
@@ -948,7 +955,7 @@ def fit_tau_tree_report(
         }
 
     present = finite_name_set(X, col_names)
-    aoo_keys = [k for k in raw_aoo_finite(X, col_names) if k in present]
+    atc_keys = [k for k in raw_atc_finite(X, col_names) if k in present]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -967,21 +974,24 @@ def fit_tau_tree_report(
     metas_tr = [metas[i] for i in train_idx]
     metas_te = [metas[i] for i in test_idx]
     drop_opt = set() if use_minute else (
-        set(MINUTE_TAU_ALL_KEYS) | set(TAU_HORIZON_TREE_SHAPE_FEATURES)
+        set(MINUTE_TAU_CS_KEYS) | set(TAU_HORIZON_TREE_SHAPE_FEATURES)
     )
     feat_names = [
         k
         for k in TAU_TREE_Z_FEATURES
         if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
     ]
-    for k in aoo_keys:
+    for k in atc_keys:
         if k not in feat_names:
             feat_names.append(k)
     ridge_feat_names = [
         k
-        for k in TAU_Z_FEATURES
+        for k in TAU_Z_CS_FEATURES
         if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
     ]
+    for k in atc_keys:
+        if k not in ridge_feat_names:
+            ridge_feat_names.append(k)
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
@@ -1051,6 +1061,11 @@ def fit_tau_tree_report(
         if use_theme_weights
         else None
     )
+    from core.signal.factors.alpha_tc import merge_alpha_tc_min_std_exempt
+
+    ridge_exempt = merge_alpha_tc_min_std_exempt(
+        ridge_feat_names, list(TAU_MIN_STD_EXEMPT)
+    )
     _, ridge_preds = keepall_ridge_oos(
         X_ridge[row_tr],
         ys_tr,
@@ -1058,7 +1073,7 @@ def fit_tau_tree_report(
         ridge_feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=ridge_w,
-        min_std_exempt=TAU_MIN_STD_EXEMPT,
+        min_std_exempt=ridge_exempt,
         row_dates_tr=[dates[i] for i in train_idx],
         row_dates_te=[dates[i] for i in test_idx],
         cross_section_zscore=use_cs,
@@ -1110,8 +1125,10 @@ def fit_tau_tree_report(
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_feat_names),
         "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
-        "include_alpha_oo": True,
-        "n_alpha_oo_features": len(aoo_keys),
+        "include_alpha_tc": True,
+        "include_alpha_oo": False,
+        "n_alpha_tc_features": len(atc_keys),
+        "n_alpha_oo_features": 0,
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
         "oos": oos_boost,
@@ -1128,7 +1145,7 @@ def fit_tau_tree_report(
             "ŷ_τc_tree："
             + ("特征日截面 z-score · " if use_cs else "特征训练窗全局 μ/σ · ")
             + "同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
-            + "树侧 alpha_τc=Z∪raw_aoo_*（Ridge 对照可仅 Z）；"
+            + "alpha_τc=raw_atc_*∪Z_cs；"
             + (
                 f"训练日滑窗 {hyper.get('window_days')}／步 {hyper.get('step_days')}"
                 f"（{hyper.get('n_windows')} 窗 · init_model 增量 · 共 {hyper.get('total_trees')} 树）；"
@@ -1140,7 +1157,12 @@ def fit_tau_tree_report(
     }
     from core.research.tc_ridge import alpha_tc_report_meta
 
-    report.update(alpha_tc_report_meta(n_alpha_oo_features=len(aoo_keys)))
+    report.update(
+        alpha_tc_report_meta(
+            n_alpha_tc_features=len(atc_keys),
+            n_z_cs_features=sum(1 for k in feat_names if k in set(TAU_Z_CS_FEATURES)),
+        )
+    )
     attach_holdout_meta(report, split_meta)
     from core.research.horizon_tree import stamp_tree_fitted_at
 

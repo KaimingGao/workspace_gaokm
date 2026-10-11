@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.signal.factors.alpha_oo import score_alpha_oo
+from core.signal.factors.alpha_tc import score_alpha_tc
 from core.signal.factors.alt_sentiment import score_alt_sentiment
 from core.signal.factors.amihud import score_amihud
 from core.signal.factors.dividend import score_dividend
@@ -168,6 +169,29 @@ def _compute_alpha_oo(bars, *, quote=None, open_t=None, prev_close=None, **_kw):
     )
 
 
+def _compute_alpha_tc(
+    bars,
+    *,
+    quote=None,
+    open_t=None,
+    prev_close=None,
+    price_tau=None,
+    minute_bars=None,
+    tau_hm=None,
+    **_kw,
+):
+    """τ 锚 alpha_tc：≤T−1 + 今开 + ≤τ 分钟（PIT）。"""
+    return score_alpha_tc(
+        bars,
+        quote=quote,
+        open_t=open_t,
+        prev_close=prev_close,
+        price_tau=price_tau,
+        minute_bars=minute_bars,
+        tau_hm=tau_hm,
+    )
+
+
 _register(
     "momentum",
     "动量",
@@ -313,6 +337,13 @@ _register(
     "alpha_oo（~206）：隔夜/今开 + 昨 K + 开序列滚动 + 量/滞后（含 MOM3_C）；开盘 PIT。"
     " sub_score 不加权，仅 raw_aoo_* 进 Ridge/LightGBM/LambdaRank。",
 )
+_register(
+    "alpha_tc",
+    "τ→收因子集",
+    _compute_alpha_tc,
+    "alpha_tc（~224）：隔夜/τ 位置 + 昨 K + 收盘序列滚动 + 量/TC 滞后 + ≤τ 前缀路径；"
+    " price[τ] 锚 PIT。sub_score 不加权；ŷ_τc=raw_atc_*∪Z_cs。",
+)
 
 
 def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
@@ -408,6 +439,7 @@ def compute_configured_factors(
 ) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
     """按 weights 键计算子分；``required_keys`` 即使权为 0 也算（ŷ β 同构，FS0）。"""
     from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
+    from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
 
     wmap = dict(weights or {})
     skip = {str(x).strip() for x in (skip_factors or []) if str(x).strip()}
@@ -419,6 +451,9 @@ def compute_configured_factors(
         # FS0：Ridge β 用 raw_aoo_* 时，触发计算 alpha_oo 并注入 raw 列
         if is_alpha_oo_raw_key(k) and "alpha_oo" in _REGISTRY and "alpha_oo" not in wmap:
             wmap["alpha_oo"] = 0.0
+        # raw_atc_* → 触发 alpha_tc（暂未接 ŷ_τc；显式 required 时仍可算）
+        if is_alpha_tc_raw_key(k) and "alpha_tc" in _REGISTRY and "alpha_tc" not in wmap:
+            wmap["alpha_tc"] = 0.0
     sub_scores: Dict[str, float] = {}
     contribs: Dict[str, float] = {}
     meta: Dict[str, Any] = {}
@@ -467,23 +502,29 @@ def compute_configured_factors(
         meta.update(fac_meta or {})
         # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
         if isinstance(fac_meta, dict) and fac_meta.get("omit_sub_score"):
-            # alpha_oo / FS0：omit 的常数分不进加权，但 raw_* 供 Ridge β
+            # alpha_oo / alpha_tc / FS0：omit 的常数分不进加权，但 raw_* 可供入模
             from core.signal.factors.alpha_oo import (
                 ALPHA_OO_RAW_PREFIX,
                 is_alpha_oo_raw_key,
             )
+            from core.signal.factors.alpha_tc import (
+                ALPHA_TC_RAW_PREFIX,
+                is_alpha_tc_raw_key,
+            )
 
-            need_raw = name_fac == "alpha_oo" or any(
+            need_raw = name_fac in ("alpha_oo", "alpha_tc") or any(
                 is_alpha_oo_raw_key(str(r))
+                or is_alpha_tc_raw_key(str(r))
                 or str(r).startswith(f"raw_{name_fac}_")
                 for r in required
             )
             if need_raw:
-                raw_prefix = (
-                    ALPHA_OO_RAW_PREFIX
-                    if name_fac == "alpha_oo"
-                    else f"raw_{name_fac}_"
-                )
+                if name_fac == "alpha_oo":
+                    raw_prefix = ALPHA_OO_RAW_PREFIX
+                elif name_fac == "alpha_tc":
+                    raw_prefix = ALPHA_TC_RAW_PREFIX
+                else:
+                    raw_prefix = f"raw_{name_fac}_"
                 for mk, mv in fac_meta.items():
                     if mk in ("omit_sub_score", "ok"):
                         continue
