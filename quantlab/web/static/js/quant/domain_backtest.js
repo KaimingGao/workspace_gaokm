@@ -798,9 +798,6 @@ export function installBacktest(q) {
         return {
           rank_enter: lots.rank_enter,
           rank_strong: lots.rank_strong,
-          rank_enter_alt: lots.rank_enter_alt,
-          y_enter_enabled: lots.y_enter_enabled,
-          y_enter_alt_enabled: lots.y_enter_alt_enabled,
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
           oo_rank_top_frac:
@@ -1451,9 +1448,6 @@ export function installBacktest(q) {
         fusion_w_oc,
         rank_enter,
         rank_strong,
-        rank_enter_alt,
-        y_enter_enabled,
-        y_enter_alt_enabled,
         y_oo_gt0,
         y_τc_gt0,
         oo_rank_top_frac,
@@ -1502,9 +1496,6 @@ export function installBacktest(q) {
         fusion_w_oc,
         rank_enter,
         rank_strong,
-        rank_enter_alt,
-        y_enter_enabled,
-        y_enter_alt_enabled,
         y_oo_gt0: y_oo_gt0 === true,
         y_τc_gt0: y_τc_gt0 === true,
         oo_rank_top_frac:

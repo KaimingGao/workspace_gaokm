@@ -8,7 +8,7 @@
 
 ### 1.1 一句话定义
 
-每个交易日 **fill_clock（默认 09:30）**，对观察池打 **ranking**（ŷ_oo 按 rot 做几何剩余，再与 ŷ_τc∘ŷ_co 加权；基准 τ→open[T+1]），门槛1 ∪ 门槛2 过入场（可选 y_oo>0 / y_τc>0 / rank&lt;top 50%）后按已保存 **lot_base_amount / lot_strong_amount** 建仓/加仓（缺省 1 万 / 2 万；股数=金额/价向下取整到一手，不够一手则跳过；单票市值上限 = 强档金额 × 120%；live 开/加不按 `max_positions` 截断，另受观察池容量与组合持仓市值上限约束，默认 15 万；**历史回测** 面向全部观察池，本金默认 20 万，不套 15 万帽）；已持仓且 **未过入场、缺 ranking 或 hard_reject** 则清仓（仅 T+1 可卖部分）。无「持」动作。现金用完即止，不够整手则缩到整百（最少一手），不另留地板。
+每个交易日 **fill_clock（默认 09:30）**，对观察池打 **ranking**（ŷ_oo 按 rot 做几何剩余，再与 ŷ_τc∘ŷ_co 加权；基准 τ→open[T+1]），ranking 过入场（可选 y_oo>0 / y_τc>0 / rank&lt;top 50%）后按已保存 **lot_base_amount / lot_strong_amount** 建仓/加仓（缺省 1 万 / 2 万；股数=金额/价向下取整到一手，不够一手则跳过；单票市值上限 = 强档金额 × 120%；live 开/加不按 `max_positions` 截断，另受观察池容量与组合持仓市值上限约束，默认 15 万；**历史回测** 面向全部观察池，本金默认 20 万，不套 15 万帽）；已持仓且 **未过入场、缺 ranking 或 hard_reject** 则清仓（仅 T+1 可卖部分）。无「持」动作。现金用完即止，不够整手则缩到整百（最少一手），不另留地板。
 
 ### 1.2 与底仓做 T 的边界
 
@@ -61,8 +61,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `rank_enter` | 0.001 | 门槛1 ranking 入场下限（0.1%；旧 1.01 / 101% 自动换成净收益） |
-| `rank_enter_alt` | 0.001 | 门槛2 ranking 入场；缺则跟随门槛1。两档 OR |
+| `rank_enter` | 0.001 | ranking 入场下限（0.1%；旧 1.01 / 101% 自动换成净收益） |
 | `rank_strong` | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0；关=不看。缺分不拦 |
@@ -90,7 +89,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 1. 信息集：窗口截至**昨收**，报价用**今开**（不把今日收盘喂进特征）。过热（mom5≥10% 等）与 live `score_stock` 一样**仍算当日 ŷ**，只标 tip（`mom_chase_risk` / overheat）；**不拦开/加**。历史回测不得把过热票踢出打分名单，否则已持仓明细预估值会冻在最后一天。
 2. `ranking`：`w_oo × ((ŷ_oo+1)/(1+rot)−1) + w_oc × ((1+ŷ_τc)(1+w_co·ŷ_co)−1)`，`rot = price(τ)/open[T]−1`。两项都在 **τ→open[T+1]**；ŷ_oo 做几何剩余，ŷ_τc 已是 τ→close，不再整段减 rot。09:30 且成交价=开盘时 rot=0，左边退回 ŷ_oo。真实 label = `(open[T+1]−price(τ))/open[T]`。隔夜几何复合仍在 ŷ_τc 项里；净收益=落盘百分点÷100。缺 `y_spec_tau` 的旧行才退回开盘基准融合再减 rot。
 3. 已持仓且未过入场、缺 ranking、hard_reject、或 live 分档掉出允许档 → 清仓（T+1 可卖手数）。过热不因此清仓。
-4. 门槛1 ∪ 门槛2 过入场的票按分数买（live 受观察池容量与 `holdings_mv_cap`；历史回测面向观察池全名单、不套市值帽）：建仓或加仓。
+4. ranking 过入场的票按分数买（live 受观察池容量与 `holdings_mv_cap`；历史回测面向观察池全名单、不套市值帽）：建仓或加仓。
 5. ranking &gt; rank强 → lot_strong_amount，否则 lot_base_amount（live 与回测同一对；缺省 2 万 / 1 万）。按成交价换算整手；不够一手则跳过。买不下则缩到整百，最少一手。
 6. 单票持仓市值上限 = `lot_strong_amount × 120%`（缺省 2.4 万）。买后该票市值将超过则跳过，防单票过重。
 7. 若缩到一手仍使现金不够（含手续费）→ 跳过该买。
@@ -101,8 +100,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `rank_enter` | 0.001 | 门槛1 ranking 入场（0.1%） |
-| `rank_enter_alt` | 0.001 | 门槛2 ranking 入场；OR 门槛1 |
+| `rank_enter` | 0.001 | ranking 入场（0.1%） |
 | `rank_strong` | 0.001 | 超过买 lot_strong_amount，否则 lot_base_amount |
 | `lot_base_amount` | 10000 | 入场金额（元）；按价换算整手，不够一手则跳过；与历史回测表单同一键 |
 | `lot_strong_amount` | 20000 | 强档金额；不少于 lot_base_amount |

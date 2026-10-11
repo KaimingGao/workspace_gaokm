@@ -1448,26 +1448,36 @@ class TestEnterGates(unittest.TestCase):
     def _cfg(self, **extra):
         base = {
             "rank_enter": 0.001,
-            "y_enter_enabled": True,
-            "y_enter_alt_enabled": True,
         }
         base.update(extra)
         return base
 
-    def test_or_across_gates(self):
+    def test_rank_enter_threshold(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
         item = self._item()
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 item,
-                self._cfg(rank_enter=0.02, rank_enter_alt=0.01),
+                self._cfg(rank_enter=0.01),
                 rs=0.015,
             )
         )
         skip = rank_lot_enter_skip_reason(
             item,
-            self._cfg(rank_enter=0.02, rank_enter_alt=0.02),
+            self._cfg(rank_enter=0.02),
+            rs=0.015,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("ranking", skip)
+
+    def test_legacy_alt_keys_ignored(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        # 旧门槛2 键不再参与 OR：只看 rank_enter
+        skip = rank_lot_enter_skip_reason(
+            self._item(),
+            self._cfg(rank_enter=0.02, rank_enter_alt=0.01),
             rs=0.015,
         )
         self.assertIsNotNone(skip)
@@ -1530,16 +1540,6 @@ class TestEnterGates(unittest.TestCase):
                 rs=0.02,
             )
         )
-
-    def test_both_gates_off(self):
-        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
-
-        skip = rank_lot_enter_skip_reason(
-            self._item(),
-            self._cfg(y_enter_enabled=False, y_enter_alt_enabled=False),
-            rs=0.02,
-        )
-        self.assertEqual(skip, "门槛1/2 均未启用")
 
     def test_missing_y_oo_does_not_block(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
