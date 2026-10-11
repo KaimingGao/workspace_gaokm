@@ -15,7 +15,7 @@ const FACTOR_FAMILY_DEFS = [
   {
     id: "pv_derived",
     label: "量价衍生",
-    tip: "alpha_oo/raw_aoo_*（开锚）+ alpha_tc/raw_atc_*（τ 锚）；omit_sub_score，仅 raw 进模型；ŷ_τc=raw_atc_*∪Z_cs",
+    tip: "ŷ_oo 日线 z_oo_* + alpha_oo/raw_aoo_*；ŷ_τc=z_τc_*∪raw_aoo_*；alpha_tc/raw_atc_* 离线对照；omit_sub_score，仅 raw 进模型",
   },
   { id: "other", label: "其他", tip: "未编入 factor_groups" },
 ];

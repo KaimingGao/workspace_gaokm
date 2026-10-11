@@ -10686,9 +10686,8 @@ body[data-page="quant"] .quant-page #quant-section-t90 .quant-secondary-fold > .
   color: var(--quant-down, #16a34a);
 }
 
-/* 数字压在彩条上、靠右；彩条拉满列宽 */
-.quant-page .quant-rem-beta-cell,
-.quant-page .quant-rem-share-cell {
+/* β：数字压在彩条上、靠右 */
+.quant-page .quant-rem-beta-cell {
   position: relative;
   display: block;
   width: 100%;
@@ -10696,13 +10695,11 @@ body[data-page="quant"] .quant-page #quant-section-t90 .quant-secondary-fold > .
   min-height: 14px;
 }
 
-.quant-page .quant-rem-beta-cell .quant-rem-beta-track,
-.quant-page .quant-rem-share-cell .quant-rem-share-track {
+.quant-page .quant-rem-beta-cell .quant-rem-beta-track {
   width: 100%;
 }
 
-.quant-page .quant-rem-beta-num,
-.quant-page .quant-rem-share-num {
+.quant-page .quant-rem-beta-num {
   position: absolute;
   right: 4px;
   top: 50%;
@@ -10714,6 +10711,29 @@ body[data-page="quant"] .quant-page #quant-section-t90 .quant-secondary-fold > .
   text-shadow:
     0 0 3px color-mix(in srgb, var(--surface) 92%, transparent),
     0 0 1px var(--surface);
+}
+
+/* gain% / |β|%：条与数字并排，条不压字 */
+.quant-page .quant-rem-share-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 14px;
+}
+
+.quant-page .quant-rem-share-cell .quant-rem-share-track {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.quant-page .quant-rem-share-num {
+  flex: 0 0 auto;
+  min-width: 2.75rem;
+  text-align: right;
+  line-height: 1;
+  color: var(--ink);
 }
 
 .quant-page .quant-rem-share-track {

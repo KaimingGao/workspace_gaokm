@@ -3,7 +3,9 @@
 PIT：``hist=≤T−1`` 完整日 + ``open_t``（今开）。标签对齐 open[T+1]/open[T]−1。
 单票可算；板块截面类不在此模块（留给面板 Z）。
 
-ŷ_τc 已改吃 **alpha_τc := raw_atc_* ∪ Z_cs**（见 ``alpha_tc`` / ``tc_ridge``）；本包仍供 ŷ_oo / ŷ_co。
+ŷ_oo 入模注册日线为 ``z_oo_*``（见 ``z_oo``）；本包 ``raw_aoo_*`` 不变。
+ŷ_τc 现网特征包 **alpha_τc := z_τc_* ∪ alpha_oo**（见 ``tc_ridge``）；本包同时供 ŷ_oo / ŷ_co。
+``alpha_tc`` / ``raw_atc_*`` 仅作离线对照，不进现网拟合。
 """
 
 from __future__ import annotations
@@ -170,19 +172,30 @@ def expand_ridge_feature_names(
     *,
     base_names: Optional[Sequence[str]] = None,
 ) -> List[str]:
-    """Ridge 入模列：注册因子 + 面板 ``raw_aoo_*``；去掉常数 ``alpha_oo`` 分。"""
+    """Ridge 入模列：注册日线 ``z_oo_*`` + 面板 ``raw_aoo_*``；去掉因子包常数分。"""
     from core.signal.factors.meta.registry import registered_factor_names
+    from core.signal.factors.z_oo import (
+        Z_OO_SKIP_PACKS,
+        is_z_oo_key,
+        to_z_oo_key,
+    )
 
     base = list(base_names) if base_names is not None else list(registered_factor_names())
     names: List[str] = []
     seen = set()
     for n in base:
         k = str(n or "").strip()
-        if not k or k == ALPHA_OO_FACTOR_KEY:
+        if not k or k in Z_OO_SKIP_PACKS:
             continue
-        if k not in seen:
-            seen.add(k)
-            names.append(k)
+        if is_alpha_oo_raw_key(k):
+            canon = k
+        elif is_z_oo_key(k):
+            canon = k
+        else:
+            canon = to_z_oo_key(k)
+        if canon not in seen:
+            seen.add(canon)
+            names.append(canon)
     for k in collect_alpha_oo_raw_keys_from_rows(xs):
         if k not in seen:
             seen.add(k)

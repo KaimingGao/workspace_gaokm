@@ -37,13 +37,15 @@ class ReturnScoreModel:
     y_spec: Optional[Dict[str, Any]] = None
 
     def predict(self, sub_scores: Optional[Dict[str, float]]) -> Optional[float]:
+        from core.signal.factors.z_oo import feature_get
+
         subs = sub_scores or {}
         if not self.coefficients:
             return None
         total = float(self.intercept)
         used = 0
         for name, beta in self.coefficients.items():
-            raw = subs.get(name)
+            raw = feature_get(subs, name)
             if raw is None:
                 continue
             try:
@@ -67,6 +69,7 @@ class ReturnScoreModel:
     ) -> Optional[Dict[str, Any]]:
         """结构化拆解 ŷ（与 ``predict`` 同口径），供悬浮注释表格渲染。"""
         from core.signal.factors.meta.registry import factor_label
+        from core.signal.factors.z_oo import feature_get
 
         subs = sub_scores or {}
         if not self.coefficients:
@@ -74,7 +77,7 @@ class ReturnScoreModel:
         terms: List[Dict[str, Any]] = []
         total = float(self.intercept)
         for name, beta in self.coefficients.items():
-            raw = subs.get(name)
+            raw = feature_get(subs, name)
             if raw is None:
                 continue
             try:
@@ -353,7 +356,13 @@ def _batch_feature_rows(
         return None
     from core.research.feature_standardize import cross_section_zscore_dicts
 
-    raws = [dict((item or {}).get("sub_scores") or {}) for item in entries]
+    from core.signal.factors.z_oo import stamp_z_oo_aliases
+
+    raws = []
+    for item in entries:
+        row = dict((item or {}).get("sub_scores") or {})
+        stamp_z_oo_aliases(row)
+        raws.append(row)
     return cross_section_zscore_dicts(raws, names)
 
 

@@ -1,4 +1,7 @@
-"""离线 A/B：现网 ŷ_τc（Z∪raw_aoo_*）vs Z∪raw_atc_*。
+"""离线 A/B：ŷ_τc 的 Z-only vs alpha_τc（Z ∪ raw_aoo_*）。
+
+现网已回退 Z∪alpha_oo；本脚本对照「只吃 Z」与「完整包」。
+``raw_atc_*`` 不进现网，见 ``alpha_tc.py`` 模块注释。
 
 观察池最多 300 股；近 ``train_days+holdout_days`` 个交易日；
 Holdout 末段只测；**不落盘 / 不 promote**。
@@ -14,7 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -25,7 +28,7 @@ from core.research.holdout import (
     resolve_ridge_split,
 )
 from core.research.panel_matrix import (
-    PanelMatrix,
+    collect_tau_compact,
     fill_rates_from_matrix,
     fit_keepall_ridge_matrix,
     named_columns,
@@ -42,33 +45,26 @@ from core.research.tc_ridge import (
     _residual_var,
     _sign_hit,
 )
-from core.research.tau_panel import (
-    attach_cross_section_breadth,
-    collect_tau_open_panel,
-    theme_sample_weights,
-)
+from core.research.tau_panel import theme_sample_weights
 from core.research_universe import resolve_research_codes
 from core.signal.factors.alpha_oo import (
+    ALPHA_OO_MIN_BARS,
     is_alpha_oo_raw_key,
-    merge_alpha_oo_min_std_exempt,
-)
-from core.signal.factors.alpha_tc import (
-    ALPHA_TC_MIN_BARS,
-    inject_raw_atc,
-    is_alpha_tc_raw_key,
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="ŷ_τc offline A/B: Z∪aoo vs Z∪atc")
+    p = argparse.ArgumentParser(
+        description="ŷ_τc offline A/B: Z-only vs Z∪raw_aoo_*"
+    )
     p.add_argument("--max-names", type=int, default=300)
     p.add_argument("--train-days", type=int, default=160)
     p.add_argument("--holdout-days", type=int, default=40)
     p.add_argument("--ridge-lambda", type=float, default=1.0)
     p.add_argument("--gap-trigger", type=float, default=2.0)
     p.add_argument("--theme-boost", type=float, default=1.5)
-    p.add_argument("--min-history", type=int, default=ALPHA_TC_MIN_BARS)
+    p.add_argument("--min-history", type=int, default=ALPHA_OO_MIN_BARS)
     return p.parse_args()
 
 
@@ -81,111 +77,12 @@ def load_stock_bars(max_names: int, lookback: int) -> List[Dict[str, Any]]:
         offline_ok=True,
         fetch_fundamentals=False,
     )
-    need = int(ALPHA_TC_MIN_BARS) + 2
+    need = int(ALPHA_OO_MIN_BARS) + 2
     return [
         {"code": c, "bars": b}
         for c, b in stock_bars_dict.items()
         if len(b) >= need
     ]
-
-
-def _inject_atc_on_open_rows(
-    xs: List[dict],
-    dates: Sequence[str],
-    bars: Sequence[dict],
-    *,
-    min_history: int,
-) -> None:
-    """就地给开盘面板行补 raw_atc_*（price_τ=open_t）。"""
-    by_date = {
-        str(b.get("date") or b.get("trade_date") or "")[:10]: i
-        for i, b in enumerate(bars)
-        if isinstance(b, dict)
-    }
-    for row, day in zip(xs, dates):
-        if not isinstance(row, dict):
-            continue
-        i = by_date.get(str(day)[:10])
-        if i is None or i < 1:
-            continue
-        window = list(bars[max(0, i - max(min_history + 1, 62)) : i])
-        if len(window) < ALPHA_TC_MIN_BARS - 1:
-            continue
-        try:
-            o = float(bars[i].get("open") or 0)
-            pc = float(bars[i - 1].get("close") or 0)
-        except (TypeError, ValueError):
-            continue
-        if o <= 0 or pc <= 0:
-            continue
-        inject_raw_atc(
-            row,
-            window,
-            open_t=o,
-            prev_close=pc,
-            price_tau=o,
-            tau_hm="open",
-            quote={"date": str(day)[:10], "open": o, "prev_close": pc},
-        )
-
-
-def build_dual_tau_matrix(
-    stock_bars: Sequence[Dict[str, Any]],
-    *,
-    min_history: int,
-    gap_trigger_pct: float,
-) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
-    """开盘 ŷ_τc 面板：Z + raw_aoo_* + raw_atc_*（同窗一次构建）。"""
-    z_names = [
-        k
-        for k in TAU_Z_FEATURES
-        if k not in TAU_FIT_DROP_ALIASES and k not in MINUTE_TAU_ALL_KEYS
-    ]
-    raw_panels: List[Dict[str, Any]] = []
-    for item in stock_bars:
-        code = str(item.get("code") or "").strip()
-        bars = list(item.get("bars") or [])
-        if len(bars) < min_history + 2:
-            continue
-        xs, ys, dates, metas = collect_tau_open_panel(
-            bars,
-            min_history=min_history,
-            stock_code=code,
-            include_alpha_oo=True,
-        )
-        if len(ys) < 4:
-            continue
-        _inject_atc_on_open_rows(xs, dates, bars, min_history=min_history)
-        raw_panels.append(
-            {
-                "code": code,
-                "xs": xs,
-                "ys": ys,
-                "dates": dates,
-                "metas": metas,
-            }
-        )
-    enriched = attach_cross_section_breadth(
-        raw_panels, gap_trigger_pct=gap_trigger_pct
-    )
-    # 前缀 raw_a 同时 widen aoo / atc
-    block = PanelMatrix(z_names, widen_prefix="raw_a")
-    ys_out: List[float] = []
-    dates_out: List[str] = []
-    metas_out: List[dict] = []
-    for p in enriched:
-        xs = list(p.get("xs") or [])
-        ys = list(p.get("ys") or [])
-        dates = list(p.get("dates") or [])
-        metas = list(p.get("metas") or [])
-        if not ys:
-            continue
-        block.add_rows(xs)
-        ys_out.extend(float(y) for y in ys)
-        dates_out.extend(str(d)[:10] for d in dates)
-        metas_out.extend(metas if metas else [{} for _ in ys])
-    X = block.finalize()
-    return X, list(block.names), ys_out, dates_out, metas_out, len(enriched)
 
 
 def _filter_last_calendar_days(
@@ -223,20 +120,17 @@ def _filter_last_calendar_days(
     )
 
 
-def _finite_raw(
+def _finite_aoo(
     X: np.ndarray,
     names: Sequence[str],
     row_idx: Sequence[int],
-    *,
-    kind: str,
 ) -> List[str]:
     if X.size == 0 or not row_idx:
         return []
     view = X[np.asarray(list(row_idx), dtype=np.int64)]
-    pred = is_alpha_oo_raw_key if kind == "aoo" else is_alpha_tc_raw_key
     out: List[str] = []
     for j, name in enumerate(names):
-        if not pred(str(name)):
+        if not is_alpha_oo_raw_key(str(name)):
             continue
         if np.isfinite(view[:, j]).any():
             out.append(str(name))
@@ -261,30 +155,28 @@ def fit_arm(
         holdout_trading_days=holdout_days,
         calendar_dates=calendar,
     )
+    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
+
     z_base = [
         k
         for k in TAU_Z_FEATURES
         if k not in TAU_FIT_DROP_ALIASES
+        and k not in Z_TC_MINUTE_KEYS
         and k not in MINUTE_TAU_ALL_KEYS
         and k in set(col_names)
     ]
     feat_names = list(z_base)
     seen = set(feat_names)
-    kind = "aoo" if arm == "prod" else "atc"
-    for k in _finite_raw(X, col_names, train_idx, kind=kind):
-        if k not in seen:
-            seen.add(k)
-            feat_names.append(k)
+    if arm == "aoo":
+        for k in _finite_aoo(X, col_names, train_idx):
+            if k not in seen:
+                seen.add(k)
+                feat_names.append(k)
 
-    if arm == "prod":
-        min_std_exempt = merge_alpha_oo_min_std_exempt(
-            feat_names, list(TAU_MIN_STD_EXEMPT)
-        )
-    else:
-        min_std_exempt = list(TAU_MIN_STD_EXEMPT)
-        for n in feat_names:
-            if is_alpha_tc_raw_key(str(n)) and str(n) not in min_std_exempt:
-                min_std_exempt.append(str(n))
+    min_std_exempt = list(TAU_MIN_STD_EXEMPT)
+    for n in feat_names:
+        if is_alpha_oo_raw_key(str(n)) and str(n) not in min_std_exempt:
+            min_std_exempt.append(str(n))
 
     X_fit, feat_names = named_columns(X, col_names, feat_names)
     dates_tr = [dates[i] for i in train_idx]
@@ -296,8 +188,6 @@ def fit_arm(
     theme_w = theme_sample_weights(metas_tr, theme_boost=theme_boost)
 
     row_tr = np.asarray(train_idx, dtype=np.int64)
-    # named_columns 后行序未变；用相对索引
-    # 上面 X_fit 与 X 同行，train_idx 仍是全局行号
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
         np.asarray(ys_tr, dtype=np.float64),
@@ -330,7 +220,6 @@ def fit_arm(
     buckets = _oos_sign_buckets(preds, ys_te) if ys_te else {}
     active = list(fit.get("active_features") or [])
     n_aoo = sum(1 for a in active if is_alpha_oo_raw_key(str(a)))
-    n_atc = sum(1 for a in active if is_alpha_tc_raw_key(str(a)))
     oos: Dict[str, Any] = {
         "n_train": len(ys_tr),
         "n_test": len(ys_te),
@@ -352,16 +241,15 @@ def fit_arm(
         pass
 
     fill_keys = list(z_base) + [
-        k for k in feat_names if is_alpha_oo_raw_key(k) or is_alpha_tc_raw_key(k)
+        k for k in feat_names if is_alpha_oo_raw_key(k)
     ]
     return {
         "success": True,
         "arm": arm,
-        "label": "Z∪raw_aoo_*" if arm == "prod" else "Z∪raw_atc_*",
+        "label": "Z-only" if arm == "z" else "Z∪raw_aoo_*",
         "n_features": len(feat_names),
         "n_active": len(active),
         "n_aoo_active": n_aoo,
-        "n_atc_active": n_atc,
         "n_train_days": split_meta.get("n_train_days"),
         "n_test_days": split_meta.get("n_test_days"),
         "fit_end": split_meta.get("fit_end"),
@@ -394,42 +282,21 @@ def _print_arm(r: Dict[str, Any]) -> None:
         f"fit_end={r.get('fit_end')}  eval_start={r.get('eval_start')}"
     )
     print(
-        f"  feats={r.get('n_features')} active={r.get('n_active')} "
-        f"aoo_active={r.get('n_aoo_active')} atc_active={r.get('n_atc_active')}"
+        f"  features={r.get('n_features')} active={r.get('n_active')} "
+        f"aoo_active={r.get('n_aoo_active')}"
     )
     print(
-        f"  rows train/test={oos.get('n_train')}/{oos.get('n_test')}  "
-        f"IC={_fmt(oos.get('ic'))}  sign_hit={_fmt(oos.get('sign_hit'))}  "
-        f"resid_var={_fmt(oos.get('residual_var'))}"
+        f"  IC={_fmt(oos.get('ic'))}  hit={_fmt(oos.get('sign_hit'))}  "
+        f"cs_ic={_fmt(oos.get('cs_ic'))}  cs_rank_icir={_fmt(oos.get('cs_rank_icir'))}"
     )
-    print(
-        f"  pos_recall={_fmt(oos.get('pos_recall'))}  "
-        f"neg_recall={_fmt(oos.get('neg_recall'))}  "
-        f"n_pos/n_neg={oos.get('n_pos')}/{oos.get('n_neg')}"
-    )
-    cs_p = oos.get("cs_pearson") or {}
-    cs_s = oos.get("cs_spearman") or {}
-    if isinstance(cs_p, dict) and cs_p.get("mean") is not None:
-        print(
-            f"  cs_pearson mean={_fmt(cs_p.get('mean'))}  "
-            f"cs_spearman mean={_fmt((cs_s or {}).get('mean'))}"
-        )
-    by_th = oos.get("by_theme") or {}
-    if by_th:
-        for k in ("theme", "non_theme", "all"):
-            b = by_th.get(k) or by_th.get(str(k))
-            if isinstance(b, dict):
-                print(
-                    f"  theme[{k}] ic={_fmt(b.get('ic'))} n={b.get('n')}"
-                )
 
 
 def main() -> int:
     args = _parse_args()
-    train_days = int(args.train_days)
-    holdout_days = int(args.holdout_days)
+    train_days = max(20, int(args.train_days))
+    holdout_days = max(5, int(args.holdout_days))
     window_days = train_days + holdout_days
-    lookback = window_days + 10  # pad 由 load_portfolio 再加 alpha 窗
+    lookback = max(window_days + 40, int(args.min_history) + window_days)
 
     t0 = time.time()
     print(
@@ -443,18 +310,29 @@ def main() -> int:
         return 1
 
     t1 = time.time()
-    X, names, ys, dates, metas, n_stocks = build_dual_tau_matrix(
+    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
+
+    z_names = [
+        k
+        for k in TAU_Z_FEATURES
+        if k not in TAU_FIT_DROP_ALIASES
+        and k not in Z_TC_MINUTE_KEYS
+        and k not in MINUTE_TAU_ALL_KEYS
+    ]
+    X, names, ys, dates, metas, n_stocks = collect_tau_compact(
         stock_bars,
+        z_names,
         min_history=int(args.min_history),
         gap_trigger_pct=float(args.gap_trigger),
+        include_alpha_oo=True,
+        head="y_tc_ab",
     )
     print(
-        f"dual panel: stocks={n_stocks} rows={len(ys)} cols={len(names)} "
+        f"panel: stocks={n_stocks} rows={len(ys)} cols={len(names)} "
         f"({time.time() - t1:.1f}s)"
     )
     n_aoo = sum(1 for n in names if is_alpha_oo_raw_key(str(n)))
-    n_atc = sum(1 for n in names if is_alpha_tc_raw_key(str(n)))
-    print(f"  columns raw_aoo_={n_aoo} raw_atc_={n_atc}")
+    print(f"  columns raw_aoo_={n_aoo}")
 
     cal_all = calendar_dates_from_stock_bars(stock_bars)
     X, names, ys, dates, metas, cal = _filter_last_calendar_days(
@@ -468,50 +346,34 @@ def main() -> int:
         print("ERROR: calendar too short for requested split")
         return 1
 
-    r_prod = fit_arm(
+    r_z = fit_arm(
         X,
         names,
         ys,
         dates,
         metas,
-        arm="prod",
+        arm="z",
         holdout_days=holdout_days,
         calendar=cal,
         ridge_lambda=float(args.ridge_lambda),
         theme_boost=float(args.theme_boost),
     )
-    r_atc = fit_arm(
+    r_aoo = fit_arm(
         X,
         names,
         ys,
         dates,
         metas,
-        arm="atc",
+        arm="aoo",
         holdout_days=holdout_days,
         calendar=cal,
         ridge_lambda=float(args.ridge_lambda),
         theme_boost=float(args.theme_boost),
     )
-
-    _print_arm(r_prod)
-    _print_arm(r_atc)
-
-    if r_prod.get("success") and r_atc.get("success"):
-        ic0 = (r_prod.get("oos") or {}).get("ic")
-        ic1 = (r_atc.get("oos") or {}).get("ic")
-        sh0 = (r_prod.get("oos") or {}).get("sign_hit")
-        sh1 = (r_atc.get("oos") or {}).get("sign_hit")
-        print("\n=== Δ (atc − prod) ===")
-        if ic0 is not None and ic1 is not None:
-            print(f"  ΔIC = {_fmt(float(ic1) - float(ic0))}")
-        if sh0 is not None and sh1 is not None:
-            print(f"  Δsign_hit = {_fmt(float(sh1) - float(sh0))}")
-        print(
-            f"  Δactive = {int(r_atc.get('n_active') or 0) - int(r_prod.get('n_active') or 0)}"
-        )
-
-    print(f"\ndone in {time.time() - t0:.1f}s (offline, not saved)")
-    return 0
+    _print_arm(r_z)
+    _print_arm(r_aoo)
+    print(f"\ndone in {time.time() - t0:.1f}s")
+    return 0 if r_z.get("success") and r_aoo.get("success") else 1
 
 
 if __name__ == "__main__":

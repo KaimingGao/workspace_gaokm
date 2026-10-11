@@ -871,6 +871,8 @@ class TestDualScoreFields(unittest.TestCase):
         )
         self.assertEqual(item["features_tau"].get("gap_atr"), 0.8)
         self.assertEqual(item["features_tau"].get("gap_vs_sector"), 0.3)
+        self.assertEqual(item["features_tau"].get("z_τc_gap_atr"), 0.8)
+        self.assertEqual(item["features_tau"].get("z_τc_gap_pct"), 1.0)
         self.assertNotIn("momentum", item["features_tau"])
         self.assertIn("features_tau_fill", item)
         self.assertEqual(item["features_tau_fill"]["filled"], 3)

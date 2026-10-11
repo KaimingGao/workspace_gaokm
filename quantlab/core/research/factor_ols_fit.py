@@ -539,7 +539,7 @@ def fit_factor_ols_from_panel(
     )
 
     if feature_names is None:
-        # 默认：注册因子 + 面板 raw_aoo_*（去掉常数 alpha_oo 分）
+        # 默认：注册日线 z_oo_* + 面板 raw_aoo_*（去掉常数 alpha_oo 分）
         factor_names = expand_ridge_feature_names(xs)
     else:
         factor_names = list(feature_names)
@@ -548,6 +548,10 @@ def fit_factor_ols_from_panel(
             factor_names = [
                 n for n in factor_names if str(n) != ALPHA_OO_FACTOR_KEY
             ]
+    # 面板仍写裸名 → 镜像 z_oo_* 再进 prepare
+    from core.signal.factors.z_oo import stamp_z_oo_rows
+
+    stamp_z_oo_rows(xs)
     exempt_merged = merge_alpha_oo_min_std_exempt(factor_names, min_std_exempt)
     cfg = load_signal_config()
     current_weights = dict(cfg.get("weights") or {})

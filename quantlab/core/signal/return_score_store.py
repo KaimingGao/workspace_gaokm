@@ -44,9 +44,10 @@ def save_return_model_draft(
     """写入研究草稿 ``data/reports/last_return_score_model.json``。"""
     _ensure_dirs()
     payload = {
-        "version": 1,
+        "version": 2,
         "kind": "return_score_model",
         "role": "draft",
+        "schema": "oo_ridge_v2",
         "fitted_at": _utc_now(),
         "saved_at": None,
         "model": model.to_dict(),
@@ -183,8 +184,9 @@ def promote_return_model_draft(
         meta_out["stripped_unsourced"] = list(stripped_proxy)
     fitted_at = raw.get("fitted_at") or raw.get("saved_at")
     payload = {
-        "version": int(raw.get("version") or 1),
+        "version": int(raw.get("version") or 2),
         "kind": "return_score_model",
+        "schema": str(raw.get("schema") or "oo_ridge_v2"),
         "role": payload_role,
         "model_role": role_n,
         "fitted_at": fitted_at,

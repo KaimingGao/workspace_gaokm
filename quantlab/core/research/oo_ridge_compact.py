@@ -76,13 +76,14 @@ def alpha_oo_raw_names() -> List[str]:
 
 
 def _registered_ridge_names() -> List[str]:
-    from core.signal.factors.meta.registry import registered_factor_names
+    """入模列：注册日线 → ``z_oo_*``；不含 alpha_oo/alpha_tc 包。"""
+    from core.signal.factors.z_oo import Z_OO_SKIP_PACKS, to_z_oo_key, z_oo_legacy_keys
 
     out: List[str] = []
     seen = set()
-    for name in registered_factor_names():
-        k = str(name or "").strip()
-        if not k or k == ALPHA_OO_FACTOR_KEY or k in seen:
+    for name in z_oo_legacy_keys():
+        k = to_z_oo_key(name)
+        if not k or k in Z_OO_SKIP_PACKS or k in seen:
             continue
         seen.add(k)
         out.append(k)
@@ -121,6 +122,8 @@ class OoPanelMatrix:
         dates: Sequence[str],
     ) -> None:
         """折进一只股票的面板后，调用方应丢掉 ``rows``。"""
+        from core.signal.factors.z_oo import stamp_z_oo_aliases, to_legacy_key
+
         n_in = min(len(rows), len(ys), len(dates))
         if n_in <= 0:
             return
@@ -159,6 +162,7 @@ class OoPanelMatrix:
                 continue
             if not math.isfinite(yf):
                 continue
+            stamp_z_oo_aliases(row)
             kept_rows.append(row)
             kept_y.append(yf)
             kept_d.append(str(dates[i] or "")[:10])
@@ -173,7 +177,8 @@ class OoPanelMatrix:
             for key, val in row.items():
                 sk = str(key)
                 j = index.get(sk)
-                if j is None or sk in banned or val is None:
+                leg = to_legacy_key(sk)
+                if j is None or sk in banned or leg in banned or val is None:
                     continue
                 try:
                     fv = float(val)
@@ -808,7 +813,18 @@ def fit_oo_ridge_matrix(
         from core.research.beta_accuracy import apply_collinearity_on_columns
         from core.signal.factors.meta.collinearity import TREND_FAMILY
 
-        family = [n for n in active if n in TREND_FAMILY]
+        from core.signal.factors.z_oo import is_z_oo_key, to_legacy_key
+
+        trend_set = set(TREND_FAMILY)
+
+        def _in_trend(name: str) -> bool:
+            if name in trend_set:
+                return True
+            if is_z_oo_key(name) and to_legacy_key(name) in trend_set:
+                return True
+            return False
+
+        family = [n for n in active if _in_trend(n)]
         if len(family) >= 2:
             pos = {name: i for i, name in enumerate(active)}
             columns = {name: x_c[:, pos[name]] for name in family}

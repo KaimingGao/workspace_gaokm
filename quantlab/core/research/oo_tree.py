@@ -71,10 +71,18 @@ def load_oo_tree_last_report() -> Optional[Dict[str, Any]]:
 def _oo_column_names() -> List[str]:
     from core.research.oo_ridge_compact import alpha_oo_raw_names
     from core.signal.factors.meta.health import unsourced_factor_names
-    from core.signal.factors.meta.registry import registered_factor_names
+    from core.signal.factors.z_oo import (
+        Z_OO_SKIP_PACKS,
+        to_z_oo_key,
+        z_oo_legacy_keys,
+    )
 
     banned = set(unsourced_factor_names())
-    names = [n for n in registered_factor_names() if n not in banned]
+    names = [
+        to_z_oo_key(n)
+        for n in z_oo_legacy_keys()
+        if n not in banned and n not in Z_OO_SKIP_PACKS
+    ]
     seen = set(names)
     for key in alpha_oo_raw_names():
         if key not in seen and key not in banned:
@@ -122,8 +130,13 @@ def _stack_daily_panels(
         n_align = min(len(rows), len(y_list), len(d_list))
         if n_align <= 0:
             continue
-        block.add_rows(list(rows)[:n_align])
+        from core.signal.factors.z_oo import stamp_z_oo_rows
+
+        chunk = list(rows)[:n_align]
+        stamp_z_oo_rows(chunk)
+        block.add_rows(chunk)
         del rows
+        del chunk
         n_stocks += 1
         for y, d in zip(list(y_list)[:n_align], list(d_list)[:n_align]):
             ys.append(float(y))
@@ -147,15 +160,27 @@ def _feature_names_from_matrix(
     """返回 (tree_feats, ridge_feats, aoo_keys)。proxy 已在列名里剔除。"""
     from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
     from core.signal.factors.meta.health import unsourced_factor_names
-    from core.signal.factors.meta.registry import registered_factor_names
+    from core.signal.factors.z_oo import (
+        Z_OO_SKIP_PACKS,
+        to_legacy_key,
+        to_z_oo_key,
+        z_oo_legacy_keys,
+    )
 
     banned = set(unsourced_factor_names())
-    base = [n for n in registered_factor_names() if n not in banned]
+    base = [
+        to_z_oo_key(n)
+        for n in z_oo_legacy_keys()
+        if n not in banned and n not in Z_OO_SKIP_PACKS
+    ]
     ridge_feats = [n for n in base if n in present]
     aoo_keys = [
         n
         for n in names
-        if n in present and is_alpha_oo_raw_key(str(n)) and n not in banned
+        if n in present
+        and is_alpha_oo_raw_key(str(n))
+        and n not in banned
+        and to_legacy_key(str(n)) not in banned
     ]
     tree_feats = list(ridge_feats)
     for k in aoo_keys:

@@ -20,8 +20,8 @@ FAMILY_META: Tuple[Tuple[str, str, str], ...] = (
     (
         "pv_derived",
         "量价衍生",
-        "OHLCV 衍生：alpha_oo/raw_aoo_*（开锚）+ alpha_tc/raw_atc_*（τ 锚）；"
-        "omit_sub_score，仅 raw 进模型；ŷ_τc=raw_atc_*∪Z_cs",
+        "ŷ_oo 日线 z_oo_* + alpha_oo/raw_aoo_*；ŷ_τc=z_τc_*∪raw_aoo_*；"
+        "alpha_tc/raw_atc_* 离线；omit_sub_score，仅 raw 进模型",
     ),
     ("other", "其他", "未编入 factor_groups"),
 )
@@ -43,6 +43,8 @@ EXTRA_FAMILY: Dict[str, str] = {
 PREFIX_FAMILY: Tuple[Tuple[str, str], ...] = (
     ("raw_aoo_", "pv_derived"),
     ("raw_atc_", "pv_derived"),
+    ("z_τc_", "pv_derived"),
+    ("z_oo_", "pv_derived"),
 )
 
 SOURCE_LABELS: Dict[str, str] = {

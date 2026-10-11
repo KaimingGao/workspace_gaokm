@@ -1436,7 +1436,6 @@ def collect_tau_open_panel(
     stock_code: Optional[str] = None,
     respect_regime: bool = False,
     config: Optional[dict] = None,
-    include_alpha_tc: bool = False,
     include_alpha_oo: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """单票 ŷ_τc 面板（τ=open，标签 close/open−1）。
@@ -1444,23 +1443,11 @@ def collect_tau_open_panel(
     返回 ``(xs, ys, decision_dates, meta_rows)``。
     ``decision_dates`` = 交易日 T（开盘决策日）；ATR 窗口截止 T-1。
     只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_oo，此处不算。
-    ``include_alpha_tc=True`` 时附加 τ 锚 ``raw_atc_*``（≤T−1 + 今开；price_τ=open）。
-    ``include_alpha_oo=True`` 时附加开锚 ``raw_aoo_*``（旧包兼容）。
+    ``include_alpha_oo=True`` 时附加开锚 ``raw_aoo_*``（≤T−1 + 今开；Ridge / 树共用）。
     ``meta_rows`` 含 ``y_τc``。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
-    if include_alpha_tc:
-        try:
-            from core.signal.factors.alpha_tc import bump_window_for_alpha_tc
-
-            min_history, max_window = bump_window_for_alpha_tc(
-                ("alpha_tc",),
-                min_history=min_history,
-                max_window=max_window,
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("tau open alpha_tc window bump failed", exc_info=True)
     if include_alpha_oo:
         try:
             from core.signal.factors.alpha_oo import bump_window_for_alpha_oo
@@ -1514,21 +1501,14 @@ def collect_tau_open_panel(
         }
         for k in TAU_LAG_FEATURES:
             row[k] = lags.get(k)
-        if include_alpha_tc:
-            from core.signal.factors.alpha_tc import inject_raw_atc
-
-            inject_raw_atc(
-                row,
-                window,
-                open_t=o,
-                prev_close=pc,
-                price_tau=o,
-                tau_hm="open",
-                quote={"date": date_t, "open": o, "prev_close": pc},
-            )
         if include_alpha_oo:
             from core.signal.factors.alpha_oo import inject_raw_aoo
 
+            pc = None
+            try:
+                pc = float((b_prev or {}).get("close") or 0) or None
+            except (TypeError, ValueError, AttributeError):
+                pc = None
             inject_raw_aoo(row, window, open_t=o, prev_close=pc)
         xs.append(row)
         ys.append(float(y))
@@ -2058,7 +2038,6 @@ def collect_tau_intraday_panel(
     index_bars: Optional[List[dict]] = None,
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,
-    include_alpha_tc: bool = False,
     include_alpha_oo: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 ŷ_τc = close[T]/price[τ]−1。
@@ -2066,22 +2045,10 @@ def collect_tau_intraday_panel(
     τ=open 时 price[τ]=open，等于 close/open−1。
     ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 随 τ 不同**）；
     默认网格 ``09:30|09:35|…|11:00`` 每 5m（09:30 无分钟前缀只留开盘 Z；与做 T v6 扫描至 11:00 对齐；不含 13:00 / 14:00）。
-    ``include_alpha_tc=True`` 时按钟附加 ``raw_atc_*``（price_τ=该钟价）。
-    ``include_alpha_oo=True`` 时附加开锚 ``raw_aoo_*``（旧包兼容）。
+    ``include_alpha_oo=True`` 时附加开锚 ``raw_aoo_*``（≤T−1 + 今开；Ridge / 树共用）。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
-    if include_alpha_tc:
-        try:
-            from core.signal.factors.alpha_tc import bump_window_for_alpha_tc
-
-            min_history, max_window = bump_window_for_alpha_tc(
-                ("alpha_tc",),
-                min_history=min_history,
-                max_window=max_window,
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("tau intraday alpha_tc window bump failed", exc_info=True)
     if include_alpha_oo:
         try:
             from core.signal.factors.alpha_oo import bump_window_for_alpha_oo
@@ -2131,7 +2098,7 @@ def collect_tau_intraday_panel(
             tau_by_date=tau_map,
             asof_date=date_t,
         )
-        # 开锚 alpha_oo：与 τ 钟无关，提到循环外；alpha_tc 按钟注入（price_τ 变）
+        # 开锚 alpha_oo：≤T−1 + 今开；与 τ 钟无关，提到循环外避免重复
         aoo_feats: Dict[str, Any] = {}
         if include_alpha_oo:
             from core.signal.factors.alpha_oo import inject_raw_aoo
@@ -2184,19 +2151,6 @@ def collect_tau_intraday_panel(
                 tau_hm=clock,
                 open_px=o_min if o_min and o_min > 0 else o,
             )
-            if include_alpha_tc:
-                from core.signal.factors.alpha_tc import inject_raw_atc
-
-                inject_raw_atc(
-                    row,
-                    window,
-                    open_t=o,
-                    prev_close=pc,
-                    price_tau=float(px_tau),
-                    minute_bars=day_mins,
-                    tau_hm=clock,
-                    quote={"date": date_t, "open": o, "prev_close": pc},
-                )
             if aoo_feats:
                 row.update(aoo_feats)
             xs.append(row)

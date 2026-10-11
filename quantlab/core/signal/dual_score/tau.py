@@ -54,20 +54,22 @@ _TAU_CORE_Z_KEYS = (
 
 def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     from core.signal.factors.alpha_oo import keep_aoo_raw_in_row
-    from core.signal.factors.alpha_tc import keep_atc_raw_in_row
+    from core.signal.factors.z_tc import Z_TC_FIT_FEATURES, stamp_z_tc_aliases
     from core.signal.minute_tau_feats import attach_ret_vs_sector
 
     out: Dict[str, Any] = {}
     src = dict(feats or {})
     attach_ret_vs_sector(src)
+    stamp_z_tc_aliases(src)
     for k in _TAU_FEATURE_KEYS:
+        if k in src:
+            out[k] = src.get(k)
+    for k in Z_TC_FIT_FEATURES:
         if k in src:
             out[k] = src.get(k)
     for k in MINUTE_TAU_SHAPE_KEYS:
         if k in src:
             out[k] = src.get(k)
-    out = keep_atc_raw_in_row(src, dest=out)
-    # 旧 promoted ŷ_τc 仍可能吃 raw_aoo_*
     return keep_aoo_raw_in_row(src, dest=out)
 
 
@@ -561,30 +563,18 @@ def attach_dual_score_pit(
         feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
         if hist:
             from core.signal.factors.alpha_oo import inject_raw_aoo
-            from core.signal.factors.alpha_tc import inject_raw_atc
 
             prev_c = None
             try:
                 prev_c = float((hist[-1] or {}).get("close") or 0) or None
             except (TypeError, ValueError):
                 prev_c = None
-            qdict = q if isinstance(q, dict) else None
-            inject_raw_atc(
-                feats,
-                hist,
-                open_t=open_t_px,
-                prev_close=prev_c,
-                price_tau=open_t_px,
-                tau_hm="open",
-                quote=qdict,
-            )
-            # 旧模型兼容：仍注入 raw_aoo_*
             inject_raw_aoo(
                 feats,
                 hist,
                 open_t=open_t_px,
                 prev_close=prev_c,
-                quote=qdict,
+                quote=q if isinstance(q, dict) else None,
             )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         pass
@@ -737,45 +727,6 @@ def attach_dual_score_pit(
         from core.signal.minute_tau_feats import stamp_open_clock_minute_z
 
         stamp_open_clock_minute_z(feats)
-    # 分钟齐套后再按 price[τ] 重算 raw_atc_*（开盘注入时 price_τ=open）
-    if hist and allow_minute:
-        try:
-            from core.signal.factors.alpha_tc import inject_raw_atc
-
-            hm_atc = str(pack_hm or "").strip()[:5]
-            if not hm_atc and as_of_tau_override:
-                # as_of 形如 2024-01-02T10:30:00+08:00
-                part = str(as_of_tau_override).split("T")[-1] if "T" in str(
-                    as_of_tau_override
-                ) else str(as_of_tau_override)
-                hm_atc = part[:5] if ":" in part[:5] else hm_atc
-            px_tau = None
-            ret_ot = feats.get("ret_open_to_tau")
-            if open_t_px is not None and ret_ot is not None:
-                try:
-                    # 分钟小包 ret_open_to_tau 为单位百分点
-                    px_tau = float(open_t_px) * (1.0 + float(ret_ot) / 100.0)
-                except (TypeError, ValueError):
-                    px_tau = None
-            if px_tau is None:
-                px_tau = open_t_px
-            prev_c2 = None
-            try:
-                prev_c2 = float((hist[-1] or {}).get("close") or 0) or None
-            except (TypeError, ValueError):
-                prev_c2 = None
-            inject_raw_atc(
-                feats,
-                hist,
-                open_t=open_t_px,
-                prev_close=prev_c2,
-                price_tau=px_tau,
-                minute_bars=minute_bars,
-                tau_hm=hm_atc or "open",
-                quote=q if isinstance(q, dict) else None,
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("raw_atc minute re-inject failed", exc_info=True)
     # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
     y_src = ""
@@ -999,12 +950,18 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
 
     try:
         from core.research.tc_ridge import TAU_Z_FEATURES
+        from core.signal.factors.z_tc import Z_TC_LEGACY_KEYS
 
-        z_keys = set(TAU_Z_FEATURES) | {"open_gap"}
+        z_keys = set(TAU_Z_FEATURES) | set(Z_TC_LEGACY_KEYS) | {
+            "open_gap",
+            "z_τc_open_gap",
+        }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         z_keys = {
             "gap_pct",
             "open_gap",
+            "z_τc_gap_pct",
+            "z_τc_open_gap",
             "sector_gap_breadth",
             "theme_day",
             "gap_atr",

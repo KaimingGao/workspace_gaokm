@@ -171,11 +171,15 @@ def _absorb_stock(
     metas: Sequence[dict],
     slim_keys: Sequence[str],
 ) -> None:
+    from core.signal.factors.z_tc import stamp_z_tc_rows
+
     n = len(xs)
     if n != len(ys) or n != len(dates) or n != len(metas):
         raise RuntimeError(
             f"面板行数不一致 {code}: xs={n} y={len(ys)} dates={len(dates)} metas={len(metas)}"
         )
+    # 入模列为 z_τc_*；面板仍写裸名 → 镜像后再折矩阵
+    stamp_z_tc_rows(xs)
     block.add_rows(xs)
     slim_panels.append(
         {
@@ -198,12 +202,28 @@ def _finish_breadth(
     n_stocks: int,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict]]:
     from core.research.tau_panel import attach_cross_section_breadth
+    from core.signal.factors.z_tc import (
+        Z_TC_LEGACY_SET,
+        stamp_z_tc_rows,
+        to_z_tc_key,
+    )
 
     enriched = attach_cross_section_breadth(
         slim_panels, gap_trigger_pct=gap_trigger_pct
     )
+    # 截面写回裸名后再镜像 z_τc_*，矩阵列与拟合键对齐
+    for panel in enriched:
+        stamp_z_tc_rows(panel.get("xs") or [])
+    write_keys = list(slim_keys)
+    seen = set(write_keys)
+    for k in slim_keys:
+        if k in Z_TC_LEGACY_SET:
+            canon = to_z_tc_key(k)
+            if canon not in seen:
+                seen.add(canon)
+                write_keys.append(canon)
     X = block.finalize()
-    _write_breadth_columns(X, block.names, enriched, slim_keys)
+    _write_breadth_columns(X, block.names, enriched, write_keys)
     ys: List[float] = []
     dates: List[str] = []
     metas: List[dict] = []
@@ -235,8 +255,7 @@ def collect_tau_compact(
     gap_trigger_pct: float = 2.0,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
-    include_alpha_tc: bool = True,
-    include_alpha_oo: bool = False,
+    include_alpha_oo: bool = True,
     head: str = "y_tc",
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。"""
@@ -252,15 +271,9 @@ def collect_tau_compact(
         if use_minute
         else None
     )
-    if include_alpha_tc and include_alpha_oo:
-        widen = "raw_a"  # raw_aoo_* + raw_atc_*
-    elif include_alpha_tc:
-        widen = "raw_atc_"
-    elif include_alpha_oo:
-        widen = "raw_aoo_"
-    else:
-        widen = ""
-    block = PanelMatrix(names, widen_prefix=widen)
+    block = PanelMatrix(
+        names, widen_prefix="raw_aoo_" if include_alpha_oo else ""
+    )
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
@@ -282,7 +295,6 @@ def collect_tau_compact(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha_tc=include_alpha_tc,
                 include_alpha_oo=include_alpha_oo,
             )
             item.pop("minute_bars", None)
@@ -293,7 +305,6 @@ def collect_tau_compact(
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
                 stock_code=code,
-                include_alpha_tc=include_alpha_tc,
                 include_alpha_oo=include_alpha_oo,
             )
         if len(ys) < 4:
@@ -415,32 +426,6 @@ def raw_aoo_finite(
     out: List[str] = []
     for j, name in enumerate(names):
         if not is_alpha_oo_raw_key(str(name)):
-            continue
-        if np.isfinite(view[:, j]).any():
-            out.append(str(name))
-    return out
-
-
-def raw_atc_finite(
-    X: np.ndarray,
-    names: Sequence[str],
-    row_idx: Optional[Sequence[int]] = None,
-) -> List[str]:
-    """训练行（或全表）上至少有一个有限值的 ``raw_atc_*``，按列序。"""
-    if X.size == 0 or X.shape[0] == 0:
-        return []
-    if row_idx is None:
-        view = X
-    else:
-        idx = np.asarray(list(row_idx), dtype=np.int64)
-        if idx.size == 0:
-            return []
-        view = X[idx]
-    from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
-
-    out: List[str] = []
-    for j, name in enumerate(names):
-        if not is_alpha_tc_raw_key(str(name)):
             continue
         if np.isfinite(view[:, j]).any():
             out.append(str(name))

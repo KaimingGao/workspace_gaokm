@@ -171,6 +171,7 @@ def apply_collinearity_policy(
     返回 (kept_active, dropped, meta)。
     """
     from core.signal.factors.meta.collinearity import TREND_FAMILY
+    from core.signal.factors.z_oo import feature_get, is_z_oo_key, to_legacy_key
 
     pol = str(policy or "drop_redundant").strip().lower()
     meta: Dict[str, Any] = {
@@ -182,15 +183,22 @@ def apply_collinearity_policy(
     if pol in ("keep_all", "off", "none") or len(active) < 2 or not xs:
         return list(active), [], meta
 
-    # 仅对趋势族内做冗余剔除；其它因子保留
-    family = [n for n in active if n in TREND_FAMILY]
+    # 仅对趋势族内做冗余剔除；其它因子保留（含 z_oo_* canon）
+    trend_set = set(TREND_FAMILY)
+
+    def _in_trend(name: str) -> bool:
+        if name in trend_set:
+            return True
+        return bool(is_z_oo_key(name) and to_legacy_key(name) in trend_set)
+
+    family = [n for n in active if _in_trend(n)]
     if len(family) < 2:
         return list(active), [], meta
 
     def _corr(a: str, b: str) -> Optional[float]:
         xa, xb = [], []
         for row in xs:
-            va, vb = row.get(a), row.get(b)
+            va, vb = feature_get(row, a), feature_get(row, b)
             if va is None or vb is None:
                 continue
             try:
@@ -306,6 +314,7 @@ def apply_collinearity_on_columns(
 ) -> Tuple[List[str], List[str], Dict[str, Any]]:
     """完整行上的趋势族去冗余。列已对齐且无缺测，不再为每行造字典。"""
     from core.signal.factors.meta.collinearity import TREND_FAMILY
+    from core.signal.factors.z_oo import is_z_oo_key, to_legacy_key
 
     pol = str(policy or "drop_redundant").strip().lower()
     meta: Dict[str, Any] = {
@@ -317,7 +326,14 @@ def apply_collinearity_on_columns(
     n = len(ys)
     if pol in ("keep_all", "off", "none") or len(active) < 2 or n == 0:
         return list(active), [], meta
-    family = [name for name in active if name in TREND_FAMILY and name in columns]
+    trend_set = set(TREND_FAMILY)
+
+    def _in_trend(name: str) -> bool:
+        if name in trend_set:
+            return True
+        return bool(is_z_oo_key(name) and to_legacy_key(name) in trend_set)
+
+    family = [name for name in active if _in_trend(name) and name in columns]
     if len(family) < 2:
         return list(active), [], meta
 

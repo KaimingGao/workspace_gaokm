@@ -98,17 +98,21 @@ def strip_unsourced_coefficients(
     weights: Optional[dict],
 ) -> tuple:
     """从系数表剔除无真源因子；返回 (cleaned, stripped_names)。"""
+    from core.signal.factors.z_oo import is_z_oo_key, to_legacy_key
+
     w = dict(weights or {})
     banned = unsourced_factor_names()
     stripped: List[str] = []
     for key in list(w.keys()):
-        if str(key) in banned:
+        sk = str(key)
+        leg = to_legacy_key(sk) if is_z_oo_key(sk) else sk
+        if sk in banned or leg in banned:
             try:
                 val = float(w.get(key) or 0.0)
             except (TypeError, ValueError):
                 val = 0.0
             if abs(val) > 1e-12:
-                stripped.append(str(key))
+                stripped.append(sk)
             w.pop(key, None)
     return w, stripped
 

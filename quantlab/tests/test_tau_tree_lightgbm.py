@@ -121,7 +121,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
             )
 
     def test_fit_tau_tree_alpha_tc_pack(self):
-        """树与 Ridge 对照均吃 alpha_τc=raw_atc_*∪Z_cs。"""
+        """树侧固定 alpha_τc；Ridge 对照特征不含 raw_aoo_*。"""
         from datetime import date, timedelta
 
         from core.research.tc_tree import fit_tau_tree_report
@@ -161,24 +161,16 @@ class TestTauTreeLightgbm(unittest.TestCase):
             window_days=0,
         )
         self.assertTrue(on.get("success"), on.get("error"))
-        self.assertTrue(on.get("include_alpha_tc"))
-        self.assertFalse(on.get("include_alpha_oo"))
+        self.assertTrue(on.get("include_alpha_oo"))
         self.assertEqual(on.get("feature_pack"), "alpha_τc")
-        self.assertEqual(on.get("feature_pack_formula"), "raw_atc_* ∪ Z_cs")
-        self.assertGreater(int(on.get("n_alpha_tc_features") or 0), 0)
+        self.assertGreater(int(on.get("n_alpha_oo_features") or 0), 0)
         self.assertTrue(
-            any(str(k).startswith("raw_atc_") for k in (on.get("feature_names") or []))
-        )
-        self.assertTrue(
-            any(
-                str(k).startswith("raw_atc_")
-                for k in (on.get("ridge_feature_names") or [])
-            )
+            any(str(k).startswith("raw_aoo_") for k in (on.get("feature_names") or []))
         )
         self.assertFalse(
             any(
                 str(k).startswith("raw_aoo_")
-                for k in (on.get("feature_names") or [])
+                for k in (on.get("ridge_feature_names") or [])
             )
         )
 
@@ -229,7 +221,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "tc_tree")
         self.assertEqual(report.get("head"), "y_tau_tree")
-        self.assertEqual(report.get("schema"), "tau_tree_shadow_v3")
+        self.assertEqual(report.get("schema"), "tau_tree_shadow_v2")
         self.assertEqual(report.get("backend"), "lightgbm")
         self.assertFalse(report.get("live_hook"))
         self.assertTrue(report.get("backtest_hook"))

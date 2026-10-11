@@ -286,6 +286,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "双 backend · NDCG@K 择优",
             panel,
         )
+        self.assertIn(
+            "ŷ_oo_rank · rank(open[T]->open[T+1])",
+            panel,
+        )
         self.assertNotIn("影子对照 · 不进决策", panel)
         self.assertNotIn("旁路对照 · 不进 ranking / 买序", panel)
         self.assertIn("quant-section-oo-rank", panel)
@@ -341,6 +345,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('label: isOoRankGain ? "份额"', factor_ic)
         self.assertIn('"ŷ_oo_rank 因子表"', factor_ic)
         self.assertIn("const metrics = isOoRank", factor_ic)
+        self.assertIn("const specY = isOoRank", factor_ic)
+        self.assertIn("标签已进区块标题", factor_ic)
+        self.assertIn('"rank(open[T]->open[T+1])"', factor_ic)
+        self.assertNotIn('"rank(open[T+1]/open[T]-1)"', factor_ic)
         self.assertNotIn("ooRankSampleKpis", factor_ic)
         self.assertNotIn("oo_rank 系数摘要", factor_ic)
         self.assertIn("kindLegendBits", factor_ic)

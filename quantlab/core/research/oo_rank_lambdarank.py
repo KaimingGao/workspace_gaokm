@@ -30,7 +30,7 @@ Y_OO_RANK_LABEL_KEYS = (
     "y_oo_rank_realized",
     "oo_rank_realized",
 )
-FORMULA_OO_RANK = "rank(open[T+1]/open[T]-1)"
+FORMULA_OO_RANK = "rank(open[T]->open[T+1])"
 SCHEMA = "oo_rank_v1"
 SCHEMA_LEGACY = "oo_rank_pairwise_v1"
 TASK = "oo_rank"
@@ -727,6 +727,8 @@ def _predict_rows_lightgbm(
         booster = lgb.Booster(model_str=text)
     except Exception:  # noqa: BLE001
         return [None] * len(xs)
+    from core.signal.factors.z_oo import feature_get
+
     out: List[Optional[float]] = []
     for row in xs:
         vec: List[float] = []
@@ -734,7 +736,7 @@ def _predict_rows_lightgbm(
         src = row if isinstance(row, dict) else {}
         cs = str(fit.get("zscore_scope") or "") == "cross_section"
         for name in names:
-            v = src.get(name)
+            v = feature_get(src, name)
             if v is None:
                 if not impute_missing or not (means or cs):
                     ok = False
@@ -912,10 +914,13 @@ def predict_oo_rank_from_features(
     fit: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
     """对单行 sub_scores 打 ŷ_oo_rank（与 y_oo 同口径，特征为原始 sub_score）。"""
+    from core.signal.factors.z_oo import stamp_z_oo_aliases
+
     model = _resolve_oo_rank_fit(model_doc=model_doc, fit=fit)
     if not isinstance(model, dict):
         return None
     row = dict(sub_scores or {})
+    stamp_z_oo_aliases(row)
     preds = _predict_oo_rank_rows(model, [row], impute_missing=True)
     if not preds:
         return None
@@ -944,6 +949,8 @@ def apply_oo_rank_scores(
         doc = load_oo_rank_model(prefer_research=True)
     model = _resolve_oo_rank_fit(model_doc=doc, fit=fit)
 
+    from core.signal.factors.z_oo import stamp_z_oo_aliases
+
     out = list(items)
     raw_rows: List[dict] = []
     slots: List[int] = []
@@ -953,7 +960,9 @@ def apply_oo_rank_scores(
         subs = it.get("sub_scores") or it.get("sub_scores_raw")
         if not isinstance(subs, dict):
             continue
-        raw_rows.append(dict(subs))
+        row = dict(subs)
+        stamp_z_oo_aliases(row)
+        raw_rows.append(row)
         slots.append(i)
     if is_cross_section_zscore(model) and raw_rows:
         names = list((model or {}).get("active_features") or (model or {}).get("coefficients") or [])
@@ -1374,7 +1383,7 @@ def fit_oo_rank_report(
         "formula": FORMULA_OO_RANK,
         "unit": "score",
         "anchor": "open[T]",
-        "label": "open[T+1]/open[T]-1 cross-section rank",
+        "label": "rank(open[T]->open[T+1]) cross-section",
     }
 
     def _pack(backend_key: str, live_m: Dict[str, Any], research_src: Dict[str, Any]) -> Dict[str, Any]:

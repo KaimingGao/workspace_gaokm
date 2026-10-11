@@ -847,7 +847,7 @@ export function createFactorIcUi(deps) {
       (isPath
         ? "extreme_order(low,high)"
         : isOoRank
-          ? "rank(open[T+1]/open[T]-1)"
+          ? "rank(open[T]->open[T+1])"
         : isOo
           ? "open[T+1]/open[T]-1"
         : isCo
@@ -1170,18 +1170,24 @@ export function createFactorIcUi(deps) {
             .join("")}</span>` +
           `</div>`
         : "";
+    // ŷ_oo_rank：标签已进区块标题，因子表上不再重复 y 公式行
+    const specY = isOoRank
+      ? ""
+      : `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
+        `<span class="quant-rem-coef-spec-k">y</span>` +
+        `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
+        (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
+        `</div>`;
     const specRow =
-      `<div class="quant-rem-coef-spec" role="group" aria-label="${esc(
-        `${yhatTag} 标签与 OOS`
-      )}">` +
-      `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
-      `<span class="quant-rem-coef-spec-k">y</span>` +
-      `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
-      (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
-      `</div>` +
-      specTau +
-      metrics +
-      `</div>`;
+      isOoRank && !specTau && !metrics
+        ? ""
+        : `<div class="quant-rem-coef-spec" role="group" aria-label="${esc(
+            `${yhatTag} 标签与 OOS`
+          )}">` +
+          specY +
+          specTau +
+          metrics +
+          `</div>`;
 
     // 双训图例按行内实际类型（对齐 v2 ŷ_oo / ŷ_τc）
     const kindLegendBits = isDual

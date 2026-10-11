@@ -180,7 +180,7 @@ def _compute_alpha_tc(
     tau_hm=None,
     **_kw,
 ):
-    """τ 锚 alpha_tc：≤T−1 + 今开 + ≤τ 分钟（PIT）。"""
+    """τ 锚 alpha_tc：≤T−1 + 今开 + ≤τ 分钟（PIT）。现网 ŷ_τc 不吃此包。"""
     return score_alpha_tc(
         bars,
         quote=quote,
@@ -335,14 +335,14 @@ _register(
     "开→开因子集",
     _compute_alpha_oo,
     "alpha_oo（~206）：隔夜/今开 + 昨 K + 开序列滚动 + 量/滞后（含 MOM3_C）；开盘 PIT。"
-    " sub_score 不加权，仅 raw_aoo_* 进 Ridge/LightGBM/LambdaRank。",
+    " sub_score 不加权，仅 raw_aoo_* 进 Ridge/LightGBM/LambdaRank；ŷ_τc=z_τc_*∪alpha_oo。",
 )
 _register(
     "alpha_tc",
     "τ→收因子集",
     _compute_alpha_tc,
     "alpha_tc（~224）：隔夜/τ 位置 + 昨 K + 收盘序列滚动 + 量/TC 滞后 + ≤τ 前缀路径；"
-    " price[τ] 锚 PIT。sub_score 不加权；ŷ_τc=raw_atc_*∪Z_cs。",
+    " price[τ] 锚 PIT。sub_score 不加权；离线对照，现网 ŷ_τc 不吃此包。",
 )
 
 
@@ -391,6 +391,24 @@ def factor_label(name: str) -> str:
     meta = _REGISTRY.get(key)
     if meta and meta.get("label"):
         return str(meta["label"])
+    # ŷ_oo 日线 canon：z_oo_momentum → 动量
+    if key.startswith("z_oo_"):
+        from core.signal.factors.z_oo import to_legacy_key
+
+        leg = to_legacy_key(key)
+        meta_leg = _REGISTRY.get(leg)
+        if meta_leg and meta_leg.get("label"):
+            return str(meta_leg["label"])
+    # ŷ_τc Z canon：z_τc_gap_pct → 跳空 %（与 tc_ridge 标签表同源）
+    if key.startswith("z_τc_"):
+        try:
+            from core.research.tc_ridge import _TAU_FEAT_LABELS
+
+            lab = _TAU_FEAT_LABELS.get(key)
+            if lab:
+                return str(lab)
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
     return key or str(name or "")
 
 
@@ -441,17 +459,22 @@ def compute_configured_factors(
     from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
     from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
 
+    from core.signal.factors.z_oo import is_z_oo_key, stamp_z_oo_aliases, to_legacy_key
+
     wmap = dict(weights or {})
     skip = {str(x).strip() for x in (skip_factors or []) if str(x).strip()}
     required = {str(x).strip() for x in (required_keys or []) if str(x).strip()}
     for key in required_keys or []:
         k = str(key or "").strip()
+        # FS0：β 键可能是 z_oo_* canon → 用裸名触发注册表计算
+        if is_z_oo_key(k):
+            k = to_legacy_key(k)
         if k and k not in wmap and k in _REGISTRY:
             wmap[k] = 0.0
         # FS0：Ridge β 用 raw_aoo_* 时，触发计算 alpha_oo 并注入 raw 列
         if is_alpha_oo_raw_key(k) and "alpha_oo" in _REGISTRY and "alpha_oo" not in wmap:
             wmap["alpha_oo"] = 0.0
-        # raw_atc_* → 触发 alpha_tc（暂未接 ŷ_τc；显式 required 时仍可算）
+        # raw_atc_* → 触发 alpha_tc（离线对照；显式 required 时仍可算）
         if is_alpha_tc_raw_key(k) and "alpha_tc" in _REGISTRY and "alpha_tc" not in wmap:
             wmap["alpha_tc"] = 0.0
     sub_scores: Dict[str, float] = {}
@@ -541,6 +564,8 @@ def compute_configured_factors(
         sub_scores[name_fac] = round(score, 1)
         contribs[name_fac] = round(w * score, 2)
 
+    # 裸名 ↔ z_oo_* 双写，供新模型 β 键打分
+    stamp_z_oo_aliases(sub_scores)
     return sub_scores, contribs, meta
 
 

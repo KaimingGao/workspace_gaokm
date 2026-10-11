@@ -65,7 +65,6 @@ class TestCompactBreadth(unittest.TestCase):
             tau_hm="10:30",
             tau_grid=["10:30"],
             min_history=12,
-            include_alpha_tc=False,
             include_alpha_oo=False,
         )
         self.assertNotIn("minute_bars", item)
@@ -82,17 +81,13 @@ class TestCompactBreadth(unittest.TestCase):
         X, names, ys, dates, metas, n_stocks = collect_tau_compact(
             stock_bars,
             list(TAU_Z_FEATURES),
-            include_alpha_tc=False,
             include_alpha_oo=False,
             gap_trigger_pct=0.5,
             head="test",
         )
         xs, ys_d, dates_d, metas_d = _stack_panels(
             build_tau_panels_from_bars(
-                stock_bars,
-                include_alpha_tc=False,
-                include_alpha_oo=False,
-                gap_trigger_pct=0.5,
+                stock_bars, include_alpha_oo=False, gap_trigger_pct=0.5
             )
         )
         self.assertGreaterEqual(n_stocks, 2)
@@ -102,16 +97,19 @@ class TestCompactBreadth(unittest.TestCase):
             [int(m.get("theme_day") or 0) for m in metas],
             [int(m.get("theme_day") or 0) for m in metas_d],
         )
+        from core.signal.factors.z_tc import to_z_tc_key
+
         index = {name: i for i, name in enumerate(names)}
         for key in ("gap_pct", "sector_gap_breadth", "theme_day", "gap_vs_sector"):
-            j = index[key]
+            canon = to_z_tc_key(key)
+            j = index[canon]
             for i, row in enumerate(xs):
                 raw = row.get(key) if isinstance(row, dict) else None
                 got = float(X[i, j])
                 if raw is None:
-                    self.assertFalse(np.isfinite(got), key)
+                    self.assertFalse(np.isfinite(got), canon)
                 else:
-                    self.assertAlmostEqual(got, float(raw), places=6, msg=key)
+                    self.assertAlmostEqual(got, float(raw), places=6, msg=canon)
 
 
 class TestKeepallRidgeMatrix(unittest.TestCase):

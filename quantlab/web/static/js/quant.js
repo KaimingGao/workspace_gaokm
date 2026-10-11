@@ -3305,7 +3305,9 @@ export function initQuant(ctx) {
       const oos = data.oos || {};
       const packBit =
         data.feature_pack ||
-        `alpha_τc(Z∪aoo×${data.n_alpha_oo_features != null ? data.n_alpha_oo_features : "?"})`;
+        `alpha_τc(Z∪aoo×${
+          data.n_alpha_oo_features != null ? data.n_alpha_oo_features : "?"
+        })`;
       const painted = paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
         persistRole,
