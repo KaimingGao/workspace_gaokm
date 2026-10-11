@@ -248,15 +248,14 @@ def rank_lot_enter_skip_reason(
     *,
     rs: Optional[float],
 ) -> Optional[str]:
-    """入场：启用中的门槛1 ∪ 门槛2。每档 ranking 过入场；可选 y_oo>0 / y_τc>0。
+    """入场：ranking ≥ rank_enter；可选 y_oo>0 / y_τc>0。
 
-    ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开/不加。
-    ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
-    过 OR 后可选 ``oo_rank_top_frac``：须当日截面名次 y_oo_rank < n·frac（缺 rank/n 不拦）。
+    ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
+    过入场后可选 ``oo_rank_top_frac``：须当日截面名次 y_oo_rank < n·frac（缺 rank/n 不拦）。
+    旧键 ``rank_enter_alt`` / ``y_enter_*`` 忽略。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oo, pick_y_τc
-    from core.t0.config import coerce_cfg_bool
 
     cfg_d = cfg if isinstance(cfg, dict) else {}
     sc = scores_from_rebalance_item(item, cfg_d)
@@ -269,60 +268,19 @@ def rank_lot_enter_skip_reason(
 
     rank_enter = coerce_rank_threshold(cfg_d.get("rank_enter"), DEFAULT_RANK_ENTER)
     rank_enter = max(0.0, min(float(rank_enter), 10.0))
-
-    gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
-    gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
     y_oo_gt0, y_τc_gt0 = _y_gt0_flags(cfg_d)
 
-    def _pass_or_oo_rank() -> Optional[str]:
-        return _oo_rank_top_frac_skip(item, cfg_d)
-
-    skip = None
-    if gate1_on:
-        skip = _enter_profile_skip_reason(
-            y_oo=y_oo,
-            y_τc=y_τc,
-            rs=rs,
-            rank_enter=rank_enter,
-            y_oo_gt0=y_oo_gt0,
-            y_τc_gt0=y_τc_gt0,
-        )
-        if skip is None:
-            return _pass_or_oo_rank()
-
-    skip_alt = None
-    if gate2_on:
-        skip_alt = _enter_profile_skip_reason(
-            y_oo=y_oo,
-            y_τc=y_τc,
-            rs=rs,
-            rank_enter=max(
-                0.0,
-                min(
-                    coerce_rank_threshold(
-                        cfg_d.get("rank_enter_alt")
-                        if cfg_d.get("rank_enter_alt") not in (None, "")
-                        else rank_enter,
-                        rank_enter,
-                    ),
-                    10.0,
-                ),
-            ),
-            y_oo_gt0=y_oo_gt0,
-            y_τc_gt0=y_τc_gt0,
-        )
-        if skip_alt is None:
-            return _pass_or_oo_rank()
-
-    if not gate1_on and not gate2_on:
-        return "门槛1/2 均未启用"
-    if gate1_on and gate2_on:
-        if skip_alt == skip:
-            return skip
-        return f"门槛1 {skip}；门槛2 {skip_alt}"
-    if gate1_on:
+    skip = _enter_profile_skip_reason(
+        y_oo=y_oo,
+        y_τc=y_τc,
+        rs=rs,
+        rank_enter=rank_enter,
+        y_oo_gt0=y_oo_gt0,
+        y_τc_gt0=y_τc_gt0,
+    )
+    if skip is not None:
         return skip
-    return skip_alt
+    return _oo_rank_top_frac_skip(item, cfg_d)
 
 
 def ranking_score(
@@ -490,9 +448,6 @@ def get_rank_lot_cfg(
     return {
         "rank_enter": enter,
         "rank_strong": strong,
-        "rank_enter_alt": coerce_rank_threshold(
-            pm.get("rank_enter_alt", enter), enter
-        ),
         "cash_floor": floor,
         "holdings_mv_cap": mv_cap,
         "top_k": k,
@@ -503,8 +458,6 @@ def get_rank_lot_cfg(
         "lot_base_amount": lot_base_amount,
         "lot_strong_amount": lot_strong_amount,
         "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
-        "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
-        "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),

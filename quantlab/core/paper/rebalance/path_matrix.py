@@ -25,7 +25,6 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "mode": "rank_lots",
     "rank_enter": 0.001,
     "rank_strong": 0.001,
-    "rank_enter_alt": 0.001,
     "cash_floor": 0.0,
     "holdings_mv_cap": 150_000.0,
     "fusion_w_oo": 0.6,
@@ -33,8 +32,6 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "fusion_w_co": 1.0,
     "fusion_w_pc": 0.5,
     "residual_w_oc": 0.5,
-    "y_enter_enabled": True,
-    "y_enter_alt_enabled": True,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
     # None=关；0.5=须 y_oo_rank < n·50%（UI「rank < top 50%」）
@@ -109,8 +106,6 @@ def get_path_matrix_cfg(
     out["enabled"] = bool(out.get("enabled"))
     from core.t0.config import coerce_cfg_bool
 
-    out["y_enter_enabled"] = coerce_cfg_bool(out.get("y_enter_enabled"), True)
-    out["y_enter_alt_enabled"] = coerce_cfg_bool(out.get("y_enter_alt_enabled"), True)
     out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
     out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
     try:
@@ -129,7 +124,6 @@ def get_path_matrix_cfg(
     for key, default, lo, hi in (
         ("rank_enter", 0.001, 0.0, 10.0),
         ("rank_strong", 0.001, 0.0, 10.0),
-        ("rank_enter_alt", 0.001, 0.0, 10.0),
         ("cash_floor", 0.0, 0.0, 1.0e8),
         ("holdings_mv_cap", 150_000.0, 0.0, 1.0e8),
         ("fusion_w_oo", 0.6, 0.0, 1.0),
@@ -142,7 +136,7 @@ def get_path_matrix_cfg(
             out[key] = max(lo, min(float(out.get(key, default)), hi))
         except (TypeError, ValueError):
             out[key] = float(default)
-    for rk in ("rank_enter", "rank_strong", "rank_enter_alt"):
+    for rk in ("rank_enter", "rank_strong"):
         v = float(out[rk])
         if v >= 0.5:
             if abs(v - 1.0) < 1e-9:
@@ -161,9 +155,6 @@ def get_path_matrix_cfg(
     if float(out["rank_strong"]) < float(out["rank_enter"]):
         out["rank_strong"] = float(out["rank_enter"])
     out["cash_floor"] = 0.0
-    if isinstance(raw, dict):
-        if raw.get("rank_enter_alt") in (None, ""):
-            out["rank_enter_alt"] = float(out["rank_enter"])
     try:
         from core.backtest.paper_replay import (
             LIVE_FILL_CLOCK,

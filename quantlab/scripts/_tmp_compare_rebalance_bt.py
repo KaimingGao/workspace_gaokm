@@ -1,5 +1,7 @@
-"""离线临时对比：现网 rank_lots vs 新 topK 贪心（先花光再砍尾）。
+"""离线临时对比：现网 rank_lots vs 新贪心（按 oo_rank 一天一笔 + 不够砍尾）。
 
+唯一 TopK = ``oo_rank_max``（默认 y_oo_rank < 38，对齐现网 top50%%）；买序/砍尾按 oo_rank；
+每只每天只加一笔，不循环加到单票帽。
 对齐最近一次 ``last_portfolio_backtest`` 请求参数；``persist_curve=False`` 不落盘。
 宇宙仍走观察池分档（``use_predictability_tiers=True``）。
 
@@ -114,10 +116,10 @@ def _print_table(rows: Sequence[Dict[str, Any]]) -> None:
 
 def _make_greedy_adapter(
     *,
-    greedy_top_k: int,
     add_max: float,
     stock_cap: float,
     allowed_tiers: Optional[Sequence[str]],
+    oo_rank_max: Optional[int] = 38,
 ):
     from core.paper.rebalance import rank_lots as rl
 
@@ -259,7 +261,7 @@ def _make_greedy_adapter(
             cash=float(cash or 0),
             prices=px_plan,
             rank_enter=float(enter),
-            top_k=int(greedy_top_k),
+            oo_rank_max=oo_rank_max,
             add_max=float(add_max),
             stock_cap=float(stock_cap),
             allowed_tiers=allowed_tiers,
@@ -303,7 +305,7 @@ def _make_greedy_adapter(
             "skips": list(plan.skips),
             "cash_after_plan": plan.cash_after,
             "rank_enter": enter,
-            "top_k": int(greedy_top_k),
+            "oo_rank_max": oo_rank_max,
             "greedy": True,
             "candidate": list(plan.candidate),
             "notes": list(plan.notes),
@@ -322,10 +324,28 @@ def _run_portfolio(**kwargs) -> Dict[str, Any]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-baseline", action="store_true", help="现网用落盘指标，不重跑")
+    ap.add_argument(
+        "--greedy-only",
+        action="store_true",
+        help="只跑新方案，不跑也不展示现网",
+    )
     ap.add_argument("--lookback", type=int, default=20, help="回测交易日数（默认 20）")
-    ap.add_argument("--greedy-top-k", type=int, default=30)
+    ap.add_argument(
+        "--oo-rank-max",
+        "--greedy-top-k",
+        type=int,
+        default=38,
+        dest="oo_rank_max",
+        help="唯一 TopK：须 y_oo_rank < 此值（默认 38≈现网 top50%%）；≤0 关闭（--greedy-top-k 同义）",
+    )
     ap.add_argument("--add-max", type=float, default=20_000.0)
     ap.add_argument("--stock-cap", type=float, default=50_000.0)
+    ap.add_argument(
+        "--initial-cash",
+        type=float,
+        default=200_000.0,
+        help="回测账户本金（元；默认 20 万）",
+    )
     ap.add_argument(
         "--rank-enter",
         type=float,
@@ -373,6 +393,64 @@ def main() -> None:
     if args.rank_enter is not None:
         baseline_enter = _as_net_enter(args.rank_enter, default=baseline_enter)
 
+    # 现网落盘优先（避免 last_portfolio_backtest 占位请求把配重冲成 0.6/0.4）
+    live_lots: Dict[str, Any] = {}
+    try:
+        from core.paper import load_paper
+        from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+        from core.paths import PAPER_PATH
+
+        live_lots = get_path_matrix_cfg(paper=load_paper(PAPER_PATH))
+    except Exception:  # noqa: BLE001
+        live_lots = {}
+
+    def _pick(key: str, default: Any, *, cast=float):
+        if live_lots.get(key) is not None:
+            try:
+                return cast(live_lots[key])
+            except (TypeError, ValueError):
+                pass
+        if req.get(key) is not None:
+            try:
+                return cast(req[key])
+            except (TypeError, ValueError):
+                pass
+        return default
+
+    common = {
+        "lookback": int(args.lookback),
+        "apply_costs": bool(req.get("apply_costs", True)),
+        "exclude_st": bool(req.get("exclude_st", True)),
+        "fusion_w_co": float(_pick("fusion_w_co", 1.0)),
+        "fusion_w_oo": float(_pick("fusion_w_oo", 0.9)),
+        "fusion_w_oc": float(_pick("fusion_w_oc", 0.1)),
+        "rank_enter": baseline_enter,
+        "rank_strong": float(_pick("rank_strong", 0.012)),
+        "y_oo_gt0": bool(_pick("y_oo_gt0", True, cast=bool)),
+        "y_τc_gt0": bool(_pick("y_τc_gt0", True, cast=bool)),
+        "oo_rank_top_frac": live_lots.get("oo_rank_top_frac", req.get("oo_rank_top_frac")),
+        "initial_cash": float(args.initial_cash),
+        "fill_clock": str(
+            live_lots.get("fill_clock") or req.get("fill_clock") or "09:30"
+        ),
+        "lot_base_amount": float(_pick("lot_base_amount", 20_000.0)),
+        "lot_strong_amount": float(_pick("lot_strong_amount", 50_000.0)),
+        "use_predictability_tiers": True,
+        "predictability_tiers": ["A"],
+        "price_space_gate": bool(req.get("price_space_gate", True)),
+        "score_model_role": req.get("score_model_role") or "research",
+        "score_backend": str(
+            live_lots.get("score_backend") or req.get("score_backend") or "ridge"
+        ),
+        "include_benchmark": True,
+        "benchmark_code": str(req.get("benchmark_code") or "pool"),
+    }
+    # 新方案手数上界跟现网强档金额对齐（add_max=base，stock_cap=strong）
+    if args.add_max == 20_000.0:
+        args.add_max = float(common["lot_base_amount"])
+    if args.stock_cap == 50_000.0:
+        args.stock_cap = float(common["lot_strong_amount"])
+
     print("对齐 last_portfolio_backtest 请求（lookback/新方案入场可覆盖）：")
     print(
         json.dumps(
@@ -381,91 +459,71 @@ def main() -> None:
                 "baseline_rank_enter": baseline_enter,
                 "greedy_rank_enter": greedy_enter,
                 "greedy_rank_enter_display": f"{greedy_enter * 100:g}%",
-                "initial_cash": req.get("initial_cash"),
-                "lot_base_amount": req.get("lot_base_amount"),
-                "lot_strong_amount": req.get("lot_strong_amount"),
-                "fusion_w_oo": req.get("fusion_w_oo"),
-                "fusion_w_oc": req.get("fusion_w_oc"),
-                "fusion_w_co": req.get("fusion_w_co"),
-                "use_predictability_tiers": req.get("use_predictability_tiers"),
-                "fill_clock": req.get("fill_clock"),
-                "score_model_role": req.get("score_model_role"),
-                "y_oo_gt0": req.get("y_oo_gt0"),
-                "y_τc_gt0": req.get("y_τc_gt0"),
-                "oo_rank_top_frac": req.get("oo_rank_top_frac"),
+                "initial_cash": common["initial_cash"],
+                "lot_base_amount": common["lot_base_amount"],
+                "lot_strong_amount": common["lot_strong_amount"],
+                "add_max": args.add_max,
+                "stock_cap": args.stock_cap,
+                "oo_rank_max": int(args.oo_rank_max),
+                "fusion_w_oo": common["fusion_w_oo"],
+                "fusion_w_oc": common["fusion_w_oc"],
+                "fusion_w_co": common["fusion_w_co"],
+                "use_predictability_tiers": common["use_predictability_tiers"],
+                "fill_clock": common["fill_clock"],
+                "score_model_role": common["score_model_role"],
+                "y_oo_gt0": common["y_oo_gt0"],
+                "y_τc_gt0": common["y_τc_gt0"],
+                "oo_rank_top_frac": common["oo_rank_top_frac"],
             },
             ensure_ascii=False,
             indent=2,
         )
     )
 
-    common = {
-        "lookback": int(args.lookback),
-        "apply_costs": bool(req.get("apply_costs", True)),
-        "exclude_st": bool(req.get("exclude_st", True)),
-        "fusion_w_co": float(req.get("fusion_w_co") or 1.0),
-        "fusion_w_oo": float(req.get("fusion_w_oo") or 0.9),
-        "fusion_w_oc": float(req.get("fusion_w_oc") or 0.1),
-        "rank_enter": baseline_enter,
-        "rank_strong": float(req.get("rank_strong") or 0.01),
-        "rank_enter_alt": req.get("rank_enter_alt"),
-        "y_enter_enabled": bool(req.get("y_enter_enabled", True)),
-        "y_enter_alt_enabled": bool(req.get("y_enter_alt_enabled", True)),
-        "y_oo_gt0": bool(req.get("y_oo_gt0", True)),
-        "y_τc_gt0": bool(req.get("y_τc_gt0", True)),
-        "oo_rank_top_frac": req.get("oo_rank_top_frac"),
-        "initial_cash": float(req.get("initial_cash") or 200_000.0),
-        "fill_clock": str(req.get("fill_clock") or "09:30"),
-        "lot_base_amount": float(req.get("lot_base_amount") or 20_000.0),
-        "lot_strong_amount": float(req.get("lot_strong_amount") or 50_000.0),
-        "use_predictability_tiers": bool(req.get("use_predictability_tiers", True)),
-        "predictability_tiers": ["A"],
-        "price_space_gate": bool(req.get("price_space_gate", True)),
-        "score_model_role": req.get("score_model_role") or "research",
-        "score_backend": req.get("score_backend") or "ridge",
-        "include_benchmark": True,
-        "benchmark_code": str(req.get("benchmark_code") or "pool"),
-    }
-
     rows: List[Dict[str, Any]] = []
 
     def _progress(msg: str, cur: int = 0, tot: int = 1) -> None:
         print(f"  [{cur}/{tot}] {msg}", flush=True)
 
-    # —— 现网 ——
-    if args.skip_baseline and last.get("metrics"):
-        base = {
-            "success": True,
-            "metrics": last["metrics"],
-            "params": last.get("params") or {},
-            "sim_trades": [],
-            "equity_curve": [],
-        }
-        # 落盘里有 trade_count；补齐
-        print(f"\n现网：使用落盘指标（saved_at={last.get('saved_at')}），不重跑")
-    else:
-        print("\n现网：重跑 rank_lots …", flush=True)
-        t0 = time.time()
-        base = _run_portfolio(progress_cb=_progress, **common)
-        print(f"现网耗时 {time.time() - t0:.1f}s ok={base.get('success')} err={base.get('error')}")
-    rows.append(_summarize("现网 rank_lots", base))
+    # —— 现网（可跳过）——
+    if not args.greedy_only:
+        if args.skip_baseline and last.get("metrics"):
+            base = {
+                "success": True,
+                "metrics": last["metrics"],
+                "params": last.get("params") or {},
+                "sim_trades": [],
+                "equity_curve": [],
+            }
+            print(f"\n现网：使用落盘指标（saved_at={last.get('saved_at')}），不重跑")
+        else:
+            print("\n现网：重跑 rank_lots …", flush=True)
+            t0 = time.time()
+            base = _run_portfolio(progress_cb=_progress, **common)
+            print(
+                f"现网耗时 {time.time() - t0:.1f}s ok={base.get('success')} "
+                f"err={base.get('error')}"
+            )
+        rows.append(_summarize("现网 rank_lots", base))
 
     # —— 新方案：打补丁替换日计划 ——
+    oo_max = int(args.oo_rank_max)
     print(
-        f"\n新方案：greedy top_k={args.greedy_top_k} add_max={args.add_max:g} "
-        f"stock_cap={args.stock_cap:g} rank_enter={greedy_enter*100:g}% "
-        f"lookback={args.lookback} …",
+        f"\n新方案：greedy 按 oo_rank 一天一笔 + 不够砍尾 "
+        f"TopK=oo_rank<{oo_max if oo_max > 0 else '关'} "
+        f"add_max={args.add_max:g} stock_cap={args.stock_cap:g} "
+        f"rank_enter={greedy_enter*100:g}% lookback={args.lookback} …",
         flush=True,
     )
     import core.paper.rebalance.rank_lots as rl_mod
 
     original = rl_mod.plan_rank_lot_day
     rl_mod.plan_rank_lot_day = _make_greedy_adapter(
-        greedy_top_k=args.greedy_top_k,
         add_max=args.add_max,
         stock_cap=args.stock_cap,
         # 宇宙已按枢纽 A 档过滤；日计划不再二次踢档，避免缺字段误杀
         allowed_tiers=None,
+        oo_rank_max=oo_max if oo_max > 0 else None,
     )
     greedy_common = dict(common)
     greedy_common["rank_enter"] = greedy_enter
@@ -473,24 +531,49 @@ def main() -> None:
     greedy_common["rank_strong"] = max(
         float(greedy_common.get("rank_strong") or 0), greedy_enter
     )
+    # 新方案门槛：y_oo/y_τc>0；宇宙 A 档（落盘若是占位请求则强制打开）
+    greedy_common["y_oo_gt0"] = True
+    greedy_common["y_τc_gt0"] = True
+    greedy_common["use_predictability_tiers"] = True
+    greedy_common["predictability_tiers"] = ["A"]
     try:
         t1 = time.time()
         new = _run_portfolio(progress_cb=_progress, **greedy_common)
-        print(f"新方案耗时 {time.time() - t1:.1f}s ok={new.get('success')} err={new.get('error')}")
+        print(
+            f"新方案耗时 {time.time() - t1:.1f}s ok={new.get('success')} "
+            f"err={new.get('error')}"
+        )
     finally:
         rl_mod.plan_rank_lot_day = original
 
     rows.append(_summarize("新 topK贪心", new))
 
-    print("\n===== 对比（同宇宙/同打分/同本金；不落盘）=====")
+    title = "新方案结果（不落盘）" if args.greedy_only else "对比（同宇宙/同打分/同本金；不落盘）"
+    print(f"\n===== {title} =====")
     _print_table(rows)
-    if rows[0].get("total_return_pct") is not None and rows[1].get("total_return_pct") is not None:
+    if (
+        not args.greedy_only
+        and len(rows) >= 2
+        and rows[0].get("total_return_pct") is not None
+        and rows[1].get("total_return_pct") is not None
+    ):
         dret = float(rows[1]["total_return_pct"]) - float(rows[0]["total_return_pct"])
         print(f"\nΔ收益 = 新 − 现网 = {dret:+.2f}%")
     if new.get("success"):
+        m = new.get("metrics") or {}
+        print(
+            "摘要:",
+            f"收益={m.get('total_return_pct')}%",
+            f"回撤={m.get('max_drawdown_pct')}%",
+            f"成交={m.get('trade_count') or len(new.get('sim_trades') or [])}",
+            f"命中n={m.get('hit_n')}",
+            f"命中率={m.get('hit_rate')}",
+        )
         note = (new.get("params") or {}).get("note") or new.get("note")
         if note:
             print("新方案 note:", str(note)[:240])
+    else:
+        print("新方案失败:", new.get("error") or new)
 
 
 if __name__ == "__main__":

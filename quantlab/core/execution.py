@@ -165,14 +165,11 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "mode": "rank_lots",
         "rank_enter": 0.001,
         "rank_strong": 0.001,
-        "rank_enter_alt": 0.001,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
         "fusion_w_oo": 0.6,
         "fusion_w_oc": 0.4,
         "fusion_w_co": 1.0,
-        "y_enter_enabled": True,
-        "y_enter_alt_enabled": True,
         "y_oo_gt0": False,
         "y_τc_gt0": False,
         "oo_rank_top_frac": None,
@@ -187,14 +184,11 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "mode": "rank_lots",
         "rank_enter": 0.001,
         "rank_strong": 0.001,
-        "rank_enter_alt": 0.001,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
         "fusion_w_oo": 0.6,
         "fusion_w_oc": 0.4,
         "fusion_w_co": 1.0,
-        "y_enter_enabled": True,
-        "y_enter_alt_enabled": True,
         "y_oo_gt0": False,
         "y_τc_gt0": False,
         "oo_rank_top_frac": None,
@@ -826,11 +820,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "mode": "rank_lots",
                     "rank_enter": float(pm.get("rank_enter") or 0.001),
                     "rank_strong": float(pm.get("rank_strong") or 0.001),
-                    "rank_enter_alt": float(
-                        pm.get("rank_enter_alt")
-                        if pm.get("rank_enter_alt") is not None
-                        else pm.get("rank_enter") or 0.001
-                    ),
                     "cash_floor": 0.0,
                     "holdings_mv_cap": float(
                         pm.get("holdings_mv_cap")
@@ -844,8 +833,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                         if pm.get("fusion_w_co") is not None
                         else 1.0
                     ),
-                    "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
-                    "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
                     "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
                     "y_τc_gt0": bool(pm.get("y_τc_gt0")),
                     # None=关；0.5=UI「rank < top 50%」。须进白名单，否则保存后勾选被冲掉。

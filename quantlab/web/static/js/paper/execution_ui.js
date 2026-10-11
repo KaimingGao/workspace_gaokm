@@ -765,15 +765,11 @@ export function collectPathMatrixForm(root) {
   let lotBase = clampLotAmount(num("pm_lot_base_amount", 10000), 10000);
   let lotStrong = clampLotAmount(num("pm_lot_strong_amount", lotBase), lotBase);
   if (lotStrong < lotBase) lotStrong = lotBase;
-  // 门槛2 已下掉：alt 档跟随门槛1，两档常开（引擎契约保留）
   const lots = {
         enabled: true,
         mode: "rank_lots",
         rank_enter: enter,
         rank_strong: strong,
-        rank_enter_alt: enter,
-        y_enter_enabled: true,
-        y_enter_alt_enabled: true,
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
         oo_rank_top_frac: ooRankTop50 ? 0.5 : null,

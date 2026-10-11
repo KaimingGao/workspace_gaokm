@@ -57,7 +57,7 @@ class PaperReplayBacktestRequest(BaseModel):
         default=0.001,
         ge=0.0,
         le=10.0,
-        description="门槛1 ranking 入场下限（净收益，0.001=0.1%；UI 用百分数）",
+        description="ranking 入场下限（净收益，0.001=0.1%；UI 用百分数）",
     )
     rank_strong: float = Field(
         default=0.001,
@@ -65,14 +65,6 @@ class PaperReplayBacktestRequest(BaseModel):
         le=10.0,
         description="历史回测 ranking 强手门槛（净收益；回测单一手数时与入场同）",
     )
-    rank_enter_alt: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=10.0,
-        description="门槛2 ranking 入场下限；缺则跟随门槛1",
-    )
-    y_enter_enabled: bool = Field(default=True, description="门槛1 启用")
-    y_enter_alt_enabled: bool = Field(default=True, description="门槛2 启用")
     y_oo_gt0: bool = Field(
         default=False,
         description="开=入场须 y_oo>0；关=不看。缺分不拦。未过则已持仓清仓",

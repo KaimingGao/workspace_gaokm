@@ -2246,9 +2246,6 @@ def backtest_paper_replay(
     minute_bars_by_code: Optional[Dict[str, Dict[str, List[dict]]]] = None,
     lot_base_amount: Optional[float] = None,
     lot_strong_amount: Optional[float] = None,
-    rank_enter_alt: Optional[float] = None,
-    y_enter_enabled: Optional[bool] = None,
-    y_enter_alt_enabled: Optional[bool] = None,
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
     oo_rank_top_frac: Optional[float] = None,
@@ -2438,16 +2435,11 @@ def backtest_paper_replay(
         "mode": "rank_lots",
         "rank_enter": enter,
         "rank_strong": strong,
-        "rank_enter_alt": coerce_rank_threshold(
-            enter if rank_enter_alt is None else rank_enter_alt, enter
-        ),
         "cash_floor": floor,
         "holdings_mv_cap": 0.0,
         "fusion_w_co": alpha,
         "fusion_w_oo": w_oo,
         "fusion_w_oc": w_τc,
-        "y_enter_enabled": True if y_enter_enabled is None else bool(y_enter_enabled),
-        "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
         "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
         "y_τc_gt0": False if gt0_τc is None else bool(gt0_τc),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(
@@ -2473,9 +2465,6 @@ def backtest_paper_replay(
     rl_cfg["fusion_w_oc"] = w_τc
     rl_cfg["rank_enter"] = enter
     rl_cfg["rank_strong"] = strong
-    rl_cfg["rank_enter_alt"] = replay_lots["rank_enter_alt"]
-    rl_cfg["y_enter_enabled"] = replay_lots["y_enter_enabled"]
-    rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
     rl_cfg["oo_rank_top_frac"] = replay_lots.get("oo_rank_top_frac")
@@ -2955,7 +2944,7 @@ def backtest_paper_replay(
     note = (
         f"引擎={ENGINE_ID}：每个交易日 ranking={FORMULA_RANKING}，{fill_note}；{oc_note}；"
         f"ranking 权 w_oo={w_oo:g} w_τc={w_τc:g} w_co={alpha:g}；未过入场则已持仓清仓；"
-        f"门槛1∪门槛2 过入场（rank入场={rl_cfg.get('rank_enter')}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
+        f"ranking 过入场（rank入场={rl_cfg.get('rank_enter')}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
         + (
@@ -2982,9 +2971,6 @@ def backtest_paper_replay(
             "cash_floor": floor,
             "rank_enter": rl_cfg.get("rank_enter"),
             "rank_strong": rl_cfg.get("rank_strong"),
-            "rank_enter_alt": rl_cfg.get("rank_enter_alt"),
-            "y_enter_enabled": rl_cfg.get("y_enter_enabled"),
-            "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "oo_rank_top_frac": rl_cfg.get("oo_rank_top_frac"),
