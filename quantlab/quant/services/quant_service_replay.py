@@ -709,7 +709,7 @@ class QuantReplayMixin:
         }
 
     def fit_return_score_model(self, **kwargs: Any) -> Dict[str, Any]:
-        from core.signal.return_score_store import fit_watching_return_model
+        from core.research.oo_ridge import fit_oo_ridge as fit_watching_return_model
 
         return fit_watching_return_model(
             codes=kwargs.get("codes"),
@@ -730,14 +730,14 @@ class QuantReplayMixin:
     def promote_return_score_model(
         self, note: str = "", persist_role: str = "live"
     ) -> Dict[str, Any]:
-        from core.signal.return_score_store import promote_return_model_draft
+        from core.research.oo_ridge import persist_oo_model
 
-        return promote_return_model_draft(note=note, role=persist_role)
+        return persist_oo_model(note=note, role=persist_role)
 
     def return_score_model_status(self) -> Dict[str, Any]:
-        from core.signal.return_score_store import return_model_status
+        from core.research.oo_ridge import oo_model_status
 
-        return return_model_status()
+        return oo_model_status()
 
     def portfolio_daily_summary(self, **kwargs: Any) -> Dict[str, Any]:
         from quant.research.portfolio_data import summarize_portfolio_backtest

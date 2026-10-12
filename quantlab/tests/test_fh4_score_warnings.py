@@ -48,7 +48,7 @@ class TestFh4ScoreWarnings(unittest.TestCase):
             "core.sentiment.fetch_stock_headlines",
             side_effect=TimeoutError("舆情超时"),
         ), patch(
-            "core.signal.return_score_store.load_return_model",
+            "core.research.oo_ridge.load_return_model",
             return_value=(global_m, {}),
         ), patch(
             "core.signal.score_stock.load_signal_config",

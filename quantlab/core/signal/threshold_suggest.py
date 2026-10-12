@@ -576,7 +576,7 @@ def suggest_stance_thresholds_from_watching_oos(
     global_model = None
     if predicted_scale:
         try:
-            from core.signal.return_score_store import load_return_model
+            from core.research.oo_ridge import load_return_model
 
             global_model, _ = load_return_model(prefer_active=True)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

@@ -47,7 +47,7 @@ def _rescore_oo_ridge(items: List[dict]) -> None:
     try:
         from core.research.feature_standardize import is_cross_section_zscore
         from core.signal.return_score import apply_predicted_scores
-        from core.signal.return_score_store import load_return_model
+        from core.research.oo_ridge import load_return_model
     except Exception:  # noqa: BLE001
         logger.debug("oo ridge rescore import failed", exc_info=True)
         return

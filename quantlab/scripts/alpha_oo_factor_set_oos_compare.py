@@ -40,7 +40,7 @@ from core.signal.factors.alpha_oo import (
     is_alpha_oo_raw_key,
 )
 from core.signal.factors.z_oo import is_z_oo_key
-from core.signal.return_score_store import _oo_ic, _oo_sign_hit
+from core.research.oo_ridge import _oo_ic, _oo_sign_hit
 
 
 def _parse_args() -> argparse.Namespace:

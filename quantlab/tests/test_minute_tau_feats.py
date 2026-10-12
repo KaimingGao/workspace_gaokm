@@ -811,6 +811,41 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertNotIn("13:00", DEFAULT_MINUTE_TAU_GRID)
         self.assertNotIn("14:00", DEFAULT_MINUTE_TAU_GRID)
 
+    def test_resolve_tau_train_prefix_zero_and_cap(self):
+        from core.signal.minute_tau_grid import (
+            minute_tau_grid_5m_range,
+            resolve_tau_train_prefix,
+            train_tau_end_choices,
+        )
+
+        zero = resolve_tau_train_prefix(tau_end_hm="09:30")
+        self.assertTrue(zero.get("zero_prefix"))
+        self.assertFalse(zero.get("use_minute"))
+        self.assertEqual(zero.get("tau_hm"), "open")
+        self.assertIsNone(zero.get("tau_grid"))
+        self.assertEqual(zero.get("tau_end_hm"), "09:30")
+
+        self.assertEqual(
+            minute_tau_grid_5m_range("09:30", "09:30", include_open=True),
+            ["09:30"],
+        )
+
+        mid = resolve_tau_train_prefix(tau_end_hm="10:00")
+        self.assertFalse(mid.get("zero_prefix"))
+        self.assertTrue(mid.get("use_minute"))
+        self.assertEqual(mid.get("tau_end_hm"), "10:00")
+        self.assertEqual(mid.get("tau_grid")[0], "09:30")
+        self.assertEqual(mid.get("tau_grid")[-1], "10:00")
+        self.assertEqual(len(mid.get("tau_grid")), 7)
+
+        full = resolve_tau_train_prefix(tau_end_hm="11:00")
+        self.assertEqual(full.get("tau_grid")[-1], "11:00")
+        self.assertEqual(len(full.get("tau_grid")), 19)
+        self.assertEqual(train_tau_end_choices()[-1], "11:00")
+
+        bad = resolve_tau_train_prefix(tau_end_hm="11:30")
+        self.assertIn("error", bad)
+
     def test_format_shared_tau_formula_compact(self):
         from core.signal.minute_tau_grid import (
             DEFAULT_MINUTE_TAU_GRID,

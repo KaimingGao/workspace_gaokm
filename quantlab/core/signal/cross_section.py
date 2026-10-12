@@ -77,7 +77,7 @@ def rank_cross_section(
         clamp_rank_mode,
         rank_by_predicted_score,
     )
-    from core.signal.return_score_store import load_return_model
+    from core.research.oo_ridge import load_return_model
 
     scoring_cfg = cfg.get("scoring") or {}
     rank_mode = clamp_rank_mode(scoring_cfg.get("rank_mode"))

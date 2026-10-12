@@ -93,17 +93,22 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertNotIn("realized", rows[0])
 
     def test_assign_tier_thresholds(self):
-        from core.research.predictability_tiers import assign_tier
+        from core.research.predictability_tiers import (
+            a_min_n_from_tier_n,
+            assign_tier,
+        )
 
-        self.assertEqual(assign_tier(0.61, 7, ic=0.1), "A")
-        self.assertEqual(assign_tier(0.60, 6, ic=0.1), "A")  # 命中率 ≥60% 且 N ≥ 6 且 IC > 0
-        self.assertEqual(assign_tier(0.60, 25, ic=0.2), "A")
-        self.assertEqual(assign_tier(0.599, 25, ic=0.2), "B")  # 命中率须 ≥60%
-        self.assertEqual(assign_tier(0.61, 5, ic=0.2), "B")  # N 须 ≥6
-        self.assertEqual(assign_tier(0.61, 7, ic=0.0), "B")
-        self.assertEqual(assign_tier(0.61, 7, ic=-0.05), "B")
-        self.assertEqual(assign_tier(0.61, 7), "B")  # 无 IC 不进 A
-        self.assertEqual(assign_tier(0.55, 20, ic=0.3), "B")
+        self.assertEqual(a_min_n_from_tier_n(20), 10)  # Holdout40 前半
+        self.assertEqual(a_min_n_from_tier_n(21), 11)
+        # 默认 a_min_n=10（Holdout40 前半 50%）；命中 ≥55% · IC>0
+        self.assertEqual(assign_tier(0.55, 10, ic=0.1), "A")
+        self.assertEqual(assign_tier(0.61, 10, ic=0.1), "A")
+        self.assertEqual(assign_tier(0.549, 25, ic=0.2), "B")  # 命中率须 ≥55%
+        self.assertEqual(assign_tier(0.61, 9, ic=0.2), "B")  # N 须 ≥10
+        self.assertEqual(assign_tier(0.61, 10, ic=0.0), "B")
+        self.assertEqual(assign_tier(0.61, 10, ic=-0.05), "B")
+        self.assertEqual(assign_tier(0.61, 10), "B")  # 无 IC 不进 A
+        self.assertEqual(assign_tier(0.55, 20, ic=0.3), "A")
         self.assertEqual(assign_tier(0.52, 25), "B")
         self.assertEqual(assign_tier(0.50, 25), "B")
         self.assertEqual(assign_tier(0.49, 25), "C")
@@ -114,6 +119,10 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(assign_tier(None, 0), "C")
         self.assertEqual(assign_tier(0.8, 0), "C")
         self.assertEqual(assign_tier(None, 8), "C")
+        # 显式传入分档窗 50% 门槛
+        self.assertEqual(
+            assign_tier(0.56, 10, ic=0.1, a_min_n=a_min_n_from_tier_n(20)), "A"
+        )
 
     def test_split_holdout_half_dates(self):
         from core.research.predictability_tiers import (
@@ -247,7 +256,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             "meta": {"lookback": 120},
         }
         with patch(
-            "core.signal.return_score_store.load_return_model_payload",
+            "core.research.oo_ridge.load_return_model_payload",
             return_value=research,
         ):
             model, meta = _load_research_oo_model()
@@ -257,7 +266,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertAlmostEqual(float(model.predict({"momentum": 1.0})), 0.3)
 
         with patch(
-            "core.signal.return_score_store.load_return_model_payload",
+            "core.research.oo_ridge.load_return_model_payload",
             return_value=None,
         ):
             model2, meta2 = _load_research_oo_model()

@@ -26,24 +26,8 @@ const FIT_PARAM_HEADS = [
   "oo_rank",
 ];
 
-/** 支持「只训 A 档」的拟合头（含 ŷ_oo_rank）。 */
-const TIER_A_FIT_HEADS = [
-  "tc",
-  "co",
-  "t30",
-  "t45",
-  "t60",
-  "t75",
-  "t90",
-  "tc_tree",
-  "co_tree",
-  "t30_tree",
-  "t45_tree",
-  "t60_tree",
-  "t75_tree",
-  "t90_tree",
-  "oo_rank",
-];
+/** 支持「只训 A 档」的拟合头（仅 ŷ_oo_rank）。 */
+const TIER_A_FIT_HEADS = ["oo_rank"];
 
 function _defaultLookbackForHead(head) {
   if (head === "oo_rank") return 700;
@@ -83,6 +67,23 @@ const CS_Z_FIT_HEADS = [
 const CS_ZSCORE_STORAGE_KEYS = Object.fromEntries(
   CS_Z_FIT_HEADS.map((h) => [h, `quant_fit_cs_z_${h}`])
 );
+
+/** ŷ_τc / ŷ_τc_tree 共用：训练前缀终点 09:30…11:00（含 0 前缀）。 */
+const TAU_END_FIT_HEADS = ["tc", "tc_tree"];
+const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm";
+const DEFAULT_TAU_END_HM = "11:00";
+const TAU_END_CLOCKS = (() => {
+  const out = [];
+  let total = 9 * 60 + 30;
+  const end = 11 * 60;
+  while (total <= end) {
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    total += 5;
+  }
+  return out;
+})();
 
 /** oo/tc/co_tree：训练日滑窗 + 步长（LightGBM init_model 增量）。 */
 const TREE_SLIDE_HEADS = ["oo_tree", "tc_tree", "co_tree"];
@@ -464,6 +465,124 @@ export function createResearchParams(opts = {}) {
     }
   }
 
+  function tauEndIndex(hm) {
+    const s = String(hm || "").trim().slice(0, 5);
+    const i = TAU_END_CLOCKS.indexOf(s);
+    return i >= 0 ? i : TAU_END_CLOCKS.indexOf(DEFAULT_TAU_END_HM);
+  }
+
+  function clampTauEndHm(raw, fallback = DEFAULT_TAU_END_HM) {
+    const s = String(raw || "")
+      .trim()
+      .replace("：", ":")
+      .slice(0, 5);
+    if (TAU_END_CLOCKS.includes(s)) return s;
+    const fb = String(fallback || DEFAULT_TAU_END_HM).slice(0, 5);
+    return TAU_END_CLOCKS.includes(fb) ? fb : DEFAULT_TAU_END_HM;
+  }
+
+  function _paintTauEndSlider(el, hm) {
+    if (!el) return;
+    const clock = clampTauEndHm(hm);
+    const idx = tauEndIndex(clock);
+    el.value = String(idx);
+    el.setAttribute("aria-valuenow", String(idx));
+    el.setAttribute("aria-valuetext", clock);
+    const lab = el.closest(".quant-tau-end-slider");
+    if (lab) lab.classList.toggle("is-zero-prefix", clock === "09:30");
+    const outId = el.id ? `${el.id}-val` : "";
+    const out = outId ? document.getElementById(outId) : null;
+    if (out) {
+      out.value = clock;
+      out.textContent = clock;
+    }
+  }
+
+  function readTauEndHm() {
+    const el =
+      document.getElementById("quant-fit-tau-end-tc") ||
+      document.getElementById("quant-fit-tau-end-tc_tree");
+    let hm = DEFAULT_TAU_END_HM;
+    if (el) {
+      const idx = Math.max(
+        0,
+        Math.min(TAU_END_CLOCKS.length - 1, Math.round(Number(el.value) || 0))
+      );
+      hm = TAU_END_CLOCKS[idx] || DEFAULT_TAU_END_HM;
+    } else {
+      try {
+        const saved = localStorage.getItem(TAU_END_STORAGE_KEY);
+        if (saved) hm = clampTauEndHm(saved);
+      } catch (_) {}
+    }
+    hm = clampTauEndHm(hm);
+    try {
+      localStorage.setItem(TAU_END_STORAGE_KEY, hm);
+    } catch (_) {}
+    for (const head of TAU_END_FIT_HEADS) {
+      _paintTauEndSlider(document.getElementById(`quant-fit-tau-end-${head}`), hm);
+    }
+    return hm;
+  }
+
+  /** 拟合请求体片段：ŷ_τc 前缀终点。 */
+  function readTauEndFitParams() {
+    return { tau_end_hm: readTauEndHm() };
+  }
+
+  /** 卡头摘要：前缀11:00 / 0前缀·OC。 */
+  function formatTauEndBit(data) {
+    const src = data && typeof data === "object" ? data : {};
+    const ySpec = src.y_spec && typeof src.y_spec === "object" ? src.y_spec : {};
+    let hm =
+      src.tau_end_hm ||
+      ySpec.tau_end_hm ||
+      (Array.isArray(src.tau_grid) && src.tau_grid.length
+        ? src.tau_grid[src.tau_grid.length - 1]
+        : "");
+    if (!hm && (src.zero_prefix || ySpec.zero_prefix)) hm = "09:30";
+    if (!hm && (src.tau === "open" || ySpec.tau === "open")) hm = "09:30";
+    hm = String(hm || "").trim().slice(0, 5);
+    if (!hm || !TAU_END_CLOCKS.includes(hm)) return "";
+    if (hm === "09:30") return "0前缀·OC";
+    return `前缀${hm}`;
+  }
+
+  function applyTauEndHm(hm) {
+    const clock = clampTauEndHm(hm);
+    try {
+      localStorage.setItem(TAU_END_STORAGE_KEY, clock);
+    } catch (_) {}
+    for (const head of TAU_END_FIT_HEADS) {
+      _paintTauEndSlider(document.getElementById(`quant-fit-tau-end-${head}`), clock);
+    }
+    return clock;
+  }
+
+  function hydrateTauEndParams() {
+    let hm = DEFAULT_TAU_END_HM;
+    try {
+      const saved = localStorage.getItem(TAU_END_STORAGE_KEY);
+      if (saved) hm = clampTauEndHm(saved);
+    } catch (_) {}
+    for (const head of TAU_END_FIT_HEADS) {
+      const el = document.getElementById(`quant-fit-tau-end-${head}`);
+      if (!el) continue;
+      _paintTauEndSlider(el, hm);
+      if (el.dataset.wired === "1") continue;
+      el.dataset.wired = "1";
+      const sync = () => {
+        const idx = Math.max(
+          0,
+          Math.min(TAU_END_CLOCKS.length - 1, Math.round(Number(el.value) || 0))
+        );
+        applyTauEndHm(TAU_END_CLOCKS[idx] || DEFAULT_TAU_END_HM);
+      };
+      el.addEventListener("input", sync);
+      el.addEventListener("change", sync);
+    }
+  }
+
   function readTreeWindowDays(head) {
     const h = String(head || "").trim().toLowerCase();
     if (!TREE_SLIDE_HEADS.includes(h)) return DEFAULT_TREE_WINDOW_DAYS;
@@ -604,6 +723,11 @@ export function createResearchParams(opts = {}) {
     readCrossSectionFitParams,
     formatCrossSectionZBit,
     hydrateCrossSectionZParams,
+    readTauEndHm,
+    readTauEndFitParams,
+    formatTauEndBit,
+    applyTauEndHm,
+    hydrateTauEndParams,
     readTreeWindowDays,
     readTreeStepDays,
     readTreeSlideParams,

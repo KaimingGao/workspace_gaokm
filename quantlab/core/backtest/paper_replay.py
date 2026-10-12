@@ -1672,10 +1672,14 @@ def _default_paper(
 
 def _load_replay_global_model() -> Any:
     try:
-        from core.signal.return_score_store import load_return_model
+        from core.research.holdout import current_scoring_model_role
+        from core.research.oo_ridge import load_return_model
 
-        # 历史回测优先研究套，与 τ / co 一致
-        model, meta = load_return_model(prefer_active=True, prefer_research=True)
+        # 跟回测「模型」下拉：研究 → research 文件；执行 → active（缺则回落）
+        prefer_research = current_scoring_model_role() != "live"
+        model, meta = load_return_model(
+            prefer_active=True, prefer_research=prefer_research
+        )
         if meta.get("ok") and model is not None:
             return model
     except Exception:  # noqa: BLE001

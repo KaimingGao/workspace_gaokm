@@ -2660,7 +2660,7 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
     cluster: Dict[str, Any] = {}
     global_rm = None
     try:
-        from core.signal.return_score_store import load_return_model
+        from core.research.oo_ridge import load_return_model
 
         global_rm, _meta = load_return_model(prefer_active=True)
     except Exception:  # noqa: BLE001

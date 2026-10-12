@@ -37,6 +37,32 @@ def _synthetic_bars(n: int = 80, seed: int = 1):
 
 
 class TestOoTree(unittest.TestCase):
+    def test_feature_names_drop_aoo_overlap_z_oo(self):
+        """有 raw_aoo_GAP 时 Tree 不得再吃 z_oo_gap_risk（与 Ridge 去重对齐）。"""
+        from core.research.oo_tree import _feature_names_from_matrix
+
+        present = {
+            "z_oo_gap_risk",
+            "z_oo_momentum",
+            "z_oo_overheat",
+            "z_oo_value",
+            "raw_aoo_GAP",
+            "raw_aoo_GAP_UP",
+            "raw_aoo_OROC5",
+        }
+        names = sorted(present)
+        tree_feats, ridge_feats, aoo_keys = _feature_names_from_matrix(
+            names, present
+        )
+        self.assertIn("raw_aoo_GAP", aoo_keys)
+        self.assertNotIn("z_oo_gap_risk", tree_feats)
+        self.assertNotIn("z_oo_momentum", tree_feats)
+        self.assertNotIn("z_oo_overheat", tree_feats)
+        self.assertIn("z_oo_value", tree_feats)
+        self.assertIn("raw_aoo_GAP", tree_feats)
+        self.assertIn("raw_aoo_OROC5", tree_feats)
+        self.assertEqual(tree_feats, ridge_feats)
+
     def test_fit_oo_tree_report_smoke(self):
         try:
             import lightgbm  # noqa: F401

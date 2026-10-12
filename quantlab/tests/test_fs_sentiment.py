@@ -98,7 +98,7 @@ class TestFsSentimentGate(unittest.TestCase):
                 "items": [{"title": "利好"}],
             },
         ), patch(
-            "core.signal.return_score_store.load_return_model",
+            "core.research.oo_ridge.load_return_model",
             return_value=(global_m, {}),
         ), patch(
             "core.signal.score_stock.load_signal_config",
@@ -267,7 +267,7 @@ class TestFsRiskHints(unittest.TestCase):
                 "items": [],
             },
         ), patch(
-            "core.signal.return_score_store.load_return_model",
+            "core.research.oo_ridge.load_return_model",
             return_value=(global_m, {}),
         ), patch(
             "core.signal.score_stock.load_signal_config",

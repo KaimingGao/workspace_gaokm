@@ -224,6 +224,14 @@ class TestHoldoutSplit(unittest.TestCase):
         role, rm = select_persist_return_model(report, role="live")
         self.assertEqual(role, MODEL_ROLE_LIVE)
         self.assertEqual(rm["coefficients"]["a"], 1.0)
+        # 缺研究套：默认可回退全样本；strict 则拒绝
+        only_live = {"return_model": {"coefficients": {"a": 1.0}}}
+        role, rm = select_persist_return_model(only_live, role="research")
+        self.assertEqual(rm["coefficients"]["a"], 1.0)
+        role, rm = select_persist_return_model(
+            only_live, role="research", allow_research_fallback=False
+        )
+        self.assertIsNone(rm)
 
     def test_normalize_backtest_model_role_defaults_research(self):
         self.assertEqual(normalize_backtest_model_role(None), MODEL_ROLE_RESEARCH)

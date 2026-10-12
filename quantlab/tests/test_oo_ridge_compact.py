@@ -66,7 +66,10 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertNotIn("raw_other_junk", names)
         self.assertIn("raw_aoo_YKMID", names)
         self.assertIn("raw_aoo_OROC5", names)  # 现网全量 raw_aoo_*
-        self.assertIn("z_oo_momentum", names)
+        # 有 aoo_core 时丢掉重叠 z_oo（与 Tree 对齐）
+        self.assertNotIn("z_oo_momentum", names)
+        self.assertNotIn("z_oo_gap_risk", names)
+        self.assertIn("raw_aoo_GAP", names)
 
         _model, report = fit_oo_ridge_matrix(
             x_mat,

@@ -131,6 +131,14 @@ class TauRidgeRequest(_WatchingTierAOnly):
         description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau（开则训 09:30…11:00 网格）",
         max_length=8,
     )
+    tau_end_hm: Optional[str] = Field(
+        default=None,
+        description=(
+            "训练前缀终点 09:30…11:00（每 5m）；"
+            "09:30=0 前缀（标签 open→close）；缺省跟随 enable_minute_tau / tau_hm"
+        ),
+        max_length=8,
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tau-ridge",
@@ -210,6 +218,14 @@ class TauTreeRequest(_WatchingTierAOnly, _TreeSlideWindow, _CrossSectionZscore):
     tau_hm: Optional[str] = Field(
         default=None,
         description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau（开则训 09:30…11:00 网格）",
+        max_length=8,
+    )
+    tau_end_hm: Optional[str] = Field(
+        default=None,
+        description=(
+            "训练前缀终点 09:30…11:00（每 5m）；"
+            "09:30=0 前缀（标签 open→close）；缺省跟随 enable_minute_tau / tau_hm"
+        ),
         max_length=8,
     )
     backend: Optional[str] = Field(

@@ -261,8 +261,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(">落盘影子</button>", panel)
         self.assertNotIn("无影子模型", quant_js)
         self.assertIn("quant-oo-rank-tier-a", panel)
+        self.assertEqual(panel.count("只训 A 档"), 1)
+        # 只训 A 档仅 ŷ_oo_rank，且在日截面 Z 左侧
+        oo_rank_params = panel.split('aria-label="ŷ_oo_rank 拟合参数"', 1)[1].split(
+            "</div>", 1
+        )[0]
+        self.assertLess(
+            oo_rank_params.find("quant-oo-rank-tier-a"),
+            oo_rank_params.find("quant-fit-cs-z-oo_rank"),
+        )
         self.assertIn("watching_tier_a_only", quant_js)
-        self.assertIn("readWatchingTierAOnly", quant_js)
+        self.assertIn('readWatchingTierAOnly("oo_rank")', quant_js)
         for head in (
             "tc",
             "co",
@@ -279,9 +288,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "t75_tree",
             "t90_tree",
         ):
-            self.assertIn(f'id="quant-tier-a-{head}"', panel)
-            self.assertIn(f'readWatchingTierAOnly("{head}")', quant_js)
+            self.assertNotIn(f'id="quant-tier-a-{head}"', panel)
+            self.assertNotIn(f'readWatchingTierAOnly("{head}")', quant_js)
         self.assertIn("hydrateWatchingTierAOnly", quant_js)
+        params_js_tier = self._read("web", "static", "js", "quant", "params.js")
+        self.assertIn('TIER_A_FIT_HEADS = ["oo_rank"]', params_js_tier)
         self.assertIn(
             "双 backend · NDCG@K 择优",
             panel,
@@ -2530,6 +2541,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         panel = self._read("web", "static", "partials", "quant_panel.html")
         js = self._read("web", "static", "js", "quant.js")
         params_js = self._read("web", "static", "js", "quant", "params.js")
+        css = self._read("web", "static", "css", "quant.css")
         self.assertIn("quant-tau-ridge-persist-research", panel)
         self.assertIn("quant-tau-tree-run", panel)
         self.assertIn("quant-tau-tree-result", panel)
@@ -2700,6 +2712,21 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("LightGBM init_model 增量", panel)
         self.assertIn('id="quant-fit-cs-z-oo"', panel)
         self.assertIn('id="quant-fit-cs-z-tc"', panel)
+        self.assertIn('id="quant-fit-tau-end-tc"', panel)
+        self.assertIn('id="quant-fit-tau-end-tc_tree"', panel)
+        self.assertIn("quant-tau-end-slider", panel)
+        self.assertIn("quant-tau-end-range", css)
+        self.assertIn("readTauEndFitParams", params_js)
+        self.assertIn("tau_end_hm", params_js)
+        # 前缀滑条在日截面 Z 左侧
+        self.assertLess(
+            panel.index('id="quant-fit-tau-end-tc"'),
+            panel.index('id="quant-fit-cs-z-tc"'),
+        )
+        self.assertLess(
+            panel.index('id="quant-fit-tau-end-tc_tree"'),
+            panel.index('id="quant-fit-cs-z-tc_tree"'),
+        )
         self.assertIn('id="quant-fit-cs-z-co"', panel)
         self.assertIn('id="quant-fit-cs-z-t30"', panel)
         self.assertIn('id="quant-fit-cs-z-t45"', panel)

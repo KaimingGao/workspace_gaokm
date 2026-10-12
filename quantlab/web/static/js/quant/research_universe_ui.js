@@ -72,7 +72,7 @@ export function installResearchUniverseUi(q) {
       return `<span class="quant-ru-hit-bar is-empty" title="无有效命中"><span class="quant-ru-hit-fill" style="width:0%"></span></span>`;
     }
     const pct = Math.max(0, Math.min(100, Number(hitRate) * 100));
-    const a = (aHit ?? 0.6) * 100;
+    const a = (aHit ?? 0.55) * 100;
     const b = (bHit ?? 0.5) * 100;
     let tone = "is-c";
     if (pct + 1e-9 >= a) tone = "is-a";
@@ -126,8 +126,13 @@ export function installResearchUniverseUi(q) {
     const thr = rep.thresholds || {};
     const hold = rep.holdout_n != null ? rep.holdout_n : "—";
     const tierN = rep.tier_n != null ? rep.tier_n : rep.n_ledger_dates ?? "—";
-    const aHit = thr.a_hit ?? 0.6;
-    const aMinN = thr.a_min_n != null ? thr.a_min_n : 6;
+    const aHit = thr.a_hit ?? 0.55;
+    const aMinN =
+      thr.a_min_n != null
+        ? thr.a_min_n
+        : tierN != null && Number.isFinite(Number(tierN))
+          ? Math.max(1, Math.ceil(Number(tierN) * 0.5))
+          : 10;
     const bHit = thr.b_hit ?? 0.5;
     const counts = rep.counts || {};
     const nSample = rep.n_with_sample != null ? rep.n_with_sample : "—";

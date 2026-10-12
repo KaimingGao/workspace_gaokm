@@ -181,6 +181,7 @@ def minute_tau_grid_5m_range(
     """生成训练用 τ 网格：开盘钟 + 每 step_min 一根 5m 末钟（含 end_hm）。
 
     默认 09:30…11:00 与做 T v6 收盘带宽 leg1 扫描窗口对齐（09:30 仅开盘 Z）。
+    ``end_hm=09:30`` → 仅开盘点（0 前缀，标签退化为 open→close）。
     """
     start = _hm_to_clock_minutes(start_hm)
     end = _hm_to_clock_minutes(end_hm)
@@ -195,6 +196,129 @@ def minute_tau_grid_5m_range(
         out.append(_clock_minutes_to_hm(t))
         t += step
     return out
+
+
+# 研究台 ŷ_τc 前缀滑条：固定起点 09:30，终点上限 11:00（含 0 前缀）
+TRAIN_TAU_START_HM = "09:30"
+TRAIN_TAU_END_MAX_HM = "11:00"
+
+
+def train_tau_end_choices() -> List[str]:
+    """可选训练前缀终点：09:30…11:00 每 5m（含两端）。"""
+    return minute_tau_grid_5m_range(
+        TRAIN_TAU_START_HM, TRAIN_TAU_END_MAX_HM, include_open=True
+    )
+
+
+def normalize_train_tau_end_hm(
+    raw: Optional[str],
+    *,
+    default: Optional[str] = None,
+) -> Optional[str]:
+    """校验并规范 ``tau_end_hm``；非法返回 ``default``（可为 None）。"""
+    s = str(raw or "").strip().replace("：", ":")
+    if not s:
+        return default
+    if s.lower() in ("open",):
+        return TRAIN_TAU_START_HM
+    if ":" not in s and len(s) == 4 and s.isdigit():
+        s = f"{s[:2]}:{s[2:]}"
+    if len(s) >= 5:
+        s = s[:5]
+    allowed = set(train_tau_end_choices())
+    if s in allowed:
+        return s
+    return default
+
+
+def resolve_tau_train_prefix(
+    *,
+    tau_end_hm: Optional[str] = None,
+    tau_hm: Optional[str] = None,
+    enable_minute_tau: bool = True,
+) -> dict:
+    """解析 ŷ_τc 训练前缀窗。
+
+    返回 ``tau_hm`` / ``tau_grid`` / ``tau_end_hm`` / ``use_minute`` / ``zero_prefix``。
+    ``tau_end_hm=09:30`` → 0 前缀（``tau_hm=open``，不载分钟），标签 open→close。
+    显式非法 ``tau_end_hm`` 时带 ``error``。
+    """
+    raw_end = str(tau_end_hm).strip() if tau_end_hm is not None else ""
+    if raw_end:
+        end = normalize_train_tau_end_hm(raw_end)
+        if end is None:
+            return {
+                "error": (
+                    f"tau_end_hm 须为 09:30…11:00 的 5m 档，收到 {raw_end!r}"
+                ),
+            }
+        if end == TRAIN_TAU_START_HM:
+            return {
+                "tau_hm": "open",
+                "tau_grid": None,
+                "tau_end_hm": end,
+                "use_minute": False,
+                "zero_prefix": True,
+            }
+        grid = minute_tau_grid_5m_range(
+            TRAIN_TAU_START_HM, end, include_open=True
+        )
+        return {
+            "tau_hm": end,
+            "tau_grid": grid,
+            "tau_end_hm": end,
+            "use_minute": True,
+            "zero_prefix": False,
+        }
+
+    # 兼容旧 API：显式 tau_hm / enable_minute_tau
+    if tau_hm is not None:
+        key = str(tau_hm or "open").strip() or "open"
+        if key.lower() in ("", "open"):
+            return {
+                "tau_hm": "open",
+                "tau_grid": None,
+                "tau_end_hm": TRAIN_TAU_START_HM,
+                "use_minute": False,
+                "zero_prefix": True,
+            }
+        # 非 open：沿用整网格至 TRAIN_TAU_END_HM（做 T leg1）
+        end_default = str(TRAIN_TAU_END_HM or TRAIN_TAU_END_MAX_HM)[:5]
+        end_default = (
+            normalize_train_tau_end_hm(end_default, default=TRAIN_TAU_END_MAX_HM)
+            or TRAIN_TAU_END_MAX_HM
+        )
+        grid = list(DEFAULT_MINUTE_TAU_GRID) if DEFAULT_MINUTE_TAU_GRID else minute_tau_grid_5m_range(
+            TRAIN_TAU_START_HM, end_default, include_open=True
+        )
+        return {
+            "tau_hm": end_default,
+            "tau_grid": grid,
+            "tau_end_hm": end_default,
+            "use_minute": True,
+            "zero_prefix": False,
+        }
+
+    if enable_minute_tau:
+        end_default = str(TRAIN_TAU_END_HM or TRAIN_TAU_END_MAX_HM)[:5]
+        end_default = (
+            normalize_train_tau_end_hm(end_default, default=TRAIN_TAU_END_MAX_HM)
+            or TRAIN_TAU_END_MAX_HM
+        )
+        return {
+            "tau_hm": end_default,
+            "tau_grid": list(DEFAULT_MINUTE_TAU_GRID),
+            "tau_end_hm": end_default,
+            "use_minute": True,
+            "zero_prefix": False,
+        }
+    return {
+        "tau_hm": "open",
+        "tau_grid": None,
+        "tau_end_hm": TRAIN_TAU_START_HM,
+        "use_minute": False,
+        "zero_prefix": True,
+    }
 
 
 def format_shared_tau_formula(base: str, grid: Optional[Sequence[str]] = None) -> str:

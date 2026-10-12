@@ -158,8 +158,15 @@ def _feature_names_from_matrix(
     names: Sequence[str],
     present: set,
 ) -> Tuple[List[str], List[str], List[str]]:
-    """返回 (tree_feats, ridge_feats, aoo_keys)。proxy 已在列名里剔除。"""
-    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
+    """返回 (tree_feats, ridge_feats, aoo_keys)。proxy 已在列名里剔除。
+
+    与 ŷ_oo Ridge 同策略：``z_oo ∪ raw_aoo``，有 aoo_core 时丢掉
+    ``gap_risk`` / ``momentum`` / ``overheat``（避免与 ``raw_aoo_GAP*`` 双计）。
+    """
+    from core.signal.factors.alpha_oo import (
+        drop_aoo_overlap_z_oo,
+        is_alpha_oo_raw_key,
+    )
     from core.signal.factors.meta.health import unsourced_factor_names
     from core.signal.factors.z_oo import (
         Z_OO_SKIP_PACKS,
@@ -183,8 +190,9 @@ def _feature_names_from_matrix(
         and n not in banned
         and to_legacy_key(str(n)) not in banned
     ]
-    # 树与 Ridge 对照同列：现网 ŷ_oo = z_oo ∪ 全量 raw_aoo
-    tree_feats = list(z_feats) + [n for n in aoo_keys if n not in set(z_feats)]
+    tree_feats = drop_aoo_overlap_z_oo(
+        list(z_feats) + [n for n in aoo_keys if n not in set(z_feats)]
+    )
     ridge_feats = list(tree_feats)
     return tree_feats, ridge_feats, aoo_keys
 
@@ -207,7 +215,8 @@ def fit_oo_tree_report(
 ) -> Dict[str, Any]:
     """日线面板拟合 ŷ_oo_tree + Ridge OOS 对照。不写 live / 研究套。
 
-    树与 Ridge 对照均吃 ``z_oo_* ∪ raw_aoo_*`` 全量。标签仍是百分点。
+    树与 Ridge 对照均吃 ``z_oo_* ∪ raw_aoo_*``；有 aoo_core 时丢掉重叠
+    ``z_oo_gap_risk`` 等。标签仍是百分点。
     ``cross_section_zscore``：日截面 z（默认）或训练窗全局 μ/σ。
     LightGBM：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2。
     ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。

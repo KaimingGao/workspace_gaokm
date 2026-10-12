@@ -1,4 +1,10 @@
-"""因子系数（收益分）模型产物：研究草稿 / live 生效（不写 signal_config.weights）。"""
+"""ŷ_oo Ridge：拟合 / 草稿 / 研究·执行套落盘（对齐 ``tc_ridge``）。
+
+矩阵运算在 ``oo_ridge_compact``；本模块负责研究台落盘与人审启用。
+路径仍用 ``RETURN_SCORE_MODEL_*``（历史文件名）；对外另提供 ``oo_model_path`` 等别名。
+"""
+
+from __future__ import annotations
 
 import json
 import logging
@@ -19,6 +25,24 @@ from core.signal.return_score import ReturnScoreModel, clamp_rank_mode
 logger = logging.getLogger(__name__)
 
 
+# --- 路径（与 τ 的 tau_model_path / research_model_path 对称）---
+
+
+def oo_model_path() -> str:
+    """执行套 ŷ_oo 主路径（``return_score_model_active.json``）。"""
+    return RETURN_SCORE_MODEL_ACTIVE_PATH
+
+
+def oo_model_research_path() -> str:
+    """研究套 ŷ_oo（``return_score_model_research.json``）。"""
+    return RETURN_SCORE_MODEL_RESEARCH_PATH
+
+
+def oo_model_draft_path() -> str:
+    """拟合草稿（``last_return_score_model.json``）。"""
+    return RETURN_SCORE_MODEL_DRAFT_PATH
+
+
 def _ensure_dirs() -> None:
     os.makedirs(QUANT_REPORTS_DIR, exist_ok=True)
     os.makedirs(LIVE_DIR, exist_ok=True)
@@ -35,6 +59,34 @@ def _normalize_persist_role(role: Any) -> str:
     return "live"
 
 
+def _as_model_dict(src: Any) -> Optional[Dict[str, Any]]:
+    if src is None:
+        return None
+    if hasattr(src, "to_dict"):
+        blob = src.to_dict()
+        return dict(blob) if isinstance(blob, dict) else None
+    if isinstance(src, dict):
+        return dict(src)
+    return None
+
+
+def _draft_persist_view(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """草稿 → 与 τ/co 相同的 ``return_model`` / ``return_model_research`` 视图。
+
+    兼容旧键 ``model`` / ``research_model``。
+    """
+    live = raw.get("return_model")
+    if not isinstance(live, dict):
+        live = raw.get("model")
+    research = raw.get("return_model_research")
+    if not isinstance(research, dict):
+        research = raw.get("research_model")
+    return {
+        "return_model": dict(live) if isinstance(live, dict) else None,
+        "return_model_research": dict(research) if isinstance(research, dict) else None,
+    }
+
+
 def save_return_model_draft(
     model: ReturnScoreModel,
     *,
@@ -45,9 +97,12 @@ def save_return_model_draft(
 ) -> Dict[str, Any]:
     """写入研究草稿 ``data/reports/last_return_score_model.json``。
 
-    ``model`` = 全样本执行套草稿；``research_model`` = Holdout 前训练集 β（研究套）。
+    与 τ/co 对齐：``return_model`` = 全样本执行套；``return_model_research`` = Holdout 前训。
+    仍写 ``model`` / ``research_model`` 别名，供旧加载路径读取。
     """
     _ensure_dirs()
+    live_blob = model.to_dict()
+    research_blob = _as_model_dict(research_model)
     payload = {
         "version": 2,
         "kind": "return_score_model",
@@ -55,16 +110,17 @@ def save_return_model_draft(
         "schema": "oo_ridge_v2",
         "fitted_at": _utc_now(),
         "saved_at": None,
-        "model": model.to_dict(),
+        # 旧键（load_return_model / 既有测试）
+        "model": live_blob,
+        # 新链路（与 select_persist_return_model / τ·co 同名）
+        "return_model": dict(live_blob),
         "meta": dict(meta or {}),
         "oos": dict(oos or {}) if isinstance(oos, dict) else {},
         "note": "研究草稿（因子系数产物）；启用研究/执行后才进回测或 live 横截面。",
     }
-    if research_model is not None:
-        if hasattr(research_model, "to_dict"):
-            payload["research_model"] = research_model.to_dict()
-        elif isinstance(research_model, dict):
-            payload["research_model"] = dict(research_model)
+    if research_blob is not None:
+        payload["research_model"] = research_blob
+        payload["return_model_research"] = dict(research_blob)
     if isinstance(research_ols, dict) and research_ols:
         payload["research_ols"] = dict(research_ols)
     payload["saved_at"] = payload["fitted_at"]
@@ -76,7 +132,7 @@ def save_return_model_draft(
         "saved_at": payload["saved_at"],
         "sample_count": model.sample_count,
         "n_coefs": len(model.coefficients),
-        "has_research_model": bool(payload.get("research_model")),
+        "has_research_model": bool(payload.get("return_model_research")),
     }
 
 
@@ -138,31 +194,47 @@ def promote_return_model_draft(
 ) -> Dict[str, Any]:
     """草稿 → 研究套或执行套（人审；不改 weights）。
 
+    与 τ/co 同链路：``select_persist_return_model`` 选 β。
     ``role=research`` → ``return_score_model_research.json``（历史回测）
     ``role=live`` → ``return_score_model_active.json``（交易执行）
     """
-    role_n = _normalize_persist_role(role)
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        select_persist_return_model,
+    )
+
     raw = load_return_model_payload(RETURN_SCORE_MODEL_DRAFT_PATH)
-    if not raw or not (raw.get("model") or {}).get("coefficients"):
+    view = _draft_persist_view(raw or {})
+    if not isinstance(view.get("return_model"), dict) or not (
+        view["return_model"].get("coefficients") or {}
+    ):
         return {
             "success": False,
             "error": "无可用草稿模型，请先拟合并保存草稿",
             "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
         }
+    role_n, selected = select_persist_return_model(
+        view,
+        role=_normalize_persist_role(role),
+        allow_research_fallback=False,
+    )
+    if role_n == MODEL_ROLE_RESEARCH and (
+        not isinstance(selected, dict) or not (selected.get("coefficients") or {})
+    ):
+        return {
+            "success": False,
+            "error": "草稿缺少 return_model_research（Holdout 训练集 β）；请重新拟合后再启用研究套",
+            "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
+            "hint": "旧草稿只含全样本 model；拟合会同时写入 return_model_research",
+        }
+    if not isinstance(selected, dict) or not (selected.get("coefficients") or {}):
+        return {
+            "success": False,
+            "error": "草稿缺少 return_model（全样本 β）；请重新拟合后再启用执行套",
+            "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
+        }
     force = "force=1" in str(note or "") or "force:true" in str(note or "").lower()
-    # 研究套必须用 Holdout 前训练集 β；缺 research_model 时拒绝（勿把全样本草稿当研究套）
-    if role_n == "research":
-        src_blob = raw.get("research_model")
-        if not isinstance(src_blob, dict) or not (src_blob.get("coefficients") or {}):
-            return {
-                "success": False,
-                "error": "草稿缺少 research_model（Holdout 训练集 β）；请重新拟合后再启用研究套",
-                "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
-                "hint": "旧草稿只含全样本 model；拟合会同时写入 research_model",
-            }
-        model_blob = dict(src_blob)
-    else:
-        model_blob = dict(raw.get("model") or {})
+    model_blob = dict(selected)
     coefs_in = dict(model_blob.get("coefficients") or {})
     stripped_proxy: list = []
     try:
@@ -188,26 +260,25 @@ def promote_return_model_draft(
                 "hint": "proxy 因子系数须为 0；确需放行在 note 写 force=1",
             }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        if role_n == "research":
-            model_blob = dict(raw.get("research_model") or {})
-        else:
-            model_blob = dict(raw.get("model") or {})
+        model_blob = dict(selected)
         pass
     _ensure_dirs()
     promoted_at = _utc_now()
-    if role_n == "research":
+    if role_n == MODEL_ROLE_RESEARCH:
         target = RETURN_SCORE_MODEL_RESEARCH_PATH
         payload_role = "research"
         note_out = "研究套 ŷ_oo（Holdout 前训练集 β）；供历史回测加载（prefer_research）。"
+        coef_source = "return_model_research"
     else:
         target = RETURN_SCORE_MODEL_ACTIVE_PATH
         payload_role = "active"
         note_out = "执行套 ŷ_oo；仅当 scoring.rank_mode=predicted_score 时横截面按 ŷ 排序。"
+        coef_source = "return_model"
     meta_out = {
         **(raw.get("meta") or {}),
         "promote_note": str(note or ""),
         "persist_role": role_n,
-        "coef_source": "research_model" if role_n == "research" else "model",
+        "coef_source": coef_source,
     }
     if isinstance(raw.get("research_ols"), dict):
         meta_out["research_ols"] = dict(raw.get("research_ols") or {})
@@ -223,11 +294,16 @@ def promote_return_model_draft(
         "fitted_at": fitted_at,
         "promoted_at": promoted_at,
         "source_saved_at": raw.get("saved_at") or fitted_at,
+        # 加载仍读 model；同时挂 return_model 与 τ/co 落盘同形
         "model": model_blob,
+        "return_model": dict(model_blob),
         "meta": meta_out,
         "oos": dict(raw.get("oos") or {}) if isinstance(raw.get("oos"), dict) else {},
         "note": note_out,
     }
+    # 研究套文件附带对照用的全样本 β（不参与加载，便于审计）
+    if role_n == MODEL_ROLE_RESEARCH and isinstance(view.get("return_model"), dict):
+        payload["return_model_live"] = dict(view["return_model"])
     atomic_write_json(target, payload)
     return {
         "success": True,
@@ -236,9 +312,10 @@ def promote_return_model_draft(
         "persist_role": role_n,
         "promoted_at": promoted_at,
         "sample_count": (payload.get("model") or {}).get("sample_count"),
+        "coef_source": coef_source,
         "note": (
             "已写入研究套；历史回测优先加载。"
-            if role_n == "research"
+            if role_n == MODEL_ROLE_RESEARCH
             else "已写入执行套；请确认 scoring.rank_mode=predicted_score。"
         ),
     }
@@ -325,13 +402,28 @@ def return_model_status() -> Dict[str, Any]:
                 break
 
     return_model = None
-    if display_raw and isinstance(display_raw.get("model"), dict):
-        return_model = dict(display_raw["model"])
-        meta = display_raw.get("meta") if isinstance(display_raw.get("meta"), dict) else {}
-        if return_model.get("r_squared") is None and meta.get("r_squared") is not None:
-            return_model["r_squared"] = meta.get("r_squared")
-        if return_model.get("ridge_lambda") is None and meta.get("ridge_lambda") is not None:
-            return_model["ridge_lambda"] = meta.get("ridge_lambda")
+    if display_raw:
+        # 草稿：系数表优先 Holdout 研究套 β（与因子 tip / τ·co 一致）；启用套仍读 model
+        view = _draft_persist_view(display_raw)
+        if display_role == "draft" and isinstance(view.get("return_model_research"), dict):
+            return_model = dict(view["return_model_research"])
+        elif isinstance(display_raw.get("model"), dict):
+            return_model = dict(display_raw["model"])
+        elif isinstance(view.get("return_model"), dict):
+            return_model = dict(view["return_model"])
+        if return_model is not None:
+            meta = (
+                display_raw.get("meta")
+                if isinstance(display_raw.get("meta"), dict)
+                else {}
+            )
+            if return_model.get("r_squared") is None and meta.get("r_squared") is not None:
+                return_model["r_squared"] = meta.get("r_squared")
+            if (
+                return_model.get("ridge_lambda") is None
+                and meta.get("ridge_lambda") is not None
+            ):
+                return_model["ridge_lambda"] = meta.get("ridge_lambda")
 
     # OOS：与系数表同源；草稿更新时用草稿评测
     draft_oos = _payload_oos(draft)
@@ -643,3 +735,12 @@ def fit_watching_return_model(
         )
         out["draft"] = saved
     return out
+
+
+# --- τ 风格别名（新代码优先用这些名字）---
+
+persist_oo_model = promote_return_model_draft
+load_oo_model = load_return_model
+oo_model_status = return_model_status
+fit_oo_ridge = fit_watching_return_model
+save_oo_model_draft = save_return_model_draft

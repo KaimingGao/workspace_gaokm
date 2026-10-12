@@ -620,7 +620,7 @@ def score_stock(
     required_factor_keys: list = []
     global_model_pre = None
     try:
-        from core.signal.return_score_store import load_return_model
+        from core.research.oo_ridge import load_return_model
 
         global_model_pre, _meta = load_return_model(prefer_active=True)
         if global_model_pre is None:

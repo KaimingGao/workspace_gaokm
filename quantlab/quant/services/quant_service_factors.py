@@ -704,6 +704,7 @@ class QuantFactorMixin:
         persist: bool = False,
         note: str = "",
         tau_hm: Optional[str] = None,
+        tau_end_hm: Optional[str] = None,
         force_promote: bool = False,
         persist_role: str = "live",
         holdout_trading_days: int = 20,
@@ -711,8 +712,8 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
-        默认用满观察池。``tau_hm`` 缺省跟随 ``dual_score.enable_minute_tau``：
-        开则训 09:30…做 T 11:00 网格，否则 open。
+        默认用满观察池。``tau_end_hm`` 优先（09:30…11:00；09:30=0 前缀 open→close）；
+        否则 ``tau_hm`` / ``dual_score.enable_minute_tau``（开则训至 11:00 网格）。
         日线与 ŷ_oo / ŷ_co 同源（``load_portfolio_stock_bars``）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
@@ -771,15 +772,23 @@ class QuantFactorMixin:
                 )
 
         ds = get_dual_score_cfg()
-        from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID, TRAIN_TAU_END_HM
+        from core.signal.minute_tau_grid import resolve_tau_train_prefix
 
-        if tau_hm is None:
-            use_minute = bool(ds.get("enable_minute_tau"))
-        else:
-            tau_key_raw = str(tau_hm or "open").strip() or "open"
-            use_minute = tau_key_raw.lower() not in ("", "open")
-        tau_key = TRAIN_TAU_END_HM if use_minute else "open"
-        tau_grid = list(DEFAULT_MINUTE_TAU_GRID) if use_minute else None
+        prefix = resolve_tau_train_prefix(
+            tau_end_hm=tau_end_hm,
+            tau_hm=tau_hm,
+            enable_minute_tau=bool(ds.get("enable_minute_tau")),
+        )
+        if prefix.get("error"):
+            return {
+                "success": False,
+                "error": prefix["error"],
+                "task": "tc_ridge",
+            }
+        use_minute = bool(prefix.get("use_minute"))
+        tau_key = str(prefix.get("tau_hm") or "open")
+        tau_grid = prefix.get("tau_grid")
+        resolved_end = str(prefix.get("tau_end_hm") or "09:30")[:5]
 
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
@@ -833,6 +842,21 @@ class QuantFactorMixin:
             resolved.get("watching_pool_size") or len(codes)
         )
         report["lookback"] = lookback
+        report["tau_end_hm"] = resolved_end
+        report["zero_prefix"] = bool(prefix.get("zero_prefix"))
+        y_spec = report.get("y_spec")
+        if isinstance(y_spec, dict):
+            y_spec = dict(y_spec)
+            y_spec["tau_end_hm"] = resolved_end
+            y_spec["zero_prefix"] = bool(prefix.get("zero_prefix"))
+            report["y_spec"] = y_spec
+            for mk in ("return_model", "return_model_research"):
+                blob = report.get(mk)
+                if isinstance(blob, dict) and isinstance(blob.get("y_spec"), dict):
+                    ys2 = dict(blob["y_spec"])
+                    ys2["tau_end_hm"] = resolved_end
+                    ys2["zero_prefix"] = bool(prefix.get("zero_prefix"))
+                    blob["y_spec"] = ys2
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
         if report.get("success"):
@@ -874,6 +898,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
         tau_hm: Optional[str] = None,
+        tau_end_hm: Optional[str] = None,
         cross_section_zscore: bool = True,
         **_ignored: Any,
     ) -> Dict[str, Any]:
@@ -892,6 +917,7 @@ class QuantFactorMixin:
             persist_role=persist_role,
             holdout_trading_days=holdout_trading_days,
             tau_hm=tau_hm,
+            tau_end_hm=tau_end_hm,
             cross_section_zscore=bool(cross_section_zscore),
         )
         return _start_ridge_fit_job(
@@ -1238,6 +1264,7 @@ class QuantFactorMixin:
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
+        tau_end_hm: Optional[str] = None,
         holdout_trading_days: int = 20,
         window_days: int = DEFAULT_TREE_WINDOW_DAYS,
         step_days: int = DEFAULT_TREE_STEP_DAYS,
@@ -1246,7 +1273,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_τ_tree：同面板 Holdout vs Ridge。写入 tc_tree_model.json，供调仓回测。
 
-        日线与 ŷ_oo / ŷ_τc Ridge 同源。不进交易执行。
+        日线与 ŷ_oo / ŷ_τc Ridge 同源。``tau_end_hm`` 同 Ridge。不进交易执行。
         """
         import time
 
@@ -1290,15 +1317,26 @@ class QuantFactorMixin:
             }
 
         ds = get_dual_score_cfg()
-        from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID, TRAIN_TAU_END_HM
+        from core.signal.minute_tau_grid import resolve_tau_train_prefix
 
-        if tau_hm is None:
-            use_minute = bool(ds.get("enable_minute_tau"))
-        else:
-            tau_key_raw = str(tau_hm or "open").strip() or "open"
-            use_minute = tau_key_raw.lower() not in ("", "open")
-        tau_key = TRAIN_TAU_END_HM if use_minute else "open"
-        tau_grid = list(DEFAULT_MINUTE_TAU_GRID) if use_minute else None
+        prefix = resolve_tau_train_prefix(
+            tau_end_hm=tau_end_hm,
+            tau_hm=tau_hm,
+            enable_minute_tau=bool(ds.get("enable_minute_tau")),
+        )
+        if prefix.get("error"):
+            return {
+                "success": False,
+                "error": prefix["error"],
+                "task": "tc_tree",
+                "head": "y_tau_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+        use_minute = bool(prefix.get("use_minute"))
+        tau_key = str(prefix.get("tau_hm") or "open")
+        tau_grid = prefix.get("tau_grid")
+        resolved_end = str(prefix.get("tau_end_hm") or "09:30")[:5]
 
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
@@ -1359,6 +1397,14 @@ class QuantFactorMixin:
             resolved.get("watching_pool_size") or len(codes)
         )
         report["lookback"] = lookback
+        report["tau_end_hm"] = resolved_end
+        report["zero_prefix"] = bool(prefix.get("zero_prefix"))
+        y_spec = report.get("y_spec")
+        if isinstance(y_spec, dict):
+            y_spec = dict(y_spec)
+            y_spec["tau_end_hm"] = resolved_end
+            y_spec["zero_prefix"] = bool(prefix.get("zero_prefix"))
+            report["y_spec"] = y_spec
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
         timing = dict(report.get("timing") or {}) if isinstance(report.get("timing"), dict) else {}

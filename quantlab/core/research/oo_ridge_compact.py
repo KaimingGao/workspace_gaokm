@@ -76,9 +76,9 @@ class OoPanelMatrix:
         self.dates: List[str] = []
         self._banned = _banned_factor_names()
         self._ridge_core_only = bool(ridge_core_only)
-        self._widen(
-            _registered_ridge_names(drop_aoo_overlap=self._ridge_core_only)
-        )
+        # 面板必带 raw_aoo_*：重叠 z_oo（gap_risk/momentum/overheat）一律去掉，
+        # 与 Tree / apply_aoo_core 去重策略一致（不再绑死 ridge_core_only）。
+        self._widen(_registered_ridge_names(drop_aoo_overlap=True))
         self._widen(alpha_oo_raw_names(ridge_core_only=self._ridge_core_only))
 
     def _widen(self, new_names: Sequence[str]) -> None:

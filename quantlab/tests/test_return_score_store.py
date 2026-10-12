@@ -1,4 +1,4 @@
-"""收益打分模型草稿 / promote（不写 weights）。"""
+"""ŷ_oo Ridge 草稿 / promote（实现在 ``core.research.oo_ridge``）。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.return_score import ReturnScoreModel
-from core.signal import return_score_store as store
+from core.research import oo_ridge as store
 
 
 class TestReturnScoreStore(unittest.TestCase):
@@ -148,7 +148,63 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertIn("momentum", coefs)
                 self.assertIn("money_flow", (raw or {}).get("meta", {}).get("stripped_unsourced") or [])
                 self.assertEqual(
-                    (raw or {}).get("meta", {}).get("coef_source"), "research_model"
+                    (raw or {}).get("meta", {}).get("coef_source"),
+                    "return_model_research",
+                )
+                self.assertIn("return_model", raw or {})
+                self.assertEqual(
+                    ((raw or {}).get("return_model") or {}).get("intercept"),
+                    ((raw or {}).get("model") or {}).get("intercept"),
+                )
+
+    def test_draft_writes_return_model_aliases_and_status_prefers_research(self):
+        """草稿同时落 return_model*；状态系数表优先 Holdout 研究套 β。"""
+        live = ReturnScoreModel(
+            intercept=0.5,
+            coefficients={"OPEN0": 4.4},
+            feature_zscore=False,
+            sample_count=100,
+            horizon_days=1,
+        )
+        research = ReturnScoreModel(
+            intercept=0.07,
+            coefficients={"OPEN0": 2.7},
+            feature_zscore=False,
+            sample_count=80,
+            horizon_days=1,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            draft = os.path.join(td, "draft.json")
+            with patch.object(store, "RETURN_SCORE_MODEL_DRAFT_PATH", draft), patch.object(
+                store, "RETURN_SCORE_MODEL_ACTIVE_PATH", os.path.join(td, "active.json")
+            ), patch.object(
+                store, "RETURN_SCORE_MODEL_RESEARCH_PATH", os.path.join(td, "research.json")
+            ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
+                store, "LIVE_DIR", td
+            ):
+                self.assertTrue(
+                    store.save_return_model_draft(
+                        live, research_model=research
+                    )["success"]
+                )
+                raw = store.load_return_model_payload(draft)
+                self.assertIsInstance((raw or {}).get("return_model"), dict)
+                self.assertIsInstance((raw or {}).get("return_model_research"), dict)
+                self.assertAlmostEqual(
+                    float(((raw or {}).get("return_model") or {}).get("intercept") or 0),
+                    0.5,
+                )
+                self.assertAlmostEqual(
+                    float(
+                        ((raw or {}).get("return_model_research") or {}).get("intercept")
+                        or 0
+                    ),
+                    0.07,
+                )
+                st = store.return_model_status()
+                self.assertEqual(st.get("display_role"), "draft")
+                self.assertAlmostEqual(
+                    float((st.get("return_model") or {}).get("intercept") or 0), 0.07
                 )
 
     def test_draft_persists_oos_for_status(self):

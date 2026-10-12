@@ -70,6 +70,8 @@ def test_alpha_oo_key_fields_listed():
 
 
 def test_aoo_core_ridge_policy():
+    from core.signal.factors.alpha_oo import drop_aoo_overlap_z_oo
+
     assert is_alpha_oo_ridge_raw_key(f"{ALPHA_OO_RAW_PREFIX}GAP")
     assert not is_alpha_oo_ridge_raw_key(f"{ALPHA_OO_RAW_PREFIX}OROC5")
     assert Z_OO_DROP_WHEN_AOO_CORE == frozenset(
@@ -92,6 +94,12 @@ def test_aoo_core_ridge_policy():
     assert f"{ALPHA_OO_RAW_PREFIX}GAP" in out
     assert f"{ALPHA_OO_RAW_PREFIX}YKMID" in out
     assert f"{ALPHA_OO_RAW_PREFIX}OROC5" not in out
+    # 全量 raw 模式：只丢重叠 z_oo，保留 OROC5
+    kept = drop_aoo_overlap_z_oo(names)
+    assert "z_oo_gap_risk" not in kept
+    assert "z_oo_momentum" not in kept
+    assert f"{ALPHA_OO_RAW_PREFIX}OROC5" in kept
+    assert "z_oo_value" in kept
 
 
 def test_expand_ridge_feature_names_defaults_to_full_union():
@@ -108,7 +116,9 @@ def test_expand_ridge_feature_names_defaults_to_full_union():
     assert f"{ALPHA_OO_RAW_PREFIX}GAP" in names
     assert f"{ALPHA_OO_RAW_PREFIX}YKMID" in names
     assert f"{ALPHA_OO_RAW_PREFIX}OROC5" in names
-    assert "z_oo_momentum" in names
+    # 有 aoo_core 时重叠 z_oo 必须去掉（与 Tree 对齐）
+    assert "z_oo_momentum" not in names
+    assert "z_oo_gap_risk" not in names
     assert "z_oo_value" in names
     core = expand_ridge_feature_names(xs, ridge_core_only=True)
     assert f"{ALPHA_OO_RAW_PREFIX}OROC5" not in core

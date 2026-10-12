@@ -272,13 +272,24 @@ def select_persist_return_model(
     report: Dict[str, Any],
     *,
     role: Optional[str] = None,
+    allow_research_fallback: bool = True,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """执行套用全样本 ``return_model``；研究套用 holdout 训练的 ``return_model_research``。"""
+    """执行套用全样本 ``return_model``；研究套用 holdout 训练的 ``return_model_research``。
+
+    ``allow_research_fallback``：缺研究套 β 时是否回退全样本（旧 τ/co 报告兼容）。
+    ŷ_oo 启用应传 ``False``，避免再把全样本推进研究套路径。
+    """
     role_n = normalize_model_role(role)
     if role_n == MODEL_ROLE_RESEARCH:
         rm = report.get("return_model_research")
-        if not isinstance(rm, dict):
-            rm = report.get("return_model") if isinstance(report.get("return_model"), dict) else None
+        if not isinstance(rm, dict) and allow_research_fallback:
+            rm = (
+                report.get("return_model")
+                if isinstance(report.get("return_model"), dict)
+                else None
+            )
+        elif not isinstance(rm, dict):
+            rm = None
         return role_n, rm
     rm = report.get("return_model") if isinstance(report.get("return_model"), dict) else None
     return role_n, rm

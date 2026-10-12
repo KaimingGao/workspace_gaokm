@@ -13,7 +13,8 @@
 默认池 = 观察池；可选 research_universe（pool=ledger 已废弃，等同 watching）。
 
 档位（默认）：
-- A：命中率 ≥ 0.60，且 IC > 0，且有效日 n ≥ 6
+- A：命中率 ≥ 0.55，且 IC > 0，且有效日 n ≥ 分档窗天数的 50%
+  （Holdout=40 → 前半 20 日 → N≥10）
 - B：命中率 ≥ 0.50 但未同时满足 A 的三项
 - C：命中率 < 0.50，或无有效样本
 
@@ -37,8 +38,10 @@ from core.io_atomic import atomic_write_json
 SCHEMA = "predictability_tiers_v1"
 ACTIVE_SCHEMA = "predictability_tiers_active_v1"
 DEFAULT_MIN_N = 20
-DEFAULT_A_HIT = 0.60
-DEFAULT_A_MIN_N = 6
+DEFAULT_A_HIT = 0.55
+# A 档最少有效日 = 分档窗（Holdout 前半）长度 × 该比例；Holdout40 → 前半20 → N≥10
+DEFAULT_A_MIN_N_FRAC = 0.50
+DEFAULT_A_MIN_N = 10  # 仅当未知 tier_n 时的回退（按 Holdout40 前半）
 DEFAULT_B_HIT = 0.50
 DEFAULT_LIVE_ALLOWED = ("A",)
 DEFAULT_HOLDOUT_N = 20
@@ -338,6 +341,22 @@ def filter_codes_by_predictability_live(
     }
 
 
+def a_min_n_from_tier_n(
+    tier_n: int,
+    *,
+    frac: float = DEFAULT_A_MIN_N_FRAC,
+) -> int:
+    """A 档最少有效日：分档窗天数 × frac（默认 50%）。Holdout40→前半20→10。"""
+    n = max(0, int(tier_n or 0))
+    f = float(frac if frac is not None else DEFAULT_A_MIN_N_FRAC)
+    if not math.isfinite(f) or f <= 0:
+        f = DEFAULT_A_MIN_N_FRAC
+    f = min(1.0, max(0.0, f))
+    if n <= 0:
+        return max(1, int(DEFAULT_A_MIN_N))
+    return max(1, int(math.ceil(n * f)))
+
+
 def assign_tier(
     hit_rate: Optional[float],
     n_valid: int,
@@ -350,7 +369,8 @@ def assign_tier(
 ) -> str:
     """A：命中率 ≥ a_hit、IC > 0、有效日 n ≥ a_min_n。未进 A 时按 B 命中率下限分 B/C。
 
-    ``min_n`` 保留给旧调用，不再参与升 A。
+    ``min_n`` 保留给旧调用，不再参与升 A。``a_min_n`` 建议用
+    ``a_min_n_from_tier_n(tier_n)``（分档窗 50%）。
     """
     n = max(0, int(n_valid or 0))
     a_thr = float(a_hit if a_hit is not None else DEFAULT_A_HIT)
@@ -563,7 +583,7 @@ def _load_research_oo_model() -> Tuple[Optional[Any], Dict[str, Any]]:
     """只读研究套 ŷ_oo；不回落执行套/草稿（避免 Holdout 泄漏进 β）。"""
     from core.paths import RETURN_SCORE_MODEL_RESEARCH_PATH
     from core.signal.return_score import ReturnScoreModel
-    from core.signal.return_score_store import load_return_model_payload
+    from core.research.oo_ridge import load_return_model_payload
 
     path = RETURN_SCORE_MODEL_RESEARCH_PATH
     raw = load_return_model_payload(path)
@@ -876,6 +896,7 @@ def _rows_from_acc(
     a_hit: float,
     b_hit: float,
     name_by: Optional[Dict[str, str]] = None,
+    a_min_n: Optional[int] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int], int, int]:
     name_by = name_by or {}
     if pad_missing and pool_codes:
@@ -893,6 +914,10 @@ def _rows_from_acc(
     rows: List[Dict[str, Any]] = []
     counts = {"A": 0, "B": 0, "C": 0}
     min_n_req = max(1, int(min_n or DEFAULT_MIN_N))
+    a_n = max(
+        1,
+        int(a_min_n if a_min_n is not None else DEFAULT_A_MIN_N),
+    )
     for code, slot in acc.items():
         n_valid = int(slot.get("n_valid") or 0)
         hits = int(slot.get("hits") or 0)
@@ -904,6 +929,7 @@ def _rows_from_acc(
             a_hit=a_hit,
             b_hit=b_hit,
             ic=ic,
+            a_min_n=a_n,
         )
         counts[tier] = int(counts.get(tier) or 0) + 1
         ds = list(slot.get("dates") or [])
@@ -935,7 +961,7 @@ def _rows_from_acc(
         )
 
     rows.sort(key=_sort_key)
-    return rows, counts, min_n_req, DEFAULT_A_MIN_N
+    return rows, counts, min_n_req, a_n
 
 
 def build_holdout_half_tiers(
@@ -1005,6 +1031,8 @@ def build_holdout_half_tiers(
     acc = dict(packed.get("acc") or {})
     tier_dates = list(packed.get("tier_dates") or [])
     half = packed.get("holdout_split") or {}
+    tier_n = int(packed.get("tier_n") or len(tier_dates))
+    a_min_n = a_min_n_from_tier_n(tier_n)
     name_by = _watching_name_map(
         watching_codes if watching_codes is not None else list(watch_set or pool_codes)
     )
@@ -1017,9 +1045,9 @@ def build_holdout_half_tiers(
         a_hit=a_hit,
         b_hit=b_hit,
         name_by=name_by,
+        a_min_n=a_min_n,
     )
     n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
-    tier_n = int(packed.get("tier_n") or len(tier_dates))
     model_source = str(packed.get("source") or "oo_research_model")
     panel_lb = int(packed.get("lookback") or lookback or DEFAULT_PANEL_LOOKBACK)
     lookback_req = int(packed.get("lookback_requested") or lookback or panel_lb)
@@ -1048,7 +1076,8 @@ def build_holdout_half_tiers(
         "min_n_effective": min_n_eff,
         "thresholds": {
             "a_hit": float(a_hit if a_hit is not None else DEFAULT_A_HIT),
-            "a_min_n": DEFAULT_A_MIN_N,
+            "a_min_n": int(min_n_eff),
+            "a_min_n_frac": float(DEFAULT_A_MIN_N_FRAC),
             "b_hit": float(b_hit if b_hit is not None else DEFAULT_B_HIT),
             "min_n": min_n_req,
             "min_n_effective": min_n_eff,
@@ -1088,7 +1117,8 @@ def build_holdout_half_tiers(
                 else ""
             )
             + "；"
-            f"A 为命中率≥{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、IC>0、N≥{DEFAULT_A_MIN_N}；"
+            f"A 为命中率≥{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、"
+            f"IC>0、N≥{int(min_n_eff)}（分档窗{tier_n}日×{DEFAULT_A_MIN_N_FRAC:.0%}）；"
             "落盘 last；live 档位跟随历史回测「分档」勾选；"
             "回测天数用独立 lookback。"
         ),

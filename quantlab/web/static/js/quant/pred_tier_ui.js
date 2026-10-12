@@ -6,7 +6,7 @@ import { escapeHtml } from "../shared.js";
 
 const TIER_RANK = { A: 0, B: 1, C: 2 };
 const TIER_TIP = {
-  A: "A 强：命中率≥60%、IC>0、有效日 N≥6",
+  A: "A 强：命中率≥55%、IC>0、有效日 N≥分档窗50%（Holdout40→N≥10）",
   B: "B 中：方向尚可，或样本偏薄未升 A",
   C: "C 弱：命中不足或无有效样本",
 };
