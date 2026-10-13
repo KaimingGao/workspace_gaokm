@@ -429,6 +429,62 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertEqual(r_meta.get("model_role"), "research")
                 self.assertAlmostEqual(float(r_loaded.coefficients["CLOSE0"]), 0.31)
 
+    def test_prefer_research_does_not_fall_back_to_active(self):
+        """研究槽缺失时不得静默用执行套；可回落草稿预览。"""
+        live = ReturnScoreModel(
+            intercept=0.9,
+            coefficients={"momentum": 0.9},
+            feature_zscore=False,
+            sample_count=20,
+            horizon_days=1,
+        )
+        draft_m = ReturnScoreModel(
+            intercept=0.11,
+            coefficients={"momentum": 0.25},
+            feature_zscore=False,
+            sample_count=12,
+            horizon_days=1,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            draft = os.path.join(td, "draft.json")
+            active = os.path.join(td, "active.json")
+            research = os.path.join(td, "research.json")
+            with patch.object(store, "RETURN_SCORE_MODEL_DRAFT_PATH", draft), patch.object(
+                store, "RETURN_SCORE_MODEL_ACTIVE_PATH", active
+            ), patch.object(
+                store, "RETURN_SCORE_MODEL_RESEARCH_PATH", research
+            ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
+                store, "LIVE_DIR", td
+            ):
+                self.assertTrue(store.save_return_model_draft(live)["success"])
+                self.assertTrue(
+                    store.promote_return_model_draft(note="research", role="research")[
+                        "success"
+                    ]
+                )
+                self.assertTrue(
+                    store.promote_return_model_draft(note="live", role="live")["success"]
+                )
+                os.remove(research)
+                os.remove(draft)
+                missing, meta = store.load_return_model(
+                    prefer_active=True, prefer_research=True
+                )
+                self.assertIsNone(missing)
+                self.assertFalse(meta.get("ok"))
+                live_only, live_meta = store.load_return_model(
+                    prefer_active=True, prefer_research=False
+                )
+                self.assertIsNotNone(live_only)
+                self.assertAlmostEqual(float(live_only.intercept), 0.9)
+                self.assertTrue(store.save_return_model_draft(draft_m)["success"])
+                preview, preview_meta = store.load_return_model(
+                    prefer_active=True, prefer_research=True
+                )
+                self.assertIsNotNone(preview)
+                self.assertEqual(preview_meta.get("role"), "draft")
+                self.assertAlmostEqual(float(preview.intercept), 0.11)
+
     def test_rescore_respects_research_scoring_context(self):
         """截面重打不能写死 prefer_active，否则会盖掉研究套 tip β。"""
         from core.research.feature_standardize import ZSCORE_SCOPE_CROSS_SECTION

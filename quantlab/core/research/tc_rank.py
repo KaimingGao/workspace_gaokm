@@ -63,17 +63,20 @@ def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
 
 
 def load_tc_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, Any]]:
-    """加载已启用模型。默认优先研究套 sidecar；缺则执行套。"""
+    """加载已启用模型。按槽严格取，缺文件返回 None（不跨槽回落）。
+
+    - ``prefer_research=True``：只读研究套 sidecar
+    - ``prefer_research=False``：只读执行套
+    """
     live = tc_rank_model_path()
     if prefer_research:
         try:
             from core.research.holdout import load_research_promoted_json
 
-            doc = load_research_promoted_json(live)
-            if doc:
-                return doc
+            return load_research_promoted_json(live)
         except Exception:  # noqa: BLE001
             logger.debug("tc_rank research load failed", exc_info=True)
+            return None
     return _load_model_file(live)
 
 

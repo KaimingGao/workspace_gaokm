@@ -688,6 +688,54 @@ class TestOoRankFit(unittest.TestCase):
             self.assertIsNotNone(last)
             self.assertEqual((last or {}).get("task"), "oo_rank_pairwise")
 
+    def test_load_research_does_not_fall_back_to_live(self):
+        """研究套缺失时不得读执行套。"""
+        import json
+
+        from core.research.holdout import research_model_path
+        from core.research.oo_rank_lambdarank import load_oo_rank_model
+
+        live_doc = {
+            "success": True,
+            "schema": "oo_rank_v1",
+            "return_model": {
+                "backend": "ridge",
+                "solver": "ridge",
+                "target": "oo_rank",
+                "coefficients": {"mom3": 1.0},
+            },
+        }
+        with tempfile.TemporaryDirectory() as td:
+            live = os.path.join(td, "oo_rank_model.json")
+            with open(live, "w", encoding="utf-8") as f:
+                json.dump(live_doc, f)
+            with patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path",
+                return_value=live,
+            ), patch(
+                "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
+                return_value=os.path.join(td, "legacy_model.json"),
+            ):
+                self.assertIsNone(load_oo_rank_model(prefer_research=True))
+                self.assertIsNotNone(load_oo_rank_model(prefer_research=False))
+                research = research_model_path(live)
+                os.makedirs(os.path.dirname(research), exist_ok=True)
+                research_doc = dict(live_doc)
+                research_doc["return_model"] = dict(
+                    live_doc["return_model"], coefficients={"mom3": 2.0}
+                )
+                with open(research, "w", encoding="utf-8") as f:
+                    json.dump(research_doc, f)
+                loaded = load_oo_rank_model(prefer_research=True)
+                self.assertAlmostEqual(
+                    float(
+                        ((loaded or {}).get("return_model") or {})
+                        .get("coefficients", {})
+                        .get("mom3")
+                    ),
+                    2.0,
+                )
+
 
 class TestOoRankReport(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")

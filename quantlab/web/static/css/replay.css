@@ -1112,6 +1112,19 @@ body[data-page="replay"] .replay-secondary-fold > .dashboard-card.quant-pro-card
   box-sizing: border-box;
 }
 
+/* 做 T 回测：次要折叠默认收起；展开后工具条贴在 summary 下 */
+body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-run-head {
+  padding: 0 10px 8px;
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+
+body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-overview-band,
+body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-t0-matrix {
+  margin: 0 8px 8px;
+}
+
 body[data-page="replay"] .replay-howto-body {
   max-width: none;
   font-size: var(--r-fs-caption);

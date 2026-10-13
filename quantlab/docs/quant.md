@@ -1286,6 +1286,21 @@ score_stock(code) 续——
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。加载仍兼容旧文件名 `oo_rank_pairwise_*.json`。
 
+### 4.3c ŷ_τc_rank（LambdaRank / Ridge · 截面名次）
+
+与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge，Holdout **NDCG@K** 选 backend；卡头 **日截面 Z**（默认开）。标签为当日 `close[T]/open[T]−1`（百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。
+相对分编成当日截面名次 `y_tc_rank ∈ 1..n`（1=最高），写入成交明细 **τc_rank** 列。
+**不**进 `y_oo_fuse`，**不**改买序。与 oo_rank 共用入场闸：`oo_rank_max` 开则须 `max(y_oo_rank, y_τc_rank) < max`。
+
+| | |
+|--|--|
+| 训练宇宙 | 默认整观察池；可勾「只训 A 档」 |
+| 训练窗 | 默认 **700**（100～1000） |
+| 训练 | `POST /api/quant/tc-rank` 拟合写 last report；「启用研究 / 启用执行」只落盘，不重训 |
+| 回测 | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 max 入场闸 |
+
+实现：`core/research/tc_rank.py`（复用 oo_rank 训练/推理内核）。
+
 ### 4.4 双层完整调用链
 
 ```text
@@ -1358,7 +1373,7 @@ score_stock(code) 续——
 |--|--|--|
 | 选股排序键 | **y_oo_fuse**（UI fuse）= w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 同左 |
 | 宇宙 | 全部观察池（现金用完即止） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
-| 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本 | 执行套（研究槽晋级） |
+| 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
 | 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**5m 成交钟**默认 09:30（可选至 10:00）；缺该钟：买入跳过、清仓回退其后～10:00 再回退 09:30/日开盘；共用框「日分价闸」默认开（窗口分钟日分价错位 skip；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
 | 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=(open[T+1]−price(τ))/open[T] / y_oo / y_τc / y_co / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 / y_hl | live 仍可透传对照头 |

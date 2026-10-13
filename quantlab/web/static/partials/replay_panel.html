@@ -305,15 +305,18 @@
     </div>
   </section>
 
-  <!-- ③ 做 T 回测：默认执行槽（对照手动预演）；可选研究槽版本 -->
+  <!-- ③ 做 T 回测：次要折叠，默认收起（短期内不作重点） -->
   <section
     class="dashboard-section quant-section replay-section replay-run-section replay-t0-section"
     id="replay-section-t0"
     aria-labelledby="replay-section-t0-title"
   >
-    <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
+    <details class="replay-secondary-fold">
+    <summary class="replay-secondary-fold-sum">
       <h3 id="replay-section-t0-title" class="dashboard-section-title">做 T 回测</h3>
-      <p class="quant-fingerprint replay-pool-meta">虚拟底仓=最大轮数×y_τc强金额/价 · 本金 20 万 · 5m 第一触达 · 不写账本</p>
+      <p class="dashboard-section-desc quant-section-desc">短期内不作重点 · 点开可跑 · 虚拟底仓 · 5m 第一触达 · 不写账本</p>
+    </summary>
+    <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
       <p id="paper-t0-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
         <span id="paper-t0-progress-text">回测中…</span>
       </p>
@@ -529,5 +532,6 @@
         <div id="paper-t0-days" class="quant-weight-table-wrap"></div>
       </div>
     </div>
+    </details>
   </section>
 </div>

@@ -203,18 +203,21 @@ def load_return_model(
 ) -> Tuple[Optional[ReturnScoreModel], Dict[str, Any]]:
     """读全局 ŷ_oo 模型。
 
-    - 默认：active → draft
-    - ``prefer_research=True``：research → active → draft（历史回测）
+    - 默认（执行）：active → draft
+    - ``prefer_research=True``（研究）：research → draft；**不**回落 active
     - 各槽均为 Holdout 前训 β（版本槽不同）
     """
     paths = []
     if prefer_research:
+        # 研究回测 / 研究打分：只用研究套；草稿作未启用研究时的预览。禁止静默换执行套。
         paths.append(("research", RETURN_SCORE_MODEL_RESEARCH_PATH))
-    if prefer_active:
-        paths.append(("active", RETURN_SCORE_MODEL_ACTIVE_PATH))
-    paths.append(("draft", RETURN_SCORE_MODEL_DRAFT_PATH))
-    if not prefer_active:
-        paths.append(("active", RETURN_SCORE_MODEL_ACTIVE_PATH))
+        paths.append(("draft", RETURN_SCORE_MODEL_DRAFT_PATH))
+    else:
+        if prefer_active:
+            paths.append(("active", RETURN_SCORE_MODEL_ACTIVE_PATH))
+        paths.append(("draft", RETURN_SCORE_MODEL_DRAFT_PATH))
+        if not prefer_active:
+            paths.append(("active", RETURN_SCORE_MODEL_ACTIVE_PATH))
 
     seen = set()
     for role, path in paths:

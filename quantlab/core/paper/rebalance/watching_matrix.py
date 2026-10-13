@@ -109,9 +109,8 @@ def _attach_oo_rank_scores(items: Sequence[dict]) -> None:
     try:
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores, load_oo_rank_model
 
+        # live 调仓只用执行套；缺则跳过，不静默换研究套。
         doc = load_oo_rank_model(prefer_research=False)
-        if not doc:
-            doc = load_oo_rank_model(prefer_research=True)
         if doc:
             apply_oo_rank_scores(list(items or []), model_doc=doc)
     except Exception:  # noqa: BLE001

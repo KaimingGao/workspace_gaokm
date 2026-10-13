@@ -994,6 +994,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('name="pm_price_space_gate"', pm)
         self.assertIn('name="pm_lot_strong_amount"', replay)
         self.assertIn('id="paper-t0-form"', replay)
+        # 做 T 短期内不作重点：次要折叠，默认收起（无 open）
+        self.assertIn('id="replay-section-t0"', replay)
+        t0_sec = replay[replay.find('id="replay-section-t0"') :]
+        self.assertIn('<details class="replay-secondary-fold">', t0_sec)
+        self.assertNotIn('<details class="replay-secondary-fold" open', t0_sec)
+        self.assertIn("短期内不作重点", t0_sec)
         self.assertIn('id="replay-t0-kpi-row"', replay)
         self.assertIn('id="replay-t0-kpi-return"', replay)
         self.assertIn("replay-t0-matrix", replay)

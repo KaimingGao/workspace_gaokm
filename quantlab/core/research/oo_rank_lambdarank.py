@@ -184,9 +184,10 @@ def _first_existing_model(*paths: str) -> Optional[Dict[str, Any]]:
 
 
 def load_oo_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, Any]]:
-    """加载已启用模型。默认优先研究套 sidecar；缺则执行套。
+    """加载已启用模型。按槽严格取，缺文件返回 None（不跨槽回落）。
 
-    新路径优先，旧 ``oo_rank_pairwise_*.json`` 可读兼容。
+    - ``prefer_research=True``：只读研究套 sidecar
+    - ``prefer_research=False``：只读执行套（新路径优先，旧 ``oo_rank_pairwise_*.json`` 兼容）
     """
     live = oo_rank_model_path()
     legacy = oo_rank_model_path_legacy()
@@ -200,6 +201,7 @@ def load_oo_rank_model(*, prefer_research: bool = True) -> Optional[Dict[str, An
                     return doc
         except Exception:  # noqa: BLE001
             logger.debug("oo_rank research load failed", exc_info=True)
+        return None
     return _first_existing_model(live, legacy)
 
 

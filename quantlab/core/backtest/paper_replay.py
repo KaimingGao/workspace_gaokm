@@ -1735,7 +1735,7 @@ def _load_replay_global_model() -> Any:
     try:
         from core.research.oo_ridge import load_scoring_return_model
 
-        # 跟回测「模型」下拉：研究 → research；执行 → active（缺则回落）
+        # 跟回测「模型」下拉：研究 → research（缺则 draft 预览）；执行 → active。不跨槽回落。
         model, meta = load_scoring_return_model()
         if meta.get("ok") and model is not None:
             return model
@@ -1848,9 +1848,8 @@ def _attach_open_yhat_heads(
 
         apply_oo_rank_scores = _apply_oo_rank
         prefer_research = current_scoring_model_role() != "live"
+        # 按回测「模型」槽严格加载；缺该槽则本头不挂分，不静默换另一槽。
         oo_rank_doc = load_oo_rank_model(prefer_research=prefer_research)
-        if oo_rank_doc is None:
-            oo_rank_doc = load_oo_rank_model(prefer_research=not prefer_research)
     except Exception:  # noqa: BLE001
         logger.debug("oo_rank import failed", exc_info=True)
 
@@ -2421,9 +2420,8 @@ def backtest_paper_replay(
         from core.research.tc_rank import load_tc_rank_model
 
         prefer_research = current_scoring_model_role() != "live"
+        # 与 oo_rank 同：所选槽缺失则不挂 τc_rank，不换另一槽。
         tc_rank_doc = load_tc_rank_model(prefer_research=prefer_research)
-        if tc_rank_doc is None:
-            tc_rank_doc = load_tc_rank_model(prefer_research=not prefer_research)
     except Exception:  # noqa: BLE001
         logger.debug("load tc_rank model failed in paper_replay", exc_info=True)
 

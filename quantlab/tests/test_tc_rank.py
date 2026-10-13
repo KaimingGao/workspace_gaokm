@@ -57,6 +57,55 @@ class TestTcRank(unittest.TestCase):
             "tc_rank",
         )
 
+    def test_load_research_does_not_fall_back_to_live(self):
+        """研究套缺失时不得读执行套。"""
+        import json
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        from core.research.holdout import research_model_path
+        from core.research.tc_rank import load_tc_rank_model
+
+        live_doc = {
+            "success": True,
+            "schema": "tc_rank_v1",
+            "return_model": {
+                "backend": "ridge",
+                "solver": "ridge",
+                "target": "tc_rank",
+                "coefficients": {"z_τc_gap_pct": 1.0},
+            },
+        }
+        with tempfile.TemporaryDirectory() as td:
+            live = os.path.join(td, "tc_rank_model.json")
+            with open(live, "w", encoding="utf-8") as f:
+                json.dump(live_doc, f)
+            with patch(
+                "core.research.tc_rank.tc_rank_model_path",
+                return_value=live,
+            ):
+                self.assertIsNone(load_tc_rank_model(prefer_research=True))
+                self.assertIsNotNone(load_tc_rank_model(prefer_research=False))
+                research = research_model_path(live)
+                os.makedirs(os.path.dirname(research), exist_ok=True)
+                research_doc = dict(live_doc)
+                research_doc["return_model"] = dict(
+                    live_doc["return_model"],
+                    coefficients={"z_τc_gap_pct": 2.0},
+                )
+                with open(research, "w", encoding="utf-8") as f:
+                    json.dump(research_doc, f)
+                loaded = load_tc_rank_model(prefer_research=True)
+                self.assertAlmostEqual(
+                    float(
+                        ((loaded or {}).get("return_model") or {})
+                        .get("coefficients", {})
+                        .get("z_τc_gap_pct")
+                    ),
+                    2.0,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
