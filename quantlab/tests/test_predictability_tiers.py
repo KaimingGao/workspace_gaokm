@@ -301,6 +301,56 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(by2["c"]["tier"], "C")
         self.assertIsNone(by2["c"]["score"])
 
+        # A 档命中率门槛：Score 最高但 Y_oo < 50% 不占 A，名额顺延给过线的票
+        gated = [
+            {
+                "code": "hi",
+                "hit_rate": 0.49,
+                "n_valid": 10,
+                "hit_rate_tau": 0.80,
+                "n_valid_tau": 10,
+            },
+            {
+                "code": "ok",
+                "hit_rate": 0.48,
+                "n_valid": 10,
+                "hit_rate_tau": 0.60,
+                "n_valid_tau": 10,
+            },
+            {
+                "code": "mid",
+                "hit_rate": 0.55,
+                "n_valid": 10,
+                "hit_rate_tau": 0.55,
+                "n_valid_tau": 10,
+            },
+        ]
+        assign_tiers_by_rank_score(
+            gated,
+            require_tau=True,
+            a_count=1,
+            b_count=1,
+            a_hit=0.50,
+            tau_a_hit=0.50,
+        )
+        by3 = {r["code"]: r for r in gated}
+        self.assertEqual(by3["mid"]["tier"], "A")
+        self.assertEqual(by3["hi"]["tier"], "B")
+        self.assertEqual(by3["ok"]["tier"], "C")
+        self.assertGreater(by3["hi"]["score"], by3["mid"]["score"])
+
+        # 无 ŷ_τc 时不看 Y_τc 门槛；恰好 50% 过线
+        oo_only = [
+            {"code": "edge", "hit_rate": 0.50, "n_valid": 10, "hit_rate_tau": 0.10, "n_valid_tau": 10},
+            {"code": "low", "hit_rate": 0.40, "n_valid": 10, "hit_rate_tau": 0.90, "n_valid_tau": 10},
+        ]
+        assign_tiers_by_rank_score(
+            oo_only, require_tau=False, a_count=1, b_count=1, a_hit=50, tau_a_hit=50
+        )
+        by4 = {r["code"]: r for r in oo_only}
+        self.assertEqual(by4["edge"]["tier"], "A")
+        self.assertEqual(by4["low"]["tier"], "B")
+
     def test_assign_tier_compat(self):
         from core.research.predictability_tiers import assign_tier
 
@@ -357,13 +407,14 @@ class TestPredictabilityTiers(unittest.TestCase):
         from core.research.predictability_tiers import (
             _absorb_holdout_row,
             _absorb_tau_holdout_row,
-            summarize_tier_mean_realized,
+            summarize_tier_ew_hold,
         )
 
         acc = {}
         tier = {"d1", "d2"}
         whole = {"d1", "d2", "d3", "d4"}
-        for d, y in (("d1", 0.02), ("d2", 0.02), ("d3", -0.04), ("d4", -0.04)):
+        # y 与 forward_oo_pct 同为百分点（2.0 = +2%）
+        for d, y in (("d1", 2.0), ("d2", 2.0), ("d3", -4.0), ("d4", -4.0)):
             _absorb_holdout_row(
                 acc,
                 code="000001",
@@ -392,9 +443,27 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(len(slot["pair_dates"]), 4)
         self.assertEqual(slot["n_valid_tau"], 2)
         self.assertEqual(len(slot["tau_realized"]), 4)
-        mean = summarize_tier_mean_realized(acc, codes=["000001"])
-        self.assertEqual(mean["n_realized"], 4)
-        self.assertAlmostEqual(mean["mean_realized"], -0.01)
+        # 等权买持：与回测基线同构（close 首尾）
+        dates = ["d1", "d2", "d3", "d4"]
+        bars = {
+            "000001": [
+                {"date": "d1", "close": 100.0},
+                {"date": "d2", "close": 101.0},
+                {"date": "d3", "close": 99.0},
+                {"date": "d4", "close": 99.0},
+            ],
+            "000002": [
+                {"date": "d1", "close": 50.0},
+                {"date": "d2", "close": 50.0},
+                {"date": "d3", "close": 50.0},
+                {"date": "d4", "close": 55.0},
+            ],
+        }
+        ew = summarize_tier_ew_hold(bars, codes=["000001", "000002"], dates=dates)
+        self.assertEqual(ew["n_realized"], 2)
+        self.assertEqual(ew.get("ret_method"), "ew_hold")
+        # 000001: 99/100-1=-1%；000002: 55/50-1=+10%；等权 +4.5%
+        self.assertAlmostEqual(ew["mean_realized_pct"], 4.5)
 
     def test_build_holdout_half_tiers_oos(self):
         from core.research.predictability_tiers import (
@@ -407,6 +476,13 @@ class TestPredictabilityTiers(unittest.TestCase):
 
         tier_dates = [f"2025-08-{d:02d}" for d in range(1, 11)]
 
+        def _fake_bars(c0: float, c1: float):
+            rows = [{"date": tier_dates[0], "close": c0}]
+            for d in tier_dates[1:-1]:
+                rows.append({"date": d, "close": c0})
+            rows.append({"date": tier_dates[-1], "close": c1})
+            return rows
+
         def _fake_accumulate(codes, **kwargs):
             acc = {
                 "000001": {
@@ -414,7 +490,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "n_valid": 7,
                     "n_days": 10,
                     "yhats": [1.0] * 10,
-                    "realized": [0.02] * 10,
+                    "realized": [2.0] * 10,  # 百分点，与 forward_oo_pct 一致
                     "dates": list(tier_dates),
                     "hits_tau": 6,
                     "n_valid_tau": 7,
@@ -427,7 +503,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "n_valid": 5,
                     "n_days": 10,
                     "yhats": [1.0] * 10,
-                    "realized": [-0.01] * 10,
+                    "realized": [-1.0] * 10,
                     "dates": list(tier_dates),
                     "hits_tau": 0,
                     "n_valid_tau": 5,
@@ -447,6 +523,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "n_test": 10,
                     "tier_dates": list(tier_dates),
                     "tier_n": 10,
+                    "test_days": list(tier_dates),
                     "as_of_tier_last": tier_dates[-1],
                 },
                 "split_meta": {"eval_start": "2025-08-01", "test_days": list(tier_dates)},
@@ -455,6 +532,11 @@ class TestPredictabilityTiers(unittest.TestCase):
                 "horizon_days": 1,
                 "source": "oo_holdout_oos",
                 "tau_meta": {"ok": True, "n_rows": 12, "path": "/tmp/tau_research.json"},
+                # 000001 +2%、000002 -1%（对齐回测等权买持 close 首尾）
+                "stock_bars": {
+                    "000001": _fake_bars(100.0, 102.0),
+                    "000002": _fake_bars(100.0, 99.0),
+                },
             }
 
         with tempfile.TemporaryDirectory() as td:
@@ -507,6 +589,8 @@ class TestPredictabilityTiers(unittest.TestCase):
                 thr = rep.get("thresholds") or {}
                 self.assertEqual(int(thr.get("a_count")), 1)
                 self.assertEqual(int(thr.get("b_count")), 0)
+                self.assertAlmostEqual(float(thr.get("a_hit")), 0.5)
+                self.assertAlmostEqual(float(thr.get("tau_a_hit")), 0.5)
                 self.assertIn("1/rank", str(thr.get("score") or ""))
                 self.assertIn("cs_by_tier_tau", rep)
                 self.assertIn("hit_rate_tau", by["000001"])

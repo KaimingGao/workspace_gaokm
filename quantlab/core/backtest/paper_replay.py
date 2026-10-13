@@ -559,17 +559,33 @@ DAY_LEG_TOP = 8
 
 
 def _watching_name_map() -> Dict[str, str]:
+    """观察池代码→名称：落盘/static + a_code_name；绝不打行情（回测热路径）。"""
     try:
         from core.watching.store import read_watching, watchlist_names_for
 
-        uni = read_watching()
+        uni = read_watching() or {}
         wl = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
-        names = watchlist_names_for(uni)
+        # allow_live=False：空名不逐只 get_quote，避免回测卡在「逐日调仓」进度 0
+        names = watchlist_names_for(uni if isinstance(uni, dict) else {}, allow_live=False)
         out: Dict[str, str] = {}
         for code, name in zip(wl, names or []):
             nm = str(name or "").strip()
             if nm and nm != code:
                 out[code] = nm
+        need = [c for c in wl if c and c not in out]
+        if need:
+            try:
+                from core.t0.intraday import resolve_stock_name
+            except Exception:  # noqa: BLE001
+                resolve_stock_name = None  # type: ignore[assignment]
+            if resolve_stock_name is not None:
+                for code in need:
+                    try:
+                        nm = str(resolve_stock_name(code) or "").strip()
+                    except Exception:  # noqa: BLE001
+                        nm = ""
+                    if nm and nm != code:
+                        out[code] = nm
         return out
     except Exception:  # noqa: BLE001
         logger.debug("watching name map failed in paper_replay", exc_info=True)
@@ -638,11 +654,18 @@ def _holding_snap(holdings: Sequence[dict]) -> Dict[str, dict]:
         sh = _fpx(h.get("shares"))
         if not code or sh is None:
             continue
-        out[code] = {
+        row: Dict[str, Any] = {
             "stock_code": code,
             "stock_name": str(h.get("stock_name") or code),
             "shares": float(sh),
         }
+        mark = None
+        for key in ("last_price", "mark_price", "price"):
+            mark = _fpx(h.get(key))
+            if mark is not None and mark > 0:
+                row["mark_px"] = float(mark)
+                break
+        out[code] = row
     return out
 
 
@@ -657,6 +680,40 @@ def _bar_px(
         v = _fpx(bar.get(f))
         if v is not None:
             return float(v)
+    return None
+
+
+def _resolve_mark_px(
+    *,
+    code: str,
+    day: str,
+    date_maps: Dict[str, Dict[str, dict]],
+    dates: Sequence[str],
+    day_i: int,
+    holding: Optional[dict] = None,
+) -> Optional[float]:
+    """收盘盯市：当日 close/open → 向前最近有 K 的交易日 → holding.last_price。
+
+    停牌/缺行情时不能返回空，否则净值会把底仓静默记成 0。
+    """
+    px = _bar_px(date_maps, code, day, "close", "open")
+    if px is not None and px > 0:
+        return float(px)
+    try:
+        i0 = int(day_i)
+    except (TypeError, ValueError):
+        i0 = -1
+    for j in range(i0 - 1, -1, -1):
+        if j >= len(dates):
+            continue
+        px = _bar_px(date_maps, code, dates[j], "close", "open")
+        if px is not None and px > 0:
+            return float(px)
+    if isinstance(holding, dict):
+        for key in ("last_price", "mark_price", "price"):
+            px = _fpx(holding.get(key))
+            if px is not None and px > 0:
+                return float(px)
     return None
 
 
@@ -675,6 +732,7 @@ def day_stock_legs(
     """当日个股盈亏：隔夜段 open−昨收 + 当日段 close−open，贡献=盈亏/昨净值。
 
     ``ret_pct`` 是持有段，不是股票全日收盘涨跌：清仓只计隔夜，新开只计开→收。
+    停牌/缺当日 K：沿用昨收（或 snap ``mark_px``）盯市，盈亏记 0，避免漏出分票。
     ``top<=0`` 返回全日全部票（分票贡献汇总用）；净值悬停仍截 ``DAY_LEG_TOP``。
     """
     codes = sorted(set(start) | set(end))
@@ -686,12 +744,20 @@ def day_stock_legs(
         prev_sh = float(st.get("shares") or 0.0)
         now_sh = float(en.get("shares") or 0.0)
         prev_c = _bar_px(date_maps, code, prev_day, "close", "open")
+        if prev_c is None:
+            prev_c = _fpx(st.get("mark_px")) or _fpx(en.get("mark_px"))
         opn = _fpx((open_px or {}).get(code)) or _bar_px(
             date_maps, code, day, "open", "close"
         )
         close = _bar_px(date_maps, code, day, "close", "open")
+        stale_mark = False
         if close is None and opn is None:
-            continue
+            carry = prev_c or _fpx(en.get("mark_px")) or _fpx(st.get("mark_px"))
+            if carry is None or (prev_sh <= 0 and now_sh <= 0):
+                continue
+            # 停牌/缺 K：沿用昨收盯市，盈亏 0；净值与分票仍保留该腿。
+            opn = close = float(carry)
+            stale_mark = True
         if opn is None:
             opn = close
         if prev_c is None:
@@ -720,23 +786,24 @@ def day_stock_legs(
             capital = now_sh * opn_f
             stock_ret = (close_f / opn_f - 1.0) * 100.0
         name = _leg_stock_name(code, st, en, name_by_code)
-        rows.append(
-            {
-                "stock_code": code,
-                "stock_name": name,
-                "shares": round(now_sh, 0),
-                "shares_prev": round(prev_sh, 0),
-                "pnl": round(pnl, 2),
-                "overnight_pnl": round(overnight_pnl, 2),
-                "intraday_pnl": round(intraday_pnl, 2),
-                "capital": round(capital, 2) if capital > 0 else 0.0,
-                "ret_pct": None if stock_ret is None else round(stock_ret, 3),
-                "contrib_pct": round(contrib, 4),
-                "prev_close": round(prev_c_f, 4),
-                "open": round(opn_f, 4),
-                "close": round(close_f, 4),
-            }
-        )
+        row: Dict[str, Any] = {
+            "stock_code": code,
+            "stock_name": name,
+            "shares": round(now_sh, 0),
+            "shares_prev": round(prev_sh, 0),
+            "pnl": round(pnl, 2),
+            "overnight_pnl": round(overnight_pnl, 2),
+            "intraday_pnl": round(intraday_pnl, 2),
+            "capital": round(capital, 2) if capital > 0 else 0.0,
+            "ret_pct": None if stock_ret is None else round(stock_ret, 3),
+            "contrib_pct": round(contrib, 4),
+            "prev_close": round(prev_c_f, 4),
+            "open": round(opn_f, 4),
+            "close": round(close_f, 4),
+        }
+        if stale_mark:
+            row["stale_mark"] = True
+        rows.append(row)
     rows.sort(key=lambda r: abs(float(r.get("contrib_pct") or 0.0)), reverse=True)
     try:
         limit = DAY_LEG_TOP if top is None else int(top)
@@ -1263,6 +1330,9 @@ def _hold_to_sim(
         _fpx(bar.get("close"))
         or _fpx(bar.get("open"))
         or _fpx((prices or {}).get(code))
+        or _fpx((holding or {}).get("last_price"))
+        or _fpx((holding or {}).get("mark_price"))
+        or _fpx((holding or {}).get("price"))
     )
     try:
         from core.paper.rebalance.watching_matrix import _open_date_of
@@ -2235,7 +2305,7 @@ def backtest_paper_replay(
 
     ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘树；缺模型的头回退 Ridge。
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank。
-    ``oo_rank_max`` 开则入场另须 y_oo_rank < max（缺 rank 不拦）；否则可读旧 ``oo_rank_top_frac``。
+    ``oo_rank_max`` 开则入场另须 max(y_oo_rank, y_τc_rank) < max（两侧都缺不拦）；否则可读旧 ``oo_rank_top_frac``。
     """
     from core.research.holdout import (
         current_scoring_model_role,
@@ -2345,6 +2415,18 @@ def backtest_paper_replay(
         except Exception:  # noqa: BLE001
             logger.debug("load_tau_model failed in paper_replay", exc_info=True)
 
+    tc_rank_doc = None
+    try:
+        from core.research.holdout import current_scoring_model_role
+        from core.research.tc_rank import load_tc_rank_model
+
+        prefer_research = current_scoring_model_role() != "live"
+        tc_rank_doc = load_tc_rank_model(prefer_research=prefer_research)
+        if tc_rank_doc is None:
+            tc_rank_doc = load_tc_rank_model(prefer_research=not prefer_research)
+    except Exception:  # noqa: BLE001
+        logger.debug("load tc_rank model failed in paper_replay", exc_info=True)
+
     dates, trade_start = _replay_calendar(
         stock_bars,
         lookback=lookback,
@@ -2354,6 +2436,64 @@ def backtest_paper_replay(
     if session_day and session_day not in dates:
         dates = sorted(dates + [session_day])
     n = len(dates)
+
+    score_cache_key: Optional[str] = None
+    score_cache_stats: Dict[str, Any] = {
+        "enabled": False,
+        "hits": 0,
+        "misses": 0,
+        "writes": 0,
+    }
+    if scores_by_date is None:
+        try:
+            from core.backtest.replay_score_cache import (
+                build_run_key_for_bars,
+                enabled as replay_score_cache_enabled,
+                write_run_meta,
+            )
+
+            if replay_score_cache_enabled():
+                info = build_run_key_for_bars(
+                    stock_bars,
+                    score_model_role=current_scoring_model_role(),
+                    score_backend=current_rebalance_score_backend(),
+                    max_window=int(max_window),
+                    horizon_days=max(1, int(yhat_horizon_days or 1)),
+                    required_factor_keys=required_factor_keys or None,
+                )
+                score_cache_key = str(info.get("run_key") or "") or None
+                if score_cache_key:
+                    score_cache_stats = {
+                        "enabled": True,
+                        "hits": 0,
+                        "misses": 0,
+                        "writes": 0,
+                        "run_key": score_cache_key,
+                        "codes_fp": info.get("codes_fp"),
+                        "bars_fp": info.get("bars_fp"),
+                        "model_fp": info.get("model_fp"),
+                    }
+                    write_run_meta(
+                        score_cache_key,
+                        {
+                            "score_model_role": current_scoring_model_role(),
+                            "score_backend": current_rebalance_score_backend(),
+                            "max_window": int(max_window),
+                            "horizon_days": max(1, int(yhat_horizon_days or 1)),
+                            "n_codes": len(stock_bars),
+                            "codes_fp": info.get("codes_fp"),
+                            "lookback": int(lookback) if lookback is not None else None,
+                        },
+                    )
+        except Exception:  # noqa: BLE001
+            logger.debug("replay score cache init failed", exc_info=True)
+            score_cache_key = None
+            score_cache_stats = {
+                "enabled": False,
+                "hits": 0,
+                "misses": 0,
+                "writes": 0,
+            }
     need = max(2, int(min_history) + 1)
     if n < need:
         return {
@@ -2485,6 +2625,11 @@ def backtest_paper_replay(
     }
     tau_pool_by_date: Dict[str, Dict[str, Any]] = {}
     if scores_by_date is None:
+        if progress_cb is not None:
+            try:
+                progress_cb("构建 τ 截面池…", 0, 1)
+            except Exception:  # noqa: BLE001
+                logger.debug("paper_replay progress_cb failed", exc_info=True)
         try:
             from core.t0.score_policy import build_tau_pool_by_date, seed_tau_cross_section_pool
 
@@ -2493,6 +2638,11 @@ def backtest_paper_replay(
         except Exception:  # noqa: BLE001
             logger.debug("replay tau pool build failed", exc_info=True)
             tau_pool_by_date = {}
+    if progress_cb is not None:
+        try:
+            progress_cb("解析股票名称…", 0, 1)
+        except Exception:  # noqa: BLE001
+            logger.debug("paper_replay progress_cb failed", exc_info=True)
     name_by_code = _watching_name_map()
     stock_acc: Dict[str, dict] = {}
     prev_equity = float(initial_cash)
@@ -2542,20 +2692,80 @@ def backtest_paper_replay(
                     # 当日名单没有该票：不沿用昨日 ŷ（与真实打分路径一致）。
                     scored.append({"stock_code": code})
         else:
-            scored = _score_open_day(
-                stock_bars=stock_bars,
-                dates=dates,
-                date_maps=date_maps,
-                day_i=i,
-                max_window=max_window,
-                horizon_days=max(1, int(yhat_horizon_days or 1)),
-                cfg=cfg,
-                global_model=global_model,
-                co_model_doc=co_model_doc,
-                tau_model_doc=tau_model_doc,
-                tau_pool_day=tau_pool_by_date.get(day) or {},
-                required_factor_keys=required_factor_keys or None,
-            )
+            scored = None
+            day_inputs_fp = ""
+            if score_cache_key:
+                try:
+                    from core.backtest.replay_score_cache import (
+                        day_open_inputs_fingerprint,
+                        load_day,
+                        save_day,
+                    )
+
+                    day_inputs_fp = day_open_inputs_fingerprint(
+                        codes=list(stock_bars.keys()),
+                        dates=dates,
+                        date_maps=date_maps,
+                        day_i=i,
+                        max_window=int(max_window),
+                    )
+                    scored = load_day(
+                        score_cache_key, day, inputs_fp=day_inputs_fp
+                    )
+                    if scored is not None:
+                        score_cache_stats["hits"] = (
+                            int(score_cache_stats.get("hits") or 0) + 1
+                        )
+                    else:
+                        score_cache_stats["misses"] = (
+                            int(score_cache_stats.get("misses") or 0) + 1
+                        )
+                except Exception:  # noqa: BLE001
+                    logger.debug("replay score cache load day failed", exc_info=True)
+                    scored = None
+            if scored is None:
+                scored = _score_open_day(
+                    stock_bars=stock_bars,
+                    dates=dates,
+                    date_maps=date_maps,
+                    day_i=i,
+                    max_window=max_window,
+                    horizon_days=max(1, int(yhat_horizon_days or 1)),
+                    cfg=cfg,
+                    global_model=global_model,
+                    co_model_doc=co_model_doc,
+                    tau_model_doc=tau_model_doc,
+                    tau_pool_day=tau_pool_by_date.get(day) or {},
+                    required_factor_keys=required_factor_keys or None,
+                )
+                if score_cache_key:
+                    try:
+                        from core.backtest.replay_score_cache import (
+                            day_open_inputs_fingerprint,
+                            save_day,
+                        )
+
+                        if not day_inputs_fp:
+                            day_inputs_fp = day_open_inputs_fingerprint(
+                                codes=list(stock_bars.keys()),
+                                dates=dates,
+                                date_maps=date_maps,
+                                day_i=i,
+                                max_window=int(max_window),
+                            )
+                        if save_day(
+                            score_cache_key,
+                            day,
+                            scored,
+                            inputs_fp=day_inputs_fp,
+                        ):
+                            score_cache_stats["writes"] = (
+                                int(score_cache_stats.get("writes") or 0) + 1
+                            )
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "replay score cache save day failed", exc_info=True
+                        )
             have = {str(it.get("stock_code") or "") for it in scored}
             for h in paper.get("holdings") or []:
                 if not isinstance(h, dict):
@@ -2581,6 +2791,13 @@ def backtest_paper_replay(
                 constraints["tau_prefix_rescored"] = int(
                     constraints.get("tau_prefix_rescored") or 0
                 ) + int(n_pref)
+        if tc_rank_doc is not None:
+            try:
+                from core.research.tc_rank import apply_tc_rank_scores
+
+                apply_tc_rank_scores(scored, model_doc=tc_rank_doc)
+            except Exception:  # noqa: BLE001
+                logger.debug("attach y_tc_rank failed", exc_info=True)
         _stamp_stock_names(scored, name_by_code)
         _stamp_stock_names(paper.get("holdings") or [], name_by_code)
 
@@ -2730,16 +2947,21 @@ def backtest_paper_replay(
         for h in paper.get("holdings") or []:
             if not isinstance(h, dict):
                 continue
-            code = str(h.get("stock_code") or "")
-            bar = (date_maps.get(code) or {}).get(day) or {}
-            try:
-                close_px = float(bar.get("close") or bar.get("open") or 0)
-            except (TypeError, ValueError):
-                close_px = 0.0
+            code = str(h.get("stock_code") or "").strip()
             sh = float(h.get("shares") or 0)
-            if close_px > 0 and sh > 0:
-                h["last_price"] = close_px
-                equity += sh * close_px
+            if not code or sh <= 0:
+                continue
+            close_px = _resolve_mark_px(
+                code=code,
+                day=day,
+                date_maps=date_maps,
+                dates=dates,
+                day_i=i,
+                holding=h,
+            )
+            if close_px is not None and close_px > 0:
+                h["last_price"] = float(close_px)
+                equity += sh * float(close_px)
         ret = (equity / prev_equity - 1.0) * 100.0 if prev_equity > 0 else 0.0
         day_returns.append(ret)
         cash_now = round(float(paper.get("cash") or 0), 2)
@@ -2989,6 +3211,7 @@ def backtest_paper_replay(
             "session_overlay_n": n_overlay,
             "yhat_horizon_days": yhat_horizon_days,
             "scores_injected": scores_by_date is not None,
+            "score_cache": score_cache_stats,
             "yhat_source": "research",
             "model_role": "research",
         },

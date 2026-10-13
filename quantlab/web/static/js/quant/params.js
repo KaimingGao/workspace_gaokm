@@ -24,13 +24,14 @@ const FIT_PARAM_HEADS = [
   "t75_tree",
   "t90_tree",
   "oo_rank",
+  "tc_rank",
 ];
 
-/** 支持「只训 A 档」的拟合头（仅 ŷ_oo_rank）。 */
-const TIER_A_FIT_HEADS = ["oo_rank"];
+/** 支持「只训 A 档」的拟合头（ŷ_oo_rank / ŷ_τc_rank）。 */
+const TIER_A_FIT_HEADS = ["oo_rank", "tc_rank"];
 
 function _defaultLookbackForHead(head) {
-  if (head === "oo_rank") return 700;
+  if (head === "oo_rank" || head === "tc_rank") return 700;
   return head === "oo" || head === "co" || head === "oo_tree" || head === "co_tree"
     ? 600
     : 120;
@@ -60,6 +61,7 @@ const CS_Z_FIT_HEADS = [
   "t75",
   "t90",
   "oo_rank",
+  "tc_rank",
   "oo_tree",
   "tc_tree",
   "co_tree",
@@ -670,6 +672,7 @@ export function createResearchParams(opts = {}) {
   function tierACheckboxId(head) {
     const h = String(head || "").trim().toLowerCase();
     if (h === "oo_rank") return "quant-oo-rank-tier-a";
+    if (h === "tc_rank") return "quant-tc-rank-tier-a";
     return `quant-tier-a-${h}`;
   }
 

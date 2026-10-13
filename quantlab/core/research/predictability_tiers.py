@@ -1,13 +1,15 @@
 """滚动可预测性票档：按 ŷ_oo / ŷ_τc 命中率截面序的倒数合成 Score 定档。
 
 用**已落盘研究套** ŷ_oo（``return_score_model_research.json``）打分，与日线实现标签按票聚合。
-分档用的命中率只看 Holdout **前半**。截面 Rank IC / IC / ICIR 与档内平均实现收益看 Holdout **整段**。
+分档用的命中率只看 Holdout **前半**。截面 Rank IC / IC / ICIR 与档内平均收益看 Holdout **整段**。
 有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：命中看前半，截面指标看整段：
 - hit_rate / hit_rate_tau = 前半符号命中率（|ŷ| 死区外）
 - n_valid / n_valid_tau = 前半有效决策日
 - Score = 1/rank(hit_rate) + 1/rank(hit_rate_tau)（无 ŷ_τc 研究套时仅 1/rank(hit_rate)）
-- 按 Score 降序：top ``a_count``→A，接着 ``b_count``→B，其余→C（默认 100 / 300）；无有效命中样本→C
-- 分档后另报各档在整段 Holdout 上的日截面 Rank IC / IC / ICIR，以及档内票日平均实现收益（ŷ_oo 标签）
+- A 档另过命中率门槛（默认 Y_oo ≥ 50%、有 ŷ_τc 研究套时 Y_τc ≥ 50%；可配）
+- 过门槛者按 Score 降序取 top ``a_count``→A（未过门槛不占 A 名额），接着 ``b_count``→B，其余→C（默认 100 / 300）；无有效命中样本→C
+- 分档后另报各档在整段 Holdout 上的日截面 Rank IC / IC / ICIR；
+  档内「平均收益率」= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」）
 
 研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score 只用 ŷ_oo 序。
 有研究套时面板只拉 **Holdout + 因子暖窗**；无 ŷ_oo 研究套现训才用 ``lookback`` 全窗。
@@ -34,9 +36,11 @@ from core.io_atomic import atomic_write_json
 SCHEMA = "predictability_tiers_v1"
 ACTIVE_SCHEMA = "predictability_tiers_active_v1"
 DEFAULT_MIN_N = 20  # 兼容旧调用；不再参与定档
-# Score 序截取：top a_count→A，接着 b_count→B，其余→C
+# Score 序截取：过 A 档命中率门槛者 top a_count→A，接着 b_count→B，其余→C
 DEFAULT_A_COUNT = 100
 DEFAULT_B_COUNT = 300
+DEFAULT_A_HIT = 0.50  # A 档 Y_oo 命中率
+DEFAULT_TAU_A_HIT = 0.50  # A 档 Y_τc 命中率（有研究套时）
 A_COUNT_MIN = 1
 A_COUNT_MAX = 2000
 B_COUNT_MIN = 0
@@ -57,6 +61,27 @@ def clamp_b_count(raw: Any, default: int = DEFAULT_B_COUNT) -> int:
     except (TypeError, ValueError):
         n = int(default if default is not None else DEFAULT_B_COUNT)
     return max(B_COUNT_MIN, min(B_COUNT_MAX, n))
+
+
+def clamp_hit_rate(raw: Any, default: float = DEFAULT_A_HIT) -> float:
+    """命中率门槛，返回 0–1。``0.5`` 与 ``50`` 都是 50%。"""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = float(default if default is not None else DEFAULT_A_HIT)
+    if not math.isfinite(v):
+        v = float(default if default is not None else DEFAULT_A_HIT)
+    if v > 1.0:
+        v = v / 100.0
+    return max(0.0, min(1.0, v))
+
+
+def _meets_hit_floor(raw: Any, floor: float) -> bool:
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(v) and v + 1e-12 >= float(floor)
 
 
 DEFAULT_LIVE_ALLOWED = ("A",)
@@ -395,15 +420,21 @@ def assign_tiers_by_rank_score(
     require_tau: bool = False,
     a_count: int = DEFAULT_A_COUNT,
     b_count: int = DEFAULT_B_COUNT,
+    a_hit: float = DEFAULT_A_HIT,
+    tau_a_hit: float = DEFAULT_TAU_A_HIT,
 ) -> None:
-    """就地定档：Score = 1/rank(y_oo) [+ 1/rank(y_τc)]，按 Score 降序截 top 数量。
+    """就地定档：Score = 1/rank(y_oo) [+ 1/rank(y_τc)]，A 档另过命中率门槛。
 
     - 有有效 Y_oo 命中率的票参与排序；无样本 → C
     - ``require_tau`` 时加 1/rank(Y_τc)；缺 τc 命中率的票 τc 序取末位+1
-    - top ``a_count``（默认 100）→ A；接着 ``b_count``（默认 300）→ B；其余 → C
+    - A：Y_oo ≥ ``a_hit``（默认 50%）；``require_tau`` 时还须 Y_τc ≥ ``tau_a_hit``
+    - 过门槛者按 Score 降序取 top ``a_count``（默认 100）→ A；未过门槛不占 A 名额
+    - 其余按 Score 接着 ``b_count``（默认 300）→ B；再其余 → C
     """
     n_a = clamp_a_count(a_count)
     n_b = clamp_b_count(b_count)
+    oo_floor = clamp_hit_rate(a_hit, DEFAULT_A_HIT)
+    tau_floor = clamp_hit_rate(tau_a_hit, DEFAULT_TAU_A_HIT)
 
     eligible: List[Dict[str, Any]] = []
     for r in rows:
@@ -467,11 +498,23 @@ def assign_tiers_by_rank_score(
         scored.append((score, str(r.get("code") or ""), r))
 
     scored.sort(key=lambda t: (-t[0], t[1]))
-    for i, (_score, _code, r) in enumerate(scored):
-        if i < n_a:
+
+    def _clears_a(row: Dict[str, Any]) -> bool:
+        if not _meets_hit_floor(row.get("hit_rate"), oo_floor):
+            return False
+        if require_tau and not _meets_hit_floor(row.get("hit_rate_tau"), tau_floor):
+            return False
+        return True
+
+    a_left = n_a
+    b_left = n_b
+    for _score, _code, r in scored:
+        if a_left > 0 and _clears_a(r):
             r["tier"] = "A"
-        elif i < n_a + n_b:
+            a_left -= 1
+        elif b_left > 0:
             r["tier"] = "B"
+            b_left -= 1
         else:
             r["tier"] = "C"
 
@@ -1253,6 +1296,8 @@ def accumulate_holdout_oos_by_code(
         "source": model_source,
         "model_meta": model_meta,
         "tau_meta": tau_meta,
+        # 仅进程内给档内等权买持用，不落盘报告
+        "stock_bars": stock_bars,
     }
 
 
@@ -1330,40 +1375,76 @@ def summarize_tier_window_cs(
     }
 
 
-def summarize_tier_mean_realized(
-    acc: Dict[str, Dict[str, Any]],
+def summarize_tier_ew_hold(
+    stock_bars: Dict[str, List[dict]],
     *,
     codes: Optional[Sequence[str]] = None,
+    dates: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """档内、Holdout 整段的票日平均实现收益（ŷ_oo 标签，小数；另给百分点）。"""
+    """档内 Holdout 整段等权买持收益%，口径对齐回测「观察池A档等权」。
+
+    优先按 ``dates`` 走等权净值曲线（与 ``topk_benchmark._pool_ew_equity_curve`` 同构）；
+    单票或曲线不足时退回各票窗内 close 首尾买持再等权平均。
+    字段名沿用 ``mean_realized_pct`` / ``n_realized``（n=参与票数），供观察池分档区 KPI。
+    """
+    from core.backtest.topk_benchmark import (
+        _close_by_date,
+        _period_return_from_bars,
+        _pool_ew_equity_curve,
+        _pool_return_from_equity_curve,
+    )
+
     allow = None
     if codes is not None:
         allow = {str(c).strip() for c in codes if str(c or "").strip()}
-    vals: List[float] = []
-    for code, slot in (acc or {}).items():
+    date_list = sorted(
+        {str(d).strip()[:10] for d in (dates or []) if str(d or "").strip()[:10]}
+    )
+    subset: Dict[str, List[dict]] = {}
+    for code, bars in (stock_bars or {}).items():
         code_s = str(code or "").strip()
-        if not code_s or not isinstance(slot, dict):
+        if not code_s or not bars:
             continue
         if allow is not None and code_s not in allow:
             continue
-        for ry in slot.get("realized") or []:
-            try:
-                v = float(ry)
-            except (TypeError, ValueError):
-                continue
-            if math.isfinite(v):
-                vals.append(v)
-    if not vals:
-        return {
-            "mean_realized": None,
-            "mean_realized_pct": None,
-            "n_realized": 0,
-        }
-    mean_v = sum(vals) / len(vals)
+        subset[code_s] = list(bars)
+
+    empty = {
+        "mean_realized": None,
+        "mean_realized_pct": None,
+        "n_realized": 0,
+        "ret_method": "ew_hold",
+    }
+    if not subset:
+        return empty
+
+    def _trim(bars: List[dict]) -> List[dict]:
+        if not date_list:
+            return list(bars or [])
+        by = _close_by_date(bars)
+        return [{"date": d, "close": by[d]} for d in date_list if d in by]
+
+    ret: Optional[float] = None
+    if date_list and len(subset) >= 2:
+        curve = _pool_ew_equity_curve(subset, date_list)
+        ret = _pool_return_from_equity_curve(curve)
+    if ret is None:
+        rets: List[float] = []
+        for bars in subset.values():
+            r = _period_return_from_bars(_trim(bars))
+            if r is not None:
+                rets.append(float(r))
+        if rets:
+            ret = round(sum(rets) / len(rets), 2)
+
+    n_used = sum(1 for bars in subset.values() if len(_trim(bars)) >= 2)
+    if ret is None:
+        return {**empty, "n_realized": int(n_used)}
     return {
-        "mean_realized": round(mean_v, 6),
-        "mean_realized_pct": round(mean_v * 100.0, 4),
-        "n_realized": len(vals),
+        "mean_realized": round(float(ret) / 100.0, 6),
+        "mean_realized_pct": float(ret),
+        "n_realized": int(n_used),
+        "ret_method": "ew_hold",
     }
 
 
@@ -1378,6 +1459,8 @@ def _rows_from_acc(
     require_tau: bool = False,
     a_count: int = DEFAULT_A_COUNT,
     b_count: int = DEFAULT_B_COUNT,
+    a_hit: float = DEFAULT_A_HIT,
+    tau_a_hit: float = DEFAULT_TAU_A_HIT,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int], int]:
     name_by = name_by or {}
     if pad_missing and pool_codes:
@@ -1437,6 +1520,8 @@ def _rows_from_acc(
         require_tau=bool(require_tau),
         a_count=a_count,
         b_count=b_count,
+        a_hit=a_hit,
+        tau_a_hit=tau_a_hit,
     )
     counts = {"A": 0, "B": 0, "C": 0}
     for r in rows:
@@ -1468,6 +1553,8 @@ def build_holdout_half_tiers(
     min_n: int = DEFAULT_MIN_N,
     a_count: int = DEFAULT_A_COUNT,
     b_count: int = DEFAULT_B_COUNT,
+    a_hit: float = DEFAULT_A_HIT,
+    tau_a_hit: float = DEFAULT_TAU_A_HIT,
     head: str = HEAD_OO,
     watching_codes: Optional[Sequence[str]] = None,
     codes: Optional[Sequence[str]] = None,
@@ -1478,15 +1565,17 @@ def build_holdout_half_tiers(
     use_research_model: bool = True,
     **_legacy: Any,
 ) -> Dict[str, Any]:
-    """研究枢纽协议：研究套 ŷ_oo 按票分档。命中看 Holdout 前半；截面指标与平均收益看整段。
+    """研究枢纽协议：研究套 ŷ_oo 按票分档。命中看 Holdout 前半；截面指标与等权买持看整段。
 
-    Score = 1/rank(Y_oo) + 1/rank(Y_τc)（无 ŷ_τc 研究套则仅 Y_oo 序），按 Score 降序截
-    top ``a_count``→A、接着 ``b_count``→B、其余→C。
+    Score = 1/rank(Y_oo) + 1/rank(Y_τc)（无 ŷ_τc 研究套则仅 Y_oo 序）。
+    A 档另过命中率门槛（``a_hit`` / ``tau_a_hit``，默认 50% / 50%）；未过门槛不占 A 名额。
+    过门槛者按 Score 降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
+    档内平均收益率 = Holdout 整段等权买持（对齐回测「观察池A档等权」）。
     落盘 last；回测/live 复用档位过滤宇宙。回测天数独立。
     live 档位跟随历史回测「分档」勾选。
-    ``lookback``：仅无研究套现训时用的日线窗（对齐页顶 ŷ_oo 训练窗）；
+    ``lookback``：仅无研究套现训时用的日线窗（对齐 ŷ_oo 卡训练窗）；
     有研究套时面板走 ``_score_panel_lookback`` 短窗。
-    ``**_legacy``：兼容旧 a_frac / b_frac / a_hit 等参数（忽略）。
+    ``**_legacy``：兼容旧 a_frac / b_frac 等参数（忽略）。
     """
     del _legacy
     head_n = _normalize_head(head)
@@ -1505,6 +1594,8 @@ def build_holdout_half_tiers(
     pool_mode = _normalize_pool(pool) if codes is None else "explicit"
     n_a = clamp_a_count(a_count)
     n_b = clamp_b_count(b_count)
+    oo_floor = clamp_hit_rate(a_hit, DEFAULT_A_HIT)
+    tau_floor = clamp_hit_rate(tau_a_hit, DEFAULT_TAU_A_HIT)
     if len(pool_codes) < 2:
         return {
             "success": False,
@@ -1552,8 +1643,12 @@ def build_holdout_half_tiers(
         require_tau=require_tau,
         a_count=n_a,
         b_count=n_b,
+        a_hit=oo_floor,
+        tau_a_hit=tau_floor,
     )
     n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
+    stock_bars = packed.get("stock_bars") if isinstance(packed.get("stock_bars"), dict) else {}
+    metric_dates = list(half.get("test_days") or []) or list(tier_dates)
     cs_pool = summarize_tier_window_cs(acc, head=HEAD_OO)
     cs_pool_tau = summarize_tier_window_cs(acc, head=HEAD_TAU)
     cs_by_tier: Dict[str, Dict[str, Any]] = {}
@@ -1564,7 +1659,13 @@ def build_holdout_half_tiers(
             if str(r.get("tier") or "") == tier
         ]
         pack = summarize_tier_window_cs(acc, codes=tier_codes, head=HEAD_OO)
-        pack.update(summarize_tier_mean_realized(acc, codes=tier_codes))
+        pack.update(
+            summarize_tier_ew_hold(
+                stock_bars,
+                codes=tier_codes,
+                dates=metric_dates,
+            )
+        )
         cs_by_tier[tier] = pack
     cs_by_tier_tau = {
         tier: summarize_tier_window_cs(
@@ -1610,6 +1711,8 @@ def build_holdout_half_tiers(
         "thresholds": {
             "a_count": int(n_a),
             "b_count": int(n_b),
+            "a_hit": oo_floor,
+            "tau_a_hit": tau_floor,
             "require_tau": bool(require_tau),
             "score": (
                 "1/rank(y_oo)+1/rank(y_τc)"
@@ -1656,14 +1759,19 @@ def build_holdout_half_tiers(
         },
         "note": (
             f"{src_note} · Holdout {int(half.get('holdout_n') or holdout_n or DEFAULT_HOLDOUT_N)} 日前半 {tier_n} 日分档"
-            f" · 截面指标与平均收益看整段 {int(half.get('n_test') or 0)} 日 · 面板 {panel_lb} 日"
+            f" · 截面指标与等权买持看整段 {int(half.get('n_test') or 0)} 日 · 面板 {panel_lb} 日"
             + (
                 f"（短窗；请求训练窗 {lookback_req}）"
                 if model_source == "oo_research_model" and lookback_req > panel_lb
                 else ""
             )
-            + f"；{score_note}；按 Score 降序 top {n_a}→A、"
-            f"接着 {n_b}→B、其余→C"
+            + f"；{score_note}；A 须 Y_oo≥{oo_floor:.0%}"
+            + (
+                f"、Y_τc≥{tau_floor:.0%}"
+                if require_tau
+                else "（无 ŷ_τc 研究套，不看 Y_τc 门槛）"
+            )
+            + f"；过门槛按 Score 降序 top {n_a}→A、接着 {n_b}→B、其余→C"
             + "；落盘 last；live 档位跟随历史回测「分档」勾选；"
             "回测天数用独立 lookback。"
         ),

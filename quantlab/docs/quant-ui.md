@@ -522,7 +522,7 @@ OMS 级盘口布局仍禁止。
 | | 约定 |
 |--|------|
 | **唯一任务** | 拟合各 ŷ 头（研究/执行套）→ **观察池分档** → **人审落地**（不写全局 weights） |
-| **主区必有** | **概览五卡**（观察池 · 分钟 Ready · ŷ_oo · ŷ_τ · 落地）· **观察池上限**（默认 300、最大 1000，写入 `watching.json`）· **观察池分档**（研究套 ŷ_oo · Score=1/rank(Y_oo)+1/rank(Y_τc) · 工具栏「A档数量 / B档数量」定 A/B/C，默认 100/300 · 分档看 Holdout 前半、指标与收益看整段；Holdout 读 ŷ_oo 卡；有研究套时短窗建面板）· **落地条**（对照/启用 · 关闭/回滚/导出/刷新簿/建议重估）· 探针 · 各头卡头 **Holdout**（1～60，默认 20）· ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank / ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree 卡头 **日截面 Z**（默认开；关 → 训练窗全局 μ/σ）· **ŷ_oo_rank**（同窗 LambdaRank+Ridge；Holdout 前训 + NDCG@K 选 backend；启用研究→研究槽、启用执行=晋级；成交 rank=1..n；过入场后作买序；入场闸在 `/replay`「其他」）· ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree 另有 **滑窗**（默认 60）/ **步长**（默认 20；LightGBM `init_model` 增量；0=全样本） |
+| **主区必有** | **概览五卡**（观察池 · 分钟 Ready · ŷ_oo · ŷ_τ · 落地）· **观察池上限**（默认 300、最大 1000，写入 `watching.json`）· **观察池分档**（研究套 ŷ_oo · Score=1/rank(Y_oo)+1/rank(Y_τc) · A 档另过 Y_oo / Y_τc 命中率，默认 50% / 50% 可配 · 工具栏「A档数量 / B档数量」定名额，默认 100/300 · 未过门槛不占 A 名额 · 分档看 Holdout 前半、指标与等权买持看整段；Holdout 读 ŷ_oo 卡；有研究套时短窗建面板）· **落地条**（对照/启用 · 关闭/回滚/导出/刷新簿/建议重估）· 探针 · 各头卡头 **Holdout**（1～60，默认 20）· ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank / ŷ_τc_rank / ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree 卡头 **日截面 Z**（默认开；关 → 训练窗全局 μ/σ）· **ŷ_oo_rank**（同窗 LambdaRank+Ridge；Holdout 前训 + NDCG@K 选 backend；启用研究→研究槽、启用执行=晋级；成交 oo_rank=1..n；过入场后作买序；入场闸在 `/replay`「其他」与 τc_rank 共用）· **ŷ_τc_rank**（同协议，标签 close/open−1；启用只落盘；不进 fuse、不改买序；与 oo_rank 共用 rank 入场）· ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree 另有 **滑窗**（默认 60）/ **步长**（默认 20；LightGBM `init_model` 增量；0=全样本） |
 | **按需折叠** | 全局对照（阈值/横截面）· 日报 |
 | **禁止** | 把各组权合并进 `signal_config.weights`；跨组统一总榜冒充分组；无健康门禁直接 active；**本页写 paper / 调仓** |
 | **落地两步** | ① `cluster-live/apply`（shadow）→ ② `mode=active`（门禁）；调仓经侧栏 `/follow` |

@@ -580,7 +580,8 @@ export function createFactorIcUi(deps) {
     if (!rm || typeof rm !== "object") return "";
     const isOo = opts.head === "oo";
     const isCo = opts.head === "co";
-    const isOoRank = opts.head === "oo_rank";
+    const isTcRank = opts.head === "tc_rank";
+    const isOoRank = opts.head === "oo_rank" || isTcRank;
     const _ooBe = String(rm.backend || "").trim().toLowerCase();
     const _ooSolver = String(rm.solver || "").trim().toLowerCase();
     // 启用自适应后 return_model 可能是 Ridge；增益文案仅 LambdaRank booster
@@ -603,6 +604,8 @@ export function createFactorIcUi(deps) {
       ? "ŷ_hl"
       : isOo
         ? "ŷ_oo"
+      : isTcRank
+        ? "ŷ_τc_rank"
       : isOoRank
         ? "ŷ_oo_rank"
         : isCo
@@ -1568,7 +1571,7 @@ export function createFactorIcUi(deps) {
         : "";
 
     // 标题对齐 v2：主轴用「因子表」；oo_rank 双训同壳
-    const headTitle = isOoRank
+    const headTitle0 = isOoRank
       ? isOoRankGain
         ? "ŷ_oo_rank 增益"
         : hasOoGain || isDual
@@ -1579,6 +1582,9 @@ export function createFactorIcUi(deps) {
         : useProbKpis
           ? `${yhatTag} 概率头`
           : `${yhatTag} 系数表`;
+    const headTitle = isTcRank
+      ? String(headTitle0).replaceAll("ŷ_oo_rank", "ŷ_τc_rank")
+      : headTitle0;
     const headSub = isOoRank
       ? isOoRankGain
         ? `按 gain 降序 · 归一化份额 · 默认 Top${topN}${

@@ -102,6 +102,12 @@ export function watchingScoreDetail(it) {
       null,
     Y_HEAD_FACTOR_N
   );
+  const tcRankTerms = slimFormulaTerms(
+    (it &&
+      (it.formula_terms_tc_rank || it.score_formula_terms_tc_rank)) ||
+      null,
+    Y_HEAD_FACTOR_N
+  );
   const hasTerms =
     terms && Array.isArray(terms.terms) && terms.terms.length > 0;
   const hasTauTerms =
@@ -157,6 +163,10 @@ export function watchingScoreDetail(it) {
     y_oo_rank_n: it && it.y_oo_rank_n,
     y_oo_rank_score: it && it.y_oo_rank_score,
     predicted_score_oo_rank: it && it.predicted_score_oo_rank,
+    y_tc_rank: it && it.y_tc_rank,
+    y_tc_rank_n: it && it.y_tc_rank_n,
+    y_tc_rank_score: it && it.y_tc_rank_score,
+    predicted_score_tc_rank: it && it.predicted_score_tc_rank,
     score_model_role:
       (it && it.score_model_role) ||
       (it &&
@@ -174,6 +184,8 @@ export function watchingScoreDetail(it) {
     formula_terms_co: coTerms,
     formula_terms_oo_rank: ooRankTerms,
     score_formula_terms_oo_rank: ooRankTerms,
+    formula_terms_tc_rank: tcRankTerms,
+    score_formula_terms_tc_rank: tcRankTerms,
     fusion_w_oo: it && it.fusion_w_oo,
     fusion_w_oc: it && it.fusion_w_oc,
     fusion_w_co: it && it.fusion_w_co,

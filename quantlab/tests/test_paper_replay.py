@@ -1847,6 +1847,71 @@ class TestDayStockLegs(unittest.TestCase):
         )
         self.assertEqual(legs[0]["stock_name"], "贵州茅台")
 
+    def test_missing_bar_carries_prev_close_flat_mark(self):
+        """停牌缺当日 K：沿用昨收，盈亏 0，腿仍进分票。"""
+        from core.backtest.paper_replay import day_stock_legs
+
+        date_maps = {
+            "000668": {
+                "2026-09-30": {"open": 16.95, "close": 18.69},
+                # 2026-10-08 无 K
+            }
+        }
+        held = {
+            "000668": {
+                "stock_code": "000668",
+                "stock_name": "荣丰控股",
+                "shares": 1100.0,
+                "mark_px": 18.69,
+            }
+        }
+        legs, more = day_stock_legs(
+            start=held,
+            end=held,
+            date_maps=date_maps,
+            prev_day="2026-09-30",
+            day="2026-10-08",
+            open_px={},
+            prev_equity=203_301.15,
+        )
+        self.assertEqual(more, 0)
+        self.assertEqual(len(legs), 1)
+        self.assertEqual(legs[0]["stock_code"], "000668")
+        self.assertTrue(legs[0].get("stale_mark"))
+        self.assertAlmostEqual(legs[0]["pnl"], 0.0, places=2)
+        self.assertAlmostEqual(legs[0]["overnight_pnl"], 0.0, places=2)
+        self.assertAlmostEqual(legs[0]["intraday_pnl"], 0.0, places=2)
+        self.assertAlmostEqual(legs[0]["close"], 18.69, places=4)
+        self.assertAlmostEqual(legs[0]["contrib_pct"], 0.0, places=4)
+
+    def test_resolve_mark_px_walks_back_and_uses_last_price(self):
+        from core.backtest.paper_replay import _resolve_mark_px
+
+        date_maps = {
+            "000668": {
+                "2026-09-30": {"open": 16.95, "close": 18.69},
+            }
+        }
+        dates = ["2026-09-30", "2026-10-08", "2026-10-09"]
+        px = _resolve_mark_px(
+            code="000668",
+            day="2026-10-08",
+            date_maps=date_maps,
+            dates=dates,
+            day_i=1,
+            holding={},
+        )
+        self.assertAlmostEqual(px, 18.69, places=4)
+        px2 = _resolve_mark_px(
+            code="000668",
+            day="2026-10-09",
+            date_maps={"000668": {}},
+            dates=dates,
+            day_i=2,
+            holding={"last_price": 18.69},
+        )
+        self.assertAlmostEqual(px2, 18.69, places=4)
+
 
 class TestStockContrib(unittest.TestCase):
     def test_aggregates_hold_and_exit(self):
@@ -1966,6 +2031,94 @@ class TestStockContrib(unittest.TestCase):
         rows = finalize_stock_contrib(acc, initial_cash=1_000_000.0)
         self.assertEqual(len(rows), n)
         self.assertEqual(rows[0]["stock_code"], f"{600000 + n - 1}")
+
+
+class TestHaltMarkToMarket(unittest.TestCase):
+    def test_halted_holding_not_zeroed_in_equity(self):
+        """买入后停牌缺 K：净值不得把该票记 0；分票仍保留持仓。"""
+        halt = "000668"
+        liquid = [f"60000{i}" for i in range(5)]
+        n = 22
+        stock_bars = {c: _bars(n, step=0.2 + 0.05 * i) for i, c in enumerate(liquid)}
+        # 停牌票：前 14 根有 K，之后缺行情（日历靠其余票多数覆盖）
+        stock_bars[halt] = _bars(14, step=0.3, start=16.0)
+        dates = [b["date"] for b in stock_bars[liquid[0]]]
+        halt_last = stock_bars[halt][-1]["date"]
+        halt_last_close = float(stock_bars[halt][-1]["close"])
+        scores = {}
+        for d in dates:
+            if d <= halt_last:
+                # 过入场买停牌票
+                scores[d] = [_rank_row(halt, 2.0)]
+            else:
+                # 未过入场想清仓，但无报价卖不出
+                scores[d] = [_rank_row(halt, -1.0)]
+
+        with _offline_rebalance_patches():
+            with patch(
+                "core.backtest.paper_replay._watching_name_map",
+                return_value={halt: "荣丰控股"},
+            ):
+                out = backtest_paper_replay(
+                    stock_bars,
+                    top_k=1,
+                    min_history=8,
+                    scores_by_date=scores,
+                    cost_model="zero",
+                    initial_cash=200_000.0,
+                    include_session_day=False,
+                )
+        self.assertTrue(out.get("success"), out.get("error"))
+        held_end = {
+            str(h.get("stock_code"))
+            for h in (out.get("holdings_end") or [])
+            if float(h.get("shares") or 0) > 0
+        }
+        self.assertIn(halt, held_end)
+        stuck = [
+            s
+            for s in (out.get("sim_trades") or [])
+            if s.get("stock_code") == halt
+            and "无有效报价未卖出" in str(s.get("reason") or "")
+        ]
+        self.assertTrue(stuck, "停牌后应出现无有效报价未卖出")
+        # 缺 K 日净值 = 现金 + 股数×最近收盘，不得只剩现金
+        by_date = {
+            str(p.get("date"))[:10]: p
+            for p in (out.get("equity_curve") or [])
+            if isinstance(p, dict)
+        }
+        halt_days = [d for d in dates if d > halt_last and d in by_date]
+        self.assertTrue(halt_days, "覆盖率日历应继续走到停牌之后")
+        h_end = next(
+            h
+            for h in (out.get("holdings_end") or [])
+            if str(h.get("stock_code")) == halt
+        )
+        shares = float(h_end.get("shares") or 0)
+        self.assertGreater(shares, 0)
+        for d in halt_days:
+            row = by_date[d]
+            cash = float(row.get("cash") or 0)
+            eq = float(row.get("equity") or 0)
+            self.assertGreater(eq, cash + 1.0, f"{d}: equity should include halt mark")
+            self.assertAlmostEqual(
+                eq,
+                cash + shares * halt_last_close,
+                places=2,
+                msg=f"{d}: mark should carry last close {halt_last_close}",
+            )
+            legs = row.get("legs") or []
+            halt_leg = next((x for x in legs if x.get("stock_code") == halt), None)
+            self.assertIsNotNone(halt_leg, f"{d}: legs must include halted name")
+            self.assertTrue(halt_leg.get("stale_mark"))
+            self.assertAlmostEqual(float(halt_leg.get("pnl") or 0), 0.0, places=2)
+        contrib = next(
+            (r for r in (out.get("stock_contrib") or []) if r.get("stock_code") == halt),
+            None,
+        )
+        self.assertIsNotNone(contrib)
+        self.assertGreaterEqual(int(contrib.get("hold_days") or 0), len(halt_days))
 
 
 class TestReplayMinuteFill(unittest.TestCase):

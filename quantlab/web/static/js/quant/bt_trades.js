@@ -343,12 +343,21 @@ export const BT_LEDGER_TRADE_COLS = [
   },
   {
     id: "y_oo_rank",
-    label: "rank",
+    label: "oo_rank",
     widthPct: 7,
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 已启用模型（LambdaRank/Ridge）· 过入场后作买序；可选入场闸 rank 入场（默认 10）",
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 过入场后作买序；rank 入场与 τc_rank 共用门槛 max(oo,τc)<N（默认 10）",
+  },
+  {
+    id: "y_tc_rank",
+    label: "τc_rank",
+    widthPct: 7,
+    widthMin: "6.2rem",
+    num: true,
+    sortable: true,
+    title: "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场门槛；不进 fuse / 不改买序",
   },
 ];
 
@@ -438,12 +447,12 @@ function _numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** 成交明细 rank：只认带 y_oo_rank_n 的 1..n 名次；旧相对分显示 —（避免 Math.round→0）。 */
+/** 成交明细 oo_rank：只认带 y_oo_rank_n 的 1..n 名次；旧相对分显示 —（避免 Math.round→0）。 */
 function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (yRank == null) {
     return {
       text: "—",
-      tip: "rank — · 无已启用模型或未写入；不进 fuse / y_oo_fuse；过入场后作买序",
+      tip: "oo_rank — · 无已启用模型或未写入；不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场",
     };
   }
   const ord = Math.round(yRank);
@@ -452,12 +461,35 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (n != null && isInt && ord >= 1 && ord <= n) {
     return {
       text: String(ord),
-      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 fuse / y_oo_fuse；过入场后作买序`,
+      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场`,
     };
   }
   return {
     text: "—",
-    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 不进 fuse / y_oo_fuse；过入场后作买序",
+    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 不进 fuse；过入场后作买序",
+  };
+}
+
+/** 成交明细 τc_rank：与 oo_rank 同为 1..n；共用 rank 入场门槛，不改买序。 */
+function _tcRankOrdinalDisplay(yRank, yRankN) {
+  if (yRank == null) {
+    return {
+      text: "—",
+      tip: "τc_rank — · 无已启用模型或未写入 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序",
+    };
+  }
+  const ord = Math.round(yRank);
+  const isInt = Math.abs(yRank - ord) < 1e-9;
+  const n = yRankN != null && yRankN >= 1 ? Math.round(yRankN) : null;
+  if (n != null && isInt && ord >= 1 && ord <= n) {
+    return {
+      text: String(ord),
+      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序`,
+    };
+  }
+  return {
+    text: "—",
+    tip: "缺池大小，请重跑以生成 1..n 名次 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序",
   };
 }
 
@@ -577,6 +609,11 @@ function buildLedgerTradeRow(r, i, deps) {
   );
   const yRankN = _numOrNull(r.y_oo_rank_n);
   const yRankDisp = _ooRankOrdinalDisplay(yRank, yRankN);
+  const yTcRank = _numOrNull(
+    r.y_tc_rank != null ? r.y_tc_rank : r.predicted_score_tc_rank
+  );
+  const yTcRankN = _numOrNull(r.y_tc_rank_n);
+  const yTcRankDisp = _tcRankOrdinalDisplay(yTcRank, yTcRankN);
   const rCc = _numOrNull(r.realized_cc);
   const rOn = _numOrNull(r.realized_on);
   const rTau = _numOrNull(r.realized_tau);
@@ -698,6 +735,9 @@ function buildLedgerTradeRow(r, i, deps) {
     y_oo_rankText: yRankDisp.text,
     y_oo_rankCls: "",
     y_oo_rankTip: yRankDisp.tip,
+    y_tc_rankNum: yTcRankDisp.text === "—" ? null : yTcRank,
+    y_tc_rankText: yTcRankDisp.text,
+    y_tc_rankTip: yTcRankDisp.tip,
     y_onTip: onTip,
     scoreDetail,
     realizedOoNum: rOo,
@@ -865,6 +905,8 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "equity_after",
     "y_oo_rank",
     "y_oo_rank_n",
+    "y_tc_rank",
+    "y_tc_rank_n",
   ];
   const lines = [header.join(",")];
   for (const r of attachLedgerOpenCost(sortLedgerTradeLegs(rows))) {
@@ -908,6 +950,8 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       r.equity_after ?? "",
       r.y_oo_rank ?? r.predicted_score_oo_rank ?? "",
       r.y_oo_rank_n ?? "",
+      r.y_tc_rank ?? r.predicted_score_tc_rank ?? "",
+      r.y_tc_rank_n ?? "",
     ].map((v) => {
       const s = String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -1136,6 +1180,7 @@ const BT_TRADES_NUM_KEYS = {
   y_on: "y_onNum",
   y_oo_fuse: "fuseNum",
   y_oo_rank: "y_oo_rankNum",
+  y_tc_rank: "y_tc_rankNum",
 };
 
 /** Virtual-table compare callback for sim trades. */
@@ -1326,9 +1371,19 @@ export function btTradesCellHtml(col, d, deps) {
     return _stackScoreHtml(
       escapeHtml(d.y_oo_rankText || "—"),
       d.y_oo_rankTip ||
-        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse / y_oo_fuse；过入场后作买序",
+        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场",
       escapeHtml,
       "oo_rank",
+      d.scoreDetail
+    );
+  }
+  if (col.id === "y_tc_rank") {
+    return _stackScoreHtml(
+      escapeHtml(d.y_tc_rankText || "—"),
+      d.y_tc_rankTip ||
+        "ŷ_τc_rank 当日截面名次 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序",
+      escapeHtml,
+      "tc_rank",
       d.scoreDetail
     );
   }

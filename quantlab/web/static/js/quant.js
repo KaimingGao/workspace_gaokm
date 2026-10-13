@@ -592,6 +592,31 @@ export function initQuant(ctx) {
   }
 
 
+  const OO_RANK_DESK = {
+    resultId: "quant-oo-rank-result",
+    coefId: "quant-oo-rank-coef-table",
+    head: "oo_rank",
+    rankKey: "oo_rank",
+    ridgeKey: "ridge_oo_baseline",
+    yKey: "topk_mean_y_oo",
+    deltaYKey: "delta_topk_mean_y_oo",
+    yLabel: "TopK y_oo%",
+    icTip: "日频截面 Pearson 均值；原始排序分对 y_oo，与 ŷ_oo 的 IC 同口径",
+    idleMessage: "拟合后对照 NDCG@K · 启用自动选更强 backend",
+  };
+  const TC_RANK_DESK = {
+    resultId: "quant-tc-rank-result",
+    coefId: "quant-tc-rank-coef-table",
+    head: "tc_rank",
+    rankKey: "tc_rank",
+    ridgeKey: "ridge_tc_baseline",
+    yKey: "topk_mean_y_tc",
+    deltaYKey: "delta_topk_mean_y_tc",
+    yLabel: "TopK y_τc%",
+    icTip: "日频截面 Pearson 均值；原始排序分对 y_τc（close/open−1）",
+    idleMessage: "拟合后对照 NDCG@K · 启用只落盘",
+  };
+
   async function renderOoRankCoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-oo-rank-coef-table");
     if (!host) return;
@@ -685,15 +710,16 @@ export function initQuant(ctx) {
     return { model: rm };
   }
 
-  async function paintOoRankDesk(sum, data, extra = {}) {
+  async function paintOoRankDesk(sum, data, extra = {}, spec) {
+    const desk = spec || OO_RANK_DESK;
     const src = data && typeof data === "object" ? data : {};
     const coefPack = ooRankCoefModel(src);
     const rm = coefPack && coefPack.model;
     const oos = src.oos && typeof src.oos === "object" ? src.oos : {};
     const hasBody = !!(
       (rm && typeof rm === "object") ||
-      oos.oo_rank ||
-      oos.ridge_oo_baseline
+      oos[desk.rankKey] ||
+      oos[desk.ridgeKey]
     );
     const flags = ridgeDiskFlags(src, {
       persistOk: !!extra.persistOk,
@@ -707,7 +733,7 @@ export function initQuant(ctx) {
           src.note ||
           (src.last_report_exists
             ? "有上次拟合 · 可启用研究 / 执行"
-            : "拟合后对照 NDCG@K · 启用自动选更强 backend");
+            : desk.idleMessage);
       } else if (extra.persistOk) {
         const be =
           src.backend ||
@@ -754,22 +780,44 @@ export function initQuant(ctx) {
       justFitted: !!extra.justFitted,
       message,
       messageHtml,
-      idleMessage: "拟合后对照 NDCG@K · 启用自动选更强 backend",
+      idleMessage: desk.idleMessage,
       fittedAt:
         extra.fittedAt !== undefined
           ? extra.fittedAt
           : src.fitted_at || (rm && rm.fitted_at) || null,
     });
     if (!hasBody) {
-      clearOoRankResultBox();
-      await renderOoRankCoefTable(null);
+      const box = document.getElementById(desk.resultId);
+      if (box) box.innerHTML = "";
+      await renderRankCoefTable(desk, null);
       return;
     }
-    renderOoRankOosCompare(src);
-    await renderOoRankCoefTable(rm && typeof rm === "object" ? rm : {}, {
+    renderOoRankOosCompare(src, desk);
+    await renderRankCoefTable(desk, rm && typeof rm === "object" ? rm : {}, {
       oos,
       feature_importance: ooRankFeatureImportance(src),
     });
+  }
+
+  async function renderRankCoefTable(desk, rm, opts = {}) {
+    const host = document.getElementById(desk.coefId);
+    if (!host) return;
+    if (!rm) {
+      host.innerHTML = "";
+      return;
+    }
+    try {
+      if (typeof q.ensureFactorMeta === "function") {
+        await q.ensureFactorMeta();
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    const html =
+      typeof q.remCoefTableHtml === "function"
+        ? q.remCoefTableHtml(rm, { ...opts, head: desk.head })
+        : "";
+    host.innerHTML = html || "";
   }
 
   function _fmtOoRankNum(v, digits = 4) {
@@ -805,17 +853,18 @@ export function initQuant(ctx) {
     );
   }
 
-  function renderOoRankOosCompare(data) {
-    const box = document.getElementById("quant-oo-rank-result");
+  function renderOoRankOosCompare(data, spec) {
+    const desk = spec || OO_RANK_DESK;
+    const box = document.getElementById(desk.resultId);
     if (!box) return;
     if (!data || data.success === false) {
       box.innerHTML = "";
       return;
     }
     const oos = data.oos || {};
-    const rank = oos.oo_rank || {};
-    const ridge = oos.ridge_oo_baseline || {};
-    if (!rank.spearman && !ridge.spearman && rank.topk_mean_y_oo == null) {
+    const rank = oos[desk.rankKey] || {};
+    const ridge = oos[desk.ridgeKey] || {};
+    if (!rank.spearman && !ridge.spearman && rank[desk.yKey] == null) {
       box.innerHTML = "";
       return;
     }
@@ -834,7 +883,7 @@ export function initQuant(ctx) {
         rank.cs_ic,
         ridge.cs_ic,
         delta(rank.cs_ic, ridge.cs_ic, track.delta_cs_ic),
-        "日频截面 Pearson 均值；原始排序分对 y_oo，与 ŷ_oo 的 IC 同口径",
+        desk.icTip,
       ],
       [
         "ICIR",
@@ -863,14 +912,10 @@ export function initQuant(ctx) {
         delta(rank.topk_overlap, ridge.topk_overlap, track.delta_topk_overlap),
       ],
       [
-        "TopK y_oo%",
-        rank.topk_mean_y_oo,
-        ridge.topk_mean_y_oo,
-        delta(
-          rank.topk_mean_y_oo,
-          ridge.topk_mean_y_oo,
-          track.delta_topk_mean_y_oo
-        ),
+        desk.yLabel,
+        rank[desk.yKey],
+        ridge[desk.yKey],
+        delta(rank[desk.yKey], ridge[desk.yKey], track[desk.deltaYKey]),
       ],
     ];
     let lrWins = 0;
@@ -2597,6 +2642,19 @@ export function initQuant(ctx) {
     }
   })();
 
+  // 轻量预填 ŷ_τc_rank 研究/执行状态
+  void (async () => {
+    try {
+      const res = await fetch("/api/quant/tc-rank/model");
+      const data = await res.json().catch(() => ({}));
+      const sum = document.getElementById("quant-tc-rank-summary");
+      if (!sum) return;
+      await paintOoRankDesk(sum, data, {}, TC_RANK_DESK);
+    } catch (_) {
+      /* ignore */
+    }
+  })();
+
   cluster.wireOosGateTips(els.quantOlsClusters);
   cluster.wireOosGateTips(els.quantFactorList);
   cluster.wireOosGateTips(els.quantWeightSuggest);
@@ -3520,6 +3578,89 @@ export function initQuant(ctx) {
         persistRole: persistRole || "live",
         justFitted: !persist,
       });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      throw err;
+    }
+  }
+
+  async function runTcRank({ persist = false, persistRole = "live" } = {}) {
+    const sum = document.getElementById("quant-tc-rank-summary");
+    const roleLabel = persistRole === "research" ? "研究套" : "执行套";
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: persist ? "写入中" : "拟合中",
+      message: persist
+        ? `按 NDCG@K 写入上次拟合（${roleLabel}）…`
+        : "LambdaRank + Ridge · Holdout OOS…",
+      busy: true,
+    });
+    try {
+      const res = await fetch("/api/quant/tc-rank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: readFitLookbackDays("tc_rank"),
+          watching_limit: 1000,
+          holdout_trading_days: Math.max(20, readHoldoutTradingDays("tc_rank")),
+          topk_track: 10,
+          ndcg_k: 10,
+          l2: 1.0,
+          persist: !!persist,
+          persist_role: persistRole || "live",
+          backend: "auto",
+          watching_tier_a_only: readWatchingTierAOnly("tc_rank"),
+          ...readCrossSectionFitParams("tc_rank"),
+          note: persist ? `ui tc_rank promote ${persistRole} auto` : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        const box = document.getElementById("quant-tc-rank-result");
+        if (box) box.innerHTML = "";
+        await renderRankCoefTable(TC_RANK_DESK, null);
+        return;
+      }
+      let status = data;
+      try {
+        const stRes = await fetch("/api/quant/tc-rank/model");
+        const stData = await stRes.json().catch(() => ({}));
+        if (stData && typeof stData === "object") {
+          status = { ...stData, ...data };
+          const beA =
+            data.backends && typeof data.backends === "object" ? data.backends : null;
+          const beB =
+            stData.backends && typeof stData.backends === "object"
+              ? stData.backends
+              : null;
+          if (beA && beA.ridge) status.backends = beA;
+          else if (beB && beB.ridge) status.backends = beB;
+          else if (beA) status.backends = beA;
+          else if (beB) status.backends = beB;
+        }
+      } catch (_) {}
+      await paintOoRankDesk(
+        sum,
+        status,
+        {
+          persistOk: !!persist,
+          persistRole: persistRole || "live",
+          justFitted: !persist,
+        },
+        TC_RANK_DESK
+      );
     } catch (err) {
       renderRemStatus(sum, {
         state: "error",
@@ -5003,7 +5144,7 @@ export function initQuant(ctx) {
     if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 + NDCG@K 选 backend；成交明细 rank=1..n；过入场后作买序。`
+          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 + NDCG@K 选 backend；成交明细 oo_rank=1..n；过入场后作买序。`
           : `将当前研究套 ŷ_oo_rank 晋级为执行套？过入场后作买序。`
       )
     ) {
@@ -5035,6 +5176,76 @@ export function initQuant(ctx) {
       const res = await fetch("/api/quant/oo-rank/model");
       const data = await res.json().catch(() => ({}));
       await paintOoRankDesk(sum, data);
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-tc-rank-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runTcRank({ persist: false });
+    } catch (err) {
+      const sum = document.getElementById("quant-tc-rank-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-tc-rank-persist", "click", onTcRankPersistClick);
+  on("quant-tc-rank-persist-research", "click", onTcRankPersistClick);
+  async function onTcRankPersistClick(e) {
+    e.preventDefault();
+    const persistRole =
+      (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
+    const target =
+      persistRole === "research"
+        ? "ŷ_τc_rank 研究套（报告→tc_rank_model_research.json）"
+        : "ŷ_τc_rank 执行套（研究槽晋级→tc_rank_model.json；须先启用研究）";
+    if (
+      !window.confirm(
+        persistRole === "research"
+          ? `将 ŷ_τc_rank 写入 ${target}？Holdout 前训 + NDCG@K 选 backend。不进 fuse、不改买序；与 oo_rank 共用 rank 入场。`
+          : `将当前研究套 ŷ_τc_rank 晋级为执行套？不改买序；与 oo_rank 共用 rank 入场。`
+      )
+    ) {
+      return;
+    }
+    try {
+      await runTcRank({ persist: true, persistRole });
+    } catch (err) {
+      const sum = document.getElementById("quant-tc-rank-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  }
+
+  on("quant-tc-rank-status", "click", async (e) => {
+    e.preventDefault();
+    const sum = document.getElementById("quant-tc-rank-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "读取研究 / 执行 / 上次拟合…",
+      busy: true,
+    });
+    try {
+      const res = await fetch("/api/quant/tc-rank/model");
+      const data = await res.json().catch(() => ({}));
+      await paintOoRankDesk(sum, data, {}, TC_RANK_DESK);
     } catch (err) {
       renderRemStatus(sum, {
         state: "error",

@@ -10,10 +10,15 @@ STORE_DIR = os.environ.get(
     "QUANTLAB_STORE_DIR",
     os.path.join(DATA_DIR, "store"),
 )
-# 研究 panel 按股磁盘缓存（OO/τc/CO/oo_rank）；可用 QUANTLAB_PANEL_CACHE_DIR 覆盖
+# 研究 panel 按股磁盘缓存（OO/τc/τc_rank/CO/oo_rank）；可用 QUANTLAB_PANEL_CACHE_DIR 覆盖
 PANEL_CACHE_DIR = os.environ.get(
     "QUANTLAB_PANEL_CACHE_DIR",
     os.path.join(DATA_DIR, "cache", "panels"),
+)
+# 调仓回测开盘日打分缓存；可用 QUANTLAB_REPLAY_SCORE_CACHE_DIR 覆盖
+REPLAY_SCORE_CACHE_DIR = os.environ.get(
+    "QUANTLAB_REPLAY_SCORE_CACHE_DIR",
+    os.path.join(DATA_DIR, "cache", "replay_scores"),
 )
 PAPER_PATH = os.environ.get(
     "QUANTLAB_PAPER_PATH",

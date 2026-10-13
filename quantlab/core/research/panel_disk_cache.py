@@ -273,7 +273,7 @@ def co_head_key(*, min_history: int, include_alpha_oo: bool) -> str:
     )
 
 
-def tc_head_key(
+def _tau_cache_leaf(
     *,
     tau_hm: str,
     min_history: int,
@@ -281,7 +281,84 @@ def tc_head_key(
     use_minute: bool,
 ) -> str:
     hm = "".join(ch for ch in str(tau_hm or "open") if ch.isalnum() or ch in "_-") or "open"
+    return (
+        f"hm_{hm}_mh{int(min_history)}_atc{1 if include_alpha_tc else 0}"
+        f"_m{1 if use_minute else 0}"
+    )
+
+
+def tc_head_key(
+    *,
+    tau_hm: str,
+    min_history: int,
+    include_alpha_tc: bool,
+    use_minute: bool,
+) -> str:
     return head_relpath(
         "tc",
-        f"hm_{hm}_mh{int(min_history)}_atc{1 if include_alpha_tc else 0}_m{1 if use_minute else 0}",
+        _tau_cache_leaf(
+            tau_hm=tau_hm,
+            min_history=min_history,
+            include_alpha_tc=include_alpha_tc,
+            use_minute=use_minute,
+        ),
     )
+
+
+def tc_rank_head_key(
+    *,
+    tau_hm: str,
+    min_history: int,
+    include_alpha_tc: bool,
+    use_minute: bool,
+) -> str:
+    """ŷ_τc_rank 按股面板。与 ŷ_τc 同叶子名、不同目录，避免互相覆盖。"""
+    return head_relpath(
+        "tc_rank",
+        _tau_cache_leaf(
+            tau_hm=tau_hm,
+            min_history=min_history,
+            include_alpha_tc=include_alpha_tc,
+            use_minute=use_minute,
+        ),
+    )
+
+
+def copy_stock_shard(
+    src_head: str,
+    dst_head: str,
+    code: str,
+    fingerprint: str,
+) -> bool:
+    """fingerprint 一致时把 src 分片复制到 dst。不改 src。"""
+    if not enabled() or not code:
+        return False
+    if str(src_head) == str(dst_head):
+        return False
+    src = _shard_paths(src_head, code)
+    meta = _read_json(src["meta"])
+    if not meta:
+        return False
+    if int(meta.get("schema") or 0) != PANEL_CACHE_SCHEMA:
+        return False
+    if str(meta.get("fingerprint") or "") != str(fingerprint):
+        return False
+    if not os.path.isfile(src["npz"]):
+        return False
+    dst = _shard_paths(dst_head, code)
+    os.makedirs(dst["dir"], exist_ok=True)
+    try:
+        import shutil
+
+        shutil.copyfile(src["npz"], dst["npz"])
+        if os.path.isfile(src["pack"]):
+            shutil.copyfile(src["pack"], dst["pack"])
+        elif os.path.isfile(dst["pack"]):
+            os.unlink(dst["pack"])
+        _atomic_write_json(dst["meta"], meta)
+    except Exception:
+        logger.debug(
+            "panel cache copy failed %s -> %s", src["npz"], dst["npz"], exc_info=True
+        )
+        return False
+    return True

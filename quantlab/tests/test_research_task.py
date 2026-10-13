@@ -113,6 +113,7 @@ class TestResearchTask(unittest.TestCase):
         self.assertEqual(research_head_method("tc_tree"), "run_tau_tree_experiment")
         self.assertEqual(research_head_method("tau_tree"), "run_tau_tree_experiment")
         self.assertEqual(research_head_method("oo_rank"), "run_oo_rank_experiment")
+        self.assertEqual(research_head_method("tc_rank"), "run_tc_rank_experiment")
         self.assertTrue(hasattr(QuantService, "run_research_task"))
 
     def test_research_zscore_matches_train_window_only(self):

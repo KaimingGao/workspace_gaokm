@@ -312,18 +312,18 @@ export function renderRebalanceRulesHtml(execution) {
       const mx = Number(pm.oo_rank_max);
       if (Number.isFinite(mx) && mx > 0) {
         return specKpi(
-          "oo_rank",
-          `rank < ${Math.round(mx)}`,
-          "须当日截面名次 y_oo_rank < 此值；与历史回测「rank 入场」同一键；缺 rank 不拦"
+          "rank 入场",
+          `max(oo_rank, τc_rank) < ${Math.round(mx)}`,
+          "须 max(y_oo_rank, y_τc_rank) < 此值；与历史回测「rank 入场」同一键；两侧都缺不拦"
         );
       }
       let frac = Number(pm.oo_rank_top_frac);
       if (!Number.isFinite(frac) || frac <= 0) return "";
       const pct = Math.round(frac * 100);
       return specKpi(
-        "oo_rank",
-        `rank < top ${pct}%`,
-        "旧相对名次闸；历史回测已改「rank 入场」绝对名次；缺 rank/n 不拦"
+        "rank 入场",
+        `max(oo_rank, τc_rank) < top ${pct}%`,
+        "旧相对名次闸；历史回测已改「rank 入场」绝对名次；两侧都缺或不齐 n 不拦"
       );
     })() +
     specKpi("金额", `${lotB}/${lotS}`, "与历史回测入场/强档金额同一键；按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%；保存规则后自动调仓按此下单") +

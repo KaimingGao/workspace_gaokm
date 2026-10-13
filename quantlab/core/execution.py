@@ -837,7 +837,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     ),
                     "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
                     "y_τc_gt0": bool(pm.get("y_τc_gt0")),
-                    # None/≤0=关；正整数=须 y_oo_rank < max（UI「rank 入场」）。须进白名单。
+                    # None/≤0=关；正整数=须 max(y_oo_rank, y_τc_rank) < max（UI「rank 入场」）。须进白名单。
                     "oo_rank_max": pm.get("oo_rank_max"),
                     # 旧相对比例闸；与绝对闸并存时优先 max
                     "oo_rank_top_frac": pm.get("oo_rank_top_frac"),

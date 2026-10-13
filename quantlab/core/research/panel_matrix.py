@@ -281,6 +281,35 @@ def _tc_matrix_seed_names(
     return out
 
 
+def _tau_cache_hit(
+    cached: Optional[Dict[str, Any]],
+    col_names: Sequence[str],
+) -> Optional[Tuple[np.ndarray, List[float], List[str], List[dict], List[dict]]]:
+    if (
+        not isinstance(cached, dict)
+        or cached.get("X") is None
+        or not isinstance(cached.get("slim"), list)
+    ):
+        return None
+    names_c = list(cached.get("names") or [])
+    x = np.asarray(cached["X"], dtype=np.float64)
+    if names_c != list(col_names) or x.shape[1] != len(col_names):
+        return None
+    ys = [float(y) for y in cached["y"].tolist()]
+    dates = list(cached.get("dates") or [])
+    metas = list(cached.get("metas") or [])
+    slim = list(cached["slim"])
+    if (
+        len(ys) < 4
+        or len(ys) != x.shape[0]
+        or len(ys) != len(dates)
+        or len(ys) != len(metas)
+        or len(ys) != len(slim)
+    ):
+        return None
+    return x, ys, dates, metas, slim
+
+
 def _tau_stock_job(
     item: Dict[str, Any],
     col_names: Sequence[str],
@@ -291,14 +320,21 @@ def _tau_stock_job(
     grid: Optional[Sequence[str]],
     min_history: int,
     include_alpha_tc: bool,
+    cache_head: str = "tc",
 ) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
-    """单票 ŷ_τc：任务内折 float64 + slim；磁盘只缓存矩阵块（不落整份 xs）。"""
+    """单票 ŷ_τc：任务内折 float64 + slim；磁盘只缓存矩阵块（不落整份 xs）。
+
+    ``cache_head="tc_rank"`` 写入 ``tc_rank/``。未命中时若 ``tc/`` 的 fingerprint
+    一致则复制过去，不重算，也不改 ŷ_τc 的分片。
+    """
     from core.research.panel_disk_cache import (
         bars_fingerprint,
+        copy_stock_shard,
         load_stock_shard,
         make_fingerprint,
         save_stock_shard,
         tc_head_key,
+        tc_rank_head_key,
     )
     from core.research.tau_panel import (
         collect_tau_intraday_panel,
@@ -316,7 +352,9 @@ def _tau_stock_job(
     mh = int(min_history)
     atc = bool(include_alpha_tc)
     minute = list(item.get("minute_bars") or []) if use_minute else None
-    head_key = tc_head_key(
+    rank_cache = str(cache_head or "tc") == "tc_rank"
+    key_fn = tc_rank_head_key if rank_cache else tc_head_key
+    head_key = key_fn(
         tau_hm=str(tau_hm),
         min_history=mh,
         include_alpha_tc=atc,
@@ -330,25 +368,20 @@ def _tau_stock_job(
         use_minute=int(bool(use_minute)),
     )
     if code:
-        cached = load_stock_shard(head_key, code, fp)
-        if (
-            cached is not None
-            and cached.get("X") is not None
-            and isinstance(cached.get("slim"), list)
-        ):
-            names_c = list(cached.get("names") or [])
-            x = np.asarray(cached["X"], dtype=np.float64)
-            if names_c == list(col_names) and x.shape[1] == len(col_names):
-                item.pop("minute_bars", None)
-                ys = [float(y) for y in cached["y"].tolist()]
-                dates = list(cached.get("dates") or [])
-                metas = list(cached.get("metas") or [])
-                slim = list(cached["slim"])
-                if (
-                    len(ys) >= 4
-                    and len(ys) == x.shape[0] == len(dates) == len(metas) == len(slim)
-                ):
-                    return code, x, ys, dates, metas, slim
+        hit = _tau_cache_hit(load_stock_shard(head_key, code, fp), col_names)
+        if hit is None and rank_cache:
+            src_key = tc_head_key(
+                tau_hm=str(tau_hm),
+                min_history=mh,
+                include_alpha_tc=atc,
+                use_minute=bool(use_minute),
+            )
+            if copy_stock_shard(src_key, head_key, code, fp):
+                hit = _tau_cache_hit(load_stock_shard(head_key, code, fp), col_names)
+        if hit is not None:
+            item.pop("minute_bars", None)
+            x, ys, dates, metas, slim = hit
+            return code, x, ys, dates, metas, slim
     if use_minute:
         xs, ys, dates, metas = collect_tau_intraday_panel(
             bars,
@@ -406,6 +439,7 @@ def collect_tau_compact(
     include_alpha_tc: bool = True,
     head: str = "y_tc",
     workers: Optional[int] = None,
+    cache_head: str = "tc",
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
 
@@ -465,6 +499,7 @@ def collect_tau_compact(
                     grid=grid,
                     min_history=min_history,
                     include_alpha_tc=include_alpha_tc,
+                    cache_head=cache_head,
                 )
             )
             it = items[i]
@@ -492,6 +527,7 @@ def collect_tau_compact(
                     grid=grid,
                     min_history=min_history,
                     include_alpha_tc=include_alpha_tc,
+                    cache_head=cache_head,
                 )
                 inflight[fut] = i
 
@@ -512,10 +548,11 @@ def collect_tau_compact(
 
     if n_jobs:
         logger.info(
-            "tau compact workers=%s stocks=%s batch=%s",
+            "tau compact workers=%s stocks=%s batch=%s cache_head=%s",
             n_workers,
             n_jobs,
             _TAU_POOL_BATCH,
+            str(cache_head or "tc"),
         )
         start = 0
         while start < n_jobs:

@@ -237,6 +237,68 @@ class TestPanelDiskCache(unittest.TestCase):
         self.assertEqual(PANEL_CACHE_SCHEMA, 2)
         self.assertTrue(_cache_root().startswith(self._tmpdir.name))
 
+    def test_tc_rank_adopts_tc_shard_then_stands_alone(self) -> None:
+        """ŷ_τc_rank 未命中时复制 ŷ_τc 分片；之后不再依赖 tc/。"""
+        from core.research.panel_disk_cache import _shard_paths, tc_head_key, tc_rank_head_key
+        from core.research.panel_matrix import (
+            _breadth_keys,
+            _tau_stock_job,
+            _tc_matrix_seed_names,
+        )
+        from core.research.tc_ridge import TAU_Z_FEATURES
+
+        bars = _bars(80, 10.0, 2)
+        col_names = _tc_matrix_seed_names(list(TAU_Z_FEATURES), include_alpha_tc=False)
+        slim_keys = _breadth_keys()
+        kw = dict(
+            use_minute=False,
+            tau_hm="open",
+            grid=None,
+            min_history=12,
+            include_alpha_tc=False,
+        )
+        pack_tc = _tau_stock_job(
+            {"code": "RANK1", "bars": list(bars)}, col_names, slim_keys, **kw
+        )
+        self.assertIsNotNone(pack_tc)
+        assert pack_tc is not None
+        tc_key = tc_head_key(
+            tau_hm="open", min_history=12, include_alpha_tc=False, use_minute=False
+        )
+        rank_key = tc_rank_head_key(
+            tau_hm="open", min_history=12, include_alpha_tc=False, use_minute=False
+        )
+        self.assertNotEqual(tc_key, rank_key)
+        tc_npz = _shard_paths(tc_key, "RANK1")["npz"]
+        self.assertTrue(os.path.isfile(tc_npz))
+
+        pack_rank = _tau_stock_job(
+            {"code": "RANK1", "bars": list(bars)},
+            col_names,
+            slim_keys,
+            cache_head="tc_rank",
+            **kw,
+        )
+        self.assertIsNotNone(pack_rank)
+        assert pack_rank is not None
+        np.testing.assert_allclose(pack_tc[1], pack_rank[1])
+        np.testing.assert_allclose(pack_tc[2], pack_rank[2])
+        rank_npz = _shard_paths(rank_key, "RANK1")["npz"]
+        self.assertTrue(os.path.isfile(rank_npz))
+        self.assertTrue(os.path.isfile(tc_npz))
+
+        os.remove(tc_npz)
+        pack_rank2 = _tau_stock_job(
+            {"code": "RANK1", "bars": list(bars)},
+            col_names,
+            slim_keys,
+            cache_head="tc_rank",
+            **kw,
+        )
+        self.assertIsNotNone(pack_rank2)
+        assert pack_rank2 is not None
+        np.testing.assert_allclose(pack_rank[1], pack_rank2[1])
+
 
 if __name__ == "__main__":
     unittest.main()

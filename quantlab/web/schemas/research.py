@@ -430,7 +430,7 @@ class CoRidgeRequest(_WatchingTierAOnly):
 
 
 class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 rank=1..n；过入场后作买序；可选 oo_rank_max）。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 oo_rank=1..n；过入场后作买序；可选 oo_rank_max，与 τc_rank 共用）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -466,6 +466,10 @@ class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
         description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     note: str = Field(default="", max_length=200)
+
+
+class TcRankRequest(OoRankRequest):
+    """ŷ_τc_rank：同窗 LambdaRank+Ridge；标签 close/open−1。启用只落盘；不进 fuse、不改买序；与 oo_rank 共用 rank 入场。"""
 
 
 class T30RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):

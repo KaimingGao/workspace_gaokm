@@ -230,7 +230,7 @@ class QuantReplayMixin:
                 "n_in": n_before,
                 "n_out": len(candidates),
                 "note": (
-                    "复用研究枢纽 Holdout 分档过滤宇宙；"
+                    "复用研究枢纽「观察池分档」过滤宇宙；"
                     "回测天数=请求 lookback（与 Holdout 独立）。"
                 ),
             }
@@ -354,7 +354,7 @@ class QuantReplayMixin:
         from core.research.holdout import normalize_backtest_model_role
 
         role = normalize_backtest_model_role(score_model_role)
-        _emit(f"逐日调仓 {clock} · {int(effective_lookback)} 日…")
+        _emit(f"逐日调仓 {clock} · {int(effective_lookback)} 日（开盘分可复用磁盘缓存）…")
         result = backtest_paper_replay(
             stock_bars,
             top_k=universe_n,
@@ -387,6 +387,18 @@ class QuantReplayMixin:
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
         result["minute_meta"] = minute_meta
+        sc_cache = (
+            (result.get("params") or {}).get("score_cache")
+            if isinstance(result.get("params"), dict)
+            else None
+        )
+        if isinstance(sc_cache, dict) and sc_cache.get("enabled"):
+            _emit(
+                "日打分缓存 "
+                f"命中{int(sc_cache.get('hits') or 0)} · "
+                f"未命中{int(sc_cache.get('misses') or 0)} · "
+                f"写入{int(sc_cache.get('writes') or 0)}"
+            )
         result["request"] = {
             "engine": "paper_replay",
             "lookback": int(effective_lookback),
@@ -449,7 +461,7 @@ class QuantReplayMixin:
             "fit_tiers": fit_meta,
             "predictability_tiers": pred_meta if pred_meta.get("enabled") else None,
             "note": (
-                "Holdout 分档过滤宇宙；回测天数=请求 lookback（与 Holdout 独立）。"
+                "观察池分档过滤宇宙；回测天数=请求 lookback（与 Holdout 独立）。"
                 if pred_meta.get("enabled")
                 else "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
             ),

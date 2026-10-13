@@ -13,6 +13,7 @@ from web.schemas import (
     FactorOlsPoolRequest,
     CoRidgeRequest,
     OoRankRequest,
+    TcRankRequest,
     OoTreeRequest,
     CoTreeRequest,
     T30RidgeRequest,
@@ -291,7 +292,7 @@ def quant_co_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge（成交 rank=1..n；过入场后作买序；可选 oo_rank_max）。persist 按 NDCG@K 自动选 backend 启用，不重训。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge（成交 oo_rank=1..n；过入场后作买序；可选 oo_rank_max，与 τc_rank 共用）。persist 按 NDCG@K 自动选 backend 启用，不重训。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,
@@ -316,6 +317,37 @@ def quant_oo_rank_model() -> Dict[str, Any]:
     """读取 ŷ_oo_rank 研究台：优先上次拟合草稿，否则已启用研究/执行套。"""
     try:
         return deps.quant.get_oo_rank_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+@router.post("/api/quant/tc-rank")
+
+def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
+    """ŷ_τc_rank：同窗 LambdaRank+Ridge（标签 close/open−1）。persist 按 NDCG@K 落盘；不改买序；与 oo_rank 共用 rank 入场。"""
+    try:
+        return deps.quant.run_tc_rank_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            holdout_trading_days=body.holdout_trading_days,
+            topk_track=body.topk_track,
+            ndcg_k=body.ndcg_k,
+            l2=body.l2,
+            backend=body.backend,
+            persist=body.persist,
+            persist_role=body.persist_role,
+            note=body.note,
+            watching_tier_a_only=body.watching_tier_a_only,
+            cross_section_zscore=bool(body.cross_section_zscore),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+@router.get("/api/quant/tc-rank/model")
+
+def quant_tc_rank_model() -> Dict[str, Any]:
+    """读取 ŷ_τc_rank 研究台：优先上次拟合草稿，否则已启用研究/执行套。"""
+    try:
+        return deps.quant.get_tc_rank_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -344,12 +376,25 @@ def quant_research_universe_predictability_tiers(
     b_count: int = Query(
         300, ge=0, le=5000, description="B 档：接着取的数量（默认 300；其余为 C）"
     ),
+    a_hit: float = Query(
+        0.5,
+        ge=0,
+        le=100,
+        description="A 档 Y_oo 命中率门槛。0–1 为比例，大于 1 为百分数（默认 0.5）",
+    ),
+    tau_a_hit: float = Query(
+        0.5,
+        ge=0,
+        le=100,
+        description="A 档 Y_τc 命中率门槛。0–1 为比例，大于 1 为百分数（默认 0.5；无研究套时不生效）",
+    ),
 ) -> Dict[str, Any]:
-    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。命中看 Holdout 前半；指标与收益看整段。
+    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。命中看 Holdout 前半；指标与等权买持看整段。
 
     holdout: ŷ_oo 卡片 Holdout 交易日数（分档窗=升序前半；指标窗=整段）。
-    定档：Score=1/rank(Y_oo)+1/rank(Y_τc)（无 τc 研究套则仅 Y_oo），
-    top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」）。
+    定档：Score=1/rank(Y_oo)+1/rank(Y_τc)（无 τc 研究套则仅 Y_oo）。
+    A 档另过 a_hit / tau_a_hit（默认 50% / 50%）；未过门槛不占 A 名额。
+    过门槛者 top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」与命中率）。
     lookback: 缺研究套现训时用的日线窗（与 ŷ_oo 训练窗对齐）；有研究套时只拉 Holdout+暖窗。
     回测天数由回测页 lookback 独立设置。
     """
@@ -357,6 +402,7 @@ def quant_research_universe_predictability_tiers(
         build_holdout_half_tiers,
         clamp_a_count,
         clamp_b_count,
+        clamp_hit_rate,
         live_tier_status,
     )
 
@@ -369,6 +415,8 @@ def quant_research_universe_predictability_tiers(
             lookback=max(100, min(int(lookback or 120), 1000)),
             a_count=clamp_a_count(a_count),
             b_count=clamp_b_count(b_count),
+            a_hit=clamp_hit_rate(a_hit),
+            tau_a_hit=clamp_hit_rate(tau_a_hit),
             persist=True,
         )
         if isinstance(rep, dict):

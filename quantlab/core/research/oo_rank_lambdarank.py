@@ -1159,7 +1159,7 @@ def apply_oo_rank_scores(
 
     特征按本次 items 的当天截面 z-score（与训练同口径）。
     默认 ``assign_day_ranks=True``：对本次 items 截面编 1..n 名次（1=最高分）。
-    同时写入 ``formula_terms_oo_rank`` 供成交明细 rank tip。
+    同时写入 ``formula_terms_oo_rank`` 供成交明细 oo_rank tip。
     """
     from core.research.feature_standardize import (
         cross_section_zscore_dicts,

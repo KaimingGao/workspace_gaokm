@@ -302,7 +302,7 @@ class TestTauRoleLoad(unittest.TestCase):
 
 class TestTauDeskPrefersHoldout(unittest.TestCase):
     def test_desk_key_changes_with_holdout_not_sample_count(self):
-        from quant.services.quant_service_factors import _tau_ridge_desk_key
+        from quant.services.quant_service_factors import _ridge_desk_key
 
         live = {
             "tau": "10:30",
@@ -315,10 +315,10 @@ class TestTauDeskPrefersHoldout(unittest.TestCase):
         last["holdout_trading_days"] = 5
         last["oos"] = {"n_test": 9405, "n_train": 104174}
         self.assertEqual(
-            _tau_ridge_desk_key(live)[:3],
-            _tau_ridge_desk_key(last)[:3],
+            _ridge_desk_key(live)[:3],
+            _ridge_desk_key(last)[:3],
         )
-        self.assertNotEqual(_tau_ridge_desk_key(live), _tau_ridge_desk_key(last))
+        self.assertNotEqual(_ridge_desk_key(live), _ridge_desk_key(last))
 
     def test_select_ridge_desk_prefers_last_when_holdout_differs(self):
         from quant.services.quant_service_factors import _select_ridge_desk_doc

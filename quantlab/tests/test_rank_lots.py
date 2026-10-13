@@ -1616,6 +1616,35 @@ class TestEnterGates(unittest.TestCase):
             )
         )
 
+    def test_oo_rank_max_uses_max_of_oo_and_tc(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        # oo 过得了，τc 较差 → max 拦
+        skip = rank_lot_enter_skip_reason(
+            self._item(y_oo_rank=3, y_tc_rank=12),
+            self._cfg(oo_rank_max=10),
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("max(", skip or "")
+        self.assertIn("τc_rank=12", skip or "")
+        # 两侧都过
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(y_oo_rank=3, y_tc_rank=9),
+                self._cfg(oo_rank_max=10),
+                rs=0.02,
+            )
+        )
+        # 仅 τc 也拦
+        skip_tc = rank_lot_enter_skip_reason(
+            self._item(y_tc_rank=10),
+            self._cfg(oo_rank_max=10),
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip_tc)
+        self.assertIn("τc_rank", skip_tc or "")
+
     def test_oo_rank_max_missing_does_not_block(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 

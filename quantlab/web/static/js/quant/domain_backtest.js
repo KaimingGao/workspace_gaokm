@@ -1473,7 +1473,6 @@ export function installBacktest(q) {
         use_predictability_tiers,
         predictability_tiers,
         holdout_trading_days,
-        predictability_head,
         price_space_gate,
       } = readPortfolioBtParams();
       if (use_predictability_tiers && holdout_trading_days != null) {
@@ -1622,16 +1621,19 @@ export function installBacktest(q) {
   }
 
   function setQuantBtBusy(busy, message) {
-    state.btBusy = !!busy;
+    const wasBusy = !!state.btBusy;
+    const nowBusy = !!busy;
+    state.btBusy = nowBusy;
     const progress =
       document.getElementById("quant-bt-progress") || els.quantBtProgress;
     const textEl =
       document.getElementById("quant-bt-progress-text") || els.quantBtProgressText;
     if (progress) {
-      progress.classList.toggle("is-busy", !!busy);
-      progress.hidden = !busy;
-      if (!busy) progress.removeAttribute("title");
-      if (busy) {
+      progress.classList.toggle("is-busy", nowBusy);
+      progress.hidden = !nowBusy;
+      if (!nowBusy) progress.removeAttribute("title");
+      // 仅在刚进入 busy 时滚一次；轮询/秒表每秒刷新不得再 scrollIntoView，否则会锁住页面位置
+      if (nowBusy && !wasBusy) {
         try {
           progress.scrollIntoView({ behavior: "smooth", block: "nearest" });
         } catch (_) {
@@ -1642,7 +1644,7 @@ export function installBacktest(q) {
     if (textEl && message) textEl.textContent = message;
     for (const id of quantBtBusyIds) {
       const el = document.getElementById(id);
-      if (el) el.disabled = !!busy;
+      if (el) el.disabled = !!nowBusy;
     }
   }
 

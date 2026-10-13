@@ -18,6 +18,8 @@
       →
       <a class="quant-hero-link" href="#quant-section-oo-rank">ŷ_oo_rank</a>
       →
+      <a class="quant-hero-link" href="#quant-section-tc-rank">ŷ_τc_rank</a>
+      →
       <a class="quant-hero-link" href="#quant-section-t30">ŷ_τ30</a>
       →
       <a class="quant-hero-link" href="#quant-section-t45">ŷ_τ45</a>
@@ -138,12 +140,12 @@
     </div>
   </section>
 
-  <!-- 观察池分档：命中看 Holdout 前半，指标与收益看整段 · live 随历史回测分档勾选 -->
+  <!-- 观察池分档：命中看 Holdout 前半，指标与等权买持看整段 · live 随历史回测分档勾选 -->
   <section class="dashboard-section quant-section" id="quant-section-research-universe" aria-labelledby="quant-section-research-universe-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        研究套 ŷ_oo / ŷ_τc · 分档看 Holdout 前半 · 指标与收益看整段 · live 档位跟随历史回测「分档」勾选
+        研究套 ŷ_oo / ŷ_τc · 分档看 Holdout 前半 · 指标与等权买持看整段 · live 档位跟随历史回测「分档」勾选
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -160,47 +162,88 @@
                 用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡片的 Holdout 上打分：命中只取<strong>前半</strong>定档。
                 有研究套时只拉 <strong>Holdout+暖窗</strong> 建面板（不必对齐全训练窗）。无研究套时才 Holdout 前现训（吃训练窗）。
                 有<strong>研究套 ŷ_τc</strong>时同样取前半命中；缺则 Score 只用 Y_oo 序。
-                定档：Score = 1/rank(Y_oo) + 1/rank(Y_τc)，按 Score 降序截 top <strong>A 数量</strong>→A、接着 <strong>B 数量</strong>→B、其余→C（默认 100 / 300，可在工具栏改）。
-                各档标题报 ŷ_oo / ŷ_τc 在 Holdout <strong>整段</strong>上的日截面 Rank IC · IC · ICIR；页顶平均收益率同样看整段（都不参与定档）。
+                定档：Score = 1/rank(Y_oo) + 1/rank(Y_τc)。A 档另过命中率门槛（默认 <strong>Y_oo ≥ 50%</strong>、<strong>Y_τc ≥ 50%</strong>，工具栏可改；无研究套 ŷ_τc 时不看 Y_τc）。
+                过门槛的按 Score 降序取 top <strong>A 数量</strong>→A（未过门槛不占 A 名额），接着 <strong>B 数量</strong>→B、其余→C（默认 100 / 300）。
+                各档标题报 ŷ_oo / ŷ_τc 在 Holdout <strong>整段</strong>上的日截面 Rank IC · IC · ICIR；本区 A/B/C KPI 平均收益率同样看整段（都不参与定档）。
                 调仓 live 过滤跟随历史回测页「分档」勾选（掉出允许档则清仓）；不勾则不过滤。
               </p>
             </div>
           </details>
-          <span class="quant-ru-a-gate" role="group" aria-label="分档数量">
-            <label
-              class="quant-inline-num quant-inline-num--frac"
-              title="A 档：Score 序 top 数量。默认 100（1～2000）。改完后需再点「观察池分档」。"
-            >
-              <span>A档数量：</span>
-              <input
-                id="quant-ru-a-count"
-                type="number"
-                min="1"
-                max="2000"
-                step="1"
-                value="100"
-                inputmode="numeric"
-                aria-label="A 档数量"
-              />
-            </label>
-            <label
-              class="quant-inline-num quant-inline-num--frac"
-              title="B 档：接着取的数量。默认 300（0～5000）。其余为 C。改完后需再点「观察池分档」。"
-            >
-              <span>B档数量：</span>
-              <input
-                id="quant-ru-b-count"
-                type="number"
-                min="0"
-                max="5000"
-                step="1"
-                value="300"
-                inputmode="numeric"
-                aria-label="B 档数量"
-              />
-            </label>
+          <span class="quant-ru-a-gate" role="group" aria-label="分档数量与 A 档命中率">
+            <span class="quant-ru-gate-group">
+              <span class="quant-ru-gate-k">数量</span>
+              <label
+                class="quant-inline-num quant-inline-num--frac"
+                title="A 档：Score 序 top 数量。默认 100（1～2000）。改完后需再点「观察池分档」。"
+              >
+                <span>A</span>
+                <input
+                  id="quant-ru-a-count"
+                  type="number"
+                  min="1"
+                  max="2000"
+                  step="1"
+                  value="100"
+                  inputmode="numeric"
+                  aria-label="A 档数量"
+                />
+              </label>
+              <label
+                class="quant-inline-num quant-inline-num--frac"
+                title="B 档：接着取的数量。默认 300（0～5000）。其余为 C。改完后需再点「观察池分档」。"
+              >
+                <span>B</span>
+                <input
+                  id="quant-ru-b-count"
+                  type="number"
+                  min="0"
+                  max="5000"
+                  step="1"
+                  value="300"
+                  inputmode="numeric"
+                  aria-label="B 档数量"
+                />
+              </label>
+            </span>
+            <span class="quant-ru-gate-group">
+              <span class="quant-ru-gate-k">A档</span>
+              <label
+                class="quant-inline-num quant-inline-num--frac"
+                title="A 档 Y_oo 命中率门槛。默认 50（0～100）。未达到的不进 A，名额顺延。改完后需再点「观察池分档」。"
+              >
+                <span>Y_oo</span>
+                <input
+                  id="quant-ru-a-hit"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="50"
+                  inputmode="numeric"
+                  aria-label="A 档 Y_oo 命中率"
+                />
+                <span class="quant-ru-a-gate-unit">%</span>
+              </label>
+              <label
+                class="quant-inline-num quant-inline-num--frac"
+                title="A 档 Y_τc 命中率门槛。默认 50（0～100）。有研究套 ŷ_τc 时生效；未达到的不进 A。改完后需再点「观察池分档」。"
+              >
+                <span>Y_τc</span>
+                <input
+                  id="quant-ru-tau-a-hit"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="50"
+                  inputmode="numeric"
+                  aria-label="A 档 Y_τc 命中率"
+                />
+                <span class="quant-ru-a-gate-unit">%</span>
+              </label>
+            </span>
           </span>
-          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="用研究套 ŷ_oo（+ 有则 ŷ_τc）+ ŷ_oo 卡片 Holdout：前半算 Score 定档，整段算指标与收益（有研究套时短窗建面板）">观察池分档</button>
+          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="用研究套 ŷ_oo（+ 有则 ŷ_τc）+ ŷ_oo 卡片 Holdout：前半算 Score，A 档另过 Y_oo / Y_τc 命中率，整段算指标与等权买持（有研究套时短窗建面板）">观察池分档</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-ru-body">
@@ -657,7 +700,7 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
           <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池同窗拟合 LambdaRank + Ridge · Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 + NDCG@K 选 backend → oo_rank_model_research.json；成交 rank=1..n；过入场后作买序">启用研究</button>
+          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 + NDCG@K 选 backend → oo_rank_model_research.json；成交 oo_rank=1..n；过入场后作买序">启用研究</button>
           <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/oo_rank_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
@@ -665,6 +708,67 @@
       <div class="quant-pro-card-body">
         <div id="quant-oo-rank-result" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank 拟合摘要"></div>
         <div id="quant-oo-rank-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank 因子表（Ridge β + LambdaRank gain）"></div>
+      </div>
+    </div>
+    </details>
+  </section>
+
+  <!-- ŷ_τc_rank：对齐 ŷ_oo_rank · 标签 close/open−1 · 启用只落盘；与 oo_rank 共用 rank 入场，不改买序 -->
+  <section class="dashboard-section quant-section" id="quant-section-tc-rank" aria-labelledby="quant-section-tc-rank-title">
+    <details class="quant-primary-fold" open>
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
+        <h3 id="quant-section-tc-rank-title" class="dashboard-section-title">ŷ_τc_rank</h3>
+        <p class="dashboard-section-desc quant-section-desc">rank(close[T]/open[T]-1) · 双 backend</p>
+      </summary>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
+        <div id="quant-tc-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用只落盘</span>
+        </div>
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
+          <label
+            class="quant-inline-check"
+            title="开启：只训观察池可预测性 A 档（须先跑分档）。关闭：覆盖整观察池。"
+          >
+            <input id="quant-tc-rank-tier-a" type="checkbox" />
+            <span>只训 A 档</span>
+          </label>
+          <label
+            class="quant-inline-check"
+            title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"
+          >
+            <input id="quant-fit-cs-z-tc_rank" type="checkbox" checked />
+            <span>日截面 Z</span>
+          </label>
+          <label
+            class="quant-inline-num quant-inline-num--sm"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-tc_rank" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τc_rank Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τc_rank 拟合日线训练窗（交易日）。默认 700（100～1000）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-tc_rank" type="number" min="100" max="1000" step="10" value="700" inputmode="numeric" aria-label="ŷ_τc_rank 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_rank 操作">
+          <button type="button" id="quant-tc-rank-run" class="dialog-btn primary" title="观察池同窗拟合 LambdaRank + Ridge · Holdout OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-tc-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 + NDCG@K 选 backend → tc_rank_model_research.json；不进 fuse、不改买序；与 oo_rank 共用 rank 入场">启用研究</button>
+          <button type="button" id="quant-tc-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/tc_rank_model.json（晋级；须先启用研究；不改买序；与 oo_rank 共用 rank 入场）">启用执行</button>
+          <button type="button" id="quant-tc-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-tc-rank-result" class="quant-weight-table-wrap" aria-label="ŷ_τc_rank 拟合摘要"></div>
+        <div id="quant-tc-rank-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τc_rank 因子表（Ridge β + LambdaRank gain）"></div>
       </div>
     </div>
     </details>
@@ -1490,6 +1594,7 @@
               <option value="co_ridge">co_ridge</option>
               <option value="co_tree">co_tree</option>
               <option value="oo_rank">oo_rank</option>
+              <option value="tc_rank">tc_rank</option>
               <option value="oo_tree">oo_tree</option>
               <option value="t30_ridge">t30_ridge</option>
               <option value="t45_ridge">t45_ridge</option>

@@ -77,13 +77,13 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         ge=1,
         le=500,
-        description="开则入场另须 y_oo_rank < max（UI「rank 入场」默认 10）；None/缺=关。缺 rank 不拦。",
+        description="开则入场另须 max(y_oo_rank, y_τc_rank) < max（UI「rank 入场」默认 10）；None/缺=关。两侧都缺不拦。",
     )
     oo_rank_top_frac: Optional[float] = Field(
         default=None,
         gt=0.0,
         le=1.0,
-        description="旧相对名次闸：开则入场另须 y_oo_rank < n·frac；与 oo_rank_max 并存时优先 max。缺 rank/n 不拦。",
+        description="旧相对名次闸：开则入场另须 max(y_oo_rank, y_τc_rank) < n·frac；与 oo_rank_max 并存时优先绝对 max。两侧都缺或不齐 n 不拦。",
     )
     initial_cash: float = Field(
         default=200_000.0,
@@ -110,7 +110,7 @@ class PaperReplayBacktestRequest(BaseModel):
     use_predictability_tiers: bool = Field(
         default=False,
         description=(
-            "复用研究枢纽 Holdout 分档过滤宇宙（须先跑「观察池分档」）；"
+            "复用研究枢纽「观察池分档」过滤宇宙（须先跑分档）；"
             "回测天数仍用 lookback（与 Holdout 独立）。桌面勾选同步到 live 调仓闸。"
         ),
     )
@@ -127,7 +127,7 @@ class PaperReplayBacktestRequest(BaseModel):
     predictability_head: str = Field(
         default="oo",
         max_length=8,
-        description="分档用哪颗头的命中：oo（默认）或 tau/oc。",
+        description="分档协议头（仅 oo；枢纽 last 亦为 oo）。",
     )
     price_space_gate: bool = Field(
         default=True,

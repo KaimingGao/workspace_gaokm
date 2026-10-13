@@ -38,11 +38,6 @@ def _cluster_retired_payload(**extra: Any) -> Dict[str, Any]:
     return out
 
 
-def _tau_ridge_desk_key(doc: Optional[Dict[str, Any]]) -> tuple:
-    """研究台身份：τ / 标签 / 面板 n + Holdout。Holdout 变了必须展示最近拟合。"""
-    return _ridge_desk_key(doc)
-
-
 def _ridge_desk_key(doc: Optional[Dict[str, Any]]) -> tuple:
     """研究台身份：标签 / 面板 n + Holdout。Holdout 变了必须展示最近拟合。"""
     if not isinstance(doc, dict):
@@ -1690,7 +1685,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge；默认整观察池，可选只训 A 档。
 
-        成交明细 rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max 入场闸。
+        成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max（与 τc_rank 取 max）入场闸。
         ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
         """
         from core.data.facade import bars_and_source
@@ -1928,6 +1923,215 @@ class QuantFactorMixin:
                 "exists": True,
                 "path": path,
                 "shadow": bool(use_last) or not live_file,
+                "from_last_report": bool(use_last),
+                "last_report_exists": bool(last),
+                "backend": backend,
+                "recommended_backend": out.get("recommended_backend") or backend,
+            }
+        )
+        if fitted:
+            out["fitted_at"] = fitted
+        return _attach_ridge_role_flags(out, path, live_present=live_file)
+
+    @records_experiment("tc_rank")
+    def run_tc_rank_experiment(
+        self,
+        *,
+        lookback: int = 700,
+        watching_limit: int = MODEL_FIT_MAX_SIZE,
+        holdout_trading_days: int = 20,
+        topk_track: int = 10,
+        ndcg_k: int = 10,
+        l2: float = 1.0,
+        backend: str = "auto",
+        persist: bool = False,
+        persist_role: str = "live",
+        note: str = "",
+        watching_tier_a_only: bool = False,
+        cross_section_zscore: bool = True,
+    ) -> Dict[str, Any]:
+        """ŷ_τc_rank：同窗 LambdaRank + Ridge。启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。"""
+        from core.research.portfolio_bars import load_portfolio_stock_bars
+        from core.research.tc_rank import (
+            fit_tc_rank_report,
+            load_tc_rank_last_report,
+            persist_tc_rank_model,
+            save_tc_rank_last_report,
+            tc_rank_model_path,
+        )
+
+        if persist:
+            last = load_tc_rank_last_report()
+            if not last:
+                return {
+                    "success": False,
+                    "error": "尚无上次拟合，请先点拟合再启用",
+                    "task": "tc_rank",
+                    "path": tc_rank_model_path(),
+                }
+            saved = persist_tc_rank_model(
+                last, note=note or "", role=persist_role or "live"
+            )
+            if not saved.get("success"):
+                return {
+                    "success": False,
+                    "error": saved.get("error") or "上次拟合缺少可启用模型",
+                    "task": "tc_rank",
+                    "path": tc_rank_model_path(),
+                }
+            out = dict(last)
+            out["persisted"] = saved
+            out["from_last_report"] = True
+            out["path"] = saved.get("path") or tc_rank_model_path()
+            out["model_role"] = saved.get("model_role") or persist_role or "live"
+            out["backend"] = saved.get("backend") or last.get("recommended_backend")
+            out["recommended_backend"] = (
+                saved.get("recommended_backend")
+                or last.get("recommended_backend")
+                or out.get("backend")
+            )
+            if note:
+                out["api_note"] = str(note)[:200]
+            return _attach_ridge_role_flags(
+                out,
+                tc_rank_model_path(),
+                live_present=os.path.isfile(tc_rank_model_path()),
+            )
+
+        resolved = _resolve_fit_universe(
+            watching_limit=watching_limit,
+            watching_tier_a_only=bool(watching_tier_a_only),
+        )
+        if not resolved.get("ok", True):
+            return {
+                "success": False,
+                "error": resolved.get("error") or "tc_rank_universe_failed",
+                "task": "tc_rank",
+                "universe_source": resolved.get("source"),
+                "watching_tier_a_only": bool(watching_tier_a_only),
+            }
+        codes = list(resolved.get("codes") or [])
+        cap = max(8, int(watching_limit or MODEL_FIT_MAX_SIZE))
+        if len(codes) > cap:
+            codes = codes[:cap]
+        pool_n = int(resolved.get("watching_pool_size") or len(codes))
+        if len(codes) < 8:
+            need = "观察池 A 档" if watching_tier_a_only else "观察池"
+            return {
+                "success": False,
+                "error": f"{need}至少 8 只才可跑 tc_rank（当前 {len(codes)}）",
+                "task": "tc_rank",
+                "n_codes": len(codes),
+            }
+
+        loaded, _failures, _fund = load_portfolio_stock_bars(
+            codes,
+            lookback=int(lookback or 700),
+            fetch_fundamentals=False,
+            offline_ok=True,
+        )
+        stock_bars: List[Dict[str, Any]] = []
+        for code in codes:
+            bars = loaded.get(str(code))
+            if bars:
+                stock_bars.append({"code": str(code), "bars": bars})
+        report = fit_tc_rank_report(
+            stock_bars,
+            holdout_trading_days=holdout_trading_days,
+            topk_track=topk_track,
+            ndcg_k=ndcg_k,
+            l2=l2,
+            backend=backend or "auto",
+            cross_section_zscore=bool(cross_section_zscore),
+        )
+        report["watching_limit"] = cap
+        report["watching_pool_size"] = pool_n
+        report["universe_source"] = resolved.get("source")
+        report["watching_tier_a_only"] = bool(watching_tier_a_only)
+        if watching_tier_a_only:
+            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+        report["lookback"] = lookback
+        if note:
+            report["api_note"] = str(note)[:200]
+        if report.get("success"):
+            save_tc_rank_last_report(report)
+        report["persisted"] = {"success": False, "skipped": True}
+        report["path"] = tc_rank_model_path()
+        return _attach_ridge_role_flags(
+            report,
+            tc_rank_model_path(),
+            live_present=os.path.isfile(tc_rank_model_path()),
+        )
+
+    def get_tc_rank_model(self) -> Dict[str, Any]:
+        from core.research.holdout import model_fit_id
+        from core.research.tc_rank import (
+            load_tc_rank_last_report,
+            load_tc_rank_model,
+            tc_rank_last_report_path,
+            tc_rank_model_path,
+        )
+
+        path = tc_rank_model_path()
+        persisted = load_tc_rank_model(prefer_research=True)
+        last_path = tc_rank_last_report_path()
+        last = load_tc_rank_last_report()
+        chosen, use_last = _select_ridge_desk_doc(persisted, last)
+        live_file = os.path.isfile(path)
+        fitted = model_fit_id(chosen) or model_fit_id(last) or model_fit_id(persisted)
+        if not fitted:
+            fitted = _peek_model_stamp(last_path) or _peek_model_stamp(path)
+        if not chosen:
+            return _attach_ridge_role_flags(
+                {
+                    "success": False,
+                    "exists": False,
+                    "path": path,
+                    "last_report_exists": bool(last),
+                    "fitted_at": fitted,
+                    "note": "尚无 ŷ_τc_rank；先拟合再启用研究/执行",
+                },
+                path,
+                live_present=False,
+            )
+        out = dict(chosen)
+
+        def _has_ridge_backend(doc: Any) -> bool:
+            be = doc.get("backends") if isinstance(doc, dict) else None
+            if not isinstance(be, dict):
+                return False
+            pack = be.get("ridge")
+            if not isinstance(pack, dict):
+                return False
+            rm = pack.get("return_model_research") or pack.get("return_model")
+            return isinstance(rm, dict) and isinstance(rm.get("coefficients"), dict)
+
+        if not _has_ridge_backend(out) and isinstance(last, dict) and _has_ridge_backend(last):
+            be_out = dict(out["backends"]) if isinstance(out.get("backends"), dict) else {}
+            be_last = last.get("backends") if isinstance(last.get("backends"), dict) else {}
+            if isinstance(be_last.get("ridge"), dict):
+                be_out["ridge"] = be_last["ridge"]
+            if isinstance(be_last.get("lambdarank"), dict) and "lambdarank" not in be_out:
+                be_out["lambdarank"] = be_last["lambdarank"]
+            if be_out:
+                out["backends"] = be_out
+        if not isinstance(out.get("oos"), dict) and isinstance(last, dict):
+            if isinstance(last.get("oos"), dict):
+                out["oos"] = last["oos"]
+        for _k in ("n_train_days", "n_test_days", "holdout_trading_days", "watching_tier_a_only"):
+            if out.get(_k) is None and isinstance(last, dict) and last.get(_k) is not None:
+                out[_k] = last.get(_k)
+        rm = out.get("return_model") if isinstance(out.get("return_model"), dict) else {}
+        backend = (
+            out.get("backend")
+            or out.get("recommended_backend")
+            or (rm.get("backend") if isinstance(rm, dict) else None)
+        )
+        out.update(
+            {
+                "success": True,
+                "exists": True,
+                "path": path,
                 "from_last_report": bool(use_last),
                 "last_report_exists": bool(last),
                 "backend": backend,

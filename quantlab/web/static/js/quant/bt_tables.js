@@ -234,7 +234,7 @@ export function createBtTablesUi(deps = {}) {
       (worst && (watchingNameByCode[worst.stock_code] || worst.stock_name || worst.stock_code)) || "";
     const metaBits = [`${n} 只`, `合计 ${_fmtContribPnl(totalPnl)}`].filter(Boolean);
     const tipBits = [
-      "分票贡献：持仓盯市盈亏合计；贡献%=盈亏/回测本金。佣金印花走现金，不进本表。",
+      "分票贡献：持仓盯市盈亏合计；贡献%=盈亏/回测本金。停牌/缺K沿用昨收（盈亏0）。佣金印花走现金，不进本表。",
       best && bestName ? `贡献最大：${bestName} ${_fmtContribPnl(best.pnl)}` : null,
       worst && worst !== best && worstName
         ? `拖累最大：${worstName} ${_fmtContribPnl(worst.pnl)}`

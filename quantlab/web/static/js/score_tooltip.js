@@ -903,7 +903,7 @@ function formatCompactTWTip(raw) {
   );
 }
 
-/** 成交明细 rank 列：截面名次 + 相对分 + 因子组成。 */
+/** 成交明细 oo_rank 列：截面名次 + 相对分 + 因子组成。 */
 function formatCompactOoRankTip(raw) {
   const ord =
     raw && raw.y_oo_rank != null && Number.isFinite(Number(raw.y_oo_rank))
@@ -946,6 +946,53 @@ function formatCompactOoRankTip(raw) {
     `<div class="score-hero-hint">ŷ_oo_rank · 1=最高 · 相对分 ${escapeText(
       scoreTxt
     )} · ${backendHint} · 不进 fuse / y_oo_fuse；过入场后作买序</div>` +
+    `</div>`
+  );
+}
+
+/** 成交明细 τc_rank 列：截面名次 + 相对分。与 oo_rank 取 max 作入场闸。 */
+function formatCompactTcRankTip(raw) {
+  const ord =
+    raw && raw.y_tc_rank != null && Number.isFinite(Number(raw.y_tc_rank))
+      ? Math.round(Number(raw.y_tc_rank))
+      : null;
+  const n =
+    raw && raw.y_tc_rank_n != null && Number.isFinite(Number(raw.y_tc_rank_n))
+      ? Math.round(Number(raw.y_tc_rank_n))
+      : null;
+  const score =
+    raw &&
+    raw.y_tc_rank_score != null &&
+    Number.isFinite(Number(raw.y_tc_rank_score))
+      ? Number(raw.y_tc_rank_score)
+      : null;
+  const expl =
+    (raw && (raw.formula_terms_tc_rank || raw.score_formula_terms_tc_rank)) || null;
+  const backend = String((expl && expl.backend) || "").toLowerCase();
+  const tree =
+    String((expl && expl.model_role) || "").toLowerCase() === "tree" ||
+    backend === "lambdarank";
+  const rankTxt =
+    ord != null && n != null && n >= 1
+      ? `${ord} / ${n}`
+      : ord != null
+        ? String(ord)
+        : "—";
+  const scoreTxt = score == null ? "—" : fmtSigned(score, 3);
+  const backendHint = tree
+    ? "LambdaRank · pred_contrib · 下表合计=相对分"
+    : backend === "ridge"
+      ? "Ridge · α+Σβ·z · 下表合计=相对分"
+      : "已启用模型 · 下表合计=相对分";
+  return (
+    `<div class="score-layer score-layer-eod">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">τc_rank</div>` +
+    `<div class="score-hero-value score-flat">${escapeText(rankTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">ŷ_τc_rank · 1=最高 · 相对分 ${escapeText(
+      scoreTxt
+    )} · ${backendHint} · 与 oo_rank 取 max 作入场闸</div>` +
     `</div>`
   );
 }
@@ -1523,7 +1570,11 @@ function formulaExpl(raw, key) {
                       raw.score_formula_terms_co ||
                       raw.formula_terms_on ||
                       raw.score_formula_terms_on)
-                  : key === "oo_rank" || key === "rank"
+                  : key === "tc_rank"
+                    ? raw &&
+                      (raw.formula_terms_tc_rank ||
+                        raw.score_formula_terms_tc_rank)
+                    : key === "oo_rank" || key === "rank"
                     ? raw &&
                       (raw.formula_terms_oo_rank ||
                         raw.score_formula_terms_oo_rank)
@@ -1541,7 +1592,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         ? "ŷ_τc"
         : key === "on" || key === "co"
           ? "ŷ_co"
-          : key === "oo_rank" || key === "rank"
+          : key === "tc_rank"
+            ? "ŷ_τc_rank"
+            : key === "oo_rank" || key === "rank"
             ? "ŷ_oo_rank"
             : "ŷ_oo";
     return formatTreeHeadNote(label);
@@ -1570,12 +1623,14 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "ŷ_τ90 组成"
           : key === "on" || key === "co"
           ? "ŷ_co 组成"
-          : key === "oo_rank" || key === "rank"
+          : key === "tc_rank"
+            ? "ŷ_τc_rank 组成"
+            : key === "oo_rank" || key === "rank"
             ? "ŷ_oo_rank 组成"
             : "ŷ_oo 组成";
   const isHorizonProb =
     isHorizonProbKey(key) || String((expl && expl.head_kind) || "") === "prob";
-  const isOoRank = key === "oo_rank" || key === "rank";
+  const isOoRank = key === "oo_rank" || key === "rank" || key === "tc_rank";
   // y_oo / y_τc / y_co / oo_rank 与窗概率头同一条数，避免头卡长短不一
   const yHead =
     key === "eod" || key === "tau" || key === "on" || key === "co" || isOoRank;
@@ -2509,6 +2564,7 @@ export function createScoreTooltipController() {
     if (tip === "fuse" || tip === "y_oo_fuse" || tip === "trade" || tip === "score")
       return "fuse";
     if (tip === "oo_rank" || tip === "rank" || tip === "y_oo_rank") return "oo_rank";
+    if (tip === "tc_rank" || tip === "y_tc_rank" || tip === "τc_rank") return "tc_rank";
     if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     if (cell.classList.contains("watching-score-tau")) return "tau";
@@ -2722,6 +2778,20 @@ export function createScoreTooltipController() {
       const parts = [
         formatCompactOnTip(raw),
         formatFormulaTermsSection(raw, { key: "on" }),
+      ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
+    if (tipMode === "tc_rank") {
+      const termsHtml = formatFormulaTermsSection(raw, { key: "tc_rank" });
+      const parts = [
+        formatCompactTcRankTip(raw),
+        termsHtml ||
+          `<div class="score-formula-section">` +
+            `<div class="score-section-title">ŷ_τc_rank 组成</div>` +
+            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 Ridge β·z 或 LambdaRank pred_contrib。与 oo_rank 取 max 作入场闸。</div>` +
+            `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;

@@ -34,7 +34,7 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "residual_w_oc": 0.5,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
-    # None/≤0=关；正整数=须 y_oo_rank < max（UI「rank 入场」默认 10）
+    # None/≤0=关；正整数=须 max(y_oo_rank, y_τc_rank) < max（UI「rank 入场」默认 10）
     "oo_rank_max": None,
     # 旧相对比例闸；UI 已改绝对名次，API 仍认
     "oo_rank_top_frac": None,

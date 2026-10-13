@@ -2322,8 +2322,8 @@ html[data-density="compact"] .quant-page {
 
 .quant-bt-trades-host .bt-ledger-grid .watching-react-grid-head,
 .quant-bt-trades-host .bt-ledger-grid .watching-react-grid-body {
-  /* 列 minmax + column-gap；小于此值时 overflow-x:hidden 会裁掉 fuse / y_hl */
-  min-width: 102rem;
+  /* 列 minmax + column-gap；小于轨道合计时表体 overflow-x:hidden 会裁掉最右列（τc_rank） */
+  min-width: 114rem;
 }
 
 .quant-bt-trades-host .bt-ledger-grid .quant-bt-trades-body {
@@ -2332,7 +2332,7 @@ html[data-density="compact"] .quant-page {
 }
 
 .quant-bt-trades-host .bt-ledger-grid .watching-react-grid-row {
-  min-width: 102rem !important;
+  min-width: 114rem !important;
   column-gap: 10px;
 }
 
@@ -12061,16 +12061,44 @@ button.quant-integrity-cell:hover,
 }
 
 /* —— 研究宇宙看板 —— */
+body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+  row-gap: 6px;
+}
+
 .quant-ru-a-gate {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.45rem 0.85rem;
+  gap: 6px;
+}
+
+.quant-ru-gate-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 8px 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 3.5%, var(--surface, #fff));
+}
+
+.quant-ru-gate-k {
+  color: var(--ink-3);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .quant-ru-a-gate .quant-inline-num--frac {
-  font-size: 0.78rem;
-  gap: 0.2rem 0.35rem;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.75rem;
 }
 
 .quant-ru-a-gate .quant-inline-num--frac > span:first-child {
@@ -12079,10 +12107,29 @@ button.quant-integrity-cell:hover,
   white-space: nowrap;
 }
 
-.quant-ru-a-gate-lab {
-  color: var(--ink-2);
-  font-size: 0.72rem;
+.quant-ru-a-gate .quant-inline-num--frac input[type="number"] {
+  width: 2.7rem;
+  min-width: 2.7rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, var(--line));
+  border-radius: 2px;
+  background: var(--bg-card, var(--surface, #fff));
+  text-align: right;
+}
+
+.quant-ru-a-gate .quant-inline-num--frac input[type="number"]:focus {
+  border-color: var(--accent, #1890ff);
+  border-bottom-color: var(--accent, #1890ff);
+}
+
+.quant-ru-a-gate-lab,
+.quant-ru-a-gate-unit {
+  color: var(--ink-3);
+  font-size: 0.68rem;
   font-weight: 650;
+  line-height: 1;
   white-space: nowrap;
 }
 

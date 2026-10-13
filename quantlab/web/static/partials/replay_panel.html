@@ -67,7 +67,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-score-backend-field"
-          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank：成交明细 rank=当日截面 1..n 名次（1=最高），不进 fuse / y_oo_fuse；过入场后作买序；「其他」rank 入场（默认 10）作名次闸。"
+          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank：成交明细 oo_rank=当日截面 1..n 名次（1=最高），不进 fuse / y_oo_fuse；过入场后作买序。「其他」rank 入场（默认 10）：须 max(oo_rank, τc_rank)&lt;门槛。ŷ_τc_rank：成交明细 τc_rank 列；参与 max 入场闸，不进 fuse / 不改买序。"
         >
           <span class="quant-pro-field-label">ŷ头</span>
           <select id="quant-score-backend">
@@ -202,7 +202,10 @@
                 <section class="follow-path-matrix-panel" data-panel="other" aria-labelledby="pm-panel-other">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
-                    <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；勾选则入场须 y&gt;0；rank 入场&gt;0 则另须名次&lt;该值（缺分不拦）；未过门槛清仓</p>
+                    <p
+                      class="follow-path-matrix-panel-note"
+                      title="本金 / 日分价闸只用于调仓回测。勾选则入场须 y&gt;0。rank 入场&gt;0 则另须 max(oo_rank, τc_rank)&lt;该值（两侧都缺不拦）；未过门槛清仓。"
+                    >本金/日分价闸仅回测 · 勾选须 y&gt;0 · rank 看 oo &amp; τc（缺分不拦）</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row5">
                     <label
@@ -247,13 +250,13 @@
                     </label>
                     <label
                       class="follow-path-matrix-box"
-                      title="入场另须 ŷ_oo_rank 当日观察池截面名次 &lt; 此值（1=相对分最高）。默认 10；≤0=关。缺 rank 不拦。未过则已持仓清仓。须已启用 oo_rank 研究/执行套。"
+                      title="入场另须 max(ŷ_oo_rank, ŷ_τc_rank) &lt; 此值（1=相对分最高）。默认 10；≤0=关。两侧都缺不拦；仅一侧有则用该侧。未过则已持仓清仓。须已启用对应研究/执行套。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">rank 入场</span>
-                        <span class="follow-path-matrix-box-desc">oo_rank</span>
+                        <span class="follow-path-matrix-box-desc">oo &amp; τc</span>
                       </span>
-                      <input type="number" name="pm_oo_rank_max" min="0" max="500" step="1" value="10" aria-label="oo_rank 入场名次" />
+                      <input type="number" name="pm_oo_rank_max" min="0" max="500" step="1" value="10" aria-label="oo_rank 与 τc_rank 入场名次" />
                     </label>
                   </div>
                 </section>

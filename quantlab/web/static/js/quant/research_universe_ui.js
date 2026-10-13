@@ -1,5 +1,5 @@
 /**
- * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=1/rank(Y_oo)+1/rank(Y_τc) · 分档看 Holdout 前半，指标与收益看整段 → last。
+ * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=1/rank(Y_oo)+1/rank(Y_τc) · A 档另过 Y_oo / Y_τc 命中率 · 分档看 Holdout 前半，指标与等权买持看整段 → last。
  * 有研究套时只拉 Holdout 附近本地日线建面板；live 档位跟随历史回测「分档」勾选。
  */
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
@@ -11,12 +11,18 @@ export function installResearchUniverseUi(q) {
 
   const A_COUNT_STORAGE_KEY = "quant.researchUniverse.aCount";
   const B_COUNT_STORAGE_KEY = "quant.researchUniverse.bCount";
+  const A_HIT_STORAGE_KEY = "quant.researchUniverse.aHit";
+  const TAU_A_HIT_STORAGE_KEY = "quant.researchUniverse.tauAHit";
   const A_COUNT_DEFAULT = 100;
   const B_COUNT_DEFAULT = 300;
+  const A_HIT_DEFAULT = 50;
+  const TAU_A_HIT_DEFAULT = 50;
   const A_COUNT_MIN = 1;
   const A_COUNT_MAX = 2000;
   const B_COUNT_MIN = 0;
   const B_COUNT_MAX = 5000;
+  const HIT_PCT_MIN = 0;
+  const HIT_PCT_MAX = 100;
 
   const el = {
     chip: () => document.getElementById("quant-ru-chip"),
@@ -25,6 +31,8 @@ export function installResearchUniverseUi(q) {
     tierTable: () => document.getElementById("quant-ru-tier-table"),
     aCount: () => document.getElementById("quant-ru-a-count"),
     bCount: () => document.getElementById("quant-ru-b-count"),
+    aHit: () => document.getElementById("quant-ru-a-hit"),
+    tauAHit: () => document.getElementById("quant-ru-tau-a-hit"),
     maxSize: () => document.getElementById("quant-watching-max-size"),
     poolVal: () => document.getElementById("quant-watching-pool-val"),
     poolStatus: () => document.getElementById("quant-watching-pool-status"),
@@ -40,6 +48,19 @@ export function installResearchUniverseUi(q) {
     const n = Number(raw);
     if (!Number.isFinite(n)) return B_COUNT_DEFAULT;
     return Math.max(B_COUNT_MIN, Math.min(B_COUNT_MAX, Math.round(n)));
+  }
+
+  /** 工具栏百分数 0–100。报告里的 0–1 比例由 hitPctFromRatio 先换算。 */
+  function clampHitPct(raw, fallback) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(HIT_PCT_MIN, Math.min(HIT_PCT_MAX, Math.round(n)));
+  }
+
+  function hitPctFromRatio(raw, fallback) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    return clampHitPct(n <= 1 ? n * 100 : n, fallback);
   }
 
   function readStoredCount(key, fallback) {
@@ -63,7 +84,7 @@ export function installResearchUniverseUi(q) {
     }
   }
 
-  /** @returns {{ aCount: number, bCount: number }} */
+  /** @returns {{ aCount: number, bCount: number, aHit: number, tauAHit: number }} */
   function readTierCounts() {
     const aCount = clampACount(
       el.aCount()?.value !== "" && el.aCount()?.value != null
@@ -75,13 +96,33 @@ export function installResearchUniverseUi(q) {
         ? el.bCount().value
         : readStoredCount(B_COUNT_STORAGE_KEY, B_COUNT_DEFAULT)
     );
+    const aHit = clampHitPct(
+      el.aHit()?.value !== "" && el.aHit()?.value != null
+        ? el.aHit().value
+        : readStoredCount(A_HIT_STORAGE_KEY, A_HIT_DEFAULT),
+      A_HIT_DEFAULT
+    );
+    const tauAHit = clampHitPct(
+      el.tauAHit()?.value !== "" && el.tauAHit()?.value != null
+        ? el.tauAHit().value
+        : readStoredCount(TAU_A_HIT_STORAGE_KEY, TAU_A_HIT_DEFAULT),
+      TAU_A_HIT_DEFAULT
+    );
     const aInput = el.aCount();
     const bInput = el.bCount();
+    const aHitInput = el.aHit();
+    const tauHitInput = el.tauAHit();
     if (aInput && String(aInput.value) !== String(aCount)) aInput.value = String(aCount);
     if (bInput && String(bInput.value) !== String(bCount)) bInput.value = String(bCount);
+    if (aHitInput && String(aHitInput.value) !== String(aHit)) aHitInput.value = String(aHit);
+    if (tauHitInput && String(tauHitInput.value) !== String(tauAHit)) {
+      tauHitInput.value = String(tauAHit);
+    }
     writeStoredCount(A_COUNT_STORAGE_KEY, aCount);
     writeStoredCount(B_COUNT_STORAGE_KEY, bCount);
-    return { aCount, bCount };
+    writeStoredCount(A_HIT_STORAGE_KEY, aHit);
+    writeStoredCount(TAU_A_HIT_STORAGE_KEY, tauAHit);
+    return { aCount, bCount, aHit, tauAHit };
   }
 
   function paintCountFromReport(rep) {
@@ -99,13 +140,28 @@ export function installResearchUniverseUi(q) {
       if (input) input.value = String(bCount);
       writeStoredCount(B_COUNT_STORAGE_KEY, bCount);
     }
+    if (thr.a_hit != null && Number.isFinite(Number(thr.a_hit))) {
+      const aHit = hitPctFromRatio(thr.a_hit, A_HIT_DEFAULT);
+      const input = el.aHit();
+      if (input) input.value = String(aHit);
+      writeStoredCount(A_HIT_STORAGE_KEY, aHit);
+    }
+    if (thr.tau_a_hit != null && Number.isFinite(Number(thr.tau_a_hit))) {
+      const tauAHit = hitPctFromRatio(thr.tau_a_hit, TAU_A_HIT_DEFAULT);
+      const input = el.tauAHit();
+      if (input) input.value = String(tauAHit);
+      writeStoredCount(TAU_A_HIT_STORAGE_KEY, tauAHit);
+    }
   }
 
-  function tierMetaFor(aCount, bCount) {
+  function tierMetaFor(aCount, bCount, aHit, tauAHit, requireTau) {
+    const gate = requireTau
+      ? `Y_oo≥${aHit}% 且 Y_τc≥${tauAHit}%`
+      : `Y_oo≥${aHit}%`;
     return {
-      A: { label: "强", tip: `Score 序 top ${aCount}` },
-      B: { label: "中", tip: `Score 序接着 ${bCount}` },
-      C: { label: "弱", tip: "Score 序剩余或无样本" },
+      A: { label: "强", tip: `过 ${gate} 的 Score 序 top ${aCount}` },
+      B: { label: "中", tip: `未进 A 后接着 ${bCount}` },
+      C: { label: "弱", tip: "其余或无样本" },
     };
   }
 
@@ -237,7 +293,7 @@ export function installResearchUniverseUi(q) {
     return Number.isFinite(n) ? n : null;
   }
 
-  /** 有样本卡：各档票日平均实现收益按 n_realized 加权。 */
+  /** 有样本卡：各档等权买持收益按 n_realized（参与票数）加权。 */
   function poolMeanRet(rep) {
     const by = (rep && rep.cs_by_tier) || {};
     let sum = 0;
@@ -388,11 +444,22 @@ export function installResearchUniverseUi(q) {
       thr.b_count != null && Number.isFinite(Number(thr.b_count))
         ? Math.round(Number(thr.b_count))
         : B_COUNT_DEFAULT;
+    const aHit =
+      thr.a_hit != null && Number.isFinite(Number(thr.a_hit))
+        ? hitPctFromRatio(thr.a_hit, A_HIT_DEFAULT)
+        : A_HIT_DEFAULT;
+    const tauAHit =
+      thr.tau_a_hit != null && Number.isFinite(Number(thr.tau_a_hit))
+        ? hitPctFromRatio(thr.tau_a_hit, TAU_A_HIT_DEFAULT)
+        : TAU_A_HIT_DEFAULT;
     const requireTau = !!thr.require_tau;
     const counts = rep.counts || {};
     const nSample = rep.n_with_sample != null ? rep.n_with_sample : "—";
     const nPool = rep.pool_count != null ? rep.pool_count : (rep.rows || []).length;
-    const tierMeta = tierMetaFor(aCount, bCount);
+    const tierMeta = tierMetaFor(aCount, bCount, aHit, tauAHit, requireTau);
+    const gateLab = requireTau
+      ? `A档 Y_oo≥${aHit}% · Y_τc≥${tauAHit}%`
+      : `A档 Y_oo≥${aHit}%`;
     const scoreLab = requireTau
       ? "Score=1/rank(Y_oo)+1/rank(Y_τc)"
       : "Score=1/rank(Y_oo)";
@@ -401,9 +468,9 @@ export function installResearchUniverseUi(q) {
       `ŷ_oo Holdout OOS`,
       `Holdout${hold}日前半` +
         (tierN != null && Number.isFinite(Number(tierN)) ? ` · 窗${tierN}日` : "") +
-        ` · 指标与收益看整段`,
+        ` · 指标与等权买持看整段`,
       scoreLab,
-      `A档数量 ${aCount} · B档数量 ${bCount} · C 其余`,
+      `A档数量 ${aCount} · B档数量 ${bCount} · ${gateLab} · C 其余`,
       liveBit(),
     ]
       .filter(Boolean)
@@ -477,28 +544,28 @@ export function installResearchUniverseUi(q) {
         "A 强",
         String(counts.A ?? 0),
         tierMeanRet(rep, "A"),
-        "Holdout 整段、A 档票日平均实现收益（ŷ_oo）"
+        "Holdout 整段、A 档等权买持（close，对齐回测观察池A档等权）"
       ) +
       kpiCardHtml(
         "is-B",
         "B 中",
         String(counts.B ?? 0),
         tierMeanRet(rep, "B"),
-        "Holdout 整段、B 档票日平均实现收益（ŷ_oo）"
+        "Holdout 整段、B 档等权买持（close，对齐回测基线口径）"
       ) +
       kpiCardHtml(
         "is-C",
         "C 弱",
         String(counts.C ?? 0),
         tierMeanRet(rep, "C"),
-        "Holdout 整段、C 档票日平均实现收益（ŷ_oo）"
+        "Holdout 整段、C 档等权买持（close，对齐回测基线口径）"
       ) +
       kpiCardHtml(
         "",
         "有样本",
         `${nSample}<span class="quant-ru-kpi-sub">/${nPool}</span>`,
         poolMeanRet(rep),
-        "Holdout 整段、有样本票日平均实现收益（ŷ_oo，按票日加权）"
+        "Holdout 整段、有样本等权买持（按档内票数加权）"
       ) +
       `</div>` +
       mixBarHtml(counts) +
@@ -557,14 +624,14 @@ export function installResearchUniverseUi(q) {
     if (!document.getElementById("quant-section-research-universe")) return null;
     const h = holdoutN();
     const lb = ooLookbackN();
-    const { aCount, bCount } = readTierCounts();
+    const { aCount, bCount, aHit, tauAHit } = readTierCounts();
     if (!quiet) {
       setStatus(
         "busy",
         useLast ? "读取中" : "分档中",
         useLast
           ? "上次 Holdout OOS 分档…"
-          : `研究套 ŷ_oo · Holdout ${h} 日前半 · Score=1/rank(Y_oo)+1/rank(Y_τc) · A ${aCount} · B ${bCount}（短窗建面板；无研究套才吃训练窗 ${lb}）…`
+          : `研究套 ŷ_oo · Holdout ${h} 日前半…`
       );
     }
     const url = useLast
@@ -575,6 +642,10 @@ export function installResearchUniverseUi(q) {
           aCount
         )}&b_count=${encodeURIComponent(
           bCount
+        )}&a_hit=${encodeURIComponent(
+          (aHit / 100).toFixed(4)
+        )}&tau_a_hit=${encodeURIComponent(
+          (tauAHit / 100).toFixed(4)
         )}&min_n=20&head=oo&pool=watching`;
     const { ok, data, error } = await apiFetch(url);
     if (!ok || !data || data.success === false) {
@@ -605,6 +676,12 @@ export function installResearchUniverseUi(q) {
     readTierCounts();
   });
   on("quant-ru-b-count", "change", () => {
+    readTierCounts();
+  });
+  on("quant-ru-a-hit", "change", () => {
+    readTierCounts();
+  });
+  on("quant-ru-tau-a-hit", "change", () => {
     readTierCounts();
   });
   readTierCounts();

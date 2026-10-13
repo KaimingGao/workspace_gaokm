@@ -190,9 +190,9 @@ def _cfg_fuse_threshold(cfg: Optional[dict], key: str, default: float) -> float:
     return coerce_fuse_threshold(d.get(key), default)
 
 def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
-    """oo_rank 绝对名次闸：开则须 y_oo_rank < max（UI「rank 入场」默认 10）。
+    """绝对名次闸：开则须 max(y_oo_rank, y_τc_rank) < max（UI「rank 入场」默认 10）。
 
-    None/≤0=关。缺 rank 不拦。
+    None/≤0=关。两侧名次都缺不拦；仅一侧有则用该侧。
     """
     d = cfg if isinstance(cfg, dict) else {}
     if "oo_rank_max" not in d:
@@ -210,7 +210,7 @@ def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
 
 
 def oo_rank_top_frac_from_cfg(cfg: Optional[dict]) -> Optional[float]:
-    """oo_rank 相对名次闸：开则须 y_oo_rank < n·frac（旧 API；UI 已改绝对「rank 入场」）。
+    """相对名次闸：开则须 max(y_oo_rank, y_τc_rank) < n·frac（旧 API；UI 已改绝对「rank 入场」）。
 
     None/≤0=关。仅读显式 ``oo_rank_top_frac``；不再把 ``oo_rank_max`` 迁成 0.5。
     """
@@ -229,12 +229,17 @@ def oo_rank_top_frac_from_cfg(cfg: Optional[dict]) -> Optional[float]:
     return float(v)
 
 
-def _oo_rank_from_item(item: Optional[dict]) -> Tuple[Optional[float], Optional[int]]:
-    """读当日截面名次与池大小；缺则 (None, None)。"""
+def _rank_from_item(
+    item: Optional[dict],
+    *,
+    keys: Sequence[str],
+    n_key: str,
+) -> Tuple[Optional[float], Optional[int]]:
+    """读截面名次与池大小；缺则 (None, None)。"""
     rank = None
     n_pool = None
     if isinstance(item, dict):
-        for key in ("y_oo_rank", "y_oo_rank_hat", "predicted_score_oo_rank"):
+        for key in keys:
             raw = item.get(key)
             if raw in (None, ""):
                 continue
@@ -243,7 +248,7 @@ def _oo_rank_from_item(item: Optional[dict]) -> Tuple[Optional[float], Optional[
                 break
             except (TypeError, ValueError):
                 continue
-        raw_n = item.get("y_oo_rank_n")
+        raw_n = item.get(n_key)
         if raw_n not in (None, ""):
             try:
                 n_pool = int(raw_n)
@@ -252,26 +257,72 @@ def _oo_rank_from_item(item: Optional[dict]) -> Tuple[Optional[float], Optional[
     return rank, n_pool
 
 
+def _oo_rank_from_item(item: Optional[dict]) -> Tuple[Optional[float], Optional[int]]:
+    """读 ŷ_oo_rank 当日截面名次与池大小；缺则 (None, None)。"""
+    return _rank_from_item(
+        item,
+        keys=("y_oo_rank", "y_oo_rank_hat", "predicted_score_oo_rank"),
+        n_key="y_oo_rank_n",
+    )
+
+
+def _tc_rank_from_item(item: Optional[dict]) -> Tuple[Optional[float], Optional[int]]:
+    """读 ŷ_τc_rank 当日截面名次与池大小；缺则 (None, None)。"""
+    return _rank_from_item(
+        item,
+        keys=("y_tc_rank", "y_tc_rank_hat", "predicted_score_tc_rank"),
+        n_key="y_tc_rank_n",
+    )
+
+
+def _entry_rank_from_item(
+    item: Optional[dict],
+) -> Tuple[Optional[float], Optional[int], str]:
+    """入场名次 = max(oo_rank, τc_rank)；返回 (effective, n_pool, label)。"""
+    oo, oo_n = _oo_rank_from_item(item)
+    tc, tc_n = _tc_rank_from_item(item)
+    parts: List[str] = []
+    vals: List[float] = []
+    if oo is not None:
+        vals.append(float(oo))
+        parts.append(f"oo_rank={int(oo)}")
+    if tc is not None:
+        vals.append(float(tc))
+        parts.append(f"τc_rank={int(tc)}")
+    if not vals:
+        return None, None, ""
+    eff = max(vals)
+    n_pool = oo_n if oo_n is not None else tc_n
+    if oo is not None and tc is not None:
+        label = f"max({parts[0]}, {parts[1]})={int(eff)}"
+    else:
+        label = parts[0]
+    return eff, n_pool, label
+
+
 def _oo_rank_enter_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
-    """ŷ_oo_rank 名次闸：优先绝对 ``oo_rank_max``，否则相对 ``oo_rank_top_frac``。缺 rank 不拦。"""
+    """名次闸：优先绝对 ``oo_rank_max``，否则相对 ``oo_rank_top_frac``。
+
+    绝对/相对均看 ``max(oo_rank, τc_rank)``；两侧都缺不拦。
+    """
     mx = oo_rank_max_from_cfg(cfg)
     if mx is not None:
-        rank, _n = _oo_rank_from_item(item)
+        rank, _n, label = _entry_rank_from_item(item)
         if rank is None:
             return None
         if float(rank) >= float(mx):
-            return f"oo_rank={int(rank)}≥{int(mx)} 未过入场"
+            return f"{label}≥{int(mx)} 未过入场"
         return None
     frac = oo_rank_top_frac_from_cfg(cfg)
     if frac is None:
         return None
-    rank, n_pool = _oo_rank_from_item(item)
+    rank, n_pool, label = _entry_rank_from_item(item)
     if rank is None or n_pool is None or n_pool <= 0:
         return None
     thresh = float(n_pool) * float(frac)
     if float(rank) >= thresh:
         pct = int(round(float(frac) * 100.0))
-        return f"oo_rank={int(rank)}/{n_pool}≥top{pct}% 未过入场"
+        return f"{label}/{n_pool}≥top{pct}% 未过入场"
     return None
 
 
@@ -284,7 +335,7 @@ def rank_lot_enter_skip_reason(
     """入场：y_oo_fuse ≥ fuse_enter；可选 y_oo>0 / y_τc>0。
 
     ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
-    过入场后可选 ``oo_rank_max``（须 y_oo_rank < max）或旧键 ``oo_rank_top_frac``。
+    过入场后可选 ``oo_rank_max``（须 max(y_oo_rank, y_τc_rank) < max）或旧键 ``oo_rank_top_frac``。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oo, pick_y_τc
@@ -651,6 +702,12 @@ AUX_YHAT_KEYS = (
     "y_oo_rank_n",
     "y_oo_rank_realized",
     "oo_rank_realized",
+    # ŷ_τc_rank：成交明细名次；不进 y_oo_fuse、不改买序；与 oo_rank 取 max 作入场闸。
+    "y_tc_rank",
+    "y_tc_rank_hat",
+    "predicted_score_tc_rank",
+    "y_tc_rank_score",
+    "y_tc_rank_n",
 )
 
 
@@ -659,7 +716,10 @@ def aux_yhat_fields(
     *,
     include_tau_horizons: bool = True,
 ) -> Dict[str, Any]:
-    """对照头透传：可选 y_τw / y_τ30… / y_oo_rank。不进 y_oo_fuse；oo_rank 过入场后作买序。ŷ_hl 已下线。"""
+    """对照头透传：可选 y_τw / y_τ30… / y_oo_rank / y_tc_rank。
+
+    不进 y_oo_fuse。oo_rank 过入场后作买序；τc_rank 进成交明细，并与 oo_rank 取 max 作入场闸。ŷ_hl 已下线。
+    """
     if not isinstance(item, dict):
         return {}
     out: Dict[str, Any] = {}
@@ -759,6 +819,27 @@ def aux_yhat_fields(
             out["oo_rank_realized"] = r_or
     except Exception:  # noqa: BLE001
         logger.debug("aux oo_rank fields failed", exc_info=True)
+
+    y_tr = _f(item.get("y_tc_rank"))
+    if y_tr is None:
+        y_tr = _f(item.get("y_tc_rank_hat"))
+    if y_tr is None:
+        y_tr = _f(item.get("predicted_score_tc_rank"))
+    if y_tr is not None:
+        out["y_tc_rank"] = y_tr
+        out["y_tc_rank_hat"] = y_tr
+        out["predicted_score_tc_rank"] = y_tr
+    score_tc = item.get("y_tc_rank_score")
+    if score_tc is not None:
+        scored = _f(score_tc)
+        if scored is not None:
+            out["y_tc_rank_score"] = scored
+    n_tc = item.get("y_tc_rank_n")
+    if n_tc is not None:
+        try:
+            out["y_tc_rank_n"] = int(n_tc)
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -772,6 +853,8 @@ _TIP_EXPLAIN_KEYS = (
     "score_formula_terms_co",
     "formula_terms_oo_rank",
     "score_formula_terms_oo_rank",
+    "formula_terms_tc_rank",
+    "score_formula_terms_tc_rank",
     "formula_terms_path",
     "score_formula_terms_path",
     "y_spec_tau",
@@ -800,6 +883,8 @@ _TIP_FORMULA_KEYS = frozenset(
         "score_formula_terms_co",
         "formula_terms_oo_rank",
         "score_formula_terms_oo_rank",
+        "formula_terms_tc_rank",
+        "score_formula_terms_tc_rank",
         "formula_terms_path",
         "score_formula_terms_path",
     }
@@ -818,6 +903,8 @@ _Y_HEAD_FORMULA_KEYS = frozenset(
         "score_formula_terms_co",
         "formula_terms_oo_rank",
         "score_formula_terms_oo_rank",
+        "formula_terms_tc_rank",
+        "score_formula_terms_tc_rank",
     }
 )
 
