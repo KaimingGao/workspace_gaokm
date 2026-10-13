@@ -73,10 +73,14 @@ class TestCompactBreadth(unittest.TestCase):
         from core.research.panel_matrix import collect_tau_compact
         from core.research.tc_ridge import TAU_Z_FEATURES, _stack_panels, build_tau_panels_from_bars
 
+        # collect_tau_compact 算完会 pop bars；对照路径用独立副本
         stock_bars = [
             {"code": "AAA", "bars": _bars(48, 10, 0)},
             {"code": "BBB", "bars": _bars(48, 12, 1)},
             {"code": "CCC", "bars": _bars(48, 8, 2)},
+        ]
+        stock_bars_dict = [
+            {"code": it["code"], "bars": list(it["bars"])} for it in stock_bars
         ]
         X, names, ys, dates, metas, n_stocks = collect_tau_compact(
             stock_bars,
@@ -87,7 +91,7 @@ class TestCompactBreadth(unittest.TestCase):
         )
         xs, ys_d, dates_d, metas_d = _stack_panels(
             build_tau_panels_from_bars(
-                stock_bars,
+                stock_bars_dict,
                 include_alpha_tc=False,
                 gap_trigger_pct=0.5,
             )
@@ -164,13 +168,17 @@ class TestCoCompactBoundedFold(unittest.TestCase):
     def test_resolve_co_workers_caps_8gb(self):
         from unittest.mock import patch
 
-        from core.research.panel_matrix import _resolve_co_workers
+        from core.research.panel_matrix import _resolve_co_workers, _resolve_tau_workers
 
-        with patch.dict(os.environ, {"CO_RIDGE_WORKERS": "2"}, clear=False):
-            self.assertEqual(_resolve_co_workers(800, None), 2)
-        # 硬顶 2：再高也会被压住
-        self.assertEqual(_resolve_co_workers(800, 8), 2)
+        with patch.dict(os.environ, {"CO_RIDGE_WORKERS": "4"}, clear=False):
+            self.assertEqual(_resolve_co_workers(800, None), 4)
+        # 硬顶 4：再高也会被压住
+        self.assertEqual(_resolve_co_workers(800, 8), 4)
         self.assertEqual(_resolve_co_workers(2, None), 1)
+        with patch.dict(os.environ, {"TAU_RIDGE_WORKERS": "4"}, clear=False):
+            self.assertEqual(_resolve_tau_workers(800, None), 4)
+        self.assertEqual(_resolve_tau_workers(800, 8), 4)
+        self.assertEqual(_resolve_tau_workers(2, None), 1)
 
 
 class TestKeepallRidgeMatrix(unittest.TestCase):

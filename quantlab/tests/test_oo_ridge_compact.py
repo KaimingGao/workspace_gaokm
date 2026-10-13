@@ -196,10 +196,10 @@ class TestOoRidgeCompact(unittest.TestCase):
 
         from core.research.oo_ridge_compact import _resolve_workers
 
-        with patch.dict(os.environ, {"OO_RIDGE_WORKERS": "2"}):
-            self.assertEqual(_resolve_workers(300, None), 2)
+        with patch.dict(os.environ, {"OO_RIDGE_WORKERS": "4"}):
+            self.assertEqual(_resolve_workers(300, None), 4)
             self.assertEqual(_resolve_workers(3, None), 1)
-        self.assertEqual(_resolve_workers(300, 8), 3)
+        self.assertEqual(_resolve_workers(300, 8), 4)
         self.assertEqual(_resolve_workers(1, 2), 1)
 
     def test_stack_aligns_extra_column_and_skips_empty(self) -> None:

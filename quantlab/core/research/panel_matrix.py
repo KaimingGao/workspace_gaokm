@@ -2,7 +2,7 @@
 
 截面广度仍要读缺口和路径收益，所以每只股票先写入矩阵，只把广度用到的十几列
 留在瘦 dict 里。alpha_oo 原始列不再在全池 dict 里停留。
-ŷ_co 对齐 ŷ_oo：单票任务内折矩阵、在途≤2、批大小 24、算完 pop bars（8GB）。
+ŷ_co 对齐 ŷ_oo：单票任务内折矩阵、在途≤4、批大小 24、算完 pop bars（8GB）。
 Ridge 口径与 ``fit_factor_ols_from_panel`` 对齐：√w + keep_all；拟合用完整行。
 ``cross_section_zscore=True``（默认）且有决策日 → 当天截面 z；``False`` → 训练窗
 全局 μ/σ。截面模型预测缺测填 z=0。
@@ -296,6 +296,108 @@ def _finish_breadth(
     return X, list(block.names), ys, dates, metas
 
 
+# 与 ŷ_oo 同批大小：每批结束后丢掉该批 bars，把峰值压在 8GB 内。
+_CO_POOL_BATCH = 24
+_TAU_POOL_BATCH = 24
+
+
+def _tau_stock_job(
+    item: Dict[str, Any],
+    *,
+    use_minute: bool,
+    tau_hm: str,
+    grid: Optional[Sequence[str]],
+    min_history: int,
+    include_alpha_tc: bool,
+) -> Optional[Tuple[str, List[dict], List[float], List[str], List[dict]]]:
+    """单票 ŷ_τc 面板；算完 pop minute_bars。stage-1 磁盘缓存（广度合并另算）。"""
+    from core.research.panel_disk_cache import (
+        bars_fingerprint,
+        load_stock_shard,
+        make_fingerprint,
+        save_stock_shard,
+        tc_head_key,
+    )
+    from core.research.tau_panel import (
+        collect_tau_intraday_panel,
+        collect_tau_open_panel,
+    )
+
+    if not isinstance(item, dict):
+        return None
+    code = str(item.get("code") or item.get("stock_code") or "").strip()
+    bars = list(item.get("bars") or [])
+    if len(bars) < int(min_history) + 2:
+        item.pop("minute_bars", None)
+        return None
+    mh = int(min_history)
+    atc = bool(include_alpha_tc)
+    minute = list(item.get("minute_bars") or []) if use_minute else None
+    head_key = tc_head_key(
+        tau_hm=str(tau_hm),
+        min_history=mh,
+        include_alpha_tc=atc,
+        use_minute=bool(use_minute),
+    )
+    fp = make_fingerprint(
+        bars_fp=bars_fingerprint(bars, minute_bars=minute),
+        tau_hm=str(tau_hm),
+        min_history=mh,
+        include_alpha_tc=int(atc),
+        use_minute=int(bool(use_minute)),
+    )
+    if code:
+        cached = load_stock_shard(head_key, code, fp)
+        if cached is not None and isinstance(cached.get("xs"), list):
+            item.pop("minute_bars", None)
+            ys = [float(y) for y in cached["y"].tolist()]
+            dates = list(cached.get("dates") or [])
+            metas = list(cached.get("metas") or [])
+            xs = list(cached["xs"])
+            if len(ys) >= 4 and len(xs) == len(ys) == len(dates) == len(metas):
+                return code, xs, ys, dates, metas
+    if use_minute:
+        xs, ys, dates, metas = collect_tau_intraday_panel(
+            bars,
+            item.get("minute_bars"),
+            tau_hm=str(tau_hm),
+            tau_grid=grid,
+            min_history=min_history,
+            index_bars=item.get("index_bars"),
+            fundamentals=item.get("fundamentals"),
+            stock_code=code,
+            include_alpha_tc=include_alpha_tc,
+        )
+        item.pop("minute_bars", None)
+    else:
+        xs, ys, dates, metas = collect_tau_open_panel(
+            bars,
+            min_history=min_history,
+            index_bars=item.get("index_bars"),
+            fundamentals=item.get("fundamentals"),
+            stock_code=code,
+            include_alpha_tc=include_alpha_tc,
+        )
+    if len(ys) < 4:
+        return None
+    xs_l = list(xs)
+    ys_l = list(ys)
+    dates_l = list(dates)
+    metas_l = list(metas)
+    if code:
+        save_stock_shard(
+            head_key,
+            code,
+            fp,
+            y=np.asarray(ys_l, dtype=np.float64),
+            dates=dates_l,
+            names=[],
+            metas=metas_l,
+            xs=xs_l,
+        )
+    return code, xs_l, ys_l, dates_l, metas_l
+
+
 def collect_tau_compact(
     stock_bars: Sequence[Dict[str, Any]],
     names: Sequence[str],
@@ -306,16 +408,16 @@ def collect_tau_compact(
     tau_grid: Optional[Sequence[str]] = None,
     include_alpha_tc: bool = True,
     head: str = "y_tc",
+    workers: Optional[int] = None,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
 
     现网默认 ``include_alpha_tc=True``（raw_atc_*）。
+    并行：默认/硬顶 4 线程（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
     """
-    from core.research.tau_panel import (
-        collect_tau_intraday_panel,
-        collect_tau_open_panel,
-        normalize_minute_tau_grid,
-    )
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    from core.research.tau_panel import normalize_minute_tau_grid
 
     use_minute = str(tau_hm or "open").strip().lower() not in ("", "open")
     grid = (
@@ -323,43 +425,22 @@ def collect_tau_compact(
         if use_minute
         else None
     )
+    items = [it for it in (stock_bars or []) if isinstance(it, dict)]
+    n_jobs = len(items)
+    n_workers = _resolve_tau_workers(n_jobs, workers)
     widen = "raw_atc_" if include_alpha_tc else ""
     block = PanelMatrix(names, widen_prefix=widen)
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
-    for item in stock_bars or []:
-        if not isinstance(item, dict):
-            continue
-        code = str(item.get("code") or item.get("stock_code") or "").strip()
-        bars = list(item.get("bars") or [])
-        if len(bars) < min_history + 2:
-            item.pop("minute_bars", None)
-            continue
-        if use_minute:
-            xs, ys, dates, metas = collect_tau_intraday_panel(
-                bars,
-                item.get("minute_bars"),
-                tau_hm=str(tau_hm),
-                tau_grid=grid,
-                min_history=min_history,
-                index_bars=item.get("index_bars"),
-                fundamentals=item.get("fundamentals"),
-                stock_code=code,
-                include_alpha_tc=include_alpha_tc,
-            )
-            item.pop("minute_bars", None)
-        else:
-            xs, ys, dates, metas = collect_tau_open_panel(
-                bars,
-                min_history=min_history,
-                index_bars=item.get("index_bars"),
-                fundamentals=item.get("fundamentals"),
-                stock_code=code,
-                include_alpha_tc=include_alpha_tc,
-            )
-        if len(ys) < 4:
-            continue
+
+    def _fold(
+        pack: Optional[Tuple[str, List[dict], List[float], List[str], List[dict]]],
+    ) -> None:
+        nonlocal n_stocks
+        if not pack:
+            return
+        code, xs, ys, dates, metas = pack
         _absorb_stock(
             block,
             slim_panels,
@@ -371,8 +452,74 @@ def collect_tau_compact(
             slim_keys=slim_keys,
             z_family="tc",
         )
-        del xs
         n_stocks += 1
+
+    def _run_serial(start: int, end: int) -> None:
+        for i in range(start, end):
+            _fold(
+                _tau_stock_job(
+                    items[i],
+                    use_minute=use_minute,
+                    tau_hm=str(tau_hm),
+                    grid=grid,
+                    min_history=min_history,
+                    include_alpha_tc=include_alpha_tc,
+                )
+            )
+            it = items[i]
+            if isinstance(it, dict):
+                it.pop("bars", None)
+
+    def _run_batch(start: int, end: int) -> None:
+        if end <= start:
+            return
+        if n_workers <= 1 or (end - start) < 4:
+            _run_serial(start, end)
+            return
+        inflight: Dict[Any, int] = {}
+        next_i = start
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+
+            def _submit(i: int) -> None:
+                fut = pool.submit(
+                    _tau_stock_job,
+                    items[i],
+                    use_minute=use_minute,
+                    tau_hm=str(tau_hm),
+                    grid=grid,
+                    min_history=min_history,
+                    include_alpha_tc=include_alpha_tc,
+                )
+                inflight[fut] = i
+
+            while next_i < end and len(inflight) < n_workers:
+                _submit(next_i)
+                next_i += 1
+            while inflight:
+                done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    i = inflight.pop(fut)
+                    _fold(fut.result())
+                    it = items[i]
+                    if isinstance(it, dict):
+                        it.pop("bars", None)
+                while next_i < end and len(inflight) < n_workers:
+                    _submit(next_i)
+                    next_i += 1
+
+    if n_jobs:
+        logger.info(
+            "tau compact workers=%s stocks=%s batch=%s",
+            n_workers,
+            n_jobs,
+            _TAU_POOL_BATCH,
+        )
+        start = 0
+        while start < n_jobs:
+            end = min(n_jobs, start + _TAU_POOL_BATCH)
+            _run_batch(start, end)
+            start = end
+
     X, col_names, ys_out, dates_out, metas_out = _finish_breadth(
         block,
         slim_panels,
@@ -382,10 +529,6 @@ def collect_tau_compact(
         n_stocks=n_stocks,
     )
     return X, col_names, ys_out, dates_out, metas_out, n_stocks
-
-
-# 与 ŷ_oo 同批大小：每批结束后丢掉该批 bars，把峰值压在 8GB 内。
-_CO_POOL_BATCH = 24
 
 
 def _dict_rows_to_matrix(
@@ -424,6 +567,13 @@ def _co_stock_job(
 ) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
     """单票 ŷ_co：在任务内折成 float64 + slim，全量 dict 不回传（对齐 ŷ_oo）。"""
     from core.research.co_panel import collect_co_panel
+    from core.research.panel_disk_cache import (
+        bars_fingerprint,
+        co_head_key,
+        load_stock_shard,
+        make_fingerprint,
+        save_stock_shard,
+    )
     from core.signal.factors.z_co import stamp_z_co_rows
 
     if not isinstance(item, dict):
@@ -432,6 +582,31 @@ def _co_stock_job(
     bars = list(item.get("bars") or [])
     if len(bars) < int(min_history) + 3:
         return None
+    mh = int(min_history)
+    aoo = bool(include_alpha_oo)
+    head_key = co_head_key(min_history=mh, include_alpha_oo=aoo)
+    fp = make_fingerprint(
+        bars_fp=bars_fingerprint(bars),
+        min_history=mh,
+        include_alpha_oo=int(aoo),
+    )
+    if code:
+        cached = load_stock_shard(head_key, code, fp)
+        if (
+            cached is not None
+            and cached.get("X") is not None
+            and isinstance(cached.get("slim"), list)
+        ):
+            names_c = list(cached.get("names") or [])
+            x = np.asarray(cached["X"], dtype=np.float64)
+            # 列名与当前 seed 不一致时丢弃缓存，避免列错位
+            if names_c == list(col_names) and x.shape[1] == len(col_names):
+                ys = [float(y) for y in cached["y"].tolist()]
+                dates = list(cached.get("dates") or [])
+                metas = list(cached.get("metas") or [])
+                slim = list(cached["slim"])
+                if len(ys) >= 4 and len(ys) == x.shape[0] == len(dates) == len(metas) == len(slim):
+                    return code, x, ys, dates, metas, slim
     xs, ys, dates, metas = collect_co_panel(
         bars,
         min_history=min_history,
@@ -445,29 +620,62 @@ def _co_stock_job(
     slim = _slim_rows(xs, slim_keys)
     block = _dict_rows_to_matrix(xs, col_names)
     del xs
+    ys_l = [float(y) for y in ys]
+    dates_l = [str(d)[:10] for d in dates]
+    metas_l = list(metas)
+    if code:
+        save_stock_shard(
+            head_key,
+            code,
+            fp,
+            X=block,
+            y=np.asarray(ys_l, dtype=np.float64),
+            names=list(col_names),
+            dates=dates_l,
+            metas=metas_l,
+            slim=slim,
+        )
     return (
         code,
         block,
-        [float(y) for y in ys],
-        [str(d)[:10] for d in dates],
-        list(metas),
+        ys_l,
+        dates_l,
+        metas_l,
         slim,
     )
 
 
 def _resolve_co_workers(n_jobs: int, workers: Optional[int]) -> int:
-    """默认 2 线程，硬顶 2。本机 8GB：再多一份在途全量因子就会进 swap。"""
+    """默认 4 线程（``CO_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
+
+    8GB 满池更紧时可 ``CO_RIDGE_WORKERS=2``。
+    """
     if n_jobs <= 1:
         return 1
     if workers is None:
         if n_jobs < 4:
             return 1
-        raw = os.environ.get("CO_RIDGE_WORKERS", "2")
+        raw = os.environ.get("CO_RIDGE_WORKERS", "4")
         try:
             workers = int(raw)
         except (TypeError, ValueError):
-            workers = 2
-    return min(max(1, int(workers)), n_jobs, 2)
+            workers = 4
+    return min(max(1, int(workers)), n_jobs, 4)
+
+
+def _resolve_tau_workers(n_jobs: int, workers: Optional[int]) -> int:
+    """默认 4 线程（``TAU_RIDGE_WORKERS`` 可覆盖；硬顶 4）。"""
+    if n_jobs <= 1:
+        return 1
+    if workers is None:
+        if n_jobs < 4:
+            return 1
+        raw = os.environ.get("TAU_RIDGE_WORKERS", "4")
+        try:
+            workers = int(raw)
+        except (TypeError, ValueError):
+            workers = 4
+    return min(max(1, int(workers)), n_jobs, 4)
 
 
 def _co_matrix_seed_names(
@@ -502,7 +710,7 @@ def collect_co_compact(
     """隔夜 ŷ_co 紧凑面板（8GB / 对齐 ŷ_oo）。
 
     - 单票任务内折 float64，只回传矩阵块 + 截面 slim 列
-    - 在途 ≤ worker（默认/上限 2），按 ``_CO_POOL_BATCH`` 批跑
+    - 在途 ≤ worker（默认/上限 4），按 ``_CO_POOL_BATCH`` 批跑
     - 每只算完立刻 ``pop bars``，避免满池日线 + 因子双驻留
     - ``progress_cb(done, total, message)`` 可选，供 job 槽刷新进度
     """

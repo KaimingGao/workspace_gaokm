@@ -1,2 +1,4 @@
 .backup
 quantlab/data/store/*
+quantlab/data/cache/
+investment/data/rebalance_auto_worker.json

@@ -16,12 +16,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# 每批结束后关掉进程，把该批的字典堆还给系统。2 个进程 × 约 12 只。
+# 每批结束后关掉进程，把该批的字典堆还给系统。默认 4 进程 × 批内在途≤进程数。
 _POOL_BATCH = 24
 
 from core.research.factor_ols_fit import _qr_solve_np, clamp_ridge_lambda
 from core.signal.factors.alpha_oo import (
-    ALPHA_OO_FACTOR_KEY,
     Z_OO_DROP_WHEN_AOO_CORE,
     alpha_oo_ridge_raw_names,
     is_alpha_oo_raw_key,
@@ -207,7 +206,16 @@ def _oo_stock_job(
 
     兼容 3 元组 ``(code, bars, horizon)`` 与 4 元组 ``(..., ridge_core_only)``：
     父进程未重启、子进程已加载新代码时，旧 3 元组不再炸 unpack。
+    磁盘 panel 缓存：fingerprint 命中则跳过 ``collect_oo_panel``。
     """
+    from core.research.panel_disk_cache import (
+        bars_fingerprint,
+        load_stock_shard,
+        make_fingerprint,
+        oo_head_key,
+        save_stock_shard,
+    )
+
     if not isinstance(job, (tuple, list)) or len(job) < 3:
         raise ValueError(f"ŷ_oo stock job 形状异常: {type(job)!r} len={len(job) if isinstance(job, (tuple, list)) else '?'}")
     if len(job) == 3:
@@ -215,9 +223,27 @@ def _oo_stock_job(
         ridge_core_only = False
     else:
         code, bars, horizon, ridge_core_only = job[0], job[1], job[2], job[3]
+    code_s = str(code)
+    bars_l = list(bars or [])
+    core = bool(ridge_core_only)
     try:
-        panel = OoPanelMatrix(ridge_core_only=bool(ridge_core_only))
-        _fill_stock(panel, str(code), bars or [], int(horizon))
+        horizon_i = int(horizon)
+        head_key = oo_head_key(horizon_days=horizon_i, ridge_core_only=core)
+        fp = make_fingerprint(
+            bars_fp=bars_fingerprint(bars_l),
+            horizon=horizon_i,
+            ridge_core_only=int(core),
+        )
+        cached = load_stock_shard(head_key, code_s, fp)
+        if cached is not None and cached.get("X") is not None:
+            return (
+                np.asarray(cached["X"], dtype=np.float64),
+                np.asarray(cached["y"], dtype=np.float64),
+                list(cached.get("names") or []),
+                list(cached.get("dates") or []),
+            )
+        panel = OoPanelMatrix(ridge_core_only=core)
+        _fill_stock(panel, code_s, bars_l, horizon_i)
         x, y, names, dates = panel.finalize()
     except Exception as exc:
         raise RuntimeError(f"ŷ_oo 面板失败 {code}") from exc
@@ -225,25 +251,35 @@ def _oo_stock_job(
         raise RuntimeError(
             f"ŷ_oo 面板行数不一致 {code}: X={x.shape[0]} y={y.shape[0]} dates={len(dates)}"
         )
+    save_stock_shard(
+        head_key,
+        code_s,
+        fp,
+        X=x,
+        y=y,
+        names=names,
+        dates=dates,
+    )
     return x, y, names, dates
 
 
 def _resolve_workers(n_jobs: int, workers: Optional[int]) -> int:
-    """默认 2 个进程。8GB 机器上再多会把日线字典再复制几份。
+    """默认 4 个进程（``OO_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
 
     不满 4 只且未指定进程数时走串行，避免小样本也付一次进程启动。
+    8GB 机器满池时内存更紧，若换页严重可 ``OO_RIDGE_WORKERS=2``。
     """
     if n_jobs <= 1:
         return 1
     if workers is None:
         if n_jobs < 4:
             return 1
-        raw = os.environ.get("OO_RIDGE_WORKERS", "2")
+        raw = os.environ.get("OO_RIDGE_WORKERS", "4")
         try:
             workers = int(raw)
         except (TypeError, ValueError):
-            workers = 2
-    return min(max(1, int(workers)), n_jobs, 3)
+            workers = 4
+    return min(max(1, int(workers)), n_jobs, 4)
 
 
 def _stack_blocks(
@@ -298,17 +334,20 @@ def _assemble_serial(
     *,
     ridge_core_only: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
-    panel = OoPanelMatrix(ridge_core_only=ridge_core_only)
-    n = 0
-    for code, bars in items:
-        _fill_stock(panel, str(code), list(bars or []), int(horizon_days))
-        n += 1
-    x, y, names, dates = panel.finalize()
+    # 与并行路径统一走 ``_oo_stock_job``，以便命中按股磁盘缓存。
+    core = bool(ridge_core_only)
+    parts = [
+        _oo_stock_job(
+            (str(code), list(bars or []), int(horizon_days), core)
+        )
+        for code, bars in items
+    ]
+    x, y, names, dates = _stack_blocks(parts, ridge_core_only=core)
     logger.info(
         "oo ridge compact panel rows=%s cols=%s stocks=%s workers=1",
         int(y.shape[0]),
         len(names),
-        n,
+        len(items),
     )
     return x, y, names, dates
 
@@ -463,7 +502,7 @@ def assemble_oo_panels(
     workers: Optional[int] = None,
     ridge_core_only: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
-    """按股票顺序堆叠。满池默认两个子进程，在途任务不超过进程数。
+    """按股票顺序堆叠。满池默认 4 子进程，在途任务不超过进程数。
 
     ``ridge_core_only=False``（默认）：面板 ``z_oo_* ∪ raw_aoo_*`` 全量；
     ``True`` 时只留 aoo_core + 去重叠 z_oo（消融）。

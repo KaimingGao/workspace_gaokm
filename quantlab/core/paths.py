@@ -10,6 +10,11 @@ STORE_DIR = os.environ.get(
     "QUANTLAB_STORE_DIR",
     os.path.join(DATA_DIR, "store"),
 )
+# 研究 panel 按股磁盘缓存（OO/τc/CO/oo_rank）；可用 QUANTLAB_PANEL_CACHE_DIR 覆盖
+PANEL_CACHE_DIR = os.environ.get(
+    "QUANTLAB_PANEL_CACHE_DIR",
+    os.path.join(DATA_DIR, "cache", "panels"),
+)
 PAPER_PATH = os.environ.get(
     "QUANTLAB_PAPER_PATH",
     os.path.join(DATA_DIR, "paper.json"),
@@ -22,14 +27,11 @@ QUANT_DAILY_PATH = os.path.join(DATA_DIR, "quant_daily.json")
 QUANT_REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 LIVE_DIR = os.path.join(DATA_DIR, "live")
 # cluster_* 路径常量：分组已退役（cluster_retired）；保留供历史落盘/迁移只读，勿再写入新指针。
+# 以下 7 个常量/函数已确认零引用并删除：CLUSTER_WEIGHTS_DRAFT_PATH, CLUSTER_BOOK_TAU_SHADOW_PATH,
+# CLUSTER_BOOK_NOWCAST_SHADOW_PATH, CLUSTER_POINTER_PATH, PROMOTE_AUDIT_PATH,
+# CLUSTER_WEIGHTS_HISTORY_DIR, cluster_weights_versioned_path
 CLUSTER_WEIGHTS_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_weights_active.json")
-CLUSTER_WEIGHTS_HISTORY_DIR = os.path.join(LIVE_DIR, "cluster_weights_history")
-CLUSTER_WEIGHTS_DRAFT_PATH = os.path.join(LIVE_DIR, "cluster_weights_draft.json")
 CLUSTER_BOOK_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_book_active.json")
-# A2：同池按 ŷ_τ 重排的影子簿（不驱动 execution）
-CLUSTER_BOOK_TAU_SHADOW_PATH = os.path.join(LIVE_DIR, "cluster_book_tau_shadow.json")
-# N3：同池按 Kalman nowcast 重排的影子簿（不驱动 execution）
-CLUSTER_BOOK_NOWCAST_SHADOW_PATH = os.path.join(LIVE_DIR, "cluster_book_nowcast_shadow.json")
 # P1：分组全量报告缓存（历史；分组 OLS 已退役）
 CLUSTER_REPORT_CACHE_PATH = os.path.join(LIVE_DIR, "cluster_report_cache.json")
 # 最近一次成功分组（历史；分组 OLS 已退役）
@@ -38,9 +40,6 @@ CLUSTER_LAST_REPORT_PATH = os.path.join(LIVE_DIR, "cluster_last_report.json")
 BARS_FORCED_SESSION_PATH = os.path.join(
     LIVE_DIR, "bars_forced_session.json"
 )
-# FH1：指针指向版本化 artifact；active 文件为镜像兼容层（历史；勿再 promote）
-CLUSTER_POINTER_PATH = os.path.join(LIVE_DIR, "cluster_pointer.json")
-PROMOTE_AUDIT_PATH = os.path.join(LIVE_DIR, "promote_audit.jsonl")
 # H3：promote / 改 mode 后的 live 配置指纹；读写须按当时的 LIVE_DIR 拼接
 LIVE_CONFIG_MANIFEST_PATH = os.path.join(LIVE_DIR, "live_config_manifest.json")
 # 调仓 10:00 板块截面：T 开→T+1 开周期内只写一次，下午补仓不得改 10:00 中位
@@ -97,7 +96,3 @@ T90_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t90_ridge.json")
 TAU_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "tau_ridge.json")
 CO_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "co_ridge.json")
 
-
-def cluster_weights_versioned_path(version: int) -> str:
-    """版本化组权产物路径（``cluster_weights_v{n}.json``）。"""
-    return os.path.join(LIVE_DIR, f"cluster_weights_v{int(version)}.json")

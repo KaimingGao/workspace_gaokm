@@ -31,49 +31,51 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 360.0,
         "label": "分组任务",
     },
+    # 满池 800 只堆面板常 >15min 且 current 一直为 0；stuck_start 过短会误杀。
+    # stale_sec：心跳停了才按 updated_at 回收；须 ≥ stuck_start。
     "t30-ridge": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "ŷ_τ30 拟合",
     },
     "t45-ridge": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "ŷ_τ45 拟合",
     },
     "t60-ridge": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "ŷ_τ60 拟合",
     },
     "t75-ridge": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "ŷ_τ75 拟合",
     },
     "t90-ridge": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "ŷ_τ90 拟合",
     },
     "tau-ridge": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "ŷ_τc 拟合",
     },
     "co-ridge": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "ŷ_co 拟合",
     },
     "t0-backtest": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "做 T 回测",
     },
     "portfolio-backtest": {
-        "stale_sec": 1800.0,
-        "stuck_start_sec": 900.0,
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
         "label": "调仓回测",
     },
     "paper": {
@@ -412,16 +414,6 @@ class JobProgress:
             self._job["updated_at"] = time.time()
             self._save_unlocked()
             return True
-
-    def stale_seconds(self) -> Optional[float]:
-        with self._lock:
-            if self._job.get("status") != "running":
-                return None
-            ts = self._job.get("updated_at")
-            try:
-                return max(0.0, time.time() - float(ts))
-            except (TypeError, ValueError):
-                return None
 
     def is_cancel_requested(self) -> bool:
         with self._lock:
