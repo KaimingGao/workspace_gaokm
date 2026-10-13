@@ -2683,8 +2683,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("paper-t0-backtest", replay_html)
         self.assertIn('id="paper-t0-progress"', replay_html)
         self.assertNotIn('id="paper-t0-action-status"', replay_html)
-        self.assertIn("虚拟底仓=最大轮数×y_τc强金额/价", replay_html)
-        self.assertIn("本金 20 万", replay_html)
+        self.assertIn("短期内不作重点", replay_html)
+        self.assertIn("虚拟底仓", replay_html)
+        self.assertIn('name="t0_bt_cash"', replay_html)
+        self.assertIn('value="200000"', replay_html)
 
     def test_hub_ridge_persist_roles(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")
@@ -3054,12 +3056,24 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
     def test_hub_shadow_and_bypass_heads_are_folded(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")
+        # τ30…90：次要区标记 + 主卡折叠样式（quant-primary-fold，默认收起）
         for sid in (
             "quant-section-t30",
             "quant-section-t45",
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
+        ):
+            self.assertRegex(
+                panel,
+                rf'class="dashboard-section quant-section quant-section-secondary" id="{sid}"',
+            )
+            self.assertRegex(
+                panel,
+                rf'id="{sid}"[^>]*>\s*<details class="quant-primary-fold">',
+            )
+        # 树 / 表达式：次要折叠（quant-secondary-fold）
+        for sid in (
             "quant-section-oo-tree",
             "quant-section-tau-tree",
             "quant-section-co-tree",
@@ -3854,7 +3868,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('name="y_tw_vote_margin"', panel)
         self.assertIn(">Y_τ*弃权%</span>", panel)
         self.assertNotIn(">弃权%</span>", panel)
-        self.assertIn("虚拟底仓=最大轮数×y_τc强金额/价", panel)
+        self.assertIn("短期内不作重点", panel)
+        self.assertIn("虚拟底仓", panel)
         self.assertIn('name="y_tw_vote_margin" min="0" max="20" step="0.5" value="5"', panel)
         self.assertIn('name="y_tw_midpoint"', panel)
         self.assertIn(">Y_τ*中位点%</span>", panel)
