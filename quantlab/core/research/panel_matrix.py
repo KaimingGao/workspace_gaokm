@@ -185,44 +185,6 @@ def _z_stamp_family(head: str) -> str:
     return "tc"
 
 
-def _absorb_stock(
-    block: PanelMatrix,
-    slim_panels: List[Dict[str, Any]],
-    *,
-    code: str,
-    xs: Sequence[dict],
-    ys: Sequence[float],
-    dates: Sequence[str],
-    metas: Sequence[dict],
-    slim_keys: Sequence[str],
-    z_family: str = "tc",
-) -> None:
-    n = len(xs)
-    if n != len(ys) or n != len(dates) or n != len(metas):
-        raise RuntimeError(
-            f"面板行数不一致 {code}: xs={n} y={len(ys)} dates={len(dates)} metas={len(metas)}"
-        )
-    # 入模列为 z_* canon；面板仍写裸名 → 镜像后再折矩阵
-    if z_family == "co":
-        from core.signal.factors.z_co import stamp_z_co_rows
-
-        stamp_z_co_rows(xs)
-    else:
-        from core.signal.factors.z_tc import stamp_z_tc_rows
-
-        stamp_z_tc_rows(xs)
-    block.add_rows(xs)
-    slim_panels.append(
-        {
-            "code": code,
-            "xs": _slim_rows(xs, slim_keys),
-            "ys": list(ys),
-            "dates": list(dates),
-            "metas": list(metas),
-        }
-    )
-
-
 def _finish_breadth(
     block: PanelMatrix,
     slim_panels: List[Dict[str, Any]],
@@ -301,16 +263,36 @@ _CO_POOL_BATCH = 24
 _TAU_POOL_BATCH = 24
 
 
+def _tc_matrix_seed_names(
+    names: Sequence[str], *, include_alpha_tc: bool
+) -> List[str]:
+    """预注册 raw_atc_*，与 ŷ_co 的 seed 策略对齐。"""
+    out = [str(n) for n in names]
+    if not include_alpha_tc:
+        return out
+    seen = set(out)
+    from core.signal.factors.alpha_tc import ALPHA_TC_FIELD_NAMES, ALPHA_TC_RAW_PREFIX
+
+    for key in ALPHA_TC_FIELD_NAMES:
+        col = f"{ALPHA_TC_RAW_PREFIX}{key}"
+        if col not in seen:
+            seen.add(col)
+            out.append(col)
+    return out
+
+
 def _tau_stock_job(
     item: Dict[str, Any],
+    col_names: Sequence[str],
+    slim_keys: Sequence[str],
     *,
     use_minute: bool,
     tau_hm: str,
     grid: Optional[Sequence[str]],
     min_history: int,
     include_alpha_tc: bool,
-) -> Optional[Tuple[str, List[dict], List[float], List[str], List[dict]]]:
-    """单票 ŷ_τc 面板；算完 pop minute_bars。stage-1 磁盘缓存（广度合并另算）。"""
+) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
+    """单票 ŷ_τc：任务内折 float64 + slim；磁盘只缓存矩阵块（不落整份 xs）。"""
     from core.research.panel_disk_cache import (
         bars_fingerprint,
         load_stock_shard,
@@ -322,6 +304,7 @@ def _tau_stock_job(
         collect_tau_intraday_panel,
         collect_tau_open_panel,
     )
+    from core.signal.factors.z_tc import stamp_z_tc_rows
 
     if not isinstance(item, dict):
         return None
@@ -348,14 +331,24 @@ def _tau_stock_job(
     )
     if code:
         cached = load_stock_shard(head_key, code, fp)
-        if cached is not None and isinstance(cached.get("xs"), list):
-            item.pop("minute_bars", None)
-            ys = [float(y) for y in cached["y"].tolist()]
-            dates = list(cached.get("dates") or [])
-            metas = list(cached.get("metas") or [])
-            xs = list(cached["xs"])
-            if len(ys) >= 4 and len(xs) == len(ys) == len(dates) == len(metas):
-                return code, xs, ys, dates, metas
+        if (
+            cached is not None
+            and cached.get("X") is not None
+            and isinstance(cached.get("slim"), list)
+        ):
+            names_c = list(cached.get("names") or [])
+            x = np.asarray(cached["X"], dtype=np.float64)
+            if names_c == list(col_names) and x.shape[1] == len(col_names):
+                item.pop("minute_bars", None)
+                ys = [float(y) for y in cached["y"].tolist()]
+                dates = list(cached.get("dates") or [])
+                metas = list(cached.get("metas") or [])
+                slim = list(cached["slim"])
+                if (
+                    len(ys) >= 4
+                    and len(ys) == x.shape[0] == len(dates) == len(metas) == len(slim)
+                ):
+                    return code, x, ys, dates, metas, slim
     if use_minute:
         xs, ys, dates, metas = collect_tau_intraday_panel(
             bars,
@@ -380,22 +373,26 @@ def _tau_stock_job(
         )
     if len(ys) < 4:
         return None
-    xs_l = list(xs)
-    ys_l = list(ys)
-    dates_l = list(dates)
+    stamp_z_tc_rows(xs)
+    slim = _slim_rows(xs, slim_keys)
+    block = _dict_rows_to_matrix(xs, col_names)
+    del xs
+    ys_l = [float(y) for y in ys]
+    dates_l = [str(d)[:10] for d in dates]
     metas_l = list(metas)
     if code:
         save_stock_shard(
             head_key,
             code,
             fp,
+            X=block,
             y=np.asarray(ys_l, dtype=np.float64),
+            names=list(col_names),
             dates=dates_l,
-            names=[],
             metas=metas_l,
-            xs=xs_l,
+            slim=slim,
         )
-    return code, xs_l, ys_l, dates_l, metas_l
+    return code, block, ys_l, dates_l, metas_l, slim
 
 
 def collect_tau_compact(
@@ -413,6 +410,7 @@ def collect_tau_compact(
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
 
     现网默认 ``include_alpha_tc=True``（raw_atc_*）。
+    单票任务内折 float64 + slim（对齐 ŷ_co），磁盘缓存不再落整份 xs。
     并行：默认/硬顶 4 线程（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
     """
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -428,29 +426,30 @@ def collect_tau_compact(
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
     n_jobs = len(items)
     n_workers = _resolve_tau_workers(n_jobs, workers)
-    widen = "raw_atc_" if include_alpha_tc else ""
-    block = PanelMatrix(names, widen_prefix=widen)
+    col_names = _tc_matrix_seed_names(names, include_alpha_tc=include_alpha_tc)
+    block = PanelMatrix(col_names, widen_prefix="")
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
 
     def _fold(
-        pack: Optional[Tuple[str, List[dict], List[float], List[str], List[dict]]],
+        pack: Optional[
+            Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]
+        ],
     ) -> None:
         nonlocal n_stocks
         if not pack:
             return
-        code, xs, ys, dates, metas = pack
-        _absorb_stock(
-            block,
-            slim_panels,
-            code=code,
-            xs=xs,
-            ys=ys,
-            dates=dates,
-            metas=metas,
-            slim_keys=slim_keys,
-            z_family="tc",
+        code, arr, ys, dates, metas, slim = pack
+        block.append_block(arr)
+        slim_panels.append(
+            {
+                "code": code,
+                "xs": slim,
+                "ys": ys,
+                "dates": dates,
+                "metas": metas,
+            }
         )
         n_stocks += 1
 
@@ -459,6 +458,8 @@ def collect_tau_compact(
             _fold(
                 _tau_stock_job(
                     items[i],
+                    col_names,
+                    slim_keys,
                     use_minute=use_minute,
                     tau_hm=str(tau_hm),
                     grid=grid,
@@ -484,6 +485,8 @@ def collect_tau_compact(
                 fut = pool.submit(
                     _tau_stock_job,
                     items[i],
+                    col_names,
+                    slim_keys,
                     use_minute=use_minute,
                     tau_hm=str(tau_hm),
                     grid=grid,
@@ -520,7 +523,7 @@ def collect_tau_compact(
             _run_batch(start, end)
             start = end
 
-    X, col_names, ys_out, dates_out, metas_out = _finish_breadth(
+    X, out_names, ys_out, dates_out, metas_out = _finish_breadth(
         block,
         slim_panels,
         gap_trigger_pct=gap_trigger_pct,
@@ -528,7 +531,7 @@ def collect_tau_compact(
         head=head,
         n_stocks=n_stocks,
     )
-    return X, col_names, ys_out, dates_out, metas_out, n_stocks
+    return X, out_names, ys_out, dates_out, metas_out, n_stocks
 
 
 def _dict_rows_to_matrix(

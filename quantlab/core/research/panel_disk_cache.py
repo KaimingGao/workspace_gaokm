@@ -4,9 +4,10 @@
 
     {PANEL_CACHE_DIR}/v{SCHEMA}/{head_key}/{code}.npz
     {PANEL_CACHE_DIR}/v{SCHEMA}/{head_key}/{code}.meta.json
-    {PANEL_CACHE_DIR}/v{SCHEMA}/{head_key}/{code}.pack.json   # 可选 slim/xs/metas
+    {PANEL_CACHE_DIR}/v{SCHEMA}/{head_key}/{code}.pack.json   # 可选 slim/metas
 
 开关：``QUANTLAB_PANEL_CACHE=0`` 强制绕过。
+分片只存矩阵 ``X`` + 截面 slim，不落整份因子 dict。
 """
 
 from __future__ import annotations
@@ -24,7 +25,8 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # 特征注册 / collect_* 语义变更时人工 +1 → 全池 miss
-PANEL_CACHE_SCHEMA = 1
+# v2：τc 改为矩阵+slim（不再落整份 xs JSON）
+PANEL_CACHE_SCHEMA = 2
 
 _ENV_DISABLE = "QUANTLAB_PANEL_CACHE"
 
@@ -138,7 +140,7 @@ def load_stock_shard(
     code: str,
     fingerprint: str,
 ) -> Optional[Dict[str, Any]]:
-    """命中返回 ``{X?, y, names?, dates, metas?, slim?, xs?}``；否则 None。"""
+    """命中返回 ``{X?, y, names?, dates, metas?, slim?}``；否则 None。"""
     if not enabled():
         return None
     paths = _shard_paths(head_key, code)
@@ -176,7 +178,7 @@ def load_stock_shard(
         return None
     pack = _read_json(paths["pack"])
     if pack:
-        for key in ("metas", "slim", "xs"):
+        for key in ("metas", "slim"):
             if key in pack:
                 out[key] = pack[key]
     return out
@@ -193,7 +195,6 @@ def save_stock_shard(
     X: Optional[np.ndarray] = None,
     metas: Optional[List[Any]] = None,
     slim: Optional[List[Any]] = None,
-    xs: Optional[List[Any]] = None,
 ) -> None:
     if not enabled():
         return
@@ -240,8 +241,6 @@ def save_stock_shard(
         pack["metas"] = list(metas)
     if slim is not None:
         pack["slim"] = list(slim)
-    if xs is not None:
-        pack["xs"] = list(xs)
     if pack:
         try:
             _atomic_write_json(paths["pack"], pack)

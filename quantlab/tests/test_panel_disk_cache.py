@@ -158,6 +158,85 @@ class TestPanelDiskCache(unittest.TestCase):
         )
         self.assertIsNone(load_stock_shard(head, "CCC", fp))
 
+    def test_tau_cache_stores_matrix_not_full_xs(self) -> None:
+        """τc 分片只落 X+slim，禁止再写整份 xs JSON。"""
+        import json
+
+        from core.research.panel_disk_cache import (
+            PANEL_CACHE_SCHEMA,
+            _cache_root,
+            _shard_paths,
+            bars_fingerprint,
+            make_fingerprint,
+            tc_head_key,
+        )
+        from core.research.panel_matrix import (
+            _breadth_keys,
+            _tau_stock_job,
+            _tc_matrix_seed_names,
+        )
+        from core.research.tc_ridge import TAU_Z_FEATURES
+
+        bars = _bars(80, 10.0, 0)
+        item = {"code": "TAU01", "bars": list(bars)}
+        col_names = _tc_matrix_seed_names(list(TAU_Z_FEATURES), include_alpha_tc=False)
+        slim_keys = _breadth_keys()
+        pack1 = _tau_stock_job(
+            item,
+            col_names,
+            slim_keys,
+            use_minute=False,
+            tau_hm="open",
+            grid=None,
+            min_history=12,
+            include_alpha_tc=False,
+        )
+        self.assertIsNotNone(pack1)
+        assert pack1 is not None
+        _code, x1, y1, _d1, _m1, slim1 = pack1
+        self.assertGreater(int(x1.shape[0]), 0)
+        self.assertEqual(len(slim1), int(x1.shape[0]))
+
+        head = tc_head_key(
+            tau_hm="open", min_history=12, include_alpha_tc=False, use_minute=False
+        )
+        fp = make_fingerprint(
+            bars_fp=bars_fingerprint(bars),
+            tau_hm="open",
+            min_history=12,
+            include_alpha_tc=0,
+            use_minute=0,
+        )
+        paths = _shard_paths(head, "TAU01")
+        self.assertTrue(os.path.isfile(paths["npz"]))
+        self.assertLess(os.path.getsize(paths["npz"]), 2_000_000)
+        if os.path.isfile(paths["pack"]):
+            with open(paths["pack"], encoding="utf-8") as fh:
+                pack_json = json.load(fh)
+            self.assertNotIn("xs", pack_json)
+            self.assertIn("slim", pack_json)
+            self.assertLess(os.path.getsize(paths["pack"]), 500_000)
+
+        item2 = {"code": "TAU01", "bars": list(bars)}
+        pack2 = _tau_stock_job(
+            item2,
+            col_names,
+            slim_keys,
+            use_minute=False,
+            tau_hm="open",
+            grid=None,
+            min_history=12,
+            include_alpha_tc=False,
+        )
+        self.assertIsNotNone(pack2)
+        assert pack2 is not None
+        _c2, x2, y2, _d2, _m2, slim2 = pack2
+        np.testing.assert_allclose(x1, x2)
+        np.testing.assert_allclose(y1, y2)
+        self.assertEqual(slim1, slim2)
+        self.assertEqual(PANEL_CACHE_SCHEMA, 2)
+        self.assertTrue(_cache_root().startswith(self._tmpdir.name))
+
 
 if __name__ == "__main__":
     unittest.main()
