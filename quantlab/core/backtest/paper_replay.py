@@ -1843,6 +1843,8 @@ def _attach_open_yhat_heads(
         from core.research.holdout import current_scoring_model_role
         from core.research.oo_rank_lambdarank import (
             apply_oo_rank_scores as _apply_oo_rank,
+        )
+        from core.research.oo_rank_lambdarank import (
             load_oo_rank_model,
         )
 
@@ -2144,9 +2146,7 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
 
     src = str(live.get("_score_source") or "")
     feats = live.get("features_tau") if isinstance(live.get("features_tau"), dict) else {}
-    if src == "prefix_causal":
-        pass
-    elif (
+    if src == "prefix_causal" or (
         src == "prefix_open_fallback"
         and isinstance(feats, dict)
         and feats.get("ret_open_to_tau") is not None
@@ -2332,14 +2332,13 @@ def backtest_paper_replay(
         }
         params["score_model_role"] = requested
         params["score_backend"] = requested_backend
-        with scoring_model_role_context(requested):
-            with rebalance_score_backend_context(requested_backend):
-                return backtest_paper_replay(stock_bars, **params)
+        with scoring_model_role_context(requested), rebalance_score_backend_context(requested_backend):
+            return backtest_paper_replay(stock_bars, **params)
     from core.backtest.engine import _trade_metrics
     from core.paper.rebalance.rank_lots import (
         DEFAULT_FUSION_W_CO,
-        clamp_fusion_weight,
         clamp_fusion_w_co,
+        clamp_fusion_weight,
         coerce_fuse_threshold,
         get_rank_lot_cfg,
         oo_rank_max_from_cfg,
@@ -2446,8 +2445,10 @@ def backtest_paper_replay(
         try:
             from core.backtest.replay_score_cache import (
                 build_run_key_for_bars,
-                enabled as replay_score_cache_enabled,
                 write_run_meta,
+            )
+            from core.backtest.replay_score_cache import (
+                enabled as replay_score_cache_enabled,
             )
 
             if replay_score_cache_enabled():

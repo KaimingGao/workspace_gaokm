@@ -304,6 +304,7 @@ def persist_oo_rank_model(
     report: Dict[str, Any], *, note: str = "", role: str = "live"
 ) -> Dict[str, Any]:
     """启用研究=报告→研究槽；启用执行=研究槽→执行槽（晋级）。按 NDCG@K 选 backend。"""
+    from core.numbers import now_iso_utc
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
@@ -313,7 +314,6 @@ def persist_oo_rank_model(
         select_fit_return_model,
         stamp_live_suite_doc,
     )
-    from core.numbers import now_iso_utc
 
     live = oo_rank_model_path()
     role_n = normalize_model_role(role)

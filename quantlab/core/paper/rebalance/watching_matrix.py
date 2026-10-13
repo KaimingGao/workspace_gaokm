@@ -469,8 +469,8 @@ def _row_score_payload(
     price_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
     """表列用 ŷ_oo / ŷ_τc / ŷ_co；y_oo_fuse（UI fuse）现算。"""
-    from core.paper.rebalance.rank_lots import aux_yhat_fields, y_oo_fuse_pct_of
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+    from core.paper.rebalance.rank_lots import aux_yhat_fields, y_oo_fuse_pct_of
     from core.signal.yhat_windows import pick_y_co
 
     item = item if isinstance(item, dict) else {}
