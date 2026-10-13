@@ -291,7 +291,7 @@ def quant_co_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/oo-rank")
 
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge（成交 rank=1..n；不进买序；可选 oo_rank_max）。persist 按 NDCG@K 自动选 backend 启用，不重训。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge（成交 rank=1..n；过入场后作买序；可选 oo_rank_max）。persist 按 NDCG@K 自动选 backend 启用，不重训。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,
@@ -336,26 +336,27 @@ def quant_research_universe_predictability_tiers(
     holdout: int = 20,
     min_n: int = 20,
     head: str = "oo",
-    a_hit: float = Query(0.60, ge=0.45, le=0.90, description="A 档 Y_oo 门槛"),
-    tau_a_hit: float = Query(
-        0.60, ge=0.45, le=0.90, description="A 档 Y_τc 门槛（有研究套时）"
-    ),
-    b_hit: float = Query(0.50, ge=0.0, le=0.90, description="B 档最低命中率"),
     pool: str = "watching",
     lookback: int = 120,
+    a_count: int = Query(
+        100, ge=1, le=2000, description="A 档：Score 序 top 数量（默认 100）"
+    ),
+    b_count: int = Query(
+        300, ge=0, le=5000, description="B 档：接着取的数量（默认 300；其余为 C）"
+    ),
 ) -> Dict[str, Any]:
     """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。命中看 Holdout 前半；指标与收益看整段。
 
     holdout: ŷ_oo 卡片 Holdout 交易日数（分档窗=升序前半；指标窗=整段）。
-    a_hit: A 档 Y_oo 门槛（默认 0.60；UI「Y_oo 门槛」%）。
-    tau_a_hit: A 档 Y_τc 门槛（有研究套时生效；UI「Y_τc 门槛」%）。
+    定档：Score=1/rank(Y_oo)+1/rank(Y_τc)（无 τc 研究套则仅 Y_oo），
+    top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」）。
     lookback: 缺研究套现训时用的日线窗（与 ŷ_oo 训练窗对齐）；有研究套时只拉 Holdout+暖窗。
     回测天数由回测页 lookback 独立设置。
     """
     from core.research.predictability_tiers import (
         build_holdout_half_tiers,
-        clamp_a_hit,
-        clamp_tau_a_hit,
+        clamp_a_count,
+        clamp_b_count,
         live_tier_status,
     )
 
@@ -365,10 +366,9 @@ def quant_research_universe_predictability_tiers(
             pool=str(pool or "watching"),
             min_n=max(1, min(int(min_n or 20), 60)),
             head=str(head or "oo"),
-            a_hit=clamp_a_hit(a_hit),
-            tau_a_hit=clamp_tau_a_hit(tau_a_hit),
-            b_hit=float(b_hit),
             lookback=max(100, min(int(lookback or 120), 1000)),
+            a_count=clamp_a_count(a_count),
+            b_count=clamp_b_count(b_count),
             persist=True,
         )
         if isinstance(rep, dict):

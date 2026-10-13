@@ -244,9 +244,11 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertAlmostEqual(mid.get("realized_on"), (nxt_o / close_t - 1.0) * 100.0, places=3)
         self.assertAlmostEqual(mid.get("realized_oo"), (nxt_o / open_t - 1.0) * 100.0, places=3)
         px_tau = float(mid.get("rebalance_px") or mid.get("price") or open_t)
+        realized_fuse = (nxt_o - px_tau) / open_t * 100.0
+        self.assertAlmostEqual(mid.get("y_oo_fuse_realized"), realized_fuse, places=3)
         self.assertAlmostEqual(
-            mid.get("realized_ranking"),
-            (nxt_o - px_tau) / open_t * 100.0,
+            mid.get("y_oo_fuse_realized"),  # 旧键双写
+            realized_fuse,
             places=3,
         )
         last_rows = [
@@ -257,7 +259,8 @@ class TestPaperReplayEngine(unittest.TestCase):
         if last_rows:
             self.assertIsNone(last_rows[0].get("realized_on"))
             self.assertIsNone(last_rows[0].get("realized_oo"))
-            self.assertIsNone(last_rows[0].get("realized_ranking"))
+            self.assertIsNone(last_rows[0].get("y_oo_fuse_realized"))
+            self.assertIsNone(last_rows[0].get("y_oo_fuse_realized"))
         m = out.get("metrics") or {}
         self.assertEqual(out.get("params", {}).get("end_date"), last)
         self.assertGreaterEqual(int(m.get("hit_n") or 0), 1)
@@ -268,7 +271,8 @@ class TestPaperReplayEngine(unittest.TestCase):
             and str(t.get("status") or "") not in ("skipped", "held")
         ]
         self.assertTrue(last_fills, "末日仍有成交腿，但不进命中分母")
-        self.assertTrue(all(t.get("realized_ranking") is None for t in last_fills))
+        self.assertTrue(all(t.get("y_oo_fuse_realized") is None for t in last_fills))
+        self.assertTrue(all(t.get("y_oo_fuse_realized") is None for t in last_fills))
         day = str(mid.get("as_of") or "")[:10]
         curve = {
             str(p.get("date") or "")[:10]: p
@@ -645,8 +649,8 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(len(paper_trades), len(trades))
         self.assertEqual(out["params"]["lot_base_amount"], REPLAY_AMOUNT_BASE)
         self.assertEqual(out["params"]["lot_strong_amount"], REPLAY_AMOUNT_STRONG)
-        self.assertAlmostEqual(float(out["params"]["rank_enter"]), REPLAY_RANK_ENTER)
-        self.assertAlmostEqual(float(out["params"]["rank_strong"]), REPLAY_RANK_STRONG)
+        self.assertAlmostEqual(float(out["params"]["fuse_enter"]), REPLAY_RANK_ENTER)
+        self.assertAlmostEqual(float(out["params"]["fuse_strong"]), REPLAY_RANK_STRONG)
         buys = [t for t in trades if t.get("side") == "buy"]
         self.assertTrue(buys)
         from core.paper.sizing import shares_from_amount
@@ -785,7 +789,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                     "y_oc": 0.5,
                     "y_on": 0.2,
                     "ranking": 1.2,
-                    "ranking_score": 0.012,
+                    "y_oo_fuse_score": 0.012,
                 }
             ]
         )
@@ -814,7 +818,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                 "y_oc": 0.4,
                 "y_co": 0.25,
                 "ranking": 0.9,
-                "ranking_score": 0.009,
+                "y_oo_fuse_score": 0.009,
                 "reason": "ranking≥0% 持有",
             },
             "2026-09-10",
@@ -1449,7 +1453,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         if last_rows:
             self.assertIsNone(last_rows[0].get("realized_on"))
             self.assertIsNone(last_rows[0].get("realized_oo"))
-            self.assertIsNone(last_rows[0].get("realized_ranking"))
+            self.assertIsNone(last_rows[0].get("y_oo_fuse_realized"))
             self.assertIsNone(last_rows[0].get("y_hl_realized"))
             self.assertIsNotNone(last_rows[0].get("realized_tau"))
 
@@ -2483,17 +2487,30 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
 
 
 class TestFuseHitMetrics(unittest.TestCase):
-    def test_sign_hit_uses_realized_ranking(self):
+    def test_sign_hit_uses_y_oo_fuse_primary(self):
         pct, n, hits = fuse_hit_metrics(
             [
-                {"ranking": 1.2, "realized_ranking": 0.5},
-                {"ranking": 1.2, "realized_ranking": -0.5},
-                {"ranking": 1.2, "realized_ranking": 0.5, "status": "skipped"},
-                {"ranking": 1.2, "realized_ranking": 0.5, "status": "held"},
-                {"ranking": 0.01, "realized_ranking": 1.0},
-                {"ranking": -1.0, "realized_ranking": -0.2},
-                {"ranking_score": 0.02, "realized_ranking": 1.0},
-                {"y_fuse": 1.2, "realized_tau": 0.4, "realized_cc": -0.5},
+                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5},
+                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": -0.5},
+                {"y_oo_fuse": -1.0, "y_oo_fuse_realized": -0.2},
+            ]
+        )
+        self.assertEqual(n, 3)
+        self.assertEqual(hits, 2)
+        self.assertEqual(pct, round(2 / 3 * 100.0, 1))
+
+    def test_sign_hit_ignores_old_fuse_aliases(self):
+        """旧键 ranking / y_fuse / realized_ranking 不再计入命中。"""
+        pct, n, hits = fuse_hit_metrics(
+            [
+                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5},
+                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": -0.5},
+                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5, "status": "skipped"},
+                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5, "status": "held"},
+                {"y_oo_fuse": 0.01, "y_oo_fuse_realized": 1.0},  # |yf|<eps 跳过
+                {"y_oo_fuse": -1.0, "y_oo_fuse_realized": -0.2},
+                {"y_oo_fuse_score": 0.02, "y_oo_fuse_realized": 1.0},
+                {"ranking": 1.2, "y_fuse": 1.2, "y_oo_fuse_realized": 0.5},
             ]
         )
         self.assertEqual(n, 4)
@@ -2503,8 +2520,8 @@ class TestFuseHitMetrics(unittest.TestCase):
     def test_last_day_excluded_even_if_realized(self):
         pct, n, hits = fuse_hit_metrics(
             [
-                {"as_of": "2026-03-10", "ranking": 1.2, "realized_ranking": 0.5},
-                {"as_of": "2026-03-11", "ranking": 1.2, "realized_ranking": -0.5},
+                {"as_of": "2026-03-10", "y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5},
+                {"as_of": "2026-03-11", "y_oo_fuse": 1.2, "y_oo_fuse_realized": -0.5},
             ],
             last_day="2026-03-11",
         )
@@ -2514,7 +2531,7 @@ class TestFuseHitMetrics(unittest.TestCase):
 
     def test_empty_is_none(self):
         pct, n, hits = fuse_hit_metrics(
-            [{"status": "skipped", "ranking": 2.0, "realized_ranking": 1.0}]
+            [{"status": "skipped", "y_oo_fuse": 2.0, "y_oo_fuse_realized": 1.0}]
         )
         self.assertIsNone(pct)
         self.assertEqual(n, 0)

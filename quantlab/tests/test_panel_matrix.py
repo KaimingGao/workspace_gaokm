@@ -114,6 +114,65 @@ class TestCompactBreadth(unittest.TestCase):
                     self.assertAlmostEqual(got, float(raw), places=6, msg=canon)
 
 
+class TestCoCompactBoundedFold(unittest.TestCase):
+    def test_workers_match_serial_multiset(self):
+        """并行有界折入与串行同样本集合（行序可因完成顺序不同）。"""
+        from core.research.co_panel import CO_Z_FEATURES
+        from core.research.panel_matrix import collect_co_compact
+
+        def _pool():
+            return [
+                {"code": "AAA", "bars": _bars(80, 10, 0)},
+                {"code": "BBB", "bars": _bars(80, 12, 1)},
+                {"code": "CCC", "bars": _bars(80, 8, 2)},
+                {"code": "DDD", "bars": _bars(80, 11, 3)},
+                {"code": "EEE", "bars": _bars(80, 9, 4)},
+            ]
+
+        def _keys(ys, dates, metas):
+            out = []
+            for y, d, m in zip(ys, dates, metas):
+                code = str((m or {}).get("stock_code") or "")
+                out.append((code, str(d)[:10], round(float(y), 6)))
+            return sorted(out)
+
+        pool1 = _pool()
+        X1, _n1, ys1, dates1, metas1, n1 = collect_co_compact(
+            pool1,
+            list(CO_Z_FEATURES),
+            include_alpha_oo=True,
+            gap_trigger_pct=0.5,
+            workers=1,
+        )
+        # 8GB 路径：算完即丢 bars
+        self.assertTrue(all("bars" not in it for it in pool1))
+        pool2 = _pool()
+        X2, _n2, ys2, dates2, metas2, n2 = collect_co_compact(
+            pool2,
+            list(CO_Z_FEATURES),
+            include_alpha_oo=True,
+            gap_trigger_pct=0.5,
+            workers=2,
+        )
+        self.assertEqual(n1, n2)
+        self.assertEqual(len(ys1), len(ys2))
+        self.assertEqual(int(X1.shape[0]), len(ys1))
+        self.assertEqual(int(X2.shape[0]), len(ys2))
+        self.assertEqual(_keys(ys1, dates1, metas1), _keys(ys2, dates2, metas2))
+        self.assertGreater(int(X1.shape[1]), len(CO_Z_FEATURES))
+
+    def test_resolve_co_workers_caps_8gb(self):
+        from unittest.mock import patch
+
+        from core.research.panel_matrix import _resolve_co_workers
+
+        with patch.dict(os.environ, {"CO_RIDGE_WORKERS": "2"}, clear=False):
+            self.assertEqual(_resolve_co_workers(800, None), 2)
+        # 硬顶 2：再高也会被压住
+        self.assertEqual(_resolve_co_workers(800, 8), 2)
+        self.assertEqual(_resolve_co_workers(2, None), 1)
+
+
 class TestKeepallRidgeMatrix(unittest.TestCase):
     def test_matches_dict_ols_weights_missing_and_predict(self):
         from core.research.factor_ols_fit import fit_factor_ols_from_panel

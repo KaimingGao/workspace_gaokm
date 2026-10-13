@@ -48,7 +48,7 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
                     "hold_days": 8,
                 }
             ],
-            "request": {"lookback": 30, "rank_enter": 0.012, "fusion_w_trade": 0.6},
+            "request": {"lookback": 30, "fuse_enter": 0.012, "fusion_w_trade": 0.6},
             "loaded_stocks": ["600519", "600036"],
             "universe": {
                 "source": "watching",

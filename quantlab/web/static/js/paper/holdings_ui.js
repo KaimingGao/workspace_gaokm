@@ -122,7 +122,7 @@ export function buildPaperHoldingsTableHtml({
             : key === "chg"
               ? "相对昨收的涨跌幅 % · 点击排序"
               : key === "tier"
-                ? "可预测性分档 A/B/C · 同档按 ranking 从高到低 · 点击排序"
+                ? "可预测性分档 A/B/C · 同档按 fuse 从高到低 · 点击排序"
               : "市值 = 现价 × 股数 · 点击排序";
     const tierCls = key === "tier" ? " paper-hold-tier" : "";
     return (
@@ -162,9 +162,9 @@ export function buildPaperHoldingsTableHtml({
             ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
             : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
           : singleHead
-            ? `ranking 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
-          : belowMin
-            ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 ranking）· 悬停看详情`
+            ? `fuse 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
+            : belowMin
+            ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 fuse）· 悬停看详情`
             : RANKING_REBALANCE_TITLE;
       const oosFailed =
         !!h.oos_failed ||
@@ -268,7 +268,7 @@ export function buildPaperHoldingsTableHtml({
         }${hardReject ? " score-reject" : ""}${
           singleHead ? " score-single-head" : ""
         }" ` +
-        `data-score-detail="${scoreDetailJson}" data-score-tip="ranking" title="${escapeText(
+        `data-score-detail="${scoreDetailJson}" data-score-tip="fuse" title="${escapeText(
           scoreTitle
         )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
         `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
@@ -311,7 +311,7 @@ export function buildPaperHoldingsTableHtml({
     `${sortThHtml("y_oo", "score_eod")}` +
     `${sortThHtml("y_τc", "score_tau")}` +
     `${sortThHtml("y_co", "score_on")}` +
-    `${sortThHtml("ranking", "score")}` +
+    `${sortThHtml("fuse", "score")}` +
     `<th title="持仓加权平均成本">成本</th>` +
     `${sortThHtml("市值", "market_value")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +

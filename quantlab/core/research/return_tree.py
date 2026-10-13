@@ -2,7 +2,7 @@
 
 ``ridge``：线性 Ridge（默认）。
 ``tree``：三头读已落盘树，缺文件回退 Ridge。
-买序一律走融合 ranking。ŷ_oo_rank 不进本开关（不改 ranking 分数；可选 oo_rank_max 入场闸）。
+过入场后买序按 oo_rank（缺则回退 y_oo_fuse）。ŷ_oo_rank 不进本开关（不改 y_oo_fuse；可选 oo_rank_max 入场闸）。
 ``horizon_prob_backend=tree`` 时 ŷ_τc 与 horizon 头同开。
 """
 

@@ -44,16 +44,16 @@ class DailyRunRequest(BaseModel):
         le=10.0,
         description="隔夜 ŷ_co 叠进 ŷ_τc 的系数；对齐 /replay",
     )
-    rank_enter: Optional[float] = Field(
+    fuse_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 入场下限；对齐 /replay",
+        description="历史回测 y_oo_fuse 入场下限；对齐 /replay",
     )
-    rank_strong: Optional[float] = Field(
+    fuse_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 强手门槛；对齐 /replay",
+        description="历史回测 y_oo_fuse 强手门槛；对齐 /replay",
     )
 

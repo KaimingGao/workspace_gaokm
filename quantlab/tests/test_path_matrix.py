@@ -30,10 +30,16 @@ class TestPathMatrix(unittest.TestCase):
         self.assertIsNone(fuse_pct(None, None))
 
     def test_ranking_fuses_oo_oc(self):
-        from core.signal.yhat_windows import ranking_pct, residual_pct, invert_price_over_close
+        from core.signal.yhat_windows import (
+            y_oo_fuse_pct,
+            y_oo_fuse_pct,
+            residual_pct,
+            invert_price_over_close,
+        )
 
         item = {"predicted_score": 2.0, "y_τc": 1.0}
-        self.assertAlmostEqual(ranking_pct(item), 1.5)
+        self.assertAlmostEqual(y_oo_fuse_pct(item), 1.5)
+        self.assertAlmostEqual(y_oo_fuse_pct(item), 1.5)  # y_oo_fuse
         self.assertAlmostEqual(invert_price_over_close(1.0), round((1.0 / 1.01 - 1.0) * 100.0, 10))
         item_r = {"y_τc": 1.0, "y_tau": 2.0, "ret_open_to_tau": 0.0}
         self.assertAlmostEqual(residual_pct(item_r), 1.0)
@@ -47,11 +53,12 @@ class TestPathMatrix(unittest.TestCase):
 
         cfg = get_path_matrix_cfg(
             {
-                "rank_lots": {"rank_enter": 0.02, "fusion_w_oo": 0.6, "fusion_w_oc": 0.4},
-                "path_matrix": {"rank_enter": 0.012, "fusion_w_oo": 0.4},
+                "rank_lots": {"fuse_enter": 0.02, "fusion_w_oo": 0.6, "fusion_w_oc": 0.4},
+                "path_matrix": {"fuse_enter": 0.012, "fusion_w_oo": 0.4},
             }
         )
-        self.assertAlmostEqual(cfg["rank_enter"], 0.02)
+        self.assertAlmostEqual(cfg["fuse_enter"], 0.02)
+        self.assertAlmostEqual(cfg["fuse_enter"], 0.02)
         self.assertAlmostEqual(cfg["fusion_w_oo"], 0.6)
         self.assertEqual(cfg["mode"], "rank_lots")
 
@@ -62,15 +69,18 @@ class TestPathMatrix(unittest.TestCase):
         self.assertIn("enabled", lots)
         self.assertTrue(lots["enabled"])
         self.assertEqual(lots.get("mode"), "rank_lots")
-        self.assertIn("rank_enter", lots)
+        self.assertIn("fuse_enter", lots)
+        self.assertIn("fuse_enter", lots)
         self.assertIn("cash_floor", lots)
         self.assertAlmostEqual(float(lots.get("cash_floor")), 0.0)
         self.assertEqual(lots.get("fusion_w_co"), 1.0)
         self.assertNotIn("y_on_alpha", lots)
         self.assertNotIn("fusion_w_trade", lots)
         self.assertNotIn("fusion_w_nowcast", lots)
-        self.assertAlmostEqual(float(lots.get("rank_enter")), 0.001)
-        self.assertAlmostEqual(float(lots.get("rank_strong")), 0.001)
+        self.assertAlmostEqual(float(lots.get("fuse_enter")), 0.001)
+        self.assertAlmostEqual(float(lots.get("fuse_strong")), 0.001)
+        self.assertAlmostEqual(float(lots.get("fuse_enter")), 0.001)
+        self.assertAlmostEqual(float(lots.get("fuse_strong")), 0.001)
         self.assertNotIn("rank_exit", lots)
         self.assertNotIn("lot_reduce", lots)
         self.assertAlmostEqual(float(lots.get("holdings_mv_cap")), 150000.0)
@@ -175,12 +185,15 @@ class TestPathMatrix(unittest.TestCase):
         self.assertAlmostEqual(cfg0["fusion_w_co"], 0.4)
 
     def test_legacy_rank_thresholds_coerced_to_net(self):
-        cfg = self._cfg(rank_enter=1.01, rank_strong=1.02)
-        self.assertAlmostEqual(cfg["rank_enter"], 0.01)
-        self.assertAlmostEqual(cfg["rank_strong"], 0.02)
-        cfg0 = self._cfg(rank_enter=0.01, rank_strong=0.20)
-        self.assertAlmostEqual(cfg0["rank_enter"], 0.01)
-        self.assertAlmostEqual(cfg0["rank_strong"], 0.02)
+        cfg = self._cfg(fuse_enter=1.01, fuse_strong=1.02)
+        self.assertAlmostEqual(cfg["fuse_enter"], 0.01)
+        self.assertAlmostEqual(cfg["fuse_strong"], 0.02)
+        self.assertAlmostEqual(cfg["fuse_enter"], 0.01)
+        self.assertAlmostEqual(cfg["fuse_strong"], 0.02)
+        cfg0 = self._cfg(fuse_enter=0.01, fuse_strong=0.20)
+        self.assertAlmostEqual(cfg0["fuse_enter"], 0.01)
+        self.assertAlmostEqual(cfg0["fuse_enter"], 0.01)
+        self.assertAlmostEqual(cfg0["fuse_strong"], 0.02)
 
     def test_old_trade_weights_do_not_fill_oo_oc(self):
         cfg = self._cfg(fusion_w_trade=0.7, fusion_w_nowcast=0.3)
@@ -282,12 +295,12 @@ class TestPathMatrix(unittest.TestCase):
                         "rank_lots": {
                             "fill_clock": "09:40",
                             "live_fill_clock": "09:30",
-                            "rank_enter": 0.005,
+                            "fuse_enter": 0.005,
                         },
                         "path_matrix": {
                             "fill_clock": "09:40",
                             "live_fill_clock": "09:30",
-                            "rank_enter": 0.005,
+                            "fuse_enter": 0.005,
                         },
                     }
                 }
@@ -306,7 +319,7 @@ class TestPathMatrix(unittest.TestCase):
         lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
         self.assertEqual(lots.get("live_fill_clock"), "09:35")
         self.assertEqual(lots.get("fill_clock"), "09:40")
-        self.assertAlmostEqual(float(lots.get("rank_enter") or 0), 0.005)
+        self.assertAlmostEqual(float(lots.get("fuse_enter") or 0), 0.005)
 
 
 if __name__ == "__main__":

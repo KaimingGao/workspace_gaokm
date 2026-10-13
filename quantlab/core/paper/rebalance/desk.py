@@ -88,7 +88,7 @@ def _compact_row(
     action: Optional[str] = None,
     phase: str = PHASE_WATCH,
     shares: Optional[float] = None,
-    ranking_score: Optional[float] = None,
+    y_oo_fuse_score: Optional[float] = None,
     reason: str = "",
     held: bool = False,
     price: Any = None,
@@ -98,7 +98,7 @@ def _compact_row(
     y_oo: Any = None,
     y_τc: Any = None,
     y_co: Any = None,
-    ranking: Any = None,
+    y_oo_fuse: Any = None,
     old_shares: Any = None,
     new_shares: Any = None,
     ts: Any = None,
@@ -107,14 +107,14 @@ def _compact_row(
     code = str(stock_code or "").strip()
     act = str(action or "").strip().lower() or None
     sh = _f(shares)
-    rs = _f(ranking_score)
+    rs = _f(y_oo_fuse_score)
     out = {
         "stock_code": code,
         "stock_name": str(stock_name or "").strip() or code,
         "action": act,
         "phase": str(phase or PHASE_WATCH),
         "shares": sh,
-        "ranking_score": rs,
+        "y_oo_fuse_score": rs,
         "reason": str(reason or "").strip(),
         "held": bool(held),
     }
@@ -130,7 +130,7 @@ def _compact_row(
     day_o = _round_px(day_open)
     if day_o is not None:
         out["day_open"] = day_o
-    for key, raw in (("y_oo", y_oo), ("y_τc", y_τc), ("y_co", y_co), ("ranking", ranking)):
+    for key, raw in (("y_oo", y_oo), ("y_τc", y_τc), ("y_co", y_co), ("y_oo_fuse", y_oo_fuse)):
         v = _f(raw)
         if v is not None:
             out[key] = round(float(v), 6)
@@ -189,7 +189,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 action=act or None,
                 phase=_phase_for_action(act, filled=filled),
                 shares=abs(float(sh)) if _f(sh) is not None else None,
-                ranking_score=r.get("ranking_score"),
+                y_oo_fuse_score=r.get("y_oo_fuse_score"),
                 reason=str(r.get("reason") or r.get("decision") or ""),
                 held=float(r.get("old_shares") or 0) > 0,
                 price=r.get("price"),
@@ -199,7 +199,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 y_oo=r.get("y_oo"),
                 y_τc=r.get("y_τc"),
                 y_co=r.get("y_co"),
-                ranking=r.get("ranking") if r.get("ranking") is not None else r.get("y_fuse"),
+                y_oo_fuse=r.get("y_oo_fuse"),
                 old_shares=r.get("old_shares"),
                 new_shares=r.get("new_shares"),
                 ts=r.get("ts"),
@@ -228,7 +228,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                     action=use_act,
                     phase=_phase_for_action(use_act, filled=filled),
                     shares=leg.get("shares"),
-                    ranking_score=leg.get("ranking_score"),
+                    y_oo_fuse_score=leg.get("y_oo_fuse_score"),
                     reason=str(leg.get("reason") or ""),
                     held=use_act in ("add", "exit", "reduce"),
                     price=leg.get("price"),
@@ -238,7 +238,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                     y_oo=leg.get("y_oo"),
                     y_τc=leg.get("y_τc"),
                     y_co=leg.get("y_co"),
-                    ranking=leg.get("ranking") if leg.get("ranking") is not None else leg.get("y_fuse"),
+                    y_oo_fuse=leg.get("y_oo_fuse"),
                     old_shares=leg.get("old_shares"),
                     new_shares=leg.get("new_shares"),
                     ts=leg.get("ts"),
@@ -255,11 +255,11 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 action="skip",
                 phase=_phase_for_action("skip", filled=filled),
                 shares=s.get("shares"),
-                ranking_score=s.get("ranking_score"),
+                y_oo_fuse_score=s.get("y_oo_fuse_score"),
                 reason=str(s.get("reason") or "跳过"),
                 held=False,
                 price=s.get("price"),
-                ranking=s.get("ranking") if s.get("ranking") is not None else s.get("y_fuse"),
+                y_oo_fuse=s.get("y_oo_fuse"),
                 y_oo=s.get("y_oo"),
                 y_τc=s.get("y_τc"),
                 y_co=s.get("y_co"),
@@ -280,7 +280,7 @@ def _overlay_fields(
     src: dict,
     *,
     overwrite_price: bool = False,
-    overwrite_ranking: bool = False,
+    overwrite_fuse: bool = False,
 ) -> None:
     """把成交/ŷ 补进盯盘行。落账价优先用 trade.price（报告价可能被盯市现价覆盖）。"""
     if not isinstance(row, dict) or not isinstance(src, dict):
@@ -306,15 +306,15 @@ def _overlay_fields(
             v = _f(src.get(key))
             if v is not None:
                 row[key] = round(float(v), 6)
-    rk = src.get("ranking") if src.get("ranking") is not None else src.get("y_fuse")
-    if overwrite_ranking or row.get("ranking") is None:
+    rk = src.get("y_oo_fuse")
+    if overwrite_fuse or row.get("y_oo_fuse") is None:
         v = _f(rk)
         if v is not None:
-            row["ranking"] = round(float(v), 6)
-    if overwrite_ranking:
-        rs = _f(src.get("ranking_score"))
+            row["y_oo_fuse"] = round(float(v), 6)
+    if overwrite_fuse:
+        rs = _f(src.get("y_oo_fuse_score"))
         if rs is not None:
-            row["ranking_score"] = float(rs)
+            row["y_oo_fuse_score"] = float(rs)
     if row.get("ts") is None and src.get("ts"):
         row["ts"] = str(src.get("ts") or "").strip()
     if row.get("side") is None:
@@ -337,7 +337,7 @@ def _overlay_trades_on_desk_rows(rows: List[dict], result: dict) -> None:
         row = by.get(code)
         if row is None:
             continue
-        _overlay_fields(row, t, overwrite_price=True, overwrite_ranking=True)
+        _overlay_fields(row, t, overwrite_price=True, overwrite_fuse=True)
 
 
 def _session_trades(paper: Optional[dict], session: str) -> Dict[str, dict]:
@@ -365,7 +365,7 @@ def hydrate_desk_rows_from_paper(
     paper: Optional[dict],
     session: str,
 ) -> List[dict]:
-    """用当日策略成交补盯盘行的成交价/金额/ranking。"""
+    """用当日策略成交补盯盘行的成交价/金额/y_oo_fuse。"""
     trades = _session_trades(paper, session)
     if not trades:
         return rows
@@ -378,7 +378,7 @@ def hydrate_desk_rows_from_paper(
                 row,
                 t,
                 overwrite_price=row.get("price") is None,
-                overwrite_ranking=True,
+                overwrite_fuse=True,
             )
     return rows
 
@@ -522,7 +522,7 @@ def save_last_desk(
                 action=r.get("action"),
                 phase=str(r.get("phase") or PHASE_WATCH),
                 shares=r.get("shares"),
-                ranking_score=r.get("ranking_score"),
+                y_oo_fuse_score=r.get("y_oo_fuse_score"),
                 reason=str(r.get("reason") or ""),
                 held=bool(r.get("held")),
                 price=r.get("price"),
@@ -532,7 +532,7 @@ def save_last_desk(
                 y_oo=r.get("y_oo"),
                 y_τc=r.get("y_τc"),
                 y_co=r.get("y_co"),
-                ranking=r.get("ranking"),
+                y_oo_fuse=r.get("y_oo_fuse"),
                 old_shares=r.get("old_shares"),
                 new_shares=r.get("new_shares"),
                 ts=r.get("ts"),
@@ -614,7 +614,7 @@ def _note_for_phase(
         return "正在现价落账…"
     if phase == PHASE_DONE:
         return (
-            "今日已调仓 · 开/加/减/清为已落账；持=ranking>入场未动；跳=地板/T+1/OOS 等"
+            "今日已调仓 · 开/加/减/清为已落账；持=fuse>入场未动；跳=地板/T+1/OOS 等"
             if aligned
             else "今日已调仓（明细未写入盯盘）"
         )

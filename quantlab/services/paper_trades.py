@@ -1166,8 +1166,8 @@ def _rebalance_report_from_legs(
                 "y_nowcast",
                 "y_nc",
                 "y_tau",
-                "y_fuse",
-                "ranking_score",
+                "y_oo_fuse",
+                "y_oo_fuse_score",
                 "score",
                 "score_rem",
             ):

@@ -522,7 +522,7 @@ class TestRebalanceDesk(unittest.TestCase):
                         "stock_name": "浦发",
                         "action": "exit",
                         "shares_change": -200,
-                        "ranking_score": -0.01,
+                        "y_oo_fuse_score": -0.01,
                         "reason": "ranking<0 清仓",
                         "old_shares": 200,
                     },
@@ -531,14 +531,14 @@ class TestRebalanceDesk(unittest.TestCase):
                         "stock_name": "平安",
                         "action": "open",
                         "shares": 500,
-                        "ranking_score": 0.02,
+                        "y_oo_fuse_score": 0.02,
                         "reason": "过强",
                         "old_shares": 0,
                     },
                     {
                         "stock_code": "600519",
                         "action": "hold",
-                        "ranking_score": 0.004,
+                        "y_oo_fuse_score": 0.004,
                         "reason": "ranking≥0% 持有",
                         "old_shares": 100,
                     },
@@ -568,7 +568,7 @@ class TestRebalanceDesk(unittest.TestCase):
                         "prev_close": 7.50,
                         "amount": 3750,
                         "ranking": 2.885,
-                        "ranking_score": 0.02885,
+                        "y_oo_fuse_score": 0.02885,
                         "y_oo": 2.16,
                         "y_τc": 6.36,
                         "y_co": -0.54,
@@ -607,7 +607,7 @@ class TestRebalanceDesk(unittest.TestCase):
                 "stock_code": "600664",
                 "action": "open",
                 "shares": 500.0,
-                "ranking_score": 0.02885,
+                "y_oo_fuse_score": 0.02885,
                 "reason": "买500股",
             }
         ]
@@ -622,7 +622,7 @@ class TestRebalanceDesk(unittest.TestCase):
                     "origin": "strategy",
                     "y_oo": 2.16,
                     "y_τc": 6.36,
-                    "ranking": 2.885,
+                    "y_oo_fuse": 2.885,
                 }
             ]
         }
@@ -632,15 +632,15 @@ class TestRebalanceDesk(unittest.TestCase):
         self.assertAlmostEqual(float(rows[0]["y_oo"]), 2.16)
         self.assertEqual(rows[0]["ts"][:10], "2026-09-21")
 
-    def test_hydrate_overwrites_ranking_from_trade(self):
+    def test_hydrate_overwrites_y_oo_fuse_from_trade(self):
         from core.paper.rebalance.desk import hydrate_desk_rows_from_paper
 
         rows = [
             {
                 "stock_code": "600664",
                 "action": "open",
-                "ranking": 2.885,
-                "ranking_score": 0.02885,
+                "y_oo_fuse": 2.885,
+                "y_oo_fuse_score": 0.02885,
             }
         ]
         paper = {
@@ -652,14 +652,14 @@ class TestRebalanceDesk(unittest.TestCase):
                     "price": 8.25,
                     "day_open": 7.56,
                     "origin": "strategy",
-                    "ranking": -6.2417,
-                    "ranking_score": -0.062417,
+                    "y_oo_fuse": -6.2417,
+                    "y_oo_fuse_score": -0.062417,
                 }
             ]
         }
         hydrate_desk_rows_from_paper(rows, paper, "2026-09-21")
-        self.assertAlmostEqual(float(rows[0]["ranking"]), -6.2417)
-        self.assertAlmostEqual(float(rows[0]["ranking_score"]), -0.062417)
+        self.assertAlmostEqual(float(rows[0]["y_oo_fuse"]), -6.2417)
+        self.assertAlmostEqual(float(rows[0]["y_oo_fuse_score"]), -0.062417)
         self.assertAlmostEqual(float(rows[0]["day_open"]), 7.56)
 
     def test_attach_day_open_from_quote(self):
@@ -814,7 +814,7 @@ class TestRebalanceDesk(unittest.TestCase):
                                 "stock_name": "浦发",
                                 "action": "exit",
                                 "shares": 200,
-                                "ranking_score": -0.02,
+                                "y_oo_fuse_score": -0.02,
                                 "reason": "ranking<0",
                                 "old_shares": 200,
                             }

@@ -51,8 +51,8 @@ def daily_run(body: DailyRunRequest) -> Any:
             export_quant_report=body.export_quant_report,
             lookback=body.lookback,
             fusion_w_co=body.fusion_w_co,
-            rank_enter=body.rank_enter,
-            rank_strong=body.rank_strong,
+            fuse_enter=body.fuse_enter,
+            fuse_strong=body.fuse_strong,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

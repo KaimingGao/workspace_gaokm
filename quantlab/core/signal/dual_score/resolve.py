@@ -597,7 +597,7 @@ def decision_score_for_item(
     *,
     config: Optional[dict] = None,
 ) -> Optional[float]:
-    """排序 / 表列 / 调仓报告主分：与 ``rank_key_for_item`` 相同（ranking，回退 ŷ_trade）。"""
+    """排序 / 表列 / 调仓报告主分：与 ``rank_key_for_item`` 相同（y_oo_fuse，回退 ŷ_trade）。"""
     return rank_key_for_item(item, config=config)
 
 
@@ -608,12 +608,12 @@ def rank_key_field(*, config: Optional[dict] = None) -> str:
 
 
 def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) -> Optional[float]:
-    """排序键：ranking（τ→open[T+1] 基准）。
+    """排序键：y_oo_fuse（τ→open[T+1] 基准）。
 
-    盘中：ranking = fuse(ŷ_oo_rem, oc_with_co(ŷ_τc, ŷ_co))；
+    盘中：y_oo_fuse = fuse(ŷ_oo_rem, oc_with_co(ŷ_τc, ŷ_co))；
     eod_next（收盘后）：τ 侧剥离，只用 ŷ_oo，避免旧簿上被今日已实现收益
     污染的分直接进入 T+1 前瞻决策。
-    ranking 算不出时回退 ŷ_trade（predicted_score_blend），再回退 ŷ_oo。
+    y_oo_fuse 算不出时回退 ŷ_trade（predicted_score_blend），再回退 ŷ_oo。
     """
     if not isinstance(item, dict):
         return None
@@ -624,15 +624,15 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
         # 收盘后：τ 侧剥离，只用 ŷ_oo
         return resolve_predicted_score_oo(item)
 
-    # 盘中：优先用 ranking（τ→open[T+1] 基准，现算）
+    # 盘中：优先用 y_oo_fuse（τ→open[T+1] 基准，现算）
     try:
-        from core.paper.rebalance.rank_lots import ranking_pct_of
+        from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
 
-        rk = ranking_pct_of(item, cfg)
+        rk = y_oo_fuse_pct_of(item, cfg)
         if rk is not None:
             return float(rk)
     except Exception:  # noqa: BLE001
-        logger.debug("rank_key ranking_pct_of failed", exc_info=True)
+        logger.debug("rank_key y_oo_fuse_pct_of failed", exc_info=True)
 
     # 回退：ŷ_trade（predicted_score_blend，昨收基准）
     stored = item.get("predicted_score_blend")

@@ -2,6 +2,7 @@
 
 截面广度仍要读缺口和路径收益，所以每只股票先写入矩阵，只把广度用到的十几列
 留在瘦 dict 里。alpha_oo 原始列不再在全池 dict 里停留。
+ŷ_co 对齐 ŷ_oo：单票任务内折矩阵、在途≤2、批大小 24、算完 pop bars（8GB）。
 Ridge 口径与 ``fit_factor_ols_from_panel`` 对齐：√w + keep_all；拟合用完整行。
 ``cross_section_zscore=True``（默认）且有决策日 → 当天截面 z；``False`` → 训练窗
 全局 μ/σ。截面模型预测缺测填 z=0。
@@ -106,6 +107,21 @@ class PanelMatrix:
                 if math.isfinite(fv):
                     block[i, j] = fv
         self._chunks.append(block)
+
+    def append_block(self, arr: np.ndarray) -> None:
+        """追加已按 ``self.names`` 对齐的 float64 块（ŷ_co 单票折矩阵后用）。"""
+        a = np.asarray(arr, dtype=np.float64)
+        if a.ndim != 2 or a.shape[0] <= 0:
+            return
+        p = len(self.names)
+        if a.shape[1] == p:
+            self._chunks.append(np.ascontiguousarray(a))
+            return
+        aligned = np.full((a.shape[0], p), np.nan, dtype=np.float64)
+        ncopy = min(p, int(a.shape[1]))
+        if ncopy:
+            aligned[:, :ncopy] = a[:, :ncopy]
+        self._chunks.append(aligned)
 
     def finalize(self) -> np.ndarray:
         if not self._chunks:
@@ -262,6 +278,8 @@ def _finish_breadth(
         ys.extend(float(y) for y in (panel.get("ys") or []))
         dates.extend(str(d)[:10] for d in (panel.get("dates") or []))
         metas.extend(panel.get("metas") or [])
+        # 广度已写回矩阵；丢掉 slim dict 行，8GB 上满池 xs 很贵
+        panel["xs"] = []
     n_rows = int(X.shape[0])
     if not (len(ys) == len(dates) == len(metas) == n_rows):
         raise RuntimeError(
@@ -366,14 +384,47 @@ def collect_tau_compact(
     return X, col_names, ys_out, dates_out, metas_out, n_stocks
 
 
-def _co_panel_one(
+# 与 ŷ_oo 同批大小：每批结束后丢掉该批 bars，把峰值压在 8GB 内。
+_CO_POOL_BATCH = 24
+
+
+def _dict_rows_to_matrix(
+    rows: Sequence[dict], names: Sequence[str]
+) -> np.ndarray:
+    """把因子 dict 行折成 float64；调用方随后应丢弃 ``rows``。"""
+    n = len(rows)
+    p = len(names)
+    out = np.full((n, p), np.nan, dtype=np.float64)
+    if n <= 0 or p <= 0:
+        return out
+    index = {str(name): j for j, name in enumerate(names)}
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        for key, val in row.items():
+            j = index.get(str(key))
+            if j is None or val is None or val == "":
+                continue
+            try:
+                fv = float(val)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(fv):
+                out[i, j] = fv
+    return out
+
+
+def _co_stock_job(
     item: Dict[str, Any],
+    col_names: Sequence[str],
+    slim_keys: Sequence[str],
     *,
     min_history: int,
     include_alpha_oo: bool,
-) -> Optional[Tuple[str, list, list, list, list]]:
-    """单票 ŷ_co 面板；供线程池。样本不足返回 None。"""
+) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
+    """单票 ŷ_co：在任务内折成 float64 + slim，全量 dict 不回传（对齐 ŷ_oo）。"""
     from core.research.co_panel import collect_co_panel
+    from core.signal.factors.z_co import stamp_z_co_rows
 
     if not isinstance(item, dict):
         return None
@@ -387,9 +438,54 @@ def _co_panel_one(
         stock_code=code,
         include_alpha_oo=include_alpha_oo,
     )
+    del bars
     if len(ys) < 4:
         return None
-    return code, xs, ys, dates, metas
+    stamp_z_co_rows(xs)
+    slim = _slim_rows(xs, slim_keys)
+    block = _dict_rows_to_matrix(xs, col_names)
+    del xs
+    return (
+        code,
+        block,
+        [float(y) for y in ys],
+        [str(d)[:10] for d in dates],
+        list(metas),
+        slim,
+    )
+
+
+def _resolve_co_workers(n_jobs: int, workers: Optional[int]) -> int:
+    """默认 2 线程，硬顶 2。本机 8GB：再多一份在途全量因子就会进 swap。"""
+    if n_jobs <= 1:
+        return 1
+    if workers is None:
+        if n_jobs < 4:
+            return 1
+        raw = os.environ.get("CO_RIDGE_WORKERS", "2")
+        try:
+            workers = int(raw)
+        except (TypeError, ValueError):
+            workers = 2
+    return min(max(1, int(workers)), n_jobs, 2)
+
+
+def _co_matrix_seed_names(
+    names: Sequence[str], *, include_alpha_oo: bool
+) -> List[str]:
+    """预注册 raw_aoo_*，避免逐票 widen 时反复拷贝已有 chunk。"""
+    out = [str(n) for n in names]
+    if not include_alpha_oo:
+        return out
+    seen = set(out)
+    from core.signal.factors.alpha_oo import ALPHA_OO_FIELD_NAMES, ALPHA_OO_RAW_PREFIX
+
+    for key in ALPHA_OO_FIELD_NAMES:
+        col = f"{ALPHA_OO_RAW_PREFIX}{key}"
+        if col not in seen:
+            seen.add(col)
+            out.append(col)
+    return out
 
 
 def collect_co_compact(
@@ -401,63 +497,147 @@ def collect_co_compact(
     include_alpha_oo: bool = True,
     head: str = "y_co",
     workers: Optional[int] = None,
+    progress_cb: Optional[Any] = None,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
-    """隔夜 ŷ_co 紧凑面板。满池默认多线程按票建因子，再串行折进矩阵。"""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    """隔夜 ŷ_co 紧凑面板（8GB / 对齐 ŷ_oo）。
+
+    - 单票任务内折 float64，只回传矩阵块 + 截面 slim 列
+    - 在途 ≤ worker（默认/上限 2），按 ``_CO_POOL_BATCH`` 批跑
+    - 每只算完立刻 ``pop bars``，避免满池日线 + 因子双驻留
+    - ``progress_cb(done, total, message)`` 可选，供 job 槽刷新进度
+    """
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
     n_jobs = len(items)
-    if workers is None:
-        workers = 1 if n_jobs < 4 else min(8, max(2, (os.cpu_count() or 4) // 2))
-    else:
-        workers = max(1, min(int(workers), max(1, n_jobs)))
-
-    panels: List[Optional[Tuple[str, list, list, list, list]]] = [None] * n_jobs
-    if n_jobs and workers <= 1:
-        for i, item in enumerate(items):
-            panels[i] = _co_panel_one(
-                item, min_history=min_history, include_alpha_oo=include_alpha_oo
-            )
-    elif n_jobs:
-        logger.info("co compact workers=%s stocks=%s", workers, n_jobs)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futs = {
-                pool.submit(
-                    _co_panel_one,
-                    item,
-                    min_history=min_history,
-                    include_alpha_oo=include_alpha_oo,
-                ): i
-                for i, item in enumerate(items)
-            }
-            for fut in as_completed(futs):
-                panels[futs[fut]] = fut.result()
-
-    block = PanelMatrix(
-        names, widen_prefix="raw_aoo_" if include_alpha_oo else ""
-    )
+    n_workers = _resolve_co_workers(n_jobs, workers)
+    col_names = _co_matrix_seed_names(names, include_alpha_oo=include_alpha_oo)
+    block = PanelMatrix(col_names, widen_prefix="")
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
-    for pack in panels:
+    processed = 0
+
+    def _drop_bars(i: int) -> None:
+        it = items[i]
+        if isinstance(it, dict):
+            it.pop("bars", None)
+
+    def _tick() -> None:
+        nonlocal processed
+        processed += 1
+        if not callable(progress_cb):
+            return
+        if (
+            processed == 1
+            or processed >= n_jobs
+            or processed % 8 == 0
+            or processed % _CO_POOL_BATCH == 0
+        ):
+            try:
+                progress_cb(
+                    processed,
+                    n_jobs,
+                    f"ŷ_co 面板 {processed}/{n_jobs}",
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("co compact progress_cb failed", exc_info=True)
+
+    def _fold(
+        pack: Optional[
+            Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]
+        ],
+    ) -> None:
+        nonlocal n_stocks
         if not pack:
-            continue
-        code, xs, ys, dates, metas = pack
-        _absorb_stock(
-            block,
-            slim_panels,
-            code=code,
-            xs=xs,
-            ys=ys,
-            dates=dates,
-            metas=metas,
-            slim_keys=slim_keys,
-            z_family="co",
+            _tick()
+            return
+        code, arr, ys, dates, metas, slim = pack
+        block.append_block(arr)
+        slim_panels.append(
+            {
+                "code": code,
+                "xs": slim,
+                "ys": ys,
+                "dates": dates,
+                "metas": metas,
+            }
         )
-        del xs
         n_stocks += 1
-    del panels
-    X, col_names, ys_out, dates_out, metas_out = _finish_breadth(
+        _tick()
+
+    def _run_serial(start: int, end: int) -> None:
+        for i in range(start, end):
+            _fold(
+                _co_stock_job(
+                    items[i],
+                    col_names,
+                    slim_keys,
+                    min_history=min_history,
+                    include_alpha_oo=include_alpha_oo,
+                )
+            )
+            _drop_bars(i)
+
+    def _run_batch(start: int, end: int) -> None:
+        if end <= start:
+            return
+        if n_workers <= 1 or (end - start) < 4:
+            _run_serial(start, end)
+            return
+        inflight: Dict[Any, int] = {}
+        next_i = start
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+
+            def _submit(i: int) -> None:
+                fut = pool.submit(
+                    _co_stock_job,
+                    items[i],
+                    col_names,
+                    slim_keys,
+                    min_history=min_history,
+                    include_alpha_oo=include_alpha_oo,
+                )
+                inflight[fut] = i
+
+            while next_i < end and len(inflight) < n_workers:
+                _submit(next_i)
+                next_i += 1
+            while inflight:
+                done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    i = inflight.pop(fut)
+                    _fold(fut.result())
+                    _drop_bars(i)
+                while next_i < end and len(inflight) < n_workers:
+                    _submit(next_i)
+                    next_i += 1
+
+    if n_jobs:
+        logger.info(
+            "co compact workers=%s stocks=%s batch=%s",
+            n_workers,
+            n_jobs,
+            _CO_POOL_BATCH,
+        )
+        if callable(progress_cb):
+            try:
+                progress_cb(0, n_jobs, f"ŷ_co 面板 0/{n_jobs}")
+            except Exception:  # noqa: BLE001
+                logger.debug("co compact progress_cb failed", exc_info=True)
+        start = 0
+        while start < n_jobs:
+            end = min(n_jobs, start + _CO_POOL_BATCH)
+            _run_batch(start, end)
+            start = end
+
+    if callable(progress_cb):
+        try:
+            progress_cb(n_jobs, max(1, n_jobs), "ŷ_co 截面广度…")
+        except Exception:  # noqa: BLE001
+            logger.debug("co compact progress_cb failed", exc_info=True)
+
+    X, out_names, ys_out, dates_out, metas_out = _finish_breadth(
         block,
         slim_panels,
         gap_trigger_pct=gap_trigger_pct,
@@ -465,7 +645,8 @@ def collect_co_compact(
         head=head,
         n_stocks=n_stocks,
     )
-    return X, col_names, ys_out, dates_out, metas_out, n_stocks
+    slim_panels.clear()
+    return X, out_names, ys_out, dates_out, metas_out, n_stocks
 
 
 def named_columns(

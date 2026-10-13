@@ -346,7 +346,7 @@ def stamp_factor_anomaly_warnings(item: Optional[dict], report: Optional[Mapping
 
 
 def null_tau_heads(item: Optional[dict]) -> None:
-    """τ 日错位：ŷ_τc / ŷ_co / ranking 作废，ŷ_oo 可留。"""
+    """τ 日错位：ŷ_τc / ŷ_co / y_oo_fuse 作废，ŷ_oo 可留。"""
     if not isinstance(item, dict):
         return
     for k in (
@@ -359,7 +359,7 @@ def null_tau_heads(item: Optional[dict]) -> None:
         "y_co",
         "predicted_score_co",
         "predicted_score_on",
-        "ranking",
+        "y_oo_fuse",
         "predicted_score_blend",
     ):
         item[k] = None
@@ -377,7 +377,7 @@ def null_eod_heads(item: Optional[dict]) -> None:
         "score_global",
         "score_cluster",
         "predicted_score_blend",
-        "ranking",
+        "y_oo_fuse",
     ):
         item[k] = None
     item["hard_reject"] = True

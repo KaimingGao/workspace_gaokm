@@ -180,7 +180,11 @@ def _start_ridge_fit_job(
     worker_fn: Any,
     watching_limit: int = MODEL_FIT_MAX_SIZE,
 ) -> Dict[str, Any]:
-    """Ridge 拟合入队：立刻返回 ``background=true``，心跳防 5min 误杀。"""
+    """Ridge 拟合入队：立刻返回 ``background=true``，心跳防 5min 误杀。
+
+    ``worker_fn`` 若接受 ``progress_cb`` 关键字，会收到 ``(cur, tot, msg)`` 刷新槽位。
+    """
+    import inspect
     import threading
 
     slot.reclaim_if_stale()
@@ -204,6 +208,26 @@ def _start_ridge_fit_job(
     job_total = max(1, n_watch)
     job_id = slot.start(kind=kind, total=job_total, message=message)
 
+    def _progress(cur: int = 0, tot: int = 0, msg: str = "") -> None:
+        slot.update(
+            current=max(0, int(cur or 0)),
+            total=max(1, int(tot or job_total)),
+            message=str(msg or message),
+            job_id=job_id,
+        )
+
+    def _call_worker() -> Any:
+        try:
+            params = inspect.signature(worker_fn).parameters
+        except (TypeError, ValueError):
+            params = {}
+        accepts_cb = "progress_cb" in params or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+        )
+        if accepts_cb:
+            return worker_fn(progress_cb=_progress)
+        return worker_fn()
+
     def _worker() -> None:
         stop_hb = threading.Event()
 
@@ -218,7 +242,7 @@ def _start_ridge_fit_job(
             if slot.is_cancel_requested():
                 slot.finish(error="已取消", job_id=job_id)
                 return
-            result = worker_fn()
+            result = _call_worker()
             if slot.is_cancel_requested():
                 slot.finish(error="已取消", job_id=job_id)
                 return
@@ -1466,6 +1490,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
         cross_section_zscore: bool = True,
+        progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。
 
@@ -1521,6 +1546,11 @@ class QuantFactorMixin:
                     out["promoted_at"] = saved["promoted_at"]
                 return _attach_ridge_role_flags(out, co_model_path())
 
+        if callable(progress_cb):
+            try:
+                progress_cb(0, max(1, len(codes)), "ŷ_co 拉日线…")
+            except Exception:  # noqa: BLE001
+                pass
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
             lookback=int(lookback or 600),
@@ -1538,6 +1568,7 @@ class QuantFactorMixin:
             theme_boost=theme_boost,
             holdout_trading_days=holdout_trading_days,
             cross_section_zscore=bool(cross_section_zscore),
+            progress_cb=progress_cb,
         )
         report["watching_limit"] = limit
         report["watching_tier_a_only"] = bool(watching_tier_a_only)
@@ -1599,7 +1630,9 @@ class QuantFactorMixin:
             kind="co_ridge",
             message="ŷ_co 拟合中…",
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
-            worker_fn=lambda: self.run_co_ridge_experiment(**kwargs),
+            worker_fn=lambda progress_cb=None: self.run_co_ridge_experiment(
+                **kwargs, progress_cb=progress_cb
+            ),
         )
 
     def get_co_ridge_model(self) -> Dict[str, Any]:
@@ -1657,7 +1690,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge；默认整观察池，可选只训 A 档。
 
-        成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸。
+        成交明细 rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max 入场闸。
         ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
         """
         from core.data.facade import bars_and_source

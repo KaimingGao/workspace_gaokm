@@ -67,7 +67,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-score-backend-field"
-          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank：成交明细 rank=当日截面 1..n 名次（1=最高），不进 ranking/买序；「其他」rank 入场（默认 10）作名次闸。"
+          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank：成交明细 rank=当日截面 1..n 名次（1=最高），不进 fuse / y_oo_fuse；过入场后作买序；「其他」rank 入场（默认 10）作名次闸。"
         >
           <span class="quant-pro-field-label">ŷ头</span>
           <select id="quant-score-backend">
@@ -114,10 +114,10 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-win">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">日净值&gt;0</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(ranking)=sign(真实ranking)；真实=(open[T+1]−price(τ))/open[T]；最后一个交易日无真实值不计；|ranking|&lt;0.05% 无方向；跳过不计">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(fuse)=sign(真实fuse)；真实=(open[T+1]−price(τ))/open[T]；最后一个交易日无真实值不计；|fuse|&lt;0.05% 无方向；跳过不计">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-hit">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(ranking)=sign(真实)</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(fuse)=sign(真实)</div>
           </div>
         </div>
       </div>
@@ -129,17 +129,17 @@
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
-                    <p class="follow-path-matrix-panel-note">rank＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
+                    <p class="follow-path-matrix-panel-note">fuse＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
-                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oo 权重。取值 0.0～1.0；与 w_τc 一并归一化。默认 0.6。">
+                    <label class="follow-path-matrix-box" title="fuse 中 ŷ_oo 权重。取值 0.0～1.0；与 w_τc 一并归一化。默认 0.6。">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">w_oo</span>
                         <span class="follow-path-matrix-box-desc">0.0～1.0</span>
                       </span>
                       <input type="number" name="pm_fusion_w_oo" min="0.0" max="1.0" step="0.05" value="0.6" inputmode="decimal" />
                     </label>
-                    <label class="follow-path-matrix-box" title="rank 中 ŷ_τc 权重。取值 0.0～1.0；与 w_oo 一并归一化。默认 0.4。">
+                    <label class="follow-path-matrix-box" title="fuse 中 ŷ_τc 权重。取值 0.0～1.0；与 w_oo 一并归一化。默认 0.4。">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">w_τc</span>
                         <span class="follow-path-matrix-box-desc">0.0～1.0</span>
@@ -157,8 +157,8 @@
                 </section>
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
-                    <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">rank＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
+                    <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">fuse 门槛</h4>
+                    <p class="follow-path-matrix-panel-note">fuse＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row2">
                     <div
@@ -171,7 +171,7 @@
                       <div class="follow-path-matrix-box-pair">
                         <label class="follow-path-matrix-box-slot">
                           <span class="follow-path-matrix-box-slot-label">阈值%</span>
-                          <input type="number" name="pm_rank_enter" min="0" max="10" step="0.01" value="0.1" aria-label="入场阈值" />
+                          <input type="number" name="pm_fuse_enter" min="0" max="10" step="0.01" value="0.1" aria-label="入场阈值" />
                         </label>
                         <label class="follow-path-matrix-box-slot">
                           <span class="follow-path-matrix-box-slot-label">金额</span>
@@ -189,7 +189,7 @@
                       <div class="follow-path-matrix-box-pair">
                         <label class="follow-path-matrix-box-slot">
                           <span class="follow-path-matrix-box-slot-label">阈值%</span>
-                          <input type="number" name="pm_rank_strong" min="0" max="10" step="0.01" value="0.1" aria-label="强阈值" />
+                          <input type="number" name="pm_fuse_strong" min="0" max="10" step="0.01" value="0.1" aria-label="强阈值" />
                         </label>
                         <label class="follow-path-matrix-box-slot">
                           <span class="follow-path-matrix-box-slot-label">金额</span>
@@ -294,7 +294,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 fill_clock 对全部观察池按 ranking＝w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) 调仓（rot=price(τ)/open−1，基准 τ→open[T+1]）；手数看上方入场/强档金额（按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%）。横轴为本次全部交易日。
+          每个交易日 fill_clock 对全部观察池按 fuse＝w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) 调仓（rot=price(τ)/open−1，基准 τ→open[T+1]）；手数看上方入场/强档金额（按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%）。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>

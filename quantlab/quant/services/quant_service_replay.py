@@ -69,8 +69,8 @@ class QuantReplayMixin:
         fusion_w_co: float = 1.0,
         fusion_w_oo: Optional[float] = None,
         fusion_w_oc: Optional[float] = None,
-        rank_enter: float = 0.001,
-        rank_strong: float = 0.001,
+        fuse_enter: Optional[float] = None,
+        fuse_strong: Optional[float] = None,
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
         oo_rank_max: Optional[int] = None,
@@ -294,7 +294,7 @@ class QuantReplayMixin:
             load_replay_minute_bars,
         )
         from core.paper.rebalance.rank_lots import clamp_fusion_weight, coerce_rank_threshold
-        from core.signal.yhat_windows import FORMULA_RANKING
+        from core.signal.yhat_windows import FORMULA_OO_FUSE
 
         universe_n = len(stock_bars)
         try:
@@ -308,8 +308,10 @@ class QuantReplayMixin:
         raw_oc = fusion_w_oc
         w_oo = clamp_fusion_weight(raw_oo, REPLAY_FUSION_W_TRADE)
         w_τc = clamp_fusion_weight(raw_oc, REPLAY_FUSION_W_NOWCAST)
-        enter = coerce_rank_threshold(rank_enter, REPLAY_RANK_ENTER)
-        strong = coerce_rank_threshold(rank_strong, REPLAY_RANK_STRONG)
+        enter_raw = fuse_enter
+        strong_raw = fuse_strong
+        enter = coerce_rank_threshold(enter_raw, REPLAY_RANK_ENTER)
+        strong = coerce_rank_threshold(strong_raw, REPLAY_RANK_STRONG)
         enter = max(0.0, min(1.0, float(enter)))
         strong = max(0.0, min(1.0, float(strong)))
         if strong < enter:
@@ -364,8 +366,8 @@ class QuantReplayMixin:
             fusion_w_co=fusion_w_co,
             fusion_w_oo=w_oo,
             fusion_w_oc=w_τc,
-            rank_enter=enter,
-            rank_strong=strong,
+            fuse_enter=enter,
+            fuse_strong=strong,
             y_oo_gt0=bool(y_oo_gt0),
             y_τc_gt0=bool(y_τc_gt0),
             oo_rank_max=oo_rank_max,
@@ -403,8 +405,8 @@ class QuantReplayMixin:
             "fusion_w_co": fusion_w_co,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,
-            "rank_enter": enter,
-            "rank_strong": strong,
+            "fuse_enter": enter,
+            "fuse_strong": strong,
             "y_oo_gt0": bool(y_oo_gt0),
             "y_τc_gt0": bool(y_τc_gt0),
             "oo_rank_max": oo_rank_max,
@@ -417,7 +419,7 @@ class QuantReplayMixin:
             "score_backend": backend,
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
-                f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · ranking={FORMULA_RANKING} · "
+                f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · fuse={FORMULA_OO_FUSE} · "
                 f"{lot_base_n:g}/{lot_strong_n:g} 元；"
                 f"w_oo={w_oo:g}；w_τc={w_τc:g}；"
                 f"w_co={fusion_w_co:g}；门槛1/2 入场；"
@@ -579,7 +581,7 @@ class QuantReplayMixin:
                     curve,
                     meta={
                         "lookback": lookback,
-                        "rank_enter": enter,
+                        "fuse_enter": enter,
                         "fusion_w_co": fusion_w_co,
                         "apply_costs": apply_costs,
                         "metrics": result.get("metrics") or {},

@@ -126,8 +126,8 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertFalse(hasattr(body, "y_on_alpha"))
         self.assertFalse(hasattr(body, "fusion_w_trade"))
         self.assertFalse(hasattr(body, "fusion_w_nowcast"))
-        self.assertEqual(body.rank_enter, 0.001)
-        self.assertEqual(body.rank_strong, 0.001)
+        self.assertEqual(body.fuse_enter, 0.001)
+        self.assertEqual(body.fuse_strong, 0.001)
         self.assertEqual(body.fill_clock, "09:30")
         self.assertEqual(body.lot_base_amount, 10000)
         self.assertEqual(body.lot_strong_amount, 20000)
@@ -139,7 +139,7 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertFalse(hasattr(body, "lot_reduce"))
         self.assertFalse(hasattr(body, "y_enter_enabled"))
         self.assertFalse(hasattr(body, "y_enter_alt_enabled"))
-        self.assertFalse(hasattr(body, "rank_enter_alt"))
+        self.assertFalse(hasattr(body, "fuse_enter_alt"))
         self.assertFalse(hasattr(body, "y_hl_gt0"))
         self.assertFalse(body.y_oo_gt0)
         self.assertFalse(hasattr(body, "y_oc_gt0"))
@@ -191,15 +191,20 @@ class TestT3WeightMode(unittest.TestCase):
         from pydantic import ValidationError
         from web.schemas import PaperReplayBacktestRequest
 
-        body = PaperReplayBacktestRequest(rank_enter=0.015, rank_strong=0.03)
-        self.assertEqual(body.rank_enter, 0.015)
-        self.assertEqual(body.rank_strong, 0.03)
+        body = PaperReplayBacktestRequest(fuse_enter=0.015, fuse_strong=0.03)
+        self.assertEqual(body.fuse_enter, 0.015)
+        self.assertEqual(body.fuse_strong, 0.03)
+        self.assertEqual(body.fuse_enter, 0.015)
+        self.assertEqual(body.fuse_strong, 0.03)
+        preferred = PaperReplayBacktestRequest(fuse_enter=0.02)
+        self.assertEqual(preferred.fuse_enter, 0.02)
+        self.assertEqual(preferred.fuse_enter, 0.02)
         # 旧乘数 1.01 仍可进请求体，服务层 coerce 成 0.01
-        self.assertEqual(PaperReplayBacktestRequest(rank_enter=1.01).rank_enter, 1.01)
+        self.assertEqual(PaperReplayBacktestRequest(fuse_enter=1.01).fuse_enter, 1.01)
         with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(rank_enter=-0.01)
+            PaperReplayBacktestRequest(fuse_enter=-0.01)
         with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(rank_strong=10.1)
+            PaperReplayBacktestRequest(fuse_strong=10.1)
         self.assertEqual(PaperReplayBacktestRequest(lookback=10).lookback, 10)
         with self.assertRaises(ValidationError):
             PaperReplayBacktestRequest(lookback=9)

@@ -136,9 +136,9 @@ export function watchingScoreDetail(it) {
         : null);
   return JSON.stringify({
     stock_code: (it && (it.stock_code || it.code)) || null,
-    // ranking 权/头靠前：data-score-detail 截断时 tip 仍与表列同式
-    ranking: it && it.ranking,
-    realized_ranking: it && it.realized_ranking,
+    // fuse 权/头靠前：data-score-detail 截断时 tip 仍与表列同式
+    y_oo_fuse: it && it.y_oo_fuse,
+    y_oo_fuse_realized: it && it.y_oo_fuse_realized,
     realized_oo: it && it.realized_oo,
     day_open: it && it.day_open,
     open: it && it.open,
@@ -749,10 +749,10 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
           const head = d.dualScoreHead || "";
           const headTitle =
             head === "single_tau"
-              ? "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
+              ? "fuse 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
               : head === "single_oo"
-                ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
-                : "ranking 单头降级 · 与双头票不同量纲";
+                ? "fuse 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
+                : "fuse 单头降级 · 与双头票不同量纲";
           const badge = singleHead
             ? `<span class="watching-single-head-badge" title="${escapeHtml(
                 headTitle
@@ -761,9 +761,9 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
           return (
             `<td class="num watching-col-num watching-score-cell paper-hold-score has-tip ${escapeHtml(
               d.scoreCls || ""
-            )}${singleHead ? " score-single-head" : ""}" data-q="score" data-score-tip="ranking" data-score-detail="${escapeHtml(
+            )}${singleHead ? " score-single-head" : ""}" data-q="score" data-score-tip="fuse" data-score-detail="${escapeHtml(
               d.scoreDetail || ""
-            )}" title="${escapeHtml(d.scoreTitle || "ranking")}">${escapeHtml(
+            )}" title="${escapeHtml(d.scoreTitle || "fuse")}">${escapeHtml(
               String(d.score ?? "—")
             )}${badge}</td>`
           );
@@ -792,7 +792,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
     `<div class="watching-table-scroll"><table class="quant-weight-table watching-result-table"><thead><tr>` +
     `<th class="watching-pick-cell" title="勾选后可加入模拟持仓"><input type="checkbox" id="watching-select-all" /></th>` +
     `<th title="股票名称与代码">股票</th>` +
-    `<th class="watching-col-center" title="可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 ranking 从高到低">分档</th>` +
+    `<th class="watching-col-center" title="可预测性分档（ŷ_oo Holdout 前半 Score=1/rank(Y_oo)+1/rank(Y_τc)）：A 强 top N / B 中接着 M / C 弱。同档内按 fuse 从高到低">分档</th>` +
     `<th title="是否已在模拟持仓">仓位</th>` +
     `<th title="标题情绪摘要">情绪</th>` +
     `<th class="watching-col-num" title="上一交易日收盘价">昨收</th>` +
@@ -802,7 +802,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
     `<th class="watching-col-num" title="ŷ_oo · open[T]→open[T+1]">y_oo</th>` +
     `<th class="watching-col-num" title="${Y_OC_REBALANCE_TITLE}">y_τc</th>` +
     `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
-    `<th class="watching-col-num" title="${RANKING_REBALANCE_TITLE}">ranking</th>` +
+    `<th class="watching-col-num" title="${RANKING_REBALANCE_TITLE}">fuse</th>` +
     `<th class="watching-col-num" title="近端个股收益 − 指数收益。缺指数对齐时显示 RS+相对强弱分，不是超额收益率">超额</th>` +
     `<th class="watching-col-num" title="成交量">量</th>` +
     `<th class="watching-col-num" title="近期成交量 / 均量">量比</th>` +

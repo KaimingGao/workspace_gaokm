@@ -278,27 +278,27 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertNotIn("y_on", item)
 
     def test_ranking_compounds_oc_with_co(self):
-        from core.signal.yhat_windows import oc_with_co, ranking_pct
+        from core.signal.yhat_windows import oc_with_co, y_oo_fuse_pct
 
         y_τc, y_co = 1.0, 1.0
         right = oc_with_co(y_τc, y_co, 1.0)
         self.assertAlmostEqual(right, ((1.01 * 1.01) - 1.0) * 100.0, places=6)
         self.assertAlmostEqual(oc_with_co(1.0, 2.0, 0.0), 1.0)
         item = {"y_oo": 2.0, "y_τc": 1.0, "y_co": 1.0}
-        self.assertAlmostEqual(ranking_pct(item), 1.5, places=6)
+        self.assertAlmostEqual(y_oo_fuse_pct(item), 1.5, places=6)
         self.assertAlmostEqual(
-            ranking_pct(item, w_oo=0.5, w_τc=0.5, w_co=1.0),
+            y_oo_fuse_pct(item, w_oo=0.5, w_τc=0.5, w_co=1.0),
             0.5 * 2.0 + 0.5 * right,
             places=6,
         )
         self.assertAlmostEqual(
-            ranking_pct(item, w_oo=0.0, w_τc=1.0, w_co=1.0),
+            y_oo_fuse_pct(item, w_oo=0.0, w_τc=1.0, w_co=1.0),
             right,
             places=6,
         )
 
     def test_tau_to_close_ranking_prefers_y_τc(self):
-        from core.signal.yhat_windows import ranking_pct
+        from core.signal.yhat_windows import y_oo_fuse_pct
 
         item = {
             "y_oo": 2.0,
@@ -311,7 +311,7 @@ class StampPrimaryTests(unittest.TestCase):
             },
             "features_tau": {"ret_open_to_tau": 0.0},
         }
-        self.assertAlmostEqual(ranking_pct(item, w_oo=0.5, w_τc=0.5, w_co=0.0), 1.5, places=6)
+        self.assertAlmostEqual(y_oo_fuse_pct(item, w_oo=0.5, w_τc=0.5, w_co=0.0), 1.5, places=6)
 
     def test_apply_tau_writes_y_τc_as_the_same_yhat(self):
         from core.signal.dual_score import apply_tau_score_fields
@@ -336,66 +336,83 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_τc"], 0.2, places=6)
         self.assertEqual(item["y_τc_source"], "ridge")
 
+    def test_pick_y_oo_fuse_prefers_primary(self):
+        from core.signal.yhat_windows import pick_y_oo_fuse, write_y_oo_fuse
+
+        item = {"y_oo_fuse": 1.1, "ranking": 9.9, "y_fuse": 8.8}
+        self.assertAlmostEqual(pick_y_oo_fuse(item), 1.1, places=6)
+        # 旧键 ranking / y_fuse 不再作 fuse 回退
+        self.assertIsNone(pick_y_oo_fuse({"ranking": 2.2}))
+        self.assertIsNone(pick_y_oo_fuse({"y_fuse": 2.2}))
+        out = {}
+        write_y_oo_fuse(out, 3.3)
+        self.assertAlmostEqual(out["y_oo_fuse"], 3.3, places=6)
+        self.assertNotIn("ranking", out)
+        self.assertNotIn("y_fuse", out)
+
     def test_formula_ranking_expands_geometric_compound(self):
-        from core.signal.yhat_windows import FORMULA_RANKING
+        from core.signal.yhat_windows import FORMULA_OO_FUSE
 
         self.assertEqual(
-            FORMULA_RANKING,
+            FORMULA_OO_FUSE,
             "w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)",
         )
 
-    def test_pick_y_oo_ignores_ranking_alias_y_fuse(self):
-        from core.signal.yhat_windows import pick_y_oo, ranking_pct
+    def test_pick_y_oo_ignores_y_fuse_as_oo(self):
+        from core.signal.yhat_windows import pick_y_oo, y_oo_fuse_pct
 
         item = {"predicted_score": 2.0, "y_τc": 0.4, "y_fuse": 1.2}
         self.assertAlmostEqual(pick_y_oo(item), 2.0, places=6)
-        self.assertAlmostEqual(ranking_pct(item), 1.2, places=6)
+        # y_fuse 不是 ŷ_oo；融合现算 heads
+        self.assertAlmostEqual(y_oo_fuse_pct(item), 1.2, places=6)
         only_fuse = {"y_fuse": 1.2, "y_τc": 0.4}
         self.assertIsNone(pick_y_oo(only_fuse))
-        self.assertAlmostEqual(ranking_pct(only_fuse), 0.4, places=6)
+        self.assertAlmostEqual(y_oo_fuse_pct(only_fuse), 0.4, places=6)
 
-    def test_stamp_window_scores_applies_remaining_ranking(self):
+    def test_stamp_window_scores_applies_remaining_fuse(self):
         from core.signal.yhat_windows import stamp_window_scores
 
         fused = stamp_window_scores({"y_oo": 2.0, "y_τc": 2.0})
-        self.assertAlmostEqual(fused["ranking"], 2.0, places=6)
+        self.assertAlmostEqual(fused["y_oo_fuse"], 2.0, places=6)
+        self.assertNotIn("ranking", fused)
         rem = stamp_window_scores(
             {"y_oo": 2.0, "y_τc": 2.0, "day_open": 100.0, "price_tau": 100.5}
         )
         rot = (100.5 / 100.0 - 1.0) * 100.0
-        self.assertAlmostEqual(rem["ranking"], 2.0 - rot, places=6)
+        self.assertAlmostEqual(rem["y_oo_fuse"], 2.0 - rot, places=6)
+        self.assertNotIn("ranking", rem)
 
     def test_remaining_ranking_deducts_open_to_price_tau(self):
-        from core.signal.yhat_windows import ranking_pct, remaining_ranking_pct
+        from core.signal.yhat_windows import y_oo_fuse_pct, remaining_y_oo_fuse_pct
 
-        fused = ranking_pct({"y_oo": 2.0, "y_τc": 2.0})
+        fused = y_oo_fuse_pct({"y_oo": 2.0, "y_τc": 2.0})
         self.assertAlmostEqual(fused, 2.0, places=6)
         self.assertAlmostEqual(
-            remaining_ranking_pct(fused, open_px=100.0, price_tau=100.0),
+            remaining_y_oo_fuse_pct(fused, open_px=100.0, price_tau=100.0),
             2.0,
             places=6,
         )
         rot = (100.5 / 100.0 - 1.0) * 100.0
-        rem = remaining_ranking_pct(fused, open_px=100.0, price_tau=100.5)
+        rem = remaining_y_oo_fuse_pct(fused, open_px=100.0, price_tau=100.5)
         self.assertAlmostEqual(rem, fused - rot, places=6)
         self.assertLess(rem, fused)
-        self.assertAlmostEqual(remaining_ranking_pct(fused), fused, places=6)
+        self.assertAlmostEqual(remaining_y_oo_fuse_pct(fused), fused, places=6)
 
     def test_realized_ranking_is_next_open_minus_tau_over_open(self):
-        from core.signal.yhat_windows import realized_ranking_pct
+        from core.signal.yhat_windows import y_oo_fuse_realized_pct
 
         open_t, tau, nxt = 100.0, 100.5, 102.0
         realized_oo = (nxt / open_t - 1.0) * 100.0
-        got = realized_ranking_pct(realized_oo, open_px=open_t, price_tau=tau)
+        got = y_oo_fuse_realized_pct(realized_oo, open_px=open_t, price_tau=tau)
         self.assertAlmostEqual(got, (nxt - tau) / open_t * 100.0, places=6)
-        self.assertIsNone(realized_ranking_pct(None, open_px=open_t, price_tau=tau))
+        self.assertIsNone(y_oo_fuse_realized_pct(None, open_px=open_t, price_tau=tau))
         self.assertAlmostEqual(
-            realized_ranking_pct(realized_oo, open_px=open_t),
+            y_oo_fuse_realized_pct(realized_oo, open_px=open_t),
             realized_oo,
             places=6,
         )
         self.assertAlmostEqual(
-            realized_ranking_pct(realized_oo, open_px=open_t, price_tau=open_t),
+            y_oo_fuse_realized_pct(realized_oo, open_px=open_t, price_tau=open_t),
             realized_oo,
             places=6,
         )

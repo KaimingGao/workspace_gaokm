@@ -226,7 +226,7 @@ export function remainingRankingPct(ranking, openPx, priceTau) {
   return Number.isFinite(out) ? out : y;
 }
 
-/** 融合分（调仓 ranking，百分点）。
+/** 融合分（调仓 y_oo_fuse / UI fuse，百分点）。
  *  OC 模型（open→close 标签）：fuse = w_oo·ŷ_oo + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；
  *    表列再减 (price(τ)/open−1)（remainingRankingPct）。
  *  τc 模型（price(τ)→close 标签）：fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；
@@ -254,9 +254,9 @@ export function rankingPct(it) {
   return _looksLikeYhatPct(fused) ? fused : null;
 }
 
-/** 表列主分：调仓 ranking（百分点）。
- *  τc：ranking 已在 τ→open[T+1]。缺 y_spec 才再减 (price(τ)/open−1)。
- *  不做 T ŷ_trade。不用 dual_score 缺口抬升（ranking 走融合分，不走 ŷ_trade 缺口映射）。 */
+/** 表列主分：调仓 y_oo_fuse / UI fuse（百分点）。
+ *  τc：fuse 已在 τ→open[T+1]。缺 y_spec 才再减 (price(τ)/open−1)。
+ *  不做 T ŷ_trade。不用 dual_score 缺口抬升（fuse 走融合分，不走 ŷ_trade 缺口映射）。 */
 export function resolveRankingScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {
@@ -276,8 +276,10 @@ export function resolveRankingScore(it) {
     return null;
   }
   const ranked = rankingPct(it);
-  const stamped = _numField(it.ranking);
-  // 有 fusion_w 才现算融合分；否则缺权会按 0.5/0.5 把 tip 算歪，信落盘 ranking
+  const stamped = _numField(
+    it.y_oo_fuse
+  );
+  // 有 fusion_w 才现算融合分；否则缺权会按 0.5/0.5 把 tip 算歪，信落盘 y_oo_fuse
   let base = null;
   let fromHeads = false;
   if (hasFusionWeights(it) && _looksLikeYhatPct(ranked)) {
@@ -297,10 +299,10 @@ export function resolveRankingScore(it) {
   return rem != null && Number.isFinite(rem) ? rem : base;
 }
 
-/** @deprecated 表列 ranking；请用 resolveRankingScore。做 T 用 resolveYTradeScore。 */
+/** @deprecated 表列 fuse；请用 resolveRankingScore。做 T 用 resolveYTradeScore。 */
 export const resolveTradeScore = resolveRankingScore;
 
-/** 做 T 主分 ŷ_trade（blend），不是调仓 ranking。 */
+/** 做 T 主分 ŷ_trade（blend），不是调仓 fuse。 */
 export function resolveYTradeScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -342,12 +344,12 @@ export const Y_TAU_TITLE = Y_OC_TITLE;
 export const Y_OC_REBALANCE_TITLE =
   "ŷ_τc · 09:30–10:00 因果前缀 price(τ)→close[T]";
 export const RANKING_REBALANCE_TITLE =
-  "ranking · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1]";
+  "fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1]";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =
   "τc实 · close[T]/price(τ)−1（与 ŷ_τc 同标签）";
-export const Y_CO_TITLE = "ŷ_co · close[T]→open[T+1]（对照；不进 ranking）";
+export const Y_CO_TITLE = "ŷ_co · close[T]→open[T+1]（对照；不进 fuse / y_oo_fuse）";
 export const Y_ON_TITLE = Y_CO_TITLE;
 /** leftover nowcast = nc：旧簿对照昨收，不进主决策。 */
 export const Y_NC_TITLE =
@@ -670,7 +672,7 @@ export function resolveYTWScore(it) {
   );
 }
 
-/** ŷ_oo：open[T]→open[T+1]（调仓 ranking 输入）。 */
+/** ŷ_oo：open[T]→open[T+1]（调仓 y_oo_fuse 输入）。 */
 export function resolveEodScore(it) {
   if (!it || typeof it !== "object") return null;
   // OOS 失败降级：表列 score 是 0–100 启发式，不可当 ŷ_oo%

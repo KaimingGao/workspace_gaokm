@@ -1,8 +1,8 @@
 """策略调仓配置（rank_lots）。
 
 Follow / 历史回测 / 自动调仓都走 ``rank_lots``。
-ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)。w_co 默认 1。
-ŷ_trade / ŷ_nowcast / y_fuse / y_tau 已下线（τ 头只写 y_τc）。
+y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)。w_co 默认 1。
+ŷ_trade / ŷ_nowcast / y_tau 已下线（τ 头只写 y_τc）。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。
 """
@@ -23,8 +23,8 @@ from core.signal.yhat_windows import (
 DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "enabled": True,
     "mode": "rank_lots",
-    "rank_enter": 0.001,
-    "rank_strong": 0.001,
+    "fuse_enter": 0.001,
+    "fuse_strong": 0.001,
     "cash_floor": 0.0,
     "holdings_mv_cap": 150_000.0,
     "fusion_w_oo": 0.6,
@@ -84,6 +84,33 @@ def _pick_raw_cfg(d: Optional[dict]) -> Optional[dict]:
     return None
 
 
+def _pick_fuse_threshold(raw: Optional[dict], out: dict, key: str, default: float) -> float:
+    """读 fuse_enter / fuse_strong。"""
+    src = raw if isinstance(raw, dict) else {}
+    if key in src and src.get(key) is not None:
+        try:
+            return float(src.get(key))
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(out.get(key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _normalize_fuse_threshold(v: float) -> float:
+    """旧绝对收益 1.xx / 误填百分点 → 净收益。"""
+    if v >= 0.5:
+        if abs(v - 1.0) < 1e-9:
+            return 0.01
+        if abs(v - 1.002) < 1e-6:
+            return 0.02
+        return max(0.0, v - 1.0)
+    if abs(v - 0.20) < 1e-6:
+        return 0.02
+    return v
+
+
 def get_path_matrix_cfg(
     timing_or_cfg: Optional[dict] = None,
     *,
@@ -129,9 +156,17 @@ def get_path_matrix_cfg(
         logger.debug("oo_rank gate coerce failed", exc_info=True)
         out["oo_rank_max"] = None
         out["oo_rank_top_frac"] = None
+
+    enter = _pick_fuse_threshold(raw, out, "fuse_enter", 0.001)
+    strong = _pick_fuse_threshold(raw, out, "fuse_strong", 0.001)
+    enter = max(0.0, min(_normalize_fuse_threshold(float(enter)), 10.0))
+    strong = max(0.0, min(_normalize_fuse_threshold(float(strong)), 10.0))
+    if strong < enter:
+        strong = enter
+    out["fuse_enter"] = enter
+    out["fuse_strong"] = strong
+
     for key, default, lo, hi in (
-        ("rank_enter", 0.001, 0.0, 10.0),
-        ("rank_strong", 0.001, 0.0, 10.0),
         ("cash_floor", 0.0, 0.0, 1.0e8),
         ("holdings_mv_cap", 150_000.0, 0.0, 1.0e8),
         ("fusion_w_oo", 0.6, 0.0, 1.0),
@@ -144,24 +179,10 @@ def get_path_matrix_cfg(
             out[key] = max(lo, min(float(out.get(key, default)), hi))
         except (TypeError, ValueError):
             out[key] = float(default)
-    for rk in ("rank_enter", "rank_strong"):
-        v = float(out[rk])
-        if v >= 0.5:
-            if abs(v - 1.0) < 1e-9:
-                v = 0.01
-            elif abs(v - 1.002) < 1e-6:
-                v = 0.02
-            else:
-                v = max(0.0, v - 1.0)
-        elif abs(v - 0.20) < 1e-6:
-            v = 0.02
-        out[rk] = v
     w_oo, w_τc = fusion_weights_from_cfg(out)
     out["fusion_w_oo"], out["fusion_w_oc"] = w_oo, w_τc
     w_co = fusion_w_co_from_cfg(out)
     out["fusion_w_co"] = w_co
-    if float(out["rank_strong"]) < float(out["rank_enter"]):
-        out["rank_strong"] = float(out["rank_enter"])
     out["cash_floor"] = 0.0
     try:
         from core.backtest.paper_replay import (
@@ -192,11 +213,11 @@ def get_path_matrix_cfg(
         logger.debug("clamp score_backend failed", exc_info=True)
         out["score_backend"] = "ridge"
     base = _clamp_lot_amount(out.get("lot_base_amount"), 10_000.0)
-    strong = _clamp_lot_amount(out.get("lot_strong_amount"), 20_000.0)
-    if strong < base:
-        strong = base
+    strong_amt = _clamp_lot_amount(out.get("lot_strong_amount"), 20_000.0)
+    if strong_amt < base:
+        strong_amt = base
     out["lot_base_amount"] = base
-    out["lot_strong_amount"] = strong
+    out["lot_strong_amount"] = strong_amt
     return out
 
 
@@ -204,7 +225,7 @@ def scores_from_rebalance_item(
     item: Optional[dict],
     cfg: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
-    """从调仓行抽出 ŷ_oo / ŷ_τc / ŷ_co 与 ranking / residual（旧键 y_oc 只读别名）。"""
+    """从调仓行抽出 ŷ_oo / ŷ_τc / ŷ_co 与 y_oo_fuse / residual。"""
     return stamp_window_scores(item, cfg)
 
 

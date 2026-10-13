@@ -1,11 +1,11 @@
-"""四段 ŷ 窗口：抽头、加权融合、调仓 ranking、做 T residual。
+"""四段 ŷ 窗口：抽头、加权融合、调仓 y_oo_fuse、做 T residual。
 
 ŷ_oo  open(T)→open(T+1)   主字段 y_oo / predicted_score_oo；别名 predicted_score
 ŷ_τc  price(τ)→close(T)   主字段 y_τc（含时钟对齐）。原始头在 y_tau_raw。τ=open 时等于 close/open−1。
 ŷ_co  close(T)→open(T+1)  主字段 y_co / predicted_score_co
 
-现网 ranking（τc，price(τ)→close 标签；行上有 y_spec_tau）：
-  rank = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
+现网 y_oo_fuse（UI 短名 fuse；τc，price(τ)→close 标签；行上有 y_spec_tau）：
+  y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
   rot = price(τ)/open[T]−1；两项都在 τ→open[T+1]，不再整段减 rot
   缺 y_spec 的旧行仍走 open 基准融合再减 rot
 
@@ -24,7 +24,7 @@ FORMULA_CO = "open[T+1]/close[T]-1"
 FORMULA_TC = "close[T]/price[τ]-1"
 FORMULA_TC_LEGACY = "price[τ]/close[T]-1"
 FORMULA_TC_REMAINING = "remaining(open→close)=(1+ŷ)/(1+open→τ)−1"
-FORMULA_RANKING = (
+FORMULA_OO_FUSE = (
     "w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)"
 )
 FORMULA_RESIDUAL = "ŷ_τc = close[T]/price[τ]−1"
@@ -397,7 +397,7 @@ def ret_open_to_tau_pct(
     return (float(p) / float(o) - 1.0) * 100.0
 
 
-def ranking_open_px(item: Optional[dict]) -> Optional[float]:
+def fuse_open_px(item: Optional[dict]) -> Optional[float]:
     """今开：day_open / open_raw / open_t / open。"""
     if not isinstance(item, dict):
         return None
@@ -408,7 +408,7 @@ def ranking_open_px(item: Optional[dict]) -> Optional[float]:
     return None
 
 
-def ranking_price_tau(item: Optional[dict]) -> Optional[float]:
+def fuse_price_tau(item: Optional[dict]) -> Optional[float]:
     """τ 价：rebalance_px / price_tau / 现价。"""
     if not isinstance(item, dict):
         return None
@@ -417,6 +417,27 @@ def ranking_price_tau(item: Optional[dict]) -> Optional[float]:
         if v is not None and v > 0:
             return v
     return None
+
+
+def pick_y_oo_fuse(*objs: Any) -> Optional[float]:
+    """读融合分百分点：仅 y_oo_fuse。"""
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        v = _f(obj.get("y_oo_fuse"))
+        if v is not None:
+            return float(v)
+    return None
+
+
+def write_y_oo_fuse(item: dict, value: Optional[float]) -> None:
+    """写 y_oo_fuse。"""
+    if not isinstance(item, dict):
+        return
+    if value is None:
+        item["y_oo_fuse"] = None
+        return
+    item["y_oo_fuse"] = float(value)
 
 
 def residual_inv_var_weights(
@@ -469,7 +490,7 @@ def residual_w_mode_from_cfg(cfg: Optional[dict]) -> str:
     return "fixed"
 
 
-def ranking_pct(
+def y_oo_fuse_pct(
     item: Optional[dict],
     *,
     w_oo: float = 0.5,
@@ -478,13 +499,13 @@ def ranking_pct(
     rem_model_doc: Optional[dict] = None,
     ret_open_to_tau: Optional[float] = None,
 ) -> Optional[float]:
-    """调仓 ranking（百分点），现网 τc。
+    """调仓 y_oo_fuse（百分点），现网 τc。
 
     行上 ``y_spec_tau`` 为 price(τ)→close 时：
-        ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
+        y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
         直接算在 τ→open[T+1]；ŷ_oo 用 remaining_at_tau，ŷ_τc 已是 τ→close。
 
-    缺 y_spec 时退回 open 基准融合，由 ``remaining_ranking_pct`` 再减 rot。
+    缺 y_spec 时退回 open 基准融合，由 ``remaining_y_oo_fuse_pct`` 再减 rot。
     ``rem_model_doc`` 优先于 item。
     """
     from core.signal.yhat_geom import remaining_at_tau
@@ -503,38 +524,38 @@ def ranking_pct(
     return fuse_pct(y_oo_rem, right, w_left=w_oo, w_right=w_τc)
 
 
-def remaining_ranking_pct(
-    ranking: Optional[float],
+def remaining_y_oo_fuse_pct(
+    fuse: Optional[float],
     ret_open_to_tau: Optional[float] = None,
     *,
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
     is_oc_model: bool = True,
 ) -> Optional[float]:
-    """决策 ranking（百分点）。
+    """决策 y_oo_fuse（百分点）。
 
-    τc：``ranking_pct`` 已在 τ→open[T+1]，直接透传。
+    τc：``y_oo_fuse_pct`` 已在 τ→open[T+1]，直接透传。
     缺 y_spec 的旧行：融合分再减 (price(τ)/open−1)；缺开盘或 τ 价则原值。
     """
-    if ranking is None:
+    if fuse is None:
         return None
     if not is_oc_model:
-        return float(ranking)
+        return float(fuse)
     rot = _f(ret_open_to_tau)
     if rot is None:
         rot = ret_open_to_tau_pct(open_px, price_tau)
     if rot is None:
-        return float(ranking)
-    return round(float(ranking) - float(rot), 6)
+        return float(fuse)
+    return round(float(fuse) - float(rot), 6)
 
 
-def realized_ranking_pct(
+def y_oo_fuse_realized_pct(
     realized_oo: Optional[float],
     *,
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Optional[float]:
-    """ranking 真实（百分点）= realized_oo − (price(τ)/open−1)。
+    """y_oo_fuse 真实（百分点）= realized_oo − (price(τ)/open−1)。
 
     即 (open[T+1] − price(τ)) / open[T]。缺次日开则 None；缺开盘或 τ 价时
     与预测一样不扣（真实=realized_oo）。
@@ -628,7 +649,7 @@ def residual_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
 
 
 def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dict[str, Optional[float]]:
-    """抽 ŷ_oo / ŷ_τc + ranking / residual（百分点）。"""
+    """抽 ŷ_oo / ŷ_τc + y_oo_fuse / residual（百分点）。"""
     w_oo, w_τc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
     w_res_τc, w_oc_r = residual_weights_from_cfg(cfg)
@@ -636,14 +657,14 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
     y_τc = pick_y_τc(item)
     y_co = pick_y_co(item)
     is_oc = tau_model_is_open_to_close(item)
-    o = ranking_open_px(item)
-    p = ranking_price_tau(item)
+    o = fuse_open_px(item)
+    p = fuse_price_tau(item)
     rot = ret_open_to_tau_pct(o, p)
-    ranking = ranking_pct(
+    fuse = y_oo_fuse_pct(
         item, w_oo=w_oo, w_τc=w_τc, w_co=w_co, ret_open_to_tau=rot
     )
-    ranking = remaining_ranking_pct(
-        ranking,
+    fuse = remaining_y_oo_fuse_pct(
+        fuse,
         open_px=o,
         price_tau=p,
         is_oc_model=is_oc,
@@ -653,12 +674,12 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
     if isinstance(fa, dict) and fa.get("fatal_tau"):
         y_τc = None
         y_co = None
-        ranking = None
+        fuse = None
     return {
         "y_oo": y_oo,
         "y_τc": y_τc,
         "y_co": y_co,
-        "ranking": ranking,
+        "y_oo_fuse": fuse,
         "residual": residual,
         "r_hat": residual,
     }
@@ -671,13 +692,15 @@ __all__ = [
     "FORMULA_TC",
     "FORMULA_TC_LEGACY",
     "FORMULA_TC_REMAINING",
-    "FORMULA_RANKING",
+    "FORMULA_OO_FUSE",
     "FORMULA_RESIDUAL",
     "Y_TC_SOURCE_REMAINING",
     "Y_TC_SOURCE_RIDGE",
     "compound_pct",
     "forward_oo_pct",
+    "fuse_open_px",
     "fuse_pct",
+    "fuse_price_tau",
     "fusion_w_co_from_cfg",
     "fusion_weights_from_cfg",
     "oc_with_co",
@@ -686,13 +709,10 @@ __all__ = [
     "pc_formula_of",
     "pick_y_co",
     "pick_y_oo",
+    "pick_y_oo_fuse",
     "pick_y_τc",
     "pit_oo_window_quote",
-    "ranking_open_px",
-    "ranking_pct",
-    "ranking_price_tau",
-    "remaining_ranking_pct",
-    "realized_ranking_pct",
+    "remaining_y_oo_fuse_pct",
     "residual_inv_var_weights",
     "residual_pct",
     "residual_w_mode_from_cfg",
@@ -703,5 +723,8 @@ __all__ = [
     "t0_residual_pct",
     "ret_open_to_tau_of",
     "stamp_window_scores",
+    "write_y_oo_fuse",
     "write_y_τc",
+    "y_oo_fuse_pct",
+    "y_oo_fuse_realized_pct",
 ]

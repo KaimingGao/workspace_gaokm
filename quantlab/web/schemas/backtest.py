@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PaperReplayBacktestRequest(BaseModel):
@@ -45,25 +45,25 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=1.0,
-        description="ranking 中 ŷ_oo 权重",
+        description="y_oo_fuse 中 ŷ_oo 权重",
     )
     fusion_w_oc: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="ranking 中 ŷ_τc 权重",
+        description="y_oo_fuse 中 ŷ_τc 权重",
     )
-    rank_enter: float = Field(
-        default=0.001,
+    fuse_enter: Optional[float] = Field(
+        default=None,
         ge=0.0,
         le=10.0,
-        description="ranking 入场下限（净收益，0.001=0.1%；UI 用百分数）",
+        description="y_oo_fuse 入场下限（净收益，0.001=0.1%；UI 用百分数）",
     )
-    rank_strong: float = Field(
-        default=0.001,
+    fuse_strong: Optional[float] = Field(
+        default=None,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 强手门槛（净收益；回测单一手数时与入场同）",
+        description="y_oo_fuse 强手门槛（净收益；回测单一手数时与入场同）",
     )
     y_oo_gt0: bool = Field(
         default=False,
@@ -138,6 +138,16 @@ class PaperReplayBacktestRequest(BaseModel):
         description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/portfolio-backtest",
     )
 
+    @model_validator(mode="after")
+    def _sync_fuse_thresholds(self) -> "PaperReplayBacktestRequest":
+        if self.fuse_enter is None:
+            self.fuse_enter = 0.001
+        if self.fuse_strong is None:
+            self.fuse_strong = 0.001
+        self.fuse_enter = float(self.fuse_enter)
+        self.fuse_strong = float(self.fuse_strong)
+        return self
+
 
 class PortfolioBacktestRequest(BaseModel):
     """研究口请求（中性化对照等）：仍含 TopK 腿参数，≠ 产品 /replay。"""
@@ -183,23 +193,33 @@ class PortfolioBacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=1.0,
-        description="ranking 中 ŷ_oo 权重",
+        description="y_oo_fuse 中 ŷ_oo 权重",
     )
     fusion_w_oc: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="ranking 中 ŷ_τc 权重",
+        description="y_oo_fuse 中 ŷ_τc 权重",
     )
-    rank_enter: float = Field(
-        default=0.012,
+    fuse_enter: Optional[float] = Field(
+        default=None,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 入场下限（净收益，0.012=1.2%；UI 用百分数）",
+        description="历史回测 y_oo_fuse 入场下限（净收益，0.012=1.2%；UI 用百分数）",
     )
-    rank_strong: float = Field(
-        default=0.012,
+    fuse_strong: Optional[float] = Field(
+        default=None,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买强档金额）",
+        description="历史回测 y_oo_fuse 强手门槛（净收益，0.012=1.2%；超过买强档金额）",
     )
+
+    @model_validator(mode="after")
+    def _sync_fuse_thresholds(self) -> "PortfolioBacktestRequest":
+        if self.fuse_enter is None:
+            self.fuse_enter = 0.012
+        if self.fuse_strong is None:
+            self.fuse_strong = 0.012
+        self.fuse_enter = float(self.fuse_enter)
+        self.fuse_strong = float(self.fuse_strong)
+        return self

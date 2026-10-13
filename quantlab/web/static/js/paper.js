@@ -2647,7 +2647,7 @@ export function initPaper(ctx) {
             dualScore,
             emptyReason,
             minScore,
-            rankEnter: result.rank_enter ?? minScore,
+            rankEnter: result.fuse_enter ?? minScore,
             emptyDetail: result.empty_detail || null,
             marketContext: result.market_context,
           });
@@ -2661,7 +2661,7 @@ export function initPaper(ctx) {
             dualScore,
             emptyReason,
             minScore,
-            rankEnter: result.rank_enter ?? minScore,
+            rankEnter: result.fuse_enter ?? minScore,
             emptyDetail: result.empty_detail || null,
             marketContext: result.market_context,
           });

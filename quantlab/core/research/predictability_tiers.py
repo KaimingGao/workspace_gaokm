@@ -1,22 +1,18 @@
-"""滚动可预测性票档：按 ŷ_oo / ŷ_τc 命中率与有效日定档。
+"""滚动可预测性票档：按 ŷ_oo / ŷ_τc 命中率截面序的倒数合成 Score 定档。
 
 用**已落盘研究套** ŷ_oo（``return_score_model_research.json``）打分，与日线实现标签按票聚合。
-分档（命中率、有效日）只看 Holdout **前半**。截面 Rank IC / IC / ICIR 与档内平均实现收益看 Holdout **整段**。
+分档用的命中率只看 Holdout **前半**。截面 Rank IC / IC / ICIR 与档内平均实现收益看 Holdout **整段**。
 有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：命中看前半，截面指标看整段：
 - hit_rate / hit_rate_tau = 前半符号命中率（|ŷ| 死区外）
 - n_valid / n_valid_tau = 前半有效决策日
+- Score = 1/rank(hit_rate) + 1/rank(hit_rate_tau)（无 ŷ_τc 研究套时仅 1/rank(hit_rate)）
+- 按 Score 降序：top ``a_count``→A，接着 ``b_count``→B，其余→C（默认 100 / 300）；无有效命中样本→C
 - 分档后另报各档在整段 Holdout 上的日截面 Rank IC / IC / ICIR，以及档内票日平均实现收益（ŷ_oo 标签）
 
-研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则跳过 τc 闸。
+研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score 只用 ŷ_oo 序。
 有研究套时面板只拉 **Holdout + 因子暖窗**；无 ŷ_oo 研究套现训才用 ``lookback`` 全窗。
 
 默认池 = 观察池；可选 research_universe（pool=ledger 已废弃，等同 watching）。
-
-档位（默认）：
-- A：Y_oo 命中率 ≥ a_hit（默认 60%），有效日 n ≥ 分档窗 50%；
-  有 ŷ_τc 研究套时另须 Y_τc 命中率 ≥ tau_a_hit（默认 60%）且 τc 有效日够
-- B：Y_oo ≥ b_hit（默认 50%）但未进 A；有 ŷ_τc 时另须 Y_τc ≥ b_hit
-- C：未达 B，或无有效样本
 
 落盘：
 - ``predictability_tiers_last.json``：影子报告（研究枢纽）
@@ -37,34 +33,30 @@ from core.io_atomic import atomic_write_json
 
 SCHEMA = "predictability_tiers_v1"
 ACTIVE_SCHEMA = "predictability_tiers_active_v1"
-DEFAULT_MIN_N = 20
-DEFAULT_A_HIT = 0.60
-DEFAULT_TAU_A_HIT = 0.60
-A_HIT_MIN = 0.45
-A_HIT_MAX = 0.90
-# A 档最少有效日 = 分档窗（Holdout 前半）× 该比例；Holdout40 → 前半 20 日 → N≥10
-DEFAULT_A_MIN_N_FRAC = 0.50
-DEFAULT_A_MIN_N = 10  # 仅当未知 tier_n 时的回退
-DEFAULT_B_HIT = 0.50
+DEFAULT_MIN_N = 20  # 兼容旧调用；不再参与定档
+# Score 序截取：top a_count→A，接着 b_count→B，其余→C
+DEFAULT_A_COUNT = 100
+DEFAULT_B_COUNT = 300
+A_COUNT_MIN = 1
+A_COUNT_MAX = 2000
+B_COUNT_MIN = 0
+B_COUNT_MAX = 5000
 
 
-def clamp_a_hit(raw: Any, default: float = DEFAULT_A_HIT) -> float:
-    """A 档命中率门槛：默认 0.60，钳到 [0.45, 0.90]。"""
+def clamp_a_count(raw: Any, default: int = DEFAULT_A_COUNT) -> int:
     try:
-        x = float(raw)
+        n = int(round(float(raw)))
     except (TypeError, ValueError):
-        x = float("nan")
-    if not math.isfinite(x):
-        try:
-            x = float(default if default is not None else DEFAULT_A_HIT)
-        except (TypeError, ValueError):
-            x = float(DEFAULT_A_HIT)
-    return max(float(A_HIT_MIN), min(float(A_HIT_MAX), x))
+        n = int(default if default is not None else DEFAULT_A_COUNT)
+    return max(A_COUNT_MIN, min(A_COUNT_MAX, n))
 
 
-def clamp_tau_a_hit(raw: Any, default: float = DEFAULT_TAU_A_HIT) -> float:
-    """A 档 ŷ_τc 命中率门槛：默认 0.60，钳到 [0.45, 0.90]。"""
-    return clamp_a_hit(raw, default=default)
+def clamp_b_count(raw: Any, default: int = DEFAULT_B_COUNT) -> int:
+    try:
+        n = int(round(float(raw)))
+    except (TypeError, ValueError):
+        n = int(default if default is not None else DEFAULT_B_COUNT)
+    return max(B_COUNT_MIN, min(B_COUNT_MAX, n))
 
 
 DEFAULT_LIVE_ALLOWED = ("A",)
@@ -132,6 +124,9 @@ _SLIM_ROW_KEYS = (
     "code",
     "name",
     "tier",
+    "score",
+    "rank_oo",
+    "rank_tau",
     "hit_rate",
     "n_valid",
     "n_days",
@@ -375,75 +370,146 @@ def filter_codes_by_predictability_live(
     }
 
 
-def a_min_n_from_tier_n(
-    tier_n: int,
-    *,
-    frac: float = DEFAULT_A_MIN_N_FRAC,
-) -> int:
-    """A 档最少有效日：分档窗天数 × frac（默认 50%）。
+def _rank_desc(values: Sequence[Optional[float]]) -> List[Optional[float]]:
+    """截面序：值越大 rank 越小（1=最好）；缺失 → None。同分按原下标稳定破平。"""
+    indexed: List[Tuple[int, float]] = []
+    for i, raw in enumerate(values):
+        if raw is None:
+            continue
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(v):
+            indexed.append((i, v))
+    indexed.sort(key=lambda t: (-t[1], t[0]))
+    ranks: List[Optional[float]] = [None] * len(values)
+    for r, (i, _) in enumerate(indexed, start=1):
+        ranks[i] = float(r)
+    return ranks
 
-    ``tier_n`` 是 Holdout 前半，不是 Holdout 全日数。Holdout40 → 前半 20 日 → N≥10。
+
+def assign_tiers_by_rank_score(
+    rows: Sequence[Dict[str, Any]],
+    *,
+    require_tau: bool = False,
+    a_count: int = DEFAULT_A_COUNT,
+    b_count: int = DEFAULT_B_COUNT,
+) -> None:
+    """就地定档：Score = 1/rank(y_oo) [+ 1/rank(y_τc)]，按 Score 降序截 top 数量。
+
+    - 有有效 Y_oo 命中率的票参与排序；无样本 → C
+    - ``require_tau`` 时加 1/rank(Y_τc)；缺 τc 命中率的票 τc 序取末位+1
+    - top ``a_count``（默认 100）→ A；接着 ``b_count``（默认 300）→ B；其余 → C
     """
-    n = max(0, int(tier_n or 0))
-    f = float(frac if frac is not None else DEFAULT_A_MIN_N_FRAC)
-    if not math.isfinite(f) or f <= 0:
-        f = DEFAULT_A_MIN_N_FRAC
-    f = min(1.0, max(0.0, f))
-    if n <= 0:
-        return max(1, int(DEFAULT_A_MIN_N))
-    return max(1, int(math.ceil(n * f)))
+    n_a = clamp_a_count(a_count)
+    n_b = clamp_b_count(b_count)
+
+    eligible: List[Dict[str, Any]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        hr = r.get("hit_rate")
+        n_valid = max(0, int(r.get("n_valid") or 0))
+        try:
+            hr_f = float(hr) if hr is not None else float("nan")
+        except (TypeError, ValueError):
+            hr_f = float("nan")
+        if n_valid <= 0 or not math.isfinite(hr_f):
+            r["tier"] = "C"
+            r["score"] = None
+            r["rank_oo"] = None
+            r["rank_tau"] = None
+            continue
+        eligible.append(r)
+
+    if not eligible:
+        return
+
+    oo_ranks = _rank_desc([r.get("hit_rate") for r in eligible])
+    tau_ranks: List[Optional[float]]
+    if require_tau:
+        tau_vals: List[Optional[float]] = []
+        for r in eligible:
+            n_tau = max(0, int(r.get("n_valid_tau") or 0))
+            ht = r.get("hit_rate_tau")
+            try:
+                ht_f = float(ht) if ht is not None else float("nan")
+            except (TypeError, ValueError):
+                ht_f = float("nan")
+            if n_tau > 0 and math.isfinite(ht_f):
+                tau_vals.append(ht_f)
+            else:
+                tau_vals.append(None)
+        tau_ranks = _rank_desc(tau_vals)
+        n_tau_ranked = sum(1 for x in tau_ranks if x is not None)
+        worst_tau = float(n_tau_ranked + 1)
+        tau_ranks = [x if x is not None else worst_tau for x in tau_ranks]
+    else:
+        tau_ranks = [None] * len(eligible)
+
+    scored: List[Tuple[float, str, Dict[str, Any]]] = []
+    for r, r_oo, r_tau in zip(eligible, oo_ranks, tau_ranks):
+        if r_oo is None or r_oo <= 0:
+            r["tier"] = "C"
+            r["score"] = None
+            r["rank_oo"] = None
+            r["rank_tau"] = None
+            continue
+        score = 1.0 / float(r_oo)
+        r["rank_oo"] = int(r_oo)
+        if require_tau and r_tau is not None and r_tau > 0:
+            score += 1.0 / float(r_tau)
+            r["rank_tau"] = int(r_tau)
+        else:
+            r["rank_tau"] = None
+        r["score"] = round(score, 6)
+        scored.append((score, str(r.get("code") or ""), r))
+
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    for i, (_score, _code, r) in enumerate(scored):
+        if i < n_a:
+            r["tier"] = "A"
+        elif i < n_a + n_b:
+            r["tier"] = "B"
+        else:
+            r["tier"] = "C"
 
 
 def assign_tier(
     hit_rate: Optional[float],
     n_valid: int,
     *,
-    min_n: int = DEFAULT_MIN_N,
-    a_hit: float = DEFAULT_A_HIT,
-    b_hit: float = DEFAULT_B_HIT,
-    ic: Optional[float] = None,
-    a_min_n: int = DEFAULT_A_MIN_N,
     hit_rate_tau: Optional[float] = None,
     n_valid_tau: int = 0,
-    tau_a_hit: Optional[float] = None,
     require_tau: bool = False,
+    **_legacy: Any,
 ) -> str:
-    """A：Y_oo ≥ a_hit、有效日 n ≥ a_min_n；有 τc 时另须 Y_τc ≥ tau_a_hit。
+    """单票兼容入口：无截面同伴时无法算序，有有效命中→B，否则→C。
 
-    B：Y_oo ≥ b_hit 但未进 A；有 τc 时另须 Y_τc ≥ b_hit。
-    ``ic`` / ``min_n`` 保留给旧调用，不参与定档。
+    正式分档请用 ``assign_tiers_by_rank_score``。
     """
-    del ic, min_n
-    n = max(0, int(n_valid or 0))
-    a_thr = float(a_hit if a_hit is not None else DEFAULT_A_HIT)
-    b_thr = float(b_hit if b_hit is not None else DEFAULT_B_HIT)
-    if b_thr > a_thr:
-        b_thr = a_thr
-    a_n = max(0, int(a_min_n if a_min_n is not None else DEFAULT_A_MIN_N))
-    if n <= 0:
+    del _legacy
+    if max(0, int(n_valid or 0)) <= 0:
         return "C"
-    if hit_rate is None or not math.isfinite(float(hit_rate)):
+    if hit_rate is None:
         return "C"
-    hr = float(hit_rate)
-
-    def _tau_pass(thr: float, *, need_min_n: bool) -> bool:
-        if not require_tau:
-            return True
-        n_tau = max(0, int(n_valid_tau or 0))
-        if need_min_n and n_tau < a_n:
-            return False
-        if hit_rate_tau is None or not math.isfinite(float(hit_rate_tau)):
-            return False
-        return float(hit_rate_tau) >= float(thr)
-
-    tau_a_thr = float(
-        tau_a_hit if tau_a_hit is not None else DEFAULT_TAU_A_HIT
-    )
-    if n >= a_n and hr >= a_thr and _tau_pass(tau_a_thr, need_min_n=True):
-        return "A"
-    if hr >= b_thr and _tau_pass(b_thr, need_min_n=False):
-        return "B"
-    return "C"
+    try:
+        if not math.isfinite(float(hit_rate)):
+            return "C"
+    except (TypeError, ValueError):
+        return "C"
+    if require_tau:
+        if max(0, int(n_valid_tau or 0)) <= 0:
+            return "C"
+        if hit_rate_tau is None:
+            return "C"
+        try:
+            if not math.isfinite(float(hit_rate_tau)):
+                return "C"
+        except (TypeError, ValueError):
+            return "C"
+    return "B"
 
 
 def _spearman_ic(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
@@ -1307,14 +1373,12 @@ def _rows_from_acc(
     pool_codes: Sequence[str],
     watch_set: set,
     pad_missing: bool,
-    min_n: int,
-    a_hit: float,
-    b_hit: float,
+    min_n: int = DEFAULT_MIN_N,
     name_by: Optional[Dict[str, str]] = None,
-    a_min_n: Optional[int] = None,
-    tau_a_hit: Optional[float] = None,
     require_tau: bool = False,
-) -> Tuple[List[Dict[str, Any]], Dict[str, int], int, int]:
+    a_count: int = DEFAULT_A_COUNT,
+    b_count: int = DEFAULT_B_COUNT,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int], int]:
     name_by = name_by or {}
     if pad_missing and pool_codes:
         for c in pool_codes:
@@ -1334,12 +1398,7 @@ def _rows_from_acc(
                 }
 
     rows: List[Dict[str, Any]] = []
-    counts = {"A": 0, "B": 0, "C": 0}
     min_n_req = max(1, int(min_n or DEFAULT_MIN_N))
-    a_n = max(
-        1,
-        int(a_min_n if a_min_n is not None else DEFAULT_A_MIN_N),
-    )
     for code, slot in acc.items():
         n_valid = int(slot.get("n_valid") or 0)
         hits = int(slot.get("hits") or 0)
@@ -1350,25 +1409,15 @@ def _rows_from_acc(
             round(hits_tau / n_valid_tau, 4) if n_valid_tau > 0 else None
         )
         ic = _spearman_ic(slot.get("yhats") or [], slot.get("realized") or [])
-        tier = assign_tier(
-            hit_rate,
-            n_valid,
-            a_hit=a_hit,
-            b_hit=b_hit,
-            ic=ic,
-            a_min_n=a_n,
-            hit_rate_tau=hit_rate_tau,
-            n_valid_tau=n_valid_tau,
-            tau_a_hit=tau_a_hit,
-            require_tau=bool(require_tau),
-        )
-        counts[tier] = int(counts.get(tier) or 0) + 1
         ds = list(slot.get("dates") or [])
         rows.append(
             {
                 "code": code,
                 "name": name_by.get(code),
-                "tier": tier,
+                "tier": "C",
+                "score": None,
+                "rank_oo": None,
+                "rank_tau": None,
                 "hit_rate": hit_rate,
                 "hits": hits,
                 "n_valid": n_valid,
@@ -1383,19 +1432,33 @@ def _rows_from_acc(
             }
         )
 
+    assign_tiers_by_rank_score(
+        rows,
+        require_tau=bool(require_tau),
+        a_count=a_count,
+        b_count=b_count,
+    )
+    counts = {"A": 0, "B": 0, "C": 0}
+    for r in rows:
+        tier = str(r.get("tier") or "C")
+        if tier not in counts:
+            tier = "C"
+            r["tier"] = "C"
+        counts[tier] = int(counts.get(tier) or 0) + 1
+
     tier_rank = {"A": 0, "B": 1, "C": 2}
 
     def _sort_key(r: dict):
-        hr = r.get("hit_rate")
+        sc = r.get("score")
         return (
             tier_rank.get(str(r.get("tier") or "C"), 9),
-            -(float(hr) if hr is not None else -1.0),
+            -(float(sc) if sc is not None else -1.0),
             -int(r.get("n_valid") or 0),
             str(r.get("code") or ""),
         )
 
     rows.sort(key=_sort_key)
-    return rows, counts, min_n_req, a_n
+    return rows, counts, min_n_req
 
 
 def build_holdout_half_tiers(
@@ -1403,9 +1466,8 @@ def build_holdout_half_tiers(
     *,
     pool: str = DEFAULT_POOL,
     min_n: int = DEFAULT_MIN_N,
-    a_hit: float = DEFAULT_A_HIT,
-    b_hit: float = DEFAULT_B_HIT,
-    tau_a_hit: float = DEFAULT_TAU_A_HIT,
+    a_count: int = DEFAULT_A_COUNT,
+    b_count: int = DEFAULT_B_COUNT,
     head: str = HEAD_OO,
     watching_codes: Optional[Sequence[str]] = None,
     codes: Optional[Sequence[str]] = None,
@@ -1414,15 +1476,19 @@ def build_holdout_half_tiers(
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     use_research_model: bool = True,
+    **_legacy: Any,
 ) -> Dict[str, Any]:
     """研究枢纽协议：研究套 ŷ_oo 按票分档。命中看 Holdout 前半；截面指标与平均收益看整段。
 
-    有研究套 ŷ_τc 时同窗再评 τc 命中；A 档另须 τc 过门。
+    Score = 1/rank(Y_oo) + 1/rank(Y_τc)（无 ŷ_τc 研究套则仅 Y_oo 序），按 Score 降序截
+    top ``a_count``→A、接着 ``b_count``→B、其余→C。
     落盘 last；回测/live 复用档位过滤宇宙。回测天数独立。
     live 档位跟随历史回测「分档」勾选。
     ``lookback``：仅无研究套现训时用的日线窗（对齐页顶 ŷ_oo 训练窗）；
     有研究套时面板走 ``_score_panel_lookback`` 短窗。
+    ``**_legacy``：兼容旧 a_frac / b_frac / a_hit 等参数（忽略）。
     """
+    del _legacy
     head_n = _normalize_head(head)
     if head_n == HEAD_TAU:
         return {
@@ -1437,12 +1503,8 @@ def build_holdout_half_tiers(
         watching_codes=watching_codes,
     )
     pool_mode = _normalize_pool(pool) if codes is None else "explicit"
-    a_hit = clamp_a_hit(a_hit)
-    tau_a_hit = clamp_tau_a_hit(tau_a_hit)
-    b_hit = float(b_hit if b_hit is not None else DEFAULT_B_HIT)
-    if not math.isfinite(b_hit):
-        b_hit = float(DEFAULT_B_HIT)
-    b_hit = max(0.0, min(float(a_hit), b_hit))
+    n_a = clamp_a_count(a_count)
+    n_b = clamp_b_count(b_count)
     if len(pool_codes) < 2:
         return {
             "success": False,
@@ -1475,24 +1537,21 @@ def build_holdout_half_tiers(
     tier_dates = list(packed.get("tier_dates") or [])
     half = packed.get("holdout_split") or {}
     tier_n = int(packed.get("tier_n") or len(tier_dates))
-    a_min_n = a_min_n_from_tier_n(tier_n)
     tau_meta = packed.get("tau_meta") if isinstance(packed.get("tau_meta"), dict) else {}
     require_tau = bool(tau_meta.get("ok"))
     name_by = _watching_name_map(
         watching_codes if watching_codes is not None else list(watch_set or pool_codes)
     )
-    rows, counts, min_n_req, min_n_eff = _rows_from_acc(
+    rows, counts, min_n_req = _rows_from_acc(
         acc,
         pool_codes=pool_codes,
         watch_set=watch_set,
         pad_missing=True,
         min_n=min_n,
-        a_hit=a_hit,
-        b_hit=b_hit,
         name_by=name_by,
-        a_min_n=a_min_n,
-        tau_a_hit=tau_a_hit,
         require_tau=require_tau,
+        a_count=n_a,
+        b_count=n_b,
     )
     n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
     cs_pool = summarize_tier_window_cs(acc, head=HEAD_OO)
@@ -1528,10 +1587,10 @@ def build_holdout_half_tiers(
         if model_source == "oo_research_model"
         else "Holdout 前现训 ŷ_oo（无研究套）"
     )
-    tau_gate_note = (
-        f"；有 ŷ_τc 研究套时 A 另须 τc 命中≥{float(tau_a_hit):.0%}、N≥{int(min_n_eff)}"
+    score_note = (
+        "Score=1/rank(Y_oo)+1/rank(Y_τc)"
         if require_tau
-        else "；无 ŷ_τc 研究套，跳过 τc 闸"
+        else "Score=1/rank(Y_oo)（无 ŷ_τc 研究套）"
     )
     rep: Dict[str, Any] = {
         "success": True,
@@ -1548,16 +1607,16 @@ def build_holdout_half_tiers(
             "score_short" if model_source == "oo_research_model" else "refit_full"
         ),
         "min_n": min_n_req,
-        "min_n_effective": min_n_eff,
         "thresholds": {
-            "a_hit": float(a_hit if a_hit is not None else DEFAULT_A_HIT),
-            "tau_a_hit": float(tau_a_hit),
+            "a_count": int(n_a),
+            "b_count": int(n_b),
             "require_tau": bool(require_tau),
-            "a_min_n": int(min_n_eff),
-            "a_min_n_frac": float(DEFAULT_A_MIN_N_FRAC),
-            "b_hit": float(b_hit if b_hit is not None else DEFAULT_B_HIT),
+            "score": (
+                "1/rank(y_oo)+1/rank(y_τc)"
+                if require_tau
+                else "1/rank(y_oo)"
+            ),
             "min_n": min_n_req,
-            "min_n_effective": min_n_eff,
         },
         "pool": pool_mode,
         "pool_source": pool_source,
@@ -1603,10 +1662,8 @@ def build_holdout_half_tiers(
                 if model_source == "oo_research_model" and lookback_req > panel_lb
                 else ""
             )
-            + "；"
-            f"A 为 ŷ_oo 命中≥{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、"
-            f"N≥{int(min_n_eff)}（分档窗{tier_n}日×{DEFAULT_A_MIN_N_FRAC:.0%}）"
-            + tau_gate_note
+            + f"；{score_note}；按 Score 降序 top {n_a}→A、"
+            f"接着 {n_b}→B、其余→C"
             + "；落盘 last；live 档位跟随历史回测「分档」勾选；"
             "回测天数用独立 lookback。"
         ),

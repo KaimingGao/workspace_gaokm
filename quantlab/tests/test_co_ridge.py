@@ -275,11 +275,15 @@ class TestCoPanel(unittest.TestCase):
             predict_co_from_features,
         )
 
+        from core.research.holdout import calendar_dates_from_stock_bars
+
         stock_bars = [
             {"code": "A", "bars": _bars(80, 10)},
             {"code": "B", "bars": _bars(80, 12)},
             {"code": "C", "bars": _bars(80, 8)},
         ]
+        # fit 路径会 pop bars（8GB）；日历须先抽
+        cal = calendar_dates_from_stock_bars(stock_bars)
         report = fit_co_ridge_report(
             stock_bars, ridge_lambda=1.0, theme_boost=1.5, holdout_trading_days=5
         )
@@ -294,10 +298,8 @@ class TestCoPanel(unittest.TestCase):
         self.assertEqual(int(report.get("label_horizon_days") or 0), 1)
         self.assertEqual(report.get("schema"), "co_ridge_v2")
         self.assertEqual(report.get("feature_pack_formula"), "z_co_* ∪ raw_aoo_*")
-        from core.research.holdout import calendar_dates_from_stock_bars
-
-        cal = calendar_dates_from_stock_bars(stock_bars)
         self.assertEqual(report.get("eval_start"), cal[-5])
+        self.assertTrue(all("bars" not in it for it in stock_bars))
         rm = report["return_model"]
         self.assertEqual(
             (rm.get("y_spec") or {}).get("formula"), "open[T+1]/close[T]-1"
@@ -535,7 +537,15 @@ class TestCoScoreAttach(unittest.TestCase):
         expl = ensure_formula_terms_co(item)
         self.assertIsNotNone(expl)
         terms = (expl or {}).get("terms") or []
-        ret_oc = next((t for t in terms if t.get("key") == "ret_oc"), None)
+        # 现网系数键是 z_co_*；旧 tip 裸名 ret_oc 应被重拆
+        ret_oc = next(
+            (
+                t
+                for t in terms
+                if t.get("key") in ("ret_oc", "z_co_ret_oc")
+            ),
+            None,
+        )
         self.assertIsNotNone(ret_oc)
         self.assertNotEqual(float(ret_oc.get("z") or 0.0), 0.0)
 

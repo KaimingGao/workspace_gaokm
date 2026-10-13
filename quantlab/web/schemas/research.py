@@ -430,7 +430,7 @@ class CoRidgeRequest(_WatchingTierAOnly):
 
 
 class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 rank=1..n；不进买序；可选 oo_rank_max）。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 rank=1..n；过入场后作买序；可选 oo_rank_max）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(

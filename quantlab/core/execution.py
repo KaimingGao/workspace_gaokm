@@ -163,8 +163,8 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "rank_lots": {
         "enabled": True,
         "mode": "rank_lots",
-        "rank_enter": 0.001,
-        "rank_strong": 0.001,
+        "fuse_enter": 0.001,
+        "fuse_strong": 0.001,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
         "fusion_w_oo": 0.6,
@@ -183,8 +183,8 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "path_matrix": {
         "enabled": True,
         "mode": "rank_lots",
-        "rank_enter": 0.001,
-        "rank_strong": 0.001,
+        "fuse_enter": 0.001,
+        "fuse_strong": 0.001,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
         "fusion_w_oo": 0.6,
@@ -820,8 +820,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                 full = {
                     "enabled": bool(pm.get("enabled")),
                     "mode": "rank_lots",
-                    "rank_enter": float(pm.get("rank_enter") or 0.001),
-                    "rank_strong": float(pm.get("rank_strong") or 0.001),
+                    "fuse_enter": float(pm.get("fuse_enter") or 0.001),
+                    "fuse_strong": float(pm.get("fuse_strong") or 0.001),
                     "cash_floor": 0.0,
                     "holdings_mv_cap": float(
                         pm.get("holdings_mv_cap")

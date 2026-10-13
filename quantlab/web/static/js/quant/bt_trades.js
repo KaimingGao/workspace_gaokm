@@ -306,13 +306,13 @@ export const BT_LEDGER_TRADE_COLS = [
     title: "卖出总额/买入总额−1 · 本票当前这手；未卖完时剩余按收盘市值计入卖出总额",
   },
   {
-    id: "ranking",
-    label: "ranking",
+    id: "y_oo_fuse",
+    label: "fuse",
     widthPct: 11,
     widthMin: "10rem",
     num: true,
     sortable: true,
-    title: "rank=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1] 基准",
+    title: "fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1] 基准",
   },
   {
     id: "y_fuse",
@@ -348,7 +348,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 已启用模型（LambdaRank/Ridge）· 不进买序；可选入场闸 rank 入场（默认 10）",
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 已启用模型（LambdaRank/Ridge）· 过入场后作买序；可选入场闸 rank 入场（默认 10）",
   },
 ];
 
@@ -443,7 +443,7 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (yRank == null) {
     return {
       text: "—",
-      tip: "rank — · 无已启用模型或未写入；不进 ranking/买序",
+      tip: "rank — · 无已启用模型或未写入；不进 fuse / y_oo_fuse；过入场后作买序",
     };
   }
   const ord = Math.round(yRank);
@@ -452,12 +452,12 @@ function _ooRankOrdinalDisplay(yRank, yRankN) {
   if (n != null && isInt && ord >= 1 && ord <= n) {
     return {
       text: String(ord),
-      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 ranking/买序`,
+      tip: `当日截面第 ${ord} 名 / ${n} · 1=相对分最高 · 不进 fuse / y_oo_fuse；过入场后作买序`,
     };
   }
   return {
     text: "—",
-    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 不进 ranking/买序",
+    tip: "旧回测为相对分或缺池大小，请重跑以生成 1..n 名次 · 不进 fuse / y_oo_fuse；过入场后作买序",
   };
 }
 
@@ -567,9 +567,11 @@ function buildLedgerTradeRow(r, i, deps) {
   const ytau = _numOrNull(
     r["y_τc"] != null ? r["y_τc"] : r.predicted_score_τc
   );
-  const rk = _numOrNull(r.ranking_score);
+  const rk = _numOrNull(
+    r.y_oo_fuse_score
+  );
   const rankingPct =
-    rk != null ? rk * 100 : _numOrNull(r.ranking != null ? r.ranking : r.y_fuse);
+    rk != null ? rk * 100 : _numOrNull(r.y_oo_fuse);
   const yRank = _numOrNull(
     r.y_oo_rank != null ? r.y_oo_rank : r.predicted_score_oo_rank
   );
@@ -620,7 +622,9 @@ function buildLedgerTradeRow(r, i, deps) {
   const tauPx =
     _numOrNull(r.rebalance_px) ??
     (held || skipped ? null : priceNum);
-  let rRank = _numOrNull(r.realized_ranking);
+  let rRank = _numOrNull(
+    r.y_oo_fuse_realized
+  );
   if (rRank == null && rOo != null) {
     rRank =
       dayOpenNum != null && tauPx != null
@@ -628,7 +632,7 @@ function buildLedgerTradeRow(r, i, deps) {
         : rOo;
   }
   const rankingTip = [
-    rankingPct != null ? `ranking ${fmtScore(rankingPct, { signed: true })}` : "ranking —",
+    rankingPct != null ? `fuse ${fmtScore(rankingPct, { signed: true })}` : "fuse —",
     rRank != null
       ? `真实 (open[T+1]−price(τ))/open[T] ${fmtScore(rRank, { signed: true })}`
       : "真实 —（待次日开）",
@@ -645,8 +649,8 @@ function buildLedgerTradeRow(r, i, deps) {
     predicted_score_tau: ytau != null ? ytau : r.predicted_score_tau,
     y_co: yo,
     predicted_score_on: yo != null ? yo : r.predicted_score_on,
-    ranking: rankingPct != null ? rankingPct : r.ranking,
-    realized_ranking: rRank,
+    y_oo_fuse: rankingPct != null ? rankingPct : r.y_oo_fuse,
+    y_oo_fuse_realized: rRank,
     realized_oo: rOo,
     day_open: dayOpenNum != null ? dayOpenNum : r.day_open,
     rebalance_px: tauPx != null ? tauPx : r.rebalance_px,
@@ -847,7 +851,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "day_close",
     "price",
     "stock_ret",
-    "ranking",
+    "y_oo_fuse",
     "y_oo",
     "y_oc",
     "y_co",
@@ -855,7 +859,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "realized_tau",
     "realized_on",
     "realized_oo",
-    "realized_ranking",
+    "y_oo_fuse_realized",
     "cash_after",
     "n_holdings",
     "equity_after",
@@ -886,19 +890,19 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       r.day_close ?? "",
       fillPx,
       r.stock_ret ?? "",
-      r.ranking != null
-        ? r.ranking
-        : r.ranking_score != null && Number.isFinite(Number(r.ranking_score))
-          ? (Number(r.ranking_score) * 100).toFixed(4)
-          : r.y_fuse ?? "",
-      r.y_oo ?? r.y_fuse ?? r.predicted_score ?? "",
+      r.y_oo_fuse != null
+        ? r.y_oo_fuse
+        : r.y_oo_fuse_score != null && Number.isFinite(Number(r.y_oo_fuse_score))
+          ? (Number(r.y_oo_fuse_score) * 100).toFixed(4)
+          : "",
+      r.y_oo ?? r.predicted_score ?? "",
       r.y_oc ?? r.y_tau ?? r.predicted_score_tau ?? "",
       r.y_co ?? r.y_on ?? "",
       r.realized_cc ?? "",
       r.realized_tau ?? "",
       r.realized_on ?? "",
       r.realized_oo ?? "",
-      r.realized_ranking ?? "",
+      r.y_oo_fuse_realized ?? "",
       r.cash_after ?? "",
       r.n_holdings ?? "",
       r.equity_after ?? "",
@@ -963,7 +967,7 @@ function buildSimTradeRow(r, i, deps) {
       : null;
   // 与持仓/观察池同源：修历史成交里塌成 EOD 的旧 blend
   const blendRaw = resolveRankingScore(r);
-  // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_oo；有 τ 时才用 ranking
+  // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_oo；有 τ 时才用 fuse
   const hasTau =
     (r.predicted_score_tau != null && Number.isFinite(Number(r.predicted_score_tau))) ||
     (r.score_rem != null && Number.isFinite(Number(r.score_rem)));
@@ -975,14 +979,14 @@ function buildSimTradeRow(r, i, deps) {
       ? eodScore
       : blendRaw;
   const scoreColTitleBase = hasTau
-    ? "ranking = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 悬停看组成"
+    ? "fuse = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 悬停看组成"
     : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_oc · 关 τ 闸";
   const singleHead =
     r.dual_score_single_head === true ||
     String(r.dual_score_head || "") === "single_oo" ||
     String(r.dual_score_head || "") === "single_tau";
   const scoreColTitle = singleHead
-    ? `ranking 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`
+    ? `fuse 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`
     : scoreColTitleBase;
   let gapPct =
     r.gap_pct != null && Number.isFinite(Number(r.gap_pct)) ? Number(r.gap_pct) : null;
@@ -1014,7 +1018,8 @@ function buildSimTradeRow(r, i, deps) {
     eodRem = eodScore;
   }
   const scoreDetail = watchingScoreDetail({
-    // ranking 头/权进 tip，与表列同式
+    // fuse 头/权进 tip，与表列同式
+    y_oo_fuse: r.y_oo_fuse != null ? r.y_oo_fuse : r.ranking,
     ranking: r.ranking,
     y_oo: r.y_oo != null ? r.y_oo : eodScore,
     y_oc: r.y_oc != null ? r.y_oc : r.y_tau_oc,
@@ -1130,7 +1135,7 @@ const BT_TRADES_NUM_KEYS = {
   y_fuse: "y_fuseNum",
   y_tau: "y_tauNum",
   y_on: "y_onNum",
-  ranking: "rankingNum",
+  y_oo_fuse: "rankingNum",
   y_oo_rank: "y_oo_rankNum",
 };
 
@@ -1303,7 +1308,7 @@ export function btTradesCellHtml(col, d, deps) {
       d.scoreDetail
     );
   }
-  if (col.id === "ranking") {
+  if (col.id === "y_oo_fuse") {
     return _stackScoreHtml(
       _optPredRealHtml(
         d.rankingText,
@@ -1312,9 +1317,9 @@ export function btTradesCellHtml(col, d, deps) {
         d.realizedRankingCls,
         escapeHtml
       ),
-      d.rankingTip || "ranking = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 真实 (open[T+1]−price(τ))/open[T]",
+      d.rankingTip || "fuse = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 真实 (open[T+1]−price(τ))/open[T]",
       escapeHtml,
-      "ranking",
+      "fuse",
       d.scoreDetail
     );
   }
@@ -1322,7 +1327,7 @@ export function btTradesCellHtml(col, d, deps) {
     return _stackScoreHtml(
       escapeHtml(d.y_oo_rankText || "—"),
       d.y_oo_rankTip ||
-        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 ranking/买序",
+        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 fuse / y_oo_fuse；过入场后作买序",
       escapeHtml,
       "oo_rank",
       d.scoreDetail
@@ -1337,10 +1342,10 @@ export function btTradesCellHtml(col, d, deps) {
     const head = d.dualScoreHead || "";
     const headTitle =
       head === "single_tau"
-        ? "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
+        ? "fuse 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
         : head === "single_oo"
-          ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
-          : "ranking 单头降级 · 与双头票不同量纲";
+          ? "fuse 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
+          : "fuse 单头降级 · 与双头票不同量纲";
     const badge = singleHead
       ? `<span class="watching-single-head-badge" title="${escapeHtml(
           headTitle
@@ -1355,7 +1360,7 @@ export function btTradesCellHtml(col, d, deps) {
       `<span class="bt-trade-score paper-hold-score has-tip ${escapeHtml(
         d.scoreCls || ""
       )}" ` +
-      `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="ranking" ` +
+      `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="fuse" ` +
       `title="${escapeHtml(title)}">${escapeHtml(d.scoreText)}${badge}</span>`
     );
   }

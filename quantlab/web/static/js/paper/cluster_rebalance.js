@@ -113,7 +113,7 @@ export function createClusterRebalanceController(deps) {
           emptyReason: data.empty_reason || null,
           emptyDetail: data.empty_detail || null,
           minScore: data.min_score,
-          rankEnter: data.rank_enter ?? data.min_score,
+          rankEnter: data.fuse_enter ?? data.min_score,
           marketContext: data.market_context || null,
           opsReport: null,
           matrixPreview: true,

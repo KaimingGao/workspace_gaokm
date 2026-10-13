@@ -3,7 +3,7 @@
 训练：同窗训 LambdaRank + Ridge ŷ_oo；推理：相对分 → 当日截面 1..n 名次（1=最高）。
 启用研究/执行：按 NDCG@K 自动落盘更强一侧（打平或缺指标 → lambdarank）。
 回测 / live 只消费已启用模型，无 backend 开关。
-不进 ranking / 买序；可选 ``oo_rank_max`` 入场闸（UI「rank 入场」）。
+不进 y_oo_fuse；过入场后作买序；可选 ``oo_rank_max`` 入场闸（UI「rank 入场」）。
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def assign_oo_rank_day_ranks(items: Sequence[dict]) -> List[dict]:
     """把当日截面相对分改成 1..n 名次（1=相对分最高）。
 
     原始分写入 ``y_oo_rank_score``；``y_oo_rank`` / hat / predicted_score_oo_rank 改为整数名次。
-    同分按 ``stock_code`` 稳定破平。不改 ranking / 买序。
+    同分按 ``stock_code`` 稳定破平。不改 y_oo_fuse；过入场后作买序。
     """
 
     def _sort_key(it: dict) -> Tuple[float, str]:
@@ -1155,7 +1155,7 @@ def apply_oo_rank_scores(
     fit: Optional[Dict[str, Any]] = None,
     assign_day_ranks: bool = True,
 ) -> List[dict]:
-    """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 ranking / 买序。
+    """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 y_oo_fuse；过入场后作买序。
 
     特征按本次 items 的当天截面 z-score（与训练同口径）。
     默认 ``assign_day_ranks=True``：对本次 items 截面编 1..n 名次（1=最高分）。
@@ -1629,10 +1629,10 @@ def fit_oo_rank_report(
     def _pack(backend_key: str, holdout_src: Dict[str, Any]) -> Dict[str, Any]:
         note = (
             "Ridge ŷ_oo 相对分；live/回测编当日截面 1..n 名次（1=最高）；"
-            "不进 ranking/买序；可选 oo_rank_max 入场闸"
+            "不进 y_oo_fuse；过入场后作买序；可选 oo_rank_max 入场闸"
             if backend_key == "ridge"
             else "LambdaRank；模型输出相对分；live/回测成交明细编成当日截面 1..n 名次（1=最高）；"
-            "不进 ranking/买序；可选 oo_rank_max 入场闸"
+            "不进 y_oo_fuse；过入场后作买序；可选 oo_rank_max 入场闸"
         )
         y_spec = dict(y_spec_base, backend=backend_key, note=note)
         research = _stamp_oo_rank_model_meta(
@@ -1692,7 +1692,7 @@ def fit_oo_rank_report(
         "note": (
             f"ŷ_oo_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
-            "不进 ranking/买序；成交明细编当日截面 1..n 名次；"
+            "不进 y_oo_fuse；过入场后作买序；成交明细编当日截面 1..n 名次；"
             "可选 oo_rank_max 入场闸"
         ),
     }

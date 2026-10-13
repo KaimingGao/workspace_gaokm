@@ -4787,6 +4787,12 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   width: 1.85rem;
 }
 
+.quant-inline-num--frac input[type="number"] {
+  width: 3rem;
+  min-width: 3rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .quant-inline-check {
   display: inline-flex;
   align-items: center;
@@ -12059,7 +12065,18 @@ button.quant-integrity-cell:hover,
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.35rem 0.55rem;
+  gap: 0.45rem 0.85rem;
+}
+
+.quant-ru-a-gate .quant-inline-num--frac {
+  font-size: 0.78rem;
+  gap: 0.2rem 0.35rem;
+}
+
+.quant-ru-a-gate .quant-inline-num--frac > span:first-child {
+  color: var(--ink-2);
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .quant-ru-a-gate-lab {
@@ -12481,14 +12498,25 @@ button.quant-integrity-cell:hover,
 }
 
 .quant-ru-col-stock {
-  width: 42%;
+  width: 34%;
 }
 
 .quant-ru-tier-grid th.num:nth-child(2),
-.quant-ru-tier-grid td.num:nth-child(2),
+.quant-ru-tier-grid td.num:nth-child(2) {
+  width: 14%;
+}
+
 .quant-ru-tier-grid th.num:nth-child(3),
-.quant-ru-tier-grid td.num:nth-child(3) {
-  width: 29%;
+.quant-ru-tier-grid td.num:nth-child(3),
+.quant-ru-tier-grid th.num:nth-child(4),
+.quant-ru-tier-grid td.num:nth-child(4) {
+  width: 26%;
+}
+
+.quant-ru-score-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink-2);
 }
 
 .quant-ru-stock {

@@ -105,7 +105,7 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
 
 
 def _attach_oo_rank_scores(items: Sequence[dict]) -> None:
-    """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 ranking / 买序。"""
+    """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 y_oo_fuse；过入场后作买序。"""
     try:
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores, load_oo_rank_model
 
@@ -433,9 +433,9 @@ _SCORE_PASSTHROUGH_KEYS = (
     "y_co",
     "y_τc",
     *AUX_YHAT_KEYS,
-    "ranking",
+    "y_oo_fuse",
     "residual",
-    "ranking_score",
+    "y_oo_fuse_score",
     "gap_pct",
     "open_gap_pct",
     "change_pct",
@@ -469,8 +469,8 @@ def _row_score_payload(
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """表列用 ŷ_oo / ŷ_τc / ŷ_co；ranking 现算。"""
-    from core.paper.rebalance.rank_lots import aux_yhat_fields, ranking_pct_of
+    """表列用 ŷ_oo / ŷ_τc / ŷ_co；y_oo_fuse（UI fuse）现算。"""
+    from core.paper.rebalance.rank_lots import aux_yhat_fields, y_oo_fuse_pct_of
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_co
 
@@ -481,7 +481,7 @@ def _row_score_payload(
     if yo is None:
         yo = pick_y_co(item)
     payload = _score_fields_for_report(item, {"y_co": yo})
-    for k in ("y_oo", "y_τc", "ranking", "residual"):
+    for k in ("y_oo", "y_τc", "y_oo_fuse", "residual"):
         if sc.get(k) is not None:
             payload[k] = sc.get(k)
     o = _f(open_px)
@@ -490,14 +490,14 @@ def _row_score_payload(
     p = _f(price_tau)
     if p is None or p <= 0:
         p = _f(src.get("price"))
-    yf = ranking_pct_of(item, cfg, open_px=o, price_tau=p)
+    yf = y_oo_fuse_pct_of(item, cfg, open_px=o, price_tau=p)
     if yf is None:
-        yf = ranking_pct_of(src, cfg, open_px=o, price_tau=p)
+        yf = y_oo_fuse_pct_of(src, cfg, open_px=o, price_tau=p)
     if yf is not None:
-        payload["ranking"] = yf
-    rs = src.get("ranking_score")
+        payload["y_oo_fuse"] = yf
+    rs = src.get("y_oo_fuse_score")
     if rs is not None:
-        payload["ranking_score"] = rs
+        payload["y_oo_fuse_score"] = rs
     payload.update(aux_yhat_fields(src))
     payload.update(aux_yhat_fields(item))
     payload.update(tip_explain_fields(src))
@@ -543,13 +543,13 @@ def _apply_one_leg(
     rank_fields = {
         k: leg.get(k)
         for k in (
-            "ranking",
+            "y_oo_fuse",
             "y_oo",
             "y_co",
             "y_τc",
             "residual",
             "predicted_score_tau",
-            "ranking_score",
+            "y_oo_fuse_score",
             "reason",
             *AUX_YHAT_KEYS,
             "rank_i",
@@ -588,7 +588,11 @@ def _apply_one_leg(
                 "amount": amount,
                 "open_date": _open_date_of(existing, as_of),
                 "pnl_pct": pnl_pct,
-                "score": leg.get("ranking") if leg.get("ranking") is not None else leg.get("score"),
+                "score": (
+                    leg.get("y_oo_fuse")
+                    if leg.get("y_oo_fuse") is not None
+                    else leg.get("score")
+                ),
                 "origin": ORIGIN_STRATEGY,
                 "note": f"矩阵调仓 · {note}",
                 "matrix_action": leg.get("matrix_action"),
@@ -634,7 +638,11 @@ def _apply_one_leg(
             "price": fill_rounded,
             "amount": amount,
             "open_date": _open_date_of(existing, as_of),
-            "score": leg.get("ranking") if leg.get("ranking") is not None else leg.get("score"),
+            "score": (
+                leg.get("y_oo_fuse")
+                if leg.get("y_oo_fuse") is not None
+                else leg.get("score")
+            ),
             "origin": ORIGIN_STRATEGY,
             "note": f"矩阵调仓 · {note}",
             "matrix_action": leg.get("matrix_action"),
@@ -724,7 +732,7 @@ def simulate_watching_matrix_preview(
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池算分 + rank_lots（ranking 融合 ŷ_oo / ŷ_τc / ŷ_co · 已保存金额换手）。
+    """观察池算分 + rank_lots（y_oo_fuse 融合 ŷ_oo / ŷ_τc / ŷ_co · 已保存金额换手）。
 
     默认 offline 只约束 ŷ；``dry_run=False`` 落账强制现价，避免成本写成昨收。
     """
@@ -1089,9 +1097,9 @@ def simulate_watching_matrix_preview(
         "matrix_mode": True,
         "offline_only": use_offline,
         "top_k": k,
-        "min_score": rl_cfg.get("rank_enter"),
-        "rank_enter": rl_cfg.get("rank_enter"),
-        "rank_enter_pct": round(float(rl_cfg.get("rank_enter") or 0) * 100.0, 4),
+        "min_score": rl_cfg.get("fuse_enter"),
+        "fuse_enter": rl_cfg.get("fuse_enter"),
+        "fuse_enter_pct": round(float(rl_cfg.get("fuse_enter") or 0) * 100.0, 4),
         "observation_pool_count": len(codes),
         "scored_count": len(scored),
         "rejected": rejected[:40],
@@ -1123,8 +1131,8 @@ def simulate_watching_matrix_preview(
             "mode": "rank_lots",
             "oos_excluded": oos_excluded,
             "cfg": {
-                "rank_enter": rl_cfg.get("rank_enter"),
-                "rank_strong": rl_cfg.get("rank_strong"),
+                "fuse_enter": rl_cfg.get("fuse_enter"),
+                "fuse_strong": rl_cfg.get("fuse_strong"),
                 "cash_floor": rl_cfg.get("cash_floor"),
                 "holdings_mv_cap": rl_cfg.get("holdings_mv_cap"),
                 "stock_mv_cap": rl_cfg.get("stock_mv_cap"),

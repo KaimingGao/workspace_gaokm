@@ -240,7 +240,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         `<td class="num paper-rb-col-open">${escapeHtml(fmtPx(r.day_open))}</td>` +
         `<td class="num paper-rb-col-amt">${escapeHtml(fmtAmt(r.amount))}</td>` +
         `<td class="num paper-t0-col-clock">${escapeHtml(
-          fmtRank(r.ranking_score, r.ranking)
+          fmtRank(r.y_oo_fuse_score, r.y_oo_fuse)
         )}</td>` +
         `<td class="paper-t0-col-cat">` +
         `<span class="paper-t0-desk-cat is-${escapeHtml(cat.id)}">${escapeHtml(

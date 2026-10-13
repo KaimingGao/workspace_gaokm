@@ -39,6 +39,7 @@ def fit_co_ridge_report(
     holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
     cross_section_zscore: bool = True,
+    progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_co(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。
 
@@ -56,6 +57,7 @@ def fit_co_ridge_report(
         holdout_trading_days=holdout_trading_days,
         use_theme_weights=use_theme_weights,
         cross_section_zscore=cross_section_zscore,
+        progress_cb=progress_cb,
     )
     if not packed.get("success"):
         return {
@@ -67,7 +69,6 @@ def fit_co_ridge_report(
         }
 
     n_stocks = packed["n_stocks"]
-    ys = packed["ys"]
     ys_tr = packed["ys_tr"]
     ys_te = packed["ys_te"]
     metas_te = packed["metas_te"]
@@ -80,6 +81,10 @@ def fit_co_ridge_report(
     use_theme_weights = packed["use_theme_weights"]
     fit = packed["model"]
     split_meta = packed["split_meta"]
+    sample_count = int(
+        packed.get("sample_count")
+        or (len(ys_tr) + len(ys_te))
+    )
 
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     oos = {
@@ -123,7 +128,7 @@ def fit_co_ridge_report(
         "success": True,
         "task": "co_ridge",
         "stock_count": n_stocks,
-        "sample_count": len(ys),
+        "sample_count": sample_count,
         "oos": oos,
         "return_model": model,
         "return_model_research": model,

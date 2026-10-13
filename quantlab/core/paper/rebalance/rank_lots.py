@@ -1,16 +1,17 @@
-"""策略调仓：fill_clock～10:00 用 τc ranking 排序，按已保存金额换算股数下单。
+"""策略调仓：fill_clock～10:00 过入场后按 oo_rank 买序，按已保存金额换算股数下单。
 
 规则（live 与历史回测共用）：
   - 持有周期 = T 开盘 → T+1 开盘
   - ŷ_oo = open[T]→open[T+1]（现网 predicted_score）
   - ŷ_τc = close[T]/price(τ)−1。τ=open 时 price(τ)=open，等于 close/open−1。时钟对齐后是 y_tau
-  - ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
+  - y_oo_fuse（UI fuse）= w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
     rot = price(τ)/open[T]−1；基准 τ→open[T+1]
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_τc
-  - 过入场（ranking>入场净收益）→ 开仓或加仓；y_oo>0 / y_τc>0 看原始百分点符号
-  - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
+  - 过入场（y_oo_fuse>fuse_enter）→ 按 oo_rank 升序（1=最好）开仓或加仓；
+    缺 oo_rank 回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号
+  - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
-  - ranking > rank强 → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
+  - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
     股数 = 金额/价 向下取整到一手；不够一手则跳过
   - 单票持仓市值上限 = lot_strong_amount × 120%；买后将超过则跳过（防单票过重）
   - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
@@ -24,8 +25,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RANK_ENTER = 0.001
-DEFAULT_RANK_STRONG = 0.001
+DEFAULT_FUSE_ENTER = 0.001
+DEFAULT_FUSE_STRONG = 0.001
 DEFAULT_CASH_FLOOR = 0.0
 DEFAULT_HOLDINGS_MV_CAP = 150_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
@@ -134,17 +135,17 @@ def _y_gt0_flags(cfg: Optional[dict]) -> Tuple[bool, bool]:
     )
 
 
-def _rank_enter_skip(rs: Optional[float], thresh: float) -> Optional[str]:
-    """ranking 入场：0=仍须 ranking>0；缺失则拦。rs 为净收益。"""
+def _fuse_enter_skip(rs: Optional[float], thresh: float) -> Optional[str]:
+    """fuse 入场：0=仍须 y_oo_fuse>0；缺失则拦。rs 为净收益。"""
     th = float(thresh or 0.0)
     if rs is None:
-        return "ranking 缺失"
+        return "fuse 缺失"
     if th <= 0:
         if float(rs) <= 0:
-            return "ranking≤0 未过入场"
+            return "fuse≤0 未过入场"
         return None
     if float(rs) <= th:
-        return f"ranking={float(rs) * 100.0:.3f}%<{th * 100.0:g}% 未过入场"
+        return f"fuse={float(rs) * 100.0:.3f}%<{th * 100.0:g}% 未过入场"
     return None
 
 
@@ -153,12 +154,13 @@ def _enter_profile_skip_reason(
     y_oo: Optional[float],
     y_τc: Optional[float],
     rs: Optional[float],
-    rank_enter: float,
+    fuse_enter: float,
     y_oo_gt0: bool,
     y_τc_gt0: bool,
 ) -> Optional[str]:
+    enter = float(fuse_enter or 0.0)
     for skip in (
-        _rank_enter_skip(rs, rank_enter),
+        _fuse_enter_skip(rs, enter),
         _pos_enter_skip(y_oo, y_oo_gt0, "y_oo"),
         _pos_enter_skip(y_τc, y_τc_gt0, "y_τc"),
     ):
@@ -170,17 +172,22 @@ def _enter_profile_skip_reason(
 def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]:
     """已持仓硬清仓理由；None = 再看入场闸（未过则清仓）。
 
-    入场缺 ranking 会拦；持仓缺 ranking 不能假装过门槛续持。
+    入场缺 fuse 会拦；持仓缺 y_oo_fuse 不能假装过门槛续持。
     """
     if isinstance(item, dict) and item.get("hard_reject"):
         why = str(item.get("reject_reason") or "").strip()
         return why if why else "hard_reject 清仓"
     if rs is None:
-        return "ranking 缺失 清仓"
+        return "fuse 缺失 清仓"
     if float(rs) < 0.0:
-        return f"ranking={float(rs) * 100.0:.3f}%<0% 清仓"
+        return f"fuse={float(rs) * 100.0:.3f}%<0% 清仓"
     return None
 
+
+def _cfg_fuse_threshold(cfg: Optional[dict], key: str, default: float) -> float:
+    """读 fuse_enter / fuse_strong（不再回退 rank_*）。"""
+    d = cfg if isinstance(cfg, dict) else {}
+    return coerce_rank_threshold(d.get(key), default)
 
 def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
     """oo_rank 绝对名次闸：开则须 y_oo_rank < max（UI「rank 入场」默认 10）。
@@ -274,11 +281,10 @@ def rank_lot_enter_skip_reason(
     *,
     rs: Optional[float],
 ) -> Optional[str]:
-    """入场：ranking ≥ rank_enter；可选 y_oo>0 / y_τc>0。
+    """入场：y_oo_fuse ≥ fuse_enter；可选 y_oo>0 / y_τc>0。
 
     ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
     过入场后可选 ``oo_rank_max``（须 y_oo_rank < max）或旧键 ``oo_rank_top_frac``。
-    旧键 ``rank_enter_alt`` / ``y_enter_*`` 忽略。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oo, pick_y_τc
@@ -292,15 +298,15 @@ def rank_lot_enter_skip_reason(
     if y_τc is None and isinstance(item, dict):
         y_τc = pick_y_τc(item)
 
-    rank_enter = coerce_rank_threshold(cfg_d.get("rank_enter"), DEFAULT_RANK_ENTER)
-    rank_enter = max(0.0, min(float(rank_enter), 10.0))
+    fuse_enter = _cfg_fuse_threshold(cfg_d, "fuse_enter", DEFAULT_FUSE_ENTER)
+    fuse_enter = max(0.0, min(float(fuse_enter), 10.0))
     y_oo_gt0, y_τc_gt0 = _y_gt0_flags(cfg_d)
 
     skip = _enter_profile_skip_reason(
         y_oo=y_oo,
         y_τc=y_τc,
         rs=rs,
-        rank_enter=rank_enter,
+        fuse_enter=fuse_enter,
         y_oo_gt0=y_oo_gt0,
         y_τc_gt0=y_τc_gt0,
     )
@@ -309,7 +315,7 @@ def rank_lot_enter_skip_reason(
     return _oo_rank_enter_skip(item, cfg_d)
 
 
-def ranking_score(
+def fuse_score_net(
     y_oo: Optional[float],
     y_τc: Optional[float],
     *,
@@ -318,7 +324,7 @@ def ranking_score(
     w_co: float = 0.0,
     y_co: Optional[float] = None,
 ) -> Optional[float]:
-    """开盘基准融合：右侧是 ŷ_τc，百分点 → 净收益（÷100）。决策 ranking 走 ranking_pct。"""
+    """开盘基准融合：右侧是 ŷ_τc，百分点 → 净收益（÷100）。决策 fuse 走 y_oo_fuse_pct。"""
     from core.signal.yhat_windows import fuse_pct, oc_with_co
 
     wc = float(w_co or 0.0)
@@ -343,7 +349,7 @@ def _normalize_amount(n: Any, default: float) -> float:
 
 def lot_shares_for_rank(
     score: Optional[float],
-    rank_strong: float,
+    fuse_strong: float,
     *,
     amount_base: float = LOT_AMOUNT_BASE,
     amount_strong: float = LOT_AMOUNT_STRONG,
@@ -356,7 +362,7 @@ def lot_shares_for_rank(
 
     base_a = _normalize_amount(amount_base, LOT_AMOUNT_BASE)
     strong_a = max(base_a, _normalize_amount(amount_strong, LOT_AMOUNT_STRONG))
-    amt = strong_a if float(score) > float(rank_strong) else base_a
+    amt = strong_a if float(score) > float(fuse_strong) else base_a
     return shares_from_amount(amt, price, lot)
 
 
@@ -437,14 +443,8 @@ def get_rank_lot_cfg(
     from core.paper.rebalance.path_matrix import get_path_matrix_cfg
 
     pm = get_path_matrix_cfg(paper=paper)
-    try:
-        enter = coerce_rank_threshold(pm.get("rank_enter", DEFAULT_RANK_ENTER), DEFAULT_RANK_ENTER)
-    except (TypeError, ValueError):
-        enter = DEFAULT_RANK_ENTER
-    try:
-        strong = coerce_rank_threshold(pm.get("rank_strong", DEFAULT_RANK_STRONG), DEFAULT_RANK_STRONG)
-    except (TypeError, ValueError):
-        strong = DEFAULT_RANK_STRONG
+    enter = _cfg_fuse_threshold(pm, "fuse_enter", DEFAULT_FUSE_ENTER)
+    strong = _cfg_fuse_threshold(pm, "fuse_strong", DEFAULT_FUSE_STRONG)
     enter = max(0.0, min(enter, 10.0))
     strong = max(0.0, min(strong, 10.0))
     if strong < enter:
@@ -472,8 +472,8 @@ def get_rank_lot_cfg(
         k = pool_cap
     lot_base_amount, lot_strong_amount = _lot_amounts_from_cfg(pm)
     return {
-        "rank_enter": enter,
-        "rank_strong": strong,
+        "fuse_enter": enter,
+        "fuse_strong": strong,
         "cash_floor": floor,
         "holdings_mv_cap": mv_cap,
         "top_k": k,
@@ -502,7 +502,7 @@ def _align_open_tc_to_fill(
     """盘中成交但 ŷ_τc 仍是开盘 Z：把 open 标签几何映到 τ→close，并写入 rot。
 
     前缀已重算（``prefix_causal`` / 带前缀特征的 fallback）则不动。
-    幂等：始终从 ``_y_τc_before_fill_align`` 映到当前 rot，避免 ranking_pct_of
+    幂等：始终从 ``_y_τc_before_fill_align`` 映到当前 rot，避免 y_oo_fuse_pct_of
     被持仓明细等路径二次调用时反复 remaining。
     """
     from core.signal.yhat_geom import remaining_at_tau
@@ -548,28 +548,29 @@ def _align_open_tc_to_fill(
     return item
 
 
-def ranking_pct_of(
+def y_oo_fuse_pct_of(
     item: Optional[dict],
     cfg: Optional[dict] = None,
     *,
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Optional[float]:
-    """调仓 ranking 百分点。
+    """调仓 y_oo_fuse 百分点。
 
     τc（行上有 y_spec）：用成交价 rot 把 ŷ_oo 映到 τ→open[T+1]，ŷ_τc 已是 τ→close。
     缺 y_spec 的旧行：开盘基准融合再减 (price(τ)/open−1)。
 
-    有 ŷ_oo/ŷ_oc 一律现算，不信落盘 ``ranking`` / ``y_fuse``（旧戳可能是 ŷ_trade）。
-    两头都抽不出时才回退显式 ranking，再回退 y_fuse。
+    有 ŷ_oo/ŷ_oc 一律现算，不信落盘 ``y_oo_fuse``（旧戳可能是 ŷ_trade）。
+    两头都抽不出时才回退显式 y_oo_fuse。
     """
     from core.signal.yhat_windows import (
         fusion_w_co_from_cfg,
         fusion_weights_from_cfg,
-        ranking_pct,
-        remaining_ranking_pct,
+        pick_y_oo_fuse,
+        remaining_y_oo_fuse_pct,
         ret_open_to_tau_pct,
         tau_model_is_open_to_close,
+        y_oo_fuse_pct,
     )
 
     if not isinstance(item, dict):
@@ -589,16 +590,14 @@ def ranking_pct_of(
     work = item
     if not is_oc and rot is not None:
         work = _align_open_tc_to_fill(item, rot=rot)
-    fused = ranking_pct(
+    fused = y_oo_fuse_pct(
         work, w_oo=w_oo, w_τc=w_τc, w_co=w_co, ret_open_to_tau=rot
     )
     if fused is None:
-        fused = _f(work.get("ranking") or work.get("ranking_pct"))
-    if fused is None:
-        fused = _f(work.get("y_fuse"))
+        fused = pick_y_oo_fuse(work)
     if fused is None:
         return None
-    return remaining_ranking_pct(fused, open_px=o, price_tau=p, is_oc_model=is_oc)
+    return remaining_y_oo_fuse_pct(fused, open_px=o, price_tau=p, is_oc_model=is_oc)
 
 
 def y_tau_of(item: Optional[dict]) -> Optional[float]:
@@ -610,7 +609,7 @@ def y_tau_of(item: Optional[dict]) -> Optional[float]:
     return None
 
 
-# 对照头透传键（不进 ranking）。旧 y_path / y_path_realized 只读，不落新行。
+# 对照头透传键（不进 y_oo_fuse）。旧 y_path / y_path_realized 只读，不落新行。
 AUX_YHAT_KEYS = (
     "y_τ30",
     "y_t30",
@@ -644,7 +643,7 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    # ŷ_oo_rank：当日截面 1..n 名次；不进 ranking/买序；可选 oo_rank_max / oo_rank_top_frac 入场闸
+    # ŷ_oo_rank：当日截面 1..n 名次；不进 y_oo_fuse；过入场后作买序；可选 oo_rank_max / oo_rank_top_frac 入场闸
     "y_oo_rank",
     "y_oo_rank_hat",
     "predicted_score_oo_rank",
@@ -660,7 +659,7 @@ def aux_yhat_fields(
     *,
     include_tau_horizons: bool = True,
 ) -> Dict[str, Any]:
-    """对照头透传：可选 y_τw / y_τ30… / y_oo_rank。不进 ranking 分数。ŷ_hl 已下线。"""
+    """对照头透传：可选 y_τw / y_τ30… / y_oo_rank。不进 y_oo_fuse；oo_rank 过入场后作买序。ŷ_hl 已下线。"""
     if not isinstance(item, dict):
         return {}
     out: Dict[str, Any] = {}
@@ -730,7 +729,7 @@ def aux_yhat_fields(
                 out["y_τw"] = yw
                 out["y_tw"] = yw
 
-    # ŷ_oo_rank：当日截面 1..n 名次（不进买序；与 τ 档无关，始终透传）
+    # ŷ_oo_rank：当日截面 1..n 名次（过入场后作买序；与 τ 档无关，始终透传）
     try:
         from core.research.oo_rank_lambdarank import (
             pick_y_oo_rank_hat,
@@ -888,13 +887,14 @@ def tip_explain_fields(item: Optional[dict]) -> Dict[str, Any]:
 
 def _debug_scores(
     item: Optional[dict],
-    ranking_pct: Optional[float],
+    fuse_pct: Optional[float],
     rs: Optional[float],
     **extra: Any,
 ) -> Dict[str, Any]:
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import (
         pick_y_co,
+        pick_y_oo_fuse,
         pick_y_τc,
         residual_pct,
     )
@@ -907,7 +907,9 @@ def _debug_scores(
     y_co = sc.get("y_co")
     if y_co is None:
         y_co = pick_y_co(item)
-    ranking = ranking_pct if ranking_pct is not None else sc.get("ranking")
+    fuse = fuse_pct if fuse_pct is not None else sc.get("y_oo_fuse")
+    if fuse is None:
+        fuse = pick_y_oo_fuse(sc, item)
     residual = sc.get("residual")
     if residual is None:
         residual = residual_pct(item)
@@ -920,8 +922,8 @@ def _debug_scores(
         "y_oo": y_oo,
         "y_co": y_co,
         "y_τc": y_τc,
-        "ranking": ranking,
-        "ranking_score": rs,
+        "y_oo_fuse": fuse,
+        "y_oo_fuse_score": rs,
         "residual": residual,
         "r_hat": r_hat,
         "remaining_oc": r_hat,
@@ -1093,17 +1095,13 @@ def plan_rank_lot_day(
     """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。
 
     ``sell_prices`` 缺省等于 ``prices``。历史回测可只给清仓回退价、买入仍走严格钟。
-    ``opens`` 为当日开盘；与 ``prices``（τ 成交价）一起把 ranking 写成
+    ``opens`` 为当日开盘；与 ``prices``（τ 成交价）一起把 y_oo_fuse 写成
     τc 几何剩余。缺 y_spec 的旧行才减 (price(τ)/open−1)；缺开盘则不扣。
     """
-    rank_enter = coerce_rank_threshold(
-        cfg.get("rank_enter"), DEFAULT_RANK_ENTER
-    )
-    rank_strong = coerce_rank_threshold(
-        cfg.get("rank_strong"), DEFAULT_RANK_STRONG
-    )
+    fuse_enter = _cfg_fuse_threshold(cfg, "fuse_enter", DEFAULT_FUSE_ENTER)
+    fuse_strong = _cfg_fuse_threshold(cfg, "fuse_strong", DEFAULT_FUSE_STRONG)
     enter_cfg = cfg
-    rank_strong_eff = rank_strong
+    fuse_strong_eff = fuse_strong
     cash_floor = float(cfg.get("cash_floor") or 0.0)
     try:
         mv_cap = float(cfg.get("holdings_mv_cap") or 0.0)
@@ -1126,7 +1124,7 @@ def plan_rank_lot_day(
             item["day_open"] = o
         if p is not None:
             item["rebalance_px"] = p
-        return ranking_pct_of(item, cfg, open_px=o, price_tau=p)
+        return y_oo_fuse_pct_of(item, cfg, open_px=o, price_tau=p)
 
     from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg
 
@@ -1263,8 +1261,16 @@ def plan_rank_lot_day(
             continue
         if rs is None:
             continue
-        cand.append((float(rs), item, rp))
-    cand.sort(key=lambda t: (-t[0], str(t[1].get("stock_code") or "")))
+        oo_rk, _ = _oo_rank_from_item(item)
+        cand.append((float(rs), item, rp, oo_rk))
+    # 过门槛后买序：oo_rank 升序（1=最好）；缺 oo_rank 回退 y_oo_fuse 降序
+    cand.sort(
+        key=lambda t: (
+            float(t[3]) if t[3] is not None else 1e18,
+            -float(t[0]),
+            str(t[1].get("stock_code") or ""),
+        )
+    )
     cand = cand[:top_k]
 
     held_codes = {
@@ -1290,7 +1296,7 @@ def plan_rank_lot_day(
             mv_sim += float(sh) * float(px)
     buys: List[dict] = []
     rank_n = len(cand)
-    for i, (rs, item, rp) in enumerate(cand, start=1):
+    for i, (rs, item, rp, _oo_rk) in enumerate(cand, start=1):
         code = str(item.get("stock_code") or "").strip()
         if not code:
             continue
@@ -1308,7 +1314,7 @@ def plan_rank_lot_day(
                 }
             )
             continue
-        is_strong = float(rs) > float(rank_strong_eff)
+        is_strong = float(rs) > float(fuse_strong_eff)
         amt = amount_strong if is_strong else amount_base
         lots = shares_from_amount(amt, px, LOT_MIN)
         lot_kind = "strong" if is_strong else "base"
@@ -1406,9 +1412,9 @@ def plan_rank_lot_day(
                 "matrix_action": act,
                 "reason": (
                     (
-                        f"ranking={rs * 100.0:.3f}%>{rank_strong * 100.0:g}% 买{lots}股"
+                        f"fuse={rs * 100.0:.3f}%>{fuse_strong * 100.0:g}% 买{lots}股"
                         if is_strong
-                        else f"ranking={rs * 100.0:.3f}%>入场{rank_enter * 100.0:g}% 买{lots}股"
+                        else f"fuse={rs * 100.0:.3f}%>入场{fuse_enter * 100.0:g}% 买{lots}股"
                     )
                     + (f"（现金不够{want}）" if lots < want else "")
                 ),
@@ -1423,8 +1429,8 @@ def plan_rank_lot_day(
         "holds": [],
         "skips": skips,
         "cash_after_plan": round(cash_sim, 2),
-        "rank_enter": rank_enter,
-        "rank_strong": rank_strong,
+        "fuse_enter": fuse_enter,
+        "fuse_strong": fuse_strong,
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
         "oo_rank_max": oo_rank_max_from_cfg(cfg),
@@ -1450,8 +1456,8 @@ __all__ = [
     "DEFAULT_CASH_FLOOR",
     "DEFAULT_HOLDINGS_MV_CAP",
     "DEFAULT_INITIAL_CASH",
-    "DEFAULT_RANK_ENTER",
-    "DEFAULT_RANK_STRONG",
+    "DEFAULT_FUSE_ENTER",
+    "DEFAULT_FUSE_STRONG",
     "DEFAULT_FUSION_W_CO",
     "LOT_AMOUNT_BASE",
     "LOT_AMOUNT_MAX",
@@ -1467,14 +1473,15 @@ __all__ = [
     "clamp_fusion_weight",
     "clamp_fusion_w_co",
     "coerce_rank_threshold",
+    "fuse_score_net",
     "get_rank_lot_cfg",
     "held_exit_reason",
     "lot_shares_for_rank",
     "plan_rank_lot_day",
     "stock_mv_cap_from_strong",
-    "ranking_pct_of",
     "rank_lot_enter_skip_reason",
     "oo_rank_max_from_cfg",
     "oo_rank_top_frac_from_cfg",
+    "y_oo_fuse_pct_of",
     "y_tau_of",
 ]

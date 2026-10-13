@@ -130,8 +130,9 @@ def dual_score_book_fields(
 
         cfg = rank_cfg if isinstance(rank_cfg, dict) else get_path_matrix_cfg(paper=paper)
         stamped = stamp_window_scores(work, cfg)
-        if stamped.get("ranking") is not None:
-            work["ranking"] = stamped.get("ranking")
+        fuse = stamped.get("y_oo_fuse")
+        if fuse is not None:
+            work["y_oo_fuse"] = fuse
         if stamped.get("y_oo") is not None:
             work["y_oo"] = stamped.get("y_oo")
         if stamped.get("y_co") is not None:
@@ -147,9 +148,9 @@ def dual_score_book_fields(
             work["score_rem"] = None
             work["predicted_score_rem"] = None
             work["y_co"] = None
-            work["ranking"] = None
+            work["y_oo_fuse"] = None
     except Exception:  # noqa: BLE001
-        logger.debug("stamp ranking in book_fields failed", exc_info=True)
+        logger.debug("stamp y_oo_fuse in book_fields failed", exc_info=True)
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
     return {
         "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
@@ -225,7 +226,7 @@ def dual_score_book_fields(
         "score_formula_co": work.get("score_formula_co"),
         "co_y_spec": work.get("co_y_spec"),
         "dual_score_co_head": work.get("dual_score_co_head"),
-        "ranking": work.get("ranking"),
+        "y_oo_fuse": work.get("y_oo_fuse"),
         "y_oo": work.get("y_oo"),
         "y_co": work.get("y_co"),
         "fusion_w_oo": work.get("fusion_w_oo"),

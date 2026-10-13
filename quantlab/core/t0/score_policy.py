@@ -580,7 +580,7 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_τc",
         "y_τc_ridge",
         "y_τc_source",
-        "ranking",
+        "y_oo_fuse",
         "y_on",
         "y_on_path",
         "y_co",
@@ -851,7 +851,7 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         from core.signal.yhat_windows import stamp_window_scores
 
         _win = stamp_window_scores(item)
-        for k in ("y_oo", "y_τc", "y_co", "ranking", "residual", "r_hat"):
+        for k in ("y_oo", "y_τc", "y_co", "y_oo_fuse", "residual", "r_hat"):
             if _win.get(k) is not None:
                 out[k] = _win[k]
     except Exception:  # noqa: BLE001

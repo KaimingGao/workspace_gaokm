@@ -269,9 +269,11 @@ export function renderRebalanceRulesHtml(execution) {
     (timing.rank_lots && typeof timing.rank_lots === "object" && timing.rank_lots) ||
     (timing.path_matrix && typeof timing.path_matrix === "object" && timing.path_matrix) ||
     {};
-  const enter = rankScoreToPct(pm.rank_enter);
+  const enter = rankScoreToPct(
+    pm.fuse_enter
+  );
   const strong = rankScoreToPct(
-    pm.rank_strong != null ? pm.rank_strong : pm.rank_enter
+    pm.fuse_strong != null ? pm.fuse_strong : pm.fuse_enter
   );
   const alpha = pm.fusion_w_co != null ? Number(pm.fusion_w_co) : 1;
   const wt = pm.fusion_w_oo != null ? Number(pm.fusion_w_oo) : 0.6;
@@ -300,12 +302,12 @@ export function renderRebalanceRulesHtml(execution) {
     ) +
     specKpi("w_co", fmtN(alpha, 1), "叠进 ŷ_τc 的隔夜系数；0=不叠") +
     specKpi(
-      "ranking",
+      "fuse",
       `${fmtN(wt, 2)}/${fmtN(wn, 2)}`,
       "w_oo / w_τc；Follow 启动时间旁单条滑条（左 oo · 右 τc）可调"
     ) +
-    specKpi("入场", `${fmtN(Number(enter), 2)}%`, "ranking 入场；与历史回测「入场·阈值%」同一键；未过则已持仓清仓") +
-    specKpi("强档", `${fmtN(Number(strong), 2)}%`, `ranking 强档；与历史回测「强档·阈值%」同一键；过强买 ${lotS} 元否则 ${lotB} 元`) +
+    specKpi("入场", `${fmtN(Number(enter), 2)}%`, "fuse 入场；与历史回测「入场·阈值%」同一键；未过则已持仓清仓") +
+    specKpi("强档", `${fmtN(Number(strong), 2)}%`, `fuse 强档；与历史回测「强档·阈值%」同一键；过强买 ${lotS} 元否则 ${lotB} 元`) +
     (() => {
       const mx = Number(pm.oo_rank_max);
       if (Number.isFinite(mx) && mx > 0) {
@@ -625,9 +627,12 @@ export function fillPathMatrixForm(root, execution) {
     if (val == null) return;
     el.value = String(val);
   };
-  set("pm_rank_enter", rankScoreToPct(pm.rank_enter));
-  set("pm_rank_strong", rankScoreToPct(pm.rank_strong != null ? pm.rank_strong : pm.rank_enter));
-  const yOoGt0 = pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : false;
+  const enterScore = pm.fuse_enter;
+  const strongScore =
+    pm.fuse_strong != null ? pm.fuse_strong : enterScore;
+  set("pm_fuse_enter", rankScoreToPct(enterScore));
+  set("pm_fuse_strong", rankScoreToPct(strongScore));
+      const yOoGt0 = pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : false;
   const yOcGt0 = pm.y_τc_gt0 != null ? !!pm.y_τc_gt0 : false;
   set("pm_y_oo_gt0", yOoGt0);
   set("pm_y_τc_gt0", yOcGt0);
@@ -740,8 +745,12 @@ export function collectPathMatrixForm(root) {
     }
     return fallback;
   };
-  let enter = rankPctToScore(num("pm_rank_enter", RANK_PCT_DEFAULT));
-  let strong = rankPctToScore(num("pm_rank_strong", RANK_PCT_DEFAULT));
+  let enter = rankPctToScore(
+    numFirst(["pm_fuse_enter"], RANK_PCT_DEFAULT)
+  );
+  let strong = rankPctToScore(
+    numFirst(["pm_fuse_strong"], RANK_PCT_DEFAULT)
+  );
   if (strong < enter) strong = enter;
   const chk = (name, fallback = true) => {
     const el = root.querySelector(`[name="${name}"]`);
@@ -773,8 +782,8 @@ export function collectPathMatrixForm(root) {
   const lots = {
         enabled: true,
         mode: "rank_lots",
-        rank_enter: enter,
-        rank_strong: strong,
+        fuse_enter: enter,
+        fuse_strong: strong,
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
         oo_rank_max: ooRankMax,
@@ -926,7 +935,7 @@ export function applyLiveFusionWeightsForClock(raw, opts) {
   return applyLiveFusionWeightsUi(preset.fusion_w_oo, preset.fusion_w_oc, opts);
 }
 
-/** 仅收集 live 启动时间 + ranking 权（交易执行页）；不改回测 fill_clock。 */
+/** 仅收集 live 启动时间 + fuse 权（交易执行页）；不改回测 fill_clock。 */
 export function collectLiveFillClockPatch() {
   const clock = readLiveFillClock();
   if (!clock) return null;

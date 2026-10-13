@@ -2,11 +2,14 @@
 
 报告包装 / Holdout OOS / 落盘启用见 ``co_ridge``。
 底层 ``collect_co_compact`` / ``fit_keepall_ridge_matrix`` 在 ``panel_matrix``。
+
+内存：面向 8GB 机器——先抽日历再拼面板（面板内会 pop bars）；拟合后不回传
+全量 ys/dates/metas，只留 train/test 切片。
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -19,6 +22,8 @@ from core.research.co_panel import (
 # canon + 裸名都豁免（旧模型 / 旁路）
 CO_MIN_STD_EXEMPT = tuple(CO_Z_FEATURES) + tuple(CO_Z_LEGACY)
 
+ProgressCb = Optional[Callable[[int, int, str], None]]
+
 
 def fit_co_ridge_matrices(
     stock_bars: Sequence[Dict[str, Any]],
@@ -30,8 +35,14 @@ def fit_co_ridge_matrices(
     holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
     cross_section_zscore: bool = True,
+    progress_cb: ProgressCb = None,
 ) -> Dict[str, Any]:
     """拼面板 + Holdout 前训 Ridge（单套 β）。不含 OOS 报告包装。"""
+    from core.research.holdout import (
+        DEFAULT_HOLDOUT_TRADING_DAYS,
+        calendar_dates_from_stock_bars,
+        resolve_ridge_split,
+    )
     from core.research.panel_matrix import (
         collect_co_compact,
         fill_rates_from_matrix,
@@ -40,7 +51,13 @@ def fit_co_ridge_matrices(
         predict_ridge_matrix,
         raw_aoo_finite,
     )
+    from core.signal.factors.alpha_oo import (
+        is_alpha_oo_raw_key,
+        merge_alpha_oo_min_std_exempt,
+    )
 
+    # collect_co_compact 会逐票 pop bars；日历必须先抽
+    calendar_dates = calendar_dates_from_stock_bars(stock_bars)
     X, col_names, ys, dates, metas, n_stocks = collect_co_compact(
         stock_bars,
         list(CO_Z_FEATURES),
@@ -48,36 +65,38 @@ def fit_co_ridge_matrices(
         gap_trigger_pct=gap_trigger_pct,
         include_alpha_oo=True,
         head="y_co",
+        progress_cb=progress_cb,
     )
-    if len(ys) < 20:
+    sample_count = len(ys)
+    if sample_count < 20:
         return {
             "success": False,
-            "error": f"on 样本不足 n={len(ys)}（需≥20）",
-            "sample_count": len(ys),
+            "error": f"on 样本不足 n={sample_count}（需≥20）",
+            "sample_count": sample_count,
             "stock_count": n_stocks,
         }
 
-    from core.research.holdout import (
-        DEFAULT_HOLDOUT_TRADING_DAYS,
-        calendar_dates_from_stock_bars,
-        resolve_ridge_split,
-    )
-    from core.signal.factors.alpha_oo import (
-        is_alpha_oo_raw_key,
-        merge_alpha_oo_min_std_exempt,
-    )
+    if callable(progress_cb):
+        try:
+            progress_cb(n_stocks, max(1, n_stocks), "ŷ_co Ridge 拟合…")
+        except Exception:  # noqa: BLE001
+            pass
 
     hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
     train_idx, test_idx, split_meta = resolve_ridge_split(
         dates,
         holdout_trading_days=hold_n,
         label_horizon_days=1,
-        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+        calendar_dates=calendar_dates,
     )
     ys_tr = [ys[i] for i in train_idx]
     ys_te = [ys[i] for i in test_idx]
     metas_tr = [metas[i] for i in train_idx]
     metas_te = [metas[i] for i in test_idx]
+    dates_tr = [dates[i] for i in train_idx]
+    dates_te = [dates[i] for i in test_idx]
+    # 全量标签/元数据已切片；释放大 list（报告侧只用 train/test）
+    del ys, dates, metas
 
     theme_w_tr = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -107,8 +126,6 @@ def fit_co_ridge_matrices(
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
     y_tr_arr = np.asarray(ys_tr, dtype=np.float64)
-    dates_tr = [dates[i] for i in train_idx]
-    dates_te = [dates[i] for i in test_idx]
     use_cs = bool(cross_section_zscore)
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
@@ -151,9 +168,7 @@ def fit_co_ridge_matrices(
         "success": True,
         "target": "overnight_gap",
         "n_stocks": n_stocks,
-        "ys": ys,
-        "dates": dates,
-        "metas": metas,
+        "sample_count": sample_count,
         "ys_tr": ys_tr,
         "ys_te": ys_te,
         "metas_tr": metas_tr,

@@ -945,7 +945,7 @@ function formatCompactOoRankTip(raw) {
     `</div>` +
     `<div class="score-hero-hint">ŷ_oo_rank · 1=最高 · 相对分 ${escapeText(
       scoreTxt
-    )} · ${backendHint} · 不进 ranking/买序</div>` +
+    )} · ${backendHint} · 不进 fuse / y_oo_fuse；过入场后作买序</div>` +
     `</div>`
   );
 }
@@ -1272,7 +1272,7 @@ export function formatNcOcSection(raw) {
   );
 }
 
-/** ranking 与表列同源：τc 为几何剩余；缺 y_spec 才整段减 rot。 */
+/** fuse / y_oo_fuse 与表列同源：τc 为几何剩余；缺 y_spec 才整段减 rot。 */
 export function formatBlendScoreSection(raw) {
   const blend = resolveRankingScore(raw);
   const yEod = resolveEodScore(raw);
@@ -1321,7 +1321,7 @@ export function formatBlendScoreSection(raw) {
         : "";
   let headHint = "";
   if (head === "single_oo" && tN != null && Number.isFinite(tN)) {
-    headHint = " · 单头：ranking=ŷ_oo（缺 ŷ_τc 权）";
+    headHint = " · 单头：fuse=ŷ_oo（缺 ŷ_τc 权）";
   } else if (head === "single_oo") {
     headHint = " · 单头降级：仅 ŷ_oo（缺 ŷ_τc）";
   } else if (head === "single_tau") {
@@ -1339,13 +1339,13 @@ export function formatBlendScoreSection(raw) {
     `<div class="score-layer-row"><span>ŷ_co</span><span class="num ${signCls(
       coN
     )}">${escapeText(coTxt)}${wCo > 1e-12 ? ` · ×${Number(wCo).toFixed(2)}` : " · 不进"}</span></div>`,
-    `<div class="score-layer-row score-layer-row-total"><span>ranking</span><span class="num ${signCls(
+    `<div class="score-layer-row score-layer-row-total"><span>fuse</span><span class="num ${signCls(
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
   let rRank =
-    raw && raw.realized_ranking != null && Number.isFinite(Number(raw.realized_ranking))
-      ? Number(raw.realized_ranking)
+    raw && raw.y_oo_fuse_realized != null && Number.isFinite(Number(raw.y_oo_fuse_realized))
+      ? Number(raw.y_oo_fuse_realized)
       : null;
   const rOo =
     raw && raw.realized_oo != null && Number.isFinite(Number(raw.realized_oo))
@@ -1405,7 +1405,7 @@ export function formatBlendScoreSection(raw) {
       head.startsWith("single") || (yCheck && yCheck !== "ok") ? " is-warn" : ""
     }">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ranking · 预估(真实)${
+    `<div class="score-hero-label">fuse · 预估(真实)${
       head.startsWith("single") ? " · 单头" : ""
     }${yCheck && yCheck !== "ok" ? " · Y校验" : ""}</div>` +
     `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}${
@@ -2491,7 +2491,7 @@ export function createScoreTooltipController() {
   }
 
   function resolveScoreTipMode(cell) {
-    if (!cell) return "ranking";
+    if (!cell) return "fuse";
     const tip = String(cell.dataset.scoreTip || "").trim().toLowerCase();
     if (tip === "eod") return "eod";
     if (tip === "nowcast" || tip === "nc") return "nowcast";
@@ -2506,7 +2506,8 @@ export function createScoreTooltipController() {
     // ŷ_hl tip 已退役：hl/path/yhl 不再开组成 tip
     if (tip === "tw" || tip === "τw" || tip === "ytw") return "tw";
     if (tip === "on" || tip === "co") return "on";
-    if (tip === "ranking" || tip === "trade" || tip === "score") return "ranking";
+    if (tip === "fuse" || tip === "y_oo_fuse" || tip === "trade" || tip === "score")
+      return "fuse";
     if (tip === "oo_rank" || tip === "rank" || tip === "y_oo_rank") return "oo_rank";
     if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
@@ -2541,7 +2542,7 @@ export function createScoreTooltipController() {
     )
       return "tw";
     if (cell.classList.contains("watching-score-on")) return "on";
-    return "ranking";
+    return "fuse";
   }
 
   function showCompactScoreTip(cell, html, { sticky = false } = {}) {
@@ -2740,7 +2741,7 @@ export function createScoreTooltipController() {
       return;
     }
 
-    if (tipMode === "ranking") {
+    if (tipMode === "fuse") {
       let blendHtml = formatBlendScoreSection(raw);
       if (!blendHtml) {
         const ranked = resolveRankingScore(raw);
@@ -2748,7 +2749,7 @@ export function createScoreTooltipController() {
         blendHtml =
           `<div class="score-layer score-layer-blend">` +
           `<div class="score-layer-head">` +
-          `<div class="score-hero-label">ranking</div>` +
+          `<div class="score-hero-label">fuse</div>` +
           `<div class="score-hero-value ${signCls(ranked)}">${escapeText(val)}</div>` +
           `</div>` +
           `<div class="score-hero-hint">w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=(open[T+1]−price(τ))/open[T]</div>` +
@@ -2820,7 +2821,7 @@ export function createScoreTooltipController() {
       return;
 
     let html = '<div class="score-detail">';
-    // ranking 列：先融合组成，再拆 ŷ_τc / ŷ_oo（g 只在 eod 列，nowcast 只在 nowcast 列）
+    // fuse 列：先融合组成，再拆 ŷ_τc / ŷ_oo（g 只在 eod 列，nowcast 只在 nowcast 列）
     html += formatBlendScoreSection(raw);
     html += formatRemScoreSection(raw);
     html += formatFormulaTermsSection(raw, { key: "tau" });

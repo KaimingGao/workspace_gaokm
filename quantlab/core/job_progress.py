@@ -391,12 +391,22 @@ class JobProgress:
                 or msg.startswith("回测入队")
             )
             threshold = stuck_start_sec if stuck_at_start else stale_sec
-            if stale < threshold:
+            # 心跳会刷 updated_at；进度长期 0 时改看 started_at，避免假活锁槽
+            cur = int(self._job.get("current") or 0)
+            try:
+                started_age = max(
+                    0.0, time.time() - float(self._job.get("started_at") or 0.0)
+                )
+            except (TypeError, ValueError):
+                started_age = stale
+            zero_progress_stuck = cur <= 0 and started_age >= stuck_start_sec
+            if stale < threshold and not zero_progress_stuck:
                 return False
+            age_show = int(started_age if zero_progress_stuck else stale)
             self._job["cancel_requested"] = True
             self._job["status"] = "failed"
             self._job["error"] = (
-                f"{label}无进展已 {int(stale)}s，已自动释放（{msg or 'running'}）"
+                f"{label}无进展已 {age_show}s，已自动释放（{msg or 'running'}）"
             )
             self._job["message"] = "已中断"
             self._job["updated_at"] = time.time()

@@ -62,8 +62,8 @@ class TestDailyTopkDefaults(unittest.TestCase):
     def test_daily_bt_option_defaults_align_replay(self):
         from quant.research.portfolio_data import (
             DAILY_BT_UI_LOOKBACK,
-            DAILY_BT_UI_RANK_ENTER,
-            DAILY_BT_UI_RANK_STRONG,
+            DAILY_BT_UI_FUSE_ENTER,
+            DAILY_BT_UI_FUSE_STRONG,
             DAILY_BT_UI_FUSION_W_CO,
             daily_bt_option_defaults,
             resolve_daily_replay_kwargs,
@@ -74,8 +74,8 @@ class TestDailyTopkDefaults(unittest.TestCase):
         self.assertEqual(opts["engine"], "paper_replay")
         self.assertEqual(opts["lookback"], DAILY_BT_UI_LOOKBACK)
         self.assertEqual(opts["fusion_w_co"], DAILY_BT_UI_FUSION_W_CO)
-        self.assertAlmostEqual(opts["rank_enter"], DAILY_BT_UI_RANK_ENTER)
-        self.assertAlmostEqual(opts["rank_strong"], DAILY_BT_UI_RANK_STRONG)
+        self.assertAlmostEqual(opts["fuse_enter"], DAILY_BT_UI_FUSE_ENTER)
+        self.assertAlmostEqual(opts["fuse_strong"], DAILY_BT_UI_FUSE_STRONG)
         self.assertEqual(opts["lookback"], d["lookback"])
         self.assertTrue(opts["apply_costs"])
         self.assertIn("paper_max_positions", opts)
@@ -92,12 +92,12 @@ class TestDailyTopkDefaults(unittest.TestCase):
         from quant.research.portfolio_data import resolve_daily_replay_kwargs
 
         got = resolve_daily_replay_kwargs(
-            lookback=60, fusion_w_co=0.4, rank_enter=0.015, rank_strong=0.03
+            lookback=60, fusion_w_co=0.4, fuse_enter=0.015, fuse_strong=0.03
         )
         self.assertEqual(got["lookback"], 60)
         self.assertEqual(got["fusion_w_co"], 0.4)
-        self.assertAlmostEqual(got["rank_enter"], 0.015)
-        self.assertAlmostEqual(got["rank_strong"], 0.03)
+        self.assertAlmostEqual(got["fuse_enter"], 0.015)
+        self.assertAlmostEqual(got["fuse_strong"], 0.03)
         self.assertEqual(got["engine"], "paper_replay")
 
     def test_replay_lookback_10_allowed(self):
@@ -201,8 +201,8 @@ class TestTopkParamsDisclose(unittest.TestCase):
     def _fake_replay(self, **overrides):
         params = {
             "engine": "paper_replay",
-            "rank_enter": 0.012,
-            "rank_strong": 0.012,
+            "fuse_enter": 0.012,
+            "fuse_strong": 0.012,
             "fusion_w_co": 0.0,
             "lookback": 30,
             "cost_model": "simple_cn",
@@ -266,14 +266,14 @@ class TestTopkParamsDisclose(unittest.TestCase):
         ), patch(
             "core.backtest.paper_replay.backtest_paper_replay",
             return_value=self._fake_replay(
-                fusion_w_co=0.5, rank_enter=0.015, rank_strong=0.03
+                fusion_w_co=0.5, fuse_enter=0.015, fuse_strong=0.03
             ),
         ) as bt_mock:
             out = summarize_portfolio_backtest(
                 codes=["600519", "600036"],
                 fusion_w_co=0.5,
-                rank_enter=0.015,
-                rank_strong=0.03,
+                fuse_enter=0.015,
+                fuse_strong=0.03,
                 lookback=30,
             )
         self.assertTrue(out.get("success"), out.get("error"))

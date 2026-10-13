@@ -262,128 +262,59 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(out.get("600519"), "贵州茅台")
         self.assertEqual(out.get("300750"), "宁德时代")
 
-    def test_clamp_a_hit(self):
-        from core.research.predictability_tiers import clamp_a_hit
+    def test_assign_tiers_by_rank_score(self):
+        from core.research.predictability_tiers import assign_tiers_by_rank_score
 
-        self.assertAlmostEqual(clamp_a_hit(0.60), 0.60)
-        self.assertAlmostEqual(clamp_a_hit(0.4), 0.45)
-        self.assertAlmostEqual(clamp_a_hit(0.95), 0.90)
-        self.assertAlmostEqual(clamp_a_hit("bad"), 0.60)
-        self.assertAlmostEqual(clamp_a_hit(None), 0.60)
+        # 8 票：A=1、B=3 → 1 只 A、3 只 B、其余 C
+        rows = [
+            {
+                "code": f"{i:06d}",
+                "hit_rate": 0.9 - i * 0.05,
+                "n_valid": 10,
+                "hit_rate_tau": 0.85 - i * 0.04,
+                "n_valid_tau": 10,
+            }
+            for i in range(8)
+        ]
+        assign_tiers_by_rank_score(rows, require_tau=True, a_count=1, b_count=3)
+        by = {r["code"]: r for r in rows}
+        self.assertEqual(by["000000"]["tier"], "A")
+        self.assertEqual(by["000001"]["tier"], "B")
+        self.assertEqual(by["000002"]["tier"], "B")
+        self.assertEqual(by["000003"]["tier"], "B")
+        self.assertEqual(by["000004"]["tier"], "C")
+        self.assertEqual(by["000007"]["tier"], "C")
+        self.assertGreater(by["000000"]["score"], by["000001"]["score"])
+        self.assertEqual(by["000000"]["rank_oo"], 1)
+        self.assertEqual(by["000000"]["rank_tau"], 1)
 
-    def test_assign_tier_thresholds(self):
-        from core.research.predictability_tiers import (
-            a_min_n_from_tier_n,
-            assign_tier,
-        )
+        # 无样本 → C，不占 A/B 名额
+        small = [
+            {"code": "a", "hit_rate": 0.8, "n_valid": 5},
+            {"code": "b", "hit_rate": 0.7, "n_valid": 5},
+            {"code": "c", "hit_rate": None, "n_valid": 0},
+        ]
+        assign_tiers_by_rank_score(small, require_tau=False, a_count=1, b_count=0)
+        by2 = {r["code"]: r for r in small}
+        self.assertEqual(by2["a"]["tier"], "A")
+        self.assertEqual(by2["b"]["tier"], "C")
+        self.assertEqual(by2["c"]["tier"], "C")
+        self.assertIsNone(by2["c"]["score"])
 
-        self.assertEqual(a_min_n_from_tier_n(40), 20)  # 分档窗 40 日的 50%；Holdout40 的窗是前半 20 日
-        self.assertEqual(a_min_n_from_tier_n(20), 10)
-        self.assertEqual(a_min_n_from_tier_n(21), 11)
-        # 默认 a_min_n=10（未知窗回退）；命中 ≥60%。单票 IC 不参与定档
-        self.assertEqual(assign_tier(0.60, 10, ic=0.1), "A")
-        self.assertEqual(assign_tier(0.61, 10, ic=0.1), "A")
-        self.assertEqual(assign_tier(0.599, 25, ic=0.2), "B")  # 命中率须 ≥60%
-        self.assertEqual(assign_tier(0.61, 9, ic=0.2), "B")  # N 须 ≥10
-        self.assertEqual(assign_tier(0.61, 10, ic=0.0), "A")
-        self.assertEqual(assign_tier(0.61, 10, ic=-0.05), "A")
-        self.assertEqual(assign_tier(0.61, 10), "A")
-        self.assertEqual(assign_tier(0.60, 20, ic=0.3), "A")
-        self.assertEqual(assign_tier(0.55, 20, a_hit=0.55), "A")  # 显式 55%
-        self.assertEqual(assign_tier(0.52, 25), "B")
-        self.assertEqual(assign_tier(0.50, 25), "B")
-        self.assertEqual(assign_tier(0.49, 25), "C")
-        # B 有 τc 闸：Y_oo≥50% 但 Y_τc 不足 → C
-        self.assertEqual(
-            assign_tier(
-                0.52,
-                25,
-                hit_rate_tau=0.40,
-                n_valid_tau=10,
-                require_tau=True,
-            ),
-            "C",
-        )
-        self.assertEqual(
-            assign_tier(
-                0.52,
-                25,
-                hit_rate_tau=0.50,
-                n_valid_tau=3,
-                require_tau=True,
-            ),
-            "B",
-        )
-        self.assertEqual(assign_tier(0.90, 10), "A")
-        self.assertEqual(assign_tier(0.40, 10), "C")
-        self.assertEqual(assign_tier(0.0, 2), "C")
-        self.assertEqual(assign_tier(0.50, 5), "B")
+    def test_assign_tier_compat(self):
+        from core.research.predictability_tiers import assign_tier
+
+        self.assertEqual(assign_tier(0.60, 10), "B")
         self.assertEqual(assign_tier(None, 0), "C")
         self.assertEqual(assign_tier(0.8, 0), "C")
-        self.assertEqual(assign_tier(None, 8), "C")
-        # 显式传入分档窗 50% 门槛
         self.assertEqual(
-            assign_tier(0.60, 10, ic=0.1, a_min_n=a_min_n_from_tier_n(20)), "A"
+            assign_tier(0.6, 10, hit_rate_tau=0.5, n_valid_tau=5, require_tau=True),
+            "B",
         )
-        # 有 τc 闸：oo 过 A 但 τc 低于 B(50%) → C
         self.assertEqual(
-            assign_tier(
-                0.60,
-                10,
-                hit_rate_tau=0.40,
-                n_valid_tau=10,
-                tau_a_hit=0.60,
-                require_tau=True,
-            ),
+            assign_tier(0.6, 10, hit_rate_tau=None, n_valid_tau=0, require_tau=True),
             "C",
         )
-        # oo 过 A、τc 在 B～A 之间 → B
-        self.assertEqual(
-            assign_tier(
-                0.60,
-                10,
-                hit_rate_tau=0.55,
-                n_valid_tau=10,
-                tau_a_hit=0.60,
-                require_tau=True,
-            ),
-            "B",
-        )
-        self.assertEqual(
-            assign_tier(
-                0.60,
-                10,
-                hit_rate_tau=0.60,
-                n_valid_tau=10,
-                tau_a_hit=0.60,
-                require_tau=True,
-            ),
-            "A",
-        )
-        self.assertEqual(
-            assign_tier(
-                0.60,
-                10,
-                hit_rate_tau=0.90,
-                n_valid_tau=5,
-                tau_a_hit=0.60,
-                require_tau=True,
-                a_min_n=10,
-            ),
-            "B",
-        )
-        # 无 τc 闸时忽略 hit_rate_tau
-        self.assertEqual(
-            assign_tier(0.60, 10, hit_rate_tau=0.0, n_valid_tau=0, require_tau=False),
-            "A",
-        )
-
-    def test_clamp_tau_a_hit(self):
-        from core.research.predictability_tiers import clamp_tau_a_hit
-
-        self.assertAlmostEqual(clamp_tau_a_hit(0.60), 0.60)
-        self.assertAlmostEqual(clamp_tau_a_hit(0.3), 0.45)
-        self.assertAlmostEqual(clamp_tau_a_hit(0.99), 0.90)
 
     def test_split_holdout_half_dates(self):
         from core.research.predictability_tiers import (
@@ -544,6 +475,8 @@ class TestPredictabilityTiers(unittest.TestCase):
                     min_n=3,
                     head="oo",
                     persist=True,
+                    a_count=1,
+                    b_count=0,
                     watching_codes=["000001", "000002", "600000"],
                 )
                 self.assertTrue(rep.get("success"), rep)
@@ -571,10 +504,15 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertEqual(by["000001"]["tier"], "A")
                 self.assertEqual(by["000002"]["tier"], "C")
                 self.assertTrue((rep.get("thresholds") or {}).get("require_tau"))
-                self.assertIn("tau_a_hit", rep.get("thresholds") or {})
+                thr = rep.get("thresholds") or {}
+                self.assertEqual(int(thr.get("a_count")), 1)
+                self.assertEqual(int(thr.get("b_count")), 0)
+                self.assertIn("1/rank", str(thr.get("score") or ""))
                 self.assertIn("cs_by_tier_tau", rep)
                 self.assertIn("hit_rate_tau", by["000001"])
                 self.assertGreaterEqual(float(by["000001"]["hit_rate_tau"] or 0), 0.55)
+                self.assertIsNotNone(by["000001"].get("score"))
+                self.assertEqual(by["000001"].get("rank_oo"), 1)
                 self.assertEqual(by["600000"]["tier"], "C")  # pad missing
                 self.assertEqual(by["000001"].get("name"), "平安银行")
                 self.assertEqual(by["000002"].get("name"), "万科A")
@@ -688,6 +626,8 @@ class TestPredictabilityTiers(unittest.TestCase):
                 min_n=5,
                 head="oo",
                 persist=False,
+                a_count=1,
+                b_count=1,
             )
             self.assertTrue(rep.get("success"), rep)
             self.assertEqual(rep.get("pool"), "watching")
@@ -704,6 +644,8 @@ class TestPredictabilityTiers(unittest.TestCase):
                 min_n=5,
                 head="oo",
                 persist=False,
+                a_count=1,
+                b_count=1,
             )
             ru_codes = {r["code"] for r in ru.get("rows") or []}
             self.assertIn("000099", ru_codes)
@@ -715,6 +657,8 @@ class TestPredictabilityTiers(unittest.TestCase):
                 min_n=5,
                 head="oo",
                 persist=False,
+                a_count=1,
+                b_count=1,
             )
             self.assertEqual(led.get("pool"), "watching")
 

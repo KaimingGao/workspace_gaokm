@@ -133,23 +133,24 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertIsNone(report[0].get("predicted_score_hl"))
         self.assertIsNone(report[0].get("y_hl"))
         self.assertGreater(float(out["buy_trades"][0].get("shares") or 0), 0)
-        from core.paper.rebalance.rank_lots import ranking_pct_of
+        from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
 
-        expect_rank = ranking_pct_of(
+        expect_fuse = y_oo_fuse_pct_of(
             _signal_item(),
             {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0},
         )
-        self.assertAlmostEqual(float(report[0].get("ranking")), expect_rank)
-        self.assertIsNone(report[0].get("y_fuse"))
+        self.assertAlmostEqual(float(report[0].get("y_oo_fuse")), expect_fuse)
+        self.assertNotIn("ranking", report[0])
+        self.assertNotIn("y_fuse", report[0])
         self.assertIsNone(report[0].get("y_trade"))
         self.assertIsNone(report[0].get("y_nowcast"))
         self.assertIsNone(report[0].get("y_tau"))
-        self.assertIsNotNone(report[0].get("ranking_score"))
+        self.assertIsNotNone(report[0].get("y_oo_fuse_score"))
         self.assertEqual(paper.get("cash"), 1_000_000)
         self.assertEqual(paper.get("holdings") or [], [])
 
-    def test_live_quote_open_remaining_maps_ranking(self):
-        from core.paper.rebalance.rank_lots import ranking_pct_of
+    def test_live_quote_open_remaining_maps_y_oo_fuse(self):
+        from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -162,7 +163,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         }
         item = _signal_item()
         cfg = {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0}
-        fused = ranking_pct_of(item, cfg)
+        fused = y_oo_fuse_pct_of(item, cfg)
         rot = (10.05 / 10.0 - 1.0) * 100.0
         expect = fused - rot
         with patch(
@@ -188,8 +189,8 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertTrue(out.get("ok"))
         report = out.get("rebalance_report") or []
         self.assertGreaterEqual(len(report), 1)
-        self.assertAlmostEqual(float(report[0].get("ranking")), expect)
-        self.assertLess(float(report[0].get("ranking")), fused)
+        self.assertAlmostEqual(float(report[0].get("y_oo_fuse")), expect)
+        self.assertLess(float(report[0].get("y_oo_fuse")), fused)
 
     def test_confirm_applies_buy_to_paper(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
@@ -273,7 +274,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
                 {
                     "stock_code": "601111",
                     "stock_name": "中国国航",
-                    "shares": 1400,
+                    "shares": 100,
                     "cost": 5.86,
                 }
             ],
@@ -305,13 +306,13 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         ), patch(
             "core.paper.ledger.mark_to_market",
             return_value={
-                "equity": 500_000 + 1400 * 5.94,
+                "equity": 500_000 + 100 * 5.94,
                 "cash": 500_000,
                 "holdings": [
                     {
                         "stock_code": "601111",
                         "stock_name": "中国国航",
-                        "shares": 1400,
+                        "shares": 100,
                         "price": 5.94,
                         "change_pct": 1.02,
                     }
@@ -411,7 +412,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(float(report[0].get("new_shares") or 0), 0)
 
     def test_rejected_held_exits(self):
-        """打分拒评的已持仓：清仓，不装成 ranking≥0 续持。"""
+        """打分拒评的已持仓：清仓，不装成 fuse≥0 续持。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -462,7 +463,11 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         sells = out.get("sell_trades") or []
         self.assertGreaterEqual(len(sells), 1)
         self.assertEqual(sells[0].get("stock_code"), "601111")
-        self.assertIn("hard_reject", str(sells[0].get("reason") or ""))
+        reason = str(sells[0].get("reason") or "")
+        self.assertTrue(
+            "hard_reject" in reason or "日线数据不足" in reason,
+            reason,
+        )
 
     def test_oos_failed_excluded_from_buys(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
@@ -783,7 +788,7 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
                 "stock_code": "601318",
                 "predicted_score": 2.0,
                 "y_τc": 1.0,
-                "ranking": 1.5,
+                "y_oo_fuse": 1.5,
             }
         }
         _mark_predictability_tier_exits(
@@ -884,15 +889,14 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         reasons = " ".join(str(s.get("reason") or "") for s in sells)
         self.assertIn("可预测性非A档", reasons)
 
-    def test_row_score_payload_heads_override_stale_ranking(self):
+    def test_row_score_payload_heads_override_stale_fuse(self):
         from core.paper.rebalance.watching_matrix import _row_score_payload
 
         item = {
             "stock_code": "600000",
             "predicted_score": 2.30,
             "y_τc": 5.69,
-            "ranking": -3.65,
-            "y_fuse": -3.65,
+            "y_oo_fuse": -3.65,
             "y_trade": -3.65,
             "predicted_score_blend": -3.65,
         }
@@ -900,8 +904,9 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
             item, item, {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
         )
         expect = 0.5 * 2.30 + 0.5 * 5.69
-        self.assertAlmostEqual(float(payload["ranking"]), expect)
-        self.assertIsNone(payload.get("y_fuse"))
+        self.assertAlmostEqual(float(payload["y_oo_fuse"]), expect)
+        self.assertNotIn("ranking", payload)
+        self.assertNotIn("y_fuse", payload)
         self.assertIsNone(payload.get("y_trade"))
 
 

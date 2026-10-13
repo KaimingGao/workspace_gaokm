@@ -333,14 +333,14 @@ export function installBacktest(q) {
     const p = (ps && ps.params) || {};
     const cost = ps && ps.cost_model === "zero" ? "零成本" : "含成本";
     const engine = String(p.engine || "");
-    if (engine === "paper_replay" || p.rank_enter != null) {
+    if (engine === "paper_replay" || p.fuse_enter != null) {
       const lb = p.lookback != null ? p.lookback : "—";
       const clock = p.fill_clock || "09:30";
       const alpha = p.fusion_w_co != null ? p.fusion_w_co : "—";
       const wt = p.fusion_w_oo != null ? p.fusion_w_oo : "—";
       const wn = p.fusion_w_oc != null ? p.fusion_w_oc : "—";
       const lotB = p.lot_base_amount != null ? p.lot_base_amount : "—";
-      const n = Number(p.rank_enter);
+      const n = Number(p.fuse_enter);
       const enter = Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : "—";
       const predOn = p.use_predictability_tiers === true;
       const predT = Array.isArray(p.predictability_tiers)
@@ -424,12 +424,17 @@ export function installBacktest(q) {
       const n = Number(req.fusion_w_co);
       if (Number.isFinite(n)) setName("pm_fusion_w_co", Math.max(0, Math.min(10, n)));
     }
-    const enterPct = scoreToRankPct(req.rank_enter);
+    const enterScore = req.fuse_enter;
+    const strongScore =
+      req.fuse_strong != null ? req.fuse_strong : enterScore;
+    const enterPct = scoreToRankPct(enterScore);
     if (enterPct) {
-      setName("pm_rank_enter", enterPct);
+      setName("pm_fuse_enter", enterPct);
     }
-    const strongPct = scoreToRankPct(req.rank_strong != null ? req.rank_strong : req.rank_enter);
-    if (strongPct) setName("pm_rank_strong", strongPct);
+    const strongPct = scoreToRankPct(strongScore);
+    if (strongPct) {
+      setName("pm_fuse_strong", strongPct);
+    }
     const setChk = (name, val, fallback) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (!el || el.type !== "checkbox") return;
@@ -799,9 +804,12 @@ export function installBacktest(q) {
           lots.oo_rank_max != null && Number(lots.oo_rank_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_max))))
             : null;
+        const enter = lots.fuse_enter;
+        const strong =
+          lots.fuse_strong != null ? lots.fuse_strong : enter;
         return {
-          rank_enter: lots.rank_enter,
-          rank_strong: lots.rank_strong,
+          fuse_enter: enter,
+          fuse_strong: strong,
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
           oo_rank_max: ooMax,
@@ -810,7 +818,12 @@ export function installBacktest(q) {
       }
     }
     const enter = rankPctToScore();
-    return { rank_enter: enter, rank_strong: enter, oo_rank_max: 10, oo_rank_top_frac: null };
+    return {
+      fuse_enter: enter,
+      fuse_strong: enter,
+      oo_rank_max: 10,
+      oo_rank_top_frac: null,
+    };
   }
 
   const FILL_CLOCK_KEY = "paper.replay.fill_clock";
@@ -1448,8 +1461,8 @@ export function installBacktest(q) {
         fusion_w_co,
         fusion_w_oo,
         fusion_w_oc,
-        rank_enter,
-        rank_strong,
+        fuse_enter,
+        fuse_strong,
         y_oo_gt0,
         y_τc_gt0,
         oo_rank_max,
@@ -1463,6 +1476,9 @@ export function installBacktest(q) {
         predictability_head,
         price_space_gate,
       } = readPortfolioBtParams();
+      const enterThresh = fuse_enter;
+      const strongThresh =
+        fuse_strong != null ? fuse_strong : enterThresh;
       const cashWan = Number.isFinite(Number(initial_cash))
         ? String(Number(initial_cash) / 10000).replace(/\.0$/, "")
         : "20";
@@ -1496,8 +1512,8 @@ export function installBacktest(q) {
         fusion_w_co,
         fusion_w_oo,
         fusion_w_oc,
-        rank_enter,
-        rank_strong,
+        fuse_enter: enterThresh,
+        fuse_strong: strongThresh,
         y_oo_gt0: y_oo_gt0 === true,
         y_τc_gt0: y_τc_gt0 === true,
         oo_rank_max:

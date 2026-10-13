@@ -55,8 +55,8 @@ class DailyRunService:
         export_quant_report: Optional[bool] = None,
         lookback: Optional[int] = None,
         fusion_w_co: Optional[float] = None,
-        rank_enter: Optional[float] = None,
-        rank_strong: Optional[float] = None,
+        fuse_enter: Optional[float] = None,
+        fuse_strong: Optional[float] = None,
     ) -> Dict[str, Any]:
         overrides = {
             k: v
@@ -288,8 +288,8 @@ class DailyRunService:
                     include_cross_section=cross_section,
                     lookback=lookback,
                     fusion_w_co=fusion_w_co,
-                    rank_enter=rank_enter,
-                    rank_strong=rank_strong,
+                    fuse_enter=fuse_enter,
+                    fuse_strong=fuse_strong,
                 )
                 path = qs.save_daily_report(quant_report_payload)
                 step: Dict[str, Any] = {
@@ -299,8 +299,8 @@ class DailyRunService:
                     "factor_sample_count": (quant_report_payload.get("factor_ic") or {}).get("sample_count"),
                     "lookback": lookback,
                     "fusion_w_co": fusion_w_co,
-                    "rank_enter": rank_enter,
-                    "rank_strong": rank_strong,
+                    "fuse_enter": fuse_enter,
+                    "fuse_strong": fuse_strong,
                 }
                 if export_quant_report and quant_report_payload:
                     exported = qs.save_report_exports(quant_report_payload)

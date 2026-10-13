@@ -72,9 +72,9 @@ export function holdingToRow(
         ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
         : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
       : singleHead
-        ? `ranking 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
+        ? `fuse 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
-        ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 ranking）· 悬停看详情`
+        ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 fuse）· 悬停看详情`
         : RANKING_REBALANCE_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
@@ -186,7 +186,7 @@ const COLS = [
     defaultDir: "asc",
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
-    title: "可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 ranking 从高到低",
+    title: "可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 fuse 从高到低",
   },
   {
     id: "sent",
@@ -248,7 +248,7 @@ const COLS = [
   },
   {
     id: "score",
-    label: "ranking",
+    label: "fuse",
     width: 94,
     num: true,
     sortable: true,
@@ -466,7 +466,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         }
         return (
           `<span class="paper-hold-score has-tip ${escapeHtml(d.scoreCls || "")}" ` +
-          `data-score-detail="${escapeHtml(detail)}" data-score-tip="ranking" title="${escapeHtml(title)}">` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="fuse" title="${escapeHtml(title)}">` +
           `${escapeHtml(d.scoreText || "—")}${badge}</span>`
         );
       }

@@ -145,7 +145,7 @@ class SignalService:
         """持仓表列行：heuristic 不进表列 score；ŷ 走 decision_score。
 
         ``rank_cfg`` 为 rank_lots 权（fusion_w_oo/oc/co）；缺则默认 0.5/0.5/0。
-        表列 ranking 由 ŷ_oo/ŷ_τc 现算，不用 dual_score 缺口抬升的 ŷ_trade。
+        表列 y_oo_fuse（UI fuse）由 ŷ_oo/ŷ_τc 现算，不用 dual_score 缺口抬升的 ŷ_trade。
         """
         from core.signal.dual_score import (
             decision_score_for_item,
@@ -252,7 +252,7 @@ class SignalService:
                     "open_t",
                     "open_t_source",
                     "factor_anomaly",
-                    "ranking",
+                    "y_oo_fuse",
                     "fusion_w_oo",
                     "fusion_w_oc",
                     "fusion_w_co",
@@ -268,7 +268,7 @@ class SignalService:
 
             cfg = rank_cfg if isinstance(rank_cfg, dict) else get_path_matrix_cfg()
             stamped = stamp_window_scores(packed, cfg)
-            for k in ("y_oo", "y_co", "y_τc", "ranking"):
+            for k in ("y_oo", "y_co", "y_τc", "y_oo_fuse"):
                 if stamped.get(k) is not None:
                     out[k] = stamped[k]
             fa = packed.get("factor_anomaly") or out.get("factor_anomaly")
@@ -276,7 +276,7 @@ class SignalService:
                 out["y_τc"] = None
                 out["predicted_score_τc"] = None
                 out["y_co"] = None
-                out["ranking"] = None
+                out["y_oo_fuse"] = None
             if cfg.get("fusion_w_oo") is not None:
                 out["fusion_w_oo"] = cfg.get("fusion_w_oo")
             if cfg.get("fusion_w_oc") is not None:
@@ -284,7 +284,7 @@ class SignalService:
             if cfg.get("fusion_w_co") is not None:
                 out["fusion_w_co"] = cfg.get("fusion_w_co")
         except Exception:  # noqa: BLE001
-            logger.debug("stamp holding ranking failed", exc_info=True)
+            logger.debug("stamp holding y_oo_fuse failed", exc_info=True)
         sr = ScoreResult.from_score_stock(
             {"success": True, "stock_code": packed.get("stock_code"), "signal_item": packed}
         )

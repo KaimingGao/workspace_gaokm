@@ -314,12 +314,12 @@ class QuantOpsMixin:
         include_portfolio_backtest: bool = True,
         lookback: Optional[int] = None,
         fusion_w_co: Optional[float] = None,
-        rank_enter: Optional[float] = None,
-        rank_strong: Optional[float] = None,
+        fuse_enter: Optional[float] = None,
+        fuse_strong: Optional[float] = None,
     ) -> Dict[str, Any]:
         """量化日报：主叙事=组ŷ / 簿 / OOS / 横截面ŷ / 历史回测（rank_lots）。
 
-        历史回测缺省对齐 /replay：paper_replay · α / rank入场 1.2% / rank强 1.2% / lookback 30（下限 10）。
+        历史回测缺省对齐 /replay：paper_replay · α / fuse入场 / fuse强 / lookback 30（下限 10）。
         """
         cfg = self.config_summary()
 
@@ -328,10 +328,10 @@ class QuantOpsMixin:
             portfolio_bt_kwargs["lookback"] = int(lookback)
         if fusion_w_co is not None:
             portfolio_bt_kwargs["fusion_w_co"] = float(fusion_w_co)
-        if rank_enter is not None:
-            portfolio_bt_kwargs["rank_enter"] = float(rank_enter)
-        if rank_strong is not None:
-            portfolio_bt_kwargs["rank_strong"] = float(rank_strong)
+        if fuse_enter is not None:
+            portfolio_bt_kwargs["fuse_enter"] = float(fuse_enter)
+        if fuse_strong is not None:
+            portfolio_bt_kwargs["fuse_strong"] = float(fuse_strong)
         portfolio_summary = (
             self.portfolio_daily_summary(**portfolio_bt_kwargs)
             if include_portfolio_backtest

@@ -96,6 +96,12 @@ def fit_co_tree_report(
     ``window_days>0``：训练日滑窗，每窗 ``init_model`` 增量加树（总轮数均分）。
     """
     t0 = time.perf_counter()
+    from core.research.holdout import (
+        DEFAULT_HOLDOUT_TRADING_DAYS,
+        attach_holdout_meta,
+        calendar_dates_from_stock_bars,
+        resolve_ridge_split,
+    )
     from core.research.panel_matrix import (
         collect_co_compact,
         keepall_ridge_oos,
@@ -105,6 +111,8 @@ def fit_co_tree_report(
     )
     from core.research.tau_panel import theme_sample_weights
 
+    # collect_co_compact 会逐票 pop bars；Holdout 日历须先抽
+    calendar_dates = calendar_dates_from_stock_bars(stock_bars)
     t_panel0 = time.perf_counter()
     X, col_names, ys, dates, metas, n_stocks = collect_co_compact(
         stock_bars,
@@ -151,19 +159,12 @@ def fit_co_tree_report(
             "backtest_hook": False,
         }
 
-    from core.research.holdout import (
-        DEFAULT_HOLDOUT_TRADING_DAYS,
-        attach_holdout_meta,
-        calendar_dates_from_stock_bars,
-        resolve_ridge_split,
-    )
-
     hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
     train_idx, test_idx, split_meta = resolve_ridge_split(
         dates,
         holdout_trading_days=hold_n,
         label_horizon_days=1,
-        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+        calendar_dates=calendar_dates,
     )
     ys_tr = [ys[i] for i in train_idx]
     ys_te = [ys[i] for i in test_idx]

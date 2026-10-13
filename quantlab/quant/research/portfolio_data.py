@@ -19,16 +19,16 @@ DAILY_BT_UI_TOP_K = 3  # 仅中性化对照 / 旧 API；主回测不再截 Top-K
 DAILY_BT_UI_HORIZON_DAYS = 1
 DAILY_BT_UI_LOOKBACK = 30
 DAILY_BT_UI_FUSION_W_CO = 0.0
-DAILY_BT_UI_RANK_ENTER = REPLAY_RANK_ENTER
-DAILY_BT_UI_RANK_STRONG = REPLAY_RANK_STRONG
+DAILY_BT_UI_FUSE_ENTER = REPLAY_RANK_ENTER
+DAILY_BT_UI_FUSE_STRONG = REPLAY_RANK_STRONG
 
 __all__ = [
     "DAILY_BT_UI_TOP_K",
     "DAILY_BT_UI_HORIZON_DAYS",
     "DAILY_BT_UI_LOOKBACK",
     "DAILY_BT_UI_FUSION_W_CO",
-    "DAILY_BT_UI_RANK_ENTER",
-    "DAILY_BT_UI_RANK_STRONG",
+    "DAILY_BT_UI_FUSE_ENTER",
+    "DAILY_BT_UI_FUSE_STRONG",
     "should_fetch_backtest_fundamentals",
     "load_portfolio_stock_bars",
     "resolve_daily_topk_backtest_kwargs",
@@ -86,10 +86,10 @@ def resolve_daily_replay_kwargs(
     lookback: Optional[int] = None,
     apply_costs: Optional[bool] = None,
     fusion_w_co: Optional[float] = None,
-    rank_enter: Optional[float] = None,
-    rank_strong: Optional[float] = None,
+    fuse_enter: Optional[float] = None,
+    fuse_strong: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """日报历史回测：对齐 /replay paper_replay（w_co / rank入场 / rank强 / lookback）。"""
+    """日报历史回测：对齐 /replay paper_replay（w_co / fuse入场 / fuse强 / lookback）。"""
     from core.paper.rebalance.rank_lots import (
         clamp_fusion_w_co,
         coerce_rank_threshold,
@@ -104,12 +104,12 @@ def resolve_daily_replay_kwargs(
         alpha = float(DAILY_BT_UI_FUSION_W_CO)
     alpha = max(0.0, min(1.0, float(clamp_fusion_w_co(alpha))))
     enter = coerce_rank_threshold(
-        DAILY_BT_UI_RANK_ENTER if rank_enter is None else rank_enter,
-        DAILY_BT_UI_RANK_ENTER,
+        DAILY_BT_UI_FUSE_ENTER if fuse_enter is None else fuse_enter,
+        DAILY_BT_UI_FUSE_ENTER,
     )
     strong = coerce_rank_threshold(
-        DAILY_BT_UI_RANK_STRONG if rank_strong is None else rank_strong,
-        DAILY_BT_UI_RANK_STRONG,
+        DAILY_BT_UI_FUSE_STRONG if fuse_strong is None else fuse_strong,
+        DAILY_BT_UI_FUSE_STRONG,
     )
     enter = max(0.0, min(1.0, float(enter)))
     strong = max(0.0, min(1.0, float(strong)))
@@ -121,8 +121,8 @@ def resolve_daily_replay_kwargs(
         "lookback": lb,
         "apply_costs": costs,
         "fusion_w_co": alpha,
-        "rank_enter": enter,
-        "rank_strong": strong,
+        "fuse_enter": enter,
+        "fuse_strong": strong,
         "engine": "paper_replay",
     }
 
@@ -137,8 +137,8 @@ def daily_bt_option_defaults() -> Dict[str, Any]:
         "engine": "paper_replay",
         "lookback": replay["lookback"],
         "fusion_w_co": replay["fusion_w_co"],
-        "rank_enter": replay["rank_enter"],
-        "rank_strong": replay["rank_strong"],
+        "fuse_enter": replay["fuse_enter"],
+        "fuse_strong": replay["fuse_strong"],
         "apply_costs": True,
         "paper_max_positions": int(d.get("max_positions") or d.get("top_k") or 20),
         "paper_horizon_days": int(d.get("horizon_days") or 1),
@@ -146,7 +146,7 @@ def daily_bt_option_defaults() -> Dict[str, Any]:
         "horizon_days": DAILY_BT_UI_HORIZON_DAYS,
         "note": (
             "日报历史回测=paper_replay/rank_lots（对齐 /replay · 09:30 · 入场/强档金额）；"
-            "模块可改 w_co / Rank入场 / Rank强 / lookback；不写 signal_config；成本开"
+            "模块可改 w_co / Fuse入场 / Fuse强 / lookback；不写 signal_config；成本开"
         ),
     }
 
@@ -176,8 +176,8 @@ def summarize_portfolio_backtest(
     min_predicted_score: Optional[float] = None,
     apply_costs: Optional[bool] = None,
     fusion_w_co: Optional[float] = None,
-    rank_enter: Optional[float] = None,
-    rank_strong: Optional[float] = None,
+    fuse_enter: Optional[float] = None,
+    fuse_strong: Optional[float] = None,
 ) -> Dict[str, Any]:
     """日报历史回测摘要：与 /replay 同一引擎 paper_replay / rank_lots。
 
@@ -208,8 +208,8 @@ def summarize_portfolio_backtest(
         lookback=lookback,
         apply_costs=apply_costs,
         fusion_w_co=fusion_w_co,
-        rank_enter=rank_enter,
-        rank_strong=rank_strong,
+        fuse_enter=fuse_enter,
+        fuse_strong=fuse_strong,
     )
     stock_bars, failures, _fund = load_portfolio_stock_bars(
         candidates,
@@ -235,8 +235,8 @@ def summarize_portfolio_backtest(
         initial_cash=REPLAY_INITIAL_CASH,
         cash_floor=REPLAY_CASH_FLOOR,
         fusion_w_co=replay["fusion_w_co"],
-        rank_enter=replay["rank_enter"],
-        rank_strong=replay["rank_strong"],
+        fuse_enter=replay["fuse_enter"],
+        fuse_strong=replay["fuse_strong"],
         lookback=int(replay["lookback"]),
     )
     if isinstance(bt, dict):
@@ -250,8 +250,8 @@ def summarize_portfolio_backtest(
     params["engine"] = "paper_replay"
     params["apply_costs"] = bool(replay["apply_costs"])
     params["lookback"] = int(replay["lookback"])
-    params["rank_enter"] = replay["rank_enter"]
-    params["rank_strong"] = replay["rank_strong"]
+    params["fuse_enter"] = replay["fuse_enter"]
+    params["fuse_strong"] = replay["fuse_strong"]
     params["fusion_w_co"] = replay["fusion_w_co"]
     params["cost_model"] = "simple_cn" if replay["apply_costs"] else "zero"
 
@@ -263,8 +263,8 @@ def summarize_portfolio_backtest(
         )
     note_bits.append(
         "引擎=paper_replay：每个交易日 09:30 rank_lots"
-        f"（w_co={replay['fusion_w_co']:g}；入场={replay['rank_enter']:g}；"
-        f"强={replay['rank_strong']:g}；宇宙={universe_n} 只）"
+        f"（w_co={replay['fusion_w_co']:g}；入场={replay['fuse_enter']:g}；"
+        f"强={replay['fuse_strong']:g}；宇宙={universe_n} 只）"
     )
     note_bits.append("对齐历史回测页 · 成本=" + ("开" if replay["apply_costs"] else "关"))
     note = str(bt.get("note") or "")

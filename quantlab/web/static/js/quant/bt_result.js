@@ -30,7 +30,7 @@ function _kpiPct(v, { signed = true } = {}) {
   return `${n >= 0 ? "+" : "-"}${body}%`;
 }
 
-/** |ranking| < 0.05% → 无方向，与后端 HIT_YHAT_EPS / score_ledger 同口径。 */
+/** |fuse| < 0.05% → 无方向，与后端 HIT_YHAT_EPS / score_ledger 同口径。 */
 const HIT_YHAT_EPS = 0.05;
 
 function _rowAsOfDay(r) {
@@ -57,13 +57,12 @@ function _fuseHitFromTrades(rows, { lastDay = "" } = {}) {
     if (!r || typeof r !== "object") continue;
     if (String(r.status || "") === "skipped" || String(r.status || "") === "held") continue;
     if (last && _rowAsOfDay(r) === last) continue;
-    let yf = _kpiNum(r.ranking);
-    if (yf == null) yf = _kpiNum(r.y_fuse);
+    let yf = _kpiNum(r.y_oo_fuse);
     if (yf == null) {
-      const rs = _kpiNum(r.ranking_score);
+      const rs = _kpiNum(r.y_oo_fuse_score);
       if (rs != null) yf = rs * 100;
     }
-    const real = _kpiNum(r.realized_ranking);
+    const real = _kpiNum(r.y_oo_fuse_realized);
     if (yf == null || real == null) continue;
     if (Math.abs(yf) < HIT_YHAT_EPS) continue;
     if (Math.abs(real) < 1e-12) continue;
@@ -90,7 +89,7 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
       excess: blank("相对基准"),
       dd: blank("历史 MaxDD"),
       win: blank("日净值>0"),
-      hit: blank("sign(ranking)=sign(真实)"),
+      hit: blank("sign(fuse)=sign(真实)"),
     };
   }
   const m =
@@ -114,16 +113,16 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
   let hitCount = _kpiNum(m.hit_n);
   let hitHits = _kpiNum(m.hit_hits);
   const tradeRows = data.sim_trades || data.trades || [];
-  const hasRankReal = (Array.isArray(tradeRows) ? tradeRows : []).some(
-    (t) => t && Object.prototype.hasOwnProperty.call(t, "realized_ranking")
+  const hasFuseReal = (Array.isArray(tradeRows) ? tradeRows : []).some(
+    (t) => t && Object.prototype.hasOwnProperty.call(t, "y_oo_fuse_realized")
   );
-  if (hasRankReal || hitRate == null || hitCount == null) {
+  if (hasFuseReal || hitRate == null || hitCount == null) {
     const fb = _fuseHitFromTrades(tradeRows, {
       lastDay: _replayLastDay(data),
     });
-    if (hasRankReal || hitRate == null) hitRate = _kpiNum(fb.hit_rate_pct);
-    if (hasRankReal || hitCount == null) hitCount = _kpiNum(fb.hit_n);
-    if (hasRankReal || hitHits == null) hitHits = _kpiNum(fb.hit_hits);
+    if (hasFuseReal || hitRate == null) hitRate = _kpiNum(fb.hit_rate_pct);
+    if (hasFuseReal || hitCount == null) hitCount = _kpiNum(fb.hit_n);
+    if (hasFuseReal || hitHits == null) hitHits = _kpiNum(fb.hit_hits);
   }
   const excessSub =
     exN == null
@@ -131,7 +130,7 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
       : legs.beta_leg_approx_pct != null
         ? `超额 · β腿≈${Number(legs.beta_leg_approx_pct).toFixed(1)}%`
         : `相对 ${bench.benchmark_label || "基准"}`;
-  let hitSub = "sign(ranking)=sign(真实)";
+  let hitSub = "sign(fuse)=sign(真实)";
   if (hitCount != null && hitCount > 0 && hitHits != null) {
     hitSub = `${hitHits}/${hitCount} 笔`;
   } else if (hitCount != null && hitCount > 0) {

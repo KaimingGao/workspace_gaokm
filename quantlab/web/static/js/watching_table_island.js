@@ -69,7 +69,7 @@ const COLS = [
     defaultDir: "asc",
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
-    title: "可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 ranking 从高到低",
+    title: "可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 fuse 从高到低",
   },
   {
     id: "paper",
@@ -130,7 +130,7 @@ const COLS = [
   },
   {
     id: "score",
-    label: "ranking",
+    label: "fuse",
     width: 94,
     num: true,
     sortable: true,
@@ -270,10 +270,10 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const head = d.dualScoreHead || "";
         const headTitle =
           head === "single_tau"
-            ? "ranking 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲"
+            ? "fuse 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲"
             : head === "single_oo"
-              ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲"
-              : "ranking 单头降级 · 与双头票不同量纲";
+              ? "fuse 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲"
+              : "fuse 单头降级 · 与双头票不同量纲";
         const badges = [];
         if (singleHead) {
           badges.push(
@@ -308,7 +308,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `<span class="watching-score-cell paper-hold-score has-tip${signCls}${
             below ? " score-below-min" : ""
           }${singleHead ? " score-single-head" : ""}" ` +
-          `data-score-detail="${escapeHtml(detail)}" data-score-tip="ranking" title="${escapeHtml(title)}">` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="fuse" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}${badges.join("")}</span>`
         );
       }

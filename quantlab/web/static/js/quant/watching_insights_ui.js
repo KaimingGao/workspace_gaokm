@@ -30,13 +30,13 @@ export function singleHeadBadgeHtml(it, esc = escapeHtml) {
   const tau =
     it &&
     (it.y_tau != null || it["y_τc"] != null || it.score_rem != null || it.predicted_score_tau != null);
-  let title = "ranking 单头降级 · 与双头票不同量纲";
+  let title = "fuse 单头降级 · 与双头票不同量纲";
   if (head === "single_tau") {
-    title = "ranking 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲";
+    title = "fuse 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲";
   } else if (head === "single_oo" && tau && (win === "eod_next" || tauInTrade === false)) {
-    title = "收盘后 ranking=ŷ_oo（τ 对照保留，不进融合）";
+    title = "收盘后 fuse=ŷ_oo（τ 对照保留，不进融合）";
   } else if (head === "single_oo") {
-    title = "ranking 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲";
+    title = "fuse 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲";
   }
   return `<span class="watching-single-head-badge" title="${esc(
     title
@@ -113,9 +113,9 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     : yCheckFail
       ? `Y·EOD 校验 ${yCheck} · 悬停看分歧/σ`
     : singleHead
-      ? `ranking 单头降级（${String(it.dual_score_head || "single")}）· 悬停看详情`
-    : belowMin
-      ? `低于 ŷ_oo 门槛（表列为 ranking）`
+      ? `fuse 单头降级（${String(it.dual_score_head || "single")}）· 悬停看详情`
+      : belowMin
+      ? `低于 ŷ_oo 门槛（表列为 fuse）`
       : it.return_model_source === "oos_failed_global"
         ? "OOS 失败 · 组/全局 ŷ 对照"
         : it.return_model_source === "cluster_shadow_fallback"
@@ -256,7 +256,7 @@ export function buildWatchingScoreCellHtml(
     )}${belowMin ? " score-below-min" : ""}${
       singleHead ? " score-single-head" : ""
     }${yCheck && yCheck !== "ok" ? " score-y-check-fail" : ""}" ` +
-    `data-score-detail="${esc(scoreDetail)}" data-score-tip="ranking" title="${esc(scoreTitle)}">` +
+    `data-score-detail="${esc(scoreDetail)}" data-score-tip="fuse" title="${esc(scoreTitle)}">` +
     `${esc(scoreText)}${badges.join("")}</span>`
   );
 }

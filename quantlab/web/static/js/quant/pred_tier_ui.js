@@ -10,20 +10,17 @@ let _byCode = {};
 let _loaded = false;
 let _pending = null;
 let _note = "";
-let _aHitPct = 60;
-
-let _tauAHitPct = 60;
 let _requireTau = false;
+let _aCount = 100;
+let _bCount = 300;
 
 function tierTip(t) {
-  if (t === "A") {
-    const tauBit = _requireTau
-      ? `、Y_τc≥${_tauAHitPct}%`
-      : "";
-    return `A 强：Y_oo≥${_aHitPct}%${tauBit}、有效日 N≥分档窗50%（Holdout40 前半20日→N≥10）`;
-  }
-  if (t === "B") return "B 中：Y_oo / Y_τc ≥50% 但未进 A";
-  if (t === "C") return "C 弱：未达 B 或无有效样本";
+  const scoreBit = _requireTau
+    ? "Score=1/rank(Y_oo)+1/rank(Y_τc)"
+    : "Score=1/rank(Y_oo)";
+  if (t === "A") return `A 强：${scoreBit} · top ${_aCount}`;
+  if (t === "B") return `B 中：${scoreBit} · 接着 ${_bCount}`;
+  if (t === "C") return `C 弱：${scoreBit} · 剩余或无有效样本`;
   return "";
 }
 
@@ -56,8 +53,13 @@ export function predTierBadgeHtml(code, esc) {
     info.ic != null && !Number.isNaN(Number(info.ic))
       ? `IC ${Number(info.ic).toFixed(3)}`
       : "";
+  const scoreBit =
+    info.score != null && !Number.isNaN(Number(info.score))
+      ? `Score ${Number(info.score).toFixed(3)}`
+      : "";
   const tip = [
     tierTip(t),
+    scoreBit,
     `ŷ_oo ${fmtHit(info.hit_rate)}`,
     info.hit_rate_tau != null ? `ŷ_τc ${fmtHit(info.hit_rate_tau)}` : "",
     `有效日 ${info.n_valid ?? 0}/${info.n_days ?? 0}`,
@@ -81,6 +83,9 @@ function ingestPredTierReport(data) {
     if (!code || (tier !== "A" && tier !== "B" && tier !== "C")) return;
     next[code] = {
       tier,
+      score: r.score,
+      rank_oo: r.rank_oo,
+      rank_tau: r.rank_tau,
       hit_rate: r.hit_rate,
       hit_rate_tau: r.hit_rate_tau,
       n_valid: r.n_valid,
@@ -92,13 +97,11 @@ function ingestPredTierReport(data) {
   _byCode = next;
   _loaded = true;
   const thr = data && data.thresholds;
-  const aHit = thr && thr.a_hit;
-  if (aHit != null && Number.isFinite(Number(aHit))) {
-    _aHitPct = Math.max(45, Math.min(90, Math.round(Number(aHit) * 100)));
+  if (thr && thr.a_count != null && Number.isFinite(Number(thr.a_count))) {
+    _aCount = Math.max(1, Math.min(2000, Math.round(Number(thr.a_count))));
   }
-  const tauAHit = thr && thr.tau_a_hit;
-  if (tauAHit != null && Number.isFinite(Number(tauAHit))) {
-    _tauAHitPct = Math.max(45, Math.min(90, Math.round(Number(tauAHit) * 100)));
+  if (thr && thr.b_count != null && Number.isFinite(Number(thr.b_count))) {
+    _bCount = Math.max(0, Math.min(5000, Math.round(Number(thr.b_count))));
   }
   _requireTau = !!(thr && thr.require_tau);
   if (data && data.success === false) {

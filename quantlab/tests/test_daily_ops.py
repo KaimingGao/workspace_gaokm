@@ -141,8 +141,8 @@ class TestDailyWebPresets(unittest.TestCase):
                     "preset": "quant",
                     "lookback": 30,
                     "fusion_w_co": 0.5,
-                    "rank_enter": 0.01,
-                    "rank_strong": 0.03,
+                    "fuse_enter": 0.01,
+                    "fuse_strong": 0.03,
                 },
             )
         self.assertEqual(res.status_code, 200)

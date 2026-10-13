@@ -950,11 +950,11 @@ def _topk_score_axis_note(ps: Optional[dict] = None) -> str:
     if not isinstance(params, dict):
         params = {}
     if _portfolio_bt_engine(ps, params) == "paper_replay":
-        return "每个交易日 09:30 按 y_fuse/y_on ranking 调仓（对齐历史回测页）"
+        return "每个交易日 09:30 按 y_oo_fuse 调仓（对齐历史回测页）"
     tau_on = params.get("apply_tau_buy_gate")
     if tau_on is True:
-        return "选股键=ranking · τ 闸开（非默认历史路径）"
-    return "选股键=ŷ_oo · 关 τ 闸（日线无可靠分钟 τ；≠ live ranking）"
+        return "选股键=y_oo_fuse · τ 闸开（非默认历史路径）"
+    return "选股键=ŷ_oo · 关 τ 闸（日线无可靠分钟 τ；≠ live y_oo_fuse）"
 
 
 def _paper_max_positions_for_report() -> Optional[int]:
@@ -995,8 +995,8 @@ def _topk_run_config_line(ps: Optional[dict] = None) -> str:
         bits = [
             "引擎=paper_replay/rank_lots",
             f"w_co={params.get('fusion_w_co') if params.get('fusion_w_co') is not None else '—'}",
-            f"Rank入场={params.get('rank_enter') if params.get('rank_enter') is not None else '—'}",
-            f"Rank强={params.get('rank_strong') if params.get('rank_strong') is not None else '—'}",
+            f"Fuse入场={params.get('fuse_enter') if params.get('fuse_enter') is not None else '—'}",
+            f"Fuse强={params.get('fuse_strong') if params.get('fuse_strong') is not None else '—'}",
         ]
         cb = _cost_bit()
         if cb:
