@@ -16,14 +16,10 @@ from core.research.factor_ols_fit import (
 )
 from core.research.oo_panel import collect_oo_panel
 
-# 旧名兼容（= collect_oo_panel）
-collect_subscore_forward_panel = collect_oo_panel
-
 # Public re-exports (implementation lives in core.research.oo_panel).
 __all__ = [
     "clamp_ridge_lambda",
     "collect_oo_panel",
-    "collect_subscore_forward_panel",
     "fit_factor_ols_from_panel",
     "compute_factor_ols_report",
     "compute_factor_ols_pooled_report",

@@ -254,10 +254,6 @@ def collect_oo_panel(
     return xs, ys, dates
 
 
-# 旧名兼容（OLS / 分档 / 测试）
-collect_subscore_forward_panel = collect_oo_panel
-
-
 def feature_fill_rates(xs: Sequence[dict], keys: Sequence[str]) -> Dict[str, Any]:
     """面板特征非空率。"""
     rows = [r for r in xs if isinstance(r, dict)]
@@ -274,6 +270,5 @@ def feature_fill_rates(xs: Sequence[dict], keys: Sequence[str]) -> Dict[str, Any
 
 __all__ = [
     "collect_oo_panel",
-    "collect_subscore_forward_panel",  # = collect_oo_panel
     "feature_fill_rates",
 ]
