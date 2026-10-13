@@ -821,8 +821,6 @@ def backtest_topk_equal_weight(
     return_model_min_samples: int = 24,
     return_model_ridge_lambda: float = 0.0,
     return_model_refit_every: int = 1,
-    return_models_by_code: Optional[Dict[str, Any]] = None,
-    use_live_cluster_models: bool = False,
     allow_heuristic_baseline: bool = False,
     apply_tau_buy_gate: bool = False,
     exclude_oos_failed: bool = True,
@@ -842,11 +840,9 @@ def backtest_topk_equal_weight(
       - predicted_score：walk-forward 全局拟合后按收益分（ŷ%）排序（生产默认）
       - heuristic_score：人工线性加权 0–100（仅研究 OOS 基线；须 allow_heuristic_baseline）
 
-    return_models_by_code / use_live_cluster_models：已废弃，忽略（历史回测不再用分组 β）。
     apply_tau_buy_gate：历史日线默认 False（无可靠分钟 τ；开闸易 0 笔）。
     纸面 live 买入闸不走本函数。
     """
-    del return_models_by_code, use_live_cluster_models  # 废弃参数，保留签名兼容
     from core.backtest.attribution import attribute_portfolio_trades
     from core.backtest.matching import (
         apply_match_filters,

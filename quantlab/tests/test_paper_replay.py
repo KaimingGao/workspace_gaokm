@@ -968,7 +968,6 @@ class TestTopkEngineTag(unittest.TestCase):
                 horizon_days=3,
                 min_score=0,
                 min_history=12,
-                use_live_cluster_models=False,
                 allow_heuristic_baseline=True,
                 rank_mode="heuristic_score",
             )
@@ -1276,7 +1275,6 @@ class TestOpenDayYhat(unittest.TestCase):
             max_window=30,
             horizon_days=1,
             cfg=None,
-            cluster_models={},
             global_model=None,
             tau_model_doc={},
         )

@@ -171,21 +171,6 @@ def resolve_score_track(item: Optional[dict]) -> str:
     return TRACK_PREDICTED
 
 
-def tag_item_tracks(
-    item: dict,
-    *,
-    oos_failed_labels: Optional[set] = None,
-    force_track: Optional[str] = None,
-) -> dict:
-    """就地写入 ``score_track`` / ``oos_status``。"""
-    if force_track in (TRACK_PREDICTED, TRACK_HEURISTIC):
-        item["score_track"] = force_track
-    else:
-        item["score_track"] = resolve_score_track(item)
-    item["oos_status"] = resolve_oos_status(item, oos_failed_labels=oos_failed_labels)
-    return item
-
-
 def predicted_floors(tracks_cfg: Optional[dict] = None) -> Tuple[float, float]:
     from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
 
@@ -297,13 +282,6 @@ def hold_decision_for_item(
     if sc is None:
         return False, None, hold_f, track
     return bool(sc < hold_f), sc, hold_f, track
-
-
-def should_apply_tau_gate(item: Optional[dict], *, tracks_cfg: Optional[dict] = None) -> bool:
-    cfg = tracks_cfg or get_rebalance_tracks_cfg()
-    if resolve_score_track(item) == TRACK_HEURISTIC:
-        return bool(cfg.get("heuristic_apply_tau_gate"))
-    return True
 
 
 def sleeve_policy_allows(tracks_cfg: Optional[dict] = None) -> bool:

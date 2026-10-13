@@ -149,7 +149,3 @@ def write_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
     atomic_write_json(path, manifest)
     manifest["path"] = path
     return manifest
-
-
-def load_live_config_manifest() -> Optional[Dict[str, Any]]:
-    return _read_json(live_config_manifest_path())

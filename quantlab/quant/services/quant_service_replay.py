@@ -163,8 +163,8 @@ class QuantReplayMixin:
                 return {
                     "success": False,
                     "error": (
-                        f"页顶 Holdout={hold_n_req} 与枢纽分档 Holdout={last_hold} 不一致；"
-                        "请先在研究枢纽重跑「观察池分档」再回测。"
+                        f"ŷ_oo Holdout={hold_n_req} 与枢纽分档 Holdout={last_hold} 不一致；"
+                        "请先在研究枢纽用当前 Holdout 重跑「观察池分档」再回测。"
                     ),
                     "universe": resolved,
                 }

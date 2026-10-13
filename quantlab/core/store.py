@@ -103,12 +103,6 @@ def io_error_stats() -> Dict[str, Any]:
         return {"io_error_count": int(_IO_ERROR_COUNT)}
 
 
-def reset_io_error_stats() -> None:
-    global _IO_ERROR_COUNT
-    with _IO_ERROR_LOCK:
-        _IO_ERROR_COUNT = 0
-
-
 @contextmanager
 def code_refresh_lock(market: str, code: str, *, kind: str = "daily") -> Iterator[None]:
     """同票远端刷新互斥（防 thundering herd）；进程内有效。"""
@@ -923,41 +917,6 @@ def clear_daily_cache(
                     removed += 1
                 except OSError as e:
                     _note_io_error(f"clear_daily:{mdir}/{name}", e)
-    return removed
-
-
-def clear_minute_cache(
-    market: Optional[str] = None,
-    *,
-    period: Optional[str] = None,
-    store_dir: Optional[str] = None,
-) -> int:
-    base = store_dir or get_store_dir()
-    if bars_backend() == "sqlite":
-        from core import store_bars_sqlite as sq
-
-        return sq.clear_minute(market, period=period, store_dir=base)
-    minute_base = os.path.join(base, MINUTE_SUBDIR)
-    if not os.path.isdir(minute_base):
-        return 0
-    removed = 0
-    periods = [str(period)] if period else os.listdir(minute_base)
-    for per in periods:
-        pdir = os.path.join(minute_base, per)
-        if not os.path.isdir(pdir):
-            continue
-        markets = [market.upper()] if market else os.listdir(pdir)
-        for mkt in markets:
-            mdir = os.path.join(pdir, mkt)
-            if not os.path.isdir(mdir):
-                continue
-            for name in os.listdir(mdir):
-                if name.endswith(".json"):
-                    try:
-                        os.remove(os.path.join(mdir, name))
-                        removed += 1
-                    except OSError as e:
-                        _note_io_error(f"clear_minute:{mdir}/{name}", e)
     return removed
 
 

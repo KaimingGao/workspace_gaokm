@@ -2396,28 +2396,6 @@ def rescore_scores_at_fixed_prefix(
     return copy.deepcopy(out)
 
 
-def attach_portrait_y_path(
-    day: Optional[dict],
-    score_snap: Optional[dict],
-    *,
-    minute_bars: Optional[Sequence[dict]] = None,
-    day_bar: Optional[dict] = None,
-    hist_bars: Optional[Sequence[dict]] = None,
-    tau_hm: str = "10:30",
-    prefix_bars: Optional[int] = None,
-) -> Dict[str, Any]:
-    """兼容入口：转 ``attach_portrait_dual_scores``。"""
-    return attach_portrait_dual_scores(
-        day,
-        score_snap,
-        minute_bars=minute_bars,
-        day_bar=day_bar,
-        hist_bars=hist_bars,
-        tau_hm=tau_hm,
-        prefix_bars=prefix_bars,
-    )
-
-
 def attach_portrait_dual_scores(
     day: Optional[dict],
     score_snap: Optional[dict],
@@ -3567,53 +3545,6 @@ def compute_scores_map_from_bars(
         if scores_have_any(sc):
             out[code] = sc
     return out
-
-
-def compute_scores_live(
-    code: str,
-    *,
-    bars: Optional[Sequence[dict]] = None,
-    quote: Optional[dict] = None,
-    fuse_intraday: bool = True,
-) -> Dict[str, Optional[float]]:
-    """纸面/盘中：优先用已有日线 PIT 算；否则 ``score_stock``；再否则空。"""
-    raw = str(code or "").strip()
-    if not raw:
-        return scores_from_item(None)
-
-    hist_list = [b for b in (bars or []) if isinstance(b, dict)]
-    if len(hist_list) >= _MIN_HIST_BARS + 1:
-        day = hist_list[-1]
-        hist = hist_list[:-1]
-        q = quote if isinstance(quote, dict) else open_decision_quote(day, hist[-1], code=raw)
-        sc = compute_scores_from_bars(
-            raw,
-            hist,
-            day_bar=day,
-            quote=q,
-            fuse_intraday=fuse_intraday,
-        )
-        if scores_have_any(sc):
-            return sc
-
-    try:
-        from core.signal.score_stock import score_stock
-
-        item = score_stock(
-            raw,
-            quote=quote if isinstance(quote, dict) else None,
-            skip_sentiment=True,
-            skip_fundamentals=True,
-            quote_timeout=8.0,
-        )
-        if isinstance(item, dict) and item.get("success") is not False:
-            out = scores_from_item(item)
-            if scores_have_any(out):
-                out["_score_source"] = "score_stock"
-                return out
-    except Exception:  # noqa: BLE001
-        logger.debug("compute_scores_live score_stock failed", exc_info=True)
-    return scores_from_item(None)
 
 
 def resolve_y_score_source(cfg: Optional[dict] = None) -> str:

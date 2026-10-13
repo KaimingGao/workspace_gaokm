@@ -6,6 +6,7 @@
 
 
 import logging
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 from statistics import median, stdev
@@ -21,105 +22,6 @@ TAU_LAG_FEAT_LABELS = {
     "tau_lag1": "昨真实 close/open−1 %",
     "tau_ma5": "近5日真实 close/open−1 均 %",
 }
-T30_LAG_FEATURES = ("t30_lag1", "t30_ma5")
-T30_LAG_FEAT_LABELS = {
-    "t30_lag1": "昨同钟真实 τ⊕25/30/35均 %",
-    "t30_ma5": "近5日同钟真实 τ⊕25/30/35均 %",
-}
-T30_SEQ_CS_KEYS = (
-    "sector_ret_last_30m",
-    "ret_last_30m_vs_sector",
-)
-T30_SEQ_FEATURES = (
-    "ret_last_5m",
-    "ret_last_30m",
-    "session_elapsed",
-    "session_remain",
-    "crosses_lunch",
-    "session_vwap_dev",
-    "vol_last_30m_vs_avg",
-) + T30_SEQ_CS_KEYS + T30_LAG_FEATURES
-T45_LAG_FEATURES = ("t45_lag1", "t45_ma5")
-T45_LAG_FEAT_LABELS = {
-    "t45_lag1": "昨同钟真实 τ⊕40/45/50均 %",
-    "t45_ma5": "近5日同钟真实 τ⊕40/45/50均 %",
-}
-T45_SEQ_CS_KEYS = (
-    "sector_ret_last_45m",
-    "ret_last_45m_vs_sector",
-)
-T45_SEQ_FEATURES = (
-    "ret_last_5m",
-    "ret_last_45m",
-    "session_elapsed",
-    "session_remain",
-    "crosses_lunch_45",
-    "session_vwap_dev",
-    "vol_last_45m_vs_avg",
-) + T45_SEQ_CS_KEYS + T45_LAG_FEATURES
-T60_LAG_FEATURES = ("t60_lag1", "t60_ma5")
-T60_LAG_FEAT_LABELS = {
-    "t60_lag1": "昨同钟真实 τ⊕55/60/65均 %",
-    "t60_ma5": "近5日同钟真实 τ⊕55/60/65均 %",
-}
-T60_SEQ_CS_KEYS = (
-    "sector_ret_last_60m",
-    "ret_last_60m_vs_sector",
-)
-T60_SEQ_FEATURES = (
-    "ret_last_5m",
-    "ret_last_60m",
-    "session_elapsed",
-    "session_remain",
-    "crosses_lunch_60",
-    "session_vwap_dev",
-    "vol_last_60m_vs_avg",
-) + T60_SEQ_CS_KEYS + T60_LAG_FEATURES
-T75_LAG_FEATURES = ("t75_lag1", "t75_ma5")
-T75_LAG_FEAT_LABELS = {
-    "t75_lag1": "昨同钟真实 τ⊕70/75/80均 %",
-    "t75_ma5": "近5日同钟真实 τ⊕70/75/80均 %",
-}
-T75_SEQ_CS_KEYS = (
-    "sector_ret_last_75m",
-    "ret_last_75m_vs_sector",
-)
-T75_SEQ_FEATURES = (
-    "ret_last_5m",
-    "ret_last_75m",
-    "session_elapsed",
-    "session_remain",
-    "crosses_lunch_75",
-    "session_vwap_dev",
-    "vol_last_75m_vs_avg",
-) + T75_SEQ_CS_KEYS + T75_LAG_FEATURES
-T90_LAG_FEATURES = ("t90_lag1", "t90_ma5")
-T90_LAG_FEAT_LABELS = {
-    "t90_lag1": "昨同钟真实 τ⊕85/90/95均 %",
-    "t90_ma5": "近5日同钟真实 τ⊕85/90/95均 %",
-}
-T90_SEQ_CS_KEYS = (
-    "sector_ret_last_90m",
-    "ret_last_90m_vs_sector",
-)
-T90_SEQ_FEATURES = (
-    "ret_last_5m",
-    "ret_last_90m",
-    "session_elapsed",
-    "session_remain",
-    "crosses_lunch_90",
-    "session_vwap_dev",
-    "vol_last_90m_vs_avg",
-) + T90_SEQ_CS_KEYS + T90_LAG_FEATURES
-# (个股近窗收益键, 板块中位键, 相对板块键) — 训练截面按 (date, τ) 中位
-HORIZON_SEQ_CS_SPECS = (
-    ("ret_last_30m", "sector_ret_last_30m", "ret_last_30m_vs_sector"),
-    ("ret_last_45m", "sector_ret_last_45m", "ret_last_45m_vs_sector"),
-    ("ret_last_60m", "sector_ret_last_60m", "ret_last_60m_vs_sector"),
-    ("ret_last_75m", "sector_ret_last_75m", "ret_last_75m_vs_sector"),
-    ("ret_last_90m", "sector_ret_last_90m", "ret_last_90m_vs_sector"),
-)
-
 from core.signal.minute_tau_grid import (
     DEFAULT_MINUTE_TAU_GRID,
     HORIZON_T30_MIN,
@@ -129,6 +31,175 @@ from core.signal.minute_tau_grid import (
     T75_LABEL_OFFSETS,
     T90_LABEL_OFFSETS,
     add_session_minutes,
+)
+
+
+# ---------------------------------------------------------------------------
+# HorizonSpec：t30/45/60/75/90 五档参数化配置
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class HorizonSpec:
+    """单个 horizon 的全部参数化配置。"""
+
+    tag: str  # "t30" / "t45" / ...
+    horizon_min: int  # 30 / 45 / ...
+    offsets: tuple  # T30_LABEL_OFFSETS 等
+    ret_key: str  # "ret_last_30m"
+    cs_ret_key: str  # "sector_ret_last_30m"
+    cs_rel_key: str  # "ret_last_30m_vs_sector"
+    crosses_lunch_key: str  # "crosses_lunch" / "crosses_lunch_45" 等
+    vol_key: str  # "vol_last_30m_vs_avg"
+    lag1_key: str  # "t30_lag1"
+    ma_key: str  # "t30_ma5"
+    y_key: str  # "y_t30"
+    y_label: str  # "y_τ30"
+    px_key: str  # "price_tau30"
+    tau_plus_key: str  # "tau_plus_30"
+    label_desc: str  # "τ⊕25/30/35" 等
+
+    @property
+    def lag_features(self) -> tuple:
+        return (self.lag1_key, self.ma_key)
+
+    @property
+    def lag_feat_labels(self) -> dict:
+        return {
+            self.lag1_key: f"昨同钟真实 {self.label_desc}均 %",
+            self.ma_key: f"近5日同钟真实 {self.label_desc}均 %",
+        }
+
+    @property
+    def seq_cs_keys(self) -> tuple:
+        return (self.cs_ret_key, self.cs_rel_key)
+
+    @property
+    def seq_features(self) -> tuple:
+        return (
+            "ret_last_5m",
+            self.ret_key,
+            "session_elapsed",
+            "session_remain",
+            self.crosses_lunch_key,
+            "session_vwap_dev",
+            self.vol_key,
+        ) + self.seq_cs_keys + self.lag_features
+
+
+_HORIZON_SPECS: Dict[str, HorizonSpec] = {
+    "t30": HorizonSpec(
+        tag="t30",
+        horizon_min=30,
+        offsets=T30_LABEL_OFFSETS,
+        ret_key="ret_last_30m",
+        cs_ret_key="sector_ret_last_30m",
+        cs_rel_key="ret_last_30m_vs_sector",
+        crosses_lunch_key="crosses_lunch",
+        vol_key="vol_last_30m_vs_avg",
+        lag1_key="t30_lag1",
+        ma_key="t30_ma5",
+        y_key="y_t30",
+        y_label="y_τ30",
+        px_key="price_tau30",
+        tau_plus_key="tau_plus_30",
+        label_desc="τ⊕25/30/35",
+    ),
+    "t45": HorizonSpec(
+        tag="t45",
+        horizon_min=45,
+        offsets=T45_LABEL_OFFSETS,
+        ret_key="ret_last_45m",
+        cs_ret_key="sector_ret_last_45m",
+        cs_rel_key="ret_last_45m_vs_sector",
+        crosses_lunch_key="crosses_lunch_45",
+        vol_key="vol_last_45m_vs_avg",
+        lag1_key="t45_lag1",
+        ma_key="t45_ma5",
+        y_key="y_t45",
+        y_label="y_τ45",
+        px_key="price_tau45",
+        tau_plus_key="tau_plus_45",
+        label_desc="τ⊕40/45/50",
+    ),
+    "t60": HorizonSpec(
+        tag="t60",
+        horizon_min=60,
+        offsets=T60_LABEL_OFFSETS,
+        ret_key="ret_last_60m",
+        cs_ret_key="sector_ret_last_60m",
+        cs_rel_key="ret_last_60m_vs_sector",
+        crosses_lunch_key="crosses_lunch_60",
+        vol_key="vol_last_60m_vs_avg",
+        lag1_key="t60_lag1",
+        ma_key="t60_ma5",
+        y_key="y_t60",
+        y_label="y_τ60",
+        px_key="price_tau60",
+        tau_plus_key="tau_plus_60",
+        label_desc="τ⊕55/60/65",
+    ),
+    "t75": HorizonSpec(
+        tag="t75",
+        horizon_min=75,
+        offsets=T75_LABEL_OFFSETS,
+        ret_key="ret_last_75m",
+        cs_ret_key="sector_ret_last_75m",
+        cs_rel_key="ret_last_75m_vs_sector",
+        crosses_lunch_key="crosses_lunch_75",
+        vol_key="vol_last_75m_vs_avg",
+        lag1_key="t75_lag1",
+        ma_key="t75_ma5",
+        y_key="y_t75",
+        y_label="y_τ75",
+        px_key="price_tau75",
+        tau_plus_key="tau_plus_75",
+        label_desc="τ⊕70/75/80",
+    ),
+    "t90": HorizonSpec(
+        tag="t90",
+        horizon_min=90,
+        offsets=T90_LABEL_OFFSETS,
+        ret_key="ret_last_90m",
+        cs_ret_key="sector_ret_last_90m",
+        cs_rel_key="ret_last_90m_vs_sector",
+        crosses_lunch_key="crosses_lunch_90",
+        vol_key="vol_last_90m_vs_avg",
+        lag1_key="t90_lag1",
+        ma_key="t90_ma5",
+        y_key="y_t90",
+        y_label="y_τ90",
+        px_key="price_tau90",
+        tau_plus_key="tau_plus_90",
+        label_desc="τ⊕85/90/95",
+    ),
+}
+
+# 从 spec 派生常量（保持外部调用方兼容）
+T30_LAG_FEATURES = _HORIZON_SPECS["t30"].lag_features
+T30_LAG_FEAT_LABELS = _HORIZON_SPECS["t30"].lag_feat_labels
+T30_SEQ_CS_KEYS = _HORIZON_SPECS["t30"].seq_cs_keys
+T30_SEQ_FEATURES = _HORIZON_SPECS["t30"].seq_features
+T45_LAG_FEATURES = _HORIZON_SPECS["t45"].lag_features
+T45_LAG_FEAT_LABELS = _HORIZON_SPECS["t45"].lag_feat_labels
+T45_SEQ_CS_KEYS = _HORIZON_SPECS["t45"].seq_cs_keys
+T45_SEQ_FEATURES = _HORIZON_SPECS["t45"].seq_features
+T60_LAG_FEATURES = _HORIZON_SPECS["t60"].lag_features
+T60_LAG_FEAT_LABELS = _HORIZON_SPECS["t60"].lag_feat_labels
+T60_SEQ_CS_KEYS = _HORIZON_SPECS["t60"].seq_cs_keys
+T60_SEQ_FEATURES = _HORIZON_SPECS["t60"].seq_features
+T75_LAG_FEATURES = _HORIZON_SPECS["t75"].lag_features
+T75_LAG_FEAT_LABELS = _HORIZON_SPECS["t75"].lag_feat_labels
+T75_SEQ_CS_KEYS = _HORIZON_SPECS["t75"].seq_cs_keys
+T75_SEQ_FEATURES = _HORIZON_SPECS["t75"].seq_features
+T90_LAG_FEATURES = _HORIZON_SPECS["t90"].lag_features
+T90_LAG_FEAT_LABELS = _HORIZON_SPECS["t90"].lag_feat_labels
+T90_SEQ_CS_KEYS = _HORIZON_SPECS["t90"].seq_cs_keys
+T90_SEQ_FEATURES = _HORIZON_SPECS["t90"].seq_features
+
+# (个股近窗收益键, 板块中位键, 相对板块键) — 训练截面按 (date, τ) 中位
+HORIZON_SEQ_CS_SPECS = tuple(
+    (s.ret_key, s.cs_ret_key, s.cs_rel_key) for s in _HORIZON_SPECS.values()
 )
 
 
@@ -237,10 +308,56 @@ def y_t90_pct(price_tau: Any, price_tau90: Any) -> Optional[float]:
     return y_t30_pct(price_tau, price_tau90)
 
 
-def relabel_tau_panels_as_t30(
+def _attach_horizon_lags_to_panel(
+    panel: Dict[str, Any], spec: HorizonSpec
+) -> Dict[str, Any]:
+    """按同钟 PIT 写入 tN_lag1 / tN_ma5（只用早于该日的同钟真实 y_τN）。"""
+    if not isinstance(panel, dict):
+        return panel
+    xs = list(panel.get("xs") or [])
+    dates = list(panel.get("dates") or [])
+    metas = list(panel.get("metas") or [])
+    ys = list(panel.get("ys") or [])
+    n = min(len(xs), len(dates), len(metas), len(ys))
+    by_hm: Dict[str, Dict[str, float]] = {}
+    for i in range(n):
+        m = metas[i] if isinstance(metas[i], dict) else {}
+        hm = str(m.get("tau") or "")[:5]
+        d = str(dates[i] or "")[:10]
+        if not hm or len(d) < 10:
+            continue
+        try:
+            by_hm.setdefault(hm, {})[d] = float(ys[i])
+        except (TypeError, ValueError):
+            continue
+    for i in range(n):
+        row = xs[i] if isinstance(xs[i], dict) else {}
+        if not isinstance(row, dict):
+            continue
+        m = metas[i] if isinstance(metas[i], dict) else {}
+        hm = str(m.get("tau") or "")[:5]
+        asof = str(dates[i] or "")[:10]
+        clock_map = by_hm.get(hm) or {}
+        hist = [{"date": d} for d in sorted(clock_map.keys())]
+        lags = label_lag_features(
+            hist_bars=hist,
+            by_date=clock_map,
+            asof_date=asof,
+            lag1_key=spec.lag1_key,
+            ma_key=spec.ma_key,
+        )
+        xs[i] = dict(row)
+        for k in spec.lag_features:
+            xs[i][k] = lags.get(k)
+    panel["xs"] = xs
+    return panel
+
+
+def _relabel_tau_panels_as_horizon(
     enriched: Sequence[Dict[str, Any]],
+    spec: HorizonSpec,
 ) -> List[Dict[str, Any]]:
-    """把 τ 面板标签换成 ŷ_τ30 = mean(price(τ⊕25/30/35))/price(τ) − 1。缺三根均价丢行。"""
+    """把 τ 面板标签换成 ŷ_τ{N} = mean(price(τ⊕offsets))/price(τ) − 1。缺三根均价丢行。"""
     out: List[Dict[str, Any]] = []
     for p in enriched or []:
         if not isinstance(p, dict):
@@ -255,22 +372,23 @@ def relabel_tau_panels_as_t30(
         metas: List[Dict[str, Any]] = []
         for i in range(n):
             m = metas_in[i] if isinstance(metas_in[i], dict) else {}
-            px30 = m.get("price_tau30")
-            tau30_hm = m.get("tau_plus_30")
-            if px30 is None:
+            pxN = m.get(spec.px_key)
+            tauN_hm = m.get(spec.tau_plus_key)
+            if pxN is None:
                 mb = p.get("minute_bars")
                 if mb and m.get("tau") and (m.get("date") or dates_in[i]):
-                    tau30_hm, px30 = price_at_t30_mean_session(
+                    tauN_hm, pxN = price_at_horizon_mean_session(
                         mb,
                         trade_date=str(m.get("date") or dates_in[i])[:10],
                         tau_hm=str(m.get("tau")),
+                        offsets=spec.offsets,
                     )
-            yt = y_t30_pct(m.get("price_tau"), px30)
+            yt = y_t30_pct(m.get("price_tau"), pxN)
             if yt is None:
                 continue
             row_x = dict(xs_in[i]) if isinstance(xs_in[i], dict) else {}
-            for k in T30_SEQ_FEATURES:
-                if k in T30_LAG_FEATURES:
+            for k in spec.seq_features:
+                if k in spec.lag_features:
                     continue
                 if m.get(k) is not None:
                     row_x[k] = m[k]
@@ -278,12 +396,12 @@ def relabel_tau_panels_as_t30(
             ys.append(float(yt))
             dates.append(dates_in[i])
             meta = dict(m)
-            meta["y_t30"] = float(yt)
-            meta["y_τ30"] = float(yt)
-            if tau30_hm:
-                meta["tau_plus_30"] = tau30_hm
-            if px30 is not None:
-                meta["price_tau30"] = px30
+            meta[spec.y_key] = float(yt)
+            meta[spec.y_label] = float(yt)
+            if tauN_hm:
+                meta[spec.tau_plus_key] = tauN_hm
+            if pxN is not None:
+                meta[spec.px_key] = pxN
             metas.append(meta)
         if len(ys) < 4:
             continue
@@ -292,249 +410,44 @@ def relabel_tau_panels_as_t30(
         row["ys"] = ys
         row["dates"] = dates
         row["metas"] = metas
-        attach_t30_lags_to_panel(row)
+        _attach_horizon_lags_to_panel(row, spec)
         out.append(row)
     return out
+
+
+def relabel_tau_panels_as_t30(
+    enriched: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """把 τ 面板标签换成 ŷ_τ30 = mean(price(τ⊕25/30/35))/price(τ) − 1。"""
+    return _relabel_tau_panels_as_horizon(enriched, _HORIZON_SPECS["t30"])
 
 
 def relabel_tau_panels_as_t45(
     enriched: Sequence[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """把 τ 面板标签换成 ŷ_τ45 = mean(price(τ⊕40/45/50))/price(τ) − 1。缺三根均价丢行。"""
-    out: List[Dict[str, Any]] = []
-    for p in enriched or []:
-        if not isinstance(p, dict):
-            continue
-        xs_in = list(p.get("xs") or [])
-        dates_in = list(p.get("dates") or [])
-        metas_in = list(p.get("metas") or [])
-        n = min(len(xs_in), len(dates_in), len(metas_in))
-        xs: List[Any] = []
-        ys: List[float] = []
-        dates: List[str] = []
-        metas: List[Dict[str, Any]] = []
-        for i in range(n):
-            m = metas_in[i] if isinstance(metas_in[i], dict) else {}
-            px45 = m.get("price_tau45")
-            tau45_hm = m.get("tau_plus_45")
-            if px45 is None:
-                mb = p.get("minute_bars")
-                if mb and m.get("tau") and (m.get("date") or dates_in[i]):
-                    tau45_hm, px45 = price_at_t45_mean_session(
-                        mb,
-                        trade_date=str(m.get("date") or dates_in[i])[:10],
-                        tau_hm=str(m.get("tau")),
-                    )
-            yt = y_t45_pct(m.get("price_tau"), px45)
-            if yt is None:
-                continue
-            row_x = dict(xs_in[i]) if isinstance(xs_in[i], dict) else {}
-            for k in T45_SEQ_FEATURES:
-                if k in T45_LAG_FEATURES:
-                    continue
-                if m.get(k) is not None:
-                    row_x[k] = m[k]
-            xs.append(row_x)
-            ys.append(float(yt))
-            dates.append(dates_in[i])
-            meta = dict(m)
-            meta["y_t45"] = float(yt)
-            meta["y_τ45"] = float(yt)
-            if tau45_hm:
-                meta["tau_plus_45"] = tau45_hm
-            if px45 is not None:
-                meta["price_tau45"] = px45
-            metas.append(meta)
-        if len(ys) < 4:
-            continue
-        row = dict(p)
-        row["xs"] = xs
-        row["ys"] = ys
-        row["dates"] = dates
-        row["metas"] = metas
-        attach_t45_lags_to_panel(row)
-        out.append(row)
-    return out
+    """把 τ 面板标签换成 ŷ_τ45 = mean(price(τ⊕40/45/50))/price(τ) − 1。"""
+    return _relabel_tau_panels_as_horizon(enriched, _HORIZON_SPECS["t45"])
 
 
 def relabel_tau_panels_as_t60(
     enriched: Sequence[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """把 τ 面板标签换成 ŷ_τ60 = mean(price(τ⊕55/60/65))/price(τ) − 1。缺三根均价丢行。"""
-    out: List[Dict[str, Any]] = []
-    for p in enriched or []:
-        if not isinstance(p, dict):
-            continue
-        xs_in = list(p.get("xs") or [])
-        dates_in = list(p.get("dates") or [])
-        metas_in = list(p.get("metas") or [])
-        n = min(len(xs_in), len(dates_in), len(metas_in))
-        xs: List[Any] = []
-        ys: List[float] = []
-        dates: List[str] = []
-        metas: List[Dict[str, Any]] = []
-        for i in range(n):
-            m = metas_in[i] if isinstance(metas_in[i], dict) else {}
-            px60 = m.get("price_tau60")
-            tau60_hm = m.get("tau_plus_60")
-            if px60 is None:
-                mb = p.get("minute_bars")
-                if mb and m.get("tau") and (m.get("date") or dates_in[i]):
-                    tau60_hm, px60 = price_at_t60_mean_session(
-                        mb,
-                        trade_date=str(m.get("date") or dates_in[i])[:10],
-                        tau_hm=str(m.get("tau")),
-                    )
-            yt = y_t60_pct(m.get("price_tau"), px60)
-            if yt is None:
-                continue
-            row_x = dict(xs_in[i]) if isinstance(xs_in[i], dict) else {}
-            for k in T60_SEQ_FEATURES:
-                if k in T60_LAG_FEATURES:
-                    continue
-                if m.get(k) is not None:
-                    row_x[k] = m[k]
-            xs.append(row_x)
-            ys.append(float(yt))
-            dates.append(dates_in[i])
-            meta = dict(m)
-            meta["y_t60"] = float(yt)
-            meta["y_τ60"] = float(yt)
-            if tau60_hm:
-                meta["tau_plus_60"] = tau60_hm
-            if px60 is not None:
-                meta["price_tau60"] = px60
-            metas.append(meta)
-        if len(ys) < 4:
-            continue
-        row = dict(p)
-        row["xs"] = xs
-        row["ys"] = ys
-        row["dates"] = dates
-        row["metas"] = metas
-        attach_t60_lags_to_panel(row)
-        out.append(row)
-    return out
+    """把 τ 面板标签换成 ŷ_τ60 = mean(price(τ⊕55/60/65))/price(τ) − 1。"""
+    return _relabel_tau_panels_as_horizon(enriched, _HORIZON_SPECS["t60"])
 
 
 def relabel_tau_panels_as_t75(
     enriched: Sequence[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """把 τ 面板标签换成 ŷ_τ75 = mean(price(τ⊕70/75/80))/price(τ) − 1。缺三根均价丢行。"""
-    out: List[Dict[str, Any]] = []
-    for p in enriched or []:
-        if not isinstance(p, dict):
-            continue
-        xs_in = list(p.get("xs") or [])
-        dates_in = list(p.get("dates") or [])
-        metas_in = list(p.get("metas") or [])
-        n = min(len(xs_in), len(dates_in), len(metas_in))
-        xs: List[Any] = []
-        ys: List[float] = []
-        dates: List[str] = []
-        metas: List[Dict[str, Any]] = []
-        for i in range(n):
-            m = metas_in[i] if isinstance(metas_in[i], dict) else {}
-            px75 = m.get("price_tau75")
-            tau75_hm = m.get("tau_plus_75")
-            if px75 is None:
-                mb = p.get("minute_bars")
-                if mb and m.get("tau") and (m.get("date") or dates_in[i]):
-                    tau75_hm, px75 = price_at_t75_mean_session(
-                        mb,
-                        trade_date=str(m.get("date") or dates_in[i])[:10],
-                        tau_hm=str(m.get("tau")),
-                    )
-            yt = y_t75_pct(m.get("price_tau"), px75)
-            if yt is None:
-                continue
-            row_x = dict(xs_in[i]) if isinstance(xs_in[i], dict) else {}
-            for k in T75_SEQ_FEATURES:
-                if k in T75_LAG_FEATURES:
-                    continue
-                if m.get(k) is not None:
-                    row_x[k] = m[k]
-            xs.append(row_x)
-            ys.append(float(yt))
-            dates.append(dates_in[i])
-            meta = dict(m)
-            meta["y_t75"] = float(yt)
-            meta["y_τ75"] = float(yt)
-            if tau75_hm:
-                meta["tau_plus_75"] = tau75_hm
-            if px75 is not None:
-                meta["price_tau75"] = px75
-            metas.append(meta)
-        if len(ys) < 4:
-            continue
-        row = dict(p)
-        row["xs"] = xs
-        row["ys"] = ys
-        row["dates"] = dates
-        row["metas"] = metas
-        attach_t75_lags_to_panel(row)
-        out.append(row)
-    return out
+    """把 τ 面板标签换成 ŷ_τ75 = mean(price(τ⊕70/75/80))/price(τ) − 1。"""
+    return _relabel_tau_panels_as_horizon(enriched, _HORIZON_SPECS["t75"])
 
 
 def relabel_tau_panels_as_t90(
     enriched: Sequence[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """把 τ 面板标签换成 ŷ_τ90 = mean(price(τ⊕85/90/95))/price(τ) − 1。缺三根均价丢行。"""
-    out: List[Dict[str, Any]] = []
-    for p in enriched or []:
-        if not isinstance(p, dict):
-            continue
-        xs_in = list(p.get("xs") or [])
-        dates_in = list(p.get("dates") or [])
-        metas_in = list(p.get("metas") or [])
-        n = min(len(xs_in), len(dates_in), len(metas_in))
-        xs: List[Any] = []
-        ys: List[float] = []
-        dates: List[str] = []
-        metas: List[Dict[str, Any]] = []
-        for i in range(n):
-            m = metas_in[i] if isinstance(metas_in[i], dict) else {}
-            px60 = m.get("price_tau90")
-            tau60_hm = m.get("tau_plus_90")
-            if px60 is None:
-                mb = p.get("minute_bars")
-                if mb and m.get("tau") and (m.get("date") or dates_in[i]):
-                    tau60_hm, px60 = price_at_t90_mean_session(
-                        mb,
-                        trade_date=str(m.get("date") or dates_in[i])[:10],
-                        tau_hm=str(m.get("tau")),
-                    )
-            yt = y_t90_pct(m.get("price_tau"), px60)
-            if yt is None:
-                continue
-            row_x = dict(xs_in[i]) if isinstance(xs_in[i], dict) else {}
-            for k in T90_SEQ_FEATURES:
-                if k in T90_LAG_FEATURES:
-                    continue
-                if m.get(k) is not None:
-                    row_x[k] = m[k]
-            xs.append(row_x)
-            ys.append(float(yt))
-            dates.append(dates_in[i])
-            meta = dict(m)
-            meta["y_t90"] = float(yt)
-            meta["y_τ90"] = float(yt)
-            if tau60_hm:
-                meta["tau_plus_90"] = tau60_hm
-            if px60 is not None:
-                meta["price_tau90"] = px60
-            metas.append(meta)
-        if len(ys) < 4:
-            continue
-        row = dict(p)
-        row["xs"] = xs
-        row["ys"] = ys
-        row["dates"] = dates
-        row["metas"] = metas
-        attach_t90_lags_to_panel(row)
-        out.append(row)
-    return out
+    """把 τ 面板标签换成 ŷ_τ90 = mean(price(τ⊕85/90/95))/price(τ) − 1。"""
+    return _relabel_tau_panels_as_horizon(enriched, _HORIZON_SPECS["t90"])
 
 
 def _finite_median(vals: Sequence[float]) -> Optional[float]:
@@ -735,228 +648,38 @@ def attach_tau_lag_features(
 
 def attach_t30_lags_to_panel(panel: Dict[str, Any]) -> Dict[str, Any]:
     """按同钟 PIT 写入 t30_lag1 / t30_ma5（只用早于该日的同钟真实 y_τ30）。"""
-    if not isinstance(panel, dict):
-        return panel
-    xs = list(panel.get("xs") or [])
-    dates = list(panel.get("dates") or [])
-    metas = list(panel.get("metas") or [])
-    ys = list(panel.get("ys") or [])
-    n = min(len(xs), len(dates), len(metas), len(ys))
-    by_hm: Dict[str, Dict[str, float]] = {}
-    for i in range(n):
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        d = str(dates[i] or "")[:10]
-        if not hm or len(d) < 10:
-            continue
-        try:
-            by_hm.setdefault(hm, {})[d] = float(ys[i])
-        except (TypeError, ValueError):
-            continue
-    for i in range(n):
-        row = xs[i] if isinstance(xs[i], dict) else {}
-        if not isinstance(row, dict):
-            continue
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        asof = str(dates[i] or "")[:10]
-        clock_map = by_hm.get(hm) or {}
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof,
-            lag1_key="t30_lag1",
-            ma_key="t30_ma5",
-        )
-        xs[i] = dict(row)
-        for k in T30_LAG_FEATURES:
-            xs[i][k] = lags.get(k)
-    panel["xs"] = xs
-    return panel
+    return _attach_horizon_lags_to_panel(panel, _HORIZON_SPECS["t30"])
 
 
 def attach_t45_lags_to_panel(panel: Dict[str, Any]) -> Dict[str, Any]:
     """按同钟 PIT 写入 t45_lag1 / t45_ma5（只用早于该日的同钟真实 y_τ45）。"""
-    if not isinstance(panel, dict):
-        return panel
-    xs = list(panel.get("xs") or [])
-    dates = list(panel.get("dates") or [])
-    metas = list(panel.get("metas") or [])
-    ys = list(panel.get("ys") or [])
-    n = min(len(xs), len(dates), len(metas), len(ys))
-    by_hm: Dict[str, Dict[str, float]] = {}
-    for i in range(n):
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        d = str(dates[i] or "")[:10]
-        if not hm or len(d) < 10:
-            continue
-        try:
-            by_hm.setdefault(hm, {})[d] = float(ys[i])
-        except (TypeError, ValueError):
-            continue
-    for i in range(n):
-        row = xs[i] if isinstance(xs[i], dict) else {}
-        if not isinstance(row, dict):
-            continue
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        asof = str(dates[i] or "")[:10]
-        clock_map = by_hm.get(hm) or {}
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof,
-            lag1_key="t45_lag1",
-            ma_key="t45_ma5",
-        )
-        xs[i] = dict(row)
-        for k in T45_LAG_FEATURES:
-            xs[i][k] = lags.get(k)
-    panel["xs"] = xs
-    return panel
+    return _attach_horizon_lags_to_panel(panel, _HORIZON_SPECS["t45"])
 
 
 def attach_t60_lags_to_panel(panel: Dict[str, Any]) -> Dict[str, Any]:
     """按同钟 PIT 写入 t60_lag1 / t60_ma5（只用早于该日的同钟真实 y_τ60）。"""
-    if not isinstance(panel, dict):
-        return panel
-    xs = list(panel.get("xs") or [])
-    dates = list(panel.get("dates") or [])
-    metas = list(panel.get("metas") or [])
-    ys = list(panel.get("ys") or [])
-    n = min(len(xs), len(dates), len(metas), len(ys))
-    by_hm: Dict[str, Dict[str, float]] = {}
-    for i in range(n):
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        d = str(dates[i] or "")[:10]
-        if not hm or len(d) < 10:
-            continue
-        try:
-            by_hm.setdefault(hm, {})[d] = float(ys[i])
-        except (TypeError, ValueError):
-            continue
-    for i in range(n):
-        row = xs[i] if isinstance(xs[i], dict) else {}
-        if not isinstance(row, dict):
-            continue
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        asof = str(dates[i] or "")[:10]
-        clock_map = by_hm.get(hm) or {}
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof,
-            lag1_key="t60_lag1",
-            ma_key="t60_ma5",
-        )
-        xs[i] = dict(row)
-        for k in T60_LAG_FEATURES:
-            xs[i][k] = lags.get(k)
-    panel["xs"] = xs
-    return panel
+    return _attach_horizon_lags_to_panel(panel, _HORIZON_SPECS["t60"])
 
 
 def attach_t75_lags_to_panel(panel: Dict[str, Any]) -> Dict[str, Any]:
     """按同钟 PIT 写入 t75_lag1 / t75_ma5（只用早于该日的同钟真实 y_τ75）。"""
-    if not isinstance(panel, dict):
-        return panel
-    xs = list(panel.get("xs") or [])
-    dates = list(panel.get("dates") or [])
-    metas = list(panel.get("metas") or [])
-    ys = list(panel.get("ys") or [])
-    n = min(len(xs), len(dates), len(metas), len(ys))
-    by_hm: Dict[str, Dict[str, float]] = {}
-    for i in range(n):
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        d = str(dates[i] or "")[:10]
-        if not hm or len(d) < 10:
-            continue
-        try:
-            by_hm.setdefault(hm, {})[d] = float(ys[i])
-        except (TypeError, ValueError):
-            continue
-    for i in range(n):
-        row = xs[i] if isinstance(xs[i], dict) else {}
-        if not isinstance(row, dict):
-            continue
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        asof = str(dates[i] or "")[:10]
-        clock_map = by_hm.get(hm) or {}
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof,
-            lag1_key="t75_lag1",
-            ma_key="t75_ma5",
-        )
-        xs[i] = dict(row)
-        for k in T75_LAG_FEATURES:
-            xs[i][k] = lags.get(k)
-    panel["xs"] = xs
-    return panel
+    return _attach_horizon_lags_to_panel(panel, _HORIZON_SPECS["t75"])
 
 
 def attach_t90_lags_to_panel(panel: Dict[str, Any]) -> Dict[str, Any]:
     """按同钟 PIT 写入 t90_lag1 / t90_ma5（只用早于该日的同钟真实 y_τ90）。"""
-    if not isinstance(panel, dict):
-        return panel
-    xs = list(panel.get("xs") or [])
-    dates = list(panel.get("dates") or [])
-    metas = list(panel.get("metas") or [])
-    ys = list(panel.get("ys") or [])
-    n = min(len(xs), len(dates), len(metas), len(ys))
-    by_hm: Dict[str, Dict[str, float]] = {}
-    for i in range(n):
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        d = str(dates[i] or "")[:10]
-        if not hm or len(d) < 10:
-            continue
-        try:
-            by_hm.setdefault(hm, {})[d] = float(ys[i])
-        except (TypeError, ValueError):
-            continue
-    for i in range(n):
-        row = xs[i] if isinstance(xs[i], dict) else {}
-        if not isinstance(row, dict):
-            continue
-        m = metas[i] if isinstance(metas[i], dict) else {}
-        hm = str(m.get("tau") or "")[:5]
-        asof = str(dates[i] or "")[:10]
-        clock_map = by_hm.get(hm) or {}
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof,
-            lag1_key="t90_lag1",
-            ma_key="t90_ma5",
-        )
-        xs[i] = dict(row)
-        for k in T90_LAG_FEATURES:
-            xs[i][k] = lags.get(k)
-    panel["xs"] = xs
-    return panel
+    return _attach_horizon_lags_to_panel(panel, _HORIZON_SPECS["t90"])
 
 
-_T30_REALIZED_BY_CODE_HM: Dict[Tuple[str, str], Dict[str, float]] = {}
-_T30_MINUTE_BY_CODE: Dict[str, Dict[str, List[dict]]] = {}
+_REALIZED_BY_CODE_HM: Dict[Tuple[str, str, str], Dict[str, float]] = {}
+_MINUTE_BY_CODE: Dict[str, Dict[str, List[dict]]] = {}
 
 
-def _minute_by_date_for_t30_lags(stock_code: str) -> Dict[str, List[dict]]:
+def _minute_by_date_for_lags(stock_code: str) -> Dict[str, List[dict]]:
     code = str(stock_code or "").strip()
     if not code:
         return {}
-    hit = _T30_MINUTE_BY_CODE.get(code)
+    hit = _MINUTE_BY_CODE.get(code)
     if hit is not None:
         return hit
     by_date: Dict[str, List[dict]] = {}
@@ -975,142 +698,98 @@ def _minute_by_date_for_t30_lags(stock_code: str) -> Dict[str, List[dict]]:
         bars = list((packed[0] if packed else None) or [])
         by_date = dict(_index_minute_bars_by_date(bars) or {})
     except Exception:  # noqa: BLE001
-        logger.debug("load realized t30 minutes failed", exc_info=True)
+        logger.debug("load realized horizon minutes failed", exc_info=True)
         by_date = {}
-    _T30_MINUTE_BY_CODE[code] = by_date
+    _MINUTE_BY_CODE[code] = by_date
     return by_date
+
+
+def _realized_horizon_by_date_for_clock(
+    stock_code: str, tau_hm: str, spec: HorizonSpec
+) -> Dict[str, float]:
+    """同票同钟历史真实 y_τ{N}（date → %）。缺分钟仓则空。"""
+    code = str(stock_code or "").strip()
+    hm = str(tau_hm or "").strip()[:5]
+    if not code or len(hm) < 4:
+        return {}
+    if ":" not in hm and len(hm) == 4 and hm.isdigit():
+        hm = f"{hm[:2]}:{hm[2:]}"
+    key = (code, hm, spec.tag)
+    hit = _REALIZED_BY_CODE_HM.get(key)
+    if hit is not None:
+        return hit
+    by_date = _minute_by_date_for_lags(code)
+    out: Dict[str, float] = {}
+    open_clock = is_open_minute_clock(hm)
+    for d, day_mins in by_date.items():
+        day = str(d or "")[:10]
+        if len(day) < 10:
+            continue
+        px_tau = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=hm)
+        if (px_tau is None or px_tau <= 0) and open_clock:
+            o_min, _ = minute_session_open_close(day_mins, trade_date=day)
+            px_tau = o_min
+        _, pxN = price_at_horizon_mean_session(day_mins, trade_date=day, tau_hm=hm, offsets=spec.offsets)
+        yt = y_t30_pct(px_tau, pxN)
+        if yt is not None:
+            out[day] = float(yt)
+    _REALIZED_BY_CODE_HM[key] = out
+    return out
 
 
 def realized_t30_by_date_for_clock(stock_code: str, tau_hm: str) -> Dict[str, float]:
     """同票同钟历史真实 y_τ30（date → %）。缺分钟仓则空。"""
-    code = str(stock_code or "").strip()
-    hm = str(tau_hm or "").strip()[:5]
-    if not code or len(hm) < 4:
-        return {}
-    if ":" not in hm and len(hm) == 4 and hm.isdigit():
-        hm = f"{hm[:2]}:{hm[2:]}"
-    key = (code, hm)
-    hit = _T30_REALIZED_BY_CODE_HM.get(key)
-    if hit is not None:
-        return hit
-    by_date = _minute_by_date_for_t30_lags(code)
-    out: Dict[str, float] = {}
-    open_clock = is_open_minute_clock(hm)
-    for d, day_mins in by_date.items():
-        day = str(d or "")[:10]
-        if len(day) < 10:
-            continue
-        px_tau = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=hm)
-        if (px_tau is None or px_tau <= 0) and open_clock:
-            o_min, _ = minute_session_open_close(day_mins, trade_date=day)
-            px_tau = o_min
-        _, px30 = price_at_t30_mean_session(day_mins, trade_date=day, tau_hm=hm)
-        yt = y_t30_pct(px_tau, px30)
-        if yt is not None:
-            out[day] = float(yt)
-    _T30_REALIZED_BY_CODE_HM[key] = out
-    return out
-
-
-_T45_REALIZED_BY_CODE_HM: Dict[Tuple[str, str], Dict[str, float]] = {}
+    return _realized_horizon_by_date_for_clock(stock_code, tau_hm, _HORIZON_SPECS["t30"])
 
 
 def realized_t45_by_date_for_clock(stock_code: str, tau_hm: str) -> Dict[str, float]:
     """同票同钟历史真实 y_τ45（date → %）。缺分钟仓则空。"""
-    code = str(stock_code or "").strip()
-    hm = str(tau_hm or "").strip()[:5]
-    if not code or len(hm) < 4:
-        return {}
-    if ":" not in hm and len(hm) == 4 and hm.isdigit():
-        hm = f"{hm[:2]}:{hm[2:]}"
-    key = (code, hm)
-    hit = _T45_REALIZED_BY_CODE_HM.get(key)
-    if hit is not None:
-        return hit
-    by_date = _minute_by_date_for_t30_lags(code)
-    out: Dict[str, float] = {}
-    open_clock = is_open_minute_clock(hm)
-    for d, day_mins in by_date.items():
-        day = str(d or "")[:10]
-        if len(day) < 10:
-            continue
-        px_tau = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=hm)
-        if (px_tau is None or px_tau <= 0) and open_clock:
-            o_min, _ = minute_session_open_close(day_mins, trade_date=day)
-            px_tau = o_min
-        _, px45 = price_at_t45_mean_session(day_mins, trade_date=day, tau_hm=hm)
-        yt = y_t45_pct(px_tau, px45)
-        if yt is not None:
-            out[day] = float(yt)
-    _T45_REALIZED_BY_CODE_HM[key] = out
-    return out
-
-
-_T60_REALIZED_BY_CODE_HM: Dict[Tuple[str, str], Dict[str, float]] = {}
+    return _realized_horizon_by_date_for_clock(stock_code, tau_hm, _HORIZON_SPECS["t45"])
 
 
 def realized_t60_by_date_for_clock(stock_code: str, tau_hm: str) -> Dict[str, float]:
     """同票同钟历史真实 y_τ60（date → %）。缺分钟仓则空。"""
-    code = str(stock_code or "").strip()
-    hm = str(tau_hm or "").strip()[:5]
-    if not code or len(hm) < 4:
-        return {}
-    if ":" not in hm and len(hm) == 4 and hm.isdigit():
-        hm = f"{hm[:2]}:{hm[2:]}"
-    key = (code, hm)
-    hit = _T60_REALIZED_BY_CODE_HM.get(key)
-    if hit is not None:
-        return hit
-    by_date = _minute_by_date_for_t30_lags(code)
-    out: Dict[str, float] = {}
-    open_clock = is_open_minute_clock(hm)
-    for d, day_mins in by_date.items():
-        day = str(d or "")[:10]
-        if len(day) < 10:
-            continue
-        px_tau = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=hm)
-        if (px_tau is None or px_tau <= 0) and open_clock:
-            o_min, _ = minute_session_open_close(day_mins, trade_date=day)
-            px_tau = o_min
-        _, px60 = price_at_t60_mean_session(day_mins, trade_date=day, tau_hm=hm)
-        yt = y_t60_pct(px_tau, px60)
-        if yt is not None:
-            out[day] = float(yt)
-    _T60_REALIZED_BY_CODE_HM[key] = out
-    return out
-
-
-_T75_REALIZED_BY_CODE_HM: Dict[Tuple[str, str], Dict[str, float]] = {}
+    return _realized_horizon_by_date_for_clock(stock_code, tau_hm, _HORIZON_SPECS["t60"])
 
 
 def realized_t75_by_date_for_clock(stock_code: str, tau_hm: str) -> Dict[str, float]:
     """同票同钟历史真实 y_τ75（date → %）。缺分钟仓则空。"""
-    code = str(stock_code or "").strip()
-    hm = str(tau_hm or "").strip()[:5]
-    if not code or len(hm) < 4:
-        return {}
-    if ":" not in hm and len(hm) == 4 and hm.isdigit():
-        hm = f"{hm[:2]}:{hm[2:]}"
-    key = (code, hm)
-    hit = _T75_REALIZED_BY_CODE_HM.get(key)
-    if hit is not None:
-        return hit
-    by_date = _minute_by_date_for_t30_lags(code)
-    out: Dict[str, float] = {}
-    open_clock = is_open_minute_clock(hm)
-    for d, day_mins in by_date.items():
-        day = str(d or "")[:10]
-        if len(day) < 10:
-            continue
-        px_tau = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=hm)
-        if (px_tau is None or px_tau <= 0) and open_clock:
-            o_min, _ = minute_session_open_close(day_mins, trade_date=day)
-            px_tau = o_min
-        _, px75 = price_at_t75_mean_session(day_mins, trade_date=day, tau_hm=hm)
-        yt = y_t75_pct(px_tau, px75)
-        if yt is not None:
-            out[day] = float(yt)
-    _T75_REALIZED_BY_CODE_HM[key] = out
+    return _realized_horizon_by_date_for_clock(stock_code, tau_hm, _HORIZON_SPECS["t75"])
+
+
+def _attach_horizon_lag_features(
+    feats: Optional[dict],
+    *,
+    spec: HorizonSpec,
+    hist_bars: Optional[Sequence[dict]] = None,
+    asof_date: str,
+    tau_hm: str,
+    stock_code: str = "",
+) -> Dict[str, Any]:
+    """把 tN_lag1 / tN_ma5 写入特征行；缺同钟历史则留空，不挡打分。"""
+    out: Dict[str, Any] = dict(feats or {})
+    hist = hist_bars_pit(hist_bars, asof_date=asof_date)
+    clock_map = _realized_horizon_by_date_for_clock(stock_code, tau_hm, spec)
+    if not hist and clock_map:
+        hist = [{"date": d} for d in sorted(clock_map.keys())]
+    lags = label_lag_features(
+        hist_bars=hist,
+        by_date=clock_map,
+        asof_date=asof_date,
+        lag1_key=spec.lag1_key,
+        ma_key=spec.ma_key,
+    )
+    if lags.get(spec.lag1_key) is None and clock_map:
+        hist = [{"date": d} for d in sorted(clock_map.keys())]
+        lags = label_lag_features(
+            hist_bars=hist,
+            by_date=clock_map,
+            asof_date=asof_date,
+            lag1_key=spec.lag1_key,
+            ma_key=spec.ma_key,
+        )
+    for k in spec.lag_features:
+        out[k] = lags.get(k)
     return out
 
 
@@ -1123,30 +802,7 @@ def attach_t30_lag_features(
     stock_code: str = "",
 ) -> Dict[str, Any]:
     """把 t30_lag1 / t30_ma5 写入特征行；缺同钟历史则留空，不挡打分。"""
-    out: Dict[str, Any] = dict(feats or {})
-    hist = hist_bars_pit(hist_bars, asof_date=asof_date)
-    clock_map = realized_t30_by_date_for_clock(stock_code, tau_hm)
-    if not hist and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-    lags = label_lag_features(
-        hist_bars=hist,
-        by_date=clock_map,
-        asof_date=asof_date,
-        lag1_key="t30_lag1",
-        ma_key="t30_ma5",
-    )
-    if lags.get("t30_lag1") is None and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof_date,
-            lag1_key="t30_lag1",
-            ma_key="t30_ma5",
-        )
-    for k in T30_LAG_FEATURES:
-        out[k] = lags.get(k)
-    return out
+    return _attach_horizon_lag_features(feats, spec=_HORIZON_SPECS["t30"], hist_bars=hist_bars, asof_date=asof_date, tau_hm=tau_hm, stock_code=stock_code)
 
 
 def attach_t45_lag_features(
@@ -1158,30 +814,7 @@ def attach_t45_lag_features(
     stock_code: str = "",
 ) -> Dict[str, Any]:
     """把 t45_lag1 / t45_ma5 写入特征行；缺同钟历史则留空，不挡打分。"""
-    out: Dict[str, Any] = dict(feats or {})
-    hist = hist_bars_pit(hist_bars, asof_date=asof_date)
-    clock_map = realized_t45_by_date_for_clock(stock_code, tau_hm)
-    if not hist and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-    lags = label_lag_features(
-        hist_bars=hist,
-        by_date=clock_map,
-        asof_date=asof_date,
-        lag1_key="t45_lag1",
-        ma_key="t45_ma5",
-    )
-    if lags.get("t45_lag1") is None and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof_date,
-            lag1_key="t45_lag1",
-            ma_key="t45_ma5",
-        )
-    for k in T45_LAG_FEATURES:
-        out[k] = lags.get(k)
-    return out
+    return _attach_horizon_lag_features(feats, spec=_HORIZON_SPECS["t45"], hist_bars=hist_bars, asof_date=asof_date, tau_hm=tau_hm, stock_code=stock_code)
 
 
 def attach_t60_lag_features(
@@ -1193,64 +826,12 @@ def attach_t60_lag_features(
     stock_code: str = "",
 ) -> Dict[str, Any]:
     """把 t60_lag1 / t60_ma5 写入特征行；缺同钟历史则留空，不挡打分。"""
-    out: Dict[str, Any] = dict(feats or {})
-    hist = hist_bars_pit(hist_bars, asof_date=asof_date)
-    clock_map = realized_t60_by_date_for_clock(stock_code, tau_hm)
-    if not hist and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-    lags = label_lag_features(
-        hist_bars=hist,
-        by_date=clock_map,
-        asof_date=asof_date,
-        lag1_key="t60_lag1",
-        ma_key="t60_ma5",
-    )
-    if lags.get("t60_lag1") is None and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof_date,
-            lag1_key="t60_lag1",
-            ma_key="t60_ma5",
-        )
-    for k in T60_LAG_FEATURES:
-        out[k] = lags.get(k)
-    return out
-
-
-_T90_REALIZED_BY_CODE_HM: Dict[Tuple[str, str], Dict[str, float]] = {}
+    return _attach_horizon_lag_features(feats, spec=_HORIZON_SPECS["t60"], hist_bars=hist_bars, asof_date=asof_date, tau_hm=tau_hm, stock_code=stock_code)
 
 
 def realized_t90_by_date_for_clock(stock_code: str, tau_hm: str) -> Dict[str, float]:
     """同票同钟历史真实 y_τ90（date → %）。缺分钟仓则空。"""
-    code = str(stock_code or "").strip()
-    hm = str(tau_hm or "").strip()[:5]
-    if not code or len(hm) < 4:
-        return {}
-    if ":" not in hm and len(hm) == 4 and hm.isdigit():
-        hm = f"{hm[:2]}:{hm[2:]}"
-    key = (code, hm)
-    hit = _T90_REALIZED_BY_CODE_HM.get(key)
-    if hit is not None:
-        return hit
-    by_date = _minute_by_date_for_t30_lags(code)
-    out: Dict[str, float] = {}
-    open_clock = is_open_minute_clock(hm)
-    for d, day_mins in by_date.items():
-        day = str(d or "")[:10]
-        if len(day) < 10:
-            continue
-        px_tau = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=hm)
-        if (px_tau is None or px_tau <= 0) and open_clock:
-            o_min, _ = minute_session_open_close(day_mins, trade_date=day)
-            px_tau = o_min
-        _, px60 = price_at_t90_mean_session(day_mins, trade_date=day, tau_hm=hm)
-        yt = y_t90_pct(px_tau, px60)
-        if yt is not None:
-            out[day] = float(yt)
-    _T90_REALIZED_BY_CODE_HM[key] = out
-    return out
+    return _realized_horizon_by_date_for_clock(stock_code, tau_hm, _HORIZON_SPECS["t90"])
 
 
 def attach_t75_lag_features(
@@ -1262,30 +843,7 @@ def attach_t75_lag_features(
     stock_code: str = "",
 ) -> Dict[str, Any]:
     """把 t75_lag1 / t75_ma5 写入特征行；缺同钟历史则留空，不挡打分。"""
-    out: Dict[str, Any] = dict(feats or {})
-    hist = hist_bars_pit(hist_bars, asof_date=asof_date)
-    clock_map = realized_t75_by_date_for_clock(stock_code, tau_hm)
-    if not hist and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-    lags = label_lag_features(
-        hist_bars=hist,
-        by_date=clock_map,
-        asof_date=asof_date,
-        lag1_key="t75_lag1",
-        ma_key="t75_ma5",
-    )
-    if lags.get("t75_lag1") is None and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof_date,
-            lag1_key="t75_lag1",
-            ma_key="t75_ma5",
-        )
-    for k in T75_LAG_FEATURES:
-        out[k] = lags.get(k)
-    return out
+    return _attach_horizon_lag_features(feats, spec=_HORIZON_SPECS["t75"], hist_bars=hist_bars, asof_date=asof_date, tau_hm=tau_hm, stock_code=stock_code)
 
 
 def attach_t90_lag_features(
@@ -1297,30 +855,7 @@ def attach_t90_lag_features(
     stock_code: str = "",
 ) -> Dict[str, Any]:
     """把 t90_lag1 / t90_ma5 写入特征行；缺同钟历史则留空，不挡打分。"""
-    out: Dict[str, Any] = dict(feats or {})
-    hist = hist_bars_pit(hist_bars, asof_date=asof_date)
-    clock_map = realized_t90_by_date_for_clock(stock_code, tau_hm)
-    if not hist and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-    lags = label_lag_features(
-        hist_bars=hist,
-        by_date=clock_map,
-        asof_date=asof_date,
-        lag1_key="t90_lag1",
-        ma_key="t90_ma5",
-    )
-    if lags.get("t90_lag1") is None and clock_map:
-        hist = [{"date": d} for d in sorted(clock_map.keys())]
-        lags = label_lag_features(
-            hist_bars=hist,
-            by_date=clock_map,
-            asof_date=asof_date,
-            lag1_key="t90_lag1",
-            ma_key="t90_ma5",
-        )
-    for k in T90_LAG_FEATURES:
-        out[k] = lags.get(k)
-    return out
+    return _attach_horizon_lag_features(feats, spec=_HORIZON_SPECS["t90"], hist_bars=hist_bars, asof_date=asof_date, tau_hm=tau_hm, stock_code=stock_code)
 
 
 def gap_atr_from_hist(

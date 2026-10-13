@@ -6,7 +6,7 @@ import json
 import logging
 import math
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 # 单票可算（无截面）
 MINUTE_TAU_PACK_KEYS = (
@@ -880,59 +880,41 @@ def attach_ret_vs_sector(feats: Dict[str, Any]) -> None:
     feats["ret_vs_sector"] = round(float(a) - float(b), 6)
 
 
-def attach_ret_last_30m_vs_sector(feats: Dict[str, Any]) -> None:
-    """有 ret_last_30m 与 sector_ret_last_30m 时写相对板块。"""
+def _attach_ret_last_vs_sector(feats: Dict[str, Any], horizon_min: int) -> None:
+    """有 ``ret_last_{N}m`` 与 ``sector_ret_last_{N}m`` 时写相对板块。"""
     if not isinstance(feats, dict):
         return
-    a = _f(feats.get("ret_last_30m"))
-    b = _f(feats.get("sector_ret_last_30m"))
+    ret_key = f"ret_last_{horizon_min}m"
+    a = _f(feats.get(ret_key))
+    b = _f(feats.get(f"sector_ret_last_{horizon_min}m"))
     if a is None or b is None:
         return
-    feats["ret_last_30m_vs_sector"] = round(float(a) - float(b), 6)
+    feats[f"{ret_key}_vs_sector"] = round(float(a) - float(b), 6)
+
+
+def attach_ret_last_30m_vs_sector(feats: Dict[str, Any]) -> None:
+    """有 ret_last_30m 与 sector_ret_last_30m 时写相对板块。"""
+    _attach_ret_last_vs_sector(feats, 30)
 
 
 def attach_ret_last_45m_vs_sector(feats: Dict[str, Any]) -> None:
     """有 ret_last_45m 与 sector_ret_last_45m 时写相对板块。"""
-    if not isinstance(feats, dict):
-        return
-    a = _f(feats.get("ret_last_45m"))
-    b = _f(feats.get("sector_ret_last_45m"))
-    if a is None or b is None:
-        return
-    feats["ret_last_45m_vs_sector"] = round(float(a) - float(b), 6)
+    _attach_ret_last_vs_sector(feats, 45)
 
 
 def attach_ret_last_60m_vs_sector(feats: Dict[str, Any]) -> None:
     """有 ret_last_60m 与 sector_ret_last_60m 时写相对板块。"""
-    if not isinstance(feats, dict):
-        return
-    a = _f(feats.get("ret_last_60m"))
-    b = _f(feats.get("sector_ret_last_60m"))
-    if a is None or b is None:
-        return
-    feats["ret_last_60m_vs_sector"] = round(float(a) - float(b), 6)
+    _attach_ret_last_vs_sector(feats, 60)
 
 
 def attach_ret_last_75m_vs_sector(feats: Dict[str, Any]) -> None:
     """有 ret_last_75m 与 sector_ret_last_75m 时写相对板块。"""
-    if not isinstance(feats, dict):
-        return
-    a = _f(feats.get("ret_last_75m"))
-    b = _f(feats.get("sector_ret_last_75m"))
-    if a is None or b is None:
-        return
-    feats["ret_last_75m_vs_sector"] = round(float(a) - float(b), 6)
+    _attach_ret_last_vs_sector(feats, 75)
 
 
 def attach_ret_last_90m_vs_sector(feats: Dict[str, Any]) -> None:
     """有 ret_last_90m 与 sector_ret_last_90m 时写相对板块。"""
-    if not isinstance(feats, dict):
-        return
-    a = _f(feats.get("ret_last_90m"))
-    b = _f(feats.get("sector_ret_last_90m"))
-    if a is None or b is None:
-        return
-    feats["ret_last_90m_vs_sector"] = round(float(a) - float(b), 6)
+    _attach_ret_last_vs_sector(feats, 90)
 
 
 def sector_ret_median(peer_rets: Sequence[Any]) -> Optional[float]:
@@ -973,6 +955,25 @@ def apply_sector_ret_cs(
     return out
 
 
+def _apply_sector_ret_cs(
+    feats: Optional[Dict[str, Any]],
+    sector_ret: Optional[float],
+    horizon_min: int,
+    *,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    """写入截面近 {N} 交易分钟中位，并派生 ``ret_last_{N}m_vs_sector``。"""
+    out = dict(feats or {})
+    sret = _f(sector_ret)
+    cs_key = f"sector_ret_last_{horizon_min}m"
+    if sret is not None and (overwrite or out.get(cs_key) is None):
+        out[cs_key] = round(float(sret), 6)
+    if overwrite:
+        out.pop(f"ret_last_{horizon_min}m_vs_sector", None)
+    _attach_ret_last_vs_sector(out, horizon_min)
+    return out
+
+
 def apply_sector_ret_last_30m_cs(
     feats: Optional[Dict[str, Any]],
     sector_ret_last_30m: Optional[float],
@@ -980,14 +981,7 @@ def apply_sector_ret_last_30m_cs(
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """写入截面近 30 交易分钟中位，并派生 ``ret_last_30m_vs_sector``。"""
-    out = dict(feats or {})
-    sret = _f(sector_ret_last_30m)
-    if sret is not None and (overwrite or out.get("sector_ret_last_30m") is None):
-        out["sector_ret_last_30m"] = round(float(sret), 6)
-    if overwrite:
-        out.pop("ret_last_30m_vs_sector", None)
-    attach_ret_last_30m_vs_sector(out)
-    return out
+    return _apply_sector_ret_cs(feats, sector_ret_last_30m, 30, overwrite=overwrite)
 
 
 def apply_sector_ret_last_45m_cs(
@@ -997,14 +991,7 @@ def apply_sector_ret_last_45m_cs(
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """写入截面近 45 交易分钟中位，并派生 ``ret_last_45m_vs_sector``。"""
-    out = dict(feats or {})
-    sret = _f(sector_ret_last_45m)
-    if sret is not None and (overwrite or out.get("sector_ret_last_45m") is None):
-        out["sector_ret_last_45m"] = round(float(sret), 6)
-    if overwrite:
-        out.pop("ret_last_45m_vs_sector", None)
-    attach_ret_last_45m_vs_sector(out)
-    return out
+    return _apply_sector_ret_cs(feats, sector_ret_last_45m, 45, overwrite=overwrite)
 
 
 def apply_sector_ret_last_60m_cs(
@@ -1014,14 +1001,7 @@ def apply_sector_ret_last_60m_cs(
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """写入截面近 60 交易分钟中位，并派生 ``ret_last_60m_vs_sector``。"""
-    out = dict(feats or {})
-    sret = _f(sector_ret_last_60m)
-    if sret is not None and (overwrite or out.get("sector_ret_last_60m") is None):
-        out["sector_ret_last_60m"] = round(float(sret), 6)
-    if overwrite:
-        out.pop("ret_last_60m_vs_sector", None)
-    attach_ret_last_60m_vs_sector(out)
-    return out
+    return _apply_sector_ret_cs(feats, sector_ret_last_60m, 60, overwrite=overwrite)
 
 
 def apply_sector_ret_last_75m_cs(
@@ -1031,14 +1011,7 @@ def apply_sector_ret_last_75m_cs(
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """写入截面近 75 交易分钟中位，并派生 ``ret_last_75m_vs_sector``。"""
-    out = dict(feats or {})
-    sret = _f(sector_ret_last_75m)
-    if sret is not None and (overwrite or out.get("sector_ret_last_75m") is None):
-        out["sector_ret_last_75m"] = round(float(sret), 6)
-    if overwrite:
-        out.pop("ret_last_75m_vs_sector", None)
-    attach_ret_last_75m_vs_sector(out)
-    return out
+    return _apply_sector_ret_cs(feats, sector_ret_last_75m, 75, overwrite=overwrite)
 
 
 def apply_sector_ret_last_90m_cs(
@@ -1048,14 +1021,7 @@ def apply_sector_ret_last_90m_cs(
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """写入截面近 90 交易分钟中位，并派生 ``ret_last_90m_vs_sector``。"""
-    out = dict(feats or {})
-    sret = _f(sector_ret_last_90m)
-    if sret is not None and (overwrite or out.get("sector_ret_last_90m") is None):
-        out["sector_ret_last_90m"] = round(float(sret), 6)
-    if overwrite:
-        out.pop("ret_last_90m_vs_sector", None)
-    attach_ret_last_90m_vs_sector(out)
-    return out
+    return _apply_sector_ret_cs(feats, sector_ret_last_90m, 90, overwrite=overwrite)
 
 
 # (trade_date, tau_hm) → 池中位；做 T 回测同日多票复用
@@ -1713,6 +1679,36 @@ def _resolve_sector_ret_horizon(
     return filled.get(ret_key)
 
 
+def _attach_sector_ret_last_cs_if_missing(
+    feats: Optional[Dict[str, Any]],
+    *,
+    trade_date: str,
+    tau_hm: str = "10:30",
+    horizon_min: int,
+    resolve: Callable[[str, str], Optional[float]],
+) -> Dict[str, Any]:
+    """live / 前缀补近 {N}m 截面。缺则 Ridge 把 CS 当 z=0。"""
+    ret_key = f"ret_last_{horizon_min}m"
+    out = dict(feats or {})
+    if out.get(ret_key) is None:
+        return out
+    if out.get(f"sector_ret_last_{horizon_min}m") is not None:
+        _attach_ret_last_vs_sector(out, horizon_min)
+        return out
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
+    if len(day) < 10:
+        return out
+    try:
+        sret = resolve(day, hm)
+    except Exception:
+        sret = None
+    if sret is None:
+        _attach_ret_last_vs_sector(out, horizon_min)
+        return out
+    return _apply_sector_ret_cs(out, sret, horizon_min)
+
+
 def resolve_sector_ret_last_30m(
     trade_date: str,
     tau_hm: str = "10:30",
@@ -1743,24 +1739,13 @@ def attach_sector_ret_last_30m_cs_if_missing(
     tau_hm: str = "10:30",
 ) -> Dict[str, Any]:
     """live / 前缀补近 30m 截面。缺则 Ridge 把 CS 当 z=0。"""
-    out = dict(feats or {})
-    if out.get("ret_last_30m") is None:
-        return out
-    if out.get("sector_ret_last_30m") is not None:
-        attach_ret_last_30m_vs_sector(out)
-        return out
-    day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
-    if len(day) < 10:
-        return out
-    try:
-        sret = resolve_sector_ret_last_30m(day, hm)
-    except Exception:
-        sret = None
-    if sret is None:
-        attach_ret_last_30m_vs_sector(out)
-        return out
-    return apply_sector_ret_last_30m_cs(out, sret)
+    return _attach_sector_ret_last_cs_if_missing(
+        feats,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        horizon_min=30,
+        resolve=resolve_sector_ret_last_30m,
+    )
 
 
 def resolve_sector_ret_last_45m(
@@ -1793,24 +1778,13 @@ def attach_sector_ret_last_45m_cs_if_missing(
     tau_hm: str = "10:30",
 ) -> Dict[str, Any]:
     """live / 前缀补近 45m 截面。缺则 Ridge 把 CS 当 z=0。"""
-    out = dict(feats or {})
-    if out.get("ret_last_45m") is None:
-        return out
-    if out.get("sector_ret_last_45m") is not None:
-        attach_ret_last_45m_vs_sector(out)
-        return out
-    day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
-    if len(day) < 10:
-        return out
-    try:
-        sret = resolve_sector_ret_last_45m(day, hm)
-    except Exception:
-        sret = None
-    if sret is None:
-        attach_ret_last_45m_vs_sector(out)
-        return out
-    return apply_sector_ret_last_45m_cs(out, sret)
+    return _attach_sector_ret_last_cs_if_missing(
+        feats,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        horizon_min=45,
+        resolve=resolve_sector_ret_last_45m,
+    )
 
 
 def resolve_sector_ret_last_60m(
@@ -1843,24 +1817,13 @@ def attach_sector_ret_last_60m_cs_if_missing(
     tau_hm: str = "10:30",
 ) -> Dict[str, Any]:
     """live / 前缀补近 60m 截面。缺则 Ridge 把 CS 当 z=0。"""
-    out = dict(feats or {})
-    if out.get("ret_last_60m") is None:
-        return out
-    if out.get("sector_ret_last_60m") is not None:
-        attach_ret_last_60m_vs_sector(out)
-        return out
-    day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
-    if len(day) < 10:
-        return out
-    try:
-        sret = resolve_sector_ret_last_60m(day, hm)
-    except Exception:
-        sret = None
-    if sret is None:
-        attach_ret_last_60m_vs_sector(out)
-        return out
-    return apply_sector_ret_last_60m_cs(out, sret)
+    return _attach_sector_ret_last_cs_if_missing(
+        feats,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        horizon_min=60,
+        resolve=resolve_sector_ret_last_60m,
+    )
 
 
 def resolve_sector_ret_last_75m(
@@ -1893,24 +1856,13 @@ def attach_sector_ret_last_75m_cs_if_missing(
     tau_hm: str = "10:30",
 ) -> Dict[str, Any]:
     """live / 前缀补近 75m 截面。缺则 Ridge 把 CS 当 z=0。"""
-    out = dict(feats or {})
-    if out.get("ret_last_75m") is None:
-        return out
-    if out.get("sector_ret_last_75m") is not None:
-        attach_ret_last_75m_vs_sector(out)
-        return out
-    day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
-    if len(day) < 10:
-        return out
-    try:
-        sret = resolve_sector_ret_last_75m(day, hm)
-    except Exception:
-        sret = None
-    if sret is None:
-        attach_ret_last_75m_vs_sector(out)
-        return out
-    return apply_sector_ret_last_75m_cs(out, sret)
+    return _attach_sector_ret_last_cs_if_missing(
+        feats,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        horizon_min=75,
+        resolve=resolve_sector_ret_last_75m,
+    )
 
 
 def resolve_sector_ret_last_90m(
@@ -1943,24 +1895,13 @@ def attach_sector_ret_last_90m_cs_if_missing(
     tau_hm: str = "10:30",
 ) -> Dict[str, Any]:
     """live / 前缀补近 90m 截面。缺则 Ridge 把 CS 当 z=0。"""
-    out = dict(feats or {})
-    if out.get("ret_last_90m") is None:
-        return out
-    if out.get("sector_ret_last_90m") is not None:
-        attach_ret_last_90m_vs_sector(out)
-        return out
-    day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
-    if len(day) < 10:
-        return out
-    try:
-        sret = resolve_sector_ret_last_90m(day, hm)
-    except Exception:
-        sret = None
-    if sret is None:
-        attach_ret_last_90m_vs_sector(out)
-        return out
-    return apply_sector_ret_last_90m_cs(out, sret)
+    return _attach_sector_ret_last_cs_if_missing(
+        feats,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        horizon_min=90,
+        resolve=resolve_sector_ret_last_90m,
+    )
 
 
 def set_peer_codes_for_sector_ret(codes: Optional[Sequence[str]]) -> None:

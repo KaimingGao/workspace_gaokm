@@ -14,18 +14,6 @@ class TimeSeriesSplit:
     valid_end: int
     test_end: int
 
-    @property
-    def train_slice(self) -> slice:
-        return slice(0, self.train_end)
-
-    @property
-    def valid_slice(self) -> slice:
-        return slice(self.train_end, self.valid_end)
-
-    @property
-    def test_slice(self) -> slice:
-        return slice(self.valid_end, self.test_end)
-
 
 def time_series_split(
     bar_count: int,
@@ -51,10 +39,6 @@ def time_series_split(
         valid_end = min(n, train_end + max(5, n // 10))
 
     return TimeSeriesSplit(train_end=train_end, valid_end=valid_end, test_end=n)
-
-
-def slice_bars(bars: List[dict], sl: slice) -> List[dict]:
-    return list(bars[sl])
 
 
 @dataclass

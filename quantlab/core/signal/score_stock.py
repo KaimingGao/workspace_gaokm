@@ -219,7 +219,6 @@ def score_stock(
     skip_fundamentals: bool = False,
     skip_sentiment: bool = False,
     bypass_quality_gate: bool = False,
-    cluster_mode: Optional[str] = None,
     fetch_sector_breadth: bool = False,
     sector_gap_breadth: Optional[float] = None,
     pool_gaps: Optional[list] = None,
@@ -246,10 +245,9 @@ def score_stock(
     False=开盘 Z（回测 09:30、live 启动时间 ≤09:30），不读分钟仓、不拉 5m；
     True=强制并分钟小包（观察池 / 持仓表；live 启动时间 >09:30）。
 
-    ``cluster_mode``：已废弃/退役，仅保留 API 兼容；入参忽略，输出固定
-    ``cluster_mode="off"``。主分仅用全局 return_model ŷ；``score_cluster`` /
-    ``cluster_label`` / ``cluster_id`` / ``cluster_version`` 恒为 None；
-    ``heuristic_score`` 双轨保留（互不覆盖）。
+    （分组已退役）主分仅用全局 return_model ŷ；输出 ``cluster_mode`` 固定
+    ``"off"``，``score_cluster`` / ``cluster_label`` / ``cluster_id`` /
+    ``cluster_version`` 恒为 None；``heuristic_score`` 双轨保留（互不覆盖）。
     """
     if horizon_days is None:
         from core.signal.config import get_scoring_horizon_days
@@ -608,8 +606,6 @@ def score_stock(
     if fund_depth.get("fundamentals_depth") in ("hk_shallow", "us_shallow"):
         formula_warnings.append(f"fundamentals_depth:{fund_depth.get('fundamentals_depth')}")
 
-    # cluster_mode 已退役：保留入参 API 兼容，忽略其值；输出固定 off
-    _ = cluster_mode
     mode = "off"
     weight_source = "global"
     cluster_label = None

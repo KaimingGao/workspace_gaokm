@@ -113,7 +113,6 @@ class TestFsSentimentGate(unittest.TestCase):
                 quote=quote,
                 skip_fundamentals=True,
                 bypass_quality_gate=True,
-                cluster_mode="off",
             )
         # 闸关：传给 score_bars 的 sentiment 为 None
         kwargs = mock_sb.call_args.kwargs
@@ -282,7 +281,6 @@ class TestFsRiskHints(unittest.TestCase):
                 quote=quote,
                 skip_fundamentals=True,
                 bypass_quality_gate=True,
-                cluster_mode="off",
             )
         hints = (out.get("signal_item") or {}).get("risk_hints") or []
         self.assertTrue(any(h.get("kind") == "sentiment_bearish" for h in hints))

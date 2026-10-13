@@ -86,7 +86,7 @@ def _horizon_ridge_config(head: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 字段读写：pick_y_hat / pick_y_label / write_y_hat / write_y_label / pack_y_fields
+# 字段读写：pick_y_hat / pick_y_label / write_y_hat
 # ---------------------------------------------------------------------------
 
 
@@ -151,27 +151,6 @@ def write_y_hat(head: str, dest: Dict[str, Any], val: float, *, formula: Any = N
     spec = str(formula or cfg["formula"])
     dest[f"y_spec_\u03c4{num}"] = {"formula": spec, "unit": "prob"}
     dest[f"y_spec_{h}"] = {"formula": spec, "unit": "prob"}
-
-
-def write_y_label(head: str, dest: Dict[str, Any], val: float) -> None:
-    h = _horizon_ridge_config(head)["head"]
-    x = float(val)
-    dest[f"{h}_realized"] = x
-    dest[f"y_{h}_realized"] = x
-
-
-def pack_y_fields(head: str, day: Optional[dict]) -> Dict[str, Any]:
-    cfg = _horizon_ridge_config(head)
-    h = cfg["head"]
-    num = cfg["num"]
-    val = pick_y_label(head, day) if isinstance(day, dict) else None
-    hat = pick_y_hat(head, day) if isinstance(day, dict) else None
-    return {
-        f"{h}_realized": val,
-        f"y_{h}_realized": val,
-        f"y_\u03c4{num}": hat,
-        f"y_{h}": hat,
-    }
 
 
 def horizon_realized_pct(head: str, price_tau: Any, price_tau_n: Any) -> Optional[float]:
@@ -586,7 +565,3 @@ def explain_ridge_prediction(
     doc = model_doc if model_doc is not None else load_ridge_model(h)
     expl = explain_tau_prediction(features, model_doc=doc)
     return stamp_horizon_explain(expl, head=h, model_doc=doc)
-
-
-def clear_ridge_model_cache() -> None:
-    _RIDGE_MODEL_CACHE.clear()

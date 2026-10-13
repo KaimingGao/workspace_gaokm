@@ -463,6 +463,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         bt_js = self._read("web", "static", "js", "quant", "domain_backtest.js")
         self.assertIn("/api/quant/research-universe/predictability-tiers", ru_js)
         self.assertIn("holdout=", ru_js)
+        self.assertIn("holdoutMismatch", ru_js)
+        self.assertIn("Holdout 不一致", ru_js)
+        self.assertIn('on("quant-holdout-days", "change"', ru_js)
+        self.assertIn(
+            "predictability-tiers/last?slim=1",
+            bt_js,
+        )
+        self.assertIn("ŷ_oo Holdout=", bt_js)
         self.assertNotIn("a_hit=", ru_js)
         self.assertNotIn("tau_a_hit=", ru_js)
         self.assertNotIn("readAHitRate", ru_js)

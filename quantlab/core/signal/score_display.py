@@ -41,12 +41,6 @@ def json_safe(obj: Any) -> Any:
     return obj
 
 
-def is_predicted_rank_mode(config: Optional[dict] = None) -> bool:
-    """已废弃：生产恒为 predicted_score。保留以免旧 import 崩；新代码勿分支。"""
-    del config
-    return True
-
-
 def looks_like_legacy_heuristic_score(
     value: Optional[float],
     *,
@@ -148,11 +142,6 @@ def resolve_hold_floor(
         return float(mp)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         return float(DEFAULT_MIN_HOLD_PREDICTED_SCORE)
-
-
-def score_gates_use_heuristic_bands() -> bool:
-    """0–100 加减仓分档已退役。"""
-    return False
 
 
 def resolve_optimize_score_floor(explicit: Optional[float] = None) -> float:

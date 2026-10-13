@@ -76,29 +76,6 @@ def _slot_trade_legs(row: Optional[dict]) -> List[dict]:
     return []
 
 
-def slot_budget_t0_ratio(
-    shares: float,
-    sellable_budget: Optional[float],
-    fallback_ratio: float,
-) -> float:
-    """槽位动仓比例：以本轮可卖预算为准（滚仓后预算可大于 slot.ratio×持仓）。"""
-    try:
-        fb = float(fallback_ratio)
-    except (TypeError, ValueError):
-        fb = 0.15
-    fb = max(0.0, min(fb, 1.0))
-    sh = max(float(shares or 0), 0.0)
-    if sellable_budget is None or sh <= 0:
-        return fb
-    try:
-        budget = float(sellable_budget)
-    except (TypeError, ValueError):
-        return fb
-    if budget <= 0:
-        return 0.0
-    return min(1.0, budget / sh)
-
-
 def _parse_max_rounds(cfg: Optional[dict], n_slots: int) -> int:
     """``t0_slots_max_rounds``：缺省=槽位数；0=不开第一腿。"""
     default = max(int(n_slots or 0), 1)
@@ -1739,7 +1716,6 @@ def simulate_t0_day_slots(
 __all__ = [
     "simulate_t0_day_slots",
     "refresh_close_band_scan",
-    "slot_budget_t0_ratio",
     "_open_close_band_round",
     "_slot_trade_legs",
     "_norm_trade_at",

@@ -511,12 +511,30 @@ export function installResearchUniverseUi(q) {
     liveStatus = live && typeof live === "object" ? live : null;
   }
 
+  function holdoutMismatch(rep) {
+    if (!rep || rep.holdout_n == null) return null;
+    const last = Number(rep.holdout_n);
+    if (!Number.isFinite(last)) return null;
+    const cur = holdoutN();
+    if (Number(cur) === Number(last)) return null;
+    return { cur, last };
+  }
+
   function applyTiers(rep) {
     lastTiers = rep && rep.success ? rep : null;
     if (rep && rep.live) applyLive(rep.live);
     if (lastTiers) paintCountFromReport(lastTiers);
     renderTierTable(lastTiers);
     if (lastTiers) {
+      const mm = holdoutMismatch(lastTiers);
+      if (mm) {
+        setStatus(
+          "error",
+          "Holdout 不一致",
+          `ŷ_oo Holdout=${mm.cur} 与分档 Holdout=${mm.last} 不一致；请重跑「观察池分档」后再回测`
+        );
+        return;
+      }
       const c = lastTiers.counts || {};
       const hold = lastTiers.holdout_n != null ? lastTiers.holdout_n : "—";
       const src =
@@ -579,6 +597,9 @@ export function installResearchUniverseUi(q) {
   on("quant-ru-tiers", "click", (e) => {
     e.preventDefault();
     void loadTiers({ useLast: false });
+  });
+  on("quant-holdout-days", "change", () => {
+    if (lastTiers) applyTiers(lastTiers);
   });
   on("quant-ru-a-count", "change", () => {
     readTierCounts();

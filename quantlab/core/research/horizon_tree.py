@@ -518,11 +518,6 @@ def load_tree_model_doc(head: str) -> Optional[Dict[str, Any]]:
     return doc
 
 
-def clear_tree_model_cache() -> None:
-    _TREE_MODEL_CACHE.clear()
-    _BOOSTER_OBJ_CACHE.clear()
-
-
 # ---------------------------------------------------------------------------
 # 泛化：tree last report 路径 / 读写（替代 tXX_tree.py 的 tXX_tree_last_report_path 等）
 # ---------------------------------------------------------------------------

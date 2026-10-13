@@ -482,14 +482,6 @@ def residual_inv_var_weights(
     return w_tc / s, w_oc / s
 
 
-def residual_w_mode_from_cfg(cfg: Optional[dict]) -> str:
-    d = cfg if isinstance(cfg, dict) else {}
-    raw = str(d.get("residual_w_mode") or d.get("residual_fusion_mode") or "fixed").strip().lower()
-    if raw in ("inv_var", "inverse_var", "inverse_variance", "oos", "variance"):
-        return "inv_var"
-    return "fixed"
-
-
 def y_oo_fuse_pct(
     item: Optional[dict],
     *,
@@ -715,7 +707,6 @@ __all__ = [
     "remaining_y_oo_fuse_pct",
     "residual_inv_var_weights",
     "residual_pct",
-    "residual_w_mode_from_cfg",
     "residual_weights_from_cfg",
     "ret_open_to_tau_pct",
     "tau_model_is_open_to_close",

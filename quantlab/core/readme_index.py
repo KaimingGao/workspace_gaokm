@@ -38,10 +38,6 @@ def architecture_doc_href(rel_dir: str) -> str:
     return f"{docs_relative_prefix(rel_dir)}docs/architecture.md#{ARCHITECTURE_SECTION_ANCHOR}"
 
 
-def architecture_link_line(rel_dir: str) -> str:
-    return f"- [架构总览 · 子目录索引]({architecture_doc_href(rel_dir)})"
-
-
 def normalize_readme_dir(rel_dir: str) -> str:
     norm = (rel_dir or "").strip().strip("/").replace("\\", "/")
     if not norm or norm not in _README_DIR_SET:

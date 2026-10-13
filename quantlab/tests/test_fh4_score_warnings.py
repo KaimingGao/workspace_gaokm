@@ -62,7 +62,6 @@ class TestFh4ScoreWarnings(unittest.TestCase):
                 quote=quote,
                 skip_fundamentals=True,
                 bypass_quality_gate=True,
-                cluster_mode="off",
             )
         warns = (out.get("signal_item") or {}).get("warnings") or []
         self.assertTrue(any("sentiment" in str(w) for w in warns))

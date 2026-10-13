@@ -754,12 +754,3 @@ def list_expr_factors() -> List[Dict[str, str]]:
         }
         for k, v in _EXPR_REGISTRY.items()
     ]
-
-
-def eval_expr_factor(name: str, bars: List[dict]) -> float:
-    """直接计算表达式因子值（供 IC 回测等场景）。"""
-    from core.signal.factors.expr import eval_expr
-    key = str(name or "").strip()
-    if key not in _EXPR_REGISTRY:
-        raise KeyError(f"未知表达式因子: {key}")
-    return eval_expr(_EXPR_REGISTRY[key]["expr"], bars)

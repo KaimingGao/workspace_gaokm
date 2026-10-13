@@ -96,19 +96,3 @@ def feature_get(row: Optional[Dict[str, Any]], name: str) -> Any:
         if v2 is not None and v2 != "":
             return v2
     return None
-
-
-def z_oo_feat_labels(base_labels: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    """裸名中文标签挂到 ``z_oo_*``。"""
-    legs = frozenset(z_oo_legacy_keys())
-    out: Dict[str, str] = {}
-    for k, lab in (base_labels or {}).items():
-        sk = str(k)
-        out[sk] = lab
-        if sk in legs:
-            out[to_z_oo_key(sk)] = lab
-        elif is_z_oo_key(sk):
-            leg = to_legacy_key(sk)
-            if leg and leg not in out:
-                out[leg] = lab
-    return out

@@ -964,7 +964,7 @@ export function installBacktest(q) {
     const usePred = predTiers.length > 0;
     const holdoutDays =
       typeof readHoldoutTradingDays === "function"
-        ? Math.max(2, Math.min(90, Number(readHoldoutTradingDays()) || 20))
+        ? Math.max(2, Math.min(60, Number(readHoldoutTradingDays("oo")) || 20))
         : 20;
     return {
       lookback,
@@ -1476,6 +1476,26 @@ export function installBacktest(q) {
         predictability_head,
         price_space_gate,
       } = readPortfolioBtParams();
+      if (use_predictability_tiers && holdout_trading_days != null) {
+        const { ok: tierOk, data: tierLast } = await apiFetch(
+          "/api/quant/research-universe/predictability-tiers/last?slim=1"
+        );
+        const lastHold =
+          tierOk && tierLast && tierLast.success && tierLast.holdout_n != null
+            ? Number(tierLast.holdout_n)
+            : null;
+        if (
+          lastHold != null &&
+          Number.isFinite(lastHold) &&
+          Number(lastHold) !== Number(holdout_trading_days)
+        ) {
+          const failMsg =
+            `ŷ_oo Holdout=${holdout_trading_days} 与枢纽分档 Holdout=${lastHold} 不一致；` +
+            "请先在研究枢纽用当前 Holdout 重跑「观察池分档」再回测。";
+          paintPortfolioBacktestFail(failMsg);
+          return { success: false, error: failMsg };
+        }
+      }
       const enterThresh = fuse_enter;
       const strongThresh =
         fuse_strong != null ? fuse_strong : enterThresh;

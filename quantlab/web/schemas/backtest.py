@@ -122,7 +122,7 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         ge=2,
         le=90,
-        description="ŷ_oo 卡片 Holdout；与枢纽 last.holdout_n 校验一致性。回测天数仍用 lookback。",
+        description="ŷ_oo 卡片 Holdout；须与枢纽 last.holdout_n 一致，否则拒跑并提示重跑「观察池分档」。回测天数仍用 lookback。",
     )
     predictability_head: str = Field(
         default="oo",

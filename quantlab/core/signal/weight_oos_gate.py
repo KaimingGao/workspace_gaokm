@@ -95,7 +95,6 @@ def _shared_oos_backtest_kwargs(
         "max_position_pct": float(d.get("max_position_pct") or 25.0),
         "max_sector_pct": float(d.get("max_sector_pct") or 40.0),
         "apply_tau_buy_gate": False,  # 历史日线两臂都不套 live τ 闸
-        "use_live_cluster_models": False,
     }
 
 
@@ -182,7 +181,6 @@ def _run_topk_heuristic(
             min_score=floor,
             rank_mode="heuristic_score",
             allow_heuristic_baseline=True,
-            return_models_by_code={},
             min_predicted_score=None,
             progress_cb=progress_cb,
             cancel_check=cancel_check,
@@ -195,7 +193,6 @@ def _run_topk_predicted(
     *,
     top_k: int,
     horizon_days: int,
-    return_models_by_code: Optional[Dict[str, Any]],
     ridge_lambda: float = 0.0,
     fundamentals_by_code: Optional[Dict[str, dict]] = None,
     min_predicted_score: Optional[float] = None,
@@ -229,9 +226,6 @@ def _run_topk_predicted(
         min_score=0.0,  # predicted 路径不用 0–100 门
         rank_mode="predicted_score",
         min_predicted_score=floor,
-        return_models_by_code=return_models_by_code
-        if return_models_by_code is not None
-        else {},
         return_model_ridge_lambda=float(ridge_lambda or 0.0),
         allow_heuristic_baseline=False,
         progress_cb=progress_cb,
@@ -555,7 +549,6 @@ def evaluate_research_oos(
             stock_bars,
             top_k=top_k_eff,
             horizon_days=horizon_days,
-            return_models_by_code=models_eff,
             ridge_lambda=ridge_lambda,
             fundamentals_by_code=fund_map or None,
             min_predicted_score=pred_floor,

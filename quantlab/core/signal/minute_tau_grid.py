@@ -136,39 +136,36 @@ def tau_hm_in_yc_window(hm: str) -> bool:
     return clock <= end
 
 
-def tau_clock_allows_t30(hm: str, *, horizon_min: int = T30_LABEL_NEED_MIN) -> bool:
-    """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕35。"""
+def tau_clock_allows_horizon(hm: str, *, horizon_min: int) -> bool:
+    """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕horizon_min。"""
     if not tau_hm_in_yc_window(hm):
         return False
     return add_session_minutes(hm, horizon_min) is not None
+
+
+def tau_clock_allows_t30(hm: str, *, horizon_min: int = T30_LABEL_NEED_MIN) -> bool:
+    """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕35。"""
+    return tau_clock_allows_horizon(hm, horizon_min=horizon_min)
 
 
 def tau_clock_allows_t45(hm: str, *, horizon_min: int = T45_LABEL_NEED_MIN) -> bool:
     """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕50。"""
-    if not tau_hm_in_yc_window(hm):
-        return False
-    return add_session_minutes(hm, horizon_min) is not None
+    return tau_clock_allows_horizon(hm, horizon_min=horizon_min)
 
 
 def tau_clock_allows_t60(hm: str, *, horizon_min: int = T60_LABEL_NEED_MIN) -> bool:
     """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕65。"""
-    if not tau_hm_in_yc_window(hm):
-        return False
-    return add_session_minutes(hm, horizon_min) is not None
+    return tau_clock_allows_horizon(hm, horizon_min=horizon_min)
 
 
 def tau_clock_allows_t75(hm: str, *, horizon_min: int = T75_LABEL_NEED_MIN) -> bool:
     """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕80。"""
-    if not tau_hm_in_yc_window(hm):
-        return False
-    return add_session_minutes(hm, horizon_min) is not None
+    return tau_clock_allows_horizon(hm, horizon_min=horizon_min)
 
 
 def tau_clock_allows_t90(hm: str, *, horizon_min: int = T90_LABEL_NEED_MIN) -> bool:
     """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕95。"""
-    if not tau_hm_in_yc_window(hm):
-        return False
-    return add_session_minutes(hm, horizon_min) is not None
+    return tau_clock_allows_horizon(hm, horizon_min=horizon_min)
 
 
 def minute_tau_grid_5m_range(

@@ -200,28 +200,6 @@ def bump_window_for_alpha_tc(
     return max(int(min_history), need), max(int(max_window), need)
 
 
-def collect_alpha_tc_raw_keys_from_rows(xs: Sequence[dict]) -> List[str]:
-    """从面板行收集出现过的 ``raw_atc_*`` 列名（保序去重）。"""
-    names: List[str] = []
-    seen = set()
-    for row in xs or []:
-        if not isinstance(row, dict):
-            continue
-        for k, v in row.items():
-            sk = str(k)
-            if sk in seen or not is_alpha_tc_raw_key(sk):
-                continue
-            if v is None:
-                continue
-            try:
-                float(v)
-            except (TypeError, ValueError):
-                continue
-            seen.add(sk)
-            names.append(sk)
-    return names
-
-
 def inject_raw_atc(
     dest: Optional[dict],
     bars: Optional[Sequence[dict]],

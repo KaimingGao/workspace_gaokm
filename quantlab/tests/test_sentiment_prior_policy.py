@@ -201,7 +201,6 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                     quote=quote,
                     skip_fundamentals=True,
                     bypass_quality_gate=True,
-                    cluster_mode="off",
                 )
 
         out_off = _run("off")

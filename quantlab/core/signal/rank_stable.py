@@ -21,8 +21,3 @@ def stable_rank_key(
     if reverse_score:
         return (-sc, c)
     return (sc, c)
-
-
-def stable_asc_score_key(score: Any, code: Any = "") -> Tuple[float, str]:
-    """低分在前（减仓/卸仓用）。"""
-    return stable_rank_key(score, code, reverse_score=False)

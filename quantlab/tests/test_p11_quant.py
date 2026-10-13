@@ -24,7 +24,6 @@ class TestEquityCurve(unittest.TestCase):
             horizon_days=3,
             min_score=40,
             min_history=10,
-            use_live_cluster_models=False,
         )
         self.assertTrue(result["success"])
         curve = result.get("equity_curve") or []
@@ -43,7 +42,6 @@ class TestEquityCurve(unittest.TestCase):
             horizon_days=3,
             min_score=40,
             min_history=10,
-            use_live_cluster_models=False,
         )
         self.assertTrue(result["success"])
         sim = result.get("sim_trades") or []

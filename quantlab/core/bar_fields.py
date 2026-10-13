@@ -21,19 +21,6 @@ def bar_amount(bar: Optional[dict]) -> float:
     return max(0.0, vol * close)
 
 
-def bar_amount_raw(bar: Optional[dict]) -> Optional[float]:
-    """仅返回显式成交额；无则 None（不近似）。"""
-    if not isinstance(bar, dict):
-        return None
-    amt = bar.get("amount")
-    try:
-        if amt is None:
-            return None
-        return max(0.0, float(amt))
-    except (TypeError, ValueError):
-        return None
-
-
 def extract_amount_from_row(row: Dict[str, Any]) -> Optional[float]:
     """从原始行情行解析成交额（不读成交量）。"""
     from core.numbers import to_float

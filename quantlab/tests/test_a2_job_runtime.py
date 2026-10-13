@@ -55,18 +55,20 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertIn("tau-ridge", names)
         self.assertNotIn("tc-ridge", names)
         self.assertIn("t0-backtest", names)
-        t30_p = next(p for p in policies if p["slot"] == "t30-ridge")
-        self.assertGreaterEqual(float(t30_p.get("stale_sec") or 0), 1800.0)
-        t60_p = next(p for p in policies if p["slot"] == "t60-ridge")
-        self.assertGreaterEqual(float(t60_p.get("stale_sec") or 0), 1800.0)
-        t90_p = next(p for p in policies if p["slot"] == "t90-ridge")
-        self.assertGreaterEqual(float(t90_p.get("stale_sec") or 0), 1800.0)
-        co_p = next(p for p in policies if p["slot"] == "co-ridge")
-        self.assertGreaterEqual(float(co_p.get("stale_sec") or 0), 1800.0)
-        tau_p = next(p for p in policies if p["slot"] == "tau-ridge")
-        self.assertGreaterEqual(float(tau_p.get("stale_sec") or 0), 1800.0)
-        t0_p = next(p for p in policies if p["slot"] == "t0-backtest")
-        self.assertGreaterEqual(float(t0_p.get("stale_sec") or 0), 1800.0)
+        # 满池 Ridge / 回测：进度常长期为 0，stuck_start 须够长（90min）以免误杀
+        for slot_name in (
+            "t30-ridge",
+            "t60-ridge",
+            "t90-ridge",
+            "co-ridge",
+            "tau-ridge",
+            "t0-backtest",
+        ):
+            pol = next(p for p in policies if p["slot"] == slot_name)
+            self.assertGreaterEqual(float(pol.get("stale_sec") or 0), 5400.0, slot_name)
+            self.assertGreaterEqual(
+                float(pol.get("stuck_start_sec") or 0), 5400.0, slot_name
+            )
         paper_p = next(p for p in policies if p["slot"] == "paper")
         self.assertTrue(paper_p.get("persisted"))
 

@@ -1676,14 +1676,9 @@ def _load_replay_global_model() -> Any:
 
 def _required_factor_keys_from_return_models(
     global_model: Any = None,
-    *,
-    cluster_models: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
     """与 score_stock / T0 同源：ŷ β 键并集，供 FS0 补算（含 raw_aoo_*）。
-
-    cluster_models 已废弃，忽略（历史回测只用全局模型）。
     """
-    del cluster_models
     keys: List[str] = []
     seen = set()
     models: List[Any] = []
@@ -1719,7 +1714,6 @@ def _attach_open_yhat_heads(
     *,
     quotes: Dict[str, dict],
     windows: Dict[str, List[dict]],
-    cluster_models: Optional[Dict[str, Any]] = None,
     global_model: Any = None,
     co_model_doc: Any = None,
     tau_model_doc: Any = None,
@@ -1730,9 +1724,7 @@ def _attach_open_yhat_heads(
 
     对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 y_oo_fuse。
     调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。nowcast 已退役，不再写 y_nowcast。
-    cluster_models 已废弃，忽略。
     """
-    del cluster_models
     from core.signal.return_score import apply_predicted_scores
 
     items = list(entries)
@@ -1971,7 +1963,6 @@ def _score_open_day(
     max_window: int,
     horizon_days: int,
     cfg: Optional[dict],
-    cluster_models: Optional[Dict[str, Any]] = None,
     global_model: Any = None,
     co_model_doc: Any = None,
     tau_model_doc: Any = None,
@@ -1979,10 +1970,7 @@ def _score_open_day(
     required_factor_keys: Optional[List[str]] = None,
 ) -> List[dict]:
     """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。
-
-    cluster_models 已废弃，忽略。
     """
-    del cluster_models
     from core.signal.cross_section_batch import score_window_as_item
 
     if day_i <= 0:
@@ -3054,105 +3042,3 @@ def scores_from_topk_precomputed(
         out[str(day)] = rows
     return out
 
-
-def build_momentum_scores(
-    stock_bars: Dict[str, List[dict]],
-    *,
-    top_k: int,
-) -> Dict[str, List[dict]]:
-    """用昨收到今收涨跌幅做轻量目标簿（日报离线摘要用；≠生产 ŷ）。"""
-    date_maps = {str(c): _bars_by_date(bars) for c, bars in (stock_bars or {}).items()}
-    dates = _coverage_dates(stock_bars)
-    top_k = max(1, int(top_k or 1))
-    out: Dict[str, List[dict]] = {}
-    for i, day in enumerate(dates):
-        if i < 1:
-            continue
-        rows: List[dict] = []
-        prev_d = dates[i - 1]
-        for code, dm in date_maps.items():
-            bar = dm.get(day)
-            prev = dm.get(prev_d)
-            if not bar or not prev:
-                continue
-            try:
-                c0 = float(prev.get("close") or 0)
-                c1 = float(bar.get("close") or 0)
-            except (TypeError, ValueError):
-                continue
-            if c0 <= 0 or c1 <= 0:
-                continue
-            ret = (c1 / c0 - 1.0) * 100.0
-            rows.append(
-                {
-                    "stock_code": code,
-                    "stock_name": code,
-                    "score": ret,
-                    "predicted_score": ret,
-                    "predicted_score_eod": ret,
-                    "score_scale": "predicted_yhat",
-                    "dual_score_window": "eod_next",
-                    "score_source": "momentum_close",
-                }
-            )
-        rows.sort(key=lambda r: float(r.get("predicted_score") or 0), reverse=True)
-        out[day] = rows[:top_k]
-    return out
-
-
-def summarize_paper_replay_for_daily(
-    stock_bars: Dict[str, List[dict]],
-    *,
-    top_k: int,
-    lookback: Optional[int] = None,
-    scores_by_date: Optional[Dict[str, List[dict]]] = None,
-    score_source: Optional[str] = None,
-) -> Dict[str, Any]:
-    """日报用轻量摘要（与 ``summarize_portfolio_backtest`` 字段对齐子集）。
-
-    优先用注入的 Top-K ŷ y_oo_fuse；否则昨收→今收动量近似。
-    """
-    src = score_source
-    if scores_by_date is None:
-        scores = build_momentum_scores(stock_bars, top_k=top_k)
-        src = src or "momentum_close"
-    else:
-        scores = scores_by_date
-        src = src or "topk_precomputed"
-
-    bt = backtest_paper_replay(
-        stock_bars,
-        top_k=top_k,
-        scores_by_date=scores,
-        cost_model="simple_cn",
-        initial_cash=REPLAY_INITIAL_CASH,
-        cash_floor=REPLAY_CASH_FLOOR,
-        lookback=lookback,
-    )
-    if not bt.get("success"):
-        return bt
-    metrics = bt.get("metrics") or {}
-    curve = bt.get("equity_curve") or []
-    params = dict(bt.get("params") or {})
-    params["score_source"] = src
-    if lookback is not None:
-        params["lookback"] = int(lookback)
-    note = str(bt.get("note") or "")
-    if src == "topk_precomputed":
-        note += " · 日报目标簿=与 Top-K 同序列 ŷ（precomputed_ranks）"
-    else:
-        note += " · 日报目标簿=昨收涨跌幅动量近似（≠ ŷ_oo）"
-    return {
-        "success": True,
-        "engine": ENGINE_ID,
-        "loaded_stocks": list(stock_bars.keys()),
-        "trade_count": metrics.get("trade_count"),
-        "total_return_pct": metrics.get("total_return_pct"),
-        "win_rate_pct": metrics.get("win_rate_pct"),
-        "max_drawdown_pct": metrics.get("max_drawdown_pct"),
-        "params": params,
-        "equity_curve_tail": curve[-12:],
-        "constraints_hit": bt.get("constraints_hit"),
-        "metrics": metrics,
-        "note": note,
-    }

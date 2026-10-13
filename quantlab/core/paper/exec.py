@@ -837,10 +837,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     from core.signal.factors.technicals import check_technical_filters
 
     rules = paper.get("rules") or {}
-    from core.signal.score_display import (
-        resolve_buy_floor,
-        score_gates_use_heuristic_bands,
-    )
+    from core.signal.score_display import resolve_buy_floor
 
     # 生产仅 ŷ：不用 0–100 的 min_score/加仓分档；入选靠池排序与 scoring 门槛
     base_min_score = resolve_buy_floor(paper)
@@ -854,11 +851,8 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     # 自适应仓位配置
     use_adaptive_position = rules.get("use_adaptive_position", True)
 
-    # 0–100 加减仓分档已退役（score_gates_use_heuristic_bands=False）
-    use_adaptive_threshold = (
-        bool(rules.get("use_adaptive_threshold", True))
-        and score_gates_use_heuristic_bands()
-    )
+    # 0–100 加减仓分档已退役
+    use_adaptive_threshold = False
 
     # 技术指标过滤（加仓时使用）
     use_technical_filter = rules.get("use_technical_filter", True)
@@ -914,9 +908,8 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             current_shares = float(holding.get("shares") or 0)
             score_val = float(score)
 
-            if not score_gates_use_heuristic_bands():
-                item["skip_reason"] = "收益分模式：持仓加减仓不按 0–100 分档（靠调仓簿）"
-                continue
+            item["skip_reason"] = "收益分模式：持仓加减仓不按 0–100 分档（靠调仓簿）"
+            continue
 
             # 技术指标检查（提前获取）
             technical_info = None
@@ -1140,16 +1133,13 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
         should_stop_loss,
         update_peak_price,
     )
-    from core.signal.score_display import (
-        resolve_buy_floor,
-        score_gates_use_heuristic_bands,
-    )
+    from core.signal.score_display import resolve_buy_floor
 
     rules = paper.get("rules") or {}
     stop_loss_pnl = float(rules.get("stop_loss_pnl") or -8.0)
     max_hold_days = int(rules.get("max_hold_days") or 5)
     min_score = resolve_buy_floor(paper, heuristic_default=60.0)
-    use_score_reduce = score_gates_use_heuristic_bands()
+    use_score_reduce = False
 
     # 动态止损配置
     stop_loss_mode = rules.get("stop_loss_mode", "adaptive")
