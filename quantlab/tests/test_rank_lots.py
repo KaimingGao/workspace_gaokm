@@ -357,13 +357,21 @@ class TestPlanRankLotDay(unittest.TestCase):
             {
                 "score_formula_terms": {"total": 1.0, "terms": terms},
                 "formula_terms_co": {"total": 0.4, "terms": list(terms)},
+                "formula_terms_oo_rank": {
+                    "total": 0.9,
+                    "backend": "ridge",
+                    "terms": list(terms),
+                },
             }
         )
         slim = (out.get("score_formula_terms") or {}).get("terms") or []
         co = (out.get("formula_terms_co") or {}).get("terms") or []
+        oo_rank = (out.get("formula_terms_oo_rank") or {}).get("terms") or []
         self.assertEqual(len(slim), 24)
         self.assertEqual(len(co), 24)
+        self.assertEqual(len(oo_rank), 24)
         self.assertEqual(slim[0]["key"], "f29")
+        self.assertEqual(out["formula_terms_oo_rank"]["backend"], "ridge")
 
     def test_tip_explain_fields_keeps_tree_source(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields
@@ -1564,6 +1572,35 @@ class TestEnterGates(unittest.TestCase):
             )
         )
 
+    def test_oo_rank_max_blocks_when_rank_ge_max(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        skip = rank_lot_enter_skip_reason(
+            self._item(y_oo_rank=10),
+            self._cfg(oo_rank_max=10),
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("oo_rank", skip)
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(y_oo_rank=9),
+                self._cfg(oo_rank_max=10),
+                rs=0.02,
+            )
+        )
+
+    def test_oo_rank_max_missing_does_not_block(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(),
+                self._cfg(oo_rank_max=10),
+                rs=0.02,
+            )
+        )
+
     def test_oo_rank_top_frac_blocks_when_rank_ge_half(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
@@ -1582,39 +1619,24 @@ class TestEnterGates(unittest.TestCase):
             )
         )
 
-    def test_oo_rank_top_frac_missing_does_not_block(self):
-        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
-
-        self.assertIsNone(
-            rank_lot_enter_skip_reason(
-                self._item(),
-                self._cfg(oo_rank_top_frac=0.5),
-                rs=0.02,
-            )
-        )
-        self.assertIsNone(
-            rank_lot_enter_skip_reason(
-                self._item(y_oo_rank=30),
-                self._cfg(oo_rank_top_frac=0.5),
-                rs=0.02,
-            )
-        )
-
-    def test_oo_rank_top_frac_migrates_legacy_max(self):
-        """旧键 oo_rank_max>0 仅表示闸曾开启 → 迁成 frac=0.5（不再是绝对 rank&lt;30）。"""
+    def test_oo_rank_max_prefers_absolute_over_frac(self):
         from core.paper.rebalance.rank_lots import (
+            oo_rank_max_from_cfg,
             oo_rank_top_frac_from_cfg,
             rank_lot_enter_skip_reason,
         )
 
-        self.assertEqual(oo_rank_top_frac_from_cfg(self._cfg(oo_rank_max=30)), 0.5)
-        # 25/40 = 62.5% > 50% → 拦
+        cfg = self._cfg(oo_rank_max=10, oo_rank_top_frac=0.5)
+        self.assertEqual(oo_rank_max_from_cfg(cfg), 10)
+        self.assertAlmostEqual(oo_rank_top_frac_from_cfg(cfg), 0.5)
+        # 绝对闸优先：rank=15 相对 top50%(n=40) 过得了，但 ≥10 拦
         skip = rank_lot_enter_skip_reason(
-            self._item(y_oo_rank=25, y_oo_rank_n=40),
-            self._cfg(oo_rank_max=30),
+            self._item(y_oo_rank=15, y_oo_rank_n=40),
+            cfg,
             rs=0.02,
         )
         self.assertIsNotNone(skip)
+        self.assertIn("≥10", skip)
 
 
 if __name__ == "__main__":

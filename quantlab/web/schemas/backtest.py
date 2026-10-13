@@ -18,7 +18,7 @@ class PaperReplayBacktestRequest(BaseModel):
     lookback: int = Field(default=10, ge=10, le=500)
     score_model_role: str = Field(
         default="research",
-        description="回测模型：research=研究套（Holdout）；live=执行套全样本。默认研究。调仓门槛对 ŷ 敏感，研究套参数未必适用于执行套。",
+        description="回测模型：research=研究槽（Holdout 前训 β，默认）；live=执行槽（由研究槽晋级的同一份 β）。",
         max_length=16,
     )
     score_backend: str = Field(
@@ -73,11 +73,17 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         description="开=入场须 ŷ_τc>0；关=不看。缺分不拦。未过则已持仓清仓",
     )
+    oo_rank_max: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=500,
+        description="开则入场另须 y_oo_rank < max（UI「rank 入场」默认 10）；None/缺=关。缺 rank 不拦。",
+    )
     oo_rank_top_frac: Optional[float] = Field(
         default=None,
         gt=0.0,
         le=1.0,
-        description="开则入场另须 y_oo_rank < n·frac（UI「rank < top 50%」→0.5）；None/缺=关。缺 rank/n 不拦。",
+        description="旧相对名次闸：开则入场另须 y_oo_rank < n·frac；与 oo_rank_max 并存时优先 max。缺 rank/n 不拦。",
     )
     initial_cash: float = Field(
         default=200_000.0,
@@ -104,7 +110,7 @@ class PaperReplayBacktestRequest(BaseModel):
     use_predictability_tiers: bool = Field(
         default=False,
         description=(
-            "复用研究枢纽 Holdout 前半分档过滤宇宙（须先跑「观察池分档」）；"
+            "复用研究枢纽 Holdout 分档过滤宇宙（须先跑「观察池分档」）；"
             "回测天数仍用 lookback（与 Holdout 独立）。桌面勾选同步到 live 调仓闸。"
         ),
     )

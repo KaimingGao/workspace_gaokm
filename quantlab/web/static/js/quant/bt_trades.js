@@ -348,7 +348,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 已启用模型（LambdaRank/Ridge）· 不进买序；可选入场闸 rank < top 50%",
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 已启用模型（LambdaRank/Ridge）· 不进买序；可选入场闸 rank 入场（默认 10）",
   },
 ];
 
@@ -1319,11 +1319,14 @@ export function btTradesCellHtml(col, d, deps) {
     );
   }
   if (col.id === "y_oo_rank") {
-    return `<span class="bt-trade-score paper-hold-score ${escapeHtml(
-      d.y_oo_rankCls || ""
-    )}" title="${escapeHtml(d.y_oo_rankTip || "")}">${escapeHtml(
-      d.y_oo_rankText || "—"
-    )}</span>`;
+    return _stackScoreHtml(
+      escapeHtml(d.y_oo_rankText || "—"),
+      d.y_oo_rankTip ||
+        "ŷ_oo_rank 当日截面名次 · 悬停看因子组成 · 不进 ranking/买序",
+      escapeHtml,
+      "oo_rank",
+      d.scoreDetail
+    );
   }
   if (col.id === "ret") {
     return `<span class="bt-trade-ret ${d.retCls || ""}">${escapeHtml(d.retText)}</span>`;

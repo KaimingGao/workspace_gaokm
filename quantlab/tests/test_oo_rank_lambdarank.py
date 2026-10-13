@@ -272,6 +272,9 @@ class TestOoRankRidgeBaseline(unittest.TestCase):
         metrics = _oos_day_metrics(days[8:], ridge, topk_track=3, ndcg_k=3)
         self.assertGreater(int(metrics.get("n_days") or 0), 0, metrics)
         self.assertIsNotNone(metrics.get("spearman"))
+        self.assertIsNotNone(metrics.get("cs_ic"))
+        self.assertIsNotNone(metrics.get("cs_icir"))
+        self.assertGreaterEqual(int(metrics.get("cs_ic_day_count") or 0), 3)
         self.assertIsNotNone(metrics.get("ndcg_at_k"))
         self.assertIsNotNone(metrics.get("topk_overlap"))
         self.assertIsNotNone(metrics.get("topk_mean_y_oo"))
@@ -349,6 +352,8 @@ class TestOoRankFit(unittest.TestCase):
         self.assertTrue(oos_ridge.get("success"), oos_ridge)
         self.assertGreater(int(oos_ridge.get("n_days") or 0), 0)
         self.assertIsNotNone(oos_ridge.get("spearman"))
+        self.assertIsNotNone(oos_ridge.get("cs_ic"))
+        self.assertIsNotNone(oos_ridge.get("cs_icir"))
         self.assertIsNotNone(oos_ridge.get("ndcg_at_k"))
         model = report.get("return_model") or {}
         self.assertNotIn("shadow_only", model)
@@ -375,6 +380,8 @@ class TestOoRankFit(unittest.TestCase):
         self.assertTrue(track.get("success"), track)
         self.assertIn("delta_topk_mean_y_oo", track)
         self.assertIn("delta_ndcg_at_k", track)
+        self.assertIn("delta_cs_ic", track)
+        self.assertIn("delta_cs_icir", track)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_apply_and_aux_passthrough(self):
@@ -407,6 +414,10 @@ class TestOoRankFit(unittest.TestCase):
         self.assertEqual(item.get("y_oo_rank"), 1)
         self.assertEqual(item.get("y_oo_rank_n"), 1)
         self.assertIsNotNone(item.get("y_oo_rank_score"))
+        expl = item.get("formula_terms_oo_rank") or {}
+        self.assertEqual(expl.get("backend"), "lambdarank")
+        self.assertEqual(expl.get("model_role"), "tree")
+        self.assertIsInstance(expl.get("terms"), list)
         extra = aux_yhat_fields(item, include_tau_horizons=False)
         self.assertEqual(extra.get("y_oo_rank"), 1)
         self.assertEqual(extra.get("y_oo_rank_n"), 1)
@@ -482,6 +493,13 @@ class TestOoRankFit(unittest.TestCase):
         apply_oo_rank_scores(items, fit=ridge)
         self.assertEqual(items[0]["y_oo_rank"], 1)
         self.assertEqual(items[1]["y_oo_rank"], 2)
+        expl0 = items[0].get("formula_terms_oo_rank") or {}
+        self.assertEqual(expl0.get("backend"), "ridge")
+        self.assertEqual(expl0.get("head"), "oo_rank")
+        terms0 = expl0.get("terms") or []
+        self.assertTrue(terms0)
+        self.assertIn("beta", terms0[0])
+        self.assertIn("contrib", terms0[0])
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_persist_research_sidecar(self):
@@ -535,13 +553,16 @@ class TestOoRankFit(unittest.TestCase):
                 "core.research.oo_rank_lambdarank.oo_rank_model_path_legacy",
                 return_value=os.path.join(td, "legacy_model.json"),
             ):
-                live_out = persist_oo_rank_model(report, role="live")
-                self.assertTrue(live_out.get("success"))
-                self.assertTrue(os.path.isfile(live))
-                self.assertFalse(os.path.isfile(research_model_path(live)))
+                # 无研究槽时启用执行须失败
+                bad_live = persist_oo_rank_model(report, role="live")
+                self.assertFalse(bad_live.get("success"))
                 research_out = persist_oo_rank_model(report, role="research")
                 self.assertTrue(research_out.get("success"))
                 self.assertTrue(os.path.isfile(research_model_path(live)))
+                live_out = persist_oo_rank_model(report, role="live")
+                self.assertTrue(live_out.get("success"))
+                self.assertTrue(os.path.isfile(live))
+                self.assertEqual(live_out.get("promoted_from"), "research")
                 doc = load_oo_rank_model(prefer_research=True)
                 self.assertIsNotNone(doc)
                 self.assertIn("coefficients", (doc or {}).get("return_model") or {})
@@ -610,9 +631,12 @@ class TestOoRankFit(unittest.TestCase):
                 "core.research.oo_rank_lambdarank.oo_rank_last_report_path",
                 return_value=os.path.join(td, "last.json"),
             ):
+                research_out = persist_oo_rank_model(report, role="research")
+                self.assertTrue(research_out.get("success"), research_out)
+                self.assertEqual(research_out.get("backend"), "ridge")
                 out = persist_oo_rank_model(report, role="live")
             self.assertTrue(out.get("success"), out)
-            self.assertEqual(out.get("backend"), "ridge")
+            self.assertEqual(out.get("promoted_from"), "research")
             with open(live, encoding="utf-8") as f:
                 doc = json.load(f)
             self.assertEqual(doc.get("backend"), "ridge")
@@ -816,6 +840,9 @@ class TestOoRankFittedAt(unittest.TestCase):
                 return_value=last,
             ):
                 save_oo_rank_last_report(report)
+                self.assertTrue(
+                    persist_oo_rank_model(report, role="research").get("success")
+                )
                 out = persist_oo_rank_model(report, role="live")
                 self.assertTrue(out.get("success"))
             with open(live, encoding="utf-8") as f:
@@ -825,6 +852,7 @@ class TestOoRankFittedAt(unittest.TestCase):
             self.assertEqual(doc.get("fitted_at"), first)
             self.assertEqual(last_doc.get("fitted_at"), first)
             self.assertEqual(doc.get("model_role"), "live")
+            self.assertEqual(doc.get("promoted_from"), "research")
             self.assertTrue(doc.get("promoted_at"))
 
 

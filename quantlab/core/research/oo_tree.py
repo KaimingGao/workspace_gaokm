@@ -98,7 +98,7 @@ def _stack_daily_panels(
     min_history: int = 12,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股写入 float64 后丢掉行 dict。返回 (X, names, ys, dates, metas, n_stocks)。"""
-    from core.research.panel import collect_subscore_forward_panel
+    from core.research.oo_panel import collect_oo_panel
     from core.research.panel_matrix import PanelMatrix
 
     # 列集预声明 z_oo ∪ 全量 raw_aoo；不 widen 避免无关键渗入
@@ -118,7 +118,7 @@ def _stack_daily_panels(
             continue
         code = str(item.get("code") or item.get("stock_code") or "").strip()
         try:
-            rows, y_list, d_list = collect_subscore_forward_panel(
+            rows, y_list, d_list = collect_oo_panel(
                 bars,
                 horizon_days=horizon_days,
                 min_history=min_history,
@@ -456,7 +456,7 @@ def oo_tree_features_from_window(
     quote: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """与拟合面板同一套研究因子行（含 raw_aoo_*）。"""
-    from core.research.panel import _research_sub_scores
+    from core.research.oo_panel import _research_sub_scores
 
     return _research_sub_scores(
         list(window or []),

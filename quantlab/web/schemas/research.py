@@ -108,13 +108,13 @@ class TauRidgeRequest(_WatchingTierAOnly):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 tau_ridge_model.json；research=研究套 *_research.json",
+        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
         le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
 
     cross_section_zscore: bool = Field(
@@ -409,13 +409,13 @@ class CoRidgeRequest(_WatchingTierAOnly):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 co_ridge_model.json；research=研究套 *_research.json",
+        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
         le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
 
     cross_section_zscore: bool = Field(
@@ -430,7 +430,7 @@ class CoRidgeRequest(_WatchingTierAOnly):
 
 
 class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
-    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 rank=1..n；不进买序；可选 oo_rank_top_frac）。"""
+    """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 rank=1..n；不进买序；可选 oo_rank_max）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -463,7 +463,7 @@ class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 oo_rank_model.json；research=研究套 *_research.json",
+        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     note: str = Field(default="", max_length=200)
 
@@ -491,13 +491,13 @@ class T30RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 t30_ridge_model.json；research=研究套 *_research.json",
+        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
         le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
     force_promote: bool = Field(
         default=False,
@@ -533,13 +533,13 @@ class T45RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 t45_ridge_model.json；research=研究套 *_research.json",
+        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
         le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
     force_promote: bool = Field(
         default=False,
@@ -575,13 +575,13 @@ class T60RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 t60_ridge_model.json；research=研究套 *_research.json",
+        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
         le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
     force_promote: bool = Field(
         default=False,
@@ -617,13 +617,13 @@ class T75RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 t75_ridge_model.json；research=研究套 *_research.json",
+        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
         le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
     force_promote: bool = Field(
         default=False,
@@ -729,13 +729,13 @@ class T90RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 t90_ridge_model.json；research=研究套 *_research.json",
+        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
     )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
         le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
+        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
     )
     force_promote: bool = Field(
         default=False,
@@ -796,7 +796,7 @@ class ReturnModelPromoteRequest(BaseModel):
     note: str = ""
     persist_role: str = Field(
         default="live",
-        description="research=研究套（回测）；live=执行套（交易）",
+        description="research=草稿→研究槽（回测）；live=研究槽→执行槽（晋级）",
     )
 
 

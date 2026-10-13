@@ -46,19 +46,27 @@ def _active_names(model: Optional[dict]) -> List[str]:
 def _rescore_oo_ridge(items: List[dict]) -> None:
     try:
         from core.research.feature_standardize import is_cross_section_zscore
+        from core.research.oo_ridge import load_scoring_return_model
         from core.signal.return_score import apply_predicted_scores
-        from core.research.oo_ridge import load_return_model
     except Exception:  # noqa: BLE001
         logger.debug("oo ridge rescore import failed", exc_info=True)
         return
-    model, _meta = load_return_model(prefer_active=True)
+    # 须跟打分上下文：研究回测不能写死 prefer_active 盖掉 Holdout β
+    model, _meta = load_scoring_return_model()
     if model is None or not is_cross_section_zscore(model):
         return
     if any(str(it.get("y_oo_source") or "") == "tree" for it in items):
         return
     rescored = apply_predicted_scores(items, model, write_rank_score=False)
     for src, dst in zip(rescored, items):
-        for key in ("predicted_score", "predicted_score_oo", "y_oo", "score_formula_terms", "formula_terms"):
+        for key in (
+            "predicted_score",
+            "predicted_score_oo",
+            "y_oo",
+            "score_formula_terms",
+            "formula_terms",
+            "score_model_role",
+        ):
             if key in src:
                 dst[key] = src[key]
 

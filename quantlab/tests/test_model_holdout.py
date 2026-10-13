@@ -137,14 +137,12 @@ class TestHoldoutSplit(unittest.TestCase):
 
         from core.research.horizon_ridge import persist_ridge_model, save_ridge_last_report
 
+        beta = {"coefficients": {"gap_pct": 0.05}, "intercept": 0.0}
         report = {
             "success": True,
             "fitted_at": "2026-10-04T09:35:00Z",
-            "return_model": {"coefficients": {"gap_pct": 0.1}, "intercept": 0.0},
-            "return_model_research": {
-                "coefficients": {"gap_pct": 0.05},
-                "intercept": 0.0,
-            },
+            "return_model": dict(beta),
+            "return_model_research": dict(beta),
             "oos": {"n_train": 10, "n_test": 2},
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -214,24 +212,51 @@ class TestHoldoutSplit(unittest.TestCase):
             self.assertEqual(out["live_promoted_at"], "2026-10-04T11:41:00Z")
 
     def test_select_persist_return_model(self):
+        from core.research.holdout import (
+            require_research_suite,
+            select_fit_return_model,
+            stamp_live_suite_doc,
+        )
+
+        beta = {"coefficients": {"a": 0.5}}
         report = {
-            "return_model": {"coefficients": {"a": 1.0}},
-            "return_model_research": {"coefficients": {"a": 0.5}},
+            "return_model": dict(beta),
+            "return_model_research": dict(beta),
         }
         role, rm = select_persist_return_model(report, role="research")
         self.assertEqual(role, MODEL_ROLE_RESEARCH)
         self.assertEqual(rm["coefficients"]["a"], 0.5)
         role, rm = select_persist_return_model(report, role="live")
         self.assertEqual(role, MODEL_ROLE_LIVE)
-        self.assertEqual(rm["coefficients"]["a"], 1.0)
-        # 缺研究套：默认可回退全样本；strict 则拒绝
-        only_live = {"return_model": {"coefficients": {"a": 1.0}}}
-        role, rm = select_persist_return_model(only_live, role="research")
-        self.assertEqual(rm["coefficients"]["a"], 1.0)
-        role, rm = select_persist_return_model(
-            only_live, role="research", allow_research_fallback=False
-        )
-        self.assertIsNone(rm)
+        self.assertEqual(rm["coefficients"]["a"], 0.5)
+        only_one = {"return_model": {"coefficients": {"a": 1.0}}}
+        self.assertEqual(select_fit_return_model(only_one)["coefficients"]["a"], 1.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            live_path = os.path.join(tmp, "tau_ridge_model.json")
+            doc, err = require_research_suite(live_path)
+            self.assertIsNone(doc)
+            self.assertFalse(err.get("success"))
+            research_path = research_model_path(live_path)
+            import json
+
+            with open(research_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "return_model": {"coefficients": {"a": 0.5}, "intercept": 0.0},
+                        "fitted_at": "2026-10-01T00:00:00Z",
+                        "model_role": "research",
+                    },
+                    f,
+                )
+            doc, err = require_research_suite(live_path)
+            self.assertEqual(err, {})
+            live_doc = stamp_live_suite_doc(doc, note="test promote")
+            self.assertEqual(live_doc.get("model_role"), MODEL_ROLE_LIVE)
+            self.assertEqual(live_doc.get("promoted_from"), "research")
+            self.assertEqual(
+                (live_doc.get("return_model") or {}).get("coefficients", {}).get("a"),
+                0.5,
+            )
 
     def test_normalize_backtest_model_role_defaults_research(self):
         self.assertEqual(normalize_backtest_model_role(None), MODEL_ROLE_RESEARCH)
@@ -240,6 +265,8 @@ class TestHoldoutSplit(unittest.TestCase):
         self.assertEqual(normalize_backtest_model_role("live"), MODEL_ROLE_LIVE)
         self.assertEqual(normalize_backtest_model_role("执行"), MODEL_ROLE_LIVE)
         self.assertEqual(normalize_backtest_model_role("execution"), MODEL_ROLE_LIVE)
+        # 旧全样本别名已废弃，不再映射执行套
+        self.assertEqual(normalize_backtest_model_role("full"), MODEL_ROLE_RESEARCH)
 
     def test_scoring_context_does_not_leak(self):
         self.assertEqual(current_scoring_model_role(), MODEL_ROLE_LIVE)

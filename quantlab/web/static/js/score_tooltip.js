@@ -249,6 +249,23 @@ function tipTradeDay(raw) {
   return shanghaiDateKeyTip();
 }
 
+/** tip 套别：research→研究套 · live/active→执行套。 */
+function scoreModelSuiteLabel(raw) {
+  const fromExpl =
+    raw &&
+    ((raw.formula_terms && raw.formula_terms.score_model_role) ||
+      (raw.score_formula_terms && raw.score_formula_terms.score_model_role));
+  const r = String(
+    (raw && raw.score_model_role) || fromExpl || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (r === "research" || r === "holdout") return "研究套";
+  if (r === "live" || r === "active" || r === "execution" || r === "exec")
+    return "执行套";
+  return "";
+}
+
 function formatEodAsOfHint(raw) {
   const anom = formatFactorAnomalyHint(raw);
   const day = String((raw && raw.eod_feature_as_of) || "").slice(0, 10);
@@ -373,13 +390,15 @@ function formatCompactEodTip(raw) {
       Number.isFinite(floor) ? `${floor}%` : String(floor)
     )}${below ? " · 当前低于门槛" : ""}</div>`;
   }
+  const suite = scoreModelSuiteLabel(raw);
+  const suiteBit = suite ? `${suite} · ` : "";
   return (
     `<div class="score-layer score-layer-eod">` +
     `<div class="score-layer-head">` +
     `<div class="score-hero-label">y_oo</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(val)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ_oo · ${escapeText(formatEodAsOfHint(raw))} · ${
+    `<div class="score-hero-hint">ŷ_oo · ${escapeText(formatEodAsOfHint(raw))} · ${suiteBit}${
       isTreeHead(raw, "eod") ? "Tree · 下表合计与表列同口径" : "α+Σβ·z"
     }</div>` +
     gate +
@@ -880,6 +899,53 @@ function formatCompactTWTip(raw) {
     (rows.length
       ? `<div class="score-layer-compose">${rows.join("")}</div>`
       : "") +
+    `</div>`
+  );
+}
+
+/** 成交明细 rank 列：截面名次 + 相对分 + 因子组成。 */
+function formatCompactOoRankTip(raw) {
+  const ord =
+    raw && raw.y_oo_rank != null && Number.isFinite(Number(raw.y_oo_rank))
+      ? Math.round(Number(raw.y_oo_rank))
+      : null;
+  const n =
+    raw && raw.y_oo_rank_n != null && Number.isFinite(Number(raw.y_oo_rank_n))
+      ? Math.round(Number(raw.y_oo_rank_n))
+      : null;
+  const score =
+    raw &&
+    raw.y_oo_rank_score != null &&
+    Number.isFinite(Number(raw.y_oo_rank_score))
+      ? Number(raw.y_oo_rank_score)
+      : null;
+  const expl =
+    (raw && (raw.formula_terms_oo_rank || raw.score_formula_terms_oo_rank)) || null;
+  const backend = String((expl && expl.backend) || "").toLowerCase();
+  const tree =
+    String((expl && expl.model_role) || "").toLowerCase() === "tree" ||
+    backend === "lambdarank";
+  const rankTxt =
+    ord != null && n != null && n >= 1
+      ? `${ord} / ${n}`
+      : ord != null
+        ? String(ord)
+        : "—";
+  const scoreTxt = score == null ? "—" : fmtSigned(score, 3);
+  const backendHint = tree
+    ? "LambdaRank · pred_contrib · 下表合计=相对分"
+    : backend === "ridge"
+      ? "Ridge · α+Σβ·z · 下表合计=相对分"
+      : "已启用模型 · 下表合计=相对分";
+  return (
+    `<div class="score-layer score-layer-eod">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">rank</div>` +
+    `<div class="score-hero-value score-flat">${escapeText(rankTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">ŷ_oo_rank · 1=最高 · 相对分 ${escapeText(
+      scoreTxt
+    )} · ${backendHint} · 不进 ranking/买序</div>` +
     `</div>`
   );
 }
@@ -1457,7 +1523,11 @@ function formulaExpl(raw, key) {
                       raw.score_formula_terms_co ||
                       raw.formula_terms_on ||
                       raw.score_formula_terms_on)
-                  : raw && (raw.formula_terms || raw.score_formula_terms);
+                  : key === "oo_rank" || key === "rank"
+                    ? raw &&
+                      (raw.formula_terms_oo_rank ||
+                        raw.score_formula_terms_oo_rank)
+                    : raw && (raw.formula_terms || raw.score_formula_terms);
 }
 
 export function formatFormulaTermsSection(raw, opts = {}) {
@@ -1467,7 +1537,13 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const treeTable = String((expl && expl.model_role) || "").toLowerCase() === "tree";
   if (isTreeHead(raw, key) && !treeTable) {
     const label =
-      key === "tau" || key === "r" ? "ŷ_τc" : key === "on" || key === "co" ? "ŷ_co" : "ŷ_oo";
+      key === "tau" || key === "r"
+        ? "ŷ_τc"
+        : key === "on" || key === "co"
+          ? "ŷ_co"
+          : key === "oo_rank" || key === "rank"
+            ? "ŷ_oo_rank"
+            : "ŷ_oo";
     return formatTreeHeadNote(label);
   }
   if (!expl || typeof expl !== "object") return "";
@@ -1494,11 +1570,15 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "ŷ_τ90 组成"
           : key === "on" || key === "co"
           ? "ŷ_co 组成"
+          : key === "oo_rank" || key === "rank"
+            ? "ŷ_oo_rank 组成"
             : "ŷ_oo 组成";
   const isHorizonProb =
     isHorizonProbKey(key) || String((expl && expl.head_kind) || "") === "prob";
-  // y_oo / y_τc / y_co 与窗概率头同一条数，避免头卡长短不一
-  const yHead = key === "eod" || key === "tau" || key === "on" || key === "co";
+  const isOoRank = key === "oo_rank" || key === "rank";
+  // y_oo / y_τc / y_co / oo_rank 与窗概率头同一条数，避免头卡长短不一
+  const yHead =
+    key === "eod" || key === "tau" || key === "on" || key === "co" || isOoRank;
   const factorCap = yHead || isHorizonProb ? 24 : terms.length;
   if (terms.length > factorCap) {
     terms = [...terms]
@@ -1516,7 +1596,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         ? `合计 logit → p_up`
         : key === "on" || key === "co"
           ? "合计 ŷ_co"
-          : "合计 ŷ_oo";
+          : isOoRank
+            ? "合计相对分"
+            : "合计 ŷ_oo";
 
   const rows = terms
     .map((t) => {
@@ -1548,9 +1630,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const caption = treeTable
     ? "偏置 + 各因子贡献 = 合计，与表列分数同口径。表内只列贡献最大的因子。"
     : key === "r"
-      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
+      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。研究/执行两槽同一份 Holdout 前训 β（版本前后）；回测默认研究套，live 用执行套。"
       : isHorizonProb
-        ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 回测用执行套；枢纽本次拟合须点「启用执行」后 β 才进回测。缺特征按均值填（z=0）不占表。"
+        ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 默认执行槽；须「启用研究」再「启用执行」晋级后 live 才用新 β。缺特征按均值填（z=0）不占表。"
         : "β×z = 贡献";
   const missingN = Number(expl && expl.missing_n);
   const missKeys = Array.isArray(expl && expl.missing_keys)
@@ -1563,12 +1645,25 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         }（已按均值填，贡献 0）。`
       : "";
   const role = String((expl && expl.model_role) || "").toLowerCase();
-  const namedRole = key === "r" || isHorizonProb;
+  const suiteRole = String(
+    (expl && expl.score_model_role) ||
+      (raw && raw.score_model_role) ||
+      (role === "research" || role === "live" ? role : "")
+  ).toLowerCase();
+  const namedRole =
+    key === "r" ||
+    key === "eod" ||
+    key === "oo" ||
+    key === "tau" ||
+    key === "on" ||
+    key === "co" ||
+    isHorizonProb ||
+    isOoRank;
   const alphaName = treeTable
     ? "偏置"
-    : namedRole && role === "research"
+    : namedRole && suiteRole === "research"
       ? "截距 α（研究套）"
-      : namedRole && role === "live"
+      : namedRole && suiteRole === "live"
         ? "截距 α（执行套）"
         : "截距 α";
   const interceptP = isHorizonProb ? sigmoidLogit(expl.intercept) : null;
@@ -1585,7 +1680,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const totalCell =
     isHorizonProb && totalP != null
       ? `${total} · p_up ${fmtHorizonProb(totalP)}`
-      : `${total}%`;
+      : isOoRank
+        ? total
+        : `${total}%`;
   const totalCls = isHorizonProb ? probCls(totalP) : signCls(expl.total);
   const alignedRaw = expl && expl["y_τc"];
   const showAligned =
@@ -2410,6 +2507,7 @@ export function createScoreTooltipController() {
     if (tip === "tw" || tip === "τw" || tip === "ytw") return "tw";
     if (tip === "on" || tip === "co") return "on";
     if (tip === "ranking" || tip === "trade" || tip === "score") return "ranking";
+    if (tip === "oo_rank" || tip === "rank" || tip === "y_oo_rank") return "oo_rank";
     if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     if (cell.classList.contains("watching-score-tau")) return "tau";
@@ -2623,6 +2721,20 @@ export function createScoreTooltipController() {
       const parts = [
         formatCompactOnTip(raw),
         formatFormulaTermsSection(raw, { key: "on" }),
+      ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
+    if (tipMode === "oo_rank") {
+      const termsHtml = formatFormulaTermsSection(raw, { key: "oo_rank" });
+      const parts = [
+        formatCompactOoRankTip(raw),
+        termsHtml ||
+          `<div class="score-formula-section">` +
+            `<div class="score-section-title">ŷ_oo_rank 组成</div>` +
+            `<div class="score-formula-caption">无因子拆解（旧回测未落盘）。重跑回测后悬停可见 Ridge β·z 或 LambdaRank pred_contrib。</div>` +
+            `</div>`,
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;

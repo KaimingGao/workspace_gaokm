@@ -1,10 +1,11 @@
-"""研究 / 执行两套模型：holdout 切分与加载角色。
+"""研究 / 执行两套模型：holdout 切分与版本槽。
 
-研究模型（``research``）：近 N 个交易日不进训练（默认 20）；观察池分档用 ŷ_oo 在 Holdout 前半上的 OOS。
-回测天数由 /replay「回测窗口」独立设置。执行模型（``live``）：全部已实现标签。
+拟合只训 **一套**：近 N 交易日 Holdout 不进训练（默认 20），在 Holdout 前样本上估 β。
+``research`` / ``live`` 是同一份 β 的两个落盘槽（版本前后），不是两套系数：
+- **启用研究** = 草稿 → 研究槽（供历史回测）
+- **启用执行** = 研究槽 → 执行槽（晋级；禁止从草稿直接上 live）
 
-调仓与做 T 门槛对 ŷ 敏感、不鲁棒：研究套系数上调好的参数，换执行套后
-同一套规则可能翻转。历史回测默认研究套；显式选执行套才能对照 live。
+观察池分档的命中用 Holdout 前半，截面指标与平均收益用整段；回测天数由 /replay「回测窗口」独立设置。
 """
 
 from __future__ import annotations
@@ -31,12 +32,12 @@ def normalize_model_role(role: Optional[str]) -> str:
 
 
 def normalize_backtest_model_role(role: Optional[str] = None) -> str:
-    """回测默认研究套；仅显式 live / 执行 才用执行套。
+    """回测默认研究套；仅显式 live / 执行 才用执行槽版本。
 
-    研究套参数未必适用于执行套（门槛对 ŷ 敏感），故须显式选择才切 live。
+    两槽系数同源（Holdout 前训）；差别是版本晋级前后，故须显式选择才切 live。
     """
     raw = str(role or "").strip().lower()
-    if raw in {"live", "execution", "exec", "full", "执行"}:
+    if raw in {"live", "execution", "exec", "执行"}:
         return MODEL_ROLE_LIVE
     return MODEL_ROLE_RESEARCH
 
@@ -242,10 +243,86 @@ def resolve_ridge_split(
 
 
 def make_research_model(train_fit: Dict[str, Any]) -> Dict[str, Any]:
-    """Holdout 训练集拟合 → 研究套 ``return_model``。"""
+    """Holdout 前训练集拟合 → 唯一 β（落盘前可暂标 research）。"""
     research = dict(train_fit or {})
     research["model_role"] = MODEL_ROLE_RESEARCH
     return research
+
+
+def select_fit_return_model(report: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """从拟合/草稿报告取唯一 Holdout 前训 β（多键仅为兼容别名，应同系数）。"""
+    if not isinstance(report, Mapping):
+        return None
+    for key in (
+        "return_model_research",
+        "return_model",
+        "research_model",
+        "model",
+    ):
+        rm = report.get(key)
+        if isinstance(rm, dict) and (
+            rm.get("coefficients") or rm.get("intercept") is not None
+        ):
+            return dict(rm)
+    return None
+
+
+def require_research_suite(live_path: str) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    """启用执行前读取研究槽；缺则返回错误包。"""
+    import json
+
+    path = research_model_path(live_path)
+    doc = load_research_promoted_json(live_path)
+    if not isinstance(doc, dict) and path and os.path.isfile(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+            if isinstance(raw, dict):
+                doc = raw
+        except Exception:
+            doc = None
+    if isinstance(doc, dict) and (
+        isinstance(doc.get("return_model"), dict) or isinstance(doc.get("model"), dict)
+    ):
+        return doc, {}
+    return None, {
+        "success": False,
+        "error": "无研究套可晋级；请先「启用研究」并通过回测后再启用执行",
+        "research_path": path,
+        "live_path": live_path,
+    }
+
+
+def stamp_live_suite_doc(
+    research_doc: Mapping[str, Any],
+    *,
+    note: str = "",
+) -> Dict[str, Any]:
+    """研究槽文档 → 执行槽文档（同 β，改 role / promoted_at）。"""
+    from core.numbers import now_iso_utc
+
+    doc = dict(research_doc)
+    doc["model_role"] = MODEL_ROLE_LIVE
+    doc["promoted_at"] = now_iso_utc()
+    doc["promoted_from"] = "research"
+    if note:
+        doc["note"] = note
+    elif not doc.get("note"):
+        doc["note"] = "research → live promote"
+    rm = doc.get("return_model")
+    if isinstance(rm, dict):
+        rm = dict(rm)
+        rm["model_role"] = MODEL_ROLE_LIVE
+        doc["return_model"] = rm
+    model = doc.get("model")
+    if isinstance(model, dict):
+        model = dict(model)
+        model["model_role"] = MODEL_ROLE_LIVE
+        doc["model"] = model
+    # 执行槽不保留第二套键（旧双 β 草稿残留）
+    doc.pop("return_model_research", None)
+    doc.pop("research_model", None)
+    return doc
 
 
 def attach_holdout_meta(report: Dict[str, Any], meta: Optional[Dict[str, Any]]) -> None:
@@ -272,24 +349,11 @@ def select_persist_return_model(
     report: Dict[str, Any],
     *,
     role: Optional[str] = None,
-    allow_research_fallback: bool = True,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """执行套用全样本 ``return_model``；研究套用 holdout 训练的 ``return_model_research``。
+    """从拟合报告取唯一 Holdout 前训 β（研究/执行系数相同，仅槽位不同）。
 
-    ``allow_research_fallback``：缺研究套 β 时是否回退全样本（旧 τ/co 报告兼容）。
-    ŷ_oo 启用应传 ``False``，避免再把全样本推进研究套路径。
+    ``role`` 只决定返回的角色标签；β 始终是 Holdout 前训那一套。
+    启用执行应走 ``require_research_suite``（研究槽→执行槽），勿用本函数从草稿直接上 live。
     """
     role_n = normalize_model_role(role)
-    if role_n == MODEL_ROLE_RESEARCH:
-        rm = report.get("return_model_research")
-        if not isinstance(rm, dict) and allow_research_fallback:
-            rm = (
-                report.get("return_model")
-                if isinstance(report.get("return_model"), dict)
-                else None
-            )
-        elif not isinstance(rm, dict):
-            rm = None
-        return role_n, rm
-    rm = report.get("return_model") if isinstance(report.get("return_model"), dict) else None
-    return role_n, rm
+    return role_n, select_fit_return_model(report)

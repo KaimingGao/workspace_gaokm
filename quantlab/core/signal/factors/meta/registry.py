@@ -336,7 +336,7 @@ _register(
     _compute_alpha_oo,
     "alpha_oo（~206）：隔夜/今开 + 昨 K + 开序列滚动 + 量/滞后（含 MOM3_C）；开盘 PIT。"
     " sub_score 不加权；入模默认 z_oo_*∪raw_aoo_* 全量；"
-    " ŷ_τc=z_τc_*∪raw_atc_*。",
+    " ŷ_τc=z_τc_*∪raw_atc_*；ŷ_co=z_co_*∪raw_aoo_*。",
 )
 _register(
     "alpha_tc",
@@ -406,6 +406,16 @@ def factor_label(name: str) -> str:
             from core.research.tc_ridge import _TAU_FEAT_LABELS
 
             lab = _TAU_FEAT_LABELS.get(key)
+            if lab:
+                return str(lab)
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
+    # ŷ_co Z canon：z_co_gap_pct → 跳空 %
+    if key.startswith("z_co_"):
+        try:
+            from core.research.co_ridge import _CO_FEAT_LABELS
+
+            lab = _CO_FEAT_LABELS.get(key)
             if lab:
                 return str(lab)
         except Exception:  # noqa: BLE001 — best-effort

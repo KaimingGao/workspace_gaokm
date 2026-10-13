@@ -251,15 +251,20 @@ class TestRemRidgeFit(unittest.TestCase):
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                blocked = persist_tau_model(report, note="test")
+                blocked = persist_tau_model(report, note="test", role="research")
                 gate = report.get("promote_gate") or {}
                 if not gate.get("ok"):
                     self.assertFalse(blocked.get("success"))
                     self.assertIn("promote", str(blocked.get("error") or "").lower())
-                    saved = persist_tau_model(report, note="test", force=True)
+                    saved_r = persist_tau_model(
+                        report, note="test", force=True, role="research"
+                    )
                 else:
-                    saved = blocked
+                    saved_r = blocked
+                self.assertTrue(saved_r.get("success"), saved_r)
+                saved = persist_tau_model(report, note="test", role="live")
                 self.assertTrue(saved.get("success"), saved)
+                self.assertEqual(saved.get("promoted_from"), "research")
                 self.assertEqual(saved.get("schema"), "tau_ridge_v15")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
                 from core.research.tc_ridge import load_tau_model, predict_tau_from_features
@@ -375,7 +380,12 @@ class TestRemRidgeFit(unittest.TestCase):
                 save_tau_last_report(dummy)
                 last = load_tau_last_report()
                 self.assertIsNotNone(last)
-                saved = persist_tau_model(last, note="from last")
+                self.assertTrue(
+                    persist_tau_model(
+                        last, note="from last", role="research", force=True
+                    ).get("success")
+                )
+                saved = persist_tau_model(last, note="from last", role="live")
                 self.assertTrue(saved.get("success"), saved)
                 from core.research.tc_ridge import load_tau_model
 

@@ -818,9 +818,9 @@ def _eod_return_model_for_item(item: dict):
     """
     del item  # 全局模型不再按票选组 β
     try:
-        from core.research.oo_ridge import load_return_model
+        from core.research.oo_ridge import load_scoring_return_model
 
-        rm, _meta = load_return_model(prefer_active=True)
+        rm, _meta = load_scoring_return_model()
         return rm
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         return None

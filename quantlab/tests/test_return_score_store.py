@@ -28,8 +28,11 @@ class TestReturnScoreStore(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             draft = os.path.join(td, "draft.json")
             active = os.path.join(td, "active.json")
+            research = os.path.join(td, "research.json")
             with patch.object(store, "RETURN_SCORE_MODEL_DRAFT_PATH", draft), patch.object(
                 store, "RETURN_SCORE_MODEL_ACTIVE_PATH", active
+            ), patch.object(
+                store, "RETURN_SCORE_MODEL_RESEARCH_PATH", research
             ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
                 store, "LIVE_DIR", td
             ):
@@ -40,7 +43,13 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertIsNotNone(loaded)
                 self.assertEqual(meta["role"], "draft")
                 self.assertAlmostEqual(loaded.coefficients["momentum"], 0.5)
-                prom = store.promote_return_model_draft(note="test")
+                # 启用执行须先有研究槽
+                bad_live = store.promote_return_model_draft(note="test", role="live")
+                self.assertFalse(bad_live.get("success"))
+                prom_r = store.promote_return_model_draft(note="test", role="research")
+                self.assertTrue(prom_r["success"])
+                self.assertTrue(os.path.isfile(research))
+                prom = store.promote_return_model_draft(note="test", role="live")
                 self.assertTrue(prom["success"])
                 self.assertTrue(os.path.isfile(active))
                 loaded2, meta2 = store.load_return_model(prefer_active=True)
@@ -73,18 +82,18 @@ class TestReturnScoreStore(unittest.TestCase):
             ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
                 store, "LIVE_DIR", td
             ):
-                saved = store.save_return_model_draft(
-                    live, research_model=research_m
-                )
+                saved = store.save_return_model_draft(research_m)
                 self.assertTrue(saved["success"])
-                self.assertTrue(saved.get("has_research_model"))
-                # 无 research_model 的旧草稿不得启用研究套
-                store.save_return_model_draft(live)
+                # 无草稿不得启用
+                os.remove(draft)
                 bad = store.promote_return_model_draft(
                     note="research", role="research"
                 )
                 self.assertFalse(bad.get("success"))
-                store.save_return_model_draft(live, research_model=research_m)
+                store.save_return_model_draft(research_m)
+                # 直接启用执行（无研究槽）须失败
+                bad_live = store.promote_return_model_draft(note="live", role="live")
+                self.assertFalse(bad_live.get("success"))
                 prom = store.promote_return_model_draft(
                     note="research", role="research"
                 )
@@ -96,19 +105,60 @@ class TestReturnScoreStore(unittest.TestCase):
                 )
                 self.assertIsNotNone(loaded)
                 self.assertEqual(meta["role"], "research")
+                self.assertEqual(meta.get("model_role"), "research")
+                self.assertEqual(getattr(loaded, "model_role", None), "research")
                 self.assertAlmostEqual(float(loaded.intercept), 0.11)
+                expl = loaded.explain_prediction({"momentum": 1.0})
+                self.assertEqual((expl or {}).get("score_model_role"), "research")
                 st = store.return_model_status()
                 self.assertTrue(st["research"]["exists"])
                 self.assertFalse(st["active"]["exists"])
                 self.assertEqual(st["display_role"], "research")
                 self.assertIsInstance(st.get("return_model"), dict)
                 self.assertIn("momentum", (st["return_model"] or {}).get("coefficients") or {})
+                # 晋级：执行槽 = 研究槽同一份 β
                 self.assertTrue(store.promote_return_model_draft(note="live", role="live")["success"])
                 st2 = store.return_model_status()
                 self.assertEqual(st2["display_role"], "active")
                 self.assertAlmostEqual(
-                    float((st2["return_model"] or {}).get("intercept") or 0), 0.2
+                    float((st2["return_model"] or {}).get("intercept") or 0), 0.11
                 )
+
+    def test_prefer_research_draft_uses_holdout_blob(self):
+        """草稿只落 Holdout 前训一份 β；研究/执行意图读到同一套系数。"""
+        research_m = ReturnScoreModel(
+            intercept=0.11,
+            coefficients={"momentum": 0.25},
+            feature_zscore=False,
+            sample_count=12,
+            horizon_days=1,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            draft = os.path.join(td, "draft.json")
+            active = os.path.join(td, "active.json")
+            research = os.path.join(td, "research.json")
+            with patch.object(store, "RETURN_SCORE_MODEL_DRAFT_PATH", draft), patch.object(
+                store, "RETURN_SCORE_MODEL_ACTIVE_PATH", active
+            ), patch.object(
+                store, "RETURN_SCORE_MODEL_RESEARCH_PATH", research
+            ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
+                store, "LIVE_DIR", td
+            ):
+                self.assertTrue(store.save_return_model_draft(research_m)["success"])
+                loaded, meta = store.load_return_model(
+                    prefer_active=True, prefer_research=True
+                )
+                self.assertIsNotNone(loaded)
+                self.assertEqual(meta.get("role"), "draft")
+                self.assertEqual(meta.get("model_role"), "research")
+                self.assertAlmostEqual(float(loaded.intercept), 0.11)
+                self.assertAlmostEqual(float(loaded.coefficients["momentum"]), 0.25)
+                live_loaded, live_meta = store.load_return_model(
+                    prefer_active=True, prefer_research=False
+                )
+                self.assertIsNotNone(live_loaded)
+                self.assertEqual(live_meta.get("model_role"), "live")
+                self.assertAlmostEqual(float(live_loaded.intercept), 0.11)
 
     def test_promote_strips_money_flow_proxy(self):
         model = ReturnScoreModel(
@@ -116,13 +166,6 @@ class TestReturnScoreStore(unittest.TestCase):
             coefficients={"momentum": 0.5, "money_flow": -0.011},
             feature_zscore=False,
             sample_count=30,
-            horizon_days=1,
-        )
-        research_m = ReturnScoreModel(
-            intercept=0.05,
-            coefficients={"momentum": 0.4, "money_flow": -0.02},
-            feature_zscore=False,
-            sample_count=18,
             horizon_days=1,
         )
         with tempfile.TemporaryDirectory() as td:
@@ -135,11 +178,7 @@ class TestReturnScoreStore(unittest.TestCase):
             ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
                 store, "LIVE_DIR", td
             ):
-                self.assertTrue(
-                    store.save_return_model_draft(
-                        model, research_model=research_m
-                    )["success"]
-                )
+                self.assertTrue(store.save_return_model_draft(model)["success"])
                 prom = store.promote_return_model_draft(note="", role="research")
                 self.assertTrue(prom.get("success"), prom)
                 raw = store.load_return_model_payload(research)
@@ -158,14 +197,7 @@ class TestReturnScoreStore(unittest.TestCase):
                 )
 
     def test_draft_writes_return_model_aliases_and_status_prefers_research(self):
-        """草稿同时落 return_model*；状态系数表优先 Holdout 研究套 β。"""
-        live = ReturnScoreModel(
-            intercept=0.5,
-            coefficients={"OPEN0": 4.4},
-            feature_zscore=False,
-            sample_count=100,
-            horizon_days=1,
-        )
+        """草稿 return_model* 同为 Holdout 前训一份 β。"""
         research = ReturnScoreModel(
             intercept=0.07,
             coefficients={"OPEN0": 2.7},
@@ -182,17 +214,13 @@ class TestReturnScoreStore(unittest.TestCase):
             ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
                 store, "LIVE_DIR", td
             ):
-                self.assertTrue(
-                    store.save_return_model_draft(
-                        live, research_model=research
-                    )["success"]
-                )
+                self.assertTrue(store.save_return_model_draft(research)["success"])
                 raw = store.load_return_model_payload(draft)
                 self.assertIsInstance((raw or {}).get("return_model"), dict)
                 self.assertIsInstance((raw or {}).get("return_model_research"), dict)
                 self.assertAlmostEqual(
                     float(((raw or {}).get("return_model") or {}).get("intercept") or 0),
-                    0.5,
+                    0.07,
                 )
                 self.assertAlmostEqual(
                     float(
@@ -266,7 +294,9 @@ class TestReturnScoreStore(unittest.TestCase):
                 store, "LIVE_DIR", td
             ):
                 self.assertTrue(store.save_return_model_draft(model, oos=oos)["success"])
-                # 旧版 promote：写入 active 但 oos 为空
+                self.assertTrue(
+                    store.promote_return_model_draft(note="", role="research")["success"]
+                )
                 self.assertTrue(
                     store.promote_return_model_draft(note="", role="live")["success"]
                 )
@@ -324,6 +354,9 @@ class TestReturnScoreStore(unittest.TestCase):
                     store.save_return_model_draft(model, oos=old_oos)["success"]
                 )
                 self.assertTrue(
+                    store.promote_return_model_draft(note="", role="research")["success"]
+                )
+                self.assertTrue(
                     store.promote_return_model_draft(note="", role="live")["success"]
                 )
                 import time
@@ -339,6 +372,129 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertEqual((st.get("oos") or {}).get("cs_rank_ic"), -0.014)
                 coefs = (st.get("return_model") or {}).get("coefficients") or {}
                 self.assertIn("momentum", coefs)
+
+    def test_load_scoring_return_model_follows_context(self):
+        """打分上下文 research 时须读研究套，不能静默落到 active。"""
+        from core.research.feature_standardize import ZSCORE_SCOPE_CROSS_SECTION
+        from core.research.holdout import scoring_model_role_context
+
+        live = ReturnScoreModel(
+            intercept=0.2,
+            coefficients={"CLOSE0": 0.65},
+            feature_zscore=True,
+            zscore_scope=ZSCORE_SCOPE_CROSS_SECTION,
+            sample_count=20,
+            horizon_days=1,
+        )
+        research_m = ReturnScoreModel(
+            intercept=0.07,
+            coefficients={"CLOSE0": 0.31},
+            feature_zscore=True,
+            zscore_scope=ZSCORE_SCOPE_CROSS_SECTION,
+            sample_count=12,
+            horizon_days=1,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            draft = os.path.join(td, "draft.json")
+            active = os.path.join(td, "active.json")
+            research = os.path.join(td, "research.json")
+            with patch.object(store, "RETURN_SCORE_MODEL_DRAFT_PATH", draft), patch.object(
+                store, "RETURN_SCORE_MODEL_ACTIVE_PATH", active
+            ), patch.object(
+                store, "RETURN_SCORE_MODEL_RESEARCH_PATH", research
+            ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
+                store, "LIVE_DIR", td
+            ):
+                # v1 → 研究 → 执行；v2 只进研究槽，制造版本差
+                self.assertTrue(store.save_return_model_draft(live)["success"])
+                self.assertTrue(
+                    store.promote_return_model_draft(note="research", role="research")[
+                        "success"
+                    ]
+                )
+                self.assertTrue(
+                    store.promote_return_model_draft(note="live", role="live")["success"]
+                )
+                self.assertTrue(store.save_return_model_draft(research_m)["success"])
+                self.assertTrue(
+                    store.promote_return_model_draft(note="research", role="research")[
+                        "success"
+                    ]
+                )
+                live_loaded, live_meta = store.load_scoring_return_model()
+                self.assertEqual(live_meta.get("model_role"), "live")
+                self.assertAlmostEqual(float(live_loaded.coefficients["CLOSE0"]), 0.65)
+                with scoring_model_role_context("research"):
+                    r_loaded, r_meta = store.load_scoring_return_model()
+                self.assertEqual(r_meta.get("model_role"), "research")
+                self.assertAlmostEqual(float(r_loaded.coefficients["CLOSE0"]), 0.31)
+
+    def test_rescore_respects_research_scoring_context(self):
+        """截面重打不能写死 prefer_active，否则会盖掉研究套 tip β。"""
+        from core.research.feature_standardize import ZSCORE_SCOPE_CROSS_SECTION
+        from core.research.holdout import scoring_model_role_context
+        from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+        live = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"CLOSE0": 0.65},
+            feature_zscore=True,
+            zscore_scope=ZSCORE_SCOPE_CROSS_SECTION,
+            sample_count=20,
+            horizon_days=1,
+        )
+        research_m = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"CLOSE0": 0.31},
+            feature_zscore=True,
+            zscore_scope=ZSCORE_SCOPE_CROSS_SECTION,
+            sample_count=12,
+            horizon_days=1,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            draft = os.path.join(td, "draft.json")
+            active = os.path.join(td, "active.json")
+            research = os.path.join(td, "research.json")
+            with patch.object(store, "RETURN_SCORE_MODEL_DRAFT_PATH", draft), patch.object(
+                store, "RETURN_SCORE_MODEL_ACTIVE_PATH", active
+            ), patch.object(
+                store, "RETURN_SCORE_MODEL_RESEARCH_PATH", research
+            ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
+                store, "LIVE_DIR", td
+            ):
+                self.assertTrue(store.save_return_model_draft(live)["success"])
+                self.assertTrue(
+                    store.promote_return_model_draft(note="research", role="research")[
+                        "success"
+                    ]
+                )
+                self.assertTrue(
+                    store.promote_return_model_draft(note="live", role="live")["success"]
+                )
+                self.assertTrue(store.save_return_model_draft(research_m)["success"])
+                self.assertTrue(
+                    store.promote_return_model_draft(note="research", role="research")[
+                        "success"
+                    ]
+                )
+                items = [
+                    {"code": "AAA", "sub_scores": {"CLOSE0": 1.0}},
+                    {"code": "BBB", "sub_scores": {"CLOSE0": -1.0}},
+                ]
+                with scoring_model_role_context("research"):
+                    rescore_fitted_cross_section(items)
+                self.assertEqual(items[0].get("score_model_role"), "research")
+                terms = items[0].get("score_formula_terms") or {}
+                close_term = next(
+                    (
+                        t
+                        for t in (terms.get("terms") or [])
+                        if str(t.get("key") or "") == "CLOSE0"
+                    ),
+                    None,
+                )
+                self.assertIsNotNone(close_term)
+                self.assertAlmostEqual(float(close_term.get("beta") or 0), 0.31)
 
 
 if __name__ == "__main__":

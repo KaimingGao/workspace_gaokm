@@ -28,7 +28,9 @@ def to_z_oo_key(legacy_or_canon: str) -> str:
     if k in Z_OO_SKIP_PACKS:
         return k
     # raw_aoo_* / raw_atc_* 自有前缀，不套 z_oo_
-    if k.startswith("raw_aoo_") or k.startswith("raw_atc_") or k.startswith("z_τc_"):
+    if k.startswith("raw_aoo_") or k.startswith("raw_atc_") or k.startswith(
+        ("z_τc_", "z_co_")
+    ):
         return k
     return f"{Z_OO_PREFIX}{k}"
 

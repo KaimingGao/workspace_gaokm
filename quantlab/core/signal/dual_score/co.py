@@ -14,16 +14,21 @@ DEFAULT_Y_SPEC_CO: Dict[str, Any] = {
     "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
 }
 
-from core.research.co_panel import CO_Z_FEATURES
+from core.research.co_panel import CO_Z_FEATURES, CO_Z_LEGACY
 
 _CO_FEATURE_KEYS = CO_Z_FEATURES
+_CO_LEGACY_KEYS = CO_Z_LEGACY
 
 
 def features_co_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     from core.signal.factors.alpha_oo import keep_aoo_raw_in_row
+    from core.signal.factors.z_co import stamp_z_co_aliases
 
     out: Dict[str, Any] = {}
-    src = feats or {}
+    src = stamp_z_co_aliases(dict(feats or {}))
+    for k in _CO_LEGACY_KEYS:
+        if k in src and src.get(k) is not None and src.get(k) != "":
+            out[k] = src.get(k)
     for k in _CO_FEATURE_KEYS:
         if k in src and src.get(k) is not None and src.get(k) != "":
             out[k] = src.get(k)
@@ -55,17 +60,23 @@ def overlay_co_cross_section(
     score_stock 原先只抄 breadth / theme_day，漏了 gap_vs_sector。
     观察页 hydrate 会从 features_tau 补上，持仓页直接用 score_one，两边 y_co 就会分叉。
     """
+    from core.signal.factors.z_co import stamp_z_co_aliases
+
     out = dict(co_feats or {})
     src = tau_feats if isinstance(tau_feats, dict) else {}
     if sector_gap_breadth is not None:
         out["sector_gap_breadth"] = sector_gap_breadth
     elif src.get("sector_gap_breadth") is not None:
         out["sector_gap_breadth"] = src.get("sector_gap_breadth")
+    elif src.get("z_τc_sector_gap_breadth") is not None:
+        out["sector_gap_breadth"] = src.get("z_τc_sector_gap_breadth")
     for k in ("theme_day", "gap_vs_sector"):
         v = src.get(k)
+        if v is None or v == "":
+            v = src.get(f"z_τc_{k}")
         if v is not None and v != "":
             out[k] = v
-    return out
+    return stamp_z_co_aliases(out)
 
 
 def apply_co_score_fields(
@@ -194,8 +205,12 @@ def ensure_formula_terms_co(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         v = item.get(k)
         if v is not None and v != "":
             feats.setdefault(k, v)
+    from core.signal.factors.z_co import feature_get as _co_get
+    from core.signal.factors.z_co import stamp_z_co_aliases
 
-    z_keys = set(_CO_FEATURE_KEYS)
+    stamp_z_co_aliases(feats)
+
+    z_keys = set(_CO_FEATURE_KEYS) | set(_CO_LEGACY_KEYS)
 
     def _stale_imputed_z(expl: Optional[dict]) -> bool:
         if not isinstance(expl, dict):
@@ -214,9 +229,9 @@ def ensure_formula_terms_co(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             key = str(t.get("key") or "")
             if key not in z_keys:
                 continue
-            if t.get("note") and feats.get(key) is not None:
+            if t.get("note") and _co_get(feats, key) is not None:
                 return True
-            if feats.get(key) is not None and float(t.get("z") or 0.0) == 0.0:
+            if _co_get(feats, key) is not None and float(t.get("z") or 0.0) == 0.0:
                 return True
         return False
 

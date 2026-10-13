@@ -57,7 +57,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-model-field"
-          title="研究套：Holdout（近 N 日不进训练），默认历史验证。执行套：live 全样本，与自动调仓同一套。调仓门槛对 ŷ 敏感、不鲁棒，研究套参数未必适用于执行套，故可在此对照。"
+          title="研究槽：Holdout 前训 β，默认历史验证。执行槽：由研究槽晋级的同一份 β（与自动调仓同一套）。两槽只是版本前后。"
         >
           <span class="quant-pro-field-label">模型</span>
           <select id="quant-score-model-role">
@@ -67,7 +67,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-score-backend-field"
-          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank：成交明细 rank=当日截面 1..n 名次（1=最高），不进 ranking/买序；「其他」可勾 rank&lt;top 50% 作入场闸。"
+          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank：成交明细 rank=当日截面 1..n 名次（1=最高），不进 ranking/买序；「其他」rank 入场（默认 10）作名次闸。"
         >
           <span class="quant-pro-field-label">ŷ头</span>
           <select id="quant-score-backend">
@@ -202,7 +202,7 @@
                 <section class="follow-path-matrix-panel" data-panel="other" aria-labelledby="pm-panel-other">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
-                    <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；勾选则入场须 y&gt;0 或 rank&lt;top 50%（缺分不拦）；未过门槛清仓</p>
+                    <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；勾选则入场须 y&gt;0；rank 入场&gt;0 则另须名次&lt;该值（缺分不拦）；未过门槛清仓</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row5">
                     <label
@@ -247,13 +247,13 @@
                     </label>
                     <label
                       class="follow-path-matrix-box"
-                      title="开=入场另须 ŷ_oo_rank 当日观察池截面名次 &lt; n·50%（1=相对分最高）；关=不看。缺 rank/n 不拦。未过则已持仓清仓。须已启用 oo_rank 研究/执行套。"
+                      title="入场另须 ŷ_oo_rank 当日观察池截面名次 &lt; 此值（1=相对分最高）。默认 10；≤0=关。缺 rank 不拦。未过则已持仓清仓。须已启用 oo_rank 研究/执行套。"
                     >
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">rank &lt; top 50%</span>
+                        <span class="follow-path-matrix-box-title">rank 入场</span>
                         <span class="follow-path-matrix-box-desc">oo_rank</span>
                       </span>
-                      <input type="checkbox" name="pm_oo_rank_top50" aria-label="oo_rank 名次小于前 50%" />
+                      <input type="number" name="pm_oo_rank_max" min="0" max="500" step="1" value="10" aria-label="oo_rank 入场名次" />
                     </label>
                   </div>
                 </section>
@@ -302,7 +302,7 @@
     </div>
   </section>
 
-  <!-- ③ 做 T 回测：默认执行套（对照手动预演）；可选研究套做 Holdout -->
+  <!-- ③ 做 T 回测：默认执行槽（对照手动预演）；可选研究槽版本 -->
   <section
     class="dashboard-section quant-section replay-section replay-run-section replay-t0-section"
     id="replay-section-t0"
@@ -324,7 +324,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-model-field"
-          title="执行套：live 全样本，与手动预演 / 自动做 T 同一套，默认对照交易执行。研究套：Holdout（近 N 日不进训练）；门槛对 ŷ 敏感，ŷ 可能翻转（如 y_τw）。"
+          title="执行槽：由研究槽晋级的 Holdout 前训 β，与手动预演 / 自动做 T 同一套。研究槽：候审版本；两槽系数同源、仅版本不同。"
         >
           <span class="quant-pro-field-label">模型</span>
           <select id="paper-t0-score-model-role">
@@ -342,7 +342,7 @@
             <option value="tree">Tree</option>
           </select>
         </label>
-        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行套（与手动预演同一套 live）。选研究则用 Holdout 系数，ŷ 可能翻转。规则读下方表单。缺该日5m则跳过。">跑回测</button>
+        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行槽（与手动预演同一套）。选研究则用研究槽版本。规则读下方表单。缺该日5m则跳过。">跑回测</button>
       </div>
     </header>
     <div class="replay-overview-band" id="replay-t0-overview">

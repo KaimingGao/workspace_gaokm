@@ -34,7 +34,7 @@ function scoreRoleCaption(data) {
     return `<span title="研究套 Holdout。与手动预演（执行套）不是同一套系数，ŷ 可能翻转。对照交易执行请选「执行」再跑。">研究套ŷ</span>`;
   }
   if (role === "live") {
-    return `<span title="执行套（全样本 live）。与手动预演 / 自动做 T 同一套。括号里是真实标签，不是另一套模型的 ŷ。">执行套ŷ</span>`;
+    return `<span title="执行槽（由研究槽晋级的 Holdout 前训 β）。与手动预演 / 自动做 T 同一套。括号里是真实标签，不是另一套模型的 ŷ。">执行套ŷ</span>`;
   }
   return `<span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ</span>`;
 }

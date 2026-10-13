@@ -239,7 +239,7 @@ def fit_tau_ridge_matrices(
     tau_grid: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
-    """拼面板 + Holdout 双套 Ridge（研究/执行）。不含 OOS 报告包装。"""
+    """拼面板 + Holdout 前训 Ridge（单套 β）。不含 OOS 报告包装。"""
     tau_key = str(tau_hm or "open").strip() or "open"
     use_minute = tau_key.lower() not in ("", "open")
     grid = (
@@ -369,27 +369,9 @@ def fit_tau_ridge_matrices(
         else []
     )
 
-    theme_w_all = (
-        theme_sample_weights(metas_use, theme_boost=theme_boost)
-        if use_theme_weights
-        else None
-    )
-    y_all = np.asarray(ys_use, dtype=np.float64)
-    fit_full = fit_keepall_ridge_matrix(
-        X_fit,
-        y_all,
-        feat_names,
-        ridge_lambda=ridge_lambda,
-        sample_weights=theme_w_all,
-        min_std_exempt=min_std_exempt,
-        row_dates=dates_use if use_cs else None,
-        cross_section_zscore=use_cs,
-    )
     del X_fit
-    model = fit_full if fit_full.get("success") else fit
-    model = dict(model)
-    research_model = dict(fit)
-    research_model["model_role"] = "research"
+    model = dict(fit)
+    model["model_role"] = "research"
 
     return {
         "success": True,
@@ -417,6 +399,6 @@ def fit_tau_ridge_matrices(
         "use_cs": use_cs,
         "theme_boost": theme_boost,
         "use_theme_weights": use_theme_weights,
-        "research_model": research_model,
+        "research_model": model,
         "model": model,
     }

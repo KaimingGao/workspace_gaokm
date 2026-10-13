@@ -77,14 +77,14 @@ def _fit_yhat_model_on_bars(
     horizon_days: int = 3,
 ) -> Any:
     """在 bars[:end_index] 上拟合 ReturnScoreModel；失败返回 None。"""
-    from core.research.panel import collect_subscore_forward_panel
+    from core.research.oo_panel import collect_oo_panel
     from core.signal.return_score import fit_return_model_from_panel
 
     if end_index < 40 or len(bars) < 40:
         return None
     train = bars[: max(40, int(end_index))]
     try:
-        xs, ys, _dates = collect_subscore_forward_panel(
+        xs, ys, _dates = collect_oo_panel(
             train,
             horizon_days=horizon_days,
             max_window=30,

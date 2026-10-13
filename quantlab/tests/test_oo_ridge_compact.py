@@ -255,6 +255,16 @@ class TestOoRidgeCompact(unittest.TestCase):
             _oo_stock_job(("600000", [], "bad-horizon", True))
         self.assertIn("600000", str(ctx.exception))
 
+    def test_stock_job_accepts_legacy_3tuple(self) -> None:
+        """父进程旧 3 元组 + 子进程新代码时不应 unpack 炸。"""
+        from core.research.oo_ridge_compact import _oo_stock_job
+
+        x, y, names, dates = _oo_stock_job(("600000", [], 1))
+        self.assertEqual(int(x.shape[0]), 0)
+        self.assertEqual(int(y.shape[0]), 0)
+        self.assertEqual(dates, [])
+        self.assertTrue(names)
+
 
 if __name__ == "__main__":
     unittest.main()

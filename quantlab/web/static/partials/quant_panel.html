@@ -138,12 +138,12 @@
     </div>
   </section>
 
-  <!-- 观察池分档：y_oo 命中 · Holdout 前半 · live 随历史回测分档勾选 -->
+  <!-- 观察池分档：命中看 Holdout 前半，指标与收益看整段 · live 随历史回测分档勾选 -->
   <section class="dashboard-section quant-section" id="quant-section-research-universe" aria-labelledby="quant-section-research-universe-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        研究套 ŷ_oo · Holdout 前半 OOS · live 档位跟随历史回测「分档」勾选
+        研究套 ŷ_oo / ŷ_τc · 分档看 Holdout 前半 · 指标与收益看整段 · live 档位跟随历史回测「分档」勾选
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -157,14 +157,54 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡片上的 <strong>Holdout</strong> 前半打分；
+                用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡片的 Holdout 上打分：命中与有效日只取<strong>前半</strong>定档。
                 有研究套时只拉 <strong>Holdout+暖窗</strong> 建面板（不必对齐全训练窗）。无研究套时才 Holdout 前现训（吃训练窗）。
-                A 档：命中率 ≥55%、IC &gt;0、有效日 N ≥ 分档窗 50%（Holdout40→N≥10）。
+                有<strong>研究套 ŷ_τc</strong>时同样，命中看前半；缺则跳过 τc 闸。
+                A 档门槛：Y_oo / Y_τc 命中（默认各 60%），有效日 N ≥ 分档窗 50%（Holdout40 前半 20 日→N≥10）；
+                B 档门槛：Y_oo / Y_τc ≥50% 但未进 A；无研究套 ŷ_τc 时跳过 τc 闸。
+                各档标题报 ŷ_oo / ŷ_τc 在 Holdout <strong>整段</strong>上的日截面 Rank IC · IC · ICIR；页顶平均收益率同样看整段（都不参与定档）。
                 调仓 live 过滤跟随历史回测页「分档」勾选（掉出允许档则清仓）；不勾则不过滤。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="用研究套 ŷ_oo + ŷ_oo 卡片 Holdout，在 Holdout 前半重算分档（有研究套时短窗建面板）">观察池分档</button>
+          <span class="quant-ru-a-gate" role="group" aria-label="A档门槛">
+            <span class="quant-ru-a-gate-lab">A档门槛</span>
+            <label
+              class="quant-inline-num quant-inline-num--sm"
+              title="A 档 Y_oo 最低命中率（%）。默认 60（45～90）。改完后需再点「观察池分档」。B 档仍 ≥50%（若 A 更低则随 A）。"
+            >
+              <span>Y_oo 门槛</span>
+              <input
+                id="quant-ru-a-hit"
+                type="number"
+                min="45"
+                max="90"
+                step="1"
+                value="60"
+                inputmode="numeric"
+                aria-label="A 档 Y_oo 门槛百分比"
+              />
+              <span aria-hidden="true">%</span>
+            </label>
+            <label
+              class="quant-inline-num quant-inline-num--sm"
+              title="A 档 Y_τc 最低命中率（%）。默认 60（45～90）。仅有研究套 ŷ_τc 时生效。改完后需再点「观察池分档」。"
+            >
+              <span>Y_τc 门槛</span>
+              <input
+                id="quant-ru-tau-a-hit"
+                type="number"
+                min="45"
+                max="90"
+                step="1"
+                value="60"
+                inputmode="numeric"
+                aria-label="A 档 Y_τc 门槛百分比"
+              />
+              <span aria-hidden="true">%</span>
+            </label>
+          </span>
+          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="用研究套 ŷ_oo（+ 有则 ŷ_τc）+ ŷ_oo 卡片 Holdout：前半定档，整段算指标与收益（有研究套时短窗建面板）">观察池分档</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-ru-body">
@@ -267,14 +307,15 @@
     </div>
   </section>
 
-  <!-- 分钟线：观察池 5m 缓存（T0 回测） -->
+  <!-- 分钟线：观察池 5m 缓存（T0 回测）；可折叠，默认收起 -->
   <section class="dashboard-section quant-section" id="quant-section-minute" aria-labelledby="quant-section-minute-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
-      <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-        写入口：日常「增量补齐」· 全窗「强更 5m」· 缺口「东财补缺」· 调度 minute_warmup · 标签画像（τ→close）· 下游 ŷ_τc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
-      </p>
-    </header>
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
+        <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
+        <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
+          写入口：日常「增量补齐」· 全窗「强更 5m」· 缺口「东财补缺」· 调度 minute_warmup · 标签画像（τ→close）· 下游 ŷ_τc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
+        </p>
+      </summary>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-minute-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status is-busy" aria-live="polite">
@@ -365,6 +406,7 @@
         </details>
       </div>
     </div>
+    </details>
   </section>
 
   <!-- ŷ_oo：全局 return_model（open→open）主轴 · 布局对齐 ŷ_τc -->
@@ -407,8 +449,8 @@
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo 操作">
           <button type="button" id="quant-return-model-fit" class="dialog-btn primary" title="观察池满池拟合全局 ŷ（训练窗 / 日截面 Z 见左侧），保存草稿">拟合</button>
-          <button type="button" id="quant-return-model-persist-research" class="dialog-btn warn" data-persist-role="research" title="草稿 → return_score_model_research.json，供历史回测" disabled>启用研究</button>
-          <button type="button" id="quant-return-model-promote" class="dialog-btn warn" data-persist-role="live" title="草稿 → return_score_model_active.json，供交易执行" disabled>启用执行</button>
+          <button type="button" id="quant-return-model-persist-research" class="dialog-btn warn" data-persist-role="research" title="草稿 → return_score_model_research.json（Holdout 前训 β，供历史回测）" disabled>启用研究</button>
+          <button type="button" id="quant-return-model-promote" class="dialog-btn warn" data-persist-role="live" title="研究槽 → return_score_model_active.json（晋级；须先启用研究并回测）" disabled>启用执行</button>
           <button type="button" id="quant-return-model-status" class="dialog-btn secondary" title="读取 live / 研究 / 草稿状态">状态</button>
         </div>
       </div>
@@ -506,9 +548,9 @@
           </label>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作">
-          <button type="button" id="quant-tau-ridge-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc Ridge（特征包 alpha_τc=Z∪raw_atc_*）+ 时间 OOS（前缀 / 训练窗 / 日截面 Z 见左侧；09:30=0 前缀 open→close；不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
-          <button type="button" id="quant-tau-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 tau_ridge_model_research.json，供历史回测加载">启用研究</button>
-          <button type="button" id="quant-tau-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/tau_ridge_model.json，供交易执行加载">启用执行</button>
+          <button type="button" id="quant-tau-ridge-run" class="dialog-btn primary" title="观察池拟合 ŷ_τc Ridge（特征包 alpha_τc=Z∪raw_atc_*）+ Holdout OOS（前缀 / 训练窗 / 日截面 Z 见左侧；09:30=0 前缀 open→close；不写盘；只训 Holdout 前一套 β）">拟合</button>
+          <button type="button" id="quant-tau-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="草稿/报告 → tau_ridge_model_research.json，供历史回测">启用研究</button>
+          <button type="button" id="quant-tau-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/tau_ridge_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-tau-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
@@ -559,8 +601,8 @@
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_co 操作">
           <button type="button" id="quant-co-ridge-run" class="dialog-btn primary" title="观察池拟合 co Ridge + 时间 OOS（训练窗 / 日截面 Z 见左侧，不写盘）">拟合</button>
-          <button type="button" id="quant-co-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 co_ridge_model_research.json，供历史回测加载">启用研究</button>
-          <button type="button" id="quant-co-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/co_ridge_model.json，供交易执行加载">启用执行</button>
+          <button type="button" id="quant-co-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="报告 → co_ridge_model_research.json，供历史回测">启用研究</button>
+          <button type="button" id="quant-co-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/co_ridge_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-co-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
@@ -576,7 +618,7 @@
     <details class="quant-primary-fold" open>
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
-        <p class="dashboard-section-desc quant-section-desc">rank(open[T]->open[T+1]) · 双 backend · NDCG@K 择优</p>
+        <p class="dashboard-section-desc quant-section-desc">rank(open[T]->open[T+1]) · 双 backend</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
@@ -619,8 +661,8 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
           <button type="button" id="quant-oo-rank-run" class="dialog-btn primary" title="观察池同窗拟合 LambdaRank + Ridge · Holdout OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="按 Holdout NDCG@K 自动落盘更强 backend 到 oo_rank_model_research.json；成交 rank=1..n；不进买序；入场闸另勾 rank&lt;top 50%">启用研究</button>
-          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="按 Holdout NDCG@K 自动落盘更强 backend 到 live/oo_rank_model.json；成交 rank=1..n；不进买序；入场闸另勾 rank&lt;top 50%">启用执行</button>
+          <button type="button" id="quant-oo-rank-persist-research" class="dialog-btn warn" data-persist-role="research" title="Holdout 前训 + NDCG@K 选 backend → oo_rank_model_research.json；成交 rank=1..n；不进买序">启用研究</button>
+          <button type="button" id="quant-oo-rank-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/oo_rank_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
         </div>
       </div>
@@ -633,9 +675,9 @@
   </section>
 
   <!-- ŷ_τ30：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t30" aria-labelledby="quant-section-t30-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
+  <section class="dashboard-section quant-section" id="quant-section-t30" aria-labelledby="quant-section-t30-title">
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-t30-title" class="dashboard-section-title">ŷ_τ30</h3>
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
@@ -673,8 +715,8 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ30 操作">
           <button type="button" id="quant-t30-ridge-run" class="dialog-btn primary" title="观察池后台拟合 ŷ_τ30 Ridge + 时间 OOS（不写盘；页面轮询进度）">拟合</button>
-          <button type="button" id="quant-t30-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 t30_ridge_model_research.json">启用研究</button>
-          <button type="button" id="quant-t30-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/t30_ridge_model.json">启用执行</button>
+          <button type="button" id="quant-t30-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="报告 → t30_ridge_model_research.json，供历史回测">启用研究</button>
+          <button type="button" id="quant-t30-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t30_ridge_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-t30-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -687,9 +729,9 @@
   </section>
 
   <!-- ŷ_τ45：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t45" aria-labelledby="quant-section-t45-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
+  <section class="dashboard-section quant-section" id="quant-section-t45" aria-labelledby="quant-section-t45-title">
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-t45-title" class="dashboard-section-title">ŷ_τ45</h3>
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
@@ -727,8 +769,8 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ45 操作">
           <button type="button" id="quant-t45-ridge-run" class="dialog-btn primary" title="观察池后台拟合 ŷ_τ45 Ridge + 时间 OOS（不写盘；页面轮询进度）">拟合</button>
-          <button type="button" id="quant-t45-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 t45_ridge_model_research.json">启用研究</button>
-          <button type="button" id="quant-t45-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/t45_ridge_model.json">启用执行</button>
+          <button type="button" id="quant-t45-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="报告 → t45_ridge_model_research.json，供历史回测">启用研究</button>
+          <button type="button" id="quant-t45-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t45_ridge_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-t45-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -741,9 +783,9 @@
   </section>
 
   <!-- ŷ_τ60：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t60" aria-labelledby="quant-section-t60-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
+  <section class="dashboard-section quant-section" id="quant-section-t60" aria-labelledby="quant-section-t60-title">
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-t60-title" class="dashboard-section-title">ŷ_τ60</h3>
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
@@ -781,8 +823,8 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ60 操作">
           <button type="button" id="quant-t60-ridge-run" class="dialog-btn primary" title="观察池后台拟合 ŷ_τ60 Ridge + 时间 OOS（不写盘；页面轮询进度）">拟合</button>
-          <button type="button" id="quant-t60-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 t60_ridge_model_research.json">启用研究</button>
-          <button type="button" id="quant-t60-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/t60_ridge_model.json">启用执行</button>
+          <button type="button" id="quant-t60-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="报告 → t60_ridge_model_research.json，供历史回测">启用研究</button>
+          <button type="button" id="quant-t60-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t60_ridge_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-t60-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -795,9 +837,9 @@
   </section>
 
   <!-- ŷ_τ75：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t75" aria-labelledby="quant-section-t75-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
+  <section class="dashboard-section quant-section" id="quant-section-t75" aria-labelledby="quant-section-t75-title">
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-t75-title" class="dashboard-section-title">ŷ_τ75</h3>
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
@@ -835,8 +877,8 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ75 操作">
           <button type="button" id="quant-t75-ridge-run" class="dialog-btn primary" title="研究池至少 2 只才可跑 ŷ_τ75 Ridge；后台拟合 + 时间 OOS（不写盘；页面轮询进度）">拟合</button>
-          <button type="button" id="quant-t75-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入上次拟合到 t75_ridge_model_research.json（不重跑；不要求研究池只数）">启用研究</button>
-          <button type="button" id="quant-t75-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/t75_ridge_model.json">启用执行</button>
+          <button type="button" id="quant-t75-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="报告 → t75_ridge_model_research.json，供历史回测">启用研究</button>
+          <button type="button" id="quant-t75-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t75_ridge_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-t75-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -849,9 +891,9 @@
   </section>
 
   <!-- ŷ_τ90：开盘 Z + ≤τ 分钟 − OC 路径形状 + 本头序列（无 alpha_oo）；P(窗收益>0)；进 ŷ_τw；默认收起 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t90" aria-labelledby="quant-section-t90-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
+  <section class="dashboard-section quant-section" id="quant-section-t90" aria-labelledby="quant-section-t90-title">
+    <details class="quant-primary-fold">
+      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-t90-title" class="dashboard-section-title">ŷ_τ90</h3>
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票</p>
       </summary>
@@ -889,8 +931,8 @@
 
         <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ90 操作">
           <button type="button" id="quant-t90-ridge-run" class="dialog-btn primary" title="观察池后台拟合 ŷ_τ90 Ridge + 时间 OOS（不写盘；页面轮询进度）">拟合</button>
-          <button type="button" id="quant-t90-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="人审后写入 t90_ridge_model_research.json">启用研究</button>
-          <button type="button" id="quant-t90-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="人审后写入 live/t90_ridge_model.json">启用执行</button>
+          <button type="button" id="quant-t90-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="报告 → t90_ridge_model_research.json，供历史回测">启用研究</button>
+          <button type="button" id="quant-t90-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/t90_ridge_model.json（晋级；须先启用研究）">启用执行</button>
           <button type="button" id="quant-t90-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -1439,7 +1481,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-experiments-title" class="dashboard-section-title">实验记录</h3>
-        <p class="dashboard-section-desc quant-section-desc" id="quant-experiments-summary">每次 fit 写入 · fit_end · 样本外 IC · 训练窗 / 全样本</p>
+        <p class="dashboard-section-desc quant-section-desc" id="quant-experiments-summary">每次 fit 写入 · fit_end · 样本外 IC · Holdout 前训</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">

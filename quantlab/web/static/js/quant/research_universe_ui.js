@@ -1,6 +1,6 @@
 /**
- * 观察池分档：研究套 ŷ_oo · Holdout 前半 OOS 打档 → last；
- * 有研究套时短窗建面板；live 档位跟随历史回测「分档」勾选（domain_backtest live-sync）。
+ * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· 分档看 Holdout 前半，指标与收益看整段 → last。
+ * 有研究套时只拉 Holdout 附近本地日线建面板；live 档位跟随历史回测「分档」勾选。
  */
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 
@@ -10,20 +10,88 @@ export function installResearchUniverseUi(q) {
   let liveStatus = null;
 
   const TIER_META = {
-    A: { label: "强", tip: "命中过门且有效日够" },
-    B: { label: "中", tip: "方向尚可或样本偏薄" },
-    C: { label: "弱", tip: "命中不足或无样本" },
+    A: { label: "强", tip: "Y_oo / Y_τc 过 A 门槛且有效日够" },
+    B: { label: "中", tip: "Y_oo / Y_τc ≥50% 但未进 A" },
+    C: { label: "弱", tip: "未达 B 或无样本" },
   };
+
+  const A_HIT_STORAGE_KEY = "quant.researchUniverse.aHitPct";
+  const TAU_A_HIT_STORAGE_KEY = "quant.researchUniverse.tauAHitPct";
+  const A_HIT_PCT_DEFAULT = 60;
+  const A_HIT_PCT_MIN = 45;
+  const A_HIT_PCT_MAX = 90;
 
   const el = {
     chip: () => document.getElementById("quant-ru-chip"),
     msg: () => document.getElementById("quant-ru-msg"),
     strip: () => document.getElementById("quant-ru-strip"),
     tierTable: () => document.getElementById("quant-ru-tier-table"),
+    aHit: () => document.getElementById("quant-ru-a-hit"),
+    tauAHit: () => document.getElementById("quant-ru-tau-a-hit"),
     maxSize: () => document.getElementById("quant-watching-max-size"),
     poolVal: () => document.getElementById("quant-watching-pool-val"),
     poolStatus: () => document.getElementById("quant-watching-pool-status"),
   };
+
+  function clampAHitPct(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return A_HIT_PCT_DEFAULT;
+    return Math.max(A_HIT_PCT_MIN, Math.min(A_HIT_PCT_MAX, Math.round(n)));
+  }
+
+  function readHitPct(inputEl, storageKey) {
+    let pct = A_HIT_PCT_DEFAULT;
+    if (inputEl && inputEl.value !== "") {
+      pct = clampAHitPct(inputEl.value);
+    } else {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved != null && saved !== "") pct = clampAHitPct(saved);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    if (inputEl && String(inputEl.value) !== String(pct)) inputEl.value = String(pct);
+    try {
+      localStorage.setItem(storageKey, String(pct));
+    } catch (_) {
+      /* ignore */
+    }
+    return pct / 100;
+  }
+
+  function readAHitRate() {
+    return readHitPct(el.aHit(), A_HIT_STORAGE_KEY);
+  }
+
+  function readTauAHitRate() {
+    return readHitPct(el.tauAHit(), TAU_A_HIT_STORAGE_KEY);
+  }
+
+  function paintHitFromReport(rep) {
+    const thr = rep && rep.thresholds;
+    if (!thr) return;
+    if (thr.a_hit != null) {
+      const pct = clampAHitPct(Number(thr.a_hit) * 100);
+      const input = el.aHit();
+      if (input) input.value = String(pct);
+      try {
+        localStorage.setItem(A_HIT_STORAGE_KEY, String(pct));
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    if (thr.tau_a_hit != null) {
+      const pct = clampAHitPct(Number(thr.tau_a_hit) * 100);
+      const input = el.tauAHit();
+      if (input) input.value = String(pct);
+      try {
+        localStorage.setItem(TAU_A_HIT_STORAGE_KEY, String(pct));
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
 
   function holdoutN() {
     if (typeof readHoldoutTradingDays === "function") {
@@ -67,20 +135,179 @@ export function installResearchUniverseUi(q) {
     return Number(v).toFixed(3);
   }
 
-  function hitBarHtml(hitRate, aHit, bHit) {
-    if (hitRate == null || Number.isNaN(Number(hitRate))) {
-      return `<span class="quant-ru-hit-bar is-empty" title="无有效命中"><span class="quant-ru-hit-fill" style="width:0%"></span></span>`;
+  function csPackOf(rep, tier, head) {
+    if (!rep) return null;
+    const useTau = head === "tau";
+    if (tier) {
+      const by = useTau ? rep.cs_by_tier_tau || {} : rep.cs_by_tier || {};
+      return by[tier] || null;
     }
-    const pct = Math.max(0, Math.min(100, Number(hitRate) * 100));
-    const a = (aHit ?? 0.55) * 100;
-    const b = (bHit ?? 0.5) * 100;
-    let tone = "is-c";
-    if (pct + 1e-9 >= a) tone = "is-a";
-    else if (pct + 1e-9 >= b) tone = "is-b";
+    if (useTau) {
+      return {
+        cs_rank_ic: rep.cs_rank_ic_tau,
+        cs_ic: rep.cs_ic_tau,
+        cs_icir: rep.cs_icir_tau,
+      };
+    }
+    return rep;
+  }
+
+  function csValCls(v) {
+    if (v == null || Number.isNaN(Number(v))) return "";
+    const n = Number(v);
+    if (n > 1e-12) return " up";
+    if (n < -1e-12) return " down";
+    return "";
+  }
+
+  function fmtRetPct(v) {
+    if (v == null || Number.isNaN(Number(v))) return "—";
+    const n = Number(v);
+    const sign = n > 0 ? "+" : "";
+    return `${sign}${n.toFixed(2)}%`;
+  }
+
+  function csMetricsHtml(pack, tip, headLab) {
+    const items = [
+      ["RankIC", pack && pack.cs_rank_ic, fmtIc],
+      ["IC", pack && pack.cs_ic, fmtIc],
+      ["ICIR", pack && pack.cs_icir, fmtIc],
+    ];
+    const html = items
+      .map(
+        ([lab, raw, fmt]) =>
+          `<span class="quant-ru-tier-cs-item">` +
+          `<span class="quant-ru-tier-cs-lab">${escapeHtml(lab)}</span>` +
+          `<span class="quant-ru-tier-cs-val${csValCls(raw)}">${fmt(raw)}</span>` +
+          `</span>`
+      )
+      .join("");
+    const headBit = headLab
+      ? `<span class="quant-ru-tier-cs-head">${escapeHtml(headLab)}</span>`
+      : "";
     return (
-      `<span class="quant-ru-hit-bar ${tone}" title="命中 ${pct.toFixed(1)}%">` +
-      `<span class="quant-ru-hit-fill" style="width:${pct.toFixed(1)}%"></span>` +
+      `<span class="quant-ru-tier-cs" title="${escapeHtml(tip)}" aria-label="档内日截面">` +
+      headBit +
+      html +
       `</span>`
+    );
+  }
+
+  function dualCsHtml(rep, tier) {
+    const ooTip = `Holdout 整段、${tier} 档内 Y_oo：Rank IC / IC / ICIR`;
+    const tauTip =
+      `Holdout 整段、${tier} 档内 Y_τc 日截面：Rank IC / IC / ICIR`;
+    const requireTau = !!(rep && rep.thresholds && rep.thresholds.require_tau);
+    const ooPack = csPackOf(rep, tier, "oo");
+    const tauPack = csPackOf(rep, tier, "tau");
+    const showTau =
+      requireTau ||
+      (tauPack &&
+        (tauPack.cs_rank_ic != null ||
+          tauPack.cs_ic != null ||
+          tauPack.cs_icir != null));
+    return (
+      `<span class="quant-ru-tier-cs-wrap">` +
+      csMetricsHtml(ooPack, ooTip, "Y_oo") +
+      (showTau ? csMetricsHtml(tauPack, tauTip, "Y_τc") : "") +
+      `</span>`
+    );
+  }
+
+  function tierMeanRet(rep, tier) {
+    const pack = csPackOf(rep, tier, "oo");
+    if (!pack || pack.mean_realized_pct == null) return null;
+    const n = Number(pack.mean_realized_pct);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /** 有样本卡：各档票日平均实现收益按 n_realized 加权。 */
+  function poolMeanRet(rep) {
+    const by = (rep && rep.cs_by_tier) || {};
+    let sum = 0;
+    let n = 0;
+    for (const tier of ["A", "B", "C"]) {
+      const pack = by[tier];
+      if (!pack || pack.mean_realized_pct == null) continue;
+      const pct = Number(pack.mean_realized_pct);
+      const w = Number(pack.n_realized);
+      if (!Number.isFinite(pct) || !Number.isFinite(w) || w <= 0) continue;
+      sum += pct * w;
+      n += w;
+    }
+    return n > 0 ? sum / n : null;
+  }
+
+  function kpiRetHtml(ret, tip) {
+    const val =
+      ret == null
+        ? `<span class="quant-ru-kpi-ret-val">—</span>`
+        : `<span class="quant-ru-kpi-ret-val${csValCls(ret)}">${fmtRetPct(ret)}</span>`;
+    return (
+      `<span class="quant-ru-kpi-ret" title="${escapeHtml(tip)}">` +
+      `<span class="quant-ru-kpi-ret-lab">平均收益率</span>` +
+      val +
+      `</span>`
+    );
+  }
+
+  function kpiCardHtml(tierCls, lab, valHtml, ret, tip) {
+    const cls = tierCls ? `quant-ru-kpi ${tierCls}` : "quant-ru-kpi";
+    return (
+      `<div class="${cls}">` +
+      `<span class="quant-ru-kpi-lab">${lab}</span>` +
+      `<span class="quant-ru-kpi-val">${valHtml}</span>` +
+      kpiRetHtml(ret, tip) +
+      `</div>`
+    );
+  }
+
+  function hitTone(hitRate, aHit, bHit) {
+    if (hitRate == null || Number.isNaN(Number(hitRate))) return "is-empty";
+    const pct = Number(hitRate) * 100;
+    const a = (aHit ?? 0.6) * 100;
+    const b = (bHit ?? 0.5) * 100;
+    if (pct + 1e-9 >= a) return "is-a";
+    if (pct + 1e-9 >= b) return "is-b";
+    return "is-c";
+  }
+
+  function hitBarHtml(hitRate, aHit, bHit) {
+    const tone = hitTone(hitRate, aHit, bHit);
+    const aPct = Math.max(0, Math.min(100, (aHit ?? 0.6) * 100));
+    const bPct = Math.max(0, Math.min(100, (bHit ?? 0.5) * 100));
+    const pct =
+      tone === "is-empty"
+        ? 0
+        : Math.max(0, Math.min(100, Number(hitRate) * 100));
+    const tip =
+      tone === "is-empty"
+        ? "无有效命中"
+        : `命中 ${pct.toFixed(1)}% · B ${bPct.toFixed(0)}% · A ${aPct.toFixed(0)}%`;
+    return (
+      `<span class="quant-ru-hit-meter ${tone}" title="${escapeHtml(tip)}">` +
+      `<span class="quant-ru-hit-track">` +
+      `<span class="quant-ru-hit-fill" style="width:${pct.toFixed(1)}%"></span>` +
+      `</span>` +
+      `<span class="quant-ru-hit-mark is-b" style="left:${bPct.toFixed(1)}%"></span>` +
+      `<span class="quant-ru-hit-mark is-a" style="left:${aPct.toFixed(1)}%"></span>` +
+      `</span>`
+    );
+  }
+
+  function hitNCell(hitRate, aHit, bHit, nValid, title, headCls) {
+    const tone = hitTone(hitRate, aHit, bHit);
+    const n = nValid == null || Number.isNaN(Number(nValid)) ? 0 : Number(nValid);
+    return (
+      `<td class="num quant-ru-hit-cell ${escapeHtml(headCls || "")}" title="${escapeHtml(
+        title || ""
+      )}">` +
+      `<span class="quant-ru-hit-row">` +
+      `<span class="quant-ru-hit-val ${tone}">${fmtHit(hitRate)}</span>` +
+      `<span class="quant-ru-hit-n">${n}</span>` +
+      `</span>` +
+      hitBarHtml(hitRate, aHit, bHit) +
+      `</td>`
     );
   }
 
@@ -126,7 +353,9 @@ export function installResearchUniverseUi(q) {
     const thr = rep.thresholds || {};
     const hold = rep.holdout_n != null ? rep.holdout_n : "—";
     const tierN = rep.tier_n != null ? rep.tier_n : rep.n_ledger_dates ?? "—";
-    const aHit = thr.a_hit ?? 0.55;
+    const aHit = thr.a_hit ?? 0.6;
+    const tauAHit = thr.tau_a_hit ?? 0.6;
+    const requireTau = !!thr.require_tau;
     const aMinN =
       thr.a_min_n != null
         ? thr.a_min_n
@@ -140,11 +369,18 @@ export function installResearchUniverseUi(q) {
 
     const headNote = [
       `ŷ_oo Holdout OOS`,
-      `Holdout${hold} · 前半${tierN}日`,
-      `A 命中≥${Math.round(aHit * 100)}% · IC>0 · N≥${aMinN}`,
-      `B≥${Math.round(bHit * 100)}%`,
+      `Holdout${hold}日前半` +
+        (tierN != null && Number.isFinite(Number(tierN)) ? ` · 窗${tierN}日` : "") +
+        ` · 指标与收益看整段`,
+      `A档门槛：Y_oo≥${Math.round(aHit * 100)}%` +
+        (requireTau ? ` · Y_τc≥${Math.round(tauAHit * 100)}%` : " · 无Y_τc闸") +
+        ` · N≥${aMinN}`,
+      `B档门槛：Y_oo≥${Math.round(bHit * 100)}%` +
+        (requireTau ? ` · Y_τc≥${Math.round(bHit * 100)}%` : ""),
       liveBit(),
-    ].join(" · ");
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
     const byTier = { A: [], B: [], C: [] };
     for (const r of rep.rows) {
@@ -160,17 +396,26 @@ export function installResearchUniverseUi(q) {
         const slice = rows.slice(0, maxShow);
         const trs = slice
           .map(
-            (r) => `<tr data-tier="${tier}">
-            ${stockCell(r)}
-            <td class="num quant-ru-hit-cell">
-              <span class="quant-ru-hit-val">${fmtHit(r.hit_rate)}</span>
-              ${hitBarHtml(r.hit_rate, aHit, bHit)}
-            </td>
-            <td class="num" title="有效日 / 窗内日">${r.n_valid ?? 0}<span class="quant-ru-n-sub">/${
-              r.n_days ?? 0
-            }</span></td>
-            <td class="num">${fmtIc(r.ic)}</td>
-          </tr>`
+            (r) =>
+              `<tr data-tier="${tier}">` +
+              stockCell(r) +
+              hitNCell(
+                r.hit_rate,
+                aHit,
+                bHit,
+                r.n_valid,
+                "Y_oo 命中率 · 有效样本日",
+                "is-oo"
+              ) +
+              hitNCell(
+                r.hit_rate_tau,
+                tauAHit,
+                bHit,
+                r.n_valid_tau,
+                "Y_τc 命中率 · 有效样本日",
+                "is-tau"
+              ) +
+              `</tr>`
           )
           .join("");
         const more =
@@ -181,9 +426,8 @@ export function installResearchUniverseUi(q) {
           ? `<table class="quant-ru-tier-grid">
               <thead><tr>
                 <th class="quant-ru-col-stock">标的</th>
-                <th class="num" title="ŷ_oo 符号命中率">命中</th>
-                <th class="num" title="有效命中日 / 窗内出现日">n</th>
-                <th class="num" title="票内 Spearman IC">IC</th>
+                <th class="num" title="Y_oo 命中率 · 有效样本日">Y_oo</th>
+                <th class="num" title="Y_τc 命中率 · 有效样本日">Y_τc</th>
               </tr></thead>
               <tbody>${trs}</tbody>
             </table>${more}`
@@ -192,7 +436,7 @@ export function installResearchUniverseUi(q) {
           <summary class="quant-ru-tier-fold-sum" title="${escapeHtml(meta.tip)}">
             <span class="quant-ru-tier-badge is-${tier}">${tier}</span>
             <span class="quant-ru-tier-label">${escapeHtml(meta.label)}</span>
-            <span class="quant-ru-tier-fold-count">${rows.length}</span>
+            ${dualCsHtml(rep, tier)}
           </summary>
           <div class="quant-ru-tier-fold-body">${body}</div>
         </details>`;
@@ -203,16 +447,34 @@ export function installResearchUniverseUi(q) {
     host.innerHTML =
       `<div class="quant-ru-desk">` +
       `<div class="quant-ru-kpis" aria-label="分档 KPI">` +
-      `<div class="quant-ru-kpi is-A"><span class="quant-ru-kpi-lab">A 强</span><span class="quant-ru-kpi-val">${
-        counts.A ?? 0
-      }</span></div>` +
-      `<div class="quant-ru-kpi is-B"><span class="quant-ru-kpi-lab">B 中</span><span class="quant-ru-kpi-val">${
-        counts.B ?? 0
-      }</span></div>` +
-      `<div class="quant-ru-kpi is-C"><span class="quant-ru-kpi-lab">C 弱</span><span class="quant-ru-kpi-val">${
-        counts.C ?? 0
-      }</span></div>` +
-      `<div class="quant-ru-kpi"><span class="quant-ru-kpi-lab">有样本</span><span class="quant-ru-kpi-val">${nSample}<span class="quant-ru-kpi-sub">/${nPool}</span></span></div>` +
+      kpiCardHtml(
+        "is-A",
+        "A 强",
+        String(counts.A ?? 0),
+        tierMeanRet(rep, "A"),
+        "Holdout 整段、A 档票日平均实现收益（ŷ_oo）"
+      ) +
+      kpiCardHtml(
+        "is-B",
+        "B 中",
+        String(counts.B ?? 0),
+        tierMeanRet(rep, "B"),
+        "Holdout 整段、B 档票日平均实现收益（ŷ_oo）"
+      ) +
+      kpiCardHtml(
+        "is-C",
+        "C 弱",
+        String(counts.C ?? 0),
+        tierMeanRet(rep, "C"),
+        "Holdout 整段、C 档票日平均实现收益（ŷ_oo）"
+      ) +
+      kpiCardHtml(
+        "",
+        "有样本",
+        `${nSample}<span class="quant-ru-kpi-sub">/${nPool}</span>`,
+        poolMeanRet(rep),
+        "Holdout 整段、有样本票日平均实现收益（ŷ_oo，按票日加权）"
+      ) +
       `</div>` +
       mixBarHtml(counts) +
       `<p class="quant-ru-list-note">${escapeHtml(headNote)}</p>` +
@@ -227,27 +489,21 @@ export function installResearchUniverseUi(q) {
   function applyTiers(rep) {
     lastTiers = rep && rep.success ? rep : null;
     if (rep && rep.live) applyLive(rep.live);
+    if (lastTiers) paintHitFromReport(lastTiers);
     renderTierTable(lastTiers);
     if (lastTiers) {
       const c = lastTiers.counts || {};
       const hold = lastTiers.holdout_n != null ? lastTiers.holdout_n : "—";
-      const lb = lastTiers.lookback != null ? lastTiers.lookback : "—";
-      const lbReq =
-        lastTiers.lookback_requested != null &&
-        Number(lastTiers.lookback_requested) > Number(lb)
-          ? lastTiers.lookback_requested
-          : null;
       const src =
         lastTiers.source === "oo_research_model"
           ? "研究套"
           : lastTiers.source === "oo_holdout_oos_refit"
             ? "现训"
             : "ŷ_oo";
-      const winBit = lbReq != null ? `短窗${lb}` : `窗${lb}`;
       setStatus(
         "ok",
         liveStatus && liveStatus.enabled ? "live" : "已分档",
-        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ${src} · ${winBit} · Holdout${hold} · ${liveBit()}`
+        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ${src} · Holdout${hold}前半 · ${liveBit()}`
       );
     } else if (liveStatus && liveStatus.enabled) {
       setStatus("ok", "live", `${liveBit()} · 可先「观察池分档」刷新`);
@@ -258,20 +514,28 @@ export function installResearchUniverseUi(q) {
     if (!document.getElementById("quant-section-research-universe")) return null;
     const h = holdoutN();
     const lb = ooLookbackN();
+    const aHit = readAHitRate();
+    const tauAHit = readTauAHitRate();
     if (!quiet) {
       setStatus(
         "busy",
         useLast ? "读取中" : "分档中",
         useLast
           ? "上次 Holdout OOS 分档…"
-          : `研究套 ŷ_oo · Holdout ${h} 日前半（短窗建面板；无研究套才吃训练窗 ${lb}）…`
+          : `研究套 ŷ_oo · Holdout ${h} 日前半 · A档门槛：Y_oo ${Math.round(
+              aHit * 100
+            )}% · Y_τc ${Math.round(tauAHit * 100)}%（短窗建面板；无研究套才吃训练窗 ${lb}）…`
       );
     }
     const url = useLast
       ? "/api/quant/research-universe/predictability-tiers/last"
       : `/api/quant/research-universe/predictability-tiers?holdout=${encodeURIComponent(
           h
-        )}&lookback=${encodeURIComponent(lb)}&min_n=20&head=oo&pool=watching`;
+        )}&lookback=${encodeURIComponent(lb)}&a_hit=${encodeURIComponent(
+          aHit
+        )}&tau_a_hit=${encodeURIComponent(
+          tauAHit
+        )}&min_n=20&head=oo&pool=watching`;
     const { ok, data, error } = await apiFetch(url);
     if (!ok || !data || data.success === false) {
       if (data && data.live) applyLive(data.live);
@@ -294,6 +558,15 @@ export function installResearchUniverseUi(q) {
     e.preventDefault();
     void loadTiers({ useLast: false });
   });
+  on("quant-ru-a-hit", "change", () => {
+    readAHitRate();
+  });
+  on("quant-ru-tau-a-hit", "change", () => {
+    readTauAHitRate();
+  });
+  // 启动时从 localStorage 回填命中门槛
+  readAHitRate();
+  readTauAHitRate();
 
   function clampWatchingMaxSize(v) {
     const n = Number(v);

@@ -111,7 +111,7 @@ class TestXTrackLiveFeatures(unittest.TestCase):
         self.assertIsNotNone(out.get("quality_policy"))
 
     def test_panel_respect_regime_narrows_factors(self):
-        from core.research.panel import _resolve_factor_names
+        from core.research.oo_panel import _resolve_factor_names
 
         with patch(
             "core.signal.regime.assess_regime",

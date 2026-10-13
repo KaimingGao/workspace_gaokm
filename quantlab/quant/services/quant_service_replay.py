@@ -73,6 +73,7 @@ class QuantReplayMixin:
         rank_strong: float = 0.001,
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
+        oo_rank_max: Optional[int] = None,
         oo_rank_top_frac: Optional[float] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
@@ -229,7 +230,7 @@ class QuantReplayMixin:
                 "n_in": n_before,
                 "n_out": len(candidates),
                 "note": (
-                    "复用研究枢纽 Holdout 前半分档过滤宇宙；"
+                    "复用研究枢纽 Holdout 分档过滤宇宙；"
                     "回测天数=请求 lookback（与 Holdout 独立）。"
                 ),
             }
@@ -367,6 +368,7 @@ class QuantReplayMixin:
             rank_strong=strong,
             y_oo_gt0=bool(y_oo_gt0),
             y_τc_gt0=bool(y_τc_gt0),
+            oo_rank_max=oo_rank_max,
             oo_rank_top_frac=oo_rank_top_frac,
             fill_clock=clock,
             minute_bars_by_code=minute_bars,
@@ -405,6 +407,7 @@ class QuantReplayMixin:
             "rank_strong": strong,
             "y_oo_gt0": bool(y_oo_gt0),
             "y_τc_gt0": bool(y_τc_gt0),
+            "oo_rank_max": oo_rank_max,
             "oo_rank_top_frac": oo_rank_top_frac,
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
@@ -421,9 +424,13 @@ class QuantReplayMixin:
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + (
-                    f"；oo_rank<top{int(round(float(oo_rank_top_frac) * 100))}%"
-                    if oo_rank_top_frac is not None and float(oo_rank_top_frac) > 0
-                    else ""
+                    f"；oo_rank<{int(oo_rank_max)}"
+                    if oo_rank_max is not None and int(oo_rank_max) > 0
+                    else (
+                        f"；oo_rank<top{int(round(float(oo_rank_top_frac) * 100))}%"
+                        if oo_rank_top_frac is not None and float(oo_rank_top_frac) > 0
+                        else ""
+                    )
                 )
                 + ("；ŷ头=Tree" if backend == "tree" else "；ŷ头=Ridge")
                 + f"，开加不按纸面 max_positions={max_positions} 截断）；"
@@ -440,7 +447,7 @@ class QuantReplayMixin:
             "fit_tiers": fit_meta,
             "predictability_tiers": pred_meta if pred_meta.get("enabled") else None,
             "note": (
-                "Holdout 前半分档过滤宇宙；回测天数=请求 lookback（与 Holdout 独立）。"
+                "Holdout 分档过滤宇宙；回测天数=请求 lookback（与 Holdout 独立）。"
                 if pred_meta.get("enabled")
                 else "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
             ),

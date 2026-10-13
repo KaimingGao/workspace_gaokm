@@ -1,6 +1,6 @@
 """ŷ_oo Ridge：拟合 / 草稿 / 研究·执行套落盘（对齐 ``tc_ridge``）。
 
-矩阵运算在 ``oo_ridge_compact``；本模块负责研究台落盘与人审启用。
+单票面板 ``oo_panel``；矩阵堆叠与拟合 ``oo_ridge_compact``；本模块负责落盘与人审启用。
 路径仍用 ``RETURN_SCORE_MODEL_*``（历史文件名）；对外另提供 ``oo_model_path`` 等别名。
 """
 
@@ -71,19 +71,23 @@ def _as_model_dict(src: Any) -> Optional[Dict[str, Any]]:
 
 
 def _draft_persist_view(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """草稿 → 与 τ/co 相同的 ``return_model`` / ``return_model_research`` 视图。
-
-    兼容旧键 ``model`` / ``research_model``。
-    """
-    live = raw.get("return_model")
-    if not isinstance(live, dict):
-        live = raw.get("model")
-    research = raw.get("return_model_research")
-    if not isinstance(research, dict):
-        research = raw.get("research_model")
+    """草稿 → 单份 β 视图（多键别名；取首个可用块并镜像到两键）。"""
+    blob = None
+    for key in (
+        "return_model_research",
+        "return_model",
+        "research_model",
+        "model",
+    ):
+        cand = raw.get(key)
+        if isinstance(cand, dict) and (
+            cand.get("coefficients") or cand.get("intercept") is not None
+        ):
+            blob = dict(cand)
+            break
     return {
-        "return_model": dict(live) if isinstance(live, dict) else None,
-        "return_model_research": dict(research) if isinstance(research, dict) else None,
+        "return_model": dict(blob) if blob else None,
+        "return_model_research": dict(blob) if blob else None,
     }
 
 
@@ -97,12 +101,14 @@ def save_return_model_draft(
 ) -> Dict[str, Any]:
     """写入研究草稿 ``data/reports/last_return_score_model.json``。
 
-    与 τ/co 对齐：``return_model`` = 全样本执行套；``return_model_research`` = Holdout 前训。
-    仍写 ``model`` / ``research_model`` 别名，供旧加载路径读取。
+    只落一份 Holdout 前训 β；``research_model`` 形参已忽略（旧双 β API 兼容）。
     """
+    del research_model  # 旧双 β 入参；系数一律来自 model
     _ensure_dirs()
-    live_blob = model.to_dict()
-    research_blob = _as_model_dict(research_model)
+    blob = model.to_dict()
+    if isinstance(blob, dict):
+        blob = dict(blob)
+        blob.setdefault("model_role", "research")
     payload = {
         "version": 2,
         "kind": "return_score_model",
@@ -110,17 +116,14 @@ def save_return_model_draft(
         "schema": "oo_ridge_v2",
         "fitted_at": _utc_now(),
         "saved_at": None,
-        # 旧键（load_return_model / 既有测试）
-        "model": live_blob,
-        # 新链路（与 select_persist_return_model / τ·co 同名）
-        "return_model": dict(live_blob),
+        "model": dict(blob),
+        "return_model": dict(blob),
+        "research_model": dict(blob),
+        "return_model_research": dict(blob),
         "meta": dict(meta or {}),
         "oos": dict(oos or {}) if isinstance(oos, dict) else {},
-        "note": "研究草稿（因子系数产物）；启用研究/执行后才进回测或 live 横截面。",
+        "note": "研究草稿（Holdout 前训 β）；启用研究→回测；启用执行=研究槽晋级。",
     }
-    if research_blob is not None:
-        payload["research_model"] = research_blob
-        payload["return_model_research"] = dict(research_blob)
     if isinstance(research_ols, dict) and research_ols:
         payload["research_ols"] = dict(research_ols)
     payload["saved_at"] = payload["fitted_at"]
@@ -130,9 +133,12 @@ def save_return_model_draft(
         "path": RETURN_SCORE_MODEL_DRAFT_PATH,
         "role": "draft",
         "saved_at": payload["saved_at"],
-        "sample_count": model.sample_count,
-        "n_coefs": len(model.coefficients),
-        "has_research_model": bool(payload.get("return_model_research")),
+        "sample_count": int(
+            (blob or {}).get("sample_count")
+            or getattr(model, "sample_count", 0)
+            or 0
+        ),
+        "n_coefs": len((blob or {}).get("coefficients") or model.coefficients),
     }
 
 
@@ -147,6 +153,49 @@ def load_return_model_payload(path: str) -> Optional[Dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
+def _suite_role_for_load(role: str, raw: Dict[str, Any], *, prefer_research: bool) -> str:
+    """文件角色 → tip/回测用的 research|live。"""
+    mr = str(raw.get("model_role") or "").strip().lower()
+    rr = str(raw.get("role") or role or "").strip().lower()
+    if mr == "research" or rr == "research":
+        return "research"
+    if mr == "live" or rr in {"active", "live"}:
+        return "live"
+    # 草稿：按本次加载意图（研究回测优先 Holdout β）
+    if rr == "draft":
+        return "research" if prefer_research else "live"
+    return "research" if prefer_research else "live"
+
+
+def _model_blob_for_load(
+    role: str, raw: Dict[str, Any], *, prefer_research: bool = False
+) -> Optional[Dict[str, Any]]:
+    """选系数块：草稿/槽位均为同一份 Holdout 前训 β。"""
+    del role, prefer_research  # 单套 β；形参保留兼容调用方
+    view = _draft_persist_view(raw)
+    for blob in (
+        view.get("return_model_research"),
+        view.get("return_model"),
+        raw.get("model"),
+    ):
+        if isinstance(blob, dict) and (
+            blob.get("coefficients") or blob.get("intercept") is not None
+        ):
+            return blob
+    return raw if isinstance(raw, dict) else None
+
+
+def load_scoring_return_model() -> Tuple[Optional[ReturnScoreModel], Dict[str, Any]]:
+    """按 ``current_scoring_model_role`` 加载 ŷ_oo（回测研究套 / live 执行套）。
+
+    调仓截面重打、score_stock 等打分路径应走这里，勿写死 ``prefer_active=True``。
+    """
+    from core.research.holdout import MODEL_ROLE_RESEARCH, current_scoring_model_role
+
+    prefer_research = current_scoring_model_role() == MODEL_ROLE_RESEARCH
+    return load_return_model(prefer_active=True, prefer_research=prefer_research)
+
+
 def load_return_model(
     *,
     prefer_active: bool = True,
@@ -156,6 +205,7 @@ def load_return_model(
 
     - 默认：active → draft
     - ``prefer_research=True``：research → active → draft（历史回测）
+    - 各槽均为 Holdout 前训 β（版本槽不同）
     """
     paths = []
     if prefer_research:
@@ -174,12 +224,16 @@ def load_return_model(
         raw = load_return_model_payload(path)
         if not raw:
             continue
-        model = ReturnScoreModel.from_dict(raw.get("model") or raw)
+        blob = _model_blob_for_load(role, raw, prefer_research=prefer_research)
+        model = ReturnScoreModel.from_dict(blob)
         if model is None:
             continue
+        suite = _suite_role_for_load(role, raw, prefer_research=prefer_research)
+        model.model_role = suite
         return model, {
             "ok": True,
             "role": raw.get("role") or role,
+            "model_role": suite,
             "path": path,
             "saved_at": raw.get("saved_at") or raw.get("promoted_at"),
             "meta": raw.get("meta") or {},
@@ -187,55 +241,13 @@ def load_return_model(
     return None, {"ok": False, "reason": "no_model_file"}
 
 
-def promote_return_model_draft(
-    *,
-    note: str = "",
-    role: str = "live",
-) -> Dict[str, Any]:
-    """草稿 → 研究套或执行套（人审；不改 weights）。
-
-    与 τ/co 同链路：``select_persist_return_model`` 选 β。
-    ``role=research`` → ``return_score_model_research.json``（历史回测）
-    ``role=live`` → ``return_score_model_active.json``（交易执行）
-    """
-    from core.research.holdout import (
-        MODEL_ROLE_RESEARCH,
-        select_persist_return_model,
-    )
-
-    raw = load_return_model_payload(RETURN_SCORE_MODEL_DRAFT_PATH)
-    view = _draft_persist_view(raw or {})
-    if not isinstance(view.get("return_model"), dict) or not (
-        view["return_model"].get("coefficients") or {}
-    ):
-        return {
-            "success": False,
-            "error": "无可用草稿模型，请先拟合并保存草稿",
-            "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
-        }
-    role_n, selected = select_persist_return_model(
-        view,
-        role=_normalize_persist_role(role),
-        allow_research_fallback=False,
-    )
-    if role_n == MODEL_ROLE_RESEARCH and (
-        not isinstance(selected, dict) or not (selected.get("coefficients") or {})
-    ):
-        return {
-            "success": False,
-            "error": "草稿缺少 return_model_research（Holdout 训练集 β）；请重新拟合后再启用研究套",
-            "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
-            "hint": "旧草稿只含全样本 model；拟合会同时写入 return_model_research",
-        }
-    if not isinstance(selected, dict) or not (selected.get("coefficients") or {}):
-        return {
-            "success": False,
-            "error": "草稿缺少 return_model（全样本 β）；请重新拟合后再启用执行套",
-            "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
-        }
+def _guard_promote_coefs(
+    model_blob: Dict[str, Any], *, note: str = ""
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """proxy 剔除 + 健康门。成功返回 (blob, None)；拦截返回 (None, error_dict)。"""
     force = "force=1" in str(note or "") or "force:true" in str(note or "").lower()
-    model_blob = dict(selected)
-    coefs_in = dict(model_blob.get("coefficients") or {})
+    out = dict(model_blob)
+    coefs_in = dict(out.get("coefficients") or {})
     stripped_proxy: list = []
     try:
         from core.signal.factors.meta.health import (
@@ -243,81 +255,154 @@ def promote_return_model_draft(
             strip_unsourced_coefficients,
         )
 
-        # 无真源 proxy（money_flow 等）自动归零剔除，再过门；不依赖人手 force
         coefs, stripped_proxy = strip_unsourced_coefficients(coefs_in)
-        model_blob["coefficients"] = coefs
+        out["coefficients"] = coefs
         for zkey in ("z_means", "z_stds", "zscore_means", "zscore_stds"):
-            zm = model_blob.get(zkey)
+            zm = out.get(zkey)
             if isinstance(zm, dict) and stripped_proxy:
                 for name in stripped_proxy:
                     zm.pop(name, None)
         guard = guard_weights_for_promote(coefs, force=force)
         if guard.get("blocked"):
-            return {
+            return None, {
                 "success": False,
                 "error": guard.get("error") or "factor_health_blocked",
                 "factor_health": guard.get("factor_health"),
                 "hint": "proxy 因子系数须为 0；确需放行在 note 写 force=1",
             }
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        model_blob = dict(selected)
-        pass
+    except Exception:  # noqa: BLE001
+        return dict(model_blob), None
+    if stripped_proxy:
+        out["_stripped_unsourced"] = list(stripped_proxy)
+    return out, None
+
+
+def promote_return_model_draft(
+    *,
+    note: str = "",
+    role: str = "live",
+) -> Dict[str, Any]:
+    """启用研究 = 草稿→研究槽；启用执行 = 研究槽→执行槽（晋级）。
+
+    两槽同一份 Holdout 前训 β；禁止从草稿直接写执行槽。
+    """
+    from core.research.holdout import (
+        MODEL_ROLE_LIVE,
+        MODEL_ROLE_RESEARCH,
+        select_fit_return_model,
+        stamp_live_suite_doc,
+    )
+
+    role_n = _normalize_persist_role(role)
     _ensure_dirs()
+
+    if role_n == MODEL_ROLE_LIVE:
+        # ŷ_oo 研究槽是独立文件名，不是 active 的 *_research sidecar
+        research_doc = load_return_model_payload(RETURN_SCORE_MODEL_RESEARCH_PATH)
+        if not isinstance(research_doc, dict) or not (
+            isinstance(research_doc.get("model"), dict)
+            or isinstance(research_doc.get("return_model"), dict)
+        ):
+            return {
+                "success": False,
+                "error": "无研究套可晋级；请先「启用研究」并通过回测后再启用执行",
+                "research_path": RETURN_SCORE_MODEL_RESEARCH_PATH,
+                "live_path": RETURN_SCORE_MODEL_ACTIVE_PATH,
+            }
+        selected = select_fit_return_model(research_doc) or research_doc.get("model")
+        if not isinstance(selected, dict) or not (selected.get("coefficients") or {}):
+            return {
+                "success": False,
+                "error": "研究套缺少可用 β；请重新拟合并启用研究",
+                "research_path": RETURN_SCORE_MODEL_RESEARCH_PATH,
+            }
+        model_blob, blocked = _guard_promote_coefs(selected, note=note)
+        if blocked:
+            return blocked
+        stripped_proxy = list(model_blob.pop("_stripped_unsourced", []) or [])
+        live_doc = stamp_live_suite_doc(
+            research_doc,
+            note=note
+            or "执行套 ŷ_oo（由研究槽晋级）；scoring.rank_mode=predicted_score 时按 ŷ 排序。",
+        )
+        live_doc["role"] = "active"
+        live_doc["model_role"] = MODEL_ROLE_LIVE
+        live_doc["model"] = dict(model_blob)
+        live_doc["return_model"] = dict(model_blob)
+        meta_out = dict(live_doc.get("meta") or {})
+        meta_out["promote_note"] = str(note or "")
+        meta_out["persist_role"] = MODEL_ROLE_LIVE
+        meta_out["coef_source"] = "research_suite"
+        meta_out["promoted_from"] = "research"
+        if stripped_proxy:
+            meta_out["stripped_unsourced"] = stripped_proxy
+        live_doc["meta"] = meta_out
+        atomic_write_json(RETURN_SCORE_MODEL_ACTIVE_PATH, live_doc)
+        return {
+            "success": True,
+            "path": RETURN_SCORE_MODEL_ACTIVE_PATH,
+            "role": MODEL_ROLE_LIVE,
+            "persist_role": MODEL_ROLE_LIVE,
+            "promoted_at": live_doc.get("promoted_at"),
+            "sample_count": model_blob.get("sample_count"),
+            "coef_source": "research_suite",
+            "promoted_from": "research",
+            "note": "已由研究套晋级写入执行套；请确认 scoring.rank_mode=predicted_score。",
+        }
+
+    raw = load_return_model_payload(RETURN_SCORE_MODEL_DRAFT_PATH)
+    view = _draft_persist_view(raw or {})
+    selected = select_fit_return_model(view or {})
+    if not isinstance(selected, dict) or not (selected.get("coefficients") or {}):
+        return {
+            "success": False,
+            "error": "无可用草稿模型，请先拟合并保存草稿",
+            "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
+        }
+    model_blob, blocked = _guard_promote_coefs(selected, note=note)
+    if blocked:
+        return blocked
+    stripped_proxy = list(model_blob.pop("_stripped_unsourced", []) or [])
     promoted_at = _utc_now()
-    if role_n == MODEL_ROLE_RESEARCH:
-        target = RETURN_SCORE_MODEL_RESEARCH_PATH
-        payload_role = "research"
-        note_out = "研究套 ŷ_oo（Holdout 前训练集 β）；供历史回测加载（prefer_research）。"
-        coef_source = "return_model_research"
-    else:
-        target = RETURN_SCORE_MODEL_ACTIVE_PATH
-        payload_role = "active"
-        note_out = "执行套 ŷ_oo；仅当 scoring.rank_mode=predicted_score 时横截面按 ŷ 排序。"
-        coef_source = "return_model"
     meta_out = {
         **(raw.get("meta") or {}),
         "promote_note": str(note or ""),
-        "persist_role": role_n,
-        "coef_source": coef_source,
+        "persist_role": MODEL_ROLE_RESEARCH,
+        "coef_source": "return_model_research",
     }
     if isinstance(raw.get("research_ols"), dict):
         meta_out["research_ols"] = dict(raw.get("research_ols") or {})
     if stripped_proxy:
         meta_out["stripped_unsourced"] = list(stripped_proxy)
     fitted_at = raw.get("fitted_at") or raw.get("saved_at")
+    model_blob = dict(model_blob)
+    model_blob["model_role"] = MODEL_ROLE_RESEARCH
     payload = {
         "version": int(raw.get("version") or 2),
         "kind": "return_score_model",
         "schema": str(raw.get("schema") or "oo_ridge_v2"),
-        "role": payload_role,
-        "model_role": role_n,
+        "role": "research",
+        "model_role": MODEL_ROLE_RESEARCH,
         "fitted_at": fitted_at,
         "promoted_at": promoted_at,
         "source_saved_at": raw.get("saved_at") or fitted_at,
-        # 加载仍读 model；同时挂 return_model 与 τ/co 落盘同形
         "model": model_blob,
         "return_model": dict(model_blob),
+        "return_model_research": dict(model_blob),
         "meta": meta_out,
         "oos": dict(raw.get("oos") or {}) if isinstance(raw.get("oos"), dict) else {},
-        "note": note_out,
+        "note": "研究套 ŷ_oo（Holdout 前训 β）；供历史回测；验证后可晋级执行套。",
     }
-    # 研究套文件附带对照用的全样本 β（不参与加载，便于审计）
-    if role_n == MODEL_ROLE_RESEARCH and isinstance(view.get("return_model"), dict):
-        payload["return_model_live"] = dict(view["return_model"])
-    atomic_write_json(target, payload)
+    atomic_write_json(RETURN_SCORE_MODEL_RESEARCH_PATH, payload)
     return {
         "success": True,
-        "path": target,
-        "role": role_n,
-        "persist_role": role_n,
+        "path": RETURN_SCORE_MODEL_RESEARCH_PATH,
+        "role": MODEL_ROLE_RESEARCH,
+        "persist_role": MODEL_ROLE_RESEARCH,
         "promoted_at": promoted_at,
-        "sample_count": (payload.get("model") or {}).get("sample_count"),
-        "coef_source": coef_source,
-        "note": (
-            "已写入研究套；历史回测优先加载。"
-            if role_n == MODEL_ROLE_RESEARCH
-            else "已写入执行套；请确认 scoring.rank_mode=predicted_score。"
-        ),
+        "sample_count": model_blob.get("sample_count"),
+        "coef_source": "return_model_research",
+        "note": "已写入研究套；历史回测优先加载。验证后再「启用执行」晋级。",
     }
 
 
@@ -498,7 +583,7 @@ def return_model_status() -> Dict[str, Any]:
         "oos_source": oos_source,
         "return_model": return_model,
         "oos": oos_out,
-        "note": "草稿 / 研究套 / 执行套分离；回测 prefer research，交易 prefer active。",
+        "note": "草稿 / 研究槽 / 执行槽；回测 prefer research，交易 prefer active；执行=研究晋级。",
     }
     out.update(fit_bits)
     return out
@@ -551,7 +636,7 @@ def fit_watching_return_model(
 ) -> Dict[str, Any]:
     """研究池堆叠面板拟合收益模型 + Holdout OOS，可选落草稿。
 
-    近 ``holdout_trading_days`` 个交易日只测；全样本重估 β 写入草稿（执行口径）。
+    近 ``holdout_trading_days`` 个交易日只测；只训 Holdout 前一套 β。
     ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
     """
     from core.research.holdout import (
@@ -620,7 +705,7 @@ def fit_watching_return_model(
     )
     ys_te = [float(y_mat[i]) for i in test_idx]
     use_cs = bool(cross_section_zscore)
-    research_model, research_report = fit_oo_ridge_matrix(
+    model, report = fit_oo_ridge_matrix(
         x_mat,
         y_mat,
         feat_names,
@@ -640,9 +725,9 @@ def fit_watching_return_model(
         "eval_start": split_meta.get("eval_start"),
         "label_horizon_days": int(horizon_days or 1),
     }
-    if research_model is not None and ys_te:
+    if model is not None and ys_te:
         preds_te = predict_oo_matrix(
-            research_model,
+            model,
             x_mat,
             feat_names,
             test_idx,
@@ -659,17 +744,6 @@ def fit_watching_return_model(
         except Exception:  # noqa: BLE001
             logger.debug("oo attach_daily_cs_ic failed", exc_info=True)
 
-    model, report = fit_oo_ridge_matrix(
-        x_mat,
-        y_mat,
-        feat_names,
-        horizon_days=horizon_days,
-        ridge_lambda=ridge_lambda,
-        min_samples=min_samples,
-        fitted_as_of=as_of,
-        row_dates=all_dates if use_cs else None,
-        cross_section_zscore=use_cs,
-    )
     if model is None:
         return {
             "success": False,
@@ -679,11 +753,21 @@ def fit_watching_return_model(
             "stock_count": len(codes_used),
         }
 
+    report = report if isinstance(report, dict) else {}
+    model_blob = model.to_dict()
+    if isinstance(model_blob, dict):
+        model_blob["model_role"] = "research"
+    # 多键别名同 β（API / 草稿兼容）
+    blob = dict(model_blob)
+
     out: Dict[str, Any] = {
         "success": True,
         "task": "fit_return_score_model",
         "promote_ready": False,
-        "model": model.to_dict(),
+        "model": blob,
+        "research_model": blob,
+        "return_model": blob,
+        "return_model_research": blob,
         "sample_count": model.sample_count,
         "stock_count": len(codes_used),
         "codes": codes_used,
@@ -695,27 +779,11 @@ def fit_watching_return_model(
             "ridge_lambda": report.get("ridge_lambda"),
             "excluded_features": report.get("excluded_features"),
         },
-        "note": "已拟合因子系数模型 + Holdout OOS；save_draft 后可人审启用研究/执行。",
+        "note": "已拟合 Holdout 前训 β + Holdout OOS；启用研究→回测；启用执行=研究槽晋级。",
     }
     out["cross_section_zscore"] = use_cs
-    if research_model is not None:
-        out["research_model"] = research_model.to_dict()
-        if isinstance(research_report, dict):
-            out["research_ols"] = {
-                "r_squared": research_report.get("r_squared"),
-                "ridge_lambda": research_report.get("ridge_lambda"),
-            }
     attach_holdout_meta(out, split_meta)
     if save_draft:
-        research_ols_blob = out.get("research_ols")
-        if not isinstance(research_ols_blob, dict) and isinstance(
-            research_report, dict
-        ):
-            research_ols_blob = {
-                "r_squared": research_report.get("r_squared"),
-                "ridge_lambda": research_report.get("ridge_lambda"),
-                "sample_count": research_report.get("sample_count"),
-            }
         saved = save_return_model_draft(
             model,
             meta={
@@ -728,10 +796,6 @@ def fit_watching_return_model(
                 "cross_section_zscore": use_cs,
             },
             oos=oos,
-            research_model=research_model,
-            research_ols=research_ols_blob
-            if isinstance(research_ols_blob, dict)
-            else None,
         )
         out["draft"] = saved
     return out

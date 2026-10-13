@@ -77,7 +77,7 @@ def rank_cross_section(
         clamp_rank_mode,
         rank_by_predicted_score,
     )
-    from core.research.oo_ridge import load_return_model
+    from core.research.oo_ridge import load_scoring_return_model
 
     scoring_cfg = cfg.get("scoring") or {}
     rank_mode = clamp_rank_mode(scoring_cfg.get("rank_mode"))
@@ -86,7 +86,7 @@ def rank_cross_section(
         "oos_failed_excluded": 0,
         "cluster_mode": "off",
     }
-    return_model, model_meta = load_return_model(prefer_active=True)
+    return_model, model_meta = load_scoring_return_model()
     if return_model is not None:
         scored_items = apply_predicted_scores(
             scored_items, return_model, write_rank_score=False

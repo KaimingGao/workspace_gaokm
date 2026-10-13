@@ -369,8 +369,8 @@ def fit_tau_ridge_report(
 
     标签为 close[T]/price[τ]−1（τ→close）；分钟仅作 ≤τ 特征。开盘时 price[τ]=open。
     ``tau_hm`` 非 open 时换信息集（前缀分钟路径）；``tau_grid`` 变长前缀共享 β。
-    默认近 ``holdout_trading_days`` 个交易日只测；训练段 β 为研究模型，
-    全样本重估为执行模型。
+    默认近 ``holdout_trading_days`` 个交易日只测；**只训 Holdout 前一套 β**
+    （启用研究/执行只是版本槽）。
     ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
     """
     packed = fit_tau_ridge_matrices(
@@ -416,7 +416,6 @@ def fit_tau_ridge_report(
     use_cs = packed["use_cs"]
     theme_boost_v = packed["theme_boost"]
     use_theme_weights = packed["use_theme_weights"]
-    research_model = packed["research_model"]
     model = packed["model"]
     split_meta = packed["split_meta"]
 
@@ -491,19 +490,7 @@ def fit_tau_ridge_report(
         from core.signal.minute_tau_grid import LIVE_PREFIX_CAUSAL_REBALANCE
 
         model["live_prefix"] = LIVE_PREFIX_CAUSAL_REBALANCE
-    model["model_role"] = "live"
-    for k in (
-        "y_spec",
-        "extra_features",
-        "feat_labels",
-        "horizon_mode",
-        "target",
-        "residualized",
-        "live_prefix",
-        "include_alpha_tc",
-    ):
-        if model.get(k) is not None:
-            research_model[k] = model.get(k)
+    model["model_role"] = "research"
 
     from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
     from core.research.holdout import attach_holdout_meta
@@ -530,7 +517,7 @@ def fit_tau_ridge_report(
         "sample_count_day": len(day_keys),
         "oos": oos,
         "return_model": model,
-        "return_model_research": research_model,
+        "return_model_research": model,
         "tau": tau_key,
         "tau_grid": list(grid) if grid else None,
         "live_prefix": model.get("live_prefix"),
@@ -631,16 +618,46 @@ def persist_tau_model(
     force: bool = False,
     role: str = "live",
 ) -> Dict[str, Any]:
-    """人审后写入执行或研究模型。live → tau_ridge_model.json；research → *_research.json。"""
+    """启用研究=报告→研究槽；启用执行=研究槽→执行槽（晋级）。"""
     from core.research.holdout import (
+        MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
+        normalize_model_role,
+        require_research_suite,
         research_model_path,
-        select_persist_return_model,
+        select_fit_return_model,
+        stamp_live_suite_doc,
     )
+
+    role_n = normalize_model_role(role)
+    live_path = tau_model_path()
+
+    if role_n == MODEL_ROLE_LIVE:
+        research_doc, err = require_research_suite(live_path)
+        if err:
+            return err
+        doc = stamp_live_suite_doc(
+            research_doc,
+            note=note or "tau_ridge research → live promote",
+        )
+        doc["role"] = "live"
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        atomic_write_json(live_path, doc)
+        _JSON_MODEL_CACHE.pop(live_path, None)
+        return {
+            "success": True,
+            "path": live_path,
+            "promoted_at": doc.get("promoted_at"),
+            "tau": (doc.get("return_model") or {}).get("tau") or doc.get("tau"),
+            "schema": doc.get("schema"),
+            "promote_gate": doc.get("promote_gate"),
+            "model_role": MODEL_ROLE_LIVE,
+            "promoted_from": "research",
+        }
 
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
-    role_n, rm = select_persist_return_model(report, role=role)
+    rm = select_fit_return_model(report)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
     if not rm.get("coefficients") and rm.get("intercept") is None:
@@ -675,6 +692,7 @@ def persist_tau_model(
     residualized = False
     rm["target"] = target
     rm["residualized"] = residualized
+    rm["model_role"] = MODEL_ROLE_RESEARCH
     if "include_alpha_tc" in report:
         rm["include_alpha_tc"] = bool(report.get("include_alpha_tc"))
     elif "include_alpha_tc" not in rm:
@@ -700,7 +718,7 @@ def persist_tau_model(
         "success": True,
         "fitted_at": fitted_at,
         "promoted_at": now_iso_utc(),
-        "note": note or "tau_ridge promote",
+        "note": note or "tau_ridge promote research",
         "return_model": rm,
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
@@ -713,7 +731,7 @@ def persist_tau_model(
         "y_spec": y_spec,
         "y_spec_tau": y_spec,
         "promote_gate": gate,
-        "model_role": role_n,
+        "model_role": MODEL_ROLE_RESEARCH,
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
@@ -726,11 +744,7 @@ def persist_tau_model(
     }
     if isinstance(report, dict) and "cross_section_zscore" in report:
         doc["cross_section_zscore"] = bool(report.get("cross_section_zscore"))
-    path = (
-        research_model_path(tau_model_path())
-        if role_n == MODEL_ROLE_RESEARCH
-        else tau_model_path()
-    )
+    path = research_model_path(live_path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     _JSON_MODEL_CACHE.pop(path, None)
@@ -741,7 +755,7 @@ def persist_tau_model(
         "tau": tau,
         "schema": doc["schema"],
         "promote_gate": gate,
-        "model_role": role_n,
+        "model_role": MODEL_ROLE_RESEARCH,
     }
     return out
 

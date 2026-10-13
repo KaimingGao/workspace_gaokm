@@ -505,6 +505,20 @@ export function createFactorIcUi(deps) {
     dist_to_up_limit: "距涨停 %",
     yest_gap: "昨隔夜缺口 %",
     on_ma5: "近5日隔夜缺口均 %",
+    z_co_ret_oc: "昨开→昨收 %",
+    z_co_ret_cc: "昨收→前收 %",
+    z_co_y_on_today: "今开/昨开 %",
+    z_co_gap_pct: "跳空 %",
+    z_co_sector_gap_breadth: "同业缺口广度",
+    z_co_theme_day: "主题日",
+    z_co_gap_atr: "缺口 / ATR",
+    z_co_gap_vs_sector: "行业相对缺口",
+    z_co_yclose_loc: "今开相对昨高低",
+    z_co_yest_close_loc: "昨收位置",
+    z_co_yest_vol_ratio: "昨量/均量",
+    z_co_dist_to_up_limit: "距涨停 %",
+    z_co_yest_gap: "昨隔夜缺口 %",
+    z_co_on_ma5: "近5日隔夜缺口均 %",
     // 与 factor_registry 对齐的兜底中文（meta 未加载时仍可读）
     momentum: "动量",
     volume_price: "量价",
@@ -689,6 +703,11 @@ export function createFactorIcUi(deps) {
       "y_on_today",
       "yest_close_loc",
       "yest_vol_ratio",
+      "z_co_ret_oc",
+      "z_co_ret_cc",
+      "z_co_y_on_today",
+      "z_co_yest_close_loc",
+      "z_co_yest_vol_ratio",
     ]);
     const onOpenExtra = new Set([
       "gap_pct",
@@ -698,6 +717,13 @@ export function createFactorIcUi(deps) {
       "gap_vs_sector",
       "yclose_loc",
       "dist_to_up_limit",
+      "z_co_gap_pct",
+      "z_co_sector_gap_breadth",
+      "z_co_theme_day",
+      "z_co_gap_atr",
+      "z_co_gap_vs_sector",
+      "z_co_yclose_loc",
+      "z_co_dist_to_up_limit",
     ]);
     const histLagExtra = new Set([
       "tau_lag1",
@@ -716,6 +742,8 @@ export function createFactorIcUi(deps) {
       "path_ma5",
       "yest_gap",
       "on_ma5",
+      "z_co_yest_gap",
+      "z_co_on_ma5",
     ]);
     const pathExtra = new Set([
       "gap_pct",
@@ -813,16 +841,6 @@ export function createFactorIcUi(deps) {
       return `<p class="sub">暂无 ${yhatTag} 入模因子</p>`;
     }
 
-    const researchRm =
-      opts.researchModel && typeof opts.researchModel === "object"
-        ? opts.researchModel
-        : null;
-    const researchIntercept =
-      researchRm &&
-      researchRm.intercept != null &&
-      Number.isFinite(Number(researchRm.intercept))
-        ? Number(researchRm.intercept)
-        : null;
     const intercept =
       rm.intercept != null && Number.isFinite(Number(rm.intercept))
         ? Number(rm.intercept)
@@ -933,17 +951,17 @@ export function createFactorIcUi(deps) {
         ? Number(n).toLocaleString("en-US")
         : null;
     const interceptTip = isHorizon
-        ? "无因子时的 p_up = sigmoid(logistic 截距)。执行套=全样本。"
+        ? "无因子时的 p_up = sigmoid(logistic 截距)。研究/执行同 β（Holdout 前训；执行=研究槽晋级）。"
         : isR
-          ? "执行套截距：全样本标签均值 + α_dm。观察/持仓 / 做 T 回测默认用这套。选研究套 Holdout 时数字会不同。"
+          ? "截距：Holdout 前训 β。研究/执行同系数，仅槽位版本不同；live 默认读执行槽。"
           : "模型截距（%）";
     const fmtLogitAsP = (z) => {
       const p = 1 / (1 + Math.exp(-Number(z)));
       return Number.isFinite(p) ? `${(p * 100).toFixed(1)}%` : "—";
     };
     const nTip = oos.holdout_trading_days != null
-      ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"
-      : "全面板完整行（OOS 后重估 β）；OOS 训/测 n 见同区 Holdout KPI";
+      ? "Holdout 前训入模行（研究/执行同 β；执行由研究槽晋级）"
+      : "入模行数；OOS 训/测 n 见同区 Holdout KPI";
     const oosIcTip = oos.holdout_trading_days != null
         ? `Holdout ${oos.holdout_trading_days} 日拼样本 Pearson（旧口径）`
         : "拼样本 Pearson（旧口径）";
@@ -959,14 +977,14 @@ export function createFactorIcUi(deps) {
           ? kpi(
               "Holdout",
               `${Number(oos.holdout_trading_days)}日`,
-              "近 N 个交易日不进研究套训练"
+              "近 N 个交易日不进训练（Holdout）"
             )
           : "") +
         (oos.n_train != null && Number.isFinite(Number(oos.n_train))
           ? kpi(
               "训 n",
               Number(oos.n_train).toLocaleString("en-US"),
-              "研究套训练集"
+              "Holdout 前训练集"
             )
           : "") +
         (oos.n_test != null && Number.isFinite(Number(oos.n_test))
@@ -1008,22 +1026,9 @@ export function createFactorIcUi(deps) {
       )}">` +
       (intercept != null
         ? kpi(
-            useProbKpis ? "基率" : isR ? "执行套" : "截距",
+            useProbKpis ? "基率" : "截距",
             useProbKpis ? fmtLogitAsP(intercept) : intercept.toFixed(3),
             interceptTip
-          )
-        : "") +
-      (isR &&
-      researchIntercept != null &&
-      (intercept == null || Math.abs(researchIntercept - intercept) > 1e-4)
-        ? kpi(
-            useProbKpis ? "研究基率" : "研究套",
-            useProbKpis
-              ? fmtLogitAsP(researchIntercept)
-              : researchIntercept.toFixed(3),
-            isHorizon
-              ? "Holdout 训练集基率 · 做 T 回测 / 历史验证用"
-              : "Holdout 训练集截距 · 做 T 回测 / 历史验证用"
           )
         : "") +
       (!useProbKpis && r2 != null

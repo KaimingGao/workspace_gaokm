@@ -34,7 +34,9 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "residual_w_oc": 0.5,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
-    # None=关；0.5=须 y_oo_rank < n·50%（UI「rank < top 50%」）
+    # None/≤0=关；正整数=须 y_oo_rank < max（UI「rank 入场」默认 10）
+    "oo_rank_max": None,
+    # 旧相对比例闸；UI 已改绝对名次，API 仍认
     "oo_rank_top_frac": None,
     # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
     "fill_clock": "09:30",
@@ -109,17 +111,23 @@ def get_path_matrix_cfg(
     out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
     out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
     try:
-        from core.paper.rebalance.rank_lots import oo_rank_top_frac_from_cfg
+        from core.paper.rebalance.rank_lots import (
+            oo_rank_max_from_cfg,
+            oo_rank_top_frac_from_cfg,
+        )
 
-        # 关闸须能清掉已存的 0.5：优先读 raw（含 null）；旧键 oo_rank_max>0 迁成 0.5
-        if isinstance(raw, dict) and (
-            "oo_rank_top_frac" in raw or "oo_rank_max" in raw
-        ):
+        # 关闸须能清掉已存值：优先读 raw（含 null）
+        if isinstance(raw, dict) and "oo_rank_max" in raw:
+            out["oo_rank_max"] = oo_rank_max_from_cfg(raw)
+        else:
+            out["oo_rank_max"] = oo_rank_max_from_cfg(out)
+        if isinstance(raw, dict) and "oo_rank_top_frac" in raw:
             out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(raw)
         else:
             out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(out)
     except Exception:  # noqa: BLE001
-        logger.debug("oo_rank_top_frac coerce failed", exc_info=True)
+        logger.debug("oo_rank gate coerce failed", exc_info=True)
+        out["oo_rank_max"] = None
         out["oo_rank_top_frac"] = None
     for key, default, lo, hi in (
         ("rank_enter", 0.001, 0.0, 10.0),

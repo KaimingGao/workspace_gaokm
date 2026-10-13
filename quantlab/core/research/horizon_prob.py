@@ -662,25 +662,18 @@ def train_eval_horizon_prob(
     xs_te: List[dict],
     ys_te_pct: List[float],
     metas_te: List[dict],
-    xs_all: List[dict],
-    ys_all_pct: List[float],
     *,
     feat_names: List[str],
     ridge_lambda: float,
     weights: Optional[List[float]],
-    weights_all: Optional[List[float]],
     min_std_exempt: Sequence[str],
     dates_tr: Optional[Sequence[str]] = None,
     dates_te: Optional[Sequence[str]] = None,
-    dates_all: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
 ) -> Dict[str, Any]:
-    """Holdout 训/测 + 全样本 refit。返回 p_up 预测与概率 OOS。"""
+    """Holdout 训/测；只训 Holdout 前一套 β。"""
     y_mean_pct = (
         sum(float(y) for y in ys_tr_pct) / float(len(ys_tr_pct)) if ys_tr_pct else 0.0
-    )
-    y_mean_all = (
-        sum(float(y) for y in ys_all_pct) / float(len(ys_all_pct)) if ys_all_pct else 0.0
     )
     ys_tr_bin = binary_labels(ys_tr_pct)
     use_cs = bool(cross_section_zscore)
@@ -706,30 +699,16 @@ def train_eval_horizon_prob(
         round(sum(ys_tr_bin) / float(len(ys_tr_bin)), 4) if ys_tr_bin else None
     )
 
-    fit_full = fit_logistic_ridge_from_panel(
-        xs_all,
-        binary_labels(ys_all_pct),
-        feature_names=feat_names,
-        ridge_lambda=ridge_lambda,
-        sample_weights=weights_all,
-        min_std_exempt=list(min_std_exempt),
-        collinearity_policy="drop_redundant",
-        row_dates=dates_all if use_cs else None,
-        cross_section_zscore=use_cs,
-    )
-    model = dict(fit_full if fit_full.get("success") else fit)
-    model["y_label_mean"] = round(y_mean_all, 6)
-    model["y_up_rate"] = (
-        round(sum(1.0 for y in ys_all_pct if float(y) > 0.0) / float(len(ys_all_pct)), 4)
-        if ys_all_pct
-        else None
-    )
-    model = _stamp_prob_model(model)
-
     research = dict(fit)
     research["model_role"] = "research"
     research["y_label_mean"] = round(y_mean_pct, 6)
+    research["y_up_rate"] = (
+        round(sum(1.0 for y in ys_tr_pct if float(y) > 0.0) / float(len(ys_tr_pct)), 4)
+        if ys_tr_pct
+        else None
+    )
     research = _stamp_prob_model(research)
+    model = dict(research)
     return {
         "fit": fit,
         "preds_te": preds_te,
@@ -737,7 +716,6 @@ def train_eval_horizon_prob(
         "model": model,
         "research_model": research,
         "y_label_mean": y_mean_pct,
-        "y_label_mean_all": y_mean_all,
     }
 
 

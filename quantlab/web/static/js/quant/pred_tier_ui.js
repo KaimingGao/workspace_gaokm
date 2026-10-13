@@ -5,16 +5,27 @@
 import { escapeHtml } from "../shared.js";
 
 const TIER_RANK = { A: 0, B: 1, C: 2 };
-const TIER_TIP = {
-  A: "A 强：命中率≥55%、IC>0、有效日 N≥分档窗50%（Holdout40→N≥10）",
-  B: "B 中：方向尚可，或样本偏薄未升 A",
-  C: "C 弱：命中不足或无有效样本",
-};
 
 let _byCode = {};
 let _loaded = false;
 let _pending = null;
 let _note = "";
+let _aHitPct = 60;
+
+let _tauAHitPct = 60;
+let _requireTau = false;
+
+function tierTip(t) {
+  if (t === "A") {
+    const tauBit = _requireTau
+      ? `、Y_τc≥${_tauAHitPct}%`
+      : "";
+    return `A 强：Y_oo≥${_aHitPct}%${tauBit}、有效日 N≥分档窗50%（Holdout40 前半20日→N≥10）`;
+  }
+  if (t === "B") return "B 中：Y_oo / Y_τc ≥50% 但未进 A";
+  if (t === "C") return "C 弱：未达 B 或无有效样本";
+  return "";
+}
 
 export function predTierRank(tier) {
   const t = String(tier || "").trim().toUpperCase();
@@ -46,8 +57,9 @@ export function predTierBadgeHtml(code, esc) {
       ? `IC ${Number(info.ic).toFixed(3)}`
       : "";
   const tip = [
-    TIER_TIP[t],
-    `命中 ${fmtHit(info.hit_rate)}`,
+    tierTip(t),
+    `ŷ_oo ${fmtHit(info.hit_rate)}`,
+    info.hit_rate_tau != null ? `ŷ_τc ${fmtHit(info.hit_rate_tau)}` : "",
     `有效日 ${info.n_valid ?? 0}/${info.n_days ?? 0}`,
     icBit,
   ]
@@ -70,13 +82,25 @@ function ingestPredTierReport(data) {
     next[code] = {
       tier,
       hit_rate: r.hit_rate,
+      hit_rate_tau: r.hit_rate_tau,
       n_valid: r.n_valid,
+      n_valid_tau: r.n_valid_tau,
       n_days: r.n_days,
       ic: r.ic,
     };
   });
   _byCode = next;
   _loaded = true;
+  const thr = data && data.thresholds;
+  const aHit = thr && thr.a_hit;
+  if (aHit != null && Number.isFinite(Number(aHit))) {
+    _aHitPct = Math.max(45, Math.min(90, Math.round(Number(aHit) * 100)));
+  }
+  const tauAHit = thr && thr.tau_a_hit;
+  if (tauAHit != null && Number.isFinite(Number(tauAHit))) {
+    _tauAHitPct = Math.max(45, Math.min(90, Math.round(Number(tauAHit) * 100)));
+  }
+  _requireTau = !!(thr && thr.require_tau);
   if (data && data.success === false) {
     _note = String(data.note || "尚无分档报告；请先在研究枢纽跑「观察池分档」");
   } else if (!rows.length) {

@@ -89,7 +89,15 @@ class TestCoPanel(unittest.TestCase):
         self.assertGreater(len(xs), 5)
         row = xs[0]
         self.assertNotIn("ret_open_to_tau", CO_Z_FEATURES)
-        skip_cs = {"sector_gap_breadth", "theme_day", "gap_vs_sector"}
+        self.assertTrue(all(str(k).startswith("z_co_") for k in CO_Z_FEATURES))
+        skip_cs = {
+            "sector_gap_breadth",
+            "theme_day",
+            "gap_vs_sector",
+            "z_co_sector_gap_breadth",
+            "z_co_theme_day",
+            "z_co_gap_vs_sector",
+        }
         for k in CO_Z_FEATURES:
             if k in skip_cs:
                 continue
@@ -121,11 +129,11 @@ class TestCoPanel(unittest.TestCase):
 
     def test_co_decision_dates_match_oo(self):
         from core.research.co_panel import collect_co_panel
-        from core.research.panel import collect_subscore_forward_panel
+        from core.research.oo_panel import collect_oo_panel
 
         bars = _bars(180)
         _, _, co_dates, _ = collect_co_panel(bars, stock_code="000001")
-        _, _, oo_dates = collect_subscore_forward_panel(
+        _, _, oo_dates = collect_oo_panel(
             bars,
             horizon_days=1,
             stock_code="000001",
@@ -284,7 +292,8 @@ class TestCoPanel(unittest.TestCase):
         self.assertEqual(int(oos.get("holdout_trading_days") or 0), 5)
         self.assertEqual(int(oos.get("n_test_days") or 0), 5)
         self.assertEqual(int(report.get("label_horizon_days") or 0), 1)
-        self.assertEqual(report.get("schema"), "co_ridge_v1")
+        self.assertEqual(report.get("schema"), "co_ridge_v2")
+        self.assertEqual(report.get("feature_pack_formula"), "z_co_* ∪ raw_aoo_*")
         from core.research.holdout import calendar_dates_from_stock_bars
 
         cal = calendar_dates_from_stock_bars(stock_bars)
@@ -294,15 +303,22 @@ class TestCoPanel(unittest.TestCase):
             (rm.get("y_spec") or {}).get("formula"), "open[T+1]/close[T]-1"
         )
         extras = rm.get("extra_features") or []
-        self.assertIn("yest_close_loc", extras)
-        self.assertIn("yest_gap", extras)
-        self.assertIn("dist_to_up_limit", extras)
+        self.assertIn("z_co_yest_close_loc", extras)
+        self.assertIn("z_co_yest_gap", extras)
+        self.assertIn("z_co_dist_to_up_limit", extras)
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                saved = persist_co_model(report, note="test")
+                self.assertFalse(
+                    persist_co_model(report, note="test", role="live").get("success")
+                )
+                self.assertTrue(
+                    persist_co_model(report, note="test", role="research").get("success")
+                )
+                saved = persist_co_model(report, note="test", role="live")
                 self.assertTrue(saved.get("success"))
+                self.assertEqual(saved.get("promoted_from"), "research")
                 doc = load_co_model()
                 self.assertIsNotNone(doc)
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_on")
@@ -583,6 +599,7 @@ class TestCoScoreAttach(unittest.TestCase):
             {"gap_pct": 1.0, "raw_aoo_YKMID": 0.02, "noise": 9}
         )
         self.assertEqual(snap.get("gap_pct"), 1.0)
+        self.assertEqual(snap.get("z_co_gap_pct"), 1.0)
         self.assertEqual(snap.get("raw_aoo_YKMID"), 0.02)
         self.assertNotIn("noise", snap)
 

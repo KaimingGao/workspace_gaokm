@@ -664,13 +664,7 @@ export function initQuant(ctx) {
       model.backend = "ridge";
       model.solver = model.solver || "ridge";
       delete model.booster_b64;
-      return {
-        model,
-        researchModel:
-          ridgeBe && ridgeBe.return_model_research
-            ? ridgeBe.return_model_research
-            : null,
-      };
+      return { model };
     }
     // 顶层研究套若是 Ridge（启用侧可能是 LambdaRank）也优先
     const candidates = [
@@ -684,26 +678,11 @@ export function initQuant(ctx) {
       model.backend = "ridge";
       model.solver = model.solver || "ridge";
       delete model.booster_b64;
-      return {
-        model,
-        researchModel:
-          data.return_model_research &&
-          typeof data.return_model_research === "object" &&
-          _ooRankLooksRidge(data.return_model_research)
-            ? data.return_model_research
-            : null,
-      };
+      return { model };
     }
     const rm = candidates[0] || null;
     if (!rm) return null;
-    return {
-      model: rm,
-      researchModel:
-        data.return_model_research &&
-        typeof data.return_model_research === "object"
-          ? data.return_model_research
-          : null,
-    };
+    return { model: rm };
   }
 
   async function paintOoRankDesk(sum, data, extra = {}) {
@@ -790,7 +769,6 @@ export function initQuant(ctx) {
     await renderOoRankCoefTable(rm && typeof rm === "object" ? rm : {}, {
       oos,
       feature_importance: ooRankFeatureImportance(src),
-      researchModel: coefPack && coefPack.researchModel,
     });
   }
 
@@ -852,10 +830,25 @@ export function initQuant(ctx) {
     }
     const rows = [
       [
-        "Spearman",
+        "IC",
+        rank.cs_ic,
+        ridge.cs_ic,
+        delta(rank.cs_ic, ridge.cs_ic, track.delta_cs_ic),
+        "日频截面 Pearson 均值；原始排序分对 y_oo，与 ŷ_oo 的 IC 同口径",
+      ],
+      [
+        "ICIR",
+        rank.cs_icir,
+        ridge.cs_icir,
+        delta(rank.cs_icir, ridge.cs_icir, track.delta_cs_icir),
+        "日频 IC 均值 / 标准差；Holdout 不足 3 日不出",
+      ],
+      [
+        "Rank IC",
         rank.spearman,
         ridge.spearman,
         delta(rank.spearman, ridge.spearman, track.delta_spearman),
+        "日频截面 Spearman 均值",
       ],
       [
         "NDCG@K",
@@ -883,7 +876,7 @@ export function initQuant(ctx) {
     let lrWins = 0;
     let rgWins = 0;
     const body = rows
-      .map(([lab, a, b, d]) => {
+      .map(([lab, a, b, d, tip]) => {
         const dn = d == null || !Number.isFinite(Number(d)) ? null : Number(d);
         if (dn != null && dn > 1e-12) lrWins += 1;
         if (dn != null && dn < -1e-12) rgWins += 1;
@@ -893,8 +886,9 @@ export function initQuant(ctx) {
           dn == null ? "num" : dn > 1e-12 ? "num up" : dn < -1e-12 ? "num down" : "num";
         const dTxt =
           dn == null ? "—" : `${dn > 0 ? "+" : ""}${_fmtOoRankNum(dn)}`;
+        const tipAttr = tip ? ` title="${escapeHtml(tip)}"` : "";
         return (
-          `<tr><th scope="row">${lab}${_ooRankBarPair(a, b)}</th>` +
+          `<tr><th scope="row"${tipAttr}>${lab}${_ooRankBarPair(a, b)}</th>` +
           `<td class="${lrCls}">${_fmtOoRankNum(a)}</td>` +
           `<td class="${rgCls}">${_fmtOoRankNum(b)}</td>` +
           `<td class="${dCls}">${dTxt}</td></tr>`
@@ -2397,7 +2391,6 @@ export function initQuant(ctx) {
       clearT30ResultBox();
       await renderT30CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (_) {
       /* ignore */
@@ -2427,7 +2420,6 @@ export function initQuant(ctx) {
       clearT45ResultBox();
       await renderT45CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (_) {
       /* ignore */
@@ -2456,7 +2448,6 @@ export function initQuant(ctx) {
       clearT60ResultBox();
       await renderT60CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (_) {
       /* ignore */
@@ -2485,7 +2476,6 @@ export function initQuant(ctx) {
       clearT75ResultBox();
       await renderT75CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (_) {
       /* ignore */
@@ -2514,7 +2504,6 @@ export function initQuant(ctx) {
       clearT90ResultBox();
       await renderT90CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (_) {
       /* ignore */
@@ -2788,7 +2777,8 @@ export function initQuant(ctx) {
                     ? m.ic
                     : "—";
             const fitEnd = m.fit_end || (e.config || {}).fit_end || "—";
-            const win = [m.research_window, m.live_window].filter(Boolean).join("/") || "—";
+            const wins = [...new Set([m.research_window, m.live_window].filter(Boolean))];
+            const win = wins.join("/") || "—";
             return `<tr><td style="max-width:180px;word-break:break-all;">${escapeHtml(String(e.experiment_id || "").slice(0, 24))}…</td><td>${escapeHtml(e.model_type)}</td><td>${escapeHtml(String(e.status))}</td><td>${escapeHtml(String(fitEnd))}</td><td>${escapeHtml(String(ic))}</td><td>${escapeHtml(String(win))}</td><td style="font-size:11px;">${escapeHtml(String(e.created_at || "").slice(5, 16))}</td></tr>`;
           }).join("");
           table.innerHTML = `<table class="quant-weight-table" style="font-size:12px;"><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>fit_end</th><th>IC</th><th>窗</th><th>时间</th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -3433,8 +3423,8 @@ export function initQuant(ctx) {
       } else {
         message =
           flags.liveOn || flags.researchOn
-            ? "草稿已更新 · 可再启用研究/执行"
-            : "草稿已存 · 可启用研究/执行";
+            ? "草稿已更新 · 可启用研究（验证后再晋级执行）"
+            : "草稿已存 · 可启用研究（验证后再晋级执行）";
       }
       const oos = data.oos || status.oos || {};
       // status 可能缺日截面 Z 字段；用本次 fit 的 data 补全摘要
@@ -3559,14 +3549,16 @@ export function initQuant(ctx) {
 
   function ridgeFitBusyHint(elapsedSec) {
     const s = Number(elapsedSec) || 0;
-    if (s < 8) return "排队 / 读分钟缓存";
-    if (s < 40) return "组 τ 面板";
-    return "Ridge + 时间 OOS（满池可能数分钟）";
+    if (s < 8) return "排队 / 读日线或分钟缓存";
+    if (s < 90) return "组因子面板（满池数百只可能十余分钟）";
+    if (s < 20 * 60) return "Ridge + Holdout OOS（满池 600 只常需半小时级）";
+    return "仍在拟合 · 满池面板很大，超过 40 分钟仍可能在算，请勿重复点";
   }
 
   async function pollRidgeJobUntilDone(jobName, { jobId, sumEl, label } = {}) {
     const pollStarted = Date.now();
-    const absoluteCapMs = 40 * 60 * 1000;
+    // 观察池扩到 500～600 后，ŷ_co / ŷ_τc 面板+Ridge 常超 40 分钟
+    const absoluteCapMs = 90 * 60 * 1000;
     let netFailStreak = 0;
     let sawOwnJob = false;
     while (true) {
@@ -3723,7 +3715,6 @@ export function initQuant(ctx) {
       renderT30FitSummary(data);
       await renderT30CoefTable(rm, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -3759,16 +3750,22 @@ export function initQuant(ctx) {
     const gate = _t30PromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_τ30 研究套（t30_ridge_model_research.json）"
-        : "ŷ_τ30 执行套（t30_ridge_model.json；做 T 旁路，不改 C_τ）";
+        ? "ŷ_τ30 研究套（报告→t30_ridge_model_research.json）"
+        : "ŷ_τ30 执行套（研究槽晋级→t30_ridge_model.json；须先启用研究）";
     let forcePromote = false;
-    if (gate && gate.ok === false) {
+    if (gate && gate.ok === false && persistRole === "research") {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
       if (!window.confirm(`promote 未过闸：${blockers}\n\n仍强制写入 ${target} 吗？`)) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τ30 写入 ${target}？不进 ranking、不改 C_τ。`)) {
+    } else if (
+      !window.confirm(
+        persistRole === "research"
+          ? `将 ŷ_τ30 写入 ${target}？不进 ranking、不改 C_τ。`
+          : `将当前研究套 ŷ_τ30 晋级为执行套？不进 ranking、不改 C_τ。`
+      )
+    ) {
       return;
     }
     try {
@@ -3814,7 +3811,6 @@ export function initQuant(ctx) {
       clearT30ResultBox();
       await renderT30CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -3909,7 +3905,6 @@ export function initQuant(ctx) {
       renderT45FitSummary(data);
       await renderT45CoefTable(rm, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -3945,16 +3940,22 @@ export function initQuant(ctx) {
     const gate = _t45PromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_τ45 研究套（t45_ridge_model_research.json）"
-        : "ŷ_τ45 执行套（t45_ridge_model.json；做 T 旁路，不改 C_τ）";
+        ? "ŷ_τ45 研究套（报告→t45_ridge_model_research.json）"
+        : "ŷ_τ45 执行套（研究槽晋级→t45_ridge_model.json；须先启用研究）";
     let forcePromote = false;
-    if (gate && gate.ok === false) {
+    if (gate && gate.ok === false && persistRole === "research") {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
       if (!window.confirm(`promote 未过闸：${blockers}\n\n仍强制写入 ${target} 吗？`)) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τ45 写入 ${target}？不进 ranking、不改 C_τ。`)) {
+    } else if (
+      !window.confirm(
+        persistRole === "research"
+          ? `将 ŷ_τ45 写入 ${target}？不进 ranking、不改 C_τ。`
+          : `将当前研究套 ŷ_τ45 晋级为执行套？不进 ranking、不改 C_τ。`
+      )
+    ) {
       return;
     }
     try {
@@ -4000,7 +4001,6 @@ export function initQuant(ctx) {
       clearT45ResultBox();
       await renderT45CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4094,7 +4094,6 @@ export function initQuant(ctx) {
       renderT60FitSummary(data);
       await renderT60CoefTable(rm, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4130,16 +4129,22 @@ export function initQuant(ctx) {
     const gate = _t60PromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_τ60 研究套（t60_ridge_model_research.json）"
-        : "ŷ_τ60 执行套（t60_ridge_model.json；做 T 旁路，不改 C_τ）";
+        ? "ŷ_τ60 研究套（报告→t60_ridge_model_research.json）"
+        : "ŷ_τ60 执行套（研究槽晋级→t60_ridge_model.json；须先启用研究）";
     let forcePromote = false;
-    if (gate && gate.ok === false) {
+    if (gate && gate.ok === false && persistRole === "research") {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
       if (!window.confirm(`promote 未过闸：${blockers}\n\n仍强制写入 ${target} 吗？`)) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τ60 写入 ${target}？不进 ranking、不改 C_τ。`)) {
+    } else if (
+      !window.confirm(
+        persistRole === "research"
+          ? `将 ŷ_τ60 写入 ${target}？不进 ranking、不改 C_τ。`
+          : `将当前研究套 ŷ_τ60 晋级为执行套？不进 ranking、不改 C_τ。`
+      )
+    ) {
       return;
     }
     try {
@@ -4185,7 +4190,6 @@ export function initQuant(ctx) {
       clearT60ResultBox();
       await renderT60CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4279,7 +4283,6 @@ export function initQuant(ctx) {
       renderT75FitSummary(data);
       await renderT75CoefTable(rm, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4315,16 +4318,22 @@ export function initQuant(ctx) {
     const gate = _t75PromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_τ75 研究套（t75_ridge_model_research.json）"
-        : "ŷ_τ75 执行套（t75_ridge_model.json；做 T 旁路，不改 C_τ）";
+        ? "ŷ_τ75 研究套（报告→t75_ridge_model_research.json）"
+        : "ŷ_τ75 执行套（研究槽晋级→t75_ridge_model.json；须先启用研究）";
     let forcePromote = false;
-    if (gate && gate.ok === false) {
+    if (gate && gate.ok === false && persistRole === "research") {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
       if (!window.confirm(`promote 未过闸：${blockers}\n\n仍强制写入 ${target} 吗？`)) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τ75 写入 ${target}？不进 ranking、不改 C_τ。`)) {
+    } else if (
+      !window.confirm(
+        persistRole === "research"
+          ? `将 ŷ_τ75 写入 ${target}？不进 ranking、不改 C_τ。`
+          : `将当前研究套 ŷ_τ75 晋级为执行套？不进 ranking、不改 C_τ。`
+      )
+    ) {
       return;
     }
     try {
@@ -4370,7 +4379,6 @@ export function initQuant(ctx) {
       clearT75ResultBox();
       await renderT75CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4464,7 +4472,6 @@ export function initQuant(ctx) {
       renderT90FitSummary(data);
       await renderT90CoefTable(rm, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4500,16 +4507,22 @@ export function initQuant(ctx) {
     const gate = _t90PromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_τ90 研究套（t90_ridge_model_research.json）"
-        : "ŷ_τ90 执行套（t90_ridge_model.json；做 T 旁路，不改 C_τ）";
+        ? "ŷ_τ90 研究套（报告→t90_ridge_model_research.json）"
+        : "ŷ_τ90 执行套（研究槽晋级→t90_ridge_model.json；须先启用研究）";
     let forcePromote = false;
-    if (gate && gate.ok === false) {
+    if (gate && gate.ok === false && persistRole === "research") {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
       if (!window.confirm(`promote 未过闸：${blockers}\n\n仍强制写入 ${target} 吗？`)) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τ90 写入 ${target}？不进 ranking、不改 C_τ。`)) {
+    } else if (
+      !window.confirm(
+        persistRole === "research"
+          ? `将 ŷ_τ90 写入 ${target}？不进 ranking、不改 C_τ。`
+          : `将当前研究套 ŷ_τ90 晋级为执行套？不进 ranking、不改 C_τ。`
+      )
+    ) {
       return;
     }
     try {
@@ -4555,7 +4568,6 @@ export function initQuant(ctx) {
       clearT90ResultBox();
       await renderT90CoefTable(data.return_model || {}, {
         oos,
-        researchModel: data.return_model_research || null,
       });
     } catch (err) {
       renderRemStatus(sum, {
@@ -4850,10 +4862,10 @@ export function initQuant(ctx) {
     const gate = _tauPromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_τc 研究套（tau_ridge_model_research.json，供历史回测）"
-        : "ŷ_τc 执行套（tau_ridge_model.json，供交易执行）";
+        ? "ŷ_τc 研究套（报告→tau_ridge_model_research.json，供历史回测）"
+        : "ŷ_τc 执行套（研究槽晋级→tau_ridge_model.json；须先启用研究）";
     let forcePromote = false;
-    if (gate && gate.ok === false) {
+    if (gate && gate.ok === false && persistRole === "research") {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
       if (
         !window.confirm(
@@ -4863,7 +4875,13 @@ export function initQuant(ctx) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τc 写入 ${target}？不改 ŷ_oo、不改聚类。`)) {
+    } else if (
+      !window.confirm(
+        persistRole === "research"
+          ? `将 ŷ_τc 写入 ${target}？不改 ŷ_oo、不改聚类。`
+          : `将当前研究套 ŷ_τc 晋级为执行套？不改 ŷ_oo、不改聚类。`
+      )
+    ) {
       return;
     }
     try {
@@ -4901,9 +4919,15 @@ export function initQuant(ctx) {
     const persistRole = (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
     const target =
       persistRole === "research"
-        ? "ŷ_co 研究套（co_ridge_model_research.json，供历史回测）"
-        : "ŷ_co 执行套（co_ridge_model.json，供交易执行）";
-    if (!window.confirm(`将 on / ŷ_co 写入 ${target}？不改 ŷ_oo / ŷ_τc、不进主排序。`)) {
+        ? "ŷ_co 研究套（报告→co_ridge_model_research.json，供历史回测）"
+        : "ŷ_co 执行套（研究槽晋级→co_ridge_model.json；须先启用研究）";
+    if (
+      !window.confirm(
+        persistRole === "research"
+          ? `将 on / ŷ_co 写入 ${target}？不改 ŷ_oo / ŷ_τc、不进主排序。`
+          : `将当前研究套 ŷ_co 晋级为执行套？不改 ŷ_oo / ŷ_τc、不进主排序。`
+      )
+    ) {
       return;
     }
     try {
@@ -4974,11 +4998,13 @@ export function initQuant(ctx) {
       (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
     const target =
       persistRole === "research"
-        ? "ŷ_oo_rank 研究套（oo_rank_model_research.json，供历史回测）"
-        : "ŷ_oo_rank 执行套（oo_rank_model.json，供交易执行）";
+        ? "ŷ_oo_rank 研究套（报告→oo_rank_model_research.json，供历史回测）"
+        : "ŷ_oo_rank 执行套（研究槽晋级→oo_rank_model.json；须先启用研究）";
     if (
       !window.confirm(
-        `将 ŷ_oo_rank 写入 ${target}？按 Holdout NDCG@K 自动落盘 LambdaRank 或 Ridge 中更强一侧；成交明细 rank=1..n（1=最高）；不进买序；入场闸在回测「其他」勾选 rank < top 50%。`
+        persistRole === "research"
+          ? `将 ŷ_oo_rank 写入 ${target}？Holdout 前训 + NDCG@K 选 backend；成交明细 rank=1..n；不进买序。`
+          : `将当前研究套 ŷ_oo_rank 晋级为执行套？不进买序。`
       )
     ) {
       return;

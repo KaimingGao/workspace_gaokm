@@ -620,9 +620,9 @@ def score_stock(
     required_factor_keys: list = []
     global_model_pre = None
     try:
-        from core.research.oo_ridge import load_return_model
+        from core.research.oo_ridge import load_scoring_return_model
 
-        global_model_pre, _meta = load_return_model(prefer_active=True)
+        global_model_pre, _meta = load_scoring_return_model()
         if global_model_pre is None:
             weight_source = "global_missing"
         else:

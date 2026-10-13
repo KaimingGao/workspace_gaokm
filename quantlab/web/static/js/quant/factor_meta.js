@@ -15,7 +15,7 @@ const FACTOR_FAMILY_DEFS = [
   {
     id: "pv_derived",
     label: "量价衍生",
-    tip: "ŷ_oo 日线 z_oo_*∪raw_aoo_* 全量；ŷ_τc=z_τc_*∪raw_atc_*；omit_sub_score，仅 raw 进模型",
+    tip: "ŷ_oo 日线 z_oo_*∪raw_aoo_*；ŷ_τc=z_τc_*∪raw_atc_*；ŷ_co=z_co_*∪raw_aoo_*；omit_sub_score，仅 raw 进模型",
   },
   { id: "other", label: "其他", tip: "未编入 factor_groups" },
 ];
@@ -34,8 +34,10 @@ const FAMILY_MEMBERS = {
 const PREFIX_FAMILY = [
   { prefix: "raw_aoo_", family: "pv_derived" },
   { prefix: "raw_atc_", family: "pv_derived" },
+  { prefix: "z_oo_", family: "pv_derived" },
+  { prefix: "z_τc_", family: "pv_derived" },
+  { prefix: "z_co_", family: "pv_derived" },
 ];
-
 const SOURCE_OVERRIDE = {
   money_flow: {
     status: "proxy",
@@ -550,6 +552,12 @@ export const CO_FEAT_META = {
     description: "T−1 之前最多 5 个交易日真实隔夜缺口均值。不含今日 gap_pct。",
   },
 };
+
+// ŷ_co Z canon：z_co_* ↔ 裸名同文案（与 Python z_co.py 对齐）
+for (const [leg, meta] of Object.entries({ ...CO_FEAT_META })) {
+  if (String(leg).startsWith("z_co_")) continue;
+  CO_FEAT_META[`z_co_${leg}`] = meta;
+}
 
 /**
  * @param {{ fetchImpl?: typeof fetch }} [opts]

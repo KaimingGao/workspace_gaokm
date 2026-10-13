@@ -3,7 +3,7 @@
 训练：同窗训 LambdaRank + Ridge ŷ_oo；推理：相对分 → 当日截面 1..n 名次（1=最高）。
 启用研究/执行：按 NDCG@K 自动落盘更强一侧（打平或缺指标 → lambdarank）。
 回测 / live 只消费已启用模型，无 backend 开关。
-不进 ranking / 买序；可选 ``oo_rank_top_frac`` 入场闸（UI「rank < top 50%」）。
+不进 ranking / 买序；可选 ``oo_rank_max`` 入场闸（UI「rank 入场」）。
 """
 
 from __future__ import annotations
@@ -301,13 +301,41 @@ def _backend_pack_from_report(
 def persist_oo_rank_model(
     report: Dict[str, Any], *, note: str = "", role: str = "live"
 ) -> Dict[str, Any]:
-    """人审启用：按 NDCG@K 自动选 backend；``role`` 写研究套或执行套。只写新路径。"""
+    """启用研究=报告→研究槽；启用执行=研究槽→执行槽（晋级）。按 NDCG@K 选 backend。"""
     from core.research.holdout import (
+        MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
+        normalize_model_role,
+        require_research_suite,
         research_model_path,
-        select_persist_return_model,
+        select_fit_return_model,
+        stamp_live_suite_doc,
     )
     from core.numbers import now_iso_utc
+
+    live = oo_rank_model_path()
+    role_n = normalize_model_role(role)
+
+    if role_n == MODEL_ROLE_LIVE:
+        research_doc, err = require_research_suite(live)
+        if err:
+            return err
+        doc = stamp_live_suite_doc(
+            research_doc, note=note or "oo_rank research → live promote"
+        )
+        os.makedirs(os.path.dirname(live), exist_ok=True)
+        atomic_write_json(live, doc)
+        out = {
+            "success": True,
+            "path": live,
+            "promoted_at": doc.get("promoted_at"),
+            "model_role": MODEL_ROLE_LIVE,
+            "backend": doc.get("backend"),
+            "recommended_backend": doc.get("recommended_backend") or doc.get("backend"),
+            "promoted_from": "research",
+            "live": live,
+        }
+        return out
 
     if not isinstance(report, dict) or not report.get("success"):
         return {"success": False, "error": report.get("error") if isinstance(report, dict) else "no report"}
@@ -323,14 +351,13 @@ def persist_oo_rank_model(
         view["return_model"] = pack.get("return_model")
         if isinstance(pack.get("return_model_research"), dict):
             view["return_model_research"] = pack.get("return_model_research")
-    role_n, model = select_persist_return_model(view, role=role)
+    model = select_fit_return_model(view)
     if not isinstance(model, dict):
         return {"success": False, "error": "return_model missing"}
     if not _oo_rank_model_valid(model):
         return {"success": False, "error": "return_model missing usable oo_rank pack"}
-    live = oo_rank_model_path()
     model = dict(model)
-    model["model_role"] = role_n
+    model["model_role"] = MODEL_ROLE_RESEARCH
     model["backend"] = backend
     model.pop("shadow_only", None)
     fitted_at = report.get("fitted_at") or model.get("fitted_at")
@@ -346,11 +373,12 @@ def persist_oo_rank_model(
         "backend": backend,
         "recommended_backend": backend,
         "return_model": model,
+        "return_model_research": dict(model),
         "oos": report.get("oos"),
         "y_spec": y_spec,
         "note": note
         or report.get("note")
-        or f"oo_rank promote {role_n} backend={backend}",
+        or f"oo_rank promote research backend={backend}",
         "n_days": report.get("n_days"),
         "n_train_days": report.get("n_train_days"),
         "n_test_days": report.get("n_test_days"),
@@ -358,46 +386,31 @@ def persist_oo_rank_model(
         "shadow_track": report.get("shadow_track"),
         "fitted_at": fitted_at,
         "promoted_at": promoted_at,
-        "model_role": role_n,
+        "model_role": MODEL_ROLE_RESEARCH,
     }
-    # 研究台因子表需要 Ridge β + LambdaRank gain%；落盘一并保留双 backend
     backends = report.get("backends")
     if isinstance(backends, dict) and backends:
         doc["backends"] = backends
-    if isinstance(report.get("return_model_research"), dict):
-        doc["return_model_research"] = report.get("return_model_research")
-    # 若启用侧是 LambdaRank，仍把研究套 Ridge 挂到顶层便于旧客户端
-    ridge_pack = (
-        backends.get("ridge") if isinstance(backends, dict) else None
-    )
+    ridge_pack = backends.get("ridge") if isinstance(backends, dict) else None
     if (
         backend != "ridge"
         and isinstance(ridge_pack, dict)
         and isinstance(ridge_pack.get("return_model_research"), dict)
-        and not isinstance(doc.get("return_model_research"), dict)
     ):
-        doc["return_model_research"] = ridge_pack.get("return_model_research")
-    path = (
-        research_model_path(live)
-        if role_n == MODEL_ROLE_RESEARCH
-        else live
-    )
+        doc["ridge_return_model_research"] = ridge_pack.get("return_model_research")
+    path = research_model_path(live)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     save_oo_rank_last_report(report)
-    out: Dict[str, Any] = {
+    return {
         "success": True,
         "path": path,
         "promoted_at": promoted_at,
-        "model_role": role_n,
+        "model_role": MODEL_ROLE_RESEARCH,
         "backend": backend,
         "recommended_backend": backend,
+        "research": path,
     }
-    if role_n == MODEL_ROLE_RESEARCH:
-        out["research"] = path
-    else:
-        out["live"] = path
-    return out
 
 
 def _ndcg_at_k(
@@ -927,6 +940,214 @@ def predict_oo_rank_from_features(
     return preds[0]
 
 
+def _oo_rank_feature_names(model: Dict[str, Any]) -> List[str]:
+    zm = model.get("zscore_means")
+    if isinstance(zm, dict) and zm:
+        return [str(n) for n in zm.keys()]
+    if isinstance(model.get("z_means"), dict) and model.get("z_means"):
+        return [str(n) for n in model.get("z_means").keys()]
+    coefs = model.get("coefficients") or {}
+    if isinstance(coefs, dict) and coefs:
+        return [str(n) for n in coefs.keys()]
+    active = model.get("active_features") or []
+    return [str(n) for n in active if n]
+
+
+def _explain_oo_rank_ridge(
+    features: Optional[dict],
+    model: Dict[str, Any],
+    *,
+    y_hat: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    from core.signal.return_score import ReturnScoreModel
+
+    try:
+        report = dict(model)
+        report.setdefault("success", True)
+        rm = ReturnScoreModel.from_ols_report(report)
+    except Exception:  # noqa: BLE001
+        return None
+    if rm is None:
+        return None
+    try:
+        expl = rm.explain_prediction(features if isinstance(features, dict) else {})
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_rank ridge explain failed", exc_info=True)
+        return None
+    if not isinstance(expl, dict):
+        return None
+    out = dict(expl)
+    out["head"] = "oo_rank"
+    out["backend"] = "ridge"
+    if y_hat is not None and out.get("total") is not None:
+        try:
+            if abs(float(out["total"]) - float(y_hat)) < 1e-3:
+                out["total"] = round(float(y_hat), 6)
+        except (TypeError, ValueError):
+            pass
+    terms = list(out.get("terms") or [])
+    if len(terms) > 24:
+        out["terms"] = terms[:24]
+    return out
+
+
+def _explain_oo_rank_lambdarank_rows(
+    rows: Sequence[dict],
+    model: Dict[str, Any],
+    *,
+    hats: Optional[Sequence[Optional[float]]] = None,
+) -> List[Optional[Dict[str, Any]]]:
+    """LambdaRank：LightGBM pred_contrib → tip 因子表（无 β 列，model_role=tree）。"""
+    import base64 as _b64
+
+    import lightgbm as lgb
+
+    from core.signal.factors.z_oo import feature_get
+
+    xs = list(rows or [])
+    n = len(xs)
+    if n == 0:
+        return []
+    names = _oo_rank_feature_names(model)
+    if not names:
+        return [None] * n
+    b64 = str(model.get("booster_b64") or "")
+    if not b64:
+        return [None] * n
+    try:
+        text = _b64.b64decode(b64.encode("ascii")).decode("utf-8")
+        booster = lgb.Booster(model_str=text)
+    except Exception:  # noqa: BLE001
+        return [None] * n
+
+    means_raw = model.get("zscore_means")
+    means = (
+        means_raw
+        if isinstance(means_raw, dict)
+        else (model.get("z_means") if isinstance(model.get("z_means"), dict) else {})
+    )
+    stds_raw = model.get("zscore_stds")
+    stds = (
+        stds_raw
+        if isinstance(stds_raw, dict)
+        else (model.get("z_stds") if isinstance(model.get("z_stds"), dict) else {})
+    )
+    cs = str(model.get("zscore_scope") or "") == "cross_section"
+
+    mat = np.zeros((n, len(names)), dtype=np.float64)
+    imputed: List[List[bool]] = []
+    for i, row in enumerate(xs):
+        src = row if isinstance(row, dict) else {}
+        flags: List[bool] = []
+        for j, name in enumerate(names):
+            v = feature_get(src, name)
+            if v is None:
+                mat[i, j] = 0.0
+                flags.append(True)
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                mat[i, j] = 0.0
+                flags.append(True)
+                continue
+            if cs or not means:
+                mat[i, j] = fv
+            else:
+                mu = float(means.get(name, 0.0))
+                sd = float(stds.get(name, 1.0))
+                if sd < 1e-9:
+                    sd = 1.0
+                mat[i, j] = (fv - mu) / sd
+            flags.append(False)
+        imputed.append(flags)
+
+    try:
+        contrib = np.asarray(booster.predict(mat, pred_contrib=True), dtype=np.float64)
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_rank lambdarank pred_contrib failed", exc_info=True)
+        return [None] * n
+    if contrib.ndim != 2 or int(contrib.shape[0]) != n or int(contrib.shape[1]) < len(names) + 1:
+        return [None] * n
+
+    try:
+        from core.signal.factors.meta.registry import factor_label
+    except Exception:  # noqa: BLE001
+        factor_label = lambda k: str(k)  # noqa: E731
+
+    out: List[Optional[Dict[str, Any]]] = []
+    for i in range(n):
+        bias = float(contrib[i, len(names)])
+        terms: List[Dict[str, Any]] = []
+        total = bias
+        for j, name in enumerate(names):
+            c = float(contrib[i, j])
+            total += c
+            if abs(c) < 1e-8:
+                continue
+            term: Dict[str, Any] = {
+                "key": name,
+                "label": str(factor_label(name) or name),
+                "z": round(float(mat[i, j]), 4),
+                "contrib": round(c, 6),
+            }
+            if imputed[i][j]:
+                term["note"] = "缺特征·z≈0"
+            terms.append(term)
+        terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0.0)))
+        y = None
+        if hats is not None and i < len(hats) and hats[i] is not None:
+            try:
+                y = round(float(hats[i]), 6)
+                if abs(total - y) < 1e-3:
+                    total = y
+            except (TypeError, ValueError):
+                y = None
+        out.append(
+            {
+                "intercept": round(bias, 6),
+                "terms": terms[:24],
+                "total": round(float(total if y is None else total), 6),
+                "head": "oo_rank",
+                "backend": "lambdarank",
+                "model_role": "tree",
+            }
+        )
+    return out
+
+
+def explain_oo_rank_prediction(
+    features: Optional[dict],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+    fit: Optional[Dict[str, Any]] = None,
+    y_hat: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """单行 tip 组成：Ridge=α+Σβ·z；LambdaRank=pred_contrib（树表）。"""
+    model = _resolve_oo_rank_fit(model_doc=model_doc, fit=fit)
+    if not isinstance(model, dict):
+        return None
+    row = features if isinstance(features, dict) else {}
+    if _oo_rank_use_ridge(model):
+        return _explain_oo_rank_ridge(row, model, y_hat=y_hat)
+    if _oo_rank_use_booster(model):
+        expls = _explain_oo_rank_lambdarank_rows(
+            [row], model, hats=[y_hat] if y_hat is not None else None
+        )
+        return expls[0] if expls else None
+    return None
+
+
+def _stamp_formula_terms_oo_rank(
+    item: dict,
+    expl: Optional[Dict[str, Any]],
+) -> None:
+    if not isinstance(item, dict) or not isinstance(expl, dict):
+        return
+    item["formula_terms_oo_rank"] = expl
+    item["score_formula_terms_oo_rank"] = expl
+
+
 def apply_oo_rank_scores(
     items: Sequence[dict],
     *,
@@ -938,6 +1159,7 @@ def apply_oo_rank_scores(
 
     特征按本次 items 的当天截面 z-score（与训练同口径）。
     默认 ``assign_day_ranks=True``：对本次 items 截面编 1..n 名次（1=最高分）。
+    同时写入 ``formula_terms_oo_rank`` 供成交明细 rank tip。
     """
     from core.research.feature_standardize import (
         cross_section_zscore_dicts,
@@ -964,18 +1186,37 @@ def apply_oo_rank_scores(
         stamp_z_oo_aliases(row)
         raw_rows.append(row)
         slots.append(i)
+    feat_rows: List[dict] = raw_rows
+    hats: List[Optional[float]] = [None] * len(raw_rows)
     if is_cross_section_zscore(model) and raw_rows:
         names = list((model or {}).get("active_features") or (model or {}).get("coefficients") or [])
         if not names:
             names = list(raw_rows[0].keys())
         z_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in names])
+        feat_rows = z_rows
         hats = _predict_oo_rank_rows(model, z_rows, impute_missing=True)
         for slot, hat in zip(slots, hats):
             write_y_oo_rank_hat(out[slot], hat)
     else:
-        for slot, subs in zip(slots, raw_rows):
+        for i, (slot, subs) in enumerate(zip(slots, raw_rows)):
             hat = predict_oo_rank_from_features(subs, model_doc=doc, fit=fit or model)
+            hats[i] = hat
             write_y_oo_rank_hat(out[slot], hat)
+
+    # tip 因子表：相对分阶段写入（编名次前）
+    if isinstance(model, dict) and feat_rows:
+        try:
+            if _oo_rank_use_booster(model):
+                expls = _explain_oo_rank_lambdarank_rows(feat_rows, model, hats=hats)
+                for slot, expl in zip(slots, expls):
+                    _stamp_formula_terms_oo_rank(out[slot], expl)
+            elif _oo_rank_use_ridge(model):
+                for slot, feats, hat in zip(slots, feat_rows, hats):
+                    expl = _explain_oo_rank_ridge(feats, model, y_hat=hat)
+                    _stamp_formula_terms_oo_rank(out[slot], expl)
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp formula_terms_oo_rank failed", exc_info=True)
+
     if assign_day_ranks:
         assign_oo_rank_day_ranks(out)
     return out
@@ -1111,7 +1352,11 @@ def _oos_day_metrics(
     topk_track: int,
     ndcg_k: int = DEFAULT_NDCG_K,
 ) -> Dict[str, Any]:
+    from core.backtest.factor_cs_ic import _agg_ic_series
+    from core.backtest.pool_ic import _pearson
+
     spearman_days: List[float] = []
+    pearson_days: List[float] = []
     overlap_days: List[float] = []
     ndcg_days: List[float] = []
     topk_rets: List[float] = []
@@ -1131,6 +1376,9 @@ def _oos_day_metrics(
         sp = _spearman(pp, yy)
         if sp is not None:
             spearman_days.append(sp)
+        pe = _pearson(pp, yy)
+        if pe is not None:
+            pearson_days.append(float(pe))
         ov = _topk_overlap(pp, yy, topk_track)
         if ov is not None:
             overlap_days.append(ov)
@@ -1146,10 +1394,15 @@ def _oos_day_metrics(
             return None
         return round(sum(xs) / len(xs), 4)
 
+    pear = _agg_ic_series(pearson_days)
     return {
         "n_days": len(spearman_days),
         "n_rows": n_scored,
         "spearman": _mean(spearman_days),
+        "cs_ic": pear.get("ic_mean"),
+        "cs_ic_std": pear.get("ic_std"),
+        "cs_icir": pear.get("icir"),
+        "cs_ic_day_count": pear.get("day_count"),
         "topk_overlap": _mean(overlap_days),
         "ndcg_at_k": _mean(ndcg_days),
         "ndcg_k": int(ndcg_k),
@@ -1251,7 +1504,9 @@ def fit_oo_rank_report(
     ``backend``：``"auto"``（默认，按 NDCG@K 选）/ ``"lambdarank"`` / ``"ridge"``。
     拟合始终双训；``backend`` 只影响报告里 ``return_model`` 默认指向哪一侧。
     ``lightgbm_params`` 可覆盖超参。
-    OOS 指标：spearman / topk_overlap / ndcg_at_k / topk_mean_y_oo。
+    OOS 指标：spearman / cs_ic / cs_icir / topk_overlap / ndcg_at_k / topk_mean_y_oo。
+    ``cs_ic`` / ``cs_icir`` 与 ŷ_oo 同口径：Holdout 日截面 Pearson(排序分, y_oo) 的均值，
+    ICIR = 该日序列 mean/std（不足 3 日不出）。用原始排序分，不用 1..n 名次。
     """
     from core.research.holdout import (
         attach_holdout_meta,
@@ -1353,29 +1608,14 @@ def fit_oo_rank_report(
             )
         )
 
-    # 全样本重估（执行套）
-    fit_full = fit_lambdarank(
-        days,
-        feature_names=feat_names,
-        **lgb_kw,
-    )
-    lambda_live = dict(fit_full if fit_full.get("success") else fit_tr)
-    ridge_full = _fit_ridge_baseline(
-        days,
-        feature_names=feat_names,
-        ridge_lambda=ridge_lambda,
-        cross_section_zscore=use_cs,
-    )
-    ridge_live = (
-        dict(ridge_full)
-        if ridge_full.get("success")
-        else (dict(ridge_tr) if ridge_tr.get("success") else None)
-    )
+    # 只训 Holdout 前一套 β（LambdaRank / Ridge 两 backend 仍同窗双训）
+    lambda_holdout = dict(fit_tr)
+    ridge_holdout = dict(ridge_tr) if ridge_tr.get("success") else None
 
     recommended = select_oo_rank_backend(oos_rank, oos_ridge)
     chosen = recommended if force_backend == "auto" else force_backend
     if chosen == "ridge" and not (
-        isinstance(ridge_live, dict) and ridge_live.get("success")
+        isinstance(ridge_holdout, dict) and ridge_holdout.get("success")
     ):
         chosen = "lambdarank"
 
@@ -1386,25 +1626,17 @@ def fit_oo_rank_report(
         "label": "rank(open[T]->open[T+1]) cross-section",
     }
 
-    def _pack(backend_key: str, live_m: Dict[str, Any], research_src: Dict[str, Any]) -> Dict[str, Any]:
+    def _pack(backend_key: str, holdout_src: Dict[str, Any]) -> Dict[str, Any]:
         note = (
             "Ridge ŷ_oo 相对分；live/回测编当日截面 1..n 名次（1=最高）；"
-            "不进 ranking/买序；可选 oo_rank_top_frac 入场闸"
+            "不进 ranking/买序；可选 oo_rank_max 入场闸"
             if backend_key == "ridge"
             else "LambdaRank；模型输出相对分；live/回测成交明细编成当日截面 1..n 名次（1=最高）；"
-            "不进 ranking/买序；可选 oo_rank_top_frac 入场闸"
+            "不进 ranking/买序；可选 oo_rank_max 入场闸"
         )
         y_spec = dict(y_spec_base, backend=backend_key, note=note)
-        live = _stamp_oo_rank_model_meta(
-            live_m,
-            backend=backend_key,
-            role="live",
-            y_spec=y_spec,
-            horizon_days=horizon_days,
-            ndcg_k=ndcg_k,
-        )
         research = _stamp_oo_rank_model_meta(
-            make_research_model(research_src),
+            make_research_model(holdout_src),
             backend=backend_key,
             role="research",
             y_spec=y_spec,
@@ -1413,17 +1645,16 @@ def fit_oo_rank_report(
         )
         if backend_key == "lambdarank":
             research["intercept"] = 0.0
-            live["intercept"] = 0.0
         return {
-            "return_model": live,
+            "return_model": research,
             "return_model_research": research,
             "y_spec": y_spec,
         }
 
-    lambda_pack = _pack("lambdarank", lambda_live, fit_tr)
+    lambda_pack = _pack("lambdarank", lambda_holdout)
     backends: Dict[str, Any] = {"lambdarank": lambda_pack}
-    if isinstance(ridge_live, dict) and ridge_live.get("success") and ridge_tr.get("success"):
-        backends["ridge"] = _pack("ridge", ridge_live, ridge_tr)
+    if isinstance(ridge_holdout, dict) and ridge_holdout.get("success"):
+        backends["ridge"] = _pack("ridge", ridge_holdout)
 
     if chosen not in backends:
         chosen = "lambdarank"
@@ -1460,15 +1691,16 @@ def fit_oo_rank_report(
         "cross_section_zscore": use_cs,
         "note": (
             f"ŷ_oo_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
-            "启用研究/执行按 NDCG@K 自动落盘更强一侧；"
+            "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
             "不进 ranking/买序；成交明细编当日截面 1..n 名次；"
-            "可选 oo_rank_top_frac 入场闸"
+            "可选 oo_rank_max 入场闸"
         ),
     }
     attach_holdout_meta(report, split_meta)
     stamp_oo_rank_fitted_at(report)
     if persist:
-        paths = persist_oo_rank_model(report, role="live")
+        # 默认只落研究槽；执行须显式晋级
+        paths = persist_oo_rank_model(report, role="research")
         report["persisted"] = paths
     return report
 
@@ -1509,6 +1741,16 @@ def compare_oo_rank_shadow_track(
             if rank_m.get("spearman") is None or ridge_m.get("spearman") is None
             else round(float(rank_m["spearman"]) - float(ridge_m["spearman"]), 4)
         ),
+        "delta_cs_ic": (
+            None
+            if rank_m.get("cs_ic") is None or ridge_m.get("cs_ic") is None
+            else round(float(rank_m["cs_ic"]) - float(ridge_m["cs_ic"]), 4)
+        ),
+        "delta_cs_icir": (
+            None
+            if rank_m.get("cs_icir") is None or ridge_m.get("cs_icir") is None
+            else round(float(rank_m["cs_icir"]) - float(ridge_m["cs_icir"]), 4)
+        ),
         "delta_topk_overlap": (
             None
             if rank_m.get("topk_overlap") is None or ridge_m.get("topk_overlap") is None
@@ -1542,6 +1784,7 @@ __all__ = [
     "apply_oo_rank_scores",
     "assign_oo_rank_day_ranks",
     "compare_oo_rank_shadow_track",
+    "explain_oo_rank_prediction",
     "fit_oo_rank_report",
     "load_oo_rank_last_report",
     "load_oo_rank_model",

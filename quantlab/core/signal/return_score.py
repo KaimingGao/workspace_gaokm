@@ -35,6 +35,8 @@ class ReturnScoreModel:
     fitted_as_of: Optional[str] = None
     note: str = ""
     y_spec: Optional[Dict[str, Any]] = None
+    # research | live：落盘套别，供 tip / 回测对照（与 tree 的 model_role 无关）
+    model_role: str = ""
 
     def predict(self, sub_scores: Optional[Dict[str, float]]) -> Optional[float]:
         from core.signal.factors.z_oo import feature_get
@@ -105,11 +107,15 @@ class ReturnScoreModel:
         if not terms:
             return None
         terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0)))
-        return {
+        out: Dict[str, Any] = {
             "intercept": round(float(self.intercept), 6),
             "terms": terms,
             "total": round(total, 6),
         }
+        role = str(self.model_role or "").strip().lower()
+        if role in {"research", "live"}:
+            out["score_model_role"] = role
+        return out
 
     def format_formula(self, sub_scores: Optional[Dict[str, float]]) -> str:
         """生成一行摘要公式；UI 优先用 ``explain_prediction`` 表格。"""
@@ -166,6 +172,15 @@ class ReturnScoreModel:
                     continue
             return out
 
+        role_raw = str(
+            data.get("model_role") or data.get("score_model_role") or data.get("role") or ""
+        ).strip().lower()
+        if role_raw in {"research", "holdout", "oos", "backtest"}:
+            suite = "research"
+        elif role_raw in {"live", "active", "execution", "exec"}:
+            suite = "live"
+        else:
+            suite = ""
         return cls(
             intercept=intercept,
             coefficients=clean,
@@ -178,6 +193,7 @@ class ReturnScoreModel:
             ridge_lambda=float(data.get("ridge_lambda") or 0.0),
             solver=str(data.get("solver") or "qr"),
             fitted_as_of=data.get("fitted_as_of"),
+            model_role=suite,
             note=str(data.get("note") or ""),
             y_spec=data.get("y_spec") if isinstance(data.get("y_spec"), dict) else None,
         )
@@ -272,6 +288,18 @@ def _stamp_formula_terms(
         return
     if not expl:
         return
+    expl = dict(expl)
+    role = str(getattr(model, "model_role", "") or expl.get("score_model_role") or "").strip().lower()
+    if role not in {"research", "live"}:
+        try:
+            from core.research.holdout import current_scoring_model_role
+
+            role = current_scoring_model_role()
+        except Exception:  # noqa: BLE001
+            role = ""
+    if role in {"research", "live"}:
+        expl["score_model_role"] = role
+        item["score_model_role"] = role
     item["score_formula_terms"] = expl
     item["formula_terms"] = expl
 

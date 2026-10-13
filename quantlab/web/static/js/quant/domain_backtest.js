@@ -437,16 +437,16 @@ export function installBacktest(q) {
     };
     setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
     setChk("pm_y_τc_gt0", req.y_τc_gt0, false);
-    const ooFrac = Number(req.oo_rank_top_frac);
-    const ooLegacy = Number(req.oo_rank_max);
-    const ooTop50 =
-      (Number.isFinite(ooFrac) &&
-        ooFrac > 0 &&
-        Math.abs(ooFrac - 0.5) < 1e-9) ||
-      (req.oo_rank_top_frac == null &&
-        Number.isFinite(ooLegacy) &&
-        ooLegacy > 0);
-    setChk("pm_oo_rank_top50", ooTop50, false);
+    const ooMax = Number(req.oo_rank_max);
+    if (Number.isFinite(ooMax) && ooMax > 0) {
+      setName("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooMax))));
+    } else {
+      const ooFrac = Number(req.oo_rank_top_frac);
+      setName(
+        "pm_oo_rank_max",
+        Number.isFinite(ooFrac) && ooFrac > 0 ? 10 : 0
+      );
+    }
   }
 
   function readPredictabilityTiers() {
@@ -795,20 +795,22 @@ export function installBacktest(q) {
       const pack = collectPathMatrixForm(form);
       const lots = pack && pack.rebalance_timing && pack.rebalance_timing.rank_lots;
       if (lots) {
+        const ooMax =
+          lots.oo_rank_max != null && Number(lots.oo_rank_max) > 0
+            ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_max))))
+            : null;
         return {
           rank_enter: lots.rank_enter,
           rank_strong: lots.rank_strong,
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
-          oo_rank_top_frac:
-            lots.oo_rank_top_frac != null && Number(lots.oo_rank_top_frac) > 0
-              ? Number(lots.oo_rank_top_frac)
-              : null,
+          oo_rank_max: ooMax,
+          oo_rank_top_frac: null,
         };
       }
     }
     const enter = rankPctToScore();
-    return { rank_enter: enter, rank_strong: enter, oo_rank_top_frac: null };
+    return { rank_enter: enter, rank_strong: enter, oo_rank_max: 10, oo_rank_top_frac: null };
   }
 
   const FILL_CLOCK_KEY = "paper.replay.fill_clock";
@@ -1450,7 +1452,7 @@ export function installBacktest(q) {
         rank_strong,
         y_oo_gt0,
         y_τc_gt0,
-        oo_rank_top_frac,
+        oo_rank_max,
         initial_cash,
         fill_clock,
         lot_base_amount,
@@ -1498,9 +1500,9 @@ export function installBacktest(q) {
         rank_strong,
         y_oo_gt0: y_oo_gt0 === true,
         y_τc_gt0: y_τc_gt0 === true,
-        oo_rank_top_frac:
-          oo_rank_top_frac != null && Number(oo_rank_top_frac) > 0
-            ? Number(oo_rank_top_frac)
+        oo_rank_max:
+          oo_rank_max != null && Number(oo_rank_max) > 0
+            ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_max))))
             : null,
         initial_cash,
         fill_clock,

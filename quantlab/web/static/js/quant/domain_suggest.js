@@ -366,7 +366,9 @@ export function installSuggest(q) {
     paintOoStatus({
       state: "ok",
       chip: "已拟合",
-      message: draftOk ? "草稿已存 · 可启用研究/执行" : "已拟合 · 草稿未落盘",
+      message: draftOk
+        ? "草稿已存 · 可启用研究（验证后再晋级执行）"
+        : "已拟合 · 草稿未落盘",
       fittedAt,
       liveOn: false,
       researchOn: draftOk,
@@ -466,8 +468,8 @@ export function installSuggest(q) {
           message: withCsZ(
             draft.exists
               ? liveOn || researchOn
-                ? "草稿已更新 · 可再启用研究/执行"
-                : "草稿已存 · 可启用研究/执行"
+                ? "草稿已更新 · 可启用研究（验证后再晋级执行）"
+                : "草稿已存 · 可启用研究（验证后再晋级执行）"
               : "已拟合"
           ),
           fittedAt,
@@ -506,7 +508,7 @@ export function installSuggest(q) {
         paintOoStatus({
           state: "ok",
           chip: "仅研究",
-          message: withCsZ("有草稿 · 尚未启用研究/执行"),
+          message: withCsZ("有草稿 · 尚未启用研究"),
           fittedAt,
           researchAt: null,
           liveAt: null,
@@ -641,9 +643,15 @@ export function installSuggest(q) {
     const roleLabel = role === "research" ? "研究套" : "执行套";
     const pathHint =
       role === "research"
-        ? "return_score_model_research.json"
-        : "return_score_model_active.json";
-    if (!window.confirm(`将 ŷ_oo 草稿写入${roleLabel}（${pathHint}）？`)) {
+        ? "草稿 → return_score_model_research.json（供回测）"
+        : "研究槽 → return_score_model_active.json（晋级；须先启用研究）";
+    if (
+      !window.confirm(
+        role === "research"
+          ? `将 ŷ_oo 草稿写入${roleLabel}（${pathHint}）？`
+          : `将当前研究套 ŷ_oo 晋级为${roleLabel}（${pathHint}）？`
+      )
+    ) {
       return;
     }
     paintOoStatus({

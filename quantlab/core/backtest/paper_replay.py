@@ -1672,14 +1672,10 @@ def _default_paper(
 
 def _load_replay_global_model() -> Any:
     try:
-        from core.research.holdout import current_scoring_model_role
-        from core.research.oo_ridge import load_return_model
+        from core.research.oo_ridge import load_scoring_return_model
 
-        # 跟回测「模型」下拉：研究 → research 文件；执行 → active（缺则回落）
-        prefer_research = current_scoring_model_role() != "live"
-        model, meta = load_return_model(
-            prefer_active=True, prefer_research=prefer_research
-        )
+        # 跟回测「模型」下拉：研究 → research；执行 → active（缺则回落）
+        model, meta = load_scoring_return_model()
         if meta.get("ok") and model is not None:
             return model
     except Exception:  # noqa: BLE001
@@ -2252,6 +2248,7 @@ def backtest_paper_replay(
     lot_strong_amount: Optional[float] = None,
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
+    oo_rank_max: Optional[int] = None,
     oo_rank_top_frac: Optional[float] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
@@ -2261,7 +2258,7 @@ def backtest_paper_replay(
 
     ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘树；缺模型的头回退 Ridge。
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行（不进买序）。
-    ``oo_rank_top_frac`` 开则入场另须 y_oo_rank < n·frac（缺 rank/n 不拦）。
+    ``oo_rank_max`` 开则入场另须 y_oo_rank < max（缺 rank 不拦）；否则可读旧 ``oo_rank_top_frac``。
     """
     from core.research.holdout import (
         current_scoring_model_role,
@@ -2299,6 +2296,7 @@ def backtest_paper_replay(
         clamp_fusion_w_co,
         coerce_rank_threshold,
         get_rank_lot_cfg,
+        oo_rank_max_from_cfg,
         oo_rank_top_frac_from_cfg,
         plan_rank_lot_day,
     )
@@ -2446,6 +2444,9 @@ def backtest_paper_replay(
         "fusion_w_oc": w_τc,
         "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
         "y_τc_gt0": False if gt0_τc is None else bool(gt0_τc),
+        "oo_rank_max": oo_rank_max_from_cfg(
+            {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
+        ),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(
             {"oo_rank_top_frac": oo_rank_top_frac}
             if oo_rank_top_frac is not None
@@ -2471,6 +2472,7 @@ def backtest_paper_replay(
     rl_cfg["rank_strong"] = strong
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
+    rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
     rl_cfg["oo_rank_top_frac"] = replay_lots.get("oo_rank_top_frac")
     rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
@@ -2977,6 +2979,7 @@ def backtest_paper_replay(
             "rank_strong": rl_cfg.get("rank_strong"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
+            "oo_rank_max": rl_cfg.get("oo_rank_max"),
             "oo_rank_top_frac": rl_cfg.get("oo_rank_top_frac"),
             "fusion_w_co": alpha,
             "fusion_w_oo": w_oo,

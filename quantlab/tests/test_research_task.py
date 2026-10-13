@@ -30,8 +30,16 @@ class _Probe:
             "fit_end": "2024-06-01",
             "eval_start": "2024-06-02",
             "oos": {"ic": 0.08, "spearman": 0.07, "model_role": "research"},
-            "return_model_research": {"model_role": "research", "zscore_means": {"f": 1.0}},
-            "return_model": {"model_role": "live"},
+            "return_model_research": {
+                "model_role": "research",
+                "zscore_means": {"f": 1.0},
+                "coefficients": {"f": 1.0},
+            },
+            "return_model": {
+                "model_role": "research",
+                "zscore_means": {"f": 1.0},
+                "coefficients": {"f": 1.0},
+            },
             "pit_fundamentals": True,
         }
 
@@ -61,8 +69,8 @@ class TestResearchTask(unittest.TestCase):
         self.assertEqual(rec["metrics"]["oos_ic"], 0.08)
         self.assertEqual(rec["metrics"]["oos_spearman"], 0.07)
         self.assertEqual(rec["metrics"]["fit_end"], "2024-06-01")
-        self.assertEqual(rec["metrics"]["research_window"], "train")
-        self.assertEqual(rec["metrics"]["live_window"], "full")
+        self.assertEqual(rec["metrics"]["research_window"], "holdout_train")
+        self.assertEqual(rec["metrics"]["live_window"], "holdout_train")
         self.assertTrue(rec["metrics"]["oos_guard_ok"])
         self.assertEqual(rec["tags"]["fundamentals_pit"], "true")
         finish_research_run("task_probe", {"lookback": 9}, report)
@@ -79,8 +87,14 @@ class TestResearchTask(unittest.TestCase):
         windows = describe_processor_windows(
             {
                 "oos": {"model_role": "live", "ic": 0.1},
-                "return_model_research": {"model_role": "research"},
-                "return_model": {"model_role": "live"},
+                "return_model_research": {
+                    "model_role": "research",
+                    "coefficients": {"a": 1.0},
+                },
+                "return_model": {
+                    "model_role": "research",
+                    "coefficients": {"a": 1.0},
+                },
             }
         )
         self.assertFalse(windows["ok"])

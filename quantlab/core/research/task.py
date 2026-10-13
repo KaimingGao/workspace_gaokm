@@ -45,10 +45,11 @@ def _scalar_config(arguments: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def describe_processor_windows(report: Dict[str, Any]) -> Dict[str, Any]:
-    """标出研究套（训练窗）和执行套（全样本）各自的标准化窗口。
+    """标出拟合报告的标准化窗口（Holdout 前训一套 β；研究/执行只是版本槽）。
 
-    样本外块若显式标明 model_role=live，视为用错了模型。
-    未标明时，只要存在 return_model_research，就记为 research。
+    样本外块若显式标明 model_role=live，视为用错了模型（OOS 应对 Holdout 前训 β）。
+    未标明时，只要存在 return_model_research / return_model，就记为 research。
+    ``live_window`` 与 ``research_window`` 同值（兼容旧实验指标键）。
     """
     rpt = report or {}
     research = rpt.get("return_model_research")
@@ -56,14 +57,16 @@ def describe_processor_windows(report: Dict[str, Any]) -> Dict[str, Any]:
     oos = rpt.get("oos") if isinstance(rpt.get("oos"), dict) else {}
     oos_role = oos.get("model_role")
     inferred = None
-    if isinstance(research, dict) and oos:
+    if (isinstance(research, dict) or isinstance(live, dict)) and oos:
         inferred = "research"
     role = oos_role or inferred
     ok = role != "live"
+    has_beta = isinstance(research, dict) or isinstance(live, dict)
+    window = "holdout_train" if has_beta else None
     return {
         "ok": ok,
-        "research_window": "train" if isinstance(research, dict) else None,
-        "live_window": "full" if isinstance(live, dict) else None,
+        "research_window": window,
+        "live_window": window,
         "oos_model_role": role,
         "fit_end": rpt.get("fit_end"),
         "eval_start": rpt.get("eval_start"),

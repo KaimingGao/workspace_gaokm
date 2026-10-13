@@ -332,9 +332,11 @@ def predict_co_tree_from_features(
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
     from core.research.horizon_tree import predict_tree_return
+    from core.signal.factors.z_co import stamp_z_co_aliases
 
     doc = model_doc if model_doc is not None else load_co_tree_model()
     if not doc:
         return None
     rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
-    return predict_tree_return(features, rm)
+    row = stamp_z_co_aliases(dict(features or {}))
+    return predict_tree_return(row, rm)

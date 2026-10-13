@@ -2660,9 +2660,10 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
     cluster: Dict[str, Any] = {}
     global_rm = None
     try:
-        from core.research.oo_ridge import load_return_model
+        from core.research.oo_ridge import load_scoring_return_model
 
-        global_rm, _meta = load_return_model(prefer_active=True)
+        # 与调仓回测同口径：研究套上下文读 research，否则 active
+        global_rm, _meta = load_scoring_return_model()
     except Exception:  # noqa: BLE001
         logger.debug("load global return model failed", exc_info=True)
     _MODEL_CACHE.clear()

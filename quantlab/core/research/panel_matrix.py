@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -160,6 +161,14 @@ def _write_breadth_columns(
             row_i += 1
 
 
+def _z_stamp_family(head: str) -> str:
+    """compact 面板 Z 前缀族：τ→z_τc_*，隔夜→z_co_*。"""
+    h = str(head or "").strip().lower()
+    if h.startswith("y_co") or h.startswith("co"):
+        return "co"
+    return "tc"
+
+
 def _absorb_stock(
     block: PanelMatrix,
     slim_panels: List[Dict[str, Any]],
@@ -170,16 +179,22 @@ def _absorb_stock(
     dates: Sequence[str],
     metas: Sequence[dict],
     slim_keys: Sequence[str],
+    z_family: str = "tc",
 ) -> None:
-    from core.signal.factors.z_tc import stamp_z_tc_rows
-
     n = len(xs)
     if n != len(ys) or n != len(dates) or n != len(metas):
         raise RuntimeError(
             f"面板行数不一致 {code}: xs={n} y={len(ys)} dates={len(dates)} metas={len(metas)}"
         )
-    # 入模列为 z_τc_*；面板仍写裸名 → 镜像后再折矩阵
-    stamp_z_tc_rows(xs)
+    # 入模列为 z_* canon；面板仍写裸名 → 镜像后再折矩阵
+    if z_family == "co":
+        from core.signal.factors.z_co import stamp_z_co_rows
+
+        stamp_z_co_rows(xs)
+    else:
+        from core.signal.factors.z_tc import stamp_z_tc_rows
+
+        stamp_z_tc_rows(xs)
     block.add_rows(xs)
     slim_panels.append(
         {
@@ -202,23 +217,39 @@ def _finish_breadth(
     n_stocks: int,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict]]:
     from core.research.tau_panel import attach_cross_section_breadth
-    from core.signal.factors.z_tc import (
-        Z_TC_LEGACY_SET,
-        stamp_z_tc_rows,
-        to_z_tc_key,
-    )
 
     enriched = attach_cross_section_breadth(
         slim_panels, gap_trigger_pct=gap_trigger_pct
     )
-    # 截面写回裸名后再镜像 z_τc_*，矩阵列与拟合键对齐
-    for panel in enriched:
-        stamp_z_tc_rows(panel.get("xs") or [])
+    z_family = _z_stamp_family(head)
+    # 截面写回裸名后再镜像 canon，矩阵列与拟合键对齐
+    if z_family == "co":
+        from core.signal.factors.z_co import (
+            Z_CO_LEGACY_SET,
+            stamp_z_co_rows,
+            to_z_co_key,
+        )
+
+        for panel in enriched:
+            stamp_z_co_rows(panel.get("xs") or [])
+        legacy_set = Z_CO_LEGACY_SET
+        to_canon = to_z_co_key
+    else:
+        from core.signal.factors.z_tc import (
+            Z_TC_LEGACY_SET,
+            stamp_z_tc_rows,
+            to_z_tc_key,
+        )
+
+        for panel in enriched:
+            stamp_z_tc_rows(panel.get("xs") or [])
+        legacy_set = Z_TC_LEGACY_SET
+        to_canon = to_z_tc_key
     write_keys = list(slim_keys)
     seen = set(write_keys)
     for k in slim_keys:
-        if k in Z_TC_LEGACY_SET:
-            canon = to_z_tc_key(k)
+        if k in legacy_set:
+            canon = to_canon(k)
             if canon not in seen:
                 seen.add(canon)
                 write_keys.append(canon)
@@ -320,6 +351,7 @@ def collect_tau_compact(
             dates=dates,
             metas=metas,
             slim_keys=slim_keys,
+            z_family="tc",
         )
         del xs
         n_stocks += 1
@@ -334,6 +366,32 @@ def collect_tau_compact(
     return X, col_names, ys_out, dates_out, metas_out, n_stocks
 
 
+def _co_panel_one(
+    item: Dict[str, Any],
+    *,
+    min_history: int,
+    include_alpha_oo: bool,
+) -> Optional[Tuple[str, list, list, list, list]]:
+    """单票 ŷ_co 面板；供线程池。样本不足返回 None。"""
+    from core.research.co_panel import collect_co_panel
+
+    if not isinstance(item, dict):
+        return None
+    code = str(item.get("code") or item.get("stock_code") or "").strip()
+    bars = list(item.get("bars") or [])
+    if len(bars) < int(min_history) + 3:
+        return None
+    xs, ys, dates, metas = collect_co_panel(
+        bars,
+        min_history=min_history,
+        stock_code=code,
+        include_alpha_oo=include_alpha_oo,
+    )
+    if len(ys) < 4:
+        return None
+    return code, xs, ys, dates, metas
+
+
 def collect_co_compact(
     stock_bars: Sequence[Dict[str, Any]],
     names: Sequence[str],
@@ -342,8 +400,38 @@ def collect_co_compact(
     gap_trigger_pct: float = 2.0,
     include_alpha_oo: bool = True,
     head: str = "y_co",
+    workers: Optional[int] = None,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
-    from core.research.co_panel import collect_co_panel
+    """隔夜 ŷ_co 紧凑面板。满池默认多线程按票建因子，再串行折进矩阵。"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    items = [it for it in (stock_bars or []) if isinstance(it, dict)]
+    n_jobs = len(items)
+    if workers is None:
+        workers = 1 if n_jobs < 4 else min(8, max(2, (os.cpu_count() or 4) // 2))
+    else:
+        workers = max(1, min(int(workers), max(1, n_jobs)))
+
+    panels: List[Optional[Tuple[str, list, list, list, list]]] = [None] * n_jobs
+    if n_jobs and workers <= 1:
+        for i, item in enumerate(items):
+            panels[i] = _co_panel_one(
+                item, min_history=min_history, include_alpha_oo=include_alpha_oo
+            )
+    elif n_jobs:
+        logger.info("co compact workers=%s stocks=%s", workers, n_jobs)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = {
+                pool.submit(
+                    _co_panel_one,
+                    item,
+                    min_history=min_history,
+                    include_alpha_oo=include_alpha_oo,
+                ): i
+                for i, item in enumerate(items)
+            }
+            for fut in as_completed(futs):
+                panels[futs[fut]] = fut.result()
 
     block = PanelMatrix(
         names, widen_prefix="raw_aoo_" if include_alpha_oo else ""
@@ -351,21 +439,10 @@ def collect_co_compact(
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
-    for item in stock_bars or []:
-        if not isinstance(item, dict):
+    for pack in panels:
+        if not pack:
             continue
-        code = str(item.get("code") or item.get("stock_code") or "").strip()
-        bars = list(item.get("bars") or [])
-        if len(bars) < min_history + 3:
-            continue
-        xs, ys, dates, metas = collect_co_panel(
-            bars,
-            min_history=min_history,
-            stock_code=code,
-            include_alpha_oo=include_alpha_oo,
-        )
-        if len(ys) < 4:
-            continue
+        code, xs, ys, dates, metas = pack
         _absorb_stock(
             block,
             slim_panels,
@@ -375,9 +452,11 @@ def collect_co_compact(
             dates=dates,
             metas=metas,
             slim_keys=slim_keys,
+            z_family="co",
         )
         del xs
         n_stocks += 1
+    del panels
     X, col_names, ys_out, dates_out, metas_out = _finish_breadth(
         block,
         slim_panels,

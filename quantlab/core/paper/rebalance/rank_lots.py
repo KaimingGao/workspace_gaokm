@@ -182,39 +182,48 @@ def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]
     return None
 
 
-def oo_rank_top_frac_from_cfg(cfg: Optional[dict]) -> Optional[float]:
-    """oo_rank 相对名次闸：开则须 y_oo_rank < n·frac（UI「rank < top 50%」→0.5）。
+def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
+    """oo_rank 绝对名次闸：开则须 y_oo_rank < max（UI「rank 入场」默认 10）。
 
-    None/≤0=关。显式 ``oo_rank_top_frac``（含 null）优先；否则旧键 ``oo_rank_max``>0 迁成 0.5。
+    None/≤0=关。缺 rank 不拦。
     """
     d = cfg if isinstance(cfg, dict) else {}
-    if "oo_rank_top_frac" in d:
-        raw = d.get("oo_rank_top_frac")
-        if raw in (None, "", False):
-            return None
-        try:
-            v = float(raw)
-        except (TypeError, ValueError):
-            return None
-        if v != v or v <= 0.0 or v > 1.0:
-            return None
-        return float(v)
-    legacy = d.get("oo_rank_max")
-    if legacy in (None, ""):
+    if "oo_rank_max" not in d:
+        return None
+    raw = d.get("oo_rank_max")
+    if raw in (None, "", False):
         return None
     try:
-        if float(legacy) > 0:
-            return 0.5
+        v = int(float(raw))
     except (TypeError, ValueError):
         return None
-    return None
-
-
-def _oo_rank_top_frac_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
-    """ŷ_oo_rank 截面名次闸：开则须 rank < n·frac。缺 rank/n 不拦。"""
-    frac = oo_rank_top_frac_from_cfg(cfg)
-    if frac is None:
+    if v <= 0:
         return None
+    return max(1, min(v, 500))
+
+
+def oo_rank_top_frac_from_cfg(cfg: Optional[dict]) -> Optional[float]:
+    """oo_rank 相对名次闸：开则须 y_oo_rank < n·frac（旧 API；UI 已改绝对「rank 入场」）。
+
+    None/≤0=关。仅读显式 ``oo_rank_top_frac``；不再把 ``oo_rank_max`` 迁成 0.5。
+    """
+    d = cfg if isinstance(cfg, dict) else {}
+    if "oo_rank_top_frac" not in d:
+        return None
+    raw = d.get("oo_rank_top_frac")
+    if raw in (None, "", False):
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if v != v or v <= 0.0 or v > 1.0:
+        return None
+    return float(v)
+
+
+def _oo_rank_from_item(item: Optional[dict]) -> Tuple[Optional[float], Optional[int]]:
+    """读当日截面名次与池大小；缺则 (None, None)。"""
     rank = None
     n_pool = None
     if isinstance(item, dict):
@@ -233,6 +242,23 @@ def _oo_rank_top_frac_skip(item: Optional[dict], cfg: Optional[dict]) -> Optiona
                 n_pool = int(raw_n)
             except (TypeError, ValueError):
                 n_pool = None
+    return rank, n_pool
+
+
+def _oo_rank_enter_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
+    """ŷ_oo_rank 名次闸：优先绝对 ``oo_rank_max``，否则相对 ``oo_rank_top_frac``。缺 rank 不拦。"""
+    mx = oo_rank_max_from_cfg(cfg)
+    if mx is not None:
+        rank, _n = _oo_rank_from_item(item)
+        if rank is None:
+            return None
+        if float(rank) >= float(mx):
+            return f"oo_rank={int(rank)}≥{int(mx)} 未过入场"
+        return None
+    frac = oo_rank_top_frac_from_cfg(cfg)
+    if frac is None:
+        return None
+    rank, n_pool = _oo_rank_from_item(item)
     if rank is None or n_pool is None or n_pool <= 0:
         return None
     thresh = float(n_pool) * float(frac)
@@ -251,7 +277,7 @@ def rank_lot_enter_skip_reason(
     """入场：ranking ≥ rank_enter；可选 y_oo>0 / y_τc>0。
 
     ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
-    过入场后可选 ``oo_rank_top_frac``：须当日截面名次 y_oo_rank < n·frac（缺 rank/n 不拦）。
+    过入场后可选 ``oo_rank_max``（须 y_oo_rank < max）或旧键 ``oo_rank_top_frac``。
     旧键 ``rank_enter_alt`` / ``y_enter_*`` 忽略。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
@@ -280,7 +306,7 @@ def rank_lot_enter_skip_reason(
     )
     if skip is not None:
         return skip
-    return _oo_rank_top_frac_skip(item, cfg_d)
+    return _oo_rank_enter_skip(item, cfg_d)
 
 
 def ranking_score(
@@ -460,6 +486,7 @@ def get_rank_lot_cfg(
         "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
+        "oo_rank_max": oo_rank_max_from_cfg(pm),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
         "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
@@ -617,7 +644,7 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    # ŷ_oo_rank：当日截面 1..n 名次；不进 ranking/买序；可选 oo_rank_top_frac 入场闸
+    # ŷ_oo_rank：当日截面 1..n 名次；不进 ranking/买序；可选 oo_rank_max / oo_rank_top_frac 入场闸
     "y_oo_rank",
     "y_oo_rank_hat",
     "predicted_score_oo_rank",
@@ -744,6 +771,8 @@ _TIP_EXPLAIN_KEYS = (
     "score_formula_terms_tau",
     "formula_terms_co",
     "score_formula_terms_co",
+    "formula_terms_oo_rank",
+    "score_formula_terms_oo_rank",
     "formula_terms_path",
     "score_formula_terms_path",
     "y_spec_tau",
@@ -758,6 +787,7 @@ _TIP_EXPLAIN_KEYS = (
     "y_oo_source",
     "y_τc_source",
     "y_co_source",
+    "score_model_role",
 )
 
 
@@ -769,13 +799,15 @@ _TIP_FORMULA_KEYS = frozenset(
         "score_formula_terms_tau",
         "formula_terms_co",
         "score_formula_terms_co",
+        "formula_terms_oo_rank",
+        "score_formula_terms_oo_rank",
         "formula_terms_path",
         "score_formula_terms_path",
     }
 )
 
 
-# y_oo / y_τc / y_co 三列 tip 同一因子条数
+# y_oo / y_τc / y_co / y_oo_rank 四列 tip 同一因子条数
 _Y_HEAD_FACTOR_N = 24
 _Y_HEAD_FORMULA_KEYS = frozenset(
     {
@@ -785,6 +817,8 @@ _Y_HEAD_FORMULA_KEYS = frozenset(
         "score_formula_terms_tau",
         "formula_terms_co",
         "score_formula_terms_co",
+        "formula_terms_oo_rank",
+        "score_formula_terms_oo_rank",
     }
 )
 
@@ -1393,6 +1427,7 @@ def plan_rank_lot_day(
         "rank_strong": rank_strong,
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
+        "oo_rank_max": oo_rank_max_from_cfg(cfg),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(cfg),
         "cash_floor": cash_floor,
         "holdings_mv_cap": mv_cap,
@@ -1439,6 +1474,7 @@ __all__ = [
     "stock_mv_cap_from_strong",
     "ranking_pct_of",
     "rank_lot_enter_skip_reason",
+    "oo_rank_max_from_cfg",
     "oo_rank_top_frac_from_cfg",
     "y_tau_of",
 ]

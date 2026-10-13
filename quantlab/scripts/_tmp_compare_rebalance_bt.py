@@ -2,8 +2,12 @@
 
 唯一 TopK = ``oo_rank_max``（默认 y_oo_rank < 38，对齐现网 top50%%）；买序/砍尾按 oo_rank；
 每只每天只加一笔，不循环加到单票帽。
+清仓：ranking<0 或 y_oo<0 或 y_τc<0，或砍尾喂首（与入场 θ 解耦）。
+回测结束会打印边诊断：买/卖腿命中幅度、整笔持仓盈亏、分票贡献。
 对齐最近一次 ``last_portfolio_backtest`` 请求参数；``persist_curve=False`` 不落盘。
 宇宙仍走观察池分档（``use_predictability_tiers=True``）。
+
+临时烟测默认：**不补今开实时报价**、**不挂基准补拉**（只吃本地日 K / 5m）。
 
 用法（在 quantlab/ 下）::
 
@@ -17,12 +21,252 @@ import argparse
 import json
 import sys
 import time
+from collections import defaultdict, deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Deque, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, ".")
 
 from scripts._tmp_topk_greedy_offline import plan_topk_greedy_day  # noqa: E402
+
+# 与 paper_replay.fuse_hit_metrics / _sign_hit_yf 对齐（百分点死区）
+_HIT_YHAT_EPS = 1e-12
+
+
+def _fnum(x: Any) -> Optional[float]:
+    if x is None or x == "":
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    if v != v:
+        return None
+    return float(v)
+
+
+def _mean(xs: Sequence[float]) -> Optional[float]:
+    if not xs:
+        return None
+    return float(sum(xs) / len(xs))
+
+
+def _sign_hit(yhat: Optional[float], realized: Optional[float]) -> Optional[bool]:
+    if yhat is None or realized is None:
+        return None
+    if abs(float(yhat)) < _HIT_YHAT_EPS:
+        return None
+    if abs(float(realized)) < 1e-12:
+        return None
+    return (float(yhat) > 0) == (float(realized) > 0)
+
+
+def _trade_yhat(row: dict) -> Optional[float]:
+    """与 fuse_hit_metrics 取 ŷ 顺序一致（只用于符号命中）。"""
+    yf = _fnum(row.get("ranking"))
+    if yf is None:
+        yf = _fnum(row.get("y_fuse"))
+    if yf is None:
+        rs = _fnum(row.get("ranking_score"))
+        if rs is not None:
+            yf = float(rs) * 100.0
+    return yf
+
+
+def _leg_edge_bucket(trades: Sequence[dict], *, side: Optional[str] = None) -> Dict[str, Any]:
+    """成交腿：命中/未命中的 realized_ranking（百分点）均值。"""
+    hit_reals: List[float] = []
+    miss_reals: List[float] = []
+    all_reals: List[float] = []
+    for r in trades or []:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("status") or "") in ("skipped", "held"):
+            continue
+        s = str(r.get("side") or "").strip().lower()
+        if s not in ("buy", "sell"):
+            continue
+        if side is not None and s != side:
+            continue
+        yf = _trade_yhat(r)
+        real = _fnum(r.get("realized_ranking"))
+        hit = _sign_hit(yf, real)
+        if hit is None or real is None:
+            continue
+        all_reals.append(float(real))
+        if hit:
+            hit_reals.append(float(real))
+        else:
+            miss_reals.append(float(real))
+    n = len(all_reals)
+    n_hit = len(hit_reals)
+    n_miss = len(miss_reals)
+    return {
+        "n": n,
+        "n_hit": n_hit,
+        "n_miss": n_miss,
+        "hit_rate_pct": round(n_hit / n * 100.0, 1) if n else None,
+        "mean_realized_pct": round(_mean(all_reals), 4) if all_reals else None,
+        "mean_hit_realized_pct": round(_mean(hit_reals), 4) if hit_reals else None,
+        "mean_miss_realized_pct": round(_mean(miss_reals), 4) if miss_reals else None,
+        # 粗期望（等权腿）：p*E[r|hit]+(1-p)*E[r|miss]；r 为百分点
+        "edge_pct": (
+            round(
+                (n_hit / n) * float(_mean(hit_reals) or 0.0)
+                + (n_miss / n) * float(_mean(miss_reals) or 0.0),
+                4,
+            )
+            if n and hit_reals and miss_reals
+            else (round(float(_mean(all_reals)), 4) if all_reals else None)
+        ),
+    }
+
+
+def _roundtrip_edge(trades: Sequence[dict]) -> Dict[str, Any]:
+    """FIFO 撮合买→卖：整笔持仓收益%与持有天数（用成交价，未再扣费）。"""
+    lots: Dict[str, Deque[Tuple[str, float, float]]] = defaultdict(deque)
+    rets: List[float] = []
+    hold_days: List[float] = []
+    wins: List[float] = []
+    losses: List[float] = []
+    # 优先用账本 sell.pnl_pct（若有）
+    ledger_pnls: List[float] = []
+
+    def _day(r: dict) -> str:
+        return str(r.get("as_of") or r.get("signal_date") or r.get("date") or "")[:10]
+
+    filled = [
+        r
+        for r in (trades or [])
+        if isinstance(r, dict)
+        and str(r.get("status") or "") not in ("skipped", "held")
+        and str(r.get("side") or "").lower() in ("buy", "sell")
+    ]
+    filled.sort(key=lambda r: (_day(r), 0 if str(r.get("side")).lower() == "buy" else 1))
+
+    for r in filled:
+        code = str(r.get("stock_code") or "").strip()
+        if not code:
+            continue
+        side = str(r.get("side") or "").lower()
+        px = _fnum(r.get("price"))
+        sh = _fnum(r.get("shares"))
+        if px is None or sh is None or px <= 0 or sh <= 0:
+            continue
+        day = _day(r)
+        if side == "buy":
+            lots[code].append((day, float(px), float(sh)))
+            continue
+        # sell
+        pnl_ledger = _fnum(r.get("pnl_pct"))
+        if pnl_ledger is None:
+            pnl_ledger = _fnum(r.get("return_pct"))
+        if pnl_ledger is not None:
+            ledger_pnls.append(float(pnl_ledger))
+
+        remain = float(sh)
+        while remain > 1e-9 and lots[code]:
+            bday, bpx, bsh = lots[code][0]
+            take = min(remain, bsh)
+            ret = (float(px) / float(bpx) - 1.0) * 100.0
+            rets.append(ret)
+            if ret >= 0:
+                wins.append(ret)
+            else:
+                losses.append(ret)
+            try:
+                from datetime import date as _date
+
+                d0 = _date.fromisoformat(bday[:10])
+                d1 = _date.fromisoformat(day[:10])
+                hold_days.append(float((d1 - d0).days))
+            except ValueError:
+                pass
+            if take + 1e-9 >= bsh:
+                lots[code].popleft()
+            else:
+                lots[code][0] = (bday, bpx, bsh - take)
+            remain -= take
+
+    src = ledger_pnls if ledger_pnls else rets
+    n = len(src)
+    n_win = sum(1 for x in src if x > 0)
+    n_loss = sum(1 for x in src if x < 0)
+    return {
+        "n_roundtrip": n,
+        "win_rate_pct": round(n_win / n * 100.0, 1) if n else None,
+        "mean_pnl_pct": round(_mean(src), 4) if src else None,
+        "mean_win_pct": round(_mean([x for x in src if x > 0]), 4) if n_win else None,
+        "mean_loss_pct": round(_mean([x for x in src if x < 0]), 4) if n_loss else None,
+        "mean_hold_days": round(_mean(hold_days), 2) if hold_days else None,
+        "pnl_source": "ledger_pnl_pct" if ledger_pnls else "fifo_price",
+    }
+
+
+def _stock_contrib_edge(result: Dict[str, Any]) -> Dict[str, Any]:
+    rows = result.get("stock_contrib") or []
+    pnls = [_fnum(r.get("pnl")) for r in rows if isinstance(r, dict)]
+    pnls_f = [float(p) for p in pnls if p is not None]
+    if not pnls_f:
+        return {"n_stocks": 0}
+    pos = [p for p in pnls_f if p > 0]
+    neg = [p for p in pnls_f if p < 0]
+    return {
+        "n_stocks": len(pnls_f),
+        "n_pos": len(pos),
+        "n_neg": len(neg),
+        "sum_pnl": round(sum(pnls_f), 2),
+        "sum_pos": round(sum(pos), 2) if pos else 0.0,
+        "sum_neg": round(sum(neg), 2) if neg else 0.0,
+        "mean_pnl": round(_mean(pnls_f), 2),
+    }
+
+
+def _edge_diagnostics(result: Dict[str, Any]) -> Dict[str, Any]:
+    trades = result.get("sim_trades") or result.get("trades") or []
+    return {
+        "legs_all": _leg_edge_bucket(trades, side=None),
+        "legs_buy": _leg_edge_bucket(trades, side="buy"),
+        "legs_sell": _leg_edge_bucket(trades, side="sell"),
+        "roundtrip": _roundtrip_edge(trades),
+        "stock_contrib": _stock_contrib_edge(result),
+    }
+
+
+def _print_edge_diagnostics(label: str, result: Dict[str, Any]) -> None:
+    d = _edge_diagnostics(result)
+    print(f"\n----- 边诊断 · {label} -----")
+
+    def _line(tag: str, b: Dict[str, Any]) -> None:
+        if not b.get("n"):
+            print(f"  {tag}: 无有效腿")
+            return
+        print(
+            f"  {tag}: n={b['n']} 命中={b['n_hit']}/{b['n']} ({b['hit_rate_pct']}%) "
+            f"E[r]={b['mean_realized_pct']} 命中均r={b['mean_hit_realized_pct']} "
+            f"未中均r={b['mean_miss_realized_pct']} 粗期望={b['edge_pct']}（实现%点）"
+        )
+
+    _line("全部腿", d["legs_all"])
+    _line("买腿", d["legs_buy"])
+    _line("卖腿", d["legs_sell"])
+    rt = d["roundtrip"]
+    if rt.get("n_roundtrip"):
+        print(
+            f"  整笔持仓({rt['pnl_source']}): n={rt['n_roundtrip']} "
+            f"胜率={rt['win_rate_pct']}% 均盈亏={rt['mean_pnl_pct']}% "
+            f"赚均={rt['mean_win_pct']}% 亏均={rt['mean_loss_pct']}% "
+            f"均持有天={rt['mean_hold_days']}"
+        )
+    else:
+        print("  整笔持仓: 无撮合样本")
+    sc = d["stock_contrib"]
+    if sc.get("n_stocks"):
+        print(
+            f"  分票贡献: 票={sc['n_stocks']} 盈票={sc['n_pos']} 亏票={sc['n_neg']} "
+            f"Σpnl={sc['sum_pnl']} Σ盈={sc['sum_pos']} Σ亏={sc['sum_neg']} "
+            f"均pnl={sc['mean_pnl']}"
+        )
 
 
 def _load_last_request() -> Dict[str, Any]:
@@ -120,6 +364,7 @@ def _make_greedy_adapter(
     stock_cap: float,
     allowed_tiers: Optional[Sequence[str]],
     oo_rank_max: Optional[int] = 38,
+    cut_tail: bool = True,
 ):
     from core.paper.rebalance import rank_lots as rl
 
@@ -265,6 +510,7 @@ def _make_greedy_adapter(
             add_max=float(add_max),
             stock_cap=float(stock_cap),
             allowed_tiers=allowed_tiers,
+            cut_tail=bool(cut_tail),
         )
         sells = []
         for s in plan.sells:
@@ -315,10 +561,23 @@ def _make_greedy_adapter(
 
 
 def _run_portfolio(**kwargs) -> Dict[str, Any]:
+    """临时 TopK：跳过会话日补今开（batch_get_quotes）与基准缺票补拉。"""
     from quant.services.quant_service import QuantService
+    import core.backtest.paper_replay as pr
 
-    svc = QuantService()
-    return svc.run_portfolio_backtest(persist_curve=False, **kwargs)
+    kwargs.setdefault("include_benchmark", False)
+    kwargs.setdefault("persist_curve", False)
+
+    orig_overlay = pr.overlay_session_day_bars
+
+    def _no_session_overlay(stock_bars, **_kw):
+        return stock_bars, None, 0
+
+    pr.overlay_session_day_bars = _no_session_overlay  # type: ignore[assignment]
+    try:
+        return QuantService().run_portfolio_backtest(**kwargs)
+    finally:
+        pr.overlay_session_day_bars = orig_overlay
 
 
 def main() -> None:
@@ -357,6 +616,11 @@ def main() -> None:
         type=float,
         default=0.5,
         help="新方案 ranking 入场（默认 0.5 表示 0.5%%；也可传净收益 0.005）",
+    )
+    ap.add_argument(
+        "--no-cut-tail",
+        action="store_true",
+        help="关闭砍尾喂首（现金不够则跳过，不卖队尾）",
     )
     args = ap.parse_args()
 
@@ -438,11 +702,13 @@ def main() -> None:
         "use_predictability_tiers": True,
         "predictability_tiers": ["A"],
         "price_space_gate": bool(req.get("price_space_gate", True)),
-        "score_model_role": req.get("score_model_role") or "research",
+        # 临时烟测固定 research，避免 last 落盘成 live 把结果冲偏
+        "score_model_role": "research",
         "score_backend": str(
             live_lots.get("score_backend") or req.get("score_backend") or "ridge"
         ),
-        "include_benchmark": True,
+        # 临时烟测：不挂基准、不补拉远端行情
+        "include_benchmark": False,
         "benchmark_code": str(req.get("benchmark_code") or "pool"),
     }
     # 新方案手数上界跟现网强档金额对齐（add_max=base，stock_cap=strong）
@@ -465,6 +731,7 @@ def main() -> None:
                 "add_max": args.add_max,
                 "stock_cap": args.stock_cap,
                 "oo_rank_max": int(args.oo_rank_max),
+                "cut_tail": not bool(args.no_cut_tail),
                 "fusion_w_oo": common["fusion_w_oo"],
                 "fusion_w_oc": common["fusion_w_oc"],
                 "fusion_w_co": common["fusion_w_co"],
@@ -508,8 +775,10 @@ def main() -> None:
 
     # —— 新方案：打补丁替换日计划 ——
     oo_max = int(args.oo_rank_max)
+    cut_on = not bool(args.no_cut_tail)
     print(
-        f"\n新方案：greedy 按 oo_rank 一天一笔 + 不够砍尾 "
+        f"\n新方案：greedy 按 oo_rank 一天一笔 + "
+        f"{'不够砍尾' if cut_on else '砍尾关'} "
         f"TopK=oo_rank<{oo_max if oo_max > 0 else '关'} "
         f"add_max={args.add_max:g} stock_cap={args.stock_cap:g} "
         f"rank_enter={greedy_enter*100:g}% lookback={args.lookback} …",
@@ -524,6 +793,7 @@ def main() -> None:
         # 宇宙已按枢纽 A 档过滤；日计划不再二次踢档，避免缺字段误杀
         allowed_tiers=None,
         oo_rank_max=oo_max if oo_max > 0 else None,
+        cut_tail=cut_on,
     )
     greedy_common = dict(common)
     greedy_common["rank_enter"] = greedy_enter
@@ -559,6 +829,8 @@ def main() -> None:
     ):
         dret = float(rows[1]["total_return_pct"]) - float(rows[0]["total_return_pct"])
         print(f"\nΔ收益 = 新 − 现网 = {dret:+.2f}%")
+    if not args.greedy_only and base.get("success") and (base.get("sim_trades") or []):
+        _print_edge_diagnostics("现网 rank_lots", base)
     if new.get("success"):
         m = new.get("metrics") or {}
         print(
@@ -567,11 +839,12 @@ def main() -> None:
             f"回撤={m.get('max_drawdown_pct')}%",
             f"成交={m.get('trade_count') or len(new.get('sim_trades') or [])}",
             f"命中n={m.get('hit_n')}",
-            f"命中率={m.get('hit_rate')}",
+            f"命中率={m.get('hit_rate_pct')}",
         )
         note = (new.get("params") or {}).get("note") or new.get("note")
         if note:
             print("新方案 note:", str(note)[:240])
+        _print_edge_diagnostics("新 topK贪心", new)
     else:
         print("新方案失败:", new.get("error") or new)
 

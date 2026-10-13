@@ -159,9 +159,9 @@ class TestFactorOlsPool(unittest.TestCase):
 
     def test_research_panel_computes_beyond_regime_core(self):
         """全量注册因子应出现在面板（不因 regime 白名单整列变 None）。"""
-        from quant.research.factor_ols import collect_subscore_forward_panel
+        from quant.research.factor_ols import collect_oo_panel
 
-        xs, ys, _dates = collect_subscore_forward_panel(
+        xs, ys, _dates = collect_oo_panel(
             rising_bars(_OLS_BARS_N), horizon_days=3
         )
         self.assertGreater(len(ys), 10)

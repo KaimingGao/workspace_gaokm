@@ -23,6 +23,11 @@ from core.research.tau_panel import (
     yclose_loc_from_prev,
     yest_gap_from_hist,
 )
+from core.signal.factors.z_co import (
+    Z_CO_FIT_FEATURES,
+    Z_CO_LEGACY_KEYS,
+    stamp_z_co_aliases,
+)
 
 try:
     from core.event_prior import _parse_open_price
@@ -65,22 +70,11 @@ CO_LAG_FEAT_LABELS = {
     "on_ma5": "近5日隔夜缺口均 %",
 }
 
-# 手造 Z；raw_aoo_* 为动态附加列（见 inject_alpha_oo_into_row / inject_raw_aoo）
+# 手造 Z（canon ``z_co_*``）；面板仍写裸名，``stamp_z_co_aliases`` 镜像。
+# raw_aoo_* 为动态附加列（见 inject_alpha_oo_into_row / inject_raw_aoo）
 # mom3 / 昨振幅已进 alpha_oo（raw_aoo_MOM3_C / YRANGE_PCT）；勿再进 Z，防与 aoo 双计
-CO_Z_FEATURES = (
-    "ret_oc",
-    "gap_pct",
-    "ret_cc",
-    "y_on_today",
-    "sector_gap_breadth",
-    "theme_day",
-    "gap_atr",
-    "gap_vs_sector",
-    "yclose_loc",
-    "yest_close_loc",
-    "yest_vol_ratio",
-    "dist_to_up_limit",
-) + CO_LAG_FEATURES
+CO_Z_FEATURES = Z_CO_FIT_FEATURES
+CO_Z_LEGACY = Z_CO_LEGACY_KEYS
 
 
 def inject_alpha_oo_into_row(
@@ -303,13 +297,14 @@ def intraday_co_feature_row(
         "yest_gap": lags.get("yest_gap"),
         "on_ma5": lags.get("on_ma5"),
     }
-    return inject_alpha_oo_into_row(
+    out = inject_alpha_oo_into_row(
         row,
         hist,
         include_alpha_oo=include_alpha_oo,
         open_t=open_t,
         prev_close=float(prev_close) if prev_close and prev_close > 0 else None,
     )
+    return stamp_z_co_aliases(out)
 
 
 def collect_co_panel(
@@ -517,6 +512,7 @@ __all__ = [
     "CO_LAG_FEATURES",
     "CO_LAG_FEAT_LABELS",
     "CO_Z_FEATURES",
+    "CO_Z_LEGACY",
     "build_co_features_from_quote_bars",
     "collect_co_panel",
     "dist_to_up_limit_pct",

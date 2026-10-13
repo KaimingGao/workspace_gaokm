@@ -267,11 +267,6 @@ def fit_horizon_ridge_report(
         else None
     )
     feat_names = [k for k in z_features if k not in TAU_FIT_DROP_ALIASES]
-    w_all = (
-        theme_sample_weights(metas, theme_boost=theme_boost)
-        if use_theme_weights
-        else None
-    )
     use_cs = bool(cross_section_zscore)
     packed = train_eval_horizon_prob(
         xs_tr,
@@ -279,16 +274,12 @@ def fit_horizon_ridge_report(
         xs_te,
         ys_te,
         metas_te,
-        xs_z,
-        ys,
         feat_names=feat_names,
         ridge_lambda=ridge_lambda,
         weights=weights,
-        weights_all=w_all,
         min_std_exempt=min_std_exempt,
         dates_tr=[dates[i] for i in train_idx] if use_cs else None,
         dates_te=[dates[i] for i in test_idx] if use_cs else None,
-        dates_all=dates if use_cs else None,
         cross_section_zscore=use_cs,
     )
     oos: Dict[str, Any] = dict(packed.get("oos_core") or {})
@@ -312,7 +303,7 @@ def fit_horizon_ridge_report(
         }
     )
     try:
-        from core.research.panel import feature_fill_rates
+        from core.research.oo_panel import feature_fill_rates
 
         oos["feature_fill"] = feature_fill_rates(xs_z, z_features)
     except Exception:  # noqa: BLE001
@@ -325,7 +316,6 @@ def fit_horizon_ridge_report(
         "rows_per_day": round(len(ys) / max(1, len({str(d)[:10] for d in dates})), 2),
     }
 
-    research_model = dict(packed.get("research_model") or {})
     model = dict(packed.get("model") or {})
     model["horizon_mode"] = target
     model["target"] = target
@@ -354,19 +344,8 @@ def fit_horizon_ridge_report(
     }
     model["minute_tau_hm"] = live_hm
     model["tau_grid"] = list(grid)
-    model["model_role"] = "live"
+    model["model_role"] = "research"
     model["head_kind"] = "prob"
-    for k in (
-        "y_spec",
-        "extra_features",
-        "feat_labels",
-        "horizon_mode",
-        "target",
-        "minute_tau_hm",
-        "tau_grid",
-        "head_kind",
-    ):
-        research_model[k] = model.get(k)
 
     report = {
         "success": True,
@@ -375,7 +354,7 @@ def fit_horizon_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
-        "return_model_research": research_model,
+        "return_model_research": model,
         "schema": schema,
         "target": target,
         "minute_tau_hm": live_hm,
@@ -495,21 +474,46 @@ def persist_ridge_model(
     role: str = "live",
 ) -> Dict[str, Any]:
     from core.research.holdout import (
+        MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
         model_fit_id,
+        normalize_model_role,
+        require_research_suite,
         research_model_path,
-        select_persist_return_model,
+        select_fit_return_model,
         stamp_fitted_at,
+        stamp_live_suite_doc,
     )
 
     cfg = _horizon_ridge_config(head)
     h = cfg["head"]
     schema = cfg["schema"]
     dual_score_head = cfg["dual_score_head"]
+    live_path = ridge_model_path(h)
+    role_n = normalize_model_role(role)
+
+    if role_n == MODEL_ROLE_LIVE:
+        research_doc, err = require_research_suite(live_path)
+        if err:
+            return err
+        doc = stamp_live_suite_doc(
+            research_doc, note=note or f"{h}_ridge research → live promote"
+        )
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        atomic_write_json(live_path, doc)
+        _RIDGE_MODEL_CACHE.pop(h, None)
+        return {
+            "success": True,
+            "path": live_path,
+            "promoted_at": doc.get("promoted_at"),
+            "fitted_at": doc.get("fitted_at"),
+            "model_role": MODEL_ROLE_LIVE,
+            "promoted_from": "research",
+        }
 
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
-    role_n, rm = select_persist_return_model(report, role=role)
+    rm = select_fit_return_model(report)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
     gate = horizon_promote_gate(report)
@@ -523,11 +527,13 @@ def persist_ridge_model(
 
     stamp_fitted_at(report)
     fitted_at = model_fit_id(report)
+    rm = dict(rm)
+    rm["model_role"] = MODEL_ROLE_RESEARCH
     doc = {
         "success": True,
         "fitted_at": fitted_at,
         "promoted_at": now_iso_utc(),
-        "note": note or f"{h}_ridge promote",
+        "note": note or f"{h}_ridge promote research",
         "return_model": rm,
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
@@ -536,17 +542,13 @@ def persist_ridge_model(
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
         "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
-        "model_role": role_n,
+        "model_role": MODEL_ROLE_RESEARCH,
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
         "dual_score_head": dual_score_head,
     }
-    path = (
-        research_model_path(ridge_model_path(h))
-        if role_n == MODEL_ROLE_RESEARCH
-        else ridge_model_path(h)
-    )
+    path = research_model_path(live_path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     _RIDGE_MODEL_CACHE.pop(h, None)

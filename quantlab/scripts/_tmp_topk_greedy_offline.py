@@ -1,18 +1,21 @@
-"""离线临时验证：入场闸 → 按 ranking 排序开/加 → 先花光再砍尾喂头。
+"""离线临时验证：入场闸 → 按 oo_rank 开/加 → 不够砍尾喂首。
 
 不改产品调仓、不写 paper / last_*.json。纯内存合成场景。
 
-入场（均须过，决定「可持 / 可买」）：
+入场（决定「可买 / 可加」；≠清仓闸）：
   - ranking > θ（默认 0.5%）
   - y_oo > 0（缺分不拦）
   - y_τc > 0（缺分不拦）
   - **唯一 TopK**：y_oo_rank < oo_rank_max（默认 38，对齐现网 top50%≈n·0.5；缺 rank 不拦；≤0=关）
     不另按 ranking score 截前 K。
 
-路径（相对现网 rank_lots 的差异点）：
+清仓（与入场解耦）：
+  - ranking < 0 或 y_oo < 0 或 y_τc < 0（缺分不卖）
+  - 或砍尾喂首；另：hard_reject / 分档掉档
+
+路径：
   - 过入场即可开/加；按 **oo_rank 升序**扫，**每只每天只加一笔**（≤add_max）
   - 该笔现金不够时，按 oo_rank 从差到好砍尾，凑够后再加这一笔（不加第二笔）
-  - 未过入场 / hard_reject / 掉档：清仓
 
 用法（在 quantlab/ 下）::
 
@@ -93,18 +96,22 @@ def plan_topk_greedy_day(
     stock_cap: float = DEFAULT_STOCK_CAP,
     lot_min: int = LOT_MIN,
     allowed_tiers: Optional[Sequence[str]] = None,
+    cut_tail: bool = True,
 ) -> PlanResult:
     """入场闸 → 按 oo_rank 扫一轮开/加（每只一天一笔）→ 不够则砍尾凑这一笔。
 
     过入场即可买/加。唯一 TopK 是 ``oo_rank_max``（y_oo_rank < max）；None/≤0=关；缺 rank 不拦。
     买序/砍尾均按 oo_rank 升序（小更好）；缺 oo_rank 时回退 ranking 降序。
-    无「循环加到单票帽」；无减仓、涨超不加；掉档/未过入场才清仓。
+    清仓：ranking<0 / y_oo<0 / y_τc<0（缺分不卖）或砍尾喂首；另 hard_reject / 掉档。
+    未过入场θ（如 0<ranking≤θ、掉出 TopK）不单独清仓，可续持。
+    ``cut_tail=False`` 时现金不够则跳过/停扫，不卖队尾喂首。
     """
     out = PlanResult()
     cash_sim = float(cash or 0.0)
     theta = float(rank_enter)
     add_max = float(add_max)
     stock_cap = float(stock_cap)
+    do_cut = bool(cut_tail)
     allow = _norm_tiers(allowed_tiers)
     try:
         oo_max = int(oo_rank_max) if oo_rank_max is not None else 0
@@ -259,18 +266,35 @@ def plan_topk_greedy_day(
     else:
         out.notes.append("分档闸=关（不过滤）")
 
-    # 1–2) 入场池：过入场即可买/加；唯一 TopK = oo_rank
+    # 1–2) 入场池：过入场即可买/加；唯一 TopK = oo_rank（≠清仓闸）
     oo_note = f" ∧ oo_rank<{oo_max}(TopK)" if oo_max > 0 else " ∧ oo_rank闸关"
+    cut_note = "砍尾开" if do_cut else "砍尾关"
     out.notes.append(
         f"入场闸=ranking>θ ∧ y_oo>0 ∧ y_τc>0{oo_note}；"
-        "过入场按 oo_rank 一天一笔；不够则砍尾凑这一笔"
+        f"清仓=ranking<0∨y_oo<0∨y_τc<0"
+        f"{'∨砍尾' if do_cut else ''}；{cut_note}；过入场按 oo_rank 一天一笔"
     )
-    enter_fail: Dict[str, str] = {}
+
+    def _exit_why(code: str) -> Optional[str]:
+        """信号清仓：ranking<0 / y_oo<0 / y_τc<0；缺分不卖。另 hard_reject。"""
+        it = item_by.get(code) or {}
+        if it.get("hard_reject"):
+            return "hard_reject"
+        rs = _ranking(code)
+        if rs is not None and float(rs) < 0.0:
+            return f"ranking={float(rs)*100:.3f}%<0"
+        y_oo = _y_oo(code)
+        if y_oo is not None and float(y_oo) < 0.0:
+            return f"y_oo={float(y_oo):.3f}<0"
+        y_τc = _y_τc(code)
+        if y_τc is not None and float(y_τc) < 0.0:
+            return f"y_τc={float(y_τc):.3f}<0"
+        return None
+
     pool: List[str] = []
     for code, it in item_by.items():
         if allow is not None and not _tier_ok(code):
             why = f"分档{_tier(code) or '缺档'}∉{allow}"
-            enter_fail[code] = why
             out.skips.append(
                 {
                     "stock_code": code,
@@ -280,34 +304,30 @@ def plan_topk_greedy_day(
             )
             continue
         if it.get("hard_reject"):
-            why = "hard_reject"
-            enter_fail[code] = why
-            out.skips.append({"stock_code": code, "reason": why})
+            out.skips.append({"stock_code": code, "reason": "hard_reject"})
             continue
         rs = _ranking(code)
         if rs is None:
-            why = "ranking 缺失"
-            enter_fail[code] = why
-            out.skips.append({"stock_code": code, "reason": why})
+            out.skips.append({"stock_code": code, "reason": "ranking 缺失"})
             continue
         if float(rs) <= theta:
-            why = f"ranking={float(rs)*100:.3f}%≤θ={theta*100:g}%"
-            enter_fail[code] = why
-            out.skips.append({"stock_code": code, "reason": why})
+            out.skips.append(
+                {
+                    "stock_code": code,
+                    "reason": f"ranking={float(rs)*100:.3f}%≤θ={theta*100:g}%",
+                }
+            )
             continue
         skip_oo = _pos_gt0_skip(_y_oo(code), "y_oo")
         if skip_oo:
-            enter_fail[code] = skip_oo
             out.skips.append({"stock_code": code, "reason": skip_oo})
             continue
         skip_τc = _pos_gt0_skip(_y_τc(code), "y_τc")
         if skip_τc:
-            enter_fail[code] = skip_τc
             out.skips.append({"stock_code": code, "reason": skip_τc})
             continue
         skip_or = _oo_rank_skip(code)
         if skip_or:
-            enter_fail[code] = skip_or
             out.skips.append({"stock_code": code, "reason": skip_or})
             continue
         pool.append(code)
@@ -317,15 +337,15 @@ def plan_topk_greedy_day(
     out.candidate = list(cand)
     out.notes.append(f"|eligible开加|={len(cand)}（按 oo_rank 升序）")
 
-    # 3) 仅未过入场 → 清仓；过入场续持（稍后按序开/加）
+    # 3) 信号清仓（与入场θ/TopK 解耦）；过入场续持并稍后开/加
     for code in list(held_sh.keys()):
         sh = float(held_sh.get(code) or 0)
         if sh <= 0:
             continue
-        if code in cand_set:
+        why = _exit_why(code)
+        if why is None:
             continue
         px = _px(code)
-        why = enter_fail.get(code) or "未过入场清仓"
         if px is None:
             out.skips.append(
                 {"stock_code": code, "side": "sell", "reason": f"{why}·无报价"}
@@ -474,6 +494,15 @@ def plan_topk_greedy_day(
             continue
         if _try_buy_once(code, "正向加仓"):
             continue
+        if not do_cut:
+            out.skips.append(
+                {
+                    "stock_code": code,
+                    "side": "buy",
+                    "reason": "现金不足·砍尾关跳过",
+                }
+            )
+            continue
         min_cost = _min_lot_cost(code)
         if min_cost is not None and cash_sim + 1e-6 < min_cost:
             if not _cut_tails_until_afford(code):
@@ -510,7 +539,7 @@ def plan_topk_greedy_day(
                 "stock_code": code,
                 "shares": sh,
                 "mv": round(_mv(code, sh), 2),
-                "reason": "过入场续持",
+                "reason": "信号续持",
                 "y_oo_rank": (item_by.get(code) or {}).get("y_oo_rank"),
             }
         )
@@ -560,17 +589,18 @@ def _with_tier(rows: List[dict], tier: str = "A") -> List[dict]:
 
 
 def scenario_outside_cleared() -> None:
-    """未过入场才清仓；过入场均可开/加（可被砍尾喂头卖掉）。"""
+    """信号清仓 ranking<0；0<ranking≤θ 续持不加；过入场可开/加。"""
     scored = _with_tier(
         [
             {"stock_code": "A", "ranking": 0.02},
             {"stock_code": "B", "ranking": 0.015},
             {"stock_code": "Z", "ranking": 0.01},  # 过入场，排序靠后
-            {"stock_code": "W", "ranking": 0.001},  # 未过入场
+            {"stock_code": "W", "ranking": -0.001},  # ranking<0 → 清仓
+            {"stock_code": "H", "ranking": 0.001},  # 未过θ但不负 → 续持
         ]
     )
-    prices = {"A": 10.0, "B": 10.0, "Z": 10.0, "W": 10.0}
-    holdings = {"Z": 1000.0, "W": 1000.0}
+    prices = {"A": 10.0, "B": 10.0, "Z": 10.0, "W": 10.0, "H": 10.0}
+    holdings = {"Z": 1000.0, "W": 1000.0, "H": 1000.0}
     cash = 50_000.0
     plan = plan_topk_greedy_day(
         scored=scored,
@@ -582,11 +612,13 @@ def scenario_outside_cleared() -> None:
         rank_enter=0.005,
         allowed_tiers=None,
     )
-    _print_plan("S1 过入场可开加 + 未过入场清仓", plan)
+    _print_plan("S1 过入场可开加 + ranking<0 清仓", plan)
     assert plan.candidate == ["A", "B", "Z"]
-    assert any(s["stock_code"] == "W" for s in plan.sells), "W 未过入场应清仓"
+    assert any(s["stock_code"] == "W" for s in plan.sells), "W ranking<0 应清仓"
+    assert not any(s["stock_code"] == "H" for s in plan.sells), "H 未过θ但≥0 应续持"
     h2 = plan.holdings_after
     assert "W" not in h2
+    assert "H" in h2
     # 一天一笔：A 只加 add_max=2 万，不循环加到单票帽
     assert abs(h2.get("A", 0) * 10.0 - 20_000.0) < 1e-6, h2
     assert sum(1 for b in plan.buys if b.get("stock_code") == "A") == 1
@@ -690,7 +722,7 @@ def scenario_filter_enter() -> None:
 
 
 def scenario_y_sign_gates() -> None:
-    """y_oo>0 / y_τc>0：符号闸挡住否则 ranking 够格的票。"""
+    """y_oo/y_τc：入场挡新开；持仓 y<0 则清仓。"""
     scored = [
         {"stock_code": "A", "ranking": 0.02, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 1},
         {"stock_code": "B", "ranking": 0.03, "y_oo": -0.1, "y_τc": 0.5, "y_oo_rank": 2},
@@ -698,7 +730,7 @@ def scenario_y_sign_gates() -> None:
     ]
     plan = plan_topk_greedy_day(
         scored=scored,
-        holdings=[],
+        holdings=_holdings_rows({"B": 1000.0, "C": 1000.0}),
         cash=50_000.0,
         prices={"A": 10.0, "B": 10.0, "C": 10.0},
         rank_enter=0.005,
@@ -707,6 +739,8 @@ def scenario_y_sign_gates() -> None:
     )
     _print_plan("S5 y_oo/y_τc 符号闸", plan)
     assert plan.candidate == ["A"], plan.candidate
+    assert any(s["stock_code"] == "B" for s in plan.sells), "B y_oo<0 应清仓"
+    assert any(s["stock_code"] == "C" for s in plan.sells), "C y_τc<0 应清仓"
     assert "B" not in plan.holdings_after and "C" not in plan.holdings_after
     print("OK S5")
 

@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.research.panel import collect_subscore_forward_panel
+from core.research.oo_panel import collect_oo_panel
 from core.signal.factors.meta.corr import pearson_with_reason
 
 
@@ -19,7 +19,7 @@ def compute_alt_sentiment_ic(
     code = str(stock_code or "").strip()
     if not code:
         return {"success": False, "error": "缺 stock_code", "factor": "alt_sentiment"}
-    xs, ys, _dates = collect_subscore_forward_panel(
+    xs, ys, _dates = collect_oo_panel(
         bars,
         horizon_days=horizon_days,
         index_bars=index_bars,

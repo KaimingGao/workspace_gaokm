@@ -189,9 +189,9 @@ class OoPanelMatrix:
 
 
 def _fill_stock(panel: OoPanelMatrix, code: str, bars: Sequence[dict], horizon_days: int) -> None:
-    from core.research.panel import collect_subscore_forward_panel
+    from core.research.oo_panel import collect_oo_panel
 
-    xs, ys, dates = collect_subscore_forward_panel(
+    xs, ys, dates = collect_oo_panel(
         list(bars),
         horizon_days=horizon_days,
         stock_code=code,
@@ -201,10 +201,20 @@ def _fill_stock(panel: OoPanelMatrix, code: str, bars: Sequence[dict], horizon_d
 
 
 def _oo_stock_job(
-    job: Tuple[str, List[dict], int, bool],
+    job: Tuple[Any, ...],
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
-    """子进程入口：一只股票折成矩阵后返回，字典不回传父进程。"""
-    code, bars, horizon, ridge_core_only = job
+    """子进程入口：一只股票折成矩阵后返回，字典不回传父进程。
+
+    兼容 3 元组 ``(code, bars, horizon)`` 与 4 元组 ``(..., ridge_core_only)``：
+    父进程未重启、子进程已加载新代码时，旧 3 元组不再炸 unpack。
+    """
+    if not isinstance(job, (tuple, list)) or len(job) < 3:
+        raise ValueError(f"ŷ_oo stock job 形状异常: {type(job)!r} len={len(job) if isinstance(job, (tuple, list)) else '?'}")
+    if len(job) == 3:
+        code, bars, horizon = job
+        ridge_core_only = False
+    else:
+        code, bars, horizon, ridge_core_only = job[0], job[1], job[2], job[3]
     try:
         panel = OoPanelMatrix(ridge_core_only=bool(ridge_core_only))
         _fill_stock(panel, str(code), bars or [], int(horizon))

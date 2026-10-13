@@ -1657,8 +1657,8 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge；默认整观察池，可选只训 A 档。
 
-        成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_top_frac 入场闸。
-        ``persist=True`` 按 Holdout NDCG@K 自动选更强 backend 写入研究/执行套，不重训。
+        成交明细 rank=1..n；不进 ranking/买序；可选 oo_rank_max 入场闸。
+        ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
         """
         from core.data.facade import bars_and_source
         from core.research.oo_rank_panel import resolve_oo_rank_universe
@@ -1779,6 +1779,8 @@ class QuantFactorMixin:
                     rank_m.get("topk_mean_y_oo"), ridge_m.get("topk_mean_y_oo")
                 ),
                 "delta_spearman": _delta(rank_m.get("spearman"), ridge_m.get("spearman")),
+                "delta_cs_ic": _delta(rank_m.get("cs_ic"), ridge_m.get("cs_ic")),
+                "delta_cs_icir": _delta(rank_m.get("cs_icir"), ridge_m.get("cs_icir")),
                 "delta_topk_overlap": _delta(
                     rank_m.get("topk_overlap"), ridge_m.get("topk_overlap")
                 ),
@@ -2106,19 +2108,12 @@ class QuantFactorMixin:
             "last_report_exists": bool(last),
             "promote_gate": horizon_promote_gate(gate_src),
         }
-        research_rm = packed.get("return_model_research")
-        if not isinstance(research_rm, dict):
-            if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
-                research_rm = last["return_model_research"]
-            else:
-                research_doc = load_ridge_model(horizon, role="research")
-                research_rm = (
-                    research_doc.get("return_model")
-                    if isinstance(research_doc, dict)
-                    else None
-                )
-        if isinstance(research_rm, dict):
-            packed["return_model_research"] = research_rm
+        # 单套 β：别名镜像 desk 主 return_model（不再另灌研究槽第二套）
+        rm_main = packed.get("return_model")
+        if isinstance(rm_main, dict):
+            packed["return_model_research"] = dict(rm_main)
+        elif isinstance(packed.get("return_model_research"), dict):
+            packed["return_model"] = dict(packed["return_model_research"])
         return _attach_ridge_role_flags(packed, ridge_model_path(horizon))
 
     def _start_horizon_ridge_job(

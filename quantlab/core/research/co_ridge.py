@@ -1,4 +1,7 @@
-"""隔夜缺口 Ridge：Z 上拟合 open[T+1]/close[T]-1；风控旁路 ŷ_co。"""
+"""隔夜缺口 Ridge：报告包装 / Holdout OOS / 落盘启用；风控旁路 ŷ_co。
+
+面板拼装与矩阵拟合见 ``co_ridge_compact``（对齐 oo/tc）。
+"""
 
 from __future__ import annotations
 
@@ -7,16 +10,11 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Sequence
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
-from core.research.co_panel import (
-    CO_LAG_FEAT_LABELS,
-    CO_Z_FEATURES,
-    theme_sample_weights,
-)
+from core.research.co_panel import CO_LAG_FEAT_LABELS
+from core.research.co_ridge_compact import fit_co_ridge_matrices
 from core.research.tc_ridge import (
     _ic,
     _oos_by_theme,
@@ -24,8 +22,11 @@ from core.research.tc_ridge import (
     _residual_var,
     _sign_hit,
 )
-
-CO_MIN_STD_EXEMPT = CO_Z_FEATURES
+from core.signal.factors.z_co import (
+    feature_get,
+    stamp_z_co_aliases,
+    z_co_feat_labels,
+)
 
 
 def fit_co_ridge_report(
@@ -43,120 +44,43 @@ def fit_co_ridge_report(
 
     ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
     """
-    from core.research.panel_matrix import (
-        collect_co_compact,
-        fill_rates_from_matrix,
-        fit_keepall_ridge_matrix,
-        named_columns,
-        predict_ridge_matrix,
-        raw_aoo_finite,
-    )
+    from core.research.holdout import attach_holdout_meta, make_research_model
+    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
 
-    X, col_names, ys, dates, metas, n_stocks = collect_co_compact(
+    packed = fit_co_ridge_matrices(
         stock_bars,
-        list(CO_Z_FEATURES),
+        ridge_lambda=ridge_lambda,
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
-        include_alpha_oo=True,
-        head="y_co",
+        theme_boost=theme_boost,
+        holdout_trading_days=holdout_trading_days,
+        use_theme_weights=use_theme_weights,
+        cross_section_zscore=cross_section_zscore,
     )
-    if len(ys) < 20:
+    if not packed.get("success"):
         return {
             "success": False,
-            "error": f"on 样本不足 n={len(ys)}（需≥20）",
+            "error": packed.get("error") or "拟合失败",
             "task": "co_ridge",
-            "sample_count": len(ys),
-            "stock_count": n_stocks,
+            "sample_count": packed.get("sample_count"),
+            "stock_count": packed.get("stock_count"),
         }
 
-    from core.research.holdout import (
-        DEFAULT_HOLDOUT_TRADING_DAYS,
-        attach_holdout_meta,
-        calendar_dates_from_stock_bars,
-        make_research_model,
-        resolve_ridge_split,
-    )
+    n_stocks = packed["n_stocks"]
+    ys = packed["ys"]
+    ys_tr = packed["ys_tr"]
+    ys_te = packed["ys_te"]
+    metas_te = packed["metas_te"]
+    preds_te = packed["preds_te"]
+    hold_n = packed["hold_n"]
+    fill_keys = packed["fill_keys"]
+    feature_fill = packed["feature_fill"]
+    use_cs = packed["use_cs"]
+    theme_boost_v = packed["theme_boost"]
+    use_theme_weights = packed["use_theme_weights"]
+    fit = packed["model"]
+    split_meta = packed["split_meta"]
 
-    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
-    train_idx, test_idx, split_meta = resolve_ridge_split(
-        dates,
-        holdout_trading_days=hold_n,
-        label_horizon_days=1,
-        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
-    )
-    ys_tr = [ys[i] for i in train_idx]
-    ys_te = [ys[i] for i in test_idx]
-    metas_tr = [metas[i] for i in train_idx]
-    metas_te = [metas[i] for i in test_idx]
-
-    theme_w_tr = (
-        theme_sample_weights(metas_tr, theme_boost=theme_boost)
-        if use_theme_weights
-        else None
-    )
-
-    from core.signal.factors.alpha_oo import (
-        is_alpha_oo_raw_key,
-        merge_alpha_oo_min_std_exempt,
-    )
-
-    feat_names = list(CO_Z_FEATURES)
-    for k in raw_aoo_finite(X, col_names, train_idx):
-        if is_alpha_oo_raw_key(str(k)) and k not in feat_names:
-            feat_names.append(k)
-
-    fill_keys = list(CO_Z_FEATURES)
-    seen_fill = set(fill_keys)
-    for name in col_names:
-        if is_alpha_oo_raw_key(str(name)) and name not in seen_fill:
-            seen_fill.add(name)
-            fill_keys.append(name)
-    feature_fill = fill_rates_from_matrix(X, col_names, fill_keys)
-    X_fit, feat_names = named_columns(X, col_names, feat_names)
-    del X
-
-    min_std_exempt = merge_alpha_oo_min_std_exempt(
-        feat_names, list(CO_MIN_STD_EXEMPT)
-    )
-
-    row_tr = np.asarray(train_idx, dtype=np.int64)
-    row_te = np.asarray(test_idx, dtype=np.int64)
-    y_tr_arr = np.asarray(ys_tr, dtype=np.float64)
-    dates_tr = [dates[i] for i in train_idx]
-    dates_te = [dates[i] for i in test_idx]
-    use_cs = bool(cross_section_zscore)
-    fit = fit_keepall_ridge_matrix(
-        X_fit[row_tr],
-        y_tr_arr,
-        feat_names,
-        ridge_lambda=ridge_lambda,
-        sample_weights=theme_w_tr,
-        min_std_exempt=min_std_exempt,
-        row_dates=dates_tr if use_cs else None,
-        cross_section_zscore=use_cs,
-    )
-    if not fit.get("success"):
-        mu = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
-        fit = {
-            "success": True,
-            "intercept": round(mu, 6),
-            "coefficients": {},
-            "active_features": [],
-            "zscore_means": {},
-            "zscore_stds": {},
-            "note": "Z 方差不足，ŷ_co 用训练均值",
-        }
-
-    preds_te = (
-        predict_ridge_matrix(
-            fit,
-            X_fit[row_te],
-            feat_names,
-            row_dates=dates_te if use_cs else None,
-        )
-        if len(test_idx)
-        else []
-    )
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     oos = {
         "n_train": len(ys_tr),
@@ -166,7 +90,7 @@ def fit_co_ridge_report(
         "residual_var": _residual_var(preds_te, ys_te) if ys_te else None,
         "by_theme": by_theme,
         "holdout_trading_days": hold_n,
-        "theme_boost": theme_boost if use_theme_weights else None,
+        "theme_boost": theme_boost_v if use_theme_weights else None,
         "target": "overnight_gap",
         "feature_fill": feature_fill,
         "include_alpha_oo": True,
@@ -179,25 +103,7 @@ def fit_co_ridge_report(
         except Exception:  # noqa: BLE001
             logger.debug("co attach_daily_cs_ic failed", exc_info=True)
 
-    research_model = make_research_model(fit)
-    theme_w_all = (
-        theme_sample_weights(metas, theme_boost=theme_boost)
-        if use_theme_weights
-        else None
-    )
-    y_all = np.asarray(ys, dtype=np.float64)
-    fit_full = fit_keepall_ridge_matrix(
-        X_fit,
-        y_all,
-        feat_names,
-        ridge_lambda=ridge_lambda,
-        sample_weights=theme_w_all,
-        min_std_exempt=min_std_exempt,
-        row_dates=dates if use_cs else None,
-        cross_section_zscore=use_cs,
-    )
-    model = fit_full if fit_full.get("success") else fit
-    model = dict(model)
+    model = make_research_model(fit)
     model["horizon_mode"] = "overnight_gap"
     model["target"] = "overnight_gap"
     y_formula = "open[T+1]/close[T]-1"
@@ -209,9 +115,6 @@ def fit_co_ridge_report(
     }
     model["extra_features"] = list(fill_keys)
     model["include_alpha_oo"] = True
-    model["model_role"] = "live"
-    for k in ("y_spec", "extra_features", "horizon_mode", "target", "include_alpha_oo"):
-        research_model[k] = model.get(k)
 
     n_aoo = sum(
         1 for k in (model.get("extra_features") or []) if is_alpha_oo_raw_key(str(k))
@@ -223,14 +126,15 @@ def fit_co_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
-        "return_model_research": research_model,
+        "return_model_research": model,
         "y_spec": dict(model.get("y_spec") or {}),
-        "schema": "co_ridge_v1",
+        "schema": "co_ridge_v2",
         "target": "overnight_gap",
         "include_alpha_oo": True,
         "n_alpha_oo_features": n_aoo,
+        "feature_pack_formula": "z_co_* ∪ raw_aoo_*",
         "note": (
-            "ŷ_co(Z∪alpha_oo) 估 open[T+1]/close[T]-1；"
+            "ŷ_co(z_co_*∪raw_aoo_*) 估 open[T+1]/close[T]-1；"
             "T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后 + raw_aoo_*；与 EOD/τ 解耦"
         ),
     }
@@ -291,14 +195,38 @@ def persist_co_model(
     report: Dict[str, Any], *, note: str = "", role: str = "live"
 ) -> Dict[str, Any]:
     from core.research.holdout import (
+        MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
+        normalize_model_role,
+        require_research_suite,
         research_model_path,
-        select_persist_return_model,
+        select_fit_return_model,
+        stamp_live_suite_doc,
     )
+
+    role_n = normalize_model_role(role)
+    live_path = co_model_path()
+    if role_n == MODEL_ROLE_LIVE:
+        research_doc, err = require_research_suite(live_path)
+        if err:
+            return err
+        doc = stamp_live_suite_doc(
+            research_doc, note=note or "co_ridge research → live promote"
+        )
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        atomic_write_json(live_path, doc)
+        return {
+            "success": True,
+            "path": live_path,
+            "promoted_at": doc.get("promoted_at"),
+            "schema": doc.get("schema"),
+            "model_role": MODEL_ROLE_LIVE,
+            "promoted_from": "research",
+        }
 
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
-    role_n, rm = select_persist_return_model(report, role=role)
+    rm = select_fit_return_model(report)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
     if not rm.get("coefficients") and rm.get("intercept") is None:
@@ -319,8 +247,9 @@ def persist_co_model(
     rm["y_spec"] = y_spec
     rm["horizon_mode"] = rm.get("horizon_mode") or "overnight_gap"
     rm["target"] = str(report.get("target") or rm.get("target") or "overnight_gap")
+    rm["model_role"] = MODEL_ROLE_RESEARCH
 
-    schema = str(report.get("schema") or "co_ridge_v1")
+    schema = str(report.get("schema") or "co_ridge_v2")
     from core.research.holdout import model_fit_id
 
     fitted_at = model_fit_id(report)
@@ -328,7 +257,7 @@ def persist_co_model(
         "success": True,
         "fitted_at": fitted_at,
         "promoted_at": now_iso_utc(),
-        "note": note or "co_ridge promote",
+        "note": note or "co_ridge promote research",
         "return_model": rm,
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
@@ -339,18 +268,14 @@ def persist_co_model(
         "y_spec_co": y_spec,
         "y_spec_on": y_spec,
         "dual_score_head": "predicted_score_on",
-        "model_role": role_n,
+        "model_role": MODEL_ROLE_RESEARCH,
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "contract_note": "ŷ_co 估 open[T+1]/close[T]-1 隔夜缺口；风控旁路，不覆盖 EOD/τ 字段。",
     }
     if isinstance(report, dict) and "cross_section_zscore" in report:
         doc["cross_section_zscore"] = bool(report.get("cross_section_zscore"))
-    path = (
-        research_model_path(co_model_path())
-        if role_n == MODEL_ROLE_RESEARCH
-        else co_model_path()
-    )
+    path = research_model_path(live_path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     out = {
@@ -395,7 +320,7 @@ def _co_score_row(features: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     row = dict(features or {})
     for key in _CO_EXCLUDED_FEATURES:
         row.pop(key, None)
-    return row
+    return stamp_z_co_aliases(row)
 
 
 def predict_co_from_features(
@@ -407,25 +332,28 @@ def predict_co_from_features(
     if not doc:
         return None
     rm = doc.get("return_model") or {}
+    # 双写裸名↔z_co_* 后，旧 v1 β 与新 v2 canon 都能打分
     preds = _predict_rows(rm, [_co_score_row(features)])
     return preds[0] if preds else None
 
 
-_CO_FEAT_LABELS = {
-    "ret_oc": "昨开→昨收 %",
-    "gap_pct": "跳空 %",
-    "ret_cc": "昨收→前收 %",
-    "y_on_today": "今开/昨开 %",
-    "sector_gap_breadth": "同业缺口广度",
-    "theme_day": "主题日",
-    "gap_atr": "缺口 / ATR",
-    "gap_vs_sector": "行业相对缺口",
-    "yclose_loc": "今开相对昨高低",
-    "yest_close_loc": "昨收位置",
-    "yest_vol_ratio": "昨量/均量",
-    "dist_to_up_limit": "距涨停 %",
-}
-_CO_FEAT_LABELS.update(CO_LAG_FEAT_LABELS)
+_CO_FEAT_LABELS = z_co_feat_labels(
+    {
+        "ret_oc": "昨开→昨收 %",
+        "gap_pct": "跳空 %",
+        "ret_cc": "昨收→前收 %",
+        "y_on_today": "今开/昨开 %",
+        "sector_gap_breadth": "同业缺口广度",
+        "theme_day": "主题日",
+        "gap_atr": "缺口 / ATR",
+        "gap_vs_sector": "行业相对缺口",
+        "yclose_loc": "今开相对昨高低",
+        "yest_close_loc": "昨收位置",
+        "yest_vol_ratio": "昨量/均量",
+        "dist_to_up_limit": "距涨停 %",
+        **CO_LAG_FEAT_LABELS,
+    }
+)
 
 
 def explain_co_prediction(
@@ -460,7 +388,7 @@ def explain_co_prediction(
         if name in _CO_EXCLUDED_FEATURES:
             continue
         beta = float(coefs.get(name) or 0.0)
-        v = row.get(name)
+        v = feature_get(row, name)
         imputed = False
         if v is None:
             z = 0.0

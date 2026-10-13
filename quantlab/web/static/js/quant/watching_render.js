@@ -96,6 +96,12 @@ export function watchingScoreDetail(it) {
       null,
     Y_HEAD_FACTOR_N
   );
+  const ooRankTerms = slimFormulaTerms(
+    (it &&
+      (it.formula_terms_oo_rank || it.score_formula_terms_oo_rank)) ||
+      null,
+    Y_HEAD_FACTOR_N
+  );
   const hasTerms =
     terms && Array.isArray(terms.terms) && terms.terms.length > 0;
   const hasTauTerms =
@@ -147,12 +153,27 @@ export function watchingScoreDetail(it) {
     "y_τc_source": (it && it["y_τc_source"]) || null,
     y_oc: it && it.y_oc,
     y_co: it && it.y_co,
+    y_oo_rank: it && it.y_oo_rank,
+    y_oo_rank_n: it && it.y_oo_rank_n,
+    y_oo_rank_score: it && it.y_oo_rank_score,
+    predicted_score_oo_rank: it && it.predicted_score_oo_rank,
+    score_model_role:
+      (it && it.score_model_role) ||
+      (it &&
+        it.formula_terms &&
+        it.formula_terms.score_model_role) ||
+      (it &&
+        it.score_formula_terms &&
+        it.score_formula_terms.score_model_role) ||
+      null,
     // 因子组成紧跟 ŷ 值：属性截断时 compact tip 仍能画出 β·z 表
     formula_terms: terms,
     score_formula_terms: terms,
     formula_terms_tau: tauTerms,
     score_formula_terms_tau: tauTerms,
     formula_terms_co: coTerms,
+    formula_terms_oo_rank: ooRankTerms,
+    score_formula_terms_oo_rank: ooRankTerms,
     fusion_w_oo: it && it.fusion_w_oo,
     fusion_w_oc: it && it.fusion_w_oc,
     fusion_w_co: it && it.fusion_w_co,
