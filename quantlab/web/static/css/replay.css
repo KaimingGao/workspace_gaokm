@@ -1112,12 +1112,21 @@ body[data-page="replay"] .replay-secondary-fold > .dashboard-card.quant-pro-card
   box-sizing: border-box;
 }
 
-/* 做 T 回测：次要折叠默认收起；展开后工具条贴在 summary 下 */
-body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-run-head {
-  padding: 0 10px 8px;
+/* 做 T：工具条在 summary 内，展开后与标题同一行（对齐调仓头）；收起只留标题+摘要 */
+body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-secondary-fold-sum.replay-run-head {
+  align-items: center;
   margin: 0;
   border: none;
   background: transparent;
+}
+
+body[data-page="replay"] .replay-t0-section > .replay-secondary-fold:not([open]) > .replay-secondary-fold-sum .replay-run-toolbar,
+body[data-page="replay"] .replay-t0-section > .replay-secondary-fold:not([open]) > .replay-secondary-fold-sum #paper-t0-progress {
+  display: none;
+}
+
+body[data-page="replay"] .replay-t0-section > .replay-secondary-fold[open] > .replay-secondary-fold-sum::after {
+  margin-left: 8px;
 }
 
 body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-overview-band,

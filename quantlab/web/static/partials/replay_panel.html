@@ -312,15 +312,14 @@
     aria-labelledby="replay-section-t0-title"
   >
     <details class="replay-secondary-fold">
-    <summary class="replay-secondary-fold-sum">
+    <!-- summary 含工具条：展开后与标题同行（对齐调仓回测头）；收起时 CSS 藏工具条 -->
+    <summary class="replay-secondary-fold-sum replay-run-head">
       <h3 id="replay-section-t0-title" class="dashboard-section-title">做 T 回测</h3>
       <p class="dashboard-section-desc quant-section-desc">短期内不作重点 · 点开可跑 · 虚拟底仓 · 5m 第一触达 · 不写账本</p>
-    </summary>
-    <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
       <p id="paper-t0-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
         <span id="paper-t0-progress-text">回测中…</span>
       </p>
-      <div class="replay-run-toolbar" aria-label="做 T 回测窗">
+      <div class="replay-run-toolbar" aria-label="做 T 回测窗" onclick="event.stopPropagation()">
         <label
           class="platform-field quant-pro-field replay-lookback-field"
           title="评估窗：统计做T的交易日数（默认 10）。规则用下方表单（可先保存到交易执行）。"
@@ -350,7 +349,7 @@
         </label>
         <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行槽（与手动预演同一套）。选研究则用研究槽版本。规则读下方表单。缺该日5m则跳过。">跑回测</button>
       </div>
-    </header>
+    </summary>
     <div class="replay-overview-band" id="replay-t0-overview">
       <div class="dashboard-kpi-row quant-pro-overview-kpis replay-kpi-row" id="replay-t0-kpi-row" aria-label="做 T 回测 KPI">
         <div class="dashboard-kpi-row-body">
