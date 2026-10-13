@@ -2,7 +2,7 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml } from "../shared.js";
-import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js";
+import { resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, FUSE_REBALANCE_TITLE } from "../paper/fmt.js";
 import { withQuoteGap } from "./watching_quotes_ui.js";
 
 export function isOosFailedItem(it) {
@@ -91,7 +91,7 @@ function formatWatchingExcessTitle(it) {
  * @param {(it: object) => string} watchingScoreDetail
  */
 export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
-  const scoreNum = resolveRankingScore(it);
+  const scoreNum = resolveFuseScore(it);
   const scoreEodNum = resolveEodScore(it);
   const scoreTauNum = resolveTauScore(it);
   const scoreOnNum = resolveOnScore(it);
@@ -120,7 +120,7 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
         ? "OOS 失败 · 组/全局 ŷ 对照"
         : it.return_model_source === "cluster_shadow_fallback"
           ? "缺全局模型 · 组 ŷ shadow"
-          : RANKING_REBALANCE_TITLE;
+          : FUSE_REBALANCE_TITLE;
   const scoreEodTitle = scoreEodNum == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
   const scoreOnTitle = scoreOnNum == null ? "暂无 ŷ_co" : Y_ON_TITLE;

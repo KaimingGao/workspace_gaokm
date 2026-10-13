@@ -425,7 +425,7 @@ def _insight_quote_bars(
     return q, b
 
 
-def _stamp_insight_ranking(
+def _stamp_insight_y_oo_fuse(
     out: Dict[str, Any], paper_ctx: Optional[dict] = None
 ) -> None:
     """观察行 y_oo_fuse 与交易执行同权（τc 几何剩余）。"""
@@ -542,7 +542,7 @@ def _hydrate_insight_tau_fields(
         attach_dual_score_pit(sig, quote=q, bars=b, fuse_intraday=fuse)
         out.update(get_default_signal_service().book_fields(sig, paper=paper_ctx))
         _finalize_insight_trade_fields(out)
-        _stamp_insight_ranking(out, paper_ctx)
+        _stamp_insight_y_oo_fuse(out, paper_ctx)
         return
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         pass
@@ -786,7 +786,7 @@ def _insight_one(
             out["open_t"] = item.get("open_t")
         if item.get("open_t_source"):
             out["open_t_source"] = item.get("open_t_source")
-        _stamp_insight_ranking(out, paper_ctx)
+        _stamp_insight_y_oo_fuse(out, paper_ctx)
         # 选股门槛仅标注，不抹掉分数
         try:
             from core.signal.score_display import annotate_score_gate
@@ -798,7 +798,7 @@ def _insight_one(
             out["min_score"] = None
             out["below_min_score"] = False
         _finalize_insight_trade_fields(out)
-        _stamp_insight_ranking(out, paper_ctx)
+        _stamp_insight_y_oo_fuse(out, paper_ctx)
         reasons = item.get("reasons") or []
         out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
         # 缺全局模型时提示（不阻断）

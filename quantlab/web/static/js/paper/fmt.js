@@ -195,7 +195,7 @@ function _pxField(v) {
 }
 
 /** 今开：day_open / open_raw / open_t / open。 */
-export function rankingOpenPx(it) {
+export function fuseOpenPx(it) {
   if (!it || typeof it !== "object") return null;
   for (const k of ["day_open", "open_raw", "open_t", "open"]) {
     const n = _pxField(it[k]);
@@ -205,7 +205,7 @@ export function rankingOpenPx(it) {
 }
 
 /** τ 价：rebalance_px / price_tau / 现价。 */
-export function rankingPriceTau(it) {
+export function fusePriceTau(it) {
   if (!it || typeof it !== "object") return null;
   for (const k of ["rebalance_px", "price_tau", "price_raw", "last_price", "mark_price", "price"]) {
     const n = _pxField(it[k]);
@@ -215,8 +215,8 @@ export function rankingPriceTau(it) {
 }
 
 /** 缺 y_spec 的旧行：融合分再减 (price(τ)/open−1)。τc 不走这里。百分点。 */
-export function remainingRankingPct(ranking, openPx, priceTau) {
-  const y = _numField(ranking);
+export function remainingFusePct(fuse, openPx, priceTau) {
+  const y = _numField(fuse);
   if (y == null) return null;
   const o = _numField(openPx);
   const p = _numField(priceTau);
@@ -228,10 +228,10 @@ export function remainingRankingPct(ranking, openPx, priceTau) {
 
 /** 融合分（调仓 y_oo_fuse / UI fuse，百分点）。
  *  OC 模型（open→close 标签）：fuse = w_oo·ŷ_oo + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；
- *    表列再减 (price(τ)/open−1)（remainingRankingPct）。
+ *    表列再减 (price(τ)/open−1)（remainingFusePct）。
  *  τc 模型（price(τ)→close 标签）：fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；
  *    rot = price(τ)/open[T]−1；两项均在 τ→open[T+1] 基准，不再减 rot。 */
-export function rankingPct(it) {
+export function yOoFusePct(it) {
   if (!it || typeof it !== "object") return null;
   const oo = resolveEodScore(it);
   const oc = pickYOcFitted(it);
@@ -244,8 +244,8 @@ export function rankingPct(it) {
     return _looksLikeYhatPct(fused) ? fused : null;
   }
   // τc：ŷ_oo 几何映到 τ→open[T+1]，再与 ŷ_τc 侧融合
-  const o = rankingOpenPx(it);
-  const p = rankingPriceTau(it);
+  const o = fuseOpenPx(it);
+  const p = fusePriceTau(it);
   let rot = null;
   if (o != null && p != null && o > 0 && p > 0) rot = (p / o - 1) * 100;
   const ooRem = eodRemainingAtTau(oo, rot);
@@ -257,7 +257,7 @@ export function rankingPct(it) {
 /** 表列主分：调仓 y_oo_fuse / UI fuse（百分点）。
  *  τc：fuse 已在 τ→open[T+1]。缺 y_spec 才再减 (price(τ)/open−1)。
  *  不做 T ŷ_trade。不用 dual_score 缺口抬升（fuse 走融合分，不走 ŷ_trade 缺口映射）。 */
-export function resolveRankingScore(it) {
+export function resolveFuseScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {
     for (const c of [
@@ -275,32 +275,32 @@ export function resolveRankingScore(it) {
     }
     return null;
   }
-  const ranked = rankingPct(it);
+  const fromHeadsPct = yOoFusePct(it);
   const stamped = _numField(
     it.y_oo_fuse
   );
   // 有 fusion_w 才现算融合分；否则缺权会按 0.5/0.5 把 tip 算歪，信落盘 y_oo_fuse
   let base = null;
   let fromHeads = false;
-  if (hasFusionWeights(it) && _looksLikeYhatPct(ranked)) {
-    base = ranked;
+  if (hasFusionWeights(it) && _looksLikeYhatPct(fromHeadsPct)) {
+    base = fromHeadsPct;
     fromHeads = true;
   } else if (_looksLikeYhatPct(stamped)) {
     base = stamped;
-  } else if (_looksLikeYhatPct(ranked)) {
-    base = ranked;
+  } else if (_looksLikeYhatPct(fromHeadsPct)) {
+    base = fromHeadsPct;
     fromHeads = true;
   }
   if (base == null) return null;
   if (!fromHeads) return base;
   // OC 模型：fuse 在 open→open[T+1] 基准，需扣 open→τ 已实现；τc 模型已在 τ→open[T+1] 基准，透传
   if (!tauModelIsOpenToClose(it)) return base;
-  const rem = remainingRankingPct(base, rankingOpenPx(it), rankingPriceTau(it));
+  const rem = remainingFusePct(base, fuseOpenPx(it), fusePriceTau(it));
   return rem != null && Number.isFinite(rem) ? rem : base;
 }
 
-/** @deprecated 表列 fuse；请用 resolveRankingScore。做 T 用 resolveYTradeScore。 */
-export const resolveTradeScore = resolveRankingScore;
+/** @deprecated 表列 fuse；请用 resolveFuseScore。做 T 用 resolveYTradeScore。 */
+export const resolveTradeScore = resolveFuseScore;
 
 /** 做 T 主分 ŷ_trade（blend），不是调仓 fuse。 */
 export function resolveYTradeScore(it) {
@@ -343,7 +343,7 @@ export const Y_TAU_TITLE = Y_OC_TITLE;
 /** 数据中心观察池 / 持仓表：ŷ_τc 用 09:30–10:00 调仓因果前缀 */
 export const Y_OC_REBALANCE_TITLE =
   "ŷ_τc · 09:30–10:00 因果前缀 price(τ)→close[T]";
-export const RANKING_REBALANCE_TITLE =
+export const FUSE_REBALANCE_TITLE =
   "fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1]";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";

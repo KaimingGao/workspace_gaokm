@@ -2,7 +2,7 @@
 
 唯一 TopK = ``oo_rank_max``（默认 y_oo_rank < 38，对齐现网 top50%%）；买序/砍尾按 oo_rank；
 每只每天只加一笔，不循环加到单票帽。
-清仓：ranking<0 或 y_oo<0 或 y_τc<0，或砍尾喂首（与入场 θ 解耦）。
+清仓：fuse<0 或 y_oo<0 或 y_τc<0，或砍尾喂首（与入场 θ 解耦）。
 回测结束会打印边诊断：买/卖腿命中幅度、整笔持仓盈亏、分票贡献。
 对齐最近一次 ``last_portfolio_backtest`` 请求参数；``persist_curve=False`` 不落盘。
 宇宙仍走观察池分档（``use_predictability_tiers=True``）。
@@ -63,18 +63,18 @@ def _sign_hit(yhat: Optional[float], realized: Optional[float]) -> Optional[bool
 
 def _trade_yhat(row: dict) -> Optional[float]:
     """与 fuse_hit_metrics 取 ŷ 顺序一致（只用于符号命中）。"""
-    yf = _fnum(row.get("ranking"))
+    yf = _fnum(row.get("y_oo_fuse"))
     if yf is None:
-        yf = _fnum(row.get("y_fuse"))
+        yf = _fnum(row.get("y_oo_fuse"))
     if yf is None:
-        rs = _fnum(row.get("ranking_score"))
+        rs = _fnum(row.get("y_oo_fuse_score"))
         if rs is not None:
             yf = float(rs) * 100.0
     return yf
 
 
 def _leg_edge_bucket(trades: Sequence[dict], *, side: Optional[str] = None) -> Dict[str, Any]:
-    """成交腿：命中/未命中的 realized_ranking（百分点）均值。"""
+    """成交腿：命中/未命中的 y_oo_fuse_realized（百分点）均值。"""
     hit_reals: List[float] = []
     miss_reals: List[float] = []
     all_reals: List[float] = []
@@ -89,7 +89,7 @@ def _leg_edge_bucket(trades: Sequence[dict], *, side: Optional[str] = None) -> D
         if side is not None and s != side:
             continue
         yf = _trade_yhat(r)
-        real = _fnum(r.get("realized_ranking"))
+        real = _fnum(r.get("y_oo_fuse_realized"))
         hit = _sign_hit(yf, real)
         if hit is None or real is None:
             continue
@@ -322,7 +322,7 @@ def _summarize(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
         "n_buy": n_buy,
         "n_sell": n_sell,
         "initial_cash": p.get("initial_cash"),
-        "rank_enter": p.get("rank_enter"),
+        "fuse_enter": p.get("fuse_enter"),
         "top_k": p.get("top_k"),
         "holdings_end": holds_end,
     }
@@ -424,16 +424,16 @@ def _make_greedy_adapter(
                 tau_by[code] = float(p)
                 row["rebalance_px"] = float(p)
             # 计划器用净收益；成交腿用百分点（与 rank_lots / fuse_hit_metrics 同口径）
-            rp = rl.ranking_pct_of(row, cfg, open_px=o, price_tau=p)
-            row["_ranking_pct"] = rp
+            rp = rl.y_oo_fuse_pct_of(row, cfg, open_px=o, price_tau=p)
+            row["_y_oo_fuse_pct"] = rp
             if rp is not None:
-                row["ranking"] = float(rp) / 100.0
+                row["y_oo_fuse"] = float(rp) / 100.0
             if row.get("predictability_tier") in (None, "") and allowed_tiers:
                 row["predictability_tier"] = str(list(allowed_tiers)[0])
             enriched.append(row)
             item_by[code] = row
 
-        # 持仓缺分行也要能挂 day_open / ranking，否则清仓腿进不了命中率分母
+        # 持仓缺分行也要能挂 day_open / fuse，否则清仓腿进不了命中率分母
         for h in holdings or []:
             if not isinstance(h, dict):
                 continue
@@ -462,10 +462,10 @@ def _make_greedy_adapter(
             if p is not None:
                 tau_by[code] = p
                 row["rebalance_px"] = p
-            rp = rl.ranking_pct_of(row, cfg, open_px=row.get("day_open"), price_tau=p)
-            row["_ranking_pct"] = rp
+            rp = rl.y_oo_fuse_pct_of(row, cfg, open_px=row.get("day_open"), price_tau=p)
+            row["_y_oo_fuse_pct"] = rp
             if rp is not None:
-                row["ranking"] = float(rp) / 100.0
+                row["y_oo_fuse"] = float(rp) / 100.0
             item_by[code] = row
             enriched.append(row)
 
@@ -473,9 +473,9 @@ def _make_greedy_adapter(
 
         def _leg_scores(code: str) -> Dict[str, Any]:
             item = item_by.get(code) or {"stock_code": code}
-            rp = item.get("_ranking_pct")
+            rp = item.get("_y_oo_fuse_pct")
             if rp is None:
-                rp = rl.ranking_pct_of(
+                rp = rl.y_oo_fuse_pct_of(
                     item,
                     cfg,
                     open_px=open_by.get(code),
@@ -490,7 +490,7 @@ def _make_greedy_adapter(
             return dbg
 
         # 新方案直接用净收益门槛，不走 coerce（避免 0.5 被收成 0）
-        raw_enter = (cfg or {}).get("rank_enter")
+        raw_enter = (cfg or {}).get("fuse_enter")
         try:
             enter = float(raw_enter)
         except (TypeError, ValueError):
@@ -505,7 +505,7 @@ def _make_greedy_adapter(
             holdings=list(holdings or []),
             cash=float(cash or 0),
             prices=px_plan,
-            rank_enter=float(enter),
+            fuse_enter=float(enter),
             oo_rank_max=oo_rank_max,
             add_max=float(add_max),
             stock_cap=float(stock_cap),
@@ -550,7 +550,7 @@ def _make_greedy_adapter(
             "holds": list(plan.holds),
             "skips": list(plan.skips),
             "cash_after_plan": plan.cash_after,
-            "rank_enter": enter,
+            "fuse_enter": enter,
             "oo_rank_max": oo_rank_max,
             "greedy": True,
             "candidate": list(plan.candidate),
@@ -606,16 +606,16 @@ def main() -> None:
         help="回测账户本金（元；默认 20 万）",
     )
     ap.add_argument(
-        "--rank-enter",
+        "--fuse-enter",
         type=float,
         default=None,
         help="现网入场门槛（净收益）；默认跟 last 请求",
     )
     ap.add_argument(
-        "--greedy-rank-enter",
+        "--greedy-fuse-enter",
         type=float,
         default=0.5,
-        help="新方案 ranking 入场（默认 0.5 表示 0.5%%；也可传净收益 0.005）",
+        help="新方案 fuse 入场（默认 0.5 表示 0.5%%；也可传净收益 0.005）",
     )
     ap.add_argument(
         "--no-cut-tail",
@@ -643,19 +643,19 @@ def main() -> None:
             return max(0.0, float(v) / 100.0)
         return max(0.0, float(v))
 
-    greedy_enter = _as_net_enter(args.greedy_rank_enter, default=0.005)
+    greedy_enter = _as_net_enter(args.greedy_fuse_enter, default=0.005)
     baseline_enter = float(
-        args.rank_enter
-        if args.rank_enter is not None
+        args.fuse_enter
+        if args.fuse_enter is not None
         else (
-            req.get("rank_enter")
-            if req.get("rank_enter") is not None
+            req.get("fuse_enter")
+            if req.get("fuse_enter") is not None
             else 0.002
         )
     )
     # 现网仍走 coerce；若用户显式传 0.5 也按 0.5% 理解
-    if args.rank_enter is not None:
-        baseline_enter = _as_net_enter(args.rank_enter, default=baseline_enter)
+    if args.fuse_enter is not None:
+        baseline_enter = _as_net_enter(args.fuse_enter, default=baseline_enter)
 
     # 现网落盘优先（避免 last_portfolio_backtest 占位请求把配重冲成 0.6/0.4）
     live_lots: Dict[str, Any] = {}
@@ -688,8 +688,8 @@ def main() -> None:
         "fusion_w_co": float(_pick("fusion_w_co", 1.0)),
         "fusion_w_oo": float(_pick("fusion_w_oo", 0.9)),
         "fusion_w_oc": float(_pick("fusion_w_oc", 0.1)),
-        "rank_enter": baseline_enter,
-        "rank_strong": float(_pick("rank_strong", 0.012)),
+        "fuse_enter": baseline_enter,
+        "fuse_strong": float(_pick("fuse_strong", 0.012)),
         "y_oo_gt0": bool(_pick("y_oo_gt0", True, cast=bool)),
         "y_τc_gt0": bool(_pick("y_τc_gt0", True, cast=bool)),
         "oo_rank_top_frac": live_lots.get("oo_rank_top_frac", req.get("oo_rank_top_frac")),
@@ -722,9 +722,9 @@ def main() -> None:
         json.dumps(
             {
                 "lookback": int(args.lookback),
-                "baseline_rank_enter": baseline_enter,
-                "greedy_rank_enter": greedy_enter,
-                "greedy_rank_enter_display": f"{greedy_enter * 100:g}%",
+                "baseline_fuse_enter": baseline_enter,
+                "greedy_fuse_enter": greedy_enter,
+                "greedy_fuse_enter_display": f"{greedy_enter * 100:g}%",
                 "initial_cash": common["initial_cash"],
                 "lot_base_amount": common["lot_base_amount"],
                 "lot_strong_amount": common["lot_strong_amount"],
@@ -781,7 +781,7 @@ def main() -> None:
         f"{'不够砍尾' if cut_on else '砍尾关'} "
         f"TopK=oo_rank<{oo_max if oo_max > 0 else '关'} "
         f"add_max={args.add_max:g} stock_cap={args.stock_cap:g} "
-        f"rank_enter={greedy_enter*100:g}% lookback={args.lookback} …",
+        f"fuse_enter={greedy_enter*100:g}% lookback={args.lookback} …",
         flush=True,
     )
     import core.paper.rebalance.rank_lots as rl_mod
@@ -796,10 +796,10 @@ def main() -> None:
         cut_tail=cut_on,
     )
     greedy_common = dict(common)
-    greedy_common["rank_enter"] = greedy_enter
-    # 新方案入场单一门槛；强档跟进入场，避免 rank_strong < enter 被抬
-    greedy_common["rank_strong"] = max(
-        float(greedy_common.get("rank_strong") or 0), greedy_enter
+    greedy_common["fuse_enter"] = greedy_enter
+    # 新方案入场单一门槛；强档跟进入场，避免 fuse_strong < enter 被抬
+    greedy_common["fuse_strong"] = max(
+        float(greedy_common.get("fuse_strong") or 0), greedy_enter
     )
     # 新方案门槛：y_oo/y_τc>0；宇宙 A 档（落盘若是占位请求则强制打开）
     greedy_common["y_oo_gt0"] = True

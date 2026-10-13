@@ -285,15 +285,15 @@ class QuantReplayMixin:
             REPLAY_FUSION_W_NOWCAST,
             REPLAY_FUSION_W_TRADE,
             REPLAY_INITIAL_CASH,
-            REPLAY_RANK_ENTER,
-            REPLAY_RANK_STRONG,
+            REPLAY_FUSE_ENTER,
+            REPLAY_FUSE_STRONG,
             backtest_paper_replay,
             clamp_replay_fill_clock,
             clamp_replay_initial_cash,
             clamp_replay_amount_pair,
             load_replay_minute_bars,
         )
-        from core.paper.rebalance.rank_lots import clamp_fusion_weight, coerce_rank_threshold
+        from core.paper.rebalance.rank_lots import clamp_fusion_weight, coerce_fuse_threshold
         from core.signal.yhat_windows import FORMULA_OO_FUSE
 
         universe_n = len(stock_bars)
@@ -310,8 +310,8 @@ class QuantReplayMixin:
         w_τc = clamp_fusion_weight(raw_oc, REPLAY_FUSION_W_NOWCAST)
         enter_raw = fuse_enter
         strong_raw = fuse_strong
-        enter = coerce_rank_threshold(enter_raw, REPLAY_RANK_ENTER)
-        strong = coerce_rank_threshold(strong_raw, REPLAY_RANK_STRONG)
+        enter = coerce_fuse_threshold(enter_raw, REPLAY_FUSE_ENTER)
+        strong = coerce_fuse_threshold(strong_raw, REPLAY_FUSE_STRONG)
         enter = max(0.0, min(1.0, float(enter)))
         strong = max(0.0, min(1.0, float(strong)))
         if strong < enter:

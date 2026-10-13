@@ -198,9 +198,10 @@ def rank_cross_section(
         "candidate_count": len(codes),
         "ranked_count": len(ranked),
         "min_score": min_score,
-        "ranking": ranked,
+        # book = 排序后的目标簿列表（≠ 调仓 fuse 分 y_oo_fuse）
+        "book": ranked,
         "rejected_sample": rejected[:8],
         "neutralization": neutralization,
         "rank_meta": rank_meta,
-        "note": "横截面排序基于 predicted_score（收益分 ŷ）；无模型则空榜，不保证收益。",
+        "note": "横截面排序基于 predicted_score（收益分 ŷ）→ book；无模型则空榜，不保证收益。",
     }

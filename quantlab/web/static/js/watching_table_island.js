@@ -1,7 +1,7 @@
 /**
  * 数据中心主表 · 纯 DOM 虚拟滚动（共享 virtual_table 内核）。
  */
-import { Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "./paper/fmt.js?v=p2389";
+import { Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p2389";
 
 function numSortKey(row, key) {
   const n = Number(row?.[key]);
@@ -134,9 +134,9 @@ const COLS = [
     width: 94,
     num: true,
     sortable: true,
-    headClass: "watching-col-y watching-col-y-ranking",
-    cellClass: "watching-col-y watching-col-y-ranking",
-    title: RANKING_REBALANCE_TITLE,
+    headClass: "watching-col-y watching-col-y-fuse",
+    cellClass: "watching-col-y watching-col-y-fuse",
+    title: FUSE_REBALANCE_TITLE,
   },
   {
     id: "excess",

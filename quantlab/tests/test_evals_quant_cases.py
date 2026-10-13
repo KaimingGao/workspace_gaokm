@@ -41,12 +41,12 @@ class TestEvalsQuantCases(unittest.TestCase):
         self.assertGreaterEqual(int(result.get("candidate_count") or 0), 1)
         note = result.get("note") or ""
         self.assertIn("横截面", note)
-        # mock 日线可能被质量门拒绝；有 ranking 或 rejected_sample 即契约成立
-        ranking = result.get("ranking") or []
+        # mock 日线可能被质量门拒绝；有 book 或 rejected_sample 即契约成立
+        book = result.get("book") or result.get("ranking") or []
         rejected = result.get("rejected_sample") or []
-        self.assertTrue(ranking or rejected, result)
-        if ranking:
-            self.assertIsNotNone(ranking[0].get("score"))
+        self.assertTrue(book or rejected, result)
+        if book:
+            self.assertIsNotNone(book[0].get("score"))
         ids = {c["id"] for c in filter_quant_cases(load_cases())}
         self.assertIn("quant_cross_section_score", ids)
 

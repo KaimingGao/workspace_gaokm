@@ -185,7 +185,7 @@ class TestSignalFillAndExport(unittest.TestCase):
         result_tau = dict(result)
         result_tau["params"] = {"apply_tau_buy_gate": True}
         text_tau = "\n".join(build_portfolio_backtest_markdown_lines(result_tau))
-        self.assertIn("选股键=ranking", text_tau)
+        self.assertIn("选股键=y_oo_fuse", text_tau)
         self.assertIn("τ 闸开", text_tau)
 
         exp = export_portfolio_backtest_report(result, fmt="markdown")

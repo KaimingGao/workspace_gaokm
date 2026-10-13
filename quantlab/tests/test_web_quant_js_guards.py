@@ -1161,8 +1161,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("readRankThresholds", bt_js)
         self.assertIn("Math.max(10, Math.min(500, Math.round(n)))", bt_js)
         self.assertNotIn("Math.max(30, Math.min(500, Math.round(n)))", bt_js)
-        self.assertIn("rankPctToScore", bt_js)
-        self.assertIn("RANK_PCT_DEFAULT = 0.1", bt_js)
+        self.assertIn("fusePctToScore", bt_js)
+        self.assertIn("FUSE_PCT_DEFAULT = 0.1", bt_js)
         self.assertIn("pct / 100", bt_js)
         self.assertIn("fuse_enter", bt_js)
         self.assertIn("fuse_strong", bt_js)
@@ -1342,9 +1342,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("y_oo_fuse_realized", trades_js)
         self.assertIn("y_oo_fuse_realized", trades_js)
         self.assertNotIn("realized_ranking", trades_js)
-        self.assertIn("remainingRankingPct", trades_js)
+        self.assertIn("remainingFusePct", trades_js)
         self.assertIn("(open[T+1]−price(τ))/open[T]", trades_js)
-        self.assertIn("d.rankingText", trades_js)
+        self.assertIn("d.fuseText", trades_js)
         self.assertIn('id: "y_oo_fuse"', trades_js)
         self.assertIn("ŷ_oo ${fmtScore(yf, { signed: true })}", trades_js)
         self.assertIn("ŷ_τc ${fmtScore(ytau, { signed: true })}", trades_js)
@@ -1353,25 +1353,25 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "r.y_oo_fuse != null",
             trades_js,
         )
-        self.assertNotIn("y_fuse ${fmtScore(yf)}", trades_js)
+        self.assertNotIn("y_oo ${fmtScore(yf)}", trades_js)
         self.assertNotIn("y_τ ${fmtScore(ytau, { signed: true })}", trades_js)
         self.assertNotIn("y_on ${fmtScore(yo)}", trades_js)
         self.assertNotIn("y_trade ${fmtScore(yt)}", trades_js)
         self.assertNotIn("真实 close/昨收", trades_js)
         self.assertIn(
-            "_optPredRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedOoText",
+            "_optPredRealHtml(d.y_ooText, d.y_ooCls, d.realizedOoText",
             trades_js,
         )
         self.assertNotIn(
-            "_predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedOoText",
+            "_predRealHtml(d.y_ooText, d.y_ooCls, d.realizedOoText",
             trades_js,
         )
         self.assertNotIn(
-            "_predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedTauText",
+            "_predRealHtml(d.y_ooText, d.y_ooCls, d.realizedTauText",
             trades_js,
         )
         self.assertNotIn(
-            "_predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedCcText",
+            "_predRealHtml(d.y_ooText, d.y_ooCls, d.realizedCcText",
             trades_js,
         )
         self.assertIn("bt-pair-real", trades_js)
@@ -1438,7 +1438,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(trades_js.find('id: "day_close"'), trades_js.find('id: "price"'))
         self.assertLess(trades_js.find('id: "price"'), trades_js.find('id: "stock_ret"'))
         self.assertLess(trades_js.find('id: "stock_ret"'), trades_js.find('id: "y_oo_fuse"'))
-        self.assertLess(trades_js.find('id: "y_oo_fuse"'), trades_js.find('id: "y_fuse"'))
+        self.assertLess(trades_js.find('id: "y_oo_fuse"'), trades_js.find('id: "y_oo"'))
         self.assertLess(trades_js.find('id: "y_on"'), trades_js.find('id: "y_oo_rank"'))
         self.assertIn('id: "y_oo_rank"', trades_js)
         self.assertIn('label: "rank",', trades_js)
@@ -1456,7 +1456,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("无固定上下界", trades_js)
         self.assertIn('"equity_after",\n    "y_oo_rank",\n    "y_oo_rank_n",', trades_js)
         self.assertIn("卖出总额/买入总额−1", trades_js)
-        self.assertIn("fmtScore(rankingPct, { signed: true })", trades_js)
+        self.assertIn("fmtScore(fusePctVal, { signed: true })", trades_js)
         self.assertIn('label: "fuse"', trades_js)
         self.assertLess(trades_js.find('label: "fuse"'), trades_js.find('label: "y_oo"'))
         self.assertNotIn('label: "y_hl"', trades_js)
@@ -1731,21 +1731,21 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("_pcFormulaIsLegacy", fmt_js)
         self.assertIn("_pcFormulaOf", fmt_js)
 
-    def test_holdings_ranking_fuses_oo_oc_not_gap_blend(self):
+    def test_holdings_fuse_uses_oo_oc_not_gap_blend(self):
         fmt_js = self._read("web", "static", "js", "paper", "fmt.js")
-        self.assertIn("export function rankingPct(it)", fmt_js)
-        self.assertIn("export function remainingRankingPct", fmt_js)
-        self.assertIn("export function rankingOpenPx", fmt_js)
-        self.assertIn("export function rankingPriceTau", fmt_js)
-        self.assertIn("const ranked = rankingPct(it)", fmt_js)
-        self.assertIn("remainingRankingPct(base, rankingOpenPx(it), rankingPriceTau(it))", fmt_js)
+        self.assertIn("export function yOoFusePct(it)", fmt_js)
+        self.assertIn("export function remainingFusePct", fmt_js)
+        self.assertIn("export function fuseOpenPx", fmt_js)
+        self.assertIn("export function fusePriceTau", fmt_js)
+        self.assertIn("const fromHeadsPct = yOoFusePct(it)", fmt_js)
+        self.assertIn("remainingFusePct(base, fuseOpenPx(it), fusePriceTau(it))", fmt_js)
         self.assertIn("pickYOcFitted", fmt_js)
         self.assertIn("export function pickYOcFitted", fmt_js)
         self.assertIn("hasFusionWeights", fmt_js)
         self.assertIn("fusionWeightsFromItem", fmt_js)
         self.assertIn("不用 dual_score 缺口抬升", fmt_js)
-        self.assertIn("export function resolveRankingScore", fmt_js)
-        self.assertIn("export const resolveTradeScore = resolveRankingScore", fmt_js)
+        self.assertIn("export function resolveFuseScore", fmt_js)
+        self.assertIn("export const resolveTradeScore = resolveFuseScore", fmt_js)
         self.assertIn("export function resolveYTradeScore", fmt_js)
         self.assertNotIn("fuseOrthogonalTrade", fmt_js)
         self.assertNotIn("expressTradeVsPrevClose", fmt_js)
@@ -1762,8 +1762,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("fuse · 预估(真实)", tip_js)
         self.assertIn("真实=(open[T+1]−price(τ))/open[T]", tip_js)
         self.assertIn("真实 (open[T+1]−price(τ))/open[T]", tip_js)
-        self.assertIn("rankingOpenPx(raw)", tip_js)
-        self.assertIn("rankingPriceTau(raw)", tip_js)
+        self.assertIn("fuseOpenPx(raw)", tip_js)
+        self.assertIn("fusePriceTau(raw)", tip_js)
         self.assertIn("pickYOcFitted(raw)", tip_js)
         self.assertNotIn("ŷ_trade · 正交加权", tip_js)
         self.assertNotIn("function resolveWeights", tip_js)
@@ -1788,7 +1788,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">y_τc</th>", render)
         self.assertLess(
             render.find('title="ŷ_co · close[T]→open[T+1]">y_co</th>'),
-            render.find('title="${RANKING_REBALANCE_TITLE}">fuse</th>'),
+            render.find('title="${FUSE_REBALANCE_TITLE}">fuse</th>'),
         )
         self.assertIn("fusion_w_oo: it && it.fusion_w_oo", render)
         self.assertIn("eod_feature_as_of: (it && it.eod_feature_as_of) || null", render)
@@ -1796,7 +1796,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("factor_anomaly: (it && it.factor_anomaly) || null", render)
         self.assertNotIn("fusion_w_trade: it && it.fusion_w_trade", render)
         self.assertNotIn("y_mu: it && it.y_mu", render)
-        self.assertIn("y_oo_fuse: it && (it.y_oo_fuse != null ? it.y_oo_fuse : it.ranking)", render)
+        self.assertIn("y_oo_fuse: it && it.y_oo_fuse", render)
         self.assertIn("day_open: it && it.day_open", render)
         self.assertIn("price_tau: it && it.price_tau", render)
         self.assertIn("y_oo: it && it.y_oo", render)
@@ -1827,8 +1827,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         insights = self._read("web", "static", "js", "quant", "watching_insights_ui.js")
         self.assertNotIn("表列 y_trade", insights)
         self.assertIn("表列为 fuse", insights)
-        self.assertIn("RANKING_REBALANCE_TITLE", insights)
-        self.assertIn("export const RANKING_REBALANCE_TITLE", fmt_js)
+        self.assertIn("FUSE_REBALANCE_TITLE", insights)
+        self.assertIn("export const FUSE_REBALANCE_TITLE", fmt_js)
         self.assertNotIn("export const RANKING_TITLE", fmt_js)
         self.assertNotIn("export const TRADE_TITLE", fmt_js)
         quotes = self._read("web", "static", "js", "quant", "watching_quotes_ui.js")
@@ -1849,20 +1849,20 @@ class TestWebQuantJsGuards(unittest.TestCase):
         """数据中心观察池 / 持仓表列头用 09:30–10:00 调仓因果前缀 ŷ。"""
         fmt = self._read("web", "static", "js", "paper", "fmt.js")
         self.assertIn("export const Y_OC_REBALANCE_TITLE", fmt)
-        self.assertIn("export const RANKING_REBALANCE_TITLE", fmt)
+        self.assertIn("export const FUSE_REBALANCE_TITLE", fmt)
         self.assertIn("09:30–10:00", fmt)
         watching = self._read("web", "static", "js", "watching_table_island.js")
         self.assertIn("Y_OC_REBALANCE_TITLE", watching)
-        self.assertIn("RANKING_REBALANCE_TITLE", watching)
+        self.assertIn("FUSE_REBALANCE_TITLE", watching)
         holdings = self._read("web", "static", "js", "holdings_table_island.js")
         self.assertIn("Y_OC_REBALANCE_TITLE", holdings)
-        self.assertIn("RANKING_REBALANCE_TITLE", holdings)
+        self.assertIn("FUSE_REBALANCE_TITLE", holdings)
         ui = self._read("web", "static", "js", "paper", "holdings_ui.js")
         self.assertIn("Y_OC_REBALANCE_TITLE", ui)
-        self.assertIn("RANKING_REBALANCE_TITLE", ui)
+        self.assertIn("FUSE_REBALANCE_TITLE", ui)
         insights = self._read("web", "static", "js", "quant", "watching_insights_ui.js")
         self.assertIn("Y_OC_REBALANCE_TITLE", insights)
-        self.assertIn("RANKING_REBALANCE_TITLE", insights)
+        self.assertIn("FUSE_REBALANCE_TITLE", insights)
         policy = self._read("web", "static", "js", "data_policy.js")
         minute = self._read("web", "static", "js", "quant", "minute_ui.js")
         panel = self._read("web", "static", "partials", "quant_panel.html")
@@ -3470,8 +3470,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("pm.lot_base_amount ?? pm.lot_base", exe_ui)
         self.assertNotIn("pm.lot_strong_amount ?? pm.lot_strong", exe_ui)
         self.assertNotIn("live 过强买 500 否则 200", exe_ui)
-        self.assertIn("rankPctToScore", exe_ui)
-        self.assertIn("rankScoreToPct", exe_ui)
+        self.assertIn("fusePctToScore", exe_ui)
+        self.assertIn("fuseScoreToPct", exe_ui)
         self.assertIn("pm_fusion_w_co", exe_ui)
         self.assertNotIn("pm_y_on_alpha", exe_ui)
         self.assertNotIn("pm_holdings_mv_cap", exe_ui)
@@ -3497,7 +3497,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("paper-rebalance-close", paper)
         self.assertNotIn('bit("ŷ_trade", trade)', paper)
         self.assertNotIn('bit("ranking", trade)', paper)
-        self.assertIn('bit("ranking", ranking)', paper)
+        self.assertIn('bit("fuse", fuse)', paper)
         desk_js = self._read("web", "static", "js", "paper", "rebalance_desk.js")
         self.assertIn("今日盯盘状态", desk_js)
         self.assertIn("renderPaperRebalanceWorkerDesk", desk_js)
@@ -3530,7 +3530,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("现金地板≥", report)
         self.assertIn("cash_below_floor", report)
         self.assertIn("fuse入场≥", report)
-        self.assertIn("fmtRankEnterPct", report)
+        self.assertIn("fmtFuseEnterPct", report)
         self.assertIn('role="columnheader" title="fuse', report)
         self.assertIn(">fuse</div>", report)
         self.assertNotIn(">rank</div>", report)
@@ -3572,7 +3572,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("var(--pm-path)", css)
         logs_ui = self._read("web", "static", "js", "paper", "logs_ui.js")
         self.assertIn('watching_matrix_rebalance: "调仓"', logs_ui)
-        self.assertIn("ranking ${fmtScore(Number(meta.ranking)", logs_ui)
+        self.assertIn("fuse ${fmtScore(fuseMeta", logs_ui)
         self.assertIn("function typeLabelOf", logs_ui)
         self.assertIn("function resetLogPrimary", logs_ui)
         self.assertIn("maximumFractionDigits: 0", logs_ui)

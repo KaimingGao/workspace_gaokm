@@ -1,6 +1,6 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
-import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore } from "./fmt.js?v=p2544";
+import { resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore } from "./fmt.js?v=p2544";
 import { getPredTier, predTierRank } from "../quant/pred_tier_ui.js?v=p2749";
 
 export function loadHoldingsSort() {
@@ -56,8 +56,8 @@ export function sortHoldings(list, key, dir) {
       const ar = predTierRank((getPredTier(a.stock_code) || {}).tier);
       const br = predTierRank((getPredTier(b.stock_code) || {}).tier);
       if (ar !== br) return asc ? ar - br : br - ar;
-      const as = resolveRankingScore(a);
-      const bs = resolveRankingScore(b);
+      const as = resolveFuseScore(a);
+      const bs = resolveFuseScore(b);
       const aOk = as != null && Number.isFinite(Number(as));
       const bOk = bs != null && Number.isFinite(Number(bs));
       if (aOk && bOk && Number(as) !== Number(bs)) return Number(bs) - Number(as);
@@ -68,8 +68,8 @@ export function sortHoldings(list, key, dir) {
       });
     }
     if (k === "score") {
-      av = resolveRankingScore(a);
-      bv = resolveRankingScore(b);
+      av = resolveFuseScore(a);
+      bv = resolveFuseScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
     } else if (k === "score_eod") {

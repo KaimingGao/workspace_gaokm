@@ -5,7 +5,7 @@ import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 import { BARS_WATCHING_LIMIT } from "./params.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
-import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js";
+import { fmtScore, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore } from "../paper/fmt.js";
 import { watchingNameFromEl, applyWatchingNameEl } from "./names.js";
 import { renderWatchingHoldings } from "./watching_holdings.js";
 import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan, renderWatchingWatchTableFallback, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js";
@@ -587,9 +587,9 @@ export function installWatching(q) {
           const code = String((it && (it.stock_code || it.code)) || "").trim();
           if (!code) continue;
           if (it && it.ok !== false) itemsByCode[code] = it;
-          const ranking = resolveRankingScore(it);
-          if (ranking != null && Math.abs(Number(ranking)) <= 20) {
-            scoresByCode[code] = ranking;
+          const fuse = resolveFuseScore(it);
+          if (fuse != null && Math.abs(Number(fuse)) <= 20) {
+            scoresByCode[code] = fuse;
           }
         }
         localStorage.setItem(

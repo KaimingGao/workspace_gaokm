@@ -12,15 +12,15 @@ from core.research.portfolio_bars import (
     should_fetch_backtest_fundamentals,
 )
 
-from core.backtest.paper_replay import REPLAY_RANK_ENTER, REPLAY_RANK_STRONG
+from core.backtest.paper_replay import REPLAY_FUSE_ENTER, REPLAY_FUSE_STRONG
 
 # `/quant` 生成日报：历史回测对齐 /replay（rank_lots）；lookback 表单默认 30
 DAILY_BT_UI_TOP_K = 3  # 仅中性化对照 / 旧 API；主回测不再截 Top-K
 DAILY_BT_UI_HORIZON_DAYS = 1
 DAILY_BT_UI_LOOKBACK = 30
 DAILY_BT_UI_FUSION_W_CO = 0.0
-DAILY_BT_UI_FUSE_ENTER = REPLAY_RANK_ENTER
-DAILY_BT_UI_FUSE_STRONG = REPLAY_RANK_STRONG
+DAILY_BT_UI_FUSE_ENTER = REPLAY_FUSE_ENTER
+DAILY_BT_UI_FUSE_STRONG = REPLAY_FUSE_STRONG
 
 __all__ = [
     "DAILY_BT_UI_TOP_K",
@@ -92,7 +92,7 @@ def resolve_daily_replay_kwargs(
     """日报历史回测：对齐 /replay paper_replay（w_co / fuse入场 / fuse强 / lookback）。"""
     from core.paper.rebalance.rank_lots import (
         clamp_fusion_w_co,
-        coerce_rank_threshold,
+        coerce_fuse_threshold,
     )
 
     costs = True if apply_costs is None else bool(apply_costs)
@@ -103,11 +103,11 @@ def resolve_daily_replay_kwargs(
     if alpha != alpha:
         alpha = float(DAILY_BT_UI_FUSION_W_CO)
     alpha = max(0.0, min(1.0, float(clamp_fusion_w_co(alpha))))
-    enter = coerce_rank_threshold(
+    enter = coerce_fuse_threshold(
         DAILY_BT_UI_FUSE_ENTER if fuse_enter is None else fuse_enter,
         DAILY_BT_UI_FUSE_ENTER,
     )
-    strong = coerce_rank_threshold(
+    strong = coerce_fuse_threshold(
         DAILY_BT_UI_FUSE_STRONG if fuse_strong is None else fuse_strong,
         DAILY_BT_UI_FUSE_STRONG,
     )

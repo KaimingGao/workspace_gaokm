@@ -13,8 +13,8 @@ const { fitTierBadgeForCode } = await import(
   `./fit_tier_ui.js?v=${encodeURIComponent(_V)}`
 );
 const {
-  resolveRankingScore,
-  remainingRankingPct,
+  resolveFuseScore,
+  remainingFusePct,
   compoundPct,
   Y_EOD_TITLE,
   Y_OC_REBALANCE_TITLE,
@@ -315,7 +315,7 @@ export const BT_LEDGER_TRADE_COLS = [
     title: "fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1] 基准",
   },
   {
-    id: "y_fuse",
+    id: "y_oo",
     label: "y_oo",
     widthPct: 11,
     widthMin: "10rem",
@@ -570,7 +570,7 @@ function buildLedgerTradeRow(r, i, deps) {
   const rk = _numOrNull(
     r.y_oo_fuse_score
   );
-  const rankingPct =
+  const fusePctVal =
     rk != null ? rk * 100 : _numOrNull(r.y_oo_fuse);
   const yRank = _numOrNull(
     r.y_oo_rank != null ? r.y_oo_rank : r.predicted_score_oo_rank
@@ -586,7 +586,7 @@ function buildLedgerTradeRow(r, i, deps) {
   }
   const act = _actionMeta(r);
   const actionTip = _legReason(r);
-  const fuseTip = [
+  const ooTip = [
     yf != null ? `ŷ_oo ${fmtScore(yf, { signed: true })}` : "ŷ_oo —",
     rOo != null ? `真实 次日开/今日开 ${fmtScore(rOo, { signed: true })}` : "真实 —（待次日开）",
   ]
@@ -622,19 +622,19 @@ function buildLedgerTradeRow(r, i, deps) {
   const tauPx =
     _numOrNull(r.rebalance_px) ??
     (held || skipped ? null : priceNum);
-  let rRank = _numOrNull(
+  let rFuse = _numOrNull(
     r.y_oo_fuse_realized
   );
-  if (rRank == null && rOo != null) {
-    rRank =
+  if (rFuse == null && rOo != null) {
+    rFuse =
       dayOpenNum != null && tauPx != null
-        ? remainingRankingPct(rOo, dayOpenNum, tauPx)
+        ? remainingFusePct(rOo, dayOpenNum, tauPx)
         : rOo;
   }
-  const rankingTip = [
-    rankingPct != null ? `fuse ${fmtScore(rankingPct, { signed: true })}` : "fuse —",
-    rRank != null
-      ? `真实 (open[T+1]−price(τ))/open[T] ${fmtScore(rRank, { signed: true })}`
+  const fuseTipCell = [
+    fusePctVal != null ? `fuse ${fmtScore(fusePctVal, { signed: true })}` : "fuse —",
+    rFuse != null
+      ? `真实 (open[T+1]−price(τ))/open[T] ${fmtScore(rFuse, { signed: true })}`
       : "真实 —（待次日开）",
   ]
     .filter(Boolean)
@@ -649,8 +649,8 @@ function buildLedgerTradeRow(r, i, deps) {
     predicted_score_tau: ytau != null ? ytau : r.predicted_score_tau,
     y_co: yo,
     predicted_score_on: yo != null ? yo : r.predicted_score_on,
-    y_oo_fuse: rankingPct != null ? rankingPct : r.y_oo_fuse,
-    y_oo_fuse_realized: rRank,
+    y_oo_fuse: fusePctVal != null ? fusePctVal : r.y_oo_fuse,
+    y_oo_fuse_realized: rFuse,
     realized_oo: rOo,
     day_open: dayOpenNum != null ? dayOpenNum : r.day_open,
     rebalance_px: tauPx != null ? tauPx : r.rebalance_px,
@@ -679,10 +679,10 @@ function buildLedgerTradeRow(r, i, deps) {
     stockRetNum,
     stockRetText: _fmtSignedPct(stockRetNum),
     stockRetCls: _scoreClsOf(scoreCls, stockRetNum),
-    y_fuseNum: yf,
-    y_fuseText: fmtScore(yf, { signed: true }),
-    y_fuseCls: _scoreClsOf(scoreCls, yf),
-    y_fuseTip: fuseTip,
+    y_ooNum: yf,
+    y_ooText: fmtScore(yf, { signed: true }),
+    y_ooCls: _scoreClsOf(scoreCls, yf),
+    y_ooTip: ooTip,
     y_tauNum: ytau,
     y_tauText: fmtScore(ytau, { signed: true }),
     y_tauCls: _scoreClsOf(scoreCls, ytau),
@@ -690,10 +690,10 @@ function buildLedgerTradeRow(r, i, deps) {
     y_onNum: yo,
     y_onText: fmtScore(yo, { signed: true }),
     y_onCls: _scoreClsOf(scoreCls, yo),
-    rankingNum: rankingPct,
-    rankingText: rankingPct == null ? "—" : fmtScore(rankingPct, { signed: true }),
-    rankingCls: _scoreClsOf(scoreCls, rankingPct),
-    rankingTip,
+    fuseNum: fusePctVal,
+    fuseText: fusePctVal == null ? "—" : fmtScore(fusePctVal, { signed: true }),
+    fuseCls: _scoreClsOf(scoreCls, fusePctVal),
+    fuseTipCell,
     y_oo_rankNum: yRankDisp.text === "—" ? null : yRank,
     y_oo_rankText: yRankDisp.text,
     y_oo_rankCls: "",
@@ -703,9 +703,9 @@ function buildLedgerTradeRow(r, i, deps) {
     realizedOoNum: rOo,
     realizedOoText: rOo == null ? "" : fmtScore(rOo, { signed: true }),
     realizedOoCls: _scoreClsOf(scoreCls, rOo),
-    realizedRankingNum: rRank,
-    realizedRankingText: rRank == null ? "" : fmtScore(rRank, { signed: true }),
-    realizedRankingCls: _scoreClsOf(scoreCls, rRank),
+    realizedFuseNum: rFuse,
+    realizedFuseText: rFuse == null ? "" : fmtScore(rFuse, { signed: true }),
+    realizedFuseCls: _scoreClsOf(scoreCls, rFuse),
     realizedCcNum: rCc,
     realizedCcText: rCc == null ? "" : fmtScore(rCc, { signed: true }),
     realizedCcCls: _scoreClsOf(scoreCls, rCc),
@@ -966,7 +966,7 @@ function buildSimTradeRow(r, i, deps) {
       ? Number(r.predicted_score)
       : null;
   // 与持仓/观察池同源：修历史成交里塌成 EOD 的旧 blend
-  const blendRaw = resolveRankingScore(r);
+  const blendRaw = resolveFuseScore(r);
   // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_oo；有 τ 时才用 fuse
   const hasTau =
     (r.predicted_score_tau != null && Number.isFinite(Number(r.predicted_score_tau))) ||
@@ -1019,8 +1019,7 @@ function buildSimTradeRow(r, i, deps) {
   }
   const scoreDetail = watchingScoreDetail({
     // fuse 头/权进 tip，与表列同式
-    y_oo_fuse: r.y_oo_fuse != null ? r.y_oo_fuse : r.ranking,
-    ranking: r.ranking,
+    y_oo_fuse: r.y_oo_fuse,
     y_oo: r.y_oo != null ? r.y_oo : eodScore,
     y_oc: r.y_oc != null ? r.y_oc : r.y_tau_oc,
     y_co: r.y_co != null ? r.y_co : r.y_on,
@@ -1132,10 +1131,10 @@ const BT_TRADES_NUM_KEYS = {
   day_close: "dayCloseNum",
   price: "priceNum",
   stock_ret: "stockRetNum",
-  y_fuse: "y_fuseNum",
+  y_oo: "y_ooNum",
   y_tau: "y_tauNum",
   y_on: "y_onNum",
-  y_oo_fuse: "rankingNum",
+  y_oo_fuse: "fuseNum",
   y_oo_rank: "y_oo_rankNum",
 };
 
@@ -1281,10 +1280,10 @@ export function btTradesCellHtml(col, d, deps) {
       d.stockRetCls || ""
     )}">${escapeHtml(d.stockRetText || "—")}</span>`;
   }
-  if (col.id === "y_fuse") {
+  if (col.id === "y_oo") {
     return _stackScoreHtml(
-      _optPredRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedOoText, d.realizedOoCls, escapeHtml),
-      d.y_fuseTip || Y_EOD_TITLE,
+      _optPredRealHtml(d.y_ooText, d.y_ooCls, d.realizedOoText, d.realizedOoCls, escapeHtml),
+      d.y_ooTip || Y_EOD_TITLE,
       escapeHtml,
       "eod",
       d.scoreDetail
@@ -1311,13 +1310,13 @@ export function btTradesCellHtml(col, d, deps) {
   if (col.id === "y_oo_fuse") {
     return _stackScoreHtml(
       _optPredRealHtml(
-        d.rankingText,
-        d.rankingCls,
-        d.realizedRankingText,
-        d.realizedRankingCls,
+        d.fuseText,
+        d.fuseCls,
+        d.realizedFuseText,
+        d.realizedFuseCls,
         escapeHtml
       ),
-      d.rankingTip || "fuse = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 真实 (open[T+1]−price(τ))/open[T]",
+      d.fuseTipCell || "fuse = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 真实 (open[T+1]−price(τ))/open[T]",
       escapeHtml,
       "fuse",
       d.scoreDetail

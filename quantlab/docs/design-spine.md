@@ -151,7 +151,7 @@ flowchart LR
 | 任务 | 主要频率 | 主要目标头 | 融合 / 门控 | 代码落点 |
 |------|----------|------------|-------------|----------|
 | **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_oo**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_co** | **ŷ_trade** = blend(ŷ_oo, 缺口∘ŷ_τ)；过 ŷ_oo floor + τ 闸 | `dual_score/` · `paper_rebalance` |
-| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **ŷ_τw** 入场 | C_τ=price(τ)×(1+clip(ŷ_τc×scale, ±20)/100)，再对称 ±δ；y_hl **不进 C_τ / ranking** | `core/t0/close_band.py` |
+| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **ŷ_τw** 入场 | C_τ=price(τ)×(1+clip(ŷ_τc×scale, ±20)/100)，再对称 ±δ；y_hl **不进 C_τ / fuse** | `core/t0/close_band.py` |
 | **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 冻结 C_τ | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
 详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ) · [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)。

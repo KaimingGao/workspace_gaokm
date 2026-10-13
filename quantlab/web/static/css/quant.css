@@ -1590,7 +1590,7 @@
   max-width: 100%;
   min-width: 0;
   margin: 0;
-  /* 列宽合计 > 容器：必须横滑，hidden 会把 y_oo / ranking / 超额裁成「空」 */
+  /* 列宽合计 > 容器：必须横滑，hidden 会把 y_oo / fuse / 超额裁成「空」 */
   overflow-x: auto;
 }
 
@@ -2322,7 +2322,7 @@ html[data-density="compact"] .quant-page {
 
 .quant-bt-trades-host .bt-ledger-grid .watching-react-grid-head,
 .quant-bt-trades-host .bt-ledger-grid .watching-react-grid-body {
-  /* 列 minmax + column-gap；小于此值时 overflow-x:hidden 会裁掉 ranking / y_hl */
+  /* 列 minmax + column-gap；小于此值时 overflow-x:hidden 会裁掉 fuse / y_hl */
   min-width: 102rem;
 }
 
@@ -2473,10 +2473,10 @@ html[data-density="compact"] .quant-page {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
 }
 
-.quant-bt-trades-host .watching-react-grid-cell.watching-col-y_fuse,
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-y_oo,
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_tau,
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_on,
-.quant-bt-trades-host .watching-react-grid-cell.watching-col-ranking,
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-y_oo_fuse,
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_hl {
   display: flex;
   justify-content: flex-end;

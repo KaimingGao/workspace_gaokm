@@ -2,7 +2,7 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "./paper/fmt.js?v=p2544";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p2544";
 import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2746";
 import {
   isSingleHeadItem,
@@ -43,7 +43,7 @@ export function holdingToRow(
   const code = String(h.stock_code || "").trim();
   const name = h.stock_name || code || "";
   const pnl = h.pnl_pct;
-  const score = resolveRankingScore(h);
+  const score = resolveFuseScore(h);
   const scoreEod = resolveEodScore(h);
   const scoreTau = resolveTauScore(h);
   const scoreOn = resolveOnScore(h);
@@ -75,7 +75,7 @@ export function holdingToRow(
         ? `fuse 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
         ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 fuse）· 悬停看详情`
-        : RANKING_REBALANCE_TITLE;
+        : FUSE_REBALANCE_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
   const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
@@ -252,9 +252,9 @@ const COLS = [
     width: 94,
     num: true,
     sortable: true,
-    headClass: "watching-col-y watching-col-y-ranking",
-    cellClass: "watching-col-y watching-col-y-ranking",
-    title: RANKING_REBALANCE_TITLE,
+    headClass: "watching-col-y watching-col-y-fuse",
+    cellClass: "watching-col-y watching-col-y-fuse",
+    title: FUSE_REBALANCE_TITLE,
   },
   { id: "cost", label: "成本", width: 78, num: true, title: "持仓加权平均成本" },
   {

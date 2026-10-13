@@ -277,7 +277,7 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_co"], 0.8)
         self.assertNotIn("y_on", item)
 
-    def test_ranking_compounds_oc_with_co(self):
+    def test_fuse_compounds_oc_with_co(self):
         from core.signal.yhat_windows import oc_with_co, y_oo_fuse_pct
 
         y_τc, y_co = 1.0, 1.0
@@ -297,7 +297,7 @@ class StampPrimaryTests(unittest.TestCase):
             places=6,
         )
 
-    def test_tau_to_close_ranking_prefers_y_τc(self):
+    def test_tau_to_close_fuse_prefers_y_τc(self):
         from core.signal.yhat_windows import y_oo_fuse_pct
 
         item = {
@@ -350,7 +350,7 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertNotIn("ranking", out)
         self.assertNotIn("y_fuse", out)
 
-    def test_formula_ranking_expands_geometric_compound(self):
+    def test_formula_fuse_expands_geometric_compound(self):
         from core.signal.yhat_windows import FORMULA_OO_FUSE
 
         self.assertEqual(

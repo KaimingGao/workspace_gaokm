@@ -5,8 +5,8 @@
 **alpha_τc** := 开盘 Z（``TAU_Z_FEATURES`` = ``z_τc_*``，含 ≤τ 分钟键）∪ ``raw_atc_*``（alpha_tc）。
 现网固定完整 **alpha_τc**（z_τc_*∪raw_atc_*）。面板/live 仍写旧裸名 Z；``feature_get`` 双向别名。
 
-这就是调仓 ranking 里的 ŷ_τc。打分写入 ``y_τc``（含时钟对齐）。
-供买入闸、ranking 的 τc 项、做 T 估 C_τ。与 ŷ_oo 独立，不改写 ``predicted_score``。
+这就是调仓 fuse（y_oo_fuse）里的 ŷ_τc。打分写入 ``y_τc``（含时钟对齐）。
+供买入闸、fuse 的 τc 项、做 T 估 C_τ。与 ŷ_oo 独立，不改写 ``predicted_score``。
 ``raw_atc_*`` 锚 price[τ]；ŷ_oo 用开锚 ``z_oo_* ∪ raw_aoo_*`` 全量。
 """
 
@@ -738,7 +738,7 @@ def persist_tau_model(
         "dual_score_head": "predicted_score_tau",
         "contract_note": (
             f"ŷ_τc({ALPHA_TC_PACK_NOTE}) "
-            "估 τ→close → y_τc；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
+            "估 τ→close → y_τc；fuse 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
         ),
         **pack,
     }

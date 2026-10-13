@@ -781,10 +781,10 @@ export function installBacktest(q) {
     };
   }
 
-  const RANK_PCT_DEFAULT = 0.1;
+  const FUSE_PCT_DEFAULT = 0.1;
 
   /** 表单为百分数（0.1 → 0.1%）；引擎仍用 0.001。 */
-  function rankPctToScore(raw, fallbackPct = RANK_PCT_DEFAULT) {
+  function fusePctToScore(raw, fallbackPct = FUSE_PCT_DEFAULT) {
     let pct = fallbackPct;
     if (raw != null && raw !== "") {
       const n = Number(raw);
@@ -817,7 +817,7 @@ export function installBacktest(q) {
         };
       }
     }
-    const enter = rankPctToScore();
+    const enter = fusePctToScore();
     return {
       fuse_enter: enter,
       fuse_strong: enter,

@@ -2,7 +2,7 @@
 
 import { escapeText } from "./fmt.js";
 
-function coerceRankChip(raw, fallback) {
+function coerceFuseChip(raw, fallback) {
   if (raw == null || raw === "") return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
@@ -51,8 +51,8 @@ export function renderPaperRulesHtml(data) {
         ? timing.path_matrix
         : null);
   if (pm) {
-    const enter = coerceRankChip(pm.fuse_enter, 0.001);
-    const strong = coerceRankChip(pm.fuse_strong, 0.001);
+    const enter = coerceFuseChip(pm.fuse_enter, 0.001);
+    const strong = coerceFuseChip(pm.fuse_strong, 0.001);
     chips.push([
       "rank",
       `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`,

@@ -269,10 +269,10 @@ export function renderRebalanceRulesHtml(execution) {
     (timing.rank_lots && typeof timing.rank_lots === "object" && timing.rank_lots) ||
     (timing.path_matrix && typeof timing.path_matrix === "object" && timing.path_matrix) ||
     {};
-  const enter = rankScoreToPct(
+  const enter = fuseScoreToPct(
     pm.fuse_enter
   );
-  const strong = rankScoreToPct(
+  const strong = fuseScoreToPct(
     pm.fuse_strong != null ? pm.fuse_strong : pm.fuse_enter
   );
   const alpha = pm.fusion_w_co != null ? Number(pm.fusion_w_co) : 1;
@@ -560,7 +560,7 @@ export function collectExecutionForm(root) {
 }
 
 /** 毛收益乘数 1.01/1.02、旧 0.20 → 净收益 0.01/0.02。 */
-function coerceRankThreshold(raw, fallback) {
+function coerceFuseThreshold(raw, fallback) {
   if (raw == null || raw === "") return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
@@ -573,7 +573,7 @@ function coerceRankThreshold(raw, fallback) {
   return n;
 }
 
-const RANK_PCT_DEFAULT = 0.1;
+const FUSE_PCT_DEFAULT = 0.1;
 
 function clampLotAmount(raw, fallback) {
   let v = fallback;
@@ -586,15 +586,15 @@ function clampLotAmount(raw, fallback) {
 }
 
 /** 引擎净收益小数 → 表单百分数（0.001 → 0.1）。 */
-function rankScoreToPct(raw, fallbackPct = RANK_PCT_DEFAULT) {
-  const score = coerceRankThreshold(raw, fallbackPct / 100);
+function fuseScoreToPct(raw, fallbackPct = FUSE_PCT_DEFAULT) {
+  const score = coerceFuseThreshold(raw, fallbackPct / 100);
   const pct = Number(score) * 100;
   if (!Number.isFinite(pct)) return fallbackPct;
   return Math.round(Math.max(0, Math.min(10, pct)) * 100) / 100;
 }
 
 /** 表单百分数 → 引擎净收益小数（1.2 → 0.012）。 */
-function rankPctToScore(raw, fallbackPct = RANK_PCT_DEFAULT) {
+function fusePctToScore(raw, fallbackPct = FUSE_PCT_DEFAULT) {
   let pct = fallbackPct;
   if (raw != null && raw !== "") {
     const n = Number(raw);
@@ -630,8 +630,8 @@ export function fillPathMatrixForm(root, execution) {
   const enterScore = pm.fuse_enter;
   const strongScore =
     pm.fuse_strong != null ? pm.fuse_strong : enterScore;
-  set("pm_fuse_enter", rankScoreToPct(enterScore));
-  set("pm_fuse_strong", rankScoreToPct(strongScore));
+  set("pm_fuse_enter", fuseScoreToPct(enterScore));
+  set("pm_fuse_strong", fuseScoreToPct(strongScore));
       const yOoGt0 = pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : false;
   const yOcGt0 = pm.y_τc_gt0 != null ? !!pm.y_τc_gt0 : false;
   set("pm_y_oo_gt0", yOoGt0);
@@ -745,11 +745,11 @@ export function collectPathMatrixForm(root) {
     }
     return fallback;
   };
-  let enter = rankPctToScore(
-    numFirst(["pm_fuse_enter"], RANK_PCT_DEFAULT)
+  let enter = fusePctToScore(
+    numFirst(["pm_fuse_enter"], FUSE_PCT_DEFAULT)
   );
-  let strong = rankPctToScore(
-    numFirst(["pm_fuse_strong"], RANK_PCT_DEFAULT)
+  let strong = fusePctToScore(
+    numFirst(["pm_fuse_strong"], FUSE_PCT_DEFAULT)
   );
   if (strong < enter) strong = enter;
   const chk = (name, fallback = true) => {

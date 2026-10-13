@@ -37,14 +37,14 @@ class TestRankingScore(unittest.TestCase):
         )
 
     def test_legacy_threshold_coerced_to_net(self):
-        from core.paper.rebalance.rank_lots import coerce_rank_threshold
+        from core.paper.rebalance.rank_lots import coerce_fuse_threshold
 
-        self.assertAlmostEqual(coerce_rank_threshold(0.01, 0.01), 0.01)
-        self.assertAlmostEqual(coerce_rank_threshold(0.20, 0.02), 0.02)
-        self.assertAlmostEqual(coerce_rank_threshold(1.01, 0.01), 0.01)
-        self.assertAlmostEqual(coerce_rank_threshold(1.0, 0.01), 0.01)
-        self.assertAlmostEqual(coerce_rank_threshold(1.002, 0.02), 0.02)
-        self.assertAlmostEqual(coerce_rank_threshold(1.02, 0.02), 0.02)
+        self.assertAlmostEqual(coerce_fuse_threshold(0.01, 0.01), 0.01)
+        self.assertAlmostEqual(coerce_fuse_threshold(0.20, 0.02), 0.02)
+        self.assertAlmostEqual(coerce_fuse_threshold(1.01, 0.01), 0.01)
+        self.assertAlmostEqual(coerce_fuse_threshold(1.0, 0.01), 0.01)
+        self.assertAlmostEqual(coerce_fuse_threshold(1.002, 0.02), 0.02)
+        self.assertAlmostEqual(coerce_fuse_threshold(1.02, 0.02), 0.02)
 
     def test_lot_shares_threshold(self):
         from core.paper.rebalance.rank_lots import lot_shares_for_rank
@@ -151,7 +151,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(by["600000"]["shares"]) * 10.0, 10_000.0)
         self.assertAlmostEqual(float(by["600001"]["shares"]) * 50.0, 10_000.0)
 
-    def test_tree_uses_same_percent_rank_enter(self):
+    def test_tree_uses_same_percent_fuse_enter(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         scored = []
@@ -292,7 +292,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["fusion_w_oc"]), 0.8)
         self.assertAlmostEqual(float(buy["fusion_w_co"]), 1.0)
 
-    def test_stamps_aux_yhat_after_ranking(self):
+    def test_stamps_aux_yhat_after_fuse(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         scored = [
@@ -447,7 +447,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["y_oo_fuse"]), 1.6)
         self.assertAlmostEqual(float(buy["y_oo_fuse"]), 1.6)
 
-    def test_ranking_ignores_gap_and_trade(self):
+    def test_fuse_ignores_gap_and_trade(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day, y_oo_fuse_pct_of
 
         scored = [
@@ -471,7 +471,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["y_oo_fuse"]), 1.5)
         self.assertAlmostEqual(float(buy["y_oo_fuse"]), 1.5)
 
-    def test_ranking_pct_of_uses_fusion_w_co(self):
+    def test_y_oo_fuse_pct_of_uses_fusion_w_co(self):
         from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
         from core.signal.yhat_windows import oc_with_co
 
@@ -487,12 +487,12 @@ class TestPlanRankLotDay(unittest.TestCase):
             1.5,
         )
 
-    def test_heads_override_stale_ranking_stamp(self):
+    def test_heads_override_stale_fuse_stamp(self):
         from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
 
         item = {"predicted_score": 2.30, "y_τc": 0.08}
         self.assertAlmostEqual(y_oo_fuse_pct_of(item, _cfg()), 0.5 * 2.30 + 0.5 * 0.08)
-        # 无 ŷ_oo/ŷ_τc 才信落盘 y_oo_fuse / ranking
+        # 无 ŷ_oo/ŷ_τc 才信落盘 y_oo_fuse
         self.assertAlmostEqual(y_oo_fuse_pct_of({"y_oo_fuse": 1.2}, _cfg()), 1.2)
 
     def test_y_oo_fuse_fallback_when_heads_missing(self):
@@ -527,8 +527,8 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(len(out["buys"]), 1)
         self.assertAlmostEqual(float(out["fuse_enter"]), 0.01)
 
-    def test_tc_ranking_uses_fill_rot_not_stale_open_features(self):
-        """τc 行：成交价 rot 必须进 ranking；开盘 Z 的 ŷ_τc 要映到 τ→close。"""
+    def test_tc_fuse_uses_fill_rot_not_stale_open_features(self):
+        """τc 行：成交价 rot 必须进 fuse；开盘 Z 的 ŷ_τc 要映到 τ→close。"""
         from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
         from core.signal.yhat_geom import remaining_at_tau
         from core.signal.yhat_windows import ret_open_to_tau_pct
@@ -590,7 +590,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(item["y_τc"]), -0.5, places=6)
         self.assertAlmostEqual(float(item["y_oo"]), 0.8, places=6)
 
-    def test_ranking_remaining_maps_open_to_price_tau(self):
+    def test_fuse_remaining_maps_open_to_price_tau(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day, y_oo_fuse_pct_of
 
         item = {"predicted_score": 2.0, "y_tau": 2.0}
@@ -697,8 +697,8 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(float(out["sells"][0]["shares"]), 200)
         self.assertEqual(out["buys"], [])
 
-    def test_missing_ranking_exits_held(self):
-        """当日打不上分：不能假装 ranking≥0 续持。"""
+    def test_missing_fuse_exits_held(self):
+        """当日打不上分：不能假装 fuse≥0 续持。"""
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         held = {
@@ -821,7 +821,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         )
         self.assertIn("无有效报价", buy_skip.get("reason") or "")
 
-    def test_zero_ranking_exits(self):
+    def test_zero_fuse_exits(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         held = {
@@ -877,7 +877,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertIn("清仓", out["sells"][0]["reason"])
         self.assertEqual(out["holds"], [])
 
-    def test_hard_reject_exits_even_if_ranking_positive(self):
+    def test_hard_reject_exits_even_if_fuse_positive(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         held = {
@@ -958,7 +958,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(out["buys"], [])
         self.assertEqual(out["holds"], [])
 
-    def test_negative_oo_exits_if_ranking_below_enter(self):
+    def test_negative_oo_exits_if_fuse_below_enter(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         held = {
@@ -1062,7 +1062,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(len(out["sells"]), 1)
         self.assertEqual(out["sells"][0]["action"], "exit")
 
-    def test_positive_oo_exits_if_oc_sinks_ranking(self):
+    def test_positive_oo_exits_if_oc_sinks_fuse(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         held = {
@@ -1122,7 +1122,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         )
         self.assertEqual(out["skips"][0].get("side"), "sell")
 
-    def test_not_in_top_still_holds_if_ranking_above_enter(self):
+    def test_not_in_top_still_holds_if_fuse_above_enter(self):
         """过入场但不进 top_k：不发「持」动作、不清仓，仓位继续留着。"""
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
@@ -1486,7 +1486,7 @@ class TestEnterGates(unittest.TestCase):
         base.update(extra)
         return base
 
-    def test_rank_enter_threshold(self):
+    def test_fuse_enter_threshold(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
         item = self._item()
@@ -1508,7 +1508,7 @@ class TestEnterGates(unittest.TestCase):
     def test_legacy_alt_keys_ignored(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
-        # 旧门槛2 键不再参与 OR：只看 rank_enter
+        # 旧门槛2 键不再参与 OR：只看 fuse_enter
         skip = rank_lot_enter_skip_reason(
             self._item(),
             self._cfg(fuse_enter=0.02),

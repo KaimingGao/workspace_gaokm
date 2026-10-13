@@ -3,14 +3,14 @@
 不改产品调仓、不写 paper / last_*.json。纯内存合成场景。
 
 入场（决定「可买 / 可加」；≠清仓闸）：
-  - ranking > θ（默认 0.5%）
+  - fuse > θ（默认 0.5%）
   - y_oo > 0（缺分不拦）
   - y_τc > 0（缺分不拦）
   - **唯一 TopK**：y_oo_rank < oo_rank_max（默认 38，对齐现网 top50%≈n·0.5；缺 rank 不拦；≤0=关）
-    不另按 ranking score 截前 K。
+    不另按 fuse score 截前 K。
 
 清仓（与入场解耦）：
-  - ranking < 0 或 y_oo < 0 或 y_τc < 0（缺分不卖）
+  - fuse < 0 或 y_oo < 0 或 y_τc < 0（缺分不卖）
   - 或砍尾喂首；另：hard_reject / 分档掉档
 
 路径：
@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple  # Tuple: sort key
 
 
 LOT_MIN = 100
-DEFAULT_RANK_ENTER = 0.005  # 默认展示 0.5 → 净收益 0.5%
+DEFAULT_FUSE_ENTER = 0.005  # 默认展示 0.5 → 净收益 0.5%
 DEFAULT_OO_RANK_MAX = 38  # 唯一 TopK：须 y_oo_rank < 此值（对齐现网 oo_rank_top_frac=0.5 · n≈76）
 DEFAULT_ADD_MAX = 20_000.0
 DEFAULT_STOCK_CAP = 50_000.0
@@ -90,7 +90,7 @@ def plan_topk_greedy_day(
     holdings: Sequence[dict],
     cash: float,
     prices: Dict[str, float],
-    rank_enter: float = DEFAULT_RANK_ENTER,
+    fuse_enter: float = DEFAULT_FUSE_ENTER,
     oo_rank_max: Optional[int] = DEFAULT_OO_RANK_MAX,
     add_max: float = DEFAULT_ADD_MAX,
     stock_cap: float = DEFAULT_STOCK_CAP,
@@ -101,14 +101,14 @@ def plan_topk_greedy_day(
     """入场闸 → 按 oo_rank 扫一轮开/加（每只一天一笔）→ 不够则砍尾凑这一笔。
 
     过入场即可买/加。唯一 TopK 是 ``oo_rank_max``（y_oo_rank < max）；None/≤0=关；缺 rank 不拦。
-    买序/砍尾均按 oo_rank 升序（小更好）；缺 oo_rank 时回退 ranking 降序。
-    清仓：ranking<0 / y_oo<0 / y_τc<0（缺分不卖）或砍尾喂首；另 hard_reject / 掉档。
-    未过入场θ（如 0<ranking≤θ、掉出 TopK）不单独清仓，可续持。
+    买序/砍尾均按 oo_rank 升序（小更好）；缺 oo_rank 时回退 fuse 降序。
+    清仓：fuse<0 / y_oo<0 / y_τc<0（缺分不卖）或砍尾喂首；另 hard_reject / 掉档。
+    未过入场θ（如 0<fuse≤θ、掉出 TopK）不单独清仓，可续持。
     ``cut_tail=False`` 时现金不够则跳过/停扫，不卖队尾喂首。
     """
     out = PlanResult()
     cash_sim = float(cash or 0.0)
-    theta = float(rank_enter)
+    theta = float(fuse_enter)
     add_max = float(add_max)
     stock_cap = float(stock_cap)
     do_cut = bool(cut_tail)
@@ -180,14 +180,14 @@ def plan_topk_greedy_day(
             "score_rem",
         )
 
-    def _ranking(code: str) -> Optional[float]:
+    def _fuse(code: str) -> Optional[float]:
         it = item_by.get(code) or {}
-        return _f(it.get("ranking"))
+        return _f(it.get("y_oo_fuse"))
 
     def _sort_key(code: str) -> Tuple[float, float, str]:
-        """oo_rank 升序（名次小更好）；缺 oo_rank 回退 -ranking；再按代码。"""
+        """oo_rank 升序（名次小更好）；缺 oo_rank 回退 -fuse；再按代码。"""
         rk = _oo_rank_of(code)
-        rs = _ranking(code)
+        rs = _fuse(code)
         primary = float(rk) if rk is not None else 1e18
         secondary = -float(rs) if rs is not None else 1e18
         return (primary, secondary, code)
@@ -270,19 +270,19 @@ def plan_topk_greedy_day(
     oo_note = f" ∧ oo_rank<{oo_max}(TopK)" if oo_max > 0 else " ∧ oo_rank闸关"
     cut_note = "砍尾开" if do_cut else "砍尾关"
     out.notes.append(
-        f"入场闸=ranking>θ ∧ y_oo>0 ∧ y_τc>0{oo_note}；"
-        f"清仓=ranking<0∨y_oo<0∨y_τc<0"
+        f"入场闸=fuse>θ ∧ y_oo>0 ∧ y_τc>0{oo_note}；"
+        f"清仓=fuse<0∨y_oo<0∨y_τc<0"
         f"{'∨砍尾' if do_cut else ''}；{cut_note}；过入场按 oo_rank 一天一笔"
     )
 
     def _exit_why(code: str) -> Optional[str]:
-        """信号清仓：ranking<0 / y_oo<0 / y_τc<0；缺分不卖。另 hard_reject。"""
+        """信号清仓：fuse<0 / y_oo<0 / y_τc<0；缺分不卖。另 hard_reject。"""
         it = item_by.get(code) or {}
         if it.get("hard_reject"):
             return "hard_reject"
-        rs = _ranking(code)
+        rs = _fuse(code)
         if rs is not None and float(rs) < 0.0:
-            return f"ranking={float(rs)*100:.3f}%<0"
+            return f"fuse={float(rs)*100:.3f}%<0"
         y_oo = _y_oo(code)
         if y_oo is not None and float(y_oo) < 0.0:
             return f"y_oo={float(y_oo):.3f}<0"
@@ -306,15 +306,15 @@ def plan_topk_greedy_day(
         if it.get("hard_reject"):
             out.skips.append({"stock_code": code, "reason": "hard_reject"})
             continue
-        rs = _ranking(code)
+        rs = _fuse(code)
         if rs is None:
-            out.skips.append({"stock_code": code, "reason": "ranking 缺失"})
+            out.skips.append({"stock_code": code, "reason": "fuse 缺失"})
             continue
         if float(rs) <= theta:
             out.skips.append(
                 {
                     "stock_code": code,
-                    "reason": f"ranking={float(rs)*100:.3f}%≤θ={theta*100:g}%",
+                    "reason": f"fuse={float(rs)*100:.3f}%≤θ={theta*100:g}%",
                 }
             )
             continue
@@ -589,14 +589,14 @@ def _with_tier(rows: List[dict], tier: str = "A") -> List[dict]:
 
 
 def scenario_outside_cleared() -> None:
-    """信号清仓 ranking<0；0<ranking≤θ 续持不加；过入场可开/加。"""
+    """信号清仓 fuse<0；0<fuse≤θ 续持不加；过入场可开/加。"""
     scored = _with_tier(
         [
-            {"stock_code": "A", "ranking": 0.02},
-            {"stock_code": "B", "ranking": 0.015},
-            {"stock_code": "Z", "ranking": 0.01},  # 过入场，排序靠后
-            {"stock_code": "W", "ranking": -0.001},  # ranking<0 → 清仓
-            {"stock_code": "H", "ranking": 0.001},  # 未过θ但不负 → 续持
+            {"stock_code": "A", "y_oo_fuse": 0.02},
+            {"stock_code": "B", "y_oo_fuse": 0.015},
+            {"stock_code": "Z", "y_oo_fuse": 0.01},  # 过入场，排序靠后
+            {"stock_code": "W", "y_oo_fuse": -0.001},  # fuse<0 → 清仓
+            {"stock_code": "H", "y_oo_fuse": 0.001},  # 未过θ但不负 → 续持
         ]
     )
     prices = {"A": 10.0, "B": 10.0, "Z": 10.0, "W": 10.0, "H": 10.0}
@@ -609,12 +609,12 @@ def scenario_outside_cleared() -> None:
         prices=prices,
         add_max=20_000,
         stock_cap=50_000,
-        rank_enter=0.005,
+        fuse_enter=0.005,
         allowed_tiers=None,
     )
-    _print_plan("S1 过入场可开加 + ranking<0 清仓", plan)
+    _print_plan("S1 过入场可开加 + fuse<0 清仓", plan)
     assert plan.candidate == ["A", "B", "Z"]
-    assert any(s["stock_code"] == "W" for s in plan.sells), "W ranking<0 应清仓"
+    assert any(s["stock_code"] == "W" for s in plan.sells), "W fuse<0 应清仓"
     assert not any(s["stock_code"] == "H" for s in plan.sells), "H 未过θ但≥0 应续持"
     h2 = plan.holdings_after
     assert "W" not in h2
@@ -629,8 +629,8 @@ def scenario_cap_no_trim() -> None:
     """已超上界不加不减。"""
     scored = _with_tier(
         [
-            {"stock_code": "A", "ranking": 0.02, "y_oo_rank": 1},
-            {"stock_code": "B", "ranking": 0.02, "y_oo_rank": 2},
+            {"stock_code": "A", "y_oo_fuse": 0.02, "y_oo_rank": 1},
+            {"stock_code": "B", "y_oo_fuse": 0.02, "y_oo_rank": 2},
         ]
     )
     prices = {"A": 10.0, "B": 10.0}
@@ -644,7 +644,7 @@ def scenario_cap_no_trim() -> None:
         prices=prices,
         add_max=20_000,
         stock_cap=50_000,
-        rank_enter=0.005,
+        fuse_enter=0.005,
         allowed_tiers=None,
     )
     _print_plan("S2 涨超上界不加不减", plan)
@@ -658,11 +658,11 @@ def scenario_spend_then_cut_tail() -> None:
     """现金紧：先给队头花，再砍队尾回流，最终持仓更靠前。"""
     scored = _with_tier(
         [
-            {"stock_code": "A", "ranking": 0.02, "y_oo_rank": 1},
-            {"stock_code": "B", "ranking": 0.02, "y_oo_rank": 2},
-            {"stock_code": "C", "ranking": 0.02, "y_oo_rank": 3},
-            {"stock_code": "D", "ranking": 0.02, "y_oo_rank": 4},
-            {"stock_code": "E", "ranking": 0.02, "y_oo_rank": 5},
+            {"stock_code": "A", "y_oo_fuse": 0.02, "y_oo_rank": 1},
+            {"stock_code": "B", "y_oo_fuse": 0.02, "y_oo_rank": 2},
+            {"stock_code": "C", "y_oo_fuse": 0.02, "y_oo_rank": 3},
+            {"stock_code": "D", "y_oo_fuse": 0.02, "y_oo_rank": 4},
+            {"stock_code": "E", "y_oo_fuse": 0.02, "y_oo_rank": 5},
         ]
     )
     prices = {x: 10.0 for x in "ABCDE"}
@@ -676,7 +676,7 @@ def scenario_spend_then_cut_tail() -> None:
         prices=prices,
         add_max=20_000,
         stock_cap=50_000,
-        rank_enter=0.005,
+        fuse_enter=0.005,
         allowed_tiers=None,
     )
     _print_plan("S3 先花光再砍尾回流", plan)
@@ -695,9 +695,9 @@ def scenario_filter_enter() -> None:
     """门槛过滤后只剩过入场票；现金优先喂队头。"""
     scored = _with_tier(
         [
-            {"stock_code": "A", "ranking": 0.01, "y_oo_rank": 1},
-            {"stock_code": "B", "ranking": 0.001, "y_oo_rank": 2},  # 不过 0.5%
-            {"stock_code": "C", "ranking": 0.01, "y_oo_rank": 3},
+            {"stock_code": "A", "y_oo_fuse": 0.01, "y_oo_rank": 1},
+            {"stock_code": "B", "y_oo_fuse": 0.001, "y_oo_rank": 2},  # 不过 0.5%
+            {"stock_code": "C", "y_oo_fuse": 0.01, "y_oo_rank": 3},
         ]
     )
     prices = {"A": 10.0, "B": 10.0, "C": 10.0}
@@ -708,7 +708,7 @@ def scenario_filter_enter() -> None:
         prices=prices,
         add_max=20_000,
         stock_cap=50_000,
-        rank_enter=0.005,
+        fuse_enter=0.005,
         allowed_tiers=None,
     )
     _print_plan("S4 门槛过滤 + 优先队头", plan)
@@ -724,16 +724,16 @@ def scenario_filter_enter() -> None:
 def scenario_y_sign_gates() -> None:
     """y_oo/y_τc：入场挡新开；持仓 y<0 则清仓。"""
     scored = [
-        {"stock_code": "A", "ranking": 0.02, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 1},
-        {"stock_code": "B", "ranking": 0.03, "y_oo": -0.1, "y_τc": 0.5, "y_oo_rank": 2},
-        {"stock_code": "C", "ranking": 0.025, "y_oo": 0.5, "y_τc": -0.1, "y_oo_rank": 3},
+        {"stock_code": "A", "y_oo_fuse": 0.02, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 1},
+        {"stock_code": "B", "y_oo_fuse": 0.03, "y_oo": -0.1, "y_τc": 0.5, "y_oo_rank": 2},
+        {"stock_code": "C", "y_oo_fuse": 0.025, "y_oo": 0.5, "y_τc": -0.1, "y_oo_rank": 3},
     ]
     plan = plan_topk_greedy_day(
         scored=scored,
         holdings=_holdings_rows({"B": 1000.0, "C": 1000.0}),
         cash=50_000.0,
         prices={"A": 10.0, "B": 10.0, "C": 10.0},
-        rank_enter=0.005,
+        fuse_enter=0.005,
         oo_rank_max=30,
         allowed_tiers=None,
     )
@@ -746,12 +746,12 @@ def scenario_y_sign_gates() -> None:
 
 
 def scenario_eligible_all_can_add() -> None:
-    """现金充裕：过入场且过 oo_rank 的票均可加（不另截 ranking 前 K）。"""
+    """现金充裕：过入场且过 oo_rank 的票均可加（不另截 fuse 前 K）。"""
     scored = _with_tier(
         [
-            {"stock_code": "A", "ranking": 0.03, "y_oo_rank": 1},
-            {"stock_code": "B", "ranking": 0.02, "y_oo_rank": 2},
-            {"stock_code": "Z", "ranking": 0.01, "y_oo_rank": 3},
+            {"stock_code": "A", "y_oo_fuse": 0.03, "y_oo_rank": 1},
+            {"stock_code": "B", "y_oo_fuse": 0.02, "y_oo_rank": 2},
+            {"stock_code": "Z", "y_oo_fuse": 0.01, "y_oo_rank": 3},
         ]
     )
     plan = plan_topk_greedy_day(
@@ -762,7 +762,7 @@ def scenario_eligible_all_can_add() -> None:
         oo_rank_max=38,
         add_max=20_000,
         stock_cap=50_000,
-        rank_enter=0.005,
+        fuse_enter=0.005,
         allowed_tiers=None,
     )
     _print_plan("S1b 过入场均可加（TopK=oo_rank）", plan)
@@ -775,16 +775,16 @@ def scenario_eligible_all_can_add() -> None:
 def scenario_oo_rank_max() -> None:
     """oo_rank < 30：名次过差不进入场池。"""
     scored = [
-        {"stock_code": "A", "ranking": 0.02, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 5},
-        {"stock_code": "B", "ranking": 0.03, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 30},
-        {"stock_code": "C", "ranking": 0.025, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 40},
+        {"stock_code": "A", "y_oo_fuse": 0.02, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 5},
+        {"stock_code": "B", "y_oo_fuse": 0.03, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 30},
+        {"stock_code": "C", "y_oo_fuse": 0.025, "y_oo": 0.5, "y_τc": 0.5, "y_oo_rank": 40},
     ]
     plan = plan_topk_greedy_day(
         scored=scored,
         holdings=[],
         cash=50_000.0,
         prices={"A": 10.0, "B": 10.0, "C": 10.0},
-        rank_enter=0.005,
+        fuse_enter=0.005,
         oo_rank_max=30,
         allowed_tiers=None,
     )
@@ -800,28 +800,28 @@ def scenario_predictability_tiers() -> None:
     scored = [
         {
             "stock_code": "A1",
-            "ranking": 0.02,
+            "y_oo_fuse": 0.02,
             "y_oo": 0.5,
             "y_τc": 0.5,
             "predictability_tier": "A",
         },
         {
             "stock_code": "B1",
-            "ranking": 0.03,  # ranking 更好
+            "y_oo_fuse": 0.03,  # fuse 更好
             "y_oo": 0.5,
             "y_τc": 0.5,
             "predictability_tier": "B",  # 但不在允许档
         },
         {
             "stock_code": "C1",
-            "ranking": 0.02,
+            "y_oo_fuse": 0.02,
             "y_oo": 0.5,
             "y_τc": 0.5,
             "predictability_tier": "C",
         },
         {
             "stock_code": "A2",
-            "ranking": 0.015,
+            "y_oo_fuse": 0.015,
             "y_oo": 0.5,
             "y_τc": 0.5,
             "predictability_tier": "A",
@@ -837,11 +837,11 @@ def scenario_predictability_tiers() -> None:
         prices=prices,
         add_max=20_000,
         stock_cap=50_000,
-        rank_enter=0.005,
+        fuse_enter=0.005,
         allowed_tiers=PRODUCT_ALLOWED_TIERS,  # ("A",)
     )
     _print_plan("S6 观察池分档闸（仅 A）", plan)
-    assert plan.candidate == ["A1", "A2"], plan.candidate  # ranking 0.02 > 0.015
+    assert plan.candidate == ["A1", "A2"], plan.candidate  # fuse 0.02 > 0.015
     assert "B1" not in plan.candidate and "C1" not in plan.candidate
     assert any(
         s["stock_code"] == "B1" and "可预测性" in str(s.get("reason") or "")

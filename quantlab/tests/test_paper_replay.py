@@ -18,8 +18,8 @@ from core.backtest.paper_replay import (
     REPLAY_AMOUNT_STRONG,
     REPLAY_CASH_FLOOR,
     REPLAY_INITIAL_CASH,
-    REPLAY_RANK_ENTER,
-    REPLAY_RANK_STRONG,
+    REPLAY_FUSE_ENTER,
+    REPLAY_FUSE_STRONG,
     backtest_paper_replay,
     fuse_hit_metrics,
     mock_quote_from_bar,
@@ -175,21 +175,21 @@ class TestReplayTplus1(unittest.TestCase):
 
 class TestPaperReplayEngine(unittest.TestCase):
     def test_hold_continuity_no_churn_sell(self):
-        """同票连续入选且 ranking≥0：不开卖腿（可每日加 100/200 直到现金不够）。"""
+        """同票连续入选且 fuse≥0：不开卖腿（可每日加 100/200 直到现金不够）。"""
         stock_bars = {
             "600519": _bars(22, step=0.5),
             "600036": _bars(22, step=0.3),
             "300750": _bars(22, step=0.4),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
 
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
             )
@@ -292,13 +292,13 @@ class TestPaperReplayEngine(unittest.TestCase):
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
             )
         self.assertTrue(out.get("success"), out.get("error"))
@@ -341,13 +341,13 @@ class TestPaperReplayEngine(unittest.TestCase):
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=150_000.0,
             )
@@ -369,13 +369,13 @@ class TestPaperReplayEngine(unittest.TestCase):
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
                 lot_base_amount=30000,
@@ -400,7 +400,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             "600036": _bars(20, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {
+        scores = {
             d: [_rank_row("600519", 2.0), _rank_row("600036", 1.5)] for d in dates
         }
         with _offline_rebalance_patches():
@@ -408,7 +408,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                 stock_bars,
                 top_k=2,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
                 cash_floor=500_000.0,
@@ -428,31 +428,31 @@ class TestPaperReplayEngine(unittest.TestCase):
             )
 
     def test_fusion_negative_exits_after_t1(self):
-        """ranking<0 才清仓；买入当日 T+1 不可卖，次日可卖。"""
+        """fuse<0 才清仓；买入当日 T+1 不可卖，次日可卖。"""
         stock_bars = {
             "600519": _bars(20, step=0.5),
             "600036": _bars(20, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {}
+        scores = {}
         for i, d in enumerate(dates):
             if i <= 8:
-                rankings[d] = [_rank_row("600519", 2.0)]
+                scores[d] = [_rank_row("600519", 2.0)]
             else:
-                rankings[d] = [_rank_row("600519", -1.0)]
+                scores[d] = [_rank_row("600519", -1.0)]
 
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
             )
         self.assertTrue(out.get("success"), out.get("error"))
         sells = [t for t in (out.get("trades") or []) if t.get("side") == "sell"]
-        self.assertGreaterEqual(len(sells), 1, "ranking<0 应卖出")
+        self.assertGreaterEqual(len(sells), 1, "fuse<0 应卖出")
         hits = out.get("constraints_hit") or {}
         self.assertTrue(
             int(hits.get("t1_blocks") or 0) > 0 or len(sells) > 0,
@@ -470,21 +470,21 @@ class TestPaperReplayEngine(unittest.TestCase):
             )
 
     def test_leave_topk_does_not_sell(self):
-        """掉出 Top-K 但 ranking>入场：不卖。"""
+        """掉出 Top-K 但 fuse>入场：不卖。"""
         stock_bars = {
             "600519": _bars(20, step=0.5),
             "600036": _bars(20, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {}
+        scores = {}
         for i, d in enumerate(dates):
             if i % 2 == 0:
-                rankings[d] = [
+                scores[d] = [
                     _rank_row("600519", 2.0),
                     _rank_row("600036", 1.5),
                 ]
             else:
-                rankings[d] = [
+                scores[d] = [
                     _rank_row("600036", 2.0),
                     _rank_row("600519", 1.5),
                 ]
@@ -494,30 +494,30 @@ class TestPaperReplayEngine(unittest.TestCase):
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
             )
         self.assertTrue(out.get("success"), out.get("error"))
         sells = [t for t in (out.get("trades") or []) if t.get("side") == "sell"]
-        self.assertEqual(sells, [], "未进 Top-K 且 ranking>入场不应卖出")
+        self.assertEqual(sells, [], "未进 Top-K 且 fuse>入场不应卖出")
 
     def test_fail_enter_exits_held(self):
-        """开仓后 ranking 未过入场：整笔清仓。"""
+        """开仓后 fuse 未过入场：整笔清仓。"""
         stock_bars = {
             "600519": _bars(18, step=0.5),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {}
+        scores = {}
         for i, d in enumerate(dates):
             y = 2.0 if i <= 10 else 0.02
-            rankings[d] = [_rank_row("600519", y)]
+            scores[d] = [_rank_row("600519", y)]
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=200_000.0,
             )
@@ -538,34 +538,34 @@ class TestPaperReplayEngine(unittest.TestCase):
         )
 
     def test_missing_ranking_exits_held(self):
-        """当日打不上分：清仓，不假装 ranking≥0 续持。"""
+        """当日打不上分：清仓，不假装 fuse≥0 续持。"""
         stock_bars = {
             "600519": _bars(20, step=0.5),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {}
+        scores = {}
         for i, d in enumerate(dates):
             if i <= 10:
-                rankings[d] = [_rank_row("600519", 2.0)]
+                scores[d] = [_rank_row("600519", 2.0)]
             else:
-                rankings[d] = []
+                scores[d] = []
 
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
             )
         self.assertTrue(out.get("success"), out.get("error"))
         sells = [t for t in (out.get("trades") or []) if t.get("side") == "sell"]
-        self.assertGreaterEqual(len(sells), 1, "缺 ranking 应卖出")
+        self.assertGreaterEqual(len(sells), 1, "缺 fuse 应卖出")
         sim = [t for t in (out.get("sim_trades") or []) if t.get("side") == "sell"]
         self.assertTrue(
             any("缺失" in str(t.get("reason") or "") for t in sim + sells),
-            f"expected ranking-missing exit, sells={sells[:2]!r} sim={sim[:2]!r}",
+            f"expected fuse-missing exit, sells={sells[:2]!r} sim={sim[:2]!r}",
         )
 
     def test_stamp_stock_names_prefers_watching_map(self):
@@ -584,7 +584,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             "600036": _bars(22, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {
+        scores = {
             d: [_rank_row("600519", 2.0), _rank_row("600036", 1.5)] for d in dates
         }
         with _offline_rebalance_patches(), patch(
@@ -595,7 +595,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                 stock_bars,
                 top_k=2,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
             )
@@ -614,7 +614,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             "600036": _bars(22, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {
+        scores = {
             d: [_rank_row("600519", 2.0), _rank_row("600036", 1.5)] for d in dates
         }
         with _offline_rebalance_patches():
@@ -622,7 +622,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                 stock_bars,
                 top_k=2,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
             )
@@ -649,8 +649,8 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(len(paper_trades), len(trades))
         self.assertEqual(out["params"]["lot_base_amount"], REPLAY_AMOUNT_BASE)
         self.assertEqual(out["params"]["lot_strong_amount"], REPLAY_AMOUNT_STRONG)
-        self.assertAlmostEqual(float(out["params"]["fuse_enter"]), REPLAY_RANK_ENTER)
-        self.assertAlmostEqual(float(out["params"]["fuse_strong"]), REPLAY_RANK_STRONG)
+        self.assertAlmostEqual(float(out["params"]["fuse_enter"]), REPLAY_FUSE_ENTER)
+        self.assertAlmostEqual(float(out["params"]["fuse_strong"]), REPLAY_FUSE_STRONG)
         buys = [t for t in trades if t.get("side") == "buy"]
         self.assertTrue(buys)
         from core.paper.sizing import shares_from_amount
@@ -673,22 +673,22 @@ class TestPaperReplayEngine(unittest.TestCase):
             self.assertNotIn("cost_price", s)
 
     def test_sim_trades_include_exit_when_rank_fails(self):
-        """开仓后 ranking 未过入场：成交明细应有清仓腿。"""
+        """开仓后 fuse 未过入场：成交明细应有清仓腿。"""
         stock_bars = {
             "600519": _bars(18, step=0.5),
             "600036": _bars(18, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {}
+        scores = {}
         for i, d in enumerate(dates):
             y = 2.0 if i <= 9 else 0.02
-            rankings[d] = [_rank_row("600519", y)]
+            scores[d] = [_rank_row("600519", y)]
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=200_000.0,
             )
@@ -709,15 +709,15 @@ class TestPaperReplayEngine(unittest.TestCase):
         """09:40 缺该根分钟：拟清回退日开盘成交，不把底仓留到收盘。"""
         stock_bars = {"600519": _bars(18, step=0.5)}
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {}
+        scores = {}
         for i, d in enumerate(dates):
             y = 2.0 if i <= 10 else -0.8
-            rankings[d] = [
+            scores[d] = [
                 {
                     **_rank_row("600519", y),
                     "y_oo": y,
                     "y_oc": y,
-                    "ranking": y,
+                    "y_oo_fuse": y,
                 }
             ]
         minutes = {"600519": {}}
@@ -742,7 +742,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=200_000.0,
                 fill_clock="09:40",
@@ -788,7 +788,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                     "y_oo": 1.0,
                     "y_oc": 0.5,
                     "y_on": 0.2,
-                    "ranking": 1.2,
+                    "y_oo_fuse": 1.2,
                     "y_oo_fuse_score": 0.012,
                 }
             ]
@@ -804,7 +804,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                 "reason": "现金不足",
                 "y_co": 0.3,
                 "y_oo": 1.1,
-                "ranking": 0.8,
+                "y_oo_fuse": 0.8,
             },
             "2026-09-10",
         )
@@ -817,9 +817,9 @@ class TestPaperReplayEngine(unittest.TestCase):
                 "y_oo": 1.0,
                 "y_oc": 0.4,
                 "y_co": 0.25,
-                "ranking": 0.9,
+                "y_oo_fuse": 0.9,
                 "y_oo_fuse_score": 0.009,
-                "reason": "ranking≥0% 持有",
+                "reason": "fuse≥0% 持有",
             },
             "2026-09-10",
             {"stock_code": "600000", "shares": 200, "cost": 10.0},
@@ -839,9 +839,9 @@ class TestPaperReplayEngine(unittest.TestCase):
                     {
                         "stock_code": "600000",
                         "action": "exit",
-                        "reason": "ranking=-0.500%<0% 清仓",
+                        "reason": "fuse=-0.500%<0% 清仓",
                         "y_oo": -0.5,
-                        "ranking": -0.5,
+                        "y_oo_fuse": -0.5,
                     }
                 ],
                 "skips": [],
@@ -865,7 +865,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             "shares": 200,
             "price": 10,
             "y_oo": 1.0,
-            "ranking": 1.2,
+            "y_oo_fuse": 1.2,
             "y_τ30": 0.2,
             "y_τ60": -0.1,
             "y_τ90": 0.3,
@@ -902,7 +902,7 @@ class TestPaperReplayEngine(unittest.TestCase):
     def test_sim_trades_keep_y_co_from_ranking(self):
         stock_bars = {"600519": _bars(16, step=0.5)}
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {
+        scores = {
             d: [{**_rank_row("600519", 2.0), "y_co": 0.35, "y_on": 0.35}]
             for d in dates
         }
@@ -911,7 +911,7 @@ class TestPaperReplayEngine(unittest.TestCase):
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=200_000.0,
             )
@@ -929,7 +929,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             "300750": _bars(20, step=0.4),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {
+        scores = {
             d: [
                 _rank_row("600519", 2.0),
                 _rank_row("600036", 1.8),
@@ -941,7 +941,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             out = backtest_paper_replay(
                 stock_bars,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
             )
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertEqual(out["params"]["top_k"], 3)
@@ -977,9 +977,9 @@ class TestTopkEngineTag(unittest.TestCase):
         self.assertIn("paper_replay", str(result.get("note") or ""))
 
 
-class TestRankingsFromTopk(unittest.TestCase):
+class TestScoresFromTopk(unittest.TestCase):
     def test_convert_picks(self):
-        from core.backtest.paper_replay import rankings_from_topk_precomputed
+        from core.backtest.paper_replay import scores_from_topk_precomputed
 
         pre = {
             "2026-03-10": {
@@ -993,10 +993,10 @@ class TestRankingsFromTopk(unittest.TestCase):
                 },
             }
         }
-        out = rankings_from_topk_precomputed(pre, top_k=1)
+        out = scores_from_topk_precomputed(pre, top_k=1)
         self.assertEqual(len(out["2026-03-10"]), 1)
         self.assertEqual(out["2026-03-10"][0]["stock_code"], "600519")
-        self.assertEqual(out["2026-03-10"][0]["rank_source"], "topk_precomputed")
+        self.assertEqual(out["2026-03-10"][0]["score_source"], "topk_precomputed")
 
 
 class TestOpenDayYhat(unittest.TestCase):
@@ -1402,7 +1402,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
         minutes = {}
         for code, bars in stock_bars.items():
             by_d = {}
@@ -1433,7 +1433,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 minute_bars_by_code=minutes,
             )
@@ -1650,7 +1650,7 @@ class TestSessionOverlay(unittest.TestCase):
             "600519": _mk(0.5),
             "600036": _mk(0.3),
         }
-        rankings = {
+        scores = {
             d: [_rank_row("600519", 2.0)] for d in days + ["2026-09-08"]
         }
         with _offline_rebalance_patches():
@@ -1658,7 +1658,7 @@ class TestSessionOverlay(unittest.TestCase):
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 session_now=datetime(2026, 9, 8, 10, 0, 0),
                 session_quotes={"600519": {"open": 108.0}, "600036": {"open": 50.0}},
@@ -2073,14 +2073,14 @@ class TestReplayMinuteFill(unittest.TestCase):
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
         minutes = _minutes_aligned(stock_bars, close_delta=0.4)
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 fill_clock="09:35",
                 minute_bars_by_code=minutes,
@@ -2139,13 +2139,13 @@ class TestReplayMinuteFill(unittest.TestCase):
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 fill_clock="09:35",
                 minute_bars_by_code={},
@@ -2158,10 +2158,10 @@ class TestReplayMinuteFill(unittest.TestCase):
     def test_exit_falls_back_when_only_afternoon_minutes(self):
         stock_bars = {"600519": _bars(16, step=0.5)}
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {}
+        scores = {}
         for i, d in enumerate(dates):
             y = 2.0 if i <= 10 else -0.8
-            rankings[d] = [_rank_row("600519", y)]
+            scores[d] = [_rank_row("600519", y)]
         minutes = {"600519": {}}
         for i, b in enumerate(stock_bars["600519"]):
             d = b["date"]
@@ -2189,7 +2189,7 @@ class TestReplayMinuteFill(unittest.TestCase):
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 initial_cash=200_000.0,
                 fill_clock="09:40",
@@ -2262,7 +2262,7 @@ class TestReplayMinuteFill(unittest.TestCase):
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
         minutes = _minutes_aligned(stock_bars, close_delta=0.4, open_scale=0.8)
         tight = {
             "t0_price_space_gate": True,
@@ -2274,7 +2274,7 @@ class TestReplayMinuteFill(unittest.TestCase):
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 fill_clock="09:35",
                 minute_bars_by_code=minutes,
@@ -2300,14 +2300,14 @@ class TestReplayMinuteFill(unittest.TestCase):
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        scores = {d: [_rank_row("600519", 2.0)] for d in dates}
         minutes = _minutes_aligned(stock_bars, close_delta=0.4, open_scale=0.8)
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 fill_clock="09:35",
                 minute_bars_by_code=minutes,
@@ -2402,7 +2402,7 @@ class TestReplayCalendar(unittest.TestCase):
         long = self._iso_bars(25)
         stock_bars = {"600519": long, "600036": list(long)}
         days = [b["date"] for b in long]
-        rankings = {d: [_rank_row("600519", 2.0)] for d in days}
+        scores = {d: [_rank_row("600519", 2.0)] for d in days}
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
@@ -2410,7 +2410,7 @@ class TestReplayCalendar(unittest.TestCase):
                 min_history=8,
                 max_window=10,
                 lookback=10,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 include_session_day=False,
             )
@@ -2558,7 +2558,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
 
     def test_0930_keeps_open_y_oc(self):
         dates = self._dates()
-        item = {"stock_code": "600519", "y_oo": 0.8, "y_oc": 0.197, "ranking": 0.5}
+        item = {"stock_code": "600519", "y_oo": 0.8, "y_oc": 0.197, "y_oo_fuse": 0.5}
         out, n = rescore_replay_y_τc_at_clock(
             [item],
             clock="09:30",
@@ -2573,7 +2573,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
         self.assertAlmostEqual(float(out[0]["y_oc"]), 0.197, places=6)
         self.assertAlmostEqual(float(out[0]["y_oo"]), 0.8, places=6)
 
-    def test_apply_prefix_keeps_oo_updates_oc_and_ranking(self):
+    def test_apply_prefix_keeps_oo_updates_oc_and_fuse(self):
         from core.backtest.paper_replay import _apply_prefix_oc
 
         item = {
@@ -2595,7 +2595,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
         self.assertTrue(_apply_prefix_oc(item, live, cfg))
         self.assertAlmostEqual(float(item["y_oo"]), 0.8, places=6)
         self.assertAlmostEqual(float(item["y_τc"]), -0.70, places=6)
-        self.assertLess(float(item["ranking"]), 0.2)
+        self.assertLess(float(item["y_oo_fuse"]), 0.2)
 
     def test_apply_prefix_copies_aux_yhat(self):
         from core.backtest.paper_replay import _apply_prefix_oc
@@ -2748,25 +2748,25 @@ class TestReplayPrefixYoc(unittest.TestCase):
         cut = _minute_bars_until_hm(prefix, tau_hm="09:35")
         self.assertEqual(len(cut), 1)
 
-    def test_injected_rankings_skip_prefix_rescore(self):
+    def test_injected_scores_skip_prefix_rescore(self):
         stock_bars = {
             "600519": _bars(16, step=0.5),
             "600036": _bars(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
-        rankings = {}
+        scores = {}
         for d in dates:
             row = _rank_row("600519", 2.0)
             row["y_oc"] = 0.197
             row["y_oo"] = 0.8
-            rankings[d] = [row]
+            scores[d] = [row]
         minutes = _minutes_aligned({"600519": stock_bars["600519"]}, close_delta=0.4)
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
                 top_k=1,
                 min_history=8,
-                rankings_by_date=rankings,
+                scores_by_date=scores,
                 cost_model="zero",
                 fill_clock="09:35",
                 minute_bars_by_code=minutes,

@@ -523,7 +523,7 @@ class TestRebalanceDesk(unittest.TestCase):
                         "action": "exit",
                         "shares_change": -200,
                         "y_oo_fuse_score": -0.01,
-                        "reason": "ranking<0 清仓",
+                        "reason": "fuse<0 清仓",
                         "old_shares": 200,
                     },
                     {
@@ -539,7 +539,7 @@ class TestRebalanceDesk(unittest.TestCase):
                         "stock_code": "600519",
                         "action": "hold",
                         "y_oo_fuse_score": 0.004,
-                        "reason": "ranking≥0% 持有",
+                        "reason": "fuse≥0% 持有",
                         "old_shares": 100,
                     },
                 ]
@@ -567,7 +567,7 @@ class TestRebalanceDesk(unittest.TestCase):
                         "day_open": 7.56,
                         "prev_close": 7.50,
                         "amount": 3750,
-                        "ranking": 2.885,
+                        "y_oo_fuse": 2.885,
                         "y_oo_fuse_score": 0.02885,
                         "y_oo": 2.16,
                         "y_τc": 6.36,
@@ -815,7 +815,7 @@ class TestRebalanceDesk(unittest.TestCase):
                                 "action": "exit",
                                 "shares": 200,
                                 "y_oo_fuse_score": -0.02,
-                                "reason": "ranking<0",
+                                "reason": "fuse<0",
                                 "old_shares": 200,
                             }
                         ],

@@ -378,7 +378,7 @@ def compute_predicted_score_blend(
     """ŷ_trade = w·ŷ_oo + w·(缺口∘ŷ_τ)，同为现价对昨收。
 
     ``dual_score_window=eod_next``：ŷ_oo 已换期，停用 τ 侧融合。
-    收盘后同一周期窗口仍是 ``intraday``，ŷ_oc 继续进 ranking。
+    收盘后同一周期窗口仍是 ``intraday``，ŷ_oc 继续进 y_oo_fuse。
     """
     if not isinstance(item, dict):
         return None

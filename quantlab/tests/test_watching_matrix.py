@@ -234,7 +234,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertLess(float(paper.get("cash") or 0), 1_000_000)
 
     def test_adverse_path_still_opens(self):
-        """缺 y_hl 或 y_hl≤0 不拦开仓；ranking 过入场即可买。"""
+        """缺 y_hl 或 y_hl≤0 不拦开仓；fuse 过入场即可买。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -265,7 +265,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(int(acts.get("skip_window") or 0), 0)
 
     def test_held_negative_y_hl_still_adds(self):
-        """已持仓 y_hl≤0 不拦；ranking 过入场则加仓。"""
+        """已持仓 y_hl≤0 不拦；fuse 过入场则加仓。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -330,8 +330,8 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertIn(report[0].get("decision"), ("买入", "加仓"))
         self.assertEqual(report[0].get("predicted_score_eod"), 0.18)
 
-    def test_held_fail_rank_enter_exits_all(self):
-        """已持仓 ranking 未过入场：整笔清仓。"""
+    def test_held_fail_fuse_enter_exits_all(self):
+        """已持仓 fuse 未过入场：整笔清仓。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -851,14 +851,14 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
                         stock_name="贵州茅台",
                         predicted_score=2.0,
                         y_τc=1.0,
-                        ranking=1.5,
+                        y_oo_fuse=1.5,
                     ),
                     _signal_item(
                         stock_code="601318",
                         stock_name="持仓",
                         predicted_score=2.0,
                         y_τc=1.0,
-                        ranking=1.5,
+                        y_oo_fuse=1.5,
                     ),
                 ],
                 [],

@@ -17,11 +17,11 @@ import {
   resolveOnScore,
   resolveTauLiftedScore,
   resolveTauScore,
-  rankingOpenPx,
-  rankingPriceTau,
+  fuseOpenPx,
+  fusePriceTau,
   eodRemainingAtTau,
   tauModelIsOpenToClose,
-  resolveRankingScore,
+  resolveFuseScore,
   resolveYτcScore,
   resolveYT30Score,
   resolveYT45Score,
@@ -1274,7 +1274,7 @@ export function formatNcOcSection(raw) {
 
 /** fuse / y_oo_fuse 与表列同源：τc 为几何剩余；缺 y_spec 才整段减 rot。 */
 export function formatBlendScoreSection(raw) {
-  const blend = resolveRankingScore(raw);
+  const blend = resolveFuseScore(raw);
   const yEod = resolveEodScore(raw);
   const yt = pickYOcFitted(raw);
   const yCo = resolveOnScore(raw);
@@ -1294,8 +1294,8 @@ export function formatBlendScoreSection(raw) {
       ? ` · ${Number(wOo).toFixed(2)}×${fmtSigned(eodN, 2)}+${Number(wOc).toFixed(2)}×${fmtSigned(rightN, 2)}`
       : "";
   const rotN = (() => {
-    const o = rankingOpenPx(raw);
-    const p = rankingPriceTau(raw);
+    const o = fuseOpenPx(raw);
+    const p = fusePriceTau(raw);
     if (o == null || p == null || o <= 0 || p <= 0) return null;
     const v = (p / o - 1) * 100;
     return Number.isFinite(v) ? v : null;
@@ -2744,7 +2744,7 @@ export function createScoreTooltipController() {
     if (tipMode === "fuse") {
       let blendHtml = formatBlendScoreSection(raw);
       if (!blendHtml) {
-        const ranked = resolveRankingScore(raw);
+        const ranked = resolveFuseScore(raw);
         const val = ranked == null ? "—" : `${fmtSigned(ranked, 2)}%`;
         blendHtml =
           `<div class="score-layer score-layer-blend">` +

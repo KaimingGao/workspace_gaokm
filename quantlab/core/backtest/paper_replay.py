@@ -36,8 +36,8 @@ REPLAY_CASH_FLOOR = 0.0
 REPLAY_INITIAL_CASH_MIN = 10_000.0
 REPLAY_INITIAL_CASH_MAX = 1.0e8
 # 历史回测 / 日报 / live rank_lots 缺省均为 0.1%。
-REPLAY_RANK_ENTER = 0.001
-REPLAY_RANK_STRONG = 0.001
+REPLAY_FUSE_ENTER = 0.001
+REPLAY_FUSE_STRONG = 0.001
 REPLAY_FUSION_W_TRADE = 0.6
 REPLAY_FUSION_W_NOWCAST = 0.4
 # 调仓成交钟：与 A 股 5 分钟 K 对齐（首根通常标 09:35 = 09:30–09:35）。
@@ -2189,7 +2189,7 @@ def rescore_replay_y_τc_at_clock(
     return items, n_ok
 
 
-def _items_from_injected_ranking(rows: Sequence[dict]) -> List[dict]:
+def _items_from_injected_scores(rows: Sequence[dict]) -> List[dict]:
     """测试/日报注入行：ŷ 当作 y_oo_fuse。"""
     out: List[dict] = []
     for it in rows or []:
@@ -2218,7 +2218,7 @@ def backtest_paper_replay(
     lookback: Optional[int] = None,
     initial_cash: float = REPLAY_INITIAL_CASH,
     cost_model: str = "simple_cn",
-    rankings_by_date: Optional[Dict[str, List[dict]]] = None,
+    scores_by_date: Optional[Dict[str, List[dict]]] = None,
     yhat_horizon_days: int = 1,
     progress_cb: Optional[Callable[..., Any]] = None,
     cancel_cb: Optional[Callable[[], bool]] = None,
@@ -2283,7 +2283,7 @@ def backtest_paper_replay(
         DEFAULT_FUSION_W_CO,
         clamp_fusion_weight,
         clamp_fusion_w_co,
-        coerce_rank_threshold,
+        coerce_fuse_threshold,
         get_rank_lot_cfg,
         oo_rank_max_from_cfg,
         oo_rank_top_frac_from_cfg,
@@ -2317,7 +2317,7 @@ def backtest_paper_replay(
     co_model_doc = None
     tau_model_doc = None
     required_factor_keys: List[str] = []
-    if rankings_by_date is None:
+    if scores_by_date is None:
         global_model = _load_replay_global_model()
         required_factor_keys = _required_factor_keys_from_return_models(global_model)
         from core.research.return_tree import (
@@ -2397,13 +2397,13 @@ def backtest_paper_replay(
         REPLAY_FUSION_W_NOWCAST if raw_oc is None else raw_oc,
         REPLAY_FUSION_W_NOWCAST,
     )
-    enter = coerce_rank_threshold(
-        REPLAY_RANK_ENTER if fuse_enter is None else fuse_enter,
-        REPLAY_RANK_ENTER,
+    enter = coerce_fuse_threshold(
+        REPLAY_FUSE_ENTER if fuse_enter is None else fuse_enter,
+        REPLAY_FUSE_ENTER,
     )
-    strong = coerce_rank_threshold(
-        REPLAY_RANK_STRONG if fuse_strong is None else fuse_strong,
-        REPLAY_RANK_STRONG,
+    strong = coerce_fuse_threshold(
+        REPLAY_FUSE_STRONG if fuse_strong is None else fuse_strong,
+        REPLAY_FUSE_STRONG,
     )
     enter = max(0.0, min(1.0, float(enter)))
     strong = max(0.0, min(1.0, float(strong)))
@@ -2496,7 +2496,7 @@ def backtest_paper_replay(
         "sell_px_fallback": 0,
     }
     tau_pool_by_date: Dict[str, Dict[str, Any]] = {}
-    if rankings_by_date is None:
+    if scores_by_date is None:
         try:
             from core.t0.score_policy import build_tau_pool_by_date, seed_tau_cross_section_pool
 
@@ -2542,8 +2542,8 @@ def backtest_paper_replay(
             except Exception:  # noqa: BLE001
                 logger.debug("paper_replay progress_cb failed", exc_info=True)
 
-        if rankings_by_date is not None:
-            scored = _items_from_injected_ranking(rankings_by_date.get(day) or [])
+        if scores_by_date is not None:
+            scored = _items_from_injected_scores(scores_by_date.get(day) or [])
             held_codes = [
                 str(h.get("stock_code") or "")
                 for h in (paper.get("holdings") or [])
@@ -3000,7 +3000,7 @@ def backtest_paper_replay(
             "session_day": session_day,
             "session_overlay_n": n_overlay,
             "yhat_horizon_days": yhat_horizon_days,
-            "rankings_injected": rankings_by_date is not None,
+            "scores_injected": scores_by_date is not None,
             "yhat_source": "research",
             "model_role": "research",
         },
@@ -3019,7 +3019,7 @@ def backtest_paper_replay(
     }
 
 
-def rankings_from_topk_precomputed(
+def scores_from_topk_precomputed(
     precomputed_ranks: Dict[str, Any],
     *,
     top_k: int,
@@ -3049,13 +3049,13 @@ def rankings_from_topk_precomputed(
                 base.setdefault("score", sc)
             base.setdefault("score_scale", "predicted_yhat")
             base.setdefault("dual_score_window", "eod_next")
-            base["rank_source"] = "topk_precomputed"
+            base["score_source"] = "topk_precomputed"
             rows.append(base)
         out[str(day)] = rows
     return out
 
 
-def build_momentum_rankings(
+def build_momentum_scores(
     stock_bars: Dict[str, List[dict]],
     *,
     top_k: int,
@@ -3092,7 +3092,7 @@ def build_momentum_rankings(
                     "predicted_score_eod": ret,
                     "score_scale": "predicted_yhat",
                     "dual_score_window": "eod_next",
-                    "rank_source": "momentum_close",
+                    "score_source": "momentum_close",
                 }
             )
         rows.sort(key=lambda r: float(r.get("predicted_score") or 0), reverse=True)
@@ -3105,25 +3105,25 @@ def summarize_paper_replay_for_daily(
     *,
     top_k: int,
     lookback: Optional[int] = None,
-    rankings_by_date: Optional[Dict[str, List[dict]]] = None,
-    rank_source: Optional[str] = None,
+    scores_by_date: Optional[Dict[str, List[dict]]] = None,
+    score_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """日报用轻量摘要（与 ``summarize_portfolio_backtest`` 字段对齐子集）。
 
     优先用注入的 Top-K ŷ y_oo_fuse；否则昨收→今收动量近似。
     """
-    src = rank_source
-    if rankings_by_date is None:
-        rankings = build_momentum_rankings(stock_bars, top_k=top_k)
+    src = score_source
+    if scores_by_date is None:
+        scores = build_momentum_scores(stock_bars, top_k=top_k)
         src = src or "momentum_close"
     else:
-        rankings = rankings_by_date
+        scores = scores_by_date
         src = src or "topk_precomputed"
 
     bt = backtest_paper_replay(
         stock_bars,
         top_k=top_k,
-        rankings_by_date=rankings,
+        scores_by_date=scores,
         cost_model="simple_cn",
         initial_cash=REPLAY_INITIAL_CASH,
         cash_floor=REPLAY_CASH_FLOOR,
@@ -3134,7 +3134,7 @@ def summarize_paper_replay_for_daily(
     metrics = bt.get("metrics") or {}
     curve = bt.get("equity_curve") or []
     params = dict(bt.get("params") or {})
-    params["rank_source"] = src
+    params["score_source"] = src
     if lookback is not None:
         params["lookback"] = int(lookback)
     note = str(bt.get("note") or "")

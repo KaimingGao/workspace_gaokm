@@ -145,21 +145,21 @@ class TestBookResult(unittest.TestCase):
 
         raw = {
             "success": True,
-            "ranking": [_yhat_item(), _yhat_item(stock_code="000858")],
+            "book": [_yhat_item(), _yhat_item(stock_code="000858")],
         }
         b = BookResult.from_rank(raw, kind="cross_section")
         self.assertTrue(b.production_ok)
         self.assertEqual(b.yhat_count, 2)
         d = b.as_dict()
         self.assertTrue(d.get("production_ok"))
-        self.assertEqual(len(d.get("ranking") or []), 2)
+        self.assertEqual(len(d.get("book") or []), 2)
 
     def test_heuristic_row_marks_book(self):
         from core.signal.types import BookResult
 
         raw = {
             "success": True,
-            "ranking": [
+            "book": [
                 _yhat_item(),
                 {
                     "stock_code": "x",
@@ -175,7 +175,7 @@ class TestBookResult(unittest.TestCase):
     def test_empty_success_ok(self):
         from core.signal.types import BookResult
 
-        b = BookResult.from_rank({"success": True, "ranking": []})
+        b = BookResult.from_rank({"success": True, "book": []})
         self.assertTrue(b.production_ok)
 
 
@@ -223,7 +223,7 @@ class TestSignalServiceWrap(unittest.TestCase):
     def test_rank_cross_section_wrap(self):
         from core.signal.service import SignalService
 
-        fake = {"success": True, "ranking": [_yhat_item()]}
+        fake = {"success": True, "book": [_yhat_item()]}
         with patch(
             "core.signal.cross_section.rank_cross_section",
             return_value=fake,
@@ -236,7 +236,7 @@ class TestSignalServiceWrap(unittest.TestCase):
     def test_rank_cluster_pools_wrap(self):
         from core.signal.service import SignalService
 
-        fake = {"success": True, "book": [_yhat_item()], "ranking": [_yhat_item()]}
+        fake = {"success": True, "book": [_yhat_item()]}
         with patch(
             "core.signal.cross_section.rank_cross_section",
             return_value=fake,
@@ -276,7 +276,7 @@ class TestSignalServiceWrap(unittest.TestCase):
         self.assertFalse(row.get("production_ok"))
         self.assertAlmostEqual(float(row.get("score_cluster")), 0.3)
 
-    def test_pack_holding_row_stamps_ranking_from_oo_tc(self):
+    def test_pack_holding_row_stamps_y_oo_fuse_from_oo_tc(self):
         from core.signal.service import SignalService
 
         row = SignalService().pack_holding_row(
@@ -297,15 +297,15 @@ class TestSignalServiceWrap(unittest.TestCase):
             },
             rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
         )
-        self.assertAlmostEqual(float(row.get("ranking")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
+        self.assertAlmostEqual(float(row.get("y_oo_fuse")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
         self.assertNotIn("y_oc", row)
         self.assertNotIn("y_tau", row)
         self.assertNotIn("predicted_score_tau", row)
-        self.assertGreater(float(row.get("ranking")), 0.0)
+        self.assertGreater(float(row.get("y_oo_fuse")), 0.0)
         self.assertAlmostEqual(float(row.get("fusion_w_oo")), 0.8)
         self.assertAlmostEqual(float(row.get("fusion_w_oc")), 0.2)
 
-    def test_pack_holding_row_applies_remaining_ranking(self):
+    def test_pack_holding_row_applies_remaining_y_oo_fuse(self):
         from core.signal.service import SignalService
 
         row = SignalService().pack_holding_row(
@@ -321,7 +321,7 @@ class TestSignalServiceWrap(unittest.TestCase):
         )
         fused = 0.8 * 2.30 + 0.2 * 5.69
         rot = (10.2 / 10.0 - 1.0) * 100.0
-        self.assertAlmostEqual(float(row.get("ranking")), fused - rot, places=4)
+        self.assertAlmostEqual(float(row.get("y_oo_fuse")), fused - rot, places=4)
 
     def test_pack_holding_row_keeps_on_features(self):
         from core.signal.service import SignalService
@@ -446,12 +446,13 @@ class TestMetricsAndBookStamp(unittest.TestCase):
             "score_scale": "heuristic_0_100",
             "predicted_score": None,
         }
+        # 旧键 ranking 仍可读入
         raw = {
             "success": True,
             "ranking": [original, heu],
         }
         b = BookResult.from_rank(raw)
-        rows = b.ranking
+        rows = b.book
         self.assertTrue(rows[0].get("production_ok"))
         self.assertFalse(rows[1].get("production_ok"))
         self.assertIn("gate_reason", rows[1])
@@ -459,7 +460,7 @@ class TestMetricsAndBookStamp(unittest.TestCase):
         self.assertNotIn("production_ok", original)
         self.assertNotIn("production_ok", heu)
         d = b.as_dict()
-        self.assertTrue((d.get("ranking") or [])[0].get("production_ok"))
+        self.assertTrue((d.get("book") or [])[0].get("production_ok"))
 
     def test_book_fields_does_not_dump_full_item(self):
         """观察摘要只能合并 dual 字段；整包 update 会污染 score/stance。"""
@@ -496,7 +497,7 @@ class TestMetricsAndBookStamp(unittest.TestCase):
 
         with patch(
             "core.signal.cross_section.rank_cross_section",
-            return_value={"success": True, "ranking": [_yhat_item()]},
+            return_value={"success": True, "book": [_yhat_item()]},
         ) as mocked:
             ResearchSignalService().rank_cross_section(["600519"], limit=5)
         self.assertTrue(mocked.call_args.kwargs.get("bypass_quality_gate"))

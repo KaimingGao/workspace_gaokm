@@ -15,7 +15,7 @@ class TestP77InterpretCrossSectionScore(unittest.TestCase):
         return {
             "cross_section": {
                 "success": True,
-                "ranking": [
+                "book": [
                     {"stock_code": "600519", "stock_name": "贵州茅台", "score": 72.5},
                     {"stock_code": "600036", "stock_name": "招商银行", "score": 61.0},
                 ],

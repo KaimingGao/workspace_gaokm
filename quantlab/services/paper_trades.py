@@ -1041,7 +1041,7 @@ def _clear_intraday_for_codes(
 
 def _rebalance_report_from_legs(
     *,
-    ranking: List[dict],
+    book: List[dict],
     sell_trades: List[dict],
     buy_trades: List[dict],
     holdings_before: List[dict],
@@ -1051,8 +1051,8 @@ def _rebalance_report_from_legs(
 ) -> List[dict]:
     """把分池/横截面腿转成交易执行页调仓报告行。
 
-    ``ranking`` = 目标簿（选股结果）；``score_rows`` = 展示用全量打分
-    （含低于 min_score 被踢出簿的票）。省略时回退 ranking。
+    ``book`` = 目标簿（选股结果）；``score_rows`` = 展示用全量打分
+    （含低于 min_score 被踢出簿的票）。省略时回退 book。
     """
     sell_by = {str(t.get("stock_code")): t for t in sell_trades or []}
     buy_by = {str(t.get("stock_code")): t for t in buy_trades or []}
@@ -1062,7 +1062,7 @@ def _rebalance_report_from_legs(
         if s.get("stock_code")
     }
     # 展示分：优先全量 scored；目标簿仅用于「是否在簿」判断
-    display_rows = list(score_rows or []) or list(ranking or [])
+    display_rows = list(score_rows or []) or list(book or [])
     score_by = {
         str(r.get("stock_code")): r.get("score")
         for r in display_rows
@@ -1087,7 +1087,7 @@ def _rebalance_report_from_legs(
             hard_by[code] = note or "硬拒绝"
     book_codes = {
         str(r.get("stock_code"))
-        for r in ranking or []
+        for r in book or []
         if r.get("stock_code")
     }
     row_by = {
@@ -1369,7 +1369,7 @@ class PaperTradesMixin:
         report = list(result.get("rebalance_report") or [])
         if not report:
             report = _rebalance_report_from_legs(
-                ranking=[],
+                book=[],
                 sell_trades=sell_trades,
                 buy_trades=buy_trades,
                 holdings_before=holdings_before,

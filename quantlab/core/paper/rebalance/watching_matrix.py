@@ -780,7 +780,7 @@ def simulate_watching_matrix_preview(
             "dry_run": bool(dry_run),
             "matrix_mode": True,
             "error": pool_meta.get("error"),
-            "empty_reason": "empty_ranking",
+            "empty_reason": "empty_book",
             "confirm_supported": True,
         }
     if not codes:
@@ -791,7 +791,7 @@ def simulate_watching_matrix_preview(
             "dry_run": bool(dry_run),
             "matrix_mode": True,
             "error": "观察池为空",
-            "empty_reason": "empty_ranking",
+            "empty_reason": "empty_book",
             "confirm_supported": True,
         }
     codes, fit_meta = _apply_universe_fit_tier_filter(codes, keep=held_codes)
@@ -807,7 +807,7 @@ def simulate_watching_matrix_preview(
             "dry_run": bool(dry_run),
             "matrix_mode": True,
             "error": "观察池按拟合档过滤后为空",
-            "empty_reason": "empty_ranking",
+            "empty_reason": "empty_book",
             "pool_meta": pool_meta,
             "confirm_supported": True,
         }
@@ -1066,7 +1066,7 @@ def simulate_watching_matrix_preview(
                 else f"现金 {cash_before:,.0f} 不足买入"
             )
         elif not scored and not held_codes:
-            empty = "empty_ranking"
+            empty = "empty_book"
         else:
             empty = "no_executable_changes"
 

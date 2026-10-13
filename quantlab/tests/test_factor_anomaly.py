@@ -139,7 +139,7 @@ class TestInspectFactorAnomaly(unittest.TestCase):
             "y_oo": 1.2,
             "y_τc": 0.4,
             "y_co": 0.3,
-            "ranking": 0.9,
+            "y_oo_fuse": 0.9,
             "score_rem": 0.4,
             "predicted_score_tau": 0.4,
         }
@@ -147,7 +147,7 @@ class TestInspectFactorAnomaly(unittest.TestCase):
         self.assertEqual(item.get("predicted_score"), 1.2)
         self.assertEqual(item.get("y_oo"), 1.2)
         self.assertIsNone(item.get("y_τc"))
-        self.assertIsNone(item.get("ranking"))
+        self.assertIsNone(item.get("y_oo_fuse"))
         self.assertIsNone(item.get("score_rem"))
         self.assertIsNone(item.get("predicted_score_tau"))
 
@@ -194,7 +194,7 @@ class TestInspectFactorAnomaly(unittest.TestCase):
 
 
 class TestStampWindowFactorAnomaly(unittest.TestCase):
-    def test_stamp_drops_ranking_when_tau_fatal(self):
+    def test_stamp_drops_y_oo_fuse_when_tau_fatal(self):
         from core.signal.yhat_windows import stamp_window_scores
 
         item = {
@@ -206,7 +206,7 @@ class TestStampWindowFactorAnomaly(unittest.TestCase):
         }
         stamped = stamp_window_scores(item)
         self.assertIsNone(stamped.get("y_τc"))
-        self.assertIsNone(stamped.get("ranking"))
+        self.assertIsNone(stamped.get("y_oo_fuse"))
         self.assertAlmostEqual(stamped.get("y_oo"), 1.0)
 
 

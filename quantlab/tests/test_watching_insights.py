@@ -337,8 +337,8 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertFalse(captured.get("offline_only"))
         self.assertIs(captured.get("use_minute_tau"), True)
 
-    def test_insight_one_stamps_ranking_from_paper_fusion(self):
-        """数据中心 ranking 用 paper rank_lots 权，与交易执行同式。"""
+    def test_insight_one_stamps_y_oo_fuse_from_paper_fusion(self):
+        """数据中心 y_oo_fuse 用 paper rank_lots 权，与交易执行同式。"""
         from core.watching.insights import _insight_one
 
         paper = {
@@ -377,10 +377,10 @@ class TestWatchingInsights(unittest.TestCase):
             row = _insight_one("600869", paper_ctx=paper)
         self.assertAlmostEqual(float(row.get("fusion_w_oo")), 0.8)
         self.assertAlmostEqual(float(row.get("fusion_w_oc")), 0.2)
-        self.assertAlmostEqual(float(row.get("ranking")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
+        self.assertAlmostEqual(float(row.get("y_oo_fuse")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
 
-    def test_insight_one_stamps_remaining_ranking(self):
-        """有今开与现价时，数据中心 ranking 走 τc（缺 y_spec 时才扣 rot）。"""
+    def test_insight_one_stamps_remaining_y_oo_fuse(self):
+        """有今开与现价时，数据中心 y_oo_fuse 走 τc（缺 y_spec 时才扣 rot）。"""
         from core.watching.insights import _insight_one
 
         paper = {
@@ -424,7 +424,7 @@ class TestWatchingInsights(unittest.TestCase):
             row = _insight_one("600869", paper_ctx=paper)
         fused = 0.8 * 2.30 + 0.2 * 5.69
         rot = (10.2 / 10.0 - 1.0) * 100.0
-        self.assertAlmostEqual(float(row.get("ranking")), fused - rot, places=4)
+        self.assertAlmostEqual(float(row.get("y_oo_fuse")), fused - rot, places=4)
         self.assertAlmostEqual(float(row.get("day_open")), 10.0, places=4)
         self.assertAlmostEqual(float(row.get("price_tau")), 10.2, places=4)
 

@@ -80,7 +80,7 @@ def _f(x: Any) -> Optional[float]:
     return v
 
 
-def coerce_rank_threshold(raw: Any, default: float) -> float:
+def coerce_fuse_threshold(raw: Any, default: float) -> float:
     """毛收益乘数 1.01/1.02、旧 0.20 → 净收益 0.01/0.02（展示 1%/2%）。"""
     try:
         v = float(raw)
@@ -187,7 +187,7 @@ def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]
 def _cfg_fuse_threshold(cfg: Optional[dict], key: str, default: float) -> float:
     """读 fuse_enter / fuse_strong（不再回退 rank_*）。"""
     d = cfg if isinstance(cfg, dict) else {}
-    return coerce_rank_threshold(d.get(key), default)
+    return coerce_fuse_threshold(d.get(key), default)
 
 def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
     """oo_rank 绝对名次闸：开则须 y_oo_rank < max（UI「rank 入场」默认 10）。
@@ -1472,7 +1472,7 @@ __all__ = [
     "clip_lot_to_cash",
     "clamp_fusion_weight",
     "clamp_fusion_w_co",
-    "coerce_rank_threshold",
+    "coerce_fuse_threshold",
     "fuse_score_net",
     "get_rank_lot_cfg",
     "held_exit_reason",

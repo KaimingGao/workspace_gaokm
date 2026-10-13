@@ -179,7 +179,7 @@ Alpha 条目（选股择时）与 Risk 条目分开写，避免「一个大 if�
 ```text
 ŷ = ReturnScoreModel(价量 / 财务 / …)   ← 唯一生产排序轴
 S = score_headlines(当日标题)            ← 观察徽章（参考）
-live 调仓 = rank_lots(y_fuse, y_on)     ← 不读 S
+live 调仓 = rank_lots(y_oo_fuse)     ← 不读 S
 ```
 
 本仓库 **已有**：标题拉取与缓存；观察徽章；`sentiment_prior`（产品强制 `mode=off`）；标题 history jsonl（供 as_of 诊断）；`GET /api/ops/sentiment-as-of`。  

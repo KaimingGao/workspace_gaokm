@@ -282,15 +282,21 @@ function renderLogItem(l, { tradeCols = false } = {}) {
     }
     if (feeBits.length) secondaryParts.push(feeBits.join(" · "));
     else if (String(meta.cost_model || "") === "zero") secondaryParts.push("零成本");
-    if (meta.ranking != null && Number.isFinite(Number(meta.ranking))) {
-      secondaryParts.push(`ranking ${fmtScore(Number(meta.ranking), { signed: true })}`);
+    const fuseMeta =
+      meta.y_oo_fuse != null
+        ? Number(meta.y_oo_fuse)
+        : meta.y_oo_fuse_score != null && Number.isFinite(Number(meta.y_oo_fuse_score))
+          ? Number(meta.y_oo_fuse_score) * 100
+          : null;
+    if (fuseMeta != null && Number.isFinite(fuseMeta)) {
+      secondaryParts.push(`fuse ${fmtScore(fuseMeta, { signed: true })}`);
     } else if (meta.score != null && Number.isFinite(Number(meta.score))) {
       secondaryParts.push(`评分 ${fmtScore(meta.score)}`);
     }
     let note = String(meta.note || "").trim();
-    if (note && meta.ranking != null) {
+    if (note && fuseMeta != null) {
       note = note
-        .replace(/\s*ranking=[^\s·]+/g, "")
+        .replace(/\s*(?:ranking|fuse|y_oo_fuse)=[^\s·]+/g, "")
         .replace(/\s*·\s*·\s*/g, " · ")
         .replace(/^\s*·\s*|\s*·\s*$/g, "")
         .trim();

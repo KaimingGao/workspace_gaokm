@@ -879,10 +879,10 @@ body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-row.i
   letter-spacing: 0.02em;
 }
 
-body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_fuse,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_oo,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_tau,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_on,
-body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-ranking,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_oo_fuse,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_hl,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-day_open,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-day_close,

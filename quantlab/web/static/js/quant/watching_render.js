@@ -2,7 +2,7 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { fmtTableScore, Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js";
+import { fmtTableScore, Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } from "../paper/fmt.js";
 import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
@@ -802,7 +802,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
     `<th class="watching-col-num" title="ŷ_oo · open[T]→open[T+1]">y_oo</th>` +
     `<th class="watching-col-num" title="${Y_OC_REBALANCE_TITLE}">y_τc</th>` +
     `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
-    `<th class="watching-col-num" title="${RANKING_REBALANCE_TITLE}">fuse</th>` +
+    `<th class="watching-col-num" title="${FUSE_REBALANCE_TITLE}">fuse</th>` +
     `<th class="watching-col-num" title="近端个股收益 − 指数收益。缺指数对齐时显示 RS+相对强弱分，不是超额收益率">超额</th>` +
     `<th class="watching-col-num" title="成交量">量</th>` +
     `<th class="watching-col-num" title="近期成交量 / 均量">量比</th>` +

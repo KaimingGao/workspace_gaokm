@@ -148,8 +148,8 @@ class TestDailyWebPresets(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(run_mock.call_args.kwargs.get("lookback"), 30)
         self.assertEqual(run_mock.call_args.kwargs.get("fusion_w_co"), 0.5)
-        self.assertEqual(run_mock.call_args.kwargs.get("rank_enter"), 0.01)
-        self.assertEqual(run_mock.call_args.kwargs.get("rank_strong"), 0.03)
+        self.assertEqual(run_mock.call_args.kwargs.get("fuse_enter"), 0.01)
+        self.assertEqual(run_mock.call_args.kwargs.get("fuse_strong"), 0.03)
 
     def test_api_run_rejects_lookback_below_10(self):
         from fastapi.testclient import TestClient
@@ -192,8 +192,8 @@ class TestDailyWebPresets(unittest.TestCase):
         self.assertEqual(bt.get("engine"), "paper_replay")
         self.assertEqual(bt.get("lookback"), 30)
         self.assertEqual(float(bt.get("fusion_w_co")), 0.0)
-        self.assertAlmostEqual(float(bt.get("rank_enter") or 0), 0.012)
-        self.assertAlmostEqual(float(bt.get("rank_strong") or 0), 0.012)
+        self.assertAlmostEqual(float(bt.get("fuse_enter") or 0), 0.001)
+        self.assertAlmostEqual(float(bt.get("fuse_strong") or 0), 0.001)
         self.assertGreaterEqual(int(bt.get("paper_max_positions") or 0), 8)
         self.assertIn("paper_horizon_days", bt)
 

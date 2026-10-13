@@ -134,10 +134,10 @@ def _scoring_meta(report: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _cross_section_ranked_list(cross_section: Dict[str, Any]) -> List[dict]:
-    """横截面 Top 列表（兼容 ranking / ranked / top 字段）。"""
+    """横截面目标簿列表（优先 book；兼容 ranking / ranked / top）。"""
     if not cross_section or not cross_section.get("success"):
         return []
-    for key in ("ranking", "ranked", "top"):
+    for key in ("book", "ranking", "ranked", "top"):
         items = cross_section.get(key)
         if isinstance(items, list) and items:
             return items

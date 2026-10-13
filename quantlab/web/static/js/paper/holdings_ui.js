@@ -10,7 +10,7 @@ import {
   metricCls,
   fmtTableScore,
   scoreCls,
-  resolveRankingScore,
+  resolveFuseScore,
   resolveEodScore,
   resolveTauScore,
   resolveOnScore,
@@ -18,7 +18,7 @@ import {
   Y_EOD_TITLE,
   Y_OC_REBALANCE_TITLE,
   Y_ON_TITLE,
-  RANKING_REBALANCE_TITLE,
+  FUSE_REBALANCE_TITLE,
 } from "./fmt.js?v=p2544";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2746";
@@ -110,7 +110,7 @@ export function buildPaperHoldingsTableHtml({
       key === "code"
         ? "股票代码 · 点击排序"
         : key === "score"
-          ? `${RANKING_REBALANCE_TITLE} · 点击排序`
+          ? `${FUSE_REBALANCE_TITLE} · 点击排序`
             : key === "score_eod"
             ? `${Y_EOD_TITLE} · 点击排序`
             : key === "score_tau"
@@ -141,7 +141,7 @@ export function buildPaperHoldingsTableHtml({
       const code = h.stock_code || "";
       const pnl = h.pnl_pct;
       const startDate = h.bought_date || "—";
-      const score = resolveRankingScore(h);
+      const score = resolveFuseScore(h);
       const scoreEod = resolveEodScore(h);
       const scoreTau = resolveTauScore(h);
       const scoreOn = resolveOnScore(h);
@@ -165,7 +165,7 @@ export function buildPaperHoldingsTableHtml({
             ? `fuse 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
             : belowMin
             ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 fuse）· 悬停看详情`
-            : RANKING_REBALANCE_TITLE;
+            : FUSE_REBALANCE_TITLE;
       const oosFailed =
         !!h.oos_failed ||
         isHeuristicScoreScale(h) ||

@@ -49,7 +49,7 @@ def resolve_hard_reject_cfg(config: Optional[Mapping[str, Any]] = None) -> Dict[
 
 
 def metrics_from_item(item: Optional[Mapping[str, Any]]) -> Dict[str, Optional[float]]:
-    """从 ranking / score 行读取 mom3/mom5/当日涨幅。"""
+    """从信号簿 / score 行读取 mom3/mom5/当日涨幅。"""
     row = dict(item or {})
     fac = row.get("factors") if isinstance(row.get("factors"), Mapping) else {}
     oh = row.get("overheat") if isinstance(row.get("overheat"), Mapping) else {}

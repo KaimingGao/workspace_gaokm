@@ -44,7 +44,7 @@ def main(argv=None) -> int:
         return 1
 
     print(f"ranked {result['ranked_count']} / candidates {result['candidate_count']}")
-    for i, row in enumerate(result.get("ranking") or [], 1):
+    for i, row in enumerate(result.get("book") or [], 1):
         print(
             f"{i:2d}. {row.get('stock_name')}({row.get('stock_code')}) "
             f"score={row.get('score')} src={row.get('data_source')}"

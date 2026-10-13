@@ -110,9 +110,9 @@ function dismissRebalancePreview() {
 
 function emptyReasonLabel(code) {
   const map = {
-    empty_ranking: "目标簿为空（无人过闸或未建簿）",
+    empty_book: "目标簿为空（无人过闸或未建簿）",
     all_below_eod_floor: "全部低于 EOD 买入门槛",
-    all_below_rank_enter: "无人过 fuse 入场",
+    all_below_fuse_enter: "无人过 fuse 入场",
     cash_below_floor: "现金不足，无法买入",
     buys_blocked: "买入被风控/规则拦截",
     risk_blocked: "风控整批拦截",
@@ -121,14 +121,13 @@ function emptyReasonLabel(code) {
     holiday: "非交易日",
     book_constraints_empty: "簿约束装填后为空",
     no_mapped_scores: "无可用评分映射",
-    empty_book: "选股簿为空",
   };
   const k = String(code || "").trim();
   if (!k) return "";
   return map[k] || k;
 }
 
-function fmtRankEnterPct(raw) {
+function fmtFuseEnterPct(raw) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return "";
   const pct = n * 100;
@@ -142,20 +141,20 @@ function fmtRankEnterPct(raw) {
 
 function emptyFloorHint({
   minScore,
-  rankEnter,
+  fuseEnter,
   matrixPreview,
   emptyReason,
 } = {}) {
   const reason = String(emptyReason || "");
   if (reason === "cash_below_floor") return "";
   const enterRaw =
-    rankEnter != null && Number.isFinite(Number(rankEnter))
-      ? Number(rankEnter)
+    fuseEnter != null && Number.isFinite(Number(fuseEnter))
+      ? Number(fuseEnter)
       : matrixPreview && minScore != null && Number.isFinite(Number(minScore))
         ? Number(minScore)
         : null;
-  if (enterRaw != null && (matrixPreview || rankEnter != null)) {
-    const shown = fmtRankEnterPct(enterRaw);
+  if (enterRaw != null && (matrixPreview || fuseEnter != null)) {
+    const shown = fmtFuseEnterPct(enterRaw);
     return shown ? ` · fuse入场≥${shown}` : "";
   }
   if (minScore != null && Number.isFinite(Number(minScore))) {
@@ -196,7 +195,7 @@ function renderRebalanceReport(
     dualScore = null,
     emptyReason = null,
     minScore = null,
-    rankEnter = null,
+    fuseEnter = null,
     emptyDetail = null,
     marketContext = null,
     matrixPreview = false,
@@ -214,12 +213,12 @@ function renderRebalanceReport(
   // 按 fuse 降序展示（无分排后）
   report = Array.isArray(report)
     ? [...report].sort((a, b) => {
-        const rankingOf = (r) => {
+        const fuseOf = (r) => {
           const n = Number(r && r.y_oo_fuse);
           return Number.isFinite(n) ? n : null;
         };
-        const as = rankingOf(a);
-        const bs = rankingOf(b);
+        const as = fuseOf(a);
+        const bs = fuseOf(b);
         if (as == null && bs == null) return 0;
         if (as == null) return 1;
         if (bs == null) return -1;
@@ -329,7 +328,7 @@ function renderRebalanceReport(
     if (hasEmptyReason) {
       const floorHint = emptyFloorHint({
         minScore,
-        rankEnter,
+        fuseEnter,
         matrixPreview,
         emptyReason,
       });
@@ -398,7 +397,7 @@ function renderRebalanceReport(
       if (hasEmptyReason) {
         const floorHint = emptyFloorHint({
           minScore,
-          rankEnter,
+          fuseEnter,
           matrixPreview,
           emptyReason,
         });
@@ -585,7 +584,7 @@ function renderRebalanceReport(
   if (emptyReport) {
     const floorHint = emptyFloorHint({
       minScore,
-      rankEnter,
+      fuseEnter,
       matrixPreview,
       emptyReason,
     });

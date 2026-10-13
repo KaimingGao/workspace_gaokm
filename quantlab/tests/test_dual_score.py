@@ -613,7 +613,7 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIsNone(out.get("y_τc"))
         self.assertIsNone(out.get("y_tau"))
         self.assertIsNone(out.get("score_rem"))
-        self.assertIsNone(out.get("ranking"))
+        self.assertIsNone(out.get("y_oo_fuse"))
 
     def test_book_fields_passes_y_τc(self):
         from core.signal.dual_score import dual_score_book_fields
@@ -671,7 +671,7 @@ class TestDualScoreFields(unittest.TestCase):
             "score_calibration_applied": True,
         }
         self.assertAlmostEqual(eod_gate_score_for_item(item), 2.0, places=5)
-        # decision = ranking 现算 = fuse(ŷ_oo=2.0, ŷ_τc=0.5) = 1.25（不受 calibration 影响）
+        # decision = fuse 现算 = fuse(ŷ_oo=2.0, ŷ_τc=0.5) = 1.25（不受 calibration 影响）
         self.assertAlmostEqual(decision_score_for_item(item), 1.25, places=5)
 
     def test_legacy_rem_not_added_to_eod_rem(self):
@@ -787,7 +787,7 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertNotIn("predicted_score_nowcast", out)
         self.assertNotIn("nowcast_K", out)
 
-    def test_book_fields_stamps_ranking_from_rank_cfg(self):
+    def test_book_fields_stamps_y_oo_fuse_from_rank_cfg(self):
         from core.signal.dual_score import dual_score_book_fields
 
         out = dual_score_book_fields(
@@ -800,7 +800,7 @@ class TestDualScoreFields(unittest.TestCase):
         )
         self.assertAlmostEqual(float(out.get("fusion_w_oo")), 0.8)
         self.assertAlmostEqual(float(out.get("fusion_w_oc")), 0.2)
-        self.assertAlmostEqual(float(out.get("ranking")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
+        self.assertAlmostEqual(float(out.get("y_oo_fuse")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
 
     def test_tau_shadow_book_reranks(self):
         from core.signal.dual_score import build_tau_shadow_book, compare_book_overlap

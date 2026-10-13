@@ -127,14 +127,15 @@ class ScoreResult:
         return self.as_dict().get(key, default)
 
 @dataclass
-
 class BookResult:
-    """横截面 / 分池簿信封。``as_dict()`` 保持 ``rank_*`` 历史形状。"""
+    """横截面 / 分池簿信封。
+
+    ``book`` = 排序后的目标簿列表（≠ 调仓 fuse 分 y_oo_fuse）。
+    """
 
     kind: str
     success: bool
     ok: bool
-    ranking: List[dict]
     book: List[dict]
     scored_all: List[dict]
     production_ok: bool
@@ -151,23 +152,20 @@ class BookResult:
         kind: str = "cross_section",
     ) -> "BookResult":
         pack = dict(raw or {})
-        # 拷贝行再戳 production_ok，避免污染调用方共享簿 / ranking 引用
-        ranking = [
-            dict(x) if isinstance(x, dict) else x for x in (pack.get("ranking") or [])
-        ]
+        # 拷贝行再戳 production_ok，避免污染调用方共享簿引用
         book_src = pack.get("book")
-        if book_src is None and ranking:
-            book = [dict(x) if isinstance(x, dict) else x for x in ranking]
-        else:
-            book = [
-                dict(x) if isinstance(x, dict) else x for x in (book_src or [])
-            ]
+        if book_src is None:
+            # 旧载荷曾用 ranking 键表示目标簿列表
+            book_src = pack.get("ranking")
+        book = [
+            dict(x) if isinstance(x, dict) else x for x in (book_src or [])
+        ]
         scored = [
             dict(x) if isinstance(x, dict) else x
             for x in (pack.get("scored_all") or [])
         ]
         success = bool(pack.get("success"))
-        rows = ranking or book
+        rows = book
         yhat_n = 0
         heu_n = 0
         first_fail = ""
@@ -199,7 +197,6 @@ class BookResult:
             kind=str(kind or "cross_section"),
             success=success,
             ok=success,
-            ranking=ranking,
             book=book,
             scored_all=scored,
             production_ok=prod_ok,
@@ -217,10 +214,9 @@ class BookResult:
         out["production_ok"] = self.production_ok
         if self.gate_reason is not None:
             out.setdefault("gate_reason", self.gate_reason)
-        # 始终用已戳门禁的副本，覆盖 raw 里未戳的同名列表
-        out["ranking"] = list(self.ranking)
-        if self.book:
-            out["book"] = list(self.book)
+        # 始终用已戳门禁的副本；不再双写历史键 ranking
+        out["book"] = list(self.book)
+        out.pop("ranking", None)
         if self.scored_all:
             out.setdefault("scored_all", list(self.scored_all))
         return out

@@ -3,7 +3,7 @@
 替代 ``core/research/t30_ridge.py … t90_ridge.py``，所有 horizon 共享一套实现，
 通过 ``head`` 参数（"t30"/"t45"/"t60"/"t75"/"t90"）区分。
 
-盘中写 y_τ{num}=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。
+盘中写 y_τ{num}=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / fuse。
 决策钟只覆盖 09:30…11:00（与 ŷ_τc 对齐）；窗外不训、不预。
 不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅）。
 序列键只进本头，不进 TAU_Z_FEATURES。
@@ -331,7 +331,7 @@ def fit_horizon_ridge_report(
             f"X = 开盘 Z + 开→τ 收益/截面 + ŷ_τ{num} 序列特征"
             f"（{seq_str}）；"
             "不含 ŷ_τ 的 OC 路径形状。"
-            f"ŷ_τ{num}=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 C_τ / ranking。"
+            f"ŷ_τ{num}=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 C_τ / fuse。"
         ),
     }
     model["extra_features"] = list(z_features)
@@ -364,7 +364,7 @@ def fit_horizon_ridge_report(
         "cross_section_zscore": use_cs,
         "note": (
             f"ŷ_τ{num}=P(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1>0)。"
-            "进 ŷ_τw 投票；个股旁路闸已下线。不进 C_τ / ranking。"
+            "进 ŷ_τw 投票；个股旁路闸已下线。不进 C_τ / fuse。"
         ),
     }
     attach_holdout_meta(report, split_meta)

@@ -106,7 +106,7 @@ function gapPctFromQuote(q) {
   return (open / prev - 1) * 100;
 }
 
-/** 洞察行缺 gap 时用行情补上（nowcast 对照；不改 ranking）。 */
+/** 洞察行缺 gap 时用行情补上（nowcast 对照；不改 fuse）。 */
 export function withQuoteGap(it, quoteLike) {
   if (!it || typeof it !== "object") return it;
   const had = it.gap_pct;

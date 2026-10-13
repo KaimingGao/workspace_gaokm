@@ -47,7 +47,7 @@
 
 - **因子库**：`core/signal/factors/`（动量 / 量价 / 相对强弱 / 波动 / 反转 / 基本面 / 情绪 / 风险 / 流动性等）；元数据由 `factors/meta/` 管理。
 - **生产打分**：组 OLS/Ridge 的 ŷ%（非 0–100 规则加权）；`heuristic_score` 仅研究对照。
-- **双预测头**：`core/signal/dual_score/` 维护 ŷ_oo（主排序 / 入池地板）、ŷ_τc（调仓 ranking + 做 T 估 C_τ）、ŷ_co（叠进 ŷ_τc）；调仓 ranking 与盘中 ŷ_trade 权重不同。
+- **双预测头**：`core/signal/dual_score/` 维护 ŷ_oo（主排序 / 入池地板）、ŷ_τc（调仓 fuse + 做 T 估 C_τ）、ŷ_co（叠进 ŷ_τc）；调仓 fuse 与盘中 ŷ_trade 权重不同。
 - **质量门禁**：`production_ok` 过滤数据不完整 / 因子缺失；未通过降级为 heuristic 分。
 
 > 因子清单、双预测头公式、买入闸 / EOD gate 等细节见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路) 与 [quant.md · 双层 ŷ](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ)。
@@ -58,7 +58,7 @@
 
 > 详细数学推导与参数见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓按 **ranking**（ŷ_oo 几何剩余 + ŷ_τc∘ŷ_co，基准 τ→open[T+1]）决定买卖：ranking 过入场门槛则开/加仓，未过则清仓。金额按 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）换算整手，不够一手则跳过；单票市值不超过强档×120%；现金不够缩到整百。
+调仓按 **fuse / y_oo_fuse**（ŷ_oo 几何剩余 + ŷ_τc∘ŷ_co，基准 τ→open[T+1]）决定买卖：fuse 过入场门槛则开/加仓，未过则清仓。金额按 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）换算整手，不够一手则跳过；单票市值不超过强档×120%；现金不够缩到整百。
 
 - **实现**：`core/paper/rebalance/rank_lots.py`，观察池与历史回测共用。
 - **风控**：T+1（当日买入不可卖）、单票市值≤强档×120%、组合持仓市值上限（live 默认 15 万）、OOS 失败组禁新开、手续费/滑点按成本模型扣除。

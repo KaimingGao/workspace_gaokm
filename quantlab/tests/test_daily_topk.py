@@ -240,8 +240,8 @@ class TestTopkParamsDisclose(unittest.TestCase):
         self.assertEqual(params.get("engine"), "paper_replay")
         self.assertTrue(params.get("apply_costs"))
         self.assertEqual(out.get("cost_model"), "simple_cn")
-        self.assertAlmostEqual(float(params.get("rank_enter") or 0), 0.001)
-        self.assertAlmostEqual(float(params.get("rank_strong") or 0), 0.001)
+        self.assertAlmostEqual(float(params.get("fuse_enter") or 0), 0.001)
+        self.assertAlmostEqual(float(params.get("fuse_strong") or 0), 0.001)
         self.assertEqual(float(params.get("fusion_w_co")), 0.0)
         self.assertIn("lookback", params)
         self.assertIn("research_next", out)
@@ -251,8 +251,8 @@ class TestTopkParamsDisclose(unittest.TestCase):
         self.assertEqual(kw.get("top_k"), 2)
         self.assertEqual(kw.get("cost_model"), "simple_cn")
         self.assertEqual(kw.get("fusion_w_co"), 0.0)
-        self.assertAlmostEqual(float(kw.get("rank_enter") or 0), 0.001)
-        self.assertAlmostEqual(float(kw.get("rank_strong") or 0), 0.001)
+        self.assertAlmostEqual(float(kw.get("fuse_enter") or 0), 0.001)
+        self.assertAlmostEqual(float(kw.get("fuse_strong") or 0), 0.001)
         self.assertEqual(kw.get("lookback"), 30)
 
     def test_override_rank_params(self):
@@ -280,12 +280,12 @@ class TestTopkParamsDisclose(unittest.TestCase):
         params = out.get("params") or {}
         self.assertEqual(out.get("engine"), "paper_replay")
         self.assertEqual(float(params.get("fusion_w_co")), 0.5)
-        self.assertAlmostEqual(float(params.get("rank_enter") or 0), 0.015)
-        self.assertAlmostEqual(float(params.get("rank_strong") or 0), 0.03)
+        self.assertAlmostEqual(float(params.get("fuse_enter") or 0), 0.015)
+        self.assertAlmostEqual(float(params.get("fuse_strong") or 0), 0.03)
         kw = bt_mock.call_args.kwargs
         self.assertEqual(kw.get("fusion_w_co"), 0.5)
-        self.assertAlmostEqual(float(kw.get("rank_enter") or 0), 0.015)
-        self.assertAlmostEqual(float(kw.get("rank_strong") or 0), 0.03)
+        self.assertAlmostEqual(float(kw.get("fuse_enter") or 0), 0.015)
+        self.assertAlmostEqual(float(kw.get("fuse_strong") or 0), 0.03)
 
 
 if __name__ == "__main__":

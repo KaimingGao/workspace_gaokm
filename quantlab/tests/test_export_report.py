@@ -294,7 +294,7 @@ class TestP67ExportPreviewToc(unittest.TestCase):
         return {
             "cross_section": {
                 "success": True,
-                "ranking": [
+                "book": [
                     {"stock_code": "600519", "stock_name": "贵州茅台", "score": 1.25},
                 ],
             }
@@ -336,7 +336,7 @@ class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
     def test_cross_section_ranking_key(self):
         cs = {
             "success": True,
-            "ranking": [
+            "book": [
                 {"stock_code": "600519", "score": 1.25},
                 {"stock_code": "600036", "score": 0.61},
             ],
@@ -346,7 +346,7 @@ class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
         report = {
             "cross_section": {
                 "success": True,
-                "ranking": [
+                "book": [
                     {"stock_code": "600519", "score": 1.25},
                     {"stock_code": "600036", "score": 0.61},
                 ],
@@ -362,7 +362,7 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
     def _cs(self):
         return {
             "success": True,
-            "ranking": [
+            "book": [
                 {"stock_code": "600519", "stock_name": "贵州茅台", "score": 1.25, "score_raw": 1.10},
                 {"stock_code": "600036", "stock_name": "招商银行", "score": 0.61, "score_raw": 0.55},
             ],

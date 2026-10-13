@@ -3125,7 +3125,7 @@ class QuantFactorMixin:
                 "error": ranked.get("error") or "横截面失败",
                 "task": "factor_corr",
             }
-        items = ranked.get("ranking") or []
+        items = ranked.get("book") or []
         from core.signal.config import load_signal_config
         from core.signal.factors.meta.corr import redundancy_warnings_from_corr
 
@@ -3138,7 +3138,7 @@ class QuantFactorMixin:
                 weights=cfg.get("weights") or {},
             )
         report["task"] = "factor_corr"
-        report["ranking_count"] = len(items)
+        report["book_count"] = len(items)
         report["neutralization"] = ranked.get("neutralization")
         return report
 

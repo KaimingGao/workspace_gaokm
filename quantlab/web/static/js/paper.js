@@ -7,7 +7,7 @@ import {
   metricCls,
   fmtTableScore,
   scoreCls,
-  resolveRankingScore,
+  resolveFuseScore,
   resolveEodScore,
   resolveTauScore,
   resolveOnScore,
@@ -845,14 +845,14 @@ export function initPaper(ctx) {
       if (!holdingsScoreStatsEl) return;
       const list = Array.isArray(rows) ? rows : [];
       const eod = scoreSeriesStats(list.map(resolveEodScore));
-      const ranking = scoreSeriesStats(list.map(resolveRankingScore));
+      const fuse = scoreSeriesStats(list.map(resolveFuseScore));
       const bit = (label, pack) =>
         pack.n
           ? `${label} μ ${Number(pack.mean).toFixed(2)}% · med ${Number(
               pack.median
             ).toFixed(2)}% · n=${pack.n}`
           : null;
-      holdingsScoreStatsEl.textContent = [bit("ŷ_oo", eod), bit("ranking", ranking)]
+      holdingsScoreStatsEl.textContent = [bit("ŷ_oo", eod), bit("fuse", fuse)]
         .filter(Boolean)
         .join(" · ");
     };
@@ -1676,7 +1676,7 @@ export function initPaper(ctx) {
         );
         if (holdingsScoreStatsEl) {
           const eod = scoreSeriesStats(holdings.map(resolveEodScore));
-          const ranking = scoreSeriesStats(holdings.map(resolveRankingScore));
+          const fuse = scoreSeriesStats(holdings.map(resolveFuseScore));
           const bit = (label, pack) =>
             pack.n
               ? `${label} μ ${Number(pack.mean).toFixed(2)}% · med ${Number(
@@ -1685,7 +1685,7 @@ export function initPaper(ctx) {
               : null;
           holdingsScoreStatsEl.textContent = [
             bit("ŷ_oo", eod),
-            bit("ranking", ranking),
+            bit("fuse", fuse),
           ]
             .filter(Boolean)
             .join(" · ");
@@ -2647,7 +2647,7 @@ export function initPaper(ctx) {
             dualScore,
             emptyReason,
             minScore,
-            rankEnter: result.fuse_enter ?? minScore,
+            fuseEnter: result.fuse_enter ?? minScore,
             emptyDetail: result.empty_detail || null,
             marketContext: result.market_context,
           });
@@ -2661,7 +2661,7 @@ export function initPaper(ctx) {
             dualScore,
             emptyReason,
             minScore,
-            rankEnter: result.fuse_enter ?? minScore,
+            fuseEnter: result.fuse_enter ?? minScore,
             emptyDetail: result.empty_detail || null,
             marketContext: result.market_context,
           });
@@ -3074,7 +3074,7 @@ export function initPaper(ctx) {
     });
     paperLiveWOo.addEventListener("change", async () => {
       syncLiveFusionWeightSliders();
-      await postLiveRankLotsPatch("follow live ranking 配重");
+      await postLiveRankLotsPatch("follow live fuse 配重");
     });
   }
 

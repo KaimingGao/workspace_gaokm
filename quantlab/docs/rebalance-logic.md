@@ -62,7 +62,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | 参数 | 默认 | 说明 |
 |------|------|------|
 | `fuse_enter` | 0.001 | fuse 入场下限（0.1%；旧 1.01 / 101% 自动换成净收益） |
-| `fuse_strong`（旧 `rank_strong`） | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
+| `fuse_strong` | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0；关=不看。缺分不拦 |
 | `oo_rank_max` | 关（回测表单默认 10） | 开则入场另须 y_oo_rank &lt; max（UI「rank 入场」）；≤0/None=关；缺 rank 不拦 |
@@ -102,7 +102,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | 参数 | 默认 | 说明 |
 |------|------|------|
 | `fuse_enter` | 0.001 | fuse 入场（0.1%） |
-| `fuse_strong`（旧 `rank_strong`） | 0.001 | 超过买 lot_strong_amount，否则 lot_base_amount |
+| `fuse_strong` | 0.001 | 超过买 lot_strong_amount，否则 lot_base_amount |
 | `lot_base_amount` | 10000 | 入场金额（元）；按价换算整手，不够一手则跳过；与历史回测表单同一键 |
 | `lot_strong_amount` | 20000 | 强档金额；不少于 lot_base_amount |
 | `stock_mv_cap` | 强档×120% | 派生：单票持仓市值上限（不落盘；跟 `lot_strong_amount`） |

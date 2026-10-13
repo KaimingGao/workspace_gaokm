@@ -166,7 +166,7 @@ export async function initExecutionRuleForms() {
         const dualData = await dualRes.json().catch(() => ({}));
         if (!dualRes.ok || dualData.success === false) {
           setPathMatrixStatus(
-            dualData.detail || dualData.error || "ranking 权已保存，dual_score 权重未写入",
+            dualData.detail || dualData.error || "fuse 权已保存，dual_score 权重未写入",
             { error: true }
           );
           applyExecutionToUi(data.execution);
