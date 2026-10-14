@@ -572,6 +572,22 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("无看空", ru_js)
         self.assertIn('cls = " is-muted"', ru_js)
         self.assertIn(".quant-ru-ret-cell.is-muted", css)
+        self.assertIn(".quant-ru-ret-cell.up", css)
+        self.assertIn(
+            'body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.up',
+            css,
+        )
+        self.assertIn("color: var(--color-up, #f5222d);", css)
+        self.assertIn("color: var(--color-down, #52c41a);", css)
+        self.assertNotIn("color: var(--color-up, #2a7a4b);", css)
+        self.assertNotIn("color: var(--color-down, #b33b3b);", css)
+        self.assertIn(".quant-ru-hit-val.up", css)
+        self.assertIn(".quant-ru-hit-meter.up .quant-ru-hit-fill", css)
+        self.assertNotIn("quant-ru-hit-mark", css)
+        self.assertNotIn("quant-ru-hit-bar", css)
+        self.assertNotIn('return "is-a"', ru_js)
+        self.assertIn('return Number(hitRate) * 100 + 1e-9 >= 50 ? "up" : "down"', ru_js)
+        self.assertIn("cls = csValCls(n - 0.5);", ru_js)
         self.assertIn("realized_pct", ru_js)
         self.assertIn("mean_y_pos", ru_js)
         self.assertIn("mean_y_neg", ru_js)
@@ -1166,6 +1182,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("replay-rank-hint", bt_js)
         self.assertNotIn("lookback 越大越慢", bt_js)
         self.assertNotIn("观察池约 ${watchN}", bt_js)
+        self.assertNotIn("${watchN}只", bt_js)
         self.assertNotIn("else if (req.lot_base != null)", bt_js)
         self.assertNotIn("req.lot_strong != null", bt_js)
         self.assertNotIn("p.lot_base != null", bt_js)
@@ -1333,6 +1350,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("tookBusy", resume_fn)
         self.assertIn("finally", resume_fn)
         self.assertIn("setQuantBtBusy(false)", resume_fn)
+        self.assertIn("recallPortfolioRunContext(job)", resume_fn)
+        self.assertNotIn('awaitPortfolioBacktestJob(job.id, started, "")', resume_fn)
+        self.assertIn("function portfolioRunContextLabel", bt_js)
+        self.assertIn("clearPortfolioRunContext", bt_js)
+        self.assertIn("sessionStorage.removeItem(REPLAY_RUN_CTX_KEY)", bt_js)
         self.assertIn("progress.hidden = !nowBusy", bt_js)
         # 跑回测时秒表/轮询会反复 setQuantBtBusy(true,…)，不得每次 scrollIntoView（会锁住页面滚动）
         busy_fn = bt_js[bt_js.find("function setQuantBtBusy(busy, message)") :]

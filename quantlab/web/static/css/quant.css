@@ -12121,7 +12121,6 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   border-bottom-color: var(--accent, #1890ff);
 }
 
-.quant-ru-a-gate-lab,
 .quant-ru-a-gate-unit {
   color: var(--ink-3);
   font-size: 0.68rem;
@@ -12134,129 +12133,6 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
-}
-
-.quant-ru-kpi-row {
-  margin-top: 0.15rem;
-}
-
-.quant-ru-kpi-source {
-  font-size: 1rem;
-  letter-spacing: 0.01em;
-}
-
-.quant-ru-edit {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.quant-ru-edit-label {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem 0.75rem;
-  font-size: var(--q-fs-caption, 0.75rem);
-  color: var(--ink-2);
-  font-weight: 600;
-}
-
-.quant-ru-edit-hint {
-  font-weight: 400;
-  color: var(--ink-3, var(--ink-2));
-}
-
-.quant-ru-codes {
-  width: 100%;
-  min-height: 8.5rem;
-  resize: vertical;
-  box-sizing: border-box;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg-1, var(--bg));
-  color: var(--ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
-.quant-ru-codes:focus {
-  outline: 2px solid color-mix(in srgb, var(--accent, #3a6ea5) 45%, transparent);
-  outline-offset: 1px;
-}
-
-.quant-ru-list-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.quant-ru-list-title {
-  font-size: var(--q-fs-caption, 0.75rem);
-  font-weight: 600;
-  color: var(--ink-2);
-}
-
-.quant-ru-filter {
-  min-width: 8rem;
-  max-width: 14rem;
-  flex: 0 1 12rem;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg-1, var(--bg));
-  color: var(--ink);
-  font-size: 0.75rem;
-}
-
-.quant-ru-list {
-  min-height: 2.5rem;
-}
-
-.quant-ru-code-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.4rem;
-}
-
-.quant-ru-code-chip {
-  display: inline-block;
-  padding: 0.15rem 0.4rem;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.7rem;
-  color: var(--ink-2);
-  background: color-mix(in srgb, var(--bg-2, var(--bg)) 80%, transparent);
-}
-
-.quant-ru-code-chip.is-tier-A {
-  border-color: color-mix(in srgb, #2a7a4b 55%, var(--line));
-  background: color-mix(in srgb, #2a7a4b 14%, var(--bg-1, var(--bg)));
-  color: var(--ink);
-}
-
-.quant-ru-code-chip.is-tier-B {
-  border-color: color-mix(in srgb, #b07a20 55%, var(--line));
-  background: color-mix(in srgb, #b07a20 12%, var(--bg-1, var(--bg)));
-}
-
-.quant-ru-code-chip.is-tier-C {
-  border-color: color-mix(in srgb, #8a4a4a 45%, var(--line));
-  background: color-mix(in srgb, #8a4a4a 10%, var(--bg-1, var(--bg)));
-  opacity: 0.85;
-}
-
-.quant-ru-tier-filter {
-  min-width: 5.5rem;
-  padding: 0.3rem 0.4rem;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg-1, var(--bg));
-  color: var(--ink);
-  font-size: 0.75rem;
 }
 
 .quant-ru-tier-table {
@@ -12343,12 +12219,13 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   white-space: nowrap;
 }
 
+/* 分档指标：A 股红涨绿跌（正红 / 负绿） */
 .quant-ru-kpi-ret-val.up {
-  color: var(--color-up);
+  color: var(--color-up, #f5222d);
 }
 
 .quant-ru-kpi-ret-val.down {
-  color: var(--color-down);
+  color: var(--color-down, #52c41a);
 }
 
 .quant-ru-kpi.is-A .quant-ru-kpi-val {
@@ -12496,11 +12373,11 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
 }
 
 .quant-ru-tier-cs-val.up {
-  color: var(--color-up);
+  color: var(--color-up, #f5222d);
 }
 
 .quant-ru-tier-cs-val.down {
-  color: var(--color-down);
+  color: var(--color-down, #52c41a);
 }
 
 .quant-ru-tier-fold-body {
@@ -12602,16 +12479,16 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   white-space: nowrap;
 }
 
-.quant-ru-ret-cell.up {
-  color: var(--color-up, #2a7a4b);
+/* 盖过 .quant-weight-table-wrap td { color: var(--ink) } */
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.up {
+  color: var(--color-up, #f5222d);
 }
 
-.quant-ru-ret-cell.down {
-  color: var(--color-down, #b33b3b);
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.down {
+  color: var(--color-down, #52c41a);
 }
 
-.quant-ru-ret-cell.is-muted {
-  /* 无看多/无看空：极浅 + 粗体，淡于涨跌色数字 */
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.is-muted {
   color: color-mix(in srgb, var(--ink-3, #64748b) 14%, var(--surface, #fff));
   font-weight: 700;
   font-size: 0.68rem;
@@ -12641,15 +12518,14 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   text-align: right;
 }
 
-.quant-ru-hit-val.is-a {
-  color: var(--color-up, #2a7a4b);
+.quant-ru-hit-val.up {
+  color: var(--color-up, #f5222d);
 }
 
-.quant-ru-hit-val.is-b {
-  color: #8a6a1a;
+.quant-ru-hit-val.down {
+  color: var(--color-down, #52c41a);
 }
 
-.quant-ru-hit-val.is-c,
 .quant-ru-hit-val.is-empty {
   color: var(--ink-2);
 }
@@ -12681,70 +12557,20 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: color-mix(in srgb, #8a4a4a 70%, var(--line));
+  background: color-mix(in srgb, var(--ink-3, #64748b) 35%, var(--line));
   transition: width 0.15s ease-out;
 }
 
-.quant-ru-hit-meter.is-a .quant-ru-hit-fill {
-  background: #2a7a4b;
+.quant-ru-hit-meter.up .quant-ru-hit-fill {
+  background: var(--color-up, #f5222d);
 }
 
-.quant-ru-hit-meter.is-b .quant-ru-hit-fill {
-  background: #c4922a;
+.quant-ru-hit-meter.down .quant-ru-hit-fill {
+  background: var(--color-down, #52c41a);
 }
 
-.quant-ru-hit-meter.is-c .quant-ru-hit-fill,
 .quant-ru-hit-meter.is-empty .quant-ru-hit-fill {
-  background: color-mix(in srgb, #8a4a4a 45%, var(--line));
-}
-
-.quant-ru-hit-mark {
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  width: 1px;
-  margin-left: -0.5px;
-  pointer-events: none;
-}
-
-.quant-ru-hit-mark.is-b {
-  background: color-mix(in srgb, #c4922a 75%, var(--ink-3, #888));
-}
-
-.quant-ru-hit-mark.is-a {
-  background: color-mix(in srgb, #2a7a4b 80%, var(--ink-3, #888));
-}
-
-/* legacy class kept for any cached markup */
-.quant-ru-hit-bar {
-  display: block;
-  margin-top: 0.16rem;
-  height: 3px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--line) 70%, transparent);
-  overflow: hidden;
-}
-
-.quant-ru-hit-bar .quant-ru-hit-fill {
-  height: 100%;
-}
-
-.quant-ru-hit-bar.is-a .quant-ru-hit-fill {
-  background: #2a7a4b;
-}
-
-.quant-ru-hit-bar.is-b .quant-ru-hit-fill {
-  background: #c4922a;
-}
-
-.quant-ru-hit-bar.is-c .quant-ru-hit-fill,
-.quant-ru-hit-bar.is-empty .quant-ru-hit-fill {
-  background: color-mix(in srgb, #8a4a4a 45%, var(--line));
-}
-
-.quant-ru-n-sub {
-  color: var(--ink-3, var(--ink-2));
-  font-size: 0.66rem;
+  background: color-mix(in srgb, var(--ink-3, #64748b) 35%, var(--line));
 }
 
 .quant-ru-tier-badge {
@@ -12778,11 +12604,6 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   background: color-mix(in srgb, #8a4a4a 10%, var(--bg-1, var(--bg)));
 }
 
-.quant-ru-tier-watch {
-  font-size: 0.65rem;
-  color: var(--ink-3, var(--ink-2));
-}
-
 .quant-ru-list-empty,
 .quant-ru-list-more,
 .quant-ru-list-note {
@@ -12797,26 +12618,9 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   line-height: 1.45;
 }
 
-.quant-ru-foot {
-  font-size: 0.68rem;
-  color: var(--ink-3, var(--ink-2));
-  line-height: 1.4;
-}
-
 @media (max-width: 720px) {
   .quant-ru-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .quant-ru-list-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .quant-ru-filter,
-  .quant-ru-tier-filter {
-    max-width: none;
-    flex: 1 1 auto;
   }
 
   .quant-ru-mix-meta {

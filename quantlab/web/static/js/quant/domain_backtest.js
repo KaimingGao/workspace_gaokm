@@ -869,6 +869,7 @@ export function installBacktest(q) {
   }
 
   const REPLAY_DESK_PREFS_KEY = "paper.replay.desk_prefs";
+  const REPLAY_RUN_CTX_KEY = "paper.replay.run_ctx";
 
   function readReplayDeskPrefs() {
     try {
@@ -1357,6 +1358,7 @@ export function installBacktest(q) {
   }
 
   function paintPortfolioBacktestFail(failText) {
+    clearPortfolioRunContext();
     const text = String(failText || "回测失败");
     writePortfolioSummary(text, { error: true });
     renderPortfolioBacktestResult(null);
@@ -1364,6 +1366,7 @@ export function installBacktest(q) {
   }
 
   function applyLivePortfolioResult(data, elapsed) {
+    clearPortfolioRunContext();
     const summary = buildPortfolioBacktestSummaryText(data);
     const elapsedBit = elapsed ? ` · 耗时 ${elapsed}` : "";
     writePortfolioSummary(`${summary.text}${elapsedBit}`, { error: !!summary.warn });
@@ -1417,8 +1420,66 @@ export function installBacktest(q) {
     return bits.filter(Boolean).join(" · ");
   }
 
+  /** 调仓回测状态里的窗口 / 分档 / 成交钟 / 模型槽 / 本金。 */
+  function portfolioRunContextLabel(params) {
+    const p = params || readPortfolioBtParams();
+    const cash = Number(p.initial_cash);
+    const cashWan = Number.isFinite(cash)
+      ? String(cash / 10000).replace(/\.0$/, "")
+      : "20";
+    const roleLbl = p.score_model_role === "live" ? "执行" : "研究";
+    const tiers = Array.isArray(p.predictability_tiers) ? p.predictability_tiers : [];
+    const usePred = p.use_predictability_tiers === true || tiers.length > 0;
+    const tierBit = usePred ? `分档${tiers.join("") || "AB"}` : "";
+    const days = Number(p.lookback);
+    return [
+      Number.isFinite(days) && days > 0 ? `${Math.round(days)}日` : "",
+      tierBit,
+      p.fill_clock || "",
+      roleLbl,
+      `本金${cashWan}万`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  function rememberPortfolioRunContext(ctx) {
+    try {
+      sessionStorage.setItem(REPLAY_RUN_CTX_KEY, String(ctx || ""));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function clearPortfolioRunContext() {
+    try {
+      sessionStorage.removeItem(REPLAY_RUN_CTX_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /** 刷新后接着看正在跑的任务：优先本次提交的文案，否则用已存桌面参数。逐日阶段用任务总日数对齐窗口。 */
+  function recallPortfolioRunContext(job) {
+    let saved = "";
+    try {
+      saved = String(sessionStorage.getItem(REPLAY_RUN_CTX_KEY) || "");
+    } catch (_) {
+      saved = "";
+    }
+    if (saved) return saved;
+    const prefs = readReplayDeskPrefs();
+    const label = portfolioRunContextLabel(prefs || undefined);
+    const tot = Number(job && job.total);
+    const msg = String((job && job.message) || "");
+    if (!Number.isFinite(tot) || tot <= 1 || !/^\d{4}-\d{2}-\d{2}/.test(msg)) return label;
+    const days = `${Math.round(tot)}日`;
+    if (!label) return days;
+    if (/^\d+日/.test(label)) return label.replace(/^\d+日/, days);
+    return `${days} · ${label}`;
+  }
+
   async function runPortfolioBacktest() {
-    const watchN = Object.keys(state.watchingNameByCode || {}).length;
     const started = Date.now();
     let lastHint = "";
     const refreshBusy = () => {
@@ -1476,23 +1537,16 @@ export function installBacktest(q) {
       const enterThresh = fuse_enter;
       const strongThresh =
         fuse_strong != null ? fuse_strong : enterThresh;
-      const cashWan = Number.isFinite(Number(initial_cash))
-        ? String(Number(initial_cash) / 10000).replace(/\.0$/, "")
-        : "20";
-      const roleLbl = score_model_role === "live" ? "执行" : "研究";
-      const tierBit = use_predictability_tiers
-        ? `分档${(predictability_tiers || []).join("") || "AB"}`
-        : "";
-      const ctx = [
-        watchN ? `${watchN}只` : "",
-        `${lookback}日`,
-        tierBit,
+      const ctx = portfolioRunContextLabel({
+        lookback,
+        score_model_role,
         fill_clock,
-        roleLbl,
-        `本金${cashWan}万`,
-      ]
-        .filter(Boolean)
-        .join(" · ");
+        initial_cash,
+        use_predictability_tiers,
+        predictability_tiers,
+      });
+      rememberPortfolioRunContext(ctx);
+      persistReplayDeskPrefs();
       lastHint = ctx;
       refreshBusy();
       const payload = {
@@ -1846,9 +1900,13 @@ export function installBacktest(q) {
       const job = (jr && jr.job) || {};
       if (job.status !== "running" || !job.id) return false;
       const started = jobStartedMs(job, Date.now());
+      const ctx = recallPortfolioRunContext(job);
       tookBusy = true;
-      setQuantBtBusy(true, job.message || "回测中…");
-      const done = await awaitPortfolioBacktestJob(job.id, started, "");
+      setQuantBtBusy(
+        true,
+        `回测中… ${fmtBtElapsed(started)} · ${portfolioJobHint(job, ctx)}`
+      );
+      const done = await awaitPortfolioBacktestJob(job.id, started, ctx);
       await applyFinishedPortfolioJob(done, started);
       return true;
     } catch (err) {

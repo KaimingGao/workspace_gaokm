@@ -339,12 +339,10 @@ export function installResearchUniverseUi(q) {
     );
   }
 
+  /** ≥50% 红 / <50% 绿；类名与收益列 up/down 对齐。 */
   function hitTone(hitRate) {
     if (hitRate == null || Number.isNaN(Number(hitRate))) return "is-empty";
-    const pct = Number(hitRate) * 100;
-    if (pct + 1e-9 >= 60) return "is-a";
-    if (pct + 1e-9 >= 50) return "is-b";
-    return "is-c";
+    return Number(hitRate) * 100 + 1e-9 >= 50 ? "up" : "down";
   }
 
   function hitBarHtml(hitRate) {
@@ -477,6 +475,7 @@ export function installResearchUniverseUi(q) {
         .filter(Boolean)
         .join(" · ");
       text = fmtHit(n);
+      cls = csValCls(n - 0.5);
     } else if (nValid > 0 && nPos <= 0) {
       tip = `Holdout 前半无 ŷ_oo>ε 日（${nValid} 个有效命中日均为看空）· 无法算 F1⁺`;
       text = "无看多";
