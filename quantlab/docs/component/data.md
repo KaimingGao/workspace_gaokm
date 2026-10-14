@@ -26,7 +26,7 @@
 
 | 模块 | 成熟目标 | 当前落地 | 主要入口 |
 |------|----------|----------|----------|
-| **采集** | 定时多源 ETL | **按需 + 观察池预热**：腾讯现价 + AkShare 日线；分钟线 **东财 → 新浪/腾讯 → BaoStock**；`bars_warmup` / `minute_warmup` / `fundamentals_warmup` / `spot_refresh` | `DataService` · `schedule_jobs` · Skills 实现 |
+| **采集** | 定时多源 ETL | **按需 + 观察池预热**：腾讯现价 + AkShare 日线；分钟线 **东财 → 新浪**；`bars_warmup` / `minute_warmup` / `fundamentals_warmup` / `spot_refresh` | `DataService` · `schedule_jobs` · Skills 实现 |
 | **清洗** | 复权一致、日历对齐、PIT | **薄清洗**：`normalize_bars`；日线 as_of；财务/资讯标明 **non_pit snapshot** | `history.normalize_bars` · `data_pit` |
 | **存储** | 时序库 / 仓 | **JSON**：日线增量合并 · `fundamentals/` · `news/` 快照；无全市场仓 | `core/store.py` → `data/store/` |
 | **服务** | 稳定 `get_price` | **DataService**：领域包 `core/data`（`MarketDataService` / Ports / 信封）+ 薄门面 `facade.py`（dict 兼容） | `core/data/` · `core/data/facade.py` · `core/ports` |
@@ -53,8 +53,7 @@ Agent / Skill / Research / 纸面
         ├─ get_minute_bars / fetch_minute_bars
         │     ├─ load minute cache ─────► bars.db minute_bars 或 minute/**/*.json
         │     ├─ AkShare 东财分钟（主）──► stock_zh_a_hist_min_em（近端 · 易封）
-        │     ├─ 新浪/腾讯分钟（近端备）─► 有数则跳过 BaoStock
-        │     └─ BaoStock（空仓备）──────► query_history_k_data_plus（默认 30 日历日）
+        │     └─ 新浪分钟（近端备）──────► ak.stock_zh_a_minute（东财空时）
         │
         ├─ get_spot ───────────────────► AkShare 现货 → spot_a_em.json
         ├─ get_fundamentals ───────────► 快照缓存 data/store/fundamentals/
@@ -93,9 +92,9 @@ flowchart LR
 
 ---
 
-## 分钟线采集架构（AkShare · BaoStock）
+## 分钟线采集架构（AkShare）
 
-做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **adapters 层**，单票读口经 `core.ports.market.fetch_minute_bars`；观察池 **强更 / 增量补齐** 直调 `fetch_a_minute_bars_isolated`（子进程超时 kill），**不**在业务里直连接 AkShare / BaoStock。
+做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **adapters 层**，单票读口经 `core.ports.market.fetch_minute_bars`；观察池 **强更 / 增量补齐** 直调 `fetch_a_minute_bars_isolated`（子进程超时 kill），**不**在业务里直连数据源。
 
 **与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。写入窗 **`BARS_DAILY_LOOKBACK=1000`** 个交易日（再垫 alpha_oo）；仓裁剪 **`DAILY_BARS_MAX_KEEP=1200`**（须 ≥ 拉取条数）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗；均走 **子进程隔离**），本地仓表/路径与日 K 不同。
 
@@ -104,10 +103,9 @@ flowchart LR
 | 层 | 路径 | 职责 |
 |----|------|------|
 | **对外读口** | `core/ports/market.py` · `fetch_minute_bars` | 与日线 `get_bars` 并列；ports 由 `adapters.bind` 注入 |
-| **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 东财→新浪/腾讯（有数则跳过 BS）→BaoStock · merge · 落盘；`fetch_a_minute_bars_isolated` 子进程隔离 |
+| **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 东财→新浪 · merge · 落盘；`fetch_a_minute_bars_isolated` 子进程隔离 |
 | **东财（AkShare）** | `_fetch_em_minute_bars` | `ak.stock_zh_a_hist_min_em`；`core.data.ak_lock` 进程内串行 |
-| **新浪/腾讯** | `adapters/market/sina_tx_minute.py` | 近端；东财空时启用，有数则跳过 BaoStock |
-| **BaoStock** | `adapters/market/baostock_minute.py` | `query_history_k_data_plus`；子进程 + 超时 kill |
+| **新浪** | `_maybe_fetch_sina_minute_bars` | `ak.stock_zh_a_minute`；东财空 / `skip_em` 时启用 |
 | **本地仓** | `core/store.py` · `store_bars_sqlite.py` | `load/save/merge_minute_cache`；默认 SQLite `minute_bars` |
 | **批量预热** | `core/schedule_jobs._minute_warmup_core` | 逐票 `fetch_a_minute_bars_isolated`（子进程 + 超时 kill）；schedule / Web **强更 5m** |
 | **Web 增量/强更** | `quant/research/minute_status.py` | `GET …/status` · `POST …/refresh`（topup/full/repair）· Job `minute-refresh` |
@@ -122,14 +120,11 @@ flowchart TD
   D -->|否| F[AkShare 东财 EM]
   D -->|是 T0回测/显式| ST
   F --> G{EM 有数据?}
-  G -->|否| ST[新浪/腾讯]
-  G -->|是| H{跨度够?}
-  ST --> STQ{新浪/腾讯有数?}
-  STQ -->|是| J[merge_minute_bars_by_time]
-  STQ -->|否| H
-  H -->|否| BS[BaoStock 30日历日]
-  H -->|是| J
-  BS --> J
+  G -->|否| ST[新浪 stock_zh_a_minute]
+  G -->|是| J[merge_minute_bars_by_time]
+  ST --> STQ{新浪有数?}
+  STQ -->|是| J
+  STQ -->|否| K
   J --> K[merge 进本地仓]
   K --> L{远端全失败?}
   L -->|是| M[回退过期本地 cache:stale]
@@ -137,7 +132,7 @@ flowchart TD
 ```
 
 1. **读缓存**：`use_cache=True` 且 `max_age_hours` 内有效 → 不打远端。默认 TTL **12h**（`MINUTE_CACHE_HOURS`）。`use_cache=False` 仅跳过读短路，仍打远端。
-2. **远端**：见下节两源配合；成功后 `_merge_save_minute_bars`（与旧条 `merge_minute_bars_by_time` 再 `save_minute_cache`）——**与入口 `use_cache` 无关，强制补拉也会落盘**。
+2. **远端**：东财主 · 新浪近端备；成功后 `_merge_save_minute_bars`（与旧条 `merge_minute_bars_by_time` 再 `save_minute_cache`）——**与入口 `use_cache` 无关，强制补拉也会落盘**。
 3. **失败兜底**：远端全空时 `_load_stale_minute`，`data_source` 标 `cache:stale:…`，避免做 T 回测整批挂死。
 4. **裁剪**：`MINUTE_BARS_MAX_KEEP=12000`（约 250 交易日 × 48 根/日 5m）。
 
@@ -151,69 +146,50 @@ flowchart TD
 | 深度 | 1m ≈ 近 **5 日**；5/15/30/60m 本仓默认 **120 日历日**（`MINUTE_EM_LOOKBACK_DAYS`），且易 `RemoteDisconnected` |
 | 窗口 | `start = now - lookback` 日历日，封顶策略上限 120 |
 | 复权 | 5m+ 默认 **前复权 qfq** |
-| 频控 | 每次远端拉取后 **sleep 20s**（东财 / 新浪腾讯 / BaoStock 各一次；`QUANTLAB_MINUTE_FETCH_DELAY_SEC`） |
+| 频控 | 每次远端拉取后 **sleep 20s**（东财 / 新浪各一次；`QUANTLAB_MINUTE_FETCH_DELAY_SEC`） |
 
 默认走 EM；``QUANTLAB_MINUTE_WARMUP_SKIP_EM=1`` 时批量不调 EM。
 
-### 新浪/腾讯 — 近端备 · 先于 BaoStock
+### 新浪 — 近端备
 
-实现 `adapters/market/sina_tx_minute.py`（直连新浪/腾讯公开 K 线，与东财用的 akshare 无关）。
+近端备走 ``ak.stock_zh_a_minute``。
 
 | 项 | 约定 |
 |----|------|
-| 触发 | 东财空 / `skip_em` 时打；**排在 BaoStock 前面** |
-| 主/备 | 5/15/30/60m：**新浪** `CN_MarketData.getKLineData` → 失败改 **腾讯** `kline/mkline`；1m 仅腾讯 |
-| 深度 | `datalen` 上限约 **1023** 根（5m ≈ 20 交易日）；分钟不能按历史日期切片，只从现在往前 |
-| 复权 | 源站默认（新浪该接口通常前复权） |
+| 触发 | 东财空 / `skip_em` 时打 |
+| 深度 | datalen=1970（5m ≈ 41 交易日）；分钟不能按历史日期切片，只从现在往前 |
+| 复权 | 接口 `adjust=""`（不复权） |
 | 频控 | 拉取后同样 sleep 20s |
-| 开关 | `QUANTLAB_MINUTE_SINA_TX_FALLBACK` 默认 `1` |
 
-补 Missing 近端 / T0 当日触达；新浪约 20 交易日；Ready 闸默认近 **40** 交易日无缺。有数则 **不再打 BaoStock**。
+补 Missing 近端 / T0 当日触达；Ready 闸默认近 **40** 交易日无缺。
 
-### BaoStock — 近 30 日 · 最后
+然后 merge：**同日整段以后到源为准**（`merge_minute_bars_by_time` 默认 `lock_calendar_day`，禁止同日跨源按时间戳缝合）；重叠日若成交量中位比≈100 则先把手→股对齐。
 
-| 项 | 约定 |
-|----|------|
-| 接口 | `baostock.query_history_k_data_plus`；5/15/30/60m 约 **2020-01-03 至今** |
-| 复权 | `adjustflag=2`（前复权） |
-| 依赖 | `requirements.txt` · `baostock>=0.8.8`；`QUANTLAB_MINUTE_BS_FALLBACK=0` 可关备用 |
-| 深度 | 本仓默认回看 **30 日历日**（`MINUTE_BAOSTOCK_LOOKBACK_DAYS`；东财主窗默认 120） |
-| 超时 | 子进程拉取，默认 **90s** kill（`MINUTE_BAOSTOCK_TIMEOUT_SEC` · `QUANTLAB_MINUTE_BS_TIMEOUT_SEC`）；`0` 关闭子进程隔离 |
-| 批量 | 每次拉取后同样 sleep 20s |
-
-`_maybe_fetch_baostock_minute_bars` 仅在 **新浪/腾讯未接住** 且（当前 bar **空**或 **日历跨度** `< 30 日`）时调用。东财已给出近端但短于该窗口时仍会打 BaoStock。
-
-然后 merge：**同日整段以后到源为准**（`merge_minute_bars_by_time` 默认 `lock_calendar_day`，禁止同日跨源按时间戳缝合）；重叠日若成交量中位比≈100 则先把手→股对齐。近端东财（或新浪/腾讯），远端缺口仅在未走新浪时补 BaoStock。
-
-**批量 skip_em**（`QUANTLAB_MINUTE_WARMUP_SKIP_EM=1`）：不调东财，顺序为新浪/腾讯 → BaoStock；默认 **关**。
+**批量 skip_em**（`QUANTLAB_MINUTE_WARMUP_SKIP_EM=1`）：不调东财，仅新浪；默认 **关**。
 
 ### 批量预热与 Web 强更
 
 | 入口 | 行为 |
 |------|------|
-| `POST /api/schedule/run` · `kind=minute_warmup` | `_minute_warmup_core`：逐票子进程隔离；默认 `skip_em=False`（东财→新浪/腾讯，有数则跳过 BaoStock） |
+| `POST /api/schedule/run` · `kind=minute_warmup` | `_minute_warmup_core`：逐票子进程隔离；默认 `skip_em=False`（东财→新浪） |
 | Web 量化台 · **强更 5m** | `POST /api/quant/minute/refresh` → 后台 Job `minute-refresh`（同上核心） |
 | Web 量化台 · **增量补齐 5m** | 同 Job · `mode=topup`：`_minute_topup_core` 亦走子进程隔离（缺/短全窗 · 近端 skip_em） |
 | 状态 | `GET /api/quant/minute/status`（Ready 近 40 交易日无缺等）· `GET /api/jobs/minute-refresh` |
 
-每只票在 **子进程** 内：东财（可 skip）→ 新浪/腾讯（仅当前仍空；有数则跳过 BaoStock）→ BaoStock；各源间隔默认 **20s**。单票超时默认 **90s** 后 kill 子进程并继续下一只（不占主进程 `ak_lock`）。**已 Ready** 则跳过远端。
+每只票在 **子进程** 内：东财（可 skip）→ 新浪（仅当前仍空）；各源间隔默认 **20s**。单票超时默认 **90s** 后 kill 子进程并继续下一只（不占主进程 `ak_lock`）。**已 Ready** 则跳过远端。
 
-**非**「真增量 API」：强更仍按窗口重查远端，再与本地 `merge`。Ready 跳过；新浪接住则不再打 BaoStock；东财窗口默认 **120** 日历日、BaoStock **30**；各源间隔 20s。
+**非**「真增量 API」：强更仍按窗口重查远端，再与本地 `merge`。Ready 跳过；东财窗口默认 **120** 日历日；各源间隔 20s。
 
 ### 环境变量（分钟）
 
 | 变量 | 默认 | 含义 |
 |------|------|------|
-| `QUANTLAB_MINUTE_WARMUP_SKIP_EM` | `0` | 批量预热/强更跳过东财（`1`=新浪/腾讯→BaoStock） |
+| `QUANTLAB_MINUTE_WARMUP_SKIP_EM` | `0` | 批量预热/强更跳过东财（`1`=仅新浪） |
 | `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 本地已 Ready 则跳过远端拉取 |
 | `QUANTLAB_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 闸：最近这么多个交易日无缺 |
 | `QUANTLAB_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 闸：`fetched_at` 超过则重拉 |
-| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒） |
-| `QUANTLAB_MINUTE_BS_FALLBACK` | `1` | 是否启用 BaoStock 备用 |
-| `QUANTLAB_MINUTE_SINA_TX_FALLBACK` | `1` | 东财空时新浪/腾讯近端；有数则跳过 BaoStock |
+| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 东财 / 新浪分钟远端拉取后间隔（秒） |
 | `QUANTLAB_MINUTE_EM_LOOKBACK_DAYS` | `120` | 东财分钟回看日历日（上限 120） |
-| `QUANTLAB_MINUTE_BS_LOOKBACK_DAYS` | `30` | BaoStock 分钟回看日历日（上限 90） |
-| `QUANTLAB_MINUTE_BS_TIMEOUT_SEC` | `90` | BaoStock 子进程超时；`0` 关闭 |
 | `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC` | `90` | 观察池强更/增量单票子进程超时（东财全窗）；`0` 关闭隔离 |
 | `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC` | `45` | 同上 · skip_em 近端 |
 | `QUANTLAB_AK_LOCK_TIMEOUT_SEC` | `90` | 主进程等 `ak_lock` 上限；`0`=无限等 |
@@ -358,7 +334,7 @@ flowchart TD
 | **DS-R3 ann_missing 门禁** | **已落地**：`ann_missing_policy`（默认 zero_weight）；DQ ratio→bad |
 | **DS-R4 拒 quote_fallback** | **已落地**：`reject_quote_fallback`；伪日期 quality=empty；offline 默认拒 |
 | **DS-R5 刷新锁/裁剪** | **已落地**：`code_refresh_lock`；日线/分钟 trim 上限 |
-| **分钟线 AkShare+BaoStock** | **已落地**：`minute_history` · `sina_tx_minute`（新浪/腾讯有数则跳过 BS）· `baostock_minute`；批量默认走东财（子进程隔离）；各源间隔 20s；见 [§ 分钟线采集架构](#分钟线采集架构akshare--baostock) |
+| **分钟线 AkShare（东财→新浪）** | **已落地**：`minute_history` · `stock_zh_a_minute` 近端备；批量默认走东财（子进程隔离）；各源间隔 20s；见 [§ 分钟线采集架构](#分钟线采集架构akshare) |
 | **DS encapsulate** | **已落地**：`core/data/`（`BarsResult`/`DataEnvelope` · `MarketPorts` · `MarketDataService`/`ResearchDataService`）；`facade.py` 薄门面仍返回 dict |
 | **DS-E1 读口收口加深** | **已落地**：paper/threshold OOS/`portfolio_bars` 远端补数经 DS 且拒 fallback；`get_bars_batch` · `set_research_service`；spot `mem_cache` source；空宇宙 coverage=`None`；非 bars 信封显式 `production_ok` |
 | **DS-E2 评分读口 + 可观测** | **已落地**：`score_stock.fetch_daily_bars`→DS 缓存+`bars_pack_worker` 池；bars 空宇宙 coverage=`None`；`metrics_snapshot`；batch 默认 adjust；ledger/insights `resolve_market_code` 经 ports |
@@ -370,7 +346,7 @@ flowchart TD
 
 ### 采集运维
 
-- `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 默认东财→新浪/腾讯，有数则跳过 BaoStock · 子进程隔离 · 各源 20s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
+- `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 默认东财→新浪 · 子进程隔离 · 各源 20s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
 - Web 分钟强更：`POST /api/quant/minute/refresh` · `GET /api/quant/minute/status` · Job `GET /api/jobs/minute-refresh`
 - 验证宇宙卫生：`GET /api/ops/validation-hygiene` · `POST /api/ops/validation-prepare`
 - 舆情 as_of：`GET /api/ops/sentiment-as-of?code=&as_of=`
@@ -402,7 +378,7 @@ flowchart LR
 |------|------|
 | 现价 | `adapters/market/quote_api.py` |
 | 日线拉取 + normalize | `adapters/market/history.py` |
-| **分钟拉取（东财→新浪/腾讯；有数则跳过 BaoStock）** | `adapters/market/minute_history.py` · `adapters/market/sina_tx_minute.py` · `adapters/market/baostock_minute.py` |
+| **分钟拉取（东财→新浪）** | `adapters/market/minute_history.py` |
 | 日线缓存 R/W · quality | `core/store.py` |
 | **DataService（N1/M1）** | 门面 `core/data/facade.py`（模块函数 → dict）；领域 `core/data/`（`MarketDataService` · `BarsResult` · `MarketPorts`） |
 | TTL / 质量阈值 | `core/data_policy.py` |

@@ -174,7 +174,7 @@ flowchart LR
 | 频率 | 来源 | 缓存 |
 |------|------|------|
 | 日线 | AkShare 等 · DataService | `daily` / `bars.db` |
-| 5m 分钟 | AkShare 东财（近）+ BaoStock（深） | `minute_bars`；强更见 [architecture · 分钟线采集](component/data.md#分钟线采集架构akshare--baostock) |
+| 5m 分钟 | 东财（主）+ 新浪（近端备） | `minute_bars`；强更见 [architecture · 分钟线采集](component/data.md#分钟线采集架构akshare) |
 
 分钟数据服务于 **path 标签 / 做 T 回测 / Worker 5m 盯盘**。调仓 rank_lots 主排序是 ŷ_oo 与 ŷ_τc 的加权。
 

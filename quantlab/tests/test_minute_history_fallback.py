@@ -35,8 +35,6 @@ class TestMinuteStaleFallback(unittest.TestCase):
         ), patch.object(
             mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
         ), patch.object(
-            mh, "_maybe_fetch_baostock_minute_bars", return_value=([], {})
-        ), patch.object(
             mh, "_maybe_fetch_sina_minute_bars", return_value=([], {})
         ), patch.object(mh, "_throttle_minute_remote_fetch"):
             bars, meta = mh.fetch_a_minute_bars("600519", period="5", use_cache=True)
@@ -130,19 +128,69 @@ class TestMinuteStaleFallback(unittest.TestCase):
 
                 return _Frame()
 
-        with patch("core.data.ak_lock.import_akshare", return_value=_Ak()), patch(
-            "adapters.market.sina_minute.fetch_sina_tx_minute_bars"
-        ) as old:
+        with patch("core.data.ak_lock.import_akshare", return_value=_Ak()):
             bars, meta = mh._maybe_fetch_sina_minute_bars(
                 "600519", period="5", lookback_days=30
             )
-        old.assert_not_called()
         self.assertEqual(calls.get("symbol"), "sh600519")
         self.assertEqual(calls.get("period"), "5")
         self.assertEqual(calls.get("adjust"), "")
         self.assertEqual(len(bars), 1)
         self.assertEqual(bars[0]["close"], 10.5)
         self.assertEqual(meta.get("data_source"), "akshare:stock_zh_a_minute")
+
+    def test_fetch_uses_sina_when_em_empty(self):
+        from adapters.market import minute_history as mh
+
+        bar = {
+            "datetime": "2026-08-28 09:35:00",
+            "date": "2026-08-28",
+            "open": 10,
+            "high": 11,
+            "low": 9,
+            "close": 10.5,
+            "volume": 100,
+        }
+        with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
+            mh, "load_minute_cache", return_value=None
+        ), patch.object(
+            mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
+        ), patch.object(
+            mh,
+            "_maybe_fetch_sina_minute_bars",
+            return_value=([bar], {"data_source": "akshare:stock_zh_a_minute"}),
+        ), patch.object(mh, "_throttle_minute_remote_fetch"), patch.object(
+            mh,
+            "_merge_save_minute_bars",
+            return_value=([bar], {"data_source": "akshare:stock_zh_a_minute", "bar_count": 1}),
+        ):
+            bars, meta = mh.fetch_a_minute_bars("600519", use_cache=False, max_age_hours=0)
+        self.assertEqual(len(bars), 1)
+        self.assertIn("stock_zh_a_minute", meta.get("data_source") or "")
+        self.assertEqual(
+            (meta.get("sina") or {}).get("data_source"), "akshare:stock_zh_a_minute"
+        )
+
+    def test_em_empty_then_sina_then_done(self):
+        from adapters.market import minute_history as mh
+
+        order: list[str] = []
+
+        def _sina(*_a, **_k):
+            order.append("sina")
+            return [], {}
+
+        with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
+            mh, "load_minute_cache", return_value=None
+        ), patch.object(
+            mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
+        ), patch.object(
+            mh, "_maybe_fetch_sina_minute_bars", side_effect=_sina
+        ), patch.object(mh, "_throttle_minute_remote_fetch"), patch.object(
+            mh, "_load_stale_minute", return_value=None
+        ):
+            mh.fetch_a_minute_bars("600519", use_cache=False, max_age_hours=0)
+        self.assertEqual(order, ["sina"])
 
 
 class TestMergeSaveAlwaysCaches(unittest.TestCase):

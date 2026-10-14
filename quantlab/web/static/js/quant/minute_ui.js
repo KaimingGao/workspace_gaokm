@@ -57,9 +57,9 @@ export function installMinuteUi(q) {
   const LOOKBACK_DAYS = 120;
   const MIN_SPAN_DAYS = 40;
   const FETCH_DELAY_SEC = 20;
-  const SINA_TX_HINT = "stock_zh_a_minute（约1970根·5m）";
+  const SINA_HINT = "stock_zh_a_minute（约1970根·5m）";
   const FULL_WARMUP_HINT =
-    `逐只串行 · 子进程单票≤90s（超时 kill 继续） · 东财主窗 ${LOOKBACK_DAYS} 日历日 · 东财空才打${SINA_TX_HINT} · 有数跳过 BaoStock · 各源间隔 ${FETCH_DELAY_SEC}s`;
+    `逐只串行 · 子进程单票≤90s（超时 kill 继续） · 东财主窗 ${LOOKBACK_DAYS} 日历日 · 东财空才打${SINA_HINT} · 各源间隔 ${FETCH_DELAY_SEC}s`;
   const FULL_WARMUP_HINT_RUNNING =
     `${FULL_WARMUP_HINT} · Ready% 为近 ${MIN_SPAN_DAYS} 个交易日无缺（≠ Job 进度）`;
 
@@ -179,7 +179,7 @@ export function installMinuteUi(q) {
       esc,
       mode: "running",
       hint: topup
-        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 子进程隔离 · ${SINA_TX_HINT} · ${TOPUP_WORKERS} 并发 · 缺/短才打东财`
+        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 子进程隔离 · ${SINA_HINT} · ${TOPUP_WORKERS} 并发 · 缺/短才打东财`
         : FULL_WARMUP_HINT_RUNNING,
     });
   }

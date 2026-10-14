@@ -256,8 +256,8 @@ python3 -c "from skills.quote.handler import QuoteHandler; print(QuoteHandler().
 |------|------|--------|------|
 | 观察名单 | `data/watching.example.json` | `setup_quant.sh` 调用 `watching_run.py --init` | 复制为 `data/watching.json` |
 | 纸面账户 | 脚本内置 | 同上，`paper_run.py --init` | `data/paper.json` |
-| 日线行情 | `akshare` / `baostock` | 评分 / 回测时写入缓存 | `core/store.py`；`python3 research/daily_run.py --preset quant` 可刷新 |
-| 5 分钟 K 线 | `baostock` | 做 T 回测时按需拉取 | 缺失则当日跳过 |
+| 日线行情 | `akshare` | 评分 / 回测时写入缓存 | `core/store.py`；`python3 research/daily_run.py --preset quant` 可刷新 |
+| 5 分钟 K 线 | 东财 / 新浪 | 做 T 回测时按需拉取 | 缺失则当日跳过 |
 
 只初始化观察名单：
 

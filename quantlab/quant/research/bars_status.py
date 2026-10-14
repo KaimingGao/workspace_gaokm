@@ -319,7 +319,6 @@ def refresh_bars_only(
                 bars = pack.get("bars") or []
                 if bars and (
                     "akshare" in src
-                    or "baostock" in src
                     or (src and not src.startswith("cache"))
                 ):
                     remote_n += 1

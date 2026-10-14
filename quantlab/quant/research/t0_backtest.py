@@ -37,7 +37,7 @@ def _fill_t0_viz_stock_names(viz: Any, *, stock_code: str, stock_name: Optional[
             if name and not str(row.get("stock_name") or "").strip():
                 row["stock_name"] = name
 
-# 仅「本地无分钟缓存」才打远端；东财偶发挂死，回测走 BaoStock 并设短超时。
+# 仅「本地无分钟缓存」才打远端；东财偶发挂死，回测走新浪近端并设短超时。
 _MINUTE_FETCH_TIMEOUT_SEC = 12.0
 # A股全日约 48 根 5m；≥40 或末根≥14:55 视为齐窗（缺尾缓存会触发补拉）
 _MINUTE_SESSION_MIN_BARS = 40

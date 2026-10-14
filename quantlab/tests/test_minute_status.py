@@ -245,7 +245,7 @@ class TestMinuteStatus(unittest.TestCase):
         calls = []
 
         def _fetch(code, **kwargs):
-            calls.append((code, kwargs.get("lookback_days"), kwargs.get("skip_em"), kwargs.get("skip_bs")))
+            calls.append((code, kwargs.get("lookback_days"), kwargs.get("skip_em")))
             return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
 
         with patch(
@@ -270,9 +270,9 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out["bootstrapped"], 1)
         self.assertEqual(len(calls), 2)
-        by_code = {c: (lb, sem, sbs) for c, lb, sem, sbs in calls}
-        self.assertEqual(by_code["000001"], (5, True, True))
-        self.assertEqual(by_code["300750"], (30, False, False))
+        by_code = {c: (lb, sem) for c, lb, sem in calls}
+        self.assertEqual(by_code["000001"], (5, True))
+        self.assertEqual(by_code["300750"], (30, False))
 
     def test_topup_skips_fetched_today(self):
         from quant.research.minute_status import _minute_topup_core
@@ -357,7 +357,7 @@ class TestMinuteStatus(unittest.TestCase):
         calls = []
 
         def _fetch(code, **kwargs):
-            calls.append((code, kwargs.get("use_cache"), kwargs.get("skip_em"), kwargs.get("skip_bs")))
+            calls.append((code, kwargs.get("use_cache"), kwargs.get("skip_em")))
             return [{"date": f"{expected} 14:55:00"}], {"ok": True}
 
         with patch(
@@ -380,7 +380,7 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["skipped_today"], 1)
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out.get("refreshed_truncated"), 1)
-        self.assertEqual(calls, [("002415", False, True, True)])
+        self.assertEqual(calls, [("002415", False, True)])
 
     def test_topup_continues_after_isolated_timeout(self):
         from quant.research.minute_status import _minute_topup_core

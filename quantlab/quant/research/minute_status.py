@@ -528,7 +528,7 @@ def _minute_topup_core(
         span = int(snap.get("span_days") or 0)
         date_max = str(snap.get("date_max") or "")[:10]
         on_expected = bool(expected and date_max and date_max >= expected)
-        # 会话缺尾：新浪近端强刷（有超时）；不打东财/BaoStock，避免增量整批挂死
+        # 会话缺尾：新浪近端强刷（有超时）；不打东财，避免增量整批挂死
         if on_expected and not bool(snap.get("session_complete")):
             return code, "topup", top_lb, True, True
         # 同日已拉且会话齐窗：增量不再打远端（含 Short 新浪近端空转）；强更 5m 不受此限
@@ -575,7 +575,6 @@ def _minute_topup_core(
             lookback_days=lookback,
             max_age_hours=0.01,
             skip_em=skip_em,
-            skip_bs=action == "topup",
         )
         if bars:
             return code, action, True, None

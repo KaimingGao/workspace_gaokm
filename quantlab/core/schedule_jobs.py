@@ -371,9 +371,9 @@ def _minute_warmup_core(
         "note": (
             "5 分钟线预热；供 tail_anomaly / 做T回测。"
             + (
-                f" 跳过东财 · stock_zh_a_minute（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
+                f" 跳过东财 · stock_zh_a_minute · 各源间隔 {fetch_delay:g}s。"
                 if skip_em
-                else f" 东财→stock_zh_a_minute（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
+                else f" 东财→stock_zh_a_minute · 各源间隔 {fetch_delay:g}s。"
             )
             + f" 单票子进程上限 {per_stock_timeout:.0f}s（超时 kill，继续下一只）。"
         ),

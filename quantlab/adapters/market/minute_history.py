@@ -1,9 +1,7 @@
-"""A 股分钟线拉取（东财主 · ak.stock_zh_a_minute 近端 · BaoStock 30 日历日）。
+"""A 股分钟线拉取（东财主 · ak.stock_zh_a_minute 近端）。
 
 限量（东财常见）：1 分钟约近 5 日；5/15/30/60 分钟默认近 **120 日历日**。
-近端备：东财空或 skip_em 时打 ``ak.stock_zh_a_minute``（新浪，datalen=1970，5m ≈ 41 日）；有数则不再打 BaoStock。
-``sina_minute`` 保留为备选客户端，更新路径不调用。
-BaoStock 备：5/15/30/60 约近 **30 日历日**（与东财同窗）；仅东财与新浪分钟都空、或东财短于该窗口时再拉。
+近端备：东财空或 skip_em 时打 ``ak.stock_zh_a_minute``（新浪，datalen=1970，5m ≈ 41 日）。
 做 T 第一触达默认 period=5。
 """
 
@@ -88,17 +86,6 @@ def group_minute_bars_by_date(bars: List[dict]) -> Dict[str, List[dict]]:
     for d in out:
         out[d].sort(key=lambda x: str(x.get("datetime") or ""))
     return dict(out)
-
-
-def _calendar_span_days(bars: List[dict]) -> int:
-    if not bars:
-        return 0
-    try:
-        d0 = datetime.strptime(str(bars[0].get("date") or "")[:10], "%Y-%m-%d")
-        d1 = datetime.strptime(str(bars[-1].get("date") or "")[:10], "%Y-%m-%d")
-        return max(0, (d1 - d0).days)
-    except (ValueError, TypeError):
-        return 0
 
 
 def _merge_save_minute_bars(
@@ -241,50 +228,6 @@ def _fetch_em_minute_bars(
     return bars, meta, None
 
 
-def _maybe_fetch_baostock_minute_bars(
-    bare: str,
-    *,
-    period: str,
-    lookback_days: int,
-    adjust: str,
-    have_bars: List[dict],
-    prior_error: Optional[str] = None,
-) -> Tuple[List[dict], Dict[str, Any]]:
-    from core.data.policy import minute_baostock_lookback_days
-    from adapters.market.baostock_minute import (
-        baostock_enabled,
-        fetch_baostock_minute_bars,
-        suggest_baostock_start,
-    )
-
-    if not baostock_enabled():
-        return [], {}
-    have = list(have_bars or [])
-    need = not have
-    bs_lookback = min(max(5, int(lookback_days or 30)), minute_baostock_lookback_days())
-    if have:
-        cal_span = _calendar_span_days(have)
-        if cal_span < bs_lookback:
-            need = True
-    if not need:
-        return [], {}
-    start_s = suggest_baostock_start(bs_lookback)
-    bs_bars, bs_meta = fetch_baostock_minute_bars(
-        bare,
-        period=period,
-        start_date=start_s,
-        adjust=adjust,
-    )
-    if bs_meta:
-        if have:
-            bs_meta["backfill_reason"] = "short"
-        elif prior_error:
-            bs_meta["backfill_reason"] = "prior_fail"
-        else:
-            bs_meta["backfill_reason"] = "empty"
-    return bs_bars, bs_meta
-
-
 def _ak_sina_symbol(bare: str) -> Optional[str]:
     """6 位 A 股 → ``stock_zh_a_minute`` 的 sh/sz/bj 代码。"""
     code = str(bare or "").strip()
@@ -306,7 +249,7 @@ def _maybe_fetch_sina_minute_bars(
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """东财空时的近端。走 ``ak.stock_zh_a_minute``（不复权，datalen=1970）。
 
-    ``lookback_days`` 不传给该接口（窗口由 akshare 固定）。``sina_minute`` 不在此调用。
+    ``lookback_days`` 不传给该接口（窗口由 akshare 固定）。
     """
     del lookback_days  # 接口不接受回看天数
     from core.data.ak_lock import import_akshare
@@ -318,7 +261,7 @@ def _maybe_fetch_sina_minute_bars(
     try:
         ak = import_akshare()
         df = ak.stock_zh_a_minute(symbol=symbol, period=period_s, adjust="")
-    except Exception as e:  # noqa: BLE001 — 失败则交给 BaoStock
+    except Exception as e:  # noqa: BLE001 — 近端失败则空返回
         logger.info("stock_zh_a_minute failed %s period=%s: %s", bare, period_s, e)
         return [], {
             "data_source": "empty",
@@ -348,7 +291,7 @@ def _maybe_fetch_sina_minute_bars(
 
 
 def _throttle_minute_remote_fetch() -> None:
-    """东财 / 新浪 / BaoStock 分钟远端拉取后的频控间隔。"""
+    """东财 / 新浪分钟远端拉取后的频控间隔。"""
     delay = minute_fetch_delay_sec()
     if delay > 0:
         time.sleep(delay)
@@ -382,15 +325,13 @@ def fetch_a_minute_bars(
     max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",
     skip_em: bool = False,
-    skip_bs: bool = False,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """拉取 A 股分钟线；失败返回空列表。
 
     period: "1"|"5"|"15"|"30"|"60"
     use_cache: True 时先读本地有效仓；False 跳过读仓直接打远端。
       远端成功后**始终** merge+save（与 use_cache 无关），避免 force refresh 不落盘。
-    skip_em: True 时跳过东财（T0 回测 / 显式 skip）；``stock_zh_a_minute`` 有数则不再打 BaoStock。
-    skip_bs: True 时跳过 BaoStock（增量补齐近端，避免 90s 子进程把 Job 挂死）。
+    skip_em: True 时跳过东财（T0 回测 / 显式 skip），改走 ``stock_zh_a_minute``。
     远端失败时回退本地过期缓存（与日线 fetch 一致），避免做T回测整批挂死。
     """
     market, bare = resolve_market_code(code)
@@ -421,8 +362,6 @@ def fetch_a_minute_bars(
     em_error: Optional[str] = None
     as_bars: List[dict] = []
     as_meta: Dict[str, Any] = {}
-    bs_bars: List[dict] = []
-    bs_meta: Dict[str, Any] = {}
 
     if skip_em:
         em_error = "skip_em"
@@ -448,32 +387,9 @@ def fetch_a_minute_bars(
                 bars = align_minute_volume_units(bars, as_bars)
             bars = merge_minute_bars_by_time(bars, as_bars, period=period)
 
-    if as_bars or skip_bs:
-        # stock_zh_a_minute 已接住近端，或调用方禁止 BaoStock（增量补齐）
-        bs_bars, bs_meta = [], {
-            "skipped": True,
-            "reason": "sina_ok" if as_bars else "skip_bs",
-        }
-    else:
-        bs_bars, bs_meta = _maybe_fetch_baostock_minute_bars(
-            bare,
-            period=period,
-            lookback_days=lookback_days,
-            adjust=adjust or "qfq",
-            have_bars=bars,
-            prior_error=em_error,
-        )
-        if bs_meta:
-            _throttle_minute_remote_fetch()
-        if bs_bars:
-            if bars:
-                bars = align_minute_volume_units(bars, bs_bars)
-            # 同日整段以 incoming（BaoStock）为准，禁止跨源缝合
-            bars = merge_minute_bars_by_time(bars, bs_bars, period=period)
-
     logger.debug(
-        "fetch_a_minute_bars success %s period=%s lookback_days=%s use_cache=%s max_age_hours=%s adjust=%s skip_em=%s skip_bs=%s bars_count=%s",
-        code, period, lookback_days, use_cache, max_age_hours, adjust, skip_em, skip_bs, len(bars),
+        "fetch_a_minute_bars success %s period=%s lookback_days=%s use_cache=%s max_age_hours=%s adjust=%s skip_em=%s bars_count=%s",
+        code, period, lookback_days, use_cache, max_age_hours, adjust, skip_em, len(bars),
     )
 
     sources: List[str] = []
@@ -481,8 +397,6 @@ def fetch_a_minute_bars(
         sources.append(str(em_meta.get("data_source") or "em"))
     if as_bars:
         sources.append(str(as_meta.get("data_source") or "akshare:stock_zh_a_minute"))
-    if bs_bars:
-        sources.append(str(bs_meta.get("data_source") or "baostock"))
     src = "+".join(sources) if sources else "empty"
 
     if not bars:
@@ -490,17 +404,16 @@ def fetch_a_minute_bars(
             stale = _load_stale_minute(market, bare, period)
             if stale:
                 bars, meta = stale
-                meta["remote_error"] = em_error or as_meta.get("error") or bs_meta.get("error")
+                meta["remote_error"] = em_error or as_meta.get("error")
                 meta["period"] = period
                 return bars, meta
-        hint = "东财/stock_zh_a_minute/BaoStock 分钟源均失败；可稍后重试"
+        hint = "东财/stock_zh_a_minute 分钟源均失败；可稍后重试"
         return [], {
             "data_source": "empty",
-            "error": em_error or as_meta.get("error") or bs_meta.get("error") or "no_minute_bars",
+            "error": em_error or as_meta.get("error") or "no_minute_bars",
             "period": period,
             "hint": hint,
             "em_error": em_error,
-            "bs_error": bs_meta.get("error"),
             "sina_error": as_meta.get("error"),
         }
 
@@ -513,8 +426,6 @@ def fetch_a_minute_bars(
         adjust_policy=adj or None,
     )
     meta["em"] = em_meta if not skip_em else {"skipped": True, "reason": "skip_em"}
-    if bs_meta:
-        meta["baostock"] = bs_meta
     if as_meta:
         meta["sina"] = as_meta
     if em_error and not skip_em:
@@ -533,7 +444,6 @@ def fetch_minute_bars(
     max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",
     skip_em: bool = False,
-    skip_bs: bool = False,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """对外入口：目前仅 A 股。"""
     return fetch_a_minute_bars(
@@ -544,7 +454,6 @@ def fetch_minute_bars(
         max_age_hours=max_age_hours,
         adjust=adjust,
         skip_em=skip_em,
-        skip_bs=skip_bs,
     )
 
 
@@ -579,7 +488,6 @@ def fetch_a_minute_bars_isolated(
     max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",
     skip_em: bool = False,
-    skip_bs: bool = False,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """子进程拉分钟线；超时 ``kill`` 子进程，不占主进程 ``ak_lock``。
 
@@ -599,7 +507,6 @@ def fetch_a_minute_bars_isolated(
             max_age_hours=max_age_hours,
             adjust=adjust,
             skip_em=skip_em,
-            skip_bs=skip_bs,
         )
 
     payload = {
@@ -610,7 +517,6 @@ def fetch_a_minute_bars_isolated(
         "max_age_hours": float(max_age_hours),
         "adjust": str(adjust or "qfq"),
         "skip_em": bool(skip_em),
-        "skip_bs": bool(skip_bs),
     }
     ctx = mp.get_context("spawn")
     out_queue = ctx.Queue()

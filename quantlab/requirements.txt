@@ -1,7 +1,6 @@
 # ===== 数据 / 行情 =====
 requests>=2.31.0
 akshare>=1.14.0
-baostock>=0.8.9
 yfinance>=0.2.40
 python-dotenv>=1.0.1
 
