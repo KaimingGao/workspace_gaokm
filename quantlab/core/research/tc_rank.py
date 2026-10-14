@@ -1,6 +1,6 @@
 """ŷ_τc_rank：与 ŷ_oo_rank 同协议的截面排序头。
 
-标签：当日 close[T]/open[T]−1（百分点），embargo=0。
+标签：price[τ]→close[T]（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。
 特征：alpha_τc（z_τc_* ∪ raw_atc_*），日截面 z-score。
 面板按股落在 ``tc_rank/``；与 ŷ_τc 的 ``tc/`` 分片 fingerprint 一致时直接复制，不重算。
 同窗 LambdaRank + Ridge，按 Holdout NDCG@K 选 backend。
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
 
-FORMULA_TC_RANK = "rank(close[T]/open[T]-1)"
+FORMULA_TC_RANK = "rank(price[τ]->close[T])"
 SCHEMA = "tc_rank_v1"
 TASK = "tc_rank"
 DEFAULT_MIN_NAMES = 8
@@ -319,7 +319,7 @@ def fit_tc_rank_report(
         "formula": FORMULA_TC_RANK,
         "unit": "score",
         "anchor": "open[T]",
-        "label": "rank(close[T]/open[T]-1) cross-section",
+        "label": "rank(price[τ]->close[T]) cross-section",
         "tau": "open",
     }
 

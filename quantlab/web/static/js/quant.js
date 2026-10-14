@@ -119,9 +119,6 @@ export function initQuant(ctx) {
     formatTauEndBit,
     applyTauEndHm,
     hydrateTauEndParams,
-    readTreeSlideParams,
-    formatTreeSlideBit,
-    hydrateTreeSlideParams,
     readWatchingTierAOnly,
     hydrateWatchingTierAOnly,
     setPrefsHorizonDays,
@@ -131,7 +128,6 @@ export function initQuant(ctx) {
   hydrateFitLookbackDays();
   hydrateCrossSectionZParams();
   hydrateTauEndParams();
-  hydrateTreeSlideParams();
   hydrateWatchingTierAOnly();
   const factorMeta = createFactorMetaCache();
   const {
@@ -231,7 +227,6 @@ export function initQuant(ctx) {
     readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays,
     readCrossSectionFitParams, formatCrossSectionZBit,
     readTauEndFitParams, formatTauEndBit, applyTauEndHm,
-    readTreeSlideParams, formatTreeSlideBit,
     readWatchingTierAOnly,
     setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
@@ -614,7 +609,7 @@ export function initQuant(ctx) {
     yKey: "topk_mean_y_tc",
     deltaYKey: "delta_topk_mean_y_tc",
     yLabel: "TopK y_τc%",
-    icTip: "日频截面 Pearson 均值；原始排序分对 y_τc（close/open−1）",
+    icTip: "日频截面 Pearson 均值；原始排序分对 y_τc（price[τ]→close[T]）",
     idleMessage: "拟合后对照 NDCG@K · 启用只落盘",
   };
 
@@ -1113,292 +1108,7 @@ export function initQuant(ctx) {
     return bits;
   }
 
-  let ooTreeBusyTimer = null;
-
-  function stopOoTreeBusy() {
-    if (ooTreeBusyTimer) {
-      clearInterval(ooTreeBusyTimer);
-      ooTreeBusyTimer = null;
-    }
-    const btn = document.getElementById("quant-oo-tree-run");
-    if (btn) btn.disabled = false;
-  }
-
-  function startOoTreeBusy() {
-    stopOoTreeBusy();
-    const sum = document.getElementById("quant-oo-tree-summary");
-    const btn = document.getElementById("quant-oo-tree-run");
-    if (btn) btn.disabled = true;
-    const t0 = Date.now();
-    const tick = () => {
-      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg =
-        s < 30
-          ? `拉观察池日线 · 已 ${fmtTauTreeSec(s)}`
-          : s < 90
-            ? `堆叠日线因子面板 · 已 ${fmtTauTreeSec(s)}`
-            : `LightGBM + Ridge Holdout · 已 ${fmtTauTreeSec(s)}`;
-      renderRemStatus(sum, {
-        state: "busy",
-        chip: "拟合中",
-        message: msg,
-        busy: true,
-      });
-      renderOoTreeCompare({
-        busy: true,
-        success: false,
-        message: msg,
-      });
-    };
-    tick();
-    ooTreeBusyTimer = setInterval(tick, 1000);
-  }
-
-  function renderOoTreeCompare(data) {
-    const box = document.getElementById("quant-oo-tree-result");
-    if (!box) return;
-    if (!data || typeof data !== "object") {
-      box.innerHTML = "";
-      return;
-    }
-    if (data.busy) {
-      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
-        data.message || "ŷ_oo_tree 拟合中…"
-      )}</p></div>`;
-      return;
-    }
-    if (!data.success) {
-      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
-        String(data.error || data.note || "ŷ_oo_tree 拟合失败")
-      )}</p>`;
-      return;
-    }
-    box.innerHTML = treeReportHtml(data, { head: "oo" });
-  }
-
-  async function runOoTree() {
-    const sum = document.getElementById("quant-oo-tree-summary");
-    startOoTreeBusy();
-    try {
-      const res = await fetch("/api/quant/oo-tree", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lookback: readFitLookbackDays("oo_tree"),
-          watching_limit: readWatchingLimit(),
-          horizon_days: 1,
-          ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays("oo_tree"),
-          ...readTreeSlideParams("oo_tree"),
-          ...readCrossSectionFitParams("oo_tree"),
-          backend: "lightgbm",
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      stopOoTreeBusy();
-      if (!res.ok || !data.success) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-        renderRemStatus(sum, {
-          state: "error",
-          chip: "失败",
-          message: String(err),
-          error: true,
-        });
-        renderOoTreeCompare({ success: false, error: String(err) });
-        return;
-      }
-      paintTreeFitStatus(sum, data, { chip: "已拟合" });
-      renderOoTreeCompare(data);
-    } finally {
-      stopOoTreeBusy();
-    }
-  }
-
-  async function loadOoTreeLast() {
-    const sum = document.getElementById("quant-oo-tree-summary");
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: "读取中",
-      message: "上次对照…",
-      busy: true,
-    });
-    const res = await fetch("/api/quant/oo-tree/last");
-    const data = await res.json().catch(() => ({}));
-    if (!data.exists || !data.success) {
-      renderRemStatus(sum, {
-        state: "idle",
-        chip: "待命",
-        message: data.note || "尚无 ŷ_oo_tree",
-      });
-      renderOoTreeCompare({ success: false, error: data.note || "尚无上次对照" });
-      return;
-    }
-    paintTreeFitStatus(sum, data, { chip: "上次" });
-    renderOoTreeCompare(data);
-  }
-
-  let coTreeBusyTimer = null;
-
-  function stopCoTreeBusy() {
-    if (coTreeBusyTimer) {
-      clearInterval(coTreeBusyTimer);
-      coTreeBusyTimer = null;
-    }
-    const btn = document.getElementById("quant-co-tree-run");
-    if (btn) btn.disabled = false;
-  }
-
-  function startCoTreeBusy() {
-    stopCoTreeBusy();
-    const sum = document.getElementById("quant-co-tree-summary");
-    const btn = document.getElementById("quant-co-tree-run");
-    if (btn) btn.disabled = true;
-    const t0 = Date.now();
-    const tick = () => {
-      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg =
-        s < 30
-          ? `拉观察池日线 · 已 ${fmtTauTreeSec(s)}`
-          : s < 90
-            ? `堆叠隔夜缺口 Z 面板 · 已 ${fmtTauTreeSec(s)}`
-            : `LightGBM + Ridge Holdout · 已 ${fmtTauTreeSec(s)}`;
-      renderRemStatus(sum, {
-        state: "busy",
-        chip: "拟合中",
-        message: msg,
-        busy: true,
-      });
-      renderCoTreeCompare({
-        busy: true,
-        success: false,
-        message: msg,
-      });
-    };
-    tick();
-    coTreeBusyTimer = setInterval(tick, 1000);
-  }
-
-  function renderCoTreeCompare(data) {
-    const box = document.getElementById("quant-co-tree-result");
-    if (!box) return;
-    if (!data || typeof data !== "object") {
-      box.innerHTML = "";
-      return;
-    }
-    if (data.busy) {
-      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
-        data.message || "ŷ_co_tree 拟合中…"
-      )}</p></div>`;
-      return;
-    }
-    if (!data.success) {
-      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
-        String(data.error || data.note || "ŷ_co_tree 拟合失败")
-      )}</p>`;
-      return;
-    }
-    box.innerHTML = treeReportHtml(data, { head: "co" });
-  }
-
-  async function runCoTree() {
-    const sum = document.getElementById("quant-co-tree-summary");
-    startCoTreeBusy();
-    try {
-      const res = await fetch("/api/quant/co-tree", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lookback: readFitLookbackDays("co_tree"),
-          watching_limit: readWatchingLimit(),
-          ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays("co_tree"),
-          ...readTreeSlideParams("co_tree"),
-          ...readCrossSectionFitParams("co_tree"),
-          backend: "lightgbm",
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      stopCoTreeBusy();
-      if (!res.ok || !data.success) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-        renderRemStatus(sum, {
-          state: "error",
-          chip: "失败",
-          message: String(err),
-          error: true,
-        });
-        renderCoTreeCompare({ success: false, error: String(err) });
-        return;
-      }
-      paintTreeFitStatus(sum, data, { chip: "已拟合" });
-      renderCoTreeCompare(data);
-    } finally {
-      stopCoTreeBusy();
-    }
-  }
-
-  async function loadCoTreeLast() {
-    const sum = document.getElementById("quant-co-tree-summary");
-    const statusBtn = document.getElementById("quant-co-tree-status");
-    if (coTreeBusyTimer) {
-      clearInterval(coTreeBusyTimer);
-      coTreeBusyTimer = null;
-    }
-    if (statusBtn) statusBtn.disabled = true;
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: "读取中",
-      message: "上次对照…",
-      busy: true,
-    });
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 20000);
-    try {
-      const res = await fetch("/api/quant/co-tree/last", { signal: ctrl.signal });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-        renderRemStatus(sum, {
-          state: "error",
-          chip: "失败",
-          message: String(err),
-          error: true,
-        });
-        renderCoTreeCompare({ success: false, error: String(err) });
-        return;
-      }
-      if (!data.exists || !data.success) {
-        renderRemStatus(sum, {
-          state: "idle",
-          chip: "待命",
-          message: data.note || "尚无 ŷ_co_tree",
-        });
-        renderCoTreeCompare({ success: false, error: data.note || "尚无上次对照" });
-        return;
-      }
-      paintTreeFitStatus(sum, data, { chip: "上次" });
-      renderCoTreeCompare(data);
-    } catch (err) {
-      const aborted = err && (err.name === "AbortError" || err.code === 20);
-      const msg = aborted
-        ? "读取超时（若正在拟合，请等拟合完成后再点「上次」）"
-        : String((err && err.message) || err || "读取失败");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: msg,
-        error: true,
-      });
-      renderCoTreeCompare({ success: false, error: msg });
-    } finally {
-      clearTimeout(to);
-      if (statusBtn) statusBtn.disabled = false;
-    }
-  }
-
-  let tauTreeBusyTimer = null;
-
-  function fmtTauTreeSec(v) {
+  function fmtHorizonTreeSec(v) {
     const n = Number(v);
     if (!Number.isFinite(n) || n < 0) return "—";
     if (n < 60) return `${n >= 10 ? Math.round(n) : n.toFixed(1)}s`;
@@ -1407,12 +1117,6 @@ export function initQuant(ctx) {
     return `${m}分${String(s).padStart(2, "0")}秒`;
   }
 
-  function tauTreeBusyHint(elapsedSec) {
-    const s = Number(elapsedSec) || 0;
-    if (s < 15) return "拉观察池行情";
-    if (s < 90) return "组 τ→close 面板（满池分钟特征）";
-    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
-  }
 
   function paintTreeFitStatus(el, data, extra = {}) {
     const src = data && typeof data === "object" ? data : {};
@@ -1428,9 +1132,7 @@ export function initQuant(ctx) {
       typeof formatTauEndBit === "function" ? formatTauEndBit(src) : "";
     const csBit =
       typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(src) : "";
-    const slideBit =
-      typeof formatTreeSlideBit === "function" ? formatTreeSlideBit(src) : "";
-    const bits = [tauEndBit, csBit, slideBit].filter(Boolean);
+    const bits = [tauEndBit, csBit].filter(Boolean);
     const baseMsg = extra.message !== undefined ? extra.message : "";
     let message = bits.join(" · ");
     if (baseMsg) {
@@ -1440,7 +1142,7 @@ export function initQuant(ctx) {
           : `${message} · ${baseMsg}`
         : baseMsg;
     }
-    // 引擎 / alpha_tc / 用时已在对照报告里，卡头留日截面 Z / 滑窗摘要 + 拟合时间 + 芯片
+    // 引擎 / 用时已在对照报告里，卡头留日截面 Z 摘要 + 拟合时间 + 芯片
     renderRemStatus(el, {
       state: extra.state || "ok",
       chip: extra.chip || "已拟合",
@@ -1450,171 +1152,6 @@ export function initQuant(ctx) {
           ? extra.fittedAt
           : src.fitted_at || rm.fitted_at || null,
     });
-  }
-
-  function stopTauTreeBusy() {
-    if (tauTreeBusyTimer) {
-      clearInterval(tauTreeBusyTimer);
-      tauTreeBusyTimer = null;
-    }
-    const btn = document.getElementById("quant-tau-tree-run");
-    if (btn) btn.disabled = false;
-  }
-
-  /** 停掉「拟合中」轮询重绘，避免盖住「上次」结果；不改 run 按钮（拟合仍在飞时保持禁用）。 */
-  function pauseTauTreeBusyOverlay() {
-    if (tauTreeBusyTimer) {
-      clearInterval(tauTreeBusyTimer);
-      tauTreeBusyTimer = null;
-    }
-  }
-
-  function startTauTreeBusy() {
-    stopTauTreeBusy();
-    const sum = document.getElementById("quant-tau-tree-summary");
-    const btn = document.getElementById("quant-tau-tree-run");
-    if (btn) btn.disabled = true;
-    const t0 = Date.now();
-    const tick = () => {
-      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${tauTreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
-      renderRemStatus(sum, {
-        state: "busy",
-        chip: "拟合中",
-        message: msg,
-        busy: true,
-      });
-      renderTauTreeCompare({
-        busy: true,
-        success: false,
-        message: msg,
-      });
-    };
-    tick();
-    tauTreeBusyTimer = setInterval(tick, 1000);
-  }
-
-  function renderTauTreeCompare(data) {
-    const box = document.getElementById("quant-tau-tree-result");
-    if (!box) return;
-    if (!data || typeof data !== "object") {
-      box.innerHTML = "";
-      return;
-    }
-    if (data.busy) {
-      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
-        data.message || "ŷ_τc_tree 拟合中…"
-      )}</p></div>`;
-      return;
-    }
-    if (!data.success) {
-      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
-        String(data.error || data.note || "ŷ_τc_tree 拟合失败")
-      )}</p>`;
-      return;
-    }
-    box.innerHTML = treeReportHtml(data, { head: "tau" });
-  }
-
-  async function runTauTree() {
-    const sum = document.getElementById("quant-tau-tree-summary");
-    startTauTreeBusy();
-    try {
-            const res = await fetch("/api/quant/tau-tree", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lookback: readFitLookbackDays("tc_tree"),
-          watching_limit: readWatchingLimit(),
-          ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays("tc_tree"),
-          ...readTreeSlideParams("tc_tree"),
-          ...readCrossSectionFitParams("tc_tree"),
-          ...readTauEndFitParams(),
-          backend: "lightgbm",
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      stopTauTreeBusy();
-      if (!res.ok || !data.success) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-        renderRemStatus(sum, {
-          state: "error",
-          chip: "失败",
-          message: String(err),
-          error: true,
-        });
-        renderTauTreeCompare({ success: false, error: String(err) });
-        return;
-      }
-      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
-        applyTauEndHm(data.tau_end_hm);
-      }
-      paintTreeFitStatus(sum, data, { chip: "已拟合" });
-      renderTauTreeCompare(data);
-    } finally {
-      stopTauTreeBusy();
-    }
-  }
-
-  async function loadTauTreeLast() {
-    const sum = document.getElementById("quant-tau-tree-summary");
-    const statusBtn = document.getElementById("quant-tau-tree-status");
-    // 拟合中的 1s 轮询会把「上次」结果盖回「拟合中」；先停 overlay
-    pauseTauTreeBusyOverlay();
-    if (statusBtn) statusBtn.disabled = true;
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: "读取中",
-      message: "上次对照…",
-      busy: true,
-    });
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 20000);
-    try {
-      const res = await fetch("/api/quant/tau-tree/last", { signal: ctrl.signal });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-        renderRemStatus(sum, {
-          state: "error",
-          chip: "失败",
-          message: String(err),
-          error: true,
-        });
-        renderTauTreeCompare({ success: false, error: String(err) });
-        return;
-      }
-      if (!data.exists || !data.success) {
-        renderRemStatus(sum, {
-          state: "idle",
-          chip: "待命",
-          message: data.note || "尚无 ŷ_τc_tree",
-        });
-        renderTauTreeCompare({ success: false, error: data.note || "尚无上次对照" });
-        return;
-      }
-      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
-        applyTauEndHm(data.tau_end_hm);
-      }
-      paintTreeFitStatus(sum, data, { chip: "上次" });
-      renderTauTreeCompare(data);
-    } catch (err) {
-      const aborted = err && (err.name === "AbortError" || err.code === 20);
-      const msg = aborted
-        ? "读取超时（若正在拟合，请等拟合完成后再点「上次」）"
-        : String((err && err.message) || err || "读取失败");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: msg,
-        error: true,
-      });
-      renderTauTreeCompare({ success: false, error: msg });
-    } finally {
-      clearTimeout(to);
-      if (statusBtn) statusBtn.disabled = false;
-    }
   }
 
   let t30TreeBusyTimer = null;
@@ -1643,7 +1180,7 @@ export function initQuant(ctx) {
     const t0 = Date.now();
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${t30TreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
+      const msg = `${t30TreeBusyHint(s)} · 已 ${fmtHorizonTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
       renderRemStatus(sum, {
         state: "busy",
         chip: "拟合中",
@@ -1766,7 +1303,7 @@ export function initQuant(ctx) {
     const t0 = Date.now();
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${t45TreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
+      const msg = `${t45TreeBusyHint(s)} · 已 ${fmtHorizonTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
       renderRemStatus(sum, {
         state: "busy",
         chip: "拟合中",
@@ -1890,7 +1427,7 @@ export function initQuant(ctx) {
     const t0 = Date.now();
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${t60TreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
+      const msg = `${t60TreeBusyHint(s)} · 已 ${fmtHorizonTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
       renderRemStatus(sum, {
         state: "busy",
         chip: "拟合中",
@@ -2014,7 +1551,7 @@ export function initQuant(ctx) {
     const t0 = Date.now();
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${t75TreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
+      const msg = `${t75TreeBusyHint(s)} · 已 ${fmtHorizonTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
       renderRemStatus(sum, {
         state: "busy",
         chip: "拟合中",
@@ -2138,7 +1675,7 @@ export function initQuant(ctx) {
     const t0 = Date.now();
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${t90TreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
+      const msg = `${t90TreeBusyHint(s)} · 已 ${fmtHorizonTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
       renderRemStatus(sum, {
         state: "busy",
         chip: "拟合中",
@@ -4736,112 +4273,11 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-oo-tree-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await runOoTree();
-    } catch (err) {
-      const sum = document.getElementById("quant-oo-tree-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-      renderOoTreeCompare({
-        success: false,
-        error: String(err.message || err),
-      });
-    }
-  });
 
-  on("quant-oo-tree-status", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await loadOoTreeLast();
-    } catch (err) {
-      renderOoTreeCompare({
-        success: false,
-        error: String(err.message || err),
-      });
-    }
-  });
 
-  on("quant-co-tree-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await runCoTree();
-    } catch (err) {
-      const sum = document.getElementById("quant-co-tree-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-      renderCoTreeCompare({
-        success: false,
-        error: String(err.message || err),
-      });
-    }
-  });
 
-  on("quant-co-tree-status", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await loadCoTreeLast();
-    } catch (err) {
-      const sum = document.getElementById("quant-co-tree-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-      renderCoTreeCompare({
-        success: false,
-        error: String(err.message || err),
-      });
-    }
-  });
 
-  on("quant-tau-tree-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await runTauTree();
-    } catch (err) {
-      const sum = document.getElementById("quant-tau-tree-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-      renderTauTreeCompare({
-        success: false,
-        error: String(err.message || err),
-      });
-    }
-  });
 
-  on("quant-tau-tree-status", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await loadTauTreeLast();
-    } catch (err) {
-      const sum = document.getElementById("quant-tau-tree-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-      renderTauTreeCompare({
-        success: false,
-        error: String(err.message || err),
-      });
-    }
-  });
 
 
   on("quant-t30-tree-run", "click", async (e) => {

@@ -144,7 +144,7 @@ class T0BacktestRequest(BaseModel):
     )
     horizon_prob_backend: Optional[str] = Field(
         default=None,
-        description="ŷ_τ* 概率头：ridge（默认）| tree（影子树，做 T 回测）",
+        description="ŷ_τ* 概率头：ridge（默认）| tree（horizon LightGBM，做 T 回测）",
     )
     t0_y_τc_target_scale: Optional[float] = Field(
         default=None,

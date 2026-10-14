@@ -1201,9 +1201,9 @@ flowchart LR
 配置门：`scoring.rank_mode=predicted_score` · `min_predicted_score` · `cluster_scoring.mode`（off / shadow / active）。
 
 **Ridge / oo_rank 拟合控件（ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank）**：卡头 **日截面 Z**；另有训练窗 / Holdout。只训 Holdout 前一套 β；**启用研究**=草稿→研究槽；**启用执行**=研究槽→执行槽（晋级）。
-- **日截面 Z**（默认开）：入模特征按决策日截面 μ/σ；关掉则用训练窗全局 μ/σ（落盘 `zscore_means`/`stds`）。ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree 卡头同样可勾选；τ30…90_tree 仍固定日截面。
+- **日截面 Z**（默认开）：入模特征按决策日截面 μ/σ；关掉则用训练窗全局 μ/σ（落盘 `zscore_means`/`stds`）。τ30…90_tree 固定日截面。
 
-**Tree 滑窗（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：Holdout 前训练集按交易日 **滑窗**（默认 60）/ **步长**（默认 20）；每窗一次 LightGBM，`init_model` 承接上一窗，总轮数（默认 300）均分。`滑窗=0` 或训练日不够窗宽 → 全样本一次训。同卡 **日截面 Z** 同时作用于 Tree 与 Holdout Ridge 对照。τ30…90_tree 无滑窗、无勾选（固定日截面）。
+**调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90_tree 仍可用（LGB 训推工具见 `core/research/horizon_lgb.py`）。
 
 **观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡 `#quant-holdout-days`）：研究套 ŷ_oo 在 Holdout **前半**按票打 A/B/C。定档 Score = **1/rank(Y_oo) + 1/rank(Y_τc)**（命中率截面序，1=最好；无研究套 ŷ_τc 时仅用 Y_oo 序）。A 档另过命中率门槛：默认 **Y_oo ≥ 50%**、有研究套 ŷ_τc 时 **Y_τc ≥ 50%**（工具栏可改，`a_hit` / `tau_a_hit`；0=关）。过门槛者按 Score 降序取 **top A 数量→A**（未过门槛不占 A 名额），**接着 B 数量→B**、其余→C；无有效命中样本→C。默认 A=100、B=300（`a_count` / `b_count`）。不看单票 IC。有研究套时只拉 **Holdout+暖窗** 建面板（不必对齐 ŷ_oo 全训练窗）；无研究套现训才吃训练窗。各档标题分别报 ŷ_oo / ŷ_τc 在 Holdout **整段**上的日截面 **Rank IC** / **IC** / **ICIR**。分档区 A/B/C 与有样本的**平均收益率**= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」；不参与定档；有样本按档内票数加权）。落盘 `predictability_tiers_last.json`；`/replay` 勾选同步 live 闸。
 
@@ -1288,7 +1288,7 @@ score_stock(code) 续——
 
 ### 4.3c ŷ_τc_rank（LambdaRank / Ridge · 截面名次）
 
-与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge，Holdout **NDCG@K** 选 backend；卡头 **日截面 Z**（默认开）。标签为当日 `close[T]/open[T]−1`（百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。
+与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge，Holdout **NDCG@K** 选 backend；卡头 **日截面 Z**（默认开）。标签为 `price[τ]→close[T]`（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。
 相对分编成当日截面名次 `y_tc_rank ∈ 1..n`（1=最高），写入成交明细 **τc_rank** 列。
 **不**进 `y_oo_fuse`，**不**改买序。与 oo_rank 共用入场闸：`oo_rank_max` 开则须 `max(y_oo_rank, y_τc_rank) < max`。
 

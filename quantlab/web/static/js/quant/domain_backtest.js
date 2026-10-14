@@ -349,8 +349,7 @@ export function installBacktest(q) {
       const tierBit = predOn ? ` · 分档${predT}` : "";
       const psBit = p.price_space_gate === false ? " · 日分价关" : "";
       const role = String(p.score_model_role || "").toLowerCase() === "live" ? "执行" : "研究";
-      const head = scoreBackendLabel(p.score_backend);
-      return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${role} · ${head} · ${cost}`;
+      return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${role} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
@@ -377,7 +376,6 @@ export function installBacktest(q) {
     };
     if (desk) {
       if (req.score_model_role != null) applyScoreModelRole("quant-score-model-role", req.score_model_role);
-      if (req.score_backend != null) applyScoreBackend("quant-score-backend", req.score_backend);
       if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base_amount != null) setName("pm_lot_base_amount", req.lot_base_amount);
@@ -915,9 +913,6 @@ export function installBacktest(q) {
     if (prefs.t0_score_model_role != null) {
       applyScoreModelRole("paper-t0-score-model-role", prefs.t0_score_model_role);
     }
-    if (prefs.score_backend != null) {
-      applyScoreBackend("quant-score-backend", prefs.score_backend);
-    }
     restoreFillClock(prefs.fill_clock);
     syncLivePredTiersFromDesk();
     return true;
@@ -936,23 +931,6 @@ export function installBacktest(q) {
     el.value = String(role).toLowerCase() === "live" ? "live" : "research";
   }
 
-  function scoreBackendLabel(raw) {
-    const v = String(raw || "").toLowerCase();
-    return v === "tree" ? "Tree" : "Ridge";
-  }
-
-  function readScoreBackend(id) {
-    const el = document.getElementById(id);
-    const v = String((el && el.value) || "ridge").toLowerCase();
-    return v === "tree" ? "tree" : "ridge";
-  }
-
-  function applyScoreBackend(id, backend) {
-    const el = document.getElementById(id);
-    if (!el || backend == null || backend === "") return;
-    el.value = String(backend).toLowerCase() === "tree" ? "tree" : "ridge";
-  }
-
   function readPortfolioBtParams() {
     const lbEl = document.getElementById("quant-lookback");
     let lookback = 10;
@@ -969,7 +947,7 @@ export function installBacktest(q) {
     return {
       lookback,
       score_model_role: readScoreModelRole("quant-score-model-role"),
-      score_backend: readScoreBackend("quant-score-backend"),
+      score_backend: "ridge",
       horizon_days: 1,
       exclude_st: true,
       min_avg_amount_pctile: null,
@@ -1502,7 +1480,6 @@ export function installBacktest(q) {
         ? String(Number(initial_cash) / 10000).replace(/\.0$/, "")
         : "20";
       const roleLbl = score_model_role === "live" ? "执行" : "研究";
-      const headLbl = scoreBackendLabel(score_backend);
       const tierBit = use_predictability_tiers
         ? `分档${(predictability_tiers || []).join("") || "AB"}`
         : "";
@@ -1512,7 +1489,6 @@ export function installBacktest(q) {
         tierBit,
         fill_clock,
         roleLbl,
-        headLbl,
         `本金${cashWan}万`,
       ]
         .filter(Boolean)
@@ -2119,7 +2095,7 @@ export function installBacktest(q) {
   }
 
   function wireReplayModelRole() {
-    ["quant-score-model-role", "quant-score-backend", "paper-t0-score-model-role"].forEach((id) => {
+    ["quant-score-model-role", "paper-t0-score-model-role"].forEach((id) => {
       const el = document.getElementById(id);
       if (!el || el.dataset.wired === "1") return;
       el.dataset.wired = "1";

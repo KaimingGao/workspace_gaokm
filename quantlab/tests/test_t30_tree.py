@@ -82,17 +82,14 @@ def _has_lightgbm() -> bool:
 
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestT30Tree(unittest.TestCase):
-    def test_defaults_match_tau_tree(self):
-        from core.research.tc_tree import DEFAULT_N_ESTIMATORS
+    def test_defaults_and_schema(self):
+        from core.research.horizon_tree import _horizon_tree_config
+        from core.research.horizon_lgb import DEFAULT_N_ESTIMATORS
 
-        TREE_HEAD = "y_t30_tree"
-        TREE_SCHEMA = "t30_tree_shadow_v5"
-        from core.research.tc_tree import DEFAULT_N_ESTIMATORS as TAU_N
-
+        cfg = _horizon_tree_config("t30")
         self.assertEqual(DEFAULT_N_ESTIMATORS, 300)
-        self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
-        self.assertEqual(TREE_HEAD, "y_t30_tree")
-        self.assertEqual(TREE_SCHEMA, "t30_tree_shadow_v5")
+        self.assertEqual(cfg["head_label"], "y_t30_tree")
+        self.assertEqual(cfg["schema"], "t30_tree_shadow_v5")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.horizon_ridge import load_ridge_model, persist_ridge_model
@@ -171,7 +168,10 @@ class TestT30Tree(unittest.TestCase):
         rm = report.get("tree_return_model") or {}
         self.assertTrue((rm.get("hyperparams") or {}).get("feature_zscore"))
 
-        blocked = persist_ridge_model("t30", report, note="should fail", force=True)
+        # 树报告无 Ridge return_model；role=research 才走报告路径（默认 live 会晋级盘上研究槽）
+        blocked = persist_ridge_model(
+            "t30", report, note="should fail", force=True, role="research"
+        )
         self.assertFalse(blocked.get("success"))
 
         from core.research.horizon_tree import (

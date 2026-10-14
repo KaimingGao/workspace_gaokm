@@ -1766,19 +1766,6 @@ def _required_factor_keys_from_return_models(
     return keys
 
 
-def _stamp_tree_formula(
-    item: dict,
-    features: Optional[dict],
-    model_doc: Optional[dict],
-    *,
-    y_hat: Optional[float],
-    keys: tuple,
-) -> None:
-    from core.research.return_tree import stamp_tree_formula
-
-    stamp_tree_formula(item, features, model_doc, y_hat=y_hat, keys=keys)
-
-
 def _attach_open_yhat_heads(
     entries: List[dict],
     *,
@@ -1873,16 +1860,6 @@ def _attach_open_yhat_heads(
         if pred is not None:
             it.setdefault("predicted_score_oo", pred)
             it.setdefault("y_oo", pred)
-        try:
-            from core.research.return_tree import overlay_oo_tree_on_item
-
-            overlay_oo_tree_on_item(
-                it,
-                window=windows.get(code) or [],
-                quote=quotes.get(code) if code else None,
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("overlay y_oo tree failed for %s", code, exc_info=True)
         if attach_dual_score_pit is not None and code:
             try:
                 xs: Dict[str, Any] = {}
@@ -1977,43 +1954,16 @@ def _attach_open_yhat_heads(
                 else None
             )
             co_feats = overlay_co_cross_section(co_feats, tau_feats)
-            from core.research.co_tree import (
-                load_co_tree_model,
-                predict_co_tree_from_features,
-            )
-            from core.research.return_tree import predict_return_head
-
-            co_yhat, co_src = predict_return_head(
-                co_feats,
-                load_tree=load_co_tree_model,
-                predict_tree=predict_co_tree_from_features,
-                predict_ridge=predict_co_from_features,
-                ridge_model=co_model_doc,
-            )
-            if co_src:
-                it["y_co_source"] = co_src
+            co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
+            if co_yhat is not None:
+                it["y_co_source"] = "ridge"
             apply_co_score_fields(
                 it,
                 co_yhat=co_yhat,
                 feats=co_feats,
                 co_model_doc=co_model_doc,
-                source=co_src,
+                source="ridge" if co_yhat is not None else "",
             )
-            if co_src == "tree" and co_yhat is not None:
-                from core.research.return_tree import stamp_tree_formula
-
-                stamp_tree_formula(
-                    it,
-                    co_feats,
-                    load_co_tree_model(),
-                    y_hat=float(co_yhat),
-                    keys=(
-                        "formula_terms_co",
-                        "score_formula_terms_co",
-                        "formula_terms_on",
-                        "score_formula_terms_on",
-                    ),
-                )
         except Exception:  # noqa: BLE001
             logger.debug("attach y_co failed for %s", code, exc_info=True)
     try:
@@ -2179,8 +2129,6 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
     fuse = item.get("y_oo_fuse")
     if fuse is not None:
         write_y_oo_fuse(item, fuse)
-    if str(item.get("y_τc_source") or "") == "tree" and "y_τc_ridge" not in live:
-        item.pop("y_τc_ridge", None)
     return item.get("y_τc") is not None
 
 
@@ -2302,7 +2250,7 @@ def backtest_paper_replay(
 ) -> Dict[str, Any]:
     """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
 
-    ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘树；缺模型的头回退 Ridge。
+    ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank。
     ``oo_rank_max`` 开则入场另须 max(y_oo_rank, y_τc_rank) < max（两侧都缺不拦）；否则可读旧 ``oo_rank_top_frac``。
     """
@@ -2315,7 +2263,6 @@ def backtest_paper_replay(
         current_rebalance_score_backend,
         normalize_rebalance_score_backend,
         rebalance_score_backend_context,
-        return_tree_model_state,
     )
 
     requested = normalize_backtest_model_role(score_model_role)
@@ -2376,20 +2323,6 @@ def backtest_paper_replay(
     if scores_by_date is None:
         global_model = _load_replay_global_model()
         required_factor_keys = _required_factor_keys_from_return_models(global_model)
-        from core.research.return_tree import (
-            loaded_return_tree_feature_names,
-            tree_scores_requested,
-        )
-
-        if tree_scores_requested():
-            try:
-                seen_keys = set(required_factor_keys)
-                for key in loaded_return_tree_feature_names():
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        required_factor_keys.append(key)
-            except Exception:  # noqa: BLE001
-                logger.debug("replay tree feature keys failed", exc_info=True)
         try:
             from core.signal.factors.alpha_oo import bump_window_for_alpha_oo
 
@@ -3153,11 +3086,6 @@ def backtest_paper_replay(
         f"fuse 过入场（fuse入场={fuse_enter}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
-        + (
-            " ŷ头=Tree（缺模型的头回退 Ridge）。"
-            if current_rebalance_score_backend() == "tree"
-            else ""
-        )
     )
     if session_day:
         note += (
@@ -3198,11 +3126,6 @@ def backtest_paper_replay(
             "lookback": int(lookback) if lookback is not None else None,
             "score_model_role": current_scoring_model_role(),
             "score_backend": current_rebalance_score_backend(),
-            "tree_models": (
-                return_tree_model_state()
-                if current_rebalance_score_backend() == "tree"
-                else None
-            ),
             "common_dates": max(0, n - first_i),
             "trade_days": max(0, n - first_i),
             "end_date": dates[-1] if dates else None,

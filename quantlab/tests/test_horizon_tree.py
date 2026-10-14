@@ -109,7 +109,7 @@ class TestHorizonTree(unittest.TestCase):
             "ridge_only",
         )
 
-    def test_refresh_tau_oc_keeps_tree_formula(self):
+    def test_refresh_tau_oc_always_ridge(self):
         from unittest.mock import patch
 
         from core.research.horizon_tree import horizon_prob_backend_context
@@ -123,44 +123,30 @@ class TestHorizonTree(unittest.TestCase):
                 "terms": [{"key": "ridge_gap", "contrib": 0.1}],
             },
         }
-        tree_expl = {
-            "model_role": "tree",
+        ridge_expl = {
+            "model_role": "ridge",
             "intercept": 0.0,
             "total": 0.55,
-            "terms": [{"key": "raw_aoo_YKMID", "contrib": 0.4}],
+            "terms": [{"key": "gap_pct", "contrib": 0.4}],
         }
         with horizon_prob_backend_context("tree"), patch(
-            "core.research.tc_tree.load_tau_tree_model",
-            return_value={"return_model": {"feature_names": ["gap_pct"]}},
-        ), patch(
-            "core.research.tc_tree.predict_tau_tree_from_features",
+            "core.research.tc_ridge.predict_tau_from_features",
             return_value=0.55,
         ), patch(
-            "core.research.horizon_tree.tree_tip_formula",
-            return_value=tree_expl,
-        ), patch(
-            "core.research.tc_ridge.predict_tau_from_features",
-            side_effect=AssertionError("ridge predict should not run"),
+            "core.research.tc_ridge.explain_tau_prediction",
+            return_value=ridge_expl,
         ):
             _refresh_tau_oc_from_feats(item, hm="09:40", trade_date="2026-09-18")
-        self.assertEqual(item.get("y_τc_source"), "tree")
-        self.assertEqual(item["formula_terms_tau"].get("model_role"), "tree")
-        keys = {
-            t.get("key")
-            for t in (item.get("formula_terms_tau") or {}).get("terms") or []
-            if isinstance(t, dict)
-        }
-        self.assertIn("raw_aoo_YKMID", keys)
-        self.assertNotIn("ridge_gap", keys)
+        self.assertEqual(item.get("y_τc_source"), "ridge")
+        self.assertNotIn("y_τc_tree", item)
+        self.assertEqual(item["formula_terms_tau"].get("model_role"), "ridge")
 
     def test_collapsed_stump_is_not_a_return_forecast(self):
         from core.research.horizon_tree import (
-            horizon_prob_backend_context,
             predict_tree_return,
             tree_return_model_collapsed,
         )
-        from core.research.return_tree import predict_return_head
-        from core.research.tc_tree import lgb_best_iteration_collapsed
+        from core.research.horizon_lgb import lgb_best_iteration_collapsed
 
         self.assertTrue(lgb_best_iteration_collapsed(1))
         self.assertFalse(lgb_best_iteration_collapsed(40))
@@ -171,26 +157,6 @@ class TestHorizonTree(unittest.TestCase):
         }
         self.assertTrue(tree_return_model_collapsed({"return_model": rm}))
         self.assertIsNone(predict_tree_return({"a": 1.0}, rm))
-
-        def _load():
-            return {"return_model": rm}
-
-        def _tree(feats, model_doc=None):
-            inner = model_doc.get("return_model") if isinstance(model_doc, dict) else None
-            return predict_tree_return(feats, inner or model_doc)
-
-        def _ridge(_feats, model_doc=None):
-            return 1.25
-
-        with horizon_prob_backend_context("tree"):
-            y, src = predict_return_head(
-                {"a": 1.0},
-                load_tree=_load,
-                predict_tree=_tree,
-                predict_ridge=_ridge,
-            )
-        self.assertEqual(src, "ridge")
-        self.assertEqual(y, 1.25)
 
     def test_stamp_tree_fitted_at_on_report_and_model(self):
         from core.research.horizon_tree import stamp_tree_fitted_at

@@ -15,9 +15,6 @@ const FIT_PARAM_HEADS = [
   "t60",
   "t75",
   "t90",
-  "oo_tree",
-  "tc_tree",
-  "co_tree",
   "t30_tree",
   "t45_tree",
   "t60_tree",
@@ -32,9 +29,7 @@ const TIER_A_FIT_HEADS = ["oo_rank", "tc_rank"];
 
 function _defaultLookbackForHead(head) {
   if (head === "oo_rank" || head === "tc_rank") return 700;
-  return head === "oo" || head === "co" || head === "oo_tree" || head === "co_tree"
-    ? 600
-    : 120;
+  return head === "oo" || head === "co" ? 600 : 120;
 }
 
 /** 拟合用日线训练窗（交易日）；与回测「窗口」独立。 */
@@ -62,16 +57,13 @@ const CS_Z_FIT_HEADS = [
   "t90",
   "oo_rank",
   "tc_rank",
-  "oo_tree",
-  "tc_tree",
-  "co_tree",
 ];
 const CS_ZSCORE_STORAGE_KEYS = Object.fromEntries(
   CS_Z_FIT_HEADS.map((h) => [h, `quant_fit_cs_z_${h}`])
 );
 
-/** ŷ_τc / ŷ_τc_tree 共用：训练前缀终点 09:30…11:00（含 0 前缀）。 */
-const TAU_END_FIT_HEADS = ["tc", "tc_tree"];
+/** ŷ_τc：训练前缀终点 09:30…11:00（含 0 前缀）。 */
+const TAU_END_FIT_HEADS = ["tc"];
 const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm";
 const DEFAULT_TAU_END_HM = "11:00";
 const TAU_END_CLOCKS = (() => {
@@ -87,17 +79,6 @@ const TAU_END_CLOCKS = (() => {
   return out;
 })();
 
-/** oo/tc/co_tree：训练日滑窗 + 步长（LightGBM init_model 增量）。 */
-const TREE_SLIDE_HEADS = ["oo_tree", "tc_tree", "co_tree"];
-const DEFAULT_TREE_WINDOW_DAYS = 60;
-const DEFAULT_TREE_STEP_DAYS = 20;
-const TREE_WINDOW_STORAGE_KEYS = Object.fromEntries(
-  TREE_SLIDE_HEADS.map((h) => [h, `quant_fit_window_${h}`])
-);
-const TREE_STEP_STORAGE_KEYS = Object.fromEntries(
-  TREE_SLIDE_HEADS.map((h) => [h, `quant_fit_step_${h}`])
-);
-
 function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
@@ -112,23 +93,6 @@ function clampFitLookbackDays(v, fallback = 120) {
     return Math.max(FIT_LOOKBACK_MIN, Math.min(FIT_LOOKBACK_MAX, Math.round(base)));
   }
   return Math.max(FIT_LOOKBACK_MIN, Math.min(FIT_LOOKBACK_MAX, Math.round(n)));
-}
-
-function clampTreeWindowDays(v, fallback = DEFAULT_TREE_WINDOW_DAYS) {
-  const n = Number(v);
-  const fb = Number(fallback);
-  const base = Number.isFinite(fb) ? fb : DEFAULT_TREE_WINDOW_DAYS;
-  if (!Number.isFinite(n)) return Math.max(0, Math.min(500, Math.round(base)));
-  // 0 = 关闭滑窗（全样本一次训）
-  return Math.max(0, Math.min(500, Math.round(n)));
-}
-
-function clampTreeStepDays(v, fallback = DEFAULT_TREE_STEP_DAYS) {
-  const n = Number(v);
-  const fb = Number(fallback);
-  const base = Number.isFinite(fb) ? fb : DEFAULT_TREE_STEP_DAYS;
-  if (!Number.isFinite(n)) return Math.max(1, Math.min(200, Math.round(base)));
-  return Math.max(1, Math.min(200, Math.round(n)));
 }
 
 export function clampHorizonDays(v, fallback = 1) {
@@ -277,12 +241,6 @@ export function createResearchParams(opts = {}) {
   const getFitCsZEl =
     opts.getFitCsZEl ||
     ((head) => document.getElementById(`quant-fit-cs-z-${head}`));
-  const getFitWindowEl =
-    opts.getFitWindowEl ||
-    ((head) => document.getElementById(`quant-fit-window-${head}`));
-  const getFitStepEl =
-    opts.getFitStepEl ||
-    ((head) => document.getElementById(`quant-fit-step-${head}`));
 
   function syncHorizonInputs(h) {
     const v = String(clampHorizonDays(h, prefsHorizonDays));
@@ -562,9 +520,7 @@ export function createResearchParams(opts = {}) {
   }
 
   function readTauEndHm() {
-    const el =
-      document.getElementById("quant-fit-tau-end-tc") ||
-      document.getElementById("quant-fit-tau-end-tc_tree");
+    const el = document.getElementById("quant-fit-tau-end-tc");
     let hm = DEFAULT_TAU_END_HM;
     if (el) {
       const idx = Math.max(
@@ -646,90 +602,6 @@ export function createResearchParams(opts = {}) {
     }
   }
 
-  function readTreeWindowDays(head) {
-    const h = String(head || "").trim().toLowerCase();
-    if (!TREE_SLIDE_HEADS.includes(h)) return DEFAULT_TREE_WINDOW_DAYS;
-    return _readStoredNum(
-      getFitWindowEl(h),
-      TREE_WINDOW_STORAGE_KEYS[h],
-      clampTreeWindowDays,
-      DEFAULT_TREE_WINDOW_DAYS
-    );
-  }
-
-  function readTreeStepDays(head) {
-    const h = String(head || "").trim().toLowerCase();
-    if (!TREE_SLIDE_HEADS.includes(h)) return DEFAULT_TREE_STEP_DAYS;
-    return _readStoredNum(
-      getFitStepEl(h),
-      TREE_STEP_STORAGE_KEYS[h],
-      clampTreeStepDays,
-      DEFAULT_TREE_STEP_DAYS
-    );
-  }
-
-  function readTreeSlideParams(head) {
-    return {
-      window_days: readTreeWindowDays(head),
-      step_days: readTreeStepDays(head),
-    };
-  }
-
-  /** 卡头摘要：滑窗60/20 或空（全样本）。 */
-  function formatTreeSlideBit(data) {
-    const src = data && typeof data === "object" ? data : {};
-    const hp =
-      (src.hyperparams && typeof src.hyperparams === "object" && src.hyperparams) ||
-      (src.tree_return_model &&
-        src.tree_return_model.hyperparams &&
-        typeof src.tree_return_model.hyperparams === "object" &&
-        src.tree_return_model.hyperparams) ||
-      {};
-    const w = Number(hp.window_days != null ? hp.window_days : src.window_days);
-    const s = Number(hp.step_days != null ? hp.step_days : src.step_days);
-    if (!Number.isFinite(w) || w <= 0) return "";
-    const step = Number.isFinite(s) && s > 0 ? s : DEFAULT_TREE_STEP_DAYS;
-    const nWin = Number(hp.n_windows);
-    const trees = Number(hp.total_trees);
-    let bit = `滑窗${Math.round(w)}/${Math.round(step)}`;
-    if (Number.isFinite(nWin) && nWin > 0) bit += `·${Math.round(nWin)}窗`;
-    if (Number.isFinite(trees) && trees > 0) bit += `·${Math.round(trees)}树`;
-    return bit;
-  }
-
-  function hydrateTreeSlideParams() {
-    for (const head of TREE_SLIDE_HEADS) {
-      const wEl = getFitWindowEl(head);
-      const sEl = getFitStepEl(head);
-      if (wEl) {
-        try {
-          const saved = localStorage.getItem(TREE_WINDOW_STORAGE_KEYS[head]);
-          if (saved != null && saved !== "") {
-            wEl.value = String(clampTreeWindowDays(saved, DEFAULT_TREE_WINDOW_DAYS));
-          } else if (!wEl.value) {
-            wEl.value = String(DEFAULT_TREE_WINDOW_DAYS);
-          }
-        } catch (_) {
-          if (!wEl.value) wEl.value = String(DEFAULT_TREE_WINDOW_DAYS);
-        }
-        wEl.addEventListener("change", () => readTreeWindowDays(head));
-      }
-      if (sEl) {
-        try {
-          const saved = localStorage.getItem(TREE_STEP_STORAGE_KEYS[head]);
-          if (saved != null && saved !== "") {
-            sEl.value = String(clampTreeStepDays(saved, DEFAULT_TREE_STEP_DAYS));
-          } else if (!sEl.value) {
-            sEl.value = String(DEFAULT_TREE_STEP_DAYS);
-          }
-        } catch (_) {
-          if (!sEl.value) sEl.value = String(DEFAULT_TREE_STEP_DAYS);
-        }
-        sEl.addEventListener("change", () => readTreeStepDays(head));
-      }
-    }
-  }
-
   function tierACheckboxId(head) {
     const h = String(head || "").trim().toLowerCase();
     if (h === "oo_rank") return "quant-oo-rank-tier-a";
@@ -792,11 +664,6 @@ export function createResearchParams(opts = {}) {
     formatTauEndBit,
     applyTauEndHm,
     hydrateTauEndParams,
-    readTreeWindowDays,
-    readTreeStepDays,
-    readTreeSlideParams,
-    formatTreeSlideBit,
-    hydrateTreeSlideParams,
     readWatchingTierAOnly,
     hydrateWatchingTierAOnly,
     setPrefsHorizonDays,

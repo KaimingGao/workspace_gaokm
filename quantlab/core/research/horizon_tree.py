@@ -226,7 +226,7 @@ def _row_matrix(
     z_means: Optional[Dict[str, float]] = None,
     z_stds: Optional[Dict[str, float]] = None,
 ) -> np.ndarray:
-    from core.research.tc_tree import _apply_feature_z, _design_matrix
+    from core.research.horizon_lgb import _apply_feature_z, _design_matrix
 
     row = {k: (features or {}).get(k) for k in feature_names}
     means = np.asarray(
@@ -262,7 +262,7 @@ def _cached_booster(kind: str, blob: Dict[str, Any], loader) -> Any:
 
 def tree_return_model_collapsed(model_doc: Optional[Dict[str, Any]]) -> bool:
     """best_iteration 过小（stump）时 ŷ 是训练集均值，不能当收益预测。"""
-    from core.research.tc_tree import lgb_best_iteration_collapsed
+    from core.research.horizon_lgb import lgb_best_iteration_collapsed
 
     rm = _return_model_doc(model_doc)
     hp = rm.get("hyperparams") if isinstance(rm.get("hyperparams"), dict) else {}
@@ -291,7 +291,7 @@ def predict_tree_raw(
     try:
         if eng != "lightgbm":
             return None
-        from core.research.tc_tree import _predict_lightgbm
+        from core.research.horizon_lgb import _predict_lightgbm
 
         blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
         booster = _cached_booster("lgb", blob, load_lightgbm_booster)
@@ -635,7 +635,7 @@ def fit_horizon_tree_report(
         build_tau_panels_from_bars,
         with_horizon_tree_shape,
     )
-    from core.research.tc_tree import (
+    from core.research.horizon_lgb import (
         DEFAULT_LEARNING_RATE,
         DEFAULT_MAX_DEPTH,
         DEFAULT_N_ESTIMATORS,
@@ -644,9 +644,9 @@ def fit_horizon_tree_report(
         _fit_lightgbm,
         _fit_ridge_oos,
         _importance_rows,
+        _horizon_lgb_hyper,
         _lgb_train_kwargs,
         _oos_pack,
-        _panel_lgb_hyper,
         _predict_lightgbm,
         prepare_lgb_features,
         resolve_tree_backend,
@@ -758,7 +758,7 @@ def fit_horizon_tree_report(
 
     engine = resolve_tree_backend(backend)
     hyper = {
-        **_panel_lgb_hyper(),
+        **_horizon_lgb_hyper(),
         "n_estimators": int(n_estimators),
         "max_depth": int(max_depth),
         "learning_rate": float(learning_rate),

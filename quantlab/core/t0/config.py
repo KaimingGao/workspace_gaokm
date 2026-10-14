@@ -84,7 +84,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_τc_strong_amount": 40_000.0,  # 过强：本轮金额（≥入场金额）
     "y_tw_vote_margin": 5.0,  # |p_up−mid|≤此百分点不给 ŷ_τw 投票
     "y_tw_midpoint": 47.0,  # ŷ_τ30/45/60/75/90 共用中位点%
-    # ŷ_τ* 概率头：ridge（默认）| tree（影子树 + 路径形状，仅回测建议）
+    # ŷ_τ* 概率头：ridge（默认）| tree（horizon LightGBM + 路径形状，仅回测建议）
     "horizon_prob_backend": "ridge",
     "t0_y_τc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
     "t0_close_band_delta_pct": 0.5,  # 破带带宽 δ%

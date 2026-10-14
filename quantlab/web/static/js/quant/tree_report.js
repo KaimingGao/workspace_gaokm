@@ -1,6 +1,6 @@
 /**
- * ŷ_τc_tree / ŷ_τ30_tree 影子对照：KPI + 分 τ 曲线 + 增益条。
- * 不写 live。调仓三头与 ŷ_τ* 头可在历史回测里选 Tree。
+ * ŷ_τ30…ŷ_τ90_tree horizon 对照：KPI + 分 τ 曲线 + 增益条。
+ * 不写 live。调仓影子树头（oo/τc/co）已下线；做 T 回测可选 horizon Tree。
  */
 import { escapeHtml } from "../shared.js";
 import { metricCell, researchGridHtml } from "./research_grid.js";
@@ -355,9 +355,6 @@ function tauPanel(treeOos, ridgeOos) {
  */
 export function treeReportHtml(data, opts = {}) {
   if (!data || typeof data !== "object" || !data.success) return "";
-  const isR = opts.head === "r";
-  const isOo = opts.head === "oo";
-  const isCo = opts.head === "co";
   const isT30 = opts.head === "t30";
   const isT45 = opts.head === "t45";
   const isT60 = opts.head === "t60";
@@ -373,13 +370,7 @@ export function treeReportHtml(data, opts = {}) {
     ? "ŷ_τ45_tree"
     : isT30
       ? "ŷ_τ30_tree"
-      : isR
-        ? "ŷ_τc_tree"
-        : isOo
-          ? "ŷ_oo_tree"
-          : isCo
-            ? "ŷ_co_tree"
-            : "ŷ_τc_tree";
+      : "ŷ_τ*_tree";
   const isHorizon = isT30 || isT45 || isT60 || isT75 || isT90;
   const ySpec = isT90
     ? "I(mean(price(τ⊕85/90/95))/price(τ)−1>0)"
@@ -391,13 +382,7 @@ export function treeReportHtml(data, opts = {}) {
     ? "I(mean(price(τ⊕40/45/50))/price(τ)−1>0)"
     : isT30
     ? "I(mean(price(τ⊕25/30/35))/price(τ)−1>0)"
-    : isR
-      ? "close/price(τ)−1"
-      : isOo
-        ? "open[T+1]/open[T]−1"
-        : isCo
-          ? "open[T+1]/close[T]−1"
-          : "τ→close";
+    : "horizon";
   const headKey = isT90
     ? "t90"
     : isT75
@@ -408,20 +393,13 @@ export function treeReportHtml(data, opts = {}) {
           ? "t45"
           : isT30
             ? "t30"
-            : isR
-              ? "r"
-              : isOo
-                ? "oo"
-                : isCo
-                  ? "co"
-                  : "tau";
+            : "tau";
   const boost = data.oos || {};
   const ridge = data.ridge_oos || {};
   const delta = data.delta_vs_ridge || {};
   const openB = (boost.by_tau && boost.by_tau["09:30"]) || {};
   const openR = (ridge.by_tau && ridge.by_tau["09:30"]) || {};
-  // 日线头无 τ 网格，「开盘命中」不适用
-  const showOpenHit = !(isOo || isCo);
+  const showOpenHit = true;
   const bucketN = (pack, key) => {
     const n = Number((pack && pack.buckets && pack.buckets[key] && pack.buckets[key].n) || 0);
     return Number.isFinite(n) ? n : 0;

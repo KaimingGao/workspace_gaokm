@@ -31,6 +31,7 @@ EXPERIMENTS_DIR = os.path.join(DATA_DIR, "experiments")
 # τ→close 的登记名是 tc_*。tau_* 只保留旧目录和旧调用。
 _CANONICAL_MODEL_TYPE = {
     "tau_ridge": "tc_ridge",
+    # 影子 τc_tree 已下线；别名仅兼容历史实验目录检索
     "tau_tree": "tc_tree",
 }
 _LEGACY_MODEL_TYPE = {canon: legacy for legacy, canon in _CANONICAL_MODEL_TYPE.items()}
@@ -85,7 +86,7 @@ def start_experiment(
     """开始一个实验，返回 experiment_id。
 
     Args:
-        model_type: 模型类型，如 "tc_tree" / "oo_rank" / "ridge"
+        model_type: 模型类型，如 "t30_tree" / "oo_rank" / "tc_ridge"
         config: 训练配置（超参、因子集、数据窗口、标签等）
         experiment_id: 自定义 ID；默认自动生成
         tags: 标签，如 {"dataset": "csi300", "author": "your_name"}
@@ -341,8 +342,8 @@ def track_fit_report(
 
     用法::
 
-        report = fit_tau_tree_report(bars, backend="lightgbm", ...)
-        track_fit_report("tc_tree", {"backend": "lightgbm", ...}, report)
+        report = fit_horizon_tree_report(...)
+        track_fit_report("t30_tree", {"backend": "lightgbm", ...}, report)
     """
     metrics: Dict[str, Any] = {}
     rpt = report or {}

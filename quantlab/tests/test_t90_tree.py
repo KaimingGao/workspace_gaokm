@@ -82,17 +82,14 @@ def _has_lightgbm() -> bool:
 
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestT90Tree(unittest.TestCase):
-    def test_defaults_match_tau_tree(self):
-        from core.research.tc_tree import DEFAULT_N_ESTIMATORS
+    def test_defaults_and_schema(self):
+        from core.research.horizon_tree import _horizon_tree_config
+        from core.research.horizon_lgb import DEFAULT_N_ESTIMATORS
 
-        TREE_HEAD = "y_t90_tree"
-        TREE_SCHEMA = "t90_tree_shadow_v5"
-        from core.research.tc_tree import DEFAULT_N_ESTIMATORS as TAU_N
-
+        cfg = _horizon_tree_config("t90")
         self.assertEqual(DEFAULT_N_ESTIMATORS, 300)
-        self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
-        self.assertEqual(TREE_HEAD, "y_t90_tree")
-        self.assertEqual(TREE_SCHEMA, "t90_tree_shadow_v5")
+        self.assertEqual(cfg["head_label"], "y_t90_tree")
+        self.assertEqual(cfg["schema"], "t90_tree_shadow_v5")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.horizon_ridge import load_ridge_model, persist_ridge_model
@@ -153,7 +150,9 @@ class TestT90Tree(unittest.TestCase):
         self.assertIn("fit_s", timing)
         self.assertEqual((report.get("hyperparams") or {}).get("n_estimators"), 20)
 
-        blocked = persist_ridge_model("t90", report, note="should fail", force=True)
+        blocked = persist_ridge_model(
+            "t90", report, note="should fail", force=True, role="research"
+        )
         self.assertFalse(blocked.get("success"))
 
         with tempfile.TemporaryDirectory() as tmp:

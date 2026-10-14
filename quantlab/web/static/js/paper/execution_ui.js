@@ -670,11 +670,6 @@ export function fillPathMatrixForm(root, execution) {
     pm.fusion_w_oo != null ? pm.fusion_w_oo : 0.9,
     pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.1
   );
-  const backendEl = document.getElementById("quant-score-backend");
-  if (backendEl && pm.score_backend) {
-    const bv = String(pm.score_backend).toLowerCase();
-    backendEl.value = bv === "tree" ? "tree" : "ridge";
-  }
   let lotBase = clampLotAmount(pm.lot_base_amount, 10000);
   let lotStrong = clampLotAmount(
     pm.lot_strong_amount,
@@ -800,11 +795,7 @@ export function collectPathMatrixForm(root) {
     // 仅回测钟；不写 live_fill_clock，避免拖动自动调仓窗。
     lots.fill_clock = String(clockEl.value).replace("：", ":").trim().slice(0, 5);
   }
-  const backendEl = document.getElementById("quant-score-backend");
-  if (backendEl && backendEl.value) {
-    const bv = String(backendEl.value).toLowerCase();
-    lots.score_backend = bv === "tree" ? "tree" : "ridge";
-  }
+  lots.score_backend = "ridge";
   return {
     lock: true,
     rebalance_timing: {

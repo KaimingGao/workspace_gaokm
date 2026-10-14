@@ -65,16 +65,6 @@
             <option value="live">执行</option>
           </select>
         </label>
-        <label
-          class="platform-field quant-pro-field replay-lookback-field replay-score-backend-field"
-          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合）。缺模型的头回退 Ridge。ŷ_oo_rank：成交明细 oo_rank=当日截面 1..n 名次（1=最高），不进 fuse / y_oo_fuse；过入场后作买序。「其他」rank 入场（默认 10）：须 max(oo_rank, τc_rank)&lt;门槛。ŷ_τc_rank：成交明细 τc_rank 列；参与 max 入场闸，不进 fuse / 不改买序。"
-        >
-          <span class="quant-pro-field-label">ŷ头</span>
-          <select id="quant-score-backend">
-            <option value="ridge" selected>Ridge</option>
-            <option value="tree">Tree</option>
-          </select>
-        </label>
         <fieldset
           class="platform-field quant-pro-field replay-lookback-field replay-pred-tier-field"
           title="复用研究枢纽「观察池分档」过滤宇宙；勾选同步到 live 调仓（掉出允许档则清仓）。回测天数仍用左侧「窗口」。须先跑枢纽分档。不勾=回测与 live 均不过滤。"
@@ -339,7 +329,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-horizon-backend-field"
-          title="ŷ_τ30/45/60/75/90：ridge=logistic Ridge（默认）；tree=影子树+路径形状（须先拟合并写入 *_tree_model.json）。仅影响 ŷ_τw 投票，不改 ŷ_τc / C_τ。"
+          title="ŷ_τ30/45/60/75/90：ridge=logistic Ridge（默认）；tree=horizon LightGBM+路径形状（须先拟合并写入 *_tree_model.json）。仅影响 ŷ_τw 投票，不改 ŷ_τc / C_τ。"
         >
           <span class="quant-pro-field-label">ŷ_τ*头</span>
           <select id="paper-t0-horizon-prob-backend" name="horizon_prob_backend" form="paper-t0-form">

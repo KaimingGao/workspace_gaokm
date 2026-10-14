@@ -10276,7 +10276,7 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   margin: 0;
 }
 
-/* ŷ_τ30…90 已改用 quant-primary-fold，卡间距随主头规则 */
+/* ŷ_τ30…90：quant-primary-fold，壳与卡间距对齐 ŷ_oo（无 secondary 外壳） */
 
 .quant-page .quant-rem-coef-head {
   display: flex;
@@ -10999,10 +10999,7 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   }
 }
 
-/* ── ŷ_*_tree 对照表宿主 ── */
-.quant-page #quant-oo-tree-result.quant-weight-table-wrap,
-.quant-page #quant-tau-tree-result.quant-weight-table-wrap,
-.quant-page #quant-co-tree-result.quant-weight-table-wrap,
+/* ── ŷ_τ*_tree 对照表宿主（horizon） ── */
 .quant-page #quant-t30-tree-result.quant-weight-table-wrap,
 .quant-page #quant-t45-tree-result.quant-weight-table-wrap,
 .quant-page #quant-t60-tree-result.quant-weight-table-wrap,

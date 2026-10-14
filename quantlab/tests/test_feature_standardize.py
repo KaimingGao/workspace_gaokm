@@ -63,7 +63,7 @@ class TestFeatureZscore(unittest.TestCase):
             is_cross_section_zscore,
             stamp_cross_section_zscore,
         )
-        from core.research.tc_tree import prepare_lgb_features
+        from core.research.horizon_lgb import prepare_lgb_features
 
         xs = [
             {"a": 0.0, "b": 10.0},

@@ -110,8 +110,10 @@ class TestResearchTask(unittest.TestCase):
 
         self.assertEqual(research_head_method("tc_ridge"), "run_tau_ridge_experiment")
         self.assertEqual(research_head_method("tau_ridge"), "run_tau_ridge_experiment")
-        self.assertEqual(research_head_method("tc_tree"), "run_tau_tree_experiment")
-        self.assertEqual(research_head_method("tau_tree"), "run_tau_tree_experiment")
+        self.assertIsNone(research_head_method("tc_tree"))
+        self.assertIsNone(research_head_method("tau_tree"))
+        self.assertIsNone(research_head_method("oo_tree"))
+        self.assertIsNone(research_head_method("co_tree"))
         self.assertEqual(research_head_method("oo_rank"), "run_oo_rank_experiment")
         self.assertEqual(research_head_method("tc_rank"), "run_tc_rank_experiment")
         self.assertTrue(hasattr(QuantService, "run_research_task"))

@@ -321,8 +321,7 @@ export function formatScoreHero(raw) {
       `</div>`
     );
   }
-  const treeOo = isTreeHead(raw, "eod");
-  const y = treeOo ? resolveEodScore(raw) : resolveYhat(raw);
+  const y = resolveYhat(raw);
   const yTxt = y == null ? "—" : `${fmtSigned(y, 3)}%`;
   const below = !!raw.below_min_score;
   const floor =
@@ -341,9 +340,9 @@ export function formatScoreHero(raw) {
     `<div class="score-hero-label">ŷ_oo · 隔夜主轴</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(yTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">${
-      treeOo ? "Tree · 下表合计与表列同口径" : "ŷ = α + Σ β·z（百分点）"
-    } · ${escapeText(formatEodAsOfHint(raw))} · 买入门槛` +
+    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点） · ${escapeText(
+      formatEodAsOfHint(raw)
+    )} · 买入门槛` +
     (raw &&
     raw.heuristic_score != null &&
     Number.isFinite(Number(raw.heuristic_score))
@@ -398,9 +397,7 @@ function formatCompactEodTip(raw) {
     `<div class="score-hero-label">y_oo</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(val)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ_oo · ${escapeText(formatEodAsOfHint(raw))} · ${suiteBit}${
-      isTreeHead(raw, "eod") ? "Tree · 下表合计与表列同口径" : "α+Σβ·z"
-    }</div>` +
+    `<div class="score-hero-hint">ŷ_oo · ${escapeText(formatEodAsOfHint(raw))} · ${suiteBit}α+Σβ·z</div>` +
     gate +
     `</div>`
   );
@@ -462,9 +459,8 @@ function formatCompactTauTip(raw) {
         : null;
   let yTo = pickTauToPct(raw);
   if (yTo == null && fit != null && rot != null) yTo = remainingAtTauPct(fit, rot);
-  const hint = isTreeHead(raw, "tau")
-    ? `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Tree · 下表合计与表列同口径`
-    : !hasTerms && (yTo != null || rot != null)
+  const hint =
+    !hasTerms && (yTo != null || rot != null)
       ? `τ=${escapeText(tau)} · 本槽未跑 τc Ridge · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
       : `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · α+Σβ·z`;
   return (
@@ -1026,9 +1022,7 @@ function formatCompactOnTip(raw) {
     `<div class="score-hero-label">y_co</div>` +
     `<div class="score-hero-value ${signCls(on)}">${escapeText(val)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ_co · ${escapeText(String(ySpec))} · ${
-      isTreeHead(raw, "on") ? "Tree · 下表合计与表列同口径" : "α+Σβ·z"
-    }</div>` +
+    `<div class="score-hero-hint">ŷ_co · ${escapeText(String(ySpec))} · α+Σβ·z</div>` +
     pathLine +
     `</div>`
   );
@@ -1117,12 +1111,9 @@ export function formatRemScoreSection(raw) {
   const compose = featRows.length
     ? `<div class="score-layer-compose">${featRows.join("")}</div>`
     : "";
-  const treeTc = isTreeHead(raw, "tau");
   const body = !hasRem
     ? `<div class="score-hero-hint">未产出（需 ŷ_τc 模型）</div>`
-    : treeTc
-      ? `<div class="score-hero-hint">Tree · 下表合计与表列同口径</div>`
-      : hasTauTerms
+    : hasTauTerms
       ? `${compose}<div class="score-hero-hint">组成见表「ŷ_τc 组成」· 与表列 / 合计同口径</div>`
       : compose ||
         `<div class="score-hero-hint">τ=${escapeText(tau)} · y=${escapeText(
@@ -1135,9 +1126,7 @@ export function formatRemScoreSection(raw) {
     `<div class="score-hero-label">ŷ_τc · price(τ) / close（拟合）</div>` +
     `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · ${
-      treeTc ? "Tree" : "拟合原值"
-    }</div>` +
+    `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 拟合原值</div>` +
     body +
     (warn ? `<div class="score-hero-hint">${escapeText(warn)}</div>` : "") +
     `</div>`
@@ -1525,29 +1514,6 @@ export function formatWeightSourceNote(raw) {
   return `<div class="score-weight-section">${bits.join("")}</div>`;
 }
 
-function isTreeHead(raw, key) {
-  const k = String(key || "eod");
-  if (k === "tau" || k === "r") {
-    return String((raw && (raw["y_τc_source"] || raw.y_tc_source)) || "").toLowerCase() === "tree";
-  }
-  if (k === "on" || k === "co") {
-    return String((raw && (raw.y_co_source || raw.y_on_source)) || "").toLowerCase() === "tree";
-  }
-  if (k === "eod" || k === "oo") {
-    return String((raw && raw.y_oo_source) || "").toLowerCase() === "tree";
-  }
-  return false;
-}
-
-function formatTreeHeadNote(label) {
-  return (
-    `<div class="score-formula-section">` +
-    `<div class="score-section-title">${escapeText(label)} · Tree</div>` +
-    `<div class="score-formula-caption">这行没有树的贡献拆解，无法核对合计。重新跑回测后，合计与表列分数同口径。</div>` +
-    `</div>`
-  );
-}
-
 /** 分项拆解表：因子 / β / z / 贡献。有 terms 时优先于纯系数表。 */
 function formulaExpl(raw, key) {
   return key === "tau"
@@ -1586,19 +1552,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   if (key === "hl") return ""; // path-ridge / hl tip retired
   const expl = formulaExpl(raw, key);
   const treeTable = String((expl && expl.model_role) || "").toLowerCase() === "tree";
-  if (isTreeHead(raw, key) && !treeTable) {
-    const label =
-      key === "tau" || key === "r"
-        ? "ŷ_τc"
-        : key === "on" || key === "co"
-          ? "ŷ_co"
-          : key === "tc_rank"
-            ? "ŷ_τc_rank"
-            : key === "oo_rank" || key === "rank"
-            ? "ŷ_oo_rank"
-            : "ŷ_oo";
-    return formatTreeHeadNote(label);
-  }
   if (!expl || typeof expl !== "object") return "";
   const termsAll = Array.isArray(expl.terms) ? expl.terms : [];
   let terms = termsAll.filter(
@@ -2160,7 +2113,6 @@ export function formatTailAnomalySection(raw) {
 /** 仅系数表（无分项拆解时回退）。opts.key=tau → ŷ_τc β。 */
 export function formatFactorWeightsSection(raw, opts = {}) {
   const key = opts.key || "eod";
-  if (isTreeHead(raw, key)) return "";
   if (key === "tau") {
     const expl = raw && (raw.formula_terms_tau || raw.score_formula_terms_tau);
     if (expl && Array.isArray(expl.terms) && expl.terms.length) return "";

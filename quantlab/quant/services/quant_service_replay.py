@@ -446,7 +446,7 @@ class QuantReplayMixin:
                         else ""
                     )
                 )
-                + ("；ŷ头=Tree" if backend == "tree" else "；ŷ头=Ridge")
+                + "；ŷ头=Ridge"
                 + f"，开加不按纸面 max_positions={max_positions} 截断）；"
                 "现金用完即止。"
             ),

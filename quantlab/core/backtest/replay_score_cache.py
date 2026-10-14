@@ -206,25 +206,6 @@ def model_suite_fingerprint(
     except Exception:  # noqa: BLE001
         logger.debug("replay score cache rank paths failed", exc_info=True)
 
-    if backend == "tree":
-        try:
-            from core.research.co_tree import co_tree_model_path
-            from core.research.holdout import research_model_path
-            from core.research.oo_tree import oo_tree_model_path
-            from core.research.tc_tree import tau_tree_model_path
-
-            for live in (
-                oo_tree_model_path(),
-                tau_tree_model_path(),
-                co_tree_model_path(),
-            ):
-                if role == "live":
-                    paths.append(live)
-                else:
-                    paths.extend([research_model_path(live), live])
-        except Exception:  # noqa: BLE001
-            logger.debug("replay score cache tree paths failed", exc_info=True)
-
     bits = [f"role={role}", f"backend={backend}"]
     bits.extend(_file_fp(p) for p in paths)
     return hashlib.sha1("|".join(bits).encode("utf-8")).hexdigest()[:20]

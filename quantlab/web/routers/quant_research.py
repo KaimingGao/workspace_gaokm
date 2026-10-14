@@ -14,8 +14,6 @@ from web.schemas import (
     CoRidgeRequest,
     OoRankRequest,
     TcRankRequest,
-    OoTreeRequest,
-    CoTreeRequest,
     T30RidgeRequest,
     T45RidgeRequest,
     T60RidgeRequest,
@@ -27,7 +25,6 @@ from web.schemas import (
     T75TreeRequest,
     T90TreeRequest,
     TauRidgeRequest,
-    TauTreeRequest,
     ThresholdSuggestRequest,
     WeightSuggestRequest,
     YhatResidualShadowRequest,
@@ -108,96 +105,6 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
             watching_limit=body.watching_limit,
             ridge_lambda=body.ridge_lambda,
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.post("/api/quant/oo-tree")
-
-def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
-    """ŷ_oo_tree + 同 Holdout Ridge；写入 oo_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
-    try:
-        return deps.quant.run_oo_tree_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            horizon_days=body.horizon_days,
-            ridge_lambda=body.ridge_lambda,
-            holdout_trading_days=body.holdout_trading_days,
-            window_days=body.window_days,
-            step_days=body.step_days,
-            cross_section_zscore=bool(body.cross_section_zscore),
-            backend=body.backend,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.get("/api/quant/oo-tree/last")
-
-def quant_oo_tree_last() -> Dict[str, Any]:
-    """读取上次 ŷ_oo_tree（oo_tree_last_report.json）；不进打分。"""
-    try:
-        return deps.quant.get_oo_tree_last_report()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.post("/api/quant/tau-tree")
-
-def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
-    """ŷ_τ_tree + 同 Holdout Ridge；写入 tc_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
-    try:
-        return deps.quant.run_tau_tree_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            watching_tier_a_only=body.watching_tier_a_only,
-            ridge_lambda=body.ridge_lambda,
-            gap_trigger_pct=body.gap_trigger_pct,
-            theme_boost=body.theme_boost,
-            tau_hm=body.tau_hm,
-            tau_end_hm=body.tau_end_hm,
-            holdout_trading_days=body.holdout_trading_days,
-            window_days=body.window_days,
-            step_days=body.step_days,
-            cross_section_zscore=bool(body.cross_section_zscore),
-            backend=body.backend,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.get("/api/quant/tau-tree/last")
-
-def quant_tau_tree_last() -> Dict[str, Any]:
-    """读取上次 ŷ_τ_tree（tau_tree_last_report.json）；不进打分。"""
-    try:
-        return deps.quant.get_tau_tree_last_report()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.post("/api/quant/co-tree")
-
-def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
-    """ŷ_co_tree + 同 Holdout Ridge；写入 co_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
-    try:
-        return deps.quant.run_co_tree_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            watching_tier_a_only=body.watching_tier_a_only,
-            ridge_lambda=body.ridge_lambda,
-            gap_trigger_pct=body.gap_trigger_pct,
-            theme_boost=body.theme_boost,
-            holdout_trading_days=body.holdout_trading_days,
-            window_days=body.window_days,
-            step_days=body.step_days,
-            cross_section_zscore=bool(body.cross_section_zscore),
-            backend=body.backend,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.get("/api/quant/co-tree/last")
-
-def quant_co_tree_last() -> Dict[str, Any]:
-    """读取上次 ŷ_co_tree（co_tree_last_report.json）；不进打分。"""
-    try:
-        return deps.quant.get_co_tree_last_report()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -323,7 +230,7 @@ def quant_oo_rank_model() -> Dict[str, Any]:
 @router.post("/api/quant/tc-rank")
 
 def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
-    """ŷ_τc_rank：同窗 LambdaRank+Ridge（标签 close/open−1）。persist 按 NDCG@K 落盘；不改买序；与 oo_rank 共用 rank 入场。"""
+    """ŷ_τc_rank：同窗 LambdaRank+Ridge（标签 price[τ]→close[T]）。persist 按 NDCG@K 落盘；不改买序；与 oo_rank 共用 rank 入场。"""
     try:
         return deps.quant.run_tc_rank_experiment(
             lookback=body.lookback,

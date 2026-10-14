@@ -228,7 +228,7 @@ class TestWebApi(unittest.TestCase):
         self.assertEqual(run_bt.call_args.kwargs.get("score_model_role"), "live")
         self.assertEqual(run_bt.call_args.kwargs.get("score_backend"), "ridge")
 
-    def test_quant_portfolio_backtest_passes_tree_score_backend(self):
+    def test_quant_portfolio_backtest_forces_ridge_score_backend(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
 
@@ -251,7 +251,7 @@ class TestWebApi(unittest.TestCase):
                 },
             )
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(run_bt.call_args.kwargs.get("score_backend"), "tree")
+        self.assertEqual(run_bt.call_args.kwargs.get("score_backend"), "ridge")
         self.assertEqual(run_bt.call_args.kwargs.get("score_model_role"), "research")
 
     def test_quant_portfolio_backtest_defaults_to_job(self):

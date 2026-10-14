@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from core.data.policy import BARS_DAILY_LOOKBACK
-from core.research.tc_tree import DEFAULT_TREE_STEP_DAYS, DEFAULT_TREE_WINDOW_DAYS
 from core.watching.store import MODEL_FIT_MAX_SIZE
 
 FIT_LOOKBACK_MIN = 100
@@ -31,22 +30,6 @@ class _CrossSectionZscore(BaseModel):
         description="True=日截面 z；False=训练样本内全局 μ/σ",
     )
 
-
-class _TreeSlideWindow(BaseModel):
-    """oo/tc/co_tree：训练日滑窗 + LightGBM init_model 增量。"""
-
-    window_days: int = Field(
-        default=DEFAULT_TREE_WINDOW_DAYS,
-        ge=0,
-        le=500,
-        description="训练日滑窗宽度（0=全样本一次训）；每窗 LightGBM init_model 增量",
-    )
-    step_days: int = Field(
-        default=DEFAULT_TREE_STEP_DAYS,
-        ge=1,
-        le=200,
-        description="滑窗步长（交易日）",
-    )
 
 
 
@@ -142,96 +125,6 @@ class TauRidgeRequest(_WatchingTierAOnly):
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tau-ridge",
-    )
-
-
-class OoTreeRequest(_TreeSlideWindow, _CrossSectionZscore):
-    """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，调仓回测选 Tree。不进 live。"""
-
-    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
-    watching_limit: int = Field(
-        default=MODEL_FIT_MAX_SIZE,
-        ge=2,
-        le=MODEL_FIT_MAX_SIZE,
-        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
-    )
-    horizon_days: int = Field(default=1, ge=1, le=10)
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
-    holdout_trading_days: int = Field(
-        default=20,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进训练，与 Ridge 对照共用",
-    )
-    backend: Optional[str] = Field(
-        default="lightgbm",
-        description="仅 lightgbm",
-        max_length=16,
-    )
-
-
-class CoTreeRequest(_WatchingTierAOnly, _TreeSlideWindow, _CrossSectionZscore):
-    """ŷ_co_tree：隔夜缺口面板 Holdout vs Ridge。写入 co_tree_model.json，调仓回测选 Tree。不进 live。"""
-
-    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
-    watching_limit: int = Field(
-        default=MODEL_FIT_MAX_SIZE,
-        ge=2,
-        le=MODEL_FIT_MAX_SIZE,
-        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
-    )
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
-    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
-    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
-    holdout_trading_days: int = Field(
-        default=20,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进训练，与 Ridge 对照共用",
-    )
-    backend: Optional[str] = Field(
-        default="lightgbm",
-        description="仅 lightgbm",
-        max_length=16,
-    )
-
-
-class TauTreeRequest(_WatchingTierAOnly, _TreeSlideWindow, _CrossSectionZscore):
-    """ŷ_τc_tree：同面板 Holdout vs Ridge。写入 tc_tree_model.json，调仓回测选 Tree。不进 live。"""
-
-    lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
-    watching_limit: int = Field(
-        default=MODEL_FIT_MAX_SIZE,
-        ge=2,
-        le=MODEL_FIT_MAX_SIZE,
-        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
-    )
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
-    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
-    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
-    holdout_trading_days: int = Field(
-        default=20,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进训练，与 Ridge 对照共用",
-    )
-    tau_hm: Optional[str] = Field(
-        default=None,
-        description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau（开则训 09:30…11:00 网格）",
-        max_length=8,
-    )
-    tau_end_hm: Optional[str] = Field(
-        default=None,
-        description=(
-            "训练前缀终点 09:30…11:00（每 5m）；"
-            "09:30=0 前缀（标签 open→close）；缺省跟随 enable_minute_tau / tau_hm"
-        ),
-        max_length=8,
-    )
-    backend: Optional[str] = Field(
-        default="lightgbm",
-        description="仅 lightgbm",
-        max_length=16,
     )
 
 
@@ -469,7 +362,7 @@ class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
 
 
 class TcRankRequest(OoRankRequest):
-    """ŷ_τc_rank：同窗 LambdaRank+Ridge；标签 close/open−1。启用只落盘；不进 fuse、不改买序；与 oo_rank 共用 rank 入场。"""
+    """ŷ_τc_rank：同窗 LambdaRank+Ridge；标签 price[τ]→close[T]。启用只落盘；不进 fuse、不改买序；与 oo_rank 共用 rank 入场。"""
 
 
 class T30RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):

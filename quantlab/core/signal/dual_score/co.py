@@ -123,19 +123,8 @@ def apply_co_score_fields(
     signal_item["dual_score_co_head"] = "predicted_score_on"
 
     formula_terms_co = None
-    src = str(source or signal_item.get("y_co_source") or "").strip().lower()
-    if feat_snap and src == "tree":
-        try:
-            from core.research.co_tree import load_co_tree_model
-            from core.research.horizon_tree import tree_tip_formula
-
-            formula_terms_co = tree_tip_formula(
-                feat_snap, load_co_tree_model(), y_hat=co_yhat
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("tree tip ŷ_co failed", exc_info=True)
-            formula_terms_co = None
-    elif feat_snap:
+    _ = source
+    if feat_snap:
         try:
             from core.research.co_ridge import explain_co_prediction
 
@@ -145,8 +134,7 @@ def apply_co_score_fields(
         except Exception:  # noqa: BLE001
             logger.debug("explain_co_prediction failed", exc_info=True)
             formula_terms_co = None
-    if src:
-        signal_item["y_co_source"] = src
+    signal_item["y_co_source"] = "ridge"
     if isinstance(formula_terms_co, dict):
         formula_terms_co = dict(formula_terms_co)
         formula_terms_co["y_on"] = co_yhat
@@ -236,15 +224,6 @@ def ensure_formula_terms_co(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         return False
 
     if (
-        str(item.get("y_co_source") or "").strip().lower() == "tree"
-        or (
-            isinstance(existing, dict)
-            and str(existing.get("model_role") or "").strip().lower() == "tree"
-        )
-    ):
-        return existing if isinstance(existing, dict) else None
-
-    if (
         isinstance(existing, dict)
         and isinstance(existing.get("terms"), list)
         and existing["terms"]
@@ -299,8 +278,6 @@ def attach_co_score_pit(
     try:
         from core.research.co_panel import build_co_features_from_quote_bars
         from core.research.co_ridge import predict_co_from_features
-        from core.research.co_tree import load_co_tree_model, predict_co_tree_from_features
-        from core.research.return_tree import predict_return_head
 
         q = quote if isinstance(quote, dict) else {}
         from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
@@ -336,19 +313,13 @@ def attach_co_score_pit(
             prior = signal_item.get("features_on")
         if isinstance(prior, dict):
             feats = merge_co_features(feats, prior)
-        co_yhat, co_src = predict_return_head(
-            feats,
-            load_tree=load_co_tree_model,
-            predict_tree=predict_co_tree_from_features,
-            predict_ridge=predict_co_from_features,
-            ridge_model=co_model_doc,
-        )
+        co_yhat = predict_co_from_features(feats, model_doc=co_model_doc)
         apply_co_score_fields(
             signal_item,
             co_yhat=co_yhat,
             feats=feats,
             co_model_doc=co_model_doc,
-            source=co_src,
+            source="ridge" if co_yhat is not None else "",
         )
     except Exception:  # noqa: BLE001
         logger.debug("attach_co_score_pit failed", exc_info=True)

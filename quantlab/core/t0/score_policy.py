@@ -261,8 +261,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     if eod_terms and (eod_terms.get("terms") or eod_terms.get("intercept") is not None):
         out["score_formula_terms"] = eod_terms
     coefs = _slim_factor_coefs(item.get("factor_coefficients"))
-    if str(item.get("y_oo_source") or "").strip().lower() == "tree":
-        coefs = None
     if coefs:
         out["factor_coefficients"] = coefs
 
@@ -274,13 +272,8 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     if tau_terms and (tau_terms.get("terms") or tau_terms.get("total") is not None):
         out["formula_terms_tau"] = tau_terms
         out["score_formula_terms_tau"] = tau_terms
-    tau_src = str(item.get("y_τc_source") or "").strip().lower()
     coefs_tau = _slim_factor_coefs(item.get("factor_coefficients_tau"))
-    if (
-        tau_src != "tree"
-        and not coefs_tau
-        and (tau_terms or item.get("predicted_score_tau") is not None)
-    ):
+    if not coefs_tau and (tau_terms or item.get("predicted_score_tau") is not None):
         try:
             from core.signal.dual_score import rem_factor_coefficients_public
 
@@ -307,24 +300,21 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         limit=12,
     )
     if not r_terms or not (r_terms.get("terms") or r_terms.get("total") is not None):
-        if tau_src == "tree":
-            r_terms = None
-        else:
-            try:
-                from core.research.tc_ridge import explain_tau_prediction, load_tau_model
+        try:
+            from core.research.tc_ridge import explain_tau_prediction, load_tau_model
 
-                feats_r = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-                if not feats_r:
-                    feats_r = (
-                        item.get("features_path")
-                        if isinstance(item.get("features_path"), dict)
-                        else {}
-                    )
-                expl_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
-                r_terms = _slim_formula_terms(expl_r, limit=12)
-            except Exception:  # noqa: BLE001
-                logger.debug("r tip explain fallback failed", exc_info=True)
-                r_terms = None
+            feats_r = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+            if not feats_r:
+                feats_r = (
+                    item.get("features_path")
+                    if isinstance(item.get("features_path"), dict)
+                    else {}
+                )
+            expl_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
+            r_terms = _slim_formula_terms(expl_r, limit=12)
+        except Exception:  # noqa: BLE001
+            logger.debug("r tip explain fallback failed", exc_info=True)
+            r_terms = None
     if r_terms and (r_terms.get("terms") or r_terms.get("total") is not None):
         out["formula_terms_r"] = r_terms
         out["score_formula_terms_r"] = r_terms
@@ -1970,23 +1960,12 @@ def _refresh_tau_oc_from_feats(
         item["as_of_tau"] = as_of
         item["rem_tau"] = as_of
     expl_now = item.get("formula_terms_tau")
-    src = ""
+    src = "ridge"
     try:
-        from core.research.horizon_tree import tree_tip_formula
-        from core.research.return_tree import predict_return_head
         from core.research.tc_ridge import explain_tau_prediction, predict_tau_from_features
-        from core.research.tc_tree import load_tau_tree_model, predict_tau_tree_from_features
 
-        yhat, src = predict_return_head(
-            feats,
-            load_tree=load_tau_tree_model,
-            predict_tree=predict_tau_tree_from_features,
-            predict_ridge=predict_tau_from_features,
-        )
-        if str(src) == "tree":
-            expl = tree_tip_formula(feats, load_tau_tree_model(), y_hat=yhat)
-        else:
-            expl = explain_tau_prediction(feats)
+        yhat = predict_tau_from_features(feats)
+        expl = explain_tau_prediction(feats)
     except Exception:  # noqa: BLE001
         logger.debug("refresh tau oc from prefix pack failed", exc_info=True)
         return
@@ -2007,25 +1986,18 @@ def _refresh_tau_oc_from_feats(
         )
         stored = float(aligned) if aligned is not None else yv
         write_y_τc(item, stored)
-        if str(src) == "tree":
-            item["y_τc_source"] = "tree"
-            item["y_τc_tree"] = stored
-            item.pop("y_τc_ridge", None)
-        else:
-            item["y_τc_source"] = "ridge"
-            item["y_τc_ridge"] = stored
+        item["y_τc_source"] = "ridge"
+        item["y_τc_ridge"] = stored
+        item.pop("y_τc_tree", None)
         item["y_tau_raw"] = yv
         item.pop("y_tau", None)
         item.pop("predicted_score_tau", None)
         item["predicted_score_rem"] = stored
         item["score_rem"] = stored
     if isinstance(expl, dict):
-        if str(src) == "tree":
-            out = dict(expl)
-        else:
-            prev = expl_now if isinstance(expl_now, dict) else {}
-            out = dict(prev)
-            out.update(expl)
+        prev = expl_now if isinstance(expl_now, dict) else {}
+        out = dict(prev)
+        out.update(expl)
         if yhat is not None:
             out["y_τc"] = stored
             out["y_tau"] = stored
@@ -2870,16 +2842,6 @@ def _t0_local_fundamentals(code: str) -> Optional[dict]:
     return out
 
 
-def _tree_score_cache_bit() -> int:
-    try:
-        from core.research.return_tree import tree_scores_requested
-
-        return 1 if tree_scores_requested() else 0
-    except Exception:  # noqa: BLE001
-        logger.debug("tree score cache bit failed", exc_info=True)
-        return 0
-
-
 def _eod_item_cache_key(
     raw: str,
     hist: Sequence[dict],
@@ -2928,7 +2890,6 @@ def _eod_item_cache_key(
         int(horizon_days or 1),
         tuple(fund_fp or ()),
         int(idx_n),
-        int(_tree_score_cache_bit()),
     )
 
 
@@ -3052,21 +3013,6 @@ def compute_scores_from_bars(
                 kk = str(k).strip()
                 if kk and kk not in required_factor_keys:
                     required_factor_keys.append(kk)
-        try:
-            from core.research.return_tree import (
-                loaded_return_tree_feature_names,
-                tree_scores_requested,
-            )
-
-            if tree_scores_requested():
-                seen = set(required_factor_keys)
-                for key in loaded_return_tree_feature_names():
-                    kk = str(key or "").strip()
-                    if kk and kk not in seen:
-                        seen.add(kk)
-                        required_factor_keys.append(kk)
-        except Exception:  # noqa: BLE001
-            logger.debug("t0 tree required_factor_keys failed", exc_info=True)
     except Exception:  # noqa: BLE001
         logger.debug("t0 required_factor_keys resolve failed", exc_info=True)
         required_factor_keys = []
@@ -3107,12 +3053,6 @@ def compute_scores_from_bars(
                 default_model=default_rm,
             )
             item = scored[0] if scored else item
-            try:
-                from core.research.return_tree import overlay_oo_tree_on_item
-
-                overlay_oo_tree_on_item(item, window=list(eod_hist), quote=q)
-            except Exception:  # noqa: BLE001
-                logger.debug("t0 overlay y_oo tree failed", exc_info=True)
             if item.get("predicted_score") is not None and item.get("predicted_score_eod") is None:
                 item["predicted_score_eod"] = item.get("predicted_score")
             gaps = [float(g) for g in (pool_gaps or []) if g is not None]
@@ -3221,20 +3161,19 @@ def compute_scores_from_bars(
             if eod_model is None:
                 eod_model = default_rm
             if eod_model is not None:
-                if str(item.get("y_oo_source") or "").strip().lower() != "tree":
-                    if not item.get("score_formula_terms"):
-                        expl = eod_model.explain_prediction(item.get("sub_scores") or {})
-                        if expl:
-                            item["score_formula_terms"] = expl
-                    if not item.get("factor_coefficients"):
-                        coefs = dict(getattr(eod_model, "coefficients", None) or {})
-                        coefs.pop("intercept", None)
-                        if coefs:
-                            item["factor_coefficients"] = {
-                                str(k): float(v)
-                                for k, v in coefs.items()
-                                if _f(v) is not None
-                            }
+                if not item.get("score_formula_terms"):
+                    expl = eod_model.explain_prediction(item.get("sub_scores") or {})
+                    if expl:
+                        item["score_formula_terms"] = expl
+                if not item.get("factor_coefficients"):
+                    coefs = dict(getattr(eod_model, "coefficients", None) or {})
+                    coefs.pop("intercept", None)
+                    if coefs:
+                        item["factor_coefficients"] = {
+                            str(k): float(v)
+                            for k, v in coefs.items()
+                            if _f(v) is not None
+                        }
                 if not item.get("return_model_source"):
                     item["return_model_source"] = "t0_backtest_compute"
         except Exception:  # noqa: BLE001

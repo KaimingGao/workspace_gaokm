@@ -15,6 +15,13 @@ from web.schemas import (
 
 router = APIRouter(tags=["quant"])
 
+
+def _normalize_score_backend(raw: Any) -> str:
+    from core.research.return_tree import normalize_rebalance_score_backend
+
+    return normalize_rebalance_score_backend(raw)
+
+
 _T0_RULE_KEYS = (
     "fill_mode_sell_then_buy",
     "fill_mode_buy_then_sell",
@@ -140,7 +147,7 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "predictability_head": body.predictability_head,
         "price_space_gate": body.price_space_gate,
         "score_model_role": body.score_model_role,
-        "score_backend": body.score_backend,
+        "score_backend": _normalize_score_backend(body.score_backend),
     }
 
 @router.post("/api/quant/portfolio-backtest")
