@@ -452,6 +452,49 @@ export function installResearchUniverseUi(q) {
     );
   }
 
+  function f1PosCell(r) {
+    const v = r && r.f1_pos;
+    const n = v == null ? NaN : Number(v);
+    const p = r && r.precision_pos;
+    const rec = r && r.recall_pos;
+    const nPos = Number((r && r.n_y_pos) || 0);
+    const nValid = Number((r && r.n_valid) || 0);
+    let tip;
+    let text;
+    let cls = "";
+    if (Number.isFinite(n)) {
+      const pBit =
+        p != null && Number.isFinite(Number(p)) ? `P⁺ ${fmtHit(p)}` : "";
+      const rBit =
+        rec != null && Number.isFinite(Number(rec)) ? `R⁺ ${fmtHit(rec)}` : "";
+      tip = [
+        `Holdout 前半 F1⁺（正类=上涨） ${fmtHit(n)}`,
+        pBit,
+        rBit,
+        nPos > 0 ? `看多 ${nPos} 日` : "",
+        "不进 Score / A 档",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      text = fmtHit(n);
+    } else if (nValid > 0 && nPos <= 0) {
+      tip = `Holdout 前半无 ŷ_oo>ε 日（${nValid} 个有效命中日均为看空）· 无法算 F1⁺`;
+      text = "无看多";
+      cls = " is-muted";
+    } else if (nValid > 0) {
+      tip = `Holdout 前半无上涨有效日 · 无法算 F1⁺（P⁺/R⁺ 缺一）`;
+      text = "—";
+    } else {
+      tip = `Holdout 前半无有效 ŷ_oo 样本 · 无法算 F1⁺`;
+      text = "—";
+    }
+    return (
+      `<td class="num quant-ru-ret-cell${cls}" title="${escapeHtml(tip)}">` +
+      `${text}` +
+      `</td>`
+    );
+  }
+
   function stockCell(r) {
     const code = escapeHtml(r.code || "");
     const name = escapeHtml(String(r.name || "").trim() || "—");
@@ -526,7 +569,7 @@ export function installResearchUniverseUi(q) {
       `ŷ_oo Holdout OOS`,
       `Holdout${hold}日前半` +
         (tierN != null && Number.isFinite(Number(tierN)) ? ` · 窗${tierN}日` : "") +
-        ` · r⁺/r⁻看前半 · 指标与等权买持看整段`,
+        ` · r⁺/r⁻/F1⁺看前半 · 指标与等权买持看整段`,
       scoreLab,
       `A档数量 ${aCount} · B档数量 ${bCount} · ${gateLab} · C 其余`,
       liveBit(),
@@ -554,6 +597,7 @@ export function installResearchUniverseUi(q) {
               retCell(r) +
               condRetCell(r, "pos") +
               condRetCell(r, "neg") +
+              f1PosCell(r) +
               scoreCell(r) +
               hitNCell(
                 r.hit_rate,
@@ -581,6 +625,7 @@ export function installResearchUniverseUi(q) {
                 <th class="num" title="Holdout 整段买持收益%（close 首尾，对齐档内平均收益率）">收益</th>
                 <th class="num" title="Holdout 前半 r⁺=mean(y_oo|ŷ_oo&gt;ε)；模型看多日的平均实现收益">r⁺</th>
                 <th class="num" title="Holdout 前半 r⁻=mean(y_oo|ŷ_oo&lt;-ε)；模型看空日的平均实现收益">r⁻</th>
+                <th class="num" title="Holdout 前半 F1⁺（正类=上涨）；tip 含 P⁺/R⁺；不进 Score">F1⁺</th>
                 <th class="num" title="Score = 1/rank(Y_oo) + 1/rank(Y_τc)">Score</th>
                 <th class="num" title="Y_oo 命中率 · 有效样本日">Y_oo</th>
                 <th class="num" title="Y_τc 命中率 · 有效样本日">Y_τc</th>

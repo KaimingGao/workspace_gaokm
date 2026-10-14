@@ -178,6 +178,9 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "n_y_pos": 5,
                     "mean_y_neg": -0.8,
                     "n_y_neg": 3,
+                    "f1_pos": 0.75,
+                    "precision_pos": 0.8,
+                    "recall_pos": 0.7,
                     "yhats": [1, 2],
                     "realized": [1],
                     "dates": ["2026-01-01"],
@@ -192,6 +195,9 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(rows[0]["n_y_pos"], 5)
         self.assertEqual(rows[0]["mean_y_neg"], -0.8)
         self.assertEqual(rows[0]["n_y_neg"], 3)
+        self.assertEqual(rows[0]["f1_pos"], 0.75)
+        self.assertEqual(rows[0]["precision_pos"], 0.8)
+        self.assertEqual(rows[0]["recall_pos"], 0.7)
         self.assertNotIn("yhats", rows[0])
         self.assertNotIn("realized", rows[0])
 
@@ -573,6 +579,48 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertAlmostEqual(float(rows[0]["mean_y_pos"]), 0.25)
         self.assertEqual(rows[0]["n_y_neg"], 1)
         self.assertAlmostEqual(float(rows[0]["mean_y_neg"]), 3.0)
+        # d1 TP (ŷ>0 y>0)；d2 FN (ŷ<0 y>0)；d3 FP (ŷ>0 y<0) → P=1/2 R=1/2 F1=0.5
+        self.assertAlmostEqual(float(rows[0]["precision_pos"]), 0.5)
+        self.assertAlmostEqual(float(rows[0]["recall_pos"]), 0.5)
+        self.assertAlmostEqual(float(rows[0]["f1_pos"]), 0.5)
+
+    def test_f1_pos_none_when_no_predicted_up(self):
+        """全看空：P⁺/F1⁺ 为 None（展示「无看多」）。"""
+        from core.research.predictability_tiers import (
+            _absorb_holdout_row,
+            _f1_pos_from_counts,
+            _rows_from_acc,
+        )
+
+        f1, p, r = _f1_pos_from_counts(0, 0, 3)
+        self.assertIsNone(f1)
+        self.assertIsNone(p)
+        self.assertAlmostEqual(float(r), 0.0)
+
+        acc = {}
+        tier = {"d1", "d2"}
+        for d, y in (("d1", 1.0), ("d2", -1.0)):
+            _absorb_holdout_row(
+                acc,
+                code="000001",
+                date=d,
+                pred=-1.0,
+                y=y,
+                tier_set=tier,
+                yhat_eps=0.05,
+            )
+        rows, _counts, _min_n = _rows_from_acc(
+            acc,
+            pool_codes=["000001"],
+            watch_set={"000001"},
+            pad_missing=False,
+            a_count=1,
+            b_count=0,
+        )
+        self.assertIsNone(rows[0]["f1_pos"])
+        self.assertIsNone(rows[0]["precision_pos"])
+        self.assertAlmostEqual(float(rows[0]["recall_pos"]), 0.0)
+        self.assertEqual(rows[0]["n_y_pos"], 0)
 
     def test_ew_hold_skips_sparse_last_day(self):
         """末日仅少数票有 K 线时，不得用该稀疏截面作等权买持终点。"""

@@ -13,6 +13,8 @@
 - 每票 ``realized_pct`` = 同窗 close 首尾买持收益%（分档表「收益」列）
 - 每票 ``mean_y_pos`` = Holdout **前半** mean(y_oo | ŷ_oo>ε)（分档表「r⁺」；多头条件收益）
 - 每票 ``mean_y_neg`` = Holdout **前半** mean(y_oo | ŷ_oo<-ε)（分档表「r⁻」；空头条件收益）
+- 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = Holdout **前半** 方向二分类
+  （正类=上涨；与命中同死区；**仅展示**，不进 Score / A 档门槛）
 
 研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score 只用 ŷ_oo 序。
 有研究套时面板只拉 **Holdout + 因子暖窗**；无 ŷ_oo 研究套现训才用 ``lookback`` 全窗。
@@ -166,6 +168,9 @@ _SLIM_ROW_KEYS = (
     "n_y_pos",
     "mean_y_neg",
     "n_y_neg",
+    "f1_pos",
+    "precision_pos",
+    "recall_pos",
 )
 
 
@@ -610,6 +615,22 @@ def _sign_hit_pair(
     return (yh > 0) == (ry > 0)
 
 
+def _f1_pos_from_counts(
+    tp: int, fp: int, fn: int
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """正类=上涨：返回 ``(f1, precision, recall)``；无看多或无上涨日时对应项为 None。"""
+    tp_i = max(0, int(tp or 0))
+    fp_i = max(0, int(fp or 0))
+    fn_i = max(0, int(fn or 0))
+    precision = (tp_i / (tp_i + fp_i)) if (tp_i + fp_i) > 0 else None
+    recall = (tp_i / (tp_i + fn_i)) if (tp_i + fn_i) > 0 else None
+    if precision is None or recall is None:
+        return None, precision, recall
+    s = float(precision) + float(recall)
+    f1 = (2.0 * float(precision) * float(recall) / s) if s > 0 else 0.0
+    return round(f1, 4), round(float(precision), 4), round(float(recall), 4)
+
+
 def _watching_name_map(
     watching_codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, str]:
@@ -787,9 +808,10 @@ def _absorb_holdout_row(
     yhat_eps: float,
     metric_set: Optional[set] = None,
 ) -> None:
-    """前半记命中与 r⁺/r⁻；``metric_set`` 记 ŷ/实现（截面指标，默认同前半）。
+    """前半记命中、r⁺/r⁻ 与 F1⁺ 混淆计数；``metric_set`` 记 ŷ/实现（截面指标，默认同前半）。
 
-    r⁺ = mean(y_oo | ŷ_oo>ε)，r⁻ = mean(y_oo | ŷ_oo<-ε)；只在 ``tier_set``（Holdout 前半）累计。
+    r⁺ = mean(y_oo | ŷ_oo>ε)，r⁻ = mean(y_oo | ŷ_oo<-ε)；
+    F1⁺ 正类=上涨，与命中同死区；只在 ``tier_set``（Holdout 前半）累计。
     """
     d = str(date or "")[:10]
     code_s = str(code or "").strip()
@@ -813,6 +835,9 @@ def _absorb_holdout_row(
             "n_y_pos": 0,
             "sum_y_neg": 0.0,
             "n_y_neg": 0,
+            "tp_pos": 0,
+            "fp_pos": 0,
+            "fn_pos": 0,
         }
         acc[code_s] = slot
     try:
@@ -827,6 +852,16 @@ def _absorb_holdout_row(
             slot["n_valid"] = int(slot["n_valid"]) + 1
             if hit:
                 slot["hits"] = int(slot["hits"]) + 1
+            # F1⁺ 混淆：与 n_valid 同日（|ŷ|≥ε 且 |y|>0）
+            if math.isfinite(yh) and math.isfinite(ry):
+                pred_up = yh > 0.0
+                act_up = ry > 0.0
+                if pred_up and act_up:
+                    slot["tp_pos"] = int(slot.get("tp_pos") or 0) + 1
+                elif pred_up and not act_up:
+                    slot["fp_pos"] = int(slot.get("fp_pos") or 0) + 1
+                elif (not pred_up) and act_up:
+                    slot["fn_pos"] = int(slot.get("fn_pos") or 0) + 1
         slot["dates"].append(d)
         # 条件收益：前半且 |ŷ_oo|>ε
         if math.isfinite(yh) and math.isfinite(ry):
@@ -1535,6 +1570,9 @@ def _rows_from_acc(
                     "n_y_pos": 0,
                     "sum_y_neg": 0.0,
                     "n_y_neg": 0,
+                    "tp_pos": 0,
+                    "fp_pos": 0,
+                    "fn_pos": 0,
                     "hits_tau": 0,
                     "n_valid_tau": 0,
                     "tau_yhats": [],
@@ -1563,6 +1601,11 @@ def _rows_from_acc(
         mean_y_neg = (
             round(sum_y_neg / n_y_neg, 4) if n_y_neg > 0 else None
         )
+        f1_pos, precision_pos, recall_pos = _f1_pos_from_counts(
+            int(slot.get("tp_pos") or 0),
+            int(slot.get("fp_pos") or 0),
+            int(slot.get("fn_pos") or 0),
+        )
         ic = _spearman_ic(slot.get("yhats") or [], slot.get("realized") or [])
         ds = list(slot.get("dates") or [])
         rows.append(
@@ -1584,6 +1627,9 @@ def _rows_from_acc(
                 "n_y_pos": n_y_pos,
                 "mean_y_neg": mean_y_neg,
                 "n_y_neg": n_y_neg,
+                "f1_pos": f1_pos,
+                "precision_pos": precision_pos,
+                "recall_pos": recall_pos,
                 "ic": ic,
                 "in_watching": code in watch_set,
                 "as_of_first": ds[0] if ds else None,

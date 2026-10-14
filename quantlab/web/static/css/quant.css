@@ -12548,7 +12548,7 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   width: 24%;
 }
 
-/* 收益 · r⁺ · r⁻ · Score */
+/* 收益 · r⁺ · r⁻ · F1⁺ · Score */
 .quant-ru-tier-grid th.num:nth-child(2),
 .quant-ru-tier-grid td.num:nth-child(2),
 .quant-ru-tier-grid th.num:nth-child(3),
@@ -12556,16 +12556,18 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
 .quant-ru-tier-grid th.num:nth-child(4),
 .quant-ru-tier-grid td.num:nth-child(4),
 .quant-ru-tier-grid th.num:nth-child(5),
-.quant-ru-tier-grid td.num:nth-child(5) {
-  width: 10%;
+.quant-ru-tier-grid td.num:nth-child(5),
+.quant-ru-tier-grid th.num:nth-child(6),
+.quant-ru-tier-grid td.num:nth-child(6) {
+  width: 9%;
 }
 
 /* Y_oo · Y_τc */
-.quant-ru-tier-grid th.num:nth-child(6),
-.quant-ru-tier-grid td.num:nth-child(6),
 .quant-ru-tier-grid th.num:nth-child(7),
-.quant-ru-tier-grid td.num:nth-child(7) {
-  width: 16%;
+.quant-ru-tier-grid td.num:nth-child(7),
+.quant-ru-tier-grid th.num:nth-child(8),
+.quant-ru-tier-grid td.num:nth-child(8) {
+  width: 14%;
 }
 
 .quant-ru-score-cell {
@@ -12612,9 +12614,12 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
 }
 
 .quant-ru-ret-cell.is-muted {
-  color: color-mix(in srgb, var(--ink-3, var(--ink-2)) 42%, transparent);
-  font-weight: 400;
-  font-size: 0.7rem;
+  /* 无看多/无看空：极浅 + 粗体，淡于涨跌色数字 */
+  color: color-mix(in srgb, var(--ink-3, #64748b) 14%, var(--surface, #fff));
+  font-weight: 700;
+  font-size: 0.68rem;
+  opacity: 0.42;
+  letter-spacing: 0.02em;
 }
 
 .quant-ru-hit-cell {

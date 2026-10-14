@@ -65,11 +65,23 @@ export function predTierBadgeHtml(code, esc) {
       Number.isFinite(days) && days > 0 ? ` · ${Math.round(days)}日` : "";
     return `${label} ${n > 0 ? "+" : ""}${n.toFixed(2)}%${dayBit}`;
   };
+  const fmtF1Pos = () => {
+    if (info.f1_pos == null || Number.isNaN(Number(info.f1_pos))) return "";
+    const bits = [`F1⁺ ${fmtHit(info.f1_pos)}`];
+    if (info.precision_pos != null && !Number.isNaN(Number(info.precision_pos))) {
+      bits.push(`P⁺ ${fmtHit(info.precision_pos)}`);
+    }
+    if (info.recall_pos != null && !Number.isNaN(Number(info.recall_pos))) {
+      bits.push(`R⁺ ${fmtHit(info.recall_pos)}`);
+    }
+    return bits.join(" ");
+  };
   const tip = [
     tierTip(t),
     scoreBit,
     fmtCondRet(info.mean_y_pos, info.n_y_pos, "r⁺"),
     fmtCondRet(info.mean_y_neg, info.n_y_neg, "r⁻"),
+    fmtF1Pos(),
     info.realized_pct != null && !Number.isNaN(Number(info.realized_pct))
       ? `收益 ${Number(info.realized_pct) > 0 ? "+" : ""}${Number(
           info.realized_pct
@@ -110,6 +122,9 @@ function ingestPredTierReport(data) {
       n_y_pos: r.n_y_pos,
       mean_y_neg: r.mean_y_neg,
       n_y_neg: r.n_y_neg,
+      f1_pos: r.f1_pos,
+      precision_pos: r.precision_pos,
+      recall_pos: r.recall_pos,
       realized_pct: r.realized_pct,
       ic: r.ic,
     };
