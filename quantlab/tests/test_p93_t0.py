@@ -4417,6 +4417,9 @@ class TestT0Api(unittest.TestCase):
         self.assertNotIn('id="paper-t0-form"', text)
         self.assertIn("手动预演", text)
         self.assertIn("自动做 T 后台进程", text)
+        t0_sec = text[text.find('id="follow-section-t0"') : text.find('id="follow-section-trades"')]
+        self.assertIn('<details class="quant-secondary-fold follow-secondary-fold">', t0_sec)
+        self.assertNotIn('<details class="quant-secondary-fold follow-secondary-fold" open', t0_sec)
         self.assertNotIn("paper-t0-auto-enabled", text)
         self.assertNotIn("paper-t0-auto-run", text)
         self.assertNotIn("启用自动做T", text)

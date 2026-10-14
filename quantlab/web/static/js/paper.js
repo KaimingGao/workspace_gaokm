@@ -2002,7 +2002,11 @@ export function initPaper(ctx) {
       } else if (target === "t0") {
         e.preventDefault();
         const el = document.getElementById("follow-section-t0");
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (el) {
+          const fold = el.querySelector("details.follow-secondary-fold");
+          if (fold) fold.open = true;
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       } else if (target === "strategy" || target === "promote") {
         e.preventDefault();
         location.href = "/strategy";

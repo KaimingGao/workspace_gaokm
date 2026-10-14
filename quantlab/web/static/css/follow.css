@@ -10119,6 +10119,11 @@ body[data-page="follow"] .follow-secondary-fold-sum {
   padding: 10px 12px;
 }
 
+/* .quant-pro-card { display:flex } 会盖过浏览器对未展开 details 的 display:none */
+body[data-page="follow"] .follow-secondary-fold:not([open]) > :not(summary) {
+  display: none !important;
+}
+
 body[data-page="follow"] .follow-secondary-fold > .dashboard-card.quant-pro-card,
 body[data-page="follow"] .follow-secondary-fold > .follow-ops-card {
   margin: 0 10px 10px;
