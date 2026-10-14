@@ -65,23 +65,29 @@ export function predTierBadgeHtml(code, esc) {
       Number.isFinite(days) && days > 0 ? ` · ${Math.round(days)}日` : "";
     return `${label} ${n > 0 ? "+" : ""}${n.toFixed(2)}%${dayBit}`;
   };
-  const fmtF1Pos = () => {
-    if (info.f1_pos == null || Number.isNaN(Number(info.f1_pos))) return "";
-    const bits = [`F1⁺ ${fmtHit(info.f1_pos)}`];
-    if (info.precision_pos != null && !Number.isNaN(Number(info.precision_pos))) {
-      bits.push(`P⁺ ${fmtHit(info.precision_pos)}`);
+  const fmtF1Pos = (f1, precision, recall, label) => {
+    if (f1 == null || Number.isNaN(Number(f1))) return "";
+    const bits = [`${label} ${fmtHit(f1)}`];
+    if (precision != null && !Number.isNaN(Number(precision))) {
+      bits.push(`P⁺ ${fmtHit(precision)}`);
     }
-    if (info.recall_pos != null && !Number.isNaN(Number(info.recall_pos))) {
-      bits.push(`R⁺ ${fmtHit(info.recall_pos)}`);
+    if (recall != null && !Number.isNaN(Number(recall))) {
+      bits.push(`召回 ${fmtHit(recall)}`);
     }
     return bits.join(" ");
   };
   const tip = [
     tierTip(t),
     scoreBit,
-    fmtCondRet(info.mean_y_pos, info.n_y_pos, "r⁺"),
-    fmtCondRet(info.mean_y_neg, info.n_y_neg, "r⁻"),
-    fmtF1Pos(),
+    fmtCondRet(info.mean_y_pos, info.n_y_pos, "OO_R+"),
+    fmtF1Pos(info.f1_pos, info.precision_pos, info.recall_pos, "OO_F1"),
+    fmtCondRet(info.mean_y_pos_tau, info.n_y_pos_tau, "TC_R+"),
+    fmtF1Pos(
+      info.f1_pos_tau,
+      info.precision_pos_tau,
+      info.recall_pos_tau,
+      "TC_F1"
+    ),
     info.realized_pct != null && !Number.isNaN(Number(info.realized_pct))
       ? `收益 ${Number(info.realized_pct) > 0 ? "+" : ""}${Number(
           info.realized_pct
@@ -120,11 +126,14 @@ function ingestPredTierReport(data) {
       n_days: r.n_days,
       mean_y_pos: r.mean_y_pos,
       n_y_pos: r.n_y_pos,
-      mean_y_neg: r.mean_y_neg,
-      n_y_neg: r.n_y_neg,
       f1_pos: r.f1_pos,
       precision_pos: r.precision_pos,
       recall_pos: r.recall_pos,
+      mean_y_pos_tau: r.mean_y_pos_tau,
+      n_y_pos_tau: r.n_y_pos_tau,
+      f1_pos_tau: r.f1_pos_tau,
+      precision_pos_tau: r.precision_pos_tau,
+      recall_pos_tau: r.recall_pos_tau,
       realized_pct: r.realized_pct,
       ic: r.ic,
     };

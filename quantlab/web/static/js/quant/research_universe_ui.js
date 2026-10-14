@@ -1,7 +1,8 @@
 /**
- * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=1/rank(Y_oo)+1/rank(Y_τc) · A 档另过 Y_oo / Y_τc 命中率 · 分档看 Holdout 前半，指标与等权买持看整段 → last。
+ * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=1/rank(Y_oo)+1/rank(Y_τc) · A 档另过 Y_oo / Y_τc 命中率（可勾选 OO_R+>0 / TC_R+>0）· 分档看 Holdout 前半，指标与等权买持看整段 → last。
  * 有研究套时只拉 Holdout 附近本地日线建面板；live 档位跟随历史回测「分档」勾选。
  */
+import { createScoreTooltipController } from "../score_tooltip.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import {
   markWatchingPoolLimitReady,
@@ -13,15 +14,20 @@ export function installResearchUniverseUi(q) {
   const { on, apiFetch, escapeHtml, readHoldoutTradingDays, readFitLookbackDays } = q;
   let lastTiers = null;
   let liveStatus = null;
+  const f1Tips = createScoreTooltipController();
 
   const A_COUNT_STORAGE_KEY = "quant.researchUniverse.aCount";
   const B_COUNT_STORAGE_KEY = "quant.researchUniverse.bCount";
   const A_HIT_STORAGE_KEY = "quant.researchUniverse.aHit";
   const TAU_A_HIT_STORAGE_KEY = "quant.researchUniverse.tauAHit";
+  const REQUIRE_OO_R_POS_STORAGE_KEY = "quant.researchUniverse.requireOoRPos";
+  const REQUIRE_TC_R_POS_STORAGE_KEY = "quant.researchUniverse.requireTcRPos";
   const A_COUNT_DEFAULT = 100;
   const B_COUNT_DEFAULT = 300;
   const A_HIT_DEFAULT = 50;
   const TAU_A_HIT_DEFAULT = 50;
+  const REQUIRE_OO_R_POS_DEFAULT = true;
+  const REQUIRE_TC_R_POS_DEFAULT = true;
   const A_COUNT_MIN = 1;
   const A_COUNT_MAX = 2000;
   const B_COUNT_MIN = 0;
@@ -38,6 +44,8 @@ export function installResearchUniverseUi(q) {
     bCount: () => document.getElementById("quant-ru-b-count"),
     aHit: () => document.getElementById("quant-ru-a-hit"),
     tauAHit: () => document.getElementById("quant-ru-tau-a-hit"),
+    requireOoRPos: () => document.getElementById("quant-ru-require-oo-r-pos"),
+    requireTcRPos: () => document.getElementById("quant-ru-require-tc-r-pos"),
     maxSize: () => document.getElementById("quant-watching-max-size"),
     poolVal: () => document.getElementById("quant-watching-pool-val"),
     poolStatus: () => document.getElementById("quant-watching-pool-status"),
@@ -89,7 +97,28 @@ export function installResearchUniverseUi(q) {
     }
   }
 
-  /** @returns {{ aCount: number, bCount: number, aHit: number, tauAHit: number }} */
+  function readStoredBool(key, fallback) {
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved == null || saved === "") return fallback;
+      const s = String(saved).trim().toLowerCase();
+      if (["1", "true", "yes", "on"].includes(s)) return true;
+      if (["0", "false", "no", "off"].includes(s)) return false;
+    } catch (_) {
+      /* ignore */
+    }
+    return fallback;
+  }
+
+  function writeStoredBool(key, on) {
+    try {
+      localStorage.setItem(key, on ? "1" : "0");
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /** @returns {{ aCount: number, bCount: number, aHit: number, tauAHit: number, requireOoRPos: boolean, requireTcRPos: boolean }} */
   function readTierCounts() {
     const aCount = clampACount(
       el.aCount()?.value !== "" && el.aCount()?.value != null
@@ -113,6 +142,14 @@ export function installResearchUniverseUi(q) {
         : readStoredCount(TAU_A_HIT_STORAGE_KEY, TAU_A_HIT_DEFAULT),
       TAU_A_HIT_DEFAULT
     );
+    const ooInput = el.requireOoRPos();
+    const tcInput = el.requireTcRPos();
+    const requireOoRPos = ooInput
+      ? !!ooInput.checked
+      : readStoredBool(REQUIRE_OO_R_POS_STORAGE_KEY, REQUIRE_OO_R_POS_DEFAULT);
+    const requireTcRPos = tcInput
+      ? !!tcInput.checked
+      : readStoredBool(REQUIRE_TC_R_POS_STORAGE_KEY, REQUIRE_TC_R_POS_DEFAULT);
     const aInput = el.aCount();
     const bInput = el.bCount();
     const aHitInput = el.aHit();
@@ -123,11 +160,15 @@ export function installResearchUniverseUi(q) {
     if (tauHitInput && String(tauHitInput.value) !== String(tauAHit)) {
       tauHitInput.value = String(tauAHit);
     }
+    if (ooInput && ooInput.checked !== requireOoRPos) ooInput.checked = requireOoRPos;
+    if (tcInput && tcInput.checked !== requireTcRPos) tcInput.checked = requireTcRPos;
     writeStoredCount(A_COUNT_STORAGE_KEY, aCount);
     writeStoredCount(B_COUNT_STORAGE_KEY, bCount);
     writeStoredCount(A_HIT_STORAGE_KEY, aHit);
     writeStoredCount(TAU_A_HIT_STORAGE_KEY, tauAHit);
-    return { aCount, bCount, aHit, tauAHit };
+    writeStoredBool(REQUIRE_OO_R_POS_STORAGE_KEY, requireOoRPos);
+    writeStoredBool(REQUIRE_TC_R_POS_STORAGE_KEY, requireTcRPos);
+    return { aCount, bCount, aHit, tauAHit, requireOoRPos, requireTcRPos };
   }
 
   function paintCountFromReport(rep) {
@@ -157,12 +198,34 @@ export function installResearchUniverseUi(q) {
       if (input) input.value = String(tauAHit);
       writeStoredCount(TAU_A_HIT_STORAGE_KEY, tauAHit);
     }
+    if (thr.require_oo_r_pos != null) {
+      const on = !!thr.require_oo_r_pos;
+      const input = el.requireOoRPos();
+      if (input) input.checked = on;
+      writeStoredBool(REQUIRE_OO_R_POS_STORAGE_KEY, on);
+    }
+    if (thr.require_tc_r_pos != null) {
+      const on = !!thr.require_tc_r_pos;
+      const input = el.requireTcRPos();
+      if (input) input.checked = on;
+      writeStoredBool(REQUIRE_TC_R_POS_STORAGE_KEY, on);
+    }
   }
 
-  function tierMetaFor(aCount, bCount, aHit, tauAHit, requireTau) {
-    const gate = requireTau
+  function tierMetaFor(
+    aCount,
+    bCount,
+    aHit,
+    tauAHit,
+    requireTau,
+    requireOoRPos,
+    requireTcRPos
+  ) {
+    let gate = requireTau
       ? `Y_oo≥${aHit}% 且 Y_τc≥${tauAHit}%`
       : `Y_oo≥${aHit}%`;
+    if (requireOoRPos) gate += " 且 OO_R+>0";
+    if (requireTcRPos && requireTau) gate += " 且 TC_R+>0";
     return {
       A: { label: "强", tip: `过 ${gate} 的 Score 序 top ${aCount}` },
       B: { label: "中", tip: `未进 A 后接着 ${bCount}` },
@@ -413,34 +476,39 @@ export function installResearchUniverseUi(q) {
     );
   }
 
-  function condRetCell(r, side) {
-    const isPos = side === "pos";
-    const v = r && (isPos ? r.mean_y_pos : r.mean_y_neg);
+  /** kind: "oo" → OO_R+；"tau" → TC_R+ */
+  function condRetPosCell(r, kind) {
+    const isOo = kind !== "tau";
+    const v = r && (isOo ? r.mean_y_pos : r.mean_y_pos_tau);
     const n = v == null ? NaN : Number(v);
-    const nSide = Number((r && (isPos ? r.n_y_pos : r.n_y_neg)) || 0);
-    const nValid = Number((r && r.n_valid) || 0);
-    const label = isPos ? "r⁺" : "r⁻";
-    const formula = isPos
-      ? "mean(y_oo|ŷ_oo>ε)"
-      : "mean(y_oo|ŷ_oo<-ε)";
-    const emptyLab = isPos ? "无看多" : "无看空";
+    const nSide = Number((r && (isOo ? r.n_y_pos : r.n_y_pos_tau)) || 0);
+    const nValid = Number((r && (isOo ? r.n_valid : r.n_valid_tau)) || 0);
+    const label = isOo ? "OO_R+" : "TC_R+";
+    const yhat = isOo ? "ŷ_oo" : "ŷ_τc";
+    const yReal = isOo ? "y_oo" : "y_τc";
+    const formula = `mean(${yReal}|${yhat}>ε)`;
     let tip;
     let text;
     let cls = "";
+    const thr = lastTiers && lastTiers.thresholds ? lastTiers.thresholds : null;
+    const needThis = !!(
+      thr && (isOo ? thr.require_oo_r_pos : thr.require_tc_r_pos)
+    );
     if (Number.isFinite(n)) {
       tip =
         `Holdout 前半 ${label}=${formula} ${fmtRetPct(n)}` +
-        (nSide > 0 ? ` · ${nSide} 日` : "");
+        (nSide > 0 ? ` · ${nSide} 日` : "") +
+        (needThis ? ` · A 档须 ${label}>0` : "");
       text = fmtRetPct(n);
       cls = csValCls(n);
     } else if (nValid > 0) {
-      tip = isPos
-        ? `Holdout 前半无 ŷ_oo>ε 日（${nValid} 个有效命中日均为看空）· 无法算 ${label}`
-        : `Holdout 前半无 ŷ_oo<-ε 日（${nValid} 个有效命中日均为看多）· 无法算 ${label}`;
-      text = emptyLab;
+      tip =
+        `Holdout 前半无 ${yhat}>ε 日（${nValid} 个有效命中日均为看空）· 无法算 ${label}` +
+        (needThis ? " · 不过 A" : "");
+      text = "无看多";
       cls = " is-muted";
     } else {
-      tip = `Holdout 前半无有效 ŷ_oo 样本 · 无法算 ${label}`;
+      tip = `Holdout 前半无有效 ${yhat} 样本 · 无法算 ${label}`;
       text = "—";
     }
     return (
@@ -450,48 +518,230 @@ export function installResearchUniverseUi(q) {
     );
   }
 
-  function f1PosCell(r) {
-    const v = r && r.f1_pos;
-    const n = v == null ? NaN : Number(v);
-    const p = r && r.precision_pos;
-    const rec = r && r.recall_pos;
-    const nPos = Number((r && r.n_y_pos) || 0);
-    const nValid = Number((r && r.n_valid) || 0);
-    let tip;
-    let text;
-    let cls = "";
-    if (Number.isFinite(n)) {
-      const pBit =
-        p != null && Number.isFinite(Number(p)) ? `P⁺ ${fmtHit(p)}` : "";
-      const rBit =
-        rec != null && Number.isFinite(Number(rec)) ? `R⁺ ${fmtHit(rec)}` : "";
-      tip = [
-        `Holdout 前半 F1⁺（正类=上涨） ${fmtHit(n)}`,
-        pBit,
-        rBit,
-        nPos > 0 ? `看多 ${nPos} 日` : "",
-        "不进 Score / A 档",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      text = fmtHit(n);
-      cls = csValCls(n - 0.5);
-    } else if (nValid > 0 && nPos <= 0) {
-      tip = `Holdout 前半无 ŷ_oo>ε 日（${nValid} 个有效命中日均为看空）· 无法算 F1⁺`;
-      text = "无看多";
-      cls = " is-muted";
-    } else if (nValid > 0) {
-      tip = `Holdout 前半无上涨有效日 · 无法算 F1⁺（P⁺/R⁺ 缺一）`;
-      text = "—";
-    } else {
-      tip = `Holdout 前半无有效 ŷ_oo 样本 · 无法算 F1⁺`;
-      text = "—";
+  /**
+   * 档内有效 F1 的 min/max，供相对着色（避免全池高分位票在 A 档「全红」）。
+   * key: f1_pos | f1_pos_tau
+   * @returns {{ lo: number, hi: number } | null}
+   */
+  function buildF1RelScale(rows, key) {
+    const field = key || "f1_pos";
+    let lo = Infinity;
+    let hi = -Infinity;
+    let n = 0;
+    for (const r of rows || []) {
+      const v = r && r[field] != null ? Number(r[field]) : NaN;
+      if (!Number.isFinite(v)) continue;
+      n += 1;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    if (n <= 0) return null;
+    return { lo, hi };
+  }
+
+  /** 档内 min-max → 0..1；同值无跨度 → 0.5（中性）。 */
+  function f1RelPct(f1, scale) {
+    const n = Number(f1);
+    if (!Number.isFinite(n) || !scale || typeof scale !== "object") return null;
+    const lo = Number(scale.lo);
+    const hi = Number(scale.hi);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+    const span = hi - lo;
+    if (span <= 1e-12) return 0.5;
+    return Math.max(0, Math.min(1, (n - lo) / span));
+  }
+
+  /** 档内相对 → tip 徽章：偏高 / 偏低 / 中位。 */
+  function f1RelBand(pct) {
+    if (pct == null || !Number.isFinite(Number(pct))) {
+      return { tone: "is-empty", badge: "无样本" };
+    }
+    const p = Number(pct);
+    if (p >= 0.8) return { tone: "is-hi", badge: "档内偏高" };
+    if (p <= 0.2) return { tone: "is-lo", badge: "档内偏低" };
+    return { tone: "is-mid", badge: "档内中位" };
+  }
+
+  /**
+   * 深浅：中位贴 ink（浅/中性），两端再饱和到红/绿。
+   * 避免 color-mix(红,绿) 中间变成脏橄榄、看不出浅色。
+   * data-f1-tone=up|down；--f1-sat: 0%..100%（距中位越远越深）。
+   */
+  function f1RelTone(relPct) {
+    const p = Number(relPct);
+    if (!Number.isFinite(p)) return { tone: "", sat: "0%" };
+    const clamped = Math.max(0, Math.min(1, p));
+    return {
+      tone: clamped >= 0.5 ? "up" : "down",
+      sat: `${Math.round(Math.abs(clamped - 0.5) * 2 * 100)}%`,
+    };
+  }
+
+  function f1TipHtml(pack) {
+    const p = pack && typeof pack === "object" ? pack : {};
+    const tone = String(p.tone || "is-empty");
+    const badge = p.badge != null ? String(p.badge) : "无样本";
+    const badgeCls =
+      tone === "is-hi"
+        ? "is-hi"
+        : tone === "is-lo"
+          ? "is-lo"
+          : tone === "is-mid"
+            ? "is-mid"
+            : "is-empty";
+    const hero = p.f1_txt != null ? String(p.f1_txt) : "—";
+    const reason = p.reason ? String(p.reason) : "";
+    const foot = p.foot ? String(p.foot) : "仅展示 · 不进 Score / A 档";
+    const eyebrow =
+      p.eyebrow != null
+        ? String(p.eyebrow)
+        : "OO_F1 · Holdout 前半 · 正类=上涨";
+    const pTxt =
+      p.precision != null && Number.isFinite(Number(p.precision))
+        ? fmtHit(p.precision)
+        : "—";
+    const rTxt =
+      p.recall != null && Number.isFinite(Number(p.recall))
+        ? fmtHit(p.recall)
+        : "—";
+    const relBit =
+      p.rel_pct != null && Number.isFinite(Number(p.rel_pct))
+        ? `档内 ${Math.round(Number(p.rel_pct) * 100)}%`
+        : "";
+    const defs =
+      p.ok === true
+        ? `<dl class="quant-ru-f1-tip-defs">` +
+          `<div><dt>精确率 P⁺</dt><dd><b>${escapeHtml(pTxt)}</b> · 看多且涨 / 看多</dd></div>` +
+          `<div><dt>召回</dt><dd><b>${escapeHtml(rTxt)}</b> · 看多且涨 / 实际上涨日</dd></div>` +
+          `<div><dt>着色</dt><dd>本档相对：中位 ink · 偏高红 · 偏低绿${relBit ? ` · ${escapeHtml(relBit)}` : ""}</dd></div>` +
+          `<div><dt>死区</dt><dd>与命中同 |ŷ|≥ε · |y|&gt;0</dd></div>` +
+          `</dl>`
+        : reason
+          ? `<p class="quant-ru-f1-tip-reason">${escapeHtml(reason)}</p>`
+          : `<dl class="quant-ru-f1-tip-defs">` +
+            `<div><dt>精确率 P⁺</dt><dd>看多且涨 / 看多</dd></div>` +
+            `<div><dt>召回</dt><dd>看多且涨 / 实际上涨日</dd></div>` +
+            `<div><dt>死区</dt><dd>与命中同 |ŷ|≥ε · |y|&gt;0</dd></div>` +
+            `</dl>`;
+    let heroTone = "";
+    let heroStyle = "";
+    if (p.rel_pct != null && Number.isFinite(Number(p.rel_pct))) {
+      const rel = f1RelTone(Number(p.rel_pct));
+      heroTone = rel.tone ? ` data-f1-tone="${rel.tone}"` : "";
+      heroStyle = ` style="--f1-sat:${rel.sat}"`;
     }
     return (
-      `<td class="num quant-ru-ret-cell${cls}" title="${escapeHtml(tip)}">` +
-      `${text}` +
+      `<div class="quant-ru-f1-tip-inner">` +
+      `<div class="quant-ru-f1-tip-head">` +
+      `<div class="quant-ru-f1-tip-head-main">` +
+      `<div class="quant-ru-f1-tip-eyebrow">${escapeHtml(eyebrow)}</div>` +
+      `<div class="quant-ru-f1-tip-hero is-rel"${heroTone}${heroStyle}>${escapeHtml(hero)}</div>` +
+      `</div>` +
+      `<span class="quant-ru-f1-tip-badge ${badgeCls}">${escapeHtml(badge)}</span>` +
+      `</div>` +
+      defs +
+      `<p class="quant-ru-f1-tip-foot">${escapeHtml(foot)}</p>` +
+      `</div>`
+    );
+  }
+
+  /** kind: "oo" → OO_F1；"tau" → TC_F1 */
+  function f1PosCell(r, scale, kind) {
+    const isOo = kind !== "tau";
+    const label = isOo ? "OO_F1" : "TC_F1";
+    const yhat = isOo ? "ŷ_oo" : "ŷ_τc";
+    const v = r && (isOo ? r.f1_pos : r.f1_pos_tau);
+    const n = v == null ? NaN : Number(v);
+    const p = r && (isOo ? r.precision_pos : r.precision_pos_tau);
+    const rec = r && (isOo ? r.recall_pos : r.recall_pos_tau);
+    const nPos = Number((r && (isOo ? r.n_y_pos : r.n_y_pos_tau)) || 0);
+    const nValid = Number((r && (isOo ? r.n_valid : r.n_valid_tau)) || 0);
+    const eyebrow = `${label} · Holdout 前半 · 正类=上涨`;
+    let text;
+    /** @type {Record<string, unknown>} */
+    let tipPack;
+    let relPct = null;
+    let band = { tone: "is-empty", badge: "无样本" };
+    if (Number.isFinite(n)) {
+      text = fmtHit(n);
+      relPct = f1RelPct(n, scale);
+      band = f1RelBand(relPct);
+      tipPack = {
+        ok: true,
+        tone: band.tone,
+        badge: band.badge,
+        rel_pct: relPct,
+        eyebrow,
+        f1: n,
+        f1_txt: text,
+        precision: p != null && Number.isFinite(Number(p)) ? Number(p) : null,
+        recall: rec != null && Number.isFinite(Number(rec)) ? Number(rec) : null,
+        foot:
+          (nPos > 0 ? `看多 ${nPos} 日 · ` : "无看多样本 · ") +
+          "仅展示 · 不进 Score / A 档",
+      };
+    } else if (nValid > 0 && nPos <= 0) {
+      text = "无看多";
+      tipPack = {
+        ok: false,
+        tone: "is-empty",
+        badge: "无样本",
+        eyebrow,
+        f1_txt: "—",
+        reason: `无 ${yhat}>ε 日（${nValid} 个有效命中日均为看空），无法算 P⁺ / 召回`,
+        foot: "仅展示 · 不进 Score / A 档",
+      };
+    } else if (nValid > 0) {
+      text = "—";
+      tipPack = {
+        ok: false,
+        tone: "is-empty",
+        badge: "无样本",
+        eyebrow,
+        f1_txt: "—",
+        reason: "无上涨有效日 · P⁺ / 召回缺一",
+        foot: "仅展示 · 不进 Score / A 档",
+      };
+    } else {
+      text = "—";
+      tipPack = {
+        ok: false,
+        tone: "is-empty",
+        badge: "无样本",
+        eyebrow,
+        f1_txt: "—",
+        reason: `无有效 ${yhat} 样本`,
+        foot: "仅展示 · 不进 Score / A 档",
+      };
+    }
+    const hasRel = relPct != null && Number.isFinite(relPct);
+    const muted = !hasRel && text !== "—" ? " is-muted" : "";
+    const tipAttr = escapeHtml(JSON.stringify(tipPack));
+    const rel = hasRel ? f1RelTone(relPct) : null;
+    const toneBit = rel && rel.tone ? ` data-f1-tone="${rel.tone}"` : "";
+    const styleBit = rel ? ` style="--f1-sat:${rel.sat}"` : "";
+    const valCls = hasRel ? "is-rel" : "is-empty";
+    return (
+      `<td class="num quant-ru-f1-cell ${valCls}${muted}" data-f1-tip="${tipAttr}"${toneBit}${styleBit}>` +
+      `<span class="quant-ru-f1-val ${valCls}">${text}</span>` +
       `</td>`
     );
+  }
+
+  function wireF1Tips(host) {
+    if (!host) return;
+    f1Tips.bindAttrTip(host, {
+      selector: "[data-f1-tip]",
+      className: "score-tooltip quant-ru-f1-tip",
+      wireKey: "ru-f1-tip",
+      buildHtml: (node) => {
+        try {
+          return f1TipHtml(JSON.parse(node.getAttribute("data-f1-tip") || "{}"));
+        } catch (_) {
+          return "";
+        }
+      },
+    });
   }
 
   function stockCell(r) {
@@ -553,13 +803,31 @@ export function installResearchUniverseUi(q) {
         ? hitPctFromRatio(thr.tau_a_hit, TAU_A_HIT_DEFAULT)
         : TAU_A_HIT_DEFAULT;
     const requireTau = !!thr.require_tau;
+    const requireOoRPos =
+      thr.require_oo_r_pos != null
+        ? !!thr.require_oo_r_pos
+        : REQUIRE_OO_R_POS_DEFAULT;
+    const requireTcRPos =
+      thr.require_tc_r_pos != null
+        ? !!thr.require_tc_r_pos
+        : REQUIRE_TC_R_POS_DEFAULT;
     const counts = rep.counts || {};
     const nSample = rep.n_with_sample != null ? rep.n_with_sample : "—";
     const nPool = rep.pool_count != null ? rep.pool_count : (rep.rows || []).length;
-    const tierMeta = tierMetaFor(aCount, bCount, aHit, tauAHit, requireTau);
-    const gateLab = requireTau
+    const tierMeta = tierMetaFor(
+      aCount,
+      bCount,
+      aHit,
+      tauAHit,
+      requireTau,
+      requireOoRPos,
+      requireTcRPos
+    );
+    let gateLab = requireTau
       ? `A档 Y_oo≥${aHit}% · Y_τc≥${tauAHit}%`
       : `A档 Y_oo≥${aHit}%`;
+    if (requireOoRPos) gateLab += " · OO_R+>0";
+    if (requireTcRPos && requireTau) gateLab += " · TC_R+>0";
     const scoreLab = requireTau
       ? "Score=1/rank(Y_oo)+1/rank(Y_τc)"
       : "Score=1/rank(Y_oo)";
@@ -568,7 +836,7 @@ export function installResearchUniverseUi(q) {
       `ŷ_oo Holdout OOS`,
       `Holdout${hold}日前半` +
         (tierN != null && Number.isFinite(Number(tierN)) ? ` · 窗${tierN}日` : "") +
-        ` · r⁺/r⁻/F1⁺看前半 · 指标与等权买持看整段`,
+        ` · OO_R+/OO_F1/TC_R+/TC_F1 看前半 · 指标与等权买持看整段`,
       scoreLab,
       `A档数量 ${aCount} · B档数量 ${bCount} · ${gateLab} · C 其余`,
       liveBit(),
@@ -588,15 +856,19 @@ export function installResearchUniverseUi(q) {
         const meta = tierMeta[tier] || { label: tier, tip: "" };
         const rows = byTier[tier];
         const slice = rows.slice(0, maxShow);
+        // 档内相对：A 档整体偏高时不再「全红」
+        const f1ScaleOo = buildF1RelScale(rows, "f1_pos");
+        const f1ScaleTau = buildF1RelScale(rows, "f1_pos_tau");
         const trs = slice
           .map(
             (r) =>
               `<tr data-tier="${tier}">` +
               stockCell(r) +
               retCell(r) +
-              condRetCell(r, "pos") +
-              condRetCell(r, "neg") +
-              f1PosCell(r) +
+              condRetPosCell(r, "oo") +
+              f1PosCell(r, f1ScaleOo, "oo") +
+              condRetPosCell(r, "tau") +
+              f1PosCell(r, f1ScaleTau, "tau") +
               scoreCell(r) +
               hitNCell(
                 r.hit_rate,
@@ -622,9 +894,10 @@ export function installResearchUniverseUi(q) {
               <thead><tr>
                 <th class="quant-ru-col-stock">标的</th>
                 <th class="num" title="Holdout 整段买持收益%（close 首尾，对齐档内平均收益率）">收益</th>
-                <th class="num" title="Holdout 前半 r⁺=mean(y_oo|ŷ_oo&gt;ε)；模型看多日的平均实现收益">r⁺</th>
-                <th class="num" title="Holdout 前半 r⁻=mean(y_oo|ŷ_oo&lt;-ε)；模型看空日的平均实现收益">r⁻</th>
-                <th class="num" title="Holdout 前半 F1⁺（正类=上涨）；tip 含 P⁺/R⁺；不进 Score">F1⁺</th>
+                <th class="num" title="Holdout 前半 OO_R+=mean(y_oo|ŷ_oo&gt;ε)；模型看多日的平均实现收益；勾选 OO_R+&gt;0 时进 A 档门槛">OO_R+</th>
+                <th class="num" title="OO_F1：Holdout 前半 ŷ_oo 上涨正类调和平均；着色=本档 min-max 相对深浅（高→红 / 低→绿）；不进 Score / A 档">OO_F1</th>
+                <th class="num" title="Holdout 前半 TC_R+=mean(y_τc|ŷ_τc&gt;ε)；勾选 TC_R+&gt;0 且有 ŷ_τc 研究套时进 A 档门槛">TC_R+</th>
+                <th class="num" title="TC_F1：Holdout 前半 ŷ_τc 上涨正类调和平均；着色=本档 min-max 相对深浅；不进 Score / A 档">TC_F1</th>
                 <th class="num" title="Score = 1/rank(Y_oo) + 1/rank(Y_τc)">Score</th>
                 <th class="num" title="Y_oo 命中率 · 有效样本日">Y_oo</th>
                 <th class="num" title="Y_τc 命中率 · 有效样本日">Y_τc</th>
@@ -680,6 +953,7 @@ export function installResearchUniverseUi(q) {
       `<p class="quant-ru-list-note">${escapeHtml(headNote)}</p>` +
       `<div class="quant-ru-tier-folds">${sections}</div>` +
       `</div>`;
+    wireF1Tips(host);
   }
 
   function applyLive(live) {
@@ -732,7 +1006,8 @@ export function installResearchUniverseUi(q) {
     if (!document.getElementById("quant-section-research-universe")) return null;
     const h = holdoutN();
     const lb = ooLookbackN();
-    const { aCount, bCount, aHit, tauAHit } = readTierCounts();
+    const { aCount, bCount, aHit, tauAHit, requireOoRPos, requireTcRPos } =
+      readTierCounts();
     if (!quiet) {
       setStatus(
         "busy",
@@ -754,7 +1029,9 @@ export function installResearchUniverseUi(q) {
           (aHit / 100).toFixed(4)
         )}&tau_a_hit=${encodeURIComponent(
           (tauAHit / 100).toFixed(4)
-        )}&min_n=20&head=oo&pool=watching`;
+        )}&require_oo_r_pos=${requireOoRPos ? "true" : "false"}&require_tc_r_pos=${
+          requireTcRPos ? "true" : "false"
+        }&min_n=20&head=oo&pool=watching`;
     const { ok, data, error } = await apiFetch(url);
     if (!ok || !data || data.success === false) {
       if (data && data.live) applyLive(data.live);
@@ -792,6 +1069,33 @@ export function installResearchUniverseUi(q) {
   on("quant-ru-tau-a-hit", "change", () => {
     readTierCounts();
   });
+  on("quant-ru-require-oo-r-pos", "change", () => {
+    readTierCounts();
+  });
+  on("quant-ru-require-tc-r-pos", "change", () => {
+    readTierCounts();
+  });
+  // 首次：若本地有勾选记忆则回填；否则保持 HTML 默认勾选
+  (() => {
+    const oo = el.requireOoRPos();
+    const tc = el.requireTcRPos();
+    try {
+      if (oo && localStorage.getItem(REQUIRE_OO_R_POS_STORAGE_KEY) != null) {
+        oo.checked = readStoredBool(
+          REQUIRE_OO_R_POS_STORAGE_KEY,
+          REQUIRE_OO_R_POS_DEFAULT
+        );
+      }
+      if (tc && localStorage.getItem(REQUIRE_TC_R_POS_STORAGE_KEY) != null) {
+        tc.checked = readStoredBool(
+          REQUIRE_TC_R_POS_STORAGE_KEY,
+          REQUIRE_TC_R_POS_DEFAULT
+        );
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  })();
   readTierCounts();
 
   function clampWatchingMaxSize(v) {

@@ -12057,12 +12057,14 @@ button.quant-integrity-cell:hover,
   color: var(--ink);
 }
 
-/* —— 研究宇宙看板 —— */
+/* —— 研究宇宙看板 · 分档工具条 —— */
 body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   max-width: 100%;
-  row-gap: 6px;
+  gap: 8px;
+  row-gap: 8px;
 }
 
 .quant-ru-a-gate {
@@ -12070,63 +12072,112 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+  font-family: inherit;
+  font-size: var(--q-fs-caption, 12px);
+  font-weight: var(--q-fw-label, 650);
+  line-height: 1.2;
+  color: var(--ink-2);
 }
 
 .quant-ru-gate-group {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-height: 28px;
-  padding: 2px 8px 2px 7px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--ink) 3.5%, var(--surface, #fff));
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface, #fff)) 94%, var(--line));
 }
 
 .quant-ru-gate-k {
   color: var(--ink-3);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: var(--q-fs-micro, 11px);
+  font-weight: var(--q-fw-label, 650);
+  letter-spacing: 0.12em;
   line-height: 1;
   white-space: nowrap;
+  font-family: inherit;
 }
 
 .quant-ru-a-gate .quant-inline-num--frac {
   align-items: center;
-  gap: 0.2rem;
-  font-size: 0.75rem;
+  gap: 0.28rem;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
 }
 
 .quant-ru-a-gate .quant-inline-num--frac > span:first-child {
   color: var(--ink-2);
-  font-weight: 650;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
 .quant-ru-a-gate .quant-inline-num--frac input[type="number"] {
-  width: 2.7rem;
-  min-width: 2.7rem;
-  height: 1.35rem;
+  width: 2.55rem;
+  min-width: 2.55rem;
+  height: 20px;
   margin: 0;
-  padding: 0 4px;
-  border: 1px solid color-mix(in srgb, var(--ink) 14%, var(--line));
-  border-radius: 2px;
-  background: var(--bg-card, var(--surface, #fff));
+  padding: 0 1px;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, var(--line));
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--q-fs-caption, 12px);
+  font-weight: var(--sys-fw-display, 700);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
   text-align: right;
 }
 
 .quant-ru-a-gate .quant-inline-num--frac input[type="number"]:focus {
-  border-color: var(--accent, #1890ff);
+  outline: none;
+  border-color: transparent;
   border-bottom-color: var(--accent, #1890ff);
 }
 
 .quant-ru-a-gate-unit {
   color: var(--ink-3);
-  font-size: 0.68rem;
-  font-weight: 650;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: inherit;
+  font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+}
+
+.quant-ru-a-gate .quant-ru-r-pos-check {
+  gap: 0.3rem;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* 命中门槛数字后的第一个 R+ 勾选前加分隔 */
+.quant-ru-a-gate .quant-inline-num--frac + .quant-ru-r-pos-check {
+  margin-left: 2px;
+  padding-left: 9px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+}
+
+.quant-ru-a-gate .quant-ru-r-pos-check input[type="checkbox"] {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+}
+
+body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
+  min-height: 28px;
+  padding: 4px 14px !important;
+  font-size: var(--q-fs-caption, 12px) !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.04em !important;
 }
 
 .quant-ru-card .quant-ru-body {
@@ -12419,10 +12470,10 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
 }
 
 .quant-ru-col-stock {
-  width: 24%;
+  width: 16%;
 }
 
-/* 收益 · r⁺ · r⁻ · F1⁺ · Score */
+/* 1 标的 · 2 收益 · 3 OO_R+ · 4 OO_F1 · 5 TC_R+ · 6 TC_F1 · 7 Score · 8 Y_oo · 9 Y_τc */
 .quant-ru-tier-grid th.num:nth-child(2),
 .quant-ru-tier-grid td.num:nth-child(2),
 .quant-ru-tier-grid th.num:nth-child(3),
@@ -12432,16 +12483,18 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
 .quant-ru-tier-grid th.num:nth-child(5),
 .quant-ru-tier-grid td.num:nth-child(5),
 .quant-ru-tier-grid th.num:nth-child(6),
-.quant-ru-tier-grid td.num:nth-child(6) {
-  width: 9%;
+.quant-ru-tier-grid td.num:nth-child(6),
+.quant-ru-tier-grid th.num:nth-child(7),
+.quant-ru-tier-grid td.num:nth-child(7) {
+  width: 7.5%;
 }
 
-/* Y_oo · Y_τc */
-.quant-ru-tier-grid th.num:nth-child(7),
-.quant-ru-tier-grid td.num:nth-child(7),
+/* Y_oo · Y_τc（命中+样本日，需更宽） */
 .quant-ru-tier-grid th.num:nth-child(8),
-.quant-ru-tier-grid td.num:nth-child(8) {
-  width: 14%;
+.quant-ru-tier-grid td.num:nth-child(8),
+.quant-ru-tier-grid th.num:nth-child(9),
+.quant-ru-tier-grid td.num:nth-child(9) {
+  width: 13%;
 }
 
 .quant-ru-score-cell {
@@ -12479,20 +12532,233 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   white-space: nowrap;
 }
 
+/* OO_F1 / TC_F1：档内相对深浅；须盖过 .quant-weight-table-wrap td { color: ink } */
+.quant-ru-f1-cell {
+  min-width: 0;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.quant-ru-f1-val {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  font-size: 0.8rem;
+  color: var(--ink);
+  text-align: right;
+  line-height: 1.2;
+}
+
+/*
+ * 中位→ink（浅/中性），两端按 --f1-sat 加深到红/绿。
+ * 不用 color-mix(红,绿)：中间是脏橄榄，浅色层次会失效。
+ * 盖过 .quant-weight-table-wrap td { color: var(--ink) }。
+ */
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-rel[data-f1-tone="up"],
+body[data-page="quant"]
+  .quant-page
+  .quant-ru-tier-table
+  td.quant-ru-f1-cell.is-rel[data-f1-tone="up"]
+  .quant-ru-f1-val.is-rel {
+  color: color-mix(
+    in srgb,
+    var(--quant-up, var(--color-up, #dc2626)) var(--f1-sat, 0%),
+    var(--ink, #0f172a)
+  );
+}
+
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-rel[data-f1-tone="down"],
+body[data-page="quant"]
+  .quant-page
+  .quant-ru-tier-table
+  td.quant-ru-f1-cell.is-rel[data-f1-tone="down"]
+  .quant-ru-f1-val.is-rel {
+  color: color-mix(
+    in srgb,
+    var(--quant-down, var(--color-down, #16a34a)) var(--f1-sat, 0%),
+    var(--ink, #0f172a)
+  );
+}
+
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell .quant-ru-f1-val.is-empty,
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-muted .quant-ru-f1-val {
+  /* 无看多等占位：比 ink-3 再浅一档 */
+  color: color-mix(in srgb, var(--ink-3, #94a3b8) 52%, transparent);
+  font-weight: 500;
+  font-size: 0.72rem;
+}
+
+/* F1 悬浮卡：质量读数，非涨跌色 */
+.score-tooltip.quant-ru-f1-tip {
+  min-width: 248px;
+  max-width: 300px;
+  pointer-events: none;
+  border-radius: 2px;
+  border-color: color-mix(in srgb, var(--line) 88%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.quant-ru-f1-tip-inner {
+  padding: 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.quant-ru-f1-tip-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.quant-ru-f1-tip-head-main {
+  min-width: 0;
+}
+
+.quant-ru-f1-tip-eyebrow {
+  font-size: 0.64rem;
+  font-weight: 550;
+  color: var(--ink-3, #64748b);
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+.quant-ru-f1-tip-hero {
+  margin-top: 2px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.quant-ru-f1-tip-hero.is-rel[data-f1-tone="up"] {
+  color: color-mix(
+    in srgb,
+    var(--quant-up, var(--color-up, #dc2626)) var(--f1-sat, 0%),
+    var(--ink, #0f172a)
+  );
+}
+
+.quant-ru-f1-tip-hero.is-rel[data-f1-tone="down"] {
+  color: color-mix(
+    in srgb,
+    var(--quant-down, var(--color-down, #16a34a)) var(--f1-sat, 0%),
+    var(--ink, #0f172a)
+  );
+}
+
+.quant-ru-f1-tip-hero.is-empty {
+  color: var(--ink-3, #64748b);
+}
+
+.quant-ru-f1-tip-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 2px;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  border: 1px solid transparent;
+}
+
+.quant-ru-f1-tip-badge.is-hi {
+  background: color-mix(in srgb, var(--color-up, #dc2626) 12%, var(--surface, #fff));
+  color: var(--color-up, #dc2626);
+  border-color: color-mix(in srgb, var(--color-up, #dc2626) 28%, transparent);
+}
+
+.quant-ru-f1-tip-badge.is-lo {
+  background: color-mix(in srgb, var(--color-down, #16a34a) 10%, var(--surface, #fff));
+  color: var(--color-down, #16a34a);
+  border-color: color-mix(in srgb, var(--color-down, #16a34a) 28%, transparent);
+}
+
+.quant-ru-f1-tip-badge.is-mid {
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface, #fff));
+  color: var(--ink-2, #475569);
+  border-color: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.quant-ru-f1-tip-badge.is-empty {
+  background: color-mix(in srgb, var(--ink) 5%, var(--surface, #fff));
+  color: var(--ink-3, #64748b);
+  border-color: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.quant-ru-f1-tip-defs {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 5px;
+  margin: 0;
+}
+
+.quant-ru-f1-tip-defs > div {
+  display: grid;
+  grid-template-columns: 4.6rem minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+}
+
+.quant-ru-f1-tip-defs dt {
+  margin: 0;
+  font-size: 0.64rem;
+  font-weight: 650;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+.quant-ru-f1-tip-defs dd {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  line-height: 1.35;
+}
+
+.quant-ru-f1-tip-defs dd > b {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.quant-ru-f1-tip-reason {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 550;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.quant-ru-f1-tip-foot {
+  margin: 0;
+  padding-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  font-size: 0.66rem;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+
 /* 盖过 .quant-weight-table-wrap td { color: var(--ink) } */
 body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.up {
-  color: var(--color-up, #f5222d);
+  color: var(--quant-up, var(--color-up, #dc2626));
 }
 
 body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.down {
-  color: var(--color-down, #52c41a);
+  color: var(--quant-down, var(--color-down, #16a34a));
 }
 
 body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.is-muted {
-  color: color-mix(in srgb, var(--ink-3, #64748b) 14%, var(--surface, #fff));
-  font-weight: 700;
-  font-size: 0.68rem;
-  opacity: 0.42;
+  /* 无看多等占位：比 ink-3 再浅一档 */
+  color: color-mix(in srgb, var(--ink-3, #94a3b8) 52%, transparent);
+  font-weight: 500;
+  font-size: 0.72rem;
   letter-spacing: 0.02em;
 }
 

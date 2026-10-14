@@ -6,15 +6,15 @@
 - hit_rate / hit_rate_tau = 前半符号命中率（|ŷ| 死区外）
 - n_valid / n_valid_tau = 前半有效决策日
 - Score = 1/rank(hit_rate) + 1/rank(hit_rate_tau)（无 ŷ_τc 研究套时仅 1/rank(hit_rate)）
-- A 档另过命中率门槛（默认 Y_oo ≥ 50%、有 ŷ_τc 研究套时 Y_τc ≥ 50%；可配）
+- A 档另过命中率门槛（默认 Y_oo ≥ 50%、有 ŷ_τc 研究套时 Y_τc ≥ 50%；可配）；
+  可选 **OO_R+ > 0** / **TC_R+ > 0**（``require_oo_r_pos`` / ``require_tc_r_pos``，默认皆开；勾选的各自独立须过线）
+  （无 ŷ_τc 研究套时 TC_R+ 门槛不生效，与 Y_τc 命中门槛同）
 - 过门槛者按 Score 降序取 top ``a_count``→A（未过门槛不占 A 名额），接着 ``b_count``→B，其余→C（默认 100 / 300）；无有效命中样本→C
 - 分档后另报各档在整段 Holdout 上的日截面 Rank IC / IC / ICIR；
   档内「平均收益率」= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」）
-- 每票 ``realized_pct`` = 同窗 close 首尾买持收益%（分档表「收益」列）
-- 每票 ``mean_y_pos`` = Holdout **前半** mean(y_oo | ŷ_oo>ε)（分档表「r⁺」；多头条件收益）
-- 每票 ``mean_y_neg`` = Holdout **前半** mean(y_oo | ŷ_oo<-ε)（分档表「r⁻」；空头条件收益）
-- 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = Holdout **前半** 方向二分类
-  （正类=上涨；与命中同死区；**仅展示**，不进 Score / A 档门槛）
+- 每票 ``mean_y_pos`` = Holdout **前半** mean(y_oo | ŷ_oo>ε)（分档表「OO_R+」；勾选时进 A 档门槛）
+- 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = Holdout **前半** ŷ_oo 上涨正类 F1（表「OO_F1」；仅展示）
+- 有 ŷ_τc 研究套时：``mean_y_pos_tau``（TC_R+，勾选时进 A 档门槛）、``f1_pos_tau`` 等（TC_F1）同口径只换头
 
 研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score 只用 ŷ_oo 序。
 有研究套时面板只拉 **Holdout + 因子暖窗**；无 ŷ_oo 研究套现训才用 ``lookback`` 全窗。
@@ -46,6 +46,8 @@ DEFAULT_A_COUNT = 100
 DEFAULT_B_COUNT = 300
 DEFAULT_A_HIT = 0.50  # A 档 Y_oo 命中率
 DEFAULT_TAU_A_HIT = 0.50  # A 档 Y_τc 命中率（有研究套时）
+DEFAULT_REQUIRE_OO_R_POS = True  # A 档可选 OO_R+>0
+DEFAULT_REQUIRE_TC_R_POS = True  # A 档可选 TC_R+>0（有 ŷ_τc 研究套时）
 A_COUNT_MIN = 1
 A_COUNT_MAX = 2000
 B_COUNT_MIN = 0
@@ -166,11 +168,14 @@ _SLIM_ROW_KEYS = (
     "realized_pct",
     "mean_y_pos",
     "n_y_pos",
-    "mean_y_neg",
-    "n_y_neg",
     "f1_pos",
     "precision_pos",
     "recall_pos",
+    "mean_y_pos_tau",
+    "n_y_pos_tau",
+    "f1_pos_tau",
+    "precision_pos_tau",
+    "recall_pos_tau",
 )
 
 
@@ -435,12 +440,17 @@ def assign_tiers_by_rank_score(
     b_count: int = DEFAULT_B_COUNT,
     a_hit: float = DEFAULT_A_HIT,
     tau_a_hit: float = DEFAULT_TAU_A_HIT,
+    require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
+    require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
 ) -> None:
-    """就地定档：Score = 1/rank(y_oo) [+ 1/rank(y_τc)]，A 档另过命中率门槛。
+    """就地定档：Score = 1/rank(y_oo) [+ 1/rank(y_τc)]，A 档另过命中率与可选 R+ 门槛。
 
     - 有有效 Y_oo 命中率的票参与排序；无样本 → C
     - ``require_tau`` 时加 1/rank(Y_τc)；缺 τc 命中率的票 τc 序取末位+1
-    - A：Y_oo ≥ ``a_hit``（默认 50%）；``require_tau`` 时还须 Y_τc ≥ ``tau_a_hit``
+    - A：Y_oo ≥ ``a_hit``（默认 50%）；``require_tau`` 时还须 Y_τc ≥ ``tau_a_hit``；
+      ``require_oo_r_pos`` 时还须 ``mean_y_pos``（OO_R+）> 0；
+      ``require_tc_r_pos`` 且 ``require_tau`` 时还须 ``mean_y_pos_tau``（TC_R+）> 0；
+      （缺/非有限/≤0 不过线；两侧勾选则须都过）
     - 过门槛者按 Score 降序取 top ``a_count``（默认 100）→ A；未过门槛不占 A 名额
     - 其余按 Score 接着 ``b_count``（默认 300）→ B；再其余 → C
     """
@@ -448,6 +458,8 @@ def assign_tiers_by_rank_score(
     n_b = clamp_b_count(b_count)
     oo_floor = clamp_hit_rate(a_hit, DEFAULT_A_HIT)
     tau_floor = clamp_hit_rate(tau_a_hit, DEFAULT_TAU_A_HIT)
+    need_oo_r_pos = bool(require_oo_r_pos)
+    need_tc_r_pos = bool(require_tc_r_pos) and bool(require_tau)
 
     eligible: List[Dict[str, Any]] = []
     for r in rows:
@@ -517,6 +529,24 @@ def assign_tiers_by_rank_score(
             return False
         if require_tau and not _meets_hit_floor(row.get("hit_rate_tau"), tau_floor):
             return False
+        def _r_pos(key: str) -> float:
+            try:
+                return (
+                    float(row.get(key))
+                    if row.get(key) is not None
+                    else float("nan")
+                )
+            except (TypeError, ValueError):
+                return float("nan")
+
+        if need_oo_r_pos:
+            oo_r = _r_pos("mean_y_pos")
+            if not (math.isfinite(oo_r) and oo_r > 0.0):
+                return False
+        if need_tc_r_pos:
+            tc_r = _r_pos("mean_y_pos_tau")
+            if not (math.isfinite(tc_r) and tc_r > 0.0):
+                return False
         return True
 
     a_left = n_a
@@ -808,10 +838,10 @@ def _absorb_holdout_row(
     yhat_eps: float,
     metric_set: Optional[set] = None,
 ) -> None:
-    """前半记命中、r⁺/r⁻ 与 F1⁺ 混淆计数；``metric_set`` 记 ŷ/实现（截面指标，默认同前半）。
+    """前半记命中、OO_R+ 与 OO_F1 混淆计数；``metric_set`` 记 ŷ/实现（截面指标，默认同前半）。
 
-    r⁺ = mean(y_oo | ŷ_oo>ε)，r⁻ = mean(y_oo | ŷ_oo<-ε)；
-    F1⁺ 正类=上涨，与命中同死区；只在 ``tier_set``（Holdout 前半）累计。
+    OO_R+ = mean(y_oo | ŷ_oo>ε)；
+    OO_F1 正类=上涨，与命中同死区；只在 ``tier_set``（Holdout 前半）累计。
     """
     d = str(date or "")[:10]
     code_s = str(code or "").strip()
@@ -833,8 +863,6 @@ def _absorb_holdout_row(
             "dates": [],
             "sum_y_pos": 0.0,
             "n_y_pos": 0,
-            "sum_y_neg": 0.0,
-            "n_y_neg": 0,
             "tp_pos": 0,
             "fp_pos": 0,
             "fn_pos": 0,
@@ -852,7 +880,7 @@ def _absorb_holdout_row(
             slot["n_valid"] = int(slot["n_valid"]) + 1
             if hit:
                 slot["hits"] = int(slot["hits"]) + 1
-            # F1⁺ 混淆：与 n_valid 同日（|ŷ|≥ε 且 |y|>0）
+            # OO_F1 混淆：与 n_valid 同日（|ŷ|≥ε 且 |y|>0）
             if math.isfinite(yh) and math.isfinite(ry):
                 pred_up = yh > 0.0
                 act_up = ry > 0.0
@@ -863,15 +891,10 @@ def _absorb_holdout_row(
                 elif (not pred_up) and act_up:
                     slot["fn_pos"] = int(slot.get("fn_pos") or 0) + 1
         slot["dates"].append(d)
-        # 条件收益：前半且 |ŷ_oo|>ε
-        if math.isfinite(yh) and math.isfinite(ry):
-            eps = float(yhat_eps)
-            if yh > eps:
-                slot["sum_y_pos"] = float(slot.get("sum_y_pos") or 0.0) + ry
-                slot["n_y_pos"] = int(slot.get("n_y_pos") or 0) + 1
-            elif yh < -eps:
-                slot["sum_y_neg"] = float(slot.get("sum_y_neg") or 0.0) + ry
-                slot["n_y_neg"] = int(slot.get("n_y_neg") or 0) + 1
+        # OO_R+：前半且 ŷ_oo>ε
+        if math.isfinite(yh) and math.isfinite(ry) and yh > float(yhat_eps):
+            slot["sum_y_pos"] = float(slot.get("sum_y_pos") or 0.0) + ry
+            slot["n_y_pos"] = int(slot.get("n_y_pos") or 0) + 1
     if not in_metric or not math.isfinite(yh) or not math.isfinite(ry):
         return
     slot["yhats"].append(yh)
@@ -890,7 +913,7 @@ def _absorb_tau_holdout_row(
     tier_set: Optional[set] = None,
     metric_set: Optional[set] = None,
 ) -> None:
-    """前半记 ŷ_τc 命中；整段 Holdout 写入成对序列（日截面 IC 用）。"""
+    """前半记 ŷ_τc 命中、TC_R+ / TC_F1；整段 Holdout 写入成对序列（日截面 IC 用）。"""
     d = str(date or "")[:10]
     code_s = str(code or "").strip()
     if not d or not code_s:
@@ -914,6 +937,11 @@ def _absorb_tau_holdout_row(
             "tau_yhats": [],
             "tau_realized": [],
             "tau_pair_dates": [],
+            "sum_y_pos_tau": 0.0,
+            "n_y_pos_tau": 0,
+            "tp_pos_tau": 0,
+            "fp_pos_tau": 0,
+            "fn_pos_tau": 0,
         }
         acc[code_s] = slot
     slot.setdefault("hits_tau", 0)
@@ -921,21 +949,40 @@ def _absorb_tau_holdout_row(
     slot.setdefault("tau_yhats", [])
     slot.setdefault("tau_realized", [])
     slot.setdefault("tau_pair_dates", [])
+    slot.setdefault("sum_y_pos_tau", 0.0)
+    slot.setdefault("n_y_pos_tau", 0)
+    slot.setdefault("tp_pos_tau", 0)
+    slot.setdefault("fp_pos_tau", 0)
+    slot.setdefault("fn_pos_tau", 0)
+    try:
+        yh = float(pred) if pred is not None else float("nan")
+        ry = float(y) if y is not None else float("nan")
+    except (TypeError, ValueError):
+        yh = float("nan")
+        ry = float("nan")
     if in_tier and isinstance(hit, bool):
         slot["n_valid_tau"] = int(slot["n_valid_tau"]) + 1
         if hit:
             slot["hits_tau"] = int(slot["hits_tau"]) + 1
-    if not in_metric or pred is None or y is None:
+        # TC_F1 混淆：与 n_valid_tau 同日
+        if math.isfinite(yh) and math.isfinite(ry):
+            pred_up = yh > 0.0
+            act_up = ry > 0.0
+            if pred_up and act_up:
+                slot["tp_pos_tau"] = int(slot.get("tp_pos_tau") or 0) + 1
+            elif pred_up and not act_up:
+                slot["fp_pos_tau"] = int(slot.get("fp_pos_tau") or 0) + 1
+            elif (not pred_up) and act_up:
+                slot["fn_pos_tau"] = int(slot.get("fn_pos_tau") or 0) + 1
+        # TC_R+：前半且 |ŷ_τc|>ε
+        if math.isfinite(yh) and math.isfinite(ry) and yh > float(yhat_eps):
+            slot["sum_y_pos_tau"] = float(slot.get("sum_y_pos_tau") or 0.0) + ry
+            slot["n_y_pos_tau"] = int(slot.get("n_y_pos_tau") or 0) + 1
+    if not in_metric or not math.isfinite(yh) or not math.isfinite(ry):
         return
-    try:
-        yh = float(pred)
-        ry = float(y)
-    except (TypeError, ValueError):
-        return
-    if math.isfinite(yh) and math.isfinite(ry):
-        slot["tau_yhats"].append(yh)
-        slot["tau_realized"].append(ry)
-        slot["tau_pair_dates"].append(d)
+    slot["tau_yhats"].append(yh)
+    slot["tau_realized"].append(ry)
+    slot["tau_pair_dates"].append(d)
 
 
 def _load_research_tau_model() -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
@@ -1554,6 +1601,8 @@ def _rows_from_acc(
     b_count: int = DEFAULT_B_COUNT,
     a_hit: float = DEFAULT_A_HIT,
     tau_a_hit: float = DEFAULT_TAU_A_HIT,
+    require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
+    require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int], int]:
     name_by = name_by or {}
     if pad_missing and pool_codes:
@@ -1568,8 +1617,6 @@ def _rows_from_acc(
                     "dates": [],
                     "sum_y_pos": 0.0,
                     "n_y_pos": 0,
-                    "sum_y_neg": 0.0,
-                    "n_y_neg": 0,
                     "tp_pos": 0,
                     "fp_pos": 0,
                     "fn_pos": 0,
@@ -1578,6 +1625,11 @@ def _rows_from_acc(
                     "tau_yhats": [],
                     "tau_realized": [],
                     "tau_pair_dates": [],
+                    "sum_y_pos_tau": 0.0,
+                    "n_y_pos_tau": 0,
+                    "tp_pos_tau": 0,
+                    "fp_pos_tau": 0,
+                    "fn_pos_tau": 0,
                 }
 
     rows: List[Dict[str, Any]] = []
@@ -1596,15 +1648,20 @@ def _rows_from_acc(
         mean_y_pos = (
             round(sum_y_pos / n_y_pos, 4) if n_y_pos > 0 else None
         )
-        n_y_neg = max(0, int(slot.get("n_y_neg") or 0))
-        sum_y_neg = float(slot.get("sum_y_neg") or 0.0)
-        mean_y_neg = (
-            round(sum_y_neg / n_y_neg, 4) if n_y_neg > 0 else None
-        )
         f1_pos, precision_pos, recall_pos = _f1_pos_from_counts(
             int(slot.get("tp_pos") or 0),
             int(slot.get("fp_pos") or 0),
             int(slot.get("fn_pos") or 0),
+        )
+        n_y_pos_tau = max(0, int(slot.get("n_y_pos_tau") or 0))
+        sum_y_pos_tau = float(slot.get("sum_y_pos_tau") or 0.0)
+        mean_y_pos_tau = (
+            round(sum_y_pos_tau / n_y_pos_tau, 4) if n_y_pos_tau > 0 else None
+        )
+        f1_pos_tau, precision_pos_tau, recall_pos_tau = _f1_pos_from_counts(
+            int(slot.get("tp_pos_tau") or 0),
+            int(slot.get("fp_pos_tau") or 0),
+            int(slot.get("fn_pos_tau") or 0),
         )
         ic = _spearman_ic(slot.get("yhats") or [], slot.get("realized") or [])
         ds = list(slot.get("dates") or [])
@@ -1625,11 +1682,14 @@ def _rows_from_acc(
                 "n_valid_tau": n_valid_tau,
                 "mean_y_pos": mean_y_pos,
                 "n_y_pos": n_y_pos,
-                "mean_y_neg": mean_y_neg,
-                "n_y_neg": n_y_neg,
                 "f1_pos": f1_pos,
                 "precision_pos": precision_pos,
                 "recall_pos": recall_pos,
+                "mean_y_pos_tau": mean_y_pos_tau,
+                "n_y_pos_tau": n_y_pos_tau,
+                "f1_pos_tau": f1_pos_tau,
+                "precision_pos_tau": precision_pos_tau,
+                "recall_pos_tau": recall_pos_tau,
                 "ic": ic,
                 "in_watching": code in watch_set,
                 "as_of_first": ds[0] if ds else None,
@@ -1644,6 +1704,8 @@ def _rows_from_acc(
         b_count=b_count,
         a_hit=a_hit,
         tau_a_hit=tau_a_hit,
+        require_oo_r_pos=bool(require_oo_r_pos),
+        require_tc_r_pos=bool(require_tc_r_pos),
     )
     counts = {"A": 0, "B": 0, "C": 0}
     for r in rows:
@@ -1677,6 +1739,8 @@ def build_holdout_half_tiers(
     b_count: int = DEFAULT_B_COUNT,
     a_hit: float = DEFAULT_A_HIT,
     tau_a_hit: float = DEFAULT_TAU_A_HIT,
+    require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
+    require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
     head: str = HEAD_OO,
     watching_codes: Optional[Sequence[str]] = None,
     codes: Optional[Sequence[str]] = None,
@@ -1690,7 +1754,9 @@ def build_holdout_half_tiers(
     """研究枢纽协议：研究套 ŷ_oo 按票分档。命中看 Holdout 前半；截面指标与等权买持看整段。
 
     Score = 1/rank(Y_oo) + 1/rank(Y_τc)（无 ŷ_τc 研究套则仅 Y_oo 序）。
-    A 档另过命中率门槛（``a_hit`` / ``tau_a_hit``，默认 50% / 50%）；未过门槛不占 A 名额。
+    A 档另过命中率门槛（``a_hit`` / ``tau_a_hit``，默认 50% / 50%）；
+    ``require_oo_r_pos`` / ``require_tc_r_pos``（默认皆开）时还须对应 R+>0
+    （无 ŷ_τc 研究套时 TC 门槛不生效）。未过门槛不占 A 名额。
     过门槛者按 Score 降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
     档内平均收益率 = Holdout 整段等权买持（对齐回测「观察池A档等权」）。
     落盘 last；回测/live 复用档位过滤宇宙。回测天数独立。
@@ -1718,6 +1784,8 @@ def build_holdout_half_tiers(
     n_b = clamp_b_count(b_count)
     oo_floor = clamp_hit_rate(a_hit, DEFAULT_A_HIT)
     tau_floor = clamp_hit_rate(tau_a_hit, DEFAULT_TAU_A_HIT)
+    need_oo_r_pos = bool(require_oo_r_pos)
+    need_tc_r_pos = bool(require_tc_r_pos)
     if len(pool_codes) < 2:
         return {
             "success": False,
@@ -1767,6 +1835,8 @@ def build_holdout_half_tiers(
         b_count=n_b,
         a_hit=oo_floor,
         tau_a_hit=tau_floor,
+        require_oo_r_pos=need_oo_r_pos,
+        require_tc_r_pos=need_tc_r_pos,
     )
     n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
     stock_bars = packed.get("stock_bars") if isinstance(packed.get("stock_bars"), dict) else {}
@@ -1837,6 +1907,8 @@ def build_holdout_half_tiers(
             "a_hit": oo_floor,
             "tau_a_hit": tau_floor,
             "require_tau": bool(require_tau),
+            "require_oo_r_pos": bool(need_oo_r_pos),
+            "require_tc_r_pos": bool(need_tc_r_pos),
             "score": (
                 "1/rank(y_oo)+1/rank(y_τc)"
                 if require_tau
@@ -1894,6 +1966,8 @@ def build_holdout_half_tiers(
                 if require_tau
                 else "（无 ŷ_τc 研究套，不看 Y_τc 门槛）"
             )
+            + ("、OO_R+>0" if need_oo_r_pos else "")
+            + ("、TC_R+>0" if need_tc_r_pos and require_tau else "")
             + f"；过门槛按 Score 降序 top {n_a}→A、接着 {n_b}→B、其余→C"
             + "；落盘 last；live 档位跟随历史回测「分档」勾选；"
             "回测天数用独立 lookback。"

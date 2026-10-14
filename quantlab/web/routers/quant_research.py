@@ -295,12 +295,20 @@ def quant_research_universe_predictability_tiers(
         le=100,
         description="A 档 Y_τc 命中率门槛。0–1 为比例，大于 1 为百分数（默认 0.5；无研究套时不生效）",
     ),
+    require_oo_r_pos: bool = Query(
+        True,
+        description="A 档另须 OO_R+>0（Holdout 前半 mean(y_oo|ŷ_oo>ε)；默认开）",
+    ),
+    require_tc_r_pos: bool = Query(
+        True,
+        description="A 档另须 TC_R+>0（Holdout 前半 mean(y_τc|ŷ_τc>ε)；有 ŷ_τc 研究套时生效；默认开）",
+    ),
 ) -> Dict[str, Any]:
     """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。命中看 Holdout 前半；指标与等权买持看整段。
 
     holdout: ŷ_oo 卡片 Holdout 交易日数（分档窗=升序前半；指标窗=整段）。
     定档：Score=1/rank(Y_oo)+1/rank(Y_τc)（无 τc 研究套则仅 Y_oo）。
-    A 档另过 a_hit / tau_a_hit（默认 50% / 50%）；未过门槛不占 A 名额。
+    A 档另过 a_hit / tau_a_hit（默认 50% / 50%）；可勾选 OO_R+>0 / TC_R+>0（各独立；无 τc 研究套时 TC 不生效）；未过门槛不占 A 名额。
     过门槛者 top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」与命中率）。
     lookback: 缺研究套现训时用的日线窗（与 ŷ_oo 训练窗对齐）；有研究套时只拉 Holdout+暖窗。
     回测天数由回测页 lookback 独立设置。
@@ -324,6 +332,8 @@ def quant_research_universe_predictability_tiers(
             b_count=clamp_b_count(b_count),
             a_hit=clamp_hit_rate(a_hit),
             tau_a_hit=clamp_hit_rate(tau_a_hit),
+            require_oo_r_pos=bool(require_oo_r_pos),
+            require_tc_r_pos=bool(require_tc_r_pos),
             persist=True,
         )
         if isinstance(rep, dict):
