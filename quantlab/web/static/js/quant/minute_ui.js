@@ -8,7 +8,12 @@ import {
   jobStatusBadge,
   unwrapJobSnap,
 } from "./cluster_job_ui.js";
-import { BARS_WATCHING_LIMIT, readWatchingPoolLimit } from "./params.js";
+import {
+  BARS_WATCHING_LIMIT,
+  readWatchingPoolLimit,
+  awaitWatchingPoolLimitReady,
+  WATCHING_POOL_LIMIT_CHANGED,
+} from "./params.js";
 
 /** 研究枢纽 · 观察池 5m 分钟覆盖 + 「增量补齐」/「强更 5m」 */
 export function installMinuteUi(q) {
@@ -740,8 +745,15 @@ export function installMinuteUi(q) {
     });
   }
 
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener(WATCHING_POOL_LIMIT_CHANGED, () => {
+      void refreshStatus();
+    });
+  }
+
   (async () => {
     try {
+      await awaitWatchingPoolLimitReady();
       await refreshStatus();
       await syncJobSlot();
     } catch (_) {

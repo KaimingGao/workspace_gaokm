@@ -12,6 +12,8 @@ import {
   BARS_DAILY_LOOKBACK,
   BARS_WATCHING_LIMIT,
   readWatchingPoolLimit,
+  awaitWatchingPoolLimitReady,
+  WATCHING_POOL_LIMIT_CHANGED,
 } from "./params.js";
 
 /** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐」/「强更日 K」 */
@@ -882,8 +884,15 @@ export function installBarsUi(q) {
     });
   }
 
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener(WATCHING_POOL_LIMIT_CHANGED, () => {
+      void refreshStatus();
+    });
+  }
+
   (async () => {
     try {
+      await awaitWatchingPoolLimitReady();
       await refreshStatus();
       await syncJobSlot();
     } catch (_) {

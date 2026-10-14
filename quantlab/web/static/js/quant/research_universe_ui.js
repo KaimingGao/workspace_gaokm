@@ -3,6 +3,11 @@
  * 有研究套时只拉 Holdout 附近本地日线建面板；live 档位跟随历史回测「分档」勾选。
  */
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
+import {
+  markWatchingPoolLimitReady,
+  notifyWatchingPoolLimitChanged,
+  readWatchingPoolLimit,
+} from "./params.js";
 
 export function installResearchUniverseUi(q) {
   const { on, apiFetch, escapeHtml, readHoldoutTradingDays, readFitLookbackDays } = q;
@@ -394,6 +399,59 @@ export function installResearchUniverseUi(q) {
     );
   }
 
+  function retCell(r) {
+    const pct = r && r.realized_pct;
+    const n = pct == null ? NaN : Number(pct);
+    const tip =
+      pct == null || !Number.isFinite(n)
+        ? "Holdout 整段无买持收益（日线不足）"
+        : `Holdout 整段买持 ${fmtRetPct(n)}（close 首尾，对齐档内平均收益率）`;
+    return (
+      `<td class="num quant-ru-ret-cell${csValCls(Number.isFinite(n) ? n : null)}" title="${escapeHtml(
+        tip
+      )}">` +
+      `${fmtRetPct(Number.isFinite(n) ? n : null)}` +
+      `</td>`
+    );
+  }
+
+  function condRetCell(r, side) {
+    const isPos = side === "pos";
+    const v = r && (isPos ? r.mean_y_pos : r.mean_y_neg);
+    const n = v == null ? NaN : Number(v);
+    const nSide = Number((r && (isPos ? r.n_y_pos : r.n_y_neg)) || 0);
+    const nValid = Number((r && r.n_valid) || 0);
+    const label = isPos ? "r⁺" : "r⁻";
+    const formula = isPos
+      ? "mean(y_oo|ŷ_oo>ε)"
+      : "mean(y_oo|ŷ_oo<-ε)";
+    const emptyLab = isPos ? "无看多" : "无看空";
+    let tip;
+    let text;
+    let cls = "";
+    if (Number.isFinite(n)) {
+      tip =
+        `Holdout 前半 ${label}=${formula} ${fmtRetPct(n)}` +
+        (nSide > 0 ? ` · ${nSide} 日` : "");
+      text = fmtRetPct(n);
+      cls = csValCls(n);
+    } else if (nValid > 0) {
+      tip = isPos
+        ? `Holdout 前半无 ŷ_oo>ε 日（${nValid} 个有效命中日均为看空）· 无法算 ${label}`
+        : `Holdout 前半无 ŷ_oo<-ε 日（${nValid} 个有效命中日均为看多）· 无法算 ${label}`;
+      text = emptyLab;
+      cls = " is-muted";
+    } else {
+      tip = `Holdout 前半无有效 ŷ_oo 样本 · 无法算 ${label}`;
+      text = "—";
+    }
+    return (
+      `<td class="num quant-ru-ret-cell${cls}" title="${escapeHtml(tip)}">` +
+      `${text}` +
+      `</td>`
+    );
+  }
+
   function stockCell(r) {
     const code = escapeHtml(r.code || "");
     const name = escapeHtml(String(r.name || "").trim() || "—");
@@ -468,7 +526,7 @@ export function installResearchUniverseUi(q) {
       `ŷ_oo Holdout OOS`,
       `Holdout${hold}日前半` +
         (tierN != null && Number.isFinite(Number(tierN)) ? ` · 窗${tierN}日` : "") +
-        ` · 指标与等权买持看整段`,
+        ` · r⁺/r⁻看前半 · 指标与等权买持看整段`,
       scoreLab,
       `A档数量 ${aCount} · B档数量 ${bCount} · ${gateLab} · C 其余`,
       liveBit(),
@@ -493,6 +551,9 @@ export function installResearchUniverseUi(q) {
             (r) =>
               `<tr data-tier="${tier}">` +
               stockCell(r) +
+              retCell(r) +
+              condRetCell(r, "pos") +
+              condRetCell(r, "neg") +
               scoreCell(r) +
               hitNCell(
                 r.hit_rate,
@@ -517,6 +578,9 @@ export function installResearchUniverseUi(q) {
           ? `<table class="quant-ru-tier-grid">
               <thead><tr>
                 <th class="quant-ru-col-stock">标的</th>
+                <th class="num" title="Holdout 整段买持收益%（close 首尾，对齐档内平均收益率）">收益</th>
+                <th class="num" title="Holdout 前半 r⁺=mean(y_oo|ŷ_oo&gt;ε)；模型看多日的平均实现收益">r⁺</th>
+                <th class="num" title="Holdout 前半 r⁻=mean(y_oo|ŷ_oo&lt;-ε)；模型看空日的平均实现收益">r⁻</th>
                 <th class="num" title="Score = 1/rank(Y_oo) + 1/rank(Y_τc)">Score</th>
                 <th class="num" title="Y_oo 命中率 · 有效样本日">Y_oo</th>
                 <th class="num" title="Y_τc 命中率 · 有效样本日">Y_τc</th>
@@ -723,7 +787,10 @@ export function installResearchUniverseUi(q) {
 
   async function hydrateWatchingMaxSize() {
     const input = el.maxSize();
-    if (!input) return;
+    if (!input) {
+      markWatchingPoolLimitReady(readWatchingPoolLimit());
+      return;
+    }
     try {
       const { ok, data } = await apiFetch("/api/watching/file");
       const watching = data && data.watching;
@@ -735,6 +802,9 @@ export function installResearchUniverseUi(q) {
       }
     } catch (_) {
       paintPoolSize(input.value || 300);
+    } finally {
+      // 先就绪再通知：日线/5m 首刷 await ready，避免用 HTML 默认 300 截断满池
+      markWatchingPoolLimitReady(readWatchingPoolLimit());
     }
   }
 
@@ -755,9 +825,10 @@ export function installResearchUniverseUi(q) {
       setPoolStatus(msg, true);
       return;
     }
-    paintPoolSize(data && data.max_size != null ? data.max_size : cap);
+    const saved = paintPoolSize(data && data.max_size != null ? data.max_size : cap);
     setPoolStatus("", false);
     syncPoolOverview(data && data.count);
+    notifyWatchingPoolLimitChanged(saved);
   }
 
   on("quant-watching-max-size", "input", () => {
@@ -769,7 +840,11 @@ export function installResearchUniverseUi(q) {
   });
 
   if (el.maxSize()) {
-    void hydrateWatchingMaxSize().catch(() => {});
+    void hydrateWatchingMaxSize().catch(() => {
+      markWatchingPoolLimitReady(readWatchingPoolLimit());
+    });
+  } else {
+    markWatchingPoolLimitReady(readWatchingPoolLimit());
   }
   if (document.getElementById("quant-section-research-universe")) {
     void loadTiers({ useLast: true, quiet: true }).catch(() => {});

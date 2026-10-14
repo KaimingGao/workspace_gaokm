@@ -503,7 +503,8 @@ def _minute_topup_core(
     min_span = max(1, int(min_span_days or DEFAULT_TOPUP_SPAN_DAYS))
     expected = expected_minute_asof()
     now = datetime.now()
-    n_workers = max(1, min(int(workers or DEFAULT_TOPUP_WORKERS), 8, len(watch)))
+    # 上限与默认一致（4）：孤立子进程超时多时，8 并发会叠出更多挂死 worker
+    n_workers = max(1, min(int(workers or DEFAULT_TOPUP_WORKERS), DEFAULT_TOPUP_WORKERS, len(watch)))
     timeout_em = minute_isolated_timeout_sec(skip_em=False)
     timeout_skip_em = minute_isolated_timeout_sec(skip_em=True)
 

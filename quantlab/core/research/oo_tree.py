@@ -33,12 +33,10 @@ from core.research.tc_tree import (
 TREE_SCHEMA = "oo_tree_shadow_v1"
 TREE_HEAD = "y_oo_tree"
 
-
 def oo_tree_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "oo_tree_last_report.json")
-
 
 def save_oo_tree_last_report(report: Dict[str, Any]) -> None:
     if not isinstance(report, dict) or not report.get("success"):
@@ -49,7 +47,6 @@ def save_oo_tree_last_report(report: Dict[str, Any]) -> None:
     path = oo_tree_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
-
 
 def load_oo_tree_last_report() -> Optional[Dict[str, Any]]:
     import json
@@ -67,98 +64,77 @@ def load_oo_tree_last_report() -> Optional[Dict[str, Any]]:
         return doc
     return None
 
-
-def _oo_column_names() -> List[str]:
-    from core.research.oo_ridge_compact import alpha_oo_raw_names
-    from core.signal.factors.meta.health import unsourced_factor_names
-    from core.signal.factors.z_oo import (
-        Z_OO_SKIP_PACKS,
-        to_z_oo_key,
-        z_oo_legacy_keys,
-    )
-
-    banned = set(unsourced_factor_names())
-    names = [
-        to_z_oo_key(n)
-        for n in z_oo_legacy_keys()
-        if n not in banned and n not in Z_OO_SKIP_PACKS
-    ]
-    seen = set(names)
-    for key in alpha_oo_raw_names(ridge_core_only=False):
-        if key not in seen and key not in banned:
-            seen.add(key)
-            names.append(key)
-    return names
-
-
 def _stack_daily_panels(
     stock_bars: Sequence[Dict[str, Any]],
     *,
     horizon_days: int = 1,
     min_history: int = 12,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
-    """逐股写入 float64 后丢掉行 dict。返回 (X, names, ys, dates, metas, n_stocks)。"""
-    from core.research.oo_panel import collect_oo_panel
-    from core.research.panel_matrix import PanelMatrix
+    """逐股折矩阵；复用 ŷ_oo 按股磁盘缓存后丢掉 bars。
 
-    # 列集预声明 z_oo ∪ 全量 raw_aoo；不 widen 避免无关键渗入
-    block = PanelMatrix(
-        _oo_column_names(),
-        widen_prefix="",
-    )
-    ys: List[float] = []
-    dates: List[str] = []
-    metas: List[dict] = []
+    与 ``oo_ridge_compact._oo_stock_job`` 同 fingerprint / ``oo/h{H}_core0`` 分片：
+    先跑过 ŷ_oo Ridge 的池子，Tree 拟合可直接命中缓存，无需再扫日线重折。
+    ``min_history`` 仅保留调用方签名兼容（缓存 key 与 ŷ_oo 一致，不另开窗）。
+    """
+    from core.research.oo_ridge_compact import _oo_stock_job, _stack_blocks
+
+    del min_history  # 签名兼容；fingerprint 对齐 ŷ_oo，不参与分片
+    parts: List[Tuple[np.ndarray, np.ndarray, List[str], List[str]]] = []
+    code_rows: List[Tuple[str, int]] = []
     n_stocks = 0
+    horizon_i = int(horizon_days or 1)
     for item in stock_bars or []:
         if not isinstance(item, dict):
             continue
-        bars = item.get("bars") or []
+        bars = item.pop("bars", None) or []
         if not bars:
             continue
         code = str(item.get("code") or item.get("stock_code") or "").strip()
         try:
-            rows, y_list, d_list = collect_oo_panel(
-                bars,
-                horizon_days=horizon_days,
-                min_history=min_history,
-                stock_code=code or None,
-                pit_fundamentals=False,
+            x, y, names, dates = _oo_stock_job(
+                (code, bars, horizon_i, False)
             )
         except Exception:  # noqa: BLE001
             logger.debug("oo_tree panel failed code=%s", code, exc_info=True)
+            del bars
             continue
-        n_align = min(len(rows), len(y_list), len(d_list))
-        if n_align <= 0:
+        del bars
+        n = int(getattr(x, "shape", (0,))[0] or 0)
+        if n <= 0:
             continue
-        from core.signal.factors.z_oo import stamp_z_oo_rows
-
-        chunk = list(rows)[:n_align]
-        stamp_z_oo_rows(chunk)
-        block.add_rows(chunk)
-        del rows
-        del chunk
+        parts.append((x, y, names, dates))
+        code_rows.append((code, n))
         n_stocks += 1
-        for y, d in zip(list(y_list)[:n_align], list(d_list)[:n_align]):
-            ys.append(float(y))
-            day = str(d)[:10]
-            dates.append(day)
-            metas.append({"code": code, "theme_day": 0, "date": day})
-    X = block.finalize()
+    if not parts:
+        X = np.zeros((0, 0), dtype=np.float64)
+        ys: List[float] = []
+        dates_out: List[str] = []
+        metas: List[dict] = []
+        names_out: List[str] = []
+    else:
+        X, y_arr, names_out, dates_out = _stack_blocks(parts)
+        del parts
+        ys = [float(v) for v in y_arr]
+        metas = []
+        row = 0
+        for code, n in code_rows:
+            for _i in range(n):
+                day = str(dates_out[row])[:10] if row < len(dates_out) else ""
+                metas.append({"code": code, "theme_day": 0, "date": day})
+                row += 1
     logger.info(
-        "compact panel head=y_oo_tree rows=%s cols=%s stocks=%s",
+        "compact panel head=y_oo_tree rows=%s cols=%s stocks=%s cache=oo",
         int(X.shape[0]),
-        int(X.shape[1]),
+        int(X.shape[1]) if X.ndim == 2 else 0,
         n_stocks,
     )
-    return X, list(block.names), ys, dates, metas, n_stocks
-
+    return X, list(names_out), ys, list(dates_out), metas, n_stocks
 
 def _feature_names_from_matrix(
     names: Sequence[str],
     present: set,
-) -> Tuple[List[str], List[str], List[str]]:
-    """返回 (tree_feats, ridge_feats, aoo_keys)。proxy 已在列名里剔除。
+) -> Tuple[List[str], List[str]]:
+    """返回 (feat_names, aoo_keys)。树与 Ridge 同列；proxy 已在列名里剔除。
 
     与 ŷ_oo Ridge 同策略：``z_oo ∪ raw_aoo``，有 aoo_core 时丢掉
     ``gap_risk`` / ``momentum`` / ``overheat``（避免与 ``raw_aoo_GAP*`` 双计）。
@@ -190,12 +166,10 @@ def _feature_names_from_matrix(
         and n not in banned
         and to_legacy_key(str(n)) not in banned
     ]
-    tree_feats = drop_aoo_overlap_z_oo(
+    feat_names = drop_aoo_overlap_z_oo(
         list(z_feats) + [n for n in aoo_keys if n not in set(z_feats)]
     )
-    ridge_feats = list(tree_feats)
-    return tree_feats, ridge_feats, aoo_keys
-
+    return feat_names, aoo_keys
 
 def fit_oo_tree_report(
     stock_bars: Sequence[Dict[str, Any]],
@@ -223,8 +197,16 @@ def fit_oo_tree_report(
     """
     from core.research.panel_matrix import keepall_ridge_oos, finite_name_set, named_columns
     from core.research.tc_ridge import TAU_MIN_STD_EXEMPT
+    from core.research.holdout import (
+        DEFAULT_HOLDOUT_TRADING_DAYS,
+        attach_holdout_meta,
+        calendar_dates_from_stock_bars,
+        resolve_ridge_split,
+    )
 
     t0 = time.perf_counter()
+    # 面板会逐票 pop bars；Holdout 日历须先抽
+    calendar_dates = calendar_dates_from_stock_bars(stock_bars)
     t_panel0 = time.perf_counter()
     X, col_names, ys, dates, metas, n_stocks = _stack_daily_panels(
         stock_bars,
@@ -232,20 +214,21 @@ def fit_oo_tree_report(
         min_history=min_history,
     )
     panel_s = round(time.perf_counter() - t_panel0, 2)
-    if len(ys) < 20:
+    sample_count = len(ys)
+    if sample_count < 20:
         return {
             "success": False,
-            "error": f"树样本不足 n={len(ys)}（需≥20）",
+            "error": f"树样本不足 n={sample_count}（需≥20）",
             "task": "oo_tree",
             "head": TREE_HEAD,
-            "sample_count": len(ys),
+            "sample_count": sample_count,
             "stock_count": n_stocks,
             "schema": TREE_SCHEMA,
             "live_hook": False,
             "backtest_hook": False,
         }
 
-    feat_names, ridge_feat_names, aoo_keys = _feature_names_from_matrix(
+    feat_names, aoo_keys = _feature_names_from_matrix(
         col_names,
         finite_name_set(X, col_names),
     )
@@ -255,53 +238,53 @@ def fit_oo_tree_report(
             "error": "可用因子不足（proxy 已剔除）",
             "task": "oo_tree",
             "head": TREE_HEAD,
-            "sample_count": len(ys),
+            "sample_count": sample_count,
             "schema": TREE_SCHEMA,
             "live_hook": False,
             "backtest_hook": False,
         }
-
-    from core.research.holdout import (
-        DEFAULT_HOLDOUT_TRADING_DAYS,
-        attach_holdout_meta,
-        calendar_dates_from_stock_bars,
-        resolve_ridge_split,
-    )
 
     hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
     train_idx, test_idx, split_meta = resolve_ridge_split(
         dates,
         holdout_trading_days=hold_n,
         label_horizon_days=int(horizon_days or 1),
-        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+        calendar_dates=calendar_dates,
     )
     ys_tr = [ys[i] for i in train_idx]
     ys_te = [ys[i] for i in test_idx]
     metas_te = [metas[i] for i in test_idx]
+    dates_tr = [dates[i] for i in train_idx]
+    dates_te = [dates[i] for i in test_idx]
+    # 全量标签/元数据已切片；释放大 list（树/Ridge 只用 train/test）
+    del ys, dates, metas
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
             "error": f"Holdout 切分后样本不足 训={len(ys_tr)} 测={len(ys_te)}",
             "task": "oo_tree",
             "head": TREE_HEAD,
-            "sample_count": len(ys),
+            "sample_count": sample_count,
             "schema": TREE_SCHEMA,
             "live_hook": False,
             "backtest_hook": False,
         }
 
-    X_tree, feat_names = named_columns(X, col_names, feat_names)
-    X_ridge, ridge_feat_names = named_columns(X, col_names, ridge_feat_names)
+    # 树与 Ridge 同列：只抽一次矩阵，再切 train/test
+    X_fit, feat_names = named_columns(X, col_names, feat_names)
     del X
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
+    X_tr = np.ascontiguousarray(X_fit[row_tr])
+    X_te = np.ascontiguousarray(X_fit[row_te])
+    del X_fit
 
     engine = resolve_tree_backend(backend)
     use_cs = bool(cross_section_zscore)
     model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
-        X_tree[row_tr],
+        X_tr,
         ys_tr,
-        X_tree[row_te],
+        X_te,
         feat_names,
         n_estimators=n_estimators,
         max_depth=max_depth,
@@ -309,8 +292,8 @@ def fit_oo_tree_report(
         subsample=subsample,
         feature_zscore=True,
         cross_section_zscore=use_cs,
-        train_dates=[dates[i] for i in train_idx],
-        test_dates=[dates[i] for i in test_idx],
+        train_dates=dates_tr,
+        test_dates=dates_te,
         window_days=window_days,
         step_days=step_days,
     )
@@ -330,18 +313,19 @@ def fit_oo_tree_report(
 
     t_ridge0 = time.perf_counter()
     _, ridge_preds = keepall_ridge_oos(
-        X_ridge[row_tr],
+        X_tr,
         ys_tr,
-        X_ridge[row_te],
-        ridge_feat_names,
+        X_te,
+        feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=None,
         min_std_exempt=TAU_MIN_STD_EXEMPT,
-        row_dates_tr=[dates[i] for i in train_idx],
-        row_dates_te=[dates[i] for i in test_idx],
+        row_dates_tr=dates_tr,
+        row_dates_te=dates_te,
         cross_section_zscore=use_cs,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
+    del X_tr, X_te
 
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=False)
     oos_ridge = _oos_pack(ridge_preds, ys_te, metas_te, use_minute=False)
@@ -363,7 +347,7 @@ def fit_oo_tree_report(
         "head": TREE_HEAD,
         "schema": TREE_SCHEMA,
         "stock_count": n_stocks,
-        "sample_count": len(ys),
+        "sample_count": sample_count,
         "horizon_days": int(horizon_days or 1),
         "backend": engine,
         "hyperparams": hyper,
@@ -374,7 +358,7 @@ def fit_oo_tree_report(
             "fit_s": round(time.perf_counter() - t0, 2),
         },
         "feature_names": list(feat_names),
-        "ridge_feature_names": list(ridge_feat_names),
+        "ridge_feature_names": list(feat_names),
         "include_alpha_oo": True,
         "n_alpha_oo_features": len(aoo_keys),
         "feature_importance": _importance_rows(feat_names, gain),
@@ -411,18 +395,15 @@ def fit_oo_tree_report(
     stamp_tree_fitted_at(report)
     return report
 
-
 def oo_tree_model_path() -> str:
     from core.research.horizon_tree import tree_model_path
 
     return tree_model_path("oo")
 
-
 def load_oo_tree_model() -> Optional[Dict[str, Any]]:
     from core.research.horizon_tree import load_tree_model_doc
 
     return load_tree_model_doc("oo")
-
 
 def persist_oo_tree_model(
     report: Dict[str, Any],
@@ -436,7 +417,6 @@ def persist_oo_tree_model(
         "oo", report, note=note or "oo_tree promote", force=force
     )
 
-
 def predict_oo_tree_from_features(
     features: Dict[str, Optional[float]],
     *,
@@ -449,7 +429,6 @@ def predict_oo_tree_from_features(
         return None
     rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
     return predict_tree_return(features, rm)
-
 
 def oo_tree_features_from_window(
     window: Sequence[dict],

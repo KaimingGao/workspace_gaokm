@@ -23,8 +23,39 @@ def _now_ts() -> float:
     return time.time()
 
 
+def _load_spot_code_name_map() -> Dict[str, str]:
+    """只读 spot_a_em 的代码→名称。名称展示可忽略现货 24h TTL。"""
+    out: Dict[str, str] = {}
+    try:
+        from core.paths import DATA_DIR
+        import json
+
+        path = os.path.join(DATA_DIR, "store", "spot_a_em.json")
+        if not os.path.isfile(path):
+            return out
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+        rows = payload.get("rows") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            return out
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            code = str(
+                row.get("代码") or row.get("code") or row.get("股票代码") or ""
+            ).strip()
+            name = str(
+                row.get("名称") or row.get("name") or row.get("股票名称") or ""
+            ).strip()
+            if code and name and name != code:
+                out[code] = name
+    except Exception:  # noqa: BLE001
+        logger.debug("load spot_a_em name map failed", exc_info=True)
+    return out
+
+
 def _load_a_code_name_map(*, ignore_ttl: bool = True) -> Dict[str, str]:
-    """只读 a_code_name 磁盘索引；展示兜底可忽略过期。"""
+    """代码→名称：a_code_name 优先；缺则回退 spot_a_em（展示用，可忽略现货 TTL）。"""
     global _CODE_NAME_CACHE, _CODE_NAME_CACHE_TS
     now = _now_ts()
     if _CODE_NAME_CACHE and now - _CODE_NAME_CACHE_TS < _CODE_NAME_CACHE_TTL:
@@ -35,24 +66,28 @@ def _load_a_code_name_map(*, ignore_ttl: bool = True) -> Dict[str, str]:
         import json
 
         path = os.path.join(DATA_DIR, "store", "a_code_name.json")
-        if not os.path.isfile(path):
-            return out
-        with open(path, encoding="utf-8") as f:
-            payload = json.load(f)
-        if not ignore_ttl:
-            fetched = float(payload.get("fetched_at") or 0)
-            if fetched and now - fetched > 86400 * 30:
-                return out
-        for it in payload.get("pairs") or []:
-            if isinstance(it, (list, tuple)) and len(it) >= 2:
-                code = str(it[0] or "").strip()
-                name = str(it[1] or "").strip()
-                if code and name and name != code:
-                    out[code] = name
-        _CODE_NAME_CACHE = out
-        _CODE_NAME_CACHE_TS = now
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                payload = json.load(f)
+            stale = False
+            if not ignore_ttl:
+                fetched = float(payload.get("fetched_at") or 0)
+                if fetched and now - fetched > 86400 * 30:
+                    stale = True
+            if not stale:
+                for it in payload.get("pairs") or []:
+                    if isinstance(it, (list, tuple)) and len(it) >= 2:
+                        code = str(it[0] or "").strip()
+                        name = str(it[1] or "").strip()
+                        if code and name and name != code:
+                            out[code] = name
     except Exception:  # noqa: BLE001
         logger.debug("load a_code_name map failed", exc_info=True)
+        out = {}
+    if not out:
+        out = _load_spot_code_name_map()
+    _CODE_NAME_CACHE = out
+    _CODE_NAME_CACHE_TS = now
     return out
 
 

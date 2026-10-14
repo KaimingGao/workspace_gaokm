@@ -170,31 +170,39 @@ def fit_co_tree_report(
     ys_te = [ys[i] for i in test_idx]
     metas_tr = [metas[i] for i in train_idx]
     metas_te = [metas[i] for i in test_idx]
+    dates_tr = [dates[i] for i in train_idx]
+    dates_te = [dates[i] for i in test_idx]
+    sample_count = len(ys)
+    del ys, dates, metas
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
             "error": f"Holdout 切分后样本不足 训={len(ys_tr)} 测={len(ys_te)}",
             "task": "co_tree",
             "head": TREE_HEAD,
-            "sample_count": len(ys),
+            "sample_count": sample_count,
             "schema": TREE_SCHEMA,
             "live_hook": False,
             "backtest_hook": False,
         }
 
+    # 树特征 ⊇ Ridge：先切树训练/测试再释放大表，Ridge 切片延后以压峰值
     X_tree, feat_names = named_columns(X, col_names, feat_names)
     ridge_names = ridge_feat_names or list(CO_Z_FEATURES)
     X_ridge, ridge_names = named_columns(X, col_names, ridge_names)
     del X
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
+    X_tr = np.ascontiguousarray(X_tree[row_tr])
+    X_te = np.ascontiguousarray(X_tree[row_te])
+    del X_tree
 
     engine = resolve_tree_backend(backend)
     use_cs = bool(cross_section_zscore)
     model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
-        X_tree[row_tr],
+        X_tr,
         ys_tr,
-        X_tree[row_te],
+        X_te,
         feat_names,
         n_estimators=n_estimators,
         max_depth=max_depth,
@@ -202,11 +210,12 @@ def fit_co_tree_report(
         subsample=subsample,
         feature_zscore=True,
         cross_section_zscore=use_cs,
-        train_dates=[dates[i] for i in train_idx],
-        test_dates=[dates[i] for i in test_idx],
+        train_dates=dates_tr,
+        test_dates=dates_te,
         window_days=window_days,
         step_days=step_days,
     )
+    del X_tr, X_te
     from core.research.horizon_tree import pack_tree_return_model
 
     return_model = pack_tree_return_model(
@@ -221,20 +230,24 @@ def fit_co_tree_report(
         y_label="open[T+1]/close[T]-1",
     )
 
+    X_ridge_tr = np.ascontiguousarray(X_ridge[row_tr])
+    X_ridge_te = np.ascontiguousarray(X_ridge[row_te])
+    del X_ridge
     t_ridge0 = time.perf_counter()
     _, ridge_preds = keepall_ridge_oos(
-        X_ridge[row_tr],
+        X_ridge_tr,
         ys_tr,
-        X_ridge[row_te],
+        X_ridge_te,
         ridge_names,
         ridge_lambda=ridge_lambda,
         sample_weights=theme_sample_weights(metas_tr, theme_boost=theme_boost),
         min_std_exempt=TAU_MIN_STD_EXEMPT,
-        row_dates_tr=[dates[i] for i in train_idx],
-        row_dates_te=[dates[i] for i in test_idx],
+        row_dates_tr=dates_tr,
+        row_dates_te=dates_te,
         cross_section_zscore=use_cs,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
+    del X_ridge_tr, X_ridge_te
 
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=False)
     oos_ridge = _oos_pack(ridge_preds, ys_te, metas_te, use_minute=False)
@@ -256,7 +269,7 @@ def fit_co_tree_report(
         "head": TREE_HEAD,
         "schema": TREE_SCHEMA,
         "stock_count": n_stocks,
-        "sample_count": len(ys),
+        "sample_count": sample_count,
         "backend": engine,
         "hyperparams": hyper,
         "timing": {

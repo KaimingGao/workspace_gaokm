@@ -221,7 +221,14 @@ def _normalize_equity_curve(
 def _pool_ew_equity_curve(
     stock_bars: Dict[str, List[dict]],
     dates: List[str],
+    *,
+    min_coverage: float = 0.8,
 ) -> List[dict]:
+    """等权买持净值曲线（起点 100）。
+
+    某日仅当「有起点价且当日有收盘」的票数 ≥ max(2, ceil(起点池 × min_coverage))
+    才写入该点。避免末日只到仓少数票（如今日日线尚未齐）把终点收益带偏。
+    """
     maps = {code: _close_by_date(bars) for code, bars in (stock_bars or {}).items()}
     if not maps or not dates:
         return []
@@ -234,6 +241,9 @@ def _pool_ew_equity_curve(
     if not start_date:
         return []
     start_closes = {c: m[start_date] for c, m in maps.items() if start_date in m}
+    n0 = len(start_closes)
+    cov = max(0.0, min(1.0, float(min_coverage)))
+    min_names = max(2, int(math.ceil(cov * n0))) if n0 else 2
     pts = [{"date": start_date, "equity": 100.0}]
     for d in dates:
         if d == start_date:
@@ -244,7 +254,7 @@ def _pool_ew_equity_curve(
             if c1 is None or c0 <= 0:
                 continue
             rets.append(c1 / c0)
-        if len(rets) < 2:
+        if len(rets) < min_names:
             continue
         eq = 100.0 * (sum(rets) / len(rets))
         pts.append({"date": d, "equity": round(eq, 2)})

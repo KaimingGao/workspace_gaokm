@@ -63,13 +63,27 @@ def _select_ridge_desk_doc(
     live: Optional[Dict[str, Any]],
     last: Optional[Dict[str, Any]],
 ) -> Tuple[Optional[Dict[str, Any]], bool]:
-    """last 与 live 的 Holdout/n 不一致时，研究台展示最近拟合。"""
+    """研究台展示：优先最近拟合报告；执行套仅在拟合标识不落后时覆盖。
+
+    - Holdout / 样本口径不同 → 画 last（刚改 Holdout 重拟合）
+    - 口径相同但 last.fitted_at 新于 live → 画 last（刚拟合/启用研究，执行仍是上一轮）
+    - 否则画 live（研究已晋级，或仅有执行套）
+    """
     last_ok = isinstance(last, dict) and isinstance(last.get("return_model"), dict)
     live_ok = isinstance(live, dict) and isinstance(live.get("return_model"), dict)
     if last_ok:
         if not live_ok:
             return last, True
         if _ridge_desk_key(last) != _ridge_desk_key(live):
+            return last, True
+        try:
+            from core.research.holdout import model_fit_id
+
+            last_fit = str(model_fit_id(last) or "")
+            live_fit = str(model_fit_id(live) or "")
+        except Exception:  # noqa: BLE001
+            last_fit, live_fit = "", ""
+        if last_fit and (not live_fit or last_fit > live_fit):
             return last, True
     if live_ok:
         return live, False
@@ -1078,16 +1092,28 @@ class QuantFactorMixin:
             if bars
         ]
         bars_s = round(time.perf_counter() - t_bars0, 2)
-        report = fit_oo_tree_report(
-            stock_bars,
-            horizon_days=horizon_days,
-            ridge_lambda=ridge_lambda,
-            holdout_trading_days=holdout_trading_days,
-            backend=backend,
-            window_days=window_days,
-            step_days=step_days,
-            cross_section_zscore=bool(cross_section_zscore),
-        )
+        code_list = [r.get("code") for r in stock_bars]
+        try:
+            report = fit_oo_tree_report(
+                stock_bars,
+                horizon_days=horizon_days,
+                ridge_lambda=ridge_lambda,
+                holdout_trading_days=holdout_trading_days,
+                backend=backend,
+                window_days=window_days,
+                step_days=step_days,
+                cross_section_zscore=bool(cross_section_zscore),
+            )
+        finally:
+            # 面板已 pop bars；清空引用并催收，避免拟合峰值后仍占十数 GB
+            stock_bars.clear()
+            loaded.clear()
+            try:
+                import gc
+
+                gc.collect()
+            except Exception:  # noqa: BLE001
+                pass
         if isinstance(report, dict):
             timing = dict(report.get("timing") or {})
             timing["bars_s"] = bars_s
@@ -1100,7 +1126,7 @@ class QuantFactorMixin:
             report["watching_limit"] = limit
             report["universe_source"] = resolved.get("source")
             report["lookback"] = lookback
-            report["codes"] = [r.get("code") for r in stock_bars]
+            report["codes"] = code_list
             if report.get("success"):
                 saved = persist_oo_tree_model(
                     report,
@@ -1207,17 +1233,28 @@ class QuantFactorMixin:
             if bars
         ]
         bars_s = round(time.perf_counter() - t_bars0, 2)
-        report = fit_co_tree_report(
-            stock_bars,
-            ridge_lambda=ridge_lambda,
-            gap_trigger_pct=gap_trigger_pct,
-            theme_boost=theme_boost,
-            holdout_trading_days=holdout_trading_days,
-            backend=backend,
-            window_days=window_days,
-            step_days=step_days,
-            cross_section_zscore=bool(cross_section_zscore),
-        )
+        try:
+            report = fit_co_tree_report(
+                stock_bars,
+                ridge_lambda=ridge_lambda,
+                gap_trigger_pct=gap_trigger_pct,
+                theme_boost=theme_boost,
+                holdout_trading_days=holdout_trading_days,
+                backend=backend,
+                window_days=window_days,
+                step_days=step_days,
+                cross_section_zscore=bool(cross_section_zscore),
+            )
+        finally:
+            # 对齐 oo_tree：拟合后清 bars，避免峰值后仍占大块内存
+            stock_bars.clear()
+            loaded.clear()
+            try:
+                import gc
+
+                gc.collect()
+            except Exception:  # noqa: BLE001
+                pass
         if isinstance(report, dict):
             timing = dict(report.get("timing") or {})
             timing["bars_s"] = bars_s

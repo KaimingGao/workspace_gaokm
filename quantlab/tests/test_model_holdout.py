@@ -337,6 +337,35 @@ class TestTauDeskPrefersHoldout(unittest.TestCase):
         self.assertTrue(use_last)
         self.assertEqual(doc.get("holdout_trading_days"), 10)
 
+    def test_select_ridge_desk_prefers_newer_last_when_holdout_same(self):
+        """同 Holdout 时：last 拟合新于 live → 画 last（启用研究、执行未晋级）。"""
+        from quant.services.quant_service_factors import _select_ridge_desk_doc
+
+        live = {
+            "return_model": {"coefficients": {"a": 1.0}, "intercept": 0.05},
+            "fitted_at": "2026-10-14T04:28:00Z",
+            "holdout_trading_days": 40,
+            "oos": {"n_test": 30249, "holdout_trading_days": 40},
+        }
+        last = {
+            "return_model": {"coefficients": {"a": 0.8}, "intercept": 0.047},
+            "fitted_at": "2026-10-14T06:00:00Z",
+            "holdout_trading_days": 40,
+            "oos": {"n_test": 30249, "holdout_trading_days": 40},
+        }
+        doc, use_last = _select_ridge_desk_doc(live, last)
+        self.assertTrue(use_last)
+        self.assertAlmostEqual(float((doc.get("return_model") or {}).get("intercept") or 0), 0.047)
+
+        # 晋级后 live 与 last 同 fitted_at → 画执行套
+        live2 = dict(last)
+        live2["promoted_at"] = "2026-10-14T06:05:00Z"
+        doc2, use_last2 = _select_ridge_desk_doc(live2, last)
+        self.assertFalse(use_last2)
+        self.assertAlmostEqual(
+            float((doc2.get("return_model") or {}).get("intercept") or 0), 0.047
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

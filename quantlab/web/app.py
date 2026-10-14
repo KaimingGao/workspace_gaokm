@@ -63,6 +63,12 @@ _quant = deps.quant
 
 async def _app_lifespan(app: FastAPI):
     try:
+        from adapters.market.ak_worker import reap_orphaned_pool_workers
+
+        reap_orphaned_pool_workers()
+    except Exception:  # noqa: BLE001
+        logger.debug("orphan pool reap skipped", exc_info=True)
+    try:
         from core.paths import PAPER_PATH
         from core.paper.rebalance.auto_worker import (
             load_enabled_flag as _load_rebalance_enabled,
@@ -81,6 +87,12 @@ async def _app_lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.debug("auto worker restore skipped", exc_info=True)
     yield
+    try:
+        from adapters.market.ak_worker import shutdown_pool
+
+        shutdown_pool()
+    except Exception:  # noqa: BLE001
+        logger.debug("ak_worker shutdown skipped", exc_info=True)
     try:
         from core.paper.rebalance.auto_worker import rebalance_auto_worker
         from core.t0.auto_worker import t0_auto_worker

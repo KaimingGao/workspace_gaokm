@@ -12545,19 +12545,27 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
 }
 
 .quant-ru-col-stock {
-  width: 34%;
+  width: 24%;
 }
 
+/* 收益 · r⁺ · r⁻ · Score */
 .quant-ru-tier-grid th.num:nth-child(2),
-.quant-ru-tier-grid td.num:nth-child(2) {
-  width: 14%;
-}
-
+.quant-ru-tier-grid td.num:nth-child(2),
 .quant-ru-tier-grid th.num:nth-child(3),
 .quant-ru-tier-grid td.num:nth-child(3),
 .quant-ru-tier-grid th.num:nth-child(4),
-.quant-ru-tier-grid td.num:nth-child(4) {
-  width: 26%;
+.quant-ru-tier-grid td.num:nth-child(4),
+.quant-ru-tier-grid th.num:nth-child(5),
+.quant-ru-tier-grid td.num:nth-child(5) {
+  width: 10%;
+}
+
+/* Y_oo · Y_τc */
+.quant-ru-tier-grid th.num:nth-child(6),
+.quant-ru-tier-grid td.num:nth-child(6),
+.quant-ru-tier-grid th.num:nth-child(7),
+.quant-ru-tier-grid td.num:nth-child(7) {
+  width: 16%;
 }
 
 .quant-ru-score-cell {
@@ -12588,8 +12596,29 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   letter-spacing: 0.02em;
 }
 
+.quant-ru-ret-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.quant-ru-ret-cell.up {
+  color: var(--color-up, #2a7a4b);
+}
+
+.quant-ru-ret-cell.down {
+  color: var(--color-down, #b33b3b);
+}
+
+.quant-ru-ret-cell.is-muted {
+  color: color-mix(in srgb, var(--ink-3, var(--ink-2)) 42%, transparent);
+  font-weight: 400;
+  font-size: 0.7rem;
+}
+
 .quant-ru-hit-cell {
-  min-width: 5.5rem;
+  min-width: 0;
   vertical-align: middle;
 }
 
@@ -12606,7 +12635,7 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   font-weight: 650;
   font-size: 0.8rem;
   color: var(--ink);
-  min-width: 3.1rem;
+  min-width: 2.4rem;
   text-align: right;
 }
 

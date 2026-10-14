@@ -259,10 +259,11 @@ export function initQuant(ctx) {
   const backtest = installBacktest(q);
   const cluster = installClusterProbe(q);
   const suggest = installSuggest(q);
+  // 先 hydrate 观察池只数，日线/5m Coverage 首刷 await watchingPoolLimitReady
+  const researchUniverse = installResearchUniverseUi(q);
   const barsUi = installBarsUi(q);
   const minuteUi = installMinuteUi(q);
   installBarsIntegrityUi(q);
-  const researchUniverse = installResearchUniverseUi(q);
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
   q.watching = watching;

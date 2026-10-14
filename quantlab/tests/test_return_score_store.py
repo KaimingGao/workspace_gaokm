@@ -124,6 +124,78 @@ class TestReturnScoreStore(unittest.TestCase):
                     float((st2["return_model"] or {}).get("intercept") or 0), 0.11
                 )
 
+    def test_status_shows_research_while_active_is_stale(self):
+        """启用研究后、执行仍是上一轮时，系数表画研究槽，不画旧执行 β。"""
+        import time
+
+        old = ReturnScoreModel(
+            intercept=0.05,
+            coefficients={"YKLEN": -0.98, "OMA30": 0.78},
+            feature_zscore=False,
+            sample_count=40,
+            horizon_days=1,
+        )
+        new = ReturnScoreModel(
+            intercept=0.047,
+            coefficients={"YKLEN": -0.78, "OMA30": 0.79},
+            feature_zscore=False,
+            sample_count=40,
+            horizon_days=1,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            draft = os.path.join(td, "draft.json")
+            active = os.path.join(td, "active.json")
+            research = os.path.join(td, "research.json")
+            with patch.object(store, "RETURN_SCORE_MODEL_DRAFT_PATH", draft), patch.object(
+                store, "RETURN_SCORE_MODEL_ACTIVE_PATH", active
+            ), patch.object(
+                store, "RETURN_SCORE_MODEL_RESEARCH_PATH", research
+            ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
+                store, "LIVE_DIR", td
+            ):
+                self.assertTrue(store.save_return_model_draft(old)["success"])
+                self.assertTrue(
+                    store.promote_return_model_draft(note="", role="research")["success"]
+                )
+                self.assertTrue(
+                    store.promote_return_model_draft(note="", role="live")["success"]
+                )
+                time.sleep(1.05)
+                self.assertTrue(store.save_return_model_draft(new)["success"])
+                fitted = store.return_model_status()
+                self.assertEqual(fitted.get("display_role"), "draft")
+                self.assertAlmostEqual(
+                    float((fitted.get("return_model") or {}).get("intercept") or 0),
+                    0.047,
+                )
+                self.assertTrue(
+                    store.promote_return_model_draft(note="", role="research")["success"]
+                )
+                researched = store.return_model_status()
+                self.assertEqual(researched.get("display_role"), "research")
+                self.assertAlmostEqual(
+                    float((researched.get("return_model") or {}).get("intercept") or 0),
+                    0.047,
+                )
+                self.assertAlmostEqual(
+                    float(
+                        ((researched.get("return_model") or {}).get("coefficients") or {}).get(
+                            "OMA30"
+                        )
+                        or 0
+                    ),
+                    0.79,
+                )
+                self.assertTrue(
+                    store.promote_return_model_draft(note="", role="live")["success"]
+                )
+                executed = store.return_model_status()
+                self.assertEqual(executed.get("display_role"), "active")
+                self.assertAlmostEqual(
+                    float((executed.get("return_model") or {}).get("intercept") or 0),
+                    0.047,
+                )
+
     def test_prefer_research_draft_uses_holdout_blob(self):
         """草稿只落 Holdout 前训一份 β；研究/执行意图读到同一套系数。"""
         research_m = ReturnScoreModel(

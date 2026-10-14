@@ -57,9 +57,24 @@ export function predTierBadgeHtml(code, esc) {
     info.score != null && !Number.isNaN(Number(info.score))
       ? `Score ${Number(info.score).toFixed(3)}`
       : "";
+  const fmtCondRet = (v, nSide, label) => {
+    if (v == null || Number.isNaN(Number(v))) return "";
+    const n = Number(v);
+    const days = Number(nSide);
+    const dayBit =
+      Number.isFinite(days) && days > 0 ? ` · ${Math.round(days)}日` : "";
+    return `${label} ${n > 0 ? "+" : ""}${n.toFixed(2)}%${dayBit}`;
+  };
   const tip = [
     tierTip(t),
     scoreBit,
+    fmtCondRet(info.mean_y_pos, info.n_y_pos, "r⁺"),
+    fmtCondRet(info.mean_y_neg, info.n_y_neg, "r⁻"),
+    info.realized_pct != null && !Number.isNaN(Number(info.realized_pct))
+      ? `收益 ${Number(info.realized_pct) > 0 ? "+" : ""}${Number(
+          info.realized_pct
+        ).toFixed(2)}%`
+      : "",
     `ŷ_oo ${fmtHit(info.hit_rate)}`,
     info.hit_rate_tau != null ? `ŷ_τc ${fmtHit(info.hit_rate_tau)}` : "",
     `有效日 ${info.n_valid ?? 0}/${info.n_days ?? 0}`,
@@ -91,6 +106,11 @@ function ingestPredTierReport(data) {
       n_valid: r.n_valid,
       n_valid_tau: r.n_valid_tau,
       n_days: r.n_days,
+      mean_y_pos: r.mean_y_pos,
+      n_y_pos: r.n_y_pos,
+      mean_y_neg: r.mean_y_neg,
+      n_y_neg: r.n_y_neg,
+      realized_pct: r.realized_pct,
       ic: r.ic,
     };
   });

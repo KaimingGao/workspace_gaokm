@@ -226,6 +226,80 @@ def shutdown_pool() -> None:
         _POOL.shutdown()
 
 
+def reap_orphaned_pool_workers(*, dry_run: bool = False) -> int:
+    """清理父进程已死、仍挂在 launchd 下的 quantlab multiprocessing 孤儿。
+
+    Web / 单测被 SIGKILL 后，spawn worker 与 resource_tracker 常变成 ppid=1，
+    每组约 8 个 × ~30MB，叠多层可达数 GB 交换区。启动时收一遍即可。
+    """
+    import signal
+    import sys
+
+    my_pid = os.getpid()
+    root_hint = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..")
+    )
+    killed = 0
+    try:
+        import subprocess
+
+        out = subprocess.check_output(
+            ["ps", "-axo", "pid=,ppid=,command="],
+            text=True,
+            errors="replace",
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("reap orphan ps failed", exc_info=True)
+        return 0
+
+    targets: list[int] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+        except ValueError:
+            continue
+        cmd = parts[2]
+        if pid == my_pid or ppid != 1:
+            continue
+        if "quantlab" not in cmd and root_hint not in cmd:
+            continue
+        if "multiprocessing.spawn" not in cmd and "resource_tracker" not in cmd:
+            continue
+        if sys.executable and sys.executable not in cmd and "python" not in cmd.lower():
+            # 允许 .venv/bin/python* 路径
+            if "/python" not in cmd:
+                continue
+        targets.append(pid)
+
+    for pid in targets:
+        if dry_run:
+            killed += 1
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            killed += 1
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            logger.debug("reap orphan deny pid=%s", pid)
+        except Exception:  # noqa: BLE001
+            logger.debug("reap orphan kill pid=%s failed", pid, exc_info=True)
+    if killed:
+        logger.info(
+            "reaped orphan multiprocessing workers count=%s dry_run=%s",
+            killed,
+            dry_run,
+        )
+    return killed
+
+
 atexit.register(shutdown_pool)
 
 

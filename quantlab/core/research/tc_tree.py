@@ -249,12 +249,26 @@ def fit_lgb_on_matrices(
     x_te_raw = np.asarray(x_te, dtype=np.float64)
     if use_cs:
         x_fit = cross_section_zscore_matrix(x_raw, train_dates)
-        x_fit = np.where(np.isfinite(x_fit), x_fit, 0.0)
+        del x_raw
+        # 就地填 0，避免再复制一份与 x_raw 同体量的 where 结果
+        bad = ~np.isfinite(x_fit)
+        if bad.any():
+            x_fit[bad] = 0.0
+        del bad
         if test_dates is not None and len(test_dates) == int(x_te_raw.shape[0]):
             x_out = cross_section_zscore_matrix(x_te_raw, test_dates)
-            x_out = np.where(np.isfinite(x_out), x_out, 0.0)
+            del x_te_raw
+            bad_te = ~np.isfinite(x_out)
+            if bad_te.any():
+                x_out[bad_te] = 0.0
+            del bad_te
         else:
-            x_out = np.where(np.isfinite(x_te_raw), x_te_raw, 0.0)
+            x_out = np.asarray(x_te_raw, dtype=np.float64, order="C")
+            del x_te_raw
+            bad_te = ~np.isfinite(x_out)
+            if bad_te.any():
+                x_out[bad_te] = 0.0
+            del bad_te
         means = np.zeros(int(x_fit.shape[1]), dtype=np.float64)
         stamp_cross_section_zscore(hyper)
         hyper["cross_section_zscore"] = True
@@ -262,6 +276,7 @@ def fit_lgb_on_matrices(
         z_means, z_stds = _population_z_stats(x_raw)
         x_fit = _apply_feature_z(_impute_matrix(x_raw, z_means), z_means, z_stds)
         x_out = _apply_feature_z(_impute_matrix(x_te_raw, z_means), z_means, z_stds)
+        del x_raw, x_te_raw
         means = z_means
         names = [str(n) for n in feat_names]
         annotate_feature_zscore(hyper, True)
@@ -273,6 +288,7 @@ def fit_lgb_on_matrices(
         means = _column_means(x_raw)
         x_fit = _impute_matrix(x_raw, means)
         x_out = _impute_matrix(x_te_raw, means)
+        del x_raw, x_te_raw
         annotate_feature_zscore(hyper, False)
         hyper["cross_section_zscore"] = False
         hyper.pop("zscore_scope", None)
@@ -697,7 +713,8 @@ def _fit_lightgbm(
     raw_obj = str(objective or "regression").strip().lower() or "regression"
     is_binary = raw_obj == "binary"
     obj = "binary" if is_binary else "regression"
-    dtrain = lgb.Dataset(x, label=y, weight=w)
+    # free_raw_data=True：构造完 Dataset 后丢掉传入缓冲区，滑窗多窗时峰值更低
+    dtrain = lgb.Dataset(x, label=y, weight=w, free_raw_data=True)
     leaves = int(PANEL_LGB["num_leaves"] if num_leaves is None else num_leaves)
     params: Dict[str, Any] = {
         "objective": obj,

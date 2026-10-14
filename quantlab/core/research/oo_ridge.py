@@ -466,28 +466,28 @@ def return_model_status() -> Dict[str, Any]:
         model_blob = payload.get("model")
         return isinstance(model_blob, dict) and bool(model_blob.get("coefficients"))
 
-    # 研究枢纽系数表：草稿 saved_at 晚于启用套 source_saved_at 时优先画草稿
-    # （刚拟合未启用也能看到新列名；promote 后 source 对齐草稿，仍画 research/active）
+    # 研究枢纽系数表：
+    # 1. 草稿 saved_at 晚于任一启用套的 source → 画草稿（刚拟合、尚未启用）
+    # 2. 否则画较新的启用套。研究槽来源草稿新于执行槽时画研究套
+    #    （刚「启用研究」、执行仍是上一轮）；来源相同则画执行套（研究已晋级）
     display_role = None
     display_raw = None
     draft_ts = _ts(draft) if _has_coefs(draft) else ""
-    live_src = max(
-        _source_ts(active) if _has_coefs(active) else "",
-        _source_ts(research) if _has_coefs(research) else "",
-    )
+    active_src = _source_ts(active) if _has_coefs(active) else ""
+    research_src = _source_ts(research) if _has_coefs(research) else ""
+    live_src = max(active_src, research_src)
     if draft_ts and (not live_src or draft_ts > live_src):
         display_role = "draft"
         display_raw = draft
-    else:
-        for role_name, payload in (
-            ("active", active),
-            ("research", research),
-            ("draft", draft),
-        ):
-            if _has_coefs(payload):
-                display_role = role_name
-                display_raw = payload
-                break
+    elif research_src and (not active_src or research_src > active_src):
+        display_role = "research"
+        display_raw = research
+    elif active_src:
+        display_role = "active"
+        display_raw = active
+    elif _has_coefs(draft):
+        display_role = "draft"
+        display_raw = draft
 
     return_model = None
     if display_raw:

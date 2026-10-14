@@ -173,6 +173,11 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "n_valid": 9,
                     "n_days": 10,
                     "ic": 0.12,
+                    "realized_pct": 3.5,
+                    "mean_y_pos": 0.4,
+                    "n_y_pos": 5,
+                    "mean_y_neg": -0.8,
+                    "n_y_neg": 3,
                     "yhats": [1, 2],
                     "realized": [1],
                     "dates": ["2026-01-01"],
@@ -182,8 +187,39 @@ class TestPredictabilityTiers(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["tier"], "A")
+        self.assertEqual(rows[0]["realized_pct"], 3.5)
+        self.assertEqual(rows[0]["mean_y_pos"], 0.4)
+        self.assertEqual(rows[0]["n_y_pos"], 5)
+        self.assertEqual(rows[0]["mean_y_neg"], -0.8)
+        self.assertEqual(rows[0]["n_y_neg"], 3)
         self.assertNotIn("yhats", rows[0])
         self.assertNotIn("realized", rows[0])
+
+    def test_code_holdout_ret_pct(self):
+        from core.research.predictability_tiers import (
+            attach_code_holdout_rets,
+            code_holdout_ret_pct,
+        )
+
+        dates = ["d1", "d2", "d3"]
+        bars = [
+            {"date": "d1", "close": 100.0},
+            {"date": "d2", "close": 105.0},
+            {"date": "d3", "close": 110.0},
+        ]
+        self.assertAlmostEqual(code_holdout_ret_pct(bars, dates=dates), 10.0)
+        self.assertAlmostEqual(
+            code_holdout_ret_pct(bars, dates=["d1", "d2"]), 5.0
+        )
+        self.assertIsNone(code_holdout_ret_pct([], dates=dates))
+        rows = [{"code": "000001"}, {"code": "000002"}]
+        attach_code_holdout_rets(
+            rows,
+            {"000001": bars},
+            dates=dates,
+        )
+        self.assertAlmostEqual(float(rows[0]["realized_pct"]), 10.0)
+        self.assertIsNone(rows[1]["realized_pct"])
 
     def test_tier_window_cs_rank_ic_and_icir(self):
         from core.research.predictability_tiers import summarize_tier_window_cs
@@ -238,7 +274,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertIsNone(empty_oo["cs_rank_ic"])
 
     def test_watching_name_map_fills_gaps_offline(self):
-        """落盘 names 半空时，用 a_code_name 补齐，不依赖行情。"""
+        """落盘 names 半空时，用码表（a_code_name / spot）补齐，不依赖行情。"""
         from core.research.predictability_tiers import _watching_name_map
 
         watching = {
@@ -250,17 +286,44 @@ class TestPredictabilityTiers(unittest.TestCase):
             "core.watching.store.read_watching",
             return_value=watching,
         ), patch(
-            "core.t0.intraday.resolve_stock_name",
-            side_effect=lambda c, **_k: {
+            "core.t0.intraday._load_a_code_name_map",
+            return_value={
                 "000001": "平安银行",
                 "600519": "贵州茅台",
                 "300750": "宁德时代",
-            }.get(str(c)),
+            },
         ):
             out = _watching_name_map(["000001", "600519", "300750"])
         self.assertEqual(out.get("000001"), "平安银行")
         self.assertEqual(out.get("600519"), "贵州茅台")
         self.assertEqual(out.get("300750"), "宁德时代")
+
+    def test_code_name_map_falls_back_to_spot_a_em(self):
+        """无 a_code_name 时，用 spot_a_em 补名称（忽略现货 24h TTL）。"""
+        import json
+        import tempfile
+        from core.t0 import intraday as mod
+
+        spot = {
+            "fetched_at": 1.0,
+            "rows": [
+                {"代码": "000779", "名称": "甘咨询"},
+                {"代码": "000615", "名称": "奥园美谷"},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            store = os.path.join(tmp, "store")
+            os.makedirs(store, exist_ok=True)
+            with open(os.path.join(store, "spot_a_em.json"), "w", encoding="utf-8") as f:
+                json.dump(spot, f)
+            mod._CODE_NAME_CACHE = {}
+            mod._CODE_NAME_CACHE_TS = 0.0
+            with patch("core.paths.DATA_DIR", tmp):
+                out = mod._load_a_code_name_map()
+            self.assertEqual(out.get("000779"), "甘咨询")
+            self.assertEqual(out.get("000615"), "奥园美谷")
+            mod._CODE_NAME_CACHE = {}
+            mod._CODE_NAME_CACHE_TS = 0.0
 
     def test_assign_tiers_by_rank_score(self):
         from core.research.predictability_tiers import assign_tiers_by_rank_score
@@ -443,6 +506,10 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(len(slot["pair_dates"]), 4)
         self.assertEqual(slot["n_valid_tau"], 2)
         self.assertEqual(len(slot["tau_realized"]), 4)
+        # r⁺ 只计前半 ŷ>ε：d1/d2 的 y=2.0；后半 d3/d4 不进
+        self.assertEqual(slot["n_y_pos"], 2)
+        self.assertAlmostEqual(float(slot["sum_y_pos"]), 4.0)
+        self.assertEqual(int(slot.get("n_y_neg") or 0), 0)
         # 等权买持：与回测基线同构（close 首尾）
         dates = ["d1", "d2", "d3", "d4"]
         bars = {
@@ -464,6 +531,89 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(ew.get("ret_method"), "ew_hold")
         # 000001: 99/100-1=-1%；000002: 55/50-1=+10%；等权 +4.5%
         self.assertAlmostEqual(ew["mean_realized_pct"], 4.5)
+
+    def test_mean_y_pos_only_first_half_when_yhat_positive(self):
+        """r⁺/r⁻：仅 Holdout 前半；ŷ>ε 进 r⁺，ŷ<-ε 进 r⁻。"""
+        from core.research.predictability_tiers import (
+            _absorb_holdout_row,
+            _rows_from_acc,
+        )
+
+        acc = {}
+        tier = {"d1", "d2", "d3"}
+        whole = {"d1", "d2", "d3", "d4"}
+        # d1: ŷ>0 y=+1；d2: ŷ<0 y=+3→r⁻；d3: ŷ>0 y=-0.5；d4 后半不计
+        samples = (
+            ("d1", 1.0, 1.0),
+            ("d2", -1.0, 3.0),
+            ("d3", 0.5, -0.5),
+            ("d4", 2.0, 9.0),
+        )
+        for d, pred, y in samples:
+            _absorb_holdout_row(
+                acc,
+                code="000001",
+                date=d,
+                pred=pred,
+                y=y,
+                tier_set=tier,
+                metric_set=whole,
+                yhat_eps=0.05,
+            )
+        rows, _counts, _min_n = _rows_from_acc(
+            acc,
+            pool_codes=["000001"],
+            watch_set={"000001"},
+            pad_missing=False,
+            a_count=1,
+            b_count=0,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["n_y_pos"], 2)
+        self.assertAlmostEqual(float(rows[0]["mean_y_pos"]), 0.25)
+        self.assertEqual(rows[0]["n_y_neg"], 1)
+        self.assertAlmostEqual(float(rows[0]["mean_y_neg"]), 3.0)
+
+    def test_ew_hold_skips_sparse_last_day(self):
+        """末日仅少数票有 K 线时，不得用该稀疏截面作等权买持终点。"""
+        from core.backtest.topk_benchmark import _pool_ew_equity_curve
+        from core.research.predictability_tiers import summarize_tier_ew_hold
+
+        dates = ["d1", "d2", "d3", "d4"]
+        bars = {
+            "000001": [
+                {"date": "d1", "close": 100.0},
+                {"date": "d2", "close": 100.0},
+                {"date": "d3", "close": 96.0},
+                {"date": "d4", "close": 50.0},  # 仅此票有 d4
+            ],
+            "000002": [
+                {"date": "d1", "close": 100.0},
+                {"date": "d2", "close": 100.0},
+                {"date": "d3", "close": 96.0},
+            ],
+            "000003": [
+                {"date": "d1", "close": 100.0},
+                {"date": "d2", "close": 100.0},
+                {"date": "d3", "close": 96.0},
+            ],
+            "000004": [
+                {"date": "d1", "close": 100.0},
+                {"date": "d2", "close": 100.0},
+                {"date": "d3", "close": 96.0},
+            ],
+            "000005": [
+                {"date": "d1", "close": 100.0},
+                {"date": "d2", "close": 100.0},
+                {"date": "d3", "close": 96.0},
+            ],
+        }
+        curve = _pool_ew_equity_curve(bars, dates)
+        self.assertEqual(curve[-1]["date"], "d3")
+        self.assertAlmostEqual(curve[-1]["equity"], 96.0)
+        ew = summarize_tier_ew_hold(bars, codes=list(bars), dates=dates)
+        # 齐窗终点 d3：全池 -4%，而非被 d4 单票 -50% 拖垮
+        self.assertAlmostEqual(ew["mean_realized_pct"], -4.0)
 
     def test_build_holdout_half_tiers_oos(self):
         from core.research.predictability_tiers import (
@@ -583,6 +733,9 @@ class TestPredictabilityTiers(unittest.TestCase):
                     -1.0,
                 )
                 by = {r["code"]: r for r in rep.get("rows") or []}
+                self.assertAlmostEqual(float(by["000001"]["realized_pct"]), 2.0)
+                self.assertAlmostEqual(float(by["000002"]["realized_pct"]), -1.0)
+                self.assertIsNone(by["600000"].get("realized_pct"))
                 self.assertEqual(by["000001"]["tier"], "A")
                 self.assertEqual(by["000002"]["tier"], "C")
                 self.assertTrue((rep.get("thresholds") or {}).get("require_tau"))

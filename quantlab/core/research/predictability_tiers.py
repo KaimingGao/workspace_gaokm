@@ -10,6 +10,9 @@
 - 过门槛者按 Score 降序取 top ``a_count``→A（未过门槛不占 A 名额），接着 ``b_count``→B，其余→C（默认 100 / 300）；无有效命中样本→C
 - 分档后另报各档在整段 Holdout 上的日截面 Rank IC / IC / ICIR；
   档内「平均收益率」= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」）
+- 每票 ``realized_pct`` = 同窗 close 首尾买持收益%（分档表「收益」列）
+- 每票 ``mean_y_pos`` = Holdout **前半** mean(y_oo | ŷ_oo>ε)（分档表「r⁺」；多头条件收益）
+- 每票 ``mean_y_neg`` = Holdout **前半** mean(y_oo | ŷ_oo<-ε)（分档表「r⁻」；空头条件收益）
 
 研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score 只用 ŷ_oo 序。
 有研究套时面板只拉 **Holdout + 因子暖窗**；无 ŷ_oo 研究套现训才用 ``lookback`` 全窗。
@@ -158,6 +161,11 @@ _SLIM_ROW_KEYS = (
     "hit_rate_tau",
     "n_valid_tau",
     "ic",
+    "realized_pct",
+    "mean_y_pos",
+    "n_y_pos",
+    "mean_y_neg",
+    "n_y_neg",
 )
 
 
@@ -634,18 +642,17 @@ def _watching_name_map(
         if code and code not in out and code not in need:
             need.append(code)
     if need:
+        # 一次加载码表（a_code_name → spot_a_em），避免逐只 resolve
+        cmap: Dict[str, str] = {}
         try:
-            from core.t0.intraday import resolve_stock_name
+            from core.t0.intraday import _load_a_code_name_map
+
+            cmap = dict(_load_a_code_name_map() or {})
         except Exception:  # noqa: BLE001
-            resolve_stock_name = None  # type: ignore[assignment]
-            logger.debug("predictability_tiers: resolve_stock_name import failed", exc_info=True)
+            logger.debug("predictability_tiers: code name map failed", exc_info=True)
+            cmap = {}
         for code in need:
-            nm = ""
-            if resolve_stock_name is not None:
-                try:
-                    nm = str(resolve_stock_name(code) or "").strip()
-                except Exception:  # noqa: BLE001
-                    nm = ""
+            nm = str(cmap.get(code) or "").strip()
             if nm and nm != code:
                 out[code] = nm
     return out
@@ -780,7 +787,10 @@ def _absorb_holdout_row(
     yhat_eps: float,
     metric_set: Optional[set] = None,
 ) -> None:
-    """前半记命中（分档）；``metric_set`` 记 ŷ/实现（截面指标与平均收益，默认同前半）。"""
+    """前半记命中与 r⁺/r⁻；``metric_set`` 记 ŷ/实现（截面指标，默认同前半）。
+
+    r⁺ = mean(y_oo | ŷ_oo>ε)，r⁻ = mean(y_oo | ŷ_oo<-ε)；只在 ``tier_set``（Holdout 前半）累计。
+    """
     d = str(date or "")[:10]
     code_s = str(code or "").strip()
     if not d or not code_s:
@@ -799,8 +809,18 @@ def _absorb_holdout_row(
             "yhats": [],
             "realized": [],
             "dates": [],
+            "sum_y_pos": 0.0,
+            "n_y_pos": 0,
+            "sum_y_neg": 0.0,
+            "n_y_neg": 0,
         }
         acc[code_s] = slot
+    try:
+        yh = float(pred) if pred is not None else float("nan")
+        ry = float(y) if y is not None else float("nan")
+    except (TypeError, ValueError):
+        yh = float("nan")
+        ry = float("nan")
     if in_tier:
         slot["n_days"] = int(slot["n_days"]) + 1
         if isinstance(hit, bool):
@@ -808,17 +828,20 @@ def _absorb_holdout_row(
             if hit:
                 slot["hits"] = int(slot["hits"]) + 1
         slot["dates"].append(d)
-    if not in_metric or pred is None or y is None:
+        # 条件收益：前半且 |ŷ_oo|>ε
+        if math.isfinite(yh) and math.isfinite(ry):
+            eps = float(yhat_eps)
+            if yh > eps:
+                slot["sum_y_pos"] = float(slot.get("sum_y_pos") or 0.0) + ry
+                slot["n_y_pos"] = int(slot.get("n_y_pos") or 0) + 1
+            elif yh < -eps:
+                slot["sum_y_neg"] = float(slot.get("sum_y_neg") or 0.0) + ry
+                slot["n_y_neg"] = int(slot.get("n_y_neg") or 0) + 1
+    if not in_metric or not math.isfinite(yh) or not math.isfinite(ry):
         return
-    try:
-        yh = float(pred)
-        ry = float(y)
-    except (TypeError, ValueError):
-        return
-    if math.isfinite(yh) and math.isfinite(ry):
-        slot["yhats"].append(yh)
-        slot["realized"].append(ry)
-        slot.setdefault("pair_dates", []).append(d)
+    slot["yhats"].append(yh)
+    slot["realized"].append(ry)
+    slot.setdefault("pair_dates", []).append(d)
 
 
 def _absorb_tau_holdout_row(
@@ -1375,6 +1398,41 @@ def summarize_tier_window_cs(
     }
 
 
+def code_holdout_ret_pct(
+    bars: Optional[Sequence[dict]],
+    *,
+    dates: Optional[Sequence[str]] = None,
+) -> Optional[float]:
+    """单票 Holdout 窗内 close 首尾买持收益%（与档内等权买持同口径）。"""
+    from core.backtest.topk_benchmark import _close_by_date, _period_return_from_bars
+
+    if not bars:
+        return None
+    date_list = sorted(
+        {str(d).strip()[:10] for d in (dates or []) if str(d or "").strip()[:10]}
+    )
+    if date_list:
+        by = _close_by_date(list(bars))
+        trimmed = [{"date": d, "close": by[d]} for d in date_list if d in by]
+        return _period_return_from_bars(trimmed)
+    return _period_return_from_bars(list(bars))
+
+
+def attach_code_holdout_rets(
+    rows: Sequence[Dict[str, Any]],
+    stock_bars: Optional[Dict[str, List[dict]]],
+    *,
+    dates: Optional[Sequence[str]] = None,
+) -> None:
+    """给分档行写入 ``realized_pct``（Holdout 整段买持%）。"""
+    bars_by = stock_bars or {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("code") or "").strip()
+        r["realized_pct"] = code_holdout_ret_pct(bars_by.get(code), dates=dates)
+
+
 def summarize_tier_ew_hold(
     stock_bars: Dict[str, List[dict]],
     *,
@@ -1473,6 +1531,10 @@ def _rows_from_acc(
                     "yhats": [],
                     "realized": [],
                     "dates": [],
+                    "sum_y_pos": 0.0,
+                    "n_y_pos": 0,
+                    "sum_y_neg": 0.0,
+                    "n_y_neg": 0,
                     "hits_tau": 0,
                     "n_valid_tau": 0,
                     "tau_yhats": [],
@@ -1491,6 +1553,16 @@ def _rows_from_acc(
         hit_rate_tau = (
             round(hits_tau / n_valid_tau, 4) if n_valid_tau > 0 else None
         )
+        n_y_pos = max(0, int(slot.get("n_y_pos") or 0))
+        sum_y_pos = float(slot.get("sum_y_pos") or 0.0)
+        mean_y_pos = (
+            round(sum_y_pos / n_y_pos, 4) if n_y_pos > 0 else None
+        )
+        n_y_neg = max(0, int(slot.get("n_y_neg") or 0))
+        sum_y_neg = float(slot.get("sum_y_neg") or 0.0)
+        mean_y_neg = (
+            round(sum_y_neg / n_y_neg, 4) if n_y_neg > 0 else None
+        )
         ic = _spearman_ic(slot.get("yhats") or [], slot.get("realized") or [])
         ds = list(slot.get("dates") or [])
         rows.append(
@@ -1508,6 +1580,10 @@ def _rows_from_acc(
                 "hit_rate_tau": hit_rate_tau,
                 "hits_tau": hits_tau,
                 "n_valid_tau": n_valid_tau,
+                "mean_y_pos": mean_y_pos,
+                "n_y_pos": n_y_pos,
+                "mean_y_neg": mean_y_neg,
+                "n_y_neg": n_y_neg,
                 "ic": ic,
                 "in_watching": code in watch_set,
                 "as_of_first": ds[0] if ds else None,
@@ -1649,6 +1725,7 @@ def build_holdout_half_tiers(
     n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
     stock_bars = packed.get("stock_bars") if isinstance(packed.get("stock_bars"), dict) else {}
     metric_dates = list(half.get("test_days") or []) or list(tier_dates)
+    attach_code_holdout_rets(rows, stock_bars, dates=metric_dates)
     cs_pool = summarize_tier_window_cs(acc, head=HEAD_OO)
     cs_pool_tau = summarize_tier_window_cs(acc, head=HEAD_TAU)
     cs_by_tier: Dict[str, Dict[str, Any]] = {}

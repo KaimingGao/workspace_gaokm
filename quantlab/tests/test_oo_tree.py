@@ -51,17 +51,25 @@ class TestOoTree(unittest.TestCase):
             "raw_aoo_OROC5",
         }
         names = sorted(present)
-        tree_feats, ridge_feats, aoo_keys = _feature_names_from_matrix(
-            names, present
-        )
+        feat_names, aoo_keys = _feature_names_from_matrix(names, present)
         self.assertIn("raw_aoo_GAP", aoo_keys)
-        self.assertNotIn("z_oo_gap_risk", tree_feats)
-        self.assertNotIn("z_oo_momentum", tree_feats)
-        self.assertNotIn("z_oo_overheat", tree_feats)
-        self.assertIn("z_oo_value", tree_feats)
-        self.assertIn("raw_aoo_GAP", tree_feats)
-        self.assertIn("raw_aoo_OROC5", tree_feats)
-        self.assertEqual(tree_feats, ridge_feats)
+        self.assertNotIn("z_oo_gap_risk", feat_names)
+        self.assertNotIn("z_oo_momentum", feat_names)
+        self.assertNotIn("z_oo_overheat", feat_names)
+        self.assertIn("z_oo_value", feat_names)
+        self.assertIn("raw_aoo_GAP", feat_names)
+        self.assertIn("raw_aoo_OROC5", feat_names)
+
+    def test_stack_daily_panels_pops_bars(self):
+        from core.research.oo_tree import _stack_daily_panels
+
+        stock_bars = [
+            {"code": "AAA", "bars": _synthetic_bars(40, seed=1)},
+            {"code": "BBB", "bars": _synthetic_bars(40, seed=2)},
+        ]
+        _stack_daily_panels(stock_bars, min_history=12)
+        for item in stock_bars:
+            self.assertNotIn("bars", item)
 
     def test_fit_oo_tree_report_smoke(self):
         try:

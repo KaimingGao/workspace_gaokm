@@ -149,11 +149,72 @@ export const BARS_DAILY_LOOKBACK = 1000;
 /** ŷ_* 模型拟合截断硬顶（与 WATCHING_MAX_SIZE 对齐）。 */
 export const MODEL_FIT_LIMIT = 1000;
 export const WATCHING_POOL_DEFAULT = 300;
+/** 滑块 hydrate / 保存后广播，日线·5m Coverage 据此重拉。 */
+export const WATCHING_POOL_LIMIT_CHANGED = "quant-watching-pool-limit-changed";
 
 function clampWatchingPoolLimit(v, fallback = WATCHING_POOL_DEFAULT) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(200, Math.min(MODEL_FIT_LIMIT, Math.round(n)));
+}
+
+let _poolLimitReadyResolve = null;
+let _poolLimitReadySettled = false;
+/** 首次从 watching.json hydrate 滑块后再 resolve；日线/5m 首刷须 await。 */
+export const watchingPoolLimitReady = new Promise((resolve) => {
+  _poolLimitReadyResolve = resolve;
+});
+
+/** 标记观察池只数已就绪（幂等）；供日线/5m 首刷等待。 */
+export function markWatchingPoolLimitReady(limit) {
+  if (_poolLimitReadySettled) return;
+  _poolLimitReadySettled = true;
+  const n = clampWatchingPoolLimit(limit, WATCHING_POOL_DEFAULT);
+  const resolve = _poolLimitReadyResolve;
+  _poolLimitReadyResolve = null;
+  if (typeof resolve === "function") resolve(n);
+}
+
+/** hydrate 完成后或用户改滑块保存后：就绪 + 通知 Coverage 重拉。 */
+export function notifyWatchingPoolLimitChanged(limit) {
+  const n = clampWatchingPoolLimit(limit, WATCHING_POOL_DEFAULT);
+  markWatchingPoolLimitReady(n);
+  if (typeof document === "undefined" || typeof document.dispatchEvent !== "function") {
+    return n;
+  }
+  try {
+    document.dispatchEvent(
+      new CustomEvent(WATCHING_POOL_LIMIT_CHANGED, { detail: { limit: n } })
+    );
+  } catch (_) {
+    /* ignore */
+  }
+  return n;
+}
+
+/**
+ * 等待观察池只数 hydrate；超时则用当前滑块/默认值放行，避免 Coverage 首刷挂死。
+ * @param {number} [timeoutMs]
+ * @returns {Promise<number>}
+ */
+export function awaitWatchingPoolLimitReady(timeoutMs = 8000) {
+  const ms = Math.max(0, Number(timeoutMs) || 0);
+  if (!ms) return watchingPoolLimitReady;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (n) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(n);
+    };
+    const timer = setTimeout(() => {
+      const n = readWatchingPoolLimit();
+      markWatchingPoolLimitReady(n);
+      finish(n);
+    }, ms);
+    watchingPoolLimitReady.then((n) => finish(n), () => finish(readWatchingPoolLimit()));
+  });
 }
 
 function clampWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
