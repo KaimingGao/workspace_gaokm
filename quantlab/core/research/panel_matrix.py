@@ -1025,22 +1025,16 @@ def _prepare_complete_matrix(
     y: np.ndarray,
     names: Sequence[str],
     *,
-    min_std: float,
-    min_std_exempt: Sequence[str],
     min_samples_over_p: int = 3,
     eps: float = 1e-6,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[str], List[str], Dict[str, Any]]:
-    """与 ``_prepare_complete_panel`` 同一套剔除：稀疏、常数、低方差、覆盖。"""
-    exempt = {str(n) for n in min_std_exempt if n}
+    """与 ``_prepare_complete_panel`` 同一套剔除：稀疏、常数、覆盖。"""
     n_raw = int(y.shape[0])
     meta: Dict[str, Any] = {
         "raw_sample_count": n_raw,
         "dropped_sparse": [],
         "dropped_constant": [],
-        "dropped_low_variance": [],
         "dropped_for_coverage": [],
-        "min_std": float(min_std),
-        "min_std_exempt": sorted(exempt),
     }
     if n_raw < 4 or X.shape[1] == 0:
         return None, None, [], list(names), meta
@@ -1064,7 +1058,6 @@ def _prepare_complete_matrix(
 
     active = list(candidates)
     index = {str(n): i for i, n in enumerate(names)}
-    min_std_eff = float(min_std)
     while active:
         cols = [index[n] for n in active]
         mask = finite[:, cols].all(axis=1)
@@ -1080,33 +1073,15 @@ def _prepare_complete_matrix(
             meta["dropped_for_coverage"].append(drop)
             continue
 
-        still_var: List[str] = []
-        low_var_batch: List[Dict[str, Any]] = []
+        kept: List[str] = []
         for name in active:
             vals = X[rows_idx, index[name]]
             if float(vals.max() - vals.min()) <= eps:
                 meta["dropped_constant"].append(name)
                 continue
-            mean = float(vals.mean())
-            var = float(np.mean((vals - mean) ** 2))
-            std = math.sqrt(var) if var > 0 else 0.0
-            if min_std_eff > 0 and std < min_std_eff and name not in exempt:
-                low_var_batch.append(
-                    {"name": name, "std": round(std, 4), "n": int(vals.size)}
-                )
-                continue
-            still_var.append(name)
-        if len(still_var) < 2 and low_var_batch:
-            meta["min_std_relaxed"] = True
-            meta["min_std_relaxed_from"] = float(min_std)
-            meta["dropped_low_variance_skipped"] = list(low_var_batch)
-            still_var = still_var + [d["name"] for d in low_var_batch]
-            low_var_batch = []
-            min_std_eff = 0.0
-        else:
-            meta["dropped_low_variance"].extend(low_var_batch)
-        if len(still_var) < len(active):
-            active = still_var
+            kept.append(name)
+        if len(kept) < len(active):
+            active = kept
             if not active:
                 break
             continue
@@ -1114,10 +1089,6 @@ def _prepare_complete_matrix(
         excluded = (
             list(meta["dropped_sparse"])
             + list(meta["dropped_constant"])
-            + [
-                d["name"] if isinstance(d, dict) else d
-                for d in meta["dropped_low_variance"]
-            ]
             + list(meta["dropped_for_coverage"])
         )
         meta["complete_row_indices"] = [int(i) for i in rows_idx]
@@ -1130,10 +1101,6 @@ def _prepare_complete_matrix(
     excluded = (
         list(meta["dropped_sparse"])
         + list(meta["dropped_constant"])
-        + [
-            d["name"] if isinstance(d, dict) else d
-            for d in meta["dropped_low_variance"]
-        ]
         + list(meta["dropped_for_coverage"])
     )
     return None, None, [], excluded, meta
@@ -1146,8 +1113,6 @@ def fit_keepall_ridge_matrix(
     *,
     ridge_lambda: float = 1.0,
     sample_weights: Optional[Sequence[float]] = None,
-    min_std: float = 5.0,
-    min_std_exempt: Optional[Sequence[str]] = None,
     feature_zscore: bool = True,
     row_dates: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
@@ -1160,7 +1125,6 @@ def fit_keepall_ridge_matrix(
     from core.signal.factors.alpha_oo import (
         ALPHA_OO_FACTOR_KEY,
         is_alpha_oo_raw_key,
-        merge_alpha_oo_min_std_exempt,
     )
 
     y_arr = np.asarray(y, dtype=np.float64)
@@ -1173,7 +1137,6 @@ def fit_keepall_ridge_matrix(
             cols = [src_index[n] for n in feat_names if n in src_index]
             x_arr = x_arr[:, cols] if cols else np.zeros((x_arr.shape[0], 0))
             feat_names = [n for n in feat_names if n in src_index]
-    exempt = merge_alpha_oo_min_std_exempt(feat_names, min_std_exempt)
     if x_arr.ndim != 2 or y_arr.ndim != 1 or x_arr.shape[0] != y_arr.shape[0]:
         return {"success": False, "error": "面板形状与标签不一致"}
     if x_arr.shape[1] != len(feat_names):
@@ -1183,8 +1146,6 @@ def fit_keepall_ridge_matrix(
         x_arr,
         y_arr,
         feat_names,
-        min_std=float(min_std),
-        min_std_exempt=exempt,
     )
     row_weights = None
     idxs = prep_meta.get("complete_row_indices") or []
@@ -1375,7 +1336,6 @@ def keepall_ridge_oos(
     *,
     ridge_lambda: float,
     sample_weights: Optional[Sequence[float]] = None,
-    min_std_exempt: Optional[Sequence[str]] = None,
     row_dates_tr: Optional[Sequence[str]] = None,
     row_dates_te: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
@@ -1390,7 +1350,6 @@ def keepall_ridge_oos(
         names,
         ridge_lambda=ridge_lambda,
         sample_weights=sample_weights,
-        min_std_exempt=min_std_exempt,
         feature_zscore=True,
         row_dates=row_dates_tr if cross_section_zscore else None,
         cross_section_zscore=bool(cross_section_zscore),

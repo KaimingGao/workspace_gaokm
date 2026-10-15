@@ -129,8 +129,6 @@ def _prepare_complete_panel(
     *,
     min_samples_over_p: int = 3,
     eps: float = 1e-6,
-    min_std: float = 5.0,
-    min_std_exempt: Optional[Sequence[str]] = None,
     impute_keys: Optional[Sequence[str]] = None,
 ) -> Tuple[
     Optional[List[Dict[str, float]]],
@@ -141,24 +139,16 @@ def _prepare_complete_panel(
 ]:
     """挑选可用因子与完整行：允许多因子缺测，优先保留覆盖好的因子。
 
-    ``min_std``：完整子面板上因子原始分标准差下限（0–100 分制）。
-    过低说明准常数（如离散规模档、gap_risk），进 z-score 后假中性/小扰动会被放大；
-    默认 5.0，与 live 组模型里 size/gap_risk/amihud 的炸分阈值对齐。
-    ``min_std_exempt``：跳过该门槛的列（如 rem 的 gap_pct，单位是百分点而非 0–100 分）。
-    真常数列（max−min≤eps）仍会剔除。
+    剔除缺测过多的列和真常数（max−min≤eps）。不按原始标准差设下限。
     ``impute_keys``：这些列缺测按观测均值填后再挑完整行（标准化后 z=0），
     与 live 缺键填均值对齐；未列出的列仍缺则整行丢掉。
     """
-    exempt = {str(n) for n in (min_std_exempt or []) if n}
     n_raw = len(ys)
     meta: Dict[str, Any] = {
         "raw_sample_count": n_raw,
         "dropped_sparse": [],
         "dropped_constant": [],
-        "dropped_low_variance": [],
         "dropped_for_coverage": [],
-        "min_std": float(min_std),
-        "min_std_exempt": sorted(exempt),
         "imputed_keys": [],
     }
     impute_set = {str(n) for n in (impute_keys or []) if n}
@@ -169,7 +159,7 @@ def _prepare_complete_panel(
     if n_raw < 4:
         return None, None, [], feature_names[:], meta
 
-    # 覆盖门槛不宜过严：完整子面板上再验方差
+    # 缺测门槛封顶，避免短面板把列剔光
     min_obs = max(8, min(n_raw // 4, 40))
     candidates: List[str] = []
     for name in feature_names:
@@ -186,7 +176,6 @@ def _prepare_complete_panel(
         return None, None, [], feature_names[:], meta
 
     active = list(candidates)
-    min_std_eff = float(min_std)
     while active:
         rows_idx = [
             i
@@ -208,40 +197,16 @@ def _prepare_complete_panel(
             meta["dropped_for_coverage"].append(drop)
             continue
 
-        # 完整子面板上再剔常数列 / 低方差列
-        still_var: List[str] = []
-        low_var_batch: List[Dict[str, Any]] = []
+        # 完整子面板上再剔常数列
+        kept: List[str] = []
         for name in active:
             vals = [float(xs[i][name]) for i in rows_idx]
             if max(vals) - min(vals) <= eps:
                 meta["dropped_constant"].append(name)
                 continue
-            mean = sum(vals) / len(vals)
-            var = sum((v - mean) ** 2 for v in vals) / len(vals)
-            std = math.sqrt(var) if var > 0 else 0.0
-            if (
-                min_std_eff > 0
-                and std < min_std_eff
-                and name not in exempt
-            ):
-                low_var_batch.append(
-                    {"name": name, "std": round(std, 4), "n": len(vals)}
-                )
-                continue
-            still_var.append(name)
-        # 若低方差剔光后可用因子过少，回退：只剔真常数，保留低方差列以免短面板无法拟合
-        min_active = 2
-        if len(still_var) < min_active and low_var_batch:
-            meta["min_std_relaxed"] = True
-            meta["min_std_relaxed_from"] = float(min_std)
-            meta["dropped_low_variance_skipped"] = list(low_var_batch)
-            still_var = still_var + [d["name"] for d in low_var_batch]
-            low_var_batch = []
-            min_std_eff = 0.0  # 后续轮次不再按低方差剔，避免死循环
-        else:
-            meta["dropped_low_variance"].extend(low_var_batch)
-        if len(still_var) < len(active):
-            active = still_var
+            kept.append(name)
+        if len(kept) < len(active):
+            active = kept
             if not active:
                 break
             continue
@@ -251,10 +216,6 @@ def _prepare_complete_panel(
         excluded = (
             list(meta["dropped_sparse"])
             + list(meta["dropped_constant"])
-            + [
-                d["name"] if isinstance(d, dict) else d
-                for d in meta["dropped_low_variance"]
-            ]
             + list(meta["dropped_for_coverage"])
         )
         meta["complete_row_indices"] = list(rows_idx)
@@ -265,10 +226,6 @@ def _prepare_complete_panel(
     excluded = (
         list(meta["dropped_sparse"])
         + list(meta["dropped_constant"])
-        + [
-            d["name"] if isinstance(d, dict) else d
-            for d in meta["dropped_low_variance"]
-        ]
         + list(meta["dropped_for_coverage"])
     )
     return None, None, [], excluded, meta
@@ -416,17 +373,13 @@ def _exclusion_reasons_map(
     dropped_collinear: Optional[List[str]] = None,
     excluded: Optional[List[str]] = None,
 ) -> Dict[str, str]:
-    """因子名 → 未入模原因码：sparse|constant|low_variance|coverage|collinear|other。"""
+    """因子名 → 未入模原因码：sparse|constant|coverage|collinear|other。"""
     meta = prep_meta or {}
     reasons: Dict[str, str] = {}
     for name in meta.get("dropped_sparse") or []:
         reasons[str(name)] = "sparse"
     for name in meta.get("dropped_constant") or []:
         reasons.setdefault(str(name), "constant")
-    for item in meta.get("dropped_low_variance") or []:
-        name = item.get("name") if isinstance(item, dict) else item
-        if name:
-            reasons.setdefault(str(name), "low_variance")
     for name in meta.get("dropped_for_coverage") or []:
         reasons.setdefault(str(name), "coverage")
     for name in dropped_collinear or []:
@@ -507,8 +460,6 @@ def fit_factor_ols_from_panel(
     y_spec: Optional[Dict[str, Any]] = None,
     sample_weights: Optional[List[float]] = None,
     feature_names: Optional[List[str]] = None,
-    min_std: float = 5.0,
-    min_std_exempt: Optional[Sequence[str]] = None,
     impute_keys: Optional[Sequence[str]] = None,
     row_dates: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
@@ -520,7 +471,6 @@ def fit_factor_ols_from_panel(
     B3：``select_ridge=True`` 时网格选 λ；``collinearity_policy`` 控趋势族冗余。
     ``sample_weights``：与 ``xs/ys`` 等长的非负样本权（组内软异质降权）；拟合时 √w 变换。
     ``feature_names``：可选覆盖默认注册因子集（τ 头可并入 gap_pct 等）。
-    ``min_std`` / ``min_std_exempt``：透传 ``_prepare_complete_panel``（分制因子 vs 百分点列）。
     ``impute_keys``：透传；缺测按列均值填、不整行丢掉（与 live z=0 对齐）。
     """
     from core.research.beta_accuracy import (
@@ -535,7 +485,6 @@ def fit_factor_ols_from_panel(
         ALPHA_OO_FACTOR_KEY,
         expand_ridge_feature_names,
         is_alpha_oo_raw_key,
-        merge_alpha_oo_min_std_exempt,
     )
 
     if feature_names is None:
@@ -552,15 +501,12 @@ def fit_factor_ols_from_panel(
     from core.signal.factors.z_oo import stamp_z_oo_rows
 
     stamp_z_oo_rows(xs)
-    exempt_merged = merge_alpha_oo_min_std_exempt(factor_names, min_std_exempt)
     cfg = load_signal_config()
     current_weights = dict(cfg.get("weights") or {})
     xs_c, ys_c, active, excluded, prep_meta = _prepare_complete_panel(
         xs,
         ys,
         factor_names,
-        min_std=float(min_std),
-        min_std_exempt=exempt_merged,
         impute_keys=impute_keys,
     )
     collinearity_meta: Dict[str, Any] = {}
@@ -639,10 +585,6 @@ def fit_factor_ols_from_panel(
         dropped={
             "sparse": prep_meta.get("dropped_sparse") or [],
             "constant": prep_meta.get("dropped_constant") or [],
-            "low_variance": [
-                (d.get("name") if isinstance(d, dict) else d)
-                for d in (prep_meta.get("dropped_low_variance") or [])
-            ],
             "coverage": prep_meta.get("dropped_for_coverage") or [],
             "collinear_policy": prep_meta.get("dropped_collinear_policy") or [],
         },

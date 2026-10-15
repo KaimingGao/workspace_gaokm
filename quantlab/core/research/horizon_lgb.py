@@ -21,7 +21,6 @@ from core.research.tau_panel import (
     theme_sample_weights,
 )
 from core.research.tc_ridge import (
-    TAU_MIN_STD_EXEMPT,
     _ic,
     _oos_by_tau,
     _oos_by_theme,
@@ -461,7 +460,6 @@ def _fit_ridge_oos(
     ridge_lambda: float,
     theme_boost: float,
     use_theme_weights: bool,
-    min_std_exempt: Optional[Sequence[str]] = None,
     kind: str = "pct",
     dates_tr: Optional[Sequence[str]] = None,
     dates_te: Optional[Sequence[str]] = None,
@@ -484,9 +482,6 @@ def _fit_ridge_oos(
             feature_names=feat_names,
             ridge_lambda=ridge_lambda,
             sample_weights=weights,
-            min_std_exempt=list(
-                min_std_exempt if min_std_exempt is not None else TAU_MIN_STD_EXEMPT
-            ),
             collinearity_policy="keep_all",
             row_dates=dates_tr,
         )
@@ -513,9 +508,6 @@ def _fit_ridge_oos(
         ridge_lambda=ridge_lambda,
         feature_zscore=True,
         sample_weights=weights,
-        min_std_exempt=list(
-            min_std_exempt if min_std_exempt is not None else TAU_MIN_STD_EXEMPT
-        ),
         collinearity_policy="keep_all",
         row_dates=dates_tr,
     )

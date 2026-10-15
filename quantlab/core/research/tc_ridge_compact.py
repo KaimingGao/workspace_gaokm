@@ -18,26 +18,14 @@ from core.research.tau_panel import (
     theme_sample_weights,
 )
 from core.signal.factors.z_tc import (
-    Z_TC_FEATURE_EXTRA,
     Z_TC_FIT_DROP_ALIASES,
     Z_TC_FIT_FEATURES,
-    Z_TC_LEGACY_KEYS,
     Z_TC_MINUTE_KEYS,
     feature_get,
 )
 
-# 兼容旧引用：入模 / 豁免用 canon；裸名仍豁免（旧模型 / 旁路）
-TAU_FEATURE_EXTRA = Z_TC_FEATURE_EXTRA
-
-
 # alpha_τc = z_τc_* ∪ raw_atc_*；此处为 Z 块（canon）
 TAU_Z_FEATURES = Z_TC_FIT_FEATURES
-# gap/breadth 单位是百分点或 [0,1]，勿用 0–100 分制的 min_std=5 误剔
-TAU_MIN_STD_EXEMPT = (
-    Z_TC_FEATURE_EXTRA
-    + Z_TC_MINUTE_KEYS
-    + Z_TC_LEGACY_KEYS
-)
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
 TAU_FIT_DROP_ALIASES = Z_TC_FIT_DROP_ALIASES
 # ŷ_τ30/60/90 Ridge 不要吃 ŷ_τ 的 OC 路径形状。HL/回撤/振幅在 30–90m 前瞻上共线对冲，
@@ -312,10 +300,7 @@ def fit_tau_ridge_matrices(
             seen.add(k)
             feat_names.append(k)
 
-    from core.signal.factors.alpha_tc import (
-        is_alpha_tc_raw_key,
-        merge_alpha_tc_min_std_exempt,
-    )
+    from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
 
     fill_keys = list(TAU_Z_FEATURES)
     seen_fill = set(fill_keys)
@@ -326,10 +311,6 @@ def fit_tau_ridge_matrices(
     feature_fill = fill_rates_from_matrix(X, col_names, fill_keys)
     X_fit, feat_names = named_columns(X, col_names, feat_names)
     del X
-
-    min_std_exempt = merge_alpha_tc_min_std_exempt(
-        feat_names, list(TAU_MIN_STD_EXEMPT)
-    )
 
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
@@ -343,7 +324,6 @@ def fit_tau_ridge_matrices(
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=theme_w_tr,
-        min_std_exempt=min_std_exempt,
         row_dates=dates_tr if use_cs else None,
         cross_section_zscore=use_cs,
     )

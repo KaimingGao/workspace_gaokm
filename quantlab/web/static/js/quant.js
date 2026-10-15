@@ -3042,17 +3042,61 @@ export function initQuant(ctx) {
     }
   }
 
+  let rankFitBusyTimer = null;
+  let rankFitBusyGen = 0;
+
+  function stopRankFitBusy(btnId) {
+    rankFitBusyGen += 1;
+    if (rankFitBusyTimer) {
+      clearInterval(rankFitBusyTimer);
+      rankFitBusyTimer = null;
+    }
+    if (btnId) {
+      const btn = document.getElementById(btnId);
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function rankFitBusyHint(elapsedSec) {
+    const s = Number(elapsedSec) || 0;
+    if (s < 20) return "拉观察池日线";
+    if (s < 180) return "组因子面板";
+    return "LambdaRank + Ridge · Holdout";
+  }
+
+  function startRankFitBusy(sumEl, btnId) {
+    stopRankFitBusy(btnId);
+    const btn = btnId ? document.getElementById(btnId) : null;
+    if (btn) btn.disabled = true;
+    const gen = rankFitBusyGen;
+    const t0 = Date.now();
+    const tick = () => {
+      if (gen !== rankFitBusyGen) return;
+      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+      renderRemStatus(sumEl, {
+        state: "busy",
+        chip: "拟合中",
+        message: `${rankFitBusyHint(s)} · 已 ${fmtHorizonTreeSec(s)}`,
+        busy: true,
+      });
+    };
+    tick();
+    rankFitBusyTimer = setInterval(tick, 1000);
+  }
+
   async function runOoRank({ persist = false, persistRole = "live" } = {}) {
     const sum = document.getElementById("quant-oo-rank-summary");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: persist ? "写入中" : "拟合中",
-      message: persist
-        ? `按 NDCG@K 写入上次拟合（${roleLabel}）…`
-        : "LambdaRank + Ridge · Holdout OOS…",
-      busy: true,
-    });
+    if (persist) {
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "写入中",
+        message: `按 NDCG@K 写入上次拟合（${roleLabel}）…`,
+        busy: true,
+      });
+    } else {
+      startRankFitBusy(sum, "quant-oo-rank-run");
+    }
     try {
       const res = await fetch("/api/quant/oo-rank", {
         method: "POST",
@@ -3118,20 +3162,24 @@ export function initQuant(ctx) {
         error: true,
       });
       throw err;
+    } finally {
+      stopRankFitBusy("quant-oo-rank-run");
     }
   }
 
   async function runTcRank({ persist = false, persistRole = "live" } = {}) {
     const sum = document.getElementById("quant-tc-rank-summary");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: persist ? "写入中" : "拟合中",
-      message: persist
-        ? `按 NDCG@K 写入上次拟合（${roleLabel}）…`
-        : "LambdaRank + Ridge · Holdout OOS…",
-      busy: true,
-    });
+    if (persist) {
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "写入中",
+        message: `按 NDCG@K 写入上次拟合（${roleLabel}）…`,
+        busy: true,
+      });
+    } else {
+      startRankFitBusy(sum, "quant-tc-rank-run");
+    }
     try {
       const res = await fetch("/api/quant/tc-rank", {
         method: "POST",
@@ -3200,6 +3248,8 @@ export function initQuant(ctx) {
         error: true,
       });
       throw err;
+    } finally {
+      stopRankFitBusy("quant-tc-rank-run");
     }
   }
 

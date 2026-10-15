@@ -57,8 +57,8 @@ class TestTcRank(unittest.TestCase):
             "tc_rank",
         )
 
-    def test_ridge_min_std_off_keeps_alpha_tc(self):
-        """本头 min_std=0：百分点列留下；真常数仍剔除。默认 5 只留大量级列。"""
+    def test_ridge_keeps_small_std_drops_constant(self):
+        """不按原始标准差剔列；真常数仍剔除。"""
         import numpy as np
 
         from core.research.oo_rank_lambdarank import _fit_ridge_baseline
@@ -89,21 +89,8 @@ class TestTcRank(unittest.TestCase):
                     "X": np.column_stack([gap, atc, vol, vol_sd, const]),
                 }
             )
-        bare = _fit_ridge_baseline(
-            days, feature_names=names, cross_section_zscore=False
-        )
-        self.assertTrue(bare.get("success"), bare)
-        bare_active = set(bare.get("active_features") or [])
-        self.assertNotIn("z_τc_gap_pct", bare_active)
-        self.assertNotIn("raw_atc_GAP", bare_active)
-        self.assertIn("raw_atc_PVMA5", bare_active)
-        self.assertIn("raw_atc_PVSTD5", bare_active)
-
         kept = _fit_ridge_baseline(
-            days,
-            feature_names=names,
-            cross_section_zscore=False,
-            min_std=0.0,
+            days, feature_names=names, cross_section_zscore=False
         )
         self.assertTrue(kept.get("success"), kept)
         active = set(kept.get("active_features") or [])

@@ -61,7 +61,6 @@ class HorizonProbHelpersTests(unittest.TestCase):
             ys,
             feature_names=["gap_pct", "feat_m"],
             ridge_lambda=1.0,
-            min_std_exempt=["gap_pct", "feat_m"],
         )
         self.assertTrue(fit.get("success"), fit)
         self.assertEqual(fit.get("head_kind"), "prob")
@@ -91,14 +90,6 @@ class HorizonProbHelpersTests(unittest.TestCase):
                 row["vol_last_90m_vs_avg"] = 0.5 + 0.2 * (i - 36)
             xs.append(row)
         ys = [1.0 if row["gap_pct"] > 0 else 0.0 for row in xs]
-        exempt = [
-            "gap_pct",
-            "ret_last_5m",
-            "ret_last_30m",
-            "vol_last_30m_vs_avg",
-            "ret_last_90m",
-            "vol_last_90m_vs_avg",
-        ]
         feat90 = [
             "gap_pct",
             "ret_last_5m",
@@ -110,7 +101,6 @@ class HorizonProbHelpersTests(unittest.TestCase):
             ys,
             feature_names=["gap_pct", "ret_last_5m", "ret_last_30m", "vol_last_30m_vs_avg"],
             ridge_lambda=1.0,
-            min_std_exempt=exempt,
             collinearity_policy="keep_all",
         )
         fit90 = fit_logistic_ridge_from_panel(
@@ -118,7 +108,6 @@ class HorizonProbHelpersTests(unittest.TestCase):
             ys,
             feature_names=feat90,
             ridge_lambda=1.0,
-            min_std_exempt=exempt,
             collinearity_policy="keep_all",
         )
         self.assertTrue(fit30.get("success"), fit30)

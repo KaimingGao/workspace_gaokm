@@ -28,7 +28,6 @@ from core.research.horizon_prob import (
 from core.research.tc_ridge import (
     TAU_FIT_DROP_ALIASES,
     TAU_HORIZON_DROP_OC_SHAPE,
-    TAU_MIN_STD_EXEMPT,
     TAU_Z_FEATURES,
     _stack_panels,
     _subset,
@@ -66,12 +65,10 @@ def _horizon_ridge_config(head: str) -> Dict[str, Any]:
     z_features = tuple(
         k for k in (TAU_Z_FEATURES + seq_features) if k not in TAU_HORIZON_DROP_OC_SHAPE
     )
-    min_std_exempt = tuple(TAU_MIN_STD_EXEMPT) + seq_features
     return {
         "head": h,
         "num": num,
         "z_features": z_features,
-        "min_std_exempt": min_std_exempt,
         "seq_features": seq_features,
         "lag_feat_labels": dict(lag_feat_labels),
         "relabel_fn": relabel_fn,
@@ -188,7 +185,6 @@ def fit_horizon_ridge_report(
     h = cfg["head"]
     num = cfg["num"]
     z_features = cfg["z_features"]
-    min_std_exempt = cfg["min_std_exempt"]
     relabel_fn = cfg["relabel_fn"]
     train_tau_grid = cfg["train_tau_grid"]
     offsets = cfg["offsets"]
@@ -256,7 +252,6 @@ def fit_horizon_ridge_report(
         feat_names=feat_names,
         ridge_lambda=ridge_lambda,
         weights=weights,
-        min_std_exempt=min_std_exempt,
         dates_tr=[dates[i] for i in train_idx] if use_cs else None,
         dates_te=[dates[i] for i in test_idx] if use_cs else None,
         cross_section_zscore=use_cs,

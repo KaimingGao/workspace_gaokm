@@ -1423,12 +1423,8 @@ def _fit_ridge_baseline(
     feature_names: Sequence[str],
     ridge_lambda: float = 1.0,
     cross_section_zscore: bool = True,
-    min_std: float = 5.0,
 ) -> Dict[str, Any]:
-    """Ridge 基线。日截面 z 与损失用当天同一批行。
-
-    ``min_std`` 透传矩阵拟合。ŷ_oo_rank 用默认 5（0–100 分制）；ŷ_τc_rank 传 0。
-    """
+    """Ridge 基线。日截面 z 与损失用当天同一批行。"""
     names = [str(n) for n in feature_names]
     blocks: List[np.ndarray] = []
     y_parts: List[np.ndarray] = []
@@ -1458,7 +1454,6 @@ def _fit_ridge_baseline(
             horizon_days=1,
             row_dates=date_parts,
             cross_section_zscore=bool(cross_section_zscore),
-            min_std=float(min_std),
         )
         return report
     return {"success": False, "error": "ridge_n=0"}

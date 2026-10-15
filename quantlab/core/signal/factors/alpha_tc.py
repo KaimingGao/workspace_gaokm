@@ -169,21 +169,6 @@ def is_alpha_tc_raw_key(name: str) -> bool:
     return str(name or "").startswith(ALPHA_TC_RAW_PREFIX)
 
 
-def merge_alpha_tc_min_std_exempt(
-    feature_names: Sequence[str],
-    min_std_exempt: Optional[Sequence[str]] = None,
-) -> List[str]:
-    """``raw_atc_*`` 非 0–100 分制，跳过 ``min_std=5`` 低方差门槛。"""
-    out = [str(x) for x in (min_std_exempt or []) if str(x).strip()]
-    seen = set(out)
-    for n in feature_names or []:
-        k = str(n or "").strip()
-        if is_alpha_tc_raw_key(k) and k not in seen:
-            seen.add(k)
-            out.append(k)
-    return out
-
-
 def bump_window_for_alpha_tc(
     factor_names: Optional[Sequence[str]],
     *,

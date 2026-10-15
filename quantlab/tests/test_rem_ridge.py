@@ -110,14 +110,14 @@ class TestRemPanel(unittest.TestCase):
 
 
 class TestRemRidgeFit(unittest.TestCase):
-    def test_gap_pct_not_dropped_as_low_variance(self):
-        """百分点 gap 标准差常 <5，不能按 0–100 分制 min_std 误剔。"""
+    def test_gap_pct_stays_when_not_constant(self):
+        """百分点 gap 标准差可以很小，仍入模。真常数另剔。"""
         from core.research.factor_ols_fit import _prepare_complete_panel
 
         xs = []
         ys = []
         for i in range(40):
-            gap = (i % 7) * 0.4 - 1.2  # std ≈ 0.8，远低于 min_std=5
+            gap = (i % 7) * 0.4 - 1.2
             xs.append(
                 {
                     "momentum": 40.0 + (i % 11) * 4.0,
@@ -139,40 +139,9 @@ class TestRemRidgeFit(unittest.TestCase):
             "sector_gap_breadth",
             "theme_day",
         ]
-        # 默认门槛：分制因子够多 → 不放松 min_std → gap 被剔
-        _, _, active0, _, meta0 = _prepare_complete_panel(
-            xs, ys, feats, min_std=5.0
-        )
-        dropped = {
-            (d["name"] if isinstance(d, dict) else d)
-            for d in (meta0.get("dropped_low_variance") or [])
-        }
-        self.assertIn("gap_pct", dropped)
-        self.assertNotIn("gap_pct", active0 or [])
-        # rem 豁免：gap 保留
-        _, _, active1, _, meta1 = _prepare_complete_panel(
-            xs,
-            ys,
-            feats,
-            min_std=5.0,
-            min_std_exempt=[
-                "gap_pct",
-                "open_gap",
-                "sector_gap_breadth",
-                "theme_day",
-                "gap_atr",
-                "gap_vs_sector",
-            ],
-        )
-        self.assertIn("gap_pct", active1)
-        self.assertNotIn(
-            "gap_pct",
-            {
-                (d["name"] if isinstance(d, dict) else d)
-                for d in (meta1.get("dropped_low_variance") or [])
-            },
-        )
-        self.assertIn("gap_pct", meta1.get("min_std_exempt") or [])
+        _, _, active, _, meta = _prepare_complete_panel(xs, ys, feats)
+        self.assertIn("gap_pct", active)
+        self.assertNotIn("gap_pct", meta.get("dropped_constant") or [])
 
     def test_oos_by_tau_buckets(self):
         from core.research.tc_ridge import _oos_by_tau
@@ -243,9 +212,8 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("abs_ge_0_6", oos.get("buckets") or {})
         self.assertIn("residual_var", oos)
         self.assertIn("promote_gate", report)
-        # τ 豁免生效：即便合成 K 线缺口小，也不应因 low_variance 进 exclusion_reasons
         reasons = rm.get("exclusion_reasons") or {}
-        self.assertNotEqual(reasons.get("z_τc_gap_pct"), "low_variance")
+        self.assertNotIn("z_τc_gap_pct", reasons)
 
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")

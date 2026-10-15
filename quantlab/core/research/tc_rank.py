@@ -307,7 +307,6 @@ def fit_tc_rank_report(
         feature_names=kept_names,
         ridge_lambda=float(ridge_lambda),
         cross_section_zscore=use_cs,
-        min_std=0.0,
     )
     oos_ridge: Dict[str, Any] = {"success": bool(ridge_tr.get("success"))}
     if ridge_tr.get("success"):

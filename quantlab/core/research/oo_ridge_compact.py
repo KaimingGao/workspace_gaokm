@@ -1,7 +1,7 @@
 """ŷ_oo 观察池 Ridge：按只折进 float64 矩阵，避免整池 Python 字典常驻。
 
 口径与观察池 Ridge 默认项对齐：Ridge（截距不惩罚）、趋势族 drop_redundant、
-min_std=5（``raw_aoo_*`` 豁免）、完整行；特征 z 由 ``cross_section_zscore``
+完整行（剔除缺测过多的列和真常数）；特征 z 由 ``cross_section_zscore``
 选择日截面或训练窗全局 μ/σ。标签仍是百分点，不做 z-score。
 """
 
@@ -25,7 +25,6 @@ from core.signal.factors.alpha_oo import (
     alpha_oo_ridge_raw_names,
     is_alpha_oo_raw_key,
     is_alpha_oo_ridge_raw_key,
-    merge_alpha_oo_min_std_exempt,
 )
 
 
@@ -547,27 +546,22 @@ def _prepare_matrix(
     names: Sequence[str],
     *,
     row_pos: Optional[np.ndarray] = None,
-    min_std: float = 5.0,
-    min_std_exempt: Optional[Sequence[str]] = None,
     eps: float = 1e-6,
     min_samples_over_p: int = 3,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[str], List[str], Dict[str, Any]]:
     """与 ``_prepare_complete_panel`` 同一套剔除，只在 ndarray 上做。
 
     ``row_pos`` 指定训练行。按列取值，避免先把全部列复制成训练子矩阵。
+    剔除缺测过多的列和真常数，不按原始标准差设下限。
     """
     if row_pos is not None:
         y = np.asarray(y, dtype=np.float64)[row_pos]
-    exempt = {str(n) for n in (min_std_exempt or []) if n}
     n_raw = int(y.shape[0])
     meta: Dict[str, Any] = {
         "raw_sample_count": n_raw,
         "dropped_sparse": [],
         "dropped_constant": [],
-        "dropped_low_variance": [],
         "dropped_for_coverage": [],
-        "min_std": float(min_std),
-        "min_std_exempt": sorted(exempt),
     }
     feature_names = [str(n) for n in names]
     if n_raw < 4:
@@ -589,7 +583,6 @@ def _prepare_matrix(
         return None, None, [], feature_names[:], meta
 
     active = list(candidates)
-    min_std_eff = float(min_std)
     while active:
         cols = [name_j[n] for n in active]
         sub = _take_columns(x, row_pos, cols)
@@ -610,33 +603,16 @@ def _prepare_matrix(
             meta["dropped_for_coverage"].append(drop)
             continue
 
-        still_var: List[str] = []
-        low_var_batch: List[Dict[str, Any]] = []
+        kept: List[str] = []
         local_j = {name: i for i, name in enumerate(active)}
         for name in active:
             col = sub[rows_idx, local_j[name]]
             if float(col.max()) - float(col.min()) <= eps:
                 meta["dropped_constant"].append(name)
                 continue
-            mean = float(col.sum()) / n
-            var = float(((col - mean) ** 2).sum()) / n
-            std = math.sqrt(var) if var > 0 else 0.0
-            if min_std_eff > 0 and std < min_std_eff and name not in exempt:
-                low_var_batch.append({"name": name, "std": round(std, 4), "n": n})
-                continue
-            still_var.append(name)
-        min_active = 2
-        if len(still_var) < min_active and low_var_batch:
-            meta["min_std_relaxed"] = True
-            meta["min_std_relaxed_from"] = float(min_std)
-            meta["dropped_low_variance_skipped"] = list(low_var_batch)
-            still_var = still_var + [d["name"] for d in low_var_batch]
-            low_var_batch = []
-            min_std_eff = 0.0
-        else:
-            meta["dropped_low_variance"].extend(low_var_batch)
-        if len(still_var) < len(active):
-            active = still_var
+            kept.append(name)
+        if len(kept) < len(active):
+            active = kept
             if not active:
                 break
             continue
@@ -646,10 +622,6 @@ def _prepare_matrix(
         excluded = (
             list(meta["dropped_sparse"])
             + list(meta["dropped_constant"])
-            + [
-                d["name"] if isinstance(d, dict) else d
-                for d in meta["dropped_low_variance"]
-            ]
             + list(meta["dropped_for_coverage"])
         )
         meta["complete_sample_count"] = n
@@ -660,10 +632,6 @@ def _prepare_matrix(
     excluded = (
         list(meta["dropped_sparse"])
         + list(meta["dropped_constant"])
-        + [
-            d["name"] if isinstance(d, dict) else d
-            for d in meta["dropped_low_variance"]
-        ]
         + list(meta["dropped_for_coverage"])
     )
     return None, None, [], excluded, meta
@@ -842,14 +810,12 @@ def fit_oo_ridge_matrix(
     sample_weights: Optional[Sequence[float]] = None,
     row_dates: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
-    min_std: float = 5.0,
 ) -> Tuple[Any, Dict[str, Any]]:
     """在矩阵上拟合 ŷ_oo，返回 ``(ReturnScoreModel | None, report)``。
 
     ``sample_weights`` 与全表 ``y`` 等长（或与 ``row_idx`` 等长）；√w 加权最小二乘。
     ``cross_section_zscore=False``：训练样本内全局 μ/σ（不用日截面）。
-    日截面 z 与损失用同一批行。
-    ``min_std``：0–100 分制原始标准差下限；``0`` 关掉（ŷ_τc_rank 无分制列）。真常数仍剔除。
+    日截面 z 与损失用同一批行。真常数仍剔除。
     """
     from core.signal.return_score import ReturnScoreModel
 
@@ -867,14 +833,11 @@ def fit_oo_ridge_matrix(
 
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     feature_names = [str(n) for n in names]
-    exempt = merge_alpha_oo_min_std_exempt(feature_names, None)
     x_c, y_c, active, excluded, prep_meta = _prepare_matrix(
         x,
         y,
         feature_names,
         row_pos=row_pos,
-        min_std=float(min_std),
-        min_std_exempt=exempt,
     )
     z_means: Dict[str, float] = {}
     z_stds: Dict[str, float] = {}

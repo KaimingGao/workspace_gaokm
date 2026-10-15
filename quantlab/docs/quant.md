@@ -1288,7 +1288,7 @@ score_stock(code) 续——
 
 ### 4.3c ŷ_τc_rank（LambdaRank / Ridge · 截面名次）
 
-与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge，Holdout **NDCG@K** 选 backend；卡头 **日截面 Z**（默认开）。标签为 `price[τ]→close[T]`（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。Ridge 基线 `min_std=0`（本头没有 0–100 分制列）；真常数仍剔除。
+与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge，Holdout **NDCG@K** 选 backend；卡头 **日截面 Z**（默认开）。标签为 `price[τ]→close[T]`（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。Ridge 不按原始标准差剔列；真常数仍剔除。
 相对分编成当日截面名次 `y_tc_rank ∈ 1..n`（1=最高），写入成交明细 **τc_rank** 列。
 **不**进 `y_oo_fuse`，**不**改买序。与 oo_rank 共用入场闸：`oo_rank_max` 开则须 `max(y_oo_rank, y_τc_rank) < max`。
 

@@ -15,12 +15,8 @@ import numpy as np
 
 from core.research.co_panel import (
     CO_Z_FEATURES,
-    CO_Z_LEGACY,
     theme_sample_weights,
 )
-
-# canon + 裸名都豁免（旧模型 / 旁路）
-CO_MIN_STD_EXEMPT = tuple(CO_Z_FEATURES) + tuple(CO_Z_LEGACY)
 
 ProgressCb = Optional[Callable[[int, int, str], None]]
 
@@ -51,10 +47,7 @@ def fit_co_ridge_matrices(
         predict_ridge_matrix,
         raw_aoo_finite,
     )
-    from core.signal.factors.alpha_oo import (
-        is_alpha_oo_raw_key,
-        merge_alpha_oo_min_std_exempt,
-    )
+    from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
 
     # collect_co_compact 会逐票 pop bars；日历必须先抽
     calendar_dates = calendar_dates_from_stock_bars(stock_bars)
@@ -119,10 +112,6 @@ def fit_co_ridge_matrices(
     X_fit, feat_names = named_columns(X, col_names, feat_names)
     del X
 
-    min_std_exempt = merge_alpha_oo_min_std_exempt(
-        feat_names, list(CO_MIN_STD_EXEMPT)
-    )
-
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
     y_tr_arr = np.asarray(ys_tr, dtype=np.float64)
@@ -133,7 +122,6 @@ def fit_co_ridge_matrices(
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=theme_w_tr,
-        min_std_exempt=min_std_exempt,
         row_dates=dates_tr if use_cs else None,
         cross_section_zscore=use_cs,
     )

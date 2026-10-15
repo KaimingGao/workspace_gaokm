@@ -219,7 +219,6 @@ class TestKeepallRidgeMatrix(unittest.TestCase):
             ridge_lambda=1.0,
             feature_zscore=True,
             sample_weights=weights,
-            min_std_exempt=list(names),
             collinearity_policy="keep_all",
         )
         mat_fit = fit_keepall_ridge_matrix(
@@ -228,7 +227,6 @@ class TestKeepallRidgeMatrix(unittest.TestCase):
             names,
             ridge_lambda=1.0,
             sample_weights=weights,
-            min_std_exempt=list(names),
         )
         self.assertTrue(dict_fit.get("success"), dict_fit.get("error"))
         self.assertTrue(mat_fit.get("success"), mat_fit.get("error"))

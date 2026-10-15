@@ -27,11 +27,9 @@ from core.research.tau_panel import (
     T30_LAG_FEAT_LABELS,
 )
 from core.research.tc_ridge_compact import (
-    TAU_FEATURE_EXTRA,
     TAU_FIT_DROP_ALIASES,
     TAU_HORIZON_DROP_OC_SHAPE,
     TAU_HORIZON_TREE_SHAPE_FEATURES,
-    TAU_MIN_STD_EXEMPT,
     TAU_Z_FEATURES,
     _predict_rows,
     _stack_panels,

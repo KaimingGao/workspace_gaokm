@@ -33,7 +33,6 @@ from core.research.panel_matrix import (
 from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.tc_ridge import (
     TAU_FIT_DROP_ALIASES,
-    TAU_MIN_STD_EXEMPT,
     TAU_Z_FEATURES,
     _ic,
     _oos_by_theme,
@@ -176,11 +175,6 @@ def fit_holdout(
             seen.add(k)
             feat_names.append(k)
 
-    min_std_exempt = list(TAU_MIN_STD_EXEMPT)
-    for n in feat_names:
-        if is_alpha_tc_raw_key(str(n)) and str(n) not in min_std_exempt:
-            min_std_exempt.append(str(n))
-
     X_fit, feat_names = named_columns(X, col_names, feat_names)
     dates_tr = [dates[i] for i in train_idx]
     dates_te = [dates[i] for i in test_idx]
@@ -197,7 +191,6 @@ def fit_holdout(
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=theme_w,
-        min_std_exempt=min_std_exempt,
         row_dates=dates_tr,
         cross_section_zscore=True,
     )

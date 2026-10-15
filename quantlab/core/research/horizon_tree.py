@@ -585,7 +585,6 @@ def _horizon_tree_config(head: str) -> Dict[str, Any]:
     ridge_cfg = _horizon_ridge_config(h)
     num = ridge_cfg["num"]
     z_features = ridge_cfg["z_features"]
-    min_std_exempt = ridge_cfg["min_std_exempt"]
     relabel_fn = ridge_cfg["relabel_fn"]
     train_tau_grid = ridge_cfg["train_tau_grid"]
     offsets = ridge_cfg["offsets"]
@@ -593,7 +592,6 @@ def _horizon_tree_config(head: str) -> Dict[str, Any]:
         "head": h,
         "num": num,
         "z_features": tuple(z_features),
-        "min_std_exempt": tuple(min_std_exempt),
         "relabel_fn": relabel_fn,
         "train_tau_grid": tuple(train_tau_grid),
         "schema": f"{h}_tree_shadow_v5",
@@ -665,7 +663,6 @@ def fit_horizon_tree_report(
     h = cfg["head"]
     num = cfg["num"]
     z_features = cfg["z_features"]
-    min_std_exempt = cfg["min_std_exempt"]
     relabel_fn = cfg["relabel_fn"]
     train_tau_grid = cfg["train_tau_grid"]
     schema = cfg["schema"]
@@ -807,7 +804,6 @@ def fit_horizon_tree_report(
         ridge_lambda=ridge_lambda,
         theme_boost=theme_boost,
         use_theme_weights=use_theme_weights,
-        min_std_exempt=min_std_exempt,
         kind="prob",
         dates_tr=[dates[i] for i in train_idx],
         dates_te=[dates[i] for i in test_idx],

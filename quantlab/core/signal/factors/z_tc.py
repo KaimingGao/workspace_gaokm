@@ -46,10 +46,6 @@ Z_TC_FIT_FEATURES: Tuple[str, ...] = tuple(
     + _TAU_LAG_FEATURES
 )
 
-Z_TC_FEATURE_EXTRA: Tuple[str, ...] = tuple(
-    f"{Z_TC_PREFIX}{k}" for k in Z_TC_LEGACY_OPEN + _TAU_LAG_FEATURES
-)
-
 Z_TC_MINUTE_KEYS: Tuple[str, ...] = tuple(
     f"{Z_TC_PREFIX}{k}" for k in MINUTE_TAU_ALL_KEYS
 )
