@@ -418,6 +418,42 @@ class TestOoRankFit(unittest.TestCase):
         self.assertIn("beta", terms0[0])
         self.assertIn("contrib", terms0[0])
 
+    def test_score_codes_keep_full_pool_z_and_rank_only_allowed(self):
+        """截面 z 吃整批；名次只编允许档。档外极值会把允许档的相对分拉到均值下方。"""
+        from core.research.oo_rank_lambdarank import apply_oo_rank_scores
+
+        ridge = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "oo_rank",
+            "horizon_mode": "oo_rank",
+            "intercept": 0.0,
+            "coefficients": {"mom3": 1.0},
+            "feature_zscore": True,
+            "zscore_scope": "cross_section",
+            "zscore_means": {},
+            "zscore_stds": {},
+        }
+        items = [
+            {"stock_code": "A1", "sub_scores": {"mom3": 0.0}},
+            {"stock_code": "A2", "sub_scores": {"mom3": 10.0}},
+            {
+                "stock_code": "B1",
+                "sub_scores": {"mom3": 1000.0},
+                "y_oo_rank": 9,
+            },
+        ]
+        apply_oo_rank_scores(items, fit=ridge, score_codes=["A1", "A2"])
+        by = {it["stock_code"]: it for it in items}
+        self.assertNotIn("y_oo_rank", by["B1"])
+        self.assertNotIn("y_oo_rank_score", by["B1"])
+        self.assertEqual(by["B1"]["sub_scores"]["mom3"], 1000.0)
+        self.assertEqual(by["A2"]["y_oo_rank"], 1)
+        self.assertEqual(by["A1"]["y_oo_rank"], 2)
+        self.assertEqual(by["A2"]["y_oo_rank_n"], 2)
+        self.assertLess(float(by["A2"]["y_oo_rank_score"]), 0.0)
+
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_persist_research_sidecar(self):
         from core.research.holdout import research_model_path

@@ -1766,13 +1766,26 @@ def _required_factor_keys_from_return_models(
     return keys
 
 
+def _score_codes_fingerprint(codes: Optional[Collection[str]]) -> str:
+    """允许打分的代码集。None（全员打分）返回空串，不改缓存键。"""
+    import hashlib
+
+    from core.research.feature_standardize import normalize_score_codes
+
+    allow = normalize_score_codes(codes)
+    if allow is None:
+        return ""
+    raw = ",".join(sorted(allow))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
 def _stamp_tradable_hard_reject(
     scored: Sequence[dict],
     tradable_codes: Optional[Collection[str]],
     *,
     reason: str,
 ) -> None:
-    """分档外的名字留在打分截面里，但不许新开；已持仓则清仓。"""
+    """分档外的名字留在截面特征里（供 z），但不许新开；已持仓则清仓。"""
     if tradable_codes is None:
         return
     allow = {str(c).strip() for c in tradable_codes if str(c or "").strip()}
@@ -1798,17 +1811,21 @@ def _attach_open_yhat_heads(
     tau_model_doc: Any = None,
     cfg: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
+    score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
     """heuristic 窗口分 → 全局 ŷ_oo；09:30 PIT 挂 ŷ_τc；开盘特征打 ŷ_co。
 
     对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 y_oo_fuse。
     调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。nowcast 已退役，不再写 y_nowcast。
+    ``score_codes`` 给定时，截面 z 用整批特征，ŷ 与名次只写这份名单。
     """
     from core.signal.return_score import apply_predicted_scores
 
     items = list(entries)
     if global_model is not None:
-        items = apply_predicted_scores(items, global_model, write_rank_score=False)
+        items = apply_predicted_scores(
+            items, global_model, write_rank_score=False, score_codes=score_codes
+        )
 
     rem_doc = tau_model_doc
     if rem_doc is None:
@@ -1870,6 +1887,7 @@ def _attach_open_yhat_heads(
             apply_oo_rank_scores(
                 [it for it in items if isinstance(it, dict)],
                 model_doc=oo_rank_doc,
+                score_codes=score_codes,
             )
         except Exception:  # noqa: BLE001
             logger.debug("attach y_oo_rank day batch failed", exc_info=True)
@@ -1991,9 +2009,15 @@ def _attach_open_yhat_heads(
     try:
         from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
-        rescore_fitted_cross_section(items)
+        rescore_fitted_cross_section(items, score_codes=score_codes)
     except Exception:  # noqa: BLE001
         logger.debug("replay cross-section rescore failed", exc_info=True)
+    try:
+        from core.signal.cross_section_rescore import drop_unscored_heads
+
+        drop_unscored_heads(items, score_codes)
+    except Exception:  # noqa: BLE001
+        logger.debug("replay drop unscored heads failed", exc_info=True)
     return items
 
 
@@ -2011,6 +2035,7 @@ def _score_open_day(
     tau_model_doc: Any = None,
     tau_pool_day: Optional[dict] = None,
     required_factor_keys: Optional[List[str]] = None,
+    score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
     """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。
     """
@@ -2058,6 +2083,7 @@ def _score_open_day(
         tau_model_doc=tau_model_doc,
         cfg=cfg,
         tau_pool_day=tau_pool_day,
+        score_codes=score_codes,
     )
 
 
@@ -2165,10 +2191,12 @@ def rescore_replay_y_τc_at_clock(
     day_i: int,
     cfg: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
+    score_codes: Optional[Collection[str]] = None,
 ) -> Tuple[List[dict], int]:
     """成交钟>09:30：用截至该钟的 5m 前缀重算 ŷ_τc（与做 T rescore 同路径）。
 
     09:30 或无前缀则保持开盘 Z。返回 (行, 成功重算数)。
+    ``score_codes`` 给定时，池子特征仍整批进 μ/σ，只重算名单内的 ŷ_τc。
     """
     items = [dict(it) if isinstance(it, dict) else it for it in (scored or [])]
     head = clamp_replay_fill_clock(clock)
@@ -2180,6 +2208,9 @@ def rescore_replay_y_τc_at_clock(
         temporary_pool_feature_rows,
     )
 
+    from core.research.feature_standardize import normalize_score_codes
+
+    allow = normalize_score_codes(score_codes)
     day = dates[day_i]
     n_ok = 0
     with temporary_pool_feature_rows(day, items):
@@ -2188,6 +2219,8 @@ def rescore_replay_y_τc_at_clock(
                 continue
             code = str(it.get("stock_code") or "").strip()
             if not code:
+                continue
+            if allow is not None and code not in allow:
                 continue
             mins = (minute_maps.get(code) or {}).get(day) or []
             prefix = _minute_bars_until_hm(mins, tau_hm=head)
@@ -2281,6 +2314,7 @@ def backtest_paper_replay(
 
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank。
+    ``tradable_codes`` 给定时，截面 z 仍用整池特征，ŷ 与名次只写这份名单（分档内）。
     ``oo_rank_max`` 开则入场另须 max(y_oo_rank, y_τc_rank) < max（两侧都缺不拦）；否则可读旧 ``oo_rank_top_frac``。
     """
     from core.research.holdout import (
@@ -2421,6 +2455,7 @@ def backtest_paper_replay(
                     max_window=int(max_window),
                     horizon_days=max(1, int(yhat_horizon_days or 1)),
                     required_factor_keys=required_factor_keys or None,
+                    score_codes_fp=_score_codes_fingerprint(tradable_codes),
                 )
                 score_cache_key = str(info.get("run_key") or "") or None
                 if score_cache_key:
@@ -2698,6 +2733,7 @@ def backtest_paper_replay(
                     tau_model_doc=tau_model_doc,
                     tau_pool_day=tau_pool_by_date.get(day) or {},
                     required_factor_keys=required_factor_keys or None,
+                    score_codes=tradable_codes,
                 )
                 if score_cache_key:
                     try:
@@ -2748,6 +2784,7 @@ def backtest_paper_replay(
                     day_i=i,
                     cfg=rl_cfg,
                     tau_pool_day=tau_pool_by_date.get(day) or {},
+                    score_codes=tradable_codes,
                 )
                 constraints["tau_prefix_rescored"] = int(
                     constraints.get("tau_prefix_rescored") or 0
@@ -2756,9 +2793,18 @@ def backtest_paper_replay(
             try:
                 from core.research.tc_rank import apply_tc_rank_scores
 
-                apply_tc_rank_scores(scored, model_doc=tc_rank_doc)
+                apply_tc_rank_scores(
+                    scored, model_doc=tc_rank_doc, score_codes=tradable_codes
+                )
             except Exception:  # noqa: BLE001
                 logger.debug("attach y_tc_rank failed", exc_info=True)
+        # 缓存命中路径不经 _attach_open_yhat_heads；ŷ_τc_rank 也可能刚写完。再清一次档外头。
+        try:
+            from core.signal.cross_section_rescore import drop_unscored_heads
+
+            drop_unscored_heads(scored, tradable_codes)
+        except Exception:  # noqa: BLE001
+            logger.debug("replay drop unscored heads failed", exc_info=True)
         _stamp_tradable_hard_reject(
             scored,
             tradable_codes,

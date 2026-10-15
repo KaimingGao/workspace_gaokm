@@ -213,9 +213,11 @@ class QuantReplayMixin:
                         "counts": (tier_rep.get("counts") if isinstance(tier_rep, dict) else None),
                         "n_in": n_before,
                         "n_out": 0,
+                        "n_z": n_before,
+                        "n_scored": 0,
                     },
                 }
-            # 截面 z 用整段候选池；分档只限制开仓，并清掉不在允许档的持仓。
+            # 截面 z 用整段候选池；ŷ 与名次只写允许档。分档外不开仓，并清掉不在允许档的持仓。
             effective_lookback = max(1, int(lookback))
             tier_label = "".join(allowed)
             pred_meta = {
@@ -232,9 +234,11 @@ class QuantReplayMixin:
                 "counts": tier_rep.get("counts") if isinstance(tier_rep, dict) else None,
                 "n_in": n_before,
                 "n_out": len(filtered),
-                "n_scored": n_before,
+                "n_z": n_before,
+                "n_scored": len(filtered),
                 "note": (
-                    "截面 z 用整段观察池；分档只限制开仓，并清掉不在允许档的持仓。"
+                    "截面 z 用整段观察池（n_z）；ŷ 与名次只写允许档（n_scored）。"
+                    "分档外不开仓，并清掉不在允许档的持仓。"
                     "回测天数=请求 lookback（与 Holdout 独立）。"
                 ),
             }
@@ -243,8 +247,9 @@ class QuantReplayMixin:
                 "predictability_tiers": allowed,
                 "n_in": n_before,
                 "n_out": len(filtered),
-                "n_scored": n_before,
-                "note": "分档是交易闸；截面 z 用整段候选池",
+                "n_z": n_before,
+                "n_scored": len(filtered),
+                "note": "截面 z 用整段候选池；ŷ 与名次只写允许档；档外不开仓",
                 "tradable_reject_reason": f"可预测性非{tier_label}档",
             }
 
@@ -469,7 +474,8 @@ class QuantReplayMixin:
             "fit_tiers": fit_meta,
             "predictability_tiers": pred_meta if pred_meta.get("enabled") else None,
             "note": (
-                "截面 z 用整段观察池；分档只限制开仓。回测天数=请求 lookback（与 Holdout 独立）。"
+                "截面 z 用整段观察池；ŷ 与名次只写允许档；档外不开仓。"
+                "回测天数=请求 lookback（与 Holdout 独立）。"
                 if pred_meta.get("enabled")
                 else "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
             ),

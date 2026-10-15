@@ -702,6 +702,17 @@ export function initQuant(ctx) {
     return { model: rm };
   }
 
+  function rankBackendBox(rec) {
+    const key = String(rec || "").toLowerCase();
+    if (key === "ridge") {
+      return '<span class="quant-rank-backend is-ridge">Ridge</span>';
+    }
+    if (key === "lambdarank") {
+      return '<span class="quant-rank-backend is-lambdarank">LambdaRank</span>';
+    }
+    return "";
+  }
+
   async function paintOoRankDesk(sum, data, extra = {}, spec) {
     const desk = spec || OO_RANK_DESK;
     const src = data && typeof data === "object" ? data : {};
@@ -732,29 +743,28 @@ export function initQuant(ctx) {
           src.recommended_backend ||
           (rm && rm.backend) ||
           "";
-        const beTxt =
-          be === "ridge" ? "Ridge" : be === "lambdarank" ? "LambdaRank" : "";
-        const beSuffix = beTxt ? ` · ${beTxt}` : "";
+        const box = rankBackendBox(be);
         message = flags.liveOn
-          ? `已落盘${beSuffix}`
+          ? box
+            ? `已落盘 ${box}`
+            : "已落盘"
           : flags.researchOn
-            ? `研究套已落盘${beSuffix} · 执行未写`
-            : beTxt
-              ? `已启用 ${beTxt}`
+            ? box
+              ? `研究套已落盘 ${box} · 执行未写`
+              : "研究套已落盘 · 执行未写"
+            : box
+              ? `已启用 ${box}`
               : "";
+        messageHtml = !!box;
       } else if (flags.liveOn || flags.researchOn) {
         const rec =
           src.recommended_backend ||
           (oos && oos.recommended_backend) ||
           src.backend ||
           "";
-        message =
-          rec === "ridge"
-            ? "落盘 <strong>Ridge</strong>"
-            : rec === "lambdarank"
-              ? "落盘 <strong>LambdaRank</strong>"
-              : "落盘 backend 待定";
-        messageHtml = rec === "ridge" || rec === "lambdarank";
+        const box = rankBackendBox(rec);
+        message = box ? `落盘 ${box}` : "落盘 backend 待定";
+        messageHtml = !!box;
       } else {
         const rec = src.recommended_backend || (oos && oos.recommended_backend);
         const recTxt =
@@ -969,8 +979,15 @@ export function initQuant(ctx) {
           .join("") +
         `</div>`
       : "";
+    const landed = String(
+      data.backend || data.recommended_backend || ""
+    ).toLowerCase();
+    const landedKind =
+      landed === "ridge" ? "ridge" : landed === "lambdarank" ? "tree" : "";
     const headCard = (kind, kicker, name, wins, lead) =>
-      `<div class="quant-oos-board-card is-${kind}${lead ? " is-lead" : ""}">` +
+      `<div class="quant-oos-board-card is-${kind}${lead ? " is-lead" : ""}${
+        landedKind === kind ? " is-landed" : ""
+      }">` +
       `<span class="quant-oos-board-kicker">${kicker}</span>` +
       `<div class="quant-oos-board-row">` +
       `<span class="quant-oos-board-name">${name}</span>` +

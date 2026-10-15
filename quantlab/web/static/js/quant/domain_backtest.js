@@ -41,6 +41,7 @@ const {
   metricClass,
   buildPortfolioBacktestSummaryText,
   buildPortfolioBacktestFailText,
+  buildReplaySkipSummary,
   applyReplayOverviewKpis,
   applyReplayT0Kpis,
 } = await import(`./bt_result.js?v=${encodeURIComponent(_V)}`);
@@ -241,6 +242,15 @@ export function installBacktest(q) {
       e.preventDefault();
       restoreNavChart();
     });
+  }
+
+  function writeReplaySkipSummary(data) {
+    const el = els.quantPortfolioSummary;
+    if (!el || !isReplayDesk()) return;
+    const text = buildReplaySkipSummary(data);
+    el.hidden = !text;
+    el.textContent = text;
+    el.classList.remove("down");
   }
 
   function writePortfolioSummary(text, { error = false } = {}) {
@@ -1020,7 +1030,10 @@ export function installBacktest(q) {
       const showLegs = filledLegs;
       state.lastSimTrades = showLegs;
       if (!showLegs.length && !curveLedgerDays(curve).length) {
-        setBtTradesCaption("暂无成交记录");
+        const note = buildReplaySkipSummary(
+          !Array.isArray(dataOrTrades) ? dataOrTrades : null
+        );
+        setBtTradesCaption(note || "暂无成交记录");
         return;
       }
       const rows = buildLedgerTradeRows(showLegs, {
@@ -1032,8 +1045,12 @@ export function installBacktest(q) {
             (dataOrTrades.params || dataOrTrades.request)) ||
           {},
       });
-      const skipNote = !filledLegs.length && legs.length
-        ? `<p class="quant-trades-caption">暂无成交 · ${legs.length} 笔跳过（现金不足 / T+1 等）</p>`
+      const skipSummary =
+        !filledLegs.length && legs.length
+          ? buildReplaySkipSummary(!Array.isArray(dataOrTrades) ? dataOrTrades : null)
+          : "";
+      const skipNote = skipSummary
+        ? `<p class="quant-trades-caption">${escapeHtml(skipSummary)}</p>`
         : "";
       els.quantBtTrades.innerHTML = skipNote + ledgerTradesCaptionHtml();
       const host = els.quantBtTrades.querySelector(".quant-bt-trades-host");
@@ -1155,6 +1172,7 @@ export function installBacktest(q) {
     };
     applyReplayOverviewKpis(data);
     if (isReplayDesk()) {
+      writeReplaySkipSummary(data);
       renderStockContribTable(data);
       renderBtTradesTable(data);
       return;
@@ -1430,7 +1448,7 @@ export function installBacktest(q) {
     const roleLbl = p.score_model_role === "live" ? "执行" : "研究";
     const tiers = Array.isArray(p.predictability_tiers) ? p.predictability_tiers : [];
     const usePred = p.use_predictability_tiers === true || tiers.length > 0;
-    const tierBit = usePred ? `分档${tiers.join("") || "AB"}` : "";
+    const tierBit = usePred ? `分档${tiers.join("") || "A"}` : "";
     const days = Number(p.lookback);
     return [
       Number.isFinite(days) && days > 0 ? `${Math.round(days)}日` : "",

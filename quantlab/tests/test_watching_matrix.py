@@ -905,6 +905,41 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         self.assertTrue(item_by["000002"].get("hard_reject"))
         self.assertIn("不开仓", item_by["000002"].get("reject_reason") or "")
 
+    def test_attach_oo_rank_passes_score_codes(self):
+        """live 分档打开时，名次只编允许档；z 仍吃整批。"""
+        from unittest.mock import patch
+
+        from core.paper.rebalance.watching_matrix import _attach_oo_rank_scores
+
+        items = [
+            {"stock_code": "A1", "sub_scores": {"mom3": 1.0}},
+            {"stock_code": "B1", "sub_scores": {"mom3": 2.0}},
+        ]
+        with patch(
+            "core.research.oo_rank_lambdarank.load_oo_rank_model",
+            return_value={"ok": True},
+        ), patch(
+            "core.research.oo_rank_lambdarank.apply_oo_rank_scores"
+        ) as apply:
+            _attach_oo_rank_scores(items, score_codes=["A1"])
+        kwargs = apply.call_args.kwargs
+        self.assertEqual(list(kwargs.get("score_codes") or []), ["A1"])
+
+    def test_attach_tc_rank_passes_score_codes(self):
+        from unittest.mock import patch
+
+        from core.paper.rebalance.watching_matrix import _attach_tc_rank_scores
+
+        items = [{"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 1.0}}]
+        with patch(
+            "core.research.tc_rank.load_tc_rank_model",
+            return_value={"ok": True},
+        ), patch(
+            "core.research.tc_rank.apply_tc_rank_scores"
+        ) as apply:
+            _attach_tc_rank_scores(items, score_codes=["A1"])
+        self.assertEqual(list(apply.call_args.kwargs.get("score_codes") or []), ["A1"])
+
     def test_row_score_payload_heads_override_stale_fuse(self):
         from core.paper.rebalance.watching_matrix import _row_score_payload
 

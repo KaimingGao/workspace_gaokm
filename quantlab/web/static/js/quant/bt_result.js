@@ -297,6 +297,102 @@ export function buildResearchCurves(result) {
   };
 }
 
+const REPLAY_SKIP_ORDER = [
+  "分档外",
+  "fuse未过",
+  "名次",
+  "y_oo≤0",
+  "y_τc≤0",
+  "现金/手数",
+  "T+1",
+  "报价",
+  "其他",
+];
+
+/** 跳过原因归成入场闸，供调仓回测摘要。 */
+export function classifyReplaySkipReason(reason) {
+  const r = String(reason || "").trim();
+  if (!r || r === "hard_reject" || r.includes("分档")) return "分档外";
+  if (r.startsWith("fuse=") || r.startsWith("fuse≤") || r.includes("fuse 缺失")) {
+    return "fuse未过";
+  }
+  if (r.includes("y_oo")) return "y_oo≤0";
+  if (r.includes("y_τc") || r.includes("y_tc")) return "y_τc≤0";
+  if (r.includes("rank")) return "名次";
+  if (r.includes("现金") || r.includes("地板") || r.includes("一手")) return "现金/手数";
+  if (r.includes("T+1")) return "T+1";
+  if (r.includes("价") || r.includes("分钟")) return "报价";
+  return "其他";
+}
+
+function _fmtGatePct(frac) {
+  const n = Number(frac) * 100;
+  if (!Number.isFinite(n)) return "";
+  return n.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function _replayGateBits(data) {
+  const p = (data && data.params) || {};
+  const req = (data && data.request) || {};
+  const tiers = Array.isArray(p.predictability_tiers)
+    ? p.predictability_tiers
+    : Array.isArray(req.predictability_tiers)
+      ? req.predictability_tiers
+      : [];
+  const usePred =
+    p.use_predictability_tiers === true ||
+    req.use_predictability_tiers === true ||
+    tiers.length > 0;
+  const bits = [];
+  if (usePred) bits.push(`分档${tiers.length ? tiers.join("") : "A"}`);
+  const enter = p.fuse_enter != null ? p.fuse_enter : req.fuse_enter;
+  const enterPct = _fmtGatePct(enter);
+  if (enterPct) bits.push(`fuse≥${enterPct}%`);
+  const rank = p.oo_rank_max != null ? p.oo_rank_max : req.oo_rank_max;
+  if (rank != null && Number(rank) > 0) bits.push(`rank<${Math.round(Number(rank))}`);
+  if (p.y_oo_gt0 === true || req.y_oo_gt0 === true) bits.push("ŷ_oo>0");
+  if (p.y_τc_gt0 === true || req.y_τc_gt0 === true) bits.push("ŷ_τc>0");
+  const pool = Number(p.stock_count);
+  if (Number.isFinite(pool) && pool > 0) bits.push(`池${Math.round(pool)}`);
+  const days = Number(p.trade_days != null ? p.trade_days : p.common_dates);
+  if (Number.isFinite(days) && days > 0) bits.push(`${Math.round(days)}日`);
+  return bits.join(" · ");
+}
+
+function _isReplaySkipLeg(row) {
+  if (!row || typeof row !== "object") return false;
+  const act = String(row.action || row.matrix_action || "").toLowerCase();
+  const st = String(row.status || "").toLowerCase();
+  return act === "skip" || st === "skipped";
+}
+
+/**
+ * 调仓回测摘要：成交 / 跳过分桶，以及这次实际用的入场闸。
+ * 分档打开时：截面 z 用整池，ŷ 与名次只写允许档。
+ */
+export function buildReplaySkipSummary(data) {
+  if (!data || data.success === false) return "";
+  const legs = Array.isArray(data.sim_trades) ? data.sim_trades : [];
+  const m = data.metrics || {};
+  const filled = Number(m.trade_count != null ? m.trade_count : m.sim_trade_count);
+  const buckets = new Map();
+  let skips = 0;
+  for (const row of legs) {
+    if (!_isReplaySkipLeg(row)) continue;
+    skips += 1;
+    const key = classifyReplaySkipReason(row.reason);
+    buckets.set(key, (buckets.get(key) || 0) + 1);
+  }
+  const parts = REPLAY_SKIP_ORDER.filter((k) => buckets.get(k)).map(
+    (k) => `${k} ${buckets.get(k)}`
+  );
+  const head =
+    `成交 ${Number.isFinite(filled) ? filled : 0}` + (skips ? ` · 跳过 ${skips}` : "");
+  const mid = parts.length ? `（${parts.join(" · ")}）` : "";
+  const gate = _replayGateBits(data);
+  return [head + mid, gate ? `门槛 ${gate}` : ""].filter(Boolean).join(" · ");
+}
+
 /** Top-K 回测失败时的一行摘要。 */
 export function buildPortfolioBacktestFailText(data, resStatus) {
   const dropped = (data.dropped_stocks || [])

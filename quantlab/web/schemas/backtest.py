@@ -110,13 +110,17 @@ class PaperReplayBacktestRequest(BaseModel):
     use_predictability_tiers: bool = Field(
         default=False,
         description=(
-            "复用研究枢纽「观察池分档」作开仓闸（须先跑分档）；截面 z 仍用整段观察池。"
-            "回测天数仍用 lookback（与 Holdout 独立）。桌面勾选同步到 live 调仓闸。"
+            "复用研究枢纽「观察池分档」（须先跑分档）：截面 z 仍用整段观察池，"
+            "ŷ 与名次只写允许档，档外不开仓。回测天数仍用 lookback（与 Holdout 独立）。"
+            "桌面勾选同步到 live 调仓闸。"
         ),
     )
     predictability_tiers: Optional[list] = Field(
         default=None,
-        description="允许开仓的可预测性档，默认 [\"A\",\"B\"]。不缩小截面 z。仅 use_predictability_tiers 时生效。",
+        description=(
+            "允许写 ŷ/名次并开仓的可预测性档；省略时服务端默认 [\"A\"]。"
+            "截面 z 不缩小。仅 use_predictability_tiers 时生效。"
+        ),
     )
     holdout_trading_days: Optional[int] = Field(
         default=None,

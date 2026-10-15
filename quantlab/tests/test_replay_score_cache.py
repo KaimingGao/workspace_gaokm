@@ -193,6 +193,17 @@ class TestReplayScoreCache(unittest.TestCase):
             required_factor_keys=["a", "b"],
         )
         self.assertNotEqual(k1, k3)
+        k4 = make_run_key(
+            codes_fp="c1",
+            model_fp="m1",
+            score_model_role="research",
+            score_backend="ridge",
+            max_window=40,
+            horizon_days=1,
+            required_factor_keys=["a", "b"],
+            score_codes_fp="tierA",
+        )
+        self.assertNotEqual(k1, k4)
 
     def test_build_run_key_ignores_bars_tip(self) -> None:
         from core.backtest.replay_score_cache import build_run_key_for_bars

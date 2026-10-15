@@ -57,6 +57,46 @@ class TestTcRank(unittest.TestCase):
             "tc_rank",
         )
 
+    def test_score_codes_z_full_pool_rank_only_allowed(self):
+        """features_tau 整批进 z；名次只落在允许档。"""
+        from core.research.tc_rank import apply_tc_rank_scores
+
+        ridge = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "tc_rank",
+            "horizon_mode": "tc_rank",
+            "intercept": 0.0,
+            "coefficients": {"z_τc_gap_pct": 1.0},
+            "feature_zscore": True,
+            "zscore_scope": "cross_section",
+            "zscore_means": {},
+            "zscore_stds": {},
+        }
+        items = [
+            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}, "y_oo_fuse": 0.1},
+            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}, "y_oo_fuse": 0.2},
+            {
+                "stock_code": "B1",
+                "features_tau": {"z_τc_gap_pct": 1000.0},
+                "y_tc_rank": 3,
+                "y_oo_fuse": 0.3,
+            },
+        ]
+        apply_tc_rank_scores(
+            items, model_doc={"return_model": ridge}, score_codes=["A1", "A2"]
+        )
+        by = {it["stock_code"]: it for it in items}
+        self.assertNotIn("y_tc_rank", by["B1"])
+        self.assertEqual(by["B1"]["features_tau"]["z_τc_gap_pct"], 1000.0)
+        self.assertEqual(by["B1"]["y_oo_fuse"], 0.3)
+        self.assertEqual(by["A2"]["y_tc_rank"], 1)
+        self.assertEqual(by["A1"]["y_tc_rank"], 2)
+        self.assertEqual(by["A2"]["y_tc_rank_n"], 2)
+        self.assertLess(float(by["A2"]["y_tc_rank_score"]), 0.0)
+        self.assertEqual(by["A2"]["y_oo_fuse"], 0.2)
+
     def test_ridge_keeps_small_std_drops_constant(self):
         """不按原始标准差剔列；真常数仍剔除。"""
         import numpy as np

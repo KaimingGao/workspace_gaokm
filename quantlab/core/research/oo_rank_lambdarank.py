@@ -13,7 +13,7 @@ import json
 import logging
 import math
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -1154,17 +1154,30 @@ def _stamp_formula_terms_oo_rank(
     item["score_formula_terms_oo_rank"] = expl
 
 
+_OO_RANK_DROP = (
+    "y_oo_rank",
+    "y_oo_rank_hat",
+    "y_oo_rank_score",
+    "y_oo_rank_n",
+    "predicted_score_oo_rank",
+    "formula_terms_oo_rank",
+    "score_formula_terms_oo_rank",
+)
+
+
 def apply_oo_rank_scores(
     items: Sequence[dict],
     *,
     model_doc: Optional[Dict[str, Any]] = None,
     fit: Optional[Dict[str, Any]] = None,
     assign_day_ranks: bool = True,
+    score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
     """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 y_oo_fuse；过入场后作买序。
 
     特征按本次 items 的当天截面 z-score（与训练同口径）。
-    默认 ``assign_day_ranks=True``：对本次 items 截面编 1..n 名次（1=最高分）。
+    ``score_codes`` 给定时，μ/σ 仍用整批，只给名单内的代码出相对分和名次。
+    默认 ``assign_day_ranks=True``：对有相对分的票编 1..n 名次（1=最高分）。
     同时写入 ``formula_terms_oo_rank`` 供成交明细 oo_rank tip。
     """
     from core.research.feature_standardize import (
@@ -1177,8 +1190,10 @@ def apply_oo_rank_scores(
         doc = load_oo_rank_model(prefer_research=True)
     model = _resolve_oo_rank_fit(model_doc=doc, fit=fit)
 
+    from core.research.feature_standardize import normalize_score_codes
     from core.signal.factors.z_oo import stamp_z_oo_aliases
 
+    allow = normalize_score_codes(score_codes)
     out = list(items)
     raw_rows: List[dict] = []
     slots: List[int] = []
@@ -1192,32 +1207,46 @@ def apply_oo_rank_scores(
         stamp_z_oo_aliases(row)
         raw_rows.append(row)
         slots.append(i)
+    keep: List[int] = []
+    for j, slot in enumerate(slots):
+        code = str(out[slot].get("stock_code") or "").strip()
+        if allow is not None and code not in allow:
+            for key in _OO_RANK_DROP:
+                out[slot].pop(key, None)
+            continue
+        keep.append(j)
     feat_rows: List[dict] = raw_rows
     hats: List[Optional[float]] = [None] * len(raw_rows)
     if is_cross_section_zscore(model) and raw_rows:
         names = list((model or {}).get("active_features") or (model or {}).get("coefficients") or [])
         if not names:
             names = list(raw_rows[0].keys())
-        z_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in names])
-        feat_rows = z_rows
-        hats = _predict_oo_rank_rows(model, z_rows, impute_missing=True)
-        for slot, hat in zip(slots, hats):
-            write_y_oo_rank_hat(out[slot], hat)
+        feat_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in names])
+        pred_rows = [feat_rows[j] for j in keep]
+        pred_hats = _predict_oo_rank_rows(model, pred_rows, impute_missing=True) if pred_rows else []
+        for j, hat in zip(keep, pred_hats):
+            hats[j] = hat
+            write_y_oo_rank_hat(out[slots[j]], hat)
     else:
-        for i, (slot, subs) in enumerate(zip(slots, raw_rows)):
-            hat = predict_oo_rank_from_features(subs, model_doc=doc, fit=fit or model)
-            hats[i] = hat
-            write_y_oo_rank_hat(out[slot], hat)
+        for j in keep:
+            hat = predict_oo_rank_from_features(
+                raw_rows[j], model_doc=doc, fit=fit or model
+            )
+            hats[j] = hat
+            write_y_oo_rank_hat(out[slots[j]], hat)
 
-    # tip 因子表：相对分阶段写入（编名次前）
-    if isinstance(model, dict) and feat_rows:
+    # tip 因子表：相对分阶段写入（编名次前）；只写有分的票
+    if isinstance(model, dict) and keep:
         try:
+            expl_rows = [feat_rows[j] for j in keep]
+            expl_hats = [hats[j] for j in keep]
+            expl_slots = [slots[j] for j in keep]
             if _oo_rank_use_booster(model):
-                expls = _explain_oo_rank_lambdarank_rows(feat_rows, model, hats=hats)
-                for slot, expl in zip(slots, expls):
+                expls = _explain_oo_rank_lambdarank_rows(expl_rows, model, hats=expl_hats)
+                for slot, expl in zip(expl_slots, expls):
                     _stamp_formula_terms_oo_rank(out[slot], expl)
             elif _oo_rank_use_ridge(model):
-                for slot, feats, hat in zip(slots, feat_rows, hats):
+                for slot, feats, hat in zip(expl_slots, expl_rows, expl_hats):
                     expl = _explain_oo_rank_ridge(feats, model, y_hat=hat)
                     _stamp_formula_terms_oo_rank(out[slot], expl)
         except Exception:  # noqa: BLE001

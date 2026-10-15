@@ -1205,7 +1205,7 @@ flowchart LR
 
 **调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90_tree 仍可用（LGB 训推工具见 `core/research/horizon_lgb.py`）。
 
-**观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡 `#quant-holdout-days`）：研究套 ŷ_oo 在 Holdout **前半**按票打 A/B/C。定档 Score = **0.5*OO_F1 + 0.5*TC_F1**（Holdout 前半上涨正类 F1；缺一侧按 0；无研究套 ŷ_τc 时 Score = OO_F1）。A 档另过 F1 门槛：默认 **OO_F1 ≥ 20%**、有研究套 ŷ_τc 时 **TC_F1 ≥ 20%**（工具栏可改，`a_f1` / `tau_a_f1`；0=关）。表列另报 **OO_P / OO_R / OO_ACC** 与 **TC_P / TC_R / TC_ACC**（仅展示；ACC=符号命中率）。过门槛者按 Score 降序取 **top A 数量→A**（未过门槛不占 A 名额），**接着 B 数量→B**、其余→C；无 Score（两侧 F1 都缺，或无 ŷ_τc 时缺 OO_F1）→C。默认 A=100、B=300（`a_count` / `b_count`）。不看单票 IC。有研究套时只拉 **Holdout+暖窗** 建面板（不必对齐 ŷ_oo 全训练窗）；无研究套现训才吃训练窗。各档标题分别报 ŷ_oo / ŷ_τc 在 Holdout **整段**上的日截面 **Rank IC** / **IC** / **ICIR**。分档区 A/B/C 与有样本的**平均收益率**= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」；不参与定档；有样本按档内票数加权）。落盘 `predictability_tiers_last.json`；`/replay` 勾选同步 live 闸。
+**观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡 `#quant-holdout-days`）：研究套 ŷ_oo 在 Holdout **前半**按票打 A/B/C。定档 Score = **0.5*OO_F1 + 0.5*TC_F1**（Holdout 前半上涨正类 F1；缺一侧按 0；无研究套 ŷ_τc 时 Score = OO_F1）。A 档另过 F1 门槛：默认 **OO_F1 ≥ 20%**、有研究套 ŷ_τc 时 **TC_F1 ≥ 20%**（工具栏可改，`a_f1` / `tau_a_f1`；0=关）。表列另报 **OO_P / OO_R / OO_ACC** 与 **TC_P / TC_R / TC_ACC**（仅展示；ACC=符号命中率）。过门槛者按 Score 降序取 **top A 数量→A**（未过门槛不占 A 名额），**接着 B 数量→B**、其余→C；无 Score（两侧 F1 都缺，或无 ŷ_τc 时缺 OO_F1）→C。默认 A=100、B=300（`a_count` / `b_count`）。不看单票 IC。有研究套时只拉 **Holdout+暖窗** 建面板（不必对齐 ŷ_oo 全训练窗）；无研究套现训才吃训练窗。各档标题分别报 ŷ_oo / ŷ_τc 在 Holdout **整段**上的日截面 **Rank IC** / **IC** / **ICIR**。分档区 A/B/C 与有样本的**平均收益率**= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」；不参与定档；有样本按档内票数加权）。落盘 `predictability_tiers_last.json`；`/replay` 勾选同步 live 闸（截面 z 用整池，ŷ/名次与开仓只写允许档）。
 
 ### 4.2 τ 打分链（层 2 · 残差头挂载）
 
@@ -1281,7 +1281,7 @@ score_stock(code) 续——
 | 训练宇宙 | **整观察池**。截面 z 与损失、Holdout 用同一天的同一批票 |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **NDCG@K** 自动落盘更强一侧（打平→LambdaRank），不重训 |
-| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 oo_rank。`oo_rank_max` 开则另须 `max(oo_rank, τc_rank) < max` |
+| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 oo_rank。`oo_rank_max` 开则另须 `max(oo_rank, τc_rank) < max`。分档打开时，日截面 z 仍用整段观察池（A/B/C 的原始特征都进 μ/σ）；ŷ 与 1..n 名次只写允许档（默认 A），档外不打分、不进名次 |
 | OOS | **IC** / **ICIR** / **Rank IC** / TopK overlap / **NDCG@K** / TopK y_oo；LambdaRank vs Ridge 同窗对照 |
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。加载仍兼容旧文件名 `oo_rank_pairwise_*.json`。
@@ -1297,7 +1297,7 @@ score_stock(code) 续——
 | 训练宇宙 | **整观察池**。截面 z 与损失、Holdout 用同一天的同一批票 |
 | 训练窗 | 默认 **700**（100～1000） |
 | 训练 | `POST /api/quant/tc-rank` 拟合写 last report；「启用研究 / 启用执行」只落盘，不重训 |
-| 回测 | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 max 入场闸 |
+| 回测 / live | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 max 入场闸。分档打开时与 ŷ_oo_rank 相同：z 用整池，名次只在允许档内 |
 
 实现：`core/research/tc_rank.py`（复用 oo_rank 训练/推理内核）。
 
@@ -1365,14 +1365,14 @@ score_stock(code) 续——
 
 成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
-**开盘日打分缓存**（`data/cache/replay_scores/`）：按观察池**代码集合** + 研究/执行套模型指纹分目录，每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗+今开）。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型、换观察池名单、改某日窗内 K、改 `max_window` 则对应日失效。`fill_clock≠09:30` 时仍前缀重算 ŷ_τc（不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 2 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v1/`）。
+**开盘日打分缓存**（`data/cache/replay_scores/`）：按观察池**代码集合** + 研究/执行套模型指纹分目录，每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗+今开）。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型、换观察池名单、改某日窗内 K、改 `max_window` 则对应日失效。分档打开时，允许打分的代码集也进入 `run_key`（整池打分的旧目录不会被命中）。`fill_clock≠09:30` 时仍前缀重算 ŷ_τc（不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 2 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v1/`）。
 
 ### 5.1 分数口径（历史 vs live）
 
 | 项 | 历史 paper_replay（本页 / 日报） | Live 纸面调仓 |
 |--|--|--|
 | 选股排序键 | **y_oo_fuse**（UI fuse）= w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 同左 |
-| 宇宙 | 全部观察池（现金用完即止） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
+| 宇宙 | 全部观察池进截面 z（现金用完即止）。分档打开时 ŷ 与名次只写允许档，档外不开仓 | 同左：整池进 z；live 分档闸打开时 ŷ 与名次只写允许档。另加持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
 | 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
 | 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**5m 成交钟**默认 09:30（可选至 10:00）；缺该钟：买入跳过、清仓回退其后～10:00 再回退 09:30/日开盘；共用框「日分价闸」默认开（窗口分钟日分价错位 skip；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |

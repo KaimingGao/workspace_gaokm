@@ -999,6 +999,30 @@ class TestScoresFromTopk(unittest.TestCase):
 
 
 class TestOpenDayYhat(unittest.TestCase):
+    def test_drop_unscored_heads_keeps_features(self):
+        from core.signal.cross_section_rescore import drop_unscored_heads
+
+        items = [
+            {"stock_code": "A1", "y_oo": 1.0, "features_tau": {"gap": 1}},
+            {
+                "stock_code": "B1",
+                "y_oo": 2.0,
+                "y_oo_fuse": 0.3,
+                "y_oo_rank": 4,
+                "formula_terms_tau": {"total": 1},
+                "features_tau": {"gap": 9},
+                "sub_scores": {"mom3": 1},
+            },
+        ]
+        drop_unscored_heads(items, ["A1"])
+        self.assertEqual(items[0]["y_oo"], 1.0)
+        self.assertNotIn("y_oo", items[1])
+        self.assertNotIn("y_oo_fuse", items[1])
+        self.assertNotIn("y_oo_rank", items[1])
+        self.assertNotIn("formula_terms_tau", items[1])
+        self.assertEqual(items[1]["features_tau"]["gap"], 9)
+        self.assertEqual(items[1]["sub_scores"]["mom3"], 1)
+
     def test_attach_cluster_pred_as_y_trade(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
         from core.signal.return_score import ReturnScoreModel

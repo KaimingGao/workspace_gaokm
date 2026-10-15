@@ -10,7 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
 
 RANK_MODES = ("predicted_score",)
 DEFAULT_RANK_MODE = "predicted_score"
@@ -394,19 +394,43 @@ def _batch_feature_rows(
     return cross_section_zscore_dicts(raws, names)
 
 
+_OO_PRED_KEYS = (
+    "predicted_score",
+    "predicted_score_oo",
+    "y_oo",
+    "score",
+    "score_formula_terms",
+    "formula_terms",
+    "score_model_role",
+)
+
+
 def apply_predicted_scores(
     entries: Sequence[dict],
     model: ReturnScoreModel,
     *,
     write_rank_score: bool = True,
+    score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
-    """为条目写入 ``predicted_score``（收益分）。"""
+    """为条目写入 ``predicted_score``（收益分）。
+
+    ``score_codes`` 给定时，截面 z 仍用整批 ``sub_scores``，只给名单内的代码写 ŷ。
+    """
+    from core.research.feature_standardize import normalize_score_codes
+
+    allow = normalize_score_codes(score_codes)
     z_rows = _batch_feature_rows(entries, model)
     out: List[dict] = []
     for i, raw in enumerate(entries):
         item = dict(raw)
         item.pop("heuristic_score", None)
         item.pop("rule_score", None)
+        code = str(item.get("stock_code") or "").strip()
+        if allow is not None and code not in allow:
+            for key in _OO_PRED_KEYS:
+                item.pop(key, None)
+            out.append(item)
+            continue
         feats = z_rows[i] if z_rows is not None else (item.get("sub_scores") or {})
         pred = model.predict(feats)
         item["predicted_score"] = pred

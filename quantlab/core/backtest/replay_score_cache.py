@@ -219,6 +219,7 @@ def make_run_key(
     max_window: int,
     horizon_days: int,
     required_factor_keys: Optional[Sequence[str]] = None,
+    score_codes_fp: str = "",
 ) -> str:
     keys = sorted(str(k) for k in (required_factor_keys or []) if str(k).strip())
     key_fp = hashlib.sha1(",".join(keys).encode("utf-8")).hexdigest()[:12]
@@ -232,6 +233,9 @@ def make_run_key(
         f"hz={int(horizon_days)}",
         f"feat={key_fp}",
     ]
+    scored = str(score_codes_fp or "").strip()
+    if scored:
+        parts.append(f"score={scored}")
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:24]
 
 
@@ -479,6 +483,7 @@ def build_run_key_for_bars(
     max_window: int,
     horizon_days: int = 1,
     required_factor_keys: Optional[Sequence[str]] = None,
+    score_codes_fp: str = "",
 ) -> Dict[str, str]:
     codes_fp = codes_universe_fingerprint(stock_bars)
     bars_fp = bars_universe_fingerprint(stock_bars)
@@ -494,6 +499,7 @@ def build_run_key_for_bars(
         max_window=max_window,
         horizon_days=horizon_days,
         required_factor_keys=required_factor_keys,
+        score_codes_fp=score_codes_fp,
     )
     return {
         "run_key": run_key,

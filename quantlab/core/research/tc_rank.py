@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Collection, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -551,14 +551,27 @@ def _resolve_tc_rank_fit(model_doc: Optional[Dict[str, Any]]) -> Optional[Dict[s
     return None
 
 
+_TC_RANK_DROP = (
+    "y_tc_rank",
+    "y_tc_rank_hat",
+    "y_tc_rank_score",
+    "y_tc_rank_n",
+    "predicted_score_tc_rank",
+    "formula_terms_tc_rank",
+    "score_formula_terms_tc_rank",
+)
+
+
 def apply_tc_rank_scores(
     items: Sequence[dict],
     *,
     model_doc: Optional[Dict[str, Any]] = None,
+    score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
     """就地写入 y_tc_rank 当日截面名次。不改 y_oo_fuse / y_oo_rank / 买序。
 
     特征取 ``features_tau``（z_τc_* ∪ raw_atc_*），与训练同口径做日截面 z。
+    ``score_codes`` 给定时，μ/σ 仍用整批，只给名单内的代码出相对分和名次。
     缺模型或缺特征的行跳过。
     """
     from core.research.feature_standardize import (
@@ -574,6 +587,9 @@ def apply_tc_rank_scores(
         _predict_oo_rank_rows,
     )
 
+    from core.research.feature_standardize import normalize_score_codes
+
+    allow = normalize_score_codes(score_codes)
     model = _resolve_tc_rank_fit(model_doc)
     out = list(items or [])
     if model is None:
@@ -591,27 +607,43 @@ def apply_tc_rank_scores(
         slots.append(i)
     if not raw_rows:
         return out
+    keep: List[int] = []
+    for j, slot in enumerate(slots):
+        code = str(out[slot].get("stock_code") or "").strip()
+        if allow is not None and code not in allow:
+            for key in _TC_RANK_DROP:
+                out[slot].pop(key, None)
+            continue
+        keep.append(j)
     feat_rows = raw_rows
     if is_cross_section_zscore(model):
         z_names = names or list(raw_rows[0].keys())
         feat_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in z_names])
-    hats = _predict_oo_rank_rows(model, feat_rows, impute_missing=True)
-    for slot, hat in zip(slots, hats):
+    pred_rows = [feat_rows[j] for j in keep]
+    hats_keep = (
+        _predict_oo_rank_rows(model, pred_rows, impute_missing=True) if pred_rows else []
+    )
+    hats: List[Optional[float]] = [None] * len(raw_rows)
+    for j, hat in zip(keep, hats_keep):
+        hats[j] = hat
         if hat is None:
             continue
         try:
             v = round(float(hat), 6)
         except (TypeError, ValueError):
             continue
-        out[slot]["y_tc_rank_score"] = v
-    if feat_rows:
+        out[slots[j]]["y_tc_rank_score"] = v
+    if keep:
         try:
+            expl_rows = [feat_rows[j] for j in keep]
+            expl_hats = [hats[j] for j in keep]
+            expl_slots = [slots[j] for j in keep]
             if _oo_rank_use_booster(model):
-                expls = _explain_oo_rank_lambdarank_rows(feat_rows, model, hats=hats)
-                for slot, expl in zip(slots, expls):
+                expls = _explain_oo_rank_lambdarank_rows(expl_rows, model, hats=expl_hats)
+                for slot, expl in zip(expl_slots, expls):
                     _stamp_formula_terms_tc_rank(out[slot], expl)
             elif _oo_rank_use_ridge(model):
-                for slot, feats, hat in zip(slots, feat_rows, hats):
+                for slot, feats, hat in zip(expl_slots, expl_rows, expl_hats):
                     expl = _explain_oo_rank_ridge(feats, model, y_hat=hat)
                     _stamp_formula_terms_tc_rank(out[slot], expl)
         except Exception:  # noqa: BLE001

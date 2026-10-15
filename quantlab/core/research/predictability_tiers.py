@@ -27,7 +27,8 @@
 落盘：
 - ``predictability_tiers_last.json``：影子报告（研究枢纽）
 - ``predictability_tiers_active.json``：live 调仓闸；档位跟随历史回测「分档」勾选
-  （有勾选且有 last → 过滤；不勾 → 不过滤）。持仓始终保留。
+  （有勾选且有 last → 截面 z 用整池，ŷ/名次与开仓只写允许档；不勾 → 不过滤）。
+  持仓始终保留；掉出允许档则清仓。
 """
 
 from __future__ import annotations
@@ -367,8 +368,8 @@ def filter_codes_by_predictability_live(
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Live 分档闸。无 active 时原样返回，``tradable_codes`` 为 None。
 
-    有 active 时返回列表含允许档，并保留 ``keep``（持仓）供旧调用方估价。
-    截面 z 用调用方传入的整段观察池。``tradable_codes`` 是允许开仓的代码；
+    有 active 时返回列表 = 允许档 ∪ ``keep``（持仓）；勿用它缩小截面 z。
+    ``tradable_codes``：允许写 ŷ/名次并开仓（不含仅因持仓保留的掉档票）。
     掉出允许档的持仓在 ``force_exit_held``。
     """
     cleaned = [str(c).strip() for c in (codes or []) if str(c).strip()]
@@ -1825,7 +1826,7 @@ def build_holdout_half_tiers(
     （无 ŷ_τc 研究套时 TC 门槛不生效）。未过门槛不占 A 名额。
     过门槛者按 Score 降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
     档内平均收益率 = Holdout 整段等权买持（对齐回测「观察池A档等权」）。
-    落盘 last；回测/live 用档位限制开仓，不缩小截面 z。回测天数独立。
+    落盘 last；回测 / live：截面 z 不缩小，ŷ 与名次只写允许档，档外不开仓。回测天数独立。
     live 档位跟随历史回测「分档」勾选。
     ``lookback``：仅无研究套现训时用的日线窗（对齐 ŷ_oo 卡训练窗）；
     有研究套时面板走 ``_score_panel_lookback`` 短窗。

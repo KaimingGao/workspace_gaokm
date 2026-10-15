@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
 
 from core.paper.rebalance.rank_lots import AUX_YHAT_KEYS, tip_explain_fields
 
@@ -104,17 +104,44 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
     return codes, meta
 
 
-def _attach_oo_rank_scores(items: Sequence[dict]) -> None:
-    """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 y_oo_fuse；过入场后作买序。"""
+def _attach_oo_rank_scores(
+    items: Sequence[dict],
+    *,
+    score_codes: Optional[Collection[str]] = None,
+) -> None:
+    """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 y_oo_fuse；过入场后作买序。
+
+    ``score_codes`` 给定时，截面 z 用整批，名次只写允许档。
+    """
     try:
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores, load_oo_rank_model
 
         # live 调仓只用执行套；缺则跳过，不静默换研究套。
         doc = load_oo_rank_model(prefer_research=False)
         if doc:
-            apply_oo_rank_scores(list(items or []), model_doc=doc)
+            apply_oo_rank_scores(
+                list(items or []), model_doc=doc, score_codes=score_codes
+            )
     except Exception:  # noqa: BLE001
         logger.debug("attach live y_oo_rank failed", exc_info=True)
+
+
+def _attach_tc_rank_scores(
+    items: Sequence[dict],
+    *,
+    score_codes: Optional[Collection[str]] = None,
+) -> None:
+    """ŷ_τc_rank：有执行套模型则写入当日截面名次；缺则跳过。与回测同口径。"""
+    try:
+        from core.research.tc_rank import apply_tc_rank_scores, load_tc_rank_model
+
+        doc = load_tc_rank_model(prefer_research=False)
+        if doc:
+            apply_tc_rank_scores(
+                list(items or []), model_doc=doc, score_codes=score_codes
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("attach live y_tc_rank failed", exc_info=True)
 
 
 def _apply_universe_fit_tier_filter(
@@ -124,9 +151,9 @@ def _apply_universe_fit_tier_filter(
 ) -> Tuple[List[str], Dict[str, Any]]:
     """可预测性分档 live 闸的元数据。
 
-    截面 z 用调用方传入的整段观察池。返回列表里的缩短名单只给旧调用方估价。
-    ``tradable_codes`` 做开仓闸；``force_exit_held`` 标硬清仓。
-    无 active 时 ``tradable_codes`` 为 None。
+    截面 z 用调用方传入的整段观察池（调用方勿用返回列表缩小打分池）。
+    ``tradable_codes``：允许写 ŷ/名次并开仓；``force_exit_held``：掉档持仓硬清仓。
+    无 active 时 ``tradable_codes`` 为 None（全员打分）。
     """
     from core.research.predictability_tiers import filter_codes_by_predictability_live
 
@@ -166,7 +193,7 @@ def _mark_predictability_tier_blocks(
     tradable_codes: Any,
     allowed_tiers: Sequence[str],
 ) -> None:
-    """不在允许档、且还没标清仓的名字：留在截面里，禁止新开。"""
+    """不在允许档、且还没标清仓的名字：留在截面特征里（供 z），禁止新开。"""
     if not isinstance(tradable_codes, (list, tuple, set)):
         return
     allow = {str(c).strip() for c in tradable_codes if str(c).strip()}
@@ -235,10 +262,12 @@ def _score_pool(
     horizon_days: int = 1,
     offline_only: bool = True,
     use_minute_tau: Optional[bool] = None,
+    score_codes: Optional[Collection[str]] = None,
 ) -> Tuple[List[dict], List[dict]]:
     """观察池并行 score_stock。默认仅本地缓存；``offline_only=False`` 可补远端。
 
     ``use_minute_tau=False``：开盘 Z，不拉当天 5m。
+    ``score_codes`` 给定时，截面 z 用整池特征，ŷ 只写允许档。
     """
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -337,7 +366,7 @@ def _score_pool(
     try:
         from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
-        rescore_fitted_cross_section(scored)
+        rescore_fitted_cross_section(scored, score_codes=score_codes)
     except Exception:  # noqa: BLE001
         logger.debug("watching_matrix cross-section rescore failed", exc_info=True)
 
@@ -820,13 +849,15 @@ def simulate_watching_matrix_preview(
             "confirm_supported": True,
         }
     _, fit_meta = _apply_universe_fit_tier_filter(codes, keep=held_codes)
+    score_codes = fit_meta.get("tradable_codes")
+    if not isinstance(score_codes, (list, tuple, set)):
+        score_codes = None
     if isinstance(pool_meta, dict):
         pool_meta = dict(pool_meta)
         pool_meta["fit_tiers"] = fit_meta
         pool_meta["n_total"] = len(codes)
-        tradable = fit_meta.get("tradable_codes")
-        if isinstance(tradable, (list, tuple, set)):
-            pool_meta["n_tradable"] = len(tradable)
+        if score_codes is not None:
+            pool_meta["n_tradable"] = len(score_codes)
 
     # 与持仓表 / 数据中心同源：signal_config.scoring.horizon_days
     try:
@@ -848,6 +879,7 @@ def simulate_watching_matrix_preview(
                 horizon_days=horizon,
                 offline_only=use_offline,
                 use_minute_tau=use_minute_tau,
+                score_codes=score_codes,
             )
     else:
         scored, rejected = _score_pool(
@@ -855,8 +887,16 @@ def simulate_watching_matrix_preview(
             horizon_days=horizon,
             offline_only=use_offline,
             use_minute_tau=use_minute_tau,
+            score_codes=score_codes,
         )
-    _attach_oo_rank_scores(scored)
+    _attach_oo_rank_scores(scored, score_codes=score_codes)
+    _attach_tc_rank_scores(scored, score_codes=score_codes)
+    try:
+        from core.signal.cross_section_rescore import drop_unscored_heads
+
+        drop_unscored_heads(scored, score_codes)
+    except Exception:  # noqa: BLE001
+        logger.debug("watching_matrix drop unscored heads failed", exc_info=True)
     summary = mark_to_market(paper) or {}
     equity = float(summary.get("equity") or 0) or 0.0
     cash_before = float(summary.get("cash") or paper.get("cash") or 0)

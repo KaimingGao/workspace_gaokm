@@ -43,6 +43,16 @@ def annotate_feature_zscore(dest: dict, enabled: bool) -> dict:
     return dest
 
 
+def normalize_score_codes(score_codes: Optional[Sequence[str]]) -> Optional[set]:
+    """None 表示全员打分。名单非空时只给这些代码出 ŷ 和名次。
+
+    截面 z 仍用调用方传入的整批原始特征，不随这份名单缩小。
+    """
+    if score_codes is None:
+        return None
+    return {str(c).strip() for c in score_codes if str(c or "").strip()}
+
+
 def is_cross_section_zscore(doc: Any) -> bool:
     """模型是否按当天截面标准化（推理不再套冻住的训练窗 μ/σ）。"""
     if doc is None:
