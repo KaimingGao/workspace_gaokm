@@ -339,19 +339,15 @@ def stack_day_panels(
     return xs, ys, dates, codes
 
 
-def resolve_oo_rank_universe(*, watching_tier_a_only: bool = False) -> Dict[str, Any]:
-    """ŷ_oo_rank 代码名单：默认整观察池；开启则只留分档 A 且仍在观察池内。
+def resolve_oo_rank_universe() -> Dict[str, Any]:
+    """ŷ_oo_rank 代码名单：整观察池。截面 z 与损失用同一批票。
 
-    排序拟合把 A 档名单当作损失掩码，截面 z 用 ``watching_tier_a_only=False`` 的整池。
     此处不截断（调用方再按 watching_limit 截）。
     """
     from core.research_universe import resolve_model_fit_codes
     from core.watching.store import MODEL_FIT_MAX_SIZE
 
-    resolved = resolve_model_fit_codes(
-        watching_limit=MODEL_FIT_MAX_SIZE,
-        watching_tier_a_only=bool(watching_tier_a_only),
-    )
+    resolved = resolve_model_fit_codes(watching_limit=MODEL_FIT_MAX_SIZE)
     pool_n = int(resolved.get("watching_pool_size") or 0)
     if not resolved.get("ok", True):
         return {
@@ -360,19 +356,14 @@ def resolve_oo_rank_universe(*, watching_tier_a_only: bool = False) -> Dict[str,
             "codes": [],
             "universe_source": resolved.get("source") or "watching",
             "watching_pool_size": pool_n,
-            "watching_tier_a_only": bool(watching_tier_a_only),
         }
     codes = list(resolved.get("codes") or [])
-    out: Dict[str, Any] = {
+    return {
         "success": True,
         "codes": codes,
         "universe_source": resolved.get("source") or "watching",
         "watching_pool_size": pool_n or len(codes),
-        "watching_tier_a_only": bool(watching_tier_a_only),
     }
-    if watching_tier_a_only:
-        out["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
-    return out
 
 
 __all__ = [

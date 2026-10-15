@@ -13,7 +13,7 @@ import json
 import logging
 import math
 import os
-from typing import Any, Collection, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -489,21 +489,6 @@ def _raw_day_aligned(day: Dict[str, Any], feature_names: Sequence[str]) -> Optio
     return None
 
 
-def _day_code_list(day: Dict[str, Any], n: int) -> Optional[List[str]]:
-    """与 ``ys`` 等长的代码；对不齐则无法在 z 之后按代码切损失。"""
-    codes = day.get("codes")
-    if not isinstance(codes, (list, tuple)) or len(codes) != int(n):
-        return None
-    return [str(c or "") for c in codes]
-
-
-def _loss_code_set(train_codes: Optional[Collection[str]]) -> Optional[Set[str]]:
-    """None = 当天全部行进损失。空集合表示没有可训代码。"""
-    if train_codes is None:
-        return None
-    return {str(c).strip() for c in train_codes if str(c or "").strip()}
-
-
 def _z_day_cross_section(
     day: Dict[str, Any], feature_names: Sequence[str]
 ) -> Optional[np.ndarray]:
@@ -585,11 +570,10 @@ def fit_lambdarank(
     min_child_samples: int = 20,
     l2: float = 1.0,
     cross_section_zscore: bool = True,
-    train_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
     """LightGBM LambdaRank：按日截面 group，优化 NDCG。
 
-    ``train_codes`` 给定时，μ/σ 仍用当天全部行，损失只留这些代码。
+    日截面 z 与损失用当天同一批行。
 
     输出与推理共用：
     - ``coefficients``：feature importance (gain)，仅诊断
@@ -605,7 +589,6 @@ def fit_lambdarank(
         return {"success": False, "error": "no_features"}
     p = len(names)
     use_cs = bool(cross_section_zscore)
-    loss_codes = _loss_code_set(train_codes)
     means: Dict[str, float] = {}
     stds: Dict[str, float] = {}
     if not use_cs:
@@ -624,16 +607,6 @@ def fit_lambdarank(
             Z = np.where(np.isfinite(Z), Z, 0.0)
         if Z is None or int(Z.shape[0]) != len(ys):
             continue
-        if loss_codes is not None:
-            codes = _day_code_list(day, len(ys))
-            if codes is None:
-                continue
-            keep = [c in loss_codes for c in codes]
-            if sum(1 for flag in keep if flag) < 4:
-                continue
-            mask = np.asarray(keep, dtype=bool)
-            Z = Z[mask]
-            ys = [ys[i] for i, flag in enumerate(keep) if flag]
         if len(ys) < 4:
             continue
         labels = _rank_labels(ys)
@@ -1384,7 +1357,6 @@ def _oos_day_metrics(
     *,
     topk_track: int,
     ndcg_k: int = DEFAULT_NDCG_K,
-    eval_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
     from core.backtest.factor_cs_ic import _agg_ic_series
     from core.backtest.pool_ic import _pearson
@@ -1395,21 +1367,11 @@ def _oos_day_metrics(
     ndcg_days: List[float] = []
     topk_rets: List[float] = []
     n_scored = 0
-    eval_set = _loss_code_set(eval_codes)
     for day in days:
         preds, ys = _day_scores(day, fit)
-        codes = (
-            _day_code_list(day, len(ys))
-            if eval_set is not None
-            else None
-        )
-        if eval_set is not None and codes is None:
-            continue
         pairs_py = []
-        for i, (p, y) in enumerate(zip(preds, ys)):
+        for p, y in zip(preds, ys):
             if p is None:
-                continue
-            if eval_set is not None and codes[i] not in eval_set:
                 continue
             pairs_py.append((float(p), float(y)))
         if len(pairs_py) < 5:
@@ -1461,27 +1423,21 @@ def _fit_ridge_baseline(
     feature_names: Sequence[str],
     ridge_lambda: float = 1.0,
     cross_section_zscore: bool = True,
-    train_codes: Optional[Collection[str]] = None,
+    min_std: float = 5.0,
 ) -> Dict[str, Any]:
+    """Ridge 基线。日截面 z 与损失用当天同一批行。
+
+    ``min_std`` 透传矩阵拟合。ŷ_oo_rank 用默认 5（0–100 分制）；ŷ_τc_rank 传 0。
+    """
     names = [str(n) for n in feature_names]
-    loss_codes = _loss_code_set(train_codes)
     blocks: List[np.ndarray] = []
     y_parts: List[np.ndarray] = []
     date_parts: List[str] = []
-    weights: List[float] = []
     for day in days or []:
         raw = _raw_day_aligned(day, names)
         ys = [float(v) for v in (day.get("ys") or [])]
         if raw is None or len(ys) != int(raw.shape[0]):
             continue
-        if loss_codes is not None:
-            codes = _day_code_list(day, len(ys))
-            if codes is None:
-                continue
-            wday = [1.0 if c in loss_codes else 0.0 for c in codes]
-            if not any(w > 0 for w in wday):
-                continue
-            weights.extend(wday)
         blocks.append(raw)
         y_parts.append(np.asarray(ys, dtype=np.float64))
         day_s = str(day.get("date") or "")[:10]
@@ -1491,9 +1447,9 @@ def _fit_ridge_baseline(
 
         x = np.vstack(blocks)
         y = np.concatenate(y_parts)
-        n_loss = int(sum(1 for w in weights if w > 0)) if loss_codes is not None else int(y.shape[0])
-        if n_loss < 20:
-            return {"success": False, "error": f"ridge_n={n_loss}"}
+        n_rows = int(y.shape[0])
+        if n_rows < 20:
+            return {"success": False, "error": f"ridge_n={n_rows}"}
         _model, report = fit_oo_ridge_matrix(
             x,
             y,
@@ -1502,13 +1458,8 @@ def _fit_ridge_baseline(
             horizon_days=1,
             row_dates=date_parts,
             cross_section_zscore=bool(cross_section_zscore),
-            sample_weights=weights if loss_codes is not None else None,
-            drop_zero_weights=loss_codes is not None,
+            min_std=float(min_std),
         )
-        if loss_codes is not None and isinstance(report, dict) and report.get("success"):
-            report["sample_count"] = n_loss
-            report["zscore_rows"] = int(y.shape[0])
-            report["loss_rows"] = n_loss
         return report
     return {"success": False, "error": "ridge_n=0"}
 
@@ -1556,13 +1507,12 @@ def fit_oo_rank_report(
     backend: str = "auto",
     lightgbm_params: Optional[Dict[str, Any]] = None,
     cross_section_zscore: bool = True,
-    train_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_oo_rank：同窗 LambdaRank + Ridge，按 Holdout NDCG@K 推荐 backend。
 
     ``day_panels``：若已预计算日截面（矩阵 ``X`` 或 raw sub_score dict），可跳过建面板。
     特征与 ŷ_oo 同口径：原始 sub_score；``cross_section_zscore`` 控制日截面 / 全局 μ/σ。
-    ``train_codes``：给定时 z 仍用面板里的全部代码，LambdaRank / Ridge 损失和 OOS 只留这些代码。
+    日截面 z 与损失、Holdout 用同一天的同一批票。
     默认建面板走 compact 矩阵（与 ŷ_oo 相同，逐只丢掉行 dict）。
 
     ``backend``：``"auto"``（默认，按 NDCG@K 选）/ ``"lambdarank"`` / ``"ridge"``。
@@ -1630,16 +1580,13 @@ def fit_oo_rank_report(
             "backend": force_backend,
         }
     use_cs = bool(cross_section_zscore)
-    loss_codes = _loss_code_set(train_codes)
     lgb_kw: Dict[str, Any] = dict(l2=l2, cross_section_zscore=use_cs)
     if isinstance(lightgbm_params, dict) and lightgbm_params:
         lgb_kw.update(lightgbm_params)
         lgb_kw["cross_section_zscore"] = use_cs
-    lgb_kw.pop("train_codes", None)
     fit_tr = fit_lambdarank(
         days_tr,
         feature_names=feat_names,
-        train_codes=loss_codes,
         **lgb_kw,
     )
     if not fit_tr.get("success"):
@@ -1657,14 +1604,12 @@ def fit_oo_rank_report(
         fit_tr,
         topk_track=topk_track,
         ndcg_k=ndcg_k,
-        eval_codes=loss_codes,
     )
     ridge_tr = _fit_ridge_baseline(
         days_tr,
         feature_names=feat_names,
         ridge_lambda=ridge_lambda,
         cross_section_zscore=use_cs,
-        train_codes=loss_codes,
     )
     oos_ridge: Dict[str, Any] = {"success": bool(ridge_tr.get("success"))}
     if ridge_tr.get("success"):
@@ -1674,7 +1619,6 @@ def fit_oo_rank_report(
                 ridge_tr,
                 topk_track=topk_track,
                 ndcg_k=ndcg_k,
-                eval_codes=loss_codes,
             )
         )
 
@@ -1760,7 +1704,6 @@ def fit_oo_rank_report(
         "y_spec": y_spec,
         "cross_section_zscore": use_cs,
         "zscore_universe": "day_panel",
-        "train_loss_codes": None if loss_codes is None else len(loss_codes),
         "note": (
             f"ŷ_oo_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"

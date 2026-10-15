@@ -24,9 +24,6 @@ const FIT_PARAM_HEADS = [
   "tc_rank",
 ];
 
-/** 支持「只训 A 档」的拟合头（ŷ_oo_rank / ŷ_τc_rank）。 */
-const TIER_A_FIT_HEADS = ["oo_rank", "tc_rank"];
-
 function _defaultLookbackForHead(head) {
   if (head === "oo_rank" || head === "tc_rank") return 700;
   return head === "oo" || head === "co" ? 600 : 120;
@@ -602,44 +599,6 @@ export function createResearchParams(opts = {}) {
     }
   }
 
-  function tierACheckboxId(head) {
-    const h = String(head || "").trim().toLowerCase();
-    if (h === "oo_rank") return "quant-oo-rank-tier-a";
-    if (h === "tc_rank") return "quant-tc-rank-tier-a";
-    return `quant-tier-a-${h}`;
-  }
-
-  function tierAStorageKey(head) {
-    const h = String(head || "").trim().toLowerCase();
-    return `quant.${h}.watching_tier_a_only`;
-  }
-
-  function readWatchingTierAOnly(head) {
-    const el = document.getElementById(tierACheckboxId(head));
-    return !!(el && el.checked);
-  }
-
-  function hydrateWatchingTierAOnly() {
-    for (const head of TIER_A_FIT_HEADS) {
-      const el = document.getElementById(tierACheckboxId(head));
-      if (!el) continue;
-      try {
-        el.checked = localStorage.getItem(tierAStorageKey(head)) === "1";
-      } catch (_) {
-        /* ignore */
-      }
-      if (el.dataset.wired === "1") continue;
-      el.dataset.wired = "1";
-      el.addEventListener("change", () => {
-        try {
-          localStorage.setItem(tierAStorageKey(head), el.checked ? "1" : "0");
-        } catch (_) {
-          /* ignore */
-        }
-      });
-    }
-  }
-
   return {
     clampHorizonDays,
     clampRidgeLambda,
@@ -664,8 +623,6 @@ export function createResearchParams(opts = {}) {
     formatTauEndBit,
     applyTauEndHm,
     hydrateTauEndParams,
-    readWatchingTierAOnly,
-    hydrateWatchingTierAOnly,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   };

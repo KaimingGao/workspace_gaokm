@@ -1278,7 +1278,7 @@ score_stock(code) 续——
 
 | | |
 |--|--|
-| 训练宇宙 | 默认**整观察池**。卡头「只训 A 档」（在「日截面 Z」左侧，须先跑分档）只把 A 档送进损失和 Holdout；截面 z 仍用当天整段观察池。该勾选仅本卡 |
+| 训练宇宙 | **整观察池**。截面 z 与损失、Holdout 用同一天的同一批票 |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **NDCG@K** 自动落盘更强一侧（打平→LambdaRank），不重训 |
 | 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 oo_rank。`oo_rank_max` 开则另须 `max(oo_rank, τc_rank) < max` |
@@ -1288,13 +1288,13 @@ score_stock(code) 续——
 
 ### 4.3c ŷ_τc_rank（LambdaRank / Ridge · 截面名次）
 
-与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge，Holdout **NDCG@K** 选 backend；卡头 **日截面 Z**（默认开）。标签为 `price[τ]→close[T]`（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。
+与 ŷ_oo_rank **同协议**：同窗 LambdaRank + Ridge，Holdout **NDCG@K** 选 backend；卡头 **日截面 Z**（默认开）。标签为 `price[τ]→close[T]`（开盘钟 τ=open 时即 close/open−1；百分点），embargo=0。特征为 **alpha_τc**（`z_τc_*` ∪ `raw_atc_*`，开盘钟；面板按股缓存在 `tc_rank/`，fingerprint 一致时可从 `tc/` 复制）。Ridge 基线 `min_std=0`（本头没有 0–100 分制列）；真常数仍剔除。
 相对分编成当日截面名次 `y_tc_rank ∈ 1..n`（1=最高），写入成交明细 **τc_rank** 列。
 **不**进 `y_oo_fuse`，**不**改买序。与 oo_rank 共用入场闸：`oo_rank_max` 开则须 `max(y_oo_rank, y_τc_rank) < max`。
 
 | | |
 |--|--|
-| 训练宇宙 | 默认整观察池。勾「只训 A 档」时截面 z 仍用整池，损失和 Holdout 只含 A 档 |
+| 训练宇宙 | **整观察池**。截面 z 与损失、Holdout 用同一天的同一批票 |
 | 训练窗 | 默认 **700**（100～1000） |
 | 训练 | `POST /api/quant/tc-rank` 拟合写 last report；「启用研究 / 启用执行」只落盘，不重训 |
 | 回测 | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 max 入场闸 |

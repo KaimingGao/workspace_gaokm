@@ -276,37 +276,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">启用执行</button>", panel)
         self.assertNotIn(">落盘影子</button>", panel)
         self.assertNotIn("无影子模型", quant_js)
-        self.assertIn("quant-oo-rank-tier-a", panel)
-        self.assertEqual(panel.count("只训 A 档"), 2)
-        # 只训 A 档仅 ŷ_oo_rank，且在日截面 Z 左侧
-        oo_rank_params = panel.split('aria-label="ŷ_oo_rank 拟合参数"', 1)[1].split(
-            "</div>", 1
-        )[0]
-        self.assertLess(
-            oo_rank_params.find("quant-oo-rank-tier-a"),
-            oo_rank_params.find("quant-fit-cs-z-oo_rank"),
-        )
-        self.assertIn("watching_tier_a_only", quant_js)
-        self.assertIn('readWatchingTierAOnly("oo_rank")', quant_js)
-        for head in (
-            "tc",
-            "co",
-            "t30",
-            "t45",
-            "t60",
-            "t75",
-            "t90",
-                                    "t30_tree",
-            "t45_tree",
-            "t60_tree",
-            "t75_tree",
-            "t90_tree",
-        ):
-            self.assertNotIn(f'id="quant-tier-a-{head}"', panel)
-            self.assertNotIn(f'readWatchingTierAOnly("{head}")', quant_js)
-        self.assertIn("hydrateWatchingTierAOnly", quant_js)
+        self.assertNotIn("只训 A 档", panel)
+        self.assertNotIn("quant-oo-rank-tier-a", panel)
+        self.assertNotIn("quant-tc-rank-tier-a", panel)
+        self.assertIn("quant-fit-cs-z-oo_rank", panel)
+        self.assertIn("quant-fit-cs-z-tc_rank", panel)
+        self.assertNotIn("watching_tier_a_only", quant_js)
+        self.assertNotIn("readWatchingTierAOnly", quant_js)
+        self.assertNotIn("hydrateWatchingTierAOnly", quant_js)
         params_js_tier = self._read("web", "static", "js", "quant", "params.js")
-        self.assertIn('TIER_A_FIT_HEADS = ["oo_rank", "tc_rank"]', params_js_tier)
+        self.assertNotIn("TIER_A_FIT_HEADS", params_js_tier)
+        self.assertNotIn("readWatchingTierAOnly", params_js_tier)
         self.assertIn('id="quant-section-tc-rank-title" class="dashboard-section-title">ŷ_τc_rank</h3>', panel)
         self.assertIn("rank(price[τ]->close[T]) · 双 backend", panel)
         self.assertIn("/api/quant/tc-rank", quant_js)

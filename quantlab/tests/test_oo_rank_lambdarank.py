@@ -70,100 +70,17 @@ def _synth_days(n_days: int = 40, n_names: int = 24, seed: int = 0):
 
 
 class TestOoRankUniverse(unittest.TestCase):
-    def test_resolve_full_watching_when_flag_off(self):
+    def test_resolve_full_watching(self):
         from core.research.oo_rank_panel import resolve_oo_rank_universe
 
         with patch(
             "core.watching.store.read_watching",
             return_value={"watchlist": [f"{i:06d}" for i in range(12)]},
         ):
-            out = resolve_oo_rank_universe(watching_tier_a_only=False)
+            out = resolve_oo_rank_universe()
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("universe_source"), "watching")
         self.assertEqual(len(out.get("codes") or []), 12)
-        self.assertFalse(out.get("watching_tier_a_only"))
-
-    def test_resolve_tier_a_intersects_watching(self):
-        from core.research.oo_rank_panel import resolve_oo_rank_universe
-
-        last = {
-            "success": True,
-            "rows": [
-                {"code": "000001", "tier": "A"},
-                {"code": "000002", "tier": "A"},
-                {"code": "000003", "tier": "B"},
-                {"code": "999999", "tier": "A"},
-            ],
-        }
-        with patch(
-            "core.watching.store.read_watching",
-            return_value={"watchlist": ["000001", "000002", "000003", "000004"]},
-        ), patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value=last,
-        ):
-            out = resolve_oo_rank_universe(watching_tier_a_only=True)
-        self.assertTrue(out.get("success"), out)
-        self.assertEqual(out.get("codes"), ["000001", "000002"])
-        self.assertEqual(out.get("universe_source"), "watching_tier_a")
-        self.assertEqual(out.get("n_tier_a"), 2)
-
-    def test_resolve_tier_a_requires_last_report(self):
-        from core.research.oo_rank_panel import resolve_oo_rank_universe
-
-        with patch(
-            "core.watching.store.read_watching",
-            return_value={"watchlist": ["000001"] * 8},
-        ), patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value=None,
-        ):
-            out = resolve_oo_rank_universe(watching_tier_a_only=True)
-        self.assertFalse(out.get("success"))
-        self.assertIn("分档", out.get("error") or "")
-
-
-class TestModelFitUniverseTierA(unittest.TestCase):
-    def test_resolve_model_fit_codes_tier_a(self):
-        from core.research_universe import resolve_model_fit_codes
-
-        last = {
-            "success": True,
-            "rows": [
-                {"code": "000001", "tier": "A"},
-                {"code": "000002", "tier": "B"},
-            ],
-        }
-        with patch(
-            "core.research_universe._watching_codes",
-            return_value=["000001", "000002", "000003"],
-        ), patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value=last,
-        ):
-            out = resolve_model_fit_codes(
-                watching_limit=1000, watching_tier_a_only=True
-            )
-        self.assertTrue(out.get("ok"), out)
-        self.assertEqual(out.get("codes"), ["000001"])
-        self.assertEqual(out.get("source"), "watching_tier_a")
-        self.assertEqual(out.get("n_tier_a"), 1)
-
-    def test_resolve_model_fit_codes_tier_a_needs_report(self):
-        from core.research_universe import resolve_model_fit_codes
-
-        with patch(
-            "core.research_universe._watching_codes",
-            return_value=["000001", "000002"],
-        ), patch(
-            "core.research.predictability_tiers.load_predictability_tiers_last",
-            return_value=None,
-        ):
-            out = resolve_model_fit_codes(
-                watching_limit=1000, watching_tier_a_only=True
-            )
-        self.assertFalse(out.get("ok"))
-        self.assertIn("分档", out.get("error") or "")
 
 
 class TestOoRankCompactPanel(unittest.TestCase):
@@ -1141,8 +1058,8 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
         self.assertIn("请先点拟合", str(out.get("error") or ""))
 
 
-class TestRankLossMaskAfterCrossSectionZ(unittest.TestCase):
-    def test_ridge_loss_on_one_code_keeps_full_day_z(self):
+class TestRankCrossSectionZ(unittest.TestCase):
+    def test_ridge_z_uses_the_same_rows_as_the_loss(self):
         from core.research.oo_rank_lambdarank import _fit_ridge_baseline
 
         days = []
@@ -1166,21 +1083,14 @@ class TestRankLossMaskAfterCrossSectionZ(unittest.TestCase):
                     "X": np.asarray([[0.0], [10.0], [10.0]], dtype=np.float64),
                 }
             )
-        masked = _fit_ridge_baseline(
-            days, feature_names=["f0"], cross_section_zscore=True, train_codes=["A"]
-        )
-        self.assertTrue(masked.get("success"), masked)
-        beta_a = float((masked.get("coefficients") or {}).get("f0") or 0.0)
-        self.assertLess(beta_a, -0.2, masked.get("coefficients"))
-        self.assertEqual(masked.get("loss_rows"), 20)
-        self.assertGreater(int(masked.get("zscore_rows") or 0), 20)
-
         pooled = _fit_ridge_baseline(
-            days, feature_names=["f0"], cross_section_zscore=True, train_codes=None
+            days, feature_names=["f0"], cross_section_zscore=True
         )
         self.assertTrue(pooled.get("success"), pooled)
         beta_all = float((pooled.get("coefficients") or {}).get("f0") or 0.0)
         self.assertLess(abs(beta_all), 0.2, pooled.get("coefficients"))
+        self.assertNotIn("loss_rows", pooled)
+        self.assertNotIn("zscore_rows", pooled)
 
 
 if __name__ == "__main__":

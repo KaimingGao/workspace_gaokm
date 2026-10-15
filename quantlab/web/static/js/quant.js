@@ -119,8 +119,6 @@ export function initQuant(ctx) {
     formatTauEndBit,
     applyTauEndHm,
     hydrateTauEndParams,
-    readWatchingTierAOnly,
-    hydrateWatchingTierAOnly,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   } = researchParams;
@@ -128,7 +126,6 @@ export function initQuant(ctx) {
   hydrateFitLookbackDays();
   hydrateCrossSectionZParams();
   hydrateTauEndParams();
-  hydrateWatchingTierAOnly();
   const factorMeta = createFactorMetaCache();
   const {
     factorMetaByName,
@@ -227,7 +224,6 @@ export function initQuant(ctx) {
     readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays,
     readCrossSectionFitParams, formatCrossSectionZBit,
     readTauEndFitParams, formatTauEndBit, applyTauEndHm,
-    readWatchingTierAOnly,
     setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
     factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
@@ -940,7 +936,6 @@ export function initQuant(ctx) {
     const lrLead = scored > 0 && lrWins > rgWins;
     const rgLead = scored > 0 && rgWins > lrWins;
     // 与 v2 双训对照同壳：is-tree / is-ridge + board-row + meta
-    const pool = data.watching_tier_a_only ? "损失 A 档" : "整观察池";
     const hold =
       oos.holdout_trading_days != null
         ? `Holdout ${Number(oos.holdout_trading_days)} 日`
@@ -963,7 +958,7 @@ export function initQuant(ctx) {
           : data.n_test != null
             ? `测 ${Number(data.n_test).toLocaleString("en-US")}`
             : "";
-    const metaBits = [hold, nTr, nTe, pool].filter(Boolean);
+    const metaBits = [hold, nTr, nTe].filter(Boolean);
     const metaHtml = metaBits.length
       ? `<div class="quant-oos-compare-meta" aria-label="Holdout 样本">` +
         metaBits
@@ -3072,7 +3067,6 @@ export function initQuant(ctx) {
           persist: !!persist,
           persist_role: persistRole || "live",
           backend: "auto",
-          watching_tier_a_only: readWatchingTierAOnly("oo_rank"),
           ...readCrossSectionFitParams("oo_rank"),
           note: persist ? `ui oo_rank promote ${persistRole} auto` : "",
         }),
@@ -3152,7 +3146,6 @@ export function initQuant(ctx) {
           persist: !!persist,
           persist_role: persistRole || "live",
           backend: "auto",
-          watching_tier_a_only: readWatchingTierAOnly("tc_rank"),
           ...readCrossSectionFitParams("tc_rank"),
           note: persist ? `ui tc_rank promote ${persistRole} auto` : "",
         }),

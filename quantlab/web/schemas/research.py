@@ -13,15 +13,6 @@ FIT_LOOKBACK_MIN = 100
 FIT_LOOKBACK_MAX = 1000
 
 
-class _WatchingTierAOnly(BaseModel):
-    """可选：损失只含观察池可预测性 A 档（须先跑分档）。截面 z 仍用整池。"""
-
-    watching_tier_a_only: bool = Field(
-        default=False,
-        description="True=损失只含观察池 A 档，截面 z 仍用整段观察池；False=整池进损失",
-    )
-
-
 class _CrossSectionZscore(BaseModel):
     """可选：日截面 z vs 训练窗全局 μ/σ。"""
 
@@ -72,7 +63,7 @@ class FactorOlsPoolRequest(BaseModel):
     )
 
 
-class TauRidgeRequest(_WatchingTierAOnly):
+class TauRidgeRequest(BaseModel):
     """open→close / τ→close ŷ_τ 头研究拟合（不写 ŷ_oo）。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -128,7 +119,7 @@ class TauRidgeRequest(_WatchingTierAOnly):
     )
 
 
-class T30TreeRequest(_WatchingTierAOnly):
+class T30TreeRequest(BaseModel):
     """ŷ_τ30_tree：同面板 Holdout vs Ridge。写入 t30_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -159,7 +150,7 @@ class T30TreeRequest(_WatchingTierAOnly):
     )
 
 
-class T45TreeRequest(_WatchingTierAOnly):
+class T45TreeRequest(BaseModel):
     """ŷ_τ45_tree：同面板 Holdout vs Ridge。写入 t45_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -190,7 +181,7 @@ class T45TreeRequest(_WatchingTierAOnly):
     )
 
 
-class T60TreeRequest(_WatchingTierAOnly):
+class T60TreeRequest(BaseModel):
     """ŷ_τ60_tree：同面板 Holdout vs Ridge。写入 t60_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -221,7 +212,7 @@ class T60TreeRequest(_WatchingTierAOnly):
     )
 
 
-class T75TreeRequest(_WatchingTierAOnly):
+class T75TreeRequest(BaseModel):
     """ŷ_τ75_tree：同面板 Holdout vs Ridge。写入 t75_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -252,7 +243,7 @@ class T75TreeRequest(_WatchingTierAOnly):
     )
 
 
-class T90TreeRequest(_WatchingTierAOnly):
+class T90TreeRequest(BaseModel):
     """ŷ_τ90_tree：同面板 Holdout vs Ridge。写入 t90_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -283,7 +274,7 @@ class T90TreeRequest(_WatchingTierAOnly):
     )
 
 
-class CoRidgeRequest(_WatchingTierAOnly):
+class CoRidgeRequest(BaseModel):
     """open[T+1]/close[T]-1 隔夜缺口 Ridge 拟合（风控旁路 ŷ_co）。"""
 
     lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -322,7 +313,7 @@ class CoRidgeRequest(_WatchingTierAOnly):
     )
 
 
-class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
+class OoRankRequest(_CrossSectionZscore):
     """ŷ_oo_rank：同窗 LambdaRank+Ridge；启用按 NDCG@K 自动选 backend（成交 oo_rank=1..n；过入场后作买序；可选 oo_rank_max，与 τc_rank 共用）。"""
 
     lookback: int = Field(default=700, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -330,7 +321,7 @@ class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
         default=MODEL_FIT_MAX_SIZE,
         ge=8,
         le=MODEL_FIT_MAX_SIZE,
-        description=f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。只训 A 档不缩小截面 z。",
+        description=f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。截面 z 与损失都用该池。",
     )
     holdout_trading_days: int = Field(
         default=20,
@@ -365,7 +356,7 @@ class TcRankRequest(OoRankRequest):
     """ŷ_τc_rank：同窗 LambdaRank+Ridge；标签 price[τ]→close[T]。启用只落盘；不进 fuse、不改买序；与 oo_rank 共用 rank 入场。"""
 
 
-class T30RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
+class T30RidgeRequest(_CrossSectionZscore):
     """ŷ_τ30 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -407,7 +398,7 @@ class T30RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
 
 
-class T45RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
+class T45RidgeRequest(_CrossSectionZscore):
     """ŷ_τ45 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -449,7 +440,7 @@ class T45RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
 
 
-class T60RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
+class T60RidgeRequest(_CrossSectionZscore):
     """ŷ_τ60 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -491,7 +482,7 @@ class T60RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
     )
 
 
-class T75RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
+class T75RidgeRequest(_CrossSectionZscore):
     """ŷ_τ75 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
@@ -603,7 +594,7 @@ class MinuteRefreshRequest(BaseModel):
     )
 
 
-class T90RidgeRequest(_WatchingTierAOnly, _CrossSectionZscore):
+class T90RidgeRequest(_CrossSectionZscore):
     """ŷ_τ90 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0)。进 ŷ_τw；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)

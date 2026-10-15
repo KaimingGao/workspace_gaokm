@@ -57,6 +57,62 @@ class TestTcRank(unittest.TestCase):
             "tc_rank",
         )
 
+    def test_ridge_min_std_off_keeps_alpha_tc(self):
+        """本头 min_std=0：百分点列留下；真常数仍剔除。默认 5 只留大量级列。"""
+        import numpy as np
+
+        from core.research.oo_rank_lambdarank import _fit_ridge_baseline
+
+        names = [
+            "z_τc_gap_pct",
+            "raw_atc_GAP",
+            "raw_atc_PVMA5",
+            "raw_atc_PVSTD5",
+            "raw_atc_RET_OT",
+        ]
+        rng = np.random.default_rng(0)
+        days = []
+        for i in range(12):
+            n = 8
+            gap = rng.normal(0.0, 1.0, size=n)
+            atc = rng.normal(0.0, 0.4, size=n)
+            vol = rng.normal(100.0, 20.0, size=n)
+            vol_sd = rng.normal(80.0, 15.0, size=n)
+            const = np.full(n, 0.0)
+            ys = (0.3 * gap + 0.2 * atc + rng.normal(0.0, 0.05, size=n)).tolist()
+            days.append(
+                {
+                    "date": f"2024-03-{i + 1:02d}",
+                    "codes": [f"c{j}" for j in range(n)],
+                    "ys": ys,
+                    "names": list(names),
+                    "X": np.column_stack([gap, atc, vol, vol_sd, const]),
+                }
+            )
+        bare = _fit_ridge_baseline(
+            days, feature_names=names, cross_section_zscore=False
+        )
+        self.assertTrue(bare.get("success"), bare)
+        bare_active = set(bare.get("active_features") or [])
+        self.assertNotIn("z_τc_gap_pct", bare_active)
+        self.assertNotIn("raw_atc_GAP", bare_active)
+        self.assertIn("raw_atc_PVMA5", bare_active)
+        self.assertIn("raw_atc_PVSTD5", bare_active)
+
+        kept = _fit_ridge_baseline(
+            days,
+            feature_names=names,
+            cross_section_zscore=False,
+            min_std=0.0,
+        )
+        self.assertTrue(kept.get("success"), kept)
+        active = set(kept.get("active_features") or [])
+        self.assertIn("z_τc_gap_pct", active)
+        self.assertIn("raw_atc_GAP", active)
+        self.assertIn("raw_atc_PVMA5", active)
+        self.assertIn("raw_atc_PVSTD5", active)
+        self.assertNotIn("raw_atc_RET_OT", active)
+
     def test_load_research_does_not_fall_back_to_live(self):
         """研究套缺失时不得读执行套。"""
         import json

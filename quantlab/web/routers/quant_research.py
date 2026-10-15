@@ -118,7 +118,6 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
-        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         theme_boost=body.theme_boost,
@@ -170,7 +169,6 @@ def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
-        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         theme_boost=body.theme_boost,
@@ -212,7 +210,6 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             persist=body.persist,
             persist_role=body.persist_role,
             note=body.note,
-            watching_tier_a_only=body.watching_tier_a_only,
             cross_section_zscore=bool(body.cross_section_zscore),
         )
     except Exception as e:
@@ -243,7 +240,6 @@ def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
             persist=body.persist,
             persist_role=body.persist_role,
             note=body.note,
-            watching_tier_a_only=body.watching_tier_a_only,
             cross_section_zscore=bool(body.cross_section_zscore),
         )
     except Exception as e:
@@ -486,7 +482,6 @@ def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
-        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -523,7 +518,6 @@ def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
-        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -560,7 +554,6 @@ def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
-        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -597,7 +590,6 @@ def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
-        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -634,7 +626,6 @@ def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
-        watching_tier_a_only=body.watching_tier_a_only,
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
@@ -669,7 +660,6 @@ def quant_t30_tree(body: T30TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t30_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
-            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
@@ -697,7 +687,6 @@ def quant_t45_tree(body: T45TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t45_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
-            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
@@ -725,7 +714,6 @@ def quant_t60_tree(body: T60TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t60_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
-            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
@@ -753,7 +741,6 @@ def quant_t75_tree(body: T75TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t75_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
-            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,
@@ -781,7 +768,6 @@ def quant_t90_tree(body: T90TreeRequest) -> Dict[str, Any]:
         return deps.quant.run_t90_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
-            watching_tier_a_only=body.watching_tier_a_only,
             ridge_lambda=body.ridge_lambda,
             gap_trigger_pct=body.gap_trigger_pct,
             theme_boost=body.theme_boost,

@@ -161,13 +161,10 @@ def resolve_model_fit_codes(
     *,
     watching_limit: Optional[int] = None,
     codes: Optional[Sequence[str]] = None,
-    watching_tier_a_only: bool = False,
 ) -> Dict[str, Any]:
     """ŷ_* 拟合用股票列表：显式 codes，否则观察池（不垫 research_universe）。
 
     上限 ``MODEL_FIT_MAX_SIZE``；实际只数 = min(请求, 上限, 观察池长度)。
-    ``watching_tier_a_only=True`` 时返回可预测性 A 档（须有分档报告）；显式 codes 不受档滤。
-    排序头不要拿这份缩短名单做截面 z，只把它当作损失掩码。
     """
     from core.watching.store import watching_pool_limit
 
@@ -189,50 +186,11 @@ def resolve_model_fit_codes(
             "count": len(out),
             "source": "explicit",
             "cap": lim,
-            "watching_tier_a_only": False,
             "minute_warmup": False,
             "note": "显式 codes 拟合宇宙",
         }
 
     pool = _watching_codes()
-    watching_pool_size = len(pool)
-    if watching_tier_a_only:
-        from core.research.predictability_tiers import (
-            load_predictability_tiers_last,
-            tier_code_set,
-        )
-
-        last = load_predictability_tiers_last()
-        if not isinstance(last, dict) or not last.get("success"):
-            return {
-                "ok": False,
-                "codes": [],
-                "count": 0,
-                "source": "watching_tier_a",
-                "cap": lim,
-                "watching_pool_size": watching_pool_size,
-                "watching_tier_a_only": True,
-                "minute_warmup": False,
-                "error": "无观察池分档报告，无法只训 A 档（请先跑可预测性分档）",
-                "note": "无分档报告",
-            }
-        a_set = tier_code_set(last, ("A",))
-        pool = [c for c in pool if c in a_set]
-        n_tier_a = len(pool)
-        out = pool[:lim]
-        return {
-            "ok": True,
-            "codes": out,
-            "count": len(out),
-            "source": "watching_tier_a",
-            "cap": lim,
-            "watching_pool_size": watching_pool_size,
-            "n_tier_a": n_tier_a,
-            "watching_tier_a_only": True,
-            "minute_warmup": False,
-            "note": f"观察池 A 档拟合宇宙（≤{lim}）",
-        }
-
     out = pool[:lim]
     return {
         "ok": True,
@@ -240,8 +198,7 @@ def resolve_model_fit_codes(
         "count": len(out),
         "source": "watching",
         "cap": lim,
-        "watching_pool_size": watching_pool_size,
-        "watching_tier_a_only": False,
+        "watching_pool_size": len(pool),
         "minute_warmup": False,
         "note": f"观察池拟合宇宙（≤{lim}）",
     }
