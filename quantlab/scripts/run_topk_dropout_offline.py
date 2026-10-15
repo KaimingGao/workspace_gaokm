@@ -367,6 +367,203 @@ def load_pool(lookback: int) -> List[dict]:
     return stock_bars
 
 
+def _membership_book(
+    dates: Sequence[str],
+    books: Dict[str, Dict[str, Tuple[float, float]]],
+    pick,
+    *,
+    cost_cfg: dict,
+) -> dict:
+    """每日按 pick(当日列表) 等权持有。pick 收到 [(code, score, ret), ...] 按分从高到低。"""
+    from core.backtest.costs import rebalance_cost_pct
+
+    held: List[str] = []
+    gross: List[float] = []
+    costs: List[float] = []
+    names: List[int] = []
+    replaced: List[int] = []
+    for date in dates:
+        rows = [
+            (code, pair[0], pair[1]) for code, pair in books[date].items()
+        ]
+        rows.sort(key=lambda it: (-it[1], it[0]))
+        chosen = [code for code in pick(rows) if code]
+        prev = list(held)
+        sold = len(set(prev) - set(chosen))
+        cost = float(rebalance_cost_pct(prev, chosen, config=cost_cfg)) if chosen or prev else 0.0
+        rets = [books[date][c][1] for c in chosen if c in books[date]]
+        held = chosen
+        if not rets:
+            continue
+        gross.append(sum(rets) / float(len(rets)))
+        costs.append(cost)
+        names.append(len(rets))
+        replaced.append(sold)
+    n = len(gross)
+    if n == 0:
+        return {"n": 0}
+    nets = [g - c for g, c in zip(gross, costs)]
+
+    def _compound(xs: Sequence[float]) -> float:
+        eq = 1.0
+        for x in xs:
+            eq *= 1.0 + float(x) / 100.0
+        return (eq - 1.0) * 100.0
+
+    mean = sum(nets) / float(n)
+    var = sum((x - mean) ** 2 for x in nets) / float(n)
+    std = var ** 0.5
+    base = sum(names) / float(n)
+    turn = (sum(replaced) / float(n) / base) if base > 1e-9 else None
+    return {
+        "n": n,
+        "gross_pct": _compound(gross),
+        "net_pct": _compound(nets),
+        "mean_net": mean,
+        "sharpe": (mean / std * (252.0 ** 0.5)) if std > 1e-12 else None,
+        "turnover": turn,
+        "mean_cost": sum(costs) / float(n),
+        "mean_names": base,
+    }
+
+
+def _print_score_slices(
+    dates: Sequence[str],
+    books: Dict[str, Dict[str, Tuple[float, float]]],
+    *,
+    cost_cfg: dict,
+) -> None:
+    """五档与「丢掉低分」等权。优化对照，仍不入库。"""
+    buckets = {i: [] for i in range(5)}
+    pos_share: List[float] = []
+    for date in dates:
+        rows = list(books[date].items())
+        rows.sort(key=lambda it: (-it[1][0], it[0]))
+        n = len(rows)
+        if n < 25:
+            continue
+        pos_share.append(sum(1 for _, pair in rows if pair[0] > 0) / float(n))
+        groups: Dict[int, List[float]] = {i: [] for i in range(5)}
+        for i, (_code, pair) in enumerate(rows):
+            q = min(4, int(i * 5 / n))
+            groups[q].append(pair[1])
+        for q, xs in groups.items():
+            if xs:
+                buckets[q].append(sum(xs) / float(len(xs)))
+    print()
+    print("ŷ_oo 五档（Q1=分数最高的 20%，先做当日等权再对日平均；不计成本）")
+    for i in range(5):
+        xs = buckets[i]
+        if not xs:
+            continue
+        print(f"  Q{i + 1}  日数 {len(xs)}  日均收益 {sum(xs) / len(xs):+.3f}%")
+    if pos_share:
+        print(f"  分数>0 的占比 日均 {sum(pos_share) / len(pos_share) * 100:.1f}%")
+
+    def _drop_bottom(frac: float):
+        def _pick(rows):
+            n = len(rows)
+            keep = max(1, int(round(n * (1.0 - frac))))
+            return [code for code, _s, _y in rows[:keep]]
+
+        return _pick
+
+    def _top(k: int):
+        def _pick(rows):
+            return [code for code, _s, _y in rows[:k]]
+
+        return _pick
+
+    def _positive(rows):
+        kept = [code for code, score, _y in rows if score > 0]
+        return kept or [code for code, _s, _y in rows[:1]]
+
+    def _buffer(k: int, sell_frac: float):
+        """最多持有 k 只；掉进最低 sell_frac 才卖，缺额用当前最高分补。"""
+
+        def _pick(rows, held=None):
+            n = len(rows)
+            score_of = {code: score for code, score, _y in rows}
+            cut = int(round(n * (1.0 - sell_frac)))
+            worst = {code for i, (code, _s, _y) in enumerate(rows) if i >= cut}
+            kept = [c for c in (held or []) if c in score_of and c not in worst]
+            kept.sort(key=lambda c: (-score_of[c], c))
+            if len(kept) > k:
+                kept = kept[:k]
+            have = set(kept)
+            if len(kept) < k:
+                for code, _s, _y in rows:
+                    if code in have or code in worst:
+                        continue
+                    kept.append(code)
+                    have.add(code)
+                    if len(kept) >= k:
+                        break
+            return kept
+
+        return _pick
+
+    rules = [
+        ("丢掉最低 10%", _drop_bottom(0.10)),
+        ("丢掉最低 20%", _drop_bottom(0.20)),
+        ("丢掉最低 30%", _drop_bottom(0.30)),
+        ("丢掉最低 40%", _drop_bottom(0.40)),
+        ("只留分数>0", _positive),
+        ("只留最高 30", _top(30)),
+        ("只留最高 50", _top(50)),
+        ("只留最高 100", _top(100)),
+        ("只留最高 200", _top(200)),
+    ]
+    print()
+    header = (
+        f"{'规则':<16} {'持仓':>6} {'净收益%':>9} {'日均净%':>8} "
+        f"{'夏普':>7} {'单边换手':>8} {'日均成本%':>9}"
+    )
+    print(header)
+    print("-" * len(header))
+    for label, pick in rules:
+        stat = _membership_book(dates, books, pick, cost_cfg=cost_cfg)
+        print(
+            f"{label:<16} {_fmt(stat.get('mean_names'), 0):>6} "
+            f"{_fmt(stat.get('net_pct')):>9} {_fmt(stat.get('mean_net')):>8} "
+            f"{_fmt(stat.get('sharpe')):>7} {_fmt(stat.get('turnover'), 3):>8} "
+            f"{_fmt(stat.get('mean_cost'), 4):>9}"
+        )
+
+    print()
+    print("容量有限：最多 K 只；掉进最低一截才卖，缺额用当前最高分补（扣费）")
+    buf_header = (
+        f"{'规则':<24} {'持仓':>6} {'净收益%':>9} {'日均净%':>8} "
+        f"{'夏普':>7} {'单边换手':>8}"
+    )
+    print(buf_header)
+    print("-" * len(buf_header))
+    for label, k, frac in (
+        ("K=10 掉进最低30%才卖", 10, 0.30),
+        ("K=20 掉进最低30%才卖", 20, 0.30),
+        ("K=10 掉进最低20%才卖", 10, 0.20),
+        ("K=10 每天重选最高10", 10, 0.0),
+    ):
+        state: List[str] = []
+        rule = _buffer(k, max(frac, 0.01))
+
+        def _pick(rows, _state=state, _rule=rule, _frac=frac, _k=k):
+            if _frac <= 0:
+                nxt = [code for code, _s, _y in rows[:_k]]
+            else:
+                nxt = _rule(rows, held=_state)
+            _state[:] = list(nxt)
+            return nxt
+
+        stat = _membership_book(dates, books, _pick, cost_cfg=cost_cfg)
+        state.clear()
+        print(
+            f"{label:<24} {_fmt(stat.get('mean_names'), 0):>6} "
+            f"{_fmt(stat.get('net_pct')):>9} {_fmt(stat.get('mean_net')):>8} "
+            f"{_fmt(stat.get('sharpe')):>7} {_fmt(stat.get('turnover'), 3):>8}"
+        )
+
+
 def _main_y_oo(args: argparse.Namespace, *, cost_cfg: dict) -> int:
     from core.research.oo_rank_panel import build_oo_rank_day_panels
     from core.research.oo_ridge import load_return_model
@@ -468,6 +665,7 @@ def _main_y_oo(args: argparse.Namespace, *, cost_cfg: dict) -> int:
         "排序用 ŷ_oo 连续分，越高越好。单边换手 = 日均卖出只数 / topk。"
         "未做涨跌停、停牌、手数和 fuse 门槛。"
     )
+    _print_score_slices(chosen, books, cost_cfg=cost_cfg)
     return 0
 
 
