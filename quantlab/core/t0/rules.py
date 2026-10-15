@@ -214,6 +214,7 @@ def simulate_t0_day(
             resolve_scores_for_code,
             resolve_y_score_source,
             tau_pool_day_score_kwargs,
+            watching_pool_z_scope,
         )
 
         as_of = resolve_score_as_of(
@@ -222,18 +223,19 @@ def simulate_t0_day(
         )
         if stock_code:
             y_src = resolve_y_score_source(cfg)
-            score_snap = resolve_scores_for_code(
-                stock_code,
-                hist_bars=hist_bars,
-                day_bar=bar if isinstance(bar, dict) else None,
-                as_of=as_of or None,
-                source=y_src,
-                fuse_intraday=resolve_fuse_intraday(cfg),
-                allow_fallback=(y_src != "compute"),
-                # 选向仅开盘信息集；分钟只用于第一触达成交
-                use_minute_tau=False,
-                **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
-            )
+            with watching_pool_z_scope():
+                score_snap = resolve_scores_for_code(
+                    stock_code,
+                    hist_bars=hist_bars,
+                    day_bar=bar if isinstance(bar, dict) else None,
+                    as_of=as_of or None,
+                    source=y_src,
+                    fuse_intraday=resolve_fuse_intraday(cfg),
+                    allow_fallback=(y_src != "compute"),
+                    # 选向仅开盘信息集；分钟只用于第一触达成交
+                    use_minute_tau=False,
+                    **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
+                )
 
     score_snap = _ensure_fixed_direction_path_y_tau(score_snap, cfg.get("direction"))
 

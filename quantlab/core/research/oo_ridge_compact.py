@@ -801,6 +801,7 @@ def _align_row_weights(
     n_full: int,
     row_pos: Optional[np.ndarray],
     complete_idx: Optional[Sequence[int]],
+    floor_nonpositive: bool = True,
 ) -> Optional[np.ndarray]:
     if sample_weights is None:
         return None
@@ -819,12 +820,16 @@ def _align_row_weights(
         else:
             return None
     if complete_idx is None:
-        return sliced
-    idxs = [int(i) for i in complete_idx]
-    if not idxs or max(idxs) >= int(sliced.shape[0]):
-        return None
-    out = sliced[np.asarray(idxs, dtype=np.int64)]
-    out = np.where(np.isfinite(out) & (out > 0), out, 1e-6)
+        out = sliced
+    else:
+        idxs = [int(i) for i in complete_idx]
+        if not idxs or max(idxs) >= int(sliced.shape[0]):
+            return None
+        out = sliced[np.asarray(idxs, dtype=np.int64)]
+    if floor_nonpositive:
+        out = np.where(np.isfinite(out) & (out > 0), out, 1e-6)
+    else:
+        out = np.where(np.isfinite(out) & (out > 0), out, 0.0)
     return out.astype(np.float64, copy=False)
 
 
@@ -841,11 +846,13 @@ def fit_oo_ridge_matrix(
     sample_weights: Optional[Sequence[float]] = None,
     row_dates: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
+    drop_zero_weights: bool = False,
 ) -> Tuple[Any, Dict[str, Any]]:
     """在矩阵上拟合 ŷ_oo，返回 ``(ReturnScoreModel | None, report)``。
 
     ``sample_weights`` 与全表 ``y`` 等长（或与 ``row_idx`` 等长）；√w 加权最小二乘。
     ``cross_section_zscore=False``：训练样本内全局 μ/σ（不用日截面）。
+    ``drop_zero_weights=True``：权重 ≤0 的行仍进入截面 z，但不进损失。
     """
     from core.signal.return_score import ReturnScoreModel
 
@@ -935,6 +942,7 @@ def fit_oo_ridge_matrix(
                 n_full=n_full,
                 row_pos=row_pos,
                 complete_idx=prep_meta.get("complete_row_indices"),
+                floor_nonpositive=not bool(drop_zero_weights),
             )
             fit = _ols_matrix(
                 x_z,
@@ -987,6 +995,7 @@ def fit_oo_ridge_matrix(
             n_full=n_full,
             row_pos=row_pos,
             complete_idx=prep_meta.get("complete_row_indices"),
+            floor_nonpositive=not bool(drop_zero_weights),
         )
         if aligned is not None and aligned.size:
             report["mean_sample_weight"] = round(

@@ -166,7 +166,8 @@ def resolve_model_fit_codes(
     """ŷ_* 拟合用股票列表：显式 codes，否则观察池（不垫 research_universe）。
 
     上限 ``MODEL_FIT_MAX_SIZE``；实际只数 = min(请求, 上限, 观察池长度)。
-    ``watching_tier_a_only=True`` 时先滤可预测性 A 档（须有分档报告）；显式 codes 不受档滤。
+    ``watching_tier_a_only=True`` 时返回可预测性 A 档（须有分档报告）；显式 codes 不受档滤。
+    排序头不要拿这份缩短名单做截面 z，只把它当作损失掩码。
     """
     from core.watching.store import watching_pool_limit
 

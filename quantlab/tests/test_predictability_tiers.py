@@ -114,6 +114,85 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(out.get("n_test"), 20)
         self.assertIsNone(out.get("n_train"))
 
+    def test_research_model_zscores_same_day_before_predict(self):
+        """截面 ŷ_oo 用当天全体票的 z，不用 0–100 原始分直接乘 β。"""
+        from datetime import date, timedelta
+
+        from core.research.predictability_tiers import accumulate_holdout_oos_by_code
+        from core.signal.return_score import ReturnScoreModel
+
+        start = date(2024, 1, 2)
+        bars = []
+        for i in range(40):
+            d = (start + timedelta(days=i)).isoformat()
+            bars.append(
+                {"date": d, "open": 10.0, "close": 10.0, "high": 11.0, "low": 9.0}
+            )
+
+        def _fake_collect(code_bars, **kwargs):
+            keep = {str(d)[:10] for d in (kwargs.get("keep_dates") or [])}
+            use = [str(b["date"])[:10] for b in code_bars if str(b["date"])[:10] in keep]
+            raw = 80.0 if kwargs.get("stock_code") == "000001" else 40.0
+            return ([{"relative_strength": raw}] * len(use), [0.2] * len(use), use)
+
+        research = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"z_oo_relative_strength": 1.0},
+            feature_zscore=True,
+            zscore_scope="cross_section",
+        )
+
+        def _fake_load(codes, **kwargs):
+            return ({str(c): list(bars) for c in codes}, [], {})
+
+        with patch(
+            "core.research.predictability_tiers._load_research_oo_model",
+            return_value=(research, {"ok": True}),
+        ), patch(
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
+            side_effect=_fake_load,
+        ), patch(
+            "core.research.oo_panel.collect_oo_panel",
+            side_effect=_fake_collect,
+        ), patch(
+            "core.research.predictability_tiers._score_tau_holdout_into_acc",
+            return_value={"ok": False, "reason": "skip"},
+        ):
+            out = accumulate_holdout_oos_by_code(
+                ["000001", "000002"],
+                holdout_n=10,
+                lookback=600,
+                use_research_model=True,
+            )
+        self.assertTrue(out.get("ok"), out)
+        hi = out["acc"]["000001"]["yhats"]
+        lo = out["acc"]["000002"]["yhats"]
+        self.assertTrue(hi)
+        self.assertTrue(lo)
+        self.assertTrue(all(abs(v - 1.0) < 1e-6 for v in hi))
+        self.assertTrue(all(abs(v - (-1.0)) < 1e-6 for v in lo))
+
+    def test_tau_predictions_zscore_by_day(self):
+        from core.research.predictability_tiers import _tau_predictions
+
+        doc = {
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {"z_τc_gap_pct": 1.0},
+                "feature_zscore": True,
+                "zscore_scope": "cross_section",
+            }
+        }
+        preds = _tau_predictions(
+            doc,
+            [{"gap_pct": 2.0}, {"gap_pct": 0.0}, {"gap_pct": 9.0}],
+            ["2026-08-13", "2026-08-13", "2026-08-14"],
+        )
+        self.assertAlmostEqual(preds[0], 1.0)
+        self.assertAlmostEqual(preds[1], -1.0)
+        # 当天只有一只票，截面标准差不足，落在均值上
+        self.assertAlmostEqual(preds[2], 0.0)
+
     def test_keep_dates_skips_other_days(self):
         from datetime import date, timedelta
 
@@ -1338,6 +1417,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertNotIn("000099", kept)
                 self.assertEqual(meta.get("force_exit_held"), ["000003"])
                 self.assertEqual(meta.get("n_force_exit_held"), 1)
+                self.assertEqual(meta.get("tradable_codes"), ["000001"])
 
                 clear_predictability_tiers_live()
                 st2 = live_tier_status()

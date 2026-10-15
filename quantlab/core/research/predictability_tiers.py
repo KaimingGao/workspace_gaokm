@@ -365,10 +365,11 @@ def filter_codes_by_predictability_live(
     *,
     keep: Sequence[str] = (),
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """调仓宇宙过滤：无 active → 不过滤；有则只留 allowed_tiers。
+    """Live 分档闸。无 active 时原样返回，``tradable_codes`` 为 None。
 
-    ``keep``（持仓）仍进打分名单以便估价/明细；掉出允许档的代码进
-    ``force_exit_held``，由 watching_matrix 标硬清仓。
+    有 active 时返回列表含允许档，并保留 ``keep``（持仓）供旧调用方估价。
+    截面 z 用调用方传入的整段观察池。``tradable_codes`` 是允许开仓的代码；
+    掉出允许档的持仓在 ``force_exit_held``。
     """
     cleaned = [str(c).strip() for c in (codes or []) if str(c).strip()]
     keep_set = {str(c).strip() for c in (keep or []) if str(c).strip()}
@@ -384,6 +385,7 @@ def filter_codes_by_predictability_live(
             "reason": "no_active",
             "allowed_tiers": [],
             "universe_fit_tiers": ["A", "B", "C"],
+            "tradable_codes": None,
         }
     allow = [
         str(t).strip().upper()
@@ -417,6 +419,7 @@ def filter_codes_by_predictability_live(
         "n_force_exit_held": len(force_exit_held),
         "allowed_tiers": allow,
         "universe_fit_tiers": allow,
+        "tradable_codes": sorted(allow_codes),
         "reason": "predictability_active",
         "promoted_at": active.get("promoted_at"),
         "counts": active.get("counts"),
@@ -961,6 +964,65 @@ def _absorb_tau_holdout_row(
     slot["tau_pair_dates"].append(d)
 
 
+def _oo_predictions(
+    model: Any,
+    rows: Sequence[Dict[str, Any]],
+    dates: Sequence[str],
+) -> List[Optional[float]]:
+    """截面模型先按决策日 z-score，再 ``predict``。训练窗 μ/σ 模型仍由 ``predict`` 自己套。"""
+    from core.research.feature_standardize import (
+        cross_section_zscore_dicts,
+        is_cross_section_zscore,
+    )
+
+    raws = [dict(r) if isinstance(r, dict) else {} for r in rows]
+    if not raws or model is None:
+        return [None] * len(raws)
+    if not is_cross_section_zscore(model):
+        return [model.predict(row) for row in raws]
+    from core.signal.factors.z_oo import stamp_z_oo_aliases
+
+    for row in raws:
+        stamp_z_oo_aliases(row)
+    names = [str(k) for k in (getattr(model, "coefficients", None) or {})]
+    groups = [str(d or "")[:10] for d in dates]
+    if len(groups) != len(raws):
+        groups = [""] * len(raws)
+    z_rows = cross_section_zscore_dicts(raws, names, groups)
+    return [model.predict(row) for row in z_rows]
+
+
+def _tau_predictions(
+    model_doc: Dict[str, Any],
+    rows: Sequence[Dict[str, Any]],
+    dates: Sequence[str],
+) -> List[Optional[float]]:
+    """截面 ŷ_τc：按决策日 z-score 后打分。非截面模型原样交给 ``predict_tau_from_features``。"""
+    from core.research.feature_standardize import (
+        cross_section_zscore_dicts,
+        is_cross_section_zscore,
+    )
+    from core.research.tc_ridge import predict_tau_from_features
+
+    raws = [dict(r) if isinstance(r, dict) else {} for r in rows]
+    if not raws:
+        return []
+    if not is_cross_section_zscore(model_doc):
+        return [predict_tau_from_features(row, model_doc=model_doc) for row in raws]
+    from core.signal.factors.z_tc import stamp_z_tc_aliases
+
+    rm = model_doc.get("return_model") if isinstance(model_doc, dict) else {}
+    coefs = (rm or {}).get("coefficients") if isinstance(rm, dict) else {}
+    names = [str(k) for k, v in (coefs or {}).items() if v is not None]
+    for row in raws:
+        stamp_z_tc_aliases(row)
+    groups = [str(d or "")[:10] for d in dates]
+    if len(groups) != len(raws):
+        groups = [""] * len(raws)
+    z_rows = cross_section_zscore_dicts(raws, names, groups)
+    return [predict_tau_from_features(row, model_doc=model_doc) for row in z_rows]
+
+
 def _load_research_tau_model() -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """研究套 ŷ_τc；缺则 (None, meta)。"""
     try:
@@ -1000,7 +1062,6 @@ def _score_tau_holdout_into_acc(
     if doc is None:
         return {**meta, "n_rows": 0}
     try:
-        from core.research.tc_ridge import predict_tau_from_features
         from core.research.tc_ridge_compact import build_tau_panels_from_bars
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "reason": "import_failed", "error": str(exc), "n_rows": 0}
@@ -1022,7 +1083,10 @@ def _score_tau_holdout_into_acc(
         logger.debug("build_tau_panels_from_bars for tiers failed", exc_info=True)
         return {"ok": False, "reason": "panel_failed", "error": str(exc), "n_rows": 0, **meta}
 
-    n_rows = 0
+    pending_codes: List[str] = []
+    pending_dates: List[str] = []
+    pending_xs: List[dict] = []
+    pending_ys: List[Any] = []
     for pan in panels or []:
         if not isinstance(pan, dict):
             continue
@@ -1035,19 +1099,24 @@ def _score_tau_holdout_into_acc(
             d = str(dates[i] or "")[:10]
             if d not in keep:
                 continue
-            pred = predict_tau_from_features(xs[i], model_doc=doc)
-            _absorb_tau_holdout_row(
-                acc,
-                code=code,
-                date=d,
-                pred=pred,
-                y=ys[i],
-                yhat_eps=yhat_eps,
-                tier_set=set(tier_set or ()),
-                metric_set=set(metric_set) if metric_set is not None else set(tier_set or ()),
-            )
-            n_rows += 1
-    return {**meta, "ok": True, "n_rows": int(n_rows)}
+            pending_codes.append(code)
+            pending_dates.append(d)
+            pending_xs.append(xs[i] if isinstance(xs[i], dict) else {})
+            pending_ys.append(ys[i])
+    preds = _tau_predictions(doc, pending_xs, pending_dates)
+    tier_metric = set(metric_set) if metric_set is not None else set(tier_set or ())
+    for code, d, pred, y in zip(pending_codes, pending_dates, preds, pending_ys):
+        _absorb_tau_holdout_row(
+            acc,
+            code=code,
+            date=d,
+            pred=pred,
+            y=y,
+            yhat_eps=yhat_eps,
+            tier_set=set(tier_set or ()),
+            metric_set=tier_metric,
+        )
+    return {**meta, "ok": True, "n_rows": len(preds)}
 
 
 def accumulate_holdout_oos_by_code(
@@ -1062,7 +1131,8 @@ def accumulate_holdout_oos_by_code(
 ) -> Dict[str, Any]:
     """用研究套 ŷ_oo（缺则 Holdout 前现训）按票聚合。命中只记前半；ŷ/实现记整段。
 
-    有研究套：日线窗收成 Holdout+余量（``_score_panel_lookback``），只物化测试日特征行，打分后即丢。
+    有研究套：日线窗收成 Holdout+余量（``_score_panel_lookback``），只物化测试日特征行。
+    截面模型按决策日对全体票 z-score 后再打分，打完即丢。
     无研究套：仍用传入 ``lookback`` 全窗以便 Holdout 前现训。
 
     返回 ``ok`` / ``acc`` / ``tier_dates`` / ``split_meta`` 等。
@@ -1172,8 +1242,8 @@ def accumulate_holdout_oos_by_code(
     n_test = 0
 
     if research_model is not None:
-        # 只物化 Holdout 测试日。打分在 worker 内完成，特征行不回到主线程。
-        def _score_one(code: str, bars: List[dict]) -> Tuple[str, list]:
+        # 只物化 Holdout 测试日。截面 z 要当天全体票一起算，特征行收回后再打分。
+        def _panel_holdout(code: str, bars: List[dict]) -> Tuple[str, list, list, list]:
             xs, ys, dates = collect_oo_panel(
                 bars,
                 horizon_days=hz,
@@ -1181,38 +1251,48 @@ def accumulate_holdout_oos_by_code(
                 pit_fundamentals=False,
                 keep_dates=test_days,
             )
-            packed: List[Tuple[str, Any, Any]] = []
-            for x, y, d in zip(xs, ys, dates):
-                packed.append((str(d)[:10], research_model.predict(x), y))
-            return code, packed
+            return code, xs, ys, dates
 
-        scored: List[Tuple[str, list]] = []
+        panels: List[Tuple[str, list, list, list]] = []
         if workers == 1:
-            scored = [_score_one(c, b) for c, b in items]
+            panels = [_panel_holdout(c, b) for c, b in items]
         else:
-            scored_slots: List[Optional[Tuple[str, list]]] = [None] * len(items)
+            panel_slots: List[Optional[Tuple[str, list, list, list]]] = [None] * len(items)
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futs = {
-                    pool.submit(_score_one, c, b): i for i, (c, b) in enumerate(items)
+                    pool.submit(_panel_holdout, c, b): i
+                    for i, (c, b) in enumerate(items)
                 }
                 for fut in as_completed(futs):
-                    scored_slots[futs[fut]] = fut.result()
-            scored = [row for row in scored_slots if row is not None]
+                    panel_slots[futs[fut]] = fut.result()
+            panels = [row for row in panel_slots if row is not None]
         del items
-        for code, rows in scored:
-            n_test += len(rows)
-            for d, pred, y in rows:
-                _absorb_holdout_row(
-                    acc,
-                    code=code,
-                    date=d,
-                    pred=pred,
-                    y=y,
-                    tier_set=tier_set,
-                    metric_set=metric_set,
-                    yhat_eps=yhat_eps,
-                )
-        del scored
+        flat_codes: List[str] = []
+        flat_xs: List[dict] = []
+        flat_ys: List[Any] = []
+        flat_dates: List[str] = []
+        for code, xs, ys, dates in panels:
+            n = min(len(xs), len(ys), len(dates))
+            for i in range(n):
+                flat_codes.append(code)
+                flat_xs.append(xs[i] if isinstance(xs[i], dict) else {})
+                flat_ys.append(ys[i])
+                flat_dates.append(str(dates[i] or "")[:10])
+        del panels
+        preds = _oo_predictions(research_model, flat_xs, flat_dates)
+        n_test = len(preds)
+        for code, d, pred, y in zip(flat_codes, flat_dates, preds, flat_ys):
+            _absorb_holdout_row(
+                acc,
+                code=code,
+                date=d,
+                pred=pred,
+                y=y,
+                tier_set=tier_set,
+                metric_set=metric_set,
+                yhat_eps=yhat_eps,
+            )
+        del flat_xs, preds
         if n_test < 1:
             return {
                 "ok": False,
@@ -1334,18 +1414,23 @@ def accumulate_holdout_oos_by_code(
         }
         n_train = len(train_idx)
         n_test = len(test_idx)
-        for i in test_idx:
+        preds = _oo_predictions(
+            research_model,
+            [all_xs[i] if isinstance(all_xs[i], dict) else {} for i in test_idx],
+            [all_dates[i] for i in test_idx],
+        )
+        for i, pred in zip(test_idx, preds):
             _absorb_holdout_row(
                 acc,
                 code=all_codes[i],
                 date=all_dates[i],
-                pred=research_model.predict(all_xs[i]),
+                pred=pred,
                 y=all_ys[i],
                 tier_set=tier_set,
                 metric_set=metric_set,
                 yhat_eps=yhat_eps,
             )
-        del all_xs, all_ys, all_dates, all_codes
+        del all_xs, all_ys, all_dates, all_codes, preds
 
     tau_meta = _score_tau_holdout_into_acc(
         acc,
@@ -1740,7 +1825,7 @@ def build_holdout_half_tiers(
     （无 ŷ_τc 研究套时 TC 门槛不生效）。未过门槛不占 A 名额。
     过门槛者按 Score 降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
     档内平均收益率 = Holdout 整段等权买持（对齐回测「观察池A档等权」）。
-    落盘 last；回测/live 复用档位过滤宇宙。回测天数独立。
+    落盘 last；回测/live 用档位限制开仓，不缩小截面 z。回测天数独立。
     live 档位跟随历史回测「分档」勾选。
     ``lookback``：仅无研究套现训时用的日线窗（对齐 ŷ_oo 卡训练窗）；
     有研究套时面板走 ``_score_panel_lookback`` 短窗。

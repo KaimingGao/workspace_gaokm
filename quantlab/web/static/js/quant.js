@@ -940,7 +940,7 @@ export function initQuant(ctx) {
     const lrLead = scored > 0 && lrWins > rgWins;
     const rgLead = scored > 0 && rgWins > lrWins;
     // 与 v2 双训对照同壳：is-tree / is-ridge + board-row + meta
-    const pool = data.watching_tier_a_only ? "观察池 A 档" : "整观察池";
+    const pool = data.watching_tier_a_only ? "损失 A 档" : "整观察池";
     const hold =
       oos.holdout_trading_days != null
         ? `Holdout ${Number(oos.holdout_trading_days)} 日`

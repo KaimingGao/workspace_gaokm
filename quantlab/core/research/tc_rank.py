@@ -179,8 +179,12 @@ def fit_tc_rank_report(
     ridge_lambda: float = 1.0,
     backend: str = "auto",
     cross_section_zscore: bool = True,
+    train_codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """拟合 ŷ_τc_rank。``stock_bars``: ``[{code, bars}, ...]``。不落盘。"""
+    """拟合 ŷ_τc_rank。``stock_bars``: ``[{code, bars}, ...]``。不落盘。
+
+    ``train_codes`` 给定时，日截面 z 仍用面板全部代码，损失和 OOS 只留这些代码。
+    """
     from core.research.holdout import (
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
@@ -276,11 +280,13 @@ def fit_tc_rank_report(
 
     kept_names = list(days_tr[0].get("names") or feat_names)
     use_cs = bool(cross_section_zscore)
+    loss_codes = None if train_codes is None else [str(c).strip() for c in train_codes if str(c or "").strip()]
     fit_tr = fit_lambdarank(
         days_tr,
         feature_names=kept_names,
         l2=float(l2),
         cross_section_zscore=use_cs,
+        train_codes=loss_codes,
     )
     if not fit_tr.get("success"):
         return {
@@ -292,20 +298,31 @@ def fit_tc_rank_report(
         }
 
     oos_rank = _relabel_metrics(
-        _oos_day_metrics(days_te, fit_tr, topk_track=topk_track, ndcg_k=ndcg_k)
+        _oos_day_metrics(
+            days_te,
+            fit_tr,
+            topk_track=topk_track,
+            ndcg_k=ndcg_k,
+            eval_codes=loss_codes,
+        )
     )
     ridge_tr = _fit_ridge_baseline(
         days_tr,
         feature_names=kept_names,
         ridge_lambda=float(ridge_lambda),
         cross_section_zscore=use_cs,
+        train_codes=loss_codes,
     )
     oos_ridge: Dict[str, Any] = {"success": bool(ridge_tr.get("success"))}
     if ridge_tr.get("success"):
         oos_ridge.update(
             _relabel_metrics(
                 _oos_day_metrics(
-                    days_te, ridge_tr, topk_track=topk_track, ndcg_k=ndcg_k
+                    days_te,
+                    ridge_tr,
+                    topk_track=topk_track,
+                    ndcg_k=ndcg_k,
+                    eval_codes=loss_codes,
                 )
             )
         )
@@ -401,6 +418,8 @@ def fit_tc_rank_report(
         "return_model_research": chosen_pack["return_model_research"],
         "y_spec": chosen_pack["y_spec"],
         "cross_section_zscore": use_cs,
+        "zscore_universe": "day_panel",
+        "train_loss_codes": None if loss_codes is None else len(loss_codes),
         "note": (
             f"ŷ_τc_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"

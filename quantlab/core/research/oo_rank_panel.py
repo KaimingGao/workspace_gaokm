@@ -340,9 +340,10 @@ def stack_day_panels(
 
 
 def resolve_oo_rank_universe(*, watching_tier_a_only: bool = False) -> Dict[str, Any]:
-    """ŷ_oo_rank 训练宇宙：默认整观察池；开启则只留分档 A 且仍在观察池内。
+    """ŷ_oo_rank 代码名单：默认整观察池；开启则只留分档 A 且仍在观察池内。
 
-    与 ``resolve_model_fit_codes`` 共用 A 档滤池；此处不截断（调用方再按 watching_limit 截）。
+    排序拟合把 A 档名单当作损失掩码，截面 z 用 ``watching_tier_a_only=False`` 的整池。
+    此处不截断（调用方再按 watching_limit 截）。
     """
     from core.research_universe import resolve_model_fit_codes
     from core.watching.store import MODEL_FIT_MAX_SIZE

@@ -14,11 +14,11 @@ FIT_LOOKBACK_MAX = 1000
 
 
 class _WatchingTierAOnly(BaseModel):
-    """可选：只训观察池可预测性 A 档（须先跑分档）。"""
+    """可选：损失只含观察池可预测性 A 档（须先跑分档）。截面 z 仍用整池。"""
 
     watching_tier_a_only: bool = Field(
         default=False,
-        description="True=只训观察池可预测性 A 档；False=整观察池",
+        description="True=损失只含观察池 A 档，截面 z 仍用整段观察池；False=整池进损失",
     )
 
 
@@ -330,7 +330,7 @@ class OoRankRequest(_WatchingTierAOnly, _CrossSectionZscore):
         default=MODEL_FIT_MAX_SIZE,
         ge=8,
         le=MODEL_FIT_MAX_SIZE,
-        description=f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。只训 A 档时在截断前先滤档。",
+        description=f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。只训 A 档不缩小截面 z。",
     )
     holdout_trading_days: int = Field(
         default=20,

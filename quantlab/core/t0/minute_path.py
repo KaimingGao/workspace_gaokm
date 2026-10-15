@@ -1832,6 +1832,7 @@ def simulate_t0_day_minute(
         resolve_y_score_source,
         scores_have_any,
         tau_pool_day_score_kwargs,
+        watching_pool_z_scope,
     )
 
     cfg = load_t0_rules(rules)
@@ -1846,18 +1847,19 @@ def simulate_t0_day_minute(
             day_bar=bar if isinstance(bar, dict) else None,
         )
         if stock_code:
-            score_snap = resolve_scores_for_code(
-                stock_code,
-                hist_bars=hist_bars,
-                day_bar=bar if isinstance(bar, dict) else None,
-                as_of=as_of or None,
-                source=resolve_y_score_source(cfg),
-                fuse_intraday=resolve_fuse_intraday(cfg),
-                allow_fallback=(resolve_y_score_source(cfg) != "compute"),
-                # 选向仅开盘/隔夜信息集；分钟只用于成交路径（禁 ≤τ 前缀前瞻）
-                use_minute_tau=False,
-                **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
-            )
+            with watching_pool_z_scope():
+                score_snap = resolve_scores_for_code(
+                    stock_code,
+                    hist_bars=hist_bars,
+                    day_bar=bar if isinstance(bar, dict) else None,
+                    as_of=as_of or None,
+                    source=resolve_y_score_source(cfg),
+                    fuse_intraday=resolve_fuse_intraday(cfg),
+                    allow_fallback=(resolve_y_score_source(cfg) != "compute"),
+                    # 选向仅开盘/隔夜信息集；分钟只用于成交路径（禁 ≤τ 前缀前瞻）
+                    use_minute_tau=False,
+                    **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
+                )
 
     mins = [dict(m) for m in (minute_bars or [])]
     mins.sort(key=lambda x: str(x.get("datetime") or ""))

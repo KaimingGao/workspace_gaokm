@@ -889,6 +889,22 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         reasons = " ".join(str(s.get("reason") or "") for s in sells)
         self.assertIn("可预测性非A档", reasons)
 
+    def test_tier_block_rejects_new_names_outside_tradable(self):
+        from core.paper.rebalance.watching_matrix import _mark_predictability_tier_blocks
+
+        item_by = {
+            "000001": {"stock_code": "000001", "predicted_score": 1.0},
+            "000002": {"stock_code": "000002", "predicted_score": 2.0},
+        }
+        _mark_predictability_tier_blocks(
+            item_by,
+            tradable_codes=["000001"],
+            allowed_tiers=["A"],
+        )
+        self.assertFalse(item_by["000001"].get("hard_reject"))
+        self.assertTrue(item_by["000002"].get("hard_reject"))
+        self.assertIn("不开仓", item_by["000002"].get("reject_reason") or "")
+
     def test_row_score_payload_heads_override_stale_fuse(self):
         from core.paper.rebalance.watching_matrix import _row_score_payload
 
@@ -908,6 +924,59 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         self.assertNotIn("ranking", payload)
         self.assertNotIn("y_fuse", payload)
         self.assertIsNone(payload.get("y_trade"))
+
+
+class TestReplayTradableGate(unittest.TestCase):
+    def test_stamp_keeps_scored_names_but_blocks_trades(self):
+        from core.backtest.paper_replay import _stamp_tradable_hard_reject
+
+        scored = [
+            {"stock_code": "000001", "predicted_score": 1.0},
+            {"stock_code": "000002", "predicted_score": -1.0},
+        ]
+        _stamp_tradable_hard_reject(
+            scored, {"000001"}, reason="可预测性非A档"
+        )
+        self.assertEqual(len(scored), 2)
+        self.assertFalse(scored[0].get("hard_reject"))
+        self.assertTrue(scored[1].get("hard_reject"))
+        self.assertEqual(scored[1].get("reject_reason"), "可预测性非A档")
+
+
+class TestWatchingPoolZRow(unittest.TestCase):
+    def test_target_outside_pool_uses_peer_moments(self):
+        from core.t0.score_policy import _z_row_against_peers
+
+        def _stamp(row):
+            return row
+
+        z = _z_row_against_peers(
+            {"gap": 2.0},
+            [{"gap": 2.0}, {"gap": 0.0}],
+            ["gap"],
+            stamp=_stamp,
+        )
+        self.assertAlmostEqual(float(z["gap"]), 1.0, places=6)
+
+    def test_temporary_pool_rows_restore_previous_cache(self):
+        from core.t0.score_policy import (
+            _POOL_FEAT_CACHE,
+            clear_score_model_cache,
+            temporary_pool_feature_rows,
+        )
+
+        clear_score_model_cache()
+        day = "2024-03-01"
+        _POOL_FEAT_CACHE[day] = [{"stock_code": "OLD"}]
+        items = [
+            {"stock_code": "000001", "sub_scores": {"f": 1.0}},
+            {"stock_code": "000002", "features_tau": {"gap": 0.2}},
+        ]
+        with temporary_pool_feature_rows(day, items):
+            codes = [row.get("stock_code") for row in _POOL_FEAT_CACHE[day]]
+            self.assertEqual(codes, ["000001", "000002"])
+        self.assertEqual(_POOL_FEAT_CACHE[day], [{"stock_code": "OLD"}])
+        clear_score_model_cache()
 
 
 class TestQuotePxLiveFill(unittest.TestCase):

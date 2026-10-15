@@ -1247,8 +1247,9 @@ class QuantFactorMixin:
         watching_tier_a_only: bool = False,
         cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
-        """ŷ_oo_rank：同窗 LambdaRank + Ridge；默认整观察池，可选只训 A 档。
+        """ŷ_oo_rank：同窗 LambdaRank + Ridge。截面 z 始终用整段观察池。
 
+        勾选只训 A 档时，A 档只进入损失和 OOS，不缩小 μ/σ。
         成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max（与 τc_rank 取 max）入场闸。
         ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
         """
@@ -1300,9 +1301,7 @@ class QuantFactorMixin:
                 live_present=os.path.isfile(oo_rank_model_path()),
             )
 
-        resolved = resolve_oo_rank_universe(
-            watching_tier_a_only=bool(watching_tier_a_only)
-        )
+        resolved = resolve_oo_rank_universe(watching_tier_a_only=False)
         if not resolved.get("success"):
             return {
                 "success": False,
@@ -1311,20 +1310,44 @@ class QuantFactorMixin:
                 "universe_source": resolved.get("universe_source"),
                 "watching_tier_a_only": bool(watching_tier_a_only),
             }
+        loss_resolved = None
+        if watching_tier_a_only:
+            loss_resolved = resolve_oo_rank_universe(watching_tier_a_only=True)
+            if not loss_resolved.get("success"):
+                return {
+                    "success": False,
+                    "error": loss_resolved.get("error") or "oo_rank_universe_failed",
+                    "task": "oo_rank",
+                    "universe_source": loss_resolved.get("universe_source"),
+                    "watching_tier_a_only": True,
+                }
         codes = list(resolved.get("codes") or [])
         cap = max(8, int(watching_limit or MODEL_FIT_MAX_SIZE))
         if len(codes) > cap:
             codes = codes[:cap]
+        loss_codes = None
+        if loss_resolved is not None:
+            allow = {str(c) for c in (loss_resolved.get("codes") or [])}
+            loss_codes = [c for c in codes if c in allow]
         pool_n = int(resolved.get("watching_pool_size") or len(codes))
         if len(codes) < 8:
-            need = "观察池 A 档" if watching_tier_a_only else "观察池"
             return {
                 "success": False,
-                "error": f"{need}至少 8 只才可跑 oo_rank（当前 {len(codes)}）",
+                "error": f"观察池至少 8 只才可跑 oo_rank（当前 {len(codes)}）",
                 "task": "oo_rank",
                 "universe_source": resolved.get("universe_source"),
                 "watching_tier_a_only": bool(watching_tier_a_only),
                 "n_codes": len(codes),
+            }
+        if loss_codes is not None and len(loss_codes) < 8:
+            return {
+                "success": False,
+                "error": f"观察池 A 档至少 8 只才可只训 A 档（当前 {len(loss_codes)}）",
+                "task": "oo_rank",
+                "universe_source": "watching",
+                "watching_tier_a_only": True,
+                "n_codes": len(codes),
+                "n_tier_a": len(loss_codes),
             }
 
         stock_bars: List[Dict[str, Any]] = []
@@ -1342,13 +1365,16 @@ class QuantFactorMixin:
             backend=backend or "auto",
             persist=False,
             cross_section_zscore=bool(cross_section_zscore),
+            train_codes=loss_codes,
         )
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
-        report["universe_source"] = resolved.get("universe_source")
+        report["universe_source"] = "watching"
+        report["zscore_universe"] = "watching"
         report["watching_tier_a_only"] = bool(watching_tier_a_only)
         if watching_tier_a_only:
-            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+            report["n_tier_a"] = len(loss_codes or [])
+            report["train_loss_universe"] = "watching_tier_a"
         report["lookback"] = lookback
         if note:
             report["api_note"] = str(note)[:200]
@@ -1514,7 +1540,10 @@ class QuantFactorMixin:
         watching_tier_a_only: bool = False,
         cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
-        """ŷ_τc_rank：同窗 LambdaRank + Ridge。启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。"""
+        """ŷ_τc_rank：同窗 LambdaRank + Ridge。截面 z 始终用整段观察池。
+
+        勾选只训 A 档时，A 档只进入损失和 OOS。启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。
+        """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.research.tc_rank import (
             fit_tc_rank_report,
@@ -1564,7 +1593,7 @@ class QuantFactorMixin:
 
         resolved = _resolve_fit_universe(
             watching_limit=watching_limit,
-            watching_tier_a_only=bool(watching_tier_a_only),
+            watching_tier_a_only=False,
         )
         if not resolved.get("ok", True):
             return {
@@ -1574,18 +1603,43 @@ class QuantFactorMixin:
                 "universe_source": resolved.get("source"),
                 "watching_tier_a_only": bool(watching_tier_a_only),
             }
+        loss_resolved = None
+        if watching_tier_a_only:
+            loss_resolved = _resolve_fit_universe(
+                watching_limit=watching_limit,
+                watching_tier_a_only=True,
+            )
+            if not loss_resolved.get("ok", True):
+                return {
+                    "success": False,
+                    "error": loss_resolved.get("error") or "tc_rank_universe_failed",
+                    "task": "tc_rank",
+                    "universe_source": loss_resolved.get("source"),
+                    "watching_tier_a_only": True,
+                }
         codes = list(resolved.get("codes") or [])
         cap = max(8, int(watching_limit or MODEL_FIT_MAX_SIZE))
         if len(codes) > cap:
             codes = codes[:cap]
+        loss_codes = None
+        if loss_resolved is not None:
+            allow = {str(c) for c in (loss_resolved.get("codes") or [])}
+            loss_codes = [c for c in codes if c in allow]
         pool_n = int(resolved.get("watching_pool_size") or len(codes))
         if len(codes) < 8:
-            need = "观察池 A 档" if watching_tier_a_only else "观察池"
             return {
                 "success": False,
-                "error": f"{need}至少 8 只才可跑 tc_rank（当前 {len(codes)}）",
+                "error": f"观察池至少 8 只才可跑 tc_rank（当前 {len(codes)}）",
                 "task": "tc_rank",
                 "n_codes": len(codes),
+            }
+        if loss_codes is not None and len(loss_codes) < 8:
+            return {
+                "success": False,
+                "error": f"观察池 A 档至少 8 只才可只训 A 档（当前 {len(loss_codes)}）",
+                "task": "tc_rank",
+                "n_codes": len(codes),
+                "n_tier_a": len(loss_codes),
             }
 
         loaded, _failures, _fund = load_portfolio_stock_bars(
@@ -1607,13 +1661,16 @@ class QuantFactorMixin:
             l2=l2,
             backend=backend or "auto",
             cross_section_zscore=bool(cross_section_zscore),
+            train_codes=loss_codes,
         )
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
-        report["universe_source"] = resolved.get("source")
+        report["universe_source"] = "watching"
+        report["zscore_universe"] = "watching"
         report["watching_tier_a_only"] = bool(watching_tier_a_only)
         if watching_tier_a_only:
-            report["n_tier_a"] = int(resolved.get("n_tier_a") or len(codes))
+            report["n_tier_a"] = len(loss_codes or [])
+            report["train_loss_universe"] = "watching_tier_a"
         report["lookback"] = lookback
         if note:
             report["api_note"] = str(note)[:200]

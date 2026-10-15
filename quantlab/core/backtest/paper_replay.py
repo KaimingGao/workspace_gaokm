@@ -20,7 +20,7 @@ from __future__ import annotations
 import copy
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -1766,6 +1766,28 @@ def _required_factor_keys_from_return_models(
     return keys
 
 
+def _stamp_tradable_hard_reject(
+    scored: Sequence[dict],
+    tradable_codes: Optional[Collection[str]],
+    *,
+    reason: str,
+) -> None:
+    """分档外的名字留在打分截面里，但不许新开；已持仓则清仓。"""
+    if tradable_codes is None:
+        return
+    allow = {str(c).strip() for c in tradable_codes if str(c or "").strip()}
+    why = str(reason or "").strip() or "可预测性分档外"
+    for it in scored or []:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        if not code or code in allow or it.get("hard_reject"):
+            continue
+        it["hard_reject"] = True
+        it["reject_reason"] = why
+        it["predictability_tier_block"] = True
+
+
 def _attach_open_yhat_heads(
     entries: List[dict],
     *,
@@ -2152,45 +2174,50 @@ def rescore_replay_y_τc_at_clock(
     head = clamp_replay_fill_clock(clock)
     if head == "09:30" or day_i <= 0 or day_i >= len(dates):
         return items, 0
-    from core.t0.score_policy import _minute_bars_until_hm, rescore_scores_at_fixed_prefix
+    from core.t0.score_policy import (
+        _minute_bars_until_hm,
+        rescore_scores_at_fixed_prefix,
+        temporary_pool_feature_rows,
+    )
 
     day = dates[day_i]
     n_ok = 0
-    for it in items:
-        if not isinstance(it, dict):
-            continue
-        code = str(it.get("stock_code") or "").strip()
-        if not code:
-            continue
-        mins = (minute_maps.get(code) or {}).get(day) or []
-        prefix = _minute_bars_until_hm(mins, tau_hm=head)
-        if len(prefix) < 1:
-            continue
-        hist, day_bar = _replay_hist_and_day_bar(
-            code,
-            dates=dates,
-            date_maps=date_maps,
-            day_i=day_i,
-            max_window=max_window,
-        )
-        if not isinstance(day_bar, dict) or len(hist) < 2:
-            continue
-        try:
-            live = rescore_scores_at_fixed_prefix(
-                stock_code=code,
-                minute_prefix=prefix,
-                day_bar=day_bar,
-                hist_bars=hist,
-                tau_pool_day=tau_pool_day,
-                fuse_intraday=True,
-                open_snap=dict(it),
-                include_tau_horizons=False,
+    with temporary_pool_feature_rows(day, items):
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            code = str(it.get("stock_code") or "").strip()
+            if not code:
+                continue
+            mins = (minute_maps.get(code) or {}).get(day) or []
+            prefix = _minute_bars_until_hm(mins, tau_hm=head)
+            if len(prefix) < 1:
+                continue
+            hist, day_bar = _replay_hist_and_day_bar(
+                code,
+                dates=dates,
+                date_maps=date_maps,
+                day_i=day_i,
+                max_window=max_window,
             )
-        except Exception:  # noqa: BLE001
-            logger.debug("replay prefix y_τc rescore failed %s %s", code, day, exc_info=True)
-            continue
-        if _apply_prefix_oc(it, live if isinstance(live, dict) else {}, cfg):
-            n_ok += 1
+            if not isinstance(day_bar, dict) or len(hist) < 2:
+                continue
+            try:
+                live = rescore_scores_at_fixed_prefix(
+                    stock_code=code,
+                    minute_prefix=prefix,
+                    day_bar=day_bar,
+                    hist_bars=hist,
+                    tau_pool_day=tau_pool_day,
+                    fuse_intraday=True,
+                    open_snap=dict(it),
+                    include_tau_horizons=False,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("replay prefix y_τc rescore failed %s %s", code, day, exc_info=True)
+                continue
+            if _apply_prefix_oc(it, live if isinstance(live, dict) else {}, cfg):
+                n_ok += 1
     return items, n_ok
 
 
@@ -2247,6 +2274,8 @@ def backtest_paper_replay(
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
     score_backend: Optional[str] = None,
+    tradable_codes: Optional[Collection[str]] = None,
+    tradable_reject_reason: str = "可预测性分档外",
 ) -> Dict[str, Any]:
     """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
 
@@ -2730,6 +2759,11 @@ def backtest_paper_replay(
                 apply_tc_rank_scores(scored, model_doc=tc_rank_doc)
             except Exception:  # noqa: BLE001
                 logger.debug("attach y_tc_rank failed", exc_info=True)
+        _stamp_tradable_hard_reject(
+            scored,
+            tradable_codes,
+            reason=tradable_reject_reason,
+        )
         _stamp_stock_names(scored, name_by_code)
         _stamp_stock_names(paper.get("holdings") or [], name_by_code)
 

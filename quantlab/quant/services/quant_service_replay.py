@@ -140,6 +140,8 @@ class QuantReplayMixin:
 
         pred_meta: Dict[str, Any] = {"enabled": False}
         effective_lookback = int(lookback)
+        tradable_codes = None
+        tradable_reject_reason = "可预测性分档外"
         if use_predictability_tiers:
             from core.research.predictability_tiers import (
                 load_predictability_tiers_last,
@@ -177,6 +179,7 @@ class QuantReplayMixin:
             keep = tier_code_set(tier_rep, allowed)
             n_before = len(candidates)
             filtered = [c for c in candidates if c in keep]
+            tradable_codes = set(filtered)
             hold_n = (
                 int(last_hold)
                 if last_hold is not None
@@ -191,7 +194,7 @@ class QuantReplayMixin:
                 return {
                     "success": False,
                     "error": (
-                        f"枢纽分档过滤后无标的（允许 {''.join(allowed)}；"
+                        f"允许档内无标的（允许 {''.join(allowed)}；"
                         f"A{(tier_rep.get('counts') or {}).get('A', 0)}"
                         f"/B{(tier_rep.get('counts') or {}).get('B', 0)}"
                         f"/C{(tier_rep.get('counts') or {}).get('C', 0)}）"
@@ -199,7 +202,7 @@ class QuantReplayMixin:
                     "universe": resolved,
                     "predictability_tiers": {
                         "enabled": True,
-                        "protocol": "hub_tier_filter",
+                        "protocol": "hub_tier_gate",
                         "reused_hub": True,
                         "holdout_n": hold_n,
                         "tier_n": tier_rep.get("tier_n") or len(tier_dates),
@@ -212,12 +215,12 @@ class QuantReplayMixin:
                         "n_out": 0,
                     },
                 }
-            candidates = filtered
-            # 回测天数用请求 lookback（与 Holdout 独立）；分档只过滤宇宙
+            # 截面 z 用整段候选池；分档只限制开仓，并清掉不在允许档的持仓。
             effective_lookback = max(1, int(lookback))
+            tier_label = "".join(allowed)
             pred_meta = {
                 "enabled": True,
-                "protocol": "hub_tier_filter",
+                "protocol": "hub_tier_gate",
                 "reused_hub": True,
                 "holdout_n": hold_n,
                 "tier_n": tier_rep.get("tier_n") or len(tier_dates),
@@ -228,9 +231,10 @@ class QuantReplayMixin:
                 "head": tier_rep.get("head") or str(predictability_head or "oo"),
                 "counts": tier_rep.get("counts") if isinstance(tier_rep, dict) else None,
                 "n_in": n_before,
-                "n_out": len(candidates),
+                "n_out": len(filtered),
+                "n_scored": n_before,
                 "note": (
-                    "复用研究枢纽「观察池分档」过滤宇宙；"
+                    "截面 z 用整段观察池；分档只限制开仓，并清掉不在允许档的持仓。"
                     "回测天数=请求 lookback（与 Holdout 独立）。"
                 ),
             }
@@ -238,8 +242,10 @@ class QuantReplayMixin:
                 "unrestricted": False,
                 "predictability_tiers": allowed,
                 "n_in": n_before,
-                "n_out": len(candidates),
-                "note": "复用枢纽可预测性档过滤（非 cluster fit_tier）",
+                "n_out": len(filtered),
+                "n_scored": n_before,
+                "note": "分档是交易闸；截面 z 用整段候选池",
+                "tradable_reject_reason": f"可预测性非{tier_label}档",
             }
 
         if _cancelled():
@@ -383,6 +389,8 @@ class QuantReplayMixin:
             cancel_cb=cancel_cb,
             score_model_role=role,
             score_backend=backend,
+            tradable_codes=tradable_codes,
+            tradable_reject_reason=str(fit_meta.get("tradable_reject_reason") or tradable_reject_reason),
         )
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
@@ -461,7 +469,7 @@ class QuantReplayMixin:
             "fit_tiers": fit_meta,
             "predictability_tiers": pred_meta if pred_meta.get("enabled") else None,
             "note": (
-                "观察池分档过滤宇宙；回测天数=请求 lookback（与 Holdout 独立）。"
+                "截面 z 用整段观察池；分档只限制开仓。回测天数=请求 lookback（与 Holdout 独立）。"
                 if pred_meta.get("enabled")
                 else "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
             ),

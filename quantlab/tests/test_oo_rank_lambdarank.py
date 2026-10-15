@@ -1141,5 +1141,47 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
         self.assertIn("请先点拟合", str(out.get("error") or ""))
 
 
+class TestRankLossMaskAfterCrossSectionZ(unittest.TestCase):
+    def test_ridge_loss_on_one_code_keeps_full_day_z(self):
+        from core.research.oo_rank_lambdarank import _fit_ridge_baseline
+
+        days = []
+        for i in range(10):
+            days.append(
+                {
+                    "date": f"2024-01-{i + 1:02d}",
+                    "codes": ["A", "B", "C"],
+                    "ys": [0.0, 0.0, 0.0],
+                    "names": ["f0"],
+                    "X": np.zeros((3, 1), dtype=np.float64),
+                }
+            )
+        for i in range(10):
+            days.append(
+                {
+                    "date": f"2024-02-{i + 1:02d}",
+                    "codes": ["A", "B", "C"],
+                    "ys": [1.0, 1.0, 1.0],
+                    "names": ["f0"],
+                    "X": np.asarray([[0.0], [10.0], [10.0]], dtype=np.float64),
+                }
+            )
+        masked = _fit_ridge_baseline(
+            days, feature_names=["f0"], cross_section_zscore=True, train_codes=["A"]
+        )
+        self.assertTrue(masked.get("success"), masked)
+        beta_a = float((masked.get("coefficients") or {}).get("f0") or 0.0)
+        self.assertLess(beta_a, -0.2, masked.get("coefficients"))
+        self.assertEqual(masked.get("loss_rows"), 20)
+        self.assertGreater(int(masked.get("zscore_rows") or 0), 20)
+
+        pooled = _fit_ridge_baseline(
+            days, feature_names=["f0"], cross_section_zscore=True, train_codes=None
+        )
+        self.assertTrue(pooled.get("success"), pooled)
+        beta_all = float((pooled.get("coefficients") or {}).get("f0") or 0.0)
+        self.assertLess(abs(beta_all), 0.2, pooled.get("coefficients"))
+
+
 if __name__ == "__main__":
     unittest.main()

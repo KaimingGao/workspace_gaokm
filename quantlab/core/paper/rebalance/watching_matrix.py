@@ -122,9 +122,11 @@ def _apply_universe_fit_tier_filter(
     *,
     keep: Sequence[str] = (),
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """可预测性分档 live 闸：有 active（随历史回测分档勾选）则按档过滤；无则不过滤。
+    """可预测性分档 live 闸的元数据。
 
-    持仓 keep 仍进打分；``force_exit_held``（掉出允许档）由后续标硬清仓。
+    截面 z 用调用方传入的整段观察池。返回列表里的缩短名单只给旧调用方估价。
+    ``tradable_codes`` 做开仓闸；``force_exit_held`` 标硬清仓。
+    无 active 时 ``tradable_codes`` 为 None。
     """
     from core.research.predictability_tiers import filter_codes_by_predictability_live
 
@@ -156,6 +158,30 @@ def _mark_predictability_tier_exits(
         item["hard_reject"] = True
         item["reject_reason"] = why
         item["predictability_tier_exit"] = True
+
+
+def _mark_predictability_tier_blocks(
+    item_by_code: Dict[str, dict],
+    *,
+    tradable_codes: Any,
+    allowed_tiers: Sequence[str],
+) -> None:
+    """不在允许档、且还没标清仓的名字：留在截面里，禁止新开。"""
+    if not isinstance(tradable_codes, (list, tuple, set)):
+        return
+    allow = {str(c).strip() for c in tradable_codes if str(c).strip()}
+    label = "".join(
+        str(t).strip().upper()
+        for t in (allowed_tiers or [])
+        if str(t or "").strip()
+    ) or "A"
+    why = f"可预测性非{label}档 不开仓"
+    for code, item in item_by_code.items():
+        if not isinstance(item, dict) or code in allow or item.get("hard_reject"):
+            continue
+        item["hard_reject"] = True
+        item["reject_reason"] = why
+        item["predictability_tier_block"] = True
 
 
 def _resolve_report_name(
@@ -221,7 +247,7 @@ def _score_pool(
 
     scored: List[dict] = []
     rejected: List[dict] = []
-    pool = [str(c or "").strip() for c in list(codes)[:120] if str(c or "").strip()]
+    pool = [str(c or "").strip() for c in codes if str(c or "").strip()]
     if not pool:
         return scored, rejected
 
@@ -793,23 +819,14 @@ def simulate_watching_matrix_preview(
             "empty_reason": "empty_book",
             "confirm_supported": True,
         }
-    codes, fit_meta = _apply_universe_fit_tier_filter(codes, keep=held_codes)
+    _, fit_meta = _apply_universe_fit_tier_filter(codes, keep=held_codes)
     if isinstance(pool_meta, dict):
         pool_meta = dict(pool_meta)
         pool_meta["fit_tiers"] = fit_meta
         pool_meta["n_total"] = len(codes)
-    if not codes:
-        return {
-            "success": False,
-            "ok": False,
-            "mode": "watching_matrix",
-            "dry_run": bool(dry_run),
-            "matrix_mode": True,
-            "error": "观察池按拟合档过滤后为空",
-            "empty_reason": "empty_book",
-            "pool_meta": pool_meta,
-            "confirm_supported": True,
-        }
+        tradable = fit_meta.get("tradable_codes")
+        if isinstance(tradable, (list, tuple, set)):
+            pool_meta["n_tradable"] = len(tradable)
 
     # 与持仓表 / 数据中心同源：signal_config.scoring.horizon_days
     try:
@@ -876,6 +893,11 @@ def simulate_watching_matrix_preview(
     _mark_predictability_tier_exits(
         item_by_code,
         force_exit_held=list(fit_meta.get("force_exit_held") or []),
+        allowed_tiers=list(fit_meta.get("allowed_tiers") or []),
+    )
+    _mark_predictability_tier_blocks(
+        item_by_code,
+        tradable_codes=fit_meta.get("tradable_codes"),
         allowed_tiers=list(fit_meta.get("allowed_tiers") or []),
     )
 

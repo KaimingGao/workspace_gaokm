@@ -218,6 +218,12 @@ def score_and_rank_watching(
                     config=cfg,
                     rem_model_doc=rem_doc,
                 )
+            try:
+                from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+                rescore_fitted_cross_section(items)
+            except Exception:  # noqa: BLE001
+                logger.debug("score_and_rank cross-section rescore failed", exc_info=True)
             meta["dual_score"] = {
                 "fusion_mode": dual_cfg.get("fusion_mode"),
                 "w_eod": dual_cfg.get("w_eod"),

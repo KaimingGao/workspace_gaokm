@@ -506,20 +506,23 @@ def _walk_t0(
                 if isinstance(pool_day.get("ref_by_code"), dict)
                 else {}
             )
-            score_snap = resolve_scores_for_code(
-                stock_code,
-                hist_bars=hist_prior,
-                day_bar=bar_day,
-                source=src,
-                fuse_intraday=resolve_fuse_intraday(cfg),
-                allow_fallback=(src != "compute"),
-                as_of=str(history[gi - 1].get("date") or "")[:10] if gi > 0 else dkey[:10],
-                pool_gaps=pool_day.get("pool_gaps"),
-                sector_gap_breadth=pool_day.get("sector_gap_breadth"),
-                sector_gap_median=ref_map.get(stock_code),
-                # 选向禁分钟前缀 / 开→τ；成交仍用下方 mins
-                use_minute_tau=False,
-            )
+            from core.t0.score_policy import watching_pool_z_scope
+
+            with watching_pool_z_scope():
+                score_snap = resolve_scores_for_code(
+                    stock_code,
+                    hist_bars=hist_prior,
+                    day_bar=bar_day,
+                    source=src,
+                    fuse_intraday=resolve_fuse_intraday(cfg),
+                    allow_fallback=(src != "compute"),
+                    as_of=str(history[gi - 1].get("date") or "")[:10] if gi > 0 else dkey[:10],
+                    pool_gaps=pool_day.get("pool_gaps"),
+                    sector_gap_breadth=pool_day.get("sector_gap_breadth"),
+                    sector_gap_median=ref_map.get(stock_code),
+                    # 选向禁分钟前缀 / 开→τ；成交仍用下方 mins
+                    use_minute_tau=False,
+                )
         day = simulate_t0_day(
             bar=bar_day,
             shares=shares,

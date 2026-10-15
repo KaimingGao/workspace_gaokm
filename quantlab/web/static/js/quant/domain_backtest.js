@@ -958,7 +958,7 @@ export function installBacktest(q) {
       fill_clock: readFillClock(),
       use_predictability_tiers: usePred,
       predictability_tiers: usePred ? predTiers : null,
-      // 分档过滤时把 ŷ_oo 卡片 Holdout 传给后端做一致性校验；回测天数仍用 lookback
+      // 勾了分档时把 ŷ_oo 卡片 Holdout 传给后端做一致性校验；回测天数仍用 lookback
       holdout_trading_days: usePred ? holdoutDays : null,
       predictability_head: "oo",
       price_space_gate: readPriceSpaceGate(),
