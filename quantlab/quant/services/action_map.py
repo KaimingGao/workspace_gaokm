@@ -45,7 +45,8 @@ ACTIONS: List[Dict[str, Any]] = [
         ],
         "core": [
             "core.watching.store",
-            "core.backtest.topk_backtest",
+            "core.backtest.topk_probe",
+            "core.backtest.topk_oos_curve",
             "core.signal.cross_section",
         ],
     },

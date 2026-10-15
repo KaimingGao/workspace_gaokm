@@ -1,22 +1,25 @@
-"""滚动可预测性票档：按 ŷ_oo / ŷ_τc 命中率截面序的倒数合成 Score 定档。
+"""滚动可预测性票档：按 Holdout 前半上涨正类 F1 合成 Score 定档。
 
 用**已落盘研究套** ŷ_oo（``return_score_model_research.json``）打分，与日线实现标签按票聚合。
-分档用的命中率只看 Holdout **前半**。截面 Rank IC / IC / ICIR 与档内平均收益看 Holdout **整段**。
-有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：命中看前半，截面指标看整段：
-- hit_rate / hit_rate_tau = 前半符号命中率（|ŷ| 死区外）
-- n_valid / n_valid_tau = 前半有效决策日
-- Score = 1/rank(hit_rate) + 1/rank(hit_rate_tau)（无 ŷ_τc 研究套时仅 1/rank(hit_rate)）
-- A 档另过命中率门槛（默认 Y_oo ≥ 50%、有 ŷ_τc 研究套时 Y_τc ≥ 50%；可配）；
+分档用的命中率与 F1 只看 Holdout **前半**。截面 Rank IC / IC / ICIR 与档内平均收益看 Holdout **整段**。
+有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：命中与 F1 看前半，截面指标看整段：
+- hit_rate / hit_rate_tau = 前半符号命中率（表「OO_ACC」/「TC_ACC」；不进 Score / A 档）
+- n_valid / n_valid_tau = 前半有效决策日（表内不展示）
+- Score = 0.5*OO_F1 + 0.5*TC_F1（``f1_pos`` / ``f1_pos_tau``；缺一侧按 0；两侧都缺 → 无 Score）
+  无 ŷ_τc 研究套时 Score = OO_F1
+- A 档另过 F1 门槛（默认 OO_F1 ≥ 20%、有 ŷ_τc 研究套时 TC_F1 ≥ 20%；可配 ``a_f1`` / ``tau_a_f1``）；
   可选 **OO_R+ > 0** / **TC_R+ > 0**（``require_oo_r_pos`` / ``require_tc_r_pos``，默认皆开；勾选的各自独立须过线）
-  （无 ŷ_τc 研究套时 TC_R+ 门槛不生效，与 Y_τc 命中门槛同）
-- 过门槛者按 Score 降序取 top ``a_count``→A（未过门槛不占 A 名额），接着 ``b_count``→B，其余→C（默认 100 / 300）；无有效命中样本→C
+  （无 ŷ_τc 研究套时 TC_F1 / TC_R+ 门槛不生效）
+- 过门槛者按 Score 降序取 top ``a_count``→A（未过门槛不占 A 名额），接着 ``b_count``→B，其余→C（默认 100 / 300）；无 Score→C
 - 分档后另报各档在整段 Holdout 上的日截面 Rank IC / IC / ICIR；
   档内「平均收益率」= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」）
 - 每票 ``mean_y_pos`` = Holdout **前半** mean(y_oo | ŷ_oo>ε)（分档表「OO_R+」；勾选时进 A 档门槛）
-- 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = Holdout **前半** ŷ_oo 上涨正类 F1（表「OO_F1」；仅展示）
-- 有 ŷ_τc 研究套时：``mean_y_pos_tau``（TC_R+，勾选时进 A 档门槛）、``f1_pos_tau`` 等（TC_F1）同口径只换头
+- 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = Holdout **前半** ŷ_oo 上涨正类
+  （表「OO_F1」进 Score 与 A 档；「OO_P」/「OO_R」仅展示）
+- 有 ŷ_τc 研究套时：``mean_y_pos_tau``（TC_R+）、``f1_pos_tau``（TC_F1，进 Score 与 A 档）、
+  ``precision_pos_tau`` / ``recall_pos_tau``（TC_P / TC_R）同口径只换头
 
-研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score 只用 ŷ_oo 序。
+研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score = OO_F1。
 有研究套时面板只拉 **Holdout + 因子暖窗**；无 ŷ_oo 研究套现训才用 ``lookback`` 全窗。
 
 默认池 = 观察池；可选 research_universe（pool=ledger 已废弃，等同 watching）。
@@ -41,11 +44,13 @@ from core.io_atomic import atomic_write_json
 SCHEMA = "predictability_tiers_v1"
 ACTIVE_SCHEMA = "predictability_tiers_active_v1"
 DEFAULT_MIN_N = 20  # 兼容旧调用；不再参与定档
-# Score 序截取：过 A 档命中率门槛者 top a_count→A，接着 b_count→B，其余→C
+# Score 序截取：过 A 档 F1 门槛者 top a_count→A，接着 b_count→B，其余→C
 DEFAULT_A_COUNT = 100
 DEFAULT_B_COUNT = 300
-DEFAULT_A_HIT = 0.50  # A 档 Y_oo 命中率
-DEFAULT_TAU_A_HIT = 0.50  # A 档 Y_τc 命中率（有研究套时）
+DEFAULT_A_F1 = 0.20  # A 档 OO_F1
+DEFAULT_TAU_A_F1 = 0.20  # A 档 TC_F1（有研究套时）
+DEFAULT_A_HIT = DEFAULT_A_F1  # 旧名兼容
+DEFAULT_TAU_A_HIT = DEFAULT_TAU_A_F1  # 旧名兼容
 DEFAULT_REQUIRE_OO_R_POS = True  # A 档可选 OO_R+>0
 DEFAULT_REQUIRE_TC_R_POS = True  # A 档可选 TC_R+>0（有 ŷ_τc 研究套时）
 A_COUNT_MIN = 1
@@ -70,25 +75,32 @@ def clamp_b_count(raw: Any, default: int = DEFAULT_B_COUNT) -> int:
     return max(B_COUNT_MIN, min(B_COUNT_MAX, n))
 
 
-def clamp_hit_rate(raw: Any, default: float = DEFAULT_A_HIT) -> float:
-    """命中率门槛，返回 0–1。``0.5`` 与 ``50`` 都是 50%。"""
+def clamp_hit_rate(raw: Any, default: float = DEFAULT_A_F1) -> float:
+    """比例门槛，返回 0–1。``0.2`` 与 ``20`` 都是 20%（F1 / 旧命中率共用）。"""
     try:
         v = float(raw)
     except (TypeError, ValueError):
-        v = float(default if default is not None else DEFAULT_A_HIT)
+        v = float(default if default is not None else DEFAULT_A_F1)
     if not math.isfinite(v):
-        v = float(default if default is not None else DEFAULT_A_HIT)
+        v = float(default if default is not None else DEFAULT_A_F1)
     if v > 1.0:
         v = v / 100.0
     return max(0.0, min(1.0, v))
 
 
+clamp_f1_floor = clamp_hit_rate
+
+
 def _meets_hit_floor(raw: Any, floor: float) -> bool:
+    """比例是否过线（≥）；缺/非有限 → 否。"""
     try:
         v = float(raw)
     except (TypeError, ValueError):
         return False
     return math.isfinite(v) and v + 1e-12 >= float(floor)
+
+
+_meets_f1_floor = _meets_hit_floor
 
 
 DEFAULT_LIVE_ALLOWED = ("A",)
@@ -157,8 +169,6 @@ _SLIM_ROW_KEYS = (
     "name",
     "tier",
     "score",
-    "rank_oo",
-    "rank_tau",
     "hit_rate",
     "n_valid",
     "n_days",
@@ -413,23 +423,15 @@ def filter_codes_by_predictability_live(
     }
 
 
-def _rank_desc(values: Sequence[Optional[float]]) -> List[Optional[float]]:
-    """截面序：值越大 rank 越小（1=最好）；缺失 → None。同分按原下标稳定破平。"""
-    indexed: List[Tuple[int, float]] = []
-    for i, raw in enumerate(values):
-        if raw is None:
-            continue
-        try:
-            v = float(raw)
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(v):
-            indexed.append((i, v))
-    indexed.sort(key=lambda t: (-t[1], t[0]))
-    ranks: List[Optional[float]] = [None] * len(values)
-    for r, (i, _) in enumerate(indexed, start=1):
-        ranks[i] = float(r)
-    return ranks
+def _finite_f1(raw: Any) -> Optional[float]:
+    """上涨正类 F1；缺失或非有限 → None（合成 Score 时按 0）。"""
+    try:
+        v = float(raw) if raw is not None else float("nan")
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v):
+        return None
+    return v
 
 
 def assign_tiers_by_rank_score(
@@ -438,96 +440,70 @@ def assign_tiers_by_rank_score(
     require_tau: bool = False,
     a_count: int = DEFAULT_A_COUNT,
     b_count: int = DEFAULT_B_COUNT,
-    a_hit: float = DEFAULT_A_HIT,
-    tau_a_hit: float = DEFAULT_TAU_A_HIT,
+    a_f1: Optional[float] = None,
+    tau_a_f1: Optional[float] = None,
     require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
     require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
+    a_hit: Optional[float] = None,
+    tau_a_hit: Optional[float] = None,
 ) -> None:
-    """就地定档：Score = 1/rank(y_oo) [+ 1/rank(y_τc)]，A 档另过命中率与可选 R+ 门槛。
+    """就地定档：Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 时 Score = OO_F1）。
 
-    - 有有效 Y_oo 命中率的票参与排序；无样本 → C
-    - ``require_tau`` 时加 1/rank(Y_τc)；缺 τc 命中率的票 τc 序取末位+1
-    - A：Y_oo ≥ ``a_hit``（默认 50%）；``require_tau`` 时还须 Y_τc ≥ ``tau_a_hit``；
+    - 有 ŷ_τc（``require_tau``）：缺一侧 F1 按 0；两侧都缺 → 无 Score，档 C
+    - 无 ŷ_τc：Score = OO_F1；缺 OO_F1 → C（TC_F1 不计入）
+    - A：OO_F1 ≥ ``a_f1``（默认 20%）；``require_tau`` 时还须 TC_F1 ≥ ``tau_a_f1``；
       ``require_oo_r_pos`` 时还须 ``mean_y_pos``（OO_R+）> 0；
       ``require_tc_r_pos`` 且 ``require_tau`` 时还须 ``mean_y_pos_tau``（TC_R+）> 0；
-      （缺/非有限/≤0 不过线；两侧勾选则须都过）
+      （缺/非有限/不过线不占 A；两侧勾选则须都过）。命中率（OO_ACC/TC_ACC）不进门槛
     - 过门槛者按 Score 降序取 top ``a_count``（默认 100）→ A；未过门槛不占 A 名额
     - 其余按 Score 接着 ``b_count``（默认 300）→ B；再其余 → C
+    - ``a_hit`` / ``tau_a_hit``：旧参数名，等同 ``a_f1`` / ``tau_a_f1``
     """
     n_a = clamp_a_count(a_count)
     n_b = clamp_b_count(b_count)
-    oo_floor = clamp_hit_rate(a_hit, DEFAULT_A_HIT)
-    tau_floor = clamp_hit_rate(tau_a_hit, DEFAULT_TAU_A_HIT)
+    oo_raw = a_f1 if a_f1 is not None else a_hit
+    tau_raw = tau_a_f1 if tau_a_f1 is not None else tau_a_hit
+    oo_floor = clamp_f1_floor(
+        DEFAULT_A_F1 if oo_raw is None else oo_raw, DEFAULT_A_F1
+    )
+    tau_floor = clamp_f1_floor(
+        DEFAULT_TAU_A_F1 if tau_raw is None else tau_raw, DEFAULT_TAU_A_F1
+    )
     need_oo_r_pos = bool(require_oo_r_pos)
     need_tc_r_pos = bool(require_tc_r_pos) and bool(require_tau)
 
-    eligible: List[Dict[str, Any]] = []
+    scored: List[Tuple[float, str, Dict[str, Any]]] = []
     for r in rows:
         if not isinstance(r, dict):
             continue
-        hr = r.get("hit_rate")
-        n_valid = max(0, int(r.get("n_valid") or 0))
-        try:
-            hr_f = float(hr) if hr is not None else float("nan")
-        except (TypeError, ValueError):
-            hr_f = float("nan")
-        if n_valid <= 0 or not math.isfinite(hr_f):
+        oo_f1 = _finite_f1(r.get("f1_pos"))
+        tau_f1 = _finite_f1(r.get("f1_pos_tau"))
+        if require_tau:
+            if oo_f1 is None and tau_f1 is None:
+                r["tier"] = "C"
+                r["score"] = None
+                continue
+            score = 0.5 * (0.0 if oo_f1 is None else oo_f1) + 0.5 * (
+                0.0 if tau_f1 is None else tau_f1
+            )
+        elif oo_f1 is None:
             r["tier"] = "C"
             r["score"] = None
-            r["rank_oo"] = None
-            r["rank_tau"] = None
             continue
-        eligible.append(r)
-
-    if not eligible:
-        return
-
-    oo_ranks = _rank_desc([r.get("hit_rate") for r in eligible])
-    tau_ranks: List[Optional[float]]
-    if require_tau:
-        tau_vals: List[Optional[float]] = []
-        for r in eligible:
-            n_tau = max(0, int(r.get("n_valid_tau") or 0))
-            ht = r.get("hit_rate_tau")
-            try:
-                ht_f = float(ht) if ht is not None else float("nan")
-            except (TypeError, ValueError):
-                ht_f = float("nan")
-            if n_tau > 0 and math.isfinite(ht_f):
-                tau_vals.append(ht_f)
-            else:
-                tau_vals.append(None)
-        tau_ranks = _rank_desc(tau_vals)
-        n_tau_ranked = sum(1 for x in tau_ranks if x is not None)
-        worst_tau = float(n_tau_ranked + 1)
-        tau_ranks = [x if x is not None else worst_tau for x in tau_ranks]
-    else:
-        tau_ranks = [None] * len(eligible)
-
-    scored: List[Tuple[float, str, Dict[str, Any]]] = []
-    for r, r_oo, r_tau in zip(eligible, oo_ranks, tau_ranks):
-        if r_oo is None or r_oo <= 0:
-            r["tier"] = "C"
-            r["score"] = None
-            r["rank_oo"] = None
-            r["rank_tau"] = None
-            continue
-        score = 1.0 / float(r_oo)
-        r["rank_oo"] = int(r_oo)
-        if require_tau and r_tau is not None and r_tau > 0:
-            score += 1.0 / float(r_tau)
-            r["rank_tau"] = int(r_tau)
         else:
-            r["rank_tau"] = None
-        r["score"] = round(score, 6)
-        scored.append((score, str(r.get("code") or ""), r))
+            score = oo_f1
+        r["score"] = round(float(score), 6)
+        scored.append((float(score), str(r.get("code") or ""), r))
+
+    if not scored:
+        return
 
     scored.sort(key=lambda t: (-t[0], t[1]))
 
     def _clears_a(row: Dict[str, Any]) -> bool:
-        if not _meets_hit_floor(row.get("hit_rate"), oo_floor):
+        if not _meets_f1_floor(row.get("f1_pos"), oo_floor):
             return False
-        if require_tau and not _meets_hit_floor(row.get("hit_rate_tau"), tau_floor):
+        if require_tau and not _meets_f1_floor(row.get("f1_pos_tau"), tau_floor):
             return False
         def _r_pos(key: str) -> float:
             try:
@@ -571,7 +547,7 @@ def assign_tier(
     require_tau: bool = False,
     **_legacy: Any,
 ) -> str:
-    """单票兼容入口：无截面同伴时无法算序，有有效命中→B，否则→C。
+    """单票兼容入口：有有效命中→B，否则→C。不按 F1 合成 Score。
 
     正式分档请用 ``assign_tiers_by_rank_score``。
     """
@@ -1599,11 +1575,16 @@ def _rows_from_acc(
     require_tau: bool = False,
     a_count: int = DEFAULT_A_COUNT,
     b_count: int = DEFAULT_B_COUNT,
-    a_hit: float = DEFAULT_A_HIT,
-    tau_a_hit: float = DEFAULT_TAU_A_HIT,
+    a_f1: float = DEFAULT_A_F1,
+    tau_a_f1: float = DEFAULT_TAU_A_F1,
     require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
     require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
+    **_legacy: Any,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int], int]:
+    if "a_hit" in _legacy and a_f1 == DEFAULT_A_F1:
+        a_f1 = _legacy.get("a_hit")
+    if "tau_a_hit" in _legacy and tau_a_f1 == DEFAULT_TAU_A_F1:
+        tau_a_f1 = _legacy.get("tau_a_hit")
     name_by = name_by or {}
     if pad_missing and pool_codes:
         for c in pool_codes:
@@ -1671,8 +1652,6 @@ def _rows_from_acc(
                 "name": name_by.get(code),
                 "tier": "C",
                 "score": None,
-                "rank_oo": None,
-                "rank_tau": None,
                 "hit_rate": hit_rate,
                 "hits": hits,
                 "n_valid": n_valid,
@@ -1702,8 +1681,8 @@ def _rows_from_acc(
         require_tau=bool(require_tau),
         a_count=a_count,
         b_count=b_count,
-        a_hit=a_hit,
-        tau_a_hit=tau_a_hit,
+        a_f1=a_f1,
+        tau_a_f1=tau_a_f1,
         require_oo_r_pos=bool(require_oo_r_pos),
         require_tc_r_pos=bool(require_tc_r_pos),
     )
@@ -1737,8 +1716,8 @@ def build_holdout_half_tiers(
     min_n: int = DEFAULT_MIN_N,
     a_count: int = DEFAULT_A_COUNT,
     b_count: int = DEFAULT_B_COUNT,
-    a_hit: float = DEFAULT_A_HIT,
-    tau_a_hit: float = DEFAULT_TAU_A_HIT,
+    a_f1: Optional[float] = None,
+    tau_a_f1: Optional[float] = None,
     require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
     require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
     head: str = HEAD_OO,
@@ -1749,12 +1728,14 @@ def build_holdout_half_tiers(
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     use_research_model: bool = True,
+    a_hit: Optional[float] = None,
+    tau_a_hit: Optional[float] = None,
     **_legacy: Any,
 ) -> Dict[str, Any]:
-    """研究枢纽协议：研究套 ŷ_oo 按票分档。命中看 Holdout 前半；截面指标与等权买持看整段。
+    """研究枢纽协议：研究套 ŷ_oo 按票分档。F1/命中看 Holdout 前半；截面指标与等权买持看整段。
 
-    Score = 1/rank(Y_oo) + 1/rank(Y_τc)（无 ŷ_τc 研究套则仅 Y_oo 序）。
-    A 档另过命中率门槛（``a_hit`` / ``tau_a_hit``，默认 50% / 50%）；
+    Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 研究套则 Score = OO_F1；缺一侧按 0）。
+    A 档另过 F1 门槛（``a_f1`` / ``tau_a_f1``，默认 20% / 20%）；
     ``require_oo_r_pos`` / ``require_tc_r_pos``（默认皆开）时还须对应 R+>0
     （无 ŷ_τc 研究套时 TC 门槛不生效）。未过门槛不占 A 名额。
     过门槛者按 Score 降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
@@ -1763,9 +1744,13 @@ def build_holdout_half_tiers(
     live 档位跟随历史回测「分档」勾选。
     ``lookback``：仅无研究套现训时用的日线窗（对齐 ŷ_oo 卡训练窗）；
     有研究套时面板走 ``_score_panel_lookback`` 短窗。
-    ``**_legacy``：兼容旧 a_frac / b_frac 等参数（忽略）。
+    ``a_hit`` / ``tau_a_hit`` / ``**_legacy``：旧参数名兼容（等同 F1 门槛；a_frac 等忽略）。
     """
     del _legacy
+    if a_f1 is None:
+        a_f1 = a_hit if a_hit is not None else DEFAULT_A_F1
+    if tau_a_f1 is None:
+        tau_a_f1 = tau_a_hit if tau_a_hit is not None else DEFAULT_TAU_A_F1
     head_n = _normalize_head(head)
     if head_n == HEAD_TAU:
         return {
@@ -1782,8 +1767,8 @@ def build_holdout_half_tiers(
     pool_mode = _normalize_pool(pool) if codes is None else "explicit"
     n_a = clamp_a_count(a_count)
     n_b = clamp_b_count(b_count)
-    oo_floor = clamp_hit_rate(a_hit, DEFAULT_A_HIT)
-    tau_floor = clamp_hit_rate(tau_a_hit, DEFAULT_TAU_A_HIT)
+    oo_floor = clamp_f1_floor(a_f1, DEFAULT_A_F1)
+    tau_floor = clamp_f1_floor(tau_a_f1, DEFAULT_TAU_A_F1)
     need_oo_r_pos = bool(require_oo_r_pos)
     need_tc_r_pos = bool(require_tc_r_pos)
     if len(pool_codes) < 2:
@@ -1833,8 +1818,8 @@ def build_holdout_half_tiers(
         require_tau=require_tau,
         a_count=n_a,
         b_count=n_b,
-        a_hit=oo_floor,
-        tau_a_hit=tau_floor,
+        a_f1=oo_floor,
+        tau_a_f1=tau_floor,
         require_oo_r_pos=need_oo_r_pos,
         require_tc_r_pos=need_tc_r_pos,
     )
@@ -1882,9 +1867,9 @@ def build_holdout_half_tiers(
         else "Holdout 前现训 ŷ_oo（无研究套）"
     )
     score_note = (
-        "Score=1/rank(Y_oo)+1/rank(Y_τc)"
+        "Score=0.5*OO_F1+0.5*TC_F1"
         if require_tau
-        else "Score=1/rank(Y_oo)（无 ŷ_τc 研究套）"
+        else "Score=OO_F1（无 ŷ_τc 研究套）"
     )
     rep: Dict[str, Any] = {
         "success": True,
@@ -1904,15 +1889,15 @@ def build_holdout_half_tiers(
         "thresholds": {
             "a_count": int(n_a),
             "b_count": int(n_b),
-            "a_hit": oo_floor,
-            "tau_a_hit": tau_floor,
+            "a_f1": oo_floor,
+            "tau_a_f1": tau_floor,
             "require_tau": bool(require_tau),
             "require_oo_r_pos": bool(need_oo_r_pos),
             "require_tc_r_pos": bool(need_tc_r_pos),
             "score": (
-                "1/rank(y_oo)+1/rank(y_τc)"
+                "0.5*OO_F1+0.5*TC_F1"
                 if require_tau
-                else "1/rank(y_oo)"
+                else "OO_F1"
             ),
             "min_n": min_n_req,
         },
@@ -1960,11 +1945,11 @@ def build_holdout_half_tiers(
                 if model_source == "oo_research_model" and lookback_req > panel_lb
                 else ""
             )
-            + f"；{score_note}；A 须 Y_oo≥{oo_floor:.0%}"
+            + f"；{score_note}；A 须 OO_F1≥{oo_floor:.0%}"
             + (
-                f"、Y_τc≥{tau_floor:.0%}"
+                f"、TC_F1≥{tau_floor:.0%}"
                 if require_tau
-                else "（无 ŷ_τc 研究套，不看 Y_τc 门槛）"
+                else "（无 ŷ_τc 研究套，不看 TC_F1 门槛）"
             )
             + ("、OO_R+>0" if need_oo_r_pos else "")
             + ("、TC_R+>0" if need_tc_r_pos and require_tau else "")

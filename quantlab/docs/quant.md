@@ -1205,7 +1205,7 @@ flowchart LR
 
 **调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90_tree 仍可用（LGB 训推工具见 `core/research/horizon_lgb.py`）。
 
-**观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡 `#quant-holdout-days`）：研究套 ŷ_oo 在 Holdout **前半**按票打 A/B/C。定档 Score = **1/rank(Y_oo) + 1/rank(Y_τc)**（命中率截面序，1=最好；无研究套 ŷ_τc 时仅用 Y_oo 序）。A 档另过命中率门槛：默认 **Y_oo ≥ 50%**、有研究套 ŷ_τc 时 **Y_τc ≥ 50%**（工具栏可改，`a_hit` / `tau_a_hit`；0=关）。过门槛者按 Score 降序取 **top A 数量→A**（未过门槛不占 A 名额），**接着 B 数量→B**、其余→C；无有效命中样本→C。默认 A=100、B=300（`a_count` / `b_count`）。不看单票 IC。有研究套时只拉 **Holdout+暖窗** 建面板（不必对齐 ŷ_oo 全训练窗）；无研究套现训才吃训练窗。各档标题分别报 ŷ_oo / ŷ_τc 在 Holdout **整段**上的日截面 **Rank IC** / **IC** / **ICIR**。分档区 A/B/C 与有样本的**平均收益率**= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」；不参与定档；有样本按档内票数加权）。落盘 `predictability_tiers_last.json`；`/replay` 勾选同步 live 闸。
+**观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡 `#quant-holdout-days`）：研究套 ŷ_oo 在 Holdout **前半**按票打 A/B/C。定档 Score = **0.5*OO_F1 + 0.5*TC_F1**（Holdout 前半上涨正类 F1；缺一侧按 0；无研究套 ŷ_τc 时 Score = OO_F1）。A 档另过 F1 门槛：默认 **OO_F1 ≥ 20%**、有研究套 ŷ_τc 时 **TC_F1 ≥ 20%**（工具栏可改，`a_f1` / `tau_a_f1`；0=关）。表列另报 **OO_P / OO_R / OO_ACC** 与 **TC_P / TC_R / TC_ACC**（仅展示；ACC=符号命中率）。过门槛者按 Score 降序取 **top A 数量→A**（未过门槛不占 A 名额），**接着 B 数量→B**、其余→C；无 Score（两侧 F1 都缺，或无 ŷ_τc 时缺 OO_F1）→C。默认 A=100、B=300（`a_count` / `b_count`）。不看单票 IC。有研究套时只拉 **Holdout+暖窗** 建面板（不必对齐 ŷ_oo 全训练窗）；无研究套现训才吃训练窗。各档标题分别报 ŷ_oo / ŷ_τc 在 Holdout **整段**上的日截面 **Rank IC** / **IC** / **ICIR**。分档区 A/B/C 与有样本的**平均收益率**= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」；不参与定档；有样本按档内票数加权）。落盘 `predictability_tiers_last.json`；`/replay` 勾选同步 live 闸。
 
 ### 4.2 τ 打分链（层 2 · 残差头挂载）
 
@@ -1361,7 +1361,7 @@ score_stock(code) 续——
 （Web：默认入队 `GET /api/jobs/portfolio-backtest`，`sync=true` 才同步跑 `run_portfolio_backtest`；日报：`summarize_portfolio_backtest`）。
 
 产品回测与 live Follow 同一套 **rank_lots**：按手数开/加/清仓（未过入场清仓，无「持」）。历史成交用 5 分钟 K（回测时间 09:30–10:00）；live 窗跟独立「启动时间」`live_fill_clock`（可含 09:25）。  
-`topk_research`（`backtest_topk_equal_weight`）只作研究探针（组 OOS / 权建议 OOS / 分池合成对照），**不进 `/replay`**。中性化对照研究口与 lookback×K 参数网格已下线。
+权建议 OOS / WF 默认走轻量 `topk_oos_curve`；完整引擎在 `legacy/topk_backtest`（`full_engine=True` / 单测），**不进 `/replay`**。中性化对照研究口与 lookback×K 参数网格已下线。
 
 成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
@@ -1577,7 +1577,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | **F1 买入闸（纸面）** | **`core/paper_rebalance.py`**（buy_passes_tau_gate 调用） |
 | **账本 / 复盘（双层）** | **已删除**（`core/score_ledger/` 与复盘 HTTP）；历史 JSON 在 `data/reports/score_ledger/` |
 | 产品回测 | `core/backtest/paper_replay.py` |
-| TopK（研究探针） | `core/backtest/topk_backtest.py` |
+| TopK（研究探针，冻结） | 默认 `topk_oos_curve`；完整引擎 `legacy/topk_backtest`（`full_engine=True`）；产品回测走 paper_replay |
 | 配置 | `data/signal_config.json` → `scoring.horizon_days` / `cluster_scoring` / `dual_score` |
 | 日更 | `core/schedule_jobs.py` · [quant.md · 运维](quant.md#量化运维) |
 | 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名） |

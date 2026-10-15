@@ -190,7 +190,7 @@ class TestEnginePitAndMatch(unittest.TestCase):
 
 class TestPortfolioAttribution(unittest.TestCase):
     def test_portfolio_has_attribution_and_pit(self):
-        from core.backtest.topk_backtest import backtest_topk_equal_weight
+        from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 
         stock_bars = {
             "600519": _bars(40, start=100, step=0.2),

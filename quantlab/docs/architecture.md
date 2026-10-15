@@ -1102,7 +1102,7 @@ SKILL_SPECS = (
 ```text
 DS → core/ports/market.py → adapters/bind.py → adapters/market/
 SS → core/signal/service.py → scorer · factors · config · gate
-BS → core/backtest/service.py → engine · topk_backtest · topk_weights
+BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · topk_weights
 ```
 
 ---
@@ -1131,8 +1131,10 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | `service.py` | BacktestService 实现 |
 | `engine.py` | 单票 signal 回测 |
 | `paper_replay.py` | 产品历史回测（rank_lots；含分票贡献） |
-| `topk_backtest.py` | TopK 等权/加权回测（研究探针，≠ `/replay`） |
+| `topk_probe.py` | OOS / WF / BS 门面（默认轻量曲线） |
+| `topk_oos_curve.py` | 默认轻量等权 TopK 曲线 |
 | `topk_weights.py` | 权重计算（按用例拆分） |
+| `legacy/topk_*.py` | 完整引擎归档（full_engine / 单测；根目录 shim 已移除） |
 | `matching.py` | 成交撮合规则 |
 | `strategies/` | 策略模板 |
 
@@ -1286,7 +1288,7 @@ quantlab/
 │   ├── store.py · store_bars_sqlite.py
 │   ├── ports/                   # market · registry · signal（经 adapters.bind 注入）
 │   ├── signal/                  # Service · scorer · factors · config · score_stock
-│   ├── backtest/                # walk-forward · topk_backtest · strategies
+│   ├── backtest/                # walk-forward · topk_probe · legacy/ · strategies
 │   ├── stance.py · advise.py · facts.py · position.py
 │   ├── paper/                   # 账本 · exec · cycle · rebalance（`from core.paper import …`）
 │   ├── market/                  # symbols · calendar · context
@@ -1348,7 +1350,7 @@ quantlab/
 | 行情端口 | `core/ports/market.py` · 绑定 `adapters/bind.py` |
 | 因子打分 | `core/signal/scorer.py`（实现）· 出口经 SignalService |
 | BS（Domain Facade） | `core/backtest_service.py` · `core/backtest/`（`BacktestService` · `engine`） |
-| TopK 权重 | `core/backtest/topk_weights.py`（`topk_backtest` 再导出） |
+| TopK 权重 | `core/backtest/topk_weights.py` |
 | 纸面账本 | `core/paper/`（`ledger` · `exec` · `cycle` · `rebalance`） |
 | 风控门禁 | `core/risk/checks.py` |
 | QuantService（Application Service） | `quant/services/quant_service.py` |

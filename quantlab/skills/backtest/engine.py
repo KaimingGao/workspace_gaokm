@@ -6,7 +6,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from core.backtest.strategies import get_strategy, list_strategies, merge_strategy_params, run_strategy_backtest
-from core.backtest.topk_backtest import aggregate_stock_backtests
+from core.backtest.topk_probe import aggregate_stock_backtests
 from core.data.facade import get_bars, get_quote
 from core.ports.market import (
     default_benchmark,

@@ -9,7 +9,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from unittest.mock import patch
-from core.backtest.topk_backtest import backtest_topk_equal_weight
+from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 from core.signal.config import load_signal_config
 from core.signal.cross_section_batch import score_window_as_item
 from core.signal.fundamentals_bridge import fetch_fundamentals_batch

@@ -80,7 +80,6 @@ from web.schemas.config import (
 
 from web.schemas.backtest import (
     PaperReplayBacktestRequest,
-    PortfolioBacktestRequest,
 )
 
 from web.schemas.quant_misc import (
@@ -149,7 +148,6 @@ __all__ = [
     "MarketPriorRequest",
     "DualScoreRequest",
     "PaperReplayBacktestRequest",
-    "PortfolioBacktestRequest",
     "QuantReportRequest",
     "QuantInterpretRequest",
     "QuantReportDeleteRequest",

@@ -610,7 +610,7 @@ export function initQuant(ctx) {
     deltaYKey: "delta_topk_mean_y_tc",
     yLabel: "TopK y_τc%",
     icTip: "日频截面 Pearson 均值；原始排序分对 y_τc（price[τ]→close[T]）",
-    idleMessage: "拟合后对照 NDCG@K · 启用只落盘",
+    idleMessage: "拟合后对照 NDCG@K · 启用自动选更强 backend",
   };
 
   async function renderOoRankCoefTable(rm, opts = {}) {

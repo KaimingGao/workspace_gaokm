@@ -182,7 +182,7 @@ class TestP1QualityGate(unittest.TestCase):
             "CCC": _bars("CCC", 90, 15),
         }
         with patch(
-            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            "core.backtest.topk_probe.run_oos_topk_curve",
             side_effect=lambda bars, **kw: {
                 "success": True,
                 "metrics": {

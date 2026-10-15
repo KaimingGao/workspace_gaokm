@@ -6,7 +6,8 @@
 
 ``run_key`` 只含代码集合 + 模型套 + 窗长（**不含**日线末 bar 屑），
 避免新交易日写入后整库失效；每日文件另存 ``inputs_fp``（该日开盘信息集），
-加载时校验，历史日可跨 tip 更新复用。
+加载时校验，历史日可跨 fuse / 手数更新复用。
+因子组成按 tip 条数上限瘦身留在行内（schema 3）。schema 2 及更早的文件不再读取，下次回测会重算。
 
 布局::
 
@@ -33,13 +34,14 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
-REPLAY_SCORE_CACHE_SCHEMA = 2
+REPLAY_SCORE_CACHE_SCHEMA = 3
 _ENV_DISABLE = "QUANTLAB_REPLAY_SCORE_CACHE"
 _ENV_KEEP = "QUANTLAB_REPLAY_SCORE_CACHE_KEEP"
 _DEFAULT_KEEP_RUNS = 2
 _SCHEMA_DIR_RE = re.compile(r"^v(\d+)$")
 
-# 体积大且 fuse / rescore / 买序不依赖的字段（ŷ 已写回顶层）
+# 体积大且 fuse / rescore / 买序不依赖的字段（ŷ 已写回顶层）。
+# 因子组成不在此列：成交明细 tip 要 β·z 表，见 ``_cache_tip_formula``。
 _DROP_KEYS = frozenset(
     {
         "features",
@@ -51,16 +53,13 @@ _DROP_KEYS = frozenset(
         "factor_coefficients",
         "factor_coefficients_tau",
         "factor_coefficients_co",
-        "formula_terms",
+    }
+)
+
+_TAU_FORMULA_KEYS = frozenset(
+    {
         "formula_terms_tau",
-        "formula_terms_co",
-        "formula_terms_on",
-        "score_formula_terms",
         "score_formula_terms_tau",
-        "score_formula_terms_co",
-        "score_formula_terms_on",
-        "formula_terms_oo",
-        "score_formula_terms_oo",
     }
 )
 
@@ -246,6 +245,19 @@ def _day_path(run_key: str, day: str) -> str:
     return os.path.join(_run_dir(run_key), f"{d}.json.gz")
 
 
+def _cache_tip_formula(key: str, value: Any) -> Any:
+    """留下 tip 因子表：条数与成交行 ``tip_explain_fields`` 同帽，τ 键钉住。"""
+    from core.paper.rebalance.rank_lots import (
+        _TAU_TIP_PIN,
+        _Y_HEAD_FACTOR_N,
+        _slim_tip_formula,
+    )
+
+    if key in _TAU_FORMULA_KEYS:
+        return _slim_tip_formula(value, limit=_Y_HEAD_FACTOR_N, pin_keys=_TAU_TIP_PIN)
+    return _slim_tip_formula(value, limit=_Y_HEAD_FACTOR_N)
+
+
 def slim_day_items(rows: Sequence[dict]) -> List[dict]:
     out: List[dict] = []
     for r in rows or []:
@@ -256,6 +268,9 @@ def slim_day_items(rows: Sequence[dict]) -> List[dict]:
             continue
         slim: Dict[str, Any] = {}
         for k, v in r.items():
+            if "formula_terms" in k:
+                slim[k] = _cache_tip_formula(k, v)
+                continue
             if k in _DROP_KEYS:
                 continue
             if k.startswith("_pool") or k.startswith("_score_prefix"):

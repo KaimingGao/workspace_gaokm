@@ -804,7 +804,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
     `<div class="watching-table-scroll"><table class="quant-weight-table watching-result-table"><thead><tr>` +
     `<th class="watching-pick-cell" title="勾选后可加入模拟持仓"><input type="checkbox" id="watching-select-all" /></th>` +
     `<th title="股票名称与代码">股票</th>` +
-    `<th class="watching-col-center" title="可预测性分档（ŷ_oo Holdout 前半 Score=1/rank(Y_oo)+1/rank(Y_τc)）：A 强 top N / B 中接着 M / C 弱。同档内按 fuse 从高到低">分档</th>` +
+    `<th class="watching-col-center" title="可预测性分档（ŷ_oo Holdout 前半 Score=0.5*OO_F1+0.5*TC_F1）：A 强 top N / B 中接着 M / C 弱。同档内按 fuse 从高到低">分档</th>` +
     `<th title="是否已在模拟持仓">仓位</th>` +
     `<th title="标题情绪摘要">情绪</th>` +
     `<th class="watching-col-num" title="上一交易日收盘价">昨收</th>` +

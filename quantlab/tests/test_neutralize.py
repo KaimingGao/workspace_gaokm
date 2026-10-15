@@ -12,7 +12,7 @@ from unittest.mock import patch
 from core.signal.config import DEFAULT_SIGNAL_CONFIG, load_signal_config
 from core.signal.cross_section import rank_cross_section
 from core.signal.neutralize import apply_cross_section_neutralization
-from core.backtest.topk_backtest import backtest_topk_equal_weight
+from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 from core.signal.config import load_signal_config
 from core.signal.cross_section_batch import score_and_rank_watching
 from tests.test_p10_quant import _aligned_bars

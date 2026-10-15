@@ -51,11 +51,16 @@ def run_portfolio_wf_slices(
     weight_mode: str = "equal",
     max_position_pct: float = 40.0,
     max_sector_pct: float = 60.0,
-    dropout_n: int = 0,
 ) -> Dict[str, Any]:
-    """对组合横截面回测跑扩展窗 WF；每折用截至 test_end 的日线，报告测试段收益。"""
-    from core.backtest.topk_backtest import backtest_topk_equal_weight
+    """对组合横截面回测跑扩展窗 WF；每折用截至 test_end 的日线，报告测试段收益。
+
+    使用轻量 ``oos_topk_curve``（等权硬 TopK）；``apply_costs`` /
+    ``weight_mode`` / 限额参数保留签名兼容，轻量引擎会忽略。
+    """
+    from core.backtest.topk_probe import run_oos_topk_curve
     from research.split import rolling_walk_forward_slices
+
+    _ = apply_costs, fundamentals_by_code, weight_mode, max_position_pct, max_sector_pct
 
     dates = _common_dates(stock_bars)
     n = len(dates)
@@ -75,11 +80,8 @@ def run_portfolio_wf_slices(
         top_k=top_k,
         horizon_days=horizon_days,
         min_score=min_score,
-        fundamentals_by_code=fundamentals_by_code or None,
-        weight_mode=weight_mode,
-        max_position_pct=max_position_pct,
-        max_sector_pct=max_sector_pct,
-        dropout_n=dropout_n,
+        allow_heuristic_baseline=True,
+        rank_mode="predicted_score",
     )
     fold_rows: List[dict] = []
     test_returns: List[float] = []
@@ -102,11 +104,7 @@ def run_portfolio_wf_slices(
                 }
             )
             continue
-        res = backtest_topk_equal_weight(
-            sliced,
-            apply_costs=apply_costs,
-            **common_kw,
-        )
+        res = run_oos_topk_curve(sliced, **common_kw)
         test_dates = set(dates[fold.test_start : fold.test_end])
         test_ret = _test_period_return(res.get("equity_curve") or [], test_dates)
         m = (res or {}).get("metrics") or {}
@@ -144,9 +142,8 @@ def run_portfolio_wf_slices(
         "measured_test_folds": len(test_returns),
         "folds": fold_rows,
         "note": (
-            "扩展窗 Walk-forward：每折训练集为测试段之前全部历史；收益取测试段净值变化。"
-            f"正窗 {pos_n}/{len(test_returns)}。"
-            if test_returns
-            else "扩展窗 Walk-forward：每折训练集为测试段之前全部历史；收益取测试段净值变化。"
+            "扩展窗 Walk-forward（轻量 oos_topk_curve）：每折训练集为测试段之前全部历史；"
+            "收益取测试段净值变化。"
+            + (f"正窗 {pos_n}/{len(test_returns)}。" if test_returns else "")
         ),
     }

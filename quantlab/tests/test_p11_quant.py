@@ -6,7 +6,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.backtest.topk_backtest import backtest_topk_equal_weight
+from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 from core.paper.rebalance import compute_turnover_stats
 from core.signal.weight_suggest import format_weight_config_diff, suggest_weights_from_ic
 from tests.test_p10_quant import _aligned_bars

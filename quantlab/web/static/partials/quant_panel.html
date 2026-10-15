@@ -153,10 +153,10 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡片的 Holdout 上打分：命中只取<strong>前半</strong>定档。
+                用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡片的 Holdout 上打分：F1 与命中都只取<strong>前半</strong>。
                 有研究套时只拉 <strong>Holdout+暖窗</strong> 建面板（不必对齐全训练窗）。无研究套时才 Holdout 前现训（吃训练窗）。
-                有<strong>研究套 ŷ_τc</strong>时同样取前半命中；缺则 Score 只用 Y_oo 序。
-                定档：Score = 1/rank(Y_oo) + 1/rank(Y_τc)。A 档另过命中率门槛（默认 <strong>Y_oo ≥ 50%</strong>、<strong>Y_τc ≥ 50%</strong>，工具栏可改；无研究套 ŷ_τc 时不看 Y_τc）；可分别勾选 <strong>OO_R+&gt;0</strong> / <strong>TC_R+&gt;0</strong>（各独立须过线；无 ŷ_τc 研究套时 TC 不生效；默认皆勾选）。
+                有<strong>研究套 ŷ_τc</strong>时同样取前半上涨正类 F1；缺则 Score = OO_F1。
+                定档：Score = 0.5*OO_F1 + 0.5*TC_F1（缺一侧按 0；两侧都缺则无 Score，归 C）。A 档另过 F1 门槛（默认 <strong>OO_F1 ≥ 20%</strong>、<strong>TC_F1 ≥ 20%</strong>，工具栏可改；无研究套 ŷ_τc 时不看 TC_F1）；可分别勾选 <strong>OO_R+&gt;0</strong> / <strong>TC_R+&gt;0</strong>（各独立须过线；无 ŷ_τc 研究套时 TC 不生效；默认皆勾选）。表列另报 OO_P / OO_R / OO_ACC 与 TC_P / TC_R / TC_ACC（仅展示）。
                 过门槛的按 Score 降序取 top <strong>A 数量</strong>→A（未过门槛不占 A 名额），接着 <strong>B 数量</strong>→B、其余→C（默认 100 / 300）。
                 各档标题报 ŷ_oo / ŷ_τc 在 Holdout <strong>整段</strong>上的日截面 Rank IC · IC · ICIR；本区 A/B/C KPI 平均收益率同样看整段（都不参与定档）。
                 调仓 live 过滤跟随历史回测页「分档」勾选（掉出允许档则清仓）；不勾则不过滤。
@@ -203,35 +203,35 @@
               <span class="quant-ru-gate-k">门槛</span>
               <label
                 class="quant-inline-num quant-inline-num--frac"
-                title="A 档 Y_oo 命中率门槛。默认 50（0～100）。未达到的不进 A，名额顺延。改完后需再点「观察池分档」。"
+                title="A 档 OO_F1 门槛。默认 20（0～100）。未达到的不进 A，名额顺延。改完后需再点「观察池分档」。"
               >
-                <span>Y_oo</span>
+                <span>OO_F1</span>
                 <input
-                  id="quant-ru-a-hit"
+                  id="quant-ru-a-f1"
                   type="number"
                   min="0"
                   max="100"
                   step="1"
-                  value="50"
+                  value="20"
                   inputmode="numeric"
-                  aria-label="A 档 Y_oo 命中率"
+                  aria-label="A 档 OO_F1"
                 />
                 <span class="quant-ru-a-gate-unit">%</span>
               </label>
               <label
                 class="quant-inline-num quant-inline-num--frac"
-                title="A 档 Y_τc 命中率门槛。默认 50（0～100）。有研究套 ŷ_τc 时生效；未达到的不进 A。改完后需再点「观察池分档」。"
+                title="A 档 TC_F1 门槛。默认 20（0～100）。有研究套 ŷ_τc 时生效；未达到的不进 A。改完后需再点「观察池分档」。"
               >
-                <span>Y_τc</span>
+                <span>TC_F1</span>
                 <input
-                  id="quant-ru-tau-a-hit"
+                  id="quant-ru-tau-a-f1"
                   type="number"
                   min="0"
                   max="100"
                   step="1"
-                  value="50"
+                  value="20"
                   inputmode="numeric"
-                  aria-label="A 档 Y_τc 命中率"
+                  aria-label="A 档 TC_F1"
                 />
                 <span class="quant-ru-a-gate-unit">%</span>
               </label>
@@ -251,7 +251,7 @@
               </label>
             </span>
           </span>
-          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="用研究套 ŷ_oo（+ 有则 ŷ_τc）+ ŷ_oo 卡片 Holdout：前半算 Score，A 档另过 Y_oo / Y_τc 命中率（可勾选 OO_R+&gt;0 / TC_R+&gt;0），整段算指标与等权买持（有研究套时短窗建面板）">观察池分档</button>
+          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="用研究套 ŷ_oo（+ 有则 ŷ_τc）+ ŷ_oo 卡片 Holdout：前半算 Score，A 档另过 OO_F1 / TC_F1（可勾选 OO_R+&gt;0 / TC_R+&gt;0），整段算指标与等权买持（有研究套时短窗建面板）">观察池分档</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-ru-body">
@@ -732,7 +732,7 @@
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-tc-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用只落盘</span>
+          <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
           <label

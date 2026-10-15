@@ -1,5 +1,5 @@
 /**
- * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=1/rank(Y_oo)+1/rank(Y_τc) · A 档另过 Y_oo / Y_τc 命中率（可勾选 OO_R+>0 / TC_R+>0）· 分档看 Holdout 前半，指标与等权买持看整段 → last。
+ * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=0.5*OO_F1+0.5*TC_F1 · A 档另过 OO_F1 / TC_F1（可勾选 OO_R+>0 / TC_R+>0）· 分档看 Holdout 前半，指标与等权买持看整段 → last。
  * 有研究套时只拉 Holdout 附近本地日线建面板；live 档位跟随历史回测「分档」勾选。
  */
 import { createScoreTooltipController } from "../score_tooltip.js";
@@ -18,14 +18,14 @@ export function installResearchUniverseUi(q) {
 
   const A_COUNT_STORAGE_KEY = "quant.researchUniverse.aCount";
   const B_COUNT_STORAGE_KEY = "quant.researchUniverse.bCount";
-  const A_HIT_STORAGE_KEY = "quant.researchUniverse.aHit";
-  const TAU_A_HIT_STORAGE_KEY = "quant.researchUniverse.tauAHit";
+  const A_F1_STORAGE_KEY = "quant.researchUniverse.aF1";
+  const TAU_A_F1_STORAGE_KEY = "quant.researchUniverse.tauAF1";
   const REQUIRE_OO_R_POS_STORAGE_KEY = "quant.researchUniverse.requireOoRPos";
   const REQUIRE_TC_R_POS_STORAGE_KEY = "quant.researchUniverse.requireTcRPos";
   const A_COUNT_DEFAULT = 100;
   const B_COUNT_DEFAULT = 300;
-  const A_HIT_DEFAULT = 50;
-  const TAU_A_HIT_DEFAULT = 50;
+  const A_F1_DEFAULT = 20;
+  const TAU_A_F1_DEFAULT = 20;
   const REQUIRE_OO_R_POS_DEFAULT = true;
   const REQUIRE_TC_R_POS_DEFAULT = true;
   const A_COUNT_MIN = 1;
@@ -42,8 +42,8 @@ export function installResearchUniverseUi(q) {
     tierTable: () => document.getElementById("quant-ru-tier-table"),
     aCount: () => document.getElementById("quant-ru-a-count"),
     bCount: () => document.getElementById("quant-ru-b-count"),
-    aHit: () => document.getElementById("quant-ru-a-hit"),
-    tauAHit: () => document.getElementById("quant-ru-tau-a-hit"),
+    aF1: () => document.getElementById("quant-ru-a-f1"),
+    tauAF1: () => document.getElementById("quant-ru-tau-a-f1"),
     requireOoRPos: () => document.getElementById("quant-ru-require-oo-r-pos"),
     requireTcRPos: () => document.getElementById("quant-ru-require-tc-r-pos"),
     maxSize: () => document.getElementById("quant-watching-max-size"),
@@ -118,7 +118,7 @@ export function installResearchUniverseUi(q) {
     }
   }
 
-  /** @returns {{ aCount: number, bCount: number, aHit: number, tauAHit: number, requireOoRPos: boolean, requireTcRPos: boolean }} */
+  /** @returns {{ aCount: number, bCount: number, aF1: number, tauAF1: number, requireOoRPos: boolean, requireTcRPos: boolean }} */
   function readTierCounts() {
     const aCount = clampACount(
       el.aCount()?.value !== "" && el.aCount()?.value != null
@@ -130,17 +130,17 @@ export function installResearchUniverseUi(q) {
         ? el.bCount().value
         : readStoredCount(B_COUNT_STORAGE_KEY, B_COUNT_DEFAULT)
     );
-    const aHit = clampHitPct(
-      el.aHit()?.value !== "" && el.aHit()?.value != null
-        ? el.aHit().value
-        : readStoredCount(A_HIT_STORAGE_KEY, A_HIT_DEFAULT),
-      A_HIT_DEFAULT
+    const aF1 = clampHitPct(
+      el.aF1()?.value !== "" && el.aF1()?.value != null
+        ? el.aF1().value
+        : readStoredCount(A_F1_STORAGE_KEY, A_F1_DEFAULT),
+      A_F1_DEFAULT
     );
-    const tauAHit = clampHitPct(
-      el.tauAHit()?.value !== "" && el.tauAHit()?.value != null
-        ? el.tauAHit().value
-        : readStoredCount(TAU_A_HIT_STORAGE_KEY, TAU_A_HIT_DEFAULT),
-      TAU_A_HIT_DEFAULT
+    const tauAF1 = clampHitPct(
+      el.tauAF1()?.value !== "" && el.tauAF1()?.value != null
+        ? el.tauAF1().value
+        : readStoredCount(TAU_A_F1_STORAGE_KEY, TAU_A_F1_DEFAULT),
+      TAU_A_F1_DEFAULT
     );
     const ooInput = el.requireOoRPos();
     const tcInput = el.requireTcRPos();
@@ -152,23 +152,23 @@ export function installResearchUniverseUi(q) {
       : readStoredBool(REQUIRE_TC_R_POS_STORAGE_KEY, REQUIRE_TC_R_POS_DEFAULT);
     const aInput = el.aCount();
     const bInput = el.bCount();
-    const aHitInput = el.aHit();
-    const tauHitInput = el.tauAHit();
+    const aF1Input = el.aF1();
+    const tauF1Input = el.tauAF1();
     if (aInput && String(aInput.value) !== String(aCount)) aInput.value = String(aCount);
     if (bInput && String(bInput.value) !== String(bCount)) bInput.value = String(bCount);
-    if (aHitInput && String(aHitInput.value) !== String(aHit)) aHitInput.value = String(aHit);
-    if (tauHitInput && String(tauHitInput.value) !== String(tauAHit)) {
-      tauHitInput.value = String(tauAHit);
+    if (aF1Input && String(aF1Input.value) !== String(aF1)) aF1Input.value = String(aF1);
+    if (tauF1Input && String(tauF1Input.value) !== String(tauAF1)) {
+      tauF1Input.value = String(tauAF1);
     }
     if (ooInput && ooInput.checked !== requireOoRPos) ooInput.checked = requireOoRPos;
     if (tcInput && tcInput.checked !== requireTcRPos) tcInput.checked = requireTcRPos;
     writeStoredCount(A_COUNT_STORAGE_KEY, aCount);
     writeStoredCount(B_COUNT_STORAGE_KEY, bCount);
-    writeStoredCount(A_HIT_STORAGE_KEY, aHit);
-    writeStoredCount(TAU_A_HIT_STORAGE_KEY, tauAHit);
+    writeStoredCount(A_F1_STORAGE_KEY, aF1);
+    writeStoredCount(TAU_A_F1_STORAGE_KEY, tauAF1);
     writeStoredBool(REQUIRE_OO_R_POS_STORAGE_KEY, requireOoRPos);
     writeStoredBool(REQUIRE_TC_R_POS_STORAGE_KEY, requireTcRPos);
-    return { aCount, bCount, aHit, tauAHit, requireOoRPos, requireTcRPos };
+    return { aCount, bCount, aF1, tauAF1, requireOoRPos, requireTcRPos };
   }
 
   function paintCountFromReport(rep) {
@@ -186,17 +186,18 @@ export function installResearchUniverseUi(q) {
       if (input) input.value = String(bCount);
       writeStoredCount(B_COUNT_STORAGE_KEY, bCount);
     }
-    if (thr.a_hit != null && Number.isFinite(Number(thr.a_hit))) {
-      const aHit = hitPctFromRatio(thr.a_hit, A_HIT_DEFAULT);
-      const input = el.aHit();
-      if (input) input.value = String(aHit);
-      writeStoredCount(A_HIT_STORAGE_KEY, aHit);
+    // 只认 a_f1；旧报告的 a_hit 是命中率门槛，不能灌进 F1 控件
+    if (thr.a_f1 != null && Number.isFinite(Number(thr.a_f1))) {
+      const aF1 = hitPctFromRatio(thr.a_f1, A_F1_DEFAULT);
+      const input = el.aF1();
+      if (input) input.value = String(aF1);
+      writeStoredCount(A_F1_STORAGE_KEY, aF1);
     }
-    if (thr.tau_a_hit != null && Number.isFinite(Number(thr.tau_a_hit))) {
-      const tauAHit = hitPctFromRatio(thr.tau_a_hit, TAU_A_HIT_DEFAULT);
-      const input = el.tauAHit();
-      if (input) input.value = String(tauAHit);
-      writeStoredCount(TAU_A_HIT_STORAGE_KEY, tauAHit);
+    if (thr.tau_a_f1 != null && Number.isFinite(Number(thr.tau_a_f1))) {
+      const tauAF1 = hitPctFromRatio(thr.tau_a_f1, TAU_A_F1_DEFAULT);
+      const input = el.tauAF1();
+      if (input) input.value = String(tauAF1);
+      writeStoredCount(TAU_A_F1_STORAGE_KEY, tauAF1);
     }
     if (thr.require_oo_r_pos != null) {
       const on = !!thr.require_oo_r_pos;
@@ -215,15 +216,15 @@ export function installResearchUniverseUi(q) {
   function tierMetaFor(
     aCount,
     bCount,
-    aHit,
-    tauAHit,
+    aF1,
+    tauAF1,
     requireTau,
     requireOoRPos,
     requireTcRPos
   ) {
     let gate = requireTau
-      ? `Y_oo≥${aHit}% 且 Y_τc≥${tauAHit}%`
-      : `Y_oo≥${aHit}%`;
+      ? `OO_F1≥${aF1}% 且 TC_F1≥${tauAF1}%`
+      : `OO_F1≥${aF1}%`;
     if (requireOoRPos) gate += " 且 OO_R+>0";
     if (requireTcRPos && requireTau) gate += " 且 TC_R+>0";
     return {
@@ -408,35 +409,14 @@ export function installResearchUniverseUi(q) {
     return Number(hitRate) * 100 + 1e-9 >= 50 ? "up" : "down";
   }
 
-  function hitBarHtml(hitRate) {
-    const tone = hitTone(hitRate);
-    const pct =
-      tone === "is-empty"
-        ? 0
-        : Math.max(0, Math.min(100, Number(hitRate) * 100));
-    const tip =
-      tone === "is-empty" ? "无有效命中" : `命中 ${pct.toFixed(1)}%`;
+  /** 比例列：仅百分数（无比例条 / 无样本 N）。 */
+  function rateCell(rate, title, headCls) {
+    const tone = hitTone(rate);
     return (
-      `<span class="quant-ru-hit-meter ${tone}" title="${escapeHtml(tip)}">` +
-      `<span class="quant-ru-hit-track">` +
-      `<span class="quant-ru-hit-fill" style="width:${pct.toFixed(1)}%"></span>` +
-      `</span>` +
-      `</span>`
-    );
-  }
-
-  function hitNCell(hitRate, nValid, title, headCls) {
-    const tone = hitTone(hitRate);
-    const n = nValid == null || Number.isNaN(Number(nValid)) ? 0 : Number(nValid);
-    return (
-      `<td class="num quant-ru-hit-cell ${escapeHtml(headCls || "")}" title="${escapeHtml(
+      `<td class="num quant-ru-rate-cell ${escapeHtml(headCls || "")}" title="${escapeHtml(
         title || ""
       )}">` +
-      `<span class="quant-ru-hit-row">` +
-      `<span class="quant-ru-hit-val ${tone}">${fmtHit(hitRate)}</span>` +
-      `<span class="quant-ru-hit-n">${n}</span>` +
-      `</span>` +
-      hitBarHtml(hitRate) +
+      `<span class="quant-ru-hit-val ${tone}">${fmtHit(rate)}</span>` +
       `</td>`
     );
   }
@@ -448,10 +428,15 @@ export function installResearchUniverseUi(q) {
 
   function scoreCell(r) {
     const sc = r && r.score;
+    const ooF1 = r && r.f1_pos;
+    const tcF1 = r && r.f1_pos_tau;
     const tipParts = [
-      sc != null && !Number.isNaN(Number(sc)) ? `Score ${fmtScore(sc)}` : "无 Score",
-      r && r.rank_oo != null ? `rank(Y_oo)=${r.rank_oo}` : "",
-      r && r.rank_tau != null ? `rank(Y_τc)=${r.rank_tau}` : "",
+      sc != null && !Number.isNaN(Number(sc))
+        ? `Rank_Score ${fmtScore(sc)}`
+        : "无 Rank_Score",
+      "0.5*OO_F1+0.5*TC_F1",
+      ooF1 != null && !Number.isNaN(Number(ooF1)) ? `OO_F1 ${fmtHit(ooF1)}` : "OO_F1 —",
+      tcF1 != null && !Number.isNaN(Number(tcF1)) ? `TC_F1 ${fmtHit(tcF1)}` : "TC_F1 —",
     ].filter(Boolean);
     return (
       `<td class="num quant-ru-score-cell" title="${escapeHtml(tipParts.join(" · "))}">` +
@@ -591,7 +576,9 @@ export function installResearchUniverseUi(q) {
             : "is-empty";
     const hero = p.f1_txt != null ? String(p.f1_txt) : "—";
     const reason = p.reason ? String(p.reason) : "";
-    const foot = p.foot ? String(p.foot) : "仅展示 · 不进 Score / A 档";
+    const foot = p.foot
+      ? String(p.foot)
+      : "进 Score（0.5*OO_F1+0.5*TC_F1）· 默认可作 A 档门槛";
     const eyebrow =
       p.eyebrow != null
         ? String(p.eyebrow)
@@ -678,7 +665,9 @@ export function installResearchUniverseUi(q) {
         recall: rec != null && Number.isFinite(Number(rec)) ? Number(rec) : null,
         foot:
           (nPos > 0 ? `看多 ${nPos} 日 · ` : "无看多样本 · ") +
-          "仅展示 · 不进 Score / A 档",
+          (isOo
+            ? "进 Score（×0.5 或单独）· 默认可作 A 档门槛"
+            : "进 Score ×0.5 · 有 ŷ_τc 时默认可作 A 档门槛"),
       };
     } else if (nValid > 0 && nPos <= 0) {
       text = "无看多";
@@ -689,7 +678,9 @@ export function installResearchUniverseUi(q) {
         eyebrow,
         f1_txt: "—",
         reason: `无 ${yhat}>ε 日（${nValid} 个有效命中日均为看空），无法算 P⁺ / 召回`,
-        foot: "仅展示 · 不进 Score / A 档",
+        foot: isOo
+          ? "进 Score（×0.5 或单独）· 默认可作 A 档门槛"
+          : "进 Score ×0.5 · 有 ŷ_τc 时默认可作 A 档门槛",
       };
     } else if (nValid > 0) {
       text = "—";
@@ -700,7 +691,9 @@ export function installResearchUniverseUi(q) {
         eyebrow,
         f1_txt: "—",
         reason: "无上涨有效日 · P⁺ / 召回缺一",
-        foot: "仅展示 · 不进 Score / A 档",
+        foot: isOo
+          ? "进 Score（×0.5 或单独）· 默认可作 A 档门槛"
+          : "进 Score ×0.5 · 有 ŷ_τc 时默认可作 A 档门槛",
       };
     } else {
       text = "—";
@@ -711,7 +704,9 @@ export function installResearchUniverseUi(q) {
         eyebrow,
         f1_txt: "—",
         reason: `无有效 ${yhat} 样本`,
-        foot: "仅展示 · 不进 Score / A 档",
+        foot: isOo
+          ? "进 Score（×0.5 或单独）· 默认可作 A 档门槛"
+          : "进 Score ×0.5 · 有 ŷ_τc 时默认可作 A 档门槛",
       };
     }
     const hasRel = relPct != null && Number.isFinite(relPct);
@@ -794,14 +789,15 @@ export function installResearchUniverseUi(q) {
       thr.b_count != null && Number.isFinite(Number(thr.b_count))
         ? Math.round(Number(thr.b_count))
         : B_COUNT_DEFAULT;
-    const aHit =
-      thr.a_hit != null && Number.isFinite(Number(thr.a_hit))
-        ? hitPctFromRatio(thr.a_hit, A_HIT_DEFAULT)
-        : A_HIT_DEFAULT;
-    const tauAHit =
-      thr.tau_a_hit != null && Number.isFinite(Number(thr.tau_a_hit))
-        ? hitPctFromRatio(thr.tau_a_hit, TAU_A_HIT_DEFAULT)
-        : TAU_A_HIT_DEFAULT;
+    // 旧报告只有 a_hit（命中率）时不沿用，避免误写成 OO_F1≥50%
+    const aF1 =
+      thr.a_f1 != null && Number.isFinite(Number(thr.a_f1))
+        ? hitPctFromRatio(thr.a_f1, A_F1_DEFAULT)
+        : A_F1_DEFAULT;
+    const tauAF1 =
+      thr.tau_a_f1 != null && Number.isFinite(Number(thr.tau_a_f1))
+        ? hitPctFromRatio(thr.tau_a_f1, TAU_A_F1_DEFAULT)
+        : TAU_A_F1_DEFAULT;
     const requireTau = !!thr.require_tau;
     const requireOoRPos =
       thr.require_oo_r_pos != null
@@ -817,26 +813,26 @@ export function installResearchUniverseUi(q) {
     const tierMeta = tierMetaFor(
       aCount,
       bCount,
-      aHit,
-      tauAHit,
+      aF1,
+      tauAF1,
       requireTau,
       requireOoRPos,
       requireTcRPos
     );
     let gateLab = requireTau
-      ? `A档 Y_oo≥${aHit}% · Y_τc≥${tauAHit}%`
-      : `A档 Y_oo≥${aHit}%`;
+      ? `A档 OO_F1≥${aF1}% · TC_F1≥${tauAF1}%`
+      : `A档 OO_F1≥${aF1}%`;
     if (requireOoRPos) gateLab += " · OO_R+>0";
     if (requireTcRPos && requireTau) gateLab += " · TC_R+>0";
     const scoreLab = requireTau
-      ? "Score=1/rank(Y_oo)+1/rank(Y_τc)"
-      : "Score=1/rank(Y_oo)";
+      ? "Score=0.5*OO_F1+0.5*TC_F1"
+      : "Score=OO_F1";
 
     const headNote = [
       `ŷ_oo Holdout OOS`,
       `Holdout${hold}日前半` +
         (tierN != null && Number.isFinite(Number(tierN)) ? ` · 窗${tierN}日` : "") +
-        ` · OO_R+/OO_F1/TC_R+/TC_F1 看前半 · 指标与等权买持看整段`,
+        ` · OO/TC F1·P·R·ACC 看前半 · 指标与等权买持看整段`,
       scoreLab,
       `A档数量 ${aCount} · B档数量 ${bCount} · ${gateLab} · C 其余`,
       liveBit(),
@@ -866,22 +862,20 @@ export function installResearchUniverseUi(q) {
               stockCell(r) +
               retCell(r) +
               condRetPosCell(r, "oo") +
+              rateCell(r.hit_rate, "OO_ACC：Holdout 前半 ŷ_oo 符号命中率", "is-oo") +
+              rateCell(r.precision_pos, "OO_P：Holdout 前半 ŷ_oo 上涨精确率 P⁺", "is-oo") +
+              rateCell(r.recall_pos, "OO_R：Holdout 前半 ŷ_oo 上涨召回", "is-oo") +
               f1PosCell(r, f1ScaleOo, "oo") +
               condRetPosCell(r, "tau") +
-              f1PosCell(r, f1ScaleTau, "tau") +
-              scoreCell(r) +
-              hitNCell(
-                r.hit_rate,
-                r.n_valid,
-                "Y_oo 命中率 · 有效样本日",
-                "is-oo"
-              ) +
-              hitNCell(
-                r.hit_rate_tau,
-                r.n_valid_tau,
-                "Y_τc 命中率 · 有效样本日",
+              rateCell(r.hit_rate_tau, "TC_ACC：Holdout 前半 ŷ_τc 符号命中率", "is-tau") +
+              rateCell(
+                r.precision_pos_tau,
+                "TC_P：Holdout 前半 ŷ_τc 上涨精确率 P⁺",
                 "is-tau"
               ) +
+              rateCell(r.recall_pos_tau, "TC_R：Holdout 前半 ŷ_τc 上涨召回", "is-tau") +
+              f1PosCell(r, f1ScaleTau, "tau") +
+              scoreCell(r) +
               `</tr>`
           )
           .join("");
@@ -895,12 +889,16 @@ export function installResearchUniverseUi(q) {
                 <th class="quant-ru-col-stock">标的</th>
                 <th class="num" title="Holdout 整段买持收益%（close 首尾，对齐档内平均收益率）">收益</th>
                 <th class="num" title="Holdout 前半 OO_R+=mean(y_oo|ŷ_oo&gt;ε)；模型看多日的平均实现收益；勾选 OO_R+&gt;0 时进 A 档门槛">OO_R+</th>
-                <th class="num" title="OO_F1：Holdout 前半 ŷ_oo 上涨正类调和平均；着色=本档 min-max 相对深浅（高→红 / 低→绿）；不进 Score / A 档">OO_F1</th>
+                <th class="num" title="OO_ACC：Holdout 前半 ŷ_oo 符号命中率；仅展示">OO_ACC</th>
+                <th class="num" title="OO_P：Holdout 前半 ŷ_oo 上涨精确率 P⁺；仅展示">OO_P</th>
+                <th class="num" title="OO_R：Holdout 前半 ŷ_oo 上涨召回；仅展示">OO_R</th>
+                <th class="num" title="OO_F1：Holdout 前半 ŷ_oo 上涨正类调和平均；着色=本档 min-max 相对深浅；进 Rank_Score；默认可作 A 档门槛">OO_F1</th>
                 <th class="num" title="Holdout 前半 TC_R+=mean(y_τc|ŷ_τc&gt;ε)；勾选 TC_R+&gt;0 且有 ŷ_τc 研究套时进 A 档门槛">TC_R+</th>
-                <th class="num" title="TC_F1：Holdout 前半 ŷ_τc 上涨正类调和平均；着色=本档 min-max 相对深浅；不进 Score / A 档">TC_F1</th>
-                <th class="num" title="Score = 1/rank(Y_oo) + 1/rank(Y_τc)">Score</th>
-                <th class="num" title="Y_oo 命中率 · 有效样本日">Y_oo</th>
-                <th class="num" title="Y_τc 命中率 · 有效样本日">Y_τc</th>
+                <th class="num" title="TC_ACC：Holdout 前半 ŷ_τc 符号命中率；仅展示">TC_ACC</th>
+                <th class="num" title="TC_P：Holdout 前半 ŷ_τc 上涨精确率 P⁺；仅展示">TC_P</th>
+                <th class="num" title="TC_R：Holdout 前半 ŷ_τc 上涨召回；仅展示">TC_R</th>
+                <th class="num" title="TC_F1：Holdout 前半 ŷ_τc 上涨正类调和平均；进 Rank_Score；有 ŷ_τc 时默认可作 A 档门槛">TC_F1</th>
+                <th class="num" title="Rank_Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 研究套时 =OO_F1；缺一侧按 0）">Rank_Score</th>
               </tr></thead>
               <tbody>${trs}</tbody>
             </table>${more}`
@@ -1006,7 +1004,7 @@ export function installResearchUniverseUi(q) {
     if (!document.getElementById("quant-section-research-universe")) return null;
     const h = holdoutN();
     const lb = ooLookbackN();
-    const { aCount, bCount, aHit, tauAHit, requireOoRPos, requireTcRPos } =
+    const { aCount, bCount, aF1, tauAF1, requireOoRPos, requireTcRPos } =
       readTierCounts();
     if (!quiet) {
       setStatus(
@@ -1025,10 +1023,10 @@ export function installResearchUniverseUi(q) {
           aCount
         )}&b_count=${encodeURIComponent(
           bCount
-        )}&a_hit=${encodeURIComponent(
-          (aHit / 100).toFixed(4)
-        )}&tau_a_hit=${encodeURIComponent(
-          (tauAHit / 100).toFixed(4)
+        )}&a_f1=${encodeURIComponent(
+          (aF1 / 100).toFixed(4)
+        )}&tau_a_f1=${encodeURIComponent(
+          (tauAF1 / 100).toFixed(4)
         )}&require_oo_r_pos=${requireOoRPos ? "true" : "false"}&require_tc_r_pos=${
           requireTcRPos ? "true" : "false"
         }&min_n=20&head=oo&pool=watching`;
@@ -1063,10 +1061,10 @@ export function installResearchUniverseUi(q) {
   on("quant-ru-b-count", "change", () => {
     readTierCounts();
   });
-  on("quant-ru-a-hit", "change", () => {
+  on("quant-ru-a-f1", "change", () => {
     readTierCounts();
   });
-  on("quant-ru-tau-a-hit", "change", () => {
+  on("quant-ru-tau-a-f1", "change", () => {
     readTierCounts();
   });
   on("quant-ru-require-oo-r-pos", "change", () => {

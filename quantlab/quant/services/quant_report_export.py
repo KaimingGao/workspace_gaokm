@@ -522,27 +522,32 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
         if cfg:
             bullets.append(cfg)
         engine = (ps.get("params") or {}).get("engine") or ps.get("engine") or ""
+        no_fill = (
+            " · 无成交"
+            if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
+            else ""
+        )
         if engine == "paper_replay":
             bullets.append(
                 f"历史回测（rank_lots · 09:30）：累计 {ps.get('total_return_pct')}% · "
                 f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
                 f" · {_topk_score_axis_note(ps)}"
-                + (
-                    " · 无成交"
-                    if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
-                    else ""
-                )
+                + no_fill
             )
-        else:
+        elif engine in ("oos_topk_curve", "topk_probe"):
             bullets.append(
-                f"Top-K 研究回测（topk_research / ŷ_oo）：累计 {ps.get('total_return_pct')}% · "
+                f"OOS TopK 曲线：累计 {ps.get('total_return_pct')}% · "
                 f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
                 f" · {_topk_score_axis_note(ps)}"
-                + (
-                    " · 无成交"
-                    if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
-                    else ""
-                )
+                + no_fill
+            )
+        else:
+            # 旧日报可能仍带 topk_research（legacy 归档引擎）
+            bullets.append(
+                f"Top-K 研究回测（归档 / ŷ_oo）：累计 {ps.get('total_return_pct')}% · "
+                f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
+                f" · {_topk_score_axis_note(ps)}"
+                + no_fill
             )
             pr = ps.get("paper_replay") or {}
             if pr.get("success"):
@@ -1215,8 +1220,6 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         )
 
     req = ps.get("request") or {}
-    if req.get("dropout_n"):
-        lines.append(f"- TopK-Dropout：dropout_n={req.get('dropout_n')}")
     if req.get("exclude_st"):
         lines.append("- 宇宙过滤：剔 ST")
     if req.get("min_avg_amount_pctile") is not None:

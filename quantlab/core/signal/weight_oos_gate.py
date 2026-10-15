@@ -20,7 +20,7 @@ def oos_semantics_note(*, oos_tol_pp: float = 1.0) -> str:
     """门禁 note：切分规则 + 过门条件 + 产品语义。"""
     tol = float(oos_tol_pp)
     return (
-        "同一研究池 Top-K：权益曲线后 30% 为 OOS。"
+        "同一研究池轻量 Top-K 曲线（等权硬 TopK）：权益曲线后 30% 为 OOS。"
         f"过门条件：研究臂（ŷ）OOS ≥ 基线（heuristic）OOS − {tol}pp，"
         "且不新增 OOS 失败旗标。"
         + " "
@@ -85,28 +85,12 @@ def _shared_oos_backtest_kwargs(
             "max_sector_pct": 40.0,
             "exclude_st": True,
         }
-    # OOS 对照固定 equal：相对 Δ 更干净；限额仍对齐 Spec
+    # OOS 对照固定 equal；轻量曲线引擎忽略成本/限额字段
+    _ = d, fundamentals_by_code
     return {
         "top_k": top_k,
         "horizon_days": horizon_days,
-        "apply_costs": True,
-        "fundamentals_by_code": fundamentals_by_code,
-        "weight_mode": "equal",
-        "max_position_pct": float(d.get("max_position_pct") or 25.0),
-        "max_sector_pct": float(d.get("max_sector_pct") or 40.0),
-        "apply_tau_buy_gate": False,  # 历史日线两臂都不套 live τ 闸
-    }
-
-
-def _lite_backtest_kwargs(lite: bool) -> Dict[str, Any]:
-    """分组闸：关涨跌停/成本/失败组剔榜，收盘成交，避免当成生产回测。"""
-    if not lite:
-        return {}
-    return {
-        "execution_mode": "close",
-        "respect_limit": False,
-        "apply_costs": False,
-        "exclude_oos_failed": False,
+        "neutralize": False,
     }
 
 
@@ -163,9 +147,10 @@ def _run_topk_heuristic(
     lite: bool = False,
 ) -> Dict[str, Any]:
     """基线臂：全局人工权 → heuristic_score 排序。"""
-    from core.backtest.topk_backtest import backtest_topk_equal_weight
+    from core.backtest.topk_probe import run_oos_topk_curve
     from core.signal.config import signal_config_overlay
 
+    _ = fundamentals_by_code, lite
     shared = _shared_oos_backtest_kwargs(
         top_k=top_k,
         horizon_days=horizon_days,
@@ -173,10 +158,9 @@ def _run_topk_heuristic(
     )
     if neutralize is not None:
         shared["neutralize"] = bool(neutralize)
-    shared.update(_lite_backtest_kwargs(lite))
     floor = _heuristic_oos_floor(min_score)
     with signal_config_overlay({"weights": weights}):
-        return backtest_topk_equal_weight(
+        return run_oos_topk_curve(
             stock_bars,
             min_score=floor,
             rank_mode="heuristic_score",
@@ -203,11 +187,12 @@ def _run_topk_predicted(
 ) -> Dict[str, Any]:
     """研究臂：注入组/全局 return_model → predicted_score 排序。
 
-    与基线臂共用限额/成本/剔 ST；ŷ 门槛用生产 buy floor（非 0）。
+    与基线臂同宇宙/同 K/同持有期；ŷ 门槛用生产 buy floor（非 0）。
     关闭 ŷ_τ 买入闸（与基线对称：历史日线无可靠 τ）。
     """
-    from core.backtest.topk_backtest import backtest_topk_equal_weight
+    from core.backtest.topk_probe import run_oos_topk_curve
 
+    _ = fundamentals_by_code, lite
     shared = _shared_oos_backtest_kwargs(
         top_k=top_k,
         horizon_days=horizon_days,
@@ -215,13 +200,12 @@ def _run_topk_predicted(
     )
     if neutralize is not None:
         shared["neutralize"] = bool(neutralize)
-    shared.update(_lite_backtest_kwargs(lite))
     floor = (
         float(min_predicted_score)
         if min_predicted_score is not None
         else _predicted_oos_floor()
     )
-    return backtest_topk_equal_weight(
+    return run_oos_topk_curve(
         stock_bars,
         min_score=0.0,  # predicted 路径不用 0–100 门
         rank_mode="predicted_score",
@@ -259,7 +243,7 @@ def _compare_arms(
             "suggested": research_m,
             "stock_count": stock_count,
             "codes": codes,
-            "note": "Top-K 回测失败，跳过门禁判定。",
+            "note": "轻量 Top-K 曲线失败，跳过门禁判定。",
         }
 
     base_oos = (baseline_m.get("oos") or {}).get("oos_return_pct")
@@ -330,7 +314,7 @@ def _compare_arms(
             "apply_tau_buy_gate": False,
             "weight_mode": "equal",
             "note": (
-                "两臂同 top_k/成本/限额/equal；基线用 heuristic 门槛，"
+                "两臂同 top_k/持有期/等权轻量曲线；基线用 heuristic 门槛，"
                 "研究臂用生产 ŷ 门槛；历史路径均关 τ 闸。"
             ),
         },

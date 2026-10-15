@@ -983,12 +983,12 @@ function formatCompactTcRankTip(raw) {
   return (
     `<div class="score-layer score-layer-eod">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">τc_rank</div>` +
+    `<div class="score-hero-label">rank</div>` +
     `<div class="score-hero-value score-flat">${escapeText(rankTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">ŷ_τc_rank · 1=最高 · 相对分 ${escapeText(
       scoreTxt
-    )} · ${backendHint} · 与 oo_rank 取 max 作入场闸</div>` +
+    )} · ${backendHint} · 与 oo_rank 取 max 作入场闸；不进 fuse / 不改买序</div>` +
     `</div>`
   );
 }

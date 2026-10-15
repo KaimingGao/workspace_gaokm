@@ -1,6 +1,9 @@
 """BacktestService：组合/TopK 回测统一出口（A3）。
 
-委托 ``topk_backtest`` / ``engine``；不重写撮合逻辑。router / QuantService 只组装参数。
+委托 ``topk_probe``（默认轻量 OOS 曲线）/ ``engine``；完整探针在
+``core.backtest.legacy.topk_backtest``（``full_engine=True``）。不重写撮合。
+
+``run_topk`` 仅服务研究探针；产品 ``/replay`` 走 ``paper_replay``。
 """
 
 from __future__ import annotations
@@ -40,17 +43,21 @@ def reset_metrics() -> None:
 
 
 class BacktestService:
-    """生产默认回测口。"""
+    """回测门面：``run_signal_backtest`` 通用；``run_topk`` 为研究探针。"""
 
     def run_topk(
         self,
         stock_bars: Dict[str, List[dict]],
         **kwargs: Any,
     ) -> BacktestResult:
-        from core.backtest.topk_backtest import backtest_topk_equal_weight
+        """研究探针 TopK（≠ 产品 paper_replay）。默认轻量 oos 曲线。
+
+        需要完整引擎（成本/权重模式）时传 ``full_engine=True``。
+        """
+        from core.backtest.topk_probe import run_topk_probe
 
         try:
-            raw = backtest_topk_equal_weight(stock_bars, **kwargs)
+            raw = run_topk_probe(stock_bars, **kwargs)
         except Exception as e:  # noqa: BLE001
             logger.exception("BacktestService.run_topk failed")
             _bump("topk_fail")

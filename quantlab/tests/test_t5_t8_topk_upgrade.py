@@ -11,7 +11,6 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.backtest.pool_ic import compute_pool_cross_section_ic
-from core.backtest.topk_backtest import apply_topk_dropout
 from core.backtest.topk_benchmark import build_topk_benchmark_summary
 from core.backtest.universe_filters import filter_universe_bars, _is_st_name
 
@@ -41,23 +40,6 @@ def _synth_bars(n: int = 80, start: float = 10.0, drift: float = 0.01) -> list:
         b["date"] = d
         out.append(b)
     return out[:n]
-
-
-class TestTopKDropout(unittest.TestCase):
-    def test_dropout_zero_is_hard_topk(self):
-        picks = [(f"S{i}", float(100 - i)) for i in range(10)]
-        out = apply_topk_dropout(picks, ["S0", "S1", "S2"], top_k=3, dropout_n=0)
-        self.assertEqual([c for c, _ in out], ["S0", "S1", "S2"])
-
-    def test_dropout_keeps_buffer_names(self):
-        # ranks 0..9 by score; hold S3 (rank 3) with K=3,N=1 → keep_rank=4 so S3 stays
-        picks = [(f"S{i}", float(100 - i)) for i in range(10)]
-        out = apply_topk_dropout(picks, ["S3"], top_k=3, dropout_n=1)
-        codes = [c for c, _ in out]
-        self.assertIn("S3", codes)
-        self.assertEqual(len(codes), 3)
-        # S4 is outside enter_rank=2, should not be forced in before buffer fills
-        self.assertNotIn("S9", codes)
 
 
 class TestUniverseFilters(unittest.TestCase):
@@ -242,7 +224,7 @@ class TestPoolIcSmoke(unittest.TestCase):
 
 class TestSimTradeRowHeuristicKw(unittest.TestCase):
     def test_sim_trade_row_accepts_heuristic_score(self):
-        from core.backtest.topk_backtest import _sim_trade_row
+        from core.backtest.legacy.topk_trade_meta import _sim_trade_row
 
         row = _sim_trade_row(
             stock_code="600519",
@@ -256,7 +238,7 @@ class TestSimTradeRowHeuristicKw(unittest.TestCase):
         self.assertAlmostEqual(float(row["score"]), 0.12)
 
     def test_call_sim_trade_row_ignores_unknown_kwargs(self):
-        from core.backtest.topk_backtest import _call_sim_trade_row
+        from core.backtest.legacy.topk_trade_meta import _call_sim_trade_row
 
         row = _call_sim_trade_row(
             stock_code="600519",

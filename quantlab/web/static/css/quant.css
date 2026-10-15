@@ -4859,7 +4859,8 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status-chip
 
 /* 空对照宿主不占 card-body gap（对齐 v2） */
 body[data-page="quant"] .quant-page #quant-oo-result:empty,
-body[data-page="quant"] .quant-page #quant-oo-rank-result:empty {
+body[data-page="quant"] .quant-page #quant-oo-rank-result:empty,
+body[data-page="quant"] .quant-page #quant-tc-rank-result:empty {
   display: none;
   margin: 0;
   padding: 0;
@@ -10261,18 +10262,20 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   margin-top: 0;
 }
 
-/* ŷ_* 因子表 / ŷ_oo·ŷ_oo_rank 结果宿主：清零 wrap margin（间隔靠 oos-compare 底边距 + card gap） */
+/* ŷ_* 因子表 / ŷ_oo·ŷ_oo_rank·ŷ_τc_rank 结果宿主：清零 wrap margin（间隔靠 oos-compare 底边距 + card gap） */
 .quant-page #quant-oo-coef-table.quant-weight-table-wrap,
 .quant-page #quant-tau-coef-table.quant-weight-table-wrap,
 .quant-page #quant-co-coef-table.quant-weight-table-wrap,
 .quant-page #quant-oo-rank-coef-table.quant-weight-table-wrap,
+.quant-page #quant-tc-rank-coef-table.quant-weight-table-wrap,
 .quant-page #quant-t30-coef-table.quant-weight-table-wrap,
 .quant-page #quant-t45-coef-table.quant-weight-table-wrap,
 .quant-page #quant-t60-coef-table.quant-weight-table-wrap,
 .quant-page #quant-t75-coef-table.quant-weight-table-wrap,
 .quant-page #quant-t90-coef-table.quant-weight-table-wrap,
 .quant-page #quant-oo-result.quant-weight-table-wrap,
-.quant-page #quant-oo-rank-result.quant-weight-table-wrap {
+.quant-page #quant-oo-rank-result.quant-weight-table-wrap,
+.quant-page #quant-tc-rank-result.quant-weight-table-wrap {
   margin: 0;
 }
 
@@ -12440,67 +12443,65 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
 }
 
 .quant-ru-tier-grid th,
 .quant-ru-tier-grid td {
-  padding: 0.38rem 0.45rem;
+  padding: 0.34rem 0.22rem;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   text-align: left;
   vertical-align: middle;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .quant-ru-tier-grid th {
   font-weight: 600;
   color: var(--ink-3, var(--ink-2));
-  font-size: 0.66rem;
-  letter-spacing: 0.02em;
+  font-size: 0.62rem;
+  letter-spacing: 0.01em;
   border-bottom-color: var(--line);
+  white-space: nowrap;
 }
 
 .quant-ru-tier-grid tbody tr:hover td {
   background: color-mix(in srgb, var(--bg-1, var(--bg)) 55%, transparent);
 }
 
+/* 1 标的 · 2–13 数值列均分：收益 OO_R+ OO_ACC OO_P OO_R OO_F1 TC_R+ TC_ACC TC_P TC_R TC_F1 Rank_Score */
+.quant-ru-col-stock {
+  width: 11.5%;
+  padding-left: 0.35rem;
+}
+
 .quant-ru-tier-grid th.num,
 .quant-ru-tier-grid td.num {
+  width: 7.375%;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  padding-left: 0.18rem;
+  padding-right: 0.22rem;
 }
 
-.quant-ru-col-stock {
-  width: 16%;
+.quant-ru-tier-grid th:last-child,
+.quant-ru-tier-grid td:last-child {
+  padding-right: 0.35rem;
 }
 
-/* 1 标的 · 2 收益 · 3 OO_R+ · 4 OO_F1 · 5 TC_R+ · 6 TC_F1 · 7 Score · 8 Y_oo · 9 Y_τc */
-.quant-ru-tier-grid th.num:nth-child(2),
-.quant-ru-tier-grid td.num:nth-child(2),
-.quant-ru-tier-grid th.num:nth-child(3),
-.quant-ru-tier-grid td.num:nth-child(3),
-.quant-ru-tier-grid th.num:nth-child(4),
-.quant-ru-tier-grid td.num:nth-child(4),
-.quant-ru-tier-grid th.num:nth-child(5),
-.quant-ru-tier-grid td.num:nth-child(5),
-.quant-ru-tier-grid th.num:nth-child(6),
-.quant-ru-tier-grid td.num:nth-child(6),
-.quant-ru-tier-grid th.num:nth-child(7),
-.quant-ru-tier-grid td.num:nth-child(7) {
-  width: 7.5%;
-}
-
-/* Y_oo · Y_τc（命中+样本日，需更宽） */
-.quant-ru-tier-grid th.num:nth-child(8),
-.quant-ru-tier-grid td.num:nth-child(8),
-.quant-ru-tier-grid th.num:nth-child(9),
-.quant-ru-tier-grid td.num:nth-child(9) {
-  width: 13%;
+.quant-ru-tier-grid .quant-ru-hit-val,
+.quant-ru-tier-grid .quant-ru-f1-val {
+  min-width: 0;
+  width: 100%;
+  font-size: inherit;
 }
 
 .quant-ru-score-cell {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--ink-2);
+  white-space: nowrap;
 }
 
 .quant-ru-stock {
@@ -12762,9 +12763,15 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.is
   letter-spacing: 0.02em;
 }
 
-.quant-ru-hit-cell {
+.quant-ru-hit-cell,
+.quant-ru-rate-cell {
   min-width: 0;
   vertical-align: middle;
+}
+
+.quant-ru-rate-cell .quant-ru-hit-val {
+  display: inline-block;
+  width: 100%;
 }
 
 .quant-ru-hit-row {

@@ -87,7 +87,7 @@ class TestWeightOosGate(unittest.TestCase):
             "core.watching.store.read_watching",
             return_value={"watchlist": ["a", "b", "c"]},
         ), patch(
-            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            "core.backtest.topk_probe.run_oos_topk_curve",
             side_effect=fake_bt,
         ):
             out = evaluate_research_oos(
@@ -135,7 +135,7 @@ class TestWeightOosGate(unittest.TestCase):
         with patch(
             "core.research.portfolio_bars.load_portfolio_stock_bars",
         ) as load_mock, patch(
-            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            "core.backtest.topk_probe.run_oos_topk_curve",
             side_effect=fake_bt,
         ):
             out = evaluate_research_oos(

@@ -41,7 +41,7 @@ python3 scripts/migrate_bars_to_sqlite.py --dry-run
 | 阈值 | 含义 |
 |------|------|
 | 根编排（`paper.js` / `quant.js`） | 目标趋势不增；新逻辑进子模块 |
-| 领域引擎（`topk_backtest` / `factor_ols`） | 按用例切；单文件避免继续堆过 2.5k（~~`factor_ols_clusters`~~ 已退役） |
+| 领域引擎（`topk_probe` / `legacy/topk_backtest` / `factor_ols`） | 按用例切；单文件避免继续堆过 2.5k（~~`factor_ols_clusters`~~ 已退役） |
 | `domain_*` | 仅改该域时再切；不为拆而拆 |
 
 ## 阶段状态

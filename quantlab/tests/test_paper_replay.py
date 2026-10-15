@@ -950,7 +950,7 @@ class TestPaperReplayEngine(unittest.TestCase):
 
 class TestTopkEngineTag(unittest.TestCase):
     def test_topk_params_engine(self):
-        from core.backtest.topk_backtest import backtest_topk_equal_weight
+        from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
         from tests.test_p10_quant import _aligned_bars
 
         stock_bars = {
@@ -2607,7 +2607,7 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
             "core.backtest.paper_replay.load_replay_minute_bars",
             return_value=({}, {"ok": True, "covered": 0, "missing": []}),
         ), patch(
-            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            "core.backtest.legacy.topk_backtest.backtest_topk_equal_weight",
         ) as topk_mock, patch(
             "core.north_star.save_last_backtest_curve",
         ) as save, patch(

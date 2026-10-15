@@ -283,17 +283,17 @@ def quant_research_universe_predictability_tiers(
     b_count: int = Query(
         300, ge=0, le=5000, description="B 档：接着取的数量（默认 300；其余为 C）"
     ),
-    a_hit: float = Query(
-        0.5,
+    a_f1: float = Query(
+        0.2,
         ge=0,
         le=100,
-        description="A 档 Y_oo 命中率门槛。0–1 为比例，大于 1 为百分数（默认 0.5）",
+        description="A 档 OO_F1 门槛。0–1 为比例，大于 1 为百分数（默认 0.2）",
     ),
-    tau_a_hit: float = Query(
-        0.5,
+    tau_a_f1: float = Query(
+        0.2,
         ge=0,
         le=100,
-        description="A 档 Y_τc 命中率门槛。0–1 为比例，大于 1 为百分数（默认 0.5；无研究套时不生效）",
+        description="A 档 TC_F1 门槛。0–1 为比例，大于 1 为百分数（默认 0.2；无研究套时不生效）",
     ),
     require_oo_r_pos: bool = Query(
         True,
@@ -304,12 +304,12 @@ def quant_research_universe_predictability_tiers(
         description="A 档另须 TC_R+>0（Holdout 前半 mean(y_τc|ŷ_τc>ε)；有 ŷ_τc 研究套时生效；默认开）",
     ),
 ) -> Dict[str, Any]:
-    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。命中看 Holdout 前半；指标与等权买持看整段。
+    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。F1/命中看 Holdout 前半；指标与等权买持看整段。
 
     holdout: ŷ_oo 卡片 Holdout 交易日数（分档窗=升序前半；指标窗=整段）。
-    定档：Score=1/rank(Y_oo)+1/rank(Y_τc)（无 τc 研究套则仅 Y_oo）。
-    A 档另过 a_hit / tau_a_hit（默认 50% / 50%）；可勾选 OO_R+>0 / TC_R+>0（各独立；无 τc 研究套时 TC 不生效）；未过门槛不占 A 名额。
-    过门槛者 top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」与命中率）。
+    定档：Score=0.5*OO_F1+0.5*TC_F1（无 τc 研究套则 Score=OO_F1；缺一侧按 0）。
+    A 档另过 a_f1 / tau_a_f1（默认 20% / 20%）；可勾选 OO_R+>0 / TC_R+>0（各独立；无 τc 研究套时 TC 不生效）；未过门槛不占 A 名额。
+    过门槛者 top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」与 F1 门槛）。
     lookback: 缺研究套现训时用的日线窗（与 ŷ_oo 训练窗对齐）；有研究套时只拉 Holdout+暖窗。
     回测天数由回测页 lookback 独立设置。
     """
@@ -317,7 +317,7 @@ def quant_research_universe_predictability_tiers(
         build_holdout_half_tiers,
         clamp_a_count,
         clamp_b_count,
-        clamp_hit_rate,
+        clamp_f1_floor,
         live_tier_status,
     )
 
@@ -330,8 +330,8 @@ def quant_research_universe_predictability_tiers(
             lookback=max(100, min(int(lookback or 120), 1000)),
             a_count=clamp_a_count(a_count),
             b_count=clamp_b_count(b_count),
-            a_hit=clamp_hit_rate(a_hit),
-            tau_a_hit=clamp_hit_rate(tau_a_hit),
+            a_f1=clamp_f1_floor(a_f1),
+            tau_a_f1=clamp_f1_floor(tau_a_f1),
             require_oo_r_pos=bool(require_oo_r_pos),
             require_tc_r_pos=bool(require_tc_r_pos),
             persist=True,

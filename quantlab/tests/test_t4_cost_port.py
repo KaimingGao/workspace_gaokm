@@ -42,7 +42,7 @@ class TestT4CostPort(unittest.TestCase):
 
     def test_topk_cost_mode_turnover(self):
         from core.backtest.cost_port import PORTFOLIO_COST_MODE
-        from core.backtest.topk_backtest import backtest_topk_equal_weight
+        from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 
         def bars(step: float):
             out = []

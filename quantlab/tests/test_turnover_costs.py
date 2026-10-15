@@ -86,7 +86,7 @@ class TestTurnoverCosts(unittest.TestCase):
         self.assertLess(cost, round_trip_cost_pct(config=cfg))
 
     def test_topk_uses_turnover_cost_mode(self):
-        from core.backtest.topk_backtest import backtest_topk_equal_weight
+        from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 
         def bars(step: float):
             out = []

@@ -16,8 +16,8 @@ let _bCount = 300;
 
 function tierTip(t) {
   const scoreBit = _requireTau
-    ? "Score=1/rank(Y_oo)+1/rank(Y_τc)"
-    : "Score=1/rank(Y_oo)";
+    ? "Score=0.5*OO_F1+0.5*TC_F1"
+    : "Score=OO_F1";
   if (t === "A") return `A 强：${scoreBit} · top ${_aCount}`;
   if (t === "B") return `B 中：${scoreBit} · 接着 ${_bCount}`;
   if (t === "C") return `C 弱：${scoreBit} · 剩余或无有效样本`;
@@ -93,9 +93,14 @@ export function predTierBadgeHtml(code, esc) {
           info.realized_pct
         ).toFixed(2)}%`
       : "",
-    `ŷ_oo ${fmtHit(info.hit_rate)}`,
-    info.hit_rate_tau != null ? `ŷ_τc ${fmtHit(info.hit_rate_tau)}` : "",
-    `有效日 ${info.n_valid ?? 0}/${info.n_days ?? 0}`,
+    info.precision_pos != null ? `OO_P ${fmtHit(info.precision_pos)}` : "",
+    info.recall_pos != null ? `OO_R ${fmtHit(info.recall_pos)}` : "",
+    info.hit_rate != null ? `OO_ACC ${fmtHit(info.hit_rate)}` : "",
+    info.precision_pos_tau != null
+      ? `TC_P ${fmtHit(info.precision_pos_tau)}`
+      : "",
+    info.recall_pos_tau != null ? `TC_R ${fmtHit(info.recall_pos_tau)}` : "",
+    info.hit_rate_tau != null ? `TC_ACC ${fmtHit(info.hit_rate_tau)}` : "",
     icBit,
   ]
     .filter(Boolean)
@@ -117,8 +122,6 @@ function ingestPredTierReport(data) {
     next[code] = {
       tier,
       score: r.score,
-      rank_oo: r.rank_oo,
-      rank_tau: r.rank_tau,
       hit_rate: r.hit_rate,
       hit_rate_tau: r.hit_rate_tau,
       n_valid: r.n_valid,

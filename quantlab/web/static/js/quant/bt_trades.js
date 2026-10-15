@@ -354,7 +354,7 @@ export const BT_LEDGER_TRADE_COLS = [
     id: "y_tc_rank",
     label: "τc_rank",
     widthPct: 7,
-    widthMin: "6.2rem",
+    widthMin: "5.6rem",
     num: true,
     sortable: true,
     title: "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场门槛；不进 fuse / 不改买序",

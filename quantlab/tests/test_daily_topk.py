@@ -11,16 +11,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.backtest.topk_backtest import (
+from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
+from core.backtest.legacy.topk_risk import (
     _clip_leg_at_close_stop,
     _stop_shadow_from_trades,
     _weighted_port_return,
-    backtest_topk_equal_weight,
 )
-from quant.research.portfolio_data import (
-    resolve_daily_topk_backtest_kwargs,
-    summarize_portfolio_backtest,
-)
+from quant.research.portfolio_data import summarize_portfolio_backtest
 from tests.test_p10_quant import _aligned_bars
 
 
@@ -42,23 +39,6 @@ class TestCashAwarePortReturn(unittest.TestCase):
 
 
 class TestDailyTopkDefaults(unittest.TestCase):
-    def test_resolve_aligns_k_h_costs(self):
-        from core.signal.config import get_scoring_horizon_days
-        from core.strategy import backtest_portfolio_defaults
-
-        d = backtest_portfolio_defaults("short_conservative")
-        got = resolve_daily_topk_backtest_kwargs()
-        self.assertEqual(got["top_k"], d["max_positions"])
-        self.assertNotEqual(d["top_k"], d["max_positions"])
-        self.assertEqual(got["horizon_days"], d["horizon_days"])
-        self.assertTrue(got["apply_costs"])
-        self.assertEqual(got["weight_mode"], d["weight_mode"])
-        self.assertEqual(got["yhat_horizon_days"], get_scoring_horizon_days())
-        self.assertEqual(got["paper_horizon_days"], d["horizon_days"])
-        self.assertEqual(got["paper_max_positions"], d["max_positions"])
-        self.assertEqual(got["top_k"], got["paper_max_positions"])
-        self.assertEqual(got["lookback"], 30)
-
     def test_daily_bt_option_defaults_align_replay(self):
         from quant.research.portfolio_data import (
             DAILY_BT_UI_LOOKBACK,
@@ -79,14 +59,8 @@ class TestDailyTopkDefaults(unittest.TestCase):
         self.assertEqual(opts["lookback"], d["lookback"])
         self.assertTrue(opts["apply_costs"])
         self.assertIn("paper_max_positions", opts)
-
-    def test_explicit_overrides(self):
-        got = resolve_daily_topk_backtest_kwargs(
-            top_k=5, horizon_days=2, apply_costs=False
-        )
-        self.assertEqual(got["top_k"], 5)
-        self.assertEqual(got["horizon_days"], 2)
-        self.assertFalse(got["apply_costs"])
+        self.assertNotIn("top_k", opts)
+        self.assertNotIn("horizon_days", opts)
 
     def test_replay_overrides(self):
         from quant.research.portfolio_data import resolve_daily_replay_kwargs

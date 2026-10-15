@@ -93,7 +93,7 @@ class TestReplayScoreCache(unittest.TestCase):
         slim = slim_day_items(rows)
         self.assertEqual(slim[0]["stock_code"], "600000")
         self.assertNotIn("features", slim[0])
-        self.assertNotIn("formula_terms_tau", slim[0])
+        self.assertEqual(slim[0]["formula_terms_tau"], [{"k": "a"}])
         self.assertEqual(slim[0]["y_oo"], 0.01)
 
         self.assertTrue(save_day("abc123runkey", "2024-02-01", rows))
@@ -104,6 +104,42 @@ class TestReplayScoreCache(unittest.TestCase):
         self.assertEqual(hit[0]["y_oo"], 0.01)
         self.assertNotIn("features", hit[0])
         self.assertIsNone(load_day("abc123runkey", "2024-02-02"))
+        self.assertEqual(hit[0].get("formula_terms_tau"), [{"k": "a"}])
+
+    def test_slim_keeps_capped_formula_terms_for_tips(self) -> None:
+        from core.backtest.replay_score_cache import slim_day_items
+
+        terms = [{"key": f"f{i}", "beta": 0.1, "z": 0.2, "contrib": float(i)} for i in range(40)]
+        terms.append({"key": "gap_pct", "beta": 0.1, "z": 0.0, "contrib": 0.01})
+        rows = [
+            {
+                "stock_code": "600000",
+                "features": {"raw": 1},
+                "factor_coefficients": {"f39": 0.2},
+                "formula_terms": {
+                    "intercept": 0.01,
+                    "total": 1.2,
+                    "score_model_role": "research",
+                    "terms": list(terms),
+                },
+                "formula_terms_tau": {
+                    "intercept": 0.02,
+                    "total": 0.8,
+                    "model_role": "research",
+                    "terms": list(terms),
+                },
+            }
+        ]
+        slim = slim_day_items(rows)[0]
+        self.assertNotIn("features", slim)
+        self.assertNotIn("factor_coefficients", slim)
+        oo = slim["formula_terms"]
+        self.assertEqual(len(oo["terms"]), 24)
+        self.assertEqual(oo["terms"][0]["key"], "f39")
+        self.assertEqual(oo["score_model_role"], "research")
+        tau_keys = {t["key"] for t in slim["formula_terms_tau"]["terms"]}
+        self.assertIn("gap_pct", tau_keys)
+        self.assertLessEqual(len(tau_keys), 24 + 1)
 
     def test_bars_fingerprint_changes(self) -> None:
         from core.backtest.replay_score_cache import bars_universe_fingerprint

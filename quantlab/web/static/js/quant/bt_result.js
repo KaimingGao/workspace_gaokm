@@ -400,18 +400,15 @@ export function buildPortfolioBacktestSummaryText(data) {
           ? " · 选股 fuse·τ闸开"
           : " · 选股 ŷ_oo·关τ闸";
   const engNote =
-    eng === "topk_research"
-      ? " · 引擎 研究Top-K（已下线）"
-      : " · 引擎 rank_lots";
+    eng === "oos_topk_curve" || eng === "topk_probe"
+      ? " · 引擎 OOS TopK"
+      : eng === "topk_research"
+        ? " · 引擎 研究Top-K（归档）"
+        : " · 引擎 rank_lots";
   const dropN = Number(
     data.params?.dropped_thin_count || (data.dropped_stocks || []).length || 0
   );
   const dropNote = dropN > 0 ? ` · 排除短序列 ${dropN}` : "";
-  const doN =
-    eng === "topk_research"
-      ? Number(data.params?.dropout_n ?? data.request?.dropout_n ?? 0)
-      : 0;
-  const dropoutNote = doN > 0 ? ` · dropout ${doN}` : "";
   const sic = data.score_ic || {};
   const icNote = sic.ok
     ? ` · IC ${sic.ic_mean ?? "—"}/ICIR ${sic.icir ?? "—"}` +
@@ -446,7 +443,7 @@ export function buildPortfolioBacktestSummaryText(data) {
       : "") +
     ` · 交易日 ${data.params?.trade_days ?? data.params?.common_dates ?? "—"} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
-    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${dropoutNote}${icNote}${benchNote}${sessNote}`;
+    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${icNote}${benchNote}${sessNote}`;
   return { text, warn: !!oosFailed };
 }
 

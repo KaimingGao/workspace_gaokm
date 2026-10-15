@@ -29,7 +29,7 @@ class TestBacktestDefaultsAlign(unittest.TestCase):
 
 class TestAllocateNoRenorm(unittest.TestCase):
     def test_score_budget_keeps_cash(self):
-        from core.backtest.topk_backtest import allocate_topk_weights
+        from core.backtest.topk_weights import allocate_topk_weights
 
         legs = [
             {"stock_code": "A", "score": 90, "sector": "银行", "return_pct": 1},
@@ -46,7 +46,7 @@ class TestAllocateNoRenorm(unittest.TestCase):
         self.assertLessEqual(sum(w.values()) + 1e-6, 100.0)
 
     def test_port_return_uses_cash_base(self):
-        from core.backtest.topk_backtest import _weighted_port_return
+        from core.backtest.legacy.topk_risk import _weighted_port_return
 
         legs = [
             {"stock_code": "A", "return_pct": 4.0},

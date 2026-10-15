@@ -11,7 +11,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.backtest.costs import rebalance_cost_pct
-from core.backtest.topk_backtest import allocate_topk_weights, backtest_topk_equal_weight
+from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
+from core.backtest.topk_weights import allocate_topk_weights
 
 
 class TestT3WeightMode(unittest.TestCase):
@@ -113,13 +114,8 @@ class TestT3WeightMode(unittest.TestCase):
             self.assertTrue(all("weight_pct" in leg for leg in legs))
             self.assertEqual(sample.get("weight_mode"), "score_budget")
 
-    def test_portfolio_request_accepts_weight_mode(self):
-        from web.schemas import PaperReplayBacktestRequest, PortfolioBacktestRequest
-
-        research = PortfolioBacktestRequest(weight_mode="score_budget")
-        self.assertEqual(research.weight_mode, "score_budget")
-        self.assertEqual(research.max_position_pct, 25.0)
-        self.assertFalse(hasattr(research, "engine"))
+    def test_replay_request_shape(self):
+        from web.schemas import PaperReplayBacktestRequest
 
         body = PaperReplayBacktestRequest()
         self.assertEqual(body.fusion_w_co, 1.0)
@@ -146,6 +142,8 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertFalse(hasattr(body, "universe_fit_tiers"))
         self.assertFalse(hasattr(body, "engine"))
         self.assertFalse(hasattr(body, "top_k"))
+        self.assertFalse(hasattr(body, "horizon_days"))
+        self.assertFalse(hasattr(body, "weight_mode"))
 
     def test_replay_request_ignores_legacy_topk_fields(self):
         from web.schemas import PaperReplayBacktestRequest
@@ -161,6 +159,10 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertFalse(hasattr(body, "engine"))
         self.assertFalse(hasattr(body, "top_k"))
         self.assertFalse(hasattr(body, "horizon_days"))
+        dumped = body.model_dump()
+        self.assertNotIn("top_k", dumped)
+        self.assertNotIn("horizon_days", dumped)
+        self.assertNotIn("engine", dumped)
 
     def test_portfolio_request_fusion_w_co_range(self):
         from pydantic import ValidationError
