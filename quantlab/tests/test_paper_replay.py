@@ -2599,6 +2599,72 @@ class TestReplayCalendar(unittest.TestCase):
 
 
 class TestPortfolioBacktestPersistCurve(unittest.TestCase):
+    def test_fill_clock_0930_skips_minute_load(self):
+        """09:30 用日开盘，不读整池 5m。"""
+        from quant.services.quant_service import QuantService
+
+        svc = QuantService()
+        fake_bt = {
+            "success": True,
+            "metrics": {"total_return_pct": 1.0, "trade_count": 0},
+            "equity_curve": [{"date": "2026-01-01", "equity": 1.0}],
+            "dropped_stocks": [],
+        }
+        bars = {
+            "A": [{"date": "2026-01-01", "open": 10, "close": 10}] * 12,
+            "B": [{"date": "2026-01-01", "open": 10, "close": 10}] * 12,
+        }
+        with patch(
+            "quant.services.quant_service_replay.resolve_replay_candidates",
+            return_value={
+                "ok": True,
+                "codes": ["A", "B"],
+                "source": "explicit",
+                "excluded": [],
+            },
+        ), patch(
+            "quant.research.portfolio_data.load_portfolio_stock_bars",
+            return_value=(bars, [], {}),
+        ), patch(
+            "core.backtest.paper_replay.backtest_paper_replay",
+            return_value=dict(fake_bt),
+        ) as bt, patch(
+            "core.backtest.paper_replay.load_replay_minute_bars",
+            return_value=({"A": {"2026-01-01": []}}, {"ok": True, "covered": 1, "missing": []}),
+        ) as load_m, patch(
+            "core.backtest.legacy.topk_backtest.backtest_topk_equal_weight",
+        ), patch(
+            "core.north_star.save_last_backtest_curve",
+        ), patch(
+            "core.north_star.append_ttm_event",
+        ), patch(
+            "core.data.facade.summarize_data_quality",
+            return_value={},
+        ), patch(
+            "core.data.consistency.attach_source_audit",
+            side_effect=lambda result, **kwargs: result,
+        ):
+            out = svc.run_portfolio_backtest(
+                persist_curve=False,
+                include_benchmark=False,
+                exclude_st=False,
+                fill_clock="09:30",
+            )
+            self.assertTrue(out.get("success"), out.get("error"))
+            load_m.assert_not_called()
+            kwargs = bt.call_args.kwargs
+            self.assertEqual(kwargs.get("minute_bars_by_code"), {})
+            self.assertEqual(kwargs.get("fill_clock"), "09:30")
+
+            out2 = svc.run_portfolio_backtest(
+                persist_curve=False,
+                include_benchmark=False,
+                exclude_st=False,
+                fill_clock="09:35",
+            )
+            self.assertTrue(out2.get("success"), out2.get("error"))
+            load_m.assert_called()
+
     def test_persist_curve_false_skips_north_star_save(self):
         from quant.services.quant_service import QuantService
 

@@ -339,27 +339,43 @@ class QuantReplayMixin:
         minute_span = min(max(int(effective_lookback or 30) + 20, 15), 120)
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
-        _emit(f"加载分钟线 {clock} · {universe_n} 只…")
-        minute_bars, minute_meta = load_replay_minute_bars(
-            list(stock_bars.keys()),
-            lookback_days=minute_span,
-        )
-        if clock != "09:30" and not minute_bars:
-            return {
-                "success": False,
-                "error": (
-                    f"回测时间 {clock} 需要 5 分钟 K，观察池无可用分钟缓存。"
-                    "请先在研究页预热分钟线后再跑。"
-                ),
-                "universe": {
-                    **resolved,
-                    "load_failures": failures,
-                    "loaded_count": len(stock_bars),
-                    "filters": filter_meta,
-                    "filter_dropped": filter_dropped,
-                },
-                "minute_meta": minute_meta,
+        # 09:30：本地 5m 首根标 09:35，成交价用日开盘即可；跳过整池读分钟，避免 bars.db 拖死开跑。
+        # 日分价闸要窗内分钟才生效，09:30 跳过加载后闸自然空跑。
+        if clock == "09:30":
+            _emit(f"成交钟 09:30 · 用日开盘，跳过分钟线 · {universe_n} 只…")
+            minute_bars = {}
+            minute_meta = {
+                "ok": True,
+                "period": "5",
+                "lookback_days": minute_span,
+                "covered": 0,
+                "missing": [],
+                "universe": universe_n,
+                "skipped": True,
+                "skip_reason": "fill_clock_0930_daily_open",
             }
+        else:
+            _emit(f"加载分钟线 {clock} · {universe_n} 只…")
+            minute_bars, minute_meta = load_replay_minute_bars(
+                list(stock_bars.keys()),
+                lookback_days=minute_span,
+            )
+            if not minute_bars:
+                return {
+                    "success": False,
+                    "error": (
+                        f"回测时间 {clock} 需要 5 分钟 K，观察池无可用分钟缓存。"
+                        "请先在研究页预热分钟线后再跑。"
+                    ),
+                    "universe": {
+                        **resolved,
+                        "load_failures": failures,
+                        "loaded_count": len(stock_bars),
+                        "filters": filter_meta,
+                        "filter_dropped": filter_dropped,
+                    },
+                    "minute_meta": minute_meta,
+                }
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
         from core.research.holdout import normalize_backtest_model_role

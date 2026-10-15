@@ -27,6 +27,7 @@ _KEEP_KEYS = (
     "universe",
     "alpha_beta_legs",
     "loaded_stocks",
+    "minute_meta",
     "cost_model",
     "engine",
 )

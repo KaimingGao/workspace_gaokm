@@ -3,7 +3,7 @@
 ŷ_oo 始终是 09:30 开盘信息集。ŷ_τc：09:30 成交钟用开盘 Z（``use_minute_tau=False``）；
 09:35–10:00 用截至该钟的 5m 前缀重算（与做 T ``rescore_scores_at_fixed_prefix`` 同路径）。
 对照列 ŷ_hl 走开盘 Z 挂上；成交钟>09:30 随前缀重算。不挂 ŷ_τw / ŷ_τ30/60/90（调仓回测不用）。
-成交价：09:30 取首根开盘（≈集合竞价/开盘价），其后用该档 5 分钟 K 收盘。
+成交价：09:30 用日 K 开盘（服务层不读整池 5m；有分钟时仍可用窗内首根开盘）；其后用该档 5 分钟 K 收盘。
 无分钟时 09:30 回退日 K 开盘。其它钟：买入缺该根则跳过；清仓按该钟之后～10:00
 下一根，再回退 09:30 / 日开盘（避免缺上午 K 把底仓拿到收盘）。
 日分价闸只用 09:30–10:00 窗口内的分钟（尾盘残缺仓不当开盘锚）。
@@ -164,7 +164,7 @@ def replay_fill_px(
     minute_bars: Optional[Sequence[dict]] = None,
     fill_clock: str = REPLAY_FILL_CLOCK,
 ) -> Optional[float]:
-    """买入/精确钟成交价：09:30=窗内首根开盘（无则日开盘）；其它钟=该档 5m 收盘。"""
+    """买入/精确钟成交价：09:30=有窗内分钟则首根开盘，否则日开盘；其它钟=该档 5m 收盘。"""
     clock = clamp_replay_fill_clock(fill_clock)
     mins = _replay_window_minutes(minute_bars)
     if clock == "09:30":
@@ -233,7 +233,7 @@ def _sell_fill_fallback_note(clock: str, src: str) -> str:
 
 
 def replay_price_space_cfg(override: Optional[dict] = None) -> Dict[str, Any]:
-    """日分价闸阈值：默认跟做 T 同一套（闸开、开盘差 5%、昨收差 5%）。"""
+    """日分价闸阈值：默认跟做 T 同一套（闸开；开盘差已下线=0；昨收差 5%）。"""
     from core.t0.close_band import DEFAULT_PRICE_SPACE_MAX_DEV_PCT
     from core.t0.config import load_t0_rules
 
@@ -3139,11 +3139,11 @@ def backtest_paper_replay(
     used_minutes = bool(minute_maps) and int(constraints.get("minute_fills") or 0) > 0
     exec_mode = "minute_5m" if used_minutes or clock != "09:30" else "open_930"
     fill_note = (
-        f"成交={clock} 5m（09:30=首根开盘，其后该档收盘"
+        f"成交={clock}"
         + (
-            "；缺分钟买入跳过、清仓回退其后～10:00 再回退 09:30/日开盘"
+            " 5m（该档收盘；缺分钟买入跳过、清仓回退其后～10:00 再回退 09:30/日开盘"
             if clock != "09:30"
-            else "；缺分钟回退日开盘"
+            else "（日开盘；不读整池 5m；有分钟时亦可用窗内首根开盘"
         )
         + (
             "；日分价错位跳过"

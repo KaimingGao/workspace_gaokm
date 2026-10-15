@@ -323,7 +323,7 @@ bound = ref × (1 + move_pct / 100)
 | `coupling_skip` | stance 耦合不允许做 T |
 | `t_plus_one` | 可卖旧仓不足 1 手 |
 | `intraday_legs_open` | 盘中已有成交腿，整单回放防重复 |
-| `price_space_mismatch` | 日/分钟开盘偏差超阈 |
+| `price_space_mismatch` | 日/分钟昨收偏差超阈（开盘差已下线） |
 
 ### 9.4 高/低 ≈ 低（涨停/跌停无波动）的票跳过
 

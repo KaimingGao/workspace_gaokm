@@ -93,7 +93,7 @@ class PaperReplayBacktestRequest(BaseModel):
     )
     fill_clock: str = Field(
         default="09:30",
-        description="调仓成交钟 09:30–10:00 每 5 分钟；成交用该档 5 分钟 K（09:30 用首根开盘）",
+        description="调仓成交钟 09:30–10:00 每 5 分钟；09:30 用日 K 开盘（不读整池 5m），其后用该档 5 分钟 K 收盘",
     )
     lot_base_amount: float = Field(
         default=10_000.0,
