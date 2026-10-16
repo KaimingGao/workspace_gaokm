@@ -4,10 +4,10 @@
 ``fill_clock≠09:30`` 的 ŷ_τc 前缀重算不进缓存，命中后仍走 rescore。
 改 fuse / 手数 / 本金 / 权重不改变指纹 → 可复用。
 
-``run_key`` 只含代码集合 + 模型套 + 窗长（**不含**日线末 bar 屑），
-避免新交易日写入后整库失效；每日文件另存 ``inputs_fp``（该日开盘信息集），
-加载时校验，历史日可跨 fuse / 手数更新复用。
-因子组成按 tip 条数上限瘦身留在行内（schema 3）。schema 2 及更早的文件不再读取，下次回测会重算。
+``run_key`` 只含代码集合 + 模型套内容指纹 + 窗长（**不含**日线 tip），
+避免新交易日写入后整库失效；每日文件另存 ``inputs_fp``（该日开盘信息集：
+昨收窗全量 bar 屑 + 今开），加载时校验。schema 4：bar 屑预计算 + 滑动窗，
+窗内任意一根变更都会 miss；模型文件按内容 hash（``mtime+size`` memo）。
 
 布局::
 
@@ -17,7 +17,7 @@
 开关：``QUANTLAB_REPLAY_SCORE_CACHE=0`` 强制绕过。
 写入新 ``run_key`` meta 时，默认只保留同 schema 下最近
 ``QUANTLAB_REPLAY_SCORE_CACHE_KEEP`` 个目录（默认 2，``0``=不裁剪），
-并删除更旧 schema 目录（如 ``v1/``）。
+并删除更旧 schema 目录（如 ``v3/``）。
 """
 
 from __future__ import annotations
@@ -30,15 +30,17 @@ import os
 import re
 import shutil
 import tempfile
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-REPLAY_SCORE_CACHE_SCHEMA = 3
+REPLAY_SCORE_CACHE_SCHEMA = 4
 _ENV_DISABLE = "QUANTLAB_REPLAY_SCORE_CACHE"
 _ENV_KEEP = "QUANTLAB_REPLAY_SCORE_CACHE_KEEP"
 _DEFAULT_KEEP_RUNS = 2
 _SCHEMA_DIR_RE = re.compile(r"^v(\d+)$")
+_CONTENT_FP_MEMO: Dict[Tuple[str, int, int], str] = {}
+_CONTENT_FP_MEMO_MAX = 256
 
 # 体积大且 fuse / rescore / 买序不依赖的字段（ŷ 已写回顶层）。
 # 因子组成不在此列：成交明细 tip 要 β·z 表，见 ``_cache_tip_formula``。
@@ -78,15 +80,59 @@ def _cache_root() -> str:
     return str(REPLAY_SCORE_CACHE_DIR)
 
 
-def _file_fp(path: Optional[str]) -> str:
+def _file_content_fp(path: Optional[str]) -> str:
+    """模型文件内容指纹；``(path, mtime_ns, size)`` memo，避免重复读盘。"""
     p = str(path or "").strip()
     if not p or not os.path.isfile(p):
         return "missing"
     try:
         st = os.stat(p)
-        return f"{os.path.basename(p)}:{int(st.st_mtime_ns)}:{int(st.st_size)}"
+        key = (p, int(st.st_mtime_ns), int(st.st_size))
     except OSError:
         return f"{os.path.basename(p)}:err"
+    hit = _CONTENT_FP_MEMO.get(key)
+    if hit is not None:
+        return hit
+    try:
+        h = hashlib.sha1()
+        with open(p, "rb") as fh:
+            while True:
+                chunk = fh.read(262144)
+                if not chunk:
+                    break
+                h.update(chunk)
+        dig = f"{os.path.basename(p)}:{h.hexdigest()[:16]}"
+    except OSError:
+        dig = f"{os.path.basename(p)}:err"
+    if len(_CONTENT_FP_MEMO) >= _CONTENT_FP_MEMO_MAX:
+        _CONTENT_FP_MEMO.clear()
+    _CONTENT_FP_MEMO[key] = dig
+    return dig
+
+
+def clear_content_fp_memo() -> None:
+    """单测用：清空模型内容指纹 memo。"""
+    _CONTENT_FP_MEMO.clear()
+
+
+def _bar_ohlcv_crumb(bar: Mapping[str, Any]) -> str:
+    return (
+        f"{bar.get('open')}|{bar.get('high')}|{bar.get('low')}|"
+        f"{bar.get('close')}|{bar.get('volume')}"
+    )
+
+
+def _lookup_bar(
+    dm: Mapping[str, Any], day: str, day_raw: Optional[str] = None
+) -> Optional[dict]:
+    bar = dm.get(day)
+    if isinstance(bar, dict):
+        return bar
+    if day_raw is not None and day_raw != day:
+        bar = dm.get(day_raw)
+        if isinstance(bar, dict):
+            return bar
+    return None
 
 
 def bars_universe_fingerprint(stock_bars: Dict[str, Any]) -> str:
@@ -107,6 +153,126 @@ def codes_universe_fingerprint(stock_bars: Dict[str, Any]) -> str:
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:20]
 
 
+class DayOpenInputsIndex:
+    """开盘日信息集指纹：开跑预计算 bar 屑，顺序回测用滑动窗。
+
+    与 ``_score_open_day`` 一致：窗截至昨收（全量 OHLCV 屑），今开只取 ``open``。
+    """
+
+    __slots__ = (
+        "codes",
+        "dates",
+        "win",
+        "_crumbs",
+        "_opens",
+        "_day_i",
+        "_start",
+        "_prev_i",
+        "_win_crumbs",
+        "_fp",
+    )
+
+    def __init__(
+        self,
+        *,
+        codes: Sequence[str],
+        dates: Sequence[str],
+        date_maps: Mapping[str, Mapping[str, dict]],
+        max_window: int,
+    ) -> None:
+        self.codes = sorted(str(c).strip() for c in codes if str(c).strip())
+        self.dates = [str(d) for d in dates]
+        self.win = max(1, int(max_window))
+        self._crumbs: Dict[str, List[Optional[str]]] = {}
+        self._opens: Dict[str, List[Optional[str]]] = {}
+        for code in self.codes:
+            dm = date_maps.get(code) or {}
+            crumbs: List[Optional[str]] = []
+            opens: List[Optional[str]] = []
+            for d_raw in self.dates:
+                day = d_raw[:10]
+                bar = _lookup_bar(dm, day, d_raw)
+                if bar is None:
+                    crumbs.append(None)
+                    opens.append(None)
+                else:
+                    crumbs.append(_bar_ohlcv_crumb(bar))
+                    o = bar.get("open")
+                    opens.append("noopen" if o is None else str(o))
+            self._crumbs[code] = crumbs
+            self._opens[code] = opens
+        self._day_i = -1
+        self._start = 0
+        self._prev_i = -1
+        self._win_crumbs: Dict[str, List[str]] = {c: [] for c in self.codes}
+        self._fp = "empty"
+
+    def _rebuild(self, day_i: int) -> None:
+        prev_i = day_i - 1
+        start = max(0, prev_i - self.win + 1)
+        self._start = start
+        self._prev_i = prev_i
+        for code in self.codes:
+            crumbs = self._crumbs[code]
+            buf: List[str] = []
+            for j in range(start, prev_i + 1):
+                c = crumbs[j]
+                if c is not None:
+                    buf.append(c)
+            self._win_crumbs[code] = buf
+
+    def _slide_to(self, day_i: int) -> None:
+        new_prev = day_i - 1
+        new_start = max(0, new_prev - self.win + 1)
+        old_start = self._start
+        # 丢掉滑出窗左端的屑
+        while old_start < new_start:
+            for code in self.codes:
+                left = self._crumbs[code][old_start]
+                if left is not None:
+                    buf = self._win_crumbs[code]
+                    if buf and buf[0] == left:
+                        buf.pop(0)
+                    else:
+                        # 错位时回退全量重建
+                        self._rebuild(day_i)
+                        return
+            old_start += 1
+        # 纳入新的昨收
+        if new_prev > self._prev_i:
+            for code in self.codes:
+                add = self._crumbs[code][new_prev]
+                if add is not None:
+                    self._win_crumbs[code].append(add)
+        self._start = new_start
+        self._prev_i = new_prev
+
+    def _hash_state_for(self, day_i: int) -> str:
+        parts: List[str] = []
+        for code in self.codes:
+            wh = hashlib.sha1(
+                "|".join(self._win_crumbs[code]).encode("utf-8")
+            ).hexdigest()[:16]
+            op = self._opens[code][day_i]
+            open_crumb = "noopen" if op is None else op
+            parts.append(f"{code}:{wh}:{open_crumb}")
+        blob = "|".join(parts) if parts else "empty"
+        return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:20]
+
+    def fingerprint(self, day_i: int) -> str:
+        if day_i <= 0 or day_i >= len(self.dates):
+            return "empty"
+        if day_i == self._day_i:
+            return self._fp
+        if self._day_i >= 1 and day_i == self._day_i + 1:
+            self._slide_to(day_i)
+        else:
+            self._rebuild(day_i)
+        self._day_i = day_i
+        self._fp = self._hash_state_for(day_i)
+        return self._fp
+
+
 def day_open_inputs_fingerprint(
     *,
     codes: Sequence[str],
@@ -115,32 +281,14 @@ def day_open_inputs_fingerprint(
     day_i: int,
     max_window: int,
 ) -> str:
-    """单日开盘打分信息集指纹：昨收窗 + 今开屑（与 ``_score_open_day`` 一致）。"""
-    from core.research.panel_disk_cache import bars_fingerprint
-
-    if day_i <= 0 or not dates or day_i >= len(dates):
-        return "empty"
-    prev_i = day_i - 1
-    today = str(dates[day_i])[:10]
-    win = max(1, int(max_window))
-    start = max(0, prev_i - win + 1)
-    parts: List[str] = []
-    for code in sorted(str(c).strip() for c in codes if str(c).strip()):
-        dm = date_maps.get(code) or {}
-        window = [dm[d] for d in dates[start : prev_i + 1] if d in dm]
-        today_bar = dm.get(today) if isinstance(dm.get(today), dict) else None
-        if today_bar is None:
-            # date_maps 键可能是完整 date
-            today_bar = dm.get(dates[day_i]) if isinstance(dm.get(dates[day_i]), dict) else None
-        open_crumb = "noopen"
-        if isinstance(today_bar, dict):
-            open_crumb = (
-                f"{today_bar.get('open')}|{today_bar.get('high')}|"
-                f"{today_bar.get('low')}|{today_bar.get('volume')}"
-            )
-        parts.append(f"{code}:{bars_fingerprint(window)}:{open_crumb}")
-    blob = "|".join(parts) if parts else "empty"
-    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:20]
+    """单日开盘打分信息集指纹（一次性；顺序回测请用 ``DayOpenInputsIndex``）。"""
+    idx = DayOpenInputsIndex(
+        codes=codes,
+        dates=dates,
+        date_maps=date_maps,
+        max_window=max_window,
+    )
+    return idx.fingerprint(day_i)
 
 
 def model_suite_fingerprint(
@@ -148,7 +296,7 @@ def model_suite_fingerprint(
     score_model_role: str,
     score_backend: str,
 ) -> str:
-    """研究/执行套与相关落盘模型文件指纹。"""
+    """研究/执行套与相关落盘模型文件**内容**指纹。"""
     role = str(score_model_role or "research").strip().lower()
     backend = str(score_backend or "ridge").strip().lower()
     paths: List[str] = []
@@ -206,7 +354,7 @@ def model_suite_fingerprint(
         logger.debug("replay score cache rank paths failed", exc_info=True)
 
     bits = [f"role={role}", f"backend={backend}"]
-    bits.extend(_file_fp(p) for p in paths)
+    bits.extend(_file_content_fp(p) for p in paths)
     return hashlib.sha1("|".join(bits).encode("utf-8")).hexdigest()[:20]
 
 
@@ -214,8 +362,6 @@ def make_run_key(
     *,
     codes_fp: str,
     model_fp: str,
-    score_model_role: str,
-    score_backend: str,
     max_window: int,
     horizon_days: int,
     required_factor_keys: Optional[Sequence[str]] = None,
@@ -224,11 +370,8 @@ def make_run_key(
     keys = sorted(str(k) for k in (required_factor_keys or []) if str(k).strip())
     key_fp = hashlib.sha1(",".join(keys).encode("utf-8")).hexdigest()[:12]
     parts = [
-        f"schema={REPLAY_SCORE_CACHE_SCHEMA}",
         f"codes={codes_fp}",
         f"models={model_fp}",
-        f"role={score_model_role}",
-        f"backend={score_backend}",
         f"win={int(max_window)}",
         f"hz={int(horizon_days)}",
         f"feat={key_fp}",
@@ -412,7 +555,9 @@ def prune_old_runs(keep_run_key: str, *, keep: Optional[int] = None) -> Dict[str
                 shutil.rmtree(path)
                 stats["removed_schemas"].append(name)
             except OSError:
-                logger.debug("replay score cache rmtree schema %s failed", name, exc_info=True)
+                logger.debug(
+                    "replay score cache rmtree schema %s failed", name, exc_info=True
+                )
     except OSError:
         logger.debug("replay score cache list schemas failed", exc_info=True)
 
@@ -464,7 +609,11 @@ def write_run_meta(run_key: str, meta: Dict[str, Any]) -> None:
     try:
         from core.io_atomic import atomic_write_json
 
-        payload = {"schema": REPLAY_SCORE_CACHE_SCHEMA, "run_key": run_key, **(meta or {})}
+        payload = {
+            "schema": REPLAY_SCORE_CACHE_SCHEMA,
+            "run_key": run_key,
+            **(meta or {}),
+        }
         os.makedirs(os.path.dirname(path), exist_ok=True)
         atomic_write_json(path, payload)
         try:
@@ -494,8 +643,6 @@ def build_run_key_for_bars(
     run_key = make_run_key(
         codes_fp=codes_fp,
         model_fp=model_fp,
-        score_model_role=score_model_role,
-        score_backend=score_backend,
         max_window=max_window,
         horizon_days=horizon_days,
         required_factor_keys=required_factor_keys,

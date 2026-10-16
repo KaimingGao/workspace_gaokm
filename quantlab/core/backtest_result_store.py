@@ -48,17 +48,22 @@ def _slim_universe(raw: Any) -> Any:
     }
 
 
+def _is_sim_trade_bulk_key(key: Any) -> bool:
+    """落盘/轮询去掉大块 tip 组成，避免上万笔 × 因子表把 JSON 撑到百 MB、页面画空。"""
+    ks = str(key or "")
+    if ks.startswith("features_") or ks.startswith("factor_coefficients"):
+        return True
+    if "formula_terms" in ks:
+        return True
+    if ks.startswith("y_spec"):
+        return True
+    return False
+
+
 def _slim_sim_trade(row: Any) -> Any:
     if not isinstance(row, dict):
         return row
-    drop_prefix = ("features_", "factor_coefficients")
-    out = {}
-    for k, v in row.items():
-        ks = str(k)
-        if ks.startswith(drop_prefix[0]) or ks.startswith(drop_prefix[1]):
-            continue
-        out[k] = v
-    return out
+    return {k: v for k, v in row.items() if not _is_sim_trade_bulk_key(k)}
 
 
 def _slim_result(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -98,7 +103,7 @@ def save_last_portfolio_backtest(
 
 
 def slim_portfolio_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    """任务轮询 / 落盘共用：去掉 alpha_oo 全量特征，避免 20MB JSON 把页面画空。"""
+    """任务轮询 / 落盘共用：去掉特征与因子组成 tip，避免百 MB JSON 把页面画空。"""
     return _slim_result(result or {})
 
 

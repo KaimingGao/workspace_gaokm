@@ -14,23 +14,6 @@ if ROOT not in sys.path:
 
 
 def _bars(n: int = 40, start: float = 10.0, seed: int = 0):
-    px = start
-    out = []
-    for i in range(n):
-        o = px * (1.0 + (0.01 if (i + seed) % 5 == 0 else 0.0))
-        c = o * (1.0 + ((i % 7) - 3) * 0.002)
-        out.append(
-            {
-                "date": f"2024-01-{(i % 28) + 1:02d}",
-                "open": round(o, 4),
-                "high": round(max(o, c) * 1.01, 4),
-                "low": round(min(o, c) * 0.99, 4),
-                "close": round(c, 4),
-                "volume": 1_000_000 + i * 1000,
-            }
-        )
-        px = c
-    # 去重日期：用递增日
     out = []
     px = start
     for i in range(n):
@@ -51,6 +34,17 @@ def _bars(n: int = 40, start: float = 10.0, seed: int = 0):
     return out
 
 
+def _date_maps(stock_bars):
+    out = {}
+    for code, bars in stock_bars.items():
+        dm = {}
+        for b in bars:
+            d = str(b.get("date") or "")[:10]
+            dm[d] = b
+        out[code] = dm
+    return out
+
+
 class TestReplayScoreCache(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -60,6 +54,9 @@ class TestReplayScoreCache(unittest.TestCase):
         os.environ["QUANTLAB_REPLAY_SCORE_CACHE_DIR"] = self._tmpdir.name
         os.environ["QUANTLAB_REPLAY_SCORE_CACHE"] = "1"
         os.environ.pop("QUANTLAB_REPLAY_SCORE_CACHE_KEEP", None)
+        from core.backtest.replay_score_cache import clear_content_fp_memo
+
+        clear_content_fp_memo()
 
     def tearDown(self) -> None:
         if self._prev_dir is None:
@@ -167,8 +164,6 @@ class TestReplayScoreCache(unittest.TestCase):
         k1 = make_run_key(
             codes_fp="c1",
             model_fp="m1",
-            score_model_role="research",
-            score_backend="ridge",
             max_window=40,
             horizon_days=1,
             required_factor_keys=["a", "b"],
@@ -176,8 +171,6 @@ class TestReplayScoreCache(unittest.TestCase):
         k2 = make_run_key(
             codes_fp="c1",
             model_fp="m1",
-            score_model_role="research",
-            score_backend="ridge",
             max_window=40,
             horizon_days=1,
             required_factor_keys=["b", "a"],
@@ -185,9 +178,7 @@ class TestReplayScoreCache(unittest.TestCase):
         self.assertEqual(k1, k2)
         k3 = make_run_key(
             codes_fp="c1",
-            model_fp="m1",
-            score_model_role="live",
-            score_backend="ridge",
+            model_fp="m_live",
             max_window=40,
             horizon_days=1,
             required_factor_keys=["a", "b"],
@@ -196,8 +187,6 @@ class TestReplayScoreCache(unittest.TestCase):
         k4 = make_run_key(
             codes_fp="c1",
             model_fp="m1",
-            score_model_role="research",
-            score_backend="ridge",
             max_window=40,
             horizon_days=1,
             required_factor_keys=["a", "b"],
@@ -282,14 +271,16 @@ class TestReplayScoreCache(unittest.TestCase):
         root = self._tmpdir.name
         v1 = os.path.join(root, "v1", "oldschema")
         os.makedirs(v1, exist_ok=True)
-        open(os.path.join(v1, "x.txt"), "w").write("1")
+        with open(os.path.join(v1, "x.txt"), "w") as fh:
+            fh.write("1")
 
         # 三个同 schema run；keep=2 时应删掉最旧的
         paths = []
         for i, key in enumerate(("aaa111", "bbb222", "ccc333")):
             p = os.path.join(root, f"v{rsc.REPLAY_SCORE_CACHE_SCHEMA}", key)
             os.makedirs(p, exist_ok=True)
-            open(os.path.join(p, "meta.json"), "w").write("{}")
+            with open(os.path.join(p, "meta.json"), "w") as fh:
+                fh.write("{}")
             os.utime(p, (time.time() - 100 + i, time.time() - 100 + i))
             paths.append(p)
 
@@ -306,6 +297,122 @@ class TestReplayScoreCache(unittest.TestCase):
                 )
             )
         )
+
+    def test_day_open_index_slide_matches_rebuild(self) -> None:
+        from core.backtest.replay_score_cache import (
+            DayOpenInputsIndex,
+            day_open_inputs_fingerprint,
+        )
+
+        bars = {"600000": _bars(50, seed=1), "000001": _bars(50, seed=2)}
+        dates = sorted({str(b["date"])[:10] for bs in bars.values() for b in bs})
+        dm = _date_maps(bars)
+        idx = DayOpenInputsIndex(
+            codes=list(bars.keys()),
+            dates=dates,
+            date_maps=dm,
+            max_window=10,
+        )
+        fps = []
+        for i in range(1, len(dates)):
+            fp_slide = idx.fingerprint(i)
+            fp_one = day_open_inputs_fingerprint(
+                codes=list(bars.keys()),
+                dates=dates,
+                date_maps=dm,
+                day_i=i,
+                max_window=10,
+            )
+            self.assertEqual(fp_slide, fp_one, msg=f"day_i={i}")
+            fps.append(fp_slide)
+        self.assertGreater(len(set(fps)), 1)
+
+    def test_mid_window_bar_change_invalidates(self) -> None:
+        from core.backtest.replay_score_cache import day_open_inputs_fingerprint
+
+        bars = {"600000": _bars(40, seed=1)}
+        dates = [str(b["date"])[:10] for b in bars["600000"]]
+        dm = _date_maps(bars)
+        day_i = 20
+        fp0 = day_open_inputs_fingerprint(
+            codes=["600000"],
+            dates=dates,
+            date_maps=dm,
+            day_i=day_i,
+            max_window=15,
+        )
+        # 改窗内中间一根（非末根），旧 bars_fingerprint 会漏；现在应变
+        mid = dates[day_i - 8]
+        dm["600000"][mid] = dict(dm["600000"][mid])
+        dm["600000"][mid]["close"] = float(dm["600000"][mid]["close"]) + 3.0
+        fp1 = day_open_inputs_fingerprint(
+            codes=["600000"],
+            dates=dates,
+            date_maps=dm,
+            day_i=day_i,
+            max_window=15,
+        )
+        self.assertNotEqual(fp0, fp1)
+
+    def test_open_only_in_today_crumb(self) -> None:
+        from core.backtest.replay_score_cache import day_open_inputs_fingerprint
+
+        bars = {"600000": _bars(30, seed=1)}
+        dates = [str(b["date"])[:10] for b in bars["600000"]]
+        dm = _date_maps(bars)
+        day_i = 10
+        fp0 = day_open_inputs_fingerprint(
+            codes=["600000"],
+            dates=dates,
+            date_maps=dm,
+            day_i=day_i,
+            max_window=8,
+        )
+        today = dates[day_i]
+        dm["600000"][today] = dict(dm["600000"][today])
+        dm["600000"][today]["high"] = float(dm["600000"][today]["high"]) + 5.0
+        dm["600000"][today]["volume"] = 9_999_999
+        fp_hlv = day_open_inputs_fingerprint(
+            codes=["600000"],
+            dates=dates,
+            date_maps=dm,
+            day_i=day_i,
+            max_window=8,
+        )
+        self.assertEqual(fp0, fp_hlv)
+        dm["600000"][today]["open"] = float(dm["600000"][today]["open"]) + 0.5
+        fp_open = day_open_inputs_fingerprint(
+            codes=["600000"],
+            dates=dates,
+            date_maps=dm,
+            day_i=day_i,
+            max_window=8,
+        )
+        self.assertNotEqual(fp0, fp_open)
+
+    def test_file_content_fp_stable_across_touch(self) -> None:
+        import time
+
+        from core.backtest.replay_score_cache import (
+            _file_content_fp,
+            clear_content_fp_memo,
+        )
+
+        path = os.path.join(self._tmpdir.name, "model.json")
+        with open(path, "w") as fh:
+            fh.write('{"w":[1,2,3]}')
+        clear_content_fp_memo()
+        a = _file_content_fp(path)
+        time.sleep(0.02)
+        os.utime(path, None)
+        clear_content_fp_memo()
+        b = _file_content_fp(path)
+        self.assertEqual(a, b)
+        with open(path, "w") as fh:
+            fh.write('{"w":[9,9,9]}')
+        clear_content_fp_memo()
+        c = _file_content_fp(path)
+        self.assertNotEqual(a, c)
 
 
 if __name__ == "__main__":

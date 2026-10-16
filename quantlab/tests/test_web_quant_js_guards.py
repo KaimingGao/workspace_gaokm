@@ -1414,9 +1414,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("/api/quant/last-portfolio-backtest", bt_js)
         self.assertIn("/api/jobs/portfolio-backtest", bt_js)
         self.assertIn("pollPortfolioBacktestJob", bt_js)
+        # 满池冷缓存可达数小时：停滞超时 + 长墙钟，不用死板 40/90 分钟
+        poll_fn = bt_js[bt_js.find("async function pollPortfolioBacktestJob(") :]
+        poll_fn = poll_fn[: poll_fn.find("function awaitPortfolioBacktestJob")]
+        self.assertIn("25 * 60 * 1000", poll_fn)
+        self.assertIn("6 * 60 * 60 * 1000", poll_fn)
+        self.assertNotIn("40 * 60 * 1000", poll_fn)
+        self.assertNotIn("90 * 60 * 1000", poll_fn)
         self.assertIn("resumePortfolioBacktestJobIfRunning", bt_js)
         resume_fn = bt_js[bt_js.find("async function resumePortfolioBacktestJobIfRunning()") :]
         resume_fn = resume_fn[: resume_fn.find("function t0JobPaintable")]
+        self.assertIn('job.status === "done"', resume_fn)
         self.assertIn("tookBusy", resume_fn)
         self.assertIn("finally", resume_fn)
         self.assertIn("setQuantBtBusy(false)", resume_fn)

@@ -75,7 +75,9 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
         self.assertEqual(result["sim_trades"][0]["stock_code"], "600519")
         self.assertNotIn("features_tau", result["sim_trades"][0])
         self.assertNotIn("features_co", result["sim_trades"][0])
-        self.assertEqual(result["sim_trades"][0]["formula_terms"]["total"], 0.01)
+        # 因子组成 tip 体积大，落盘不保留（避免页面 JSON 画空）
+        self.assertNotIn("formula_terms", result["sim_trades"][0])
+        self.assertEqual(result["sim_trades"][0]["action"], "buy")
         self.assertEqual(result["stock_contrib"][0]["stock_code"], "600519")
         self.assertEqual(result["stock_contrib"][0]["pnl"], 1200.0)
         self.assertEqual(result["request"]["lookback"], 30)

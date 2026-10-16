@@ -31,29 +31,38 @@ def filter_universe_bars(
     exclude_st: bool = False,
     min_avg_amount_pctile: Optional[float] = None,
     name_by_code: Optional[Dict[str, str]] = None,
+    allow_live_names: bool = False,
 ) -> Tuple[Dict[str, List[dict]], List[Dict[str, Any]], Dict[str, Any]]:
     """
     返回 (filtered_bars, dropped, filters_meta)。
     min_avg_amount_pctile: 0–100，只保留成交额（优先 amount，否则价×量）≥该分位的票。
+
+    剔 ST 默认只用 ``name_by_code``（观察池已存名）。``allow_live_names=True``
+    才对缺名票打 ``get_quote``；回测大宇宙开 live 会逐只挂行情，极慢。
+    缺名且不 live 时**保留**该票（不当 ST）。
     """
     dropped: List[Dict[str, Any]] = []
-    names = name_by_code or {}
+    names = dict(name_by_code or {})
     usable = dict(stock_bars or {})
 
     if exclude_st:
         keep: Dict[str, List[dict]] = {}
         for code, bars in usable.items():
-            name = names.get(code) or ""
-            if not name:
-                # 尝试从 quote 补名
+            name = str(names.get(code) or "").strip()
+            if not name and allow_live_names:
+                # 尝试从 quote 补名（仅显式允许；回测勿开）
                 try:
                     from core.data.facade import get_quote
 
                     q = get_quote(code)
                     if q.get("success"):
                         name = str(q.get("stock_name") or q.get("name") or "")
+                        if name:
+                            names[code] = name
                 except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
-                    logger.debug("exception caught in universe_filters.py line 56", exc_info=True)
+                    logger.debug(
+                        "universe ST name quote failed code=%s", code, exc_info=True
+                    )
                     name = ""
             if _is_st_name(name):
                 dropped.append(
@@ -95,6 +104,8 @@ def filter_universe_bars(
     meta = {
         "exclude_st": bool(exclude_st),
         "min_avg_amount_pctile": min_avg_amount_pctile,
+        "allow_live_names": bool(allow_live_names),
+        "named": sum(1 for c in (stock_bars or {}) if str(names.get(c) or "").strip()),
         "kept": len(usable),
         "dropped_count": len(dropped),
     }

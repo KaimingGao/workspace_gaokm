@@ -12,7 +12,7 @@ import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +189,113 @@ def _parse_fetched(fetched_s: str) -> Optional[datetime]:
         return None
 
 
+_IN_CHUNK = 400
+
+
+def _bar_dicts_from_rows(bars_rows: List[Any]) -> List[dict]:
+    return [
+        {
+            "date": r["date"],
+            "open": r["open"],
+            "high": r["high"],
+            "low": r["low"],
+            "close": r["close"],
+            "volume": r["volume"],
+        }
+        for r in bars_rows
+    ]
+
+
+def _pick_meta_row(rows: Sequence[Any], *, code_s: str) -> Optional[Any]:
+    """同票多 adjust_policy：优先 qfq，再按 fetched_at 新。"""
+    best = None
+    best_key: Optional[Tuple[int, str]] = None
+    for row in rows or ():
+        if str(row["code"] or "") != code_s:
+            continue
+        policy = str(row["adjust_policy"] or "qfq").lower()
+        rank = (0 if policy == "qfq" else 1, str(row["fetched_at"] or ""))
+        if best is None or best_key is None:
+            best, best_key = row, rank
+            continue
+        if rank[0] < best_key[0] or (
+            rank[0] == best_key[0] and rank[1] > best_key[1]
+        ):
+            best, best_key = row, rank
+    return best
+
+
+def _meta_payload(
+    row: Any,
+    *,
+    mkt: str,
+    code_s: str,
+    bars: List[dict],
+    policy: str,
+    fetched_at: datetime,
+    assess_quality,
+) -> Dict[str, Any]:
+    quality = row["quality"]
+    if isinstance(quality, str) and quality:
+        try:
+            quality = json.loads(quality)
+        except json.JSONDecodeError:
+            quality = assess_quality(
+                bars, data_source=row["data_source"] or "cache", fetched_at=fetched_at
+            )
+    elif not quality:
+        quality = assess_quality(
+            bars, data_source=row["data_source"] or "cache", fetched_at=fetched_at
+        )
+    return {
+        "market": row["market"] or mkt,
+        "code": row["code"] or code_s,
+        "stock_code": row["stock_code"],
+        "data_source": row["data_source"] or "cache",
+        "fetched_at": fetched_at.isoformat(timespec="seconds"),
+        "quality": quality,
+        "from_cache": True,
+        "date_min": row["date_min"] or (bars[0].get("date") if bars else None),
+        "date_max": row["date_max"] or (bars[-1].get("date") if bars else None),
+        "bar_count": row["bar_count"] or len(bars),
+        "adjust_policy": policy,
+        "bars_backend": "sqlite",
+    }
+
+
+def _fetch_daily_bar_rows(
+    conn: sqlite3.Connection,
+    *,
+    mkt: str,
+    code_s: str,
+    policy: str,
+    max_bars: Optional[int],
+) -> List[Any]:
+    if max_bars is not None and int(max_bars) > 0:
+        rows = conn.execute(
+            """
+            SELECT date, open, high, low, close, volume, code
+            FROM daily_bars
+            WHERE market=? AND code=? AND adjust_policy=?
+            ORDER BY date DESC
+            LIMIT ?
+            """,
+            (mkt, code_s, policy, int(max_bars)),
+        ).fetchall()
+        rows = list(reversed(rows))
+    else:
+        rows = conn.execute(
+            """
+            SELECT date, open, high, low, close, volume, code
+            FROM daily_bars
+            WHERE market=? AND code=? AND adjust_policy=?
+            ORDER BY date
+            """,
+            (mkt, code_s, policy),
+        ).fetchall()
+    return list(rows)
+
+
 def load_daily(
     market: str,
     code: str,
@@ -198,6 +305,7 @@ def load_daily(
     store_dir: str,
     ignore_age: bool,
     assess_quality,
+    max_bars: Optional[int] = None,
 ) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
     mkt = market.upper()
     code_s = str(code)
@@ -223,60 +331,108 @@ def load_daily(
             return None
 
     policy = row["adjust_policy"] or "qfq"
-    bars_rows = conn.execute(
-        """
-        SELECT date, open, high, low, close, volume, code
-        FROM daily_bars
-        WHERE market=? AND code=? AND adjust_policy=?
-        ORDER BY date
-        """,
-        (mkt, code_s, policy),
-    ).fetchall()
+    bars_rows = _fetch_daily_bar_rows(
+        conn, mkt=mkt, code_s=code_s, policy=policy, max_bars=max_bars
+    )
     if any(str(r["code"] or "") != code_s for r in bars_rows):
         logger.error("daily bars code mismatch requested=%s", code_s)
         return None
-    bars = [
-        {
-            "date": r["date"],
-            "open": r["open"],
-            "high": r["high"],
-            "low": r["low"],
-            "close": r["close"],
-            "volume": r["volume"],
-        }
-        for r in bars_rows
-    ]
+    bars = _bar_dicts_from_rows(bars_rows)
     if len(bars) < min_bars:
         return None
 
-    quality = row["quality"]
-    if isinstance(quality, str) and quality:
-        try:
-            quality = json.loads(quality)
-        except json.JSONDecodeError:
-            quality = assess_quality(
-                bars, data_source=row["data_source"] or "cache", fetched_at=fetched_at
-            )
-    elif not quality:
-        quality = assess_quality(
-            bars, data_source=row["data_source"] or "cache", fetched_at=fetched_at
-        )
-
-    meta = {
-        "market": row["market"] or mkt,
-        "code": row["code"] or code_s,
-        "stock_code": row["stock_code"],
-        "data_source": row["data_source"] or "cache",
-        "fetched_at": fetched_at.isoformat(timespec="seconds"),
-        "quality": quality,
-        "from_cache": True,
-        "date_min": row["date_min"] or (bars[0].get("date") if bars else None),
-        "date_max": row["date_max"] or (bars[-1].get("date") if bars else None),
-        "bar_count": row["bar_count"] or len(bars),
-        "adjust_policy": policy,
-        "bars_backend": "sqlite",
-    }
+    meta = _meta_payload(
+        row,
+        mkt=mkt,
+        code_s=code_s,
+        bars=bars,
+        policy=policy,
+        fetched_at=fetched_at,
+        assess_quality=assess_quality,
+    )
     return bars, meta
+
+
+def load_daily_many(
+    pairs: Sequence[Tuple[str, str]],
+    *,
+    min_bars: int,
+    max_age_hours: float,
+    store_dir: str,
+    ignore_age: bool,
+    assess_quality,
+    max_bars: Optional[int] = None,
+) -> Dict[Tuple[str, str], Tuple[List[dict], Dict[str, Any]]]:
+    """单连接批量读日线（按 market 分组）。
+
+    多线程并发打同一 ``bars.db`` 会互相卡住；组合回测离线扫盘应走本函数。
+    ``max_bars``：只取最近 N 根（升序返回），避免读出千根全历史。
+    """
+    out: Dict[Tuple[str, str], Tuple[List[dict], Dict[str, Any]]] = {}
+    by_mkt: Dict[str, List[str]] = {}
+    for market, code in pairs or ():
+        mkt = str(market or "").strip().upper()
+        code_s = str(code or "").strip()
+        if not mkt or not code_s:
+            continue
+        by_mkt.setdefault(mkt, [])
+        if code_s not in by_mkt[mkt]:
+            by_mkt[mkt].append(code_s)
+    if not by_mkt:
+        return out
+
+    conn = get_read_conn(store_dir)
+    now = datetime.now()
+    for mkt, codes in by_mkt.items():
+        meta_by_code: Dict[str, Any] = {}
+        for i in range(0, len(codes), _IN_CHUNK):
+            chunk = codes[i : i + _IN_CHUNK]
+            ph = ",".join("?" * len(chunk))
+            rows = conn.execute(
+                f"""
+                SELECT * FROM daily_cache_meta
+                WHERE market=? AND code IN ({ph})
+                """,
+                (mkt, *chunk),
+            ).fetchall()
+            grouped: Dict[str, List[Any]] = {}
+            for row in rows:
+                code_s = str(row["code"] or "")
+                grouped.setdefault(code_s, []).append(row)
+            for code_s, gro in grouped.items():
+                picked = _pick_meta_row(gro, code_s=code_s)
+                if picked is not None:
+                    meta_by_code[code_s] = picked
+
+        for code_s in codes:
+            row = meta_by_code.get(code_s)
+            if row is None:
+                continue
+            fetched_at = _parse_fetched(row["fetched_at"]) or now
+            if not ignore_age and max_age_hours > 0:
+                if now - fetched_at > timedelta(hours=max_age_hours):
+                    continue
+            policy = row["adjust_policy"] or "qfq"
+            bars_rows = _fetch_daily_bar_rows(
+                conn, mkt=mkt, code_s=code_s, policy=policy, max_bars=max_bars
+            )
+            if any(str(r["code"] or "") != code_s for r in bars_rows):
+                logger.error("daily bars code mismatch requested=%s", code_s)
+                continue
+            bars = _bar_dicts_from_rows(bars_rows)
+            if len(bars) < min_bars:
+                continue
+            meta = _meta_payload(
+                row,
+                mkt=mkt,
+                code_s=code_s,
+                bars=bars,
+                policy=policy,
+                fetched_at=fetched_at,
+                assess_quality=assess_quality,
+            )
+            out[(mkt, code_s)] = (bars, meta)
+    return out
 
 
 def save_daily(

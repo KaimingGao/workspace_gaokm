@@ -2,7 +2,6 @@
 
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple
 
 from core.signal.config import load_signal_config
@@ -13,7 +12,6 @@ from core.watching.store import WATCHING_MAX_SIZE
 
 # 与 watching.max_size 对齐，避免日报截断与满池历史回测不可比。
 DAILY_PORTFOLIO_MAX_NAMES = WATCHING_MAX_SIZE
-_CACHE_WORKERS = 12
 _REMOTE_ITEM_TIMEOUT = 25.0
 
 logger = logging.getLogger(__name__)
@@ -86,6 +84,68 @@ def _bars_from_pack(pack: object) -> List[dict]:
     return []
 
 
+def _resolve_market_bare(raw: str) -> Tuple[Optional[str], Optional[str]]:
+    """观察池代码 → (market, bare)；解析失败时 6 位数字回退 CN。"""
+    text = str(raw or "").strip()
+    if not text:
+        return None, None
+    try:
+        from core.market.symbols import resolve_market_code
+
+        mkt, bare = resolve_market_code(text)
+        if mkt and bare:
+            return str(mkt).upper(), str(bare)
+    except Exception:  # noqa: BLE001
+        logger.debug("resolve_market_code failed raw=%s", text, exc_info=True)
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) == 6:
+        return "CN", digits
+    return None, None
+
+
+def _load_offline_bars_from_store(
+    raw_list: List[str],
+    *,
+    limit: int,
+) -> Dict[str, Tuple[str, List[dict]]]:
+    """单线程批量读本地日线（sqlite 单连接 + max_bars），避免线程池打库卡住。"""
+    from core.store import load_daily_cache_many
+
+    keyed: Dict[str, Tuple[str, str]] = {}
+    pairs: List[Tuple[str, str]] = []
+    seen = set()
+    for raw in raw_list:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        mkt, bare = _resolve_market_bare(text)
+        if not mkt or not bare:
+            continue
+        keyed[text] = (mkt, bare)
+        key = (mkt, bare)
+        if key not in seen:
+            seen.add(key)
+            pairs.append(key)
+
+    packed = load_daily_cache_many(
+        pairs,
+        min_bars=1,
+        ignore_age=True,
+        max_bars=max(1, int(limit or 1)),
+    )
+    out: Dict[str, Tuple[str, List[dict]]] = {}
+    lim = max(1, int(limit or 1))
+    for raw, (mkt, bare) in keyed.items():
+        hit = packed.get((mkt, bare))
+        if not hit:
+            out[raw] = (bare, [])
+            continue
+        bars, _meta = hit
+        trimmed = list(bars[-lim:] if len(bars) > lim else bars)
+        out[raw] = (bare, trimmed)
+    return out
+
+
 def _load_bars_parallel(
     raw_list: List[str],
     *,
@@ -94,33 +154,34 @@ def _load_bars_parallel(
     offline_ok: bool,
     remote_fill: bool = True,
 ) -> Tuple[Dict[str, Tuple[str, List[dict]]], int]:
-    """先并发读本地缓存；不够的再经进程池补远端（避开同进程 AkShare 锁）。
+    """先读本地缓存；不够的再经进程池补远端（避开同进程 AkShare 锁）。
 
-    ``remote_fill=False``：只扫缓存，不打远端（大宇宙截断前用）。
+    本地扫盘走单线程批量（``load_daily_cache_many``）：多线程并发读
+    ``bars.db`` 会互相卡住。``remote_fill=False`` 时只扫缓存。
     """
     by_raw: Dict[str, Tuple[str, List[dict]]] = {}
     n = len(raw_list)
     misses = list(raw_list)
     if offline_ok and n:
-        workers = min(_CACHE_WORKERS, max(1, n))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futs = [
-                pool.submit(
-                    _fetch_bars_for_raw,
-                    raw,
-                    limit=limit,
-                    offline_ok=True,
-                    offline_only=True,
-                )
-                for raw in raw_list
-            ]
-            for fut in as_completed(futs):
+        try:
+            by_raw.update(_load_offline_bars_from_store(raw_list, limit=limit))
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.warning(
+                "portfolio batch cache bar load failed; fallback per-code",
+                exc_info=True,
+            )
+            by_raw.clear()
+            for raw in raw_list:
                 try:
-                    raw, sym, bars = fut.result()
-                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    r, sym, bars = _fetch_bars_for_raw(
+                        raw,
+                        limit=limit,
+                        offline_ok=True,
+                        offline_only=True,
+                    )
+                    by_raw[str(r)] = (str(sym), list(bars or []))
+                except Exception:  # noqa: BLE001
                     logger.warning("portfolio cache bar load failed", exc_info=True)
-                    continue
-                by_raw[str(raw)] = (str(sym), list(bars or []))
         for raw in raw_list:
             by_raw.setdefault(raw, (_resolve_symbol(raw, allow_live=False), []))
         misses = [raw for raw in raw_list if len(by_raw[raw][1]) < need]

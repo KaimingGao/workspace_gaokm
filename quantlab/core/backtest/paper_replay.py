@@ -2431,6 +2431,7 @@ def backtest_paper_replay(
     n = len(dates)
 
     score_cache_key: Optional[str] = None
+    day_inputs_index = None
     score_cache_stats: Dict[str, Any] = {
         "enabled": False,
         "hits": 0,
@@ -2440,6 +2441,7 @@ def backtest_paper_replay(
     if scores_by_date is None:
         try:
             from core.backtest.replay_score_cache import (
+                DayOpenInputsIndex,
                 build_run_key_for_bars,
                 write_run_meta,
             )
@@ -2459,6 +2461,12 @@ def backtest_paper_replay(
                 )
                 score_cache_key = str(info.get("run_key") or "") or None
                 if score_cache_key:
+                    day_inputs_index = DayOpenInputsIndex(
+                        codes=list(stock_bars.keys()),
+                        dates=dates,
+                        date_maps=date_maps,
+                        max_window=int(max_window),
+                    )
                     score_cache_stats = {
                         "enabled": True,
                         "hits": 0,
@@ -2484,6 +2492,7 @@ def backtest_paper_replay(
         except Exception:  # noqa: BLE001
             logger.debug("replay score cache init failed", exc_info=True)
             score_cache_key = None
+            day_inputs_index = None
             score_cache_stats = {
                 "enabled": False,
                 "hits": 0,
@@ -2690,21 +2699,11 @@ def backtest_paper_replay(
         else:
             scored = None
             day_inputs_fp = ""
-            if score_cache_key:
+            if score_cache_key and day_inputs_index is not None:
                 try:
-                    from core.backtest.replay_score_cache import (
-                        day_open_inputs_fingerprint,
-                        load_day,
-                        save_day,
-                    )
+                    from core.backtest.replay_score_cache import load_day, save_day
 
-                    day_inputs_fp = day_open_inputs_fingerprint(
-                        codes=list(stock_bars.keys()),
-                        dates=dates,
-                        date_maps=date_maps,
-                        day_i=i,
-                        max_window=int(max_window),
-                    )
+                    day_inputs_fp = day_inputs_index.fingerprint(i)
                     scored = load_day(
                         score_cache_key, day, inputs_fp=day_inputs_fp
                     )
@@ -2735,21 +2734,12 @@ def backtest_paper_replay(
                     required_factor_keys=required_factor_keys or None,
                     score_codes=tradable_codes,
                 )
-                if score_cache_key:
+                if score_cache_key and day_inputs_index is not None:
                     try:
-                        from core.backtest.replay_score_cache import (
-                            day_open_inputs_fingerprint,
-                            save_day,
-                        )
+                        from core.backtest.replay_score_cache import save_day
 
                         if not day_inputs_fp:
-                            day_inputs_fp = day_open_inputs_fingerprint(
-                                codes=list(stock_bars.keys()),
-                                dates=dates,
-                                date_maps=date_maps,
-                                day_i=i,
-                                max_window=int(max_window),
-                            )
+                            day_inputs_fp = day_inputs_index.fingerprint(i)
                         if save_day(
                             score_cache_key,
                             day,

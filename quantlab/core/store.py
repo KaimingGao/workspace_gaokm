@@ -11,7 +11,7 @@ import os
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from core.data.policy import (
     DAILY_BARS_MAX_KEEP,
@@ -468,6 +468,7 @@ def load_daily_cache(
     max_age_hours: float = DAILY_CACHE_HOURS,
     store_dir: Optional[str] = None,
     ignore_age: bool = False,
+    max_bars: Optional[int] = None,
 ) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
     base = store_dir or get_store_dir()
     if bars_backend() == "sqlite":
@@ -481,8 +482,9 @@ def load_daily_cache(
             store_dir=base,
             ignore_age=ignore_age,
             assess_quality=assess_quality,
+            max_bars=max_bars,
         )
-    return _load_daily_cache_json(
+    loaded = _load_daily_cache_json(
         market,
         code,
         min_bars=min_bars,
@@ -490,6 +492,62 @@ def load_daily_cache(
         store_dir=base,
         ignore_age=ignore_age,
     )
+    if loaded is None or max_bars is None or int(max_bars) <= 0:
+        return loaded
+    bars, meta = loaded
+    n = int(max_bars)
+    if len(bars) > n:
+        bars = list(bars[-n:])
+    return bars, meta
+
+
+def load_daily_cache_many(
+    pairs: Sequence[Tuple[str, str]],
+    *,
+    min_bars: int = 1,
+    max_age_hours: float = DAILY_CACHE_HOURS,
+    store_dir: Optional[str] = None,
+    ignore_age: bool = False,
+    max_bars: Optional[int] = None,
+) -> Dict[Tuple[str, str], Tuple[List[dict], Dict[str, Any]]]:
+    """批量读日线缓存。键为 ``(market, code)``。
+
+    sqlite：单连接顺序读（带可选 ``max_bars``）；json：逐票文件。
+    """
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_daily_many(
+            pairs,
+            min_bars=min_bars,
+            max_age_hours=max_age_hours,
+            store_dir=base,
+            ignore_age=ignore_age,
+            assess_quality=assess_quality,
+            max_bars=max_bars,
+        )
+    out: Dict[Tuple[str, str], Tuple[List[dict], Dict[str, Any]]] = {}
+    seen = set()
+    for market, code in pairs or ():
+        mkt = str(market or "").strip().upper()
+        code_s = str(code or "").strip()
+        key = (mkt, code_s)
+        if not mkt or not code_s or key in seen:
+            continue
+        seen.add(key)
+        hit = load_daily_cache(
+            mkt,
+            code_s,
+            min_bars=min_bars,
+            max_age_hours=max_age_hours,
+            store_dir=base,
+            ignore_age=ignore_age,
+            max_bars=max_bars,
+        )
+        if hit is not None:
+            out[key] = hit
+    return out
 
 
 def _load_daily_cache_json(

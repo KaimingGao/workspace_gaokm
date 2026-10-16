@@ -16,6 +16,7 @@ from core.store import (
     bars_backend,
     clear_daily_cache,
     load_daily_cache,
+    load_daily_cache_many,
     load_minute_cache,
     merge_minute_bars_by_time,
     save_daily_cache,
@@ -78,6 +79,53 @@ class _StoreBackendMixin:
         self.assertEqual(len(lb), 25)
         self.assertEqual(meta["quality"]["level"], "good")
         self.assertEqual(meta.get("bars_backend"), self.backend)
+
+    def test_load_daily_max_bars_tail(self):
+        bars = _sample_bars(40)
+        save_daily_cache(
+            "CN",
+            "600519",
+            bars,
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        loaded = load_daily_cache(
+            "CN", "600519", store_dir=self.tmp, ignore_age=True, max_bars=10
+        )
+        self.assertIsNotNone(loaded)
+        lb, _meta = loaded
+        self.assertEqual(len(lb), 10)
+        self.assertEqual(lb[0]["date"], bars[-10]["date"])
+        self.assertEqual(lb[-1]["date"], bars[-1]["date"])
+
+    def test_load_daily_cache_many_matches_single(self):
+        codes = ["000001", "600519", "300750"]
+        for i, code in enumerate(codes):
+            save_daily_cache(
+                "CN",
+                code,
+                _sample_bars(30 + i),
+                data_source="akshare_cn_daily",
+                store_dir=self.tmp,
+            )
+        pairs = [("CN", c) for c in codes] + [("CN", "999999")]
+        many = load_daily_cache_many(
+            pairs, store_dir=self.tmp, ignore_age=True, max_bars=12
+        )
+        self.assertEqual(set(many.keys()), {("CN", c) for c in codes})
+        for code in codes:
+            single = load_daily_cache(
+                "CN", code, store_dir=self.tmp, ignore_age=True, max_bars=12
+            )
+            self.assertIsNotNone(single)
+            self.assertEqual(
+                [b["date"] for b in many[("CN", code)][0]],
+                [b["date"] for b in single[0]],
+            )
+            self.assertEqual(
+                [b["close"] for b in many[("CN", code)][0]],
+                [b["close"] for b in single[0]],
+            )
 
     def test_cache_expired(self):
         bars = _sample_bars(10)

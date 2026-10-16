@@ -1822,15 +1822,29 @@ export function installBacktest(q) {
     paintPortfolioBacktestFail((job && job.error) || (data && data.error) || "回测失败");
   }
 
+  function jobUpdatedMs(job, fallback) {
+    const n = Number(job && job.updated_at);
+    if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
+    return fallback;
+  }
+
+  async function fetchPortfolioBacktestJobFull(progressJob) {
+    const full = await fetch("/api/jobs/portfolio-backtest").then((res) =>
+      res.json().catch(() => ({}))
+    );
+    return (full && full.job) || progressJob;
+  }
+
   async function pollPortfolioBacktestJob(jobId, started, ctx, onHint) {
     const pollStarted = started || Date.now();
-    const absoluteCapMs = 40 * 60 * 1000;
+    // 满池冷缓存按日打分可达数小时；用「进度停滞」判超时，不用死板墙钟。
+    const stallCapMs = 25 * 60 * 1000;
+    const absoluteCapMs = 6 * 60 * 60 * 1000;
     let netFailStreak = 0;
     let sawOwnJob = false;
+    let lastProgressMs = pollStarted;
+    let lastProgressKey = "";
     while (true) {
-      if (Date.now() - pollStarted > absoluteCapMs) {
-        throw new Error("回测超时（>40 分钟）。可先缩小回看窗，或等日线/分钟预热后再点");
-      }
       let data = {};
       let ok = false;
       let status = 0;
@@ -1883,10 +1897,36 @@ export function installBacktest(q) {
         throw new Error(job.error || "回测失败");
       }
       if (job.status === "done") {
-        const full = await fetch("/api/jobs/portfolio-backtest").then((res) =>
-          res.json().catch(() => ({}))
+        return await fetchPortfolioBacktestJobFull(job);
+      }
+      const progressKey = `${job.current || 0}|${job.total || 0}|${job.message || ""}`;
+      if (progressKey !== lastProgressKey) {
+        lastProgressKey = progressKey;
+        lastProgressMs = jobUpdatedMs(job, Date.now());
+      } else {
+        lastProgressMs = Math.max(lastProgressMs, jobUpdatedMs(job, lastProgressMs));
+      }
+      const now = Date.now();
+      const stalled = now - lastProgressMs > stallCapMs;
+      const tooLong = now - pollStarted > absoluteCapMs;
+      if (stalled || tooLong) {
+        // 墙钟到了仍可能刚好 done：再拉一次再抛
+        try {
+          const again = await fetch("/api/jobs/portfolio-backtest?progress=1").then((res) =>
+            res.json().catch(() => ({}))
+          );
+          const j2 = (again && again.job) || {};
+          if (j2.status === "done" && (!jobId || !j2.id || j2.id === jobId)) {
+            return await fetchPortfolioBacktestJobFull(j2);
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        throw new Error(
+          stalled
+            ? "回测进度停滞（>25 分钟无更新）。可先缩小回看窗，或等日线/分钟预热后再点"
+            : "回测超时（>6 小时）。可先缩小回看窗，或等日线/分钟预热后再点"
         );
-        return (full && full.job) || job;
       }
       const hint = portfolioJobHint(job, ctx) || "回测中…";
       lastHintSafe(onHint, hint);
@@ -1916,7 +1956,18 @@ export function installBacktest(q) {
         res.json().catch(() => ({}))
       );
       const job = (jr && jr.job) || {};
-      if (job.status !== "running" || !job.id) return false;
+      if (!job.id) return false;
+      // 前端曾超时放弃时，后台可能已 done：挂回结果，避免误报失败
+      if (job.status === "done") {
+        const full = await fetchPortfolioBacktestJobFull(job);
+        if (portfolioJobPaintable(full && full.result)) {
+          const started = jobStartedMs(full, Date.now());
+          await applyFinishedPortfolioJob(full, started);
+          return true;
+        }
+        return false;
+      }
+      if (job.status !== "running") return false;
       const started = jobStartedMs(job, Date.now());
       const ctx = recallPortfolioRunContext(job);
       tookBusy = true;

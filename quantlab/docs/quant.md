@@ -1363,9 +1363,11 @@ score_stock(code) 续——
 产品回测与 live Follow 同一套 **rank_lots**：按手数开/加/清仓（未过入场清仓，无「持」）。历史成交用 5 分钟 K（回测时间 09:30–10:00）；live 窗跟独立「启动时间」`live_fill_clock`（可含 09:25）。  
 权建议 OOS / WF 默认走轻量 `topk_oos_curve`；完整引擎在 `legacy/topk_backtest`（`full_engine=True` / 单测），**不进 `/replay`**。中性化对照研究口与 lookback×K 参数网格已下线。
 
-成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。前端轮询：进度停滞 >25 分钟才判超时（墙钟上限 6 小时）；刷新可挂回仍在跑 / 已 `done` 的任务。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住；回测 `fill_clock` 与 live `live_fill_clock` 分立），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
-**开盘日打分缓存**（`data/cache/replay_scores/`）：按观察池**代码集合** + 研究/执行套模型指纹分目录，每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗+今开）。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型、换观察池名单、改某日窗内 K、改 `max_window` 则对应日失效。分档打开时，允许打分的代码集也进入 `run_key`（整池打分的旧目录不会被命中）。`fill_clock≠09:30` 时仍前缀重算 ŷ_τc（不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 2 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v1/`）。
+**日线加载**：观察池日 K 经 `load_portfolio_stock_bars` **单连接批量**读 `bars.db`（可 `max_bars` 截尾）；勿用多线程并发扫同一库。进度拆成「读本地日线 → 日线已就绪 → 过滤宇宙 → 准备成交参数」。剔 ST 只用观察池已存名（`watchlist_names`），**不**逐只 `get_quote`；缺名则保留。
+
+**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v4**）：按观察池**代码集合** + 研究/执行套模型**内容**指纹分目录，每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换观察池名单、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时仍前缀重算 ŷ_τc（不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 2 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v3/`）。
 
 ### 5.1 分数口径（历史 vs live）
 

@@ -255,22 +255,64 @@ class QuantReplayMixin:
 
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
-        _emit(f"加载日线 {len(candidates)} 只…")
+        _emit(f"读本地日线 {len(candidates)} 只（bars.db）…")
         stock_bars, failures, fundamentals_by_code = load_portfolio_stock_bars(
             candidates,
             lookback=effective_lookback,
             fetch_fundamentals=fetch_fundamentals,
         )
+        _emit(f"日线已就绪 {len(stock_bars)} 只…")
 
         filter_meta: Dict[str, Any] = {}
         filter_dropped: List[Dict[str, Any]] = []
         if exclude_st or min_avg_amount_pctile is not None:
             from core.backtest.universe_filters import filter_universe_bars
 
+            bits = []
+            if exclude_st:
+                bits.append("剔ST")
+            if min_avg_amount_pctile is not None:
+                bits.append(f"成交额≥{min_avg_amount_pctile:g}分位")
+            _emit(
+                f"过滤宇宙（{'·'.join(bits) or '规则'}）· {len(stock_bars)} 只…"
+            )
+            name_by_code: Dict[str, str] = {}
+            if exclude_st:
+                try:
+                    from core.watching.store import read_watching
+
+                    w = read_watching() or {}
+                    wl = list(w.get("watchlist") or [])
+                    names = list(w.get("watchlist_names") or [])
+                    for i, raw in enumerate(wl):
+                        code = str(raw or "").strip()
+                        digits = "".join(ch for ch in code if ch.isdigit())
+                        key = digits if len(digits) == 6 else code
+                        if not key:
+                            continue
+                        nm = str(names[i] if i < len(names) else "").strip()
+                        if nm:
+                            name_by_code[key] = nm
+                            name_by_code[code] = nm
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "watching names for ST filter failed", exc_info=True
+                    )
             stock_bars, filter_dropped, filter_meta = filter_universe_bars(
                 stock_bars,
                 exclude_st=exclude_st,
                 min_avg_amount_pctile=min_avg_amount_pctile,
+                name_by_code=name_by_code or None,
+                allow_live_names=False,
+            )
+            _emit(
+                f"过滤后 {len(stock_bars)} 只"
+                + (
+                    f" · 去掉 {len(filter_dropped)}"
+                    if filter_dropped
+                    else ""
+                )
+                + "…"
             )
 
         if len(stock_bars) < 1:
@@ -290,6 +332,7 @@ class QuantReplayMixin:
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
 
+        _emit("准备成交参数…")
         from core.backtest.paper_replay import (
             REPLAY_CASH_FLOOR,
             REPLAY_FILL_CLOCK,
