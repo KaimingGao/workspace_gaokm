@@ -56,6 +56,35 @@ class TestPortsAdapters(unittest.TestCase):
                 offenders.append(str(rel))
         self.assertEqual(offenders, [])
 
+    def test_signal_no_toplevel_research_ridge_panel_imports(self):
+        """B2：signal/ 顶层不得 from core.research.*_ridge / *_panel；经 yhat 或函数内 lazy。"""
+        import ast
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "core" / "signal"
+        banned_suffixes = ("_ridge", "_panel", "_ridge_compact")
+        offenders = []
+        for path in root.rglob("*.py"):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except SyntaxError:
+                continue
+            for node in tree.body:
+                mods = []
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    mods.append(node.module)
+                elif isinstance(node, ast.Import):
+                    mods.extend(a.name for a in node.names)
+                for mod in mods:
+                    if not mod.startswith("core.research."):
+                        continue
+                    leaf = mod.rsplit(".", 1)[-1]
+                    if any(leaf.endswith(s) for s in banned_suffixes):
+                        offenders.append(
+                            f"{path.relative_to(root.parent.parent)}: top-level {mod}"
+                        )
+        self.assertEqual(offenders, [])
+
     def test_adapters_bind_has_no_skills_imports(self):
         """出站绑定只登记 adapters.*，不再从 skills 挂实现。"""
         from pathlib import Path

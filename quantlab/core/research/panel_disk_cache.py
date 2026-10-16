@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 # 特征注册 / collect_* 语义变更时人工 +1 → 全池 miss
 # v2：τc 改为矩阵+slim（不再落整份 xs JSON）
-PANEL_CACHE_SCHEMA = 2
+# v3：指纹覆盖窗内每一根价量，中间复权改写必须 miss
+PANEL_CACHE_SCHEMA = 3
 
 _ENV_DISABLE = "QUANTLAB_PANEL_CACHE"
 
@@ -50,31 +51,34 @@ def safe_code(code: str) -> str:
     return "".join(ch for ch in str(code) if ch.isalnum()).lower() or "unknown"
 
 
+def _daily_bar_crumb(bar: dict) -> str:
+    day = str(bar.get("date") or bar.get("trade_date") or "")[:10]
+    return (
+        f"{day}|{bar.get('open')}|{bar.get('high')}|{bar.get('low')}|"
+        f"{bar.get('close')}|{bar.get('volume')}"
+    )
+
+
+def _minute_bar_crumb(bar: dict) -> str:
+    ts = str(bar.get("datetime") or bar.get("date") or "")[:19]
+    return (
+        f"{ts}|{bar.get('open')}|{bar.get('high')}|{bar.get('low')}|"
+        f"{bar.get('close')}|{bar.get('volume')}"
+    )
+
+
 def bars_fingerprint(
     bars: Optional[Sequence[dict]],
     *,
     minute_bars: Optional[Sequence[dict]] = None,
 ) -> str:
-    """日线 / 分钟跨度 + 末 bar 内容屑；新交易日写入后自然变。"""
+    """窗内每一根价量；中间一根变化也会 miss。空序列为 empty。"""
     seq = [b for b in (bars or []) if isinstance(b, dict)]
-    if not seq:
-        base = "empty"
-    else:
-        first = str(seq[0].get("date") or seq[0].get("trade_date") or "")[:10]
-        last_b = seq[-1]
-        last = str(last_b.get("date") or last_b.get("trade_date") or "")[:10]
-        crumb = (
-            f"{last_b.get('open')}|{last_b.get('high')}|{last_b.get('low')}|"
-            f"{last_b.get('close')}|{last_b.get('volume')}"
-        )
-        base = f"n{len(seq)}:{first}:{last}:{crumb}"
+    parts = [_daily_bar_crumb(b) for b in seq] if seq else ["empty"]
     mb = [b for b in (minute_bars or []) if isinstance(b, dict)]
     if mb:
-        m0 = str(mb[0].get("datetime") or mb[0].get("date") or "")[:19]
-        m1 = str(mb[-1].get("datetime") or mb[-1].get("date") or "")[:19]
-        mcrumb = f"{mb[-1].get('close')}|{mb[-1].get('volume')}"
-        base = f"{base}|m{len(mb)}:{m0}:{m1}:{mcrumb}"
-    return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
+        parts.extend(_minute_bar_crumb(b) for b in mb)
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
 def make_fingerprint(*, bars_fp: str, **kwargs: Any) -> str:

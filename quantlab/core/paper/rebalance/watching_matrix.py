@@ -272,7 +272,7 @@ def _score_pool(
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    from core.signal.score_stock import score_stock
+    from core.signal_service import score_one
 
     scored: List[dict] = []
     rejected: List[dict] = []
@@ -306,7 +306,7 @@ def _score_pool(
 
     def _score_one(code: str) -> Tuple[str, Any]:
         try:
-            result = score_stock(
+            result = score_one(
                 code,
                 horizon_days=max(1, int(horizon_days or 1)),
                 skip_fundamentals=True,

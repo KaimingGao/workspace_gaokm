@@ -198,7 +198,7 @@ def clear_audit_timeline_logs() -> Dict[str, Any]:
     不删 ``strategy_promoted.json``（生产态）与 ``schedule_last_run.json``（调度块在用）。
     历史 ``data/alerts/alert_*.json`` 归档文件保留。
     """
-    from core.decision_record import clear_decisions
+    from core.platform.decision_record import clear_decisions
 
     dec = clear_decisions()
     alerts_last_cleared = False

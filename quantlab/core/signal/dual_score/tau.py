@@ -29,7 +29,7 @@ from core.signal.yhat_geom import (
     resolve_oo_prior_var,
 )
 
-from core.research.tau_panel import TAU_LAG_FEATURES
+from core.yhat.keys import TAU_LAG_FEATURES
 from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_SHAPE_KEYS
 
 _TAU_FEATURE_KEYS = (
@@ -423,7 +423,7 @@ def attach_dual_score_pit(
         return signal_item
     if rem_model_doc is None:
         try:
-            from core.research.tc_ridge import load_tau_model
+            from core.yhat.model_load import load_tau_model
 
             rem_model_doc = load_tau_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -464,7 +464,7 @@ def attach_dual_score_pit(
     open_t_px = None
     trade_day0 = str(trade_day or "").strip()[:10]
     try:
-        from core.event_prior import get_event_prior_cfg
+        from core.market.priors.event import get_event_prior_cfg
         from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
 
         if len(trade_day0) < 10:
@@ -795,7 +795,7 @@ def _eod_return_model_for_item(item: dict):
     """
     del item  # 全局模型不再按票选组 β
     try:
-        from core.research.oo_ridge import load_scoring_return_model
+        from core.yhat.model_load import load_scoring_return_model
 
         rm, _meta = load_scoring_return_model()
         return rm
@@ -928,8 +928,8 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             feats.setdefault(k, v)
 
     try:
-        from core.research.tc_ridge import TAU_Z_FEATURES
         from core.signal.factors.z_tc import Z_TC_LEGACY_KEYS
+        from core.yhat.keys import TAU_Z_FEATURES
 
         z_keys = set(TAU_Z_FEATURES) | set(Z_TC_LEGACY_KEYS) | {
             "open_gap",
@@ -1035,7 +1035,7 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
 def rem_factor_coefficients_public() -> Dict[str, float]:
     """τ Ridge β 快照（tip「τ 因子系数」）。"""
     try:
-        from core.research.tc_ridge import load_tau_model
+        from core.yhat.model_load import load_tau_model
 
         doc = load_tau_model() or {}
         coefs = (doc.get("return_model") or {}).get("coefficients") or {}

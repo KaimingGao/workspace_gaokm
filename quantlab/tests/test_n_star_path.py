@@ -593,7 +593,7 @@ class TestP2PaperOpsLoop(unittest.TestCase):
             "data_quality": {},
             "risk_blocks": [],
         }
-        with patch("core.schedule_jobs.run_paper_daily", return_value=fake) as mocked:
+        with patch("core.platform.schedule_jobs.run_paper_daily", return_value=fake) as mocked:
             out = run_schedule("paper_daily", simulate_buy=False, strategy="short_conservative")
         mocked.assert_called_once()
         self.assertTrue(out.get("ok"))

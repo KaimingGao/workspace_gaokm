@@ -256,6 +256,97 @@ class TestBarsStatus(unittest.TestCase):
                 self.assertEqual(snap["current"], 160)
                 self.assertIn("160/160", str(snap.get("message") or ""))
 
+    def test_stale_fallback_counts_failed_and_skips_marker(self):
+        import json
+        import tempfile
+
+        from quant.research.bars_status import refresh_bars_only
+
+        class _Svc:
+            def get_bars_batch(self, codes, **kwargs):
+                return [
+                    {
+                        "bars": [{"date": "2026-08-21", "close": 1}],
+                        "data_source": "cache:stale",
+                    }
+                    for _ in codes
+                ]
+
+        with tempfile.TemporaryDirectory() as td:
+            marker_path = os.path.join(td, "forced.json")
+            with open(marker_path, "w", encoding="utf-8") as fh:
+                json.dump({"session_date": "2026-08-22", "remote_count": 1}, fh)
+
+            marker = patch("quant.research.bars_daily.mark_force_latest_bars_done")
+            with patch("core.watching.store.read_watching", return_value={"watchlist": ["600519"]}), patch(
+                "quant.research.watching_universe.merge_cluster_universe",
+                return_value={"codes": ["600519"], "code_roles": {}},
+            ), patch(
+                "quant.research.bars_status.expected_latest_daily_bar_date",
+                return_value="2026-08-22",
+            ), patch(
+                "quant.research.bars_status._last_bar_date_for_code",
+                return_value="2026-08-20",
+            ), patch(
+                "quant.research.bars_status._cached_daily_bar_count",
+                return_value=5000,
+            ), marker as marked, patch(
+                "quant.research.bars_status.build_bars_status",
+                return_value={"success": True},
+            ), patch(
+                "core.data.service.get_research_service",
+                return_value=_Svc(),
+            ), patch(
+                "quant.research.bars_daily.bars_session_date",
+                return_value="2026-08-22",
+            ), patch(
+                "core.paths.BARS_FORCED_SESSION_PATH",
+                marker_path,
+            ):
+                out = refresh_bars_only(watching_limit=100, mode="topup")
+            self.assertEqual(out["bars_refresh"]["failed_count"], 1)
+            self.assertEqual(out["bars_refresh"]["remote_count"], 0)
+            marked.assert_not_called()
+            self.assertFalse(os.path.isfile(marker_path))
+
+    def test_remote_success_still_marks_session(self):
+        from quant.research.bars_status import refresh_bars_only
+
+        class _Svc:
+            def get_bars_batch(self, codes, **kwargs):
+                return [
+                    {
+                        "bars": [{"date": "2026-08-22", "close": 1}],
+                        "data_source": "akshare_cn_daily:qfq",
+                    }
+                    for _ in codes
+                ]
+
+        marker = patch("quant.research.bars_daily.mark_force_latest_bars_done")
+        with patch("core.watching.store.read_watching", return_value={"watchlist": ["600519"]}), patch(
+            "quant.research.watching_universe.merge_cluster_universe",
+            return_value={"codes": ["600519"], "code_roles": {}},
+        ), patch(
+            "quant.research.bars_status.expected_latest_daily_bar_date",
+            return_value="2026-08-22",
+        ), patch(
+            "quant.research.bars_status._last_bar_date_for_code",
+            return_value="2026-08-20",
+        ), patch(
+            "quant.research.bars_status._cached_daily_bar_count",
+            return_value=5000,
+        ), marker as marked, patch(
+            "quant.research.bars_status.build_bars_status",
+            return_value={"success": True},
+        ), patch(
+            "core.data.service.get_research_service",
+            return_value=_Svc(),
+        ):
+            out = refresh_bars_only(watching_limit=100, mode="topup")
+        self.assertEqual(out["bars_refresh"]["failed_count"], 0)
+        self.assertEqual(out["bars_refresh"]["remote_count"], 1)
+        marked.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

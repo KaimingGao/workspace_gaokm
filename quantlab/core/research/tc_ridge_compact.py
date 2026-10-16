@@ -19,13 +19,11 @@ from core.research.tau_panel import (
 )
 from core.signal.factors.z_tc import (
     Z_TC_FIT_DROP_ALIASES,
-    Z_TC_FIT_FEATURES,
     Z_TC_MINUTE_KEYS,
     feature_get,
 )
+from core.yhat.keys import TAU_Z_FEATURES
 
-# alpha_τc = z_τc_* ∪ raw_atc_*；此处为 Z 块（canon）
-TAU_Z_FEATURES = Z_TC_FIT_FEATURES
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
 TAU_FIT_DROP_ALIASES = Z_TC_FIT_DROP_ALIASES
 # ŷ_τ30/60/90 Ridge 不要吃 ŷ_τ 的 OC 路径形状。HL/回撤/振幅在 30–90m 前瞻上共线对冲，

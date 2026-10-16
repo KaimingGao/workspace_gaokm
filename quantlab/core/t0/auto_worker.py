@@ -171,9 +171,8 @@ class T0AutoWorker:
             self._stop.wait(TICK_INTERVAL_SEC)
 
     def _tick(self) -> None:
-        from core.paths import PAPER_PATH
         from core.t0.intraday import session_in_market
-        from services.paper_service import PaperService
+        from core.ports.paper_cycle import get_paper_cycle
 
         with self._lock:
             if not self._enabled:
@@ -192,7 +191,8 @@ class T0AutoWorker:
                 self._runtime["last_run_session"] = sess
             return
 
-        svc = PaperService(PAPER_PATH)
+        svc = get_paper_cycle()
+
         try:
             svc.t0_auto_status()
         except FileNotFoundError:

@@ -37,7 +37,7 @@
 | `research/` | 薄 CLI（读数经 DataService） | — |
 | `evals/` | 黄金用例 + repro | — |
 
-入口：`run_web.py` · `main.py` · `core/schedule_jobs.py`。目录树见 [architecture.md · 目录结构](../architecture.md#代码目录结构)。
+入口：`run_web.py` · `main.py` · `core/platform/schedule_jobs.py`（根路径 shim）。目录树见 [architecture.md · 目录结构](../architecture.md#代码目录结构)。
 
 **命名（设计保留）**
 
@@ -144,7 +144,8 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 |------|------|
 | 整体 | 研究台 + 纸面准实盘分层已理顺 |
 | 框架急债 | **O1–O9 / Y-S / F-C1–C3·H\* 已落地**；维持 ports 与 ŷ 单标尺 + live manifest 纪律 |
-| **下一程（工程结构轨）** | **A0–A4**：契约冻结 → Bars SQLite → Job 运行时硬化 → BacktestService + 按用例拆巨石 → 前端稳态。见 [architecture.md · A 轨升级](../architecture.md) · [architecture.md · SQLite 迁移](../architecture.md)。SS-E1～E5 / FH0–FH5 已收口 |
+| **A 轨（工程结构）** | **A0–A4 已落地**：契约冻结 → Bars SQLite → Job 运行时硬化 → BacktestService + 按用例拆巨石 → 前端稳态。SS-E1～E5 / FH0–FH5 已收口 |
+| **工程结构 B 轨** | **B0–B4 已落地**：拆 `paper_replay` + 去层倒置 → `yhat` 契约解环 → 持久化/prior 归位 → t0/root。见 [engineering-track.md · B 轨](engineering-track.md#b-轨--core-结构收口b0b4) · [core/README.md](../../core/README.md) |
 | 产品缺口 | 仍见 design-spine / quant.md ŷ 全链路（非本表） |
 | 体量债 | `quant.js` 已拆域 + 工厂；巨石按用例再切归 **A3/A4**（非为拆而拆） |
 
@@ -163,7 +164,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | Live 清单 | `core/live_config_manifest.py` · `data/live/live_config_manifest.json` |
 | 研究共享（core） | `core/research/{factor_ols_fit,oo_panel,co_panel,tau_panel,portfolio_bars}.py`（`panel.py` 仅兼容再导出） |
 | 风控门禁 | `core/risk/checks.py` |
-| Job 槽 | `core/job_progress.py` · **`GET /api/jobs/{name}`**（canonical） |
+| Job 槽 | `core/platform/job_progress.py`（根路径 shim）· **`GET /api/jobs/{name}`**（canonical） |
 | 模拟 UI | `web/static/js/paper.js` + `paper/fmt.js` · `chart.js` |
 
 ---

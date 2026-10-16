@@ -5,7 +5,7 @@ import os
 from typing import Any, Dict, Optional
 
 from core.io_atomic import atomic_write_json
-from core.sentiment_prior import DEFAULT_PRIOR, get_sentiment_prior_cfg
+from core.market.priors.stock_sentiment import DEFAULT_PRIOR, get_sentiment_prior_cfg
 
 
 def read_sentiment_prior_public(*, config: Optional[dict] = None) -> Dict[str, Any]:

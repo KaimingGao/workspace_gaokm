@@ -1,4 +1,4 @@
-"""横截面 TopK 调仓回测 — **研究探针**（非产品账本）。
+"""@deprecated 横截面 TopK 调仓回测 — **研究探针**（非产品账本）。
 
 用途：权建议 OOS / WF 切片 / BS ``run_topk``。产品历史回测走
 ``paper_replay`` + rank_lots，**禁止**新功能继续堆进本模块。
@@ -6,7 +6,7 @@
 默认等权；可选 score_budget / risk_parity_lite（与纸面同源）。
 历史文件名曾为 portfolio.py；勿与 paper.json 持仓混淆。
 
-归档状态（P6）：完整引擎迁至 ``core.backtest.legacy``。
+归档状态（P6）：完整引擎在 ``core.backtest.legacy``。
 OOS/WF/BS 默认 ``topk_oos_curve``；仅 ``full_engine=True`` 或单测调用本模块。
 权重见 ``topk_weights``；tip/sim · 止损见同包 ``topk_trade_meta`` / ``topk_risk``。
 """

@@ -331,9 +331,9 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
         ), patch(
             "core.paper.rebalance.auto_worker.resolve_session",
             return_value="2026-09-10",
-        ), patch("services.paper_service.PaperService") as svc_cls:
+        ), patch("core.ports.paper_cycle.get_paper_cycle") as get_cycle:
             w._tick()
-            svc_cls.assert_not_called()
+            get_cycle.assert_not_called()
         self.assertIn("错过开盘窗", w.status()["last_tick_message"])
 
     def test_already_ran_is_idempotent(self):
@@ -347,9 +347,9 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
         ), patch(
             "core.paper.rebalance.auto_worker.resolve_session",
             return_value="2026-09-10",
-        ), patch("services.paper_service.PaperService") as svc_cls:
+        ), patch("core.ports.paper_cycle.get_paper_cycle") as get_cycle:
             w._tick()
-            svc_cls.assert_not_called()
+            get_cycle.assert_not_called()
         self.assertIn("今日已调仓", w.status()["last_tick_message"])
 
     def test_window_tick_commits_immediate_and_marks(self):
@@ -371,11 +371,11 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
             ), patch(
                 "core.paper.rebalance.auto_worker.resolve_session",
                 return_value="2026-09-10",
-            ), patch("services.paper_service.PaperService") as svc_cls, patch(
+            ), patch("core.ports.paper_cycle.get_paper_cycle") as get_cycle, patch(
                 "core.paper.load_paper",
                 return_value={"pending_orders": {}},
             ):
-                inst = svc_cls.return_value
+                inst = get_cycle.return_value
                 inst.t0_auto_status.return_value = {}
                 inst.fill_pending.return_value = {}
                 inst.rebalance.return_value = {
@@ -422,11 +422,11 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
             ), patch(
                 "core.paper.rebalance.auto_worker.resolve_session",
                 return_value="2026-09-10",
-            ), patch("services.paper_service.PaperService") as svc_cls, patch(
+            ), patch("core.ports.paper_cycle.get_paper_cycle") as get_cycle, patch(
                 "core.paper.load_paper",
                 return_value={"pending_orders": {}},
             ):
-                inst = svc_cls.return_value
+                inst = get_cycle.return_value
                 inst.t0_auto_status.return_value = {}
                 inst.fill_pending.return_value = {}
                 inst.rebalance.return_value = {
@@ -466,11 +466,11 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
             ), patch(
                 "core.paper.rebalance.auto_worker.resolve_session",
                 return_value="2026-09-10",
-            ), patch("services.paper_service.PaperService") as svc_cls, patch(
+            ), patch("core.ports.paper_cycle.get_paper_cycle") as get_cycle, patch(
                 "core.paper.load_paper",
                 return_value={"pending_orders": {"legs": [{"stock_code": "600000"}]}},
             ):
-                inst = svc_cls.return_value
+                inst = get_cycle.return_value
                 inst.t0_auto_status.return_value = {}
                 inst.fill_pending.return_value = {}
                 w._tick()
@@ -499,8 +499,8 @@ class TestT0WorkerWaitsForRebalance(unittest.TestCase):
         ), patch(
             "core.paper.rebalance.auto_worker.t0_wait_for_rebalance",
             return_value=(True, "等待调仓"),
-        ), patch("services.paper_service.PaperService") as svc_cls:
-            inst = svc_cls.return_value
+        ), patch("core.ports.paper_cycle.get_paper_cycle") as get_cycle:
+            inst = get_cycle.return_value
             inst.t0_auto_status.return_value = {}
             inst.fill_pending.return_value = {}
             inst.run_t0_intraday_tick.return_value = {"ok": True}

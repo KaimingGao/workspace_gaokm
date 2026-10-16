@@ -703,8 +703,12 @@ def merge_save_daily_cache(
     stock_code: Optional[str] = None,
     store_dir: Optional[str] = None,
     adjust_policy: Optional[str] = "qfq",
+    replace: bool = False,
 ) -> Tuple[str, List[dict]]:
-    """持锁读盘 → 按 date 合并 → 裁剪 → 写回（DS-R0 防丢更新）。"""
+    """持锁读盘 → 按 date 合并 → 裁剪 → 写回（DS-R0 防丢更新）。
+
+    ``replace=True``：整段换成 incoming，不保留更早的旧价。
+    """
     base = store_dir or get_store_dir()
     if bars_backend() == "sqlite":
         from core import store_bars_sqlite as sq
@@ -720,10 +724,23 @@ def merge_save_daily_cache(
             assess_quality=assess_quality,
             trim_daily_bars=trim_daily_bars,
             merge_bars_by_date=merge_bars_by_date,
+            replace=bool(replace),
         )
     path = daily_cache_path(market, code, base)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with path_lock(path):
+        if replace:
+            fresh = [b for b in (incoming or []) if isinstance(b, dict)]
+            _write_daily_payload(
+                path,
+                market=market,
+                code=code,
+                bars=fresh,
+                data_source=data_source,
+                stock_code=stock_code,
+                adjust_policy=adjust_policy,
+            )
+            return path, fresh
         existing: List[dict] = []
         if os.path.isfile(path):
             try:

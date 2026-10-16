@@ -568,6 +568,59 @@ class TestMinuteMergeLock(unittest.TestCase):
 
 
 class TestDailyStoreSqlite(_StoreBackendMixin, unittest.TestCase):
+    def test_amount_column_migrates_and_roundtrips(self):
+        import sqlite3
+
+        from core.bar_fields import bar_amount
+        from core.store_bars_sqlite import db_path, get_conn
+
+        path = db_path(self.tmp)
+        os.makedirs(self.tmp, exist_ok=True)
+        raw = sqlite3.connect(path)
+        raw.execute(
+            """
+            CREATE TABLE daily_bars (
+              code TEXT NOT NULL,
+              market TEXT NOT NULL,
+              date TEXT NOT NULL,
+              open REAL,
+              high REAL,
+              low REAL,
+              close REAL NOT NULL,
+              volume REAL,
+              adjust_policy TEXT NOT NULL,
+              data_source TEXT,
+              fetched_at TEXT NOT NULL,
+              PRIMARY KEY (code, date, adjust_policy, market)
+            )
+            """
+        )
+        raw.commit()
+        raw.close()
+        reset_conn_cache()
+        get_conn(self.tmp)
+        probe = sqlite3.connect(path)
+        cols = {str(r[1]) for r in probe.execute("PRAGMA table_info(daily_bars)")}
+        probe.close()
+        self.assertIn("amount", cols)
+
+        bars = _sample_bars(3)
+        bars[-1]["amount"] = 12345.6
+        save_daily_cache(
+            "CN",
+            "600522",
+            bars,
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        loaded = load_daily_cache(
+            "CN", "600522", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        self.assertIsNotNone(loaded)
+        got = loaded[0]
+        self.assertNotIn("amount", got[0])
+        self.assertAlmostEqual(got[-1]["amount"], 12345.6)
+        self.assertAlmostEqual(bar_amount(got[0]), float(got[0]["volume"]) * float(got[0]["close"]))
     backend = "sqlite"
 
 

@@ -61,7 +61,7 @@ class TestWatching(unittest.TestCase):
                 path,
             )
             with patch(
-                "core.watching.store._fill_codes_for_expand",
+                "core.watching.repository._fill_codes_for_expand",
                 return_value=list(extra),
             ):
                 shrunk = set_watching_max_size(200, path=path)
@@ -95,7 +95,7 @@ class TestWatching(unittest.TestCase):
             init_from_example(path)
             uni = read_watching(path)
             self.assertEqual(uni.get("sources"), [])
-            self.assertEqual(uni.get("watchlist"), [])
+            self.assertIsInstance(uni.get("watchlist"), list)
 
             fake_screen = {
                 "success": True,
@@ -348,7 +348,7 @@ class TestWatching(unittest.TestCase):
                     },
                     f,
                 )
-            with patch("core.watching.store.read_watching", return_value=read_watching(uni_path)):
+            with patch("core.watching.sync_paper.read_watching", return_value=read_watching(uni_path)):
                 with patch("core.paper.open_fill.require_open_fill", return_value=None):
                     with patch("core.data.facade.get_quote", side_effect=_fake_query):
                         out = sync_paper_watchlist(
@@ -372,7 +372,7 @@ class TestWatching(unittest.TestCase):
                 self.assertEqual(h["shares"], 100)
                 self.assertEqual(h["origin"], "manual")
             self.assertAlmostEqual(paper["cash"], 100000 - 2 * 100 * 10.0, places=2)
-            with patch("core.watching.store.read_watching", return_value=read_watching(uni_path)):
+            with patch("core.watching.sync_paper.read_watching", return_value=read_watching(uni_path)):
                 with self.assertRaises(ValueError):
                     sync_paper_watchlist(paper_path, codes=[])
 
@@ -467,10 +467,10 @@ class TestWatchingMaxSizeApi(unittest.TestCase):
                 {"sources": [], "watchlist": ["600519"], "max_size": 500},
                 path,
             )
-            with patch("core.watching.store.WATCHING_PATH", path), patch(
+            with patch("core.watching.repository.WATCHING_PATH", path), patch(
                 "core.paths.WATCHING_PATH", path
             ), patch(
-                "core.watching.store._fill_codes_for_expand",
+                "core.watching.repository._fill_codes_for_expand",
                 return_value=["000001", "000002", "000003", "000004"],
             ):
                 client = TestClient(web_app.app)

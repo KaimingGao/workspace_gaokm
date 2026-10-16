@@ -107,7 +107,7 @@ def _decision_outcome(record: Dict[str, Any]) -> str:
 def _load_recent_decisions(limit: int = 6) -> Optional[str]:
     """近期决策记录 + 结果。"""
     try:
-        from core.decision_record import list_decisions
+        from core.platform.decision_record import list_decisions
 
         data = list_decisions(limit=limit)
         items = data.get("items") or []

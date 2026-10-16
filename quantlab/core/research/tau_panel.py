@@ -16,12 +16,8 @@ GAP_ATR_WINDOW = 14
 GAP_ATR_CLIP = 10.0
 _SECTOR_REL_MIN_N = 3
 LABEL_LAG_WINDOW = 5
-# tau_std5 / yest_gap 曾入模，做 T 回测变差后撤回
-TAU_LAG_FEATURES = ("tau_lag1", "tau_ma5")
-TAU_LAG_FEAT_LABELS = {
-    "tau_lag1": "昨真实 close/open−1 %",
-    "tau_ma5": "近5日真实 close/open−1 均 %",
-}
+# tau_std5 / yest_gap 曾入模，做 T 回测变差后撤回；键真源在 yhat.keys
+from core.yhat.keys import TAU_LAG_FEATURES, TAU_LAG_FEAT_LABELS
 from core.signal.minute_tau_grid import (
     DEFAULT_MINUTE_TAU_GRID,
     HORIZON_T30_MIN,

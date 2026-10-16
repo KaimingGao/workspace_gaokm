@@ -8,7 +8,7 @@ import os
 import threading
 from typing import Any, Dict
 
-from core.job_progress import paper_job
+from core.platform.job_progress import paper_job
 from core.paper import (
     append_operation_log,
     load_paper,

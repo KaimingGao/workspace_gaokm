@@ -36,8 +36,10 @@
 | 文档 | 内容 |
 |------|------|
 | [框架梳理](internal/framework-review.md) | 代码框架债务台账 · 已收口/设计保留/明确不做 |
-| [工程结构轨](internal/engineering-track.md) | A0–A4 契约冻结 → Bars SQLite → Job 硬化 → 门面 → 前端稳态 |
+| [工程结构轨](internal/engineering-track.md) | A0–A4 · **B0–B4 已落地**（paper_replay 拆分 · yhat · persistence · platform / intraday） |
 | [SQLite 迁移](internal/sqlite-migration.md) | 日线/分钟线缓存 SQLite WAL 改造方案（已落地 A1） |
+| [行情更新、缓存与预处理](internal/bars-update-cache.md) | 日线/5m 写仓与回测读仓、缓存分层、清洗与面板指纹、四处已知缝 |
+| [日线契约修补规划](internal/bars-update-plan.md) | 四处缝的改造顺序：记账、面板指纹、成交额列、前复权重叠日替换 |
 | [AkShare vs Tushare 日线对比](internal/akshare-tushare-daily-compare.md) | 本地日线仓与 Tushare daily 对齐审计（复权标签 / 量单位） |
 
 ## 历史归档（archive/）

@@ -207,7 +207,7 @@ class TestScheduleValidationPrepare(unittest.TestCase):
         with patch(
             "core.validation_universe.prepare_validation_universe",
             return_value={"ok": True, "kind": "validation_prepare"},
-        ), patch("core.schedule_jobs.job_registry") as reg:
+        ), patch("core.platform.schedule_jobs.job_registry") as reg:
             slot = reg.slot.return_value
             slot.is_running.return_value = False
             slot.start.return_value = "jid"

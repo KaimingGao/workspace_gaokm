@@ -545,7 +545,7 @@ def score_stock(
             formula_warnings.append(f"sentiment_fetch_failed:{e}")
 
         try:
-            from core.sentiment_prior import build_sentiment_prior
+            from core.market.priors.stock_sentiment import build_sentiment_prior
 
             sentiment_prior = build_sentiment_prior(
                 sentiment_ui if isinstance(sentiment_ui, dict) else None,
@@ -933,7 +933,7 @@ def score_stock(
 
     # R3 / A1：双层 ŷ_τ（不替换 predicted_score）
     try:
-        from core.event_prior import (
+        from core.market.priors.event import (
             build_event_prior_from_quote,
             compute_sector_gap_breadth_live,
             get_event_prior_cfg,

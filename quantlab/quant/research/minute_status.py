@@ -697,7 +697,7 @@ def refresh_minute_only(
     ``mode=topup``：增量补齐（已对齐跳过；跨度够只补近几日；供预演调仓日常刷新）。
     ``mode=repair``：东财补缺（只写比本地更齐的交易日，不打新浪）。
     """
-    from core.schedule_jobs import _minute_warmup_core
+    from core.platform.schedule_jobs import _minute_warmup_core
     from core.data.policy import MINUTE_EM_LOOKBACK_MAX_DAYS, minute_em_lookback_days
 
     limit = max(1, int(watching_limit or WATCHING_MAX_SIZE))

@@ -1130,13 +1130,17 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 |--------|------|
 | `service.py` | BacktestService 实现 |
 | `engine.py` | 单票 signal 回测 |
-| `paper_replay.py` | 产品历史回测（rank_lots；含分票贡献） |
-| `topk_probe.py` | OOS / WF / BS 门面（默认轻量曲线） |
+| `paper_replay.py` | 产品历史回测主循环 + 公共 API re-export（rank_lots） |
+| `replay_*.py` | 按用例拆分：fill · minute · calendar · contrib · scoring · sim_rows |
+| `replay_score_cache.py` | replay 私有打分缓存 |
+| `universe_filters.py` | 宇宙纯过滤（无 I/O） |
+| `topk_probe.py` | OOS / WF / BS 门面（默认轻量曲线；`full_engine=True` → legacy） |
 | `topk_oos_curve.py` | 默认轻量等权 TopK 曲线 |
 | `topk_weights.py` | 权重计算（按用例拆分） |
-| `legacy/topk_*.py` | 完整引擎归档（full_engine / 单测；根目录 shim 已移除） |
+| `legacy/topk_*.py` | 完整引擎归档（显式 full_engine / 单测） |
 | `matching.py` | 成交撮合规则 |
 | `strategies/` | 策略模板 |
+| `cost_port.py` | 费率权威源（与 paper/costs 同源） |
 
 #### 纸面模拟 `core/paper/`
 
@@ -1154,7 +1158,7 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 | `symbols.py` | A/H/US 代码解析 |
 | `calendar.py` | 交易日历、停牌过滤 |
 | `context.py` · `context_store.py` · `context_merge.py` | 宏观/情绪上下文 |
-| `sentiment_prior.py` · `prior_policy.py` | 情绪 prior、买卖门禁 |
+| `priors/` | 个股/市场情绪 · 跨市 · 事件 · 监管 prior + policy（根路径 shim） |
 
 #### 风控 `core/risk/`
 
@@ -1165,12 +1169,12 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 
 #### 观察与策略
 
-**观察池** = 候选宇宙，不是账本。存储/健康/洞察在 `core/watching/`；产品定义见上文。
+**观察池** = 候选宇宙，不是账本。产品定义见上文。
 
 | 模块 | 功能 |
 |------|------|
-| `core/watching/` | 观察池存储、健康检查、洞察缓存 |
-| `stance.py` · `advise.py` · `position.py` | 倾向与建议 |
+| `watching/policy` · `repository` · `sources` · `sync_paper` | 限额 · JSON CRUD · 拉源 · 建仓同步（`store.py` 兼容门面） |
+| `stance.py` · `facts.py` · `position.py` | 倾向与建议 |
 | `strategy.py` · `strategy_monitor.py` | 策略定义与监控 |
 | `north_star.py` · `north_star_pro.py` | 北极星指标 |
 
@@ -1178,27 +1182,29 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 
 | 模块 | 功能 |
 |------|------|
-| `store.py` | 缓存读写；`QUANTLAB_BARS_BACKEND=sqlite\|json` |
-| `store_bars_sqlite.py` | 日线/分钟线 SQLite WAL |
-| `data/service.py` · `data/gate.py` | MarketDataService 与质量门禁 |
-| `pit.py` · `coverage.py` · `quality_center.py` | PIT、覆盖率、质量中心 |
+| `persistence/` | Bars / JSON / 回测结果快照门面 |
+| `store.py` · `store_bars_sqlite.py` | 兼容入口；`QUANTLAB_BARS_BACKEND=sqlite|json` |
+| `data/service.py` · `data/gate.py` · `data/facade.py` | MarketDataService · 质量门禁 · DS |
 | `paths.py` · `env.py` | 路径与环境变量 |
 
-#### 平台与运行时
+#### 平台 · 契约 · 日内公共
 
 | 模块 | 功能 |
 |------|------|
-| `job_progress.py` | 统一 Job 槽（paper · ols · chat · …） |
-| `schedule_jobs.py` | 定时任务 |
-| `decision_record.py` · `memory_store.py` · `feedback_suggest.py` | D 轨平台能力 |
+| `platform/` | Job · schedule · manifest · decision / memory / feedback（根路径 shim） |
+| `ports/` | 出站契约：`market` · `signal` · `paper_cycle` · `registry` |
+| `yhat/` | ŷ 特征键 · 模型加载 · 指纹（打断 signal↔research 环） |
+| `intraday/` | 成交钟 · 价空间（replay 与 t0 共用） |
 | `observation.py` · `order_prefill.py` | 观察记录、订单预填 |
 
 #### 研究内核（core 侧）
 
 | 模块 | 功能 |
 |------|------|
-| `core/research/` | OLS fit、walk-forward、ŷ_τ 头（`tau_ridge`）等研究算法 |
-| `t0/` | 做 T 回测内核 · `close_band` / `slots`（v6 收盘带宽）· `minute_path` · `intraday.py` · `auto_worker.py` |
+| `research/` | OLS / Ridge / panel · `portfolio_bars` 宇宙加载等 |
+| `t0/` | 做 T 回测内核 · `close_band` / `slots` · `minute_path` · `intraday.py` · `auto_worker.py` |
+
+包级导航与依赖纪律见 **[core/README.md](../core/README.md)**。
 
 ---
 
@@ -1281,23 +1287,20 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 
 ```
 quantlab/
-├── core/                        # 领域层（确定性逻辑，无 LLM/Handler）
+├── core/                        # 领域层（确定性逻辑，无 LLM/Handler）— 见 core/README.md
 │   ├── paths.py · env.py · numbers.py
-│   ├── data/                    # facade · service · policy · pit · coverage · quality
-│   ├── signal_service.py        # 上层打分口（ŷ 信封 / 生产门禁）
-│   ├── store.py · store_bars_sqlite.py
-│   ├── ports/                   # market · registry · signal（经 adapters.bind 注入）
-│   ├── signal/                  # Service · scorer · factors · config · score_stock
-│   ├── backtest/                # walk-forward · topk_probe · legacy/ · strategies
-│   ├── stance.py · advise.py · facts.py · position.py
-│   ├── paper/                   # 账本 · exec · cycle · rebalance（`from core.paper import …`）
-│   ├── market/                  # symbols · calendar · context
-│   ├── watching/                # 观察池 store · health · insights
-│   ├── t0/ · risk/ · research/  # T+0 · 风控门禁 · 研究模型
-│   ├── job_progress.py · schedule_jobs.py · run_manifest.py
-│   ├── decision_record.py · memory_store.py · feedback_suggest.py
-│   ├── observation.py · order_prefill.py · alert_outbound.py
-│   └── sentiment.py
+│   ├── data/                    # facade · service · policy · quality（DS）
+│   ├── signal_service.py · backtest_service.py
+│   ├── ports/                   # market · signal · paper_cycle · registry
+│   ├── yhat/                    # ŷ 特征键 · 模型加载 · 指纹
+│   ├── signal/ · paper/ · backtest/  # 打分 · 账本 · replay_* / topk / legacy
+│   ├── research/ · t0/ · risk/
+│   ├── market/                  # symbols · calendar · context · priors/
+│   ├── watching/                # policy · repository · sources · sync_paper
+│   ├── persistence/ · intraday/ # Bars/JSON 门面 · 成交钟/价空间
+│   ├── platform/                # job_progress · schedule_jobs · manifest · D 轨
+│   ├── store.py · store_bars_sqlite.py  # 兼容入口（→ persistence）
+│   └── *.py                     # 多数为根路径 shim（priors / platform / …）
 ├── adapters/                    # 出站 I/O（market / news / fundamentals / …）
 │   └── bind.py                  # 默认实现登记到 core.ports
 ├── quant/                       # 量化研究台

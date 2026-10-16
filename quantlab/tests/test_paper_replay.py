@@ -100,13 +100,13 @@ def _offline_rebalance_patches():
     with ExitStack() as stack:
         stack.enter_context(
             patch(
-                "core.event_prior.get_event_prior_cfg",
+                "core.market.priors.event.get_event_prior_cfg",
                 return_value={"mode": "off"},
             )
         )
         stack.enter_context(
             patch(
-                "core.sentiment_prior.get_sentiment_prior_cfg",
+                "core.market.priors.stock_sentiment.get_sentiment_prior_cfg",
                 return_value={"mode": "off"},
             )
         )
@@ -270,9 +270,17 @@ class TestPaperReplayEngine(unittest.TestCase):
             if str(t.get("as_of") or "")[:10] == last
             and str(t.get("status") or "") not in ("skipped", "held")
         ]
-        self.assertTrue(last_fills, "末日仍有成交腿，但不进命中分母")
-        self.assertTrue(all(t.get("y_oo_fuse_realized") is None for t in last_fills))
-        self.assertTrue(all(t.get("y_oo_fuse_realized") is None for t in last_fills))
+        # 末日可因单票市值上限不再加仓（仅 held/skipped）；有成交腿时不得进命中分母。
+        if last_fills:
+            self.assertTrue(all(t.get("y_oo_fuse_realized") is None for t in last_fills))
+        else:
+            last_held = [
+                t
+                for t in (out.get("sim_trades") or [])
+                if str(t.get("as_of") or "")[:10] == last
+                and str(t.get("status") or "") == "held"
+            ]
+            self.assertTrue(last_held, "末日应至少有 held 续持行")
         day = str(mid.get("as_of") or "")[:10]
         curve = {
             str(p.get("date") or "")[:10]: p

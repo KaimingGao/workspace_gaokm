@@ -1,0 +1,1066 @@
+"""调度 Job 骨架：异动扫描 / 盘后复盘（写入报告，不推送实盘）。"""
+
+
+import logging
+
+logger = logging.getLogger(__name__)
+import json
+import os
+import time
+from typing import Any, Dict, List, Optional
+
+from core.io_atomic import atomic_write_json
+from core.paths import DATA_DIR, SCHEDULE_LAST_RUN_PATH
+from core.platform.job_progress import job_registry
+
+
+def _write_last_run(payload: Dict[str, Any]) -> str:
+    parent = os.path.dirname(SCHEDULE_LAST_RUN_PATH)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    atomic_write_json(SCHEDULE_LAST_RUN_PATH, payload)
+    return SCHEDULE_LAST_RUN_PATH
+
+
+def _resolve_warmup_codes(
+    codes: Optional[List[str]] = None,
+    *,
+    cap: int = 20,
+    prefer_validation_universe: bool = True,
+    pool: str = "auto",
+) -> List[str]:
+    """预热默认标的。
+
+    ``pool``:
+      - ``watching``：只读观察池（分钟暖仓专用；与研究宇宙分离）
+      - ``auto`` / 其它：显式 codes →（可选）验证宇宙 → watching
+    永不读取 ``research_universe``（日线宽名单，不进分钟暖仓）。
+    """
+    if codes:
+        out = [str(c).strip() for c in codes if str(c).strip()]
+        return out[: max(1, int(cap))]
+
+    pool_key = str(pool or "auto").strip().lower()
+    use_validation = bool(prefer_validation_universe) and pool_key not in {
+        "watching",
+        "watch",
+        "watchlist",
+    }
+
+    if use_validation:
+        try:
+            from core.validation_universe import resolve_validation_codes
+
+            resolved = resolve_validation_codes()
+            uni = [str(c).strip() for c in (resolved.get("codes") or []) if str(c).strip()]
+            if uni:
+                return uni[: max(1, int(cap))]
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            pass
+    uni_path = os.path.join(DATA_DIR, "watching.json")
+    if os.path.isfile(uni_path):
+        try:
+            with open(uni_path, encoding="utf-8") as f:
+                uni = json.load(f)
+            watch = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
+            return watch[: max(1, int(cap))]
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+    return []
+
+
+def run_watch_alert(*, codes: Optional[List[str]] = None) -> Dict[str, Any]:
+    """轻量异动：对观察池/给定代码拉现货涨跌，标记 |涨跌|≥2%。"""
+    from core.data.facade import get_quote
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    watch = list(codes or [])
+    if not watch:
+        uni_path = os.path.join(DATA_DIR, "watching.json")
+        if os.path.isfile(uni_path):
+            with open(uni_path, encoding="utf-8") as f:
+                uni = json.load(f)
+            watch = list(uni.get("watchlist") or [])[:12]
+    if not watch:
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching.json"}
+
+    job_id = slot.start(kind="watch_alert", total=len(watch), message="扫描异动…")
+    alerts: List[Dict[str, Any]] = []
+    try:
+        for i, code in enumerate(watch, start=1):
+            slot.update(current=i, message=f"报价 {code}")
+            data = get_quote(str(code))
+            if not isinstance(data, dict):
+                continue
+            if not data.get("success"):
+                continue
+            chg = data.get("change_raw")
+            if chg is None:
+                chg = data.get("change_percent")
+            try:
+                chg_f = float(chg) if chg is not None else None
+            except (TypeError, ValueError):
+                chg_f = None
+            if chg_f is not None and abs(chg_f) >= 2.0:
+                alerts.append(
+                    {
+                        "stock_code": data.get("stock_code") or code,
+                        "stock_name": data.get("stock_name"),
+                        "change_percent": chg_f,
+                        "price": data.get("price") or data.get("price_raw"),
+                    }
+                )
+        result = {
+            "ok": True,
+            "kind": "watch_alert",
+            "scanned": len(watch),
+            "alert_count": len(alerts),
+            "alerts": alerts,
+            "note": "仅研究提醒骨架，非推送通道；不代客下单。",
+        }
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_watch_alert')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_daily_review(*, limit: int = 5) -> Dict[str, Any]:
+    """盘后复盘骨架：汇总最近 DecisionRecord + 纸面摘要（若有）。"""
+    from core.platform.decision_record import list_decisions
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="daily_review", total=3, message="汇总决策…")
+    try:
+        slot.update(current=1, message="读取 DecisionRecord")
+        decisions = list_decisions(limit=limit)
+        paper_summary = None
+        slot.update(current=2, message="读取纸面")
+        paper_path = os.path.join(DATA_DIR, "paper.json")
+        if os.path.isfile(paper_path):
+            try:
+                from core.paper import load_paper, mark_to_market
+
+                paper_summary = mark_to_market(load_paper(paper_path))
+            except Exception as e:
+                logger.exception('unexpected error in run_daily_review')
+                paper_summary = {"error": str(e)}
+        slot.update(current=3, message="写报告")
+        result = {
+            "ok": True,
+            "kind": "daily_review",
+            "decisions": decisions.get("items") or [],
+            "paper_summary": paper_summary,
+            "note": "盘后复盘骨架；归因深化后续迭代。不代客下单。",
+        }
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_daily_review')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_sentiment_scan(*, codes: Optional[List[str]] = None, limit: int = 5) -> Dict[str, Any]:
+    """观察名单舆情扫描：强制刷新标题/规则分，写告警到 schedule_last_run。"""
+    from core.sentiment import scan_watchlist_sentiment
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    watch = _resolve_warmup_codes(codes, cap=20)
+    if not watch:
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
+
+    job_id = slot.start(kind="sentiment_scan", total=len(watch), message="扫描舆情…")
+    try:
+        slot.update(current=0, message="拉取标题与规则情绪…")
+        result = scan_watchlist_sentiment(watch, limit=int(limit or 5))
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_sentiment_scan')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_bars_warmup(
+    *,
+    codes: Optional[List[str]] = None,
+    limit: int = 60,
+) -> Dict[str, Any]:
+    """预热观察名单日线缓存（N1/M1 批式收集入口；默认增量合并）。"""
+    from core.alert_outbound import dispatch_monitor_alerts
+    from core.data.coverage import build_data_coverage, coverage_alerts_for_outbound
+    from core.data.facade import summarize_data_quality
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    watch = _resolve_warmup_codes(codes, cap=40)
+    if not watch:
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
+
+    job_id = slot.start(kind="bars_warmup", total=len(watch), message="预热日线…")
+    try:
+        slot.update(current=0, message="拉取并缓存日线")
+        summary = summarize_data_quality(watch, limit=int(limit or 60))
+        coverage = build_data_coverage(watch)
+        outbound = dispatch_monitor_alerts(
+            coverage_alerts_for_outbound(coverage),
+            source="bars_warmup",
+            extra={"coverage": coverage.get("coverage"), "total": coverage.get("total")},
+        )
+        result = {
+            "ok": True,
+            "kind": "bars_warmup",
+            **summary,
+            "coverage": coverage,
+            "alert_outbound": outbound,
+            "note": "M1 日线预热（增量）；经 DataService；覆盖率已汇总；不代客下单。",
+        }
+        try:
+            from core.data.service import metrics_snapshot
+
+            # summarize 已含 metrics 时仍显式挂顶层，便于 schedule_last_run 扫一眼
+            result["data_service_metrics"] = (
+                summary.get("metrics") or metrics_snapshot()
+            )
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            pass
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_bars_warmup')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def _minute_warmup_core(
+    *,
+    codes: Optional[List[str]] = None,
+    period: str = "5",
+    cap: int = 25,
+    lookback_days: int = 120,
+    progress_cb: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """分钟线预热核心逻辑（无 job slot）。
+
+    period=5 默认 lookback 120 日历日（东财窗口）；1 分钟仍只拉近几日。
+    单票走子进程 + 超时 kill：东财挂死不占主进程 ak_lock，可继续下一只。
+    """
+    from core.ports.market import fetch_minute_bars_isolated
+    from core.data.policy import (
+        MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
+        minute_em_lookback_days,
+        minute_fetch_delay_sec,
+        minute_isolated_timeout_sec,
+        minute_warmup_ready_min_span_days,
+        minute_warmup_skip_em,
+        minute_warmup_skip_if_ready,
+        minute_warmup_stale_hours,
+    )
+
+    # 分钟暖仓只读观察池，不用 validation / research 宽名单
+    watch = _resolve_warmup_codes(
+        codes, cap=max(1, int(cap)), pool="watching", prefer_validation_universe=False
+    )
+    if not watch:
+        return {"ok": False, "error": "无标的：请传 codes 或配置观察池 watching（分钟暖仓不读研究宇宙）"}
+    period_s = str(period or "5")
+    # 1 分钟源通常只有近几日；5m+ 对齐东财窗口
+    em_cap = minute_em_lookback_days()
+    if period_s == "1":
+        span = min(max(int(lookback_days or 5), 3), 8)
+    else:
+        span = min(max(int(lookback_days or em_cap), 5), em_cap)
+    warmed = 0
+    skipped_ready = 0
+    timed_out = 0
+    errors: List[str] = []
+    total = len(watch)
+    skip_em = minute_warmup_skip_em()
+    fetch_delay = minute_fetch_delay_sec()
+    skip_if_ready = minute_warmup_skip_if_ready()
+    ready_min_span = minute_warmup_ready_min_span_days()
+    stale_h = minute_warmup_stale_hours()
+    # EM 全窗；子进程超时后 kill，不拖整批、不毒化主进程锁
+    per_stock_timeout = minute_isolated_timeout_sec(skip_em=skip_em)
+    for i, code in enumerate(watch, start=1):
+        progress_code = code
+        if skip_if_ready:
+            from core.ports.registry import call as port_call
+
+            ready, _snap, reason = port_call(
+                "minute_cache_ready",
+                code,
+                period=period_s,
+                min_span_days=ready_min_span,
+                stale_hours=stale_h,
+                max_calendar_gap_days=MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
+            )
+            if ready:
+                skipped_ready += 1
+                warmed += 1
+                progress_code = f"skip {code}"
+                if progress_cb:
+                    try:
+                        progress_cb(i, total, progress_code)
+                    except Exception:  # noqa: BLE001 — best-effort 进度回调
+                        logger.debug("minute_warmup progress_cb failed", exc_info=True)
+                continue
+        if progress_cb:
+            try:
+                progress_cb(i, total, progress_code)
+            except Exception:  # noqa: BLE001 — best-effort 进度回调
+                logger.debug("minute_warmup progress_cb failed", exc_info=True)
+        try:
+            bars, meta = fetch_minute_bars_isolated(
+                code,
+                timeout_sec=per_stock_timeout,
+                period=period_s,
+                use_cache=True,
+                lookback_days=span,
+                max_age_hours=0.01,  # 强制尝试刷新；失败仍可回退过期缓存
+                skip_em=skip_em,
+            )
+        except Exception as exc:  # noqa: BLE001 — 单票失败不拖整批
+            bars, meta = [], {"error": str(exc)[:120]}
+            logger.warning("minute_warmup failed %s: %s", code, exc)
+        err = str((meta or {}).get("error") or "")
+        if "timeout" in err.lower():
+            timed_out += 1
+            logger.warning(
+                "minute_warmup timeout %s after %.0fs", code, per_stock_timeout
+            )
+        if bars:
+            warmed += 1
+        elif err:
+            errors.append(f"{code}:{err}")
+    return {
+        "ok": warmed > 0 or len(watch) == 0,
+        "kind": "minute_warmup",
+        "period": period_s,
+        "lookback_days": span,
+        "total": len(watch),
+        "warmed": warmed,
+        "skipped_ready": skipped_ready,
+        "timed_out": timed_out,
+        "skip_if_ready": skip_if_ready,
+        "ready_min_span_days": ready_min_span if skip_if_ready else None,
+        "per_stock_timeout_sec": per_stock_timeout,
+        "isolated": True,
+        "errors": errors[:10],
+        "note": (
+            "5 分钟线预热；供 tail_anomaly / 做T回测。"
+            + (
+                f" 跳过东财 · stock_zh_a_minute · 各源间隔 {fetch_delay:g}s。"
+                if skip_em
+                else f" 东财→stock_zh_a_minute · 各源间隔 {fetch_delay:g}s。"
+            )
+            + f" 单票子进程上限 {per_stock_timeout:.0f}s（超时 kill，继续下一只）。"
+        ),
+    }
+
+
+def run_minute_warmup(
+    *,
+    codes: Optional[List[str]] = None,
+    period: str = "5",
+    cap: int = 25,
+    lookback_days: int = 120,
+) -> Dict[str, Any]:
+    """预热观察池 5 分钟线缓存（tail_anomaly / T0 用）；不读研究宇宙。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    watch = _resolve_warmup_codes(
+        codes, cap=max(1, int(cap)), pool="watching", prefer_validation_universe=False
+    )
+    if not watch:
+        return {"ok": False, "error": "无标的：请传 codes 或配置观察池 watching（分钟暖仓不读研究宇宙）"}
+
+    job_id = slot.start(kind="minute_warmup", total=len(watch), message="预热分钟线…")
+    try:
+        result = _minute_warmup_core(
+            codes=codes, period=period, cap=cap, lookback_days=lookback_days
+        )
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_minute_warmup')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_spot_refresh(*, force: bool = False, enrich_sectors: bool = True) -> Dict[str, Any]:
+    """刷新 A 股现货磁盘缓存（PE/PB 等列表估值用）；可选补全 sector_map。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="spot_refresh", total=2 if enrich_sectors else 1, message="刷新现货…")
+    try:
+        from core.data.facade import get_spot
+
+        slot.update(current=1, message="stock_zh_a_spot_em")
+        pack = get_spot(force=bool(force))
+        enrich = None
+        if enrich_sectors:
+            slot.update(current=2, message="sector_map_enrich…")
+            try:
+                from core.sector_map_sync import enrich_sector_map_from_spot
+
+                enrich = enrich_sector_map_from_spot(
+                    write=True,
+                    force_spot=False,
+                    overwrite=False,
+                )
+            except Exception as e:
+                logger.exception('unexpected error in run_spot_refresh')
+                enrich = {"ok": False, "error": str(e)}
+        result = {
+            "ok": True,
+            "kind": "spot_refresh",
+            "count": pack.get("count") or 0,
+            "source": pack.get("data_source"),
+            "fetched_at": pack.get("fetched_at"),
+            "sector_enrich": enrich,
+            "note": "M1 现货刷新；经 DataService.get_spot；可选 DS-R2.2 行业补全；不代客下单。",
+        }
+        try:
+            from core.data.service import metrics_snapshot
+
+            result["data_service_metrics"] = metrics_snapshot()
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            pass
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_spot_refresh')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_sector_map_enrich(
+    *,
+    codes: Optional[List[str]] = None,
+    force_spot: bool = False,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    """DS-R2.2：用现货所属行业补全 sector_map。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="sector_map_enrich", total=1, message="补全行业 map…")
+    try:
+        from core.sector_map_sync import enrich_sector_map_from_spot
+
+        slot.update(current=1, message="enrich_sector_map_from_spot")
+        enrich = enrich_sector_map_from_spot(
+            codes=codes,
+            write=True,
+            force_spot=bool(force_spot),
+            overwrite=bool(overwrite),
+        )
+        result = {
+            "ok": bool(enrich.get("ok")),
+            "kind": "sector_map_enrich",
+            **{k: enrich.get(k) for k in (
+                "added_count",
+                "updated_count",
+                "coverage",
+                "mapped",
+                "total",
+                "data_source",
+                "unmapped_codes",
+                "note",
+                "error",
+            ) if k in enrich or enrich.get(k) is not None},
+            "enrich": enrich,
+        }
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_sector_map_enrich')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_fundamentals_warmup(
+    *,
+    codes: Optional[List[str]] = None,
+    limit: int = 20,
+    ingest_history: bool = True,
+    ingest_max_points: int = 8,
+) -> Dict[str, Any]:
+    """预热观察池基本面快照；默认再对 A 股 6 位码入库真实多期 history（C2）。"""
+    from core.data.facade import get_fundamentals
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    watch = _resolve_warmup_codes(codes, cap=max(1, int(limit or 20)))
+    if not watch:
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
+
+    job_id = slot.start(kind="fundamentals_warmup", total=len(watch), message="预热基本面…")
+    try:
+        ok_n = 0
+        cache_hits = 0
+        errors: List[str] = []
+        for i, code in enumerate(watch):
+            slot.update(current=i + 1, message=f"fundamentals {code}")
+            try:
+                pack = get_fundamentals(code, use_cache=True)
+                if pack.get("success"):
+                    ok_n += 1
+                if pack.get("cache_hit"):
+                    cache_hits += 1
+            except Exception as e:
+                logger.exception('unexpected error in run_fundamentals_warmup')
+                errors.append(f"{code}:{e}")
+
+        ingest: Dict[str, Any] = {"ok": False, "skipped": True}
+        if ingest_history:
+            slot.update(message="ingest real fundamentals history…")
+            try:
+                from core.sample_ops import ingest_real_fundamentals_history
+
+                cn_codes = []
+                for c in watch:
+                    digits = "".join(ch for ch in str(c) if ch.isdigit())
+                    if len(digits) == 6:
+                        cn_codes.append(str(c).strip())
+                if cn_codes:
+                    ingest = ingest_real_fundamentals_history(
+                        codes=cn_codes,
+                        max_points=int(ingest_max_points or 8),
+                        drop_synthetic=True,
+                        write=True,
+                    )
+                else:
+                    ingest = {
+                        "ok": True,
+                        "updated_count": 0,
+                        "note": "无 A 股 6 位码，跳过 ingest-history",
+                    }
+            except Exception as e:
+                logger.exception('unexpected error in run_fundamentals_warmup')
+                ingest = {"ok": False, "error": str(e)}
+                errors.append(f"ingest_history:{e}")
+
+        result = {
+            "ok": True,
+            "kind": "fundamentals_warmup",
+            "count": len(watch),
+            "success_count": ok_n,
+            "cache_hits": cache_hits,
+            "ingest_history": ingest,
+            "errors": errors[:10],
+            "note": "M1.3 快照预热 + C2 真实多期 history（A 股）；non_pit 快照仍保留；不代客下单。",
+        }
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_fundamentals_warmup')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_paper_daily(
+    *,
+    simulate_buy: bool = False,
+    strategy: str = "short_conservative",
+) -> Dict[str, Any]:
+    """准实盘日更（N5）：跑纸面日循环 + 决策记录摘要 + 衰减监控。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="paper_daily", total=3, message="纸面日更…")
+    try:
+        from core.platform.decision_record import append_decision
+        from core.paper import load_paper, mark_to_market, run_daily_cycle, save_paper
+        from core.paths import PAPER_PATH
+        from core.strategy_monitor import assess_strategy_health
+
+        slot.update(current=1, message="pre_market + run_daily_cycle")
+        pre_market = None
+        try:
+            from core.market.context import ensure_pre_market_context
+
+            pre_market = ensure_pre_market_context()
+        except Exception as exc:
+            logger.exception('unexpected error in run_paper_daily')
+            pre_market = {"ok": False, "error": str(exc)}
+        # 分组 OO 已下线：不再 prepare_cluster_for_daily
+        cluster_prep = {
+            "success": True,
+            "skipped": True,
+            "reason": "cluster_scoring_retired",
+            "task": "cluster_prepare_daily",
+        }
+        from copy import deepcopy
+
+        loaded = load_paper(PAPER_PATH)
+        original = deepcopy(loaded)
+        paper = loaded
+        cycle = run_daily_cycle(
+            paper,
+            simulate_buy=bool(simulate_buy),
+            strategy=str(strategy or "short_conservative"),
+        )
+        from core.paper.open_fill import apply_next_open_commit
+
+        paper, cycle = apply_next_open_commit(
+            original,
+            paper,
+            cycle,
+            dry_run=False,
+            source="paper_daily",
+        )
+        save_paper(paper, PAPER_PATH)
+        summary = mark_to_market(paper)
+
+        slot.update(current=2, message="记录决策摘要")
+        import uuid
+
+        ops = (cycle or {}).get("ops_report") or {}
+        append_decision(
+            {
+                "id": uuid.uuid4().hex[:12],
+                "ts": time.time(),
+                "source": "paper_daily",
+                "strategy": strategy,
+                "strategy_id": ops.get("strategy_id") or (cycle or {}).get("strategy_id") or strategy,
+                "strategy_version": ops.get("strategy_version")
+                or (cycle or {}).get("strategy_version"),
+                "cost_model": ops.get("cost_model") or (cycle or {}).get("cost_model"),
+                "data_quality": ops.get("data_quality")
+                if ops.get("data_quality") is not None
+                else (cycle or {}).get("data_quality"),
+                "risk_blocks": ops.get("risk_blocks")
+                if ops.get("risk_blocks") is not None
+                else (cycle or {}).get("risk_blocks")
+                or ((cycle or {}).get("risk_gate") or {}).get("blocks")
+                or [],
+                "monitor_alerts": ops.get("monitor_alerts")
+                if ops.get("monitor_alerts") is not None
+                else (cycle or {}).get("monitor_alerts")
+                or [],
+                "buys_blocked": bool(
+                    ops.get("buys_blocked")
+                    if ops.get("buys_blocked") is not None
+                    else (cycle or {}).get("buys_blocked")
+                ),
+                "simulate_buy": bool(simulate_buy),
+                "summary": {
+                    "equity": summary.get("equity"),
+                    "max_drawdown_pct": summary.get("max_drawdown_pct"),
+                    "holdings": len(summary.get("holdings") or []),
+                },
+                "north_star": (ops.get("north_star") or paper.get("last_north_star")),
+                "risk_gate": (cycle or {}).get("risk_gate"),
+                "note": "N5 纸面日更；五问字段可审计；告警不自动改权。",
+            }
+        )
+
+        slot.update(current=3, message="衰减监控")
+        health = (cycle or {}).get("health")
+        if not health:
+            health = assess_strategy_health(
+                paper,
+                summary=summary,
+                compute_rolling_ic=True,
+            )
+
+        # R0：确保日更结果含权威北极星包（cycle 内已算则复用）
+        north_star = paper.get("last_north_star") or (ops or {}).get("north_star")
+        if not north_star:
+            try:
+                from core.north_star import build_north_star_report
+
+                north_star = build_north_star_report(paper)
+                paper["last_north_star"] = north_star
+                save_paper(paper, PAPER_PATH)
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                north_star = None
+
+        monitor_alerts = (
+            (cycle or {}).get("monitor_alerts")
+            or (health or {}).get("alerts")
+            or []
+        )
+        from core.alert_outbound import dispatch_monitor_alerts
+        from core.data.coverage import build_data_coverage, coverage_alerts_for_outbound
+
+        coverage = build_data_coverage()
+        cov_alerts = coverage_alerts_for_outbound(coverage)
+        merged_alerts = list(monitor_alerts) + list(cov_alerts)
+
+        alert_outbound = dispatch_monitor_alerts(
+            merged_alerts,
+            source="paper_daily",
+            extra={
+                "strategy": strategy,
+                "equity": (summary or {}).get("equity"),
+                "bars_coverage": coverage.get("coverage"),
+            },
+        )
+        result = {
+            "ok": True,
+            "kind": "paper_daily",
+            "pre_market": pre_market,
+            "simulate_buy": bool(simulate_buy),
+            "strategy": strategy,
+            "cluster_prepare": cluster_prep,
+            "cycle": cycle,
+            "summary": summary,
+            "health": health,
+            "ops_report": ops or (cycle or {}).get("ops_report"),
+            "north_star": north_star,
+            "strategy_id": (cycle or {}).get("strategy_id") or strategy,
+            "strategy_version": (cycle or {}).get("strategy_version"),
+            "cost_model": (cycle or {}).get("cost_model"),
+            "data_quality": (cycle or {}).get("data_quality") or {},
+            "data_coverage": coverage,
+            "risk_blocks": (cycle or {}).get("risk_blocks") or [],
+            "monitor_alerts": merged_alerts,
+            "alert_outbound": alert_outbound,
+            "buys_blocked": bool((cycle or {}).get("buys_blocked")),
+            "fill_action": (cycle or {}).get("fill_action"),
+            "fill_phase": (cycle or {}).get("fill_phase"),
+            "pending_orders": (cycle or {}).get("pending_orders")
+            or paper.get("pending_orders"),
+            "note": (cycle or {}).get("note")
+            or "N5 准实盘日更；盘中现价成交，收盘后挂次日开盘单；含日线覆盖与北极星 KPI；不代客下单。",
+        }
+        try:
+            from core.data.service import metrics_snapshot as data_metrics_snapshot
+            from core.signal.service import metrics_snapshot as signal_metrics_snapshot
+
+            result["data_service_metrics"] = data_metrics_snapshot()
+            result["signal_service_metrics"] = signal_metrics_snapshot()
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            pass
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        try:
+            from core.paper import load_paper
+            from core.paths import PAPER_PATH
+
+            if os.path.isfile(PAPER_PATH):
+                rules = load_paper(PAPER_PATH).get("rules") or {}
+                t0_auto = rules.get("t0_auto") if isinstance(rules, dict) else {}
+                if (
+                    isinstance(t0_auto, dict)
+                    and t0_auto.get("enabled")
+                    and str(t0_auto.get("schedule") or "") == "with_paper_daily"
+                ):
+                    result["t0_auto"] = run_paper_t0(force=True, chained=True)
+        except Exception:
+            logger.debug("paper_daily t0_auto chain skipped", exc_info=True)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_paper_daily')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_paper_t0(*, force: bool = False, chained: bool = False) -> Dict[str, Any]:
+    """纸面自动做 T（例行落账）。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running() and not chained:
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = None
+    if not chained:
+        job_id = slot.start(kind="paper_t0", total=1, message="自动做T…")
+    try:
+        from core.ports.paper_cycle import get_paper_cycle
+
+        svc = get_paper_cycle()
+        out = svc.run_t0_auto(dry_run=False, force=bool(force), skip_open_fill_gate=True)
+        result: Dict[str, Any] = {"ok": True, "kind": "paper_t0", **out}
+        if not chained and job_id:
+            path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+            result["path"] = path
+            slot.finish(result=result)
+        return result
+    except FileNotFoundError as e:
+        if not chained:
+            slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get() if not chained else None}
+    except Exception as e:
+        logger.exception("unexpected error in run_paper_t0")
+        if not chained:
+            slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get() if not chained else None}
+
+
+def run_concept_graph_refresh(
+    *,
+    max_concepts: int = 8,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """独立刷新概念成分图谱缓存。"""
+    from core.market.context import refresh_concept_graph
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="concept_graph_refresh", total=1, message="概念图谱…")
+    try:
+        result = refresh_concept_graph(max_concepts=int(max_concepts or 8), force=bool(force))
+        result = {**result, "kind": "concept_graph_refresh"}
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_concept_graph_refresh')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_macro_backfill(*, lookback: int = 90) -> Dict[str, Any]:
+    """macro 加长 lookback ingest + 历史索引。"""
+    from core.market.context import ingest_macro_backfill
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="macro_backfill", total=1, message="macro 回填…")
+    try:
+        result = ingest_macro_backfill(lookback=int(lookback or 90))
+        result = {**result, "kind": "macro_backfill"}
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_macro_backfill')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_pre_market_ingest(*, lookback: int = 30) -> Dict[str, Any]:
+    """盘前 bundle：macro + 市场情绪 + 公告/IPO。"""
+    from core.market.context import ingest_pre_market_bundle
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="pre_market_ingest", total=3, message="盘前上下文…")
+    try:
+        slot.update(current=1, message="macro+sentiment+announcement")
+        result = ingest_pre_market_bundle(lookback=int(lookback or 30))
+        result = {**result, "kind": "pre_market_ingest"}
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_pre_market_ingest')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_validation_prepare(
+    *,
+    codes: Optional[List[str]] = None,
+    write_excludes: bool = False,
+    warmup_bars: bool = True,
+    warmup_sentiment: bool = True,
+    limit: int = 60,
+) -> Dict[str, Any]:
+    """验证宇宙一键准备：卫生报告 + 日线/舆情预热。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="validation_prepare", total=1, message="验证宇宙准备…")
+    try:
+        from core.validation_universe import prepare_validation_universe
+
+        slot.update(current=1, message="hygiene + warmup")
+        result = prepare_validation_universe(
+            write_excludes=bool(write_excludes),
+            warmup_bars=bool(warmup_bars),
+            warmup_sentiment=bool(warmup_sentiment),
+            bars_limit=int(limit or 60),
+            codes=codes,
+        )
+        result = {**result, "kind": "validation_prepare"}
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        logger.exception('unexpected error in run_validation_prepare')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_paper_open_fill() -> Dict[str, Any]:
+    """开盘窗：把隔夜挂单按开盘价成交。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="paper_open_fill", total=2, message="成交挂单…")
+    try:
+        from core.paper import append_operation_log, load_paper, mark_to_market, save_paper
+        from core.paper.open_fill import fill_pending_at_open, paper_fill_phase
+        from core.paths import PAPER_PATH
+
+        slot.update(current=1, message="fill_pending_at_open")
+        paper = load_paper(PAPER_PATH)
+        fill = fill_pending_at_open(paper)
+        n_skip = len(fill.get("skips") or [])
+        if fill.get("filled") or n_skip:
+            summary = mark_to_market(paper)
+            trades = fill.get("trades") or []
+            n_buy = sum(1 for t in trades if t.get("side") == "buy")
+            n_sell = sum(1 for t in trades if t.get("side") == "sell")
+            bits = []
+            if n_buy or n_sell:
+                bits.append(f"买{n_buy} · 卖{n_sell}")
+            if n_skip:
+                bits.append(f"跳过{n_skip}")
+            append_operation_log(
+                paper,
+                "rebalance",
+                detail="开盘成交挂单" + (f" · {' · '.join(bits)}" if bits else ""),
+                meta={
+                    "fill_action": "open_fill",
+                    "buy_count": n_buy,
+                    "sell_count": n_sell,
+                    "skip_count": n_skip,
+                },
+            )
+            save_paper(paper, PAPER_PATH)
+        else:
+            summary = mark_to_market(paper)
+        result = {
+            "ok": True,
+            "kind": "paper_open_fill",
+            "phase": fill.get("phase") or paper_fill_phase(),
+            "fill": fill,
+            "summary": {
+                "equity": summary.get("equity"),
+                "holdings": len(summary.get("holdings") or []),
+            },
+            "note": "开盘窗按开盘价成交；盘中对未成腿中点追价；近收盘现价强平。",
+        }
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except FileNotFoundError as e:
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+    except Exception as e:
+        logger.exception("unexpected error in run_paper_open_fill")
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
+    k = (kind or "").strip()
+    if k == "watch_alert":
+        return run_watch_alert(codes=kwargs.get("codes"))
+    if k == "daily_review":
+        return run_daily_review(limit=int(kwargs.get("limit") or 5))
+    if k == "sentiment_scan":
+        return run_sentiment_scan(codes=kwargs.get("codes"), limit=int(kwargs.get("limit") or 5))
+    if k == "bars_warmup":
+        return run_bars_warmup(codes=kwargs.get("codes"), limit=int(kwargs.get("limit") or 60))
+    if k == "minute_warmup":
+        return run_minute_warmup(
+            codes=kwargs.get("codes"),
+            period=str(kwargs.get("period") or "5"),
+            cap=int(kwargs.get("cap") or 25),
+            lookback_days=int(kwargs.get("lookback_days") or 90),
+        )
+    if k == "spot_refresh":
+        return run_spot_refresh(
+            force=bool(kwargs.get("force")),
+            enrich_sectors=bool(kwargs.get("enrich_sectors", True)),
+        )
+    if k == "sector_map_enrich":
+        return run_sector_map_enrich(
+            codes=kwargs.get("codes"),
+            force_spot=bool(kwargs.get("force_spot")),
+            overwrite=bool(kwargs.get("overwrite")),
+        )
+    if k == "fundamentals_warmup":
+        ingest = kwargs.get("ingest_history")
+        if ingest is None:
+            ingest = True
+        return run_fundamentals_warmup(
+            codes=kwargs.get("codes"),
+            limit=int(kwargs.get("limit") or 20),
+            ingest_history=bool(ingest),
+            ingest_max_points=int(kwargs.get("ingest_max_points") or 8),
+        )
+    if k == "paper_daily":
+        return run_paper_daily(
+            simulate_buy=bool(kwargs.get("simulate_buy")),
+            strategy=str(kwargs.get("strategy") or "short_conservative"),
+        )
+    if k == "paper_t0":
+        return run_paper_t0(force=bool(kwargs.get("force")))
+    if k == "paper_open_fill":
+        return run_paper_open_fill()
+    if k == "validation_prepare":
+        return run_validation_prepare(
+            codes=kwargs.get("codes"),
+            write_excludes=bool(kwargs.get("write_excludes")),
+            warmup_bars=kwargs.get("warmup_bars", True),
+            warmup_sentiment=kwargs.get("warmup_sentiment", True),
+            limit=int(kwargs.get("limit") or 60),
+        )
+    if k == "pre_market_ingest":
+        return run_pre_market_ingest(lookback=int(kwargs.get("lookback") or 30))
+    if k == "concept_graph_refresh":
+        return run_concept_graph_refresh(
+            max_concepts=int(kwargs.get("max_concepts") or 8),
+            force=bool(kwargs.get("force")),
+        )
+    if k == "macro_backfill":
+        return run_macro_backfill(lookback=int(kwargs.get("lookback") or 90))
+    return {"ok": False, "error": f"unknown schedule kind: {kind}"}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -219,6 +220,7 @@ def refresh_bars_only(
     from quant.research.bars_daily import (
         bars_session_date,
         mark_force_latest_bars_done,
+        read_force_latest_bars_marker,
     )
     from quant.research.watching_universe import clamp_watching_limit, merge_cluster_universe
 
@@ -317,7 +319,10 @@ def refresh_bars_only(
                     continue
                 src = str(pack.get("data_source") or "")
                 bars = pack.get("bars") or []
-                if bars and (
+                # 远端失败退回旧仓时来源是 cache:stale：有 K 线也不算成功
+                if src == "cache:stale" or src.startswith("cache:stale"):
+                    failed_n += 1
+                elif bars and (
                     "akshare" in src
                     or (src and not src.startswith("cache"))
                 ):
@@ -378,11 +383,23 @@ def refresh_bars_only(
         "session_date": bars_session,
         "pool": "process",
     }
-    mark_force_latest_bars_done(
-        session_date=bars_session,
-        remote_count=int(remote_n),
-        total=int(n_codes),
-    )
+    if failed_n <= 0:
+        mark_force_latest_bars_done(
+            session_date=bars_session,
+            remote_count=int(remote_n),
+            total=int(n_codes),
+        )
+    else:
+        # 本批有失败：清掉盘中误写的同会话标记，避免 UI 仍显示「今日已刷」
+        try:
+            from core.paths import BARS_FORCED_SESSION_PATH
+
+            if os.path.isfile(BARS_FORCED_SESSION_PATH):
+                marked = read_force_latest_bars_marker()
+                if str(marked.get("session_date") or "")[:10] == bars_session:
+                    os.remove(BARS_FORCED_SESSION_PATH)
+        except Exception:  # noqa: BLE001
+            logger.debug("clear forced bars marker on failure skipped", exc_info=True)
     status = build_bars_status(watching_limit=limit)
     return {
         "success": True,

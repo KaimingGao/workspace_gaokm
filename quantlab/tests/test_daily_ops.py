@@ -302,7 +302,7 @@ class TestWatchingFileApi(unittest.TestCase):
     def test_read_watching_file_missing(self):
         with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "data")) as tmp:
             path = os.path.join(tmp, "watching.json")
-            with patch("core.watching.store.WATCHING_PATH", path):
+            with patch("core.watching.repository.WATCHING_PATH", path):
                 out = QuantService().read_watching_file()
         self.assertFalse(out["exists"])
     def test_api_watching_file(self):

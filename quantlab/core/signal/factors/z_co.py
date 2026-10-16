@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 Z_CO_PREFIX = "z_co_"
 
-# 与 co_panel.CO_Z_FEATURES 历史裸名对齐（含隔夜滞后）
+# 与 yhat.keys.CO_Z_LEGACY / 历史裸名对齐（含隔夜滞后）
 Z_CO_LEGACY_KEYS: Tuple[str, ...] = (
     "ret_oc",
     "gap_pct",

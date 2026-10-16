@@ -419,7 +419,7 @@ class RebalanceAutoWorker:
 
     def _tick(self) -> None:
         from core.paths import PAPER_PATH
-        from services.paper_service import PaperService
+        from core.ports.paper_cycle import get_paper_cycle
 
         with self._lock:
             if not self._enabled:
@@ -444,7 +444,8 @@ class RebalanceAutoWorker:
                 self._set_tick(f"等待 {rebalance_window_label(paper)} 开盘窗", session=sess)
             return
 
-        svc = PaperService(PAPER_PATH)
+        svc = get_paper_cycle()
+
         try:
             svc.t0_auto_status()
         except FileNotFoundError:
@@ -572,7 +573,7 @@ class RebalanceAutoWorker:
     def _flush_preopen(self, sess: str) -> None:
         """今日名额已由开盘挂单占用：只成交这批单，不再重算 fuse。"""
         from core.paths import PAPER_PATH
-        from services.paper_service import PaperService
+        from core.ports.paper_cycle import get_paper_cycle
 
         try:
             from core.paper import load_paper
@@ -595,7 +596,7 @@ class RebalanceAutoWorker:
             self._set_tick("今日已调仓", session=sess)
             return
         try:
-            pending_fill = PaperService(PAPER_PATH).fill_pending()
+            pending_fill = get_paper_cycle().fill_pending()
         except Exception:  # noqa: BLE001
             logger.debug("preopen fill_pending failed", exc_info=True)
             self._set_tick("开盘挂单待成交", session=sess)

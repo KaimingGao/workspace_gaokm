@@ -372,7 +372,7 @@ def assess_regime(
             cross_gate = False
             if defer_tech:
                 try:
-                    from core.cross_market_prior import get_cross_market_cfg
+                    from core.market.priors.cross_market import get_cross_market_cfg
 
                     cm = get_cross_market_cfg()
                     cross_gate = str(cm.get("mode") or "off") == "gate"

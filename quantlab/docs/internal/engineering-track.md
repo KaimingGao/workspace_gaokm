@@ -1,14 +1,15 @@
-## 工程结构轨（A0–A4）
+## 工程结构轨（A0–A4 · B0–B4）
 
-[← 文档索引](../README.md) · 产品边界见 [design-spine.md](../design-spine.md) · 存储选型见 [data.md · 数据层](../component/data.md#数据层data-layer) · Bars 迁库细则见 [§ SQLite 改造](#日分钟线缓存-sqlite-改造方案)
+[← 文档索引](../README.md) · 产品边界见 [design-spine.md](../design-spine.md) · 存储选型见 [data.md · 数据层](../component/data.md#数据层data-layer) · Bars 迁库细则见 [sqlite-migration.md](sqlite-migration.md) · 债务台账见 [framework-review.md](framework-review.md)
 
-**规划日期**：2026-08-21  
-**定位**：产品能力轨（P/Q/R/V、DC/FM/RK）已收口后的 **工程结构** 下一程。不扩 Tick / 数仓 / SPA / OMS。
+**规划日期**：2026-08-21（A 轨）· 2026-10-16（B 轨）  
+**定位**：产品能力轨（P/Q/R/V、DC/FM/RK）已收口后的 **工程结构**。A0–A4 · **B0–B4 均已落地**。不扩 Tick / 数仓 / SPA / OMS。
 
 ## 一句话
 
 ```text
-契约冻结 → Bars SQLite → Job 运行时硬化 → 领域门面对称 → 前端稳态
+A 轨：契约冻结 → Bars SQLite → Job 运行时硬化 → 领域门面对称 → 前端稳态
+B 轨：契约冻结 → 拆 paper_replay + 去层倒置 → yhat 契约解环 → 持久化/prior 归位 → t0/root 收尾
 ```
 
 ## 锁定
@@ -66,6 +67,80 @@ Canonical Job API：`GET /api/jobs/{name}` · `POST /api/jobs/{name}/cancel`（`
 | 分组 OLS fit | Job 槽内 ThreadPool | **暂不上** ProcessPool | panel/矩阵难 pickle；已有 Job + cancel + stale reclaim；HTTP 经 `progress=1` 轻量轮询 |
 
 后续若 OLS 仍饿死 API：优先「子进程整段 run_ols_clusters」单入口，而不是拆散 fit 函数。
+
+---
+
+## B 轨 · core 结构收口（B0–B4）
+
+**定位**：工程债偿还（巨石、层倒置、signal↔research 环、持久化多真源）。不改对外 HTTP/JSON 契约，不改调仓/打分/prior 默认语义。
+
+### B 轨锁定
+
+| 做 | 不做 |
+|----|------|
+| 按用例拆巨石；公共 API 薄 re-export 保兼容 | 为拆而拆、改对外 HTTP/JSON 契约 |
+| Protocol 注入替掉 core→services | 微服务 / Redis / Celery |
+| `core/yhat` 只承载「模型读口 + 特征键 + 指纹」 | 重写 ridge/panel 算法 |
+| `persistence` 门面统一路径与 atomic IO | 把 paper/watching/config 全体迁库 |
+| prior 归 `market/priors` | 改 prior 产品语义 / 默认开关 |
+
+**公共 API 冻结（B1 全程不得改签名）**：`backtest_paper_replay`、`load_replay_minute_bars`、`clamp_replay_*`、`replay_fill_px` / `replay_sell_fill_px`、`day_stock_legs`、`accumulate_day_contrib` / `finalize_stock_contrib`、`rescore_replay_y_τc_at_clock`、`scores_from_topk_precomputed`。`core/backtest/paper_replay.py` 保留为 re-export 门面。
+
+### B 轨阶段状态
+
+| 阶段 | 主题 | 状态 |
+|------|------|------|
+| **B0** | 所有权矩阵 + 验收门 + 文档挂钩 | **已落地** |
+| **B1** | `paper_replay` 按用例拆 + 去 adapters/services 硬依赖 | **已落地**：`replay_*.py` · `PaperCyclePort` · ports 分钟读 |
+| **B2** | `core/yhat` 契约包 + priors 归包 | **已落地**：`core/yhat/` · `core/market/priors/` |
+| **B3** | `persistence` 面 + watching 职责拆 | **已落地**：`core/persistence/` · `watching/{policy,repository,sources,sync_paper}` |
+| **B4** | t0 公共分钟语义 + root 归档 + legacy 门禁 | **已落地**：`core/intraday/` · `core/platform/` · TopK `full_engine` 门禁 |
+
+### B0 · 所有权矩阵（禁止第三套加载路径）
+
+| 模块 | 所有权 | 禁止 |
+|------|--------|------|
+| `core/research/portfolio_bars.py` | 宇宙日线/基本面加载（经 DS） | quant/web 旁路拉 bars |
+| `core/backtest/universe_filters.py` | 纯过滤 | 掺 I/O |
+| `core/backtest/replay_score_cache.py` | replay 私有缓存 | 被 live 打分路径依赖 |
+| `core/backtest/paper_replay.py`（+ `replay_*.py`） | 产品回测主路径 | 再堆新用例进同文件 |
+
+### B 轨巨石预算
+
+领域引擎单文件目标 **≤1500 行**；超标须有拆分 issue，不得继续净增。B1 后 `paper_replay.py` ≤1200（已达）；`replay_*.py` 目标 ≤700（scoring / score_cache 略厚，禁止继续净增）。
+
+### B 轨验收命令
+
+```bash
+cd quantlab
+python3 -m unittest \
+  tests.test_paper_replay \
+  tests.test_replay_score_cache \
+  tests.test_last_portfolio_backtest \
+  tests.test_universe_filters \
+  tests.test_store \
+  tests.test_framework_hardening -v
+```
+
+每阶段结束必跑上列命令；B1/B4 另做固定种子回测净值点位对照。
+
+### B1 · 目标文件（扁平 `core/backtest/replay_*.py`）
+
+| 文件 | 职责 |
+|------|------|
+| `replay_fill.py` | 成交钟 / 价 / price space |
+| `replay_minute.py` | 分钟加载（经 ports/DS，无 adapters 硬依赖） |
+| `replay_calendar.py` | 交易日日历 |
+| `replay_contrib.py` | 日腿与贡献归因 |
+| `replay_scoring.py` | 开盘打分 / 前缀重算 / score cache |
+| `replay_sim_rows.py` | 模拟行与 fuse hit |
+| `paper_replay.py` | 主循环 + re-export |
+
+### B2–B4 摘要
+
+- **B2**：`core/yhat/{keys,model_load,fingerprint}.py`；`core/market/priors/`；守卫测禁 signal↔research 顶层互引。
+- **B3**：`core/persistence/{bars,json_doc,result_snapshot}.py`；`watching/{repository,sources,sync_paper,policy}.py`。
+- **B4**：`core/intraday/` 或 `backtest/intraday_common.py` 供 t0；`core/platform/` 归档 jobs/manifest；legacy TopK 仅 `full_engine=True`。
 
 ---
 

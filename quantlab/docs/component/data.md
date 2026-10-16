@@ -1,6 +1,6 @@
 ## 数据层（Data Layer）
 
-[← 文档索引](../README.md) · 工程分层见 [架构总览](../architecture.md#架构总览) · 量化缓存细节见 [quant.md](../quant.md)
+[← 文档索引](../README.md) · 工程分层见 [架构总览](../architecture.md#架构总览) · 量化缓存细节见 [quant.md](../quant.md) · 日线/5m 运行时见 [行情更新、缓存与预处理](../internal/bars-update-cache.md)
 
 数据层是量化系统的「燃料库」：屏蔽外部数据源差异，为策略 / 回测 / Skill 提供相对干净、统一的数据。  
 **本仓库现状**：按需拉取 + 轻清洗 + JSON 短缓存 + **DataService 统一读口** + 观察池日线增量 / 基本面·资讯快照缓存 —— **不是** 全市场批式 ETL / Tick 仓 / 完整财务 PIT。  

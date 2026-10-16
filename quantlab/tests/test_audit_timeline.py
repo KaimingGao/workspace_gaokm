@@ -78,7 +78,7 @@ class TestAuditTimeline(unittest.TestCase):
                 json.dump({"ts": 1, "alerts": []}, f)
             with open(promo, "w", encoding="utf-8") as f:
                 json.dump({"promoted_at": "2026-08-05"}, f)
-            with patch("core.decision_record.DECISIONS_PATH", dec):
+            with patch("core.platform.decision_record.DECISIONS_PATH", dec):
                 with patch("web.audit_timeline.ALERTS_LAST_PATH", alerts):
                     out = clear_audit_timeline_logs()
             self.assertTrue(out["ok"])

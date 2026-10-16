@@ -12,7 +12,7 @@ from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
 
 Z_TC_PREFIX = "z_τc_"
 
-# 与 tau_panel.TAU_LAG_FEATURES 对齐（此处硬编码，避免循环 import）
+# 与 yhat.keys.TAU_LAG_FEATURES 对齐（此处硬编码，避免 yhat↔factors 循环 import）
 _TAU_LAG_FEATURES: Tuple[str, ...] = ("tau_lag1", "tau_ma5")
 
 # 开盘 / 截面 Z（open_gap ≡ gap_pct，拟合时丢掉）

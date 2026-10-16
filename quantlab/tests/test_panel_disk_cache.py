@@ -70,6 +70,22 @@ class TestPanelDiskCache(unittest.TestCase):
         )
         self.assertNotEqual(bars_fingerprint(a), bars_fingerprint(b))
 
+    def test_mid_bar_change_invalidates_fingerprint(self) -> None:
+        from core.research.panel_disk_cache import PANEL_CACHE_SCHEMA, _shard_paths, bars_fingerprint
+
+        bars = _bars(12, seed=2)
+        mid = dict(bars[4])
+        mid["close"] = float(mid["close"]) + 3.0
+        changed = list(bars)
+        changed[4] = mid
+        self.assertEqual(changed[0], bars[0])
+        self.assertEqual(changed[-1], bars[-1])
+        self.assertEqual(len(changed), len(bars))
+        self.assertNotEqual(bars_fingerprint(bars), bars_fingerprint(changed))
+        self.assertEqual(PANEL_CACHE_SCHEMA, 3)
+        shard = _shard_paths("oo/h1", "600000")["npz"]
+        self.assertIn(f"{os.sep}v3{os.sep}", shard)
+
     def test_save_load_roundtrip_and_miss(self) -> None:
         from core.research.panel_disk_cache import (
             load_stock_shard,
@@ -234,7 +250,7 @@ class TestPanelDiskCache(unittest.TestCase):
         np.testing.assert_allclose(x1, x2)
         np.testing.assert_allclose(y1, y2)
         self.assertEqual(slim1, slim2)
-        self.assertEqual(PANEL_CACHE_SCHEMA, 2)
+        self.assertEqual(PANEL_CACHE_SCHEMA, 3)
         self.assertTrue(_cache_root().startswith(self._tmpdir.name))
 
     def test_tc_rank_adopts_tc_shard_then_stands_alone(self) -> None:

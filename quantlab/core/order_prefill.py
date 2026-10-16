@@ -81,7 +81,7 @@ def prefill_from_recent_decisions(
     limit: int = 10,
     fmt: str = "json",
 ) -> Dict[str, Any]:
-    from core.decision_record import list_decisions
+    from core.platform.decision_record import list_decisions
 
     items = list_decisions(limit=limit).get("items") or []
     rows = build_prefills_from_decisions(items)

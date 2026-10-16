@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Tuple
 from agent.agent import MAX_TOOL_ROUNDS, Agent
 from agent.artifacts import primary_tab
 from agent.prompts import SYSTEM_PROMPT
-from core.job_progress import chat_job
+from core.platform.job_progress import chat_job
 
 # 会话空闲淘汰；消息滑动窗口（含 system）
 _SESSION_TTL_SEC = float(os.environ.get("CHAT_SESSION_TTL_SEC", "3600") or 3600)

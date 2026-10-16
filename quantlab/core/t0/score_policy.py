@@ -3671,7 +3671,7 @@ def build_tau_pool_by_date(
 
     trigger = 2.0
     try:
-        from core.event_prior import get_event_prior_cfg
+        from core.market.priors.event import get_event_prior_cfg
 
         trigger = float(get_event_prior_cfg().get("gap_trigger_pct") or 2.0)
     except Exception:  # noqa: BLE001
@@ -3850,7 +3850,7 @@ def compute_scores_map_from_bars(
     breadth = None
     if gaps:
         try:
-            from core.event_prior import get_event_prior_cfg
+            from core.market.priors.event import get_event_prior_cfg
 
             trigger = float(get_event_prior_cfg().get("gap_trigger_pct") or 2.0)
             # 仅正缺口（与刷簿 / 训练面板一致）

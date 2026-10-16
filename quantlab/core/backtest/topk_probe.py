@@ -27,6 +27,14 @@ def run_topk_probe(
     full = bool(kwargs.pop("full_engine", False))
     if not full:
         return run_oos_topk_curve(stock_bars, **kwargs)
+    import warnings
+
+    warnings.warn(
+        "core.backtest.legacy TopK engine is deprecated; "
+        "prefer topk_oos_curve (default). Pass full_engine=True only for research.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from core.backtest.legacy import topk_backtest as tb
 
     kwargs.setdefault("probe_lite", True)

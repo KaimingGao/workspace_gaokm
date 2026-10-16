@@ -1295,7 +1295,7 @@ python3 -c "from skills.position.handler import PositionHandler; print(PositionH
 
 | 文档 | 关系 |
 |------|------|
-| [architecture.md](architecture.md) | 工程分层 · 架构图 · 目录结构 · 技术栈 · 数据/策略/风控/舆情/RL 各层说明 · 框架梳理 · A0–A4 轨 · SQLite 迁移 |
+| [architecture.md](architecture.md) | 工程分层 · 架构图 · 目录结构 · 技术栈 · 数据/策略/风控/舆情/RL 各层说明 · 框架梳理 · A0–A4 / B0–B4 轨 · SQLite 迁移 |
 | [quant.md](quant.md) | 入门概念 · 因子/stance/回测/纸面原理 · 运维 preset · 复盘对账 · ŷ 全链路 · 训练/打分/回测/复盘 · 双层 ŷ_oo+ŷ_τ · 盘中剩余收益头 · τ 契约 |
 | [quant-ui.md](quant-ui.md) | Web 说明书 · 契约 · 差距 · 升级方案 |
 | [development.md](development.md) | 环境安装 · 测试/evals · 各 Skill 详解 |

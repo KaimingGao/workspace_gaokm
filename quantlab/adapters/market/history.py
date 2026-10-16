@@ -145,6 +145,61 @@ def _incremental_remote_plan(
     return start_s, fetch_limit, False
 
 
+_REBASE_REL = 1e-4
+_REBASE_ABS = 0.01
+
+
+def _ohlc_rebased(old: dict, new: dict) -> bool:
+    """开高低收任一相对差超过 1e-4，或绝对差超过 0.01。成交量变化不算。"""
+    for key in ("open", "high", "low", "close"):
+        try:
+            a = float(old.get(key))
+            b = float(new.get(key))
+        except (TypeError, ValueError):
+            continue
+        if abs(b - a) > _REBASE_ABS:
+            return True
+        if a != 0 and abs(b / a - 1.0) > _REBASE_REL:
+            return True
+    return False
+
+
+def qfq_overlap_rebased(existing: List[dict], incoming: List[dict]) -> bool:
+    """本地末根与远端同一天的价位对不上，视为前复权锚变了。找不到同一天则否。"""
+    if not existing or not incoming:
+        return False
+    last = existing[-1] if isinstance(existing[-1], dict) else None
+    if not last:
+        return False
+    day = _normalize_ymd(str(last.get("date") or ""))
+    if not day:
+        return False
+    for bar in incoming:
+        if not isinstance(bar, dict):
+            continue
+        if _normalize_ymd(str(bar.get("date") or "")) == day:
+            return _ohlc_rebased(last, bar)
+    return False
+
+
+def series_covers_for_replace(
+    existing: List[dict],
+    incoming: List[dict],
+    request_limit: int,
+) -> bool:
+    """新序列够长，或起点不晚于本地，才允许整段替换。"""
+    if not existing:
+        return True
+    if not incoming:
+        return False
+    old_min = _normalize_ymd(str((existing[0] or {}).get("date") or ""))
+    new_min = _normalize_ymd(str((incoming[0] or {}).get("date") or ""))
+    if old_min and new_min and new_min <= old_min:
+        return True
+    need = min(len(existing), max(1, int(request_limit or len(existing))))
+    return len(incoming) >= 0.9 * need
+
+
 def fetch_a_daily_bars(
     code: str,
     limit: int = 30,
@@ -532,6 +587,12 @@ def fetch_daily_bars(
                 )
                 return trimmed, cached_src
 
+        def _stale_existing() -> Tuple[List[dict], str]:
+            trimmed = (
+                existing[-limit:] if limit and existing and len(existing) > limit else existing
+            )
+            return list(trimmed or []), "cache:stale"
+
         try:
             if market == "CN":
                 bars = fetch_a_daily_bars(
@@ -549,17 +610,46 @@ def fetch_daily_bars(
         except Exception:
             logger.exception('unexpected error in fetch_daily_bars')
             if existing:
-                trimmed = (
-                    existing[-limit:] if limit and len(existing) > limit else existing
-                )
-                return trimmed, "cache:stale"
+                return _stale_existing()
             return [], "empty"
 
-        if incremental and existing:
+        replace = False
+        if (
+            incremental
+            and existing
+            and policy == "qfq"
+            and market == "CN"
+            and bars
+            and qfq_overlap_rebased(existing, bars)
+        ):
+            full_limit = max(int(limit or 30), len(existing) + 5)
+            logger.info(
+                "qfq overlap rebased market=%s code=%s; refetch full window",
+                market,
+                code,
+            )
+            try:
+                bars = fetch_a_daily_bars(
+                    code, limit=full_limit, adjust=policy, start_date=None
+                )
+                src = f"akshare_cn_daily:{policy}" if bars else "empty"
+            except Exception:
+                logger.exception("qfq rebase refetch failed %s %s", market, code)
+                return _stale_existing()
+            if not series_covers_for_replace(existing, bars or [], full_limit):
+                return _stale_existing()
+            replace = True
+        elif (not incremental) and existing:
+            if series_covers_for_replace(existing, bars or [], int(limit or 30)):
+                replace = True
+            else:
+                return _stale_existing()
+
+        if not replace and incremental and existing:
             bars = merge_bars_by_date(existing, bars or [])
             if bars and src == "empty":
                 src = "cache:merged"
-        if not bars and existing:
+        if not replace and not bars and existing:
             bars = existing
             src = "cache:stale"
 
@@ -575,6 +665,7 @@ def fetch_daily_bars(
                     data_source=raw_src,
                     stock_code=code,
                     adjust_policy=policy,
+                    replace=replace,
                 )
             except OSError:
                 pass

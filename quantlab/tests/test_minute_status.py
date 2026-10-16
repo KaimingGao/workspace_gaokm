@@ -129,18 +129,24 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(reason, "missing")
 
     def test_warmup_skips_ready(self):
-        from core.schedule_jobs import _minute_warmup_core
+        from core.platform.schedule_jobs import _minute_warmup_core
+
+        def _ready_port(name, *args, **kwargs):
+            if name != "minute_cache_ready":
+                raise AssertionError(f"unexpected port call: {name}")
+            code = args[0] if args else kwargs.get("code")
+            return (code == "600519", {}, "ready")
 
         with patch(
-            "core.schedule_jobs._resolve_warmup_codes",
+            "core.platform.schedule_jobs._resolve_warmup_codes",
             return_value=["600519", "000001"],
         ), patch(
-            "quant.research.minute_status.minute_cache_ready",
-            side_effect=lambda code, **kw: (code == "600519", {}, "ready"),
+            "core.ports.registry.call",
+            side_effect=_ready_port,
         ), patch(
             "core.data.policy.minute_warmup_skip_if_ready", return_value=True
         ), patch(
-            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            "core.ports.market.fetch_minute_bars_isolated",
             return_value=([], {}),
         ) as fetch:
             out = _minute_warmup_core(codes=["600519", "000001"], cap=2)
@@ -152,7 +158,7 @@ class TestMinuteStatus(unittest.TestCase):
 
     def test_warmup_continues_after_isolated_timeout(self):
         """子进程超时只跳过该票，不收尾跳过剩余。"""
-        from core.schedule_jobs import _minute_warmup_core
+        from core.platform.schedule_jobs import _minute_warmup_core
 
         calls = []
 
@@ -163,12 +169,12 @@ class TestMinuteStatus(unittest.TestCase):
             return ([{"datetime": "2026-01-01 09:35:00", "date": "2026-01-01", "close": 1.0}], {"ok": True})
 
         with patch(
-            "core.schedule_jobs._resolve_warmup_codes",
+            "core.platform.schedule_jobs._resolve_warmup_codes",
             return_value=["600519", "000001", "300750"],
         ), patch(
             "core.data.policy.minute_warmup_skip_if_ready", return_value=False
         ), patch(
-            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            "core.ports.market.fetch_minute_bars_isolated",
             side_effect=_iso,
         ):
             out = _minute_warmup_core(codes=["600519", "000001", "300750"], cap=3)
@@ -192,7 +198,7 @@ class TestMinuteStatus(unittest.TestCase):
         with patch(
             "quant.research.minute_status._resolve_watching_codes",
             return_value=["600519", "000001"],
-        ), patch("core.schedule_jobs._minute_warmup_core", return_value=warmup) as warm, patch(
+        ), patch("core.platform.schedule_jobs._minute_warmup_core", return_value=warmup) as warm, patch(
             "quant.research.minute_status.build_minute_status",
             return_value={"success": True, "cached_ok": 2},
         ):

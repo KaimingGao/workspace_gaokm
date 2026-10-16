@@ -56,7 +56,7 @@ def evaluate_buy_advice(params: dict) -> Dict[str, Any]:
     # D3：可选落盘 DecisionRecord（默认开启；测试可设 QUANTLAB_RECORD_DECISIONS=0）
     if os.environ.get("QUANTLAB_RECORD_DECISIONS", "1") not in ("0", "false", "False"):
         try:
-            from core.decision_record import record_from_advice
+            from core.platform.decision_record import record_from_advice
 
             rec = record_from_advice(out, source="advise", persist=True)
             if rec.get("ok"):

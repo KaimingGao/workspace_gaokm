@@ -166,5 +166,168 @@ class TestHistoryResolve(unittest.TestCase):
         )
 
 
+class TestQfqReplace(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        from core.store_bars_sqlite import reset_conn_cache
+
+        self.tmp = tempfile.mkdtemp()
+        self._env = patch.dict(
+            os.environ,
+            {"QUANTLAB_STORE_DIR": self.tmp, "QUANTLAB_BARS_BACKEND": "sqlite"},
+        )
+        self._env.start()
+        reset_conn_cache()
+        self.addCleanup(self._env.stop)
+        self.addCleanup(reset_conn_cache)
+
+    def _seed(self, n=10, *, adjust="qfq", end_offset=10, close0=10.0):
+        from datetime import datetime, timedelta
+
+        from core.store import save_daily_cache
+
+        end = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+            days=end_offset
+        )
+        bars = []
+        for i in range(n):
+            d = end - timedelta(days=(n - 1 - i))
+            px = close0 + i
+            bars.append(
+                {
+                    "date": d.strftime("%Y-%m-%d"),
+                    "open": px,
+                    "high": px + 0.4,
+                    "low": px - 0.4,
+                    "close": px,
+                    "volume": 1000 + i,
+                }
+            )
+        save_daily_cache(
+            "CN",
+            "600519",
+            bars,
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+            adjust_policy=adjust,
+        )
+        return bars
+
+    def _load(self):
+        from core.store import load_daily_cache
+
+        loaded = load_daily_cache(
+            "CN", "600519", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        self.assertIsNotNone(loaded)
+        return loaded[0]
+
+    def test_same_overlap_merges_tail_only(self):
+        from datetime import datetime, timedelta
+
+        existing = self._seed()
+        overlap = dict(existing[-1])
+        overlap["volume"] = 99999
+        nxt = datetime.strptime(existing[-1]["date"], "%Y-%m-%d") + timedelta(days=1)
+        newer = {
+            "date": nxt.strftime("%Y-%m-%d"),
+            "open": 30.0,
+            "high": 31.0,
+            "low": 29.0,
+            "close": 30.5,
+            "volume": 50,
+        }
+        calls = []
+
+        def _fake(code, limit=30, adjust="qfq", start_date=None):
+            calls.append(start_date)
+            return [overlap, newer]
+
+        with patch("adapters.market.history.fetch_a_daily_bars", side_effect=_fake):
+            out, src = fetch_daily_bars(
+                "600519", limit=10, cache_max_age_hours=0, incremental=True
+            )
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0])
+        self.assertIn("akshare", src)
+        got = self._load()
+        self.assertEqual(got[0]["date"], existing[0]["date"])
+        self.assertEqual(got[-1]["date"], newer["date"])
+        self.assertEqual(len(got), len(existing) + 1)
+        self.assertTrue(out)
+
+    def test_rebased_overlap_replaces_series(self):
+        existing = self._seed()
+        shifted = [dict(b) for b in existing[1:]]
+        shifted[-1]["close"] = float(shifted[-1]["close"]) + 5.0
+        calls = []
+
+        def _fake(code, limit=30, adjust="qfq", start_date=None):
+            calls.append(start_date)
+            if len(calls) == 1:
+                return [dict(shifted[-1])]
+            return shifted
+
+        with patch("adapters.market.history.fetch_a_daily_bars", side_effect=_fake):
+            _out, src = fetch_daily_bars(
+                "600519", limit=10, cache_max_age_hours=0, incremental=True
+            )
+        self.assertEqual(len(calls), 2)
+        self.assertIsNone(calls[1])
+        self.assertIn("akshare", src)
+        got = self._load()
+        dates = [b["date"] for b in got]
+        self.assertEqual(dates[0], shifted[0]["date"])
+        self.assertNotIn(existing[0]["date"], dates)
+
+    def test_short_rebase_refetch_does_not_wipe(self):
+        existing = self._seed()
+        bumped = dict(existing[-1])
+        bumped["close"] = float(bumped["close"]) + 5.0
+        calls = []
+
+        def _fake(code, limit=30, adjust="qfq", start_date=None):
+            calls.append((start_date, limit))
+            if len(calls) == 1:
+                return [bumped]
+            return [bumped]
+
+        with patch("adapters.market.history.fetch_a_daily_bars", side_effect=_fake):
+            _out, src = fetch_daily_bars(
+                "600519", limit=10, cache_max_age_hours=0, incremental=True
+            )
+        self.assertEqual(src, "cache:stale")
+        self.assertEqual(len(calls), 2)
+        got = self._load()
+        self.assertEqual(len(got), len(existing))
+        self.assertEqual(got[0]["date"], existing[0]["date"])
+        self.assertAlmostEqual(got[-1]["close"], existing[-1]["close"])
+
+    def test_raw_overlap_price_change_does_not_replace(self):
+        existing = self._seed(adjust="raw")
+        bumped = dict(existing[-1])
+        bumped["close"] = float(bumped["close"]) + 5.0
+        calls = []
+
+        def _fake(code, limit=30, adjust="qfq", start_date=None):
+            calls.append(start_date)
+            return [bumped]
+
+        with patch("adapters.market.history.fetch_a_daily_bars", side_effect=_fake):
+            _out, src = fetch_daily_bars(
+                "600519",
+                limit=10,
+                cache_max_age_hours=0,
+                incremental=True,
+                adjust="raw",
+            )
+        self.assertEqual(len(calls), 1)
+        self.assertIn("akshare", src)
+        got = self._load()
+        self.assertEqual(got[0]["date"], existing[0]["date"])
+        self.assertAlmostEqual(got[-1]["close"], bumped["close"])
+
+
 if __name__ == "__main__":
     unittest.main()

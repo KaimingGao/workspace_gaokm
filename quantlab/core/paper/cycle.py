@@ -333,7 +333,7 @@ def _build_and_write_manifest(
     # Q3：运行清单
     manifest = None
     try:
-        from core.run_manifest import build_run_manifest, write_run_manifest
+        from core.platform.run_manifest import build_run_manifest, write_run_manifest
 
         manifest = build_run_manifest(
             kind="paper_rebalance",

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS daily_bars (
   low           REAL,
   close         REAL NOT NULL,
   volume        REAL,
+  amount        REAL,
   adjust_policy TEXT NOT NULL,
   data_source   TEXT,
   fetched_at    TEXT NOT NULL,
@@ -110,6 +111,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE minute_cache_meta ADD COLUMN span_days INTEGER"
         )
+    daily_cols = {
+        str(r[1]) for r in conn.execute("PRAGMA table_info(daily_bars)").fetchall()
+    }
+    if daily_cols and "amount" not in daily_cols:
+        conn.execute("ALTER TABLE daily_bars ADD COLUMN amount REAL")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_minute_code_date "
         "ON minute_bars(market, code, period, adjust_policy, date)"
@@ -137,9 +143,8 @@ def get_conn(store_dir: str) -> sqlite3.Connection:
 def get_read_conn(store_dir: str) -> sqlite3.Connection:
     """只读连接（线程本地）。覆盖状态 / Ready / 拉仓热路径用，不占写锁。"""
     path = db_path(store_dir)
-    if not os.path.isfile(path):
-        # 建库 / schema 走写连接
-        get_conn(store_dir)
+    # 先走写连接，给旧库补 amount 列；只读连接不能 ALTER
+    get_conn(store_dir)
     cache: Dict[str, sqlite3.Connection] = getattr(_read_local, "conns", None) or {}
     c = cache.get(path)
     if c is not None:
@@ -192,9 +197,36 @@ def _parse_fetched(fetched_s: str) -> Optional[datetime]:
 _IN_CHUNK = 400
 
 
+def _optional_amount(row: Any) -> Optional[float]:
+    """NULL / 缺列不写成 0，读出的 bar 不带 amount。"""
+    try:
+        keys = row.keys()
+    except AttributeError:
+        return None
+    if "amount" not in keys:
+        return None
+    raw = row["amount"]
+    if raw is None or raw == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bar_amount_value(bar: dict) -> Optional[float]:
+    if "amount" not in bar or bar.get("amount") is None or bar.get("amount") == "":
+        return None
+    try:
+        return float(bar["amount"])
+    except (TypeError, ValueError):
+        return None
+
+
 def _bar_dicts_from_rows(bars_rows: List[Any]) -> List[dict]:
-    return [
-        {
+    out: List[dict] = []
+    for r in bars_rows:
+        bar = {
             "date": r["date"],
             "open": r["open"],
             "high": r["high"],
@@ -202,8 +234,11 @@ def _bar_dicts_from_rows(bars_rows: List[Any]) -> List[dict]:
             "close": r["close"],
             "volume": r["volume"],
         }
-        for r in bars_rows
-    ]
+        amt = _optional_amount(r)
+        if amt is not None:
+            bar["amount"] = amt
+        out.append(bar)
+    return out
 
 
 def _pick_meta_row(rows: Sequence[Any], *, code_s: str) -> Optional[Any]:
@@ -274,7 +309,7 @@ def _fetch_daily_bar_rows(
     if max_bars is not None and int(max_bars) > 0:
         rows = conn.execute(
             """
-            SELECT date, open, high, low, close, volume, code
+            SELECT date, open, high, low, close, volume, amount, code
             FROM daily_bars
             WHERE market=? AND code=? AND adjust_policy=?
             ORDER BY date DESC
@@ -286,7 +321,7 @@ def _fetch_daily_bar_rows(
     else:
         rows = conn.execute(
             """
-            SELECT date, open, high, low, close, volume, code
+            SELECT date, open, high, low, close, volume, amount, code
             FROM daily_bars
             WHERE market=? AND code=? AND adjust_policy=?
             ORDER BY date
@@ -446,6 +481,7 @@ def save_daily(
     adjust_policy: Optional[str],
     assess_quality,
     trim_daily_bars,
+    replace: bool = False,
 ) -> str:
     from core.data.policy import DAILY_BARS_MAX_KEEP
     from core.store import daily_bar_complete
@@ -462,13 +498,21 @@ def save_daily(
     conn = get_conn(store_dir)
 
     with _write_lock:
-        # 同一日覆盖，新日期插入。不整段删除；这次没带到的日期留在库里。
+        # replace：整段换掉该复权键，不留更早的旧价。否则同日覆盖，没带到的日期留着。
+        if replace:
+            conn.execute(
+                """
+                DELETE FROM daily_bars
+                WHERE market=? AND code=? AND adjust_policy=?
+                """,
+                (mkt, code_s, policy),
+            )
         conn.executemany(
             """
             INSERT OR REPLACE INTO daily_bars
-            (code, market, date, open, high, low, close, volume,
+            (code, market, date, open, high, low, close, volume, amount,
              adjust_policy, data_source, fetched_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             [
                 (
@@ -480,6 +524,7 @@ def save_daily(
                     b.get("low"),
                     b.get("close"),
                     b.get("volume"),
+                    _bar_amount_value(b),
                     policy,
                     data_source,
                     fetched_s,
@@ -519,24 +564,14 @@ def save_daily(
                 )
         rows = conn.execute(
             """
-            SELECT date, open, high, low, close, volume
+            SELECT date, open, high, low, close, volume, amount
             FROM daily_bars
             WHERE market=? AND code=? AND adjust_policy=?
             ORDER BY date
             """,
             (mkt, code_s, policy),
         ).fetchall()
-        bars = [
-            {
-                "date": r["date"],
-                "open": r["open"],
-                "high": r["high"],
-                "low": r["low"],
-                "close": r["close"],
-                "volume": r["volume"],
-            }
-            for r in rows
-        ]
+        bars = _bar_dicts_from_rows(rows)
         quality = assess_quality(bars, data_source=data_source, fetched_at=fetched_at)
         date_min = bars[0].get("date") if bars else None
         date_max = bars[-1].get("date") if bars else None
@@ -576,8 +611,23 @@ def merge_save_daily(
     assess_quality,
     trim_daily_bars,
     merge_bars_by_date,
+    replace: bool = False,
 ) -> Tuple[str, List[dict]]:
     policy = _norm_policy(adjust_policy)
+    if replace:
+        path = save_daily(
+            market,
+            code,
+            list(incoming or []),
+            data_source=data_source,
+            stock_code=stock_code,
+            store_dir=store_dir,
+            adjust_policy=policy,
+            assess_quality=assess_quality,
+            trim_daily_bars=trim_daily_bars,
+            replace=True,
+        )
+        return path, list(incoming or [])
     existing: List[dict] = []
     loaded = load_daily(
         market,

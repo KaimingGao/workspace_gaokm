@@ -83,7 +83,7 @@ def get_job(name: str, progress: int = 0) -> Dict[str, Any]:
 
 def cancel_job(name: str, force: bool = False) -> Dict[str, Any]:
     """取消运行中任务。``force=true`` 时立即标失败并释放槽位（卡住的拉数线程仍可能在后台收尾）。"""
-    from core.job_progress import job_registry
+    from core.platform.job_progress import job_registry
 
     slot = job_registry.slot(name)
     if force:

@@ -30,8 +30,8 @@ from core.market.context_store import (
     load_market_sentiment_snapshot,
     save_market_snapshot,
 )
-from core.market.prior_policy import apply_market_priors_to_buy, apply_market_priors_to_hold
-from core.market.sentiment_prior import build_market_sentiment_prior
+from core.market.priors.policy import apply_market_priors_to_buy, apply_market_priors_to_hold
+from core.market.priors.market_sentiment import build_market_sentiment_prior
 from core.market.symbols import register_symbol_resolver, resolve_market_code
 
 __all__ = [

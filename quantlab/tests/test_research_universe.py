@@ -70,7 +70,7 @@ class TestResearchUniverse(unittest.TestCase):
             with patch("os.path.isfile", return_value=True), patch(
                 "builtins.open", mock_open(read_data="{}")
             ), patch(
-                "core.schedule_jobs.json.load",
+                "core.platform.schedule_jobs.json.load",
                 return_value={"watchlist": ["000001", "000002"]},
             ):
                 out = _resolve_warmup_codes(

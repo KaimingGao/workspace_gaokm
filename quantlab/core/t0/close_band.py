@@ -13,6 +13,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional, Sequence
 
+from core.intraday.price_space import (
+    DEFAULT_PRICE_SPACE_MAX_DEV_PCT,
+    price_space_scale,
+)
+
 
 def _f(v: Any) -> Optional[float]:
     try:
@@ -279,21 +284,6 @@ def close_band_pick_direction(
         "upper_px": up_px,
         "t0_y_τc_target_scale": scale,
     }
-
-
-# |日线开/分钟开 − 1| 超此百分比 → price_space_mismatch（可配）
-DEFAULT_PRICE_SPACE_MAX_DEV_PCT = 5.0
-
-
-def price_space_scale(
-    daily_open: Optional[float],
-    minute_open: Optional[float],
-) -> Optional[float]:
-    """S = O_d / O_m；缺一侧或非正 → None。"""
-    od, om = _f(daily_open), _f(minute_open)
-    if od is None or om is None or od <= 0 or om <= 0:
-        return None
-    return float(od) / float(om)
 
 
 def resolve_t0_price_space(

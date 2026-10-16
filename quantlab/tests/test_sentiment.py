@@ -272,7 +272,7 @@ class TestScheduleKind(unittest.TestCase):
     def test_run_schedule_sentiment_scan(self):
         from core.schedule_jobs import run_schedule
 
-        with patch("core.schedule_jobs.run_sentiment_scan", return_value={"ok": True, "kind": "sentiment_scan"}) as m:
+        with patch("core.platform.schedule_jobs.run_sentiment_scan", return_value={"ok": True, "kind": "sentiment_scan"}) as m:
             out = run_schedule("sentiment_scan", codes=["600519"], limit=3)
         self.assertTrue(out["ok"])
         m.assert_called_once()

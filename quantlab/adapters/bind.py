@@ -34,6 +34,7 @@ def bind_market_adapters(*, force: bool = False) -> None:
     )
     from adapters.market.index_bars import default_benchmark, fetch_index_bars
     from adapters.market.minute_history import (
+        fetch_a_minute_bars_isolated,
         fetch_minute_bars,
         group_minute_bars_by_date,
     )
@@ -60,6 +61,7 @@ def bind_market_adapters(*, force: bool = False) -> None:
     set_adapter("bars_from_quote_fallback", bars_from_quote_fallback)
     set_adapter("resolve_market_code", resolve_market_code)
     set_adapter("fetch_minute_bars", fetch_minute_bars)
+    set_adapter("fetch_minute_bars_isolated", fetch_a_minute_bars_isolated)
     set_adapter("group_minute_bars_by_date", group_minute_bars_by_date)
     set_adapter("fetch_cn_financial_series", fetch_cn_financial_series)
     set_adapter("fetch_cn_valuation_latest", fetch_cn_valuation_latest)
@@ -95,5 +97,18 @@ def bind_market_adapters(*, force: bool = False) -> None:
         "batch_map",
         lambda fn, items, **kwargs: _get_ak_pool().map(fn, items, **kwargs),
     )
+    try:
+        from quant.research.minute_status import minute_cache_ready
+
+        set_adapter("minute_cache_ready", minute_cache_ready)
+    except Exception:  # noqa: BLE001 — 研究分钟就绪检查可选
+        pass
+
     mark_bound()
     _BOUND = True
+    try:
+        from services.paper_cycle_bind import bind_paper_cycle
+
+        bind_paper_cycle(force=bool(force))
+    except Exception:  # noqa: BLE001 — paper 绑定失败不阻断行情 ports
+        pass

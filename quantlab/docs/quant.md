@@ -1578,7 +1578,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | **分池簿 + τ 影子簿** | **已退役**（原 `core/signal/cluster/rank.py`）；τ 见 `dual_score/` · `tc_ridge.py` |
 | **F1 买入闸（纸面）** | **`core/paper_rebalance.py`**（buy_passes_tau_gate 调用） |
 | **账本 / 复盘（双层）** | **已删除**（`core/score_ledger/` 与复盘 HTTP）；历史 JSON 在 `data/reports/score_ledger/` |
-| 产品回测 | `core/backtest/paper_replay.py` |
+| 产品回测 | `core/backtest/paper_replay.py`（+ `replay_*.py` 按用例拆分） |
 | TopK（研究探针，冻结） | 默认 `topk_oos_curve`；完整引擎 `legacy/topk_backtest`（`full_engine=True`）；产品回测走 paper_replay |
 | 配置 | `data/signal_config.json` → `scoring.horizon_days` / `cluster_scoring` / `dual_score` |
 | 日更 | `core/schedule_jobs.py` · [quant.md · 运维](quant.md#量化运维) |

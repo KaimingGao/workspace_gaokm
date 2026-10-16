@@ -6,13 +6,13 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
-from core.decision_record import list_decisions, record_from_advice
+from core.platform.decision_record import list_decisions, record_from_advice
 from core.feedback_suggest import suggest_config_feedback
-from core.job_progress import job_registry
+from core.platform.job_progress import job_registry
 from core.memory_store import effective_preferences, read_memory, write_memory
 from core.observation import make_observation, wrap_skill_result
 from core.order_prefill import prefill_from_recent_decisions
-from core.schedule_jobs import run_schedule
+from core.platform.schedule_jobs import run_schedule
 
 
 class PlatformService:

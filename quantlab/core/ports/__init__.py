@@ -6,11 +6,23 @@
 """
 
 from core.ports.market import fetch_daily_bars, query_quote, quote_price
+from core.ports.paper_cycle import (
+    PaperCyclePort,
+    clear_paper_cycle_factory,
+    get_paper_cycle,
+    is_paper_cycle_bound,
+    set_paper_cycle_factory,
+)
 from core.ports.signal import build_signal_pool
 
 __all__ = [
+    "PaperCyclePort",
+    "build_signal_pool",
+    "clear_paper_cycle_factory",
+    "fetch_daily_bars",
+    "get_paper_cycle",
+    "is_paper_cycle_bound",
     "query_quote",
     "quote_price",
-    "fetch_daily_bars",
-    "build_signal_pool",
+    "set_paper_cycle_factory",
 ]

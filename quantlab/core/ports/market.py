@@ -141,6 +141,11 @@ def fetch_minute_bars(code: str, **kwargs: Any) -> Any:
     return call("fetch_minute_bars", str(code or "").strip(), **kwargs)
 
 
+def fetch_minute_bars_isolated(code: str, **kwargs: Any) -> Any:
+    """分钟线子进程隔离拉取（暖仓 / 强更；超时 kill）。"""
+    return call("fetch_minute_bars_isolated", str(code or "").strip(), **kwargs)
+
+
 def group_minute_bars_by_date(bars: Any) -> Any:
     return call("group_minute_bars_by_date", bars)
 

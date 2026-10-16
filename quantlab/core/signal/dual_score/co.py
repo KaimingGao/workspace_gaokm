@@ -14,7 +14,7 @@ DEFAULT_Y_SPEC_CO: Dict[str, Any] = {
     "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
 }
 
-from core.research.co_panel import CO_Z_FEATURES, CO_Z_LEGACY
+from core.yhat.keys import CO_Z_FEATURES, CO_Z_LEGACY
 
 _CO_FEATURE_KEYS = CO_Z_FEATURES
 _CO_LEGACY_KEYS = CO_Z_LEGACY
@@ -268,7 +268,7 @@ def attach_co_score_pit(
         return signal_item
     if co_model_doc is None:
         try:
-            from core.research.co_ridge import load_co_model
+            from core.yhat.model_load import load_co_model
 
             co_model_doc = load_co_model()
         except Exception:  # noqa: BLE001

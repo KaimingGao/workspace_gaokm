@@ -1,4 +1,5 @@
-"""完整 TopK 探针归档（仅 full_engine / 研究单测）。
+"""@deprecated Complete TopK probe archive (``full_engine`` / research unit tests only).
 
-默认研究路径请用 ``core.backtest.topk_oos_curve`` / ``topk_probe``。
+Default research path: ``core.backtest.topk_oos_curve`` / ``topk_probe``
+(without ``full_engine=True``). New product backtests must not extend this package.
 """

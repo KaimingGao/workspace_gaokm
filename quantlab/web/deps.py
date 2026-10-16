@@ -1,10 +1,17 @@
 """Web 层共享服务实例（路由拆分后共用）。"""
 
-# 启动时绑定行情适配器（ports 不硬 import skills）
+# 启动时绑定行情适配器 + 纸面用例口（ports 不硬 import skills/services）
 try:
     from adapters.bind import bind_market_adapters
 
     bind_market_adapters()
+except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+    pass
+
+try:
+    from services.paper_cycle_bind import bind_paper_cycle
+
+    bind_paper_cycle()
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
     pass
 

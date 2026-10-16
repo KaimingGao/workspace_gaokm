@@ -4,7 +4,6 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from core.cross_market_prior import build_cross_market_prior
 from core.market.context_merge import (
     freshness_report,
     merge_macro_snapshots,
@@ -15,8 +14,9 @@ from core.market.context_store import (
     load_market_sentiment_snapshot,
     save_market_snapshot,
 )
-from core.market.sentiment_prior import build_market_sentiment_prior
-from core.regulatory_prior import build_ipo_drain_prior, build_regulatory_prior
+from core.market.priors.cross_market import build_cross_market_prior
+from core.market.priors.market_sentiment import build_market_sentiment_prior
+from core.market.priors.regulatory import build_ipo_drain_prior, build_regulatory_prior
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ def ingest_pre_market_bundle(*, lookback: int = 30) -> Dict[str, Any]:
 
         pm = (load_signal_config() or {}).get("pre_market") or {}
         if pm.get("minute_warmup_on_ingest", True):
-            from core.schedule_jobs import _minute_warmup_core
+            from core.platform.schedule_jobs import _minute_warmup_core
 
             minute_r = _minute_warmup_core(
                 cap=int(pm.get("minute_warmup_cap") or 25),

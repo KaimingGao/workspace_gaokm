@@ -51,7 +51,7 @@ class TestWatchingLoadFast(unittest.TestCase):
             "watchlist_names": ["", ""],
             "sources": [],
         }
-        with patch("core.watching.store._resolve_entry") as resolve:
+        with patch("core.watching.repository._resolve_entry") as resolve:
             names = watchlist_names_for(data, allow_live=False)
         self.assertEqual(names, ["", ""])
         resolve.assert_not_called()
