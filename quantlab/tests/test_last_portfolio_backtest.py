@@ -36,7 +36,19 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
                     "action": "buy",
                     "features_tau": {"raw_atc_YKMID": 1.0},
                     "features_co": {"gap_pct": 0.1},
-                    "formula_terms": {"total": 0.01, "terms": []},
+                    "factor_coefficients": {"momentum": 0.2},
+                    "formula_terms": {
+                        "total": 0.01,
+                        "terms": [
+                            {
+                                "key": f"f{i}",
+                                "beta": 0.1,
+                                "z": 0.2,
+                                "contrib": float(i),
+                            }
+                            for i in range(40)
+                        ],
+                    },
                 }
             ],
             "stock_contrib": [
@@ -75,8 +87,11 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
         self.assertEqual(result["sim_trades"][0]["stock_code"], "600519")
         self.assertNotIn("features_tau", result["sim_trades"][0])
         self.assertNotIn("features_co", result["sim_trades"][0])
-        # 因子组成 tip 体积大，落盘不保留（避免页面 JSON 画空）
-        self.assertNotIn("formula_terms", result["sim_trades"][0])
+        self.assertNotIn("factor_coefficients", result["sim_trades"][0])
+        # 成交 tip 因子表：保留 capped 组成（与 tip_explain_fields 同帽）
+        ft = result["sim_trades"][0].get("formula_terms") or {}
+        self.assertEqual(len(ft.get("terms") or []), 24)
+        self.assertEqual((ft.get("terms") or [])[0].get("key"), "f39")
         self.assertEqual(result["sim_trades"][0]["action"], "buy")
         self.assertEqual(result["stock_contrib"][0]["stock_code"], "600519")
         self.assertEqual(result["stock_contrib"][0]["pnl"], 1200.0)

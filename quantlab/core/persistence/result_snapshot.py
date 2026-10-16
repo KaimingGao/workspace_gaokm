@@ -49,11 +49,9 @@ def _slim_universe(raw: Any) -> Any:
 
 
 def _is_sim_trade_bulk_key(key: Any) -> bool:
-    """落盘/轮询去掉大块 tip 组成，避免上万笔 × 因子表把 JSON 撑到百 MB、页面画空。"""
+    """落盘/轮询去掉特征与全量系数；公式组成另做 capped 保留（成交 tip 因子表）。"""
     ks = str(key or "")
     if ks.startswith("features_") or ks.startswith("factor_coefficients"):
-        return True
-    if "formula_terms" in ks:
         return True
     if ks.startswith("y_spec"):
         return True
@@ -63,7 +61,19 @@ def _is_sim_trade_bulk_key(key: Any) -> bool:
 def _slim_sim_trade(row: Any) -> Any:
     if not isinstance(row, dict):
         return row
-    return {k: v for k, v in row.items() if not _is_sim_trade_bulk_key(k)}
+    # 与开盘分缓存同帽：≤24 + τ pin，见 tip_explain_fields / _cache_tip_formula
+    from core.backtest.replay_score_cache import _cache_tip_formula
+
+    out: Dict[str, Any] = {}
+    for k, v in row.items():
+        if _is_sim_trade_bulk_key(k):
+            continue
+        ks = str(k or "")
+        if "formula_terms" in ks:
+            out[k] = _cache_tip_formula(ks, v)
+        else:
+            out[k] = v
+    return out
 
 
 def _slim_result(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -103,7 +113,7 @@ def save_last_portfolio_backtest(
 
 
 def slim_portfolio_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    """任务轮询 / 落盘共用：去掉特征与因子组成 tip，避免百 MB JSON 把页面画空。"""
+    """任务轮询 / 落盘共用：去掉特征/全量系数，保留 capped 因子组成 tip。"""
     return _slim_result(result or {})
 
 
