@@ -10,10 +10,15 @@ STORE_DIR = os.environ.get(
     "QUANTLAB_STORE_DIR",
     os.path.join(DATA_DIR, "store"),
 )
-# 研究 panel 按股磁盘缓存（OO/τc/τc_rank/CO/oo_rank）；可用 QUANTLAB_PANEL_CACHE_DIR 覆盖
-PANEL_CACHE_DIR = os.environ.get(
-    "QUANTLAB_PANEL_CACHE_DIR",
-    os.path.join(DATA_DIR, "cache", "panels"),
+# L1 Feature Lake（按股×日特征行）；可用 QUANTLAB_FEATURE_LAKE_DIR 覆盖
+FEATURE_LAKE_DIR = os.environ.get(
+    "QUANTLAB_FEATURE_LAKE_DIR",
+    os.path.join(DATA_DIR, "cache", "feature_lake"),
+)
+# L2 CrossSection DayCube（按日截面 μ/σ / breadth）；可用 QUANTLAB_DAY_CUBE_DIR 覆盖
+DAY_CUBE_DIR = os.environ.get(
+    "QUANTLAB_DAY_CUBE_DIR",
+    os.path.join(DATA_DIR, "cache", "day_cubes"),
 )
 # 调仓回测开盘日打分缓存；可用 QUANTLAB_REPLAY_SCORE_CACHE_DIR 覆盖
 REPLAY_SCORE_CACHE_DIR = os.environ.get(

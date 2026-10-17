@@ -503,9 +503,31 @@ def backtest_paper_replay(
 
             tau_pool_by_date = build_tau_pool_by_date(stock_bars) or {}
             seed_tau_cross_section_pool(tau_pool_by_date)
+            try:
+                from core.research.day_cube import persist_tau_pool_as_cubes
+
+                persist_tau_pool_as_cubes(
+                    tau_pool_by_date,
+                    list((stock_bars or {}).keys()),
+                    clock="open",
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("replay day_cube persist failed", exc_info=True)
         except Exception:  # noqa: BLE001
             logger.debug("replay tau pool build failed", exc_info=True)
             tau_pool_by_date = {}
+    try:
+        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
+        from core.research.lake_replay import clear_coverage_cache, prefetch_l1_coverage
+
+        clear_coverage_cache()
+        fams = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
+        # 盘中成交钟：额外预热 tc_HHMM，供前缀 ŷ_τc hydrate
+        if str(clock or "")[:5] not in ("", "09:30"):
+            fams.append(family_for_tc(tau_hm=clock))
+        prefetch_l1_coverage(list((stock_bars or {}).keys()), families=fams)
+    except Exception:  # noqa: BLE001
+        logger.debug("replay l1 coverage prefetch failed", exc_info=True)
     if progress_cb is not None:
         try:
             progress_cb("解析股票名称…", 0, 1)

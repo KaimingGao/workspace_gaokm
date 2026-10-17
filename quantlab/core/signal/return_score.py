@@ -373,8 +373,13 @@ def resolve_research_rank_mode(mode: Optional[str] = None) -> str:
 def _batch_feature_rows(
     entries: Sequence[dict],
     model: Optional[ReturnScoreModel],
+    *,
+    day_cube: Any = None,
 ) -> Optional[List[dict]]:
-    """截面模型：用本批（同一天）的 sub_scores 做 z-score。原始分留在条目上。"""
+    """截面模型：用本批（同一天）的 sub_scores 做 z-score。原始分留在条目上。
+
+    ``day_cube`` 给定时优先用预计算 μ/σ（与 batch_score / DayCube 单遍对齐）。
+    """
     from core.research.feature_standardize import is_cross_section_zscore
 
     if model is None or not is_cross_section_zscore(model):
@@ -382,15 +387,25 @@ def _batch_feature_rows(
     names = [str(k) for k in (model.coefficients or {})]
     if not names:
         return None
-    from core.research.feature_standardize import cross_section_zscore_dicts
-
     from core.signal.factors.z_oo import stamp_z_oo_aliases
 
     raws = []
+    codes = []
     for item in entries:
         row = dict((item or {}).get("sub_scores") or {})
         stamp_z_oo_aliases(row)
         raws.append(row)
+        codes.append(str((item or {}).get("stock_code") or "").strip())
+    if day_cube is not None:
+        try:
+            from core.research.day_cube import apply_cube_z_to_dicts
+
+            z_all = apply_cube_z_to_dicts(raws, codes, day_cube)
+            return [{k: row[k] for k in names if k in row} for row in z_all]
+        except Exception:  # noqa: BLE001
+            pass
+    from core.research.feature_standardize import cross_section_zscore_dicts
+
     return cross_section_zscore_dicts(raws, names)
 
 
@@ -411,15 +426,17 @@ def apply_predicted_scores(
     *,
     write_rank_score: bool = True,
     score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
 ) -> List[dict]:
     """为条目写入 ``predicted_score``（收益分）。
 
     ``score_codes`` 给定时，截面 z 仍用整批 ``sub_scores``，只给名单内的代码写 ŷ。
+    ``day_cube`` 给定时用预计算 μ/σ（batch 单遍）。
     """
     from core.research.feature_standardize import normalize_score_codes
 
     allow = normalize_score_codes(score_codes)
-    z_rows = _batch_feature_rows(entries, model)
+    z_rows = _batch_feature_rows(entries, model, day_cube=day_cube)
     out: List[dict] = []
     for i, raw in enumerate(entries):
         item = dict(raw)

@@ -304,6 +304,15 @@ def _score_pool(
     except Exception:  # noqa: BLE001
         logger.debug("warm index bars failed", exc_info=True)
 
+    # batch 截面开启时：单票只抽特征，ŷ 留给池级 DayCube 单遍 predict
+    defer_predict = False
+    try:
+        from core.research.batch_score import enabled as batch_score_enabled
+
+        defer_predict = bool(batch_score_enabled())
+    except Exception:  # noqa: BLE001
+        defer_predict = False
+
     def _score_one(code: str) -> Tuple[str, Any]:
         try:
             result = score_one(
@@ -314,6 +323,7 @@ def _score_pool(
                 offline_only=use_offline,
                 quote_timeout=5.0 if use_offline else 8.0,
                 use_minute_tau=use_minute_tau,
+                defer_cs_predict=defer_predict,
             )
         except Exception as exc:  # noqa: BLE001
             return code, {"success": False, "stock_code": code, "error": str(exc)[:120]}
@@ -364,20 +374,39 @@ def _score_pool(
         scored.append(item)
 
     try:
+        from core.research.batch_score import (
+            enabled as batch_score_enabled,
+            rescore_fitted_cross_section_batched,
+        )
         from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
-        rescore_fitted_cross_section(scored, score_codes=score_codes)
+        if batch_score_enabled():
+            clock = "open"
+            if use_minute_tau:
+                try:
+                    from datetime import datetime
+
+                    clock = f"tau_{datetime.now().strftime('%H%M')}"
+                except Exception:  # noqa: BLE001
+                    clock = "tau_live"
+            rescore_fitted_cross_section_batched(
+                scored, score_codes=score_codes, clock=clock, persist_cube=True
+            )
+        else:
+            rescore_fitted_cross_section(scored, score_codes=score_codes)
     except Exception:  # noqa: BLE001
         logger.debug("watching_matrix cross-section rescore failed", exc_info=True)
 
     logger.info(
-        "watching_matrix score_pool n=%s scored=%s rejected=%s workers=%s elapsed=%.1fs offline_only=%s",
+        "watching_matrix score_pool n=%s scored=%s rejected=%s workers=%s "
+        "elapsed=%.1fs offline_only=%s defer_cs=%s",
         len(pool),
         len(scored),
         len(rejected),
         workers,
         time.perf_counter() - t0,
         int(use_offline),
+        int(defer_predict),
     )
     return scored, rejected
 

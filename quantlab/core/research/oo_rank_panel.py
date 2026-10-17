@@ -75,13 +75,7 @@ def _oo_rank_stock_job(
     """子进程：一只股票 → compact 矩阵块 + code。"""
     from core.research.oo_panel import collect_oo_panel
     from core.research.oo_ridge_compact import OoPanelMatrix
-    from core.research.panel_disk_cache import (
-        bars_fingerprint,
-        load_stock_shard,
-        make_fingerprint,
-        oo_rank_head_key,
-        save_stock_shard,
-    )
+    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
     (
         code,
@@ -104,13 +98,6 @@ def _oo_rank_stock_job(
     mw = int(max_window)
     excess = str(excess_mode or "none")
     regime = bool(respect_regime)
-    head_key = oo_rank_head_key(
-        horizon_days=horizon_i,
-        min_history=mh,
-        max_window=mw,
-        excess_mode=excess,
-        respect_regime=regime,
-    )
     fp = make_fingerprint(
         bars_fp=bars_fingerprint(bars_l),
         horizon=horizon_i,
@@ -119,50 +106,94 @@ def _oo_rank_stock_job(
         excess_mode=excess,
         respect_regime=int(regime),
     )
-    cached = load_stock_shard(head_key, code_s, fp)
-    if cached is not None and cached.get("X") is not None:
-        x = np.asarray(cached["X"], dtype=np.float64)
-        y = np.asarray(cached["y"], dtype=np.float64)
-        if int(x.shape[0]) <= 0:
-            return None
-        return (
-            code_s,
-            x,
-            y,
-            list(cached.get("names") or []),
-            list(cached.get("dates") or []),
-        )
     try:
-        xs, ys, dates = collect_oo_panel(
-            bars_l,
-            horizon_days=horizon_i,
-            min_history=mh,
-            max_window=mw,
-            index_bars=index_bars if isinstance(index_bars, list) else None,
-            fundamentals=fundamentals,
-            stock_code=code_s,
-            pit_fundamentals=False,
-            respect_regime=regime,
-            config=config,
-            excess_mode=excess,
-        )
+        from core.research.lake_bridge import FAMILY_OO_RANK, load_training_matrix
+
+        hit = load_training_matrix(FAMILY_OO_RANK, code_s, fp)
+        if hit is not None:
+            x, y, names, dates_out, _src = hit
+            if int(x.shape[0]) > 0:
+                return code_s, x, y, names, dates_out
     except Exception:  # noqa: BLE001
-        logger.debug("oo_rank panel collect failed for %s", code_s, exc_info=True)
-        return None
-    panel = OoPanelMatrix()
-    panel.add_stock_rows(xs, ys, dates)
-    x, y, names, dates_out = panel.finalize()
+        logger.debug("oo_rank training cache load failed for %s", code_s, exc_info=True)
+    x = y = None
+    names: List[str] = []
+    dates_out: List[str] = []
+    try:
+        from core.research.incremental_panel import try_incremental_merge
+        from core.research.lake_bridge import FAMILY_OO_RANK
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+        def _rank_tail(keep_dates):
+            xs_t, ys_t, dates_t = collect_oo_panel(
+                bars_l,
+                horizon_days=horizon_i,
+                min_history=mh,
+                max_window=mw,
+                index_bars=index_bars if isinstance(index_bars, list) else None,
+                fundamentals=fundamentals,
+                stock_code=code_s,
+                pit_fundamentals=False,
+                respect_regime=regime,
+                config=config,
+                excess_mode=excess,
+                keep_dates=keep_dates,
+            )
+            panel_t = OoPanelMatrix()
+            panel_t.add_stock_rows(xs_t, ys_t, dates_t)
+            return panel_t.finalize()
+
+        merged = try_incremental_merge(
+            code_s,
+            bars_l,
+            pad=int(ALPHA_OO_PANEL_WINDOW) + max(5, horizon_i),
+            collect_tail=_rank_tail,
+            family=FAMILY_OO_RANK,
+        )
+        if merged is not None:
+            x, y, names, dates_out = merged
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_rank incremental failed for %s", code_s, exc_info=True)
+        x = None
+    if x is None:
+        try:
+            xs, ys, dates = collect_oo_panel(
+                bars_l,
+                horizon_days=horizon_i,
+                min_history=mh,
+                max_window=mw,
+                index_bars=index_bars if isinstance(index_bars, list) else None,
+                fundamentals=fundamentals,
+                stock_code=code_s,
+                pit_fundamentals=False,
+                respect_regime=regime,
+                config=config,
+                excess_mode=excess,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("oo_rank panel collect failed for %s", code_s, exc_info=True)
+            return None
+        panel = OoPanelMatrix()
+        panel.add_stock_rows(xs, ys, dates)
+        x, y, names, dates_out = panel.finalize()
     if int(x.shape[0]) <= 0:
         return None
-    save_stock_shard(
-        head_key,
-        code_s,
-        fp,
-        X=x,
-        y=y,
-        names=names,
-        dates=dates_out,
-    )
+    try:
+        from core.research.incremental_panel import stem_extra_meta
+        from core.research.lake_bridge import FAMILY_OO_RANK, sync_panel_to_lake
+
+        sync_panel_to_lake(
+            FAMILY_OO_RANK,
+            code_s,
+            X=x,
+            dates=dates_out,
+            names=names,
+            fingerprint=fp,
+            y=y,
+            extra_meta=stem_extra_meta(bars_l),
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_rank L1 sync failed for %s", code_s, exc_info=True)
     return code_s, x, y, names, dates_out
 
 

@@ -1201,7 +1201,7 @@ flowchart LR
 配置门：`scoring.rank_mode=predicted_score` · `min_predicted_score` · `cluster_scoring.mode`（off / shadow / active）。
 
 **Ridge / oo_rank 拟合控件（ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank）**：卡头 **日截面 Z**；另有训练窗 / Holdout。只训 Holdout 前一套 β；**启用研究**=草稿→研究槽；**启用执行**=研究槽→执行槽（晋级）。
-- **日截面 Z**（默认开）：入模特征按决策日截面 μ/σ；关掉则用训练窗全局 μ/σ（落盘 `zscore_means`/`stds`）。τ30…90_tree 固定日截面。
+- **日截面 Z**（默认开）：入模特征按决策日截面 μ/σ；关掉则用训练窗全局 μ/σ（落盘 `zscore_means`/`stds`）。τ30…90_tree 固定日截面。物化层：**L1 Feature Lake**（按股×日 raw）+ **L2 DayCube**（按日 μ/σ / gap breadth，键含 `universe_hash`）；拟合写穿、回测/调仓/T0 复用。开关见 `QUANTLAB_FEATURE_LAKE` / `QUANTLAB_DAY_CUBE` / `QUANTLAB_BATCH_SCORE`。
 
 **调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90_tree 仍可用（LGB 训推工具见 `core/research/horizon_lgb.py`）。
 
@@ -1378,7 +1378,7 @@ score_stock(code) 续——
 | 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
 | 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**成交钟**默认 09:30（可选至 10:00）。**09:30 用日 K 开盘、不读 5m**（本地首根标 09:35）；09:35–10:00 才加载分钟线。缺该钟：买入跳过、清仓回退其后～10:00 再回退日开盘；「日分价闸」要窗内分钟才生效（09:30 跳过加载后闸空跑；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
-| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=(open[T+1]−price(τ))/open[T] / y_oo / y_τc / y_co / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 / y_hl | live 仍可透传对照头 |
+| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=(open[T+1]−price(τ))/open[T] / y_oo / y_τc / y_co / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 / y_hl。**y_τc / y_co tip 因子表**与打分同口径：截面模型用日截面 z 算 β·z（Top‑N），`features_tau` / `features_co` 仍落 raw | live 仍可透传对照头 |
 
 回测合成 paper 必须写 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，其它 live 缺省（如持仓市值帽）会漏进合成账本。
 

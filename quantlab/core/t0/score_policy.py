@@ -325,7 +325,12 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                     if isinstance(item.get("features_path"), dict)
                     else {}
                 )
-            expl_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
+            from core.signal.dual_score.tau import tau_explain_feats_row
+
+            expl_r = explain_tau_prediction(
+                tau_explain_feats_row(item, feats_r),
+                model_doc=load_tau_model(),
+            )
             r_terms = _slim_formula_terms(expl_r, limit=12)
         except Exception:  # noqa: BLE001
             logger.debug("r tip explain fallback failed", exc_info=True)
@@ -2924,6 +2929,7 @@ def _predict_tau_from_row(item: dict, z_row: dict, raw_feats: dict) -> None:
         rem_yhat=yhat,
         gap_pct=item.get("gap_pct"),
         feats=raw_feats,
+        explain_feats=z_row,
         as_of_tau=item.get("as_of_tau"),
         rem_model_doc=ridge_doc,
         fuse_intraday=fuse,
@@ -3047,6 +3053,27 @@ def seed_tau_cross_section_day(day_key: str, pool_day: Optional[dict]) -> None:
     if pool_day.get("sector_gap_breadth") is None and not pool_day.get("pool_gaps"):
         return
     _TAU_XS_DAY_CACHE[dkey] = dict(pool_day)
+
+
+def _try_hydrate_tau_xs_from_day_cube(day_key: str, codes: Sequence[Any]) -> bool:
+    """优先从 DayCube slim 灌 τ 截面缓存（命中则跳过重扫 bars）。"""
+    dkey = str(day_key or "")[:10]
+    if len(dkey) < 10:
+        return False
+    if dkey in _TAU_XS_DAY_CACHE:
+        return True
+    try:
+        from core.research.day_cube import load_tau_pool_day
+
+        pool = load_tau_pool_day(dkey, [str(c) for c in (codes or [])], clock="open")
+        if isinstance(pool, dict) and (
+            pool.get("sector_gap_breadth") is not None or pool.get("pool_gaps")
+        ):
+            _TAU_XS_DAY_CACHE[dkey] = dict(pool)
+            return True
+    except Exception:  # noqa: BLE001
+        logger.debug("day_cube tau hydrate failed day=%s", dkey, exc_info=True)
+    return False
 
 
 def seed_tau_cross_section_pool(tau_pool_by_date: Optional[dict]) -> None:
@@ -3806,13 +3833,31 @@ def build_tau_pool_watching_holdings(
     else:
         extras = (extra_codes,)
     codes = t0_cs_universe_codes(*extras, holdings=holdings, paper=paper)
+    # 当日已有 DayCube slim 时直接灌缓存，避免 live 反复扫 bars 建截面
+    try:
+        from datetime import date as _date
+
+        today = _date.today().isoformat()
+        if _try_hydrate_tau_xs_from_day_cube(today, codes):
+            cached = _TAU_XS_DAY_CACHE.get(today)
+            if isinstance(cached, dict) and cached:
+                return {today: dict(cached)}
+    except Exception:  # noqa: BLE001
+        logger.debug("tau pool day_cube short-circuit failed", exc_info=True)
     bars_map = load_bars_by_code_for_tau_pool(codes, limit=limit)
     overlay = _bars_map_from_holding_bars(hist_bars_by_code, day_bars_by_code)
     if overlay:
         bars_map.update(overlay)
     if not bars_map:
         return {}
-    return build_tau_pool_by_date(bars_map)
+    pool = build_tau_pool_by_date(bars_map)
+    try:
+        from core.research.day_cube import persist_tau_pool_as_cubes
+
+        persist_tau_pool_as_cubes(pool, codes, clock="open")
+    except Exception:  # noqa: BLE001
+        logger.debug("persist tau pool day_cube failed", exc_info=True)
+    return pool
 
 
 def compute_scores_map_from_bars(

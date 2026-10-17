@@ -91,7 +91,7 @@ flowchart LR
 
 | 因果环节 | 在估什么 | 本仓库落点 | 硬边界 |
 |----------|----------|------------|--------|
-| **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明 |
+| **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` · **L1 Feature Lake / L2 DayCube**（训练·回测·live 共用截面物化） | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明；截面 μ/σ 绑 `universe_hash` |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
 | **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_oo / ŷ_τ / ŷ_co / ŷ_hl · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论)；生产主排序 = **ŷ_oo**；τ/HL 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |

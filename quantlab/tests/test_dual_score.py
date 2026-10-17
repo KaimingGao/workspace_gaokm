@@ -277,6 +277,136 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertEqual(expl.get("missing_n"), 1)
         self.assertIn("前缀振幅 %", expl.get("missing_keys") or [])
 
+    def test_explain_tau_keeps_missing_raw_atc_in_diag(self):
+        """缺 raw_atc_* 应进 missing_keys（不再被旧 aoo-only 过滤静默丢掉）。"""
+        from core.research.tc_ridge import explain_tau_prediction
+
+        doc = {
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "gap_pct": 0.1,
+                    "raw_atc_YKLEN": 1.3,
+                },
+                "active_features": ["gap_pct", "raw_atc_YKLEN"],
+                "zscore_means": {},
+                "zscore_stds": {},
+                "zscore_scope": "cross_section",
+            },
+            "zscore_scope": "cross_section",
+        }
+        expl = explain_tau_prediction({"gap_pct": 0.5}, model_doc=doc)
+        self.assertEqual(expl.get("missing_n"), 1)
+        miss = " ".join(expl.get("missing_keys") or [])
+        self.assertTrue(
+            "YKLEN" in miss or "raw_atc_YKLEN" in miss,
+            miss,
+        )
+        keys = {t["key"] for t in expl["terms"]}
+        self.assertIn("gap_pct", keys)
+        self.assertNotIn("raw_atc_YKLEN", keys)
+
+    def test_apply_tau_explain_feats_uses_cs_z_for_tip(self):
+        """截面模型 tip 应用 explain_feats（z），勿用 raw 水平比挤掉 YKLEN。"""
+        from core.signal.dual_score import apply_tau_score_fields
+
+        doc = {
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "raw_atc_YKLEN": 1.3,
+                    "raw_atc_YVWAP0": -0.7,
+                },
+                "active_features": ["raw_atc_YKLEN", "raw_atc_YVWAP0"],
+                "zscore_means": {},
+                "zscore_stds": {},
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        raw = {"raw_atc_YKLEN": 0.03, "raw_atc_YVWAP0": 1.0, "gap_pct": 0.0}
+        # 截面 z：YKLEN 偏高、YVWAP0 近均值
+        z_row = {"raw_atc_YKLEN": 1.2, "raw_atc_YVWAP0": 0.1, "gap_pct": 0.0}
+        item = {"predicted_score": 1.0, "score": 1.0}
+        apply_tau_score_fields(
+            item,
+            rem_yhat=1.5,
+            gap_pct=0.0,
+            feats=raw,
+            explain_feats=z_row,
+            rem_model_doc=doc,
+            residual_delta=False,
+            config={"dual_score": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"}},
+        )
+        # features_tau 仍落 raw
+        self.assertAlmostEqual(item["features_tau"]["raw_atc_YKLEN"], 0.03, places=5)
+        terms = (item.get("formula_terms_tau") or {}).get("terms") or []
+        by_key = {t["key"]: t for t in terms}
+        self.assertIn("raw_atc_YKLEN", by_key)
+        # z 口径下 YKLEN |contrib| 应大于 YVWAP0
+        self.assertGreater(
+            abs(float(by_key["raw_atc_YKLEN"]["contrib"])),
+            abs(float(by_key["raw_atc_YVWAP0"]["contrib"])),
+        )
+        self.assertEqual(
+            (item.get("formula_terms_tau") or {}).get("zscore_scope"),
+            "cross_section",
+        )
+
+    def test_rescore_tau_stamps_tip_from_cs_z(self):
+        from core.signal.cross_section_rescore import _rescore_tau
+        from unittest import mock
+
+        doc = {
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "raw_atc_YKLEN": 1.3,
+                    "raw_atc_YVWAP0": -0.7,
+                },
+                "active_features": ["raw_atc_YKLEN", "raw_atc_YVWAP0"],
+                "zscore_means": {},
+                "zscore_stds": {},
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        items = [
+            {
+                "stock_code": "A",
+                "gap_pct": 0.0,
+                "features_tau": {
+                    "raw_atc_YKLEN": 0.06,
+                    "raw_atc_YVWAP0": 0.99,
+                    "gap_pct": 0.0,
+                },
+            },
+            {
+                "stock_code": "B",
+                "gap_pct": 0.0,
+                "features_tau": {
+                    "raw_atc_YKLEN": 0.02,
+                    "raw_atc_YVWAP0": 1.01,
+                    "gap_pct": 0.0,
+                },
+            },
+        ]
+        with mock.patch(
+            "core.research.tc_ridge.load_tau_model", return_value=doc
+        ), mock.patch(
+            "core.research.feature_standardize.is_cross_section_zscore",
+            return_value=True,
+        ):
+            _rescore_tau(items)
+        terms = (items[0].get("formula_terms_tau") or {}).get("terms") or []
+        keys = [t["key"] for t in terms]
+        self.assertIn("raw_atc_YKLEN", keys)
+        # A 的 YKLEN raw 更高 → 截面 z 更大 → tip 首项常为 YKLEN
+        self.assertEqual(keys[0], "raw_atc_YKLEN")
+        # 落盘特征仍是 raw
+        self.assertAlmostEqual(items[0]["features_tau"]["raw_atc_YKLEN"], 0.06, places=5)
     def test_eod_remaining_and_residual_stack(self):
         from core.signal.dual_score import (
             apply_tau_score_fields,

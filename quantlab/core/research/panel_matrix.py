@@ -281,35 +281,6 @@ def _tc_matrix_seed_names(
     return out
 
 
-def _tau_cache_hit(
-    cached: Optional[Dict[str, Any]],
-    col_names: Sequence[str],
-) -> Optional[Tuple[np.ndarray, List[float], List[str], List[dict], List[dict]]]:
-    if (
-        not isinstance(cached, dict)
-        or cached.get("X") is None
-        or not isinstance(cached.get("slim"), list)
-    ):
-        return None
-    names_c = list(cached.get("names") or [])
-    x = np.asarray(cached["X"], dtype=np.float64)
-    if names_c != list(col_names) or x.shape[1] != len(col_names):
-        return None
-    ys = [float(y) for y in cached["y"].tolist()]
-    dates = list(cached.get("dates") or [])
-    metas = list(cached.get("metas") or [])
-    slim = list(cached["slim"])
-    if (
-        len(ys) < 4
-        or len(ys) != x.shape[0]
-        or len(ys) != len(dates)
-        or len(ys) != len(metas)
-        or len(ys) != len(slim)
-    ):
-        return None
-    return x, ys, dates, metas, slim
-
-
 def _tau_stock_job(
     item: Dict[str, Any],
     col_names: Sequence[str],
@@ -322,20 +293,11 @@ def _tau_stock_job(
     include_alpha_tc: bool,
     cache_head: str = "tc",
 ) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
-    """单票 ŷ_τc：任务内折 float64 + slim；磁盘只缓存矩阵块（不落整份 xs）。
+    """单票 ŷ_τc：任务内折 float64 + slim；写穿 L1（不落整份 xs）。
 
-    ``cache_head="tc_rank"`` 写入 ``tc_rank/``。未命中时若 ``tc/`` 的 fingerprint
-    一致则复制过去，不重算，也不改 ŷ_τc 的分片。
+    ``cache_head="tc_rank"`` → L1 family ``tc_rank`` / ``tc_rank_HHMM``。
     """
-    from core.research.panel_disk_cache import (
-        bars_fingerprint,
-        copy_stock_shard,
-        load_stock_shard,
-        make_fingerprint,
-        save_stock_shard,
-        tc_head_key,
-        tc_rank_head_key,
-    )
+    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
     from core.research.tau_panel import (
         collect_tau_intraday_panel,
         collect_tau_open_panel,
@@ -353,13 +315,6 @@ def _tau_stock_job(
     atc = bool(include_alpha_tc)
     minute = list(item.get("minute_bars") or []) if use_minute else None
     rank_cache = str(cache_head or "tc") == "tc_rank"
-    key_fn = tc_rank_head_key if rank_cache else tc_head_key
-    head_key = key_fn(
-        tau_hm=str(tau_hm),
-        min_history=mh,
-        include_alpha_tc=atc,
-        use_minute=bool(use_minute),
-    )
     fp = make_fingerprint(
         bars_fp=bars_fingerprint(bars, minute_bars=minute),
         tau_hm=str(tau_hm),
@@ -367,21 +322,96 @@ def _tau_stock_job(
         include_alpha_tc=int(atc),
         use_minute=int(bool(use_minute)),
     )
+    from core.research.lake_bridge import family_for_tc
+
+    l1_family = family_for_tc(tau_hm=str(tau_hm), rank=rank_cache)
+    # L1 命中（含 tc_HHMM / tc_rank_*）
     if code:
-        hit = _tau_cache_hit(load_stock_shard(head_key, code, fp), col_names)
-        if hit is None and rank_cache:
-            src_key = tc_head_key(
-                tau_hm=str(tau_hm),
-                min_history=mh,
-                include_alpha_tc=atc,
-                use_minute=bool(use_minute),
+        try:
+            from core.research.lake_bridge import load_training_matrix
+
+            hit = load_training_matrix(
+                l1_family,
+                code,
+                fp,
+                names=col_names,
             )
-            if copy_stock_shard(src_key, head_key, code, fp):
-                hit = _tau_cache_hit(load_stock_shard(head_key, code, fp), col_names)
-        if hit is not None:
-            item.pop("minute_bars", None)
-            x, ys, dates, metas, slim = hit
-            return code, x, ys, dates, metas, slim
+            if hit is not None:
+                block, y_arr, _names, dates_l, _src = hit
+                if block.shape[1] == len(col_names) and len(dates_l) >= 4:
+                    ys_l = [float(y) for y in y_arr.tolist()]
+                    slim = [{} for _ in dates_l]
+                    metas_l = [{"date": d, "stock_code": code} for d in dates_l]
+                    item.pop("minute_bars", None)
+                    return code, block, ys_l, dates_l, metas_l, slim
+        except Exception:  # noqa: BLE001
+            logger.debug("tau training cache load failed code=%s", code, exc_info=True)
+    # 开盘 τ：仅末根变化时尾窗增量（分钟路径仍全量）
+    inc_hit = None
+    if code and not use_minute:
+        try:
+            from core.research.incremental_panel import try_incremental_merge
+            from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
+
+            def _tail(keep_dates):
+                xs_t, ys_t, dates_t, metas_t = collect_tau_open_panel(
+                    bars,
+                    min_history=min_history,
+                    index_bars=item.get("index_bars"),
+                    fundamentals=item.get("fundamentals"),
+                    stock_code=code,
+                    include_alpha_tc=include_alpha_tc,
+                    keep_dates=keep_dates,
+                )
+                if len(ys_t) < 1:
+                    return (
+                        np.zeros((0, len(col_names)), dtype=np.float64),
+                        np.zeros((0,), dtype=np.float64),
+                        list(col_names),
+                        [],
+                    )
+                stamp_z_tc_rows(xs_t)
+                return (
+                    _dict_rows_to_matrix(xs_t, col_names),
+                    np.asarray([float(y) for y in ys_t], dtype=np.float64),
+                    list(col_names),
+                    [str(d)[:10] for d in dates_t],
+                )
+
+            inc_hit = try_incremental_merge(
+                code,
+                bars,
+                pad=int(ALPHA_TC_PANEL_WINDOW) + 8,
+                collect_tail=_tail,
+                family=l1_family,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau incremental failed code=%s", code, exc_info=True)
+            inc_hit = None
+    if inc_hit is not None:
+        item.pop("minute_bars", None)
+        block, y_arr, _names, dates_l = inc_hit
+        ys_l = [float(y) for y in y_arr.tolist()]
+        slim = [{} for _ in dates_l]
+        metas_l = [{"date": d, "stock_code": code} for d in dates_l]
+        if code:
+            try:
+                from core.research.incremental_panel import stem_extra_meta
+                from core.research.lake_bridge import sync_panel_to_lake
+
+                sync_panel_to_lake(
+                    l1_family,
+                    code,
+                    X=block,
+                    dates=dates_l,
+                    names=list(col_names),
+                    fingerprint=fp,
+                    y=np.asarray(ys_l, dtype=np.float64),
+                    extra_meta=stem_extra_meta(bars),
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("tau L1 sync (incremental) failed code=%s", code, exc_info=True)
+        return code, block, ys_l, dates_l, metas_l, slim
     if use_minute:
         xs, ys, dates, metas = collect_tau_intraday_panel(
             bars,
@@ -414,17 +444,22 @@ def _tau_stock_job(
     dates_l = [str(d)[:10] for d in dates]
     metas_l = list(metas)
     if code:
-        save_stock_shard(
-            head_key,
-            code,
-            fp,
-            X=block,
-            y=np.asarray(ys_l, dtype=np.float64),
-            names=list(col_names),
-            dates=dates_l,
-            metas=metas_l,
-            slim=slim,
-        )
+        try:
+            from core.research.incremental_panel import stem_extra_meta
+            from core.research.lake_bridge import sync_panel_to_lake
+
+            sync_panel_to_lake(
+                l1_family,
+                code,
+                X=block,
+                dates=dates_l,
+                names=list(col_names),
+                fingerprint=fp,
+                y=np.asarray(ys_l, dtype=np.float64),
+                extra_meta=stem_extra_meta(bars),
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau L1 sync failed code=%s", code, exc_info=True)
     return code, block, ys_l, dates_l, metas_l, slim
 
 
@@ -444,7 +479,7 @@ def collect_tau_compact(
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
 
     现网默认 ``include_alpha_tc=True``（raw_atc_*）。
-    单票任务内折 float64 + slim（对齐 ŷ_co），磁盘缓存不再落整份 xs。
+    单票任务内折 float64 + slim（对齐 ŷ_co），写穿 L1。
     并行：默认/硬顶 4 线程（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
     """
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -607,13 +642,8 @@ def _co_stock_job(
 ) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
     """单票 ŷ_co：在任务内折成 float64 + slim，全量 dict 不回传（对齐 ŷ_oo）。"""
     from core.research.co_panel import collect_co_panel
-    from core.research.panel_disk_cache import (
-        bars_fingerprint,
-        co_head_key,
-        load_stock_shard,
-        make_fingerprint,
-        save_stock_shard,
-    )
+    from core.research.lake_bridge import FAMILY_CO
+    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
     from core.signal.factors.z_co import stamp_z_co_rows
 
     if not isinstance(item, dict):
@@ -624,29 +654,87 @@ def _co_stock_job(
         return None
     mh = int(min_history)
     aoo = bool(include_alpha_oo)
-    head_key = co_head_key(min_history=mh, include_alpha_oo=aoo)
     fp = make_fingerprint(
         bars_fp=bars_fingerprint(bars),
         min_history=mh,
         include_alpha_oo=int(aoo),
     )
     if code:
-        cached = load_stock_shard(head_key, code, fp)
-        if (
-            cached is not None
-            and cached.get("X") is not None
-            and isinstance(cached.get("slim"), list)
-        ):
-            names_c = list(cached.get("names") or [])
-            x = np.asarray(cached["X"], dtype=np.float64)
-            # 列名与当前 seed 不一致时丢弃缓存，避免列错位
-            if names_c == list(col_names) and x.shape[1] == len(col_names):
-                ys = [float(y) for y in cached["y"].tolist()]
-                dates = list(cached.get("dates") or [])
-                metas = list(cached.get("metas") or [])
-                slim = list(cached["slim"])
-                if len(ys) >= 4 and len(ys) == x.shape[0] == len(dates) == len(metas) == len(slim):
-                    return code, x, ys, dates, metas, slim
+        try:
+            from core.research.lake_bridge import load_training_matrix
+
+            hit = load_training_matrix(FAMILY_CO, code, fp, names=col_names)
+            if hit is not None:
+                block, y_arr, _names, dates_l, _src = hit
+                if block.shape[1] == len(col_names) and len(dates_l) >= 4:
+                    ys_l = [float(y) for y in y_arr.tolist()]
+                    slim = [{} for _ in dates_l]
+                    metas_l = [{"date": d, "stock_code": code} for d in dates_l]
+                    return code, block, ys_l, dates_l, metas_l, slim
+        except Exception:  # noqa: BLE001
+            logger.debug("co training cache load failed code=%s", code, exc_info=True)
+    if code:
+        try:
+            from core.research.incremental_panel import try_incremental_merge
+            from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+            def _co_tail(keep_dates):
+                xs_t, ys_t, dates_t, _metas_t = collect_co_panel(
+                    bars,
+                    min_history=min_history,
+                    stock_code=code,
+                    include_alpha_oo=include_alpha_oo,
+                    keep_dates=keep_dates,
+                )
+                if len(ys_t) < 1:
+                    return (
+                        np.zeros((0, len(col_names)), dtype=np.float64),
+                        np.zeros((0,), dtype=np.float64),
+                        list(col_names),
+                        [],
+                    )
+                stamp_z_co_rows(xs_t)
+                return (
+                    _dict_rows_to_matrix(xs_t, col_names),
+                    np.asarray([float(y) for y in ys_t], dtype=np.float64),
+                    list(col_names),
+                    [str(d)[:10] for d in dates_t],
+                )
+
+            inc = try_incremental_merge(
+                code,
+                bars,
+                pad=int(ALPHA_OO_PANEL_WINDOW) + 8,
+                collect_tail=_co_tail,
+                family=FAMILY_CO,
+            )
+            if inc is not None:
+                block, y_arr, _n, dates_l = inc
+                ys_l = [float(y) for y in y_arr.tolist()]
+                slim = [{} for _ in dates_l]
+                metas_l = [{"date": d, "stock_code": code} for d in dates_l]
+                try:
+                    from core.research.incremental_panel import stem_extra_meta
+                    from core.research.lake_bridge import sync_panel_to_lake
+
+                    sync_panel_to_lake(
+                        FAMILY_CO,
+                        code,
+                        X=block,
+                        dates=dates_l,
+                        names=list(col_names),
+                        fingerprint=fp,
+                        y=np.asarray(ys_l, dtype=np.float64),
+                        extra_meta=stem_extra_meta(bars),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("co L1 sync (incremental) failed code=%s", code, exc_info=True)
+                return code, block, ys_l, dates_l, metas_l, slim
+        except Exception:  # noqa: BLE001
+            logger.debug("co incremental failed code=%s", code, exc_info=True)
+    from core.research.incremental_panel import stem_extra_meta
+
+    stem_meta = stem_extra_meta(bars)
     xs, ys, dates, metas = collect_co_panel(
         bars,
         min_history=min_history,
@@ -664,17 +752,21 @@ def _co_stock_job(
     dates_l = [str(d)[:10] for d in dates]
     metas_l = list(metas)
     if code:
-        save_stock_shard(
-            head_key,
-            code,
-            fp,
-            X=block,
-            y=np.asarray(ys_l, dtype=np.float64),
-            names=list(col_names),
-            dates=dates_l,
-            metas=metas_l,
-            slim=slim,
-        )
+        try:
+            from core.research.lake_bridge import sync_panel_to_lake
+
+            sync_panel_to_lake(
+                FAMILY_CO,
+                code,
+                X=block,
+                dates=dates_l,
+                names=list(col_names),
+                fingerprint=fp,
+                y=np.asarray(ys_l, dtype=np.float64),
+                extra_meta=stem_meta,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("co L1 sync failed code=%s", code, exc_info=True)
     return (
         code,
         block,

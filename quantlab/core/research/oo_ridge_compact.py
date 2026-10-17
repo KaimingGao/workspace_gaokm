@@ -186,7 +186,14 @@ class OoPanelMatrix:
         return x, y, list(self.names), list(self.dates)
 
 
-def _fill_stock(panel: OoPanelMatrix, code: str, bars: Sequence[dict], horizon_days: int) -> None:
+def _fill_stock(
+    panel: OoPanelMatrix,
+    code: str,
+    bars: Sequence[dict],
+    horizon_days: int,
+    *,
+    keep_dates: Optional[Sequence[str]] = None,
+) -> None:
     from core.research.oo_panel import collect_oo_panel
 
     xs, ys, dates = collect_oo_panel(
@@ -194,6 +201,7 @@ def _fill_stock(panel: OoPanelMatrix, code: str, bars: Sequence[dict], horizon_d
         horizon_days=horizon_days,
         stock_code=code,
         pit_fundamentals=False,
+        keep_dates=keep_dates,
     )
     panel.add_stock_rows(xs, ys, dates)
 
@@ -205,15 +213,10 @@ def _oo_stock_job(
 
     兼容 3 元组 ``(code, bars, horizon)`` 与 4 元组 ``(..., ridge_core_only)``：
     父进程未重启、子进程已加载新代码时，旧 3 元组不再炸 unpack。
-    磁盘 panel 缓存：fingerprint 命中则跳过 ``collect_oo_panel``。
+    L1 fingerprint 命中则跳过 ``collect_oo_panel``；
+    仅末根变化时走尾窗增量 keep_dates + merge。
     """
-    from core.research.panel_disk_cache import (
-        bars_fingerprint,
-        load_stock_shard,
-        make_fingerprint,
-        oo_head_key,
-        save_stock_shard,
-    )
+    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
     if not isinstance(job, (tuple, list)) or len(job) < 3:
         raise ValueError(f"ŷ_oo stock job 形状异常: {type(job)!r} len={len(job) if isinstance(job, (tuple, list)) else '?'}")
@@ -227,38 +230,80 @@ def _oo_stock_job(
     core = bool(ridge_core_only)
     try:
         horizon_i = int(horizon)
-        head_key = oo_head_key(horizon_days=horizon_i, ridge_core_only=core)
         fp = make_fingerprint(
             bars_fp=bars_fingerprint(bars_l),
             horizon=horizon_i,
             ridge_core_only=int(core),
         )
-        cached = load_stock_shard(head_key, code_s, fp)
-        if cached is not None and cached.get("X") is not None:
-            return (
-                np.asarray(cached["X"], dtype=np.float64),
-                np.asarray(cached["y"], dtype=np.float64),
-                list(cached.get("names") or []),
-                list(cached.get("dates") or []),
+        try:
+            from core.research.lake_bridge import FAMILY_OO, load_training_matrix
+
+            hit = load_training_matrix(FAMILY_OO, code_s, fp)
+            if hit is not None:
+                x, y, names, dates, src = hit
+                logger.debug(
+                    "oo cache hit source=%s code=%s rows=%s", src, code_s, len(dates)
+                )
+                return x, y, names, dates
+        except Exception:  # noqa: BLE001
+            logger.debug("oo training cache load failed code=%s", code_s, exc_info=True)
+        # 尾窗增量：stem 命中则只重算尾部决策日（读 L1 meta）
+        x = y = None
+        names: List[str] = []
+        dates: List[str] = []
+        try:
+            from core.research.incremental_panel import try_incremental_merge
+            from core.research.lake_bridge import FAMILY_OO
+            from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+            def _oo_tail(keep_dates):
+                panel_t = OoPanelMatrix(ridge_core_only=core)
+                _fill_stock(
+                    panel_t, code_s, bars_l, horizon_i, keep_dates=keep_dates
+                )
+                return panel_t.finalize()
+
+            merged = try_incremental_merge(
+                code_s,
+                bars_l,
+                pad=int(ALPHA_OO_PANEL_WINDOW) + max(5, horizon_i),
+                collect_tail=_oo_tail,
+                family=FAMILY_OO,
             )
-        panel = OoPanelMatrix(ridge_core_only=core)
-        _fill_stock(panel, code_s, bars_l, horizon_i)
-        x, y, names, dates = panel.finalize()
+            if merged is not None:
+                x, y, names, dates = merged
+                logger.debug(
+                    "oo incremental tail code=%s rows=%s", code_s, len(dates)
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug("oo incremental path failed code=%s", code_s, exc_info=True)
+            x = None
+        if x is None:
+            panel = OoPanelMatrix(ridge_core_only=core)
+            _fill_stock(panel, code_s, bars_l, horizon_i)
+            x, y, names, dates = panel.finalize()
     except Exception as exc:
         raise RuntimeError(f"ŷ_oo 面板失败 {code}") from exc
     if x.shape[0] != y.shape[0] or x.shape[0] != len(dates):
         raise RuntimeError(
             f"ŷ_oo 面板行数不一致 {code}: X={x.shape[0]} y={y.shape[0]} dates={len(dates)}"
         )
-    save_stock_shard(
-        head_key,
-        code_s,
-        fp,
-        X=x,
-        y=y,
-        names=names,
-        dates=dates,
-    )
+    try:
+        from core.research.incremental_panel import stem_extra_meta
+        from core.research.lake_bridge import FAMILY_OO, sync_panel_to_lake
+
+        sync_panel_to_lake(
+            FAMILY_OO,
+            code_s,
+            X=x,
+            dates=dates,
+            names=names,
+            fingerprint=fp,
+            y=y,
+            extra_meta=stem_extra_meta(bars_l),
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("oo L1 sync failed code=%s", code_s, exc_info=True)
     return x, y, names, dates
 
 
@@ -327,6 +372,35 @@ def _stack_blocks(
     return np.vstack(chunks_x), np.concatenate(chunks_y), names, dates
 
 
+def _maybe_materialize_day_cubes(
+    parts: Sequence[Any],
+    items: Sequence[Tuple[str, Sequence[dict]]],
+    x: np.ndarray,
+    names: Sequence[str],
+    dates: Sequence[str],
+) -> None:
+    """按股块还原 code 列，物化 L2 DayCube（供回测/live 复用日 μ/σ）。"""
+    try:
+        from core.research.day_cube import cubes_from_stacked_panel
+
+        code_rows: List[str] = []
+        for part, item in zip(parts, items):
+            if part is None:
+                continue
+            x_i = part[0]
+            code = str(item[0] if isinstance(item, (tuple, list)) else "").strip()
+            n_i = int(getattr(x_i, "shape", (0,))[0] or 0)
+            if not code or n_i <= 0:
+                continue
+            code_rows.extend([code] * n_i)
+        if code_rows and len(code_rows) == int(x.shape[0]):
+            cubes_from_stacked_panel(
+                dates, code_rows, x, names, clock="open", persist=True
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("oo assemble day_cube materialize failed", exc_info=True)
+
+
 def _assemble_serial(
     items: Sequence[Tuple[str, Sequence[dict]]],
     horizon_days: int,
@@ -348,6 +422,7 @@ def _assemble_serial(
         len(names),
         len(items),
     )
+    _maybe_materialize_day_cubes(parts, items, x, names, dates)
     return x, y, names, dates
 
 
@@ -491,6 +566,7 @@ def _assemble_parallel(
         len(items),
         n_workers,
     )
+    _maybe_materialize_day_cubes(results, items, x, names, dates)
     return x, y, names, dates
 
 

@@ -3,7 +3,7 @@
 [← 文档索引](../README.md) · 数据层总览见 [component/data.md](../component/data.md) · 表结构见 [sqlite-migration.md](./sqlite-migration.md)
 
 > 状态：**现行实现**（对照代码，不另起抽象）
-> 范围：观察池日线与 5 分钟的更新、`bars.db` 缓存、入库前清洗、研究面板缓存、回测读仓
+> 范围：观察池日线与 5 分钟的更新、`bars.db` 缓存、入库前清洗、Feature Lake / 指纹、回测读仓
 > 不覆盖：全市场数仓、Tick、财务 PIT 细节、纸面下单
 
 这份文档描述代码现在怎么走。数据层总览里仍有「日线只写 JSON」的旧图；日线/分钟的运行时以本文为准。
@@ -143,7 +143,7 @@ Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 �
 | `data/store/fundamentals/` | 财务快照 | 24 小时 |
 | `data/store/news/` | 舆情标题 | 6 小时；和快照分目录，避免互相覆盖 |
 | 现价内存 | 腾讯 quote | 60 秒；过期上限 30 分钟 |
-| 研究面板 | `{PANEL_CACHE_DIR}/v3/{head}/{code}.npz` | 窗内任一根价量变了就 miss；`QUANTLAB_PANEL_CACHE=0` 关闭 |
+| 研究面板 | （已退役） | collect / 训练只写读 L1 Feature Lake；指纹见 `panel_fingerprint` |
 | 调仓打分 | `replay_score_cache` | 按开盘日输入指纹；只缓存 09:30 的打分，其它成交时刻命中后仍重算 |
 
 日线主键是 `(code, date, adjust_policy, market)`。写入是按日覆盖，不整段删除；这次没带到的日期留在库里，超过 1200 根再从最早的日期裁掉。
@@ -196,19 +196,40 @@ SQLite `daily_bars.amount` 可空。打开旧库时补列，不回填。有 `amo
 
 ### 5.4 因子面板
 
-单票日线在 `panel_matrix` 里折成 float64 矩阵。截面只用到的十几列留在瘦 dict 里，整份因子 dict 不落盘。磁盘分片是：
+单票日线在 `panel_matrix` 里折成 float64 矩阵，写穿 **L1 Feature Lake**（见 §5.5）。截面瘦 dict 不落盘。
+
+指纹 `bars_fingerprint` / `make_fingerprint`（`panel_fingerprint.py`；`PANEL_CACHE_SCHEMA=3` 参与 fp 串）覆盖日线和分钟线的每一根。中间一根变化会 miss。空序列仍是 `empty`。语义变更时抬 schema → 全池 L1 miss。
+
+---
+
+## 5.5 Feature Lake（L1）与 DayCube（L2）
+
+完整方案见 **[feature-lake-daycube.md](./feature-lake-daycube.md)**。摘要如下。
+
+训练 / 回测 / live 共用的截面物化层（默认开启）：
 
 ```text
-{PANEL_CACHE_DIR}/v{SCHEMA}/{head_key}/{code}.npz
-{PANEL_CACHE_DIR}/v{SCHEMA}/{head_key}/{code}.meta.json
-{PANEL_CACHE_DIR}/v{SCHEMA}/{head_key}/{code}.pack.json
+bars.db
+  → L1 Feature Lake   {FEATURE_LAKE_DIR}/v{SCHEMA}/{family}/{code}.npz
+  → L2 DayCube        {DAY_CUBE_DIR}/v{SCHEMA}/{universe_hash}/{clock}/{date}.npz
+  → fit / paper_replay / watching_matrix / T0
 ```
 
-当前 `PANEL_CACHE_SCHEMA = 3`。特征注册或 `collect_*` 语义变了要人工把 schema 加一，否则全池会命中旧矩阵。`v2/` 不再读。
+| 层 | 模块 | 内容 |
+|---|---|---|
+| L1 | `core/research/feature_lake.py` | 按股×日 raw 特征（无同伴）；collect 写穿 |
+| L2 | `core/research/day_cube.py` | 日 μ/σ、gap breadth / slim；宇宙 hash 绑定 |
+| batch | `core/research/batch_score.py` | 池打分后建 cube + rescore；供调仓/回测 |
 
-指纹 `bars_fingerprint` 覆盖日线和分钟线的每一根（日期或时刻，加开高低收、成交量）。中间一根变化会 miss。空序列仍是 `empty`。
+`refresh_bars_only` 对整窗/缺口票调用 `invalidate_l1_many`，下次 collect 重算。
 
-ŷ_τc 的 rank 头在指纹一致时可以从 `tc/` 复制到 `tc_rank/`，不重算。
+**尾窗增量**（`incremental_panel.py`）：L1 meta 存 `bars_fp` / `stem_fp`；末根改写或追加 ≤16 根时，oo/τc/co/oo_rank 用 `keep_dates` 重算尾部再 merge。中间复权改写仍全量。
+
+**回测 L1 hydrate**（`lake_replay.py`）：`paper_replay` 启动时 `prefetch_l1_coverage`（dates 索引 + 整票 panel 内存；`fill_clock≠09:30` 额外预热 `tc_HHMM`）；日循环按日切片灌 `sub_scores` / `features_tau` / `features_co`，命中跳过 `score_window_as_item` 与昨收窗；盘中前缀 ŷ_τc 优先 L1 hydrate，miss 再 `rescore_scores_at_fixed_prefix`。分钟 τ 写 L1 用 `tc_HHMM`（与开盘 `tc` 分目录）。
+
+**单遍 rescore**：`batch_score` 建 DayCube（含 `sub_scores`）后，ŷ_oo / τ / co 均用 cube μ/σ 打 z 再 predict。
+
+**watching_matrix**：`QUANTLAB_BATCH_SCORE` 开启时 `score_one(..., defer_cs_predict=True)` 只抽特征，池齐后再 `rescore_fitted_cross_section_batched` 写 ŷ（避免单票错误 ŷ 再重算）。
 
 ---
 
@@ -260,7 +281,7 @@ SQLite `daily_bars.amount` 可空。打开旧库时补列，不回填。有 `amo
 |---|---|
 | 前复权重叠日替换 | `adapters/market/history.py` · `qfq_overlap_rebased` |
 | 成交额 | `core/store_bars_sqlite.py` 的 `daily_bars`；缺额仍走 `core/bar_fields.py` · `bar_amount` |
-| 面板指纹 | `core/research/panel_disk_cache.py` · `bars_fingerprint` |
+| 面板指纹 | `core/research/panel_fingerprint.py` · `bars_fingerprint` |
 | 会话标记 | `quant/research/bars_status.py` · `refresh_bars_only` |
 
 ---
@@ -272,8 +293,11 @@ SQLite `daily_bars.amount` 可空。打开旧库时补列，不回填。有 `amo
 | `QUANTLAB_BARS_BACKEND` | `sqlite` | `json` 回退文件仓 |
 | `QUANTLAB_STORE_DIR` | `data/store` | 缓存根；其下 `bars.db` |
 | `QUANTLAB_DISABLE_CACHE` | 关 | `1` 时日线不读不写缓存 |
-| `QUANTLAB_PANEL_CACHE` | 开 | `0` 关闭研究面板磁盘缓存 |
-| `QUANTLAB_PANEL_CACHE_DIR` | `paths.PANEL_CACHE_DIR` | 面板缓存根 |
+| `QUANTLAB_FEATURE_LAKE` | 开 | `0` 关闭 L1 Feature Lake |
+| `QUANTLAB_FEATURE_LAKE_DIR` | `paths.FEATURE_LAKE_DIR` | L1 根目录 |
+| `QUANTLAB_DAY_CUBE` | 开 | `0` 关闭 L2 DayCube 落盘 |
+| `QUANTLAB_DAY_CUBE_DIR` | `paths.DAY_CUBE_DIR` | L2 根目录 |
+| `QUANTLAB_BATCH_SCORE` | 开 | `0` 调仓/回测仍走旧双遍 rescore（不建 cube） |
 | `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 分钟远端拉取后间隔，上限 30 |
 | `QUANTLAB_MINUTE_WARMUP_SKIP_EM` | `0` | `1` 时批量预热跳过东财 |
 | `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 已 Ready 则不打远端 |
@@ -305,7 +329,7 @@ TTL 与窗口常量在 `core/data/policy.py`，不要在调用点再写一套魔
 | 成交额近似 | `core/bar_fields.py` |
 | 期望末根日期 | `core/market/calendar.py` |
 | 回测读仓 | `core/research/portfolio_bars.py` |
-| 面板磁盘缓存 | `core/research/panel_disk_cache.py` |
+| 面板指纹 | `core/research/panel_fingerprint.py` |
 | 因子矩阵 | `core/research/panel_matrix.py` |
 | 开盘日打分缓存 | `core/backtest/replay_score_cache.py` |
 | 观察池上限 | `core/watching/policy.py` |

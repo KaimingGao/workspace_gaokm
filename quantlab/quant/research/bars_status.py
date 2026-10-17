@@ -383,6 +383,15 @@ def refresh_bars_only(
         "session_date": bars_session,
         "pool": "process",
     }
+    if need:
+        try:
+            from core.research.lake_bridge import invalidate_l1_many
+
+            # 远端有更新或整窗/缺口重拉的票：L1 尾窗失效，下次拟合/回测重算
+            invalidate_l1_many(need)
+        except Exception:  # noqa: BLE001
+            logger.debug("feature lake invalidate after bars refresh failed", exc_info=True)
+
     if failed_n <= 0:
         mark_force_latest_bars_done(
             session_date=bars_session,

@@ -51,19 +51,16 @@
 
 **问题**：`bars_fingerprint` 只哈希根数、首日、末日和最后一根。前复权改写中间价、最后一根不变时，`panel_matrix` / `oo_rank_panel` / `oo_ridge_compact` 命中旧矩阵。开盘日打分的 `day_open_inputs_fingerprint` 已经按窗内每根取屑。
 
-**改** `core/research/panel_disk_cache.py`：
+> **现状（扫尾后）**：指纹已迁至 `core/research/panel_fingerprint.py`；panel 按股磁盘分片已删除，训练/回测只写读 L1 Feature Lake。`PANEL_CACHE_SCHEMA=3` 仍写进 `make_fingerprint`。
 
-- 日线：每根的 `date|open|high|low|close|volume` 按顺序拼起来再哈希。分钟线同样覆盖每一根，不只最后一根。
-- `PANEL_CACHE_SCHEMA` 从 2 升到 3。旧目录 `v2/` 不再读。算法变化本身也会使指纹对不上，升 schema 是为了目录不混。
-- 空序列仍是 `empty`。新的一天、最后一根价量变化，指纹必须变（现有测试已经锁这个）。
+**当时改动**（历史）：
 
-**测试** `tests/test_panel_disk_cache.py`：
+- 日线：每根的 `date|open|high|low|close|volume` 按顺序拼起来再哈希。分钟线同样覆盖每一根。
+- `PANEL_CACHE_SCHEMA` 从 2 升到 3。
 
-- 只改中间一根的 `close`，首尾和根数不变：指纹变。
-- 新的一天：指纹变（已有）。
-- 分片写到 `v3/`。
+**测试** `tests/test_panel_fingerprint.py`：中间一根 `close` / 新一天 → 指纹变。
 
-**验收**：下一次拟合全池 miss 一次，重算后按新指纹落盘。不迁移 `v2` 文件。调仓打分缓存的键不含这枚面板指纹，不用清 `replay_score_cache`。
+**验收**：指纹抬 schema 后全池 L1 miss 一次；调仓打分缓存键不含面板指纹，不用清 `replay_score_cache`。
 
 ---
 
@@ -160,7 +157,7 @@ P1–P3 可以独立合入。P4 的替换写合入之后、全池 full 之前，
 
 ```bash
 cd quantlab
-python3 -m unittest tests.test_bars_status tests.test_bars_daily tests.test_history tests.test_panel_disk_cache tests.test_store tests.test_data_service -v
+python3 -m unittest tests.test_bars_status tests.test_bars_daily tests.test_history tests.test_panel_fingerprint tests.test_store tests.test_data_service -v
 ```
 
 全池 full 之后抽几只近期有分红的票：本地首日到末日的收盘价与一次整窗前复权结果对齐；`amount` 在新窗内非空；`needs_force_latest_bars` 只在本批 `failed_count = 0` 时为否。

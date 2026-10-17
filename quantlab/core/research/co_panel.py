@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
 
 from core.research.tau_panel import (
     LABEL_LAG_WINDOW,
@@ -305,12 +305,14 @@ def collect_co_panel(
     max_window: int = 30,
     stock_code: Optional[str] = None,
     include_alpha_oo: bool = True,
+    keep_dates: Optional[Collection[str]] = None,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """单票隔夜缺口面板。
 
     返回 ``(xs, ys, decision_dates, meta_rows)``。
     ``decision_dates`` = T；``ys`` = open[T+1]/close[T]-1（真实隔夜缺口，百分点）。
     特征仅用 T 开盘时已知信息（T-1 已实现 + 今开 gap）。
+    ``keep_dates``：给定时只保留这些决策日（尾窗增量）。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
@@ -329,6 +331,9 @@ def collect_co_panel(
     ys: List[float] = []
     dates: List[str] = []
     metas: List[Dict[str, Any]] = []
+    keep = None
+    if keep_dates is not None:
+        keep = {str(d)[:10] for d in keep_dates if str(d or "").strip()[:10]}
 
     n = len(bars or [])
     co_map = realized_co_by_date(bars)
@@ -338,6 +343,9 @@ def collect_co_panel(
         b_next = bars[i + 1]
         b_prev = bars[i - 1]
         b_prev2 = bars[i - 2] if i >= 2 else {}
+        date_t = str(b_t.get("date") or "")[:10]
+        if keep is not None and date_t not in keep:
+            continue
         try:
             o_t = float(b_t.get("open"))
             c_t = float(b_t.get("close"))
@@ -358,7 +366,6 @@ def collect_co_panel(
         window = bars[start:i]
         if len(window) < 2:
             continue
-        date_t = str(b_t.get("date") or "")[:10]
         row = intraday_co_feature_row(
             open_t=o_t,
             close_t=c_t,

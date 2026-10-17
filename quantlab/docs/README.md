@@ -39,6 +39,7 @@
 | [工程结构轨](internal/engineering-track.md) | A0–A4 · **B0–B4 已落地**（paper_replay 拆分 · yhat · persistence · platform / intraday） |
 | [SQLite 迁移](internal/sqlite-migration.md) | 日线/分钟线缓存 SQLite WAL 改造方案（已落地 A1） |
 | [行情更新、缓存与预处理](internal/bars-update-cache.md) | 日线/5m 写仓与回测读仓、缓存分层、清洗与面板指纹、四处已知缝 |
+| [Feature Lake / DayCube 方案](internal/feature-lake-daycube.md) | L1 特征仓 + L2 日截面 Cube：训练/回测/live 共用、尾窗增量、单遍 ŷ、开关与排障 |
 | [日线契约修补规划](internal/bars-update-plan.md) | 四处缝的改造顺序：记账、面板指纹、成交额列、前复权重叠日替换 |
 | [AkShare vs Tushare 日线对比](internal/akshare-tushare-daily-compare.md) | 本地日线仓与 Tushare daily 对齐审计（复权标签 / 量单位） |
 

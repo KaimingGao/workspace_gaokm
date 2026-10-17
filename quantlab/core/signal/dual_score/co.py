@@ -84,11 +84,16 @@ def apply_co_score_fields(
     *,
     co_yhat: Optional[float],
     feats: Optional[Dict[str, Any]] = None,
+    explain_feats: Optional[Dict[str, Any]] = None,
     y_spec_override: Optional[Dict[str, Any]] = None,
     co_model_doc: Optional[Dict[str, Any]] = None,
     source: str = "",
 ) -> Dict[str, Any]:
-    """写入 ŷ_co 契约字段（不改 predicted_score / ŷ_trade）。"""
+    """写入 ŷ_co 契约字段（不改 predicted_score / ŷ_trade）。
+
+    ``explain_feats``：tip 组成用行；截面模型应与 ``predict_co_from_features`` 同传
+    日截面 z；缺省用 ``feats`` 快照。``features_co`` 仍落 raw。
+    """
     y_spec = dict(DEFAULT_Y_SPEC_CO)
     doc = co_model_doc if isinstance(co_model_doc, dict) else None
     if doc:
@@ -124,12 +129,17 @@ def apply_co_score_fields(
 
     formula_terms_co = None
     _ = source
-    if feat_snap:
+    explain_row = (
+        dict(explain_feats)
+        if isinstance(explain_feats, dict) and explain_feats
+        else feat_snap
+    )
+    if explain_row:
         try:
             from core.research.co_ridge import explain_co_prediction
 
             formula_terms_co = explain_co_prediction(
-                feat_snap, model_doc=co_model_doc
+                explain_row, model_doc=co_model_doc
             )
         except Exception:  # noqa: BLE001
             logger.debug("explain_co_prediction failed", exc_info=True)

@@ -137,7 +137,7 @@ def _lookup_bar(
 
 def bars_universe_fingerprint(stock_bars: Dict[str, Any]) -> str:
     """观察池日线指纹：代码序 + 每票跨度与末 bar 屑（调试 / 元数据；不进 run_key）。"""
-    from core.research.panel_disk_cache import bars_fingerprint
+    from core.research.panel_fingerprint import bars_fingerprint
 
     parts: List[str] = []
     for code in sorted(str(c) for c in (stock_bars or {}).keys()):

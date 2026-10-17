@@ -366,6 +366,7 @@ def explain_co_prediction(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
+    """拆解 ŷ_co；与 predict 同口径。截面模型假定 ``features`` 已是日截面 z。"""
     doc = model_doc if model_doc is not None else load_co_model()
     if not doc:
         return None
@@ -376,6 +377,14 @@ def explain_co_prediction(
         return None
     means = fit.get("zscore_means") or fit.get("z_means") or {}
     stds = fit.get("zscore_stds") or fit.get("z_stds") or {}
+    try:
+        from core.research.feature_standardize import is_cross_section_zscore
+
+        cs = bool(is_cross_section_zscore(doc) or is_cross_section_zscore(fit))
+    except Exception:  # noqa: BLE001
+        cs = str(fit.get("zscore_scope") or doc.get("zscore_scope") or "") == (
+            "cross_section"
+        )
     active = [
         n
         for n in (fit.get("active_features") or coefs.keys())
@@ -405,11 +414,14 @@ def explain_co_prediction(
                 z = 0.0
                 imputed = True
             else:
-                mu = float(means.get(name, 0.0)) if means else 0.0
-                sd = float(stds.get(name, 1.0)) if stds else 1.0
-                if sd < 1e-9:
-                    sd = 1.0
-                z = (fv - mu) / sd if means else fv
+                if cs or not means:
+                    z = fv
+                else:
+                    mu = float(means.get(name, 0.0))
+                    sd = float(stds.get(name, 1.0))
+                    if sd < 1e-9:
+                        sd = 1.0
+                    z = (fv - mu) / sd
         contrib = beta * z
         total += contrib
         label = _CO_FEAT_LABELS.get(name) or factor_label(name) or name
@@ -425,10 +437,17 @@ def explain_co_prediction(
         terms.append(term)
     if not terms and abs(intercept) < 1e-12:
         return None
+    # 展示只列有实值的项
+    shown = [t for t in terms if not t.get("note")]
+    if shown:
+        terms = shown
     terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0)))
-    return {
+    out = {
         "intercept": round(intercept, 6),
         "terms": terms[:24],
         "total": round(total, 6),
         "head": "co",
     }
+    if cs:
+        out["zscore_scope"] = "cross_section"
+    return out

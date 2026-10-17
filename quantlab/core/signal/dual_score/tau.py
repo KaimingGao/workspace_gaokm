@@ -101,6 +101,7 @@ def apply_tau_score_fields(
     rem_yhat: Optional[float],
     gap_pct: Optional[float],
     feats: Optional[Dict[str, Any]] = None,
+    explain_feats: Optional[Dict[str, Any]] = None,
     event_prior: Optional[dict] = None,
     config: Optional[dict] = None,
     as_of_tau: Optional[str] = None,
@@ -119,6 +120,10 @@ def apply_tau_score_fields(
     ``residual_delta`` 已废弃，忽略。
     ``fuse_intraday=False``（ŷ_oo 已换到下一周期）：τ 不进主排序融合。
     收盘后同一周期仍 fuse：用的是钉在 ≤10:00 的 ŷ_τc 估计。
+
+    ``explain_feats``：tip 组成表用的特征行。截面 τ 模型应传入与
+    ``predict_tau_from_features`` 相同的日截面 z 行；缺省则用 ``feats`` 合并结果
+    （非截面 / 旧路径）。``features_tau`` 落盘仍用 raw 快照。
     """
     _ = residual_delta
     cfg = get_dual_score_cfg(config)
@@ -237,12 +242,17 @@ def apply_tau_score_fields(
     if event_prior is not None:
         signal_item["event_prior"] = event_prior
     formula_terms_tau = None
-    if feats_merged:
+    explain_row = (
+        dict(explain_feats)
+        if isinstance(explain_feats, dict) and explain_feats
+        else feats_merged
+    )
+    if explain_row:
         try:
             from core.research.tc_ridge import explain_tau_prediction
 
             formula_terms_tau = explain_tau_prediction(
-                feats_merged, model_doc=rem_model_doc
+                explain_row, model_doc=rem_model_doc
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             formula_terms_tau = None
@@ -1018,7 +1028,9 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         try:
             from core.research.tc_ridge import explain_tau_prediction
 
-            expl = explain_tau_prediction(feats)
+            expl = explain_tau_prediction(
+                tau_explain_feats_row(item, feats), model_doc=None
+            )
             if expl is not None:
                 return expl
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -1030,6 +1042,53 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
     ):
         return existing
     return None
+
+
+def tau_explain_feats_row(
+    item: Optional[dict],
+    feats: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """截面 τ 模型优先用池内日截面 z 行，与 predict / rescore tip 同口径。"""
+    base = dict(feats) if isinstance(feats, dict) else {}
+    if not isinstance(item, dict):
+        return base
+    try:
+        from core.research.feature_standardize import is_cross_section_zscore
+        from core.research.tc_ridge import load_tau_model
+
+        doc = load_tau_model()
+        if not is_cross_section_zscore(doc):
+            return base
+    except Exception:  # noqa: BLE001
+        return base
+    day = str(
+        item.get("date")
+        or item.get("as_of")
+        or item.get("trade_date")
+        or item.get("session_date")
+        or ""
+    )[:10]
+    try:
+        from core.t0.score_policy import _tau_feature_row_for_refresh
+
+        work = dict(item)
+        if base and not isinstance(work.get("features_tau"), dict):
+            work["features_tau"] = base
+        elif base:
+            # 用最新 feats 覆盖簿上可能过期的 features_tau
+            ft = dict(work.get("features_tau") or {})
+            ft.update(base)
+            work["features_tau"] = ft
+        z_row = _tau_feature_row_for_refresh(work, day)
+        if isinstance(z_row, dict) and z_row:
+            return z_row
+    except Exception:  # noqa: BLE001
+        logger.debug("tau explain CS-z row failed", exc_info=True)
+    return base
+
+
+# 旧私名：外部曾 import；保留别名一版
+_tau_explain_row = tau_explain_feats_row
 
 
 def rem_factor_coefficients_public() -> Dict[str, float]:

@@ -104,7 +104,12 @@ def dual_score_book_fields(
                     if isinstance(work.get("features_path"), dict)
                     else {}
                 )
-            formula_terms_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
+            from core.signal.dual_score.tau import tau_explain_feats_row
+
+            formula_terms_r = explain_tau_prediction(
+                tau_explain_feats_row(work, feats_r),
+                model_doc=load_tau_model(),
+            )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             formula_terms_r = None
     score_formula_tau = work.get("score_formula_tau") or format_tau_formula_string(

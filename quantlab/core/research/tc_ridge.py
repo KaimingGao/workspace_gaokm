@@ -808,9 +808,12 @@ def explain_tau_prediction(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """结构化拆解 ŷ_τ（与 ``predict_tau_from_features`` 同口径），供 tip 表格。
+    """结构化拆解 ŷ_τ（与 ``predict_tau_from_features`` / ``_predict_rows`` 同口径）。
 
-    缺特征填 z=0；截面模型输入按已标准化值理解。
+    缺特征填 z=0。截面模型（``zscore_scope=cross_section``）假定 ``features``
+    **已是**日截面 z（与 ``rescore_fitted_cross_section`` / 池 refresh 同口径）；
+    勿传入 raw 价位比，否则 tip 的 β·z 会把水平≈1 的列抬高、把 ≈0.03 的
+    ``raw_atc_YKLEN`` 等压没。
     """
     doc = model_doc if model_doc is not None else load_tau_model()
     if not doc:
@@ -822,6 +825,14 @@ def explain_tau_prediction(
         return None
     means = fit.get("zscore_means") or fit.get("z_means") or {}
     stds = fit.get("zscore_stds") or fit.get("z_stds") or {}
+    try:
+        from core.research.feature_standardize import is_cross_section_zscore
+
+        cs = bool(is_cross_section_zscore(doc) or is_cross_section_zscore(fit))
+    except Exception:  # noqa: BLE001
+        cs = str(fit.get("zscore_scope") or doc.get("zscore_scope") or "") == (
+            "cross_section"
+        )
     active = [
         n
         for n in (fit.get("active_features") or coefs.keys())
@@ -849,11 +860,15 @@ def explain_tau_prediction(
                 z = 0.0
                 imputed = True
             else:
-                mu = float(means.get(name, 0.0)) if means else 0.0
-                sd = float(stds.get(name, 1.0)) if stds else 1.0
-                if sd < 1e-9:
-                    sd = 1.0
-                z = (fv - mu) / sd if means else fv
+                # 与 tc_ridge_compact._predict_rows 一致
+                if cs or not means:
+                    z = fv
+                else:
+                    mu = float(means.get(name, 0.0))
+                    sd = float(stds.get(name, 1.0))
+                    if sd < 1e-9:
+                        sd = 1.0
+                    z = (fv - mu) / sd
         contrib = beta * z
         total += contrib
         label = _TAU_FEAT_LABELS.get(name) or factor_label(name) or name
@@ -869,14 +884,17 @@ def explain_tau_prediction(
         terms.append(term)
     if not terms and abs(intercept) < 1e-12:
         return None
-    # 旧 τ 头仍含日线 β 时：缺特征的非 Z/aoo 行对 tip 无信息，只保留 Z（含缺特征）与有实值的项
+    # 缺特征：保留 Z 与 raw_atc_* / raw_aoo_*（旧头），其余无信息行丢掉
     from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
+    from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
 
     z_keys = set(TAU_Z_FEATURES) | set(Z_TC_LEGACY_KEYS) | {"open_gap", "z_τc_open_gap"}
     slim: List[Dict[str, Any]] = []
     for t in terms:
         key = str(t.get("key") or "")
-        if t.get("note") and key not in z_keys and not is_alpha_oo_raw_key(key):
+        if t.get("note") and key not in z_keys and not (
+            is_alpha_oo_raw_key(key) or is_alpha_tc_raw_key(key)
+        ):
             continue
         slim.append(t)
     if slim:
@@ -894,6 +912,8 @@ def explain_tau_prediction(
         "total": round(total, 6),
         "head": "tau",
     }
+    if cs:
+        out["zscore_scope"] = "cross_section"
     role = str((doc or {}).get("model_role") or "").strip()
     if role:
         out["model_role"] = role

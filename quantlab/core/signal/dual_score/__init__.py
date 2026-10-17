@@ -71,6 +71,7 @@ from core.signal.dual_score.tau import (
     format_tau_formula_string,
     recover_sub_scores_for_tau,
     rem_factor_coefficients_public,
+    tau_explain_feats_row,
 )
 
 __all__ = [
@@ -111,6 +112,7 @@ __all__ = [
     "realized_t1_to_tau_pct",
     "recover_sub_scores_for_tau",
     "rem_factor_coefficients_public",
+    "tau_explain_feats_row",
     "resolve_fusion_weights",
     "resolve_predicted_score_eod",
     "resolve_predicted_score_eod_rem",

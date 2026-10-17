@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 from statistics import median, stdev
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Mapping, Optional, Sequence, Tuple
 
 GAP_ATR_WINDOW = 14
 GAP_ATR_CLIP = 10.0
@@ -968,6 +968,7 @@ def collect_tau_open_panel(
     respect_regime: bool = False,
     config: Optional[dict] = None,
     include_alpha_tc: bool = False,
+    keep_dates: Optional[Collection[str]] = None,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """单票 ŷ_τc 面板（τ=open，标签 close/open−1）。
 
@@ -976,6 +977,7 @@ def collect_tau_open_panel(
     只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_oo，此处不算。
     ``include_alpha_tc=True`` 时附加 τ 锚 ``raw_atc_*``（现网 ŷ_τc）。
     ``meta_rows`` 含 ``y_τc``。
+    ``keep_dates``：给定时只保留这些决策日（尾窗增量）。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
@@ -995,6 +997,9 @@ def collect_tau_open_panel(
     ys: List[float] = []
     dates: List[str] = []
     metas: List[Dict[str, Any]] = []
+    keep = None
+    if keep_dates is not None:
+        keep = {str(d)[:10] for d in keep_dates if str(d or "").strip()[:10]}
 
     n = len(bars or [])
     tau_map = realized_tau_by_date(bars)
@@ -1002,6 +1007,9 @@ def collect_tau_open_panel(
     for i in range(min_history, n):
         b_t = bars[i]
         b_prev = bars[i - 1]
+        date_t = str(b_t.get("date") or "")[:10]
+        if keep is not None and date_t not in keep:
+            continue
         try:
             o = float(b_t.get("open"))
             c = float(b_t.get("close"))
@@ -1018,7 +1026,6 @@ def collect_tau_open_panel(
         window = bars[max(0, i - max_window) : i]
         if len(window) < min_history:
             continue
-        date_t = str(b_t.get("date") or "")[:10]
         lags = tau_lag_features(
             hist_bars=window,
             tau_by_date=tau_map,

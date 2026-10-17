@@ -35,6 +35,21 @@ def run_daily_cycle(
         _p(i, grand, msg)
 
     _p(0, grand, f"开始扫描持仓评分…（策略: {strategy}）")
+    # 若当日 DayCube 已有 τ slim，预热进程缓存，避免扫持仓时反复建截面
+    try:
+        from datetime import date as _date
+
+        from core.t0.score_policy import (
+            _try_hydrate_tau_xs_from_day_cube,
+            t0_cs_universe_codes,
+        )
+
+        _try_hydrate_tau_xs_from_day_cube(
+            _date.today().isoformat(),
+            t0_cs_universe_codes(*list(holding_codes or []), paper=paper),
+        )
+    except Exception:  # noqa: BLE001
+        pass
     # 扫描持仓股票评分
     pool = run_signal_scan(paper, on_progress=_score_progress, stock_codes=holding_codes)
     new_trades: List[dict] = []

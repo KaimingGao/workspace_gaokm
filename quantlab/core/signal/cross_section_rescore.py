@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Collection, List, Optional, Sequence
+from typing import Any, Collection, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -80,24 +80,43 @@ def rescore_fitted_cross_section(
     items: Sequence[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
 ) -> List[dict]:
     """就地刷新截面模型的 ŷ_oo / ŷ_τ / ŷ_co。返回原列表。
 
     ``score_codes`` 给定时，μ/σ 仍用整批原始特征，只给名单内的代码写 ŷ。
+    ``day_cube`` 给定时，τ/co 用 cube 预计算 μ/σ 做 z（单遍，避免重复扫池）。
     """
     rows = [it for it in items if isinstance(it, dict)]
     if len(rows) < 2:
         return list(items)
-    _rescore_oo_ridge(rows, score_codes=score_codes)
-    _rescore_tau(rows, score_codes=score_codes)
-    _rescore_co(rows, score_codes=score_codes)
+    _rescore_oo_ridge(rows, score_codes=score_codes, day_cube=day_cube)
+    _rescore_tau(rows, score_codes=score_codes, day_cube=day_cube)
+    _rescore_co(rows, score_codes=score_codes, day_cube=day_cube)
     return list(items)
 
 
-def _z_rows(raws: Sequence[dict], names: Sequence[str]) -> List[dict]:
+def _z_rows(
+    raws: Sequence[dict],
+    names: Sequence[str],
+    *,
+    day_cube: Any = None,
+    codes: Optional[Sequence[str]] = None,
+) -> List[dict]:
+    name_list = [str(n) for n in names]
+    if day_cube is not None:
+        try:
+            from core.research.day_cube import apply_cube_z_to_dicts
+
+            z_all = apply_cube_z_to_dicts(list(raws), list(codes or []), day_cube)
+            out = [{k: row[k] for k in name_list if k in row} for row in z_all]
+            if out:
+                return out
+        except Exception:  # noqa: BLE001
+            logger.debug("cube z_rows fallback", exc_info=True)
     from core.research.feature_standardize import cross_section_zscore_dicts
 
-    return cross_section_zscore_dicts(list(raws), [str(n) for n in names])
+    return cross_section_zscore_dicts(list(raws), name_list)
 
 
 def _active_names(model: Optional[dict]) -> List[str]:
@@ -117,6 +136,7 @@ def _rescore_oo_ridge(
     items: List[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
 ) -> None:
     try:
         from core.research.feature_standardize import is_cross_section_zscore
@@ -130,7 +150,11 @@ def _rescore_oo_ridge(
     if model is None or not is_cross_section_zscore(model):
         return
     rescored = apply_predicted_scores(
-        items, model, write_rank_score=False, score_codes=score_codes
+        items,
+        model,
+        write_rank_score=False,
+        score_codes=score_codes,
+        day_cube=day_cube,
     )
     oo_keys = (
         "predicted_score",
@@ -181,14 +205,17 @@ def _rescore_tau(
     items: List[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
 ) -> None:
     raws = []
     slots = []
+    codes = []
     for i, it in enumerate(items):
         feats = it.get("features_tau")
         if isinstance(feats, dict) and feats:
             raws.append(dict(feats))
             slots.append(i)
+            codes.append(str(it.get("stock_code") or "").strip())
     if len(raws) < 2:
         return
     try:
@@ -209,7 +236,7 @@ def _rescore_tau(
     if not names:
         names = list(raws[0].keys())
     allow = normalize_score_codes(score_codes)
-    z_rows = _z_rows(raws, names)
+    z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
     for slot, z_row, raw in zip(slots, z_rows, raws):
         item = items[slot]
         code = str(item.get("stock_code") or "").strip()
@@ -228,6 +255,8 @@ def _rescore_tau(
             rem_yhat=yhat,
             gap_pct=item.get("gap_pct"),
             feats=raw,
+            # tip 与 predict 同吃截面 z，避免 raw×β 把 YKLEN 等小尺度列挤出组成表
+            explain_feats=z_row,
             as_of_tau=item.get("as_of_tau"),
             rem_model_doc=ridge_doc,
             fuse_intraday=fuse,
@@ -239,14 +268,17 @@ def _rescore_co(
     items: List[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
 ) -> None:
     raws = []
     slots = []
+    codes = []
     for i, it in enumerate(items):
         feats = it.get("features_co") if isinstance(it.get("features_co"), dict) else it.get("features_on")
         if isinstance(feats, dict) and feats:
             raws.append(dict(feats))
             slots.append(i)
+            codes.append(str(it.get("stock_code") or "").strip())
     if len(raws) < 2:
         return
     try:
@@ -267,7 +299,7 @@ def _rescore_co(
     if not names:
         names = list(raws[0].keys())
     allow = normalize_score_codes(score_codes)
-    z_rows = _z_rows(raws, names)
+    z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
     for slot, z_row, raw in zip(slots, z_rows, raws):
         item = items[slot]
         code = str(item.get("stock_code") or "").strip()
@@ -284,6 +316,7 @@ def _rescore_co(
             item,
             co_yhat=yhat,
             feats=raw,
+            explain_feats=z_row,
             co_model_doc=ridge_doc if isinstance(ridge_doc, dict) else None,
             source="ridge",
         )

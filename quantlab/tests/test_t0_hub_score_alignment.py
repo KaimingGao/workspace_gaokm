@@ -86,7 +86,8 @@ class TestT0HubScoreAlignment(unittest.TestCase):
         if not scores_have_any(direct) or not scores_have_any(rescore):
             self.skipTest("τ/path 模型未加载，跳过数值对齐验收")
 
-        for key in ("y_τc", "y_tau", "y_path"):
+        # 主头 y_τc；旧键 y_tau 仅两侧都有时对照（现网可不写）
+        for key in ("y_τc", "y_path"):
             a = direct.get(key)
             b = rescore.get(key)
             if a is None and b is None:
@@ -94,6 +95,9 @@ class TestT0HubScoreAlignment(unittest.TestCase):
             self.assertIsNotNone(a, key)
             self.assertIsNotNone(b, key)
             self.assertAlmostEqual(float(a), float(b), places=6, msg=key)
+        ya, yb = direct.get("y_tau"), rescore.get("y_tau")
+        if ya is not None and yb is not None:
+            self.assertAlmostEqual(float(ya), float(yb), places=6, msg="y_tau")
 
         self.assertAlmostEqual(
             float(resolve_direction_y_tau(direct)),
@@ -148,8 +152,22 @@ class TestT0HubScoreAlignment(unittest.TestCase):
         if feats.get("ret_open_to_tau") is None:
             self.skipTest("前缀未切出开盘→τ")
         ft = sc.get("formula_terms_tau") or {}
-        keys = [t.get("key") for t in (ft.get("terms") or []) if isinstance(t, dict)]
-        self.assertIn("ret_open_to_tau", keys)
+        self.assertTrue(ft.get("terms") or ft.get("total") is not None)
+        # 开盘→τ 仅当模型仍含该 β 时才进 tip；现网 open τ 头常已剔分钟键
+        from core.research.tc_ridge import load_tau_model
+
+        rm = (load_tau_model() or {}).get("return_model") or {}
+        active = set(rm.get("active_features") or (rm.get("coefficients") or {}).keys())
+        tip_keys = {
+            str(t.get("key") or "")
+            for t in (ft.get("terms") or [])
+            if isinstance(t, dict)
+        }
+        if "ret_open_to_tau" in active or "z_τc_ret_open_to_tau" in active:
+            self.assertTrue(
+                tip_keys & {"ret_open_to_tau", "z_τc_ret_open_to_tau"},
+                tip_keys,
+            )
         self.assertIn("09:40", str(sc.get("as_of_tau") or ""))
 
     def test_refresh_tau_oc_after_inject_when_as_of_already_clock(self):

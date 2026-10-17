@@ -226,6 +226,7 @@ def score_stock(
     quote_timeout: float = 15.0,
     offline_only: bool = False,
     use_minute_tau: Optional[bool] = None,
+    defer_cs_predict: bool = False,
 ) -> Dict[str, Any]:
     """拉行情 + 日线 + score_bars，返回 signal_item 形状 dict。
 
@@ -244,11 +245,14 @@ def score_stock(
     ``use_minute_tau``：None=跟随 ``enable_minute_tau``（调仓因果末根 ≤10:00）；
     False=开盘 Z（回测 09:30、live 启动时间 ≤09:30），不读分钟仓、不拉 5m；
     True=强制并分钟小包（观察池 / 持仓表；live 启动时间 >09:30）。
+    ``defer_cs_predict=True``：只落特征（sub_scores / features_tau / co），
+    不写 ŷ_oo / ŷ_τ / ŷ_co；供 watching_matrix 先抽特征再 batch 截面 predict。
 
     （分组已退役）主分仅用全局 return_model ŷ；输出 ``cluster_mode`` 固定
     ``"off"``，``score_cluster`` / ``cluster_label`` / ``cluster_id`` /
     ``cluster_version`` 恒为 None；``heuristic_score`` 双轨保留（互不覆盖）。
     """
+    defer_predict = bool(defer_cs_predict)
     if horizon_days is None:
         from core.signal.config import get_scoring_horizon_days
 
@@ -709,11 +713,18 @@ def score_stock(
             subs.pop("alt_sentiment", None)
 
         if global_model is not None:
-            score_global = global_model.predict(subs)
-            if score_global is not None:
-                predicted_score = score_global
-                return_model_source = "global"
+            # 截面模型单票 predict 看不到同伴；defer 时留给 batch rescore
+            from core.research.feature_standardize import is_cross_section_zscore
+
+            if defer_predict and is_cross_section_zscore(global_model):
+                return_model_source = "deferred_cs"
                 active_model = global_model
+            else:
+                score_global = global_model.predict(subs)
+                if score_global is not None:
+                    predicted_score = score_global
+                    return_model_source = "global"
+                    active_model = global_model
         else:
             weight_source = "global_missing"
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -919,6 +930,8 @@ def score_stock(
         "open_t_source": open_t_info.get("source"),
         "factor_anomaly": factor_anomaly,
     }
+    if defer_predict:
+        signal_item["_defer_cs_predict"] = True
 
     _fac = scored.get("factors") if isinstance(scored.get("factors"), dict) else {}
     _tail_sub = (scored.get("sub_scores") or {}).get("tail_anomaly")
@@ -1182,7 +1195,9 @@ def score_stock(
             logger.debug("tau raw_atc inject skipped for %s", code, exc_info=True)
 
         rem_model_doc = load_tau_model()
-        rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)
+        rem_yhat = None
+        if not defer_predict:
+            rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)
         apply_tau_score_fields(
             signal_item,
             rem_yhat=rem_yhat,
@@ -1216,7 +1231,9 @@ def score_stock(
                 sector_gap_breadth=sector_breadth,
             )
             co_model_doc = load_co_model()
-            co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
+            co_yhat = None
+            if not defer_predict:
+                co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
             apply_co_score_fields(
                 signal_item,
                 co_yhat=co_yhat,

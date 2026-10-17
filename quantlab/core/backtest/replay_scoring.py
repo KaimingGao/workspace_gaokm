@@ -364,23 +364,6 @@ def _attach_open_yhat_heads(
         quote = quotes.get(code) or {}
         window = windows.get(code) or []
         try:
-            gap = None
-            if quote:
-                try:
-                    gap = float(quote.get("change_raw"))
-                except (TypeError, ValueError):
-                    gap = None
-            co_feats = build_co_features_from_quote_bars(
-                quote,
-                window,
-                gap_pct=gap,
-                open_t=quote.get("open_raw") or quote.get("open"),
-                prev_close=quote.get("prev_close") or quote.get("pre_close"),
-                trade_date=quote.get("date") or quote.get("trade_date"),
-            )
-            if not co_feats:
-                continue
-            # 拟合面板经截面广度写入这三列；与当日 ŷ_τc 用同一池，避免缺测被当成训练均值。
             from core.signal.dual_score.co import overlay_co_cross_section
 
             tau_feats = (
@@ -388,7 +371,34 @@ def _attach_open_yhat_heads(
                 if isinstance(it.get("features_tau"), dict)
                 else None
             )
-            co_feats = overlay_co_cross_section(co_feats, tau_feats)
+            # L1 已灌 features_co：跳过 quote+bars 重建，只叠当日 τ 截面广度
+            lake_co = (
+                it.get("features_co")
+                if str(it.get("_score_source") or "") == "feature_lake"
+                and isinstance(it.get("features_co"), dict)
+                and it.get("features_co")
+                else None
+            )
+            if lake_co is not None:
+                co_feats = overlay_co_cross_section(dict(lake_co), tau_feats)
+            else:
+                gap = None
+                if quote:
+                    try:
+                        gap = float(quote.get("change_raw"))
+                    except (TypeError, ValueError):
+                        gap = None
+                co_feats = build_co_features_from_quote_bars(
+                    quote,
+                    window,
+                    gap_pct=gap,
+                    open_t=quote.get("open_raw") or quote.get("open"),
+                    prev_close=quote.get("prev_close") or quote.get("pre_close"),
+                    trade_date=quote.get("date") or quote.get("trade_date"),
+                )
+                if not co_feats:
+                    continue
+                co_feats = overlay_co_cross_section(co_feats, tau_feats)
             co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
             if co_yhat is not None:
                 it["y_co_source"] = "ridge"
@@ -402,9 +412,28 @@ def _attach_open_yhat_heads(
         except Exception:  # noqa: BLE001
             logger.debug("attach y_co failed for %s", code, exc_info=True)
     try:
+        from core.research.batch_score import (
+            enabled as batch_score_enabled,
+            rescore_fitted_cross_section_batched,
+        )
         from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
-        rescore_fitted_cross_section(items, score_codes=score_codes)
+        day_key = ""
+        for it in items:
+            if isinstance(it, dict):
+                day_key = str(it.get("as_of") or it.get("date") or "")[:10]
+                if len(day_key) >= 10:
+                    break
+        if batch_score_enabled():
+            rescore_fitted_cross_section_batched(
+                items,
+                score_codes=score_codes,
+                date=day_key or None,
+                clock="open",
+                persist_cube=True,
+            )
+        else:
+            rescore_fitted_cross_section(items, score_codes=score_codes)
     except Exception:  # noqa: BLE001
         logger.debug("replay cross-section rescore failed", exc_info=True)
     try:
@@ -433,40 +462,66 @@ def _score_open_day(
     score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
     """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。
-    """
-    from core.signal.cross_section_batch import score_window_as_item
 
+    优先 L1 Feature Lake 灌特征；miss 再 ``score_window_as_item``。
+    """
     if day_i <= 0:
         return []
-    entries: List[dict] = []
-    quotes: Dict[str, dict] = {}
-    windows: Dict[str, List[dict]] = {}
-    prev_i = day_i - 1
-    today = dates[day_i]
-    req_keys = list(required_factor_keys or []) or None
-    for code in stock_bars:
-        window = _window_for_code(code, dates, date_maps, prev_i, max_window)
-        if len(window) < 2:
-            continue
-        dm = date_maps.get(code) or {}
-        today_bar = dm.get(today)
-        prev_bar = dm.get(dates[prev_i])
-        quote = mock_quote_from_bar(today_bar, prev_bar=prev_bar, px_field="open")
-        if quote:
-            quote["date"] = today
-            quote["trade_date"] = today
-        item = score_window_as_item(
-            code,
-            window,
+    try:
+        from core.research.lake_replay import score_open_day_entries
+
+        entries, quotes, windows, hits, miss = score_open_day_entries(
+            stock_bars=stock_bars,
+            dates=dates,
+            date_maps=date_maps,
+            day_i=day_i,
+            max_window=max_window,
             horizon_days=horizon_days,
-            quote=quote,
-            config=cfg,
-            required_factor_keys=req_keys,
+            cfg=cfg,
+            required_factor_keys=required_factor_keys,
+            window_for_code=_window_for_code,
+            mock_quote_from_bar=mock_quote_from_bar,
         )
-        if item:
-            entries.append(item)
-            quotes[str(code)] = quote or {}
-            windows[str(code)] = window
+        if hits or miss:
+            logger.debug(
+                "replay open day lake hits=%s miss=%s day=%s",
+                hits,
+                miss,
+                dates[day_i] if day_i < len(dates) else "",
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("replay lake hydrate failed; fallback window score", exc_info=True)
+        from core.signal.cross_section_batch import score_window_as_item
+
+        entries = []
+        quotes = {}
+        windows = {}
+        prev_i = day_i - 1
+        today = dates[day_i]
+        req_keys = list(required_factor_keys or []) or None
+        for code in stock_bars:
+            window = _window_for_code(code, dates, date_maps, prev_i, max_window)
+            if len(window) < 2:
+                continue
+            dm = date_maps.get(code) or {}
+            today_bar = dm.get(today)
+            prev_bar = dm.get(dates[prev_i])
+            quote = mock_quote_from_bar(today_bar, prev_bar=prev_bar, px_field="open")
+            if quote:
+                quote["date"] = today
+                quote["trade_date"] = today
+            item = score_window_as_item(
+                code,
+                window,
+                horizon_days=horizon_days,
+                quote=quote,
+                config=cfg,
+                required_factor_keys=req_keys,
+            )
+            if item:
+                entries.append(item)
+                quotes[str(code)] = quote or {}
+                windows[str(code)] = window
     if not entries:
         return []
     return _attach_open_yhat_heads(
@@ -608,7 +663,35 @@ def rescore_replay_y_τc_at_clock(
     allow = normalize_score_codes(score_codes)
     day = dates[day_i]
     n_ok = 0
-    with temporary_pool_feature_rows(day, items):
+    # 分钟钟 L1（tc_HHMM）：先批量取行，灌进池特征再 refresh ŷ_τc
+    lake_tc: Dict[str, Dict[str, float]] = {}
+    try:
+        from core.research.lake_replay import load_tau_feats_map, try_prefix_live_from_lake
+
+        codes_all = [
+            str(it.get("stock_code") or "").strip()
+            for it in items
+            if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
+        ]
+        lake_tc = load_tau_feats_map(codes_all, day, tau_hm=head)
+    except Exception:  # noqa: BLE001
+        logger.debug("replay prefix L1 load failed", exc_info=True)
+        lake_tc = {}
+        try_prefix_live_from_lake = None  # type: ignore[assignment]
+
+    pool_items: List[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        if code and code in lake_tc:
+            patched = dict(it)
+            patched["features_tau"] = dict(lake_tc[code])
+            pool_items.append(patched)
+        else:
+            pool_items.append(it)
+
+    with temporary_pool_feature_rows(day, pool_items):
         for it in items:
             if not isinstance(it, dict):
                 continue
@@ -617,6 +700,24 @@ def rescore_replay_y_τc_at_clock(
                 continue
             if allow is not None and code not in allow:
                 continue
+            if try_prefix_live_from_lake is not None and code in lake_tc:
+                try:
+                    live = try_prefix_live_from_lake(
+                        dict(it),
+                        code=code,
+                        day=day,
+                        tau_hm=head,
+                        feats=lake_tc.get(code),
+                        tau_pool_day=tau_pool_day,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "replay prefix L1 hydrate failed %s %s", code, day, exc_info=True
+                    )
+                    live = None
+                if live is not None and _apply_prefix_oc(it, live, cfg):
+                    n_ok += 1
+                    continue
             mins = (minute_maps.get(code) or {}).get(day) or []
             prefix = _minute_bars_until_hm(mins, tau_hm=head)
             if len(prefix) < 1:
