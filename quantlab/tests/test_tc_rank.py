@@ -136,6 +136,50 @@ class TestTcRank(unittest.TestCase):
         self.assertGreater(float(by["A2"]["y_tc_rank_score"]), 0.0)
         self.assertEqual(by["A2"]["y_oo_fuse"], 0.2)
 
+    def test_zscore_codes_excludes_stale_open_peers(self):
+        """前缀后 zscore_codes=可交易：B 开盘极值不进 pool μ/σ（与只对 A 算 z 同金标）。"""
+        from core.research.tc_rank import apply_tc_rank_scores
+
+        ridge = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "tc_rank",
+            "horizon_mode": "tc_rank",
+            "intercept": 0.0,
+            "coefficients": {"z_τc_gap_pct": 1.0},
+            "feature_zscore": True,
+            "zscore_scope": "cross_section",
+            "zscore_universe": "pool",
+            "zscore_means": {},
+            "zscore_stds": {},
+        }
+        base = [
+            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}},
+            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}},
+            {"stock_code": "B1", "features_tau": {"z_τc_gap_pct": 1000.0}},
+        ]
+        mixed = [dict(x) for x in base]
+        apply_tc_rank_scores(
+            mixed,
+            model_doc={"return_model": ridge},
+            score_codes=["A1", "A2"],
+        )
+        # 整池 z：B1=1000 拉高 μ，A2 相对分为负
+        self.assertLess(float(mixed[1]["y_tc_rank_score"]), 0.0)
+
+        locked = [dict(x) for x in base]
+        apply_tc_rank_scores(
+            locked,
+            model_doc={"return_model": ridge},
+            score_codes=["A1", "A2"],
+            zscore_codes=["A1", "A2"],
+        )
+        by = {it["stock_code"]: it for it in locked}
+        self.assertNotIn("y_tc_rank", by["B1"])
+        self.assertEqual(by["A2"]["y_tc_rank"], 1)
+        self.assertGreater(float(by["A2"]["y_tc_rank_score"]), 0.0)
+
     def test_ridge_keeps_small_std_drops_constant(self):
         """不按原始标准差剔列；真常数仍剔除。"""
         import numpy as np

@@ -335,6 +335,18 @@ class TestOoRankFit(unittest.TestCase):
         self.assertEqual(expl.get("backend"), "lambdarank")
         self.assertEqual(expl.get("model_role"), "tree")
         self.assertIsInstance(expl.get("terms"), list)
+        # tip 因子表 stamp gain%（与研究枢纽 coefficients 份额同口径）
+        coefs = fit.get("coefficients") or {}
+        if coefs:
+            gained = [
+                t
+                for t in (expl.get("terms") or [])
+                if isinstance(t, dict) and t.get("gain") is not None
+            ]
+            self.assertTrue(gained, expl.get("terms"))
+            g0 = float(gained[0]["gain"])
+            self.assertGreater(g0, 0.0)
+            self.assertLessEqual(g0, 100.0)
         extra = aux_yhat_fields(item, include_tau_horizons=False)
         self.assertEqual(extra.get("y_oo_rank"), 1)
         self.assertEqual(extra.get("y_oo_rank_n"), 1)

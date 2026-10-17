@@ -1608,6 +1608,12 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "合计相对分"
             : "合计 ŷ_oo";
 
+  const showGain =
+    isOoRank &&
+    terms.some(
+      (t) => t && t.gain != null && Number.isFinite(Number(t.gain))
+    );
+
   const rows = terms
     .map((t) => {
       const name = termFeatLabel(t, key);
@@ -1616,6 +1622,19 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       const beta = fmtSigned(t.beta, 3);
       const z = gated ? "—" : fmtSigned(t.z, 2);
       const contrib = gated ? "0" : fmtSigned(t.contrib, 3);
+      // tip 侧 stamp 多为 0–100；兼容份额≤1.5 的 0–1
+      const gainRaw = t && t.gain != null ? Number(t.gain) : NaN;
+      const gainPct = Number.isFinite(gainRaw)
+        ? gainRaw <= 1.5
+          ? gainRaw * 100
+          : gainRaw
+        : NaN;
+      const gainCell =
+        showGain
+          ? Number.isFinite(gainPct)
+            ? `<td class="num">${escapeText(`${gainPct.toFixed(1)}%`)}</td>`
+            : `<td class="num">—</td>`
+          : "";
       const mid = treeTable
         ? ""
         : `<td class="num ${signCls(t.beta)}">${escapeText(beta)}</td>`;
@@ -1624,6 +1643,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         `<td class="score-ft-name" title="${escapeText(t.key || "")}">${escapeText(
           name + nameExtra
         )}</td>` +
+        gainCell +
         mid +
         `<td class="num ${signCls(t.z)}">${escapeText(z)}</td>` +
         `<td class="num ${signCls(t.contrib)}">${escapeText(contrib)}</td>` +
@@ -1636,7 +1656,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const total = fmtSigned(expl.total, 3);
 
   const caption = treeTable
-    ? "偏置 + 各因子贡献 = 合计，与表列分数同口径。表内只列贡献最大的因子。"
+    ? showGain
+      ? "gain% = LambdaRank 分裂增益份额（与研究枢纽同口径）；偏置 + 各因子贡献 = 合计相对分。表内只列贡献最大的因子。"
+      : "偏置 + 各因子贡献 = 合计，与表列分数同口径。表内只列贡献最大的因子。"
     : key === "r"
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。研究/执行两槽同一份 Holdout 前训 β（版本前后）；回测默认研究套，live 用执行套。"
       : isHorizonProb
@@ -1702,9 +1724,15 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     Number.isFinite(Number(expl.total)) &&
     Math.abs(Number(alignedRaw) - Number(expl.total)) > 5e-4;
   const headCells = treeTable
-    ? `<th>因子</th><th>值</th><th>贡献</th>`
+    ? showGain
+      ? `<th>因子</th><th>gain%</th><th>值</th><th>贡献</th>`
+      : `<th>因子</th><th>值</th><th>贡献</th>`
     : `<th>因子</th><th>β</th><th>z</th><th>贡献</th>`;
-  const pad = treeTable ? `<td class="num">—</td>` : `<td class="num">—</td><td class="num">—</td>`;
+  const pad = treeTable
+    ? showGain
+      ? `<td class="num">—</td><td class="num">—</td>`
+      : `<td class="num">—</td>`
+    : `<td class="num">—</td><td class="num">—</td>`;
   const alignedRow = showAligned
     ? `<tr class="score-ft-total">` +
       `<td class="score-ft-name">表列 ŷ_τc</td>` +

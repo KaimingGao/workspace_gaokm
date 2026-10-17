@@ -225,7 +225,7 @@ bars.db
 
 **尾窗增量**（`incremental_panel.py`）：L1 meta 存 `bars_fp` / `stem_fp`；末根改写或追加 ≤16 根时，oo/τc/co/oo_rank 用 `keep_dates` 重算尾部再 merge。中间复权改写仍全量。
 
-**回测 L1 hydrate**（`lake_replay.py`）：`paper_replay` 启动时 `prefetch_l1_coverage`（dates 索引 + 整票 panel 内存；`fill_clock≠09:30` 额外预热 `tc_HHMM`）；日循环按日切片灌 `sub_scores` / `features_tau` / `features_co`，命中跳过 `score_window_as_item` 与昨收窗；盘中前缀 ŷ_τc 优先 L1 hydrate，miss 再 `rescore_scores_at_fixed_prefix`。分钟 τ 写 L1 用 `tc_HHMM`（与开盘 `tc` 分目录）。
+**回测 L1 hydrate**（`lake_replay.py`）：`paper_replay` 启动时 `prefetch_l1_coverage`（dates 索引 + 整票 panel 内存；`fill_clock≠09:30` 额外预热 `tc_HHMM`）；日循环按日切片灌 `sub_scores` / `features_tau` / `features_co`。**须有 oo 行才当命中**跳过 `score_window_as_item`（仅 tc/co 有湖日不够——否则无 `sub_scores`，ŷ_oo / oo_rank 空）；缺 oo 则切窗重算。盘中前缀 ŷ_τc 优先 L1 hydrate，miss 再 `rescore_scores_at_fixed_prefix`。分钟 τ 写 L1 用 `tc_HHMM`（与开盘 `tc` 分目录）。
 
 **单遍 rescore**：`batch_score` 建 DayCube（含 `sub_scores`）后，ŷ_oo / τ / co 均用 cube μ/σ 打 z 再 predict。
 

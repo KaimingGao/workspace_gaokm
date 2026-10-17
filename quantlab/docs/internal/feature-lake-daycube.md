@@ -304,7 +304,7 @@ rank_lots / 账本
 | P5 | T0 / daily_cycle 读 cube slim | ✅ |
 | 加深 | 尾窗增量（含多日）、OO 单遍 z、L1 prefetch、defer 调仓 | ✅ |
 | 扫尾 | 去掉未用 API / 合并 oo 增量入口 / 静默 except→debug | ✅ |
-| P6 | replay 暖路径：L1 进程缓存按日切片；命中跳过 score_window；lake co 直用 | ✅ |
+| P6 | replay 暖路径：L1 进程缓存按日切片；**须 oo 行**才跳过 score_window；lake co 直用 | ✅ |
 | P7 | 分钟 τ L1 clock 分族（`tc_HHMM`）；命中路径省昨收窗（y_hl 已下线） | ✅ |
 | P8 | replay `fill_clock≠09:30`：预热 `tc_HHMM`，前缀 ŷ_τc 优先 L1 hydrate | ✅ |
 | P9 | panel 退役过渡：miss → L1 同指纹回退 + 回填 panel（oo/τ/co/oo_rank） | ✅ |

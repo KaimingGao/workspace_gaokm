@@ -1966,9 +1966,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('tipMode === "fuse"', tip_js)
         self.assertNotIn('tipMode === "fuse" || tipMode === "ranking"', tip_js)
         self.assertIn('tipMode === "oo_rank"', tip_js)
+        self.assertIn('tipMode === "tc_rank"', tip_js)
         self.assertIn("formatCompactOoRankTip", tip_js)
         self.assertIn("ŷ_oo_rank 组成", tip_js)
+        self.assertIn("ŷ_τc_rank 组成", tip_js)
         self.assertIn("formula_terms_oo_rank", tip_js)
+        self.assertIn("formula_terms_tc_rank", tip_js)
+        # LambdaRank tip 因子表 gain%（与研究枢纽同口径）
+        self.assertIn("gain%", tip_js)
+        self.assertIn("showGain", tip_js)
+        self.assertIn("t.gain", tip_js)
         self.assertIn("function scoreModelSuiteLabel", tip_js)
         self.assertIn('return "研究套"', tip_js)
         self.assertIn("截距 α（研究套）", tip_js)
@@ -2003,6 +2010,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertIn("formula_terms_oo_rank: ooRankTerms", render)
         self.assertIn("y_oo_rank_score: it && it.y_oo_rank_score", render)
+        self.assertIn("formula_terms_tc_rank: tcRankTerms", render)
+        self.assertIn("y_tc_rank_score: it && it.y_tc_rank_score", render)
         self.assertFalse(
             os.path.exists(os.path.join(ROOT, "web", "static", "js", "y_path_viz.js")),
             "y_path_viz.js should be removed",

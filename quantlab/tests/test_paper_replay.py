@@ -2787,6 +2787,95 @@ class TestFuseHitMetrics(unittest.TestCase):
         self.assertEqual(hits, 0)
 
 
+class TestOpenTcRankBackfill(unittest.TestCase):
+    """09:30 缓存补挂：可交易集全缺才补；部分有名次不动。"""
+
+    def _ridge_doc(self):
+        return {
+            "return_model": {
+                "success": True,
+                "backend": "ridge",
+                "solver": "ridge",
+                "target": "tc_rank",
+                "horizon_mode": "tc_rank",
+                "intercept": 0.0,
+                "coefficients": {"z_τc_gap_pct": 1.0},
+                "feature_zscore": True,
+                "zscore_scope": "cross_section",
+                "zscore_universe": "pool",
+                "zscore_means": {},
+                "zscore_stds": {},
+            }
+        }
+
+    def test_backfill_when_tradable_all_missing(self):
+        from core.backtest.replay_scoring import maybe_backfill_open_tc_rank
+
+        items = [
+            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}},
+            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 2.0}},
+            {"stock_code": "B1", "features_tau": {"z_τc_gap_pct": 9.0}},
+        ]
+        out = maybe_backfill_open_tc_rank(
+            items, tc_rank_doc=self._ridge_doc(), score_codes=["A1", "A2"]
+        )
+        by = {it["stock_code"]: it for it in out}
+        self.assertIsNotNone(by["A1"].get("y_tc_rank"))
+        self.assertIsNotNone(by["A2"].get("y_tc_rank"))
+        self.assertNotIn("y_tc_rank", by["B1"])
+
+    def test_no_backfill_when_any_tradable_has_rank(self):
+        from core.backtest.replay_scoring import maybe_backfill_open_tc_rank
+
+        items = [
+            {
+                "stock_code": "A1",
+                "features_tau": {"z_τc_gap_pct": 0.0},
+                "y_tc_rank": 1,
+            },
+            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 2.0}},
+        ]
+        out = maybe_backfill_open_tc_rank(
+            items, tc_rank_doc=self._ridge_doc(), score_codes=["A1", "A2"]
+        )
+        by = {it["stock_code"]: it for it in out}
+        self.assertEqual(by["A1"]["y_tc_rank"], 1)
+        self.assertNotIn("y_tc_rank", by["A2"])
+
+    def test_refresh_prefix_passes_zscore_codes(self):
+        """晚钟重挂 τc_rank 须带 zscore_codes=可交易（避混合钟）。"""
+        from unittest.mock import patch
+
+        from core.backtest.replay_scoring import refresh_tau_heads_after_prefix
+
+        dates = [f"2026-03-{i:02d}" for i in range(1, 16)]
+        items = [
+            {"stock_code": "A1", "y_oo": 0.1, "features_tau": {"z_τc_gap_pct": 1.0}},
+            {"stock_code": "B1", "y_oo": 0.2, "features_tau": {"z_τc_gap_pct": 100.0}},
+        ]
+        with patch(
+            "core.backtest.replay_scoring.rescore_replay_y_τc_at_clock",
+            return_value=(items, 1),
+        ), patch(
+            "core.research.tc_rank.apply_tc_rank_scores"
+        ) as apply_fn:
+            refresh_tau_heads_after_prefix(
+                items,
+                clock="09:35",
+                dates=dates,
+                date_maps={},
+                minute_maps={},
+                max_window=12,
+                day_i=10,
+                score_codes=["A1"],
+                tc_rank_doc={"return_model": {}},
+            )
+        self.assertTrue(apply_fn.called)
+        kw = apply_fn.call_args.kwargs
+        self.assertEqual(list(kw.get("score_codes") or []), ["A1"])
+        self.assertEqual(list(kw.get("zscore_codes") or []), ["A1"])
+
+
 class TestReplayPrefixYoc(unittest.TestCase):
     def _dates(self):
         return [f"2026-03-{i:02d}" for i in range(1, 16)]

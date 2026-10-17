@@ -1,4 +1,15 @@
-"""Replay open-day scoring and prefix ŷ_τc rescore."""
+"""Replay open-day scoring and prefix ŷ_τc rescore.
+
+一日分数包三态（禁止在第三处偷偷 ``apply_*``）：
+
+1. **Open bundle** — ``_score_open_day`` / ``_attach_open_yhat_heads`` 写主头 +
+   oo_rank + τc_rank，再 ``save_day``。唯一开盘写头入口。
+2. **Cache hit 09:30** — 整包复用；仅当可交易集 **全缺** ``y_tc_rank`` 时
+   ``maybe_backfill_open_tc_rank`` 补挂。oo_rank 不补（slim 已丢 ``sub_scores``）。
+3. **Prefix（fill_clock≠09:30）** — ``refresh_tau_heads_after_prefix``：只刷新
+   ŷ_τc（及对照）并重挂 τc_rank（``zscore_codes``=可交易，避免 B/C 开盘特征混 z）；
+   ŷ_oo / oo_rank 冻结开盘信息集。
+"""
 
 from __future__ import annotations
 
@@ -208,11 +219,12 @@ def _attach_open_yhat_heads(
     tau_pool_day: Optional[dict] = None,
     score_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
-    """heuristic 窗口分 → 全局 ŷ_oo；09:30 PIT 挂 ŷ_τc；开盘特征打 ŷ_co。
+    """开盘包唯一写头：heuristic→ŷ_oo；09:30 PIT ŷ_τc；ŷ_co；oo_rank；τc_rank。
 
     对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 y_oo_fuse。
     调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。nowcast 已退役，不再写 y_nowcast。
     ``score_codes`` 给定时，截面 z 用整批特征，ŷ 与名次只写这份名单。
+    产出进 ``save_day``；09:30 命中勿再挂 rank（见模块契约）。
     """
     from core.signal.return_score import apply_predicted_scores
 
@@ -260,6 +272,7 @@ def _attach_open_yhat_heads(
 
     oo_rank_doc = None
     apply_oo_rank_scores = None
+    prefer_research = True
     try:
         from core.research.holdout import current_scoring_model_role
         from core.research.oo_rank_lambdarank import (
@@ -412,7 +425,7 @@ def _attach_open_yhat_heads(
         except Exception:  # noqa: BLE001
             logger.debug("attach y_co failed for %s", code, exc_info=True)
     try:
-        from core.research.batch_score import (
+        from core.research.batch_score import (  # noqa: I001
             enabled as batch_score_enabled,
             rescore_fitted_cross_section_batched,
         )
@@ -436,6 +449,20 @@ def _attach_open_yhat_heads(
             rescore_fitted_cross_section(items, score_codes=score_codes)
     except Exception:  # noqa: BLE001
         logger.debug("replay cross-section rescore failed", exc_info=True)
+    # ŷ_τc_rank：须在 features_tau 挂好之后；与 oo_rank 同槽，一并进开盘缓存。
+    try:
+        from core.research.tc_rank import apply_tc_rank_scores, load_tc_rank_model
+
+        tc_rank_doc = load_tc_rank_model(prefer_research=prefer_research)
+        if tc_rank_doc is not None:
+            apply_tc_rank_scores(
+                [it for it in items if isinstance(it, dict)],
+                model_doc=tc_rank_doc,
+                score_codes=score_codes,
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_tc_rank day batch failed", exc_info=True)
+
     try:
         from core.signal.cross_section_rescore import drop_unscored_heads
 
@@ -647,18 +674,18 @@ def rescore_replay_y_τc_at_clock(
 
     09:30 或无前缀则保持开盘 Z。返回 (行, 成功重算数)。
     ``score_codes`` 给定时，池子特征仍整批进 μ/σ，只重算名单内的 ŷ_τc。
+    调仓回测请用 ``refresh_tau_heads_after_prefix``（本函数 + 重挂 τc_rank）。
     """
     items = [dict(it) if isinstance(it, dict) else it for it in (scored or [])]
     head = clamp_replay_fill_clock(clock)
     if head == "09:30" or day_i <= 0 or day_i >= len(dates):
         return items, 0
+    from core.research.feature_standardize import normalize_score_codes
     from core.t0.score_policy import (
         _minute_bars_until_hm,
         rescore_scores_at_fixed_prefix,
         temporary_pool_feature_rows,
     )
-
-    from core.research.feature_standardize import normalize_score_codes
 
     allow = normalize_score_codes(score_codes)
     day = dates[day_i]
@@ -748,6 +775,100 @@ def rescore_replay_y_τc_at_clock(
             if _apply_prefix_oc(it, live if isinstance(live, dict) else {}, cfg):
                 n_ok += 1
     return items, n_ok
+
+
+def refresh_tau_heads_after_prefix(
+    scored: Sequence[dict],
+    *,
+    clock: str,
+    dates: Sequence[str],
+    date_maps: Dict[str, Dict[str, dict]],
+    minute_maps: Dict[str, Dict[str, List[dict]]],
+    max_window: int,
+    day_i: int,
+    cfg: Optional[dict] = None,
+    tau_pool_day: Optional[dict] = None,
+    score_codes: Optional[Collection[str]] = None,
+    tc_rank_doc: Any = None,
+) -> Tuple[List[dict], int]:
+    """晚钟：前缀重算 ŷ_τc + 重挂 τc_rank（开盘 ŷ_oo / oo_rank 不动）。
+
+    τc_rank 的截面 z 缩到 ``score_codes``（可交易），避免未前缀 B/C 的开盘
+    ``features_tau`` 混进 pool μ/σ。返回 (行, 前缀成功数)。
+    """
+    items, n_pref = rescore_replay_y_τc_at_clock(
+        scored,
+        clock=clock,
+        dates=dates,
+        date_maps=date_maps,
+        minute_maps=minute_maps,
+        max_window=max_window,
+        day_i=day_i,
+        cfg=cfg,
+        tau_pool_day=tau_pool_day,
+        score_codes=score_codes,
+    )
+    if tc_rank_doc is None:
+        return items, n_pref
+    try:
+        from core.research.tc_rank import apply_tc_rank_scores
+
+        # 前缀后：写分与 z 宇宙都锁可交易集（混合钟修复）
+        apply_tc_rank_scores(
+            items,
+            model_doc=tc_rank_doc,
+            score_codes=score_codes,
+            zscore_codes=score_codes,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_tc_rank after prefix failed", exc_info=True)
+    return items, n_pref
+
+
+def maybe_backfill_open_tc_rank(
+    scored: Sequence[dict],
+    *,
+    tc_rank_doc: Any = None,
+    score_codes: Optional[Collection[str]] = None,
+) -> List[dict]:
+    """09:30 缓存命中：仅当可交易集 **全缺** y_tc_rank 时整批补挂。
+
+    部分有名次则不动（避免半残日与开盘包劈叉时 silently 混算）。
+    oo_rank 不补：slim 已丢 ``sub_scores``，缺则依赖 run_key/schema miss。
+    """
+    items = list(scored or [])
+    if tc_rank_doc is None:
+        return items
+    from core.research.feature_standardize import normalize_score_codes
+
+    allow = normalize_score_codes(score_codes)
+    candidates: List[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        if not code:
+            continue
+        if allow is not None and code not in allow:
+            continue
+        # 无 features_tau 的持仓 stub 不计入「应有名次」
+        feats = it.get("features_tau")
+        if not isinstance(feats, dict) or not feats:
+            continue
+        candidates.append(it)
+    if not candidates:
+        return items
+    if any(it.get("y_tc_rank") is not None for it in candidates):
+        return items
+    try:
+        from core.research.tc_rank import apply_tc_rank_scores
+
+        apply_tc_rank_scores(
+            items, model_doc=tc_rank_doc, score_codes=score_codes
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("backfill y_tc_rank on cache hit failed", exc_info=True)
+    return items
 
 
 def _items_from_injected_scores(rows: Sequence[dict]) -> List[dict]:

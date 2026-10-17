@@ -1097,6 +1097,38 @@ def _explain_oo_rank_lambdarank_rows(
     except Exception:  # noqa: BLE001
         factor_label = lambda k: str(k)  # noqa: E731
 
+    # 模型 gain 份额（与研究枢纽因子表同口径；落盘在 coefficients）
+    gain_by_key: Dict[str, float] = {}
+    coefs = model.get("coefficients")
+    if isinstance(coefs, dict):
+        for k, v in coefs.items():
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(fv) or fv <= 0:
+                continue
+            # 份额≤1.5 视为 0–1；否则已是百分数
+            gain_by_key[str(k)] = fv * 100.0 if fv <= 1.5 else fv
+    fi = model.get("feature_importance")
+    if isinstance(fi, list):
+        for g in fi:
+            if not isinstance(g, dict):
+                continue
+            k = str(g.get("key") or g.get("name") or "").strip()
+            if not k or k in gain_by_key:
+                continue
+            share = g.get("share")
+            if share is None:
+                share = g.get("gain")
+            try:
+                fv = float(share)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(fv) or fv <= 0:
+                continue
+            gain_by_key[k] = fv * 100.0 if fv <= 1.5 else fv
+
     out: List[Optional[Dict[str, Any]]] = []
     for i in range(n):
         bias = float(contrib[i, len(names)])
@@ -1113,6 +1145,9 @@ def _explain_oo_rank_lambdarank_rows(
                 "z": round(float(mat[i, j]), 4),
                 "contrib": round(c, 6),
             }
+            gshare = gain_by_key.get(name)
+            if gshare is not None:
+                term["gain"] = round(float(gshare), 2)
             if imputed[i][j]:
                 term["note"] = "缺特征·z≈0"
             terms.append(term)

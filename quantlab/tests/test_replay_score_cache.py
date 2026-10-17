@@ -83,13 +83,20 @@ class TestReplayScoreCache(unittest.TestCase):
                 "y_τc": 0.02,
                 "y_co": 0.0,
                 "y_oo_rank": 1,
+                "y_tc_rank": 2,
                 "features": {"raw_aoo_x": 1.0},
+                "features_tau": {"z_τc_gap_pct": 0.5},
+                "sub_scores": {"mom3": 70.0},
                 "formula_terms_tau": [{"k": "a"}],
             }
         ]
         slim = slim_day_items(rows)
         self.assertEqual(slim[0]["stock_code"], "600000")
         self.assertNotIn("features", slim[0])
+        self.assertNotIn("sub_scores", slim[0])
+        # 开盘包：τc_rank + features_tau 须进缓存（前缀/补挂依赖）
+        self.assertEqual(slim[0]["y_tc_rank"], 2)
+        self.assertEqual(slim[0]["features_tau"], {"z_τc_gap_pct": 0.5})
         self.assertEqual(slim[0]["formula_terms_tau"], [{"k": "a"}])
         self.assertEqual(slim[0]["y_oo"], 0.01)
 
@@ -99,9 +106,49 @@ class TestReplayScoreCache(unittest.TestCase):
         assert hit is not None
         self.assertEqual(hit[0]["stock_code"], "600000")
         self.assertEqual(hit[0]["y_oo"], 0.01)
+        self.assertEqual(hit[0]["y_oo_rank"], 1)
+        self.assertEqual(hit[0]["y_tc_rank"], 2)
+        self.assertEqual(hit[0]["features_tau"], {"z_τc_gap_pct": 0.5})
         self.assertNotIn("features", hit[0])
+        self.assertNotIn("sub_scores", hit[0])
         self.assertIsNone(load_day("abc123runkey", "2024-02-02"))
         self.assertEqual(hit[0].get("formula_terms_tau"), [{"k": "a"}])
+
+    def test_miss_hit_heads_align_via_cache(self) -> None:
+        """miss 写入的 ŷ / oo_rank / τc_rank 与 hit 读出一致。"""
+        from core.backtest.replay_score_cache import load_day, save_day
+
+        miss_rows = [
+            {
+                "stock_code": "000001",
+                "y_oo": 0.11,
+                "y_τc": 0.22,
+                "y_oo_rank": 1,
+                "y_tc_rank": 3,
+                "y_tc_rank_score": 0.5,
+                "features_tau": {"z_τc_gap_pct": 1.2},
+            },
+            {
+                "stock_code": "000002",
+                "y_oo": 0.05,
+                "y_τc": -0.01,
+                "y_oo_rank": 2,
+                "y_tc_rank": 1,
+                "features_tau": {"z_τc_gap_pct": -0.3},
+            },
+        ]
+        self.assertTrue(save_day("align_rk", "2024-06-01", miss_rows))
+        hit = load_day("align_rk", "2024-06-01")
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        by_m = {r["stock_code"]: r for r in miss_rows}
+        by_h = {r["stock_code"]: r for r in hit}
+        for code in ("000001", "000002"):
+            for k in ("y_oo", "y_τc", "y_oo_rank", "y_tc_rank"):
+                self.assertEqual(by_h[code].get(k), by_m[code].get(k), msg=f"{code}.{k}")
+            self.assertEqual(
+                by_h[code].get("features_tau"), by_m[code].get("features_tau")
+            )
 
     def test_slim_keeps_capped_formula_terms_for_tips(self) -> None:
         from core.backtest.replay_score_cache import slim_day_items

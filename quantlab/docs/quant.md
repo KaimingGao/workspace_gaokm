@@ -1367,7 +1367,15 @@ score_stock(code) 续——
 
 **日线加载**：观察池日 K 经 `load_portfolio_stock_bars` **单连接批量**读 `bars.db`（可 `max_bars` 截尾）；勿用多线程并发扫同一库。进度拆成「读本地日线 → 日线已就绪 → 过滤宇宙 → 准备成交参数」。剔 ST 只用观察池已存名（`watchlist_names`），**不**逐只 `get_quote`；缺名则保留。
 
-**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v5**）：按观察池**代码集合** + 研究/执行套模型**内容**指纹分目录（含 oo_rank / tc_rank，故 `zscore_universe` / `tier_codes` 变更会换 `run_key`），每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换观察池名单、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时仍前缀重算 ŷ_τc（不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 2 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v4/`）。
+**开盘日打分缓存**（`data/cache/replay_scores/`，schema **v6**）：按观察池**代码集合** + 研究/执行套模型**内容**指纹分目录（含 oo_rank / tc_rank，故 `zscore_universe` / `tier_codes` 变更会换 `run_key`），每日 `_score_open_day` 另存该日开盘信息集指纹（昨收窗**全量** bar 屑 + **今开**；开跑预计算、顺序回测滑动窗）。缓存行含 **ŷ 与 oo_rank / τc_rank**（09:30 命中整包复用；勿在命中后再单独重挂 τc_rank）。**命中不重写**；miss 或指纹变了才 `save_day`。改 fuse / 手数 / 本金 / 融合权重、或日线 tip 多一天再跑，历史日可复用；换模型内容、换观察池名单、改某日窗内任意 K、改 `max_window`、改分档可打分集则 miss / 新 `run_key`。`fill_clock≠09:30` 时走 `refresh_tau_heads_after_prefix`（前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易；不进缓存）。`QUANTLAB_REPLAY_SCORE_CACHE=0` 关闭。写入新 `run_key` 时自动裁剪：同 schema 默认保留最近 20 个目录（`QUANTLAB_REPLAY_SCORE_CACHE_KEEP`，`0`=不裁剪），并删除更旧 schema（如 `v5/`）。
+
+**一日分数包三态**（禁止第三处偷偷 `apply_*`）：
+
+| 阶段 | 写入 | 禁止 |
+|--|--|--|
+| Open bundle | `_attach_open_yhat_heads`：主头 + oo_rank + τc_rank，再 `save_day` | paper_replay 09:30 再挂 rank |
+| Cache hit 09:30 | 整包复用；可交易集 **全缺** `y_tc_rank` 才 `maybe_backfill_open_tc_rank` | 用 `any(y_tc_rank)` 当「已齐」；补挂 oo_rank（slim 无 `sub_scores`） |
+| Prefix（晚钟） | `refresh_tau_heads_after_prefix`：刷新 ŷ_τc + 重挂 τc_rank（`zscore_codes`=可交易） | 未前缀 B/C 开盘 `features_tau` 进 pool μ/σ；动 ŷ_oo / oo_rank |
 
 ### 5.1 分数口径（历史 vs live）
 
@@ -1378,7 +1386,7 @@ score_stock(code) 续——
 | 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
 | 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**成交钟**默认 09:30（可选至 10:00）。**09:30 用日 K 开盘、不读 5m**（本地首根标 09:35）；09:35–10:00 才加载分钟线。缺该钟：买入跳过、清仓回退其后～10:00 再回退日开盘；「日分价闸」要窗内分钟才生效（09:30 跳过加载后闸空跑；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
-| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=(open[T+1]−price(τ))/open[T] / y_oo / y_τc / y_co / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 / y_hl。**y_τc / y_co tip 因子表**与打分同口径：截面模型用日截面 z 算 β·z（Top‑N），`features_tau` / `features_co` 仍落 raw | live 仍可透传对照头 |
+| 成交明细 | 列序股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完含收盘市值）/ fuse 预估(真实)=(open[T+1]−price(τ))/open[T] / y_oo / y_τc / y_co / **oo_rank**（ŷ_oo_rank 1..n）/ **τc_rank**（ŷ_τc_rank；与 oo_rank 取 max 作入场闸）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 / y_hl。**y_τc / y_co tip 因子表**与打分同口径：截面模型用日截面 z 算 β·z（Top‑N），`features_tau` / `features_co` 仍落 raw。**oo_rank / τc_rank tip**（LambdaRank）另列 **gain%**（模型 `coefficients` 份额，与研究枢纽同口径） | live 仍可透传对照头 |
 
 回测合成 paper 必须写 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，其它 live 缺省（如持仓市值帽）会漏进合成账本。
 

@@ -393,8 +393,10 @@ def score_open_day_entries(
         oo = oo_m.get(code) if flags[0] is not False else None
         tc = tc_m.get(code) if flags[1] is not False else None
         co = co_m.get(code) if flags[2] is not False else None
-        if not definite_miss and (oo or tc or co):
-            # 命中：不切窗、不跑 score_window；quote 足够涨跌停 / 缺口
+        # 须有 oo 行才跳过切窗：ŷ_oo / oo_rank 依赖 sub_scores。
+        # 仅 tc/co 有湖日（oo 湖常慢一天）若当命中，会留下无 sub_scores 的条目，
+        # 末日记明细 y_oo / y_oo_rank 全空而 y_τc / τc_rank 仍在。
+        if not definite_miss and oo:
             item = assemble_item_from_lake_rows(
                 code, today, oo=oo, tc=tc, co=co, quote=quote, window=None
             )
@@ -405,7 +407,7 @@ def score_open_day_entries(
                 windows[str(code)] = []
                 continue
 
-        # miss：切窗 + score_window_as_item
+        # miss / 缺 oo：切窗 + score_window_as_item
         miss += 1
         window = window_for_code(code, dates, date_maps, prev_i, max_window)
         if len(window) < 2:

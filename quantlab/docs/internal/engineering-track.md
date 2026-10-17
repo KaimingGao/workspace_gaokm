@@ -132,9 +132,9 @@ python3 -m unittest \
 | `replay_minute.py` | 分钟加载（经 ports/DS，无 adapters 硬依赖） |
 | `replay_calendar.py` | 交易日日历 |
 | `replay_contrib.py` | 日腿与贡献归因 |
-| `replay_scoring.py` | 开盘打分 / 前缀重算 / score cache |
+| `replay_scoring.py` | 开盘打分 / 一日分数包三态（`refresh_tau_heads_after_prefix` · `maybe_backfill_open_tc_rank`） |
 | `replay_sim_rows.py` | 模拟行与 fuse hit |
-| `paper_replay.py` | 主循环 + re-export |
+| `paper_replay.py` | 主循环 + re-export（`pyproject` 对该文件忽略 F401） |
 
 ### B2–B4 摘要
 

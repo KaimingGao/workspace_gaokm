@@ -583,12 +583,14 @@ def apply_tc_rank_scores(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
     score_codes: Optional[Collection[str]] = None,
+    zscore_codes: Optional[Collection[str]] = None,
 ) -> List[dict]:
     """就地写入 y_tc_rank 当日截面名次。不改 y_oo_fuse / y_oo_rank / 买序。
 
     特征取 ``features_tau``（z_τc_* ∪ raw_atc_*），与训练同口径做日截面 z。
-    ``zscore_universe=pool``：μ/σ 用整批；``score_codes`` 只限制写分。
+    ``zscore_universe=pool``：μ/σ 用整批（或 ``zscore_codes``）；``score_codes`` 只限制写分。
     ``zscore_universe=tier_a``：先缩到 A 再算 μ/σ 与名次。
+    ``zscore_codes``：前缀刷新后传入可交易集，避免未前缀的 B/C 开盘特征混进 pool μ/σ。
     缺模型或缺特征的行跳过。
     """
     from core.research.feature_standardize import (
@@ -607,6 +609,7 @@ def apply_tc_rank_scores(
     )
 
     allow = normalize_score_codes(score_codes)
+    z_allow = normalize_score_codes(zscore_codes)
     model = _resolve_tc_rank_fit(model_doc)
     out = list(items or [])
     if model is None:
@@ -632,6 +635,12 @@ def apply_tc_rank_scores(
         if tier_a and allow is not None and code not in allow:
             for key in _TC_RANK_DROP:
                 it.pop(key, None)
+            continue
+        # 显式 z 宇宙：未入集的行不进 μ/σ（前缀后避开混合钟）
+        if z_allow is not None and code not in z_allow:
+            if allow is not None and code not in allow:
+                for key in _TC_RANK_DROP:
+                    it.pop(key, None)
             continue
         feats = it.get("features_tau")
         if not isinstance(feats, dict) or not feats:

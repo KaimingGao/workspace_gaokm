@@ -54,6 +54,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]
+# B1 拆分后门面：大量 from replay_* re-export，本文件内未必引用
+"core/backtest/paper_replay.py" = ["F401"]
 "main.py" = ["E402"]
 "run_web.py" = ["E402"]
 

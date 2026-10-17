@@ -322,6 +322,96 @@ class TestLakeReplay(unittest.TestCase):
         self.assertEqual(entries[0]["_score_source"], "feature_lake")
         self.assertEqual(windows.get("000001"), [])
 
+    def test_score_open_day_entries_tc_only_still_scores_window(self) -> None:
+        """仅 tc/co 有湖日、无 oo：不得当命中（否则无 sub_scores → ŷ_oo/oo_rank 空）。"""
+        from unittest.mock import MagicMock
+
+        from core.research.feature_lake import write_stock_panel
+        from core.research.lake_bridge import FAMILY_CO, FAMILY_TC
+        from core.research.lake_replay import prefetch_l1_coverage, score_open_day_entries
+
+        write_stock_panel(
+            FAMILY_TC,
+            "000001",
+            dates=["2024-05-10"],
+            X=np.asarray([[0.5]]),
+            names=["gap_pct"],
+            fingerprint="t",
+        )
+        write_stock_panel(
+            FAMILY_CO,
+            "000001",
+            dates=["2024-05-10"],
+            X=np.asarray([[0.1]]),
+            names=["z_co_a"],
+            fingerprint="t",
+        )
+        prefetch_l1_coverage(["000001"])
+        dates = ["2024-05-09", "2024-05-10"]
+        bars = [
+            {
+                "date": "2024-05-09",
+                "open": 10.0,
+                "high": 10.5,
+                "low": 9.5,
+                "close": 10.2,
+                "volume": 1e6,
+            },
+            {
+                "date": "2024-05-10",
+                "open": 10.3,
+                "high": 10.8,
+                "low": 10.0,
+                "close": 10.5,
+                "volume": 1e6,
+            },
+        ]
+        date_maps = {"000001": {b["date"]: b for b in bars}}
+        stock_bars = {"000001": bars}
+        window_fn = MagicMock(return_value=bars)
+
+        def _quote(bar, prev_bar=None, px_field="open"):
+            if not bar:
+                return {}
+            return {
+                "price": float(bar.get(px_field) or 0),
+                "open": float(bar.get("open") or 0),
+                "prev_close": float((prev_bar or {}).get("close") or 0) or None,
+            }
+
+        scored = {
+            "stock_code": "000001",
+            "_score_source": "window",
+            "sub_scores": {"mom3": 1.0},
+        }
+        score_window = MagicMock(return_value=scored)
+        import core.signal.cross_section_batch as csb
+
+        prev = csb.score_window_as_item
+        csb.score_window_as_item = score_window
+        try:
+            entries, _quotes, _windows, hits, miss = score_open_day_entries(
+                stock_bars=stock_bars,
+                dates=dates,
+                date_maps=date_maps,
+                day_i=1,
+                max_window=60,
+                horizon_days=1,
+                cfg={},
+                required_factor_keys=None,
+                window_for_code=window_fn,
+                mock_quote_from_bar=_quote,
+            )
+        finally:
+            csb.score_window_as_item = prev
+
+        self.assertEqual(hits, 0)
+        self.assertEqual(miss, 1)
+        self.assertEqual(score_window.call_count, 1)
+        self.assertEqual(window_fn.call_count, 1)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].get("_score_source"), "window")
+
 
 class TestFamilyForTc(unittest.TestCase):
     def test_open_vs_minute_families(self) -> None:

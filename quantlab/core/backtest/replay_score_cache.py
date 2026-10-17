@@ -6,9 +6,11 @@
 
 ``run_key`` 只含代码集合 + 模型套内容指纹 + 窗长（**不含**日线 tip），
 避免新交易日写入后整库失效；每日文件另存 ``inputs_fp``（该日开盘信息集：
-昨收窗全量 bar 屑 + 今开），加载时校验。schema 5：bar 屑预计算 + 滑动窗，
+昨收窗全量 bar 屑 + 今开），加载时校验。schema 6：bar 屑预计算 + 滑动窗，
 窗内任意一根变更都会 miss；模型文件按内容 hash（``mtime+size`` memo）；
-排序头 ``zscore_universe=tier_a`` 与主头整池 z 同指纹链（落在 oo/tc_rank 模型内容里）。
+开盘缓存含 oo_rank **与** τc_rank（09:30 命中整包复用；可交易集全缺
+τc_rank 才补挂）。``fill_clock≠09:30`` 走 ``refresh_tau_heads_after_prefix``
+（前缀 ŷ_τc + 重挂 τc_rank，z 缩可交易）。见 ``replay_scoring`` 模块契约。
 
 布局::
 
@@ -17,7 +19,7 @@
 
 开关：``QUANTLAB_REPLAY_SCORE_CACHE=0`` 强制绕过。
 写入新 ``run_key`` meta 时，默认只保留同 schema 下最近
-``QUANTLAB_REPLAY_SCORE_CACHE_KEEP`` 个目录（默认 2，``0``=不裁剪），
+``QUANTLAB_REPLAY_SCORE_CACHE_KEEP`` 个目录（默认 20，``0``=不裁剪），
 并删除更旧 schema 目录（如 ``v3/``）。
 """
 
@@ -35,10 +37,10 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-REPLAY_SCORE_CACHE_SCHEMA = 5
+REPLAY_SCORE_CACHE_SCHEMA = 6
 _ENV_DISABLE = "QUANTLAB_REPLAY_SCORE_CACHE"
 _ENV_KEEP = "QUANTLAB_REPLAY_SCORE_CACHE_KEEP"
-_DEFAULT_KEEP_RUNS = 2
+_DEFAULT_KEEP_RUNS = 20
 _SCHEMA_DIR_RE = re.compile(r"^v(\d+)$")
 _CONTENT_FP_MEMO: Dict[Tuple[str, int, int], str] = {}
 _CONTENT_FP_MEMO_MAX = 256

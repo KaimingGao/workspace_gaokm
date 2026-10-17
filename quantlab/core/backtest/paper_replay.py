@@ -1,8 +1,10 @@
 """纸面可实现回放：每个交易日按调仓钟走 rank_lots（y_oo_fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 按金额换算股数）。
 
 ŷ_oo 始终是 09:30 开盘信息集。ŷ_τc：09:30 成交钟用开盘 Z（``use_minute_tau=False``）；
-09:35–10:00 用截至该钟的 5m 前缀重算（与做 T ``rescore_scores_at_fixed_prefix`` 同路径）。
-对照列 ŷ_hl 走开盘 Z 挂上；成交钟>09:30 随前缀重算。不挂 ŷ_τw / ŷ_τ30/60/90（调仓回测不用）。
+09:35–10:00 用 ``refresh_tau_heads_after_prefix``（5m 前缀 + 重挂 τc_rank；
+z 缩可交易，避 B/C 开盘特征混 pool μ/σ）。对照列 ŷ_hl 走开盘 Z 挂上；
+成交钟>09:30 随前缀重算。不挂 ŷ_τw / ŷ_τ30/60/90（调仓回测不用）。
+开盘包 / 缓存 / 前缀三态见 ``replay_scoring`` 模块文档与 ``quant.md``。
 成交价：09:30 用日 K 开盘（服务层不读整池 5m；有分钟时仍可用窗内首根开盘）；其后用该档 5 分钟 K 收盘。
 无分钟时 09:30 回退日 K 开盘。其它钟：买入缺该根则跳过；清仓按该钟之后～10:00
 下一根，再回退 09:30 / 日开盘（避免缺上午 K 把底仓拿到收盘）。
@@ -20,7 +22,7 @@ from __future__ import annotations
 import copy
 import logging
 from datetime import datetime
-from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Collection, Dict, List, Optional
 
 from core.backtest.replay_calendar import (
     _bars_by_date,
@@ -57,10 +59,10 @@ from core.backtest.replay_fill import (
     REPLAY_CASH_FLOOR,
     REPLAY_FILL_CLOCK,
     REPLAY_FILL_CLOCKS,
-    REPLAY_FUSION_W_NOWCAST,
-    REPLAY_FUSION_W_TRADE,
     REPLAY_FUSE_ENTER,
     REPLAY_FUSE_STRONG,
+    REPLAY_FUSION_W_NOWCAST,
+    REPLAY_FUSION_W_TRADE,
     REPLAY_INITIAL_CASH,
     REPLAY_INITIAL_CASH_MAX,
     REPLAY_INITIAL_CASH_MIN,
@@ -101,13 +103,15 @@ from core.backtest.replay_scoring import (
     _score_open_day,
     _stamp_tradable_hard_reject,
     _window_for_code,
+    maybe_backfill_open_tc_rank,
     mock_quote_from_bar,
-    rescore_replay_y_τc_at_clock,
+    refresh_tau_heads_after_prefix,
+    rescore_replay_y_τc_at_clock,  # 门面 re-export（单测 / 冻结 API；见 pyproject F401）
 )
 from core.backtest.replay_sim_rows import (
-    HIT_YHAT_EPS,
     _DEBUG_SKIP_KEYS,
     _REPLAY_TAU_HORIZON_KEYS,
+    HIT_YHAT_EPS,
     _bar_date_key,
     _copy_r_tau_pred,
     _default_paper,
@@ -650,7 +654,8 @@ def backtest_paper_replay(
                 scored.append({"stock_code": code})
                 have.add(code)
             if clock != "09:30":
-                scored, n_pref = rescore_replay_y_τc_at_clock(
+                # 晚钟：前缀 ŷ_τc + 重挂 τc_rank（z 缩可交易，避混合钟）
+                scored, n_pref = refresh_tau_heads_after_prefix(
                     scored,
                     clock=clock,
                     dates=dates,
@@ -661,20 +666,19 @@ def backtest_paper_replay(
                     cfg=rl_cfg,
                     tau_pool_day=tau_pool_by_date.get(day) or {},
                     score_codes=tradable_codes,
+                    tc_rank_doc=tc_rank_doc,
                 )
                 constraints["tau_prefix_rescored"] = int(
                     constraints.get("tau_prefix_rescored") or 0
                 ) + int(n_pref)
-        if tc_rank_doc is not None:
-            try:
-                from core.research.tc_rank import apply_tc_rank_scores
-
-                apply_tc_rank_scores(
-                    scored, model_doc=tc_rank_doc, score_codes=tradable_codes
+            elif tc_rank_doc is not None:
+                # 09:30：名次应在开盘包/缓存；可交易集全缺时才补挂
+                scored = maybe_backfill_open_tc_rank(
+                    scored,
+                    tc_rank_doc=tc_rank_doc,
+                    score_codes=tradable_codes,
                 )
-            except Exception:  # noqa: BLE001
-                logger.debug("attach y_tc_rank failed", exc_info=True)
-        # 缓存命中路径不经 _attach_open_yhat_heads；ŷ_τc_rank 也可能刚写完。再清一次档外头。
+        # 缓存命中路径不经 _attach_open_yhat_heads；补挂后也再清一次档外头。
         try:
             from core.signal.cross_section_rescore import drop_unscored_heads
 
