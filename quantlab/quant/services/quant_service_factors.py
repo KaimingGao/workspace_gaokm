@@ -2124,7 +2124,7 @@ class QuantFactorMixin:
         backend: Optional[str] = None,
         minute_period: str = "5",
     ) -> Dict[str, Any]:
-        """泛化 ŷ_τ horizon tree：horizon ∈ {t30,t45,t60,t75,t90}。不进 live。"""
+        """遗留 standalone ŷ_τ tree：horizon ∈ {t30…t90}。正式双训见 _run_horizon_ridge_experiment。"""
         import time
 
         from core.data.facade import bars_and_source

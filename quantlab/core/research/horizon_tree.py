@@ -1,7 +1,8 @@
-"""ŷ_τ*_tree 可预测落盘：LightGBM → p_up / 收益，供做 T / 调仓回测替换 Ridge。
+"""ŷ_τ* 树头内核：LightGBM → p_up，供主卡双训与遗留 standalone API。
 
-影子报告写 ``*_tree_last_report.json``；可预测包写 ``*_tree_model.json``。
-``horizon_prob_backend=tree`` 时 score_policy 读此包；缺模型回退 Ridge。
+正式路径：``fit_horizon_dual_report`` → 启用套包内 ``backend``。
+遗留：``POST /api/quant/t{{N}}-tree`` 可单独拟合并写 ``*_tree_model.json``；
+回测「ŷ_τ*对照」强制 Tree 时优先读该包，否则读启用套 ``backends.tree``。
 """
 
 from __future__ import annotations

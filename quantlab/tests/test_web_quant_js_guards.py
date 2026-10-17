@@ -802,26 +802,26 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-section-r-tree", panel)
         self.assertNotIn("/api/quant/tc-tree", quant_js)
         self.assertNotIn("/api/quant/tau-tree", quant_js)
-        self.assertIn("quant-t30-tree-run", panel)
-        self.assertIn("ŷ_τ30_tree", panel)
-        self.assertIn("quant-section-t30-tree", panel)
-        self.assertIn("/api/quant/t30-tree", quant_js)
-        self.assertIn("quant-t60-tree-run", panel)
-        self.assertIn("ŷ_τ60_tree", panel)
-        self.assertIn("quant-section-t60-tree", panel)
-        self.assertIn("/api/quant/t60-tree", quant_js)
-        self.assertIn("quant-t45-tree-run", panel)
-        self.assertIn("ŷ_τ45_tree", panel)
-        self.assertIn("quant-section-t45-tree", panel)
-        self.assertIn("/api/quant/t45-tree", quant_js)
-        self.assertIn("quant-t75-tree-run", panel)
-        self.assertIn("ŷ_τ75_tree", panel)
-        self.assertIn("quant-section-t75-tree", panel)
-        self.assertIn("/api/quant/t75-tree", quant_js)
-        self.assertIn("quant-t90-tree-run", panel)
-        self.assertIn("ŷ_τ90_tree", panel)
-        self.assertIn("quant-section-t90-tree", panel)
-        self.assertIn("/api/quant/t90-tree", quant_js)
+        self.assertNotIn("quant-t30-tree-run", panel)
+        self.assertNotIn("ŷ_τ30_tree", panel)
+        self.assertNotIn("quant-section-t30-tree", panel)
+        self.assertNotIn("/api/quant/t30-tree", quant_js)
+        self.assertNotIn("quant-t60-tree-run", panel)
+        self.assertNotIn("ŷ_τ60_tree", panel)
+        self.assertNotIn("quant-section-t60-tree", panel)
+        self.assertNotIn("/api/quant/t60-tree", quant_js)
+        self.assertNotIn("quant-t45-tree-run", panel)
+        self.assertNotIn("ŷ_τ45_tree", panel)
+        self.assertNotIn("quant-section-t45-tree", panel)
+        self.assertNotIn("/api/quant/t45-tree", quant_js)
+        self.assertNotIn("quant-t75-tree-run", panel)
+        self.assertNotIn("ŷ_τ75_tree", panel)
+        self.assertNotIn("quant-section-t75-tree", panel)
+        self.assertNotIn("/api/quant/t75-tree", quant_js)
+        self.assertNotIn("quant-t90-tree-run", panel)
+        self.assertNotIn("ŷ_τ90_tree", panel)
+        self.assertNotIn("quant-section-t90-tree", panel)
+        self.assertNotIn("/api/quant/t90-tree", quant_js)
         self.assertNotIn("tpd_lag1", panel)
         self.assertNotIn("tpd_ma5", panel)
         self.assertNotIn("complexity_tpd_lag1", panel)
@@ -831,7 +831,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("y_complexity_max", panel)
         self.assertNotIn("quant-tau-tree-run", panel)
         self.assertNotIn("ŷ_τc_tree", panel)
-        self.assertIn("已并入 ŷ_τ* 主卡 · 仅保留 API 对照", panel)
+        self.assertNotIn("已并入 ŷ_τ* 主卡 · 仅保留 API 对照", panel)
         self.assertNotIn("P(窗收益>0) · LightGBM · 影子对照 · 不进 live", panel)
         self.assertNotIn("LightGBM · 滑窗增量 · 不进 live", panel)
         self.assertNotIn("open→open LightGBM · 滑窗增量 · 不进 live", panel)
@@ -2866,7 +2866,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-co-tree-run", panel)
         self.assertNotIn("quant-co-tree-result", panel)
         self.assertNotIn("quant-section-co-tree", panel)
-        self.assertIn("已并入 ŷ_τ* 主卡 · 仅保留 API 对照", panel)
+        self.assertNotIn("已并入 ŷ_τ* 主卡 · 仅保留 API 对照", panel)
         self.assertNotIn("P(窗收益>0) · LightGBM · 影子对照 · 不进 live", panel)
         self.assertNotIn("LightGBM · 滑窗增量 · 不进 live", panel)
         self.assertNotIn("qlib_lgb", js)
@@ -2890,32 +2890,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("AbortController", js)
         self.assertNotIn("tauTreeBusyHint", js)
         self.assertNotIn("组 τ→close 面板（满池分钟特征）", js)
-        self.assertIn("仍在组面板（LightGBM 约数秒；慢的是组样本）", js)
+        self.assertNotIn("仍在组面板（LightGBM 约数秒；慢的是组样本）", js)
         self.assertNotIn("numpy 浅树较慢", js)
         self.assertNotIn("fmtTauTreeTiming", js)
-        self.assertIn("paintTreeFitStatus", js)
-        self.assertIn("src.fitted_at || rm.fitted_at", js)
+        self.assertNotIn("paintTreeFitStatus", js)
         self.assertNotIn("写入树包", js)
-        self.assertIn("tree_report.js?v=${encodeURIComponent(_QV)}", js)
-        tree_js = self._read("web", "static", "js", "quant", "tree_report.js")
-        self.assertIn("quant-tree-report", tree_js)
-        self.assertIn("treeFitCollapsed", tree_js)
-        self.assertIn("请再点拟合", tree_js)
-        self.assertIn("quant-tree-meta", tree_js)
-        self.assertIn('metaCell("拟合"', tree_js)
-        self.assertNotIn('metaCell("半衰期"', tree_js)
-        self.assertIn("quant-tree-lower", tree_js)
-        self.assertIn("quant-tree-tau-slot", tree_js)
-        self.assertIn("icDelta", tree_js)
-        self.assertIn("boost.cs_ic", tree_js)
-        self.assertIn("不写 live", tree_js)
-        self.assertIn("树略优于 Ridge", tree_js)
-        self.assertNotIn("浅树略优于 Ridge", tree_js)
-        self.assertIn("回测选 Tree", tree_js)
-        self.assertIn("路径形状", tree_js)
-        self.assertIn("分 τ 命中", tree_js)
-        self.assertIn('kpiCard("AUC"', tree_js)
-        self.assertIn('label: "acc@0.5"', tree_js)
+        self.assertNotIn("tree_report.js", js)
         self.assertNotIn("quant-tc-tree-run", panel)
         self.assertNotIn("quant-tc-tree-result", panel)
         self.assertNotIn("quant-section-r-tree", panel)
@@ -2927,53 +2907,21 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("stopTcTreeBusy", js)
         self.assertNotIn("tcTreeBusyHint", js)
         self.assertNotIn("组 close/price(τ) 面板", js)
-        self.assertIn("拉观察池行情 / 5m 缓存", js)
         self.assertNotIn("quant-tc-tree-persist", panel)
-        self.assertIn("quant-t30-tree-run", panel)
-        self.assertIn("quant-t30-tree-result", panel)
-        self.assertIn("quant-section-t30-tree", panel)
-        self.assertIn("/api/quant/t30-tree", js)
-        self.assertIn("runT30Tree", js)
-        self.assertIn("renderT30TreeCompare", js)
-        self.assertIn("startT30TreeBusy", js)
-        self.assertIn("stopT30TreeBusy", js)
-        self.assertIn("t30TreeBusyHint", js)
-        self.assertIn("组 mean(price(τ⊕25/30/35))/price(τ) 面板", js)
-        self.assertNotIn("quant-t30-tree-persist", panel)
-        self.assertIn("quant-t60-tree-run", panel)
-        self.assertIn("quant-t60-tree-result", panel)
-        self.assertIn("quant-section-t60-tree", panel)
-        self.assertIn("/api/quant/t60-tree", js)
-        self.assertIn("runT60Tree", js)
-        self.assertIn("renderT60TreeCompare", js)
-        self.assertIn("startT60TreeBusy", js)
-        self.assertIn("stopT60TreeBusy", js)
-        self.assertIn("t60TreeBusyHint", js)
-        self.assertIn("组 mean(price(τ⊕55/60/65))/price(τ) 面板", js)
-        self.assertNotIn("quant-t60-tree-persist", panel)
-        self.assertIn("quant-t45-tree-run", panel)
-        self.assertIn("quant-t45-tree-result", panel)
-        self.assertIn("quant-section-t45-tree", panel)
-        self.assertIn("/api/quant/t45-tree", js)
-        self.assertIn("runT45Tree", js)
-        self.assertIn("renderT45TreeCompare", js)
-        self.assertIn("startT45TreeBusy", js)
-        self.assertIn("stopT45TreeBusy", js)
-        self.assertIn("t45TreeBusyHint", js)
-        self.assertIn("组 mean(price(τ⊕40/45/50))/price(τ) 面板", js)
-        self.assertNotIn("quant-t45-tree-persist", panel)
-        self.assertIn("quant-t75-tree-run", panel)
-        self.assertIn("quant-t75-tree-result", panel)
-        self.assertIn("quant-section-t75-tree", panel)
-        self.assertIn("/api/quant/t75-tree", js)
-        self.assertIn("runT75Tree", js)
-        self.assertIn("renderT75TreeCompare", js)
-        self.assertIn("startT75TreeBusy", js)
-        self.assertIn("stopT75TreeBusy", js)
-        self.assertIn("t75TreeBusyHint", js)
-        self.assertIn("组 mean(price(τ⊕70/75/80))/price(τ) 面板", js)
-        self.assertNotIn("quant-t75-tree-persist", panel)
-        self.assertIn("组 mean(price(τ⊕85/90/95))/price(τ) 面板", js)
+        # ŷ_τ*_tree 独立卡已移除；双训进主卡
+        for n in (30, 45, 60, 75, 90):
+            self.assertNotIn(f"quant-t{n}-tree-run", panel)
+            self.assertNotIn(f"quant-t{n}-tree-result", panel)
+            self.assertNotIn(f"quant-section-t{n}-tree", panel)
+            self.assertNotIn(f"/api/quant/t{n}-tree", js)
+            self.assertNotIn(f"runT{n}Tree", js)
+            self.assertNotIn(f"renderT{n}TreeCompare", js)
+            self.assertNotIn(f"startT{n}TreeBusy", js)
+            self.assertNotIn(f"stopT{n}TreeBusy", js)
+            self.assertNotIn(f"t{n}TreeBusyHint", js)
+            self.assertNotIn(f"quant-t{n}-tree-persist", panel)
+        self.assertIn("renderHorizonOosCompare", js)
+        self.assertIn("Holdout AUC", js)
         self.assertIn("quant-t45-ridge-persist-research", panel)
         self.assertIn("quant-t75-ridge-persist-research", panel)
         self.assertNotIn("quant-tc-ridge-persist-research", panel)
@@ -3250,18 +3198,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
                 panel,
                 rf'id="{sid}"[^>]*quant-section-secondary',
             )
-        # 树 / 表达式：次要折叠（quant-secondary-fold）；τ*_tree 已并入主卡，可带 hidden
-        for sid in (
-            "quant-section-t30-tree",
-            "quant-section-t45-tree",
-            "quant-section-t60-tree",
-            "quant-section-t75-tree",
-            "quant-section-t90-tree",
-            "quant-section-expr",
-        ):
+        # 表达式：次要折叠；τ*_tree 独立卡已删除
+        for sid in ("quant-section-expr",):
             self.assertRegex(
                 panel,
-                rf'(?:hidden\s+)?class="dashboard-section quant-section quant-section-secondary" id="{sid}"',
+                rf'class="dashboard-section quant-section quant-section-secondary" id="{sid}"',
             )
             self.assertRegex(
                 panel,
@@ -3274,10 +3215,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t75-tree",
             "quant-section-t90-tree",
         ):
-            self.assertRegex(
-                panel,
-                rf'<section\s+hidden\b[^>]*id="{sid}"',
-            )
+            self.assertNotIn(f'id="{sid}"', panel)
         for sid in (
             "quant-section-factors",
             "quant-section-tau",
@@ -3312,11 +3250,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
-            "quant-section-t30-tree",
-            "quant-section-t45-tree",
-            "quant-section-t60-tree",
-            "quant-section-t75-tree",
-            "quant-section-t90-tree",
         ]
         idxs = [panel.find(f'id="{sid}"') for sid in order]
         self.assertTrue(all(i >= 0 for i in idxs), idxs)

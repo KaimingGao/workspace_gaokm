@@ -1312,7 +1312,7 @@ score_stock(code) 续——
 | 回测 / live | 加载已启用模型（读包内 `backend`）；挂 `y_τ{N}` + `y_τ{N}_source`。回测「ŷ_τ*对照」强制 Tree：优先独立 `*_tree_model.json`，否则读启用套 `backends.tree`（不再镜像写树包） |
 | OOS | **AUC** / **Brier** / acc@0.5 / IC；Tree vs Ridge 同窗对照；晋级闸看胜出侧（AUC≥0.52 或 acc≥0.52，n≥80） |
 
-实现：`core/research/horizon_ridge.py`（`fit_horizon_dual_report` / `select_horizon_backend`）· `horizon_tree.py` · `horizon_lgb.py`。独立 `t{N}-tree` API 仅兼容只读。
+实现：`core/research/horizon_ridge.py`（`fit_horizon_dual_report` / `select_horizon_backend`）· `horizon_tree.py` · `horizon_lgb.py`。研究枢纽无独立 tree 卡；遗留 `POST /api/quant/t{N}-tree` 仍可单独拟合。
 
 ### 4.4 双层完整调用链
 

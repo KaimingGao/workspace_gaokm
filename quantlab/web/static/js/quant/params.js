@@ -15,11 +15,6 @@ const FIT_PARAM_HEADS = [
   "t60",
   "t75",
   "t90",
-  "t30_tree",
-  "t45_tree",
-  "t60_tree",
-  "t75_tree",
-  "t90_tree",
   "oo_rank",
   "tc_rank",
 ];

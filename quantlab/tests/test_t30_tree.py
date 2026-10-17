@@ -1,4 +1,4 @@
-"""ŷ_τ30 树对照：同 Holdout vs Ridge；不进 live。"""
+"""ŷ_τ30 树对照：同 Holdout vs Ridge；遗留 standalone；正式双训见主卡。"""
 
 from __future__ import annotations
 
