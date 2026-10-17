@@ -822,6 +822,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("ŷ_τ90_tree", panel)
         self.assertNotIn("quant-section-t90-tree", panel)
         self.assertNotIn("/api/quant/t90-tree", quant_js)
+        # 实验筛选不再挂独立 t*_tree；standalone tree API 已下线
+        self.assertNotIn('value="t30_tree"', panel)
+        self.assertNotIn('value="t45_tree"', panel)
+        self.assertNotIn('value="t60_tree"', panel)
+        self.assertNotIn('value="t75_tree"', panel)
+        self.assertNotIn('value="t90_tree"', panel)
         self.assertNotIn("tpd_lag1", panel)
         self.assertNotIn("tpd_ma5", panel)
         self.assertNotIn("complexity_tpd_lag1", panel)
@@ -1157,10 +1163,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertNotIn('id="quant-score-backend"', replay)
         self.assertNotIn(">ŷ头</span>", replay)
-        # 调仓 ŷ头 Tree 已下线；做 T ŷ_τ*对照为遗留强制 Tree 包开关
+        # 调仓 ŷ头 Tree 已下线；做 T ŷ_τ*对照强制读 backends.tree
         self.assertIn('id="paper-t0-horizon-prob-backend"', replay)
         hz = replay[replay.find('id="paper-t0-horizon-prob-backend"') :]
-        self.assertIn('option value="tree">强制 Tree 包</option>', hz)
+        self.assertIn('option value="tree">强制 Tree</option>', hz)
         self.assertIn('option value="ridge" selected>跟启用套</option>', hz)
         self.assertNotIn('option value="rank">Rank</option>', replay)
         self.assertNotIn("仅供回测透传对照", quant_js)

@@ -1189,13 +1189,12 @@ def _predict_horizon_hat(
     *,
     load_ridge,
     predict_ridge,
-    load_tree,
     predict_tree,
 ) -> tuple:
     """返回 (p_up, model_doc, source)。
 
     正式路径：读启用槽包内 ``backend``（AUC 择优落盘）。
-    过渡：``horizon_prob_backend=tree`` 仍可强制走独立 tree 包（旧回测对照）。
+    对照：``horizon_prob_backend=tree`` 强制读启用套 ``backends.tree``（或包顶 ``backend=tree``）。
     """
     from core.research.horizon_ridge import _doc_backend
     from core.research.horizon_tree import (
@@ -1204,18 +1203,6 @@ def _predict_horizon_hat(
     )
 
     if current_horizon_prob_backend() == HORIZON_PROB_BACKEND_TREE:
-        try:
-            tree_doc = load_tree()
-        except Exception:  # noqa: BLE001
-            tree_doc = None
-        if tree_doc is not None:
-            try:
-                y_hat = predict_tree(feats, model_doc=tree_doc)
-            except Exception:  # noqa: BLE001
-                y_hat = None
-            if y_hat is not None:
-                return float(y_hat), tree_doc, "tree"
-        # 无独立 tree 包：启用槽 backend=tree，或 backends.tree 影子包
         try:
             pack = load_ridge()
         except Exception:  # noqa: BLE001
@@ -1318,10 +1305,7 @@ def _attach_y_t30_to_item(
             predict_ridge_from_features,
             write_y_hat,
         )
-        from core.research.horizon_tree import (
-            load_tree_model_doc,
-            predict_tree_from_features,
-        )
+        from core.research.horizon_tree import predict_tree_from_features
         from core.research.tau_panel import (
             T30_SEQ_FEATURES,
             attach_t30_lag_features,
@@ -1378,7 +1362,6 @@ def _attach_y_t30_to_item(
             predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
                 "t30", feats, model_doc=model_doc
             ),
-            load_tree=lambda: load_tree_model_doc("t30"),
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t30", feats, model_doc=model_doc
             ),
@@ -1433,10 +1416,7 @@ def _attach_y_t45_to_item(
             predict_ridge_from_features,
             write_y_hat,
         )
-        from core.research.horizon_tree import (
-            load_tree_model_doc,
-            predict_tree_from_features,
-        )
+        from core.research.horizon_tree import predict_tree_from_features
         from core.research.tau_panel import (
             T45_SEQ_FEATURES,
             attach_t45_lag_features,
@@ -1493,7 +1473,6 @@ def _attach_y_t45_to_item(
             predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
                 "t45", feats, model_doc=model_doc
             ),
-            load_tree=lambda: load_tree_model_doc("t45"),
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t45", feats, model_doc=model_doc
             ),
@@ -1548,10 +1527,7 @@ def _attach_y_t60_to_item(
             predict_ridge_from_features,
             write_y_hat,
         )
-        from core.research.horizon_tree import (
-            load_tree_model_doc,
-            predict_tree_from_features,
-        )
+        from core.research.horizon_tree import predict_tree_from_features
         from core.research.tau_panel import (
             T60_SEQ_FEATURES,
             attach_t60_lag_features,
@@ -1608,7 +1584,6 @@ def _attach_y_t60_to_item(
             predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
                 "t60", feats, model_doc=model_doc
             ),
-            load_tree=lambda: load_tree_model_doc("t60"),
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t60", feats, model_doc=model_doc
             ),
@@ -1663,10 +1638,7 @@ def _attach_y_t75_to_item(
             predict_ridge_from_features,
             write_y_hat,
         )
-        from core.research.horizon_tree import (
-            load_tree_model_doc,
-            predict_tree_from_features,
-        )
+        from core.research.horizon_tree import predict_tree_from_features
         from core.research.tau_panel import (
             T75_SEQ_FEATURES,
             attach_t75_lag_features,
@@ -1723,7 +1695,6 @@ def _attach_y_t75_to_item(
             predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
                 "t75", feats, model_doc=model_doc
             ),
-            load_tree=lambda: load_tree_model_doc("t75"),
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t75", feats, model_doc=model_doc
             ),
@@ -1778,10 +1749,7 @@ def _attach_y_t90_to_item(
             predict_ridge_from_features,
             write_y_hat,
         )
-        from core.research.horizon_tree import (
-            load_tree_model_doc,
-            predict_tree_from_features,
-        )
+        from core.research.horizon_tree import predict_tree_from_features
         from core.research.tau_panel import (
             T90_SEQ_FEATURES,
             attach_t90_lag_features,
@@ -1838,7 +1806,6 @@ def _attach_y_t90_to_item(
             predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
                 "t90", feats, model_doc=model_doc
             ),
-            load_tree=lambda: load_tree_model_doc("t90"),
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t90", feats, model_doc=model_doc
             ),

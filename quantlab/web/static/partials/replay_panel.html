@@ -329,12 +329,12 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-horizon-backend-field"
-          title="正式路径跟启用套包内 backend（研究枢纽 AUC 择优）。本开关为遗留对照：选「强制 Tree 包」时优先独立 *_tree_model.json，否则读启用套 backends.tree。仅影响 ŷ_τw 投票，不改 ŷ_τc / C_τ。"
+          title="正式路径跟启用套包内 backend（研究枢纽 AUC 择优）。本开关为对照：选「强制 Tree」时读启用套 backends.tree（或包顶 backend=tree）。仅影响 ŷ_τw 投票，不改 ŷ_τc / C_τ。"
         >
           <span class="quant-pro-field-label">ŷ_τ*对照</span>
           <select id="paper-t0-horizon-prob-backend" name="horizon_prob_backend" form="paper-t0-form">
             <option value="ridge" selected>跟启用套</option>
-            <option value="tree">强制 Tree 包</option>
+            <option value="tree">强制 Tree</option>
           </select>
         </label>
         <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行槽（与手动预演同一套）。选研究则用研究槽版本。规则读下方表单。缺该日5m则跳过。">跑回测</button>

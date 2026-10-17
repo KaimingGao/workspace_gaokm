@@ -50,40 +50,46 @@ class TestHorizonTree(unittest.TestCase):
         cfg2 = load_t0_rules({})
         self.assertEqual(cfg2.get("horizon_prob_backend"), "ridge")
 
-    def test_predict_horizon_hat_prefers_tree(self):
+    def test_predict_horizon_hat_force_tree_uses_backends_tree(self):
+        """强制 Tree：读启用套 backends.tree，不再走独立 tree 包。"""
         from core.research.horizon_tree import horizon_prob_backend_context
         from core.t0.score_policy import _predict_horizon_hat
 
         def load_ridge():
-            return {"return_model": {"intercept": 0.0, "coefficients": {}}}
+            return {
+                "backend": "ridge",
+                "return_model": {"coefficients": {"a": 1.0}},
+                "backends": {
+                    "ridge": {"return_model": {"coefficients": {"a": 1.0}}},
+                    "tree": {
+                        "return_model": {"feature_names": ["gap_pct"], "booster": {}}
+                    },
+                },
+            }
 
         def predict_ridge(feats, model_doc=None):
             return 0.41
-
-        def load_tree():
-            return {"return_model": {"feature_names": ["gap_pct"]}}
 
         def predict_tree(feats, model_doc=None):
             return 0.62
 
         with horizon_prob_backend_context("tree"):
-            y, _doc, src = _predict_horizon_hat(
+            y, doc, src = _predict_horizon_hat(
                 "t30",
                 {"gap_pct": 1.0},
                 load_ridge=load_ridge,
                 predict_ridge=predict_ridge,
-                load_tree=load_tree,
                 predict_tree=predict_tree,
             )
         self.assertAlmostEqual(float(y), 0.62)
         self.assertEqual(src, "tree")
+        self.assertEqual((doc or {}).get("backend"), "tree")
 
         y2, _doc2, src2 = _predict_horizon_hat(
             "t30",
             {"gap_pct": 1.0},
             load_ridge=load_ridge,
             predict_ridge=predict_ridge,
-            load_tree=load_tree,
             predict_tree=predict_tree,
         )
         self.assertAlmostEqual(float(y2), 0.41)
@@ -103,9 +109,6 @@ class TestHorizonTree(unittest.TestCase):
             # 真实路径里 predict_ridge_from_features 会按 backend 分发
             return 0.71
 
-        def load_tree():
-            return None
-
         def predict_tree(feats, model_doc=None):
             return 0.11
 
@@ -114,49 +117,9 @@ class TestHorizonTree(unittest.TestCase):
             {"gap_pct": 1.0},
             load_ridge=load_ridge,
             predict_ridge=predict_ridge,
-            load_tree=load_tree,
             predict_tree=predict_tree,
         )
         self.assertAlmostEqual(float(y), 0.71)
-        self.assertEqual(src, "tree")
-        self.assertEqual((doc or {}).get("backend"), "tree")
-
-    def test_force_tree_reads_backends_tree_shadow(self):
-        """强制 Tree 对照：无独立 tree 包时读启用套 backends.tree。"""
-        from core.research.horizon_tree import horizon_prob_backend_context
-        from core.t0.score_policy import _predict_horizon_hat
-
-        def load_ridge():
-            return {
-                "backend": "ridge",
-                "return_model": {"coefficients": {"a": 1.0}},
-                "backends": {
-                    "ridge": {"return_model": {"coefficients": {"a": 1.0}}},
-                    "tree": {
-                        "return_model": {"feature_names": ["gap_pct"], "booster": {}}
-                    },
-                },
-            }
-
-        def predict_ridge(feats, model_doc=None):
-            return 0.41
-
-        def load_tree():
-            return None
-
-        def predict_tree(feats, model_doc=None):
-            return 0.66
-
-        with horizon_prob_backend_context("tree"):
-            y, doc, src = _predict_horizon_hat(
-                "t30",
-                {"gap_pct": 1.0},
-                load_ridge=load_ridge,
-                predict_ridge=predict_ridge,
-                load_tree=load_tree,
-                predict_tree=predict_tree,
-            )
-        self.assertAlmostEqual(float(y), 0.66)
         self.assertEqual(src, "tree")
         self.assertEqual((doc or {}).get("backend"), "tree")
 

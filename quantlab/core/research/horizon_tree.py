@@ -1,8 +1,7 @@
-"""ŷ_τ* 树头内核：LightGBM → p_up，供主卡双训与遗留 standalone API。
+"""ŷ_τ* 树头内核：LightGBM → p_up，供主卡双训（``backends.tree``）。
 
-正式路径：``fit_horizon_dual_report`` → 启用套包内 ``backend``。
-遗留：``POST /api/quant/t{{N}}-tree`` 可单独拟合并写 ``*_tree_model.json``；
-回测「ŷ_τ*对照」强制 Tree 时优先读该包，否则读启用套 ``backends.tree``。
+正式路径：``fit_horizon_dual_report`` → 启用套包内 ``backend`` / ``backends``。
+回测「ŷ_τ*对照」强制 Tree 时读启用套 ``backends.tree``（或包顶 ``backend=tree``）。
 """
 
 from __future__ import annotations
