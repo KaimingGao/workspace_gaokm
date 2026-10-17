@@ -676,6 +676,13 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
           <label
             class="quant-inline-check"
+            title="勾选：截面 z、拟合与预测都只用观察池∩枢纽 A 档（须先跑「观察池分档」）。不勾选：整观察池。主头 ŷ_oo/τc/co 不受影响。落盘进模型后回测/live 跟模型。"
+          >
+            <input id="quant-fit-z-univ-a-oo_rank" type="checkbox" />
+            <span>宇宙 A 档</span>
+          </label>
+          <label
+            class="quant-inline-check"
             title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"
           >
             <input id="quant-fit-cs-z-oo_rank" type="checkbox" checked />
@@ -728,6 +735,13 @@
           <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
+          <label
+            class="quant-inline-check"
+            title="勾选：截面 z、拟合与预测都只用观察池∩枢纽 A 档（须先跑「观察池分档」）。不勾选：整观察池。主头 ŷ_oo/τc/co 不受影响。落盘进模型后回测/live 跟模型。"
+          >
+            <input id="quant-fit-z-univ-a-tc_rank" type="checkbox" />
+            <span>宇宙 A 档</span>
+          </label>
           <label
             class="quant-inline-check"
             title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"

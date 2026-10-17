@@ -177,7 +177,8 @@ def backtest_paper_replay(
 
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank。
-    ``tradable_codes`` 给定时，截面 z 仍用整池特征，ŷ 与名次只写这份名单（分档内）。
+    ``tradable_codes`` 给定时：主头截面 z 仍用整池；ŷ 与名次只写这份名单（分档内）。
+    排序头若模型 ``zscore_universe=tier_a``，则先缩 A 再算 z 与名次（可再 ∩ 该名单）。
     ``oo_rank_max`` 开则入场另须 max(y_oo_rank, y_τc_rank) < max（两侧都缺不拦）；否则可读旧 ``oo_rank_top_frac``。
     """
     from core.research.holdout import (

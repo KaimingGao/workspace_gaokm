@@ -95,5 +95,38 @@ class TestFeatureZscore(unittest.TestCase):
         self.assertEqual(stamped.get("zscore_means"), {})
 
 
+class TestZscoreUniverse(unittest.TestCase):
+    def test_normalize_aliases(self):
+        from core.research.feature_standardize import (
+            ZSCORE_UNIVERSE_POOL,
+            ZSCORE_UNIVERSE_TIER_A,
+            normalize_zscore_universe,
+        )
+
+        self.assertEqual(normalize_zscore_universe(None), ZSCORE_UNIVERSE_POOL)
+        self.assertEqual(normalize_zscore_universe("day_panel"), ZSCORE_UNIVERSE_POOL)
+        self.assertEqual(normalize_zscore_universe("watching"), ZSCORE_UNIVERSE_POOL)
+        self.assertEqual(normalize_zscore_universe("tier_a"), ZSCORE_UNIVERSE_TIER_A)
+        self.assertEqual(normalize_zscore_universe("A"), ZSCORE_UNIVERSE_TIER_A)
+
+    def test_stamp_and_detect(self):
+        from core.research.feature_standardize import (
+            is_tier_a_zscore_universe,
+            stamp_zscore_universe,
+        )
+
+        doc: dict = {}
+        stamp_zscore_universe(doc, "tier_a", tier_codes=["600519", "000001"])
+        self.assertEqual(doc["zscore_universe"], "tier_a")
+        self.assertEqual(doc["zscore_universe_tiers"], ["A"])
+        self.assertEqual(doc["tier_codes"], ["000001", "600519"])
+        self.assertTrue(is_tier_a_zscore_universe(doc))
+        self.assertTrue(is_tier_a_zscore_universe({"return_model": doc}))
+        stamp_zscore_universe(doc, "pool")
+        self.assertEqual(doc["zscore_universe"], "pool")
+        self.assertNotIn("zscore_universe_tiers", doc)
+        self.assertFalse(is_tier_a_zscore_universe(doc))
+
+
 if __name__ == "__main__":
     unittest.main()

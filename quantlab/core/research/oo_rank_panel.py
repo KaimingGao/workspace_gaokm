@@ -370,14 +370,26 @@ def stack_day_panels(
     return xs, ys, dates, codes
 
 
-def resolve_oo_rank_universe() -> Dict[str, Any]:
-    """ŷ_oo_rank 代码名单：整观察池。截面 z 与损失用同一批票。
+def resolve_oo_rank_universe(
+    *,
+    zscore_universe: str = "pool",
+) -> Dict[str, Any]:
+    """ŷ_oo_rank / ŷ_τc_rank 代码名单。
 
+    ``zscore_universe=pool``：整观察池（默认）。
+    ``zscore_universe=tier_a``：观察池 ∩ 枢纽 A 档；截面 z / 损失 / 名次同一批票。
     此处不截断（调用方再按 watching_limit 截）。
     """
+    import hashlib
+
+    from core.research.feature_standardize import (
+        ZSCORE_UNIVERSE_TIER_A,
+        normalize_zscore_universe,
+    )
     from core.research_universe import resolve_model_fit_codes
     from core.watching.store import MODEL_FIT_MAX_SIZE
 
+    uni = normalize_zscore_universe(zscore_universe)
     resolved = resolve_model_fit_codes(watching_limit=MODEL_FIT_MAX_SIZE)
     pool_n = int(resolved.get("watching_pool_size") or 0)
     if not resolved.get("ok", True):
@@ -387,14 +399,59 @@ def resolve_oo_rank_universe() -> Dict[str, Any]:
             "codes": [],
             "universe_source": resolved.get("source") or "watching",
             "watching_pool_size": pool_n,
+            "zscore_universe": uni,
         }
-    codes = list(resolved.get("codes") or [])
-    return {
+    codes = [str(c).strip() for c in (resolved.get("codes") or []) if str(c or "").strip()]
+    out: Dict[str, Any] = {
         "success": True,
         "codes": codes,
         "universe_source": resolved.get("source") or "watching",
         "watching_pool_size": pool_n or len(codes),
+        "zscore_universe": uni,
     }
+    if uni != ZSCORE_UNIVERSE_TIER_A:
+        return out
+
+    from core.research.predictability_tiers import (
+        load_predictability_tiers_last,
+        tier_code_set,
+    )
+
+    tier_rep = load_predictability_tiers_last()
+    if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
+        return {
+            "success": False,
+            "error": "无枢纽分档报告；勾选「宇宙 A 档」前请先跑「观察池分档」",
+            "codes": [],
+            "universe_source": "watching∩tier_a",
+            "watching_pool_size": pool_n,
+            "zscore_universe": ZSCORE_UNIVERSE_TIER_A,
+        }
+    keep = tier_code_set(tier_rep, ["A"])
+    filtered = [c for c in codes if c in keep]
+    fp = hashlib.sha1(",".join(sorted(keep)).encode("utf-8")).hexdigest()[:12]
+    out.update(
+        {
+            "codes": filtered,
+            "universe_source": "watching∩tier_a",
+            "zscore_universe": ZSCORE_UNIVERSE_TIER_A,
+            "tier_codes": sorted(keep),
+            "n_tier_codes": len(keep),
+            "n_codes": len(filtered),
+            "tier_fingerprint": fp,
+            "tier_as_of_last": tier_rep.get("as_of_tier_last"),
+            "holdout_n": tier_rep.get("holdout_n"),
+            "tier_n": tier_rep.get("tier_n"),
+            "tier_counts": tier_rep.get("counts"),
+        }
+    )
+    if len(filtered) < 8:
+        out["success"] = False
+        out["error"] = (
+            f"A 档与观察池交集不足 8 只（当前 {len(filtered)}；"
+            f"枢纽 A={(tier_rep.get('counts') or {}).get('A', 0)}）"
+        )
+    return out
 
 
 __all__ = [

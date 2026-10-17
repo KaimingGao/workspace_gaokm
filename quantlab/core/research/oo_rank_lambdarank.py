@@ -390,6 +390,22 @@ def persist_oo_rank_model(
         "promoted_at": promoted_at,
         "model_role": MODEL_ROLE_RESEARCH,
     }
+    for k in (
+        "zscore_universe",
+        "zscore_universe_tiers",
+        "tier_codes",
+        "n_tier_codes",
+        "tier_fingerprint",
+        "tier_as_of_last",
+        "holdout_n",
+        "tier_n",
+        "cross_section_zscore",
+    ):
+        if k in report and report.get(k) is not None:
+            doc[k] = report.get(k)
+            model[k] = report.get(k)
+            if isinstance(doc.get("return_model_research"), dict):
+                doc["return_model_research"][k] = report.get(k)
     backends = report.get("backends")
     if isinstance(backends, dict) and backends:
         doc["backends"] = backends
@@ -1175,14 +1191,17 @@ def apply_oo_rank_scores(
 ) -> List[dict]:
     """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 y_oo_fuse；过入场后作买序。
 
-    特征按本次 items 的当天截面 z-score（与训练同口径）。
-    ``score_codes`` 给定时，μ/σ 仍用整批，只给名单内的代码出相对分和名次。
+    特征按当天截面 z-score（与训练同口径）。
+    ``zscore_universe=pool``（默认）：μ/σ 用整批 items；``score_codes`` 只限制写分/名次。
+    ``zscore_universe=tier_a``：先缩到 A（模型 ``tier_codes`` ∩ ``score_codes``）再算 μ/σ 与名次。
     默认 ``assign_day_ranks=True``：对有相对分的票编 1..n 名次（1=最高分）。
     同时写入 ``formula_terms_oo_rank`` 供成交明细 oo_rank tip。
     """
     from core.research.feature_standardize import (
         cross_section_zscore_dicts,
         is_cross_section_zscore,
+        is_tier_a_zscore_universe,
+        normalize_score_codes,
     )
 
     doc = model_doc
@@ -1190,15 +1209,33 @@ def apply_oo_rank_scores(
         doc = load_oo_rank_model(prefer_research=True)
     model = _resolve_oo_rank_fit(model_doc=doc, fit=fit)
 
-    from core.research.feature_standardize import normalize_score_codes
     from core.signal.factors.z_oo import stamp_z_oo_aliases
 
     allow = normalize_score_codes(score_codes)
+    tier_a = is_tier_a_zscore_universe(model, doc, fit)
+    if tier_a:
+        model_codes = normalize_score_codes(
+            (model or {}).get("tier_codes")
+            if isinstance(model, dict)
+            else None
+        )
+        if model_codes is None and isinstance(doc, dict):
+            model_codes = normalize_score_codes(doc.get("tier_codes"))
+        if model_codes is not None:
+            allow = model_codes if allow is None else (allow & model_codes)
+        if allow is None:
+            return list(items)
+
     out = list(items)
     raw_rows: List[dict] = []
     slots: List[int] = []
     for i, it in enumerate(out):
         if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        if tier_a and allow is not None and code not in allow:
+            for key in _OO_RANK_DROP:
+                it.pop(key, None)
             continue
         subs = it.get("sub_scores") or it.get("sub_scores_raw")
         if not isinstance(subs, dict):
@@ -1210,7 +1247,7 @@ def apply_oo_rank_scores(
     keep: List[int] = []
     for j, slot in enumerate(slots):
         code = str(out[slot].get("stock_code") or "").strip()
-        if allow is not None and code not in allow:
+        if (not tier_a) and allow is not None and code not in allow:
             for key in _OO_RANK_DROP:
                 out[slot].pop(key, None)
             continue
@@ -1221,6 +1258,7 @@ def apply_oo_rank_scores(
         names = list((model or {}).get("active_features") or (model or {}).get("coefficients") or [])
         if not names:
             names = list(raw_rows[0].keys())
+        # tier_a 时 raw_rows 已是 A；pool 时整批算 μ/σ，再只对 keep 写分
         feat_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in names])
         pred_rows = [feat_rows[j] for j in keep]
         pred_hats = _predict_oo_rank_rows(model, pred_rows, impute_missing=True) if pred_rows else []
@@ -1727,7 +1765,7 @@ def fit_oo_rank_report(
         "return_model_research": research_model,
         "y_spec": y_spec,
         "cross_section_zscore": use_cs,
-        "zscore_universe": "day_panel",
+        "zscore_universe": "pool",
         "note": (
             f"ŷ_oo_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
@@ -1809,6 +1847,48 @@ def compare_oo_rank_shadow_track(
     }
 
 
+def stamp_rank_zscore_universe_meta(
+    report: Dict[str, Any],
+    *,
+    zscore_universe: str = "pool",
+    tier_codes: Optional[Sequence[str]] = None,
+    tier_meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """把截面宇宙写进报告与各 backend 的 return_model（训推同口径）。"""
+    from core.research.feature_standardize import stamp_zscore_universe
+
+    if not isinstance(report, dict):
+        return report
+    stamp_zscore_universe(
+        report,
+        zscore_universe,
+        tier_codes=tier_codes,
+        tier_meta=tier_meta,
+    )
+    targets: List[dict] = []
+    for key in ("return_model", "return_model_research"):
+        m = report.get(key)
+        if isinstance(m, dict):
+            targets.append(m)
+    backends = report.get("backends")
+    if isinstance(backends, dict):
+        for pack in backends.values():
+            if not isinstance(pack, dict):
+                continue
+            for key in ("return_model", "return_model_research"):
+                m = pack.get(key)
+                if isinstance(m, dict):
+                    targets.append(m)
+    for m in targets:
+        stamp_zscore_universe(
+            m,
+            zscore_universe,
+            tier_codes=tier_codes,
+            tier_meta=tier_meta,
+        )
+    return report
+
+
 __all__ = [
     "DEFAULT_HOLDOUT_TRADING_DAYS_OO_RANK",
     "DEFAULT_NDCG_K",
@@ -1821,6 +1901,7 @@ __all__ = [
     "Y_OO_RANK_HAT_KEYS",
     "Y_OO_RANK_LABEL_KEYS",
     "apply_oo_rank_scores",
+    "stamp_rank_zscore_universe_meta",
     "assign_oo_rank_day_ranks",
     "compare_oo_rank_shadow_track",
     "explain_oo_rank_prediction",

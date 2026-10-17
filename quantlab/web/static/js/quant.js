@@ -113,6 +113,7 @@ export function initQuant(ctx) {
     readFitLookbackDays,
     hydrateFitLookbackDays,
     readCrossSectionFitParams,
+    readRankZUniverseFitParams,
     formatCrossSectionZBit,
     hydrateCrossSectionZParams,
     readTauEndFitParams,
@@ -513,10 +514,13 @@ export function initQuant(ctx) {
         message = "";
       }
     }
-    const tauEndBit =
-      typeof formatTauEndBit === "function" ? formatTauEndBit(src) : "";
-    if (tauEndBit && !String(message || "").includes(tauEndBit)) {
-      message = message ? `${tauEndBit} · ${message}` : tauEndBit;
+    // ŷ_τc 卡保留前缀摘要；oo_rank / tc_rank 等排序头不拼「0前缀·OC」
+    if (!extra.omitTauEndBit) {
+      const tauEndBit =
+        typeof formatTauEndBit === "function" ? formatTauEndBit(src) : "";
+      if (tauEndBit && !String(message || "").includes(tauEndBit)) {
+        message = message ? `${tauEndBit} · ${message}` : tauEndBit;
+      }
     }
     const csZBit =
       typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(src) : "";
@@ -780,6 +784,7 @@ export function initQuant(ctx) {
       persistOk: !!extra.persistOk,
       persistRole: extra.persistRole || "",
       justFitted: !!extra.justFitted,
+      omitTauEndBit: true,
       message,
       messageHtml,
       idleMessage: desk.idleMessage,
@@ -3129,6 +3134,7 @@ export function initQuant(ctx) {
           persist_role: persistRole || "live",
           backend: "auto",
           ...readCrossSectionFitParams("oo_rank"),
+          ...readRankZUniverseFitParams("oo_rank"),
           note: persist ? `ui oo_rank promote ${persistRole} auto` : "",
         }),
       });
@@ -3212,6 +3218,7 @@ export function initQuant(ctx) {
           persist_role: persistRole || "live",
           backend: "auto",
           ...readCrossSectionFitParams("tc_rank"),
+          ...readRankZUniverseFitParams("tc_rank"),
           note: persist ? `ui tc_rank promote ${persistRole} auto` : "",
         }),
       });

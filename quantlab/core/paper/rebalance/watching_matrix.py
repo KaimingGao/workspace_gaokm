@@ -111,7 +111,8 @@ def _attach_oo_rank_scores(
 ) -> None:
     """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 y_oo_fuse；过入场后作买序。
 
-    ``score_codes`` 给定时，截面 z 用整批，名次只写允许档。
+    ``zscore_universe=pool``（默认）：截面 z 用整批；``score_codes`` 只限制写名次。
+    ``tier_a``：先缩到模型 A 名单再算 z 与名次（可再 ∩ ``score_codes``）。
     """
     try:
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores, load_oo_rank_model
@@ -131,7 +132,7 @@ def _attach_tc_rank_scores(
     *,
     score_codes: Optional[Collection[str]] = None,
 ) -> None:
-    """ŷ_τc_rank：有执行套模型则写入当日截面名次；缺则跳过。与回测同口径。"""
+    """ŷ_τc_rank：有执行套模型则写入当日截面名次；缺则跳过。宇宙语义同 oo_rank。"""
     try:
         from core.research.tc_rank import apply_tc_rank_scores, load_tc_rank_model
 

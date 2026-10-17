@@ -3034,6 +3034,22 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="quant-fit-cs-z-t75"', panel)
         self.assertIn('id="quant-fit-cs-z-t90"', panel)
         self.assertIn('id="quant-fit-cs-z-oo_rank"', panel)
+        self.assertIn('id="quant-fit-z-univ-a-oo_rank"', panel)
+        self.assertIn('id="quant-fit-z-univ-a-tc_rank"', panel)
+        self.assertIn("宇宙 A 档", panel)
+        self.assertLess(
+            panel.index('id="quant-fit-z-univ-a-oo_rank"'),
+            panel.index('id="quant-fit-cs-z-oo_rank"'),
+        )
+        self.assertLess(
+            panel.index('id="quant-fit-z-univ-a-tc_rank"'),
+            panel.index('id="quant-fit-cs-z-tc_rank"'),
+        )
+        self.assertIn("zscore_universe_tier_a", params_js)
+        self.assertIn("readRankZUniverseFitParams", params_js)
+        self.assertIn("readRankZUniverseTierA", params_js)
+        self.assertNotIn("readRankZUniverseTiersA", params_js)
+        self.assertIn("omitTauEndBit", js)
         self.assertNotIn('id="quant-fit-cs-z-oo_tree"', panel)
         self.assertNotIn('id="quant-fit-cs-z-tc_tree"', panel)
         self.assertNotIn('id="quant-fit-cs-z-co_tree"', panel)

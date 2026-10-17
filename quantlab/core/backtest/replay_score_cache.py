@@ -6,8 +6,9 @@
 
 ``run_key`` 只含代码集合 + 模型套内容指纹 + 窗长（**不含**日线 tip），
 避免新交易日写入后整库失效；每日文件另存 ``inputs_fp``（该日开盘信息集：
-昨收窗全量 bar 屑 + 今开），加载时校验。schema 4：bar 屑预计算 + 滑动窗，
-窗内任意一根变更都会 miss；模型文件按内容 hash（``mtime+size`` memo）。
+昨收窗全量 bar 屑 + 今开），加载时校验。schema 5：bar 屑预计算 + 滑动窗，
+窗内任意一根变更都会 miss；模型文件按内容 hash（``mtime+size`` memo）；
+排序头 ``zscore_universe=tier_a`` 与主头整池 z 同指纹链（落在 oo/tc_rank 模型内容里）。
 
 布局::
 
@@ -34,7 +35,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-REPLAY_SCORE_CACHE_SCHEMA = 4
+REPLAY_SCORE_CACHE_SCHEMA = 5
 _ENV_DISABLE = "QUANTLAB_REPLAY_SCORE_CACHE"
 _ENV_KEEP = "QUANTLAB_REPLAY_SCORE_CACHE_KEEP"
 _DEFAULT_KEEP_RUNS = 2

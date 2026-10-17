@@ -211,6 +211,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
+            zscore_universe_tier_a=bool(body.zscore_universe_tier_a),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -241,6 +242,7 @@ def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
+            zscore_universe_tier_a=bool(body.zscore_universe_tier_a),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

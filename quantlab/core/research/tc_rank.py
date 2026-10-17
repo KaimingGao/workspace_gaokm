@@ -412,7 +412,7 @@ def fit_tc_rank_report(
         "return_model_research": chosen_pack["return_model_research"],
         "y_spec": chosen_pack["y_spec"],
         "cross_section_zscore": use_cs,
-        "zscore_universe": "day_panel",
+        "zscore_universe": "pool",
         "note": (
             f"ŷ_τc_rank backend={chosen}（NDCG@K 推荐 {recommended}）；"
             "只训 Holdout 前一套；启用研究→研究槽；启用执行=研究槽晋级；"
@@ -519,6 +519,22 @@ def persist_tc_rank_model(
         "promoted_at": promoted_at,
         "model_role": MODEL_ROLE_RESEARCH,
     }
+    for k in (
+        "zscore_universe",
+        "zscore_universe_tiers",
+        "tier_codes",
+        "n_tier_codes",
+        "tier_fingerprint",
+        "tier_as_of_last",
+        "holdout_n",
+        "tier_n",
+        "cross_section_zscore",
+    ):
+        if k in report and report.get(k) is not None:
+            doc[k] = report.get(k)
+            model[k] = report.get(k)
+            if isinstance(doc.get("return_model_research"), dict):
+                doc["return_model_research"][k] = report.get(k)
     backends = report.get("backends")
     if isinstance(backends, dict) and backends:
         doc["backends"] = backends
@@ -571,12 +587,15 @@ def apply_tc_rank_scores(
     """就地写入 y_tc_rank 当日截面名次。不改 y_oo_fuse / y_oo_rank / 买序。
 
     特征取 ``features_tau``（z_τc_* ∪ raw_atc_*），与训练同口径做日截面 z。
-    ``score_codes`` 给定时，μ/σ 仍用整批，只给名单内的代码出相对分和名次。
+    ``zscore_universe=pool``：μ/σ 用整批；``score_codes`` 只限制写分。
+    ``zscore_universe=tier_a``：先缩到 A 再算 μ/σ 与名次。
     缺模型或缺特征的行跳过。
     """
     from core.research.feature_standardize import (
         cross_section_zscore_dicts,
         is_cross_section_zscore,
+        is_tier_a_zscore_universe,
+        normalize_score_codes,
     )
     from core.research.oo_rank_lambdarank import (
         _explain_oo_rank_lambdarank_rows,
@@ -587,18 +606,32 @@ def apply_tc_rank_scores(
         _predict_oo_rank_rows,
     )
 
-    from core.research.feature_standardize import normalize_score_codes
-
     allow = normalize_score_codes(score_codes)
     model = _resolve_tc_rank_fit(model_doc)
     out = list(items or [])
     if model is None:
         return out
+    tier_a = is_tier_a_zscore_universe(model, model_doc)
+    if tier_a:
+        model_codes = normalize_score_codes(
+            model.get("tier_codes") if isinstance(model, dict) else None
+        )
+        if model_codes is None and isinstance(model_doc, dict):
+            model_codes = normalize_score_codes(model_doc.get("tier_codes"))
+        if model_codes is not None:
+            allow = model_codes if allow is None else (allow & model_codes)
+        if allow is None:
+            return out
     names = _oo_rank_feature_names(model)
     raw_rows: List[dict] = []
     slots: List[int] = []
     for i, it in enumerate(out):
         if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        if tier_a and allow is not None and code not in allow:
+            for key in _TC_RANK_DROP:
+                it.pop(key, None)
             continue
         feats = it.get("features_tau")
         if not isinstance(feats, dict) or not feats:
@@ -610,7 +643,7 @@ def apply_tc_rank_scores(
     keep: List[int] = []
     for j, slot in enumerate(slots):
         code = str(out[slot].get("stock_code") or "").strip()
-        if allow is not None and code not in allow:
+        if (not tier_a) and allow is not None and code not in allow:
             for key in _TC_RANK_DROP:
                 out[slot].pop(key, None)
             continue

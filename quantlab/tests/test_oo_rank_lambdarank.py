@@ -432,6 +432,7 @@ class TestOoRankFit(unittest.TestCase):
             "coefficients": {"mom3": 1.0},
             "feature_zscore": True,
             "zscore_scope": "cross_section",
+            "zscore_universe": "pool",
             "zscore_means": {},
             "zscore_stds": {},
         }
@@ -453,6 +454,37 @@ class TestOoRankFit(unittest.TestCase):
         self.assertEqual(by["A1"]["y_oo_rank"], 2)
         self.assertEqual(by["A2"]["y_oo_rank_n"], 2)
         self.assertLess(float(by["A2"]["y_oo_rank_score"]), 0.0)
+
+    def test_tier_a_z_ignores_out_of_universe_extremes(self):
+        """宇宙 A：先缩名单再算 z；B 极值不影响 A 内相对分。"""
+        from core.research.oo_rank_lambdarank import apply_oo_rank_scores
+
+        ridge = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "oo_rank",
+            "horizon_mode": "oo_rank",
+            "intercept": 0.0,
+            "coefficients": {"mom3": 1.0},
+            "feature_zscore": True,
+            "zscore_scope": "cross_section",
+            "zscore_universe": "tier_a",
+            "tier_codes": ["A1", "A2"],
+            "zscore_means": {},
+            "zscore_stds": {},
+        }
+        items = [
+            {"stock_code": "A1", "sub_scores": {"mom3": 0.0}},
+            {"stock_code": "A2", "sub_scores": {"mom3": 10.0}},
+            {"stock_code": "B1", "sub_scores": {"mom3": 1000.0}, "y_oo_rank": 9},
+        ]
+        apply_oo_rank_scores(items, fit=ridge, score_codes=["A1", "A2", "B1"])
+        by = {it["stock_code"]: it for it in items}
+        self.assertNotIn("y_oo_rank", by["B1"])
+        self.assertEqual(by["A2"]["y_oo_rank"], 1)
+        self.assertEqual(by["A1"]["y_oo_rank"], 2)
+        self.assertGreater(float(by["A2"]["y_oo_rank_score"]), 0.0)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_persist_research_sidecar(self):

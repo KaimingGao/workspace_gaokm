@@ -71,6 +71,7 @@ class TestTcRank(unittest.TestCase):
             "coefficients": {"z_τc_gap_pct": 1.0},
             "feature_zscore": True,
             "zscore_scope": "cross_section",
+            "zscore_universe": "pool",
             "zscore_means": {},
             "zscore_stds": {},
         }
@@ -95,6 +96,44 @@ class TestTcRank(unittest.TestCase):
         self.assertEqual(by["A1"]["y_tc_rank"], 2)
         self.assertEqual(by["A2"]["y_tc_rank_n"], 2)
         self.assertLess(float(by["A2"]["y_tc_rank_score"]), 0.0)
+        self.assertEqual(by["A2"]["y_oo_fuse"], 0.2)
+
+    def test_tier_a_z_ignores_out_of_universe_extremes(self):
+        """宇宙 A：B 不进 μ/σ，A2 相对分为正。"""
+        from core.research.tc_rank import apply_tc_rank_scores
+
+        ridge = {
+            "success": True,
+            "backend": "ridge",
+            "solver": "ridge",
+            "target": "tc_rank",
+            "horizon_mode": "tc_rank",
+            "intercept": 0.0,
+            "coefficients": {"z_τc_gap_pct": 1.0},
+            "feature_zscore": True,
+            "zscore_scope": "cross_section",
+            "zscore_universe": "tier_a",
+            "tier_codes": ["A1", "A2"],
+            "zscore_means": {},
+            "zscore_stds": {},
+        }
+        items = [
+            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}, "y_oo_fuse": 0.1},
+            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}, "y_oo_fuse": 0.2},
+            {
+                "stock_code": "B1",
+                "features_tau": {"z_τc_gap_pct": 1000.0},
+                "y_tc_rank": 3,
+                "y_oo_fuse": 0.3,
+            },
+        ]
+        apply_tc_rank_scores(
+            items, model_doc={"return_model": ridge}, score_codes=["A1", "A2", "B1"]
+        )
+        by = {it["stock_code"]: it for it in items}
+        self.assertNotIn("y_tc_rank", by["B1"])
+        self.assertEqual(by["A2"]["y_tc_rank"], 1)
+        self.assertGreater(float(by["A2"]["y_tc_rank_score"]), 0.0)
         self.assertEqual(by["A2"]["y_oo_fuse"], 0.2)
 
     def test_ridge_keeps_small_std_drops_constant(self):

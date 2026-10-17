@@ -1225,13 +1225,20 @@ class QuantFactorMixin:
         persist_role: str = "live",
         note: str = "",
         cross_section_zscore: bool = True,
+        zscore_universe_tier_a: bool = False,
     ) -> Dict[str, Any]:
-        """ŷ_oo_rank：同窗 LambdaRank + Ridge。截面 z 与损失都用整段观察池。
+        """ŷ_oo_rank：同窗 LambdaRank + Ridge。
 
+        默认截面 z / 损失用整段观察池；``zscore_universe_tier_a=True`` 时改为观察池∩A 档
+        （须先跑枢纽分档），训推同口径。
         成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max（与 τc_rank 取 max）入场闸。
         ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
         """
         from core.data.facade import bars_and_source
+        from core.research.feature_standardize import (
+            ZSCORE_UNIVERSE_POOL,
+            ZSCORE_UNIVERSE_TIER_A,
+        )
         from core.research.oo_rank_panel import resolve_oo_rank_universe
         from core.research.oo_rank_lambdarank import (
             fit_oo_rank_report,
@@ -1239,6 +1246,7 @@ class QuantFactorMixin:
             oo_rank_model_path,
             persist_oo_rank_model,
             save_oo_rank_last_report,
+            stamp_rank_zscore_universe_meta,
         )
 
         if persist:
@@ -1279,13 +1287,19 @@ class QuantFactorMixin:
                 live_present=os.path.isfile(oo_rank_model_path()),
             )
 
-        resolved = resolve_oo_rank_universe()
+        uni = (
+            ZSCORE_UNIVERSE_TIER_A
+            if bool(zscore_universe_tier_a)
+            else ZSCORE_UNIVERSE_POOL
+        )
+        resolved = resolve_oo_rank_universe(zscore_universe=uni)
         if not resolved.get("success"):
             return {
                 "success": False,
                 "error": resolved.get("error") or "oo_rank_universe_failed",
                 "task": "oo_rank",
                 "universe_source": resolved.get("universe_source"),
+                "zscore_universe": resolved.get("zscore_universe") or uni,
             }
         codes = list(resolved.get("codes") or [])
         cap = max(8, int(watching_limit or MODEL_FIT_MAX_SIZE))
@@ -1295,9 +1309,13 @@ class QuantFactorMixin:
         if len(codes) < 8:
             return {
                 "success": False,
-                "error": f"观察池至少 8 只才可跑 oo_rank（当前 {len(codes)}）",
+                "error": (
+                    f"{'A 档' if uni == ZSCORE_UNIVERSE_TIER_A else '观察池'}"
+                    f"至少 8 只才可跑 oo_rank（当前 {len(codes)}）"
+                ),
                 "task": "oo_rank",
                 "universe_source": resolved.get("universe_source"),
+                "zscore_universe": uni,
                 "n_codes": len(codes),
             }
 
@@ -1319,9 +1337,24 @@ class QuantFactorMixin:
         )
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
-        report["universe_source"] = "watching"
-        report["zscore_universe"] = "watching"
+        report["universe_source"] = resolved.get("universe_source") or "watching"
+        report["n_codes"] = len(codes)
         report["lookback"] = lookback
+        stamp_rank_zscore_universe_meta(
+            report,
+            zscore_universe=uni,
+            tier_codes=resolved.get("tier_codes"),
+            tier_meta={
+                k: resolved.get(k)
+                for k in (
+                    "tier_as_of_last",
+                    "holdout_n",
+                    "tier_n",
+                    "tier_fingerprint",
+                )
+                if resolved.get(k) is not None
+            },
+        )
         if note:
             report["api_note"] = str(note)[:200]
         if report.get("success"):
@@ -1484,11 +1517,19 @@ class QuantFactorMixin:
         persist_role: str = "live",
         note: str = "",
         cross_section_zscore: bool = True,
+        zscore_universe_tier_a: bool = False,
     ) -> Dict[str, Any]:
-        """ŷ_τc_rank：同窗 LambdaRank + Ridge。截面 z 与损失都用整段观察池。
+        """ŷ_τc_rank：同窗 LambdaRank + Ridge。
 
+        默认截面 z / 损失用整段观察池；``zscore_universe_tier_a=True`` 时改为观察池∩A。
         启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。
         """
+        from core.research.feature_standardize import (
+            ZSCORE_UNIVERSE_POOL,
+            ZSCORE_UNIVERSE_TIER_A,
+        )
+        from core.research.oo_rank_lambdarank import stamp_rank_zscore_universe_meta
+        from core.research.oo_rank_panel import resolve_oo_rank_universe
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.research.tc_rank import (
             fit_tc_rank_report,
@@ -1536,15 +1577,19 @@ class QuantFactorMixin:
                 live_present=os.path.isfile(tc_rank_model_path()),
             )
 
-        resolved = _resolve_fit_universe(
-            watching_limit=watching_limit,
+        uni = (
+            ZSCORE_UNIVERSE_TIER_A
+            if bool(zscore_universe_tier_a)
+            else ZSCORE_UNIVERSE_POOL
         )
-        if not resolved.get("ok", True):
+        resolved = resolve_oo_rank_universe(zscore_universe=uni)
+        if not resolved.get("success"):
             return {
                 "success": False,
                 "error": resolved.get("error") or "tc_rank_universe_failed",
                 "task": "tc_rank",
-                "universe_source": resolved.get("source"),
+                "universe_source": resolved.get("universe_source"),
+                "zscore_universe": resolved.get("zscore_universe") or uni,
             }
         codes = list(resolved.get("codes") or [])
         cap = max(8, int(watching_limit or MODEL_FIT_MAX_SIZE))
@@ -1554,8 +1599,12 @@ class QuantFactorMixin:
         if len(codes) < 8:
             return {
                 "success": False,
-                "error": f"观察池至少 8 只才可跑 tc_rank（当前 {len(codes)}）",
+                "error": (
+                    f"{'A 档' if uni == ZSCORE_UNIVERSE_TIER_A else '观察池'}"
+                    f"至少 8 只才可跑 tc_rank（当前 {len(codes)}）"
+                ),
                 "task": "tc_rank",
+                "zscore_universe": uni,
                 "n_codes": len(codes),
             }
 
@@ -1581,9 +1630,24 @@ class QuantFactorMixin:
         )
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
-        report["universe_source"] = "watching"
-        report["zscore_universe"] = "watching"
+        report["universe_source"] = resolved.get("universe_source") or "watching"
+        report["n_codes"] = len(codes)
         report["lookback"] = lookback
+        stamp_rank_zscore_universe_meta(
+            report,
+            zscore_universe=uni,
+            tier_codes=resolved.get("tier_codes"),
+            tier_meta={
+                k: resolved.get(k)
+                for k in (
+                    "tier_as_of_last",
+                    "holdout_n",
+                    "tier_n",
+                    "tier_fingerprint",
+                )
+                if resolved.get(k) is not None
+            },
+        )
         if note:
             report["api_note"] = str(note)[:200]
         if report.get("success"):

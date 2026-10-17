@@ -59,6 +59,12 @@ const CS_ZSCORE_STORAGE_KEYS = Object.fromEntries(
   CS_Z_FIT_HEADS.map((h) => [h, `quant_fit_cs_z_${h}`])
 );
 
+/** 排序头：截面宇宙=A 档（oo_rank / tc_rank）。 */
+const RANK_Z_UNIV_A_HEADS = ["oo_rank", "tc_rank"];
+const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
+  RANK_Z_UNIV_A_HEADS.map((h) => [h, `quant_fit_z_univ_a_${h}`])
+);
+
 /** ŷ_τc：训练前缀终点 09:30…11:00（含 0 前缀）。 */
 const TAU_END_FIT_HEADS = ["tc"];
 const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm";
@@ -431,6 +437,38 @@ export function createResearchParams(opts = {}) {
     };
   }
 
+  function getFitZUnivAEl(head) {
+    const h = String(head || "").trim().toLowerCase();
+    return document.getElementById(`quant-fit-z-univ-a-${h}`);
+  }
+
+  /** 排序头「宇宙 A 档」勾选；默认关（整池）。 */
+  function readRankZUniverseTierA(head) {
+    const h = String(head || "").trim().toLowerCase();
+    if (!RANK_Z_UNIV_A_HEADS.includes(h)) return false;
+    const el = getFitZUnivAEl(h);
+    const key = RANK_Z_UNIV_A_STORAGE_KEYS[h];
+    let on = false;
+    if (el) {
+      on = !!el.checked;
+    } else {
+      try {
+        if (localStorage.getItem(key) === "1") on = true;
+      } catch (_) {}
+    }
+    try {
+      localStorage.setItem(key, on ? "1" : "0");
+    } catch (_) {}
+    if (el) el.checked = on;
+    return on;
+  }
+
+  function readRankZUniverseFitParams(head) {
+    const h = String(head || "").trim().toLowerCase();
+    if (!RANK_Z_UNIV_A_HEADS.includes(h)) return {};
+    return { zscore_universe_tier_a: readRankZUniverseTierA(h) };
+  }
+
   /** 卡头摘要：日截面 / 全局 Z（Ridge return_model · Tree tree_return_model）。 */
   function formatCrossSectionZBit(data) {
     const src = data && typeof data === "object" ? data : {};
@@ -467,10 +505,37 @@ export function createResearchParams(opts = {}) {
       }
     }
     if (cs === undefined) return "";
-    return cs ? "日截面Z" : "全局Z";
+    let bit = cs ? "日截面Z" : "全局Z";
+    const uniRaw =
+      src.zscore_universe ||
+      meta.zscore_universe ||
+      (src.return_model && src.return_model.zscore_universe) ||
+      "";
+    const uni = String(uniRaw || "").toLowerCase();
+    if (uni === "tier_a" || uni === "tier" || uni === "a") {
+      bit = `${bit}·宇宙 A 档`;
+    }
+    return bit;
   }
 
   function hydrateCrossSectionZParams() {
+    for (const head of RANK_Z_UNIV_A_HEADS) {
+      const el = getFitZUnivAEl(head);
+      if (!el) continue;
+      try {
+        if (localStorage.getItem(RANK_Z_UNIV_A_STORAGE_KEYS[head]) === "1") {
+          el.checked = true;
+        }
+      } catch (_) {}
+      el.addEventListener("change", () => {
+        try {
+          localStorage.setItem(
+            RANK_Z_UNIV_A_STORAGE_KEYS[head],
+            el.checked ? "1" : "0"
+          );
+        } catch (_) {}
+      });
+    }
     for (const head of CS_Z_FIT_HEADS) {
       const csEl = getFitCsZEl(head);
       if (!csEl) continue;
@@ -616,6 +681,8 @@ export function createResearchParams(opts = {}) {
     hydrateFitLookbackDays,
     readCrossSectionZscore,
     readCrossSectionFitParams,
+    readRankZUniverseTierA,
+    readRankZUniverseFitParams,
     formatCrossSectionZBit,
     hydrateCrossSectionZParams,
     readTauEndHm,

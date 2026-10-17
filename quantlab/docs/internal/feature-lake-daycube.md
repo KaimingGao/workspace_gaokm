@@ -27,7 +27,7 @@
 1. **一次物化、三处消费**：训练 / 回测 / live 读同一套 L1 特征行与 L2 日截面统计。  
 2. **增量优先**：日线 topup 只追加末几根时，只重算尾窗决策日，禁止常态「整票推倒」。  
 3. **单遍截面 ŷ**：池齐后用 DayCube μ/σ 打 z 再 predict；调仓扫池可先只抽特征。  
-4. **口径可审计**：截面宇宙绑 `universe_hash`；tier / `tradable_codes` 只挡写分与开仓，不缩小 z 池。  
+4. **口径可审计**：截面宇宙绑 `universe_hash`；主头 / `zscore_universe=pool` 时 tier / `tradable_codes` 只挡写分与开仓、不缩小 z 池；排序头 `tier_a` 先缩 A 再算 z（见 oo/tc_rank）。  
 5. **可回滚**：环境变量关断即回旧路径，无需删库。
 
 ### 1.3 非目标

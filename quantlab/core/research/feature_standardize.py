@@ -12,6 +12,9 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 DEFAULT_FEATURE_ZSCORE = True
 ZSCORE_SCOPE_CROSS_SECTION = "cross_section"
+# 排序头（oo_rank / tc_rank）日截面 z 的股票宇宙；主头 ŷ_oo/τc/co 仍固定整池。
+ZSCORE_UNIVERSE_POOL = "pool"
+ZSCORE_UNIVERSE_TIER_A = "tier_a"
 
 
 def resolve_feature_zscore(
@@ -46,11 +49,78 @@ def annotate_feature_zscore(dest: dict, enabled: bool) -> dict:
 def normalize_score_codes(score_codes: Optional[Sequence[str]]) -> Optional[set]:
     """None 表示全员打分。名单非空时只给这些代码出 ŷ 和名次。
 
-    截面 z 仍用调用方传入的整批原始特征，不随这份名单缩小。
+    对主头 / ``zscore_universe=pool`` 的排序头：截面 z 仍用调用方传入的整批原始特征，
+    不随这份名单缩小。``zscore_universe=tier_a`` 的排序头会先按名单缩 z 宇宙。
     """
     if score_codes is None:
         return None
     return {str(c).strip() for c in score_codes if str(c or "").strip()}
+
+
+def normalize_zscore_universe(raw: Any) -> str:
+    """``pool``=整观察池；``tier_a``=枢纽 A 档。旧值 watching/day_panel → pool。"""
+    s = str(raw or "").strip().lower().replace("-", "_")
+    if s in ("tier_a", "tier", "a", "tiera"):
+        return ZSCORE_UNIVERSE_TIER_A
+    return ZSCORE_UNIVERSE_POOL
+
+
+def is_tier_a_zscore_universe(*sources: Any) -> bool:
+    """任一来源标记 ``zscore_universe=tier_a`` 即为 A 档宇宙。"""
+    for src in sources:
+        if src is None:
+            continue
+        if isinstance(src, Mapping):
+            if normalize_zscore_universe(src.get("zscore_universe")) == ZSCORE_UNIVERSE_TIER_A:
+                return True
+            hp = src.get("hyperparams")
+            if isinstance(hp, Mapping) and normalize_zscore_universe(
+                hp.get("zscore_universe")
+            ) == ZSCORE_UNIVERSE_TIER_A:
+                return True
+            inner = src.get("return_model")
+            if isinstance(inner, Mapping) and inner is not src:
+                if is_tier_a_zscore_universe(inner):
+                    return True
+        else:
+            if normalize_zscore_universe(getattr(src, "zscore_universe", None)) == (
+                ZSCORE_UNIVERSE_TIER_A
+            ):
+                return True
+    return False
+
+
+def stamp_zscore_universe(
+    dest: dict,
+    universe: Any,
+    *,
+    tier_codes: Optional[Sequence[str]] = None,
+    tier_meta: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """写入排序头截面宇宙；``tier_a`` 时可带冻结的 A 代码名单。"""
+    uni = normalize_zscore_universe(universe)
+    dest["zscore_universe"] = uni
+    if uni == ZSCORE_UNIVERSE_TIER_A:
+        dest["zscore_universe_tiers"] = ["A"]
+        codes = sorted(
+            {str(c).strip() for c in (tier_codes or []) if str(c or "").strip()}
+        )
+        if codes:
+            dest["tier_codes"] = codes
+            dest["n_tier_codes"] = len(codes)
+        if isinstance(tier_meta, Mapping) and tier_meta:
+            for k in (
+                "tier_as_of",
+                "tier_as_of_last",
+                "holdout_n",
+                "tier_n",
+                "tier_fingerprint",
+            ):
+                if k in tier_meta and tier_meta.get(k) is not None:
+                    dest[k] = tier_meta.get(k)
+    else:
+        dest.pop("zscore_universe_tiers", None)
+    return dest
 
 
 def is_cross_section_zscore(doc: Any) -> bool:
