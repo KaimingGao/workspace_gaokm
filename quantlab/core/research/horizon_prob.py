@@ -368,10 +368,82 @@ def oos_prob_pack(
     }
 
 
-def horizon_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """promote：OOS AUC / acc@0.5 / n_test。不再用 |ŷ|≥0.6。"""
+def _oos_metric_float(m: Any, key: str) -> Optional[float]:
+    if not isinstance(m, dict):
+        return None
+    if m.get("success") is False:
+        return None
+    v = m.get(key)
+    try:
+        if v is None or v == "":
+            return None
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    if x != x:  # NaN
+        return None
+    return x
+
+
+def select_horizon_backend(
+    oos_tree: Optional[Dict[str, Any]] = None,
+    oos_ridge: Optional[Dict[str, Any]] = None,
+) -> str:
+    """按 Holdout AUC 选更好的 backend；打平或缺指标 → ``ridge``。
+
+    次序：AUC（高更好）→ Brier（低更好）→ 默认 ridge。
+    """
+    ta = _oos_metric_float(oos_tree, "auc")
+    ra = _oos_metric_float(oos_ridge, "auc")
+    if ta is not None and ra is not None:
+        if ta > ra + 1e-12:
+            return "tree"
+        if ra > ta + 1e-12:
+            return "ridge"
+    elif ta is not None and ra is None:
+        return "tree"
+    elif ra is not None and ta is None:
+        return "ridge"
+
+    tb = _oos_metric_float(oos_tree, "brier")
+    rb = _oos_metric_float(oos_ridge, "brier")
+    if tb is not None and rb is not None:
+        if tb < rb - 1e-12:
+            return "tree"
+        if rb < tb - 1e-12:
+            return "ridge"
+    elif tb is not None and rb is None:
+        return "tree"
+    elif rb is not None and tb is None:
+        return "ridge"
+    return "ridge"
+
+
+def resolve_horizon_oos_for_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """取晋级闸用的 OOS：双 backend 时用胜出侧，否则用扁平 ``oos``。"""
     rep = report if isinstance(report, dict) else {}
     oos = rep.get("oos") if isinstance(rep.get("oos"), dict) else {}
+    if not oos:
+        return {}
+    rec = str(
+        rep.get("recommended_backend")
+        or rep.get("backend")
+        or oos.get("recommended_backend")
+        or ""
+    ).strip().lower()
+    if rec in ("tree", "ridge") and isinstance(oos.get(rec), dict):
+        return dict(oos[rec])
+    # 兼容：扁平 winner 指标叠在 oos 顶层（含 auc）
+    if oos.get("auc") is not None or oos.get("acc_at_50") is not None:
+        return dict(oos)
+    if isinstance(oos.get("ridge"), dict):
+        return dict(oos["ridge"])
+    return dict(oos)
+
+
+def horizon_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """promote：OOS AUC / acc@0.5 / n_test。不再用 |ŷ|≥0.6。"""
+    oos = resolve_horizon_oos_for_gate(report)
     n = oos.get("n_valid")
     if n is None:
         n = oos.get("n_test")
@@ -406,6 +478,9 @@ def horizon_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             if acc_f is not None:
                 parts.append(f"acc={acc_f:.3f}<{HORIZON_PROMOTE_MIN_ACC}")
             blockers.append("；".join(parts) or "OOS 未过概率闸")
+    backend = None
+    if isinstance(report, dict):
+        backend = report.get("recommended_backend") or report.get("backend")
     return {
         "ok": not blockers,
         "blockers": blockers,
@@ -416,6 +491,7 @@ def horizon_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "auc": auc_f,
         "acc_at_50": acc_f,
         "head_kind": "prob",
+        "backend": backend,
     }
 
 

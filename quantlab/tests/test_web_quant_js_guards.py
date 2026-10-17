@@ -432,7 +432,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('aria-label="ŷ_τ30 因子系数表"', panel)
         self.assertNotIn("ΔTopK=", quant_js)
         self.assertNotIn("不进 ranking / C_τ", panel)
-        self.assertIn("P(窗收益>0) · ŷ_τw 投票", panel)
+        self.assertIn("P(窗收益>0) · Ridge/Tree · Holdout AUC 择优 · ŷ_τw 投票", panel)
         self.assertIn("quant-section-research-universe", panel)
         self.assertIn("quant-ru-tiers", panel)
         self.assertIn('id="quant-ru-a-f1"', panel)
@@ -831,7 +831,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("y_complexity_max", panel)
         self.assertNotIn("quant-tau-tree-run", panel)
         self.assertNotIn("ŷ_τc_tree", panel)
-        self.assertIn("P(窗收益>0) · LightGBM", panel)
+        self.assertIn("已并入 ŷ_τ* 主卡 · 仅保留 API 对照", panel)
+        self.assertNotIn("P(窗收益>0) · LightGBM · 影子对照 · 不进 live", panel)
         self.assertNotIn("LightGBM · 滑窗增量 · 不进 live", panel)
         self.assertNotIn("open→open LightGBM · 滑窗增量 · 不进 live", panel)
         self.assertNotIn("τ→close LightGBM · 滑窗增量 · 不进 live", panel)
@@ -1145,7 +1146,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertIn('id="paper-t0-horizon-prob-backend"', replay)
         self.assertIn('form="paper-t0-form"', replay)
-        self.assertIn(">ŷ_τ*头</span>", replay)
+        self.assertIn(">ŷ_τ*对照</span>", replay)
         self.assertLess(
             replay.find('id="quant-lookback"'),
             replay.find('id="quant-score-model-role"'),
@@ -1156,10 +1157,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertNotIn('id="quant-score-backend"', replay)
         self.assertNotIn(">ŷ头</span>", replay)
-        # 调仓 ŷ头 Tree 已下线；做 T ŷ_τ*头 仍可选 Tree
+        # 调仓 ŷ头 Tree 已下线；做 T ŷ_τ*对照为遗留强制 Tree 包开关
         self.assertIn('id="paper-t0-horizon-prob-backend"', replay)
         hz = replay[replay.find('id="paper-t0-horizon-prob-backend"') :]
-        self.assertIn('option value="tree">Tree</option>', hz)
+        self.assertIn('option value="tree">强制 Tree 包</option>', hz)
+        self.assertIn('option value="ridge" selected>跟启用套</option>', hz)
         self.assertNotIn('option value="rank">Rank</option>', replay)
         self.assertNotIn("仅供回测透传对照", quant_js)
         self.assertIn("Holdout 前训 + NDCG@K 选 backend", quant_js)
@@ -2864,7 +2866,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-co-tree-run", panel)
         self.assertNotIn("quant-co-tree-result", panel)
         self.assertNotIn("quant-section-co-tree", panel)
-        self.assertIn("P(窗收益>0) · LightGBM", panel)
+        self.assertIn("已并入 ŷ_τ* 主卡 · 仅保留 API 对照", panel)
+        self.assertNotIn("P(窗收益>0) · LightGBM · 影子对照 · 不进 live", panel)
         self.assertNotIn("LightGBM · 滑窗增量 · 不进 live", panel)
         self.assertNotIn("qlib_lgb", js)
         self.assertNotIn("readReturnTreeFitFlags", js)
@@ -3247,7 +3250,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
                 panel,
                 rf'id="{sid}"[^>]*quant-section-secondary',
             )
-        # 树 / 表达式：次要折叠（quant-secondary-fold）
+        # 树 / 表达式：次要折叠（quant-secondary-fold）；τ*_tree 已并入主卡，可带 hidden
         for sid in (
             "quant-section-t30-tree",
             "quant-section-t45-tree",
@@ -3258,11 +3261,22 @@ class TestWebQuantJsGuards(unittest.TestCase):
         ):
             self.assertRegex(
                 panel,
-                rf'class="dashboard-section quant-section quant-section-secondary" id="{sid}"',
+                rf'(?:hidden\s+)?class="dashboard-section quant-section quant-section-secondary" id="{sid}"',
             )
             self.assertRegex(
                 panel,
                 rf'id="{sid}"[^>]*>\s*<details class="quant-secondary-fold">',
+            )
+        for sid in (
+            "quant-section-t30-tree",
+            "quant-section-t45-tree",
+            "quant-section-t60-tree",
+            "quant-section-t75-tree",
+            "quant-section-t90-tree",
+        ):
+            self.assertRegex(
+                panel,
+                rf'<section\s+hidden\b[^>]*id="{sid}"',
             )
         for sid in (
             "quant-section-factors",

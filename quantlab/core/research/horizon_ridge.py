@@ -22,6 +22,7 @@ from core.io_atomic import atomic_write_json
 from core.research.horizon_prob import (
     horizon_promote_gate,
     predict_p_up_rows,
+    select_horizon_backend,
     stamp_horizon_explain,
     train_eval_horizon_prob,
 )
@@ -342,6 +343,216 @@ def fit_horizon_ridge_report(
         ),
     }
     attach_holdout_meta(report, split_meta)
+    report["backend"] = "ridge"
+    report["recommended_backend"] = "ridge"
+    report["backends"] = {
+        "ridge": {
+            "return_model": model,
+            "return_model_research": model,
+        }
+    }
+    report["promote_gate"] = horizon_promote_gate(report)
+    return report
+
+
+def _backend_pack_from_report(
+    report: Dict[str, Any], backend: str
+) -> Optional[Dict[str, Any]]:
+    backends = report.get("backends") if isinstance(report.get("backends"), dict) else {}
+    pack = backends.get(backend) if isinstance(backends, dict) else None
+    if isinstance(pack, dict) and isinstance(pack.get("return_model"), dict):
+        return pack
+    if backend == "ridge" and isinstance(report.get("return_model"), dict):
+        return {
+            "return_model": report.get("return_model"),
+            "return_model_research": report.get("return_model_research")
+            or report.get("return_model"),
+        }
+    if backend == "tree":
+        tree_rm = report.get("tree_return_model")
+        if isinstance(tree_rm, dict):
+            return {"return_model": tree_rm, "return_model_research": tree_rm}
+    return None
+
+
+def fit_horizon_dual_report(
+    head: str,
+    stock_bars: Sequence[Dict[str, Any]],
+    *,
+    ridge_lambda: float = 1.0,
+    min_history: int = 12,
+    gap_trigger_pct: float = 2.0,
+    theme_boost: float = 1.5,
+    holdout_trading_days: int = 20,
+    use_theme_weights: bool = True,
+    tau_hm: str = "10:30",
+    tau_grid: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
+    n_estimators: Optional[int] = None,
+    max_depth: Optional[int] = None,
+    learning_rate: Optional[float] = None,
+    subsample: Optional[float] = None,
+) -> Dict[str, Any]:
+    """同窗双训 Ridge + Tree；Holdout AUC 择优（打平→ridge）。
+
+    产出 ``backends`` / ``recommended_backend``；顶层 ``return_model`` 为胜出侧。
+    Tree 含 OC 路径形状；Ridge 仍用原 Z（能力择优，非纯算法对换）。
+    """
+    from core.research.horizon_lgb import _delta_oos
+    from core.research.horizon_tree import fit_horizon_tree_report
+
+    ridge_kw: Dict[str, Any] = dict(
+        ridge_lambda=ridge_lambda,
+        min_history=min_history,
+        gap_trigger_pct=gap_trigger_pct,
+        theme_boost=theme_boost,
+        holdout_trading_days=holdout_trading_days,
+        use_theme_weights=use_theme_weights,
+        tau_hm=tau_hm,
+        tau_grid=tau_grid,
+        cross_section_zscore=cross_section_zscore,
+    )
+    ridge_rep = fit_horizon_ridge_report(head, stock_bars, **ridge_kw)
+    if not ridge_rep.get("success"):
+        return ridge_rep
+
+    tree_kw: Dict[str, Any] = dict(
+        ridge_lambda=ridge_lambda,
+        min_history=min_history,
+        gap_trigger_pct=gap_trigger_pct,
+        theme_boost=theme_boost,
+        holdout_trading_days=holdout_trading_days,
+        use_theme_weights=use_theme_weights,
+        tau_hm=tau_hm,
+        tau_grid=tau_grid,
+        backend="lightgbm",
+    )
+    if n_estimators is not None:
+        tree_kw["n_estimators"] = n_estimators
+    if max_depth is not None:
+        tree_kw["max_depth"] = max_depth
+    if learning_rate is not None:
+        tree_kw["learning_rate"] = learning_rate
+    if subsample is not None:
+        tree_kw["subsample"] = subsample
+
+    tree_rep: Dict[str, Any]
+    try:
+        tree_rep = fit_horizon_tree_report(head, stock_bars, **tree_kw)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("%s dual tree fit failed: %s", head, exc, exc_info=True)
+        tree_rep = {"success": False, "error": str(exc)}
+
+    cfg = _horizon_ridge_config(head)
+    h = cfg["head"]
+    num = cfg["num"]
+    oos_ridge = ridge_rep.get("oos") if isinstance(ridge_rep.get("oos"), dict) else {}
+    oos_tree = (
+        tree_rep.get("oos")
+        if isinstance(tree_rep, dict) and isinstance(tree_rep.get("oos"), dict)
+        else {}
+    )
+    # tree 失败时 ridge_oos 可能仍在
+    if not oos_tree and isinstance(tree_rep, dict):
+        oos_tree = {}
+
+    recommended = select_horizon_backend(
+        oos_tree if tree_rep.get("success") else None,
+        oos_ridge,
+    )
+    if recommended == "tree" and not tree_rep.get("success"):
+        recommended = "ridge"
+
+    ridge_rm = ridge_rep.get("return_model")
+    tree_rm = None
+    if isinstance(tree_rep, dict):
+        tree_rm = tree_rep.get("tree_return_model") or tree_rep.get("return_model")
+    backends: Dict[str, Any] = {}
+    if isinstance(ridge_rm, dict):
+        backends["ridge"] = {
+            "return_model": ridge_rm,
+            "return_model_research": ridge_rep.get("return_model_research") or ridge_rm,
+        }
+    if isinstance(tree_rm, dict):
+        backends["tree"] = {
+            "return_model": tree_rm,
+            "return_model_research": tree_rm,
+        }
+
+    winner_oos = oos_tree if recommended == "tree" else oos_ridge
+    merged_oos: Dict[str, Any] = dict(winner_oos) if isinstance(winner_oos, dict) else {}
+    if isinstance(oos_ridge, dict):
+        merged_oos["ridge"] = oos_ridge
+    if isinstance(oos_tree, dict) and oos_tree:
+        merged_oos["tree"] = oos_tree
+    merged_oos["recommended_backend"] = recommended
+
+    pack = backends.get(recommended) if recommended in backends else backends.get("ridge")
+    winner_rm = None
+    if isinstance(pack, dict):
+        winner_rm = pack.get("return_model")
+    if not isinstance(winner_rm, dict):
+        winner_rm = ridge_rm if isinstance(ridge_rm, dict) else None
+        recommended = "ridge"
+
+    report: Dict[str, Any] = dict(ridge_rep)
+    report.update(
+        {
+            "task": f"{h}_ridge",
+            "schema": ridge_rep.get("schema") or cfg["schema"],
+            "backend": recommended,
+            "recommended_backend": recommended,
+            "backends": backends,
+            "oos": merged_oos,
+            "return_model": winner_rm,
+            "return_model_research": winner_rm,
+            "ridge_oos": oos_ridge,
+            "tree_oos": oos_tree if oos_tree else None,
+            "delta_vs_ridge": (
+                _delta_oos(oos_tree, oos_ridge)
+                if oos_tree and oos_ridge
+                else None
+            ),
+            "tree_success": bool(tree_rep.get("success")),
+            "tree_error": None
+            if tree_rep.get("success")
+            else (tree_rep.get("error") if isinstance(tree_rep, dict) else "tree fit failed"),
+            "tree_shape_features": (
+                tree_rep.get("tree_shape_features")
+                if isinstance(tree_rep, dict)
+                else None
+            ),
+            # 始终保留 Tree gain（Ridge 胜出时因子表仍画 gain% 旁列）
+            "feature_importance": (
+                tree_rep.get("feature_importance")
+                if isinstance(tree_rep, dict)
+                and isinstance(tree_rep.get("feature_importance"), list)
+                else ridge_rep.get("feature_importance")
+            ),
+            "note": (
+                f"ŷ_τ{num} 同窗双训 Ridge+Tree；Holdout AUC 择优"
+                f"（打平→ridge）→ recommended={recommended}。"
+                "Tree 含 OC 路径形状；Ridge 不含。进 ŷ_τw 投票；不进 C_τ / fuse。"
+            ),
+        }
+    )
+    if isinstance(tree_rep, dict) and isinstance(tree_rep.get("timing"), dict):
+        rt = report.get("timing") if isinstance(report.get("timing"), dict) else {}
+        report["timing"] = {**rt, "tree": tree_rep.get("timing")}
+    if isinstance(tree_rm, dict):
+        report["tree_return_model"] = tree_rm
+        # 便于 get_model / 因子表从 backends.tree 取 gain
+        tree_pack = backends.get("tree")
+        if isinstance(tree_pack, dict) and isinstance(
+            tree_rep.get("feature_importance"), list
+        ):
+            tree_pack = dict(tree_pack)
+            rm_t = dict(tree_pack.get("return_model") or tree_rm)
+            rm_t["feature_importance"] = tree_rep.get("feature_importance")
+            tree_pack["return_model"] = rm_t
+            tree_pack["return_model_research"] = rm_t
+            backends["tree"] = tree_pack
+            report["backends"] = backends
     report["promote_gate"] = horizon_promote_gate(report)
     return report
 
@@ -447,6 +658,7 @@ def persist_ridge_model(
     force: bool = False,
     role: str = "live",
 ) -> Dict[str, Any]:
+    """启用研究=报告→研究槽（AUC 择优）；启用执行=研究槽→执行槽（晋级）。"""
     from core.research.holdout import (
         MODEL_ROLE_LIVE,
         MODEL_ROLE_RESEARCH,
@@ -482,20 +694,46 @@ def persist_ridge_model(
             "promoted_at": doc.get("promoted_at"),
             "fitted_at": doc.get("fitted_at"),
             "model_role": MODEL_ROLE_LIVE,
+            "backend": doc.get("backend"),
+            "recommended_backend": doc.get("recommended_backend") or doc.get("backend"),
             "promoted_from": "research",
         }
 
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
-    rm = select_fit_return_model(report)
+
+    oos = report.get("oos") if isinstance(report.get("oos"), dict) else {}
+    oos_tree = oos.get("tree") if isinstance(oos.get("tree"), dict) else None
+    oos_ridge = oos.get("ridge") if isinstance(oos.get("ridge"), dict) else None
+    if oos_ridge is None and oos.get("auc") is not None:
+        # 旧扁平报告：整包视为 ridge
+        oos_ridge = oos
+    backend = select_horizon_backend(oos_tree, oos_ridge)
+    if backend == "tree" and not _backend_pack_from_report(report, "tree"):
+        backend = "ridge"
+
+    pack = _backend_pack_from_report(report, backend)
+    view = dict(report)
+    if isinstance(pack, dict):
+        view["return_model"] = pack.get("return_model")
+        if isinstance(pack.get("return_model_research"), dict):
+            view["return_model_research"] = pack.get("return_model_research")
+    rm = select_fit_return_model(view)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
-    gate = horizon_promote_gate(report)
+
+    # 闸看胜出侧 OOS
+    gate_view = dict(report)
+    gate_view["recommended_backend"] = backend
+    gate_view["backend"] = backend
+    gate = horizon_promote_gate(gate_view)
     if not force and not gate.get("ok"):
         return {
             "success": False,
             "error": "promote 未过闸：" + "；".join(gate.get("blockers") or []),
             "promote_gate": gate,
+            "backend": backend,
+            "recommended_backend": backend,
         }
     from core.numbers import now_iso_utc
 
@@ -503,12 +741,14 @@ def persist_ridge_model(
     fitted_at = model_fit_id(report)
     rm = dict(rm)
     rm["model_role"] = MODEL_ROLE_RESEARCH
+    rm["backend"] = backend
     doc = {
         "success": True,
         "fitted_at": fitted_at,
         "promoted_at": now_iso_utc(),
-        "note": note or f"{h}_ridge promote research",
+        "note": note or f"{h} promote research backend={backend}",
         "return_model": rm,
+        "return_model_research": dict(rm),
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
@@ -521,14 +761,46 @@ def persist_ridge_model(
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
         "dual_score_head": dual_score_head,
+        "backend": backend,
+        "recommended_backend": backend,
     }
+    backends = report.get("backends")
+    if isinstance(backends, dict) and backends:
+        doc["backends"] = backends
+    for k in (
+        "delta_vs_ridge",
+        "ridge_oos",
+        "tree_oos",
+        "tree_shape_features",
+        "feature_importance",
+        "cross_section_zscore",
+    ):
+        if k in report and report.get(k) is not None:
+            doc[k] = report.get(k)
     path = research_model_path(live_path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     _RIDGE_MODEL_CACHE.pop(h, None)
+    # 不再镜像 *_tree_model.json：强制 Tree 对照读启用包 backends.tree
+
     out = dict(doc)
     out["path"] = path
     return out
+
+
+def _doc_backend(doc: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(doc, dict):
+        return "ridge"
+    be = str(doc.get("backend") or doc.get("recommended_backend") or "").strip().lower()
+    if be in ("tree", "ridge"):
+        return be
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else {}
+    rm_be = str(rm.get("backend") or "").strip().lower()
+    if rm_be in ("tree", "lightgbm") or (
+        isinstance(rm.get("booster"), dict) and not isinstance(rm.get("coefficients"), dict)
+    ):
+        return "tree"
+    return "ridge"
 
 
 def predict_ridge_from_features(
@@ -537,10 +809,17 @@ def predict_ridge_from_features(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
-    """开盘 Z + 前缀分钟 → ŷ_τ{num} = P(窗收益>0)。"""
+    """开盘 Z + 前缀分钟 → ŷ_τ{num} = P(窗收益>0)。
+
+    启用包 ``backend=tree`` 时走树预测。
+    """
     doc = model_doc if model_doc is not None else load_ridge_model(head)
     if not doc:
         return None
+    if _doc_backend(doc) == "tree":
+        from core.research.horizon_tree import predict_tree_from_features
+
+        return predict_tree_from_features(head, features, model_doc=doc)
     rm = doc.get("return_model") or {}
     preds = predict_p_up_rows(rm, [features or {}])
     if not preds or preds[0] is None:
@@ -558,5 +837,10 @@ def explain_ridge_prediction(
 
     h = _horizon_ridge_config(head)["head"]
     doc = model_doc if model_doc is not None else load_ridge_model(h)
+    if _doc_backend(doc) == "tree":
+        from core.research.horizon_tree import explain_tree_return
+
+        expl = explain_tree_return(features, (doc or {}).get("return_model"))
+        return stamp_horizon_explain(expl, head=h, model_doc=doc)
     expl = explain_tau_prediction(features, model_doc=doc)
     return stamp_horizon_explain(expl, head=h, model_doc=doc)

@@ -1200,10 +1200,10 @@ flowchart LR
 
 配置门：`scoring.rank_mode=predicted_score` · `min_predicted_score` · `cluster_scoring.mode`（off / shadow / active）。
 
-**Ridge / oo_rank 拟合控件（ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank）**：卡头 **日截面 Z**；另有训练窗 / Holdout。只训 Holdout 前一套 β；**启用研究**=草稿→研究槽；**启用执行**=研究槽→执行槽（晋级）。
-- **日截面 Z**（默认开）：入模特征按决策日截面 μ/σ；关掉则用训练窗全局 μ/σ（落盘 `zscore_means`/`stds`）。τ30…90_tree 固定日截面。物化层：**L1 Feature Lake**（按股×日 raw）+ **L2 DayCube**（按日 μ/σ / gap breadth，键含 `universe_hash`）；拟合写穿、回测/调仓/T0 复用。开关见 `QUANTLAB_FEATURE_LAKE` / `QUANTLAB_DAY_CUBE` / `QUANTLAB_BATCH_SCORE`。
+**Ridge / oo_rank / τ 双训拟合控件（ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank）**：卡头 **日截面 Z**；另有训练窗 / Holdout。只训 Holdout 前一套；**启用研究**=草稿→研究槽；**启用执行**=研究槽→执行槽（晋级）。
+- **日截面 Z**（默认开）：入模特征按决策日截面 μ/σ；关掉则用训练窗全局 μ/σ（落盘 `zscore_means`/`stds`）。τ 头 Tree 侧固定日截面。物化层：**L1 Feature Lake**（按股×日 raw）+ **L2 DayCube**（按日 μ/σ / gap breadth，键含 `universe_hash`）；拟合写穿、回测/调仓/T0 复用。开关见 `QUANTLAB_FEATURE_LAKE` / `QUANTLAB_DAY_CUBE` / `QUANTLAB_BATCH_SCORE`。
 
-**调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90_tree 仍可用（LGB 训推工具见 `core/research/horizon_lgb.py`）。
+**调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90 已并入主卡双训（见 §4.3d）。
 
 **观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡 `#quant-holdout-days`）：研究套 ŷ_oo 在 Holdout **前半**按票打 A/B/C。定档 Score = **0.5*OO_F1 + 0.5*TC_F1**（Holdout 前半上涨正类 F1；缺一侧按 0；无研究套 ŷ_τc 时 Score = OO_F1）。A 档另过 F1 门槛：默认 **OO_F1 ≥ 20%**、有研究套 ŷ_τc 时 **TC_F1 ≥ 20%**（工具栏可改，`a_f1` / `tau_a_f1`；0=关）。表列另报 **OO_P / OO_R / OO_ACC** 与 **TC_P / TC_R / TC_ACC**（仅展示；ACC=符号命中率）。过门槛者按 Score 降序取 **top A 数量→A**（未过门槛不占 A 名额），**接着 B 数量→B**、其余→C；无 Score（两侧 F1 都缺，或无 ŷ_τc 时缺 OO_F1）→C。默认 A=100、B=300（`a_count` / `b_count`）。不看单票 IC。有研究套时只拉 **Holdout+暖窗** 建面板（不必对齐 ŷ_oo 全训练窗）；无研究套现训才吃训练窗。各档标题分别报 ŷ_oo / ŷ_τc 在 Holdout **整段**上的日截面 **Rank IC** / **IC** / **ICIR**。分档区 A/B/C 与有样本的**平均收益率**= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」；不参与定档；有样本按档内票数加权）。落盘 `predictability_tiers_last.json`；`/replay` 勾选同步 live 闸（截面 z 用整池，ŷ/名次与开仓只写允许档）。
 
@@ -1300,6 +1300,19 @@ score_stock(code) 续——
 | 回测 / live | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 max 入场闸。宇宙语义与 ŷ_oo_rank 相同 |
 
 实现：`core/research/tc_rank.py`（复用 oo_rank 训练/推理内核）。
+
+### 4.3d ŷ_τ30…90（Ridge / Tree · 概率头）
+
+同窗双训：**logistic Ridge** 与 **LightGBM Tree**（Tree 另含 OC 路径形状；Ridge 仍用原 Z——能力择优，非纯算法对换）。标签为窗收益符号 → `P(窗收益>0)`；进 ŷ_τw 投票；不进 C_τ / fuse。
+**启用研究**按 Holdout **AUC** 自动落盘更强一侧（AUC 打平比 **Brier**；再打平→**Ridge**）；**启用执行**=研究槽晋级（不重训、不改 backend）。落盘仍用 `t{N}_ridge_model*.json` 槽位，包内 `backend` / `backends` 标明 ridge|tree。
+
+| | |
+|--|--|
+| 训练 | `POST /api/quant/t{N}-ridge` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **AUC** 择优，不重训 |
+| 回测 / live | 加载已启用模型（读包内 `backend`）；挂 `y_τ{N}` + `y_τ{N}_source`。回测「ŷ_τ*对照」强制 Tree：优先独立 `*_tree_model.json`，否则读启用套 `backends.tree`（不再镜像写树包） |
+| OOS | **AUC** / **Brier** / acc@0.5 / IC；Tree vs Ridge 同窗对照；晋级闸看胜出侧（AUC≥0.52 或 acc≥0.52，n≥80） |
+
+实现：`core/research/horizon_ridge.py`（`fit_horizon_dual_report` / `select_horizon_backend`）· `horizon_tree.py` · `horizon_lgb.py`。独立 `t{N}-tree` API 仅兼容只读。
 
 ### 4.4 双层完整调用链
 

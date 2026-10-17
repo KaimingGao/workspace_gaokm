@@ -1,8 +1,8 @@
 """调仓 ŷ_oo / ŷ_τc / ŷ_co 打分后端（仅 Ridge）。
 
 影子树头已下线；``normalize_rebalance_score_backend`` 恒为 ``ridge``。
-Horizon 树头（t30…t90）走 ``horizon_prob_backend``，与本开关无关。
-``finish_return_tree_persist`` 供 horizon 拟合落盘剥 booster。
+Horizon τ30…90 正式路径为启用套包内 ``backend``（研究枢纽 AUC 择优）；
+回测「ŷ_τ*对照」强制 Tree 为遗留开关。``finish_return_tree_persist`` 供树包落盘剥 booster。
 """
 
 from __future__ import annotations

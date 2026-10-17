@@ -589,8 +589,8 @@ export function createFactorIcUi(deps) {
       isOoRank &&
       (_ooBe === "ridge" || (_ooSolver === "ridge" && !rm.booster_b64));
     const isOoRankGain = isOoRank && !isOoRankRidge;
-    // ŷ_oo_rank 画 Ridge 包时并入 LambdaRank gain（与 v2 ŷ_oo 双训同壳）
-    const isDual = isOoRank && isOoRankRidge;
+    // ŷ_oo_rank 画 Ridge 包时并入 LambdaRank gain；ŷ_τ* 画 Ridge 时并入 Tree gain
+    const isOoDual = isOoRank && isOoRankRidge;
     const isT30 = opts.head === "t30";
     const isT45 = opts.head === "t45";
     const isT60 = opts.head === "t60";
@@ -809,12 +809,13 @@ export function createFactorIcUi(deps) {
       .filter(Boolean);
     const absSum = rows.reduce((s, r) => s + r.abs, 0) || 1;
     const maxAbs = Math.max(...rows.map((r) => r.abs), 1e-9);
-    // 双训：把 LambdaRank gain 份额并进同一张因子表（对齐 v2 ŷ_oo）
+    // 双训：把 Tree / LambdaRank gain 份额并进同一张因子表
     const gainByKey = {};
     const fiIn =
       (Array.isArray(opts.feature_importance) && opts.feature_importance) ||
       (Array.isArray(rm.feature_importance) && rm.feature_importance) ||
       null;
+    const isDual = isOoDual || (isHorizon && !!fiIn && Object.keys(coefs).length > 0);
     if (isDual && fiIn) {
       for (const g of fiIn) {
         if (!g || typeof g !== "object") continue;
@@ -1378,6 +1379,9 @@ export function createFactorIcUi(deps) {
     // 列序：因子 · 类型 · μ · σ · [gain%] · β · [|β|%]（oo_rank 双训无 |β|%）
     const betaW = 300;
     const shareW = 340;
+    const gainHeadTip = isHorizon
+      ? "Tree 增益份额（全特征归一化 Σ≈100%；条长相对 Top 表最大）"
+      : "LambdaRank 增益份额（全特征归一化 Σ≈100%；条长相对 Top 表最大，对齐 v2 ŷ_oo）";
     const gainCol = hasOoGain
       ? [
           {
@@ -1386,8 +1390,7 @@ export function createFactorIcUi(deps) {
             width: shareW,
             num: true,
             headClass: "is-case-keep",
-            title:
-              "LambdaRank 增益份额（全特征归一化 Σ≈100%；条长相对 Top 表最大，对齐 v2 ŷ_oo）",
+            title: gainHeadTip,
           },
         ]
       : [];
@@ -1476,9 +1479,10 @@ export function createFactorIcUi(deps) {
       }
       const pct = Number(r.gainShare);
       const w = Math.max(6, Math.min(100, (pct / maxGainShare) * 100));
+      const gainEngine = isHorizon ? "Tree" : "LambdaRank";
       return (
         `<div class="quant-rem-share-cell" title="${esc(
-          `LambdaRank gain 份额 ${fmtGainPct(pct)}%（全特征归一化 Σ≈100%；条长相对 Top 表最大）`
+          `${gainEngine} gain 份额 ${fmtGainPct(pct)}%（全特征归一化 Σ≈100%；条长相对 Top 表最大）`
         )}">` +
         `<div class="quant-rem-share-track" aria-hidden="true">` +
         `<div class="quant-rem-share-fill is-gain" style="width:${w.toFixed(
@@ -1601,6 +1605,10 @@ export function createFactorIcUi(deps) {
           : `按 |β| 降序 · 默认 Top${topN}${
               restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
             }`
+      : isHorizon && isDual && hasOoGain
+        ? `Tree gain% + Ridge β · 按 |β| 降序 · Top${topN}${
+            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+          }`
       : useProbKpis
         ? `按 |β| 降序 · logit · 默认 Top${topN}${
             restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""

@@ -1755,11 +1755,11 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         cross_section_zscore: bool = True,
     ) -> Dict[str, Any]:
-        """泛化 ŷ_τ horizon Ridge：horizon ∈ {t30,t45,t60,t75,t90}。只读本地 5m 缓存。"""
+        """泛化 ŷ_τ horizon：同窗双训 Ridge+Tree，AUC 择优。horizon ∈ {t30…t90}。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.research.horizon_prob import horizon_promote_gate
         from core.research.horizon_ridge import (
-            fit_horizon_ridge_report,
+            fit_horizon_dual_report,
             load_ridge_last_report,
             load_ridge_model,
             persist_ridge_model,
@@ -1860,7 +1860,7 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
-        report = fit_horizon_ridge_report(
+        report = fit_horizon_dual_report(
             horizon,
             stock_bars,
             ridge_lambda=ridge_lambda,
@@ -1881,6 +1881,37 @@ class QuantFactorMixin:
         report["minute_cache_only"] = True
         if report.get("success"):
             save_ridge_last_report(horizon, report)
+            # 同步 tree last_report，供旧树卡 / API 只读
+            try:
+                from core.research.horizon_tree import save_tree_last_report
+
+                if report.get("tree_success") and isinstance(
+                    report.get("tree_return_model"), dict
+                ):
+                    tree_shadow = {
+                        "success": True,
+                        "task": f"{horizon}_tree",
+                        "head": f"y_{horizon}_tree",
+                        "schema": f"{horizon}_tree_shadow_v5",
+                        "oos": (report.get("oos") or {}).get("tree")
+                        or report.get("tree_oos"),
+                        "ridge_oos": (report.get("oos") or {}).get("ridge")
+                        or report.get("ridge_oos"),
+                        "delta_vs_ridge": report.get("delta_vs_ridge"),
+                        "tree_return_model": report.get("tree_return_model"),
+                        "return_model": report.get("tree_return_model"),
+                        "sample_count": report.get("sample_count"),
+                        "stock_count": report.get("stock_count"),
+                        "feature_importance": report.get("feature_importance"),
+                        "tree_shape_features": report.get("tree_shape_features"),
+                        "live_hook": False,
+                        "backtest_hook": True,
+                        "note": "由 ŷ_τ 双训同步；择优见主卡 recommended_backend",
+                        "recommended_backend": report.get("recommended_backend"),
+                    }
+                    save_tree_last_report(horizon, tree_shadow)
+            except Exception:  # noqa: BLE001
+                logger.debug("%s sync tree last_report failed", horizon, exc_info=True)
         if persist and report.get("success"):
             saved = persist_ridge_model(
                 horizon,
@@ -1908,6 +1939,7 @@ class QuantFactorMixin:
             load_ridge_model,
             ridge_model_path,
         )
+        from core.research.holdout import model_fit_id
 
         hn = horizon[1:]
         doc = load_ridge_model(horizon)
@@ -1924,6 +1956,8 @@ class QuantFactorMixin:
             if last:
                 out["promote_gate"] = horizon_promote_gate(last)
                 out["oos"] = last.get("oos")
+                out["recommended_backend"] = last.get("recommended_backend")
+                out["backends"] = last.get("backends")
             return _attach_ridge_role_flags(out, ridge_model_path(horizon), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
         packed = {
@@ -1936,12 +1970,56 @@ class QuantFactorMixin:
             "last_report_exists": bool(last),
             "promote_gate": horizon_promote_gate(gate_src),
         }
-        # 单套 β：别名镜像 desk 主 return_model（不再另灌研究槽第二套）
+        # 因子表 / 对照：落盘缺 backends 时从同窗 last_report 补
+        def _merge_backend_side(be_out: Dict[str, Any], be_src: Dict[str, Any], key: str) -> None:
+            if key in be_out:
+                return
+            pack = be_src.get(key)
+            if isinstance(pack, dict) and isinstance(
+                pack.get("return_model") or pack.get("return_model_research"), dict
+            ):
+                be_out[key] = pack
+
+        if isinstance(last, dict) and isinstance(last.get("backends"), dict):
+            be_out = (
+                dict(packed["backends"])
+                if isinstance(packed.get("backends"), dict)
+                else {}
+            )
+            be_last = last["backends"]
+            same_fit = bool(
+                model_fit_id(packed)
+                and model_fit_id(last)
+                and model_fit_id(packed) == model_fit_id(last)
+            )
+            if use_last or same_fit or not be_out:
+                _merge_backend_side(be_out, be_last, "ridge")
+                _merge_backend_side(be_out, be_last, "tree")
+                if be_out:
+                    packed["backends"] = be_out
+        if (
+            not isinstance(packed.get("oos"), dict)
+            and isinstance(last, dict)
+            and isinstance(last.get("oos"), dict)
+        ):
+            packed["oos"] = last["oos"]
         rm_main = packed.get("return_model")
         if isinstance(rm_main, dict):
             packed["return_model_research"] = dict(rm_main)
         elif isinstance(packed.get("return_model_research"), dict):
             packed["return_model"] = dict(packed["return_model_research"])
+        backend = (
+            packed.get("backend")
+            or packed.get("recommended_backend")
+            or (
+                rm_main.get("backend")
+                if isinstance(rm_main, dict)
+                else None
+            )
+            or "ridge"
+        )
+        packed["backend"] = backend
+        packed["recommended_backend"] = packed.get("recommended_backend") or backend
         return _attach_ridge_role_flags(packed, ridge_model_path(horizon))
 
     def _start_horizon_ridge_job(

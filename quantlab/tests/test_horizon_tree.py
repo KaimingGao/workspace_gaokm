@@ -89,6 +89,77 @@ class TestHorizonTree(unittest.TestCase):
         self.assertAlmostEqual(float(y2), 0.41)
         self.assertEqual(src2, "ridge")
 
+    def test_predict_horizon_hat_reads_pack_backend(self):
+        """启用槽 backend=tree 时，无需 ContextVar 也走 tree。"""
+        from core.t0.score_policy import _predict_horizon_hat
+
+        def load_ridge():
+            return {
+                "backend": "tree",
+                "return_model": {"feature_names": ["gap_pct"], "booster": {}},
+            }
+
+        def predict_ridge(feats, model_doc=None):
+            # 真实路径里 predict_ridge_from_features 会按 backend 分发
+            return 0.71
+
+        def load_tree():
+            return None
+
+        def predict_tree(feats, model_doc=None):
+            return 0.11
+
+        y, doc, src = _predict_horizon_hat(
+            "t30",
+            {"gap_pct": 1.0},
+            load_ridge=load_ridge,
+            predict_ridge=predict_ridge,
+            load_tree=load_tree,
+            predict_tree=predict_tree,
+        )
+        self.assertAlmostEqual(float(y), 0.71)
+        self.assertEqual(src, "tree")
+        self.assertEqual((doc or {}).get("backend"), "tree")
+
+    def test_force_tree_reads_backends_tree_shadow(self):
+        """强制 Tree 对照：无独立 tree 包时读启用套 backends.tree。"""
+        from core.research.horizon_tree import horizon_prob_backend_context
+        from core.t0.score_policy import _predict_horizon_hat
+
+        def load_ridge():
+            return {
+                "backend": "ridge",
+                "return_model": {"coefficients": {"a": 1.0}},
+                "backends": {
+                    "ridge": {"return_model": {"coefficients": {"a": 1.0}}},
+                    "tree": {
+                        "return_model": {"feature_names": ["gap_pct"], "booster": {}}
+                    },
+                },
+            }
+
+        def predict_ridge(feats, model_doc=None):
+            return 0.41
+
+        def load_tree():
+            return None
+
+        def predict_tree(feats, model_doc=None):
+            return 0.66
+
+        with horizon_prob_backend_context("tree"):
+            y, doc, src = _predict_horizon_hat(
+                "t30",
+                {"gap_pct": 1.0},
+                load_ridge=load_ridge,
+                predict_ridge=predict_ridge,
+                load_tree=load_tree,
+                predict_tree=predict_tree,
+            )
+        self.assertAlmostEqual(float(y), 0.66)
+        self.assertEqual(src, "tree")
+        self.assertEqual((doc or {}).get("backend"), "tree")
+
     def test_stamp_horizon_formula_uses_tree_tip(self):
         from core.t0.score_policy import _stamp_horizon_formula_terms
 

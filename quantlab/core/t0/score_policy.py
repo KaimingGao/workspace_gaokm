@@ -1192,7 +1192,12 @@ def _predict_horizon_hat(
     load_tree,
     predict_tree,
 ) -> tuple:
-    """返回 (p_up, model_doc, source)。tree 优先于 ridge（backend=tree 且有模型）。"""
+    """返回 (p_up, model_doc, source)。
+
+    正式路径：读启用槽包内 ``backend``（AUC 择优落盘）。
+    过渡：``horizon_prob_backend=tree`` 仍可强制走独立 tree 包（旧回测对照）。
+    """
+    from core.research.horizon_ridge import _doc_backend
     from core.research.horizon_tree import (
         HORIZON_PROB_BACKEND_TREE,
         current_horizon_prob_backend,
@@ -1210,13 +1215,47 @@ def _predict_horizon_hat(
                 y_hat = None
             if y_hat is not None:
                 return float(y_hat), tree_doc, "tree"
+        # 无独立 tree 包：启用槽 backend=tree，或 backends.tree 影子包
+        try:
+            pack = load_ridge()
+        except Exception:  # noqa: BLE001
+            pack = None
+        if isinstance(pack, dict):
+            if _doc_backend(pack) == "tree":
+                try:
+                    y_hat = predict_ridge(feats, model_doc=pack)
+                except Exception:  # noqa: BLE001
+                    y_hat = None
+                if y_hat is not None:
+                    return float(y_hat), pack, "tree"
+            be = pack.get("backends") if isinstance(pack.get("backends"), dict) else {}
+            tree_pack = be.get("tree") if isinstance(be, dict) else None
+            tree_rm = None
+            if isinstance(tree_pack, dict):
+                tree_rm = tree_pack.get("return_model") or tree_pack.get(
+                    "return_model_research"
+                )
+            if isinstance(tree_rm, dict):
+                shadow = {
+                    "backend": "tree",
+                    "return_model": tree_rm,
+                    "backends": be,
+                }
+                try:
+                    y_hat = predict_tree(feats, model_doc=shadow)
+                except Exception:  # noqa: BLE001
+                    y_hat = None
+                if y_hat is not None:
+                    return float(y_hat), shadow, "tree"
+
     model = load_ridge()
     if model is None:
         return None, None, None
+    src = _doc_backend(model)
     y_hat = predict_ridge(feats, model_doc=model)
     if y_hat is None:
         return None, model, None
-    return float(y_hat), model, "ridge"
+    return float(y_hat), model, src if src in ("tree", "ridge") else "ridge"
 
 
 def _stamp_horizon_formula_terms(

@@ -657,7 +657,7 @@ def quant_t90_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t30-tree")
 
 def quant_t30_tree(body: T30TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ30_tree + 同 Holdout Ridge；写入 t30_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ30_tree（兼容）：对照 API；正式双训见 /api/quant/t30-ridge。"""
     try:
         return deps.quant.run_t30_tree_experiment(
             lookback=body.lookback,
@@ -684,7 +684,7 @@ def quant_t30_tree_last() -> Dict[str, Any]:
 @router.post("/api/quant/t45-tree")
 
 def quant_t45_tree(body: T45TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ45_tree + 同 Holdout Ridge；写入 t45_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ45_tree（兼容）：对照 API；正式双训见 /api/quant/t45-ridge。"""
     try:
         return deps.quant.run_t45_tree_experiment(
             lookback=body.lookback,
@@ -711,7 +711,7 @@ def quant_t45_tree_last() -> Dict[str, Any]:
 @router.post("/api/quant/t60-tree")
 
 def quant_t60_tree(body: T60TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ60_tree + 同 Holdout Ridge；写入 t60_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ60_tree（兼容）：对照 API；正式双训见 /api/quant/t60-ridge。"""
     try:
         return deps.quant.run_t60_tree_experiment(
             lookback=body.lookback,
@@ -738,7 +738,7 @@ def quant_t60_tree_last() -> Dict[str, Any]:
 @router.post("/api/quant/t75-tree")
 
 def quant_t75_tree(body: T75TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ75_tree + 同 Holdout Ridge；写入 t75_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ75_tree（兼容）：对照 API；正式双训见 /api/quant/t75-ridge。"""
     try:
         return deps.quant.run_t75_tree_experiment(
             lookback=body.lookback,
@@ -765,7 +765,7 @@ def quant_t75_tree_last() -> Dict[str, Any]:
 @router.post("/api/quant/t90-tree")
 
 def quant_t90_tree(body: T90TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ90_tree + 同 Holdout Ridge；写入 t90_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ90_tree（兼容）：对照 API；正式双训见 /api/quant/t90-ridge。"""
     try:
         return deps.quant.run_t90_tree_experiment(
             lookback=body.lookback,

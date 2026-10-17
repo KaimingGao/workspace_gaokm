@@ -120,7 +120,7 @@ class TauRidgeRequest(BaseModel):
 
 
 class T30TreeRequest(BaseModel):
-    """ŷ_τ30_tree：同面板 Holdout vs Ridge。写入 t30_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ30_tree（已并入主卡）：只读对照 / 兼容 API。正式路径见 t30-ridge 双训 AUC 择优。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -151,7 +151,7 @@ class T30TreeRequest(BaseModel):
 
 
 class T45TreeRequest(BaseModel):
-    """ŷ_τ45_tree：同面板 Holdout vs Ridge。写入 t45_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ45_tree（已并入主卡）：只读对照 / 兼容 API。正式路径见 t45-ridge 双训 AUC 择优。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -182,7 +182,7 @@ class T45TreeRequest(BaseModel):
 
 
 class T60TreeRequest(BaseModel):
-    """ŷ_τ60_tree：同面板 Holdout vs Ridge。写入 t60_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ60_tree（已并入主卡）：只读对照 / 兼容 API。正式路径见 t60-ridge 双训 AUC 择优。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -213,7 +213,7 @@ class T60TreeRequest(BaseModel):
 
 
 class T75TreeRequest(BaseModel):
-    """ŷ_τ75_tree：同面板 Holdout vs Ridge。写入 t75_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ75_tree（已并入主卡）：只读对照 / 兼容 API。正式路径见 t75-ridge 双训 AUC 择优。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(
@@ -244,7 +244,7 @@ class T75TreeRequest(BaseModel):
 
 
 class T90TreeRequest(BaseModel):
-    """ŷ_τ90_tree：同面板 Holdout vs Ridge。写入 t90_tree_model.json，做 T 回测选 Tree。不进 live。"""
+    """ŷ_τ90_tree（已并入主卡）：只读对照 / 兼容 API。正式路径见 t90-ridge 双训 AUC 择优。"""
 
     lookback: int = Field(default=120, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
     watching_limit: int = Field(

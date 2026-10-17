@@ -863,7 +863,8 @@ def fit_horizon_tree_report(
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
             f"ŷ_τ{num}_tree：X 含 OC 路径形状；对照 Ridge 仍用原 Z。"
-            f"写入 {h}_tree_model.json 后可设 horizon_prob_backend=tree 进做 T 回测。"
+            f"正式路径已并入 ŷ_τ{num} 主卡双训（Holdout AUC 择优）；"
+            f"本报告供对照。旧回测仍可设 horizon_prob_backend=tree。"
         ),
     }
     attach_holdout_meta(report, split_meta)
