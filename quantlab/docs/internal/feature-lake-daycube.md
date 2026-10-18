@@ -222,6 +222,10 @@ rank_lots / 账本
 
 - `build_tau_pool_watching_holdings`：当日 cube slim 命中则跳过扫 bars  
 - `run_daily_cycle`：启动时 `_try_hydrate_tau_xs_from_day_cube` 预热进程缓存  
+- **开盘截面 ŷ**（`_align_item_to_watching_pool`）：`load_day_cube` **命中 → 单票** `rescore_fitted_cross_section([item], day_cube=)`（μ/σ 只信 cube，不抽同伴）；miss → 同伴 raw ← L1（再 bars）→ `ensure_day_cube_for_items` → rescore。与调仓同函数、同 μ/σ  
+- **做 T 持仓回测**：`run_t0_backtest_for_holdings` 在逐票 walk 前 `warmup_watching_day_cubes`（`prefetch_l1_coverage` + 评估窗按日 ensure/persist DayCube）  
+- 前缀 ŷ_τc / ŷ_τ*：优先同一 DayCube `apply_cube_z_to_dicts`（须覆盖窗头特征，拒 slim gap-only）；cube miss 时池内 leave-one-in：剥开盘同伴分钟占位，稀疏列保留 stamped（池外不把持仓并进 μ/σ）  
+- `rescore_fitted_cross_section`：`day_cube` 宇宙 ≥2 时允许 `len(items) >= 1`
 
 ---
 
@@ -234,6 +238,7 @@ rank_lots / 账本
 3. `rescore_fitted_cross_section(..., day_cube=)`：  
    - ŷ_oo：`apply_predicted_scores(..., day_cube=)`  
    - ŷ_τ / ŷ_co：`apply_cube_z_to_dicts` 后 predict  
+   - 有可用 DayCube 时允许单票 items（T0 对齐快路径）
 
 与 `cross_section_zscore_dicts` 在同批 raw 上应对齐（单测覆盖）。
 

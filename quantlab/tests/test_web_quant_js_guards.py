@@ -2464,6 +2464,19 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("c_hat_score_source", table_js)
         self.assertNotIn("bar_prefix", table_js)
         self.assertIn("tradeScoreHost", table_js)
+        self.assertIn("function applyScanTipFieldsToScores", table_js)
+        self.assertIn("function scanTipTerms", table_js)
+        self.assertIn("applyScanTipFieldsToScores(scores, scanRow)", table_js)
+        self.assertIn("applyScanTipFieldsToScores(slotScores, scanForTips)", table_js)
+        # 槽位 tip 须合并扫描 ŷ，禁止只挂 _scan_score_row 就 return
+        self.assertNotIn(
+            "if (host.t0_slot_focus) {\n    return { ...host, _scan_score_row: scanRow };\n  }",
+            table_js,
+        )
+        self.assertIn(
+            "...((d.scores && typeof d.scores === \"object\" ? d.scores : {}) || {}),\n      }",
+            table_js,
+        )
         self.assertIn("const liveTips = slotSnapMode ? null : live", table_js)
         self.assertIn("_scan_score_row: scanRow", table_js)
         self.assertIn("formula_terms_t45", table_js)

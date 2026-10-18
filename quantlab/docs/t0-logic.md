@@ -338,6 +338,8 @@ bound = ref × (1 + move_pct / 100)
 - 板块中位对宇宙 **全员** 取中位（不再截 24 只）
 - 每个 `(日期, τ)`：一次扫池同时写出开→τ 与 30/45/60/75/90m 中位，后续头读缓存
 - live 盯盘与做 T 回测都把该宇宙的 5m 灌进同伴仓；持仓回测灌一次后复用，不清仓重灌
+- **回测截面灌仓只读本地 5m**（并行；缺仓/缺尾同伴票跳过，不远端补拉）。持仓本票仍可补拉。研究页先预热分钟线可提高截面覆盖
+- **日截面 Z**：回测 / live / 拟合同口径。同伴 raw 优先 **Feature Lake L1**（与拟合写穿同一行）；μ/σ 走 **DayCube L2** + `rescore_fitted_cross_section`（`score_codes` 只写持仓/本票，不缩小 z 池）。**DayCube 命中时单票 z+ŷ，不重建整池同伴**；做 T 持仓回测开跑 `warmup_watching_day_cubes`（prefetch L1 + 评估窗 ensure cube）。**禁止抽样/截断同伴池**。Lake/cube miss 才并行 `compute_scores_from_bars`（`include_tau_horizons=False`，辅头 ŷ 不进 μ/σ）。前缀辅头 CS-z：cube 须覆盖窗头特征（拒 slim gap-only）；miss 时 leave-one-in **剥开盘同伴分钟占位**（`ret_open_to_tau=0` 等），仅 ≥2 个有限样本的列进截面，稀疏分钟列保留本票 stamped，避免各钟 ŷ 塌成常数
 - 持仓只决定谁成交，不决定截面宽度
 
 权重仍分研究套 / 执行套；因子管子三路同一。

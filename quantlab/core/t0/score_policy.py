@@ -17,6 +17,7 @@ import contextvars
 import copy
 import logging
 import os
+import time
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
@@ -47,6 +48,9 @@ _POOL_Z_REQUEST: contextvars.ContextVar[bool] = contextvars.ContextVar(
 _POOL_Z_DEPTH: contextvars.ContextVar[int] = contextvars.ContextVar(
     "t0_pool_z_depth", default=0
 )
+# 同伴日线复用（同进程、同码表；全样本截面 z 跨日冷启动时免重复拉 K）
+_PEER_BARS_MEMO: Dict[str, Dict[str, List[dict]]] = {}
+_PEER_BARS_MEMO_MAX = 4
 _ITEM_SINK: contextvars.ContextVar[Optional[List[dict]]] = contextvars.ContextVar(
     "t0_pool_item_sink", default=None
 )
@@ -1183,6 +1187,81 @@ def _open_px_from_item(item: dict) -> Optional[float]:
     return _f(feats.get("open")) or _f(item.get("open"))
 
 
+def _cube_covers_horizon_names(cube: Any, names: Sequence[str]) -> bool:
+    """slim gap-only cube 不能当窗头截面命中（否则分钟特征未 z 或走坏 leave-one-in）。"""
+    if cube is None:
+        return False
+    cube_names = {str(n) for n in (getattr(cube, "names", None) or []) if str(n or "").strip()}
+    if len(cube_names) < 3:
+        return False
+    try:
+        from core.signal.factors.z_th import to_legacy_key
+    except Exception:  # noqa: BLE001
+        to_legacy_key = lambda k: k  # type: ignore[assignment, misc]
+    hit = 0
+    for raw in names or []:
+        key = str(raw or "").strip()
+        if not key:
+            continue
+        bare = str(to_legacy_key(key) or key)
+        if key in cube_names or bare in cube_names:
+            hit += 1
+    need = max(3, (len([n for n in names if str(n or "").strip()]) + 3) // 4)
+    return hit >= need
+
+
+def _strip_peer_open_minute_placeholders(row: dict) -> None:
+    """观察池 open 行常带 ret_open_to_tau=0；进截面会把各钟差异压成常数（√2 / 0）。
+
+    池缓存是开盘快照，不是同钟分钟截面；leave-one-in 时一律剥分钟键，只留日线/开盘列。
+    """
+    if not isinstance(row, dict):
+        return
+    try:
+        from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_SHAPE_KEYS
+    except Exception:  # noqa: BLE001
+        MINUTE_TAU_ALL_KEYS = ()  # type: ignore[assignment]
+        MINUTE_TAU_SHAPE_KEYS = ()  # type: ignore[assignment]
+    keys = set(MINUTE_TAU_ALL_KEYS) | set(MINUTE_TAU_SHAPE_KEYS)
+    keys.update(
+        {
+            "ret_open_to_tau",
+            "ret_prev_to_tau",
+            "ret_vs_sector",
+            "sector_ret_to_tau",
+            "loc_hl",
+            "range_pct",
+            "yclose_loc",
+        }
+    )
+    for bare in list(keys):
+        for k in (bare, f"z_τh_{bare}", f"z_τc_{bare}", f"z_th_{bare}"):
+            if k in row:
+                row.pop(k, None)
+
+
+def _finite_feat_count(rows: Sequence[dict], name: str) -> int:
+    import math
+
+    key = str(name or "").strip()
+    if not key:
+        return 0
+    n = 0
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        v = row.get(key)
+        if v is None or v == "":
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(fv):
+            n += 1
+    return n
+
+
 def _cs_z_horizon_feats(
     feats: dict,
     *,
@@ -1223,22 +1302,56 @@ def _cs_z_horizon_feats(
     if len(peers) < 2:
         return feats
     code = str(stock_code or "").strip()
-    if code and any(str(p.get("stock_code") or "") == code for p in peers):
-        rows = []
+    # 优先 DayCube μ/σ（与拟合 / batch rescore 同 L2）；须覆盖窗头特征，拒 slim gap-only
+    try:
+        from core.research.day_cube import apply_cube_z_to_dicts, enabled, load_day_cube
+
+        watching_codes = _watching_codes_for_z()
+        if enabled() and len(watching_codes) >= 2:
+            cube = load_day_cube(dkey, watching_codes, clock="open")
+            if _cube_covers_horizon_names(cube, names):
+                src = dict(feats)
+                stamp_z_th_aliases(src)
+                z_all = apply_cube_z_to_dicts([src], [code], cube)
+                if z_all:
+                    return z_all[0]
+    except Exception:  # noqa: BLE001
+        logger.debug("horizon cs-z day_cube failed", exc_info=True)
+    # 池内 leave-one-in：剥开盘分钟占位；稀疏列（仅本票有值）保留 stamped，禁止打成 0/√2
+    in_pool = bool(code) and any(
+        str(p.get("stock_code") or "").strip() == code for p in peers if isinstance(p, dict)
+    )
+    if in_pool:
+        rows: List[dict] = []
         slot = 0
         for peer in peers:
-            if str(peer.get("stock_code") or "") == code:
+            if not isinstance(peer, dict):
+                continue
+            if str(peer.get("stock_code") or "").strip() == code:
                 slot = len(rows)
                 copied = dict(feats)
             else:
                 copied = dict(peer.get("features_tau") or {})
+                _strip_peer_open_minute_placeholders(copied)
             stamp_z_th_aliases(copied)
             rows.append(copied)
-        z_rows = cross_section_zscore_dicts(rows, names)
-        return z_rows[slot] if slot < len(z_rows) else feats
+        if len(rows) >= 2:
+            cs_names = [n for n in names if _finite_feat_count(rows, str(n)) >= 2]
+            if cs_names:
+                z_rows = cross_section_zscore_dicts(rows, cs_names)
+                return z_rows[slot] if slot < len(z_rows) else feats
+            return rows[slot] if slot < len(rows) else feats
+    # 池外：μ/σ 仅观察池，不把持仓并进截面
+    peer_feats = []
+    for p in peers:
+        if not isinstance(p, dict):
+            continue
+        ft = dict(p.get("features_tau") or {})
+        _strip_peer_open_minute_placeholders(ft)
+        peer_feats.append(ft)
     return _z_row_against_peers(
         feats,
-        [p.get("features_tau") or {} for p in peers],
+        peer_feats,
         names,
         stamp=stamp_z_th_aliases,
     )
@@ -2553,8 +2666,10 @@ def rescore_scores_at_fixed_prefix(
     _refresh_tau_oc_from_feats(
         out, hm=str(hm or "")[:5], trade_date=dkey, force=True
     )
-    # 禁止 silently 用开盘 Z 冒充盘中 path
+    # 禁止 silently 用开盘 Z 冒充盘中 path；时钟须在 attach 前写入（辅头 CS-z / 分钟小包读此前缀）
     out["_minute_prefix"] = prefix
+    out["_score_prefix_hm"] = hm
+    out["_score_prefix_bars"] = len(prefix)
     _attach_y_path_to_item(
         out,
         hist_bars=hist_bars,
@@ -2563,8 +2678,6 @@ def rescore_scores_at_fixed_prefix(
     )
     out.pop("_minute_prefix", None)
     out["_score_source"] = src
-    out["_score_prefix_hm"] = hm
-    out["_score_prefix_bars"] = len(prefix)
     out.pop("_minute_data_missing", None)
     if len(_PREFIX_RESCORE_CACHE) >= _PREFIX_RESCORE_CACHE_MAX:
         _PREFIX_RESCORE_CACHE.clear()
@@ -2844,7 +2957,7 @@ def _pool_z_active() -> bool:
 
 @contextlib.contextmanager
 def watching_pool_z_scope() -> Iterator[None]:
-    """做 T / 纸面打分时，把截面 z 对齐当天观察池。"""
+    """做 T / 纸面打分时，把截面 z 对齐当天观察池（全样本，与拟合同口径）。"""
     if _pool_z_disabled():
         yield
         return
@@ -2856,7 +2969,7 @@ def watching_pool_z_scope() -> Iterator[None]:
 
 
 def _watching_codes_for_z() -> List[str]:
-    """观察池名单。持仓若不在池内，不进 μ/σ。"""
+    """观察池全名单。持仓若不在池内，不进 μ/σ。"""
     try:
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
 
@@ -2953,7 +3066,49 @@ def temporary_pool_feature_rows(date: str, items: Sequence[dict]) -> Iterator[No
             _POOL_FEAT_CACHE[dkey] = prev
 
 
+def _peer_rows_from_feature_lake(date: str, codes: Sequence[str]) -> List[dict]:
+    """优先读 L1 Feature Lake（与拟合写穿同一 raw），缺 oo 行的票跳过。"""
+    dkey = str(date or "")[:10]
+    if len(dkey) < 10 or not codes:
+        return []
+    try:
+        from core.research.feature_lake import enabled as lake_on, load_day_rows
+        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.lake_replay import assemble_item_from_lake_rows
+    except Exception:  # noqa: BLE001
+        return []
+    if not lake_on():
+        return []
+    try:
+        oo_m = load_day_rows(FAMILY_OO, list(codes), dkey) or {}
+        tc_m = load_day_rows(FAMILY_TC, list(codes), dkey) or {}
+        co_m = load_day_rows(FAMILY_CO, list(codes), dkey) or {}
+    except Exception:  # noqa: BLE001
+        logger.debug("peer lake load_day_rows failed day=%s", dkey, exc_info=True)
+        return []
+    rows: List[dict] = []
+    for code in codes:
+        c = str(code or "").strip()
+        if not c:
+            continue
+        oo = oo_m.get(c)
+        if not oo:
+            continue
+        item = assemble_item_from_lake_rows(
+            c, dkey, oo=oo, tc=tc_m.get(c), co=co_m.get(c)
+        )
+        if item is None:
+            continue
+        rows.append(_capture_feature_row(item, c))
+    return rows
+
+
 def _peer_feature_rows(date: str) -> List[dict]:
+    """观察池当日特征行（供截面 μ/σ）。结果按日缓存。
+
+    优先 Feature Lake L1（与拟合同 raw）；miss 再并行 ``compute_scores_from_bars``
+    （``include_tau_horizons=False``，只抽主头特征进 μ/σ）。
+    """
     dkey = str(date or "")[:10]
     if len(dkey) < 10:
         return []
@@ -2967,32 +3122,123 @@ def _peer_feature_rows(date: str) -> List[dict]:
     rows: List[dict] = []
     depth = _POOL_Z_DEPTH.set(int(_POOL_Z_DEPTH.get()) + 1)
     req = _POOL_Z_REQUEST.set(False)
-    sink = _ITEM_SINK.set(rows)
+    t0 = time.perf_counter()
+    bar_limit = max(80, int(_EOD_FACTOR_BAR_LIMIT) + 8)
     try:
-        bars_map = load_bars_by_code_for_tau_pool(
-            codes, limit=max(80, int(_EOD_FACTOR_BAR_LIMIT) + 8)
+        lake_rows = _peer_rows_from_feature_lake(dkey, codes)
+        by_code = {
+            str(r.get("stock_code") or "").strip(): r
+            for r in lake_rows
+            if isinstance(r, dict) and str(r.get("stock_code") or "").strip()
+        }
+        miss = [c for c in codes if c not in by_code]
+        filled_n = 0
+        if miss:
+            need = list(miss)
+            memo_key = f"{bar_limit}|{'|'.join(codes)}"
+            bars_map = _PEER_BARS_MEMO.get(memo_key)
+            if bars_map is None:
+                bars_map = load_bars_by_code_for_tau_pool(need, limit=bar_limit)
+                # 仅全量 miss（无 lake）时写入全码表 memo
+                if not by_code:
+                    if len(_PEER_BARS_MEMO) >= int(_PEER_BARS_MEMO_MAX):
+                        _PEER_BARS_MEMO.clear()
+                    _PEER_BARS_MEMO[memo_key] = bars_map
+
+            def _one(code: str) -> Optional[dict]:
+                bars = bars_map.get(code) or []
+                hist, day = _split_bars_on_date(bars, dkey)
+                if day is None or len(hist) < _MIN_HIST_BARS:
+                    return None
+                private: List[dict] = []
+                sink_tok = _ITEM_SINK.set(private)
+                try:
+                    compute_scores_from_bars(
+                        code,
+                        hist,
+                        day_bar=day,
+                        fuse_intraday=False,
+                        use_minute_tau=False,
+                        include_tau_horizons=False,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("peer feature row failed for %s", code, exc_info=True)
+                    return None
+                finally:
+                    _ITEM_SINK.reset(sink_tok)
+                return private[0] if private else None
+
+            workers = max(1, min(8, len(need)))
+            filled: List[dict] = []
+            if workers == 1:
+                for code in need:
+                    row = _one(code)
+                    if row:
+                        filled.append(row)
+            else:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futs = [pool.submit(_one, c) for c in need]
+                    for fut in as_completed(futs):
+                        try:
+                            row = fut.result()
+                        except Exception:  # noqa: BLE001
+                            row = None
+                        if row:
+                            filled.append(row)
+            for row in filled:
+                c = str(row.get("stock_code") or "").strip()
+                if c:
+                    by_code[c] = _capture_feature_row(row, c)
+            filled_n = len(filled)
+            src = "lake+bars" if lake_rows else "bars"
+        else:
+            workers = 0
+            src = "lake"
+        rows = [by_code[c] for c in codes if c in by_code]
+        logger.info(
+            "watching pool feature rows date=%s codes=%s rows=%s source=%s lake=%s bars=%s workers=%s elapsed=%.1fs",
+            dkey,
+            len(codes),
+            len(rows),
+            src,
+            len(lake_rows),
+            filled_n,
+            workers,
+            time.perf_counter() - t0,
         )
-        for code in codes:
-            bars = bars_map.get(code) or []
-            hist, day = _split_bars_on_date(bars, dkey)
-            if day is None or len(hist) < _MIN_HIST_BARS:
-                continue
-            compute_scores_from_bars(
-                code,
-                hist,
-                day_bar=day,
-                fuse_intraday=False,
-                use_minute_tau=False,
-            )
     except Exception:  # noqa: BLE001
         logger.debug("watching pool feature rows failed", exc_info=True)
         rows.clear()
     finally:
-        _ITEM_SINK.reset(sink)
         _POOL_Z_REQUEST.reset(req)
         _POOL_Z_DEPTH.reset(depth)
     _POOL_FEAT_CACHE[dkey] = rows
     return rows
+
+
+def _peer_rows_for_cs_z(
+    peers: Sequence[dict],
+    *,
+    field: str,
+    stock_code: str = "",
+    self_feats: Optional[dict] = None,
+) -> List[dict]:
+    """全样本同伴特征行；若 ``stock_code`` 在池内则用 ``self_feats`` 置换该行（leave-one-in）。"""
+    code = str(stock_code or "").strip()
+    self_row = dict(self_feats or {}) if isinstance(self_feats, dict) else {}
+    out: List[dict] = []
+    for peer in peers or []:
+        if not isinstance(peer, dict):
+            continue
+        pc = str(peer.get("stock_code") or "").strip()
+        if code and pc == code and self_row:
+            out.append(dict(self_row))
+        else:
+            feat = peer.get(field) if field else None
+            out.append(dict(feat) if isinstance(feat, dict) else {})
+    return out
 
 
 def _z_row_against_peers(
@@ -3134,26 +3380,112 @@ def _predict_tau_from_row(item: dict, z_row: dict, raw_feats: dict) -> None:
     )
 
 
+def _light_item_from_peer_row(row: dict, date: str) -> dict:
+    """同伴特征行 → 轻量 signal_item（供 DayCube / rescore）。"""
+    code = str(row.get("stock_code") or "").strip()
+    dkey = str(date or "")[:10]
+    co = row.get("features_co") if isinstance(row.get("features_co"), dict) else {}
+    out: Dict[str, Any] = {
+        "stock_code": code,
+        "as_of": dkey,
+        "date": dkey,
+        "trade_date": dkey,
+        "sub_scores": dict(row.get("sub_scores") or {}),
+        "features_tau": dict(row.get("features_tau") or {}),
+        "features_co": dict(co),
+        "gap_pct": row.get("gap_pct"),
+        "as_of_tau": row.get("as_of_tau"),
+        "dual_score_window": row.get("dual_score_window"),
+        "success": True,
+    }
+    if co:
+        out["features_on"] = dict(co)
+    return out
+
+
 def _align_item_to_watching_pool(item: dict, date: str) -> None:
-    """用观察池当天特征重算这一行的 ŷ_oo / ŷ_τc。池内票替换进截面，池外票不改 μ/σ。"""
+    """用观察池当天全样本 μ/σ 重算本票 ŷ（与拟合 / 调仓 batch 同路径）。
+
+    DayCube 命中：只对本票 ``rescore_fitted_cross_section``（μ/σ 信 cube，不重建同伴）。
+    miss：抽全池同伴 raw → ensure cube → rescore；池内 leave-one-in，池外持仓不进 μ/σ。
+    """
     if not isinstance(item, dict):
         return
-    peers = _peer_feature_rows(date)
-    if len(peers) < 2:
+    dkey = str(date or "")[:10]
+    if len(dkey) < 10:
         return
     code = str(item.get("stock_code") or "").strip()
-    in_pool = any(str(p.get("stock_code") or "") == code for p in peers)
-    if in_pool:
+    allow = {code} if code else None
+    watching_codes = _watching_codes_for_z()
+    # 快路径：已有 DayCube → 单票 z+ŷ，跳过整池同伴重建
+    try:
+        from core.research.day_cube import enabled as cube_on, load_day_cube
         from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
-        rows = []
-        for peer in peers:
-            if str(peer.get("stock_code") or "") == code:
-                rows.append(item)
-            else:
-                rows.append(copy.deepcopy(peer))
-        rescore_fitted_cross_section(rows)
+        if cube_on() and len(watching_codes) >= 2:
+            cube = load_day_cube(dkey, watching_codes, clock="open")
+            if cube is not None:
+                rescore_fitted_cross_section(
+                    [item], score_codes=allow, day_cube=cube
+                )
+                return
+    except Exception:  # noqa: BLE001
+        logger.debug("pool z cube-hit rescore failed", exc_info=True)
+
+    peers = _peer_feature_rows(dkey)
+    if len(peers) < 2:
         return
+    peer_items: List[dict] = []
+    in_pool = False
+    for p in peers:
+        if not isinstance(p, dict):
+            continue
+        pc = str(p.get("stock_code") or "").strip()
+        if code and pc == code:
+            in_pool = True
+            peer_items.append(item)
+        else:
+            peer_items.append(_light_item_from_peer_row(p, dkey))
+    if len(peer_items) < 2:
+        return
+    cube_src = (
+        peer_items
+        if in_pool
+        else [_light_item_from_peer_row(p, dkey) for p in peers if isinstance(p, dict)]
+    )
+    score_items = peer_items if in_pool else list(peer_items) + [item]
+    cube = None
+    try:
+        from core.research.batch_score import ensure_day_cube_for_items
+        from core.research.day_cube import enabled as cube_on
+
+        cube = ensure_day_cube_for_items(
+            cube_src, date=dkey, clock="open", persist=bool(cube_on())
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("pool z day_cube failed", exc_info=True)
+        cube = None
+    try:
+        from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+        if cube is not None:
+            rescore_fitted_cross_section(
+                score_items, score_codes=allow, day_cube=cube
+            )
+            return
+        if in_pool:
+            # 无 cube：整批 leave-one-in 现算 μ/σ（与 rescore 同函数）
+            rescore_fitted_cross_section(score_items, score_codes=allow)
+            return
+    except Exception:  # noqa: BLE001
+        logger.debug("pool z rescore failed", exc_info=True)
+    # 池外无 cube / rescore 失败：μ/σ 仅观察池，不把持仓并进截面
+    _align_item_to_watching_pool_legacy(item, peers)
+
+
+def _align_item_to_watching_pool_legacy(item: dict, peers: Sequence[dict]) -> None:
+    """旧手写 z+predict（仅回退）。"""
+    code = str(item.get("stock_code") or "").strip()
     try:
         from core.research.oo_ridge import load_scoring_return_model
         from core.research.tc_ridge import load_tau_model
@@ -3161,14 +3493,17 @@ def _align_item_to_watching_pool(item: dict, date: str) -> None:
         from core.signal.factors.z_oo import stamp_z_oo_aliases
         from core.signal.factors.z_tc import stamp_z_tc_aliases
     except Exception:  # noqa: BLE001
-        logger.debug("pool z external import failed", exc_info=True)
+        logger.debug("pool z legacy import failed", exc_info=True)
         return
     model, _meta = load_scoring_return_model()
     oo_names = [str(k) for k in (getattr(model, "coefficients", None) or {})]
     if oo_names:
+        oo_raw = dict(item.get("sub_scores") or {})
         z_oo = _z_row_against_peers(
-            dict(item.get("sub_scores") or {}),
-            [p.get("sub_scores") or {} for p in peers],
+            oo_raw,
+            _peer_rows_for_cs_z(
+                peers, field="sub_scores", stock_code=code, self_feats=oo_raw
+            ),
             oo_names,
             stamp=stamp_z_oo_aliases,
         )
@@ -3180,7 +3515,9 @@ def _align_item_to_watching_pool(item: dict, date: str) -> None:
     if tau_names and feats:
         z_tau = _z_row_against_peers(
             feats,
-            [p.get("features_tau") or {} for p in peers],
+            _peer_rows_for_cs_z(
+                peers, field="features_tau", stock_code=code, self_feats=feats
+            ),
             tau_names,
             stamp=stamp_z_tc_aliases,
         )
@@ -3189,11 +3526,13 @@ def _align_item_to_watching_pool(item: dict, date: str) -> None:
 
 def _tau_feature_row_for_refresh(item: dict, trade_date: str) -> Optional[dict]:
     """前缀重算时用已缓存的观察池 μ/σ，避免单票 raw×β 盖掉截面分。"""
-    peers = _POOL_FEAT_CACHE.get(str(trade_date or "")[:10]) or []
+    dkey = str(trade_date or "")[:10]
+    peers = _POOL_FEAT_CACHE.get(dkey) or []
     feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else None
     if not isinstance(feats, dict) or len(peers) < 2:
         return None
     try:
+        from core.research.feature_standardize import cross_section_zscore_dicts
         from core.research.tc_ridge import load_tau_model
         from core.signal.cross_section_rescore import _active_names
         from core.signal.factors.z_tc import stamp_z_tc_aliases
@@ -3206,10 +3545,26 @@ def _tau_feature_row_for_refresh(item: dict, trade_date: str) -> Optional[dict]:
     if not names:
         return None
     code = str(item.get("stock_code") or "").strip()
+    try:
+        from core.research.day_cube import apply_cube_z_to_dicts, enabled, load_day_cube
+
+        watching_codes = [
+            str(p.get("stock_code") or "").strip()
+            for p in peers
+            if isinstance(p, dict) and str(p.get("stock_code") or "").strip()
+        ]
+        if enabled() and len(watching_codes) >= 2:
+            cube = load_day_cube(dkey, watching_codes, clock="open")
+            if cube is not None:
+                src = dict(feats)
+                stamp_z_tc_aliases(src)
+                z_all = apply_cube_z_to_dicts([src], [code], cube)
+                if z_all:
+                    return z_all[0]
+    except Exception:  # noqa: BLE001
+        logger.debug("prefix pool z day_cube failed", exc_info=True)
     in_pool = any(str(p.get("stock_code") or "") == code for p in peers)
     if in_pool:
-        from core.research.feature_standardize import cross_section_zscore_dicts
-
         rows = []
         slot = 0
         for peer in peers:
@@ -3240,6 +3595,123 @@ def clear_score_model_cache() -> None:
     _PREFIX_RESCORE_CACHE.clear()
     _POOL_FEAT_CACHE.clear()
     _CS_UNIVERSE_MEMO = None
+
+
+def warmup_watching_day_cubes(
+    codes: Sequence[str],
+    dates: Sequence[str],
+    *,
+    progress_cb: Optional[Any] = None,
+    cancel_cb: Optional[Any] = None,
+    min_lake_frac: float = 0.5,
+) -> Dict[str, int]:
+    """做 T 回测开跑：prefetch L1 + 按日 ensure DayCube（命中则跳过）。
+
+    Lake 当日 oo 覆盖不足 ``min_lake_frac`` 则不预建该日（留给冷路径 bars）。
+    返回 ``prefetch_codes`` / ``cubes_hit`` / ``cubes_built`` / ``days``。
+    """
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    day_list = sorted({str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10})
+    out = {
+        "prefetch_codes": 0,
+        "cubes_hit": 0,
+        "cubes_built": 0,
+        "days": len(day_list),
+    }
+    if len(code_list) < 2 or not day_list:
+        return out
+
+    def _cancelled() -> bool:
+        if not cancel_cb:
+            return False
+        try:
+            return bool(cancel_cb())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _emit(msg: str) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(0, 1, msg)
+        except Exception:  # noqa: BLE001
+            logger.debug("warmup day_cube progress failed", exc_info=True)
+
+    try:
+        from core.research.lake_replay import prefetch_l1_coverage
+
+        _emit("预热 Feature Lake…")
+        stats = prefetch_l1_coverage(code_list) or {}
+        out["prefetch_codes"] = int(max(stats.values()) if stats else 0)
+    except Exception:  # noqa: BLE001
+        logger.debug("warmup l1 prefetch failed", exc_info=True)
+
+    try:
+        from core.research.batch_score import ensure_day_cube_for_items
+        from core.research.day_cube import enabled as cube_on, load_day_cube
+        from core.research.feature_lake import enabled as lake_on, load_day_rows
+        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.lake_replay import assemble_item_from_lake_rows
+    except Exception:  # noqa: BLE001
+        logger.debug("warmup day_cube imports failed", exc_info=True)
+        return out
+    if not cube_on() or not lake_on():
+        return out
+
+    n_days = len(day_list)
+    need = max(2, int(len(code_list) * float(min_lake_frac or 0.5) + 0.999))
+    for i, day in enumerate(day_list):
+        if _cancelled():
+            break
+        _emit(f"预热 DayCube {i + 1}/{n_days}…")
+        try:
+            hit = load_day_cube(day, code_list, clock="open")
+        except Exception:  # noqa: BLE001
+            hit = None
+        if hit is not None:
+            out["cubes_hit"] += 1
+            continue
+        try:
+            oo_m = load_day_rows(FAMILY_OO, code_list, day) or {}
+            tc_m = load_day_rows(FAMILY_TC, code_list, day) or {}
+            co_m = load_day_rows(FAMILY_CO, code_list, day) or {}
+        except Exception:  # noqa: BLE001
+            logger.debug("warmup lake day rows failed day=%s", day, exc_info=True)
+            continue
+        items: List[dict] = []
+        for c in code_list:
+            oo = oo_m.get(c)
+            if not oo:
+                continue
+            it = assemble_item_from_lake_rows(
+                c, day, oo=oo, tc=tc_m.get(c), co=co_m.get(c)
+            )
+            if it is not None:
+                items.append(it)
+        if len(items) < need:
+            continue
+        try:
+            cube = ensure_day_cube_for_items(
+                items, date=day, clock="open", persist=True
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("warmup ensure day_cube failed day=%s", day, exc_info=True)
+            continue
+        if cube is not None:
+            out["cubes_built"] += 1
+            try:
+                seed_watching_pool_feature_rows(day, items)
+            except Exception:  # noqa: BLE001
+                pass
+    logger.info(
+        "warmup watching day_cubes codes=%s days=%s hit=%s built=%s prefetch=%s",
+        len(code_list),
+        out["days"],
+        out["cubes_hit"],
+        out["cubes_built"],
+        out["prefetch_codes"],
+    )
+    return out
 
 
 def seed_tau_cross_section_day(day_key: str, pool_day: Optional[dict]) -> None:
@@ -3558,6 +4030,7 @@ def compute_scores_from_bars(
     sector_ret_to_tau: Optional[float] = None,
     use_minute_tau: Optional[bool] = None,
     minute_tau_hm: Optional[str] = None,
+    include_tau_horizons: bool = True,
 ) -> Dict[str, Optional[float]]:
     """开盘决策信息集即时算 dual_y 分数（不读账本/簿）。
 
@@ -3570,6 +4043,7 @@ def compute_scores_from_bars(
     ``minute_bars``：可选当日 5m；``enable_minute_tau`` 时写入 ≤τ 小包（否则可读缓存）。
     ``minute_tau_hm``：因果 τ 钟（固定前缀末根）；有分钟输入时截面/小包对齐此时钟。
     ``use_minute_tau=False``：做 T 开盘预计算强制开盘 Z（禁分钟前缀 / 开→τ 截面）。
+    ``include_tau_horizons=False``：只算主头特征（建观察池截面 μ/σ 用，跳过 τ30–90）。
     """
     raw = str(code or "").strip()
     hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
@@ -3829,7 +4303,9 @@ def compute_scores_from_bars(
             _refresh_tau_oc_from_feats(
                 item, hm=str(hm or "")[:5], trade_date=pit_day, force=True
             )
-        _attach_y_path_to_item(item, hist_bars=hist)
+        _attach_y_path_to_item(
+            item, hist_bars=hist, include_tau_horizons=bool(include_tau_horizons)
+        )
         item.pop("_minute_prefix", None)
         try:
             from core.signal.dual_score import align_trade_score_fields

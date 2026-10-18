@@ -459,8 +459,10 @@ function slotGateYTau(r, dayHost) {
   return slotYNum(cb, ["y_tau"]);
 }
 
-/** 本轮 ŷ_τ30/45/60/75/90 / ŷ_τw / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
+/** 本轮 ŷ_τ30/45/60/75/90 / ŷ_τw / ŷ_trade / ŷ_nowcast：扫描行优先，再槽位快照；不回退日级分。 */
 function slotYhat(r, dayHost) {
+  const hm = String((r && r.hm) || "").trim().slice(0, 5);
+  const scan = hm && dayHost ? scanRowForHm(dayHost, hm) : null;
   const sc = r && r.scores && typeof r.scores === "object" ? r.scores : {};
   const ft =
     r && r.direction_features && typeof r.direction_features === "object"
@@ -468,14 +470,33 @@ function slotYhat(r, dayHost) {
       : {};
   let yTau = slotGateYTau(r, dayHost);
   let yR =
+    slotYNum(scan, ["predicted_score_r", "y_r_hat", "y_r", "y_τc"]) ??
     slotYNum(sc, ["predicted_score_r", "y_r_hat", "y_r"]) ??
     slotYNum(ft, ["predicted_score_r", "y_r_hat", "y_r"]);
-  let yT30 = slotYNum(sc, Y_T30_HAT_KEYS) ?? slotYNum(ft, Y_T30_HAT_KEYS);
-  let yHl = slotYNum(sc, Y_HL_HAT_KEYS) ?? slotYNum(ft, Y_HL_HAT_KEYS);
-  let yT60 = slotYNum(sc, Y_T60_HAT_KEYS) ?? slotYNum(ft, Y_T60_HAT_KEYS);
-  let yT45 = slotYNum(sc, Y_T45_HAT_KEYS) ?? slotYNum(ft, Y_T45_HAT_KEYS);
-  let yT75 = slotYNum(sc, Y_T75_HAT_KEYS) ?? slotYNum(ft, Y_T75_HAT_KEYS);
-  let yT90 = slotYNum(sc, Y_T90_HAT_KEYS) ?? slotYNum(ft, Y_T90_HAT_KEYS);
+  let yT30 =
+    slotYNum(scan, Y_T30_HAT_KEYS) ??
+    slotYNum(sc, Y_T30_HAT_KEYS) ??
+    slotYNum(ft, Y_T30_HAT_KEYS);
+  let yHl =
+    slotYNum(scan, Y_HL_HAT_KEYS) ??
+    slotYNum(sc, Y_HL_HAT_KEYS) ??
+    slotYNum(ft, Y_HL_HAT_KEYS);
+  let yT60 =
+    slotYNum(scan, Y_T60_HAT_KEYS) ??
+    slotYNum(sc, Y_T60_HAT_KEYS) ??
+    slotYNum(ft, Y_T60_HAT_KEYS);
+  let yT45 =
+    slotYNum(scan, Y_T45_HAT_KEYS) ??
+    slotYNum(sc, Y_T45_HAT_KEYS) ??
+    slotYNum(ft, Y_T45_HAT_KEYS);
+  let yT75 =
+    slotYNum(scan, Y_T75_HAT_KEYS) ??
+    slotYNum(sc, Y_T75_HAT_KEYS) ??
+    slotYNum(ft, Y_T75_HAT_KEYS);
+  let yT90 =
+    slotYNum(scan, Y_T90_HAT_KEYS) ??
+    slotYNum(sc, Y_T90_HAT_KEYS) ??
+    slotYNum(ft, Y_T90_HAT_KEYS);
   let yTrade =
     slotYNum(sc, ["y_trade", "predicted_score_blend", "decision_score"]) ??
     slotYNum(ft, ["y_trade"]);
@@ -494,6 +515,7 @@ function slotYhat(r, dayHost) {
     if (m) yTrade = Number(m[1]);
   }
   const storedTw =
+    slotYNum(scan, ["y_tw", "y_τw", "y_tw_hat"]) ??
     slotYNum(sc, ["y_tw", "y_τw", "y_tw_hat"]) ??
     slotYNum(ft, ["y_tw", "y_τw", "y_tw_hat"]) ??
     slotYNum(slotCloseBand(r), ["y_tw", "y_τw"]);
@@ -598,42 +620,54 @@ function slotDayRow(d, r, rows) {
     r.direction_features && typeof r.direction_features === "object"
       ? { ...r.direction_features }
       : {};
-  // 槽位 scores 优先；缺字段时用 close_band.y_tau（选向快照）
-  if (yhat.y_tau != null) {
-    if (slotScores.y_tau == null) slotScores.y_tau = yhat.y_tau;
-  }
+  // 扫描行 ŷ 盖住槽位/日级陈旧分（否则 tip 各钟相同）
+  if (yhat.y_tau != null) slotScores.y_tau = yhat.y_tau;
   if (yhat.y_r != null) {
-    if (slotScores.predicted_score_r == null) slotScores.predicted_score_r = yhat.y_r;
-    if (slotScores.y_r_hat == null) slotScores.y_r_hat = yhat.y_r;
-    if (slotScores.y_r == null) slotScores.y_r = yhat.y_r;
+    slotScores.predicted_score_r = yhat.y_r;
+    slotScores.y_r_hat = yhat.y_r;
+    slotScores.y_r = yhat.y_r;
   }
   if (yhat.y_t30 != null) {
-    if (slotScores["y_τ30"] == null) slotScores["y_τ30"] = yhat.y_t30;
-    if (slotScores.y_t30 == null) slotScores.y_t30 = yhat.y_t30;
-    if (slotScores.predicted_score_t30 == null) slotScores.predicted_score_t30 = yhat.y_t30;
-    if (slotScores.y_t30_hat == null) slotScores.y_t30_hat = yhat.y_t30;
+    slotScores["y_τ30"] = yhat.y_t30;
+    slotScores.y_t30 = yhat.y_t30;
+    slotScores.predicted_score_t30 = yhat.y_t30;
+    slotScores.y_t30_hat = yhat.y_t30;
   }
   if (yhat.y_hl != null) {
-    if (slotScores.y_hl == null) slotScores.y_hl = yhat.y_hl;
-    if (slotScores.predicted_score_hl == null) slotScores.predicted_score_hl = yhat.y_hl;
+    slotScores.y_hl = yhat.y_hl;
+    slotScores.predicted_score_hl = yhat.y_hl;
+  }
+  if (yhat.y_t45 != null) {
+    slotScores["y_τ45"] = yhat.y_t45;
+    slotScores.y_t45 = yhat.y_t45;
+    slotScores.predicted_score_t45 = yhat.y_t45;
+    slotScores.y_t45_hat = yhat.y_t45;
   }
   if (yhat.y_t60 != null) {
-    if (slotScores["y_τ60"] == null) slotScores["y_τ60"] = yhat.y_t60;
-    if (slotScores.y_t60 == null) slotScores.y_t60 = yhat.y_t60;
-    if (slotScores.predicted_score_t60 == null) slotScores.predicted_score_t60 = yhat.y_t60;
-    if (slotScores.y_t60_hat == null) slotScores.y_t60_hat = yhat.y_t60;
+    slotScores["y_τ60"] = yhat.y_t60;
+    slotScores.y_t60 = yhat.y_t60;
+    slotScores.predicted_score_t60 = yhat.y_t60;
+    slotScores.y_t60_hat = yhat.y_t60;
+  }
+  if (yhat.y_t75 != null) {
+    slotScores["y_τ75"] = yhat.y_t75;
+    slotScores.y_t75 = yhat.y_t75;
+    slotScores.predicted_score_t75 = yhat.y_t75;
+    slotScores.y_t75_hat = yhat.y_t75;
   }
   if (yhat.y_t90 != null) {
-    if (slotScores["y_τ90"] == null) slotScores["y_τ90"] = yhat.y_t90;
-    if (slotScores.y_t90 == null) slotScores.y_t90 = yhat.y_t90;
-    if (slotScores.predicted_score_t90 == null) slotScores.predicted_score_t90 = yhat.y_t90;
-    if (slotScores.y_t90_hat == null) slotScores.y_t90_hat = yhat.y_t90;
+    slotScores["y_τ90"] = yhat.y_t90;
+    slotScores.y_t90 = yhat.y_t90;
+    slotScores.predicted_score_t90 = yhat.y_t90;
+    slotScores.y_t90_hat = yhat.y_t90;
   }
   if (yhat.y_tw != null) {
-    if (slotScores["y_τw"] == null) slotScores["y_τw"] = yhat.y_tw;
-    if (slotScores.y_tw == null) slotScores.y_tw = yhat.y_tw;
-    if (slotScores.y_tw_hat == null) slotScores.y_tw_hat = yhat.y_tw;
+    slotScores["y_τw"] = yhat.y_tw;
+    slotScores.y_tw = yhat.y_tw;
+    slotScores.y_tw_hat = yhat.y_tw;
   }
+  const scanForTips = hm ? scanRowForHm(d, hm) : null;
+  if (scanForTips) applyScanTipFieldsToScores(slotScores, scanForTips);
   const rReal = slotRRealizedNum(d, r, hm, slotScores);
   if (rReal != null) {
     if (slotScores.r_realized == null) slotScores.r_realized = rReal;
@@ -995,7 +1029,7 @@ function t30TipDetailAttr(it) {
   return escapeText(JSON.stringify(t30TipPayload(it)));
 }
 
-/** 扫描行 tip 的该钟因子；缺则回退日级 scores（旧簿）。 */
+/** 扫描行 tip：有该钟 ŷ 时不用日级 formula_terms（否则各钟 tip 组成/合计都一样）。 */
 function scanTipFeatHost(scanRow, day) {
   const scores =
     (day && day.scores && typeof day.scores === "object" ? day.scores : {}) || {};
@@ -1010,8 +1044,28 @@ function scanTipFeatHost(scanRow, day) {
   return { scores, feats };
 }
 
+function scanTipTerms(scanRow, dayScores, termKeys, hatKeys) {
+  const scored =
+    scanRow &&
+    hatKeys.some((k) => scanRow[k] != null && scanRow[k] !== "");
+  for (const tk of termKeys) {
+    if (scanRow && scanRow[tk] != null) return scanRow[tk];
+  }
+  if (scored) return null;
+  for (const tk of termKeys) {
+    if (dayScores && dayScores[tk] != null) return dayScores[tk];
+  }
+  return null;
+}
+
 function t30ScanTipItem(scanRow, day) {
   const { scores, feats } = scanTipFeatHost(scanRow, day);
+  const terms = scanTipTerms(
+    scanRow,
+    scores,
+    ["formula_terms_t30", "score_formula_terms_t30"],
+    ["y_τ30", "y_t30", "predicted_score_t30", "y_t30_hat"]
+  );
   return {
     "y_τ30": scanRow && (scanRow["y_τ30"] ?? scanRow.y_t30),
     y_t30: scanRow && (scanRow.y_t30 ?? scanRow["y_τ30"]),
@@ -1019,10 +1073,11 @@ function t30ScanTipItem(scanRow, day) {
       scanRow && (scanRow.predicted_score_t30 ?? scanRow.y_t30_hat ?? scanRow["y_τ30"]),
     y_t30_realized: scanRow && (scanRow.y_t30_realized ?? scanRow.t30_realized),
     t30_realized: scanRow && (scanRow.t30_realized ?? scanRow.y_t30_realized),
-    formula_terms_t30: (scanRow && scanRow.formula_terms_t30) || scores.formula_terms_t30,
-    score_formula_terms_t30:
-      (scanRow && scanRow.score_formula_terms_t30) || scores.score_formula_terms_t30,
-    y_spec_τ30: (scanRow && (scanRow.y_spec_τ30 || scanRow.y_spec_t30)) || scores.y_spec_τ30,
+    formula_terms_t30: terms,
+    score_formula_terms_t30: terms,
+    y_spec_τ30:
+      (scanRow && (scanRow.y_spec_τ30 || scanRow.y_spec_t30)) ||
+      (terms ? null : scores.y_spec_τ30),
     features_tau: feats,
     as_of_tau: (scanRow && (scanRow.hm || scanRow.as_of_tau)) || scores.as_of_tau,
     gap_pct: (scanRow && scanRow.gap_pct) ?? (feats && feats.gap_pct) ?? scores.gap_pct ?? null,
@@ -1250,6 +1305,12 @@ function t60TipDetailAttr(it) {
 
 function t60ScanTipItem(scanRow, day) {
   const scores = (day && day.scores && typeof day.scores === "object" ? day.scores : {}) || {};
+  const terms = scanTipTerms(
+    scanRow,
+    scores,
+    ["formula_terms_t60", "score_formula_terms_t60"],
+    ["y_τ60", "y_t60", "predicted_score_t60", "y_t60_hat"]
+  );
   return {
     "y_τ60": scanRow && (scanRow["y_τ60"] ?? scanRow.y_t60),
     y_t60: scanRow && (scanRow.y_t60 ?? scanRow["y_τ60"]),
@@ -1257,14 +1318,17 @@ function t60ScanTipItem(scanRow, day) {
       scanRow && (scanRow.predicted_score_t60 ?? scanRow.y_t60_hat ?? scanRow["y_τ60"]),
     y_t60_realized: scanRow && (scanRow.y_t60_realized ?? scanRow.t60_realized),
     t60_realized: scanRow && (scanRow.t60_realized ?? scanRow.y_t60_realized),
-    formula_terms_t60: (scanRow && scanRow.formula_terms_t60) || scores.formula_terms_t60,
-    score_formula_terms_t60:
-      (scanRow && scanRow.score_formula_terms_t60) || scores.score_formula_terms_t60,
-    y_spec_τ60: (scanRow && (scanRow.y_spec_τ60 || scanRow.y_spec_t60)) || scores.y_spec_τ60,
-    y_spec_t60: (scanRow && (scanRow.y_spec_t60 || scanRow.y_spec_τ60)) || scores.y_spec_t60,
+    formula_terms_t60: terms,
+    score_formula_terms_t60: terms,
+    y_spec_τ60:
+      (scanRow && (scanRow.y_spec_τ60 || scanRow.y_spec_t60)) ||
+      (terms ? null : scores.y_spec_τ60),
+    y_spec_t60:
+      (scanRow && (scanRow.y_spec_t60 || scanRow.y_spec_τ60)) ||
+      (terms ? null : scores.y_spec_t60),
     features_tau: (scanRow && scanRow.features_tau) || scores.features_tau,
     as_of_tau: (scanRow && (scanRow.hm || scanRow.as_of_tau)) || scores.as_of_tau,
-    gap_pct: scores.gap_pct ?? null,
+    gap_pct: (scanRow && scanRow.gap_pct) ?? scores.gap_pct ?? null,
   };
 }
 
@@ -1315,6 +1379,12 @@ function t45TipDetailAttr(it) {
 
 function t45ScanTipItem(scanRow, day) {
   const scores = (day && day.scores && typeof day.scores === "object" ? day.scores : {}) || {};
+  const terms = scanTipTerms(
+    scanRow,
+    scores,
+    ["formula_terms_t45", "score_formula_terms_t45"],
+    ["y_τ45", "y_t45", "predicted_score_t45", "y_t45_hat"]
+  );
   return {
     "y_τ45": scanRow && (scanRow["y_τ45"] ?? scanRow.y_t45),
     y_t45: scanRow && (scanRow.y_t45 ?? scanRow["y_τ45"]),
@@ -1322,14 +1392,17 @@ function t45ScanTipItem(scanRow, day) {
       scanRow && (scanRow.predicted_score_t45 ?? scanRow.y_t45_hat ?? scanRow["y_τ45"]),
     y_t45_realized: scanRow && (scanRow.y_t45_realized ?? scanRow.t45_realized),
     t45_realized: scanRow && (scanRow.t45_realized ?? scanRow.y_t45_realized),
-    formula_terms_t45: (scanRow && scanRow.formula_terms_t45) || scores.formula_terms_t45,
-    score_formula_terms_t45:
-      (scanRow && scanRow.score_formula_terms_t45) || scores.score_formula_terms_t45,
-    y_spec_τ45: (scanRow && (scanRow.y_spec_τ45 || scanRow.y_spec_t45)) || scores.y_spec_τ45,
-    y_spec_t45: (scanRow && (scanRow.y_spec_t45 || scanRow.y_spec_τ45)) || scores.y_spec_t45,
+    formula_terms_t45: terms,
+    score_formula_terms_t45: terms,
+    y_spec_τ45:
+      (scanRow && (scanRow.y_spec_τ45 || scanRow.y_spec_t45)) ||
+      (terms ? null : scores.y_spec_τ45),
+    y_spec_t45:
+      (scanRow && (scanRow.y_spec_t45 || scanRow.y_spec_τ45)) ||
+      (terms ? null : scores.y_spec_t45),
     features_tau: (scanRow && scanRow.features_tau) || scores.features_tau,
     as_of_tau: (scanRow && (scanRow.hm || scanRow.as_of_tau)) || scores.as_of_tau,
-    gap_pct: scores.gap_pct ?? null,
+    gap_pct: (scanRow && scanRow.gap_pct) ?? scores.gap_pct ?? null,
   };
 }
 
@@ -1490,6 +1563,12 @@ function t90TipDetailAttr(it) {
 
 function t90ScanTipItem(scanRow, day) {
   const scores = (day && day.scores && typeof day.scores === "object" ? day.scores : {}) || {};
+  const terms = scanTipTerms(
+    scanRow,
+    scores,
+    ["formula_terms_t90", "score_formula_terms_t90"],
+    ["y_τ90", "y_t90", "predicted_score_t90", "y_t90_hat"]
+  );
   return {
     "y_τ90": scanRow && (scanRow["y_τ90"] ?? scanRow.y_t90),
     y_t90: scanRow && (scanRow.y_t90 ?? scanRow["y_τ90"]),
@@ -1497,14 +1576,17 @@ function t90ScanTipItem(scanRow, day) {
       scanRow && (scanRow.predicted_score_t90 ?? scanRow.y_t90_hat ?? scanRow["y_τ90"]),
     y_t90_realized: scanRow && (scanRow.y_t90_realized ?? scanRow.t90_realized),
     t90_realized: scanRow && (scanRow.t90_realized ?? scanRow.y_t90_realized),
-    formula_terms_t90: (scanRow && scanRow.formula_terms_t90) || scores.formula_terms_t90,
-    score_formula_terms_t90:
-      (scanRow && scanRow.score_formula_terms_t90) || scores.score_formula_terms_t90,
-    y_spec_τ90: (scanRow && (scanRow.y_spec_τ90 || scanRow.y_spec_t90)) || scores.y_spec_τ90,
-    y_spec_t90: (scanRow && (scanRow.y_spec_t90 || scanRow.y_spec_τ90)) || scores.y_spec_t90,
+    formula_terms_t90: terms,
+    score_formula_terms_t90: terms,
+    y_spec_τ90:
+      (scanRow && (scanRow.y_spec_τ90 || scanRow.y_spec_t90)) ||
+      (terms ? null : scores.y_spec_τ90),
+    y_spec_t90:
+      (scanRow && (scanRow.y_spec_t90 || scanRow.y_spec_τ90)) ||
+      (terms ? null : scores.y_spec_t90),
     features_tau: (scanRow && scanRow.features_tau) || scores.features_tau,
     as_of_tau: (scanRow && (scanRow.hm || scanRow.as_of_tau)) || scores.as_of_tau,
-    gap_pct: scores.gap_pct ?? null,
+    gap_pct: (scanRow && scanRow.gap_pct) ?? scores.gap_pct ?? null,
   };
 }
 
@@ -1555,6 +1637,12 @@ function t75TipDetailAttr(it) {
 
 function t75ScanTipItem(scanRow, day) {
   const scores = (day && day.scores && typeof day.scores === "object" ? day.scores : {}) || {};
+  const terms = scanTipTerms(
+    scanRow,
+    scores,
+    ["formula_terms_t75", "score_formula_terms_t75"],
+    ["y_τ75", "y_t75", "predicted_score_t75", "y_t75_hat"]
+  );
   return {
     "y_τ75": scanRow && (scanRow["y_τ75"] ?? scanRow.y_t75),
     y_t75: scanRow && (scanRow.y_t75 ?? scanRow["y_τ75"]),
@@ -1562,14 +1650,17 @@ function t75ScanTipItem(scanRow, day) {
       scanRow && (scanRow.predicted_score_t75 ?? scanRow.y_t75_hat ?? scanRow["y_τ75"]),
     y_t75_realized: scanRow && (scanRow.y_t75_realized ?? scanRow.t75_realized),
     t75_realized: scanRow && (scanRow.t75_realized ?? scanRow.y_t75_realized),
-    formula_terms_t75: (scanRow && scanRow.formula_terms_t75) || scores.formula_terms_t75,
-    score_formula_terms_t75:
-      (scanRow && scanRow.score_formula_terms_t75) || scores.score_formula_terms_t75,
-    y_spec_τ75: (scanRow && (scanRow.y_spec_τ75 || scanRow.y_spec_t75)) || scores.y_spec_τ75,
-    y_spec_t75: (scanRow && (scanRow.y_spec_t75 || scanRow.y_spec_τ75)) || scores.y_spec_t75,
+    formula_terms_t75: terms,
+    score_formula_terms_t75: terms,
+    y_spec_τ75:
+      (scanRow && (scanRow.y_spec_τ75 || scanRow.y_spec_t75)) ||
+      (terms ? null : scores.y_spec_τ75),
+    y_spec_t75:
+      (scanRow && (scanRow.y_spec_t75 || scanRow.y_spec_τ75)) ||
+      (terms ? null : scores.y_spec_t75),
     features_tau: (scanRow && scanRow.features_tau) || scores.features_tau,
     as_of_tau: (scanRow && (scanRow.hm || scanRow.as_of_tau)) || scores.as_of_tau,
-    gap_pct: scores.gap_pct ?? null,
+    gap_pct: (scanRow && scanRow.gap_pct) ?? scores.gap_pct ?? null,
   };
 }
 
@@ -1871,7 +1962,66 @@ function scanRowForHm(d, hm) {
   );
 }
 
-/** 成交主表 ŷ 载荷：与展开扫描触发根同源，禁止持仓 live 盖决策快照。不打包 y_τc。 */
+/** 扫描行 tip 字段写入 scores；有该钟 ŷ 但无组成表时清掉日级陈旧 formula_terms。 */
+function applyScanTipFieldsToScores(scores, scanRow) {
+  if (!scores || !scanRow || typeof scanRow !== "object") return;
+  const headTips = [
+    {
+      has: ["y_τ30", "y_t30", "predicted_score_t30", "y_t30_hat"],
+      terms: ["formula_terms_t30", "score_formula_terms_t30"],
+    },
+    {
+      has: ["y_τ45", "y_t45", "predicted_score_t45", "y_t45_hat"],
+      terms: ["formula_terms_t45", "score_formula_terms_t45"],
+    },
+    {
+      has: ["y_τ60", "y_t60", "predicted_score_t60", "y_t60_hat"],
+      terms: ["formula_terms_t60", "score_formula_terms_t60"],
+    },
+    {
+      has: ["y_τ75", "y_t75", "predicted_score_t75", "y_t75_hat"],
+      terms: ["formula_terms_t75", "score_formula_terms_t75"],
+    },
+    {
+      has: ["y_τ90", "y_t90", "predicted_score_t90", "y_t90_hat"],
+      terms: ["formula_terms_t90", "score_formula_terms_t90"],
+    },
+    {
+      has: ["y_τc", "predicted_score_τc", "predicted_score_r", "y_r", "y_r_hat"],
+      terms: ["formula_terms_tau", "score_formula_terms_tau", "formula_terms_r", "score_formula_terms_r"],
+    },
+  ];
+  for (const pack of headTips) {
+    const scored = pack.has.some((k) => scanRow[k] != null && scanRow[k] !== "");
+    if (!scored) continue;
+    let anyTerm = false;
+    for (const tk of pack.terms) {
+      if (scanRow[tk] != null) {
+        scores[tk] = scanRow[tk];
+        anyTerm = true;
+      }
+    }
+    if (!anyTerm) {
+      for (const tk of pack.terms) delete scores[tk];
+    }
+  }
+  for (const k of Object.keys(scanRow)) {
+    if (
+      (k.startsWith("formula_terms_") || k.startsWith("score_formula_terms_") || k.startsWith("y_spec_")) &&
+      scanRow[k] != null &&
+      scores[k] == null
+    ) {
+      scores[k] = scanRow[k];
+    }
+  }
+  if (scanRow.features_tau && typeof scanRow.features_tau === "object") {
+    scores.features_tau = scanRow.features_tau;
+  }
+  if (scanRow.as_of_tau || scanRow.hm) scores.as_of_tau = scanRow.as_of_tau || scanRow.hm;
+  if (scanRow.gap_pct != null) scores.gap_pct = scanRow.gap_pct;
+}
+
+/** 成交主表 ŷ 载荷：与展开扫描触发根同源，禁止持仓 live / 日级开盘分盖该钟前缀。不打包 y_τc。 */
 function tradeScoreHost(day, host) {
   if (!host || typeof host !== "object") return host;
   const slot = focusedSlotRow(day);
@@ -1879,9 +2029,6 @@ function tradeScoreHost(day, host) {
   if (!hm && slot) hm = String(slotClock(slot, day?.t0_slot_results) || "").slice(0, 5);
   const scanRow = scanRowForHm(day, hm);
   if (!scanRow) return host;
-  if (host.t0_slot_focus) {
-    return { ...host, _scan_score_row: scanRow };
-  }
   const yR =
     scanRow.predicted_score_r != null
       ? Number(scanRow.predicted_score_r)
@@ -1889,7 +2036,9 @@ function tradeScoreHost(day, host) {
         ? Number(scanRow.y_r_hat)
         : scanRow.y_r != null
           ? Number(scanRow.y_r)
-          : null;
+          : scanRow["y_τc"] != null
+            ? Number(scanRow["y_τc"])
+            : null;
   const yT30 =
     scanRow["y_τ30"] != null
       ? Number(scanRow["y_τ30"])
@@ -1910,6 +2059,16 @@ function tradeScoreHost(day, host) {
           : scanRow.predicted_score_path != null
             ? Number(scanRow.predicted_score_path)
             : null;
+  const yT45 =
+    scanRow["y_τ45"] != null
+      ? Number(scanRow["y_τ45"])
+      : scanRow.y_t45 != null
+        ? Number(scanRow.y_t45)
+        : scanRow.predicted_score_t45 != null
+          ? Number(scanRow.predicted_score_t45)
+          : scanRow.y_t45_hat != null
+            ? Number(scanRow.y_t45_hat)
+            : null;
   const yT60 =
     scanRow["y_τ60"] != null
       ? Number(scanRow["y_τ60"])
@@ -1919,6 +2078,16 @@ function tradeScoreHost(day, host) {
           ? Number(scanRow.predicted_score_t60)
           : scanRow.y_t60_hat != null
             ? Number(scanRow.y_t60_hat)
+            : null;
+  const yT75 =
+    scanRow["y_τ75"] != null
+      ? Number(scanRow["y_τ75"])
+      : scanRow.y_t75 != null
+        ? Number(scanRow.y_t75)
+        : scanRow.predicted_score_t75 != null
+          ? Number(scanRow.predicted_score_t75)
+          : scanRow.y_t75_hat != null
+            ? Number(scanRow.y_t75_hat)
             : null;
   const yT90 =
     scanRow["y_τ90"] != null
@@ -1979,6 +2148,12 @@ function tradeScoreHost(day, host) {
     scores.y_t30_realized = t30Real;
     scores.t30_realized = t30Real;
   }
+  if (yT45 != null && Number.isFinite(yT45)) {
+    scores["y_τ45"] = yT45;
+    scores.y_t45 = yT45;
+    scores.predicted_score_t45 = yT45;
+    scores.y_t45_hat = yT45;
+  }
   if (yT60 != null && Number.isFinite(yT60)) {
     scores["y_τ60"] = yT60;
     scores.y_t60 = yT60;
@@ -1994,6 +2169,12 @@ function tradeScoreHost(day, host) {
   if (t60Real != null && Number.isFinite(t60Real)) {
     scores.y_t60_realized = t60Real;
     scores.t60_realized = t60Real;
+  }
+  if (yT75 != null && Number.isFinite(yT75)) {
+    scores["y_τ75"] = yT75;
+    scores.y_t75 = yT75;
+    scores.predicted_score_t75 = yT75;
+    scores.y_t75_hat = yT75;
   }
   if (yT90 != null && Number.isFinite(yT90)) {
     scores["y_τ90"] = yT90;
@@ -2017,6 +2198,7 @@ function tradeScoreHost(day, host) {
     scores["y_τw"] = yTw;
     scores.y_tw_hat = yTw;
   }
+  applyScanTipFieldsToScores(scores, scanRow);
   return {
     ...host,
     predicted_score_r: yR != null && Number.isFinite(yR) ? yR : host.predicted_score_r,
@@ -2033,6 +2215,11 @@ function tradeScoreHost(day, host) {
     y_t30_realized:
       t30Real != null && Number.isFinite(t30Real) ? t30Real : host.y_t30_realized,
     t30_realized: t30Real != null && Number.isFinite(t30Real) ? t30Real : host.t30_realized,
+    "y_τ45": yT45 != null && Number.isFinite(yT45) ? yT45 : host["y_τ45"],
+    y_t45: yT45 != null && Number.isFinite(yT45) ? yT45 : host.y_t45,
+    predicted_score_t45:
+      yT45 != null && Number.isFinite(yT45) ? yT45 : host.predicted_score_t45,
+    y_t45_hat: yT45 != null && Number.isFinite(yT45) ? yT45 : host.y_t45_hat,
     "y_τ60": yT60 != null && Number.isFinite(yT60) ? yT60 : host["y_τ60"],
     y_t60: yT60 != null && Number.isFinite(yT60) ? yT60 : host.y_t60,
     predicted_score_t60:
@@ -2041,6 +2228,11 @@ function tradeScoreHost(day, host) {
     y_t60_realized:
       t60Real != null && Number.isFinite(t60Real) ? t60Real : host.y_t60_realized,
     t60_realized: t60Real != null && Number.isFinite(t60Real) ? t60Real : host.t60_realized,
+    "y_τ75": yT75 != null && Number.isFinite(yT75) ? yT75 : host["y_τ75"],
+    y_t75: yT75 != null && Number.isFinite(yT75) ? yT75 : host.y_t75,
+    predicted_score_t75:
+      yT75 != null && Number.isFinite(yT75) ? yT75 : host.predicted_score_t75,
+    y_t75_hat: yT75 != null && Number.isFinite(yT75) ? yT75 : host.y_t75_hat,
     "y_τ90": yT90 != null && Number.isFinite(yT90) ? yT90 : host["y_τ90"],
     y_t90: yT90 != null && Number.isFinite(yT90) ? yT90 : host.y_t90,
     predicted_score_t90:
@@ -2066,8 +2258,12 @@ function tradeScoreHost(day, host) {
 function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const slot = focusedSlotRow(d);
   const slotSnapMode = !!d?.t0_slot_focus || (!!slot && slotFilled(slot));
+  // tradeScoreHost 已把该钟扫描 ŷ/formula_terms 写入 d.scores；槽位模式须以它为底，避免只拿日级 slot.scores。
   const scores = slotSnapMode
-    ? { ...((slot && slot.scores && typeof slot.scores === "object" ? slot.scores : {}) || {}) }
+    ? {
+        ...((slot && slot.scores && typeof slot.scores === "object" ? slot.scores : {}) || {}),
+        ...((d.scores && typeof d.scores === "object" ? d.scores : {}) || {}),
+      }
     : {
         ...((d.scores && typeof d.scores === "object" ? d.scores : {}) || {}),
         ...((slot && slot.scores && typeof slot.scores === "object" ? slot.scores : {}) || {}),
@@ -2129,6 +2325,7 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const scanHost = d?._scan_score_row ? d : null;
   if (scanHost?._scan_score_row) {
     const sr = scanHost._scan_score_row;
+    applyScanTipFieldsToScores(scores, sr);
     if (sr.y_tau != null && Number.isFinite(Number(sr.y_tau))) yTau = Number(sr.y_tau);
     const srR = sr.predicted_score_r ?? sr.y_r_hat ?? sr.y_r;
     if (srR != null && Number.isFinite(Number(srR))) {

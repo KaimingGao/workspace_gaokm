@@ -4593,38 +4593,39 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertIn('label="加载截面 5m"', src)
         self.assertIn("_seed_pool_minutes(\n        pool_codes", src)
         self.assertIn("lookback_days=minute_span", src)
-        self.assertIn("_fetch_minute_by_date", inspect.getsource(m._seed_pool_minutes))
-        self.assertNotIn("_local_minute_by_date(code, period)", inspect.getsource(m._seed_pool_minutes))
+        seed_src = inspect.getsource(m._seed_pool_minutes)
+        self.assertIn("_local_minute_by_date", seed_src)
+        self.assertIn("ThreadPoolExecutor", seed_src)
+        self.assertNotIn("_fetch_minute_by_date(", seed_src)
         self.assertLess(src.find("准备回测"), src.find("_seed_pool_minutes"))
         self.assertLess(
             src.find("_seed_pool_minutes"), src.find("tau_pool = build_tau_pool_by_date")
         )
-        seed_src = inspect.getsource(m._seed_pool_minutes)
         self.assertIn("加载截面 5m", seed_src)
         self.assertIn("seed_peer_minute_bars_map", seed_src)
 
-    def test_seed_pool_minutes_uses_fetch_not_stale_only(self):
+    def test_seed_pool_minutes_local_cache_only_parallel(self):
         from unittest.mock import patch
 
         from quant.research import t0_backtest as m
 
         msgs: list = []
         by_date = {"2026-09-01": [{"time": "09:35", "close": 10}]}
-        with patch.object(m, "_fetch_minute_by_date", return_value=(by_date, {})) as fetched:
-            with patch.object(m, "_local_minute_by_date") as loc:
+        with patch.object(m, "_local_minute_by_date", return_value=(by_date, {})) as loc:
+            with patch.object(m, "_fetch_minute_by_date") as fetched:
                 with patch("core.signal.minute_tau_feats.seed_peer_minute_bars_map") as seeded:
                     n = m._seed_pool_minutes(
-                        ["600000", "000001"],
+                        ["600000", "000001", "600000"],
                         "5",
                         lookback_days=10,
                         progress_cb=lambda _c, _t, msg: msgs.append(msg),
                     )
         self.assertEqual(n, 2)
-        self.assertEqual(fetched.call_count, 2)
-        loc.assert_not_called()
+        self.assertEqual(loc.call_count, 2)
+        fetched.assert_not_called()
         seeded.assert_called_once()
         self.assertTrue(any("加载截面 5m" in str(x) for x in msgs))
-        self.assertEqual(fetched.call_args.kwargs.get("lookback_days"), 10)
+        self.assertTrue(any("本地" in str(x) for x in msgs))
 
     def test_t0_job_emits_prepare_before_run(self):
         import inspect

@@ -127,6 +127,51 @@ class TestDayCube(unittest.TestCase):
         self.assertEqual(cube.date, "2024-09-01")
         self.assertGreaterEqual(len(cube.names), 1)
 
+    def test_rescore_single_item_with_day_cube(self) -> None:
+        """有 DayCube 时允许单票 rescore（μ/σ 信 cube）。"""
+        from unittest.mock import patch
+
+        from core.research.day_cube import build_day_cube
+        from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+        feats = {
+            "000001": {"gap_pct": 1.0, "x": 0.1},
+            "000002": {"gap_pct": 3.0, "x": 0.3},
+            "000003": {"gap_pct": 5.0, "x": 0.5},
+        }
+        cube = build_day_cube("2024-10-01", feats, clock="open")
+        self.assertIsNotNone(cube)
+        item = {
+            "stock_code": "000001",
+            "sub_scores": {"gap_pct": 1.0, "x": 0.1},
+            "features_tau": {"gap_pct": 1.0, "x": 0.1},
+            "features_co": {"gap_pct": 1.0},
+        }
+        # 无模型时仍应走完单票路径（不因 len<2 提前 return）
+        with patch(
+            "core.signal.cross_section_rescore._rescore_oo_ridge"
+        ) as oo, patch(
+            "core.signal.cross_section_rescore._rescore_tau"
+        ) as tau, patch(
+            "core.signal.cross_section_rescore._rescore_co"
+        ) as co, patch(
+            "core.signal.cross_section_rescore._rescore_horizons"
+        ) as hz:
+            out = rescore_fitted_cross_section(
+                [item], score_codes={"000001"}, day_cube=cube
+            )
+        self.assertEqual(len(out), 1)
+        oo.assert_called_once()
+        tau.assert_called_once()
+        co.assert_called_once()
+        hz.assert_called_once()
+        # 无 cube 时单票应直接跳过
+        with patch(
+            "core.signal.cross_section_rescore._rescore_oo_ridge"
+        ) as oo2:
+            rescore_fitted_cross_section([item], score_codes={"000001"}, day_cube=None)
+        oo2.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -76,6 +76,17 @@ def drop_unscored_heads(
                 it.pop(key, None)
 
 
+def _day_cube_usable(day_cube: Any) -> bool:
+    """DayCube 宇宙 ≥2 即可对单票做 z（μ/σ 已固化，不要求本批凑同伴）。"""
+    if day_cube is None:
+        return False
+    try:
+        codes = getattr(day_cube, "codes", None) or []
+        return len(codes) >= 2
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def rescore_fitted_cross_section(
     items: Sequence[dict],
     *,
@@ -85,10 +96,13 @@ def rescore_fitted_cross_section(
     """就地刷新截面模型的 ŷ_oo / ŷ_τ / ŷ_co / ŷ_τ*。返回原列表。
 
     ``score_codes`` 给定时，μ/σ 仍用整批原始特征，只给名单内的代码写 ŷ。
-    ``day_cube`` 给定时，τ/co 用 cube 预计算 μ/σ 做 z（单遍，避免重复扫池）。
+    ``day_cube`` 给定时，τ/co 用 cube 预计算 μ/σ 做 z（单遍，避免重复扫池）；
+    此时允许单票 items（μ/σ 只信 cube）。
     """
     rows = [it for it in items if isinstance(it, dict)]
-    if len(rows) < 2:
+    if not rows:
+        return list(items)
+    if len(rows) < 2 and not _day_cube_usable(day_cube):
         return list(items)
     _rescore_oo_ridge(rows, score_codes=score_codes, day_cube=day_cube)
     _rescore_tau(rows, score_codes=score_codes, day_cube=day_cube)
@@ -217,7 +231,9 @@ def _rescore_tau(
             raws.append(dict(feats))
             slots.append(i)
             codes.append(str(it.get("stock_code") or "").strip())
-    if len(raws) < 2:
+    if not raws:
+        return
+    if len(raws) < 2 and not _day_cube_usable(day_cube):
         return
     try:
         from core.research.feature_standardize import (
@@ -287,7 +303,9 @@ def _rescore_co(
             raws.append(dict(feats))
             slots.append(i)
             codes.append(str(it.get("stock_code") or "").strip())
-    if len(raws) < 2:
+    if not raws:
+        return
+    if len(raws) < 2 and not _day_cube_usable(day_cube):
         return
     try:
         from core.research.co_ridge import load_co_model, predict_co_from_features
@@ -410,7 +428,9 @@ def _rescore_one_horizon(
             raws.append(dict(feats))
             slots.append(i)
             codes.append(str(it.get("stock_code") or "").strip())
-    if len(raws) < 2:
+    if not raws:
+        return
+    if len(raws) < 2 and not _day_cube_usable(day_cube):
         return
     try:
         from core.research.feature_standardize import (

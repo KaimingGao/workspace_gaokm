@@ -335,6 +335,11 @@ def _seed_peer_minutes_from_by_date(
         logger.debug("t0 backtest peer minute seed failed", exc_info=True)
 
 
+# 截面同伴仓只读本地 5m：观察池可达数百只，逐票远端补拉（缺尾×12s 超时）会拖死回测。
+# 持仓本票仍走 ``_fetch_minute_by_date``（可补拉）。无缓存的同伴票不进板块中位。
+_POOL_MINUTE_WORKERS = 16
+
+
 def _seed_pool_minutes(
     codes: List[str],
     period: str,
@@ -344,41 +349,76 @@ def _seed_pool_minutes(
     cancel_cb: Optional[Callable[[], bool]] = None,
     label: str = "加载截面 5m",
 ) -> int:
-    """观察池∪持仓 5m → 同伴仓。
+    """观察池∪持仓 5m → 同伴仓（**仅本地缓存**，并行读盘）。
 
-    与持仓同一套 ``_fetch_minute_by_date``：齐窗用缓存，缺尾/无缓存补拉。
-    不因图快改读本地残缺仓。返回写入票数。
+    不做远端补拉：缺尾/无仓同伴票跳过，避免数百票×超时卡死。
+    ``lookback_days`` 保留签名兼容（本地仓整段灌入，截断在用侧）。返回写入票数。
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from core.signal.minute_tau_feats import seed_peer_minute_bars_map
 
-    n = len(codes)
+    _ = lookback_days
+    uniq: List[str] = []
+    seen = set()
+    for raw in codes or []:
+        code = str(raw or "").strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        uniq.append(code)
+    n = len(uniq)
     by_code: Dict[str, List[dict]] = {}
     last_emit = 0.0
     title = str(label or "加载截面 5m").strip() or "加载截面 5m"
-    span = min(max(int(lookback_days or 90), 10), 120)
-    for i, raw in enumerate(codes):
-        if cancel_cb:
-            try:
-                if cancel_cb():
-                    break
-            except Exception:  # noqa: BLE001
-                logger.debug("t0 pool minute cancel_cb failed", exc_info=True)
-        code = str(raw or "").strip()
+    per = str(period or "5")
+
+    def _load_one(code: str) -> Tuple[str, List[dict]]:
+        loc, _ = _local_minute_by_date(code, per)
+        return code, _flatten_minute_by_date(loc)
+
+    def _cancelled() -> bool:
+        if not cancel_cb:
+            return False
+        try:
+            return bool(cancel_cb())
+        except Exception:  # noqa: BLE001
+            logger.debug("t0 pool minute cancel_cb failed", exc_info=True)
+            return False
+
+    def _emit(done: int) -> None:
+        nonlocal last_emit
+        if not progress_cb:
+            return
         now = time.time()
-        if progress_cb and (i == 0 or i + 1 == n or now - last_emit >= 0.4):
+        if done == 0 or done >= n or now - last_emit >= 0.4:
             try:
-                progress_cb(i, n, f"{title} {i + 1}/{n}…")
+                progress_cb(done, max(1, n), f"{title}（本地）{min(done + 1, n)}/{n}…")
             except Exception:  # noqa: BLE001
                 logger.debug("t0 pool minute progress_cb failed", exc_info=True)
             last_emit = now
-        if not code:
-            continue
-        loc, _ = _fetch_minute_by_date(
-            code, period=period, lookback_days=span
-        )
-        flat = _flatten_minute_by_date(loc)
-        if flat:
-            by_code[code] = flat
+
+    if n == 0:
+        return 0
+    _emit(0)
+    workers = max(1, min(int(_POOL_MINUTE_WORKERS), n))
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(_load_one, c) for c in uniq]
+        for fut in as_completed(futs):
+            if _cancelled():
+                for pending in futs:
+                    pending.cancel()
+                break
+            try:
+                code, flat = fut.result()
+            except Exception:  # noqa: BLE001
+                logger.debug("t0 pool minute load failed", exc_info=True)
+                code, flat = "", []
+            if code and flat:
+                by_code[code] = flat
+            done += 1
+            _emit(done)
     if by_code:
         seed_peer_minute_bars_map(by_code)
     return len(by_code)
@@ -791,9 +831,8 @@ def run_t0_backtest_for_holdings(
             return False
 
     _emit(0, n_hold, "准备回测…")
-    # 成交只走持仓。ŷ 板块分钟收益 / 日线缺口 breadth 必须与盯盘同宇宙
-    # （观察池∪持仓）。截面 5m 与持仓同一套 fetch：齐窗用缓存，缺尾/无缓存补拉，
-    # 不因图快只读本地残缺仓。
+    # 成交只走持仓。ŷ 板块中位宇宙=观察池∪持仓；截面 5m 只灌本地缓存（并行），
+    # 避免数百票远端补拉拖死。持仓本票分钟仍在逐票回测里补拉。
     try:
         from core.signal.minute_tau_feats import clear_sector_ret_cache
 
@@ -854,6 +893,34 @@ def run_t0_backtest_for_holdings(
         t_deadline - time.time(),
         len(holdings),
     )
+    # 预热 L1 + 评估窗 DayCube：逐票开盘对齐可单票命中 cube，免每日重建同伴池
+    try:
+        from core.t0.score_policy import warmup_watching_day_cubes
+
+        eval_dates = sorted(str(d)[:10] for d in (tau_pool or {}) if len(str(d)[:10]) >= 10)
+        if eval_lb > 0 and len(eval_dates) > eval_lb:
+            eval_dates = eval_dates[-int(eval_lb) :]
+        t_warm = time.time()
+        warm = warmup_watching_day_cubes(
+            pool_codes,
+            eval_dates,
+            progress_cb=_pool_progress,
+            cancel_cb=_cancelled,
+        )
+        logger.info(
+            "t0 holdings bt day_cube warmup %s elapsed=%.1fs remain=%.1fs",
+            warm,
+            time.time() - t_warm,
+            t_deadline - time.time(),
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("t0 holdings bt day_cube warmup failed", exc_info=True)
+    if _cancelled():
+        return {
+            "success": False,
+            "error": "已取消",
+            "task": "t0_backtest",
+        }
     total_pnl = 0.0
     total_exposure = 0.0
     total_trades = 0

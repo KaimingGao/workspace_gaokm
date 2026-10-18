@@ -354,24 +354,39 @@ export function formatScoreHero(raw) {
   );
 }
 
-function termFeatLabel(t, key) {
+/** 交易明细 tip 因子表：单元格显示英文特征名（与模型 key 对齐）。 */
+function termFeatLabel(t, _key) {
+  const k = t && t.key;
+  if (k != null && String(k).trim() !== "") return String(k);
+  if (t && t.label) return String(t.label);
+  return "—";
+}
+
+/** 悬停用中文名（有则附在 title；无则空）。 */
+function termFeatCnTitle(t, key) {
   const k = t && t.key;
   if ((key === "on" || key === "co") && k && CO_FEAT_META[k] && CO_FEAT_META[k].label) {
-    return CO_FEAT_META[k].label;
+    return String(CO_FEAT_META[k].label);
   }
-  if ((key === "tau" || key === "r" || key === "t30" || key === "t45" || key === "t60" || key === "t75" || key === "t90") && k && TAU_FEAT_LABELS[k]) {
-    return TAU_FEAT_LABELS[k];
+  if (
+    (key === "tau" ||
+      key === "r" ||
+      key === "t30" ||
+      key === "t45" ||
+      key === "t60" ||
+      key === "t75" ||
+      key === "t90") &&
+    k &&
+    TAU_FEAT_LABELS[k]
+  ) {
+    return String(TAU_FEAT_LABELS[k]);
   }
   if (t && t.label && String(t.label) !== String(k || "")) {
-    return t.label;
+    return String(t.label);
   }
-  return (
-    FACTOR_LABELS[k] ||
-    TAU_FEAT_LABELS[k] ||
-    (t && t.label) ||
-    k ||
-    "—"
-  );
+  if (k && FACTOR_LABELS[k]) return String(FACTOR_LABELS[k]);
+  if (k && TAU_FEAT_LABELS[k]) return String(TAU_FEAT_LABELS[k]);
+  return "";
 }
 
 /** y_eod 列：头值 + 因子表（不含 trade 全栈）。 */
@@ -1617,6 +1632,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const rows = terms
     .map((t) => {
       const name = termFeatLabel(t, key);
+      const cnTitle = termFeatCnTitle(t, key);
       const gated = !!t.gated;
       const nameExtra = gated ? "（闸关）" : t.note ? `（${t.note}）` : "";
       const beta = fmtSigned(t.beta, 3);
@@ -1638,9 +1654,10 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       const mid = treeTable
         ? ""
         : `<td class="num ${signCls(t.beta)}">${escapeText(beta)}</td>`;
+      const tipTitle = cnTitle && cnTitle !== name ? cnTitle : name;
       return (
         `<tr${gated ? ' class="score-ft-gated"' : ""}>` +
-        `<td class="score-ft-name" title="${escapeText(t.key || "")}">${escapeText(
+        `<td class="score-ft-name" title="${escapeText(tipTitle)}">${escapeText(
           name + nameExtra
         )}</td>` +
         gainCell +

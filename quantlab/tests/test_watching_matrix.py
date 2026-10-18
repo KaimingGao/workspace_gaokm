@@ -1013,6 +1013,52 @@ class TestWatchingPoolZRow(unittest.TestCase):
         self.assertEqual(_POOL_FEAT_CACHE[day], [{"stock_code": "OLD"}])
         clear_score_model_cache()
 
+    def test_align_item_cube_hit_skips_peer_rebuild(self):
+        """DayCube 命中：单票 rescore，不抽全池同伴。"""
+        from core.t0 import score_policy as sp
+
+        sp.clear_score_model_cache()
+        day = "2024-06-01"
+        item = {
+            "stock_code": "000001",
+            "sub_scores": {"a": 1.5},
+            "features_tau": {"g": 0.15},
+        }
+        called: dict = {}
+        peer_calls = {"n": 0}
+
+        def _fake_rescore(items, *, score_codes=None, day_cube=None):
+            called["n"] = len(items)
+            called["codes"] = score_codes
+            called["cube"] = day_cube
+            for it in items:
+                if str(it.get("stock_code") or "") == "000001":
+                    it["y_oo"] = 0.42
+            return list(items)
+
+        def _peer_should_not_run(_date):
+            peer_calls["n"] += 1
+            return []
+
+        cube = type("C", (), {"codes": ["000001", "000002"]})()
+        with (
+            patch.object(sp, "_watching_codes_for_z", return_value=["000001", "000002"]),
+            patch.object(sp, "_peer_feature_rows", side_effect=_peer_should_not_run),
+            patch("core.research.day_cube.enabled", return_value=True),
+            patch("core.research.day_cube.load_day_cube", return_value=cube),
+            patch(
+                "core.signal.cross_section_rescore.rescore_fitted_cross_section",
+                side_effect=_fake_rescore,
+            ),
+        ):
+            sp._align_item_to_watching_pool(item, day)
+        self.assertEqual(peer_calls["n"], 0)
+        self.assertEqual(called.get("codes"), {"000001"})
+        self.assertIs(called.get("cube"), cube)
+        self.assertEqual(called.get("n"), 1)
+        self.assertEqual(item.get("y_oo"), 0.42)
+        sp.clear_score_model_cache()
+
 
 class TestQuotePxLiveFill(unittest.TestCase):
     def setUp(self):

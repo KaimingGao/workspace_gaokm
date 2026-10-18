@@ -418,10 +418,10 @@ def _walk_t0(
             logger.debug("t0 score model warm failed", exc_info=True)
 
     n_eval = len(bars)
+    nm = str(stock_name or stock_code or "").strip() or "—"
     for i, bar in enumerate(bars):
         if progress_cb:
             try:
-                nm = str(stock_name or stock_code or "").strip() or "—"
                 progress_cb(i, n_eval, f"回测 {nm} {i + 1}/{n_eval} 日")
             except Exception:  # noqa: BLE001
                 logger.debug("t0 day progress_cb failed", exc_info=True)
@@ -508,6 +508,16 @@ def _walk_t0(
             )
             from core.t0.score_policy import watching_pool_z_scope
 
+            if progress_cb:
+                try:
+                    progress_cb(
+                        i,
+                        n_eval,
+                        f"回测 {nm} {i + 1}/{n_eval} 日 · 观察池截面 z…",
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("t0 pool-z progress_cb failed", exc_info=True)
+            # 全观察池估 μ/σ，与拟合日截面 Z 同口径（不抽样）
             with watching_pool_z_scope():
                 score_snap = resolve_scores_for_code(
                     stock_code,
@@ -523,6 +533,11 @@ def _walk_t0(
                     # 选向禁分钟前缀 / 开→τ；成交仍用下方 mins
                     use_minute_tau=False,
                 )
+            if progress_cb:
+                try:
+                    progress_cb(i, n_eval, f"回测 {nm} {i + 1}/{n_eval} 日 · 前缀选腿…")
+                except Exception:  # noqa: BLE001
+                    logger.debug("t0 prefix progress_cb failed", exc_info=True)
         day = simulate_t0_day(
             bar=bar_day,
             shares=shares,
