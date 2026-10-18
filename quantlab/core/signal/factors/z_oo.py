@@ -62,16 +62,24 @@ def z_oo_fit_features() -> Tuple[str, ...]:
 
 
 def stamp_z_oo_aliases(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """就地：裸名 ↔ ``z_oo_*`` 镜像。"""
+    """就地：裸名 ↔ ``z_oo_*``。
+
+    优先级：裸名 > z_oo_*。选定后强制写回两侧；须在截面 Z 之前调用。
+    """
     out = row if isinstance(row, dict) else {}
     for leg in z_oo_legacy_keys():
         canon = f"{Z_OO_PREFIX}{leg}"
         lv = out.get(leg)
         cv = out.get(canon)
-        if lv is not None and lv != "" and (cv is None or cv == ""):
-            out[canon] = lv
-        elif cv is not None and cv != "" and (lv is None or lv == ""):
-            out[leg] = cv
+        src = None
+        if lv is not None and lv != "":
+            src = lv
+        elif cv is not None and cv != "":
+            src = cv
+        if src is None:
+            continue
+        out[canon] = src
+        out[leg] = src
     return out
 
 

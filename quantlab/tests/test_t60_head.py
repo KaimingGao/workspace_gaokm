@@ -397,8 +397,6 @@ class T60RidgeFitTests(unittest.TestCase):
             _horizon_ridge_config,
             fit_horizon_ridge_report,
         )
-        from core.research.tc_ridge import TAU_Z_FEATURES
-
         T60_Z_FEATURES = _horizon_ridge_config("t60")["z_features"]
 
         d0 = date(2025, 6, 2)
@@ -437,32 +435,47 @@ class T60RidgeFitTests(unittest.TestCase):
             holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), msg=report)
-        self.assertEqual(report.get("schema"), "t60_ridge_v2")
+        self.assertEqual(report.get("schema"), "t60_ridge_v4")
         self.assertEqual(report.get("dual_score_head"), "y_t60")
         self.assertEqual(report.get("target"), "price_tau_plus_60")
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
         self.assertIn("60", str(y_spec.get("formula") or ""))
         extras = (report.get("return_model") or {}).get("extra_features") or []
         self.assertEqual(list(extras), list(T60_Z_FEATURES))
+        for k in extras:
+            self.assertTrue(
+                str(k).startswith("z_τh_") or str(k).startswith("raw_ath_"),
+                msg=k,
+            )
         for k in (
-            "ret_last_5m",
-            "ret_last_60m",
-            "session_elapsed",
-            "session_remain",
-            "crosses_lunch_60",
-            "session_vwap_dev",
-            "vol_last_60m_vs_avg",
-            "sector_ret_last_60m",
-            "ret_last_60m_vs_sector",
-            "t60_lag1",
-            "t60_ma5",
+            "raw_ath_RET_LAST_5M",
+            "raw_ath_RET_LAST_60",
+            "raw_ath_SESSION_ELAPSED",
+            "raw_ath_SESSION_REMAIN",
+            "raw_ath_CROSSES_LUNCH_60",
+            "raw_ath_SESSION_VWAP_DEV",
+            "raw_ath_VOL_LAST_60_VS_AVG",
+            "raw_ath_SECTOR_RET_LAST_60",
+            "raw_ath_RET_LAST_60_VS_SECTOR",
+            "raw_ath_H_LAG1",
+            "raw_ath_H_MA5",
+            "z_τh_gap_pct",
+            "z_τh_ret_open_to_tau",
+            "z_τh_tau_lag1",
         ):
             self.assertIn(k, extras)
-            self.assertNotIn(k, TAU_Z_FEATURES)
         self.assertNotIn("crosses_lunch", extras)
-        for k in ("bounce_from_low", "pullback_from_high", "range_pct"):
+        self.assertNotIn("raw_ath_CROSSES_LUNCH", extras)
+        for k in (
+            "ret_last_5m",
+            "t60_lag1",
+            "bounce_from_low",
+            "pullback_from_high",
+            "range_pct",
+            "z_τh_range_pct",
+            "z_τc_gap_pct",
+        ):
             self.assertNotIn(k, extras)
-        self.assertIn("ret_open_to_tau", extras)
 
     def test_explain_t60_prediction_head(self):
         from core.research.horizon_ridge import explain_ridge_prediction
@@ -591,8 +604,9 @@ class T60GateTests(unittest.TestCase):
         from core.job_progress import t60_ridge_job
         from quant.services.quant_service_factors import QuantFactorMixin
 
+        # 勿 force_fail 真实运行中的拟合槽（会冲掉 UI 进度）
         if t60_ridge_job.is_running():
-            t60_ridge_job.force_fail("test reset")
+            self.skipTest("t60_ridge_job already running")
         svc = QuantFactorMixin()
         started = {"n": 0}
 

@@ -249,6 +249,19 @@ class T30RidgeRequest(_CrossSectionZscore):
         description="True=跳过 OOS promote 闸（仅调试）",
     )
     note: str = Field(default="", max_length=200)
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="兼容旧字段；优先用 tau_end_hm",
+        max_length=8,
+    )
+    tau_end_hm: Optional[str] = Field(
+        default=None,
+        description=(
+            "训练前缀终点 09:30…11:00（每 5m）；"
+            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+        ),
+        max_length=8,
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t30-ridge",
@@ -291,6 +304,19 @@ class T45RidgeRequest(_CrossSectionZscore):
         description="True=跳过 OOS promote 闸（仅调试）",
     )
     note: str = Field(default="", max_length=200)
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="兼容旧字段；优先用 tau_end_hm",
+        max_length=8,
+    )
+    tau_end_hm: Optional[str] = Field(
+        default=None,
+        description=(
+            "训练前缀终点 09:30…11:00（每 5m）；"
+            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+        ),
+        max_length=8,
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t45-ridge",
@@ -333,6 +359,19 @@ class T60RidgeRequest(_CrossSectionZscore):
         description="True=跳过 OOS promote 闸（仅调试）",
     )
     note: str = Field(default="", max_length=200)
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="兼容旧字段；优先用 tau_end_hm",
+        max_length=8,
+    )
+    tau_end_hm: Optional[str] = Field(
+        default=None,
+        description=(
+            "训练前缀终点 09:30…11:00（每 5m）；"
+            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+        ),
+        max_length=8,
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t60-ridge",
@@ -375,6 +414,19 @@ class T75RidgeRequest(_CrossSectionZscore):
         description="True=跳过 OOS promote 闸（仅调试）",
     )
     note: str = Field(default="", max_length=200)
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="兼容旧字段；优先用 tau_end_hm",
+        max_length=8,
+    )
+    tau_end_hm: Optional[str] = Field(
+        default=None,
+        description=(
+            "训练前缀终点 09:30…11:00（每 5m）；"
+            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+        ),
+        max_length=8,
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t75-ridge",
@@ -487,6 +539,19 @@ class T90RidgeRequest(_CrossSectionZscore):
         description="True=跳过 OOS promote 闸（仅调试）",
     )
     note: str = Field(default="", max_length=200)
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="兼容旧字段；优先用 tau_end_hm",
+        max_length=8,
+    )
+    tau_end_hm: Optional[str] = Field(
+        default=None,
+        description=(
+            "训练前缀终点 09:30…11:00（每 5m）；"
+            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+        ),
+        max_length=8,
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t90-ridge",

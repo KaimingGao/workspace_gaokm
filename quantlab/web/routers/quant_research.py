@@ -472,7 +472,7 @@ def quant_tc_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t30-ridge")
 
 def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ30 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
+    """ŷ_τ30：alpha_τh → P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t30-ridge``。
     """
@@ -482,6 +482,8 @@ def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
+        tau_hm=body.tau_hm,
+        tau_end_hm=body.tau_end_hm,
         persist=body.persist,
         force_promote=body.force_promote,
         note=body.note,
@@ -508,7 +510,7 @@ def quant_t30_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t45-ridge")
 
 def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ45 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
+    """ŷ_τ45：alpha_τh → P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t45-ridge``。
     """
@@ -518,6 +520,8 @@ def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
+        tau_hm=body.tau_hm,
+        tau_end_hm=body.tau_end_hm,
         persist=body.persist,
         force_promote=body.force_promote,
         note=body.note,
@@ -544,7 +548,7 @@ def quant_t45_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t60-ridge")
 
 def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ60 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
+    """ŷ_τ60：alpha_τh → P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t60-ridge``。
     """
@@ -554,6 +558,8 @@ def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
+        tau_hm=body.tau_hm,
+        tau_end_hm=body.tau_end_hm,
         persist=body.persist,
         force_promote=body.force_promote,
         note=body.note,
@@ -580,7 +586,7 @@ def quant_t60_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t75-ridge")
 
 def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ75 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
+    """ŷ_τ75：alpha_τh → P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t75-ridge``。
     """
@@ -590,6 +596,8 @@ def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
+        tau_hm=body.tau_hm,
+        tau_end_hm=body.tau_end_hm,
         persist=body.persist,
         force_promote=body.force_promote,
         note=body.note,
@@ -616,7 +624,7 @@ def quant_t75_ridge_model() -> Dict[str, Any]:
 @router.post("/api/quant/t90-ridge")
 
 def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ90 Ridge：开盘 Z+≤τ 分钟−OC 形状+本头序列（无 alpha_oo）→ P(窗收益>0) + 时间 OOS；可选 persist。
+    """ŷ_τ90：alpha_τh → P(窗收益>0) + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t90-ridge``。
     """
@@ -626,6 +634,8 @@ def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
         ridge_lambda=body.ridge_lambda,
         gap_trigger_pct=body.gap_trigger_pct,
         minute_period=body.minute_period,
+        tau_hm=body.tau_hm,
+        tau_end_hm=body.tau_end_hm,
         persist=body.persist,
         force_promote=body.force_promote,
         note=body.note,

@@ -33,8 +33,7 @@ MINUTE_TAU_CS_KEYS = (
 
 MINUTE_TAU_ALL_KEYS = MINUTE_TAU_PACK_KEYS + MINUTE_TAU_CS_KEYS
 
-# 标签同构前缀形状 + 树专用派生（不进 TAU_Z / Ridge；仅 ŷ_τ*_tree 经 TREE_SHAPE 加回）
-# 量价/路径交互项给树用：Ridge 线性对冲吃不动，产品特征可分裂。
+# 标签同构前缀形状 + OC 派生（面板可写；ŷ_τ* 入模经 TAU_HORIZON_DROP_OC_SHAPE 剔除）
 _OPEN_CLOCK_MIN = 9 * 60 + 30
 MINUTE_TAU_SHAPE_KEYS = (
     "t_hi_frac",
@@ -571,7 +570,7 @@ def extract_minute_tau_pack(
                 max(0.0, min(1.0, (float(tlo) - _OPEN_CLOCK_MIN) / elapsed)), 6
             )
 
-    # 树专用派生（不进 Ridge TAU_Z；经 TAU_HORIZON_TREE_SHAPE 入模）
+    # OC 形状派生（面板字段；ŷ_τ* 入模剔除）
     if px > 1e-12:
         out["room_to_high"] = round(((hi - px) / px) * 100.0, 6)
         out["room_to_low"] = round(((px - lo) / px) * 100.0, 6)

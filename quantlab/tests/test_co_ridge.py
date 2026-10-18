@@ -432,6 +432,14 @@ class TestCoScoreAttach(unittest.TestCase):
         self.assertEqual(out["theme_day"], 0.0)
         self.assertEqual(out["sector_gap_breadth"], 0.0)
         self.assertEqual(out["ret_oc"], 2.3)
+        # live τ* 注入后可能只有 z_τh_*
+        from_th = overlay_co_cross_section(
+            {"ret_oc": 1.0},
+            {"z_τh_gap_vs_sector": -0.5, "z_τh_theme_day": 1.0, "z_τh_sector_gap_breadth": 0.25},
+        )
+        self.assertEqual(from_th["gap_vs_sector"], -0.5)
+        self.assertEqual(from_th["theme_day"], 1.0)
+        self.assertEqual(from_th["sector_gap_breadth"], 0.25)
 
     def test_attach_co_score_pit_uses_tau_gap_vs_sector(self):
         from core.signal.dual_score.co import attach_co_score_pit
@@ -621,13 +629,15 @@ class TestCoRidgeJob(unittest.TestCase):
         from core.job_progress import co_ridge_job
         from quant.services.quant_service_factors import QuantFactorMixin
 
+        # 勿 force_fail 真实运行中的拟合槽（会冲掉 UI 进度）
         if co_ridge_job.is_running():
-            co_ridge_job.force_fail("test reset")
+            self.skipTest("co_ridge_job already running")
         svc = QuantFactorMixin()
-        started = {"n": 0}
+        started = {"n": 0, "kwargs": None}
 
-        def _fake(**_kwargs):
+        def _fake(**kwargs):
             started["n"] += 1
+            started["kwargs"] = kwargs
             time.sleep(0.25)
             return {"success": True, "return_model": {"intercept": 0.0}}
 
@@ -647,6 +657,35 @@ class TestCoRidgeJob(unittest.TestCase):
         self.assertEqual(started["n"], 1)
         self.assertEqual(snap.get("id"), job_id)
         self.assertTrue((snap.get("result") or {}).get("success"))
+        kw = started["kwargs"] or {}
+        self.assertTrue(callable(kw.get("progress_cb")))
+        self.assertTrue(callable(kw.get("job_alive_cb")))
+
+    def test_co_orphan_skips_last_report(self):
+        from unittest.mock import patch
+
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        svc = QuantFactorMixin()
+        with patch(
+            "core.research.co_ridge.save_co_last_report"
+        ) as save_last, patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={"ok": True, "codes": ["A", "B"], "source": "watching"},
+        ), patch(
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
+            return_value=({}, [], {}),
+        ), patch(
+            "core.research.co_ridge.fit_co_ridge_report",
+            return_value={"success": True, "task": "co_ridge"},
+        ):
+            out = svc.run_co_ridge_experiment(
+                watching_limit=2,
+                job_alive_cb=lambda: False,
+            )
+        self.assertFalse(out.get("success"))
+        self.assertTrue(out.get("orphaned"))
+        save_last.assert_not_called()
 
 
 class TestTauRidgeJob(unittest.TestCase):
@@ -656,13 +695,15 @@ class TestTauRidgeJob(unittest.TestCase):
         from core.job_progress import tau_ridge_job
         from quant.services.quant_service_factors import QuantFactorMixin
 
+        # 勿 force_fail 真实运行中的拟合槽（会冲掉 UI 进度）
         if tau_ridge_job.is_running():
-            tau_ridge_job.force_fail("test reset")
+            self.skipTest("tau_ridge_job already running")
         svc = QuantFactorMixin()
-        started = {"n": 0}
+        started = {"n": 0, "kwargs": None}
 
-        def _fake(**_kwargs):
+        def _fake(**kwargs):
             started["n"] += 1
+            started["kwargs"] = kwargs
             time.sleep(0.25)
             return {"success": True, "return_model": {"intercept": 0.0}}
 
@@ -682,6 +723,46 @@ class TestTauRidgeJob(unittest.TestCase):
         self.assertEqual(started["n"], 1)
         self.assertEqual(snap.get("id"), job_id)
         self.assertTrue((snap.get("result") or {}).get("success"))
+        kw = started["kwargs"] or {}
+        self.assertTrue(callable(kw.get("progress_cb")))
+        self.assertTrue(callable(kw.get("job_alive_cb")))
+
+    def test_tau_orphan_skips_last_report(self):
+        from unittest.mock import patch
+
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        svc = QuantFactorMixin()
+        with patch(
+            "core.research.tc_ridge.save_tau_last_report"
+        ) as save_last, patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={"ok": True, "codes": ["A", "B"], "source": "watching"},
+        ), patch(
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
+            return_value=({}, [], {}),
+        ), patch(
+            "core.signal.dual_score.get_dual_score_cfg",
+            return_value={"enable_minute_tau": False},
+        ), patch(
+            "core.signal.minute_tau_grid.resolve_tau_train_prefix",
+            return_value={
+                "use_minute": False,
+                "tau_hm": "open",
+                "tau_end_hm": "09:30",
+                "zero_prefix": True,
+            },
+        ), patch(
+            "core.research.tc_ridge.fit_tau_ridge_report",
+            return_value={"success": True, "task": "tc_ridge"},
+        ):
+            out = svc.run_tau_ridge_experiment(
+                watching_limit=2,
+                job_alive_cb=lambda: False,
+            )
+        self.assertFalse(out.get("success"))
+        self.assertTrue(out.get("orphaned"))
+        save_last.assert_not_called()
 
 
 if __name__ == "__main__":

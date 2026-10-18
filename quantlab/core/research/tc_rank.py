@@ -659,6 +659,13 @@ def apply_tc_rank_scores(
         keep.append(j)
     feat_rows = raw_rows
     if is_cross_section_zscore(model):
+        try:
+            from core.signal.factors.z_tc import stamp_z_tc_aliases
+
+            for r in raw_rows:
+                stamp_z_tc_aliases(r)
+        except Exception:  # noqa: BLE001
+            pass
         z_names = names or list(raw_rows[0].keys())
         feat_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in z_names])
     pred_rows = [feat_rows[j] for j in keep]

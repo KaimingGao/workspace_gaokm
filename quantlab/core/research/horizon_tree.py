@@ -227,8 +227,10 @@ def _row_matrix(
     z_stds: Optional[Dict[str, float]] = None,
 ) -> np.ndarray:
     from core.research.horizon_lgb import _apply_feature_z, _design_matrix
+    from core.signal.factors.z_th import feature_get as z_th_feature_get
 
-    row = {k: (features or {}).get(k) for k in feature_names}
+    src = features or {}
+    row = {k: z_th_feature_get(src, k) for k in feature_names}
     means = np.asarray(
         [float(impute_means.get(str(n)) or 0.0) for n in feature_names],
         dtype=np.float64,
@@ -485,7 +487,6 @@ def persist_tree_model_doc(
         "head": report.get("head") or head,
         "head_kind": str(rm.get("head_kind") or "prob"),
         "feature_names": list(rm.get("feature_names") or []),
-        "tree_shape_features": list(report.get("tree_shape_features") or []),
         "live_hook": False,
         "backtest_hook": True,
         "promote_gate": gate,
@@ -563,11 +564,15 @@ def predict_tree_from_features(
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
     """按 head 加载树模型并输出 p_up∈(0,1)。缺模型返回 None。"""
+    from core.signal.factors.z_th import stamp_z_th_aliases
+
     doc = model_doc if model_doc is not None else load_tree_model_doc(head)
     if not doc:
         return None
     rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
-    return predict_tree_p_up(features, rm)
+    feats = dict(features or {})
+    stamp_z_th_aliases(feats)
+    return predict_tree_p_up(feats, rm)
 
 
 # ---------------------------------------------------------------------------
@@ -618,21 +623,23 @@ def fit_horizon_tree_report(
     max_depth: int = None,  # type: ignore[assignment]
     learning_rate: float = None,  # type: ignore[assignment]
     subsample: float = None,  # type: ignore[assignment]
+    enriched_panels: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """按 head 拟合 horizon 树头 + Ridge OOS 对照。不写 live / 研究套模型。"""
+    """按 head 拟合 horizon 树头 + Ridge OOS 对照。不写 live / 研究套模型。
+
+    ``enriched_panels``：双训预建面板（跳过再灌分钟线）。
+    """
     import time
 
     import numpy as np
 
+    from core.research.horizon_ridge import build_horizon_enriched_panels
     from core.research.tc_ridge import (
-        TAU_FIT_DROP_ALIASES,
-        TAU_HORIZON_TREE_SHAPE_FEATURES,
         _stack_panels,
         _subset,
         _theme_counts,
-        build_tau_panels_from_bars,
-        with_horizon_tree_shape,
     )
+    from core.signal.factors.z_th import Z_TH_FIT_DROP_ALIASES, stamp_z_th_rows
     from core.research.horizon_lgb import (
         DEFAULT_LEARNING_RATE,
         DEFAULT_MAX_DEPTH,
@@ -663,31 +670,36 @@ def fit_horizon_tree_report(
     h = cfg["head"]
     num = cfg["num"]
     z_features = cfg["z_features"]
-    relabel_fn = cfg["relabel_fn"]
     train_tau_grid = cfg["train_tau_grid"]
     schema = cfg["schema"]
     head_label = cfg["head_label"]
     target = cfg["target"]
     offsets = cfg["offsets"]
-    tree_z_features = with_horizon_tree_shape(z_features)
+    tree_z_features = tuple(z_features)  # 与 Ridge 同 X（alpha_τh）
 
     from core.research.horizon_prob import binary_labels
     from core.research.tau_panel import theme_sample_weights
 
     t0 = time.perf_counter()
-    live_hm = str(tau_hm or "10:30").strip() or "10:30"
-    if live_hm.lower() in ("", "open"):
-        live_hm = "10:30"
-    grid = list(tau_grid) if tau_grid is not None else list(train_tau_grid)
     t_panel0 = time.perf_counter()
-    raw = build_tau_panels_from_bars(
-        stock_bars,
-        min_history=min_history,
-        gap_trigger_pct=gap_trigger_pct,
-        tau_hm=live_hm,
-        tau_grid=grid,
-    )
-    enriched = relabel_fn(raw)
+    if enriched_panels is not None:
+        enriched = list(enriched_panels)
+        live_hm = str(tau_hm or "10:30").strip() or "10:30"
+        if live_hm.lower() in ("", "open"):
+            live_hm = "10:30"
+        grid = list(tau_grid) if tau_grid is not None else list(train_tau_grid)
+    else:
+        bundle = build_horizon_enriched_panels(
+            head,
+            stock_bars,
+            min_history=min_history,
+            gap_trigger_pct=gap_trigger_pct,
+            tau_hm=tau_hm,
+            tau_grid=tau_grid,
+        )
+        enriched = list(bundle["enriched"] or [])
+        live_hm = str(bundle["live_hm"])
+        grid = list(bundle["tau_grid"] or [])
     xs, ys, dates, metas = _stack_panels(enriched)
     panel_s = round(time.perf_counter() - t_panel0, 2)
     if len(ys) < 20:
@@ -705,6 +717,7 @@ def fit_horizon_tree_report(
             "backtest_hook": False,
         }
 
+    stamp_z_th_rows(xs)
     xs_z = [{k: (row or {}).get(k) for k in tree_z_features} for row in xs]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
@@ -721,8 +734,8 @@ def fit_horizon_tree_report(
     )
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
     xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
-    feat_names = [k for k in tree_z_features if k not in TAU_FIT_DROP_ALIASES]
-    ridge_feat_names = [k for k in z_features if k not in TAU_FIT_DROP_ALIASES]
+    feat_names = [k for k in tree_z_features if k not in Z_TH_FIT_DROP_ALIASES]
+    ridge_feat_names = [k for k in z_features if k not in Z_TH_FIT_DROP_ALIASES]
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
@@ -831,6 +844,21 @@ def fit_horizon_tree_report(
     oos_ridge["holdout_trading_days"] = hold_n
     oos_ridge["target"] = target
 
+    from core.signal.factors.alpha_th import alpha_th_report_meta
+
+    n_ath = sum(1 for k in feat_names if str(k).startswith("raw_ath_"))
+    pack_meta = alpha_th_report_meta(n_alpha_th_features=n_ath)
+    if isinstance(return_model, dict):
+        return_model = dict(return_model)
+        return_model["schema"] = schema
+        return_model.update(pack_meta)
+        ys_spec = return_model.get("y_spec")
+        if isinstance(ys_spec, dict):
+            ys_spec = dict(ys_spec)
+            ys_spec["feature_pack"] = pack_meta["feature_pack"]
+            ys_spec["feature_pack_formula"] = pack_meta["feature_pack_formula"]
+            return_model["y_spec"] = ys_spec
+
     report: Dict[str, Any] = {
         "success": True,
         "task": f"{h}_tree",
@@ -843,6 +871,7 @@ def fit_horizon_tree_report(
         "tau_grid": list(grid),
         "target": target,
         "backend": engine,
+        **pack_meta,
         "hyperparams": hyper,
         "timing": {
             "panel_s": panel_s,
@@ -852,7 +881,6 @@ def fit_horizon_tree_report(
         },
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_feat_names),
-        "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
         "oos": oos_boost,
@@ -862,7 +890,7 @@ def fit_horizon_tree_report(
         "backtest_hook": True,
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
-            f"ŷ_τ{num}_tree：X 含 OC 路径形状；对照 Ridge 仍用原 Z。"
+            f"ŷ_τ{num}_tree：X 与 Ridge 同包（alpha_τh）；"
             f"正式路径已并入 ŷ_τ{num} 主卡双训（Holdout AUC 择优）；"
             f"本报告供对照。旧回测仍可设 horizon_prob_backend=tree。"
         ),

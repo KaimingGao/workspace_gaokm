@@ -17,7 +17,7 @@ GAP_ATR_CLIP = 10.0
 _SECTOR_REL_MIN_N = 3
 LABEL_LAG_WINDOW = 5
 # tau_std5 / yest_gap 曾入模，做 T 回测变差后撤回；键真源在 yhat.keys
-from core.yhat.keys import TAU_LAG_FEATURES, TAU_LAG_FEAT_LABELS
+from core.yhat.keys import TAU_LAG_FEATURES, TAU_LAG_FEAT_LABELS  # noqa: F401 — 对外 re-export
 from core.signal.minute_tau_grid import (
     DEFAULT_MINUTE_TAU_GRID,
     HORIZON_T30_MIN,
@@ -197,6 +197,27 @@ T90_SEQ_FEATURES = _HORIZON_SPECS["t90"].seq_features
 HORIZON_SEQ_CS_SPECS = tuple(
     (s.ret_key, s.cs_ret_key, s.cs_rel_key) for s in _HORIZON_SPECS.values()
 )
+
+# 默认五档：τc / 对照路径仍写满 price_tau30…90；ŷ_τ* 单头拟合可缩到本头
+_DEFAULT_LABEL_HEADS: Tuple[str, ...] = tuple(_HORIZON_SPECS.keys())
+
+
+def normalize_label_heads(
+    label_heads: Optional[Sequence[str]] = None,
+) -> Tuple[str, ...]:
+    """解析要写入 meta 的 horizon 窗价档；``None`` / 空 → 五档全开。"""
+    if label_heads is None:
+        return _DEFAULT_LABEL_HEADS
+    out: List[str] = []
+    for raw in label_heads:
+        tag = str(raw or "").strip().lower().replace("τ", "t").replace("y_", "")
+        if tag.startswith("t") and tag[1:].isdigit():
+            pass
+        elif tag.isdigit():
+            tag = f"t{tag}"
+        if tag in _HORIZON_SPECS and tag not in out:
+            out.append(tag)
+    return tuple(out) if out else _DEFAULT_LABEL_HEADS
 
 
 def normalize_minute_tau_grid(
@@ -1585,6 +1606,8 @@ def collect_tau_intraday_panel(
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,
     include_alpha_tc: bool = False,
+    include_alpha_th: bool = False,
+    label_heads: Optional[Sequence[str]] = None,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 ŷ_τc = close[T]/price[τ]−1。
 
@@ -1592,9 +1615,35 @@ def collect_tau_intraday_panel(
     ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 随 τ 不同**）；
     默认网格 ``09:30|09:35|…|11:00`` 每 5m（09:30 无分钟前缀只留开盘 Z；与做 T v6 扫描至 11:00 对齐；不含 13:00 / 14:00）。
     ``include_alpha_tc=True`` 时按钟附加 τ 锚 ``raw_atc_*``（现网）。
+    ``include_alpha_th=True`` 时按钟附加 ŷ_τ* ``raw_ath_*``。
+    ``label_heads``：只写这些头的 ``price_tau{N}``（默认五档；单头拟合传 ``(\"t30\",)``）。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
+    heads = normalize_label_heads(label_heads)
+    head_set = set(heads)
+    label_price_fns = tuple(
+        (tag, fn)
+        for tag, fn in (
+            ("t30", price_at_t30_mean_session),
+            ("t45", price_at_t45_mean_session),
+            ("t60", price_at_t60_mean_session),
+            ("t75", price_at_t75_mean_session),
+            ("t90", price_at_t90_mean_session),
+        )
+        if tag in head_set
+    )
+    seq_specs = tuple(
+        (tag, feat_keys, lag_keys)
+        for tag, feat_keys, lag_keys in (
+            ("t30", T30_SEQ_FEATURES, T30_LAG_FEATURES),
+            ("t45", T45_SEQ_FEATURES, T45_LAG_FEATURES),
+            ("t60", T60_SEQ_FEATURES, T60_LAG_FEATURES),
+            ("t75", T75_SEQ_FEATURES, T75_LAG_FEATURES),
+            ("t90", T90_SEQ_FEATURES, T90_LAG_FEATURES),
+        )
+        if tag in head_set
+    )
     if include_alpha_tc:
         try:
             from core.signal.factors.alpha_tc import bump_window_for_alpha_tc
@@ -1606,6 +1655,17 @@ def collect_tau_intraday_panel(
             )
         except Exception:  # noqa: BLE001
             logger.debug("tau intraday alpha_tc window bump failed", exc_info=True)
+    if include_alpha_th:
+        try:
+            from core.signal.factors.alpha_th import bump_window_for_alpha_th
+
+            min_history, max_window = bump_window_for_alpha_th(
+                ("alpha_th",),
+                min_history=min_history,
+                max_window=max_window,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau intraday alpha_th window bump failed", exc_info=True)
     _ = (index_bars, fundamentals)
     clocks = normalize_minute_tau_grid(tau_hm=tau_hm, tau_grid=tau_grid)
     xs: List[Dict[str, Optional[float]]] = []
@@ -1691,6 +1751,8 @@ def collect_tau_intraday_panel(
                 tau_hm=clock,
                 open_px=o_min if o_min and o_min > 0 else o,
             )
+            if not isinstance(seq_all, dict):
+                seq_all = {}
             if include_alpha_tc:
                 from core.signal.factors.alpha_tc import inject_raw_atc
 
@@ -1703,34 +1765,27 @@ def collect_tau_intraday_panel(
                     minute_bars=day_mins,
                     tau_hm=clock,
                 )
+            if include_alpha_th:
+                from core.signal.factors.alpha_th import inject_raw_ath
+
+                # seq_all 已并入 row；升格短窗动量；H_LAG* 在 relabel 后 stamp
+                if isinstance(seq_all, dict):
+                    for sk, sv in seq_all.items():
+                        if sv is not None and row.get(sk) is None:
+                            row[sk] = sv
+                inject_raw_ath(
+                    row,
+                    window,
+                    open_t=o,
+                    prev_close=pc,
+                    price_tau=px_tau,
+                    minute_bars=day_mins,
+                    tau_hm=clock,
+                    feats=row,
+                )
             xs.append(row)
             ys.append(float(y_τc))
             dates.append(date_t)
-            tau30_hm, px_tau30 = price_at_t30_mean_session(
-                day_mins,
-                trade_date=date_t,
-                tau_hm=clock,
-            )
-            tau45_hm, px_tau45 = price_at_t45_mean_session(
-                day_mins,
-                trade_date=date_t,
-                tau_hm=clock,
-            )
-            tau60_hm, px_tau60 = price_at_t60_mean_session(
-                day_mins,
-                trade_date=date_t,
-                tau_hm=clock,
-            )
-            tau75_hm, px_tau75 = price_at_t75_mean_session(
-                day_mins,
-                trade_date=date_t,
-                tau_hm=clock,
-            )
-            tau90_hm, px_tau90 = price_at_t90_mean_session(
-                day_mins,
-                trade_date=date_t,
-                tau_hm=clock,
-            )
             meta = {
                     "stock_code": stock_code,
                     "date": date_t,
@@ -1744,25 +1799,17 @@ def collect_tau_intraday_panel(
                     "y_τc": float(y_τc),
                     "ret_open_to_tau": row.get("ret_open_to_tau"),
                     "tau_elapsed_min": elapsed,
-                    "tau_plus_30": tau30_hm,
-                    "price_tau30": px_tau30,
-                    "tau_plus_45": tau45_hm,
-                    "price_tau45": px_tau45,
-                    "tau_plus_60": tau60_hm,
-                    "price_tau60": px_tau60,
-                    "tau_plus_75": tau75_hm,
-                    "price_tau75": px_tau75,
-                    "tau_plus_90": tau90_hm,
-                    "price_tau90": px_tau90,
             }
-            seq_specs = (
-                (T30_SEQ_FEATURES, T30_LAG_FEATURES),
-                (T45_SEQ_FEATURES, T45_LAG_FEATURES),
-                (T60_SEQ_FEATURES, T60_LAG_FEATURES),
-                (T75_SEQ_FEATURES, T75_LAG_FEATURES),
-                (T90_SEQ_FEATURES, T90_LAG_FEATURES),
-            )
-            for feat_keys, lag_keys in seq_specs:
+            for tag, fn in label_price_fns:
+                spec = _HORIZON_SPECS[tag]
+                tau_hm_h, px_h = fn(
+                    day_mins,
+                    trade_date=date_t,
+                    tau_hm=clock,
+                )
+                meta[spec.tau_plus_key] = tau_hm_h
+                meta[spec.px_key] = px_h
+            for _tag, feat_keys, lag_keys in seq_specs:
                 skip = set(lag_keys)
                 for k in feat_keys:
                     if k in skip:

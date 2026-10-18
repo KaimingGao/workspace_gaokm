@@ -6,7 +6,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import logging
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -20,15 +21,32 @@ from core.research.tau_panel import (
 from core.signal.factors.z_tc import (
     Z_TC_FIT_DROP_ALIASES,
     Z_TC_MINUTE_KEYS,
-    feature_get,
+    feature_get as _z_tc_feature_get,
 )
 from core.yhat.keys import TAU_Z_FEATURES
 
+logger = logging.getLogger(__name__)
+ProgressCb = Optional[Callable[[int, int, str], None]]
+# 与 panel_matrix._TAU_POOL_BATCH 对齐；对外避免 import 私有常量
+TAU_PANEL_POOL_BATCH = 24
+
+
+def feature_get(row: Optional[Dict[str, Any]], name: str) -> Any:
+    """ŷ_τc 用 z_τc_*；未命中再走 z_th（裸名 ↔ z_τh_* ↔ z_τc_*）。
+
+    覆盖：新模 ``z_τh_*`` 系数读裸名；旧模裸名/``z_τc_*`` 系数读仅有 ``z_τh_*`` 的行。
+    """
+    v = _z_tc_feature_get(row, name)
+    if v is not None and v != "":
+        return v
+    from core.signal.factors.z_th import feature_get as _z_th_feature_get
+
+    return _z_th_feature_get(row, name)
+
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
 TAU_FIT_DROP_ALIASES = Z_TC_FIT_DROP_ALIASES
-# ŷ_τ30/60/90 Ridge 不要吃 ŷ_τ 的 OC 路径形状。HL/回撤/振幅在 30–90m 前瞻上共线对冲，
-# ŷ 被压到训练均值（做 T 回测里多数 |ŷ_τ30|/|ŷ_τ60|<0.1%）。
-# 树头加回这些键 + t_hi/t_lo / 动量加速度 / 量价（分段交互，不走线性对冲）。
+# ŷ_τ*（Ridge/Tree 同 X）不吃 OC 路径形状：HL/回撤/振幅在 30–90m 前瞻上共线对冲，
+# 易把 ŷ 压到训练均值。面板仍可算这些键，入模时剔除。
 TAU_HORIZON_TREE_SHAPE_FEATURES = (
     "range_pct",
     "loc_hl",
@@ -54,13 +72,6 @@ TAU_HORIZON_TREE_SHAPE_FEATURES = (
     "pullback_x_vol",
 )
 TAU_HORIZON_DROP_OC_SHAPE = frozenset(TAU_HORIZON_TREE_SHAPE_FEATURES)
-
-
-def with_horizon_tree_shape(ridge_z_features: Sequence[str]) -> Tuple[str, ...]:
-    """Ridge Z + OC 路径形状。仅 ŷ_τ*_tree；Ridge 对照仍用原 Z。"""
-    have = set(ridge_z_features)
-    extra = tuple(k for k in TAU_HORIZON_TREE_SHAPE_FEATURES if k not in have)
-    return tuple(ridge_z_features) + extra
 
 
 def _stack_panels(
@@ -142,6 +153,58 @@ def _predict_rows(
     return out
 
 
+def _build_one_tau_panel(
+    item: Dict[str, Any],
+    *,
+    use_minute: bool,
+    tau_hm: str,
+    grid: Optional[Sequence[str]],
+    min_history: int,
+    include_alpha_tc: bool,
+    include_alpha_th: bool,
+    label_heads: Optional[Sequence[str]],
+) -> Optional[Dict[str, Any]]:
+    """单票 raw 面板；结束后 pop ``minute_bars``。"""
+    code = str(item.get("code") or item.get("stock_code") or "").strip()
+    bars = list(item.get("bars") or [])
+    if len(bars) < min_history + 2:
+        item.pop("minute_bars", None)
+        return None
+    if use_minute:
+        xs, ys, dates, metas = collect_tau_intraday_panel(
+            bars,
+            item.get("minute_bars"),
+            tau_hm=str(tau_hm),
+            tau_grid=grid,
+            min_history=min_history,
+            index_bars=item.get("index_bars"),
+            fundamentals=item.get("fundamentals"),
+            stock_code=code,
+            include_alpha_tc=include_alpha_tc,
+            include_alpha_th=include_alpha_th,
+            label_heads=label_heads,
+        )
+        item.pop("minute_bars", None)
+    else:
+        xs, ys, dates, metas = collect_tau_open_panel(
+            bars,
+            min_history=min_history,
+            index_bars=item.get("index_bars"),
+            fundamentals=item.get("fundamentals"),
+            stock_code=code,
+            include_alpha_tc=include_alpha_tc,
+        )
+    if len(ys) < 4:
+        return None
+    return {
+        "code": code,
+        "xs": xs,
+        "ys": ys,
+        "dates": dates,
+        "metas": metas,
+    }
+
+
 def build_tau_panels_from_bars(
     stock_bars: Sequence[Dict[str, Any]],
     *,
@@ -150,64 +213,175 @@ def build_tau_panels_from_bars(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     include_alpha_tc: bool = False,
+    include_alpha_th: bool = False,
+    attach_breadth: bool = True,
+    label_heads: Optional[Sequence[str]] = None,
+    workers: Optional[int] = None,
+    progress_cb: ProgressCb = None,
 ) -> List[Dict[str, Any]]:
     """``stock_bars``: ``[{code, bars, minute_bars?, index_bars?, fundamentals?}, ...]``。
 
     ``tau_hm=open``：开盘→收盘标签；否则用分钟价训 τ→收盘（无分钟则跳过该日）。
     ``tau_grid``：变长前缀少数时钟（共享 β）。
+    ``include_alpha_th``：ŷ_τ* 专用 ``raw_ath_*``（窗收益头）。
+    ``label_heads``：只写这些头的 ``price_tau{N}``（默认五档）。
+    ``workers``：并行灌票（``TAU_RIDGE_WORKERS``，硬顶 4）；分钟路径用
+    **进程池**（绕过 GIL），开盘路径仍串行；``None`` 按池大小自动。
+    ``progress_cb(done, total, msg)``：可选进度。
     分钟路径下每只票 ``collect`` 完会 ``pop`` 掉该票 ``minute_bars``（meta 已带
-    ``price_tau30…90``），避免满池 5m 常驻到拟合结束。
+    请求头的 ``price_tau{N}``），避免满池 5m 常驻到拟合结束。
+    ``attach_breadth=False``：跳过截面广度（流式逐票攒 raw 时用，最后再挂一次）。
     """
+    from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+    from concurrent.futures.process import BrokenProcessPool
+
+    from core.research.panel_matrix import _resolve_tau_workers
+
     use_minute = str(tau_hm or "open").strip().lower() not in ("", "open")
     grid = (
         normalize_minute_tau_grid(tau_hm=tau_hm, tau_grid=tau_grid)
         if use_minute
         else None
     )
-    raw: List[Dict[str, Any]] = []
-    for item in stock_bars:
-        if not isinstance(item, dict):
-            continue
-        code = str(item.get("code") or item.get("stock_code") or "").strip()
-        bars = list(item.get("bars") or [])
-        if len(bars) < min_history + 2:
-            # 分钟线只供 collect；跳过时也丢掉，避免整池常驻
-            item.pop("minute_bars", None)
-            continue
-        if use_minute:
-            xs, ys, dates, metas = collect_tau_intraday_panel(
-                bars,
-                item.get("minute_bars"),
-                tau_hm=str(tau_hm),
-                tau_grid=grid,
-                min_history=min_history,
-                index_bars=item.get("index_bars"),
-                fundamentals=item.get("fundamentals"),
-                stock_code=code,
-                include_alpha_tc=include_alpha_tc,
-            )
-            # meta 已带 price_tau30…90；relabel 不再需要分钟线
-            item.pop("minute_bars", None)
-        else:
-            xs, ys, dates, metas = collect_tau_open_panel(
-                bars,
-                min_history=min_history,
-                index_bars=item.get("index_bars"),
-                fundamentals=item.get("fundamentals"),
-                stock_code=code,
-                include_alpha_tc=include_alpha_tc,
-            )
-        if len(ys) < 4:
-            continue
-        raw.append(
-            {
-                "code": code,
-                "xs": xs,
-                "ys": ys,
-                "dates": dates,
-                "metas": metas,
-            }
+    items = [it for it in (stock_bars or []) if isinstance(it, dict)]
+    n_jobs = len(items)
+    # 开盘路径几乎无 CPU；分钟路径才值得起进程
+    n_workers = _resolve_tau_workers(n_jobs, workers) if use_minute else 1
+    batch_size = max(4, int(TAU_PANEL_POOL_BATCH))
+    raw_slots: List[Optional[Dict[str, Any]]] = [None] * n_jobs
+    done_n = 0
+
+    def _emit(done: int) -> None:
+        if not callable(progress_cb):
+            return
+        try:
+            progress_cb(done, max(1, n_jobs), f"建面板 {done}/{n_jobs}")
+        except Exception:  # noqa: BLE001
+            logger.debug("build_tau_panels progress_cb failed", exc_info=True)
+
+    def _job_kw() -> Dict[str, Any]:
+        return dict(
+            use_minute=use_minute,
+            tau_hm=str(tau_hm),
+            grid=list(grid) if grid is not None else None,
+            min_history=min_history,
+            include_alpha_tc=include_alpha_tc,
+            include_alpha_th=include_alpha_th,
+            label_heads=tuple(label_heads) if label_heads is not None else None,
         )
+
+    def _run_serial(start: int, end: int) -> None:
+        nonlocal done_n
+        kw = _job_kw()
+        for i in range(start, end):
+            raw_slots[i] = _build_one_tau_panel(items[i], **kw)
+            done_n += 1
+            if done_n == 1 or done_n % 8 == 0 or done_n >= n_jobs:
+                _emit(done_n)
+
+    def _run_batch(start: int, end: int) -> None:
+        nonlocal done_n
+        if end <= start:
+            return
+        if n_workers <= 1 or (end - start) < 4:
+            _run_serial(start, end)
+            return
+        kw = _job_kw()
+        try:
+            from core.research.oo_blas_limit import limit_blas_threads
+
+            init = limit_blas_threads
+        except Exception:  # noqa: BLE001
+            init = None
+        try:
+            pool = ProcessPoolExecutor(max_workers=n_workers, initializer=init)
+        except Exception:  # noqa: BLE001
+            logger.exception("tau panels process pool unavailable; serial")
+            _run_serial(start, end)
+            return
+        inflight: Dict[Any, int] = {}
+        next_i = start
+        try:
+
+            def _submit(i: int) -> None:
+                inflight[pool.submit(_build_one_tau_panel, items[i], **kw)] = i
+
+            while next_i < end and len(inflight) < n_workers:
+                _submit(next_i)
+                next_i += 1
+            while inflight:
+                finished, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
+                pool_broken = False
+                for fut in finished:
+                    i = inflight.pop(fut)
+                    try:
+                        raw_slots[i] = fut.result()
+                    except BrokenProcessPool:
+                        pool_broken = True
+                        continue
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "tau panels worker failed code=%s; serial retry",
+                            items[i].get("code"),
+                        )
+                        raw_slots[i] = _build_one_tau_panel(items[i], **kw)
+                    items[i].pop("minute_bars", None)
+                    done_n += 1
+                    if done_n == 1 or done_n % 8 == 0 or done_n >= n_jobs:
+                        _emit(done_n)
+                if pool_broken:
+                    logger.exception(
+                        "tau panels process pool broken; finishing serial"
+                    )
+                    for fut in list(inflight):
+                        i = inflight.pop(fut)
+                        try:
+                            if fut.done() and not fut.cancelled():
+                                raw_slots[i] = fut.result()
+                                items[i].pop("minute_bars", None)
+                                done_n += 1
+                        except Exception:  # noqa: BLE001
+                            pass
+                    try:
+                        pool.shutdown(wait=False, cancel_futures=True)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    for j in range(start, end):
+                        if raw_slots[j] is not None:
+                            continue
+                        raw_slots[j] = _build_one_tau_panel(items[j], **kw)
+                        items[j].pop("minute_bars", None)
+                        done_n += 1
+                        if done_n == 1 or done_n % 8 == 0 or done_n >= n_jobs:
+                            _emit(done_n)
+                    return
+                while next_i < end and len(inflight) < n_workers:
+                    _submit(next_i)
+                    next_i += 1
+        finally:
+            try:
+                pool.shutdown(wait=True, cancel_futures=True)
+            except Exception:  # noqa: BLE001
+                logger.debug("tau panels pool shutdown failed", exc_info=True)
+
+    if n_jobs:
+        if n_workers > 1:
+            logger.info(
+                "tau panels process_workers=%s stocks=%s batch=%s label_heads=%s",
+                n_workers,
+                n_jobs,
+                batch_size,
+                list(label_heads) if label_heads is not None else "all",
+            )
+        start = 0
+        while start < n_jobs:
+            end = min(n_jobs, start + batch_size)
+            _run_batch(start, end)
+            start = end
+
+    raw = [p for p in raw_slots if isinstance(p, dict)]
+    if not attach_breadth:
+        return raw
     return attach_cross_section_breadth(raw, gap_trigger_pct=gap_trigger_pct)
 
 

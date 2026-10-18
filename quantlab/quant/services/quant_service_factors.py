@@ -220,16 +220,31 @@ def _start_ridge_fit_job(
             job_id=job_id,
         )
 
+    def _job_alive() -> bool:
+        """槽仍属本 job 且未协作取消；孤儿 worker 勿再写 last_report。"""
+        if slot.is_cancel_requested():
+            return False
+        snap = slot.get() or {}
+        return (
+            str(snap.get("id") or "") == str(job_id)
+            and str(snap.get("status") or "") == "running"
+        )
+
     def _call_worker() -> Any:
         try:
             params = inspect.signature(worker_fn).parameters
         except (TypeError, ValueError):
             params = {}
-        accepts_cb = "progress_cb" in params or any(
+        has_varkw = any(
             p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
         )
-        if accepts_cb:
-            return worker_fn(progress_cb=_progress)
+        call_kw: Dict[str, Any] = {}
+        if "progress_cb" in params or has_varkw:
+            call_kw["progress_cb"] = _progress
+        if "job_alive_cb" in params or has_varkw:
+            call_kw["job_alive_cb"] = _job_alive
+        if call_kw:
+            return worker_fn(**call_kw)
         return worker_fn()
 
     def _worker() -> None:
@@ -736,12 +751,15 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
         cross_section_zscore: bool = True,
+        progress_cb: Optional[Any] = None,
+        job_alive_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
         默认用满观察池。``tau_end_hm`` 优先（09:30…11:00；09:30=0 前缀 open→close）；
         否则 ``tau_hm`` / ``dual_score.enable_minute_tau``（开则训至 11:00 网格）。
         日线与 ŷ_oo / ŷ_co 同源（``load_portfolio_stock_bars``）。
+        ``job_alive_cb()``：False 时跳过 ``save_tau_last_report``（槽已被接替/取消）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.signal.dual_score import get_dual_score_cfg
@@ -756,6 +774,21 @@ class QuantFactorMixin:
         )
 
         from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        def _job_alive() -> bool:
+            if not callable(job_alive_cb):
+                return True
+            try:
+                return bool(job_alive_cb())
+            except Exception:  # noqa: BLE001
+                logger.debug("tau_ridge job_alive_cb failed", exc_info=True)
+                return True
+
+        if callable(progress_cb):
+            try:
+                progress_cb(0, 1, "ŷ_τc 准备…")
+            except Exception:  # noqa: BLE001
+                pass
 
         resolved = _resolve_fit_universe(
             watching_limit=watching_limit,
@@ -881,6 +914,14 @@ class QuantFactorMixin:
                     blob["y_spec"] = ys2
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
+        if not _job_alive():
+            report["success"] = False
+            report["error"] = "任务已中断或被接替"
+            report["orphaned"] = True
+            report["persisted"] = {"success": False, "skipped": True, "orphaned": True}
+            return _attach_ridge_role_flags(
+                report, tau_model_path(), live_present=bool(load_tau_model())
+            )
         if report.get("success"):
             save_tau_last_report(report)
             if not report.get("promote_gate"):
@@ -945,7 +986,11 @@ class QuantFactorMixin:
             kind="tau_ridge",
             message="ŷ_τc 拟合中…",
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
-            worker_fn=lambda: self.run_tau_ridge_experiment(**kwargs),
+            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_tau_ridge_experiment(
+                **kwargs,
+                progress_cb=progress_cb,
+                job_alive_cb=job_alive_cb,
+            ),
         )
 
     def get_tau_ridge_model(self) -> Dict[str, Any]:
@@ -1037,11 +1082,13 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         cross_section_zscore: bool = True,
         progress_cb: Optional[Any] = None,
+        job_alive_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。
 
         日线与 ŷ_oo 同源（``load_portfolio_stock_bars``：lookback 外再垫 alpha_oo 窗），
         决策日与 ŷ_oo 对齐。
+        ``job_alive_cb()``：False 时跳过 ``save_co_last_report``（槽已被接替/取消）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.research.co_ridge import (
@@ -1054,6 +1101,15 @@ class QuantFactorMixin:
         )
 
         from core.watching.store import MODEL_FIT_MAX_SIZE
+
+        def _job_alive() -> bool:
+            if not callable(job_alive_cb):
+                return True
+            try:
+                return bool(job_alive_cb())
+            except Exception:  # noqa: BLE001
+                logger.debug("co_ridge job_alive_cb failed", exc_info=True)
+                return True
 
         resolved = _resolve_fit_universe(
             watching_limit=watching_limit,
@@ -1120,6 +1176,12 @@ class QuantFactorMixin:
             resolved.get("watching_pool_size") or len(codes)
         )
         report["lookback"] = lookback
+        if not _job_alive():
+            report["success"] = False
+            report["error"] = "任务已中断或被接替"
+            report["orphaned"] = True
+            report["persisted"] = {"success": False, "skipped": True, "orphaned": True}
+            return _attach_ridge_role_flags(report, co_model_path())
         if report.get("success"):
             save_co_last_report(report)
         if persist and report.get("success"):
@@ -1169,8 +1231,10 @@ class QuantFactorMixin:
             kind="co_ridge",
             message="ŷ_co 拟合中…",
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
-            worker_fn=lambda progress_cb=None: self.run_co_ridge_experiment(
-                **kwargs, progress_cb=progress_cb
+            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_co_ridge_experiment(
+                **kwargs,
+                progress_cb=progress_cb,
+                job_alive_cb=job_alive_cb,
             ),
         )
 
@@ -1748,14 +1812,23 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
+        tau_hm: Optional[str] = None,
+        tau_end_hm: Optional[str] = None,
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
         persist_role: str = "live",
         holdout_trading_days: int = 20,
         cross_section_zscore: bool = True,
+        progress_cb: Optional[Any] = None,
+        job_alive_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """泛化 ŷ_τ horizon：同窗双训 Ridge+Tree，AUC 择优。horizon ∈ {t30…t90}。只读本地 5m 缓存。"""
+        """泛化 ŷ_τ horizon：同窗双训 Ridge+Tree，AUC 择优。horizon ∈ {t30…t90}。只读本地 5m 缓存。
+
+        ``tau_end_hm``：训练前缀终点 09:30…11:00（与 ŷ_τc 同源）；09:30=只训开盘一点（仍需分钟标签）。
+        ``progress_cb(cur, tot, msg)``：job 槽刷新（流式建面板 + 截面/双训阶段）。
+        ``job_alive_cb()``：False 时跳过 ``save_ridge_last_report``（槽已被接替/取消）。
+        """
         from core.data.facade import bars_and_source
         from core.research.horizon_prob import horizon_promote_gate
         from core.research.horizon_ridge import (
@@ -1766,9 +1839,27 @@ class QuantFactorMixin:
             ridge_model_path,
             save_ridge_last_report,
         )
+        from core.signal.minute_tau_grid import resolve_tau_train_prefix
 
         hn = horizon[1:]
         task = f"{horizon}_ridge"
+
+        def _progress(cur: int, tot: int, msg: str) -> None:
+            if not callable(progress_cb):
+                return
+            try:
+                progress_cb(int(cur), int(tot), str(msg or ""))
+            except Exception:  # noqa: BLE001
+                logger.debug("%s progress_cb failed", task, exc_info=True)
+
+        def _job_alive() -> bool:
+            if not callable(job_alive_cb):
+                return True
+            try:
+                return bool(job_alive_cb())
+            except Exception:  # noqa: BLE001
+                logger.debug("%s job_alive_cb failed", task, exc_info=True)
+                return True
 
         if persist:
             last = load_ridge_last_report(horizon)
@@ -1811,39 +1902,160 @@ class QuantFactorMixin:
             }
 
         period = str(minute_period or "5").strip() or "5"
+        prefix = resolve_tau_train_prefix(
+            tau_end_hm=tau_end_hm,
+            tau_hm=tau_hm,
+            enable_minute_tau=True,
+        )
+        if prefix.get("error"):
+            return {
+                "success": False,
+                "error": prefix["error"],
+                "task": task,
+            }
+        resolved_end = str(prefix.get("tau_end_hm") or "11:00")[:5]
+        # ŷ_τ* 标签依赖分钟：09:30 不退化为 OC，只训开盘一点
+        if prefix.get("zero_prefix"):
+            tau_key = "09:30"
+            tau_grid = ["09:30"]
+            zero_prefix = True
+        else:
+            tau_key = str(prefix.get("tau_hm") or resolved_end)
+            tau_grid = prefix.get("tau_grid")
+            zero_prefix = False
+
+        from core.research.horizon_ridge import enrich_horizon_raw_panels
+        from core.research.tc_ridge_compact import (
+            TAU_PANEL_POOL_BATCH,
+            build_tau_panels_from_bars,
+        )
+        from core.ports.market import resolve_market_code
+        from core.store import load_minute_cache
+
+        # 分批：读 5m → 并行建 raw → 立刻 pop 分钟线（峰值≈一批而非全池）
         stock_bars: List[Dict[str, Any]] = []
+        raw_acc: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
-            if not bars:
-                continue
-            row: Dict[str, Any] = {"code": str(code), "bars": bars}
-            try:
-                from core.ports.market import resolve_market_code
-                from core.store import load_minute_cache
+        min_hist = 12
+        n_codes = max(1, len(codes))
+        grid_n = len(tau_grid) if isinstance(tau_grid, (list, tuple)) else 1
+        label_heads = (horizon,)
+        batch_n = max(4, int(TAU_PANEL_POOL_BATCH))
+        _progress(
+            0,
+            n_codes,
+            f"ŷ_τ{hn} 建面板 0/{n_codes}"
+            + (f" · τ×{grid_n}" if grid_n > 1 else ""),
+        )
 
-                mkt, pure = resolve_market_code(str(code))
-                packed = load_minute_cache(
-                    mkt or "CN",
-                    pure or str(code),
-                    period,
-                    min_bars=1,
-                    ignore_age=True,
+        scanned = 0
+        batch_items: List[Dict[str, Any]] = []
+        batch_end_scanned = 0
+
+        def _flush_batch() -> bool:
+            nonlocal batch_items
+            if not batch_items:
+                return True
+            if not _job_alive():
+                batch_items = []
+                return False
+            end_scanned = batch_end_scanned
+            n_batch = len(batch_items)
+
+            def _cb(done: int, _tot: int, _msg: str) -> None:
+                cur = min(
+                    n_codes,
+                    max(0, end_scanned - n_batch) + max(0, int(done or 0)),
                 )
-                if packed:
-                    mb, _meta = packed
-                    if mb:
-                        row["minute_bars"] = mb
-                        minute_hit += 1
+                _progress(
+                    cur,
+                    n_codes,
+                    f"ŷ_τ{hn} 建面板 {cur}/{n_codes} · 命中{minute_hit}",
+                )
+
+            chunk = build_tau_panels_from_bars(
+                batch_items,
+                min_history=min_hist,
+                gap_trigger_pct=gap_trigger_pct,
+                tau_hm=tau_key,
+                tau_grid=tau_grid,
+                include_alpha_th=True,
+                attach_breadth=False,
+                label_heads=label_heads,
+                progress_cb=_cb,
+            )
+            raw_acc.extend(chunk)
+            for it in batch_items:
+                it.pop("minute_bars", None)
+            batch_items = []
+            _progress(
+                end_scanned,
+                n_codes,
+                f"ŷ_τ{hn} 建面板 {end_scanned}/{n_codes} · 命中{minute_hit}",
+            )
+            return True
+
+        orphaned = False
+        for i, code in enumerate(codes):
+            if not _job_alive():
+                orphaned = True
+                break
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            scanned = i + 1
+            if bars:
+                daily_row: Dict[str, Any] = {"code": str(code), "bars": bars}
+                stock_bars.append(daily_row)
+                item: Dict[str, Any] = {"code": str(code), "bars": bars}
+                try:
+                    mkt, pure = resolve_market_code(str(code))
+                    packed = load_minute_cache(
+                        mkt or "CN",
+                        pure or str(code),
+                        period,
+                        min_bars=1,
+                        ignore_age=True,
+                    )
+                    if packed:
+                        mb, _meta = packed
+                        if mb:
+                            item["minute_bars"] = mb
+                            minute_hit += 1
+                            batch_items.append(item)
+                            batch_end_scanned = scanned
+                        else:
+                            minute_codes_miss += 1
                     else:
                         minute_codes_miss += 1
-                else:
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "%s ridge minute cache miss for %s", horizon, code, exc_info=True
+                    )
                     minute_codes_miss += 1
-            except Exception:  # noqa: BLE001
-                logger.debug("%s ridge minute cache miss for %s", horizon, code, exc_info=True)
-                minute_codes_miss += 1
-            stock_bars.append(row)
+            if len(batch_items) >= batch_n:
+                if not _flush_batch():
+                    orphaned = True
+                    break
+            elif scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:
+                _progress(
+                    scanned,
+                    n_codes,
+                    f"ŷ_τ{hn} 建面板 {scanned}/{n_codes} · 命中{minute_hit}",
+                )
+        if not orphaned and not _flush_batch():
+            orphaned = True
+        if orphaned or not _job_alive():
+            return {
+                "success": False,
+                "error": "任务已中断或被接替",
+                "orphaned": True,
+                "task": task,
+            }
+        _progress(
+            n_codes,
+            n_codes,
+            f"ŷ_τ{hn} 建面板 {n_codes}/{n_codes} · 命中{minute_hit}",
+        )
 
         if minute_hit < 1:
             return {
@@ -1860,13 +2072,27 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
+        _progress(n_codes, n_codes, f"ŷ_τ{hn} 截面广度+relabel…")
+        enriched = enrich_horizon_raw_panels(
+            horizon,
+            raw_acc,
+            gap_trigger_pct=gap_trigger_pct,
+            already_breadth=False,
+        )
+        raw_acc.clear()
+
+        _progress(n_codes, n_codes, f"ŷ_τ{hn} Ridge+Tree 双训…")
         report = fit_horizon_dual_report(
             horizon,
             stock_bars,
             ridge_lambda=ridge_lambda,
+            min_history=min_hist,
             gap_trigger_pct=gap_trigger_pct,
             holdout_trading_days=holdout_trading_days,
             cross_section_zscore=bool(cross_section_zscore),
+            tau_hm=tau_key,
+            tau_grid=tau_grid,
+            enriched_panels=enriched,
         )
         report["watching_limit"] = limit
         report["universe_source"] = resolved.get("source")
@@ -1875,10 +2101,31 @@ class QuantFactorMixin:
         )
         report["lookback"] = lookback
         report["minute_period"] = period
+        report["tau_end_hm"] = resolved_end
+        report["zero_prefix"] = bool(zero_prefix)
+        y_spec = report.get("y_spec")
+        if isinstance(y_spec, dict):
+            y_spec = dict(y_spec)
+            y_spec["tau_end_hm"] = resolved_end
+            y_spec["zero_prefix"] = bool(zero_prefix)
+            report["y_spec"] = y_spec
+            for mk in ("return_model", "return_model_research", "tree_return_model"):
+                blob = report.get(mk)
+                if isinstance(blob, dict) and isinstance(blob.get("y_spec"), dict):
+                    ys2 = dict(blob["y_spec"])
+                    ys2["tau_end_hm"] = resolved_end
+                    ys2["zero_prefix"] = bool(zero_prefix)
+                    blob["y_spec"] = ys2
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
         report["minute_cache_only"] = True
+        if not _job_alive():
+            report["success"] = False
+            report["error"] = "任务已中断或被接替"
+            report["orphaned"] = True
+            report["persisted"] = {"success": False, "skipped": True, "orphaned": True}
+            return _attach_ridge_role_flags(report, ridge_model_path(horizon))
         if report.get("success"):
             save_ridge_last_report(horizon, report)
         if persist and report.get("success"):
@@ -1966,12 +2213,83 @@ class QuantFactorMixin:
                 _merge_backend_side(be_out, be_last, "tree")
                 if be_out:
                     packed["backends"] = be_out
+        if isinstance(last, dict):
+            oos_last = last.get("oos") if isinstance(last.get("oos"), dict) else {}
+            if not isinstance(packed.get("oos"), dict) and oos_last:
+                packed["oos"] = dict(oos_last)
+            elif isinstance(packed.get("oos"), dict) and oos_last:
+                # 补嵌套对照：落盘常只有胜出侧扁平 oos，缺 oos.tree / oos.ridge
+                oos_out = dict(packed["oos"])
+                if "ridge" not in oos_out and isinstance(oos_last.get("ridge"), dict):
+                    oos_out["ridge"] = oos_last["ridge"]
+                if "tree" not in oos_out and isinstance(oos_last.get("tree"), dict):
+                    oos_out["tree"] = oos_last["tree"]
+                packed["oos"] = oos_out
+            if (
+                isinstance(packed.get("oos"), dict)
+                and "tree" not in packed["oos"]
+                and isinstance(last.get("tree_oos"), dict)
+                and last.get("tree_oos")
+            ):
+                packed["oos"] = dict(packed["oos"])
+                packed["oos"]["tree"] = last["tree_oos"]
+            if packed.get("tree_oos") is None and isinstance(last.get("tree_oos"), dict):
+                packed["tree_oos"] = last["tree_oos"]
+            if packed.get("ridge_oos") is None and isinstance(last.get("ridge_oos"), dict):
+                packed["ridge_oos"] = last["ridge_oos"]
+            # 扁平 oos 缺训/测行数时从嵌套对照侧回填（旧落盘 / 仅胜出侧）
+            if isinstance(packed.get("oos"), dict):
+                oos_fix = packed["oos"]
+                if oos_fix.get("n_train") is None or oos_fix.get("n_test") is None:
+                    for side in (
+                        oos_fix.get("ridge"),
+                        oos_fix.get("tree"),
+                        packed.get("ridge_oos"),
+                        packed.get("tree_oos"),
+                        last.get("ridge_oos") if isinstance(last, dict) else None,
+                        last.get("tree_oos") if isinstance(last, dict) else None,
+                    ):
+                        if not isinstance(side, dict):
+                            continue
+                        if oos_fix.get("n_train") is None and side.get("n_train") is not None:
+                            oos_fix["n_train"] = side.get("n_train")
+                        if oos_fix.get("n_test") is None and side.get("n_test") is not None:
+                            oos_fix["n_test"] = side.get("n_test")
+                        if (
+                            oos_fix.get("n_train") is not None
+                            and oos_fix.get("n_test") is not None
+                        ):
+                            break
+        # LightGBM gain：落盘缺 feature_importance 时从同窗 last_report 补
         if (
-            not isinstance(packed.get("oos"), dict)
+            not (
+                isinstance(packed.get("feature_importance"), list)
+                and packed.get("feature_importance")
+            )
             and isinstance(last, dict)
-            and isinstance(last.get("oos"), dict)
+            and isinstance(last.get("feature_importance"), list)
+            and last.get("feature_importance")
         ):
-            packed["oos"] = last["oos"]
+            packed["feature_importance"] = last["feature_importance"]
+        if (
+            packed.get("tree_success") is None
+            and isinstance(last, dict)
+            and last.get("tree_success") is not None
+        ):
+            packed["tree_success"] = last.get("tree_success")
+            if last.get("tree_error"):
+                packed["tree_error"] = last.get("tree_error")
+        # alpha_τh 特征包：落盘缺字段时从 last_report 补
+        if isinstance(last, dict):
+            for pk in (
+                "feature_pack",
+                "feature_pack_key",
+                "feature_pack_formula",
+                "include_alpha_th",
+                "n_alpha_th_features",
+            ):
+                if packed.get(pk) is None and last.get(pk) is not None:
+                    packed[pk] = last.get(pk)
         rm_main = packed.get("return_model")
         if isinstance(rm_main, dict):
             packed["return_model_research"] = dict(rm_main)
@@ -2000,11 +2318,17 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
+        tau_hm: Optional[str] = None,
+        tau_end_hm: Optional[str] = None,
         note: str = "",
         holdout_trading_days: int = 20,
+        cross_section_zscore: bool = True,
         **_ignored: Any,
     ) -> Dict[str, Any]:
-        """后台 ŷ_τ horizon 拟合；不写盘。"""
+        """后台 ŷ_τ horizon 拟合；不写盘。
+
+        须透传 ``tau_end_hm`` / ``cross_section_zscore``（与 UI 前缀滑条、日截面 Z 对齐）。
+        """
         from core import job_progress
 
         hn = horizon[1:]
@@ -2017,16 +2341,23 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             minute_period=minute_period,
+            tau_hm=tau_hm,
+            tau_end_hm=tau_end_hm,
             persist=False,
             note=note or "",
             holdout_trading_days=holdout_trading_days,
+            cross_section_zscore=bool(cross_section_zscore),
         )
         return _start_ridge_fit_job(
             slot=slot,
             kind=f"{horizon}_ridge",
             message=f"ŷ_τ{hn} 拟合中…",
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
-            worker_fn=lambda: run_fn(**kwargs),
+            worker_fn=lambda progress_cb=None, job_alive_cb=None: run_fn(
+                **kwargs,
+                progress_cb=progress_cb,
+                job_alive_cb=job_alive_cb,
+            ),
         )
 
     @records_experiment("t30_ridge")

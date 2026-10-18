@@ -21,7 +21,8 @@ FAMILY_META: Tuple[Tuple[str, str, str], ...] = (
         "pv_derived",
         "量价衍生",
         "ŷ_oo 日线 z_oo_*∪raw_aoo_*；ŷ_τc=z_τc_*∪raw_atc_*；"
-        "ŷ_co=z_co_*∪raw_aoo_*；omit_sub_score，仅 raw 进模型",
+        "ŷ_τ*=z_τh_*∪raw_ath_*；ŷ_co=z_co_*∪raw_aoo_*；"
+        "omit_sub_score，仅 raw 进模型",
     ),
     ("other", "其他", "未编入 factor_groups"),
 )
@@ -37,12 +38,15 @@ EXTRA_FAMILY: Dict[str, str] = {
     "llm_sentiment": "sentiment",
     "alpha_oo": "pv_derived",
     "alpha_tc": "pv_derived",
+    "alpha_th": "pv_derived",
 }
 
 # 面板列 / Ridge 入模名：按前缀归入量价衍生
 PREFIX_FAMILY: Tuple[Tuple[str, str], ...] = (
     ("raw_aoo_", "pv_derived"),
     ("raw_atc_", "pv_derived"),
+    ("raw_ath_", "pv_derived"),
+    ("z_τh_", "pv_derived"),
     ("z_τc_", "pv_derived"),
     ("z_oo_", "pv_derived"),
     ("z_co_", "pv_derived"),

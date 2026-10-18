@@ -213,6 +213,26 @@ def cross_section_zscore_matrix(
     return out
 
 
+# 截面 z 后把值同步到裸名/canon，避免后续 stamp_*（裸名优先）冲掉 z-score。
+_Z_ALIAS_PREFIXES = ("z_τh_", "z_τc_", "z_co_", "z_oo_")
+
+
+def mirror_z_alias_value(row: Dict[str, Any], name: str, val: Any) -> None:
+    """把截面 z 写到 ``name``，并同步裸名 / 已有 canon，防后续 stamp 冲掉。"""
+    row[name] = val
+    for p in _Z_ALIAS_PREFIXES:
+        if name.startswith(p):
+            bare = name[len(p) :]
+            if bare:
+                row[bare] = val
+            return
+    # 裸名入模：若行里已有任一 canon，一并写上
+    for p in _Z_ALIAS_PREFIXES:
+        canon = f"{p}{name}"
+        if canon in row:
+            row[canon] = val
+
+
 def cross_section_zscore_dicts(
     rows: Sequence[Mapping[str, Any]],
     names: Sequence[str],
@@ -245,6 +265,6 @@ def cross_section_zscore_dicts(
         for j, name in enumerate(keys):
             val = float(z[i, j])
             if math.isfinite(val):
-                src[name] = val
+                mirror_z_alias_value(src, name, val)
         out.append(src)
     return out

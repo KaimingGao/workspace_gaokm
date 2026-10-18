@@ -1276,6 +1276,72 @@ def _stamp_horizon_formula_terms(
             item[k] = expl
 
 
+def _inject_raw_ath_live(
+    feats: dict,
+    item: dict,
+    head: str,
+    *,
+    tau_hm: Optional[str],
+    hist_bars: Optional[Sequence[dict]] = None,
+) -> dict:
+    """live / 回测：写入 raw_ath_*（GAP/YK + 升格 seq/lag）。"""
+    out = feats if isinstance(feats, dict) else {}
+    try:
+        from core.signal.factors.alpha_th import inject_raw_ath
+
+        day_bar = item.get("day_bar") if isinstance(item.get("day_bar"), dict) else {}
+        hist = list(hist_bars) if hist_bars else None
+        if not hist:
+            hist = item.get("hist_bars") if isinstance(item.get("hist_bars"), list) else None
+        if not hist:
+            hist = item.get("bars") if isinstance(item.get("bars"), list) else None
+        open_t = _open_px_from_item(item)
+        prev_close = None
+        try:
+            if day_bar.get("prev_close") is not None:
+                prev_close = float(day_bar.get("prev_close"))
+        except (TypeError, ValueError):
+            prev_close = None
+        px_tau = None
+        try:
+            if out.get("price_tau") is not None:
+                px_tau = float(out.get("price_tau"))
+        except (TypeError, ValueError):
+            px_tau = None
+        if px_tau is None:
+            try:
+                if item.get("price_tau") is not None:
+                    px_tau = float(item.get("price_tau"))
+            except (TypeError, ValueError):
+                px_tau = None
+        if px_tau is None:
+            px_tau = open_t
+        inject_raw_ath(
+            out,
+            hist,
+            open_t=open_t,
+            prev_close=prev_close,
+            price_tau=px_tau,
+            minute_bars=_minute_prefix_from_item(item) or None,
+            tau_hm=tau_hm,
+            feats=out,
+            head=head,
+        )
+        from core.signal.factors.z_th import stamp_z_th_aliases
+
+        stamp_z_th_aliases(out)
+        ft = item.get("features_tau")
+        if isinstance(ft, dict):
+            for k, v in out.items():
+                if (
+                    str(k).startswith("raw_ath_") or str(k).startswith("z_τh_")
+                ) and v is not None:
+                    ft[k] = v
+    except Exception:  # noqa: BLE001
+        logger.debug("inject raw_ath_%s failed", head, exc_info=True)
+    return out
+
+
 def _attach_y_t30_to_item(
     item: dict,
     *,
@@ -1350,6 +1416,9 @@ def _attach_y_t30_to_item(
             feats = attach_sector_ret_last_30m_cs_if_missing(
                 feats, trade_date=asof, tau_hm=hm
             )
+        feats = _inject_raw_ath_live(
+            feats, item, "t30", tau_hm=hm, hist_bars=hist_bars
+        )
         ft = item.get("features_tau")
         if isinstance(ft, dict):
             for k in list(T30_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
@@ -1461,6 +1530,9 @@ def _attach_y_t45_to_item(
             feats = attach_sector_ret_last_45m_cs_if_missing(
                 feats, trade_date=asof, tau_hm=hm
             )
+        feats = _inject_raw_ath_live(
+            feats, item, "t45", tau_hm=hm, hist_bars=hist_bars
+        )
         ft = item.get("features_tau")
         if isinstance(ft, dict):
             for k in list(T45_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
@@ -1572,6 +1644,9 @@ def _attach_y_t60_to_item(
             feats = attach_sector_ret_last_60m_cs_if_missing(
                 feats, trade_date=asof, tau_hm=hm
             )
+        feats = _inject_raw_ath_live(
+            feats, item, "t60", tau_hm=hm, hist_bars=hist_bars
+        )
         ft = item.get("features_tau")
         if isinstance(ft, dict):
             for k in list(T60_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
@@ -1683,6 +1758,9 @@ def _attach_y_t75_to_item(
             feats = attach_sector_ret_last_75m_cs_if_missing(
                 feats, trade_date=asof, tau_hm=hm
             )
+        feats = _inject_raw_ath_live(
+            feats, item, "t75", tau_hm=hm, hist_bars=hist_bars
+        )
         ft = item.get("features_tau")
         if isinstance(ft, dict):
             for k in list(T75_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
@@ -1794,6 +1872,9 @@ def _attach_y_t90_to_item(
             feats = attach_sector_ret_last_90m_cs_if_missing(
                 feats, trade_date=asof, tau_hm=hm
             )
+        feats = _inject_raw_ath_live(
+            feats, item, "t90", tau_hm=hm, hist_bars=hist_bars
+        )
         ft = item.get("features_tau")
         if isinstance(ft, dict):
             for k in list(T90_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
@@ -2866,20 +2947,34 @@ def _z_row_against_peers(
             x = float(cur) if cur not in (None, "") else float("nan")
         except (TypeError, ValueError):
             x = float("nan")
+        def _write_z(zval: float) -> None:
+            out[name] = zval
+            # 与 cross_section_zscore_dicts 一致：z 同步到裸名，防 stamp 冲掉
+            for p in ("z_τh_", "z_τc_", "z_co_", "z_oo_"):
+                if name.startswith(p):
+                    bare = name[len(p) :]
+                    if bare:
+                        out[bare] = zval
+                    return
+            for p in ("z_τh_", "z_τc_", "z_co_", "z_oo_"):
+                canon = f"{p}{name}"
+                if canon in out:
+                    out[canon] = zval
+
         if len(vals) < 2:
             if math.isfinite(x):
-                out[name] = 0.0
+                _write_z(0.0)
             continue
         arr = np.asarray(vals, dtype=np.float64)
         mu = float(arr.mean())
         var = float(np.mean((arr - mu) ** 2))
         if (not math.isfinite(var)) or var <= 1e-12:
             if math.isfinite(x):
-                out[name] = 0.0
+                _write_z(0.0)
             continue
         sd = math.sqrt(var)
         if math.isfinite(x):
-            out[name] = 0.0 if sd < 1e-12 else (x - mu) / sd
+            _write_z(0.0 if sd < 1e-12 else (x - mu) / sd)
     return out
 
 

@@ -52,6 +52,11 @@ function formatTreeBackend(backend) {
   return s;
 }
 
+/** persist 失败 chip：仅真实闸门文案标「未过闸」，其它（如 return_model missing）标「失败」。 */
+function persistFailChip(err) {
+  return String(err || "").includes("未过闸") ? "未过闸" : "失败";
+}
+
 window.formatTreeBackend = formatTreeBackend;
 const {
   createBtResultRenderers,
@@ -511,10 +516,14 @@ export function initQuant(ctx) {
         message = "";
       }
     }
-    // ŷ_τc 卡保留前缀摘要；oo_rank / tc_rank 等排序头不拼「0前缀·OC」
+    // ŷ_τc / ŷ_τ* 卡保留前缀摘要；oo_rank / tc_rank 等排序头不拼
     if (!extra.omitTauEndBit) {
       const tauEndBit =
-        typeof formatTauEndBit === "function" ? formatTauEndBit(src) : "";
+        typeof formatTauEndBit === "function"
+          ? formatTauEndBit(src, {
+              forHorizon: !!extra.tauEndForHorizon,
+            })
+          : "";
       if (tauEndBit && !String(message || "").includes(tauEndBit)) {
         message = message ? `${tauEndBit} · ${message}` : tauEndBit;
       }
@@ -632,7 +641,7 @@ export function initQuant(ctx) {
     if (box) box.innerHTML = "";
   }
 
-  /** ŷ_τ* 因子表：优先 backends.ridge 的 β；Tree gain 作旁列。 */
+  /** ŷ_τ* 因子表：优先 backends.ridge 的 β；LightGBM gain 作旁列。 */
   function horizonCoefPack(data) {
     if (!data || typeof data !== "object") return { model: null, feature_importance: null };
     const be =
@@ -648,18 +657,20 @@ export function initQuant(ctx) {
     } else if (data.return_model && typeof data.return_model === "object") {
       model = data.return_model;
     }
-    let fi = null;
-    if (Array.isArray(data.feature_importance) && data.feature_importance.length) {
-      fi = data.feature_importance;
-    } else {
+    const pickFi = (src) =>
+      Array.isArray(src) && src.length ? src : null;
+    let fi =
+      pickFi(data.feature_importance) ||
+      pickFi(
+        data.tree_return_model && data.tree_return_model.feature_importance
+      );
+    if (!fi) {
       const treeBe = be.tree && typeof be.tree === "object" ? be.tree : null;
       const treeRm =
         (treeBe && treeBe.return_model_research) ||
         (treeBe && treeBe.return_model) ||
         null;
-      if (treeRm && Array.isArray(treeRm.feature_importance)) {
-        fi = treeRm.feature_importance;
-      }
+      fi = pickFi(treeRm && treeRm.feature_importance);
     }
     return { model, feature_importance: fi };
   }
@@ -743,13 +754,13 @@ export function initQuant(ctx) {
     if (key === "lambdarank") {
       return '<span class="quant-rank-backend is-lambdarank">LambdaRank</span>';
     }
-    if (key === "tree") {
-      return '<span class="quant-rank-backend is-lambdarank">Tree</span>';
+    if (key === "tree" || key === "lightgbm" || key === "lgb") {
+      return '<span class="quant-rank-backend is-lambdarank">LightGBM</span>';
     }
     return "";
   }
 
-  /** ŷ_τ30…90：Tree vs Ridge Holdout 对照（择优看 AUC）。 */
+  /** ŷ_τ30…90：LightGBM vs Ridge Holdout 对照（择优看 AUC）。 */
   function renderHorizonOosCompare(data, resultId) {
     const box = document.getElementById(resultId);
     if (!box) return false;
@@ -758,11 +769,33 @@ export function initQuant(ctx) {
       return false;
     }
     const oos = data.oos || {};
-    const tree = oos.tree && typeof oos.tree === "object" ? oos.tree : {};
-    const ridge = oos.ridge && typeof oos.ridge === "object" ? oos.ridge : {};
+    // 嵌套 oos.tree / tree_oos；旧稿仅扁平胜出侧时 Ridge 回落顶层
+    const tree =
+      (oos.tree && typeof oos.tree === "object" && oos.tree) ||
+      (data.tree_oos && typeof data.tree_oos === "object" && data.tree_oos) ||
+      {};
+    let ridge =
+      (oos.ridge && typeof oos.ridge === "object" && oos.ridge) ||
+      (data.ridge_oos && typeof data.ridge_oos === "object" && data.ridge_oos) ||
+      {};
+    if (
+      ridge.auc == null &&
+      ridge.brier == null &&
+      (oos.auc != null || oos.brier != null) &&
+      String(data.recommended_backend || data.backend || oos.recommended_backend || "")
+        .toLowerCase() !== "tree"
+    ) {
+      ridge = oos;
+    }
     if (tree.auc == null && ridge.auc == null && tree.brier == null && ridge.brier == null) {
       return false;
     }
+    const treeFailed =
+      data.tree_success === false ||
+      (tree.auc == null &&
+        tree.brier == null &&
+        tree.acc_at_50 == null &&
+        tree.ic == null);
     function delta(a, b, fallback) {
       if (fallback != null && fallback !== "") return Number(fallback);
       if (a == null || b == null) return null;
@@ -845,13 +878,37 @@ export function initQuant(ctx) {
         : data.holdout_trading_days != null
           ? `Holdout ${Number(data.holdout_trading_days)} 日`
           : "同窗 Holdout";
+    // 与 ŷ_oo_rank 对照同口径：训/测行数（同窗双训两侧相同）
+    const nTr =
+      oos.n_train != null
+        ? `训 ${Number(oos.n_train).toLocaleString("en-US")}`
+        : ridge.n_train != null
+          ? `训 ${Number(ridge.n_train).toLocaleString("en-US")}`
+          : tree.n_train != null
+            ? `训 ${Number(tree.n_train).toLocaleString("en-US")}`
+            : data.n_train != null
+              ? `训 ${Number(data.n_train).toLocaleString("en-US")}`
+              : "";
     const nTe =
       oos.n_test != null
         ? `测 ${Number(oos.n_test).toLocaleString("en-US")}`
         : ridge.n_test != null
           ? `测 ${Number(ridge.n_test).toLocaleString("en-US")}`
-          : "";
-    const metaBits = [hold, nTe, "择优=AUC（打平→Ridge）"].filter(Boolean);
+          : tree.n_test != null
+            ? `测 ${Number(tree.n_test).toLocaleString("en-US")}`
+            : "";
+    const sch = String(
+      data.schema || (data.return_model && data.return_model.schema) || ""
+    );
+    const schemaStale =
+      !!sch && /_ridge_v\d+$/.test(sch) && !/_ridge_v4$/.test(sch);
+    const metaBits = [
+      hold,
+      nTr,
+      nTe,
+      "择优=AUC（打平→Ridge）",
+      schemaStale ? `schema ${sch} · 请重拟合` : "",
+    ].filter(Boolean);
     const metaHtml = metaBits.length
       ? `<div class="quant-oos-compare-meta" aria-label="Holdout 样本">` +
         metaBits
@@ -878,15 +935,29 @@ export function initQuant(ctx) {
       }</small></span>` +
       `</div>` +
       `</div>`;
+    const treeErrRaw = String(data.tree_error || "").trim();
+    const treeErrShort =
+      treeErrRaw.length > 72 ? `${treeErrRaw.slice(0, 72)}…` : treeErrRaw;
+    const treeFailNote = treeFailed
+      ? `<div class="quant-oos-compare-meta" aria-label="LightGBM 失败">` +
+        `<span class="quant-oos-compare-meta-chip"${
+          treeErrRaw ? ` title="${escapeHtml(treeErrRaw)}"` : ""
+        }>LightGBM 未出数${
+          treeErrShort ? ` · ${escapeHtml(treeErrShort)}` : " · 请重新拟合"
+        }</span>` +
+        `</div>`
+      : "";
+    // 与 ŷ_oo_rank 同壳：树侧浅蓝 / Ridge 浅黄；文案 LightGBM（非 Tree）
     box.innerHTML =
-      `<div class="quant-oos-compare" aria-label="Tree vs Ridge">` +
+      `<div class="quant-oos-compare" aria-label="LightGBM vs Ridge">` +
       `<div class="quant-oos-board">` +
-      headCard("tree", "概率头", "Tree", treeWins, treeLead) +
-      headCard("ridge", "概率头", "Ridge", rgWins, rgLead) +
+      headCard("tree", "概率头", "LightGBM", treeWins, treeLead) +
+      headCard("ridge", "回归头", "Ridge", rgWins, rgLead) +
       `</div>` +
       metaHtml +
+      treeFailNote +
       `<table class="quant-weight-table quant-oos-compare-table">` +
-      `<thead><tr><th>指标</th><th>Tree</th><th>Ridge</th><th>Δ</th></tr></thead>` +
+      `<thead><tr><th>指标</th><th>LightGBM</th><th>Ridge</th><th>Δ</th></tr></thead>` +
       `<tbody>${body}</tbody></table>` +
       `</div>`;
     return true;
@@ -905,9 +976,7 @@ export function initQuant(ctx) {
         const be = src.backend || src.recommended_backend || "";
         const box = rankBackendBox(be);
         message = flags.liveOn
-          ? box
-            ? `已落盘 ${box}`
-            : "已落盘"
+          ? box || ""
           : flags.researchOn
             ? box
               ? `研究套已落盘 ${box} · 执行未写`
@@ -919,7 +988,7 @@ export function initQuant(ctx) {
       } else if (flags.liveOn || flags.researchOn) {
         const rec = src.recommended_backend || src.backend || "";
         const box = rankBackendBox(rec);
-        message = box ? `落盘 ${box}` : "落盘 backend 待定";
+        message = box || "";
         messageHtml = !!box;
       } else {
         const rec =
@@ -929,8 +998,8 @@ export function initQuant(ctx) {
         const recTxt =
           rec === "ridge"
             ? "启用将落盘 Ridge"
-            : rec === "tree"
-              ? "启用将落盘 Tree"
+            : rec === "tree" || rec === "lightgbm" || rec === "lgb"
+              ? "启用将落盘 LightGBM"
               : "启用按 Holdout AUC 自动选 backend";
         message = `草稿已存 · ${recTxt}`;
       }
@@ -2514,7 +2583,7 @@ export function initQuant(ctx) {
             : "";
         renderRemStatus(sum, {
           state: "error",
-          chip: persistFailed ? "未过闸" : "失败",
+          chip: persistFailChip(err),
           message: String(err) + gateNote,
           error: true,
         });
@@ -2964,11 +3033,19 @@ export function initQuant(ctx) {
       label,
     });
     let next = job && job.result && typeof job.result === "object" ? { ...job.result } : {};
-    if (!next.return_model) {
+    const stub = !!(next && next.persisted_truncated);
+    // 落盘摘要勿盖掉 /model 的完整报告（oos.ridge/tree · backends）
+    if (!next.return_model || stub) {
       const modelRes = await fetch(modelPath);
       const modelData = await modelRes.json().catch(() => ({}));
       if (modelData && typeof modelData === "object") {
-        next = { ...modelData, ...next };
+        next = stub
+          ? {
+              ...modelData,
+              persisted_truncated: true,
+              task: next.task || modelData.task,
+            }
+          : { ...modelData, ...next };
       }
     }
     return { data: next, httpOk: true };
@@ -2995,6 +3072,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
+          ...readTauEndFitParams(),
           holdout_trading_days: readHoldoutTradingDays("t30"),
           ...readCrossSectionFitParams("t30"),
           persist: !!persist,
@@ -3034,7 +3112,7 @@ export function initQuant(ctx) {
             : "";
         renderRemStatus(sum, {
           state: "error",
-          chip: persistFailed ? "未过闸" : "失败",
+          chip: persistFailChip(err),
           message: String(err) + gateNote,
           error: true,
         });
@@ -3051,6 +3129,9 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
+      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
+        applyTauEndHm(data.tau_end_hm);
+      }
       syncT30PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT30FitSummary(data);
@@ -3129,20 +3210,24 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "live 模型…",
+      message: "读取研究 / 执行 / 上次拟合…",
       busy: true,
     });
     try {
       const res = await fetch("/api/quant/t30-ridge/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无 live 模型",
+        paintHorizonFitStatus(sum, data, {
+          idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
         });
         syncT30PersistBtn(data.promote_gate, {
           hasReport: !!data.last_report_exists,
         });
-        clearT30ResultBox();
+        if (data.last_report_exists && data.oos) {
+          renderT30FitSummary(data);
+        } else {
+          clearT30ResultBox();
+        }
         await renderT30CoefTable(null);
         return;
       }
@@ -3187,6 +3272,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
+          ...readTauEndFitParams(),
           holdout_trading_days: readHoldoutTradingDays("t45"),
           ...readCrossSectionFitParams("t45"),
           persist: !!persist,
@@ -3226,7 +3312,7 @@ export function initQuant(ctx) {
             : "";
         renderRemStatus(sum, {
           state: "error",
-          chip: persistFailed ? "未过闸" : "失败",
+          chip: persistFailChip(err),
           message: String(err) + gateNote,
           error: true,
         });
@@ -3243,6 +3329,9 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
+      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
+        applyTauEndHm(data.tau_end_hm);
+      }
       syncT45PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT45FitSummary(data);
@@ -3321,20 +3410,24 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "live 模型…",
+      message: "读取研究 / 执行 / 上次拟合…",
       busy: true,
     });
     try {
       const res = await fetch("/api/quant/t45-ridge/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无 live 模型",
+        paintHorizonFitStatus(sum, data, {
+          idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
         });
         syncT45PersistBtn(data.promote_gate, {
           hasReport: !!data.last_report_exists,
         });
-        clearT45ResultBox();
+        if (data.last_report_exists && data.oos) {
+          renderT45FitSummary(data);
+        } else {
+          clearT45ResultBox();
+        }
         await renderT45CoefTable(null);
         return;
       }
@@ -3378,6 +3471,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
+          ...readTauEndFitParams(),
           holdout_trading_days: readHoldoutTradingDays("t60"),
           ...readCrossSectionFitParams("t60"),
           persist: !!persist,
@@ -3417,7 +3511,7 @@ export function initQuant(ctx) {
             : "";
         renderRemStatus(sum, {
           state: "error",
-          chip: persistFailed ? "未过闸" : "失败",
+          chip: persistFailChip(err),
           message: String(err) + gateNote,
           error: true,
         });
@@ -3434,6 +3528,9 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
+      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
+        applyTauEndHm(data.tau_end_hm);
+      }
       syncT60PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT60FitSummary(data);
@@ -3512,20 +3609,24 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "live 模型…",
+      message: "读取研究 / 执行 / 上次拟合…",
       busy: true,
     });
     try {
       const res = await fetch("/api/quant/t60-ridge/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无 live 模型",
+        paintHorizonFitStatus(sum, data, {
+          idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
         });
         syncT60PersistBtn(data.promote_gate, {
           hasReport: !!data.last_report_exists,
         });
-        clearT60ResultBox();
+        if (data.last_report_exists && data.oos) {
+          renderT60FitSummary(data);
+        } else {
+          clearT60ResultBox();
+        }
         await renderT60CoefTable(null);
         return;
       }
@@ -3569,6 +3670,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
+          ...readTauEndFitParams(),
           holdout_trading_days: readHoldoutTradingDays("t75"),
           ...readCrossSectionFitParams("t75"),
           persist: !!persist,
@@ -3608,7 +3710,7 @@ export function initQuant(ctx) {
             : "";
         renderRemStatus(sum, {
           state: "error",
-          chip: persistFailed ? "未过闸" : "失败",
+          chip: persistFailChip(err),
           message: String(err) + gateNote,
           error: true,
         });
@@ -3625,6 +3727,9 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
+      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
+        applyTauEndHm(data.tau_end_hm);
+      }
       syncT75PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT75FitSummary(data);
@@ -3703,20 +3808,24 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "live 模型…",
+      message: "读取研究 / 执行 / 上次拟合…",
       busy: true,
     });
     try {
       const res = await fetch("/api/quant/t75-ridge/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无 live 模型",
+        paintHorizonFitStatus(sum, data, {
+          idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
         });
         syncT75PersistBtn(data.promote_gate, {
           hasReport: !!data.last_report_exists,
         });
-        clearT75ResultBox();
+        if (data.last_report_exists && data.oos) {
+          renderT75FitSummary(data);
+        } else {
+          clearT75ResultBox();
+        }
         await renderT75CoefTable(null);
         return;
       }
@@ -3760,6 +3869,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
+          ...readTauEndFitParams(),
           holdout_trading_days: readHoldoutTradingDays("t90"),
           ...readCrossSectionFitParams("t90"),
           persist: !!persist,
@@ -3799,7 +3909,7 @@ export function initQuant(ctx) {
             : "";
         renderRemStatus(sum, {
           state: "error",
-          chip: persistFailed ? "未过闸" : "失败",
+          chip: persistFailChip(err),
           message: String(err) + gateNote,
           error: true,
         });
@@ -3816,6 +3926,9 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
+      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
+        applyTauEndHm(data.tau_end_hm);
+      }
       syncT90PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT90FitSummary(data);
@@ -3894,20 +4007,24 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "live 模型…",
+      message: "读取研究 / 执行 / 上次拟合…",
       busy: true,
     });
     try {
       const res = await fetch("/api/quant/t90-ridge/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无 live 模型",
+        paintHorizonFitStatus(sum, data, {
+          idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
         });
         syncT90PersistBtn(data.promote_gate, {
           hasReport: !!data.last_report_exists,
         });
-        clearT90ResultBox();
+        if (data.last_report_exists && data.oos) {
+          renderT90FitSummary(data);
+        } else {
+          clearT90ResultBox();
+        }
         await renderT90CoefTable(null);
         return;
       }

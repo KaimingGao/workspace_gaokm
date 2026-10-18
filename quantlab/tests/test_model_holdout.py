@@ -231,6 +231,19 @@ class TestHoldoutSplit(unittest.TestCase):
         self.assertEqual(rm["coefficients"]["a"], 0.5)
         only_one = {"return_model": {"coefficients": {"a": 1.0}}}
         self.assertEqual(select_fit_return_model(only_one)["coefficients"]["a"], 1.0)
+        tree_only = {
+            "return_model": {
+                "feature_names": ["gap_pct"],
+                "booster": {"model": "x"},
+                "backend": "lightgbm",
+            }
+        }
+        self.assertEqual(
+            select_fit_return_model(tree_only)["feature_names"], ["gap_pct"]
+        )
+        self.assertIsNone(
+            select_fit_return_model({"return_model": {"feature_names": ["a"]}})
+        )
         with tempfile.TemporaryDirectory() as tmp:
             live_path = os.path.join(tmp, "tau_ridge_model.json")
             doc, err = require_research_suite(live_path)

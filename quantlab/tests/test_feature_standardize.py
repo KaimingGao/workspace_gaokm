@@ -48,6 +48,22 @@ class TestFeatureZscore(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["a"], -1.0, places=6)
         self.assertAlmostEqual(rows[1]["a"], 1.0, places=6)
 
+    def test_dicts_mirror_z_alias_after_cs(self):
+        """截面 z 后裸名与 canon 同值，避免 stamp 裸名优先冲掉 z。"""
+        from core.research.feature_standardize import cross_section_zscore_dicts
+        from core.signal.factors.z_co import stamp_z_co_aliases
+
+        raw = [
+            {"gap_pct": 1.0, "z_co_gap_pct": 1.0},
+            {"gap_pct": 3.0, "z_co_gap_pct": 3.0},
+            {"gap_pct": 5.0, "z_co_gap_pct": 5.0},
+        ]
+        z_rows = cross_section_zscore_dicts(raw, ["z_co_gap_pct"])
+        z0 = float(z_rows[0]["z_co_gap_pct"])
+        self.assertAlmostEqual(float(z_rows[0]["gap_pct"]), z0, places=6)
+        stamp_z_co_aliases(z_rows[0])
+        self.assertAlmostEqual(float(z_rows[0]["z_co_gap_pct"]), z0, places=6)
+
     def test_dates_for_complete_rows(self):
         from core.research.feature_standardize import dates_for_complete_rows
 

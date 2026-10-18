@@ -61,7 +61,7 @@ const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
 );
 
 /** ŷ_τc：训练前缀终点 09:30…11:00（含 0 前缀）。 */
-const TAU_END_FIT_HEADS = ["tc"];
+const TAU_END_FIT_HEADS = ["tc", "t30", "t45", "t60", "t75", "t90"];
 const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm";
 const DEFAULT_TAU_END_HM = "11:00";
 const TAU_END_CLOCKS = (() => {
@@ -577,7 +577,11 @@ export function createResearchParams(opts = {}) {
   }
 
   function readTauEndHm() {
-    const el = document.getElementById("quant-fit-tau-end-tc");
+    let el = null;
+    for (const head of TAU_END_FIT_HEADS) {
+      el = document.getElementById(`quant-fit-tau-end-${head}`);
+      if (el) break;
+    }
     let hm = DEFAULT_TAU_END_HM;
     if (el) {
       const idx = Math.max(
@@ -601,15 +605,16 @@ export function createResearchParams(opts = {}) {
     return hm;
   }
 
-  /** 拟合请求体片段：ŷ_τc 前缀终点。 */
+  /** 拟合请求体片段：ŷ_τc / ŷ_τ* 前缀终点。 */
   function readTauEndFitParams() {
     return { tau_end_hm: readTauEndHm() };
   }
 
-  /** 卡头摘要：前缀11:00 / 0前缀·OC。 */
-  function formatTauEndBit(data) {
+  /** 卡头摘要：前缀11:00；τc 在 09:30 显示 0前缀·OC，τ* 显示前缀09:30。 */
+  function formatTauEndBit(data, opts) {
     const src = data && typeof data === "object" ? data : {};
     const ySpec = src.y_spec && typeof src.y_spec === "object" ? src.y_spec : {};
+    const forHorizon = !!(opts && opts.forHorizon);
     let hm =
       src.tau_end_hm ||
       ySpec.tau_end_hm ||
@@ -620,7 +625,7 @@ export function createResearchParams(opts = {}) {
     if (!hm && (src.tau === "open" || ySpec.tau === "open")) hm = "09:30";
     hm = String(hm || "").trim().slice(0, 5);
     if (!hm || !TAU_END_CLOCKS.includes(hm)) return "";
-    if (hm === "09:30") return "0前缀·OC";
+    if (hm === "09:30" && !forHorizon) return "0前缀·OC";
     return `前缀${hm}`;
   }
 

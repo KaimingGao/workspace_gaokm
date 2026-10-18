@@ -5,8 +5,7 @@
 
 盘中写 y_τ{num}=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / fuse。
 决策钟只覆盖 09:30…11:00（与 ŷ_τc 对齐）；窗外不训、不预。
-不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅）。
-序列键只进本头，不进 TAU_Z_FEATURES。
+Ridge / LightGBM 同用 alpha_τh = z_τh_* ∪ raw_ath_*（不含 OC 路径形状）。
 """
 
 from __future__ import annotations
@@ -27,14 +26,17 @@ from core.research.horizon_prob import (
     train_eval_horizon_prob,
 )
 from core.research.tc_ridge import (
-    TAU_FIT_DROP_ALIASES,
-    TAU_HORIZON_DROP_OC_SHAPE,
-    TAU_Z_FEATURES,
     _stack_panels,
     _subset,
     _theme_counts,
     _theme_trigger_sensitivity,
     build_tau_panels_from_bars,
+)
+from core.signal.factors.z_th import (
+    Z_TH_FIT_DROP_ALIASES,
+    Z_TH_FIT_FEATURES,
+    stamp_z_th_rows,
+    z_th_feat_labels,
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 from core.signal.minute_tau_grid import (
@@ -57,29 +59,31 @@ def _horizon_ridge_config(head: str) -> Dict[str, Any]:
     num = int(h[1:])
     tau_mod = importlib.import_module("core.research.tau_panel")
     grid_mod = importlib.import_module("core.signal.minute_tau_grid")
-    seq_features = tuple(getattr(tau_mod, f"{h.upper()}_SEQ_FEATURES"))
     lag_feat_labels = getattr(tau_mod, f"{h.upper()}_LAG_FEAT_LABELS")
     relabel_fn = getattr(tau_mod, f"relabel_tau_panels_as_{h}")
     y_pct_fn = getattr(tau_mod, f"y_{h}_pct")
     train_tau_grid = getattr(grid_mod, f"DEFAULT_{h.upper()}_TRAIN_TAU_GRID", DEFAULT_T0_TRAIN_TAU_GRID_5M)
     offsets = getattr(grid_mod, f"{h.upper()}_LABEL_OFFSETS")
-    z_features = tuple(
-        k for k in (TAU_Z_FEATURES + seq_features) if k not in TAU_HORIZON_DROP_OC_SHAPE
-    )
+    from core.signal.factors.alpha_th import alpha_th_fit_features_for_head
+
+    ath_features = tuple(alpha_th_fit_features_for_head(h))
+    z_features = tuple(Z_TH_FIT_FEATURES) + ath_features
     return {
         "head": h,
         "num": num,
         "z_features": z_features,
-        "seq_features": seq_features,
+        "ath_features": ath_features,
         "lag_feat_labels": dict(lag_feat_labels),
         "relabel_fn": relabel_fn,
         "y_pct_fn": y_pct_fn,
         "train_tau_grid": tuple(train_tau_grid),
         "offsets": tuple(offsets),
-        "schema": f"{h}_ridge_v2",
+        "schema": f"{h}_ridge_v4",
         "target": f"price_tau_plus_{num}",
         "dual_score_head": f"y_{h}",
         "formula": f"mean(price[τ+{offsets[0]}m],price[τ+{offsets[1]}m],price[τ+{offsets[2]}m])/price[τ]-1",
+        "feature_pack": "alpha_τh",
+        "feature_pack_formula": "z_τh_* ∪ raw_ath_*",
     }
 
 
@@ -158,6 +162,105 @@ def horizon_realized_pct(head: str, price_tau: Any, price_tau_n: Any) -> Optiona
 
 
 # ---------------------------------------------------------------------------
+# 面板：双训 Ridge/Tree 共用一次，避免二次灌分钟线
+# ---------------------------------------------------------------------------
+
+
+def _resolve_horizon_clocks(
+    head: str,
+    *,
+    tau_hm: str = "10:30",
+    tau_grid: Optional[Sequence[str]] = None,
+) -> Tuple[str, List[str], Any]:
+    cfg = _horizon_ridge_config(head)
+    live_hm = str(tau_hm or "10:30").strip() or "10:30"
+    if live_hm.lower() in ("", "open"):
+        live_hm = "10:30"
+    grid = (
+        list(tau_grid)
+        if tau_grid is not None
+        else list(cfg["train_tau_grid"])
+    )
+    return live_hm, grid, cfg
+
+
+def enrich_horizon_raw_panels(
+    head: str,
+    raw_panels: Sequence[Dict[str, Any]],
+    *,
+    gap_trigger_pct: float = 2.0,
+    already_breadth: bool = False,
+) -> List[Dict[str, Any]]:
+    """对 raw 面板做截面广度（可选）+ relabel + stamp ``raw_ath_*``。"""
+    from core.research.tau_panel import attach_cross_section_breadth
+
+    cfg = _horizon_ridge_config(head)
+    h = cfg["head"]
+    relabel_fn = cfg["relabel_fn"]
+    raw_list = list(raw_panels or [])
+    if not already_breadth:
+        raw_list = attach_cross_section_breadth(
+            raw_list, gap_trigger_pct=gap_trigger_pct
+        )
+    enriched = relabel_fn(raw_list)
+    try:
+        from core.signal.factors.alpha_th import stamp_ath_on_panels
+
+        stamp_ath_on_panels(enriched, h)
+    except Exception:  # noqa: BLE001
+        logger.debug("%s stamp raw_ath_ lags failed", h, exc_info=True)
+    try:
+        for p in enriched:
+            if isinstance(p, dict):
+                stamp_z_th_rows(p.get("xs") or [])
+    except Exception:  # noqa: BLE001
+        logger.debug("%s stamp z_τh_* failed", h, exc_info=True)
+    return enriched
+
+
+def build_horizon_enriched_panels(
+    head: str,
+    stock_bars: Sequence[Dict[str, Any]],
+    *,
+    min_history: int = 12,
+    gap_trigger_pct: float = 2.0,
+    tau_hm: str = "10:30",
+    tau_grid: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """建 ŷ_τ* 入模面板（relabel + stamp raw_ath_*），并释放 ``stock_bars`` 上的分钟线。
+
+    返回 ``{enriched, live_hm, tau_grid, head}``。``build_tau_panels_from_bars``
+    逐票 pop 分钟线；本函数结束时再扫一遍，确保双训峰值不再握着全池 5m。
+    """
+    live_hm, grid, cfg = _resolve_horizon_clocks(
+        head, tau_hm=tau_hm, tau_grid=tau_grid
+    )
+    h = cfg["head"]
+    raw = build_tau_panels_from_bars(
+        stock_bars,
+        min_history=min_history,
+        gap_trigger_pct=gap_trigger_pct,
+        tau_hm=live_hm,
+        tau_grid=grid,
+        include_alpha_th=True,
+        attach_breadth=True,
+        label_heads=(h,),
+    )
+    enriched = enrich_horizon_raw_panels(
+        head, raw, gap_trigger_pct=gap_trigger_pct, already_breadth=True
+    )
+    for item in stock_bars or []:
+        if isinstance(item, dict):
+            item.pop("minute_bars", None)
+    return {
+        "enriched": enriched,
+        "live_hm": live_hm,
+        "tau_grid": list(grid),
+        "head": h,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 训练：fit_horizon_ridge_report
 # ---------------------------------------------------------------------------
 
@@ -175,10 +278,12 @@ def fit_horizon_ridge_report(
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
+    enriched_panels: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ{num}=p_up + 时间 OOS。标签 = I(mean(price(τ⊕off1/off2/off3))/price(τ)−1 > 0)。
 
     ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
+    ``enriched_panels``：双训预建面板（跳过再灌分钟线）。
     """
     from core.research.tau_panel import theme_sample_weights
 
@@ -186,28 +291,32 @@ def fit_horizon_ridge_report(
     h = cfg["head"]
     num = cfg["num"]
     z_features = cfg["z_features"]
-    relabel_fn = cfg["relabel_fn"]
     train_tau_grid = cfg["train_tau_grid"]
     offsets = cfg["offsets"]
     schema = cfg["schema"]
     target = cfg["target"]
     dual_score_head = cfg["dual_score_head"]
     formula = cfg["formula"]
-    seq_features = cfg["seq_features"]
     lag_feat_labels = cfg["lag_feat_labels"]
 
-    live_hm = str(tau_hm or "10:30").strip() or "10:30"
-    if live_hm.lower() in ("", "open"):
-        live_hm = "10:30"
-    grid = list(tau_grid) if tau_grid is not None else list(train_tau_grid)
-    raw = build_tau_panels_from_bars(
-        stock_bars,
-        min_history=min_history,
-        gap_trigger_pct=gap_trigger_pct,
-        tau_hm=live_hm,
-        tau_grid=grid,
-    )
-    enriched = relabel_fn(raw)
+    if enriched_panels is not None:
+        enriched = list(enriched_panels)
+        live_hm = str(tau_hm or "10:30").strip() or "10:30"
+        if live_hm.lower() in ("", "open"):
+            live_hm = "10:30"
+        grid = list(tau_grid) if tau_grid is not None else list(train_tau_grid)
+    else:
+        bundle = build_horizon_enriched_panels(
+            head,
+            stock_bars,
+            min_history=min_history,
+            gap_trigger_pct=gap_trigger_pct,
+            tau_hm=tau_hm,
+            tau_grid=tau_grid,
+        )
+        enriched = list(bundle["enriched"] or [])
+        live_hm = str(bundle["live_hm"])
+        grid = list(bundle["tau_grid"] or [])
     xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
         return {
@@ -220,6 +329,7 @@ def fit_horizon_ridge_report(
             "minute_tau_hm": live_hm,
         }
 
+    stamp_z_th_rows(xs)
     xs_z = [{k: (row or {}).get(k) for k in z_features} for row in xs]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
@@ -242,7 +352,7 @@ def fit_horizon_ridge_report(
         if use_theme_weights
         else None
     )
-    feat_names = [k for k in z_features if k not in TAU_FIT_DROP_ALIASES]
+    feat_names = [k for k in z_features if k not in Z_TH_FIT_DROP_ALIASES]
     use_cs = bool(cross_section_zscore)
     packed = train_eval_horizon_prob(
         xs_tr,
@@ -295,32 +405,43 @@ def fit_horizon_ridge_report(
     model["horizon_mode"] = target
     model["target"] = target
     y_formula = format_shared_tau_formula(formula, grid or [live_hm])
-    seq_str = " / ".join(seq_features)
+    from core.signal.factors.alpha_th import ATH_FEAT_LABELS, alpha_th_report_meta
+
+    ath_features = tuple(cfg.get("ath_features") or ())
+    n_ath = sum(1 for k in z_features if str(k).startswith("raw_ath_"))
+    pack_meta = alpha_th_report_meta(n_alpha_th_features=n_ath or len(ath_features))
+
     model["y_spec"] = {
         "formula": y_formula,
         "unit": "prob",
         "label": f"I(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1 > 0)",
         "tau": live_hm,
         "tau_grid": list(grid),
+        "feature_pack": pack_meta["feature_pack"],
+        "feature_pack_formula": pack_meta["feature_pack_formula"],
         "note": (
-            f"X = 开盘 Z + 开→τ 收益/截面 + ŷ_τ{num} 序列特征"
-            f"（{seq_str}）；"
-            "不含 ŷ_τ 的 OC 路径形状。"
+            f"X = alpha_τh（z_τh_* ∪ raw_ath_*）；短窗/会话/本头 H_* 在 raw_ath_*；"
+            f"Tree/Ridge 同 X。"
             f"ŷ_τ{num}=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 C_τ / fuse。"
         ),
     }
     model["extra_features"] = list(z_features)
     from core.research.tau_panel import TAU_LAG_FEAT_LABELS
 
-    model["feat_labels"] = {
-        **dict(MINUTE_TAU_FEAT_LABELS),
-        **dict(TAU_LAG_FEAT_LABELS),
-        **lag_feat_labels,
-    }
+    model["feat_labels"] = z_th_feat_labels(
+        {
+            **dict(MINUTE_TAU_FEAT_LABELS),
+            **dict(TAU_LAG_FEAT_LABELS),
+            **lag_feat_labels,
+            **dict(ATH_FEAT_LABELS),
+        }
+    )
     model["minute_tau_hm"] = live_hm
     model["tau_grid"] = list(grid)
     model["model_role"] = "research"
     model["head_kind"] = "prob"
+    model["schema"] = schema
+    model.update(pack_meta)
 
     report = {
         "success": True,
@@ -339,8 +460,10 @@ def fit_horizon_ridge_report(
         "cross_section_zscore": use_cs,
         "note": (
             f"ŷ_τ{num}=P(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1>0)。"
+            "特征包 alpha_τh=z_τh_*∪raw_ath_*。"
             "进 ŷ_τw 投票；个股旁路闸已下线。不进 C_τ / fuse。"
         ),
+        **pack_meta,
     }
     attach_holdout_meta(report, split_meta)
     report["backend"] = "ridge"
@@ -392,14 +515,37 @@ def fit_horizon_dual_report(
     max_depth: Optional[int] = None,
     learning_rate: Optional[float] = None,
     subsample: Optional[float] = None,
+    enriched_panels: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """同窗双训 Ridge + Tree；Holdout AUC 择优（打平→ridge）。
 
     产出 ``backends`` / ``recommended_backend``；顶层 ``return_model`` 为胜出侧。
-    Tree 含 OC 路径形状；Ridge 仍用原 Z（能力择优，非纯算法对换）。
+    Tree / Ridge 同 X（alpha_τh）；Holdout AUC 择优（打平→ridge）。
+    面板只建一次（或传入 ``enriched_panels``），建完即丢分钟线，Ridge/Tree 共用。
     """
     from core.research.horizon_lgb import _delta_oos
     from core.research.horizon_tree import fit_horizon_tree_report
+
+    if enriched_panels is not None:
+        live_hm, grid, _cfg = _resolve_horizon_clocks(
+            head, tau_hm=tau_hm, tau_grid=tau_grid
+        )
+        enriched = list(enriched_panels)
+    else:
+        panel_bundle = build_horizon_enriched_panels(
+            head,
+            stock_bars,
+            min_history=min_history,
+            gap_trigger_pct=gap_trigger_pct,
+            tau_hm=tau_hm,
+            tau_grid=tau_grid,
+        )
+        enriched = list(panel_bundle.get("enriched") or [])
+        live_hm = str(panel_bundle.get("live_hm") or tau_hm or "10:30")
+        grid = list(panel_bundle.get("tau_grid") or [])
+    for item in stock_bars or []:
+        if isinstance(item, dict):
+            item.pop("minute_bars", None)
 
     ridge_kw: Dict[str, Any] = dict(
         ridge_lambda=ridge_lambda,
@@ -408,9 +554,10 @@ def fit_horizon_dual_report(
         theme_boost=theme_boost,
         holdout_trading_days=holdout_trading_days,
         use_theme_weights=use_theme_weights,
-        tau_hm=tau_hm,
-        tau_grid=tau_grid,
+        tau_hm=live_hm,
+        tau_grid=grid,
         cross_section_zscore=cross_section_zscore,
+        enriched_panels=enriched,
     )
     ridge_rep = fit_horizon_ridge_report(head, stock_bars, **ridge_kw)
     if not ridge_rep.get("success"):
@@ -423,9 +570,10 @@ def fit_horizon_dual_report(
         theme_boost=theme_boost,
         holdout_trading_days=holdout_trading_days,
         use_theme_weights=use_theme_weights,
-        tau_hm=tau_hm,
-        tau_grid=tau_grid,
+        tau_hm=live_hm,
+        tau_grid=grid,
         backend="lightgbm",
+        enriched_panels=enriched,
     )
     if n_estimators is not None:
         tree_kw["n_estimators"] = n_estimators
@@ -486,6 +634,19 @@ def fit_horizon_dual_report(
     if isinstance(oos_tree, dict) and oos_tree:
         merged_oos["tree"] = oos_tree
     merged_oos["recommended_backend"] = recommended
+    # 顶层训/测行数：胜出侧缺时从另一侧补（同窗双训样本相同）
+    for side in (oos_ridge, oos_tree):
+        if not isinstance(side, dict):
+            continue
+        if merged_oos.get("n_train") is None and side.get("n_train") is not None:
+            merged_oos["n_train"] = side.get("n_train")
+        if merged_oos.get("n_test") is None and side.get("n_test") is not None:
+            merged_oos["n_test"] = side.get("n_test")
+        if merged_oos.get("holdout_trading_days") is None and side.get(
+            "holdout_trading_days"
+        ) is not None:
+            merged_oos["holdout_trading_days"] = side.get("holdout_trading_days")
+
 
     pack = backends.get(recommended) if recommended in backends else backends.get("ridge")
     winner_rm = None
@@ -517,11 +678,6 @@ def fit_horizon_dual_report(
             "tree_error": None
             if tree_rep.get("success")
             else (tree_rep.get("error") if isinstance(tree_rep, dict) else "tree fit failed"),
-            "tree_shape_features": (
-                tree_rep.get("tree_shape_features")
-                if isinstance(tree_rep, dict)
-                else None
-            ),
             # 始终保留 Tree gain（Ridge 胜出时因子表仍画 gain% 旁列）
             "feature_importance": (
                 tree_rep.get("feature_importance")
@@ -532,10 +688,18 @@ def fit_horizon_dual_report(
             "note": (
                 f"ŷ_τ{num} 同窗双训 Ridge+Tree；Holdout AUC 择优"
                 f"（打平→ridge）→ recommended={recommended}。"
-                "Tree 含 OC 路径形状；Ridge 不含。进 ŷ_τw 投票；不进 C_τ / fuse。"
+                "特征包 alpha_τh=z_τh_*∪raw_ath_*；Tree/Ridge 同 X。"
+                "进 ŷ_τw 投票；不进 C_τ / fuse。"
             ),
         }
     )
+    from core.signal.factors.alpha_th import alpha_th_report_meta
+
+    if not report.get("feature_pack"):
+        n_ath = int(ridge_rep.get("n_alpha_th_features") or 0)
+        if not n_ath:
+            n_ath = len(tuple(cfg.get("ath_features") or ()))
+        report.update(alpha_th_report_meta(n_alpha_th_features=n_ath))
     if isinstance(tree_rep, dict) and isinstance(tree_rep.get("timing"), dict):
         rt = report.get("timing") if isinstance(report.get("timing"), dict) else {}
         report["timing"] = {**rt, "tree": tree_rep.get("timing")}
@@ -771,7 +935,6 @@ def persist_ridge_model(
         "delta_vs_ridge",
         "ridge_oos",
         "tree_oos",
-        "tree_shape_features",
         "feature_importance",
         "cross_section_zscore",
     ):
@@ -816,12 +979,16 @@ def predict_ridge_from_features(
     doc = model_doc if model_doc is not None else load_ridge_model(head)
     if not doc:
         return None
+    from core.signal.factors.z_th import stamp_z_th_aliases
+
+    feats = dict(features or {})
+    stamp_z_th_aliases(feats)
     if _doc_backend(doc) == "tree":
         from core.research.horizon_tree import predict_tree_from_features
 
-        return predict_tree_from_features(head, features, model_doc=doc)
+        return predict_tree_from_features(head, feats, model_doc=doc)
     rm = doc.get("return_model") or {}
-    preds = predict_p_up_rows(rm, [features or {}])
+    preds = predict_p_up_rows(rm, [feats])
     if not preds or preds[0] is None:
         return None
     return float(preds[0])
@@ -835,12 +1002,16 @@ def explain_ridge_prediction(
 ) -> Optional[Dict[str, Any]]:
     from core.research.tc_ridge import explain_tau_prediction
 
+    from core.signal.factors.z_th import stamp_z_th_aliases
+
     h = _horizon_ridge_config(head)["head"]
     doc = model_doc if model_doc is not None else load_ridge_model(h)
+    feats = dict(features or {}) if isinstance(features, dict) else {}
+    stamp_z_th_aliases(feats)
     if _doc_backend(doc) == "tree":
         from core.research.horizon_tree import explain_tree_return
 
-        expl = explain_tree_return(features, (doc or {}).get("return_model"))
+        expl = explain_tree_return(feats, (doc or {}).get("return_model"))
         return stamp_horizon_explain(expl, head=h, model_doc=doc)
-    expl = explain_tau_prediction(features, model_doc=doc)
+    expl = explain_tau_prediction(feats, model_doc=doc)
     return stamp_horizon_explain(expl, head=h, model_doc=doc)

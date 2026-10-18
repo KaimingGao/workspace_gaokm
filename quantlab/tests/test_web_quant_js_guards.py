@@ -38,10 +38,22 @@ class TestWebQuantJsGuards(unittest.TestCase):
         meta = self._read("web", "static", "js", "quant", "factor_meta.js")
         self.assertIn('prefix: "raw_aoo_"', meta)
         self.assertIn('prefix: "raw_atc_"', meta)
+        self.assertIn('prefix: "raw_ath_"', meta)
         self.assertIn("alpha_tc", meta)
+        self.assertIn("alpha_th", meta)
         self.assertIn('REMOVED_RAW_PREFIXES = ["raw_alpha158_"]', meta)
         self.assertIn("key.startsWith(p)", meta)
         self.assertNotIn('prefix: "raw_alpha158_"', meta)
+
+    def test_horizon_ui_mentions_alpha_th_pack(self):
+        quant_js = self._read("web", "static", "js", "quant.js")
+        ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
+        panel = self._read("web", "static", "partials", "quant_panel.html")
+        self.assertIn('startsWith("raw_ath_")', ic)
+        self.assertIn('kind = "衍生"', ic)
+        self.assertIn("is-derived", ic)
+        self.assertIn("alpha_τh", panel)
+        self.assertIn("raw_ath_", ic)
 
     def test_tau_coef_formula_compact_js(self):
         ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
@@ -374,7 +386,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('label: isOoRankGain ? "份额"', factor_ic)
         self.assertIn('"ŷ_oo_rank 因子表"', factor_ic)
         self.assertIn("const metrics = isOoRank", factor_ic)
-        self.assertIn("const specY = isOoRank", factor_ic)
+        self.assertIn("isOoRank || isHorizon", factor_ic)
+        self.assertIn("const specY =", factor_ic)
+        self.assertIn(
+            "isOoRank || isHorizon\n        ? \"\"",
+            factor_ic,
+        )
         self.assertIn("标签在区块说明", factor_ic)
         self.assertIn('"rank(open[T]->open[T+1])"', factor_ic)
         self.assertNotIn('"rank(open[T+1]/open[T]-1)"', factor_ic)
@@ -409,14 +426,47 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertIn(".quant-oos-board-card.is-tree", css)
         self.assertIn(".quant-oos-board-card.is-ridge", css)
+        self.assertIn(
+            "#quant-oo-rank-result .quant-oos-board-card.is-tree",
+            css,
+        )
+        self.assertIn(
+            "#quant-tc-rank-result .quant-oos-board-card.is-tree",
+            css,
+        )
+        self.assertIn(
+            "#quant-t30-result .quant-oos-board-card.is-tree",
+            css,
+        )
+        self.assertIn(
+            "#quant-oo-rank-result .quant-oos-board-card.is-ridge",
+            css,
+        )
+        self.assertIn(
+            "#quant-tc-rank-result .quant-oos-board-card.is-ridge",
+            css,
+        )
+        self.assertIn(
+            "#quant-t30-result .quant-oos-board-card.is-ridge",
+            css,
+        )
+        self.assertIn('headCard("tree", "概率头", "LightGBM"', quant_js)
+        self.assertIn('headCard("ridge", "回归头", "Ridge"', quant_js)
+        self.assertIn("var(--rank-lr-bg, #e6f4ff)", css)
+        self.assertIn("var(--rank-rg-bg, #fffbe6)", css)
+        self.assertNotIn("is-win", quant_js)
         self.assertIn(".quant-oos-compare-meta-chip", css)
         self.assertIn(".quant-rem-share-fill.is-gain", css)
         self.assertIn("#quant-oo-rank-result.quant-weight-table-wrap", css)
         self.assertIn("#quant-tc-rank-result.quant-weight-table-wrap", css)
+        self.assertIn("#quant-t30-result.quant-weight-table-wrap", css)
+        self.assertIn("#quant-t90-result.quant-weight-table-wrap", css)
         self.assertIn("#quant-tc-rank-coef-table.quant-weight-table-wrap", css)
         self.assertIn("#quant-co-coef-table.quant-weight-table-wrap", css)
         self.assertIn("#quant-oo-rank-result:empty", css)
         self.assertIn("#quant-tc-rank-result:empty", css)
+        self.assertIn("#quant-t30-result:empty", css)
+        self.assertIn("#quant-t90-result:empty", css)
         self.assertIn('aria-label="ŷ_oo 因子表"', panel)
         self.assertIn('aria-label="ŷ_τc 因子表"', panel)
         self.assertIn('aria-label="ŷ_co 因子表"', panel)
@@ -426,13 +476,21 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(".quant-secondary-fold", css)
         self.assertIn('id="quant-section-t30"', panel)
         self.assertNotIn("与 ŷ_τc 同 X", panel)
-        self.assertIn("无 alpha_oo", panel)
-        self.assertIn('aria-label="ŷ_τ30 因子表"', panel)
-        self.assertIn('aria-label="ŷ_τ90 因子表"', panel)
+        self.assertIn("alpha_τh", panel)
+        self.assertIn(
+            'aria-label="ŷ_τ30 因子表（Ridge β + LightGBM gain）"', panel
+        )
+        self.assertIn(
+            'aria-label="ŷ_τ90 因子表（Ridge β + LightGBM gain）"', panel
+        )
         self.assertNotIn('aria-label="ŷ_τ30 因子系数表"', panel)
         self.assertNotIn("ΔTopK=", quant_js)
         self.assertNotIn("不进 ranking / C_τ", panel)
-        self.assertIn("P(窗收益>0) · Ridge/Tree · Holdout AUC 择优 · ŷ_τw 投票", panel)
+        self.assertIn("P(窗收益>0) · 双 backend", panel)
+        self.assertNotIn(
+            "P(窗收益>0) · Ridge/LightGBM · Holdout AUC 择优 · ŷ_τw 投票", panel
+        )
+        self.assertIn('title="读取研究 / 执行 / 上次拟合"', panel)
         self.assertIn("quant-section-research-universe", panel)
         self.assertIn("quant-ru-tiers", panel)
         self.assertIn('id="quant-ru-a-f1"', panel)
@@ -719,6 +777,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("90 * 60 * 1000", ridge_poll)
         self.assertNotIn("40 * 60 * 1000", ridge_poll)
         self.assertIn("awaitRidgeFitIfBackground", quant_js)
+        # 落盘摘要勿盖掉 /model 完整报告
+        await_fn = quant_js.split("async function awaitRidgeFitIfBackground", 1)[1]
+        await_fn = await_fn.split("async function ", 1)[0]
+        self.assertIn("persisted_truncated", await_fn)
         self.assertIn("连接中断", quant_js)
         self.assertIn("quant-t30-ridge-run", panel)
         self.assertIn("quant-section-t30", panel)
@@ -2928,6 +2990,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
             self.assertNotIn(f"quant-t{n}-tree-persist", panel)
         self.assertIn("renderHorizonOosCompare", js)
         self.assertIn("Holdout AUC", js)
+        # ŷ_τ* 对照 meta：训/测行数都挂（不只「测」）
+        self.assertIn("训 ${Number(oos.n_train)", js)
+        self.assertIn("测 ${Number(oos.n_test)", js)
+        self.assertIn("择优=AUC（打平→Ridge）", js)
+        self.assertIn("schemaStale", js)
+        self.assertIn("请重拟合", js)
         self.assertIn("quant-t45-ridge-persist-research", panel)
         self.assertIn("quant-t75-ridge-persist-research", panel)
         self.assertNotIn("quant-tc-ridge-persist-research", panel)
@@ -2988,11 +3056,20 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-tau-end-range", css)
         self.assertIn("readTauEndFitParams", params_js)
         self.assertIn("tau_end_hm", params_js)
-        # 前缀滑条在日截面 Z 左侧
+        # 前缀滑条在日截面 Z 左侧（ŷ_τc + ŷ_τ*）
         self.assertLess(
             panel.index('id="quant-fit-tau-end-tc"'),
             panel.index('id="quant-fit-cs-z-tc"'),
         )
+        for _hz in ("t30", "t45", "t60", "t75", "t90"):
+            self.assertIn(f'id="quant-fit-tau-end-{_hz}"', panel)
+            self.assertLess(
+                panel.index(f'id="quant-fit-tau-end-{_hz}"'),
+                panel.index(f'id="quant-fit-cs-z-{_hz}"'),
+            )
+        self.assertIn('"t30"', params_js)  # TAU_END_FIT_HEADS
+        self.assertIn("forHorizon", params_js)
+        self.assertIn("...readTauEndFitParams()", js)
         self.assertIn('id="quant-fit-cs-z-co"', panel)
         self.assertIn('id="quant-fit-cs-z-t30"', panel)
         self.assertIn('id="quant-fit-cs-z-t45"', panel)
@@ -3170,6 +3247,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('head === "oo"', factor_ic)
         self.assertIn('"open[T+1]/open[T]-1"', factor_ic)
         self.assertIn("ŷ_oo", factor_ic)
+        # z_* / raw_* 主列显示英文键（中文只在 tip）
+        self.assertIn("remShowsEnglishKey", factor_ic)
+        self.assertIn('n.startsWith("z_τh_")', factor_ic)
+        self.assertIn(
+            "remShowsEnglishKey(r.name) ? r.name : r.label || r.name",
+            factor_ic.replace("\r\n", "\n"),
+        )
         # OOS / Holdout / n：Ridge 头进系数表 KPI；ŷ_oo_rank 进对照板；卡头只留拟合时间与启用态
         self.assertNotIn('remStatusMeta(\n            "Holdout"', js.replace("\r\n", "\n"))
         self.assertIn('remStatusMeta(\n          "拟合"', js.replace("\r\n", "\n"))
@@ -3270,6 +3354,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("标准化斜率：右正左负", ic)
         self.assertIn("acc@0.5", ic)
         self.assertIn('useProbKpis ? "基率"', ic)
+        # ŷ_τ* 因子表 KPI / 样本条 / 副标题下掉（OOS 对照板已有）
+        self.assertIn("const metrics = isOoRank || isHorizon", ic)
+        self.assertIn("isOoRank || isHorizon", ic)
+        self.assertIn("const headSub = isHorizon", ic)
+        self.assertNotIn(
+            "LightGBM gain% + Ridge β · 按 |β| 降序 · Top${topN}",
+            ic,
+        )
         self.assertNotIn(
             'isT30 ? "ŷ_τ30 系数表" : isR ? "ŷ_τc 系数表"',
             ic,
@@ -3277,6 +3369,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         js = self._read("web", "static", "js", "quant.js")
         self.assertIn("function horizonProbFitBits", js)
         self.assertIn("promote 闸明细只挂在「启用」按钮", js)
+        # ŷ_τ*「状态」与预填同路径：无 live 时仍可展示 last_report OOS
+        self.assertIn("尚无启用模型 · 可拟合后启用", js)
+        self.assertNotIn("尚无 live 模型", js)
+        self.assertNotIn(
+            "paintRidgeEnableStatus(sum, data, {\n"
+            '          idleMessage: data.note || "尚无启用模型',
+            js,
+        )
 
     def test_hub_fit_gap_block_removed(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")

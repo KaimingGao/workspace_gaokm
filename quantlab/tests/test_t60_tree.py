@@ -137,9 +137,13 @@ class TestT60Tree(unittest.TestCase):
         self.assertTrue(report.get("feature_importance"))
         feat_names = report.get("feature_names") or []
         ridge_names = report.get("ridge_feature_names") or []
-        self.assertIn("ret_last_5m", feat_names)
-        self.assertIn("ret_last_60m", feat_names)
-        self.assertIn("t60_lag1", feat_names)
+        self.assertIn("raw_ath_RET_LAST_5M", feat_names)
+        self.assertIn("raw_ath_RET_LAST_60", feat_names)
+        self.assertIn("raw_ath_H_LAG1", feat_names)
+        self.assertIn("z_τh_gap_pct", feat_names)
+        self.assertNotIn("ret_last_5m", feat_names)
+        self.assertEqual(list(feat_names), list(ridge_names))
+        self.assertNotIn("tree_shape_features", report)
         for k in (
             "path_sign",
             "bounce_from_low",
@@ -149,9 +153,8 @@ class TestT60Tree(unittest.TestCase):
             "vol_up_share",
             "pullback_x_vol",
         ):
-            self.assertIn(k, feat_names)
+            self.assertNotIn(k, feat_names)
             self.assertNotIn(k, ridge_names)
-            self.assertIn(k, report.get("tree_shape_features") or [])
         timing = report.get("timing") or {}
         self.assertIn("panel_s", timing)
         self.assertIn("tree_s", timing)

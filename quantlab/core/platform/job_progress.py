@@ -31,7 +31,7 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 360.0,
         "label": "分组任务",
     },
-    # 满池 800 只堆面板常 >15min 且 current 一直为 0；stuck_start 过短会误杀。
+    # 满池 800 只建面板 + 双训常 >15min；stuck_start 过短会误杀。
     # stale_sec：心跳停了才按 updated_at 回收；须 ≥ stuck_start。
     "t30-ridge": {
         "stale_sec": 5400.0,
@@ -160,7 +160,8 @@ class JobProgress:
                 except (TypeError, ValueError):
                     result_bytes = 0
                 if result_bytes > 80_000:
-                    if self.name == "t0-backtest":
+                    slot_name = str(self.name or "")
+                    if slot_name == "t0-backtest":
                         payload["result"] = {
                             "success": result.get("success"),
                             "ok": result.get("success"),
@@ -169,8 +170,12 @@ class JobProgress:
                             "ok_count": result.get("ok_count"),
                             "t0_pnl_total": result.get("t0_pnl_total"),
                         }
-                    elif self.name == "portfolio-backtest":
-                        metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+                    elif slot_name == "portfolio-backtest":
+                        metrics = (
+                            result.get("metrics")
+                            if isinstance(result.get("metrics"), dict)
+                            else {}
+                        )
                         payload["result"] = {
                             "success": result.get("success"),
                             "ok": result.get("success"),
@@ -179,7 +184,126 @@ class JobProgress:
                             "trade_count": metrics.get("trade_count")
                             or result.get("trade_count"),
                         }
-                    else:
+                    elif slot_name.endswith("-ridge") or slot_name in (
+                        "tau-ridge",
+                        "co-ridge",
+                    ):
+                        # ŷ_* Ridge/Tree 大报告：勿裁成调仓 stub
+                        oos = (
+                            result.get("oos")
+                            if isinstance(result.get("oos"), dict)
+                            else {}
+                        )
+                        oos_slim = {
+                            k: oos[k]
+                            for k in (
+                                "auc",
+                                "brier",
+                                "acc_at_50",
+                                "n_test",
+                                "holdout_trading_days",
+                            )
+                            if k in oos
+                        }
+                        payload["result"] = {
+                            "success": result.get("success"),
+                            "ok": bool(result.get("success")),
+                            "persisted_truncated": True,
+                            "task": result.get("task") or slot_name.replace("-", "_"),
+                            "schema": result.get("schema"),
+                            "recommended_backend": result.get("recommended_backend")
+                            or result.get("backend"),
+                            "oos": oos_slim or None,
+                            "error": result.get("error"),
+                            "watching_limit": result.get("watching_limit"),
+                            "minute_codes_hit": result.get("minute_codes_hit"),
+                        }
+                    elif slot_name == "minute-refresh":
+                        # 丢弃庞大 status；保留 minute_warmup 摘要供 UI 完成态
+                        mw = (
+                            result.get("minute_warmup")
+                            if isinstance(result.get("minute_warmup"), dict)
+                            else {}
+                        )
+                        mw_slim = {
+                            k: mw[k]
+                            for k in (
+                                "ok",
+                                "mode",
+                                "kind",
+                                "warmed",
+                                "total",
+                                "skipped_today",
+                                "skipped_aligned",
+                                "skipped_ready",
+                                "topped",
+                                "bootstrapped",
+                                "timed_out",
+                                "error",
+                            )
+                            if k in mw
+                        }
+                        payload["result"] = {
+                            "success": result.get("success"),
+                            "ok": bool(result.get("success")),
+                            "persisted_truncated": True,
+                            "task": result.get("task") or "minute_refresh",
+                            "mode": result.get("mode"),
+                            "watching_limit": result.get("watching_limit"),
+                            "universe_count": result.get("universe_count"),
+                            "lookback_days": result.get("lookback_days"),
+                            "period": result.get("period"),
+                            "minute_warmup": mw_slim or None,
+                            "error": result.get("error"),
+                        }
+                    elif slot_name == "bars-refresh":
+                        br = (
+                            result.get("bars_refresh")
+                            if isinstance(result.get("bars_refresh"), dict)
+                            else {}
+                        )
+                        payload["result"] = {
+                            "success": result.get("success"),
+                            "ok": bool(result.get("success")),
+                            "persisted_truncated": True,
+                            "task": result.get("task") or "bars_refresh",
+                            "mode": result.get("mode"),
+                            "watching_limit": result.get("watching_limit"),
+                            "universe_count": result.get("universe_count"),
+                            "lookback": result.get("lookback"),
+                            "bars_refresh": br or None,
+                            "error": result.get("error"),
+                        }
+                    elif slot_name == "chat":
+                        reply = str(result.get("reply") or "")
+                        if len(reply) > 2000:
+                            reply = reply[:2000] + "…"
+                        arts = result.get("artifacts")
+                        payload["result"] = {
+                            "ok": result.get("ok", True),
+                            "persisted_truncated": True,
+                            "reply": reply,
+                            "session_id": result.get("session_id"),
+                            "primary_tab": result.get("primary_tab"),
+                            "artifacts_count": len(arts)
+                            if isinstance(arts, list)
+                            else 0,
+                        }
+                    elif slot_name == "quant-ols-clusters":
+                        payload["result"] = {
+                            "success": result.get("success"),
+                            "ok": result.get("ok", result.get("success")),
+                            "persisted_truncated": True,
+                            "task": result.get("task") or "quant_ols_clusters",
+                            "n_clusters": result.get("n_clusters"),
+                            "fitted_count": result.get("fitted_count"),
+                            "stock_count": result.get("stock_count"),
+                            "universe_count": result.get("universe_count"),
+                            "cache_hit": result.get("cache_hit"),
+                            "oos_summary": result.get("oos_summary"),
+                            "error": result.get("error"),
+                        }
+                    elif slot_name == "paper":
                         payload["result"] = {
                             "ok": result.get("ok", True),
                             "persisted_truncated": True,
@@ -195,6 +319,15 @@ class JobProgress:
                             "rebalance_report": (
                                 result.get("rebalance_report") or []
                             )[:30],
+                        }
+                    else:
+                        payload["result"] = {
+                            "success": result.get("success"),
+                            "ok": result.get("ok", result.get("success")),
+                            "persisted_truncated": True,
+                            "task": result.get("task")
+                            or slot_name.replace("-", "_"),
+                            "error": result.get("error"),
                         }
             atomic_write_json(path, payload)
         except OSError:

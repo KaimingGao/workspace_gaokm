@@ -25,6 +25,10 @@ class ZCoAliasTests(unittest.TestCase):
         self.assertEqual(feature_get({"gap_pct": 0.5}, "z_co_gap_pct"), 0.5)
         self.assertEqual(feature_get({"z_co_gap_pct": 0.7}, "gap_pct"), 0.7)
         self.assertEqual(to_z_co_key("gap_pct"), "z_co_gap_pct")
+        conflict = {"gap_pct": 1.0, "z_co_gap_pct": 9.0}
+        stamp_z_co_aliases(conflict)
+        self.assertEqual(conflict["z_co_gap_pct"], 1.0)
+        self.assertEqual(conflict["gap_pct"], 1.0)
 
     def test_predict_accepts_legacy_or_canon(self):
         from core.research.co_ridge import predict_co_from_features

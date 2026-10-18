@@ -56,16 +56,24 @@ def to_legacy_key(canon_or_legacy: str) -> str:
 
 
 def stamp_z_co_aliases(row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """就地：有旧键则镜像 ``z_co_*``；有 canon 则回填旧键（便于 UI / breadth）。"""
+    """就地：裸名 ↔ ``z_co_*``。
+
+    优先级：裸名 > z_co_*。选定后强制写回两侧；须在截面 Z 之前调用。
+    """
     out = row if isinstance(row, dict) else {}
     for leg in Z_CO_LEGACY_KEYS:
         canon = f"{Z_CO_PREFIX}{leg}"
         lv = out.get(leg)
         cv = out.get(canon)
-        if lv is not None and lv != "" and (cv is None or cv == ""):
-            out[canon] = lv
-        elif cv is not None and cv != "" and (lv is None or lv == ""):
-            out[leg] = cv
+        src = None
+        if lv is not None and lv != "":
+            src = lv
+        elif cv is not None and cv != "":
+            src = cv
+        if src is None:
+            continue
+        out[canon] = src
+        out[leg] = src
     return out
 
 

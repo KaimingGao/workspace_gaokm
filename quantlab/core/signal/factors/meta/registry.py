@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.signal.factors.alpha_oo import score_alpha_oo
 from core.signal.factors.alpha_tc import score_alpha_tc
+from core.signal.factors.alpha_th import score_alpha_th
 from core.signal.factors.alt_sentiment import score_alt_sentiment
 from core.signal.factors.amihud import score_amihud
 from core.signal.factors.dividend import score_dividend
@@ -192,6 +193,29 @@ def _compute_alpha_tc(
     )
 
 
+def _compute_alpha_th(
+    bars,
+    *,
+    quote=None,
+    open_t=None,
+    prev_close=None,
+    price_tau=None,
+    minute_bars=None,
+    tau_hm=None,
+    **_kw,
+):
+    """τ 锚 alpha_th：ŷ_τ* 轻量包（GAP/YK + 短窗升格）；omit 分，仅 raw_ath_* 入模。"""
+    return score_alpha_th(
+        bars,
+        quote=quote,
+        open_t=open_t,
+        prev_close=prev_close,
+        price_tau=price_tau,
+        minute_bars=minute_bars,
+        tau_hm=tau_hm,
+    )
+
+
 _register(
     "momentum",
     "动量",
@@ -336,7 +360,7 @@ _register(
     _compute_alpha_oo,
     "alpha_oo（~206）：隔夜/今开 + 昨 K + 开序列滚动 + 量/滞后（含 MOM3_C）；开盘 PIT。"
     " sub_score 不加权；入模默认 z_oo_*∪raw_aoo_* 全量；"
-    " ŷ_τc=z_τc_*∪raw_atc_*；ŷ_co=z_co_*∪raw_aoo_*。",
+    " ŷ_τc=z_τc_*∪raw_atc_*；ŷ_τ*=z_τh_*∪raw_ath_*；ŷ_co=z_co_*∪raw_aoo_*。",
 )
 _register(
     "alpha_tc",
@@ -344,6 +368,13 @@ _register(
     _compute_alpha_tc,
     "alpha_tc（~224）：隔夜/τ 位置 + 昨 K + 收盘序列滚动 + 量/TC 滞后 + ≤τ 前缀路径；"
     " price[τ] 锚 PIT。sub_score 不加权；离线对照，现网 ŷ_τc 不吃此包。",
+)
+_register(
+    "alpha_th",
+    "τ窗因子集",
+    _compute_alpha_th,
+    "alpha_th（~63）：隔夜/τ 位置轻量 + 昨 K 轻量 + 短窗动量/会话升格 + 本头 H_*；"
+    " price[τ] 锚 PIT。sub_score 不加权；现网 ŷ_τ30…90 = z_τh_*∪raw_ath_*。",
 )
 
 
@@ -400,6 +431,33 @@ def factor_label(name: str) -> str:
         meta_leg = _REGISTRY.get(leg)
         if meta_leg and meta_leg.get("label"):
             return str(meta_leg["label"])
+    # ŷ_τ* alpha_th：raw_ath_* → 中文短标
+    if key.startswith("raw_ath_"):
+        try:
+            from core.signal.factors.alpha_th import ATH_FEAT_LABELS
+
+            lab = ATH_FEAT_LABELS.get(key)
+            if lab:
+                return str(lab)
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
+    # ŷ_τ* Z canon：z_τh_gap_pct → 跳空 %（与 tc_ridge / 分钟标签表同源）
+    if key.startswith("z_τh_"):
+        try:
+            from core.signal.factors.z_th import to_legacy_key
+            from core.research.tc_ridge import _TAU_FEAT_LABELS
+            from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
+
+            leg = to_legacy_key(key)
+            lab = (
+                (_TAU_FEAT_LABELS or {}).get(f"z_τc_{leg}")
+                or (_TAU_FEAT_LABELS or {}).get(leg)
+                or (MINUTE_TAU_FEAT_LABELS or {}).get(leg)
+            )
+            if lab:
+                return str(lab)
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
     # ŷ_τc Z canon：z_τc_gap_pct → 跳空 %（与 tc_ridge 标签表同源）
     if key.startswith("z_τc_"):
         try:
@@ -469,6 +527,7 @@ def compute_configured_factors(
     """按 weights 键计算子分；``required_keys`` 即使权为 0 也算（ŷ β 同构，FS0）。"""
     from core.signal.factors.alpha_oo import is_alpha_oo_raw_key
     from core.signal.factors.alpha_tc import is_alpha_tc_raw_key
+    from core.signal.factors.alpha_th import is_alpha_th_raw_key
 
     from core.signal.factors.z_oo import is_z_oo_key, stamp_z_oo_aliases, to_legacy_key
 
@@ -488,6 +547,9 @@ def compute_configured_factors(
         # raw_atc_* → 触发 alpha_tc（ŷ_τc 现网；显式 required 时计算）
         if is_alpha_tc_raw_key(k) and "alpha_tc" in _REGISTRY and "alpha_tc" not in wmap:
             wmap["alpha_tc"] = 0.0
+        # raw_ath_* → 触发 alpha_th（ŷ_τ* 现网；显式 required 时计算）
+        if is_alpha_th_raw_key(k) and "alpha_th" in _REGISTRY and "alpha_th" not in wmap:
+            wmap["alpha_th"] = 0.0
     sub_scores: Dict[str, float] = {}
     contribs: Dict[str, float] = {}
     meta: Dict[str, Any] = {}
@@ -536,7 +598,7 @@ def compute_configured_factors(
         meta.update(fac_meta or {})
         # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
         if isinstance(fac_meta, dict) and fac_meta.get("omit_sub_score"):
-            # alpha_oo / alpha_tc / FS0：omit 的常数分不进加权，但 raw_* 可供入模
+            # alpha_oo / alpha_tc / alpha_th / FS0：omit 的常数分不进加权，但 raw_* 可供入模
             from core.signal.factors.alpha_oo import (
                 ALPHA_OO_RAW_PREFIX,
                 is_alpha_oo_raw_key,
@@ -545,10 +607,15 @@ def compute_configured_factors(
                 ALPHA_TC_RAW_PREFIX,
                 is_alpha_tc_raw_key,
             )
+            from core.signal.factors.alpha_th import (
+                ALPHA_TH_RAW_PREFIX,
+                is_alpha_th_raw_key,
+            )
 
-            need_raw = name_fac in ("alpha_oo", "alpha_tc") or any(
+            need_raw = name_fac in ("alpha_oo", "alpha_tc", "alpha_th") or any(
                 is_alpha_oo_raw_key(str(r))
                 or is_alpha_tc_raw_key(str(r))
+                or is_alpha_th_raw_key(str(r))
                 or str(r).startswith(f"raw_{name_fac}_")
                 for r in required
             )
@@ -557,6 +624,8 @@ def compute_configured_factors(
                     raw_prefix = ALPHA_OO_RAW_PREFIX
                 elif name_fac == "alpha_tc":
                     raw_prefix = ALPHA_TC_RAW_PREFIX
+                elif name_fac == "alpha_th":
+                    raw_prefix = ALPHA_TH_RAW_PREFIX
                 else:
                     raw_prefix = f"raw_{name_fac}_"
                 for mk, mv in fac_meta.items():

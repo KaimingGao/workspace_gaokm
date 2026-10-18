@@ -120,6 +120,27 @@
   border-color: color-mix(in srgb, var(--oos-head) 35%, var(--line, #e8e8e8));
   box-shadow: inset 2px 0 0 0 var(--oos-head);
 }
+/* ŷ_oo_rank / ŷ_τc_rank / ŷ_τ*：树侧浅蓝，Ridge 浅黄（不跟胜场、不跟落盘） */
+.quant-page #quant-oo-rank-result .quant-oos-board-card.is-tree,
+.quant-page #quant-tc-rank-result .quant-oos-board-card.is-tree,
+.quant-page #quant-t30-result .quant-oos-board-card.is-tree,
+.quant-page #quant-t45-result .quant-oos-board-card.is-tree,
+.quant-page #quant-t60-result .quant-oos-board-card.is-tree,
+.quant-page #quant-t75-result .quant-oos-board-card.is-tree,
+.quant-page #quant-t90-result .quant-oos-board-card.is-tree {
+  background: var(--rank-lr-bg, #e6f4ff);
+  border-color: var(--rank-lr-line, #91caff);
+}
+.quant-page #quant-oo-rank-result .quant-oos-board-card.is-ridge,
+.quant-page #quant-tc-rank-result .quant-oos-board-card.is-ridge,
+.quant-page #quant-t30-result .quant-oos-board-card.is-ridge,
+.quant-page #quant-t45-result .quant-oos-board-card.is-ridge,
+.quant-page #quant-t60-result .quant-oos-board-card.is-ridge,
+.quant-page #quant-t75-result .quant-oos-board-card.is-ridge,
+.quant-page #quant-t90-result .quant-oos-board-card.is-ridge {
+  background: var(--rank-rg-bg, #fffbe6);
+  border-color: var(--rank-rg-line, #ffe58f);
+}
 .quant-oos-board-kicker {
   font-size: 10px;
   font-weight: 650;
@@ -4872,7 +4893,12 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status-chip
 /* 空对照宿主不占 card-body gap（对齐 v2） */
 body[data-page="quant"] .quant-page #quant-oo-result:empty,
 body[data-page="quant"] .quant-page #quant-oo-rank-result:empty,
-body[data-page="quant"] .quant-page #quant-tc-rank-result:empty {
+body[data-page="quant"] .quant-page #quant-tc-rank-result:empty,
+body[data-page="quant"] .quant-page #quant-t30-result:empty,
+body[data-page="quant"] .quant-page #quant-t45-result:empty,
+body[data-page="quant"] .quant-page #quant-t60-result:empty,
+body[data-page="quant"] .quant-page #quant-t75-result:empty,
+body[data-page="quant"] .quant-page #quant-t90-result:empty {
   display: none;
   margin: 0;
   padding: 0;
@@ -10296,7 +10322,7 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   margin-top: 0;
 }
 
-/* ŷ_* 因子表 / ŷ_oo·ŷ_oo_rank·ŷ_τc_rank 结果宿主：清零 wrap margin（间隔靠 oos-compare 底边距 + card gap） */
+/* ŷ_* 因子表 / ŷ_oo·ŷ_oo_rank·ŷ_τc_rank·ŷ_τ* 结果宿主：清零 wrap margin（间隔靠 oos-compare 底边距 + card gap） */
 .quant-page #quant-oo-coef-table.quant-weight-table-wrap,
 .quant-page #quant-tau-coef-table.quant-weight-table-wrap,
 .quant-page #quant-co-coef-table.quant-weight-table-wrap,
@@ -10309,7 +10335,12 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
 .quant-page #quant-t90-coef-table.quant-weight-table-wrap,
 .quant-page #quant-oo-result.quant-weight-table-wrap,
 .quant-page #quant-oo-rank-result.quant-weight-table-wrap,
-.quant-page #quant-tc-rank-result.quant-weight-table-wrap {
+.quant-page #quant-tc-rank-result.quant-weight-table-wrap,
+.quant-page #quant-t30-result.quant-weight-table-wrap,
+.quant-page #quant-t45-result.quant-weight-table-wrap,
+.quant-page #quant-t60-result.quant-weight-table-wrap,
+.quant-page #quant-t75-result.quant-weight-table-wrap,
+.quant-page #quant-t90-result.quant-weight-table-wrap {
   margin: 0;
 }
 
@@ -10440,6 +10471,12 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
 
 .quant-page .quant-rem-leg.is-eod {
   color: var(--ink-3);
+}
+
+.quant-page .quant-rem-leg.is-derived {
+  color: color-mix(in srgb, #b45309 78%, var(--ink));
+  border-color: color-mix(in srgb, #b45309 32%, var(--line));
+  background: color-mix(in srgb, #b45309 8%, var(--surface));
 }
 
 .quant-page .quant-rem-coef-frame {
@@ -11003,6 +11040,12 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
 
 .quant-page .quant-rem-kind-chip.is-eod {
   color: var(--ink-3);
+}
+
+.quant-page .quant-rem-kind-chip.is-derived {
+  color: color-mix(in srgb, #b45309 78%, var(--ink));
+  border-color: color-mix(in srgb, #b45309 35%, var(--line));
+  background: color-mix(in srgb, #b45309 10%, var(--surface));
 }
 
 .quant-page .quant-rem-coef-spec .quant-rem-coef-kpi-v {

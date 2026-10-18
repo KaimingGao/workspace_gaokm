@@ -28,19 +28,16 @@ from core.research.tau_panel import (
 )
 from core.research.tc_ridge_compact import (
     TAU_FIT_DROP_ALIASES,
-    TAU_HORIZON_DROP_OC_SHAPE,
-    TAU_HORIZON_TREE_SHAPE_FEATURES,
     TAU_Z_FEATURES,
     _predict_rows,
     _stack_panels,
     _subset,
     build_tau_panels_from_bars,
+    feature_get,
     fit_tau_ridge_matrices,
-    with_horizon_tree_shape,
 )
 from core.signal.factors.z_tc import (
     Z_TC_LEGACY_KEYS,
-    feature_get,
     z_tc_feat_labels,
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
@@ -783,7 +780,15 @@ def predict_tau_from_features(
     if not doc:
         return None
     rm = doc.get("return_model") or {}
-    preds = _predict_rows(rm, [features])
+    # 裸名↔z_τc_* 强制对齐；截面路径须先把 z 同步到裸名（见 cross_section_zscore_dicts）
+    row = dict(features or {})
+    try:
+        from core.signal.factors.z_tc import stamp_z_tc_aliases
+
+        stamp_z_tc_aliases(row)
+    except Exception:  # noqa: BLE001
+        pass
+    preds = _predict_rows(rm, [row])
     return preds[0] if preds else None
 
 

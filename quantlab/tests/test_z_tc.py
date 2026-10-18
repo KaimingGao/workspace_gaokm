@@ -23,6 +23,11 @@ class ZTcAliasTests(unittest.TestCase):
         self.assertEqual(feature_get({"gap_pct": 0.5}, "z_τc_gap_pct"), 0.5)
         self.assertEqual(feature_get({"z_τc_gap_pct": 0.7}, "gap_pct"), 0.7)
         self.assertEqual(to_z_tc_key("gap_pct"), "z_τc_gap_pct")
+        # 裸名优先覆盖陈旧 canon
+        conflict = {"gap_pct": 1.0, "z_τc_gap_pct": 9.0}
+        stamp_z_tc_aliases(conflict)
+        self.assertEqual(conflict["z_τc_gap_pct"], 1.0)
+        self.assertEqual(conflict["gap_pct"], 1.0)
 
     def test_predict_rows_accepts_legacy_or_canon(self):
         from core.research.tc_ridge import _predict_rows

@@ -64,7 +64,8 @@ Canonical Job API：`GET /api/jobs/{name}` · `POST /api/jobs/{name}/cancel`（`
 |------|------|----------------------|------|
 | AkShare 拉数 | `adapters/market/ak_worker.py` ProcessPool | 已隔离 | 崩溃不拖死 Web |
 | paper / chat / ols 进度 | `data/jobs/*.json` 落盘 | — | reload 后可解释中断 |
-| 分组 OLS fit | Job 槽内 ThreadPool | **暂不上** ProcessPool | panel/矩阵难 pickle；已有 Job + cancel + stale reclaim；HTTP 经 `progress=1` 轻量轮询 |
+| ŷ_τ* 建面板 | `tc_ridge_compact.build_tau_panels_from_bars` ProcessPool | **已上** | 分钟路径 CPU 重；`label_heads` 缩窗价；`TAU_RIDGE_WORKERS` 顶 4；Job `progress_cb` |
+| 分组 OLS fit | Job 槽内 ThreadPool | **暂不上** ProcessPool | 矩阵拼装仍偏线程；已有 Job + cancel + stale reclaim；HTTP 经 `progress=1` 轻量轮询 |
 
 后续若 OLS 仍饿死 API：优先「子进程整段 run_ols_clusters」单入口，而不是拆散 fit 函数。
 

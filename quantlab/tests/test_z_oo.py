@@ -26,6 +26,10 @@ class ZOoAliasTests(unittest.TestCase):
         self.assertEqual(feature_get({"z_oo_momentum": 70.0}, "momentum"), 70.0)
         self.assertEqual(to_z_oo_key("momentum"), "z_oo_momentum")
         self.assertEqual(to_z_oo_key("raw_aoo_YKMID"), "raw_aoo_YKMID")
+        conflict = {"momentum": 1.0, "z_oo_momentum": 9.0}
+        stamp_z_oo_aliases(conflict)
+        self.assertEqual(conflict["z_oo_momentum"], 1.0)
+        self.assertEqual(conflict["momentum"], 1.0)
 
     def test_raw_aoo_not_in_fit_features(self):
         from core.signal.factors.z_oo import z_oo_fit_features

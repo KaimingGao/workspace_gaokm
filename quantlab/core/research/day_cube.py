@@ -441,12 +441,17 @@ def apply_cube_z_to_dicts(
             mu = mu_map.get(name)
             sd = sd_map.get(name)
             if mu is None or (not math.isfinite(mu)):
-                src[name] = 0.0
-                continue
-            if sd is None or (not math.isfinite(sd)) or sd < 1e-12:
-                src[name] = 0.0
+                zval = 0.0
+            elif sd is None or (not math.isfinite(sd)) or sd < 1e-12:
+                zval = 0.0
             else:
-                src[name] = (fv - mu) / sd
+                zval = (fv - mu) / sd
+            try:
+                from core.research.feature_standardize import mirror_z_alias_value
+
+                mirror_z_alias_value(src, name, zval)
+            except Exception:  # noqa: BLE001
+                src[name] = zval
         out.append(src)
     return out
 

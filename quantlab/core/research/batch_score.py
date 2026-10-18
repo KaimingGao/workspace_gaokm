@@ -46,6 +46,25 @@ def _raw_feat_dict(item: Mapping[str, Any]) -> Dict[str, Any]:
     for k, v in item.items():
         if str(k).startswith("raw_") and v is not None:
             out[str(k)] = v
+    # τ / co / τ* 块合并后对齐裸名↔canon，避免 DayCube μ/σ 落在分叉列上
+    try:
+        from core.signal.factors.z_tc import stamp_z_tc_aliases
+
+        stamp_z_tc_aliases(out)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from core.signal.factors.z_th import stamp_z_th_aliases
+
+        stamp_z_th_aliases(out)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from core.signal.factors.z_co import stamp_z_co_aliases
+
+        stamp_z_co_aliases(out)
+    except Exception:  # noqa: BLE001
+        pass
     return out
 
 

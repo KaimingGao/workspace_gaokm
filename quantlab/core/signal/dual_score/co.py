@@ -70,10 +70,14 @@ def overlay_co_cross_section(
         out["sector_gap_breadth"] = src.get("sector_gap_breadth")
     elif src.get("z_τc_sector_gap_breadth") is not None:
         out["sector_gap_breadth"] = src.get("z_τc_sector_gap_breadth")
+    elif src.get("z_τh_sector_gap_breadth") is not None:
+        out["sector_gap_breadth"] = src.get("z_τh_sector_gap_breadth")
     for k in ("theme_day", "gap_vs_sector"):
         v = src.get(k)
         if v is None or v == "":
             v = src.get(f"z_τc_{k}")
+        if v is None or v == "":
+            v = src.get(f"z_τh_{k}")
         if v is not None and v != "":
             out[k] = v
     return stamp_z_co_aliases(out)

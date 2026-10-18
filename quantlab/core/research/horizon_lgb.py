@@ -427,12 +427,18 @@ def _importance_rows(
     names: Sequence[str],
     gain: np.ndarray,
 ) -> List[Dict[str, Any]]:
-    labels = {
-        **dict(MINUTE_TAU_FEAT_LABELS),
-        **dict(TAU_LAG_FEAT_LABELS),
-        **dict(T30_LAG_FEAT_LABELS),
-        **dict(T60_LAG_FEAT_LABELS),
-    }
+    from core.signal.factors.alpha_th import ATH_FEAT_LABELS
+    from core.signal.factors.z_th import z_th_feat_labels
+
+    labels = z_th_feat_labels(
+        {
+            **dict(MINUTE_TAU_FEAT_LABELS),
+            **dict(TAU_LAG_FEAT_LABELS),
+            **dict(T30_LAG_FEAT_LABELS),
+            **dict(T60_LAG_FEAT_LABELS),
+            **dict(ATH_FEAT_LABELS),
+        }
+    )
     total = float(np.sum(np.clip(gain, 0.0, None)))
     rows: List[Dict[str, Any]] = []
     for i, name in enumerate(names):
@@ -446,7 +452,8 @@ def _importance_rows(
             }
         )
     rows.sort(key=lambda r: -abs(float(r.get("gain") or 0.0)))
-    return rows[:16]
+    # 全量回填（含 gain=0），因子表与 Ridge β 按 key 对齐；不再截 Top16
+    return rows
 
 
 def _fit_ridge_oos(

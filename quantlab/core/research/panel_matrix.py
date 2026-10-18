@@ -796,7 +796,10 @@ def _resolve_co_workers(n_jobs: int, workers: Optional[int]) -> int:
 
 
 def _resolve_tau_workers(n_jobs: int, workers: Optional[int]) -> int:
-    """默认 4 线程（``TAU_RIDGE_WORKERS`` 可覆盖；硬顶 4）。"""
+    """默认 4 worker（``TAU_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
+
+    ``collect_tau_compact`` 用 ThreadPool；``build_tau_panels_from_bars`` 分钟路径用 ProcessPool。
+    """
     if n_jobs <= 1:
         return 1
     if workers is None:

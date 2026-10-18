@@ -950,6 +950,9 @@ python3 research/paper_run.py --init
          τ=open 时 price(τ)=open，等于 close/open−1。旧行 y_oc 只读
          **分工**：ŷ_oo 吃 z_oo_*∪raw_aoo_*；ŷ_τc 吃 raw_atc_*（τ 锚）+ z_τc_*
 
+【层 2b · ŷ_τ*】alpha_τh := z_τh_* ∪ raw_ath_* → y_τ30…90 = P(窗收益>0)
+         → 进 ŷ_τw 投票；不进 C_τ / fuse。轻量 GAP/YK + 短窗升格 + 本头 H_*
+
 【对照 · ŷ_co】隔夜缺口 → y_co（旧键 y_on 可读）；经 w_co 叠进 ŷ_τc（配置默认 1）
 ```
 
@@ -1061,6 +1064,7 @@ C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scal
 | A2 验收 | 账本 `*.tau_shadow.json` + `realized_tau`；HTTP `/tau-shadow` **已 stub** | **库保留 · 枢纽条已下线** |
 | P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
 | P0 alpha_τc | ŷ_τc 特征包 **alpha_τc := z_τc_* ∪ raw_atc_***（产品固定完整包，无开关；拟合列 `z_τc_*`+`raw_atc_*`，Z 裸名别名，报告挂 `feature_pack`；schema `tau_ridge_v15`） | **已落地** |
+| P0 alpha_τh | ŷ_τ30…90 特征包 **alpha_τh := z_τh_* ∪ raw_ath_***（轻量 GAP/YK + 短窗/会话升格 + 本头 `H_*`；schema `t{N}_ridge_v4`；live `score_policy` 注入） | **已落地** |
 | P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
 | P2 融合补强 | `w_mode=theme_boost\|variance`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
@@ -1201,7 +1205,7 @@ flowchart LR
 配置门：`scoring.rank_mode=predicted_score` · `min_predicted_score` · `cluster_scoring.mode`（off / shadow / active）。
 
 **Ridge / oo_rank / τ 双训拟合控件（ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank）**：卡头 **日截面 Z**；另有训练窗 / Holdout。只训 Holdout 前一套；**启用研究**=草稿→研究槽；**启用执行**=研究槽→执行槽（晋级）。
-- **日截面 Z**（默认开）：入模特征按决策日截面 μ/σ；关掉则用训练窗全局 μ/σ（落盘 `zscore_means`/`stds`）。τ 头 Tree 侧固定日截面。物化层：**L1 Feature Lake**（按股×日 raw）+ **L2 DayCube**（按日 μ/σ / gap breadth，键含 `universe_hash`）；拟合写穿、回测/调仓/T0 复用。开关见 `QUANTLAB_FEATURE_LAKE` / `QUANTLAB_DAY_CUBE` / `QUANTLAB_BATCH_SCORE`。
+- **日截面 Z**（默认开）：入模特征按决策日截面 μ/σ；关掉则用训练窗全局 μ/σ（落盘 `zscore_means`/`stds`）；ŷ_τ30…90 与主头同控件。物化层：**L1 Feature Lake**（按股×日 raw）+ **L2 DayCube**（按日 μ/σ / gap breadth，键含 `universe_hash`）；拟合写穿、回测/调仓/T0 复用。开关见 `QUANTLAB_FEATURE_LAKE` / `QUANTLAB_DAY_CUBE` / `QUANTLAB_BATCH_SCORE`。
 
 **调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90 已并入主卡双训（见 §4.3d）。
 
@@ -1303,16 +1307,17 @@ score_stock(code) 续——
 
 ### 4.3d ŷ_τ30…90（Ridge / Tree · 概率头）
 
-同窗双训：**logistic Ridge** 与 **LightGBM Tree**（Tree 另含 OC 路径形状；Ridge 仍用原 Z——能力择优，非纯算法对换）。标签为窗收益符号 → `P(窗收益>0)`；进 ŷ_τw 投票；不进 C_τ / fuse。
+同窗双训：**logistic Ridge** 与 **LightGBM**（同 X=alpha_τh；Holdout AUC 择优，打平→Ridge）。标签为窗收益符号 → `P(窗收益>0)`；进 ŷ_τw 投票；不进 C_τ / fuse。研究枢纽区块说明与 ŷ_oo_rank 同壳：`P(窗收益>0) · 双 backend`。
+特征包 **alpha_τh := z_τh_* ∪ raw_ath_***（`z_th.py` + `alpha_th.py`；相对 `raw_atc_*` 砍全量 ROLL/TC_LAG/完整 PREFIX；保留 GAP/YK 轻量 + 短窗动量/会话升格 + 本头 `H_LAG1`/`H_MA5`；schema `t{N}_ridge_v4`；系数键变更需重拟合）。
 **启用研究**按 Holdout **AUC** 自动落盘更强一侧（AUC 打平比 **Brier**；再打平→**Ridge**）；**启用执行**=研究槽晋级（不重训、不改 backend）。落盘仍用 `t{N}_ridge_model*.json` 槽位，包内 `backend` / `backends` 标明 ridge|tree。
 
 | | |
 |--|--|
 | 训练 | `POST /api/quant/t{N}-ridge` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **AUC** 择优，不重训 |
-| 回测 / live | 加载已启用模型（读包内 `backend`）；挂 `y_τ{N}` + `y_τ{N}_source`。回测「ŷ_τ*对照」强制 Tree：读启用套 `backends.tree`（或包顶 `backend=tree`） |
+| 回测 / live | 加载已启用模型（读包内 `backend`）；挂 `y_τ{N}` + `y_τ{N}_source`；live/回测打分前注入 `raw_ath_*` 并 `stamp_z_th_aliases`（裸名/`z_τc_*`→`z_τh_*`）。回测「ŷ_τ*对照」强制 Tree：读启用套 `backends.tree`（或包顶 `backend=tree`） |
 | OOS | **AUC** / **Brier** / acc@0.5 / IC；Tree vs Ridge 同窗对照；晋级闸看胜出侧（AUC≥0.52 或 acc≥0.52，n≥80） |
 
-实现：`core/research/horizon_ridge.py`（`fit_horizon_dual_report` / `select_horizon_backend`）· `horizon_tree.py` · `horizon_lgb.py`。研究枢纽无独立 tree 卡 / standalone tree API。
+实现：`core/research/horizon_ridge.py`（`fit_horizon_dual_report` / `select_horizon_backend` / `build_horizon_enriched_panels`）· `horizon_tree.py` · `horizon_lgb.py` · `alpha_th.py` · `z_th.py`。双训**只建一次面板**，Ridge/Tree 共用 `enriched_panels`。服务层**分批**读本地 5m → `build_tau_panels_from_bars`（`label_heads` 只算本头窗价；分钟路径 **ProcessPool**，`TAU_RIDGE_WORKERS` 顶 4）→ 立刻 pop 分钟线 → `enrich_horizon_raw_panels`；Job 槽经 `progress_cb` 报「建面板 n/N」。研究枢纽无独立 tree 卡 / standalone tree API。
 
 ### 4.4 双层完整调用链
 

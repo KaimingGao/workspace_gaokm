@@ -398,8 +398,6 @@ class T30RidgeFitTests(unittest.TestCase):
             _horizon_ridge_config,
             fit_horizon_ridge_report,
         )
-        from core.research.tc_ridge import TAU_Z_FEATURES
-
         T30_Z_FEATURES = _horizon_ridge_config("t30")["z_features"]
 
         d0 = date(2025, 6, 2)
@@ -438,43 +436,62 @@ class T30RidgeFitTests(unittest.TestCase):
             holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), msg=report)
-        self.assertEqual(report.get("schema"), "t30_ridge_v2")
+        self.assertEqual(report.get("schema"), "t30_ridge_v4")
+        self.assertEqual(
+            (report.get("return_model") or {}).get("schema"), "t30_ridge_v4"
+        )
         self.assertEqual(report.get("dual_score_head"), "y_t30")
         self.assertEqual(report.get("target"), "price_tau_plus_30")
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
         self.assertIn("30", str(y_spec.get("formula") or ""))
         extras = (report.get("return_model") or {}).get("extra_features") or []
         self.assertEqual(list(extras), list(T30_Z_FEATURES))
+        for k in extras:
+            self.assertTrue(
+                str(k).startswith("z_τh_") or str(k).startswith("raw_ath_"),
+                msg=k,
+            )
         for k in (
-            "ret_last_5m",
-            "ret_last_30m",
-            "session_elapsed",
-            "session_remain",
-            "crosses_lunch",
-            "session_vwap_dev",
-            "vol_last_30m_vs_avg",
-            "sector_ret_last_30m",
-            "ret_last_30m_vs_sector",
-            "t30_lag1",
-            "t30_ma5",
+            "raw_ath_RET_LAST_5M",
+            "raw_ath_RET_LAST_30",
+            "raw_ath_SESSION_ELAPSED",
+            "raw_ath_SESSION_REMAIN",
+            "raw_ath_CROSSES_LUNCH",
+            "raw_ath_SESSION_VWAP_DEV",
+            "raw_ath_VOL_LAST_30_VS_AVG",
+            "raw_ath_SECTOR_RET_LAST_30",
+            "raw_ath_RET_LAST_30_VS_SECTOR",
+            "raw_ath_H_LAG1",
+            "raw_ath_H_MA5",
+            "z_τh_gap_pct",
+            "z_τh_ret_open_to_tau",
+            "z_τh_tau_lag1",
         ):
             self.assertIn(k, extras)
-            self.assertNotIn(k, TAU_Z_FEATURES)
-        for k in ("bounce_from_low", "pullback_from_high", "range_pct", "down_extent"):
+        for k in (
+            "ret_last_5m",
+            "t30_lag1",
+            "bounce_from_low",
+            "pullback_from_high",
+            "range_pct",
+            "down_extent",
+            "z_τh_range_pct",
+            "z_τc_gap_pct",
+        ):
             self.assertNotIn(k, extras)
-        self.assertIn("ret_open_to_tau", extras)
 
     def test_t30_z_drops_oc_path_shape(self):
         from core.research.horizon_ridge import _horizon_ridge_config
-        from core.research.tc_ridge import TAU_HORIZON_DROP_OC_SHAPE
+        from core.research.tc_ridge_compact import TAU_HORIZON_DROP_OC_SHAPE
 
         T30_Z_FEATURES = _horizon_ridge_config("t30")["z_features"]
 
         for k in TAU_HORIZON_DROP_OC_SHAPE:
             self.assertNotIn(k, T30_Z_FEATURES)
-        self.assertIn("ret_last_30m", T30_Z_FEATURES)
-        self.assertIn("ret_open_to_tau", T30_Z_FEATURES)
-        self.assertIn("t30_lag1", T30_Z_FEATURES)
+            self.assertNotIn(f"z_τh_{k}", T30_Z_FEATURES)
+        self.assertIn("raw_ath_RET_LAST_30", T30_Z_FEATURES)
+        self.assertIn("z_τh_ret_open_to_tau", T30_Z_FEATURES)
+        self.assertIn("raw_ath_H_LAG1", T30_Z_FEATURES)
 
     def test_label_lag_reads_datetime(self):
         from core.research.tau_panel import label_lag_features
@@ -571,19 +588,25 @@ class T30GateTests(unittest.TestCase):
         from core.job_progress import t30_ridge_job
         from quant.services.quant_service_factors import QuantFactorMixin
 
+        # 勿 force_fail 真实运行中的拟合槽（会冲掉 UI 进度）
         if t30_ridge_job.is_running():
-            t30_ridge_job.force_fail("test reset")
+            self.skipTest("t30_ridge_job already running")
         svc = QuantFactorMixin()
-        started = {"n": 0}
+        started = {"n": 0, "kwargs": None}
 
-        def _fake(**_kwargs):
+        def _fake(**kwargs):
             started["n"] += 1
+            started["kwargs"] = dict(kwargs)
             time.sleep(0.25)
             return {"success": True, "return_model": {"intercept": 0.0}}
 
         svc.run_t30_ridge_experiment = _fake
         t0 = time.time()
-        out = svc.start_t30_ridge_job(watching_limit=2)
+        out = svc.start_t30_ridge_job(
+            watching_limit=2,
+            tau_end_hm="10:00",
+            cross_section_zscore=False,
+        )
         self.assertLess(time.time() - t0, 0.2)
         self.assertTrue(out.get("background"))
         self.assertTrue(out.get("success"))
@@ -597,6 +620,34 @@ class T30GateTests(unittest.TestCase):
         self.assertEqual(started["n"], 1)
         self.assertEqual(snap.get("id"), job_id)
         self.assertTrue((snap.get("result") or {}).get("success"))
+        kw = started["kwargs"] or {}
+        self.assertEqual(kw.get("tau_end_hm"), "10:00")
+        self.assertIs(kw.get("cross_section_zscore"), False)
+        self.assertIs(kw.get("persist"), False)
+        self.assertTrue(callable(kw.get("progress_cb")))
+        self.assertTrue(callable(kw.get("job_alive_cb")))
+
+    def test_horizon_orphan_skips_last_report(self):
+        """槽已被接替时不写 last_report。"""
+        from unittest.mock import patch
+
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        svc = QuantFactorMixin()
+        with patch(
+            "core.research.horizon_ridge.save_ridge_last_report"
+        ) as save_last, patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={"ok": True, "codes": ["A", "B"], "source": "watching"},
+        ):
+            out = svc._run_horizon_ridge_experiment(
+                "t30",
+                watching_limit=2,
+                job_alive_cb=lambda: False,
+            )
+        self.assertFalse(out.get("success"))
+        self.assertTrue(out.get("orphaned"))
+        save_last.assert_not_called()
 
 
 class TTwGateTests(unittest.TestCase):

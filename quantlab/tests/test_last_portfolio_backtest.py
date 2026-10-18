@@ -231,8 +231,9 @@ class TestStartPortfolioBacktestJob(unittest.TestCase):
             "metrics": {"trade_count": 1, "total_return_pct": 1.0},
             "equity_curve": [{"date": "2026-01-10", "equity": 100.0}],
         }
+        # 勿 force_fail 真实运行中的槽（会冲掉 UI 进度）
         if portfolio_backtest_job.is_running():
-            portfolio_backtest_job.force_fail("test-reset")
+            self.skipTest("portfolio_backtest_job already running")
         with patch.object(svc, "run_portfolio_backtest", return_value=dict(fake)):
             out = svc.start_portfolio_backtest_job(lookback=10, include_benchmark=False)
             self.assertTrue(out.get("background"))

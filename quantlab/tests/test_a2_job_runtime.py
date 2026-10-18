@@ -55,7 +55,7 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertIn("tau-ridge", names)
         self.assertNotIn("tc-ridge", names)
         self.assertIn("t0-backtest", names)
-        # 满池 Ridge / 回测：进度常长期为 0，stuck_start 须够长（90min）以免误杀
+        # 满池 Ridge / 回测：墙钟长，stuck_start 须够长（90min）以免误杀
         for slot_name in (
             "t30-ridge",
             "t60-ridge",
@@ -71,6 +71,87 @@ class TestA2JobRuntime(unittest.TestCase):
             )
         paper_p = next(p for p in policies if p["slot"] == "paper")
         self.assertTrue(paper_p.get("persisted"))
+
+    def test_ridge_large_result_persists_ridge_stub_not_rebalance(self):
+        """大 ŷ_* 报告落盘摘要须保留 success/oos，勿裁成调仓 stub。"""
+        path = os.path.join(tempfile.mkdtemp(), "t30_ridge.json")
+        slot = JobProgress(name="t30-ridge", persist_path=path)
+        jid = slot.start(kind="t30_ridge", total=10, message="拟合")
+        fat = {
+            "success": True,
+            "schema": "t30_ridge_v4",
+            "recommended_backend": "ridge",
+            "oos": {"auc": 0.55, "brier": 0.24, "n_test": 100},
+            "return_model": {"w": list(range(20_000))},
+        }
+        self.assertTrue(slot.finish(result=fat, job_id=jid))
+        with open(path, encoding="utf-8") as f:
+            on_disk = __import__("json").load(f)
+        res = on_disk.get("result") or {}
+        self.assertTrue(res.get("persisted_truncated"))
+        self.assertTrue(res.get("success"))
+        self.assertEqual(res.get("schema"), "t30_ridge_v4")
+        self.assertNotIn("rebalance_report", res)
+        self.assertEqual((res.get("oos") or {}).get("auc"), 0.55)
+
+    def test_minute_refresh_large_result_keeps_warmup_not_rebalance(self):
+        path = os.path.join(tempfile.mkdtemp(), "minute_refresh.json")
+        slot = JobProgress(name="minute-refresh", persist_path=path)
+        jid = slot.start(kind="minute_refresh", total=10, message="强更")
+        fat = {
+            "success": True,
+            "task": "minute_refresh",
+            "mode": "full",
+            "watching_limit": 160,
+            "universe_count": 160,
+            "lookback_days": 20,
+            "period": "5",
+            "minute_warmup": {
+                "ok": True,
+                "mode": "full",
+                "warmed": 160,
+                "total": 160,
+                "timed_out": 0,
+            },
+            "status": {"codes": ["x"] * 20_000},
+        }
+        self.assertTrue(slot.finish(result=fat, job_id=jid))
+        with open(path, encoding="utf-8") as f:
+            on_disk = __import__("json").load(f)
+        res = on_disk.get("result") or {}
+        self.assertTrue(res.get("persisted_truncated"))
+        self.assertTrue(res.get("success"))
+        self.assertEqual((res.get("minute_warmup") or {}).get("warmed"), 160)
+        self.assertNotIn("status", res)
+        self.assertNotIn("rebalance_report", res)
+
+    def test_bars_refresh_large_result_keeps_bars_refresh(self):
+        path = os.path.join(tempfile.mkdtemp(), "bars_refresh.json")
+        slot = JobProgress(name="bars-refresh", persist_path=path)
+        jid = slot.start(kind="bars_refresh", total=10, message="日线")
+        fat = {
+            "success": True,
+            "task": "bars_refresh",
+            "mode": "topup",
+            "watching_limit": 160,
+            "universe_count": 160,
+            "lookback": 600,
+            "bars_refresh": {
+                "mode": "topup",
+                "total": 160,
+                "cache_count": 150,
+                "gap_count": 10,
+            },
+            "status": {"rows": list(range(20_000))},
+        }
+        self.assertTrue(slot.finish(result=fat, job_id=jid))
+        with open(path, encoding="utf-8") as f:
+            on_disk = __import__("json").load(f)
+        res = on_disk.get("result") or {}
+        self.assertTrue(res.get("persisted_truncated"))
+        self.assertEqual((res.get("bars_refresh") or {}).get("gap_count"), 10)
+        self.assertNotIn("status", res)
+        self.assertNotIn("rebalance_report", res)
 
 
 if __name__ == "__main__":

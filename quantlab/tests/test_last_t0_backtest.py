@@ -239,8 +239,9 @@ class TestStartT0BacktestJob(unittest.TestCase):
             "from_holdings": True,
             "ok_count": 1,
         }
+        # 勿 force_fail 真实运行中的槽（会冲掉 UI 进度）
         if t0_backtest_job.is_running():
-            t0_backtest_job.force_fail("test-reset")
+            self.skipTest("t0_backtest_job already running")
         with patch.object(svc, "run_t0_backtest", return_value=dict(fake)):
             out = svc.start_t0_backtest_job(from_paper=True, lookback=10)
             self.assertTrue(out.get("background"))

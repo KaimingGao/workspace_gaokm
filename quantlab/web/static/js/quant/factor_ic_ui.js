@@ -519,6 +519,70 @@ export function createFactorIcUi(deps) {
     z_co_dist_to_up_limit: "距涨停 %",
     z_co_yest_gap: "昨隔夜缺口 %",
     z_co_on_ma5: "近5日隔夜缺口均 %",
+    // ŷ_τ* alpha_τh / raw_ath_*（与 ATH_FEAT_LABELS 对齐；旧包无 feat_labels 时仍可读）
+    raw_ath_GAP: "跳空 %",
+    raw_ath_GAP_ABS: "|跳空| %",
+    raw_ath_RET_OT: "开→τ %",
+    raw_ath_RET_PT: "昨收→τ %",
+    raw_ath_OPEN0: "今开/昨收",
+    raw_ath_CLOSE0: "τ价/昨收",
+    raw_ath_TAU_IN_YRANGE: "τ价在昨高低位置",
+    raw_ath_GAP_VS_YRANGE: "跳空/昨振幅",
+    raw_ath_GAP_ATR: "跳空/ATR",
+    raw_ath_ABOVE_YHIGH: "今开破昨高",
+    raw_ath_BELOW_YLOW: "今开破昨低",
+    raw_ath_NEAR_UPLIMIT: "距涨停",
+    raw_ath_NEAR_DNLIMIT: "距跌停",
+    raw_ath_YRANGE_PCT: "昨振幅占比",
+    raw_ath_YCLOSE_LOC: "昨收位置",
+    raw_ath_YVOL_Z20: "昨量 Z20",
+    raw_ath_YHIGH0: "昨高/昨收",
+    raw_ath_YLOW0: "昨低/昨收",
+    raw_ath_YBODY: "昨实体占比",
+    raw_ath_YKLEN: "昨振幅占比",
+    raw_ath_YUPPER_SHARE: "昨上影占比",
+    raw_ath_YLOWER_SHARE: "昨下影占比",
+    raw_ath_MOM3_C: "近3日收盘动量",
+    raw_ath_RET_LAST_5M: "近5m 收益 %",
+    raw_ath_RET_LAST_15M: "近15m 收益 %",
+    raw_ath_SESSION_ELAPSED: "已过交易分钟（09:30=0）",
+    raw_ath_SESSION_REMAIN: "距收盘剩余交易分钟",
+    raw_ath_SESSION_VWAP_DEV: "τ价相对会话VWAP %",
+    raw_ath_VOL_LAST3_VS_AVG: "近3根量/均量",
+    raw_ath_REALIZED_VOL: "前缀已实现波动 %",
+    raw_ath_TAU_ELAPSED_MIN: "τ距开盘分钟",
+    raw_ath_RET_LAST_30: "近30交易分钟收益 %",
+    raw_ath_RET_LAST_45: "近45交易分钟收益 %",
+    raw_ath_RET_LAST_60: "近60交易分钟收益 %",
+    raw_ath_RET_LAST_75: "近75交易分钟收益 %",
+    raw_ath_RET_LAST_90: "近90交易分钟收益 %",
+    raw_ath_VOL_LAST_30_VS_AVG: "近30m量/前缀均量",
+    raw_ath_VOL_LAST_45_VS_AVG: "近45m量/前缀均量",
+    raw_ath_VOL_LAST_60_VS_AVG: "近60m量/前缀均量",
+    raw_ath_VOL_LAST_75_VS_AVG: "近75m量/前缀均量",
+    raw_ath_VOL_LAST_90_VS_AVG: "近90m量/前缀均量",
+    raw_ath_CROSSES_LUNCH: "未来30m是否跨午休",
+    raw_ath_CROSSES_LUNCH_45: "未来45m是否跨午休",
+    raw_ath_CROSSES_LUNCH_60: "未来60m是否跨午休",
+    raw_ath_CROSSES_LUNCH_75: "未来75m是否跨午休",
+    raw_ath_CROSSES_LUNCH_90: "未来90m是否跨午休",
+    raw_ath_SECTOR_RET_LAST_30: "板块中位近30m %",
+    raw_ath_SECTOR_RET_LAST_45: "板块中位近45m %",
+    raw_ath_SECTOR_RET_LAST_60: "板块中位近60m %",
+    raw_ath_SECTOR_RET_LAST_75: "板块中位近75m %",
+    raw_ath_SECTOR_RET_LAST_90: "板块中位近90m %",
+    raw_ath_RET_LAST_30_VS_SECTOR: "近30m相对板块 %",
+    raw_ath_RET_LAST_45_VS_SECTOR: "近45m相对板块 %",
+    raw_ath_RET_LAST_60_VS_SECTOR: "近60m相对板块 %",
+    raw_ath_RET_LAST_75_VS_SECTOR: "近75m相对板块 %",
+    raw_ath_RET_LAST_90_VS_SECTOR: "近90m相对板块 %",
+    raw_ath_RET_LAST_H: "本头短窗收益 %",
+    raw_ath_VOL_LAST_H_VS_AVG: "本头短窗量/均量",
+    raw_ath_CROSSES_LUNCH_H: "本头窗是否跨午休",
+    raw_ath_SECTOR_RET_LAST_H: "本头板块中位短窗 %",
+    raw_ath_RET_LAST_H_VS_SECTOR: "本头短窗相对板块 %",
+    raw_ath_H_LAG1: "本头同钟 lag1",
+    raw_ath_H_MA5: "本头同钟 ma5",
     // 与 factor_registry 对齐的兜底中文（meta 未加载时仍可读）
     momentum: "动量",
     volume_price: "量价",
@@ -543,14 +607,23 @@ export function createFactorIcUi(deps) {
     idio_momentum: "特异动量",
   };
 
-  function remFactorDisplayLabel(name) {
+  function remFactorDisplayLabel(name, featLabels) {
     const key = String(name || "").trim();
     if (!key) return "—";
+    const fromRm =
+      featLabels && typeof featLabels === "object" && featLabels[key] != null
+        ? String(featLabels[key]).trim()
+        : "";
+    if (fromRm && fromRm !== key) return fromRm;
     const meta = factorMetaByName[key] || {};
     const fromMeta = meta.label != null ? String(meta.label).trim() : "";
     // meta 若仍是英文键名，继续兜底
     if (fromMeta && fromMeta !== key) return fromMeta;
-    return REM_FEAT_LABELS[key] || fromMeta || key;
+    let lab = REM_FEAT_LABELS[key];
+    // z_τh_* / z_τc_* 与裸名共用中文（用前缀长度，勿写死 4）
+    if (!lab && key.startsWith("z_τh_")) lab = REM_FEAT_LABELS[key.slice("z_τh_".length)];
+    if (!lab && key.startsWith("z_τc_")) lab = REM_FEAT_LABELS[key.slice("z_τc_".length)];
+    return lab || fromMeta || key;
   }
 
   const LAG_FEAT_CANON = {};
@@ -589,7 +662,7 @@ export function createFactorIcUi(deps) {
       isOoRank &&
       (_ooBe === "ridge" || (_ooSolver === "ridge" && !rm.booster_b64));
     const isOoRankGain = isOoRank && !isOoRankRidge;
-    // ŷ_oo_rank 画 Ridge 包时并入 LambdaRank gain；ŷ_τ* 画 Ridge 时并入 Tree gain
+    // ŷ_oo_rank 画 Ridge 包时并入 LambdaRank gain；ŷ_τ* 画 Ridge 时并入 LightGBM gain
     const isOoDual = isOoRank && isOoRankRidge;
     const isT30 = opts.head === "t30";
     const isT45 = opts.head === "t45";
@@ -767,27 +840,51 @@ export function createFactorIcUi(deps) {
       seenCanon.add(name);
       canonActive.push(name);
     }
+    const featLabels =
+      rm.feat_labels && typeof rm.feat_labels === "object" ? rm.feat_labels : null;
+    const remBareName = (name) => {
+      const n = String(name || "");
+      for (const p of ["z_τh_", "z_τc_", "z_co_", "z_oo_"]) {
+        if (n.startsWith(p)) return n.slice(p.length);
+      }
+      return n;
+    };
     let rows = canonActive
       .map((name) => {
         const ols = pickNamedNum(coefs, name);
         if (ols == null) return null;
         const mu = pickNamedNum(means, name);
         const sd = pickNamedNum(stds, name);
+        const bare = remBareName(name);
         let kind;
-        if (histLagExtra.has(name)) {
+        if (histLagExtra.has(name) || histLagExtra.has(bare)) {
           kind = "历史";
         } else if (isPath) {
-          if (remMinuteExtra.has(name)) kind = "分钟";
-          else if (pathExtra.has(name) || remOpenExtra.has(name)) kind = "开盘";
+          if (remMinuteExtra.has(name) || remMinuteExtra.has(bare)) kind = "分钟";
+          else if (
+            pathExtra.has(name) ||
+            pathExtra.has(bare) ||
+            remOpenExtra.has(name) ||
+            remOpenExtra.has(bare)
+          )
+            kind = "开盘";
           else kind = "其它";
         } else if (isCo) {
-          if (histLagExtra.has(name)) kind = "历史";
-          else if (onOpenExtra.has(name)) kind = "开盘";
-          else if (onPathExtra.has(name)) kind = "路径";
+          if (histLagExtra.has(name) || histLagExtra.has(bare)) kind = "历史";
+          else if (onOpenExtra.has(name) || onOpenExtra.has(bare)) kind = "开盘";
+          else if (onPathExtra.has(name) || onPathExtra.has(bare)) kind = "路径";
           else kind = "其它";
-        } else if (remMinuteExtra.has(name)) {
+        } else if (
+          name.startsWith("raw_ath_") ||
+          name.startsWith("raw_atc_") ||
+          name.startsWith("raw_aoo_")
+        ) {
+          kind = "衍生";
+        } else if (remMinuteExtra.has(name) || remMinuteExtra.has(bare)) {
           kind = "分钟";
-        } else if (remOpenExtra.has(name)) {
+        } else if (remOpenExtra.has(name) || remOpenExtra.has(bare)) {
+          kind = "开盘";
+        } else if (name.startsWith("z_τh_") || name.startsWith("z_τc_")) {
           kind = "开盘";
         } else {
           kind = "日线";
@@ -797,7 +894,7 @@ export function createFactorIcUi(deps) {
           label:
             isCo && CO_FEAT_META[name] && CO_FEAT_META[name].label
               ? CO_FEAT_META[name].label
-              : remFactorDisplayLabel(name),
+              : remFactorDisplayLabel(name, featLabels),
           ols,
           abs: Math.abs(ols),
           kind,
@@ -833,12 +930,25 @@ export function createFactorIcUi(deps) {
     }
     const hasOoGain = isDual && Object.keys(gainByKey).length > 0;
     rows = rows
-      .map((r) => ({
-        ...r,
-        share: (r.abs / absSum) * 100,
-        gainShare:
-          hasOoGain && gainByKey[r.name] != null ? gainByKey[r.name] : null,
-      }))
+      .map((r) => {
+        let gShare = null;
+        if (hasOoGain) {
+          if (gainByKey[r.name] != null) gShare = gainByKey[r.name];
+          else {
+            const bare = remBareName(r.name);
+            if (bare && bare !== r.name && gainByKey[bare] != null) {
+              gShare = gainByKey[bare];
+            } else if (isHorizon) {
+              gShare = 0;
+            }
+          }
+        }
+        return {
+          ...r,
+          share: (r.abs / absSum) * 100,
+          gainShare: gShare,
+        };
+      })
       .sort((a, b) => b.abs - a.abs)
       .map((r, i) => ({ ...r, rank: i + 1 }));
     if (!rows.length) {
@@ -910,6 +1020,7 @@ export function createFactorIcUi(deps) {
     const openN = rows.filter((r) => r.kind === "开盘" || r.kind === "路径").length;
     const minuteN = rows.filter((r) => r.kind === "分钟").length;
     const histN = rows.filter((r) => r.kind === "历史").length;
+    const derivedN = rows.filter((r) => r.kind === "衍生").length;
     const extraList = [
       ...new Set(
         (Array.isArray(rm.extra_features) ? rm.extra_features : [])
@@ -972,40 +1083,42 @@ export function createFactorIcUi(deps) {
     const csIcTip = "对齐 Qlib IC：每日截面 Pearson 再对日平均";
     const csRankTip = "对齐 Qlib Rank IC：每日截面 Spearman 再对日平均";
 
-    // 样本 n / Holdout / 训·测：提到「按 |β| 降序…」之前（ŷ_oo / ŷ_τc / ŷ_co 等共用）
-    const sampleKpis = isOoRank
-      ? ""
-      : (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
-        (oos.holdout_trading_days != null &&
-        Number.isFinite(Number(oos.holdout_trading_days))
-          ? kpi(
-              "Holdout",
-              `${Number(oos.holdout_trading_days)}日`,
-              "近 N 个交易日不进训练（Holdout）"
-            )
-          : "") +
-        (oos.n_train != null && Number.isFinite(Number(oos.n_train))
-          ? kpi(
-              "训 n",
-              Number(oos.n_train).toLocaleString("en-US"),
-              "Holdout 前训练集"
-            )
-          : "") +
-        (oos.n_test != null && Number.isFinite(Number(oos.n_test))
-          ? kpi(
-              "测 n",
-              Number(oos.n_test).toLocaleString("en-US"),
-              "Holdout 样本外"
-            )
-          : "");
+    // 样本 n / Holdout / 训·测：ŷ_oo / ŷ_τc / ŷ_co 挂表头；
+    // ŷ_oo_rank / ŷ_τ* 已在上方 OOS 对照板，此处不下
+    const sampleKpis =
+      isOoRank || isHorizon
+        ? ""
+        : (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
+          (oos.holdout_trading_days != null &&
+          Number.isFinite(Number(oos.holdout_trading_days))
+            ? kpi(
+                "Holdout",
+                `${Number(oos.holdout_trading_days)}日`,
+                "近 N 个交易日不进训练（Holdout）"
+              )
+            : "") +
+          (oos.n_train != null && Number.isFinite(Number(oos.n_train))
+            ? kpi(
+                "训 n",
+                Number(oos.n_train).toLocaleString("en-US"),
+                "Holdout 前训练集"
+              )
+            : "") +
+          (oos.n_test != null && Number.isFinite(Number(oos.n_test))
+            ? kpi(
+                "测 n",
+                Number(oos.n_test).toLocaleString("en-US"),
+                "Holdout 样本外"
+              )
+            : "");
     const sampleRow = sampleKpis
       ? `<div class="quant-rem-coef-sample" role="group" aria-label="样本与 Holdout">` +
         sampleKpis +
         `</div>`
       : "";
 
-    // ŷ_oo_rank：样本 n / 训 / Holdout / L2 / 入模等 KPI 下掉（对照在上方 OOS 板）
-    const metrics = isOoRank
+    // ŷ_oo_rank / ŷ_τ*：基率·λ·AUC·入模等 KPI 下掉（对照在上方 OOS 板）
+    const metrics = isOoRank || isHorizon
       ? ""
       : `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
         isPath
@@ -1142,7 +1255,9 @@ export function createFactorIcUi(deps) {
           ? `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
           : isCo
             ? `路径 ${openN}`
-            : `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
+            : isHorizon
+              ? `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN} · 衍生 ${derivedN}`
+              : `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
       ) +
       kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数") +
       (exclN > 0 ? kpi("省略", exclN, omitTip) : "") +
@@ -1226,16 +1341,17 @@ export function createFactorIcUi(deps) {
             .join("")}</span>` +
           `</div>`
         : "";
-    // ŷ_oo_rank：标签在区块说明（section-desc），因子表上不再重复 y 公式行
-    const specY = isOoRank
-      ? ""
-      : `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
-        `<span class="quant-rem-coef-spec-k">y</span>` +
-        `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
-        (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
-        `</div>`;
+    // ŷ_oo_rank / ŷ_τ*：标签在区块说明（section-desc），因子表上不再重复 y 公式行
+    const specY =
+      isOoRank || isHorizon
+        ? ""
+        : `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
+          `<span class="quant-rem-coef-spec-k">y</span>` +
+          `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
+          (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
+          `</div>`;
     const specRow =
-      isOoRank && !specTau && !metrics
+      (isOoRank || isHorizon) && !specTau && !metrics
         ? ""
         : `<div class="quant-rem-coef-spec" role="group" aria-label="${esc(
             `${yhatTag} 标签与 OOS`
@@ -1255,7 +1371,9 @@ export function createFactorIcUi(deps) {
                 ? "is-open"
                 : k === "分钟"
                   ? "is-minute"
-                  : "is-eod";
+                  : k === "衍生"
+                    ? "is-derived"
+                    : "is-eod";
             return `<span class="quant-rem-leg ${cls}">${esc(k)}</span>`;
           })
           .join("")
@@ -1267,7 +1385,10 @@ export function createFactorIcUi(deps) {
           ? `<span class="quant-rem-leg is-open">路径</span>`
           : `<span class="quant-rem-leg is-open">开盘</span>` +
             `<span class="quant-rem-leg is-minute">分钟</span>` +
-            `<span class="quant-rem-leg is-eod">历史</span>`;
+            `<span class="quant-rem-leg is-eod">历史</span>` +
+            (isHorizon
+              ? `<span class="quant-rem-leg is-derived">衍生</span>`
+              : "");
     const headLegend =
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
       (isOoRankGain
@@ -1336,11 +1457,37 @@ export function createFactorIcUi(deps) {
       return n.toFixed(2);
     };
 
+    /** 入模 canon 键（z_* / raw_*）主列显示英文键；中文只进 tip */
+    const remShowsEnglishKey = (name) => {
+      const n = String(name || "");
+      return (
+        n.startsWith("z_τh_") ||
+        n.startsWith("z_τc_") ||
+        n.startsWith("z_oo_") ||
+        n.startsWith("z_co_") ||
+        n.startsWith("raw_ath_") ||
+        n.startsWith("raw_atc_") ||
+        n.startsWith("raw_aoo_")
+      );
+    };
+
     const remFactorFallbackTip = (r) => {
-      const zh = REM_FEAT_LABELS[r.name];
-      const shown =
-        r.kind === "历史" && zh ? zh : r.label || r.name || "因子";
-      const key = r.name ? `（${r.name}）` : "";
+      const nm = String(r.name || "");
+      const zh = remFactorDisplayLabel(nm, featLabels);
+      const engPrimary = remShowsEnglishKey(nm);
+      // 主列已是英文键时 tip 用中文；否则 tip 用中文并挂英文键
+      const shown = engPrimary
+        ? zh && zh !== nm
+          ? zh
+          : nm || "因子"
+        : r.kind === "历史" && zh && zh !== nm
+          ? zh
+          : r.label || nm || "因子";
+      const key = engPrimary
+        ? ""
+        : nm && shown !== nm
+          ? `（${nm}）`
+          : "";
       if (isCo) {
         return `${shown}${key}：T-1 路径 / 开盘 Z，用于估 open[T+1]/close[T]−1。正 β 表示该值偏高时 ŷ_co 更高。`;
       }
@@ -1356,31 +1503,41 @@ export function createFactorIcUi(deps) {
       if (isOoRank) {
         return `${shown}${key}：开锚 alpha_oo（raw_aoo_* · ≤T−1 + 今开）。gain 为 LambdaRank 分裂贡献份额；β 为同窗 Ridge。`;
       }
-      if (String(r.name || "").startsWith("raw_atc_")) {
+      if (nm.startsWith("z_τh_")) {
+        return `${shown}${key}：ŷ_τ* Z（z_τh_* · 开盘/截面 + 非 OC 分钟 + τ lag）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
+      }
+      if (nm.startsWith("raw_ath_")) {
+        return `${shown}${key}：τ 窗 alpha_τh（raw_ath_* · ≤T−1 + price[τ]；轻量 GAP/YK + 短窗升格）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
+      }
+      if (nm.startsWith("raw_atc_")) {
         return `${shown}${key}：τ 锚 alpha_tc（raw_atc_* · ≤T−1 + price[τ]）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
       }
-      if (String(r.name || "").startsWith("raw_aoo_")) {
+      if (nm.startsWith("raw_aoo_")) {
         return `${shown}${key}：开锚 alpha_oo（raw_aoo_* · ≤T−1 + 今开）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
       }
       return `${shown}${key}：T−1 日线因子。正 β 表示该值偏高时 ${yhatTag} 更高。`;
     };
 
-    const factorCell = (r) =>
-      `<span class="quant-rem-factor">` +
-      `<span class="quant-rem-rank" title="${isOoRankGain ? "gain 排名" : "|β| 排名"}">${esc(String(r.rank))}</span>` +
-      `<span class="quant-rem-factor-main">${factorNameCellHtml(
-        r.name,
-        r.label,
-        remFactorFallbackTip(r)
-      )}</span>` +
-      `</span>`;
+    const factorCell = (r) => {
+      const display = remShowsEnglishKey(r.name) ? r.name : r.label || r.name;
+      return (
+        `<span class="quant-rem-factor">` +
+        `<span class="quant-rem-rank" title="${isOoRankGain ? "gain 排名" : "|β| 排名"}">${esc(String(r.rank))}</span>` +
+        `<span class="quant-rem-factor-main">${factorNameCellHtml(
+          r.name,
+          display,
+          remFactorFallbackTip(r)
+        )}</span>` +
+        `</span>`
+      );
+    };
 
     // 列宽：因子 flex 16rem/2 · 类型 88 · μ/σ 112 · β 300（各头一致）· gain%/|β|% 340（同宽）
     // 列序：因子 · 类型 · μ · σ · [gain%] · β · [|β|%]（oo_rank 双训无 |β|%）
     const betaW = 300;
     const shareW = 340;
     const gainHeadTip = isHorizon
-      ? "Tree 增益份额（全特征归一化 Σ≈100%；条长相对 Top 表最大）"
+      ? "LightGBM 增益份额（全特征归一化 Σ≈100%；条长相对 Top 表最大）"
       : "LambdaRank 增益份额（全特征归一化 Σ≈100%；条长相对 Top 表最大，对齐 v2 ŷ_oo）";
     const gainCol = hasOoGain
       ? [
@@ -1479,7 +1636,7 @@ export function createFactorIcUi(deps) {
       }
       const pct = Number(r.gainShare);
       const w = Math.max(6, Math.min(100, (pct / maxGainShare) * 100));
-      const gainEngine = isHorizon ? "Tree" : "LambdaRank";
+      const gainEngine = isHorizon ? "LightGBM" : "LambdaRank";
       return (
         `<div class="quant-rem-share-cell" title="${esc(
           `${gainEngine} gain 份额 ${fmtGainPct(pct)}%（全特征归一化 Σ≈100%；条长相对 Top 表最大）`
@@ -1502,7 +1659,9 @@ export function createFactorIcUi(deps) {
             ? "is-open"
             : r.kind === "分钟"
               ? "is-minute"
-              : "is-eod";
+              : r.kind === "衍生"
+                ? "is-derived"
+                : "is-eod";
         const kindTip = isCo
           ? "T 日路径 / 开盘 Z（ŷ_co 头）"
           : r.kind === "分钟"
@@ -1511,7 +1670,9 @@ export function createFactorIcUi(deps) {
               ? "开盘/截面特征"
               : r.kind === "历史"
                 ? "PIT 历史真实标签（不含当日）"
-                : "T−1 日线因子";
+                : r.kind === "衍生"
+                  ? "量价衍生 raw_*（alpha_oo / alpha_tc / alpha_th）"
+                  : "T−1 日线因子";
         return (
           `<span class="quant-rem-kind-chip ${chipClass}" title="${esc(kindTip)}">${esc(
             r.kind
@@ -1589,33 +1750,32 @@ export function createFactorIcUi(deps) {
     const headTitle = isTcRank
       ? String(headTitle0).replaceAll("ŷ_oo_rank", "ŷ_τc_rank")
       : headTitle0;
-    const headSub = isOoRank
-      ? isOoRankGain
-        ? `按 gain 降序 · 归一化份额 · 默认 Top${topN}${
-            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-          }`
-        : isDual
-          ? hasOoGain
-            ? `gain% + β（Σ≈100%）· 按 |β| 降序 · Top${topN}${
-                restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-              }`
-            : `Ridge β · 按 |β| 降序 · 默认 Top${topN}${
-                restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-              }`
-          : `按 |β| 降序 · 默认 Top${topN}${
+    // ŷ_τ*：副标题（gain%/|β|/TopN/折叠）也下掉，表头只留「因子表」
+    const headSub = isHorizon
+      ? ""
+      : isOoRank
+        ? isOoRankGain
+          ? `按 gain 降序 · 归一化份额 · 默认 Top${topN}${
               restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
             }`
-      : isHorizon && isDual && hasOoGain
-        ? `Tree gain% + Ridge β · 按 |β| 降序 · Top${topN}${
-            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-          }`
-      : useProbKpis
-        ? `按 |β| 降序 · logit · 默认 Top${topN}${
-            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-          }`
-        : `按 |β| 降序 · 默认 Top${topN}${
-            restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
-          }`;
+          : isDual
+            ? hasOoGain
+              ? `gain% + β（Σ≈100%）· 按 |β| 降序 · Top${topN}${
+                  restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+                }`
+              : `Ridge β · 按 |β| 降序 · 默认 Top${topN}${
+                  restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+                }`
+            : `按 |β| 降序 · 默认 Top${topN}${
+                restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+              }`
+        : useProbKpis
+          ? `按 |β| 降序 · logit · 默认 Top${topN}${
+              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+            }`
+          : `按 |β| 降序 · 默认 Top${topN}${
+              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+            }`;
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +

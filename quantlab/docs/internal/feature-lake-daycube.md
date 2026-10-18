@@ -188,6 +188,10 @@ load_portfolio_stock_bars
       └─ 全量 collect → sync L1
   → （oo）cubes_from_stacked_panel 物化多日 DayCube
   → Ridge / LambdaRank（cross_section_zscore_matrix 或读 cube）
+
+# ŷ_τ*（t30…t90）另路径：quant_service_factors 分批读 5m
+#   → build_tau_panels_from_bars（label_heads + ProcessPool）→ enrich → dual fit
+#   不经 collect_tau_compact / DayCube
 ```
 
 ### 5.2 历史回测（paper_replay）

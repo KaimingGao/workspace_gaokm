@@ -321,7 +321,18 @@ def predict_p_up_rows(
                 if (fit.get("coefficients") or {}).get(n) is not None
             ]
             if names:
-                rows = cross_section_zscore_dicts(xs, names, row_dates)
+                try:
+                    from core.signal.factors.z_th import stamp_z_th_aliases
+
+                    stamped = []
+                    for r in xs:
+                        row = dict(r) if isinstance(r, dict) else {}
+                        stamp_z_th_aliases(row)
+                        stamped.append(row)
+                    xs_use = stamped
+                except Exception:  # noqa: BLE001
+                    xs_use = xs
+                rows = cross_section_zscore_dicts(xs_use, names, row_dates)
     logits = _predict_rows(fit, rows, impute_missing=impute_missing)
     return [sigmoid(p) if p is not None else None for p in logits]
 
@@ -419,6 +430,19 @@ def select_horizon_backend(
     return "ridge"
 
 
+def _horizon_oos_side_usable(side: Any) -> bool:
+    """嵌套 oos.ridge / oos.tree 是否含可用晋级指标（空 dict 不算）。"""
+    if not isinstance(side, dict) or not side:
+        return False
+    return (
+        side.get("auc") is not None
+        or side.get("acc_at_50") is not None
+        or side.get("sign_hit") is not None
+        or side.get("n_test") is not None
+        or side.get("n_valid") is not None
+    )
+
+
 def resolve_horizon_oos_for_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """取晋级闸用的 OOS：双 backend 时用胜出侧，否则用扁平 ``oos``。"""
     rep = report if isinstance(report, dict) else {}
@@ -431,13 +455,15 @@ def resolve_horizon_oos_for_gate(report: Optional[Dict[str, Any]]) -> Dict[str, 
         or oos.get("recommended_backend")
         or ""
     ).strip().lower()
-    if rec in ("tree", "ridge") and isinstance(oos.get(rec), dict):
+    if rec in ("tree", "ridge") and _horizon_oos_side_usable(oos.get(rec)):
         return dict(oos[rec])
     # 兼容：扁平 winner 指标叠在 oos 顶层（含 auc）
     if oos.get("auc") is not None or oos.get("acc_at_50") is not None:
         return dict(oos)
-    if isinstance(oos.get("ridge"), dict):
+    if _horizon_oos_side_usable(oos.get("ridge")):
         return dict(oos["ridge"])
+    if _horizon_oos_side_usable(oos.get("tree")):
+        return dict(oos["tree"])
     return dict(oos)
 
 

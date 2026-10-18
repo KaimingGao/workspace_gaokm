@@ -236,6 +236,13 @@ def _rescore_tau(
     if not names:
         names = list(raws[0].keys())
     allow = normalize_score_codes(score_codes)
+    try:
+        from core.signal.factors.z_tc import stamp_z_tc_aliases
+
+        for r in raws:
+            stamp_z_tc_aliases(r)
+    except Exception:  # noqa: BLE001
+        logger.debug("tau rescore stamp failed", exc_info=True)
     z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
     for slot, z_row, raw in zip(slots, z_rows, raws):
         item = items[slot]
@@ -299,6 +306,13 @@ def _rescore_co(
     if not names:
         names = list(raws[0].keys())
     allow = normalize_score_codes(score_codes)
+    try:
+        from core.signal.factors.z_co import stamp_z_co_aliases
+
+        for r in raws:
+            stamp_z_co_aliases(r)
+    except Exception:  # noqa: BLE001
+        logger.debug("co rescore stamp failed", exc_info=True)
     z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
     for slot, z_row, raw in zip(slots, z_rows, raws):
         item = items[slot]

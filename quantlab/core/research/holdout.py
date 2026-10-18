@@ -249,8 +249,21 @@ def make_research_model(train_fit: Dict[str, Any]) -> Dict[str, Any]:
     return research
 
 
+def _usable_fit_return_model(rm: Any) -> bool:
+    """Ridge 系数包，或 horizon Tree（feature_names + booster）包。"""
+    if not isinstance(rm, dict):
+        return False
+    if rm.get("coefficients") or rm.get("intercept") is not None:
+        return True
+    if rm.get("feature_names") and (
+        isinstance(rm.get("booster"), dict) or rm.get("booster_b64")
+    ):
+        return True
+    return False
+
+
 def select_fit_return_model(report: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
-    """从拟合/草稿报告取唯一 Holdout 前训 β（多键仅为兼容别名，应同系数）。"""
+    """从拟合/草稿报告取唯一 Holdout 前训包（Ridge β 或 Tree booster）。"""
     if not isinstance(report, Mapping):
         return None
     for key in (
@@ -260,9 +273,7 @@ def select_fit_return_model(report: Mapping[str, Any]) -> Optional[Dict[str, Any
         "model",
     ):
         rm = report.get(key)
-        if isinstance(rm, dict) and (
-            rm.get("coefficients") or rm.get("intercept") is not None
-        ):
+        if _usable_fit_return_model(rm):
             return dict(rm)
     return None
 
