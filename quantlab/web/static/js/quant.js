@@ -120,7 +120,7 @@ export function initQuant(ctx) {
     hydrateCrossSectionZParams,
     readTauEndFitParams,
     formatTauEndBit,
-    applyTauEndHm,
+    restoreTauEndFromFitReport,
     hydrateTauEndParams,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
@@ -226,7 +226,7 @@ export function initQuant(ctx) {
     clampHorizonDays, syncHorizonInputs, readHorizonDays, readRidgeLambda, readClusterK,
     readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays,
     readCrossSectionFitParams, formatCrossSectionZBit,
-    readTauEndFitParams, formatTauEndBit, applyTauEndHm,
+    readTauEndFitParams, formatTauEndBit,
     setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
     factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
@@ -1608,6 +1608,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t30-summary");
       if (!sum) return;
+      restoreTauEndFromFitReport(data);
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1645,6 +1646,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t45-summary");
       if (!sum) return;
+      restoreTauEndFromFitReport(data);
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1681,6 +1683,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t60-summary");
       if (!sum) return;
+      restoreTauEndFromFitReport(data);
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1717,6 +1720,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t75-summary");
       if (!sum) return;
+      restoreTauEndFromFitReport(data);
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1753,6 +1757,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t90-summary");
       if (!sum) return;
+      restoreTauEndFromFitReport(data);
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1789,12 +1794,9 @@ export function initQuant(ctx) {
       const res = await fetch("/api/quant/tc-ridge/model");
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-tau-summary");
+      // 前缀滑条：按各头最新拟合 tau_end_hm 恢复
+      restoreTauEndFromFitReport(data);
       if (!data.exists) {
-        const lastEnd =
-          (data.last_report && data.last_report.tau_end_hm) ||
-          data.tau_end_hm ||
-          "";
-        if (lastEnd && typeof applyTauEndHm === "function") applyTauEndHm(lastEnd);
         paintRidgeEnableStatus(sum, data);
         syncTauPersistBtn(data.promote_gate, {
           hasReport: !!data.last_report_exists,
@@ -1804,14 +1806,6 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      const endHm =
-        data.tau_end_hm ||
-        (data.y_spec && data.y_spec.tau_end_hm) ||
-        (data.return_model &&
-          data.return_model.y_spec &&
-          data.return_model.y_spec.tau_end_hm) ||
-        "";
-      if (endHm && typeof applyTauEndHm === "function") applyTauEndHm(endHm);
       const painted = paintRidgeEnableStatus(sum, data);
       const chip = painted.chip;
       syncTauPersistBtn(gate, { hasReport: true });
@@ -2597,9 +2591,7 @@ export function initQuant(ctx) {
         return;
       }
       const oos = data.oos || {};
-      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
-        applyTauEndHm(data.tau_end_hm);
-      }
+      restoreTauEndFromFitReport(data);
       const packBit =
         data.feature_pack ||
         `alpha_τc(Z∪atc×${
@@ -3129,9 +3121,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
-        applyTauEndHm(data.tau_end_hm);
-      }
+      restoreTauEndFromFitReport(data);
       syncT30PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT30FitSummary(data);
@@ -3329,9 +3319,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
-        applyTauEndHm(data.tau_end_hm);
-      }
+      restoreTauEndFromFitReport(data);
       syncT45PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT45FitSummary(data);
@@ -3528,9 +3516,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
-        applyTauEndHm(data.tau_end_hm);
-      }
+      restoreTauEndFromFitReport(data);
       syncT60PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT60FitSummary(data);
@@ -3727,9 +3713,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
-        applyTauEndHm(data.tau_end_hm);
-      }
+      restoreTauEndFromFitReport(data);
       syncT75PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT75FitSummary(data);
@@ -3926,9 +3910,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      if (data.tau_end_hm && typeof applyTauEndHm === "function") {
-        applyTauEndHm(data.tau_end_hm);
-      }
+      restoreTauEndFromFitReport(data);
       syncT90PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT90FitSummary(data);

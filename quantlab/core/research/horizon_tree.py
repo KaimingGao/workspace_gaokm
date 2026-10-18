@@ -624,22 +624,22 @@ def fit_horizon_tree_report(
     learning_rate: float = None,  # type: ignore[assignment]
     subsample: float = None,  # type: ignore[assignment]
     enriched_panels: Optional[Sequence[Dict[str, Any]]] = None,
+    compact_panel: Optional[Dict[str, Any]] = None,
+    calendar_dates: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """按 head 拟合 horizon 树头 + Ridge OOS 对照。不写 live / 研究套模型。
 
-    ``enriched_panels``：双训预建面板（跳过再灌分钟线）。
+    ``enriched_panels``：双训预建面板（入模前折 float64）。
+    ``compact_panel``：已折好的紧凑矩阵（双训共用，优先）。
     """
     import time
 
     import numpy as np
 
-    from core.research.horizon_ridge import build_horizon_enriched_panels
-    from core.research.tc_ridge import (
-        _stack_panels,
-        _subset,
-        _theme_counts,
-    )
-    from core.signal.factors.z_th import Z_TH_FIT_DROP_ALIASES, stamp_z_th_rows
+    from core.research.horizon_compact import compact_subset
+    from core.research.horizon_ridge import prepare_horizon_compact
+    from core.research.tc_ridge import _theme_counts
+    from core.signal.factors.z_th import Z_TH_FIT_DROP_ALIASES
     from core.research.horizon_lgb import (
         DEFAULT_LEARNING_RATE,
         DEFAULT_MAX_DEPTH,
@@ -653,7 +653,7 @@ def fit_horizon_tree_report(
         _lgb_train_kwargs,
         _oos_pack,
         _predict_lightgbm,
-        prepare_lgb_features,
+        prepare_lgb_features_matrix,
         resolve_tree_backend,
     )
 
@@ -670,7 +670,6 @@ def fit_horizon_tree_report(
     h = cfg["head"]
     num = cfg["num"]
     z_features = cfg["z_features"]
-    train_tau_grid = cfg["train_tau_grid"]
     schema = cfg["schema"]
     head_label = cfg["head_label"]
     target = cfg["target"]
@@ -682,25 +681,24 @@ def fit_horizon_tree_report(
 
     t0 = time.perf_counter()
     t_panel0 = time.perf_counter()
-    if enriched_panels is not None:
-        enriched = list(enriched_panels)
-        live_hm = str(tau_hm or "10:30").strip() or "10:30"
-        if live_hm.lower() in ("", "open"):
-            live_hm = "10:30"
-        grid = list(tau_grid) if tau_grid is not None else list(train_tau_grid)
-    else:
-        bundle = build_horizon_enriched_panels(
-            head,
-            stock_bars,
-            min_history=min_history,
-            gap_trigger_pct=gap_trigger_pct,
-            tau_hm=tau_hm,
-            tau_grid=tau_grid,
-        )
-        enriched = list(bundle["enriched"] or [])
-        live_hm = str(bundle["live_hm"])
-        grid = list(bundle["tau_grid"] or [])
-    xs, ys, dates, metas = _stack_panels(enriched)
+    prepared = prepare_horizon_compact(
+        head,
+        stock_bars,
+        enriched_panels=enriched_panels,
+        compact_panel=compact_panel,
+        min_history=min_history,
+        gap_trigger_pct=gap_trigger_pct,
+        tau_hm=tau_hm,
+        tau_grid=tau_grid,
+    )
+    compact = prepared["compact"]
+    live_hm = str(prepared["live_hm"])
+    grid = list(prepared["tau_grid"] or [])
+
+    ys = list(compact.get("ys") or [])
+    dates = list(compact.get("dates") or [])
+    metas = list(compact.get("metas") or [])
+    stock_count = int(compact.get("stock_count") or 0)
     panel_s = round(time.perf_counter() - t_panel0, 2)
     if len(ys) < 20:
         return {
@@ -709,7 +707,7 @@ def fit_horizon_tree_report(
             "task": f"{h}_tree",
             "head": head_label,
             "sample_count": len(ys),
-            "stock_count": len(enriched),
+            "stock_count": stock_count,
             "tau": live_hm,
             "tau_grid": list(grid),
             "schema": schema,
@@ -717,8 +715,6 @@ def fit_horizon_tree_report(
             "backtest_hook": False,
         }
 
-    stamp_z_th_rows(xs)
-    xs_z = [{k: (row or {}).get(k) for k in tree_z_features} for row in xs]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -727,15 +723,24 @@ def fit_horizon_tree_report(
     )
 
     hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    cal = (
+        list(calendar_dates)
+        if calendar_dates is not None
+        else calendar_dates_from_stock_bars(stock_bars)
+    )
     train_idx, test_idx, split_meta = resolve_ridge_split(
         dates,
         holdout_trading_days=hold_n,
-        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+        calendar_dates=cal,
     )
-    xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
-    xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
     feat_names = [k for k in tree_z_features if k not in Z_TH_FIT_DROP_ALIASES]
     ridge_feat_names = [k for k in z_features if k not in Z_TH_FIT_DROP_ALIASES]
+    ys_tr = [ys[i] for i in train_idx]
+    ys_te = [ys[i] for i in test_idx]
+    metas_tr = [metas[i] for i in train_idx]
+    metas_te = [metas[i] for i in test_idx]
+    dates_tr = [dates[i] for i in train_idx]
+    dates_te = [dates[i] for i in test_idx]
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
@@ -748,13 +753,15 @@ def fit_horizon_tree_report(
             "backtest_hook": False,
         }
 
-    x_tr, x_te, means, z_hyper = prepare_lgb_features(
-        xs_tr,
-        xs_te,
+    x_tr, x_te, means, z_hyper = prepare_lgb_features_matrix(
+        compact.get("X"),
+        compact.get("names") or feat_names,
         feat_names,
+        train_idx,
+        test_idx,
         feature_zscore=True,
-        train_dates=[dates[i] for i in train_idx],
-        test_dates=[dates[i] for i in test_idx],
+        train_dates=dates_tr,
+        test_dates=dates_te,
     )
     y_tr = np.asarray(binary_labels(ys_tr), dtype=np.float64)
     w_tr = np.asarray(
@@ -807,6 +814,8 @@ def fit_horizon_tree_report(
     )
 
     t_ridge0 = time.perf_counter()
+    xs_tr, _, _, _ = compact_subset(compact, train_idx, names=ridge_feat_names)
+    xs_te, _, _, _ = compact_subset(compact, test_idx, names=ridge_feat_names)
     _, ridge_preds = _fit_ridge_oos(
         xs_tr,
         ys_tr,
@@ -818,8 +827,8 @@ def fit_horizon_tree_report(
         theme_boost=theme_boost,
         use_theme_weights=use_theme_weights,
         kind="prob",
-        dates_tr=[dates[i] for i in train_idx],
-        dates_te=[dates[i] for i in test_idx],
+        dates_tr=dates_tr,
+        dates_te=dates_te,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=True, kind="prob")
@@ -865,7 +874,7 @@ def fit_horizon_tree_report(
         "head": head_label,
         "schema": schema,
         "head_kind": "prob",
-        "stock_count": len(enriched),
+        "stock_count": stock_count,
         "sample_count": len(ys),
         "tau": live_hm,
         "tau_grid": list(grid),

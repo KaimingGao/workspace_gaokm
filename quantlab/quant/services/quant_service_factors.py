@@ -1030,6 +1030,7 @@ class QuantFactorMixin:
                     "live_model_present": bool(live),
                     "live_tau": (live or {}).get("tau") if live else None,
                     "promote_gate": tau_promote_gate(last),
+                    "last_report": last,
                 }
             )
             return _attach_ridge_role_flags(
@@ -1037,14 +1038,21 @@ class QuantFactorMixin:
             )
 
         if not live:
+            out = {
+                "success": False,
+                "exists": False,
+                "path": tau_model_path(),
+                "last_report_exists": bool(last),
+                "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
+            }
+            if last:
+                out["last_report"] = last
+                out["promote_gate"] = tau_promote_gate(last)
+                for k in ("tau_end_hm", "fitted_at", "y_spec", "tau_grid", "zero_prefix", "oos"):
+                    if last.get(k) is not None:
+                        out[k] = last.get(k)
             return _attach_ridge_role_flags(
-                {
-                    "success": False,
-                    "exists": False,
-                    "path": tau_model_path(),
-                    "last_report_exists": bool(last),
-                    "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
-                },
+                out,
                 tau_model_path(),
                 live_present=False,
             )
@@ -2081,6 +2089,19 @@ class QuantFactorMixin:
         )
         raw_acc.clear()
 
+        _progress(n_codes, n_codes, f"ŷ_τ{hn} 折矩阵…")
+        from core.research.horizon_compact import take_calendar_and_release
+        from core.research.horizon_ridge import prepare_horizon_compact
+
+        prepared = prepare_horizon_compact(
+            horizon,
+            enriched_panels=enriched,
+            tau_hm=tau_key,
+            tau_grid=tau_grid,
+        )
+        compact = prepared["compact"]
+        calendar = take_calendar_and_release(stock_bars)
+
         _progress(n_codes, n_codes, f"ŷ_τ{hn} Ridge+Tree 双训…")
         report = fit_horizon_dual_report(
             horizon,
@@ -2092,7 +2113,8 @@ class QuantFactorMixin:
             cross_section_zscore=bool(cross_section_zscore),
             tau_hm=tau_key,
             tau_grid=tau_grid,
-            enriched_panels=enriched,
+            compact_panel=compact,
+            calendar_dates=calendar,
         )
         report["watching_limit"] = limit
         report["universe_source"] = resolved.get("source")
@@ -2174,6 +2196,11 @@ class QuantFactorMixin:
                 out["oos"] = last.get("oos")
                 out["recommended_backend"] = last.get("recommended_backend")
                 out["backends"] = last.get("backends")
+                # 供 UI 前缀滑条按「上次拟合」恢复（无 live 时 desk 仍可读 last）
+                out["last_report"] = last
+                for k in ("tau_end_hm", "fitted_at", "y_spec", "tau_grid", "zero_prefix"):
+                    if last.get(k) is not None and out.get(k) is None:
+                        out[k] = last.get(k)
             return _attach_ridge_role_flags(out, ridge_model_path(horizon), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
         packed = {

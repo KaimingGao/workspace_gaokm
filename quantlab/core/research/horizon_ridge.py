@@ -26,8 +26,6 @@ from core.research.horizon_prob import (
     train_eval_horizon_prob,
 )
 from core.research.tc_ridge import (
-    _stack_panels,
-    _subset,
     _theme_counts,
     _theme_trigger_sensitivity,
     build_tau_panels_from_bars,
@@ -162,7 +160,7 @@ def horizon_realized_pct(head: str, price_tau: Any, price_tau_n: Any) -> Optiona
 
 
 # ---------------------------------------------------------------------------
-# 面板：双训 Ridge/Tree 共用一次，避免二次灌分钟线
+# 面板：enrich → float64 紧凑矩阵；双训 Ridge/Tree 共用一份
 # ---------------------------------------------------------------------------
 
 
@@ -182,6 +180,58 @@ def _resolve_horizon_clocks(
         else list(cfg["train_tau_grid"])
     )
     return live_hm, grid, cfg
+
+
+def prepare_horizon_compact(
+    head: str,
+    stock_bars: Sequence[Dict[str, Any]] = (),
+    *,
+    enriched_panels: Optional[Sequence[Dict[str, Any]]] = None,
+    compact_panel: Optional[Dict[str, Any]] = None,
+    min_history: int = 12,
+    gap_trigger_pct: float = 2.0,
+    tau_hm: str = "10:30",
+    tau_grid: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """解析/建面板并折成 ``HorizonCompact``。
+
+    优先 ``compact_panel``，其次 ``enriched_panels``（折完清空），否则从
+    ``stock_bars`` 建 enrich 再折。返回 ``{compact, live_hm, tau_grid, head}``。
+    """
+    from core.research.horizon_compact import fold_horizon_enriched
+
+    live_hm, grid, cfg = _resolve_horizon_clocks(
+        head, tau_hm=tau_hm, tau_grid=tau_grid
+    )
+    z_features = cfg["z_features"]
+    if compact_panel is not None:
+        compact = compact_panel
+    elif enriched_panels is not None:
+        compact = fold_horizon_enriched(
+            list(enriched_panels), z_features, clear_panels=True
+        )
+    else:
+        bundle = build_horizon_enriched_panels(
+            head,
+            stock_bars,
+            min_history=min_history,
+            gap_trigger_pct=gap_trigger_pct,
+            tau_hm=tau_hm,
+            tau_grid=tau_grid,
+        )
+        live_hm = str(bundle.get("live_hm") or live_hm)
+        grid = list(bundle.get("tau_grid") or grid)
+        compact = fold_horizon_enriched(
+            list(bundle.get("enriched") or []),
+            z_features,
+            clear_panels=True,
+        )
+    return {
+        "compact": compact,
+        "live_hm": live_hm,
+        "tau_grid": list(grid),
+        "head": cfg["head"],
+    }
 
 
 def enrich_horizon_raw_panels(
@@ -227,10 +277,10 @@ def build_horizon_enriched_panels(
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """建 ŷ_τ* 入模面板（relabel + stamp raw_ath_*），并释放 ``stock_bars`` 上的分钟线。
+    """建 ŷ_τ* enrich 面板（relabel + stamp raw_ath_*），并释放分钟线。
 
-    返回 ``{enriched, live_hm, tau_grid, head}``。``build_tau_panels_from_bars``
-    逐票 pop 分钟线；本函数结束时再扫一遍，确保双训峰值不再握着全池 5m。
+    返回 ``{enriched, live_hm, tau_grid, head}``。正式双训请走
+    ``prepare_horizon_compact``（折 float64 后共用）；本函数仅供建 raw/enrich。
     """
     live_hm, grid, cfg = _resolve_horizon_clocks(
         head, tau_hm=tau_hm, tau_grid=tau_grid
@@ -279,19 +329,26 @@ def fit_horizon_ridge_report(
     tau_grid: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
     enriched_panels: Optional[Sequence[Dict[str, Any]]] = None,
+    compact_panel: Optional[Dict[str, Any]] = None,
+    calendar_dates: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ{num}=p_up + 时间 OOS。标签 = I(mean(price(τ⊕off1/off2/off3))/price(τ)−1 > 0)。
 
     ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
-    ``enriched_panels``：双训预建面板（跳过再灌分钟线）。
+    ``enriched_panels``：双训预建面板（跳过再灌分钟线；入模前折 float64 并清空）。
+    ``compact_panel``：已折好的 ``HorizonCompact``（双训共用，优先于 enriched）。
+    ``calendar_dates``：Holdout 共用日历；缺省从 ``stock_bars`` 抽（抽完不改 bars）。
     """
+    from core.research.horizon_compact import (
+        compact_subset,
+        feature_fill_rates_matrix,
+    )
     from core.research.tau_panel import theme_sample_weights
 
     cfg = _horizon_ridge_config(head)
     h = cfg["head"]
     num = cfg["num"]
     z_features = cfg["z_features"]
-    train_tau_grid = cfg["train_tau_grid"]
     offsets = cfg["offsets"]
     schema = cfg["schema"]
     target = cfg["target"]
@@ -299,38 +356,35 @@ def fit_horizon_ridge_report(
     formula = cfg["formula"]
     lag_feat_labels = cfg["lag_feat_labels"]
 
-    if enriched_panels is not None:
-        enriched = list(enriched_panels)
-        live_hm = str(tau_hm or "10:30").strip() or "10:30"
-        if live_hm.lower() in ("", "open"):
-            live_hm = "10:30"
-        grid = list(tau_grid) if tau_grid is not None else list(train_tau_grid)
-    else:
-        bundle = build_horizon_enriched_panels(
-            head,
-            stock_bars,
-            min_history=min_history,
-            gap_trigger_pct=gap_trigger_pct,
-            tau_hm=tau_hm,
-            tau_grid=tau_grid,
-        )
-        enriched = list(bundle["enriched"] or [])
-        live_hm = str(bundle["live_hm"])
-        grid = list(bundle["tau_grid"] or [])
-    xs, ys, dates, metas = _stack_panels(enriched)
+    prepared = prepare_horizon_compact(
+        head,
+        stock_bars,
+        enriched_panels=enriched_panels,
+        compact_panel=compact_panel,
+        min_history=min_history,
+        gap_trigger_pct=gap_trigger_pct,
+        tau_hm=tau_hm,
+        tau_grid=tau_grid,
+    )
+    compact = prepared["compact"]
+    live_hm = str(prepared["live_hm"])
+    grid = list(prepared["tau_grid"] or [])
+
+    ys = list(compact.get("ys") or [])
+    dates = list(compact.get("dates") or [])
+    metas = list(compact.get("metas") or [])
+    stock_count = int(compact.get("stock_count") or 0)
     if len(ys) < 20:
         return {
             "success": False,
             "error": f"{h} 样本不足 n={len(ys)}（需≥20 且需 τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]} 三根均价）",
             "task": f"{h}_ridge",
             "sample_count": len(ys),
-            "stock_count": len(enriched),
+            "stock_count": stock_count,
             "tau_grid": list(grid),
             "minute_tau_hm": live_hm,
         }
 
-    stamp_z_th_rows(xs)
-    xs_z = [{k: (row or {}).get(k) for k in z_features} for row in xs]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -339,20 +393,29 @@ def fit_horizon_ridge_report(
     )
 
     hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    cal = (
+        list(calendar_dates)
+        if calendar_dates is not None
+        else calendar_dates_from_stock_bars(stock_bars)
+    )
     train_idx, test_idx, split_meta = resolve_ridge_split(
         dates,
         holdout_trading_days=hold_n,
-        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+        calendar_dates=cal,
     )
-    xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
-    xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
+    feat_names = [k for k in z_features if k not in Z_TH_FIT_DROP_ALIASES]
+    xs_tr, ys_tr, metas_tr, dates_tr = compact_subset(
+        compact, train_idx, names=feat_names
+    )
+    xs_te, ys_te, metas_te, dates_te = compact_subset(
+        compact, test_idx, names=feat_names
+    )
 
     weights = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
         if use_theme_weights
         else None
     )
-    feat_names = [k for k in z_features if k not in Z_TH_FIT_DROP_ALIASES]
     use_cs = bool(cross_section_zscore)
     packed = train_eval_horizon_prob(
         xs_tr,
@@ -363,8 +426,8 @@ def fit_horizon_ridge_report(
         feat_names=feat_names,
         ridge_lambda=ridge_lambda,
         weights=weights,
-        dates_tr=[dates[i] for i in train_idx] if use_cs else None,
-        dates_te=[dates[i] for i in test_idx] if use_cs else None,
+        dates_tr=dates_tr if use_cs else None,
+        dates_te=dates_te if use_cs else None,
         cross_section_zscore=use_cs,
     )
     oos: Dict[str, Any] = dict(packed.get("oos_core") or {})
@@ -388,9 +451,9 @@ def fit_horizon_ridge_report(
         }
     )
     try:
-        from core.research.oo_panel import feature_fill_rates
-
-        oos["feature_fill"] = feature_fill_rates(xs_z, z_features)
+        oos["feature_fill"] = feature_fill_rates_matrix(
+            compact.get("X"), compact.get("names") or z_features
+        )
     except Exception:  # noqa: BLE001
         logger.debug("%s feature_fill failed", h, exc_info=True)
 
@@ -446,7 +509,7 @@ def fit_horizon_ridge_report(
     report = {
         "success": True,
         "task": f"{h}_ridge",
-        "stock_count": len(enriched),
+        "stock_count": stock_count,
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
@@ -516,36 +579,43 @@ def fit_horizon_dual_report(
     learning_rate: Optional[float] = None,
     subsample: Optional[float] = None,
     enriched_panels: Optional[Sequence[Dict[str, Any]]] = None,
+    compact_panel: Optional[Dict[str, Any]] = None,
+    calendar_dates: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """同窗双训 Ridge + Tree；Holdout AUC 择优（打平→ridge）。
+    """同窗双训 Ridge + Tree（**串行**：先 Ridge 再 Tree）；Holdout AUC 择优（打平→ridge）。
 
     产出 ``backends`` / ``recommended_backend``；顶层 ``return_model`` 为胜出侧。
-    Tree / Ridge 同 X（alpha_τh）；Holdout AUC 择优（打平→ridge）。
-    面板只建一次（或传入 ``enriched_panels``），建完即丢分钟线，Ridge/Tree 共用。
+    Tree / Ridge 同 X（alpha_τh）。面板只建一次（或传入 ``enriched_panels`` /
+    ``compact_panel``），折 float64 后共用；分钟线与日线 ``bars`` 在抽日历后释放。
     """
+    from core.research.horizon_compact import (
+        release_stock_bar_payloads,
+        take_calendar_and_release,
+    )
     from core.research.horizon_lgb import _delta_oos
     from core.research.horizon_tree import fit_horizon_tree_report
 
-    if enriched_panels is not None:
-        live_hm, grid, _cfg = _resolve_horizon_clocks(
-            head, tau_hm=tau_hm, tau_grid=tau_grid
-        )
-        enriched = list(enriched_panels)
-    else:
-        panel_bundle = build_horizon_enriched_panels(
-            head,
-            stock_bars,
-            min_history=min_history,
-            gap_trigger_pct=gap_trigger_pct,
-            tau_hm=tau_hm,
-            tau_grid=tau_grid,
-        )
-        enriched = list(panel_bundle.get("enriched") or [])
-        live_hm = str(panel_bundle.get("live_hm") or tau_hm or "10:30")
-        grid = list(panel_bundle.get("tau_grid") or [])
-    for item in stock_bars or []:
-        if isinstance(item, dict):
-            item.pop("minute_bars", None)
+    prepared = prepare_horizon_compact(
+        head,
+        stock_bars,
+        enriched_panels=enriched_panels,
+        compact_panel=compact_panel,
+        min_history=min_history,
+        gap_trigger_pct=gap_trigger_pct,
+        tau_hm=tau_hm,
+        tau_grid=tau_grid,
+    )
+    compact = prepared["compact"]
+    live_hm = str(prepared["live_hm"])
+    grid = list(prepared["tau_grid"] or [])
+
+    cal = (
+        list(calendar_dates)
+        if calendar_dates is not None
+        else take_calendar_and_release(stock_bars)
+    )
+    if calendar_dates is not None:
+        release_stock_bar_payloads(stock_bars)
 
     ridge_kw: Dict[str, Any] = dict(
         ridge_lambda=ridge_lambda,
@@ -557,7 +627,8 @@ def fit_horizon_dual_report(
         tau_hm=live_hm,
         tau_grid=grid,
         cross_section_zscore=cross_section_zscore,
-        enriched_panels=enriched,
+        compact_panel=compact,
+        calendar_dates=cal,
     )
     ridge_rep = fit_horizon_ridge_report(head, stock_bars, **ridge_kw)
     if not ridge_rep.get("success"):
@@ -573,7 +644,8 @@ def fit_horizon_dual_report(
         tau_hm=live_hm,
         tau_grid=grid,
         backend="lightgbm",
-        enriched_panels=enriched,
+        compact_panel=compact,
+        calendar_dates=cal,
     )
     if n_estimators is not None:
         tree_kw["n_estimators"] = n_estimators

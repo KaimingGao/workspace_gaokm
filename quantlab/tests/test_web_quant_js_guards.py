@@ -3076,9 +3076,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-tau-end-range", css)
         self.assertIn('value="18"', panel)
         self.assertIn("DEFAULT_TAU_END_HM = \"11:00\"", params_js)
-        self.assertIn("quant_fit_tau_end_hm_v2", params_js)
+        self.assertIn("quant_fit_tau_end_hm_v3", params_js)
+        self.assertNotIn("quant_fit_tau_end_hm_v2", params_js)
         self.assertIn("readTauEndFitParams", params_js)
         self.assertIn("tau_end_hm", params_js)
+        # 刷新/拟合后按最新 last_report 恢复前缀滑条
+        self.assertIn("restoreTauEndFromFitReport", params_js)
+        self.assertIn("restoreTauEndFromFitReport(data)", js)
+        self.assertGreaterEqual(js.count("restoreTauEndFromFitReport(data)"), 6)
+        self.assertIn("刷新后恢复为各头最新拟合前缀", panel)
+        self.assertIn("无拟合记录默认 11:00", panel)
         # 前缀滑条在日截面 Z 左侧（ŷ_τc + ŷ_τ*）
         self.assertLess(
             panel.index('id="quant-fit-tau-end-tc"'),

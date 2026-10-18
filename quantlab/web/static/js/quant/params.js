@@ -62,8 +62,8 @@ const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
 
 /** ŷ_τc / ŷ_τ*：训练前缀终点 09:30…11:00（含 0 前缀）。 */
 const TAU_END_FIT_HEADS = ["tc", "t30", "t45", "t60", "t75", "t90"];
-/** v2：丢弃旧 localStorage「09:30」偏好，默认落在 11:00。 */
-const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm_v2";
+/** v3：无拟合记录时默认 11:00；刷新按各头最新 last_report 恢复；拖动/拟合会写入。 */
+const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm_v3";
 const DEFAULT_TAU_END_HM = "11:00";
 const TAU_END_CLOCKS = (() => {
   const out = [];
@@ -605,9 +605,7 @@ export function createResearchParams(opts = {}) {
       } catch (_) {}
     }
     hm = clampTauEndHm(hm);
-    try {
-      localStorage.setItem(TAU_END_STORAGE_KEY, hm);
-    } catch (_) {}
+    // 拟合读数只同步各头滑条，不写 storage（storage 仅用户拖动时写入）
     for (const head of TAU_END_FIT_HEADS) {
       _paintTauEndSlider(document.getElementById(`quant-fit-tau-end-${head}`), hm);
     }
@@ -638,15 +636,71 @@ export function createResearchParams(opts = {}) {
     return `前缀${hm}`;
   }
 
-  function applyTauEndHm(hm) {
+  function applyTauEndHm(hm, opts) {
     const clock = clampTauEndHm(hm);
-    try {
-      localStorage.setItem(TAU_END_STORAGE_KEY, clock);
-    } catch (_) {}
+    const persist = !opts || opts.persist !== false;
+    if (persist) {
+      try {
+        localStorage.setItem(TAU_END_STORAGE_KEY, clock);
+      } catch (_) {}
+    }
     for (const head of TAU_END_FIT_HEADS) {
       _paintTauEndSlider(document.getElementById(`quant-fit-tau-end-${head}`), clock);
     }
     return clock;
+  }
+
+  /** 从模型 / last_report 取训练前缀钟；无则 ""。 */
+  function pickTauEndHmFromReport(data) {
+    const src = data && typeof data === "object" ? data : {};
+    const last =
+      src.last_report && typeof src.last_report === "object" ? src.last_report : null;
+    const ySpec = src.y_spec && typeof src.y_spec === "object" ? src.y_spec : {};
+    const rm =
+      src.return_model && typeof src.return_model === "object" ? src.return_model : {};
+    const rmYs = rm.y_spec && typeof rm.y_spec === "object" ? rm.y_spec : {};
+    const lastYs =
+      last && last.y_spec && typeof last.y_spec === "object" ? last.y_spec : {};
+    const candidates = [
+      src.tau_end_hm,
+      ySpec.tau_end_hm,
+      rmYs.tau_end_hm,
+      last && last.tau_end_hm,
+      lastYs.tau_end_hm,
+    ];
+    for (const c of candidates) {
+      const s = String(c || "")
+        .trim()
+        .replace("：", ":")
+        .slice(0, 5);
+      if (TAU_END_CLOCKS.includes(s)) return s;
+    }
+    return "";
+  }
+
+  function pickTauEndStamp(data) {
+    const src = data && typeof data === "object" ? data : {};
+    const last =
+      src.last_report && typeof src.last_report === "object" ? src.last_report : {};
+    for (const k of ["fitted_at", "saved_at", "promoted_at", "updated_at"]) {
+      for (const bag of [src, last]) {
+        const t = Date.parse(String((bag && bag[k]) || ""));
+        if (Number.isFinite(t)) return t;
+      }
+    }
+    return 0;
+  }
+
+  /** 多头预填竞态：只采纳 fitted_at 更新的那次，刷新后回到「上次拟合」前缀。 */
+  let _tauEndRestoreBestTs = -1;
+
+  function restoreTauEndFromFitReport(data) {
+    const hm = pickTauEndHmFromReport(data);
+    if (!hm) return null;
+    const ts = pickTauEndStamp(data);
+    if (ts < _tauEndRestoreBestTs) return null;
+    _tauEndRestoreBestTs = ts;
+    return applyTauEndHm(hm, { persist: true });
   }
 
   function hydrateTauEndParams() {
@@ -655,6 +709,7 @@ export function createResearchParams(opts = {}) {
       const saved = localStorage.getItem(TAU_END_STORAGE_KEY);
       if (saved) hm = clampTauEndHm(saved);
     } catch (_) {}
+    // 先画 localStorage / 默认；各头 /model 预填后再按最新拟合覆盖
     for (const head of TAU_END_FIT_HEADS) {
       const el = document.getElementById(`quant-fit-tau-end-${head}`);
       if (!el) continue;
@@ -670,7 +725,7 @@ export function createResearchParams(opts = {}) {
             Math.round(Number.isFinite(raw) ? raw : DEFAULT_TAU_END_IDX)
           )
         );
-        applyTauEndHm(TAU_END_CLOCKS[idx] || DEFAULT_TAU_END_HM);
+        applyTauEndHm(TAU_END_CLOCKS[idx] || DEFAULT_TAU_END_HM, { persist: true });
       };
       el.addEventListener("input", sync);
       el.addEventListener("change", sync);
@@ -702,6 +757,8 @@ export function createResearchParams(opts = {}) {
     readTauEndFitParams,
     formatTauEndBit,
     applyTauEndHm,
+    pickTauEndHmFromReport,
+    restoreTauEndFromFitReport,
     hydrateTauEndParams,
     setPrefsHorizonDays,
     getPrefsHorizonDays,

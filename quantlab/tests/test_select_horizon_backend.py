@@ -439,8 +439,8 @@ class HorizonDualFitTests(unittest.TestCase):
             [p.get("code") for p in parallel],
         )
 
-    def test_dual_shares_enriched_panels_and_drops_minutes(self):
-        """双训只建一次面板；Tree 吃 enriched_panels，stock_bars 上不再挂分钟线。"""
+    def test_dual_shares_compact_panel_and_drops_bars(self):
+        """双训折一次矩阵共用；stock_bars 上不再挂分钟线/日线 bars。"""
         from unittest.mock import patch
 
         from core.research.horizon_ridge import fit_horizon_dual_report
@@ -451,12 +451,23 @@ class HorizonDualFitTests(unittest.TestCase):
             _stock("C", 8.0),
             _stock("D", 15.0),
         ]
-        seen = {"tree_has_panels": False, "tree_n_minute": -1, "ridge_has_panels": False}
+        seen = {
+            "ridge_compact": False,
+            "tree_compact": False,
+            "ridge_n_minute": -1,
+            "tree_n_minute": -1,
+            "ridge_n_bars": -1,
+            "tree_n_bars": -1,
+        }
 
         def _fake_ridge(head, bars, **kwargs):
-            seen["ridge_has_panels"] = kwargs.get("enriched_panels") is not None
+            cp = kwargs.get("compact_panel")
+            seen["ridge_compact"] = isinstance(cp, dict) and cp.get("X") is not None
             seen["ridge_n_minute"] = sum(
                 1 for it in bars if isinstance(it, dict) and it.get("minute_bars")
+            )
+            seen["ridge_n_bars"] = sum(
+                1 for it in bars if isinstance(it, dict) and it.get("bars")
             )
             return {
                 "success": True,
@@ -472,10 +483,13 @@ class HorizonDualFitTests(unittest.TestCase):
             }
 
         def _fake_tree(head, bars, **kwargs):
-            panels = kwargs.get("enriched_panels")
-            seen["tree_has_panels"] = panels is not None and len(list(panels or [])) > 0
+            cp = kwargs.get("compact_panel")
+            seen["tree_compact"] = isinstance(cp, dict) and cp.get("X") is not None
             seen["tree_n_minute"] = sum(
                 1 for it in bars if isinstance(it, dict) and it.get("minute_bars")
+            )
+            seen["tree_n_bars"] = sum(
+                1 for it in bars if isinstance(it, dict) and it.get("bars")
             )
             return {
                 "success": True,
@@ -505,12 +519,17 @@ class HorizonDualFitTests(unittest.TestCase):
                 tau_grid=["09:30", "09:50", "10:30", "11:15"],
             )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertTrue(seen["ridge_has_panels"])
-        self.assertTrue(seen["tree_has_panels"])
+        self.assertTrue(seen["ridge_compact"])
+        self.assertTrue(seen["tree_compact"])
         self.assertEqual(seen["ridge_n_minute"], 0)
         self.assertEqual(seen["tree_n_minute"], 0)
+        self.assertEqual(seen["ridge_n_bars"], 0)
+        self.assertEqual(seen["tree_n_bars"], 0)
         self.assertTrue(
-            all(not (isinstance(it, dict) and it.get("minute_bars")) for it in stock_bars)
+            all(
+                not (isinstance(it, dict) and (it.get("minute_bars") or it.get("bars")))
+                for it in stock_bars
+            )
         )
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")

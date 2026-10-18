@@ -206,24 +206,17 @@ def _design_matrix(
     return x, means_out
 
 
-def prepare_lgb_features(
-    xs_tr: Sequence[dict],
-    xs_te: Sequence[dict],
+def _finalize_lgb_xy(
+    x_raw_tr: np.ndarray,
+    x_raw_te: np.ndarray,
     feat_names: Sequence[str],
     *,
-    feature_zscore: bool = True,
-    train_dates: Optional[Sequence[str]] = None,
-    test_dates: Optional[Sequence[str]] = None,
+    feature_zscore: bool,
+    train_dates: Optional[Sequence[str]],
+    test_dates: Optional[Sequence[str]],
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
-    """折 panel → 训/测矩阵。有日期时按当天截面 z-score，否则用训练集总体 μ/σ。
-
-    返回 ``(x_tr, x_te, impute_means, hyper_patch)``；``hyper_patch`` 含
-    ``feature_zscore`` / ``zscore_means`` / ``zscore_stds``，并入树 hyperparams。
-    """
     from core.research.feature_standardize import annotate_feature_zscore
 
-    x_raw_tr, _ = _design_matrix(xs_tr, feat_names, impute=False)
-    x_raw_te, _ = _design_matrix(xs_te, feat_names, impute=False)
     patch: Dict[str, Any] = {}
     names = [str(n) for n in feat_names]
     if (
@@ -260,6 +253,66 @@ def prepare_lgb_features(
     annotate_feature_zscore(patch, False)
     return x_tr, x_te, means, patch
 
+
+def prepare_lgb_features(
+    xs_tr: Sequence[dict],
+    xs_te: Sequence[dict],
+    feat_names: Sequence[str],
+    *,
+    feature_zscore: bool = True,
+    train_dates: Optional[Sequence[str]] = None,
+    test_dates: Optional[Sequence[str]] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
+    """折 panel → 训/测矩阵。有日期时按当天截面 z-score，否则用训练集总体 μ/σ。
+
+    返回 ``(x_tr, x_te, impute_means, hyper_patch)``；``hyper_patch`` 含
+    ``feature_zscore`` / ``zscore_means`` / ``zscore_stds``，并入树 hyperparams。
+    """
+    x_raw_tr, _ = _design_matrix(xs_tr, feat_names, impute=False)
+    x_raw_te, _ = _design_matrix(xs_te, feat_names, impute=False)
+    return _finalize_lgb_xy(
+        x_raw_tr,
+        x_raw_te,
+        feat_names,
+        feature_zscore=feature_zscore,
+        train_dates=train_dates,
+        test_dates=test_dates,
+    )
+
+
+def prepare_lgb_features_matrix(
+    X: np.ndarray,
+    col_names: Sequence[str],
+    feat_names: Sequence[str],
+    train_idx: Sequence[int],
+    test_idx: Sequence[int],
+    *,
+    feature_zscore: bool = True,
+    train_dates: Optional[Sequence[str]] = None,
+    test_dates: Optional[Sequence[str]] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
+    """从紧凑 ``X`` 按列切片训/测，避免先物化 dict 行。"""
+    arr = np.asarray(X, dtype=np.float64)
+    name_index = {str(n): i for i, n in enumerate(col_names)}
+    cols = [name_index[str(n)] for n in feat_names if str(n) in name_index]
+    if not cols:
+        p = len(feat_names)
+        empty_tr = np.zeros((len(train_idx), p), dtype=np.float64)
+        empty_te = np.zeros((len(test_idx), p), dtype=np.float64)
+        return empty_tr, empty_te, np.zeros(p, dtype=np.float64), {}
+    tr = np.asarray(list(train_idx), dtype=np.intp)
+    te = np.asarray(list(test_idx), dtype=np.intp)
+    x_raw_tr = np.ascontiguousarray(arr[tr][:, cols])
+    x_raw_te = np.ascontiguousarray(arr[te][:, cols])
+    used = [str(n) for n in feat_names if str(n) in name_index]
+    return _finalize_lgb_xy(
+        x_raw_tr,
+        x_raw_te,
+        used,
+        feature_zscore=feature_zscore,
+        train_dates=train_dates,
+        test_dates=test_dates,
+    )
 
 def _oos_pack(
     preds: Sequence[Optional[float]],
