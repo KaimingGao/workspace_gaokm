@@ -8,6 +8,7 @@ from core.platform.job_progress import (  # noqa: F401
     chat_job,
     co_ridge_job,
     job_registry,
+    materialize_job,
     minute_refresh_job,
     paper_job,
     portfolio_backtest_job,

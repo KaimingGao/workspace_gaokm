@@ -337,7 +337,9 @@ def attach_slot_fit_portrait_scores(
 
         live = dict(snap) if isinstance(snap, dict) else {}
         # 尚无因果源：按本钟前缀重算（跳过/预留不足路径也要对齐拟合钟）
-        need_rescore = str(live.get("_score_source") or "") != "prefix_causal"
+        # prefix_light / prefix_causal 已是该钟前缀结果，勿二算
+        _src = str(live.get("_score_source") or "")
+        need_rescore = _src not in ("prefix_causal", "prefix_light")
         code = str(stock_code or row.get("stock_code") or "").strip()
         cfg = cfg_day if isinstance(cfg_day, dict) else {}
         if need_rescore and code:
@@ -372,7 +374,7 @@ def attach_slot_fit_portrait_scores(
             if packed_day.get(k) is not None:
                 sc[k] = packed_day.get(k)
                 live[k] = packed_day.get(k)
-        if str(live.get("_score_source") or "") != "prefix_causal":
+        if str(live.get("_score_source") or "") not in ("prefix_causal", "prefix_light"):
             # 仍标记为该钟前缀画像（拟合对照），即使重算失败只靠 open_snap 预测
             if sc.get("y_tau_portrait_oc") is not None:
                 live["_score_source"] = live.get("_score_source") or "slot_portrait"
@@ -855,8 +857,12 @@ def _build_close_band_scan_trace(
     hist_bars: Optional[Sequence[dict]],
     tau_pool_day: Optional[dict],
     trigger_hms: Optional[set] = None,
+    prefix_snaps_by_hm: Optional[dict] = None,
 ) -> List[dict]:
-    """截止钟前每根 5m：OLHC + ŷ_τw / ŷ_τ30…（debug 展开用；跟 ``t0_last_leg1_hm``）。"""
+    """截止钟前每根 5m：OLHC + ŷ_τw / ŷ_τ30…（debug 展开用；跟 ``t0_last_leg1_hm``）。
+
+    ``prefix_snaps_by_hm``：开轮扫描已算过的前缀 snap（hm→dict），命中则不再 rescore。
+    """
     from core.t0.close_band import (
         bar_close_band_pick_direction,
         blend_y_tw_from_scores,
@@ -885,6 +891,7 @@ def _build_close_band_scan_trace(
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
     triggers = set(trigger_hms or ())
+    reused = prefix_snaps_by_hm if isinstance(prefix_snaps_by_hm, dict) else {}
     rows: List[dict] = []
 
     for idx, mb in enumerate(mins):
@@ -902,8 +909,12 @@ def _build_close_band_scan_trace(
             continue
 
         live_snap = open_snap
-        is_open_hm = str(hm or "")[:5] == "09:30"
-        if code and not is_open_hm:
+        hm_key = str(hm or "")[:5]
+        is_open_hm = hm_key == "09:30"
+        cached = reused.get(hm_key) if hm_key else None
+        if isinstance(cached, dict):
+            live_snap = cached
+        elif code and not is_open_hm:
             try:
                 live_snap = rescore_scores_at_fixed_prefix(
                     stock_code=code,
@@ -1120,6 +1131,7 @@ def _attach_close_band_scan(
     hist_bars: Optional[Sequence[dict]],
     tau_pool_day: Optional[dict],
     slot_outs: Sequence[dict],
+    prefix_snaps_by_hm: Optional[dict] = None,
 ) -> dict:
     trace = _build_close_band_scan_trace(
         minute_bars=minute_bars,
@@ -1131,6 +1143,7 @@ def _attach_close_band_scan(
         hist_bars=hist_bars,
         tau_pool_day=tau_pool_day,
         trigger_hms=_collect_close_band_trigger_hms(slot_outs),
+        prefix_snaps_by_hm=prefix_snaps_by_hm,
     )
     if trace:
         day_out["close_band_scan"] = trace
@@ -1277,6 +1290,8 @@ def simulate_t0_day_slots(
     last_tplus1_skip: Optional[str] = None
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
+    # 开轮已算前缀 → 扫槽复用，避免同 hm 二算
+    prefix_snaps: Dict[str, dict] = {}
 
     if space.get("skip_reason"):
         ps = day_price_space_payload(
@@ -1353,7 +1368,8 @@ def simulate_t0_day_slots(
 
         live_snap = open_snap
         # 仅 09:30 允许无分钟、用开盘 Z；其后每根须前缀重算，缺小包=数据缺失
-        is_open_hm = str(hm or "")[:5] == "09:30"
+        hm_key = str(hm or "")[:5]
+        is_open_hm = hm_key == "09:30"
         if code and not is_open_hm:
             try:
                 live_snap = rescore_scores_at_fixed_prefix(
@@ -1389,6 +1405,8 @@ def simulate_t0_day_slots(
                     live_snap = scored
             except Exception:  # noqa: BLE001
                 logger.debug("close-band open-bar rescore failed", exc_info=True)
+        if hm_key and isinstance(live_snap, dict):
+            prefix_snaps[hm_key] = live_snap
 
         snap_for_gate = live_snap if isinstance(live_snap, dict) else open_snap
         if (
@@ -1396,7 +1414,7 @@ def simulate_t0_day_slots(
             and (
                 snap_for_gate.get("_minute_data_missing")
                 or str(snap_for_gate.get("y_hl_status") or snap_for_gate.get("y_path_status") or "").strip()
-                == "minute_data_missing"
+                    == "minute_data_missing"
             )
             and not is_open_hm
         ):
@@ -1639,6 +1657,7 @@ def simulate_t0_day_slots(
         hist_bars=hist_bars,
         tau_pool_day=tau_pool_day,
         slot_outs=outs,
+        prefix_snaps_by_hm=prefix_snaps,
     )
 
 

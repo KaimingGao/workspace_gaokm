@@ -2658,6 +2658,177 @@ class QuantFactorMixin:
             "job": bars_refresh_job.get(),
         }
 
+    def materialize_catalog(self) -> Dict[str, Any]:
+        from core.research.materialize import catalog_payload
+
+        return {"success": True, "ok": True, **catalog_payload()}
+
+    def run_materialize(
+        self,
+        *,
+        families: Optional[List[str]] = None,
+        clocks: Optional[List[str]] = None,
+        do_l1: bool = True,
+        do_l1_tau_grid: bool = False,
+        do_l2: bool = True,
+        lookback: Optional[int] = None,
+        l2_lookback_days: int = 60,
+        watching_limit: int = WATCHING_MAX_SIZE,
+        progress_cb: Optional[Any] = None,
+        cancel_cb: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """同步物化 L1/L2（可选 τ 网格 L1）。"""
+        from core.data.policy import BARS_DAILY_LOOKBACK
+        from core.research.materialize import run_materialize
+
+        return run_materialize(
+            families=families,
+            clocks=clocks,
+            do_l1=bool(do_l1),
+            do_l1_tau_grid=bool(do_l1_tau_grid),
+            do_l2=bool(do_l2),
+            lookback=int(lookback or BARS_DAILY_LOOKBACK),
+            l2_lookback_days=int(l2_lookback_days or 60),
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
+            progress_cb=progress_cb,
+            cancel_cb=cancel_cb,
+        )
+
+    def start_materialize_job(
+        self,
+        *,
+        families: Optional[List[str]] = None,
+        clocks: Optional[List[str]] = None,
+        do_l1: bool = True,
+        do_l1_tau_grid: bool = False,
+        do_l2: bool = True,
+        lookback: Optional[int] = None,
+        l2_lookback_days: int = 60,
+        watching_limit: int = WATCHING_MAX_SIZE,
+    ) -> Dict[str, Any]:
+        """后台 Job：物化 L1/L2；轮询 ``GET /api/jobs/materialize-l1l2``。"""
+        import threading
+
+        from core.data.policy import BARS_DAILY_LOOKBACK
+        from core.job_progress import materialize_job
+        from quant.research.watching_universe import clamp_watching_limit
+
+        materialize_job.reclaim_if_stale()
+        # open / τ / 混合 分 kind，避免日线与分钟线互抢同一 in-flight 结果
+        if do_l1_tau_grid and not do_l1:
+            job_kind = "materialize_tau"
+        elif do_l1 and not do_l1_tau_grid:
+            job_kind = "materialize_open"
+        else:
+            job_kind = "materialize_l1l2"
+        if materialize_job.is_running():
+            running = materialize_job.get() or {}
+            running_kind = str(running.get("kind") or "")
+            if running_kind and running_kind != job_kind:
+                return {
+                    "ok": False,
+                    "success": False,
+                    "error": f"物化进行中（{running_kind}），与本次 {job_kind} 冲突，请稍后再试",
+                    "job": running,
+                }
+            return {
+                "ok": True,
+                "success": True,
+                "background": True,
+                "reused": True,
+                "job": running,
+            }
+
+        watch_limit = clamp_watching_limit(
+            watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE
+        )
+        steps = (1 if do_l1 else 0) + (1 if do_l1_tau_grid else 0) + (1 if do_l2 else 0)
+        job_id = materialize_job.start(
+            kind=job_kind,
+            total=max(1, steps),
+            message="排队中…",
+        )
+
+        def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+            t = max(1, int(tot or steps or 2))
+            c = max(0, min(t, int(cur or 0)))
+            # 子阶段若仍报 current=0，保留已有进度，避免 zero_progress_stuck 误杀
+            try:
+                prev = int((materialize_job.get() or {}).get("current") or 0)
+            except Exception:  # noqa: BLE001
+                prev = 0
+            if c <= 0 and prev > 0:
+                c = prev
+                t = max(t, prev)
+            materialize_job.update(
+                current=c,
+                total=t,
+                message=str(msg or "物化…"),
+                job_id=job_id,
+            )
+
+        def _worker() -> None:
+            stop_hb = threading.Event()
+
+            def _heartbeat() -> None:
+                while not stop_hb.wait(8.0):
+                    if not materialize_job.touch(job_id=job_id):
+                        return
+
+            hb = threading.Thread(
+                target=_heartbeat, name=f"mat-hb-{job_id}", daemon=True
+            )
+            hb.start()
+            try:
+                if materialize_job.is_cancel_requested():
+                    materialize_job.finish(error="已取消", job_id=job_id)
+                    return
+
+                def _pcb(c: int, t: int, m: str = "") -> None:
+                    _progress(m, c, t)
+
+                def _cancel() -> bool:
+                    return bool(materialize_job.is_cancel_requested())
+
+                result = self.run_materialize(
+                    families=families,
+                    clocks=clocks,
+                    do_l1=do_l1,
+                    do_l1_tau_grid=do_l1_tau_grid,
+                    do_l2=do_l2,
+                    lookback=int(lookback or BARS_DAILY_LOOKBACK),
+                    l2_lookback_days=int(l2_lookback_days or 60),
+                    watching_limit=watch_limit,
+                    progress_cb=_pcb,
+                    cancel_cb=_cancel,
+                )
+                if materialize_job.is_cancel_requested():
+                    materialize_job.finish(error="已取消", job_id=job_id)
+                    return
+                if not result.get("success"):
+                    materialize_job.finish(
+                        error=str(result.get("error") or "物化失败"),
+                        result=result,
+                        job_id=job_id,
+                    )
+                    return
+                materialize_job.finish(result=result, job_id=job_id)
+            except Exception as e:
+                logger.exception("unexpected error in materialize worker")
+                materialize_job.finish(error=str(e), job_id=job_id)
+            finally:
+                stop_hb.set()
+
+        threading.Thread(
+            target=_worker, name=f"mat-{job_id}", daemon=True
+        ).start()
+        return {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "job": materialize_job.get(),
+        }
+
     def minute_status(
         self,
         *,

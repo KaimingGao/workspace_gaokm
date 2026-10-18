@@ -741,6 +741,13 @@ def fit_horizon_tree_report(
     metas_te = [metas[i] for i in test_idx]
     dates_tr = [dates[i] for i in train_idx]
     dates_te = [dates[i] for i in test_idx]
+    try:
+        from core.research.horizon_compact import cs_groups_from_dates_metas
+
+        groups_tr = cs_groups_from_dates_metas(dates_tr, metas_tr)
+        groups_te = cs_groups_from_dates_metas(dates_te, metas_te)
+    except Exception:  # noqa: BLE001
+        groups_tr, groups_te = dates_tr, dates_te
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
@@ -760,8 +767,8 @@ def fit_horizon_tree_report(
         train_idx,
         test_idx,
         feature_zscore=True,
-        train_dates=dates_tr,
-        test_dates=dates_te,
+        train_dates=groups_tr,
+        test_dates=groups_te,
     )
     y_tr = np.asarray(binary_labels(ys_tr), dtype=np.float64)
     w_tr = np.asarray(
@@ -827,8 +834,8 @@ def fit_horizon_tree_report(
         theme_boost=theme_boost,
         use_theme_weights=use_theme_weights,
         kind="prob",
-        dates_tr=dates_tr,
-        dates_te=dates_te,
+        dates_tr=groups_tr,
+        dates_te=groups_te,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=True, kind="prob")

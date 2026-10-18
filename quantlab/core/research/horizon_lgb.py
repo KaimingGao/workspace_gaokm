@@ -224,16 +224,12 @@ def _finalize_lgb_xy(
         and train_dates is not None
         and len(train_dates) == int(x_raw_tr.shape[0])
     ):
-        from core.research.feature_standardize import (
-            cross_section_zscore_matrix,
-            stamp_cross_section_zscore,
-        )
+        from core.research.feature_standardize import stamp_cross_section_zscore
+        from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
 
-        x_tr = cross_section_zscore_matrix(x_raw_tr, train_dates)
-        x_tr = np.where(np.isfinite(x_tr), x_tr, 0.0)
+        x_tr = cs_z_matrix_prefer_cube(x_raw_tr, names, train_dates)
         if test_dates is not None and len(test_dates) == int(x_raw_te.shape[0]):
-            x_te = cross_section_zscore_matrix(x_raw_te, test_dates)
-            x_te = np.where(np.isfinite(x_te), x_te, 0.0)
+            x_te = cs_z_matrix_prefer_cube(x_raw_te, names, test_dates)
         else:
             x_te = np.where(np.isfinite(x_raw_te), x_raw_te, 0.0)
         means = np.zeros(int(x_tr.shape[1]), dtype=np.float64)
@@ -590,7 +586,12 @@ def _fit_ridge_oos(
         if is_cross_section_zscore(fit):
             names = [str(n) for n in (fit.get("active_features") or [])]
             if names:
-                rows_te = cross_section_zscore_dicts(xs_te, names, dates_te)
+                try:
+                    from core.research.materialize.cube_z import cs_z_dicts_prefer_cube
+
+                    rows_te = cs_z_dicts_prefer_cube(xs_te, names, dates_te)
+                except Exception:  # noqa: BLE001
+                    rows_te = cross_section_zscore_dicts(xs_te, names, dates_te)
     preds_dm = _predict_rows(fit, rows_te) if xs_te else []
     preds = [
         (float(p) + y_mean) if p is not None else None for p in (preds_dm or [])

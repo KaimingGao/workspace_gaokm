@@ -55,7 +55,8 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertIn("tau-ridge", names)
         self.assertNotIn("tc-ridge", names)
         self.assertIn("t0-backtest", names)
-        # 满池 Ridge / 回测：墙钟长，stuck_start 须够长（90min）以免误杀
+        self.assertIn("materialize-l1l2", names)
+        # 满池 Ridge / 回测 / 物化：墙钟长，stuck_start 须够长（90min）以免误杀
         for slot_name in (
             "t30-ridge",
             "t60-ridge",
@@ -63,6 +64,7 @@ class TestA2JobRuntime(unittest.TestCase):
             "co-ridge",
             "tau-ridge",
             "t0-backtest",
+            "materialize-l1l2",
         ):
             pol = next(p for p in policies if p["slot"] == slot_name)
             self.assertGreaterEqual(float(pol.get("stale_sec") or 0), 5400.0, slot_name)

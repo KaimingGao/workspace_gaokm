@@ -844,9 +844,11 @@ export function installWatching(q) {
       const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
       const applyQuoteBatch = (items) => {
         const byCode = indexByWatchingCode(items || []);
+        const patches = {};
         codes.forEach((code) => {
           const it = byCode[watchingCodeKey(code)] || {};
-          if (!it.stock_code) return;
+          // 超时占位 ok:false 不回写，避免把已有现价/名称刷成「—」
+          if (!it.stock_code || !it.ok) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
           const insight = (state.watchingInsightByCode || {})[watchingCodeKey(code)];
@@ -858,11 +860,19 @@ export function installWatching(q) {
               { getData: () => ({ ...(row.getData() || {}), ...quotePatch }) },
               insightDeps
             );
-            row.update({ ...quotePatch, ...scorePatch });
+            patches[code] = { ...quotePatch, ...scorePatch };
           } else {
-            row.update(quotePatch);
+            patches[code] = quotePatch;
           }
         });
+        if (typeof state.watchingGrid.patchRows === "function") {
+          state.watchingGrid.patchRows(patches);
+        } else {
+          Object.keys(patches).forEach((code) => {
+            const row = state.watchingGrid.getRow(code);
+            if (row) row.update(patches[code]);
+          });
+        }
         return (items || []).filter((x) => x.ok).length;
       };
       setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
@@ -903,15 +913,23 @@ export function installWatching(q) {
         });
         return;
       }
-      // 剩余：后台补齐（失败仅告警，不覆盖首批已回填行）
+      // 剩余按 40 只一批。服务端整请求 12s 超时，一次塞几百只会整批变占位「—」。
+      const QUOTE_CHUNK = 40;
       if (restCodes.length) {
-        try {
-          const data2 = await fetchQuoteBatch(restCodes, 20000);
-          totalOk += applyQuoteBatch(data2.items || []);
-          sortWatchingTableRows();
-        } catch (_) {
-          /* 首批已回填，剩余失败仅降级 */
+        for (let i = 0; i < restCodes.length; i += QUOTE_CHUNK) {
+          const chunk = restCodes.slice(i, i + QUOTE_CHUNK);
+          setWatchingRefreshStatus(
+            `行情 ${totalOk}/${codes.length} · 补齐 ${Math.min(i + chunk.length, restCodes.length)}/${restCodes.length}…`,
+            { busy: true, owner: "quotes" }
+          );
+          try {
+            const dataN = await fetchQuoteBatch(chunk, 15000);
+            totalOk += applyQuoteBatch(dataN.items || []);
+          } catch (_) {
+            /* 本批超时跳过，已回填行保留 */
+          }
         }
+        sortWatchingTableRows();
       }
       if (totalOk === 0) {
         setWatchingRefreshStatus("行情暂不可用，请稍后刷新", {

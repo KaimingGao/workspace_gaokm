@@ -332,7 +332,12 @@ def predict_p_up_rows(
                     xs_use = stamped
                 except Exception:  # noqa: BLE001
                     xs_use = xs
-                rows = cross_section_zscore_dicts(xs_use, names, row_dates)
+                try:
+                    from core.research.materialize.cube_z import cs_z_dicts_prefer_cube
+
+                    rows = cs_z_dicts_prefer_cube(xs_use, names, row_dates)
+                except Exception:  # noqa: BLE001
+                    rows = cross_section_zscore_dicts(xs_use, names, row_dates)
     logits = _predict_rows(fit, rows, impute_missing=impute_missing)
     return [sigmoid(p) if p is not None else None for p in logits]
 
@@ -670,7 +675,12 @@ def fit_logistic_ridge_from_panel(
     xs_irls = xs
     if is_cross_section_zscore(ols) and row_dates is not None and len(row_dates) == len(xs):
         # IRLS 与推理同口径：先日截面 z，再按 μ=0/σ=1 入模
-        xs_irls = cross_section_zscore_dicts(xs, active, row_dates)
+        try:
+            from core.research.materialize.cube_z import cs_z_dicts_prefer_cube
+
+            xs_irls = cs_z_dicts_prefer_cube(xs, active, row_dates)
+        except Exception:  # noqa: BLE001
+            xs_irls = cross_section_zscore_dicts(xs, active, row_dates)
     rows_x: List[List[float]] = []
     rows_y: List[float] = []
     rows_w: List[float] = []

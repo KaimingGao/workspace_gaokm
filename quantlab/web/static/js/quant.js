@@ -82,6 +82,9 @@ const { installStrategy } = await import(
 const { installBarsUi } = await import(
   `./quant/bars_ui.js?v=${encodeURIComponent(_QV)}`
 );
+const { installMaterializeUi, installMinuteMaterializeUi } = await import(
+  `./quant/materialize_ui.js?v=${encodeURIComponent(_QV)}`
+);
 const { installMinuteUi } = await import(
   `./quant/minute_ui.js?v=${encodeURIComponent(_QV)}`
 );
@@ -256,6 +259,8 @@ export function initQuant(ctx) {
   // 先 hydrate 观察池只数，日线/5m Coverage 首刷 await watchingPoolLimitReady
   const researchUniverse = installResearchUniverseUi(q);
   const barsUi = installBarsUi(q);
+  installMaterializeUi(q);
+  q.installMinuteMaterializeUi = installMinuteMaterializeUi;
   const minuteUi = installMinuteUi(q);
   installBarsIntegrityUi(q);
   const strategy = installStrategy(q);

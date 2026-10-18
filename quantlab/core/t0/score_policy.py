@@ -1191,6 +1191,14 @@ def _cube_covers_horizon_names(cube: Any, names: Sequence[str]) -> bool:
     """slim gap-only cube 不能当窗头截面命中（否则分钟特征未 z 或走坏 leave-one-in）。"""
     if cube is None:
         return False
+    # 优先契约清单（Z_TH 入模列）；无则退回「模型 names 覆盖率」
+    try:
+        from core.research.materialize.horizon_names import names_cover_horizon
+
+        if names_cover_horizon(cube):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
     cube_names = {str(n) for n in (getattr(cube, "names", None) or []) if str(n or "").strip()}
     if len(cube_names) < 3:
         return False
@@ -1268,8 +1276,12 @@ def _cs_z_horizon_feats(
     head: str,
     trade_date: str,
     stock_code: str = "",
+    tau_hm: str = "",
 ) -> dict:
-    """截面模型：用观察池同伴 μ/σ 把 raw 映成日截面 z（对齐拟合）。非截面原样返回。"""
+    """截面模型：用观察池同伴 μ/σ 把 raw 映成截面 z（对齐拟合）。非截面原样返回。
+
+    ``tau_hm``：当前前缀钟；Cube 优先 ``clock=tau``，miss 再 ``open``；leave-one-in 按同钟组。
+    """
     if not isinstance(feats, dict) or not feats:
         return feats
     dkey = str(trade_date or "")[:10]
@@ -1278,6 +1290,7 @@ def _cs_z_horizon_feats(
     try:
         from core.research.feature_standardize import (
             cross_section_zscore_dicts,
+            cs_group_key,
             is_cross_section_zscore,
         )
         from core.research.horizon_ridge import load_ridge_model
@@ -1302,22 +1315,43 @@ def _cs_z_horizon_feats(
     if len(peers) < 2:
         return feats
     code = str(stock_code or "").strip()
-    # 优先 DayCube μ/σ（与拟合 / batch rescore 同 L2）；须覆盖窗头特征，拒 slim gap-only
+    hm = str(tau_hm or "").strip()[:5]
+    # H4：按钟 Cube 优先；τ 覆盖失败不静默 open，改 leave-one-in
     try:
         from core.research.day_cube import apply_cube_z_to_dicts, enabled, load_day_cube
 
         watching_codes = _watching_codes_for_z()
         if enabled() and len(watching_codes) >= 2:
-            cube = load_day_cube(dkey, watching_codes, clock="open")
-            if _cube_covers_horizon_names(cube, names):
-                src = dict(feats)
-                stamp_z_th_aliases(src)
-                z_all = apply_cube_z_to_dicts([src], [code], cube)
-                if z_all:
-                    return z_all[0]
+            clocks: List[str] = []
+            tau_only = bool(hm) and hm not in ("09:30", "0930", "open")
+            if tau_only:
+                clocks.append(hm)
+                safe = "".join(ch for ch in hm if ch.isalnum() or ch in "_-")
+                if safe and safe != hm:
+                    clocks.append(safe)
+            else:
+                clocks.append("open")
+            seen_c = set()
+            for clk in clocks:
+                if not clk or clk in seen_c:
+                    continue
+                seen_c.add(clk)
+                cube = load_day_cube(dkey, watching_codes, clock=clk)
+                if _cube_covers_horizon_names(cube, names):
+                    src = dict(feats)
+                    stamp_z_th_aliases(src)
+                    z_all = apply_cube_z_to_dicts([src], [code], cube)
+                    if z_all:
+                        logger.debug(
+                            "horizon cs-z cube hit head=%s date=%s clock=%s",
+                            head,
+                            dkey,
+                            clk,
+                        )
+                        return z_all[0]
     except Exception:  # noqa: BLE001
         logger.debug("horizon cs-z day_cube failed", exc_info=True)
-    # 池内 leave-one-in：剥开盘分钟占位；稀疏列（仅本票有值）保留 stamped，禁止打成 0/√2
+    # 池内 leave-one-in：剥开盘分钟占位；稀疏列保留 stamped
     in_pool = bool(code) and any(
         str(p.get("stock_code") or "").strip() == code for p in peers if isinstance(p, dict)
     )
@@ -1338,7 +1372,10 @@ def _cs_z_horizon_feats(
         if len(rows) >= 2:
             cs_names = [n for n in names if _finite_feat_count(rows, str(n)) >= 2]
             if cs_names:
-                z_rows = cross_section_zscore_dicts(rows, cs_names)
+                # 同钟一组（当前路径同伴多为开盘行 → 分钟列已剥，稀疏保留）
+                gkey = cs_group_key(dkey, hm)
+                groups = [gkey] * len(rows)
+                z_rows = cross_section_zscore_dicts(rows, cs_names, groups)
                 return z_rows[slot] if slot < len(z_rows) else feats
             return rows[slot] if slot < len(rows) else feats
     # 池外：μ/σ 仅观察池，不把持仓并进截面
@@ -1366,6 +1403,7 @@ def _predict_horizon_hat(
     predict_tree,
     trade_date: str = "",
     stock_code: str = "",
+    tau_hm: str = "",
 ) -> tuple:
     """返回 (p_up, model_doc, source)。
 
@@ -1384,6 +1422,7 @@ def _predict_horizon_hat(
         head=head,
         trade_date=trade_date,
         stock_code=stock_code,
+        tau_hm=tau_hm,
     )
 
     if current_horizon_prob_backend() == HORIZON_PROB_BACKEND_TREE:
@@ -1620,6 +1659,7 @@ def _attach_y_t30_to_item(
             ),
             trade_date=asof,
             stock_code=code,
+            tau_hm=hm or "",
         )
         if y_hat is None:
             return
@@ -1628,7 +1668,7 @@ def _attach_y_t30_to_item(
             item["y_τ30_source"] = src
             item["y_t30_source"] = src
         tip_feats = _cs_z_horizon_feats(
-            feats, head="t30", trade_date=asof, stock_code=code
+            feats, head="t30", trade_date=asof, stock_code=code, tau_hm=hm or ""
         )
         _stamp_horizon_formula_terms(
             item,
@@ -1739,6 +1779,7 @@ def _attach_y_t45_to_item(
             ),
             trade_date=asof,
             stock_code=code,
+            tau_hm=hm or "",
         )
         if y_hat is None:
             return
@@ -1747,7 +1788,7 @@ def _attach_y_t45_to_item(
             item["y_τ45_source"] = src
             item["y_t45_source"] = src
         tip_feats = _cs_z_horizon_feats(
-            feats, head="t45", trade_date=asof, stock_code=code
+            feats, head="t45", trade_date=asof, stock_code=code, tau_hm=hm or ""
         )
         _stamp_horizon_formula_terms(
             item,
@@ -1858,6 +1899,7 @@ def _attach_y_t60_to_item(
             ),
             trade_date=asof,
             stock_code=code,
+            tau_hm=hm or "",
         )
         if y_hat is None:
             return
@@ -1866,7 +1908,7 @@ def _attach_y_t60_to_item(
             item["y_τ60_source"] = src
             item["y_t60_source"] = src
         tip_feats = _cs_z_horizon_feats(
-            feats, head="t60", trade_date=asof, stock_code=code
+            feats, head="t60", trade_date=asof, stock_code=code, tau_hm=hm or ""
         )
         _stamp_horizon_formula_terms(
             item,
@@ -1977,6 +2019,7 @@ def _attach_y_t75_to_item(
             ),
             trade_date=asof,
             stock_code=code,
+            tau_hm=hm or "",
         )
         if y_hat is None:
             return
@@ -1985,7 +2028,7 @@ def _attach_y_t75_to_item(
             item["y_τ75_source"] = src
             item["y_t75_source"] = src
         tip_feats = _cs_z_horizon_feats(
-            feats, head="t75", trade_date=asof, stock_code=code
+            feats, head="t75", trade_date=asof, stock_code=code, tau_hm=hm or ""
         )
         _stamp_horizon_formula_terms(
             item,
@@ -2096,6 +2139,7 @@ def _attach_y_t90_to_item(
             ),
             trade_date=asof,
             stock_code=code,
+            tau_hm=hm or "",
         )
         if y_hat is None:
             return
@@ -2104,7 +2148,7 @@ def _attach_y_t90_to_item(
             item["y_τ90_source"] = src
             item["y_t90_source"] = src
         tip_feats = _cs_z_horizon_feats(
-            feats, head="t90", trade_date=asof, stock_code=code
+            feats, head="t90", trade_date=asof, stock_code=code, tau_hm=hm or ""
         )
         _stamp_horizon_formula_terms(
             item,
@@ -2604,6 +2648,21 @@ def rescore_scores_at_fixed_prefix(
         return _missing()
     hm = prefix_tau_hm_from_bars(prefix)
     dkey = str((day_bar or {}).get("date") or "")[:10]
+    # 稳定键：扫槽 / 开轮 / 画像共用同一进程缓存；勿用 id(open_snap)（拷贝即 miss）
+    _snap_tok = 0
+    if isinstance(open_snap, dict) and scores_have_any(open_snap):
+        _parts = []
+        for _k in ("y_tau", "y_tau_oc", "y_oo", "y_r", "y_tc", "predicted_score"):
+            _v = open_snap.get(_k)
+            if _v is not None:
+                _parts.append(f"{_k}:{_v}")
+        _snap_tok = hash(tuple(_parts)) if _parts else 1
+    _pool_tok = 0
+    if isinstance(tau_pool_day, dict):
+        try:
+            _pool_tok = len(tau_pool_day)
+        except Exception:  # noqa: BLE001
+            _pool_tok = 1
     cache_key = (
         raw,
         dkey,
@@ -2611,33 +2670,39 @@ def rescore_scores_at_fixed_prefix(
         len(prefix),
         1 if fuse_intraday else 0,
         1 if include_tau_horizons else 0,
-        id(open_snap) if isinstance(open_snap, dict) else 0,
-        id(tau_pool_day) if isinstance(tau_pool_day, dict) else 0,
+        _snap_tok,
+        _pool_tok,
     )
     cached = _PREFIX_RESCORE_CACHE.get(cache_key)
     if cached is not None:
         return copy.deepcopy(cached)
-    sret = None
+    # 轻量路径：开盘 snap 已有分 → 跳过整票 resolve，只注入分钟包 + 重算辅头
+    light = bool(fallback) and scores_have_any(fallback)
     sc: Dict[str, Any] = {}
-    try:
-        sc = resolve_scores_for_code(
-            raw,
-            hist_bars=hist_bars,
-            day_bar=day_bar,
-            source="compute",
-            fuse_intraday=bool(fuse_intraday),
-            allow_fallback=False,
-            minute_bars=prefix,
-            sector_ret_to_tau=sret,
-            use_minute_tau=True,
-            minute_tau_hm=hm,
-            **tau_pool_day_score_kwargs(tau_pool_day, raw),
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug("rescore_scores_at_fixed_prefix failed", exc_info=True)
-        sc = {}
+    if not light:
+        sret = None
+        try:
+            sc = resolve_scores_for_code(
+                raw,
+                hist_bars=hist_bars,
+                day_bar=day_bar,
+                source="compute",
+                fuse_intraday=bool(fuse_intraday),
+                allow_fallback=False,
+                minute_bars=prefix,
+                sector_ret_to_tau=sret,
+                use_minute_tau=True,
+                minute_tau_hm=hm,
+                **tau_pool_day_score_kwargs(tau_pool_day, raw),
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("rescore_scores_at_fixed_prefix failed", exc_info=True)
+            sc = {}
 
-    if scores_have_any(sc):
+    if light:
+        out = copy.deepcopy(fallback)
+        src = "prefix_light"
+    elif scores_have_any(sc):
         out = dict(sc)
         src = "prefix_causal"
     else:
@@ -3134,6 +3199,19 @@ def _peer_feature_rows(date: str) -> List[dict]:
         miss = [c for c in codes if c not in by_code]
         filled_n = 0
         if miss:
+            try:
+                from core.research.materialize.flags import require_day_cube
+
+                if require_day_cube():
+                    logger.warning(
+                        "peer feature bars fill blocked by REQUIRE_CUBE date=%s miss=%s",
+                        dkey,
+                        len(miss),
+                    )
+                    miss = []
+            except Exception:  # noqa: BLE001
+                pass
+        if miss:
             need = list(miss)
             memo_key = f"{bar_limit}|{'|'.join(codes)}"
             bars_map = _PEER_BARS_MEMO.get(memo_key)
@@ -3604,10 +3682,13 @@ def warmup_watching_day_cubes(
     progress_cb: Optional[Any] = None,
     cancel_cb: Optional[Any] = None,
     min_lake_frac: float = 0.5,
+    prefetch_l1: bool = True,
 ) -> Dict[str, int]:
     """做 T 回测开跑：prefetch L1 + 按日 ensure DayCube（命中则跳过）。
 
     Lake 当日 oo 覆盖不足 ``min_lake_frac`` 则不预建该日（留给冷路径 bars）。
+    ``QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1`` 时 miss 不 ensure（禁止冷建），只计 hit。
+    ``prefetch_l1=False``：独立物化 L2（刚写完 L1）跳过整池 panel 预热，避免长时间 current=0。
     返回 ``prefetch_codes`` / ``cubes_hit`` / ``cubes_built`` / ``days``。
     """
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
@@ -3629,22 +3710,31 @@ def warmup_watching_day_cubes(
         except Exception:  # noqa: BLE001
             return False
 
-    def _emit(msg: str) -> None:
+    def _emit(msg: str, cur: int = 0, tot: int = 1) -> None:
         if not progress_cb:
             return
         try:
-            progress_cb(0, 1, msg)
+            progress_cb(int(cur), max(1, int(tot)), msg)
         except Exception:  # noqa: BLE001
             logger.debug("warmup day_cube progress failed", exc_info=True)
 
-    try:
-        from core.research.lake_replay import prefetch_l1_coverage
+    if prefetch_l1:
+        try:
+            from core.research.lake_replay import prefetch_l1_coverage
 
-        _emit("预热 Feature Lake…")
-        stats = prefetch_l1_coverage(code_list) or {}
-        out["prefetch_codes"] = int(max(stats.values()) if stats else 0)
-    except Exception:  # noqa: BLE001
-        logger.debug("warmup l1 prefetch failed", exc_info=True)
+            n_codes = max(1, len(code_list))
+
+            def _pref_pcb(done: int, total: int, message: str = "") -> None:
+                _emit(message or f"预热 Feature Lake {done}/{total}", done, total)
+
+            _emit("预热 Feature Lake…", 0, n_codes)
+            stats = (
+                prefetch_l1_coverage(code_list, progress_cb=_pref_pcb, cancel_cb=cancel_cb)
+                or {}
+            )
+            out["prefetch_codes"] = int(max(stats.values()) if stats else 0)
+        except Exception:  # noqa: BLE001
+            logger.debug("warmup l1 prefetch failed", exc_info=True)
 
     try:
         from core.research.batch_score import ensure_day_cube_for_items
@@ -3663,7 +3753,7 @@ def warmup_watching_day_cubes(
     for i, day in enumerate(day_list):
         if _cancelled():
             break
-        _emit(f"预热 DayCube {i + 1}/{n_days}…")
+        _emit(f"预热 DayCube {i + 1}/{n_days}…", i + 1, n_days)
         try:
             hit = load_day_cube(day, code_list, clock="open")
         except Exception:  # noqa: BLE001
@@ -3671,6 +3761,17 @@ def warmup_watching_day_cubes(
         if hit is not None:
             out["cubes_hit"] += 1
             continue
+        try:
+            from core.research.materialize.flags import require_day_cube
+
+            if require_day_cube():
+                logger.warning(
+                    "warmup day_cube miss under REQUIRE_CUBE day=%s (skip ensure)",
+                    day,
+                )
+                continue
+        except Exception:  # noqa: BLE001
+            pass
         try:
             oo_m = load_day_rows(FAMILY_OO, code_list, day) or {}
             tc_m = load_day_rows(FAMILY_TC, code_list, day) or {}

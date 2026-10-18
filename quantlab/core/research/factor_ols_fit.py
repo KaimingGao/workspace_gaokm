@@ -1,11 +1,14 @@
 """因子面板 OLS 拟合（domain 层；不依赖 quant）。"""
 
+import logging
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from core.signal.config import load_signal_config
+
+logger = logging.getLogger(__name__)
 
 
 def clamp_ridge_lambda(value: Any, default: float = 0.0) -> float:
@@ -555,7 +558,13 @@ def fit_factor_ols_from_panel(
                 row_dates, prep_meta.get("complete_row_indices") or []
             )
             if dates_c is not None and len(dates_c) == len(xs_c):
-                xs_fit = cross_section_zscore_dicts(xs_c, active, dates_c)
+                try:
+                    from core.research.materialize.cube_z import cs_z_dicts_prefer_cube
+
+                    xs_fit = cs_z_dicts_prefer_cube(xs_c, active, dates_c)
+                except Exception:  # noqa: BLE001
+                    logger.debug("ols day_cube z failed", exc_info=True)
+                    xs_fit = cross_section_zscore_dicts(xs_c, active, dates_c)
                 zscore_scope = "cross_section"
             else:
                 xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)

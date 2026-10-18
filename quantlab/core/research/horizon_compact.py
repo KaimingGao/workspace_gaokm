@@ -143,6 +143,21 @@ def compact_subset(
     return xs, ys_o, metas_o, dates_o
 
 
+def cs_groups_from_dates_metas(
+    dates: Sequence[str],
+    metas: Sequence[dict],
+) -> List[str]:
+    """拟合 CS-z 分组：``date|τ``（PIT）；开盘/缺钟 → 仅日期。"""
+    from core.research.feature_standardize import cs_group_key
+
+    out: List[str] = []
+    for i, d in enumerate(dates or []):
+        meta = metas[i] if i < len(metas) and isinstance(metas[i], dict) else {}
+        tau = str(meta.get("tau") or meta.get("tau_hm") or "").strip()
+        out.append(cs_group_key(d, tau))
+    return out
+
+
 def feature_fill_rates_matrix(
     X: np.ndarray,
     names: Sequence[str],

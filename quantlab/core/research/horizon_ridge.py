@@ -253,6 +253,10 @@ def enrich_horizon_raw_panels(
             raw_list, gap_trigger_pct=gap_trigger_pct
         )
     enriched = relabel_fn(raw_list)
+    # L1 stitch 为补标签暂留的分钟线，relabel 后即可丢
+    for p in enriched:
+        if isinstance(p, dict):
+            p.pop("minute_bars", None)
     try:
         from core.signal.factors.alpha_th import stamp_ath_on_panels
 
@@ -341,6 +345,7 @@ def fit_horizon_ridge_report(
     """
     from core.research.horizon_compact import (
         compact_subset,
+        cs_groups_from_dates_metas,
         feature_fill_rates_matrix,
     )
     from core.research.tau_panel import theme_sample_weights
@@ -417,6 +422,13 @@ def fit_horizon_ridge_report(
         else None
     )
     use_cs = bool(cross_section_zscore)
+    # PIT：CS 组 = date|τ（同日多钟不混组）；Holdout 仍按交易日切折
+    groups_tr = (
+        cs_groups_from_dates_metas(dates_tr, metas_tr) if use_cs else None
+    )
+    groups_te = (
+        cs_groups_from_dates_metas(dates_te, metas_te) if use_cs else None
+    )
     packed = train_eval_horizon_prob(
         xs_tr,
         ys_tr,
@@ -426,8 +438,8 @@ def fit_horizon_ridge_report(
         feat_names=feat_names,
         ridge_lambda=ridge_lambda,
         weights=weights,
-        dates_tr=dates_tr if use_cs else None,
-        dates_te=dates_te if use_cs else None,
+        dates_tr=groups_tr,
+        dates_te=groups_te,
         cross_section_zscore=use_cs,
     )
     oos: Dict[str, Any] = dict(packed.get("oos_core") or {})

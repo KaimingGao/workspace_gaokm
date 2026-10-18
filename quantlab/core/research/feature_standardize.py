@@ -149,6 +149,34 @@ def stamp_cross_section_zscore(dest: dict) -> dict:
     return dest
 
 
+def normalize_cs_group_key(group: Any) -> str:
+    """截面分组键：纯日期 → ``YYYY-MM-DD``；``date|τ`` 保留钟（PIT，禁止截成仅日期）。"""
+    s = str(group or "").strip()
+    if not s:
+        return ""
+    if "|" in s:
+        left, _, right = s.partition("|")
+        d = str(left or "")[:10]
+        clock = str(right or "").strip()
+        if len(d) >= 10 and clock:
+            if clock.lower() in ("open", "09:30", "0930"):
+                return d
+            return f"{d}|{clock[:5] if ':' in clock else clock}"
+        return d
+    return s[:10]
+
+
+def cs_group_key(date: Any, tau: Any = None) -> str:
+    """``(date, τ)`` → 分组键；无钟或开盘钟 → 仅日期。"""
+    d = str(date or "")[:10]
+    t = str(tau or "").strip()
+    if not t or t.lower() in ("open", "09:30", "0930"):
+        return d
+    if ":" in t:
+        t = t[:5]
+    return normalize_cs_group_key(f"{d}|{t}")
+
+
 def dates_for_complete_rows(
     row_dates: Optional[Sequence[Any]],
     complete_idx: Sequence[Any],
@@ -162,7 +190,7 @@ def dates_for_complete_rows(
         return None
     if not idxs or max(idxs) >= len(row_dates) or min(idxs) < 0:
         return None
-    return [str(row_dates[i])[:10] for i in idxs]
+    return [normalize_cs_group_key(row_dates[i]) for i in idxs]
 
 
 def cross_section_zscore_matrix(
@@ -172,7 +200,7 @@ def cross_section_zscore_matrix(
     min_names: int = 2,
     eps: float = 1e-12,
 ) -> Any:
-    """按组（通常是交易日）对每列做总体 z-score。缺测保持 NaN。
+    """按组对每列做总体 z-score。组可为交易日或 ``date|τ``（PIT）。
 
     组内有效样本少于 ``min_names``，或标准差接近 0 时，有效值记 0（落在当天均值上）。
     """
@@ -187,7 +215,7 @@ def cross_section_zscore_matrix(
         return out
     buckets: Dict[str, List[int]] = {}
     for i, g in enumerate(groups):
-        buckets.setdefault(str(g or "")[:10], []).append(i)
+        buckets.setdefault(normalize_cs_group_key(g), []).append(i)
     need = max(1, int(min_names))
     for idxs in buckets.values():
         ix = np.asarray(idxs, dtype=np.int64)

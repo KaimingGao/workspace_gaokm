@@ -125,6 +125,7 @@ export function jobStatusBadge(job) {
  *   esc: (s: unknown) => string,
  *   mode?: "running" | "fail" | "done",
  *   errText?: string,
+ *   tone?: "primary" | "warn",
  * }} opts
  */
 export function paintClusterJobPanel(progressEl, opts) {
@@ -158,12 +159,19 @@ export function paintClusterJobPanel(progressEl, opts) {
         : phase;
   const facts = buildClusterJobFacts(job, { pollStartedAt });
   if (Array.isArray(opts.extraFacts)) facts.push(...opts.extraFacts);
-  const isWarn = mode === "fail" || !!opts.isWarn;
+  const tone =
+    opts.tone === "warn" || opts.tone === "primary"
+      ? opts.tone
+      : opts.isWarn || mode === "fail"
+        ? "warn"
+        : "primary";
+  const isWarn = tone === "warn" || mode === "fail" || !!opts.isWarn;
   const isDone = mode === "done";
   progressEl.hidden = false;
   progressEl.classList.add("is-active");
   progressEl.classList.toggle("is-warn", isWarn);
   progressEl.classList.toggle("is-done", isDone);
+  progressEl.dataset.tone = tone;
   progressEl.innerHTML = `<div class="quant-bars-progress-head">
       <span class="quant-bars-progress-phase">${esc(phase)}</span>
       <span class="quant-bars-progress-pct">${pct > 0 ? `${Math.round(pct)}%` : isDone ? "100%" : "…"}</span>
@@ -174,4 +182,18 @@ export function paintClusterJobPanel(progressEl, opts) {
   ${facts.length ? `<div class="quant-bars-progress-facts">${facts.map((f) => `<span>${f}</span>`).join("")}</div>` : ""}
     <p class="quant-bars-progress-msg${mode === "fail" ? " quant-bars-progress-msg--err" : ""}">${esc(msg)}</p>
     ${hint ? `<p class="quant-bars-progress-hint">${hint}</p>` : ""}`;
+}
+
+/** 日线/分钟线状态条色调：primary=蓝（增量/强更），warn=黄（物化）。 */
+export function setDeskStatusTone(stripOrCard, tone) {
+  const els = Array.isArray(stripOrCard)
+    ? stripOrCard
+    : stripOrCard
+      ? [stripOrCard]
+      : [];
+  for (const el of els) {
+    if (!el) continue;
+    if (tone === "primary" || tone === "warn") el.dataset.tone = tone;
+    else delete el.dataset.tone;
+  }
 }

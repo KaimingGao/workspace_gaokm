@@ -480,6 +480,36 @@ class BarsRefreshRequest(BaseModel):
     )
 
 
+class MaterializeRequest(BaseModel):
+    """独立物化 L1 Feature Lake / L2 DayCube（不训模型、不出 ŷ）。"""
+
+    families: List[str] = Field(
+        default_factory=lambda: ["oo", "tc", "co"],
+        description="L1 family：oo / tc / co / oo_rank",
+    )
+    clocks: List[str] = Field(
+        default_factory=lambda: ["open"],
+        description="L2 clock：open 或 tau_HHMM",
+    )
+    do_l1: bool = True
+    do_l1_tau_grid: bool = Field(
+        default=False,
+        description="物化训练网格 tc_HHMM L1（τc∪窗头；须本地 5m）",
+    )
+    do_l2: bool = True
+    lookback: int = Field(
+        default=BARS_DAILY_LOOKBACK,
+        ge=FIT_LOOKBACK_MIN,
+        le=FIT_LOOKBACK_MAX,
+    )
+    l2_lookback_days: int = Field(default=60, ge=5, le=400)
+    watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
+    sync: bool = Field(
+        default=False,
+        description="true=同步；默认 Job，轮询 GET /api/jobs/materialize-l1l2",
+    )
+
+
 class MinuteRefreshRequest(BaseModel):
     """观察池 5m 分钟线预热（ŷ_τc / T0 回测）。"""
 

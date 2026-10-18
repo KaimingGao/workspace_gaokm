@@ -270,7 +270,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertIn("Number(done) > 0", bars_js)
         self.assertIn("if (!inflight && !jobFailure && !jobSuccess && jobSt !== \"running\")", bars_js)
-        self.assertIn("if (!inflight && !jobFailure && !jobSuccess && jobSt !== \"running\")", minute_js)
+        self.assertIn("!matBusy", minute_js)
+        self.assertIn("!matSettled", minute_js)
+        self.assertIn('jobSt !== "running"', minute_js)
         job_js = self._read("web", "static", "js", "quant", "cluster_job_ui.js")
         self.assertIn("unwrapJobSnap", job_js)
         self.assertIn("installMinuteUi", quant_js)
@@ -986,8 +988,97 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("export const BARS_DAILY_LOOKBACK = 1000", params_js)
         bars_ui_js = self._read("web", "static", "js", "quant", "bars_ui.js")
         self.assertIn("BARS_DAILY_LOOKBACK", bars_ui_js)
+        self.assertNotIn("runMaterializeJob", bars_ui_js)
+        self.assertNotIn("quant-bars-auto-materialize", bars_ui_js)
         self.assertNotIn("lookback: 1000", bars_ui_js)
         self.assertNotIn("lookback: 1000", topup_js)
+        mat_js = self._read("web", "static", "js", "quant", "materialize_ui.js")
+        self.assertNotIn("export async function runMaterializeJob", mat_js)
+        self.assertNotIn("export async function runTauMaterializeJob", mat_js)
+        self.assertIn("export function installMinuteMaterializeUi", mat_js)
+        self.assertIn("suggested_tau_clocks", mat_js)
+        self.assertIn("do_l1_tau_grid", mat_js)
+        self.assertIn("doL1 = false", mat_js)
+        self.assertIn("doL1TauGrid = true", mat_js)
+        self.assertNotIn("includeTauGridEnabled", mat_js)
+        # q 上只有 apiFetch（无 fetchJson）；误用会导致 install 静默跳过、按钮无反应
+        self.assertIn("q.apiFetch", mat_js)
+        self.assertNotIn("q.fetchJson", mat_js)
+        self.assertNotIn("typeof q.fetchJson", mat_js)
+        # 状态条对齐日 K / 5m：chip + msg + paintClusterJobPanel
+        self.assertIn("paintClusterJobPanel", mat_js)
+        self.assertIn('tone: "warn"', mat_js)
+        self.assertIn("setDeskStatusTone", mat_js)
+        self.assertIn("setProStatusChip", mat_js)
+        job_ui = self._read("web", "static", "js", "quant", "cluster_job_ui.js")
+        self.assertIn("export function setDeskStatusTone", job_ui)
+        self.assertIn("dataset.tone", job_ui)
+        css = self._read("web", "static", "css", "quant.css")
+        self.assertIn('data-tone="primary"', css)
+        self.assertIn('data-tone="warn"', css)
+        self.assertIn(".quant-minute-card[data-tone=", css)
+        self.assertNotIn("quant-bars-auto-mat", css)
+        self.assertIn("quant-bars-chip", mat_js)
+        self.assertIn("quant-minute-chip", mat_js)
+        self.assertIn("quant-bars-progress", mat_js)
+        self.assertIn("quant-minute-progress", mat_js)
+        self.assertIn("onSettled", mat_js)
+        minute_js2 = self._read("web", "static", "js", "quant", "minute_ui.js")
+        # 由 quant.js 注入同版本 installMinuteMaterializeUi，避免二次动态 import / 缓存分叉
+        self.assertIn("q.installMinuteMaterializeUi", minute_js2)
+        self.assertIn("matBusy", minute_js2)
+        self.assertIn("matSettled", minute_js2)
+        self.assertIn("网络中断", minute_js2)
+        self.assertIn('setDeskStatusTone([minuteStrip, minuteCard], "warn")', minute_js2)
+        self.assertIn('setDeskStatusTone([minuteStrip, minuteCard], "primary")', minute_js2)
+        self.assertNotIn("materialize_ui.js?v=", minute_js2)
+        self.assertNotIn(
+            'import { installMinuteMaterializeUi } from "./materialize_ui.js"',
+            minute_js2,
+        )
+        quant_js = self._read("web", "static", "js", "quant.js")
+        self.assertIn("installMinuteMaterializeUi", quant_js)
+        self.assertIn("q.installMinuteMaterializeUi", quant_js)
+        bars_ui_js2 = self._read("web", "static", "js", "quant", "bars_ui.js")
+        self.assertIn('getElementById("quant-materialize-run")', bars_ui_js2)
+        minute_js = self._read("web", "static", "js", "quant", "minute_ui.js")
+        self.assertIn("installMinuteMaterializeUi", minute_js)
+        self.assertIn("updateTauMaterializeReady", minute_js)
+        self.assertNotIn("runTauMaterializeJob", minute_js)
+        self.assertNotIn("quant-minute-auto-materialize", minute_js)
+        quant_html = self._read("web", "static", "partials", "quant_panel.html")
+        self.assertNotIn('id="quant-bars-auto-materialize"', quant_html)
+        self.assertIn('id="quant-materialize-run"', quant_html)
+        self.assertRegex(
+            quant_html,
+            r'id="quant-bars-topup"[^>]*class="[^"]*\bprimary\b',
+        )
+        self.assertRegex(
+            quant_html,
+            r'id="quant-bars-refresh"[^>]*class="[^"]*\bprimary\b',
+        )
+        self.assertRegex(
+            quant_html,
+            r'id="quant-materialize-run"[^>]*class="[^"]*\bwarn\b',
+        )
+        self.assertIn('id="quant-minute-materialize-run"', quant_html)
+        self.assertRegex(
+            quant_html,
+            r'id="quant-minute-topup"[^>]*class="[^"]*\bprimary\b',
+        )
+        self.assertRegex(
+            quant_html,
+            r'id="quant-minute-refresh"[^>]*class="[^"]*\bprimary\b',
+        )
+        self.assertRegex(
+            quant_html,
+            r'id="quant-minute-materialize-run"[^>]*class="[^"]*\bwarn\b',
+        )
+        self.assertNotIn('id="quant-materialize-strip"', quant_html)
+        self.assertNotIn('id="quant-minute-materialize-strip"', quant_html)
+        self.assertNotIn('id="quant-minute-auto-materialize"', quant_html)
+        self.assertNotIn('id="quant-materialize-tau-clocks"', quant_html)
+        self.assertNotIn('id="quant-materialize-tau-grid"', quant_html)
         follow = self._read("web", "static", "partials", "follow_panel.html")
         self.assertIn('id="follow-data-offline"', follow)
         paper_js = self._read("web", "static", "js", "paper.js")
@@ -1951,6 +2042,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("相对强弱分", island)
         self.assertIn("options.tiebreak", vt)
         self.assertIn("watching_table_sort_v2", domain)
+        self.assertIn("const QUOTE_CHUNK = 40", domain)
+        self.assertNotIn("fetchQuoteBatch(restCodes, 20000)", domain)
         self.assertIn('state.watchingSortKey = "tier"', domain)
         self.assertIn("predictability-tiers/last?slim=1", pred)
         self.assertIn("mean_y_pos_tau", pred)

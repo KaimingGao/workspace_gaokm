@@ -940,6 +940,71 @@ class TestCloseBandCore(unittest.TestCase):
             hm = str(row.get("hm") or "")
             self.assertLessEqual(hm, "11:00", row)
 
+    def test_close_band_scan_reuses_prefix_snaps(self):
+        """开轮已算前缀时 close_band_scan 不再对同 hm 二次 rescore。"""
+        from unittest.mock import patch
+
+        closes = [100.6, 101.2, 101.5] + [101.0] * 20
+        mins = _mins(closes, session_open=100.0)
+        bar = {
+            "date": "2025-01-02",
+            "open": 100.0,
+            "high": 102,
+            "low": 99,
+            "close": 101,
+            "prev_close": 100.0,
+        }
+        cfg = _cfg(
+            {
+                "t0_close_band_delta_pct": 0.5,
+                "t0_round_ratio": 1.0,
+                "t0_max_position_pct": 1.0,
+                "fill_mode": "trigger",
+                "y_tau_enter": 0.0,
+                "y_path_enter": 0.0,
+                "y_use_path": False,
+            }
+        )
+        calls = {"n": 0}
+
+        def _fake_rescore(**kwargs):
+            calls["n"] += 1
+            prefix = [b for b in (kwargs.get("minute_prefix") or []) if isinstance(b, dict)]
+            snap = dict(kwargs.get("open_snap") or {})
+            snap["_score_source"] = "prefix_causal"
+            snap["y_path_status"] = "ok"
+            yt = 0.5 + 0.1 * len(prefix)
+            snap["y_tau"] = yt
+            snap["y_tau_oc"] = yt
+            snap.update(_ytw_heads(up=True))
+            return snap
+
+        with patch(
+            "core.t0.score_policy.rescore_scores_at_fixed_prefix",
+            side_effect=_fake_rescore,
+        ):
+            out = simulate_t0_day_slots(
+                bar=bar,
+                minute_bars=mins,
+                shares=1000,
+                cost=100,
+                sellable_shares=1000,
+                cfg=cfg,
+                cash=1e6,
+                stock_code="600000",
+                lot=100,
+                cost_model="none",
+                cost_params={},
+                atr_pct=None,
+                hist_bars=[],
+                score_snap=_snap(0.5),
+            )
+        scan = out.get("close_band_scan") or []
+        self.assertTrue(scan, out)
+        # 若扫槽复用开轮 snap：rescore 次数 ≈ 开轮扫过的根数（≤ scan 长度，绝非 2×）
+        self.assertLessEqual(calls["n"], len(scan), (calls["n"], len(scan), out))
+        self.assertLess(calls["n"], 2 * len(scan), (calls["n"], len(scan)))
+
     def test_scan_row_carries_prefix_features_tau(self):
         """扫描行带该钟 features_tau，不把日级 10:40 因子贴到 09:45 tip。"""
         from core.t0.slots import _attach_scan_row_tip_fields

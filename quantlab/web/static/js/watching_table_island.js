@@ -74,7 +74,7 @@ const COLS = [
   {
     id: "paper",
     label: "仓位",
-    width: 60,
+    width: 96,
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
     title: "是否已在模拟持仓",

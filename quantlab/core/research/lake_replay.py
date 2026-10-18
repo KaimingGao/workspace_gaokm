@@ -35,10 +35,13 @@ def prefetch_l1_coverage(
     codes: Sequence[str],
     *,
     families: Optional[Sequence[str]] = None,
+    progress_cb: Optional[Any] = None,
+    cancel_cb: Optional[Any] = None,
 ) -> Dict[str, int]:
     """预热 L1 按股日期索引 + 整票 panel 内存缓存。
 
     返回 ``{family: n_codes_loaded}``。
+    ``progress_cb(cur, tot, msg)`` 按票推进，避免 Job 槽 current=0 被误杀。
     """
     from core.research.feature_lake import enabled, load_stock_panel
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
@@ -46,26 +49,52 @@ def prefetch_l1_coverage(
     if not enabled():
         return {}
     fams = list(families) if families else [FAMILY_OO, FAMILY_TC, FAMILY_CO]
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    n_codes = max(1, len(code_list))
     stats: Dict[str, int] = {}
-    for fam in fams:
+
+    def _cancelled() -> bool:
+        if not cancel_cb:
+            return False
+        try:
+            return bool(cancel_cb())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _emit(done: int, msg: str) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(int(done), n_codes, msg)
+        except Exception:  # noqa: BLE001
+            logger.debug("l1 prefetch progress_cb failed", exc_info=True)
+
+    for fi, fam in enumerate(fams):
+        if _cancelled():
+            break
         bucket = _COVERAGE.setdefault(str(fam), {})
         panels = _L1_PACKS.setdefault(str(fam), {})
         n = 0
-        for raw in codes or []:
-            code = str(raw or "").strip()
-            if not code:
-                continue
+        for i, code in enumerate(code_list):
+            if _cancelled():
+                break
             pack = load_stock_panel(fam, code, fingerprint=None)
             if not pack:
                 bucket.pop(code, None)
                 panels.pop(code, None)
-                continue
-            indexed = _index_pack(dict(pack))
-            panels[code] = indexed
-            bucket[code] = set(indexed.get("_date_i") or {})
-            n += 1
+            else:
+                indexed = _index_pack(dict(pack))
+                panels[code] = indexed
+                bucket[code] = set(indexed.get("_date_i") or {})
+                n += 1
+            if progress_cb and (i % 25 == 0 or i + 1 == n_codes):
+                _emit(
+                    i + 1,
+                    f"预热 Feature Lake {fam} {i + 1}/{n_codes}"
+                    + (f"（family {fi + 1}/{len(fams)}）" if len(fams) > 1 else ""),
+                )
         stats[str(fam)] = n
-    logger.info("l1 coverage prefetch codes=%s stats=%s", len(list(codes or [])), stats)
+    logger.info("l1 coverage prefetch codes=%s stats=%s", len(code_list), stats)
     return stats
 
 

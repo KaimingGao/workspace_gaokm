@@ -51,9 +51,27 @@ class TestWatchingLoadFast(unittest.TestCase):
             "watchlist_names": ["", ""],
             "sources": [],
         }
-        with patch("core.watching.repository._resolve_entry") as resolve:
+        with patch("core.watching.repository._resolve_entry") as resolve, patch(
+            "core.t0.intraday._load_a_code_name_map", return_value={}
+        ):
             names = watchlist_names_for(data, allow_live=False)
         self.assertEqual(names, ["", ""])
+        resolve.assert_not_called()
+
+    def test_watchlist_names_offline_uses_local_code_map(self):
+        from core.watching.store import watchlist_names_for
+
+        data = {
+            "watchlist": ["600519", "000001"],
+            "watchlist_names": ["", "平安银行"],
+            "sources": [],
+        }
+        with patch("core.watching.repository._resolve_entry") as resolve, patch(
+            "core.t0.intraday._load_a_code_name_map",
+            return_value={"600519": "贵州茅台"},
+        ):
+            names = watchlist_names_for(data, allow_live=False)
+        self.assertEqual(names, ["贵州茅台", "平安银行"])
         resolve.assert_not_called()
 
     def test_paper_status_lite_skips_mtm_and_scores(self):

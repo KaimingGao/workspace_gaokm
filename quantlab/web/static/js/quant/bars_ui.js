@@ -7,6 +7,7 @@ import {
   formatClusterJobFootLine,
   jobStatusBadge,
   unwrapJobSnap,
+  setDeskStatusTone,
 } from "./cluster_job_ui.js";
 import {
   BARS_DAILY_LOOKBACK,
@@ -15,7 +16,6 @@ import {
   awaitWatchingPoolLimitReady,
   WATCHING_POOL_LIMIT_CHANGED,
 } from "./params.js";
-
 /** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐」/「强更日 K」 */
 export function installBarsUi(q) {
   const { on, apiFetch, escapeHtml } = q;
@@ -48,6 +48,8 @@ export function installBarsUi(q) {
   function setBarsButtonsDisabled(disabled) {
     btn.disabled = !!disabled;
     if (topupBtn) topupBtn.disabled = !!disabled;
+    const matBtn = document.getElementById("quant-materialize-run");
+    if (matBtn) matBtn.disabled = !!disabled;
   }
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
@@ -151,6 +153,7 @@ export function installBarsUi(q) {
     progressEl.hidden = true;
     progressEl.innerHTML = "";
     progressEl.classList.remove("is-active", "is-warn", "is-done");
+    delete progressEl.dataset.tone;
   }
 
   function barsParsedFacts(parsed, pollStartedAt) {
@@ -194,11 +197,13 @@ export function installBarsUi(q) {
   }
 
   function paintProgressFailed(job, errText) {
+    setDeskStatusTone([barsStrip, barsCard], "primary");
     paintClusterJobPanel(progressEl, {
       phase: "更新失败",
       job,
       esc,
       mode: "fail",
+      tone: "primary",
       errText,
       hint: "可再次点击「增量补齐」或「强更日 K」重试",
     });
@@ -212,11 +217,13 @@ export function installBarsUi(q) {
     if (sum.cache_count != null) bits.push(`已齐 ${sum.cache_count}`);
     if (Number(sum.failed_count) > 0) bits.push(`失败 ${sum.failed_count}`);
     const topup = isTopupSummary(sum);
+    setDeskStatusTone([barsStrip, barsCard], "primary");
     paintClusterJobPanel(progressEl, {
       phase: topup ? "增量完成" : "强更完成",
       job,
       esc,
       mode: "done",
+      tone: "primary",
       hint: bits.length
         ? bits.join(" · ")
         : topup
@@ -228,6 +235,7 @@ export function installBarsUi(q) {
   function applyJobSuccess(job) {
     jobSuccess = { job: job || null };
     jobFailure = null;
+    setDeskStatusTone([barsStrip, barsCard], "primary");
     setProStatusChip(chip, "ok", "DONE");
     const sum = job?.result_summary || job?.result?.bars_refresh || {};
     const head = [isTopupSummary(sum) ? "增量完成" : "强更完成"];
@@ -247,6 +255,7 @@ export function installBarsUi(q) {
     jobSuccess = null;
     const errText = String((err && err.message) || err || "日 K 更新失败");
     jobFailure = { errText, job: job || null };
+    setDeskStatusTone([barsStrip, barsCard], "primary");
     setProStatusChip(chip, "error", "FAIL");
     const head = ["更新失败"];
     const j = jobFailure.job;
@@ -269,16 +278,14 @@ export function installBarsUi(q) {
     const defaultMsg = topup ? "增量补齐日 K…" : "强更日 K…";
     const msg = job && (job.message || job.error) ? String(job.message || job.error) : defaultMsg;
     const parsed = parseBarsProgressMessage(msg);
-    const warn =
-      parsed.timedOut ||
-      (parsed.remainSec != null && parsed.remainSec <= 30 && parsed.done < parsed.total);
+    setDeskStatusTone([barsStrip, barsCard], "primary");
     paintClusterJobPanel(progressEl, {
       phase: phaseLabel(parsed.phase),
       job,
       pollStartedAt,
       esc,
       mode: "running",
-      isWarn: warn,
+      tone: "primary",
       hint: topup
         ? "已齐 as-of 走本地 · 缺口进程池并行 · 单票 60s"
         : "整窗重拉 · 进程池并行 · 单票 60s",
@@ -293,7 +300,11 @@ export function installBarsUi(q) {
     barsBody?.classList.toggle("is-busy", on);
     btn?.classList.toggle("is-busy", on);
     topupBtn?.classList.toggle("is-busy", on);
-    if (!on && !jobFailure && !jobSuccess) clearProgressPanel();
+    if (on) setDeskStatusTone([barsStrip, barsCard], "primary");
+    if (!on && !jobFailure && !jobSuccess) {
+      clearProgressPanel();
+      setDeskStatusTone([barsStrip, barsCard], null);
+    }
   }
 
   function setKpiCard(key, state) {

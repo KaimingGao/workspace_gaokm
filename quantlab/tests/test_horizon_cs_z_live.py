@@ -104,6 +104,55 @@ class HorizonCsZLiveTests(unittest.TestCase):
         self.assertFalse(sp._cube_covers_horizon_names(_Slim(), names))
         self.assertTrue(sp._cube_covers_horizon_names(_Full(), names))
 
+    def test_cs_z_tau_skips_open_fallback(self):
+        """H4：有 τ 时 Cube 覆盖失败不静默读 open，改 leave-one-in。"""
+        from core.t0 import score_policy as sp
+
+        doc = {
+            "backend": "ridge",
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {"gap_pct": 1.0},
+                "active_features": ["gap_pct"],
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        peers = [
+            {"stock_code": "A", "features_tau": {"gap_pct": 0.0}},
+            {"stock_code": "B", "features_tau": {"gap_pct": 2.0}},
+        ]
+        loads = []
+
+        def _load(day, codes, clock="open"):
+            loads.append(str(clock))
+            return None
+
+        with mock.patch.object(sp, "_POOL_FEAT_CACHE", {"2026-01-02": peers}), mock.patch(
+            "core.research.horizon_ridge.load_ridge_model", return_value=doc
+        ), mock.patch(
+            "core.research.feature_standardize.is_cross_section_zscore",
+            return_value=True,
+        ), mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.t0.score_policy._watching_codes_for_z",
+            return_value=["A", "B"],
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ):
+            z = sp._cs_z_horizon_feats(
+                {"gap_pct": 2.0},
+                head="t30",
+                trade_date="2026-01-02",
+                stock_code="B",
+                tau_hm="10:30",
+            )
+        self.assertAlmostEqual(float(z["gap_pct"]), 1.0, places=5)
+        self.assertTrue(loads)
+        self.assertNotIn("open", loads)
+
     def test_cs_z_keeps_sparse_ret_open_not_sqrt2(self):
         """开盘同伴 ret_open=0 占位不得把各钟差异压成 √2 / 0。"""
         from core.t0 import score_policy as sp

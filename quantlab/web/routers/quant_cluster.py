@@ -8,6 +8,7 @@ from core.watching.store import WATCHING_MAX_SIZE
 from web import deps
 from web.schemas import (
     BarsRefreshRequest,
+    MaterializeRequest,
     MinuteRefreshRequest,
 )
 
@@ -46,6 +47,36 @@ def quant_bars_refresh(body: BarsRefreshRequest) -> Dict[str, Any]:
         return deps.quant.start_bars_refresh_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+@router.get("/api/quant/materialize/catalog")
+def quant_materialize_catalog() -> Dict[str, Any]:
+    """L1/L2 物化 family / clock 目录。"""
+    try:
+        return deps.quant.materialize_catalog()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/materialize")
+def quant_materialize(body: MaterializeRequest) -> Dict[str, Any]:
+    """独立物化 L1/L2；默认后台 Job（``GET /api/jobs/materialize-l1l2``）。"""
+    kwargs = dict(
+        families=list(body.families or []),
+        clocks=list(body.clocks or []),
+        do_l1=bool(body.do_l1),
+        do_l1_tau_grid=bool(body.do_l1_tau_grid),
+        do_l2=bool(body.do_l2),
+        lookback=body.lookback,
+        l2_lookback_days=body.l2_lookback_days,
+        watching_limit=body.watching_limit,
+    )
+    try:
+        if body.sync:
+            return deps.quant.run_materialize(**kwargs)
+        return deps.quant.start_materialize_job(**kwargs)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
 
 @router.get("/api/quant/bars/integrity")
 

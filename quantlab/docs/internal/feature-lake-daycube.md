@@ -176,6 +176,39 @@ panel meta 额外写入：
 
 ---
 
+## 4.5 物化管道 vs 消费管道（独立 L1/L2）
+
+**定位**：L1 = 票级 raw（+y）；L2 = 日截面增广（μ/σ、slim），**不取代 L1**。
+
+```text
+日线更新 → 日线「物化 L1/L2」（oo/tc/co · open Cube）
+分钟 Ready → 分钟线「物化 L1/L2」（tc_HHMM 网格 · 按钟 Cube）
+  → 拟合 / 调仓回测 / 做 T：只读
+```
+
+| 入口 | 说明 |
+|------|------|
+| `POST /api/quant/materialize` | 后台 Job；`do_l1_tau_grid` 写 τ 网格 L1；轮询 `GET /api/jobs/materialize-l1l2` |
+| `GET /api/quant/materialize/catalog` | family / clock / `suggested_tau_clocks` / `tau_grid` |
+| `core/research/materialize/run_materialize` | 同步编排（L1 → τ 网格 L1 → L2） |
+
+| 环境变量 | 默认 | 含义 |
+|----------|------|------|
+| `QUANTLAB_MATERIALIZE_REQUIRE_CUBE` | 关 | 开：出分/warmup Cube miss 不 ensure、同伴不 bars 冷灌 |
+| `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 开：oo / τc / co / ŷ_τ* / LGB 经 `cs_z_*_prefer_cube` 读 L2；``date|τ`` 优先该钟 Cube，**默认不**静默 open（miss → 矩阵 CS-z）；纯日期组仍可 open |
+
+**PIT（ŷ_τ*）**：拟合 CS 分组键为 ``date|τ``（`feature_standardize.normalize_cs_group_key`），同日多钟不混组；LGB / Ridge / live `_cs_z_horizon_feats` 均走该键。`apply_day_cube_mu_sigma_matrix` 按组钟读 L2。改完须**重拟合**窗头五头。
+
+**轻量前缀**：`rescore_scores_at_fixed_prefix` 在 `open_snap` 已有分时跳过整票 `resolve_scores_for_code`（`_score_source=prefix_light`），只注入分钟包并重算辅头。开轮与 `close_band_scan` 经 `prefix_snaps_by_hm` 复用同 hm 前缀，避免二算。
+
+**按钟 L2 / τ 网格 L1**：分钟线 Ready 后点「物化 L1/L2」；`do_l1_tau_grid` + `suggested_tau_clocks`；无对应 L1 则跳过该日。
+
+**OOS 口径**：`predict_ridge_matrix` / `predict_p_up_rows` 在 `FIT_USE_DAY_CUBE=1` 时经 `cs_z_*_prefer_cube` 与训练同读 L2。
+
+模块：`core/research/materialize/`（`catalog` / `l1_jobs` / `l2_jobs` / `cube_z` / `orchestrate`）。
+
+---
+
 ## 5. 三条消费链路
 
 ### 5.1 训练（Fit）
@@ -253,6 +286,8 @@ rank_lots / 账本
 | `QUANTLAB_DAY_CUBE` | 开 | `0` 关闭 L2 落盘 |
 | `QUANTLAB_DAY_CUBE_DIR` | `paths.DAY_CUBE_DIR` | L2 根 |
 | `QUANTLAB_BATCH_SCORE` | 开 | `0`：不建 cube、调仓不 defer，走旧双遍 |
+| `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 开：拟合/OOS CS-z 读 L2（`cs_z_*_prefer_cube`） |
+| `QUANTLAB_MATERIALIZE_REQUIRE_CUBE` | 关 | 开：出分/warmup Cube miss 不 ensure |
 
 路径常量：`core/paths.py` → `FEATURE_LAKE_DIR` / `DAY_CUBE_DIR`。
 
@@ -272,6 +307,7 @@ rank_lots / 账本
 | `core/research/incremental_panel.py` | 尾窗判定与 merge |
 | `core/research/batch_score.py` | 池级 cube + batched rescore |
 | `core/research/lake_replay.py` | 回测 L1 hydrate + coverage 预热；盘中前缀 `tc_HHMM` |
+| `core/research/materialize/` | 独立 L1/L2 Job；`horizon_names` / `cube_z` / flags / catalog / `l1_jobs.materialize_l1_tau_grid` |
 | `core/signal/score_stock.py` | `defer_cs_predict` |
 | `core/signal/cross_section_rescore.py` | day_cube 版 z |
 | `core/signal/return_score.py` | OO predict 吃 day_cube |
@@ -283,11 +319,13 @@ rank_lots / 账本
 | oo collect | `oo_ridge_compact.py` |
 | τc / co collect | `panel_matrix.py` |
 | oo_rank | `oo_rank_panel.py` |
+| ŷ_τ* / LGB | `horizon_ridge.py` · `horizon_prob.py` · `horizon_lgb.py` |
 | 回测 | `paper_replay.py` · `replay_scoring.py` |
 | 调仓 | `watching_matrix.py` |
-| T0 | `t0/score_policy.py` |
+| T0 | `t0/score_policy.py` · `t0/slots.py`（扫槽复用） |
 | 日循环 | `paper/cycle.py` |
 | bars 失效 | `quant/research/bars_status.py` |
+| 物化 API | `quant_service_factors.py` · `web/routers/quant_cluster.py` |
 
 ### 8.3 测试
 
@@ -298,6 +336,8 @@ rank_lots / 账本
 | `tests/test_incremental_panel.py` | stem / 多日追加 / oo 增量 / lake hydrate |
 | `tests/test_batch_score_cube_oo.py` | OO cube z ≡ standardize |
 | `tests/test_defer_cs_predict.py` | defer 不写 ŷ、保留特征 |
+| `tests/test_materialize_l1l2.py` | catalog / flags / orchestrate / 按钟 cube_z |
+| `tests/test_cs_group_pit.py` | `date|τ` PIT · prefix_light |
 
 ---
 
@@ -321,6 +361,17 @@ rank_lots / 账本
 | P11 | 停 panel 双写；stem meta 进 L1；增量只读 L1 | ✅ |
 | P12 | 抽出 `panel_fingerprint`；panel 磁盘 IO 退役 | ✅ |
 | 扫尾 | 删除 `panel_disk_cache` / `PANEL_CACHE_DIR`；去掉无用 `head_key` | ✅ |
+| M0 | 独立物化 Job + UI；`REQUIRE_CUBE` / `FIT_USE_DAY_CUBE` | ✅ |
+| M1 | PIT `date|τ`；prefix_light；扫槽 `prefix_snaps_by_hm` | ✅ |
+| M2 | oo/τc/co/ŷ_τ* 拟合读 L2；按钟 Cube（`date|τ`→clock；H3 起禁静默 open） | ✅ |
+| M3 | 按钟 L2 / OOS 与 `FIT_USE_DAY_CUBE` 同口径；τ UI 已迁分钟线 | ✅ |
+| M4 | 拟合主路径统一 `cs_z_*_prefer_cube`（oo/τc/co/ŷ_τ*/LGB） | ✅ |
+| H0 | 契约：`horizon_names` / catalog `tau_grid` | ✅ |
+| H1 | `materialize_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
+| H2 | L2 按钟 `require_horizon_names` + UI 联动 | ✅ |
+| H3 | 禁静默 open + 窗头 stitch L1（`_try_stitch_l1_tau_panel`） | ✅ |
+| H4 | live `_cs_z_horizon_feats`：τ Cube 覆盖失败 → leave-one-in | ✅ |
+| H5 | 测试 / §10.1b 窗头分支 / ASSET_V | ✅ |
 
 ---
 
@@ -330,6 +381,28 @@ rank_lots / 账本
 
 首次拟合会写满 L1 +（oo）DayCube；第二次同宇宙应大量 hit L1。  
 回测要吃到 L1，需先跑过对应 family 的拟合（或等价 collect 写穿）。
+
+### 10.1b L2 拟合口径切换（推荐顺序）
+
+改完 PIT / Cube / `FIT_USE_DAY_CUBE` 后按序做，避免旧 β 混新 z：
+
+1. **日线**：研究枢纽增量补齐（或强更）。  
+2. **分钟**：做 T / ŷ_τ* 须 5m Ready（增量或强更）。  
+3. **物化**（手动）  
+   - **日线**「物化 L1/L2」：oo/tc/co + open L2；  
+   - **分钟线** Ready 后「物化 L1/L2」：τ 网格 `tc_HHMM` + 按钟 Cube（Ready 不足禁用）。  
+4. **开开关**（进程级，改后重启 Web / worker）：
+
+```bash
+export QUANTLAB_FIT_USE_DAY_CUBE=1
+# 可选：Cube miss 禁止 bars 冷建
+# export QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1
+```
+
+5. **重拟合**：ŷ_oo → ŷ_τc / ŷ_co → 窗头 ŷ_τ30…τ90（及 LGB 影子头若在用）。  
+6. **回测**：做 T / 调仓 replay；tip 各钟不应塌常数；日志 `horizon cs-z cube hit … clock=τ`（非一律 open）。
+
+关回旧矩阵 CS-z：`unset QUANTLAB_FIT_USE_DAY_CUBE`（或 `=0`）后重拟合即可。
 
 ### 10.2 强制全量重算
 
@@ -345,9 +418,10 @@ rm -rf data/cache/feature_lake data/cache/day_cubes
 
 ### 10.3 口径漂移
 
-- 调仓与训练 ŷ 不一致：检查是否同 `universe_hash`、是否 `cross_section` 模型、是否误关 `BATCH_SCORE`。  
+- 调仓与训练 ŷ 不一致：检查是否同 `universe_hash`、是否 `cross_section` 模型、是否误关 `BATCH_SCORE`、是否只开了 `FIT_USE_DAY_CUBE` 未重拟合。  
 - 回测未命中 L1：看日志 `replay open day lake hits=… miss=…`；确认 family 与决策日对齐。  
-- 增量未触发：中间 bar 被复权改写 → 预期全量；看 meta 是否有 `bars_fp`/`stem_fp`（旧分片无 stem 时需先全量写一次）。
+- 增量未触发：中间 bar 被复权改写 → 预期全量；看 meta 是否有 `bars_fp`/`stem_fp`（旧分片无 stem 时需先全量写一次）。  
+- 拟合 Cube miss 全回退矩阵：先物化 open（及所需 τ 钟）；确认 `QUANTLAB_DAY_CUBE` 未关、宇宙 hash 与 watching 一致。
 
 ### 10.4 磁盘
 
@@ -377,4 +451,115 @@ L1/L2 按 schema 分目录；宇宙变大时 DayCube 按 `universe_hash` 分叉�
 
 ---
 
-**一句话**：用 **L1 单票增量特征仓 + L2 按日截面 Cube** 取代「每次临时拼截面」；训练写穿，回测/live/T0 复用，调仓先特征后单遍 ŷ，开关可回滚。
+## 13. ŷ_τ\* 按钟 L1/L2 完整落地方案（H 轨）
+
+> **目标**：ŷ_τ30…τ90 的截面 z **按决策钟 τ**（同日同伴、同一信息集），主路径吃 **分钟钟 L2**，不再依赖「整日 open Cube」或仅矩阵现算。  
+> **非目标**：单票沿分钟时序做 z；把五头标签塞进 open 日 Cube。
+
+### 13.1 现状（H0–H5 已落地）
+
+| 层 | 现状 |
+|----|------|
+| 拟合分组 | `date|τ` PIT；窗头优先 stitch L1，miss 才全量 5m |
+| L1 | open `tc` + 分钟线「物化 L1/L2」写 `tc_HHMM`（τc∪窗头列） |
+| L2 | 日线物化 open；分钟线物化按钟（`require_horizon_names`）；`date|τ` 禁静默 open |
+| live | `_cs_z_horizon_feats`：τ Cube 覆盖失败 → leave-one-in（不读 open） |
+| 物化 UI | 日线 open · 分钟线 τ（Ready 门控；仅手动） |
+
+### 13.2 口径契约（冻结）
+
+1. **CS 组** = `(trade_date, τ)`，键 `YYYY-MM-DD|HH:MM`（开盘→仅日期 / `open`）。  
+2. **μ/σ 宇宙** = 训练 watching / live `watching∪holdings`（与现 DayCube `universe_hash` 一致）。  
+3. **禁止**同日跨 τ 混组；禁止用「未来钟」同伴分钟占位进 μ/σ（已有 strip / leave-one-in 纪律保留）。  
+4. **L2 主键** = `(date, universe_hash, clock)`，`clock∈{open}∪{HHMM}`；窗头 **主读 `clock=τ`**，禁止把 open 当主口径（miss → 矩阵 CS-z，不静默 open）。  
+5. **五头共享特征行、分头标签**：同一 `(code, date, τ)` 特征只存一份；`y_t30…y_t90` 为可选多标签列（或拟合时现算标签、湖只存 X）。
+
+### 13.3 存储设计
+
+#### L1（票级）
+
+**推荐（少分叉）**：扩展现有按钟族，不新建五套 family。
+
+| 项 | 约定 |
+|----|------|
+| Family | 复用 `tc_HHMM`（`family_for_tc(tau_hm=τ)`）；开盘仍 `tc` |
+| 行键 | `code × date`（每钟一个 family 目录，与现网一致） |
+| `names` | ŷ_τc 列 ∪ 窗头列（`Z_TH_FIT_FEATURES` + `raw_ath_*` 等，去重） |
+| `y` | **可选**：不强制五头 y 进湖；标签仍可由分钟在拟合时算（降体积）。若进湖：并列 `y_t30…y_t90` 或 meta 多 y |
+| 指纹 | 日线 stem + **该日≤τ 分钟前缀**指纹（分钟变更 → 该钟 L1 miss） |
+| 写穿点 | `collect_tau_compact(..., tau_hm=τ)` / 窗头 panel enrich 成功后 `sync L1`；物化 Job 新阶段 `materialize_l1_tau_grid` |
+
+**备选（仅当 τc 与窗头列冲突严重）**：`th_HHMM` 专用族；live 组装时 merge `tc_*`+`th_*`。默认不走这条。
+
+#### L2（截面）
+
+| 项 | 约定 |
+|----|------|
+| 构建输入 | 该日该钟 L1 行 → `ensure_day_cube_for_items(..., clock=τ)` |
+| `names` | 必须覆盖窗头入模列（拒 slim gap-only；与现 prefix CS-z 拒 slim 一致） |
+| 物化 | `clocks = ["open"] + suggested_tau_clocks`；缺 L1 跳过并计数 `days_skipped` |
+| 拟合读 | `cs_z_*_prefer_cube`：`date|τ` → `load_day_cube(day, clock=τ)`；miss → **不**默默用 open 当主成功（可配置 `fallback_open`，窗头默认 **关** 或打标 `open_fallback`） |
+
+> 窗头与 ŷ_τc(open) 分流：open Cube 继续服务 oo/τc(open)/co；**τ≠open 的窗头以按钟 Cube 为准。**
+
+### 13.4 管道改造
+
+```text
+日线齐 → 分钟齐（5m Ready）
+  → H1 物化 L1 τ 网格（观察池 × 训练钟 × tc_HHMM，列=τc∪窗头）
+  → H2 物化 L2 按钟（读 L1 → Cube，拒 slim）
+  → H3 窗头拟合：L1 hit 则 stack(date|τ) → prefer_cube(z) → dual fit → promote
+         miss 行 → 5m 现算 + 写穿 L1（增量）
+  → H4 live/T0/BT：前缀特征 → Cube(clock=τ) z → load t30…t90 模型
+  → H5 开关与护栏：FIT_USE_DAY_CUBE=1；REQUIRE_CUBE 可选；单测 PIT+列覆盖
+```
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| **H0** | 契约：`horizon_l1_feature_names` / catalog `tau_grid` | ✅ |
+| **H1** | `materialize_l1_tau_grid` + API `do_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
+| **H2** | L2 `require_horizon_names`；分钟线物化按 `suggested_tau_clocks` 写按钟 Cube | ✅ |
+| **H3** | `date\|τ` 禁静默 open；窗头 `build_tau` 优先 stitch L1，relabel 分钟补标签 | ✅ |
+| **H4** | live `_cs_z_horizon_feats`：τ 覆盖失败不静默 open → leave-one-in；hit 打 debug | ✅ |
+| **H5** | §10.1b 窗头分支；`test_materialize_l1l2` / JS guards；UI 色调；Job stale 90min | ✅ |
+
+### 13.5 API / UI
+
+| 入口 | 行为 |
+|------|------|
+| `POST /api/quant/materialize` | 增 `do_l1_tau_grid: bool`；`clocks` 已支持；families 不变 |
+| catalog | `suggested_tau_clocks`；`flags`；说明「τ 网格 L1 须分钟 Ready」 |
+| Job 槽 `materialize-l1l2` | stale/stuck **5400s**（满池 L1+L2）；L2 跳过整池 Feature Lake prefetch |
+| 日线卡 | 「物化 L1/L2」= open L1（oo/tc/co）+ open Cube |
+| 分钟线卡 | Ready 后「物化 L1/L2」= τ 网格 L1 + 按钟 Cube |
+| 状态条 | 与增量/强更共用 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn） |
+| 无自动物化 | 日线/分钟线均手动；无 auto-materialize 勾选 |
+| 窗头拟合 Job | 进度区分 `L1 hit / 5m miss / Cube hit` |
+
+### 13.6 运维顺序（窗头专用）
+
+1. 日线齐 → **分钟齐**（必须）。  
+2. 物化：open L1/L2（主头）→ **τ 网格 L1** → **τ 钟 L2**。  
+3. `export QUANTLAB_FIT_USE_DAY_CUBE=1`（重启）。  
+4. 重拟合 t30…t90（及 LGB）并 promote。  
+5. 做 T / 回测；日志确认 `clock=τ` Cube hit，而非一律 open_fallback。
+
+### 13.7 风险与回滚
+
+| 风险 | 缓解 |
+|------|------|
+| 磁盘：票×日×钟 | 只物化训练网格钟；保留上限与冷 hash 清理同 §10.4 |
+| 分钟变更失效面大 | 指纹含分钟前缀；topup 分钟后 `invalidate` 对应 `tc_HHMM` |
+| 列膨胀拖慢 Cube | `names` 白名单；slim 禁止用于窗头 z |
+| 口径漂移 | 窗头默认不 open_fallback；或报告 `zscore_clock_source` |
+| 回滚 | `FIT_USE_DAY_CUBE=0` → 矩阵 `date|τ` CS-z；物化开关不影响旧 5m 现算路径 |
+
+### 13.8 明确不做（本轨）
+
+- 不为 t30/t45/… 各建独立 L1 family（避免五倍目录）。  
+- 不把窗头 μ/σ 写进 open Cube 冒充按钟。  
+- 不在无 5m Ready 时假装 τ 网格物化成功。
+
+---
+
+**一句话**：用 **L1 单票增量特征仓 + L2 截面 Cube** 取代「每次临时拼截面」——开盘头吃 **open**；ŷ_τ\* / 做 T 前缀吃 **按钟（分钟）L2**；训练写穿，回测/live 复用，开关可回滚。

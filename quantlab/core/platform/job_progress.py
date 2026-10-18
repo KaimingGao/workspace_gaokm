@@ -83,6 +83,13 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 300.0,
         "label": "纸面任务",
     },
+    # 满池 L1 write + L2 DayCube：常 >10min；缺策略时走默认 300s，
+    # 且 warmup 曾报 current=0 → zero_progress_stuck 误杀（「预热 Feature Lake」）。
+    "materialize-l1l2": {
+        "stale_sec": 5400.0,
+        "stuck_start_sec": 5400.0,
+        "label": "物化",
+    },
 }
 _DEFAULT_STALE_POLICY = {
     "stale_sec": 300.0,
@@ -602,6 +609,7 @@ class JobRegistry:
             "co-ridge",
             "t0-backtest",
             "portfolio-backtest",
+            "materialize-l1l2",
         ):
             self.slot(name)
         with self._lock:
@@ -614,6 +622,7 @@ try:
     from core.paths import (
         CHAT_JOB_PATH,
         BARS_REFRESH_JOB_PATH,
+        MATERIALIZE_JOB_PATH,
         MINUTE_REFRESH_JOB_PATH,
         PAPER_JOB_PATH,
         QUANT_OLS_CLUSTERS_JOB_PATH,
@@ -635,6 +644,9 @@ try:
     bars_refresh_job = job_registry.slot(
         "bars-refresh", persist_path=BARS_REFRESH_JOB_PATH
     )
+    materialize_job = job_registry.slot(
+        "materialize-l1l2", persist_path=MATERIALIZE_JOB_PATH
+    )
     minute_refresh_job = job_registry.slot(
         "minute-refresh", persist_path=MINUTE_REFRESH_JOB_PATH
     )
@@ -654,6 +666,7 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     paper_job = job_registry.slot("paper")
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
     bars_refresh_job = job_registry.slot("bars-refresh")
+    materialize_job = job_registry.slot("materialize-l1l2")
     minute_refresh_job = job_registry.slot("minute-refresh")
     chat_job = job_registry.slot("chat")
     t30_ridge_job = job_registry.slot("t30-ridge")

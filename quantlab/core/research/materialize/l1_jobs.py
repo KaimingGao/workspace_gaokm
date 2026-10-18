@@ -1,0 +1,441 @@
+"""L1 Feature Lake 物化：按 family 写穿（复用 assemble / collect）。"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+from core.research.materialize.catalog import (
+    FAMILY_CO,
+    FAMILY_OO,
+    FAMILY_OO_RANK,
+    FAMILY_TC,
+    normalize_families,
+)
+from core.research.portfolio_bars import load_portfolio_stock_bars
+
+logger = logging.getLogger(__name__)
+
+ProgressCb = Optional[Callable[[int, int, str], None]]
+CancelCb = Optional[Callable[[], bool]]
+
+
+def _emit(cb: ProgressCb, cur: int, tot: int, msg: str) -> None:
+    if not cb:
+        return
+    try:
+        cb(int(cur), max(1, int(tot)), str(msg or ""))
+    except Exception:  # noqa: BLE001
+        logger.debug("materialize l1 progress_cb failed", exc_info=True)
+
+
+def _cancelled(cb: CancelCb) -> bool:
+    if not cb:
+        return False
+    try:
+        return bool(cb())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _stock_bar_items(
+    codes: Sequence[str],
+    *,
+    lookback: int,
+) -> Tuple[Dict[str, List[dict]], List[dict], List[Tuple[str, List[dict]]]]:
+    stock_bars, failures, _fund = load_portfolio_stock_bars(
+        list(codes),
+        lookback=int(lookback),
+        fetch_fundamentals=False,
+    )
+    items: List[Tuple[str, List[dict]]] = []
+    for code in list(stock_bars.keys()):
+        bars = stock_bars.get(code) or []
+        if isinstance(bars, list) and bars:
+            items.append((str(code), list(bars)))
+    return stock_bars, list(failures or []), items
+
+
+def _materialize_oo(
+    codes: Sequence[str],
+    *,
+    lookback: int,
+    horizon_days: int,
+    progress_cb: ProgressCb,
+) -> Dict[str, Any]:
+    from core.research.oo_ridge_compact import assemble_oo_panels
+
+    t0 = time.perf_counter()
+    _emit(progress_cb, 0, 1, "L1 oo：加载日线…")
+    _bars, failures, items = _stock_bar_items(codes, lookback=lookback)
+    if len(items) < 2:
+        return {
+            "family": FAMILY_OO,
+            "ok": False,
+            "error": f"有效日线不足（失败 {len(failures)}）",
+            "n_stocks": len(items),
+            "failures": failures[:8],
+            "elapsed_s": round(time.perf_counter() - t0, 2),
+        }
+    _emit(progress_cb, 0, 1, f"L1 oo：assemble {len(items)} 只…")
+    x_mat, y_mat, feat_names, all_dates = assemble_oo_panels(
+        items,
+        horizon_days=int(horizon_days),
+    )
+    n_rows = int(getattr(x_mat, "shape", [0])[0] or 0)
+    return {
+        "family": FAMILY_OO,
+        "ok": True,
+        "n_stocks": len(items),
+        "n_rows": n_rows,
+        "n_features": len(feat_names or []),
+        "n_dates": len(set(str(d)[:10] for d in (all_dates or []) if d)),
+        "elapsed_s": round(time.perf_counter() - t0, 2),
+    }
+
+
+def _materialize_tc(
+    codes: Sequence[str],
+    *,
+    lookback: int,
+    progress_cb: ProgressCb,
+) -> Dict[str, Any]:
+    from core.research.panel_matrix import collect_tau_compact
+    from core.yhat.keys import TAU_Z_FEATURES
+
+    t0 = time.perf_counter()
+    _emit(progress_cb, 0, 1, "L1 tc：加载日线…")
+    stock_bars, failures, _items = _stock_bar_items(codes, lookback=lookback)
+    packs = [
+        {"stock_code": c, "code": c, "bars": stock_bars.get(c) or []}
+        for c in codes
+        if stock_bars.get(c)
+    ]
+    if len(packs) < 2:
+        return {
+            "family": FAMILY_TC,
+            "ok": False,
+            "error": f"有效日线不足（失败 {len(failures)}）",
+            "n_stocks": len(packs),
+            "elapsed_s": round(time.perf_counter() - t0, 2),
+        }
+    _emit(progress_cb, 0, 1, f"L1 tc：collect_tau_compact {len(packs)} 只…")
+    X, col_names, ys, dates, _metas, n_stocks = collect_tau_compact(
+        packs,
+        list(TAU_Z_FEATURES),
+        tau_hm="open",
+        include_alpha_tc=True,
+        head="y_tc",
+        cache_head="tc",
+    )
+    return {
+        "family": FAMILY_TC,
+        "ok": True,
+        "n_stocks": int(n_stocks),
+        "n_rows": len(ys or []),
+        "n_features": len(col_names or []),
+        "n_dates": len(set(str(d)[:10] for d in (dates or []) if d)),
+        "elapsed_s": round(time.perf_counter() - t0, 2),
+        "x_shape": list(getattr(X, "shape", []) or []),
+    }
+
+
+def _materialize_co(
+    codes: Sequence[str],
+    *,
+    lookback: int,
+    progress_cb: ProgressCb,
+) -> Dict[str, Any]:
+    from core.research.panel_matrix import collect_co_compact
+    from core.yhat.keys import CO_Z_FEATURES
+
+    t0 = time.perf_counter()
+    _emit(progress_cb, 0, 1, "L1 co：加载日线…")
+    stock_bars, failures, _items = _stock_bar_items(codes, lookback=lookback)
+    packs = [
+        {"stock_code": c, "code": c, "bars": stock_bars.get(c) or []}
+        for c in codes
+        if stock_bars.get(c)
+    ]
+    if len(packs) < 2:
+        return {
+            "family": FAMILY_CO,
+            "ok": False,
+            "error": f"有效日线不足（失败 {len(failures)}）",
+            "n_stocks": len(packs),
+            "elapsed_s": round(time.perf_counter() - t0, 2),
+        }
+
+    def _pcb(done: int, total: int, message: str = "") -> None:
+        _emit(progress_cb, done, total, message or f"L1 co：{done}/{total}")
+
+    _emit(progress_cb, 0, 1, f"L1 co：collect_co_compact {len(packs)} 只…")
+    X, col_names, ys, dates, _metas, n_stocks = collect_co_compact(
+        packs,
+        list(CO_Z_FEATURES),
+        include_alpha_oo=True,
+        head="y_co",
+        progress_cb=_pcb,
+    )
+    return {
+        "family": FAMILY_CO,
+        "ok": True,
+        "n_stocks": int(n_stocks),
+        "n_rows": len(ys or []),
+        "n_features": len(col_names or []),
+        "n_dates": len(set(str(d)[:10] for d in (dates or []) if d)),
+        "elapsed_s": round(time.perf_counter() - t0, 2),
+        "x_shape": list(getattr(X, "shape", []) or []),
+    }
+
+
+def _materialize_oo_rank(
+    codes: Sequence[str],
+    *,
+    lookback: int,
+    progress_cb: ProgressCb,
+) -> Dict[str, Any]:
+    """oo_rank：走 day panels 构建写穿 L1。"""
+    from core.research.oo_rank_panel import build_oo_rank_day_panels
+
+    t0 = time.perf_counter()
+    _emit(progress_cb, 0, 1, "L1 oo_rank：加载日线…")
+    stock_bars, failures, _items = _stock_bar_items(codes, lookback=lookback)
+    packs = [
+        {"stock_code": c, "code": c, "bars": stock_bars.get(c) or []}
+        for c in codes
+        if stock_bars.get(c)
+    ]
+    if len(packs) < 2:
+        return {
+            "family": FAMILY_OO_RANK,
+            "ok": False,
+            "error": f"有效日线不足（失败 {len(failures)}）",
+            "n_stocks": len(packs),
+            "elapsed_s": round(time.perf_counter() - t0, 2),
+        }
+    _emit(progress_cb, 0, 1, f"L1 oo_rank：build panels {len(packs)} 只…")
+    try:
+        panels = build_oo_rank_day_panels(packs)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "family": FAMILY_OO_RANK,
+            "ok": False,
+            "error": str(exc),
+            "elapsed_s": round(time.perf_counter() - t0, 2),
+        }
+    n = len(panels) if isinstance(panels, (list, dict)) else 0
+    return {
+        "family": FAMILY_OO_RANK,
+        "ok": n > 0,
+        "n_panels": n,
+        "elapsed_s": round(time.perf_counter() - t0, 2),
+        "error": None if n > 0 else "empty panels",
+    }
+
+
+def _attach_minute_bars(packs: List[dict], *, lookback_days: int = 45) -> int:
+    """给 packs 挂本地 5m；返回挂上分钟的票数。"""
+    n = 0
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import load_minute_cache
+    except Exception:  # noqa: BLE001
+        return 0
+    _ = lookback_days  # 仓内全量读；窗由拟合/指纹约束
+    for row in packs:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("stock_code") or row.get("code") or "").strip()
+        if not code:
+            continue
+        try:
+            mkt, pure = resolve_market_code(code)
+            packed = load_minute_cache(
+                mkt or "CN",
+                pure or code,
+                "5",
+                min_bars=1,
+                ignore_age=True,
+            )
+        except Exception:  # noqa: BLE001
+            packed = None
+        mb = None
+        if isinstance(packed, tuple) and packed:
+            mb = packed[0]
+        elif isinstance(packed, dict):
+            mb = packed.get("bars") or packed.get("minute_bars")
+        elif isinstance(packed, list):
+            mb = packed
+        if isinstance(mb, list) and mb:
+            row["minute_bars"] = mb
+            n += 1
+    return n
+
+
+def materialize_l1_tau_grid(
+    codes: Sequence[str],
+    *,
+    lookback: int = 1000,
+    clocks: Sequence[str] | None = None,
+    progress_cb: ProgressCb = None,
+    cancel_cb: CancelCb = None,
+    minute_lookback_days: int = 45,
+) -> Dict[str, Any]:
+    """H1：按训练网格写 ``tc_HHMM`` L1（τc∪窗头列）。须本地 5m。"""
+    from core.research.materialize.catalog import suggested_tau_clocks
+    from core.research.materialize.horizon_names import horizon_l1_feature_names
+    from core.research.panel_matrix import collect_tau_compact
+
+    t0 = time.perf_counter()
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    clock_list = [str(c).strip() for c in (clocks or suggested_tau_clocks()) if str(c or "").strip()]
+    clock_list = [c for c in clock_list if c.lower() not in ("open", "09:30", "0930")]
+    report: Dict[str, Any] = {
+        "ok": False,
+        "n_codes": len(code_list),
+        "clocks": clock_list,
+        "by_clock": {},
+        "minute_attached": 0,
+        "elapsed_s": 0.0,
+    }
+    if len(code_list) < 2 or not clock_list:
+        report["error"] = "codes < 2 or empty tau clocks"
+        return report
+
+    _emit(progress_cb, 0, 1, "L1 τ 网格：加载日线…")
+    stock_bars, failures, _items = _stock_bar_items(code_list, lookback=lookback)
+    packs = [
+        {"stock_code": c, "code": c, "bars": stock_bars.get(c) or []}
+        for c in code_list
+        if stock_bars.get(c)
+    ]
+    if len(packs) < 2:
+        report["error"] = f"有效日线不足（失败 {len(failures)}）"
+        report["failures"] = failures[:8]
+        return report
+
+    attached = _attach_minute_bars(packs, lookback_days=minute_lookback_days)
+    report["minute_attached"] = attached
+    if attached < 2:
+        report["error"] = "本地 5m 不足（请先分钟增量/强更）"
+        return report
+
+    feat_names = horizon_l1_feature_names()
+    ok_n = 0
+    for i, hm in enumerate(clock_list):
+        if _cancelled(cancel_cb):
+            report["error"] = "cancelled"
+            break
+        _emit(
+            progress_cb,
+            i,
+            len(clock_list),
+            f"L1 τ 网格 {hm}（{i + 1}/{len(clock_list)}）…",
+        )
+        # 每钟深拷贝 packs 的 bars 引用；minute 会被 collect pop
+        batch = []
+        for p in packs:
+            batch.append(
+                {
+                    "stock_code": p.get("stock_code"),
+                    "code": p.get("code"),
+                    "bars": list(p.get("bars") or []),
+                    "minute_bars": list(p.get("minute_bars") or []),
+                }
+            )
+        try:
+            X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
+                batch,
+                feat_names,
+                tau_hm=hm,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+                head="y_tc",
+                cache_head="tc",
+            )
+            row = {
+                "ok": True,
+                "n_stocks": int(n_stocks),
+                "n_rows": len(ys or []),
+                "n_features": len(col_names or []),
+                "n_dates": len(set(str(d)[:10] for d in (dates or []) if d)),
+                "x_shape": list(getattr(X, "shape", []) or []),
+            }
+            if int(n_stocks) >= 2 and len(ys or []) >= 4:
+                ok_n += 1
+            else:
+                row["ok"] = False
+                row["error"] = "sparse"
+        except Exception as exc:  # noqa: BLE001
+            row = {"ok": False, "error": str(exc)}
+        report["by_clock"][hm] = row
+
+    report["ok"] = ok_n >= max(1, len(clock_list) // 4)
+    report["clocks_ok"] = ok_n
+    report["elapsed_s"] = round(time.perf_counter() - t0, 2)
+    if not report["ok"] and not report.get("error"):
+        report["error"] = f"τ 网格 L1 覆盖不足 ok={ok_n}/{len(clock_list)}"
+    _emit(progress_cb, 1, 1, f"L1 τ 网格完成 · {report['elapsed_s']}s")
+    return report
+
+
+def materialize_l1(
+    families: Sequence[str],
+    codes: Sequence[str],
+    *,
+    lookback: int = 1000,
+    horizon_days: int = 1,
+    progress_cb: ProgressCb = None,
+    cancel_cb: CancelCb = None,
+) -> Dict[str, Any]:
+    """按 family 物化 L1。返回 ``by_family`` 与汇总。"""
+    fams = normalize_families(families)
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    report: Dict[str, Any] = {
+        "ok": True,
+        "families": fams,
+        "n_codes": len(code_list),
+        "by_family": {},
+        "elapsed_s": 0.0,
+    }
+    if len(code_list) < 2:
+        report["ok"] = False
+        report["error"] = "codes < 2"
+        return report
+    t0 = time.perf_counter()
+    n = len(fams)
+    for i, fam in enumerate(fams):
+        if _cancelled(cancel_cb):
+            report["ok"] = False
+            report["error"] = "cancelled"
+            break
+        _emit(progress_cb, i, n, f"L1 {fam}（{i + 1}/{n}）…")
+        if fam == FAMILY_OO:
+            row = _materialize_oo(
+                code_list,
+                lookback=lookback,
+                horizon_days=horizon_days,
+                progress_cb=progress_cb,
+            )
+        elif fam == FAMILY_TC:
+            row = _materialize_tc(
+                code_list, lookback=lookback, progress_cb=progress_cb
+            )
+        elif fam == FAMILY_CO:
+            row = _materialize_co(
+                code_list, lookback=lookback, progress_cb=progress_cb
+            )
+        elif fam == FAMILY_OO_RANK:
+            row = _materialize_oo_rank(
+                code_list, lookback=lookback, progress_cb=progress_cb
+            )
+        else:
+            row = {"family": fam, "ok": False, "error": "unknown family"}
+        report["by_family"][fam] = row
+        if not row.get("ok"):
+            report["ok"] = False
+    report["elapsed_s"] = round(time.perf_counter() - t0, 2)
+    _emit(progress_cb, n, n, f"L1 完成 · {report['elapsed_s']}s")
+    return report

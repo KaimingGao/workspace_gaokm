@@ -264,20 +264,32 @@ _TAU_POOL_BATCH = 24
 
 
 def _tc_matrix_seed_names(
-    names: Sequence[str], *, include_alpha_tc: bool
+    names: Sequence[str],
+    *,
+    include_alpha_tc: bool,
+    include_alpha_th: bool = False,
 ) -> List[str]:
-    """预注册 raw_atc_*，与 ŷ_co 的 seed 策略对齐。"""
+    """预注册 raw_atc_* / 窗头列，与 ŷ_co 的 seed 策略对齐。"""
     out = [str(n) for n in names]
-    if not include_alpha_tc:
-        return out
     seen = set(out)
-    from core.signal.factors.alpha_tc import ALPHA_TC_FIELD_NAMES, ALPHA_TC_RAW_PREFIX
+    if include_alpha_tc:
+        from core.signal.factors.alpha_tc import ALPHA_TC_FIELD_NAMES, ALPHA_TC_RAW_PREFIX
 
-    for key in ALPHA_TC_FIELD_NAMES:
-        col = f"{ALPHA_TC_RAW_PREFIX}{key}"
-        if col not in seen:
-            seen.add(col)
-            out.append(col)
+        for key in ALPHA_TC_FIELD_NAMES:
+            col = f"{ALPHA_TC_RAW_PREFIX}{key}"
+            if col not in seen:
+                seen.add(col)
+                out.append(col)
+    if include_alpha_th:
+        try:
+            from core.research.materialize.horizon_names import horizon_l1_feature_names
+
+            for col in horizon_l1_feature_names():
+                if col not in seen:
+                    seen.add(col)
+                    out.append(col)
+        except Exception:  # noqa: BLE001
+            pass
     return out
 
 
@@ -291,11 +303,13 @@ def _tau_stock_job(
     grid: Optional[Sequence[str]],
     min_history: int,
     include_alpha_tc: bool,
+    include_alpha_th: bool = False,
     cache_head: str = "tc",
 ) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
     """单票 ŷ_τc：任务内折 float64 + slim；写穿 L1（不落整份 xs）。
 
     ``cache_head="tc_rank"`` → L1 family ``tc_rank`` / ``tc_rank_HHMM``。
+    ``include_alpha_th``：按钟附加窗头 ``raw_ath_*`` / ``z_τh_*``（H 轨）。
     """
     from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
     from core.research.tau_panel import (
@@ -313,6 +327,7 @@ def _tau_stock_job(
         return None
     mh = int(min_history)
     atc = bool(include_alpha_tc)
+    ath = bool(include_alpha_th)
     minute = list(item.get("minute_bars") or []) if use_minute else None
     rank_cache = str(cache_head or "tc") == "tc_rank"
     fp = make_fingerprint(
@@ -320,6 +335,7 @@ def _tau_stock_job(
         tau_hm=str(tau_hm),
         min_history=mh,
         include_alpha_tc=int(atc),
+        include_alpha_th=int(ath),
         use_minute=int(bool(use_minute)),
     )
     from core.research.lake_bridge import family_for_tc
@@ -423,6 +439,7 @@ def _tau_stock_job(
             fundamentals=item.get("fundamentals"),
             stock_code=code,
             include_alpha_tc=include_alpha_tc,
+            include_alpha_th=include_alpha_th,
         )
         item.pop("minute_bars", None)
     else:
@@ -437,6 +454,15 @@ def _tau_stock_job(
     if len(ys) < 4:
         return None
     stamp_z_tc_rows(xs)
+    if include_alpha_th:
+        try:
+            from core.signal.factors.z_th import stamp_z_th_aliases
+
+            for row in xs:
+                if isinstance(row, dict):
+                    stamp_z_th_aliases(row)
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp_z_th_aliases failed", exc_info=True)
     slim = _slim_rows(xs, slim_keys)
     block = _dict_rows_to_matrix(xs, col_names)
     del xs
@@ -472,6 +498,7 @@ def collect_tau_compact(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     include_alpha_tc: bool = True,
+    include_alpha_th: bool = False,
     head: str = "y_tc",
     workers: Optional[int] = None,
     cache_head: str = "tc",
@@ -479,6 +506,7 @@ def collect_tau_compact(
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
 
     现网默认 ``include_alpha_tc=True``（raw_atc_*）。
+    ``include_alpha_th``：写穿窗头列（H 轨 ``tc_HHMM``）。
     单票任务内折 float64 + slim（对齐 ŷ_co），写穿 L1。
     并行：默认/硬顶 4 线程（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
     """
@@ -495,7 +523,11 @@ def collect_tau_compact(
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
     n_jobs = len(items)
     n_workers = _resolve_tau_workers(n_jobs, workers)
-    col_names = _tc_matrix_seed_names(names, include_alpha_tc=include_alpha_tc)
+    col_names = _tc_matrix_seed_names(
+        names,
+        include_alpha_tc=include_alpha_tc,
+        include_alpha_th=include_alpha_th,
+    )
     block = PanelMatrix(col_names, widen_prefix="")
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
@@ -534,6 +566,7 @@ def collect_tau_compact(
                     grid=grid,
                     min_history=min_history,
                     include_alpha_tc=include_alpha_tc,
+                    include_alpha_th=include_alpha_th,
                     cache_head=cache_head,
                 )
             )
@@ -562,6 +595,7 @@ def collect_tau_compact(
                     grid=grid,
                     min_history=min_history,
                     include_alpha_tc=include_alpha_tc,
+                    include_alpha_th=include_alpha_th,
                     cache_head=cache_head,
                 )
                 inflight[fut] = i
@@ -1267,10 +1301,7 @@ def fit_keepall_ridge_matrix(
     beta = None
     if x_c is not None and y_c is not None and active:
         x_fit = x_c
-        from core.research.feature_standardize import (
-            cross_section_zscore_matrix,
-            dates_for_complete_rows,
-        )
+        from core.research.feature_standardize import dates_for_complete_rows
 
         dates_c = (
             dates_for_complete_rows(row_dates, idxs if isinstance(idxs, list) else [])
@@ -1283,8 +1314,9 @@ def fit_keepall_ridge_matrix(
             and dates_c is not None
             and len(dates_c) == int(x_fit.shape[0])
         ):
-            x_fit = cross_section_zscore_matrix(x_fit, dates_c)
-            x_fit = np.where(np.isfinite(x_fit), x_fit, 0.0)
+            from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
+
+            x_fit = cs_z_matrix_prefer_cube(x_fit, active, dates_c)
             zscore_scope = "cross_section"
         elif feature_zscore:
             eps2 = 1e-12
@@ -1375,10 +1407,7 @@ def predict_ridge_matrix(
     intercept = float(fit.get("intercept") or 0.0)
     means = fit.get("zscore_means") or fit.get("z_means") or {}
     stds = fit.get("zscore_stds") or fit.get("z_stds") or {}
-    from core.research.feature_standardize import (
-        cross_section_zscore_matrix,
-        is_cross_section_zscore,
-    )
+    from core.research.feature_standardize import is_cross_section_zscore
 
     x_arr = np.asarray(X, dtype=np.float64)
     if (
@@ -1387,8 +1416,16 @@ def predict_ridge_matrix(
         and x_arr.ndim == 2
         and len(row_dates) == int(x_arr.shape[0])
     ):
-        x_arr = cross_section_zscore_matrix(x_arr, row_dates)
-        x_arr = np.where(np.isfinite(x_arr), x_arr, 0.0)
+        name_list = [str(n) for n in names]
+        try:
+            from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
+
+            x_arr = cs_z_matrix_prefer_cube(x_arr, name_list, row_dates)
+        except Exception:  # noqa: BLE001
+            from core.research.feature_standardize import cross_section_zscore_matrix
+
+            x_arr = cross_section_zscore_matrix(x_arr, row_dates)
+            x_arr = np.where(np.isfinite(x_arr), x_arr, 0.0)
         means = {}
         stds = {}
     active = [

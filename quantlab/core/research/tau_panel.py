@@ -391,16 +391,23 @@ def _relabel_tau_panels_as_horizon(
             m = metas_in[i] if isinstance(metas_in[i], dict) else {}
             pxN = m.get(spec.px_key)
             tauN_hm = m.get(spec.tau_plus_key)
-            if pxN is None:
-                mb = p.get("minute_bars")
-                if mb and m.get("tau") and (m.get("date") or dates_in[i]):
-                    tauN_hm, pxN = price_at_horizon_mean_session(
-                        mb,
-                        trade_date=str(m.get("date") or dates_in[i])[:10],
-                        tau_hm=str(m.get("tau")),
-                        offsets=spec.offsets,
-                    )
-            yt = y_t30_pct(m.get("price_tau"), pxN)
+            day_i = str(m.get("date") or dates_in[i] or "")[:10]
+            tau_i = str(m.get("tau") or "").strip()
+            mb = p.get("minute_bars")
+            # L1 stitch 行常缺 price_tau / pxN：用分钟轻量补标签（不重算特征）
+            px_tau = m.get("price_tau")
+            if px_tau is None and mb and tau_i and len(day_i) >= 10:
+                px_tau = price_at_tau_from_minutes(
+                    mb, trade_date=day_i, tau_hm=tau_i
+                )
+            if pxN is None and mb and tau_i and len(day_i) >= 10:
+                tauN_hm, pxN = price_at_horizon_mean_session(
+                    mb,
+                    trade_date=day_i,
+                    tau_hm=tau_i,
+                    offsets=spec.offsets,
+                )
+            yt = y_t30_pct(px_tau, pxN)
             if yt is None:
                 continue
             row_x = dict(xs_in[i]) if isinstance(xs_in[i], dict) else {}
@@ -413,6 +420,8 @@ def _relabel_tau_panels_as_horizon(
             ys.append(float(yt))
             dates.append(dates_in[i])
             meta = dict(m)
+            if px_tau is not None:
+                meta["price_tau"] = px_tau
             meta[spec.y_key] = float(yt)
             meta[spec.y_label] = float(yt)
             if tauN_hm:

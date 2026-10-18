@@ -325,12 +325,27 @@ def watchlist_names_for(data: dict, *, allow_live: bool = True) -> List[str]:
                 code_to_name[code] = name
             code_to_name[raw_s] = name or raw_s
 
+    # 空名用本地码表（a_code_name / spot_a_em），不打行情。满池空名时否则主表股票列全是「—」。
+    local_names: Dict[str, str] = {}
+    if any(not n for n in names):
+        try:
+            from core.t0.intraday import _load_a_code_name_map
+
+            local_names = _load_a_code_name_map() or {}
+        except Exception:  # noqa: BLE001 — 码表缺失时留空名，不挡名单
+            logger.debug("watchlist local name map failed", exc_info=True)
+            local_names = {}
+
     for i, code in enumerate(wl):
         if names[i]:
             continue
         hint = code_to_name.get(code, "")
         if hint:
             names[i] = hint
+            continue
+        mapped = _clean_name(str(local_names.get(code) or ""))
+        if mapped and mapped != code:
+            names[i] = mapped
             continue
         if not allow_live:
             continue

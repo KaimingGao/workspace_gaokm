@@ -951,10 +951,7 @@ def fit_oo_ridge_matrix(
             x_c = np.ascontiguousarray(x_c[:, keep_pos], dtype=np.float64)
             active = list(kept)
         if active:
-            from core.research.feature_standardize import (
-                cross_section_zscore_matrix,
-                dates_for_complete_rows,
-            )
+            from core.research.feature_standardize import dates_for_complete_rows
 
             use_cs = bool(cross_section_zscore)
             date_src = row_dates if use_cs else None
@@ -968,8 +965,9 @@ def fit_oo_ridge_matrix(
                 and dates_c is not None
                 and len(dates_c) == int(x_c.shape[0])
             ):
-                x_z = cross_section_zscore_matrix(x_c, dates_c)
-                x_z = np.where(np.isfinite(x_z), x_z, 0.0)
+                from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
+
+                x_z = cs_z_matrix_prefer_cube(x_c, active, dates_c)
                 z_means, z_stds = {}, {}
             else:
                 x_z, z_means, z_stds = _zscore_matrix(x_c, active)
@@ -1066,11 +1064,12 @@ def predict_oo_matrix(
         and row_dates is not None
         and len(row_dates) == int(np.asarray(x).shape[0])
     ):
-        from core.research.feature_standardize import cross_section_zscore_matrix
+        from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
 
         picked = np.asarray(x, dtype=np.float64)[idx]
         dates_sub = [str(row_dates[int(i)])[:10] for i in idx.tolist()]
-        x_rows = cross_section_zscore_matrix(picked, dates_sub)
+        name_list = [str(n) for n in names]
+        x_rows = cs_z_matrix_prefer_cube(picked, name_list, dates_sub)
         row_at = np.arange(n, dtype=np.int64)
         feature_zscore = False
     for name, beta in model.coefficients.items():
