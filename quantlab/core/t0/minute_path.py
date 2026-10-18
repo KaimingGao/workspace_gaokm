@@ -1,7 +1,7 @@
-"""做 T：分钟线第一触达路径（v6 收盘带宽选腿）。
+"""做 T：分钟线第一触达路径（纯 ŷ_τw 选腿）。
 
 方向：sell_then_buy=反T（先卖后买），buy_then_sell=正T（先买后卖）。
-日级入口 ``simulate_t0_day_minute`` 恒走 ``simulate_t0_day_slots``（破带开 leg1）。
+日级入口 ``simulate_t0_day_minute`` 恒走 ``simulate_t0_day_slots``（ŷ_τw 开 leg1）。
 """
 
 
@@ -818,7 +818,7 @@ def _first_touch_sell_then_buy(
             sell_level = float(sold_price)
             touch_sell_at = ts
             leg1_idx = idx
-            # 冻结 C_τ；盘中止损/锁赢，午后中点追价
+            # 可选预设 leg2；盘中止损/锁赢，午后中点追价
             if leg2_target_px is not None and float(leg2_target_px) > 0:
                 chase_buy_level = float(leg2_target_px)
             else:
@@ -881,7 +881,7 @@ def _first_touch_sell_then_buy(
                         exit_reason = "stop_loss"
                         continue
 
-            # 跌过锁赢（先于买回触发/追价；本根已触 C_τ 不抢）：独立延迟根
+            # 跌过锁赢（先于买回触发/追价）：独立延迟根
             if (
                 lock_pct > 0
                 and lock_level is not None
@@ -1305,7 +1305,7 @@ def _first_touch_buy_then_sell(
             buy_price = fill_buy
             touch_buy_at = ts
             sell_old_qty = min(bought_qty, sell_old_cap)
-            # 冻结 C_τ；盘中止损/锁赢，午后中点追价
+            # 可选预设 leg2；盘中止损/锁赢，午后中点追价
             if leg2_target_px is not None and float(leg2_target_px) > 0:
                 chase_sell_level = float(leg2_target_px)
             else:
@@ -1359,7 +1359,7 @@ def _first_touch_buy_then_sell(
                     exit_reason = "stop_loss"
                     continue
 
-            # 涨过锁赢（先于卖触发/追价；本根已触 C_τ 不抢）：独立延迟根
+            # 涨过锁赢（先于卖触发/追价）：独立延迟根
             if (
                 lock_pct > 0
                 and lock_level is not None
@@ -1819,9 +1819,9 @@ def simulate_t0_day_minute(
     tau_pool_day: Optional[dict] = None,
     defer_eod: bool = False,
 ) -> Dict[str, Any]:
-    """单日做 T：v6 逐根 C 相对 C_τ 破带开轮；leg2 冻结 C_τ；止损/追价共用。
+    """单日做 T：逐根纯 ŷ_τw 开轮；leg2 无预设目标；止损/追价/收盘共用。
 
-    开盘可预计算开盘-only 快照；各触发根前用前缀因果重算 ŷ_τc 估 C_τ。
+    开盘可预计算开盘-only 快照；各触发根前用前缀因果重算 ŷ_τ* → ŷ_τw。
     ``defer_eod=True`` 时盘中前缀不强平（纸面整单/Worker）。
     """
     from core.t0.score_policy import (

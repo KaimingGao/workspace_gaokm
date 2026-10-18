@@ -1,10 +1,9 @@
-"""分钟线：远端失败时回退本地过期缓存。"""
+"""分钟线：新浪拉取失败时回退本地过期缓存。"""
 
 from __future__ import annotations
 
 import os
 import unittest
-from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 
@@ -23,7 +22,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
                 "volume": 1000,
             }
         ] * 12
-        stale_meta = {"data_source": "akshare:stock_zh_a_hist_min_em:5", "from_cache": True}
+        stale_meta = {"data_source": "akshare:stock_zh_a_minute", "from_cache": True}
 
         def _load(market, code, period, **kw):
             if kw.get("ignore_age"):
@@ -33,9 +32,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
         with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
             mh, "load_minute_cache", side_effect=_load
         ), patch.object(
-            mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
-        ), patch.object(
-            mh, "_maybe_fetch_sina_minute_bars", return_value=([], {})
+            mh, "_fetch_sina_minute_bars", return_value=([], {"error": "sina down"})
         ), patch.object(mh, "_throttle_minute_remote_fetch"):
             bars, meta = mh.fetch_a_minute_bars("600519", period="5", use_cache=True)
             self.assertEqual(len(bars), 12)
@@ -43,64 +40,16 @@ class TestMinuteStaleFallback(unittest.TestCase):
             self.assertIn("remote_error", meta)
             self.assertTrue(str(meta.get("data_source") or "").startswith("cache:stale"))
 
-    def test_minute_em_lookback_policy(self):
-        from core.data.policy import minute_em_lookback_days
+    def test_minute_lookback_policy(self):
+        from core.data.policy import minute_lookback_days
 
         with patch.dict(os.environ):
-            os.environ.pop("QUANTLAB_MINUTE_EM_LOOKBACK_DAYS", None)
-            self.assertEqual(minute_em_lookback_days(), 120)
-        with patch.dict(os.environ, {"QUANTLAB_MINUTE_EM_LOOKBACK_DAYS": "15"}):
-            self.assertEqual(minute_em_lookback_days(), 15)
-        with patch.dict(os.environ, {"QUANTLAB_MINUTE_EM_LOOKBACK_DAYS": "999"}):
-            self.assertEqual(minute_em_lookback_days(), 120)
-
-    def test_em_fetch_caps_at_120_calendar_days(self):
-        from adapters.market import minute_history as mh
-
-        captured: dict = {}
-
-        class _Frame:
-            def to_dict(self, orient="records"):
-                return []
-
-        class _Ak:
-            def stock_zh_a_hist_min_em(self, **kw):
-                captured.update(kw)
-                return _Frame()
-
-        with patch(
-            "core.data.ak_lock.import_akshare", return_value=_Ak()
-        ), patch(
-            "core.http_retry.call_with_retry", side_effect=lambda fn, **_k: fn()
-        ), patch.dict(os.environ):
-            os.environ.pop("QUANTLAB_MINUTE_EM_LOOKBACK_DAYS", None)
-            mh._fetch_em_minute_bars("601988", period="5", lookback_days=200, adjust="qfq")
-        expected_day = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
-        self.assertEqual(captured.get("symbol"), "601988")
-        self.assertEqual(captured.get("period"), "5")
-        self.assertEqual(captured.get("adjust"), "qfq")
-        self.assertTrue(str(captured.get("start_date") or "").startswith(expected_day))
-        self.assertTrue(str(captured.get("end_date") or "").startswith(datetime.now().strftime("%Y-%m-%d")))
-
-    def test_em_retry_waits_fetch_gap(self):
-        from adapters.market import minute_history as mh
-
-        captured: dict = {}
-
-        def _capture(fn, **kw):
-            captured.update(kw)
-            return []
-
-        with patch(
-            "core.http_retry.call_with_retry", side_effect=_capture
-        ), patch.dict(os.environ, {"QUANTLAB_MINUTE_FETCH_DELAY_SEC": "10"}):
-            mh._fetch_em_minute_bars("601988", period="5", lookback_days=30, adjust="qfq")
-        self.assertEqual(captured.get("retries"), 1)
-        self.assertGreaterEqual(float(captured.get("base_delay_sec") or 0), 10.0)
-        self.assertGreaterEqual(
-            float(captured.get("max_delay_sec") or 0),
-            float(captured.get("base_delay_sec") or 0),
-        )
+            os.environ.pop("QUANTLAB_MINUTE_LOOKBACK_DAYS", None)
+            self.assertEqual(minute_lookback_days(), 45)
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_LOOKBACK_DAYS": "15"}):
+            self.assertEqual(minute_lookback_days(), 15)
+        with patch.dict(os.environ, {"QUANTLAB_MINUTE_LOOKBACK_DAYS": "999"}):
+            self.assertEqual(minute_lookback_days(), 60)
 
     def test_minute_update_uses_stock_zh_a_minute(self):
         from adapters.market import minute_history as mh
@@ -129,9 +78,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
                 return _Frame()
 
         with patch("core.data.ak_lock.import_akshare", return_value=_Ak()):
-            bars, meta = mh._maybe_fetch_sina_minute_bars(
-                "600519", period="5", lookback_days=30
-            )
+            bars, meta = mh._fetch_sina_minute_bars("600519")
         self.assertEqual(calls.get("symbol"), "sh600519")
         self.assertEqual(calls.get("period"), "5")
         self.assertEqual(calls.get("adjust"), "")
@@ -139,7 +86,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
         self.assertEqual(bars[0]["close"], 10.5)
         self.assertEqual(meta.get("data_source"), "akshare:stock_zh_a_minute")
 
-    def test_fetch_uses_sina_when_em_empty(self):
+    def test_fetch_uses_sina_only(self):
         from adapters.market import minute_history as mh
 
         bar = {
@@ -154,10 +101,8 @@ class TestMinuteStaleFallback(unittest.TestCase):
         with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
             mh, "load_minute_cache", return_value=None
         ), patch.object(
-            mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
-        ), patch.object(
             mh,
-            "_maybe_fetch_sina_minute_bars",
+            "_fetch_sina_minute_bars",
             return_value=([bar], {"data_source": "akshare:stock_zh_a_minute"}),
         ), patch.object(mh, "_throttle_minute_remote_fetch"), patch.object(
             mh,
@@ -171,26 +116,25 @@ class TestMinuteStaleFallback(unittest.TestCase):
             (meta.get("sina") or {}).get("data_source"), "akshare:stock_zh_a_minute"
         )
 
-    def test_em_empty_then_sina_then_done(self):
+    def test_period_forced_to_five(self):
         from adapters.market import minute_history as mh
 
-        order: list[str] = []
+        calls = []
 
-        def _sina(*_a, **_k):
-            order.append("sina")
-            return [], {}
+        def _sina(bare):
+            calls.append(bare)
+            return [], {"error": "empty", "period": "5"}
 
         with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
             mh, "load_minute_cache", return_value=None
-        ), patch.object(
-            mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
-        ), patch.object(
-            mh, "_maybe_fetch_sina_minute_bars", side_effect=_sina
-        ), patch.object(mh, "_throttle_minute_remote_fetch"), patch.object(
-            mh, "_load_stale_minute", return_value=None
-        ):
-            mh.fetch_a_minute_bars("600519", use_cache=False, max_age_hours=0)
-        self.assertEqual(order, ["sina"])
+        ), patch.object(mh, "_fetch_sina_minute_bars", side_effect=_sina), patch.object(
+            mh, "_throttle_minute_remote_fetch"
+        ), patch.object(mh, "_load_stale_minute", return_value=None):
+            _, meta = mh.fetch_a_minute_bars(
+                "600519", period="15", use_cache=False, max_age_hours=0
+            )
+        self.assertEqual(calls, ["600519"])
+        self.assertEqual(meta.get("period"), "5")
 
 
 class TestMergeSaveAlwaysCaches(unittest.TestCase):
@@ -218,12 +162,8 @@ class TestMergeSaveAlwaysCaches(unittest.TestCase):
                 bars,
                 period="5",
                 data_source="test",
-                adjust_policy="qfq",
+                adjust_policy=None,
             )
         self.assertEqual(len(out), 1)
         self.assertTrue(meta.get("cached"))
         save.assert_called_once()
-
-
-if __name__ == "__main__":
-    unittest.main()

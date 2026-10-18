@@ -86,7 +86,7 @@ class TestLastT0BacktestStore(unittest.TestCase):
         self.assertEqual(len(result["viz"]["cumulative_pnl"]), 1)
 
     def test_zero_trade_keeps_skip_days(self):
-        from core.backtest_result_store import _slim_t0_result
+        from core.persistence.result_snapshot import _slim_t0_result
 
         raw = {
             "success": True,

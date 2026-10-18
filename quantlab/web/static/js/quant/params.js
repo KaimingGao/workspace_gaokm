@@ -60,9 +60,10 @@ const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
   RANK_Z_UNIV_A_HEADS.map((h) => [h, `quant_fit_z_univ_a_${h}`])
 );
 
-/** ŷ_τc：训练前缀终点 09:30…11:00（含 0 前缀）。 */
+/** ŷ_τc / ŷ_τ*：训练前缀终点 09:30…11:00（含 0 前缀）。 */
 const TAU_END_FIT_HEADS = ["tc", "t30", "t45", "t60", "t75", "t90"];
-const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm";
+/** v2：丢弃旧 localStorage「09:30」偏好，默认落在 11:00。 */
+const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm_v2";
 const DEFAULT_TAU_END_HM = "11:00";
 const TAU_END_CLOCKS = (() => {
   const out = [];
@@ -75,6 +76,10 @@ const TAU_END_CLOCKS = (() => {
     total += 5;
   }
   return out;
+})();
+const DEFAULT_TAU_END_IDX = (() => {
+  const i = TAU_END_CLOCKS.indexOf(DEFAULT_TAU_END_HM);
+  return i >= 0 ? i : TAU_END_CLOCKS.length - 1;
 })();
 
 function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
@@ -584,9 +589,13 @@ export function createResearchParams(opts = {}) {
     }
     let hm = DEFAULT_TAU_END_HM;
     if (el) {
+      const raw = Number(el.value);
       const idx = Math.max(
         0,
-        Math.min(TAU_END_CLOCKS.length - 1, Math.round(Number(el.value) || 0))
+        Math.min(
+          TAU_END_CLOCKS.length - 1,
+          Math.round(Number.isFinite(raw) ? raw : DEFAULT_TAU_END_IDX)
+        )
       );
       hm = TAU_END_CLOCKS[idx] || DEFAULT_TAU_END_HM;
     } else {
@@ -653,9 +662,13 @@ export function createResearchParams(opts = {}) {
       if (el.dataset.wired === "1") continue;
       el.dataset.wired = "1";
       const sync = () => {
+        const raw = Number(el.value);
         const idx = Math.max(
           0,
-          Math.min(TAU_END_CLOCKS.length - 1, Math.round(Number(el.value) || 0))
+          Math.min(
+            TAU_END_CLOCKS.length - 1,
+            Math.round(Number.isFinite(raw) ? raw : DEFAULT_TAU_END_IDX)
+          )
         );
         applyTauEndHm(TAU_END_CLOCKS[idx] || DEFAULT_TAU_END_HM);
       };

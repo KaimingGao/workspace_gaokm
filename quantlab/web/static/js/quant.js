@@ -3185,8 +3185,8 @@ export function initQuant(ctx) {
     } else if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_τ30 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse、不改 C_τ。`
-          : `将当前研究套 ŷ_τ30 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse、不改 C_τ。`
+          ? `将 ŷ_τ30 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse。`
+          : `将当前研究套 ŷ_τ30 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse。`
       )
     ) {
       return;
@@ -3385,8 +3385,8 @@ export function initQuant(ctx) {
     } else if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_τ45 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse、不改 C_τ。`
-          : `将当前研究套 ŷ_τ45 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse、不改 C_τ。`
+          ? `将 ŷ_τ45 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse。`
+          : `将当前研究套 ŷ_τ45 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse。`
       )
     ) {
       return;
@@ -3584,8 +3584,8 @@ export function initQuant(ctx) {
     } else if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_τ60 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse、不改 C_τ。`
-          : `将当前研究套 ŷ_τ60 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse、不改 C_τ。`
+          ? `将 ŷ_τ60 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse。`
+          : `将当前研究套 ŷ_τ60 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse。`
       )
     ) {
       return;
@@ -3783,8 +3783,8 @@ export function initQuant(ctx) {
     } else if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_τ75 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse、不改 C_τ。`
-          : `将当前研究套 ŷ_τ75 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse、不改 C_τ。`
+          ? `将 ŷ_τ75 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse。`
+          : `将当前研究套 ŷ_τ75 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse。`
       )
     ) {
       return;
@@ -3982,8 +3982,8 @@ export function initQuant(ctx) {
     } else if (
       !window.confirm(
         persistRole === "research"
-          ? `将 ŷ_τ90 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse、不改 C_τ。`
-          : `将当前研究套 ŷ_τ90 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse、不改 C_τ。`
+          ? `将 ŷ_τ90 写入 ${target}？Holdout AUC 择优落盘 backend；不进 fuse / y_oo_fuse。`
+          : `将当前研究套 ŷ_τ90 晋级为执行套？backend 不变；不进 fuse / y_oo_fuse。`
       )
     ) {
       return;

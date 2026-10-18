@@ -82,7 +82,7 @@ def rescore_fitted_cross_section(
     score_codes: Optional[Collection[str]] = None,
     day_cube: Any = None,
 ) -> List[dict]:
-    """就地刷新截面模型的 ŷ_oo / ŷ_τ / ŷ_co。返回原列表。
+    """就地刷新截面模型的 ŷ_oo / ŷ_τ / ŷ_co / ŷ_τ*。返回原列表。
 
     ``score_codes`` 给定时，μ/σ 仍用整批原始特征，只给名单内的代码写 ŷ。
     ``day_cube`` 给定时，τ/co 用 cube 预计算 μ/σ 做 z（单遍，避免重复扫池）。
@@ -93,6 +93,7 @@ def rescore_fitted_cross_section(
     _rescore_oo_ridge(rows, score_codes=score_codes, day_cube=day_cube)
     _rescore_tau(rows, score_codes=score_codes, day_cube=day_cube)
     _rescore_co(rows, score_codes=score_codes, day_cube=day_cube)
+    _rescore_horizons(rows, score_codes=score_codes, day_cube=day_cube)
     return list(items)
 
 
@@ -334,3 +335,142 @@ def _rescore_co(
             co_model_doc=ridge_doc if isinstance(ridge_doc, dict) else None,
             source="ridge",
         )
+
+
+_HORIZON_HEADS = ("t30", "t45", "t60", "t75", "t90")
+
+_HORIZON_HEAD_KEYS = (
+    "predicted_score_t30",
+    "y_t30_hat",
+    "y_t30",
+    "y_τ30",
+    "y_τ30_source",
+    "y_t30_source",
+    "formula_terms_t30",
+    "score_formula_terms_t30",
+    "predicted_score_t45",
+    "y_t45_hat",
+    "y_t45",
+    "y_τ45",
+    "y_τ45_source",
+    "y_t45_source",
+    "formula_terms_t45",
+    "score_formula_terms_t45",
+    "predicted_score_t60",
+    "y_t60_hat",
+    "y_t60",
+    "y_τ60",
+    "y_τ60_source",
+    "y_t60_source",
+    "formula_terms_t60",
+    "score_formula_terms_t60",
+    "predicted_score_t75",
+    "y_t75_hat",
+    "y_t75",
+    "y_τ75",
+    "y_τ75_source",
+    "y_t75_source",
+    "formula_terms_t75",
+    "score_formula_terms_t75",
+    "predicted_score_t90",
+    "y_t90_hat",
+    "y_t90",
+    "y_τ90",
+    "y_τ90_source",
+    "y_t90_source",
+    "formula_terms_t90",
+    "score_formula_terms_t90",
+)
+
+
+def _rescore_horizons(
+    items: List[dict],
+    *,
+    score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
+) -> None:
+    """池级刷新 ŷ_τ30…90：截面模型用当日同伴 μ/σ 再预测。"""
+    for head in _HORIZON_HEADS:
+        _rescore_one_horizon(items, head, score_codes=score_codes, day_cube=day_cube)
+
+
+def _rescore_one_horizon(
+    items: List[dict],
+    head: str,
+    *,
+    score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
+) -> None:
+    raws = []
+    slots = []
+    codes = []
+    for i, it in enumerate(items):
+        feats = it.get("features_tau")
+        if isinstance(feats, dict) and feats:
+            raws.append(dict(feats))
+            slots.append(i)
+            codes.append(str(it.get("stock_code") or "").strip())
+    if len(raws) < 2:
+        return
+    try:
+        from core.research.feature_standardize import (
+            is_cross_section_zscore,
+            normalize_score_codes,
+        )
+        from core.research.horizon_ridge import (
+            _doc_backend,
+            explain_ridge_prediction,
+            load_ridge_model,
+            predict_ridge_from_features,
+            write_y_hat,
+        )
+        from core.research.horizon_tree import predict_tree_from_features
+        from core.signal.factors.z_th import stamp_z_th_aliases
+    except Exception:  # noqa: BLE001
+        logger.debug("horizon rescore import failed head=%s", head, exc_info=True)
+        return
+    try:
+        doc = load_ridge_model(head)
+    except Exception:  # noqa: BLE001
+        doc = None
+    if not doc or not is_cross_section_zscore(doc):
+        return
+    rm = doc.get("return_model") if isinstance(doc, dict) else {}
+    names = _active_names(rm if isinstance(rm, dict) else {})
+    if not names:
+        names = _active_names(doc if isinstance(doc, dict) else {})
+    if not names:
+        return
+    allow = normalize_score_codes(score_codes)
+    try:
+        for r in raws:
+            stamp_z_th_aliases(r)
+    except Exception:  # noqa: BLE001
+        logger.debug("horizon rescore stamp failed head=%s", head, exc_info=True)
+    z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
+    be = _doc_backend(doc)
+    for slot, z_row in zip(slots, z_rows):
+        item = items[slot]
+        code = str(item.get("stock_code") or "").strip()
+        if allow is not None and code not in allow:
+            continue
+        try:
+            if be == "tree":
+                yhat = predict_tree_from_features(head, z_row, model_doc=doc)
+            else:
+                yhat = predict_ridge_from_features(head, z_row, model_doc=doc)
+        except Exception:  # noqa: BLE001
+            logger.debug("horizon rescore predict failed head=%s", head, exc_info=True)
+            continue
+        if yhat is None:
+            continue
+        write_y_hat(head, item, float(yhat))
+        item[f"y_τ{head[1:]}_source" if head.startswith("t") else f"y_{head}_source"] = be
+        item[f"y_{head}_source"] = be
+        try:
+            expl = explain_ridge_prediction(head, z_row, model_doc=doc)
+        except Exception:  # noqa: BLE001
+            expl = None
+        if isinstance(expl, dict):
+            item[f"formula_terms_{head}"] = expl
+            item[f"score_formula_terms_{head}"] = expl

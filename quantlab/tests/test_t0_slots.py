@@ -51,10 +51,8 @@ def _slot_rules(**kwargs):
         ],
         "direction": "buy_then_sell",
         "t0_round_ratio": 0.2,
-        "y_τc_enter": 0,
-        "y_τc_strong": 0,
-        "y_τc_enter_amount": 0,
-        "y_τc_strong_amount": 0,
+        "y_tw_enter_amount": 0,
+        "y_tw_strong_amount": 0,
         "y_tpd_max": 1.0,
         "y_t30_strong": 1.0,
         "y_τ30_strong": 1.0,
@@ -114,14 +112,17 @@ class TestT0Slots(unittest.TestCase):
         self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.20)
         self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 1.0)
         self.assertAlmostEqual(float(cfg.get("y_tw_enter") or 0), 2.0)
-        self.assertAlmostEqual(float(cfg.get("y_τc_enter") or 0), 0.5)
-        self.assertAlmostEqual(float(cfg.get("y_τc_strong") or 0), 1.0)
-        self.assertNotIn("y_tw_strong", cfg)
+        self.assertAlmostEqual(float(cfg.get("y_tw_strong") or 0), 3.0)
+        self.assertNotIn("y_τc_enter", cfg)
+        self.assertNotIn("y_τc_strong", cfg)
+        self.assertNotIn("y_τc_enter_amount", cfg)
+        self.assertNotIn("y_τc_strong_amount", cfg)
         self.assertNotIn("t0_leg1_close_extreme", cfg)
         self.assertNotIn("t0_bar_oc_gate", cfg)
         self.assertNotIn("t0_ytw_prefix_confirm", cfg)
         self.assertAlmostEqual(float(cfg.get("y_tw_midpoint") or 0), 47.0)
-        self.assertAlmostEqual(float(cfg.get("t0_close_band_delta_pct") or 0), 0.5)
+        self.assertNotIn("t0_close_band_delta_pct", cfg)
+        self.assertNotIn("t0_y_τc_target_scale", cfg)
 
     def test_pm_slot_stripped_from_custom_list(self):
         from core.t0.config import normalize_t0_slots
@@ -134,7 +135,7 @@ class TestT0Slots(unittest.TestCase):
         )
         # 11:30/13:00 均超 v6 末轮 → 回落默认五轮壳
         self.assertEqual([s["hm"] for s in slots], ["11:00"] * 5)
-    def test_buy_then_sell_fills_on_close_band_break(self):
+    def test_buy_then_sell_fills_on_ytw_signal(self):
         date = "2026-03-02"
         bar = _bar(date, 100, 105, 97, 101)
 
@@ -201,7 +202,7 @@ class TestT0Slots(unittest.TestCase):
         )
 
     def test_close_band_break_opens_leg1_without_pullback(self):
-        """v6：收价破带即在触发根收盘开第一腿，不要求回踩。"""
+        """v6：ŷ_τw 选向后在触发根收盘开第一腿，不要求回踩。"""
         date = "2026-03-02"
         bar = _bar(date, 100, 101, 99.5, 100.5)
 
@@ -312,7 +313,6 @@ class TestT0Slots(unittest.TestCase):
                 must_cover_same_day_sell_then_buy=False,
                 t0_stop_pct_sell_then_buy=0,
                 y_path_strong=100.0,
-                t0_y_τc_target_scale=10.0,
             ),
             stock_code="",
             minute_bars=mins,

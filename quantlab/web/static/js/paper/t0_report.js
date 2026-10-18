@@ -297,11 +297,11 @@ function buildPortraitSectionHtml(portrait) {
   );
   const coverWarn =
     denomSpread
-      ? `<p class="paper-t0-portrait-slots-warn">分槽分母未对齐：旧回测只记破带开轮钟。请用当前引擎重跑，分槽读 close_band_scan 每根 5m。</p>`
+      ? `<p class="paper-t0-portrait-slots-warn">分槽分母未对齐：旧回测只记开轮钟。请用当前引擎重跑，分槽读 close_band_scan 每根 5m。</p>`
       : yhatCoverN > 0 &&
           slotSampleN > 0 &&
           yhatCoverN / slotSampleN < 0.25
-        ? `<p class="paper-t0-portrait-slots-warn">槽位 y_τc/y_τ30/y_τ45/y_τ60/y_τ75/y_τ90 ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
+        ? `<p class="paper-t0-portrait-slots-warn">槽位 y_τw/y_τ30/y_τ45/y_τ60/y_τ75/y_τ90 ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
         : "";
 
   const fmtHitCell = (pack) => {
@@ -319,7 +319,7 @@ function buildPortraitSectionHtml(portrait) {
     slotRows.length > 0
       ? `<div class="paper-t0-portrait-slots" title="${escapeText(
           (portrait.by_slot && portrait.by_slot.note) ||
-            "各钟 y_τc / y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
+            "各钟 y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
         )}">` +
         `<div class="paper-t0-portrait-slots-head">` +
         `<span>分槽位</span>` +
@@ -334,21 +334,19 @@ function buildPortraitSectionHtml(portrait) {
         `<table class="paper-t0-portrait-slot-table">` +
         `<thead><tr>` +
         `<th>槽位</th>` +
-        `<th title="有该钟扫描 ŷ / 与日级同样本；旧回测无 scan 则仅破带钟有ŷ">覆盖</th>` +
-        `<th title="该钟破带成交 / 样本">成交</th>` +
-        `<th title="ŷ_τc ↔ price(τ)→close">y_τc</th>` +
+        `<th title="有该钟扫描 ŷ / 与日级同样本；旧回测无 scan 则仅开轮钟有ŷ">覆盖</th>` +
+        `<th title="该钟成交 / 样本">成交</th>` +
         `<th title="ŷ_τw 符号和 ↔ 五窗真实收益符号和">y_τw</th>` +
         `<th title="ŷ_τ30 ↔ P(mean(price(τ⊕25/30/35))/price(τ)−1>0)">y_τ30</th>` +
         `<th title="ŷ_τ45 ↔ P(mean(price(τ⊕40/45/50))/price(τ)−1>0)">y_τ45</th>` +
         `<th title="ŷ_τ60 ↔ P(mean(price(τ⊕55/60/65))/price(τ)−1>0)">y_τ60</th>` +
         `<th title="ŷ_τ75 ↔ P(mean(price(τ⊕70/75/80))/price(τ)−1>0)">y_τ75</th>` +
         `<th title="ŷ_τ90 ↔ P(mean(price(τ⊕85/90/95))/price(τ)−1>0)">y_τ90</th>` +
-        `<th title="破带方向是否与 ŷ_τ30=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ30旁路</th>` +
-        `<th title="破带方向是否与 ŷ_τ45=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ45旁路</th>` +
-        `<th title="破带方向是否与 ŷ_τ60=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ60旁路</th>` +
-        `<th title="破带方向是否与 ŷ_τ75=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ75旁路</th>` +
-        `<th title="破带方向是否与 ŷ_τ90=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ90旁路</th>` +
-        `<th title="该钟已成交子集 · y_τc">成交y_τc</th>` +
+        `<th title="选向是否与 ŷ_τ30=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ30旁路</th>` +
+        `<th title="选向是否与 ŷ_τ45=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ45旁路</th>` +
+        `<th title="选向是否与 ŷ_τ60=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ60旁路</th>` +
+        `<th title="选向是否与 ŷ_τ75=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ75旁路</th>` +
+        `<th title="选向是否与 ŷ_τ90=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ90旁路</th>` +
         `<th title="该钟已成交子集 · y_τw">成交y_τw</th>` +
         `<th title="该钟已成交子集 · y_τ30">成交y_τ30</th>` +
         `<th title="该钟已成交子集 · y_τ45">成交y_τ45</th>` +
@@ -385,7 +383,6 @@ function buildPortraitSectionHtml(portrait) {
               `</span>` +
               _fillBarHtml(nSlotTr, nSlot) +
               `</td>` +
-              `<td>${fmtHitCell(s.y_tc_hit)}</td>` +
               `<td>${fmtHitCell(s.y_tw_hit)}</td>` +
               `<td>${fmtHitCell(s.y_t30_hit)}</td>` +
               `<td>${fmtHitCell(s.y_t45_hit)}</td>` +
@@ -397,7 +394,6 @@ function buildPortraitSectionHtml(portrait) {
               `<td>${fmtHitCell(s.y_t60_band)}</td>` +
               `<td>${fmtHitCell(s.y_t75_band)}</td>` +
               `<td>${fmtHitCell(s.y_t90_band)}</td>` +
-              `<td>${fmtHitCell(traded.y_tc_hit)}</td>` +
               `<td>${fmtHitCell(traded.y_tw_hit)}</td>` +
               `<td>${fmtHitCell(traded.y_t30_hit)}</td>` +
               `<td>${fmtHitCell(traded.y_t45_hit)}</td>` +

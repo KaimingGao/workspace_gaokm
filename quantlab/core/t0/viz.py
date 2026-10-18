@@ -327,18 +327,13 @@ def _scan_row_at_hm(day: dict, hm: str) -> Optional[dict]:
 
 
 def _r_pct_for_unit(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """成交点 Y：R̂_τ = Ĉ_τ/price(τ)−1。"""
+    """成交点 R̂：仅读已落盘 r_hat/residual（不再由 C_τ 推导）。"""
     hm = ""
     if isinstance(unit, dict):
         hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
     row = _scan_row_at_hm(day, hm) if hm else None
     if row is not None:
-        from core.t0.close_band import r_hat_from_c_tau_px
-
-        rp = r_hat_from_c_tau_px(row.get("c_tau") or row.get("c_hat"), row.get("c"))
-        if rp is not None:
-            return rp
-        rp = _f(row.get("r_hat"))
+        rp = _f(row.get("r_hat")) or _f(row.get("residual"))
         if rp is not None:
             return rp
     blobs = []
@@ -430,26 +425,8 @@ def resolve_y_t90_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float
     return _resolve_horizon_for_portrait(sc, "y_τ90", "predicted_score_t90", "y_t90", "y_t90_hat")
 
 
-def _r_hat_from_scan_ctau(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """R̂_τ = Ĉ_τ/C−1（与成交明细价带同目标）。"""
-    from core.t0.close_band import r_hat_from_c_tau_px
-
-    hm = ""
-    if isinstance(unit, dict):
-        hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
-    row = _scan_row_at_hm(day, hm) if hm else None
-    if row is None and isinstance(unit, dict):
-        row = unit if unit.get("c_tau") is not None or unit.get("c") is not None else None
-    if not isinstance(row, dict):
-        return None
-    return r_hat_from_c_tau_px(row.get("c_tau") or row.get("c_hat"), row.get("c") or row.get("bar_c"))
-
-
 def resolve_r_hat_for_portrait(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """画像 R_τ 命中用 R̂_τ。"""
-    band = _r_hat_from_scan_ctau(day, unit)
-    if band is not None:
-        return band
+    """画像 R̂：仅读已落盘字段（C_τ 推导已移除）。"""
     sc = extract_scores(unit or day)
     v = _f(sc.get("r_hat")) or _f(sc.get("residual"))
     if v is not None:
@@ -580,7 +557,7 @@ def _slot_fill_by_hm(day: dict) -> Dict[str, dict]:
 
 
 def _portrait_slot_rows(day: dict) -> List[dict]:
-    """分槽样本：优先 ``close_band_scan`` 每根因果 ŷ；成交标记来自破带轮。"""
+    """分槽样本：优先 ``close_band_scan`` 每根因果 ŷ；成交标记来自开轮槽位。"""
     scan = _close_band_scan_rows(day)
     fills = _slot_fill_by_hm(day)
     if not scan:
@@ -814,14 +791,11 @@ def _build_score_portrait_from_units(
         y_t60_band_agree,
         y_t75_band_agree,
         y_t90_band_agree,
-        y_tc_band_agree,
     )
 
     label_tau = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
     tau_hit = {"hit": 0, "miss": 0, "flat": 0}
     r_tau_hit = {"hit": 0, "miss": 0, "flat": 0}
-    y_tc_hit = {"hit": 0, "miss": 0, "flat": 0}
-    y_tc_band = {"hit": 0, "miss": 0, "flat": 0}
     y_t30_hit = {"hit": 0, "miss": 0, "flat": 0}
     y_t30_band = {"hit": 0, "miss": 0, "flat": 0}
     y_t45_hit = {"hit": 0, "miss": 0, "flat": 0}
@@ -904,7 +878,6 @@ def _build_score_portrait_from_units(
         else:
             _bump(tau_hit, "flat")
 
-        _bump_sign_hit(y_tc_hit, y_tc_p, rem_r, pred_eps=0.05, real_eps=0.05)
         _bump_sign_hit(r_tau_hit, r_hat_p, rem_r, pred_eps=0.05, real_eps=0.05)
         _bump_horizon_sign_hit(y_t30_hit, y_t30_p, t30_r)
         _bump_horizon_sign_hit(y_t45_hit, y_t45_p, t45_r)
@@ -912,13 +885,6 @@ def _build_score_portrait_from_units(
         _bump_horizon_sign_hit(y_t75_hit, y_t75_p, t75_r)
         _bump_horizon_sign_hit(y_t90_hit, y_t90_p, t90_r)
         _bump_sign_hit(y_tw_hit, y_tw_p, y_tw_r, pred_eps=1e-9, real_eps=1e-9)
-        band_ag = y_tc_band_agree(d.get("direction") or d.get("pick"), y_tc_p)
-        if band_ag is True:
-            _bump(y_tc_band, "hit")
-        elif band_ag is False:
-            _bump(y_tc_band, "miss")
-        else:
-            _bump(y_tc_band, "flat")
         t30_ag = y_t30_band_agree(d.get("direction") or d.get("pick"), y_t30_p)
         if t30_ag is True:
             _bump(y_t30_band, "hit")
@@ -989,8 +955,6 @@ def _build_score_portrait_from_units(
         },
         "tau_hit": _hit_pack(tau_hit),
         "r_tau_hit": _hit_pack(r_tau_hit),
-        "y_tc_hit": _hit_pack(y_tc_hit),
-        "y_tc_band": _hit_pack(y_tc_band),
         "y_t30_hit": _hit_pack(y_t30_hit),
         "y_t30_band": _hit_pack(y_t30_band),
         "y_t45_hit": _hit_pack(y_t45_hit),
@@ -1005,17 +969,17 @@ def _build_score_portrait_from_units(
         "note": note
         or (
             f"scope={scope_s}；"
-            "y_τc↔close[T]/price(τ)−1；y_τ30↔mean(price(τ⊕25/30/35))/price(τ)−1；"
+            "y_τ30↔mean(price(τ⊕25/30/35))/price(τ)−1；"
             "y_τ45↔mean(price(τ⊕40/45/50))/price(τ)−1；"
             "y_τ60↔mean(price(τ⊕55/60/65))/price(τ)−1；"
             "y_τ75↔mean(price(τ⊕70/75/80))/price(τ)−1；"
             "y_τ90↔mean(price(τ⊕85/90/95))/price(τ)−1；"
             "y_τw↔五窗符号和 vs 真实窗收益符号和；"
-            "旁路=破带方向↔ŷ_τc向ĉ回归；τ30旁路=破带方向↔ŷ_τ30后30m同号；"
-            "τ45旁路=破带方向↔ŷ_τ45后45m同号；"
-            "τ60旁路=破带方向↔ŷ_τ60后60m同号；"
-            "τ75旁路=破带方向↔ŷ_τ75后75m同号；"
-            "τ90旁路=破带方向↔ŷ_τ90后90m同号；"
+            "τ30旁路=选向↔ŷ_τ30后30m同号；"
+            "τ45旁路=选向↔ŷ_τ45后45m同号；"
+            "τ60旁路=选向↔ŷ_τ60后60m同号；"
+            "τ75旁路=选向↔ŷ_τ75后75m同号；"
+            "τ90旁路=选向↔ŷ_τ90后90m同号；"
             "含跳过日（有分/标签才计入）"
         ),
     }
@@ -1043,7 +1007,7 @@ def build_score_portrait(
 def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
     """按做T时钟拆画像：各钟 ŷ_τc / 窗头对同钟或全日标签。
 
-    优先 ``close_band_scan``（11:00 前每根 5m 前缀 ŷ）；无扫描时回退破带轮
+    优先 ``close_band_scan``（11:00 前每根 5m 前缀 ŷ）；无扫描时回退开轮槽
     ``t0_slot_results``。样本与日级对齐；缺该钟 ŷ 计 flat。
     τ→close 口径下晚钟 hit 不因开→τ 机械垫高；分钟对照看 IC。
     """
@@ -1074,8 +1038,8 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         if not units:
             continue
         note = (
-            f"槽位 {hm}：本钟扫描 ŷ_τc / ŷ_τw / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 ↔ 同钟或全日标签；"
-            "样本=与日级同样本；缺该钟ŷ计flat；成交子集=该钟已破带成交"
+            f"槽位 {hm}：本钟扫描 ŷ_τw / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 ↔ 同钟或全日标签；"
+            "样本=与日级同样本；缺该钟ŷ计flat；成交子集=该钟已开轮成交"
         )
         all_port = _build_score_portrait_from_units(
             units, traded_only=False, scope=f"slot:{hm}", note=note
@@ -1108,14 +1072,13 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         "n_slots": len(slots),
         "n_days": len(eligible),
         "note": (
-            "分槽位画像：各钟 ŷ_τc / ŷ_τw / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
-            "旁路=该钟破带方向是否与 ŷ_τc 同号；"
-            "τ30旁路=破带方向是否与 ŷ_τ30 后 30 交易分钟同号；"
-            "τ45旁路=破带方向是否与 ŷ_τ45 后 45 交易分钟同号；"
-            "τ60旁路=破带方向是否与 ŷ_τ60 后 60 交易分钟同号；"
-            "τ75旁路=破带方向是否与 ŷ_τ75 后 75 交易分钟同号；"
-            "τ90旁路=破带方向是否与 ŷ_τ90 后 90 交易分钟同号；"
-            "优先 close_band_scan 每根 5m；无扫描才用破带开轮钟；"
+            "分槽位画像：各钟 ŷ_τw / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
+            "τ30旁路=选向是否与 ŷ_τ30 后 30 交易分钟同号；"
+            "τ45旁路=选向是否与 ŷ_τ45 后 45 交易分钟同号；"
+            "τ60旁路=选向是否与 ŷ_τ60 后 60 交易分钟同号；"
+            "τ75旁路=选向是否与 ŷ_τ75 后 75 交易分钟同号；"
+            "τ90旁路=选向是否与 ŷ_τ90 后 90 交易分钟同号；"
+            "优先 close_band_scan 每根 5m；无扫描才用开轮槽钟；"
             "样本与日级对齐"
         ),
     }
@@ -1149,8 +1112,6 @@ def _merge_score_portraits(
     label_tau = {k: 0 for k in keys_sign}
     tau_hit = {k: 0 for k in keys_hit}
     r_tau_hit = {k: 0 for k in keys_hit}
-    y_tc_hit = {k: 0 for k in keys_hit}
-    y_tc_band = {k: 0 for k in keys_hit}
     y_t30_hit = {k: 0 for k in keys_hit}
     y_t30_band = {k: 0 for k in keys_hit}
     y_t45_hit = {k: 0 for k in keys_hit}
@@ -1179,8 +1140,6 @@ def _merge_score_portraits(
         for dst, src_key in (
             (tau_hit, "tau_hit"),
             (r_tau_hit, "r_tau_hit"),
-            (y_tc_hit, "y_tc_hit"),
-            (y_tc_band, "y_tc_band"),
             (y_t30_hit, "y_t30_hit"),
             (y_t30_band, "y_t30_band"),
             (y_t45_hit, "y_t45_hit"),
@@ -1231,8 +1190,6 @@ def _merge_score_portraits(
             },
             "tau_hit": _hit_pack(tau_hit),
             "r_tau_hit": _hit_pack(r_tau_hit),
-            "y_tc_hit": _hit_pack(y_tc_hit),
-            "y_tc_band": _hit_pack(y_tc_band),
             "y_t30_hit": _hit_pack(y_t30_hit),
             "y_t30_band": _hit_pack(y_t30_band),
             "y_t45_hit": _hit_pack(y_t45_hit),
@@ -1912,8 +1869,6 @@ def build_t0_viz_payload(
     summary["score_portrait"] = score_portrait
     if score_portrait.get("tau_hit", {}).get("hit_rate_pct") is not None:
         summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]
-    if score_portrait.get("y_tc_hit", {}).get("hit_rate_pct") is not None:
-        summary["tc_pred_hit_rate_pct"] = score_portrait["y_tc_hit"]["hit_rate_pct"]
     if score_portrait.get("y_tw_hit", {}).get("hit_rate_pct") is not None:
         summary["tw_pred_hit_rate_pct"] = score_portrait["y_tw_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t30_hit", {}).get("hit_rate_pct") is not None:
@@ -2078,8 +2033,6 @@ def merge_t0_viz_payloads(
     summary["score_portrait"] = score_portrait
     if score_portrait.get("tau_hit", {}).get("hit_rate_pct") is not None:
         summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]
-    if score_portrait.get("y_tc_hit", {}).get("hit_rate_pct") is not None:
-        summary["tc_pred_hit_rate_pct"] = score_portrait["y_tc_hit"]["hit_rate_pct"]
     if score_portrait.get("y_tw_hit", {}).get("hit_rate_pct") is not None:
         summary["tw_pred_hit_rate_pct"] = score_portrait["y_tw_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t30_hit", {}).get("hit_rate_pct") is not None:

@@ -12,17 +12,11 @@ function yTwEnterValue(t0) {
   return 2;
 }
 
-function yOcEnterValue(t0) {
-  const e = Number(t0?.y_τc_enter);
-  if (Number.isFinite(e)) return Math.max(0, Math.min(e, 20));
-  return 0.5;
-}
-
-function yOcStrongValue(t0) {
-  const enter = yOcEnterValue(t0);
-  const s = Number(t0?.y_τc_strong);
-  if (!Number.isFinite(s)) return Math.max(enter, 1);
-  return Math.max(enter, Math.min(s, 20));
+function yTwStrongValue(t0) {
+  const enter = yTwEnterValue(t0);
+  const s = Number(t0?.y_tw_strong);
+  if (!Number.isFinite(s)) return Math.max(enter, 3);
+  return Math.max(enter, Math.min(s, 5));
 }
 
 function clampT0LotAmount(raw, fallback) {
@@ -33,20 +27,28 @@ function clampT0LotAmount(raw, fallback) {
   return Math.max(1000, Math.min(n, 1000000));
 }
 
-function yOcEnterAmountValue(t0) {
-  return clampT0LotAmount(
-    t0?.y_τc_enter_amount,
-    20000
-  );
+function yTwEnterAmountValue(t0) {
+  return clampT0LotAmount(t0?.y_tw_enter_amount, 20000);
 }
 
-function yOcStrongAmountValue(t0) {
-  const enter = yOcEnterAmountValue(t0);
-  const s = clampT0LotAmount(
-    t0?.y_τc_strong_amount,
-    40000
-  );
+function yTwStrongAmountValue(t0) {
+  const enter = yTwEnterAmountValue(t0);
+  const s = clampT0LotAmount(t0?.y_tw_strong_amount, 40000);
   return Math.max(enter, s);
+}
+
+/** @deprecated 兼容旧 tip；做 T 已改纯 ŷ_τw */
+function yOcEnterValue(t0) {
+  return yTwEnterValue(t0);
+}
+function yOcStrongValue(t0) {
+  return yTwStrongValue(t0);
+}
+function yOcEnterAmountValue(t0) {
+  return yTwEnterAmountValue(t0);
+}
+function yOcStrongAmountValue(t0) {
+  return yTwStrongAmountValue(t0);
 }
 
 /** 正/反 T 共用表单：优先正T侧，再反T侧。 */
@@ -84,7 +86,7 @@ export function adaptiveSizingDayTip(day, rules = {}) {
 
 /** v6 做 T 选腿说明（旧 y_tau_map / oc先验已忽略）。 */
 export function yTauMapScoreTip(_mode, _enter = 0) {
-  return "旗舰做T：09:30–11:00 每根5m，ŷ_τc 估 C_τ，C>upper 反T、C<lower 正T；leg2=C_τ。ŷ_τw 为相对中位点（默认47%）符号和，过 Y_τw入场才开；|ŷ_τc| 过 y_τc入场% 用入场金额，过 y_τc强% 用强金额。";
+  return "旗舰做T：09:30–11:00 每根5m，纯 ŷ_τw 选向（≥入场正T、≤−入场反T）；|ŷ_τw| 过入场用入场金额、过强票用强金额。leg2 无预设目标价（止损/锁赢/追价/收盘）。";
 }
 
 /** 回测/预演响应可能只有 rules 或残缺 execution；补齐 t0 供规则卡渲染。 */
@@ -138,31 +140,19 @@ export function renderExecutionRulesHtml(execution) {
     `<h4 class="paper-t0-spec-head-title">生效规格</h4>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="核心参数">` +
     specKpi("启用", enabledLbl, "做 T overlay 总开关") +
-    specKpi("策略", "ŷ_τc破带", "09:30–11:00 每根5m：C>C_τ+δ 反T、C<C_τ−δ 正T；leg2=C_τ；ŷ_τw≥Y_τw入场才开；|ŷ_τc|过入场%用入场金额、过强%用强金额；11:00后不开leg1") +
+    specKpi("策略", "纯ŷ_τw", "09:30–11:00 每根5m：ŷ_τw≥入场正T、≤−入场反T；|ŷ_τw|过入场/强票分档金额；leg2无预设目标；11:00后不开leg1") +
     specKpi(
       "选腿",
       (() => {
         const e = yTwEnterValue(t0);
-        const ocE = yOcEnterValue(t0);
-        const ocS = yOcStrongValue(t0);
-        const eAmt = yOcEnterAmountValue(t0);
-        const stAmt = yOcStrongAmountValue(t0);
+        const s = yTwStrongValue(t0);
+        const eAmt = yTwEnterAmountValue(t0);
+        const stAmt = yTwStrongAmountValue(t0);
         const mr =
           t0.t0_slots_max_rounds != null ? Number(t0.t0_slots_max_rounds) : 5;
-        const d =
-          t0.t0_close_band_delta_pct != null ? Number(t0.t0_close_band_delta_pct) : 0.5;
-        return `δ${Number.isFinite(d) ? d : 0.5}%·τw≥${e}·τc≥${ocE}/${ocS}·${eAmt}/${stAmt}元·≤${mr}`;
+        return `τw≥${e}/${s}·${eAmt}/${stAmt}元·≤${mr}`;
       })(),
-      "C 破 C_τ±δ 定正/反T；leg2=C_τ。ŷ_τw≥Y_τw入场才开。|ŷ_τc|≥y_τc入场%用入场金额，≥y_τc强%用强金额。最多轮数封顶。"
-    ) +
-    specKpi(
-      "C_τ",
-      (() => {
-        const s = Number(t0.t0_y_τc_target_scale);
-        const sc = Number.isFinite(s) ? s : 2;
-        return `×${sc}`;
-      })(),
-      "C_τ=price(τ)×(1+clip(ŷ_τc×scale, ±20)/100)。缺 price(τ) 时用 open。破带目标价=C_τ。"
+      "ŷ_τw≥Y_τw入场正T、≤−入场反T。|ŷ_τw|≥强票用强金额，否则入场金额。最多轮数封顶。"
     ) +
     specKpi(
       "Y_τw入场",
@@ -175,26 +165,25 @@ export function renderExecutionRulesHtml(execution) {
         const pp = Number.isFinite(m) ? m : 5;
         const mid = Number(t0.y_tw_midpoint);
         const midLbl = Number.isFinite(mid) ? mid : 47;
-        return `破带后正T须 ŷ_τw≥入场，反T须 ŷ_τw≤−入场（|p−${midLbl}%|≤${pp}pp 不投票）。0 票在入场=0 时可通过。`;
+        return `正T须 ŷ_τw≥入场，反T须 ŷ_τw≤−入场（|p−${midLbl}%|≤${pp}pp 不投票）。0 票在入场=0 时可通过。`;
       })()
     ) +
     specKpi(
-      "y_τc入场%",
+      "Y_τw强",
       (() => {
-        const s = yOcEnterValue(t0);
-        const amt = yOcEnterAmountValue(t0);
-        return s <= 0 ? `不拦·${amt}元` : `≥${s}%·${amt}元`;
+        const s = yTwStrongValue(t0);
+        const amt = yTwStrongAmountValue(t0);
+        return `≥${s}票·${amt}元`;
       })(),
-      "破带且过 Y_τw入场后：|ŷ_τc|≥此百分点用入场金额。0=不拦幅度。"
+      "过 Y_τw入场后 |ŷ_τw|≥强票用强金额，否则入场金额。须≥入场票。"
     ) +
     specKpi(
-      "y_τc强%",
+      "Y_τw入场金额",
       (() => {
-        const s = yOcStrongValue(t0);
-        const amt = yOcStrongAmountValue(t0);
-        return `≥${s}%·${amt}元`;
+        const amt = yTwEnterAmountValue(t0);
+        return `${amt}元`;
       })(),
-      "过 y_τc入场% 后 |ŷ_τc|≥y_τc强% 用强金额，否则入场金额。须≥入场%。"
+      "过入场未过强：本轮第一腿金额（元）。0=走旧比例仓。"
     ) +
     specKpi(
       "Y_τ*中位点%",
@@ -237,7 +226,7 @@ export function renderExecutionRulesHtml(execution) {
         const fmt = (n) => (Number.isFinite(n) && n > 0 ? `${n}%` : "关");
         return `${fmt(pct)}·${armLbl}`;
       })(),
-      "相对该轮第一腿成交价；正T涨过卖旧 / 反T跌过买回；正反T共用同一套%；0=关；延迟见锁赢延迟根；收盘确认；本根已触 C_τ 不抢"
+      "相对该轮第一腿成交价；正T涨过卖旧 / 反T跌过买回；正反T共用同一套%；0=关；延迟见锁赢延迟根；收盘确认"
     ) +
     specKpi(
       "追价",
@@ -425,10 +414,9 @@ export function fillExecutionForm(root, execution) {
   set("t0_max_position_pct", t0.t0_max_position_pct != null ? t0.t0_max_position_pct : 1.0);
   set("t0_slots_max_rounds", t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5);
   set("y_tw_enter", yTwEnterValue(t0));
-  set("y_τc_enter", yOcEnterValue(t0));
-  set("y_τc_enter_amount", yOcEnterAmountValue(t0));
-  set("y_τc_strong", yOcStrongValue(t0));
-  set("y_τc_strong_amount", yOcStrongAmountValue(t0));
+  set("y_tw_strong", yTwStrongValue(t0));
+  set("y_tw_enter_amount", yTwEnterAmountValue(t0));
+  set("y_tw_strong_amount", yTwStrongAmountValue(t0));
   set(
     "y_tw_vote_margin",
     (() => {
@@ -450,14 +438,6 @@ export function fillExecutionForm(root, execution) {
     String(t0.horizon_prob_backend || "ridge").toLowerCase() === "tree"
       ? "tree"
       : "ridge"
-  );
-  set(
-    "t0_y_τc_target_scale",
-    t0.t0_y_τc_target_scale != null ? t0.t0_y_τc_target_scale : 2
-  );
-  set(
-    "t0_close_band_delta_pct",
-    t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 0.5
   );
   set("t0_pm_degrade", sharedSideVal(t0, "t0_pm_degrade", "13:00"));
   set(
@@ -511,18 +491,16 @@ export function collectExecutionForm(root) {
     t0_max_position_pct: Math.max(0.05, Math.min(num("t0_max_position_pct", 1), 1)),
     t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16)),
     y_tw_enter: Math.max(0, Math.min(num("y_tw_enter", 2), 5)),
-    y_τc_enter: Math.max(0, Math.min(num("y_τc_enter", 0.5), 20)),
-    y_τc_enter_amount: (() => {
-      const n = clampT0LotAmount(num("y_τc_enter_amount", 20000), 20000);
-      return n;
+    y_tw_strong: (() => {
+      const enter = Math.max(0, Math.min(num("y_tw_enter", 2), 5));
+      return Math.max(enter, Math.min(num("y_tw_strong", Math.max(enter, 3)), 5));
     })(),
-    y_τc_strong: (() => {
-      const enter = Math.max(0, Math.min(num("y_τc_enter", 0.5), 20));
-      return Math.max(enter, Math.min(num("y_τc_strong", Math.max(enter, 1)), 20));
+    y_tw_enter_amount: (() => {
+      return clampT0LotAmount(num("y_tw_enter_amount", 20000), 20000);
     })(),
-    y_τc_strong_amount: (() => {
-      const enter = clampT0LotAmount(num("y_τc_enter_amount", 20000), 20000);
-      return Math.max(enter, clampT0LotAmount(num("y_τc_strong_amount", 40000), 40000));
+    y_tw_strong_amount: (() => {
+      const enter = clampT0LotAmount(num("y_tw_enter_amount", 20000), 20000);
+      return Math.max(enter, clampT0LotAmount(num("y_tw_strong_amount", 40000), 40000));
     })(),
     y_tw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 5), 20)),
     y_tw_midpoint: Math.max(1, Math.min(num("y_tw_midpoint", 47), 99)),
@@ -530,8 +508,6 @@ export function collectExecutionForm(root) {
       const s = String(str("horizon_prob_backend", "ridge") || "ridge").toLowerCase();
       return s === "tree" ? "tree" : "ridge";
     })(),
-    t0_y_τc_target_scale: Math.max(0, Math.min(num("t0_y_τc_target_scale", 2), 100)),
-    t0_close_band_delta_pct: Math.max(0, Math.min(num("t0_close_band_delta_pct", 0.5), 10)),
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade", "13:00"),
     t0_pm_degrade_buy_then_sell: str("t0_pm_degrade", "13:00"),
     t0_pm_chase_interval_min_sell_then_buy: Math.max(
@@ -999,10 +975,10 @@ export function readT0BtSizing(root) {
     const n = Number(el.value);
     return Number.isFinite(n) ? n : fallback;
   };
-  const enter = clampT0LotAmount(num("y_τc_enter_amount", 20000), 20000);
+  const enter = clampT0LotAmount(num("y_tw_enter_amount", 20000), 20000);
   const per = Math.max(
     enter,
-    clampT0LotAmount(num("y_τc_strong_amount", 40000), 40000)
+    clampT0LotAmount(num("y_tw_strong_amount", 40000), 40000)
   );
   const rounds = Math.max(1, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16));
   // 虚拟底仓股数由引擎按 per * rounds / 价 现算；这里只交本金与 fallback
@@ -1062,10 +1038,9 @@ export function collectT0BacktestBody(root, opts = {}) {
     t0_max_position_pct: t0.t0_max_position_pct != null ? t0.t0_max_position_pct : 1.0,
     t0_slots_max_rounds: t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5,
     y_tw_enter: yTwEnterValue(t0),
-    y_τc_enter: yOcEnterValue(t0),
-    y_τc_enter_amount: yOcEnterAmountValue(t0),
-    y_τc_strong: yOcStrongValue(t0),
-    y_τc_strong_amount: yOcStrongAmountValue(t0),
+    y_tw_strong: yTwStrongValue(t0),
+    y_tw_enter_amount: yTwEnterAmountValue(t0),
+    y_tw_strong_amount: yTwStrongAmountValue(t0),
     y_tw_vote_margin: (() => {
       const n = Number(t0.y_tw_vote_margin);
       if (!Number.isFinite(n)) return 5;
@@ -1080,10 +1055,6 @@ export function collectT0BacktestBody(root, opts = {}) {
       const s = String(t0.horizon_prob_backend || "ridge").toLowerCase();
       return s === "tree" ? "tree" : "ridge";
     })(),
-    t0_y_τc_target_scale:
-      t0.t0_y_τc_target_scale != null ? t0.t0_y_τc_target_scale : 2,
-    t0_close_band_delta_pct:
-      t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 0.5,
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
     t0_pm_degrade_buy_then_sell:
       t0.t0_pm_degrade_buy_then_sell != null ? t0.t0_pm_degrade_buy_then_sell : "13:00",

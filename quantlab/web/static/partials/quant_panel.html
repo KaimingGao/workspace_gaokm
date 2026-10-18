@@ -350,7 +350,7 @@
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
         <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-          写入口：日常「增量补齐」· 全窗「强更 5m」· 缺口「东财补缺」· 调度 minute_warmup · 标签画像（τ→close）· 下游 ŷ_τc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
+          写入口：日常「增量补齐」· 全窗「强更 5m」· 调度 minute_warmup · 标签画像（τ→close）· 下游 ŷ_τc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
         </p>
       </summary>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
@@ -365,8 +365,7 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 写入口：日常<strong>增量补齐</strong>（会话日齐窗且今日已拉才跳过；缺尾如只到 10:00 强制补拉）·
-                全窗<strong>强更 5m</strong>（单票子进程≤90s；东财主窗 120 个日历日，空了才打新浪）·
-                缺口<strong>东财补缺</strong>（回看 90 日，只写入比本地更齐的交易日，盘中不写）。
+                全窗<strong>强更 5m</strong>（只走新浪，约 41 个交易日；单票子进程≤45s）。
                 调度 <code>minute_warmup</code>。Ready≠消费 as-of。不改日 K、不算 ŷ。
                 下游 ŷ_τc 因果前缀≤10:00 / 调仓 / 做 T。
               </p>
@@ -375,11 +374,8 @@
           <button type="button" id="quant-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐
           </button>
-          <button type="button" id="quant-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉 · 单票子进程≤90s）。东财主窗 120 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
+          <button type="button" id="quant-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉 · 只走新浪 · 单票子进程≤45s）。新浪约 41 个交易日，不复权。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
             强更 5m
-          </button>
-          <button type="button" id="quant-minute-repair" class="dialog-btn secondary" title="只打东财，回看 90 个日历日。只把比本地更齐的交易日写入，不盖短已有的一天，不打新浪。今天盘中不写。">
-            东财补缺
           </button>
         </div>
       </div>

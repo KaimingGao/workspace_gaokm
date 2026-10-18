@@ -371,23 +371,23 @@ export const Y_τc_TITLE =
 export const Y_TC_TITLE = Y_τc_TITLE;
 export const Y_R_TITLE = Y_τc_TITLE;
 export const Y_T30_TITLE =
-  "ŷ_τ30 · P(mean(price(τ⊕25/30/35))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
+  "ŷ_τ30 · P(mean(price(τ⊕25/30/35))/price(τ)−1>0) · 做 T 进 ŷ_τw 票，不单独选向";
 export const T30_REALIZED_TITLE =
   "τ30实 · mean(price(τ⊕25/30/35))/price(τ)−1（与 ŷ_τ30 同标签）";
 export const Y_T45_TITLE =
-  "ŷ_τ45 · P(mean(price(τ⊕40/45/50))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
+  "ŷ_τ45 · P(mean(price(τ⊕40/45/50))/price(τ)−1>0) · 做 T 进 ŷ_τw 票，不单独选向";
 export const T45_REALIZED_TITLE =
   "τ45实 · mean(price(τ⊕40/45/50))/price(τ)−1（与 ŷ_τ45 同标签）";
 export const Y_T60_TITLE =
-  "ŷ_τ60 · P(mean(price(τ⊕55/60/65))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
+  "ŷ_τ60 · P(mean(price(τ⊕55/60/65))/price(τ)−1>0) · 做 T 进 ŷ_τw 票，不单独选向";
 export const T60_REALIZED_TITLE =
   "τ60实 · mean(price(τ⊕55/60/65))/price(τ)−1（与 ŷ_τ60 同标签）";
 export const Y_T75_TITLE =
-  "ŷ_τ75 · P(mean(price(τ⊕70/75/80))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
+  "ŷ_τ75 · P(mean(price(τ⊕70/75/80))/price(τ)−1>0) · 做 T 进 ŷ_τw 票，不单独选向";
 export const T75_REALIZED_TITLE =
   "τ75实 · mean(price(τ⊕70/75/80))/price(τ)−1（与 ŷ_τ75 同标签）";
 export const Y_T90_TITLE =
-  "ŷ_τ90 · P(mean(price(τ⊕85/90/95))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
+  "ŷ_τ90 · P(mean(price(τ⊕85/90/95))/price(τ)−1>0) · 做 T 进 ŷ_τw 票，不单独选向";
 export const T90_REALIZED_TITLE =
   "τ90实 · mean(price(τ⊕85/90/95))/price(τ)−1（与 ŷ_τ90 同标签）";
 /** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−mid)；mid 默认 47%；近中位点弃权% 可配 */
@@ -399,13 +399,9 @@ export const HORIZON_VOTE_MIDPOINT_PP_MIN = 1;
 export const HORIZON_VOTE_MIDPOINT_PP_MAX = 99;
 export const HORIZON_VOTE_MIDPOINT = 0.47;
 export const Y_TW_TITLE =
-  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f=sign(p_up−中位点)，近中位点由弃权% 决定不投票 · 破带后门槛";
+  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f=sign(p_up−中位点)，近中位点由弃权% 决定不投票 · 纯 ŷ_τw 选向/金额";
 export const TW_REALIZED_TITLE =
   "τw实 · f(τ30实)+f(τ45实)+f(τ60实)+f(τ75实)+f(τ90实)；f(x)=1 if x>0 else −1（缺头不计）";
-export const R_HAT_TITLE =
-  "R̂_τ · Ĉ_τ/price(τ)−1 · remaining(clip(ŷ_τc×scale), price) · 与 Ĉ_τ 同目标 · 不参与选腿 · 预估(真实)";
-export const R_REALIZED_TITLE =
-  "τc实 · close[T]/price(τ)−1（与 ŷ_τc / R̂_τ 同标签）";
 
 /** 分钟时钟对齐后的 ŷ_τc。 */
 export function resolveTauMappedScore(it) {

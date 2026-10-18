@@ -777,8 +777,8 @@ function formatCompactHorizonProbTip(raw, head) {
     }
   }
   const hint = hasTerms
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · logistic Ridge · 做 T 旁路`
-    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
+    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · logistic Ridge · 做 T 进 ŷ_τw 票`
+    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 进 ŷ_τw 票，不单独选向`;
   return (
     `<div class="score-layer score-layer-${spec.layer}">` +
     `<div class="score-layer-head">` +
@@ -2254,34 +2254,44 @@ export function formatT0DirectionDetail(raw) {
   const dir = String((raw && raw.direction) || "");
   const dirLabel =
     dir === "sell_then_buy" ? "反 T" : dir === "buy_then_sell" ? "正 T" : dir || "—";
+  const yTwRaw =
+    raw && raw.y_tw != null
+      ? Number(raw.y_tw)
+      : raw && raw.y_τw != null
+        ? Number(raw.y_τw)
+        : NaN;
+  const yTw = Number.isFinite(yTwRaw) ? yTwRaw : score;
+  const yTwTxt = Number.isFinite(yTw) ? `${fmtSigned(yTw, 0)}票` : "—";
   const enterRaw =
-    raw && raw.y_tau_enter != null
-      ? Number(raw.y_tau_enter)
-      : raw && raw.dir_enter != null
-        ? Number(raw.dir_enter)
-        : 0;
-  const enter = Number.isFinite(enterRaw) ? enterRaw : 0;
+    raw && raw.y_tw_enter != null
+      ? Number(raw.y_tw_enter)
+      : raw && raw.y_tau_enter != null
+        ? Number(raw.y_tau_enter)
+        : raw && raw.dir_enter != null
+          ? Number(raw.dir_enter)
+          : 2;
+  const enter = Number.isFinite(enterRaw) ? enterRaw : 2;
   const reason = String((raw && raw.direction_reason) || "").trim();
   let decision = "未入场 / 跳过";
   if (reason) decision = reason;
-  else if (Number.isFinite(score)) {
-    if (Math.abs(score) < enter) decision = `|y_τc|<${enter}% 横盘跳过`;
+  else if (Number.isFinite(yTw)) {
+    if (yTw >= enter) decision = "正 T（纯 ŷ_τw）";
+    else if (yTw <= -enter) decision = "反 T（纯 ŷ_τw）";
     else if (dir === "sell_then_buy" || dir === "buy_then_sell") decision = dirLabel;
-    else if (score >= enter) decision = "正 T（依 τ 映射）";
-    else if (score <= -enter) decision = "反 T（依 τ 映射）";
+    else decision = `|ŷ_τw|<${enter} 跳过`;
   } else if (dir === "sell_then_buy" || dir === "buy_then_sell") {
     decision = dirLabel;
   }
   let html = '<div class="score-detail">';
   html +=
     `<div class="score-hero">` +
-    `<div class="score-hero-label">做 T · y_τc（τ→收）</div>` +
-    `<div class="score-hero-value ${signCls(score)}">${escapeText(scoreTxt)}</div>` +
-    `<div class="score-hero-hint">收益百分点 · 与表列 ŷ% 同口径 · dual_y 主方向</div>` +
+    `<div class="score-hero-label">做 T · ŷ_τw</div>` +
+    `<div class="score-hero-value ${signCls(yTw)}">${escapeText(yTwTxt)}</div>` +
+    `<div class="score-hero-hint">五窗符号和 · 与表列 ŷ_τw 同口径 · 纯 ŷ_τw 选向</div>` +
     `<div class="score-hero-semantics">` +
-    `语义：τ 定正/反 T；ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 过入场；选腿仅收盘带宽` +
+    `语义：ŷ_τw≥入场正T、≤−入场反T；|ŷ_τw| 分档金额；leg2 无预设目标价` +
     `</div>` +
-    `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))}% · ${escapeText(
+    `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))}票 · ${escapeText(
       decision
     )}</div>` +
     `</div>`;

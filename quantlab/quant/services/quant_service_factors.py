@@ -846,7 +846,7 @@ class QuantFactorMixin:
         use_minute = bool(prefix.get("use_minute"))
         tau_key = str(prefix.get("tau_hm") or "open")
         tau_grid = prefix.get("tau_grid")
-        resolved_end = str(prefix.get("tau_end_hm") or "09:30")[:5]
+        resolved_end = str(prefix.get("tau_end_hm") or "11:00")[:5]
 
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
@@ -2654,7 +2654,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
         period: str = "5",
-        lookback_days: int = 120,
+        lookback_days: int = 45,
         mode: str = "full",
         topup_lookback_days: int = 5,
         progress_cb: Optional[Any] = None,
@@ -2676,7 +2676,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
         period: str = "5",
-        lookback_days: int = 120,
+        lookback_days: int = 45,
         mode: str = "full",
         topup_lookback_days: int = 5,
     ) -> Dict[str, Any]:
@@ -2698,7 +2698,7 @@ class QuantFactorMixin:
 
         watch_limit = clamp_watching_limit(watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE)
         mode_s = str(mode or "full").strip().lower()
-        if mode_s not in ("full", "topup", "repair"):
+        if mode_s not in ("full", "topup"):
             mode_s = "full"
         try:
             from core.watching.store import read_watching
@@ -2708,10 +2708,7 @@ class QuantFactorMixin:
             n_watch_all = watch_limit
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(1, n_watch)
-        phase = {
-            "topup": "增量补齐 5m…",
-            "repair": "东财补缺 5m…",
-        }.get(mode_s, "预热 5m…")
+        phase = "增量补齐 5m…" if mode_s == "topup" else "预热 5m…"
 
         job_id = minute_refresh_job.start(
             kind="minute_refresh",

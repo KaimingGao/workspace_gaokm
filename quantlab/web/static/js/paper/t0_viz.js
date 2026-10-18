@@ -255,7 +255,6 @@ function drawCumulativePnl(canvas, points, { hoverIdx = null, nameByCode = {} } 
       stock_name: String(p.stock_name || "").trim() || nameByCode[code] || "",
       stock_code: code,
       direction: p.direction,
-      "y_τc": p["y_τc"] != null ? p["y_τc"] : p.y_tau,
     };
   });
 
@@ -395,9 +394,6 @@ function wireCumPnlHover(canvas) {
     }
     const name = String(pt.stock_name || pt.stock_code || "").trim();
     const dir = t0DirShort(pt.direction);
-    const ytRaw = pt["y_τc"] != null ? pt["y_τc"] : pt.y_tau;
-    const yt = ytRaw != null && Number.isFinite(Number(ytRaw)) ? Number(ytRaw) : null;
-    const bits = [dir || null, yt != null ? `ŷ_τc ${fmtNum(yt, 2)}%` : null].filter(Boolean);
     tipEl.hidden = false;
     if (box) box.classList.add("is-chart-tip");
     canvas.style.cursor = "crosshair";
@@ -406,7 +402,7 @@ function wireCumPnlHover(canvas) {
       `<span class="paper-t0-viz-chart-hover-meta">` +
       `累计 ${esc(fmtMoney(pt.v))} · 当日 ${esc(fmtMoney(pt.day))}` +
       `</span>` +
-      (bits.length ? `<p>${esc(bits.join(" · "))}</p>` : "");
+      (dir ? `<p>${esc(dir)}</p>` : "");
     if (ev && box) {
       const br = box.getBoundingClientRect();
       const x = Math.min(Math.max(8, ev.clientX - br.left + 12), Math.max(8, br.width - 200));
@@ -689,351 +685,6 @@ function wireDailyActivityHover(canvas) {
   });
 }
 
-function scatterYR(p) {
-  if (!p) return null;
-  const hat = Number(p.r_hat != null ? p.r_hat : p.r_pct);
-  if (Number.isFinite(hat)) return hat;
-  const y = Number(p["y_τc"] != null ? p["y_τc"] : p.y_tau);
-  return Number.isFinite(y) ? y : null;
-}
-
-function scatterSlotFilled(s) {
-  if (!s || s.skipped) return false;
-  return Number(s.sold_qty || 0) > 0 || Number(s.bought_qty || 0) > 0;
-}
-
-/** 旧 payload 散点只有 ŷ_τc 且丢掉反 T；用 days 的 R̂_τ 补点。 */
-function attachRpctToScatter(points, days) {
-  const baked = Array.isArray(points) ? points.slice() : [];
-  if (!Array.isArray(days) || !days.length) return baked;
-  const byKey = new Map();
-  for (const d of days) {
-    if (!d || typeof d !== "object") continue;
-    const date = String(d.date || "").slice(0, 10);
-    const code = String(d.stock_code || "");
-    const scan = {};
-    for (const row of d.close_band_scan || []) {
-      if (!row || !row.hm) continue;
-      scan[String(row.hm).slice(0, 5)] = row;
-    }
-    const slots = (d.t0_slot_results || []).filter(scatterSlotFilled);
-    for (const s of slots) {
-      const hm = String(s.hm || s.t0_slot_hm || "").slice(0, 5);
-      const row = (hm && scan[hm]) || {};
-      const cb = s.close_band && typeof s.close_band === "object" ? s.close_band : {};
-      const rp = Number(
-        row.r_hat != null ? row.r_hat : row.r_pct != null ? row.r_pct : cb.r_hat != null ? cb.r_hat : cb.r_pct
-      );
-      if (!Number.isFinite(rp)) continue;
-      const scores = s.scores && typeof s.scores === "object" ? s.scores : {};
-      const yt =
-        scores["y_τc"] != null
-          ? Number(scores["y_τc"])
-          : scores.y_tau != null
-            ? Number(scores.y_tau)
-            : row["y_τc"] != null
-              ? Number(row["y_τc"])
-              : row.y_tau != null
-                ? Number(row.y_tau)
-                : null;
-      byKey.set(`${date}|${code}|${hm}`, {
-        date,
-        stock_code: code,
-        stock_name: d.stock_name,
-        r_pct: rp,
-        y_tau: Number.isFinite(yt) ? yt : null,
-        "y_τc": Number.isFinite(yt) ? yt : null,
-        outcome: "traded",
-        direction: s.direction,
-        t0_slot_hm: hm,
-      });
-    }
-  }
-  if (!byKey.size) return baked;
-  const seen = new Set();
-  const out = baked.map((p) => {
-    const hm = String(p.t0_slot_hm || "").slice(0, 5);
-    const k = `${String(p.date || "").slice(0, 10)}|${p.stock_code || ""}|${hm}`;
-    const extra = byKey.get(k);
-    if (!extra) return p;
-    seen.add(k);
-    return {
-      ...p,
-      r_pct: p.r_pct != null ? p.r_pct : extra.r_pct,
-      "y_τc": p["y_τc"] != null ? p["y_τc"] : extra["y_τc"],
-    };
-  });
-  for (const [k, extra] of byKey) {
-    if (!seen.has(k)) out.push(extra);
-  }
-  return out;
-}
-
-/** R̂_τ 散点 — 纵轴 R̂_τ；点色=选向。 */
-function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameByCode = {} } = {}) {
-  if (!canvas || !points || !points.length) return null;
-  const { w, h } = getChartSize(canvas);
-  const ctx = setupCanvas(canvas, w, h);
-  ctx.clearRect(0, 0, w, h);
-
-  const enterOn = Number(threshold) > 0;
-  const sorted = points
-    .filter((p) => scatterYR(p) != null)
-    .slice()
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  if (!sorted.length) return null;
-
-  const ys = sorted.map((p) => scatterYR(p));
-  const band = enterOn ? Number(threshold) : 0;
-  const minY = Math.min(-0.55, ...ys, enterOn ? -band - 0.05 : 0);
-  const maxY = Math.max(0.55, ...ys, enterOn ? band + 0.05 : 0);
-  const span = maxY - minY || 1;
-  const pad = { l: 40, r: 10, t: 12, b: 26 };
-  const plotW = w - pad.l - pad.r;
-  const plotH = h - pad.t - pad.b;
-  const yLine = (v) => pad.t + ((maxY - v) / span) * plotH;
-
-  const dates = [...new Set(sorted.map((p) => String(p.date).slice(0, 10)))];
-  const dateIdx = new Map(dates.map((d, i) => [d, i]));
-  const xAt = (p, localI) => {
-    const di = dateIdx.get(String(p.date).slice(0, 10)) ?? localI;
-    const base = dates.length === 1 ? 0.5 : di / (dates.length - 1);
-    const jitter = ((localI % 5) - 2) * 0.008;
-    return pad.l + (base + jitter) * plotW;
-  };
-
-  if (enterOn) {
-    ctx.fillStyle = "rgba(148,163,184,0.12)";
-    ctx.fillRect(pad.l, yLine(band), plotW, yLine(-band) - yLine(band));
-  }
-
-  drawHGrid(ctx, pad, w, h, [
-    { frac: 0, label: fmtNum(maxY, 2) },
-    { frac: (yLine(0) - pad.t) / plotH, label: "0" },
-    { frac: 1, label: fmtNum(minY, 2) },
-  ]);
-
-  if (enterOn) {
-    ctx.setLineDash([5, 4]);
-    ctx.strokeStyle = THEME.gridStrong;
-    ctx.lineWidth = 1;
-    [band, -band].forEach((lv) => {
-      const y = yLine(lv);
-      ctx.beginPath();
-      ctx.moveTo(pad.l, y);
-      ctx.lineTo(w - pad.r, y);
-      ctx.stroke();
-      ctx.fillStyle = THEME.axis;
-      ctx.font = FONT_SM;
-      ctx.textAlign = "right";
-      ctx.textBaseline = "middle";
-      ctx.fillText(lv > 0 ? `+${band}%` : `−${band}%`, pad.l - 4, y);
-    });
-    ctx.setLineDash([]);
-  }
-
-  let nTraded = 0;
-  let nSkip = 0;
-  let nSellThenBuy = 0;
-  let nBuyThenSell = 0;
-  let nSkipNeg = 0;
-  const pts = [];
-
-  sorted.forEach((p, i) => {
-    const yv = scatterYR(p);
-    const x = xAt(p, i);
-    const y = yLine(yv);
-    const traded = p.outcome === "traded";
-    if (traded) {
-      nTraded += 1;
-      if (p.direction === "buy_then_sell") nBuyThenSell += 1;
-      else if (p.direction === "sell_then_buy") nSellThenBuy += 1;
-    } else {
-      nSkip += 1;
-      if (yv < -0.1) nSkipNeg += 1;
-    }
-    const code = String(p.stock_code || "").trim();
-    const color = traded
-      ? p.direction === "buy_then_sell"
-        ? THEME.buyThenSell
-        : p.direction === "sell_then_buy"
-          ? THEME.sellThenBuy
-          : THEME.actual
-      : THEME.signalSkip;
-    const r = traded ? 4.5 : 3.5;
-    const yOc = Number(p["y_τc"] != null ? p["y_τc"] : p.y_tau);
-    pts.push({
-      i,
-      x,
-      y,
-      r,
-      color,
-      traded,
-      y_tau: yv,
-      r_pct: yv,
-      "y_τc": Number.isFinite(yOc) ? yOc : null,
-      date: p.date,
-      direction: p.direction,
-      outcome: p.outcome,
-      skip_category: p.skip_category,
-      stock_code: code,
-      stock_name: String(p.stock_name || "").trim() || nameByCode[code] || "",
-    });
-    ctx.beginPath();
-    ctx.arc(x, y, r + 1.5, 0, Math.PI * 2);
-    ctx.fillStyle = traded ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.5)";
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.globalAlpha = traded ? 1 : 0.65;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  });
-
-  const hi = Number.isInteger(hoverIdx) && hoverIdx >= 0 && hoverIdx < pts.length ? hoverIdx : null;
-  if (hi != null) {
-    const hp = pts[hi];
-    ctx.strokeStyle = THEME.actual;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(hp.x, hp.y, hp.r + 4, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  const dateTicks = [0, Math.floor(dates.length / 2), dates.length - 1];
-  ctx.fillStyle = THEME.axis;
-  ctx.font = FONT_SM;
-  ctx.textBaseline = "top";
-  dateTicks.forEach((idx) => {
-    const x = pad.l + (dates.length === 1 ? plotW / 2 : (idx / (dates.length - 1)) * plotW);
-    ctx.textAlign = idx === 0 ? "left" : idx === dates.length - 1 ? "right" : "center";
-    ctx.fillText(fmtDateShort(dates[idx]), x, h - pad.b + 4);
-  });
-
-  const meta = {
-    nTraded,
-    nSkip,
-    nSkipNeg,
-    nSellThenBuy,
-    nBuyThenSell,
-    threshold,
-    pts,
-    pad,
-    w,
-    h,
-    rawPoints: points,
-  };
-  canvas._scatHoverMeta = meta;
-  return meta;
-}
-
-function hitYtauScatterPoint(meta, ev, el) {
-  if (!meta || !meta.pts || !meta.pts.length || !el) return null;
-  const rect = el.getBoundingClientRect();
-  const scaleX = meta.w / Math.max(rect.width, 1);
-  const scaleY = meta.h / Math.max(rect.height, 1);
-  const lx = (ev.clientX - rect.left) * scaleX;
-  const ly = (ev.clientY - rect.top) * scaleY;
-  const pad = meta.pad || { l: 40, r: 10, t: 12, b: 26 };
-  if (lx < pad.l - 8 || lx > meta.w - (pad.r || 0) + 8) return null;
-  if (ly < pad.t - 8 || ly > meta.h - (pad.b || 0) + 8) return null;
-  let best = 0;
-  let bestD = Infinity;
-  meta.pts.forEach((pt, i) => {
-    const d = Math.hypot(pt.x - lx, pt.y - ly);
-    if (d < bestD) {
-      bestD = d;
-      best = i;
-    }
-  });
-  if (bestD > 14) return null;
-  return best;
-}
-
-function wireYtauScatterHover(canvas) {
-  if (!canvas) return;
-  const box = canvas.closest(".paper-t0-viz-chart-box") || canvas.parentElement;
-  let tipEl = box && box.querySelector('[data-role="scatter-hover-tip"]');
-  if (box && !tipEl) {
-    tipEl = document.createElement("div");
-    tipEl.className = "paper-t0-viz-chart-hover-tip";
-    tipEl.setAttribute("data-role", "scatter-hover-tip");
-    tipEl.hidden = true;
-    box.appendChild(tipEl);
-  }
-
-  const show = (idx, ev) => {
-    const meta = canvas._scatHoverMeta;
-    const pt = meta && meta.pts && meta.pts[idx];
-    if (!tipEl) {
-      canvas.title = pt
-        ? `${fmtDateShort(pt.date)} ${pt.stock_name || pt.stock_code || ""} R̂_τ ${fmtNum(pt.r_pct, 2)}%`
-        : "";
-      return;
-    }
-    if (idx == null || !pt) {
-      tipEl.hidden = true;
-      tipEl.textContent = "";
-      canvas.style.cursor = "default";
-      if (box) box.classList.remove("is-chart-tip");
-      return;
-    }
-    const name = String(pt.stock_name || pt.stock_code || "").trim();
-    const dir = pt.traded ? t0DirShort(pt.direction) : "信号跳过";
-    const skipTip = !pt.traded && pt.skip_category ? skipCatTip(pt.skip_category) : "";
-    const yTcRaw = pt["y_τc"] != null ? pt["y_τc"] : pt.y_tau;
-    const yTc = yTcRaw != null ? Number(yTcRaw) : NaN;
-    tipEl.hidden = false;
-    if (box) box.classList.add("is-chart-tip");
-    canvas.style.cursor = "crosshair";
-    tipEl.innerHTML =
-      `<strong>${esc(String(pt.date || "").slice(0, 10))}${name ? ` · ${esc(name)}` : ""}</strong>` +
-      `<span class="paper-t0-viz-chart-hover-meta">` +
-      `R̂_τ ${esc(fmtNum(pt.r_pct, 2))}%（C_τ/现价−1） · ${esc(dir)}` +
-      (Number.isFinite(yTc) ? ` · ŷ_τc ${esc(fmtNum(yTc, 2))}%` : "") +
-      `</span>` +
-      (skipTip ? `<p>${esc(skipTip)}</p>` : "");
-    if (ev && box) {
-      const br = box.getBoundingClientRect();
-      const x = Math.min(Math.max(8, ev.clientX - br.left + 12), Math.max(8, br.width - 220));
-      const y = Math.min(Math.max(8, ev.clientY - br.top + 12), Math.max(8, br.height - 80));
-      tipEl.style.left = `${x}px`;
-      tipEl.style.top = `${y}px`;
-    }
-  };
-
-  if (canvas._scatHoverWired) return;
-  canvas._scatHoverWired = true;
-  canvas.addEventListener("mousemove", (ev) => {
-    const meta = canvas._scatHoverMeta;
-    const idx = hitYtauScatterPoint(meta, ev, canvas);
-    if (idx !== canvas._scatHoverIdx) {
-      canvas._scatHoverIdx = idx;
-      if (meta && meta.rawPoints) {
-        drawYtauScatter(canvas, meta.rawPoints, canvas._scatThreshold || 0, {
-          hoverIdx: idx,
-          nameByCode: canvas._scatNameByCode,
-        });
-      }
-    }
-    show(idx, ev);
-  });
-  canvas.addEventListener("mouseleave", () => {
-    if (canvas._scatHoverIdx != null) {
-      canvas._scatHoverIdx = null;
-      const meta = canvas._scatHoverMeta;
-      if (meta && meta.rawPoints) {
-        drawYtauScatter(canvas, meta.rawPoints, canvas._scatThreshold || 0, {
-          hoverIdx: null,
-          nameByCode: canvas._scatNameByCode,
-        });
-      }
-    }
-    show(null);
-  });
-}
-
 /** 跳过构成 — CSS conic-gradient 环形（避免 canvas 填色在部分环境下糊成单色） */
 function buildSkipDonutMeta(categories) {
   if (!categories || !categories.length) return null;
@@ -1208,7 +859,7 @@ function renderKpiRow(summary) {
     [
       "ŷ覆盖",
       sm.score_coverage_pct != null ? `${sm.score_coverage_pct}%` : null,
-      "有 ŷ_τc 快照的评估日占比",
+      "有 ŷ_τw / 窗头快照的评估日占比",
     ],
     [
       "往返率",
@@ -1216,23 +867,9 @@ function renderKpiRow(summary) {
       "卖出回补或买入卖回完成比例",
     ],
     [
-      "τc门槛",
-      sm.y_tau_enter != null && Number.isFinite(Number(sm.y_tau_enter))
-        ? Number(sm.y_tau_enter) > 0
-          ? `|ŷ_τc|≥${sm.y_tau_enter}%`
-          : "关"
-        : null,
-      "|ŷ_τc| 低于 τc入场则横盘跳过；0=关",
-    ],
-    [
       "信号跳过",
       sm.signal_skip_rate_pct != null ? `${sm.signal_skip_rate_pct}%` : null,
       "dual_y / 异号 / 幅度不足等信号层跳过占比",
-    ],
-    [
-      "τ·OC命中",
-      sm.tau_oc_hit_rate_pct != null ? `${sm.tau_oc_hit_rate_pct}%` : null,
-      "成交日 ŷ_τc 符号 vs 实际 price(τ)→close",
     ],
     [
       "τw命中",
@@ -1247,7 +884,7 @@ function renderKpiRow(summary) {
     [
       "τ30旁路",
       sm.t30_band_hit_rate_pct != null ? `${sm.t30_band_hit_rate_pct}%` : null,
-      "破带方向与 ŷ_τ30=p_up 同号率（正T p_up≥0.5）",
+      "选向与 ŷ_τ30=p_up 同号率（正T p_up≥0.5；选向同号对照）",
     ],
     [
       "τ45命中",
@@ -1257,7 +894,7 @@ function renderKpiRow(summary) {
     [
       "τ45旁路",
       sm.t45_band_hit_rate_pct != null ? `${sm.t45_band_hit_rate_pct}%` : null,
-      "破带方向与 ŷ_τ45=p_up 同号率（正T p_up≥0.5）",
+      "选向与 ŷ_τ45=p_up 同号率（正T p_up≥0.5；选向同号对照）",
     ],
     [
       "τ60命中",
@@ -1267,7 +904,7 @@ function renderKpiRow(summary) {
     [
       "τ60旁路",
       sm.t60_band_hit_rate_pct != null ? `${sm.t60_band_hit_rate_pct}%` : null,
-      "破带方向与 ŷ_τ60=p_up 同号率（正T p_up≥0.5）",
+      "选向与 ŷ_τ60=p_up 同号率（正T p_up≥0.5；选向同号对照）",
     ],
     [
       "τ75命中",
@@ -1277,7 +914,7 @@ function renderKpiRow(summary) {
     [
       "τ75旁路",
       sm.t75_band_hit_rate_pct != null ? `${sm.t75_band_hit_rate_pct}%` : null,
-      "破带方向与 ŷ_τ75=p_up 同号率（正T p_up≥0.5）",
+      "选向与 ŷ_τ75=p_up 同号率（正T p_up≥0.5；选向同号对照）",
     ],
     [
       "τ90命中",
@@ -1287,20 +924,9 @@ function renderKpiRow(summary) {
     [
       "τ90旁路",
       sm.t90_band_hit_rate_pct != null ? `${sm.t90_band_hit_rate_pct}%` : null,
-      "破带方向与 ŷ_τ90=p_up 同号率（正T p_up≥0.5）",
-    ],
-    [
-      "τc命中",
-      sm.tc_pred_hit_rate_pct != null ? `${sm.tc_pred_hit_rate_pct}%` : null,
-      "ŷ_τc 符号 vs close[T]/price(τ)−1",
+      "选向与 ŷ_τ90=p_up 同号率（正T p_up≥0.5；选向同号对照）",
     ],
   ];
-  if (sm.avg_y_tau_traded != null) {
-    chips.push(["成交τc̄", `${fmtNum(sm.avg_y_tau_traded, 2)}%`, "成交日平均 ŷ_τc"]);
-  }
-  if (sm.avg_y_tau_signal_skip != null) {
-    chips.push(["跳过τc̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`, "信号跳过日平均 ŷ_τc"]);
-  }
   const html = chips
     .filter(([, v]) => v != null)
     .map(
@@ -1755,12 +1381,7 @@ export function renderT0Viz(host, data) {
     (viz.skip_categories && viz.skip_categories.length) ||
     (viz.cumulative_pnl && viz.cumulative_pnl.length) ||
     (viz.daily_activity && viz.daily_activity.length > 1) ||
-    (viz.y_tau_scatter && viz.y_tau_scatter.length) ||
     (viz.stock_contrib && viz.stock_contrib.length);
-  const scatterPts = attachRpctToScatter(
-    viz.y_tau_scatter,
-    data.days || data.trade_days_sample
-  );
   if (!hasContent) {
     if (host._t0VizRo) host._t0VizRo.disconnect();
     host.hidden = true;
@@ -1795,23 +1416,6 @@ export function renderT0Viz(host, data) {
           { color: THEME.signalSkip, label: "信号跳过" },
           { color: THEME.otherSkip, label: "其它跳过" },
         ])
-      )
-    );
-  }
-
-  if (scatterPts && scatterPts.length) {
-    cards.push(
-      vizCard(
-        "R̂_τ 散点",
-        "R̂_τ=C_τ/现价−1（%）· 正=现价低于C_τ→正T · 负=现价高于C_τ→反T · 点色=方向 · 橙=跳过",
-        chartCanvas("scatter"),
-        `<div data-role="scatter-foot"></div>`,
-        legendChips([
-          { color: THEME.buyThenSell, label: "正T成交" },
-          { color: THEME.sellThenBuy, label: "反T成交" },
-          { color: THEME.signalSkip, label: "信号跳过" },
-        ]),
-        "纵轴 R̂_τ = C_τ / 现价 − 1（百分点）。现价=该根 5m 收；C_τ=ŷ_τc 估的目标收。正：现价在 C_τ 下，正 T；负：现价在 C_τ 上，反 T。不是往返盈亏。"
       )
     );
   }
@@ -1898,30 +1502,6 @@ export function renderT0Viz(host, data) {
           `<span>其它 <b>${meta.sumOther}</b></span>`,
           `<span>${meta.days} 日窗口</span>`,
         ].join('<span class="sep">·</span>');
-      }
-    }
-
-    const sc = host.querySelector('canvas[data-viz="scatter"]');
-    if (sc) {
-      sc._scatNameByCode = stockNameByCode(viz);
-      sc._scatThreshold = 0;
-      const meta = drawYtauScatter(sc, scatterPts, 0, {
-        hoverIdx: sc._scatHoverIdx,
-        nameByCode: sc._scatNameByCode,
-      });
-      wireYtauScatterHover(sc);
-      const foot = host.querySelector('[data-role="scatter-foot"]');
-      if (foot && meta) {
-        foot.innerHTML = [
-          `<span title="现价=该根5m收；C_τ=ŷ_τc估的目标收">R̂_τ=C_τ/现价−1%</span>`,
-          `<span>成交 <b>${meta.nTraded}</b>（正${meta.nBuyThenSell}/反${meta.nSellThenBuy}）</span>`,
-          `<span>信号跳过 <b>${meta.nSkip}</b></span>`,
-          meta.nSkipNeg > 0
-            ? `<span>R̂_τ&lt;0 跳过 <b>${meta.nSkipNeg}</b></span>`
-            : "",
-        ]
-          .filter(Boolean)
-          .join('<span class="sep">·</span>');
       }
     }
 

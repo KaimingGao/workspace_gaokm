@@ -116,17 +116,16 @@ A 股远端是 AkShare `stock_zh_a_hist`。`qfq` 失败再试不复权；`hfq` �
 
 ## 3. 分钟更新
 
-入口是 `refresh_minute_only`。和日线并行，不进 `get_bars`。单票经 `fetch_a_minute_bars_isolated` 放进子进程，超时杀掉，避免东财挂死占住主进程锁。
+入口是 `refresh_minute_only`。和日线并行，不进 `get_bars`。单票经 `fetch_a_minute_bars_isolated` 放进子进程，超时杀掉。
 
 | 模式 | 行为 |
 |---|---|
-| `full` | 本地已 Ready 则跳过，否则东财全窗，空了再走新浪 |
-| `topup` | 已对齐跳过；跨度够只补近端（可跳过东财）；缺仓或短仓走全窗 |
-| `repair` | 只写比本地更齐的交易日，不打新浪 |
+| `full` | 只走新浪。本地已 Ready 则跳过 |
+| `topup` | 已对齐跳过；跨度够补近端；缺仓或短仓也走新浪 |
 
-Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 小时。东财回看默认 120 个日历日。各源拉完默认睡 20 秒。强更单票超时 90 秒，近端（skip 东财）45 秒。
+Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 小时。新浪 5 分钟窗口约 41 个交易日。拉完默认睡 20 秒。单票超时 45 秒。
 
-落盘用 `merge_minute_bars_by_time`，默认按交易日整段替换。新的一天必须盖住本地该日已有的时刻，更短、缺头、缺尾的新包整日放弃。禁止同一天上午东财、下午新浪按时间戳缝在一起。重叠时刻成交量中位比约 100 时，先把手换成股。
+落盘用 `merge_minute_bars_by_time`，默认按交易日整段替换。新的一天必须盖住本地该日已有的时刻，更短、缺头、缺尾的新包整日放弃。
 
 保留上限 `MINUTE_BARS_MAX_KEEP = 12000`（5 分钟全日约 48 根，大约 250 个交易日）。
 
@@ -298,14 +297,12 @@ bars.db
 | `QUANTLAB_DAY_CUBE` | 开 | `0` 关闭 L2 DayCube 落盘 |
 | `QUANTLAB_DAY_CUBE_DIR` | `paths.DAY_CUBE_DIR` | L2 根目录 |
 | `QUANTLAB_BATCH_SCORE` | 开 | `0` 调仓/回测仍走旧双遍 rescore（不建 cube） |
-| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 分钟远端拉取后间隔，上限 30 |
-| `QUANTLAB_MINUTE_WARMUP_SKIP_EM` | `0` | `1` 时批量预热跳过东财 |
+| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 新浪分钟远端拉取后间隔，上限 30 |
 | `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 已 Ready 则不打远端 |
 | `QUANTLAB_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 要求的连续交易日 |
 | `QUANTLAB_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 的 `fetched_at` 上限 |
-| `QUANTLAB_MINUTE_EM_LOOKBACK_DAYS` | `120` | 东财分钟回看日历日 |
-| `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC` | `90` | 分钟强更单票子进程超时；`0` 关闭隔离 |
-| `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC` | `45` | 近端超时 |
+| `QUANTLAB_MINUTE_LOOKBACK_DAYS` | `45` | 规划/状态用回看日历日 |
+| `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC` | `45` | 分钟强更单票子进程超时；`0` 关闭隔离 |
 
 TTL 与窗口常量在 `core/data/policy.py`，不要在调用点再写一套魔法数字。
 

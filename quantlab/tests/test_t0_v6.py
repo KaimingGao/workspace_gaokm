@@ -1,4 +1,4 @@
-"""v6 收盘带宽：选腿单元 / 路径烟测 / Web schema / patch / 表单键接线。
+"""纯 ŷ_τw：选腿单元 / 路径烟测 / Web schema / patch / 表单键接线。
 
 合并自原 test_t0_v6_close_band.py + test_t0_v6_web_wire.py。
 """
@@ -15,9 +15,7 @@ if ROOT not in sys.path:
 
 from core.execution import validate_execution_patch
 from core.t0.close_band import (
-    band_delta_px,
     day_open_prev_close,
-    estimate_close_px,
     freeze_round,
     hm_allows_leg1,
     parse_bar_hm,
@@ -56,14 +54,12 @@ def _snap(y_tau, **extra):
 
 
 def _cfg(overrides=None):
-    """路径单测：去掉旧锁赢默认。"""
+    """路径单测：去掉旧锁赢默认；金额键置 0 走比例仓。"""
     d = dict(overrides or {})
     d.setdefault("t0_lock_win_pct_buy_then_sell", 0)
     d.setdefault("t0_lock_win_pct_sell_then_buy", 0)
-    d.setdefault("y_τc_enter", 0)
-    d.setdefault("y_τc_strong", 0)
-    d.setdefault("y_τc_enter_amount", 0)
-    d.setdefault("y_τc_strong_amount", 0)
+    d.setdefault("y_tw_enter_amount", 0)
+    d.setdefault("y_tw_strong_amount", 0)
     return load_t0_rules(d)
 
 
@@ -114,44 +110,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertAlmostEqual(b["session_close"], 11.0, places=4)
         self.assertAlmostEqual(b["prev_close"], 9.5, places=4)
 
-    def test_estimate_mean_and_band(self):
-        est = estimate_close_px({"y_tau": 1.0}, open_px=100.0)
-        self.assertTrue(est["ok"])
-        # C_τ = 100×(1+clip(1×2, ±20)/100) = 102
-        self.assertAlmostEqual(est["close_px"], 102.0, places=4)
-        self.assertAlmostEqual(est["c_tau"], 102.0, places=4)
-        self.assertNotIn("c_oc", est)
-        self.assertNotIn("c_trade", est)
-        self.assertNotIn("c_nowcast", est)
-        self.assertNotIn("c_τc", est)
-        self.assertNotIn("c_rem", est)
-        self.assertNotIn("residual", est)
-        self.assertNotIn("y_trade", est)
-        self.assertNotIn("y_nowcast", est)
-        self.assertEqual(est["n_sources"], 1)
-        d = band_delta_px(100.0, 0.5)
-        self.assertAlmostEqual(d, 0.5, places=4)
-
-    def test_estimate_tau_only_ignores_other_heads(self):
-        """trade/nc 即使很大也不进 ĉ。"""
-        sc = {
-            "y_tau": 0.0,
-            "y_trade": 50.0,
-            "y_nowcast": 10.0,
-            "nowcast_vs": "prev_close",
-            "predicted_score_blend_vs": "prev_close",
-        }
-        est = estimate_close_px(sc, open_px=100.0)
-        self.assertAlmostEqual(est["c_tau"], 100.0, places=4)
-        self.assertAlmostEqual(est["close_px"], 100.0, places=4)
-        self.assertEqual(est["n_sources"], 1)
-
-    def test_estimate_requires_y_tau(self):
-        est = estimate_close_px({"y_trade": 1.0}, open_px=100.0)
-        self.assertFalse(est["ok"])
-        self.assertEqual(est["n_sources"], 0)
-
-    def test_freeze_c_tau_as_leg2_target(self):
+    def test_freeze_round_no_default_leg2_target(self):
         fr = freeze_round(
             direction="buy_then_sell",
             leg1_px=100.0,
@@ -162,6 +121,7 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNone(fr.leg2_target)
         self.assertAlmostEqual(fr.leg1_px, 100.0, places=4)
+        # 纯 ŷ_τw：close_px 不再默认抄成 leg2_target
         fr2 = freeze_round(
             direction="sell_then_buy",
             leg1_px=100.0,
@@ -171,39 +131,19 @@ class TestCloseBandCore(unittest.TestCase):
             bar_index=1,
             hm="09:40",
         )
-        self.assertAlmostEqual(fr2.leg2_target, 101.0, places=4)
+        self.assertIsNone(fr2.leg2_target)
         self.assertAlmostEqual(fr2.close_px, 101.0, places=4)
         self.assertAlmostEqual(fr2.delta_px, 0.5, places=4)
-
-    def test_c_tau_clip_formula_and_multiplicative_band(self):
-        from core.t0.close_band import close_band_pick_direction, clip_y_τc_target_pct
-
-        # y_tau=-1.12% ×2 = −2.24，未顶到 ±20
-        self.assertAlmostEqual(clip_y_τc_target_pct(-1.12), -2.24, places=6)
-        est = estimate_close_px({"y_tau": -1.12}, open_px=25.300)
-        self.assertAlmostEqual(est["c_tau"], 25.300 * (1.0 - 0.0224), places=4)
-        # y_tau=0.1% ×2 = 0.2 → 未饱和
-        est2 = estimate_close_px({"y_tau": 0.1}, open_px=100.0)
-        self.assertAlmostEqual(est2["c_tau"], 100.2, places=4)
-        # 硬顶 ±20：−3×10 = −30 → −20
-        self.assertAlmostEqual(clip_y_τc_target_pct(-3.0, scale=10.0), -20.0, places=6)
-        c_tau = 24.541
-        d, meta = close_band_pick_direction(25.276, c_tau, 3.0, {"y_tau": -1.12}, {})
-        self.assertIsNone(d)
-        self.assertAlmostEqual(meta["upper_pct"], 3.0, places=4)
-        self.assertAlmostEqual(meta["lower_pct"], -3.0, places=4)
-        d_up, _ = close_band_pick_direction(25.300, c_tau, 3.0, {"y_tau": -1.12}, {})
-        self.assertEqual(d_up, "sell_then_buy")
-        fr = freeze_round(
+        fr3 = freeze_round(
             direction="sell_then_buy",
-            leg1_px=25.060,
-            close_px=c_tau,
-            delta_px=0.736,
+            leg1_px=100.0,
+            close_px=101.0,
+            leg2_target=101.0,
             ratio=0.2,
-            bar_index=0,
-            hm="09:35",
+            bar_index=1,
+            hm="09:40",
         )
-        self.assertAlmostEqual(fr.leg2_target, c_tau, places=4)
+        self.assertAlmostEqual(fr3.leg2_target, 101.0, places=4)
 
     def test_hm_cutoff(self):
         self.assertEqual(parse_bar_hm({"datetime": "2025-01-02 09:35:00"}), "09:35")
@@ -211,21 +151,37 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertTrue(hm_allows_leg1("11:00"))
         self.assertFalse(hm_allows_leg1("11:05"))
 
-    def test_y_tc_sidecar_skip_reason(self):
-        from core.t0.close_band import y_tc_band_agree
+    def test_y_τc_t0_keys_discarded(self):
         from core.t0.config import load_t0_rules
 
-        self.assertTrue(y_tc_band_agree("sell_then_buy", -0.8))
-        self.assertFalse(y_tc_band_agree("sell_then_buy", 0.8))
-        self.assertTrue(y_tc_band_agree("buy_then_sell", 0.8))
-        self.assertFalse(y_tc_band_agree("buy_then_sell", -0.8))
-        self.assertIsNone(y_tc_band_agree("sell_then_buy", 0.01))
-        self.assertIsNone(y_tc_band_agree(None, -1.0))
-
-        dropped = load_t0_rules({"y_tc_validate": False, "y_tc_strong": 0.5})
-        self.assertNotIn("y_tc_strong", dropped)
-        self.assertNotIn("y_tc_validate", dropped)
-        self.assertNotIn("y_tc_enter", load_t0_rules({}))
+        dropped = load_t0_rules(
+            {
+                "y_tc_validate": False,
+                "y_tc_strong": 0.5,
+                "y_τc_enter": 0.5,
+                "y_τc_strong": 1.5,
+                "y_τc_enter_amount": 30000,
+                "y_τc_strong_amount": 50000,
+                "residual_w_τc": 0.8,
+                "residual_w_oc": 0.2,
+                "residual_w_mode": "inv_var",
+            }
+        )
+        for k in (
+            "y_tc_strong",
+            "y_tc_validate",
+            "y_tc_enter",
+            "y_τc_enter",
+            "y_τc_strong",
+            "y_τc_enter_amount",
+            "y_τc_strong_amount",
+            "residual_w_τc",
+            "residual_w_oc",
+            "residual_w_mode",
+        ):
+            self.assertNotIn(k, dropped)
+        self.assertNotIn("y_τc_enter", load_t0_rules({}))
+        self.assertNotIn("residual_w_τc", load_t0_rules({}))
 
     def test_bar_ytw_uses_minute_ohlc_not_daily(self):
         """选腿看本根前缀 ŷ_τw；日线 close 不同也不得替代成交价。"""
@@ -312,48 +268,41 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIn("未过反T入场", str(meta5.get("skip") or ""))
 
     def test_ytw_round_shares_strong_vs_enter(self):
-        from core.t0.close_band import close_band_y_τc_round_shares
+        from core.t0.close_band import close_band_y_tw_round_shares
 
         self.assertIsNone(
-            close_band_y_τc_round_shares({}, y_τc=3, price=10)
+            close_band_y_tw_round_shares({}, y_tw=3, price=10)
         )
         self.assertIsNone(
-            close_band_y_τc_round_shares(
-                {"y_τc_enter_amount": 0, "y_τc_strong_amount": 0},
-                y_τc=3,
+            close_band_y_tw_round_shares(
+                {"y_tw_enter_amount": 0, "y_tw_strong_amount": 0},
+                y_tw=3,
                 price=10,
             )
         )
         cfg = {
-            "y_τc_enter": 0.5,
-            "y_τc_strong": 1.0,
-            "y_τc_enter_amount": 4000,
-            "y_τc_strong_amount": 8000,
+            "y_tw_enter": 2.0,
+            "y_tw_strong": 3.0,
+            "y_tw_enter_amount": 4000,
+            "y_tw_strong_amount": 8000,
         }
         self.assertEqual(
-            close_band_y_τc_round_shares(cfg, y_τc=0.6, price=10),
+            close_band_y_tw_round_shares(cfg, y_tw=2.0, price=10),
             400,
         )
         self.assertEqual(
-            close_band_y_τc_round_shares(cfg, y_τc=1.2, price=10),
+            close_band_y_tw_round_shares(cfg, y_tw=3.0, price=10),
             800,
         )
         self.assertEqual(
-            close_band_y_τc_round_shares(cfg, y_τc=0.6, price=80),
+            close_band_y_tw_round_shares(cfg, y_tw=2.0, price=80),
             0,
         )
 
-    def test_y_τc_enter_skip_reason(self):
-        from core.t0.close_band import (
-            bar_close_band_pick_direction,
-            close_band_y_τc_skip_reason,
-        )
+    def test_pure_ytw_ignores_y_τc_enter(self):
+        """纯 ŷ_τw：传入旧 y_τc 入场键也不拦选向。"""
+        from core.t0.close_band import bar_close_band_pick_direction
 
-        self.assertIsNone(close_band_y_τc_skip_reason(0.2, {"y_τc_enter": 0}))
-        skip = close_band_y_τc_skip_reason(0.2, {"y_τc_enter": 0.5})
-        self.assertIsNotNone(skip)
-        self.assertIn("未过入场", skip)
-        self.assertIsNone(close_band_y_τc_skip_reason(0.5, {"y_τc_enter": 0.5}))
         up = _ytw_heads(up=True)
         d, meta = bar_close_band_pick_direction(
             100.0,
@@ -368,68 +317,23 @@ class TestCloseBandCore(unittest.TestCase):
             open_px=100.0,
             scale=1.0,
         )
-        self.assertIsNone(d)
-        self.assertIn("未过入场", str(meta.get("skip") or ""))
+        self.assertEqual(d, "buy_then_sell")
+        self.assertNotIn("未过入场", str(meta.get("skip") or ""))
 
-    def test_tree_tiny_y_τc_does_not_lift_band(self):
-        """Tree 与 Ridge 同一套 C_τ：|ŷ×scale| < δ 则不破带。"""
+    def test_pure_ytw_ignores_band_break(self):
+        """纯 ŷ_τw：票数够即可开（旧破带已移除）。"""
         from core.t0.close_band import bar_close_band_pick_direction
-        from core.t0.viz import classify_t0_skip_reason
 
         scores = {
             **_ytw_heads(up=False),
             "y_τc": -0.048,
             "y_tau": -0.048,
-            "y_τc_source": "tree",
         }
-        ridge_cfg = {
+        cfg = {
             "y_tw_enter": 2.0,
             "y_τc_enter": 1.0,
             "t0_close_band_delta_pct": 0.2,
             "t0_y_τc_target_scale": 2.0,
-        }
-        d0, meta0 = bar_close_band_pick_direction(
-            100.0,
-            100.0,
-            {**scores, "y_τc_source": "ridge"},
-            ridge_cfg,
-            open_px=100.0,
-            price_tau=100.0,
-            scale=1.0,
-        )
-        self.assertIsNone(d0)
-        self.assertIn("未破带", str(meta0.get("skip") or ""))
-        self.assertEqual(classify_t0_skip_reason("未破带"), "trigger_miss")
-
-        d, meta = bar_close_band_pick_direction(
-            100.0,
-            100.0,
-            scores,
-            {**ridge_cfg, "horizon_prob_backend": "tree"},
-            open_px=100.0,
-            price_tau=100.0,
-            scale=1.0,
-        )
-        self.assertIsNone(d)
-        self.assertIn("未破带", str(meta.get("skip") or ""))
-
-    def test_tree_mode_honors_y_τc_enter(self):
-        """Tree 不豁免 ŷ_τc 百分点入场。"""
-        from core.t0.close_band import bar_close_band_pick_direction
-
-        cfg = {
-            "y_tw_enter": 0,
-            "y_τc_enter": 1.0,
-            "y_τc_source": "tree",
-            "horizon_prob_backend": "tree",
-            "t0_close_band_delta_pct": 0.2,
-            "t0_y_τc_target_scale": 2.0,
-        }
-        scores = {
-            **_ytw_heads(up=False),
-            "y_τc": -0.5,
-            "y_tau": -0.5,
-            "y_τc_source": "tree",
         }
         d, meta = bar_close_band_pick_direction(
             100.0,
@@ -440,11 +344,11 @@ class TestCloseBandCore(unittest.TestCase):
             price_tau=100.0,
             scale=1.0,
         )
-        self.assertIsNone(d)
-        self.assertIn("未过入场", str(meta.get("skip") or ""))
+        self.assertEqual(d, "sell_then_buy")
+        self.assertNotIn("未破带", str(meta.get("skip") or ""))
 
     def test_tree_mode_still_honors_y_tw_enter(self):
-        """Tree 只豁免 ŷ_τc 的百分点入场；ŷ_τw 票数门槛仍生效。"""
+        """ŷ_τw 票数门槛仍生效（与 backend 无关）。"""
         from core.t0.close_band import (
             bar_close_band_pick_direction,
             close_band_y_tw_skip_reason,
@@ -452,11 +356,7 @@ class TestCloseBandCore(unittest.TestCase):
 
         cfg = {
             "y_tw_enter": 2.0,
-            "y_τc_enter": 1.0,
-            "y_τc_source": "tree",
             "horizon_prob_backend": "tree",
-            "t0_close_band_delta_pct": 0.2,
-            "t0_y_τc_target_scale": 2.0,
         }
         weak = close_band_y_tw_skip_reason(
             None, cfg, direction="sell_then_buy", y_tw=-1.0
@@ -474,9 +374,6 @@ class TestCloseBandCore(unittest.TestCase):
             "y_τ60": 0.5,
             "y_τ75": 0.5,
             "y_τ90": 0.5,
-            "y_τc": -0.5,
-            "y_tau": -0.5,
-            "y_τc_source": "tree",
         }
         d, meta = bar_close_band_pick_direction(
             100.0,
@@ -527,7 +424,8 @@ class TestCloseBandCore(unittest.TestCase):
         cfg0 = load_t0_rules()
         self.assertNotIn("t0_ytw_prefix_confirm", cfg0)
         self.assertAlmostEqual(float(cfg0["y_tw_midpoint"]), 47.0)
-        self.assertAlmostEqual(float(cfg0["t0_close_band_delta_pct"]), 0.5)
+        self.assertNotIn("t0_close_band_delta_pct", cfg0)
+        self.assertNotIn("t0_y_τc_target_scale", cfg0)
 
         up = _ytw_heads(up=True)
         leftover = {
@@ -543,7 +441,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertAlmostEqual(blend_y_tw(0.53, 0.53, 0.53, 0.53, 0.53), 5.0)
         self.assertAlmostEqual(blend_y_tw(0.50, 0.50, 0.50, 0.50, 0.50), 0.0)
 
-        # ŷ_oc 破带：open=100, ŷ_oc=+1%×默认 2 → C_τ=102；C=100 < lower → 正T
+        # 纯 ŷ_τw：票数够即正T
         d_band, meta_band = bar_close_band_pick_direction(
             100.0,
             100.0,
@@ -553,7 +451,7 @@ class TestCloseBandCore(unittest.TestCase):
             scale=1.0,
         )
         self.assertEqual(d_band, "buy_then_sell")
-        self.assertAlmostEqual(float(meta_band["c_tau"]), 102.0, places=4)
+        self.assertAlmostEqual(float(meta_band.get("y_tw") or 0), 5.0, places=4)
 
     def test_leg1_close_extreme_dropped(self):
         from core.t0.close_band import bar_close_band_pick_direction
@@ -628,7 +526,6 @@ class TestCloseBandCore(unittest.TestCase):
 
     def test_price_space_scale_and_gate(self):
         from core.t0.close_band import (
-            map_close_px_to_minute,
             price_space_scale,
             resolve_t0_price_space,
         )
@@ -666,19 +563,6 @@ class TestCloseBandCore(unittest.TestCase):
             {"t0_price_space_max_dev_pct": 0.25},
         )
         self.assertIn("price_space_mismatch", str(bad.get("skip_reason") or ""))
-        # ĉ_d → 分钟：101/1.01 = 100
-        self.assertAlmostEqual(map_close_px_to_minute(101.0, scale=1.01), 100.0, places=4)
-        from core.t0.close_band import map_close_components_to_minute
-
-        mapped = map_close_components_to_minute(
-            {"c_tau": 101.0, "close_px": 101.0},
-            scale=1.01,
-        )
-        self.assertAlmostEqual(mapped["c_tau"], 100.0, places=4)
-        self.assertAlmostEqual(mapped["close_px"], 100.0, places=4)
-        self.assertAlmostEqual(mapped["close_px_daily"], 101.0, places=4)
-        self.assertNotIn("c_trade", mapped)
-        self.assertNotIn("c_nowcast", mapped)
         from core.t0.viz import classify_t0_skip_reason
 
         self.assertEqual(
@@ -980,8 +864,9 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertGreaterEqual(len(filled2), 1, filled2)
         for s in filled2:
             cb = s.get("close_band") or {}
-            self.assertEqual(cb.get("c_hat_score_source"), "bar_prefix")
-            self.assertIsNotNone(cb.get("leg2_target"))
+            self.assertNotIn("c_hat_score_source", cb)
+            self.assertNotIn("c_tau", cb)
+            self.assertIsNone(cb.get("leg2_target"))
             sc = s.get("scores") or {}
             if sc.get("y_tau") is not None and cb.get("y_tau") is not None:
                 self.assertAlmostEqual(float(sc.get("y_tau")), float(cb.get("y_tau")), places=4)
@@ -1134,7 +1019,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             str(first.get("direction_used") or first.get("direction") or ""),
             "sell_then_buy",
         )
-        self.assertIsNotNone((first.get("close_band") or {}).get("leg2_target"))
+        self.assertIsNone((first.get("close_band") or {}).get("leg2_target"))
         self.assertGreaterEqual(int(first.get("sold_qty") or 0), 100)
         n_tr = first.get("trades")
         if isinstance(n_tr, int):
@@ -1238,7 +1123,7 @@ class TestCloseBandDayPath(unittest.TestCase):
         first = rows[0]
         self.assertEqual(first.get("direction") or first.get("direction_used"), "sell_then_buy")
         cb = first.get("close_band") or {}
-        self.assertIsNotNone(cb.get("leg2_target"))
+        self.assertIsNone(cb.get("leg2_target"))
 
     def test_green_bar_ytw_opens_long_t(self):
         """阳线 + ŷ_τw≥0 → 正T（现价买；不预设卖价）。"""
@@ -1713,8 +1598,8 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertEqual(
             t0_backtest_virtual_shares(
                 {
-                    "y_τc_enter_amount": 4000,
-                    "y_τc_strong_amount": 4000,
+                    "y_tw_enter_amount": 4000,
+                    "y_tw_strong_amount": 4000,
                     "t0_slots_max_rounds": 5,
                 },
                 price=10.0,
@@ -1724,24 +1609,38 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertEqual(
             t0_backtest_virtual_shares(
                 {
-                    "y_τc_enter_amount": 2000,
-                    "y_τc_strong_amount": 4000,
+                    "y_tw_enter_amount": 2000,
+                    "y_tw_strong_amount": 4000,
                     "t0_slots_max_rounds": 3,
                 },
                 price=10.0,
             ),
             1200,
         )
+        # 旧 y_τc_*_amount 不再驱动虚拟底仓
+        self.assertEqual(
+            t0_backtest_virtual_shares(
+                {
+                    "y_τc_enter_amount": 4000,
+                    "y_τc_strong_amount": 4000,
+                    "t0_slots_max_rounds": 5,
+                },
+                1000,
+                price=10.0,
+            ),
+            1000,
+        )
         kw = _t0_backtest_kwargs(
             T0BacktestRequest(
                 initial_shares=400,
-                y_τc_enter_amount=4000,
-                y_τc_strong_amount=4000,
+                y_tw_enter_amount=4000,
+                y_tw_strong_amount=4000,
                 t0_slots_max_rounds=5,
             )
         )
         self.assertEqual(kw["initial_shares"], 400)
-        self.assertEqual(kw["rules"]["y_τc_enter_amount"], 4000)
+        self.assertEqual(kw["rules"]["y_tw_enter_amount"], 4000)
+        self.assertNotIn("y_τc_enter_amount", kw["rules"])
         self.assertNotIn("y_oc_enter_amount", kw["rules"])
 
     def test_patch_accepts_close_band_thresholds(self):
@@ -1763,18 +1662,21 @@ class TestT0V6WebWire(unittest.TestCase):
 
     def test_patch_schema_keeps_live_t0_fields(self):
         live = (
-            "t0_close_band_delta_pct",
-            "t0_y_τc_target_scale",
             "t0_lock_win_arm_bars",
             "y_tw_enter",
             "y_tw_midpoint",
             "y_tw_vote_margin",
+            "y_tw_enter_amount",
+            "y_tw_strong_amount",
+        )
+        gone = (
             "y_τc_enter",
             "y_τc_strong",
             "y_τc_enter_amount",
             "y_τc_strong_amount",
             "residual_w_τc",
             "residual_w_oc",
+            "residual_w_mode",
         )
         for fields in (
             PaperExecutionPatchRequest.model_fields,
@@ -1782,6 +1684,8 @@ class TestT0V6WebWire(unittest.TestCase):
         ):
             for name in live:
                 self.assertIn(name, fields)
+            for name in gone:
+                self.assertNotIn(name, fields)
 
 
 if __name__ == "__main__":

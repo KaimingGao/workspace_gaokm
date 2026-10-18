@@ -329,7 +329,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-horizon-backend-field"
-          title="正式路径跟启用套包内 backend（研究枢纽 AUC 择优）。本开关为对照：选「强制 Tree」时读启用套 backends.tree（或包顶 backend=tree）。仅影响 ŷ_τw 投票，不改 ŷ_τc / C_τ。"
+          title="正式路径跟启用套包内 backend（研究枢纽 AUC 择优）。本开关为对照：选「强制 Tree」时读启用套 backends.tree（或包顶 backend=tree）。仅影响 ŷ_τw 投票，不改 ŷ_τc。"
         >
           <span class="quant-pro-field-label">ŷ_τ*对照</span>
           <select id="paper-t0-horizon-prob-backend" name="horizon_prob_backend" form="paper-t0-form">
@@ -366,144 +366,177 @@
         </div>
       </div>
     </div>
-    <div class="replay-t0-matrix" id="paper-t0-edit-fold" aria-label="做 T 规则">
-              <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
-                <fieldset class="paper-t0-cfg-block is-shared">
-                  <legend>配置</legend>
-                  <div class="paper-t0-form-grid is-oct">
-                  <input type="hidden" name="direction" value="dual_y" />
-                  <input type="hidden" name="path_mode" value="first_touch" />
-                  <input type="hidden" name="t0_vs_stance" value="independent" />
-                  <label
-                    class="paper-t0-field"
-                    title="做 T 回测账户本金（元）。默认 20 万。累计收益比例的分母。保存规则不改此项。"
-                  >
-                    <span>本金</span>
-                    <input type="number" name="t0_bt_cash" min="10000" max="100000000" step="10000" value="200000" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="|日昨/分昨−1|×100 超过此值跳过；默认 5；0=关。开盘差已下线。"
-                  >
-                    <span>昨收差%</span>
-                    <input type="number" name="t0_price_space_prev_dev_pct" min="0" max="5" step="0.05" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。默认 scale=2。"
-                  >
-                    <span>y_τc 放大</span>
-                    <input type="number" name="t0_y_τc_target_scale" min="0" max="100" step="0.5" value="2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="破带带宽 δ%：upper=C_τ×(1+δ/100)，lower=C_τ×(1−δ/100)。C&gt;upper 反T；C&lt;lower 正T。第二腿目标=C_τ。默认 0.5。"
-                  >
-                    <span>超额带宽δ%</span>
-                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="0.5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="破带后：|ŷ_τc| 须≥此百分点才开腿。默认 0.5；0=不拦。过此未过 y_τc强% 用入场金额。"
-                  >
-                    <span>y_τc入场%</span>
-                    <input type="number" name="y_τc_enter" min="0" max="20" step="0.1" value="0.5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="过 y_τc入场%、未过 y_τc强% 时，本轮第一腿金额（元）。默认 2 万。按成交价换算整手，不够一手则跳过；受可卖/现金约束。"
-                  >
-                    <span>y_τc入场金额</span>
-                    <input type="number" name="y_τc_enter_amount" min="0" max="1000000" step="1000" value="20000" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="过 y_τc入场% 后：|ŷ_τc|≥此百分点用 y_τc强金额，否则用入场金额。默认 1.0。须≥入场%。"
-                  >
-                    <span>y_τc强%</span>
-                    <input type="number" name="y_τc_strong" min="0" max="20" step="0.1" value="1.0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="过 y_τc强% 时本轮第一腿金额（元）。不少于入场金额，默认 4 万。按成交价换算整手，不够一手则跳过；受可卖/现金约束。"
-                  >
-                    <span>y_τc强金额</span>
-                    <input type="number" name="y_τc_strong_amount" min="0" max="1000000" step="1000" value="40000" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="破带后：正T须 ŷ_τw≥此票；反T须 ŷ_τw≤−此票。默认 2；0=允许 0 票。第二腿目标=C_τ。"
-                  >
-                    <span>Y_τw入场</span>
-                    <input type="number" name="y_tw_enter" min="0" max="5" step="0.1" value="2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τ30/45/60/75/90 共用中位点%。ŷ_τw = 各窗相对中位点的符号和。默认 47。"
-                  >
-                    <span>Y_τ*中位点%</span>
-                    <input type="number" name="y_tw_midpoint" min="1" max="99" step="0.5" value="47" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τ30/45/60/75/90 预估概率距中位点不超过此百分点则不给 ŷ_τw 投票。默认 5；0=仅恰好中位点弃权。"
-                  >
-                    <span>Y_τ*弃权%</span>
-                    <input type="number" name="y_tw_vote_margin" min="0" max="20" step="0.5" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="最多完成多少轮第一腿（默认5；0=不开第一腿）"
-                  >
-                    <span>最大轮数</span>
-                    <input type="number" name="t0_slots_max_rounds" min="0" max="16" step="1" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 6≈30 分钟）。止损固定收盘破线确认。"
-                  >
-                    <span>止损延迟根</span>
-                    <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="6" />
-                  </label>
-                  <label
-                    class="paper-t0-field has-tip"
-                    title="正T跌破 / 反T涨破 止损%（相对该轮第一腿成交价）：0=关。正反T共用。延迟见左侧延迟根。止损优先于中点追价。"
-                  >
-                    <span>止损%</span>
-                    <input type="number" name="t0_stop_pct" min="0" max="20" step="0.1" value="1.2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="正/反T锁赢共用：入场后跳过 N 根 5m 再启用（默认 6≈30 分钟）。与止损延迟独立。锁赢固定收盘确认。"
-                  >
-                    <span>锁赢延迟根</span>
-                    <input type="number" name="t0_lock_win_arm_bars" min="0" max="48" step="1" value="6" />
-                  </label>
-                  <label
-                    class="paper-t0-field has-tip"
-                    title="正T涨过 / 反T跌过 锁赢%（相对该轮第一腿成交价）则提前做第二腿：0=关。正反T共用。语义与止损相反。延迟见左侧锁赢延迟根。收盘确认。本根已触 C_τ 不抢。"
-                  >
-                    <span>锁赢%</span>
-                    <input type="number" name="t0_lock_win_pct" min="0" max="20" step="0.1" value="2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="中点追价起算 HH:MM：到点后禁止新开；已开未平则第二腿目标=旧目标与现价中点，触不到则收盘强制平。空=关。正反T共用。"
-                  >
-                    <span>中点追价</span>
-                    <input type="text" name="t0_pm_degrade" maxlength="5" placeholder="13:00" value="13:00" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="中点追价间隔（分钟）：起算后首次中点，之后每隔该分钟再调一次。正反T共用。"
-                  >
-                    <span>追价间隔分</span>
-                    <input type="number" name="t0_pm_chase_interval_min" min="1" max="60" step="1" value="5" />
-                  </label>
-                  </div>
-                </fieldset>
+    <div class="follow-path-matrix replay-t0-matrix" id="paper-t0-edit-fold" aria-label="做 T 规则">
+              <form id="paper-t0-form" class="paper-t0-form follow-path-matrix-form" autocomplete="off">
+                <input type="hidden" name="direction" value="dual_y" />
+                <input type="hidden" name="path_mode" value="first_touch" />
+                <input type="hidden" name="t0_vs_stance" value="independent" />
+                <div class="follow-path-matrix-panels">
+                  <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="t0-panel-leg1">
+                    <header class="follow-path-matrix-panel-head">
+                      <h4 id="t0-panel-leg1" class="follow-path-matrix-panel-title">第一腿</h4>
+                      <p class="follow-path-matrix-panel-note">纯 ŷ_τw 选向 · |ŷ_τw| 分档金额 · leg2 无预设目标价</p>
+                    </header>
+                    <div class="follow-path-matrix-body follow-path-matrix-body--row3">
+                      <div
+                        class="follow-path-matrix-box follow-path-matrix-box--pair"
+                        title="正T须 ŷ_τw≥门槛票；反T须 ŷ_τw≤−门槛。默认 2；0=允许 0 票。过入场未过强用右侧金额（元，默认 2 万；按成交价换算整手）。"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">Y_τw入场</span>
+                        </span>
+                        <div class="follow-path-matrix-box-pair">
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">门槛</span>
+                            <input type="number" name="y_tw_enter" min="0" max="5" step="0.1" value="2" aria-label="Y_τw入场门槛" />
+                          </label>
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">金额</span>
+                            <input type="number" name="y_tw_enter_amount" min="0" max="1000000" step="1000" value="20000" aria-label="Y_τw入场金额" />
+                          </label>
+                        </div>
+                      </div>
+                      <div
+                        class="follow-path-matrix-box follow-path-matrix-box--pair"
+                        title="过入场后 |ŷ_τw|≥门槛票用强金额，否则用入场金额。默认 3（须≥入场）。强金额不少于入场，默认 4 万。"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">Y_τw强档</span>
+                        </span>
+                        <div class="follow-path-matrix-box-pair">
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">门槛</span>
+                            <input type="number" name="y_tw_strong" min="0" max="5" step="0.1" value="3" aria-label="Y_τw强档门槛" />
+                          </label>
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">金额</span>
+                            <input type="number" name="y_tw_strong_amount" min="0" max="1000000" step="1000" value="40000" aria-label="Y_τw强档金额" />
+                          </label>
+                        </div>
+                      </div>
+                      <div
+                        class="follow-path-matrix-box follow-path-matrix-box--pair"
+                        title="ŷ_τ30/45/60/75/90 共用中位点%（默认 47）。距中点不超过弃权百分点则不投票（默认 5；0=仅恰好中点弃权）。"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">Y_τ*</span>
+                        </span>
+                        <div class="follow-path-matrix-box-pair">
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">中点</span>
+                            <input type="number" name="y_tw_midpoint" min="1" max="99" step="0.5" value="47" aria-label="Y_τ*中点" />
+                          </label>
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">弃权</span>
+                            <input type="number" name="y_tw_vote_margin" min="0" max="20" step="0.5" value="5" aria-label="Y_τ*弃权" />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                  <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="t0-panel-leg2">
+                    <header class="follow-path-matrix-panel-head">
+                      <h4 id="t0-panel-leg2" class="follow-path-matrix-panel-title">第二腿</h4>
+                      <p class="follow-path-matrix-panel-note">无预设目标价 · 止损/锁赢/追价/收盘</p>
+                    </header>
+                    <div class="follow-path-matrix-body follow-path-matrix-body--row3">
+                      <div
+                        class="follow-path-matrix-box follow-path-matrix-box--pair"
+                        title="正/反T共用：入场后跳过 N 根 5m 再启用（默认 6≈30 分钟）。止损%相对该轮第一腿成交价，0=关。固定收盘破线确认；优先于中点追价。"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">止损</span>
+                        </span>
+                        <div class="follow-path-matrix-box-pair">
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">延迟根数</span>
+                            <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="6" aria-label="止损延迟根数" />
+                          </label>
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">止损%</span>
+                            <input type="number" name="t0_stop_pct" min="0" max="20" step="0.1" value="1.2" aria-label="止损%" />
+                          </label>
+                        </div>
+                      </div>
+                      <div
+                        class="follow-path-matrix-box follow-path-matrix-box--pair"
+                        title="正/反T共用：入场后跳过 N 根 5m 再启用（默认 6）。锁赢%相对第一腿成交价则提前第二腿，0=关。与止损延迟独立；收盘确认。"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">锁赢</span>
+                        </span>
+                        <div class="follow-path-matrix-box-pair">
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">延迟根数</span>
+                            <input type="number" name="t0_lock_win_arm_bars" min="0" max="48" step="1" value="6" aria-label="锁赢延迟根数" />
+                          </label>
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">锁赢%</span>
+                            <input type="number" name="t0_lock_win_pct" min="0" max="20" step="0.1" value="2" aria-label="锁赢%" />
+                          </label>
+                        </div>
+                      </div>
+                      <label
+                        class="follow-path-matrix-box"
+                        title="最多完成多少轮第一腿（默认5；0=不开第一腿）"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">最大轮数</span>
+                          <span class="follow-path-matrix-box-desc">轮</span>
+                        </span>
+                        <input type="number" name="t0_slots_max_rounds" min="0" max="16" step="1" value="5" aria-label="最大轮数" />
+                      </label>
+                    </div>
+                  </section>
+                  <section class="follow-path-matrix-panel" data-panel="other" aria-labelledby="t0-panel-other">
+                    <header class="follow-path-matrix-panel-head">
+                      <h4 id="t0-panel-other" class="follow-path-matrix-panel-title">其他</h4>
+                      <p class="follow-path-matrix-panel-note">本金仅回测 · 昨收差价闸 · 午后中点追价</p>
+                    </header>
+                    <div class="follow-path-matrix-body follow-path-matrix-body--row3">
+                      <label
+                        class="follow-path-matrix-box"
+                        title="做 T 回测账户本金（元）。默认 20 万。累计收益比例的分母。保存规则不改此项。"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">金额</span>
+                          <span class="follow-path-matrix-box-desc">元</span>
+                        </span>
+                        <input type="number" name="t0_bt_cash" min="10000" max="100000000" step="10000" value="200000" aria-label="回测本金" />
+                      </label>
+                      <label
+                        class="follow-path-matrix-box"
+                        title="|日昨/分昨−1|×100 超过此值跳过；默认 5；0=关。开盘差已下线。"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">昨收差%</span>
+                          <span class="follow-path-matrix-box-desc">价闸</span>
+                        </span>
+                        <input type="number" name="t0_price_space_prev_dev_pct" min="0" max="5" step="0.05" value="5" aria-label="昨收差%" />
+                      </label>
+                      <div
+                        class="follow-path-matrix-box follow-path-matrix-box--pair"
+                        title="中点追价：开始 HH:MM 到点后禁新开；已开未平则第二腿按现价中点追，触不到则收盘强平。空=关。间隔为起算后调价分钟数。正反T共用。"
+                      >
+                        <span class="follow-path-matrix-box-text">
+                          <span class="follow-path-matrix-box-title">中点追价</span>
+                        </span>
+                        <div class="follow-path-matrix-box-pair">
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">开始</span>
+                            <input type="text" name="t0_pm_degrade" maxlength="5" placeholder="13:00" value="13:00" aria-label="中点追价开始" />
+                          </label>
+                          <label class="follow-path-matrix-box-slot">
+                            <span class="follow-path-matrix-box-slot-label">间隔</span>
+                            <input type="number" name="t0_pm_chase_interval_min" min="1" max="60" step="1" value="5" aria-label="中点追价间隔" />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                </div>
 
-                <div class="follow-path-matrix-footer replay-t0-matrix-footer" aria-label="做 T 规则操作">
+                <div class="follow-path-matrix-footer" aria-label="做 T 规则操作">
                   <div class="follow-path-matrix-actions">
                     <button type="submit" id="paper-t0-save" class="dialog-btn secondary">保存覆盖</button>
                     <button type="button" id="paper-t0-reset" class="dialog-btn secondary">恢复策略默认</button>

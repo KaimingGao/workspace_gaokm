@@ -126,15 +126,12 @@ def _rules(**kwargs):
         "t0_lock_win_pct_buy_then_sell": 0,
         "t0_lock_win_pct_sell_then_buy": 0,
         "t0_slots_enabled": True,
-        "t0_close_band_delta_pct": 0.01,
         "t0_round_ratio": 1.0,
         "t0_slots_max_rounds": 1,
         "t0_max_position_pct": 1.0,
         # 0=走旧比例仓，避免路径夹具被生产默认股数改掉
-        "y_τc_enter": 0,
-        "y_τc_strong": 0,
-        "y_τc_enter_amount": 0,
-        "y_τc_strong_amount": 0,
+        "y_tw_enter_amount": 0,
+        "y_tw_strong_amount": 0,
         # 路径用例默认零价偏，避免与生产 ±默认纠缠断言
         "y_tau_exit_price_bias_buy_then_sell": 0.0,
         "y_tau_exit_price_bias_sell_then_buy": 0.0,
@@ -150,7 +147,6 @@ def _rules(**kwargs):
         "y_τ60_strong": 1.0,
         "y_t90_strong": 1.0,
         "y_τ90_strong": 1.0,
-        "t0_y_τc_target_scale": 1.0,
         # 路径用例与生产「反T当日回补」解耦
         "must_cover_same_day_sell_then_buy": False,
     }
@@ -691,22 +687,24 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(d["t0_lock_win_pct_buy_then_sell"], 2.0)
         self.assertAlmostEqual(d["t0_lock_win_pct_sell_then_buy"], 2.0)
         self.assertAlmostEqual(d["y_tw_enter"], 2.0)
-        self.assertAlmostEqual(d["y_τc_enter"], 0.5)
-        self.assertAlmostEqual(d["y_τc_strong"], 1.0)
-        self.assertEqual(int(d["y_τc_enter_amount"]), 20000)
-        self.assertEqual(int(d["y_τc_strong_amount"]), 40000)
+        self.assertEqual(int(d["y_tw_enter_amount"]), 20000)
+        self.assertEqual(int(d["y_tw_strong_amount"]), 40000)
+        self.assertNotIn("y_τc_enter", d)
+        self.assertNotIn("y_τc_strong", d)
+        self.assertNotIn("y_τc_enter_amount", d)
+        self.assertNotIn("y_τc_strong_amount", d)
         self.assertAlmostEqual(d["y_tw_midpoint"], 47.0)
         self.assertAlmostEqual(d["y_tw_vote_margin"], 5.0)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
-        self.assertAlmostEqual(float(d.get("t0_close_band_delta_pct") or 0), 0.5)
+        self.assertNotIn("t0_close_band_delta_pct", d)
+        self.assertNotIn("t0_y_τc_target_scale", d)
+        self.assertNotIn(
+            "t0_y_τc_target_scale",
+            load_t0_rules({"t0_y_τc_target_scale": 150}),
+        )
         self.assertAlmostEqual(float(d.get("t0_round_ratio") or 0), 0.4)
         self.assertAlmostEqual(float(d.get("t0_price_space_max_dev_pct") or 0), 0.0)
         self.assertAlmostEqual(float(d.get("t0_price_space_prev_dev_pct") or 0), 5.0)
-        self.assertAlmostEqual(float(d.get("t0_y_τc_target_scale") or 0), 2.0)
-        self.assertAlmostEqual(
-            float(load_t0_rules({"t0_y_τc_target_scale": 150})["t0_y_τc_target_scale"]),
-            100.0,
-        )
         self.assertEqual(d["y_tau_exit_price_mult_buy_then_sell"], 1.0)
         self.assertTrue(d["y_tau_exit_price_skip_buy_then_sell"])
         self.assertEqual(d["y_tau_exit_price_mult_sell_then_buy"], 1.0)
@@ -723,8 +721,9 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["t0_slots"][-1]["prefix_bars"], 18)
         self.assertTrue(d["t0_pm_chase_cap_leg1_sell_then_buy"])
         self.assertTrue(d["t0_pm_chase_cap_leg1_buy_then_sell"])
-        self.assertAlmostEqual(d["residual_w_τc"], 0.5)
-        self.assertAlmostEqual(d["residual_w_oc"], 0.5)
+        self.assertNotIn("residual_w_τc", d)
+        self.assertNotIn("residual_w_oc", d)
+        self.assertNotIn("residual_w_mode", d)
         self.assertTrue(d["enabled"])
 
     def test_sell_and_cover_same_day(self):
@@ -1506,7 +1505,7 @@ class TestT0Core(unittest.TestCase):
         buys = [t for t in out.get("trades") or [] if str(t.get("side", "")).endswith("buy")]
         self.assertEqual(len(buys), 1, out)
         frozen = (out.get("t0_slot_results") or [{}])[0].get("close_band") or {}
-        self.assertIsNotNone(frozen.get("leg2_target"))
+        self.assertIsNone(frozen.get("leg2_target"))
 
     def test_backtest_minute_by_date_sets_first_touch(self):
         bars = []
@@ -1744,7 +1743,6 @@ class TestT0Core(unittest.TestCase):
                 "t0": _rules(
                     t0_ratio=0.4,
                     t0_round_ratio=0.4,
-                    t0_close_band_delta_pct=0.01,
                     t0_slots_max_rounds=1,
                     direction="sell_then_buy",
                     fill_mode="optimistic",
@@ -3547,7 +3545,9 @@ class TestT0Viz(unittest.TestCase):
         for hm in ("09:35", "10:00", "10:30", "11:00", "11:30"):
             self.assertEqual(slots[hm]["n_days"], 3, hm)
             self.assertIn("tau_hit", slots[hm])
-            self.assertIn("y_tc_hit", slots[hm])
+            self.assertNotIn("y_tc_hit", slots[hm])
+            self.assertNotIn("y_tc_band", slots[hm])
+            self.assertIn("y_tw_hit", slots[hm])
         self.assertEqual(slots["10:00"]["n_traded"], 1)
         self.assertEqual(slots["10:00"]["tau_hit"]["hit"], 2)
         self.assertEqual(slots["10:00"]["tau_hit"]["flat"], 1)  # 03-03 无该钟ŷ
@@ -3558,7 +3558,7 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(slots["09:35"]["n_with_yhat"], 0)
 
     def test_score_portrait_by_slot_uses_close_band_scan(self):
-        """分槽应读扫描每根 ŷ，而不是只统计破带开轮钟。"""
+        """分槽应读扫描每根 ŷ，而不是只统计开轮钟。"""
         from core.t0.viz import build_backtest_score_portrait
 
         days = [
@@ -3770,10 +3770,12 @@ class TestT0Viz(unittest.TestCase):
         ]
         port = build_score_portrait(days)
         self.assertNotIn("oc_hit", port)
+        self.assertNotIn("y_tc_hit", port)
+        self.assertNotIn("y_tc_band", port)
         self.assertEqual(port["r_tau_hit"]["hit"], 1)
         self.assertEqual(port["r_tau_hit"]["miss"], 1)
-        self.assertEqual(port["y_tc_hit"]["hit"], 1)
-        self.assertEqual(port["y_tc_hit"]["miss"], 1)
+        self.assertEqual(port["tau_hit"]["hit"], 1)
+        self.assertEqual(port["tau_hit"]["miss"], 1)
 
     def test_score_portrait_t30_hits(self):
         """画像 ŷ_τ30 命中 + τ30旁路（破带方向同号）。"""
@@ -4794,7 +4796,7 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertEqual([b["date"] for b in aligned], ["2026-07-02", "2026-07-03"])
         self.assertEqual(meta.get("complete_minute_days"), 2)
 
-    def test_fetch_minute_remote_skips_em_when_no_cache(self):
+    def test_fetch_minute_remote_when_no_cache(self):
         from unittest.mock import patch
 
         from quant.research import t0_backtest as m
@@ -4804,7 +4806,6 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         ) as remote:
             by_date, meta = m._fetch_minute_by_date("600519", timeout_sec=1)
         remote.assert_called_once()
-        self.assertTrue(remote.call_args.kwargs.get("skip_em"))
         self.assertFalse(by_date)
         self.assertIn("无分钟", str(meta.get("error") or ""))
 

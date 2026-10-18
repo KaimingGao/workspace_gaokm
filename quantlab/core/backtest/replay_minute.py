@@ -92,7 +92,6 @@ def load_replay_minute_bars(
                 period=period,
                 lookback_days=lb,
                 use_cache=True,
-                skip_em=True,
                 max_age_hours=48.0,
             )
             by_date = group_minute_bars_by_date(bars) if bars else {}

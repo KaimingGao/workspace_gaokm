@@ -83,52 +83,29 @@ class T0BacktestRequest(BaseModel):
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
     use_minute: bool = True
-    residual_w_τc: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="做 T residual 融合：ŷ_τc 权重；与 residual_w_oc 归一化",
-    )
-    residual_w_oc: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="做 T residual 融合：remaining(ŷ_oc) 权重",
-    )
-    residual_w_mode: Optional[str] = Field(
-        default=None,
-        max_length=24,
-        description="residual 融合：fixed=固定权（默认）| inv_var=OOS 逆方差",
-    )
     y_tw_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=5.0,
         description="正T：ŷ_τw>=此票；反T：ŷ_τw<=−此票。默认 2；0=允许 0 票",
     )
-    y_τc_enter: Optional[float] = Field(
+    y_tw_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=20.0,
-        description="|ŷ_τc| 入场百分点。默认 0.5；0=不拦",
+        le=5.0,
+        description="|ŷ_τw|≥此票用强金额，否则入场金额。默认 3；须≥入场",
     )
-    y_τc_strong: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=20.0,
-        description="过 y_τc入场后 |ŷ_τc|>=此值用强金额，否则入场金额。默认 1.0；须≥入场",
-    )
-    y_τc_enter_amount: Optional[float] = Field(
+    y_tw_enter_amount: Optional[float] = Field(
         default=None,
         ge=0,
         le=1_000_000,
-        description="过 y_τc入场未过强时本轮金额（元）；默认 2 万；0=走旧比例仓。按成交价换算整手，不够一手则跳过",
+        description="过 Y_τw入场未过强时本轮金额（元）；默认 2 万；0=走旧比例仓",
     )
-    y_τc_strong_amount: Optional[float] = Field(
+    y_tw_strong_amount: Optional[float] = Field(
         default=None,
         ge=0,
         le=1_000_000,
-        description="过 y_τc强时本轮金额（元）；不少于入场金额，默认 4 万",
+        description="过 Y_τw强时本轮金额（元）；不少于入场金额，默认 4 万",
     )
     y_tw_vote_margin: Optional[float] = Field(
         default=None,
@@ -145,18 +122,6 @@ class T0BacktestRequest(BaseModel):
     horizon_prob_backend: Optional[str] = Field(
         default=None,
         description="ŷ_τ* 概率头：ridge（默认）| tree（horizon LightGBM，做 T 回测）",
-    )
-    t0_y_τc_target_scale: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="C_τ=price(τ)×(1+clip(y_τc×scale, ±20)/100)；默认 2",
-    )
-    t0_close_band_delta_pct: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=10.0,
-        description="破带带宽 δ%：upper=C_τ×(1+δ/100)；C>upper 反T、C<lower 正T。默认 0.5",
     )
     t0_price_space_gate: Optional[bool] = Field(
         default=None, description="日分价空间门禁：昨收差超阈跳过（开盘差已下线）"
@@ -346,19 +311,13 @@ class PaperExecutionPatchRequest(BaseModel):
     path_mode: Optional[str] = None
     must_cover_same_day_sell_then_buy: Optional[bool] = None
     must_cover_same_day_buy_then_sell: Optional[bool] = None
-    residual_w_τc: Optional[float] = None
-    residual_w_oc: Optional[float] = None
-    residual_w_mode: Optional[str] = None
     y_tw_enter: Optional[float] = None
-    y_τc_enter: Optional[float] = None
-    y_τc_strong: Optional[float] = None
-    y_τc_enter_amount: Optional[float] = None
-    y_τc_strong_amount: Optional[float] = None
+    y_tw_strong: Optional[float] = None
+    y_tw_enter_amount: Optional[float] = None
+    y_tw_strong_amount: Optional[float] = None
     y_tw_vote_margin: Optional[float] = None
     y_tw_midpoint: Optional[float] = None
     horizon_prob_backend: Optional[str] = None
-    t0_y_τc_target_scale: Optional[float] = None
-    t0_close_band_delta_pct: Optional[float] = None
     t0_price_space_gate: Optional[bool] = None
     t0_price_space_max_dev_pct: Optional[float] = None
     t0_price_space_prev_dev_pct: Optional[float] = None

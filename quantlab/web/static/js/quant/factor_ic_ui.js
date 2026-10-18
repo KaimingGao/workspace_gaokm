@@ -1341,17 +1341,16 @@ export function createFactorIcUi(deps) {
             .join("")}</span>` +
           `</div>`
         : "";
-    // ŷ_oo_rank / ŷ_τ*：标签在区块说明（section-desc），因子表上不再重复 y 公式行
-    const specY =
-      isOoRank || isHorizon
-        ? ""
-        : `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
-          `<span class="quant-rem-coef-spec-k">y</span>` +
-          `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
-          (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
-          `</div>`;
+    // ŷ_oo_rank：标签在区块说明；ŷ_τ* 保留 y 公式 + 5m τ 网格 + OOS·τ
+    const specY = isOoRank
+      ? ""
+      : `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
+        `<span class="quant-rem-coef-spec-k">y</span>` +
+        `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
+        (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
+        `</div>`;
     const specRow =
-      (isOoRank || isHorizon) && !specTau && !metrics
+      isOoRank && !specTau && !metrics
         ? ""
         : `<div class="quant-rem-coef-spec" role="group" aria-label="${esc(
             `${yhatTag} 标签与 OOS`

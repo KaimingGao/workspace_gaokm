@@ -177,7 +177,7 @@ def minute_tau_grid_5m_range(
 ) -> List[str]:
     """生成训练用 τ 网格：开盘钟 + 每 step_min 一根 5m 末钟（含 end_hm）。
 
-    默认 09:30…11:00 与做 T v6 收盘带宽 leg1 扫描窗口对齐（09:30 仅开盘 Z）。
+    默认 09:30…11:00 与做 T 纯 ŷ_τw leg1 扫描窗口对齐（09:30 仅开盘 Z）。
     ``end_hm=09:30`` → 仅开盘点（0 前缀，标签退化为 open→close）。
     """
     start = _hm_to_clock_minutes(start_hm)

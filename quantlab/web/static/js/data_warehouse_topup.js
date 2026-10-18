@@ -138,7 +138,7 @@ export async function ensureWarehouseTopup(opts = {}) {
       mode: "topup",
     };
     const minuteBody = {
-      lookback_days: 120,
+      lookback_days: 45,
       watching_limit: watchingLimit,
       period: "5",
       min_span_days: 40,

@@ -106,7 +106,7 @@ function buildZeroTradeHint(data) {
             : tauEntrySkip
               ? "历史：触发根入场价未过τ带（v6 已下线，第一腿按确认根收盘）；重跑预演后应消失"
               : prefixVsPathSkip
-                ? "历史：前缀振幅>|ŷ_path|×裕度；v6 已改收盘带宽选腿，重跑预演后应消失"
+                ? "历史：前缀振幅>|ŷ_path|×裕度；现已改纯 ŷ_τw 选腿，重跑预演后应消失"
                 : ampSkip
                   ? "旧振幅下限跳过（门禁已下线）；重跑预演后应消失"
                   : lotSkip
@@ -209,7 +209,7 @@ export function renderPaperT0(els, data) {
     `<div class="paper-t0-days-head">` +
     `<h4 class="paper-t0-days-title">成交明细</h4>` +
     `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
-    ` · <span title="${escapeHtml(yTauMapScoreTip())}">C_τ 破带</span>` +
+    ` · <span title="${escapeHtml(yTauMapScoreTip())}">纯 ŷ_τw</span>` +
     ` · ${scoreRoleCaption(data)} · 5m仓</p>` +
     `</div>`;
 
@@ -346,7 +346,7 @@ export function renderPaperT0Preview(els, data) {
           `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipN}` +
           escapeHtml(skipHint) +
           ` · 正${buyThenSellN}/反${sellThenBuyN}` +
-          ` · <span title="${tip}">C_τ 破带</span>` +
+          ` · <span title="${tip}">纯 ŷ_τw</span>` +
           ` · ${scoreRoleCaption(tableData)}` +
           `</p>` +
           `</div>`,
@@ -838,7 +838,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
 
   const foot =
     lockedN > 0
-      ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；带宽未破仍可随 5m 推进。删除后 Worker 可重新监视（不改账本）。</p>`
+      ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；ŷ_τw 未过入场仍可随 5m 推进。删除后 Worker 可重新监视（不改账本）。</p>`
       : `<p class="paper-t0-desk-foot">≥11:30 无成交腿一律终锁；有腿票继续盯盘至收盘回补。删除仅去盘中状态。</p>`;
 
   const replaced = replaceDeskHtml(

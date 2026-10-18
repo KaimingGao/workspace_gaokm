@@ -619,6 +619,67 @@ body[data-page="replay"] .replay-t0-matrix .paper-t0-form {
   flex-direction: column;
 }
 
+/* 与调仓矩阵同壳：panel 自带边距，表单不再内垫 */
+body[data-page="replay"] .replay-t0-matrix.follow-path-matrix .paper-t0-form.follow-path-matrix-form {
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
+body[data-page="replay"] .replay-t0-matrix.follow-path-matrix {
+  border-radius: var(--follow-radius, 4px);
+}
+
+/* 做 T：三栏接近等宽，其他略收（调仓矩阵仍用 3/3/4） */
+body[data-page="replay"] .replay-t0-matrix .follow-path-matrix-panels {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 0.9fr);
+}
+
+/* 栏内双格 / 三格输入对称等宽 */
+body[data-page="replay"] .replay-t0-matrix .follow-path-matrix-box-pair {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+body[data-page="replay"] .replay-t0-matrix .follow-path-matrix-body--row3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* 本金：去掉步进箭头，避免位数被挡 */
+body[data-page="replay"] .replay-t0-matrix input[name="t0_bt_cash"] {
+  padding-right: 0.3rem;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+body[data-page="replay"] .replay-t0-matrix input[name="t0_bt_cash"]::-webkit-outer-spin-button,
+body[data-page="replay"] .replay-t0-matrix input[name="t0_bt_cash"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+body[data-page="replay"] .follow-path-matrix-box input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 1.5rem;
+  height: 1.5rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--pm-line);
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--pm-ink);
+  appearance: none;
+  line-height: 1.2;
+}
+
+body[data-page="replay"] .follow-path-matrix-box input[type="text"]:focus {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent) 32%, transparent);
+  outline-offset: 1px;
+  border-color: color-mix(in srgb, var(--pm-accent) 40%, #cbd5e1);
+}
+
 body[data-page="replay"] .follow-path-matrix-box--pair,
 body[data-page="replay"] .follow-path-matrix-box--solo {
   cursor: default;
@@ -665,19 +726,8 @@ body[data-page="replay"] .follow-path-matrix-box-slot input[type="checkbox"] {
   justify-self: start;
 }
 
-body[data-page="replay"] .replay-t0-matrix .paper-t0-field input,
-body[data-page="replay"] .replay-t0-matrix .paper-t0-field select {
-  border-radius: 6px !important;
-}
-
-body[data-page="replay"] .replay-t0-matrix-footer {
-  padding: 8px 0 0;
-  margin: 4px 0 0;
-  border-top: 1px solid color-mix(in srgb, var(--line) 82%, #94a3b8);
-}
-
-body[data-page="replay"] .replay-t0-matrix-footer .follow-path-matrix-actions {
-  flex-wrap: wrap;
+body[data-page="replay"] .replay-t0-matrix .follow-path-matrix-footer {
+  margin: 0;
 }
 
 body[data-page="replay"] .replay-t0-section #paper-t0-metrics,

@@ -1,8 +1,8 @@
-"""v6 多轮做 T：ŷ_τc 破带选腿。
+"""v6 多轮做 T：纯 ŷ_τw 选腿。
 
-09:30–11:00 每根 5m 用 y_τc 估 C_τ；C>upper 反T、C<lower 正T；leg2=C_τ。
-ŷ_τw 为五窗相对中位点符号和，过门槛才开。11:00 后不开 leg1。
-每轮 ratio，累计至 max_pos。第二腿：触 C_τ / 止损 / 锁赢 / 午后中点追价 / 收盘强平。
+09:30–11:00 每根 5m：ŷ_τw≥入场正T、≤−入场反T；金额看 |ŷ_τw|。
+leg2 不冻 C_τ（止损 / 锁赢 / 午后中点追价 / 收盘强平）。11:00 后不开 leg1。
+每轮 ratio，累计至 max_pos。
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def _is_scan_tip_key(key: str) -> bool:
         return True
     if key.startswith("y_spec"):
         return True
-    if key.endswith("_on"):
+    if key.endswith(("_on", "_co")):
         return False
     return key.startswith(("formula_terms_", "score_formula_terms_"))
 
@@ -401,7 +401,7 @@ def _close_band_public_scores(
     gate_snap: Optional[dict],
     gate_y_tau: Optional[float],
 ) -> Optional[dict]:
-    """成交明细：y_τ/Ĉ 与该根前缀 gate 同源（开盘 Z + ≤该根分钟因果 ŷ_τ）。"""
+    """成交明细：y_τ / ŷ_τc 与该根前缀 gate 同源（开盘 Z + ≤该根分钟因果）。"""
     if not isinstance(gate_snap, dict) or not gate_snap:
         return None
     base = dict(gate_snap)
@@ -414,7 +414,6 @@ def _close_band_public_scores(
             base["y_tau"] = yt
             if base.get("y_τc") is None:
                 base["y_τc"] = yt
-    base["c_hat_score_source"] = "bar_prefix"
     return base
 
 
@@ -719,7 +718,7 @@ def _open_close_band_round(
     defer_eod: bool,
     ref: float,
 ) -> Dict[str, Any]:
-    """ŷ_τc 破带选向后开一轮：确认根=触发根收盘；leg2 目标=C_τ。"""
+    """ŷ_τw 选向后开一轮：确认根=触发根收盘；leg2 无预设目标价。"""
     from core.t0.minute_path import (
         _day_ohlc_from_minutes,
         _first_touch_buy_then_sell,
@@ -810,9 +809,7 @@ def _open_close_band_round(
     out["range_mode"] = "close_band"
     out["close_band"] = dict(frozen)
     out["direction_reason"] = (
-        f"收盘带宽：C{'<' if direction == 'buy_then_sell' else '>'}C_τ±δ"
-        f"→{('反T' if direction == 'sell_then_buy' else '正T')}"
-        f"·C_τ={frozen.get('close_px') or frozen.get('c_tau')}"
+        f"ŷ_τw选向→{('反T' if direction == 'sell_then_buy' else '正T')}"
         f"·ŷ_τw={frozen.get('y_tw')}"
         f"·leg1={frozen.get('leg1_px')}"
         f"·leg2={frozen.get('leg2_target')}"
@@ -865,7 +862,6 @@ def _build_close_band_scan_trace(
         blend_y_tw_from_scores,
         hm_allows_leg1,
         parse_bar_hm,
-        resolve_t0_price_space,
     )
     from core.t0.config import T0_LAST_LEG1_HM
     from core.t0.score_policy import rescore_scores_at_fixed_prefix, resolve_fuse_intraday
@@ -885,13 +881,6 @@ def _build_close_band_scan_trace(
             if len(dt0) >= 10 and dt0[4] == "-":
                 trade_date = dt0[:10]
                 break
-    space = resolve_t0_price_space(
-        bar if isinstance(bar, dict) else None,
-        mins,
-        cfg,
-        daily_bar=day_anchor if isinstance(day_anchor, dict) else None,
-    )
-    scale = float(space.get("scale") or 1.0)
     last_hm = str(cfg.get("t0_last_leg1_hm") or T0_LAST_LEG1_HM)
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
@@ -949,13 +938,7 @@ def _build_close_band_scan_trace(
 
         snap_for_gate = live_snap if isinstance(live_snap, dict) else open_snap
         gate_snap = dict(snap_for_gate) if isinstance(snap_for_gate, dict) else {}
-        # Ĉ 与该根前缀 ŷ_τ 同源；破带 price = 本根 5m 收价 C（非日线收）。
-        c_hat_snap = gate_snap
 
-        c_tau = None
-        lower_px = None
-        upper_px = None
-        delta_pct = None
         band_meta: dict = {}
         y_tau = None
         y_path = None
@@ -971,12 +954,6 @@ def _build_close_band_scan_trace(
         y_t60_realized = None
         y_t75_realized = None
         y_t90_realized = None
-        r_pct = None
-        upper_pct = None
-        lower_pct = None
-        r_hat = None
-        remaining_oc_v = None
-        c_hat_source = None
         direction = None
         y_tw_skip = None
         minute_missing = bool(
@@ -995,26 +972,10 @@ def _build_close_band_scan_trace(
                 c,
                 gate_snap,
                 cfg,
-                open_px=space.get("estimate_open"),
-                price_tau=c,
-                scale=scale,
                 bar_low=l,
                 bar_high=h,
             )
             y_tw_skip = band_meta.get("skip") if not direction else None
-            c_tau = band_meta.get("c_tau")
-            r_pct = band_meta.get("r_pct")
-            upper_pct = band_meta.get("upper_pct")
-            lower_pct = band_meta.get("lower_pct")
-            lower_px = band_meta.get("lower_px")
-            upper_px = band_meta.get("upper_px")
-            delta_pct = band_meta.get("delta_pct")
-            if band_meta.get("r_hat") is not None:
-                r_hat = band_meta.get("r_hat")
-            if band_meta.get("remaining_oc") is not None:
-                remaining_oc_v = band_meta.get("remaining_oc")
-            if band_meta.get("c_hat_source"):
-                c_hat_source = band_meta.get("c_hat_source")
 
         if isinstance(gate_snap, dict):
             from core.t0.score_policy import scores_from_item
@@ -1093,10 +1054,6 @@ def _build_close_band_scan_trace(
             "l": round(l, 4) if l > 0 else None,
             "h": round(h, 4) if h > 0 else None,
             "c": round(c, 4),
-            "c_tau": round(float(c_tau), 4) if c_tau is not None else None,
-            "lower_px": round(float(lower_px), 4) if lower_px is not None else None,
-            "upper_px": round(float(upper_px), 4) if upper_px is not None else None,
-            "delta_pct": round(float(delta_pct), 4) if delta_pct is not None else None,
             "y_tau": y_tau,
             "y_tw": (
                 band_meta.get("y_tw")
@@ -1139,21 +1096,8 @@ def _build_close_band_scan_trace(
             "t90_realized": y_t90_realized,
             "r_realized": r_realized,
             "y_r_realized": r_realized,
-            "r_pct": round(float(r_pct), 4) if r_pct is not None else None,
-            "r_hat": round(float(r_hat), 4) if r_hat is not None else None,
-            "residual": round(float(r_hat), 4) if r_hat is not None else None,
             "y_τc": round(float(y_r), 4) if y_r is not None else None,
             "y_tc": round(float(y_r), 4) if y_r is not None else None,
-            "remaining_oc": (
-                round(float(remaining_oc_v), 4) if remaining_oc_v is not None else None
-            ),
-            "c_hat_source": c_hat_source,
-            "upper_pct": (
-                round(float(upper_pct), 4) if upper_pct is not None else None
-            ),
-            "lower_pct": (
-                round(float(lower_pct), 4) if lower_pct is not None else None
-            ),
             "pick": direction,
             "y_tw_skip": y_tw_skip,
             "minute_missing": minute_missing,
@@ -1275,15 +1219,15 @@ def simulate_t0_day_slots(
     tau_pool_day: Optional[dict] = None,
     daily_bar: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """旗舰：逐根 ŷ_τc 破带开轮（每轮 ratio，累计至 max_pos）；11:00 后不开 leg1。
+    """旗舰：逐根纯 ŷ_τw 开轮（每轮 ratio，累计至 max_pos）；11:00 后不开 leg1。
 
     ``daily_bar``：原始日 K（开/收/昨收）；勿传分钟合成 OHLC。缺省用 ``bar``。
     """
     from core.t0.close_band import (
         bar_close_band_pick_direction,
-        close_band_y_τc_is_strong,
-        close_band_y_τc_round_scale,
-        close_band_y_τc_round_shares,
+        close_band_y_tw_is_strong,
+        close_band_y_tw_round_scale,
+        close_band_y_tw_round_shares,
         day_price_space_payload,
         freeze_round,
         hm_allows_leg1,
@@ -1459,33 +1403,27 @@ def simulate_t0_day_slots(
             last_enter_skip = "分钟数据缺失（非 09:30 须有分钟小包）"
             continue
 
-        # 每根前缀重算 ŷ_τc / ŷ_τ*；选腿看破带方向，ŷ_τw 门槛为辅。
+        # 每根前缀重算 ŷ_τ* → ŷ_τw；纯票数选向与金额。
         gate_snap = dict(snap_for_gate) if isinstance(snap_for_gate, dict) else {}
         direction, band_meta = bar_close_band_pick_direction(
             bar_open,
             bar_close,
             gate_snap,
             cfg,
-            open_px=space.get("estimate_open"),
-            price_tau=bar_close,
-            scale=scale,
             bar_low=bar_low,
             bar_high=bar_high,
         )
         if not direction:
             skip = band_meta.get("skip")
             if skip:
-                skip_s = str(skip)
-                # 破带后的 ŷ_τw / ŷ_τc 未过不要被后续未破带盖掉
-                if not (skip_s == "未破带" and last_y_tw_skip and last_y_tw_skip != "未破带"):
-                    last_y_tw_skip = skip_s
+                last_y_tw_skip = str(skip)
             continue
 
         remain = max_pos - used_ratio
-        y_τc_now = band_meta.get("y_τc")
+        y_tw_now = band_meta.get("y_tw")
         lot_i = max(int(lot or 0), 1)
-        want_shares = close_band_y_τc_round_shares(
-            cfg, y_τc=y_τc_now, lot=lot_i, price=bar_close
+        want_shares = close_band_y_tw_round_shares(
+            cfg, y_tw=y_tw_now, lot=lot_i, price=bar_close
         )
         if want_shares is not None:
             remain_sh = float(_lot_floor(max(0.0, sellable_cap * remain), lot_i))
@@ -1495,7 +1433,7 @@ def simulate_t0_day_slots(
                 break
             ratio = float(slice_qty) / float(sellable_cap) if sellable_cap > 0 else 0.0
         else:
-            scale_tw = close_band_y_τc_round_scale(y_τc_now, cfg)
+            scale_tw = close_band_y_tw_round_scale(y_tw_now, cfg)
             sized = round_ratio if scale_tw >= 1.0 - 1e-12 else max(0.05, round_ratio * scale_tw)
             ratio = min(sized, remain)
             if ratio < 0.05:
@@ -1532,17 +1470,16 @@ def simulate_t0_day_slots(
                 )
             continue
 
-        c_tau = band_meta.get("close_px") or band_meta.get("c_tau")
         frozen = freeze_round(
             direction=direction,
             leg1_px=bar_close,
-            close_px=c_tau,
-            delta_px=band_meta.get("delta_px"),
+            close_px=None,
+            delta_px=None,
             ratio=ratio,
             bar_index=idx,
             hm=hm,
-            y_tw=band_meta.get("y_tw"),
-            leg2_target=c_tau,
+            y_tw=y_tw_now,
+            leg2_target=None,
         )
         sid = f"r{leg1_rounds + 1}"
         # 扫描态现金=已落账（仅含截至本根）；勿再叠 cash_locked，否则未平正T会双重扣减
@@ -1564,16 +1501,8 @@ def simulate_t0_day_slots(
                 "bar_high": bar_high,
                 "price_space_scale": scale,
                 "estimate_mode": space.get("estimate_mode"),
-                "y_tw": band_meta.get("y_tw"),
-                "y_τc_strong_hit": close_band_y_τc_is_strong(
-                    band_meta.get("y_τc"),
-                    cfg,
-                ),
-                "c_tau": c_tau,
-                "delta_pct": band_meta.get("delta_pct"),
-                "lower_px": band_meta.get("lower_px"),
-                "upper_px": band_meta.get("upper_px"),
-                "c_hat_score_source": "bar_prefix",
+                "y_tw": y_tw_now,
+                "y_tw_strong_hit": close_band_y_tw_is_strong(y_tw_now, cfg),
                 "live_score_source": (
                     snap_for_gate.get("_score_source")
                     if isinstance(snap_for_gate, dict)
@@ -1686,7 +1615,7 @@ def simulate_t0_day_slots(
             merged["direction_reason"] = last_enter_skip
             merged["reason"] = last_enter_skip
             merged["signal_skip"] = True
-    # T+1 硬约束优先于后续反向破带的 ŷ_τw / ŷ_τc 未过：正T已因无可卖旧仓失败时，
+    # T+1 硬约束优先于后续反向 ŷ_τw 选向未过：正T已因无可卖旧仓失败时，
     # 午后反向 反T 未过入场不应盖掉「可卖旧仓 0」。
     if last_tplus1_skip:
         if merged.get("skipped") and not merged.get("direction_reason"):

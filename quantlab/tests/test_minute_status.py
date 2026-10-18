@@ -154,8 +154,6 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["warmed"], 1)
         fetch.assert_called_once()
         self.assertEqual(fetch.call_args.args[0], "000001")
-        self.assertFalse(fetch.call_args.kwargs.get("skip_em"))
-
     def test_warmup_continues_after_isolated_timeout(self):
         """子进程超时只跳过该票，不收尾跳过剩余。"""
         from core.platform.schedule_jobs import _minute_warmup_core
@@ -202,12 +200,12 @@ class TestMinuteStatus(unittest.TestCase):
             "quant.research.minute_status.build_minute_status",
             return_value={"success": True, "cached_ok": 2},
         ):
-            out = refresh_minute_only(watching_limit=100, lookback_days=120)
+            out = refresh_minute_only(watching_limit=100, lookback_days=45)
         self.assertTrue(out["success"])
         self.assertEqual(out["mode"], "full")
         warm.assert_called_once()
         self.assertEqual(warm.call_args.kwargs["cap"], 2)
-        self.assertEqual(warm.call_args.kwargs["lookback_days"], 120)
+        self.assertEqual(warm.call_args.kwargs["lookback_days"], 45)
 
     def test_expected_minute_asof_before_open(self):
         from datetime import datetime
@@ -251,7 +249,7 @@ class TestMinuteStatus(unittest.TestCase):
         calls = []
 
         def _fetch(code, **kwargs):
-            calls.append((code, kwargs.get("lookback_days"), kwargs.get("skip_em")))
+            calls.append((code, kwargs.get("lookback_days")))
             return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
 
         with patch(
@@ -276,9 +274,9 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out["bootstrapped"], 1)
         self.assertEqual(len(calls), 2)
-        by_code = {c: (lb, sem) for c, lb, sem in calls}
-        self.assertEqual(by_code["000001"], (5, True))
-        self.assertEqual(by_code["300750"], (30, False))
+        by_code = {c: lb for c, lb in calls}
+        self.assertEqual(by_code["000001"], 5)
+        self.assertEqual(by_code["300750"], 30)
 
     def test_topup_skips_fetched_today(self):
         from quant.research.minute_status import _minute_topup_core
@@ -363,7 +361,7 @@ class TestMinuteStatus(unittest.TestCase):
         calls = []
 
         def _fetch(code, **kwargs):
-            calls.append((code, kwargs.get("use_cache"), kwargs.get("skip_em")))
+            calls.append((code, kwargs.get("use_cache")))
             return [{"date": f"{expected} 14:55:00"}], {"ok": True}
 
         with patch(
@@ -386,7 +384,7 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["skipped_today"], 1)
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out.get("refreshed_truncated"), 1)
-        self.assertEqual(calls, [("002415", False, True)])
+        self.assertEqual(calls, [("002415", False)])
 
     def test_topup_continues_after_isolated_timeout(self):
         from quant.research.minute_status import _minute_topup_core

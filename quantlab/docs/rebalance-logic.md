@@ -15,7 +15,7 @@
 | 维度 | 策略调仓 | 底仓做 T |
 |------|----------|----------|
 | 决策问题 | 持有什么、每次加几手 | 既有底仓上日内往返 |
-| 信号头 | y_oo_fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·(ŷ_τc∘w_co·ŷ_co) | v6：C 相对 C_τ 破带选向，现价开第一腿 |
+| 信号头 | y_oo_fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·(ŷ_τc∘w_co·ŷ_co) | 纯 ŷ_τw 选向与金额，现价开第一腿 |
 | 持仓寿命 | 未过入场 / 缺分 / hard_reject 清仓；过入场则开或加 | 当日往返 |
 | 仓位单位 | 已保存 lot_base_amount / lot_strong_amount（缺省 1 万 / 2 万；按价换算整手） | `origin=t0`（`t0_batch`） |
 | 频率 | 每个交易日在已保存「启动时间」`live_fill_clock`～10:00 打分并现价一次（默认 09:30；与回测 `fill_clock` 分立） | 每 5 分钟扫至 11:00 |
@@ -50,7 +50,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | ŷ | 含义 | 调仓中的作用 |
 |----|------|-------------|
 | **y_oo_fuse**（UI fuse） | w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 调仓排序。rot=price(τ)/open[T]−1；基准 τ→open[T+1]；ŷ_τc 已是 τ→close；w_co 默认 1 |
-| **residual** | w_τc·ŷ_τc + w_oc·remaining(ŷ_oc) | 研究对照。做 T 主分是 ŷ_τc 估 C_τ；remaining(ŷ_oc) 不进破带 |
+| **residual** | w_τc·ŷ_τc + w_oc·remaining(ŷ_oc) | 研究对照。做 T 主分是 ŷ_τw；旧 C_τ 破带已移除 |
 | ŷ_co | 隔夜 close[T]→open[T+1] | 经 w_co 几何叠进 ŷ_τc；w_co=0 时不进 y_oo_fuse |
 
 历史回测成交明细列序为股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完时剩余按收盘市值计入卖出总额）/ **fuse** 预估(真实)（真实=(open[T+1]−price(τ))/open[T]）/ y_oo / y_τc / y_co / **rank**（ŷ_oo_rank 1..n）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 / y_hl。缺模型/缺分显示 —。

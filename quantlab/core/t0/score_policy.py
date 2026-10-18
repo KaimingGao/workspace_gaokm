@@ -1183,6 +1183,67 @@ def _open_px_from_item(item: dict) -> Optional[float]:
     return _f(feats.get("open")) or _f(item.get("open"))
 
 
+def _cs_z_horizon_feats(
+    feats: dict,
+    *,
+    head: str,
+    trade_date: str,
+    stock_code: str = "",
+) -> dict:
+    """截面模型：用观察池同伴 μ/σ 把 raw 映成日截面 z（对齐拟合）。非截面原样返回。"""
+    if not isinstance(feats, dict) or not feats:
+        return feats
+    dkey = str(trade_date or "")[:10]
+    if len(dkey) < 10:
+        return feats
+    try:
+        from core.research.feature_standardize import (
+            cross_section_zscore_dicts,
+            is_cross_section_zscore,
+        )
+        from core.research.horizon_ridge import load_ridge_model
+        from core.signal.cross_section_rescore import _active_names
+        from core.signal.factors.z_th import stamp_z_th_aliases
+    except Exception:  # noqa: BLE001
+        logger.debug("horizon cs-z import failed", exc_info=True)
+        return feats
+    try:
+        doc = load_ridge_model(head)
+    except Exception:  # noqa: BLE001
+        doc = None
+    if not is_cross_section_zscore(doc):
+        return feats
+    rm = doc.get("return_model") if isinstance(doc, dict) else {}
+    names = _active_names(rm if isinstance(rm, dict) else {})
+    if not names and isinstance(doc, dict):
+        names = _active_names(doc)
+    if not names:
+        return feats
+    peers = _POOL_FEAT_CACHE.get(dkey) or []
+    if len(peers) < 2:
+        return feats
+    code = str(stock_code or "").strip()
+    if code and any(str(p.get("stock_code") or "") == code for p in peers):
+        rows = []
+        slot = 0
+        for peer in peers:
+            if str(peer.get("stock_code") or "") == code:
+                slot = len(rows)
+                copied = dict(feats)
+            else:
+                copied = dict(peer.get("features_tau") or {})
+            stamp_z_th_aliases(copied)
+            rows.append(copied)
+        z_rows = cross_section_zscore_dicts(rows, names)
+        return z_rows[slot] if slot < len(z_rows) else feats
+    return _z_row_against_peers(
+        feats,
+        [p.get("features_tau") or {} for p in peers],
+        names,
+        stamp=stamp_z_th_aliases,
+    )
+
+
 def _predict_horizon_hat(
     head: str,
     feats: dict,
@@ -1190,16 +1251,26 @@ def _predict_horizon_hat(
     load_ridge,
     predict_ridge,
     predict_tree,
+    trade_date: str = "",
+    stock_code: str = "",
 ) -> tuple:
     """返回 (p_up, model_doc, source)。
 
     正式路径：读启用槽包内 ``backend``（AUC 择优落盘）。
     对照：``horizon_prob_backend=tree`` 强制读启用套 ``backends.tree``（或包顶 ``backend=tree``）。
+    截面模型时先按观察池日截面 z 再预测。
     """
     from core.research.horizon_ridge import _doc_backend
     from core.research.horizon_tree import (
         HORIZON_PROB_BACKEND_TREE,
         current_horizon_prob_backend,
+    )
+
+    pred_feats = _cs_z_horizon_feats(
+        feats,
+        head=head,
+        trade_date=trade_date,
+        stock_code=stock_code,
     )
 
     if current_horizon_prob_backend() == HORIZON_PROB_BACKEND_TREE:
@@ -1210,7 +1281,7 @@ def _predict_horizon_hat(
         if isinstance(pack, dict):
             if _doc_backend(pack) == "tree":
                 try:
-                    y_hat = predict_ridge(feats, model_doc=pack)
+                    y_hat = predict_ridge(pred_feats, model_doc=pack)
                 except Exception:  # noqa: BLE001
                     y_hat = None
                 if y_hat is not None:
@@ -1229,7 +1300,7 @@ def _predict_horizon_hat(
                     "backends": be,
                 }
                 try:
-                    y_hat = predict_tree(feats, model_doc=shadow)
+                    y_hat = predict_tree(pred_feats, model_doc=shadow)
                 except Exception:  # noqa: BLE001
                     y_hat = None
                 if y_hat is not None:
@@ -1239,7 +1310,7 @@ def _predict_horizon_hat(
     if model is None:
         return None, None, None
     src = _doc_backend(model)
-    y_hat = predict_ridge(feats, model_doc=model)
+    y_hat = predict_ridge(pred_feats, model_doc=model)
     if y_hat is None:
         return None, model, None
     return float(y_hat), model, src if src in ("tree", "ridge") else "ridge"
@@ -1434,6 +1505,8 @@ def _attach_y_t30_to_item(
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t30", feats, model_doc=model_doc
             ),
+            trade_date=asof,
+            stock_code=code,
         )
         if y_hat is None:
             return
@@ -1441,9 +1514,12 @@ def _attach_y_t30_to_item(
         if src:
             item["y_τ30_source"] = src
             item["y_t30_source"] = src
+        tip_feats = _cs_z_horizon_feats(
+            feats, head="t30", trade_date=asof, stock_code=code
+        )
         _stamp_horizon_formula_terms(
             item,
-            feats,
+            tip_feats,
             src=src,
             model=model,
             y_hat=float(y_hat),
@@ -1548,6 +1624,8 @@ def _attach_y_t45_to_item(
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t45", feats, model_doc=model_doc
             ),
+            trade_date=asof,
+            stock_code=code,
         )
         if y_hat is None:
             return
@@ -1555,9 +1633,12 @@ def _attach_y_t45_to_item(
         if src:
             item["y_τ45_source"] = src
             item["y_t45_source"] = src
+        tip_feats = _cs_z_horizon_feats(
+            feats, head="t45", trade_date=asof, stock_code=code
+        )
         _stamp_horizon_formula_terms(
             item,
-            feats,
+            tip_feats,
             src=src,
             model=model,
             y_hat=float(y_hat),
@@ -1662,6 +1743,8 @@ def _attach_y_t60_to_item(
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t60", feats, model_doc=model_doc
             ),
+            trade_date=asof,
+            stock_code=code,
         )
         if y_hat is None:
             return
@@ -1669,9 +1752,12 @@ def _attach_y_t60_to_item(
         if src:
             item["y_τ60_source"] = src
             item["y_t60_source"] = src
+        tip_feats = _cs_z_horizon_feats(
+            feats, head="t60", trade_date=asof, stock_code=code
+        )
         _stamp_horizon_formula_terms(
             item,
-            feats,
+            tip_feats,
             src=src,
             model=model,
             y_hat=float(y_hat),
@@ -1776,6 +1862,8 @@ def _attach_y_t75_to_item(
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t75", feats, model_doc=model_doc
             ),
+            trade_date=asof,
+            stock_code=code,
         )
         if y_hat is None:
             return
@@ -1783,9 +1871,12 @@ def _attach_y_t75_to_item(
         if src:
             item["y_τ75_source"] = src
             item["y_t75_source"] = src
+        tip_feats = _cs_z_horizon_feats(
+            feats, head="t75", trade_date=asof, stock_code=code
+        )
         _stamp_horizon_formula_terms(
             item,
-            feats,
+            tip_feats,
             src=src,
             model=model,
             y_hat=float(y_hat),
@@ -1890,6 +1981,8 @@ def _attach_y_t90_to_item(
             predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
                 "t90", feats, model_doc=model_doc
             ),
+            trade_date=asof,
+            stock_code=code,
         )
         if y_hat is None:
             return
@@ -1897,9 +1990,12 @@ def _attach_y_t90_to_item(
         if src:
             item["y_τ90_source"] = src
             item["y_t90_source"] = src
+        tip_feats = _cs_z_horizon_feats(
+            feats, head="t90", trade_date=asof, stock_code=code
+        )
         _stamp_horizon_formula_terms(
             item,
-            feats,
+            tip_feats,
             src=src,
             model=model,
             y_hat=float(y_hat),

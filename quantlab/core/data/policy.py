@@ -26,16 +26,15 @@ BARS_DAILY_LOOKBACK = 1000
 DAILY_BARS_MAX_KEEP = 1200
 # 5m 全日约 48 根；12000 ≈ 250 交易日，供 path 150d 回看
 MINUTE_BARS_MAX_KEEP = 12000
-# 远端分钟拉取后休眠（东财 / 新浪各睡一次）；降低反爬封 IP 风险
+# 远端分钟拉取后休眠；降低反爬封 IP 风险
 MINUTE_FETCH_DELAY_SEC = 20.0
 MINUTE_FETCH_DELAY_MAX_SEC = 30.0
-# 观察池分钟强更/增量：整票子进程隔离超时（东财全窗 / skip_em 近端）
-MINUTE_ISOLATED_TIMEOUT_SEC = 90.0
-MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC = 45.0
+# 观察池 5m 强更/增量：整票子进程隔离超时（新浪近端）
+MINUTE_ISOLATED_TIMEOUT_SEC = 45.0
 MINUTE_ISOLATED_TIMEOUT_MAX_SEC = 180.0
-# 东财分钟窗口（日历日）；强更 lookback 与此对齐
-MINUTE_EM_LOOKBACK_DAYS = 120
-MINUTE_EM_LOOKBACK_MAX_DAYS = 120
+# 5m 规划/状态用回看（日历日）。新浪接口本身固定 datalen≈41 交易日
+MINUTE_LOOKBACK_DAYS = 45
+MINUTE_LOOKBACK_MAX_DAYS = 60
 FUNDAMENTALS_HISTORY_MAX_POINTS = 40
 
 # —— 财务 PIT 门禁（DS-R3）——
@@ -77,19 +76,13 @@ def is_board_label(label: str | None) -> bool:
 
 
 def minute_fetch_delay_sec() -> float:
-    """东财 / 新浪分钟远端拉取后间隔（秒）；``QUANTLAB_MINUTE_FETCH_DELAY_SEC`` 可覆盖。"""
+    """新浪分钟远端拉取后间隔（秒）；``QUANTLAB_MINUTE_FETCH_DELAY_SEC`` 可覆盖。"""
     raw = os.environ.get("QUANTLAB_MINUTE_FETCH_DELAY_SEC", str(MINUTE_FETCH_DELAY_SEC))
     try:
         v = float(raw)
     except (TypeError, ValueError):
         v = float(MINUTE_FETCH_DELAY_SEC)
     return max(0.0, min(v, float(MINUTE_FETCH_DELAY_MAX_SEC)))
-
-
-def minute_warmup_skip_em() -> bool:
-    """批量预热默认走东财；``QUANTLAB_MINUTE_WARMUP_SKIP_EM=1`` 跳过东财（仅 stock_zh_a_minute）。"""
-    raw = os.environ.get("QUANTLAB_MINUTE_WARMUP_SKIP_EM", "0").strip().lower()
-    return raw not in ("0", "false", "no", "off")
 
 
 MINUTE_WARMUP_STALE_HOURS = 24.0
@@ -126,44 +119,36 @@ def minute_warmup_stale_hours() -> float:
     return max(1.0, min(v, 168.0))
 
 
-def minute_isolated_timeout_sec(*, skip_em: bool = False) -> float:
-    """观察池分钟强更/增量单票子进程超时（秒）。
+def minute_isolated_timeout_sec() -> float:
+    """观察池 5m 强更/增量单票子进程超时（秒）。
 
-    ``QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC`` 覆盖东财全窗默认；
-    ``QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC`` 覆盖近端（skip_em）默认；
+    ``QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC`` 可覆盖（默认 45）。
     ``0`` 关闭隔离（退回进程内直调，仅单测）。
     """
-    if skip_em:
-        raw = os.environ.get(
-            "QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC",
-            str(MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC),
-        )
-        default = float(MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC)
-    else:
-        raw = os.environ.get(
-            "QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC",
-            str(MINUTE_ISOLATED_TIMEOUT_SEC),
-        )
-        default = float(MINUTE_ISOLATED_TIMEOUT_SEC)
+    raw = os.environ.get(
+        "QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC",
+        str(MINUTE_ISOLATED_TIMEOUT_SEC),
+    )
     try:
         v = float(raw)
     except (TypeError, ValueError):
-        v = default
+        v = float(MINUTE_ISOLATED_TIMEOUT_SEC)
     if v <= 0:
         return 0.0
     return max(1.0, min(v, float(MINUTE_ISOLATED_TIMEOUT_MAX_SEC)))
 
 
-def minute_em_lookback_days() -> int:
-    """东财分钟回看日历日；``QUANTLAB_MINUTE_EM_LOOKBACK_DAYS`` 可覆盖。"""
-    raw = os.environ.get(
-        "QUANTLAB_MINUTE_EM_LOOKBACK_DAYS", str(MINUTE_EM_LOOKBACK_DAYS)
-    )
+def minute_lookback_days() -> int:
+    """5m 规划/状态回看日历日；``QUANTLAB_MINUTE_LOOKBACK_DAYS`` 可覆盖。
+
+    新浪远端窗口仍固定（datalen≈41 交易日）。
+    """
+    raw = os.environ.get("QUANTLAB_MINUTE_LOOKBACK_DAYS", str(MINUTE_LOOKBACK_DAYS))
     try:
         v = int(raw)
     except (TypeError, ValueError):
-        v = int(MINUTE_EM_LOOKBACK_DAYS)
-    return max(5, min(v, int(MINUTE_EM_LOOKBACK_MAX_DAYS)))
+        v = int(MINUTE_LOOKBACK_DAYS)
+    return max(5, min(v, int(MINUTE_LOOKBACK_MAX_DAYS)))
 
 
 # 兼容旧名

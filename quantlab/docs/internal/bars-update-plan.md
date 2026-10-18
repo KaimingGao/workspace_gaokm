@@ -165,6 +165,6 @@ python3 -m unittest tests.test_bars_status tests.test_bars_daily tests.test_hist
 ## 明确不改
 
 - `load_portfolio_stock_bars` 的 `ignore_age` 和「根数不够才补远端」。
-- 分钟线的同日整段替换、Ready 闸、东财/新浪。
+- 分钟线的同日整段替换、Ready 闸、新浪 5m。
 - 研究服务拒绝 `quote_fallback`、24 小时日线 TTL、复权策略不一致则跳过缓存。
 - `replay_score_cache` 的开盘日指纹算法。

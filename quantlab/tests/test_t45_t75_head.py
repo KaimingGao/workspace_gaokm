@@ -239,14 +239,14 @@ class YtwFiveHeadTests(unittest.TestCase):
         cfg = load_t0_rules({})
         self.assertEqual(float(cfg["y_tw_enter"]), 2.0)
         self.assertAlmostEqual(float(cfg["y_tw_vote_margin"]), 5.0)
-        self.assertAlmostEqual(float(cfg["y_τc_strong"]), 1.0)
-        self.assertNotIn("y_tw_strong", cfg)
+        self.assertNotIn("y_τc_strong", cfg)
+        self.assertAlmostEqual(float(cfg.get("y_tw_strong") or 0), 3.0)
         self.assertNotIn("y_t45_strong", cfg)
         self.assertNotIn("y_t75_strong", cfg)
-        kept = load_t0_rules({"y_τc_strong": 1.5})
-        self.assertEqual(float(kept["y_tw_enter"]), 2.0)
-        self.assertAlmostEqual(float(kept["y_τc_strong"]), 1.5)
-        self.assertNotIn("y_tw_strong", kept)
+        dropped = load_t0_rules({"y_τc_strong": 1.5})
+        self.assertEqual(float(dropped["y_tw_enter"]), 2.0)
+        self.assertNotIn("y_τc_strong", dropped)
+        self.assertAlmostEqual(float(dropped.get("y_tw_strong") or 0), 3.0)
 
         self.assertAlmostEqual(float(cfg["y_tw_midpoint"]), 47.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55), 3.0)
@@ -337,9 +337,8 @@ class T45T75GateTests(unittest.TestCase):
         self.assertAlmostEqual(float(row930.get("t45_realized")), 5.0, places=3)
         self.assertAlmostEqual(float(row930.get("y_t75_realized")), 5.0, places=3)
         self.assertAlmostEqual(float(row930.get("t75_realized")), 5.0, places=3)
-        self.assertIsNotNone(row930.get("c_tau"), row930)
-        self.assertIsNotNone(row930.get("lower_px"), row930)
-        self.assertIsNotNone(row930.get("upper_px"), row930)
+        self.assertIn("y_τ45", row930)
+        self.assertIn("y_τ75", row930)
 
     def test_scan_y_tw_matches_skip_reason_votes(self):
         from core.t0.close_band import _fmt_ytw_votes, blend_y_tw
@@ -361,12 +360,13 @@ class T45T75GateTests(unittest.TestCase):
             "close": 10.0,
             "prev_close": 10.0,
         }
+        # 仅 1 票空头：纯 ŷ_τw 下仍未过入场（须≤−2）→ 扫描写 y_tw_skip
         heads = {
             "y_τ30": 0.40,
-            "y_τ45": 0.40,
-            "y_τ60": 0.40,
-            "y_τ75": 0.40,
-            "y_τ90": 0.40,
+            "y_τ45": 0.50,
+            "y_τ60": 0.50,
+            "y_τ75": 0.50,
+            "y_τ90": 0.50,
         }
         cfg = load_t0_rules({"y_tw_enter": 2, "y_tw_midpoint": 50, "y_tw_vote_margin": 5})
         rows = _build_close_band_scan_trace(
@@ -379,8 +379,8 @@ class T45T75GateTests(unittest.TestCase):
             hist_bars=[],
             tau_pool_day=None,
         )
-        expect = blend_y_tw(0.40, 0.40, 0.40, 0.40, 0.40, cfg=cfg)
-        self.assertAlmostEqual(float(expect), -5.0)
+        expect = blend_y_tw(0.40, 0.50, 0.50, 0.50, 0.50, cfg=cfg)
+        self.assertAlmostEqual(float(expect), -1.0)
         shown = _fmt_ytw_votes(expect)
         skipped = [r for r in rows if str(r.get("y_tw_skip") or "")]
         self.assertTrue(skipped, rows[:3] if rows else rows)

@@ -657,7 +657,7 @@ class TTwGateTests(unittest.TestCase):
         from core.t0.viz import classify_t0_skip_reason
 
         self.assertEqual(float(load_t0_rules({})["y_tw_enter"]), 2.0)
-        self.assertAlmostEqual(float(load_t0_rules({})["y_τc_strong"]), 1.0)
+        self.assertNotIn("y_τc_strong", load_t0_rules({}))
         self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 5.0)
         self.assertAlmostEqual(float(load_t0_rules({})["y_tw_midpoint"]), 47.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.2, 0.3), -1.0)
@@ -758,25 +758,22 @@ class TTwGateTests(unittest.TestCase):
         )
         self.assertIsNotNone(disagree_3)
 
-        from core.t0.close_band import (
-            close_band_y_τc_is_strong,
-            close_band_y_τc_round_scale,
-        )
+        from core.t0.close_band import close_band_y_tw_is_strong, close_band_y_tw_round_scale
 
-        strong_cfg = {"y_τc_enter": 0.5, "y_τc_strong": 1.0}
-        self.assertTrue(close_band_y_τc_is_strong(1.0, strong_cfg))
-        self.assertFalse(close_band_y_τc_is_strong(0.6, strong_cfg))
+        strong_cfg = {"y_tw_enter": 2.0, "y_tw_strong": 3.0}
+        self.assertTrue(close_band_y_tw_is_strong(3.0, strong_cfg))
+        self.assertFalse(close_band_y_tw_is_strong(2.0, strong_cfg))
         self.assertAlmostEqual(
-            close_band_y_τc_round_scale(0.6, strong_cfg),
+            close_band_y_tw_round_scale(2.0, strong_cfg),
             0.5,
         )
         self.assertAlmostEqual(
-            close_band_y_τc_round_scale(1.0, strong_cfg),
+            close_band_y_tw_round_scale(3.0, strong_cfg),
             1.0,
         )
-        self.assertTrue(close_band_y_τc_is_strong(-1.2, strong_cfg))
+        self.assertTrue(close_band_y_tw_is_strong(-3.0, strong_cfg))
         self.assertAlmostEqual(
-            close_band_y_τc_round_scale(-0.6, strong_cfg),
+            close_band_y_tw_round_scale(-2.0, strong_cfg),
             0.5,
         )
 

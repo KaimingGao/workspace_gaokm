@@ -258,22 +258,20 @@ def _minute_warmup_core(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
-    lookback_days: int = 120,
+    lookback_days: int = 45,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """分钟线预热核心逻辑（无 job slot）。
+    """5 分钟线预热核心逻辑（无 job slot）。
 
-    period=5 默认 lookback 120 日历日（东财窗口）；1 分钟仍只拉近几日。
-    单票走子进程 + 超时 kill：东财挂死不占主进程 ak_lock，可继续下一只。
+    只走新浪 ``stock_zh_a_minute``。单票子进程 + 超时 kill，挂死不占主进程 ak_lock。
     """
     from core.ports.market import fetch_minute_bars_isolated
     from core.data.policy import (
         MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
-        minute_em_lookback_days,
         minute_fetch_delay_sec,
         minute_isolated_timeout_sec,
+        minute_lookback_days,
         minute_warmup_ready_min_span_days,
-        minute_warmup_skip_em,
         minute_warmup_skip_if_ready,
         minute_warmup_stale_hours,
     )
@@ -284,25 +282,19 @@ def _minute_warmup_core(
     )
     if not watch:
         return {"ok": False, "error": "无标的：请传 codes 或配置观察池 watching（分钟暖仓不读研究宇宙）"}
-    period_s = str(period or "5")
-    # 1 分钟源通常只有近几日；5m+ 对齐东财窗口
-    em_cap = minute_em_lookback_days()
-    if period_s == "1":
-        span = min(max(int(lookback_days or 5), 3), 8)
-    else:
-        span = min(max(int(lookback_days or em_cap), 5), em_cap)
+    period_s = "5"
+    cap_days = minute_lookback_days()
+    span = min(max(int(lookback_days or cap_days), 5), cap_days)
     warmed = 0
     skipped_ready = 0
     timed_out = 0
     errors: List[str] = []
     total = len(watch)
-    skip_em = minute_warmup_skip_em()
     fetch_delay = minute_fetch_delay_sec()
     skip_if_ready = minute_warmup_skip_if_ready()
     ready_min_span = minute_warmup_ready_min_span_days()
     stale_h = minute_warmup_stale_hours()
-    # EM 全窗；子进程超时后 kill，不拖整批、不毒化主进程锁
-    per_stock_timeout = minute_isolated_timeout_sec(skip_em=skip_em)
+    per_stock_timeout = minute_isolated_timeout_sec()
     for i, code in enumerate(watch, start=1):
         progress_code = code
         if skip_if_ready:
@@ -339,7 +331,6 @@ def _minute_warmup_core(
                 use_cache=True,
                 lookback_days=span,
                 max_age_hours=0.01,  # 强制尝试刷新；失败仍可回退过期缓存
-                skip_em=skip_em,
             )
         except Exception as exc:  # noqa: BLE001 — 单票失败不拖整批
             bars, meta = [], {"error": str(exc)[:120]}
@@ -369,12 +360,7 @@ def _minute_warmup_core(
         "isolated": True,
         "errors": errors[:10],
         "note": (
-            "5 分钟线预热；供 tail_anomaly / 做T回测。"
-            + (
-                f" 跳过东财 · stock_zh_a_minute · 各源间隔 {fetch_delay:g}s。"
-                if skip_em
-                else f" 东财→stock_zh_a_minute · 各源间隔 {fetch_delay:g}s。"
-            )
+            f"5 分钟线预热，只走新浪 stock_zh_a_minute · 间隔 {fetch_delay:g}s。"
             + f" 单票子进程上限 {per_stock_timeout:.0f}s（超时 kill，继续下一只）。"
         ),
     }
@@ -385,7 +371,7 @@ def run_minute_warmup(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
-    lookback_days: int = 120,
+    lookback_days: int = 45,
 ) -> Dict[str, Any]:
     """预热观察池 5 分钟线缓存（tail_anomaly / T0 用）；不读研究宇宙。"""
     slot = job_registry.slot("schedule")

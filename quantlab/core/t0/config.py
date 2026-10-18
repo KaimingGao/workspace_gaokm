@@ -41,7 +41,7 @@ def t0_dir_label(direction: Optional[str]) -> str:
 # fill_mode: trigger | mid | optimistic；可分侧 fill_mode_*
 #
 # direction:
-#   dual_y  — 旗舰选腿：ŷ_τc 破带定方向与 C_τ 目标价；ŷ_τw 门槛
+#   dual_y  — 旗舰选腿：纯 ŷ_τw 定方向与金额（旧 ŷ_τc 选向已下调）
 #   （sell_then_buy / buy_then_sell / auto / signal 仅单测可显式传入）
 #
 # path_mode: 仅 first_touch（分钟时间序第一触达）。
@@ -76,21 +76,15 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "direction": "dual_y",
     "path_mode": "first_touch",
     "minute_period": "5",
-    # dual_y 阈值（百分比点）：ŷ_τw / |ŷ_τc| 入场
+    # dual_y：纯 ŷ_τw 入场 / 强档金额
     "y_tw_enter": 2.0,  # 正T：ŷ_τw>=此票；反T：ŷ_τw<=−此票。0=允许 0 票
-    "y_τc_enter": 0.5,  # |ŷ_τc| 入场百分点；0=不拦
-    "y_τc_strong": 1.0,  # |ŷ_τc|>=此值用强金额，否则入场金额
-    "y_τc_enter_amount": 20_000.0,  # 过入场未过强：本轮金额（元）→股数
-    "y_τc_strong_amount": 40_000.0,  # 过强：本轮金额（≥入场金额）
+    "y_tw_strong": 3.0,  # |ŷ_τw|≥此票用强金额
+    "y_tw_enter_amount": 20_000.0,  # 过入场未过强：本轮金额（元）→股数
+    "y_tw_strong_amount": 40_000.0,  # 过强：本轮金额（≥入场金额）
     "y_tw_vote_margin": 5.0,  # |p_up−mid|≤此百分点不给 ŷ_τw 投票
     "y_tw_midpoint": 47.0,  # ŷ_τ30/45/60/75/90 共用中位点%
     # ŷ_τ* 概率头：ridge（默认）| tree（horizon LightGBM + 路径形状，仅回测建议）
     "horizon_prob_backend": "ridge",
-    "t0_y_τc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
-    "t0_close_band_delta_pct": 0.5,  # 破带带宽 δ%
-    "residual_w_τc": 0.5,  # residual 融合：ŷ_τc 权
-    "residual_w_oc": 0.5,  # residual 融合：remaining(ŷ_oc) 权
-    "residual_w_mode": "fixed",  # fixed | inv_var
     # 日/分昨收错位门禁（|P_d/P_m−1| 超阈跳过）；开盘差已下线（0=关）
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 0.0,
@@ -131,14 +125,14 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_slots_enabled": True,
     "t0_slots": None,
     "t0_slots_max_rounds": 5,
-    "note": "A股T+1底仓做T；旗舰选腿=ŷ_τc破带+ŷ_τw入场；金额看|ŷ_τc|再换算股数；非实盘。",
+    "note": "A股T+1底仓做T；旗舰选腿=纯ŷ_τw；金额看|ŷ_τw|再换算股数；非实盘。",
 }
 
 # 第一腿最晚：11:00（约第 18 根 5m，09:35 起计）；其后只收第二腿
 T0_LAST_LEG1_HM = "11:00"
 T0_LAST_LEG1_PREFIX_BARS = 18
 
-# 兼容旧 UI/测试的槽位壳：v6 实际按破带动态开轮，不再钉死确认钟
+# 兼容旧 UI/测试的槽位壳：v6 实际按 ŷ_τw 扫描动态开轮，不再钉死确认钟
 DEFAULT_T0_SLOTS: tuple = (
     {"id": "r1", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
     {"id": "r2", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
@@ -168,7 +162,7 @@ def _am_5m_clocks_until(last_hm: str = T0_LAST_LEG1_HM) -> tuple:
     return tuple(out)
 
 
-# v6 扫描网格：每根 5m 因果 ŷ vs 全日标签（不是破带开轮才入样）
+# 扫描网格：每根 5m 因果 ŷ vs 全日标签（不是开轮成交才入样）
 T0_PORTRAIT_SLOT_CLOCKS: tuple = _am_5m_clocks_until(T0_LAST_LEG1_HM)
 # 日级「预估命中」用首根 5m，避免跳过日被 11:00 前缀垫高
 T0_PORTRAIT_DAY_HM = "09:35"
@@ -242,10 +236,35 @@ def _bounded(raw: Any, default: float, lo: float, hi: float) -> float:
 def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg = dict(DEFAULT_T0_RULES)
     ov = dict(override) if override else {}
+    # 旧 C_τ / y_τc / residual 决策键：丢弃，不再进入规则（纯 ŷ_τw 选向）
+    for _legacy_k in (
+        "t0_y_τc_target_scale",
+        "t0_close_band_delta_pct",
+        "y_τc_enter",
+        "y_τc_strong",
+        "y_τc_enter_amount",
+        "y_τc_strong_amount",
+        "residual_w_τc",
+        "residual_w_oc",
+        "residual_w_mode",
+    ):
+        ov.pop(_legacy_k, None)
     override_keys = set(ov.keys())
     for k, v in ov.items():
         if v is not None:
             cfg[k] = v
+    for _legacy_k in (
+        "t0_y_τc_target_scale",
+        "t0_close_band_delta_pct",
+        "y_τc_enter",
+        "y_τc_strong",
+        "y_τc_enter_amount",
+        "y_τc_strong_amount",
+        "residual_w_τc",
+        "residual_w_oc",
+        "residual_w_mode",
+    ):
+        cfg.pop(_legacy_k, None)
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))
@@ -271,14 +290,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["direction"] = normalize_t0_direction(cfg.get("direction"), default="dual_y")
     for yk, lo, hi, default in (
         ("y_tw_enter", 0.0, 5.0, 2.0),
-        ("y_τc_enter", 0.0, 20.0, 0.5),
-        ("y_τc_strong", 0.0, 20.0, 1.0),
+        ("y_tw_strong", 0.0, 5.0, 3.0),
         ("y_tw_vote_margin", 0.0, 20.0, 5.0),
         ("y_tw_midpoint", 1.0, 99.0, 47.0),
-        ("t0_y_τc_target_scale", 0.0, 100.0, 2.0),
-        ("t0_close_band_delta_pct", 0.0, 10.0, 0.5),
-        ("residual_w_τc", 0.0, 1.0, 0.5),
-        ("residual_w_oc", 0.0, 1.0, 0.5),
     ):
         try:
             raw = cfg.get(yk)
@@ -286,27 +300,14 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         except (TypeError, ValueError):
             val = float(default)
         cfg[yk] = max(lo, min(val, hi))
-    mode = str(cfg.get("residual_w_mode") or "fixed").strip().lower()
-    cfg["residual_w_mode"] = (
-        "inv_var"
-        if mode in ("inv_var", "inverse_var", "inverse_variance", "oos", "variance")
-        else "fixed"
+    tw_enter = float(cfg.get("y_tw_enter") or 0.0)
+    tw_strong_explicit = (
+        "y_tw_strong" in override_keys and cfg.get("y_tw_strong") not in (None, "")
     )
-    oc_enter = float(cfg.get("y_τc_enter") or 0.0)
-    strong_explicit = (
-        "y_τc_strong" in override_keys
-        and cfg.get("y_τc_strong") not in (None, "")
-    )
-    if not strong_explicit:
-        cfg["y_τc_strong"] = max(oc_enter, 1.0)
+    if not tw_strong_explicit:
+        cfg["y_tw_strong"] = max(tw_enter, 3.0)
     else:
-        try:
-            strong = float(
-                cfg.get("y_τc_strong") if cfg.get("y_τc_strong") not in (None, "") else 1.0
-            )
-        except (TypeError, ValueError):
-            strong = 1.0
-        cfg["y_τc_strong"] = max(oc_enter, min(strong, 20.0))
+        cfg["y_tw_strong"] = max(tw_enter, float(cfg.get("y_tw_strong") or 3.0))
     from core.research.horizon_tree import normalize_horizon_prob_backend
 
     cfg["horizon_prob_backend"] = normalize_horizon_prob_backend(
@@ -376,10 +377,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     )
     cfg["y_score_source"] = "compute"
     cfg["path_mode"] = "first_touch"
-    period = str(cfg.get("minute_period") or "5").strip()
-    if period not in {"1", "5", "15", "30", "60"}:
-        period = "5"
-    cfg["minute_period"] = period
+    cfg["minute_period"] = "5"
     cfg["t0_slots_enabled"] = True
     raw_max_rounds = cfg.get("t0_slots_max_rounds")
     if raw_max_rounds is None or raw_max_rounds == "":
@@ -426,11 +424,11 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         v = max(1_000.0, min(v, 1_000_000.0))
         return float(int(round(v / 100.0)) * 100)
 
-    cfg["y_τc_enter_amount"] = _norm_yoc_amount(cfg.get("y_τc_enter_amount"), 20_000.0)
-    strong_amt = _norm_yoc_amount(cfg.get("y_τc_strong_amount"), 40_000.0)
-    if cfg["y_τc_enter_amount"] > 0:
-        strong_amt = max(cfg["y_τc_enter_amount"], strong_amt)
-    cfg["y_τc_strong_amount"] = strong_amt
+    cfg["y_tw_enter_amount"] = _norm_yoc_amount(cfg.get("y_tw_enter_amount"), 20_000.0)
+    tw_strong_amt = _norm_yoc_amount(cfg.get("y_tw_strong_amount"), 40_000.0)
+    if cfg["y_tw_enter_amount"] > 0:
+        tw_strong_amt = max(cfg["y_tw_enter_amount"], tw_strong_amt)
+    cfg["y_tw_strong_amount"] = tw_strong_amt
     if isinstance(cfg.get("t0_slots"), (list, tuple)) and len(cfg.get("t0_slots") or []) == 0:
         cfg["t0_slots"] = []
     else:
@@ -456,8 +454,8 @@ def t0_backtest_virtual_shares(cfg: Optional[dict] = None, fallback: Any = 1000,
             return 0.0
         return float(v)
 
-    enter = _amt(cfg_d.get("y_τc_enter_amount"))
-    strong = _amt(cfg_d.get("y_τc_strong_amount"))
+    enter = _amt(cfg_d.get("y_tw_enter_amount"))
+    strong = _amt(cfg_d.get("y_tw_strong_amount"))
     if enter <= 0 and strong <= 0:
         try:
             fb = int(float(fallback if fallback not in (None, "") else 1000))
