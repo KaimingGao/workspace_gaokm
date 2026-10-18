@@ -433,12 +433,6 @@ export function fillExecutionForm(root, execution) {
       return Math.max(1, Math.min(n, 99));
     })()
   );
-  set(
-    "horizon_prob_backend",
-    String(t0.horizon_prob_backend || "ridge").toLowerCase() === "tree"
-      ? "tree"
-      : "ridge"
-  );
   set("t0_pm_degrade", sharedSideVal(t0, "t0_pm_degrade", "13:00"));
   set(
     "t0_pm_chase_interval_min",
@@ -504,10 +498,8 @@ export function collectExecutionForm(root) {
     })(),
     y_tw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 5), 20)),
     y_tw_midpoint: Math.max(1, Math.min(num("y_tw_midpoint", 47), 99)),
-    horizon_prob_backend: (() => {
-      const s = String(str("horizon_prob_backend", "ridge") || "ridge").toLowerCase();
-      return s === "tree" ? "tree" : "ridge";
-    })(),
+    // ridge=跟启用套 backend（不强制 tree）；保存时顺带清掉旧 tree 覆盖
+    horizon_prob_backend: "ridge",
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade", "13:00"),
     t0_pm_degrade_buy_then_sell: str("t0_pm_degrade", "13:00"),
     t0_pm_chase_interval_min_sell_then_buy: Math.max(
@@ -964,7 +956,7 @@ export function resolveT0BacktestScope(root, evt = {}) {
 }
 
 /**
- * 做T回测本金（虚拟底仓股数由引擎按 y_τc强金额/价 × 最大轮数现算；表单专用，不写入 execution 规则）。
+ * 做T回测本金（虚拟底仓股数由引擎按 Y_τw强金额/价 × 最大轮数现算；表单专用，不写入 execution 规则）。
  * @param {HTMLElement|null} root
  */
 export function readT0BtSizing(root) {
@@ -1051,10 +1043,7 @@ export function collectT0BacktestBody(root, opts = {}) {
       if (!Number.isFinite(n)) return 47;
       return Math.max(1, Math.min(n, 99));
     })(),
-    horizon_prob_backend: (() => {
-      const s = String(t0.horizon_prob_backend || "ridge").toLowerCase();
-      return s === "tree" ? "tree" : "ridge";
-    })(),
+    horizon_prob_backend: "ridge",
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
     t0_pm_degrade_buy_then_sell:
       t0.t0_pm_degrade_buy_then_sell != null ? t0.t0_pm_degrade_buy_then_sell : "13:00",

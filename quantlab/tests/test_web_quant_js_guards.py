@@ -1177,12 +1177,22 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('name="pm_price_space_gate"', pm)
         self.assertIn('name="pm_lot_strong_amount"', replay)
         self.assertIn('id="paper-t0-form"', replay)
-        # 做 T 短期内不作重点：次要折叠，默认收起（无 open）
+        # 做 T：真 header 对齐调仓；正文可折叠（默认展开）
         self.assertIn('id="replay-section-t0"', replay)
         t0_sec = replay[replay.find('id="replay-section-t0"') :]
-        self.assertIn('<details class="replay-secondary-fold">', t0_sec)
-        self.assertNotIn('<details class="replay-secondary-fold" open', t0_sec)
-        self.assertIn("短期内不作重点", t0_sec)
+        self.assertNotIn("replay-secondary-fold", t0_sec)
+        self.assertNotIn("短期内不作重点", t0_sec)
+        self.assertNotIn("replay-t0-fold-sum", t0_sec)
+        self.assertNotIn('<details class="replay-t0-fold"', t0_sec)
+        self.assertIn('id="paper-t0-fold-toggle"', t0_sec)
+        self.assertIn('id="replay-t0-fold-body"', t0_sec)
+        self.assertIn(
+            'class="dashboard-section-head quant-section-head replay-section-head replay-run-head"',
+            t0_sec,
+        )
+        replay_css_t0 = self._read("web", "static", "css", "replay.css")
+        self.assertIn(".replay-t0-fold-toggle", replay_css_t0)
+        self.assertIn(".replay-t0-section.is-collapsed .replay-t0-fold-body", replay_css_t0)
         self.assertIn('id="replay-t0-kpi-row"', replay)
         self.assertIn('id="replay-t0-kpi-return"', replay)
         self.assertIn("replay-t0-matrix", replay)
@@ -1199,20 +1209,30 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="paper-t0-backtest" class="dialog-btn" title=', replay)
         self.assertNotIn("\n          跑回测\n", replay)
         self.assertLess(
+            replay.find('id="paper-t0-last-leg1"'),
+            replay.find('id="paper-t0-lookback"'),
+        )
+        self.assertLess(
             replay.find('id="paper-t0-lookback"'),
             replay.find('id="paper-t0-score-model-role"'),
         )
         self.assertLess(
             replay.find('id="paper-t0-score-model-role"'),
-            replay.find('name="horizon_prob_backend"'),
-        )
-        self.assertLess(
-            replay.find('name="horizon_prob_backend"'),
             replay.find('id="paper-t0-backtest"'),
         )
-        self.assertIn('id="paper-t0-horizon-prob-backend"', replay)
-        self.assertIn('form="paper-t0-form"', replay)
-        self.assertIn(">ŷ_τ*对照</span>", replay)
+        self.assertNotIn('id="paper-t0-horizon-prob-backend"', replay)
+        self.assertNotIn('name="horizon_prob_backend"', replay)
+        self.assertNotIn(">ŷ_τ*对照</span>", replay)
+        self.assertNotIn("强制 Tree", replay)
+        self.assertIn('id="paper-t0-last-leg1"', replay)
+        self.assertIn('id="paper-t0-last-leg1-val"', replay)
+        self.assertIn('aria-valuetext="10:30"', replay[replay.find('id="paper-t0-last-leg1"') :])
+        self.assertIn("replay-t0-tau-end-slider", replay)
+        self.assertIn('id="paper-t0-form"', replay)
+        bt_js = self._read("web", "static", "js", "quant", "domain_backtest.js")
+        self.assertIn("t0_last_leg1_hm", bt_js)
+        self.assertIn("hydrateT0BtLastLeg1Slider", bt_js)
+        self.assertIn('T0_BT_DEFAULT_LAST_LEG1_HM = "10:30"', bt_js)
         self.assertLess(
             replay.find('id="quant-lookback"'),
             replay.find('id="quant-score-model-role"'),
@@ -1223,11 +1243,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertNotIn('id="quant-score-backend"', replay)
         self.assertNotIn(">ŷ头</span>", replay)
-        # 调仓 ŷ头 Tree 已下线；做 T ŷ_τ*对照强制读 backends.tree
-        self.assertIn('id="paper-t0-horizon-prob-backend"', replay)
-        hz = replay[replay.find('id="paper-t0-horizon-prob-backend"') :]
-        self.assertIn('option value="tree">强制 Tree</option>', hz)
-        self.assertIn('option value="ridge" selected>跟启用套</option>', hz)
+        # 做 T 表单固定 ridge=跟启用套；前缀网格与研究台共用
+        exec_ui = self._read("web", "static", "js", "paper", "execution_ui.js")
+        self.assertIn('horizon_prob_backend: "ridge"', exec_ui)
+        self.assertNotIn("y_τc强金额", exec_ui)
+        self.assertIn("Y_τw强金额", exec_ui)
+        params_js = self._read("web", "static", "js", "quant", "params.js")
+        self.assertIn("export const TAU_END_CLOCKS", params_js)
+        self.assertIn("export function clampTauEndHm", params_js)
+        self.assertIn('from "./params.js"', bt_js)
+        self.assertIn("clampTauEndHm", bt_js)
         self.assertNotIn('option value="rank">Rank</option>', replay)
         self.assertNotIn("仅供回测透传对照", quant_js)
         self.assertIn("Holdout 前训 + NDCG@K 选 backend", quant_js)
@@ -2934,8 +2959,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("paper-t0-backtest", replay_html)
         self.assertIn('id="paper-t0-progress"', replay_html)
         self.assertNotIn('id="paper-t0-action-status"', replay_html)
-        self.assertIn("短期内不作重点", replay_html)
-        self.assertIn("虚拟底仓", replay_html)
+        self.assertNotIn("短期内不作重点", replay_html)
+        self.assertNotIn("replay-secondary-fold", replay_html)
+        self.assertIn('id="paper-t0-fold-toggle"', replay_html)
+        self.assertIn('id="replay-t0-fold-body"', replay_html)
+        self.assertIn("wireT0SectionFold", self._read("web", "static", "js", "quant", "domain_backtest.js"))
         self.assertIn('name="t0_bt_cash"', replay_html)
         self.assertIn('value="200000"', replay_html)
 
@@ -4135,8 +4163,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('follow-path-matrix-box-slot-label">弃权</span>', panel)
         self.assertNotIn(">Y_τ*弃权%</span>", panel)
         self.assertNotIn(">弃权%</span>", panel)
-        self.assertIn("短期内不作重点", panel)
-        self.assertIn("虚拟底仓", panel)
+        self.assertNotIn("短期内不作重点", panel)
+        self.assertNotIn("replay-secondary-fold", panel)
+        self.assertIn('id="paper-t0-fold-toggle"', panel)
+        self.assertIn('id="replay-t0-fold-body"', panel)
         self.assertIn('name="y_tw_vote_margin" min="0" max="20" step="0.5" value="5"', panel)
         self.assertIn('name="y_tw_midpoint"', panel)
         self.assertNotIn(">Y_τ*中位点%</span>", panel)
@@ -4233,15 +4263,26 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('class="paper-t0-cfg-block is-shared"', panel)
         self.assertIn("follow-path-matrix-panels", t0)
         replay_css = self._read("web", "static", "css", "replay.css")
+        css = self._read("web", "static", "css", "follow.css")
+        # 做 T：三栏近等宽（1.1/1.1/0.9）；调仓仍用 follow.css 3/3/4
         self.assertIn(
             "grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 0.9fr)",
+            replay_css,
+        )
+        self.assertIn(
+            "grid-template-columns: minmax(0, 3fr) minmax(0, 3fr) minmax(0, 4fr)",
+            css,
+        )
+        self.assertIn(
+            "grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr)",
             replay_css,
         )
         self.assertIn(".replay-t0-matrix .follow-path-matrix-box-pair", replay_css)
         self.assertIn(".replay-t0-matrix .follow-path-matrix-body--row3", replay_css)
         self.assertIn("repeat(3, minmax(0, 1fr))", replay_css)
         self.assertIn('input[name="t0_bt_cash"]', replay_css)
-        css = self._read("web", "static", "css", "follow.css")
+        self.assertIn('input[name="y_tw_enter_amount"]', replay_css)
+        self.assertIn('input[name="y_tw_strong_amount"]', replay_css)
         self.assertNotIn(".paper-t0-form-grid.is-quad", css)
         self.assertNotIn(".paper-t0-form-grid.is-oct", css)
         self.assertNotIn(".paper-t0-cfg-block.is-shared", css)

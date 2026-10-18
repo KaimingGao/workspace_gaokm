@@ -3787,7 +3787,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
   );
 }
 
-/** 点击「日」列展开 11:00 前每根扫描（需 close_band_scan）。 */
+/** 点击「日」列展开截止钟前每根扫描（需 close_band_scan）。 */
 export function wireT0DayDebugExpand(host) {
   if (!host) return;
   if (host.dataset.t0DayDebugWired === "1") return;
@@ -3892,7 +3892,7 @@ function renderTradeDayHtml(d, ctx) {
   const dateInner = hasScan
     ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
         dayKey
-      )}" title="展开 11:00 前每根扫描（OLHC · y_τw · y_τ30…）" aria-expanded="false">${escapeText(
+      )}" title="展开截止钟前每根扫描（OLHC · y_τw · y_τ30…）" aria-expanded="false">${escapeText(
         dayText
       )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
     : escapeText(dayText);

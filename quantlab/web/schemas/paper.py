@@ -121,7 +121,12 @@ class T0BacktestRequest(BaseModel):
     )
     horizon_prob_backend: Optional[str] = Field(
         default=None,
-        description="ŷ_τ* 概率头：ridge（默认）| tree（horizon LightGBM，做 T 回测）",
+        description="ŷ_τ*：ridge=跟启用套 backend（默认）；tree=遗留强制 backends.tree",
+    )
+    t0_last_leg1_hm: Optional[str] = Field(
+        default=None,
+        max_length=8,
+        description="leg1 截止钟 HH:MM（09:30…11:00 每 5m）；其后只收第二腿。回测 UI 默认 10:30；缺省=11:00",
     )
     t0_price_space_gate: Optional[bool] = Field(
         default=None, description="日分价空间门禁：昨收差超阈跳过（开盘差已下线）"

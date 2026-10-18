@@ -1,4 +1,4 @@
-"""做 T 选腿：09:30–11:00 每根 5m **纯 ŷ_τw** 定方向与金额。
+"""做 T 选腿：09:30–截止钟（live 默认 11:00）每根 5m **纯 ŷ_τw** 定方向与金额。
 
 ŷ_τw = ŷ_τ30/45/60/75/90 相对共用中位点（默认 47%）的符号和。
 正T：ŷ_τw≥Y_τw入场；反T：ŷ_τw≤−入场。金额看 |ŷ_τw|（入场/强票数）。
@@ -709,6 +709,7 @@ def parse_bar_hm(mb: dict) -> str:
 
 
 def hm_allows_leg1(hm: str, last_hm: str = "11:00") -> bool:
+    """``hm`` ≤ ``last_hm`` 才允许开 leg1（默认 live 截止 11:00）。"""
     clock = str(hm or "").strip()[:5]
     last = str(last_hm or "11:00").strip()[:5]
     if not clock:

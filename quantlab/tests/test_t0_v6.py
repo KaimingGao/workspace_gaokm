@@ -150,6 +150,24 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertEqual(T0_LAST_LEG1_HM, "11:00")
         self.assertTrue(hm_allows_leg1("11:00"))
         self.assertFalse(hm_allows_leg1("11:05"))
+        self.assertTrue(hm_allows_leg1("10:30", "10:30"))
+        self.assertFalse(hm_allows_leg1("10:35", "10:30"))
+
+    def test_t0_last_leg1_hm_rule(self):
+        from core.t0.config import (
+            T0_BT_DEFAULT_LAST_LEG1_HM,
+            load_t0_rules,
+            normalize_t0_last_leg1_hm,
+        )
+
+        self.assertEqual(T0_BT_DEFAULT_LAST_LEG1_HM, "10:30")
+        self.assertEqual(normalize_t0_last_leg1_hm(None), "11:00")
+        self.assertEqual(normalize_t0_last_leg1_hm("10:30"), "10:30")
+        self.assertEqual(normalize_t0_last_leg1_hm("10:31"), "11:00")
+        self.assertEqual(load_t0_rules({})["t0_last_leg1_hm"], "11:00")
+        self.assertEqual(
+            load_t0_rules({"t0_last_leg1_hm": "10:30"})["t0_last_leg1_hm"], "10:30"
+        )
 
     def test_y_τc_t0_keys_discarded(self):
         from core.t0.config import load_t0_rules
@@ -872,7 +890,7 @@ class TestCloseBandCore(unittest.TestCase):
                 self.assertAlmostEqual(float(sc.get("y_tau")), float(cb.get("y_tau")), places=4)
 
     def test_close_band_scan_trace_for_debug(self):
-        """落盘 close_band_scan：11:00 前每根 OLHC + ŷ_τw。"""
+        """落盘 close_band_scan：截止钟前每根 OLHC + ŷ_τw。"""
         closes = [100.6, 101.2] + [101.0] * 24
         mins = _mins(closes, session_open=100.0)
         bar = {

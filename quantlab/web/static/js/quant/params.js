@@ -65,7 +65,8 @@ const TAU_END_FIT_HEADS = ["tc", "t30", "t45", "t60", "t75", "t90"];
 /** v3：无拟合记录时默认 11:00；刷新按各头最新 last_report 恢复；拖动/拟合会写入。 */
 const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm_v3";
 const DEFAULT_TAU_END_HM = "11:00";
-const TAU_END_CLOCKS = (() => {
+/** 与研究台 / 做 T 回测前缀滑条同网格。 */
+export const TAU_END_CLOCKS = (() => {
   const out = [];
   let total = 9 * 60 + 30;
   const end = 11 * 60;
@@ -81,6 +82,17 @@ const DEFAULT_TAU_END_IDX = (() => {
   const i = TAU_END_CLOCKS.indexOf(DEFAULT_TAU_END_HM);
   return i >= 0 ? i : TAU_END_CLOCKS.length - 1;
 })();
+
+/** 规范前缀终点 HH:MM（须在 TAU_END_CLOCKS）；非法回落 fallback。 */
+export function clampTauEndHm(raw, fallback = DEFAULT_TAU_END_HM) {
+  const s = String(raw || "")
+    .trim()
+    .replace("：", ":")
+    .slice(0, 5);
+  if (TAU_END_CLOCKS.includes(s)) return s;
+  const fb = String(fallback || DEFAULT_TAU_END_HM).slice(0, 5);
+  return TAU_END_CLOCKS.includes(fb) ? fb : DEFAULT_TAU_END_HM;
+}
 
 function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
   const n = Number(v);
@@ -552,16 +564,6 @@ export function createResearchParams(opts = {}) {
     const s = String(hm || "").trim().slice(0, 5);
     const i = TAU_END_CLOCKS.indexOf(s);
     return i >= 0 ? i : TAU_END_CLOCKS.indexOf(DEFAULT_TAU_END_HM);
-  }
-
-  function clampTauEndHm(raw, fallback = DEFAULT_TAU_END_HM) {
-    const s = String(raw || "")
-      .trim()
-      .replace("：", ":")
-      .slice(0, 5);
-    if (TAU_END_CLOCKS.includes(s)) return s;
-    const fb = String(fallback || DEFAULT_TAU_END_HM).slice(0, 5);
-    return TAU_END_CLOCKS.includes(fb) ? fb : DEFAULT_TAU_END_HM;
   }
 
   function _paintTauEndSlider(el, hm) {

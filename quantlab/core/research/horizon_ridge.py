@@ -3,7 +3,7 @@
 替代 ``core/research/t30_ridge.py … t90_ridge.py``，所有 horizon 共享一套实现，
 通过 ``head`` 参数（"t30"/"t45"/"t60"/"t75"/"t90"）区分。
 
-盘中写 y_τ{num}=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / fuse。
+盘中写 y_τ{num}=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 fuse。
 决策钟只覆盖 09:30…11:00（与 ŷ_τc 对齐）；窗外不训、不预。
 Ridge / LightGBM 同用 alpha_τh = z_τh_* ∪ raw_ath_*（不含 OC 路径形状）。
 """
@@ -485,7 +485,7 @@ def fit_horizon_ridge_report(
         "note": (
             f"X = alpha_τh（z_τh_* ∪ raw_ath_*）；短窗/会话/本头 H_* 在 raw_ath_*；"
             f"Tree/Ridge 同 X。"
-            f"ŷ_τ{num}=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 C_τ / fuse。"
+            f"ŷ_τ{num}=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 fuse。"
         ),
     }
     model["extra_features"] = list(z_features)
@@ -524,7 +524,7 @@ def fit_horizon_ridge_report(
         "note": (
             f"ŷ_τ{num}=P(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1>0)。"
             "特征包 alpha_τh=z_τh_*∪raw_ath_*。"
-            "进 ŷ_τw 投票；个股旁路闸已下线。不进 C_τ / fuse。"
+            "进 ŷ_τw 投票；个股旁路闸已下线。不进 fuse。"
         ),
         **pack_meta,
     }
@@ -761,7 +761,7 @@ def fit_horizon_dual_report(
                 f"ŷ_τ{num} 同窗双训 Ridge+Tree；Holdout AUC 择优"
                 f"（打平→ridge）→ recommended={recommended}。"
                 "特征包 alpha_τh=z_τh_*∪raw_ath_*；Tree/Ridge 同 X。"
-                "进 ŷ_τw 投票；不进 C_τ / fuse。"
+                "进 ŷ_τw 投票；不进 fuse。"
             ),
         }
     )
@@ -1016,7 +1016,7 @@ def persist_ridge_model(
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     _RIDGE_MODEL_CACHE.pop(h, None)
-    # 不再镜像 *_tree_model.json：强制 Tree 对照读启用包 backends.tree
+    # 不再镜像 *_tree_model.json；tree 走启用包 backends.tree
 
     out = dict(doc)
     out["path"] = path

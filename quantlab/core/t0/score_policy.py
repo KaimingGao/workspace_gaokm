@@ -1257,7 +1257,7 @@ def _predict_horizon_hat(
     """返回 (p_up, model_doc, source)。
 
     正式路径：读启用槽包内 ``backend``（AUC 择优落盘）。
-    对照：``horizon_prob_backend=tree`` 强制读启用套 ``backends.tree``（或包顶 ``backend=tree``）。
+    遗留：``horizon_prob_backend=tree`` 强制读启用套 ``backends.tree``（或包顶 ``backend=tree``）。
     截面模型时先按观察池日截面 z 再预测。
     """
     from core.research.horizon_ridge import _doc_backend
@@ -1419,7 +1419,7 @@ def _attach_y_t30_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ30（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ30（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。只进 ŷ_τw 选票。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t30
@@ -1538,7 +1538,7 @@ def _attach_y_t45_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ45（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ45（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。只进 ŷ_τw 选票。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t45
@@ -1657,7 +1657,7 @@ def _attach_y_t60_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ60（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ60（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。只进 ŷ_τw 选票。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t60
@@ -1776,7 +1776,7 @@ def _attach_y_t75_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ75（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ75（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。只进 ŷ_τw 选票。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t75
@@ -1895,7 +1895,7 @@ def _attach_y_t90_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ90（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ90（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。只进 ŷ_τw 选票。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t90

@@ -1,7 +1,7 @@
 """v6 多轮做 T：纯 ŷ_τw 选腿。
 
-09:30–11:00 每根 5m：ŷ_τw≥入场正T、≤−入场反T；金额看 |ŷ_τw|。
-leg2 不冻 C_τ（止损 / 锁赢 / 午后中点追价 / 收盘强平）。11:00 后不开 leg1。
+09:30–截止钟（live 默认 11:00；回测可缩 `t0_last_leg1_hm`）每根 5m：ŷ_τw≥入场正T、≤−入场反T；金额看 |ŷ_τw|。
+leg2 不冻 C_τ（止损 / 锁赢 / 午后中点追价 / 收盘强平）。截止钟后不开 leg1。
 每轮 ratio，累计至 max_pos。
 """
 
@@ -856,7 +856,7 @@ def _build_close_band_scan_trace(
     tau_pool_day: Optional[dict],
     trigger_hms: Optional[set] = None,
 ) -> List[dict]:
-    """11:00 前每根 5m：OLHC + ŷ_τc / ŷ_τw / ŷ_τ30…（debug 展开用）。"""
+    """截止钟前每根 5m：OLHC + ŷ_τw / ŷ_τ30…（debug 展开用；跟 ``t0_last_leg1_hm``）。"""
     from core.t0.close_band import (
         bar_close_band_pick_direction,
         blend_y_tw_from_scores,
@@ -1149,7 +1149,7 @@ def refresh_close_band_scan(
     hist_bars: Optional[Sequence[dict]] = None,
     tau_pool_day: Optional[dict] = None,
 ) -> dict:
-    """已成交票：用当前前缀重扫 11:00 前每根 ŷ，不改已落账腿。"""
+    """已成交票：用当前前缀重扫截止钟前每根 ŷ，不改已落账腿。"""
     out = dict(day or {})
     cfg_d = cfg if isinstance(cfg, dict) else {}
     slots = [r for r in (out.get("t0_slot_results") or []) if isinstance(r, dict)]
@@ -1219,7 +1219,7 @@ def simulate_t0_day_slots(
     tau_pool_day: Optional[dict] = None,
     daily_bar: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """旗舰：逐根纯 ŷ_τw 开轮（每轮 ratio，累计至 max_pos）；11:00 后不开 leg1。
+    """旗舰：逐根纯 ŷ_τw 开轮（每轮 ratio，累计至 max_pos）；截止钟后不开 leg1。
 
     ``daily_bar``：原始日 K（开/收/昨收）；勿传分钟合成 OHLC。缺省用 ``bar``。
     """

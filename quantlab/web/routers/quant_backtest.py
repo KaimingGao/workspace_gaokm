@@ -32,6 +32,7 @@ _T0_RULE_KEYS = (
     "y_tw_vote_margin",
     "y_tw_midpoint",
     "horizon_prob_backend",
+    "t0_last_leg1_hm",
     "t0_price_space_gate",
     "t0_price_space_max_dev_pct",
     "t0_price_space_prev_dev_pct",

@@ -1,7 +1,7 @@
 """ŷ_τ* 树头内核：LightGBM → p_up，供主卡双训（``backends.tree``）。
 
 正式路径：``fit_horizon_dual_report`` → 启用套包内 ``backend`` / ``backends``。
-回测「ŷ_τ*对照」强制 Tree 时读启用套 ``backends.tree``（或包顶 ``backend=tree``）。
+遗留 API ``horizon_prob_backend=tree`` 强制读启用套 ``backends.tree``（或包顶 ``backend=tree``）。
 """
 
 from __future__ import annotations
@@ -901,7 +901,7 @@ def fit_horizon_tree_report(
         "note": (
             f"ŷ_τ{num}_tree：X 与 Ridge 同包（alpha_τh）；"
             f"正式路径已并入 ŷ_τ{num} 主卡双训（Holdout AUC 择优）；"
-            f"本报告供对照。旧回测仍可设 horizon_prob_backend=tree。"
+            f"遗留 API 可设 horizon_prob_backend=tree 强制读 backends.tree。"
         ),
     }
     attach_holdout_meta(report, split_meta)

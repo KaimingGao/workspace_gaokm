@@ -83,8 +83,10 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tw_strong_amount": 40_000.0,  # 过强：本轮金额（≥入场金额）
     "y_tw_vote_margin": 5.0,  # |p_up−mid|≤此百分点不给 ŷ_τw 投票
     "y_tw_midpoint": 47.0,  # ŷ_τ30/45/60/75/90 共用中位点%
-    # ŷ_τ* 概率头：ridge（默认）| tree（horizon LightGBM + 路径形状，仅回测建议）
+    # ŷ_τ*：ridge=跟启用套 backend（默认）；tree=遗留强制 backends.tree
     "horizon_prob_backend": "ridge",
+    # leg1 最晚钟（09:30…11:00）；live 默认 11:00；回测 UI 可缩到更早（默认 10:30）
+    "t0_last_leg1_hm": "11:00",
     # 日/分昨收错位门禁（|P_d/P_m−1| 超阈跳过）；开盘差已下线（0=关）
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 0.0,
@@ -121,7 +123,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_lock_win_pct_sell_then_buy": 2.0,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
-    # v6：多轮（每轮 40% 至满仓）；11:00 后不开 leg1；午后仅 leg2
+    # v6：多轮（每轮 40% 至满仓）；截止钟后不开 leg1；午后仅 leg2
     "t0_slots_enabled": True,
     "t0_slots": None,
     "t0_slots_max_rounds": 5,
@@ -131,6 +133,19 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
 # 第一腿最晚：11:00（约第 18 根 5m，09:35 起计）；其后只收第二腿
 T0_LAST_LEG1_HM = "11:00"
 T0_LAST_LEG1_PREFIX_BARS = 18
+# 做 T 回测 UI 默认前缀终点（不改 live）
+T0_BT_DEFAULT_LAST_LEG1_HM = "10:30"
+
+
+def normalize_t0_last_leg1_hm(raw: Any, *, default: str = T0_LAST_LEG1_HM) -> str:
+    """leg1 截止钟：须为 09:30…11:00 的 5m 档；非法回落 ``default``。"""
+    from core.signal.minute_tau_grid import normalize_train_tau_end_hm
+
+    fb = str(default or T0_LAST_LEG1_HM).strip()[:5] or T0_LAST_LEG1_HM
+    fb_ok = normalize_train_tau_end_hm(fb, default=T0_LAST_LEG1_HM) or T0_LAST_LEG1_HM
+    if raw is None or raw == "":
+        return fb_ok
+    return normalize_train_tau_end_hm(raw, default=fb_ok) or fb_ok
 
 # 兼容旧 UI/测试的槽位壳：v6 实际按 ŷ_τw 扫描动态开轮，不再钉死确认钟
 DEFAULT_T0_SLOTS: tuple = (
@@ -312,6 +327,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 
     cfg["horizon_prob_backend"] = normalize_horizon_prob_backend(
         cfg.get("horizon_prob_backend")
+    )
+    cfg["t0_last_leg1_hm"] = normalize_t0_last_leg1_hm(
+        cfg.get("t0_last_leg1_hm"), default=T0_LAST_LEG1_HM
     )
     for side in ("buy_then_sell", "sell_then_buy"):
         sk = f"y_tau_exit_price_skip_{side}"

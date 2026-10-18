@@ -368,11 +368,13 @@ body[data-page="replay"] .replay-page > .dashboard-section.quant-section {
 
 body[data-page="replay"] .replay-page > .dashboard-section.quant-section > .dashboard-section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 6px 12px;
   margin: 0;
   padding: 0 0 2px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 body[data-page="replay"] .replay-run-head {
@@ -425,9 +427,138 @@ body[data-page="replay"] .replay-model-field #paper-t0-score-model-role {
   min-width: 4.5rem;
 }
 
-body[data-page="replay"] .replay-horizon-backend-field #paper-t0-horizon-prob-backend {
-  width: 5.5rem;
-  min-width: 5.5rem;
+/* 做 T 回测前缀滑条：对齐研究台 quant-tau-end-slider 语汇 */
+body[data-page="replay"] .replay-t0-tau-end-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 0;
+  padding: 0 6px 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--line));
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider:focus-within {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 45%, var(--line));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 16%, transparent);
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-slider-lab {
+  flex: 0 0 auto;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  line-height: 1;
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-bound {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink-3);
+  opacity: 0.85;
+  line-height: 1;
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 56px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range:focus {
+  outline: none;
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
+    color-mix(in srgb, var(--ink-3) 28%, var(--line))
+  );
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent, #2563eb) 70%, #1d4ed8);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent, #2563eb) 55%, var(--line)),
+    color-mix(in srgb, var(--ink-3) 28%, var(--line))
+  );
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent, #2563eb) 70%, #1d4ed8);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider .quant-tau-end-readout {
+  display: inline-flex;
+  align-items: center;
+  min-width: 2.6rem;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
+  line-height: 1.2;
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider output {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+body[data-page="replay"] .replay-t0-tau-end-slider.is-zero-prefix output {
+  color: color-mix(in srgb, var(--accent, #2563eb) 80%, var(--ink));
 }
 
 body[data-page="replay"] .replay-clock-field #quant-fill-clock {
@@ -589,11 +720,7 @@ body[data-page="replay"] .replay-run-progress {
   white-space: nowrap;
 }
 
-body[data-page="replay"] .replay-t0-section .replay-run-head {
-  align-items: center;
-}
-
-/* ── 做 T 回测：KPI / 结果卡对齐调仓回测；规则表与归因沿用交易执行 ── */
+/* ── 做 T 回测：头栏与调仓同构；正文可折叠（默认展开） ── */
 body[data-page="replay"] .replay-t0-section {
   --paper-t0-r: 2px;
   --paper-t0-gap: 10px;
@@ -601,22 +728,57 @@ body[data-page="replay"] .replay-t0-section {
   --paper-t0-pad-y: 10px;
 }
 
-body[data-page="replay"] .replay-t0-matrix {
-  --paper-t0-r: 6px;
+/* 标题按钮：视觉等同 section-title，旁挂折叠指示 */
+body[data-page="replay"] .replay-t0-fold-toggle {
+  display: inline;
   margin: 0;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 2px;
-  background: var(--bg-card, #fff);
-  overflow: hidden;
-  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+body[data-page="replay"] .replay-t0-fold-toggle::after {
+  content: "▾";
+  margin-left: 0.45em;
+  font-size: 0.72em;
+  font-weight: 600;
+  color: var(--ink-3);
+  vertical-align: 0.05em;
+}
+
+body[data-page="replay"] .replay-t0-section.is-collapsed .replay-t0-fold-toggle::after {
+  content: "▸";
+}
+
+body[data-page="replay"] .replay-t0-fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+body[data-page="replay"] .replay-t0-section.is-collapsed .replay-t0-fold-body {
+  display: none;
+}
+
+/* 收起时只留标题；工具条随正文隐藏，避免头栏只剩半截控件 */
+body[data-page="replay"] .replay-t0-section.is-collapsed > .replay-run-head .replay-run-toolbar,
+body[data-page="replay"] .replay-t0-section.is-collapsed > .replay-run-head #paper-t0-progress {
+  display: none;
 }
 
 body[data-page="replay"] .replay-t0-matrix .paper-t0-form {
   margin: 0;
-  padding: 10px 12px 12px;
-  display: flex;
-  flex-direction: column;
+  padding: 0;
+  display: grid;
+  gap: 0;
 }
 
 /* 与调仓矩阵同壳：panel 自带边距，表单不再内垫 */
@@ -626,33 +788,38 @@ body[data-page="replay"] .replay-t0-matrix.follow-path-matrix .paper-t0-form.fol
   gap: 0;
 }
 
-body[data-page="replay"] .replay-t0-matrix.follow-path-matrix {
-  border-radius: var(--follow-radius, 4px);
-}
-
-/* 做 T：三栏接近等宽，其他略收（调仓矩阵仍用 3/3/4） */
+/* 三栏接近等宽（第一腿/第二腿略宽于其他）；调仓矩阵仍用 follow.css 3/3/4 */
 body[data-page="replay"] .replay-t0-matrix .follow-path-matrix-panels {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 0.9fr);
 }
 
-/* 栏内双格 / 三格输入对称等宽 */
+/* 栏内双格 / 三格：对称等宽；金额格略宽，避免 20000/40000 被箭头挡住 */
 body[data-page="replay"] .replay-t0-matrix .follow-path-matrix-box-pair {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
 }
 
 body[data-page="replay"] .replay-t0-matrix .follow-path-matrix-body--row3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-/* 本金：去掉步进箭头，避免位数被挡 */
-body[data-page="replay"] .replay-t0-matrix input[name="t0_bt_cash"] {
+/* 金额类：去掉步进箭头，保证位数可见 */
+body[data-page="replay"] .replay-t0-matrix input[name="t0_bt_cash"],
+body[data-page="replay"] .replay-t0-matrix input[name="y_tw_enter_amount"],
+body[data-page="replay"] .replay-t0-matrix input[name="y_tw_strong_amount"] {
+  min-width: 0;
+  width: 100%;
   padding-right: 0.3rem;
   -moz-appearance: textfield;
   appearance: textfield;
+  font-variant-numeric: tabular-nums;
 }
 
 body[data-page="replay"] .replay-t0-matrix input[name="t0_bt_cash"]::-webkit-outer-spin-button,
-body[data-page="replay"] .replay-t0-matrix input[name="t0_bt_cash"]::-webkit-inner-spin-button {
+body[data-page="replay"] .replay-t0-matrix input[name="t0_bt_cash"]::-webkit-inner-spin-button,
+body[data-page="replay"] .replay-t0-matrix input[name="y_tw_enter_amount"]::-webkit-outer-spin-button,
+body[data-page="replay"] .replay-t0-matrix input[name="y_tw_enter_amount"]::-webkit-inner-spin-button,
+body[data-page="replay"] .replay-t0-matrix input[name="y_tw_strong_amount"]::-webkit-outer-spin-button,
+body[data-page="replay"] .replay-t0-matrix input[name="y_tw_strong_amount"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
@@ -1097,90 +1264,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table tbody td:last-child 
 
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:last-child {
   padding-right: 8px;
-}
-
-/* ── 次要折叠 ── */
-body[data-page="replay"] .replay-page .dashboard-section.replay-section-secondary {
-  padding: 0;
-  gap: 0;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--ink-3) 45%, transparent);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 97%, var(--line));
-}
-
-body[data-page="replay"] .replay-secondary-fold {
-  margin: 0;
-  border: none;
-  background: transparent;
-  padding: 0;
-}
-
-body[data-page="replay"] .replay-secondary-fold-sum {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  padding: 8px 10px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-
-body[data-page="replay"] .replay-secondary-fold-sum::-webkit-details-marker {
-  display: none;
-}
-
-body[data-page="replay"] .replay-secondary-fold-sum::after {
-  content: "▸";
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--ink-3);
-  flex-shrink: 0;
-}
-
-body[data-page="replay"] .replay-secondary-fold[open] > .replay-secondary-fold-sum::after {
-  content: "▾";
-}
-
-body[data-page="replay"] .replay-secondary-fold-sum:hover .dashboard-section-title {
-  color: var(--accent);
-}
-
-body[data-page="replay"] .replay-secondary-fold-sum .dashboard-section-title {
-  font-size: var(--r-fs-body);
-  letter-spacing: 0.03em;
-  font-weight: 700;
-}
-
-body[data-page="replay"] .replay-secondary-fold > .dashboard-card.quant-pro-card {
-  /* 覆盖 L2 的 width:100%，否则 + 左右 margin 会撑出外框 */
-  margin: 0 8px 8px;
-  width: auto;
-  max-width: calc(100% - 16px);
-  box-sizing: border-box;
-}
-
-/* 做 T：工具条在 summary 内，展开后与标题同一行（对齐调仓头）；收起只留标题+摘要 */
-body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-secondary-fold-sum.replay-run-head {
-  align-items: center;
-  margin: 0;
-  border: none;
-  background: transparent;
-}
-
-body[data-page="replay"] .replay-t0-section > .replay-secondary-fold:not([open]) > .replay-secondary-fold-sum .replay-run-toolbar,
-body[data-page="replay"] .replay-t0-section > .replay-secondary-fold:not([open]) > .replay-secondary-fold-sum #paper-t0-progress {
-  display: none;
-}
-
-body[data-page="replay"] .replay-t0-section > .replay-secondary-fold[open] > .replay-secondary-fold-sum::after {
-  margin-left: 8px;
-}
-
-body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-overview-band,
-body[data-page="replay"] .replay-t0-section > .replay-secondary-fold > .replay-t0-matrix {
-  margin: 0 8px 8px;
 }
 
 body[data-page="replay"] .replay-howto-body {

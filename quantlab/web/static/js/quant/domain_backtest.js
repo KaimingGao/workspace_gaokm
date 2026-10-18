@@ -8,6 +8,7 @@ import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
 import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js";
 import { initExecutionRuleForms } from "../paper/execution_forms.js";
+import { TAU_END_CLOCKS, clampTauEndHm } from "./params.js";
 
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -1737,6 +1738,105 @@ export function installBacktest(q) {
       });
   }
 
+  /** 做 T 回测 leg1 前缀终点：与 ŷ_τ* 拟合滑条同网格（params.TAU_END_CLOCKS）。 */
+  const T0_BT_DEFAULT_LAST_LEG1_HM = "10:30";
+  const T0_BT_LAST_LEG1_KEY = "paper.t0.last_leg1_hm";
+  const T0_BT_DEFAULT_LAST_LEG1_IDX = Math.max(
+    0,
+    TAU_END_CLOCKS.indexOf(T0_BT_DEFAULT_LAST_LEG1_HM)
+  );
+
+  function paintT0BtLastLeg1Slider(hm) {
+    const el = document.getElementById("paper-t0-last-leg1");
+    if (!el) return;
+    const clock = clampTauEndHm(hm, T0_BT_DEFAULT_LAST_LEG1_HM);
+    const idx = Math.max(0, TAU_END_CLOCKS.indexOf(clock));
+    el.value = String(idx);
+    el.setAttribute("aria-valuenow", String(idx));
+    el.setAttribute("aria-valuetext", clock);
+    const lab = el.closest(".quant-tau-end-slider");
+    if (lab) lab.classList.toggle("is-zero-prefix", clock === "09:30");
+    const out = document.getElementById("paper-t0-last-leg1-val");
+    if (out) {
+      out.value = clock;
+      out.textContent = clock;
+    }
+  }
+
+  function readT0BtLastLeg1Hm({ persist } = {}) {
+    const el = document.getElementById("paper-t0-last-leg1");
+    let hm = T0_BT_DEFAULT_LAST_LEG1_HM;
+    if (el) {
+      const raw = Number(el.value);
+      const idx = Math.max(
+        0,
+        Math.min(
+          TAU_END_CLOCKS.length - 1,
+          Math.round(Number.isFinite(raw) ? raw : T0_BT_DEFAULT_LAST_LEG1_IDX)
+        )
+      );
+      hm = TAU_END_CLOCKS[idx] || T0_BT_DEFAULT_LAST_LEG1_HM;
+    }
+    hm = clampTauEndHm(hm, T0_BT_DEFAULT_LAST_LEG1_HM);
+    paintT0BtLastLeg1Slider(hm);
+    if (persist) {
+      try {
+        localStorage.setItem(T0_BT_LAST_LEG1_KEY, hm);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return hm;
+  }
+
+  function hydrateT0BtLastLeg1Slider() {
+    let hm = T0_BT_DEFAULT_LAST_LEG1_HM;
+    try {
+      const saved = localStorage.getItem(T0_BT_LAST_LEG1_KEY);
+      if (saved) hm = clampTauEndHm(saved, T0_BT_DEFAULT_LAST_LEG1_HM);
+    } catch (_) {
+      /* ignore */
+    }
+    paintT0BtLastLeg1Slider(hm);
+    const el = document.getElementById("paper-t0-last-leg1");
+    if (!el || el.dataset.wired === "1") return;
+    el.dataset.wired = "1";
+    const sync = () => readT0BtLastLeg1Hm({ persist: true });
+    el.addEventListener("input", sync);
+    el.addEventListener("change", sync);
+  }
+
+  /** 做 T 区块：真 header 对齐调仓；正文折叠（默认展开）。 */
+  const T0_FOLD_OPEN_KEY = "paper.t0.fold.open";
+
+  function wireT0SectionFold() {
+    const sec = document.getElementById("replay-section-t0");
+    const btn = document.getElementById("paper-t0-fold-toggle");
+    const body = document.getElementById("replay-t0-fold-body");
+    if (!sec || !btn || !body || btn.dataset.wired === "1") return;
+    btn.dataset.wired = "1";
+    let open = true;
+    try {
+      if (localStorage.getItem(T0_FOLD_OPEN_KEY) === "0") open = false;
+    } catch (_) {
+      /* ignore */
+    }
+    const apply = (next) => {
+      sec.classList.toggle("is-collapsed", !next);
+      btn.setAttribute("aria-expanded", next ? "true" : "false");
+      try {
+        localStorage.setItem(T0_FOLD_OPEN_KEY, next ? "1" : "0");
+      } catch (_) {
+        /* ignore */
+      }
+    };
+    apply(open);
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      apply(btn.getAttribute("aria-expanded") !== "true");
+    });
+  }
+
   function collectReplayT0BacktestBody() {
     const lbEl = document.getElementById("paper-t0-lookback");
     let lookback = Number(lbEl && lbEl.value);
@@ -1751,6 +1851,7 @@ export function installBacktest(q) {
       lookback,
       use_minute: true,
       ...t0,
+      t0_last_leg1_hm: readT0BtLastLeg1Hm({ persist: true }),
       score_model_role: readScoreModelRole("paper-t0-score-model-role"),
       t0_stop_on_close: true,
       initial_shares: sizing.shares,
@@ -2242,6 +2343,8 @@ export function installBacktest(q) {
     }
   }
 
+  hydrateT0BtLastLeg1Slider();
+  wireT0SectionFold();
   wirePaperT0Backtest();
   wireReplayFillClock();
   wireReplayPriceSpaceGate();

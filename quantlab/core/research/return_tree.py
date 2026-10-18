@@ -2,7 +2,7 @@
 
 影子树头已下线；``normalize_rebalance_score_backend`` 恒为 ``ridge``。
 Horizon τ30…90 正式路径为启用套包内 ``backend``（研究枢纽 AUC 择优）；
-回测「ŷ_τ*对照」强制 Tree 为遗留开关。``finish_return_tree_persist`` 供树包落盘剥 booster。
+``horizon_prob_backend=tree`` 为遗留 API 开关。``finish_return_tree_persist`` 供树包落盘剥 booster。
 """
 
 from __future__ import annotations

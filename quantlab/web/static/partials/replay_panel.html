@@ -295,21 +295,54 @@
     </div>
   </section>
 
-  <!-- ③ 做 T 回测：次要折叠，默认收起（短期内不作重点） -->
+  <!-- ③ 做 T 回测：头栏与调仓同构（真 header）；正文可折叠（默认展开） -->
   <section
     class="dashboard-section quant-section replay-section replay-run-section replay-t0-section"
     id="replay-section-t0"
     aria-labelledby="replay-section-t0-title"
   >
-    <details class="replay-secondary-fold">
-    <!-- summary 含工具条：展开后与标题同行（对齐调仓回测头）；收起时 CSS 藏工具条 -->
-    <summary class="replay-secondary-fold-sum replay-run-head">
-      <h3 id="replay-section-t0-title" class="dashboard-section-title">做 T 回测</h3>
-      <p class="dashboard-section-desc quant-section-desc">短期内不作重点 · 点开可跑 · 虚拟底仓 · 5m 第一触达 · 不写账本</p>
+    <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
+      <h3 id="replay-section-t0-title" class="dashboard-section-title">
+        <button
+          type="button"
+          id="paper-t0-fold-toggle"
+          class="replay-t0-fold-toggle"
+          aria-expanded="true"
+          aria-controls="replay-t0-fold-body"
+          title="展开 / 收起做 T 回测正文"
+        >做 T 回测</button>
+      </h3>
       <p id="paper-t0-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
         <span id="paper-t0-progress-text">回测中…</span>
       </p>
-      <div class="replay-run-toolbar" aria-label="做 T 回测窗" onclick="event.stopPropagation()">
+      <div class="replay-run-toolbar" aria-label="做 T 回测窗">
+        <label
+          class="quant-tau-end-slider replay-t0-tau-end-slider"
+          title="leg1 扫描前缀终点 09:30…11:00（每 5m）。回测只在 09:30～该钟开第一腿；其后只收第二腿。默认 10:30；不改 live（live 仍至 11:00）。"
+        >
+          <span class="quant-tau-end-slider-lab">前缀</span>
+          <span class="quant-tau-end-scale">
+            <span class="quant-tau-end-bound" aria-hidden="true">09:30</span>
+            <input
+              id="paper-t0-last-leg1"
+              class="quant-tau-end-range"
+              type="range"
+              min="0"
+              max="18"
+              step="1"
+              value="12"
+              aria-valuemin="0"
+              aria-valuemax="18"
+              aria-valuenow="12"
+              aria-valuetext="10:30"
+              aria-label="做 T 回测 leg1 前缀终点 09:30 至 11:00"
+            />
+            <span class="quant-tau-end-bound" aria-hidden="true">11:00</span>
+          </span>
+          <span class="quant-tau-end-readout">
+            <output id="paper-t0-last-leg1-val" for="paper-t0-last-leg1">10:30</output>
+          </span>
+        </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field"
           title="评估窗：统计做T的交易日数（默认 10）。规则用下方表单（可先保存到交易执行）。"
@@ -327,19 +360,10 @@
             <option value="live" selected>执行</option>
           </select>
         </label>
-        <label
-          class="platform-field quant-pro-field replay-lookback-field replay-horizon-backend-field"
-          title="正式路径跟启用套包内 backend（研究枢纽 AUC 择优）。本开关为对照：选「强制 Tree」时读启用套 backends.tree（或包顶 backend=tree）。仅影响 ŷ_τw 投票，不改 ŷ_τc。"
-        >
-          <span class="quant-pro-field-label">ŷ_τ*对照</span>
-          <select id="paper-t0-horizon-prob-backend" name="horizon_prob_backend" form="paper-t0-form">
-            <option value="ridge" selected>跟启用套</option>
-            <option value="tree">强制 Tree</option>
-          </select>
-        </label>
-        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行槽（与手动预演同一套）。选研究则用研究槽版本。规则读下方表单。缺该日5m则跳过。">跑回测</button>
+        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行槽（与手动预演同一套）。选研究则用研究槽版本。规则读下方表单；leg1 截止见前缀滑条。缺该日5m则跳过。">跑回测</button>
       </div>
-    </summary>
+    </header>
+    <div id="replay-t0-fold-body" class="replay-t0-fold-body">
     <div class="replay-overview-band" id="replay-t0-overview">
       <div class="dashboard-kpi-row quant-pro-overview-kpis replay-kpi-row" id="replay-t0-kpi-row" aria-label="做 T 回测 KPI">
         <div class="dashboard-kpi-row-body">
@@ -554,6 +578,6 @@
         <div id="paper-t0-days" class="quant-weight-table-wrap"></div>
       </div>
     </div>
-    </details>
+    </div>
   </section>
 </div>
