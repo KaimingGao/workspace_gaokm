@@ -40,6 +40,7 @@
 | [SQLite 迁移](internal/sqlite-migration.md) | 日线/分钟线缓存 SQLite WAL 改造方案（已落地 A1） |
 | [行情更新、缓存与预处理](internal/bars-update-cache.md) | 日线/5m 写仓与回测读仓、缓存分层、清洗与面板指纹、四处已知缝 |
 | [Feature Lake / DayCube 方案](internal/feature-lake-daycube.md) | L1/L2：开盘 M0–M4 + ŷ_τ\* 按钟 **H0–H5**；日线物化 open · 分钟线 Ready 后物化 τ |
+| [DayCube 宇宙键](internal/daycube-universe-key.md) | 物化与回测的 `universe_hash`：完整名单做键、有行代码进矩阵；旧 798 目录与重跑 |
 | [日线契约修补规划](internal/bars-update-plan.md) | 四处缝的改造顺序：记账、面板指纹、成交额列、前复权重叠日替换 |
 | [AkShare vs Tushare 日线对比](internal/akshare-tushare-daily-compare.md) | 本地日线仓与 Tushare daily 对齐审计（复权标签 / 量单位） |
 

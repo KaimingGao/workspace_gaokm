@@ -206,6 +206,126 @@ class HorizonCsZLiveTests(unittest.TestCase):
         self.assertAlmostEqual(float(z_hi["ret_open_to_tau"]), 2.1, places=5)
         self.assertNotAlmostEqual(float(z_lo["ret_open_to_tau"]), float(z_hi["ret_open_to_tau"]))
 
+    def test_sparse_raw_ath_becomes_zero_not_raw_level(self):
+        """开盘同伴没有 raw_ath_* 时，不得把 235 分钟或价位比 1 当成 z。"""
+        from core.t0 import score_policy as sp
+
+        doc = {
+            "backend": "ridge",
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "gap_pct": 0.1,
+                    "ret_open_to_tau": 1.0,
+                    "raw_ath_CLOSE0": -1.5,
+                    "raw_ath_SESSION_REMAIN": -0.01,
+                },
+                "active_features": [
+                    "gap_pct",
+                    "ret_open_to_tau",
+                    "raw_ath_CLOSE0",
+                    "raw_ath_SESSION_REMAIN",
+                ],
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        peers = [
+            {"stock_code": "A", "features_tau": {"gap_pct": 0.0}},
+            {"stock_code": "B", "features_tau": {"gap_pct": 2.0}},
+        ]
+        with mock.patch.object(sp, "_POOL_FEAT_CACHE", {"2026-01-02": peers}), mock.patch(
+            "core.research.horizon_ridge.load_ridge_model", return_value=doc
+        ), mock.patch(
+            "core.research.feature_standardize.is_cross_section_zscore",
+            return_value=True,
+        ), mock.patch(
+            "core.research.day_cube.enabled", return_value=False
+        ):
+            z = sp._cs_z_horizon_feats(
+                {
+                    "gap_pct": 2.0,
+                    "ret_open_to_tau": 0.7,
+                    "raw_ath_CLOSE0": 1.01,
+                    "raw_ath_SESSION_REMAIN": 235.0,
+                },
+                head="t30",
+                trade_date="2026-01-02",
+                stock_code="B",
+            )
+        self.assertAlmostEqual(float(z["gap_pct"]), 1.0, places=5)
+        self.assertAlmostEqual(float(z["ret_open_to_tau"]), 0.7, places=5)
+        self.assertAlmostEqual(float(z["raw_ath_CLOSE0"]), 0.0, places=5)
+        self.assertAlmostEqual(float(z["raw_ath_SESSION_REMAIN"]), 0.0, places=5)
+
+    def test_tau_lake_peers_zscore_raw_ath(self):
+        """Cube miss 时用同钟 L1 同伴给 raw_ath_* 做截面 z。"""
+        from core.t0 import score_policy as sp
+
+        doc = {
+            "backend": "ridge",
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "raw_ath_CLOSE0": -1.5,
+                    "raw_ath_SESSION_REMAIN": -0.01,
+                },
+                "active_features": ["raw_ath_CLOSE0", "raw_ath_SESSION_REMAIN"],
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        lake = [
+            {
+                "stock_code": "A",
+                "features_tau": {
+                    "raw_ath_CLOSE0": 0.98,
+                    "raw_ath_SESSION_REMAIN": 235.0,
+                },
+            },
+            {
+                "stock_code": "B",
+                "features_tau": {
+                    "raw_ath_CLOSE0": 1.00,
+                    "raw_ath_SESSION_REMAIN": 235.0,
+                },
+            },
+            {
+                "stock_code": "C",
+                "features_tau": {
+                    "raw_ath_CLOSE0": 1.02,
+                    "raw_ath_SESSION_REMAIN": 235.0,
+                },
+            },
+        ]
+        with mock.patch.object(sp, "_POOL_FEAT_CACHE", {"2026-10-16": []}), mock.patch(
+            "core.research.horizon_ridge.load_ridge_model", return_value=doc
+        ), mock.patch(
+            "core.research.feature_standardize.is_cross_section_zscore",
+            return_value=True,
+        ), mock.patch(
+            "core.research.day_cube.enabled", return_value=False
+        ), mock.patch.object(
+            sp, "_tau_clock_peer_rows", return_value=lake
+        ):
+            z = sp._cs_z_horizon_feats(
+                {
+                    "raw_ath_CLOSE0": 1.02,
+                    "raw_ath_SESSION_REMAIN": 235.0,
+                },
+                head="t30",
+                trade_date="2026-10-16",
+                stock_code="C",
+                tau_hm="09:35",
+            )
+        # 同钟剩余分钟无截面差 → 0；价位比按同伴总体 z，不是原始 1.02
+        self.assertAlmostEqual(float(z["raw_ath_SESSION_REMAIN"]), 0.0, places=5)
+        self.assertGreater(float(z["raw_ath_CLOSE0"]), 0.5)
+        self.assertLess(float(z["raw_ath_CLOSE0"]), 2.0)
+        self.assertNotAlmostEqual(float(z["raw_ath_CLOSE0"]), 1.02, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()

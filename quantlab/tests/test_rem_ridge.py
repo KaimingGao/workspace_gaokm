@@ -280,13 +280,24 @@ class TestRemRidgeFit(unittest.TestCase):
             {"code": "C", "bars": _bars(90, 8)},
             {"code": "D", "bars": _bars(90, 15)},
         ]
-        on = fit_tau_ridge_report(stock_bars, holdout_trading_days=5)
+        ticks: list = []
+        on = fit_tau_ridge_report(
+            stock_bars,
+            holdout_trading_days=5,
+            progress_cb=lambda c, t, m: ticks.append((c, t, str(m))),
+        )
         self.assertTrue(on.get("success"), on.get("error"))
         self.assertTrue(on.get("include_alpha_tc"))
         self.assertGreater(int(on.get("n_alpha_tc_features") or 0), 0)
         self.assertEqual(on.get("feature_pack"), "alpha_τc")
         extras_on = (on.get("return_model") or {}).get("extra_features") or []
         self.assertTrue(any(str(k).startswith("raw_atc_") for k in extras_on))
+        # 组面板阶段须刷进度，勿长期停在「准备…」
+        self.assertTrue(ticks, "progress_cb should fire during fit")
+        self.assertTrue(
+            any("面板" in m or "Ridge" in m or "截面" in m for _, _, m in ticks),
+            ticks[:8],
+        )
 
     def test_tau_promote_gate(self):
         from core.research.tc_ridge import tau_promote_gate

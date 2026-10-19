@@ -60,11 +60,19 @@ const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
   RANK_Z_UNIV_A_HEADS.map((h) => [h, `quant_fit_z_univ_a_${h}`])
 );
 
-/** ŷ_τc / ŷ_τ*：训练前缀终点 09:30…11:00（含 0 前缀）。 */
-const TAU_END_FIT_HEADS = ["tc", "t30", "t45", "t60", "t75", "t90"];
-/** v3：无拟合记录时默认 11:00；刷新按各头最新 last_report 恢复；拖动/拟合会写入。 */
-const TAU_END_STORAGE_KEY = "quant_fit_tau_end_hm_v3";
-const DEFAULT_TAU_END_HM = "11:00";
+/** ŷ_τc 与 ŷ_τ* 前缀滑条分开；网格同为 09:30…11:00（含 0 前缀）。 */
+const TAU_END_TC_HEADS = ["tc"];
+const TAU_END_HORIZON_HEADS = ["t30", "t45", "t60", "t75", "t90"];
+const TAU_END_FIT_HEADS = [...TAU_END_TC_HEADS, ...TAU_END_HORIZON_HEADS];
+/** τc 默认 09:30；τ* 默认 11:00。拖动/拟合按组写入。 */
+const TAU_END_STORAGE_KEY_TC = "quant_fit_tau_end_hm_tc_v1";
+const TAU_END_STORAGE_KEY_HZ = "quant_fit_tau_end_hm_hz_v1";
+/** 旧共用键：仅迁移到 τ* 组，避免把 11:00 盖到 τc。 */
+const TAU_END_STORAGE_KEY_LEGACY = "quant_fit_tau_end_hm_v3";
+const DEFAULT_TAU_END_HM_TC = "09:30";
+const DEFAULT_TAU_END_HM_HORIZON = "11:00";
+/** clamp / 做 T 回测等无组上下文时的回落（保持 11:00）。 */
+const DEFAULT_TAU_END_HM = DEFAULT_TAU_END_HM_HORIZON;
 /** 与研究台 / 做 T 回测前缀滑条同网格。 */
 export const TAU_END_CLOCKS = (() => {
   const out = [];
@@ -78,10 +86,34 @@ export const TAU_END_CLOCKS = (() => {
   }
   return out;
 })();
-const DEFAULT_TAU_END_IDX = (() => {
-  const i = TAU_END_CLOCKS.indexOf(DEFAULT_TAU_END_HM);
-  return i >= 0 ? i : TAU_END_CLOCKS.length - 1;
-})();
+
+function tauEndGroup(headOrGroup) {
+  const h = String(headOrGroup || "")
+    .trim()
+    .toLowerCase();
+  if (h === "tc" || h === "tau" || h === "τc" || h === "group_tc") return "tc";
+  if (h === "horizon" || h === "group_horizon" || h === "hz") return "horizon";
+  if (TAU_END_TC_HEADS.includes(h)) return "tc";
+  return "horizon";
+}
+
+function tauEndHeads(group) {
+  return group === "tc" ? TAU_END_TC_HEADS : TAU_END_HORIZON_HEADS;
+}
+
+function tauEndDefault(group) {
+  return group === "tc" ? DEFAULT_TAU_END_HM_TC : DEFAULT_TAU_END_HM_HORIZON;
+}
+
+function tauEndStorageKey(group) {
+  return group === "tc" ? TAU_END_STORAGE_KEY_TC : TAU_END_STORAGE_KEY_HZ;
+}
+
+function tauEndDefaultIdx(group) {
+  const hm = tauEndDefault(group);
+  const i = TAU_END_CLOCKS.indexOf(hm);
+  return i >= 0 ? i : group === "tc" ? 0 : TAU_END_CLOCKS.length - 1;
+}
 
 /** 规范前缀终点 HH:MM（须在 TAU_END_CLOCKS）；非法回落 fallback。 */
 export function clampTauEndHm(raw, fallback = DEFAULT_TAU_END_HM) {
@@ -560,16 +592,17 @@ export function createResearchParams(opts = {}) {
     }
   }
 
-  function tauEndIndex(hm) {
+  function tauEndIndex(hm, group = "horizon") {
+    const fb = tauEndDefault(group);
     const s = String(hm || "").trim().slice(0, 5);
     const i = TAU_END_CLOCKS.indexOf(s);
-    return i >= 0 ? i : TAU_END_CLOCKS.indexOf(DEFAULT_TAU_END_HM);
+    return i >= 0 ? i : TAU_END_CLOCKS.indexOf(fb);
   }
 
-  function _paintTauEndSlider(el, hm) {
+  function _paintTauEndSlider(el, hm, group = "horizon") {
     if (!el) return;
-    const clock = clampTauEndHm(hm);
-    const idx = tauEndIndex(clock);
+    const clock = clampTauEndHm(hm, tauEndDefault(group));
+    const idx = tauEndIndex(clock, group);
     el.value = String(idx);
     el.setAttribute("aria-valuenow", String(idx));
     el.setAttribute("aria-valuetext", clock);
@@ -583,40 +616,59 @@ export function createResearchParams(opts = {}) {
     }
   }
 
-  function readTauEndHm() {
+  function readStoredTauEndHm(group) {
+    const g = tauEndGroup(group);
+    const fb = tauEndDefault(g);
+    try {
+      let saved = localStorage.getItem(tauEndStorageKey(g));
+      if (!saved && g === "horizon") {
+        saved = localStorage.getItem(TAU_END_STORAGE_KEY_LEGACY);
+      }
+      if (saved) return clampTauEndHm(saved, fb);
+    } catch (_) {}
+    return fb;
+  }
+
+  /** @param {string} [headOrGroup] 头名 tc/t30… 或组名；默认 horizon */
+  function readTauEndHm(headOrGroup) {
+    const group = tauEndGroup(headOrGroup);
+    const heads = tauEndHeads(group);
+    const fb = tauEndDefault(group);
+    const fbIdx = tauEndDefaultIdx(group);
     let el = null;
-    for (const head of TAU_END_FIT_HEADS) {
+    for (const head of heads) {
       el = document.getElementById(`quant-fit-tau-end-${head}`);
       if (el) break;
     }
-    let hm = DEFAULT_TAU_END_HM;
+    let hm = fb;
     if (el) {
       const raw = Number(el.value);
       const idx = Math.max(
         0,
         Math.min(
           TAU_END_CLOCKS.length - 1,
-          Math.round(Number.isFinite(raw) ? raw : DEFAULT_TAU_END_IDX)
+          Math.round(Number.isFinite(raw) ? raw : fbIdx)
         )
       );
-      hm = TAU_END_CLOCKS[idx] || DEFAULT_TAU_END_HM;
+      hm = TAU_END_CLOCKS[idx] || fb;
     } else {
-      try {
-        const saved = localStorage.getItem(TAU_END_STORAGE_KEY);
-        if (saved) hm = clampTauEndHm(saved);
-      } catch (_) {}
+      hm = readStoredTauEndHm(group);
     }
-    hm = clampTauEndHm(hm);
-    // 拟合读数只同步各头滑条，不写 storage（storage 仅用户拖动时写入）
-    for (const head of TAU_END_FIT_HEADS) {
-      _paintTauEndSlider(document.getElementById(`quant-fit-tau-end-${head}`), hm);
+    hm = clampTauEndHm(hm, fb);
+    // 拟合读数只同步本组滑条，不写 storage（storage 仅用户拖动时写入）
+    for (const head of heads) {
+      _paintTauEndSlider(
+        document.getElementById(`quant-fit-tau-end-${head}`),
+        hm,
+        group
+      );
     }
     return hm;
   }
 
-  /** 拟合请求体片段：ŷ_τc / ŷ_τ* 前缀终点。 */
-  function readTauEndFitParams() {
-    return { tau_end_hm: readTauEndHm() };
+  /** 拟合请求体片段：按头读对应组前缀终点。 */
+  function readTauEndFitParams(head) {
+    return { tau_end_hm: readTauEndHm(head) };
   }
 
   /** 卡头摘要：前缀11:00；τc 在 09:30 显示 0前缀·OC，τ* 显示前缀09:30。 */
@@ -639,15 +691,21 @@ export function createResearchParams(opts = {}) {
   }
 
   function applyTauEndHm(hm, opts) {
-    const clock = clampTauEndHm(hm);
+    const group = tauEndGroup((opts && (opts.head || opts.group)) || "horizon");
+    const fb = tauEndDefault(group);
+    const clock = clampTauEndHm(hm, fb);
     const persist = !opts || opts.persist !== false;
     if (persist) {
       try {
-        localStorage.setItem(TAU_END_STORAGE_KEY, clock);
+        localStorage.setItem(tauEndStorageKey(group), clock);
       } catch (_) {}
     }
-    for (const head of TAU_END_FIT_HEADS) {
-      _paintTauEndSlider(document.getElementById(`quant-fit-tau-end-${head}`), clock);
+    for (const head of tauEndHeads(group)) {
+      _paintTauEndSlider(
+        document.getElementById(`quant-fit-tau-end-${head}`),
+        clock,
+        group
+      );
     }
     return clock;
   }
@@ -693,44 +751,45 @@ export function createResearchParams(opts = {}) {
     return 0;
   }
 
-  /** 多头预填竞态：只采纳 fitted_at 更新的那次，刷新后回到「上次拟合」前缀。 */
-  let _tauEndRestoreBestTs = -1;
+  /** 组内多头预填竞态：只采纳该组 fitted_at 更新的那次。 */
+  const _tauEndRestoreBestTs = { tc: -1, horizon: -1 };
 
-  function restoreTauEndFromFitReport(data) {
+  function restoreTauEndFromFitReport(data, head) {
+    const group = tauEndGroup(head);
     const hm = pickTauEndHmFromReport(data);
     if (!hm) return null;
     const ts = pickTauEndStamp(data);
-    if (ts < _tauEndRestoreBestTs) return null;
-    _tauEndRestoreBestTs = ts;
-    return applyTauEndHm(hm, { persist: true });
+    if (ts < _tauEndRestoreBestTs[group]) return null;
+    _tauEndRestoreBestTs[group] = ts;
+    return applyTauEndHm(hm, { persist: true, group });
   }
 
   function hydrateTauEndParams() {
-    let hm = DEFAULT_TAU_END_HM;
-    try {
-      const saved = localStorage.getItem(TAU_END_STORAGE_KEY);
-      if (saved) hm = clampTauEndHm(saved);
-    } catch (_) {}
-    // 先画 localStorage / 默认；各头 /model 预填后再按最新拟合覆盖
-    for (const head of TAU_END_FIT_HEADS) {
-      const el = document.getElementById(`quant-fit-tau-end-${head}`);
-      if (!el) continue;
-      _paintTauEndSlider(el, hm);
-      if (el.dataset.wired === "1") continue;
-      el.dataset.wired = "1";
-      const sync = () => {
-        const raw = Number(el.value);
-        const idx = Math.max(
-          0,
-          Math.min(
-            TAU_END_CLOCKS.length - 1,
-            Math.round(Number.isFinite(raw) ? raw : DEFAULT_TAU_END_IDX)
-          )
-        );
-        applyTauEndHm(TAU_END_CLOCKS[idx] || DEFAULT_TAU_END_HM, { persist: true });
-      };
-      el.addEventListener("input", sync);
-      el.addEventListener("change", sync);
+    // 先画各组 localStorage / 默认；各头 /model 预填后再按组内最新拟合覆盖
+    for (const group of ["tc", "horizon"]) {
+      const hm = readStoredTauEndHm(group);
+      for (const head of tauEndHeads(group)) {
+        const el = document.getElementById(`quant-fit-tau-end-${head}`);
+        if (!el) continue;
+        _paintTauEndSlider(el, hm, group);
+        if (el.dataset.wired === "1") continue;
+        el.dataset.wired = "1";
+        const sync = () => {
+          const fb = tauEndDefault(group);
+          const fbIdx = tauEndDefaultIdx(group);
+          const raw = Number(el.value);
+          const idx = Math.max(
+            0,
+            Math.min(
+              TAU_END_CLOCKS.length - 1,
+              Math.round(Number.isFinite(raw) ? raw : fbIdx)
+            )
+          );
+          applyTauEndHm(TAU_END_CLOCKS[idx] || fb, { persist: true, group });
+        };
+        el.addEventListener("input", sync);
+        el.addEventListener("change", sync);
+      }
     }
   }
 

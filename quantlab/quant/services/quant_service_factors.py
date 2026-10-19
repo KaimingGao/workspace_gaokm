@@ -784,12 +784,15 @@ class QuantFactorMixin:
                 logger.debug("tau_ridge job_alive_cb failed", exc_info=True)
                 return True
 
-        if callable(progress_cb):
+        def _prog(cur: int, tot: int, msg: str) -> None:
+            if not callable(progress_cb):
+                return
             try:
-                progress_cb(0, 1, "ŷ_τc 准备…")
+                progress_cb(int(cur), int(tot), str(msg or ""))
             except Exception:  # noqa: BLE001
                 pass
 
+        _prog(0, 1, "ŷ_τc 解析宇宙…")
         resolved = _resolve_fit_universe(
             watching_limit=watching_limit,
         )
@@ -848,6 +851,8 @@ class QuantFactorMixin:
         tau_grid = prefix.get("tau_grid")
         resolved_end = str(prefix.get("tau_end_hm") or "11:00")[:5]
 
+        n_univ = max(1, len(codes))
+        _prog(0, n_univ, f"ŷ_τc 拉日线 {len(codes)} 只…")
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         loaded, _failures, _fund = load_portfolio_stock_bars(
@@ -855,7 +860,9 @@ class QuantFactorMixin:
             lookback=int(lookback or 120),
             fetch_fundamentals=False,
         )
-        for code in codes:
+        if use_minute:
+            _prog(0, n_univ, f"ŷ_τc 读5m {len(codes)} 只…")
+        for i, code in enumerate(codes):
             bars = loaded.get(str(code))
             if not bars:
                 continue
@@ -880,7 +887,10 @@ class QuantFactorMixin:
                             minute_hit += 1
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                     pass
+                if (i + 1) % 40 == 0 or (i + 1) >= len(codes):
+                    _prog(i + 1, n_univ, f"ŷ_τc 读5m {i + 1}/{len(codes)}")
             stock_bars.append(row)
+        _prog(0, max(1, len(stock_bars)), f"ŷ_τc 组面板 0/{len(stock_bars)}")
         report = fit_tau_ridge_report(
             stock_bars,
             ridge_lambda=ridge_lambda,
@@ -890,6 +900,7 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
             cross_section_zscore=bool(cross_section_zscore),
+            progress_cb=progress_cb,
         )
         report["watching_limit"] = limit
         report["universe_source"] = resolved.get("source")
@@ -1833,7 +1844,8 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """泛化 ŷ_τ horizon：同窗双训 Ridge+Tree，AUC 择优。horizon ∈ {t30…t90}。只读本地 5m 缓存。
 
-        ``tau_end_hm``：训练前缀终点 09:30…11:00（与 ŷ_τc 同源）；09:30=只训开盘一点（仍需分钟标签）。
+        ``tau_end_hm``：训练前缀终点 09:30…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）；
+        09:30=只训开盘一点（仍需分钟标签）。
         ``progress_cb(cur, tot, msg)``：job 槽刷新（流式建面板 + 截面/双训阶段）。
         ``job_alive_cb()``：False 时跳过 ``save_ridge_last_report``（槽已被接替/取消）。
         """
@@ -2721,14 +2733,36 @@ class QuantFactorMixin:
             job_kind = "materialize_open"
         else:
             job_kind = "materialize_l1l2"
-        if materialize_job.is_running():
-            running = materialize_job.get() or {}
+
+        watch_limit = clamp_watching_limit(
+            watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE
+        )
+        steps = (1 if do_l1 else 0) + (1 if do_l1_tau_grid else 0) + (1 if do_l2 else 0)
+        # 原子开槽，避免 is_running→start 之间双开
+        job_id, started_or_running = materialize_job.try_start(
+            kind=job_kind,
+            total=max(1, steps),
+            message="排队中…",
+        )
+        if job_id is None:
+            running = started_or_running or {}
             running_kind = str(running.get("kind") or "")
             if running_kind and running_kind != job_kind:
+                _kind_zh = {
+                    "materialize_open": "日线物化",
+                    "materialize_tau": "分钟 τ 物化",
+                    "materialize_l1l2": "混合物化",
+                }
+                peer = _kind_zh.get(running_kind, running_kind or "物化")
+                want = _kind_zh.get(job_kind, job_kind or "物化")
                 return {
                     "ok": False,
                     "success": False,
-                    "error": f"物化进行中（{running_kind}），与本次 {job_kind} 冲突，请稍后再试",
+                    "conflict": True,
+                    "error": (
+                        f"{peer}进行中，与本次{want}共用同一任务槽；"
+                        f"请稍候或点一次后将自动等待对侧结束再启动"
+                    ),
                     "job": running,
                 }
             return {
@@ -2739,27 +2773,24 @@ class QuantFactorMixin:
                 "job": running,
             }
 
-        watch_limit = clamp_watching_limit(
-            watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE
-        )
-        steps = (1 if do_l1 else 0) + (1 if do_l1_tau_grid else 0) + (1 if do_l2 else 0)
-        job_id = materialize_job.start(
-            kind=job_kind,
-            total=max(1, steps),
-            message="排队中…",
-        )
+        planned = max(1, int(steps or 2))
 
         def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
-            t = max(1, int(tot or steps or 2))
-            c = max(0, min(t, int(cur or 0)))
-            # 子阶段若仍报 current=0，保留已有进度，避免 zero_progress_stuck 误杀
+            """宏步骤用 ``tot==planned``；子阶段（0/1 assemble、日线 N/800）只改 message。"""
             try:
-                prev = int((materialize_job.get() or {}).get("current") or 0)
+                snap = materialize_job.get() or {}
+                prev_c = int(snap.get("current") or 0)
+                prev_t = max(planned, int(snap.get("total") or planned))
             except Exception:  # noqa: BLE001
-                prev = 0
-            if c <= 0 and prev > 0:
-                c = prev
-                t = max(t, prev)
+                prev_c, prev_t = 0, planned
+            t_in = int(tot or 0)
+            c_in = int(cur or 0)
+            if t_in == planned:
+                c = max(0, min(planned, c_in))
+                t = planned
+            else:
+                # 勿把 Job total 压成 1，否则进度条长期 0% 且与宏步骤脱节
+                c, t = prev_c, prev_t
             materialize_job.update(
                 current=c,
                 total=t,

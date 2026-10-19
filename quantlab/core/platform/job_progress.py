@@ -61,6 +61,8 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
     "tau-ridge": {
         "stale_sec": 5400.0,
         "stuck_start_sec": 5400.0,
+        # 拉日线阶段 current 常为 0；进度靠 message/心跳，勿按零进展误杀
+        "allow_zero_progress": True,
         "label": "ŷ_τc 拟合",
     },
     "co-ridge": {
@@ -88,6 +90,8 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
     "materialize-l1l2": {
         "stale_sec": 5400.0,
         "stuck_start_sec": 5400.0,
+        # L1 宏步 current 常钉在 0（子进度只改 message）；勿按零进展误杀
+        "allow_zero_progress": True,
         "label": "物化",
     },
 }
@@ -348,6 +352,7 @@ class JobProgress:
             out["stale_policy"] = {
                 "stale_sec": float(policy["stale_sec"]),
                 "stuck_start_sec": float(policy["stuck_start_sec"]),
+                "allow_zero_progress": bool(policy.get("allow_zero_progress")),
                 "label": str(policy.get("label") or "任务"),
             }
             out["persisted"] = bool(self._persist_path)
@@ -360,6 +365,7 @@ class JobProgress:
             "slot": self.name,
             "stale_sec": float(p["stale_sec"]),
             "stuck_start_sec": float(p["stuck_start_sec"]),
+            "allow_zero_progress": bool(p.get("allow_zero_progress")),
             "label": str(p.get("label") or "任务"),
             "persisted": bool(self._persist_path),
         }
@@ -385,6 +391,33 @@ class JobProgress:
             }
             self._save_unlocked()
         return job_id
+
+    def try_start(
+        self, *, kind: str, total: int = 0, message: str = ""
+    ) -> tuple[Optional[str], Dict[str, Any]]:
+        """原子：仅 idle/非 running 时开槽。成功 ``(job_id, snap)``，冲突 ``(None, running_snap)``。"""
+        now = time.time()
+        with self._lock:
+            if self._job.get("status") == "running":
+                return None, dict(self._job)
+            job_id = uuid.uuid4().hex[:12]
+            self._job = {
+                "id": job_id,
+                "name": self.name,
+                "kind": kind,
+                "status": "running",
+                "current": 0,
+                "total": max(0, int(total)),
+                "pct": 0,
+                "message": message or "启动中…",
+                "error": None,
+                "result": None,
+                "cancel_requested": False,
+                "started_at": now,
+                "updated_at": now,
+            }
+            self._save_unlocked()
+            return job_id, dict(self._job)
 
     def update(
         self,
@@ -534,6 +567,7 @@ class JobProgress:
             )
             threshold = stuck_start_sec if stuck_at_start else stale_sec
             # 心跳会刷 updated_at；进度长期 0 时改看 started_at，避免假活锁槽
+            # allow_zero_progress：宏步钉 current（如物化 L1）时只按心跳 stale 回收
             cur = int(self._job.get("current") or 0)
             try:
                 started_age = max(
@@ -541,7 +575,10 @@ class JobProgress:
                 )
             except (TypeError, ValueError):
                 started_age = stale
-            zero_progress_stuck = cur <= 0 and started_age >= stuck_start_sec
+            allow_zp = bool(policy.get("allow_zero_progress"))
+            zero_progress_stuck = (
+                (not allow_zp) and cur <= 0 and started_age >= stuck_start_sec
+            )
             if stale < threshold and not zero_progress_stuck:
                 return False
             age_show = int(started_age if zero_progress_stuck else stale)

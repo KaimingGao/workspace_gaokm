@@ -258,9 +258,9 @@ export function initQuant(ctx) {
   const suggest = installSuggest(q);
   // 先 hydrate 观察池只数，日线/5m Coverage 首刷 await watchingPoolLimitReady
   const researchUniverse = installResearchUniverseUi(q);
-  const barsUi = installBarsUi(q);
-  installMaterializeUi(q);
+  q.installMaterializeUi = installMaterializeUi;
   q.installMinuteMaterializeUi = installMinuteMaterializeUi;
+  const barsUi = installBarsUi(q);
   const minuteUi = installMinuteUi(q);
   installBarsIntegrityUi(q);
   const strategy = installStrategy(q);
@@ -1613,7 +1613,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t30-summary");
       if (!sum) return;
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t30");
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1651,7 +1651,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t45-summary");
       if (!sum) return;
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t45");
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1688,7 +1688,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t60-summary");
       if (!sum) return;
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t60");
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1725,7 +1725,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t75-summary");
       if (!sum) return;
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t75");
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1762,7 +1762,7 @@ export function initQuant(ctx) {
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-t90-summary");
       if (!sum) return;
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t90");
       if (!data.exists) {
         paintHorizonFitStatus(sum, data, {
           idleMessage: data.note || "尚无启用模型 · 可拟合后启用",
@@ -1799,8 +1799,8 @@ export function initQuant(ctx) {
       const res = await fetch("/api/quant/tc-ridge/model");
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-tau-summary");
-      // 前缀滑条：按各头最新拟合 tau_end_hm 恢复
-      restoreTauEndFromFitReport(data);
+      // 前缀滑条：按本组（ŷ_τc）最新拟合 tau_end_hm 恢复
+      restoreTauEndFromFitReport(data, "tc");
       if (!data.exists) {
         paintRidgeEnableStatus(sum, data);
         syncTauPersistBtn(data.promote_gate, {
@@ -2544,7 +2544,7 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays("tc"),
           ...readCrossSectionFitParams("tc"),
-          ...readTauEndFitParams(),
+          ...readTauEndFitParams("tc"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -2596,7 +2596,7 @@ export function initQuant(ctx) {
         return;
       }
       const oos = data.oos || {};
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "tc");
       const packBit =
         data.feature_pack ||
         `alpha_τc(Z∪atc×${
@@ -3069,7 +3069,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
-          ...readTauEndFitParams(),
+          ...readTauEndFitParams("t30"),
           holdout_trading_days: readHoldoutTradingDays("t30"),
           ...readCrossSectionFitParams("t30"),
           persist: !!persist,
@@ -3126,7 +3126,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t30");
       syncT30PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT30FitSummary(data);
@@ -3267,7 +3267,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
-          ...readTauEndFitParams(),
+          ...readTauEndFitParams("t45"),
           holdout_trading_days: readHoldoutTradingDays("t45"),
           ...readCrossSectionFitParams("t45"),
           persist: !!persist,
@@ -3324,7 +3324,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t45");
       syncT45PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT45FitSummary(data);
@@ -3464,7 +3464,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
-          ...readTauEndFitParams(),
+          ...readTauEndFitParams("t60"),
           holdout_trading_days: readHoldoutTradingDays("t60"),
           ...readCrossSectionFitParams("t60"),
           persist: !!persist,
@@ -3521,7 +3521,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t60");
       syncT60PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT60FitSummary(data);
@@ -3661,7 +3661,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
-          ...readTauEndFitParams(),
+          ...readTauEndFitParams("t75"),
           holdout_trading_days: readHoldoutTradingDays("t75"),
           ...readCrossSectionFitParams("t75"),
           persist: !!persist,
@@ -3718,7 +3718,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t75");
       syncT75PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT75FitSummary(data);
@@ -3858,7 +3858,7 @@ export function initQuant(ctx) {
           watching_limit: readWatchingLimit(),
           ridge_lambda: 1.0,
           minute_period: "5",
-          ...readTauEndFitParams(),
+          ...readTauEndFitParams("t90"),
           holdout_trading_days: readHoldoutTradingDays("t90"),
           ...readCrossSectionFitParams("t90"),
           persist: !!persist,
@@ -3915,7 +3915,7 @@ export function initQuant(ctx) {
         persistRole,
         justFitted: !persist,
       });
-      restoreTauEndFromFitReport(data);
+      restoreTauEndFromFitReport(data, "t90");
       syncT90PersistBtn(gate, { hasReport: true });
       const hPack = horizonCoefPack(data);
       renderT90FitSummary(data);

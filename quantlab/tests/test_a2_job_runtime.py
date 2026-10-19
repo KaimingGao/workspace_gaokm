@@ -35,6 +35,33 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertTrue(slot.reclaim_if_stale(stale_sec=1.0, stuck_start_sec=1.0))
         self.assertEqual(slot.get()["status"], "failed")
 
+    def test_try_start_atomic(self):
+        slot = JobProgress(name="test-try-start")
+        jid, snap = slot.try_start(kind="a", total=2, message="排队中…")
+        self.assertIsNotNone(jid)
+        self.assertEqual(snap["status"], "running")
+        jid2, running = slot.try_start(kind="b", total=2, message="再开")
+        self.assertIsNone(jid2)
+        self.assertEqual(running["id"], jid)
+        self.assertEqual(running["kind"], "a")
+
+    def test_materialize_allow_zero_progress(self):
+        """物化宏步 current=0 但心跳新鲜时勿按零进展回收。"""
+        slot = JobProgress(name="materialize-l1l2")
+        slot.start(kind="materialize_open", total=2, message="L1 assemble…")
+        now = time.time()
+        with slot._lock:
+            slot._job["started_at"] = now - 6000
+            slot._job["updated_at"] = now  # 心跳新鲜
+            slot._job["current"] = 0
+        self.assertFalse(slot.reclaim_if_stale())
+        self.assertEqual(slot.get()["status"], "running")
+        # 心跳也停了才按 stale 回收
+        with slot._lock:
+            slot._job["updated_at"] = now - 6000
+        self.assertTrue(slot.reclaim_if_stale())
+        self.assertEqual(slot.get()["status"], "failed")
+
     def test_registry_reclaim_and_policies(self):
         reg = JobRegistry()
         path = os.path.join(tempfile.mkdtemp(), "job.json")
@@ -71,6 +98,10 @@ class TestA2JobRuntime(unittest.TestCase):
             self.assertGreaterEqual(
                 float(pol.get("stuck_start_sec") or 0), 5400.0, slot_name
             )
+        mat_p = next(p for p in policies if p["slot"] == "materialize-l1l2")
+        self.assertTrue(mat_p.get("allow_zero_progress"))
+        tau_p = next(p for p in policies if p["slot"] == "tau-ridge")
+        self.assertTrue(tau_p.get("allow_zero_progress"))
         paper_p = next(p for p in policies if p["slot"] == "paper")
         self.assertTrue(paper_p.get("persisted"))
 

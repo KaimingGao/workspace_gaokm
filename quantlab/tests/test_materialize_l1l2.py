@@ -19,11 +19,19 @@ class MaterializeCatalogTests(unittest.TestCase):
         self.assertEqual(doc["clocks"], ["open"])
         self.assertIn("suggested_tau_clocks", doc)
         self.assertIsInstance(doc["suggested_tau_clocks"], list)
+        clocks = list(doc["suggested_tau_clocks"])
+        # 分钟物化文案（k/N）：N=网格钟数；默认 09:35…11:00 每 5m → 18，不含 open/09:30
+        self.assertEqual(len(clocks), 18, clocks)
+        self.assertEqual(clocks[0], "09:35")
+        self.assertEqual(clocks[-1], "11:00")
+        self.assertNotIn("09:30", clocks)
+        self.assertNotIn("open", clocks)
         self.assertIn("flags", doc)
         self.assertIn("fit_use_day_cube", doc["flags"])
         self.assertIn("tau_grid", doc)
         self.assertEqual(doc["tau_grid"].get("option"), "do_l1_tau_grid")
         self.assertTrue(doc["tau_grid"].get("requires_minute"))
+        self.assertEqual(doc["tau_grid"].get("clocks"), clocks)
 
     def test_normalize_families_default_p0(self):
         from core.research.materialize.catalog import normalize_families
@@ -87,6 +95,55 @@ class MaterializeOrchestrateTests(unittest.TestCase):
             )
         self.assertTrue(out.get("ok"))
         self.assertEqual(out["l2"]["by_clock"]["open"]["cubes_hit"], 2)
+
+    def test_orchestrate_nested_progress_pins_macro_step(self):
+        """子阶段 tot==families 不得推进宏 current；阶段结束应到 1/2。"""
+        from core.research.materialize import run_materialize
+
+        events = []
+
+        def _pcb(c, t, m=""):
+            events.append((int(c), int(t), str(m or "")))
+
+        def _fake_l1(*_a, progress_cb=None, **_k):
+            if progress_cb:
+                progress_cb(2, 3, "L1 oo：assemble…")
+                progress_cb(0, 1, "L1 tc…")
+            return {"ok": True, "elapsed_s": 0.01}
+
+        def _fake_l2(*_a, progress_cb=None, **_k):
+            if progress_cb:
+                progress_cb(50, 800, "L2：日线 50/800")
+            return {"ok": True, "by_clock": {"open": {"cubes_hit": 1}}}
+
+        with mock.patch(
+            "core.research.materialize.orchestrate.resolve_materialize_codes",
+            return_value=["000001", "000002"],
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l1",
+            side_effect=_fake_l1,
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l2",
+            side_effect=_fake_l2,
+        ):
+            out = run_materialize(
+                codes=["000001", "000002"],
+                do_l1=True,
+                do_l2=True,
+                clocks=["open"],
+                progress_cb=_pcb,
+            )
+        self.assertTrue(out.get("ok"), out)
+        nested = [e for e in events if "assemble" in e[2] or e[2].startswith("L1 tc")]
+        self.assertTrue(nested)
+        for c, t, _m in nested:
+            self.assertEqual((c, t), (0, 2))
+        self.assertIn((1, 2, "L1 完成"), events)
+        l2_nested = [e for e in events if "日线" in e[2]]
+        self.assertTrue(l2_nested)
+        for c, t, _m in l2_nested:
+            self.assertEqual((c, t), (1, 2))
+        self.assertTrue(any(e[0] == 2 and e[1] == 2 and "物化完成" in e[2] for e in events))
 
     def test_run_materialize_tau_grid_wires_l1(self):
         from core.research.materialize import run_materialize
@@ -373,6 +430,44 @@ class HorizonL1StitchTests(unittest.TestCase):
         self.assertEqual(len(panel["xs"]), 8)  # 4 days × 2 clocks
         self.assertEqual(panel["metas"][0].get("tau"), "10:30")
         self.assertTrue(panel.get("minute_bars"))
+
+
+class MaterializeL2UniverseHashTests(unittest.TestCase):
+    def test_missing_lake_row_keeps_requested_universe(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        present = {"000001": {"x": 1.0}, "000002": {"x": 2.0}}
+
+        def _rows(family, codes, day):
+            return {c: present[c] for c in codes if c in present}
+
+        def _assemble(code, day, oo=None, tc=None, co=None):
+            if code not in present:
+                return None
+            return {"stock_code": code, "as_of": day, "features_tau": present[code]}
+
+        with mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), mock.patch(
+            "core.research.feature_lake.load_day_rows", side_effect=_rows
+        ), mock.patch(
+            "core.research.lake_replay.assemble_item_from_lake_rows",
+            side_effect=_assemble,
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items",
+            return_value=mock.Mock(names=["raw_ath_x"]),
+        ) as ensure:
+            out = materialize_l2(
+                ["000001", "000002", "001232"],
+                dates=["2026-10-16"],
+                clocks=["09:35"],
+            )
+        self.assertTrue(out.get("ok"), out)
+        ensure.assert_called_once()
+        self.assertEqual(
+            list(ensure.call_args.kwargs["universe_codes"]),
+            ["000001", "000002", "001232"],
+        )
 
 
 if __name__ == "__main__":

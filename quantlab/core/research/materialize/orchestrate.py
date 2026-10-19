@@ -141,14 +141,17 @@ def run_materialize(
         except Exception:  # noqa: BLE001
             return False
 
+    tot_steps = max(1, steps)
+
     if do_l1:
         if _cancelled():
             out["error"] = "cancelled"
             return out
-        _emit(progress_cb, step, max(1, steps), "物化 L1…")
+        _emit(progress_cb, step, tot_steps, "物化 L1…")
 
-        def _pcb(c: int, t: int, m: str = "") -> None:
-            _emit(progress_cb, c, t, m or "L1…")
+        def _pcb(_c: int, _t: int, m: str = "") -> None:
+            # 子阶段只改 message，宏 current 钉在本 step（避免 tot==families 撞宏步骤）
+            _emit(progress_cb, step, tot_steps, m or "L1…")
 
         out["l1"] = materialize_l1(
             fams,
@@ -159,16 +162,17 @@ def run_materialize(
             cancel_cb=cancel_cb,
         )
         step += 1
+        _emit(progress_cb, step, tot_steps, "L1 完成")
 
     if do_l1_tau_grid:
         if _cancelled():
             out["error"] = "cancelled"
             out["elapsed_s"] = round(time.perf_counter() - t0, 2)
             return out
-        _emit(progress_cb, step, max(1, steps), "物化 L1 τ 网格…")
+        _emit(progress_cb, step, tot_steps, "物化 L1 τ 网格…")
 
-        def _pcb_tau(c: int, t: int, m: str = "") -> None:
-            _emit(progress_cb, c, t, m or "L1 τ…")
+        def _pcb_tau(_c: int, _t: int, m: str = "") -> None:
+            _emit(progress_cb, step, tot_steps, m or "L1 τ…")
 
         tau_clocks = [c for c in clks if str(c).lower() not in ("open", "09:30", "0930")]
         if not tau_clocks:
@@ -181,16 +185,17 @@ def run_materialize(
             cancel_cb=cancel_cb,
         )
         step += 1
+        _emit(progress_cb, step, tot_steps, "L1 τ 完成")
 
     if do_l2:
         if _cancelled():
             out["error"] = "cancelled"
             out["elapsed_s"] = round(time.perf_counter() - t0, 2)
             return out
-        _emit(progress_cb, step, max(1, steps), "物化 L2…")
+        _emit(progress_cb, step, tot_steps, "物化 L2…")
 
-        def _pcb2(c: int, t: int, m: str = "") -> None:
-            _emit(progress_cb, c, t, m or "L2…")
+        def _pcb2(_c: int, _t: int, m: str = "") -> None:
+            _emit(progress_cb, step, tot_steps, m or "L2…")
 
         out["l2"] = materialize_l2(
             code_list,
@@ -201,6 +206,8 @@ def run_materialize(
             cancel_cb=cancel_cb,
             require_horizon_names=bool(do_l1_tau_grid),
         )
+        step += 1
+        _emit(progress_cb, step, tot_steps, "L2 完成")
 
     l1_ok = (not do_l1) or bool((out.get("l1") or {}).get("ok"))
     tau_ok = (not do_l1_tau_grid) or bool((out.get("l1_tau_grid") or {}).get("ok"))
@@ -217,7 +224,7 @@ def run_materialize(
         if do_l2 and not l2_ok:
             errs.append("l2")
         out["error"] = "materialize failed: " + ",".join(errs)
-    _emit(progress_cb, 1, 1, f"物化完成 · {out['elapsed_s']}s")
+    _emit(progress_cb, tot_steps, tot_steps, f"物化完成 · {out['elapsed_s']}s")
     logger.info(
         "materialize done ok=%s codes=%s l1=%s tau_grid=%s l2=%s elapsed=%.1fs",
         out["ok"],

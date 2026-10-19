@@ -42,9 +42,14 @@ _MINUTE_FETCH_TIMEOUT_SEC = 12.0
 # A股全日约 48 根 5m；≥40 或末根≥14:55 视为齐窗（缺尾缓存会触发补拉）
 _MINUTE_SESSION_MIN_BARS = 40
 _MINUTE_SESSION_END_HM = (14, 55)
-# Web 默认后台 Job + 轮询，不再卡前端 300s abort；整批含 τ 池须在此前回。
-_HOLDINGS_DEADLINE_SEC = 900.0
+# Web 默认后台 Job + 轮询；预算含 τ 池 + DayCube 预热 + 逐票 walk。
+# 900s 时常被预热吃光、持仓尚未开跑就全员超时；与物化/拟合墙钟对齐放宽。
+_HOLDINGS_DEADLINE_SEC = 2400.0
 _QUOTE_TIMEOUT_SEC = 4.0
+_HOLDINGS_DEADLINE_ERR = (
+    "回测截止：已达时间上限（τ截面/DayCube预热或逐票过久；"
+    "请预热5m、先日线物化，或缩小回看窗/观察池）"
+)
 
 
 def _minute_bar_hm(bar: Any) -> Optional[Tuple[int, int]]:
@@ -948,10 +953,11 @@ def run_t0_backtest_for_holdings(
         if time.time() >= t_deadline:
             one = {
                 "success": False,
-                "error": "回测截止：已达时间上限（请预热 5m 缓存或缩小回看窗）",
+                "error": _HOLDINGS_DEADLINE_ERR,
                 "task": "t0_backtest",
                 "stock_code": code,
                 "stock_name": h.get("stock_name"),
+                "deadline_sec": float(_HOLDINGS_DEADLINE_SEC),
             }
             per.append(one)
             continue
@@ -1012,7 +1018,16 @@ def run_t0_backtest_for_holdings(
     ok = [x for x in per if x.get("success")]
     if not ok:
         failed = [x for x in per if not x.get("success")]
-        err_bits = [str(x.get("error") or "失败") for x in failed[:3]]
+        err_bits: List[str] = []
+        seen_err: set = set()
+        for x in failed:
+            e = str(x.get("error") or "失败").strip() or "失败"
+            if e in seen_err:
+                continue
+            seen_err.add(e)
+            err_bits.append(e)
+            if len(err_bits) >= 3:
+                break
         return {
             "success": False,
             "error": "持仓回测均未成功" + (f"：{'；'.join(err_bits)}" if err_bits else ""),
@@ -1020,6 +1035,7 @@ def run_t0_backtest_for_holdings(
             "from_holdings": True,
             "holding_count": len(holdings),
             "ok_count": 0,
+            "deadline_sec": float(_HOLDINGS_DEADLINE_SEC),
             "results": per,
         }
 

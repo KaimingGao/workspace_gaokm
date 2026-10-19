@@ -127,6 +127,69 @@ class TestDayCube(unittest.TestCase):
         self.assertEqual(cube.date, "2024-09-01")
         self.assertGreaterEqual(len(cube.names), 1)
 
+    def test_missing_row_stays_on_requested_universe_hash(self) -> None:
+        """缺行代码不进矩阵，但哈希仍是请求的完整名单。"""
+        from core.research.day_cube import build_or_load, clear_memory, load_day_cube
+        from core.research.feature_registry import universe_hash
+
+        feats = {
+            "000001": {"gap_pct": 1.0},
+            "000002": {"gap_pct": 3.0},
+        }
+        full = ["000001", "000002", "001232"]
+        cube = build_or_load(
+            "2026-10-16", feats, clock="0935", universe_codes=full
+        )
+        self.assertIsNotNone(cube)
+        assert cube is not None
+        self.assertEqual(cube.codes, ["000001", "000002"])
+        self.assertEqual(cube.universe_hash, universe_hash(full))
+        self.assertNotEqual(cube.universe_hash, universe_hash(cube.codes))
+        clear_memory()
+        self.assertIsNotNone(load_day_cube("2026-10-16", full, clock="0935"))
+        self.assertIsNone(
+            load_day_cube("2026-10-16", ["000001", "000002"], clock="0935")
+        )
+
+    def test_batched_rescore_uses_score_codes_as_universe_hash(self) -> None:
+        """batched 落盘键跟 score_codes，不跟当日有行子集。"""
+        from unittest.mock import patch
+
+        from core.research.batch_score import rescore_fitted_cross_section_batched
+        from core.research.day_cube import clear_memory, load_day_cube
+        from core.research.feature_registry import universe_hash
+
+        full = ["000001", "000002", "001232"]
+        items = [
+            {
+                "stock_code": "000001",
+                "as_of": "2026-10-16",
+                "features_tau": {"gap_pct": 1.0},
+            },
+            {
+                "stock_code": "000002",
+                "as_of": "2026-10-16",
+                "features_tau": {"gap_pct": 3.0},
+            },
+        ]
+        with patch(
+            "core.signal.cross_section_rescore.rescore_fitted_cross_section",
+            side_effect=lambda its, **kw: its,
+        ):
+            rescore_fitted_cross_section_batched(
+                items,
+                score_codes=full,
+                date="2026-10-16",
+                clock="0935",
+                persist_cube=True,
+            )
+        clear_memory()
+        hit = load_day_cube("2026-10-16", full, clock="0935")
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertEqual(hit.universe_hash, universe_hash(full))
+        self.assertEqual(hit.codes, ["000001", "000002"])
+
     def test_rescore_single_item_with_day_cube(self) -> None:
         """有 DayCube 时允许单票 rescore（μ/σ 信 cube）。"""
         from unittest.mock import patch

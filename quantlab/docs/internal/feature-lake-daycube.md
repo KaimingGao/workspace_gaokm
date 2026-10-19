@@ -136,6 +136,8 @@ API 要点：
 
 进程内 `_MEMORY` 缓存当日 cube；`persist_tau_pool_as_cubes` 把 `build_tau_pool_by_date` 结果写入 slim。
 
+**宇宙键**：`universe_hash` 用本次请求的完整代码名单（观察池），不用「当天有特征行的子集」。缺行代码不进 `X_raw` / μ/σ。读写不一致时立方 miss。说明与 2026-10-19 的 800/798 分叉见 [daycube-universe-key.md](./daycube-universe-key.md)。
+
 开关：`QUANTLAB_DAY_CUBE=0` 不落盘（内存构建仍可用）。
 
 ### 3.4 指纹
@@ -427,6 +429,8 @@ rm -rf data/cache/feature_lake data/cache/day_cubes
 
 L1/L2 按 schema 分目录；宇宙变大时 DayCube 按 `universe_hash` 分叉，旧宇宙文件可定期清理冷 hash。
 
+键协议对齐后，本地可只保留当前观察池哈希目录（例：`day_cubes/v{SCHEMA}/{universe_hash(watching)}/`），其余 `v{SCHEMA}/*` 为冷 hash（含旧「有行子集」分钟立方），删除不影响正确性；删后须再跑一次对应钟的 L2 才能走快路径。
+
 ---
 
 ## 11. 设计取舍说明
@@ -463,7 +467,7 @@ L1/L2 按 schema 分目录；宇宙变大时 DayCube 按 `universe_hash` 分叉�
 | 拟合分组 | `date|τ` PIT；窗头优先 stitch L1，miss 才全量 5m |
 | L1 | open `tc` + 分钟线「物化 L1/L2」写 `tc_HHMM`（τc∪窗头列） |
 | L2 | 日线物化 open；分钟线物化按钟（`require_horizon_names`）；`date|τ` 禁静默 open |
-| live | `_cs_z_horizon_feats`：τ Cube 覆盖失败 → leave-one-in（不读 open） |
+| live | `_cs_z_horizon_feats`：τ Cube 覆盖失败 → 同钟 L1，再 leave-one-in（不读 open）。键协议见 [daycube-universe-key.md](./daycube-universe-key.md) |
 | 物化 UI | 日线 open · 分钟线 τ（Ready 门控；仅手动） |
 
 ### 13.2 口径契约（冻结）
@@ -495,7 +499,7 @@ L1/L2 按 schema 分目录；宇宙变大时 DayCube 按 `universe_hash` 分叉�
 
 | 项 | 约定 |
 |----|------|
-| 构建输入 | 该日该钟 L1 行 → `ensure_day_cube_for_items(..., clock=τ)` |
+| 构建输入 | 该日该钟 L1 行 → `ensure_day_cube_for_items(..., clock=τ, universe_codes=请求的完整名单)`。哈希不随缺行缩小 |
 | `names` | 必须覆盖窗头入模列（拒 slim gap-only；与现 prefix CS-z 拒 slim 一致） |
 | 物化 | `clocks = ["open"] + suggested_tau_clocks`；缺 L1 跳过并计数 `days_skipped` |
 | 拟合读 | `cs_z_*_prefer_cube`：`date|τ` → `load_day_cube(day, clock=τ)`；miss → **不**默默用 open 当主成功（可配置 `fallback_open`，窗头默认 **关** 或打标 `open_fallback`） |
@@ -529,12 +533,22 @@ L1/L2 按 schema 分目录；宇宙变大时 DayCube 按 `universe_hash` 分叉�
 |------|------|
 | `POST /api/quant/materialize` | 增 `do_l1_tau_grid: bool`；`clocks` 已支持；families 不变 |
 | catalog | `suggested_tau_clocks`；`flags`；说明「τ 网格 L1 须分钟 Ready」 |
-| Job 槽 `materialize-l1l2` | stale/stuck **5400s**（满池 L1+L2）；L2 跳过整池 Feature Lake prefetch |
+| Job 槽 `materialize-l1l2` | stale/stuck **5400s**；`allow_zero_progress`（宏步钉 current=0 不按零进展误杀）；`try_start` 原子开槽；L2 跳过整池 Feature Lake prefetch |
 | 日线卡 | 「物化 L1/L2」= open L1（oo/tc/co）+ open Cube |
 | 分钟线卡 | Ready 后「物化 L1/L2」= τ 网格 L1 + 按钟 Cube |
+| τ 网格进度 | 文案 `L1 τ 网格 HH:MM（k/N）`：`N`=`suggested_tau_clocks` 钟数（默认 **18**=09:35…11:00 每 5m，不含 open/09:30）；Job `current/total` 仍钉宏步（如 0/2） |
 | 状态条 | 与增量/强更共用 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn） |
+| 刷新接管 | 页加载 **先** `resumeIfRunning`（设 matBusy/matSettled）**再** `refreshStatus`，未接管再 `syncJobSlot`；running 后台挂 wait；6h 内 failed 也画；coverage/`!ok` 不盖物化状态头；`clearJobPanels` 清 sticky |
+| waitJob | 见过本 id 后槽位被换 →「已被新任务替换」；前端等待 open **90min** / τ **150min**（勿再用 45min）；等满且槽仍 running → 提示刷新接管（勿标 FAIL） |
+| waitMinuteJob | 增量 **60min** / 强更 5m **120min**（勿再用 30min）；等满且槽仍 running → WAIT + 刷新接管（勿标 FAIL）；页加载 `syncJobSlot` 可挂接 |
+| open↔τ 同槽 | 对侧 running 时 POST 返回 `conflict`；UI **等待对侧结束再自动重试一次**（勿硬 FAIL） |
+| 进度 | 宏步骤钉 `step/tot_steps`；子阶段只改 message；UI 隐藏 total>8 的票级微进度；失败文案用 `--danger` |
+| 失败配色 | 增量/强更失败：蓝族 + 红字；物化失败：黄族 + 红字 |
+| 耗时参考 | 日线 open L1+L2 · 池≈800：约 **5–8 min**；τ 网格首轮（18 钟 L1+L2）可到 **数小时**；L1 指纹增量后会快很多；L2 宇宙键对齐后同池再跑可命中跳过（见 [daycube-universe-key.md](./daycube-universe-key.md)）；强更 5m · 800 票常 **1h+** |
 | 无自动物化 | 日线/分钟线均手动；无 auto-materialize 勾选 |
-| 窗头拟合 Job | 进度区分 `L1 hit / 5m miss / Cube hit` |
+| 前缀滑条 | **ŷ_τc** 独立（默认 09:30）；**ŷ_τ30…90** 共用（默认 11:00）；localStorage / 拟合恢复按组隔离 |
+| ŷ_τc 拟合进度 | `解析宇宙` → `拉日线` →（可选）`读5m` → `面板 k/N` → `截面广度` → `Ridge`；槽 `allow_zero_progress` |
+| 窗头拟合 Job | 进度区分 `L1 hit / 5m miss / Cube hit`；CS-z 读 L2 须 `FIT_USE_DAY_CUBE=1` |
 
 ### 13.6 运维顺序（窗头专用）
 

@@ -1316,7 +1316,7 @@ score_stock(code) 续——
 | 训练 | `POST /api/quant/t{N}-ridge` 拟合写 last report（双 backend 串行）；人审「启用研究 / 启用执行」按 Holdout **AUC** 择优，不重训 |
 | 回测 / live | 加载已启用模型（读包内 `backend`）；挂 `y_τ{N}` + `y_τ{N}_source`；live/回测打分前注入 `raw_ath_*` 并 `stamp_z_th_aliases`（裸名/`z_τc_*`→`z_τh_*`）。做 T 回测 / live 均跟启用套 `backend`（遗留 API `horizon_prob_backend=tree` 可强制 `backends.tree`） |
 | OOS | **AUC** / **Brier** / acc@0.5 / IC；Tree vs Ridge 同窗对照；晋级闸看胜出侧（AUC≥0.52 或 acc≥0.52，n≥80） |
-| 前缀滑条 | 训练前缀终点 09:30…11:00；无拟合记录默认 **11:00**；刷新后按各头 `fitted_at` 最新的 last_report / 模型恢复 |
+| 前缀滑条 | ŷ_τ* 共用一组（默认 **11:00**）；与 ŷ_τc 滑条（默认 **09:30**）独立；刷新后按**本组**最新 `fitted_at` 恢复 |
 
 实现：`core/research/horizon_ridge.py`（`fit_horizon_dual_report` / `select_horizon_backend` / `prepare_horizon_compact`）· `horizon_compact.py` · `horizon_tree.py` · `horizon_lgb.py` · `alpha_th.py` · `z_th.py`。双训**只建一次面板并折 float64**，Ridge→Tree 串行共用 `compact_panel`（对齐 y_oo）；抽 Holdout 日历后释放日线 `bars`。服务层**分批**读本地 5m → `build_tau_panels_from_bars`（`label_heads` 只算本头窗价；分钟路径 **ProcessPool**，`TAU_RIDGE_WORKERS` 顶 4）→ 立刻 pop 分钟线 → `enrich_horizon_raw_panels` → 折矩阵；Job 槽经 `progress_cb` 报「建面板 n/N」/「折矩阵…」。研究枢纽无独立 tree 卡 / standalone tree API。
 

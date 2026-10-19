@@ -502,6 +502,7 @@ def collect_tau_compact(
     head: str = "y_tc",
     workers: Optional[int] = None,
     cache_head: str = "tc",
+    progress_cb: Optional[Any] = None,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
 
@@ -509,6 +510,7 @@ def collect_tau_compact(
     ``include_alpha_th``：写穿窗头列（H 轨 ``tc_HHMM``）。
     单票任务内折 float64 + slim（对齐 ŷ_co），写穿 L1。
     并行：默认/硬顶 4 线程（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
+    ``progress_cb(done, total, message)``：可选，供 job 槽刷新进度。
     """
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -532,6 +534,27 @@ def collect_tau_compact(
     slim_keys = _breadth_keys()
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
+    processed = 0
+
+    def _tick() -> None:
+        nonlocal processed
+        processed += 1
+        if not callable(progress_cb):
+            return
+        if (
+            processed == 1
+            or processed >= n_jobs
+            or processed % 8 == 0
+            or processed % _TAU_POOL_BATCH == 0
+        ):
+            try:
+                progress_cb(
+                    processed,
+                    max(1, n_jobs),
+                    f"ŷ_τc 面板 {processed}/{n_jobs}",
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("tau compact progress_cb failed", exc_info=True)
 
     def _fold(
         pack: Optional[
@@ -540,6 +563,7 @@ def collect_tau_compact(
     ) -> None:
         nonlocal n_stocks
         if not pack:
+            _tick()
             return
         code, arr, ys, dates, metas, slim = pack
         block.append_block(arr)
@@ -553,6 +577,7 @@ def collect_tau_compact(
             }
         )
         n_stocks += 1
+        _tick()
 
     def _run_serial(start: int, end: int) -> None:
         for i in range(start, end):
@@ -623,11 +648,22 @@ def collect_tau_compact(
             _TAU_POOL_BATCH,
             str(cache_head or "tc"),
         )
+        if callable(progress_cb):
+            try:
+                progress_cb(0, max(1, n_jobs), f"ŷ_τc 面板 0/{n_jobs}")
+            except Exception:  # noqa: BLE001
+                logger.debug("tau compact progress_cb failed", exc_info=True)
         start = 0
         while start < n_jobs:
             end = min(n_jobs, start + _TAU_POOL_BATCH)
             _run_batch(start, end)
             start = end
+
+    if callable(progress_cb) and n_jobs:
+        try:
+            progress_cb(n_jobs, max(1, n_jobs), "ŷ_τc 截面广度…")
+        except Exception:  # noqa: BLE001
+            logger.debug("tau compact progress_cb failed", exc_info=True)
 
     X, out_names, ys_out, dates_out, metas_out = _finish_breadth(
         block,

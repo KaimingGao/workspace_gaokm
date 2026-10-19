@@ -90,8 +90,13 @@ def ensure_day_cube_for_items(
     date: Optional[str] = None,
     clock: str = "open",
     persist: bool = True,
+    universe_codes: Optional[Sequence[str]] = None,
 ) -> Optional[Any]:
-    """从已打分 items 构建/加载当日 DayCube。"""
+    """从已打分 items 构建/加载当日 DayCube。
+
+    ``universe_codes`` 是读取方会拿去哈希的完整名单。缺行的代码仍留在键里，
+    矩阵只用有特征的 items。
+    """
     from core.research.day_cube import build_or_load
 
     by_code = features_by_code_from_items(items)
@@ -113,7 +118,9 @@ def ensure_day_cube_for_items(
         from datetime import date as _date
 
         day = _date.today().isoformat()
-    return build_or_load(day, by_code, clock=clock, persist=persist)
+    return build_or_load(
+        day, by_code, clock=clock, persist=persist, universe_codes=universe_codes
+    )
 
 
 def rescore_fitted_cross_section_batched(
@@ -123,15 +130,24 @@ def rescore_fitted_cross_section_batched(
     date: Optional[str] = None,
     clock: str = "open",
     persist_cube: bool = True,
+    universe_codes: Optional[Sequence[str]] = None,
 ) -> List[dict]:
-    """构建 DayCube 后单遍 rescore（τ/co 直接用 cube μ/σ；cube 落盘供 live/T0）。"""
+    """构建 DayCube 后单遍 rescore（τ/co 直接用 cube μ/σ；cube 落盘供 live/T0）。
+
+    ``universe_codes`` 优先；未传时用 ``score_codes`` 做哈希键（与观察池读键对齐）。
+    """
     from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
     cube = None
+    uh = universe_codes if universe_codes is not None else score_codes
     if enabled() and len([it for it in items if isinstance(it, dict)]) >= 2:
         try:
             cube = ensure_day_cube_for_items(
-                items, date=date, clock=clock, persist=persist_cube
+                items,
+                date=date,
+                clock=clock,
+                persist=persist_cube,
+                universe_codes=uh,
             )
             if cube is not None:
                 logger.debug(

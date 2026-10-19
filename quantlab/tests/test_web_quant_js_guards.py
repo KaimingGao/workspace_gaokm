@@ -249,6 +249,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("unwrapJobSnap", minute_js)
         self.assertIn("applyJobFailure", minute_js)
         self.assertIn("syncJobSlot", minute_js)
+        self.assertIn('mode === "topup" ? 60 : 120', minute_js)
+        self.assertIn("stillRunning", minute_js)
+        self.assertIn("前端等待已满，任务仍在后台运行", minute_js)
+        self.assertNotIn("30 * 60 * 1000", minute_js)
         bars_js = self._read("web", "static", "js", "quant", "bars_ui.js")
         self.assertIn("unwrapJobSnap", bars_js)
         self.assertIn("quant-bars-foot-item--nowrap", bars_js)
@@ -269,7 +273,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
             quant_js.find("installBarsUi(q)"),
         )
         self.assertIn("Number(done) > 0", bars_js)
-        self.assertIn("if (!inflight && !jobFailure && !jobSuccess && jobSt !== \"running\")", bars_js)
+        self.assertIn("!matBusy", bars_js)
+        self.assertIn('jobSt !== "running"', bars_js)
         self.assertIn("!matBusy", minute_js)
         self.assertIn("!matSettled", minute_js)
         self.assertIn('jobSt !== "running"', minute_js)
@@ -1013,6 +1018,23 @@ class TestWebQuantJsGuards(unittest.TestCase):
         job_ui = self._read("web", "static", "js", "quant", "cluster_job_ui.js")
         self.assertIn("export function setDeskStatusTone", job_ui)
         self.assertIn("dataset.tone", job_ui)
+        # fail 不得暗绑 is-warn（刷新后增量/强更失败会整块变黄）
+        self.assertIn('const isWarn = tone === "warn"', job_ui)
+        self.assertNotIn('tone === "warn" || mode === "fail"', job_ui)
+        self.assertNotIn("mode === \"fail\" || !!opts.isWarn", job_ui)
+        self.assertIn('cls: "is-bad"', job_ui)
+        css_err = self._read("web", "static", "css", "quant.css")
+        self.assertIn(".quant-bars-progress-msg--err", css_err)
+        self.assertIn("var(--danger", css_err[css_err.find(".quant-bars-progress-msg--err") :])
+        self.assertNotIn(
+            "var(--warn",
+            css_err[
+                css_err.find(".quant-bars-progress-msg--err") : css_err.find(
+                    ".quant-bars-progress-msg--err"
+                )
+                + 120
+            ],
+        )
         css = self._read("web", "static", "css", "quant.css")
         self.assertIn('data-tone="primary"', css)
         self.assertIn('data-tone="warn"', css)
@@ -1023,6 +1045,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-bars-progress", mat_js)
         self.assertIn("quant-minute-progress", mat_js)
         self.assertIn("onSettled", mat_js)
+        self.assertIn("resumeIfRunning", mat_js)
+        self.assertIn("kindMatchesRunner", mat_js)
+        self.assertIn("materialize_open", mat_js)
+        self.assertIn("materialize_tau", mat_js)
         minute_js2 = self._read("web", "static", "js", "quant", "minute_ui.js")
         # 由 quant.js 注入同版本 installMinuteMaterializeUi，避免二次动态 import / 缓存分叉
         self.assertIn("q.installMinuteMaterializeUi", minute_js2)
@@ -1039,8 +1065,62 @@ class TestWebQuantJsGuards(unittest.TestCase):
         quant_js = self._read("web", "static", "js", "quant.js")
         self.assertIn("installMinuteMaterializeUi", quant_js)
         self.assertIn("q.installMinuteMaterializeUi", quant_js)
+        self.assertIn("q.installMaterializeUi", quant_js)
         bars_ui_js2 = self._read("web", "static", "js", "quant", "bars_ui.js")
         self.assertIn('getElementById("quant-materialize-run")', bars_ui_js2)
+        self.assertIn("q.installMaterializeUi", bars_ui_js2)
+        self.assertIn("matBusy", bars_ui_js2)
+        self.assertIn("matSettled", bars_ui_js2)
+        self.assertIn("matUi.resumeIfRunning", bars_ui_js2)
+        self.assertIn("!matBusy && !matSettled", bars_ui_js2)
+        self.assertIn("if (matBusy || matSettled) return job", bars_ui_js2)
+        self.assertIn("matSettled = false", bars_ui_js2)
+        self.assertIn("if (!matResumed) await syncJobSlot()", bars_ui_js2)
+        # bootstrap：resume 须在 refreshStatus 之前（避免 bars/5m handleRefreshJob 抢条）
+        _bars_boot = bars_ui_js2.find("(async () =>")
+        self.assertGreater(_bars_boot, 0)
+        _bars_boot_end = bars_ui_js2.find("})();", _bars_boot)
+        _bars_chunk = bars_ui_js2[_bars_boot:_bars_boot_end]
+        self.assertLess(
+            _bars_chunk.find("matUi.resumeIfRunning"),
+            _bars_chunk.find("await refreshStatus()"),
+        )
+        minute_js3 = self._read("web", "static", "js", "quant", "minute_ui.js")
+        self.assertIn("matUi.resumeIfRunning", minute_js3)
+        self.assertIn("if (matBusy || matSettled) return job", minute_js3)
+        self.assertIn("if (!matResumed) await syncJobSlot()", minute_js3)
+        self.assertIn("if (!matBusy && !matSettled)", minute_js3)
+        self.assertIn("networkErrText(error)", minute_js3)
+        _min_boot = minute_js3.rfind("(async () =>")
+        self.assertGreater(_min_boot, 0)
+        _min_boot_end = minute_js3.find("})();", _min_boot)
+        _min_chunk = minute_js3[_min_boot:_min_boot_end]
+        self.assertLess(
+            _min_chunk.find("matUi.resumeIfRunning"),
+            _min_chunk.find("await refreshStatus()"),
+        )
+        self.assertIn("{ pollStartedAt: started, mode }", minute_js3)
+        self.assertIn("macroJobView", mat_js)
+        self.assertIn("jobFracText", mat_js)
+        self.assertIn("物化任务已被新任务替换", mat_js)
+        self.assertIn("isMatKindConflict", mat_js)
+        self.assertIn("waitPeerMaterialize", mat_js)
+        self.assertIn("conflict", mat_js)
+        self.assertIn("tau ? 150 : 90", mat_js)
+        self.assertIn("stillRunning", mat_js)
+        self.assertIn("前端等待已满，任务仍在后台运行", mat_js)
+        self.assertNotIn("45 * 60 * 1000", mat_js)
+        self.assertNotIn("status === \"failed\" || status === \"error\" || job.error", mat_js)
+        # ŷ_τc 拟合分阶段进度（勿长期停在「准备…」）
+        factors_py = self._read("quant", "services", "quant_service_factors.py")
+        self.assertIn("ŷ_τc 拉日线", factors_py)
+        self.assertIn("ŷ_τc 组面板", factors_py)
+        panel_py = self._read("core", "research", "panel_matrix.py")
+        self.assertIn("ŷ_τc 面板", panel_py)
+        orch = self._read("core", "research", "materialize", "orchestrate.py")
+        self.assertIn("_emit(progress_cb, step, tot_steps, m or \"L1…\")", orch)
+        self.assertIn("L1 完成", orch)
+        self.assertIn("_emit(progress_cb, tot_steps, tot_steps,", orch)
         minute_js = self._read("web", "static", "js", "quant", "minute_ui.js")
         self.assertIn("installMinuteMaterializeUi", minute_js)
         self.assertIn("updateTauMaterializeReady", minute_js)
@@ -3209,16 +3289,26 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-tau-end-slider", panel)
         self.assertIn("quant-tau-end-range", css)
         self.assertIn('value="18"', panel)
-        self.assertIn("DEFAULT_TAU_END_HM = \"11:00\"", params_js)
-        self.assertIn("quant_fit_tau_end_hm_v3", params_js)
-        self.assertNotIn("quant_fit_tau_end_hm_v2", params_js)
+        # τc 默认 09:30（value=0）；τ* 默认 11:00（value=18）
+        self.assertRegex(
+            panel,
+            r'id="quant-fit-tau-end-tc"[\s\S]{0,200}?value="0"',
+        )
+        self.assertIn('DEFAULT_TAU_END_HM_TC = "09:30"', params_js)
+        self.assertIn('DEFAULT_TAU_END_HM_HORIZON = "11:00"', params_js)
+        self.assertIn("quant_fit_tau_end_hm_tc_v1", params_js)
+        self.assertIn("quant_fit_tau_end_hm_hz_v1", params_js)
+        self.assertIn("TAU_END_TC_HEADS", params_js)
+        self.assertIn("TAU_END_HORIZON_HEADS", params_js)
         self.assertIn("readTauEndFitParams", params_js)
         self.assertIn("tau_end_hm", params_js)
-        # 刷新/拟合后按最新 last_report 恢复前缀滑条
+        # 刷新/拟合后按组恢复前缀滑条（τc 与 τ* 互不覆盖）
         self.assertIn("restoreTauEndFromFitReport", params_js)
-        self.assertIn("restoreTauEndFromFitReport(data)", js)
-        self.assertGreaterEqual(js.count("restoreTauEndFromFitReport(data)"), 6)
-        self.assertIn("刷新后恢复为各头最新拟合前缀", panel)
+        self.assertIn('restoreTauEndFromFitReport(data, "tc")', js)
+        self.assertIn('restoreTauEndFromFitReport(data, "t30")', js)
+        self.assertGreaterEqual(js.count('restoreTauEndFromFitReport(data, "'), 12)
+        self.assertIn("与 ŷ_τc 独立", panel)
+        self.assertIn("无拟合记录默认 09:30", panel)
         self.assertIn("无拟合记录默认 11:00", panel)
         # 前缀滑条在日截面 Z 左侧（ŷ_τc + ŷ_τ*）
         self.assertLess(
@@ -3233,7 +3323,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
             )
         self.assertIn('"t30"', params_js)  # TAU_END_FIT_HEADS
         self.assertIn("forHorizon", params_js)
-        self.assertIn("...readTauEndFitParams()", js)
+        self.assertIn('...readTauEndFitParams("tc")', js)
+        self.assertIn('...readTauEndFitParams("t30")', js)
         self.assertIn('id="quant-fit-cs-z-co"', panel)
         self.assertIn('id="quant-fit-cs-z-t30"', panel)
         self.assertIn('id="quant-fit-cs-z-t45"', panel)

@@ -110,7 +110,7 @@ export function jobStatusBadge(job) {
       cls: "is-neutral",
     };
   }
-  if (st === "failed") return { text: "强更失败", cls: "is-warn" };
+  if (st === "failed") return { text: "强更失败", cls: "is-bad" };
   if (st === "done") return { text: "强更完成", cls: "is-ok" };
   return null;
 }
@@ -159,13 +159,14 @@ export function paintClusterJobPanel(progressEl, opts) {
         : phase;
   const facts = buildClusterJobFacts(job, { pollStartedAt });
   if (Array.isArray(opts.extraFacts)) facts.push(...opts.extraFacts);
+  // tone 显式优先；默认 primary。fail 不再暗绑 warn——否则增量/强更失败刷新后整块退回黄色
   const tone =
     opts.tone === "warn" || opts.tone === "primary"
       ? opts.tone
-      : opts.isWarn || mode === "fail"
+      : opts.isWarn
         ? "warn"
         : "primary";
-  const isWarn = tone === "warn" || mode === "fail" || !!opts.isWarn;
+  const isWarn = tone === "warn";
   const isDone = mode === "done";
   progressEl.hidden = false;
   progressEl.classList.add("is-active");

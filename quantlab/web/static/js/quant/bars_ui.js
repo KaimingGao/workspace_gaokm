@@ -45,11 +45,47 @@ export function installBarsUi(q) {
     return { refreshStatus: async () => {}, startRefresh: async () => {}, startTopup: async () => {} };
   }
 
+  const matBtn = document.getElementById("quant-materialize-run");
+  let matBusy = false;
+  let matSettled = false;
+  const installMat =
+    typeof q.installMaterializeUi === "function" ? q.installMaterializeUi : null;
+  const matUi = installMat
+    ? installMat(q, {
+        onStart: () => {
+          matSettled = false;
+          jobFailure = null;
+          jobSuccess = null;
+          setDeskStatusTone([barsStrip, barsCard], "warn");
+        },
+        onBusy: (on) => {
+          matBusy = !!on;
+          if (on) {
+            setDeskStatusTone([barsStrip, barsCard], "warn");
+            barsCard?.classList.add("is-busy");
+            barsStrip?.classList.add("is-busy");
+            barsBody?.classList.add("is-busy");
+          }
+        },
+        onSettled: () => {
+          matSettled = true;
+          matBusy = false;
+          setDeskStatusTone([barsStrip, barsCard], "warn");
+          barsCard?.classList.remove("is-busy");
+          barsStrip?.classList.remove("is-busy");
+          barsBody?.classList.remove("is-busy");
+        },
+      })
+    : { refresh: () => {}, run: async () => {}, resumeIfRunning: async () => false };
+
   function setBarsButtonsDisabled(disabled) {
     btn.disabled = !!disabled;
     if (topupBtn) topupBtn.disabled = !!disabled;
-    const matBtn = document.getElementById("quant-materialize-run");
-    if (matBtn) matBtn.disabled = !!disabled;
+    if (disabled) {
+      if (matBtn) matBtn.disabled = true;
+    } else if (!matBusy && matBtn) {
+      matBtn.disabled = false;
+    }
   }
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
@@ -64,6 +100,7 @@ export function installBarsUi(q) {
   function clearJobPanels() {
     jobFailure = null;
     jobSuccess = null;
+    matSettled = false;
   }
 
   function isTopupSummary(sum) {
@@ -295,13 +332,13 @@ export function installBarsUi(q) {
 
   function setBarsBusy(busy) {
     const on = !!busy;
-    barsCard?.classList.toggle("is-busy", on);
-    barsStrip?.classList.toggle("is-busy", on);
-    barsBody?.classList.toggle("is-busy", on);
+    barsCard?.classList.toggle("is-busy", on || matBusy);
+    barsStrip?.classList.toggle("is-busy", on || matBusy);
+    barsBody?.classList.toggle("is-busy", on || matBusy);
     btn?.classList.toggle("is-busy", on);
     topupBtn?.classList.toggle("is-busy", on);
-    if (on) setDeskStatusTone([barsStrip, barsCard], "primary");
-    if (!on && !jobFailure && !jobSuccess) {
+    if (on && !matBusy) setDeskStatusTone([barsStrip, barsCard], "primary");
+    if (!on && !jobFailure && !jobSuccess && !matBusy && !matSettled) {
       clearProgressPanel();
       setDeskStatusTone([barsStrip, barsCard], null);
     }
@@ -644,7 +681,7 @@ export function installBarsUi(q) {
   }
 
   function paint(data, { skipHead = false } = {}) {
-    if (!skipHead && !jobFailure && !jobSuccess) {
+    if (!skipHead && !jobFailure && !jobSuccess && !matBusy && !matSettled) {
       const { state, chip: chipText, msg } = formatStatus(data);
       setProStatusChip(chip, state, chipText);
       msgEl.textContent = msg;
@@ -674,18 +711,31 @@ export function installBarsUi(q) {
       `/api/quant/bars/status?watching_limit=${encodeURIComponent(limit)}`
     );
     if (!ok) {
-      paint(null);
-      msgEl.textContent = error || "读取日 K 状态失败";
-      setProStatusChip(chip, "error", "ERR");
-      if (!inflight) setBarsBusy(false);
+      if (!matBusy && !matSettled) {
+        paint(null);
+        msgEl.textContent = error || "读取日 K 状态失败";
+        setProStatusChip(chip, "error", "ERR");
+      }
+      if (!inflight && !matBusy) setBarsBusy(false);
       return null;
     }
-    paint(data, { skipHead: !!jobFailure || !!jobSuccess });
+    paint(data, {
+      skipHead: !!jobFailure || !!jobSuccess || matBusy || matSettled,
+    });
     if (jobFailure) applyJobFailure({ message: jobFailure.errText }, jobFailure.job);
     else if (jobSuccess) applyJobSuccess(jobSuccess.job);
-    else if (data.refresh_job) handleRefreshJob(data.refresh_job);
+    else if (data.refresh_job && !matBusy && !matSettled) {
+      handleRefreshJob(data.refresh_job);
+    }
     const jobSt = data.refresh_job && data.refresh_job.status;
-    if (!inflight && !jobFailure && !jobSuccess && jobSt !== "running") {
+    if (
+      !inflight &&
+      !jobFailure &&
+      !jobSuccess &&
+      !matBusy &&
+      !matSettled &&
+      jobSt !== "running"
+    ) {
       setBarsBusy(false);
     }
     return data;
@@ -719,6 +769,8 @@ export function installBarsUi(q) {
       }
       return job;
     }
+    // 物化终态占用状态条时，勿用日 K Job 终态盖掉
+    if (matBusy || matSettled) return job;
     if (st === "failed") {
       applyJobFailure(new Error(job.error || job.message || "日 K 更新失败"), job);
       return job;
@@ -904,8 +956,13 @@ export function installBarsUi(q) {
   (async () => {
     try {
       await awaitWatchingPoolLimitReady();
+      // 先接管物化（设 matBusy/matSettled），再 refreshStatus，避免 bars handleRefreshJob 抢条
+      const matResumed =
+        typeof matUi.resumeIfRunning === "function"
+          ? await matUi.resumeIfRunning()
+          : false;
       await refreshStatus();
-      await syncJobSlot();
+      if (!matResumed) await syncJobSlot();
     } catch (_) {
       /* ignore */
     }

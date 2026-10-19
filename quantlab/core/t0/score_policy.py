@@ -56,6 +56,8 @@ _ITEM_SINK: contextvars.ContextVar[Optional[List[dict]]] = contextvars.ContextVa
 )
 # date → 观察池原始特征行（不含持仓外的票）
 _POOL_FEAT_CACHE: Dict[str, List[dict]] = {}
+# date|HH:MM → 该钟 tc_HHMM L1 同伴行（含 raw_ath_*；Cube miss 时做截面 z）
+_TAU_LAKE_PEER_CACHE: Dict[str, List[dict]] = {}
 # 同一交易日多根 5m 前缀重算时，EOD 因子窗不变；缓存避免每根重跑 score_window
 _EOD_ITEM_CACHE: Dict[tuple, dict] = {}
 _EOD_ITEM_CACHE_MAX = 256
@@ -1270,6 +1272,72 @@ def _finite_feat_count(rows: Sequence[dict], name: str) -> int:
     return n
 
 
+def _impute_unzscored_raw_ath(
+    row: dict,
+    names: Sequence[str],
+    covered: Sequence[str],
+) -> dict:
+    """没进截面的 ``raw_ath_*`` 记 0（当天均值）。
+
+    价位比≈1、剩余分钟≈235 若原样进截面模型，logit 会被打到个位数概率。
+    稀疏的裸分钟键（如 ``ret_open_to_tau``）仍保留，避免各钟被压成同一个 z。
+    """
+    if not isinstance(row, dict):
+        return row
+    have = {str(n) for n in covered or []}
+    for raw in names or []:
+        key = str(raw or "")
+        if not key.startswith("raw_ath_") or key in have:
+            continue
+        if key in row:
+            row[key] = 0.0
+    return row
+
+
+def _tau_clock_peer_rows(date: str, tau_hm: str) -> List[dict]:
+    """该钟 ``tc_HHMM`` L1 行。与开盘池缓存不同，这里有同钟 ``raw_ath_*``。"""
+    dkey = str(date or "")[:10]
+    hm = str(tau_hm or "").strip()[:5]
+    if len(dkey) < 10 or not hm or hm in ("09:30", "0930", "open"):
+        return []
+    ck = f"{dkey}|{hm}"
+    cached = _TAU_LAKE_PEER_CACHE.get(ck)
+    if cached is not None:
+        return cached
+    codes = _watching_codes_for_z()
+    if len(codes) < 2:
+        _TAU_LAKE_PEER_CACHE[ck] = []
+        return []
+    rows: List[dict] = []
+    try:
+        from core.research.feature_lake import enabled as lake_on, load_day_rows
+        from core.research.lake_bridge import family_for_tc
+        from core.research.lake_replay import assemble_item_from_lake_rows
+    except Exception:  # noqa: BLE001
+        logger.debug("tau lake peer import failed", exc_info=True)
+        _TAU_LAKE_PEER_CACHE[ck] = []
+        return []
+    if not lake_on():
+        _TAU_LAKE_PEER_CACHE[ck] = []
+        return []
+    try:
+        tc_m = load_day_rows(family_for_tc(tau_hm=hm), list(codes), dkey) or {}
+    except Exception:  # noqa: BLE001
+        logger.debug("tau lake peer load failed day=%s hm=%s", dkey, hm, exc_info=True)
+        tc_m = {}
+    for code in codes:
+        c = str(code or "").strip()
+        tc = tc_m.get(c) if isinstance(tc_m, dict) else None
+        if not isinstance(tc, dict) or not tc:
+            continue
+        item = assemble_item_from_lake_rows(c, dkey, tc=tc)
+        if item is None:
+            continue
+        rows.append(_capture_feature_row(item, c))
+    _TAU_LAKE_PEER_CACHE[ck] = rows
+    return rows
+
+
 def _cs_z_horizon_feats(
     feats: dict,
     *,
@@ -1280,7 +1348,8 @@ def _cs_z_horizon_feats(
 ) -> dict:
     """截面模型：用观察池同伴 μ/σ 把 raw 映成截面 z（对齐拟合）。非截面原样返回。
 
-    ``tau_hm``：当前前缀钟；Cube 优先 ``clock=tau``，miss 再 ``open``；leave-one-in 按同钟组。
+    ``tau_hm``：当前前缀钟。Cube 只读该钟；miss 不退回 open。
+    再试同钟 ``tc_HHMM`` L1 同伴（含 ``raw_ath_*``）；仍无分布的 ``raw_ath_*`` 记 0。
     """
     if not isinstance(feats, dict) or not feats:
         return feats
@@ -1311,19 +1380,17 @@ def _cs_z_horizon_feats(
         names = _active_names(doc)
     if not names:
         return feats
-    peers = _POOL_FEAT_CACHE.get(dkey) or []
-    if len(peers) < 2:
-        return feats
+    peers = list(_POOL_FEAT_CACHE.get(dkey) or [])
     code = str(stock_code or "").strip()
     hm = str(tau_hm or "").strip()[:5]
-    # H4：按钟 Cube 优先；τ 覆盖失败不静默 open，改 leave-one-in
+    tau_only = bool(hm) and hm not in ("09:30", "0930", "open")
+    # H4：按钟 Cube 优先；τ 覆盖失败不静默 open，改同钟 L1 / leave-one-in
     try:
         from core.research.day_cube import apply_cube_z_to_dicts, enabled, load_day_cube
 
         watching_codes = _watching_codes_for_z()
         if enabled() and len(watching_codes) >= 2:
             clocks: List[str] = []
-            tau_only = bool(hm) and hm not in ("09:30", "0930", "open")
             if tau_only:
                 clocks.append(hm)
                 safe = "".join(ch for ch in hm if ch.isalnum() or ch in "_-")
@@ -1351,7 +1418,14 @@ def _cs_z_horizon_feats(
                         return z_all[0]
     except Exception:  # noqa: BLE001
         logger.debug("horizon cs-z day_cube failed", exc_info=True)
-    # 池内 leave-one-in：剥开盘分钟占位；稀疏列保留 stamped
+    # 开盘池没有同钟 raw_ath_*。Cube miss 时用 tc_HHMM L1 做 μ/σ。
+    if tau_only:
+        lake_peers = _tau_clock_peer_rows(dkey, hm)
+        if len(lake_peers) >= 2:
+            peers = lake_peers
+    if len(peers) < 2:
+        return _impute_unzscored_raw_ath(dict(feats), names, ())
+    # 池内 leave-one-in：剥开盘分钟占位；稀疏裸分钟键保留；raw_ath_* 无分布则记 0
     in_pool = bool(code) and any(
         str(p.get("stock_code") or "").strip() == code for p in peers if isinstance(p, dict)
     )
@@ -1372,12 +1446,17 @@ def _cs_z_horizon_feats(
         if len(rows) >= 2:
             cs_names = [n for n in names if _finite_feat_count(rows, str(n)) >= 2]
             if cs_names:
-                # 同钟一组（当前路径同伴多为开盘行 → 分钟列已剥，稀疏保留）
+                # 同钟一组（开盘同伴的分钟列已剥，稀疏裸键保留）
                 gkey = cs_group_key(dkey, hm)
                 groups = [gkey] * len(rows)
                 z_rows = cross_section_zscore_dicts(rows, cs_names, groups)
-                return z_rows[slot] if slot < len(z_rows) else feats
-            return rows[slot] if slot < len(rows) else feats
+                row = z_rows[slot] if slot < len(z_rows) else dict(feats)
+                return _impute_unzscored_raw_ath(row, names, cs_names)
+            return _impute_unzscored_raw_ath(
+                rows[slot] if slot < len(rows) else dict(feats),
+                names,
+                (),
+            )
     # 池外：μ/σ 仅观察池，不把持仓并进截面
     peer_feats = []
     for p in peers:
@@ -3538,7 +3617,11 @@ def _align_item_to_watching_pool(item: dict, date: str) -> None:
         from core.research.day_cube import enabled as cube_on
 
         cube = ensure_day_cube_for_items(
-            cube_src, date=dkey, clock="open", persist=bool(cube_on())
+            cube_src,
+            date=dkey,
+            clock="open",
+            persist=bool(cube_on()),
+            universe_codes=watching_codes or None,
         )
     except Exception:  # noqa: BLE001
         logger.debug("pool z day_cube failed", exc_info=True)
@@ -3672,6 +3755,7 @@ def clear_score_model_cache() -> None:
     _FUND_CACHE.clear()
     _PREFIX_RESCORE_CACHE.clear()
     _POOL_FEAT_CACHE.clear()
+    _TAU_LAKE_PEER_CACHE.clear()
     _CS_UNIVERSE_MEMO = None
 
 
@@ -3793,7 +3877,11 @@ def warmup_watching_day_cubes(
             continue
         try:
             cube = ensure_day_cube_for_items(
-                items, date=day, clock="open", persist=True
+                items,
+                date=day,
+                clock="open",
+                persist=True,
+                universe_codes=code_list,
             )
         except Exception:  # noqa: BLE001
             logger.debug("warmup ensure day_cube failed day=%s", day, exc_info=True)

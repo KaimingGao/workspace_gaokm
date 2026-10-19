@@ -173,7 +173,11 @@ def materialize_l2(
                     skipped += 1
                     continue
                 cube = ensure_day_cube_for_items(
-                    items, date=day, clock=clock, persist=True
+                    items,
+                    date=day,
+                    clock=clock,
+                    persist=True,
+                    universe_codes=code_list,
                 )
                 if cube is None:
                     skipped += 1

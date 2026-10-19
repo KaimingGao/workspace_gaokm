@@ -221,11 +221,21 @@ export function installMinuteUi(q) {
   function applyJobFailure(err, job) {
     jobSuccess = null;
     const errText = String((err && err.message) || err || "5m 强更失败");
-    jobFailure = { errText, job: job || null };
+    const j = (err && err.job) || job || lastPolledJob || null;
+    // 前端等满但槽位仍 running：黄条提示接管，勿标 FAIL
+    if (err && err.stillRunning) {
+      jobFailure = null;
+      setDeskStatusTone([minuteStrip, minuteCard], "primary");
+      setProStatusChip(chip, "busy", "WAIT");
+      msgEl.textContent = errText;
+      setMinuteBusy(true);
+      paintProgressPanel(j || { message: errText }, { pollStartedAt: Date.now() });
+      return;
+    }
+    jobFailure = { errText, job: j };
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     setProStatusChip(chip, "error", "FAIL");
     const head = ["强更失败"];
-    const j = jobFailure.job;
     if (j && j.current > 0 && j.total > 0) head.push(`${j.current}/${j.total}`);
     head.push(errText);
     msgEl.textContent = head.join(" · ");
@@ -618,12 +628,15 @@ export function installMinuteUi(q) {
       ({ ok, data, error } = await apiFetch(`${base}&include_label_portrait=0`));
     }
     if (!ok) {
-      labelPortraitPending = false;
-      labelPortraitGen += 1;
-      paint(null);
-      msgEl.textContent = networkErrText(error);
-      setProStatusChip(chip, "error", "ERR");
-      if (!inflight) setMinuteBusy(false);
+      // 物化占条时勿用 status ERR 盖掉 FAIL/进行中
+      if (!matBusy && !matSettled) {
+        labelPortraitPending = false;
+        labelPortraitGen += 1;
+        paint(null);
+        msgEl.textContent = networkErrText(error);
+        setProStatusChip(chip, "error", "ERR");
+      }
+      if (!inflight && !matBusy) setMinuteBusy(false);
       return null;
     }
     const gen = ++labelPortraitGen;
@@ -633,7 +646,9 @@ export function installMinuteUi(q) {
     });
     if (jobFailure) applyJobFailure({ message: jobFailure.errText }, jobFailure.job);
     else if (jobSuccess) applyJobSuccess(jobSuccess.job);
-    else if (data.refresh_job) handleRefreshJob(data.refresh_job);
+    else if (data.refresh_job && !matBusy && !matSettled) {
+      handleRefreshJob(data.refresh_job);
+    }
     const jobSt = data.refresh_job && data.refresh_job.status;
     if (
       !inflight &&
@@ -692,6 +707,8 @@ export function installMinuteUi(q) {
       }
       return job;
     }
+    // τ 物化终态占用状态条时，勿用 5m Job 终态盖掉
+    if (matBusy || matSettled) return job;
     if (st === "failed") {
       applyJobFailure(new Error(job.error || job.message || "5m 强更失败"), job);
       return job;
@@ -705,7 +722,8 @@ export function installMinuteUi(q) {
 
   async function waitMinuteJob(jobId, mode = "full") {
     const started = Date.now();
-    const absoluteCapMs = 30 * 60 * 1000;
+    // 整池 800 票强更常超 30min；增量较短。等满且仍 running → 提示刷新接管（勿 FAIL）
+    const absoluteCapMs = (mode === "topup" ? 60 : 120) * 60 * 1000;
     let sawOwnJob = false;
     let pollN = 0;
     const waitLabel = mode === "topup" ? "增量补齐" : "强更 5m";
@@ -714,13 +732,19 @@ export function installMinuteUi(q) {
       const { ok, data } = await apiFetch("/api/jobs/minute-refresh?progress=1");
       const job = unwrapJobSnap(data);
       if (!ok || !job) {
-        paintProgressPanel({ message: "等待 Job 心跳…", pct: 0 }, { pollStartedAt: started });
+        paintProgressPanel(
+          { message: "等待 Job 心跳…", pct: 0 },
+          { pollStartedAt: started, mode }
+        );
         await new Promise((r) => setTimeout(r, 800));
         continue;
       }
       if (jobId && job.id && job.id !== jobId) {
         if (sawOwnJob) break;
-        paintProgressPanel({ message: "等待本任务接管…", pct: 0 }, { pollStartedAt: started });
+        paintProgressPanel(
+          { message: "等待本任务接管…", pct: 0 },
+          { pollStartedAt: started, mode }
+        );
         await new Promise((r) => setTimeout(r, 600));
         continue;
       }
@@ -741,9 +765,9 @@ export function installMinuteUi(q) {
       const badge = jobStatusBadge(job);
       setProStatusChip(chip, "busy", badge?.text || "SYNC");
       setMinuteBusy(true);
-      paintProgressPanel(job, { pollStartedAt: started });
+      paintProgressPanel(job, { pollStartedAt: started, mode });
       const pct = Number(job.pct);
-      const line = job.message || "强更 5m…";
+      const line = job.message || `${waitLabel}…`;
       const { heartbeat } = jobTimings(job, started);
       const headBits = [line];
       if (Number.isFinite(pct) && pct > 0) headBits.push(`${Math.round(pct)}%`);
@@ -753,6 +777,31 @@ export function installMinuteUi(q) {
       pollN += 1;
       if (pollN % 6 === 0) refreshCoverageKpis().catch(() => {});
       await new Promise((r) => setTimeout(r, 500));
+    }
+    // 前端等满时后台可能仍在跑：勿误报「失败」
+    try {
+      const { ok, data } = await apiFetch("/api/jobs/minute-refresh?progress=1");
+      const job = unwrapJobSnap(data) || {};
+      const st = String(job.status || "").toLowerCase();
+      if (
+        jobId &&
+        job.id === jobId &&
+        (st === "running" || st === "done" || st === "success" || st === "finished")
+      ) {
+        if (st === "done" || st === "success" || st === "finished") {
+          paintProgressDone(job);
+          return job.result || { success: true };
+        }
+        lastPolledJob = job;
+        const err = new Error(
+          "前端等待已满，任务仍在后台运行；请刷新页面接管进度（勿重复开跑）"
+        );
+        err.stillRunning = true;
+        err.job = job;
+        throw err;
+      }
+    } catch (e) {
+      if (e && e.stillRunning) throw e;
     }
     throw new Error("5m 强更超时");
   }
@@ -873,8 +922,13 @@ export function installMinuteUi(q) {
       setProStatusChip(chip, "busy", "LOAD");
       msgEl.textContent = "读取 5m 覆盖…";
       await awaitWatchingPoolLimitReady();
+      // 先接管 τ 物化（设 matBusy/matSettled），再 refreshStatus，避免 5m handleRefreshJob 抢条
+      const matResumed =
+        typeof matUi.resumeIfRunning === "function"
+          ? await matUi.resumeIfRunning()
+          : false;
       await refreshStatus();
-      await syncJobSlot();
+      if (!matResumed) await syncJobSlot();
     } catch (err) {
       setDeskStatusTone([minuteStrip, minuteCard], "primary");
       setProStatusChip(chip, "error", "ERR");

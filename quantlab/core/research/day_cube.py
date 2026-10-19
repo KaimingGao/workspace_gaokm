@@ -131,6 +131,10 @@ def _compute_mu_sigma(
     return mu, sd
 
 
+def _universe_code_list(codes: Optional[Sequence[str]]) -> List[str]:
+    return sorted({str(c).strip() for c in (codes or []) if str(c or "").strip()})
+
+
 def build_day_cube(
     date: str,
     code_feats: Mapping[str, Mapping[str, Any]],
@@ -139,14 +143,20 @@ def build_day_cube(
     clock: str = "open",
     slim: Optional[Dict[str, Any]] = None,
     min_names: int = 2,
+    universe_codes: Optional[Sequence[str]] = None,
 ) -> Optional[DayCube]:
-    """从 ``{code: feature_dict}`` 构建 DayCube。"""
+    """从 ``{code: feature_dict}`` 构建 DayCube。
+
+    ``universe_codes`` 有值时，哈希用这份完整名单（与 live/T0 的观察池读取键一致）。
+    矩阵仍只含有特征行的代码；缺行的代码不进 μ/σ。
+    """
     day = str(date or "")[:10]
     if len(day) < 10 or not code_feats:
         return None
     codes = sorted({str(c).strip() for c in code_feats.keys() if str(c or "").strip()})
     if not codes:
         return None
+    uh_codes = _universe_code_list(universe_codes) or codes
     if names is None:
         keys = set()
         for feats in code_feats.values():
@@ -174,7 +184,7 @@ def build_day_cube(
             if math.isfinite(fv):
                 X[i, j] = fv
     mu, sd = _compute_mu_sigma(X, min_names=min_names)
-    uh = universe_hash(codes)
+    uh = universe_hash(uh_codes)
     return DayCube(
         date=day,
         codes=codes,
@@ -365,12 +375,21 @@ def build_or_load(
     clock: str = "open",
     slim: Optional[Dict[str, Any]] = None,
     persist: bool = True,
+    universe_codes: Optional[Sequence[str]] = None,
 ) -> Optional[DayCube]:
     codes = [str(c).strip() for c in (code_feats or {}).keys() if str(c or "").strip()]
-    hit = load_day_cube(date, codes, clock=clock)
+    lookup = _universe_code_list(universe_codes) or codes
+    hit = load_day_cube(date, lookup, clock=clock)
     if hit is not None:
         return hit
-    cube = build_day_cube(date, code_feats, names=names, clock=clock, slim=slim)
+    cube = build_day_cube(
+        date,
+        code_feats,
+        names=names,
+        clock=clock,
+        slim=slim,
+        universe_codes=lookup,
+    )
     if cube is None:
         return None
     if persist:

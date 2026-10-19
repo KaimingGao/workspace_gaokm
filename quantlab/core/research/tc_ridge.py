@@ -359,6 +359,7 @@ def fit_tau_ridge_report(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
+    progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ 头 Ridge + Holdout OOS。
 
@@ -367,6 +368,7 @@ def fit_tau_ridge_report(
     默认近 ``holdout_trading_days`` 个交易日只测；**只训 Holdout 前一套 β**
     （启用研究/执行只是版本槽）。
     ``cross_section_zscore``：True=日截面 z；False=训练样本内全局 μ/σ。
+    ``progress_cb(cur, tot, msg)``：可选，供 job 槽刷新。
     """
     packed = fit_tau_ridge_matrices(
         stock_bars,
@@ -379,6 +381,7 @@ def fit_tau_ridge_report(
         tau_hm=tau_hm,
         tau_grid=tau_grid,
         cross_section_zscore=cross_section_zscore,
+        progress_cb=progress_cb,
     )
     if not packed.get("success"):
         return {

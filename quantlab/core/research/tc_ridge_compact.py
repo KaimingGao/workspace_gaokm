@@ -537,6 +537,7 @@ def fit_tau_ridge_matrices(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     cross_section_zscore: bool = True,
+    progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """拼面板 + Holdout 前训 Ridge（单套 β）。不含 OOS 报告包装。"""
     tau_key = str(tau_hm or "open").strip() or "open"
@@ -555,6 +556,14 @@ def fit_tau_ridge_matrices(
         raw_atc_finite,
     )
 
+    def _prog(cur: int, tot: int, msg: str) -> None:
+        if not callable(progress_cb):
+            return
+        try:
+            progress_cb(int(cur), int(tot), str(msg or ""))
+        except Exception:  # noqa: BLE001
+            logger.debug("fit_tau_ridge_matrices progress_cb failed", exc_info=True)
+
     X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
         stock_bars,
         list(TAU_Z_FEATURES),
@@ -564,6 +573,7 @@ def fit_tau_ridge_matrices(
         tau_grid=grid,
         include_alpha_tc=True,
         head="y_tc",
+        progress_cb=progress_cb,
     )
     if len(ys) < 20:
         return {
@@ -629,6 +639,7 @@ def fit_tau_ridge_matrices(
     dates_tr = [dates_use[i] for i in train_idx]
     dates_te = [dates_use[i] for i in test_idx]
     use_cs = bool(cross_section_zscore)
+    _prog(max(1, n_stocks), max(1, n_stocks), "ŷ_τc Ridge 拟合…")
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
         y_tr,

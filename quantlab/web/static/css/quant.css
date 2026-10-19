@@ -5525,8 +5525,14 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
 }
 
 .quant-bars-progress-msg--err {
-  color: var(--warn, #d97706);
+  color: var(--danger, #ef4444);
   font-weight: 600;
+}
+
+/* 增量/强更失败：chip=error 时状态句用危险色，勿被 data-tone=primary 刷成蓝 */
+.quant-bars-card:has(.quant-pro-status-chip[data-state="error"]) .quant-desk-status-msg,
+.quant-minute-card:has(.quant-pro-status-chip[data-state="error"]) .quant-desk-status-msg {
+  color: var(--danger, #ef4444);
 }
 
 .quant-bars-progress-hint {
@@ -5679,6 +5685,12 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   color: var(--warn, #b45309);
   border-color: color-mix(in srgb, var(--warn, #b45309) 35%, var(--line));
   background: color-mix(in srgb, var(--warn, #b45309) 8%, var(--surface));
+}
+
+.quant-bars-badge.is-bad {
+  color: var(--danger, #ef4444);
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 35%, var(--line));
+  background: color-mix(in srgb, var(--danger, #ef4444) 8%, var(--surface));
 }
 
 .quant-bars-badge.is-mid {

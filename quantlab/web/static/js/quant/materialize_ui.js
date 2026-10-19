@@ -86,6 +86,44 @@ async function resolveSuggestedTauClocks(apiFetch) {
   }
 }
 
+/** open 区认 materialize_open；分钟区认 materialize_tau；混合 kind 两边都可接管。 */
+function kindMatchesRunner(kind, tau) {
+  const k = String(kind || "");
+  if (k === "materialize_l1l2") return true;
+  if (tau) return k === "materialize_tau";
+  return k === "materialize_open";
+}
+
+function kindLabelZh(kind) {
+  const k = String(kind || "");
+  if (k === "materialize_open") return "日线物化";
+  if (k === "materialize_tau") return "分钟 τ 物化";
+  if (k === "materialize_l1l2") return "混合物化";
+  return "物化";
+}
+
+function isMatKindConflict(res) {
+  if (!res || res.success !== false) return false;
+  if (res.conflict) return true;
+  return /冲突|共用同一任务槽/.test(String(res.error || ""));
+}
+
+/** 宏步骤 total≤8；票级 336/800 等微进度不进状态句/进度条 facts。 */
+function macroJobView(job) {
+  if (!job || typeof job !== "object") return job;
+  const t = Number(job.total);
+  if (!(t > 8)) return job;
+  return { ...job, current: 0, total: 0, pct: 0 };
+}
+
+function jobFracText(job) {
+  const j = macroJobView(job) || {};
+  const c = Number(j.current);
+  const t = Number(j.total);
+  if (c > 0 && t > 0) return `${c}/${t}`;
+  return "";
+}
+
 /**
  * @param {object} q
  * @param {{
@@ -154,12 +192,13 @@ function installMaterializeRunner(q, cfg) {
   }
 
   function paintRunning(job, { pollStartedAt } = {}) {
-    const msg = job?.message || `${label}进行中…`;
+    const view = macroJobView(job);
+    const msg = view?.message || `${label}进行中…`;
     const { phase } = phaseFromMessage(msg);
     setDeskStatusTone([strip, card], "warn");
     paintClusterJobPanel(progressEl, {
       phase,
-      job,
+      job: view,
       pollStartedAt,
       esc,
       mode: "running",
@@ -175,7 +214,7 @@ function installMaterializeRunner(q, cfg) {
     setDeskStatusTone([strip, card], "warn");
     paintClusterJobPanel(progressEl, {
       phase: tau ? "物化完成（τ）" : "物化完成",
-      job,
+      job: macroJobView(job),
       esc,
       mode: "done",
       tone: "warn",
@@ -187,7 +226,7 @@ function installMaterializeRunner(q, cfg) {
     setDeskStatusTone([strip, card], "warn");
     paintClusterJobPanel(progressEl, {
       phase: "物化失败",
-      job,
+      job: macroJobView(job),
       esc,
       mode: "fail",
       tone: "warn",
@@ -210,7 +249,8 @@ function installMaterializeRunner(q, cfg) {
 
   async function waitJob(jobId, { pollStartedAt } = {}) {
     const started = pollStartedAt || Date.now();
-    const timeoutMs = 45 * 60 * 1000;
+    // τ 网格 18 钟 L1+L2 常 >45min；对齐槽 stale 5400s，τ 再放宽
+    const timeoutMs = (tau ? 150 : 90) * 60 * 1000;
     let sawOwn = false;
     while (Date.now() - started < timeoutMs) {
       let data;
@@ -226,7 +266,13 @@ function installMaterializeRunner(q, cfg) {
       }
       const job = unwrapJobSnap(data) || {};
       if (jobId && job.id && job.id !== jobId) {
-        if (sawOwn) break;
+        if (sawOwn) {
+          return {
+            ok: false,
+            job,
+            error: "物化任务已被新任务替换",
+          };
+        }
         paintRunning(
           { message: "等待本任务接管…", pct: 0 },
           { pollStartedAt: started }
@@ -240,31 +286,121 @@ function installMaterializeRunner(q, cfg) {
       if (status === "done" || status === "success" || status === "finished") {
         return { ok: true, job };
       }
-      if (status === "failed" || status === "error" || job.error) {
+      // 仅认 status；勿用 job.error（落盘残留会误杀 running）
+      if (status === "failed" || status === "error") {
         return { ok: false, job, error: job.error || "物化失败" };
       }
       if (status === "idle" && sawOwn) {
         return { ok: false, job, error: "物化任务已结束但未返回结果" };
       }
 
-      const line = job.message || `${label}进行中…`;
+      const view = macroJobView(job) || job;
+      const line = view.message || `${label}进行中…`;
       const { chip: chipText } = phaseFromMessage(line);
       setProStatusChip(chip, "busy", chipText);
       setBusy(true);
       paintRunning(job, { pollStartedAt: started });
-      const pct = Number(job.pct);
+      const pct = Number(view.pct);
       const { heartbeat } = jobTimings(job, started);
       const headBits = [line];
       if (Number.isFinite(pct) && pct > 0) headBits.push(`${Math.round(pct)}%`);
-      if (job.current > 0 && job.total > 0) {
-        headBits.push(`${job.current}/${job.total}`);
-      }
+      const frac = jobFracText(job);
+      if (frac) headBits.push(frac);
       headBits.push(fmtDuration((Date.now() - started) / 1000));
       if (heartbeat != null) headBits.push(`心跳 ${fmtDuration(heartbeat)}`);
       msgEl.textContent = headBits.join(" · ");
       await sleep(500);
     }
+    // 前端等满时后台可能仍在跑：勿误报「失败」，提示刷新接管
+    try {
+      const data = await fetchData(apiFetch, "/api/jobs/materialize-l1l2?progress=1");
+      const job = unwrapJobSnap(data) || {};
+      const st = String(job.status || "").toLowerCase();
+      if (
+        jobId &&
+        job.id === jobId &&
+        (st === "running" || st === "done" || st === "success" || st === "finished")
+      ) {
+        if (st === "done" || st === "success" || st === "finished") {
+          return { ok: true, job };
+        }
+        lastPolledJob = job;
+        return {
+          ok: false,
+          job,
+          stillRunning: true,
+          error: "前端等待已满，任务仍在后台运行；请刷新页面接管进度（勿重复开跑）",
+        };
+      }
+    } catch (_) {
+      /* ignore */
+    }
     return { ok: false, error: "物化超时" };
+  }
+
+  async function waitPeerMaterialize(peerJob, { pollStartedAt } = {}) {
+    const peerId = peerJob && peerJob.id;
+    const peerLabel = kindLabelZh(peerJob && peerJob.kind);
+    const started = pollStartedAt || Date.now();
+    const timeoutMs = (tau ? 150 : 90) * 60 * 1000;
+    while (Date.now() - started < timeoutMs) {
+      let data;
+      try {
+        data = await fetchData(apiFetch, "/api/jobs/materialize-l1l2?progress=1");
+      } catch (_) {
+        paintRunning(
+          { message: `等待${peerLabel}结束…`, pct: 0 },
+          { pollStartedAt: started }
+        );
+        await sleep(800);
+        continue;
+      }
+      const job = unwrapJobSnap(data) || {};
+      const st = String(job.status || "").toLowerCase();
+      if (!peerId || job.id !== peerId || st !== "running") {
+        return { ok: true, job };
+      }
+      const line = job.message
+        ? `等待${peerLabel}结束 · ${job.message}`
+        : `等待${peerLabel}结束…`;
+      setProStatusChip(chip, "busy", "WAIT");
+      setBusy(true);
+      paintRunning(
+        {
+          message: line,
+          pct: job.pct,
+          current: job.current,
+          total: job.total,
+          id: job.id,
+          updated_at: job.updated_at,
+          started_at: job.started_at,
+        },
+        { pollStartedAt: started }
+      );
+      const headBits = [line, fmtDuration((Date.now() - started) / 1000)];
+      msgEl.textContent = headBits.join(" · ");
+      await sleep(800);
+    }
+    return { ok: false, error: `等待${peerLabel}超时` };
+  }
+
+  async function postMaterializeOnce(body) {
+    try {
+      return await fetchData(apiFetch, "/api/quant/materialize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      const data = (e && e.data) || {};
+      return {
+        success: false,
+        ok: false,
+        conflict: !!(data && data.conflict),
+        error: (data && data.error) || (e && e.message) || "启动物化失败",
+        job: data && data.job,
+      };
+    }
   }
 
   async function postAndWait({ clocks, doL1, doL1TauGrid, doL2 }) {
@@ -276,22 +412,21 @@ function installMaterializeRunner(q, cfg) {
       do_l2: !!doL2,
       sync: false,
     };
-    let res;
-    try {
-      res = await fetchData(apiFetch, "/api/quant/materialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+    let res = await postMaterializeOnce(body);
+    // 日线 / τ 共用一槽：对侧进行中则等待结束后自动再开一次
+    if (isMatKindConflict(res) && res.job) {
+      const waited = await waitPeerMaterialize(res.job, {
+        pollStartedAt: Date.now(),
       });
-    } catch (e) {
-      const data = (e && e.data) || {};
-      return {
-        ok: false,
-        error: (data && data.error) || (e && e.message) || "启动物化失败",
-      };
+      if (!waited.ok) return waited;
+      res = await postMaterializeOnce(body);
     }
     if (!res || res.success === false) {
-      return { ok: false, error: (res && res.error) || "启动物化失败", job: res?.job };
+      return {
+        ok: false,
+        error: (res && res.error) || "启动物化失败",
+        job: res?.job,
+      };
     }
     const started = Date.now();
     if (res.reused && res.job) {
@@ -325,20 +460,59 @@ function installMaterializeRunner(q, cfg) {
     return { ...done, clocks: body.clocks, do_l1_tau_grid: body.do_l1_tau_grid };
   }
 
-  async function run() {
-    if (tau) applyReadyGate();
-    if (btn.disabled) return;
-    lastPolledJob = null;
+  function applyDoneUi(done) {
+    if (!done.ok) {
+      const errText = String(done.error || "物化失败");
+      const j = done.job || lastPolledJob;
+      // 前端等满但槽位仍 running：黄条提示接管，勿标 FAIL
+      if (done.stillRunning) {
+        setProStatusChip(chip, "busy", "WAIT");
+        msgEl.textContent = errText;
+        paintRunning(j || { message: errText }, { pollStartedAt: Date.now() });
+        return;
+      }
+      setProStatusChip(chip, "error", "FAIL");
+      const head = ["物化失败"];
+      const frac = jobFracText(j);
+      if (frac) head.push(frac);
+      head.push(errText);
+      msgEl.textContent = head.join(" · ");
+      paintFail(j, errText);
+      return;
+    }
+    const result = (done.job && done.job.result) || {};
+    const bits = resultHeadBits(result, { tau });
+    const updated = Number(done.job?.updated_at);
+    if (updated > 0) bits.push(fmtAgeSec(Date.now() / 1000 - updated));
+    setProStatusChip(chip, "ok", "DONE");
+    msgEl.textContent = bits.join(" · ");
+    paintDone(done.job, result);
+  }
+
+  function beginRunUi(seedMsg) {
     if (onStart) onStart();
     running = true;
     setActionDisabled(true);
     setBusy(true);
     setProStatusChip(chip, "busy", "QUEUE");
-    msgEl.textContent = `提交${label}…`;
-    paintRunning(
-      { message: `提交${label}…`, pct: 0 },
-      { pollStartedAt: Date.now() }
-    );
+    msgEl.textContent = seedMsg;
+    paintRunning({ message: seedMsg, pct: 0 }, { pollStartedAt: Date.now() });
+  }
+
+  function endRunUi() {
+    running = false;
+    setBusy(false);
+    for (const b of siblingBtns) b.disabled = false;
+    if (tau) applyReadyGate();
+    else btn.disabled = false;
+    if (onSettled) onSettled();
+  }
+
+  async function run() {
+    if (tau) applyReadyGate();
+    if (btn.disabled || running) return;
+    lastPolledJob = null;
+    beginRunUi(`提交${label}…`);
     try {
       let clocks = ["open"];
       let doL1 = true;
@@ -356,53 +530,86 @@ function installMaterializeRunner(q, cfg) {
         msgEl.textContent = "物化进行中（open）…";
       }
       const done = await postAndWait({ clocks, doL1, doL1TauGrid, doL2 });
-      if (!done.ok) {
-        const errText = String(done.error || "物化失败");
-        setProStatusChip(chip, "error", "FAIL");
-        const head = ["物化失败"];
-        const j = done.job || lastPolledJob;
-        if (j && j.current > 0 && j.total > 0) head.push(`${j.current}/${j.total}`);
-        head.push(errText);
-        msgEl.textContent = head.join(" · ");
-        paintFail(j, errText);
-        return;
-      }
-      const result = (done.job && done.job.result) || {};
-      const bits = resultHeadBits(result, { tau });
-      const updated = Number(done.job?.updated_at);
-      if (updated > 0) bits.push(fmtAgeSec(Date.now() / 1000 - updated));
-      setProStatusChip(chip, "ok", "DONE");
-      msgEl.textContent = bits.join(" · ");
-      paintDone(done.job, result);
+      applyDoneUi(done);
     } catch (e) {
       const errText = String((e && e.message) || e || "物化异常");
       setProStatusChip(chip, "error", "FAIL");
       msgEl.textContent = ["物化失败", errText].join(" · ");
       paintFail(lastPolledJob, errText);
     } finally {
-      running = false;
-      setBusy(false);
-      for (const b of siblingBtns) b.disabled = false;
-      if (tau) applyReadyGate();
-      else btn.disabled = false;
-      if (onSettled) onSettled();
-      // 失败/完成保留进度面板（对齐日 K / 5m）
+      endRunUi();
     }
+  }
+
+  /** 刷新后接管 in-flight；近期失败也画出来（勿被日 K/5m done 盖掉）。 */
+  async function resumeIfRunning() {
+    if (running || typeof apiFetch !== "function") return false;
+    let data;
+    try {
+      data = await fetchData(apiFetch, "/api/jobs/materialize-l1l2?progress=1");
+    } catch (_) {
+      return false;
+    }
+    const job = unwrapJobSnap(data) || {};
+    const st = String(job.status || "").toLowerCase();
+    if (!kindMatchesRunner(job.kind, tau)) return false;
+
+    if (st === "failed" || st === "error") {
+      const updated = Number(job.updated_at || 0);
+      const ageSec = updated > 0 ? Date.now() / 1000 - updated : 1e9;
+      // 超过 6h 的旧失败不抢状态条
+      if (ageSec > 6 * 3600) return false;
+      lastPolledJob = job;
+      if (onStart) onStart();
+      const errText = String(job.error || job.message || "物化失败");
+      setProStatusChip(chip, "error", "FAIL");
+      const head = ["物化失败"];
+      const frac = jobFracText(job);
+      if (frac) head.push(frac);
+      head.push(errText);
+      msgEl.textContent = head.join(" · ");
+      paintFail(job, errText);
+      if (onSettled) onSettled();
+      return true;
+    }
+
+    if (st !== "running") return false;
+    lastPolledJob = job;
+    beginRunUi(job.message || `接管${label}…`);
+    const { chip: chipText } = phaseFromMessage(job.message);
+    setProStatusChip(chip, "busy", chipText);
+    paintRunning(job, { pollStartedAt: Date.now() });
+    // 勿阻塞页加载；后台挂 waitJob
+    void (async () => {
+      try {
+        const done = await waitJob(job.id, { pollStartedAt: Date.now() });
+        applyDoneUi(done);
+      } catch (e) {
+        const errText = String((e && e.message) || e || "物化异常");
+        setProStatusChip(chip, "error", "FAIL");
+        msgEl.textContent = ["物化失败", errText].join(" · ");
+        paintFail(lastPolledJob, errText);
+      } finally {
+        endRunUi();
+      }
+    })();
+    return true;
   }
 
   btn.addEventListener("click", () => {
     void run();
   });
   if (tau) applyReadyGate();
+  // resumeIfRunning 由 bars/minute 在 bootstrap 里先调（未接管再 syncJobSlot）
 
   const gate = () => {
     if (tau) applyReadyGate();
   };
-  return { refresh: gate, setReady: gate, run };
+  return { refresh: gate, setReady: gate, run, resumeIfRunning };
 }
 
 /** 日线区：oo/tc/co + open L2。 */
-export function installMaterializeUi(q) {
+export function installMaterializeUi(q, opts = {}) {
   return installMaterializeRunner(q, {
     btnId: "quant-materialize-run",
     chipId: "quant-bars-chip",
@@ -412,6 +619,9 @@ export function installMaterializeUi(q) {
     cardSel: ".quant-bars-card:not(.quant-minute-card)",
     siblingBtnIds: ["quant-bars-topup", "quant-bars-refresh"],
     tau: false,
+    onStart: opts.onStart,
+    onBusy: opts.onBusy,
+    onSettled: opts.onSettled,
   });
 }
 
