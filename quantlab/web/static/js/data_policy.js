@@ -48,7 +48,7 @@ export const DATA_ARTIFACTS = [
 export const OFFLINE_TOGGLE_TITLE_ON =
   "关：不触发增量补齐；ŷ 读已物化 L1/L2（名单与现价/浮盈不受此开关）";
 export const OFFLINE_TOGGLE_TITLE_OFF =
-  "开：先对观察池跑「增量补齐」写日K/5m；ŷ 读已物化的 L1/L2；现价仍走行情";
+  "开：先对观察池跑「增量补齐（L0）」写日K/5m；ŷ 读已物化的 L1/L2；现价仍走行情";
 
 export function offlineToggleTitle(on) {
   return on ? OFFLINE_TOGGLE_TITLE_ON : OFFLINE_TOGGLE_TITLE_OFF;
@@ -58,16 +58,16 @@ export function offlineToggleTitle(on) {
 export function scoresPolicyLine(offlineOnly = true) {
   return offlineOnly
     ? "ŷ：读已物化 L1/L2 · 现价/浮盈仍行情"
-    : "ŷ：增量补齐写仓后读 L1/L2 · 现价/浮盈行情";
+    : "ŷ：增量补齐（L0）写仓后读 L1/L2 · 现价/浮盈行情";
 }
 
 /** 策略调仓区脚注 */
 export function rebalanceDataFoot(offlineOnly = true) {
   const score = offlineOnly
     ? "ŷ 读已物化 L1/L2（页头「仅本地仓」）"
-    : "ŷ 先增量补齐观察池，再读 L1/L2（页头「可拉远端」）";
+    : "ŷ 先增量补齐（L0）观察池，再读 L1/L2（页头「可拉远端」）";
   return (
-    `${score} · 缺特征去研究枢纽物化 · 缺仓/仓坏用「强更」` +
+    `${score} · 缺特征去研究枢纽物化 · 缺仓/仓坏用「强更日 K（L0）」/「强更 5m（L0）」` +
     ` · 落账成交价走行情 · ≠ 做T 选向`
   );
 }
@@ -76,7 +76,7 @@ export function rebalanceDataFoot(offlineOnly = true) {
 export function t0DataFoot() {
   return (
     "选向ŷ：回测/预演用各日会话快照（≠持仓实时分）" +
-    " · 路径5m：研究枢纽仓 / 页头可拉远端增量补齐" +
+    " · 路径5m：研究枢纽仓 / 页头可拉远端增量补齐（L0）" +
     " · Worker/落账可拉最新5m · 现价盯盘走行情"
   );
 }
@@ -94,6 +94,6 @@ export function dayBarsHubFoot() {
 /** 数据中心页头路径说明 */
 export function watchingPathHint() {
   return (
-    "名单在本页维护 · 日K/5m：研究枢纽或页头「可拉远端」增量补齐 · ŷ 读物化 L1/L2 · 行情列独立"
+    "名单在本页维护 · 日K/5m：研究枢纽或页头「可拉远端」增量补齐（L0） · ŷ 读物化 L1/L2 · 行情列独立"
   );
 }
