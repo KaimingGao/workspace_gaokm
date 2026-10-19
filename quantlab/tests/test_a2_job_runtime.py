@@ -1,5 +1,6 @@
 """A2：Job stale / cancel 契约与落盘槽。"""
 
+import json
 import os
 import sys
 import tempfile
@@ -26,6 +27,35 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertEqual(snap["status"], "failed")
         self.assertIn("stale_policy", snap)
         self.assertEqual(snap["id"], jid)
+
+    def test_reload_persists_interrupt_and_dead_owner_reclaims(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "job.json")
+            first = JobProgress(name="materialize-l1l2", persist_path=path)
+            jid, _snap = first.try_start(kind="materialize_open", total=2, message="L1 oo：assemble 800 只…")
+            self.assertTrue(jid)
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+            raw["owner_pid"] = 2**31 - 1
+            raw["status"] = "running"
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(raw, f)
+            # 新进程加载：内存标失败，并写回磁盘
+            reloaded = JobProgress(name="materialize-l1l2", persist_path=path)
+            self.assertEqual(reloaded.get()["status"], "failed")
+            with open(path, encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual(saved["status"], "failed")
+            self.assertIn("重启", saved.get("error") or "")
+            # 若槽里仍是死进程的 running，轮询应立刻释放
+            stale = JobProgress(name="test-dead-owner")
+            stale.start(kind="demo", message="L1 oo：assemble 800 只…")
+            with stale._lock:
+                stale._job["status"] = "running"
+                stale._job["owner_pid"] = 2**31 - 1
+                stale._job["updated_at"] = time.time()
+            self.assertTrue(stale.reclaim_if_stale())
+            self.assertEqual(stale.get()["status"], "failed")
 
     def test_reclaim_if_stale(self):
         slot = JobProgress(name="test-stale")

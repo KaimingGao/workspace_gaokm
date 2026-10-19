@@ -9,6 +9,26 @@ from typing import Any, Dict, List, Optional
 
 from core.io_atomic import atomic_write_json
 
+
+def _pid_alive(pid: Any) -> bool:
+    """任务所属进程是否还在。死进程留下的 running 不能再占槽。"""
+    try:
+        pid_i = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid_i <= 0:
+        return False
+    try:
+        os.kill(pid_i, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
     # 对话：多轮 tool + 联网 LLM 常 >5min；轮询走 /api/jobs/chat 也会 reclaim
     "chat": {
@@ -132,6 +152,7 @@ class JobProgress:
             "cancel_requested": False,
             "started_at": None,
             "updated_at": None,
+            "owner_pid": None,
         }
 
     def _load(self) -> None:
@@ -147,12 +168,17 @@ class JobProgress:
             for k in job:
                 if k in data:
                     job[k] = data[k]
-            # 热重载后进程已死：running 视为中断，避免前端空等
-            if job.get("status") == "running":
+            # 热重载后进程已死：running 视为中断，避免前端空等。
+            # 必须写回磁盘，否则文件仍是 running，轮询会把死任务当成还在 assemble。
+            interrupted = job.get("status") == "running"
+            if interrupted:
                 job["status"] = "failed"
                 job["error"] = job.get("error") or "任务因服务重启中断，请重试"
                 job["message"] = "已中断"
+                job["updated_at"] = time.time()
             self._job = job
+            if interrupted:
+                self._save_unlocked()
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             pass
 
@@ -387,6 +413,7 @@ class JobProgress:
                 "cancel_requested": False,
                 "started_at": now,
                 "updated_at": now,
+                "owner_pid": os.getpid(),
             }
             self._save_unlocked()
         return job_id
@@ -414,6 +441,7 @@ class JobProgress:
                 "cancel_requested": False,
                 "started_at": now,
                 "updated_at": now,
+                "owner_pid": os.getpid(),
             }
             self._save_unlocked()
             return job_id, dict(self._job)
@@ -541,6 +569,15 @@ class JobProgress:
         with self._lock:
             if self._job.get("status") != "running":
                 return False
+            owner = self._job.get("owner_pid")
+            if owner not in (None, "", 0) and not _pid_alive(owner):
+                self._job["cancel_requested"] = True
+                self._job["status"] = "failed"
+                self._job["error"] = "任务因服务重启中断，请重试"
+                self._job["message"] = "已中断"
+                self._job["updated_at"] = time.time()
+                self._save_unlocked()
+                return True
             ts = self._job.get("updated_at")
             try:
                 stale = max(0.0, time.time() - float(ts))
