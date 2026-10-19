@@ -49,6 +49,11 @@ function buildClusterJobFacts(job, { pollStartedAt } = {}) {
   const tot = Number(job?.total);
   if (cur > 0 && tot > 0) {
     facts.push(`进度 <strong>${cur}/${tot}</strong>`);
+  } else {
+    const pct = Number(job?.pct);
+    if (Number.isFinite(pct) && pct > 0) {
+      facts.push(`进度 <strong>${Math.round(pct)}%</strong>`);
+    }
   }
   const { elapsed, heartbeat } = jobTimings(job, pollStartedAt);
   if (elapsed != null) facts.push(`已用 <strong>${fmtDuration(elapsed)}</strong>`);

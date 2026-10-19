@@ -56,6 +56,16 @@ class TestA2JobRuntime(unittest.TestCase):
                 stale._job["updated_at"] = time.time()
             self.assertTrue(stale.reclaim_if_stale())
             self.assertEqual(stale.get()["status"], "failed")
+            # 本进程仍持有的任务，再挂一块槽不能写成中断
+            live = JobProgress(name="materialize-l1l2", persist_path=path)
+            live_id, _snap = live.try_start(
+                kind="materialize_open", total=2, message="L1 oo：assemble 800 只…"
+            )
+            self.assertTrue(live_id)
+            again = JobProgress(name="materialize-l1l2", persist_path=path)
+            self.assertEqual(again.get()["status"], "running")
+            self.assertEqual(again.get()["id"], live_id)
+            self.assertTrue(live.is_running())
 
     def test_reclaim_if_stale(self):
         slot = JobProgress(name="test-stale")

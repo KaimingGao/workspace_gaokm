@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import math
@@ -455,18 +456,21 @@ def stamp_open_clock_minute_z(feats: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def extract_minute_tau_pack(
-    minute_bars: Sequence[dict],
+def _clock_hhmm(tau_hm: str) -> Optional[str]:
+    """``09:35`` / ``0935`` → ``0935``。开盘等非四位钟点返回 None。"""
+    s = str(tau_hm or "").replace(":", "")
+    if len(s) >= 4 and s[:4].isdigit():
+        return s[:4]
+    return None
+
+
+def _tau_pack_from_bars(
+    bars: Sequence[dict],
     *,
-    trade_date: str,
-    tau_hm: str = "10:30",
     open_px: Optional[float] = None,
     prev_close: Optional[float] = None,
 ) -> Dict[str, float]:
-    """从当日 ≤τ 分钟线提取小包特征；不足 1 根返回空 dict（09:30 无前缀）。"""
-    bars = _day_bars_upto_tau(
-        minute_bars, trade_date=trade_date, tau_hm=tau_hm
-    )
+    """``bars`` 已是当日 ≤τ、按时刻排好的前缀。不足 1 根返回空 dict。"""
     if len(bars) < 1:
         return {}
 
@@ -627,6 +631,69 @@ def extract_minute_tau_pack(
     return out
 
 
+def extract_minute_tau_pack(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str = "10:30",
+    open_px: Optional[float] = None,
+    prev_close: Optional[float] = None,
+) -> Dict[str, float]:
+    """从当日 ≤τ 分钟线提取小包特征；不足 1 根返回空 dict（09:30 无前缀）。"""
+    bars = _day_bars_upto_tau(
+        minute_bars, trade_date=trade_date, tau_hm=tau_hm
+    )
+    return _tau_pack_from_bars(bars, open_px=open_px, prev_close=prev_close)
+
+
+def extract_minute_tau_packs(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    clocks: Sequence[str],
+    open_px: Optional[float] = None,
+    prev_close: Optional[float] = None,
+) -> Dict[str, Dict[str, float]]:
+    """同一日多个钟：≤最晚钟的分钟线只滤一次，各钟用自己的前缀。
+
+    键与传入的钟点字符串一致。某个钟失败则这一钟为空，其他钟保留。
+    """
+    ordered = [str(c) for c in (clocks or []) if str(c or "").strip()]
+    out: Dict[str, Dict[str, float]] = {}
+    hhmm: List[Tuple[str, str]] = []
+    for clock in ordered:
+        target = _clock_hhmm(clock)
+        if target is None:
+            try:
+                out[clock] = extract_minute_tau_pack(
+                    minute_bars,
+                    trade_date=trade_date,
+                    tau_hm=clock,
+                    open_px=open_px,
+                    prev_close=prev_close,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("tau pack clock failed tau=%s", clock, exc_info=True)
+                out[clock] = {}
+            continue
+        hhmm.append((clock, target))
+    if not hhmm:
+        return out
+    latest = max(target for _clock, target in hhmm)
+    bars = _day_bars_upto_tau(minute_bars, trade_date=trade_date, tau_hm=latest)
+    hms = [_bar_hm(b) for b in bars]
+    for clock, target in hhmm:
+        try:
+            end = bisect.bisect_right(hms, target)
+            out[clock] = _tau_pack_from_bars(
+                bars[:end], open_px=open_px, prev_close=prev_close
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau pack prefix failed tau=%s", clock, exc_info=True)
+            out[clock] = {}
+    return out
+
+
 def _typical_px(h: Optional[float], l: Optional[float], c: float) -> float:
     hh = float(h) if h is not None and h > 0 else c
     ll = float(l) if l is not None and l > 0 else c
@@ -640,8 +707,12 @@ def _extract_multi_horizon_seq_packs(
     tau_hm: str,
     open_px: Optional[float] = None,
     horizons: Sequence[Tuple[int, str, str, str]],
+    prepared: Optional[Sequence[dict]] = None,
 ) -> Dict[str, float]:
-    """共用 ≤τ 前缀，一次写出多视界序列键（交易时钟 + 近 5m + VWAP + trail 收益/量比）。"""
+    """共用 ≤τ 前缀，一次写出多视界序列键（交易时钟 + 近 5m + VWAP + trail 收益/量比）。
+
+    ``prepared`` 已是该钟的前缀时不再滤分钟线。
+    """
     from core.signal.minute_tau_grid import (
         horizon_crosses_lunch,
         session_elapsed,
@@ -661,9 +732,12 @@ def _extract_multi_horizon_seq_packs(
         if cross is not None:
             out[lunch_key] = float(cross)
 
-    bars = _day_bars_upto_tau(
-        minute_bars, trade_date=trade_date, tau_hm=tau_hm
-    )
+    if prepared is None:
+        bars = _day_bars_upto_tau(
+            minute_bars, trade_date=trade_date, tau_hm=tau_hm
+        )
+    else:
+        bars = list(prepared)
     rows: List[Tuple[str, float, float, float]] = []
     for b in bars:
         hm = _bar_hm(b)
@@ -766,6 +840,54 @@ def extract_horizon_seq_packs(
         open_px=open_px,
         horizons=_HORIZON_SEQ_PACKS,
     )
+
+
+def extract_horizon_seq_packs_for_clocks(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    clocks: Sequence[str],
+    open_px: Optional[float] = None,
+) -> Dict[str, Dict[str, float]]:
+    """同一日多个钟的窗头序列：≤最晚钟只滤一次。某个钟失败则这一钟为空。"""
+    ordered = [str(c) for c in (clocks or []) if str(c or "").strip()]
+    out: Dict[str, Dict[str, float]] = {}
+    hhmm: List[Tuple[str, str]] = []
+    for clock in ordered:
+        target = _clock_hhmm(clock)
+        if target is None:
+            try:
+                out[clock] = extract_horizon_seq_packs(
+                    minute_bars,
+                    trade_date=trade_date,
+                    tau_hm=clock,
+                    open_px=open_px,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("horizon packs clock failed tau=%s", clock, exc_info=True)
+                out[clock] = {}
+            continue
+        hhmm.append((clock, target))
+    if not hhmm:
+        return out
+    latest = max(target for _clock, target in hhmm)
+    bars = _day_bars_upto_tau(minute_bars, trade_date=trade_date, tau_hm=latest)
+    hms = [_bar_hm(b) for b in bars]
+    for clock, target in hhmm:
+        try:
+            end = bisect.bisect_right(hms, target)
+            out[clock] = _extract_multi_horizon_seq_packs(
+                minute_bars,
+                trade_date=trade_date,
+                tau_hm=clock,
+                open_px=open_px,
+                horizons=_HORIZON_SEQ_PACKS,
+                prepared=bars[:end],
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("horizon packs prefix failed tau=%s", clock, exc_info=True)
+            out[clock] = {}
+    return out
 
 
 def extract_t30_seq_pack(

@@ -70,6 +70,34 @@ class ConsumeProcessBatchTests(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.payload.get("stock_code"), "000001")
 
+    def test_materialize_required_cancels_pending(self) -> None:
+        from core.research.materialize.consumer import MaterializeRequired
+        from core.research.materialize.pool import consume_process_batch
+
+        pending: Future = Future()
+
+        def _submit(i: int) -> Future:
+            if i == 0:
+                fut: Future = Future()
+                fut.set_exception(
+                    MaterializeRequired(
+                        {"error": "请先日线物化", "stock_code": "000001", "families": ["oo"]}
+                    )
+                )
+                return fut
+            return pending
+
+        with self.assertRaises(MaterializeRequired):
+            consume_process_batch(
+                start=0,
+                end=2,
+                n_workers=2,
+                results=[None, None],
+                submit=_submit,
+                run_one=lambda i: None,
+            )
+        self.assertTrue(pending.cancelled())
+
     def test_broken_pool_finishes_batch_serially(self) -> None:
         from concurrent.futures.process import BrokenProcessPool
 

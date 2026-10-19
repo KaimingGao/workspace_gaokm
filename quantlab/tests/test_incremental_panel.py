@@ -40,9 +40,11 @@ class TestIncrementalPanel(unittest.TestCase):
         self._prev = {
             "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
             "QUANTLAB_FEATURE_LAKE": os.environ.get("QUANTLAB_FEATURE_LAKE"),
+            "QUANTLAB_DAY_CUBE_GC": os.environ.get("QUANTLAB_DAY_CUBE_GC"),
         }
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = os.path.join(self._tmpdir.name, "l1")
         os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
 
     def tearDown(self) -> None:
         for k, v in self._prev.items():
@@ -99,6 +101,21 @@ class TestIncrementalPanel(unittest.TestCase):
         mid.append(extended[-1])
         self.assertIsNone(tail_append_days(mid, meta))
         self.assertFalse(is_pure_tail_append(mid, meta))
+
+    def test_lake_row_covers_bar_end(self) -> None:
+        from core.research.incremental_panel import lake_row_covers_bar_end
+
+        bars = _bars(4)
+        end = bars[-1]["date"]
+        self.assertTrue(lake_row_covers_bar_end([end], bars, {}))
+        self.assertFalse(lake_row_covers_bar_end([bars[0]["date"]], bars, {}))
+        self.assertTrue(
+            lake_row_covers_bar_end(
+                [bars[0]["date"]],
+                bars,
+                {"scored_through": end},
+            )
+        )
 
     def test_merge_matrix_rows(self) -> None:
         from core.research.incremental_panel import merge_matrix_rows
@@ -218,6 +235,79 @@ class TestIncrementalPanel(unittest.TestCase):
         self.assertIn("2024-03-15", dates)
         self.assertEqual(float(y[-1]), 0.9)
 
+    def test_bad_spec_or_shape_does_not_merge(self) -> None:
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import stem_extra_meta, try_incremental_merge
+        from core.research.lake_bridge import FAMILY_OO
+        from core.research.materialize.consumer import MaterializeRequired
+        from core.research.panel_fingerprint import make_fingerprint
+
+        bars = _bars(40)
+        meta = stem_extra_meta(bars)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1)
+        write_stock_panel(
+            FAMILY_OO,
+            "000001",
+            dates=["2024-01-01", "2024-01-02"],
+            X=np.asarray([[1.0], [2.0]]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([0.1, 0.2]),
+            extra_meta=meta,
+        )
+
+        def _tail(_keep):
+            raise AssertionError("坏口径或坏形状不能接尾窗")
+
+        def _boom(_bars_fp: str) -> str:
+            raise RuntimeError("spec")
+
+        self.assertIsNone(
+            try_incremental_merge(
+                "000001",
+                bars,
+                pad=8,
+                collect_tail=_tail,
+                family=FAMILY_OO,
+                spec_fp=_boom,
+            )
+        )
+
+        def _required(_keep):
+            raise MaterializeRequired({"error": "请先日线物化", "families": ["oo"]})
+
+        def _spec(bars_fp: str) -> str:
+            return make_fingerprint(bars_fp=bars_fp, horizon=1)
+
+        with self.assertRaises(MaterializeRequired):
+            try_incremental_merge(
+                "000001",
+                bars,
+                pad=8,
+                collect_tail=_required,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+            )
+
+        def _bad_tail(_keep):
+            return (
+                np.asarray([[1.0], [2.0]]),
+                np.asarray([0.1]),
+                ["f"],
+                ["2024-01-03"],
+            )
+
+        self.assertIsNone(
+            try_incremental_merge(
+                "000001",
+                bars,
+                pad=8,
+                collect_tail=_bad_tail,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+            )
+        )
+
     def test_oo_stock_job_incremental_tail(self) -> None:
         from core.research.feature_lake import load_stock_panel
         from core.research.lake_bridge import FAMILY_OO
@@ -264,9 +354,11 @@ class TestLakeReplay(unittest.TestCase):
         self._prev = {
             "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
             "QUANTLAB_FEATURE_LAKE": os.environ.get("QUANTLAB_FEATURE_LAKE"),
+            "QUANTLAB_DAY_CUBE_GC": os.environ.get("QUANTLAB_DAY_CUBE_GC"),
         }
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = self._tmpdir.name
         os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
         from core.research.lake_replay import clear_coverage_cache
 
         clear_coverage_cache()
@@ -533,8 +625,10 @@ class TestFamilyForTc(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         prev_dir = os.environ.get("QUANTLAB_FEATURE_LAKE_DIR")
         prev_en = os.environ.get("QUANTLAB_FEATURE_LAKE")
+        prev_gc = os.environ.get("QUANTLAB_DAY_CUBE_GC")
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = tmp.name
         os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
         clear_coverage_cache()
         try:
             fam = family_for_tc(tau_hm="09:50")
@@ -581,6 +675,10 @@ class TestFamilyForTc(unittest.TestCase):
                 os.environ.pop("QUANTLAB_FEATURE_LAKE", None)
             else:
                 os.environ["QUANTLAB_FEATURE_LAKE"] = prev_en
+            if prev_gc is None:
+                os.environ.pop("QUANTLAB_DAY_CUBE_GC", None)
+            else:
+                os.environ["QUANTLAB_DAY_CUBE_GC"] = prev_gc
             tmp.cleanup()
 
     def test_load_training_matrix_from_l1(self) -> None:
@@ -597,9 +695,11 @@ class TestFamilyForTc(unittest.TestCase):
         prev = {
             "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
             "QUANTLAB_FEATURE_LAKE": os.environ.get("QUANTLAB_FEATURE_LAKE"),
+            "QUANTLAB_DAY_CUBE_GC": os.environ.get("QUANTLAB_DAY_CUBE_GC"),
         }
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = os.path.join(tmp.name, "l1")
         os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
         try:
             fp = "fp-test-oo"
             X = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
@@ -642,8 +742,10 @@ class TestFamilyForTc(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         prev_dir = os.environ.get("QUANTLAB_FEATURE_LAKE_DIR")
         prev_en = os.environ.get("QUANTLAB_FEATURE_LAKE")
+        prev_gc = os.environ.get("QUANTLAB_DAY_CUBE_GC")
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = tmp.name
         os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
         try:
             write_stock_panel(
                 FAMILY_TC,
@@ -674,6 +776,10 @@ class TestFamilyForTc(unittest.TestCase):
                 os.environ.pop("QUANTLAB_FEATURE_LAKE", None)
             else:
                 os.environ["QUANTLAB_FEATURE_LAKE"] = prev_en
+            if prev_gc is None:
+                os.environ.pop("QUANTLAB_DAY_CUBE_GC", None)
+            else:
+                os.environ["QUANTLAB_DAY_CUBE_GC"] = prev_gc
             tmp.cleanup()
 
 

@@ -167,11 +167,40 @@ def sync_panel_to_lake(
         return False
 
 
-def invalidate_l1_for_code(code: str, *, families: Optional[Sequence[str]] = None) -> None:
-    """bars topup / 复权改写后使该票 L1 miss。"""
-    try:
-        from core.research import feature_lake as lake
+def _l1_dates_before_invalidate(code: str, families: Sequence[str]) -> tuple:
+    """删文件前取出日期。返回 ``(dates, had_shard, unreadable)``。
 
+    单个 family 读失败只记这一支，不让整次失效中断。
+    """
+    from core.research import feature_lake as lake
+
+    dates: set = set()
+    had_shard = False
+    unreadable = False
+    for fam in families:
+        try:
+            exists, found = lake.peek_stock_dates(fam, code)
+        except Exception:  # noqa: BLE001
+            logger.warning("l1 dates read failed code=%s family=%s", code, fam, exc_info=True)
+            unreadable = True
+            had_shard = True
+            continue
+        if not exists:
+            continue
+        had_shard = True
+        if found is None:
+            unreadable = True
+        else:
+            dates.update(found)
+    return dates, had_shard, unreadable
+
+
+def invalidate_l1_for_code(code: str, *, families: Optional[Sequence[str]] = None) -> None:
+    """bars topup / 复权改写后使该票 L1 miss，并作废这些日期的 L2。"""
+    from core.research import feature_lake as lake
+    from core.research.day_cube_gc import note_all_dates, note_stale_dates
+
+    try:
         if families is not None:
             fams = list(families)
         else:
@@ -181,18 +210,61 @@ def invalidate_l1_for_code(code: str, *, families: Optional[Sequence[str]] = Non
                 FAMILY_OO_RANK,
                 *list_tc_l1_families(),
             ]
-        for fam in fams:
-            lake.invalidate_code(fam, code)
     except Exception:  # noqa: BLE001
-        logger.debug("invalidate_l1_for_code failed code=%s", code, exc_info=True)
+        logger.warning("l1 family list failed code=%s", code, exc_info=True)
+        fams = [FAMILY_OO, FAMILY_CO, FAMILY_OO_RANK]
+    dates, had_shard, unreadable = _l1_dates_before_invalidate(code, fams)
+    for fam in fams:
+        try:
+            lake.invalidate_code(fam, code)
+        except Exception:  # noqa: BLE001
+            logger.warning("l1 invalidate file failed code=%s family=%s", code, fam, exc_info=True)
+    if not had_shard:
+        return
+    try:
+        if unreadable and not dates:
+            logger.warning("l1 dates unreadable code=%s; dropping current-schema cubes", code)
+            note_all_dates()
+            return
+        if unreadable:
+            logger.warning(
+                "l1 dates partial unreadable code=%s; dropping %s known dates",
+                code,
+                len(dates),
+            )
+        if dates:
+            note_stale_dates(dates)
+    except Exception:  # noqa: BLE001
+        logger.warning("l2 note after l1 invalidate failed code=%s", code, exc_info=True)
 
 
-def invalidate_l1_many(codes: Sequence[str]) -> int:
+def invalidate_l1_many(codes: Sequence[str]) -> Dict[str, Any]:
+    """删这批票的 L1，合并后作废对应 L2 日期，再回收冷宇宙。"""
+    from core.research.day_cube_gc import l2_invalidation_batch, prune_cold
+
     n = 0
-    for raw in codes or []:
-        c = str(raw or "").strip()
-        if not c:
-            continue
-        invalidate_l1_for_code(c)
-        n += 1
-    return n
+    with l2_invalidation_batch() as bucket:
+        for raw in codes or []:
+            c = str(raw or "").strip()
+            if not c:
+                continue
+            invalidate_l1_for_code(c)
+            n += 1
+    try:
+        prune = prune_cold()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("day cube prune after l1 invalidate failed", exc_info=True)
+        prune = {
+            "skipped": True,
+            "hashes_pruned": 0,
+            "schemas_pruned": 0,
+            "error": str(exc),
+        }
+    return {
+        "n": n,
+        "l2_dates_dropped": int((bucket or {}).get("dates_dropped") or 0),
+        "l2_files_removed": int((bucket or {}).get("files_removed") or 0),
+        "l2_hashes_pruned": int((prune or {}).get("hashes_pruned") or 0),
+        "l2_schemas_pruned": int((prune or {}).get("schemas_pruned") or 0),
+        "l2_prune_skipped": bool((prune or {}).get("skipped")),
+    }

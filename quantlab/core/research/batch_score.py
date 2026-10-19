@@ -91,11 +91,12 @@ def ensure_day_cube_for_items(
     clock: str = "open",
     persist: bool = True,
     universe_codes: Optional[Sequence[str]] = None,
+    replace: bool = False,
 ) -> Optional[Any]:
     """从已打分 items 构建/加载当日 DayCube。
 
     ``universe_codes`` 是读取方会拿去哈希的完整名单。缺行的代码仍留在键里，
-    矩阵只用有特征的 items。
+    矩阵只用有特征的 items。``replace=True`` 时盖掉已有立方（窗头列不够的重建）。
     """
     from core.research.day_cube import build_or_load, load_day_cube
     from core.research.materialize.consumer import consumer_read_only
@@ -123,7 +124,12 @@ def ensure_day_cube_for_items(
     if consumer_read_only():
         return load_day_cube(day, lookup, clock=clock)
     return build_or_load(
-        day, by_code, clock=clock, persist=persist, universe_codes=universe_codes
+        day,
+        by_code,
+        clock=clock,
+        persist=persist,
+        universe_codes=universe_codes,
+        replace=bool(replace),
     )
 
 

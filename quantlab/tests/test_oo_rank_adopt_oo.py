@@ -167,7 +167,10 @@ class OoRankAdoptOoTests(unittest.TestCase):
         )
 
     def test_stock_job_copies_oo_matrix(self) -> None:
-        from core.research.oo_rank_panel import _oo_rank_stock_job
+        from core.research.oo_rank_panel import (
+            _oo_rank_panel_fingerprint,
+            _oo_rank_stock_job,
+        )
         from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
         bars = _bars()
@@ -175,6 +178,16 @@ class OoRankAdoptOoTests(unittest.TestCase):
         y = np.array([0.1, 0.2, 0.3], dtype=np.float64)
         names = ["z_oo_a", "raw_aoo_b"]
         dates = ["2024-01-01", "2024-01-02", "2024-01-03"]
+        rank_fp, _, _, _ = _oo_rank_panel_fingerprint(
+            bars,
+            horizon_days=1,
+            min_history=12,
+            max_window=30,
+            excess_mode="none",
+            respect_regime=False,
+            index_bars=None,
+            config=None,
+        )
         oo_fp = make_fingerprint(
             bars_fp=bars_fingerprint(bars),
             horizon=1,
@@ -217,7 +230,9 @@ class OoRankAdoptOoTests(unittest.TestCase):
         self.assertEqual(got_dates, dates)
         self.assertTrue(np.allclose(got_y, y))
         self.assertEqual([item[0] for item in seen], ["oo_rank", "oo"])
-        self.assertEqual(synced, {})
+        self.assertEqual(synced["family"], "oo_rank")
+        self.assertEqual(synced["code"], "000001")
+        self.assertEqual(synced["fingerprint"], rank_fp)
 
     def test_materialize_writes_oo_before_oo_rank(self) -> None:
         from core.research.materialize import l1_jobs
@@ -281,6 +296,24 @@ class OoRankAdoptOoTests(unittest.TestCase):
         self.assertEqual(seen, [4])
         self.assertEqual(report["families"], ["oo", "oo_rank"])
 
+    def test_one_family_exception_does_not_drop_the_report(self) -> None:
+        from core.research.materialize import l1_jobs
+
+        with mock.patch.object(
+            l1_jobs, "_materialize_oo", side_effect=RuntimeError("oo boom")
+        ), mock.patch.object(
+            l1_jobs,
+            "_materialize_tc",
+            return_value={"ok": True, "family": "tc"},
+        ):
+            report = l1_jobs.materialize_l1(
+                ["tc", "oo"], ["000001", "000002"]
+            )
+        self.assertFalse(report["ok"])
+        self.assertIn("oo boom", report["by_family"]["oo"]["error"])
+        self.assertTrue(report["by_family"]["tc"]["ok"])
+        self.assertNotIn("oo_rank", report["by_family"])
+
     def test_other_spec_does_not_tail_merge_default_matrix(self) -> None:
         from core.research.feature_lake import write_stock_panel
         from core.research.incremental_panel import stem_extra_meta
@@ -305,9 +338,11 @@ class OoRankAdoptOoTests(unittest.TestCase):
         prev = {
             "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
             "QUANTLAB_FEATURE_LAKE": os.environ.get("QUANTLAB_FEATURE_LAKE"),
+            "QUANTLAB_DAY_CUBE_GC": os.environ.get("QUANTLAB_DAY_CUBE_GC"),
         }
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = tmp.name
         os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
         calls = []
 
         def _collect(*_args, **kwargs):
@@ -328,7 +363,8 @@ class OoRankAdoptOoTests(unittest.TestCase):
             with mock.patch(
                 "core.research.oo_panel.collect_oo_panel", side_effect=_collect
             ):
-                out = _oo_rank_stock_job(_job(bars, excess_mode="index"))
+                with self.assertRaises(RuntimeError):
+                    _oo_rank_stock_job(_job(bars, excess_mode="index"))
         finally:
             for key, val in prev.items():
                 if val is None:
@@ -336,5 +372,4 @@ class OoRankAdoptOoTests(unittest.TestCase):
                 else:
                     os.environ[key] = val
             tmp.cleanup()
-        self.assertIsNone(out)
         self.assertEqual(calls, [None])

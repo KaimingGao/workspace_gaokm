@@ -429,7 +429,10 @@ def refresh_bars_only(
                 if l1_invalidate_decision(stored, current):
                     stale.append(code)
             if stale:
-                invalidate_l1_many(stale)
+                dropped = invalidate_l1_many(stale)
+                if isinstance(dropped, dict):
+                    bars_refresh["l2_dates_dropped"] = int(dropped.get("l2_dates_dropped") or 0)
+                    bars_refresh["l2_hashes_pruned"] = int(dropped.get("l2_hashes_pruned") or 0)
             bars_refresh["l1_invalidated"] = len(stale)
         except Exception:  # noqa: BLE001
             logger.debug("feature lake invalidate after bars refresh failed", exc_info=True)

@@ -216,7 +216,8 @@ def collect_oo_panel(
         }
     from core.signal.yhat_windows import pit_oo_window_quote
 
-    for i in range(min_history - 1, n - horizon_days):
+    # 标签要未来开盘。最后 horizon 根还没有 y，特征仍按 T 开盘写出，y 记 nan。
+    for i in range(min_history - 1, n):
         decision_date = str((bars[i] or {}).get("date") or "")[:10]
         if keep is not None and decision_date not in keep:
             continue
@@ -228,9 +229,7 @@ def collect_oo_panel(
         idx_slice = index_bars[start:i] if index_bars else None
 
         fr = _forward_return(bars, i, horizon_days)
-        if fr is None:
-            continue
-        if em == "index":
+        if fr is not None and em == "index":
             from core.research.beta_accuracy import apply_excess_to_forward_return
 
             idx_fr = None
@@ -238,8 +237,6 @@ def collect_oo_panel(
             if j0 is not None:
                 idx_fr = _forward_return(index_bars, j0, horizon_days)
             fr = apply_excess_to_forward_return(fr, idx_fr, excess_mode="index")
-            if fr is None:
-                continue
 
         row = _research_sub_scores(
             window,
@@ -252,7 +249,7 @@ def collect_oo_panel(
         if not any(v is not None for v in row.values()):
             continue
         xs.append(row)
-        ys.append(fr)
+        ys.append(float(fr) if fr is not None else float("nan"))
         dates.append(decision_date)
 
     return xs, ys, dates

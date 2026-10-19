@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -245,7 +246,12 @@ class TestPaperJobPersist(unittest.TestCase):
             j1 = JobProgress(name="paper", persist_path=path)
             jid = j1.start(kind="paper_buy", total=3, message="run")
             self.assertTrue(j1.is_running())
-            # 模拟新进程加载同一文件
+            # 模拟上一进程已退出：属主 pid 不再存活
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+            raw["owner_pid"] = 2**31 - 1
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(raw, f)
             j2 = JobProgress(name="paper", persist_path=path)
             snap = j2.get()
             self.assertEqual(snap["id"], jid)

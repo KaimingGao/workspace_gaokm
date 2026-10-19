@@ -9,8 +9,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 # 进程内：family → code → set(dates) 覆盖索引（paper_replay 预热）
@@ -110,68 +108,90 @@ def _coverage_has(family: str, code: str, day: str) -> Optional[bool]:
 
 
 def _feats_from_pack(pack: Dict[str, Any], day: str) -> Optional[Dict[str, float]]:
+    from core.research.feature_lake import finite_feature_dict
+
     day_s = str(day or "")[:10]
     idx_map = pack.get("_date_i")
     if not isinstance(idx_map, dict):
-        indexed = _index_pack(pack)
-        idx_map = indexed.get("_date_i") or {}
+        idx_map = _index_pack(pack).get("_date_i") or {}
     idx = idx_map.get(day_s)
     if idx is None:
         return None
-    names = list(pack.get("names") or [])
     X = pack.get("X")
     if X is None:
         return None
-    row = np.asarray(X, dtype=np.float64)[int(idx)]
-    feats: Dict[str, float] = {}
-    for j, name in enumerate(names):
-        if j >= row.shape[0]:
-            break
-        v = float(row[j])
-        if np.isfinite(v):
-            feats[str(name)] = v
-    return feats or None
+    try:
+        row = X[int(idx)]
+    except (TypeError, ValueError, IndexError):
+        return None
+    return finite_feature_dict(list(pack.get("names") or []), row) or None
 
 
-def _day_feats(family: str, code: str, day: str) -> Optional[Dict[str, float]]:
-    """优先进程缓存；未预热则单票读盘。"""
+def _family_day_map(
+    family: str,
+    codes: Sequence[str],
+    day: str,
+) -> Dict[str, Dict[str, float]]:
+    """一日一族。预热过的票用内存行；没进缓存的票一次读盘。"""
+    day_s = str(day or "")[:10]
+    out: Dict[str, Dict[str, float]] = {}
+    if len(day_s) < 10:
+        return out
     panels = _L1_PACKS.get(str(family)) or {}
-    pack = panels.get(str(code))
-    if pack is not None:
-        return _feats_from_pack(pack, day)
+    cold: List[str] = []
+    seen: Set[str] = set()
+    for raw in codes or []:
+        code = str(raw or "").strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        pack = panels.get(code)
+        if pack is not None:
+            feats = _feats_from_pack(pack, day_s)
+            if feats:
+                out[code] = feats
+            continue
+        if _coverage_has(family, code, day_s) is False:
+            continue
+        cold.append(code)
+    if not cold:
+        return out
     try:
         from core.research.feature_lake import load_day_rows
 
-        return load_day_rows(family, [code], day).get(code)
+        rows = load_day_rows(family, cold, day_s) or {}
     except Exception:  # noqa: BLE001
+        logger.debug(
+            "lake day rows failed family=%s day=%s", family, day_s, exc_info=True
+        )
+        return out
+    for code, feats in rows.items():
+        if isinstance(feats, dict) and feats:
+            out[str(code)] = feats
+    return out
+
+
+def _day_feats(family: str, code: str, day: str) -> Optional[Dict[str, float]]:
+    """单票一日。预热命中走内存，否则和批量读盘同一条路径。"""
+    code_s = str(code or "").strip()
+    if not code_s:
         return None
+    return _family_day_map(family, [code_s], day).get(code_s)
 
 
 def _lake_row_maps(
     codes: Sequence[str],
     day: str,
 ) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
-    """一日内批量取 oo/tc/co 特征（吃进程缓存）。"""
+    """一日内批量取 oo/tc/co。每族最多读盘一次。"""
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
 
     day_s = str(day or "")[:10]
-    oo_m: Dict[str, Dict[str, float]] = {}
-    tc_m: Dict[str, Dict[str, float]] = {}
-    co_m: Dict[str, Dict[str, float]] = {}
-    for raw in codes or []:
-        code = str(raw or "").strip()
-        if not code:
-            continue
-        oo = _day_feats(FAMILY_OO, code, day_s)
-        if oo:
-            oo_m[code] = oo
-        tc = _day_feats(FAMILY_TC, code, day_s)
-        if tc:
-            tc_m[code] = tc
-        co = _day_feats(FAMILY_CO, code, day_s)
-        if co:
-            co_m[code] = co
-    return oo_m, tc_m, co_m
+    return (
+        _family_day_map(FAMILY_OO, codes, day_s),
+        _family_day_map(FAMILY_TC, codes, day_s),
+        _family_day_map(FAMILY_CO, codes, day_s),
+    )
 
 
 def _clock_hm_display(tau_hm: str) -> str:
@@ -196,19 +216,7 @@ def load_tau_feats_map(
     """按钟批量取 τ L1 行（开盘=``tc``，分钟=``tc_HHMM``）。"""
     from core.research.lake_bridge import family_for_tc
 
-    fam = family_for_tc(tau_hm=tau_hm)
-    day_s = str(day or "")[:10]
-    out: Dict[str, Dict[str, float]] = {}
-    if len(day_s) < 10:
-        return out
-    for raw in codes or []:
-        code = str(raw or "").strip()
-        if not code:
-            continue
-        feats = _day_feats(fam, code, day_s)
-        if feats:
-            out[code] = feats
-    return out
+    return _family_day_map(family_for_tc(tau_hm=tau_hm), codes, day)
 
 
 def try_prefix_live_from_lake(

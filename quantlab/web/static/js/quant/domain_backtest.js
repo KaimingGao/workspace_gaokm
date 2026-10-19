@@ -1867,11 +1867,7 @@ export function installBacktest(q) {
     if (textEl && message != null) textEl.textContent = message;
     if (!progress) return;
     progress.classList.toggle("is-busy", !!busy);
-    const isError =
-      error != null
-        ? !!error
-        : !busy && !hide && !!message && message !== "恢复上次结果…";
-    progress.classList.toggle("is-error", isError);
+    progress.classList.toggle("is-error", !!error);
     if (hide) {
       progress.hidden = true;
       progress.removeAttribute("title");
@@ -2112,6 +2108,7 @@ export function installBacktest(q) {
       setReplayT0Progress({
         busy: false,
         message: job.error || "回测失败",
+        error: true,
       });
       renderT0BacktestResult(null);
       return;
@@ -2133,6 +2130,7 @@ export function installBacktest(q) {
     setReplayT0Progress({
       busy: false,
       message: (job && job.error) || (data && data.error) || "回测失败",
+      error: true,
     });
     renderT0BacktestResult(null);
   }
@@ -2225,6 +2223,7 @@ export function installBacktest(q) {
       setReplayT0Progress({
         busy: false,
         message: String((err && err.message) || err || "回测中断"),
+        error: true,
       });
       return true;
     }
@@ -2271,6 +2270,7 @@ export function installBacktest(q) {
           setReplayT0Progress({
             busy: false,
             message: data.error || data.detail || "回测入队失败",
+            error: true,
           });
           renderT0BacktestResult(null);
           return;
@@ -2285,6 +2285,7 @@ export function installBacktest(q) {
           setReplayT0Progress({
             busy: false,
             message: data.error || data.detail || "回测失败",
+            error: true,
           });
           renderT0BacktestResult(null);
           return;
@@ -2296,6 +2297,7 @@ export function installBacktest(q) {
       } catch (err) {
         setReplayT0Progress({
           busy: false,
+          error: true,
           message: t0FetchErrorMessage(
             err,
             "回测入队失败或连接中断。服务刚重启时请稍候刷新再试"

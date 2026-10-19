@@ -147,6 +147,26 @@ _PREFIX_KEYS = (
 )
 
 
+def _prefix_neutral(tau_hm: str = "open") -> Dict[str, float]:
+    """无分钟前缀时的中性值。逐日摘要和整段列共用这一份。"""
+    return {
+        "RANGE_PCT": 0.0,
+        "LOC_HL": 0.5,
+        "UP_EXTENT": 0.0,
+        "DOWN_EXTENT": 0.0,
+        "PATH_SIGN": 0.0,
+        "PULLBACK": 0.0,
+        "BOUNCE": 0.0,
+        "RET_LAST_15M": 0.0,
+        "REALIZED_VOL": 0.0,
+        "VOL_LAST3_VS_AVG": 1.0,
+        "TAU_ELAPSED_MIN": float(_tau_elapsed_min(tau_hm)),
+        "PREFIX_VWAP_DEV": 0.0,
+        "RANGE_EFF": 0.0,
+        "VP_CONFIRM": 0.0,
+    }
+
+
 def _roll_key(op: str, d: int) -> str:
     return f"P{op}{d}"
 
@@ -353,6 +373,26 @@ def _linear_fit(y: np.ndarray) -> Tuple[Optional[float], Optional[float], Option
     return slope, rsquare, residual
 
 
+def _linear_quantiles(series: np.ndarray, qs: Sequence[float]) -> List[float]:
+    """与 ``np.quantile(..., method='linear')`` 同值，小窗口只排一次序。"""
+    ordered = np.sort(np.asarray(series, dtype=np.float64))
+    n = int(ordered.shape[0])
+    if n <= 0:
+        return [float("nan")] * len(tuple(qs))
+    if n == 1:
+        v = float(ordered[0])
+        return [v for _ in qs]
+    out: List[float] = []
+    last = n - 1
+    for q in qs:
+        pos = float(q) * last
+        lo = int(pos)
+        hi = lo + 1 if lo < last else last
+        w = pos - lo
+        out.append(float(ordered[lo] * (1.0 - w) + ordered[hi] * w))
+    return out
+
+
 def _rank_percentile(current: float, series: np.ndarray) -> Optional[float]:
     if len(series) == 0:
         return None
@@ -420,22 +460,7 @@ def _prefix_summary(
     price_tau: float,
 ) -> Tuple[Dict[str, float], float, float, float, float]:
     """返回 (prefix 字段, hi, lo, cum_vol, last_px)。无分钟时中性缺省。"""
-    defaults = {
-        "RANGE_PCT": 0.0,
-        "LOC_HL": 0.5,
-        "UP_EXTENT": 0.0,
-        "DOWN_EXTENT": 0.0,
-        "PATH_SIGN": 0.0,
-        "PULLBACK": 0.0,
-        "BOUNCE": 0.0,
-        "RET_LAST_15M": 0.0,
-        "REALIZED_VOL": 0.0,
-        "VOL_LAST3_VS_AVG": 1.0,
-        "TAU_ELAPSED_MIN": _tau_elapsed_min(tau_hm),
-        "PREFIX_VWAP_DEV": 0.0,
-        "RANGE_EFF": 0.0,
-        "VP_CONFIRM": 0.0,
-    }
+    defaults = _prefix_neutral(tau_hm)
     hi = float(open_t)
     lo = float(open_t)
     cum_vol = 0.0
@@ -673,8 +698,9 @@ def _rolling_price_fields(
         )
         out[_roll_key("MAX", d)] = float(h_seg.max() / (p0 + _EPS))
         out[_roll_key("LOW", d)] = float(l_seg.min() / (p0 + _EPS))
-        out[_roll_key("QTLU", d)] = float(np.quantile(p_seg, 0.8) / (p0 + _EPS))
-        out[_roll_key("QTLD", d)] = float(np.quantile(p_seg, 0.2) / (p0 + _EPS))
+        q_hi, q_lo = _linear_quantiles(p_seg, (0.8, 0.2))
+        out[_roll_key("QTLU", d)] = float(q_hi / (p0 + _EPS))
+        out[_roll_key("QTLD", d)] = float(q_lo / (p0 + _EPS))
         out[_roll_key("RANK", d)] = _rank_percentile(p0, p_seg)
         h_max = float(h_seg.max())
         l_min = float(l_seg.min())
@@ -1019,3 +1045,439 @@ def raw_atc_from_bars(
         if isinstance(mv, (int, float)) and not isinstance(mv, bool):
             out[f"{ALPHA_TC_RAW_PREFIX}{sk}"] = float(mv)
     return out
+
+
+def ohlcv_from_bars(
+    bars: Sequence[dict],
+) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """与 ``_to_arrays`` 同一套解析。有一根转不成数则返回 None，调用方改走逐日。"""
+    n = len(bars or [])
+    if n <= 0:
+        return None
+    open_ = np.empty(n, dtype=np.float64)
+    high = np.empty(n, dtype=np.float64)
+    low = np.empty(n, dtype=np.float64)
+    close = np.empty(n, dtype=np.float64)
+    volume = np.empty(n, dtype=np.float64)
+    for i, bar in enumerate(bars):
+        if not isinstance(bar, dict):
+            return None
+        try:
+            close[i] = float(bar.get("close") or 0.0)
+            open_[i] = float(bar.get("open") or 0.0)
+            high[i] = float(bar.get("high") or 0.0)
+            low[i] = float(bar.get("low") or 0.0)
+            volume[i] = float(bar.get("volume") or 0.0)
+        except (TypeError, ValueError):
+            return None
+    return open_, high, low, close, volume
+
+
+def _rows_corr(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """逐行 ``_safe_corr``。标准差过小的行是 NaN。"""
+    sx = x.std(axis=1)
+    sy = y.std(axis=1)
+    cov = ((x - x.mean(axis=1, keepdims=True)) * (y - y.mean(axis=1, keepdims=True))).mean(
+        axis=1
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = cov / (sx * sy)
+    return np.where((sx < _EPS) | (sy < _EPS), np.nan, out)
+
+
+def _rows_quantiles(series: np.ndarray, qs: Sequence[float]) -> List[np.ndarray]:
+    """逐行线性分位，索引只取决于窗口长度。"""
+    ordered = np.sort(series, axis=1)
+    n = int(series.shape[1])
+    last = n - 1
+    out: List[np.ndarray] = []
+    for q in qs:
+        pos = float(q) * last
+        lo = int(pos)
+        hi = lo + 1 if lo < last else last
+        w = pos - lo
+        out.append(ordered[:, lo] * (1.0 - w) + ordered[:, hi] * w)
+    return out
+
+
+def _rows_linear_fit(y: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """逐行 ``_linear_fit``。窗口长度固定且 ≥2。"""
+    n = int(y.shape[1])
+    x = np.arange(n, dtype=np.float64)
+    xm = float(x.mean())
+    ym = y.mean(axis=1)
+    xc = x - xm
+    denom = float((xc * xc).sum())
+    slope = (xc * (y - ym[:, None])).sum(axis=1) / denom
+    intercept = ym - slope * xm
+    y_pred = intercept[:, None] + slope[:, None] * x
+    ss_res = ((y - y_pred) ** 2).sum(axis=1)
+    ss_tot = ((y - ym[:, None]) ** 2).sum(axis=1)
+    rsquare = np.where(ss_tot > _EPS, 1.0 - ss_res / (ss_tot + _EPS), 0.0)
+    residual = y[:, -1] - y_pred[:, -1]
+    return slope, rsquare, residual
+
+
+def _as_open_1d(values: Any, n: Optional[int] = None) -> Optional[np.ndarray]:
+    """收成一维 float64。维数或长度不对就放弃整段，避免算出半截列。"""
+    arr = np.asarray(values, dtype=np.float64)
+    if arr.ndim != 1:
+        return None
+    if n is not None and int(arr.shape[0]) != int(n):
+        return None
+    if not arr.flags.c_contiguous:
+        arr = np.ascontiguousarray(arr)
+    return arr
+
+
+def raw_atc_open_columns(
+    open_: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    volume: np.ndarray,
+    *,
+    hist: int,
+) -> Dict[str, np.ndarray]:
+    """开盘 τ、无分钟时，整段日线一次算出 ``raw_atc_*``。
+
+    决策日 ``i >= hist`` 的历史是 ``[i-hist, i)``，再接一根合成 K 线：
+    开高低收都是当日开盘价，成交量是昨日成交量。
+    返回列与 ``i - hist`` 对齐。NaN 表示逐日路径不写这个键。
+    输入不齐或计算中途失败时返回空字典，调用方改走逐日，不留下半截列。
+    """
+    try:
+        cols = _raw_atc_open_columns_impl(
+            open_, high, low, close, volume, hist=hist
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("raw_atc open columns failed", exc_info=True)
+        return {}
+    return cols if isinstance(cols, dict) else {}
+
+
+def raw_atc_tau_columns(
+    open_: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    volume: np.ndarray,
+    *,
+    hist: int,
+    price_tau: np.ndarray,
+    prefix_hi: np.ndarray,
+    prefix_lo: np.ndarray,
+    prefix_vol: np.ndarray,
+    prefix_fields: Optional[Dict[str, np.ndarray]] = None,
+    tau_hm: str = "10:00",
+) -> Dict[str, np.ndarray]:
+    """一个钟、整段决策日的 ``raw_atc_*``。
+
+    ``price_tau`` / 前缀与 ``i - hist`` 对齐。失败或形状不对时返回空字典，
+    调用方改走逐日，不留下半截列。
+    """
+    try:
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            cols = _raw_atc_open_columns_impl(
+                open_,
+                high,
+                low,
+                close,
+                volume,
+                hist=hist,
+                price_tau=price_tau,
+                prefix_hi=prefix_hi,
+                prefix_lo=prefix_lo,
+                prefix_vol=prefix_vol,
+                prefix_fields=prefix_fields,
+                tau_hm=tau_hm,
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("raw_atc tau columns failed", exc_info=True)
+        return {}
+    return cols if isinstance(cols, dict) else {}
+
+
+def _anchor_or(values: Any, fallback: np.ndarray, n: int) -> Optional[np.ndarray]:
+    if values is None:
+        return fallback
+    return _as_open_1d(values, n)
+
+
+def _raw_atc_open_columns_impl(
+    open_: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    volume: np.ndarray,
+    *,
+    hist: int,
+    price_tau: Any = None,
+    prefix_hi: Any = None,
+    prefix_lo: Any = None,
+    prefix_vol: Any = None,
+    prefix_fields: Optional[Dict[str, Any]] = None,
+    tau_hm: str = "open",
+) -> Dict[str, np.ndarray]:
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    hist_n = int(hist)
+    if hist_n < 60:
+        return {}
+    close = _as_open_1d(close)
+    if close is None:
+        return {}
+    n = int(close.shape[0])
+    if n <= hist_n:
+        return {}
+    open_ = _as_open_1d(open_, n)
+    high = _as_open_1d(high, n)
+    low = _as_open_1d(low, n)
+    volume = _as_open_1d(volume, n)
+    if open_ is None or high is None or low is None or volume is None:
+        return {}
+    m = n - hist_n
+    idx = np.arange(hist_n, n)
+    open_t = open_[idx]
+    y_open = open_[idx - 1]
+    y_high = high[idx - 1]
+    y_low = low[idx - 1]
+    y_close = close[idx - 1]
+    y_vol = volume[idx - 1]
+    pt = _anchor_or(price_tau, open_t, m)
+    pref_hi = _anchor_or(prefix_hi, open_t, m)
+    pref_lo = _anchor_or(prefix_lo, open_t, m)
+    cum_vol = _anchor_or(prefix_vol, np.zeros(m, dtype=np.float64), m)
+    if pt is None or pref_hi is None or pref_lo is None or cum_vol is None:
+        return {}
+    valid = (open_t >= _EPS) & (pt >= _EPS) & (y_open >= _EPS) & (y_close >= _EPS)
+
+    hist_o = sliding_window_view(open_, hist_n)[:m]
+    hist_h = sliding_window_view(high, hist_n)[:m]
+    hist_l = sliding_window_view(low, hist_n)[:m]
+    hist_c = sliding_window_view(close, hist_n)[:m]
+    hist_v = sliding_window_view(volume, hist_n)[:m]
+    # 昨量为 0 时，无前缀成交量的合成根写成 1，与 ``_prepare_tau_pit_bars`` 一致。
+    y_or_1 = np.where(y_vol != 0.0, y_vol, 1.0)
+    syn_vol = np.where(cum_vol > _EPS, cum_vol, y_or_1)
+    syn_high = np.maximum(np.maximum(pref_hi, open_t), pt)
+    syn_low = np.minimum(np.minimum(pref_lo, open_t), pt)
+    price = np.hstack([hist_c, pt[:, None]])
+    hi = np.hstack([hist_h, syn_high[:, None]])
+    lo = np.hstack([hist_l, syn_low[:, None]])
+    vol = np.hstack([hist_v, syn_vol[:, None]])
+    width = int(price.shape[1])
+    p0 = price[:, -1]
+    v0 = vol[:, -1]
+    px_ret = np.zeros((m, width), dtype=np.float64)
+    px_ret[:, 1:] = price[:, 1:] / (price[:, :-1] + _EPS) - 1.0
+    vol_delta = np.zeros((m, width), dtype=np.float64)
+    vol_delta[:, 1:] = vol[:, 1:] - vol[:, :-1]
+    log_vol = np.log(vol + 1.0)
+    log_vol_ret = np.zeros((m, width), dtype=np.float64)
+    log_vol_ret[:, 1:] = np.log(vol[:, 1:] / (vol[:, :-1] + _EPS) + 1.0)
+
+    cols: Dict[str, np.ndarray] = {}
+
+    def _put(name: str, values: np.ndarray) -> None:
+        cols[f"{ALPHA_TC_RAW_PREFIX}{name}"] = np.asarray(values, dtype=np.float64)
+
+    gap = open_t / (y_close + _EPS) - 1.0
+    y_rng = y_high - y_low
+    y_rng_pct = y_rng / (y_close + _EPS)
+    y_vwap = (y_high + y_low + y_close) / 3.0
+    tr_num = np.maximum(
+        hist_h[:, 1:] - hist_l[:, 1:],
+        np.maximum(
+            np.abs(hist_h[:, 1:] - hist_c[:, :-1]),
+            np.abs(hist_l[:, 1:] - hist_c[:, :-1]),
+        ),
+    )
+    atr = (tr_num / (hist_c[:, :-1] + _EPS))[:, -14:].mean(axis=1)
+    tc_hist = hist_c / (hist_o + _EPS) - 1.0
+    tc_ma5 = tc_hist[:, -5:].mean(axis=1)
+    tc_ma20 = tc_hist[:, -20:].mean(axis=1)
+    v_mean20 = hist_v[:, -20:].mean(axis=1)
+    v_std20 = hist_v[:, -20:].std(axis=1)
+    yvol_z = (y_vol - v_mean20) / (v_std20 + _EPS)
+    up_lim = y_close * 1.10
+    dn_lim = y_close * 0.90
+    wide = y_rng > _EPS
+    tau_in_yrange = np.where(wide, (p0 - y_low) / np.where(wide, y_rng, 1.0), 0.5)
+    yclose_loc = np.where(wide, (y_close - y_low) / np.where(wide, y_rng, 1.0), 0.5)
+    wide_pct = y_rng_pct > _EPS
+    gap_vs_yrange = np.where(wide_pct, gap / np.where(wide_pct, y_rng_pct, 1.0), 0.0)
+    _put("GAP", gap)
+    _put("GAP_ABS", np.abs(gap))
+    _put("CLOSE0", y_close / (p0 + _EPS))
+    _put("YHIGH0", y_high / (p0 + _EPS))
+    _put("YLOW0", y_low / (p0 + _EPS))
+    _put("YVWAP0", y_vwap / (p0 + _EPS))
+    _put("YOPEN0", y_open / (p0 + _EPS))
+    _put("TAU_IN_YRANGE", tau_in_yrange)
+    _put("GAP_VS_YRANGE", gap_vs_yrange)
+    _put("GAP_ATR", gap / (atr + _EPS))
+    _put("ABOVE_YHIGH", np.where(p0 > y_high, 1.0, 0.0))
+    _put("BELOW_YLOW", np.where(p0 < y_low, 1.0, 0.0))
+    _put("GAP_UP", np.maximum(gap, 0.0))
+    _put("GAP_DN", np.maximum(-gap, 0.0))
+    _put("NEAR_UPLIMIT", (up_lim - p0) / (y_close + _EPS))
+    _put("NEAR_DNLIMIT", (p0 - dn_lim) / (y_close + _EPS))
+    _put("YCLOSE_LOC", yclose_loc)
+    _put("GAP_X_YVOL", gap * yvol_z)
+    _put("GAP_X_YRANGE", gap * y_rng_pct)
+    _put("YOPEN_RET", y_open / (hist_c[:, -2] + _EPS) - 1.0)
+    _put("YRANGE_PCT", y_rng_pct)
+    _put("YVOL_Z20", yvol_z)
+    _put("GAP_VS_TCMA5", gap - tc_ma5)
+    _put("GAP_VS_TCMA20", gap - tc_ma20)
+    _put("RET_OT", p0 / (open_t + _EPS) - 1.0)
+    _put("RET_PT", p0 / (y_close + _EPS) - 1.0)
+    _put("OPEN0", open_t / (p0 + _EPS))
+    pref_rng = pref_hi - pref_lo
+    _put(
+        "TAU_IN_PREFIX",
+        np.where(
+            pref_rng > _EPS,
+            (p0 - pref_lo) / np.where(pref_rng > _EPS, pref_rng, 1.0),
+            0.5,
+        ),
+    )
+
+    y_rng_bar = y_high - y_low
+    mx_oc = np.maximum(y_open, y_close)
+    mn_oc = np.minimum(y_open, y_close)
+    bar_wide = y_rng_bar > _EPS
+    denom_rng = np.where(bar_wide, y_rng_bar, 1.0)
+    mid2 = np.where(bar_wide, (y_close - y_open) / denom_rng, 0.0)
+    up2 = np.where(bar_wide, (y_high - mx_oc) / denom_rng, 0.0)
+    low2 = np.where(bar_wide, (mn_oc - y_low) / denom_rng, 0.0)
+    sft2 = np.where(bar_wide, (2.0 * y_close - y_high - y_low) / denom_rng, 0.0)
+    _put("YKMID", (y_close - y_open) / (y_open + _EPS))
+    _put("YKLEN", (y_high - y_low) / (y_open + _EPS))
+    _put("YKMID2", mid2)
+    _put("YKUP", (y_high - mx_oc) / (y_open + _EPS))
+    _put("YKUP2", up2)
+    _put("YKLOW", (mn_oc - y_low) / (y_open + _EPS))
+    _put("YKLOW2", low2)
+    _put("YKSFT", (2.0 * y_close - y_high - y_low) / (y_open + _EPS))
+    _put("YKSFT2", sft2)
+    _put("YBODY", np.abs(y_close - y_open) / (y_open + _EPS))
+    _put("YUPPER_SHARE", up2)
+    _put("YLOWER_SHARE", low2)
+
+    for d in _WINDOWS:
+        p_seg = price[:, -d:]
+        h_seg = hi[:, -d:]
+        l_seg = lo[:, -d:]
+        v_seg = vol[:, -d:]
+        pr_seg = px_ret[:, -d:]
+        vd_seg = vol_delta[:, -d:]
+        lv_seg = log_vol[:, -d:]
+        lvr_seg = log_vol_ret[:, -d:]
+        p_mean = p_seg.mean(axis=1)
+        _put(_roll_key("ROC", d), price[:, -(d + 1)] / (p0 + _EPS))
+        _put(_roll_key("MA", d), p_mean / (p0 + _EPS))
+        _put(_roll_key("STD", d), p_seg.std(axis=1) / (p0 + _EPS))
+        slope, rsq, resi = _rows_linear_fit(p_seg)
+        _put(_roll_key("BETA", d), slope / (p0 + _EPS))
+        _put(_roll_key("RSQR", d), rsq)
+        _put(_roll_key("RESI", d), resi / (p0 + _EPS))
+        h_max = h_seg.max(axis=1)
+        l_min = l_seg.min(axis=1)
+        _put(_roll_key("MAX", d), h_max / (p0 + _EPS))
+        _put(_roll_key("LOW", d), l_min / (p0 + _EPS))
+        q_hi, q_lo = _rows_quantiles(p_seg, (0.8, 0.2))
+        _put(_roll_key("QTLU", d), q_hi / (p0 + _EPS))
+        _put(_roll_key("QTLD", d), q_lo / (p0 + _EPS))
+        _put(_roll_key("RANK", d), (p_seg < p0[:, None]).sum(axis=1) / float(d))
+        _put(_roll_key("RSV", d), (p0 - l_min) / (h_max - l_min + _EPS))
+        _put(_roll_key("IMAX", d), np.argmax(h_seg, axis=1) / float(d))
+        _put(_roll_key("IMIN", d), np.argmin(l_seg, axis=1) / float(d))
+        _put(
+            _roll_key("IMXD", d),
+            (np.argmax(h_seg, axis=1) - np.argmin(l_seg, axis=1)) / float(d),
+        )
+        _put(_roll_key("CORR", d), _rows_corr(p_seg, lv_seg))
+        _put(_roll_key("CORD", d), _rows_corr(pr_seg, lvr_seg))
+        up = (pr_seg > 0).mean(axis=1)
+        dn = (pr_seg < 0).mean(axis=1)
+        _put(_roll_key("CNTP", d), up)
+        _put(_roll_key("CNTN", d), dn)
+        _put(_roll_key("CNTD", d), up - dn)
+        pos_ret = np.where(pr_seg > 0, pr_seg, 0.0)
+        neg_ret = np.where(pr_seg < 0, -pr_seg, 0.0)
+        abs_sum = np.abs(pr_seg).sum(axis=1)
+        _put(_roll_key("SUMP", d), pos_ret.sum(axis=1) / (abs_sum + _EPS))
+        _put(_roll_key("SUMN", d), neg_ret.sum(axis=1) / (abs_sum + _EPS))
+        _put(
+            _roll_key("SUMD", d),
+            (pos_ret.sum(axis=1) - neg_ret.sum(axis=1)) / (abs_sum + _EPS),
+        )
+        v_mean = v_seg.mean(axis=1)
+        _put(_vol_key("VMA", d), v_mean / (v0 + _EPS))
+        _put(_vol_key("VSTD", d), v_seg.std(axis=1) / (v0 + _EPS))
+        wvma_input = np.abs(pr_seg) * v_seg
+        wvma_mean = wvma_input.mean(axis=1)
+        wvma_std = wvma_input.std(axis=1)
+        wvma = np.where(wvma_mean > _EPS, wvma_std / (wvma_mean + _EPS), np.nan)
+        _put(_vol_key("WVMA", d), wvma)
+        pos_vd = np.where(vd_seg > 0, vd_seg, 0.0)
+        neg_vd = np.where(vd_seg < 0, -vd_seg, 0.0)
+        abs_vd = np.abs(vd_seg).sum(axis=1)
+        _put(_vol_key("VSUMP", d), pos_vd.sum(axis=1) / (abs_vd + _EPS))
+        _put(_vol_key("VSUMN", d), neg_vd.sum(axis=1) / (abs_vd + _EPS))
+        _put(
+            _vol_key("VSUMD", d),
+            (pos_vd.sum(axis=1) - neg_vd.sum(axis=1)) / (abs_vd + _EPS),
+        )
+        v_ref = vol[:, -2]
+        _put(_vol_key("VROC", d), vol[:, -(d + 1)] / (v_ref + _EPS))
+        _put(
+            _vol_key("VRAMA", d),
+            (v_mean / (v_ref + _EPS)) / (p_mean / (p0 + _EPS) + _EPS),
+        )
+
+    tc = hist_c / (hist_o + _EPS) - 1.0
+    c_hist = hist_c
+    o_hist = hist_o
+    h_hist = hist_h
+    l_hist = hist_l
+    v_hist = hist_v
+    cc1 = c_hist[:, -1] / (c_hist[:, -2] + _EPS) - 1.0
+    oc1 = c_hist[:, -1] / (o_hist[:, -1] + _EPS) - 1.0
+    rng = (h_hist - l_hist) / (c_hist + _EPS)
+    _put("TC_LAG1", tc[:, -1])
+    _put("TC_LAG2", tc[:, -2])
+    _put("TC_LAG3", tc[:, -3])
+    _put("TC_MA5", tc[:, -5:].mean(axis=1))
+    _put("TC_STD5", tc[:, -5:].std(axis=1))
+    _put("CC_LAG1", cc1)
+    _put("OC_LAG1", oc1)
+    _put("TC_SIGN_MA5", np.sign(tc[:, -5:]).mean(axis=1))
+    _put("MOM3_C", c_hist[:, -1] / (c_hist[:, -4] + _EPS) - 1.0)
+    _put("MOM3_TC", tc[:, -3:].sum(axis=1))
+    _put("REV1_TC", -tc[:, -1])
+    _put("VOL_SHOCK", v_hist[:, -1] / (v_hist[:, -20:].mean(axis=1) + _EPS))
+    _put("RANGE_SHOCK", rng[:, -1] / (rng[:, -20:].mean(axis=1) + _EPS))
+    _put("TC_MA10", tc[:, -10:].mean(axis=1))
+    _put("TC_STD10", tc[:, -10:].std(axis=1))
+
+    prefix_defaults = _prefix_neutral(str(tau_hm or "open"))
+    supplied = prefix_fields if isinstance(prefix_fields, dict) else {}
+    for name, value in prefix_defaults.items():
+        custom = supplied.get(name)
+        if custom is None:
+            _put(name, np.full(m, float(value)))
+            continue
+        arr = _as_open_1d(custom, m)
+        if arr is None:
+            logger.debug("raw_atc prefix %s dropped", name)
+            _put(name, np.full(m, float(value)))
+            continue
+        _put(name, arr)
+
+    if not np.all(valid):
+        for key in cols:
+            cols[key] = np.where(valid, cols[key], np.nan)
+    return cols

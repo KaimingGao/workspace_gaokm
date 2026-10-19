@@ -7,6 +7,7 @@
 
 ``X[i]`` 对应 ``dates[i]``。fingerprint 含 bars + registry；miss 则整票重写。
 尾窗增量：``upsert_tail`` 按日 merge，保留未变日期行。
+指纹或 ``bars_fp`` 变化时，把改过的日期交给 L2 回收。
 
 开关：``QUANTLAB_FEATURE_LAKE=0`` 绕过。
 """
@@ -88,6 +89,101 @@ def _read_json(path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _lake_identity_same(
+    old_meta: Optional[Dict[str, Any]],
+    fingerprint: str,
+    extra_meta: Optional[Dict[str, Any]],
+) -> bool:
+    """指纹和价量指纹都没变时，不把这次写入当成 L2 过期。"""
+    if not isinstance(old_meta, dict):
+        return False
+    if str(old_meta.get("fingerprint") or "") != str(fingerprint):
+        return False
+    new_bars = ""
+    if isinstance(extra_meta, dict):
+        new_bars = str(extra_meta.get("bars_fp") or "")
+    return str(old_meta.get("bars_fp") or "") == new_bars
+
+
+def _l2_tracking() -> bool:
+    try:
+        from core.research.day_cube_gc import gc_enabled
+
+        return bool(gc_enabled())
+    except Exception:  # noqa: BLE001
+        logger.debug("l2 gc probe failed", exc_info=True)
+        return False
+
+
+def _stale_feature_dates(
+    old_pack: Optional[Dict[str, Any]],
+    dates: Sequence[str],
+    X: np.ndarray,
+    names: Sequence[str],
+) -> Set[str]:
+    """新旧特征行对不上的日期。没有旧面板时，新日期都算过期。"""
+    new_dates = [str(d)[:10] for d in dates]
+    if not old_pack:
+        return set(new_dates)
+    old_dates = [str(d)[:10] for d in (old_pack.get("dates") or [])]
+    old_names = [str(n) for n in (old_pack.get("names") or [])]
+    new_names = [str(n) for n in names]
+    if old_names != new_names:
+        return set(old_dates) | set(new_dates)
+    try:
+        old_X = np.asarray(old_pack.get("X"), dtype=np.float64)
+        new_X = np.asarray(X, dtype=np.float64)
+    except (TypeError, ValueError):
+        return set(old_dates) | set(new_dates)
+    if old_X.ndim != 2 or new_X.ndim != 2:
+        return set(old_dates) | set(new_dates)
+    old_index = {d: i for i, d in enumerate(old_dates)}
+    stale: Set[str] = set()
+    for i, day in enumerate(new_dates):
+        j = old_index.get(day)
+        if j is None or j >= old_X.shape[0] or i >= new_X.shape[0]:
+            stale.add(day)
+            continue
+        try:
+            changed = not np.array_equal(old_X[j], new_X[i], equal_nan=True)
+        except (TypeError, ValueError):
+            changed = True
+        if changed:
+            stale.add(day)
+    new_set = set(new_dates)
+    for day in old_dates:
+        if day not in new_set:
+            stale.add(day)
+    return stale
+
+
+def _note_l2_stale(
+    old_meta: Optional[Dict[str, Any]],
+    old_pack: Optional[Dict[str, Any]],
+    dates: Sequence[str],
+    X: np.ndarray,
+    names: Sequence[str],
+    fingerprint: str,
+    extra_meta: Optional[Dict[str, Any]],
+    old_dates: Optional[Set[str]] = None,
+) -> None:
+    if not _l2_tracking():
+        return
+    if _lake_identity_same(old_meta, fingerprint, extra_meta):
+        return
+    try:
+        from core.research.day_cube_gc import note_stale_dates
+
+        stale = _stale_feature_dates(old_pack, dates, X, names)
+        if old_pack is None and old_dates:
+            stale.update(old_dates)
+        if isinstance(old_meta, dict) and old_pack is None:
+            logger.warning("feature lake old panel unreadable; marking known dates stale")
+        note_stale_dates(stale)
+    except Exception:  # noqa: BLE001
+        logger.warning("note l2 stale dates failed", exc_info=True)
+
+
 def write_stock_panel(
     family: str,
     code: str,
@@ -117,6 +213,15 @@ def write_stock_panel(
         if y_arr.shape[0] != len(date_list):
             return False
     paths = _paths(family, code)
+    track_l2 = _l2_tracking()
+    old_meta = _read_json(paths["meta"]) if track_l2 else None
+    old_pack = None
+    old_dates: Optional[Set[str]] = None
+    if track_l2 and not _lake_identity_same(old_meta, fingerprint, extra_meta):
+        if isinstance(old_meta, dict):
+            old_pack = load_stock_panel(family, code, fingerprint=None)
+        if old_pack is None:
+            _, old_dates = peek_stock_dates(family, code)
     os.makedirs(paths["dir"], exist_ok=True)
     try:
         payload: Dict[str, Any] = {
@@ -150,6 +255,16 @@ def write_stock_panel(
     except Exception:
         logger.debug("feature lake write meta failed %s", paths["meta"], exc_info=True)
         return False
+    _note_l2_stale(
+        old_meta,
+        old_pack,
+        date_list,
+        x_arr,
+        names,
+        fingerprint,
+        extra_meta,
+        old_dates=old_dates,
+    )
     return True
 
 
@@ -163,19 +278,33 @@ def read_stock_meta(family: str, code: str) -> Optional[Dict[str, Any]]:
     return meta
 
 
-def load_stock_dates(family: str, code: str) -> Optional[Set[str]]:
-    """该票 L1 已有的交易日。无分片则 None。"""
-    if read_stock_meta(family, code) is None:
-        return None
+def peek_stock_dates(family: str, code: str) -> tuple:
+    """``(分片在, 日期)``。不看 schema。日期读不出时第二项为 None。"""
+    if not code:
+        return False, None
     paths = _paths(family, code)
-    if not os.path.isfile(paths["npz"]):
-        return None
+    npz_exists = os.path.isfile(paths["npz"])
+    meta_exists = os.path.isfile(paths["meta"])
+    if not npz_exists and not meta_exists:
+        return False, None
+    if not npz_exists:
+        return True, None
     try:
         with np.load(paths["npz"], allow_pickle=False) as z:
-            return {str(d)[:10] for d in z["dates"].tolist()}
+            if "dates" not in z.files:
+                return True, None
+            return True, {str(d)[:10] for d in z["dates"].tolist() if len(str(d)[:10]) >= 10}
     except (OSError, ValueError, KeyError, EOFError) as exc:
         logger.debug("feature lake dates failed %s: %s", paths["npz"], exc)
+        return True, None
+
+
+def load_stock_dates(family: str, code: str) -> Optional[Set[str]]:
+    """该票 L1 已有的交易日。无分片或 schema 不符则 None。"""
+    if read_stock_meta(family, code) is None:
         return None
+    _exists, found = peek_stock_dates(family, code)
+    return found
 
 
 def load_stock_panel(
@@ -282,39 +411,142 @@ def upsert_tail(
     )
 
 
+def finite_feature_dict(names: Sequence[str], row: Any) -> Dict[str, float]:
+    """一行里的有限值。坏单元格丢掉，不让整行失败。"""
+    feats: Dict[str, float] = {}
+    if not names or row is None:
+        return feats
+    try:
+        vec = np.asarray(row).reshape(-1)
+    except (TypeError, ValueError):
+        return feats
+    for j, name in enumerate(names):
+        if j >= int(vec.shape[0]):
+            break
+        key = str(name or "").strip()
+        if not key:
+            continue
+        try:
+            v = float(vec[j])
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(v):
+            feats[key] = v
+    return feats
+
+
 def load_day_rows(
     family: str,
     codes: Sequence[str],
     date: str,
 ) -> Dict[str, Dict[str, float]]:
-    """多票取同一日特征 dict（缺票跳过）。"""
+    """多票取同一日特征 dict（缺票跳过）。
+
+    和按块写立方共用 ``slice_stock_panels``，不再各写一套打开面板的循环。
+    """
     day = str(date or "")[:10]
-    out: Dict[str, Dict[str, float]] = {}
     if len(day) < 10:
-        return out
-    for raw in codes or []:
-        code = str(raw or "").strip()
-        if not code:
+        return {}
+    sliced = slice_stock_panels(family, codes, [day])
+    if not sliced:
+        return {}
+    out: Dict[str, Dict[str, float]] = {}
+    for code, hit in sliced.items():
+        if not hit or len(hit) < 2 or not isinstance(hit[1], dict):
             continue
-        pack = load_stock_panel(family, code, fingerprint=None)
-        if not pack:
-            continue
-        dates = pack["dates"]
-        try:
-            idx = dates.index(day)
-        except ValueError:
-            continue
-        names = list(pack.get("names") or [])
-        row = pack["X"][idx]
-        feats: Dict[str, float] = {}
-        for j, name in enumerate(names):
-            if j >= row.shape[0]:
-                break
-            v = float(row[j])
-            if np.isfinite(v):
-                feats[str(name)] = v
+        feats = finite_feature_dict(hit[0], hit[1].get(day))
         if feats:
             out[code] = feats
+    return out
+
+
+def slice_stock_panels(
+    family: str,
+    codes: Sequence[str],
+    dates: Sequence[str],
+    *,
+    progress_cb: Optional[Any] = None,
+    cancel_cb: Optional[Any] = None,
+) -> Optional[Dict[str, tuple]]:
+    """每只股票只打开一次 L1，切出 ``dates`` 里有的行。
+
+    返回 ``code -> (names, {date: row})``。缺票、坏文件、或这些日期都没有行的票省略。
+    行是拷贝，调用方可以丢掉整份面板。
+    取消时返回 ``None``（不是空字典）：空字典表示没读到行，``None`` 表示没读完，
+    调用方不能用半池结果写立方。
+    ``progress_cb(done, total)`` 每 32 只叫一次，避免长读盘把任务心跳饿死。
+    """
+    want = [str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10]
+    want_set = set(want)
+    out: Dict[str, tuple] = {}
+    code_list: List[str] = []
+    seen_codes: Set[str] = set()
+    for raw in codes or []:
+        code = str(raw or "").strip()
+        if not code or code in seen_codes:
+            continue
+        seen_codes.add(code)
+        code_list.append(code)
+    if not want_set or not code_list:
+        return out
+    n_codes = len(code_list)
+    failed = 0
+    first_fail = ""
+
+    def _cancelled() -> bool:
+        if not cancel_cb:
+            return False
+        try:
+            return bool(cancel_cb())
+        except Exception:  # noqa: BLE001
+            return False
+
+    for done, code in enumerate(code_list, start=1):
+        if _cancelled():
+            return None
+        if progress_cb and (done == 1 or done == n_codes or done % 32 == 0):
+            try:
+                progress_cb(done, n_codes)
+            except Exception:  # noqa: BLE001
+                logger.debug("slice_stock_panels progress failed", exc_info=True)
+        try:
+            pack = load_stock_panel(family, code, fingerprint=None)
+            if not pack:
+                continue
+            names = [str(n) for n in (pack.get("names") or [])]
+            by_day: Dict[str, np.ndarray] = {}
+            seen: Set[str] = set()
+            X = np.asarray(pack.get("X"))
+            if X.ndim != 2:
+                raise ValueError(f"panel X ndim={X.ndim}")
+            n_rows = int(X.shape[0])
+            for i, raw_day in enumerate(pack.get("dates") or []):
+                if i >= n_rows:
+                    break
+                day = str(raw_day)[:10]
+                if day not in want_set or day in seen:
+                    continue
+                seen.add(day)
+                by_day[day] = np.array(X[i], dtype=np.float64, copy=True)
+            if by_day:
+                out[code] = (names, by_day)
+        except Exception:  # noqa: BLE001
+            failed += 1
+            if not first_fail:
+                first_fail = code
+            logger.debug(
+                "slice_stock_panels skip family=%s code=%s",
+                family,
+                code,
+                exc_info=True,
+            )
+    if failed:
+        logger.warning(
+            "slice_stock_panels family=%s skipped %s codes first=%s",
+            family,
+            failed,
+            first_fail,
+        )
     return out
 
 

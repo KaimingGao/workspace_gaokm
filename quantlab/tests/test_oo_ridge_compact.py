@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 
 import numpy as np
@@ -14,6 +15,25 @@ if ROOT not in sys.path:
 
 
 class TestOoRidgeCompact(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._prev = {
+            "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
+            "QUANTLAB_DAY_CUBE_DIR": os.environ.get("QUANTLAB_DAY_CUBE_DIR"),
+            "QUANTLAB_DAY_CUBE_GC": os.environ.get("QUANTLAB_DAY_CUBE_GC"),
+        }
+        os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = os.path.join(self._tmp.name, "lake")
+        os.environ["QUANTLAB_DAY_CUBE_DIR"] = os.path.join(self._tmp.name, "cubes")
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
+
+    def tearDown(self) -> None:
+        for key, val in self._prev.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+        self._tmp.cleanup()
+
     def test_matrix_matches_dict_panel(self) -> None:
         from core.research.factor_ols_fit import fit_factor_ols_from_panel
         from core.research.oo_ridge_compact import (

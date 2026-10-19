@@ -121,6 +121,25 @@ class ConsumerCoverageTest(unittest.TestCase):
             release.set()
             holder.join(3)
 
+    def test_rebind_clears_stale_writer(self) -> None:
+        from core.research.materialize.consumer import (
+            bind_materialize_writer,
+            consumer_read_only,
+            writer_active,
+        )
+
+        try:
+            bind_materialize_writer(True, False)
+            self.assertTrue(writer_active())
+            self.assertFalse(consumer_read_only())
+            bind_materialize_writer(False, True)
+            self.assertFalse(writer_active())
+            self.assertTrue(consumer_read_only())
+        finally:
+            bind_materialize_writer(False, False)
+        self.assertFalse(writer_active())
+        self.assertFalse(consumer_read_only())
+
     def test_off_does_not_block_collect(self) -> None:
         from core.research.materialize.coverage import enforce_consumer_coverage
 
@@ -130,13 +149,101 @@ class ConsumerCoverageTest(unittest.TestCase):
             clocks=["open"],
         )
 
+    def test_l2_cube_key_ignores_shorter_trade_list(self) -> None:
+        from unittest.mock import patch
+
+        from core.research.materialize.coverage import assess_coverage
+
+        days = ["2099-01-04", "2099-01-05"]
+
+        def _status(day, codes, clock="open"):
+            return "ok" if len(list(codes)) == 3 else "miss"
+
+        def _dates(fam, code):
+            return set(days)
+
+        with patch(
+            "core.research.day_cube.day_cube_status", side_effect=_status
+        ), patch(
+            "core.research.feature_lake.load_stock_dates", side_effect=_dates
+        ), patch(
+            "core.research.materialize.coverage._other_hash_days", return_value=set()
+        ):
+            report = assess_coverage(
+                ["a", "b"],
+                days,
+                families=["oo"],
+                clocks=["open"],
+                cube_codes=["a", "b", "c"],
+            )
+        self.assertTrue(report.get("ok"), report)
+
+    def test_replay_gap_uses_fit_universe(self) -> None:
+        from unittest.mock import patch
+
+        from core.research.materialize.consumer import bind_materialize_writer
+        from core.research.materialize.coverage import replay_coverage_gap
+
+        days = ["2099-01-04", "2099-01-05"]
+        bars = {code: [{"date": day} for day in days] for code in ("a", "b")}
+
+        def _status(_day, codes, clock="open"):
+            return "ok" if len(list(codes)) == 3 else "miss"
+
+        def _dates(_fam, _code):
+            return set(days)
+
+        bind_materialize_writer(False, True)
+        try:
+            with patch(
+                "core.research.day_cube.day_cube_status", side_effect=_status
+            ), patch(
+                "core.research.feature_lake.load_stock_dates", side_effect=_dates
+            ), patch(
+                "core.research.materialize.coverage._other_hash_days", return_value=set()
+            ), patch(
+                "core.research.materialize.cube_z.universe_codes",
+                return_value=["a", "b", "c"],
+            ):
+                gap = replay_coverage_gap(
+                    bars, days, score_from=0, fill_clock="09:30"
+                )
+        finally:
+            bind_materialize_writer(False, False)
+        self.assertIsNone(gap)
+
+    def test_coverage_error_keeps_each_span(self) -> None:
+        from core.research.materialize.coverage import _coverage_error_bits
+
+        text = _coverage_error_bits(
+            [
+                {
+                    "family": "oo",
+                    "n_days": 1,
+                    "date_from": "2026-10-19",
+                    "date_to": "2026-10-19",
+                },
+                {
+                    "layer": "l2",
+                    "clock": "open",
+                    "n_days": 10,
+                    "date_from": "2026-09-29",
+                    "date_to": "2026-10-19",
+                },
+            ]
+        )
+        self.assertEqual(
+            text,
+            "oo 缺 1 日（2026-10-19），立方 open 缺 10 日（2026-09-29 … 2026-10-19）",
+        )
+
     def test_on_missing_prompts_materialize(self) -> None:
         from core.research.materialize.consumer import MaterializeRequired, materialized_consumer
         from core.research.materialize.coverage import enforce_consumer_coverage
 
         items = [
-            ("000001", [{"date": "2024-01-02"}, {"date": "2024-01-03"}]),
-            ("000002", [{"date": "2024-01-02"}, {"date": "2024-01-03"}]),
+            ("000001", [{"date": "2099-01-04"}, {"date": "2099-01-05"}]),
+            ("000002", [{"date": "2099-01-04"}, {"date": "2099-01-05"}]),
         ]
         with materialized_consumer():
             with self.assertRaises(MaterializeRequired) as ctx:
@@ -183,6 +290,8 @@ class ConsumerCoverageTest(unittest.TestCase):
         from core.watching.insights import build_watching_insights
 
         with patch(
+            "core.research.day_cube.day_cube_status", return_value="miss"
+        ), patch(
             "core.paper.rebalance.watching_matrix._watching_codes",
             return_value=(["000001", "000002"], {}),
         ):
@@ -193,12 +302,15 @@ class ConsumerCoverageTest(unittest.TestCase):
         self.assertEqual(out.get("items"), [])
 
     def test_live_score_pool_prompts_materialize(self) -> None:
+        from unittest.mock import patch
+
         from core.paper.rebalance.watching_matrix import _score_pool
         from core.research.materialize.consumer import MaterializeRequired, materialized_consumer
 
-        with materialized_consumer():
-            with self.assertRaises(MaterializeRequired) as ctx:
-                _score_pool(["000001", "000002"], offline_only=True, use_minute_tau=False)
+        with patch("core.research.day_cube.day_cube_status", return_value="miss"):
+            with materialized_consumer():
+                with self.assertRaises(MaterializeRequired) as ctx:
+                    _score_pool(["000001", "000002"], offline_only=True, use_minute_tau=False)
         payload = ctx.exception.to_dict()
         self.assertEqual(payload.get("error_code"), "materialize_required")
         self.assertIn("日线物化", str(payload.get("error") or ""))

@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -20,9 +21,11 @@ class TestFeatureLake(unittest.TestCase):
         self._prev = {
             "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
             "QUANTLAB_FEATURE_LAKE": os.environ.get("QUANTLAB_FEATURE_LAKE"),
+            "QUANTLAB_DAY_CUBE_GC": os.environ.get("QUANTLAB_DAY_CUBE_GC"),
         }
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = self._tmpdir.name
         os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
 
     def tearDown(self) -> None:
         for k, v in self._prev.items():
@@ -96,6 +99,90 @@ class TestFeatureLake(unittest.TestCase):
         self.assertIn("000002", rows)
         self.assertNotIn("999999", rows)
         self.assertAlmostEqual(rows["000001"]["g"], 3.5)
+
+    def test_slice_stock_panels_opens_each_code_once(self) -> None:
+        from core.research import feature_lake
+        from core.research.feature_lake import slice_stock_panels, write_stock_panel
+
+        write_stock_panel(
+            "tc",
+            "000001",
+            dates=["2024-02-01", "2024-02-02", "2024-02-03", "2024-02-04"],
+            X=np.asarray([[1.0], [2.0], [3.0], [4.0]]),
+            names=["g"],
+            fingerprint="z",
+        )
+        real = feature_lake.load_stock_panel
+        calls = []
+
+        def _wrapped(family, code, fingerprint=None):
+            calls.append((family, code))
+            return real(family, code, fingerprint=fingerprint)
+
+        with mock.patch.object(feature_lake, "load_stock_panel", side_effect=_wrapped):
+            sliced = slice_stock_panels(
+                "tc",
+                ["000001", "999999"],
+                ["2024-02-01", "2024-02-03", "2024-02-04"],
+            )
+        self.assertEqual(calls, [("tc", "000001"), ("tc", "999999")])
+        names, by_day = sliced["000001"]
+        self.assertEqual(names, ["g"])
+        self.assertEqual(set(by_day), {"2024-02-01", "2024-02-03", "2024-02-04"})
+        self.assertAlmostEqual(float(by_day["2024-02-03"][0]), 3.0)
+        self.assertNotIn("2024-02-02", by_day)
+
+    def test_slice_skips_bad_code(self) -> None:
+        from core.research import feature_lake
+        from core.research.feature_lake import slice_stock_panels, write_stock_panel
+
+        write_stock_panel(
+            "oo",
+            "000001",
+            dates=["2024-02-01"],
+            X=np.asarray([[1.5]]),
+            names=["g"],
+            fingerprint="z",
+        )
+        real = feature_lake.load_stock_panel
+
+        def _wrapped(family, code, fingerprint=None):
+            if code == "000002":
+                raise RuntimeError("bad npz")
+            return real(family, code, fingerprint=fingerprint)
+
+        with mock.patch.object(feature_lake, "load_stock_panel", side_effect=_wrapped):
+            sliced = slice_stock_panels("oo", ["000001", "000002"], ["2024-02-01"])
+        self.assertIsNotNone(sliced)
+        assert sliced is not None
+        self.assertIn("000001", sliced)
+        self.assertNotIn("000002", sliced)
+
+    def test_slice_cancel_returns_none(self) -> None:
+        from core.research.feature_lake import slice_stock_panels, write_stock_panel
+
+        write_stock_panel(
+            "oo",
+            "000001",
+            dates=["2024-02-01"],
+            X=np.asarray([[1.0]]),
+            names=["g"],
+            fingerprint="z",
+        )
+        sliced = slice_stock_panels(
+            "oo",
+            ["000001"],
+            ["2024-02-01"],
+            cancel_cb=lambda: True,
+        )
+        self.assertIsNone(sliced)
+
+    def test_finite_feature_dict_skips_bad_cell(self) -> None:
+        from core.research.feature_lake import finite_feature_dict
+
+        feats = finite_feature_dict(["a", "", "c"], [1.0, "nope", 3.0])
+        self.assertEqual(feats, {"a": 1.0, "c": 3.0})
+        self.assertEqual(finite_feature_dict(["a"], None), {})
 
     def test_upsert_tail_keeps_prefix(self) -> None:
         from core.research.feature_lake import load_stock_panel, upsert_tail, write_stock_panel

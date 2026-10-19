@@ -95,6 +95,50 @@ def _other_hash_days(clock: str, universe_hash: str) -> Set[str]:
     return found
 
 
+def _problem_span(problem: Dict[str, Any]) -> str:
+    """缺段的日期。同一天不写成「某日 … 某日」。"""
+    start = str(problem.get("date_from") or "")[:10]
+    end = str(problem.get("date_to") or "")[:10]
+    if len(start) >= 10 and len(end) >= 10 and start != end:
+        return f"（{start} … {end}）"
+    if len(start) >= 10:
+        return f"（{start}）"
+    return ""
+
+
+def _coverage_error_bits(problems: Sequence[Dict[str, Any]]) -> str:
+    bits: List[str] = []
+    for problem in list(problems or [])[:4]:
+        span = _problem_span(problem)
+        n_days = int(problem.get("n_days") or 0)
+        if problem.get("family"):
+            bits.append(f"{problem['family']} 缺 {n_days} 日{span}")
+        else:
+            bits.append(f"立方 {problem.get('clock')} 缺 {n_days} 日{span}")
+    return "，".join(bits)
+
+
+def _unique_codes(codes: Sequence[str]) -> List[str]:
+    out: List[str] = []
+    seen = set()
+    for raw in codes or []:
+        c = str(raw or "").strip()
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+def read_cube_codes() -> List[str]:
+    """L2 目录键：物化与拟合用的完整观察池。"""
+    try:
+        from core.research.materialize.cube_z import universe_codes
+
+        return _unique_codes(universe_codes())
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def assess_coverage(
     codes: Sequence[str],
     dates: Sequence[str],
@@ -102,19 +146,21 @@ def assess_coverage(
     families: Sequence[str],
     clocks: Sequence[str],
     min_frac: float = 0.5,
+    cube_codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """整日覆盖低于 ``min_frac``，或立方缺失 / 宇宙不符，则 ``ok`` 为假。"""
+    """整日覆盖低于 ``min_frac``，或立方缺失 / 宇宙不符，则 ``ok`` 为假。
+
+    ``cube_codes`` 是 L2 目录键。成交名单（剔 ST、分档）可以比观察池短，
+    立方仍按物化时的完整观察池查找。
+    """
     from core.research.day_cube import day_cube_status
     from core.research.feature_lake import load_stock_dates
     from core.research.feature_registry import universe_hash
 
-    code_list = []
-    seen = set()
-    for raw in codes or []:
-        c = str(raw or "").strip()
-        if c and c not in seen:
-            seen.add(c)
-            code_list.append(c)
+    code_list = _unique_codes(codes)
+    cube_list = _unique_codes(cube_codes) if cube_codes is not None else list(code_list)
+    if len(cube_list) < 2:
+        cube_list = list(code_list)
     day_list = sorted({str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10})
     fams = [str(f) for f in (families or []) if str(f)]
     clks = [str(c) for c in (clocks or []) if str(c)]
@@ -123,7 +169,7 @@ def assess_coverage(
 
     need = max(2, int(len(code_list) * float(min_frac) + 0.999))
     problems: List[Dict[str, Any]] = []
-    uh = universe_hash(code_list)
+    uh = universe_hash(cube_list)
 
     for fam in fams:
         have = []
@@ -150,7 +196,7 @@ def assess_coverage(
         universe = False
         thin = False
         for day in day_list:
-            status = day_cube_status(day, code_list, clock=clk)
+            status = day_cube_status(day, cube_list, clock=clk)
             if status == "ok":
                 continue
             if status == "universe" or day in foreign:
@@ -196,16 +242,10 @@ def assess_coverage(
     else:
         hint = "日线物化"
         lead = "请先日线物化 L1/L2"
-    bits = []
-    for p in problems[:4]:
-        if p.get("family"):
-            bits.append(f"{p['family']} 缺 {p['n_days']} 日")
-        else:
-            bits.append(f"立方 {p.get('clock')} 缺 {p['n_days']} 日")
-    span = ""
-    if problems:
-        span = f"（{problems[0].get('date_from')} … {problems[0].get('date_to')}）"
-    error = lead + ("：" + "，".join(bits) if bits else "") + span
+    error = lead
+    detail = _coverage_error_bits(problems)
+    if detail:
+        error = f"{lead}：{detail}"
     return {
         "ok": False,
         "success": False,
@@ -241,12 +281,14 @@ def enforce_consumer_coverage(
     if not consumer_read_only():
         return
     codes, dates = _codes_dates(items)
+    got = read_cube_codes()
     report = assess_coverage(
         codes,
         dates,
         families=families,
         clocks=clocks,
         min_frac=min_frac,
+        cube_codes=got if len(got) >= 2 else None,
     )
     if not report.get("ok"):
         raise MaterializeRequired(report)
@@ -275,7 +317,15 @@ def replay_coverage_gap(
     if clock not in ("", "09:30"):
         fams.append(family_for_tc(tau_hm=clock))
         clks.append(clock)
-    report = assess_coverage(codes, scored, families=fams, clocks=clks, min_frac=min_frac)
+    got = read_cube_codes()
+    report = assess_coverage(
+        codes,
+        scored,
+        families=fams,
+        clocks=clks,
+        min_frac=min_frac,
+        cube_codes=got if len(got) >= 2 else None,
+    )
     if report.get("ok"):
         return None
     report["task"] = "paper_replay"

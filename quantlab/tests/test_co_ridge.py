@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import tempfile
@@ -132,8 +133,8 @@ class TestCoPanel(unittest.TestCase):
         from core.research.oo_panel import collect_oo_panel
 
         bars = _bars(180)
-        _, _, co_dates, _ = collect_co_panel(bars, stock_code="000001")
-        _, _, oo_dates = collect_oo_panel(
+        _, co_ys, co_dates, _ = collect_co_panel(bars, stock_code="000001")
+        _, oo_ys, oo_dates = collect_oo_panel(
             bars,
             horizon_days=1,
             stock_code="000001",
@@ -141,7 +142,12 @@ class TestCoPanel(unittest.TestCase):
         )
         self.assertEqual(co_dates, oo_dates)
         self.assertEqual(co_dates[0], bars[61]["date"])
-        self.assertEqual(len(co_dates), 180 - 62)
+        self.assertEqual(co_dates[-1], bars[-1]["date"])
+        self.assertEqual(len(co_dates), 180 - 61)
+        self.assertTrue(math.isnan(float(co_ys[-1])))
+        self.assertTrue(math.isnan(float(oo_ys[-1])))
+        self.assertTrue(math.isfinite(float(co_ys[-2])))
+        self.assertTrue(math.isfinite(float(oo_ys[-2])))
 
     def test_dist_to_up_limit_uses_board(self):
         from core.research.co_panel import dist_to_up_limit_pct

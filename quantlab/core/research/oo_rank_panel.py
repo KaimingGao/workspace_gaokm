@@ -276,11 +276,23 @@ def _oo_rank_stock_job(
         if adopted is not None:
             x, y, names, dates_out, _src = adopted
             if int(getattr(x, "shape", (0,))[0] or 0) > 0:
+                try:
+                    _sync_oo_rank_lake(
+                        code_s,
+                        bars_l,
+                        x=x,
+                        y=y,
+                        names=names,
+                        dates=dates_out,
+                        fingerprint=fp,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("oo_rank adopt sync failed for %s", code_s, exc_info=True)
                 logger.debug(
                     "oo_rank adopt oo code=%s rows=%s", code_s, int(x.shape[0])
                 )
                 return code_s, x, y, names, dates_out
-    from core.research.materialize.consumer import raise_if_consumer_rebuild
+    from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild("oo_rank", code_s)
     x = y = None
@@ -332,6 +344,8 @@ def _oo_rank_stock_job(
         )
         if merged is not None:
             x, y, names, dates_out = merged
+    except MaterializeRequired:
+        raise
     except Exception:  # noqa: BLE001
         logger.debug("oo_rank incremental failed for %s", code_s, exc_info=True)
         x = None
@@ -350,9 +364,11 @@ def _oo_rank_stock_job(
                 config=config,
                 excess_mode=excess,
             )
-        except Exception:  # noqa: BLE001
-            logger.debug("oo_rank panel collect failed for %s", code_s, exc_info=True)
-            return None
+        except MaterializeRequired:
+            raise
+        except Exception:
+            logger.exception("oo_rank panel collect failed for %s", code_s)
+            raise
         panel = OoPanelMatrix()
         panel.add_stock_rows(xs, ys, dates)
         x, y, names, dates_out = panel.finalize()
@@ -385,6 +401,7 @@ def build_oo_rank_day_panels(
     respect_regime: bool = False,
     config: Optional[dict] = None,
     workers: Optional[int] = None,
+    progress_cb: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """返回按日截面（矩阵 ``X``，无整池因子 dict）。
 
@@ -442,9 +459,24 @@ def build_oo_rank_day_panels(
     n_workers = _resolve_workers(n_jobs, workers)
     results: List[Any] = [None] * n_jobs
 
+    done_n = 0
+
+    def _tick() -> None:
+        nonlocal done_n
+        done_n += 1
+        if not callable(progress_cb):
+            return
+        if done_n != n_jobs and done_n != 1 and done_n % 10 != 0:
+            return
+        try:
+            progress_cb(done_n, max(1, n_jobs), f"L1 oo_rank {done_n}/{n_jobs}")
+        except Exception:  # noqa: BLE001
+            logger.debug("oo_rank progress_cb failed", exc_info=True)
+
     def _run_serial(start: int, end: int) -> None:
         for i in range(start, end):
             results[i] = _oo_rank_stock_job(jobs[i])
+            _tick()
 
     if n_jobs:
         logger.info(
@@ -478,6 +510,7 @@ def build_oo_rank_day_panels(
                     submit=lambda i, pool=pool: pool.submit(_oo_rank_stock_job, jobs[i]),
                     run_one=lambda i: _oo_rank_stock_job(jobs[i]),
                     label=lambda i: str(jobs[i][0]),
+                    on_done=lambda _i: _tick(),
                 )
             finally:
                 try:

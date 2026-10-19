@@ -987,6 +987,175 @@ def yclose_loc_from_prev(prev_bar: Optional[dict], open_px: float) -> Optional[f
 
 
 
+def _open_atc_items(cols: object, n_rows: int) -> Optional[Tuple[Tuple[str, Any], ...]]:
+    """每一列都必须正好覆盖全部决策日。有一列对不上就整段弃用。"""
+    if not isinstance(cols, dict) or n_rows <= 0:
+        return None
+    items: List[Tuple[str, Any]] = []
+    for key, col in cols.items():
+        if getattr(col, "shape", None) != (int(n_rows),):
+            return None
+        items.append((str(key), col))
+    return tuple(items) if items else None
+
+
+def _finite_raw(val: Any) -> Optional[float]:
+    try:
+        num = float(val)
+    except (TypeError, ValueError):
+        return None
+    if num != num or abs(num) == float("inf"):
+        return None
+    return num
+
+
+def _inject_open_raw(row: dict, window: Sequence[dict], prev_bar: Any, open_px: float) -> None:
+    from core.signal.factors.alpha_tc import inject_raw_atc
+
+    pc_i = None
+    try:
+        pc_i = float((prev_bar or {}).get("close") or 0) or None
+    except (TypeError, ValueError, AttributeError):
+        pc_i = None
+    inject_raw_atc(
+        row,
+        window,
+        open_t=open_px,
+        prev_close=pc_i,
+        price_tau=open_px,
+        tau_hm="open",
+    )
+
+
+def _fill_column_row(row: dict, items: Sequence[Tuple[str, Any]], ridx: int) -> bool:
+    """把一整段列写进当天。
+
+    一个有限值都没写上，或下标坏了，就清掉已写的 ``raw_atc_*`` 并返回 False，
+    调用方改走逐日。这样前缀没锚上的那一天不会被当成「算完但没有因子」。
+    """
+    wrote = 0
+    try:
+        for key, col in items:
+            num = _finite_raw(col[ridx])
+            if num is not None:
+                row[key] = num
+                wrote += 1
+    except Exception:  # noqa: BLE001
+        logger.debug("tau column row fallback", exc_info=True)
+        wrote = 0
+    if wrote > 0:
+        return True
+    for key in list(row):
+        if str(key).startswith("raw_atc_"):
+            row.pop(key, None)
+    return False
+
+
+def _copy_ath_gap_from_atc(row: dict) -> None:
+    """窗头的隔夜字段与 raw_atc 同源，直接拷贝，不再把前缀和 ATR 重走一遍。"""
+    from core.signal.factors.alpha_tc import ALPHA_TC_RAW_PREFIX
+    from core.signal.factors.alpha_th import ALPHA_TH_RAW_PREFIX, _GAP_KEYS, _YK_KEYS
+
+    for bare in (*_GAP_KEYS, *_YK_KEYS):
+        num = _finite_raw(row.get(f"{ALPHA_TC_RAW_PREFIX}{bare}"))
+        if num is not None:
+            row[f"{ALPHA_TH_RAW_PREFIX}{bare}"] = num
+
+
+def _minute_clock_atc_items(
+    bars: Sequence[dict],
+    minutes_by_day: Mapping[str, Sequence[dict]],
+    *,
+    hist: int,
+    clock: str,
+) -> Optional[Tuple[Tuple[str, Any], ...]]:
+    """一个钟的整段 ``raw_atc_*``。日线解析失败返回 None，调用方逐日注入。"""
+    from core.signal.factors.alpha_tc import (
+        _PREFIX_KEYS,
+        _prefix_neutral,
+        _prefix_summary,
+        ohlcv_from_bars,
+        raw_atc_tau_columns,
+    )
+
+    packed = ohlcv_from_bars(bars)
+    if not packed:
+        return None
+    n = len(bars)
+    hist_n = int(hist)
+    m = n - hist_n
+    if m <= 0:
+        return None
+    nan = float("nan")
+    pt = [nan] * m
+    phi = [nan] * m
+    plo = [nan] * m
+    pvol = [0.0] * m
+    defaults = _prefix_neutral(clock)
+    pref = {key: [float(defaults.get(key, 0.0))] * m for key in _PREFIX_KEYS}
+    anchored = 0
+    for r, i in enumerate(range(hist_n, n)):
+        bar = bars[i]
+        if not isinstance(bar, dict):
+            continue
+        try:
+            open_px = float(bar.get("open"))
+            if not (open_px > 0):
+                continue
+            day = str(bar.get("date") or "")[:10]
+            day_mins = minutes_by_day.get(day) or ()
+            px = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=clock)
+            if (px is None or px <= 0) and is_open_minute_clock(clock):
+                o_min, _c_min = minute_session_open_close(day_mins, trade_date=day)
+                if o_min and o_min > 0:
+                    px = o_min
+            px_n = _finite_raw(px)
+            if px_n is None or px_n <= 0:
+                continue
+            fields, hi, lo, cum, _last = _prefix_summary(
+                day_mins,
+                trade_date=day,
+                tau_hm=clock,
+                open_t=open_px,
+                price_tau=px_n,
+            )
+            hi_n = _finite_raw(hi)
+            lo_n = _finite_raw(lo)
+            if cum is None:
+                continue
+            cum_n = _finite_raw(cum)
+            if hi_n is None or lo_n is None or cum_n is None:
+                continue
+            pt[r] = px_n
+            phi[r] = hi_n
+            plo[r] = lo_n
+            pvol[r] = cum_n
+            if isinstance(fields, dict):
+                for key in _PREFIX_KEYS:
+                    if key not in fields:
+                        continue
+                    num = _finite_raw(fields.get(key))
+                    if num is not None:
+                        pref[key][r] = num
+            anchored += 1
+        except Exception:  # noqa: BLE001
+            logger.debug("tau minute anchor skipped i=%s", i, exc_info=True)
+            continue
+    if anchored <= 0:
+        return None
+    cols = raw_atc_tau_columns(
+        *packed,
+        hist=hist_n,
+        price_tau=pt,
+        prefix_hi=phi,
+        prefix_lo=plo,
+        prefix_vol=pvol,
+        prefix_fields=pref,
+        tau_hm=clock,
+    )
+    return _open_atc_items(cols, m)
+
+
 def collect_tau_open_panel(
     bars: List[dict],
     *,
@@ -1033,73 +1202,106 @@ def collect_tau_open_panel(
 
     n = len(bars or [])
     tau_map = realized_tau_by_date(bars)
-    # i = index of day T；需要 i-1 有昨收
+    atc_items = None
+    if (
+        include_alpha_tc
+        and int(min_history) >= int(max_window) >= 60
+        and n > int(max_window)
+    ):
+        try:
+            from core.signal.factors.alpha_tc import (
+                ohlcv_from_bars,
+                raw_atc_open_columns,
+            )
+
+            packed = ohlcv_from_bars(bars)
+            if packed is not None:
+                atc_cols = raw_atc_open_columns(*packed, hist=int(max_window))
+                atc_items = _open_atc_items(atc_cols, n - int(max_window))
+        except Exception:  # noqa: BLE001
+            logger.debug("tau open raw_atc columns failed", exc_info=True)
+            atc_items = None
+    # i = index of day T；需要 i-1 有昨收。一根坏 K 线只丢掉这一天。
+    skipped_days = 0
     for i in range(min_history, n):
         b_t = bars[i]
         b_prev = bars[i - 1]
-        date_t = str(b_t.get("date") or "")[:10]
-        if keep is not None and date_t not in keep:
+        if not isinstance(b_t, dict) or not isinstance(b_prev, dict):
+            skipped_days += 1
             continue
         try:
-            o = float(b_t.get("open"))
-            c = float(b_t.get("close"))
-            pc = float(b_prev.get("close"))
-        except (TypeError, ValueError):
-            continue
-        if o <= 0 or c <= 0 or pc <= 0:
-            continue
-        y = y_r_pct(o, c)
-        gap = _gap_pct(pc, o)
-        if y is None or gap is None:
-            continue
-        # ATR 截止 T-1：窗口 bars[:i] 末根为 T-1
-        window = bars[max(0, i - max_window) : i]
-        if len(window) < min_history:
-            continue
-        lags = tau_lag_features(
-            hist_bars=window,
-            tau_by_date=tau_map,
-            asof_date=date_t,
-        )
-        row: Dict[str, Optional[float]] = {
-            "gap_pct": float(gap),
-            "open_gap": float(gap),
-            "gap_atr": gap_atr_from_hist(gap, window),
-            "yclose_loc": yclose_loc_from_prev(b_prev, o),
-        }
-        for k in TAU_LAG_FEATURES:
-            row[k] = lags.get(k)
-        if include_alpha_tc:
-            from core.signal.factors.alpha_tc import inject_raw_atc
-
-            pc_i = None
+            date_t = str(b_t.get("date") or "")[:10]
+            if keep is not None and date_t not in keep:
+                continue
             try:
-                pc_i = float((b_prev or {}).get("close") or 0) or None
-            except (TypeError, ValueError, AttributeError):
-                pc_i = None
-            # τ=open → price[τ]=今开
-            inject_raw_atc(
-                row,
-                window,
-                open_t=o,
-                prev_close=pc_i,
-                price_tau=o,
-                tau_hm="open",
+                o = float(b_t.get("open"))
+                c = float(b_t.get("close"))
+                pc = float(b_prev.get("close"))
+            except (TypeError, ValueError):
+                continue
+            if o <= 0 or c <= 0 or pc <= 0:
+                continue
+            y = y_r_pct(o, c)
+            gap = _gap_pct(pc, o)
+            if y is None or gap is None:
+                continue
+            # ATR 截止 T-1：窗口 bars[:i] 末根为 T-1
+            window = bars[max(0, i - max_window) : i]
+            if len(window) < min_history:
+                continue
+            lags = tau_lag_features(
+                hist_bars=window,
+                tau_by_date=tau_map,
+                asof_date=date_t,
             )
-        xs.append(row)
-        ys.append(float(y))
-        dates.append(date_t)
-        metas.append(
-            {
-                "stock_code": stock_code,
-                "date": date_t,
+            row: Dict[str, Optional[float]] = {
                 "gap_pct": float(gap),
-                "open": o,
-                "close": c,
-                "prev_close": pc,
-                "y_τc": float(y),
-                "yclose_loc": row.get("yclose_loc"),
+                "open_gap": float(gap),
+                "gap_atr": gap_atr_from_hist(gap, window),
+                "yclose_loc": yclose_loc_from_prev(b_prev, o),
             }
+            for k in TAU_LAG_FEATURES:
+                row[k] = lags.get(k)
+            if include_alpha_tc:
+                filled = False
+                if atc_items is not None:
+                    try:
+                        ridx = i - int(max_window)
+                        for key, col in atc_items:
+                            num = _finite_raw(col[ridx])
+                            if num is not None:
+                                row[key] = num
+                        filled = True
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "tau open column day fallback i=%s", i, exc_info=True
+                        )
+                        for key in list(row):
+                            if str(key).startswith("raw_atc_"):
+                                row.pop(key, None)
+                if not filled:
+                    _inject_open_raw(row, window, b_prev, o)
+            xs.append(row)
+            ys.append(float(y))
+            dates.append(date_t)
+            metas.append(
+                {
+                    "stock_code": stock_code,
+                    "date": date_t,
+                    "gap_pct": float(gap),
+                    "open": o,
+                    "close": c,
+                    "prev_close": pc,
+                    "y_τc": float(y),
+                    "yclose_loc": row.get("yclose_loc"),
+                }
+            )
+        except Exception:  # noqa: BLE001
+            skipped_days += 1
+            logger.debug("tau open day skipped i=%s", i, exc_info=True)
+    if skipped_days:
+        logger.warning(
+            "tau open skipped %s bars code=%s", skipped_days, stock_code or ""
         )
     return xs, ys, dates, metas
 
@@ -1379,7 +1581,11 @@ def _index_minute_bars_by_date(
     for b in minute_bars or []:
         if not isinstance(b, dict):
             continue
-        day = _minute_bar_day(b)
+        try:
+            day = _minute_bar_day(b)
+        except Exception:  # noqa: BLE001
+            logger.debug("minute bar day skipped", exc_info=True)
+            continue
         if len(day) < 10:
             continue
         by.setdefault(day, []).append(b)
@@ -1685,9 +1891,38 @@ def collect_tau_intraday_panel(
     tau_map = realized_tau_by_date(bars)
     minutes_by_day = _index_minute_bars_by_date(minute_bars)
     empty_day: List[dict] = []
+    atc_by_clock: Dict[str, Tuple[Tuple[str, Any], ...]] = {}
+    if (
+        include_alpha_tc
+        and int(min_history) >= int(max_window) >= 60
+        and n > int(max_window)
+    ):
+        for clock in clocks:
+            try:
+                items = _minute_clock_atc_items(
+                    bars,
+                    minutes_by_day,
+                    hist=int(max_window),
+                    clock=clock,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("tau minute columns failed clock=%s", clock, exc_info=True)
+                items = None
+            if items:
+                atc_by_clock[clock] = items
+    skipped_days = 0
+    skipped_clocks = 0
+    from core.signal.minute_tau_feats import (
+        extract_horizon_seq_packs_for_clocks,
+        extract_minute_tau_packs,
+    )
+
     for i in range(min_history, n):
         b_t = bars[i]
         b_prev = bars[i - 1]
+        if not isinstance(b_t, dict) or not isinstance(b_prev, dict):
+            skipped_days += 1
+            continue
         date_t = str(b_t.get("date") or "")[:10]
         date_prev = str(b_prev.get("date") or "")[:10]
         try:
@@ -1698,90 +1933,213 @@ def collect_tau_intraday_panel(
             continue
         if o <= 0 or c <= 0 or pc <= 0:
             continue
-        day_mins = minutes_by_day.get(date_t) or empty_day
-        prev_mins = minutes_by_day.get(date_prev) or empty_day
-        o_min, c_min = minute_session_open_close(day_mins, trade_date=date_t)
-        gap = _gap_pct(pc, o)
-        window = bars[max(0, i - max_window) : i]
-        if len(window) < min_history:
+        try:
+            day_mins = minutes_by_day.get(date_t) or empty_day
+            prev_mins = minutes_by_day.get(date_prev) or empty_day
+            o_min, c_min = minute_session_open_close(day_mins, trade_date=date_t)
+            gap = _gap_pct(pc, o)
+            window = bars[max(0, i - max_window) : i]
+            if len(window) < min_history:
+                continue
+            _, c_prev_min = minute_session_open_close(prev_mins, trade_date=date_prev)
+            lags = tau_lag_features(
+                hist_bars=window,
+                tau_by_date=tau_map,
+                asof_date=date_t,
+            )
+        except Exception:  # noqa: BLE001
+            skipped_days += 1
+            logger.debug("tau intraday day skipped date=%s", date_t, exc_info=True)
             continue
-        from core.signal.minute_tau_feats import extract_minute_tau_pack, extract_horizon_seq_packs
-
-        _, c_prev_min = minute_session_open_close(prev_mins, trade_date=date_prev)
-        lags = tau_lag_features(
-            hist_bars=window,
-            tau_by_date=tau_map,
-            asof_date=date_t,
-        )
+        open_for_pack = o_min if o_min and o_min > 0 else o
+        prev_for_pack = c_prev_min if c_prev_min and c_prev_min > 0 else None
+        tau_packs: Optional[Dict[str, Dict[str, float]]] = None
+        seq_packs: Optional[Dict[str, Dict[str, float]]] = None
+        try:
+            tau_packs = extract_minute_tau_packs(
+                day_mins,
+                trade_date=date_t,
+                clocks=clocks,
+                open_px=open_for_pack,
+                prev_close=prev_for_pack,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau day packs failed date=%s", date_t, exc_info=True)
+            tau_packs = None
+        try:
+            seq_packs = extract_horizon_seq_packs_for_clocks(
+                day_mins,
+                trade_date=date_t,
+                clocks=clocks,
+                open_px=open_for_pack,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau horizon packs failed date=%s", date_t, exc_info=True)
+            seq_packs = None
         for clock in clocks:
-            open_clock = is_open_minute_clock(clock)
-            px_tau = price_at_tau_from_minutes(
-                day_mins, trade_date=date_t, tau_hm=clock
-            )
-            if (px_tau is None or px_tau <= 0) and open_clock:
-                # 当日须有分钟会话（5m 通常从 09:35 起）；无缓存日不混进 09:30
-                if not (o_min and o_min > 0):
-                    continue
-                px_tau = o_min
-            if px_tau is None or px_tau <= 0:
-                continue
-            y_τc = y_r_pct(px_tau, c)
-            if y_τc is None:
-                continue
-            pack = extract_minute_tau_pack(
-                day_mins,
-                trade_date=date_t,
-                tau_hm=clock,
-                open_px=o_min if o_min and o_min > 0 else o,
-                prev_close=c_prev_min if c_prev_min and c_prev_min > 0 else None,
-            )
-            if len(pack) < 2:
-                if not open_clock:
-                    continue
-                pack = {}
-            row: Dict[str, Optional[float]] = {
-                "gap_pct": float(gap) if gap is not None else None,
-                "open_gap": float(gap) if gap is not None else None,
-                "gap_atr": gap_atr_from_hist(gap, window),
-            }
-            for k in TAU_LAG_FEATURES:
-                row[k] = lags.get(k)
-            row.update(pack)
-            if "ret_open_to_tau" not in row:
-                open_for_ret = float(o_min) if o_min and o_min > 0 else float(o)
-                if open_for_ret > 0:
-                    row["ret_open_to_tau"] = (px_tau / open_for_ret - 1.0) * 100.0
-            elapsed = tau_elapsed_min_from_open(clock)
-            if elapsed is not None:
-                row["tau_elapsed_min"] = elapsed
-            seq_all = extract_horizon_seq_packs(
-                day_mins,
-                trade_date=date_t,
-                tau_hm=clock,
-                open_px=o_min if o_min and o_min > 0 else o,
-            )
-            if not isinstance(seq_all, dict):
-                seq_all = {}
-            if include_alpha_tc:
-                from core.signal.factors.alpha_tc import inject_raw_atc
-
-                inject_raw_atc(
-                    row,
-                    window,
-                    open_t=o,
-                    prev_close=pc,
-                    price_tau=px_tau,
-                    minute_bars=day_mins,
-                    tau_hm=clock,
+            try:
+                _ = _emit_intraday_clock(
+                    clock=clock,
+                    xs=xs,
+                    ys=ys,
+                    dates=dates,
+                    metas=metas,
+                    day_mins=day_mins,
+                    date_t=date_t,
+                    o=o,
+                    c=c,
+                    pc=pc,
+                    o_min=o_min,
+                    c_min=c_min,
+                    c_prev_min=c_prev_min,
+                    gap=gap,
+                    window=window,
+                    lags=lags,
+                    stock_code=stock_code,
+                    include_alpha_tc=include_alpha_tc,
+                    include_alpha_th=include_alpha_th,
+                    label_price_fns=label_price_fns,
+                    seq_specs=seq_specs,
+                    atc_items=atc_by_clock.get(clock),
+                    atc_ridx=i - int(max_window),
+                    tau_pack=(
+                        tau_packs.get(clock) if tau_packs is not None else None
+                    ),
+                    seq_pack=(
+                        seq_packs.get(clock) if seq_packs is not None else None
+                    ),
                 )
-            if include_alpha_th:
-                from core.signal.factors.alpha_th import inject_raw_ath
+            except Exception:  # noqa: BLE001
+                skipped_clocks += 1
+                logger.debug(
+                    "tau intraday clock skipped date=%s tau=%s",
+                    date_t,
+                    clock,
+                    exc_info=True,
+                )
+    if skipped_days or skipped_clocks:
+        logger.warning(
+            "tau intraday skipped days=%s clocks=%s code=%s",
+            skipped_days,
+            skipped_clocks,
+            stock_code or "",
+        )
+    return xs, ys, dates, metas
 
-                # seq_all 已并入 row；升格短窗动量；H_LAG* 在 relabel 后 stamp
-                if isinstance(seq_all, dict):
-                    for sk, sv in seq_all.items():
-                        if sv is not None and row.get(sk) is None:
-                            row[sk] = sv
+
+def _emit_intraday_clock(
+    *,
+    clock: str,
+    xs: List[Dict[str, Optional[float]]],
+    ys: List[float],
+    dates: List[str],
+    metas: List[Dict[str, Any]],
+    day_mins: Sequence[dict],
+    date_t: str,
+    o: float,
+    c: float,
+    pc: float,
+    o_min: Optional[float],
+    c_min: Optional[float],
+    c_prev_min: Optional[float],
+    gap: Optional[float],
+    window: Sequence[dict],
+    lags: Mapping[str, Any],
+    stock_code: Optional[str],
+    include_alpha_tc: bool,
+    include_alpha_th: bool,
+    label_price_fns: Sequence[Tuple[str, Any]],
+    seq_specs: Sequence[Tuple[str, Any, Any]],
+    atc_items: Optional[Sequence[Tuple[str, Any]]] = None,
+    atc_ridx: Optional[int] = None,
+    tau_pack: Optional[Dict[str, float]] = None,
+    seq_pack: Optional[Dict[str, float]] = None,
+) -> None:
+    """写入一个钟的一行。缺价或前缀不够时直接返回；计算失败由调用方丢掉这个钟。"""
+    from core.signal.minute_tau_feats import extract_horizon_seq_packs, extract_minute_tau_pack
+
+    open_clock = is_open_minute_clock(clock)
+    px_tau = price_at_tau_from_minutes(
+        day_mins, trade_date=date_t, tau_hm=clock
+    )
+    if (px_tau is None or px_tau <= 0) and open_clock:
+        # 当日须有分钟会话（5m 通常从 09:35 起）；无缓存日不混进 09:30
+        if not (o_min and o_min > 0):
+            return
+        px_tau = o_min
+    if px_tau is None or px_tau <= 0:
+        return
+    y_τc = y_r_pct(px_tau, c)
+    if y_τc is None:
+        return
+    if tau_pack is not None:
+        pack = tau_pack
+    else:
+        pack = extract_minute_tau_pack(
+            day_mins,
+            trade_date=date_t,
+            tau_hm=clock,
+            open_px=o_min if o_min and o_min > 0 else o,
+            prev_close=c_prev_min if c_prev_min and c_prev_min > 0 else None,
+        )
+    if len(pack) < 2:
+        if not open_clock:
+            return
+        pack = {}
+    row: Dict[str, Optional[float]] = {
+        "gap_pct": float(gap) if gap is not None else None,
+        "open_gap": float(gap) if gap is not None else None,
+        "gap_atr": gap_atr_from_hist(gap, window),
+    }
+    for k in TAU_LAG_FEATURES:
+        row[k] = lags.get(k)
+    row.update(pack)
+    if "ret_open_to_tau" not in row:
+        open_for_ret = float(o_min) if o_min and o_min > 0 else float(o)
+        if open_for_ret > 0:
+            row["ret_open_to_tau"] = (px_tau / open_for_ret - 1.0) * 100.0
+    elapsed = tau_elapsed_min_from_open(clock)
+    if elapsed is not None:
+        row["tau_elapsed_min"] = elapsed
+    if seq_pack is not None:
+        seq_all = seq_pack
+    else:
+        seq_all = extract_horizon_seq_packs(
+            day_mins,
+            trade_date=date_t,
+            tau_hm=clock,
+            open_px=o_min if o_min and o_min > 0 else o,
+        )
+    if not isinstance(seq_all, dict):
+        seq_all = {}
+    atc_filled = False
+    if include_alpha_tc and atc_items is not None and atc_ridx is not None:
+        atc_filled = _fill_column_row(row, atc_items, int(atc_ridx))
+    if include_alpha_tc and not atc_filled:
+        from core.signal.factors.alpha_tc import inject_raw_atc
+
+        inject_raw_atc(
+            row,
+            window,
+            open_t=o,
+            prev_close=pc,
+            price_tau=px_tau,
+            minute_bars=day_mins,
+            tau_hm=clock,
+        )
+    if include_alpha_th:
+        try:
+            from core.signal.factors.alpha_th import _promote_feats_to_ath, inject_raw_ath
+
+            # seq_all 已并入 row；升格短窗动量；H_LAG* 在 relabel 后 stamp
+            if isinstance(seq_all, dict):
+                for sk, sv in seq_all.items():
+                    if sv is not None and row.get(sk) is None:
+                        row[sk] = sv
+            if atc_filled:
+                _copy_ath_gap_from_atc(row)
+                _promote_feats_to_ath(row, row)
+            else:
                 inject_raw_ath(
                     row,
                     window,
@@ -1792,39 +2150,76 @@ def collect_tau_intraday_panel(
                     tau_hm=clock,
                     feats=row,
                 )
-            xs.append(row)
-            ys.append(float(y_τc))
-            dates.append(date_t)
-            meta = {
-                    "stock_code": stock_code,
-                    "date": date_t,
-                    "tau": clock,
-                    "gap_pct": gap,
-                    "price_tau": px_tau,
-                    "open": o,
-                    "close": c,
-                    "open_minute": o_min,
-                    "close_minute": c_min,
-                    "y_τc": float(y_τc),
-                    "ret_open_to_tau": row.get("ret_open_to_tau"),
-                    "tau_elapsed_min": elapsed,
-            }
-            for tag, fn in label_price_fns:
-                spec = _HORIZON_SPECS[tag]
-                tau_hm_h, px_h = fn(
-                    day_mins,
-                    trade_date=date_t,
+        except Exception:  # noqa: BLE001
+            logger.debug("tau ath day fallback date=%s", date_t, exc_info=True)
+            for key in list(row):
+                if str(key).startswith("raw_ath_"):
+                    row.pop(key, None)
+            try:
+                from core.signal.factors.alpha_th import inject_raw_ath
+
+                inject_raw_ath(
+                    row,
+                    window,
+                    open_t=o,
+                    prev_close=pc,
+                    price_tau=px_tau,
+                    minute_bars=day_mins,
                     tau_hm=clock,
+                    feats=row,
                 )
-                meta[spec.tau_plus_key] = tau_hm_h
-                meta[spec.px_key] = px_h
-            for _tag, feat_keys, lag_keys in seq_specs:
+            except Exception:  # noqa: BLE001
+                logger.debug("tau ath inject failed date=%s", date_t, exc_info=True)
+    meta = {
+        "stock_code": stock_code,
+        "date": date_t,
+        "tau": clock,
+        "gap_pct": gap,
+        "price_tau": px_tau,
+        "open": o,
+        "close": c,
+        "open_minute": o_min,
+        "close_minute": c_min,
+        "y_τc": float(y_τc),
+        "ret_open_to_tau": row.get("ret_open_to_tau"),
+        "tau_elapsed_min": elapsed,
+    }
+    for tag, fn in label_price_fns:
+        try:
+            spec = _HORIZON_SPECS[tag]
+            tau_hm_h, px_h = fn(
+                day_mins,
+                trade_date=date_t,
+                tau_hm=clock,
+            )
+            meta[spec.tau_plus_key] = tau_hm_h
+            meta[spec.px_key] = px_h
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "tau horizon meta skipped date=%s tau=%s head=%s",
+                date_t,
+                clock,
+                tag,
+                exc_info=True,
+            )
+    if isinstance(seq_all, dict):
+        for _tag, feat_keys, lag_keys in seq_specs:
+            try:
                 skip = set(lag_keys)
                 for k in feat_keys:
                     if k in skip:
                         continue
                     if seq_all.get(k) is not None:
                         meta[k] = seq_all[k]
-            metas.append(meta)
-    return xs, ys, dates, metas
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "tau seq meta skipped date=%s tau=%s",
+                    date_t,
+                    clock,
+                    exc_info=True,
+                )
+    xs.append(row)
+    ys.append(float(y_τc))
+    dates.append(date_t)
+    metas.append(meta)
 

@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -92,9 +93,11 @@ class TestAssembleUsesL1(unittest.TestCase):
         self._prev = {
             "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
             "QUANTLAB_FEATURE_LAKE": os.environ.get("QUANTLAB_FEATURE_LAKE"),
+            "QUANTLAB_DAY_CUBE_GC": os.environ.get("QUANTLAB_DAY_CUBE_GC"),
         }
         os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = os.path.join(self._tmpdir.name, "l1")
         os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        os.environ["QUANTLAB_DAY_CUBE_GC"] = "0"
 
     def tearDown(self) -> None:
         for k, v in self._prev.items():
@@ -173,13 +176,17 @@ class TestAssembleUsesL1(unittest.TestCase):
         )
         self.assertIsNotNone(load_stock_panel(FAMILY_TC, "RANK1", fingerprint=fp))
 
-        pack_rank = _tau_stock_job(
-            {"code": "RANK1", "bars": list(bars)},
-            col_names,
-            slim_keys,
-            cache_head="tc_rank",
-            **kw,
-        )
+        with mock.patch(
+            "core.research.tau_panel.collect_tau_open_panel",
+            side_effect=AssertionError("tc_rank should copy tc"),
+        ):
+            pack_rank = _tau_stock_job(
+                {"code": "RANK1", "bars": list(bars)},
+                col_names,
+                slim_keys,
+                cache_head="tc_rank",
+                **kw,
+            )
         self.assertIsNotNone(pack_rank)
         assert pack_rank is not None
         np.testing.assert_allclose(pack_tc[1], pack_rank[1])

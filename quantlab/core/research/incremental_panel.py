@@ -174,14 +174,31 @@ def merge_matrix_rows(
     return X_m, y_m, name_list, ordered
 
 
+def lake_row_covers_bar_end(
+    dates: Sequence[str],
+    bars: Sequence[dict],
+    meta: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """末根决策日已在面板里，或这份 bars 已经重算过、该日仍然没有特征行。"""
+    end = bar_end_date(bars)
+    if len(end) < 10:
+        return True
+    for raw in dates or []:
+        if str(raw)[:10] == end:
+            return True
+    return str((meta or {}).get("scored_through") or "")[:10] == end
+
+
 def stem_extra_meta(bars: Sequence[dict]) -> Dict[str, str]:
-    """写入 bars_fp / stem_fp / end_date，供下次增量判断。"""
+    """写入 bars_fp / stem_fp / end_date / scored_through，供下次增量判断。"""
     from core.research.panel_fingerprint import bars_fingerprint
 
+    end = bar_end_date(bars)
     return {
         "bars_fp": bars_fingerprint(bars),
         "stem_fp": stem_bars_fingerprint(bars),
-        "end_date": bar_end_date(bars),
+        "end_date": end,
+        "scored_through": end,
     }
 
 
@@ -208,15 +225,34 @@ def try_incremental_merge(
         return None
     if prev.get("y") is None:
         return None
+    from core.research.materialize.consumer import MaterializeRequired
+
+    old_x = np.asarray(prev["X"], dtype=np.float64)
+    old_y = np.asarray(prev["y"], dtype=np.float64)
+    old_dates = [str(d)[:10] for d in (prev.get("dates") or [])]
+    if (
+        old_x.ndim != 2
+        or old_y.ndim != 1
+        or old_x.shape[0] != old_y.shape[0]
+        or len(old_dates) != old_x.shape[0]
+    ):
+        logger.debug("incremental lake shape mismatch code=%s", code)
+        return None
     meta = prev.get("_meta") or {}
     stored_fp = str(meta.get("fingerprint") or "")
     stored_bars = str(meta.get("bars_fp") or "")
-    if not stored_bars or spec_fp(stored_bars) != stored_fp:
+    try:
+        fresh = spec_fp(stored_bars) if stored_bars else ""
+    except MaterializeRequired:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.debug("incremental spec_fp failed code=%s", code, exc_info=True)
+        return None
+    if not stored_bars or fresh != stored_fp:
         return None
     n_new = tail_append_days(bars, prev.get("_meta"), max_new=max_new)
     if n_new is None:
         return None
-    old_dates = list(prev.get("dates") or [])
     # 新增越多，尾窗 pad 略放大
     eff_pad = int(pad) + max(0, int(n_new) - 1) * 2
     keep = tail_keep_dates(old_dates, bars, pad=eff_pad)
@@ -224,21 +260,24 @@ def try_incremental_merge(
         return None
     try:
         nx, ny, nnames, ndates = collect_tail(keep)
+    except MaterializeRequired:
+        raise
     except Exception:  # noqa: BLE001
         logger.debug("incremental collect_tail failed code=%s", code, exc_info=True)
         return None
     if nx is None or int(getattr(nx, "shape", (0,))[0] or 0) <= 0:
         # 尾窗无新决策日：直接返回旧矩阵（仍会用新 fp 重写）
-        return (
-            np.asarray(prev["X"], dtype=np.float64),
-            np.asarray(prev["y"], dtype=np.float64),
-            list(prev.get("names") or []),
-            old_dates,
-        )
+        return old_x, old_y, list(prev.get("names") or []), old_dates
+    nx = np.asarray(nx, dtype=np.float64)
+    ny = np.asarray(ny, dtype=np.float64)
+    ndates = [str(d)[:10] for d in (ndates or [])]
+    if nx.ndim != 2 or ny.ndim != 1 or nx.shape[0] != ny.shape[0] or len(ndates) != nx.shape[0]:
+        logger.debug("incremental tail shape mismatch code=%s", code)
+        return None
     keep_from = min(keep)
     return merge_matrix_rows(
-        np.asarray(prev["X"], dtype=np.float64),
-        np.asarray(prev["y"], dtype=np.float64),
+        old_x,
+        old_y,
         old_dates,
         list(prev.get("names") or []),
         nx,

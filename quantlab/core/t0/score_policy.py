@@ -3778,7 +3778,7 @@ def warmup_watching_day_cubes(
     min_lake_frac: float = 0.5,
     prefetch_l1: bool = True,
 ) -> Dict[str, int]:
-    """做 T 回测开跑：prefetch L1 + 按日 ensure DayCube（命中则跳过）。
+    """做 T 回测开跑：prefetch L1 + 按日期块 ensure DayCube（命中则跳过）。
 
     Lake 当日 oo 覆盖不足 ``min_lake_frac`` 则不预建该日（留给冷路径 bars）。
     ``QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1`` 时 miss 不 ensure（禁止冷建），只计 hit。
@@ -3831,78 +3831,94 @@ def warmup_watching_day_cubes(
             logger.debug("warmup l1 prefetch failed", exc_info=True)
 
     try:
-        from core.research.batch_score import ensure_day_cube_for_items
-        from core.research.day_cube import enabled as cube_on, load_day_cube
-        from core.research.feature_lake import enabled as lake_on, load_day_rows
+        from core.research.day_cube import enabled as cube_on, day_cube_status
+        from core.research.feature_lake import enabled as lake_on
         from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
-        from core.research.lake_replay import assemble_item_from_lake_rows
     except Exception:  # noqa: BLE001
         logger.debug("warmup day_cube imports failed", exc_info=True)
         return out
     if not cube_on() or not lake_on():
         return out
 
+    try:
+        from core.research.materialize.consumer import consumer_read_only
+        from core.research.materialize.cube_batch import (
+            CUBE_FILL_CHUNK_DAYS,
+            build_day_cubes_from_lake,
+            day_chunks,
+        )
+        from core.research.materialize.flags import require_day_cube
+    except Exception:  # noqa: BLE001
+        logger.debug("warmup cube batch imports failed", exc_info=True)
+        return out
+
     n_days = len(day_list)
-    need = max(2, int(len(code_list) * float(min_lake_frac or 0.5) + 0.999))
-    for i, day in enumerate(day_list):
+    try:
+        frac = float(min_lake_frac if min_lake_frac not in (None, "") else 0.5)
+    except (TypeError, ValueError):
+        frac = 0.5
+    if not (frac > 0):
+        frac = 0.5
+    need = max(2, int(len(code_list) * frac + 0.999))
+    day_pos = {d: i + 1 for i, d in enumerate(day_list)}
+
+    def _seed(day: str, items: List[dict]) -> None:
+        seed_watching_pool_feature_rows(day, items)
+
+    load_failed = 0
+    for chunk in day_chunks(day_list, CUBE_FILL_CHUNK_DAYS):
         if _cancelled():
             break
-        _emit(f"预热 DayCube {i + 1}/{n_days}…", i + 1, n_days)
-        try:
-            hit = load_day_cube(day, code_list, clock="open")
-        except Exception:  # noqa: BLE001
-            hit = None
-        if hit is not None:
-            out["cubes_hit"] += 1
-            continue
-        try:
-            from core.research.materialize.consumer import consumer_read_only
-            from core.research.materialize.flags import require_day_cube
-
-            if require_day_cube() or consumer_read_only():
+        pending: List[str] = []
+        for day in chunk:
+            try:
+                status = day_cube_status(day, code_list, clock="open")
+            except Exception:  # noqa: BLE001
+                load_failed += 1
+                if load_failed == 1:
+                    logger.warning(
+                        "warmup day_cube status failed day=%s", day, exc_info=True
+                    )
+                continue
+            if status == "ok":
+                out["cubes_hit"] += 1
+                continue
+            try:
+                blocked = require_day_cube() or consumer_read_only()
+            except Exception:  # noqa: BLE001
+                blocked = False
+            if blocked:
                 logger.warning(
                     "warmup day_cube miss under REQUIRE_CUBE day=%s (skip ensure)",
                     day,
                 )
                 continue
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            oo_m = load_day_rows(FAMILY_OO, code_list, day) or {}
-            tc_m = load_day_rows(FAMILY_TC, code_list, day) or {}
-            co_m = load_day_rows(FAMILY_CO, code_list, day) or {}
-        except Exception:  # noqa: BLE001
-            logger.debug("warmup lake day rows failed day=%s", day, exc_info=True)
-            continue
-        items: List[dict] = []
-        for c in code_list:
-            oo = oo_m.get(c)
-            if not oo:
-                continue
-            it = assemble_item_from_lake_rows(
-                c, day, oo=oo, tc=tc_m.get(c), co=co_m.get(c)
-            )
-            if it is not None:
-                items.append(it)
-        if len(items) < need:
-            continue
-        try:
-            cube = ensure_day_cube_for_items(
-                items,
-                date=day,
+            pending.append(day)
+        if pending and not _cancelled():
+            filled = build_day_cubes_from_lake(
+                code_list,
+                pending,
+                family_oo=FAMILY_OO,
+                family_tc=FAMILY_TC,
+                family_co=FAMILY_CO,
                 clock="open",
-                persist=True,
                 universe_codes=code_list,
+                min_items=need,
+                require_oo_item=True,
+                on_items=_seed,
+                progress_cb=lambda cur, tot, msg="": _emit(msg, cur, tot),
+                cancel_cb=cancel_cb,
+                progress_total=n_days,
+                progress_index=day_pos,
+                label="预热 DayCube",
+                swallow_ensure_errors=True,
+                replace_existing=True,
             )
-        except Exception:  # noqa: BLE001
-            logger.debug("warmup ensure day_cube failed day=%s", day, exc_info=True)
-            continue
-        if cube is not None:
-            out["cubes_built"] += 1
-            try:
-                seed_watching_pool_feature_rows(day, items)
-            except Exception:  # noqa: BLE001
-                pass
+            out["cubes_built"] += int((filled or {}).get("cubes_built") or 0)
+        if _cancelled():
+            break
+        last = day_pos[chunk[-1]]
+        _emit(f"预热 DayCube {last}/{n_days}…", last, n_days)
     logger.info(
         "warmup watching day_cubes codes=%s days=%s hit=%s built=%s prefetch=%s",
         len(code_list),

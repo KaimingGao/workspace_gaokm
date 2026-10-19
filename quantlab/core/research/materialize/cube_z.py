@@ -11,7 +11,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def _universe_codes() -> List[str]:
+def universe_codes() -> List[str]:
     try:
         from core.research_universe import resolve_model_fit_codes
 
@@ -77,7 +77,7 @@ def apply_day_cube_mu_sigma_matrix(
     if not enabled():
         return None, {"ok": False, "error": "day_cube disabled"}
 
-    univ = [str(c).strip() for c in (codes or _universe_codes()) if str(c or "").strip()]
+    univ = [str(c).strip() for c in (codes or universe_codes()) if str(c or "").strip()]
     if len(univ) < 2:
         return None, {"ok": False, "error": "universe < 2"}
 

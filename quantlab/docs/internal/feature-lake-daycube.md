@@ -172,9 +172,17 @@ panel meta 额外写入：
 已接线：**oo / τc(open) / co / oo_rank**。  
 `collect_*` 支持 `keep_dates`（oo 原有；τc open / co 已补）。
 
-### 4.2 bars topup 失效
+### 4.2 bars topup 失效与 L2 回收
 
-`quant/research/bars_status.py` · `refresh_bars_only`：只对价量指纹变了的票调用 `invalidate_l1_many`。指纹未变不删 L1，不必重跑物化。没有 L1 meta 的票也不删。
+`quant/research/bars_status.py` · `refresh_bars_only`：只对价量指纹变了的票调用 `invalidate_l1_many`。指纹未变不删 L1，也不动 L2。没有 L1 meta 的票不删。
+
+删 L1 之前先读出该票各 family 的日期。这些日期在当前 schema 的每个宇宙、每个钟上的立方一并删除（`.npz` 与 `.meta.json`），并清掉进程内立方缓存。某个 family 读失败时，已经读到的日期照样作废；一个日期都读不到时，当前 schema 下的立方全部作废。schema 不符或缺少 meta 时仍从 ``.npz`` 读日期。删除只碰立方根目录里面的 `YYYY-MM-DD` 文件，符号链接只摘掉链接本身。
+
+L1 写穿（`write_stock_panel` / `upsert_tail`）在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，只把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时删一次盘，接着跑的 L2 会把缺的日期建回来。
+
+冷目录回收 `prune_cold` 发生在 `invalidate_l1_many` 之后，以及 `materialize_l2` 成功结束之后。保留观察池读取名单和拟合名单的 `universe_hash`；这次物化若用了另一份不少于 2 只的 `codes`，该哈希也保留到本轮结束。其余宇宙目录，以及 `v{FEATURE_SCHEMA}` 以外的版本目录，整棵删除。观察池或拟合名单读取抛错、或两边都不足 2 只时，不回收冷目录。任务取消或 L2 未成功时不回收。作废指定日期只丢掉这些日期的进程内立方。
+
+开关：`QUANTLAB_DAY_CUBE_GC=0` 关闭日期作废和冷目录回收。`QUANTLAB_DAY_CUBE=0` 时本来不落盘，回收也不做。`python -m unittest` / pytest 未设置该变量时不扫本机立方。
 
 ---
 
@@ -276,6 +284,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | `QUANTLAB_FEATURE_LAKE_DIR` | `paths.FEATURE_LAKE_DIR` | L1 根 |
 | `QUANTLAB_DAY_CUBE` | 开 | `0` 关闭 L2 落盘 |
 | `QUANTLAB_DAY_CUBE_DIR` | `paths.DAY_CUBE_DIR` | L2 根 |
+| `QUANTLAB_DAY_CUBE_GC` | 开 | `0` 关闭 L2 日期作废与冷目录回收 |
 | `QUANTLAB_BATCH_SCORE` | 开 | `0`：不建 cube、调仓不 defer，走旧双遍 |
 | `QUANTLAB_MATERIALIZE_CONSUMER` | 关 | 产品入口打开后只读 L1/L2；缺覆盖返回 ``materialize_required`` |
 | `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 消费开关关闭时，拟合/OOS 仍可单独读 L2 |
@@ -294,6 +303,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | `core/research/feature_registry.py` | schema / universe_hash |
 | `core/research/feature_lake.py` | L1 读写 |
 | `core/research/day_cube.py` | L2 构建/落盘/z |
+| `core/research/day_cube_gc.py` | L2 过期日期作废、冷宇宙与旧 schema 回收 |
 | `core/research/lake_bridge.py` | 训练读 L1、写穿、失效 |
 | `core/research/panel_fingerprint.py` | bars / make 指纹 |
 | `core/research/incremental_panel.py` | 尾窗判定与 merge |
@@ -417,9 +427,9 @@ rm -rf data/cache/feature_lake data/cache/day_cubes
 
 ### 10.4 磁盘
 
-L1/L2 按 schema 分目录；宇宙变大时 DayCube 按 `universe_hash` 分叉，旧宇宙文件可定期清理冷 hash。
+L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目录不再被读取。`prune_cold` 会在日线失效和成功的 L2 物化结束时删掉这些冷目录，以及旧 schema 目录。当前观察池（读取键与拟合键）下的立方只按过期日期删除，不整目录清掉。
 
-键协议对齐后，本地可只保留当前观察池哈希目录（例：`day_cubes/v{SCHEMA}/{universe_hash(watching)}/`），其余 `v{SCHEMA}/*` 为冷 hash（含旧「有行子集」分钟立方），删除不影响正确性；删后须再跑一次对应钟的 L2 才能走快路径。
+删掉的日期会使覆盖检查返回 `materialize_required`。用当前观察池再跑一次对应钟的 L2，快路径才会回来。整库作废仍是删 `data/cache/day_cubes`。临时停掉自动回收：`QUANTLAB_DAY_CUBE_GC=0`。
 
 ---
 

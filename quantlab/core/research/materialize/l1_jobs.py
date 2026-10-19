@@ -13,6 +13,7 @@ from core.research.materialize.catalog import (
     FAMILY_TC,
     normalize_families,
 )
+from core.research.materialize.consumer import MaterializeRequired
 from core.research.portfolio_bars import load_portfolio_stock_bars
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,16 @@ def _emit(cb: ProgressCb, cur: int, tot: int, msg: str) -> None:
         cb(int(cur), max(1, int(tot)), str(msg or ""))
     except Exception:  # noqa: BLE001
         logger.debug("materialize l1 progress_cb failed", exc_info=True)
+
+
+def _step_progress(outer: ProgressCb, index: int, n_steps: int):
+    """把一步内部的 done/total 折成整段里的位置。total 用 n*1000，避开宏步骤 2。"""
+    from core.research.materialize.progress import emit_scaled
+
+    def _cb(done: int = 0, total: int = 1, message: str = "") -> None:
+        emit_scaled(outer, index, n_steps, done, total, message)
+
+    return _cb
 
 
 def _cancelled(cb: CancelCb) -> bool:
@@ -79,9 +90,19 @@ def _materialize_oo(
             "elapsed_s": round(time.perf_counter() - t0, 2),
         }
     _emit(progress_cb, 0, 1, f"L1 oo：assemble {len(items)} 只…")
+
+    def _pcb(done: int, total: int, message: str = "") -> None:
+        _emit(
+            progress_cb,
+            done,
+            total,
+            message or f"L1 oo {int(done)}/{int(total)}",
+        )
+
     x_mat, y_mat, feat_names, all_dates = assemble_oo_panels(
         items,
         horizon_days=int(horizon_days),
+        progress_cb=_pcb,
     )
     n_rows = int(getattr(x_mat, "shape", [0])[0] or 0)
     return {
@@ -131,6 +152,15 @@ def _materialize_tc(
         for row in packs
     ]
     _emit(progress_cb, 0, 1, f"L1 tc：collect_tau_compact {len(packs)} 只…")
+
+    def _pcb(done: int, total: int, message: str = "") -> None:
+        _emit(
+            progress_cb,
+            done,
+            total,
+            message or f"L1 tc {int(done)}/{int(total)}",
+        )
+
     X, col_names, ys, dates, _metas, n_stocks = collect_tau_compact(
         packs,
         list(TAU_Z_FEATURES),
@@ -138,6 +168,7 @@ def _materialize_tc(
         include_alpha_tc=True,
         head="y_tc",
         cache_head="tc",
+        progress_cb=_pcb,
     )
     rank_row = _materialize_tc_rank(rank_packs, progress_cb=progress_cb)
     return {
@@ -166,6 +197,15 @@ def _materialize_tc_rank(
     if len(packs) < 2:
         return {"family": "tc_rank", "ok": False, "error": "有效日线不足"}
     _emit(progress_cb, 0, 1, f"L1 tc_rank：collect {len(packs)} 只…")
+
+    def _pcb(done: int, total: int, message: str = "") -> None:
+        _emit(
+            progress_cb,
+            done,
+            total,
+            message or f"L1 tc_rank {int(done)}/{int(total)}",
+        )
+
     try:
         _x, _names, ys, _dates, _metas, n_stocks = collect_tau_compact(
             packs,
@@ -174,6 +214,7 @@ def _materialize_tc_rank(
             include_alpha_tc=True,
             head="y_tc_rank",
             cache_head="tc_rank",
+            progress_cb=_pcb,
         )
     except Exception as exc:  # noqa: BLE001
         return {"family": "tc_rank", "ok": False, "error": str(exc)}
@@ -262,9 +303,20 @@ def _materialize_oo_rank(
             "elapsed_s": round(time.perf_counter() - t0, 2),
         }
     _emit(progress_cb, 0, 1, f"L1 oo_rank：build panels {len(packs)} 只…")
+
+    def _pcb(done: int, total: int, message: str = "") -> None:
+        _emit(
+            progress_cb,
+            done,
+            total,
+            message or f"L1 oo_rank {int(done)}/{int(total)}",
+        )
+
     try:
         panels = build_oo_rank_day_panels(
-            packs, horizon_days=int(horizon_days)
+            packs,
+            horizon_days=int(horizon_days),
+            progress_cb=_pcb,
         )
     except Exception as exc:  # noqa: BLE001
         return {
@@ -330,9 +382,29 @@ def materialize_l1_tau_grid(
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
     """H1：按训练网格写 ``tc_HHMM`` L1（τc∪窗头列）。须本地 5m。"""
+    from core.research.day_cube_gc import l2_invalidation_batch
+
+    with l2_invalidation_batch():
+        return _materialize_l1_tau_grid_body(
+            codes,
+            lookback=lookback,
+            clocks=clocks,
+            progress_cb=progress_cb,
+            cancel_cb=cancel_cb,
+        )
+
+
+def _materialize_l1_tau_grid_body(
+    codes: Sequence[str],
+    *,
+    lookback: int = 1000,
+    clocks: Sequence[str] | None = None,
+    progress_cb: ProgressCb = None,
+    cancel_cb: CancelCb = None,
+) -> Dict[str, Any]:
     from core.research.materialize.catalog import suggested_tau_clocks
     from core.research.materialize.horizon_names import horizon_l1_feature_names
-    from core.research.panel_matrix import collect_tau_compact
+    from core.research.panel_matrix import collect_tau_grid_panels
 
     t0 = time.perf_counter()
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
@@ -351,79 +423,92 @@ def materialize_l1_tau_grid(
         return report
 
     _emit(progress_cb, 0, 1, "L1 τ 网格：加载日线…")
-    stock_bars, failures, _items = _stock_bar_items(code_list, lookback=lookback)
+    try:
+        stock_bars, failures, _items = _stock_bar_items(code_list, lookback=lookback)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("l1 tau grid bars failed: %s", exc)
+        logger.debug("l1 tau grid bars failed", exc_info=True)
+        report["error"] = str(exc) or type(exc).__name__
+        report["elapsed_s"] = round(time.perf_counter() - t0, 2)
+        _emit(progress_cb, 1, 1, f"L1 τ 网格未完成 · {report['error']}")
+        return report
     packs = [
         {"stock_code": c, "code": c, "bars": stock_bars.get(c) or []}
         for c in code_list
-        if stock_bars.get(c)
+        if isinstance(stock_bars, dict) and stock_bars.get(c)
     ]
     if len(packs) < 2:
         report["error"] = f"有效日线不足（失败 {len(failures)}）"
-        report["failures"] = failures[:8]
+        report["failures"] = list(failures or [])[:8]
+        report["elapsed_s"] = round(time.perf_counter() - t0, 2)
         return report
 
-    attached = _attach_minute_bars(packs)
+    try:
+        attached = _attach_minute_bars(packs)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("l1 tau grid minutes failed: %s", exc)
+        logger.debug("l1 tau grid minutes failed", exc_info=True)
+        report["error"] = str(exc) or type(exc).__name__
+        report["elapsed_s"] = round(time.perf_counter() - t0, 2)
+        _emit(progress_cb, 1, 1, f"L1 τ 网格未完成 · {report['error']}")
+        return report
     report["minute_attached"] = attached
     if attached < 2:
         report["error"] = "本地 5m 不足（请先分钟增量/强更）"
+        report["elapsed_s"] = round(time.perf_counter() - t0, 2)
         return report
 
     feat_names = horizon_l1_feature_names()
     ok_n = 0
-    for i, hm in enumerate(clock_list):
-        if _cancelled(cancel_cb):
-            report["error"] = "cancelled"
-            break
-        _emit(
-            progress_cb,
-            i,
-            len(clock_list),
-            f"L1 τ 网格 {hm}（{i + 1}/{len(clock_list)}）…",
-        )
-        # 每钟深拷贝 packs 的 bars 引用；minute 会被 collect pop
-        batch = []
-        for p in packs:
-            batch.append(
-                {
-                    "stock_code": p.get("stock_code"),
-                    "code": p.get("code"),
-                    "bars": list(p.get("bars") or []),
-                    "minute_bars": list(p.get("minute_bars") or []),
-                }
-            )
+    if _cancelled(cancel_cb):
+        report["error"] = "cancelled"
+        report["ok"] = False
+    else:
         try:
-            X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
-                batch,
+            summary = collect_tau_grid_panels(
+                packs,
                 feat_names,
-                tau_hm=hm,
+                clock_list,
                 include_alpha_tc=True,
                 include_alpha_th=True,
-                head="y_tc",
-                cache_head="tc",
+                progress_cb=progress_cb,
+                cancel_cb=cancel_cb,
             )
-            row = {
-                "ok": True,
-                "n_stocks": int(n_stocks),
-                "n_rows": len(ys or []),
-                "n_features": len(col_names or []),
-                "n_dates": len(set(str(d)[:10] for d in (dates or []) if d)),
-                "x_shape": list(getattr(X, "shape", []) or []),
-            }
-            if int(n_stocks) >= 2 and len(ys or []) >= 4:
-                ok_n += 1
-            else:
-                row["ok"] = False
-                row["error"] = "sparse"
+        except MaterializeRequired:
+            raise
         except Exception as exc:  # noqa: BLE001
-            row = {"ok": False, "error": str(exc)}
-        report["by_clock"][hm] = row
+            logger.warning("l1 tau grid collect failed: %s", exc)
+            logger.debug("l1 tau grid collect failed", exc_info=True)
+            report["error"] = str(exc) or type(exc).__name__
+            report["elapsed_s"] = round(time.perf_counter() - t0, 2)
+            _emit(progress_cb, 1, 1, f"L1 τ 网格未完成 · {report['error']}")
+            return report
+        if summary.get("cancelled"):
+            report["error"] = "cancelled"
+            report["ok"] = False
+        for hm in clock_list:
+            row = dict((summary.get("by_clock") or {}).get(hm) or {})
+            if not row:
+                row = {"ok": False, "error": "sparse"}
+            report["by_clock"][hm] = row
+            if row.get("ok"):
+                ok_n += 1
 
-    report["ok"] = ok_n >= max(1, len(clock_list) // 4)
+    if report.get("error") == "cancelled":
+        report["ok"] = False
+    else:
+        report["ok"] = ok_n >= max(1, len(clock_list) // 4)
+        if not report["ok"] and not report.get("error"):
+            report["error"] = f"τ 网格 L1 覆盖不足 ok={ok_n}/{len(clock_list)}"
     report["clocks_ok"] = ok_n
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
-    if not report["ok"] and not report.get("error"):
-        report["error"] = f"τ 网格 L1 覆盖不足 ok={ok_n}/{len(clock_list)}"
-    _emit(progress_cb, 1, 1, f"L1 τ 网格完成 · {report['elapsed_s']}s")
+    if report.get("error") == "cancelled":
+        tail = "L1 τ 网格已取消"
+    elif not report["ok"]:
+        tail = f"L1 τ 网格未完成 · {report['elapsed_s']}s"
+    else:
+        tail = f"L1 τ 网格完成 · {report['elapsed_s']}s"
+    _emit(progress_cb, 1, 1, tail)
     return report
 
 
@@ -451,6 +536,28 @@ def materialize_l1(
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
     """按 family 物化 L1。返回 ``by_family`` 与汇总。"""
+    from core.research.day_cube_gc import l2_invalidation_batch
+
+    with l2_invalidation_batch():
+        return _materialize_l1_body(
+            families,
+            codes,
+            lookback=lookback,
+            horizon_days=horizon_days,
+            progress_cb=progress_cb,
+            cancel_cb=cancel_cb,
+        )
+
+
+def _materialize_l1_body(
+    families: Sequence[str],
+    codes: Sequence[str],
+    *,
+    lookback: int = 1000,
+    horizon_days: int = 1,
+    progress_cb: ProgressCb = None,
+    cancel_cb: CancelCb = None,
+) -> Dict[str, Any]:
     requested = normalize_families(families)
     implicit_rank = FAMILY_OO in requested and FAMILY_OO_RANK not in requested
     fams = _order_l1_families(requested)
@@ -479,34 +586,52 @@ def materialize_l1(
             and not (report["by_family"].get(FAMILY_OO) or {}).get("ok")
         ):
             continue
-        _emit(progress_cb, i, n, f"L1 {fam}（{i + 1}/{n}）…")
-        if fam == FAMILY_OO:
-            row = _materialize_oo(
-                code_list,
-                lookback=lookback,
-                horizon_days=horizon_days,
-                progress_cb=progress_cb,
-            )
-        elif fam == FAMILY_TC:
-            row = _materialize_tc(
-                code_list, lookback=lookback, progress_cb=progress_cb
-            )
-        elif fam == FAMILY_CO:
-            row = _materialize_co(
-                code_list, lookback=lookback, progress_cb=progress_cb
-            )
-        elif fam == FAMILY_OO_RANK:
-            row = _materialize_oo_rank(
-                code_list,
-                lookback=lookback,
-                horizon_days=horizon_days,
-                progress_cb=progress_cb,
-            )
-        else:
-            row = {"family": fam, "ok": False, "error": "unknown family"}
+        fam_cb = _step_progress(progress_cb, i, n)
+        fam_cb(0, 1, f"L1 {fam}（{i + 1}/{n}）…")
+        try:
+            if fam == FAMILY_OO:
+                row = _materialize_oo(
+                    code_list,
+                    lookback=lookback,
+                    horizon_days=horizon_days,
+                    progress_cb=fam_cb,
+                )
+            elif fam == FAMILY_TC:
+                row = _materialize_tc(
+                    code_list, lookback=lookback, progress_cb=fam_cb
+                )
+            elif fam == FAMILY_CO:
+                row = _materialize_co(
+                    code_list, lookback=lookback, progress_cb=fam_cb
+                )
+            elif fam == FAMILY_OO_RANK:
+                row = _materialize_oo_rank(
+                    code_list,
+                    lookback=lookback,
+                    horizon_days=horizon_days,
+                    progress_cb=fam_cb,
+                )
+            else:
+                row = {"family": fam, "ok": False, "error": "unknown family"}
+        except MaterializeRequired:
+            raise
+        except Exception as exc:  # noqa: BLE001 — 一族失败仍留下报告，后面的族继续
+            logger.exception("L1 %s failed", fam)
+            row = {
+                "family": fam,
+                "ok": False,
+                "error": str(exc) or type(exc).__name__,
+            }
         report["by_family"][fam] = row
         if not row.get("ok"):
             report["ok"] = False
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
-    _emit(progress_cb, n, n, f"L1 完成 · {report['elapsed_s']}s")
+    from core.research.materialize.progress import STEP_SCALE
+
+    _emit(
+        progress_cb,
+        max(1, n) * STEP_SCALE,
+        max(1, n) * STEP_SCALE,
+        f"L1 完成 · {report['elapsed_s']}s",
+    )
     return report

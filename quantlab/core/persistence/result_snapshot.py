@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 # 历史回测页只画 KPI / 净值 / 成交账 / 分票贡献；其余研究块不落盘。
 _KEEP_KEYS = (
     "success",
+    "error",
+    "error_code",
+    "hint",
     "metrics",
     "equity_curve",
     "equity_curve_tail",

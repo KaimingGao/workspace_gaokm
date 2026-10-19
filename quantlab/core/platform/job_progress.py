@@ -1,11 +1,14 @@
 """简单内存任务进度（Web 轮询用）+ 多槽 JobRegistry；paper 槽可落盘抗 reload。"""
 
 import json
+import logging
 import os
 import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
 
@@ -168,17 +171,14 @@ class JobProgress:
             for k in job:
                 if k in data:
                     job[k] = data[k]
-            # 热重载后进程已死：running 视为中断，避免前端空等。
-            # 必须写回磁盘，否则文件仍是 running，轮询会把死任务当成还在 assemble。
-            interrupted = job.get("status") == "running"
-            if interrupted:
-                job["status"] = "failed"
-                job["error"] = job.get("error") or "任务因服务重启中断，请重试"
-                job["message"] = "已中断"
-                job["updated_at"] = time.time()
+            # 只打断已经死掉的属主。活进程（含本进程再挂一块槽）仍在写，
+            # 这里标失败会和它的下一次落盘对打。没有进程号的旧文件无法证明还活着。
+            owner = job.get("owner_pid")
+            owner_alive = owner not in (None, "", 0) and _pid_alive(owner)
+            interrupted = job.get("status") == "running" and not owner_alive
             self._job = job
             if interrupted:
-                self._save_unlocked()
+                self._mark_interrupted_unlocked("任务因服务重启中断，请重试")
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             pass
 
@@ -220,6 +220,9 @@ class JobProgress:
                             "task": result.get("task") or "portfolio_backtest",
                             "trade_count": metrics.get("trade_count")
                             or result.get("trade_count"),
+                            "error": result.get("error"),
+                            "error_code": result.get("error_code"),
+                            "hint": result.get("hint"),
                         }
                     elif slot_name.endswith("-ridge") or slot_name in (
                         "tau-ridge",
@@ -367,7 +370,7 @@ class JobProgress:
                         }
             atomic_write_json(path, payload)
         except OSError:
-            pass
+            logger.warning("job persist failed path=%s", path, exc_info=True)
 
     def get(self) -> Dict[str, Any]:
         with self._lock:
@@ -571,12 +574,7 @@ class JobProgress:
                 return False
             owner = self._job.get("owner_pid")
             if owner not in (None, "", 0) and not _pid_alive(owner):
-                self._job["cancel_requested"] = True
-                self._job["status"] = "failed"
-                self._job["error"] = "任务因服务重启中断，请重试"
-                self._job["message"] = "已中断"
-                self._job["updated_at"] = time.time()
-                self._save_unlocked()
+                self._mark_interrupted_unlocked("任务因服务重启中断，请重试")
                 return True
             ts = self._job.get("updated_at")
             try:
@@ -618,15 +616,18 @@ class JobProgress:
             if stale < threshold and not zero_progress_stuck:
                 return False
             age_show = int(started_age if zero_progress_stuck else stale)
-            self._job["cancel_requested"] = True
-            self._job["status"] = "failed"
-            self._job["error"] = (
+            self._mark_interrupted_unlocked(
                 f"{label}无进展已 {age_show}s，已自动释放（{msg or 'running'}）"
             )
-            self._job["message"] = "已中断"
-            self._job["updated_at"] = time.time()
-            self._save_unlocked()
             return True
+
+    def _mark_interrupted_unlocked(self, error: str) -> None:
+        self._job["cancel_requested"] = True
+        self._job["status"] = "failed"
+        self._job["error"] = error or "任务因服务重启中断，请重试"
+        self._job["message"] = "已中断"
+        self._job["updated_at"] = time.time()
+        self._save_unlocked()
 
     def is_cancel_requested(self) -> bool:
         with self._lock:

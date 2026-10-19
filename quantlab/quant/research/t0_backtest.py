@@ -859,13 +859,19 @@ def run_t0_backtest_for_holdings(
 
     if consumer_read_only() and len(pool_codes) >= 2:
         from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
-        from core.research.materialize.coverage import assess_coverage, recent_trading_days
+        from core.research.materialize.coverage import (
+            assess_coverage,
+            read_cube_codes,
+            recent_trading_days,
+        )
 
+        cube_codes = read_cube_codes()
         gap = assess_coverage(
             pool_codes,
             recent_trading_days(max(10, int(lookback or 30))),
             families=[FAMILY_OO, FAMILY_TC, FAMILY_CO],
             clocks=["open"],
+            cube_codes=cube_codes if len(cube_codes) >= 2 else None,
         )
         if not gap.get("ok"):
             gap["task"] = "t0_backtest"

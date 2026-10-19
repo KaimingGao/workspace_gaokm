@@ -2786,27 +2786,33 @@ class QuantFactorMixin:
         planned = max(1, int(steps or 2))
 
         def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
-            """宏步骤用 ``tot==planned``；子阶段（0/1 assemble、日线 N/800）只改 message。"""
+            """宏步骤保持 planned。子进度推进 pct。这一拍失败不影响物化。"""
+            from core.research.materialize.progress import fold_materialize_progress
+
             try:
-                snap = materialize_job.get() or {}
-                prev_c = int(snap.get("current") or 0)
-                prev_t = max(planned, int(snap.get("total") or planned))
+                try:
+                    snap = materialize_job.get() or {}
+                    prev_c = snap.get("current") or 0
+                    prev_pct = snap.get("pct") or 0.0
+                except Exception:  # noqa: BLE001
+                    prev_c, prev_pct = 0, 0.0
+                c, t, pct = fold_materialize_progress(
+                    planned=planned,
+                    prev_current=prev_c,
+                    prev_pct=prev_pct,
+                    cur=cur,
+                    tot=tot,
+                    message=str(msg or ""),
+                )
+                materialize_job.update(
+                    current=c,
+                    total=t,
+                    pct=pct,
+                    message=str(msg or "物化…"),
+                    job_id=job_id,
+                )
             except Exception:  # noqa: BLE001
-                prev_c, prev_t = 0, planned
-            t_in = int(tot or 0)
-            c_in = int(cur or 0)
-            if t_in == planned:
-                c = max(0, min(planned, c_in))
-                t = planned
-            else:
-                # 勿把 Job total 压成 1，否则进度条长期 0% 且与宏步骤脱节
-                c, t = prev_c, prev_t
-            materialize_job.update(
-                current=c,
-                total=t,
-                message=str(msg or "物化…"),
-                job_id=job_id,
-            )
+                logger.debug("materialize progress dropped", exc_info=True)
 
         def _worker() -> None:
             stop_hb = threading.Event()

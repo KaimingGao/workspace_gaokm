@@ -1118,7 +1118,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         panel_py = self._read("core", "research", "panel_matrix.py")
         self.assertIn("ŷ_τc 面板", panel_py)
         orch = self._read("core", "research", "materialize", "orchestrate.py")
-        self.assertIn("_emit(progress_cb, step, tot_steps, m or \"L1…\")", orch)
+        self.assertIn("_emit(progress_cb, c, t, m or \"L1…\")", orch)
         self.assertIn("L1 完成", orch)
         self.assertIn("_emit(progress_cb, tot_steps, tot_steps,", orch)
         minute_js = self._read("web", "static", "js", "quant", "minute_ui.js")

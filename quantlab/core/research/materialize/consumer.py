@@ -52,13 +52,13 @@ def materialize_writer() -> Iterator[None]:
 
 
 def bind_materialize_writer(writer: bool = False, consumer: bool = False) -> None:
-    """池 initializer。写入时清掉只读；只读时记下消费。"""
+    """池 initializer。两次都写上，避免工作线程复用时留下上一次的写入标记。"""
     if writer:
         _writer.set(True)
         _consumer.set(False)
         return
-    if consumer:
-        _consumer.set(True)
+    _writer.set(False)
+    _consumer.set(bool(consumer))
 
 
 def research_pool_init(writer: bool = False, consumer: bool = False) -> None:

@@ -71,6 +71,64 @@ class TestDayCube(unittest.TestCase):
         self.assertEqual(hit.date, "2024-06-01")
         np.testing.assert_allclose(hit.X_raw, cube.X_raw)
 
+    def test_load_remember_false_skips_process_cache(self) -> None:
+        from core.research import day_cube as dc
+
+        feats = {"x": {"g": 1.0}, "y": {"g": 2.0}}
+        cube = dc.build_day_cube("2024-06-02", feats, clock="open")
+        self.assertTrue(dc.save_day_cube(cube))
+        dc.clear_memory()
+        hit = dc.load_day_cube("2024-06-02", ["x", "y"], clock="open", remember=False)
+        self.assertIsNotNone(hit)
+        self.assertEqual(dc._MEMORY, {})
+        dc.load_day_cube("2024-06-02", ["x", "y"], clock="open")
+        self.assertEqual(len(dc._MEMORY), 1)
+        self.assertEqual(dc.forget_dates(["2024-06-02"]), 1)
+        self.assertEqual(dc._MEMORY, {})
+
+    def test_replace_overwrites_loaded_cube(self) -> None:
+        from core.research.day_cube import (
+            build_day_cube,
+            build_or_load,
+            clear_memory,
+            load_day_cube,
+            save_day_cube,
+        )
+
+        old = build_day_cube(
+            "2024-08-01",
+            {"a": {"g": 1.0}, "b": {"g": 2.0}},
+            names=["g"],
+            clock="open",
+            universe_codes=["a", "b"],
+        )
+        self.assertTrue(save_day_cube(old))
+        kept = build_or_load(
+            "2024-08-01",
+            {"a": {"g": 9.0, "h": 8.0}, "b": {"g": 7.0, "h": 6.0}},
+            clock="open",
+            universe_codes=["a", "b"],
+            replace=False,
+        )
+        self.assertIsNotNone(kept)
+        assert kept is not None
+        self.assertEqual(list(kept.names), ["g"])
+        replaced = build_or_load(
+            "2024-08-01",
+            {"a": {"g": 9.0, "h": 8.0}, "b": {"g": 7.0, "h": 6.0}},
+            clock="open",
+            universe_codes=["a", "b"],
+            replace=True,
+        )
+        self.assertIsNotNone(replaced)
+        assert replaced is not None
+        self.assertEqual(replaced.names, ["g", "h"])
+        clear_memory()
+        hit = load_day_cube("2024-08-01", ["a", "b"], clock="open")
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertEqual(hit.names, ["g", "h"])
+
     def test_universe_mismatch_miss(self) -> None:
         from core.research.day_cube import build_day_cube, clear_memory, load_day_cube, save_day_cube
 

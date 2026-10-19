@@ -272,5 +272,25 @@ class TestFillT0VizStockNames(unittest.TestCase):
         self.assertEqual(viz["stock_contrib"][0]["stock_name"], "长电科技")
 
 
+class TestPortfolioFailReasonKept(unittest.TestCase):
+    def test_slim_keeps_materialize_error(self):
+        from core.persistence.result_snapshot import slim_portfolio_backtest_result
+
+        raw = {
+            "success": False,
+            "error_code": "materialize_required",
+            "error": "请先日线物化 L1/L2：立方 open 缺 10 日",
+            "hint": "日线物化",
+            "problems": [{"layer": "l2", "clock": "open"}],
+            "loaded_stocks": ["600519"],
+        }
+        slim = slim_portfolio_backtest_result(raw)
+        self.assertFalse(slim["success"])
+        self.assertEqual(slim["error"], raw["error"])
+        self.assertEqual(slim["error_code"], "materialize_required")
+        self.assertEqual(slim["hint"], "日线物化")
+        self.assertNotIn("problems", slim)
+
+
 if __name__ == "__main__":
     unittest.main()

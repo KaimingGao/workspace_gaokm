@@ -220,7 +220,7 @@ bars.db
 | L2 | `core/research/day_cube.py` | 日 μ/σ、gap breadth / slim；宇宙 hash 绑定 |
 | batch | `core/research/batch_score.py` | 池打分后建 cube + rescore；供调仓/回测 |
 
-`refresh_bars_only` 只在价量指纹变化时调用 `invalidate_l1_many`。指纹未变不删 L1。
+`refresh_bars_only` 只在价量指纹变化时调用 `invalidate_l1_many`。指纹未变不删 L1，也不动 L2。变了的票会先删 L1，再作废这些日期上的 DayCube，并回收冷宇宙目录。报告字段：`l1_invalidated`、`l2_dates_dropped`、`l2_hashes_pruned`。
 
 **尾窗增量**（`incremental_panel.py`）：L1 meta 存 `bars_fp` / `stem_fp`；末根改写或追加 ≤16 根时，oo/τc/co/oo_rank 用 `keep_dates` 重算尾部再 merge。中间复权改写仍全量。
 

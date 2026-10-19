@@ -141,9 +141,9 @@ class OoPanelMatrix:
             try:
                 yf = float(ys[i])
             except (TypeError, ValueError):
-                continue
+                yf = float("nan")
             if not math.isfinite(yf):
-                continue
+                yf = float("nan")
             stamp_z_oo_aliases(row)
             kept_rows.append(row)
             kept_y.append(yf)
@@ -242,10 +242,21 @@ def _oo_stock_job(
             hit = load_training_matrix(FAMILY_OO, code_s, fp)
             if hit is not None:
                 x, y, names, dates, src = hit
+                from core.research.feature_lake import read_stock_meta
+                from core.research.incremental_panel import lake_row_covers_bar_end
+
+                meta = read_stock_meta(FAMILY_OO, code_s)
+                if lake_row_covers_bar_end(dates, bars_l, meta):
+                    logger.debug(
+                        "oo cache hit source=%s code=%s rows=%s",
+                        src,
+                        code_s,
+                        len(dates),
+                    )
+                    return x, y, names, dates
                 logger.debug(
-                    "oo cache hit source=%s code=%s rows=%s", src, code_s, len(dates)
+                    "oo lake misses bar end code=%s rows=%s", code_s, len(dates)
                 )
-                return x, y, names, dates
         except Exception:  # noqa: BLE001
             logger.debug("oo training cache load failed code=%s", code_s, exc_info=True)
         raise_if_consumer_rebuild("oo", code_s)
@@ -285,6 +296,8 @@ def _oo_stock_job(
                 logger.debug(
                     "oo incremental tail code=%s rows=%s", code_s, len(dates)
                 )
+        except MaterializeRequired:
+            raise
         except Exception:  # noqa: BLE001
             logger.debug("oo incremental path failed code=%s", code_s, exc_info=True)
             x = None
@@ -422,15 +435,19 @@ def _assemble_serial(
     horizon_days: int,
     *,
     ridge_core_only: bool = False,
+    progress_cb: Optional[Any] = None,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
     # 与并行路径统一走 ``_oo_stock_job``，以便命中按股磁盘缓存。
     core = bool(ridge_core_only)
-    parts = [
-        _oo_stock_job(
-            (str(code), list(bars or []), int(horizon_days), core)
+    parts = []
+    for i, (code, bars) in enumerate(items, start=1):
+        parts.append(
+            _oo_stock_job(
+                (str(code), list(bars or []), int(horizon_days), core)
+            )
         )
-        for code, bars in items
-    ]
+        if progress_cb:
+            progress_cb(i)
     x, y, names, dates = _stack_blocks(parts, ridge_core_only=core)
     logger.info(
         "oo ridge compact panel rows=%s cols=%s stocks=%s workers=1",
@@ -449,7 +466,9 @@ def _finish_serial_from(
     start: int,
     *,
     ridge_core_only: bool = False,
+    progress_cb: Optional[Any] = None,
 ) -> None:
+    done = sum(1 for part in results if part is not None)
     for i in range(start, len(items)):
         if results[i] is not None:
             continue
@@ -457,6 +476,12 @@ def _finish_serial_from(
         results[i] = _oo_stock_job(
             (str(code), list(bars or []), int(horizon_days), bool(ridge_core_only))
         )
+        done += 1
+        if progress_cb:
+            try:
+                progress_cb(done)
+            except Exception:  # noqa: BLE001
+                logger.debug("oo assemble progress_cb failed", exc_info=True)
 
 
 def _drain_stock_batch(
@@ -469,6 +494,7 @@ def _drain_stock_batch(
     n_workers: int,
     *,
     ridge_core_only: bool = False,
+    on_done: Optional[Any] = None,
 ) -> bool:
     """提交 ``[start, end)``。进程挂了则本批改串行，并返回 True。"""
     from core.research.materialize.pool import consume_process_batch
@@ -493,6 +519,7 @@ def _drain_stock_batch(
         submit=_submit,
         run_one=_run,
         label=lambda i: str(items[i][0]),
+        on_done=on_done,
     )
 
 
@@ -502,6 +529,7 @@ def _assemble_parallel(
     n_workers: int,
     *,
     ridge_core_only: bool = False,
+    progress_cb: Optional[Any] = None,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
     from concurrent.futures import ProcessPoolExecutor
 
@@ -509,6 +537,14 @@ def _assemble_parallel(
 
     core = bool(ridge_core_only)
     results: List[Any] = [None] * len(items)
+    done_n = 0
+
+    def _on_done(_i: int) -> None:
+        nonlocal done_n
+        done_n += 1
+        if progress_cb:
+            progress_cb(done_n)
+
     logger.info("oo ridge workers=%s stocks=%s", n_workers, len(items))
     start = 0
     while start < len(items):
@@ -522,7 +558,12 @@ def _assemble_parallel(
         except Exception:
             logger.exception("oo ridge process pool unavailable, using serial")
             _finish_serial_from(
-                items, horizon_days, results, start, ridge_core_only=core
+                items,
+                horizon_days,
+                results,
+                start,
+                ridge_core_only=core,
+                progress_cb=progress_cb,
             )
             break
         broke = False
@@ -536,6 +577,7 @@ def _assemble_parallel(
                 results,
                 n_workers,
                 ridge_core_only=core,
+                on_done=_on_done,
             )
         finally:
             try:
@@ -546,7 +588,14 @@ def _assemble_parallel(
             break
         start = end
     if any(part is None for part in results):
-        _finish_serial_from(items, horizon_days, results, 0, ridge_core_only=core)
+        _finish_serial_from(
+            items,
+            horizon_days,
+            results,
+            0,
+            ridge_core_only=core,
+            progress_cb=progress_cb,
+        )
     x, y, names, dates = _stack_blocks(results, ridge_core_only=core)
     logger.info(
         "oo ridge compact panel rows=%s cols=%s stocks=%s workers=%s",
@@ -565,6 +614,7 @@ def assemble_oo_panels(
     horizon_days: int,
     workers: Optional[int] = None,
     ridge_core_only: bool = False,
+    progress_cb: Optional[Any] = None,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
     """按股票顺序堆叠。满池默认 4 子进程，在途任务不超过进程数。
 
@@ -577,10 +627,27 @@ def assemble_oo_panels(
     enforce_consumer_coverage(seq, families=["oo"], clocks=["open"])
     n_workers = _resolve_workers(len(seq), workers)
     core = bool(ridge_core_only)
+    def _tick(done: int) -> None:
+        if not callable(progress_cb):
+            return
+        total = max(1, len(seq))
+        if done != total and done != 1 and done % 10 != 0:
+            return
+        try:
+            progress_cb(done, total, f"L1 oo {done}/{total}")
+        except Exception:  # noqa: BLE001
+            logger.debug("oo assemble progress_cb failed", exc_info=True)
+
     if n_workers <= 1:
-        return _assemble_serial(seq, horizon_days, ridge_core_only=core)
+        return _assemble_serial(
+            seq, horizon_days, ridge_core_only=core, progress_cb=_tick
+        )
     return _assemble_parallel(
-        seq, horizon_days, n_workers, ridge_core_only=core
+        seq,
+        horizon_days,
+        n_workers,
+        ridge_core_only=core,
+        progress_cb=_tick,
     )
 
 

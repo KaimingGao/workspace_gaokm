@@ -355,8 +355,13 @@ def load_day_cube(
     codes: Sequence[str],
     *,
     clock: str = "open",
+    remember: bool = True,
 ) -> Optional[DayCube]:
-    """按当前宇宙 hash 加载；宇宙不一致则 miss。"""
+    """按当前宇宙 hash 加载；宇宙不一致则 miss。
+
+    ``remember=False`` 只把这一份交给调用方，不放进进程缓存。
+    物化探活要扫上千日，默认记住会把整窗立方留在内存里。
+    """
     day = str(date or "")[:10]
     uh = universe_hash(codes)
     clk = _safe_clock(clock)
@@ -395,7 +400,8 @@ def load_day_cube(
         clock=clk,
         slim=dict(meta.get("slim") or {}),
     )
-    _MEMORY[mk] = cube
+    if remember:
+        _MEMORY[mk] = cube
     return cube
 
 
@@ -409,6 +415,21 @@ def clear_memory() -> None:
     _MEMORY.clear()
 
 
+def forget_dates(dates: Sequence[str]) -> int:
+    """丢掉这些交易日的进程内立方，其它日期留着。"""
+    wanted: set = set()
+    for raw in dates or ():
+        day = str(raw or "").strip()[:10]
+        if len(day) == 10 and day[4] == "-" and day[7] == "-":
+            wanted.add(day)
+    if not wanted:
+        return 0
+    drop = [key for key in list(_MEMORY) if key.rpartition("|")[2] in wanted]
+    for key in drop:
+        _MEMORY.pop(key, None)
+    return len(drop)
+
+
 def build_or_load(
     date: str,
     code_feats: Mapping[str, Mapping[str, Any]],
@@ -418,12 +439,18 @@ def build_or_load(
     slim: Optional[Dict[str, Any]] = None,
     persist: bool = True,
     universe_codes: Optional[Sequence[str]] = None,
+    replace: bool = False,
 ) -> Optional[DayCube]:
+    """已有立方则直接返回。``replace=True`` 时用这次的特征盖掉旧文件。
+
+    覆盖写盘失败则返回 ``None``，内存里仍留着旧立方，避免报告写成成功。
+    """
     codes = [str(c).strip() for c in (code_feats or {}).keys() if str(c or "").strip()]
     lookup = _universe_code_list(universe_codes) or codes
-    hit = load_day_cube(date, lookup, clock=clock)
-    if hit is not None:
-        return hit
+    if not replace:
+        hit = load_day_cube(date, lookup, clock=clock)
+        if hit is not None:
+            return hit
     cube = build_day_cube(
         date,
         code_feats,
@@ -435,9 +462,16 @@ def build_or_load(
     if cube is None:
         return None
     if persist:
-        save_day_cube(cube)
-    else:
-        remember(cube)
+        if not save_day_cube(cube):
+            if replace:
+                logger.warning(
+                    "day cube replace save failed date=%s clock=%s",
+                    str(date)[:10],
+                    clock,
+                )
+                return None
+        return cube
+    remember(cube)
     return cube
 
 

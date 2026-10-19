@@ -149,9 +149,9 @@ def _run_materialize(
             return out
         _emit(progress_cb, step, tot_steps, "物化 L1…")
 
-        def _pcb(_c: int, _t: int, m: str = "") -> None:
-            # 子阶段只改 message，宏 current 钉在本 step（避免 tot==families 撞宏步骤）
-            _emit(progress_cb, step, tot_steps, m or "L1…")
+        def _pcb(c: int, t: int, m: str = "") -> None:
+            # 子进度原样送出。Job 层按 planned 折成百分比，不把票数写成 total。
+            _emit(progress_cb, c, t, m or "L1…")
 
         out["l1"] = materialize_l1(
             fams,
@@ -171,8 +171,8 @@ def _run_materialize(
             return out
         _emit(progress_cb, step, tot_steps, "物化 L1 τ 网格…")
 
-        def _pcb_tau(_c: int, _t: int, m: str = "") -> None:
-            _emit(progress_cb, step, tot_steps, m or "L1 τ…")
+        def _pcb_tau(c: int, t: int, m: str = "") -> None:
+            _emit(progress_cb, c, t, m or "L1 τ…")
 
         tau_clocks = [c for c in clks if str(c).lower() not in ("open", "09:30", "0930")]
         if not tau_clocks:
@@ -194,8 +194,8 @@ def _run_materialize(
             return out
         _emit(progress_cb, step, tot_steps, "物化 L2…")
 
-        def _pcb2(_c: int, _t: int, m: str = "") -> None:
-            _emit(progress_cb, step, tot_steps, m or "L2…")
+        def _pcb2(c: int, t: int, m: str = "") -> None:
+            _emit(progress_cb, c, t, m or "L2…")
 
         out["l2"] = materialize_l2(
             code_list,

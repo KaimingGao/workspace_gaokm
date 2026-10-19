@@ -311,6 +311,7 @@ def collect_co_panel(
 
     返回 ``(xs, ys, decision_dates, meta_rows)``。
     ``decision_dates`` = T；``ys`` = open[T+1]/close[T]-1（真实隔夜缺口，百分点）。
+    最后一根还没有 T+1 开盘时，决策日仍保留，y 为 nan。
     特征仅用 T 开盘时已知信息（T-1 已实现 + 今开 gap）。
     ``keep_dates``：给定时只保留这些决策日（尾窗增量）。
     """
@@ -337,10 +338,10 @@ def collect_co_panel(
 
     n = len(bars or [])
     co_map = realized_co_by_date(bars)
-    # 与 ŷ_oo 同一决策日：i 从 min_history−1 到 n−2；特征窗不含 T（与 pit_oo_window_quote 同切片）。
-    for i in range(max(1, min_history - 1), n - 1):
+    # 与 ŷ_oo 同一决策日：i 从 min_history−1 到最后一根。特征窗不含 T。
+    for i in range(max(1, min_history - 1), n):
         b_t = bars[i]
-        b_next = bars[i + 1]
+        b_next = bars[i + 1] if i + 1 < n else None
         b_prev = bars[i - 1]
         b_prev2 = bars[i - 2] if i >= 2 else {}
         date_t = str(b_t.get("date") or "")[:10]
@@ -352,15 +353,20 @@ def collect_co_panel(
             pc = float(b_prev.get("close"))
             o_prev = float(b_prev.get("open"))
             ppc = float(b_prev2.get("close") or 0.0)
-            o_next = float(b_next.get("open"))
         except (TypeError, ValueError):
             continue
-        if min(o_t, c_t, pc, o_prev, o_next) <= 0:
+        if min(o_t, c_t, pc, o_prev) <= 0:
             continue
-        # 标签 = 真实隔夜缺口 open[T+1]/close[T]-1（与 ret_oc 正交）
-        y = _overnight_gap_pct(c_t, o_next)
-        if y is None:
-            continue
+        o_next = None
+        if isinstance(b_next, dict):
+            try:
+                o_next_v = float(b_next.get("open"))
+            except (TypeError, ValueError):
+                o_next_v = 0.0
+            if o_next_v > 0:
+                o_next = o_next_v
+        # 标签 = 真实隔夜缺口 open[T+1]/close[T]-1。还没有下一根开盘时 y 为 nan。
+        y = _overnight_gap_pct(c_t, o_next) if o_next is not None else None
         gap = _gap_pct(pc, o_t)
         start = max(0, i - max_window + 1)
         window = bars[start:i]
@@ -381,20 +387,20 @@ def collect_co_panel(
             include_alpha_oo=include_alpha_oo,
         )
         xs.append(row)
-        ys.append(float(y))
+        ys.append(float(y) if y is not None else float("nan"))
         dates.append(date_t)
         metas.append(
             {
                 "stock_code": stock_code,
                 "date": date_t,
-                "label_date": str(b_next.get("date") or "")[:10],
+                "label_date": str((b_next or {}).get("date") or "")[:10],
                 "gap_pct": float(gap) if gap is not None else None,
                 "open": o_t,
                 "close": c_t,
                 "open_next": o_next,
                 "prev_open": o_prev,
                 "prev_close": pc,
-                "overnight_gap": float(y),
+                "overnight_gap": float(y) if y is not None else None,
             }
         )
     return xs, ys, dates, metas

@@ -551,7 +551,7 @@ def _score_pool_from_lake(
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, family_for_tc
     from core.research.lake_replay import assemble_item_from_lake_rows
     from core.research.materialize.consumer import MaterializeRequired
-    from core.research.materialize.coverage import assess_coverage
+    from core.research.materialize.coverage import assess_coverage, read_cube_codes
     from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
     codes = [str(c or "").strip() for c in pool if str(c or "").strip()]
@@ -559,7 +559,14 @@ def _score_pool_from_lake(
     clock = _consumer_score_clock(use_minute_tau, tau_clock)
     fam_tc = family_for_tc(tau_hm="open" if clock == "open" else clock)
     families = [FAMILY_OO, fam_tc, FAMILY_CO]
-    report = assess_coverage(codes, [day], families=families, clocks=[clock])
+    cube_codes = read_cube_codes()
+    report = assess_coverage(
+        codes,
+        [day],
+        families=families,
+        clocks=[clock],
+        cube_codes=cube_codes if len(cube_codes) >= 2 else None,
+    )
     if not report.get("ok"):
         raise MaterializeRequired(report)
 

@@ -768,8 +768,6 @@ class TestMinuteTauPack(unittest.TestCase):
                     "volume": 100,
                 }
             )
-        from core.research.tau_panel import DEFAULT_MINUTE_TAU_GRID
-
         morning_grid = ["09:30", "10:00", "10:30", "11:00", "11:30"]
         _xs, ys, _dates, metas = collect_tau_intraday_panel(
             daily,
@@ -781,15 +779,18 @@ class TestMinuteTauPack(unittest.TestCase):
         taus = [m.get("tau") for m in metas if m.get("date") == day]
         self.assertEqual(taus, morning_grid)
         self.assertEqual(len(ys), 5)
-        # 同日标签统一 open→close，多 τ 行 y 相同；特征（前缀）不同
-        self.assertTrue(all(abs(y - ys[0]) < 1e-9 for y in ys))
+        # 标签是各钟 close/price(τ)−1，前缀特征不同
+        for y, meta in zip(ys, metas):
+            px = float(meta["price_tau"])
+            self.assertAlmostEqual(y, (10.0 / px - 1.0) * 100.0, places=6)
+        self.assertNotEqual(ys[0], ys[-1])
         self.assertEqual(_xs[0]["tau_elapsed_min"], 0.0)
         self.assertEqual(_xs[-1]["tau_elapsed_min"], 120.0)
         self.assertNotEqual(_xs[1].get("ret_open_to_tau"), _xs[-1].get("ret_open_to_tau"))
         self.assertIn("tau_elapsed_min", _xs[0])
 
     def test_minute_tau_grid_5m_range_morning_leg1(self):
-        from core.research.tau_panel import (
+        from core.signal.minute_tau_grid import (
             DEFAULT_MINUTE_TAU_GRID,
             DEFAULT_T0_TRAIN_TAU_GRID_5M,
             minute_tau_grid_5m_range,
@@ -1974,6 +1975,104 @@ class TestMinuteTauPack(unittest.TestCase):
             )
         finally:
             m.clear_sector_ret_cache()
+
+
+class TestMinuteTauPacksSharePrefix(unittest.TestCase):
+    def _session(self):
+        rows = _bars()
+        rows.extend(
+            [
+                {
+                    "date": "2026-08-28",
+                    "datetime": "2026-08-28 10:00:00",
+                    "open": 10.1,
+                    "high": 10.6,
+                    "low": 10.05,
+                    "close": 10.55,
+                    "volume": 2000,
+                },
+                {
+                    "date": "2026-08-28",
+                    "datetime": "2026-08-28 10:30:00",
+                    "open": 10.55,
+                    "high": 10.7,
+                    "low": 10.4,
+                    "close": 10.45,
+                    "volume": 1800,
+                },
+            ]
+        )
+        return rows
+
+    def test_prefix_matches_each_clock(self) -> None:
+        from core.signal.minute_tau_feats import (
+            extract_horizon_seq_packs,
+            extract_horizon_seq_packs_for_clocks,
+            extract_minute_tau_packs,
+        )
+
+        bars = self._session()
+        clocks = ["09:35", "09:55", "10:30", "open"]
+        got = extract_minute_tau_packs(
+            bars,
+            trade_date="2026-08-28",
+            clocks=clocks,
+            open_px=10.0,
+            prev_close=9.8,
+        )
+        seqs = extract_horizon_seq_packs_for_clocks(
+            bars,
+            trade_date="2026-08-28",
+            clocks=clocks,
+            open_px=10.0,
+        )
+        for clock in clocks:
+            one = extract_minute_tau_pack(
+                bars,
+                trade_date="2026-08-28",
+                tau_hm=clock,
+                open_px=10.0,
+                prev_close=9.8,
+            )
+            self.assertEqual(got[clock], one)
+            self.assertEqual(
+                seqs[clock],
+                extract_horizon_seq_packs(
+                    bars,
+                    trade_date="2026-08-28",
+                    tau_hm=clock,
+                    open_px=10.0,
+                ),
+            )
+        self.assertNotEqual(got["09:35"].get("ret_open_to_tau"), got["10:30"].get("ret_open_to_tau"))
+
+    def test_one_clock_failure_keeps_the_other(self) -> None:
+        from core.signal import minute_tau_feats as mod
+
+        bars = self._session()
+        early = mod.extract_minute_tau_pack(
+            bars, trade_date="2026-08-28", tau_hm="09:35", open_px=10.0
+        )
+        late = mod.extract_minute_tau_pack(
+            bars, trade_date="2026-08-28", tau_hm="10:30", open_px=10.0
+        )
+        real = mod._tau_pack_from_bars
+
+        def _boom(prefix, **kwargs):
+            if prefix and mod._bar_hm(prefix[-1]) == "1000":
+                raise RuntimeError("bad prefix")
+            return real(prefix, **kwargs)
+
+        with unittest.mock.patch.object(mod, "_tau_pack_from_bars", side_effect=_boom):
+            got = mod.extract_minute_tau_packs(
+                bars,
+                trade_date="2026-08-28",
+                clocks=["09:35", "10:00", "10:30"],
+                open_px=10.0,
+            )
+        self.assertEqual(got["09:35"], early)
+        self.assertEqual(got["10:30"], late)
+        self.assertEqual(got["10:00"], {})
 
 
 if __name__ == "__main__":

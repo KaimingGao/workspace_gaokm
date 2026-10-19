@@ -360,9 +360,44 @@ def _tau_stock_job(
                     metas_l = [{"date": d, "stock_code": code} for d in dates_l]
                     item.pop("minute_bars", None)
                     return code, block, ys_l, dates_l, metas_l, slim
+            # 开盘 tc_rank 与 tc 同指纹：直接拷贝，不再把 raw_atc 重算一遍。
+            if rank_cache and not use_minute:
+                from core.research.lake_bridge import FAMILY_TC
+
+                adopted = load_training_matrix(
+                    FAMILY_TC, code, fp, names=col_names
+                )
+                if adopted is not None:
+                    block, y_arr, _names, dates_l, _src = adopted
+                    if block.shape[1] == len(col_names) and len(dates_l) >= 4:
+                        ys_l = [float(y) for y in y_arr.tolist()]
+                        try:
+                            from core.research.incremental_panel import stem_extra_meta
+                            from core.research.lake_bridge import sync_panel_to_lake
+
+                            sync_panel_to_lake(
+                                l1_family,
+                                code,
+                                X=block,
+                                dates=dates_l,
+                                names=list(col_names),
+                                fingerprint=fp,
+                                y=np.asarray(ys_l, dtype=np.float64),
+                                extra_meta=stem_extra_meta(bars),
+                            )
+                        except Exception:  # noqa: BLE001
+                            logger.debug(
+                                "tc_rank adopt sync failed code=%s",
+                                code,
+                                exc_info=True,
+                            )
+                        slim = [{} for _ in dates_l]
+                        metas_l = [{"date": d, "stock_code": code} for d in dates_l]
+                        item.pop("minute_bars", None)
+                        return code, block, ys_l, dates_l, metas_l, slim
         except Exception:  # noqa: BLE001
             logger.debug("tau training cache load failed code=%s", code, exc_info=True)
-    from core.research.materialize.consumer import raise_if_consumer_rebuild
+    from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild(l1_family, code)
     # 开盘 τ：仅末根变化时尾窗增量（分钟路径仍全量）
@@ -415,6 +450,8 @@ def _tau_stock_job(
                 family=l1_family,
                 spec_fp=_spec,
             )
+        except MaterializeRequired:
+            raise
         except Exception:  # noqa: BLE001
             logger.debug("tau incremental failed code=%s", code, exc_info=True)
             inc_hit = None
@@ -503,6 +540,395 @@ def _tau_stock_job(
     return code, block, ys_l, dates_l, metas_l, slim
 
 
+def _tau_grid_clock_fp(
+    bars: Sequence[dict],
+    minute: Optional[Sequence[dict]],
+    clock: str,
+    *,
+    min_history: int,
+    include_alpha_tc: bool,
+    include_alpha_th: bool,
+) -> str:
+    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
+
+    return make_fingerprint(
+        bars_fp=bars_fingerprint(bars, minute_bars=minute),
+        tau_hm=str(clock),
+        min_history=int(min_history),
+        include_alpha_tc=int(bool(include_alpha_tc)),
+        include_alpha_th=int(bool(include_alpha_th)),
+        use_minute=1,
+    )
+
+
+def _write_tau_clock_block(
+    code: str,
+    clock: str,
+    rows: Sequence[dict],
+    ys: Sequence[float],
+    dates: Sequence[str],
+    col_names: Sequence[str],
+    bars: Sequence[dict],
+    *,
+    fingerprint: str,
+    include_alpha_th: bool,
+) -> Optional[Tuple[int, List[str]]]:
+    """一钟写穿 L1。不足 4 行不写。返回 (行数, 日期)。"""
+    from core.research.lake_bridge import family_for_tc, sync_panel_to_lake
+    from core.signal.factors.z_tc import stamp_z_tc_rows
+
+    if len(ys) < 4:
+        return None
+    xs = [dict(r) if isinstance(r, dict) else {} for r in rows]
+    stamp_z_tc_rows(xs)
+    if include_alpha_th:
+        try:
+            from core.signal.factors.z_th import stamp_z_th_aliases
+
+            for row in xs:
+                stamp_z_th_aliases(row)
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp_z_th_aliases failed clock=%s", clock, exc_info=True)
+    block = _dict_rows_to_matrix(xs, col_names)
+    dates_l = [str(d)[:10] for d in dates]
+    ys_l = [float(y) for y in ys]
+    del xs
+    if code:
+        try:
+            from core.research.incremental_panel import stem_extra_meta
+
+            sync_panel_to_lake(
+                family_for_tc(tau_hm=str(clock)),
+                code,
+                X=block,
+                dates=dates_l,
+                names=list(col_names),
+                fingerprint=fingerprint,
+                y=np.asarray(ys_l, dtype=np.float64),
+                extra_meta=stem_extra_meta(bars),
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "tau grid L1 sync failed code=%s clock=%s",
+                code,
+                clock,
+                exc_info=True,
+            )
+    del block
+    return len(ys_l), dates_l
+
+
+def _tau_grid_stock_job(
+    item: Dict[str, Any],
+    col_names: Sequence[str],
+    clocks: Sequence[str],
+    *,
+    min_history: int,
+    include_alpha_tc: bool,
+    include_alpha_th: bool,
+) -> Dict[str, Tuple[int, List[str]]]:
+    """一只股票扫缺失的钟，按钟写 L1。返回 clock -> (行数, 日期)。"""
+    from core.research.lake_bridge import family_for_tc, load_training_matrix
+    from core.research.materialize.consumer import raise_if_consumer_rebuild
+    from core.research.tau_panel import collect_tau_intraday_panel
+
+    out: Dict[str, Tuple[int, List[str]]] = {}
+    if not isinstance(item, dict):
+        return out
+    code = str(item.get("code") or item.get("stock_code") or "").strip()
+    bars = list(item.get("bars") or [])
+    minute = list(item.get("minute_bars") or [])
+    item.pop("minute_bars", None)
+    if len(bars) < int(min_history) + 2:
+        return out
+    missing: List[str] = []
+    fps: Dict[str, str] = {}
+    for clock in clocks:
+        fp = _tau_grid_clock_fp(
+            bars,
+            minute,
+            clock,
+            min_history=min_history,
+            include_alpha_tc=include_alpha_tc,
+            include_alpha_th=include_alpha_th,
+        )
+        fps[clock] = fp
+        hit = None
+        if code:
+            try:
+                hit = load_training_matrix(
+                    family_for_tc(tau_hm=str(clock)),
+                    code,
+                    fp,
+                    names=col_names,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "tau grid cache load failed code=%s clock=%s",
+                    code,
+                    clock,
+                    exc_info=True,
+                )
+                hit = None
+        if hit is not None:
+            block, _y, _names, dates_l, _src = hit
+            try:
+                wide = int(block.shape[1]) == len(col_names) and len(dates_l) >= 4
+            except (AttributeError, IndexError, TypeError):
+                wide = False
+            if wide:
+                out[clock] = (len(dates_l), [str(d)[:10] for d in dates_l])
+                continue
+        missing.append(str(clock))
+    if not missing:
+        return out
+    if code:
+        raise_if_consumer_rebuild(family_for_tc(tau_hm=missing[0]), code)
+    try:
+        xs, ys, dates, metas = collect_tau_intraday_panel(
+            bars,
+            minute,
+            tau_hm=missing[0],
+            tau_grid=missing,
+            min_history=min_history,
+            index_bars=item.get("index_bars"),
+            fundamentals=item.get("fundamentals"),
+            stock_code=code or None,
+            include_alpha_tc=include_alpha_tc,
+            include_alpha_th=include_alpha_th,
+        )
+    finally:
+        del minute
+    grouped: Dict[str, List[Tuple[dict, float, str]]] = {}
+    for row, y, day, meta in zip(xs, ys, dates, metas):
+        clock = str((meta or {}).get("tau") or "")
+        if clock not in fps:
+            continue
+        grouped.setdefault(clock, []).append((row if isinstance(row, dict) else {}, float(y), str(day)))
+    del xs, ys, dates, metas
+    for clock, packed in grouped.items():
+        if clock not in missing:
+            continue
+        try:
+            wrote = _write_tau_clock_block(
+                code,
+                clock,
+                [p[0] for p in packed],
+                [p[1] for p in packed],
+                [p[2] for p in packed],
+                col_names,
+                bars,
+                fingerprint=fps[clock],
+                include_alpha_th=include_alpha_th,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "ŷ_τc 网格单钟失败，已跳过 code=%s clock=%s",
+                code or "?",
+                clock,
+                exc_info=True,
+            )
+            continue
+        if wrote is not None:
+            out[clock] = wrote
+    return out
+
+
+def collect_tau_grid_panels(
+    stock_bars: Sequence[Dict[str, Any]],
+    names: Sequence[str],
+    clocks: Sequence[str],
+    *,
+    min_history: int = 12,
+    include_alpha_tc: bool = True,
+    include_alpha_th: bool = False,
+    workers: Optional[int] = None,
+    progress_cb: Optional[Any] = None,
+    cancel_cb: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """分钟网格：每只股票只扫一遍缺失的钟，按钟写 ``tc_HHMM``。
+
+    返回 ``by_clock`` 计数。不把 18 个钟的矩阵留在父进程。
+    """
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    from core.research.lake_bridge import family_for_tc
+    from core.research.materialize.consumer import MaterializeRequired
+    from core.research.materialize.coverage import enforce_consumer_coverage
+
+    clock_list = [str(c).strip() for c in (clocks or []) if str(c or "").strip()]
+    items = [it for it in (stock_bars or []) if isinstance(it, dict)]
+    if clock_list and items:
+        enforce_consumer_coverage(
+            items,
+            families=[family_for_tc(tau_hm=clock) for clock in clock_list],
+            clocks=clock_list,
+        )
+    col_names = _tc_matrix_seed_names(
+        names,
+        include_alpha_tc=include_alpha_tc,
+        include_alpha_th=include_alpha_th,
+    )
+    n_jobs = len(items)
+    n_workers = _resolve_tau_workers(n_jobs, workers)
+    by_clock: Dict[str, Dict[str, Any]] = {
+        clock: {
+            "ok": False,
+            "n_stocks": 0,
+            "n_rows": 0,
+            "n_features": len(col_names),
+            "n_dates": 0,
+            "dates": set(),
+            "x_shape": [0, len(col_names)],
+        }
+        for clock in clock_list
+    }
+    processed = 0
+    cancelled = False
+
+    def _tick() -> None:
+        nonlocal processed
+        processed += 1
+        if not callable(progress_cb):
+            return
+        if (
+            processed == 1
+            or processed >= n_jobs
+            or processed % 8 == 0
+            or processed % _TAU_POOL_BATCH == 0
+        ):
+            try:
+                progress_cb(
+                    processed,
+                    max(1, n_jobs),
+                    f"ŷ_τc 网格 {processed}/{max(1, n_jobs)} · {len(clock_list)} 钟",
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("tau grid progress_cb failed", exc_info=True)
+
+    def _fold(summary: Optional[Dict[str, Tuple[int, List[str]]]]) -> None:
+        if not summary:
+            _tick()
+            return
+        for clock, wrote in summary.items():
+            bucket = by_clock.get(clock)
+            if bucket is None or not wrote:
+                continue
+            n_rows, dates = wrote
+            bucket["n_stocks"] += 1
+            bucket["n_rows"] += int(n_rows)
+            bucket["dates"].update(dates)
+        _tick()
+
+    def _safe(i: int):
+        try:
+            return _tau_grid_stock_job(
+                items[i],
+                col_names,
+                clock_list,
+                min_history=min_history,
+                include_alpha_tc=include_alpha_tc,
+                include_alpha_th=include_alpha_th,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, MaterializeRequired):
+                raise
+            it = items[i] if i < len(items) else None
+            code = ""
+            if isinstance(it, dict):
+                code = str(it.get("code") or it.get("stock_code") or "")
+            logger.warning("ŷ_τc 网格单票失败，已跳过 code=%s", code or i, exc_info=True)
+            return None
+
+    def _stop() -> bool:
+        if not cancel_cb:
+            return False
+        try:
+            return bool(cancel_cb())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _run_serial(start: int, end: int) -> None:
+        nonlocal cancelled
+        for i in range(start, end):
+            if _stop():
+                cancelled = True
+                return
+            _fold(_safe(i))
+
+    def _run_batch(start: int, end: int) -> None:
+        nonlocal cancelled
+        if end <= start or cancelled:
+            return
+        if n_workers <= 1 or (end - start) < 4:
+            _run_serial(start, end)
+            return
+        inflight: Dict[Any, int] = {}
+        next_i = start
+        from core.research.materialize.consumer import (
+            bind_materialize_writer,
+            context_initargs,
+        )
+
+        with ThreadPoolExecutor(
+            max_workers=n_workers,
+            initializer=bind_materialize_writer,
+            initargs=context_initargs(),
+        ) as pool:
+
+            def _submit(i: int) -> None:
+                fut = pool.submit(_safe, i)
+                inflight[fut] = i
+
+            while next_i < end and len(inflight) < n_workers and not _stop():
+                _submit(next_i)
+                next_i += 1
+            while inflight:
+                done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    inflight.pop(fut)
+                    pack = fut.result()
+                    _fold(pack)
+                if _stop():
+                    cancelled = True
+                    break
+                while next_i < end and len(inflight) < n_workers and not _stop():
+                    _submit(next_i)
+                    next_i += 1
+            if _stop():
+                cancelled = True
+
+    if n_jobs and clock_list:
+        logger.info(
+            "tau grid workers=%s stocks=%s clocks=%s",
+            n_workers,
+            n_jobs,
+            len(clock_list),
+        )
+        start = 0
+        while start < n_jobs and not cancelled:
+            end = min(n_jobs, start + _TAU_POOL_BATCH)
+            _run_batch(start, end)
+            start = end
+    report_clocks: Dict[str, Dict[str, Any]] = {}
+    for clock, bucket in by_clock.items():
+        n_dates = len(bucket.pop("dates"))
+        n_rows = int(bucket["n_rows"])
+        n_stocks = int(bucket["n_stocks"])
+        row = {
+            "ok": n_stocks >= 2 and n_rows >= 4,
+            "n_stocks": n_stocks,
+            "n_rows": n_rows,
+            "n_features": int(bucket["n_features"]),
+            "n_dates": n_dates,
+            "x_shape": [n_rows, int(bucket["n_features"])],
+        }
+        if not row["ok"]:
+            row["error"] = "sparse"
+        report_clocks[clock] = row
+    return {"cancelled": cancelled, "by_clock": report_clocks}
+
+
 def collect_tau_compact(
     stock_bars: Sequence[Dict[str, Any]],
     names: Sequence[str],
@@ -538,6 +964,7 @@ def collect_tau_compact(
     )
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
     from core.research.lake_bridge import family_for_tc
+    from core.research.materialize.consumer import MaterializeRequired
     from core.research.materialize.coverage import enforce_consumer_coverage
 
     tau_family = family_for_tc(
@@ -602,22 +1029,41 @@ def collect_tau_compact(
         n_stocks += 1
         _tick()
 
+    def _safe_tau_job(i: int):
+        try:
+            return _tau_stock_job(
+                items[i],
+                col_names,
+                slim_keys,
+                use_minute=use_minute,
+                tau_hm=str(tau_hm),
+                grid=grid,
+                min_history=min_history,
+                include_alpha_tc=include_alpha_tc,
+                include_alpha_th=include_alpha_th,
+                cache_head=cache_head,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, MaterializeRequired):
+                raise
+            it = items[i] if i < len(items) else None
+            code = ""
+            if isinstance(it, dict):
+                code = str(it.get("code") or it.get("stock_code") or "")
+            logger.warning("ŷ_τc 单票失败，已跳过 code=%s", code or i, exc_info=True)
+            return None
+
+    def _fold_one(pack) -> None:
+        try:
+            _fold(pack)
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, MaterializeRequired):
+                raise
+            logger.warning("ŷ_τc 单票折叠失败，已跳过", exc_info=True)
+
     def _run_serial(start: int, end: int) -> None:
         for i in range(start, end):
-            _fold(
-                _tau_stock_job(
-                    items[i],
-                    col_names,
-                    slim_keys,
-                    use_minute=use_minute,
-                    tau_hm=str(tau_hm),
-                    grid=grid,
-                    min_history=min_history,
-                    include_alpha_tc=include_alpha_tc,
-                    include_alpha_th=include_alpha_th,
-                    cache_head=cache_head,
-                )
-            )
+            _fold_one(_safe_tau_job(i))
             it = items[i]
             if isinstance(it, dict):
                 it.pop("bars", None)
@@ -642,19 +1088,7 @@ def collect_tau_compact(
         ) as pool:
 
             def _submit(i: int) -> None:
-                fut = pool.submit(
-                    _tau_stock_job,
-                    items[i],
-                    col_names,
-                    slim_keys,
-                    use_minute=use_minute,
-                    tau_hm=str(tau_hm),
-                    grid=grid,
-                    min_history=min_history,
-                    include_alpha_tc=include_alpha_tc,
-                    include_alpha_th=include_alpha_th,
-                    cache_head=cache_head,
-                )
+                fut = pool.submit(_safe_tau_job, i)
                 inflight[fut] = i
 
             while next_i < end and len(inflight) < n_workers:
@@ -664,7 +1098,7 @@ def collect_tau_compact(
                 done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
                 for fut in done:
                     i = inflight.pop(fut)
-                    _fold(fut.result())
+                    _fold_one(fut.result())
                     it = items[i]
                     if isinstance(it, dict):
                         it.pop("bars", None)
@@ -768,14 +1202,27 @@ def _co_stock_job(
             hit = load_training_matrix(FAMILY_CO, code, fp, names=col_names)
             if hit is not None:
                 block, y_arr, _names, dates_l, _src = hit
-                if block.shape[1] == len(col_names) and len(dates_l) >= 4:
+                from core.research.feature_lake import read_stock_meta
+                from core.research.incremental_panel import lake_row_covers_bar_end
+
+                meta = read_stock_meta(FAMILY_CO, code)
+                covered = lake_row_covers_bar_end(dates_l, bars, meta)
+                if (
+                    covered
+                    and block.shape[1] == len(col_names)
+                    and len(dates_l) >= 4
+                ):
                     ys_l = [float(y) for y in y_arr.tolist()]
                     slim = [{} for _ in dates_l]
                     metas_l = [{"date": d, "stock_code": code} for d in dates_l]
                     return code, block, ys_l, dates_l, metas_l, slim
+                if not covered:
+                    logger.debug(
+                        "co lake misses bar end code=%s rows=%s", code, len(dates_l)
+                    )
         except Exception:  # noqa: BLE001
             logger.debug("co training cache load failed code=%s", code, exc_info=True)
-    from core.research.materialize.consumer import raise_if_consumer_rebuild
+    from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild(FAMILY_CO, code)
     if code:
@@ -843,6 +1290,8 @@ def _co_stock_job(
                 except Exception:  # noqa: BLE001
                     logger.debug("co L1 sync (incremental) failed code=%s", code, exc_info=True)
                 return code, block, ys_l, dates_l, metas_l, slim
+        except MaterializeRequired:
+            raise
         except Exception:  # noqa: BLE001
             logger.debug("co incremental failed code=%s", code, exc_info=True)
     from core.research.incremental_panel import stem_extra_meta
@@ -1261,6 +1710,7 @@ def _prepare_complete_matrix(
         return None, None, [], list(names), meta
 
     finite = np.isfinite(X)
+    y_finite = np.isfinite(np.asarray(y, dtype=np.float64))
     min_obs = max(8, min(n_raw // 4, 40))
     candidates: List[str] = []
     for j, name in enumerate(names):
@@ -1281,7 +1731,7 @@ def _prepare_complete_matrix(
     index = {str(n): i for i, n in enumerate(names)}
     while active:
         cols = [index[n] for n in active]
-        mask = finite[:, cols].all(axis=1)
+        mask = finite[:, cols].all(axis=1) & y_finite
         rows_idx = np.flatnonzero(mask)
         n = int(rows_idx.size)
         p = len(active)
