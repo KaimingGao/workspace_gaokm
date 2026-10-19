@@ -1859,7 +1859,7 @@ export function installBacktest(q) {
     };
   }
 
-  function setReplayT0Progress({ busy, message, hide, lockBtn } = {}) {
+  function setReplayT0Progress({ busy, message, hide, lockBtn, error } = {}) {
     const progress = document.getElementById("paper-t0-progress");
     const textEl = document.getElementById("paper-t0-progress-text");
     const btn = document.getElementById("paper-t0-backtest");
@@ -1867,6 +1867,11 @@ export function installBacktest(q) {
     if (textEl && message != null) textEl.textContent = message;
     if (!progress) return;
     progress.classList.toggle("is-busy", !!busy);
+    const isError =
+      error != null
+        ? !!error
+        : !busy && !hide && !!message && message !== "恢复上次结果…";
+    progress.classList.toggle("is-error", isError);
     if (hide) {
       progress.hidden = true;
       progress.removeAttribute("title");

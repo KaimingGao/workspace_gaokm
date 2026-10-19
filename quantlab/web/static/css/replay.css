@@ -720,6 +720,12 @@ body[data-page="replay"] .replay-run-progress {
   white-space: nowrap;
 }
 
+body[data-page="replay"] .replay-run-progress.is-error,
+body[data-page="replay"] .replay-run-progress.is-error #paper-t0-progress-text {
+  color: var(--danger, #b91c1c);
+  font-weight: 600;
+}
+
 /* ── 做 T 回测：头栏与调仓同构；正文可折叠（默认展开） ── */
 body[data-page="replay"] .replay-t0-section {
   --paper-t0-r: 2px;
@@ -1001,6 +1007,12 @@ body[data-page="replay"] .replay-page .quant-summary {
   border-radius: 2px !important;
   background: color-mix(in srgb, var(--ink) 1.5%, var(--surface)) !important;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent) !important;
+}
+
+body[data-page="replay"] .replay-page .quant-summary.down {
+  color: var(--danger, #b91c1c) !important;
+  border-color: #fca5a5 !important;
+  background: #fef2f2 !important;
 }
 
 body[data-page="replay"] .replay-page .quant-metrics {
