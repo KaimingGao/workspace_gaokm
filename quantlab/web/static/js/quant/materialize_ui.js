@@ -28,7 +28,8 @@ async function fetchData(apiFetch, url, opts) {
 function phaseFromMessage(msg) {
   const s = String(msg || "");
   if (/排队|提交/.test(s)) return { chip: "QUEUE", phase: "排队" };
-  if (/τ\s*网格|L1\s*τ|τL1/i.test(s)) return { chip: "τL1", phase: "物化 τL1" };
+  // 「ŷ_τc 网格 12/800」里 τ 与「网格」不相邻，不能写成 τ\s*网格
+  if (/网格|L1\s*τ|τL1/i.test(s)) return { chip: "τL1", phase: "物化 τL1" };
   if (/\bL1\b|物化 L1/.test(s)) return { chip: "L1", phase: "物化 L1" };
   if (/\bL2\b|物化 L2|Cube/i.test(s)) return { chip: "L2", phase: "物化 L2" };
   if (/完成/.test(s)) return { chip: "DONE", phase: "物化完成" };

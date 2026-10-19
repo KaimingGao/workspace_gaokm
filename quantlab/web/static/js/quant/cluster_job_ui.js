@@ -43,11 +43,29 @@ function jobEtaSec(job, elapsed) {
   return null;
 }
 
+function finestCount(message) {
+  const re = /(\d+)\s*\/\s*(\d+)/g;
+  let best = null;
+  const s = String(message || "");
+  let match;
+  while ((match = re.exec(s))) {
+    const done = Number(match[1]);
+    const tot = Number(match[2]);
+    if (!(tot > 0)) continue;
+    if (!best || tot > best.tot) best = { done, tot };
+  }
+  return best;
+}
+
 function buildClusterJobFacts(job, { pollStartedAt } = {}) {
   const facts = [];
   const cur = Number(job?.current);
   const tot = Number(job?.total);
-  if (cur > 0 && tot > 0) {
+  const counted = finestCount(job?.message);
+  // 宏步骤 current 在 L1 网格里停在 0；票数写在 message 里，进度格要显示它
+  if (counted && counted.tot > 8) {
+    facts.push(`进度 <strong>${counted.done}/${counted.tot}</strong>`);
+  } else if (cur > 0 && tot > 0) {
     facts.push(`进度 <strong>${cur}/${tot}</strong>`);
   } else {
     const pct = Number(job?.pct);
