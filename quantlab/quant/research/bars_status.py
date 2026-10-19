@@ -408,7 +408,7 @@ def refresh_bars_only(
         "fetch_limit": int(fetch_limit),
         "failed_count": int(failed_n),
         "note": (
-            f"{'整窗强更' if do_full else '增量补齐'}"
+            f"{'强更日 K（L0）' if do_full else '增量补齐（L0）'}"
             f"（窗 {lb} 日 · 拉 {fetch_limit} 根 · 整窗 {len(full_codes)} · 缺口 {len(tail_codes)} · 已齐 {aligned_n}）"
         ),
         "manual_refresh": True,

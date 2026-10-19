@@ -9597,6 +9597,10 @@ body[data-page="quant"] .quant-page .quant-pro-card-tools {
   flex-shrink: 0;
 }
 
+body[data-page="quant"] .quant-page #quant-minute-refresh {
+  text-transform: none;
+}
+
 body[data-page="quant"] .quant-page .quant-pro-card-body {
   display: flex;
   flex-direction: column;

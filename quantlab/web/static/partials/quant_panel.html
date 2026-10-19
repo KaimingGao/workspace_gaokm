@@ -255,7 +255,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        写入口：日常「增量补齐」· 全窗「强更日 K」· 调度 bars_warmup · ≠「刷新 watching」（只改名单）· 下游 ŷ_oo / OLS
+        写入口：日常「增量补齐（L0）」· 全窗「强更日 K（L0）」· 调度 bars_warmup · ≠「刷新 watching」（只改名单）· 下游 ŷ_oo / OLS
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card">
@@ -269,18 +269,18 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                写入口：日常<strong>增量补齐</strong>（窗 1000 个交易日：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉）·
-                全窗<strong>强更日 K</strong>（进程池整窗重拉；仓损坏 / 复权混用时用）· 调度 <code>bars_warmup</code>。
+                写入口：日常<strong>增量补齐（L0）</strong>（窗 1000 个交易日：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉）·
+                全窗<strong>强更日 K（L0）</strong>（进程池整窗重拉；仓损坏 / 复权混用时用）· 调度 <code>bars_warmup</code>。
                 日线齐后可<strong>物化 L1/L2</strong>（open）。τ 轨见「分钟线」。
                 不是数据中心「刷新 watching」（那只改名单）。不写 5m、不算 ŷ。下游 ŷ_oo / OLS。
               </p>
             </div>
           </details>
           <button type="button" id="quant-bars-topup" class="dialog-btn primary" title="写入日 K 仓（增量 · 窗 1000 个交易日）：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
-            增量补齐
+            增量补齐（L0）
           </button>
           <button type="button" id="quant-bars-refresh" class="dialog-btn primary" title="写入日 K 仓（整窗重拉 · 窗 1000 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
-            强更日 K
+            强更日 K（L0）
           </button>
           <button type="button" id="quant-materialize-run" class="dialog-btn warn" title="日线后物化 open L1（oo/tc/co）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">
             物化 L1/L2
@@ -354,7 +354,7 @@
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
         <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-          写入口：日常「增量补齐」· 全窗「强更 5m」· Ready 后「物化 L1/L2」（τ 网格）· 调度 minute_warmup · 标签画像（τ→close）· 下游 ŷ_τc / ŷ_τ* / 调仓 / 做T · Ready≠消费 as-of
+          写入口：日常「增量补齐（L0）」· 全窗「强更 5m（L0）」· Ready 后「物化 L1/L2」（τ 网格）· 调度 minute_warmup · 标签画像（τ→close）· 下游 ŷ_τc / ŷ_τ* / 调仓 / 做T · Ready≠消费 as-of
         </p>
       </summary>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
@@ -368,8 +368,8 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                写入口：日常<strong>增量补齐</strong>（会话日齐窗且今日已拉才跳过；缺尾如只到 10:00 强制补拉）·
-                全窗<strong>强更 5m</strong>（只走新浪，约 41 个交易日；单票子进程≤45s）。
+                写入口：日常<strong>增量补齐（L0）</strong>（会话日齐窗且今日已拉才跳过；缺尾如只到 10:00 强制补拉）·
+                全窗<strong>强更 5m（L0）</strong>（只走新浪，约 41 个交易日；单票子进程≤45s）。
                 Ready 后<strong>物化 L1/L2</strong>（训练网格 <code>tc_HHMM</code> + 按钟 Cube）。
                 调度 <code>minute_warmup</code>。Ready≠消费 as-of。不改日 K、不算 ŷ。
                 下游 ŷ_τc / ŷ_τ* / 调仓 / 做 T。
@@ -377,10 +377,10 @@
             </div>
           </details>
           <button type="button" id="quant-minute-topup" class="dialog-btn primary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
-            增量补齐
+            增量补齐（L0）
           </button>
           <button type="button" id="quant-minute-refresh" class="dialog-btn primary" title="写入 5m 仓（整窗重拉 · 只走新浪 · 单票子进程≤45s）。新浪约 41 个交易日，不复权。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
-            强更 5m
+            强更 5m（L0）
           </button>
           <button type="button" id="quant-minute-materialize-run" class="dialog-btn warn" title="按训练网格写 tc_HHMM L1（须 5m Ready）并物化按钟 L2。不训模型、不出 ŷ。" disabled>
             物化 L1/L2

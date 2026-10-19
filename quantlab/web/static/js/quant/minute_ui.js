@@ -28,7 +28,7 @@ function networkErrText(error, fallback = "读取 5m 状态失败") {
   return s || fallback;
 }
 
-/** 研究枢纽 · 观察池 5m 分钟覆盖 + 「增量补齐」/「强更 5m」/「物化 L1/L2」 */
+/** 研究枢纽 · 观察池 5m 分钟覆盖 + 「增量补齐（L0）」/「强更 5m（L0）」/「物化 L1/L2」 */
 export function installMinuteUi(q) {
   const { on, apiFetch, escapeHtml } = q;
   const installMinuteMaterializeUi =
@@ -153,7 +153,7 @@ export function installMinuteUi(q) {
       mode: "fail",
       tone: "primary",
       errText,
-      hint: "可再次点击「增量补齐」或「强更 5m」重试",
+      hint: "可再次点击「增量补齐（L0）」或「强更 5m（L0）」重试",
     });
   }
 
@@ -192,7 +192,7 @@ export function installMinuteUi(q) {
         bits.length
           ? bits.join(" · ") + (hasTimeout ? " · 超时票已 skip，其余继续" : "")
           : topup
-            ? `增量补齐 · 今日已拉/末根对齐则跳过 · 缺尾补拉 · 新浪固定窗 · ${TOPUP_WORKERS} 并发`
+            ? `增量补齐（L0） · 今日已拉/末根对齐则跳过 · 缺尾补拉 · 新浪固定窗 · ${TOPUP_WORKERS} 并发`
             : FULL_WARMUP_HINT,
     });
   }
@@ -250,7 +250,7 @@ export function installMinuteUi(q) {
     const topup = mode === "topup" || isTopupSummary(job?.result_summary || job?.result?.minute_warmup);
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     paintClusterJobPanel(progressEl, {
-      phase: topup ? "增量补齐 5m" : "预热 5m",
+      phase: topup ? "增量补齐（L0）" : "预热 5m",
       job,
       pollStartedAt,
       tone: "primary",
@@ -493,7 +493,7 @@ export function installMinuteUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Scope</span><span class="quant-bars-foot-v">watching · Limit ${esc(data.watching_limit ?? "—")}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready 近 ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日无缺</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐 / 强更 5m · Ready→物化 L1/L2</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐（L0） / 强更 5m（L0） · Ready→物化 L1/L2</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Labels</span><span class="quant-bars-foot-v">τ=分钟开→收% · 每票≤${esc(data.label_portrait?.max_days_per_code ?? 120)}d</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_τc / ŷ_τ* · 调仓 · 做T · tip</span></div>
     </div>`;
@@ -530,7 +530,7 @@ export function installMinuteUi(q) {
     } else {
       lastReady = {
         ok: false,
-        reason: `须先分钟 Ready（当前 ${okN}/${total} · 请增量补齐/强更 5m）`,
+        reason: `须先分钟 Ready（当前 ${okN}/${total} · 请增量补齐（L0）/强更 5m（L0））`,
       };
     }
     try {
@@ -728,7 +728,7 @@ export function installMinuteUi(q) {
     const heartbeatFreshSec = 90;
     let sawOwnJob = false;
     let pollN = 0;
-    const waitLabel = mode === "topup" ? "增量补齐" : "强更 5m";
+    const waitLabel = mode === "topup" ? "增量补齐（L0）" : "强更 5m（L0）";
     paintProgressPanel({ message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 }, { pollStartedAt: started, mode });
     while (Date.now() - started < hardCapMs) {
       const { ok, data } = await apiFetch("/api/jobs/minute-refresh?progress=1");
@@ -814,7 +814,7 @@ export function installMinuteUi(q) {
   async function startRefresh(mode = "full") {
     if (inflight) return inflight;
     const modeS = mode === "topup" ? "topup" : "full";
-    const label = modeS === "topup" ? "增量补齐" : "强更 5m";
+    const label = modeS === "topup" ? "增量补齐（L0）" : "强更 5m（L0）";
     inflight = (async () => {
       clearJobPanels();
       setMinuteButtonsDisabled(true);

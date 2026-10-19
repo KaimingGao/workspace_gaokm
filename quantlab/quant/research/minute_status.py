@@ -664,7 +664,7 @@ def _minute_topup_core(
         "workers": n_workers,
         "errors": errors[:10],
         "note": (
-            f"5m 增量补齐 · 新浪固定窗 · 今日已拉且齐窗跳过 · 跨度≥{min_span}日且末根对齐跳过 · "
+            f"增量补齐（L0） · 新浪固定窗 · 今日已拉且齐窗跳过 · 跨度≥{min_span}日且末根对齐跳过 · "
             f"缺尾补拉 · 不截断本地仓 · 子进程隔离 · {n_workers} 并发"
             + (f" · 批上限 {int(batch_timeout)}s" if to_fetch else "")
         ),

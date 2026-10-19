@@ -2087,7 +2087,7 @@ class QuantFactorMixin:
                 "success": False,
                 "error": (
                     f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
-                    "请先「强更 5m」，拟合不再拉远端"
+                    "请先「强更 5m（L0）」，拟合不再拉远端"
                 ),
                 "task": task,
                 "minute_period": period,
@@ -2613,7 +2613,7 @@ class QuantFactorMixin:
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         # 进度分母=观察池真实票数（与 5m Job 一致；不再 +5 垫高）
         job_total = max(1, n_watch)
-        phase = "增量补齐日 K…" if mode_s == "topup" else "整窗强更日 K…"
+        phase = "增量补齐（L0）…" if mode_s == "topup" else "强更日 K（L0）…"
 
         job_id = bars_refresh_job.start(
             kind="bars_refresh",
@@ -2941,7 +2941,7 @@ class QuantFactorMixin:
             n_watch_all = watch_limit
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(1, n_watch)
-        phase = "增量补齐 5m…" if mode_s == "topup" else "预热 5m…"
+        phase = "增量补齐（L0）…" if mode_s == "topup" else "预热 5m…"
 
         job_id = minute_refresh_job.start(
             kind="minute_refresh",

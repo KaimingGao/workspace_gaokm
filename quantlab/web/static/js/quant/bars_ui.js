@@ -16,7 +16,7 @@ import {
   awaitWatchingPoolLimitReady,
   WATCHING_POOL_LIMIT_CHANGED,
 } from "./params.js";
-/** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐」/「强更日 K」 */
+/** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐（L0）」/「强更日 K（L0）」 */
 export function installBarsUi(q) {
   const { on, apiFetch, escapeHtml } = q;
   const chip = document.getElementById("quant-bars-chip");
@@ -113,9 +113,9 @@ export function installBarsUi(q) {
 
   function modeLabel(modeOrSum) {
     if (typeof modeOrSum === "string") {
-      return modeOrSum === "topup" ? "增量补齐" : "强更日 K";
+      return modeOrSum === "topup" ? "增量补齐（L0）" : "强更日 K（L0）";
     }
-    return isTopupSummary(modeOrSum) ? "增量补齐" : "强更日 K";
+    return isTopupSummary(modeOrSum) ? "增量补齐（L0）" : "强更日 K（L0）";
   }
 
   function parseBarsProgressMessage(raw) {
@@ -242,7 +242,7 @@ export function installBarsUi(q) {
       mode: "fail",
       tone: "primary",
       errText,
-      hint: "可再次点击「增量补齐」或「强更日 K」重试",
+      hint: "可再次点击「增量补齐（L0）」或「强更日 K（L0）」重试",
     });
   }
 
@@ -312,7 +312,7 @@ export function installBarsUi(q) {
     const topup =
       mode === "topup" ||
       isTopupSummary(job?.result_summary || job?.result?.bars_refresh);
-    const defaultMsg = topup ? "增量补齐日 K…" : "强更日 K…";
+    const defaultMsg = topup ? "增量补齐（L0）…" : "强更日 K（L0）…";
     const msg = job && (job.message || job.error) ? String(job.message || job.error) : defaultMsg;
     const parsed = parseBarsProgressMessage(msg);
     setDeskStatusTone([barsStrip, barsCard], "primary");
@@ -629,7 +629,7 @@ export function installBarsUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Rule</span><span class="quant-bars-foot-v">交易日 15:05 前 as-of → 上一交易日</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Force</span><span class="quant-bars-foot-v">${esc(remote)}${marker.saved_at ? ` · ${esc(fmtUtcShort(marker.saved_at))} UTC` : ""}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐 / 强更日 K · ≠ 刷新名单 · ≠ 5m</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐（L0） / 强更日 K（L0） · ≠ 刷新名单 · ≠ 5m</span></div>
       <div class="quant-bars-foot-item quant-bars-foot-item--nowrap"><span class="quant-bars-foot-k">Fields</span><span class="quant-bars-foot-v">${esc(fields)} · 下游 ŷ_oo / OLS</span></div>
     </div>`;
   }

@@ -306,7 +306,7 @@ def score_stock(
             return {
                 "success": False,
                 "stock_code": raw,
-                "error": "无日线缓存（请到研究枢纽强更日 K）",
+                "error": "无日线缓存（请到研究枢纽强更日 K（L0））",
             }
         else:
             try:

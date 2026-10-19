@@ -244,7 +244,7 @@ function installMaterializeRunner(q, cfg) {
     btn.disabled = !ok;
     btn.title = ok
       ? "物化 L1/L2：训练网格 tc_HHMM + 按钟 Cube（须 5m）。不训模型、不出 ŷ。"
-      : String(st.reason || "须先分钟 Ready（增量补齐 / 强更 5m）");
+      : String(st.reason || "须先分钟 Ready（增量补齐（L0） / 强更 5m（L0））");
   }
 
   async function waitJob(jobId, { pollStartedAt } = {}) {
