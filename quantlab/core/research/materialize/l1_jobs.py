@@ -113,13 +113,23 @@ def _materialize_tc(
         if stock_bars.get(c)
     ]
     if len(packs) < 2:
+        err = f"有效日线不足（失败 {len(failures)}）"
         return {
             "family": FAMILY_TC,
             "ok": False,
-            "error": f"有效日线不足（失败 {len(failures)}）",
+            "error": err,
             "n_stocks": len(packs),
             "elapsed_s": round(time.perf_counter() - t0, 2),
+            "tc_rank": {"family": "tc_rank", "ok": False, "error": err},
         }
+    rank_packs = [
+        {
+            "stock_code": row.get("stock_code"),
+            "code": row.get("code"),
+            "bars": list(row.get("bars") or []),
+        }
+        for row in packs
+    ]
     _emit(progress_cb, 0, 1, f"L1 tc：collect_tau_compact {len(packs)} 只…")
     X, col_names, ys, dates, _metas, n_stocks = collect_tau_compact(
         packs,
@@ -129,7 +139,7 @@ def _materialize_tc(
         head="y_tc",
         cache_head="tc",
     )
-    rank_row = _materialize_tc_rank(codes, lookback=lookback, progress_cb=progress_cb)
+    rank_row = _materialize_tc_rank(rank_packs, progress_cb=progress_cb)
     return {
         "family": FAMILY_TC,
         "ok": bool(rank_row.get("ok")),
@@ -144,21 +154,15 @@ def _materialize_tc(
 
 
 def _materialize_tc_rank(
-    codes: Sequence[str],
+    packs: Sequence[dict],
     *,
-    lookback: int,
     progress_cb: ProgressCb,
 ) -> Dict[str, Any]:
-    """开盘 tc_rank 与 tc 一起写，拟合名次头不再自己生产 L1。"""
+    """开盘 tc_rank 与 tc 一起写。日线由调用方加载并复制，这里不再读一遍。"""
     from core.research.panel_matrix import collect_tau_compact
     from core.yhat.keys import TAU_Z_FEATURES
 
-    stock_bars, _failures, _items = _stock_bar_items(codes, lookback=lookback)
-    packs = [
-        {"stock_code": c, "code": c, "bars": list(stock_bars.get(c) or [])}
-        for c in codes
-        if stock_bars.get(c)
-    ]
+    packs = [row for row in (packs or []) if isinstance(row, dict)]
     if len(packs) < 2:
         return {"family": "tc_rank", "ok": False, "error": "有效日线不足"}
     _emit(progress_cb, 0, 1, f"L1 tc_rank：collect {len(packs)} 只…")
@@ -235,9 +239,10 @@ def _materialize_oo_rank(
     codes: Sequence[str],
     *,
     lookback: int,
+    horizon_days: int,
     progress_cb: ProgressCb,
 ) -> Dict[str, Any]:
-    """oo_rank：走 day panels 构建写穿 L1。"""
+    """oo_rank：默认同口径读 oo 的 L1；超额或更长窗口才现算并写穿。"""
     from core.research.oo_rank_panel import build_oo_rank_day_panels
 
     t0 = time.perf_counter()
@@ -258,7 +263,9 @@ def _materialize_oo_rank(
         }
     _emit(progress_cb, 0, 1, f"L1 oo_rank：build panels {len(packs)} 只…")
     try:
-        panels = build_oo_rank_day_panels(packs)
+        panels = build_oo_rank_day_panels(
+            packs, horizon_days=int(horizon_days)
+        )
     except Exception as exc:  # noqa: BLE001
         return {
             "family": FAMILY_OO_RANK,
@@ -420,6 +427,20 @@ def materialize_l1_tau_grid(
     return report
 
 
+def _order_l1_families(families: Sequence[str]) -> List[str]:
+    """含 oo 时把 oo_rank 排在 oo 后面，进度分母包含这一步。默认同口径只读 oo 的 L1。"""
+    items = [str(f) for f in families]
+    if FAMILY_OO not in items:
+        return items
+    items = [f for f in items if f != FAMILY_OO_RANK]
+    out: List[str] = []
+    for fam in items:
+        out.append(fam)
+        if fam == FAMILY_OO:
+            out.append(FAMILY_OO_RANK)
+    return out
+
+
 def materialize_l1(
     families: Sequence[str],
     codes: Sequence[str],
@@ -430,7 +451,9 @@ def materialize_l1(
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
     """按 family 物化 L1。返回 ``by_family`` 与汇总。"""
-    fams = normalize_families(families)
+    requested = normalize_families(families)
+    implicit_rank = FAMILY_OO in requested and FAMILY_OO_RANK not in requested
+    fams = _order_l1_families(requested)
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     report: Dict[str, Any] = {
         "ok": True,
@@ -450,6 +473,12 @@ def materialize_l1(
             report["ok"] = False
             report["error"] = "cancelled"
             break
+        if (
+            fam == FAMILY_OO_RANK
+            and implicit_rank
+            and not (report["by_family"].get(FAMILY_OO) or {}).get("ok")
+        ):
+            continue
         _emit(progress_cb, i, n, f"L1 {fam}（{i + 1}/{n}）…")
         if fam == FAMILY_OO:
             row = _materialize_oo(
@@ -468,20 +497,16 @@ def materialize_l1(
             )
         elif fam == FAMILY_OO_RANK:
             row = _materialize_oo_rank(
-                code_list, lookback=lookback, progress_cb=progress_cb
+                code_list,
+                lookback=lookback,
+                horizon_days=horizon_days,
+                progress_cb=progress_cb,
             )
         else:
             row = {"family": fam, "ok": False, "error": "unknown family"}
         report["by_family"][fam] = row
         if not row.get("ok"):
             report["ok"] = False
-        if fam == FAMILY_OO and FAMILY_OO_RANK not in fams and row.get("ok"):
-            rank = _materialize_oo_rank(
-                code_list, lookback=lookback, progress_cb=progress_cb
-            )
-            report["by_family"][FAMILY_OO_RANK] = rank
-            if not rank.get("ok"):
-                report["ok"] = False
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
     _emit(progress_cb, n, n, f"L1 完成 · {report['elapsed_s']}s")
     return report

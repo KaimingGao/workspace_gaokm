@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -193,14 +193,25 @@ def try_incremental_merge(
     collect_tail,  # Callable[..., Tuple[X,y,names,dates]]
     family: str,
     max_new: int = 16,
+    spec_fp: Callable[[str], str],
 ) -> Optional[Tuple[np.ndarray, np.ndarray, List[str], List[str]]]:
-    """尾部追加/改末根时调用 ``collect_tail(keep_dates)`` 并与 L1 旧矩阵 merge；否则 None。"""
+    """尾部追加/改末根时调用 ``collect_tail(keep_dates)`` 并与 L1 旧矩阵 merge；否则 None。
+
+    ``spec_fp`` 接收湖里的旧 ``bars_fp``，按本次口径重算指纹。
+    重算结果与已存指纹不同（超额、更长窗口、换钟）则整票重算。
+    日线只是追加时，旧 ``bars_fp`` 重算仍等于已存指纹，尾窗继续。
+    """
     if not family:
         return None
     prev = load_l1_any(family, code)
     if prev is None or prev.get("X") is None:
         return None
     if prev.get("y") is None:
+        return None
+    meta = prev.get("_meta") or {}
+    stored_fp = str(meta.get("fingerprint") or "")
+    stored_bars = str(meta.get("bars_fp") or "")
+    if not stored_bars or spec_fp(stored_bars) != stored_fp:
         return None
     n_new = tail_append_days(bars, prev.get("_meta"), max_new=max_new)
     if n_new is None:

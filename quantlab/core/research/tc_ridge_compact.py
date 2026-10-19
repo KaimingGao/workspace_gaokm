@@ -427,13 +427,22 @@ def build_tau_panels_from_bars(
             return
         kw = _job_kw()
         try:
-            from core.research.oo_blas_limit import limit_blas_threads
+            from core.research.materialize.consumer import (
+                context_initargs,
+                research_pool_init,
+            )
 
-            init = limit_blas_threads
+            init = research_pool_init
+            initargs = context_initargs()
         except Exception:  # noqa: BLE001
             init = None
+            initargs = ()
         try:
-            pool = ProcessPoolExecutor(max_workers=n_workers, initializer=init)
+            pool = ProcessPoolExecutor(
+                max_workers=n_workers,
+                initializer=init,
+                initargs=initargs,
+            )
         except Exception:  # noqa: BLE001
             logger.exception("tau panels process pool unavailable; serial")
             _run_serial(start, end)

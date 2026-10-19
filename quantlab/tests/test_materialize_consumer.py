@@ -8,6 +8,22 @@ import unittest
 from datetime import datetime
 
 
+class MaterializeRequiredPickleTest(unittest.TestCase):
+    def test_roundtrip_keeps_payload(self) -> None:
+        import pickle
+
+        from core.research.materialize.consumer import MaterializeRequired
+
+        exc = MaterializeRequired(
+            {"error": "请先日线物化", "families": ["oo_rank"], "stock_code": "000001"}
+        )
+        back = pickle.loads(pickle.dumps(exc))
+        self.assertIsInstance(back, MaterializeRequired)
+        self.assertEqual(back.payload.get("stock_code"), "000001")
+        self.assertEqual(back.payload.get("families"), ["oo_rank"])
+        self.assertIn("日线物化", str(back))
+
+
 class InvalidateDecisionTest(unittest.TestCase):
     def test_only_when_fingerprint_changes(self) -> None:
         from core.research.materialize.coverage import l1_invalidate_decision
@@ -42,6 +58,68 @@ class ConsumerCoverageTest(unittest.TestCase):
         else:
             os.environ["QUANTLAB_DAY_CUBE_DIR"] = self._old_cube
         self.tmp.cleanup()
+
+    def test_writer_ignores_concurrent_consumer_flag(self) -> None:
+        """物化线程不因别的请求打开的消费开关而拒绝重算。"""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        from core.research.materialize.consumer import (
+            bind_materialize_writer,
+            consumer_read_only,
+            context_initargs,
+            materialize_writer,
+            materialized_consumer,
+            raise_if_consumer_rebuild,
+        )
+
+        started = threading.Event()
+        release = threading.Event()
+        seen = {}
+
+        def _hold_consumer() -> None:
+            with materialized_consumer():
+                seen["holder"] = consumer_read_only()
+                started.set()
+                release.wait(3)
+
+        holder = threading.Thread(target=_hold_consumer)
+        holder.start()
+        self.assertTrue(started.wait(2))
+        try:
+            self.assertTrue(seen["holder"])
+            self.assertFalse(consumer_read_only())
+            with materialized_consumer():
+                pool_seen = {}
+
+                def _read() -> None:
+                    pool_seen["ro"] = consumer_read_only()
+
+                with ThreadPoolExecutor(
+                    max_workers=1,
+                    initializer=bind_materialize_writer,
+                    initargs=context_initargs(),
+                ) as pool:
+                    pool.submit(_read).result()
+                self.assertTrue(pool_seen["ro"])
+                with materialize_writer():
+                    self.assertFalse(consumer_read_only())
+                    raise_if_consumer_rebuild("tc", "001391")
+
+                    def _job() -> None:
+                        seen["writer"] = consumer_read_only()
+                        raise_if_consumer_rebuild("tc", "001391")
+
+                    with ThreadPoolExecutor(
+                        max_workers=1,
+                        initializer=bind_materialize_writer,
+                        initargs=context_initargs(),
+                    ) as pool:
+                        pool.submit(_job).result()
+                    self.assertFalse(seen["writer"])
+        finally:
+            release.set()
+            holder.join(3)
 
     def test_off_does_not_block_collect(self) -> None:
         from core.research.materialize.coverage import enforce_consumer_coverage

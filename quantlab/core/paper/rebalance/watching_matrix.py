@@ -689,7 +689,16 @@ def _score_pool(
 
     workers = max(1, min(8, len(pool)))
     by_code: Dict[str, Any] = {}
-    with ThreadPoolExecutor(max_workers=workers) as ex:
+    from core.research.materialize.consumer import (
+        bind_materialize_writer,
+        context_initargs,
+    )
+
+    with ThreadPoolExecutor(
+        max_workers=workers,
+        initializer=bind_materialize_writer,
+        initargs=context_initargs(),
+    ) as ex:
         futs = {ex.submit(_score_one, c): c for c in pool}
         for fut in as_completed(futs):
             code = futs[fut]

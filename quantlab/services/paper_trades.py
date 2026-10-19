@@ -1934,7 +1934,16 @@ class PaperTradesMixin:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             workers = min(4, len(holdings))
-            with ThreadPoolExecutor(max_workers=workers) as pool:
+            from core.research.materialize.consumer import (
+                bind_materialize_writer,
+                context_initargs,
+            )
+
+            with ThreadPoolExecutor(
+                max_workers=workers,
+                initializer=bind_materialize_writer,
+                initargs=context_initargs(),
+            ) as pool:
                 futs = [pool.submit(_load_one_holding, h) for h in holdings]
                 for fut in as_completed(futs):
                     try:

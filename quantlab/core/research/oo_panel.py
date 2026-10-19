@@ -111,12 +111,16 @@ def _resolve_factor_names(
     return base
 
 
+OO_PANEL_MIN_HISTORY = 12
+OO_PANEL_MAX_WINDOW = 30
+
+
 def collect_oo_panel(
     bars: List[dict],
     *,
     horizon_days: int = 3,
-    min_history: int = 12,
-    max_window: int = 30,
+    min_history: int = OO_PANEL_MIN_HISTORY,
+    max_window: int = OO_PANEL_MAX_WINDOW,
     index_bars: Optional[List[dict]] = None,
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,

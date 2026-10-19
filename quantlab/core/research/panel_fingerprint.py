@@ -65,21 +65,6 @@ def oo_head_key(*, horizon_days: int, ridge_core_only: bool) -> str:
     return head_relpath("oo", f"h{int(horizon_days)}_core{1 if ridge_core_only else 0}")
 
 
-def oo_rank_head_key(
-    *,
-    horizon_days: int,
-    min_history: int,
-    max_window: int,
-    excess_mode: str,
-    respect_regime: bool,
-) -> str:
-    ex = "".join(ch for ch in str(excess_mode or "none") if ch.isalnum() or ch == "_") or "none"
-    return head_relpath(
-        "oo_rank",
-        f"h{int(horizon_days)}_mh{int(min_history)}_mw{int(max_window)}_ex{ex}_rg{1 if respect_regime else 0}",
-    )
-
-
 def co_head_key(*, min_history: int, include_alpha_oo: bool) -> str:
     return head_relpath(
         "co", f"mh{int(min_history)}_aoo{1 if include_alpha_oo else 0}"

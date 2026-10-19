@@ -3336,7 +3336,16 @@ def _peer_feature_rows(date: str) -> List[dict]:
             else:
                 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-                with ThreadPoolExecutor(max_workers=workers) as pool:
+                from core.research.materialize.consumer import (
+                    bind_materialize_writer,
+                    context_initargs,
+                )
+
+                with ThreadPoolExecutor(
+                    max_workers=workers,
+                    initializer=bind_materialize_writer,
+                    initargs=context_initargs(),
+                ) as pool:
                     futs = [pool.submit(_one, c) for c in need]
                     for fut in as_completed(futs):
                         try:

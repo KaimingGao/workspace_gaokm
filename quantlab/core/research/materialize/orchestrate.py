@@ -73,7 +73,7 @@ def resolve_materialize_codes(
         return []
 
 
-def run_materialize(
+def _run_materialize(
     *,
     families: Sequence[str] | None = None,
     clocks: Sequence[str] | None = None,
@@ -238,13 +238,46 @@ def run_materialize(
     return out
 
 
-# 兼容别名
-materialize = run_materialize
+def run_materialize(
+    *,
+    families: Sequence[str] | None = None,
+    clocks: Sequence[str] | None = None,
+    codes: Sequence[str] | None = None,
+    dates: Sequence[str] | None = None,
+    do_l1: bool = True,
+    do_l2: bool = True,
+    do_l1_tau_grid: bool = False,
+    lookback: int = BARS_DAILY_LOOKBACK,
+    l2_lookback_days: int = 60,
+    watching_limit: int = WATCHING_MAX_SIZE,
+    horizon_days: int = 1,
+    progress_cb: ProgressCb = None,
+    cancel_cb: CancelCb = None,
+) -> Dict[str, Any]:
+    """独立物化入口。写入方不受并发消费只读开关影响。"""
+    from core.research.materialize.consumer import materialize_writer
+
+    with materialize_writer():
+        return _run_materialize(
+            families=families,
+            clocks=clocks,
+            codes=codes,
+            dates=dates,
+            do_l1=do_l1,
+            do_l2=do_l2,
+            do_l1_tau_grid=do_l1_tau_grid,
+            lookback=lookback,
+            l2_lookback_days=l2_lookback_days,
+            watching_limit=watching_limit,
+            horizon_days=horizon_days,
+            progress_cb=progress_cb,
+            cancel_cb=cancel_cb,
+        )
+
 
 __all__ = [
     "catalog_payload",
     "resolve_materialize_codes",
     "run_materialize",
-    "materialize",
     "MODEL_FIT_MAX_SIZE",
 ]

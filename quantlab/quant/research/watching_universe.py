@@ -158,7 +158,3 @@ def merge_cluster_universe(
         "universe_mode": "union",
         "code_roles": code_roles,
     }
-
-
-# 兼容别名
-merge_watching_universe = merge_cluster_universe

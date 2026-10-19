@@ -123,6 +123,101 @@ class TestIncrementalPanel(unittest.TestCase):
         np.testing.assert_allclose(y, [0.1, 0.2, 3.0, 4.0])
         self.assertEqual(names, ["f"])
 
+    def test_fingerprint_mismatch_skips_merge(self) -> None:
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import stem_extra_meta, try_incremental_merge
+        from core.research.lake_bridge import FAMILY_OO_RANK
+
+        bars = _bars(40)
+        write_stock_panel(
+            FAMILY_OO_RANK,
+            "000001",
+            dates=["2024-01-01", "2024-01-02"],
+            X=np.asarray([[1.0], [2.0]]),
+            names=["f"],
+            fingerprint="absolute",
+            y=np.asarray([0.1, 0.2]),
+            extra_meta=stem_extra_meta(bars),
+        )
+
+        def _tail(_keep):
+            raise AssertionError("口径不同不能接尾窗")
+
+        def _spec(bars_fp: str) -> str:
+            from core.research.panel_fingerprint import make_fingerprint
+
+            return make_fingerprint(bars_fp=bars_fp, horizon=1, excess_mode="index")
+
+        self.assertIsNone(
+            try_incremental_merge(
+                "000001",
+                bars,
+                pad=8,
+                collect_tail=_tail,
+                family=FAMILY_OO_RANK,
+                spec_fp=_spec,
+            )
+        )
+
+    def test_same_spec_tail_still_merges(self) -> None:
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import stem_extra_meta, try_incremental_merge
+        from core.research.lake_bridge import FAMILY_OO
+        from core.research.panel_fingerprint import make_fingerprint
+
+        bars = _bars(40)
+        meta = stem_extra_meta(bars)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1)
+        write_stock_panel(
+            FAMILY_OO,
+            "000001",
+            dates=["2024-01-01", "2024-01-02"],
+            X=np.asarray([[1.0], [2.0]]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([0.1, 0.2]),
+            extra_meta=meta,
+        )
+        extended = list(bars)
+        extended.append(
+            {
+                "date": "2024-03-15",
+                "open": 12.0,
+                "high": 12.2,
+                "low": 11.8,
+                "close": 12.1,
+                "volume": 2_000_000,
+            }
+        )
+        seen = []
+
+        def _tail(keep):
+            seen.append(list(keep))
+            return (
+                np.asarray([[9.0]]),
+                np.asarray([0.9]),
+                ["f"],
+                ["2024-03-15"],
+            )
+
+        def _spec(bars_fp: str) -> str:
+            return make_fingerprint(bars_fp=bars_fp, horizon=1)
+
+        merged = try_incremental_merge(
+            "000001",
+            extended,
+            pad=8,
+            collect_tail=_tail,
+            family=FAMILY_OO,
+            spec_fp=_spec,
+        )
+        self.assertIsNotNone(merged)
+        assert merged is not None
+        _x, y, _names, dates = merged
+        self.assertTrue(seen)
+        self.assertIn("2024-03-15", dates)
+        self.assertEqual(float(y[-1]), 0.9)
+
     def test_oo_stock_job_incremental_tail(self) -> None:
         from core.research.feature_lake import load_stock_panel
         from core.research.lake_bridge import FAMILY_OO

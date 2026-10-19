@@ -195,7 +195,16 @@ def _call_with_timeout(fn: Callable[[], _T], timeout_sec: float) -> _T:
     from concurrent.futures import ThreadPoolExecutor
     from concurrent.futures import TimeoutError as FuturesTimeout
 
-    pool = ThreadPoolExecutor(max_workers=1)
+    from core.research.materialize.consumer import (
+        bind_materialize_writer,
+        context_initargs,
+    )
+
+    pool = ThreadPoolExecutor(
+        max_workers=1,
+        initializer=bind_materialize_writer,
+        initargs=context_initargs(),
+    )
     try:
         return pool.submit(fn).result(timeout=max(0.5, float(timeout_sec)))
     except FuturesTimeout as exc:

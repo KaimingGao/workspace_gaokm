@@ -7,6 +7,59 @@ import unittest
 from unittest import mock
 
 
+class MaterializeTcBarsTests(unittest.TestCase):
+    def test_tc_rank_reuses_loaded_bars(self) -> None:
+        from core.research.materialize import l1_jobs
+
+        loads = []
+        heads = []
+        lengths = []
+
+        def _load(codes, **_kwargs):
+            loads.append(list(codes))
+            bars = [{"date": "2024-01-02", "open": 1, "close": 1}]
+            return (
+                {"000001": list(bars), "000002": list(bars)},
+                [],
+                [],
+            )
+
+        def _collect(packs, _names, **kwargs):
+            heads.append(kwargs.get("cache_head"))
+            lengths.append(len(packs[0]["bars"]))
+            packs[0]["bars"].append({"date": "mutated"})
+            return None, [], [0.1, 0.2], [], [], 2
+
+        with mock.patch.object(l1_jobs, "_stock_bar_items", _load), mock.patch(
+            "core.research.panel_matrix.collect_tau_compact", _collect
+        ):
+            row = l1_jobs._materialize_tc(
+                ["000001", "000002"], lookback=10, progress_cb=None
+            )
+        self.assertEqual(len(loads), 1)
+        self.assertEqual(heads, ["tc", "tc_rank"])
+        self.assertEqual(lengths, [1, 1])
+        self.assertTrue(row["tc_rank"]["ok"])
+
+    def test_tc_short_bars_load_once(self) -> None:
+        from core.research.materialize import l1_jobs
+
+        loads = []
+
+        def _load(codes, **_kwargs):
+            loads.append(list(codes))
+            return ({"000001": [{"date": "2024-01-02"}]}, [], [])
+
+        with mock.patch.object(l1_jobs, "_stock_bar_items", _load), mock.patch(
+            "core.research.panel_matrix.collect_tau_compact",
+            side_effect=AssertionError("should not collect"),
+        ):
+            row = l1_jobs._materialize_tc(["000001"], lookback=10, progress_cb=None)
+        self.assertEqual(len(loads), 1)
+        self.assertFalse(row["ok"])
+        self.assertFalse(row["tc_rank"]["ok"])
+
+
 class MaterializeCatalogTests(unittest.TestCase):
     def test_catalog_has_p0_families(self):
         from core.research.materialize import catalog_payload

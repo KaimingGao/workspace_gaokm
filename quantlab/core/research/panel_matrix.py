@@ -397,12 +397,23 @@ def _tau_stock_job(
                     [str(d)[:10] for d in dates_t],
                 )
 
+            def _spec(bars_fp: str) -> str:
+                return make_fingerprint(
+                    bars_fp=bars_fp,
+                    tau_hm=str(tau_hm),
+                    min_history=mh,
+                    include_alpha_tc=int(atc),
+                    include_alpha_th=int(ath),
+                    use_minute=0,
+                )
+
             inc_hit = try_incremental_merge(
                 code,
                 bars,
                 pad=int(ALPHA_TC_PANEL_WINDOW) + 8,
                 collect_tail=_tail,
                 family=l1_family,
+                spec_fp=_spec,
             )
         except Exception:  # noqa: BLE001
             logger.debug("tau incremental failed code=%s", code, exc_info=True)
@@ -619,7 +630,16 @@ def collect_tau_compact(
             return
         inflight: Dict[Any, int] = {}
         next_i = start
-        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        from core.research.materialize.consumer import (
+            bind_materialize_writer,
+            context_initargs,
+        )
+
+        with ThreadPoolExecutor(
+            max_workers=n_workers,
+            initializer=bind_materialize_writer,
+            initargs=context_initargs(),
+        ) as pool:
 
             def _submit(i: int) -> None:
                 fut = pool.submit(
@@ -786,12 +806,20 @@ def _co_stock_job(
                     [str(d)[:10] for d in dates_t],
                 )
 
+            def _spec(bars_fp: str) -> str:
+                return make_fingerprint(
+                    bars_fp=bars_fp,
+                    min_history=mh,
+                    include_alpha_oo=int(aoo),
+                )
+
             inc = try_incremental_merge(
                 code,
                 bars,
                 pad=int(ALPHA_OO_PANEL_WINDOW) + 8,
                 collect_tail=_co_tail,
                 family=FAMILY_CO,
+                spec_fp=_spec,
             )
             if inc is not None:
                 block, y_arr, _n, dates_l = inc
@@ -1019,7 +1047,16 @@ def collect_co_compact(
             return
         inflight: Dict[Any, int] = {}
         next_i = start
-        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        from core.research.materialize.consumer import (
+            bind_materialize_writer,
+            context_initargs,
+        )
+
+        with ThreadPoolExecutor(
+            max_workers=n_workers,
+            initializer=bind_materialize_writer,
+            initargs=context_initargs(),
+        ) as pool:
 
             def _submit(i: int) -> None:
                 fut = pool.submit(

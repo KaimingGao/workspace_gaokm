@@ -168,6 +168,7 @@ class TestAssembleUsesL1(unittest.TestCase):
             tau_hm="open",
             min_history=12,
             include_alpha_tc=0,
+            include_alpha_th=0,
             use_minute=0,
         )
         self.assertIsNotNone(load_stock_panel(FAMILY_TC, "RANK1", fingerprint=fp))

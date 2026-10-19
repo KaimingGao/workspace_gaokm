@@ -99,7 +99,16 @@ def load_replay_minute_bars(
             logger.debug("replay minute fetch failed %s", code, exc_info=True)
             return code, {}, {"ok": False, "error": str(e), "period": period}
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    from core.research.materialize.consumer import (
+        bind_materialize_writer,
+        context_initargs,
+    )
+
+    with ThreadPoolExecutor(
+        max_workers=workers,
+        initializer=bind_materialize_writer,
+        initargs=context_initargs(),
+    ) as pool:
         futs = {pool.submit(_one, c): c for c in cleaned}
         for fut in as_completed(futs):
             code = futs[fut]

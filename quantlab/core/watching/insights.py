@@ -954,7 +954,20 @@ def build_watching_insights(
     n_jobs = len(missing)
     workers = min(_INSIGHT_MAX_WORKERS, max(1, n_jobs)) if n_jobs else 0
 
-    pool = ThreadPoolExecutor(max_workers=workers) if n_jobs else None
+    from core.research.materialize.consumer import (
+        bind_materialize_writer,
+        context_initargs,
+    )
+
+    pool = (
+        ThreadPoolExecutor(
+            max_workers=workers,
+            initializer=bind_materialize_writer,
+            initargs=context_initargs(),
+        )
+        if n_jobs
+        else None
+    )
     try:
         futures = {}
         if pool is not None:

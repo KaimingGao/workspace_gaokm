@@ -12,11 +12,6 @@ from core.research.lake_bridge import (
 )
 
 # 对外可选 family（一键默认勾选 P0）
-FAMILY_OO_KEY = FAMILY_OO
-FAMILY_TC_KEY = FAMILY_TC
-FAMILY_CO_KEY = FAMILY_CO
-FAMILY_OO_RANK_KEY = FAMILY_OO_RANK
-
 P0_FAMILIES: Tuple[str, ...] = (FAMILY_OO, FAMILY_TC, FAMILY_CO)
 P1_FAMILIES: Tuple[str, ...] = (FAMILY_OO_RANK,)
 

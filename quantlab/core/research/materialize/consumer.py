@@ -6,39 +6,76 @@
 
 from __future__ import annotations
 
+import contextvars
 import functools
-import os
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 
-_ENV = "QUANTLAB_MATERIALIZE_CONSUMER"
-
-
-def _truthy(raw: Optional[str], *, default: bool = False) -> bool:
-    s = str(raw if raw is not None else ("1" if default else "0")).strip().lower()
-    if s in ("1", "true", "yes", "on"):
-        return True
-    if s in ("0", "false", "no", "off"):
-        return False
-    return default
+# 请求级标记。不用进程级环境变量：并发的回测/做 T 会把只读打到物化线程上。
+# 3.10 的线程池、以及 spawn 出来的进程池，都不复制 contextvar，要在 initializer 再绑一次。
+_writer: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "quantlab_materialize_writer",
+    default=False,
+)
+_consumer: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "quantlab_materialize_consumer",
+    default=False,
+)
 
 
 def consumer_read_only() -> bool:
     """产品消费路径：禁止从 L0 现算特征或冷建 DayCube。"""
-    return _truthy(os.environ.get(_ENV), default=False)
+    if _writer.get():
+        return False
+    return bool(_consumer.get())
+
+
+def writer_active() -> bool:
+    """当前上下文是物化写入（含从该线程提交出去的线程池）。"""
+    return bool(_writer.get())
+
+
+def context_initargs() -> Tuple[bool, bool]:
+    """父进程采样，传给池 initializer。写入优先于只读。"""
+    writing = writer_active()
+    return (writing, (not writing) and consumer_read_only())
+
+
+@contextmanager
+def materialize_writer() -> Iterator[None]:
+    """物化任务：本线程及它提交的线程池可以重算 L1，不受并发消费开关影响。"""
+    token = _writer.set(True)
+    try:
+        yield
+    finally:
+        _writer.reset(token)
+
+
+def bind_materialize_writer(writer: bool = False, consumer: bool = False) -> None:
+    """池 initializer。写入时清掉只读；只读时记下消费。"""
+    if writer:
+        _writer.set(True)
+        _consumer.set(False)
+        return
+    if consumer:
+        _consumer.set(True)
+
+
+def research_pool_init(writer: bool = False, consumer: bool = False) -> None:
+    """进程池启动：限制 BLAS，并绑上父进程采样的写入/只读。"""
+    from core.research.oo_blas_limit import limit_blas_threads
+
+    limit_blas_threads()
+    bind_materialize_writer(writer, consumer)
 
 
 @contextmanager
 def materialized_consumer() -> Iterator[None]:
-    old = os.environ.get(_ENV)
-    os.environ[_ENV] = "1"
+    token = _consumer.set(True)
     try:
         yield
     finally:
-        if old is None:
-            os.environ.pop(_ENV, None)
-        else:
-            os.environ[_ENV] = old
+        _consumer.reset(token)
 
 
 class MaterializeRequired(Exception):
@@ -50,6 +87,11 @@ class MaterializeRequired(Exception):
         self.payload.setdefault("success", False)
         self.payload.setdefault("ok", False)
         super().__init__(str(self.payload.get("error") or "请先物化 L1/L2"))
+
+    def __reduce__(self):
+        # 进程池按 BaseException.args 还原。args 只剩错误文案，
+        # 再进 __init__ 会被当成 payload 字典拆开。
+        return (type(self), (dict(self.payload),))
 
     def to_dict(self) -> Dict[str, Any]:
         return dict(self.payload)

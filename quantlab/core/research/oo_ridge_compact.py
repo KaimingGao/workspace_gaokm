@@ -265,12 +265,20 @@ def _oo_stock_job(
                 )
                 return panel_t.finalize()
 
+            def _spec(bars_fp: str) -> str:
+                return make_fingerprint(
+                    bars_fp=bars_fp,
+                    horizon=horizon_i,
+                    ridge_core_only=int(core),
+                )
+
             merged = try_incremental_merge(
                 code_s,
                 bars_l,
                 pad=int(ALPHA_OO_PANEL_WINDOW) + max(5, horizon_i),
                 collect_tail=_oo_tail,
                 family=FAMILY_OO,
+                spec_fp=_spec,
             )
             if merged is not None:
                 x, y, names, dates = merged
@@ -462,63 +470,30 @@ def _drain_stock_batch(
     *,
     ridge_core_only: bool = False,
 ) -> bool:
-    """提交 ``[start, end)``。进程挂了则从失败的那只起改串行，并返回 True。"""
-    from concurrent.futures import FIRST_COMPLETED, wait
-    from concurrent.futures.process import BrokenProcessPool
+    """提交 ``[start, end)``。进程挂了则本批改串行，并返回 True。"""
+    from core.research.materialize.pool import consume_process_batch
 
-    from core.research.materialize.consumer import MaterializeRequired
-
-    inflight: Dict[Any, int] = {}
-    next_i = start
-    window = max(1, int(n_workers))
     core = bool(ridge_core_only)
 
-    def _submit(i: int) -> None:
+    def _job(i: int) -> Tuple[Any, ...]:
         code, bars = items[i]
-        fut = pool.submit(
-            _oo_stock_job, (str(code), list(bars or []), int(horizon_days), core)
-        )
-        inflight[fut] = i
+        return (str(code), list(bars or []), int(horizon_days), core)
 
-    while next_i < end and len(inflight) < window:
-        _submit(next_i)
-        next_i += 1
-    while inflight:
-        done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
-        for fut in done:
-            i = inflight.pop(fut)
-            code = items[i][0]
-            try:
-                results[i] = fut.result()
-            except MaterializeRequired:
-                raise
-            except BrokenProcessPool:
-                logger.exception("oo ridge pool broke at %s; rest of batch is serial", code)
-                results[i] = _oo_stock_job(
-                    (str(code), list(items[i][1] or []), int(horizon_days), core)
-                )
-                for left in list(inflight):
-                    left.cancel()
-                    inflight.pop(left)
-                _finish_serial_from(
-                    items, horizon_days, results, next_i, ridge_core_only=core
-                )
-                for j in range(start, end):
-                    if results[j] is None:
-                        code_j, bars_j = items[j]
-                        results[j] = _oo_stock_job(
-                            (str(code_j), list(bars_j or []), int(horizon_days), core)
-                        )
-                return True
-            except Exception:
-                logger.exception("oo ridge stock %s failed in worker; retrying serially", code)
-                results[i] = _oo_stock_job(
-                    (str(code), list(items[i][1] or []), int(horizon_days), core)
-                )
-        while next_i < end and len(inflight) < window:
-            _submit(next_i)
-            next_i += 1
-    return False
+    def _submit(i: int) -> Any:
+        return pool.submit(_oo_stock_job, _job(i))
+
+    def _run(i: int) -> Any:
+        return _oo_stock_job(_job(i))
+
+    return consume_process_batch(
+        start=start,
+        end=end,
+        n_workers=n_workers,
+        results=results,
+        submit=_submit,
+        run_one=_run,
+        label=lambda i: str(items[i][0]),
+    )
 
 
 def _assemble_parallel(
@@ -530,7 +505,7 @@ def _assemble_parallel(
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
     from concurrent.futures import ProcessPoolExecutor
 
-    from core.research.oo_blas_limit import limit_blas_threads
+    from core.research.materialize.consumer import context_initargs, research_pool_init
 
     core = bool(ridge_core_only)
     results: List[Any] = [None] * len(items)
@@ -540,7 +515,9 @@ def _assemble_parallel(
         end = min(len(items), start + _POOL_BATCH)
         try:
             pool = ProcessPoolExecutor(
-                max_workers=n_workers, initializer=limit_blas_threads
+                max_workers=n_workers,
+                initializer=research_pool_init,
+                initargs=context_initargs(),
             )
         except Exception:
             logger.exception("oo ridge process pool unavailable, using serial")
