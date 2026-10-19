@@ -738,6 +738,7 @@ class TestFamilyForTc(unittest.TestCase):
 
         from core.research.feature_lake import load_day_rows, write_stock_panel
         from core.research.lake_bridge import FAMILY_TC, family_for_tc, sync_panel_to_lake
+        from core.research.materialize.consumer import materialize_writer
 
         tmp = tempfile.TemporaryDirectory()
         prev_dir = os.environ.get("QUANTLAB_FEATURE_LAKE_DIR")
@@ -755,14 +756,15 @@ class TestFamilyForTc(unittest.TestCase):
                 names=["gap_pct"],
                 fingerprint="open",
             )
-            sync_panel_to_lake(
-                family_for_tc(tau_hm="10:30"),
-                "000001",
-                X=np.asarray([[9.0]]),
-                dates=["2024-05-10"],
-                names=["gap_pct"],
-                fingerprint="m1030",
-            )
+            with materialize_writer():
+                sync_panel_to_lake(
+                    family_for_tc(tau_hm="10:30"),
+                    "000001",
+                    X=np.asarray([[9.0]]),
+                    dates=["2024-05-10"],
+                    names=["gap_pct"],
+                    fingerprint="m1030",
+                )
             open_row = load_day_rows(FAMILY_TC, ["000001"], "2024-05-10")["000001"]
             min_row = load_day_rows("tc_1030", ["000001"], "2024-05-10")["000001"]
             self.assertEqual(open_row["gap_pct"], 1.0)

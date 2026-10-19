@@ -162,15 +162,18 @@ class TestDayCubeGc(unittest.TestCase):
         )
         for day in ("2024-03-01", "2024-03-02", "2024-03-03", "2024-03-04"):
             self._save(day, codes, "open")
-        ok = upsert_tail(
-            "co",
-            "000001",
-            dates=["2024-03-03", "2024-03-04"],
-            X=np.asarray([[30.0], [40.0]]),
-            names=["x"],
-            fingerprint="new",
-            keep_from="2024-03-03",
-        )
+        from core.research.materialize.consumer import materialize_writer
+
+        with materialize_writer():
+            ok = upsert_tail(
+                "co",
+                "000001",
+                dates=["2024-03-03", "2024-03-04"],
+                X=np.asarray([[30.0], [40.0]]),
+                names=["x"],
+                fingerprint="new",
+                keep_from="2024-03-03",
+            )
         self.assertTrue(ok)
         self.assertTrue(self._on_disk("2024-03-01", codes, "open"))
         self.assertTrue(self._on_disk("2024-03-02", codes, "open"))
@@ -192,6 +195,76 @@ class TestDayCubeGc(unittest.TestCase):
         self._save("2024-05-01", codes, "open")
         write_stock_panel("oo", "000001", **kwargs)
         self.assertTrue(self._on_disk("2024-05-01", codes, "open"))
+
+    def test_training_write_does_not_drop_cube(self) -> None:
+        from core.research.feature_lake import write_stock_panel
+
+        codes = ["000001", "000002"]
+        self._save("2024-05-02", codes, "open")
+        write_stock_panel(
+            "oo",
+            "000001",
+            dates=["2024-05-02"],
+            X=np.asarray([[9.0]]),
+            names=["x"],
+            fingerprint="fit",
+            extra_meta={"bars_fp": "bars-2"},
+        )
+        self.assertTrue(self._on_disk("2024-05-02", codes, "open"))
+
+    def test_fit_sync_keeps_existing_panel_and_cube(self) -> None:
+        from core.research.feature_lake import load_stock_panel, write_stock_panel
+        from core.research.lake_bridge import sync_panel_to_lake
+        from core.research.materialize.consumer import materialize_writer
+
+        codes = ["000001", "000002"]
+        write_stock_panel(
+            "oo",
+            "000001",
+            dates=["2024-05-03"],
+            X=np.asarray([[1.0]]),
+            names=["x"],
+            fingerprint="lake",
+            extra_meta={"bars_fp": "bars"},
+        )
+        self._save("2024-05-03", codes, "open")
+        kept = sync_panel_to_lake(
+            "oo",
+            "000001",
+            X=np.asarray([[9.0]]),
+            dates=["2024-05-03"],
+            names=["x"],
+            fingerprint="fit",
+            extra_meta={"bars_fp": "bars-fit"},
+        )
+        self.assertFalse(kept)
+        pack = load_stock_panel("oo", "000001", fingerprint=None)
+        self.assertIsNotNone(pack)
+        assert pack is not None
+        self.assertAlmostEqual(float(pack["X"][0, 0]), 1.0)
+        self.assertTrue(self._on_disk("2024-05-03", codes, "open"))
+        empty = sync_panel_to_lake(
+            "tc",
+            "000001",
+            X=np.asarray([[3.0]]),
+            dates=["2024-05-03"],
+            names=["x"],
+            fingerprint="fit",
+        )
+        self.assertFalse(empty)
+        self.assertIsNone(load_stock_panel("tc", "000001", fingerprint=None))
+        with materialize_writer():
+            wrote = sync_panel_to_lake(
+                "oo",
+                "000001",
+                X=np.asarray([[9.0]]),
+                dates=["2024-05-03"],
+                names=["x"],
+                fingerprint="fit",
+                extra_meta={"bars_fp": "bars-fit"},
+            )
+        self.assertTrue(wrote)
+        self.assertFalse(self._on_disk("2024-05-03", codes, "open"))
 
     def test_batch_unlinks_each_date_once(self) -> None:
         from core.research.day_cube_gc import l2_invalidation_batch, note_stale_dates
@@ -332,15 +405,18 @@ class TestDayCubeGc(unittest.TestCase):
         self._save("2024-04-01", codes, "open")
         self._save("2024-04-02", codes, "open")
         self._save("2024-04-03", codes, "open")
-        ok = write_stock_panel(
-            "oo",
-            "000001",
-            dates=["2024-04-02"],
-            X=np.asarray([[9.0]]),
-            names=["x"],
-            fingerprint="new",
-            extra_meta={"bars_fp": "b1"},
-        )
+        from core.research.materialize.consumer import materialize_writer
+
+        with materialize_writer():
+            ok = write_stock_panel(
+                "oo",
+                "000001",
+                dates=["2024-04-02"],
+                X=np.asarray([[9.0]]),
+                names=["x"],
+                fingerprint="new",
+                extra_meta={"bars_fp": "b1"},
+            )
         self.assertTrue(ok)
         self.assertFalse(self._on_disk("2024-04-01", codes, "open"))
         self.assertFalse(self._on_disk("2024-04-02", codes, "open"))

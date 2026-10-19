@@ -193,10 +193,6 @@ def _sync_oo_rank_lake(
     dates: Sequence[str],
     fingerprint: str,
 ) -> None:
-    from core.research.materialize.consumer import consumer_read_only
-
-    if consumer_read_only():
-        return
     from core.research.incremental_panel import stem_extra_meta
     from core.research.lake_bridge import FAMILY_OO_RANK, sync_panel_to_lake
 

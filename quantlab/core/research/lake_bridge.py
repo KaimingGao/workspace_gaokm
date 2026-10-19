@@ -143,7 +143,18 @@ def sync_panel_to_lake(
     y: Optional[Any] = None,
     extra_meta: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    """collect 写穿 L1（可带 stem 增量 meta）。失败不抛。"""
+    """物化写入才把矩阵落进 L1。失败不抛。
+
+    回测和拟合只使用内存里的矩阵，不写生产湖。
+    """
+    try:
+        from core.research.materialize.consumer import writer_active
+
+        if not writer_active():
+            return False
+    except Exception:  # noqa: BLE001
+        logger.debug("sync lake writer probe failed", exc_info=True)
+        return False
     try:
         from core.research import feature_lake as lake
 

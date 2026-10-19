@@ -112,33 +112,35 @@ class TestAssembleUsesL1(unittest.TestCase):
         from core.research.lake_bridge import FAMILY_OO
         from core.research.oo_ridge_compact import assemble_oo_panels
         from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
+        from core.research.materialize.consumer import materialize_writer
 
         items = [
             ("AAA", _bars(80, 10.0, 0)),
             ("BBB", _bars(80, 12.0, 1)),
         ]
-        x1, y1, names1, d1 = assemble_oo_panels(items, horizon_days=1, workers=1)
-        self.assertGreater(int(y1.shape[0]), 0)
-        fp_a = make_fingerprint(
-            bars_fp=bars_fingerprint(items[0][1]),
-            horizon=1,
-            ridge_core_only=0,
-        )
-        self.assertIsNotNone(load_stock_panel(FAMILY_OO, "AAA", fingerprint=fp_a))
+        with materialize_writer():
+            x1, y1, names1, d1 = assemble_oo_panels(items, horizon_days=1, workers=1)
+            self.assertGreater(int(y1.shape[0]), 0)
+            fp_a = make_fingerprint(
+                bars_fp=bars_fingerprint(items[0][1]),
+                horizon=1,
+                ridge_core_only=0,
+            )
+            self.assertIsNotNone(load_stock_panel(FAMILY_OO, "AAA", fingerprint=fp_a))
 
-        x2, y2, names2, d2 = assemble_oo_panels(items, horizon_days=1, workers=1)
-        np.testing.assert_allclose(x1, x2)
-        np.testing.assert_allclose(y1, y2)
-        self.assertEqual(names1, names2)
-        self.assertEqual(d1, d2)
+            x2, y2, names2, d2 = assemble_oo_panels(items, horizon_days=1, workers=1)
+            np.testing.assert_allclose(x1, x2)
+            np.testing.assert_allclose(y1, y2)
+            self.assertEqual(names1, names2)
+            self.assertEqual(d1, d2)
 
-        mutated = [dict(b) for b in items[0][1]]
-        mutated[-1] = dict(mutated[-1])
-        mutated[-1]["close"] = float(mutated[-1]["close"]) * 1.05
-        items2 = [("AAA", mutated), ("BBB", items[1][1])]
-        x3, y3, _n3, _d3 = assemble_oo_panels(items2, horizon_days=1, workers=1)
-        self.assertEqual(y3.shape[0], y1.shape[0])
-        self.assertFalse(np.allclose(x1, x3))
+            mutated = [dict(b) for b in items[0][1]]
+            mutated[-1] = dict(mutated[-1])
+            mutated[-1]["close"] = float(mutated[-1]["close"]) * 1.05
+            items2 = [("AAA", mutated), ("BBB", items[1][1])]
+            x3, y3, _n3, _d3 = assemble_oo_panels(items2, horizon_days=1, workers=1)
+            self.assertEqual(y3.shape[0], y1.shape[0])
+            self.assertFalse(np.allclose(x1, x3))
 
     def test_tau_and_rank_l1_families(self) -> None:
         from core.research.feature_lake import invalidate_code, load_stock_panel
@@ -150,6 +152,7 @@ class TestAssembleUsesL1(unittest.TestCase):
             _tc_matrix_seed_names,
         )
         from core.research.tc_ridge import TAU_Z_FEATURES
+        from core.research.materialize.consumer import materialize_writer
 
         bars = _bars(80, 10.0, 2)
         col_names = _tc_matrix_seed_names(list(TAU_Z_FEATURES), include_alpha_tc=False)
@@ -161,48 +164,49 @@ class TestAssembleUsesL1(unittest.TestCase):
             min_history=12,
             include_alpha_tc=False,
         )
-        pack_tc = _tau_stock_job(
-            {"code": "RANK1", "bars": list(bars)}, col_names, slim_keys, **kw
-        )
-        self.assertIsNotNone(pack_tc)
-        assert pack_tc is not None
-        fp = make_fingerprint(
-            bars_fp=bars_fingerprint(bars),
-            tau_hm="open",
-            min_history=12,
-            include_alpha_tc=0,
-            include_alpha_th=0,
-            use_minute=0,
-        )
-        self.assertIsNotNone(load_stock_panel(FAMILY_TC, "RANK1", fingerprint=fp))
+        with materialize_writer():
+            pack_tc = _tau_stock_job(
+                {"code": "RANK1", "bars": list(bars)}, col_names, slim_keys, **kw
+            )
+            self.assertIsNotNone(pack_tc)
+            assert pack_tc is not None
+            fp = make_fingerprint(
+                bars_fp=bars_fingerprint(bars),
+                tau_hm="open",
+                min_history=12,
+                include_alpha_tc=0,
+                include_alpha_th=0,
+                use_minute=0,
+            )
+            self.assertIsNotNone(load_stock_panel(FAMILY_TC, "RANK1", fingerprint=fp))
 
-        with mock.patch(
-            "core.research.tau_panel.collect_tau_open_panel",
-            side_effect=AssertionError("tc_rank should copy tc"),
-        ):
-            pack_rank = _tau_stock_job(
+            with mock.patch(
+                "core.research.tau_panel.collect_tau_open_panel",
+                side_effect=AssertionError("tc_rank should copy tc"),
+            ):
+                pack_rank = _tau_stock_job(
+                    {"code": "RANK1", "bars": list(bars)},
+                    col_names,
+                    slim_keys,
+                    cache_head="tc_rank",
+                    **kw,
+                )
+            self.assertIsNotNone(pack_rank)
+            assert pack_rank is not None
+            np.testing.assert_allclose(pack_tc[1], pack_rank[1])
+            self.assertIsNotNone(load_stock_panel(FAMILY_TC_RANK, "RANK1", fingerprint=fp))
+
+            invalidate_code(FAMILY_TC, "RANK1")
+            pack_rank2 = _tau_stock_job(
                 {"code": "RANK1", "bars": list(bars)},
                 col_names,
                 slim_keys,
                 cache_head="tc_rank",
                 **kw,
             )
-        self.assertIsNotNone(pack_rank)
-        assert pack_rank is not None
-        np.testing.assert_allclose(pack_tc[1], pack_rank[1])
-        self.assertIsNotNone(load_stock_panel(FAMILY_TC_RANK, "RANK1", fingerprint=fp))
-
-        invalidate_code(FAMILY_TC, "RANK1")
-        pack_rank2 = _tau_stock_job(
-            {"code": "RANK1", "bars": list(bars)},
-            col_names,
-            slim_keys,
-            cache_head="tc_rank",
-            **kw,
-        )
-        self.assertIsNotNone(pack_rank2)
-        assert pack_rank2 is not None
-        np.testing.assert_allclose(pack_rank[1], pack_rank2[1])
+            self.assertIsNotNone(pack_rank2)
+            assert pack_rank2 is not None
+            np.testing.assert_allclose(pack_rank[1], pack_rank2[1])
 
 
 if __name__ == "__main__":

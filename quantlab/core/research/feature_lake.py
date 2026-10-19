@@ -167,7 +167,16 @@ def _note_l2_stale(
     extra_meta: Optional[Dict[str, Any]],
     old_dates: Optional[Set[str]] = None,
 ) -> None:
+    """物化写入才按变化日期拆立方。回测/拟合的训练缓存写穿不拆。"""
     if not _l2_tracking():
+        return
+    try:
+        from core.research.materialize.consumer import writer_active
+
+        if not writer_active():
+            return
+    except Exception:  # noqa: BLE001
+        logger.debug("l2 stale writer probe failed", exc_info=True)
         return
     if _lake_identity_same(old_meta, fingerprint, extra_meta):
         return

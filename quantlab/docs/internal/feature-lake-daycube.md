@@ -178,7 +178,7 @@ panel meta 额外写入：
 
 删 L1 之前先读出该票各 family 的日期。这些日期在当前 schema 的每个宇宙、每个钟上的立方一并删除（`.npz` 与 `.meta.json`），并清掉进程内立方缓存。某个 family 读失败时，已经读到的日期照样作废；一个日期都读不到时，当前 schema 下的立方全部作废。schema 不符或缺少 meta 时仍从 ``.npz`` 读日期。删除只碰立方根目录里面的 `YYYY-MM-DD` 文件，符号链接只摘掉链接本身。
 
-L1 写穿（`write_stock_panel` / `upsert_tail`）在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，只把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时删一次盘，接着跑的 L2 会把缺的日期建回来。
+只有物化写入里的 L1 写穿（`write_stock_panel` / `upsert_tail`）会在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。回测和拟合不写生产湖，也不拆立方。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时删一次盘，接着跑的 L2 会把缺的日期建回来。
 
 冷目录回收 `prune_cold` 发生在 `invalidate_l1_many` 之后，以及 `materialize_l2` 成功结束之后。保留观察池读取名单和拟合名单的 `universe_hash`；这次物化若用了另一份不少于 2 只的 `codes`，该哈希也保留到本轮结束。其余宇宙目录，以及 `v{FEATURE_SCHEMA}` 以外的版本目录，整棵删除。观察池或拟合名单读取抛错、或两边都不足 2 只时，不回收冷目录。任务取消或 L2 未成功时不回收。作废指定日期只丢掉这些日期的进程内立方。
 
@@ -382,7 +382,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 ### 10.1 冷启动
 
 首次拟合会写满 L1 +（oo）DayCube；第二次同宇宙应大量 hit L1。  
-回测要吃到 L1，需先跑过对应 family 的拟合（或等价 collect 写穿）。
+回测要吃到 L1，需先跑过对应 family 的日线物化。拟合只读已有面板，不覆盖生产湖。
 
 ### 10.1b L2 拟合口径切换（推荐顺序）
 
