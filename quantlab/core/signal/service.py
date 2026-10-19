@@ -258,7 +258,14 @@ class SignalService:
                     "fusion_w_co",
                     "features_co",
                     "formula_terms_co",
+                    "formula_terms_oo_rank",
+                    "formula_terms_tc_rank",
                     "y_spec_co",
+                    "y_tc_rank",
+                    "y_tc_rank_hat",
+                    "y_tc_rank_n",
+                    "y_tc_rank_score",
+                    "predicted_score_tc_rank",
                 )
             ):
                 out[k] = v

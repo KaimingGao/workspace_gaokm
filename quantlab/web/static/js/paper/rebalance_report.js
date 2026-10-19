@@ -630,6 +630,18 @@ function renderRebalanceReport(
       predicted_score_tau: r.predicted_score_tau,
       predicted_score_on: r.predicted_score_on,
       y_oo_fuse_score: r.y_oo_fuse_score,
+      y_oo_rank: r.y_oo_rank != null ? r.y_oo_rank : r.predicted_score_oo_rank,
+      y_oo_rank_n: r.y_oo_rank_n,
+      y_oo_rank_score: r.y_oo_rank_score,
+      predicted_score_oo_rank: r.predicted_score_oo_rank,
+      y_tc_rank: r.y_tc_rank != null ? r.y_tc_rank : r.predicted_score_tc_rank,
+      y_tc_rank_n: r.y_tc_rank_n,
+      y_tc_rank_score: r.y_tc_rank_score,
+      predicted_score_tc_rank: r.predicted_score_tc_rank,
+      formula_terms_oo_rank: r.formula_terms_oo_rank || r.score_formula_terms_oo_rank,
+      score_formula_terms_oo_rank: r.score_formula_terms_oo_rank || r.formula_terms_oo_rank,
+      formula_terms_tc_rank: r.formula_terms_tc_rank || r.score_formula_terms_tc_rank,
+      score_formula_terms_tc_rank: r.score_formula_terms_tc_rank || r.formula_terms_tc_rank,
       rank_i: r.rank_i,
       rank_n: r.rank_n,
       gap_pct: r.gap_pct,
@@ -714,6 +726,8 @@ function renderRebalanceReport(
     html += formatScoreHero(tipRaw);
     html += formatFormulaTermsSection(tipRaw);
     html += formatFactorWeightsSection(tipRaw);
+    html += formatFormulaTermsSection(tipRaw, { key: "oo_rank" });
+    html += formatFormulaTermsSection(tipRaw, { key: "tc_rank" });
     html += formatWeightSourceNote(tipRaw);
     html += formatSentimentGateSection(tipRaw);
     html += formatMarketPriorSection(tipRaw);
@@ -757,6 +771,17 @@ function renderRebalanceReport(
     return html;
   }
 
+  function rankOrdinal(raw, nRaw) {
+    const y = Number(raw);
+    const n = Number(nRaw);
+    if (!Number.isFinite(y)) return { text: "—" };
+    const ord = Math.round(y);
+    const isInt = Math.abs(y - ord) < 1e-9;
+    const pool = Number.isFinite(n) && n >= 1 ? Math.round(n) : null;
+    if (pool != null && isInt && ord >= 1 && ord <= pool) return { text: String(ord), n: pool };
+    return { text: "—" };
+  }
+
   const rows = report
     .map((r, idx) => {
       const cls = decisionClass[r.decision] || "rebalance-hold";
@@ -788,6 +813,22 @@ function renderRebalanceReport(
         scoreFuse == null
           ? "暂无 fuse"
           : `fuse · τ→open[T+1] 基准（τc 几何融合；OC 扣 open→τ）；<0% 或缺分清仓；过入场才开/加${rankOrd}`;
+      const ooRank = rankOrdinal(
+        r.y_oo_rank != null ? r.y_oo_rank : r.predicted_score_oo_rank,
+        r.y_oo_rank_n
+      );
+      const tcRank = rankOrdinal(
+        r.y_tc_rank != null ? r.y_tc_rank : r.predicted_score_tc_rank,
+        r.y_tc_rank_n
+      );
+      const ooRankTitle =
+        ooRank.text === "—"
+          ? "oo_rank — · 无已启用模型或未写入；不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场"
+          : `当日截面第 ${ooRank.text} 名 / ${ooRank.n} · 1=相对分最高 · 不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场`;
+      const tcRankTitle =
+        tcRank.text === "—"
+          ? "τc_rank — · 无已启用模型或未写入 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序"
+          : `当日截面第 ${tcRank.text} 名 / ${tcRank.n} · 1=相对分最高 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -990,6 +1031,12 @@ function renderRebalanceReport(
         )}" role="cell" ` +
         `data-score-detail="${tipDetailJson}" data-score-tip="fuse" ` +
         `title="${escapeText(scoreFuseTitle)}">${escapeText(scoreFuseShown)}</div>` +
+        `<div class="num rebalance-score-oo-rank paper-hold-score has-tip" role="cell" ` +
+        `data-score-detail="${tipDetailJson}" data-score-tip="oo_rank" ` +
+        `title="${escapeText(ooRankTitle)}">${escapeText(ooRank.text)}</div>` +
+        `<div class="num rebalance-score-tc-rank paper-hold-score has-tip" role="cell" ` +
+        `data-score-detail="${tipDetailJson}" data-score-tip="tc_rank" ` +
+        `title="${escapeText(tcRankTitle)}">${escapeText(tcRank.text)}</div>` +
         `<div class="num rebalance-shares" role="cell">` +
         `<span class="rebalance-shares-old">${escapeText(
           String(
@@ -1035,6 +1082,8 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τc · price(τ)→close">y_τc</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
     `<div class="rebalance-th num" role="columnheader" title="fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=(open[T+1]−price(τ))/open[T]">fuse</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 过入场后作买序；与 τc_rank 共用 rank 入场">oo_rank</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序">τc_rank</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +
     `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +

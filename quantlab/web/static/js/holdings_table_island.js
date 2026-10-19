@@ -22,6 +22,22 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+/** 只认带池大小的 1..n 名次。旧相对分或单侧缺 n 显示 —。 */
+function rankOrdinal(raw, nRaw) {
+  const y = Number(raw);
+  const n = Number(nRaw);
+  if (!Number.isFinite(y)) {
+    return { text: "—", num: null, title: "" };
+  }
+  const ord = Math.round(y);
+  const isInt = Math.abs(y - ord) < 1e-9;
+  const pool = Number.isFinite(n) && n >= 1 ? Math.round(n) : null;
+  if (pool != null && isInt && ord >= 1 && ord <= pool) {
+    return { text: String(ord), num: ord, title: "" };
+  }
+  return { text: "—", num: null, title: "" };
+}
+
 function truncateName(name, max = 6) {
   const full = String(name || "").trim();
   const chars = Array.from(full);
@@ -79,6 +95,22 @@ export function holdingToRow(
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
   const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
+  const ooRank = rankOrdinal(
+    h.y_oo_rank != null ? h.y_oo_rank : h.predicted_score_oo_rank,
+    h.y_oo_rank_n
+  );
+  const tcRank = rankOrdinal(
+    h.y_tc_rank != null ? h.y_tc_rank : h.predicted_score_tc_rank,
+    h.y_tc_rank_n
+  );
+  const ooRankTitle =
+    ooRank.text === "—"
+      ? "oo_rank — · 无已启用模型或未写入；不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场"
+      : `当日截面第 ${ooRank.text} 名 / ${Math.round(Number(h.y_oo_rank_n))} · 1=相对分最高 · 不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场`;
+  const tcRankTitle =
+    tcRank.text === "—"
+      ? "τc_rank — · 无已启用模型或未写入 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序"
+      : `当日截面第 ${tcRank.text} 名 / ${Math.round(Number(h.y_tc_rank_n))} · 1=相对分最高 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序`;
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -135,6 +167,12 @@ export function holdingToRow(
       scoreOn != null && Number.isFinite(Number(scoreOn)) ? Number(scoreOn) : null,
     scoreOnCls: scoreCls(scoreOn),
     scoreOnTitle,
+    ooRankText: ooRank.text,
+    ooRankNum: ooRank.num,
+    ooRankTitle,
+    tcRankText: tcRank.text,
+    tcRankNum: tcRank.num,
+    tcRankTitle,
     scoreDetail: watchingScoreDetail(h),
     chgText,
     chgCls: metricCls(chg),
@@ -256,6 +294,30 @@ const COLS = [
     cellClass: "watching-col-y watching-col-y-fuse",
     title: FUSE_REBALANCE_TITLE,
   },
+  {
+    id: "oo_rank",
+    label: "oo_rank",
+    width: 68,
+    num: true,
+    sortable: true,
+    defaultDir: "asc",
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title:
+      "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 过入场后作买序；rank 入场与 τc_rank 共用门槛",
+  },
+  {
+    id: "tc_rank",
+    label: "τc_rank",
+    width: 68,
+    num: true,
+    sortable: true,
+    defaultDir: "asc",
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title:
+      "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序",
+  },
   { id: "cost", label: "成本", width: 78, num: true, title: "持仓加权平均成本" },
   {
     id: "market_value",
@@ -288,6 +350,15 @@ function numCmp(av, bv) {
   return (Number.isFinite(av) ? av : -Infinity) - (Number.isFinite(bv) ? bv : -Infinity);
 }
 
+function rankCmp(av, bv) {
+  const aOk = Number.isFinite(Number(av));
+  const bOk = Number.isFinite(Number(bv));
+  if (aOk && bOk) return Number(av) - Number(bv);
+  if (aOk) return -1;
+  if (bOk) return 1;
+  return 0;
+}
+
 let _predTier = {
   rank() {
     return 9;
@@ -313,6 +384,8 @@ function compare(id, a, b) {
   if (id === "score_eod") return numCmp(Number(a.scoreEodNum), Number(b.scoreEodNum));
   if (id === "score_tau") return numCmp(Number(a.scoreTauNum), Number(b.scoreTauNum));
   if (id === "score_on") return numCmp(Number(a.scoreOnNum), Number(b.scoreOnNum));
+  if (id === "oo_rank") return rankCmp(a.ooRankNum, b.ooRankNum);
+  if (id === "tc_rank") return rankCmp(a.tcRankNum, b.tcRankNum);
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
   if (id === "chg") return numCmp(Number(a.chgNum), Number(b.chgNum));
   if (id === "open") return numCmp(Number(a.openNum), Number(b.openNum));
@@ -468,6 +541,21 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `<span class="paper-hold-score has-tip ${escapeHtml(d.scoreCls || "")}" ` +
           `data-score-detail="${escapeHtml(detail)}" data-score-tip="fuse" title="${escapeHtml(title)}">` +
           `${escapeHtml(d.scoreText || "—")}${badge}</span>`
+        );
+      }
+      if (col.id === "oo_rank" || col.id === "tc_rank") {
+        const tip = col.id === "oo_rank" ? "oo_rank" : "tc_rank";
+        const text = col.id === "oo_rank" ? d.ooRankText : d.tcRankText;
+        const title = col.id === "oo_rank" ? d.ooRankTitle : d.tcRankTitle;
+        const detail = d.scoreDetail || "";
+        if (!detail) {
+          return `<span class="paper-hold-score">${escapeHtml(text || "—")}</span>`;
+        }
+        return (
+          `<span class="paper-hold-score has-tip" ` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="${tip}" title="${escapeHtml(
+            title || ""
+          )}">${escapeHtml(text || "—")}</span>`
         );
       }
       if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on") {

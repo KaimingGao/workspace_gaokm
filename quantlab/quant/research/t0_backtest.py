@@ -235,7 +235,6 @@ def _fetch_minute_by_date(
     code: str,
     *,
     period: str = "5",
-    lookback_days: int = 90,
     timeout_sec: float = _MINUTE_FETCH_TIMEOUT_SEC,
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
     """返回 (minute_by_date, meta)；失败则 ({}, meta)。
@@ -255,7 +254,6 @@ def _fetch_minute_by_date(
             return fetch_minute_bars(
                 code,
                 period=period,
-                lookback_days=lookback_days,
                 use_cache=not truncated,
                 max_age_hours=0.01 if truncated else 48.0,
             )
@@ -349,21 +347,18 @@ def _seed_pool_minutes(
     codes: List[str],
     period: str,
     *,
-    lookback_days: int = 90,
     progress_cb: Optional[Callable[..., None]] = None,
     cancel_cb: Optional[Callable[[], bool]] = None,
     label: str = "加载截面 5m",
 ) -> int:
     """观察池∪持仓 5m → 同伴仓（**仅本地缓存**，并行读盘）。
 
-    不做远端补拉：缺尾/无仓同伴票跳过，避免数百票×超时卡死。
-    ``lookback_days`` 保留签名兼容（本地仓整段灌入，截断在用侧）。返回写入票数。
+    不做远端补拉：缺尾/无仓同伴票跳过，避免数百票×超时卡死。返回写入票数。
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from core.signal.minute_tau_feats import seed_peer_minute_bars_map
 
-    _ = lookback_days
     uniq: List[str] = []
     seen = set()
     for raw in codes or []:
@@ -595,10 +590,8 @@ def run_t0_backtest_for_code(
     exec_meta = resolved.get("_execution_meta")
 
     period = str(bt_rules.get("minute_period") or "5")
-    # 分钟只覆盖评估窗；warmup 日仅用于因子 hist_prior
-    minute_span = min(max(eval_lb, 10), 120)
     minute_by_date, minute_meta = _fetch_minute_by_date(
-        str(sym), period=period, lookback_days=minute_span
+        str(sym), period=period
     )
     if not minute_by_date:
         err = (minute_meta or {}).get("error") or "无分钟 K"
@@ -641,7 +634,6 @@ def run_t0_backtest_for_code(
         _seed_pool_minutes(
             extras,
             period,
-            lookback_days=minute_span,
             progress_cb=_extra_progress if progress_cb else None,
             label="加载截面 5m",
         )
@@ -854,10 +846,24 @@ def run_t0_backtest_for_holdings(
 
     pool_codes = t0_cs_universe_codes(holdings=holdings, paper=paper)
     set_t0_cs_universe_codes(pool_codes)
+    from core.research.materialize.consumer import consumer_read_only
+
+    if consumer_read_only() and len(pool_codes) >= 2:
+        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.materialize.coverage import assess_coverage, recent_trading_days
+
+        gap = assess_coverage(
+            pool_codes,
+            recent_trading_days(max(10, int(lookback or 30))),
+            families=[FAMILY_OO, FAMILY_TC, FAMILY_CO],
+            clocks=["open"],
+        )
+        if not gap.get("ok"):
+            gap["task"] = "t0_backtest"
+            return gap
     period_seed = str(cfg.get("minute_period") or "5")
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
-    minute_span = min(max(eval_lb, 10), 120)
 
     def _pool_progress(_cur: int, _tot: int, msg: str) -> None:
         _emit(0, n_hold, msg)
@@ -865,7 +871,6 @@ def run_t0_backtest_for_holdings(
     _seed_pool_minutes(
         pool_codes,
         period_seed,
-        lookback_days=minute_span,
         progress_cb=_pool_progress,
         cancel_cb=_cancelled,
         label="加载截面 5m",

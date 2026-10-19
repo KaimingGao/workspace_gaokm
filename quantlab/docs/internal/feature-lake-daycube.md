@@ -134,7 +134,7 @@ API 要点：
 | `slim` | τ 池字段：`pool_gaps`、`sector_gap_breadth`、`gaps_by_code`、`ref_by_code` 等 |
 | `clock` | `open` / `eod` / `tau_HHMM` |
 
-进程内 `_MEMORY` 缓存当日 cube；`persist_tau_pool_as_cubes` 把 `build_tau_pool_by_date` 结果写入 slim。
+进程内 `_MEMORY` 缓存当日 cube。open 的 τ 池字段由物化 `attach_slim` 并进已有立方，不改 `X_raw`。旧的 `persist_tau_pool_as_cubes` 会用只有 `gap_pct` 的矩阵盖掉特征立方，已删除。列数不足 2 的旧文件在覆盖检查里算缺失。
 
 **宇宙键**：`universe_hash` 用本次请求的完整代码名单（观察池），不用「当天有特征行的子集」。缺行代码不进 `X_raw` / μ/σ。读写不一致时立方 miss。说明与 2026-10-19 的 800/798 分叉见 [daycube-universe-key.md](./daycube-universe-key.md)。
 
@@ -174,7 +174,7 @@ panel meta 额外写入：
 
 ### 4.2 bars topup 失效
 
-`quant/research/bars_status.py` · `refresh_bars_only`：对本批整窗/缺口票调用 `invalidate_l1_many`，下次拟合/回测重算 L1。
+`quant/research/bars_status.py` · `refresh_bars_only`：只对价量指纹变了的票调用 `invalidate_l1_many`。指纹未变不删 L1，不必重跑物化。没有 L1 meta 的票也不删。
 
 ---
 
@@ -183,10 +183,20 @@ panel meta 额外写入：
 **定位**：L1 = 票级 raw（+y）；L2 = 日截面增广（μ/σ、slim），**不取代 L1**。
 
 ```text
-日线更新 → 日线「物化 L1/L2」（oo/tc/co · open Cube）
+日线更新 → 日线「物化 L1/L2」（oo/tc/co/oo_rank/tc_rank · open Cube + slim）
 分钟 Ready → 分钟线「物化 L1/L2」（tc_HHMM 网格 · 按钟 Cube）
-  → 拟合 / 调仓回测 / 做 T：只读
+  → 拟合 / 调仓回测 / 做 T / 调仓出分：只读 L1 与 L2
 ```
+
+产品入口（研究枢纽拟合、历史回测、做 T 回测、调仓出分）打开 ``QUANTLAB_MATERIALIZE_CONSUMER``。缺 L1 日期或 L2 立方时返回 ``error_code=materialize_required``，文案指向日线物化或分钟线物化。特征与截面 μ/σ 只读已写好的 L1/L2。价量指纹未变的增量不删 L1。L2 默认窗与日线 ``lookback`` 同一段交易日。单测与脚本不设该开关时仍可现算。调仓出分读会话日的 L1（开盘钟 ``oo/tc/co``，更晚的成交钟再加 ``tc_HHMM``）和同钟 L2。
+
+L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读日线或分钟线的只有这三件事：
+
+| 用途 | 读什么 |
+|------|--------|
+| 调仓回测成交 | 日 K 开盘价、指定钟的分钟价、涨跌停 |
+| 拟合核对 | 用当前 K 线指纹对比 L1 meta 的 ``bars_fp``；对得上则用湖里的 X 和 y |
+| 调仓出分下单 | 现价或开盘价，用来算股数 |
 
 | 入口 | 说明 |
 |------|------|
@@ -196,8 +206,9 @@ panel meta 额外写入：
 
 | 环境变量 | 默认 | 含义 |
 |----------|------|------|
-| `QUANTLAB_MATERIALIZE_REQUIRE_CUBE` | 关 | 开：出分/warmup Cube miss 不 ensure、同伴不 bars 冷灌 |
-| `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 开：oo / τc / co / ŷ_τ* / LGB 经 `cs_z_*_prefer_cube` 读 L2；``date|τ`` 优先该钟 Cube，**默认不**静默 open（miss → 矩阵 CS-z）；纯日期组仍可 open |
+| `QUANTLAB_MATERIALIZE_CONSUMER` | 关 | 产品入口打开：缺 L1/L2 返回 ``materialize_required``，不现算特征、不冷建立方 |
+| `QUANTLAB_MATERIALIZE_REQUIRE_CUBE` | 关 | 更早的窄开关：出分/warmup 的 Cube miss 不 ensure。产品路径以消费开关为准 |
+| `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 消费开关关闭时，拟合/OOS 仍可单独打开以读 L2 |
 
 **PIT（ŷ_τ*）**：拟合 CS 分组键为 ``date|τ``（`feature_standardize.normalize_cs_group_key`），同日多钟不混组；LGB / Ridge / live `_cs_z_horizon_feats` 均走该键。`apply_day_cube_mu_sigma_matrix` 按组钟读 L2。改完须**重拟合**窗头五头。
 
@@ -215,50 +226,28 @@ panel meta 额外写入：
 
 ### 5.1 训练（Fit）
 
-```text
-load_portfolio_stock_bars
-  → assemble_oo_panels / collect_tau_compact / collect_co_compact / oo_rank
-      ├─ L1 fingerprint hit → 返回
-      ├─ stem 增量 → keep_dates collect → merge → sync L1
-      └─ 全量 collect → sync L1
-  → （oo）cubes_from_stacked_panel 物化多日 DayCube
-  → Ridge / LambdaRank（cross_section_zscore_matrix 或读 cube）
+产品拟合打开消费开关后：L1 指纹命中则用湖里的 X 和 y；未命中返回 ``materialize_required``，不 collect、不写湖、不冷建立方。截面 z 在消费开关或 ``FIT_USE_DAY_CUBE`` 打开时读 L2。
 
-# ŷ_τ*（t30…t90）另路径：quant_service_factors 分批读 5m
-#   → build_tau_panels_from_bars（label_heads + ProcessPool）→ enrich → dual fit
-#   不经 collect_tau_compact / DayCube
-```
+不设该开关时（单测、脚本）仍走下面的旧路径：指纹命中返回；尾窗 ``keep_dates`` merge；全量 collect 后写 L1，oo 再物化 DayCube。
 
 ### 5.2 历史回测（paper_replay）
 
-```text
-build_tau_pool_by_date → seed + persist_tau_pool_as_cubes
-prefetch_l1_coverage(codes)          # 进程内 code→dates + 整票 panel 缓存
-for each day:
-  批量按日切片 L1（吃内存缓存；开盘读 family=tc）
-  hit → 组装 item（跳过 score_window_as_item 与昨收窗；缺口吃 quote）
-  miss → score_window_as_item
-  attach yhat heads（lake 的 features_co 直打 ŷ_co，不重建）
-  rescore_fitted_cross_section_batched  # 建/读 DayCube，单遍 z+ŷ
-```
+产品回测先按评分窗做 L1/L2 覆盖检查，不够则整次回测返回 ``materialize_required``。通过后按日从 L1 组装特征，μ/σ 只加载已有 L2。单票缺行（停牌、次新）跳过，不把整窗打成失败。成交价、涨跌停仍用已经载入的日 K / 分钟 K。不把 τ 池缺口写回立方。
+
+不设消费开关时，L1 未命中才 ``score_window_as_item``，立方缺失才在内存里建 μ/σ。
 
 ### 5.3 Live 调仓（watching_matrix）
 
-```text
-seed τ 截面池（可短路由 DayCube slim）
-并行 score_one(..., defer_cs_predict=True)   # 只特征，不写截面 ŷ
-rescore_fitted_cross_section_batched         # DayCube μ/σ → ŷ_oo/τ/co
-rank_lots / 账本
-```
+产品调仓（``PaperService.rebalance``）、数据中心观察摘要、持仓表 ŷ 打开消费开关：会话日 L1 组装特征，同钟 L2 提供 μ/σ，缺覆盖返回 ``materialize_required``。报价和落账价格另读行情或日线。观察摘要按整池宇宙哈希读立方，不按前端分批的子集。
 
-`defer_cs_predict` 在 `QUANTLAB_BATCH_SCORE=1`（默认）时自动开启。
+不设消费开关时仍 ``score_one`` 抽特征，再 ``rescore_fitted_cross_section_batched``。``QUANTLAB_BATCH_SCORE=1``（默认）时 ``defer_cs_predict`` 自动开启。
 
 ### 5.4 T0 / 日循环
 
 - `build_tau_pool_watching_holdings`：当日 cube slim 命中则跳过扫 bars  
 - `run_daily_cycle`：启动时 `_try_hydrate_tau_xs_from_day_cube` 预热进程缓存  
-- **开盘截面 ŷ**（`_align_item_to_watching_pool`）：`load_day_cube` **命中 → 单票** `rescore_fitted_cross_section([item], day_cube=)`（μ/σ 只信 cube，不抽同伴）；miss → 同伴 raw ← L1（再 bars）→ `ensure_day_cube_for_items` → rescore。与调仓同函数、同 μ/σ  
-- **做 T 持仓回测**：`run_t0_backtest_for_holdings` 在逐票 walk 前 `warmup_watching_day_cubes`（`prefetch_l1_coverage` + 评估窗按日 ensure/persist DayCube）  
+- **开盘截面 ŷ**（`_align_item_to_watching_pool`）：`load_day_cube` 命中则单票 rescore，μ/σ 只信立方。消费开关打开时，立方 miss 不从 bars 灌同伴、也不 ensure。开关关闭时，miss 才用 L1 再 bars 建立方  
+- **做 T 持仓回测**：产品入口先做覆盖检查，不够则 ``materialize_required``。开关关闭时，``run_t0_backtest_for_holdings`` 在逐票 walk 前 ``warmup_watching_day_cubes``（prefetch L1 + 评估窗 ensure/persist DayCube）。分钟成交路径仍读 5m  
 - 前缀 ŷ_τc / ŷ_τ*：优先同一 DayCube `apply_cube_z_to_dicts`（须覆盖窗头特征，拒 slim gap-only）；cube miss 时池内 leave-one-in：剥开盘同伴分钟占位，稀疏列保留 stamped（池外不把持仓并进 μ/σ）  
 - `rescore_fitted_cross_section`：`day_cube` 宇宙 ≥2 时允许 `len(items) >= 1`
 
@@ -288,8 +277,9 @@ rank_lots / 账本
 | `QUANTLAB_DAY_CUBE` | 开 | `0` 关闭 L2 落盘 |
 | `QUANTLAB_DAY_CUBE_DIR` | `paths.DAY_CUBE_DIR` | L2 根 |
 | `QUANTLAB_BATCH_SCORE` | 开 | `0`：不建 cube、调仓不 defer，走旧双遍 |
-| `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 开：拟合/OOS CS-z 读 L2（`cs_z_*_prefer_cube`） |
-| `QUANTLAB_MATERIALIZE_REQUIRE_CUBE` | 关 | 开：出分/warmup Cube miss 不 ensure |
+| `QUANTLAB_MATERIALIZE_CONSUMER` | 关 | 产品入口打开后只读 L1/L2；缺覆盖返回 ``materialize_required`` |
+| `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 消费开关关闭时，拟合/OOS 仍可单独读 L2 |
+| `QUANTLAB_MATERIALIZE_REQUIRE_CUBE` | 关 | 更早的窄开关：Cube miss 不 ensure。产品路径以消费开关为准 |
 
 路径常量：`core/paths.py` → `FEATURE_LAKE_DIR` / `DAY_CUBE_DIR`。
 
@@ -540,11 +530,11 @@ L1/L2 按 schema 分目录；宇宙变大时 DayCube 按 `universe_hash` 分叉�
 | 状态条 | 与增量/强更共用 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn） |
 | 刷新接管 | 页加载 **先** `resumeIfRunning`（设 matBusy/matSettled）**再** `refreshStatus`，未接管再 `syncJobSlot`；running 后台挂 wait；6h 内 failed 也画；coverage/`!ok` 不盖物化状态头；`clearJobPanels` 清 sticky |
 | waitJob | 见过本 id 后槽位被换 →「已被新任务替换」；前端等待 open **90min** / τ **150min**（勿再用 45min）；等满且槽仍 running → 提示刷新接管（勿标 FAIL） |
-| waitMinuteJob | 增量 **60min** / 强更 5m **120min**（勿再用 30min）；等满且槽仍 running → WAIT + 刷新接管（勿标 FAIL）；页加载 `syncJobSlot` 可挂接 |
+| waitMinuteJob | 增量 **60min** / 强更 5m **120min** 为软上限（勿再用 30min）；心跳不足 90s 则继续轮询，硬上限 **8h**；心跳停了且已过软上限 → WAIT + 刷新接管（勿标 FAIL）；页加载 `syncJobSlot` 可挂接 |
 | open↔τ 同槽 | 对侧 running 时 POST 返回 `conflict`；UI **等待对侧结束再自动重试一次**（勿硬 FAIL） |
 | 进度 | 宏步骤钉 `step/tot_steps`；子阶段只改 message；UI 隐藏 total>8 的票级微进度；失败文案用 `--danger` |
 | 失败配色 | 增量/强更失败：蓝族 + 红字；物化失败：黄族 + 红字 |
-| 耗时参考 | 日线 open L1+L2 · 池≈800：约 **5–8 min**；τ 网格首轮（18 钟 L1+L2）可到 **数小时**；L1 指纹增量后会快很多；L2 宇宙键对齐后同池再跑可命中跳过（见 [daycube-universe-key.md](./daycube-universe-key.md)）；强更 5m · 800 票常 **1h+** |
+| 耗时参考 | 日线 open L1+L2 · 池≈800：约 **5–8 min**；τ 网格首轮（18 钟 L1+L2）可到 **数小时**；L1 指纹增量后会快很多；L2 宇宙键对齐后同池再跑可命中跳过（见 [daycube-universe-key.md](./daycube-universe-key.md)）；强更 5m · 800 票约 **30 min**（4 并发 · 开工间隔 2s；已 Ready 跳过） |
 | 无自动物化 | 日线/分钟线均手动；无 auto-materialize 勾选 |
 | 前缀滑条 | **ŷ_τc** 独立（默认 09:30）；**ŷ_τ30…90** 共用（默认 11:00）；localStorage / 拟合恢复按组隔离 |
 | ŷ_τc 拟合进度 | `解析宇宙` → `拉日线` →（可选）`读5m` → `面板 k/N` → `截面广度` → `Ridge`；槽 `allow_zero_progress` |

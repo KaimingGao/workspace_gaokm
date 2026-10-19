@@ -362,6 +362,9 @@ def _tau_stock_job(
                     return code, block, ys_l, dates_l, metas_l, slim
         except Exception:  # noqa: BLE001
             logger.debug("tau training cache load failed code=%s", code, exc_info=True)
+    from core.research.materialize.consumer import raise_if_consumer_rebuild
+
+    raise_if_consumer_rebuild(l1_family, code)
     # 开盘 τ：仅末根变化时尾窗增量（分钟路径仍全量）
     inc_hit = None
     if code and not use_minute:
@@ -523,6 +526,15 @@ def collect_tau_compact(
         else None
     )
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
+    from core.research.lake_bridge import family_for_tc
+    from core.research.materialize.coverage import enforce_consumer_coverage
+
+    tau_family = family_for_tc(
+        tau_hm=str(tau_hm),
+        rank=str(cache_head or "tc") == "tc_rank",
+    )
+    tau_clock = "open" if str(tau_hm or "open").strip().lower() in ("", "open", "09:30", "0930") else str(tau_hm)
+    enforce_consumer_coverage(items, families=[tau_family], clocks=[tau_clock])
     n_jobs = len(items)
     n_workers = _resolve_tau_workers(n_jobs, workers)
     col_names = _tc_matrix_seed_names(
@@ -743,6 +755,9 @@ def _co_stock_job(
                     return code, block, ys_l, dates_l, metas_l, slim
         except Exception:  # noqa: BLE001
             logger.debug("co training cache load failed code=%s", code, exc_info=True)
+    from core.research.materialize.consumer import raise_if_consumer_rebuild
+
+    raise_if_consumer_rebuild(FAMILY_CO, code)
     if code:
         try:
             from core.research.incremental_panel import try_incremental_merge
@@ -922,6 +937,10 @@ def collect_co_compact(
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
+    from core.research.lake_bridge import FAMILY_CO
+    from core.research.materialize.coverage import enforce_consumer_coverage
+
+    enforce_consumer_coverage(items, families=[FAMILY_CO], clocks=["open"])
     n_jobs = len(items)
     n_workers = _resolve_co_workers(n_jobs, workers)
     col_names = _co_matrix_seed_names(names, include_alpha_oo=include_alpha_oo)

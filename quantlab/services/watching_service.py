@@ -51,11 +51,14 @@ class WatchingService:
                     "note": "尚未创建观察名单",
                     "offline_only": bool(offline_only),
                 }
-        return build_watching_insights(
-            list(codes or []),
-            added_at_by_code=added_map,
-            offline_only=bool(offline_only),
-        )
+        from core.research.materialize.consumer import materialized_consumer
+
+        with materialized_consumer():
+            return build_watching_insights(
+                list(codes or []),
+                added_at_by_code=added_map,
+                offline_only=bool(offline_only),
+            )
 
     def sentiment_alerts(self) -> Dict[str, Any]:
         from core.sentiment import read_last_sentiment_alerts

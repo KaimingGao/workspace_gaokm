@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
 
 from core.paper.rebalance.rank_lots import AUX_YHAT_KEYS, tip_explain_fields
@@ -145,6 +146,247 @@ def _attach_tc_rank_scores(
         logger.debug("attach live y_tc_rank failed", exc_info=True)
 
 
+# 持仓表 / 盯盘 / 交易记录展示用。不含公式拆解（拆解走 tip_explain）。
+LIVE_RANK_KEYS = (
+    "y_oo_rank",
+    "y_oo_rank_hat",
+    "y_oo_rank_n",
+    "y_oo_rank_score",
+    "predicted_score_oo_rank",
+    "y_tc_rank",
+    "y_tc_rank_hat",
+    "y_tc_rank_n",
+    "y_tc_rank_score",
+    "predicted_score_tc_rank",
+    "formula_terms_oo_rank",
+    "score_formula_terms_oo_rank",
+    "formula_terms_tc_rank",
+    "score_formula_terms_tc_rank",
+)
+
+
+def _live_rank_snapshot_path() -> str:
+    from core.paths import LIVE_DIR
+
+    return os.path.join(LIVE_DIR, "live_rank_snapshot.json")
+
+
+def _rank_slice(item: dict) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for key in LIVE_RANK_KEYS:
+        if item.get(key) is not None:
+            out[key] = item.get(key)
+    return out
+
+
+def save_live_rank_snapshot(items: Sequence[dict], *, as_of: str) -> None:
+    """把当日观察池名次落到 live 快照，供持仓表在未重算全池时读取。"""
+    import json
+    import os
+
+    day = str(as_of or "")[:10]
+    if len(day) < 10:
+        return
+    by_code: Dict[str, Any] = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        if not code:
+            continue
+        packed = _rank_slice(it)
+        if packed:
+            by_code[code] = packed
+    if not by_code:
+        return
+    try:
+        from core.signal.score_display import json_safe
+
+        payload = json_safe({"as_of": day, "by_code": by_code})
+    except Exception:  # noqa: BLE001
+        payload = {"as_of": day, "by_code": by_code}
+    path = _live_rank_snapshot_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def load_live_rank_snapshot(*, as_of: str) -> Dict[str, Dict[str, Any]]:
+    import json
+
+    day = str(as_of or "")[:10]
+    if len(day) < 10:
+        return {}
+    path = _live_rank_snapshot_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(doc, dict) or str(doc.get("as_of") or "")[:10] != day:
+        return {}
+    raw = doc.get("by_code")
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for code, row in raw.items():
+        c = str(code or "").strip()
+        if c and isinstance(row, dict):
+            out[c] = row
+    return out
+
+
+def _copy_rank_fields(dst: dict, src: dict, *, overwrite: bool) -> bool:
+    wrote = False
+    for key in LIVE_RANK_KEYS:
+        val = src.get(key)
+        if val is None:
+            continue
+        if not overwrite and dst.get(key) is not None:
+            continue
+        dst[key] = val
+        wrote = True
+    return wrote
+
+
+def _lake_cover_ok(n_rows: int, n_codes: int) -> bool:
+    if n_rows < 2 or n_codes < 2:
+        return False
+    if n_codes <= 12:
+        return n_rows >= n_codes - 1
+    return n_rows >= 8 and n_rows >= int(0.5 * n_codes)
+
+
+def _feature_overlap_ok(sample: dict, names: Sequence[str]) -> bool:
+    cols = [str(n) for n in names if str(n or "").strip()]
+    if not cols or not isinstance(sample, dict):
+        return False
+    hit = sum(1 for name in cols if sample.get(name) is not None)
+    return hit >= max(4, int(0.4 * len(cols)))
+
+
+def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
+    """用当日 Feature Lake 的 oo_rank / tc_rank 行编观察池名次，写回 focus。
+
+    只补 focus 上还没有的键。特征与模型对不上、或湖覆盖不够，则跳过该头。
+    """
+    from datetime import date
+
+    from core.research.feature_lake import load_day_rows
+    from core.research.lake_bridge import FAMILY_OO_RANK, FAMILY_TC_RANK
+
+    held = [
+        str(it.get("stock_code") or "").strip()
+        for it in focus
+        if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
+    ]
+    if not held:
+        return
+    codes, _meta = _watching_codes(include_held=held)
+    if len(codes) < 2:
+        return
+    day = date.today().isoformat()
+    oo_rows = load_day_rows(FAMILY_OO_RANK, codes, day)
+    tc_rows = load_day_rows(FAMILY_TC_RANK, codes, day)
+    oo_ok = _lake_cover_ok(len(oo_rows), len(codes))
+    tc_ok = _lake_cover_ok(len(tc_rows), len(codes))
+    if oo_ok:
+        try:
+            from core.research.oo_rank_lambdarank import (
+                _oo_rank_feature_names,
+                _resolve_oo_rank_fit,
+                load_oo_rank_model,
+            )
+
+            doc = load_oo_rank_model(prefer_research=False)
+            model = _resolve_oo_rank_fit(model_doc=doc)
+            names = _oo_rank_feature_names(model) if isinstance(model, dict) else []
+            sample = next(iter(oo_rows.values()), {})
+            if not _feature_overlap_ok(sample, names):
+                oo_ok = False
+        except Exception:  # noqa: BLE001
+            logger.debug("oo_rank lake overlap check failed", exc_info=True)
+            oo_ok = False
+    if tc_ok:
+        try:
+            from core.research.oo_rank_lambdarank import _oo_rank_feature_names
+            from core.research.tc_rank import _resolve_tc_rank_fit, load_tc_rank_model
+
+            doc = load_tc_rank_model(prefer_research=False)
+            model = _resolve_tc_rank_fit(doc)
+            names = _oo_rank_feature_names(model) if isinstance(model, dict) else []
+            sample = next(iter(tc_rows.values()), {})
+            if not _feature_overlap_ok(sample, names):
+                tc_ok = False
+        except Exception:  # noqa: BLE001
+            logger.debug("tc_rank lake overlap check failed", exc_info=True)
+            tc_ok = False
+    if not oo_ok and not tc_ok:
+        return
+    _, fit_meta = _apply_universe_fit_tier_filter(codes, keep=held)
+    score_codes = fit_meta.get("tradable_codes")
+    if not isinstance(score_codes, (list, tuple, set)):
+        score_codes = None
+    batch: List[dict] = []
+    for code in codes:
+        row: Dict[str, Any] = {"stock_code": code}
+        if oo_ok and isinstance(oo_rows.get(code), dict):
+            row["sub_scores"] = dict(oo_rows[code])
+        if tc_ok and isinstance(tc_rows.get(code), dict):
+            row["features_tau"] = dict(tc_rows[code])
+        if row.get("sub_scores") or row.get("features_tau"):
+            batch.append(row)
+    if len(batch) < 2:
+        return
+    if oo_ok:
+        _attach_oo_rank_scores(batch, score_codes=score_codes)
+    if tc_ok:
+        _attach_tc_rank_scores(batch, score_codes=score_codes)
+    by_code = {
+        str(it.get("stock_code") or "").strip(): it
+        for it in batch
+        if str(it.get("stock_code") or "").strip()
+    }
+    for it in focus:
+        if not isinstance(it, dict):
+            continue
+        src = by_code.get(str(it.get("stock_code") or "").strip())
+        if isinstance(src, dict):
+            _copy_rank_fields(it, src, overwrite=False)
+
+
+def stamp_live_ranks(focus: Sequence[dict]) -> None:
+    """给已打分的持仓行补当日 oo_rank / τc_rank。
+
+    先用今天调仓写下的快照（与预演/落账同一截面）。缺的名字再试 Feature Lake。
+    两侧都没有则留空，表上显示 —。
+    """
+    from datetime import date
+
+    rows = [it for it in focus or [] if isinstance(it, dict)]
+    if not rows:
+        return
+    snap = load_live_rank_snapshot(as_of=date.today().isoformat())
+    if snap:
+        for it in rows:
+            src = snap.get(str(it.get("stock_code") or "").strip())
+            if isinstance(src, dict):
+                _copy_rank_fields(it, src, overwrite=False)
+    pending = [
+        it
+        for it in rows
+        if it.get("y_oo_rank") is None or it.get("y_tc_rank") is None
+    ]
+    if not pending:
+        return
+    try:
+        _stamp_ranks_from_lake(pending)
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp live ranks from lake failed", exc_info=True)
+
+
 def _apply_universe_fit_tier_filter(
     codes: Sequence[str],
     *,
@@ -257,6 +499,111 @@ def live_rebalance_wants_minute_tau(clock: Optional[str]) -> bool:
     return bool(head) and head > "09:30"
 
 
+def score_session_from_lake(
+    codes: Sequence[str],
+    *,
+    paper: Optional[dict] = None,
+) -> Tuple[List[dict], List[dict]]:
+    """观察池并上 ``codes``，读会话日 L1 与同钟 L2。缺覆盖抛 ``MaterializeRequired``。"""
+    from datetime import datetime
+
+    held = [str(c).strip() for c in codes if str(c or "").strip()]
+    uni, _meta = _watching_codes(include_held=held)
+    pool = uni or held
+    clock = ""
+    try:
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+
+        clock = str((get_rank_lot_cfg(paper or {}) or {}).get("live_fill_clock") or "")
+    except Exception:  # noqa: BLE001
+        logger.debug("live fill clock unavailable", exc_info=True)
+        clock = ""
+    if len(clock) < 4:
+        clock = datetime.now().strftime("%H:%M")
+    return _score_pool_from_lake(
+        pool,
+        use_minute_tau=live_rebalance_wants_minute_tau(clock),
+        tau_clock=clock,
+    )
+
+
+def _consumer_score_clock(use_minute_tau: Optional[bool], tau_clock: Optional[str]) -> str:
+    """消费路径的 L2 钟：开盘为 ``open``，更晚的成交钟对齐物化网格（``HHMM``）。"""
+    if not use_minute_tau:
+        return "open"
+    from core.research.lake_bridge import normalize_tau_clock
+
+    clock = normalize_tau_clock(str(tau_clock or "open"))
+    return "open" if clock == "open" else clock
+
+
+def _score_pool_from_lake(
+    pool: Sequence[str],
+    *,
+    use_minute_tau: Optional[bool] = None,
+    score_codes: Optional[Collection[str]] = None,
+    tau_clock: Optional[str] = None,
+) -> Tuple[List[dict], List[dict]]:
+    """调仓出分只读当日 L1，截面 μ/σ 只读已有 L2。缺覆盖则要求先物化。"""
+    from core.market.calendar import resolve_session_date
+    from core.research.batch_score import ensure_day_cube_for_items
+    from core.research.feature_lake import load_day_rows
+    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, family_for_tc
+    from core.research.lake_replay import assemble_item_from_lake_rows
+    from core.research.materialize.consumer import MaterializeRequired
+    from core.research.materialize.coverage import assess_coverage
+    from core.signal.cross_section_rescore import rescore_fitted_cross_section
+
+    codes = [str(c or "").strip() for c in pool if str(c or "").strip()]
+    day = str(resolve_session_date() or "")[:10]
+    clock = _consumer_score_clock(use_minute_tau, tau_clock)
+    fam_tc = family_for_tc(tau_hm="open" if clock == "open" else clock)
+    families = [FAMILY_OO, fam_tc, FAMILY_CO]
+    report = assess_coverage(codes, [day], families=families, clocks=[clock])
+    if not report.get("ok"):
+        raise MaterializeRequired(report)
+
+    oo_m = load_day_rows(FAMILY_OO, codes, day) or {}
+    tc_m = load_day_rows(fam_tc, codes, day) or {}
+    co_m = load_day_rows(FAMILY_CO, codes, day) or {}
+    scored: List[dict] = []
+    rejected: List[dict] = []
+    for code in codes:
+        item = assemble_item_from_lake_rows(
+            code,
+            day,
+            oo=oo_m.get(code),
+            tc=tc_m.get(code),
+            co=co_m.get(code),
+        )
+        if item is None:
+            rejected.append({"stock_code": code, "reason": f"L1 缺 {day}"})
+            continue
+        scored.append(item)
+    if len(scored) >= 2:
+        cube = ensure_day_cube_for_items(
+            scored,
+            date=day,
+            clock=clock,
+            persist=False,
+            universe_codes=codes,
+        )
+        if cube is None:
+            hint = "分钟线物化" if clock != "open" else "日线物化"
+            raise MaterializeRequired(
+                {
+                    "error_code": "materialize_required",
+                    "error": f"请先{hint}：{day} {clock} 截面立方缺失",
+                    "layer": "l2",
+                    "hint": hint,
+                    "clocks": [clock],
+                    "families": families,
+                }
+            )
+        rescore_fitted_cross_section(scored, score_codes=score_codes, day_cube=cube)
+    return scored, rejected
+
+
 def _score_pool(
     codes: Sequence[str],
     *,
@@ -264,15 +611,18 @@ def _score_pool(
     offline_only: bool = True,
     use_minute_tau: Optional[bool] = None,
     score_codes: Optional[Collection[str]] = None,
+    tau_clock: Optional[str] = None,
 ) -> Tuple[List[dict], List[dict]]:
     """观察池并行 score_stock。默认仅本地缓存；``offline_only=False`` 可补远端。
 
     ``use_minute_tau=False``：开盘 Z，不拉当天 5m。
     ``score_codes`` 给定时，截面 z 用整池特征，ŷ 只写允许档。
+    产品调仓打开消费开关后改为只读 L1/L2。
     """
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
     from core.signal_service import score_one
 
     scored: List[dict] = []
@@ -280,6 +630,13 @@ def _score_pool(
     pool = [str(c or "").strip() for c in codes if str(c or "").strip()]
     if not pool:
         return scored, rejected
+    if consumer_read_only():
+        return _score_pool_from_lake(
+            pool,
+            use_minute_tau=use_minute_tau,
+            score_codes=score_codes,
+            tau_clock=tau_clock,
+        )
 
     use_offline = bool(offline_only)
     t0 = time.perf_counter()
@@ -391,10 +748,12 @@ def _score_pool(
                 except Exception:  # noqa: BLE001
                     clock = "tau_live"
             rescore_fitted_cross_section_batched(
-                scored, score_codes=score_codes, clock=clock, persist_cube=True
+                scored, score_codes=score_codes, clock=clock, persist_cube=False
             )
         else:
             rescore_fitted_cross_section(scored, score_codes=score_codes)
+    except MaterializeRequired:
+        raise
     except Exception:  # noqa: BLE001
         logger.debug("watching_matrix cross-section rescore failed", exc_info=True)
 
@@ -910,6 +1269,7 @@ def simulate_watching_matrix_preview(
                 offline_only=use_offline,
                 use_minute_tau=use_minute_tau,
                 score_codes=score_codes,
+                tau_clock=rl_cfg.get("live_fill_clock"),
             )
     else:
         scored, rejected = _score_pool(
@@ -918,9 +1278,16 @@ def simulate_watching_matrix_preview(
             offline_only=use_offline,
             use_minute_tau=use_minute_tau,
             score_codes=score_codes,
+            tau_clock=rl_cfg.get("live_fill_clock"),
         )
     _attach_oo_rank_scores(scored, score_codes=score_codes)
     _attach_tc_rank_scores(scored, score_codes=score_codes)
+    try:
+        from datetime import date as _date
+
+        save_live_rank_snapshot(scored, as_of=_date.today().isoformat())
+    except Exception:  # noqa: BLE001
+        logger.debug("save live rank snapshot failed", exc_info=True)
     try:
         from core.signal.cross_section_rescore import drop_unscored_heads
 

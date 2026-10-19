@@ -147,8 +147,7 @@ class PaperAccountMixin:
     ) -> dict:
         """计算当前持仓的评分，合并到 summary.holdings 中。
 
-        经 SignalService ``score_one``（默认 ``offline_only``，带超时）。
-        表列 ŷ 用 09:30–10:00 调仓因果前缀（``use_minute_tau=True``）。
+        产品路径只读会话日 L1/L2。开关关闭时才 ``score_one``。
         **不**经 observation_pool / min_score TopN。
         """
         holdings = paper.get("holdings") or []
@@ -186,43 +185,81 @@ class PaperAccountMixin:
                 )
 
             score_by_code: Dict[str, Any] = {}
+            pending_scores: list = []
             missing = list(holding_codes)
 
-            # 串行 + 仅缓存：避免线程池在 Web 进程里叠请求卡死
-            for code in missing:
-                try:
-                    result = svc.score_one(
-                        code,
-                        horizon_days=horizon,
-                        skip_fundamentals=True,
-                        skip_sentiment=True,
-                        offline_only=bool(offline_only),
-                        quote_timeout=3.0 if offline_only else 8.0,
-                        use_minute_tau=True,
-                    )
-                    raw = (
-                        result.as_dict()
-                        if hasattr(result, "as_dict")
-                        else (result or {})
-                    )
-                except Exception as e:
-                    log.warning("holding score fail %s: %s", code, e)
-                    continue
-                if not isinstance(raw, dict) or raw.get("success") is False:
-                    continue
-                item = raw.get("signal_item")
-                if not isinstance(item, dict):
-                    continue
-                try:
-                    from core.signal.dual_score import align_trade_score_fields
+            from core.research.materialize.consumer import (
+                MaterializeRequired,
+                consumer_read_only,
+            )
 
-                    align_trade_score_fields(
-                        item, write_score=False, refresh_window=False
+            if consumer_read_only():
+                from core.paper.rebalance.watching_matrix import score_session_from_lake
+
+                try:
+                    scored_rows, _rejected = score_session_from_lake(
+                        holding_codes, paper=paper
                     )
+                except MaterializeRequired as exc:
+                    summary["score_error"] = str(
+                        (exc.to_dict() or {}).get("error") or exc
+                    )
+                    return summary
+                by_item = {
+                    str(it.get("stock_code") or "").strip(): it
+                    for it in scored_rows
+                    if str(it.get("stock_code") or "").strip()
+                }
+                for code in missing:
+                    item = by_item.get(code)
+                    if not isinstance(item, dict):
+                        continue
+                    pending_scores.append((code, item, item.get("cluster_mode")))
+            else:
+                # 串行 + 仅缓存：避免线程池在 Web 进程里叠请求卡死
+                for code in missing:
+                    try:
+                        result = svc.score_one(
+                            code,
+                            horizon_days=horizon,
+                            skip_fundamentals=True,
+                            skip_sentiment=True,
+                            offline_only=bool(offline_only),
+                            quote_timeout=3.0 if offline_only else 8.0,
+                            use_minute_tau=True,
+                        )
+                        raw = (
+                            result.as_dict()
+                            if hasattr(result, "as_dict")
+                            else (result or {})
+                        )
+                    except Exception as e:
+                        log.warning("holding score fail %s: %s", code, e)
+                        continue
+                    if not isinstance(raw, dict) or raw.get("success") is False:
+                        continue
+                    item = raw.get("signal_item")
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        from core.signal.dual_score import align_trade_score_fields
+
+                        align_trade_score_fields(
+                            item, write_score=False, refresh_window=False
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.debug("align holding score failed %s", code, exc_info=True)
+                    pending_scores.append((code, item, raw.get("cluster_mode")))
+            if pending_scores:
+                try:
+                    from core.paper.rebalance.watching_matrix import stamp_live_ranks
+
+                    stamp_live_ranks([it for _c, it, _m in pending_scores])
                 except Exception:  # noqa: BLE001
-                    log.debug("align holding score failed %s", code, exc_info=True)
+                    log.debug("stamp holding ranks failed", exc_info=True)
+            for code, item, cluster_mode in pending_scores:
                 score_by_code[code] = _pack_item(
-                    item, cluster_mode=raw.get("cluster_mode")
+                    item, cluster_mode=cluster_mode
                 )
 
             # 持仓经济字段勿被评分包覆盖；其余与数据中心同源透传
@@ -359,9 +396,12 @@ class PaperAccountMixin:
                     if h.get("stock_code")
                 ]
             }
-            enriched = self._compute_holding_scores(
-                paper, skeleton, offline_only=bool(offline_only)
-            )
+            from core.research.materialize.consumer import materialized_consumer
+
+            with materialized_consumer():
+                enriched = self._compute_holding_scores(
+                    paper, skeleton, offline_only=bool(offline_only)
+                )
             by_code: Dict[str, Any] = {}
             for row in enriched.get("holdings") or []:
                 code = str((row or {}).get("stock_code") or "").strip()
@@ -373,6 +413,7 @@ class PaperAccountMixin:
                 "by_code": by_code,
                 "scored": len(by_code),
                 "selection_min_score": enriched.get("selection_min_score"),
+                "score_error": enriched.get("score_error"),
                 "offline_only": bool(offline_only),
             }
         finally:

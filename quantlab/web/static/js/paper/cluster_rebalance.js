@@ -47,7 +47,7 @@ export function createClusterRebalanceController(deps) {
           );
           /* 仍继续只读预演，便于看到缺仓拒分 */
         }
-        showProgress(1, "观察池矩阵预演（只读本地仓）…");
+        showProgress(1, "观察池矩阵预演（读已物化 L1/L2）…");
       }
       const res = await fetch("/api/paper/rebalance", {
         method: "POST",

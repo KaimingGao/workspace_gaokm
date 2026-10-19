@@ -60,38 +60,41 @@ class QuantFollowMixin:
         except (TypeError, ValueError):
             v_cash = T0_BT_VIRTUAL_CASH
         v_cash = max(10_000.0, min(v_cash, 1.0e8))
-        if from_paper or codes is not None or not str(code or "").strip():
-            holdings, paper = self._t0_holdings_for_backtest(codes=codes, code=code)
-            out = run_t0_backtest_for_holdings(
-                holdings,
-                lookback=lookback,
-                rules=rules,
-                paper=paper if from_paper else None,
-                use_minute=True,
-                virtual_shares=v_shares,
-                virtual_cash=v_cash,
-                progress_cb=progress_cb,
-                cancel_cb=cancel_cb,
-                score_model_role=role,
-            )
-        else:
-            if progress_cb:
-                try:
-                    progress_cb(0, 1, f"回测 {code or '标的'}…")
-                except Exception:  # noqa: BLE001
-                    logger.debug("t0 progress_cb failed", exc_info=True)
-            _, paper = self._t0_holdings_for_backtest()
-            out = run_t0_backtest_for_code(
-                code,
-                lookback=lookback,
-                initial_shares=v_shares,
-                initial_cash=v_cash,
-                rules=rules,
-                paper=paper,
-                use_minute=True,
-                progress_cb=progress_cb,
-                score_model_role=role,
-            )
+        from core.research.materialize.consumer import materialized_consumer
+
+        with materialized_consumer():
+            if from_paper or codes is not None or not str(code or "").strip():
+                holdings, paper = self._t0_holdings_for_backtest(codes=codes, code=code)
+                out = run_t0_backtest_for_holdings(
+                    holdings,
+                    lookback=lookback,
+                    rules=rules,
+                    paper=paper if from_paper else None,
+                    use_minute=True,
+                    virtual_shares=v_shares,
+                    virtual_cash=v_cash,
+                    progress_cb=progress_cb,
+                    cancel_cb=cancel_cb,
+                    score_model_role=role,
+                )
+            else:
+                if progress_cb:
+                    try:
+                        progress_cb(0, 1, f"回测 {code or '标的'}…")
+                    except Exception:  # noqa: BLE001
+                        logger.debug("t0 progress_cb failed", exc_info=True)
+                _, paper = self._t0_holdings_for_backtest()
+                out = run_t0_backtest_for_code(
+                    code,
+                    lookback=lookback,
+                    initial_shares=v_shares,
+                    initial_cash=v_cash,
+                    rules=rules,
+                    paper=paper,
+                    use_minute=True,
+                    progress_cb=progress_cb,
+                    score_model_role=role,
+                )
         if isinstance(out, dict) and out.get("success"):
             out.setdefault(
                 "request",

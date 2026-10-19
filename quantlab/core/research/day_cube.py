@@ -308,6 +308,48 @@ def save_day_cube(cube: DayCube) -> bool:
     return True
 
 
+def day_cube_status(
+    date: str,
+    codes: Sequence[str],
+    *,
+    clock: str = "open",
+) -> str:
+    """``ok`` / ``miss`` / ``thin`` / ``universe``。只读 meta，不把矩阵载入内存。"""
+    day = str(date or "")[:10]
+    if len(day) < 10:
+        return "miss"
+    uh = universe_hash(codes)
+    clk = _safe_clock(clock)
+    paths = _disk_paths(uh, clk, day)
+    meta = _read_json(paths["meta"])
+    if meta and int(meta.get("schema") or 0) == FEATURE_SCHEMA:
+        if str(meta.get("universe_hash") or "") != uh:
+            return "universe"
+        if int(meta.get("n_cols") or 0) < 2:
+            return "thin"
+        if not os.path.isfile(paths["npz"]):
+            return "miss"
+        return "ok"
+    return "miss"
+
+
+def attach_slim(
+    date: str,
+    codes: Sequence[str],
+    *,
+    clock: str = "open",
+    slim: Dict[str, Any],
+) -> bool:
+    """把 τ 池等字段并进已有立方的 slim，不改 ``X_raw`` / μ/σ。"""
+    cube = load_day_cube(date, codes, clock=clock)
+    if cube is None or not isinstance(slim, dict) or not slim:
+        return False
+    merged = dict(cube.slim or {})
+    merged.update(slim)
+    cube.slim = merged
+    return bool(save_day_cube(cube))
+
+
 def load_day_cube(
     date: str,
     codes: Sequence[str],
@@ -473,69 +515,6 @@ def apply_cube_z_to_dicts(
                 src[name] = zval
         out.append(src)
     return out
-
-
-def persist_tau_pool_as_cubes(
-    tau_pool_by_date: Mapping[str, Mapping[str, Any]],
-    codes: Sequence[str],
-    *,
-    clock: str = "open",
-) -> int:
-    """把 ``build_tau_pool_by_date`` 结果写入 DayCube slim。
-
-    宇宙 hash 固定为完整 ``codes``（与 live/T0 加载键一致）；X 仅含有 gap 的票。
-    """
-    uh_codes = sorted({str(c).strip() for c in codes if str(c or "").strip()})
-    if not uh_codes:
-        return 0
-    uh = universe_hash(uh_codes)
-    n = 0
-    for day, pool in (tau_pool_by_date or {}).items():
-        if not isinstance(pool, dict):
-            continue
-        gaps = pool.get("gaps_by_code") if isinstance(pool.get("gaps_by_code"), dict) else {}
-        gap_codes = sorted(
-            {
-                str(c).strip()
-                for c, g in gaps.items()
-                if str(c or "").strip() and g is not None
-            }
-        )
-        if not gap_codes:
-            gap_codes = list(uh_codes)
-            code_feats = {c: {} for c in gap_codes}
-            name_list: List[str] = []
-        else:
-            code_feats = {c: {"gap_pct": float(gaps[c])} for c in gap_codes}
-            name_list = ["gap_pct"]
-        x_rows = []
-        for c in gap_codes:
-            if name_list:
-                x_rows.append([float(code_feats[c].get("gap_pct", float("nan")))])
-            else:
-                x_rows.append([])
-        if name_list:
-            X = np.asarray(x_rows, dtype=np.float64)
-        else:
-            X = np.zeros((len(gap_codes), 0), dtype=np.float64)
-        mu, sd = _compute_mu_sigma(X) if name_list else (
-            np.zeros(0, dtype=np.float64),
-            np.zeros(0, dtype=np.float64),
-        )
-        cube = DayCube(
-            date=str(day)[:10],
-            codes=gap_codes,
-            names=name_list,
-            X_raw=X,
-            z_mean=mu,
-            z_std=sd,
-            universe_hash=uh,
-            clock=_safe_clock(clock),
-            slim=dict(pool),
-        )
-        if save_day_cube(cube):
-            n += 1
-    return n
 
 
 def load_tau_pool_day(

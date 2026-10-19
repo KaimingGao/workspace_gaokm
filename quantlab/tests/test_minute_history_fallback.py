@@ -40,17 +40,6 @@ class TestMinuteStaleFallback(unittest.TestCase):
             self.assertIn("remote_error", meta)
             self.assertTrue(str(meta.get("data_source") or "").startswith("cache:stale"))
 
-    def test_minute_lookback_policy(self):
-        from core.data.policy import minute_lookback_days
-
-        with patch.dict(os.environ):
-            os.environ.pop("QUANTLAB_MINUTE_LOOKBACK_DAYS", None)
-            self.assertEqual(minute_lookback_days(), 45)
-        with patch.dict(os.environ, {"QUANTLAB_MINUTE_LOOKBACK_DAYS": "15"}):
-            self.assertEqual(minute_lookback_days(), 15)
-        with patch.dict(os.environ, {"QUANTLAB_MINUTE_LOOKBACK_DAYS": "999"}):
-            self.assertEqual(minute_lookback_days(), 60)
-
     def test_minute_update_uses_stock_zh_a_minute(self):
         from adapters.market import minute_history as mh
 

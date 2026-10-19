@@ -116,6 +116,9 @@ def _oo_rank_stock_job(
                 return code_s, x, y, names, dates_out
     except Exception:  # noqa: BLE001
         logger.debug("oo_rank training cache load failed for %s", code_s, exc_info=True)
+    from core.research.materialize.consumer import raise_if_consumer_rebuild
+
+    raise_if_consumer_rebuild("oo_rank", code_s)
     x = y = None
     names: List[str] = []
     dates_out: List[str] = []
@@ -230,6 +233,13 @@ def build_oo_rank_day_panels(
         _stack_blocks,
     )
 
+    from core.research.materialize.coverage import enforce_consumer_coverage
+
+    enforce_consumer_coverage(
+        list(stock_bars or []),
+        families=["oo_rank"],
+        clocks=["open"],
+    )
     jobs: List[Tuple[Any, ...]] = []
     for item in stock_bars or []:
         if not isinstance(item, dict):

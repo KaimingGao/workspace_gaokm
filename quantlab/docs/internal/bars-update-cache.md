@@ -220,15 +220,15 @@ bars.db
 | L2 | `core/research/day_cube.py` | 日 μ/σ、gap breadth / slim；宇宙 hash 绑定 |
 | batch | `core/research/batch_score.py` | 池打分后建 cube + rescore；供调仓/回测 |
 
-`refresh_bars_only` 对整窗/缺口票调用 `invalidate_l1_many`，下次 collect 重算。
+`refresh_bars_only` 只在价量指纹变化时调用 `invalidate_l1_many`。指纹未变不删 L1。
 
 **尾窗增量**（`incremental_panel.py`）：L1 meta 存 `bars_fp` / `stem_fp`；末根改写或追加 ≤16 根时，oo/τc/co/oo_rank 用 `keep_dates` 重算尾部再 merge。中间复权改写仍全量。
 
-**回测 L1 hydrate**（`lake_replay.py`）：`paper_replay` 启动时 `prefetch_l1_coverage`（dates 索引 + 整票 panel 内存；`fill_clock≠09:30` 额外预热 `tc_HHMM`）；日循环按日切片灌 `sub_scores` / `features_tau` / `features_co`。**须有 oo 行才当命中**跳过 `score_window_as_item`（仅 tc/co 有湖日不够——否则无 `sub_scores`，ŷ_oo / oo_rank 空）；缺 oo 则切窗重算。盘中前缀 ŷ_τc 优先 L1 hydrate，miss 再 `rescore_scores_at_fixed_prefix`。分钟 τ 写 L1 用 `tc_HHMM`（与开盘 `tc` 分目录）。
+**回测 L1 hydrate**（`lake_replay.py`）：`paper_replay` 启动时 `prefetch_l1_coverage`（dates 索引 + 整票 panel 内存；`fill_clock≠09:30` 额外预热 `tc_HHMM`）；日循环按日切片灌 `sub_scores` / `features_tau` / `features_co`。**须有 oo 行才当命中**。产品消费开关打开时，缺 oo 只记 miss，由开跑前的覆盖检查返回物化提示。开关关闭时缺 oo 才切窗重算。分钟 τ 写 L1 用 `tc_HHMM`（与开盘 `tc` 分目录）。成交价仍读日 K / 分钟 K。
 
 **单遍 rescore**：`batch_score` 建 DayCube（含 `sub_scores`）后，ŷ_oo / τ / co 均用 cube μ/σ 打 z 再 predict。
 
-**watching_matrix**：`QUANTLAB_BATCH_SCORE` 开启时 `score_one(..., defer_cs_predict=True)` 只抽特征，池齐后再 `rescore_fitted_cross_section_batched` 写 ŷ（避免单票错误 ŷ 再重算）。
+**watching_matrix**：产品调仓只读会话日 L1 与同钟 L2。不设消费开关、且 `QUANTLAB_BATCH_SCORE` 开启时，仍 `score_one(..., defer_cs_predict=True)` 抽特征，池齐后再 `rescore_fitted_cross_section_batched` 写 ŷ。
 
 ---
 
@@ -297,11 +297,12 @@ bars.db
 | `QUANTLAB_DAY_CUBE` | 开 | `0` 关闭 L2 DayCube 落盘 |
 | `QUANTLAB_DAY_CUBE_DIR` | `paths.DAY_CUBE_DIR` | L2 根目录 |
 | `QUANTLAB_BATCH_SCORE` | 开 | `0` 调仓/回测仍走旧双遍 rescore（不建 cube） |
-| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 新浪分钟远端拉取后间隔，上限 30 |
+| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 单票 / 增量：新浪拉取后间隔，上限 30 |
+| `QUANTLAB_MINUTE_WARMUP_WORKERS` | `4` | 强更并发，上限 4 |
+| `QUANTLAB_MINUTE_WARMUP_PACE_SEC` | `2` | 强更开工间隔（秒），上限 30 |
 | `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 已 Ready 则不打远端 |
 | `QUANTLAB_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 要求的连续交易日 |
 | `QUANTLAB_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 的 `fetched_at` 上限 |
-| `QUANTLAB_MINUTE_LOOKBACK_DAYS` | `45` | 规划/状态用回看日历日 |
 | `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC` | `45` | 分钟强更单票子进程超时；`0` 关闭隔离 |
 
 TTL 与窗口常量在 `core/data/policy.py`，不要在调用点再写一套魔法数字。

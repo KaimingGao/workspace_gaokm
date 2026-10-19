@@ -49,7 +49,7 @@ L1 的 `tc_0935` 这类家族里已经有 `raw_ath_*`。立方 miss 之后，打
 
 L2 是快路径：命中则直接用立方里的 μ/σ，不再现场扫同伴。旧分钟立方写在错误的哈希目录下，这条快路径没有被用上。下次再用同一份 800 只跑 L2，开头的 `load_day_cube` 也按 800 只找，同样找不到旧文件，会再算一遍。
 
-开盘瘦立方是另一条写入：`persist_tau_pool_as_cubes` 用传入的完整名单做哈希，矩阵里往往只有 `gap_pct`。所以 `7b6cc7befdf3/open/` 能被回测读到，列数是 1，不能拿来做窗头 z。
+磁盘上还可能留着旧的开盘瘦立方：当时 `persist_tau_pool_as_cubes` 用完整名单做哈希，矩阵里往往只有 `gap_pct`。所以 `7b6cc7befdf3/open/` 能被读到，列数是 1，不能拿来做窗头 z。这条写入已删除；物化改为 `attach_slim` 合并 slim。列数不足 2 的旧文件在覆盖检查里算缺失。
 
 ---
 
@@ -184,7 +184,7 @@ load_day_cube(date, watching_codes, clock=τ)
 | 职责 | 位置 |
 |------|------|
 | 哈希 | `core/research/feature_registry.py` `universe_hash` |
-| 建立方 / 落盘 / 按名单加载 | `core/research/day_cube.py` `build_day_cube`、`build_or_load`、`load_day_cube`、`persist_tau_pool_as_cubes` |
+| 建立方 / 落盘 / 按名单加载 | `core/research/day_cube.py` `build_day_cube`、`build_or_load`、`load_day_cube`、`attach_slim` |
 | 从 items 建立方 | `core/research/batch_score.py` `ensure_day_cube_for_items` |
 | 分钟 L2 跳过无行代码，并把完整名单传入哈希 | `core/research/materialize/l2_jobs.py` `materialize_l2` |
 | open 预热同样传入完整名单 | `core/t0/score_policy.py` `warmup_watching_day_cubes` |

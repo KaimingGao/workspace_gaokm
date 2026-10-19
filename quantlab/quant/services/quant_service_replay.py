@@ -425,37 +425,42 @@ class QuantReplayMixin:
 
         role = normalize_backtest_model_role(score_model_role)
         _emit(f"逐日调仓 {clock} · {int(effective_lookback)} 日（开盘分可复用磁盘缓存）…")
-        result = backtest_paper_replay(
-            stock_bars,
-            top_k=universe_n,
-            cost_model="simple_cn" if apply_costs else "zero",
-            yhat_horizon_days=1,
-            lookback=int(effective_lookback),
-            initial_cash=cash,
-            cash_floor=REPLAY_CASH_FLOOR,
-            fusion_w_co=fusion_w_co,
-            fusion_w_oo=w_oo,
-            fusion_w_oc=w_τc,
-            fuse_enter=enter,
-            fuse_strong=strong,
-            y_oo_gt0=bool(y_oo_gt0),
-            y_τc_gt0=bool(y_τc_gt0),
-            oo_rank_max=oo_rank_max,
-            oo_rank_top_frac=oo_rank_top_frac,
-            fill_clock=clock,
-            minute_bars_by_code=minute_bars,
-            lot_base_amount=lot_base_n,
-            lot_strong_amount=lot_strong_n,
-            price_space_cfg=(
-                None if price_space_gate is None else {"price_space_gate": gate_on}
-            ),
-            progress_cb=progress_cb,
-            cancel_cb=cancel_cb,
-            score_model_role=role,
-            score_backend=backend,
-            tradable_codes=tradable_codes,
-            tradable_reject_reason=str(fit_meta.get("tradable_reject_reason") or tradable_reject_reason),
-        )
+        from core.research.materialize.consumer import materialized_consumer
+
+        with materialized_consumer():
+            result = backtest_paper_replay(
+                stock_bars,
+                top_k=universe_n,
+                cost_model="simple_cn" if apply_costs else "zero",
+                yhat_horizon_days=1,
+                lookback=int(effective_lookback),
+                initial_cash=cash,
+                cash_floor=REPLAY_CASH_FLOOR,
+                fusion_w_co=fusion_w_co,
+                fusion_w_oo=w_oo,
+                fusion_w_oc=w_τc,
+                fuse_enter=enter,
+                fuse_strong=strong,
+                y_oo_gt0=bool(y_oo_gt0),
+                y_τc_gt0=bool(y_τc_gt0),
+                oo_rank_max=oo_rank_max,
+                oo_rank_top_frac=oo_rank_top_frac,
+                fill_clock=clock,
+                minute_bars_by_code=minute_bars,
+                lot_base_amount=lot_base_n,
+                lot_strong_amount=lot_strong_n,
+                price_space_cfg=(
+                    None if price_space_gate is None else {"price_space_gate": gate_on}
+                ),
+                progress_cb=progress_cb,
+                cancel_cb=cancel_cb,
+                score_model_role=role,
+                score_backend=backend,
+                tradable_codes=tradable_codes,
+                tradable_reject_reason=str(
+                    fit_meta.get("tradable_reject_reason") or tradable_reject_reason
+                ),
+            )
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
         result["minute_meta"] = minute_meta
@@ -803,23 +808,28 @@ class QuantReplayMixin:
         }
 
     def fit_return_score_model(self, **kwargs: Any) -> Dict[str, Any]:
+        from core.research.materialize.consumer import MaterializeRequired, materialized_consumer
         from core.research.oo_ridge import fit_oo_ridge as fit_watching_return_model
 
-        return fit_watching_return_model(
-            codes=kwargs.get("codes"),
-            lookback=int(kwargs.get("lookback") or 600),
-            horizon_days=int(kwargs.get("horizon_days") or 3),
-            ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
-            watching_limit=int(kwargs.get("watching_limit") or 12),
-            min_samples=int(kwargs.get("min_samples") or 24),
-            save_draft=bool(kwargs.get("save_draft", True)),
-            holdout_trading_days=int(kwargs.get("holdout_trading_days") or 20),
-            cross_section_zscore=bool(
-                kwargs["cross_section_zscore"]
-                if kwargs.get("cross_section_zscore") is not None
-                else True
-            ),
-        )
+        with materialized_consumer():
+            try:
+                return fit_watching_return_model(
+                    codes=kwargs.get("codes"),
+                    lookback=int(kwargs.get("lookback") or 600),
+                    horizon_days=int(kwargs.get("horizon_days") or 3),
+                    ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
+                    watching_limit=int(kwargs.get("watching_limit") or 12),
+                    min_samples=int(kwargs.get("min_samples") or 24),
+                    save_draft=bool(kwargs.get("save_draft", True)),
+                    holdout_trading_days=int(kwargs.get("holdout_trading_days") or 20),
+                    cross_section_zscore=bool(
+                        kwargs["cross_section_zscore"]
+                        if kwargs.get("cross_section_zscore") is not None
+                        else True
+                    ),
+                )
+            except MaterializeRequired as exc:
+                return exc.to_dict()
 
     def promote_return_score_model(
         self, note: str = "", persist_role: str = "live"

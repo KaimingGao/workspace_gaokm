@@ -2480,6 +2480,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
             island_js.find('label: "y_co"'),
             island_js.find('label: "fuse"'),
         )
+        self.assertLess(
+            island_js.find('label: "fuse"'),
+            island_js.find('label: "oo_rank"'),
+        )
+        self.assertLess(
+            island_js.find('label: "oo_rank"'),
+            island_js.find('label: "τc_rank"'),
+        )
+        self.assertIn('col.id === "oo_rank" || col.id === "tc_rank"', island_js)
+        self.assertIn('data-score-tip="${tip}"', island_js)
+        self.assertIn('sortThHtml("oo_rank", "oo_rank")', ui_js)
+        self.assertIn('sortThHtml("τc_rank", "tc_rank")', ui_js)
         self.assertIn('label: "y_τc"', island_js)
         self.assertNotIn('data-score-tip="path"', ui_js)
         self.assertNotIn('data-score-tip="r"', ui_js)
@@ -4084,14 +4096,23 @@ class TestWebQuantJsGuards(unittest.TestCase):
             report.find('title="ŷ_co · close→次日开">y_co</div>'),
             report.find('title="fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=(open[T+1]−price(τ))/open[T]">fuse</div>'),
         )
+        fuse_at = report.find(">fuse</div>")
+        oo_rank_at = report.find(">oo_rank</div>")
+        tc_rank_at = report.find(">τc_rank</div>")
+        shares_at = report.find(">股数</div>")
+        self.assertGreater(oo_rank_at, fuse_at)
+        self.assertGreater(tc_rank_at, oo_rank_at)
+        self.assertGreater(shares_at, tc_rank_at)
+        self.assertIn('data-score-tip="oo_rank"', report)
+        self.assertIn('data-score-tip="tc_rank"', report)
         self.assertNotIn('title="ŷ_hl · 极值序">y_hl</div>', report)
         css = self._read("web", "static", "css", "base.css")
-        self.assertIn("repeat(9, minmax(5.75rem, 1fr))", css)
+        self.assertIn("repeat(11, minmax(5.75rem, 1fr))", css)
         self.assertNotIn("rebalance-score-nowcast", css)
         self.assertNotIn("paper-rebalance-close", css)
         self.assertNotIn(".rebalance-reason", css)
         follow_css = self._read("web", "static", "css", "follow.css")
-        self.assertIn("repeat(9, minmax(5.75rem, 1fr))", follow_css)
+        self.assertIn("repeat(11, minmax(5.75rem, 1fr))", follow_css)
         css = self._read("web", "static", "css", "follow.css")
         self.assertNotIn("follow-path-matrix-strategy", css)
         self.assertNotIn("follow-path-matrix-roles", css)

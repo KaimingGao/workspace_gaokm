@@ -436,8 +436,12 @@ def score_open_day_entries(
                 windows[str(code)] = []
                 continue
 
-        # miss / 缺 oo：切窗 + score_window_as_item
+        # miss / 缺 oo：消费方只记 miss；物化未开时才切窗现算
         miss += 1
+        from core.research.materialize.consumer import consumer_read_only
+
+        if consumer_read_only():
+            continue
         window = window_for_code(code, dates, date_maps, prev_i, max_window)
         if len(window) < 2:
             continue

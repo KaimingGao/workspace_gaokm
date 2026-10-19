@@ -172,6 +172,16 @@ export function logMatchesTradingFilter(l, filter) {
   return true;
 }
 
+function rankLogBit(label, raw, nRaw) {
+  const y = Number(raw);
+  const n = Number(nRaw);
+  if (!Number.isFinite(y) || !Number.isFinite(n) || n < 1) return "";
+  const ord = Math.round(y);
+  const pool = Math.round(n);
+  if (Math.abs(y - ord) > 1e-9 || ord < 1 || ord > pool) return "";
+  return `${label} ${ord}/${pool}`;
+}
+
 function renderLogItem(l, { tradeCols = false } = {}) {
   const meta = l.meta || {};
   const cls = typeCls(l.type);
@@ -293,6 +303,10 @@ function renderLogItem(l, { tradeCols = false } = {}) {
     } else if (meta.score != null && Number.isFinite(Number(meta.score))) {
       secondaryParts.push(`评分 ${fmtScore(meta.score)}`);
     }
+    const ooRankBit = rankLogBit("oo_rank", meta.y_oo_rank, meta.y_oo_rank_n);
+    const tcRankBit = rankLogBit("τc_rank", meta.y_tc_rank, meta.y_tc_rank_n);
+    if (ooRankBit) secondaryParts.push(ooRankBit);
+    if (tcRankBit) secondaryParts.push(tcRankBit);
     let note = String(meta.note || "").trim();
     if (note && fuseMeta != null) {
       note = note
@@ -484,6 +498,10 @@ export function buildPaperLogsCsv(logs, { tradingOnly = true } = {}) {
     "market_prior",
     "origin",
     "note",
+    "oo_rank",
+    "oo_rank_n",
+    "tc_rank",
+    "tc_rank_n",
     "detail",
   ];
   const lines = [header.join(",")];
@@ -503,6 +521,10 @@ export function buildPaperLogsCsv(logs, { tradingOnly = true } = {}) {
         meta.market_prior ? 1 : 0,
         meta.origin,
         meta.note,
+        meta.y_oo_rank ?? "",
+        meta.y_oo_rank_n ?? "",
+        meta.y_tc_rank ?? "",
+        meta.y_tc_rank_n ?? "",
         l.detail,
       ]
         .map(esc)

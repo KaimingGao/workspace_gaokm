@@ -490,7 +490,7 @@ def _score_open_day(
 ) -> List[dict]:
     """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。
 
-    优先 L1 Feature Lake 灌特征；miss 再 ``score_window_as_item``。
+    优先 L1 Feature Lake 灌特征。消费开关打开时 miss 不再切窗；开关关闭才 ``score_window_as_item``。
     """
     if day_i <= 0:
         return []
@@ -518,6 +518,10 @@ def _score_open_day(
             )
     except Exception:  # noqa: BLE001
         logger.debug("replay lake hydrate failed; fallback window score", exc_info=True)
+        from core.research.materialize.consumer import consumer_read_only
+
+        if consumer_read_only():
+            return []
         from core.signal.cross_section_batch import score_window_as_item
 
         entries = []

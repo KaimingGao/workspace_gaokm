@@ -1,7 +1,7 @@
 /**
  * 本地仓显式写入口：日 K + 5m「增量补齐」（与研究枢纽同源 API）。
  *
- * 「可拉远端」= 允许触发本模块；ŷ 现算始终只读本地仓（见 data_offline.offlineOnlyQuery）。
+ * 「可拉远端」= 允许触发本模块；ŷ 读取始终只读本地仓（见 data_offline.offlineOnlyQuery）。
  */
 
 import { apiFetch } from "./api_client.js";
@@ -138,12 +138,10 @@ export async function ensureWarehouseTopup(opts = {}) {
       mode: "topup",
     };
     const minuteBody = {
-      lookback_days: 45,
       watching_limit: watchingLimit,
       period: "5",
       min_span_days: 40,
       mode: "topup",
-      topup_lookback_days: 5,
     };
 
     // 日 K / 5m 分 Job，可并行提交并各自轮询

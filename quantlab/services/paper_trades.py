@@ -1348,9 +1348,25 @@ class PaperTradesMixin:
         holdings_before = copy.deepcopy(work.get("holdings") or [])
         if not dry_run:
             capture_mark_snapshot(work)
-        result = simulate_watching_matrix_preview(
-            work, top_k=top_k, dry_run=dry_run, offline_only=bool(offline_only)
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
         )
+
+        try:
+            with materialized_consumer():
+                result = simulate_watching_matrix_preview(
+                    work,
+                    top_k=top_k,
+                    dry_run=dry_run,
+                    offline_only=bool(offline_only),
+                )
+        except MaterializeRequired as exc:
+            body = exc.to_dict()
+            body.setdefault("mode", "watching_matrix")
+            body["matrix_mode"] = True
+            body["dry_run"] = bool(dry_run)
+            return body
         if not (result.get("success") or result.get("ok")):
             return {**result, "matrix_mode": True}
 
@@ -1866,7 +1882,6 @@ class PaperTradesMixin:
                         fresh, _mmeta = fetch_minute_bars(
                             code,
                             period=period,
-                            lookback_days=10,
                             use_cache=False,
                             max_age_hours=0.01,
                         )
@@ -1876,7 +1891,6 @@ class PaperTradesMixin:
                     mbars, _mmeta = fetch_minute_bars(
                         code,
                         period=period,
-                        lookback_days=10,
                         use_cache=True,
                     )
                     by_day = group_minute_bars_by_date(mbars) if mbars else {}
@@ -2386,7 +2400,7 @@ class PaperTradesMixin:
         from core.data.facade import bars_and_source
         from core.execution import execution_public_view, resolve_effective_execution, strip_execution_meta
         from core.paper.tplus1 import sellable_shares as t1_sellable
-        from core.t0.config import T0_INTRADAY_MINUTE_CACHE_HOURS, T0_INTRADAY_MINUTE_LOOKBACK_DAYS
+        from core.t0.config import T0_INTRADAY_MINUTE_CACHE_HOURS
         from core.t0.score_policy import T0_PAPER_DAILY_BAR_LIMIT
         from core.t0.intraday import (
             accept_intraday_dual_y_scores,
@@ -2508,7 +2522,6 @@ class PaperTradesMixin:
                     mbars, _meta = fetch_minute_bars(
                         code,
                         period=period,
-                        lookback_days=T0_INTRADAY_MINUTE_LOOKBACK_DAYS,
                         use_cache=True,
                         max_age_hours=T0_INTRADAY_MINUTE_CACHE_HOURS,
                     )
@@ -2584,7 +2597,6 @@ class PaperTradesMixin:
                     },
                     codes=current_t0_cs_universe_codes(),
                     period=period,
-                    lookback_days=T0_INTRADAY_MINUTE_LOOKBACK_DAYS,
                     max_age_hours=T0_INTRADAY_MINUTE_CACHE_HOURS,
                     fetch_if_missing=True,
                 )

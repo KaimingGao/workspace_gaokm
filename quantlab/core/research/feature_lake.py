@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 import numpy as np
 
@@ -151,6 +151,31 @@ def write_stock_panel(
         logger.debug("feature lake write meta failed %s", paths["meta"], exc_info=True)
         return False
     return True
+
+
+def read_stock_meta(family: str, code: str) -> Optional[Dict[str, Any]]:
+    """只读 meta（含 ``bars_fp``）。schema 不符或文件缺失则 None。"""
+    if not enabled() or not code:
+        return None
+    meta = _read_json(_paths(family, code)["meta"])
+    if not meta or int(meta.get("schema") or 0) != FEATURE_SCHEMA:
+        return None
+    return meta
+
+
+def load_stock_dates(family: str, code: str) -> Optional[Set[str]]:
+    """该票 L1 已有的交易日。无分片则 None。"""
+    if read_stock_meta(family, code) is None:
+        return None
+    paths = _paths(family, code)
+    if not os.path.isfile(paths["npz"]):
+        return None
+    try:
+        with np.load(paths["npz"], allow_pickle=False) as z:
+            return {str(d)[:10] for d in z["dates"].tolist()}
+    except (OSError, ValueError, KeyError, EOFError) as exc:
+        logger.debug("feature lake dates failed %s: %s", paths["npz"], exc)
+        return None
 
 
 def load_stock_panel(

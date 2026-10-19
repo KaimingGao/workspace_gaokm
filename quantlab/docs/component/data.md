@@ -95,7 +95,7 @@ flowchart LR
 
 做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **adapters 层**，单票读口经 `core.ports.market.fetch_minute_bars`；观察池 **强更 / 增量补齐** 直调 `fetch_a_minute_bars_isolated`（子进程超时 kill），**不**在业务里直连数据源。
 
-**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。写入窗 **`BARS_DAILY_LOOKBACK=1000`** 个交易日（再垫 alpha_oo）；仓裁剪 **`DAILY_BARS_MAX_KEEP=1200`**（须 ≥ 拉取条数）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗；均走 **子进程隔离**），本地仓表/路径与日 K 不同。
+**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。写入窗 **`BARS_DAILY_LOOKBACK=1000`** 个交易日（再垫 alpha_oo）；仓裁剪 **`DAILY_BARS_MAX_KEEP=1200`**（须 ≥ 拉取条数）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（差别在跳过条件；新浪窗口都固定，合并进本地、不截断）。均走 **子进程隔离**。本地仓表/路径与日 K 不同。
 
 ### 分层与入口
 
@@ -105,7 +105,7 @@ flowchart LR
 | **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 只走新浪 5m · merge · 落盘；`fetch_a_minute_bars_isolated` 子进程隔离 |
 | **新浪** | `_fetch_sina_minute_bars` | `ak.stock_zh_a_minute`；5 分钟唯一远端源 |
 | **本地仓** | `core/store.py` · `store_bars_sqlite.py` | `load/save/merge_minute_cache`；默认 SQLite `minute_bars` |
-| **批量预热** | `core/schedule_jobs._minute_warmup_core` | 逐票子进程 + 超时 kill；schedule / Web **强更 5m** |
+| **批量预热** | `core/schedule_jobs._minute_warmup_core` | 强更：Ready 跳过，其余 4 并发 + 开工间隔；单票超时 kill |
 | **Web 增量/强更** | `quant/research/minute_status.py` | `GET …/status` · `POST …/refresh`（topup/full）· Job `minute-refresh` |
 
 ### 单票拉取流程（`fetch_a_minute_bars`）
@@ -140,7 +140,7 @@ flowchart TD
 | 接口 | `ak.stock_zh_a_minute` |
 | 深度 | datalen=1970（约 41 交易日）；不按回看天数切片 |
 | 复权 | `adjust=""`（不复权） |
-| 频控 | 拉取后 sleep 20s |
+| 频控 | 单票 / 增量：拉取后 sleep 20s。强更：4 并发，父进程开工间隔 2s，子进程内不再睡 |
 
 然后 merge：**同日整段以后到源为准**（`merge_minute_bars_by_time` 默认 `lock_calendar_day`）。
 
@@ -153,7 +153,7 @@ flowchart TD
 | Web 量化台 · **增量补齐 5m** | 同 Job · `mode=topup`：也只走新浪 |
 | 状态 | `GET /api/quant/minute/status`（Ready 近 40 交易日无缺等）· `GET /api/jobs/minute-refresh` |
 
-子进程内只打新浪，拉完睡 **20s**。单票超时 **45s** 后 kill 并继续下一只。**已 Ready** 则跳过远端。
+子进程内只打新浪。增量拉完睡 **20s**。强更 **4** 并发、开工间隔 **2s**（`throttle=False`，避免 20s 睡进 45s 超时）。单票超时 **45s** 后 kill 并继续下一只。**已 Ready** 则跳过远端。
 
 ### 环境变量（分钟）
 
@@ -162,8 +162,9 @@ flowchart TD
 | `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 本地已 Ready 则跳过远端拉取 |
 | `QUANTLAB_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 闸：最近这么多个交易日无缺 |
 | `QUANTLAB_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 闸：`fetched_at` 超过则重拉 |
-| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 新浪分钟远端拉取后间隔（秒） |
-| `QUANTLAB_MINUTE_LOOKBACK_DAYS` | `45` | 规划/状态用回看日历日（远端窗口仍固定） |
+| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 单票 / 增量：新浪拉取后间隔（秒） |
+| `QUANTLAB_MINUTE_WARMUP_WORKERS` | `4` | 强更并发，上限 4 |
+| `QUANTLAB_MINUTE_WARMUP_PACE_SEC` | `2` | 强更两次开工的最小间隔（秒） |
 | `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC` | `45` | 观察池强更/增量单票子进程超时；`0` 关闭隔离 |
 | `QUANTLAB_AK_LOCK_TIMEOUT_SEC` | `90` | 主进程等 `ak_lock` 上限；`0`=无限等 |
 | `QUANTLAB_BARS_BACKEND` | `sqlite` | 分钟与日线共用 bars 后端 |
@@ -319,7 +320,7 @@ flowchart TD
 
 ### 采集运维
 
-- `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 只走新浪 · 子进程隔离 · 间隔 20s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
+- `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 只走新浪 · 4 并发 · 开工间隔 2s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
 - Web 分钟强更：`POST /api/quant/minute/refresh` · `GET /api/quant/minute/status` · Job `GET /api/jobs/minute-refresh`
 - 验证宇宙卫生：`GET /api/ops/validation-hygiene` · `POST /api/ops/validation-prepare`
 - 舆情 as_of：`GET /api/ops/sentiment-as-of?code=&as_of=`

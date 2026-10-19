@@ -4593,7 +4593,6 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertIn("_seed_pool_minutes", src)
         self.assertIn('label="加载截面 5m"', src)
         self.assertIn("_seed_pool_minutes(\n        pool_codes", src)
-        self.assertIn("lookback_days=minute_span", src)
         seed_src = inspect.getsource(m._seed_pool_minutes)
         self.assertIn("_local_minute_by_date", seed_src)
         self.assertIn("ThreadPoolExecutor", seed_src)
@@ -4618,7 +4617,6 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
                     n = m._seed_pool_minutes(
                         ["600000", "000001", "600000"],
                         "5",
-                        lookback_days=10,
                         progress_cb=lambda _c, _t, msg: msgs.append(msg),
                     )
         self.assertEqual(n, 2)
@@ -4648,7 +4646,6 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         none_at = src.find("if tau_pool is None:")
         self.assertGreater(extras_at, 0)
         self.assertGreater(none_at, extras_at)
-        self.assertIn("lookback_days=minute_span", src)
 
     def test_for_code_reuses_holdings_peer_minutes(self):
         import inspect

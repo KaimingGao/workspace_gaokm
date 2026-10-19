@@ -3728,9 +3728,9 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-table {
   /* 股票 / 决策加宽，中间价分列够放下 ±xx.xx%；横向溢出交给 scroll */
-  --rebalance-cols: minmax(8.5rem, 1.25fr) repeat(9, minmax(5.75rem, 1fr)) minmax(8.75rem, 1.2fr);
+  --rebalance-cols: minmax(8.5rem, 1.25fr) repeat(11, minmax(5.75rem, 1fr)) minmax(8.75rem, 1.2fr);
   width: 100%;
-  min-width: 78rem;
+  min-width: 90rem;
   font-size: 0.78rem;
   background: transparent;
 }

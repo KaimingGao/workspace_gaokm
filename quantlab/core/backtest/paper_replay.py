@@ -297,6 +297,23 @@ def backtest_paper_replay(
     if session_day and session_day not in dates:
         dates = sorted(dates + [session_day])
     n = len(dates)
+    if lookback is not None:
+        score_from = max(1, int(trade_start))
+    else:
+        score_from = max(1, int(min_history))
+    if score_from >= n:
+        score_from = max(1, n - 1)
+    if scores_by_date is None:
+        from core.research.materialize.coverage import replay_coverage_gap
+
+        gap = replay_coverage_gap(
+            stock_bars,
+            dates,
+            score_from=score_from,
+            fill_clock=clock,
+        )
+        if gap is not None:
+            return gap
 
     score_cache_key: Optional[str] = None
     day_inputs_index = None
@@ -508,16 +525,6 @@ def backtest_paper_replay(
 
             tau_pool_by_date = build_tau_pool_by_date(stock_bars) or {}
             seed_tau_cross_section_pool(tau_pool_by_date)
-            try:
-                from core.research.day_cube import persist_tau_pool_as_cubes
-
-                persist_tau_pool_as_cubes(
-                    tau_pool_by_date,
-                    list((stock_bars or {}).keys()),
-                    clock="open",
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("replay day_cube persist failed", exc_info=True)
         except Exception:  # noqa: BLE001
             logger.debug("replay tau pool build failed", exc_info=True)
             tau_pool_by_date = {}

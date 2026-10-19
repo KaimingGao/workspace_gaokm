@@ -132,7 +132,6 @@ def build_minute_tail_view(
     period: str = "5",
     max_age_hours: float = 12.0,
     fetch_if_missing: bool = True,
-    lookback_days: int = 5,
     as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
     """构建涨跌会话日 5m 迷你图；缺新鲜缓存时可按需拉取（默认开）。
@@ -185,7 +184,6 @@ def build_minute_tail_view(
                     code,
                     period=period_s,
                     use_cache=False,
-                    lookback_days=max(1, int(lookback_days or 5)),
                     max_age_hours=float(max_age_hours),
                 )
                 if bars:
@@ -219,7 +217,6 @@ def build_minute_tail_view(
                     code,
                     period=period_s,
                     use_cache=False,
-                    lookback_days=max(1, int(lookback_days or 5)),
                     max_age_hours=0.01,
                 )
                 if fresh_bars:

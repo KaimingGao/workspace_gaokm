@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.data.policy import (
     MINUTE_CACHE_HOURS,
     MINUTE_ISOLATED_TIMEOUT_SEC,
-    MINUTE_LOOKBACK_DAYS,
     minute_fetch_delay_sec,
 )
 from core.numbers import to_float as _to_float
@@ -221,18 +220,17 @@ def fetch_a_minute_bars(
     code: str,
     *,
     period: str = MINUTE_PERIOD,
-    lookback_days: int = MINUTE_LOOKBACK_DAYS,
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
+    throttle: bool = True,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """拉取 A 股 5 分钟线（新浪）；失败返回空列表。
 
-    ``period`` 固定为 5。``lookback_days`` 不传给新浪接口（窗口固定）。
+    ``period`` 固定为 5。新浪窗口固定（约 41 个交易日），不按回看天数切片。
     use_cache: True 时先读本地有效仓；False 跳过读仓直接打远端。
       远端成功后**始终** merge+save（与 use_cache 无关），避免 force refresh 不落盘。
     远端失败时回退本地过期缓存，避免做T回测整批挂死。
     """
-    del lookback_days  # 新浪固定窗口
     market, bare = resolve_market_code(code)
     if market != "CN" or not bare:
         raw = str(code).strip()
@@ -254,57 +252,59 @@ def fetch_a_minute_bars(
             return bars, meta
 
     bars, as_meta = _fetch_sina_minute_bars(bare)
-    if as_meta:
-        _throttle_minute_remote_fetch()
-
     logger.debug(
         "fetch_a_minute_bars success %s period=%s use_cache=%s max_age_hours=%s bars_count=%s",
         code, period, use_cache, max_age_hours, len(bars),
     )
 
-    if not bars:
-        if use_cache:
-            stale = _load_stale_minute(market, bare, period)
-            if stale:
-                bars, meta = stale
-                meta["remote_error"] = as_meta.get("error")
-                meta["period"] = period
-                return bars, meta
-        return [], {
-            "data_source": "empty",
-            "error": as_meta.get("error") or "no_minute_bars",
-            "period": period,
-            "hint": "stock_zh_a_minute 失败；可稍后重试",
-            "sina_error": as_meta.get("error"),
-        }
+    try:
+        if not bars:
+            if use_cache:
+                stale = _load_stale_minute(market, bare, period)
+                if stale:
+                    bars, meta = stale
+                    meta["remote_error"] = as_meta.get("error")
+                    meta["period"] = period
+                    return bars, meta
+            return [], {
+                "data_source": "empty",
+                "error": as_meta.get("error") or "no_minute_bars",
+                "period": period,
+                "hint": "stock_zh_a_minute 失败；可稍后重试",
+                "sina_error": as_meta.get("error"),
+            }
 
-    bars, meta = _merge_save_minute_bars(
-        market,
-        bare,
-        bars,
-        period=period,
-        data_source=str(as_meta.get("data_source") or "akshare:stock_zh_a_minute"),
-        adjust_policy=None,
-    )
-    meta["sina"] = as_meta
-    return bars, meta
+        bars, meta = _merge_save_minute_bars(
+            market,
+            bare,
+            bars,
+            period=period,
+            data_source=str(as_meta.get("data_source") or "akshare:stock_zh_a_minute"),
+            adjust_policy=None,
+        )
+        meta["sina"] = as_meta
+        return bars, meta
+    finally:
+        # 先落盘再睡，避免 45s 超时把已拉到的根杀掉
+        if throttle:
+            _throttle_minute_remote_fetch()
 
 
 def fetch_minute_bars(
     code: str,
     *,
     period: str = MINUTE_PERIOD,
-    lookback_days: int = MINUTE_LOOKBACK_DAYS,
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
+    throttle: bool = True,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """对外入口：目前仅 A 股 5 分钟。"""
     return fetch_a_minute_bars(
         code,
         period=period,
-        lookback_days=lookback_days,
         use_cache=use_cache,
         max_age_hours=max_age_hours,
+        throttle=throttle,
     )
 
 
@@ -315,7 +315,7 @@ def _child_fetch_a_minute_worker(payload: Dict[str, Any], out_queue: Any) -> Non
         code = str(raw.pop("code") or "")
         kw = {
             k: raw[k]
-            for k in ("period", "lookback_days", "use_cache", "max_age_hours")
+            for k in ("period", "use_cache", "max_age_hours", "throttle")
             if k in raw
         }
         bars, meta = fetch_a_minute_bars(code, **kw)
@@ -339,9 +339,9 @@ def fetch_a_minute_bars_isolated(
     *,
     timeout_sec: float = MINUTE_ISOLATED_TIMEOUT_SEC,
     period: str = MINUTE_PERIOD,
-    lookback_days: int = MINUTE_LOOKBACK_DAYS,
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
+    throttle: bool = True,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """子进程拉 5 分钟线；超时 ``kill`` 子进程，不占主进程 ``ak_lock``。
 
@@ -356,17 +356,17 @@ def fetch_a_minute_bars_isolated(
         return fetch_a_minute_bars(
             code_s,
             period=period,
-            lookback_days=lookback_days,
             use_cache=use_cache,
             max_age_hours=max_age_hours,
+            throttle=throttle,
         )
 
     payload = {
         "code": code_s,
         "period": MINUTE_PERIOD,
-        "lookback_days": int(lookback_days or MINUTE_LOOKBACK_DAYS),
         "use_cache": bool(use_cache),
         "max_age_hours": float(max_age_hours),
+        "throttle": bool(throttle),
     }
     ctx = mp.get_context("spawn")
     out_queue = ctx.Queue()

@@ -537,4 +537,3 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
 # 盘中 Worker：与 5m K 线对齐的轮询与分钟缓存 TTL
 T0_INTRADAY_TICK_SEC = 300.0
 T0_INTRADAY_MINUTE_CACHE_HOURS = 5.0 / 60.0
-T0_INTRADAY_MINUTE_LOOKBACK_DAYS = 5

@@ -26,15 +26,16 @@ BARS_DAILY_LOOKBACK = 1000
 DAILY_BARS_MAX_KEEP = 1200
 # 5m 全日约 48 根；12000 ≈ 250 交易日，供 path 150d 回看
 MINUTE_BARS_MAX_KEEP = 12000
-# 远端分钟拉取后休眠；降低反爬封 IP 风险
+# 远端分钟拉取后休眠；降低反爬封 IP 风险（单票 / 增量，在子进程内）
 MINUTE_FETCH_DELAY_SEC = 20.0
 MINUTE_FETCH_DELAY_MAX_SEC = 30.0
+# 强更：父进程按此间隔开工，多只重叠在飞；不在子进程里再睡 20s
+MINUTE_WARMUP_WORKERS = 4
+MINUTE_WARMUP_PACE_SEC = 2.0
+MINUTE_WARMUP_PACE_MAX_SEC = 30.0
 # 观察池 5m 强更/增量：整票子进程隔离超时（新浪近端）
 MINUTE_ISOLATED_TIMEOUT_SEC = 45.0
 MINUTE_ISOLATED_TIMEOUT_MAX_SEC = 180.0
-# 5m 规划/状态用回看（日历日）。新浪接口本身固定 datalen≈41 交易日
-MINUTE_LOOKBACK_DAYS = 45
-MINUTE_LOOKBACK_MAX_DAYS = 60
 FUNDAMENTALS_HISTORY_MAX_POINTS = 40
 
 # —— 财务 PIT 门禁（DS-R3）——
@@ -83,6 +84,26 @@ def minute_fetch_delay_sec() -> float:
     except (TypeError, ValueError):
         v = float(MINUTE_FETCH_DELAY_SEC)
     return max(0.0, min(v, float(MINUTE_FETCH_DELAY_MAX_SEC)))
+
+
+def minute_warmup_workers() -> int:
+    """强更并发子进程数。``QUANTLAB_MINUTE_WARMUP_WORKERS`` 可覆盖，上限 4。"""
+    raw = os.environ.get("QUANTLAB_MINUTE_WARMUP_WORKERS", str(MINUTE_WARMUP_WORKERS))
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        v = int(MINUTE_WARMUP_WORKERS)
+    return max(1, min(v, int(MINUTE_WARMUP_WORKERS)))
+
+
+def minute_warmup_pace_sec() -> float:
+    """强更两次开工的最小间隔（秒）。``QUANTLAB_MINUTE_WARMUP_PACE_SEC`` 可覆盖。"""
+    raw = os.environ.get("QUANTLAB_MINUTE_WARMUP_PACE_SEC", str(MINUTE_WARMUP_PACE_SEC))
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = float(MINUTE_WARMUP_PACE_SEC)
+    return max(0.0, min(v, float(MINUTE_WARMUP_PACE_MAX_SEC)))
 
 
 MINUTE_WARMUP_STALE_HOURS = 24.0
@@ -136,19 +157,6 @@ def minute_isolated_timeout_sec() -> float:
     if v <= 0:
         return 0.0
     return max(1.0, min(v, float(MINUTE_ISOLATED_TIMEOUT_MAX_SEC)))
-
-
-def minute_lookback_days() -> int:
-    """5m 规划/状态回看日历日；``QUANTLAB_MINUTE_LOOKBACK_DAYS`` 可覆盖。
-
-    新浪远端窗口仍固定（datalen≈41 交易日）。
-    """
-    raw = os.environ.get("QUANTLAB_MINUTE_LOOKBACK_DAYS", str(MINUTE_LOOKBACK_DAYS))
-    try:
-        v = int(raw)
-    except (TypeError, ValueError):
-        v = int(MINUTE_LOOKBACK_DAYS)
-    return max(5, min(v, int(MINUTE_LOOKBACK_MAX_DAYS)))
 
 
 # 兼容旧名

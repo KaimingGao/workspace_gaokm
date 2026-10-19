@@ -129,15 +129,56 @@ def _materialize_tc(
         head="y_tc",
         cache_head="tc",
     )
+    rank_row = _materialize_tc_rank(codes, lookback=lookback, progress_cb=progress_cb)
     return {
         "family": FAMILY_TC,
-        "ok": True,
+        "ok": bool(rank_row.get("ok")),
         "n_stocks": int(n_stocks),
         "n_rows": len(ys or []),
         "n_features": len(col_names or []),
         "n_dates": len(set(str(d)[:10] for d in (dates or []) if d)),
         "elapsed_s": round(time.perf_counter() - t0, 2),
         "x_shape": list(getattr(X, "shape", []) or []),
+        "tc_rank": rank_row,
+    }
+
+
+def _materialize_tc_rank(
+    codes: Sequence[str],
+    *,
+    lookback: int,
+    progress_cb: ProgressCb,
+) -> Dict[str, Any]:
+    """开盘 tc_rank 与 tc 一起写，拟合名次头不再自己生产 L1。"""
+    from core.research.panel_matrix import collect_tau_compact
+    from core.yhat.keys import TAU_Z_FEATURES
+
+    stock_bars, _failures, _items = _stock_bar_items(codes, lookback=lookback)
+    packs = [
+        {"stock_code": c, "code": c, "bars": list(stock_bars.get(c) or [])}
+        for c in codes
+        if stock_bars.get(c)
+    ]
+    if len(packs) < 2:
+        return {"family": "tc_rank", "ok": False, "error": "有效日线不足"}
+    _emit(progress_cb, 0, 1, f"L1 tc_rank：collect {len(packs)} 只…")
+    try:
+        _x, _names, ys, _dates, _metas, n_stocks = collect_tau_compact(
+            packs,
+            list(TAU_Z_FEATURES),
+            tau_hm="open",
+            include_alpha_tc=True,
+            head="y_tc_rank",
+            cache_head="tc_rank",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"family": "tc_rank", "ok": False, "error": str(exc)}
+    return {
+        "family": "tc_rank",
+        "ok": len(ys or []) > 0,
+        "n_stocks": int(n_stocks),
+        "n_rows": len(ys or []),
+        "error": None if ys else "empty tc_rank",
     }
 
 
@@ -235,7 +276,7 @@ def _materialize_oo_rank(
     }
 
 
-def _attach_minute_bars(packs: List[dict], *, lookback_days: int = 45) -> int:
+def _attach_minute_bars(packs: List[dict]) -> int:
     """给 packs 挂本地 5m；返回挂上分钟的票数。"""
     n = 0
     try:
@@ -243,7 +284,6 @@ def _attach_minute_bars(packs: List[dict], *, lookback_days: int = 45) -> int:
         from core.store import load_minute_cache
     except Exception:  # noqa: BLE001
         return 0
-    _ = lookback_days  # 仓内全量读；窗由拟合/指纹约束
     for row in packs:
         if not isinstance(row, dict):
             continue
@@ -281,7 +321,6 @@ def materialize_l1_tau_grid(
     clocks: Sequence[str] | None = None,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
-    minute_lookback_days: int = 45,
 ) -> Dict[str, Any]:
     """H1：按训练网格写 ``tc_HHMM`` L1（τc∪窗头列）。须本地 5m。"""
     from core.research.materialize.catalog import suggested_tau_clocks
@@ -316,7 +355,7 @@ def materialize_l1_tau_grid(
         report["failures"] = failures[:8]
         return report
 
-    attached = _attach_minute_bars(packs, lookback_days=minute_lookback_days)
+    attached = _attach_minute_bars(packs)
     report["minute_attached"] = attached
     if attached < 2:
         report["error"] = "本地 5m 不足（请先分钟增量/强更）"
@@ -436,6 +475,13 @@ def materialize_l1(
         report["by_family"][fam] = row
         if not row.get("ok"):
             report["ok"] = False
+        if fam == FAMILY_OO and FAMILY_OO_RANK not in fams and row.get("ok"):
+            rank = _materialize_oo_rank(
+                code_list, lookback=lookback, progress_cb=progress_cb
+            )
+            report["by_family"][FAMILY_OO_RANK] = rank
+            if not rank.get("ok"):
+                report["ok"] = False
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
     _emit(progress_cb, n, n, f"L1 完成 · {report['elapsed_s']}s")
     return report

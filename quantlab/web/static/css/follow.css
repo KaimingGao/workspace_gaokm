@@ -646,8 +646,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 
 .follow-page .rebalance-table {
   /* 与 base.css 同步：股票/决策加宽，中间列加距 */
-  --rebalance-cols: minmax(8.5rem, 1.25fr) repeat(9, minmax(5.75rem, 1fr)) minmax(8.75rem, 1.2fr);
-  min-width: 78rem;
+  --rebalance-cols: minmax(8.5rem, 1.25fr) repeat(11, minmax(5.75rem, 1fr)) minmax(8.75rem, 1.2fr);
+  min-width: 90rem;
   font-size: 0.78rem;
 }
 
@@ -11211,6 +11211,14 @@ body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-phase {
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-legs {
   width: 3.2rem;
+}
+
+body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-rank {
+  width: 4.6rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2, #475569);
+  white-space: nowrap;
 }
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-clock {

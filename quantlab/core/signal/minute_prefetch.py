@@ -50,7 +50,6 @@ def prefetch_minute_bars(
                 code,
                 period=str(period or "5"),
                 use_cache=True,
-                lookback_days=10,
             )
             if bars:
                 warmed += 1

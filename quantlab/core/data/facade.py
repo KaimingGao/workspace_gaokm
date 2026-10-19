@@ -71,14 +71,12 @@ def get_minute_bars(
     code: str,
     *,
     period: str = "5",
-    lookback_days: int = 30,
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
 ) -> Dict[str, Any]:
     return get_default_service().get_minute_bars(
         code,
         period=period,
-        lookback_days=lookback_days,
         use_cache=use_cache,
         max_age_hours=max_age_hours,
     ).as_dict()

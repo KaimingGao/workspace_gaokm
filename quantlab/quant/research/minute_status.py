@@ -13,17 +13,15 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.data.policy import MINUTE_LOOKBACK_DAYS, MINUTE_WARMUP_READY_MIN_SPAN_DAYS
+from core.data.policy import MINUTE_WARMUP_READY_MIN_SPAN_DAYS
 from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MINUTE_PERIOD = "5"
 DEFAULT_MIN_SPAN_DAYS = MINUTE_WARMUP_READY_MIN_SPAN_DAYS
-DEFAULT_LOOKBACK_DAYS = MINUTE_LOOKBACK_DAYS
-# 增量补齐：跨度已够的票只拉近几日。与 Ready「最近 N 日无缺」分开。
+# 增量跳过闸：本地跨度 ≥ 此值且末根已对齐则不打新浪。不截断仓。
 DEFAULT_TOPUP_SPAN_DAYS = 20
-DEFAULT_TOPUP_LOOKBACK_DAYS = 5
 DEFAULT_TOPUP_WORKERS = 4
 DEFAULT_LABEL_MAX_DAYS = 120
 # Span mix 累计档：有缓存标的按跨度同时计入更宽档（与 Ready 闸独立）
@@ -411,7 +409,6 @@ def build_minute_status(
         "universe_count": total,
         "universe_mode": "watching",
         "min_span_days": window,
-        "lookback_days_default": DEFAULT_LOOKBACK_DAYS,
         "cached_ok": cached_ok,
         "short": short,
         "missing": missing,
@@ -478,28 +475,26 @@ def _minute_topup_core(
     *,
     codes: List[str],
     period: str = DEFAULT_MINUTE_PERIOD,
-    full_lookback_days: int = DEFAULT_LOOKBACK_DAYS,
-    topup_lookback_days: int = DEFAULT_TOPUP_LOOKBACK_DAYS,
     min_span_days: int = DEFAULT_TOPUP_SPAN_DAYS,
     workers: int = DEFAULT_TOPUP_WORKERS,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """观察池 5m 增量补齐：今日已拉且会话日齐窗才跳过；缺尾（如只到 10:00）强制补拉。
+    """观察池 5m 增量补齐：今日已拉且会话齐窗才跳过；缺尾（如只到 10:00）强制补拉。
+
+    跨度 ≥ ``min_span_days``（默认 20）且末根已对齐也跳过。该阈值不截断本地仓。
+    新浪窗口固定（约 41 个交易日）。
 
     远端走 ``fetch_a_minute_bars_isolated``：单票子进程超时 kill，不占主进程 ``ak_lock``，
     避免增量补齐再卡死在「超时收尾」。
     """
     from adapters.market.minute_history import fetch_a_minute_bars_isolated
-    from core.data.policy import minute_isolated_timeout_sec, minute_lookback_days
+    from core.data.policy import minute_isolated_timeout_sec
 
     watch = [str(c).strip() for c in (codes or []) if str(c).strip()]
     if not watch:
         return {"ok": False, "error": "无标的", "kind": "minute_topup", "total": 0}
 
     period_s = DEFAULT_MINUTE_PERIOD
-    cap_days = minute_lookback_days()
-    full_lb = min(max(int(full_lookback_days or DEFAULT_LOOKBACK_DAYS), 5), cap_days)
-    top_lb = min(max(int(topup_lookback_days or DEFAULT_TOPUP_LOOKBACK_DAYS), 2), full_lb)
     min_span = max(1, int(min_span_days or DEFAULT_TOPUP_SPAN_DAYS))
     expected = expected_minute_asof()
     now = datetime.now()
@@ -519,35 +514,35 @@ def _minute_topup_core(
     done = 0
     batch_timeout = 0.0
 
-    def _plan(code: str) -> Tuple[str, str, int, bool]:
-        """返回 (code, action, lookback, force)。action: skip|skip_today|topup|full。"""
+    def _plan(code: str) -> Tuple[str, str, bool]:
+        """返回 (code, action, force)。action: skip|skip_today|topup|full。"""
         snap = _minute_snapshot_for_code(code, period=period_s)
         if not snap:
-            return code, "full", full_lb, False
+            return code, "full", False
         span = int(snap.get("span_days") or 0)
         date_max = str(snap.get("date_max") or "")[:10]
         on_expected = bool(expected and date_max and date_max >= expected)
         # 会话缺尾：新浪近端强刷（有超时）
         if on_expected and not bool(snap.get("session_complete")):
-            return code, "topup", top_lb, True
+            return code, "topup", True
         # 同日已拉且会话齐窗：增量不再打远端；强更 5m 不受此限
         if _minute_fetched_today(snap.get("fetched_at"), now=now):
-            return code, "skip_today", 0, False
+            return code, "skip_today", False
         if span >= min_span and on_expected:
-            return code, "skip", 0, False
+            return code, "skip", False
         if span >= min_span:
-            return code, "topup", top_lb, False
-        return code, "full", full_lb, False
+            return code, "topup", False
+        return code, "full", False
 
     plans = [_plan(c) for c in watch]
-    truncated_codes = {c for c, act, _lb, force in plans if act == "topup" and force}
+    truncated_codes = {c for c, act, force in plans if act == "topup" and force}
     to_fetch = [
-        (c, act, lb)
-        for c, act, lb, _force in plans
+        (c, act)
+        for c, act, _force in plans
         if act not in ("skip", "skip_today")
     ]
-    skipped_aligned = sum(1 for _, act, _, _ in plans if act == "skip")
-    skipped_today = sum(1 for _, act, _, _ in plans if act == "skip_today")
+    skipped_aligned = sum(1 for _, act, _ in plans if act == "skip")
+    skipped_today = sum(1 for _, act, _ in plans if act == "skip_today")
     skipped_total = skipped_aligned + skipped_today
     warmed += skipped_total
     done = skipped_total
@@ -562,7 +557,7 @@ def _minute_topup_core(
         except Exception:  # noqa: BLE001
             logger.debug("minute topup progress_cb failed", exc_info=True)
 
-    def _fetch_one(code: str, action: str, lookback: int) -> Tuple[str, str, bool, Optional[str]]:
+    def _fetch_one(code: str, action: str) -> Tuple[str, str, bool, Optional[str]]:
         # 会话缺尾：跳过读仓强刷；其余增量仍用短 TTL 读短路
         force = code in truncated_codes
         bars, meta = fetch_a_minute_bars_isolated(
@@ -570,7 +565,6 @@ def _minute_topup_core(
             timeout_sec=per_stock_timeout,
             period=period_s,
             use_cache=not force,
-            lookback_days=lookback,
             max_age_hours=0.01,
         )
         if bars:
@@ -587,8 +581,8 @@ def _minute_topup_core(
         pool = ThreadPoolExecutor(max_workers=n_workers)
         try:
             futs = {
-                pool.submit(_fetch_one, c, act, lb): (c, act)
-                for c, act, lb in to_fetch
+                pool.submit(_fetch_one, c, act): (c, act)
+                for c, act in to_fetch
             }
             pending = set(futs.keys())
             try:
@@ -656,8 +650,6 @@ def _minute_topup_core(
         "kind": "minute_topup",
         "mode": "topup",
         "period": period_s,
-        "lookback_days": full_lb,
-        "topup_lookback_days": top_lb,
         "expected_asof": expected or None,
         "total": total,
         "warmed": warmed,
@@ -672,8 +664,8 @@ def _minute_topup_core(
         "workers": n_workers,
         "errors": errors[:10],
         "note": (
-            f"5m 增量补齐 · 只走新浪 · 齐窗才今日/对齐跳过 · 缺尾走近端 · 近 {top_lb} 日 topup · "
-            f"缺/短按新浪窗口 · 子进程隔离 · {n_workers} 并发"
+            f"5m 增量补齐 · 新浪固定窗 · 今日已拉且齐窗跳过 · 跨度≥{min_span}日且末根对齐跳过 · "
+            f"缺尾补拉 · 不截断本地仓 · 子进程隔离 · {n_workers} 并发"
             + (f" · 批上限 {int(batch_timeout)}s" if to_fetch else "")
         ),
     }
@@ -683,26 +675,21 @@ def refresh_minute_only(
     *,
     watching_limit: int = WATCHING_MAX_SIZE,
     period: str = DEFAULT_MINUTE_PERIOD,
-    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     mode: str = "full",
-    topup_lookback_days: int = DEFAULT_TOPUP_LOOKBACK_DAYS,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """预热观察池 5m 分钟线（研究枢纽 UI；不占用 schedule slot）。
 
     ``mode=full``：强更（Ready 跳过 + 新浪近端重拉）。
-    ``mode=topup``：增量补齐（已对齐跳过；跨度够只补近几日；供预演调仓日常刷新）。
+    ``mode=topup``：增量补齐（今日已拉且齐窗、或跨度够且末根对齐则跳过；缺尾补拉）。
     """
     from core.platform.schedule_jobs import _minute_warmup_core
-    from core.data.policy import minute_lookback_days
 
     limit = max(1, int(watching_limit or WATCHING_MAX_SIZE))
     period_s = DEFAULT_MINUTE_PERIOD
     mode_s = str(mode or "full").strip().lower()
     if mode_s not in ("full", "topup"):
         mode_s = "full"
-    cap = minute_lookback_days()
-    lb = min(max(int(lookback_days or DEFAULT_LOOKBACK_DAYS), 5), cap)
     codes = _resolve_watching_codes(watching_limit=limit)
     n_codes = len(codes)
     if n_codes < 1:
@@ -728,8 +715,6 @@ def refresh_minute_only(
         warmup = _minute_topup_core(
             codes=codes,
             period=period_s,
-            full_lookback_days=lb,
-            topup_lookback_days=topup_lookback_days,
             progress_cb=_on_progress,
         )
     else:
@@ -737,7 +722,6 @@ def refresh_minute_only(
             codes=codes,
             period=period_s,
             cap=n_codes,
-            lookback_days=lb,
             progress_cb=_on_progress,
         )
         warmup = dict(warmup)
@@ -754,7 +738,6 @@ def refresh_minute_only(
         "mode": mode_s,
         "watching_limit": limit,
         "universe_count": n_codes,
-        "lookback_days": lb,
         "period": period_s,
         "minute_warmup": warmup,
         "status": status,

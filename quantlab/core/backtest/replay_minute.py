@@ -90,7 +90,6 @@ def load_replay_minute_bars(
             bars, meta = fetch_minute_bars(
                 code,
                 period=period,
-                lookback_days=lb,
                 use_cache=True,
                 max_age_hours=48.0,
             )

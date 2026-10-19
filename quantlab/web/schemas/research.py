@@ -514,18 +514,11 @@ class MinuteRefreshRequest(BaseModel):
     """观察池 5m 分钟线预热（ŷ_τc / T0 回测）。"""
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
-    lookback_days: int = Field(default=45, ge=5, le=60)
     watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     min_span_days: int = Field(default=40, ge=10, le=120)
     mode: str = Field(
         default="full",
         description="full=强更（新浪近端）；topup=增量补齐",
-    )
-    topup_lookback_days: int = Field(
-        default=5,
-        ge=2,
-        le=15,
-        description="mode=topup 时跨度已够的票补齐窗口（日历日）",
     )
     sync: bool = Field(
         default=False,

@@ -37,19 +37,52 @@ def _resolve_dates(
     dates: Sequence[str] | None,
     *,
     lookback_days: int,
+    use_trading_days: bool = False,
 ) -> List[str]:
     explicit = sorted(
         {str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10}
     )
     if explicit:
         return explicit
-    # 无显式日期：用最近 lookback_days 个日历日（消费方有交易日过滤；Cube miss 会跳过）
-    n = max(2, min(400, int(lookback_days or 60)))
+    n = max(2, min(1500, int(lookback_days or 60)))
+    if use_trading_days:
+        from core.research.materialize.coverage import recent_trading_days
+
+        return recent_trading_days(n)
+    # 日历日回退：消费方有交易日过滤；周末立方会被跳过
     today = datetime.now().date()
     out: List[str] = []
     for i in range(n):
         out.append((today - timedelta(days=i)).isoformat())
     return sorted(set(out))
+
+
+def _attach_open_slim(codes: Sequence[str], days: Sequence[str]) -> int:
+    """用日线开盘缺口把 slim 并进已有 open 立方。失败只记日志。"""
+    try:
+        from core.research.day_cube import attach_slim
+        from core.t0.score_policy import build_tau_pool_by_date, load_bars_by_code_for_tau_pool
+    except Exception:  # noqa: BLE001
+        logger.debug("open slim imports failed", exc_info=True)
+        return 0
+    limit = max(20, min(1500, len(list(days or [])) + 8))
+    try:
+        bars = load_bars_by_code_for_tau_pool(codes, limit=limit)
+        pool = build_tau_pool_by_date(bars) or {}
+    except Exception:  # noqa: BLE001
+        logger.debug("open slim tau pool failed", exc_info=True)
+        return 0
+    n = 0
+    for day in days or []:
+        slim = pool.get(str(day)[:10])
+        if not isinstance(slim, dict) or not slim:
+            continue
+        try:
+            if attach_slim(str(day)[:10], codes, clock="open", slim=slim):
+                n += 1
+        except Exception:  # noqa: BLE001
+            logger.debug("attach open slim failed day=%s", day, exc_info=True)
+    return n
 
 
 def materialize_l2(
@@ -58,6 +91,7 @@ def materialize_l2(
     dates: Sequence[str] | None = None,
     clocks: Sequence[str] | None = None,
     lookback_days: int = 60,
+    use_trading_days: bool = False,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
     min_lake_frac: float = 0.5,
@@ -70,7 +104,11 @@ def materialize_l2(
     from core.t0.score_policy import warmup_watching_day_cubes
 
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
-    day_list = _resolve_dates(dates, lookback_days=lookback_days)
+    day_list = _resolve_dates(
+        dates,
+        lookback_days=lookback_days,
+        use_trading_days=use_trading_days,
+    )
     clock_list = normalize_clocks(clocks)
     report: Dict[str, Any] = {
         "ok": True,
@@ -118,8 +156,10 @@ def materialize_l2(
                 min_lake_frac=float(min_lake_frac),
                 prefetch_l1=False,
             )
+            slim_n = _attach_open_slim(code_list, day_list)
             report["by_clock"][clock] = {
                 "ok": True,
+                "slim_days": slim_n,
                 **dict(warm or {}),
             }
             continue

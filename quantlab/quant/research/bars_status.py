@@ -27,6 +27,38 @@ def bars_daily_fetch_limit(lookback: int = BARS_DAILY_LOOKBACK) -> int:
     return lb + pad
 
 
+def _stored_oo_bars_fp(code: str) -> Optional[str]:
+    """None=没有 oo 湖；空串=有湖但没有价量指纹。"""
+    try:
+        from core.research.feature_lake import read_stock_meta
+        from core.research.lake_bridge import FAMILY_OO
+
+        meta = read_stock_meta(FAMILY_OO, code)
+    except Exception:  # noqa: BLE001
+        logger.debug("read oo meta for invalidate failed code=%s", code, exc_info=True)
+        return None
+    if not meta:
+        return None
+    return str(meta.get("bars_fp") or "")
+
+
+def _current_bars_fp(code: str, *, fetch_limit: int) -> str:
+    try:
+        from core.data.facade import bars_and_source
+        from core.research.panel_fingerprint import bars_fingerprint
+
+        bars, _src = bars_and_source(
+            code,
+            limit=max(40, int(fetch_limit or 40)),
+            offline_ok=True,
+            offline_only=True,
+        )
+        return bars_fingerprint([b for b in (bars or []) if isinstance(b, dict)])
+    except Exception:  # noqa: BLE001
+        logger.debug("bars fingerprint after refresh failed code=%s", code, exc_info=True)
+        return ""
+
+
 def expected_latest_daily_bar_date(*, now: Optional[datetime] = None) -> str:
     """研究侧期望的最新完整日线日期（A 股 15:05 前仍用上一交易日）。"""
     from core.market.calendar import expected_latest_daily_bar_date as _as_of
@@ -386,9 +418,19 @@ def refresh_bars_only(
     if need:
         try:
             from core.research.lake_bridge import invalidate_l1_many
+            from core.research.materialize.coverage import l1_invalidate_decision
 
-            # 远端有更新或整窗/缺口重拉的票：L1 尾窗失效，下次拟合/回测重算
-            invalidate_l1_many(need)
+            stale: List[str] = []
+            for code in need:
+                stored = _stored_oo_bars_fp(code)
+                if stored is None:
+                    continue
+                current = _current_bars_fp(code, fetch_limit=fetch_limit)
+                if l1_invalidate_decision(stored, current):
+                    stale.append(code)
+            if stale:
+                invalidate_l1_many(stale)
+            bars_refresh["l1_invalidated"] = len(stale)
         except Exception:  # noqa: BLE001
             logger.debug("feature lake invalidate after bars refresh failed", exc_info=True)
 

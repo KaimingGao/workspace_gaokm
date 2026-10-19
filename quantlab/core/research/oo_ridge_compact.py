@@ -216,6 +216,7 @@ def _oo_stock_job(
     L1 fingerprint 命中则跳过 ``collect_oo_panel``；
     仅末根变化时走尾窗增量 keep_dates + merge。
     """
+    from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
     from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
     if not isinstance(job, (tuple, list)) or len(job) < 3:
@@ -247,6 +248,7 @@ def _oo_stock_job(
                 return x, y, names, dates
         except Exception:  # noqa: BLE001
             logger.debug("oo training cache load failed code=%s", code_s, exc_info=True)
+        raise_if_consumer_rebuild("oo", code_s)
         # 尾窗增量：stem 命中则只重算尾部决策日（读 L1 meta）
         x = y = None
         names: List[str] = []
@@ -282,6 +284,8 @@ def _oo_stock_job(
             panel = OoPanelMatrix(ridge_core_only=core)
             _fill_stock(panel, code_s, bars_l, horizon_i)
             x, y, names, dates = panel.finalize()
+    except MaterializeRequired:
+        raise
     except Exception as exc:
         raise RuntimeError(f"ŷ_oo 面板失败 {code}") from exc
     if x.shape[0] != y.shape[0] or x.shape[0] != len(dates):
@@ -380,6 +384,10 @@ def _maybe_materialize_day_cubes(
     dates: Sequence[str],
 ) -> None:
     """按股块还原 code 列，物化 L2 DayCube（供回测/live 复用日 μ/σ）。"""
+    from core.research.materialize.consumer import consumer_read_only
+
+    if consumer_read_only():
+        return
     try:
         from core.research.day_cube import cubes_from_stacked_panel
 
@@ -458,6 +466,8 @@ def _drain_stock_batch(
     from concurrent.futures import FIRST_COMPLETED, wait
     from concurrent.futures.process import BrokenProcessPool
 
+    from core.research.materialize.consumer import MaterializeRequired
+
     inflight: Dict[Any, int] = {}
     next_i = start
     window = max(1, int(n_workers))
@@ -480,6 +490,8 @@ def _drain_stock_batch(
             code = items[i][0]
             try:
                 results[i] = fut.result()
+            except MaterializeRequired:
+                raise
             except BrokenProcessPool:
                 logger.exception("oo ridge pool broke at %s; rest of batch is serial", code)
                 results[i] = _oo_stock_job(
@@ -583,6 +595,9 @@ def assemble_oo_panels(
     ``True`` 时只留 aoo_core + 去重叠 z_oo（消融）。
     """
     seq = list(items)
+    from core.research.materialize.coverage import enforce_consumer_coverage
+
+    enforce_consumer_coverage(seq, families=["oo"], clocks=["open"])
     n_workers = _resolve_workers(len(seq), workers)
     core = bool(ridge_core_only)
     if n_workers <= 1:

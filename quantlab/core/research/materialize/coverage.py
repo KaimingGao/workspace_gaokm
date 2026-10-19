@@ -1,0 +1,282 @@
+"""消费前检查 L1 日期与 L2 立方是否盖住请求窗。"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+
+from core.research.materialize.consumer import MaterializeRequired, consumer_read_only, hint_for_family
+
+_OPEN_FAMILIES = ("oo", "tc", "co", "oo_rank", "tc_rank")
+
+
+def recent_trading_days(n: int, *, end: str = "") -> List[str]:
+    """从最近完整日线日往前数 ``n`` 个交易日（含当天）。"""
+    from core.market.calendar import expected_latest_daily_bar_date, is_trading_day
+
+    need = max(1, min(1500, int(n or 1)))
+    end_s = str(end or expected_latest_daily_bar_date() or "")[:10]
+    try:
+        dt = datetime.strptime(end_s, "%Y-%m-%d")
+    except ValueError:
+        dt = datetime.now()
+    out: List[str] = []
+    guard = 0
+    while len(out) < need and guard < need * 3 + 40:
+        key = dt.strftime("%Y-%m-%d")
+        if is_trading_day(key):
+            out.append(key)
+        dt -= timedelta(days=1)
+        guard += 1
+    return sorted(out)
+
+
+def l1_invalidate_decision(stored_bars_fp: Optional[str], current_bars_fp: str) -> bool:
+    """无湖不删；有湖但没有价量指纹，或指纹变了，才删 L1。"""
+    if stored_bars_fp is None:
+        return False
+    if not str(stored_bars_fp):
+        return True
+    return str(stored_bars_fp) != str(current_bars_fp or "")
+
+
+def _codes_dates(items: Sequence[Any]) -> Tuple[List[str], List[str]]:
+    codes: List[str] = []
+    seen = set()
+    days: Set[str] = set()
+    for raw in items or []:
+        if isinstance(raw, (tuple, list)) and raw:
+            code = str(raw[0] or "").strip()
+            bars = raw[1] if len(raw) > 1 else []
+        elif isinstance(raw, dict):
+            code = str(raw.get("stock_code") or raw.get("code") or "").strip()
+            bars = raw.get("bars") or []
+        else:
+            continue
+        if code and code not in seen:
+            seen.add(code)
+            codes.append(code)
+        for bar in bars or []:
+            if not isinstance(bar, dict):
+                continue
+            day = str(bar.get("date") or bar.get("trade_date") or "")[:10]
+            if len(day) >= 10:
+                days.add(day)
+    return codes, sorted(days)
+
+
+def _other_hash_days(clock: str, universe_hash: str) -> Set[str]:
+    from core.research.day_cube import _root, _safe_clock
+    from core.research.feature_registry import FEATURE_SCHEMA
+
+    root = os.path.join(_root(), f"v{FEATURE_SCHEMA}")
+    clk = _safe_clock(clock)
+    found: Set[str] = set()
+    if not os.path.isdir(root):
+        return found
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return found
+    for name in names:
+        if name == universe_hash or name.startswith("."):
+            continue
+        folder = os.path.join(root, name, clk)
+        if not os.path.isdir(folder):
+            continue
+        try:
+            files = os.listdir(folder)
+        except OSError:
+            continue
+        for fn in files:
+            if fn.endswith(".meta.json") and len(fn) >= 10:
+                found.add(fn[:10])
+    return found
+
+
+def assess_coverage(
+    codes: Sequence[str],
+    dates: Sequence[str],
+    *,
+    families: Sequence[str],
+    clocks: Sequence[str],
+    min_frac: float = 0.5,
+) -> Dict[str, Any]:
+    """整日覆盖低于 ``min_frac``，或立方缺失 / 宇宙不符，则 ``ok`` 为假。"""
+    from core.research.day_cube import day_cube_status
+    from core.research.feature_lake import load_stock_dates
+    from core.research.feature_registry import universe_hash
+
+    code_list = []
+    seen = set()
+    for raw in codes or []:
+        c = str(raw or "").strip()
+        if c and c not in seen:
+            seen.add(c)
+            code_list.append(c)
+    day_list = sorted({str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10})
+    fams = [str(f) for f in (families or []) if str(f)]
+    clks = [str(c) for c in (clocks or []) if str(c)]
+    if len(code_list) < 2 or not day_list or (not fams and not clks):
+        return {"ok": True, "success": True, "skipped": True}
+
+    need = max(2, int(len(code_list) * float(min_frac) + 0.999))
+    problems: List[Dict[str, Any]] = []
+    uh = universe_hash(code_list)
+
+    for fam in fams:
+        have = []
+        for code in code_list:
+            ds = load_stock_dates(fam, code)
+            if ds:
+                have.append(ds)
+        missing = [day for day in day_list if sum(1 for ds in have if day in ds) < need]
+        if missing:
+            problems.append(
+                {
+                    "layer": "l1",
+                    "family": fam,
+                    "n_days": len(missing),
+                    "date_from": missing[0],
+                    "date_to": missing[-1],
+                    "sample": missing[:8],
+                }
+            )
+
+    for clk in clks:
+        foreign = _other_hash_days(clk, uh)
+        missing_days: List[str] = []
+        universe = False
+        thin = False
+        for day in day_list:
+            status = day_cube_status(day, code_list, clock=clk)
+            if status == "ok":
+                continue
+            if status == "universe" or day in foreign:
+                universe = True
+            if status == "thin":
+                thin = True
+            missing_days.append(day)
+        if missing_days:
+            problems.append(
+                {
+                    "layer": "l2",
+                    "clock": clk,
+                    "n_days": len(missing_days),
+                    "date_from": missing_days[0],
+                    "date_to": missing_days[-1],
+                    "universe_changed": universe,
+                    "thin": thin,
+                    "sample": missing_days[:8],
+                }
+            )
+
+    if not problems:
+        return {
+            "ok": True,
+            "success": True,
+            "n_codes": len(code_list),
+            "n_dates": len(day_list),
+            "universe_hash": uh,
+        }
+
+    minute = any(
+        (p.get("family") and hint_for_family(str(p.get("family"))) == "分钟线物化")
+        or (p.get("clock") and str(p.get("clock")) not in ("open", "09:30", "0930"))
+        for p in problems
+    )
+    universe_changed = any(p.get("universe_changed") for p in problems)
+    if universe_changed:
+        hint = "日线物化"
+        lead = "观察池已变，请按当前池重跑日线物化"
+    elif minute:
+        hint = "分钟线物化"
+        lead = "请先分钟线物化 L1/L2"
+    else:
+        hint = "日线物化"
+        lead = "请先日线物化 L1/L2"
+    bits = []
+    for p in problems[:4]:
+        if p.get("family"):
+            bits.append(f"{p['family']} 缺 {p['n_days']} 日")
+        else:
+            bits.append(f"立方 {p.get('clock')} 缺 {p['n_days']} 日")
+    span = ""
+    if problems:
+        span = f"（{problems[0].get('date_from')} … {problems[0].get('date_to')}）"
+    error = lead + ("：" + "，".join(bits) if bits else "") + span
+    return {
+        "ok": False,
+        "success": False,
+        "error_code": "materialize_required",
+        "error": error,
+        "hint": hint,
+        "layer": problems[0].get("layer"),
+        "families": fams,
+        "clocks": clks,
+        "problems": problems,
+        "universe_hash": uh,
+        "universe_changed": universe_changed,
+        "n_codes": len(code_list),
+        "n_dates": len(day_list),
+        "request": {
+            "do_l1": True,
+            "do_l2": True,
+            "do_l1_tau_grid": bool(minute),
+            "families": [f for f in fams if f in _OPEN_FAMILIES],
+            "clocks": clks or ["open"],
+        },
+    }
+
+
+def enforce_consumer_coverage(
+    items: Sequence[Any],
+    *,
+    families: Sequence[str],
+    clocks: Sequence[str],
+    min_frac: float = 0.5,
+) -> None:
+    """消费方在 collect 之前调用。未开只读则直接返回。"""
+    if not consumer_read_only():
+        return
+    codes, dates = _codes_dates(items)
+    report = assess_coverage(
+        codes,
+        dates,
+        families=families,
+        clocks=clocks,
+        min_frac=min_frac,
+    )
+    if not report.get("ok"):
+        raise MaterializeRequired(report)
+
+
+def replay_coverage_gap(
+    stock_bars: Dict[str, Any],
+    dates: Sequence[str],
+    *,
+    score_from: int,
+    fill_clock: str,
+    min_frac: float = 0.5,
+) -> Optional[Dict[str, Any]]:
+    """调仓回测开跑前的覆盖结果。只读未开或已齐时返回 None。"""
+    if not consumer_read_only():
+        return None
+    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
+
+    codes = [str(c).strip() for c in (stock_bars or {}) if str(c).strip()]
+    day_list = [str(d)[:10] for d in (dates or [])]
+    start = max(0, int(score_from or 0))
+    scored = [d for d in day_list[start:] if len(d) >= 10]
+    fams = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
+    clks = ["open"]
+    clock = str(fill_clock or "09:30")[:5]
+    if clock not in ("", "09:30"):
+        fams.append(family_for_tc(tau_hm=clock))
+        clks.append(clock)
+    report = assess_coverage(codes, scored, families=fams, clocks=clks, min_frac=min_frac)
+    if report.get("ok"):
+        return None
+    report["task"] = "paper_replay"
+    return report

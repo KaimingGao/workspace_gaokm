@@ -178,18 +178,21 @@ def summarize_portfolio_backtest(
 
     sector_sync = _watching_sector_overlay()
     universe_n = len(stock_bars)
-    bt = backtest_paper_replay(
-        stock_bars,
-        top_k=universe_n,
-        cost_model="simple_cn" if replay["apply_costs"] else "zero",
-        yhat_horizon_days=1,
-        initial_cash=REPLAY_INITIAL_CASH,
-        cash_floor=REPLAY_CASH_FLOOR,
-        fusion_w_co=replay["fusion_w_co"],
-        fuse_enter=replay["fuse_enter"],
-        fuse_strong=replay["fuse_strong"],
-        lookback=int(replay["lookback"]),
-    )
+    from core.research.materialize.consumer import materialized_consumer
+
+    with materialized_consumer():
+        bt = backtest_paper_replay(
+            stock_bars,
+            top_k=universe_n,
+            cost_model="simple_cn" if replay["apply_costs"] else "zero",
+            yhat_horizon_days=1,
+            initial_cash=REPLAY_INITIAL_CASH,
+            cash_floor=REPLAY_CASH_FLOOR,
+            fusion_w_co=replay["fusion_w_co"],
+            fuse_enter=replay["fuse_enter"],
+            fuse_strong=replay["fuse_strong"],
+            lookback=int(replay["lookback"]),
+        )
     if isinstance(bt, dict):
         bt.pop("paper", None)
     if not bt.get("success"):

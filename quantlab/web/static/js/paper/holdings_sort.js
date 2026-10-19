@@ -3,6 +3,15 @@
 import { resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore } from "./fmt.js?v=p2544";
 import { getPredTier, predTierRank } from "../quant/pred_tier_ui.js?v=p2749";
 
+function rankNum(row, key, nKey, altKey) {
+  const y = Number(row && (row[key] != null ? row[key] : row[altKey]));
+  const n = Number(row && row[nKey]);
+  if (!Number.isFinite(y) || !Number.isFinite(n) || n < 1) return NaN;
+  const ord = Math.round(y);
+  if (Math.abs(y - ord) > 1e-9 || ord < 1 || ord > Math.round(n)) return NaN;
+  return ord;
+}
+
 export function loadHoldingsSort() {
   let key = "market_value";
   let dir = "desc";
@@ -18,7 +27,9 @@ export function loadHoldingsSort() {
         saved.key === "score_on" ||
         saved.key === "pnl" ||
         saved.key === "chg" ||
-        saved.key === "tier")
+        saved.key === "tier" ||
+        saved.key === "oo_rank" ||
+        saved.key === "tc_rank")
     ) {
       key = saved.key;
       dir = saved.dir === "asc" ? "asc" : "desc";
@@ -87,6 +98,12 @@ export function sortHoldings(list, key, dir) {
       bv = resolveOnScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
+    } else if (k === "oo_rank") {
+      av = rankNum(a, "y_oo_rank", "y_oo_rank_n", "predicted_score_oo_rank");
+      bv = rankNum(b, "y_oo_rank", "y_oo_rank_n", "predicted_score_oo_rank");
+    } else if (k === "tc_rank") {
+      av = rankNum(a, "y_tc_rank", "y_tc_rank_n", "predicted_score_tc_rank");
+      bv = rankNum(b, "y_tc_rank", "y_tc_rank_n", "predicted_score_tc_rank");
     } else if (k === "pnl") {
       av = Number(a.pnl_pct);
       bv = Number(b.pnl_pct);

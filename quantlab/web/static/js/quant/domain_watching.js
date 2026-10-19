@@ -610,7 +610,7 @@ export function installWatching(q) {
       if (gen !== state.watchingInsightsGen) return;
     } catch (_) {
       if (gen !== state.watchingInsightsGen) return;
-      /* 增量失败仍尝试只读现算，便于对照缺仓票 */
+      /* 增量失败仍打开观察表，便于对照缺仓票 */
     }
     setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
 
@@ -769,6 +769,11 @@ export function installWatching(q) {
         }
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.detail || res.statusText);
+        if (data && data.ok === false && data.error) {
+          throw new Error(
+            typeof data.error === "string" ? data.error : "评分失败"
+          );
+        }
         const batch = data.items || [];
         items.push(...batch);
         cachedCount += Number(data.cached_count) || 0;

@@ -663,6 +663,21 @@ def _enrich_book_insight_display_fields(
         _apply_excess_label(out, None, item)
 
 
+class _LakeScoreView:
+    """L1 行经过截面重打分后，凑成 ``_insight_one`` 原来读的 result 形状。"""
+
+    def __init__(self, item: dict):
+        self.item = dict(item or {})
+        self.rank_key = self.item.get("score") or self.item.get("predicted_score")
+        self.predicted_score = self.item.get("predicted_score")
+        self.production_ok = True
+        self.gate_reason = None
+        self.scale = self.item.get("score_scale")
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"success": True, "signal_item": self.item, "quote": {}}
+
+
 def _insight_one(
     code: str,
     *,
@@ -670,8 +685,10 @@ def _insight_one(
     valuation: Optional[Dict[str, Optional[float]]] = None,
     paper_ctx: Optional[dict] = None,
     offline_only: bool = True,
+    lake_item: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """单票轻量摘要：SignalService；默认 ``offline_only`` 与策略调仓对齐。
+    """单票轻量摘要。产品路径传入 ``lake_item`` 时不再 ``score_one``。
+
     表列 ŷ 为 09:30–10:00 调仓因果前缀（``use_minute_tau=True``）。
     """
     out = _blank(code, added_at=added_at)
@@ -679,16 +696,19 @@ def _insight_one(
     try:
         from core.signal.service import get_default_signal_service
 
-        # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
-        result = get_default_signal_service().score_one(
-            code,
-            horizon_days=_scoring_horizon_days(),
-            skip_fundamentals=True,
-            skip_sentiment=True,
-            offline_only=use_offline,
-            quote_timeout=5.0 if use_offline else 8.0,
-            use_minute_tau=True,
-        )
+        if lake_item is not None:
+            result = _LakeScoreView(lake_item)
+        else:
+            # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
+            result = get_default_signal_service().score_one(
+                code,
+                horizon_days=_scoring_horizon_days(),
+                skip_fundamentals=True,
+                skip_sentiment=True,
+                offline_only=use_offline,
+                quote_timeout=5.0 if use_offline else 8.0,
+                use_minute_tau=True,
+            )
         scored = result.as_dict()
         quote = (scored or {}).get("quote") or {}
         if not quote:
@@ -889,17 +909,47 @@ def build_watching_insights(
 
     valuation_by = _spot_valuation_map(cleaned)
     items_by_code: Dict[str, Dict[str, Any]] = {}
+    lake_by: Optional[Dict[str, dict]] = None
+    from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
+
+    if consumer_read_only():
+        from core.paper.rebalance.watching_matrix import score_session_from_lake
+
+        try:
+            scored_rows, _rejected = score_session_from_lake(cleaned, paper=paper_ctx)
+        except MaterializeRequired as exc:
+            body = exc.to_dict()
+            body["count"] = 0
+            body["items"] = []
+            body["offline_only"] = use_offline
+            return body
+        lake_by = {
+            str(it.get("stock_code") or "").strip(): it
+            for it in scored_rows
+            if str(it.get("stock_code") or "").strip()
+        }
 
     stamp = _insight_cache_stamp()
     missing: List[str] = []
     cached_n = 0
-    for c in cleaned:
-        hit = _memo_get(c, stamp)
-        if hit is not None:
-            items_by_code[c] = hit
-            cached_n += 1
-        else:
+    if lake_by is not None:
+        for c in cleaned:
+            if c not in lake_by:
+                items_by_code[c] = _blank(
+                    c,
+                    added_at=added.get(c),
+                    error="请先日线物化：L1 缺该日",
+                )
+                continue
             missing.append(c)
+    else:
+        for c in cleaned:
+            hit = _memo_get(c, stamp)
+            if hit is not None:
+                items_by_code[c] = hit
+                cached_n += 1
+            else:
+                missing.append(c)
 
     n_jobs = len(missing)
     workers = min(_INSIGHT_MAX_WORKERS, max(1, n_jobs)) if n_jobs else 0
@@ -918,6 +968,7 @@ def build_watching_insights(
                         valuation=valuation_by.get(key),
                         paper_ctx=paper_ctx,
                         offline_only=use_offline,
+                        lake_item=None if lake_by is None else lake_by.get(c),
                     )
                 ] = c
         try:

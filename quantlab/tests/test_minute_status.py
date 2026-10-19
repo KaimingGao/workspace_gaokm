@@ -146,6 +146,8 @@ class TestMinuteStatus(unittest.TestCase):
         ), patch(
             "core.data.policy.minute_warmup_skip_if_ready", return_value=True
         ), patch(
+            "core.data.policy.minute_warmup_pace_sec", return_value=0.0
+        ), patch(
             "core.ports.market.fetch_minute_bars_isolated",
             return_value=([], {}),
         ) as fetch:
@@ -172,14 +174,17 @@ class TestMinuteStatus(unittest.TestCase):
         ), patch(
             "core.data.policy.minute_warmup_skip_if_ready", return_value=False
         ), patch(
+            "core.data.policy.minute_warmup_pace_sec", return_value=0.0
+        ), patch(
             "core.ports.market.fetch_minute_bars_isolated",
             side_effect=_iso,
         ):
             out = _minute_warmup_core(codes=["600519", "000001", "300750"], cap=3)
 
-        self.assertEqual(calls, ["600519", "000001", "300750"])
+        self.assertCountEqual(calls, ["600519", "000001", "300750"])
         self.assertEqual(out.get("timed_out"), 1)
         self.assertEqual(out.get("warmed"), 2)
+        self.assertGreaterEqual(int(out.get("workers") or 0), 1)
         self.assertTrue(out.get("isolated"))
 
     def test_refresh_delegates_warmup(self):
@@ -191,7 +196,6 @@ class TestMinuteStatus(unittest.TestCase):
             "total": 2,
             "warmed": 2,
             "period": "5",
-            "lookback_days": 30,
         }
         with patch(
             "quant.research.minute_status._resolve_watching_codes",
@@ -200,12 +204,12 @@ class TestMinuteStatus(unittest.TestCase):
             "quant.research.minute_status.build_minute_status",
             return_value={"success": True, "cached_ok": 2},
         ):
-            out = refresh_minute_only(watching_limit=100, lookback_days=45)
+            out = refresh_minute_only(watching_limit=100)
         self.assertTrue(out["success"])
         self.assertEqual(out["mode"], "full")
         warm.assert_called_once()
         self.assertEqual(warm.call_args.kwargs["cap"], 2)
-        self.assertEqual(warm.call_args.kwargs["lookback_days"], 45)
+        self.assertNotIn("lookback_days", warm.call_args.kwargs)
 
     def test_expected_minute_asof_before_open(self):
         from datetime import datetime
@@ -249,7 +253,7 @@ class TestMinuteStatus(unittest.TestCase):
         calls = []
 
         def _fetch(code, **kwargs):
-            calls.append((code, kwargs.get("lookback_days")))
+            calls.append(code)
             return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
 
         with patch(
@@ -264,8 +268,6 @@ class TestMinuteStatus(unittest.TestCase):
         ):
             out = _minute_topup_core(
                 codes=["600519", "000001", "300750"],
-                topup_lookback_days=5,
-                full_lookback_days=30,
                 workers=2,
             )
         self.assertTrue(out["ok"])
@@ -273,10 +275,7 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["skipped_aligned"], 1)
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out["bootstrapped"], 1)
-        self.assertEqual(len(calls), 2)
-        by_code = {c: lb for c, lb in calls}
-        self.assertEqual(by_code["000001"], 5)
-        self.assertEqual(by_code["300750"], 30)
+        self.assertEqual(set(calls), {"000001", "300750"})
 
     def test_topup_skips_fetched_today(self):
         from quant.research.minute_status import _minute_topup_core
@@ -322,8 +321,6 @@ class TestMinuteStatus(unittest.TestCase):
         ):
             out = _minute_topup_core(
                 codes=["600050", "000001", "300750"],
-                topup_lookback_days=5,
-                full_lookback_days=30,
                 workers=2,
             )
         self.assertTrue(out["ok"])
@@ -376,8 +373,6 @@ class TestMinuteStatus(unittest.TestCase):
         ):
             out = _minute_topup_core(
                 codes=["002415", "000001"],
-                topup_lookback_days=5,
-                full_lookback_days=30,
                 workers=2,
             )
         self.assertTrue(out["ok"])
@@ -412,8 +407,6 @@ class TestMinuteStatus(unittest.TestCase):
         ):
             out = _minute_topup_core(
                 codes=["600519", "000001", "300750"],
-                topup_lookback_days=5,
-                full_lookback_days=30,
                 workers=2,
             )
         self.assertEqual(set(calls), {"600519", "000001", "300750"})
@@ -443,13 +436,11 @@ class TestMinuteStatus(unittest.TestCase):
             "quant.research.minute_status.build_minute_status",
             return_value={"success": True, "cached_ok": 2},
         ):
-            out = refresh_minute_only(
-                watching_limit=100, mode="topup", topup_lookback_days=5
-            )
+            out = refresh_minute_only(watching_limit=100, mode="topup")
         self.assertTrue(out["success"])
         self.assertEqual(out["mode"], "topup")
         top.assert_called_once()
-        self.assertEqual(top.call_args.kwargs["topup_lookback_days"], 5)
+        self.assertNotIn("topup_lookback_days", top.call_args.kwargs)
 
     def test_label_portrait_sign_counts(self):
         from quant.research.minute_status import build_minute_label_portrait

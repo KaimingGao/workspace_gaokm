@@ -157,7 +157,6 @@ class MarketDataService:
         code: str,
         *,
         period: str = "5",
-        lookback_days: int = 30,
         use_cache: bool = True,
         max_age_hours: float = MINUTE_CACHE_HOURS,
     ) -> DataEnvelope:
@@ -166,7 +165,6 @@ class MarketDataService:
             packed = self.ports.minute.fetch_minute(
                 raw,
                 period=str(period or "5"),
-                lookback_days=int(lookback_days or 30),
                 use_cache=bool(use_cache),
                 max_age_hours=float(max_age_hours or MINUTE_CACHE_HOURS),
             )

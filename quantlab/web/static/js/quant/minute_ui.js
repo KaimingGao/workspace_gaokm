@@ -41,7 +41,6 @@ export function installMinuteUi(q) {
   const topupBtn = document.getElementById("quant-minute-topup");
   const matBtn = document.getElementById("quant-minute-materialize-run");
   const kpiOk = document.getElementById("quant-minute-kpi-ok");
-  const TOPUP_LOOKBACK_DAYS = 5;
   const TOPUP_WORKERS = 4;
   const kpiOkSub = document.getElementById("quant-minute-kpi-ok-sub");
   const kpiSpan = document.getElementById("quant-minute-kpi-span");
@@ -113,12 +112,12 @@ export function installMinuteUi(q) {
   }
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
-  const LOOKBACK_DAYS = 45;
   const MIN_SPAN_DAYS = 40;
-  const FETCH_DELAY_SEC = 20;
+  const WARMUP_WORKERS = 4;
+  const WARMUP_PACE_SEC = 2;
   const SINA_HINT = "stock_zh_a_minute（约1970根·5m）";
   const FULL_WARMUP_HINT =
-    `逐只串行 · 只走新浪 ${SINA_HINT} · 子进程单票≤45s（超时 kill 继续） · 拉取后间隔 ${FETCH_DELAY_SEC}s`;
+    `${WARMUP_WORKERS} 并发 · 只走新浪 ${SINA_HINT} · 子进程单票≤45s（超时 kill 继续） · 开工间隔 ${WARMUP_PACE_SEC}s`;
   const FULL_WARMUP_HINT_RUNNING =
     `${FULL_WARMUP_HINT} · Ready% 为近 ${MIN_SPAN_DAYS} 个交易日无缺（≠ Job 进度）`;
 
@@ -193,7 +192,7 @@ export function installMinuteUi(q) {
         bits.length
           ? bits.join(" · ") + (hasTimeout ? " · 超时票已 skip，其余继续" : "")
           : topup
-            ? `增量补齐 · 近 ${TOPUP_LOOKBACK_DAYS} 日 · 子进程隔离 · ${TOPUP_WORKERS} 并发`
+            ? `增量补齐 · 今日已拉/末根对齐则跳过 · 缺尾补拉 · 新浪固定窗 · ${TOPUP_WORKERS} 并发`
             : FULL_WARMUP_HINT,
     });
   }
@@ -258,7 +257,7 @@ export function installMinuteUi(q) {
       esc,
       mode: "running",
       hint: topup
-        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 只走新浪 ${SINA_HINT} · ${TOPUP_WORKERS} 并发`
+        ? `今日已拉且齐窗跳过 · 跨度≥20日且末根对齐跳过 · 缺尾补拉 · 新浪固定窗不截断 · ${TOPUP_WORKERS} 并发`
         : FULL_WARMUP_HINT_RUNNING,
     });
   }
@@ -382,7 +381,7 @@ export function installMinuteUi(q) {
       </div>
       <dl class="quant-bars-strip-facts">
         <div><dt>Universe</dt><dd>watching · Limit ${esc(limit)} · ${total} 只</dd></div>
-        <div><dt>Lookback</dt><dd>新浪近端约 41 交易日 · 增量近 ${esc(TOPUP_LOOKBACK_DAYS)} 日 · Ready 近 ${esc(minSpan)} 交易日无缺</dd></div>
+        <div><dt>Lookback</dt><dd>新浪近端约 41 交易日 · Ready 近 ${esc(minSpan)} 交易日无缺 · 增量跳过跨度≥20日且末根对齐</dd></div>
         <div><dt>Span</dt><dd>med ${esc(data.minute_span_days_med ?? "—")}d · ${esc(data.minute_span_days_min ?? "—")}→${esc(data.minute_span_days_max ?? "—")}</dd></div>
       </dl>
       <div class="quant-bars-strip-badges">${badges.join("")}</div>
@@ -722,13 +721,16 @@ export function installMinuteUi(q) {
 
   async function waitMinuteJob(jobId, mode = "full") {
     const started = Date.now();
-    // 整池 800 票强更常超 30min；增量较短。等满且仍 running → 提示刷新接管（勿 FAIL）
-    const absoluteCapMs = (mode === "topup" ? 60 : 120) * 60 * 1000;
+    // 软上限：心跳仍新鲜则继续挂着，避免健康的长任务被标成 WAIT。
+    // 心跳停了且已过软上限 → 提示刷新接管（勿 FAIL）。硬上限 8h。
+    const softCapMs = (mode === "topup" ? 60 : 120) * 60 * 1000;
+    const hardCapMs = 8 * 60 * 60 * 1000;
+    const heartbeatFreshSec = 90;
     let sawOwnJob = false;
     let pollN = 0;
     const waitLabel = mode === "topup" ? "增量补齐" : "强更 5m";
     paintProgressPanel({ message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 }, { pollStartedAt: started, mode });
-    while (Date.now() - started < absoluteCapMs) {
+    while (Date.now() - started < hardCapMs) {
       const { ok, data } = await apiFetch("/api/jobs/minute-refresh?progress=1");
       const job = unwrapJobSnap(data);
       if (!ok || !job) {
@@ -774,6 +776,9 @@ export function installMinuteUi(q) {
       headBits.push(fmtDuration((Date.now() - started) / 1000));
       if (heartbeat != null) headBits.push(`心跳 ${fmtDuration(heartbeat)}`);
       msgEl.textContent = headBits.join(" · ");
+      const pastSoft = Date.now() - started >= softCapMs;
+      const heartbeatStale = heartbeat == null || heartbeat >= heartbeatFreshSec;
+      if (pastSoft && heartbeatStale) break;
       pollN += 1;
       if (pollN % 6 === 0) refreshCoverageKpis().catch(() => {});
       await new Promise((r) => setTimeout(r, 500));
@@ -823,13 +828,11 @@ export function installMinuteUi(q) {
       try {
         const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
         const body = {
-          lookback_days: LOOKBACK_DAYS,
           watching_limit: limit,
           period: "5",
           min_span_days: MIN_SPAN_DAYS,
           mode: modeS,
         };
-        if (modeS === "topup") body.topup_lookback_days = TOPUP_LOOKBACK_DAYS;
         const { ok, data, error } = await apiFetch("/api/quant/minute/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

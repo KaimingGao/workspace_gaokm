@@ -84,27 +84,45 @@ class TestDayCube(unittest.TestCase):
         # 宇宙变了 → miss
         self.assertIsNone(load_day_cube("2024-07-01", ["a", "b", "c"], clock="open"))
 
-    def test_persist_tau_pool_slim(self) -> None:
-        from core.research.day_cube import load_tau_pool_day, persist_tau_pool_as_cubes
+    def test_attach_slim_keeps_features_and_loads_tau_pool(self) -> None:
+        from core.research.day_cube import (
+            attach_slim,
+            build_day_cube,
+            clear_memory,
+            load_day_cube,
+            load_tau_pool_day,
+            save_day_cube,
+        )
 
         codes = ["600000", "600001"]
-        pool = {
-            "2024-08-01": {
+        cube = build_day_cube(
+            "2024-08-01",
+            {"600000": {"a": 1.0, "b": 2.0}, "600001": {"a": 3.0, "b": 4.0}},
+            clock="open",
+        )
+        save_day_cube(cube)
+        clear_memory()
+        ok = attach_slim(
+            "2024-08-01",
+            codes,
+            clock="open",
+            slim={
                 "pool_gaps": [1.0, 3.0],
                 "sector_gap_breadth": 0.5,
                 "gaps_by_code": {"600000": 1.0, "600001": 3.0},
                 "ref_by_code": {"600000": 2.0, "600001": 2.0},
-            }
-        }
-        n = persist_tau_pool_as_cubes(pool, codes, clock="open")
-        self.assertEqual(n, 1)
-        from core.research.day_cube import clear_memory
-
+            },
+        )
+        self.assertTrue(ok)
         clear_memory()
         hit = load_tau_pool_day("2024-08-01", codes, clock="open")
         self.assertIsNotNone(hit)
         assert hit is not None
         self.assertAlmostEqual(float(hit["sector_gap_breadth"]), 0.5)
+        loaded = load_day_cube("2024-08-01", codes, clock="open")
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertEqual(list(loaded.names), ["a", "b"])
 
     def test_batch_score_builds_cube(self) -> None:
         from core.research.batch_score import ensure_day_cube_for_items

@@ -258,22 +258,25 @@ def _minute_warmup_core(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
-    lookback_days: int = 45,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """5 分钟线预热核心逻辑（无 job slot）。
 
-    只走新浪 ``stock_zh_a_minute``。单票子进程 + 超时 kill，挂死不占主进程 ak_lock。
+    只走新浪 ``stock_zh_a_minute``。Ready 跳过；其余多只并发，父进程按间隔开工。
+    单票子进程 + 超时 kill，挂死不占主进程 ak_lock。子进程内不再额外睡拉取间隔。
     """
+    import threading
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
     from core.ports.market import fetch_minute_bars_isolated
     from core.data.policy import (
         MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
-        minute_fetch_delay_sec,
         minute_isolated_timeout_sec,
-        minute_lookback_days,
+        minute_warmup_pace_sec,
         minute_warmup_ready_min_span_days,
         minute_warmup_skip_if_ready,
         minute_warmup_stale_hours,
+        minute_warmup_workers,
     )
 
     # 分钟暖仓只读观察池，不用 validation / research 宽名单
@@ -283,24 +286,31 @@ def _minute_warmup_core(
     if not watch:
         return {"ok": False, "error": "无标的：请传 codes 或配置观察池 watching（分钟暖仓不读研究宇宙）"}
     period_s = "5"
-    cap_days = minute_lookback_days()
-    span = min(max(int(lookback_days or cap_days), 5), cap_days)
     warmed = 0
     skipped_ready = 0
     timed_out = 0
     errors: List[str] = []
     total = len(watch)
-    fetch_delay = minute_fetch_delay_sec()
+    pace_sec = minute_warmup_pace_sec()
     skip_if_ready = minute_warmup_skip_if_ready()
     ready_min_span = minute_warmup_ready_min_span_days()
     stale_h = minute_warmup_stale_hours()
     per_stock_timeout = minute_isolated_timeout_sec()
-    for i, code in enumerate(watch, start=1):
-        progress_code = code
+
+    def _emit(cur: int, label: str) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(cur, total, label)
+        except Exception:  # noqa: BLE001 — best-effort 进度回调
+            logger.debug("minute_warmup progress_cb failed", exc_info=True)
+
+    to_fetch: List[str] = []
+    for code in watch:
         if skip_if_ready:
             from core.ports.registry import call as port_call
 
-            ready, _snap, reason = port_call(
+            ready, _snap, _reason = port_call(
                 "minute_cache_ready",
                 code,
                 period=period_s,
@@ -311,45 +321,86 @@ def _minute_warmup_core(
             if ready:
                 skipped_ready += 1
                 warmed += 1
-                progress_code = f"skip {code}"
-                if progress_cb:
-                    try:
-                        progress_cb(i, total, progress_code)
-                    except Exception:  # noqa: BLE001 — best-effort 进度回调
-                        logger.debug("minute_warmup progress_cb failed", exc_info=True)
+                _emit(skipped_ready, f"skip {code}")
                 continue
-        if progress_cb:
-            try:
-                progress_cb(i, total, progress_code)
-            except Exception:  # noqa: BLE001 — best-effort 进度回调
-                logger.debug("minute_warmup progress_cb failed", exc_info=True)
+        to_fetch.append(code)
+
+    done = skipped_ready
+    n_workers = (
+        max(1, min(minute_warmup_workers(), len(to_fetch))) if to_fetch else 0
+    )
+    pace_lock = threading.Lock()
+    pace_next = [0.0]
+
+    def _pace() -> None:
+        if pace_sec <= 0:
+            return
+        with pace_lock:
+            now = time.time()
+            wait_s = pace_next[0] - now
+            pace_next[0] = max(now, pace_next[0]) + pace_sec
+        if wait_s > 0:
+            time.sleep(wait_s)
+
+    def _fetch_one(code: str) -> tuple:
+        _pace()
         try:
             bars, meta = fetch_minute_bars_isolated(
                 code,
                 timeout_sec=per_stock_timeout,
                 period=period_s,
                 use_cache=True,
-                lookback_days=span,
                 max_age_hours=0.01,  # 强制尝试刷新；失败仍可回退过期缓存
+                throttle=False,
             )
         except Exception as exc:  # noqa: BLE001 — 单票失败不拖整批
-            bars, meta = [], {"error": str(exc)[:120]}
             logger.warning("minute_warmup failed %s: %s", code, exc)
-        err = str((meta or {}).get("error") or "")
-        if "timeout" in err.lower():
-            timed_out += 1
-            logger.warning(
-                "minute_warmup timeout %s after %.0fs", code, per_stock_timeout
-            )
-        if bars:
-            warmed += 1
-        elif err:
-            errors.append(f"{code}:{err}")
+            return code, [], {"error": str(exc)[:120]}
+        return code, bars, meta or {}
+
+    if to_fetch:
+        # 勿用 ``with ThreadPoolExecutor``：挂死任务 cancel 不掉，exit 会 wait=True 卡死 Job
+        pool = ThreadPoolExecutor(max_workers=n_workers)
+        try:
+            futs = {pool.submit(_fetch_one, code): code for code in to_fetch}
+            pending = set(futs)
+            while pending:
+                finished, pending = wait(
+                    pending, timeout=1.5, return_when=FIRST_COMPLETED
+                )
+                if not finished:
+                    continue
+                for fut in finished:
+                    code = futs[fut]
+                    try:
+                        _code, bars, meta = fut.result(timeout=0.1)
+                    except Exception as exc:  # noqa: BLE001
+                        bars, meta = [], {"error": str(exc)[:120]}
+                        logger.warning("minute_warmup failed %s: %s", code, exc)
+                    done += 1
+                    err = str((meta or {}).get("error") or "")
+                    if "timeout" in err.lower():
+                        timed_out += 1
+                        logger.warning(
+                            "minute_warmup timeout %s after %.0fs",
+                            code,
+                            per_stock_timeout,
+                        )
+                    if bars:
+                        warmed += 1
+                    elif err:
+                        errors.append(f"{code}:{err}")
+                    _emit(done, code)
+        finally:
+            try:
+                pool.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                pool.shutdown(wait=False)
+
     return {
         "ok": warmed > 0 or len(watch) == 0,
         "kind": "minute_warmup",
         "period": period_s,
-        "lookback_days": span,
         "total": len(watch),
         "warmed": warmed,
         "skipped_ready": skipped_ready,
@@ -357,10 +408,13 @@ def _minute_warmup_core(
         "skip_if_ready": skip_if_ready,
         "ready_min_span_days": ready_min_span if skip_if_ready else None,
         "per_stock_timeout_sec": per_stock_timeout,
+        "workers": n_workers,
+        "pace_sec": pace_sec,
         "isolated": True,
         "errors": errors[:10],
         "note": (
-            f"5 分钟线预热，只走新浪 stock_zh_a_minute · 间隔 {fetch_delay:g}s。"
+            f"5 分钟线预热，只走新浪 stock_zh_a_minute · {n_workers} 并发 · "
+            f"开工间隔 {pace_sec:g}s。"
             + f" 单票子进程上限 {per_stock_timeout:.0f}s（超时 kill，继续下一只）。"
         ),
     }
@@ -371,7 +425,6 @@ def run_minute_warmup(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
-    lookback_days: int = 45,
 ) -> Dict[str, Any]:
     """预热观察池 5 分钟线缓存（tail_anomaly / T0 用）；不读研究宇宙。"""
     slot = job_registry.slot("schedule")
@@ -386,9 +439,7 @@ def run_minute_warmup(
 
     job_id = slot.start(kind="minute_warmup", total=len(watch), message="预热分钟线…")
     try:
-        result = _minute_warmup_core(
-            codes=codes, period=period, cap=cap, lookback_days=lookback_days
-        )
+        result = _minute_warmup_core(codes=codes, period=period, cap=cap)
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
         slot.finish(result=result)
@@ -1000,7 +1051,6 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
             codes=kwargs.get("codes"),
             period=str(kwargs.get("period") or "5"),
             cap=int(kwargs.get("cap") or 25),
-            lookback_days=int(kwargs.get("lookback_days") or 90),
         )
     if k == "spot_refresh":
         return run_spot_refresh(

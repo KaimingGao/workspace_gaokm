@@ -484,9 +484,79 @@ class TestHoldingScoresCausalRebalance(unittest.TestCase):
         ), patch(
             "core.signal.score_display.selection_min_score",
             return_value=0,
+        ), patch(
+            "core.paper.rebalance.watching_matrix.stamp_live_ranks",
         ):
             mixin._compute_holding_scores(paper, summary)
         self.assertIs(captured.get("use_minute_tau"), True)
+
+
+class TestLiveRankSnapshot(unittest.TestCase):
+    def test_today_snapshot_fills_holding_ranks(self):
+        import os
+        import tempfile
+        from datetime import date
+
+        from core.paper.rebalance.watching_matrix import (
+            save_live_rank_snapshot,
+            stamp_live_ranks,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ):
+                save_live_rank_snapshot(
+                    [
+                        {
+                            "stock_code": "600519",
+                            "y_oo_rank": 2,
+                            "y_oo_rank_n": 40,
+                            "y_tc_rank": 5,
+                            "y_tc_rank_n": 40,
+                        }
+                    ],
+                    as_of=date.today().isoformat(),
+                )
+                rows = [{"stock_code": "600519", "y_oo": 1.2}]
+                with patch(
+                    "core.paper.rebalance.watching_matrix._stamp_ranks_from_lake"
+                ) as lake:
+                    stamp_live_ranks(rows)
+                lake.assert_not_called()
+        self.assertEqual(rows[0]["y_oo_rank"], 2)
+        self.assertEqual(rows[0]["y_tc_rank"], 5)
+        self.assertEqual(rows[0]["y_oo_rank_n"], 40)
+        self.assertEqual(rows[0]["y_oo"], 1.2)
+
+    def test_stale_snapshot_does_not_fill(self):
+        import os
+        import tempfile
+
+        from core.paper.rebalance.watching_matrix import (
+            save_live_rank_snapshot,
+            stamp_live_ranks,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "live_rank_snapshot.json")
+            with patch(
+                "core.paper.rebalance.watching_matrix._live_rank_snapshot_path",
+                return_value=path,
+            ):
+                save_live_rank_snapshot(
+                    [{"stock_code": "600519", "y_oo_rank": 2, "y_oo_rank_n": 40}],
+                    as_of="2000-01-01",
+                )
+                rows = [{"stock_code": "600519"}]
+                with patch(
+                    "core.paper.rebalance.watching_matrix._stamp_ranks_from_lake"
+                ) as lake:
+                    stamp_live_ranks(rows)
+                lake.assert_called_once()
+        self.assertIsNone(rows[0].get("y_oo_rank"))
 
 
 if __name__ == "__main__":

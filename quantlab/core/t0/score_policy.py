@@ -3279,9 +3279,10 @@ def _peer_feature_rows(date: str) -> List[dict]:
         filled_n = 0
         if miss:
             try:
+                from core.research.materialize.consumer import consumer_read_only
                 from core.research.materialize.flags import require_day_cube
 
-                if require_day_cube():
+                if require_day_cube() or consumer_read_only():
                     logger.warning(
                         "peer feature bars fill blocked by REQUIRE_CUBE date=%s miss=%s",
                         dkey,
@@ -3846,9 +3847,10 @@ def warmup_watching_day_cubes(
             out["cubes_hit"] += 1
             continue
         try:
+            from core.research.materialize.consumer import consumer_read_only
             from core.research.materialize.flags import require_day_cube
 
-            if require_day_cube():
+            if require_day_cube() or consumer_read_only():
                 logger.warning(
                     "warmup day_cube miss under REQUIRE_CUBE day=%s (skip ensure)",
                     day,
@@ -4713,12 +4715,6 @@ def build_tau_pool_watching_holdings(
     if not bars_map:
         return {}
     pool = build_tau_pool_by_date(bars_map)
-    try:
-        from core.research.day_cube import persist_tau_pool_as_cubes
-
-        persist_tau_pool_as_cubes(pool, codes, clock="open")
-    except Exception:  # noqa: BLE001
-        logger.debug("persist tau pool day_cube failed", exc_info=True)
     return pool
 
 

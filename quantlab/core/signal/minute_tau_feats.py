@@ -1343,7 +1343,6 @@ def hydrate_cs_peer_minutes(
     *,
     codes: Optional[Sequence[str]] = None,
     period: str = "5",
-    lookback_days: int = 5,
     max_age_hours: float = 36.0,
     fetch_if_missing: bool = True,
 ) -> int:
@@ -1385,7 +1384,6 @@ def hydrate_cs_peer_minutes(
                     code,
                     period=str(period or "5"),
                     use_cache=True,
-                    lookback_days=max(1, int(lookback_days or 5)),
                     max_age_hours=float(max_age_hours),
                 )
                 rows = [b for b in (bars or []) if isinstance(b, dict)]
@@ -2026,7 +2024,6 @@ def _fetch_minute_bars_for_tau(code: str) -> List[dict]:
             str(code),
             period="5",
             use_cache=True,
-            lookback_days=10,
             max_age_hours=0.01,
         )
         return [b for b in (bars or []) if isinstance(b, dict)]

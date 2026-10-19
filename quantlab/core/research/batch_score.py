@@ -97,7 +97,8 @@ def ensure_day_cube_for_items(
     ``universe_codes`` 是读取方会拿去哈希的完整名单。缺行的代码仍留在键里，
     矩阵只用有特征的 items。
     """
-    from core.research.day_cube import build_or_load
+    from core.research.day_cube import build_or_load, load_day_cube
+    from core.research.materialize.consumer import consumer_read_only
 
     by_code = features_by_code_from_items(items)
     if len(by_code) < 2:
@@ -118,6 +119,9 @@ def ensure_day_cube_for_items(
         from datetime import date as _date
 
         day = _date.today().isoformat()
+    lookup = list(universe_codes) if universe_codes is not None else list(by_code)
+    if consumer_read_only():
+        return load_day_cube(day, lookup, clock=clock)
     return build_or_load(
         day, by_code, clock=clock, persist=persist, universe_codes=universe_codes
     )
@@ -159,4 +163,16 @@ def rescore_fitted_cross_section_batched(
                 )
         except Exception:  # noqa: BLE001
             logger.debug("batch_score day_cube build failed", exc_info=True)
+    from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
+
+    if consumer_read_only() and cube is None and len([it for it in items if isinstance(it, dict)]) >= 2:
+        raise MaterializeRequired(
+            {
+                "error_code": "materialize_required",
+                "error": f"请先物化 L2：{str(date or '')[:10] or '当日'} {clock} 截面立方缺失",
+                "layer": "l2",
+                "hint": "分钟线物化" if str(clock) not in ("open", "09:30", "0930") else "日线物化",
+                "clocks": [str(clock or "open")],
+            }
+        )
     return rescore_fitted_cross_section(items, score_codes=score_codes, day_cube=cube)

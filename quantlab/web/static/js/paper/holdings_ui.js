@@ -33,6 +33,17 @@ import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode } from "../quant/fit_tier_ui.js?v=p2261";
 import { predTierBadgeHtml } from "../quant/pred_tier_ui.js?v=p2749";
 
+function rankOrdinal(raw, nRaw) {
+  const y = Number(raw);
+  const n = Number(nRaw);
+  if (!Number.isFinite(y)) return { text: "—" };
+  const ord = Math.round(y);
+  const isInt = Math.abs(y - ord) < 1e-9;
+  const pool = Number.isFinite(n) && n >= 1 ? Math.round(n) : null;
+  if (pool != null && isInt && ord >= 1 && ord <= pool) return { text: String(ord) };
+  return { text: "—" };
+}
+
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
   strategy: "由「按策略调仓」生成",
@@ -117,6 +128,10 @@ export function buildPaperHoldingsTableHtml({
               ? `${Y_OC_REBALANCE_TITLE} · 点击排序`
             : key === "score_on"
               ? `${Y_ON_TITLE} · 点击排序`
+            : key === "oo_rank"
+              ? "ŷ_oo_rank 当日观察池截面名次 · 1=最高 · 点击排序"
+            : key === "tc_rank"
+              ? "ŷ_τc_rank 当日截面名次 · 1=最高 · 与 oo_rank 共用 rank 入场 · 点击排序"
             : key === "pnl"
             ? "浮盈亏 = 现价 − 成本价（相对成本的浮动盈亏 %）· 点击排序"
             : key === "chg"
@@ -178,6 +193,22 @@ export function buildPaperHoldingsTableHtml({
       const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
       const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
       const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
+      const ooRank = rankOrdinal(
+        h.y_oo_rank != null ? h.y_oo_rank : h.predicted_score_oo_rank,
+        h.y_oo_rank_n
+      );
+      const tcRank = rankOrdinal(
+        h.y_tc_rank != null ? h.y_tc_rank : h.predicted_score_tc_rank,
+        h.y_tc_rank_n
+      );
+      const ooRankTitle =
+        ooRank.text === "—"
+          ? "oo_rank — · 无已启用模型或未写入；不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场"
+          : `当日截面第 ${ooRank.text} 名 / ${Math.round(Number(h.y_oo_rank_n))} · 1=相对分最高 · 不进 fuse；过入场后作买序；与 τc_rank 共用 rank 入场`;
+      const tcRankTitle =
+        tcRank.text === "—"
+          ? "τc_rank — · 无已启用模型或未写入 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序"
+          : `当日截面第 ${tcRank.text} 名 / ${Math.round(Number(h.y_tc_rank_n))} · 1=相对分最高 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序`;
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -271,6 +302,12 @@ export function buildPaperHoldingsTableHtml({
         `data-score-detail="${scoreDetailJson}" data-score-tip="fuse" title="${escapeText(
           scoreTitle
         )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
+        `<td class="num paper-hold-score has-tip" data-score-detail="${scoreDetailJson}" data-score-tip="oo_rank" title="${escapeText(
+          ooRankTitle
+        )}">${escapeText(ooRank.text)}</td>` +
+        `<td class="num paper-hold-score has-tip" data-score-detail="${scoreDetailJson}" data-score-tip="tc_rank" title="${escapeText(
+          tcRankTitle
+        )}">${escapeText(tcRank.text)}</td>` +
         `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
           h.cost,
           h.unit,
@@ -312,6 +349,8 @@ export function buildPaperHoldingsTableHtml({
     `${sortThHtml("y_τc", "score_tau")}` +
     `${sortThHtml("y_co", "score_on")}` +
     `${sortThHtml("fuse", "score")}` +
+    `${sortThHtml("oo_rank", "oo_rank")}` +
+    `${sortThHtml("τc_rank", "tc_rank")}` +
     `<th title="持仓加权平均成本">成本</th>` +
     `${sortThHtml("市值", "market_value")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +

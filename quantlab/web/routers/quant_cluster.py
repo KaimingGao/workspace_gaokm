@@ -145,9 +145,7 @@ def quant_minute_refresh(body: MinuteRefreshRequest) -> Dict[str, Any]:
     kwargs = dict(
         watching_limit=body.watching_limit,
         period=body.period,
-        lookback_days=body.lookback_days,
         mode=body.mode,
-        topup_lookback_days=body.topup_lookback_days,
     )
     try:
         if body.sync:

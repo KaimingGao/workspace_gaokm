@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.research.materialize.consumer import consume_materialized
 from core.research.task import records_experiment
 from core.watching.store import MODEL_FIT_MAX_SIZE, WATCHING_MAX_SIZE
 
@@ -735,6 +736,7 @@ class QuantFactorMixin:
         return out
 
     @records_experiment("tc_ridge")
+    @consume_materialized
     def run_tau_ridge_experiment(
         self,
         *,
@@ -1087,6 +1089,7 @@ class QuantFactorMixin:
         )
 
     @records_experiment("co_ridge")
+    @consume_materialized
     def run_co_ridge_experiment(
         self,
         *,
@@ -1294,6 +1297,7 @@ class QuantFactorMixin:
         return _attach_ridge_role_flags(out, co_model_path(), live_present=live_file)
 
     @records_experiment("oo_rank")
+    @consume_materialized
     def run_oo_rank_experiment(
         self,
         *,
@@ -1586,6 +1590,7 @@ class QuantFactorMixin:
         return _attach_ridge_role_flags(out, path, live_present=live_file)
 
     @records_experiment("tc_rank")
+    @consume_materialized
     def run_tc_rank_experiment(
         self,
         *,
@@ -2400,6 +2405,7 @@ class QuantFactorMixin:
         )
 
     @records_experiment("t30_ridge")
+    @consume_materialized
     def run_t30_ridge_experiment(self, **kwargs):
         return self._run_horizon_ridge_experiment("t30", **kwargs)
 
@@ -2410,6 +2416,7 @@ class QuantFactorMixin:
         return self._start_horizon_ridge_job("t30", **kwargs)
 
     @records_experiment("t45_ridge")
+    @consume_materialized
     def run_t45_ridge_experiment(self, **kwargs):
         return self._run_horizon_ridge_experiment("t45", **kwargs)
 
@@ -2420,6 +2427,7 @@ class QuantFactorMixin:
         return self._start_horizon_ridge_job("t45", **kwargs)
 
     @records_experiment("t60_ridge")
+    @consume_materialized
     def run_t60_ridge_experiment(self, **kwargs):
         return self._run_horizon_ridge_experiment("t60", **kwargs)
 
@@ -2430,6 +2438,7 @@ class QuantFactorMixin:
         return self._start_horizon_ridge_job("t60", **kwargs)
 
     @records_experiment("t75_ridge")
+    @consume_materialized
     def run_t75_ridge_experiment(self, **kwargs):
         return self._run_horizon_ridge_experiment("t75", **kwargs)
 
@@ -2440,6 +2449,7 @@ class QuantFactorMixin:
         return self._start_horizon_ridge_job("t75", **kwargs)
 
     @records_experiment("t90_ridge")
+    @consume_materialized
     def run_t90_ridge_experiment(self, **kwargs):
         return self._run_horizon_ridge_experiment("t90", **kwargs)
 
@@ -2883,9 +2893,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
         period: str = "5",
-        lookback_days: int = 45,
         mode: str = "full",
-        topup_lookback_days: int = 5,
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """同步：预热观察池 5m 分钟线（``mode=full|topup``）。"""
@@ -2894,9 +2902,7 @@ class QuantFactorMixin:
         return refresh_minute_only(
             watching_limit=watching_limit,
             period=period,
-            lookback_days=lookback_days,
             mode=mode,
-            topup_lookback_days=topup_lookback_days,
             progress_cb=progress_cb,
         )
 
@@ -2905,9 +2911,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
         period: str = "5",
-        lookback_days: int = 45,
         mode: str = "full",
-        topup_lookback_days: int = 5,
     ) -> Dict[str, Any]:
         """后台 Job：预热 5m 分钟线；轮询 ``GET /api/jobs/minute-refresh``。"""
         import threading
@@ -2974,9 +2978,7 @@ class QuantFactorMixin:
                 result = self.run_minute_refresh(
                     watching_limit=watch_limit,
                     period=period,
-                    lookback_days=lookback_days,
                     mode=mode_s,
-                    topup_lookback_days=topup_lookback_days,
                     progress_cb=_progress,
                 )
                 if minute_refresh_job.is_cancel_requested():

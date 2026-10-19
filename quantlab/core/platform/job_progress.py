@@ -262,7 +262,6 @@ class JobProgress:
                             "mode": result.get("mode"),
                             "watching_limit": result.get("watching_limit"),
                             "universe_count": result.get("universe_count"),
-                            "lookback_days": result.get("lookback_days"),
                             "period": result.get("period"),
                             "minute_warmup": mw_slim or None,
                             "error": result.get("error"),

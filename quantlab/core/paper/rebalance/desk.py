@@ -168,10 +168,12 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
     rows: List[dict] = []
     seen: set = set()
 
-    def _add(row: dict) -> None:
+    def _add(row: dict, rank_src: Optional[dict] = None) -> None:
         code = str(row.get("stock_code") or "").strip()
         if not code or code in seen:
             return
+        if isinstance(rank_src, dict):
+            _copy_desk_ranks(row, rank_src)
         seen.add(code)
         rows.append(row)
 
@@ -204,7 +206,8 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 new_shares=r.get("new_shares"),
                 ts=r.get("ts"),
                 side=r.get("side"),
-            )
+            ),
+            r,
         )
     for t, act in (
         (src.get("sell_trades") or [], "exit"),
@@ -243,7 +246,8 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                     new_shares=leg.get("new_shares"),
                     ts=leg.get("ts"),
                     side=leg.get("side") or ("sell" if act == "exit" else "buy"),
-                )
+                ),
+                leg,
             )
     for s in src.get("risk_budget_skips") or src.get("apply_skips") or []:
         if not isinstance(s, dict):
@@ -263,7 +267,8 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 y_oo=s.get("y_oo"),
                 y_τc=s.get("y_τc"),
                 y_co=s.get("y_co"),
-            )
+            ),
+            s,
         )
     _overlay_trades_on_desk_rows(rows, src)
     rows.sort(
@@ -325,6 +330,29 @@ def _overlay_fields(
         row["old_shares"] = _f(src.get("old_shares"))
     if row.get("new_shares") is None and src.get("new_shares") is not None:
         row["new_shares"] = _f(src.get("new_shares"))
+    _copy_desk_ranks(row, src)
+
+
+_DESK_RANK_KEYS = ("y_oo_rank", "y_oo_rank_n", "y_tc_rank", "y_tc_rank_n")
+
+
+def _copy_desk_ranks(row: dict, src: dict) -> None:
+    """名次只补缺，不改已有。1..n 整数原样保留。"""
+    if not isinstance(row, dict) or not isinstance(src, dict):
+        return
+    for key in _DESK_RANK_KEYS:
+        if row.get(key) is not None:
+            continue
+        val = src.get(key)
+        if val is None or val == "":
+            continue
+        try:
+            num = float(val)
+        except (TypeError, ValueError):
+            continue
+        if num != num:
+            continue
+        row[key] = int(num) if abs(num - round(num)) < 1e-9 else num
 
 
 def _overlay_trades_on_desk_rows(rows: List[dict], result: dict) -> None:

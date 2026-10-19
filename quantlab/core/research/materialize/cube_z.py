@@ -166,17 +166,41 @@ def cs_z_matrix_prefer_cube(
     """拟合/OOS：``FIT_USE_DAY_CUBE`` 时优先 L2 μ/σ，否则矩阵截面 z。"""
     from core.research.feature_standardize import cross_section_zscore_matrix
 
+    from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
+
+    read_only = consumer_read_only()
     try:
         from core.research.materialize.flags import fit_use_day_cube
 
-        if fit_use_day_cube():
+        if fit_use_day_cube() or read_only:
             z, meta = apply_day_cube_mu_sigma_matrix(
                 x, names, groups, clock=clock, fallback_open=fallback_open
             )
             if z is not None and meta.get("ok"):
                 return np.where(np.isfinite(z), z, 0.0)
+            if read_only:
+                raise MaterializeRequired(
+                    {
+                        "error_code": "materialize_required",
+                        "error": "请先物化 L2：" + str((meta or {}).get("error") or "截面立方缺失"),
+                        "layer": "l2",
+                        "hint": "日线物化",
+                        "clocks": [str(clock or "open")],
+                    }
+                )
+    except MaterializeRequired:
+        raise
     except Exception:  # noqa: BLE001
         logger.debug("cs_z_matrix_prefer_cube cube path failed", exc_info=True)
+        if read_only:
+            raise MaterializeRequired(
+                {
+                    "error_code": "materialize_required",
+                    "error": "请先物化 L2：截面立方读取失败",
+                    "layer": "l2",
+                    "hint": "日线物化",
+                }
+            )
     z = cross_section_zscore_matrix(x, groups)
     return np.where(np.isfinite(z), z, 0.0)
 
@@ -192,17 +216,41 @@ def cs_z_dicts_prefer_cube(
     """dict 版：``FIT_USE_DAY_CUBE`` 优先 L2，否则 ``cross_section_zscore_dicts``。"""
     from core.research.feature_standardize import cross_section_zscore_dicts
 
+    from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
+
+    read_only = consumer_read_only()
     try:
         from core.research.materialize.flags import fit_use_day_cube
 
-        if fit_use_day_cube():
+        if fit_use_day_cube() or read_only:
             out, meta = apply_day_cube_mu_sigma_dicts(
                 rows, names, groups, clock=clock, fallback_open=fallback_open
             )
             if out is not None and meta.get("ok"):
                 return out
+            if read_only:
+                raise MaterializeRequired(
+                    {
+                        "error_code": "materialize_required",
+                        "error": "请先物化 L2：" + str((meta or {}).get("error") or "截面立方缺失"),
+                        "layer": "l2",
+                        "hint": "日线物化",
+                        "clocks": [str(clock or "open")],
+                    }
+                )
+    except MaterializeRequired:
+        raise
     except Exception:  # noqa: BLE001
         logger.debug("cs_z_dicts_prefer_cube cube path failed", exc_info=True)
+        if read_only:
+            raise MaterializeRequired(
+                {
+                    "error_code": "materialize_required",
+                    "error": "请先物化 L2：截面立方读取失败",
+                    "layer": "l2",
+                    "hint": "日线物化",
+                }
+            )
     return cross_section_zscore_dicts(rows, names, groups)
 
 

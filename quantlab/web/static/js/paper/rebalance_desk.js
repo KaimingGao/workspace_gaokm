@@ -122,6 +122,26 @@ function fmtHm(ts) {
   return m ? m[1] : "";
 }
 
+function rankDeskBit(raw, nRaw) {
+  const y = Number(raw);
+  const n = Number(nRaw);
+  if (!Number.isFinite(y) || !Number.isFinite(n) || n < 1) return "";
+  const ord = Math.round(y);
+  const pool = Math.round(n);
+  if (Math.abs(y - ord) > 1e-9 || ord < 1 || ord > pool) return "";
+  return `${ord}/${pool}`;
+}
+
+function rankDeskCell(raw, nRaw, label) {
+  const bit = rankDeskBit(raw, nRaw);
+  const title = bit
+    ? `${label} 当日截面第 ${bit.replace("/", " 名 / ")} · 1=相对分最高`
+    : `${label} — · 无已启用模型或未写入`;
+  return `<td class="num paper-rb-col-rank" title="${escapeHtml(title)}">${escapeHtml(
+    bit ? bit.split("/")[0] : "—"
+  )}</td>`;
+}
+
 function fmtSignedPct(v) {
   if (v == null || v === "") return "";
   const n = Number(v);
@@ -148,6 +168,10 @@ function reasonTitle(r) {
   if (yoo) bits.push(`y_oo ${yoo}`);
   if (yoc) bits.push(`y_τc ${yoc}`);
   if (yco) bits.push(`y_co ${yco}`);
+  const ooBit = rankDeskBit(r.y_oo_rank, r.y_oo_rank_n);
+  const tcBit = rankDeskBit(r.y_tc_rank, r.y_tc_rank_n);
+  if (ooBit) bits.push(`oo_rank ${ooBit}`);
+  if (tcBit) bits.push(`τc_rank ${tcBit}`);
   const oldSh = Number(r.old_shares);
   const newSh = Number(r.new_shares);
   if (Number.isFinite(oldSh) && Number.isFinite(newSh)) {
@@ -242,6 +266,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         `<td class="num paper-t0-col-clock">${escapeHtml(
           fmtRank(r.y_oo_fuse_score, r.y_oo_fuse)
         )}</td>` +
+        rankDeskCell(r.y_oo_rank, r.y_oo_rank_n, "oo_rank") +
+        rankDeskCell(r.y_tc_rank, r.y_tc_rank_n, "τc_rank") +
         `<td class="paper-t0-col-cat">` +
         `<span class="paper-t0-desk-cat is-${escapeHtml(cat.id)}">${escapeHtml(
           cat.label
@@ -302,6 +328,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<col class="paper-rb-col-open" />` +
     `<col class="paper-rb-col-amt" />` +
     `<col class="paper-t0-col-clock" />` +
+    `<col class="paper-rb-col-rank" />` +
+    `<col class="paper-rb-col-rank" />` +
     `<col class="paper-t0-col-cat" />` +
     `<col class="paper-t0-col-reason" />` +
     `<col class="paper-t0-col-act" />` +
@@ -315,6 +343,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<th scope="col" class="num paper-rb-col-open" title="当日开盘价">今开</th>` +
     `<th scope="col" class="num paper-rb-col-amt" title="成交金额">金额</th>` +
     `<th scope="col" class="num paper-t0-col-clock" title="当时 fuse">fuse</th>` +
+    `<th scope="col" class="num paper-rb-col-rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 过入场后作买序">oo_rank</th>` +
+    `<th scope="col" class="num paper-rb-col-rank" title="ŷ_τc_rank 当日截面名次 · 与 oo_rank 共用 rank 入场 · 不进 fuse / 不改买序">τc_rank</th>` +
     `<th scope="col" class="paper-t0-col-cat">类别</th>` +
     `<th scope="col" class="paper-t0-col-reason">说明</th>` +
     `<th scope="col" class="paper-t0-col-act">操作</th>` +
