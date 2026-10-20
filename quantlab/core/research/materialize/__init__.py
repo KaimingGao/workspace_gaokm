@@ -11,10 +11,15 @@ from core.research.materialize.flags import fit_use_day_cube, require_day_cube
 from core.research.materialize.cover_policy import (
     HORIZON_COVER_FRAC,
     LAKE_COVER_FRAC,
+    clamp_span_days,
     cover_need,
     cover_reaches,
+    finalize_l2_report,
+    first_nested_error,
     format_cube_cover_error,
+    format_l1_clock_cover_error,
     resolve_tau_l2_clocks,
+    scale_eligible_stocks,
 )
 from core.research.materialize.horizon_names import (
     horizon_cube_required_names,
@@ -44,6 +49,11 @@ __all__ = [
     "HORIZON_COVER_FRAC",
     "cover_need",
     "cover_reaches",
+    "scale_eligible_stocks",
+    "clamp_span_days",
     "format_cube_cover_error",
+    "format_l1_clock_cover_error",
+    "finalize_l2_report",
+    "first_nested_error",
     "resolve_tau_l2_clocks",
 ]

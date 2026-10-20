@@ -472,10 +472,17 @@ def _materialize_l1_tau_grid_body(
         report["elapsed_s"] = round(time.perf_counter() - t0, 2)
         return report
     eligible_probe, span_probe = _eligible_minute_span(probe)
+    from core.research.materialize.cover_policy import (
+        clamp_span_days,
+        format_l1_clock_cover_error,
+        scale_eligible_stocks,
+    )
+
     # 有分钟的票数可按池比例外推；交易日跨度是共享日历，禁止 ×(池/探针)
-    scale = (len(packs) / float(probe_n)) if probe_n else 1.0
-    eligible = max(eligible_probe, int(round(eligible_probe * scale)))
-    span_days = int(span_probe or 0)
+    eligible = scale_eligible_stocks(
+        eligible_probe, probe_n=probe_n, pool_n=len(packs)
+    )
+    span_days = clamp_span_days(int(span_probe or 0), 0)
     for row in probe:
         if isinstance(row, dict):
             row.pop("minute_bars", None)
@@ -513,8 +520,6 @@ def _materialize_l1_tau_grid_body(
         if summary.get("cancelled"):
             report["error"] = "cancelled"
             report["ok"] = False
-        # 探针分钟 union 可能长于 τ 面板实际写出日（特征 warm-up 丢日）；
-        # 日门槛用 min(探针跨度, 2×最大写出日)，避免误报「覆盖不足」。
         max_written_dates = 0
         for hm in clock_list:
             raw = (summary.get("by_clock") or {}).get(hm) or {}
@@ -522,8 +527,7 @@ def _materialize_l1_tau_grid_body(
                 max_written_dates = max(max_written_dates, int(raw.get("n_dates") or 0))
             except (TypeError, ValueError):
                 pass
-        if max_written_dates > 0 and span_days > max_written_dates * 2:
-            span_days = max_written_dates
+        span_days = clamp_span_days(span_days, max_written_dates)
         report["lake_eligible"] = int(eligible)
         report["lake_span_days"] = int(span_days)
         for hm in clock_list:
@@ -532,17 +536,33 @@ def _materialize_l1_tau_grid_body(
                 row = {"ok": False, "error": "sparse"}
             report["by_clock"][hm] = row
             if _clock_reaches_lake(row, n_eligible=eligible, n_days=span_days):
+                row["ok"] = True
                 ok_n += 1
             else:
                 row["ok"] = False
-                row["error"] = row.get("error") or "覆盖不足"
+                row["error"] = row.get("error") or format_l1_clock_cover_error(
+                    hm,
+                    n_stocks=int(row.get("n_stocks") or 0),
+                    n_dates=int(row.get("n_dates") or 0),
+                    n_eligible=eligible,
+                    n_days=span_days,
+                )
 
     if report.get("error") == "cancelled":
         report["ok"] = False
     else:
         report["ok"] = bool(clock_list) and ok_n == len(clock_list)
         if not report["ok"] and not report.get("error"):
-            report["error"] = f"τ 网格 L1 覆盖不足 ok={ok_n}/{len(clock_list)}"
+            sample = ""
+            for hm in clock_list:
+                bit = str((report.get("by_clock") or {}).get(hm, {}).get("error") or "")
+                if bit:
+                    sample = bit
+                    break
+            report["error"] = (
+                f"τ 网格 L1 覆盖不足 ok={ok_n}/{len(clock_list)}"
+                + (f" · {sample}" if sample else "")
+            )
     report["clocks_ok"] = ok_n
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
     if report.get("error") == "cancelled":

@@ -818,6 +818,9 @@ def materialize_l2(
         report["ok"] = False
         if not report.get("error"):
             report["error"] = str(exc).strip() or "L2 失败"
+    from core.research.materialize.cover_policy import finalize_l2_report
+
+    finalize_l2_report(report, clock_list, lake_frac=lake_frac)
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
     if report.get("error") == "cancelled":
         tail = "L2 已取消"

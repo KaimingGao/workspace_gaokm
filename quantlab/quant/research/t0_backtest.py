@@ -773,6 +773,7 @@ def _t0_coverage_gap(
         }
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
     from core.research.materialize.catalog import suggested_tau_clocks
+    from core.research.materialize.cover_policy import LAKE_COVER_FRAC, cover_need
     from core.research.materialize.coverage import (
         assess_coverage,
         read_cube_codes,
@@ -791,7 +792,7 @@ def _t0_coverage_gap(
         if text <= str(last_hm or "11:00")[:5]:
             minute_clocks.append(text)
     eval_days = recent_trading_days(max(10, int(lookback or 30)))
-    need_codes = max(2, int(len(codes) * 0.5 + 0.999))
+    need_codes = cover_need(len(codes), frac=LAKE_COVER_FRAC, minimum=2)
     minute_days = list_minute_covered_dates(codes, min_codes=need_codes, period="5")
     if minute_days is None:
         day_list = list(eval_days)

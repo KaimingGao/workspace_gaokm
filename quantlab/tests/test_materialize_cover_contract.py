@@ -20,6 +20,72 @@ class CoverPolicyUnitTests(unittest.TestCase):
         self.assertFalse(cover_reaches(0, 50))
         self.assertTrue(cover_reaches(25, 50))
 
+    def test_scale_eligible_not_span(self) -> None:
+        from core.research.materialize.cover_policy import (
+            clamp_span_days,
+            scale_eligible_stocks,
+        )
+
+        self.assertEqual(
+            scale_eligible_stocks(24, probe_n=24, pool_n=800),
+            800,
+        )
+        # 仅当探针跨度 > 2×写出日才钳（禁止假放大）
+        self.assertEqual(clamp_span_days(192, 0), 192)
+        self.assertEqual(clamp_span_days(6400, 192), 192)
+        self.assertEqual(clamp_span_days(400, 192), 192)
+        self.assertEqual(clamp_span_days(200, 192), 200)
+
+    def test_finalize_l2_rejects_zero_cubes(self) -> None:
+        from core.research.materialize.cover_policy import finalize_l2_report
+
+        report = {
+            "ok": True,
+            "by_clock": {
+                "09:35": {
+                    "ok": True,
+                    "cubes_hit": 0,
+                    "cubes_built": 0,
+                    "days": 50,
+                    "slim_reject": 50,
+                }
+            },
+        }
+        out = finalize_l2_report(report, ["09:35"])
+        self.assertFalse(out.get("ok"))
+        self.assertIn("need≥", str(out.get("error") or ""))
+        self.assertIn("slim_reject=50", str(out["by_clock"]["09:35"].get("error")))
+
+    def test_orchestrate_error_includes_nested_detail(self) -> None:
+        from core.research.materialize import run_materialize
+
+        with mock.patch(
+            "core.research.materialize.orchestrate.resolve_materialize_codes",
+            return_value=["000001", "000002"],
+        ), mock.patch(
+            "core.research.materialize.catalog.suggested_tau_clocks",
+            return_value=["09:35"],
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l1_tau_grid",
+            return_value={"ok": True},
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l2",
+            return_value={
+                "ok": False,
+                "error": "立方 09:35 覆盖不足 hit+built=0/50 need≥25",
+            },
+        ):
+            out = run_materialize(
+                do_l1=False,
+                do_l1_tau_grid=True,
+                do_l2=True,
+                clocks=["open"],
+            )
+        self.assertFalse(out.get("ok"))
+        err = str(out.get("error") or "")
+        self.assertIn("l2", err)
+        self.assertIn("hit+built=0/50", err)
+
     def test_format_cube_cover_error_includes_need_and_slim(self) -> None:
         from core.research.materialize.cover_policy import format_cube_cover_error
 

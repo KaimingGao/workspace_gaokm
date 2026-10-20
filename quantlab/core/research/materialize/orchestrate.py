@@ -205,6 +205,8 @@ def _run_materialize(
     out["success"] = out["ok"]
     out["elapsed_s"] = round(time.perf_counter() - t0, 2)
     if not out["ok"] and not out.get("error"):
+        from core.research.materialize.cover_policy import first_nested_error
+
         errs = []
         if do_l1 and not l1_ok:
             errs.append("l1")
@@ -212,7 +214,14 @@ def _run_materialize(
             errs.append("l1_tau_grid")
         if do_l2 and not l2_ok:
             errs.append("l2")
+        detail = first_nested_error(
+            out.get("l1") if do_l1 and not l1_ok else None,
+            out.get("l1_tau_grid") if do_l1_tau_grid and not tau_ok else None,
+            out.get("l2") if do_l2 and not l2_ok else None,
+        )
         out["error"] = "materialize failed: " + ",".join(errs)
+        if detail:
+            out["error"] = f"{out['error']} · {detail}"
     _emit(progress_cb, tot_steps, tot_steps, f"物化完成 · {out['elapsed_s']}s")
     logger.info(
         "materialize done ok=%s codes=%s l1=%s tau_grid=%s l2=%s elapsed=%.1fs",
