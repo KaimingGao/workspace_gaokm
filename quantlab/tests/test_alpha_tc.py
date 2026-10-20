@@ -383,6 +383,63 @@ def test_collect_keep_dates_matches_full_slice():
             assert abs(float(got[key]) - float(exp[key])) <= 1e-9
 
 
+def test_open_block_matches_dict_rows_including_dropped_day():
+    """列直写矩阵与逐格抄 dict 同值。中间丢掉一天时下标仍对齐。"""
+    from copy import deepcopy
+
+    from core.research.panel_matrix import (
+        _assemble_tau_open_block,
+        _dict_rows_to_matrix,
+        _tc_matrix_seed_names,
+    )
+    from core.research.tau_panel import collect_tau_open_panel
+    from core.signal.factors.z_tc import stamp_z_tc_rows
+    from core.yhat.keys import TAU_Z_FEATURES
+
+    bars = _unique_bars(160, seed=21)
+    bars[100]["close"] = 0.0
+    names = _tc_matrix_seed_names(list(TAU_Z_FEATURES), include_alpha_tc=True)
+    xs, ys, dates, _metas = collect_tau_open_panel(bars, include_alpha_tc=True)
+    stamped = deepcopy(xs)
+    stamp_z_tc_rows(stamped)
+    expect = _dict_rows_to_matrix(stamped, names)
+
+    atc_out: dict = {}
+    xs2, ys2, dates2, _metas2 = collect_tau_open_panel(
+        bars, include_alpha_tc=True, atc_out=atc_out
+    )
+    assert dates2 == dates
+    assert ys2 == ys
+    assert xs2 and not any(is_alpha_tc_raw_key(k) for k in xs2[0])
+    got = _assemble_tau_open_block(xs2, names, atc_out)
+    assert got.shape == expect.shape
+    assert np.allclose(got, expect, equal_nan=True, rtol=0, atol=0)
+
+
+def test_label_lag_skips_future_and_accepts_long_keys():
+    from core.research.tau_panel import label_lag_features
+
+    lags = label_lag_features(
+        hist_bars=[{"date": "2025-06-01"}, {"date": "2025-06-02"}],
+        by_date={"2025-06-01": 0.2, "2025-06-02": 9.0},
+        asof_date="2025-06-02",
+        lag1_key="tau_lag1",
+        ma_key="tau_ma5",
+    )
+    assert lags["tau_lag1"] == 0.2
+    assert lags["tau_ma5"] == 0.2
+
+    long = label_lag_features(
+        hist_bars=[{"date": "2025-06-01"}],
+        by_date={"2025-06-01T00:00:00": 0.8, "2025-06-02T00:00:00": 9.0},
+        asof_date="2025-06-02",
+        lag1_key="tau_lag1",
+        ma_key="tau_ma5",
+    )
+    assert long["tau_lag1"] == 0.8
+    assert long["tau_ma5"] == 0.8
+
+
 def test_open_columns_reject_bad_shape():
     bars = _unique_bars(80, seed=19)
     packed = ohlcv_from_bars(bars)

@@ -408,7 +408,8 @@ def _tau_stock_job(
             from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
 
             def _tail(keep_dates):
-                xs_t, ys_t, dates_t, metas_t = collect_tau_open_panel(
+                atc_out: Dict[str, Any] = {}
+                xs_t, ys_t, dates_t, _metas_t = collect_tau_open_panel(
                     bars,
                     min_history=min_history,
                     index_bars=item.get("index_bars"),
@@ -416,6 +417,7 @@ def _tau_stock_job(
                     stock_code=code,
                     include_alpha_tc=include_alpha_tc,
                     keep_dates=keep_dates,
+                    atc_out=atc_out,
                 )
                 if len(ys_t) < 1:
                     return (
@@ -424,9 +426,8 @@ def _tau_stock_job(
                         list(col_names),
                         [],
                     )
-                stamp_z_tc_rows(xs_t)
                 return (
-                    _dict_rows_to_matrix(xs_t, col_names),
+                    _assemble_tau_open_block(xs_t, col_names, atc_out),
                     np.asarray([float(y) for y in ys_t], dtype=np.float64),
                     list(col_names),
                     [str(d)[:10] for d in dates_t],
@@ -479,6 +480,7 @@ def _tau_stock_job(
             except Exception:  # noqa: BLE001
                 logger.debug("tau L1 sync (incremental) failed code=%s", code, exc_info=True)
         return code, block, ys_l, dates_l, metas_l, slim
+    atc_out: Dict[str, Any] = {}
     if use_minute:
         xs, ys, dates, metas = collect_tau_intraday_panel(
             bars,
@@ -501,21 +503,25 @@ def _tau_stock_job(
             fundamentals=item.get("fundamentals"),
             stock_code=code,
             include_alpha_tc=include_alpha_tc,
+            atc_out=atc_out,
         )
     if len(ys) < 4:
         return None
-    stamp_z_tc_rows(xs)
-    if include_alpha_th:
-        try:
-            from core.signal.factors.z_th import stamp_z_th_aliases
+    if not use_minute:
+        block = _assemble_tau_open_block(xs, col_names, atc_out)
+    else:
+        stamp_z_tc_rows(xs)
+        if include_alpha_th:
+            try:
+                from core.signal.factors.z_th import stamp_z_th_aliases
 
-            for row in xs:
-                if isinstance(row, dict):
-                    stamp_z_th_aliases(row)
-        except Exception:  # noqa: BLE001
-            logger.debug("stamp_z_th_aliases failed", exc_info=True)
+                for row in xs:
+                    if isinstance(row, dict):
+                        stamp_z_th_aliases(row)
+            except Exception:  # noqa: BLE001
+                logger.debug("stamp_z_th_aliases failed", exc_info=True)
+        block = _dict_rows_to_matrix(xs, col_names)
     slim = _slim_rows(xs, slim_keys)
-    block = _dict_rows_to_matrix(xs, col_names)
     del xs
     ys_l = [float(y) for y in ys]
     dates_l = [str(d)[:10] for d in dates]
@@ -1266,6 +1272,47 @@ def _dict_rows_to_matrix(
             if math.isfinite(fv):
                 out[i, j] = fv
     return out
+
+
+def _assemble_tau_open_block(
+    xs: Sequence[dict],
+    col_names: Sequence[str],
+    atc_out: Optional[Dict[str, Any]] = None,
+) -> np.ndarray:
+    """开盘 ŷ_τc：别名 stamp 后折矩阵。``atc_out`` 里的列直接写入，不再逐格抄 dict。"""
+    from core.signal.factors.z_tc import stamp_z_tc_rows
+
+    stamp_z_tc_rows(xs)
+    block = _dict_rows_to_matrix(xs, col_names)
+    packed = atc_out or {}
+    cols = packed.get("cols")
+    index = packed.get("index")
+    if not cols or index is None:
+        return block
+    if len(index) != int(block.shape[0]):
+        logger.warning(
+            "tau open column index mismatch rows=%s index=%s",
+            int(block.shape[0]),
+            len(index),
+        )
+        return block
+    idx = np.asarray(index, dtype=np.int64)
+    use = idx >= 0
+    if not np.any(use):
+        return block
+    name_at = {str(name): j for j, name in enumerate(col_names)}
+    picked = idx[use]
+    for key, col in cols:
+        j = name_at.get(str(key))
+        if j is None:
+            continue
+        values = np.asarray(col, dtype=np.float64)[picked]
+        good = np.isfinite(values)
+        if not np.any(good):
+            continue
+        rows = np.flatnonzero(use)[good]
+        block[rows, j] = values[good]
+    return block
 
 
 def _co_stock_job(

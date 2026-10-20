@@ -562,15 +562,25 @@ def label_lag_features(
 
     if len(asof) < 10:
         return _empty()
-    past = {
-        str(k)[:10]: v
-        for k, v in (by_date or {}).items()
-        if len(str(k)[:10]) >= 10 and str(k)[:10] < asof
-    }
+    # 键已是 YYYY-MM-DD 时直接查。每天滤整张表是 O(交易日²)，开盘面板 1000 天主耗时在这。
+    # 当日及未来仍由下面的 ``d >= asof`` 丢掉，不读进因子。
+    src = by_date or {}
+    lookup: Mapping[str, Any] = src
+    if src:
+        sample = next(iter(src))
+        sample_key = sample if isinstance(sample, str) else str(sample)
+        if len(sample_key) != 10:
+            folded: Dict[str, Any] = {}
+            for key, value in src.items():
+                day = str(key)[:10]
+                if len(day) >= 10:
+                    folded[day] = value
+            lookup = folded
     win = max(1, int(window or LABEL_LAG_WINDOW))
     vals: List[float] = []
     seen: set = set()
-    for bar in reversed(list(hist_bars or [])):
+    seq = hist_bars if isinstance(hist_bars, (list, tuple)) else tuple(hist_bars or ())
+    for bar in reversed(seq):
         if not isinstance(bar, dict):
             continue
         d = str(bar.get("date") or bar.get("trade_date") or "")[:10]
@@ -581,7 +591,7 @@ def label_lag_features(
         if d >= asof:
             continue
         seen.add(d)
-        y = past.get(d)
+        y = lookup.get(d)
         if y is None:
             continue
         try:
@@ -1344,6 +1354,7 @@ def collect_tau_open_panel(
     config: Optional[dict] = None,
     include_alpha_tc: bool = False,
     keep_dates: Optional[Collection[str]] = None,
+    atc_out: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """单票 ŷ_τc 面板（τ=open，标签 close/open−1）。
 
@@ -1353,6 +1364,9 @@ def collect_tau_open_panel(
     ``include_alpha_tc=True`` 时附加 τ 锚 ``raw_atc_*``（现网 ŷ_τc）。
     ``meta_rows`` 含 ``y_τc``。
     ``keep_dates``：给定时只保留这些决策日（尾窗增量）。
+    ``atc_out``：给定时不把 ``raw_atc_*`` 抄进每一行，改为写入
+    ``atc_out["cols"]``（按日对齐的列）和 ``atc_out["index"]``（保留行在列中的下标，
+    ``-1`` 表示该行已走逐日回退、列上不要覆盖）。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
@@ -1398,6 +1412,13 @@ def collect_tau_open_panel(
             logger.debug("tau open raw_atc columns failed", exc_info=True)
             atc_items = None
     # i = index of day T；需要 i-1 有昨收。一根坏 K 线只丢掉这一天。
+    atc_index: Optional[List[int]] = None
+    if atc_out is not None:
+        atc_out.clear()
+        if atc_items is not None:
+            atc_index = []
+            atc_out["cols"] = atc_items
+            atc_out["index"] = atc_index
     skipped_days = 0
     for i in range(min_history, n):
         b_t = bars[i]
@@ -1438,16 +1459,23 @@ def collect_tau_open_panel(
             }
             for k in TAU_LAG_FEATURES:
                 row[k] = lags.get(k)
+            atc_ridx = -1
             if include_alpha_tc:
                 filled = False
                 if atc_items is not None:
                     try:
                         ridx = i - int(max_window)
-                        for key, col in atc_items:
-                            num = _finite_raw(col[ridx])
-                            if num is not None:
-                                row[key] = num
-                        filled = True
+                        if atc_index is not None:
+                            col0 = atc_items[0][1]
+                            if 0 <= ridx < int(getattr(col0, "shape", (0,))[0]):
+                                atc_ridx = ridx
+                                filled = True
+                        else:
+                            for key, col in atc_items:
+                                num = _finite_raw(col[ridx])
+                                if num is not None:
+                                    row[key] = num
+                            filled = True
                     except Exception:  # noqa: BLE001
                         logger.debug(
                             "tau open column day fallback i=%s", i, exc_info=True
@@ -1455,9 +1483,12 @@ def collect_tau_open_panel(
                         for key in list(row):
                             if str(key).startswith("raw_atc_"):
                                 row.pop(key, None)
+                        atc_ridx = -1
                 if not filled:
                     _inject_open_raw(row, window, b_prev, o)
             xs.append(row)
+            if atc_index is not None:
+                atc_index.append(atc_ridx)
             ys.append(float(y))
             dates.append(date_t)
             metas.append(
