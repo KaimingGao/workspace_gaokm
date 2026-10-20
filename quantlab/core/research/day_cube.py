@@ -332,6 +332,7 @@ def save_day_cube(cube: DayCube) -> bool:
         "universe_hash": cube.universe_hash,
         "n_codes": len(cube.codes),
         "n_cols": len(cube.names),
+        "names": list(cube.names),
         "slim": cube.slim or {},
     }
     try:
@@ -341,6 +342,27 @@ def save_day_cube(cube: DayCube) -> bool:
         return False
     _MEMORY[_mem_key(cube.universe_hash, cube.clock, cube.date)] = cube
     return True
+
+
+def discard_day_cube(
+    date: str,
+    codes: Sequence[str],
+    *,
+    clock: str = "open",
+) -> None:
+    """删掉该日该钟的立方文件和内存副本。窗头检查失败时不留瘦立方。"""
+    day = str(date or "")[:10]
+    if len(day) < 10:
+        return
+    uh = universe_hash(list(codes or []))
+    clk = _safe_clock(clock)
+    _MEMORY.pop(_mem_key(uh, clk, day), None)
+    paths = _disk_paths(uh, clk, day)
+    for key in ("npz", "meta"):
+        try:
+            os.remove(paths[key])
+        except OSError:
+            pass
 
 
 def day_cube_status(
@@ -361,6 +383,24 @@ def day_cube_status(
         if str(meta.get("universe_hash") or "") != uh:
             return "universe"
         if int(meta.get("n_cols") or 0) < 2:
+            return "thin"
+        stored = meta.get("names")
+        if not isinstance(stored, list) or not stored:
+            return "thin"
+        try:
+            from core.research.materialize.horizon_names import (
+                minute_horizon_required_names,
+                names_cover_horizon,
+                open_cube_required_names,
+            )
+
+            if clk in ("open", "0930"):
+                required = open_cube_required_names()
+            else:
+                required = minute_horizon_required_names()
+            if not names_cover_horizon(stored, min_frac=1.0, need=required):
+                return "thin"
+        except Exception:  # noqa: BLE001
             return "thin"
         if not os.path.isfile(paths["npz"]):
             return "miss"

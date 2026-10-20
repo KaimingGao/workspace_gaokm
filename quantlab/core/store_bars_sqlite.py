@@ -924,10 +924,12 @@ def covered_minute_dates(
     period: str,
     min_codes: int,
     store_dir: str,
+    adjust_policy: Optional[str] = "qfq",
 ) -> List[str]:
     """本地 5m 里、至少 ``min_codes`` 只有根的交易日。
 
     按代码分批 ``COUNT(DISTINCT code)`` 再相加。同一只代码只出现在一批里。
+    ``adjust_policy`` 与读取口径一致，默认前复权。传空字符串则不过滤复权。
     """
     grouped: Dict[str, List[str]] = {}
     seen = set()
@@ -944,6 +946,7 @@ def covered_minute_dates(
     if not grouped:
         return []
     per = str(period or "5")
+    policy = str(adjust_policy or "").strip().lower()
     need = max(1, int(min_codes or 1))
     conn = get_read_conn(store_dir)
     counts: Dict[str, int] = {}
@@ -952,15 +955,23 @@ def covered_minute_dates(
         for start in range(0, len(codes), batch):
             chunk = codes[start : start + batch]
             marks = ",".join("?" * len(chunk))
-            rows = conn.execute(
-                f"""
+            if policy:
+                sql = f"""
+                SELECT date AS d, COUNT(DISTINCT code) AS n
+                FROM minute_bars
+                WHERE market=? AND period=? AND adjust_policy=? AND code IN ({marks})
+                GROUP BY date
+                """
+                params: Tuple[Any, ...] = (mkt, per, policy, *chunk)
+            else:
+                sql = f"""
                 SELECT date AS d, COUNT(DISTINCT code) AS n
                 FROM minute_bars
                 WHERE market=? AND period=? AND code IN ({marks})
                 GROUP BY date
-                """,
-                (mkt, per, *chunk),
-            ).fetchall()
+                """
+                params = (mkt, per, *chunk)
+            rows = conn.execute(sql, params).fetchall()
             for row in rows:
                 day = str(row["d"] or "")[:10]
                 if len(day) < 10:

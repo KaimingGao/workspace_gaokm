@@ -394,12 +394,14 @@ def _relabel_tau_panels_as_horizon(
             day_i = str(m.get("date") or dates_in[i] or "")[:10]
             tau_i = str(m.get("tau") or "").strip()
             mb = p.get("minute_bars")
-            # L1 stitch 行常缺 price_tau / pxN：用分钟轻量补标签（不重算特征）
-            px_tau = m.get("price_tau")
-            if px_tau is None and mb and tau_i and len(day_i) >= 10:
-                px_tau = price_at_tau_from_minutes(
-                    mb, trade_date=day_i, tau_hm=tau_i
-                )
+            # 非开盘钟不信已落盘的宽松分母，每次用精确 τ 根重算。
+            open_clock = is_open_minute_clock(tau_i)
+            if mb and tau_i and len(day_i) >= 10:
+                px_tau = label_price_at_tau(mb, trade_date=day_i, tau_hm=tau_i)
+            elif open_clock:
+                px_tau = m.get("price_tau")
+            else:
+                px_tau = None
             if pxN is None and mb and tau_i and len(day_i) >= 10:
                 tauN_hm, pxN = price_at_horizon_mean_session(
                     mb,
@@ -746,15 +748,11 @@ def _realized_horizon_by_date_for_clock(
         return hit
     by_date = _minute_by_date_for_lags(code)
     out: Dict[str, float] = {}
-    open_clock = is_open_minute_clock(hm)
     for d, day_mins in by_date.items():
         day = str(d or "")[:10]
         if len(day) < 10:
             continue
-        px_tau = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=hm)
-        if (px_tau is None or px_tau <= 0) and open_clock:
-            o_min, _ = minute_session_open_close(day_mins, trade_date=day)
-            px_tau = o_min
+        px_tau = label_price_at_tau(day_mins, trade_date=day, tau_hm=hm)
         _, pxN = price_at_horizon_mean_session(day_mins, trade_date=day, tau_hm=hm, offsets=spec.offsets)
         yt = y_t30_pct(px_tau, pxN)
         if yt is not None:
@@ -1154,6 +1152,164 @@ def _minute_clock_atc_items(
         tau_hm=clock,
     )
     return _open_atc_items(cols, m)
+
+
+def _minute_clocks_atc_items(
+    bars: Sequence[dict],
+    minutes_by_day: Mapping[str, Sequence[dict]],
+    *,
+    hist: int,
+    clocks: Sequence[str],
+) -> Dict[str, Tuple[Tuple[str, Any], ...]]:
+    """多个钟的 ``raw_atc_*``。日线只解析一次，每个交易日只滤到最晚钟。
+
+    某个钟锚定失败则这一钟缺席，其它钟保留。列与逐钟 ``_minute_clock_atc_items`` 相同。
+    """
+    from bisect import bisect_right
+
+    from core.signal.factors.alpha_tc import (
+        _PREFIX_KEYS,
+        _prefix_neutral,
+        _prefix_summary,
+        ohlcv_from_bars,
+        raw_atc_tau_columns,
+    )
+    from core.signal.minute_tau_feats import _bar_hm, _clock_hhmm, _filter_day_bars_upto_tau
+
+    clock_list = [str(c) for c in (clocks or []) if str(c or "").strip()]
+    if not clock_list:
+        return {}
+    packed = ohlcv_from_bars(bars)
+    if not packed:
+        return {}
+    n = len(bars)
+    hist_n = int(hist)
+    m = n - hist_n
+    if m <= 0:
+        return {}
+    timed: List[Tuple[str, str]] = []
+    untimed: List[str] = []
+    for clock in clock_list:
+        target = _clock_hhmm(clock)
+        if target is None:
+            untimed.append(clock)
+        else:
+            timed.append((clock, target))
+    timed.sort(key=lambda item: item[1])
+    latest = timed[-1][1] if timed else ""
+    nan = float("nan")
+    buckets: Dict[str, Dict[str, Any]] = {}
+    for clock, _target in timed:
+        defaults = _prefix_neutral(clock)
+        buckets[clock] = {
+            "pt": [nan] * m,
+            "phi": [nan] * m,
+            "plo": [nan] * m,
+            "pvol": [0.0] * m,
+            "pref": {key: [float(defaults.get(key, 0.0))] * m for key in _PREFIX_KEYS},
+            "anchored": 0,
+        }
+    day_cache: Dict[str, Tuple[List[dict], List[str]]] = {}
+    for r, i in enumerate(range(hist_n, n) if timed else ()):
+        bar = bars[i]
+        if not isinstance(bar, dict):
+            continue
+        try:
+            open_px = float(bar.get("open"))
+        except (TypeError, ValueError):
+            continue
+        if not (open_px > 0):
+            continue
+        day = str(bar.get("date") or "")[:10]
+        day_mins = minutes_by_day.get(day) or ()
+        ordered_hms = day_cache.get(day)
+        if ordered_hms is None:
+            ordered = _filter_day_bars_upto_tau(
+                day_mins, day=day, target=latest, match_date=False
+            )
+            ordered_hms = (ordered, [_bar_hm(b) for b in ordered])
+            day_cache[day] = ordered_hms
+        ordered, hms = ordered_hms
+        for clock, target in timed:
+            bucket = buckets[clock]
+            end = bisect_right(hms, target)
+            prefix = ordered[:end]
+            try:
+                px = price_at_tau_from_minutes(day_mins, trade_date=day, tau_hm=clock)
+                if (px is None or px <= 0) and is_open_minute_clock(clock):
+                    o_min, _c_min = minute_session_open_close(day_mins, trade_date=day)
+                    if o_min and o_min > 0:
+                        px = o_min
+                px_n = _finite_raw(px)
+                if px_n is None or px_n <= 0:
+                    continue
+                fields, hi, lo, cum, _last = _prefix_summary(
+                    prefix,
+                    trade_date=day,
+                    tau_hm=clock,
+                    open_t=open_px,
+                    price_tau=px_n,
+                )
+                hi_n = _finite_raw(hi)
+                lo_n = _finite_raw(lo)
+                if cum is None:
+                    continue
+                cum_n = _finite_raw(cum)
+                if hi_n is None or lo_n is None or cum_n is None:
+                    continue
+                bucket["pt"][r] = px_n
+                bucket["phi"][r] = hi_n
+                bucket["plo"][r] = lo_n
+                bucket["pvol"][r] = cum_n
+                if isinstance(fields, dict):
+                    for key in _PREFIX_KEYS:
+                        if key not in fields:
+                            continue
+                        num = _finite_raw(fields.get(key))
+                        if num is not None:
+                            bucket["pref"][key][r] = num
+                bucket["anchored"] += 1
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "tau minute anchor skipped clock=%s i=%s", clock, i, exc_info=True
+                )
+                continue
+    out: Dict[str, Tuple[Tuple[str, Any], ...]] = {}
+    for clock, _target in timed:
+        bucket = buckets[clock]
+        if int(bucket["anchored"]) <= 0:
+            continue
+        try:
+            cols = raw_atc_tau_columns(
+                *packed,
+                hist=hist_n,
+                price_tau=bucket["pt"],
+                prefix_hi=bucket["phi"],
+                prefix_lo=bucket["plo"],
+                prefix_vol=bucket["pvol"],
+                prefix_fields=bucket["pref"],
+                tau_hm=clock,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau minute columns failed clock=%s", clock, exc_info=True)
+            continue
+        items = _open_atc_items(cols, m)
+        if items:
+            out[clock] = items
+    for clock in untimed:
+        try:
+            items = _minute_clock_atc_items(
+                bars,
+                minutes_by_day,
+                hist=hist_n,
+                clock=clock,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau minute columns failed clock=%s", clock, exc_info=True)
+            items = None
+        if items:
+            out[clock] = items
+    return out
 
 
 def collect_tau_open_panel(
@@ -1658,6 +1814,28 @@ def price_at_tau_hm_exact(
     return best
 
 
+def label_price_at_tau(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str,
+) -> Optional[float]:
+    """标签分母。非开盘钟必须精确命中 τ；开盘钟可退回会话开盘价。"""
+    if is_open_minute_clock(tau_hm):
+        px = price_at_tau_from_minutes(
+            minute_bars, trade_date=trade_date, tau_hm=tau_hm
+        )
+        if px is not None and px > 0:
+            return px
+        o_min, _ = minute_session_open_close(minute_bars, trade_date=trade_date)
+        if o_min and o_min > 0:
+            return float(o_min)
+        return None
+    return price_at_tau_hm_exact(
+        minute_bars, trade_date=trade_date, tau_hm=tau_hm
+    )
+
+
 def price_at_tau_plus_session(
     minute_bars: Sequence[dict],
     *,
@@ -1897,19 +2075,16 @@ def collect_tau_intraday_panel(
         and int(min_history) >= int(max_window) >= 60
         and n > int(max_window)
     ):
-        for clock in clocks:
-            try:
-                items = _minute_clock_atc_items(
-                    bars,
-                    minutes_by_day,
-                    hist=int(max_window),
-                    clock=clock,
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("tau minute columns failed clock=%s", clock, exc_info=True)
-                items = None
-            if items:
-                atc_by_clock[clock] = items
+        try:
+            atc_by_clock = _minute_clocks_atc_items(
+                bars,
+                minutes_by_day,
+                hist=int(max_window),
+                clocks=clocks,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau minute columns failed", exc_info=True)
+            atc_by_clock = {}
     skipped_days = 0
     skipped_clocks = 0
     from core.signal.minute_tau_feats import (
@@ -2059,9 +2234,12 @@ def _emit_intraday_clock(
     from core.signal.minute_tau_feats import extract_horizon_seq_packs, extract_minute_tau_pack
 
     open_clock = is_open_minute_clock(clock)
-    px_tau = price_at_tau_from_minutes(
-        day_mins, trade_date=date_t, tau_hm=clock
-    )
+    if not open_clock:
+        from core.signal.minute_tau_feats import prefix_has_tau_clock
+
+        if not prefix_has_tau_clock(day_mins, trade_date=date_t, tau_hm=clock):
+            return
+    px_tau = label_price_at_tau(day_mins, trade_date=date_t, tau_hm=clock)
     if (px_tau is None or px_tau <= 0) and open_clock:
         # 当日须有分钟会话（5m 通常从 09:35 起）；无缓存日不混进 09:30
         if not (o_min and o_min > 0):

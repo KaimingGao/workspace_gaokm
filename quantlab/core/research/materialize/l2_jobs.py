@@ -250,7 +250,10 @@ def _materialize_l2_with_minute(
     from core.research.feature_lake import slice_stock_panels
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, family_for_tc
     from core.research.materialize.cube_batch import build_day_cubes_from_lake
-    from core.research.materialize.horizon_names import names_cover_horizon
+    from core.research.materialize.horizon_names import (
+        minute_horizon_required_names,
+        names_cover_horizon,
+    )
 
     open_clocks = [c for c in clock_list if str(c) == "open"]
     need = max(2, int(len(code_list) * lake_frac + 0.999))
@@ -279,7 +282,25 @@ def _materialize_l2_with_minute(
     n_steps = open_steps + n_clocks
     n_days = max(1, len(minute_days))
     fams = {str(clock): family_for_tc(tau_hm=str(clock)) for clock in minute_clocks}
-    horizon_ok = names_cover_horizon if require_horizon_names else None
+    def _minute_horizon_ok(cube: Any) -> bool:
+        # 没有 names 属性的占位对象不当瘦立方。真立方（含 ndarray）有列才验全覆盖。
+        if not hasattr(cube, "names"):
+            return True
+        try:
+            names = list(getattr(cube, "names") or [])
+        except TypeError:
+            return False
+        if not names:
+            return False
+        return bool(
+            names_cover_horizon(
+                cube,
+                min_frac=1.0,
+                need=minute_horizon_required_names(),
+            )
+        )
+
+    horizon_ok = _minute_horizon_ok
     load_logged: set = set()
     cover_logged: set = set()
 
@@ -362,26 +383,25 @@ def _materialize_l2_with_minute(
                 row["days_skipped"] = int(row.get("days_skipped") or 0) + 1
                 continue
             if existing is not None:
-                if require_horizon_names:
-                    try:
-                        covered = bool(names_cover_horizon(existing))
-                    except Exception:  # noqa: BLE001
-                        if clock not in cover_logged:
-                            cover_logged.add(clock)
-                            logger.warning(
-                                "l2 horizon check failed clock=%s day=%s",
-                                clock,
-                                day,
-                                exc_info=True,
-                            )
-                        covered = False
-                    if not covered:
-                        sh.append(day)
-                        if _cancelled(cancel_cb):
-                            _mark_cancelled(str(clock))
-                            stopped = True
-                            break
-                        continue
+                try:
+                    covered = bool(horizon_ok(existing))
+                except Exception:  # noqa: BLE001
+                    if clock not in cover_logged:
+                        cover_logged.add(clock)
+                        logger.warning(
+                            "l2 horizon check failed clock=%s day=%s",
+                            clock,
+                            day,
+                            exc_info=True,
+                        )
+                    covered = False
+                if not covered:
+                    sh.append(day)
+                    if _cancelled(cancel_cb):
+                        _mark_cancelled(str(clock))
+                        stopped = True
+                        break
+                    continue
                 row["cubes_hit"] = int(row.get("cubes_hit") or 0) + 1
                 if _cancelled(cancel_cb):
                     _mark_cancelled(str(clock))

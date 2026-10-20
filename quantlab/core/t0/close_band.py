@@ -1,6 +1,6 @@
 """做 T 选腿：09:30–截止钟（live 默认 11:00）每根 5m **纯 ŷ_τw** 定方向与金额。
 
-ŷ_τw = ŷ_τ30/45/60/75/90 相对共用中位点（默认 47%）的符号和。
+ŷ_τw = ŷ_τ30/45/60/75/90 相对共用中位点（默认 50%）的符号和。
 正T：ŷ_τw≥Y_τw入场；反T：ŷ_τw≤−入场。金额看 |ŷ_τw|（入场/强票数）。
 leg2 无 C_τ 目标价（止损 / 锁赢 / 追价 / 收盘强平）；旧 C_τ 破带估已移除。
 """
@@ -178,7 +178,7 @@ DEFAULT_Y_TW_ENTER = 2.0  # 正T：ŷ_τw>=此值；反T：ŷ_τw<=−此值。0
 DEFAULT_Y_TW_STRONG = 3.0  # |ŷ_τw|≥此票用强金额
 DEFAULT_Y_TW_WEAK_RATIO = 0.5  # 过入场未过强：比例仓半档
 DEFAULT_Y_TW_VOTE_MARGIN = 5.0  # |p_up−mid|≤此百分点不投票
-DEFAULT_Y_TW_MIDPOINT = 47.0  # ŷ_τ* 共用中位点（百分点）
+DEFAULT_Y_TW_MIDPOINT = 50.0  # ŷ_τ* 共用中位点（百分点）
 
 
 def _horizon_vote_margin_pp(cfg: Optional[dict] = None, margin_pp: Any = None) -> Any:
@@ -358,7 +358,7 @@ def _pick_y_t90_for_band(
 
 
 def y_tw_sign(x: Any, *, margin_pp: Any = None, midpoint: Any = None) -> Optional[int]:
-    """ŷ_τw 票：sign(p_up−mid)。|p−mid|≤margin_pp（默认 5pp）/ 缺分不投票。mid 默认 47%。"""
+    """ŷ_τw 票：sign(p_up−mid)。|p−mid|≤margin_pp（默认 5pp）/ 缺分不投票。mid 默认 50%。"""
     from core.research.horizon_prob import p_up_vote
 
     return p_up_vote(x, margin_pp=margin_pp, midpoint=midpoint)
@@ -377,7 +377,7 @@ def blend_y_tw(
 ) -> Optional[float]:
     """ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−mid)。
 
-    mid 默认 47%（``y_tw_midpoint``）。|p−mid|≤y_tw_vote_margin / 缺头不计该项。
+    mid 默认 50%（``y_tw_midpoint``）。|p−mid|≤y_tw_vote_margin / 缺头不计该项。
     有头但全弃权计 **0 票**；无任何头返回 None。
     """
     band = _horizon_vote_margin_pp(cfg, margin_pp)

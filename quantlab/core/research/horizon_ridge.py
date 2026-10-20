@@ -139,6 +139,26 @@ def pick_y_label(head: str, *objs: Any) -> Optional[float]:
     return None
 
 
+def clear_y_hat(head: str, dest: Dict[str, Any]) -> None:
+    """截面 z 不完整时丢掉该头，避免沿用上一次写上的 p_up。"""
+    if not isinstance(dest, dict):
+        return
+    cfg = _horizon_ridge_config(head)
+    h = cfg["head"]
+    num = cfg["num"]
+    for key in (
+        f"predicted_score_{h}",
+        f"y_{h}_hat",
+        f"y_{h}",
+        f"y_\u03c4{num}",
+        f"y_spec_\u03c4{num}",
+        f"y_spec_{h}",
+        f"y_{h}_source",
+        f"y_\u03c4{num}_source",
+    ):
+        dest.pop(key, None)
+
+
 def write_y_hat(head: str, dest: Dict[str, Any], val: float, *, formula: Any = None) -> None:
     cfg = _horizon_ridge_config(head)
     h = cfg["head"]

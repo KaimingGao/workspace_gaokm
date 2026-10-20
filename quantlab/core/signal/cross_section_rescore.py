@@ -412,6 +412,26 @@ def _rescore_horizons(
         _rescore_one_horizon(items, head, score_codes=score_codes, day_cube=day_cube)
 
 
+def _finite_name_count(rows: Sequence[dict], name: str) -> int:
+    import math
+
+    key = str(name or "").strip()
+    n = 0
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        v = row.get(key)
+        if v is None or v == "":
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(fv):
+            n += 1
+    return n
+
+
 def _rescore_one_horizon(
     items: List[dict],
     head: str,
@@ -467,28 +487,47 @@ def _rescore_one_horizon(
             stamp_z_th_aliases(r)
     except Exception:  # noqa: BLE001
         logger.debug("horizon rescore stamp failed head=%s", head, exc_info=True)
-    z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
+    from core.research.horizon_ridge import clear_y_hat
+    from core.t0.score_policy import _cube_covers_horizon_names, _finalize_cs_row
+
+    cube_ok = day_cube is not None and _cube_covers_horizon_names(day_cube, names)
+    if not cube_ok and len(raws) < 2:
+        for slot in slots:
+            clear_y_hat(head, items[slot])
+        return
+    if cube_ok:
+        z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
+        covered = list(names)
+    else:
+        covered = [n for n in names if _finite_name_count(raws, n) >= 2]
+        z_rows = _z_rows(raws, covered or list(names), day_cube=None, codes=codes)
     be = _doc_backend(doc)
     for slot, z_row in zip(slots, z_rows):
         item = items[slot]
         code = str(item.get("stock_code") or "").strip()
         if allow is not None and code not in allow:
             continue
+        final = _finalize_cs_row(z_row if isinstance(z_row, dict) else {}, names, covered)
+        if final is None:
+            clear_y_hat(head, item)
+            continue
         try:
             if be == "tree":
-                yhat = predict_tree_from_features(head, z_row, model_doc=doc)
+                yhat = predict_tree_from_features(head, final, model_doc=doc)
             else:
-                yhat = predict_ridge_from_features(head, z_row, model_doc=doc)
+                yhat = predict_ridge_from_features(head, final, model_doc=doc)
         except Exception:  # noqa: BLE001
             logger.debug("horizon rescore predict failed head=%s", head, exc_info=True)
+            clear_y_hat(head, item)
             continue
         if yhat is None:
+            clear_y_hat(head, item)
             continue
         write_y_hat(head, item, float(yhat))
         item[f"y_τ{head[1:]}_source" if head.startswith("t") else f"y_{head}_source"] = be
         item[f"y_{head}_source"] = be
         try:
-            expl = explain_ridge_prediction(head, z_row, model_doc=doc)
+            expl = explain_ridge_prediction(head, final, model_doc=doc)
         except Exception:  # noqa: BLE001
             expl = None
         if isinstance(expl, dict):

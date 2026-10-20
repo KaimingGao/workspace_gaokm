@@ -37,6 +37,38 @@ def _emit(cb: ProgressCb, cur: int, tot: int, msg: str) -> None:
         logger.debug("cube batch progress failed", exc_info=True)
 
 
+def _keep_cube(
+    cube: Any,
+    *,
+    day: str,
+    universe: Sequence[str],
+    clock: str,
+    horizon_ok: Optional[Callable[[Any], bool]],
+) -> bool:
+    """窗头通过才落盘。失败时删掉磁盘和内存里的真立方。"""
+    from core.research.day_cube import DayCube, discard_day_cube, save_day_cube
+
+    if cube is None:
+        return False
+    if horizon_ok is not None:
+        try:
+            covered = bool(horizon_ok(cube))
+        except Exception:  # noqa: BLE001
+            logger.warning("cube batch horizon check failed day=%s", day, exc_info=True)
+            covered = False
+        if not covered:
+            if isinstance(cube, DayCube):
+                discard_day_cube(day, universe, clock=clock)
+            return False
+    if not isinstance(cube, DayCube):
+        return True
+    try:
+        return bool(save_day_cube(cube))
+    except Exception:  # noqa: BLE001
+        logger.warning("cube batch save failed day=%s", day, exc_info=True)
+        return False
+
+
 def _as_int(value: Any, default: int) -> int:
     try:
         return int(value)
@@ -398,7 +430,7 @@ def _write_vectorized_days(
                 [],
                 date=day,
                 clock=clock,
-                persist=True,
+                persist=False,
                 universe_codes=univ,
                 replace=bool(replace_existing),
                 aligned=(kept, names, matrix),
@@ -410,23 +442,18 @@ def _write_vectorized_days(
                 stats["days_skipped"] += 1
                 continue
             raise
-        if cube is None:
-            stats["days_skipped"] += 1
+        if not _keep_cube(
+            cube,
+            day=day,
+            universe=univ,
+            clock=clock,
+            horizon_ok=horizon_ok,
+        ):
+            if cube is None:
+                stats["days_skipped"] += 1
+            else:
+                stats["slim_reject"] += 1
             continue
-        if horizon_ok is not None:
-            try:
-                covered = bool(horizon_ok(cube))
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "cube batch horizon check failed day=%s",
-                    day,
-                    exc_info=True,
-                )
-                stats["slim_reject"] += 1
-                continue
-            if not covered:
-                stats["slim_reject"] += 1
-                continue
         stats["cubes_built"] += 1
     return False
 
@@ -648,7 +675,7 @@ def build_day_cubes_from_lake(
                         items,
                         date=day,
                         clock=clock,
-                        persist=True,
+                        persist=False,
                         universe_codes=univ,
                         replace=bool(replace_existing),
                     )
@@ -666,23 +693,18 @@ def build_day_cubes_from_lake(
                         logger.debug(
                             "cube batch on_items failed day=%s", day, exc_info=True
                         )
-                if cube is None:
-                    stats["days_skipped"] += 1
+                if not _keep_cube(
+                    cube,
+                    day=day,
+                    universe=univ,
+                    clock=clock,
+                    horizon_ok=horizon_ok,
+                ):
+                    if cube is None:
+                        stats["days_skipped"] += 1
+                    else:
+                        stats["slim_reject"] += 1
                     continue
-                if horizon_ok is not None:
-                    try:
-                        covered = bool(horizon_ok(cube))
-                    except Exception:  # noqa: BLE001
-                        logger.warning(
-                            "cube batch horizon check failed day=%s",
-                            day,
-                            exc_info=True,
-                        )
-                        stats["slim_reject"] += 1
-                        continue
-                    if not covered:
-                        stats["slim_reject"] += 1
-                        continue
                 stats["cubes_built"] += 1
         finally:
             oo_s = None

@@ -693,7 +693,7 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("y_τc_strong", d)
         self.assertNotIn("y_τc_enter_amount", d)
         self.assertNotIn("y_τc_strong_amount", d)
-        self.assertAlmostEqual(d["y_tw_midpoint"], 47.0)
+        self.assertAlmostEqual(d["y_tw_midpoint"], 50.0)
         self.assertAlmostEqual(d["y_tw_vote_margin"], 5.0)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
         self.assertNotIn("t0_close_band_delta_pct", d)

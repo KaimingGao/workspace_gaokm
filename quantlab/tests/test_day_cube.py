@@ -38,6 +38,25 @@ class TestDayCube(unittest.TestCase):
                 os.environ[k] = v
         self._tmpdir.cleanup()
 
+    def test_open_status_rejects_gap_only(self) -> None:
+        from core.research.day_cube import build_day_cube, day_cube_status, save_day_cube
+        from core.research.materialize.horizon_names import open_cube_required_names
+
+        slim = {"a": {"gap_pct": 1.0, "x": 2.0}, "b": {"gap_pct": 3.0, "x": 4.0}}
+        gap = build_day_cube("2024-07-01", slim, names=["gap_pct", "x"], clock="open")
+        self.assertTrue(save_day_cube(gap))
+        self.assertEqual(day_cube_status("2024-07-01", ["a", "b"], clock="open"), "thin")
+
+        need = list(open_cube_required_names())
+        self.assertGreaterEqual(len(need), 3)
+        full = {
+            "a": {name: 1.0 for name in need},
+            "b": {name: 2.0 for name in need},
+        }
+        cube = build_day_cube("2024-07-02", full, names=need, clock="open")
+        self.assertTrue(save_day_cube(cube))
+        self.assertEqual(day_cube_status("2024-07-02", ["a", "b"], clock="open"), "ok")
+
     def test_build_and_z(self) -> None:
         from core.research.day_cube import build_day_cube
         from core.research.feature_standardize import cross_section_zscore_matrix

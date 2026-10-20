@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar
 
 from core.t0.backtest import (
     backtest_t0_on_bars,
@@ -632,6 +632,11 @@ def run_t0_backtest_for_code(
     tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else None
     pool_codes = t0_cs_universe_codes(str(sym), paper=paper)
     set_t0_cs_universe_codes(pool_codes)
+    if not tau_pool_given:
+        gap = _t0_coverage_gap(pool_codes, eval_lb, bt_rules)
+        if gap is not None:
+            gap["stock_code"] = str(sym)
+            return gap
     _seed_peer_minutes_from_by_date(str(sym), minute_by_date, flush_cs=not reuse_cs)
     extras = [c for c in pool_codes if str(c) != str(sym)]
 
@@ -748,6 +753,79 @@ def run_t0_backtest_for_code(
     return report
 
 
+def _t0_coverage_gap(
+    pool_codes: Sequence[str],
+    lookback: int,
+    cfg: Optional[dict],
+) -> Optional[Dict[str, Any]]:
+    """产品只读路径：开盘立方 + 截止钟以内、且本地有 5m 的决策钟。"""
+    from core.research.materialize.consumer import consumer_read_only
+
+    codes = [str(c).strip() for c in (pool_codes or []) if str(c or "").strip()]
+    if not consumer_read_only():
+        return None
+    if len(codes) < 2:
+        return {
+            "success": False,
+            "ok": False,
+            "error": "观察池不足 2 只，无法做截面",
+            "task": "t0_backtest",
+        }
+    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
+    from core.research.materialize.catalog import suggested_tau_clocks
+    from core.research.materialize.coverage import (
+        assess_coverage,
+        read_cube_codes,
+        recent_trading_days,
+    )
+    from core.store import list_minute_covered_dates
+    from core.t0.config import normalize_t0_last_leg1_hm
+
+    rules = cfg if isinstance(cfg, dict) else {}
+    last_hm = normalize_t0_last_leg1_hm(rules.get("t0_last_leg1_hm"))
+    minute_clocks = []
+    for hm in suggested_tau_clocks() or []:
+        text = str(hm or "").strip()[:5]
+        if not text or text in ("09:30", "open"):
+            continue
+        if text <= str(last_hm or "11:00")[:5]:
+            minute_clocks.append(text)
+    eval_days = recent_trading_days(max(10, int(lookback or 30)))
+    need_codes = max(2, int(len(codes) * 0.5 + 0.999))
+    minute_days = list_minute_covered_dates(codes, min_codes=need_codes, period="5")
+    if minute_days is None:
+        day_list = list(eval_days)
+        clocks = ["open"]
+        families = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
+    else:
+        have = {str(d)[:10] for d in minute_days}
+        day_list = [d for d in eval_days if str(d)[:10] in have]
+        clocks = ["open", *minute_clocks]
+        families = [FAMILY_OO, FAMILY_TC, FAMILY_CO] + [
+            family_for_tc(tau_hm=hm) for hm in minute_clocks
+        ]
+    if not day_list:
+        return {
+            "success": False,
+            "ok": False,
+            "error": "回测窗内没有足够的 5 分钟覆盖日",
+            "task": "t0_backtest",
+        }
+    cube_codes = read_cube_codes()
+    gap = assess_coverage(
+        codes,
+        day_list,
+        families=families,
+        clocks=clocks,
+        cube_codes=cube_codes if len(cube_codes) >= 2 else None,
+    )
+    if gap.get("ok"):
+        return None
+    gap["task"] = "t0_backtest"
+    gap["success"] = False
+    return gap
+
+
 def run_t0_backtest_for_holdings(
     holdings: List[dict],
     *,
@@ -855,27 +933,9 @@ def run_t0_backtest_for_holdings(
 
     pool_codes = t0_cs_universe_codes(holdings=holdings, paper=paper)
     set_t0_cs_universe_codes(pool_codes)
-    from core.research.materialize.consumer import consumer_read_only
-
-    if consumer_read_only() and len(pool_codes) >= 2:
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
-        from core.research.materialize.coverage import (
-            assess_coverage,
-            read_cube_codes,
-            recent_trading_days,
-        )
-
-        cube_codes = read_cube_codes()
-        gap = assess_coverage(
-            pool_codes,
-            recent_trading_days(max(10, int(lookback or 30))),
-            families=[FAMILY_OO, FAMILY_TC, FAMILY_CO],
-            clocks=["open"],
-            cube_codes=cube_codes if len(cube_codes) >= 2 else None,
-        )
-        if not gap.get("ok"):
-            gap["task"] = "t0_backtest"
-            return gap
+    gap = _t0_coverage_gap(pool_codes, int(lookback or 30), cfg)
+    if gap is not None:
+        return gap
     period_seed = str(cfg.get("minute_period") or "5")
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5

@@ -82,7 +82,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tw_enter_amount": 20_000.0,  # 过入场未过强：本轮金额（元）→股数
     "y_tw_strong_amount": 40_000.0,  # 过强：本轮金额（≥入场金额）
     "y_tw_vote_margin": 5.0,  # |p_up−mid|≤此百分点不给 ŷ_τw 投票
-    "y_tw_midpoint": 47.0,  # ŷ_τ30/45/60/75/90 共用中位点%
+    "y_tw_midpoint": 50.0,  # ŷ_τ30/45/60/75/90 共用中位点%
     # ŷ_τ*：ridge=跟启用套 backend（默认）；tree=遗留强制 backends.tree
     "horizon_prob_backend": "ridge",
     # leg1 最晚钟（09:30…11:00）；live 默认 11:00；回测 UI 可缩到更早（默认 10:30）
@@ -307,7 +307,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_tw_enter", 0.0, 5.0, 2.0),
         ("y_tw_strong", 0.0, 5.0, 3.0),
         ("y_tw_vote_margin", 0.0, 20.0, 5.0),
-        ("y_tw_midpoint", 1.0, 99.0, 47.0),
+        ("y_tw_midpoint", 1.0, 99.0, 50.0),
     ):
         try:
             raw = cfg.get(yk)

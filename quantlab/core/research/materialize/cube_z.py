@@ -128,6 +128,23 @@ def apply_day_cube_mu_sigma_matrix(
         hit += 1
         mu_map = {str(n): float(cube.z_mean[j]) for j, n in enumerate(cube.names)}
         sd_map = {str(n): float(cube.z_std[j]) for j, n in enumerate(cube.names)}
+        missing = [
+            str(name)
+            for name in name_list
+            if str(name) not in mu_map and not str(name).startswith("raw_ath_")
+        ]
+        if missing:
+            shown = ",".join(missing[:12])
+            return None, {
+                "ok": False,
+                "error": f"cube 缺列 {shown}",
+                "missing_names": missing[:32],
+                "date": day,
+                "clock": clk,
+                "hit_days": hit,
+                "miss_days": miss,
+                "fallback_open": allow_open_fb,
+            }
         ix = np.asarray(idxs, dtype=np.int64)
         for j, name in enumerate(name_list):
             mu = mu_map.get(name)

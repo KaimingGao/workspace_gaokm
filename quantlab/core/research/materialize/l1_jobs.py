@@ -335,6 +335,41 @@ def _materialize_oo_rank(
     }
 
 
+_LAKE_FRAC = 0.5
+
+
+def _eligible_minute_span(packs: Sequence[dict]) -> tuple:
+    """有分钟线的股票数，以及这些分钟线覆盖的交易日数。"""
+    days = set()
+    eligible = 0
+    for row in packs or []:
+        if not isinstance(row, dict):
+            continue
+        bars = row.get("minute_bars")
+        if not isinstance(bars, list) or not bars:
+            continue
+        eligible += 1
+        for bar in bars:
+            if not isinstance(bar, dict):
+                continue
+            day = str(bar.get("date") or "")[:10]
+            if len(day) >= 10:
+                days.add(day)
+    return eligible, len(days)
+
+
+def _clock_reaches_lake(row: dict, *, n_eligible: int, n_days: int) -> bool:
+    """单钟写入股票数和天数都达到现有 lake_frac（0.5）。"""
+    try:
+        stocks = int(row.get("n_stocks") or 0)
+        dates = int(row.get("n_dates") or 0)
+    except (TypeError, ValueError):
+        return False
+    need_stocks = max(2, int(max(n_eligible, 0) * _LAKE_FRAC + 0.999))
+    need_days = max(1, int(max(n_days, 1) * _LAKE_FRAC + 0.999))
+    return stocks >= need_stocks and dates >= need_days
+
+
 def _attach_minute_bars(packs: List[dict]) -> int:
     """给 packs 挂本地 5m；返回挂上分钟的票数。"""
     n = 0
@@ -457,6 +492,7 @@ def _materialize_l1_tau_grid_body(
         report["error"] = "本地 5m 不足（请先分钟增量/强更）"
         report["elapsed_s"] = round(time.perf_counter() - t0, 2)
         return report
+    eligible, span_days = _eligible_minute_span(packs)
 
     feat_names = horizon_l1_feature_names()
     ok_n = 0
@@ -491,13 +527,16 @@ def _materialize_l1_tau_grid_body(
             if not row:
                 row = {"ok": False, "error": "sparse"}
             report["by_clock"][hm] = row
-            if row.get("ok"):
+            if _clock_reaches_lake(row, n_eligible=eligible, n_days=span_days):
                 ok_n += 1
+            else:
+                row["ok"] = False
+                row["error"] = row.get("error") or "覆盖不足"
 
     if report.get("error") == "cancelled":
         report["ok"] = False
     else:
-        report["ok"] = ok_n >= max(1, len(clock_list) // 4)
+        report["ok"] = bool(clock_list) and ok_n == len(clock_list)
         if not report["ok"] and not report.get("error"):
             report["error"] = f"τ 网格 L1 覆盖不足 ok={ok_n}/{len(clock_list)}"
     report["clocks_ok"] = ok_n

@@ -825,6 +825,7 @@ def _build_score_portrait_from_units(
     traded_only: bool = False,
     scope: Optional[str] = None,
     note: Optional[str] = None,
+    cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """从画像单位累计 ŷ_τc / ŷ_τw / 窗头命中。"""
     from core.t0.close_band import (
@@ -880,7 +881,7 @@ def _build_score_portrait_from_units(
         t60_r = _t60_realized_pct(d, d)
         t75_r = _t75_realized_pct(d, d)
         t90_r = _t90_realized_pct(d, d)
-        y_tw_p = blend_y_tw_from_scores(sc)
+        y_tw_p = blend_y_tw_from_scores(sc, cfg)
         y_tw_r = blend_y_tw_realized(t30_r, t60_r, t90_r, t45_r, t75_r)
         has_any = (
             y_tc_p is not None
@@ -1034,18 +1035,22 @@ def build_score_portrait(
     days: Sequence[dict],
     *,
     traded_only: bool = False,
+    cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """回测日 ŷ_τc / 窗头命中。
 
     默认覆盖全部回测日（含跳过）；``traded_only=True`` 仅成交日。
     ŷ_τc 对 close[T]/price(τ)−1。旧画像头只在缺 y_τc 时并入。
+    日级分数固定取 09:35。成交命中率走 ``_traded_entry_units``。
     """
     units = [
         _day_with_scan_portrait(d)
         for d in (days or [])
         if isinstance(d, dict)
     ]
-    return _build_score_portrait_from_units(units, traded_only=traded_only)
+    return _build_score_portrait_from_units(
+        units, traded_only=traded_only, cfg=cfg
+    )
 
 
 def build_score_portrait_by_slot(
@@ -1143,17 +1148,64 @@ def build_traded_score_portrait(days: Sequence[dict]) -> Dict[str, Any]:
     return build_score_portrait(days, traded_only=True)
 
 
+def _traded_entry_units(days: Sequence[dict]) -> List[dict]:
+    """已成交轮次用开腿那根的 ŷ，不用 09:35 画像覆写。"""
+    units: List[dict] = []
+    for day in days or []:
+        if not isinstance(day, dict) or day.get("skipped"):
+            continue
+        filled = [r for r in _slot_result_rows(day) if _slot_row_filled(r)]
+        if not filled:
+            if is_traded_t0_day(day):
+                units.append(day)
+            continue
+        for row in filled:
+            hm = str(row.get("t0_slot_hm") or row.get("hm") or "")[:5]
+            scores: Dict[str, Any] = {}
+            if isinstance(row.get("scores"), dict):
+                scores.update(row["scores"])
+            scan = _scan_row_at_hm(day, hm) if hm else None
+            if isinstance(scan, dict):
+                for key, val in scan.items():
+                    if val is not None and scores.get(key) is None:
+                        scores[key] = val
+            unit = {
+                "date": day.get("date"),
+                "hm": hm,
+                "t0_slot_hm": hm,
+                "skipped": False,
+                "sold_qty": row.get("sold_qty"),
+                "bought_qty": row.get("bought_qty"),
+                "pnl": row.get("pnl"),
+                "exposure_pnl": row.get("exposure_pnl"),
+                "direction_used": row.get("direction_used") or row.get("direction"),
+                "scores": scores,
+            }
+            for key, val in scores.items():
+                if unit.get(key) is None:
+                    unit[key] = val
+            units.append(unit)
+    return units
+
+
 def build_backtest_score_portrait(
     days: Sequence[dict],
     *,
     last_hm: Optional[str] = None,
+    rules: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """全回测日画像 + 成交子集对照 + 分槽位。
+    """全回测日 09:35 画像 + 成交轮次按开腿钟 + 分槽位。
 
     ``last_hm`` 为前缀滑条截止钟；分槽不超出该钟。
+    ``rules`` 的投票中位和弃权带与开腿同一份。
     """
-    all_port = build_score_portrait(days, traded_only=False)
-    traded_port = build_score_portrait(days, traded_only=True)
+    cfg = rules if isinstance(rules, dict) else None
+    all_port = build_score_portrait(days, traded_only=False, cfg=cfg)
+    traded_port = _build_score_portrait_from_units(
+        _traded_entry_units(days),
+        cfg=cfg,
+        scope="traded_entry",
+    )
     by_slot = build_score_portrait_by_slot(days, last_hm=last_hm)
     return {
         **all_port,
@@ -1880,7 +1932,7 @@ def build_t0_viz_payload(
     ]
     y_tau_hit = build_y_tau_attribution(days)
     last_hm = rules.get("t0_last_leg1_hm") if isinstance(rules, dict) else None
-    score_portrait = build_backtest_score_portrait(days, last_hm=last_hm)
+    score_portrait = build_backtest_score_portrait(days, last_hm=last_hm, rules=rules)
 
     stock_contrib: List[Dict[str, Any]] = []
     if stock_code or traded_n or skip_n:

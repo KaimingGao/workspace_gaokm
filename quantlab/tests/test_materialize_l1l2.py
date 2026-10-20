@@ -511,6 +511,33 @@ class CubeZPerClockTests(unittest.TestCase):
         self.assertFalse(meta.get("fallback_open"))
         self.assertIn("cube miss", str(meta.get("error") or ""))
 
+    def test_missing_model_column_is_not_zero(self):
+        import numpy as np
+
+        from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
+
+        class _Cube:
+            names = ["f1", "raw_ath_x"]
+            z_mean = np.array([0.0, 1.0])
+            z_std = np.array([1.0, 1.0])
+
+        x = np.array([[1.0, 2.0, 3.0], [3.0, 4.0, 5.0]], dtype=np.float64)
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=_Cube()
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            z, meta = apply_day_cube_mu_sigma_matrix(
+                x, ["f1", "f2", "raw_ath_x"], ["2026-01-02", "2026-01-02"]
+            )
+        self.assertIsNone(z)
+        self.assertFalse(meta.get("ok"))
+        self.assertIn("f2", meta.get("missing_names") or [])
+        self.assertNotIn("raw_ath_x", meta.get("missing_names") or [])
+
 
 class NamesCoverHorizonTests(unittest.TestCase):
     def test_slim_rejected(self):
@@ -753,6 +780,9 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         ), mock.patch(
             "core.research.day_cube.load_day_cube",
             return_value=None,
+        ), mock.patch(
+            "core.research.materialize.horizon_names.names_cover_horizon",
+            return_value=True,
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
         ), mock.patch(
@@ -1654,6 +1684,9 @@ class MinuteL2ShareTests(unittest.TestCase):
         with mock.patch(
             "core.research.day_cube.load_day_cube", return_value=None
         ), mock.patch(
+            "core.research.materialize.horizon_names.names_cover_horizon",
+            return_value=True,
+        ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
@@ -1865,6 +1898,161 @@ class TauGridPanelTests(unittest.TestCase):
             self.assertEqual(gn, sn)
             self.assertEqual(gfp, sfp)
             self.assertTrue(np.allclose(gx, sx, equal_nan=True))
+
+    def test_fingerprint_hashes_minute_bars_once(self) -> None:
+        from core.research.panel_fingerprint import bars_fingerprint
+        from core.research.panel_matrix import _tau_grid_clock_fp, _tau_grid_stock_job
+
+        bars = [
+            {
+                "date": f"2024-01-{day:02d}",
+                "open": 10.0,
+                "high": 10.2,
+                "low": 9.8,
+                "close": 10.1,
+                "volume": 1000.0,
+            }
+            for day in range(2, 20)
+        ]
+        minutes = [{"date": "2024-01-02", "datetime": "2024-01-02 09:35:00", "close": 10.0}]
+        calls = {"n": 0}
+        real = bars_fingerprint
+
+        def _wrap(*args, **kwargs):
+            calls["n"] += 1
+            return real(*args, **kwargs)
+
+        with mock.patch(
+            "core.research.panel_fingerprint.bars_fingerprint", side_effect=_wrap
+        ):
+            shared = bars_fingerprint(bars, minute_bars=minutes)
+            one = _tau_grid_clock_fp(
+                bars,
+                minutes,
+                "09:35",
+                min_history=12,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+                bars_fp=shared,
+            )
+            two = _tau_grid_clock_fp(
+                bars,
+                minutes,
+                "10:00",
+                min_history=12,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+                bars_fp=shared,
+            )
+            lone = _tau_grid_clock_fp(
+                bars,
+                minutes,
+                "09:35",
+                min_history=12,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+            )
+        self.assertEqual(one, lone)
+        self.assertNotEqual(one, two)
+        self.assertEqual(calls["n"], 1)
+
+        hit = (
+            np.ones((4, 1), dtype=np.float64),
+            np.ones(4, dtype=np.float64),
+            ["gap_pct"],
+            ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"],
+            "l1",
+        )
+        calls["n"] = 0
+        item = {"code": "000001", "bars": bars, "minute_bars": list(minutes)}
+        with mock.patch(
+            "core.research.panel_fingerprint.bars_fingerprint", side_effect=_wrap
+        ), mock.patch(
+            "core.research.lake_bridge.load_training_matrix", return_value=hit
+        ):
+            _tau_grid_stock_job(
+                item,
+                ["gap_pct"],
+                ["09:35", "10:00", "10:30"],
+                min_history=12,
+                include_alpha_tc=False,
+                include_alpha_th=False,
+            )
+        self.assertEqual(calls["n"], 1)
+        self.assertNotIn("minute_bars", item)
+
+    def test_batch_atc_matches_each_clock(self) -> None:
+        from core.research.tau_panel import (
+            _index_minute_bars_by_date,
+            _minute_clock_atc_items,
+            _minute_clocks_atc_items,
+        )
+        from tests.test_alpha_tc import _dated_bars_and_minutes
+
+        bars, minutes = _dated_bars_and_minutes(80)
+        by_day = _index_minute_bars_by_date(minutes)
+        clocks = ["09:35", "10:00", "10:30"]
+        batch = _minute_clocks_atc_items(bars, by_day, hist=60, clocks=clocks)
+        self.assertEqual(set(batch), set(clocks))
+        for clock in clocks:
+            single = _minute_clock_atc_items(bars, by_day, hist=60, clock=clock)
+            self.assertIsNotNone(single)
+            got = {key: col for key, col in batch[clock]}
+            expect = {key: col for key, col in single}
+            self.assertEqual(set(got), set(expect))
+            for key, col in expect.items():
+                np.testing.assert_allclose(got[key], col, equal_nan=True)
+
+    def test_process_pool_finishes_four_stocks(self) -> None:
+        from core.research.panel_matrix import collect_tau_grid_panels
+
+        bars = [
+            {
+                "date": f"2024-04-{day:02d}",
+                "open": 10.0,
+                "high": 10.4,
+                "low": 9.8,
+                "close": 10.2,
+                "volume": 1000.0,
+            }
+            for day in range(1, 22)
+        ]
+        minutes = []
+        for bar in bars:
+            day = bar["date"]
+            for hm, px in (("09:35", 10.05), ("10:00", 10.15)):
+                minutes.append(
+                    {
+                        "date": day,
+                        "datetime": f"{day} {hm}:00",
+                        "open": px,
+                        "high": px + 0.1,
+                        "low": px - 0.1,
+                        "close": px,
+                        "volume": 300.0,
+                    }
+                )
+        items = [
+            {
+                "code": f"60000{i}",
+                "bars": [dict(b) for b in bars],
+                "minute_bars": [dict(b) for b in minutes],
+            }
+            for i in range(1, 5)
+        ]
+        out = collect_tau_grid_panels(
+            items,
+            ["gap_pct"],
+            ["09:35", "10:00"],
+            workers=4,
+            include_alpha_tc=False,
+            include_alpha_th=False,
+            min_history=12,
+        )
+        self.assertFalse(out["cancelled"])
+        self.assertGreaterEqual(out["by_clock"]["09:35"]["n_stocks"], 4)
+        self.assertGreaterEqual(out["by_clock"]["10:00"]["n_stocks"], 4)
+        self.assertTrue(all("minute_bars" not in it for it in items))
 
 
 if __name__ == "__main__":

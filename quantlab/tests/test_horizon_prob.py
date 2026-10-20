@@ -36,8 +36,9 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertEqual(p_up_vote(0.49, margin_pp=0, midpoint=0.5), -1)
         self.assertIsNone(p_up_vote(0.54, margin_pp=5, midpoint=0.5))
         self.assertEqual(p_up_vote(0.56, margin_pp=5, midpoint=0.5), 1)
-        # 默认中位点 47%
-        self.assertEqual(p_up_vote(0.53), 1)
+        # 默认中位点 50%
+        self.assertIsNone(p_up_vote(0.53))
+        self.assertEqual(p_up_vote(0.56), 1)
         self.assertEqual(p_up_vote(0.40), -1)
         self.assertIsNone(p_up_vote(0.47))
         self.assertIsNone(p_up_vote(0.50))

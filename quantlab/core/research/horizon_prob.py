@@ -2,7 +2,7 @@
 
 ŷ_τ30/45/60/75/90 只出 p_up∈(0,1)；不做幅度 Ridge。
 正T p_agree=p_up，反T p_agree=1−p_up。票 f=sign(p_up−mid)；
-mid 默认 47%（ŷ_τ* 共用中位点）；|p_up−mid|≤y_tw_vote_margin（默认 5pp）不投票。
+mid 默认 50%（ŷ_τ* 共用中位点）；|p_up−mid|≤y_tw_vote_margin（默认 5pp）不投票。
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ HORIZON_ENTER_MAX = 0.7
 HORIZON_VOTE_MARGIN_PP = 5.0  # 默认弃权带宽（百分点）
 HORIZON_VOTE_MARGIN_PP_MAX = 20.0
 HORIZON_VOTE_MARGIN = 0.05  # = PP/100；|p_up−mid|≤此值不投票
-HORIZON_VOTE_MIDPOINT_PP = 47.0  # ŷ_τ* 共用中位点（百分点）
-HORIZON_VOTE_MIDPOINT = 0.47  # = PP/100
+HORIZON_VOTE_MIDPOINT_PP = 50.0  # ŷ_τ* 共用中位点（百分点）
+HORIZON_VOTE_MIDPOINT = 0.50  # = PP/100
 LOGIT_CLIP = 30.0
 
 HORIZON_STRONG_KEYS = (
@@ -127,7 +127,7 @@ def horizon_vote_band(margin_pp: Any = None) -> float:
 
 
 def horizon_vote_midpoint(midpoint: Any = None) -> float:
-    """ŷ_τ* 共用中位点。缺省 47%；>1 视为百分点。"""
+    """ŷ_τ* 共用中位点。缺省 50%；>1 视为百分点。"""
     m = _f(midpoint)
     if m is None:
         return HORIZON_VOTE_MIDPOINT
@@ -142,7 +142,7 @@ def p_up_vote(
     margin_pp: Any = None,
     midpoint: Any = None,
 ) -> Optional[int]:
-    """sign(p_up−mid)；|p−mid|≤margin_pp（默认 5pp）或缺分不投票。mid 默认 47%。"""
+    """sign(p_up−mid)；|p−mid|≤margin_pp（默认 5pp）或缺分不投票。mid 默认 50%。"""
     p = _f(p_up)
     if p is None:
         return None

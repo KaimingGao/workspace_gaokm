@@ -1190,34 +1190,36 @@ def _open_px_from_item(item: dict) -> Optional[float]:
 
 
 def _cube_covers_horizon_names(cube: Any, names: Sequence[str]) -> bool:
-    """slim gap-only cube 不能当窗头截面命中（否则分钟特征未 z 或走坏 leave-one-in）。"""
+    """入模列必须都在立方里。缺一列就不把这份立方当截面命中。"""
     if cube is None:
         return False
-    # 优先契约清单（Z_TH 入模列）；无则退回「模型 names 覆盖率」
-    try:
-        from core.research.materialize.horizon_names import names_cover_horizon
-
-        if names_cover_horizon(cube):
-            return True
-    except Exception:  # noqa: BLE001
-        pass
     cube_names = {str(n) for n in (getattr(cube, "names", None) or []) if str(n or "").strip()}
-    if len(cube_names) < 3:
+    need = [str(n).strip() for n in (names or []) if str(n or "").strip()]
+    if len(cube_names) < 3 or not need:
         return False
     try:
         from core.signal.factors.z_th import to_legacy_key
     except Exception:  # noqa: BLE001
         to_legacy_key = lambda k: k  # type: ignore[assignment, misc]
-    hit = 0
+    for raw in need:
+        bare = str(to_legacy_key(raw) or raw)
+        if raw not in cube_names and bare not in cube_names:
+            return False
+    return True
+
+
+def _finalize_cs_row(row: dict, names: Sequence[str], covered: Sequence[str]) -> Optional[dict]:
+    """没进截面的 raw_ath_* 记 0。稀疏的非 ath 列保持原值，避免各钟被压成同一个 z。"""
+    if not isinstance(row, dict):
+        return None
+    out = dict(row)
+    have = {str(n) for n in covered or []}
     for raw in names or []:
         key = str(raw or "").strip()
-        if not key:
+        if not key or key in have or not key.startswith("raw_ath_"):
             continue
-        bare = str(to_legacy_key(key) or key)
-        if key in cube_names or bare in cube_names:
-            hit += 1
-    need = max(3, (len([n for n in names if str(n or "").strip()]) + 3) // 4)
-    return hit >= need
+        out[key] = 0.0
+    return out
 
 
 def _strip_peer_open_minute_placeholders(row: dict) -> None:
@@ -1415,7 +1417,7 @@ def _cs_z_horizon_feats(
                             dkey,
                             clk,
                         )
-                        return z_all[0]
+                        return _finalize_cs_row(z_all[0], names, names)
     except Exception:  # noqa: BLE001
         logger.debug("horizon cs-z day_cube failed", exc_info=True)
     # 开盘池没有同钟 raw_ath_*。Cube miss 时用 tc_HHMM L1 做 μ/σ。
@@ -1424,7 +1426,13 @@ def _cs_z_horizon_feats(
         if len(lake_peers) >= 2:
             peers = lake_peers
     if len(peers) < 2:
-        return _impute_unzscored_raw_ath(dict(feats), names, ())
+        logger.debug(
+            "horizon cs-z abstain head=%s date=%s clock=%s reason=peers",
+            head,
+            dkey,
+            hm,
+        )
+        return None
     # 池内 leave-one-in：剥开盘分钟占位；稀疏裸分钟键保留；raw_ath_* 无分布则记 0
     in_pool = bool(code) and any(
         str(p.get("stock_code") or "").strip() == code for p in peers if isinstance(p, dict)
@@ -1451,8 +1459,8 @@ def _cs_z_horizon_feats(
                 groups = [gkey] * len(rows)
                 z_rows = cross_section_zscore_dicts(rows, cs_names, groups)
                 row = z_rows[slot] if slot < len(z_rows) else dict(feats)
-                return _impute_unzscored_raw_ath(row, names, cs_names)
-            return _impute_unzscored_raw_ath(
+                return _finalize_cs_row(row, names, cs_names)
+            return _finalize_cs_row(
                 rows[slot] if slot < len(rows) else dict(feats),
                 names,
                 (),
@@ -1465,11 +1473,15 @@ def _cs_z_horizon_feats(
         ft = dict(p.get("features_tau") or {})
         _strip_peer_open_minute_placeholders(ft)
         peer_feats.append(ft)
-    return _z_row_against_peers(
-        feats,
-        peer_feats,
+    return _finalize_cs_row(
+        _z_row_against_peers(
+            feats,
+            peer_feats,
+            names,
+            stamp=stamp_z_th_aliases,
+        ),
         names,
-        stamp=stamp_z_th_aliases,
+        names,
     )
 
 
@@ -1503,6 +1515,14 @@ def _predict_horizon_hat(
         stock_code=stock_code,
         tau_hm=tau_hm,
     )
+    if pred_feats is None:
+        logger.debug(
+            "horizon predict abstain head=%s date=%s clock=%s reason=cs_z_missing",
+            head,
+            str(trade_date or "")[:10],
+            str(tau_hm or "")[:5],
+        )
+        return None, None, "cs_z_missing"
 
     if current_horizon_prob_backend() == HORIZON_PROB_BACKEND_TREE:
         try:
@@ -1741,6 +1761,9 @@ def _attach_y_t30_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
+            from core.research.horizon_ridge import clear_y_hat
+
+            clear_y_hat("t30", item)
             return
         write_y_hat("t30", item, float(y_hat))
         if src:
@@ -1861,6 +1884,9 @@ def _attach_y_t45_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
+            from core.research.horizon_ridge import clear_y_hat
+
+            clear_y_hat("t45", item)
             return
         write_y_hat("t45", item, float(y_hat))
         if src:
@@ -1981,6 +2007,9 @@ def _attach_y_t60_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
+            from core.research.horizon_ridge import clear_y_hat
+
+            clear_y_hat("t60", item)
             return
         write_y_hat("t60", item, float(y_hat))
         if src:
@@ -2101,6 +2130,9 @@ def _attach_y_t75_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
+            from core.research.horizon_ridge import clear_y_hat
+
+            clear_y_hat("t75", item)
             return
         write_y_hat("t75", item, float(y_hat))
         if src:
@@ -2221,6 +2253,9 @@ def _attach_y_t90_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
+            from core.research.horizon_ridge import clear_y_hat
+
+            clear_y_hat("t90", item)
             return
         write_y_hat("t90", item, float(y_hat))
         if src:

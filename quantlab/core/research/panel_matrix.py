@@ -548,11 +548,14 @@ def _tau_grid_clock_fp(
     min_history: int,
     include_alpha_tc: bool,
     include_alpha_th: bool,
+    bars_fp: Optional[str] = None,
 ) -> str:
     from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
+    if not bars_fp:
+        bars_fp = bars_fingerprint(bars, minute_bars=minute)
     return make_fingerprint(
-        bars_fp=bars_fingerprint(bars, minute_bars=minute),
+        bars_fp=bars_fp,
         tau_hm=str(clock),
         min_history=int(min_history),
         include_alpha_tc=int(bool(include_alpha_tc)),
@@ -643,6 +646,9 @@ def _tau_grid_stock_job(
         return out
     missing: List[str] = []
     fps: Dict[str, str] = {}
+    from core.research.panel_fingerprint import bars_fingerprint
+
+    shared_fp = bars_fingerprint(bars, minute_bars=minute)
     for clock in clocks:
         fp = _tau_grid_clock_fp(
             bars,
@@ -651,6 +657,7 @@ def _tau_grid_stock_job(
             min_history=min_history,
             include_alpha_tc=include_alpha_tc,
             include_alpha_th=include_alpha_th,
+            bars_fp=shared_fp,
         )
         fps[clock] = fp
         hit = None
@@ -749,8 +756,9 @@ def collect_tau_grid_panels(
     """分钟网格：每只股票只扫一遍缺失的钟，按钟写 ``tc_HHMM``。
 
     返回 ``by_clock`` 计数。不把 18 个钟的矩阵留在父进程。
+    工人是进程池（绕过 GIL）；不足 4 只或 ``workers<=1`` 仍串行。
     """
-    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+    from concurrent.futures import FIRST_COMPLETED, wait
 
     from core.research.lake_bridge import family_for_tc
     from core.research.materialize.consumer import MaterializeRequired
@@ -856,6 +864,11 @@ def collect_tau_grid_panels(
                 return
             _fold(_safe(i))
 
+    def _release_minutes(i: int) -> None:
+        item = items[i] if i < len(items) else None
+        if isinstance(item, dict):
+            item.pop("minute_bars", None)
+
     def _run_batch(start: int, end: int) -> None:
         nonlocal cancelled
         if end <= start or cancelled:
@@ -863,40 +876,123 @@ def collect_tau_grid_panels(
         if n_workers <= 1 or (end - start) < 4:
             _run_serial(start, end)
             return
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures.process import BrokenProcessPool
+
+        try:
+            from core.research.materialize.consumer import (
+                context_initargs,
+                research_pool_init,
+            )
+
+            init = research_pool_init
+            initargs = context_initargs()
+        except Exception:  # noqa: BLE001
+            init = None
+            initargs = ()
+        try:
+            pool = ProcessPoolExecutor(
+                max_workers=n_workers,
+                initializer=init,
+                initargs=initargs,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("tau grid process pool unavailable; serial")
+            _run_serial(start, end)
+            return
         inflight: Dict[Any, int] = {}
+        done_idx: set = set()
         next_i = start
-        from core.research.materialize.consumer import (
-            bind_materialize_writer,
-            context_initargs,
+        job_kw = dict(
+            min_history=min_history,
+            include_alpha_tc=include_alpha_tc,
+            include_alpha_th=include_alpha_th,
         )
 
-        with ThreadPoolExecutor(
-            max_workers=n_workers,
-            initializer=bind_materialize_writer,
-            initargs=context_initargs(),
-        ) as pool:
+        def _submit(i: int) -> None:
+            fut = pool.submit(
+                _tau_grid_stock_job,
+                items[i],
+                col_names,
+                clock_list,
+                **job_kw,
+            )
+            inflight[fut] = i
 
-            def _submit(i: int) -> None:
-                fut = pool.submit(_safe, i)
-                inflight[fut] = i
+        def _take(i: int, pack: Optional[Dict[str, Tuple[int, List[str]]]]) -> None:
+            if i in done_idx:
+                return
+            done_idx.add(i)
+            _release_minutes(i)
+            _fold(pack)
 
+        def _serial_rest() -> None:
+            for i in range(start, end):
+                if i in done_idx:
+                    continue
+                if _stop():
+                    cancelled = True
+                    return
+                _take(i, _safe(i))
+
+        try:
             while next_i < end and len(inflight) < n_workers and not _stop():
                 _submit(next_i)
                 next_i += 1
             while inflight:
                 done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
+                broken = False
                 for fut in done:
-                    inflight.pop(fut)
-                    pack = fut.result()
-                    _fold(pack)
+                    i = inflight.pop(fut)
+                    try:
+                        pack = fut.result()
+                    except MaterializeRequired:
+                        raise
+                    except BrokenProcessPool:
+                        broken = True
+                        continue
+                    except Exception:  # noqa: BLE001
+                        code = ""
+                        item = items[i] if i < len(items) else None
+                        if isinstance(item, dict):
+                            code = str(item.get("code") or item.get("stock_code") or "")
+                        logger.exception(
+                            "tau grid worker failed code=%s; serial retry",
+                            code or i,
+                        )
+                        pack = _safe(i)
+                    _take(i, pack)
+                if broken:
+                    logger.exception("tau grid process pool broken; finishing serial")
+                    for fut in list(inflight):
+                        i = inflight.pop(fut)
+                        pack = None
+                        if fut.done() and not fut.cancelled():
+                            try:
+                                pack = fut.result()
+                            except MaterializeRequired:
+                                raise
+                            except Exception:  # noqa: BLE001
+                                pack = _safe(i)
+                        else:
+                            pack = _safe(i)
+                        _take(i, pack)
+                    _serial_rest()
+                    break
                 if _stop():
                     cancelled = True
-                    break
-                while next_i < end and len(inflight) < n_workers and not _stop():
+                while (
+                    next_i < end
+                    and len(inflight) < n_workers
+                    and not cancelled
+                    and not _stop()
+                ):
                     _submit(next_i)
                     next_i += 1
             if _stop():
                 cancelled = True
+        finally:
+            pool.shutdown(wait=True, cancel_futures=False)
 
     if n_jobs and clock_list:
         logger.info(
