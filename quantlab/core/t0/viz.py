@@ -665,12 +665,53 @@ def _day_with_scan_portrait(day: dict, *, hm: Optional[str] = None) -> dict:
     return out
 
 
-def _portrait_clocks(days: Sequence[dict]) -> List[str]:
-    from core.t0.config import DEFAULT_T0_SLOT_CLOCKS, T0_PORTRAIT_SLOT_CLOCKS
+def _portrait_cap(last_hm: Optional[str]) -> Optional[str]:
+    """前缀滑条截止钟。空则不截，画像仍用全日扫描网格。"""
+    if last_hm is None or str(last_hm).strip() == "":
+        return None
+    from core.t0.config import normalize_t0_last_leg1_hm
 
+    return normalize_t0_last_leg1_hm(str(last_hm).strip())
+
+
+def _clip_portrait_slots(portrait: dict, last_hm: Optional[str]) -> dict:
+    """分槽只留 ``hm <= last_hm``。截止 10:00 则表止于 10:00。"""
+    cap = _portrait_cap(last_hm)
+    if not cap or not isinstance(portrait, dict):
+        return portrait
+    by = portrait.get("by_slot")
+    if not isinstance(by, dict):
+        return portrait
+    slots = [
+        s
+        for s in (by.get("slots") or [])
+        if isinstance(s, dict) and str(s.get("hm") or "").strip()[:5] <= cap
+    ]
+    by["slots"] = slots
+    by["n_slots"] = len(slots)
+    by["last_hm"] = cap
+    return portrait
+
+
+def _portrait_clocks(
+    days: Sequence[dict],
+    *,
+    last_hm: Optional[str] = None,
+) -> List[str]:
+    from core.t0.config import (
+        DEFAULT_T0_SLOT_CLOCKS,
+        T0_PORTRAIT_SLOT_CLOCKS,
+        _am_5m_clocks_until,
+    )
+
+    cap = _portrait_cap(last_hm)
     clocks: List[str] = []
     seen = set()
-    for hm in tuple(T0_PORTRAIT_SLOT_CLOCKS or ()) + tuple(DEFAULT_T0_SLOT_CLOCKS or ()):
+    if cap:
+        base = _am_5m_clocks_until(cap)
+    else:
+        base = tuple(T0_PORTRAIT_SLOT_CLOCKS or ()) + tuple(DEFAULT_T0_SLOT_CLOCKS or ())
+    for hm in base:
         key = str(hm or "").strip()[:5]
         if key and key not in seen:
             clocks.append(key)
@@ -680,9 +721,12 @@ def _portrait_clocks(days: Sequence[dict]) -> List[str]:
             continue
         for r in _portrait_slot_rows(d):
             hm = str(r.get("hm") or "").strip()[:5]
-            if hm and hm not in seen:
-                clocks.append(hm)
-                seen.add(hm)
+            if not hm or hm in seen:
+                continue
+            if cap and hm > cap:
+                continue
+            clocks.append(hm)
+            seen.add(hm)
     return clocks
 
 
@@ -1004,18 +1048,24 @@ def build_score_portrait(
     return _build_score_portrait_from_units(units, traded_only=traded_only)
 
 
-def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
+def build_score_portrait_by_slot(
+    days: Sequence[dict],
+    *,
+    last_hm: Optional[str] = None,
+) -> Dict[str, Any]:
     """按做T时钟拆画像：各钟 ŷ_τc / 窗头对同钟或全日标签。
 
     优先 ``close_band_scan``（截止钟前每根 5m 前缀 ŷ）；无扫描时回退开轮槽
     ``t0_slot_results``。样本与日级对齐；缺该钟 ŷ 计 flat。
+    ``last_hm`` 与前缀滑条同一截止：窗口收到 10:00，分槽只到 10:00。
     τ→close 口径下晚钟 hit 不因开→τ 机械垫高；分钟对照看 IC。
     """
     from collections import OrderedDict
 
+    cap = _portrait_cap(last_hm)
     eligible = [d for d in (days or []) if _portrait_day_eligible(d)]
     by_hm: "OrderedDict[str, List[dict]]" = OrderedDict()
-    for hm in _portrait_clocks(eligible):
+    for hm in _portrait_clocks(eligible, last_hm=cap):
         by_hm[hm] = []
 
     for d in eligible:
@@ -1067,20 +1117,24 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
             }
         )
 
+    note = (
+        "分槽位画像：各钟 ŷ_τw / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
+        "τ30旁路=选向是否与 ŷ_τ30 后 30 交易分钟同号；"
+        "τ45旁路=选向是否与 ŷ_τ45 后 45 交易分钟同号；"
+        "τ60旁路=选向是否与 ŷ_τ60 后 60 交易分钟同号；"
+        "τ75旁路=选向是否与 ŷ_τ75 后 75 交易分钟同号；"
+        "τ90旁路=选向是否与 ŷ_τ90 后 90 交易分钟同号；"
+        "优先 close_band_scan 每根 5m；无扫描才用开轮槽钟；"
+        "样本与日级对齐"
+    )
+    if cap:
+        note += f"；时间槽对齐前缀滑条，截止 {cap}"
     return {
         "slots": slots,
         "n_slots": len(slots),
         "n_days": len(eligible),
-        "note": (
-            "分槽位画像：各钟 ŷ_τw / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
-            "τ30旁路=选向是否与 ŷ_τ30 后 30 交易分钟同号；"
-            "τ45旁路=选向是否与 ŷ_τ45 后 45 交易分钟同号；"
-            "τ60旁路=选向是否与 ŷ_τ60 后 60 交易分钟同号；"
-            "τ75旁路=选向是否与 ŷ_τ75 后 75 交易分钟同号；"
-            "τ90旁路=选向是否与 ŷ_τ90 后 90 交易分钟同号；"
-            "优先 close_band_scan 每根 5m；无扫描才用开轮槽钟；"
-            "样本与日级对齐"
-        ),
+        "last_hm": cap,
+        "note": note,
     }
 
 
@@ -1089,11 +1143,18 @@ def build_traded_score_portrait(days: Sequence[dict]) -> Dict[str, Any]:
     return build_score_portrait(days, traded_only=True)
 
 
-def build_backtest_score_portrait(days: Sequence[dict]) -> Dict[str, Any]:
-    """全回测日画像 + 成交子集对照 + 分槽位。"""
+def build_backtest_score_portrait(
+    days: Sequence[dict],
+    *,
+    last_hm: Optional[str] = None,
+) -> Dict[str, Any]:
+    """全回测日画像 + 成交子集对照 + 分槽位。
+
+    ``last_hm`` 为前缀滑条截止钟；分槽不超出该钟。
+    """
     all_port = build_score_portrait(days, traded_only=False)
     traded_port = build_score_portrait(days, traded_only=True)
-    by_slot = build_score_portrait_by_slot(days)
+    by_slot = build_score_portrait_by_slot(days, last_hm=last_hm)
     return {
         **all_port,
         "traded": traded_port,
@@ -1818,7 +1879,8 @@ def build_t0_viz_payload(
         if y_tau_hist.get(b)
     ]
     y_tau_hit = build_y_tau_attribution(days)
-    score_portrait = build_backtest_score_portrait(days)
+    last_hm = rules.get("t0_last_leg1_hm") if isinstance(rules, dict) else None
+    score_portrait = build_backtest_score_portrait(days, last_hm=last_hm)
 
     stock_contrib: List[Dict[str, Any]] = []
     if stock_code or traded_n or skip_n:
@@ -1917,8 +1979,7 @@ def merge_t0_viz_payloads(
     *,
     rules: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """多持仓回测合并各票 viz。"""
-    _ = rules
+    """多持仓回测合并各票 viz。分槽再按 rules.t0_last_leg1_hm 对齐前缀截止。"""
     skip_counts: Dict[str, int] = defaultdict(int)
     daily: Dict[str, Dict[str, int]] = defaultdict(
         lambda: {"traded": 0, "signal_skip": 0, "other_skip": 0}
@@ -2030,6 +2091,8 @@ def merge_t0_viz_payloads(
     score_portrait = _merge_score_portraits(
         [p.get("score_portrait") for p in (payloads or []) if isinstance(p, dict)]
     )
+    merge_last = rules.get("t0_last_leg1_hm") if isinstance(rules, dict) else None
+    _clip_portrait_slots(score_portrait, merge_last)
     summary["score_portrait"] = score_portrait
     if score_portrait.get("tau_hit", {}).get("hit_rate_pct") is not None:
         summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]

@@ -918,6 +918,57 @@ def load_minute_since(
     return bars, meta
 
 
+def covered_minute_dates(
+    pairs: Sequence[Tuple[str, str]],
+    *,
+    period: str,
+    min_codes: int,
+    store_dir: str,
+) -> List[str]:
+    """本地 5m 里、至少 ``min_codes`` 只有根的交易日。
+
+    按代码分批 ``COUNT(DISTINCT code)`` 再相加。同一只代码只出现在一批里。
+    """
+    grouped: Dict[str, List[str]] = {}
+    seen = set()
+    for market, code in pairs or []:
+        mkt = str(market or "").strip().upper()
+        code_s = str(code or "").strip()
+        if not mkt or not code_s:
+            continue
+        key = (mkt, code_s)
+        if key in seen:
+            continue
+        seen.add(key)
+        grouped.setdefault(mkt, []).append(code_s)
+    if not grouped:
+        return []
+    per = str(period or "5")
+    need = max(1, int(min_codes or 1))
+    conn = get_read_conn(store_dir)
+    counts: Dict[str, int] = {}
+    batch = 400
+    for mkt, codes in grouped.items():
+        for start in range(0, len(codes), batch):
+            chunk = codes[start : start + batch]
+            marks = ",".join("?" * len(chunk))
+            rows = conn.execute(
+                f"""
+                SELECT date AS d, COUNT(DISTINCT code) AS n
+                FROM minute_bars
+                WHERE market=? AND period=? AND code IN ({marks})
+                GROUP BY date
+                """,
+                (mkt, per, *chunk),
+            ).fetchall()
+            for row in rows:
+                day = str(row["d"] or "")[:10]
+                if len(day) < 10:
+                    continue
+                counts[day] = int(counts.get(day) or 0) + int(row["n"] or 0)
+    return sorted(day for day, n in counts.items() if n >= need)
+
+
 def load_minute_span_snapshot(
     market: str,
     code: str,

@@ -857,6 +857,7 @@ def _walk_t0(
             "t0_lock_win_pct_sell_then_buy": cfg.get("t0_lock_win_pct_sell_then_buy"),
             "t0_stop_on_close": cfg.get("t0_stop_on_close"),
             "t0_slots_enabled": cfg.get("t0_slots_enabled"),
+            "t0_last_leg1_hm": cfg.get("t0_last_leg1_hm"),
             "t0_slots": cfg.get("t0_slots"),
             "y_score_source": cfg.get("y_score_source"),
         },

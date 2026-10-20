@@ -221,9 +221,44 @@ function _coverBarHtml(have, total) {
   );
 }
 
-/** 回测样本画像：样本日摘要 + 分槽位 */
-function buildPortraitSectionHtml(portrait) {
+function readPrefixSliderHm() {
+  if (typeof document === "undefined") return "";
+  const out = document.getElementById("paper-t0-last-leg1-val");
+  const text = String((out && (out.value || out.textContent)) || "")
+    .trim()
+    .replace("：", ":")
+    .slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(text) ? text : "";
+}
+
+/** 分槽截止：页上前缀滑条优先，否则用本次回测的 t0_last_leg1_hm。 */
+function portraitSlotEndHm(portrait, data) {
+  const slider = readPrefixSliderHm();
+  if (slider) return slider;
+  const fromPort = portrait && portrait.by_slot && portrait.by_slot.last_hm;
+  const portHm = String(fromPort || "")
+    .trim()
+    .replace("：", ":")
+    .slice(0, 5);
+  if (/^\d{2}:\d{2}$/.test(portHm)) return portHm;
+  const rules =
+    (data && data.rules) ||
+    (data && data.execution && data.execution.t0) ||
+    {};
+  const raw = (data && data.t0_last_leg1_hm) || rules.t0_last_leg1_hm || "";
+  const s = String(raw).trim().replace("：", ":").slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(s) ? s : "";
+}
+
+function hmNotAfter(hm, endHm) {
+  if (!endHm) return true;
+  return String(hm || "").slice(0, 5) <= endHm;
+}
+
+/** 回测样本画像：样本日摘要 + 分槽位（时间槽对齐前缀滑条） */
+function buildPortraitSectionHtml(portrait, data) {
   if (!portrait || typeof portrait !== "object") return "";
+  const endHm = portraitSlotEndHm(portrait, data);
 
   const nAll = Number(portrait.n_days ?? portrait.n_traded);
   const nTr = Number(portrait.n_traded) || 0;
@@ -270,7 +305,7 @@ function buildPortraitSectionHtml(portrait) {
     `</div>`;
 
   const slotRows = ((portrait.by_slot && portrait.by_slot.slots) || [])
-    .filter((s) => s && s.hm)
+    .filter((s) => s && s.hm && hmNotAfter(s.hm, endHm))
     .slice()
     .sort((a, b) =>
       String(a.hm || "").localeCompare(String(b.hm || ""), "en")
@@ -319,7 +354,8 @@ function buildPortraitSectionHtml(portrait) {
     slotRows.length > 0
       ? `<div class="paper-t0-portrait-slots" title="${escapeText(
           (portrait.by_slot && portrait.by_slot.note) ||
-            "各钟 y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
+            "各钟 y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交" +
+              (endHm ? `；截止 ${endHm}` : "")
         )}">` +
         `<div class="paper-t0-portrait-slots-head">` +
         `<span>分槽位</span>` +
@@ -410,18 +446,38 @@ function buildPortraitSectionHtml(portrait) {
           })
           .join("") +
         `</tbody></table></div></div>`
-      : "";
+      : endHm
+        ? `<p class="paper-t0-portrait-slots-warn">前缀截止 ${escapeText(
+            endHm
+          )}，分槽从 09:35 起，本窗没有时间槽。</p>`
+        : "";
 
+  const endBit = endHm ? `至 ${escapeText(endHm)}` : "";
   return (
     `<section class="paper-t0-metric-section is-portrait">` +
     `<div class="paper-t0-portrait-head">` +
     `<h4 class="paper-t0-metric-section-title">回测样本画像</h4>` +
-    `<p class="paper-t0-portrait-lead">分槽位：该钟扫描 ŷ vs 标签；成交=该钟是否开轮；y_τw=五窗符号和命中；τ30旁路=选向↔ŷ_τ30后30m同号；τ45旁路=选向↔ŷ_τ45后45m同号；τ75旁路=选向↔ŷ_τ75后75m同号；τ90旁路=选向↔ŷ_τ90后90m同号</p>` +
+    `<p class="paper-t0-portrait-lead">分槽位${endBit}：该钟扫描 ŷ vs 标签；成交=该钟是否开轮；时间槽与前缀滑条同一截止；y_τw=五窗符号和命中；τ30旁路=选向↔ŷ_τ30后30m同号；τ45旁路=选向↔ŷ_τ45后45m同号；τ75旁路=选向↔ŷ_τ75后75m同号；τ90旁路=选向↔ŷ_τ90后90m同号</p>` +
     `</div>` +
     universe +
     slotTable +
     `</section>`
   );
+}
+
+/** 前缀滑条拖动时只重绘画像，不动成交明细。 */
+export function repaintT0Portrait(metricsEl, data) {
+  if (!metricsEl || !data || !data.success) return;
+  const sec = metricsEl.querySelector("section.paper-t0-metric-section.is-portrait");
+  if (!sec) return;
+  const sm = (data.viz && data.viz.summary) || {};
+  const portrait =
+    data.score_portrait ||
+    sm.score_portrait ||
+    (data.viz && data.viz.score_portrait) ||
+    {};
+  const html = buildPortraitSectionHtml(portrait, data);
+  if (html) sec.outerHTML = html;
 }
 
 /**
@@ -473,7 +529,7 @@ export function buildT0ReportHtml(data, opts = {}) {
     sm.score_portrait ||
     (data.viz && data.viz.score_portrait) ||
     {};
-  const portraitSection = buildPortraitSectionHtml(portrait);
+  const portraitSection = buildPortraitSectionHtml(portrait, data);
 
   const zeroHint = opts.zeroHint
     ? `<p class="quant-trades-caption paper-t0-zero-hint">${opts.zeroHint}</p>`

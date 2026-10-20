@@ -1061,6 +1061,50 @@ def load_minute_cache(
     return bars, meta
 
 
+def list_minute_covered_dates(
+    codes: Sequence[str],
+    *,
+    min_codes: int,
+    period: str = "5",
+    store_dir: Optional[str] = None,
+) -> Optional[List[str]]:
+    """宇宙里至少 ``min_codes`` 只有 5m 的交易日。
+
+    非 sqlite、或查询失败时返回 ``None``（调用方不要当成「仓是空的」）。
+    查完没有够格的日子则返回 ``[]``。
+    """
+    if bars_backend() != "sqlite":
+        return None
+    base = store_dir or get_store_dir()
+    try:
+        from core import store_bars_sqlite as sq
+        from core.market.symbols import resolve_market_code
+    except Exception:  # noqa: BLE001
+        logger.debug("minute covered dates import failed", exc_info=True)
+        return None
+    pairs: List[Tuple[str, str]] = []
+    for raw in codes or []:
+        try:
+            market, pure = resolve_market_code(str(raw or ""))
+        except Exception:  # noqa: BLE001
+            logger.debug("minute covered dates resolve failed code=%s", raw, exc_info=True)
+            continue
+        if market and pure:
+            pairs.append((str(market), str(pure)))
+    if len(pairs) < 2:
+        return []
+    try:
+        return sq.covered_minute_dates(
+            pairs,
+            period=str(period or "5"),
+            min_codes=int(min_codes or 1),
+            store_dir=base,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("minute covered dates query failed", exc_info=True)
+        return None
+
+
 def load_minute_span_snapshot(
     market: str,
     code: str,

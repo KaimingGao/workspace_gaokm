@@ -621,6 +621,42 @@ class TestDailyStoreSqlite(_StoreBackendMixin, unittest.TestCase):
         self.assertNotIn("amount", got[0])
         self.assertAlmostEqual(got[-1]["amount"], 12345.6)
         self.assertAlmostEqual(bar_amount(got[0]), float(got[0]["volume"]) * float(got[0]["close"]))
+
+    def test_covered_minute_dates_require_enough_codes(self):
+        from core.store import list_minute_covered_dates, save_minute_cache
+
+        def _bar(day):
+            return {
+                "datetime": f"{day} 09:35:00",
+                "date": day,
+                "open": 1,
+                "high": 1,
+                "low": 1,
+                "close": 1,
+                "volume": 100,
+            }
+
+        save_minute_cache(
+            "CN",
+            "000001",
+            [_bar("2026-01-05"), _bar("2026-01-06")],
+            period="5",
+            data_source="test",
+            store_dir=self.tmp,
+        )
+        save_minute_cache(
+            "CN",
+            "000002",
+            [_bar("2026-01-06")],
+            period="5",
+            data_source="test",
+            store_dir=self.tmp,
+        )
+        got = list_minute_covered_dates(
+            ["000001", "000002"], min_codes=2, store_dir=self.tmp
+        )
+        self.assertEqual(got, ["2026-01-06"])
+
     backend = "sqlite"
 
 

@@ -1,7 +1,8 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p3242";
+import { repaintT0Portrait } from "../paper/t0_report.js?v=p3242";
 import { mergeScoringFloors } from "./scoring.js";
 import { watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
@@ -1305,7 +1306,16 @@ export function installBacktest(q) {
     };
   }
 
+  let lastReplayT0Data = null;
+
+  function syncT0PortraitToPrefix() {
+    const metricsEl = document.getElementById("paper-t0-metrics");
+    if (!metricsEl || !lastReplayT0Data) return;
+    repaintT0Portrait(metricsEl, lastReplayT0Data);
+  }
+
   function paintReplayT0(data) {
+    lastReplayT0Data = data && data.success ? data : null;
     renderPaperT0(replayT0PaintEls(), data);
     applyReplayT0Kpis(data);
     fillT0BtSizing(document.getElementById("paper-t0-form"), data);
@@ -1798,10 +1808,14 @@ export function installBacktest(q) {
       /* ignore */
     }
     paintT0BtLastLeg1Slider(hm);
+    syncT0PortraitToPrefix();
     const el = document.getElementById("paper-t0-last-leg1");
     if (!el || el.dataset.wired === "1") return;
     el.dataset.wired = "1";
-    const sync = () => readT0BtLastLeg1Hm({ persist: true });
+    const sync = () => {
+      readT0BtLastLeg1Hm({ persist: true });
+      syncT0PortraitToPrefix();
+    };
     el.addEventListener("input", sync);
     el.addEventListener("change", sync);
   }

@@ -3557,6 +3557,50 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(slots["11:30"]["n_with_yhat"], 1)
         self.assertEqual(slots["09:35"]["n_with_yhat"], 0)
 
+    def test_score_portrait_by_slot_stops_at_prefix(self):
+        """前缀截止 10:00 时，分槽画像止于 10:00，不垫到 11:00。"""
+        from core.t0.viz import build_score_portrait_by_slot, build_t0_viz_payload
+
+        days = [
+            {
+                "date": "2026-03-01",
+                "open": 10.0,
+                "close": 10.5,
+                "prev_close": 10.0,
+                "tau_realized": 1.0,
+                "scores": {"y_τc": 0.4},
+                "close_band_scan": [
+                    {"hm": "09:35", "y_τc": 0.4},
+                    {"hm": "10:00", "y_τc": 0.5},
+                    {"hm": "10:30", "y_τc": 0.6},
+                    {"hm": "11:00", "y_τc": 0.7},
+                ],
+                "t0_slot_results": [
+                    {
+                        "id": "s1",
+                        "hm": "11:30",
+                        "skipped": True,
+                        "scores": {"y_τc": 0.2},
+                    }
+                ],
+            }
+        ]
+        port = build_score_portrait_by_slot(days, last_hm="10:00")
+        hms = [s["hm"] for s in port["slots"]]
+        self.assertEqual(hms[0], "09:35")
+        self.assertEqual(hms[-1], "10:00")
+        self.assertIn("10:00", hms)
+        self.assertNotIn("10:05", hms)
+        self.assertNotIn("10:30", hms)
+        self.assertNotIn("11:00", hms)
+        self.assertNotIn("11:30", hms)
+        self.assertEqual(port["last_hm"], "10:00")
+        viz = build_t0_viz_payload(days, rules={"t0_last_leg1_hm": "10:00"})
+        vhms = [s["hm"] for s in viz["score_portrait"]["by_slot"]["slots"]]
+        self.assertEqual(vhms[-1], "10:00")
+        self.assertNotIn("11:00", vhms)
+        self.assertEqual(viz["score_portrait"]["by_slot"]["last_hm"], "10:00")
+
     def test_score_portrait_by_slot_uses_close_band_scan(self):
         """分槽应读扫描每根 ŷ，而不是只统计开轮钟。"""
         from core.t0.viz import build_backtest_score_portrait
