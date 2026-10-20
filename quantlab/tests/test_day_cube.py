@@ -71,6 +71,27 @@ class TestDayCube(unittest.TestCase):
         self.assertEqual(hit.date, "2024-06-01")
         np.testing.assert_allclose(hit.X_raw, cube.X_raw)
 
+    def test_names_only_does_not_replace_matrix(self) -> None:
+        from core.research.day_cube import build_day_cube, load_day_cube, save_day_cube
+
+        feats = {"x": {"g": 1.0, "h": 3.0}, "y": {"g": 2.0, "h": 4.0}}
+        cube = build_day_cube("2024-06-03", feats, clock="open")
+        self.assertTrue(save_day_cube(cube))
+        from core.research.day_cube import clear_memory
+
+        clear_memory()
+        header = load_day_cube(
+            "2024-06-03", ["x", "y"], clock="open", names_only=True, remember=True
+        )
+        self.assertIsNotNone(header)
+        assert header is not None
+        self.assertEqual(header.names, cube.names)
+        self.assertEqual(int(header.X_raw.shape[0]), 0)
+        full = load_day_cube("2024-06-03", ["x", "y"], clock="open", remember=False)
+        self.assertIsNotNone(full)
+        assert full is not None
+        np.testing.assert_allclose(full.X_raw, cube.X_raw)
+
     def test_load_remember_false_skips_process_cache(self) -> None:
         from core.research import day_cube as dc
 

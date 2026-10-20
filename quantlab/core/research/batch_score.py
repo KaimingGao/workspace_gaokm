@@ -84,6 +84,54 @@ def features_by_code_from_items(
     return by_code
 
 
+def _ensure_aligned_cube(
+    aligned: tuple,
+    *,
+    date: Optional[str],
+    clock: str,
+    persist: bool,
+    universe_codes: Optional[Sequence[str]],
+    replace: bool,
+    load_day_cube: Any,
+    build_aligned_cube: Any,
+    save_day_cube: Any,
+    consumer_read_only: Any,
+) -> Optional[Any]:
+    """``aligned`` 是 ``(codes, names, X)``。列已经按别名规则对齐。"""
+    if not isinstance(aligned, tuple) or len(aligned) != 3:
+        return None
+    codes, names, raw = aligned
+    day = str(date or "")[:10]
+    if len(day) < 10:
+        return None
+    lookup = list(universe_codes) if universe_codes is not None else list(codes or [])
+    if consumer_read_only():
+        return load_day_cube(day, lookup, clock=clock)
+    if not replace:
+        hit = load_day_cube(day, lookup, clock=clock)
+        if hit is not None:
+            return hit
+    cube = build_aligned_cube(
+        day,
+        list(codes or []),
+        raw,
+        list(names or []),
+        clock=clock,
+        universe_codes=lookup,
+    )
+    if cube is None:
+        return None
+    if not persist:
+        from core.research.day_cube import remember
+
+        remember(cube)
+        return cube
+    if not save_day_cube(cube):
+        if replace:
+            return None
+    return cube
+
+
 def ensure_day_cube_for_items(
     items: Sequence[Mapping[str, Any]],
     *,
@@ -92,14 +140,35 @@ def ensure_day_cube_for_items(
     persist: bool = True,
     universe_codes: Optional[Sequence[str]] = None,
     replace: bool = False,
+    aligned: Optional[tuple] = None,
 ) -> Optional[Any]:
     """从已打分 items 构建/加载当日 DayCube。
 
     ``universe_codes`` 是读取方会拿去哈希的完整名单。缺行的代码仍留在键里，
     矩阵只用有特征的 items。``replace=True`` 时盖掉已有立方（窗头列不够的重建）。
+    ``aligned`` 为 ``(codes, names, X)`` 时跳过 dict 拼装，直接落盘。
     """
-    from core.research.day_cube import build_or_load, load_day_cube
+    from core.research.day_cube import (
+        build_aligned_cube,
+        build_or_load,
+        load_day_cube,
+        save_day_cube,
+    )
     from core.research.materialize.consumer import consumer_read_only
+
+    if aligned is not None:
+        return _ensure_aligned_cube(
+            aligned,
+            date=date,
+            clock=clock,
+            persist=persist,
+            universe_codes=universe_codes,
+            replace=replace,
+            load_day_cube=load_day_cube,
+            build_aligned_cube=build_aligned_cube,
+            save_day_cube=save_day_cube,
+            consumer_read_only=consumer_read_only,
+        )
 
     by_code = features_by_code_from_items(items)
     if len(by_code) < 2:

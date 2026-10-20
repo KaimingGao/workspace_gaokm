@@ -208,7 +208,7 @@ def build_from_matrix(
     slim: Optional[Dict[str, Any]] = None,
     min_names: int = 2,
 ) -> Optional[DayCube]:
-    """已对齐矩阵直接建 cube。"""
+    """已对齐矩阵直接建 cube。哈希用矩阵里的代码顺序。"""
     day = str(date or "")[:10]
     code_list = [str(c).strip() for c in codes if str(c or "").strip()]
     x_arr = np.asarray(X, dtype=np.float64)
@@ -226,6 +226,41 @@ def build_from_matrix(
         z_mean=mu,
         z_std=sd,
         universe_hash=universe_hash(code_list),
+        clock=_safe_clock(clock),
+        slim=dict(slim or {}),
+    )
+
+
+def build_aligned_cube(
+    date: str,
+    codes: Sequence[str],
+    X: np.ndarray,
+    names: Sequence[str],
+    *,
+    clock: str = "open",
+    slim: Optional[Dict[str, Any]] = None,
+    min_names: int = 2,
+    universe_codes: Optional[Sequence[str]] = None,
+) -> Optional[DayCube]:
+    """已对齐矩阵建 cube。哈希用 ``universe_codes``，矩阵行只含有特征的代码。"""
+    day = str(date or "")[:10]
+    code_list = [str(c).strip() for c in codes if str(c or "").strip()]
+    x_arr = np.asarray(X, dtype=np.float64)
+    name_list = [str(n) for n in names]
+    if len(day) < 10 or not code_list or x_arr.ndim != 2:
+        return None
+    if x_arr.shape[0] != len(code_list) or x_arr.shape[1] != len(name_list):
+        return None
+    mu, sd = _compute_mu_sigma(x_arr, min_names=min_names)
+    uh_codes = _universe_code_list(universe_codes) or code_list
+    return DayCube(
+        date=day,
+        codes=list(code_list),
+        names=name_list,
+        X_raw=x_arr,
+        z_mean=mu,
+        z_std=sd,
+        universe_hash=universe_hash(uh_codes),
         clock=_safe_clock(clock),
         slim=dict(slim or {}),
     )
@@ -356,18 +391,19 @@ def load_day_cube(
     *,
     clock: str = "open",
     remember: bool = True,
+    names_only: bool = False,
 ) -> Optional[DayCube]:
     """按当前宇宙 hash 加载；宇宙不一致则 miss。
 
     ``remember=False`` 只把这一份交给调用方，不放进进程缓存。
-    物化探活要扫上千日，默认记住会把整窗立方留在内存里。
+    ``names_only`` 只读列名，不把 ``X_raw`` 解进内存，也不写入进程缓存。
     """
     day = str(date or "")[:10]
     uh = universe_hash(codes)
     clk = _safe_clock(clock)
     mk = _mem_key(uh, clk, day)
     hit = _MEMORY.get(mk)
-    if hit is not None:
+    if hit is not None and not names_only:
         return hit
     if not enabled() or len(day) < 10:
         return None
@@ -381,11 +417,17 @@ def load_day_cube(
         return None
     try:
         with np.load(paths["npz"], allow_pickle=False) as z:
-            X = np.asarray(z["X_raw"], dtype=np.float64)
-            mu = np.asarray(z["z_mean"], dtype=np.float64)
-            sd = np.asarray(z["z_std"], dtype=np.float64)
-            code_list = [str(c) for c in z["codes"].tolist()]
             name_list = [str(n) for n in z["names"].tolist()]
+            if names_only:
+                X = np.zeros((0, len(name_list)), dtype=np.float64)
+                mu = np.zeros(len(name_list), dtype=np.float64)
+                sd = np.zeros(len(name_list), dtype=np.float64)
+                code_list: List[str] = []
+            else:
+                X = np.asarray(z["X_raw"], dtype=np.float64)
+                mu = np.asarray(z["z_mean"], dtype=np.float64)
+                sd = np.asarray(z["z_std"], dtype=np.float64)
+                code_list = [str(c) for c in z["codes"].tolist()]
     except (OSError, ValueError, KeyError, EOFError) as exc:
         logger.debug("day cube load failed %s: %s", paths["npz"], exc)
         return None
@@ -400,7 +442,7 @@ def load_day_cube(
         clock=clk,
         slim=dict(meta.get("slim") or {}),
     )
-    if remember:
+    if remember and not names_only:
         _MEMORY[mk] = cube
     return cube
 

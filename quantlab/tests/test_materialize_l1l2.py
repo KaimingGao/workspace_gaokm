@@ -598,18 +598,10 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
                 )
             return out
 
-        def _assemble(code, day, oo=None, tc=None, co=None):
-            if code not in present:
-                return None
-            return {"stock_code": code, "as_of": day, "features_tau": present[code]}
-
         with mock.patch(
             "core.research.day_cube.load_day_cube", return_value=None
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
-        ), mock.patch(
-            "core.research.lake_replay.assemble_item_from_lake_rows",
-            side_effect=_assemble,
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
             return_value=mock.Mock(names=["raw_ath_x"]),
@@ -646,11 +638,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
                 if code in codes
             }
 
-        def _assemble(code, day, oo=None, tc=None, co=None):
-            if code == "001232":
-                return None
-            return {"stock_code": code, "as_of": day, "features_tau": {"raw_ath_x": 1.0}}
-
         with mock.patch(
             "core.research.day_cube.load_day_cube",
             return_value=_Cube(["gap_pct"]),
@@ -659,9 +646,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
             side_effect=lambda cube, **_k: "raw_ath_x" in set(getattr(cube, "names", []) or []),
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
-        ), mock.patch(
-            "core.research.lake_replay.assemble_item_from_lake_rows",
-            side_effect=_assemble,
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
             return_value=_Cube(["raw_ath_x", "a", "b"]),
@@ -694,8 +678,10 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
                 dates=["2026-10-16"],
                 clocks=["09:35"],
             )
-        self.assertTrue(out.get("ok"), out)
+        self.assertFalse(out.get("ok"))
+        self.assertEqual(out.get("error"), "立方读取失败")
         ensure.assert_not_called()
+        self.assertEqual(out["by_clock"]["09:35"]["error"], "立方读取失败")
         self.assertEqual(out["by_clock"]["09:35"]["days_skipped"], 1)
         self.assertEqual(out["by_clock"]["09:35"]["cubes_built"], 0)
 
@@ -724,9 +710,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
                 for code in codes
             }
 
-        def _assemble(code, day, oo=None, tc=None, co=None):
-            return {"stock_code": code, "as_of": day, "features_tau": {"x": 1.0}}
-
         with mock.patch(
             "core.research.day_cube.load_day_cube",
             return_value=_Cube(),
@@ -735,9 +718,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
             side_effect=_cover,
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
-        ), mock.patch(
-            "core.research.lake_replay.assemble_item_from_lake_rows",
-            side_effect=_assemble,
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
             return_value=_Cube(),
@@ -767,9 +747,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
                 for code in codes
             }
 
-        def _assemble(code, day, oo=None, tc=None, co=None):
-            return {"stock_code": code, "as_of": day, "features_tau": {"x": 1.0}}
-
         with mock.patch(
             "core.t0.score_policy.warmup_watching_day_cubes",
             side_effect=RuntimeError("warmup boom"),
@@ -778,9 +755,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
             return_value=None,
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
-        ), mock.patch(
-            "core.research.lake_replay.assemble_item_from_lake_rows",
-            side_effect=_assemble,
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
             return_value=mock.Mock(names=["x"]),
@@ -824,14 +798,100 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         self.assertNotIn("10:30", out["by_clock"])
         ensure.assert_not_called()
 
-    def test_minute_clock_chunks_twenty_days(self) -> None:
-        from core.research.materialize.cube_batch import CUBE_FILL_MINUTE_CHUNK_DAYS
+    def test_cancel_after_first_clock_probe_does_not_report_it_done(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        state = {"n": 0}
+
+        def _cancel() -> bool:
+            state["n"] += 1
+            return state["n"] >= 3
+
+        with mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items",
+        ) as ensure:
+            out = materialize_l2(
+                ["000001", "000002"],
+                dates=["2026-10-16"],
+                clocks=["09:35", "10:30"],
+                cancel_cb=_cancel,
+            )
+        self.assertFalse(out.get("ok"))
+        self.assertEqual(out.get("error"), "cancelled")
+        self.assertEqual(out["by_clock"]["09:35"]["error"], "cancelled")
+        self.assertNotIn("10:30", out["by_clock"])
+        ensure.assert_not_called()
+
+    def test_cancel_during_write_marks_later_clocks(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        state = {"n": 0}
+
+        def _build(*_args, **_kwargs):
+            state["n"] += 1
+            return {"cubes_built": 1, "days_skipped": 0, "slim_reject": 0}
+
+        def _slice(family, codes, dates, progress_cb=None, cancel_cb=None):
+            return {
+                code: (
+                    ["x"],
+                    {str(d)[:10]: np.asarray([1.0], dtype=np.float64) for d in dates},
+                )
+                for code in codes
+            }
+
+        with mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), mock.patch(
+            "core.research.feature_lake.slice_stock_panels", side_effect=_slice
+        ), mock.patch(
+            "core.research.materialize.cube_batch.build_day_cubes_from_lake",
+            side_effect=_build,
+        ):
+            out = materialize_l2(
+                ["000001", "000002"],
+                dates=["2026-10-16"],
+                clocks=["09:35", "10:30"],
+                cancel_cb=lambda: state["n"] >= 1,
+            )
+        self.assertFalse(out.get("ok"))
+        self.assertEqual(out.get("error"), "cancelled")
+        self.assertEqual(out["by_clock"]["09:35"]["error"], "cancelled")
+        self.assertEqual(out["by_clock"]["10:30"]["error"], "cancelled")
+        self.assertEqual(state["n"], 1)
+
+    def test_one_load_error_keeps_a_hit_day(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        def _load(day, *_args, **_kwargs):
+            if str(day)[:10] == "2026-10-16":
+                raise RuntimeError("io")
+            return object()
+
+        with mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items",
+        ) as ensure:
+            out = materialize_l2(
+                ["000001", "000002"],
+                dates=["2026-10-16", "2026-10-17"],
+                clocks=["09:35"],
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out["by_clock"]["09:35"]["days_skipped"], 1)
+        self.assertEqual(out["by_clock"]["09:35"]["cubes_hit"], 1)
+        ensure.assert_not_called()
+
+    def test_minute_clock_fills_the_covered_days_once(self) -> None:
         from core.research.materialize.l2_jobs import materialize_l2
 
         seen = []
 
-        def _build(*_args, **kwargs):
-            seen.append(kwargs.get("chunk_days"))
+        def _build(codes, days, **kwargs):
+            seen.append((list(days), kwargs.get("chunk_days")))
             return {"cubes_built": 0, "days_skipped": 0, "slim_reject": 0}
 
         dates = [f"2024-01-{day:02d}" for day in range(1, 22)]
@@ -847,9 +907,80 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
                 clocks=["09:35"],
             )
         self.assertTrue(out.get("ok"), out)
-        self.assertTrue(seen)
-        self.assertTrue(all(n == CUBE_FILL_MINUTE_CHUNK_DAYS for n in seen))
-        self.assertEqual(CUBE_FILL_MINUTE_CHUNK_DAYS, 20)
+        self.assertEqual(seen, [(dates, None)])
+
+    def test_auto_minute_window_skips_days_without_bars(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        calendar = [f"2024-06-{day:02d}" for day in range(1, 31)]
+        covered = calendar[:5]
+        seen = []
+
+        def _load(day, *_a, **_k):
+            seen.append(str(day)[:10])
+            return object()
+
+        with mock.patch(
+            "core.research.materialize.l2_jobs._resolve_dates", return_value=calendar
+        ), mock.patch(
+            "core.store.list_minute_covered_dates", return_value=covered
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ):
+            out = materialize_l2(
+                ["000001", "000002"],
+                clocks=["09:35", "10:30"],
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out.get("minute_days"), 5)
+        self.assertEqual(out.get("minute_span"), "2024-06-01→2024-06-05")
+        self.assertEqual(seen, covered + covered)
+        self.assertEqual(out["by_clock"]["09:35"]["cubes_hit"], 5)
+        self.assertEqual(out["by_clock"]["10:30"]["cubes_hit"], 5)
+
+    def test_explicit_dates_do_not_query_minute_store(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        def _dates(*_a, **_k):
+            raise AssertionError("explicit dates must not query the minute store")
+
+        with mock.patch(
+            "core.store.list_minute_covered_dates", side_effect=_dates
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=object()
+        ):
+            out = materialize_l2(
+                ["000001", "000002"],
+                dates=["2026-10-16"],
+                clocks=["09:35"],
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertNotIn("minute_days", out)
+        self.assertEqual(out["by_clock"]["09:35"]["cubes_hit"], 1)
+
+    def test_empty_minute_store_does_not_scan_calendar(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        calendar = [f"2024-06-{day:02d}" for day in range(1, 31)]
+
+        def _load(*_a, **_k):
+            raise AssertionError("empty minute window must not probe cubes")
+
+        with mock.patch(
+            "core.research.materialize.l2_jobs._resolve_dates", return_value=calendar
+        ), mock.patch(
+            "core.store.list_minute_covered_dates", return_value=[]
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ):
+            out = materialize_l2(
+                ["000001", "000002"],
+                clocks=["09:35"],
+            )
+        self.assertFalse(out.get("ok"))
+        self.assertEqual(out.get("error"), "本地 5m 没有够格的交易日")
+        self.assertEqual(out.get("minute_days"), 0)
+        self.assertEqual(out["by_clock"]["09:35"]["error"], "本地 5m 没有够格的交易日")
 
     def test_bad_lookback_still_resolves_dates(self) -> None:
         from core.research.materialize.l2_jobs import _resolve_dates
@@ -1055,7 +1186,91 @@ class CubeBatchFillTests(unittest.TestCase):
         self.assertEqual(stats["cubes_built"], 1)
         self.assertEqual(stats["days_skipped"], 1)
 
-    def test_shared_panels_skip_oo_and_co(self) -> None:
+    def test_bad_panel_still_writes_the_other_codes(self) -> None:
+        from core.research.materialize.cube_batch import build_day_cubes_from_lake
+
+        def _slice(family, codes, dates, progress_cb=None, cancel_cb=None):
+            rows = {
+                code: (
+                    ["x"],
+                    {str(d)[:10]: np.asarray([1.0], dtype=np.float64) for d in dates},
+                )
+                for code in codes
+            }
+            rows["000002"] = (7, {"2024-01-02": np.asarray([1.0])})
+            return rows
+
+        with mock.patch(
+            "core.research.feature_lake.slice_stock_panels", side_effect=_slice
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items",
+            return_value=mock.Mock(names=["x"]),
+        ) as ensure:
+            stats = build_day_cubes_from_lake(
+                ["000001", "000002", "000003"],
+                ["2024-01-02"],
+                family_oo="oo",
+                family_tc="tc",
+                family_co="co",
+                clock="09:35",
+                universe_codes=["000001", "000002", "000003"],
+                min_items=2,
+                require_tc_day=True,
+                swallow_ensure_errors=True,
+            )
+        self.assertEqual(stats["cubes_built"], 1)
+        self.assertEqual(ensure.call_count, 1)
+        kept = ensure.call_args.kwargs["aligned"][0]
+        self.assertEqual(kept, ["000001", "000003"])
+
+    def test_align_error_skips_only_that_day(self) -> None:
+        from core.research.materialize.cube_batch import (
+            align_day_matrix,
+            build_day_cubes_from_lake,
+        )
+
+        real = align_day_matrix
+
+        def _slice(family, codes, dates, progress_cb=None, cancel_cb=None):
+            return {
+                code: (
+                    ["x"],
+                    {str(d)[:10]: np.asarray([1.0], dtype=np.float64) for d in dates},
+                )
+                for code in codes
+            }
+
+        seen = {"n": 0}
+
+        def _wrap(*args, **kwargs):
+            seen["n"] += 1
+            if seen["n"] == 1:
+                raise RuntimeError("bad matrix")
+            return real(*args, **kwargs)
+
+        with mock.patch(
+            "core.research.feature_lake.slice_stock_panels", side_effect=_slice
+        ), mock.patch(
+            "core.research.materialize.cube_batch.align_day_matrix", side_effect=_wrap
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items",
+            return_value=mock.Mock(names=["x"]),
+        ) as ensure:
+            stats = build_day_cubes_from_lake(
+                ["000001", "000002"],
+                ["2024-01-02", "2024-01-03"],
+                family_oo="oo",
+                family_tc="tc",
+                family_co="co",
+                clock="09:35",
+                universe_codes=["000001", "000002"],
+                min_items=2,
+                require_tc_day=True,
+                swallow_ensure_errors=True,
+            )
+        self.assertEqual(stats["days_skipped"], 1)
+        self.assertEqual(stats["cubes_built"], 1)
+        self.assertEqual(ensure.call_count, 1)
         from core.research.materialize.cube_batch import build_day_cubes_from_lake
 
         seen = []
@@ -1100,6 +1315,98 @@ class CubeBatchFillTests(unittest.TestCase):
         self.assertEqual(stats["cubes_built"], 1)
         ensure.assert_called_once()
 
+    def test_align_day_matches_stamped_items(self) -> None:
+        from core.research.batch_score import features_by_code_from_items
+        from core.research.day_cube import build_aligned_cube, build_day_cube
+        from core.research.lake_replay import assemble_item_from_lake_rows
+        from core.research.materialize.cube_batch import _stack_days, align_day_matrix
+
+        day = "2024-06-03"
+        codes = ["000002", "000001", "000003", "000004"]
+        universe = ["000009", "000001", "000002", "000003", "000004"]
+        oo = {
+            "000002": {"gap_pct": 1.0, "x": 5.0},
+            "000001": {"gap_pct": 3.0},
+            "000004": {"x": 4.0},
+        }
+        tc = {
+            "000002": {"gap_pct": 8.0, "raw_ath_x": 1.5},
+            "000001": {"gap_pct": 9.0},
+        }
+        co = {
+            "000002": {"ret_oc": 0.1},
+            "000001": {"ret_oc": 0.2},
+            "000003": {"ret_oc": 0.9},
+            "000004": {"ret_oc": 0.4},
+        }
+
+        def _sliced(rows: dict) -> dict:
+            out = {}
+            for code, feats in rows.items():
+                names = list(feats)
+                out[code] = (
+                    names,
+                    {day: np.asarray([float(feats[n]) for n in names], dtype=np.float64)},
+                )
+            return out
+
+        oo_names, oo_x = _stack_days(_sliced(oo), codes, [day])
+        tc_names, tc_x = _stack_days(_sliced(tc), codes, [day])
+        co_names, co_x = _stack_days(_sliced(co), codes, [day])
+        # 000001 的 raw_ath_x 是 NaN，不应写成有限值，列仍因 000002 保留。
+        raw_j = tc_names.index("raw_ath_x")
+        tc_x[codes.index("000001"), 0, raw_j] = np.nan
+        aligned = align_day_matrix(
+            codes,
+            oo_names=oo_names,
+            oo_block=oo_x[:, 0, :],
+            tc_names=tc_names,
+            tc_block=tc_x[:, 0, :],
+            co_names=co_names,
+            co_block=co_x[:, 0, :],
+            require_tc_day=True,
+        )
+        self.assertIsNotNone(aligned)
+        assert aligned is not None
+        kept, names, matrix = aligned
+        cube_new = build_aligned_cube(
+            day,
+            kept,
+            matrix,
+            names,
+            clock="09:35",
+            universe_codes=universe,
+        )
+        items = []
+        for code in codes:
+            o = oo.get(code)
+            t = dict(tc.get(code) or {})
+            if code == "000001":
+                t.pop("raw_ath_x", None)
+            c = co.get(code)
+            if not o and not t:
+                continue
+            it = assemble_item_from_lake_rows(
+                code, day, oo=o, tc=t or None, co=c
+            )
+            if it is not None:
+                items.append(it)
+        by_code = features_by_code_from_items(items)
+        cube_old = build_day_cube(
+            day, by_code, clock="09:35", universe_codes=universe
+        )
+        self.assertIsNotNone(cube_new)
+        self.assertIsNotNone(cube_old)
+        assert cube_new is not None and cube_old is not None
+        self.assertEqual(cube_new.codes, cube_old.codes)
+        self.assertEqual(list(cube_new.names), list(cube_old.names))
+        self.assertNotIn("000003", cube_new.codes)
+        np.testing.assert_allclose(cube_new.X_raw, cube_old.X_raw, equal_nan=True)
+        np.testing.assert_allclose(cube_new.z_mean, cube_old.z_mean, equal_nan=True)
+        np.testing.assert_allclose(cube_new.z_std, cube_old.z_std, equal_nan=True)
+        self.assertEqual(cube_new.universe_hash, cube_old.universe_hash)
+        self.assertEqual(cube_new.clock, cube_old.clock)
+
 
 class MinuteL2ShareTests(unittest.TestCase):
     def _rows(self, codes, dates):
@@ -1120,18 +1427,10 @@ class MinuteL2ShareTests(unittest.TestCase):
             seen.append(str(family))
             return self._rows(codes, dates)
 
-        def _assemble(code, day, oo=None, tc=None, co=None):
-            if not tc:
-                return None
-            return {"stock_code": code, "as_of": day, "features_tau": {"raw_ath_x": 1.0}}
-
         with mock.patch(
             "core.research.day_cube.load_day_cube", return_value=None
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
-        ), mock.patch(
-            "core.research.lake_replay.assemble_item_from_lake_rows",
-            side_effect=_assemble,
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
             return_value=mock.Mock(names=["raw_ath_x"]),
@@ -1149,6 +1448,37 @@ class MinuteL2ShareTests(unittest.TestCase):
         self.assertEqual(ensure.call_count, 2)
         flags = [call.kwargs.get("replace") for call in ensure.call_args_list]
         self.assertEqual(flags, [False, False])
+
+    def test_long_window_slices_each_family_once(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        seen = []
+
+        def _slice(family, codes, dates, progress_cb=None, cancel_cb=None):
+            seen.append((str(family), len(list(dates or []))))
+            return self._rows(codes, dates)
+
+        dates = [f"2024-01-{day:02d}" for day in range(1, 25)]
+        with mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), mock.patch(
+            "core.research.feature_lake.slice_stock_panels", side_effect=_slice
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items",
+            return_value=mock.Mock(names=["raw_ath_x"]),
+        ) as ensure:
+            out = materialize_l2(
+                ["000001", "000002"],
+                dates=dates,
+                clocks=["09:35", "10:30"],
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(seen.count(("oo", 24)), 1)
+        self.assertEqual(seen.count(("co", 24)), 1)
+        self.assertEqual(seen.count(("tc_0935", 24)), 1)
+        self.assertEqual(seen.count(("tc_1030", 24)), 1)
+        self.assertEqual(len(seen), 4)
+        self.assertEqual(ensure.call_count, 48)
 
     def test_ready_clocks_do_not_open_l1(self) -> None:
         from core.research.materialize.l2_jobs import materialize_l2
@@ -1193,11 +1523,6 @@ class MinuteL2ShareTests(unittest.TestCase):
             seen.append(str(family))
             return self._rows(codes, dates)
 
-        def _assemble(code, day, oo=None, tc=None, co=None):
-            if not tc:
-                return None
-            return {"stock_code": code, "as_of": day, "features_tau": {"raw_ath_x": 1.0}}
-
         def _ensure(*_a, **kwargs):
             return type("C", (), {"names": ["raw_ath_x", "a", "b"]})()
 
@@ -1208,9 +1533,6 @@ class MinuteL2ShareTests(unittest.TestCase):
             side_effect=_cover,
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
-        ), mock.patch(
-            "core.research.lake_replay.assemble_item_from_lake_rows",
-            side_effect=_assemble,
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items", side_effect=_ensure
         ) as ensure:
@@ -1291,8 +1613,63 @@ class MinuteL2ShareTests(unittest.TestCase):
         self.assertFalse(out.get("ok"))
         self.assertEqual(out["by_clock"]["09:35"]["error"], "disk")
         self.assertTrue(out["by_clock"]["10:30"]["ok"], out["by_clock"]["10:30"])
-        self.assertEqual(calls.count("10:30"), 2)
-        self.assertEqual(calls.count("09:35"), 2)
+        self.assertEqual(calls.count("10:30"), 1)
+        self.assertEqual(calls.count("09:35"), 1)
+
+    def test_oo_slice_error_fails_clocks_that_still_need_cubes(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        def _slice(family, codes, dates, progress_cb=None, cancel_cb=None):
+            if str(family) == "oo":
+                raise RuntimeError("oo io")
+            return self._rows(codes, dates)
+
+        with mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), mock.patch(
+            "core.research.feature_lake.slice_stock_panels", side_effect=_slice
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items",
+        ) as ensure:
+            out = materialize_l2(
+                ["000001", "000002"],
+                dates=["2026-10-16"],
+                clocks=["09:35", "10:30"],
+            )
+        self.assertFalse(out.get("ok"))
+        self.assertEqual(out.get("error"), "oo io")
+        self.assertEqual(out["by_clock"]["09:35"]["error"], "oo io")
+        self.assertEqual(out["by_clock"]["10:30"]["error"], "oo io")
+        self.assertEqual(out["by_clock"]["09:35"]["days_skipped"], 1)
+        ensure.assert_not_called()
+
+    def test_tc_slice_error_leaves_the_other_clock_running(self) -> None:
+        from core.research.materialize.l2_jobs import materialize_l2
+
+        def _slice(family, codes, dates, progress_cb=None, cancel_cb=None):
+            if str(family) == "tc_0935":
+                raise RuntimeError("tc io")
+            return self._rows(codes, dates)
+
+        with mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), mock.patch(
+            "core.research.feature_lake.slice_stock_panels", side_effect=_slice
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items",
+            return_value=mock.Mock(names=["raw_ath_x"]),
+        ) as ensure:
+            out = materialize_l2(
+                ["000001", "000002"],
+                dates=["2026-10-16"],
+                clocks=["09:35", "10:30"],
+            )
+        self.assertFalse(out.get("ok"))
+        self.assertEqual(out["by_clock"]["09:35"]["error"], "tc io")
+        self.assertEqual(out["by_clock"]["09:35"]["days_skipped"], 1)
+        self.assertTrue(out["by_clock"]["10:30"]["ok"], out["by_clock"]["10:30"])
+        self.assertGreaterEqual(int(out["by_clock"]["10:30"]["cubes_built"]), 1)
+        self.assertEqual(ensure.call_args.kwargs.get("clock"), "10:30")
 
 
 class TauGridPanelTests(unittest.TestCase):
