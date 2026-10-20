@@ -141,28 +141,6 @@ class TestB5RespectRegime(unittest.TestCase):
         sig = inspect.signature(evaluate_research_oos)
         self.assertTrue(sig.parameters["respect_regime"].default)
 
-    def test_cluster_report_defaults(self):
-        """factor_ols_clusters 已退役；schema 仍保留分组请求字段默认值。"""
-        from web.schemas import FactorOlsClusterRequest
-
-        body = FactorOlsClusterRequest()
-        self.assertTrue(body.respect_regime)
-        self.assertTrue(body.select_ridge)
-        self.assertEqual(body.collinearity_policy, "drop_redundant")
-        from core.watching.store import WATCHING_MAX_SIZE
-
-        self.assertEqual(body.watching_limit, WATCHING_MAX_SIZE)
-
-    def test_schema_cluster_request_b_fields(self):
-        from core.watching.store import WATCHING_MAX_SIZE
-        from web.schemas import FactorOlsClusterRequest
-
-        body = FactorOlsClusterRequest()
-        self.assertTrue(body.respect_regime)
-        self.assertTrue(body.select_ridge)
-        self.assertEqual(body.collinearity_policy, "drop_redundant")
-        self.assertEqual(body.watching_limit, WATCHING_MAX_SIZE)
-
 
 # --- from test_d_track.py ---
 """D 轨 · 数据层深化补强（D0–D4）主干验收。"""

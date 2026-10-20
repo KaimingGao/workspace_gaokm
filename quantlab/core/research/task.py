@@ -90,8 +90,6 @@ def finish_research_run(
     """记录步骤：把本次 fit 写入实验追踪器。已有 experiment_id 时不重复写。"""
     if not isinstance(report, dict):
         return None
-    if report.get("cluster_retired"):
-        return None
     existing = report.get("experiment_id")
     if existing:
         return str(existing)
@@ -134,7 +132,7 @@ def records_experiment(model_type: str) -> Callable:
         @wraps(fn)
         def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
             report = fn(self, *args, **kwargs)
-            if isinstance(report, dict) and not report.get("cluster_retired"):
+            if isinstance(report, dict):
                 try:
                     bound = inspect.signature(fn).bind(self, *args, **kwargs)
                     bound.apply_defaults()

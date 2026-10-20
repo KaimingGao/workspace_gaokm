@@ -34,13 +34,6 @@ class PaperJobsMixin:
 
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
-        # 分组 OO 已下线：不再 prepare_cluster_for_daily
-        cluster_prep = {
-            "success": True,
-            "skipped": True,
-            "reason": "cluster_scoring_retired",
-            "task": "cluster_prepare_daily",
-        }
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
             original = copy.deepcopy(paper)
@@ -67,7 +60,6 @@ class PaperJobsMixin:
                 return {
                     "ok": True,
                     "preview": True,
-                    "cluster_prepare": cluster_prep,
                     **result,
                 }
             from core.paper.costs import fee_fields_from_trade, pnl_fields_from_trade
@@ -150,7 +142,7 @@ class PaperJobsMixin:
                     },
                 )
             save_paper(paper, self.path)
-            return {"ok": True, "cluster_prepare": cluster_prep, **result}
+            return {"ok": True, **result}
 
     def start_run_job(
         self,

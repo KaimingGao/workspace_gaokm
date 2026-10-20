@@ -317,7 +317,7 @@ class QuantOpsMixin:
         fuse_enter: Optional[float] = None,
         fuse_strong: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """量化日报：主叙事=组ŷ / 簿 / OOS / 横截面ŷ / 历史回测（rank_lots）。
+        """量化日报：横截面 ŷ 与历史回测（rank_lots）。
 
         历史回测缺省对齐 /replay：paper_replay · α / fuse入场 / fuse强 / lookback 30（下限 10）。
         """
@@ -337,33 +337,23 @@ class QuantOpsMixin:
             if include_portfolio_backtest
             else None
         )
-        cluster_live = {
-            "success": False,
-            "cluster_retired": True,
-            "error": "cluster_retired",
-            "mode": "off",
-            "enabled": False,
-            "note": "分组 live 已退役；选股真源=全局 return_model ŷ",
-        }
-
         scoring = (cfg.get("scoring") if isinstance(cfg, dict) else None) or {}
 
         report: Dict[str, Any] = {
             "success": True,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "narrative": "cluster_yhat",
+            "narrative": "predicted_score",
             "config": cfg,
             "scoring": {
                 "rank_mode": scoring.get("rank_mode") or "predicted_score",
                 "min_predicted_score": scoring.get("min_predicted_score"),
                 "note": (
                     (cfg.get("product_note") if isinstance(cfg, dict) else None)
-                    or "选股真源=predicted_score（ŷ）· 主叙事=组ŷ/簿/OOS/横截面/历史回测"
+                    or "选股真源=predicted_score（ŷ）· 主叙事=横截面/历史回测"
                 ),
             },
             "strategies": self.list_strategies(),
             "portfolio_backtest_summary": portfolio_summary,
-            "cluster_live": cluster_live,
         }
         if include_cross_section:
             report["cross_section"] = self.run_cross_section(limit=10)

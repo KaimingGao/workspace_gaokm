@@ -1,6 +1,6 @@
-"""量化研究台 API — bars/minute 刷新；分组 OLS / live 已退役（410）。"""
+"""量化研究台 API — bars/minute 刷新与 L1/L2 物化。"""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
@@ -13,12 +13,6 @@ from web.schemas import (
 )
 
 router = APIRouter(tags=["quant"])
-
-_CLUSTER_RETIRED_DETAIL = "cluster_retired"
-
-
-def _cluster_retired() -> None:
-    raise HTTPException(status_code=410, detail=_CLUSTER_RETIRED_DETAIL)
 
 @router.get("/api/quant/bars/status")
 
@@ -153,99 +147,3 @@ def quant_minute_refresh(body: MinuteRefreshRequest) -> Dict[str, Any]:
         return deps.quant.start_minute_refresh_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.post("/api/quant/factor-ols-clusters")
-
-def quant_factor_ols_clusters() -> Dict[str, Any]:
-    """分组 OLS 已退役。"""
-    _cluster_retired()
-
-@router.get("/api/quant/factor-ols-clusters/last-report")
-
-def quant_factor_ols_clusters_last_report() -> Dict[str, Any]:
-    """分组报告已退役。"""
-    _cluster_retired()
-
-@router.post("/api/quant/cluster-paper-preview")
-
-def quant_cluster_paper_preview() -> Dict[str, Any]:
-    """分池簿纸面调仓已退役。"""
-    _cluster_retired()
-
-@router.post("/api/quant/cluster-multi-score")
-
-def quant_cluster_multi_score() -> Dict[str, Any]:
-    """分组多权复打分已退役。"""
-    _cluster_retired()
-
-@router.get("/api/quant/cluster-live/status")
-
-def quant_cluster_live_status(
-    audit_rotate: bool = False,
-    audit_offset: Optional[int] = None,
-    light: bool = False,
-    run_auto_demote: bool = False,
-) -> Dict[str, Any]:
-    """分组 live 状态已退役（软响应，避免轻量轮询硬 410）。"""
-    _ = (audit_rotate, audit_offset, light, run_auto_demote)
-    return deps.quant.cluster_live_status(
-        audit_rotate=False,
-        audit_offset=None,
-        light=True,
-        run_auto_demote=False,
-    )
-
-@router.post("/api/quant/cluster-live/apply")
-
-def quant_cluster_live_apply() -> Dict[str, Any]:
-    """分组 live 一键应用已退役。"""
-    _cluster_retired()
-
-@router.post("/api/quant/cluster-live/promote")
-
-def quant_cluster_live_promote() -> Dict[str, Any]:
-    """分组 promote 已退役。"""
-    _cluster_retired()
-
-@router.get("/api/quant/cluster-live/promote-preflight")
-
-def quant_cluster_promote_preflight(from_draft: bool = True) -> Dict[str, Any]:
-    """分组 promote 预检已退役。"""
-    _ = from_draft
-    _cluster_retired()
-
-@router.post("/api/quant/cluster-live/rollback")
-
-def quant_cluster_live_rollback() -> Dict[str, Any]:
-    """分组 live 回滚已退役。"""
-    _cluster_retired()
-
-@router.post("/api/quant/cluster-live/mode")
-
-def quant_cluster_live_mode() -> Dict[str, Any]:
-    """分组 live mode 已退役。"""
-    _cluster_retired()
-
-@router.post("/api/quant/cluster-live/universe-fit-tiers")
-
-def quant_cluster_live_universe_fit_tiers() -> Dict[str, Any]:
-    """宇宙拟合档设置已退役。"""
-    _cluster_retired()
-
-@router.get("/api/quant/cluster-live/fit-tiers")
-
-def quant_cluster_live_fit_tiers() -> Dict[str, Any]:
-    """拟合档查询已退役。"""
-    _cluster_retired()
-
-@router.post("/api/quant/cluster-live/refresh-book")
-
-def quant_cluster_live_refresh_book() -> Dict[str, Any]:
-    """分池簿刷新已退役。"""
-    _cluster_retired()
-
-@router.post("/api/quant/cluster-live/rank")
-
-def quant_cluster_live_rank() -> Dict[str, Any]:
-    """分池排序已退役。"""
-    _cluster_retired()

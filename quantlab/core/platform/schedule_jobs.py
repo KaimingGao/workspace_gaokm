@@ -659,13 +659,6 @@ def run_paper_daily(
         except Exception as exc:
             logger.exception('unexpected error in run_paper_daily')
             pre_market = {"ok": False, "error": str(exc)}
-        # 分组 OO 已下线：不再 prepare_cluster_for_daily
-        cluster_prep = {
-            "success": True,
-            "skipped": True,
-            "reason": "cluster_scoring_retired",
-            "task": "cluster_prepare_daily",
-        }
         from copy import deepcopy
 
         loaded = load_paper(PAPER_PATH)
@@ -779,7 +772,6 @@ def run_paper_daily(
             "pre_market": pre_market,
             "simulate_buy": bool(simulate_buy),
             "strategy": strategy,
-            "cluster_prepare": cluster_prep,
             "cycle": cycle,
             "summary": summary,
             "health": health,

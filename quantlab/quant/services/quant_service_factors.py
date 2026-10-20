@@ -22,18 +22,6 @@ def _resolve_fit_universe(
     return resolve_model_fit_codes(watching_limit=watching_limit)
 
 
-def _cluster_retired_payload(**extra: Any) -> Dict[str, Any]:
-    """分组 OLS / live 路径统一退役响应。"""
-    out: Dict[str, Any] = {
-        "success": False,
-        "ok": False,
-        "error": "cluster_retired",
-        "cluster_retired": True,
-    }
-    out.update(extra)
-    return out
-
-
 def _ridge_desk_key(doc: Optional[Dict[str, Any]]) -> tuple:
     """研究台身份：标签 / 面板 n + Holdout。Holdout 变了必须展示最近拟合。"""
     if not isinstance(doc, dict):
@@ -2501,11 +2489,6 @@ class QuantFactorMixin:
         report["watching_limit"] = limit
         return report
 
-    def run_factor_ols_cluster_experiment(self, **kwargs: Any) -> Dict[str, Any]:
-        """分组 OLS 已退役。"""
-        _ = kwargs
-        return _cluster_retired_payload()
-
     def bars_status(self, *, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
         """观察池日线末 bar 覆盖（研究枢纽 UI）。"""
         from quant.research.bars_status import build_bars_status
@@ -2994,77 +2977,6 @@ class QuantFactorMixin:
             "job": minute_refresh_job.get(),
         }
 
-    def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:
-        """FH2：分组 OLS Job 已退役。"""
-        _ = kwargs
-        return _cluster_retired_payload()
-
-    def run_cluster_multi_score(self, **kwargs: Any) -> Dict[str, Any]:
-        """分组多权复打分已退役。"""
-        _ = kwargs
-        return _cluster_retired_payload()
-
-    def cluster_live_status(self, **kwargs: Any) -> Dict[str, Any]:
-        """分组 live 状态已退役。"""
-        _ = kwargs
-        return _cluster_retired_payload(
-            mode="off", enabled=False, active=None, draft=None, light=True
-        )
-
-    def compare_cluster_partition_vs_active(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        """分组 promote 预检已退役。"""
-        _ = args, kwargs
-        return _cluster_retired_payload()
-
-    def promote_cluster_live(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        """分组 promote 已退役。"""
-        _ = args, kwargs
-        return _cluster_retired_payload()
-
-    def rollback_cluster_live(self, *, to_version: Optional[int] = None) -> Dict[str, Any]:
-        """分组 live 回滚已退役。"""
-        _ = to_version
-        return _cluster_retired_payload()
-
-    def set_cluster_live_mode(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        """分组 live mode 已退役。"""
-        _ = args, kwargs
-        return _cluster_retired_payload()
-
-    def set_cluster_universe_fit_tiers(self, tiers: Any) -> Dict[str, Any]:
-        """宇宙拟合档设置已退役。"""
-        _ = tiers
-        return _cluster_retired_payload()
-
-    def cluster_live_fit_tiers(self) -> Dict[str, Any]:
-        """拟合档查询已退役。"""
-        return _cluster_retired_payload(
-            code_fit_tiers={}, fit_tier_counts={"A": 0, "B": 0, "C": 0}
-        )
-
-    def save_cluster_live_draft(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
-        """分组草稿保存已退役。"""
-        _ = artifact
-        return _cluster_retired_payload()
-
-    def refresh_cluster_live_book(self) -> Dict[str, Any]:
-        """分池簿刷新已退役。"""
-        return _cluster_retired_payload()
-
-    def rank_cluster_live_pools(self, **kwargs: Any) -> Dict[str, Any]:
-        """分池排序已退役。"""
-        _ = kwargs
-        return _cluster_retired_payload()
-
-    def apply_cluster_live_shortcut(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        """分组 live 一键应用已退役。"""
-        _ = args, kwargs
-        return _cluster_retired_payload()
-
-    def preview_cluster_paper_rebalance(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        """分池簿纸面调仓已退役。"""
-        _ = args, kwargs
-        return _cluster_retired_payload()
 
     @records_experiment("factor_cs_ic")
     def run_factor_cs_ic_experiment(

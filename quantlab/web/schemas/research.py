@@ -433,34 +433,6 @@ class T75RidgeRequest(_CrossSectionZscore):
     )
 
 
-class FactorOlsClusterRequest(BaseModel):
-    """分组 OLS 请求体（路径已退役；保留 B-track 默认值供兼容/单测）。"""
-
-    lookback: int = Field(default=80, ge=40, le=500)
-    horizon_days: int = Field(default=3, ge=1, le=10)
-    watching_limit: int = Field(
-        default=MODEL_FIT_MAX_SIZE,
-        ge=3,
-        le=MODEL_FIT_MAX_SIZE,
-    )
-    select_ridge: bool = Field(
-        default=True,
-        description="B3：时间切分网格选 Ridge λ",
-    )
-    collinearity_policy: str = Field(
-        default="drop_redundant",
-        description="B3：趋势族共线进模 keep_all|drop_redundant|orthogonalize_lite",
-    )
-    respect_regime: bool = Field(
-        default=True,
-        description="B5：与 live regime 白名单对齐裁剪因子",
-    )
-    sync: bool = Field(
-        default=False,
-        description="兼容字段；分组路径已 410",
-    )
-
-
 class BarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 

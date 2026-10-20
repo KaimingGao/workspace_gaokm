@@ -72,14 +72,6 @@ def compact_quant_report(report: Dict[str, Any]) -> Dict[str, Any]:
             out["cross_section"] = sm
     if report.get("scoring"):
         out["scoring"] = report.get("scoring")
-    cl = report.get("cluster_live") or {}
-    if cl and cl.get("mode") in ("shadow", "active"):
-        out["cluster_live"] = {
-            "mode": cl.get("mode"),
-            "version": cl.get("version"),
-            "oos_summary": cl.get("oos_summary"),
-            "note": cl.get("note"),
-        }
     return out
 
 
