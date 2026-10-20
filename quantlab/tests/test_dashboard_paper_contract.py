@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestDashboardPaperContract(unittest.TestCase):
@@ -474,7 +469,6 @@ class TestDashboardPaperContract(unittest.TestCase):
         self.assertEqual(rows[0]["change_pct"], 1.2)
         self.assertEqual(rows[1]["change_pct"], -0.5)
         self.assertEqual(rows[2]["change_pct"], 0.8)
-
 
 if __name__ == "__main__":
     unittest.main()

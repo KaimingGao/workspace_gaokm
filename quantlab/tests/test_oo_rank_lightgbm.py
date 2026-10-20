@@ -5,16 +5,10 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from datetime import date, timedelta
 
 import numpy as np
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _has_lightgbm() -> bool:
@@ -24,7 +18,6 @@ def _has_lightgbm() -> bool:
         return True
     except ImportError:
         return False
-
 
 def _pack_day(date_s, codes, xs, ys):
     names = list(xs[0].keys()) if xs else []
@@ -36,7 +29,6 @@ def _pack_day(date_s, codes, xs, ys):
         dtype=np.float64,
     )
     return {"date": date_s, "codes": codes, "ys": ys, "X": X, "names": names}
-
 
 def _synth_days(n_days: int = 30, n_names: int = 20, seed: int = 0):
     """特征与 y 正相关的合成截面日（mom3 强正、vol_penalty 负）。"""
@@ -69,7 +61,6 @@ def _synth_days(n_days: int = 30, n_names: int = 20, seed: int = 0):
         d += 1
     return days
 
-
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestOoRankLightgbmLambda(unittest.TestCase):
     def test_fit_lambdarank_success(self):
@@ -98,7 +89,6 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         """训练后 predict_oo_rank_from_features 对高/低 mom3 的排序方向正确。"""
         from core.research.oo_rank_lambdarank import (
             fit_lambdarank,
-            predict_oo_rank_from_features,
         )
 
         days = _synth_days(30, 20, seed=1)
@@ -192,7 +182,6 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         self.assertIsNotNone(preds[0])
         self.assertAlmostEqual(float(preds[0]), round(float(raw[0]), 6), places=5)
 
-
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestOoRankReportLightgbmBackend(unittest.TestCase):
     def test_fit_oo_rank_report_backend_lightgbm(self):
@@ -220,7 +209,6 @@ class TestOoRankReportLightgbmBackend(unittest.TestCase):
         self.assertIn(report.get("recommended_backend"), {"lambdarank", "ridge"})
         self.assertIn("lambdarank", (report.get("backends") or {}))
         self.assertEqual(report.get("solver"), "lambdarank")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,13 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestStrategySpec(unittest.TestCase):
@@ -38,7 +33,6 @@ class TestStrategySpec(unittest.TestCase):
             loaded = load_promoted(path)
             self.assertEqual(loaded["note"], "unit")
 
-
 class TestRiskGate(unittest.TestCase):
     def test_drawdown_blocks(self):
         from core.risk import check_account_risk
@@ -62,7 +56,6 @@ class TestRiskGate(unittest.TestCase):
         self.assertTrue(gate["ok"])
         self.assertEqual(gate["blocks"], [])
 
-
 class TestRunManifest(unittest.TestCase):
     def test_write_manifest(self):
         from core.run_manifest import build_run_manifest, write_run_manifest
@@ -82,11 +75,9 @@ class TestRunManifest(unittest.TestCase):
             self.assertEqual(data["fingerprint"], m["fingerprint"])
             self.assertEqual(data["strategy_id"], "short_conservative")
 
-
 class TestDefaultCost(unittest.TestCase):
     def test_example_and_load_default_simple_cn(self):
         from core.paper import EXAMPLE_PATH, load_paper
-        from core.paths import ROOT_DIR
 
         with open(EXAMPLE_PATH, encoding="utf-8") as f:
             ex = json.load(f)
@@ -107,14 +98,12 @@ class TestDefaultCost(unittest.TestCase):
             paper = load_paper(p)
             self.assertEqual(paper["cost_model"], "simple_cn")
 
-
 class TestDeepAnalysisRouting(unittest.TestCase):
     def test_buy_not_deep(self):
         from agent.routing import is_analysis_question
 
         self.assertFalse(is_analysis_question("茅台能不能买"))
         self.assertTrue(is_analysis_question("请对茅台做深度分析"))
-
 
 if __name__ == "__main__":
     unittest.main()

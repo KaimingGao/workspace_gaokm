@@ -1,43 +1,24 @@
 """量化报告导出 / TOC / 摘要（合并原 P15·html / P16·exports / P17·index / P26·share / P27 / P67 / P75 / P80 / P91）。"""
 
 import os
-import sys
-import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-from agent.prompts import QUANT_HINT
-from agent.routing import build_user_hints, infer_quant_task, is_quant_question, prepare_tool_params
-from evals.run_checklist import check_routing_expect, load_cases, run_skills
-from quant.services.quant_report_export import export_quant_report, render_quant_report_html
-import json
 import tempfile
+import unittest
 from unittest.mock import patch
-from quant.ops.daily_presets import list_daily_presets, resolve_daily_preset
-from services.daily_service import DailyRunService
-from services.eval_service import EvalService
-from quant.services.quant_service import QuantService
-from unittest.mock import MagicMock, patch
-from core.watching.health import check_watching_health
-from quant.ops.daily_health import build_daily_health
-from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
-from quant.skill.engine import QuantEngine
-from evals.run_checklist import load_cases
-from quant.ops.eval_routing_map import build_eval_routing_map
-from quant.services.quant_report_index import list_quant_reports
-from quant.services.quant_report_export import build_report_executive_summary, export_quant_report, render_quant_report_html, render_quant_report_markdown
-from quant.services.quant_report_export import export_quant_report
-from quant.services.quant_report_export import _cross_section_ranked_list, build_report_executive_summary
-from quant.services.quant_report_export import build_cross_section_export_section, build_report_export_toc, export_quant_report, render_quant_report_markdown
+
 from evals.mock_context import rising_bars
 from quant.research.factor_ols import compute_factor_ols_report
-from quant.services.quant_report_export import build_factor_ols_export_section, build_report_export_toc, export_quant_report, render_quant_report_markdown
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from quant.services.quant_report_export import (
+    _cross_section_ranked_list,
+    build_cross_section_export_section,
+    build_factor_ols_export_section,
+    build_report_executive_summary,
+    build_report_export_toc,
+    export_quant_report,
+    render_quant_report_html,
+    render_quant_report_markdown,
+)
+from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
+from quant.services.quant_service import QuantService
 
 # --- test_p15_quant.py::TestHtmlExport ---
 
@@ -157,6 +138,7 @@ class TestP26Api(unittest.TestCase):
     def test_quant_reports_share_url(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
             import web.deps as deps
         except ImportError:
@@ -183,6 +165,7 @@ class TestP26Api(unittest.TestCase):
     def test_quant_reports_delete_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
             import web.deps as deps
         except ImportError:
@@ -268,6 +251,7 @@ class TestP27ExportSummaryApi(unittest.TestCase):
     def test_api_quant_export_summary(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
             import web.deps as deps
         except ImportError:
@@ -309,6 +293,7 @@ class TestP67ExportPreviewToc(unittest.TestCase):
     def test_export_api_returns_toc(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
             import web.deps as deps
         except ImportError:
@@ -409,7 +394,6 @@ class TestP91FactorOlsExport(unittest.TestCase):
         self.assertIn("因子 OLS 实验", md)
         html = export_quant_report(report, fmt="html")
         self.assertIn("factor-ols", html["content"])
-
 
 if __name__ == "__main__":
     unittest.main()

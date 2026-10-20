@@ -1,22 +1,16 @@
 import os
-import sys
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from core.backtest.costs import round_trip_cost_pct
 from core.backtest.engine import backtest_signal_on_bars, scan_signal_parameters_oos
-from core.paper import init_from_example, load_paper, run_daily_cycle, simulate_sells
+from core.paper import init_from_example, load_paper, simulate_sells
 from core.signal.config import get_stance_thresholds, load_signal_config
 from core.signal.factors.relative_strength import excess_return_pct, score_relative_strength
-from core.signal.regime import assess_regime
 from core.signal.scorer import score_bars
 from research.split import time_series_split
-from tests.test_signal import _rising_bars, _overheated_bars
+from tests.conftest import _overheated_bars, _rising_bars
 
 
 def _index_bars(n=25, drift=-0.002):
@@ -35,7 +29,6 @@ def _index_bars(n=25, drift=-0.002):
             }
         )
     return bars
-
 
 class TestQuantUpgrade(unittest.TestCase):
     def test_signal_config_load(self):
@@ -191,7 +184,6 @@ class TestQuantUpgrade(unittest.TestCase):
         cfg["hard_reject"]["mom3_gain_max_pct"] = 5
         result = score_bars(_overheated_bars(), config=cfg)
         self.assertTrue(result["hard_reject"])
-
 
 if __name__ == "__main__":
     unittest.main()

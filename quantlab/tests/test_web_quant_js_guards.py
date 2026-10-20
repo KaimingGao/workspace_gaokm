@@ -1,12 +1,9 @@
 """量化前端关键字符串守卫（指向 quant.js / partials，不再读已拆空的 index.html/app.js）。"""
 
 import os
-import sys
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import ROOT
 
 
 class TestWebQuantJsGuards(unittest.TestCase):
@@ -1049,6 +1046,15 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("kindMatchesRunner", mat_js)
         self.assertIn("materialize_open", mat_js)
         self.assertIn("materialize_tau", mat_js)
+        # 日线 / 分钟物化状态条互不抢：不再让 materialize_l1l2 两边都 resume
+        self.assertIn('if (tau) return k === "materialize_tau"', mat_js)
+        self.assertIn('return k === "materialize_open"', mat_js)
+        self.assertIn("waitPeer: true", mat_js)
+        self.assertIn("等待${peerLabel}结束…", mat_js)
+        self.assertNotIn(
+            'if (k === "materialize_l1l2") return true',
+            mat_js,
+        )
         minute_js2 = self._read("web", "static", "js", "quant", "minute_ui.js")
         # 由 quant.js 注入同版本 installMinuteMaterializeUi，避免二次动态 import / 缓存分叉
         self.assertIn("q.installMinuteMaterializeUi", minute_js2)
@@ -4789,7 +4795,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("resolveCalTradeScore", fmt)
         self.assertNotIn("watching-score-cal", tip)
 
-
     def test_strategy_page_dead_factor_lab_removed(self):
         panel = self._read("web", "static", "partials", "strategy_panel.html")
         strat_js = self._read("web", "static", "js", "quant", "domain_strategy.js")
@@ -5046,7 +5051,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("ensureFitTierMap", quant_js)
         paper_js = self._read("web", "static", "js", "paper.js")
         self.assertIn("ensureFitTierMap", paper_js)
-
 
 if __name__ == "__main__":
     unittest.main()

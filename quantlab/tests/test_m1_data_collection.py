@@ -19,7 +19,6 @@ def _daily(date: str, close: float) -> dict:
         "volume": 1,
     }
 
-
 class TestMergeBars(unittest.TestCase):
     def test_merge_by_date(self):
         from core.store import merge_bars_by_date
@@ -38,7 +37,6 @@ class TestMergeBars(unittest.TestCase):
         m = merge_bars_by_date(a, b)
         self.assertEqual([x["date"] for x in m], ["2024-01-02"])
         self.assertEqual(m[0]["close"], 2)
-
 
 class TestSnapshotCache(unittest.TestCase):
     def test_roundtrip_ttl(self):
@@ -80,7 +78,6 @@ class TestSnapshotCache(unittest.TestCase):
             self.assertIsNone(
                 st.load_snapshot_cache("news", "300750", max_age_hours=24, store_dir=td)
             )
-
 
 class TestDataServiceWrappers(unittest.TestCase):
     def test_get_bars_shape(self):
@@ -142,7 +139,6 @@ class TestDataServiceWrappers(unittest.TestCase):
             snap = os.path.join(td, "news_snap", "300750.json")
             self.assertTrue(os.path.isfile(snap))
 
-
 class TestDataCoverage(unittest.TestCase):
     def test_empty_universe(self):
         from core.data.coverage import build_data_coverage
@@ -163,7 +159,6 @@ class TestDataCoverage(unittest.TestCase):
             cov = build_data_coverage(["600519", "300750"])
         self.assertEqual(cov["missing"], 2)
         self.assertTrue(any(a["code"] == "bars_coverage_thin" for a in cov["alerts"]))
-
 
 class TestIncrementalFetch(unittest.TestCase):
     def test_merge_on_fetch(self):
@@ -265,8 +260,9 @@ class TestIncrementalFetch(unittest.TestCase):
         self.assertLessEqual(kwargs.get("limit", 99), 20)
 
     def test_skip_remote_when_already_today(self):
-        from adapters.market import history as hist
         from datetime import datetime
+
+        from adapters.market import history as hist
 
         today = datetime.now().strftime("%Y-%m-%d")
         existing = [
@@ -400,7 +396,6 @@ class TestIncrementalFetch(unittest.TestCase):
         fetch.assert_not_called()
         self.assertEqual(bars[-1]["date"], "2026-09-04")
         self.assertIn("cache", src)
-
 
 if __name__ == "__main__":
     unittest.main()

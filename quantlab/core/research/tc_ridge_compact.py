@@ -573,6 +573,7 @@ def fit_tau_ridge_matrices(
         except Exception:  # noqa: BLE001
             logger.debug("fit_tau_ridge_matrices progress_cb failed", exc_info=True)
 
+    panel_stats: Dict[str, Any] = {}
     X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
         stock_bars,
         list(TAU_Z_FEATURES),
@@ -583,7 +584,9 @@ def fit_tau_ridge_matrices(
         include_alpha_tc=True,
         head="y_tc",
         progress_cb=progress_cb,
+        stats_out=panel_stats,
     )
+    minute_attached = int(panel_stats.get("minute_attached") or 0)
     if len(ys) < 20:
         return {
             "success": False,
@@ -592,6 +595,7 @@ def fit_tau_ridge_matrices(
             "stock_count": n_stocks,
             "tau": tau_key,
             "tau_grid": grid,
+            "minute_attached": minute_attached,
         }
 
     ys_use, dates_use, metas_use = ys, dates, metas
@@ -691,6 +695,7 @@ def fit_tau_ridge_matrices(
         "grid": grid,
         "target": target,
         "n_stocks": n_stocks,
+        "minute_attached": minute_attached,
         "ys": ys,
         "ys_use": ys_use,
         "dates_use": dates_use,

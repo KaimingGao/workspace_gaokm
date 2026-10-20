@@ -97,6 +97,5 @@ class TestDailyCsIc(unittest.TestCase):
         self.assertLess(float(out["cs_ls_mean_y"]), 0.0)
         self.assertEqual(float(out["cs_top_gt0_ratio"]), 0.0)
 
-
 if __name__ == "__main__":
     unittest.main()

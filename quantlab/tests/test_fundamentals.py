@@ -1,12 +1,5 @@
-import json
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from adapters.fundamentals.engine import build_fundamentals, spot_to_metrics
 from skills.fundamentals.handler import FundamentalsHandler
@@ -75,7 +68,6 @@ class TestFundamentals(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["metrics"]["pe"], 22.5)
         self.assertEqual(result["coverage"], "full")
-
 
 if __name__ == "__main__":
     unittest.main()

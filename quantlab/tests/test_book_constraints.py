@@ -37,7 +37,6 @@ class TestRemTheme(unittest.TestCase):
             1.0,
         )
 
-
 class TestBookConstraints(unittest.TestCase):
     def test_sector_cap_and_tau_defer(self):
         from core.signal.book_constraints import fill_book_with_constraints
@@ -171,7 +170,6 @@ class TestBookConstraints(unittest.TestCase):
         )
         self.assertEqual([b["stock_code"] for b in out["book"]], ["a", "b"])
 
-
 class TestPortfolioHealth(unittest.TestCase):
     def test_health_smoke(self):
         from core.risk.portfolio_health import build_portfolio_health
@@ -190,7 +188,6 @@ class TestPortfolioHealth(unittest.TestCase):
         self.assertTrue(out.get("success"))
         self.assertTrue(out.get("alpha", {}).get("decay_alert"))
         self.assertEqual(out.get("process", {}).get("book_skips_count"), 1)
-
 
 if __name__ == "__main__":
     unittest.main()

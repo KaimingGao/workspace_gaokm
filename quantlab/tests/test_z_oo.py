@@ -68,6 +68,5 @@ class ZOoAliasTests(unittest.TestCase):
         self.assertNotIn("alpha_oo", names)
         self.assertNotIn("alpha_tc", names)
 
-
 if __name__ == "__main__":
     unittest.main()

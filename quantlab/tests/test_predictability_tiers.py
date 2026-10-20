@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestPredictabilityTiers(unittest.TestCase):
@@ -390,6 +385,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         """无 a_code_name 时，用 spot_a_em 补名称（忽略现货 24h TTL）。"""
         import json
         import tempfile
+
         from core.t0 import intraday as mod
 
         spot = {
@@ -1437,17 +1433,15 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertTrue(syn_off.get("synced"))
                 self.assertFalse(syn_off.get("enabled"))
 
-        with tempfile.TemporaryDirectory() as td2:
-            with patch(
-                "core.research.predictability_tiers.predictability_tiers_last_path",
-                return_value=os.path.join(td2, "missing_last.json"),
-            ), patch(
-                "core.research.predictability_tiers.predictability_tiers_active_path",
-                return_value=os.path.join(td2, "active.json"),
-            ):
-                fail = promote_predictability_tiers_to_live()
-                self.assertFalse(fail.get("ok"))
-
+        with tempfile.TemporaryDirectory() as td2, patch(
+            "core.research.predictability_tiers.predictability_tiers_last_path",
+            return_value=os.path.join(td2, "missing_last.json"),
+        ), patch(
+            "core.research.predictability_tiers.predictability_tiers_active_path",
+            return_value=os.path.join(td2, "active.json"),
+        ):
+            fail = promote_predictability_tiers_to_live()
+            self.assertFalse(fail.get("ok"))
 
 if __name__ == "__main__":
     unittest.main()

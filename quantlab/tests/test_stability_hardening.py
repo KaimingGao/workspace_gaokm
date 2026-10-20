@@ -58,9 +58,8 @@ class TestFileLockAndPaperTrim(unittest.TestCase):
             t = threading.Thread(target=holder)
             t.start()
             self.assertTrue(held.wait(timeout=2))
-            with self.assertRaises(TimeoutError):
-                with path_lock(path, timeout_sec=0.2):
-                    pass
+            with self.assertRaises(TimeoutError), path_lock(path, timeout_sec=0.2):
+                pass
             release.set()
             t.join(timeout=5)
 
@@ -73,9 +72,8 @@ class TestFileLockAndPaperTrim(unittest.TestCase):
             path = os.path.join(td, "paper.json")
             with open(path, "w", encoding="utf-8") as f:
                 f.write("{}")
-            with path_lock(path, timeout_sec=2.0):
-                with path_lock(path, timeout_sec=2.0):
-                    atomic_write_json(path, {"ok": True})
+            with path_lock(path, timeout_sec=2.0), path_lock(path, timeout_sec=2.0):
+                atomic_write_json(path, {"ok": True})
             with open(path, encoding="utf-8") as f:
                 self.assertIn("ok", f.read())
 
@@ -108,7 +106,7 @@ class TestFileLockAndPaperTrim(unittest.TestCase):
             self.assertIn("i", data)
 
     def test_trim_trades_on_save(self):
-        from core.paper import MAX_TRADES, save_paper, load_paper
+        from core.paper import MAX_TRADES, load_paper, save_paper
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "paper.json")
@@ -124,7 +122,6 @@ class TestFileLockAndPaperTrim(unittest.TestCase):
             loaded = load_paper(path)
             self.assertEqual(len(loaded["trades"]), MAX_TRADES)
             self.assertEqual(loaded["trades"][0]["i"], 80)
-
 
 class TestHttpRetry(unittest.TestCase):
     def test_retries_then_succeeds(self):
@@ -147,7 +144,6 @@ class TestHttpRetry(unittest.TestCase):
         with self.assertRaises(ValueError):
             call_with_retry(lambda: (_ for _ in ()).throw(ValueError("bad")), retries=3)
 
-
 class TestChatServiceTtl(unittest.TestCase):
     def test_message_trim(self):
         from services.chat_service import ChatService
@@ -161,7 +157,6 @@ class TestChatServiceTtl(unittest.TestCase):
         self.assertLessEqual(len(agent.messages), 40)
         self.assertEqual(agent.messages[0]["role"], "system")
         self.assertEqual(sid, "ttl-test")
-
 
 if __name__ == "__main__":
     unittest.main()

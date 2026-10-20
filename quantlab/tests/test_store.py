@@ -1,15 +1,11 @@
 import json
 import os
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
+from adapters.market.history import fetch_daily_bars
 from core.store import (
     align_minute_volume_units,
     assess_quality,
@@ -23,7 +19,6 @@ from core.store import (
     save_minute_cache,
 )
 from core.store_bars_sqlite import reset_conn_cache, touch_daily_fetched_at
-from adapters.market.history import fetch_daily_bars
 
 
 def _sample_bars(n=20):
@@ -42,7 +37,6 @@ def _sample_bars(n=20):
             }
         )
     return bars
-
 
 class _StoreBackendMixin:
     backend = "sqlite"
@@ -143,7 +137,7 @@ class _StoreBackendMixin:
             )
         else:
             path = os.path.join(self.tmp, "daily", "CN", "000001.json")
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 payload = json.load(f)
             payload["fetched_at"] = old.isoformat(timespec="seconds")
             with open(path, "w", encoding="utf-8") as f:
@@ -448,7 +442,6 @@ class _StoreBackendMixin:
         self.assertGreaterEqual(n, 1)
         self.assertIsNone(load_daily_cache("CN", "600519", store_dir=self.tmp))
 
-
 class TestMinuteMergeLock(unittest.TestCase):
     def test_thinner_day_does_not_replace_closed_day(self):
         old = [
@@ -566,7 +559,6 @@ class TestMinuteMergeLock(unittest.TestCase):
         self.assertAlmostEqual(scaled[0]["volume"], 100000.0, places=1)
         self.assertEqual(scaled[0].get("volume_unit_scaled"), "hand_to_share_x100")
 
-
 class TestDailyStoreSqlite(_StoreBackendMixin, unittest.TestCase):
     def test_amount_column_migrates_and_roundtrips(self):
         import sqlite3
@@ -659,10 +651,8 @@ class TestDailyStoreSqlite(_StoreBackendMixin, unittest.TestCase):
 
     backend = "sqlite"
 
-
 class TestDailyStoreJson(_StoreBackendMixin, unittest.TestCase):
     backend = "json"
-
 
 if __name__ == "__main__":
     unittest.main()

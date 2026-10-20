@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestMinuteStaleFallback(unittest.TestCase):
@@ -124,7 +123,6 @@ class TestMinuteStaleFallback(unittest.TestCase):
             )
         self.assertEqual(calls, ["600519"])
         self.assertEqual(meta.get("period"), "5")
-
 
 class TestMergeSaveAlwaysCaches(unittest.TestCase):
     def test_merge_save_writes_even_without_use_cache_arg(self):

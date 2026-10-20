@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.sentiment_prior import (
     PRIOR_REASON,
@@ -264,7 +258,6 @@ class TestSentimentPriorPolicy(unittest.TestCase):
         )
         self.assertFalse(cleared.get("restore"))
         self.assertTrue(cleared.get("clear_base"))
-
 
 if __name__ == "__main__":
     unittest.main()

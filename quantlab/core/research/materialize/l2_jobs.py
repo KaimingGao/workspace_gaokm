@@ -62,14 +62,24 @@ def _resolve_dates(
 
 
 def _attach_open_slim(codes: Sequence[str], days: Sequence[str]) -> int:
-    """用日线开盘缺口把 slim 并进已有 open 立方。失败只记日志。"""
+    """用日线开盘缺口把 slim 并进已有 open 立方。失败只记日志。
+
+    按 ``CUBE_FILL_CHUNK_DAYS`` 分块写盘，避免一次把整窗 DayCube 载入进程。
+    """
     try:
-        from core.research.day_cube import attach_slim
+        from core.research.day_cube import attach_slim, clear_memory, forget_dates
+        from core.research.materialize.cube_batch import (
+            CUBE_FILL_CHUNK_DAYS,
+            day_chunks,
+        )
         from core.t0.score_policy import build_tau_pool_by_date, load_bars_by_code_for_tau_pool
     except Exception:  # noqa: BLE001
         logger.debug("open slim imports failed", exc_info=True)
         return 0
-    limit = max(20, min(1500, len(list(days or [])) + 8))
+    day_list = [str(d)[:10] for d in (days or []) if len(str(d or "")[:10]) >= 10]
+    if not day_list:
+        return 0
+    limit = max(20, min(1500, len(day_list) + 8))
     try:
         bars = load_bars_by_code_for_tau_pool(codes, limit=limit)
         pool = build_tau_pool_by_date(bars) or {}
@@ -77,16 +87,33 @@ def _attach_open_slim(codes: Sequence[str], days: Sequence[str]) -> int:
         logger.debug("open slim tau pool failed", exc_info=True)
         return 0
     n = 0
-    for day in days or []:
-        slim = pool.get(str(day)[:10])
-        if not isinstance(slim, dict) or not slim:
-            continue
-        try:
-            if attach_slim(str(day)[:10], codes, clock="open", slim=slim):
-                n += 1
-        except Exception:  # noqa: BLE001
-            logger.debug("attach open slim failed day=%s", day, exc_info=True)
+    try:
+        for chunk in day_chunks(day_list, CUBE_FILL_CHUNK_DAYS):
+            for day in chunk:
+                slim = pool.get(str(day)[:10])
+                if not isinstance(slim, dict) or not slim:
+                    continue
+                try:
+                    if attach_slim(str(day)[:10], codes, clock="open", slim=slim):
+                        n += 1
+                except Exception:  # noqa: BLE001
+                    logger.debug("attach open slim failed day=%s", day, exc_info=True)
+            forget_dates(chunk)
+    finally:
+        clear_memory()
+        bars = None
+        pool = None
     return n
+
+
+def _clock_reaches_days(row: dict, *, n_days: int, lake_frac: float) -> bool:
+    """单钟 hit+built 达到湖覆盖门槛（与 L1 τ 网格同口径 0.5）。"""
+    try:
+        hit = int(row.get("cubes_hit") or 0) + int(row.get("cubes_built") or 0)
+    except (TypeError, ValueError):
+        hit = 0
+    need = max(1, int(max(n_days, 1) * float(lake_frac) + 0.999))
+    return hit >= need
 
 
 def _warmup_open_clock(
@@ -102,10 +129,11 @@ def _warmup_open_clock(
     """一个开盘钟的 warmup。失败只记这一钟，调用方继续后面的钟。"""
     from core.t0.score_policy import warmup_watching_day_cubes
 
+    days = [str(d)[:10] for d in (day_list or []) if len(str(d or "")[:10]) >= 10]
     try:
         warm = warmup_watching_day_cubes(
             code_list,
-            day_list,
+            days,
             progress_cb=progress_cb,
             cancel_cb=cancel_cb,
             min_lake_frac=lake_frac,
@@ -117,12 +145,29 @@ def _warmup_open_clock(
         report["ok"] = False
         report["by_clock"][clock] = {"ok": False, "error": str(exc)}
         return
-    slim_n = _attach_open_slim(code_list, day_list)
-    report["by_clock"][clock] = {
+    try:
+        from core.research.day_cube import clear_memory
+
+        clear_memory()
+    except Exception:  # noqa: BLE001
+        logger.debug("clear day_cube memory after warmup failed", exc_info=True)
+    slim_n = _attach_open_slim(code_list, days)
+    row = {
         "ok": True,
         "slim_days": slim_n,
         **dict(warm or {}),
     }
+    if days and not _clock_reaches_days(row, n_days=len(days), lake_frac=lake_frac):
+        row["ok"] = False
+        row["error"] = (
+            f"覆盖不足 hit+built="
+            f"{int(row.get('cubes_hit') or 0) + int(row.get('cubes_built') or 0)}"
+            f"/{len(days)}"
+        )
+        report["ok"] = False
+        if not report.get("error"):
+            report["error"] = f"立方 {clock} {row['error']}"
+    report["by_clock"][clock] = row
 
 
 def _materialize_l2_open_only(
@@ -138,6 +183,8 @@ def _materialize_l2_open_only(
     emit_scaled: Callable[..., None],
 ) -> None:
     """开盘钟：按钟 warmup。没有分钟钟时走这条，进度刻度与原来一致。"""
+    # 近端优先，避免千日回看从历史尾巴开始烘、做 T 近端一直缺立方
+    warm_days = list(reversed(list(day_list or [])))
     for ci, clock in enumerate(clock_list):
         if _cancelled(cancel_cb):
             report["ok"] = False
@@ -162,7 +209,7 @@ def _materialize_l2_open_only(
         _warmup_open_clock(
             report,
             code_list,
-            day_list,
+            warm_days,
             str(clock),
             lake_frac=lake_frac,
             progress_cb=_pcb,
@@ -250,6 +297,7 @@ def _materialize_l2_with_minute(
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, family_for_tc
     from core.research.materialize.cube_batch import build_day_cubes_from_lake
     from core.research.materialize.horizon_names import (
+        HORIZON_COVER_FRAC,
         minute_horizon_required_names,
         names_cover_horizon,
     )
@@ -276,6 +324,9 @@ def _materialize_l2_with_minute(
                 report["minute_span"],
                 len(day_list),
             )
+    # 近端优先：做 T 回测先吃最近交易日，避免千日回看从 2022 慢慢烘到今天
+    if minute_days:
+        minute_days = list(reversed(minute_days))
     open_steps = 1 if open_clocks else 0
     n_clocks = max(1, len(minute_clocks))
     n_steps = open_steps + n_clocks
@@ -294,7 +345,7 @@ def _materialize_l2_with_minute(
         return bool(
             names_cover_horizon(
                 cube,
-                min_frac=1.0,
+                min_frac=HORIZON_COVER_FRAC,
                 need=minute_horizon_required_names(),
             )
         )
@@ -316,11 +367,17 @@ def _materialize_l2_with_minute(
             _step_emit(0, done, total, message or "L2 open")
 
         _step_emit(0, 0, 1, "L2 open…")
+        # 与分钟钟同一窗：未指定 dates 时不拿千日日历空跑 open
+        open_days = minute_days if clip_minute_store else list(day_list)
+        if clip_minute_store and open_days:
+            open_days = list(open_days)  # 已是近端优先
+        elif open_days:
+            open_days = list(reversed(open_days))
         for clock in open_clocks:
             _warmup_open_clock(
                 report,
                 code_list,
-                day_list,
+                open_days,
                 str(clock),
                 lake_frac=lake_frac,
                 progress_cb=_open_pcb,
@@ -457,7 +514,22 @@ def _materialize_l2_with_minute(
     want.sort(key=lambda day: order.get(day, 0))
     if not want:
         for clock in minute_clocks:
-            _fail_unread(str(clock))
+            key = str(clock)
+            _fail_unread(key)
+            row = report["by_clock"].get(key) or {}
+            if report.get("error") == "cancelled":
+                continue
+            if not _clock_reaches_days(row, n_days=n_days, lake_frac=lake_frac):
+                row["ok"] = False
+                row["error"] = row.get("error") or (
+                    f"覆盖不足 hit+built="
+                    f"{int(row.get('cubes_hit') or 0) + int(row.get('cubes_built') or 0)}"
+                    f"/{n_days}"
+                )
+                report["by_clock"][key] = row
+                report["ok"] = False
+                if not report.get("error"):
+                    report["error"] = f"立方 {key} {row['error']}"
         return
 
     oo_s = None
@@ -521,6 +593,18 @@ def _materialize_l2_with_minute(
         days_short = list(short.get(key) or [])
         if not days_new and not days_short:
             _fail_unread(key)
+            if report.get("error") != "cancelled" and not _clock_reaches_days(
+                row, n_days=n_days, lake_frac=lake_frac
+            ):
+                row["ok"] = False
+                row["error"] = row.get("error") or (
+                    f"覆盖不足 hit+built="
+                    f"{int(row.get('cubes_hit') or 0) + int(row.get('cubes_built') or 0)}"
+                    f"/{n_days}"
+                )
+                report["ok"] = False
+                if not report.get("error"):
+                    report["error"] = f"立方 {key} {row['error']}"
             _step_emit(step, 1, 1, label)
             continue
         clock_days: List[str] = []
@@ -622,6 +706,19 @@ def _materialize_l2_with_minute(
             replaced = _fill(days_short, replace=True)
             if replaced is not None:
                 _take(replaced, replace=True)
+        if report.get("error") != "cancelled" and not _clock_reaches_days(
+            row, n_days=n_days, lake_frac=lake_frac
+        ):
+            hit = int(row.get("cubes_hit") or 0) + int(row.get("cubes_built") or 0)
+            slim = int(row.get("slim_reject") or 0)
+            row["ok"] = False
+            row["error"] = row.get("error") or (
+                f"覆盖不足 hit+built={hit}/{n_days}"
+                + (f" slim_reject={slim}" if slim else "")
+            )
+            report["ok"] = False
+            if not report.get("error"):
+                report["error"] = f"立方 {key} {row['error']}"
         tc_s = None
         if _cancelled(cancel_cb):
             _cancel_unwritten(clock_i)

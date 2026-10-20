@@ -1,18 +1,11 @@
 import json
-import os
-import sys
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-from core.stance import compute_buy_stance, STANCE_LABELS
+from core.stance import STANCE_LABELS, compute_buy_stance
 from skills.advise.handler import AdviseHandler
 
 _YHAT_THRESHOLDS = {"avoid": -0.5, "wait": 0.0, "probe": 0.35}
-
 
 class TestStance(unittest.TestCase):
     def test_hard_reject_avoid(self):
@@ -84,7 +77,6 @@ class TestStance(unittest.TestCase):
         self.assertEqual(data["stance_code"], "buy_light")
         self.assertIn("stance_label", data)
         self.assertIn("facts", data)
-
 
 if __name__ == "__main__":
     unittest.main()

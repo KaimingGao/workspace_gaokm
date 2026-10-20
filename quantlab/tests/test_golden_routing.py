@@ -1,13 +1,6 @@
 """Golden cases 与 routing 对齐（离线）。"""
 
-import json
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from agent.routing import prepare_tool_params, wants_position_stance
 from evals.run_checklist import check_routing_expect, load_cases
@@ -28,7 +21,6 @@ class TestGoldenRouting(unittest.TestCase):
                 continue
             with self.subTest(case=case["id"]):
                 self.assertEqual(check_routing_expect(case), [])
-
 
 if __name__ == "__main__":
     unittest.main()

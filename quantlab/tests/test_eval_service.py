@@ -1,10 +1,5 @@
 import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from services.eval_service import EvalService
 
@@ -31,7 +26,6 @@ class TestEvalService(unittest.TestCase):
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded["total"], report["total"])
             self.assertIn("saved_at", loaded)
-
 
 if __name__ == "__main__":
     unittest.main()

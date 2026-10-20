@@ -11,7 +11,6 @@ def _bar(d: str, o: float, h: float, l: float, c: float, *, prev=None) -> dict:
         b["prev_close"] = prev
     return b
 
-
 def _mins(closes, *, session_open: float = 100.0, day: str = "2025-08-28"):
     out = []
     hms = ["09:35", "09:40", "09:45", "09:50", "09:55", "10:00"]
@@ -28,7 +27,6 @@ def _mins(closes, *, session_open: float = 100.0, day: str = "2025-08-28"):
             }
         )
     return out
-
 
 class TestT0HubScoreAlignment(unittest.TestCase):
     def test_rescore_prefix_matches_compute_scores_from_bars(self):
@@ -277,7 +275,6 @@ class TestT0HubScoreAlignment(unittest.TestCase):
         self.assertAlmostEqual(float(resolve_direction_y_tau(sc)), 0.23, places=6)
         self.assertAlmostEqual(float(sc["y_τc"]), 0.23, places=6)
 
-
 class TestHoldingsTauOpenZAlignment(unittest.TestCase):
     def test_score_stock_causal_prefix_matches_t0_at_same_clock(self):
         """持仓 score_stock 调仓因果末根（≤10:00）与做 T 同钟 rescore 同值。"""
@@ -354,7 +351,6 @@ class TestHoldingsTauOpenZAlignment(unittest.TestCase):
         if y_t0 is None:
             self.skipTest("T0 前缀未出 ŷ_τ")
         self.assertAlmostEqual(float(y_hold), float(y_t0), places=5)
-
 
 if __name__ == "__main__":
     unittest.main()

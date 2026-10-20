@@ -3,22 +3,17 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import ROOT
 
 CN = timezone(timedelta(hours=8))
 
-
 def _dt(hour: int, minute: int) -> datetime:
     return datetime(2026, 9, 10, hour, minute, tzinfo=CN)
-
 
 class TestAutoRebalanceWindow(unittest.TestCase):
     def test_live_fill_clock_ignores_backtest_fill_clock(self):
@@ -312,7 +307,6 @@ class TestAutoRebalanceWindow(unittest.TestCase):
             wait, reason = t0_wait_for_rebalance()
             self.assertFalse(wait)
 
-
 class TestRebalanceAutoWorkerTick(unittest.TestCase):
     def test_after_window_does_not_commit(self):
         from core.paper.rebalance.auto_worker import RebalanceAutoWorker
@@ -483,7 +477,6 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
             ):
                 self.assertEqual(last_run_session(), "")
 
-
 class TestT0WorkerWaitsForRebalance(unittest.TestCase):
     def test_skips_new_legs_but_fills_pending(self):
         from core.t0.auto_worker import T0AutoWorker
@@ -508,7 +501,6 @@ class TestT0WorkerWaitsForRebalance(unittest.TestCase):
             inst.fill_pending.assert_called()
             inst.run_t0_intraday_tick.assert_not_called()
         self.assertIn("等待调仓", w.status()["last_tick_message"])
-
 
 class TestRebalanceDesk(unittest.TestCase):
     def test_rows_from_result_prefers_report(self):
@@ -832,7 +824,6 @@ class TestRebalanceDesk(unittest.TestCase):
         self.assertEqual(desk["rows"][0]["action"], "exit")
         self.assertEqual(desk["exit_count"], 1)
 
-
 class TestFollowPanelWorkerMarkup(unittest.TestCase):
     def test_html_ids(self):
         path = os.path.join(ROOT, "web", "static", "partials", "follow_panel.html")
@@ -871,7 +862,6 @@ class TestFollowPanelWorkerMarkup(unittest.TestCase):
         self.assertLess(run_i, desk_i)
         self.assertLess(desk_i, rules_i)
         self.assertEqual(text.count('id="paper-rebalance-worker-bar"'), 1)
-
 
 if __name__ == "__main__":
     unittest.main()

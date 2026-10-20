@@ -3946,6 +3946,12 @@ def warmup_watching_day_cubes(
             break
         last = day_pos[chunk[-1]]
         _emit(f"预热 DayCube {last}/{n_days}…", last, n_days)
+    try:
+        from core.research.day_cube import clear_memory
+
+        clear_memory()
+    except Exception:  # noqa: BLE001
+        logger.debug("warmup clear day_cube memory failed", exc_info=True)
     logger.info(
         "warmup watching day_cubes codes=%s days=%s hit=%s built=%s prefetch=%s",
         len(code_list),

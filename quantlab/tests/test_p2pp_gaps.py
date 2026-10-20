@@ -26,7 +26,6 @@ def _bars(n: int = 40, start: float = 10.0, step: float = 0.1):
         px = c
     return out
 
-
 class TestDataPit(unittest.TestCase):
     def test_window_as_of_no_lookahead(self):
         from core.data.pit import assert_window_pit, window_as_of
@@ -48,7 +47,6 @@ class TestDataPit(unittest.TestCase):
         got = bars_as_of(bars, cut)
         self.assertEqual(len(got), 5)
         self.assertTrue(all(b["date"] <= cut for b in got))
-
 
 class TestMatching(unittest.TestCase):
     def test_limit_up_blocks_buy(self):
@@ -112,7 +110,6 @@ class TestMatching(unittest.TestCase):
         self.assertEqual(cfg["slippage_tier"], "high")
         self.assertEqual(cfg["base_slippage_bps"], 8.0)
 
-
 class TestAttribution(unittest.TestCase):
     def test_by_stock_and_sector(self):
         from core.backtest.attribution import attribute_portfolio_trades
@@ -132,24 +129,21 @@ class TestAttribution(unittest.TestCase):
         self.assertTrue(any(x["sector"] == "白酒" for x in attr["by_sector"]))
         self.assertIsNotNone(attr["selection_excess_pct"])
 
-
 class TestAlertOutbound(unittest.TestCase):
     def test_write_file_and_skip_empty(self):
         from core import alert_outbound as ao
 
-        with tempfile.TemporaryDirectory() as td:
-            with patch.object(ao, "ALERTS_DIR", td), patch.object(
-                ao, "ALERTS_LAST_PATH", td + "/last.json"
-            ):
-                empty = ao.dispatch_monitor_alerts([])
-                self.assertTrue(empty.get("skipped"))
-                out = ao.dispatch_monitor_alerts(
-                    [{"level": "warn", "code": "ic_decay", "message": "test"}],
-                    source="unit",
-                )
-                self.assertTrue(out["ok"])
-                self.assertTrue(out["path"].endswith(".json"))
-
+        with tempfile.TemporaryDirectory() as td, patch.object(ao, "ALERTS_DIR", td), patch.object(
+            ao, "ALERTS_LAST_PATH", td + "/last.json"
+        ):
+            empty = ao.dispatch_monitor_alerts([])
+            self.assertTrue(empty.get("skipped"))
+            out = ao.dispatch_monitor_alerts(
+                [{"level": "warn", "code": "ic_decay", "message": "test"}],
+                source="unit",
+            )
+            self.assertTrue(out["ok"])
+            self.assertTrue(out["path"].endswith(".json"))
 
 class TestEnginePitAndMatch(unittest.TestCase):
     def test_backtest_includes_pit_report(self):
@@ -187,7 +181,6 @@ class TestEnginePitAndMatch(unittest.TestCase):
         )
         self.assertTrue(result.get("success"), result.get("error"))
 
-
 class TestPortfolioAttribution(unittest.TestCase):
     def test_portfolio_has_attribution_and_pit(self):
         from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
@@ -212,7 +205,6 @@ class TestPortfolioAttribution(unittest.TestCase):
         self.assertIn("pit_report", result)
         self.assertEqual(result["params"]["execution_mode"], "next_open")
 
-
 class TestSectorMapCoverage(unittest.TestCase):
     def test_hot_names_mapped(self):
         from core.portfolio_optimize import load_sector_map
@@ -223,7 +215,6 @@ class TestSectorMapCoverage(unittest.TestCase):
         codes = ["600519", "300750", "601988", "000858", "002594"]
         cov = sector_coverage_report(codes)
         self.assertEqual(cov["coverage"], 1.0)
-
 
 if __name__ == "__main__":
     unittest.main()

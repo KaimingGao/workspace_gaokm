@@ -5,8 +5,7 @@ from __future__ import annotations
 import os
 import unittest
 
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from tests.conftest import ROOT
 
 
 class TestVirtualTableContract(unittest.TestCase):
@@ -38,7 +37,6 @@ class TestVirtualTableContract(unittest.TestCase):
         self.assertIn("trade − 涨跌", text)
         self.assertIn("ŷ_trade", text)
 
-
 class TestCoreGoldenPaths(unittest.TestCase):
     def test_run_all(self):
         from evals.core_golden_paths import run_all_core_paths
@@ -46,7 +44,6 @@ class TestCoreGoldenPaths(unittest.TestCase):
         out = run_all_core_paths()
         self.assertTrue(out["ok"], out.get("failures"))
         self.assertEqual(out["count"], 3)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,24 +1,14 @@
 """回测 fundamentals 接线（原 P51 前半）。"""
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from unittest.mock import patch
+
 from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 from core.signal.config import load_signal_config
 from core.signal.cross_section_batch import score_window_as_item
 from core.signal.fundamentals_bridge import fetch_fundamentals_batch
 from quant.research.portfolio_data import load_portfolio_stock_bars
-from tests.test_p10_quant import _aligned_bars
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import _aligned_bars
 
 # --- p51_fund.py::TestP51BacktestFundamentals ---
 
@@ -127,7 +117,6 @@ class TestP51BacktestFundamentals(unittest.TestCase):
         mock_batch.assert_called_once()
         _fn, items = mock_batch.call_args[0][:2]
         self.assertEqual(list(items), ["600519", "600036", "000858"])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,7 +26,6 @@ def _bars(n: int = 20) -> list:
         )
     return out
 
-
 def _job(bars, **overrides):
     fields = {
         "code": "000001",
@@ -53,7 +52,6 @@ def _job(bars, **overrides):
         fields["respect_regime"],
         fields["config"],
     )
-
 
 class OoRankAdoptOoTests(unittest.TestCase):
     def test_window_at_or_below_bump_shares_fingerprint(self) -> None:
@@ -274,9 +272,8 @@ class OoRankAdoptOoTests(unittest.TestCase):
             "core.research.materialize.coverage.enforce_consumer_coverage"
         ), mock.patch(
             "core.research.lake_bridge.load_training_matrix", return_value=None
-        ):
-            with self.assertRaises(MaterializeRequired):
-                build_oo_rank_day_panels(packs, workers=1)
+        ), self.assertRaises(MaterializeRequired):
+            build_oo_rank_day_panels(packs, workers=1)
 
     def test_materialize_passes_horizon_to_oo_rank(self) -> None:
         from core.research.materialize import l1_jobs
@@ -346,7 +343,7 @@ class OoRankAdoptOoTests(unittest.TestCase):
         calls = []
 
         def _collect(*_args, **kwargs):
-            calls.append(kwargs.get("keep_dates", None))
+            calls.append(kwargs.get("keep_dates"))
             raise RuntimeError("stop after observing collect")
 
         try:
@@ -362,9 +359,8 @@ class OoRankAdoptOoTests(unittest.TestCase):
             )
             with mock.patch(
                 "core.research.oo_panel.collect_oo_panel", side_effect=_collect
-            ):
-                with self.assertRaises(RuntimeError):
-                    _oo_rank_stock_job(_job(bars, excess_mode="index"))
+            ), self.assertRaises(RuntimeError):
+                _oo_rank_stock_job(_job(bars, excess_mode="index"))
         finally:
             for key, val in prev.items():
                 if val is None:

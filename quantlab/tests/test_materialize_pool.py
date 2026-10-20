@@ -17,7 +17,6 @@ def _raise_required(code: str) -> None:
         }
     )
 
-
 class ConsumeProcessBatchTests(unittest.TestCase):
     def test_worker_error_retries_serially(self) -> None:
         from core.research.materialize.pool import consume_process_batch
@@ -173,15 +172,14 @@ class ConsumeProcessBatchTests(unittest.TestCase):
         from core.research.materialize.pool import consume_process_batch
 
         results = [None]
-        with ProcessPoolExecutor(max_workers=1) as pool:
-            with self.assertRaises(MaterializeRequired) as ctx:
-                consume_process_batch(
-                    start=0,
-                    end=1,
-                    n_workers=1,
-                    results=results,
-                    submit=lambda i: pool.submit(_raise_required, "000001"),
-                    run_one=lambda i: _raise_required("000001"),
-                )
+        with ProcessPoolExecutor(max_workers=1) as pool, self.assertRaises(MaterializeRequired) as ctx:
+            consume_process_batch(
+                start=0,
+                end=1,
+                n_workers=1,
+                results=results,
+                submit=lambda i: pool.submit(_raise_required, "000001"),
+                run_one=lambda i: _raise_required("000001"),
+            )
         self.assertEqual(ctx.exception.payload.get("stock_code"), "000001")
         self.assertEqual(ctx.exception.payload.get("families"), ["oo_rank"])

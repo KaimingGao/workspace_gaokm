@@ -67,6 +67,5 @@ class TestMarketPriorConfig(unittest.TestCase):
 
                 cfg_mod._cached = None
 
-
 if __name__ == "__main__":
     unittest.main()

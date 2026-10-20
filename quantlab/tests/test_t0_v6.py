@@ -5,13 +5,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.execution import validate_execution_patch
 from core.t0.close_band import (
@@ -40,7 +34,6 @@ def _ytw_heads(up=True):
         "y_t90": p,
     }
 
-
 def _snap(y_tau, **extra):
     """选腿夹具：ŷ_τw 随 y_tau 符号定正/反 T。"""
     up = float(y_tau) >= 0
@@ -52,7 +45,6 @@ def _snap(y_tau, **extra):
     out.update(extra)
     return out
 
-
 def _cfg(overrides=None):
     """路径单测：去掉旧锁赢默认；金额键置 0 走比例仓。"""
     d = dict(overrides or {})
@@ -61,7 +53,6 @@ def _cfg(overrides=None):
     d.setdefault("y_tw_enter_amount", 0)
     d.setdefault("y_tw_strong_amount", 0)
     return load_t0_rules(d)
-
 
 def _mins(closes, *, session_open=100.0):
     """合成分钟线；首根 open=session_open，其后 open=前收。"""
@@ -90,7 +81,6 @@ def _mins(closes, *, session_open=100.0):
         if h == 11 and m > 30:
             h, m = 13, 0
     return out
-
 
 class TestCloseBandCore(unittest.TestCase):
     def test_anchors_prefer_minute_session(self):
@@ -1049,7 +1039,6 @@ class TestCloseBandCore(unittest.TestCase):
             places=3,
         )
 
-
 class TestCloseBandDayPath(unittest.TestCase):
     def test_reverse_t_opens_and_covers(self):
         """阴线 + ŷ_τw<0 → 反T 现价卖；不预设买回价，靠回补完成第二腿。"""
@@ -1504,7 +1493,6 @@ class TestCloseBandDayPath(unittest.TestCase):
             if hm:
                 self.assertLessEqual(hm, "11:00")
 
-
 class TestMergeSlotDay(unittest.TestCase):
     def _leg(self, side, shares, price, at):
         amt = float(shares) * float(price)
@@ -1650,7 +1638,6 @@ class TestMergeSlotDay(unittest.TestCase):
         self.assertAlmostEqual(float(merged["shares_end"]), 1000.0)
         self.assertAlmostEqual(float(merged.get("cash_delta") or 0), 0.0)
 
-
 class TestT0V6WebWire(unittest.TestCase):
     def test_backtest_schema_accepts_v6_close_band_keys(self):
         req = T0BacktestRequest(
@@ -1770,7 +1757,6 @@ class TestT0V6WebWire(unittest.TestCase):
                 self.assertIn(name, fields)
             for name in gone:
                 self.assertNotIn(name, fields)
-
 
 if __name__ == "__main__":
     unittest.main()

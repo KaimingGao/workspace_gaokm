@@ -60,11 +60,14 @@ function summarizeL2(byClock) {
 function resultHeadBits(result, { tau = false } = {}) {
   const bits = [tau ? "物化完成（τ）" : "物化完成"];
   if (result?.elapsed_s != null) bits.push(`${result.elapsed_s}s`);
-  const l1 = result?.l1 || {};
-  if (l1.elapsed_s != null) bits.push(`L1 ${l1.elapsed_s}s`);
-  const l1tau = result?.l1_tau_grid || {};
-  if (l1tau.elapsed_s != null) {
-    bits.push(`τL1 ${l1tau.clocks_ok || 0}/${(l1tau.clocks || []).length}`);
+  if (tau) {
+    const l1tau = result?.l1_tau_grid || {};
+    if (l1tau.elapsed_s != null || (l1tau.clocks || []).length) {
+      bits.push(`τL1 ${l1tau.clocks_ok || 0}/${(l1tau.clocks || []).length}`);
+    }
+  } else {
+    const l1 = result?.l1 || {};
+    if (l1.elapsed_s != null) bits.push(`L1 ${l1.elapsed_s}s`);
   }
   const l2bit = summarizeL2((result?.l2 || {}).by_clock);
   if (l2bit) bits.push(l2bit);
@@ -87,10 +90,9 @@ async function resolveSuggestedTauClocks(apiFetch) {
   }
 }
 
-/** open 区认 materialize_open；分钟区认 materialize_tau；混合 kind 两边都可接管。 */
+/** open 区只认 materialize_open；分钟区只认 materialize_tau（互不抢状态条）。 */
 function kindMatchesRunner(kind, tau) {
   const k = String(kind || "");
-  if (k === "materialize_l1l2") return true;
   if (tau) return k === "materialize_tau";
   return k === "materialize_open";
 }
@@ -192,10 +194,13 @@ function installMaterializeRunner(q, cfg) {
     for (const b of siblingBtns) b.disabled = !!disabled;
   }
 
-  function paintRunning(job, { pollStartedAt } = {}) {
+  function paintRunning(job, { pollStartedAt, waitPeer = false } = {}) {
     const view = macroJobView(job);
     const msg = view?.message || `${label}进行中…`;
-    const { phase } = phaseFromMessage(msg);
+    // 等对侧时勿用 phaseFromMessage（「DayCube」会误标成本面板 L2）
+    const phase = waitPeer
+      ? `等待${kindLabelZh(view?.peer_kind || (tau ? "materialize_open" : "materialize_tau"))}`
+      : phaseFromMessage(msg).phase;
     setDeskStatusTone([strip, card], "warn");
     paintClusterJobPanel(progressEl, {
       phase,
@@ -204,9 +209,11 @@ function installMaterializeRunner(q, cfg) {
       esc,
       mode: "running",
       tone: "warn",
-      hint: tau
-        ? "训练网格 tc_HHMM L1 + 按钟 L2 · 须 5m Ready"
-        : "open L1（oo/tc/co）+ open L2 DayCube",
+      hint: waitPeer
+        ? "日线 / 分钟物化共用任务槽；对侧结束后将自动继续"
+        : tau
+          ? "训练网格 tc_HHMM L1 + 按钟 L2 · 依赖本地 5m"
+          : "open L1（oo/tc/co）+ open L2 DayCube",
     });
   }
 
@@ -233,7 +240,7 @@ function installMaterializeRunner(q, cfg) {
       tone: "warn",
       errText,
       hint: tau
-        ? "可再次点击「物化 L1/L2」（须分钟 Ready）"
+        ? "可再次点击「物化 L1/L2」"
         : "可再次点击「物化 L1/L2」重试",
     });
   }
@@ -243,9 +250,11 @@ function installMaterializeRunner(q, cfg) {
     const st = isReadyFn() || {};
     const ok = !!st.ok;
     btn.disabled = !ok;
+    const warn = String(st.reason || "").trim();
     btn.title = ok
-      ? "物化 L1/L2：训练网格 tc_HHMM + 按钟 Cube（须 5m）。不训模型、不出 ŷ。"
-      : String(st.reason || "须先分钟 Ready（增量补齐（L0） / 强更 5m（L0））");
+      ? warn ||
+        "物化 L1/L2：训练网格 tc_HHMM + 按钟 Cube（依赖本地 5m）。不训模型、不出 ŷ。"
+      : warn || "观察池不足，无法物化 τ";
   }
 
   async function waitJob(jobId, { pollStartedAt } = {}) {
@@ -341,7 +350,8 @@ function installMaterializeRunner(q, cfg) {
 
   async function waitPeerMaterialize(peerJob, { pollStartedAt } = {}) {
     const peerId = peerJob && peerJob.id;
-    const peerLabel = kindLabelZh(peerJob && peerJob.kind);
+    const peerKind = peerJob && peerJob.kind;
+    const peerLabel = kindLabelZh(peerKind);
     const started = pollStartedAt || Date.now();
     const timeoutMs = (tau ? 150 : 90) * 60 * 1000;
     while (Date.now() - started < timeoutMs) {
@@ -350,8 +360,12 @@ function installMaterializeRunner(q, cfg) {
         data = await fetchData(apiFetch, "/api/jobs/materialize-l1l2?progress=1");
       } catch (_) {
         paintRunning(
-          { message: `等待${peerLabel}结束…`, pct: 0 },
-          { pollStartedAt: started }
+          {
+            message: `等待${peerLabel}结束…`,
+            pct: 0,
+            peer_kind: peerKind,
+          },
+          { pollStartedAt: started, waitPeer: true }
         );
         await sleep(800);
         continue;
@@ -361,24 +375,33 @@ function installMaterializeRunner(q, cfg) {
       if (!peerId || job.id !== peerId || st !== "running") {
         return { ok: true, job };
       }
-      const line = job.message
-        ? `等待${peerLabel}结束 · ${job.message}`
-        : `等待${peerLabel}结束…`;
+      // 状态条只写「等待对侧」；对侧内部进度（DayCube 等）放 hint，避免分钟区看起来像在跑日线物化
+      const line = `等待${peerLabel}结束…`;
+      const peerMsg = String(job.message || "").trim();
       setProStatusChip(chip, "busy", "WAIT");
       setBusy(true);
       paintRunning(
         {
           message: line,
-          pct: job.pct,
-          current: job.current,
-          total: job.total,
+          pct: 0,
+          current: 0,
+          total: 0,
           id: job.id,
           updated_at: job.updated_at,
           started_at: job.started_at,
+          peer_kind: peerKind,
         },
-        { pollStartedAt: started }
+        { pollStartedAt: started, waitPeer: true }
       );
-      const headBits = [line, fmtDuration((Date.now() - started) / 1000)];
+      if (progressEl) {
+        const hintEl = progressEl.querySelector(".quant-bars-progress-hint");
+        if (hintEl && peerMsg) {
+          hintEl.textContent = `对侧：${peerMsg}`;
+        }
+      }
+      const headBits = [line];
+      if (peerMsg) headBits.push(peerMsg);
+      headBits.push(fmtDuration((Date.now() - started) / 1000));
       msgEl.textContent = headBits.join(" · ");
       await sleep(800);
     }
@@ -628,7 +651,7 @@ export function installMaterializeUi(q, opts = {}) {
 
 /**
  * 分钟线区：τ 网格 L1 + 按钟 L2。
- * ``opts.isReady()`` → { ok, reason? }；Ready 不足时禁用按钮。
+ * ``opts.isReady()`` → { ok, reason? }；仅观察池不足时禁用（不再卡 Ready%）。
  */
 export function installMinuteMaterializeUi(q, opts = {}) {
   return installMaterializeRunner(q, {

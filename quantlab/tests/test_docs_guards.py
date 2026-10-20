@@ -1,12 +1,9 @@
 """文档内容守卫（合并原 P72/P73/P81/P82/P85/P92 文档断言）。"""
 
 import os
-import sys
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import ROOT
 
 
 class TestDocsGuards(unittest.TestCase):
@@ -51,7 +48,6 @@ class TestDocsGuards(unittest.TestCase):
         self.assertIn("golden cases", text)
         self.assertIn("架构总览", text)
         self.assertNotIn("quant_interpret_neutral", text)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,25 +1,16 @@
 """截面中性化核心（合并原 P47/P49）。"""
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from unittest.mock import patch
-from core.signal.config import DEFAULT_SIGNAL_CONFIG, load_signal_config
-from core.signal.cross_section import rank_cross_section
-from core.signal.neutralize import apply_cross_section_neutralization
+
 from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 from core.signal.config import load_signal_config
+from core.signal.cross_section import rank_cross_section
 from core.signal.cross_section_batch import score_and_rank_watching
-from tests.test_p10_quant import _aligned_bars
+from core.signal.neutralize import apply_cross_section_neutralization
+from tests.conftest import _aligned_bars
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+
 def _item(code: str, score: float, subs: dict) -> dict:
     return {
         "stock_code": code,
@@ -30,10 +21,6 @@ def _item(code: str, score: float, subs: dict) -> dict:
         "factor_contrib": {},
         "regime": {"score_penalty": 0},
     }
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 # --- test_p47_quant.py::TestP47Neutralize ---
 
 class TestP47Neutralize(unittest.TestCase):
@@ -248,7 +235,6 @@ class TestP49PortfolioNeutralization(unittest.TestCase):
         self.assertTrue(meta["applied"])
         self.assertEqual(raw_rank[0][0], "A")
         self.assertEqual(neu_rank[0][0], "B")
-
 
 if __name__ == "__main__":
     unittest.main()

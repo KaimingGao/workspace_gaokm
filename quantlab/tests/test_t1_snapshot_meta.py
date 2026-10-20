@@ -57,6 +57,5 @@ class TestDailySnapshotMeta(unittest.TestCase):
         self.assertTrue(report.get("success"))
         self.assertTrue(str(report.get("generated_at") or "").startswith("20"))
 
-
 if __name__ == "__main__":
     unittest.main()

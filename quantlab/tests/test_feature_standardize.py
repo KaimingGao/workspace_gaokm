@@ -110,7 +110,6 @@ class TestFeatureZscore(unittest.TestCase):
         stamped = stamp_cross_section_zscore({})
         self.assertEqual(stamped.get("zscore_means"), {})
 
-
 class TestZscoreUniverse(unittest.TestCase):
     def test_normalize_aliases(self):
         from core.research.feature_standardize import (
@@ -142,7 +141,6 @@ class TestZscoreUniverse(unittest.TestCase):
         self.assertEqual(doc["zscore_universe"], "pool")
         self.assertNotIn("zscore_universe_tiers", doc)
         self.assertFalse(is_tier_a_zscore_universe(doc))
-
 
 if __name__ == "__main__":
     unittest.main()

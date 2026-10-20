@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import mock_open, patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestResearchUniverse(unittest.TestCase):
@@ -139,7 +134,6 @@ class TestResearchUniverse(unittest.TestCase):
             self.assertEqual(saved.get("source"), "cached_daily")
             self.assertEqual(saved["universe"]["count"], 30)
             self.assertEqual(len(saved["universe"]["codes"]), 30)
-
 
 if __name__ == "__main__":
     unittest.main()

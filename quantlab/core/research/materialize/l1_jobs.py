@@ -371,41 +371,13 @@ def _clock_reaches_lake(row: dict, *, n_eligible: int, n_days: int) -> bool:
 
 
 def _attach_minute_bars(packs: List[dict]) -> int:
-    """给 packs 挂本地 5m；返回挂上分钟的票数。"""
-    n = 0
-    try:
-        from core.ports.market import resolve_market_code
-        from core.store import load_minute_cache
-    except Exception:  # noqa: BLE001
-        return 0
-    for row in packs:
-        if not isinstance(row, dict):
-            continue
-        code = str(row.get("stock_code") or row.get("code") or "").strip()
-        if not code:
-            continue
-        try:
-            mkt, pure = resolve_market_code(code)
-            packed = load_minute_cache(
-                mkt or "CN",
-                pure or code,
-                "5",
-                min_bars=1,
-                ignore_age=True,
-            )
-        except Exception:  # noqa: BLE001
-            packed = None
-        mb = None
-        if isinstance(packed, tuple) and packed:
-            mb = packed[0]
-        elif isinstance(packed, dict):
-            mb = packed.get("bars") or packed.get("minute_bars")
-        elif isinstance(packed, list):
-            mb = packed
-        if isinstance(mb, list) and mb:
-            row["minute_bars"] = mb
-            n += 1
-    return n
+    """给 packs 挂本地 5m；返回挂上分钟的票数。
+
+    实现委托 ``panel_matrix.attach_minute_bars_slice``（测试可仍 patch 本函数）。
+    """
+    from core.research.panel_matrix import attach_minute_bars_slice
+
+    return int(attach_minute_bars_slice(packs, 0, len(packs) if packs else 0))
 
 
 def materialize_l1_tau_grid(
@@ -478,8 +450,13 @@ def _materialize_l1_tau_grid_body(
         report["elapsed_s"] = round(time.perf_counter() - t0, 2)
         return report
 
+    # 仅探测首批是否够用；整池 5m 由 collect_tau_grid_panels 按批挂载
+    from core.research.panel_matrix import _TAU_POOL_BATCH
+
+    probe_n = min(len(packs), max(4, int(_TAU_POOL_BATCH)))
+    probe = packs[:probe_n]
     try:
-        attached = _attach_minute_bars(packs)
+        attached_probe = _attach_minute_bars(probe)
     except Exception as exc:  # noqa: BLE001
         logger.warning("l1 tau grid minutes failed: %s", exc)
         logger.debug("l1 tau grid minutes failed", exc_info=True)
@@ -487,18 +464,29 @@ def _materialize_l1_tau_grid_body(
         report["elapsed_s"] = round(time.perf_counter() - t0, 2)
         _emit(progress_cb, 1, 1, f"L1 τ 网格未完成 · {report['error']}")
         return report
-    report["minute_attached"] = attached
-    if attached < 2:
+    if attached_probe < 2:
+        for row in probe:
+            if isinstance(row, dict):
+                row.pop("minute_bars", None)
+        report["minute_attached"] = 0
         report["error"] = "本地 5m 不足（请先分钟增量/强更）"
         report["elapsed_s"] = round(time.perf_counter() - t0, 2)
         return report
-    eligible, span_days = _eligible_minute_span(packs)
+    eligible_probe, span_probe = _eligible_minute_span(probe)
+    # 有分钟的票数可按池比例外推；交易日跨度是共享日历，禁止 ×(池/探针)
+    scale = (len(packs) / float(probe_n)) if probe_n else 1.0
+    eligible = max(eligible_probe, int(round(eligible_probe * scale)))
+    span_days = int(span_probe or 0)
+    for row in probe:
+        if isinstance(row, dict):
+            row.pop("minute_bars", None)
 
     feat_names = horizon_l1_feature_names()
     ok_n = 0
     if _cancelled(cancel_cb):
         report["error"] = "cancelled"
         report["ok"] = False
+        report["minute_attached"] = 0
     else:
         try:
             summary = collect_tau_grid_panels(
@@ -519,9 +507,26 @@ def _materialize_l1_tau_grid_body(
             report["elapsed_s"] = round(time.perf_counter() - t0, 2)
             _emit(progress_cb, 1, 1, f"L1 τ 网格未完成 · {report['error']}")
             return report
+        attached = int(summary.get("minute_attached") or 0)
+        report["minute_attached"] = attached
+        if attached > 0:
+            eligible = max(eligible, attached)
         if summary.get("cancelled"):
             report["error"] = "cancelled"
             report["ok"] = False
+        # 探针分钟 union 可能长于 τ 面板实际写出日（特征 warm-up 丢日）；
+        # 日门槛用 min(探针跨度, 2×最大写出日)，避免误报「覆盖不足」。
+        max_written_dates = 0
+        for hm in clock_list:
+            raw = (summary.get("by_clock") or {}).get(hm) or {}
+            try:
+                max_written_dates = max(max_written_dates, int(raw.get("n_dates") or 0))
+            except (TypeError, ValueError):
+                pass
+        if max_written_dates > 0 and span_days > max_written_dates * 2:
+            span_days = max_written_dates
+        report["lake_eligible"] = int(eligible)
+        report["lake_span_days"] = int(span_days)
         for hm in clock_list:
             row = dict((summary.get("by_clock") or {}).get(hm) or {})
             if not row:

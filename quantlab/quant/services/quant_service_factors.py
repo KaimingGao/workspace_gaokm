@@ -856,42 +856,17 @@ class QuantFactorMixin:
         n_univ = max(1, len(codes))
         _prog(0, n_univ, f"ŷ_τc 拉日线 {len(codes)} 只…")
         stock_bars: List[Dict[str, Any]] = []
-        minute_hit = 0
+        # 5m 不在此整池预载：collect_tau_compact 按批 24 挂载并 pop（压峰值）
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
             lookback=int(lookback or 120),
             fetch_fundamentals=False,
         )
-        if use_minute:
-            _prog(0, n_univ, f"ŷ_τc 读5m {len(codes)} 只…")
-        for i, code in enumerate(codes):
+        for code in codes:
             bars = loaded.get(str(code))
             if not bars:
                 continue
-            row: Dict[str, Any] = {"code": str(code), "bars": bars}
-            if use_minute:
-                try:
-                    from core.ports.market import resolve_market_code
-                    from core.store import load_minute_cache
-
-                    mkt, pure = resolve_market_code(str(code))
-                    packed = load_minute_cache(
-                        mkt or "CN",
-                        pure or str(code),
-                        "5",
-                        min_bars=1,
-                        ignore_age=True,
-                    )
-                    if packed:
-                        mb, _meta = packed
-                        if mb:
-                            row["minute_bars"] = mb
-                            minute_hit += 1
-                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    pass
-                if (i + 1) % 40 == 0 or (i + 1) >= len(codes):
-                    _prog(i + 1, n_univ, f"ŷ_τc 读5m {i + 1}/{len(codes)}")
-            stock_bars.append(row)
+            stock_bars.append({"code": str(code), "bars": bars})
         _prog(0, max(1, len(stock_bars)), f"ŷ_τc 组面板 0/{len(stock_bars)}")
         report = fit_tau_ridge_report(
             stock_bars,
@@ -925,8 +900,12 @@ class QuantFactorMixin:
                     ys2["tau_end_hm"] = resolved_end
                     ys2["zero_prefix"] = bool(prefix.get("zero_prefix"))
                     blob["y_spec"] = ys2
-        report["minute_cache_hit"] = minute_hit if use_minute else None
-        report["minute_cache_universe"] = len(codes) if use_minute else None
+        if use_minute:
+            report["minute_cache_hit"] = int(report.get("minute_attached") or 0)
+            report["minute_cache_universe"] = len(codes)
+        else:
+            report["minute_cache_hit"] = None
+            report["minute_cache_universe"] = None
         if not _job_alive():
             report["success"] = False
             report["error"] = "任务已中断或被接替"

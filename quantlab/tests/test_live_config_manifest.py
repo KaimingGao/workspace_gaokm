@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestLiveConfigManifest(unittest.TestCase):
@@ -80,7 +75,6 @@ class TestLiveConfigManifest(unittest.TestCase):
                 with open(out["path"], encoding="utf-8") as rf:
                     raw = json.load(rf)
                 self.assertEqual(raw.get("schema_version"), 1)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,13 +3,8 @@
 import json
 import os
 import shutil
-import sys
 import tempfile
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core import experiment_tracker as et
 
@@ -120,7 +115,6 @@ class TestExperimentTracker(unittest.TestCase):
         self.assertEqual(listed[0]["model_type"], "tc_ridge")
         self.assertEqual(listed[0]["experiment_id"], eid)
         self.assertEqual(len(et.list_experiments("tau_ridge")), 1)
-
 
 if __name__ == "__main__":
     unittest.main()

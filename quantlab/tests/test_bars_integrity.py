@@ -104,6 +104,5 @@ class BarsIntegrityTests(unittest.TestCase):
         self.assertEqual(clamp_integrity_days(60), 60)
         self.assertEqual(clamp_integrity_days(200), 90)
 
-
 if __name__ == "__main__":
     unittest.main()

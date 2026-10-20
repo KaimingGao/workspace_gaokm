@@ -1,11 +1,5 @@
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from adapters.market.quote_api import StockAPI
 
@@ -53,7 +47,6 @@ class TestQuoteResolve(unittest.TestCase):
             self.assertTrue(r2.get("cached"))
             self.assertEqual(mocked.call_count, 1)
 
-
 class TestQuoteBatch(unittest.TestCase):
     def setUp(self):
         StockAPI.clear_cache()
@@ -78,6 +71,7 @@ class TestQuoteBatch(unittest.TestCase):
 
     def test_batch_uses_stale_cache_when_http_fails(self):
         import time
+
         import requests
 
         StockAPI._cache["sh600519"] = (
@@ -146,10 +140,9 @@ class TestQuoteBatch(unittest.TestCase):
         self.assertEqual(sum(1 for u in calls if "ulist" in str(u)), 1)
         self.assertFalse(out["000858"].get("success"))
 
-
 class TestQuotePrice(unittest.TestCase):
     def test_zero_last_is_missing(self):
-        from core.ports.market import quote_mark_price, quote_price, quote_prev_close
+        from core.ports.market import quote_mark_price, quote_prev_close, quote_price
 
         q = {"success": True, "price_raw": 0.0, "prev_close": 12.75}
         self.assertIsNone(quote_price(q))
@@ -170,7 +163,6 @@ class TestQuotePrice(unittest.TestCase):
         self.assertEqual(out["price_raw"], 0.0)
         self.assertAlmostEqual(out["prev_close"], 12.75)
 
-
 class TestQuoteHandler(unittest.TestCase):
     def test_execute_empty(self):
         from skills.quote.handler import QuoteHandler
@@ -178,7 +170,6 @@ class TestQuoteHandler(unittest.TestCase):
         handler = QuoteHandler()
         out = handler.execute({"parameters": {"stock_code": ""}})
         self.assertIn("请提供", out)
-
 
 if __name__ == "__main__":
     unittest.main()

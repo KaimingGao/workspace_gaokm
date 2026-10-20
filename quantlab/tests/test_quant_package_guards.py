@@ -4,13 +4,8 @@ import ast
 import glob
 import importlib
 import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from agent.routing import infer_quant_task, prepare_tool_params
 from core.readme_index import (
@@ -22,9 +17,11 @@ from core.readme_index import (
 )
 from evals.readme_check import check_readme_coverage
 from quant.ops.package_info import REMOVED_SHIM_PATHS, build_quant_package_info
-from quant.ops.shim_audit import audit_quant_shim_imports, main as shim_audit_main
+from quant.ops.shim_audit import audit_quant_shim_imports
+from quant.ops.shim_audit import main as shim_audit_main
 from quant.skill.engine import AVAILABLE_TASKS, QuantEngine
 from services.eval_service import EvalService
+from tests.conftest import ROOT
 
 TESTS_DIR = os.path.join(ROOT, "tests")
 LEGACY_MODULES = (
@@ -65,13 +62,13 @@ class TestP28QuantPackage(unittest.TestCase):
 
         self.assertTrue(hasattr(quant, "QuantService"))
     def test_skills_quant_init_reexports(self):
-        from skills.quant import QuantEngine
         from quant.skill.engine import QuantEngine as CanonicalEngine
+        from skills.quant import QuantEngine
 
         self.assertIs(QuantEngine, CanonicalEngine)
     def test_skill_registry(self):
-        from quant.skill.engine import AVAILABLE_TASKS
         from agent.registry import SKILL_SPECS
+        from quant.skill.engine import AVAILABLE_TASKS
 
         self.assertIn("portfolio_bridge", AVAILABLE_TASKS)
         quant_spec = next(spec for name, spec in SKILL_SPECS if name == "quant")
@@ -99,6 +96,7 @@ class TestP32QuantPackageInfo(unittest.TestCase):
     def test_quant_package_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -280,6 +278,7 @@ class TestP43ReadmeWebApi(unittest.TestCase):
     def test_readme_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -294,6 +293,7 @@ class TestP43ReadmeWebApi(unittest.TestCase):
     def test_readme_index_entries_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -331,6 +331,7 @@ class TestP44ReadmeEvalsApi(unittest.TestCase):
     def test_evals_readme_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -344,6 +345,7 @@ class TestP44ReadmeEvalsApi(unittest.TestCase):
     def test_evals_summary_readme_field(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -352,7 +354,6 @@ class TestP44ReadmeEvalsApi(unittest.TestCase):
         res = client.get("/api/evals/summary")
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["readme"]["ok"])
-
 
 if __name__ == "__main__":
     unittest.main()

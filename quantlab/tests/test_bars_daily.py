@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestBarsDaily(unittest.TestCase):
@@ -27,7 +22,6 @@ class TestBarsDaily(unittest.TestCase):
                 self.assertFalse(mod.needs_force_latest_bars(session_date="2026-08-20"))
                 self.assertTrue(mod.needs_force_latest_bars(session_date="2026-08-21"))
                 self.assertTrue(os.path.isfile(marker))
-
 
 if __name__ == "__main__":
     unittest.main()

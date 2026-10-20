@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bars_with_limit_down(*, n: int = 25, down_at: int = -2) -> list:
@@ -34,7 +29,6 @@ def _bars_with_limit_down(*, n: int = 25, down_at: int = -2) -> list:
         )
         price = close
     return bars
-
 
 class TestH1LimitDownBoost(unittest.TestCase):
     def test_limit_down_raises_limit_score(self):
@@ -61,7 +55,6 @@ class TestH1LimitDownBoost(unittest.TestCase):
             )
         score_flat, _ = score_reversal(flat, stock_code="600000")
         self.assertGreater(score, score_flat)
-
 
 class TestH2ConsecutiveWindow(unittest.TestCase):
     def test_old_limit_up_ignored_outside_window(self):
@@ -93,7 +86,6 @@ class TestH2ConsecutiveWindow(unittest.TestCase):
             _calc_consecutive_limit_up(bars, window=40, stock_code="600000"), 3
         )
 
-
 class TestH3BoardAwareLimits(unittest.TestCase):
     def test_st_and_chinext_thresholds(self):
         from core.backtest.matching import (
@@ -113,7 +105,6 @@ class TestH3BoardAwareLimits(unittest.TestCase):
         # 科创 15% 不应判涨停
         self.assertFalse(is_limit_up(10.0, 11.5, stock_code="688001"))
         self.assertTrue(is_limit_up(10.0, 12.0, stock_code="688001"))
-
 
 class TestH6LegacyAnnMissing(unittest.TestCase):
     def test_legacy_snapshot_marks_ann_missing(self):
@@ -217,7 +208,6 @@ class TestH6LegacyAnnMissing(unittest.TestCase):
             self.assertFalse(hist[0].get("ann_missing"))
             self.assertEqual(hist[0].get("available_as_of"), "2026-08-05")
 
-
 class TestH8RegimeConfig(unittest.TestCase):
     def test_weak_threshold_from_config(self):
         from core.signal.regime import assess_regime
@@ -235,7 +225,6 @@ class TestH8RegimeConfig(unittest.TestCase):
         )
         self.assertEqual(neutral["regime"], "neutral")
 
-
 class TestH9FloorValidation(unittest.TestCase):
     def test_hold_above_buy_clamped(self):
         from core.signal.config import _validate_scoring_floors
@@ -249,7 +238,6 @@ class TestH9FloorValidation(unittest.TestCase):
         warns = _validate_scoring_floors(cfg)
         self.assertTrue(warns)
         self.assertEqual(cfg["scoring"]["min_hold_predicted_score"], 1.0)
-
 
 class TestH7IdioAlign(unittest.TestCase):
     def test_common_dates_only(self):
@@ -265,7 +253,6 @@ class TestH7IdioAlign(unittest.TestCase):
         ys, xs = _aligned_returns(stock, index, window=20)
         self.assertEqual(len(ys), len(xs))
         self.assertLessEqual(len(ys), 13)
-
 
 if __name__ == "__main__":
     unittest.main()

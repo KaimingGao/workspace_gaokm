@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.signal.factors.meta.panel import build_factor_panel
 from core.signal.factors.meta.registry import list_factors, registered_factor_names
 from core.signal.factors.meta.taxonomy import (
     REMOVED_RAW_BASIS_NAMES,
-    is_removed_factor,
     classify_factor,
     classify_factors,
+    is_removed_factor,
     strip_removed_factors_from_cluster_report,
 )
 
@@ -188,7 +182,6 @@ class TestFactorTaxonomy(unittest.TestCase):
             ],
             ["quality"],
         )
-
 
 if __name__ == "__main__":
     unittest.main()

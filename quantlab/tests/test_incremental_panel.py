@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 
 import numpy as np
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bars(n: int = 80, start: float = 10.0, seed: int = 0):
@@ -32,7 +27,6 @@ def _bars(n: int = 80, start: float = 10.0, seed: int = 0):
         )
         px = c
     return out
-
 
 class TestIncrementalPanel(unittest.TestCase):
     def setUp(self) -> None:
@@ -347,7 +341,6 @@ class TestIncrementalPanel(unittest.TestCase):
         self.assertGreaterEqual(len(dates1), len(dates0))
         self.assertTrue(set(dates0).issubset(set(dates1)) or dates1[-1] >= dates0[-1])
 
-
 class TestLakeReplay(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -443,8 +436,9 @@ class TestLakeReplay(unittest.TestCase):
         self.assertIsNone(try_score_item_from_lake("000001", "2024-05-10"))
 
     def test_score_open_day_entries_skips_window_on_hit(self) -> None:
-        from core.research.lake_replay import prefetch_l1_coverage, score_open_day_entries
         from unittest.mock import MagicMock
+
+        from core.research.lake_replay import prefetch_l1_coverage, score_open_day_entries
 
         self._seed_l1()
         prefetch_l1_coverage(["000001"])
@@ -598,7 +592,6 @@ class TestLakeReplay(unittest.TestCase):
         self.assertEqual(window_fn.call_count, 1)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].get("_score_source"), "window")
-
 
 class TestFamilyForTc(unittest.TestCase):
     def test_open_vs_minute_families(self) -> None:
@@ -783,7 +776,6 @@ class TestFamilyForTc(unittest.TestCase):
             else:
                 os.environ["QUANTLAB_DAY_CUBE_GC"] = prev_gc
             tmp.cleanup()
-
 
 if __name__ == "__main__":
     unittest.main()

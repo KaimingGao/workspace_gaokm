@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core import sentiment as sentiment_mod
 from core.sentiment import (
@@ -72,7 +67,6 @@ class TestScoreHeadlines(unittest.TestCase):
         self.assertLess(float(out["score"]), 0.6)
         self.assertEqual(out.get("n_hit_titles"), 1)
         self.assertEqual(out.get("n_titles"), 5)
-
 
 class TestFetchAndCache(unittest.TestCase):
     def test_fetch_uses_cache(self):
@@ -172,7 +166,6 @@ class TestFetchAndCache(unittest.TestCase):
             self.assertTrue(out["ok"])
             self.assertEqual(out["count"], 2)
 
-
 class TestAlerts(unittest.TestCase):
     def test_detect_new_bearish_title(self):
         before = {
@@ -267,7 +260,6 @@ class TestAlerts(unittest.TestCase):
                 self.assertEqual(alerts["kind"], "sentiment_scan")
                 self.assertGreaterEqual(alerts["alert_count"], 1)
 
-
 class TestScheduleKind(unittest.TestCase):
     def test_run_schedule_sentiment_scan(self):
         from core.schedule_jobs import run_schedule
@@ -276,7 +268,6 @@ class TestScheduleKind(unittest.TestCase):
             out = run_schedule("sentiment_scan", codes=["600519"], limit=3)
         self.assertTrue(out["ok"])
         m.assert_called_once()
-
 
 if __name__ == "__main__":
     unittest.main()

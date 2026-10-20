@@ -1,12 +1,6 @@
 """因子系数 ↔ |β| 派生展示权。"""
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.signal.factors.meta.coefs import (
     coefficients_from_return_model,
@@ -39,7 +33,6 @@ class TestFactorCoefs(unittest.TestCase):
     def test_empty(self):
         self.assertFalse(has_factor_coefficients(None))
         self.assertIsNone(display_weights_from_coefficients({}))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,13 +3,8 @@
 from __future__ import annotations
 
 import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestBarsStatus(unittest.TestCase):
@@ -346,7 +341,6 @@ class TestBarsStatus(unittest.TestCase):
         self.assertEqual(out["bars_refresh"]["failed_count"], 0)
         self.assertEqual(out["bars_refresh"]["remote_count"], 1)
         marked.assert_called_once()
-
 
 if __name__ == "__main__":
     unittest.main()

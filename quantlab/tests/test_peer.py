@@ -1,14 +1,7 @@
-import json
-import os
-import sys
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-from adapters.peer.engine import detect_group, build_peer_compare
+from adapters.peer.engine import build_peer_compare, detect_group
 from skills.peer.handler import PeerHandler
 
 
@@ -55,7 +48,6 @@ class TestPeer(unittest.TestCase):
     def test_handler_missing(self):
         out = PeerHandler().execute({"parameters": {}})
         self.assertIn("stock_code", out)
-
 
 if __name__ == "__main__":
     unittest.main()

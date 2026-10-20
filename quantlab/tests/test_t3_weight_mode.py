@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.backtest.costs import rebalance_cost_pct
 from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
@@ -166,6 +160,7 @@ class TestT3WeightMode(unittest.TestCase):
 
     def test_portfolio_request_fusion_w_co_range(self):
         from pydantic import ValidationError
+
         from web.schemas import PaperReplayBacktestRequest
 
         self.assertEqual(PaperReplayBacktestRequest(fusion_w_co=0.5).fusion_w_co, 0.5)
@@ -177,6 +172,7 @@ class TestT3WeightMode(unittest.TestCase):
 
     def test_portfolio_request_fusion_weights(self):
         from pydantic import ValidationError
+
         from web.schemas import PaperReplayBacktestRequest
 
         body = PaperReplayBacktestRequest(fusion_w_oo=0.7, fusion_w_oc=0.3)
@@ -191,6 +187,7 @@ class TestT3WeightMode(unittest.TestCase):
 
     def test_portfolio_request_rank_thresholds(self):
         from pydantic import ValidationError
+
         from web.schemas import PaperReplayBacktestRequest
 
         body = PaperReplayBacktestRequest(fuse_enter=0.015, fuse_strong=0.03)
@@ -213,7 +210,6 @@ class TestT3WeightMode(unittest.TestCase):
         # universe_fit_tiers 已移除，Pydantic 忽略多余字段
         body = PaperReplayBacktestRequest()
         self.assertFalse(hasattr(body, "universe_fit_tiers"))
-
 
 if __name__ == "__main__":
     unittest.main()

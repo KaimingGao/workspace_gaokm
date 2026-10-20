@@ -226,6 +226,7 @@ class TestPortsAdapters(unittest.TestCase):
 
     def test_skill_quote_uses_data_service(self):
         from unittest.mock import patch
+
         from skills.quote.engine import QuoteEngine
 
         with patch(
@@ -235,7 +236,6 @@ class TestPortsAdapters(unittest.TestCase):
             out = QuoteEngine().query({"stock_code": "茅台"})
         self.assertTrue(out.get("success"))
         mock_gq.assert_called_once()
-
 
 class TestPaperJobPersist(unittest.TestCase):
     def test_running_becomes_failed_after_reload(self):
@@ -270,7 +270,6 @@ class TestPaperJobPersist(unittest.TestCase):
             snap = j2.get()
             self.assertEqual(snap["status"], "done")
             self.assertEqual((snap.get("result") or {}).get("observation_pool_count"), 2)
-
 
 class TestPaperCycleExport(unittest.TestCase):
     def test_reexport_from_paper(self):
@@ -311,7 +310,6 @@ class TestPaperCycleExport(unittest.TestCase):
                 out = run_daily_cycle(paper, simulate_buy=False, strategy="short_conservative")
         self.assertTrue(out.get("success"))
         self.assertEqual(out.get("observation_pool_count"), 0)
-
 
 class TestPaperMixinImportGuard(unittest.TestCase):
     """拆 mixin 后防漏 import（曾导致评分空 / 日线 500 / append_snapshot NameError）。"""
@@ -421,7 +419,6 @@ class TestPaperMixinImportGuard(unittest.TestCase):
                 missing_by_file[path.name] = missing
 
         self.assertEqual(missing_by_file, {})
-
 
 if __name__ == "__main__":
     unittest.main()

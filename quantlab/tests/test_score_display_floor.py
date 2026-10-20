@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestSelectionFloor(unittest.TestCase):
@@ -27,7 +21,7 @@ class TestSelectionFloor(unittest.TestCase):
             self.assertEqual(resolve_hold_floor(), -1.0)
 
     def test_explicit_null_disables(self):
-        from core.signal.score_display import selection_min_score, resolve_buy_floor
+        from core.signal.score_display import resolve_buy_floor, selection_min_score
 
         with patch(
             "core.signal.config.load_signal_config",
@@ -104,7 +98,6 @@ class TestSelectionFloor(unittest.TestCase):
         gate = annotate_score_gate(57.2, min_score=0.35, item=item)
         self.assertFalse(gate["below_min_score"])
         self.assertIsNone(gate["gate_score"])
-
 
 if __name__ == "__main__":
     unittest.main()

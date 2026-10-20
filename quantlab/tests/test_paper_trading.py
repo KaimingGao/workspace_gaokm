@@ -1,36 +1,63 @@
-"""纸面回放引擎：T+1 / 续持 / 现金约束 / 引擎元数据。"""
+"""纸面交易集成测试（replay/build/open_fill/tplus1/attribution/batch）。"""
 
 from __future__ import annotations
 
+import json
 import os
-import sys
+import tempfile
 import unittest
 from contextlib import ExitStack, contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.backtest.paper_replay import (
     REPLAY_AMOUNT_BASE,
     REPLAY_AMOUNT_STRONG,
     REPLAY_CASH_FLOOR,
-    REPLAY_INITIAL_CASH,
     REPLAY_FUSE_ENTER,
     REPLAY_FUSE_STRONG,
+    REPLAY_INITIAL_CASH,
     backtest_paper_replay,
     fuse_hit_metrics,
     mock_quote_from_bar,
     realized_yhat_windows,
     rescore_replay_y_τc_at_clock,
 )
+from core.paper import (
+    ORIGIN_MANUAL,
+    ORIGIN_MIXED,
+    ORIGIN_STRATEGY,
+    build_ops_report,
+    buy_codes_direct,
+    load_paper,
+    manual_buy,
+    mark_to_market,
+    merge_origin,
+    plan_buy_codes,
+    save_paper,
+)
+from core.paper.attribution import build_paper_attribution_lite
 from core.paper.replay_ctx import paper_replay_context
-from core.paper.tplus1 import add_buy_lot, clip_sell_shares
+from core.paper.tplus1 import (
+    TPLUS1_LOCK_REASON,
+    add_buy_lot,
+    apply_t0_trades,
+    clip_sell_shares,
+    consume_sell_lots,
+    locked_shares,
+    sellable_shares,
+    stamp_new_holding,
+)
+from core.research.portfolio_bars import (
+    _load_bars_parallel,
+    _load_offline_bars_from_store,
+)
+from core.store import save_daily_cache
+from core.store_bars_sqlite import reset_conn_cache
 
 
-def _bars(n: int = 25, *, step: float = 0.4, start: float = 100.0):
+# --- from test_paper_replay.py ---
+def _bars__paper_replay(n: int = 25, *, step: float = 0.4, start: float = 100.0):
     out = []
     for i in range(n):
         close = start + i * step
@@ -45,7 +72,6 @@ def _bars(n: int = 25, *, step: float = 0.4, start: float = 100.0):
             }
         )
     return out
-
 
 def _minutes_aligned(stock_bars, *, close_delta=0.4, open_scale=1.0, prev_close=None):
     """按日线开对齐的 09:35 分钟根；open_scale 可造开盘错位。"""
@@ -72,7 +98,6 @@ def _minutes_aligned(stock_bars, *, close_delta=0.4, open_scale=1.0, prev_close=
         out[str(code)] = by_d
     return out
 
-
 def _rank_row(code: str, score: float = 1.5) -> dict:
     return {
         "stock_code": code,
@@ -85,7 +110,6 @@ def _rank_row(code: str, score: float = 1.5) -> dict:
         "dual_score_window": "eod_next",
     }
 
-
 def _risk_ok():
     return {
         "ok": True,
@@ -93,7 +117,6 @@ def _risk_ok():
         "warnings": [],
         "limits": {"max_position_pct": 40.0, "max_sector_pct": 60.0},
     }
-
 
 @contextmanager
 def _offline_rebalance_patches():
@@ -127,7 +150,6 @@ def _offline_rebalance_patches():
         )
         yield
 
-
 class TestMockQuote(unittest.TestCase):
     def test_open_and_prev_close(self):
         prev = {"close": 100.0}
@@ -137,7 +159,6 @@ class TestMockQuote(unittest.TestCase):
         self.assertEqual(q["price_raw"], 102.0)
         self.assertEqual(q["prev_close"], 100.0)
         self.assertAlmostEqual(q["change_raw"], 2.0, places=2)
-
 
 class TestReplayTplus1(unittest.TestCase):
     def test_same_day_buy_not_sellable(self):
@@ -172,14 +193,13 @@ class TestReplayTplus1(unittest.TestCase):
             qty, _meta = clip_sell_shares(holding, 100)
         self.assertGreaterEqual(qty, 100.0 - 1e-6)
 
-
 class TestPaperReplayEngine(unittest.TestCase):
     def test_hold_continuity_no_churn_sell(self):
         """同票连续入选且 fuse≥0：不开卖腿（可每日加 100/200 直到现金不够）。"""
         stock_bars = {
-            "600519": _bars(22, step=0.5),
-            "600036": _bars(22, step=0.3),
-            "300750": _bars(22, step=0.4),
+            "600519": _bars__paper_replay(22, step=0.5),
+            "600036": _bars__paper_replay(22, step=0.3),
+            "300750": _bars__paper_replay(22, step=0.4),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -296,8 +316,8 @@ class TestPaperReplayEngine(unittest.TestCase):
 
     def test_default_cash_is_20w_no_floor(self):
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -345,8 +365,8 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(clamp_replay_initial_cash(None), 200_000.0)
         self.assertEqual(clamp_replay_initial_cash(1000), 10_000.0)
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -373,8 +393,8 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(clamp_replay_amount_pair(300, 200), (1000, 1000))
         self.assertEqual(clamp_replay_amount_pair(30000, 20000), (30000, 30000))
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -404,8 +424,8 @@ class TestPaperReplayEngine(unittest.TestCase):
 
     def test_cash_floor_respected(self):
         stock_bars = {
-            "600519": _bars(20, step=0.5),
-            "600036": _bars(20, step=0.35),
+            "600519": _bars__paper_replay(20, step=0.5),
+            "600036": _bars__paper_replay(20, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {
@@ -438,8 +458,8 @@ class TestPaperReplayEngine(unittest.TestCase):
     def test_fusion_negative_exits_after_t1(self):
         """fuse<0 才清仓；买入当日 T+1 不可卖，次日可卖。"""
         stock_bars = {
-            "600519": _bars(20, step=0.5),
-            "600036": _bars(20, step=0.35),
+            "600519": _bars__paper_replay(20, step=0.5),
+            "600036": _bars__paper_replay(20, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {}
@@ -480,8 +500,8 @@ class TestPaperReplayEngine(unittest.TestCase):
     def test_leave_topk_does_not_sell(self):
         """掉出 Top-K 但 fuse>入场：不卖。"""
         stock_bars = {
-            "600519": _bars(20, step=0.5),
-            "600036": _bars(20, step=0.35),
+            "600519": _bars__paper_replay(20, step=0.5),
+            "600036": _bars__paper_replay(20, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {}
@@ -513,7 +533,7 @@ class TestPaperReplayEngine(unittest.TestCase):
     def test_fail_enter_exits_held(self):
         """开仓后 fuse 未过入场：整笔清仓。"""
         stock_bars = {
-            "600519": _bars(18, step=0.5),
+            "600519": _bars__paper_replay(18, step=0.5),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {}
@@ -548,7 +568,7 @@ class TestPaperReplayEngine(unittest.TestCase):
     def test_missing_ranking_exits_held(self):
         """当日打不上分：清仓，不假装 fuse≥0 续持。"""
         stock_bars = {
-            "600519": _bars(20, step=0.5),
+            "600519": _bars__paper_replay(20, step=0.5),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {}
@@ -588,8 +608,8 @@ class TestPaperReplayEngine(unittest.TestCase):
 
     def test_sim_trades_use_watching_names(self):
         stock_bars = {
-            "600519": _bars(22, step=0.5),
-            "600036": _bars(22, step=0.35),
+            "600519": _bars__paper_replay(22, step=0.5),
+            "600036": _bars__paper_replay(22, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {
@@ -618,8 +638,8 @@ class TestPaperReplayEngine(unittest.TestCase):
     def test_full_ledger_not_truncated(self):
         """完整账本：trades / sim_trades / rebalance_logs 等长且带 as_of。"""
         stock_bars = {
-            "600519": _bars(22, step=0.5),
-            "600036": _bars(22, step=0.35),
+            "600519": _bars__paper_replay(22, step=0.5),
+            "600036": _bars__paper_replay(22, step=0.35),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {
@@ -683,8 +703,8 @@ class TestPaperReplayEngine(unittest.TestCase):
     def test_sim_trades_include_exit_when_rank_fails(self):
         """开仓后 fuse 未过入场：成交明细应有清仓腿。"""
         stock_bars = {
-            "600519": _bars(18, step=0.5),
-            "600036": _bars(18, step=0.3),
+            "600519": _bars__paper_replay(18, step=0.5),
+            "600036": _bars__paper_replay(18, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {}
@@ -715,7 +735,7 @@ class TestPaperReplayEngine(unittest.TestCase):
 
     def test_skip_rows_keep_scores_when_minute_fill_missing(self):
         """09:40 缺该根分钟：拟清回退日开盘成交，不把底仓留到收盘。"""
-        stock_bars = {"600519": _bars(18, step=0.5)}
+        stock_bars = {"600519": _bars__paper_replay(18, step=0.5)}
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {}
         for i, d in enumerate(dates):
@@ -908,7 +928,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(hold["formula_terms_path"]["total"], 1.5)
 
     def test_sim_trades_keep_y_co_from_ranking(self):
-        stock_bars = {"600519": _bars(16, step=0.5)}
+        stock_bars = {"600519": _bars__paper_replay(16, step=0.5)}
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {
             d: [{**_rank_row("600519", 2.0), "y_co": 0.35, "y_on": 0.35}]
@@ -932,9 +952,9 @@ class TestPaperReplayEngine(unittest.TestCase):
 
     def test_default_top_k_is_universe_size(self):
         stock_bars = {
-            "600519": _bars(20, step=0.5),
-            "600036": _bars(20, step=0.35),
-            "300750": _bars(20, step=0.4),
+            "600519": _bars__paper_replay(20, step=0.5),
+            "600036": _bars__paper_replay(20, step=0.35),
+            "300750": _bars__paper_replay(20, step=0.4),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {
@@ -955,11 +975,10 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(out["params"]["top_k"], 3)
         self.assertIn("观察池 3 只", out.get("note") or "")
 
-
 class TestTopkEngineTag(unittest.TestCase):
     def test_topk_params_engine(self):
         from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
-        from tests.test_p10_quant import _aligned_bars
+        from tests.conftest import _aligned_bars
 
         stock_bars = {
             "600519": _aligned_bars("a", n=40),
@@ -983,7 +1002,6 @@ class TestTopkEngineTag(unittest.TestCase):
         self.assertEqual(result.get("params", {}).get("engine"), "topk_research")
         self.assertIn("paper_replay", str(result.get("note") or ""))
 
-
 class TestScoresFromTopk(unittest.TestCase):
     def test_convert_picks(self):
         from core.backtest.paper_replay import scores_from_topk_precomputed
@@ -1004,7 +1022,6 @@ class TestScoresFromTopk(unittest.TestCase):
         self.assertEqual(len(out["2026-03-10"]), 1)
         self.assertEqual(out["2026-03-10"][0]["stock_code"], "600519")
         self.assertEqual(out["2026-03-10"][0]["score_source"], "topk_precomputed")
-
 
 class TestOpenDayYhat(unittest.TestCase):
     def test_drop_unscored_heads_keeps_features(self):
@@ -1294,7 +1311,7 @@ class TestOpenDayYhat(unittest.TestCase):
 
     def test_score_open_day_includes_overheated(self):
         from core.backtest.paper_replay import _score_open_day
-        from tests.test_signal import _overheated_bars
+        from tests.conftest import _overheated_bars
 
         bars = _overheated_bars()
         dates = [str(b["date"]) for b in bars]
@@ -1317,10 +1334,9 @@ class TestOpenDayYhat(unittest.TestCase):
         self.assertFalse(row.get("paper_hard_reject"))
         self.assertFalse(row.get("hard_reject"))
 
-
 class TestRealizedYhatWindows(unittest.TestCase):
     def test_cc_and_on_match_bar_math(self):
-        bars = _bars(6, step=0.5, start=100.0)
+        bars = _bars__paper_replay(6, step=0.5, start=100.0)
         dates = [b["date"] for b in bars]
         date_maps = {"600519": {b["date"]: b for b in bars}}
         r_cc, r_on, r_tau = realized_yhat_windows(
@@ -1338,7 +1354,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         self.assertAlmostEqual(r_tau, (close_t / open_t - 1.0) * 100.0, places=4)
 
     def test_edges_are_none(self):
-        bars = _bars(4, step=0.4, start=100.0)
+        bars = _bars__paper_replay(4, step=0.4, start=100.0)
         dates = [b["date"] for b in bars]
         date_maps = {"600519": {b["date"]: b for b in bars}}
         first_cc, first_on, first_tau = realized_yhat_windows(
@@ -1411,7 +1427,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
 
     def test_uses_stock_bar_after_window(self):
         """覆盖率日历截在 T 时，仍用该票仓里的 T+1 开盘对账 ŷ_co。"""
-        bars = _bars(5, step=0.5, start=100.0)
+        bars = _bars__paper_replay(5, step=0.5, start=100.0)
         all_dates = [b["date"] for b in bars]
         window = all_dates[:-1]
         date_maps = {"600519": {b["date"]: b for b in bars}}
@@ -1428,8 +1444,8 @@ class TestRealizedYhatWindows(unittest.TestCase):
 
     def test_replay_does_not_stamp_y_hl_realized(self):
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -1487,7 +1503,6 @@ class TestRealizedYhatWindows(unittest.TestCase):
             self.assertIsNone(last_rows[0].get("y_hl_realized"))
             self.assertIsNotNone(last_rows[0].get("realized_tau"))
 
-
 class TestSessionOverlay(unittest.TestCase):
     def test_before_open_is_none(self):
         from core.backtest.paper_replay import replay_session_day
@@ -1519,7 +1534,7 @@ class TestSessionOverlay(unittest.TestCase):
     def test_stale_sample_not_jumped(self):
         from core.backtest.paper_replay import overlay_session_day_bars
 
-        stock = {"600000": _bars(10), "600001": _bars(10, step=0.2)}
+        stock = {"600000": _bars__paper_replay(10), "600001": _bars__paper_replay(10, step=0.2)}
         out, session, n = overlay_session_day_bars(
             stock,
             now=datetime(2026, 9, 8, 10, 0, 0),
@@ -1708,7 +1723,6 @@ class TestSessionOverlay(unittest.TestCase):
             self.assertIsNone(t.get("realized_cc"))
             self.assertIsNone(t.get("realized_on"))
             self.assertIsNone(t.get("realized_tau"))
-
 
 class TestDayStockLegs(unittest.TestCase):
     def test_hold_contrib_from_prev_close_to_close(self):
@@ -1944,7 +1958,6 @@ class TestDayStockLegs(unittest.TestCase):
         )
         self.assertAlmostEqual(px2, 18.69, places=4)
 
-
 class TestStockContrib(unittest.TestCase):
     def test_aggregates_hold_and_exit(self):
         from core.backtest.paper_replay import (
@@ -2064,16 +2077,15 @@ class TestStockContrib(unittest.TestCase):
         self.assertEqual(len(rows), n)
         self.assertEqual(rows[0]["stock_code"], f"{600000 + n - 1}")
 
-
 class TestHaltMarkToMarket(unittest.TestCase):
     def test_halted_holding_not_zeroed_in_equity(self):
         """买入后停牌缺 K：净值不得把该票记 0；分票仍保留持仓。"""
         halt = "000668"
         liquid = [f"60000{i}" for i in range(5)]
         n = 22
-        stock_bars = {c: _bars(n, step=0.2 + 0.05 * i) for i, c in enumerate(liquid)}
+        stock_bars = {c: _bars__paper_replay(n, step=0.2 + 0.05 * i) for i, c in enumerate(liquid)}
         # 停牌票：前 14 根有 K，之后缺行情（日历靠其余票多数覆盖）
-        stock_bars[halt] = _bars(14, step=0.3, start=16.0)
+        stock_bars[halt] = _bars__paper_replay(14, step=0.3, start=16.0)
         dates = [b["date"] for b in stock_bars[liquid[0]]]
         halt_last = stock_bars[halt][-1]["date"]
         halt_last_close = float(stock_bars[halt][-1]["close"])
@@ -2086,20 +2098,19 @@ class TestHaltMarkToMarket(unittest.TestCase):
                 # 未过入场想清仓，但无报价卖不出
                 scores[d] = [_rank_row(halt, -1.0)]
 
-        with _offline_rebalance_patches():
-            with patch(
-                "core.backtest.paper_replay._watching_name_map",
-                return_value={halt: "荣丰控股"},
-            ):
-                out = backtest_paper_replay(
-                    stock_bars,
-                    top_k=1,
-                    min_history=8,
-                    scores_by_date=scores,
-                    cost_model="zero",
-                    initial_cash=200_000.0,
-                    include_session_day=False,
-                )
+        with _offline_rebalance_patches(), patch(
+            "core.backtest.paper_replay._watching_name_map",
+            return_value={halt: "荣丰控股"},
+        ):
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                scores_by_date=scores,
+                cost_model="zero",
+                initial_cash=200_000.0,
+                include_session_day=False,
+            )
         self.assertTrue(out.get("success"), out.get("error"))
         held_end = {
             str(h.get("stock_code"))
@@ -2151,7 +2162,6 @@ class TestHaltMarkToMarket(unittest.TestCase):
         )
         self.assertIsNotNone(contrib)
         self.assertGreaterEqual(int(contrib.get("hold_days") or 0), len(halt_days))
-
 
 class TestReplayMinuteFill(unittest.TestCase):
     def test_clamp_fill_clock(self):
@@ -2252,8 +2262,8 @@ class TestReplayMinuteFill(unittest.TestCase):
 
     def test_engine_fills_at_935_close(self):
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -2318,8 +2328,8 @@ class TestReplayMinuteFill(unittest.TestCase):
 
     def test_935_skips_when_minute_missing(self):
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -2339,7 +2349,7 @@ class TestReplayMinuteFill(unittest.TestCase):
         self.assertGreater(int((out.get("constraints_hit") or {}).get("minute_skips") or 0), 0)
 
     def test_exit_falls_back_when_only_afternoon_minutes(self):
-        stock_bars = {"600519": _bars(16, step=0.5)}
+        stock_bars = {"600519": _bars__paper_replay(16, step=0.5)}
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {}
         for i, d in enumerate(dates):
@@ -2441,8 +2451,8 @@ class TestReplayMinuteFill(unittest.TestCase):
 
     def test_engine_skips_open_mismatch(self):
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -2479,8 +2489,8 @@ class TestReplayMinuteFill(unittest.TestCase):
 
     def test_engine_fills_when_price_space_gate_off(self):
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {d: [_rank_row("600519", 2.0)] for d in dates}
@@ -2538,7 +2548,6 @@ class TestReplayMinuteFill(unittest.TestCase):
         self.assertAlmostEqual(fill, 108.0, places=4)
         self.assertGreater(abs(fill / 100.0 - 1.0) * 100.0, 1.0)
 
-
 class TestReplayCalendar(unittest.TestCase):
     def _iso_bars(self, n, *, start="2026-01-05"):
         from datetime import datetime, timedelta
@@ -2561,7 +2570,7 @@ class TestReplayCalendar(unittest.TestCase):
         return out
 
     def test_short_name_does_not_cap_coverage_calendar(self):
-        from core.backtest.paper_replay import _coverage_dates, _common_dates, _replay_calendar
+        from core.backtest.paper_replay import _common_dates, _coverage_dates, _replay_calendar
 
         long = self._iso_bars(40)
         short = long[-12:]
@@ -2604,7 +2613,6 @@ class TestReplayCalendar(unittest.TestCase):
         curve = out.get("equity_curve") or []
         # 起点 1 根 + 10 个交易日
         self.assertEqual(len(curve), 11)
-
 
 class TestPortfolioBacktestPersistCurve(unittest.TestCase):
     def test_fill_clock_0930_skips_minute_load(self):
@@ -2734,7 +2742,6 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
             save.assert_called()
             topk_mock.assert_not_called()
 
-
 class TestFuseHitMetrics(unittest.TestCase):
     def test_sign_hit_uses_y_oo_fuse_primary(self):
         pct, n, hits = fuse_hit_metrics(
@@ -2785,7 +2792,6 @@ class TestFuseHitMetrics(unittest.TestCase):
         self.assertIsNone(pct)
         self.assertEqual(n, 0)
         self.assertEqual(hits, 0)
-
 
 class TestOpenTcRankBackfill(unittest.TestCase):
     """09:30 缓存补挂：可交易集全缺才补；部分有名次不动。"""
@@ -2874,7 +2880,6 @@ class TestOpenTcRankBackfill(unittest.TestCase):
         kw = apply_fn.call_args.kwargs
         self.assertEqual(list(kw.get("score_codes") or []), ["A1"])
         self.assertEqual(list(kw.get("zscore_codes") or []), ["A1"])
-
 
 class TestReplayPrefixYoc(unittest.TestCase):
     def _dates(self):
@@ -3088,8 +3093,8 @@ class TestReplayPrefixYoc(unittest.TestCase):
 
     def test_injected_scores_skip_prefix_rescore(self):
         stock_bars = {
-            "600519": _bars(16, step=0.5),
-            "600036": _bars(16, step=0.3),
+            "600519": _bars__paper_replay(16, step=0.5),
+            "600036": _bars__paper_replay(16, step=0.3),
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {}
@@ -3114,7 +3119,6 @@ class TestReplayPrefixYoc(unittest.TestCase):
         self.assertEqual(int((out.get("constraints_hit") or {}).get("tau_prefix_rescored") or 0), 0)
         self.assertEqual(int((out.get("constraints_hit") or {}).get("tau_prefix_miss") or 0), 0)
 
-
 class TestReplayalpha_ooAlign(unittest.TestCase):
     def test_required_keys_from_return_models(self):
         from core.backtest.paper_replay import _required_factor_keys_from_return_models
@@ -3136,7 +3140,7 @@ class TestReplayalpha_ooAlign(unittest.TestCase):
 
     def test_score_open_day_passes_required_keys(self):
         from core.backtest.paper_replay import _score_open_day
-        from tests.test_signal import _overheated_bars
+        from tests.conftest import _overheated_bars
 
         bars = _overheated_bars()
         dates = [str(b["date"]) for b in bars]
@@ -3155,21 +3159,20 @@ class TestReplayalpha_ooAlign(unittest.TestCase):
         with patch(
             "core.signal.cross_section_batch.score_window_as_item",
             side_effect=_fake_item,
+        ), patch(
+            "core.backtest.paper_replay._attach_open_yhat_heads",
+            side_effect=lambda entries, **_kw: list(entries),
         ):
-            with patch(
-                "core.backtest.paper_replay._attach_open_yhat_heads",
-                side_effect=lambda entries, **_kw: list(entries),
-            ):
-                _score_open_day(
-                    stock_bars={"600869": bars},
-                    dates=dates,
-                    date_maps=date_maps,
-                    day_i=len(dates) - 1,
-                    max_window=62,
-                    horizon_days=1,
-                    cfg=None,
-                    required_factor_keys=["raw_aoo_YKMID", "momentum"],
-                )
+            _score_open_day(
+                stock_bars={"600869": bars},
+                dates=dates,
+                date_maps=date_maps,
+                day_i=len(dates) - 1,
+                max_window=62,
+                horizon_days=1,
+                cfg=None,
+                required_factor_keys=["raw_aoo_YKMID", "momentum"],
+            )
         keys = set(captured.get("required_factor_keys") or [])
         self.assertIn("raw_aoo_YKMID", keys)
         self.assertIn("momentum", keys)
@@ -3186,27 +3189,25 @@ class TestReplayalpha_ooAlign(unittest.TestCase):
         # 足够长的日线：lookback 核心 + alpha_oo 垫窗
         n = 90
         stock_bars = {
-            "600519": _bars(n, step=0.5),
-            "600036": _bars(n, step=0.3),
+            "600519": _bars__paper_replay(n, step=0.5),
+            "600036": _bars__paper_replay(n, step=0.3),
         }
-        with _offline_rebalance_patches():
-            with patch(
-                "core.backtest.paper_replay._load_replay_global_model",
-                return_value=model,
-            ):
-                with patch(
-                    "core.backtest.paper_replay._score_open_day",
-                    return_value=[],
-                ) as scored:
-                    out = backtest_paper_replay(
-                        stock_bars,
-                        top_k=2,
-                        min_history=12,
-                        max_window=30,
-                        lookback=20,
-                        cost_model="zero",
-                        include_session_day=False,
-                    )
+        with _offline_rebalance_patches(), patch(
+            "core.backtest.paper_replay._load_replay_global_model",
+            return_value=model,
+        ), patch(
+            "core.backtest.paper_replay._score_open_day",
+            return_value=[],
+        ) as scored:
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=2,
+                min_history=12,
+                max_window=30,
+                lookback=20,
+                cost_model="zero",
+                include_session_day=False,
+            )
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertEqual(int(out["params"]["max_window"]), ALPHA_OO_PANEL_WINDOW)
         self.assertEqual(int(out["params"]["min_history"]), ALPHA_OO_PANEL_WINDOW)
@@ -3217,6 +3218,1841 @@ class TestReplayalpha_ooAlign(unittest.TestCase):
         kw = scored.call_args.kwargs
         self.assertEqual(int(kw.get("max_window") or 0), ALPHA_OO_PANEL_WINDOW)
         self.assertIn("raw_aoo_YKMID", kw.get("required_factor_keys") or [])
+
+
+# --- from test_paper_build.py ---
+PRICES = {"600519": 10.0, "000568": 20.0, "601318": 50.0}
+
+def _fake_query(code):
+    code = str(code)
+    price = PRICES.get(code)
+    if price is None:
+        return {"success": False, "error": f"未知代码 {code}"}
+    return {
+        "success": True,
+        "stock_code": code,
+        "stock_name": f"名{code}",
+        "price_raw": price,
+    }
+
+def _paper(cash=100000.0, holdings=None):
+    return {
+        "name": "test",
+        "cash": cash,
+        "initial_cash": cash,
+        "holdings": holdings or [],
+        "trades": [],
+    }
+
+class _QuotePatchMixin:
+    """plan_buy_codes / 盯市走 facade.get_quote，不能只补 StockAPI.query。"""
+
+    def setUp(self):
+        p = patch("core.data.facade.get_quote", side_effect=_fake_query)
+        p.start()
+        self.addCleanup(p.stop)
+
+class TestPlanBuyCodes(_QuotePatchMixin, unittest.TestCase):
+    def test_plan_reports_shares_cost_and_remaining_cash(self):
+        paper = _paper()
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            plan = plan_buy_codes(paper, ["600519", "000568"], lot_shares=200)
+        self.assertEqual(plan["lot_shares"], 200)
+        self.assertEqual(plan["buy_count"], 2)
+        self.assertEqual(plan["total_amount"], 200 * 10.0 + 200 * 20.0)
+        self.assertEqual(plan["cash"], 100000.0)
+        self.assertEqual(plan["cash_after"], 100000.0 - plan["total_amount"])
+        for item in plan["items"]:
+            self.assertEqual(item["shares"], 200)
+            self.assertEqual(item["amount"], item["shares"] * item["price"])
+
+    def test_plan_does_not_touch_account(self):
+        paper = _paper()
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            plan_buy_codes(paper, ["600519"], lot_shares=200)
+        self.assertEqual(paper["cash"], 100000.0)
+        self.assertEqual(paper["holdings"], [])
+        self.assertEqual(paper["trades"], [])
+
+    def test_plan_skips_held_and_unaffordable(self):
+        paper = _paper(cash=2500.0, holdings=[{"stock_code": "600519", "shares": 100}])
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            plan = plan_buy_codes(paper, ["600519", "000568", "601318"], lot_shares=100)
+        bought = [i["stock_code"] for i in plan["items"]]
+        reasons = {s["stock_code"]: s["reason"] for s in plan["skipped"]}
+        # 便宜的先买：000568 花 2000 后余 500，601318 买不起
+        self.assertEqual(bought, ["000568"])
+        self.assertEqual(reasons["600519"], "已持仓")
+        self.assertIn("现金不足", reasons["601318"])
+
+    def test_plan_rejects_non_lot_shares(self):
+        paper = _paper()
+        with self.assertRaises(ValueError):
+            plan_buy_codes(paper, ["600519"], lot_shares=50)
+
+    def test_execution_matches_preview(self):
+        paper = _paper(cash=5000.0)
+        codes = ["600519", "000568", "601318"]
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            plan = plan_buy_codes(paper, codes, lot_shares=100)
+            result = buy_codes_direct(paper, codes, lot_shares=100)
+        self.assertEqual(
+            [(i["stock_code"], i["shares"], i["amount"]) for i in plan["items"]],
+            [(t["stock_code"], t["shares"], t["amount"]) for t in result["trades"]],
+        )
+        self.assertEqual(paper["cash"], plan["cash_after"])
+
+class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
+    def test_merge_origin(self):
+        self.assertEqual(merge_origin(None, ORIGIN_MANUAL), ORIGIN_MANUAL)
+        self.assertEqual(merge_origin("", ORIGIN_STRATEGY), ORIGIN_STRATEGY)
+        self.assertEqual(merge_origin(ORIGIN_MANUAL, ORIGIN_MANUAL), ORIGIN_MANUAL)
+        self.assertEqual(merge_origin(ORIGIN_MANUAL, ORIGIN_STRATEGY), ORIGIN_MIXED)
+        self.assertEqual(merge_origin(ORIGIN_STRATEGY, ORIGIN_MANUAL), ORIGIN_MIXED)
+
+    def test_buy_paths_mark_manual(self):
+        paper = _paper()
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            buy_codes_direct(paper, ["600519"], lot_shares=100)
+            manual_buy(paper, "000568", shares=100)
+        by_code = {h["stock_code"]: h for h in paper["holdings"]}
+        self.assertEqual(by_code["600519"]["origin"], ORIGIN_MANUAL)
+        self.assertEqual(by_code["000568"]["origin"], ORIGIN_MANUAL)
+        for trade in paper["trades"]:
+            self.assertEqual(trade["origin"], ORIGIN_MANUAL)
+
+    def test_manual_add_on_strategy_position_becomes_mixed(self):
+        paper = _paper(
+            holdings=[
+                {
+                    "stock_code": "600519",
+                    "stock_name": "名600519",
+                    "shares": 100,
+                    "cost": 9.0,
+                    "origin": ORIGIN_STRATEGY,
+                }
+            ]
+        )
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            manual_buy(paper, "600519", shares=100)
+        self.assertEqual(paper["holdings"][0]["origin"], ORIGIN_MIXED)
+
+    def test_mark_to_market_exposes_origin_label(self):
+        paper = _paper(
+            holdings=[
+                {"stock_code": "600519", "shares": 100, "cost": 10.0, "origin": ORIGIN_STRATEGY},
+                {"stock_code": "000568", "shares": 100, "cost": 20.0},
+            ]
+        )
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            summary = mark_to_market(paper)
+        by_code = {h["stock_code"]: h for h in summary["holdings"]}
+        self.assertEqual(by_code["600519"]["origin_label"], "策略")
+        # 早期记录没有出处，不臆造
+        self.assertIsNone(by_code["000568"]["origin"])
+        self.assertEqual(by_code["000568"]["origin_label"], "")
+
+    def test_plan_per_code_shares(self):
+        paper = _paper()
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            plan = plan_buy_codes(
+                paper,
+                ["600519", "000568"],
+                lot_shares=200,
+                shares_by_code={"600519": 100, "000568": 300},
+            )
+        by_code = {i["stock_code"]: i for i in plan["items"]}
+        self.assertEqual(by_code["600519"]["shares"], 100)
+        self.assertEqual(by_code["000568"]["shares"], 300)
+        self.assertEqual(plan["total_amount"], 100 * 10.0 + 300 * 20.0)
+
+    def test_plan_by_amount_per_code(self):
+        paper = _paper()
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            plan = plan_buy_codes(
+                paper,
+                ["600519", "000568"],
+                lot_shares=0,
+                amount_per_code=2000,
+            )
+        by_code = {i["stock_code"]: i for i in plan["items"]}
+        # 2000/10=200 股；2000/20=100 股
+        self.assertEqual(by_code["600519"]["shares"], 200)
+        self.assertEqual(by_code["000568"]["shares"], 100)
+        self.assertEqual(plan["sizing_mode"], "amount")
+        self.assertEqual(plan["cost_model"], "zero")
+        self.assertEqual(plan["total_amount"], 200 * 10.0 + 100 * 20.0)
+
+    def test_plan_by_position_pct(self):
+        paper = _paper(cash=10000.0)
+        with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+            plan = plan_buy_codes(
+                paper,
+                ["600519"],
+                lot_shares=0,
+                position_pct=0.2,
+            )
+        # 20% of 10000 = 2000 → 200 股 @10
+        self.assertEqual(plan["items"][0]["shares"], 200)
+        self.assertEqual(plan["sizing_mode"], "pct")
+
+    def test_enrich_operation_log_shows_trade_fees(self):
+        from core.paper.costs import enrich_operation_log_with_trade_fees
+
+        logs = [
+            {
+                "type": "buy",
+                "meta": {
+                    "stock_code": "600519",
+                    "shares": 100,
+                    "price": 10.0,
+                    "amount": 1000.0,
+                },
+            }
+        ]
+        trades = [
+            {
+                "side": "buy",
+                "stock_code": "600519",
+                "shares": 100,
+                "fees": 5.0,
+                "commission": 5.0,
+                "stamp_duty": 0.0,
+                "cost_model": "simple_cn",
+            }
+        ]
+        out = enrich_operation_log_with_trade_fees(logs, trades)
+        self.assertEqual(out[0]["meta"]["commission"], 5.0)
+        self.assertEqual(out[0]["meta"]["fees"], 5.0)
+
+    def test_enrich_operation_log_backfills_sell_pnl(self):
+        from core.paper.costs import enrich_operation_log_with_trade_fees
+
+        logs = [
+            {
+                "type": "sell",
+                "meta": {
+                    "stock_code": "600519",
+                    "shares": 100,
+                    "price": 11.0,
+                    "amount": 1100.0,
+                    "commission": 5.0,
+                    "fees": 5.0,
+                },
+            }
+        ]
+        trades = [
+            {
+                "side": "sell",
+                "stock_code": "600519",
+                "shares": 100,
+                "amount": 1100.0,
+                "pnl_pct": 10.0,
+                "commission": 5.0,
+                "fees": 5.0,
+            }
+        ]
+        out = enrich_operation_log_with_trade_fees(logs, trades)
+        self.assertEqual(out[0]["meta"]["pnl_pct"], 10.0)
+        self.assertEqual(out[0]["meta"]["fees"], 5.0)
+
+    def test_manual_sell_writes_pnl_pct(self):
+        from core.paper import manual_sell
+
+        paper = {
+            "cash": 10000.0,
+            "cost_model": "zero",
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "operation_log": [],
+        }
+        with patch("core.paper.exec._query_quote", side_effect=_fake_query):
+            with patch("core.paper.exec._quote_price", return_value=12.0):
+                with patch(
+                    "core.paper.rebalance._sell_match_block_reason",
+                    return_value=None,
+                ):
+                    trades = manual_sell(paper, stock_code="600519", shares=100)
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0]["pnl_pct"], 20.0)
+
+    def test_enrich_estimates_strategy_buy_without_fee_fields(self):
+        from core.paper.costs import enrich_operation_log_with_trade_fees
+
+        logs = [
+            {
+                "type": "buy",
+                "meta": {
+                    "stock_code": "601318",
+                    "shares": 100,
+                    "price": 54.48,
+                    "amount": 5448.0,
+                    "origin": "strategy",
+                },
+            }
+        ]
+        trades = [
+            {
+                "side": "buy",
+                "stock_code": "601318",
+                "shares": 100,
+                "amount": 5448.0,
+                "origin": "strategy",
+            }
+        ]
+        out = enrich_operation_log_with_trade_fees(
+            logs, trades, cost_model="simple_cn"
+        )
+        self.assertTrue(out[0]["meta"].get("fees_estimated"))
+        self.assertGreater(float(out[0]["meta"].get("commission") or 0), 0)
+
+    def test_simple_cn_fees_reduce_cash(self):
+        from core.paper.costs import calc_trade_fees
+
+        fee = calc_trade_fees("buy", 10000.0, model="simple_cn")
+        self.assertEqual(fee["cost_model"], "simple_cn")
+        self.assertGreater(fee["fees"], 0)
+        paper = _paper(cash=100000.0)
+        paper["cost_model"] = "simple_cn"
+        with patch("core.ports.market.query_quote", side_effect=_fake_query):
+            with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+                plan = plan_buy_codes(
+                    paper, ["600519"], lot_shares=0, amount_per_code=2000
+                )
+                result = buy_codes_direct(
+                    paper, ["600519"], lot_shares=0, amount_per_code=2000
+                )
+        self.assertEqual(plan["cost_model"], "simple_cn")
+        self.assertGreater(plan.get("total_fees") or 0, 0)
+        self.assertAlmostEqual(paper["cash"], plan["cash_after"])
+        self.assertGreater(result["trades"][0].get("fees") or 0, 0)
+
+    def test_mark_to_market_invested_and_drawdown(self):
+        paper = _paper(
+            cash=5000.0,
+            holdings=[
+                {"stock_code": "600519", "shares": 100, "cost": 10.0, "origin": ORIGIN_MANUAL},
+            ],
+        )
+        paper["snapshots"] = [
+            {"equity": 12000.0},
+            {"equity": 9000.0},
+        ]
+        with patch("core.paper.exec._query_quote", side_effect=_fake_query):
+            with patch("core.paper.exec._batch_query_quotes", return_value={}):
+                with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+                    summary = mark_to_market(paper)
+        # cash 5000 + mv 1000 = 6000；仓位 1000/6000
+        self.assertAlmostEqual(summary["invested_pct"], round(1000 / 6000 * 100, 1))
+        self.assertEqual(summary["cost_model"], "zero")
+        self.assertGreater(summary["max_drawdown_pct"], 0)
+
+    def test_mark_to_market_today_pnl_from_change_pct(self):
+        """今日收益 = Σ MV·chg/(100+chg)；账户%相对昨收净值。"""
+        from datetime import datetime as dt
+
+        class _InSession(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 8, 18, 10, 30)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(
+            cash=5000.0,
+            holdings=[
+                {"stock_code": "600519", "shares": 100, "cost": 10.0},
+                {"stock_code": "000568", "shares": 100, "cost": 20.0},
+            ],
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "stock_code": "600519",
+                "stock_name": "茅台",
+                "price_raw": 11.0,
+                "change_raw": 10.0,  # 昨收 10 → 今 11；ΔMV=100
+            },
+            "000568": {
+                "success": True,
+                "stock_code": "000568",
+                "stock_name": "泸州",
+                "price_raw": 19.0,
+                "change_raw": -5.0,  # 昨收 20 → 今 19；ΔMV=-100
+            },
+        }
+        with patch("core.paper.exec.datetime", _InSession), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-08-18"
+        ), patch("core.ports.market.batch_query_quotes", return_value=quotes):
+            with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+                summary = mark_to_market(paper)
+        # 今日浮动合计 0；净值 = 5000 + 1100 + 1900 = 8000；昨收净值同为 8000
+        self.assertEqual(summary["today_pnl"], 0.0)
+        self.assertEqual(summary["today_pnl_pct"], 0.0)
+        self.assertEqual(summary["holdings"][0]["change_pct"], 10.0)
+        self.assertEqual(summary["holdings"][1]["change_pct"], -5.0)
+
+        quotes2 = {
+            "600519": {
+                "success": True,
+                "price_raw": 11.0,
+                "change_raw": 10.0,
+            },
+            "000568": {
+                "success": True,
+                "price_raw": 20.0,
+                "change_raw": 0.0,
+            },
+        }
+        with patch("core.paper.exec.datetime", _InSession), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-08-18"
+        ), patch("core.ports.market.batch_query_quotes", return_value=quotes2):
+            with patch("core.paper.exec._batch_query_quotes", return_value=quotes2):
+                summary2 = mark_to_market(paper)
+        # ΔMV = 100；equity=5000+1100+2000=8100；昨收净值=8000；pct=1.25
+        self.assertEqual(summary2["today_pnl"], 100.0)
+        self.assertEqual(summary2["today_pnl_pct"], 1.25)
+
+    def test_mark_to_market_overnight_uses_prev_close_not_cost(self):
+        """凌晨现价=0 时按昨收盯市，不退回成本。"""
+        paper = _paper(
+            cash=5000.0,
+            holdings=[{"stock_code": "600519", "shares": 100, "cost": 10.0}],
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "stock_code": "600519",
+                "price_raw": 0.0,
+                "prev_close": 12.75,
+                "change_raw": -100.0,
+            }
+        }
+        with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+            with patch("core.paper.exec._cached_bar_mark", return_value={}):
+                summary = mark_to_market(paper)
+        row = summary["holdings"][0]
+        self.assertAlmostEqual(row["price"], 12.75)
+        self.assertEqual(row["price_source"], "prev_close")
+        self.assertEqual(row["change_pct"], 0.0)
+        self.assertAlmostEqual(summary["equity"], 5000.0 + 1275.0)
+        self.assertAlmostEqual(row["market_value"], 1275.0)
+
+    def test_mark_to_market_today_pnl_vs_prev_nav(self):
+        """有昨收账本时，今日收益 = 当前净值 − 上一交易日最后快照（含卖出/跳空）。"""
+        from datetime import datetime as dt
+
+        class _InSession(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 8, 18, 10, 30)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(
+            cash=5000.0,
+            holdings=[{"stock_code": "600519", "shares": 100, "cost": 10.0}],
+        )
+        paper["initial_cash"] = 6000.0
+        paper["snapshots"] = [
+            {"ts": "2026-08-17T23:44:12.247", "equity": 6200.0},
+        ]
+        quotes = {
+            "600519": {
+                "success": True,
+                "stock_code": "600519",
+                "price_raw": 11.0,
+                # 若仍按个股涨跌幅，会得到 +100 / ~1.6%；账本口径应对 6200
+                "change_raw": 10.0,
+            },
+        }
+        with patch("core.paper.exec.datetime", _InSession), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-08-18"
+        ), patch("core.ports.market.batch_query_quotes", return_value=quotes):
+            with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+                summary = mark_to_market(paper)
+        # equity = 5000 + 1100 = 6100；相对昨收账本 6200 → -100 / -1.61%
+        self.assertEqual(summary["today_pnl_basis"], "prev_nav")
+        self.assertEqual(summary["today_pnl"], -100.0)
+        self.assertAlmostEqual(summary["today_pnl_pct"], round(-100.0 / 6200.0 * 100.0, 2))
+        self.assertAlmostEqual(summary["total_pnl_pct"], round((6100 / 6000 - 1) * 100.0, 2))
+
+    def test_today_pnl_is_zero_after_calendar_rollover(self):
+        """周六凌晨：日历已跨日、会话未开，今日收益为 0，不吃周五盘中快照。"""
+        from datetime import datetime as dt
+
+        class _Sat(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 9, 19, 1, 36)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(
+            cash=177343.09,
+            holdings=[
+                {"stock_code": "300122", "shares": 500, "cost": 12.33},
+                {"stock_code": "000739", "shares": 700, "cost": 23.30},
+            ],
+        )
+        paper["snapshots"] = [
+            {"ts": "2026-09-17T15:00:00", "equity": 200000.0},
+            {"ts": "2026-09-18T11:28:43", "equity": 200240.09},
+        ]
+        quotes = {
+            "300122": {
+                "success": True,
+                "stock_code": "300122",
+                "price_raw": 12.75,
+                "prev_close": 12.35,
+            },
+            "000739": {
+                "success": True,
+                "stock_code": "000739",
+                "price_raw": 23.48,
+                "prev_close": 23.09,
+            },
+        }
+        with patch("core.paper.exec.datetime", _Sat):
+            with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+                with patch(
+                    "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+                ):
+                    summary = mark_to_market(paper)
+        self.assertAlmostEqual(summary["equity"], 200154.09, places=2)
+        self.assertEqual(summary["today_pnl_basis"], "prev_close")
+        self.assertEqual(summary["today_pnl"], 0.0)
+        self.assertEqual(summary["today_pnl_pct"], 0.0)
+
+    def test_today_pnl_keeps_session_on_friday_evening(self):
+        """周五收盘后、日历未跨日：今日收益仍相对周四账本。"""
+        from datetime import datetime as dt
+
+        class _Fri(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 9, 18, 16, 20)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(
+            cash=177343.09,
+            holdings=[
+                {"stock_code": "300122", "shares": 500, "cost": 12.33},
+                {"stock_code": "000739", "shares": 700, "cost": 23.30},
+            ],
+        )
+        paper["snapshots"] = [
+            {"ts": "2026-09-17T15:00:00", "equity": 200000.0},
+            {"ts": "2026-09-18T11:28:43", "equity": 200240.09},
+        ]
+        quotes = {
+            "300122": {
+                "success": True,
+                "stock_code": "300122",
+                "price_raw": 12.75,
+                "prev_close": 12.35,
+            },
+            "000739": {
+                "success": True,
+                "stock_code": "000739",
+                "price_raw": 23.48,
+                "prev_close": 23.09,
+            },
+        }
+        with patch("core.paper.exec.datetime", _Fri):
+            with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+                with patch(
+                    "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+                ):
+                    summary = mark_to_market(paper)
+        self.assertEqual(summary["today_pnl_basis"], "prev_nav")
+        self.assertAlmostEqual(summary["today_pnl"], 154.09, places=2)
+
+    def test_mark_to_market_today_pnl_cash_only(self):
+        paper = _paper(cash=10000.0, holdings=[])
+        summary = mark_to_market(paper)
+        self.assertEqual(summary["today_pnl"], 0.0)
+        self.assertEqual(summary["today_pnl_pct"], 0.0)
+
+    def test_mark_to_market_today_pnl_uses_reset_anchor(self):
+        """当日回零后，今日收益相对回零价，不再吃昨收涨跌幅。"""
+        from datetime import datetime
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        paper = _paper(
+            cash=5000.0,
+            holdings=[
+                {"stock_code": "600519", "shares": 100, "cost": 10.0},
+                {"stock_code": "000568", "shares": 100, "cost": 20.0},
+            ],
+        )
+        paper["initial_cash"] = 8100.0
+        paper["pnl_anchor"] = {
+            "ts": f"{today}T10:00:00",
+            "date": today,
+            "equity": 8100.0,
+            "prices": {"600519": 11.0, "000568": 20.0},
+        }
+        quotes = {
+            "600519": {
+                "success": True,
+                "price_raw": 12.0,
+                "change_raw": 20.0,  # 昨收口径会算更大；锚点只认 +1
+            },
+            "000568": {
+                "success": True,
+                "price_raw": 20.0,
+                "change_raw": 5.0,
+            },
+        }
+        with patch("core.ports.market.batch_query_quotes", return_value=quotes):
+            summary = mark_to_market(paper)
+        # (12-11)*100 + (20-20)*100 = 100；相对回零净值 8100 → 1.23%
+        self.assertEqual(summary["today_pnl_basis"], "reset")
+        self.assertEqual(summary["today_pnl"], 100.0)
+        self.assertEqual(summary["today_pnl_pct"], 1.23)
+
+    def test_mark_to_market_origin_summary(self):
+        paper = _paper(
+            holdings=[
+                {
+                    "stock_code": "600519",
+                    "shares": 100,
+                    "cost": 10.0,
+                    "origin": ORIGIN_MANUAL,
+                },
+                {
+                    "stock_code": "000568",
+                    "shares": 100,
+                    "cost": 20.0,
+                    "origin": ORIGIN_STRATEGY,
+                },
+            ]
+        )
+        with patch("core.paper.exec._query_quote", side_effect=_fake_query):
+            with patch("core.paper.exec._batch_query_quotes", return_value={}):
+                with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+                    summary = mark_to_market(paper)
+        labels = {o["origin_label"]: o for o in summary["origin_summary"]}
+        self.assertEqual(labels["手动"]["count"], 1)
+        self.assertEqual(labels["策略"]["count"], 1)
+        self.assertAlmostEqual(labels["手动"]["market_value"], 1000.0)
+        self.assertAlmostEqual(labels["策略"]["market_value"], 2000.0)
+
+class TestPlanSyncToPaper(_QuotePatchMixin, unittest.TestCase):
+    def test_preview_limited_to_watchlist(self):
+        from core.watching.store import plan_sync_to_paper, read_watching, write_watching
+
+        with tempfile.TemporaryDirectory() as tmp:
+            uni_path = os.path.join(tmp, "watching.json")
+            paper_path = os.path.join(tmp, "paper.json")
+            write_watching(
+                {
+                    "sources": [],
+                    "watchlist": ["600519", "000568"],
+                    "watchlist_origins": ["手动", "手动"],
+                    "watchlist_names": ["贵州茅台", "泸州老窖"],
+                },
+                uni_path,
+            )
+            with open(paper_path, "w", encoding="utf-8") as f:
+                json.dump(_paper(), f)
+
+            with patch("core.watching.store.read_watching", return_value=read_watching(uni_path)):
+                with patch("adapters.market.quote_api.StockAPI.query", side_effect=_fake_query):
+                    plan = plan_sync_to_paper(
+                        paper_path,
+                        codes=["600519", "999999"],
+                        lot_shares=100,
+                    )
+
+            self.assertTrue(plan["success"])
+            self.assertEqual([i["stock_code"] for i in plan["items"]], ["600519"])
+            self.assertEqual(plan["missing"], ["999999"])
+            with open(paper_path, encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["holdings"], [])
+
+class TestSellNavCurveSnapshots(unittest.TestCase):
+    """卖出前先盯市落点：涨跌先画上，卖出点本身接近持平。"""
+
+    def test_sell_splits_mtm_rise_from_trade(self):
+        from services.paper_service import PaperService
+
+        prices = {"600519": 10.0}
+
+        def _q(code):
+            code = str(code)
+            return {
+                "success": True,
+                "stock_code": code,
+                "stock_name": f"名{code}",
+                "price_raw": prices[code],
+            }
+
+        def _batch(codes):
+            return {str(c): _q(c) for c in codes}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            svc = PaperService(path)
+            svc.init()
+            with patch("core.paper.open_fill.require_open_fill", return_value=None):
+                with patch("core.paper.exec._query_quote", side_effect=_q):
+                    with patch("core.paper.exec._batch_query_quotes", side_effect=_batch):
+                        svc.set_cost_model("zero")
+                        svc.buy(stock_code="600519", amount=5000)
+
+                        paper = load_paper(path)
+                        stale_equity = float(paper["snapshots"][-1]["equity"])
+                        paper["snapshots"] = [
+                            {
+                                "ts": "2024-01-01T00:00:00.000",
+                                "equity": stale_equity,
+                                "cash": paper.get("cash"),
+                                "stock_value": 5000.0,
+                            }
+                        ]
+                        save_paper(paper, path)
+
+                        prices["600519"] = 12.0
+                        paper = load_paper(path)
+                        from core.market.calendar import prev_trading_day
+                        from core.paper.tplus1 import session_date
+
+                        sess = session_date()
+                        prev = prev_trading_day(sess) or "2026-08-20"
+                        for h in paper.get("holdings") or []:
+                            h["bought_at"] = f"{prev}T10:00:00"
+                            h["lots"] = [
+                                {
+                                    "shares": float(h.get("shares") or 0),
+                                    "bought_at": h["bought_at"],
+                                    "bought_date": prev,
+                                }
+                            ]
+                        save_paper(paper, path)
+                        out = svc.sell(codes=["600519"])
+                        self.assertTrue(out.get("ok"), out)
+
+                        paper = load_paper(path)
+                        snaps = paper.get("snapshots") or []
+                        self.assertGreaterEqual(len(snaps), 2)
+                        pre, post = snaps[-2], snaps[-1]
+                        self.assertGreater(float(pre["equity"]), stale_equity)
+                        self.assertAlmostEqual(
+                            float(pre["equity"]), float(post["equity"]), delta=1.0
+                        )
+                        self.assertNotEqual(pre.get("ts"), post.get("ts"))
+                        self.assertEqual(paper.get("holdings") or [], [])
+
+class TestSnapshotsForUiLiveOverlay(unittest.TestCase):
+    """盘中盯市与落盘快照分叉时，UI 曲线末点应对齐摘要总净值。"""
+
+    def test_appends_live_point_when_mtm_moved(self):
+        from core.paper import snapshots_for_ui
+
+        paper = {
+            "snapshots": [
+                {
+                    "ts": "2026-08-18T11:48:25.999",
+                    "equity": 99976.3,
+                    "cash": 55040.3,
+                    "stock_value": 44936.0,
+                }
+            ]
+        }
+        summary = {
+            "equity": 100238.3,
+            "cash": 55040.3,
+            "stock_value": 45198.0,
+            "total_pnl_pct": 0.24,
+            "position_count": 5,
+        }
+        out = snapshots_for_ui(paper, summary)
+        self.assertEqual(len(out), 2)
+        self.assertFalse(out[0].get("live"))
+        self.assertTrue(out[-1].get("live"))
+        self.assertAlmostEqual(float(out[-1]["equity"]), 100238.3)
+        self.assertGreater(str(out[-1]["ts"]), str(out[0]["ts"]))
+
+    def test_skips_overlay_when_already_aligned(self):
+        from core.paper import snapshots_for_ui
+
+        paper = {
+            "snapshots": [{"ts": "2026-08-18T11:48:25.999", "equity": 99976.3}]
+        }
+        out = snapshots_for_ui(paper, {"equity": 99976.3, "cash": 1})
+        self.assertEqual(len(out), 1)
+        self.assertFalse(out[0].get("live"))
+
+    def test_does_not_mutate_paper_snapshots(self):
+        from core.paper import snapshots_for_ui
+
+        paper = {"snapshots": [{"ts": "2026-08-18T11:48:25.999", "equity": 100.0}]}
+        snapshots_for_ui(paper, {"equity": 110.0})
+        self.assertEqual(len(paper["snapshots"]), 1)
+        self.assertEqual(paper["snapshots"][0]["equity"], 100.0)
+
+class TestResetClearsStaleNorthStar(unittest.TestCase):
+    def test_reset_does_not_keep_pre_reset_sharpe(self):
+        from services.paper_service import PaperService
+
+        summary = {
+            "equity": 199999.99,
+            "cash": 67603.99,
+            "stock_value": 132396.0,
+            "position_count": 1,
+            "holdings": [{"stock_code": "600519", "price": 10.0}],
+        }
+        fresh = {
+            "ok": True,
+            "computed_at": "2026-10-07T19:52:00",
+            "paper_risk": {
+                "rolling_sharpe": None,
+                "calmar": None,
+                "max_drawdown_pct": 0.0,
+                "sample_count": 1,
+                "status": "unavailable",
+            },
+            "realization": {},
+            "ttm": {},
+            "risk_blocks": {},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            svc = PaperService(path)
+            svc.init()
+            paper = load_paper(path)
+            paper["last_north_star"] = {
+                "ok": True,
+                "computed_at": "2026-09-10T20:21:08",
+                "paper_risk": {
+                    "rolling_sharpe": 17.0888,
+                    "calmar": 2458.8012,
+                    "sample_count": 14,
+                    "status": "ok",
+                },
+            }
+            paper["last_ops_report"] = {
+                "north_star": {
+                    "rolling_sharpe": 17.0888,
+                    "calmar": 2458.8012,
+                    "status": {"paper_risk": "ok"},
+                },
+                "monitor_metrics": {
+                    "rolling_sharpe": 20.3,
+                    "calmar": 2328.0,
+                    "max_drawdown_pct": 1.24,
+                },
+                "target_weights": {"600000": 10},
+                "optimize": {"ok": True, "count": 1},
+            }
+            paper["last_optimize"] = {"ok": True, "weights_pct": {"600000": 10}}
+            paper["pending_orders"] = {
+                "as_of": "2026-10-01",
+                "target_fill_date": "2026-10-08",
+                "source": "manual_sell",
+                "legs": [{"side": "sell", "stock_code": "600519", "shares": 100}],
+            }
+            paper.setdefault("operation_log", []).append(
+                {
+                    "ts": "2026-10-01T10:00:00",
+                    "type": "watching_matrix_rebalance",
+                    "detail": "矩阵 live 调仓",
+                }
+            )
+            save_paper(paper, path)
+            with patch(
+                "services.paper_account.mark_to_market", return_value=summary
+            ), patch(
+                "core.north_star.build_north_star_report", return_value=fresh
+            ):
+                out = svc.reset()
+            self.assertIn("基线 200,000", out.get("message") or "")
+            risk = (out.get("north_star") or {}).get("paper_risk") or {}
+            self.assertIsNone(risk.get("rolling_sharpe"))
+            self.assertIsNone(risk.get("calmar"))
+            saved = load_paper(path)
+            self.assertEqual(len(saved["snapshots"]), 1)
+            reset_logs = [
+                row
+                for row in (saved.get("operation_log") or [])
+                if row.get("type") == "reset"
+            ]
+            self.assertTrue(reset_logs)
+            self.assertIn("基线 200,000", reset_logs[-1].get("detail") or "")
+            self.assertEqual(reset_logs[-1]["meta"]["equity"], 199999.99)
+            self.assertFalse(saved.get("pending_orders"))
+            self.assertNotIn("last_optimize", saved)
+            self.assertNotIn("target_weights", saved.get("last_ops_report") or {})
+            self.assertFalse(
+                any(
+                    row.get("type") == "watching_matrix_rebalance"
+                    for row in (saved.get("operation_log") or [])
+                )
+            )
+            self.assertIsNone(saved["last_north_star"]["paper_risk"]["rolling_sharpe"])
+            self.assertIsNone(saved["last_ops_report"]["north_star"]["rolling_sharpe"])
+            self.assertIsNone(saved["last_ops_report"]["monitor_metrics"]["calmar"])
+            self.assertEqual(
+                saved["last_ops_report"]["monitor_metrics"]["max_drawdown_pct"], 0.0
+            )
+
+
+# --- from test_paper_open_fill.py ---
+def _dt(h: int, m: int, day: str = "2026-08-21") -> datetime:
+    y, mo, d = [int(x) for x in day.split("-")]
+    return datetime(y, mo, d, h, m)
+
+class TestPaperFillPhase(unittest.TestCase):
+    def test_open_session_closed(self):
+        from core.paper.open_fill import paper_fill_phase
+
+        self.assertEqual(paper_fill_phase(_dt(9, 30)), "open")
+        self.assertEqual(paper_fill_phase(_dt(10, 30)), "session")
+        self.assertEqual(paper_fill_phase(_dt(15, 30)), "closed")
+        self.assertEqual(paper_fill_phase(_dt(16, 40)), "closed")
+        self.assertEqual(paper_fill_phase(_dt(8, 0)), "closed")
+
+    def test_target_fill_date_preopen_is_today(self):
+        """交易日盘前应挂今日开盘，不能 next_trading_day 跳到明天。"""
+        from core.paper.open_fill import _target_fill_date, pending_from_trades
+
+        # 2026-08-21 周五
+        self.assertEqual(_target_fill_date(_dt(8, 0, "2026-08-21")), "2026-08-21")
+        self.assertEqual(_target_fill_date(_dt(9, 30, "2026-08-21")), "2026-08-21")
+        self.assertEqual(_target_fill_date(_dt(10, 30, "2026-08-21")), "2026-08-24")
+        self.assertEqual(_target_fill_date(_dt(16, 40, "2026-08-21")), "2026-08-24")
+        po = pending_from_trades(
+            [{"side": "sell", "stock_code": "600519", "shares": 100, "price": 1.0}],
+            [],
+            now=_dt(8, 30, "2026-08-21"),
+        )
+        self.assertEqual(po["as_of"], "2026-08-21")
+        self.assertEqual(po["target_fill_date"], "2026-08-21")
+
+    def test_heal_preopen_wrong_target_in_open_window(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 1400.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-25",  # 盘前误标次日
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 1500.0,
+                    }
+                ],
+            },
+        )
+        quotes = {"600519": {"success": True, "open_raw": 1410.0, "stock_name": "茅台"}}
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertTrue(out.get("filled"))
+        self.assertFalse(paper.get("pending_orders"))
+
+    def test_open_fill_skips_limit_up_buy(self):
+        """开盘涨停：买单不成交，挂单保留。"""
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "buy",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 10.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "open_raw": 11.0,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertFalse(out.get("filled"))
+        self.assertEqual(len(out.get("skips") or []), 1)
+        self.assertIn("涨停", str((out["skips"][0] or {}).get("reason") or ""))
+        legs = (paper.get("pending_orders") or {}).get("legs") or []
+        self.assertEqual(len(legs), 1)
+        self.assertEqual(paper.get("cash"), 100000.0)
+        self.assertFalse(paper.get("trades"))
+
+    def test_open_fill_skips_limit_down_sell(self):
+        """开盘跌停：卖单不成交，持仓与挂单都保留。"""
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 10.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "open_raw": 9.0,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertFalse(out.get("filled"))
+        self.assertIn("跌停", str((out.get("skips") or [{}])[0].get("reason") or ""))
+        self.assertEqual(len(paper.get("holdings") or []), 1)
+        self.assertEqual(len((paper.get("pending_orders") or {}).get("legs") or []), 1)
+
+    def test_open_fill_skips_halted(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 10.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "open_raw": 10.2,
+                "prev_close": 10.0,
+                "status": "停牌",
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertFalse(out.get("filled"))
+        self.assertIn("停牌", str((out.get("skips") or [{}])[0].get("reason") or ""))
+        self.assertEqual(len(paper.get("holdings") or []), 1)
+
+    def test_open_fill_still_fills_normal_open(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 10.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "open_raw": 10.2,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertTrue(out.get("filled"))
+        self.assertFalse(paper.get("pending_orders"))
+        self.assertEqual(len(paper.get("holdings") or []), 0)
+
+    def test_session_midpoint_chase_fills_sell(self):
+        """开盘后：按意向价与现价中点成交卖出挂单。"""
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 12.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "price_raw": 10.0,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(10, 30, "2026-08-24"), quotes=quotes)
+        self.assertTrue(out.get("filled"), out)
+        self.assertEqual(out.get("mode"), "chase")
+        self.assertFalse(paper.get("pending_orders"))
+        self.assertEqual(len(paper.get("holdings") or []), 0)
+        trade = (out.get("trades") or [])[0]
+        self.assertAlmostEqual(float(trade.get("price") or 0), 11.0, places=4)
+        self.assertIn("中点追价", str(trade.get("note") or ""))
+
+    def test_session_chase_respects_interval(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 12.0,
+                        "last_chase_at": "2026-08-24T10:25:00",
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "price_raw": 10.0,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(10, 30, "2026-08-24"), quotes=quotes)
+        self.assertFalse(out.get("filled"))
+        self.assertEqual(len((paper.get("pending_orders") or {}).get("legs") or []), 1)
+
+    def test_eod_force_fills_at_last(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 12.0,
+                        "last_chase_at": "2026-08-24T14:55:00",
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "price_raw": 9.8,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(14, 55, "2026-08-24"), quotes=quotes)
+        self.assertTrue(out.get("filled"), out)
+        self.assertEqual(out.get("mode"), "eod_force")
+        trade = (out.get("trades") or [])[0]
+        self.assertAlmostEqual(float(trade.get("price") or 0), 9.8, places=4)
+
+class TestNextOpenCommit(unittest.TestCase):
+    def _paper(self):
+        return {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 1400.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+            "strategy_id": "short_conservative",
+        }
+
+    def test_stage_after_close(self):
+        from core.paper.open_fill import apply_next_open_commit
+
+        original = self._paper()
+        mutated = {
+            **self._paper(),
+            "cash": 240000.0,
+            "holdings": [],
+            "last_optimize": {"ok": True},
+        }
+        result = {
+            "ok": True,
+            "sell_trades": [
+                {
+                    "side": "sell",
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "price": 1500.0,
+                }
+            ],
+            "buy_trades": [],
+        }
+        paper, out = apply_next_open_commit(
+            original, mutated, result, now=_dt(16, 40), dry_run=False
+        )
+        self.assertEqual(out["fill_action"], "staged")
+        self.assertTrue(out.get("staged"))
+        self.assertEqual(len(paper.get("holdings") or []), 1)
+        self.assertAlmostEqual(float(paper.get("cash") or 0), 100000.0)
+        legs = (paper.get("pending_orders") or {}).get("legs") or []
+        self.assertEqual(len(legs), 1)
+        self.assertEqual(legs[0]["side"], "sell")
+        self.assertEqual(paper.get("last_optimize"), {"ok": True})
+
+    def test_close_mode_keeps_mutated(self):
+        from core.paper.open_fill import apply_next_open_commit
+
+        original = self._paper()
+        original["rules"]["execution_mode"] = "close"
+        mutated = {**self._paper(), "cash": 1.0, "holdings": []}
+        mutated["rules"]["execution_mode"] = "close"
+        result = {"ok": True, "sell_trades": [], "buy_trades": []}
+        paper, out = apply_next_open_commit(
+            original, mutated, result, now=_dt(16, 40), dry_run=False
+        )
+        self.assertEqual(out["fill_action"], "immediate")
+        self.assertEqual(paper.get("cash"), 1.0)
+        self.assertEqual(paper.get("holdings"), [])
+
+    def test_session_fills_immediately(self):
+        from core.paper.open_fill import apply_next_open_commit
+
+        original = self._paper()
+        mutated = {**self._paper(), "cash": 1.0, "holdings": []}
+        result = {"ok": True, "sell_trades": [], "buy_trades": []}
+        paper, out = apply_next_open_commit(
+            original, mutated, result, now=_dt(10, 30), dry_run=False
+        )
+        self.assertEqual(out["fill_action"], "immediate")
+        self.assertEqual(paper.get("cash"), 1.0)
+        self.assertEqual(paper.get("holdings"), [])
+
+    def test_preopen_stages_until_continuous(self):
+        """09:25–09:30 有调仓腿则挂今开单，不改持仓。"""
+        from core.paper.open_fill import apply_next_open_commit
+
+        original = self._paper()
+        mutated = {**self._paper(), "cash": 1.0, "holdings": []}
+        result = {
+            "ok": True,
+            "sell_trades": [
+                {
+                    "side": "sell",
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "price": 1500.0,
+                }
+            ],
+            "buy_trades": [],
+        }
+        paper, out = apply_next_open_commit(
+            original, mutated, result, now=_dt(9, 25), dry_run=False
+        )
+        self.assertEqual(out["fill_action"], "staged")
+        self.assertTrue((paper.get("pending_orders") or {}).get("live_preopen"))
+        self.assertEqual(len(paper.get("holdings") or []), 1)
+        self.assertAlmostEqual(float(paper.get("cash") or 0), 100000.0)
+        self.assertEqual(
+            str((paper.get("pending_orders") or {}).get("target_fill_date") or "")[:10],
+            "2026-08-21",
+        )
+        _, at_open = apply_next_open_commit(
+            original, mutated, result, now=_dt(9, 30), dry_run=False
+        )
+        self.assertEqual(at_open["fill_action"], "immediate")
+
+    def test_open_window_without_pending_uses_quote(self):
+        from core.paper.open_fill import apply_next_open_commit
+
+        original = self._paper()
+        mutated = {**self._paper(), "cash": 1.0, "holdings": []}
+        result = {"ok": True, "sell_trades": [], "buy_trades": []}
+        paper, out = apply_next_open_commit(
+            original, mutated, result, now=_dt(9, 30), dry_run=False
+        )
+        self.assertEqual(out["fill_action"], "immediate")
+        self.assertEqual(paper.get("cash"), 1.0)
+        self.assertEqual(paper.get("holdings"), [])
+
+    def test_fill_pending_at_open(self):
+        from core.paper.open_fill import fill_pending_at_open, pending_from_trades, stage_pending
+
+        paper = self._paper()
+        pending = pending_from_trades(
+            [
+                {
+                    "side": "sell",
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "price": 1500.0,
+                }
+            ],
+            [],
+            now=_dt(16, 40),
+        )
+        stage_pending(paper, pending)
+        quotes = {
+            "600519": {"success": True, "open_raw": 1410.0, "stock_name": "茅台"}
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertTrue(out.get("filled"))
+        self.assertFalse(paper.get("pending_orders"))
+        self.assertEqual(paper.get("holdings") or [], [])
+        self.assertGreater(float(paper.get("cash") or 0), 100000.0)
+
+    def test_require_open_fill_blocks_after_close(self):
+        from core.paper.open_fill import require_open_fill
+
+        msg = require_open_fill(self._paper(), now=_dt(16, 0), action="做 T")
+        self.assertIsNotNone(msg)
+        self.assertIn("next_open", str(msg))
+        self.assertIn("收盘", str(msg))
+        self.assertIsNone(require_open_fill(self._paper(), now=_dt(9, 30)))
+        self.assertIsNone(require_open_fill(self._paper(), now=_dt(10, 30)))
+
+    def test_manual_sell_stages_pending_after_close(self):
+        """收盘后手动清仓 → 挂次日开盘单，不改持仓。"""
+        import json
+        import tempfile
+
+        from services.paper_service import PaperService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            paper = {
+                "cash": 100000.0,
+                "initial_cash": 100000.0,
+                "holdings": [
+                    {
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 200,
+                        "cost": 100.0,
+                        "lots": [{"shares": 200, "buy_date": "2026-08-20"}],
+                    }
+                ],
+                "trades": [],
+                "operation_log": [],
+                "rules": {"execution_mode": "next_open"},
+                "pending_orders": None,
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            svc = PaperService(path)
+            with patch(
+                "core.paper.open_fill.paper_fill_phase", return_value="closed"
+            ), patch(
+                "core.paper.open_fill.is_next_open_mode", return_value=True
+            ), patch(
+                "core.paper.open_fill._target_fill_date", return_value="2026-08-24"
+            ):
+                out = svc.sell(stock_code="600519")
+
+            self.assertTrue(out.get("staged"), out)
+            self.assertEqual(out.get("fill_action"), "staged")
+            po = out.get("pending_orders") or {}
+            legs = po.get("legs") or []
+            self.assertEqual(len(legs), 1, po)
+            self.assertEqual(legs[0].get("side"), "sell")
+            self.assertEqual(legs[0].get("stock_code"), "600519")
+            self.assertEqual(float(legs[0].get("shares") or 0), 200.0)
+            with open(path, encoding="utf-8") as f:
+                reloaded = json.load(f)
+            self.assertEqual(len(reloaded.get("holdings") or []), 1)
+            self.assertEqual(
+                float((reloaded["holdings"][0]).get("shares") or 0), 200.0
+            )
+            self.assertIn("挂", str(out.get("message") or ""))
+
+    def test_manual_sell_stages_same_day_buy_for_next_open(self):
+        """收盘后挂次日开盘卖：今日买入不受 T+1 拦挂（成交日已过 T+1）。"""
+        import json
+        import tempfile
+
+        from services.paper_service import PaperService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            paper = {
+                "cash": 100000.0,
+                "initial_cash": 100000.0,
+                "holdings": [
+                    {
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 200,
+                        "cost": 100.0,
+                        "lots": [
+                            {
+                                "shares": 200,
+                                "bought_date": "2026-08-28",
+                                "bought_at": "2026-08-28T09:40:00",
+                            }
+                        ],
+                    }
+                ],
+                "trades": [],
+                "operation_log": [],
+                "rules": {"execution_mode": "next_open"},
+                "pending_orders": None,
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            svc = PaperService(path)
+            with patch(
+                "core.paper.open_fill.paper_fill_phase", return_value="closed"
+            ), patch(
+                "core.paper.open_fill.is_next_open_mode", return_value=True
+            ), patch(
+                "core.paper.open_fill._target_fill_date", return_value="2026-08-31"
+            ):
+                out = svc.sell(stock_code="600519")
+
+            self.assertTrue(out.get("staged"), out)
+            legs = (out.get("pending_orders") or {}).get("legs") or []
+            self.assertEqual(len(legs), 1, out)
+            self.assertEqual(float(legs[0].get("shares") or 0), 200.0)
+
+class TestExecutionTiming(unittest.TestCase):
+    def test_default_next_open(self):
+        from core.execution import resolve_effective_execution
+
+        bundle = resolve_effective_execution(strategy="short_conservative", channel="paper")
+        timing = bundle.get("rebalance_timing") or {}
+        self.assertEqual(timing.get("execution_mode"), "next_open")
+        self.assertIn("次日开盘", bundle.get("summary") or "")
+
+
+# --- from test_paper_tplus1.py ---
+class TestTplus1Lots(unittest.TestCase):
+    def test_same_day_buy_locked(self):
+        h = {"shares": 100, "bought_at": "2026-08-21T10:00:00"}
+        stamp_new_holding(h, ts="2026-08-21T10:00:00", as_of="2026-08-21")
+        self.assertEqual(sellable_shares(h, as_of="2026-08-21"), 0)
+        self.assertEqual(locked_shares(h, as_of="2026-08-21"), 100)
+        qty, meta = clip_sell_shares(h, 100, as_of="2026-08-21")
+        self.assertEqual(qty, 0)
+        self.assertEqual(meta["reason"], TPLUS1_LOCK_REASON)
+
+    def test_next_trading_day_unlocks(self):
+        h = {"shares": 100, "bought_at": "2026-08-21T10:00:00"}
+        stamp_new_holding(h, ts="2026-08-21T10:00:00", as_of="2026-08-21")
+        self.assertEqual(sellable_shares(h, as_of="2026-08-24"), 100)
+        qty, _ = clip_sell_shares(h, 100, as_of="2026-08-24")
+        self.assertEqual(qty, 100)
+
+    def test_weekend_still_locked_after_friday_buy(self):
+        h = {"shares": 100, "bought_at": "2026-08-21T10:00:00"}
+        stamp_new_holding(h, ts="2026-08-21T10:00:00", as_of="2026-08-21")
+        self.assertEqual(sellable_shares(h, as_of="2026-08-22"), 0)
+        self.assertEqual(sellable_shares(h, as_of="2026-08-23"), 0)
+
+    def test_mixed_lots_only_old_sellable(self):
+        h = {"shares": 0, "lots": []}
+        add_buy_lot(h, 500, ts="2026-08-20T10:00:00", as_of="2026-08-20")
+        add_buy_lot(h, 200, ts="2026-08-21T10:00:00", as_of="2026-08-21")
+        self.assertEqual(h["shares"], 700)
+        self.assertEqual(sellable_shares(h, as_of="2026-08-21"), 500)
+        sold = consume_sell_lots(h, 500, as_of="2026-08-21")
+        self.assertEqual(sold, 500)
+        self.assertEqual(h["shares"], 200)
+        self.assertEqual(sellable_shares(h, as_of="2026-08-21"), 0)
+
+    def test_grandfather_missing_bought_at_is_sellable(self):
+        h = {"shares": 100}
+        self.assertEqual(sellable_shares(h, as_of="2026-08-21"), 100)
+
+    def test_t0_buyback_locks_new_shares(self):
+        h = {"shares": 0, "lots": []}
+        add_buy_lot(h, 1000, ts="2026-08-20T10:00:00", as_of="2026-08-20")
+        apply_t0_trades(
+            h,
+            [
+                {"side": "t0_sell", "shares": 400},
+                {"side": "t0_buy", "shares": 400},
+            ],
+            as_of="2026-08-21",
+            ts="2026-08-21T14:00:00",
+        )
+        self.assertEqual(h["shares"], 1000)
+        self.assertEqual(sellable_shares(h, as_of="2026-08-21"), 600)
+        self.assertEqual(locked_shares(h, as_of="2026-08-21"), 400)
+
+class TestTplus1ManualSell(unittest.TestCase):
+    def test_manual_sell_blocks_same_day_buy(self):
+        from core.paper.exec import manual_sell
+
+        paper = {
+            "cash": 10000.0,
+            "cost_model": "zero",
+            "holdings": [],
+            "trades": [],
+            "operation_log": [],
+        }
+        h = {
+            "stock_code": "600519",
+            "stock_name": "茅台",
+            "shares": 100,
+            "cost": 10.0,
+        }
+        stamp_new_holding(h, ts="2026-08-21T10:00:00", as_of="2026-08-21")
+        paper["holdings"].append(h)
+
+        def _quote(_code):
+            return {"success": True, "stock_name": "茅台"}
+
+        with patch("core.paper.tplus1.session_date", return_value="2026-08-21"):
+            with patch("core.paper.exec._query_quote", side_effect=_quote):
+                with patch("core.paper.exec._quote_price", return_value=12.0):
+                    with patch(
+                        "core.paper.rebalance._sell_match_block_reason",
+                        return_value=None,
+                    ):
+                        with self.assertRaises(ValueError) as ctx:
+                            manual_sell(paper, stock_code="600519", shares=100)
+        self.assertIn("T+1", str(ctx.exception))
+        self.assertEqual(paper["holdings"][0]["shares"], 100)
+
+    def test_manual_sell_allows_next_session(self):
+        from core.paper.exec import manual_sell
+
+        paper = {
+            "cash": 10000.0,
+            "cost_model": "zero",
+            "holdings": [],
+            "trades": [],
+            "operation_log": [],
+        }
+        h = {
+            "stock_code": "600519",
+            "stock_name": "茅台",
+            "shares": 100,
+            "cost": 10.0,
+        }
+        stamp_new_holding(h, ts="2026-08-21T10:00:00", as_of="2026-08-21")
+        paper["holdings"].append(h)
+
+        def _quote(_code):
+            return {"success": True, "stock_name": "茅台"}
+
+        with patch("core.paper.tplus1.session_date", return_value="2026-08-24"):
+            with patch("core.paper.exec._query_quote", side_effect=_quote):
+                with patch("core.paper.exec._quote_price", return_value=12.0):
+                    with patch(
+                        "core.paper.rebalance._sell_match_block_reason",
+                        return_value=None,
+                    ):
+                        trades = manual_sell(paper, stock_code="600519", shares=100)
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(paper["holdings"], [])
+
+    def test_add_buy_does_not_unlock_new_shares(self):
+        h = {"shares": 0, "lots": []}
+        add_buy_lot(h, 100, ts="2026-08-20T10:00:00", as_of="2026-08-20")
+        add_buy_lot(h, 100, ts="2026-08-21T11:00:00", as_of="2026-08-21")
+        qty, meta = clip_sell_shares(h, 200, as_of="2026-08-21")
+        self.assertEqual(qty, 100)
+        self.assertTrue(meta["clipped"])
+        self.assertEqual(meta["locked"], 100)
+
+    def test_restore_and_consume_lots_for_void(self):
+        from core.paper.tplus1 import consume_lots_bought_on, restore_sellable_lot
+
+        h = {"shares": 0, "lots": []}
+        # 当日买回 100（T+1 锁）
+        add_buy_lot(h, 100, ts="2026-08-26T14:30:00", as_of="2026-08-26")
+        self.assertEqual(sellable_shares(h, as_of="2026-08-26"), 0)
+        # 冲正买：扣当日批次
+        consumed = consume_lots_bought_on(h, 100, bought_date="2026-08-26")
+        self.assertEqual(consumed, 100)
+        self.assertEqual(float(h.get("shares") or 0), 0)
+        # 冲正卖：加回可卖旧仓
+        restore_sellable_lot(
+            h, 100, bought_date="2026-08-25", ts="2026-08-26T09:35:00"
+        )
+        self.assertEqual(float(h.get("shares") or 0), 100)
+        self.assertEqual(sellable_shares(h, as_of="2026-08-26"), 100)
+
+
+# --- from test_paper_attribution.py ---
+class TestPaperAttributionLite(unittest.TestCase):
+    def test_selection_allocation_residual(self):
+        paper = {"cash": 20000, "snapshots": [{"equity": 100000}]}
+        summary = {
+            "equity": 105000,
+            "stock_value": 85000,
+            "cash": 20000,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "sector": "消费",
+                    "market_value": 40000,
+                    "pnl_pct": 10.0,
+                },
+                {
+                    "stock_code": "300750",
+                    "stock_name": "宁德",
+                    "sector": "新能源",
+                    "market_value": 30000,
+                    "pnl_pct": -5.0,
+                },
+                {
+                    "stock_code": "600036",
+                    "stock_name": "招行",
+                    "sector": "金融",
+                    "market_value": 15000,
+                    "pnl_pct": 2.0,
+                },
+            ],
+        }
+        out = build_paper_attribution_lite(paper, summary)
+        self.assertTrue(out["ok"])
+        self.assertIn("selection_pct", out)
+        self.assertIn("allocation_pct", out)
+        self.assertIn("residual_pct", out)
+        self.assertGreater(len(out["by_sector"]), 0)
+        self.assertGreater(len(out["top_contributors"]), 0)
+        self.assertEqual(out["top_contributors"][0]["stock_code"], "600519")
+        # 相对上一快照 100k → 105k
+        self.assertAlmostEqual(out["period_return_pct"], 5.0, places=2)
+
+        ops = build_ops_report(
+            strategy_id="short_conservative",
+            cost_model="simple_cn",
+            attribution=out,
+        )
+        self.assertTrue(ops["attribution"]["ok"])
+        self.assertEqual(ops["attribution"]["selection_pct"], out["selection_pct"])
+
+    def test_empty_holdings(self):
+        out = build_paper_attribution_lite({}, {"equity": 100000, "holdings": []})
+        self.assertFalse(out["ok"])
+
+
+# --- from test_portfolio_bars_batch.py ---
+def _bars__portfolio_bars_batch(n: int, *, start_offset: int = 0):
+    out = []
+    start = datetime(2024, 1, 1) + timedelta(days=start_offset)
+    for i in range(n):
+        d = (start + timedelta(days=i)).strftime("%Y-%m-%d")
+        out.append(
+            {
+                "date": d,
+                "open": 10 + i * 0.1,
+                "high": 10.5 + i * 0.1,
+                "low": 9.8 + i * 0.1,
+                "close": 10.2 + i * 0.1,
+                "volume": 1000 + i,
+            }
+        )
+    return out
+
+class TestPortfolioBarsBatchOffline(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        reset_conn_cache()
+        self._env = patch.dict(
+            os.environ,
+            {
+                "QUANTLAB_STORE_DIR": self.tmp,
+                "QUANTLAB_BARS_BACKEND": "sqlite",
+            },
+        )
+        self._env.start()
+        self.addCleanup(self._env.stop)
+        self.addCleanup(reset_conn_cache)
+        self.codes = ["000001", "600519", "300750"]
+        for i, code in enumerate(self.codes):
+            save_daily_cache(
+                "CN",
+                code,
+                _bars__portfolio_bars_batch(80, start_offset=i),
+                data_source="akshare_cn_daily",
+                store_dir=self.tmp,
+            )
+
+    def test_offline_batch_tail_matches_per_code_service(self):
+        limit = 40
+        batch = _load_offline_bars_from_store(self.codes, limit=limit)
+        self.assertEqual(set(batch.keys()), set(self.codes))
+        for code in self.codes:
+            sym, bars = batch[code]
+            self.assertEqual(sym, code)
+            self.assertEqual(len(bars), limit)
+            from core.research.portfolio_bars import _fetch_bars_for_raw
+
+            _raw, _sym, one = _fetch_bars_for_raw(
+                code, limit=limit, offline_ok=True, offline_only=True
+            )
+            self.assertEqual(
+                [b["date"] for b in bars],
+                [b["date"] for b in one],
+            )
+
+    def test_load_bars_parallel_offline_only_uses_store(self):
+        by_raw, remote_n = _load_bars_parallel(
+            self.codes + ["999998"],
+            limit=30,
+            need=16,
+            offline_ok=True,
+            remote_fill=False,
+        )
+        self.assertEqual(remote_n, 0)
+        self.assertEqual(len(by_raw["000001"][1]), 30)
+        self.assertEqual(by_raw["999998"][1], [])
 
 
 if __name__ == "__main__":

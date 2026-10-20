@@ -109,12 +109,12 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
         self.assertFalse(pack["ok"])
         self.assertIsNone(pack["result"])
 
-
 class TestLastPortfolioBacktestApi(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         try:
             from fastapi.testclient import TestClient
+
             from web.app import app
         except ImportError:
             cls.client = None
@@ -155,7 +155,6 @@ class TestLastPortfolioBacktestApi(unittest.TestCase):
         self.assertFalse(data["empty"])
         self.assertTrue(data["result"]["success"])
         self.assertEqual(data["result"]["metrics"]["total_return_pct"], 2.0)
-
 
 class TestPersistLastPortfolioBacktest(unittest.TestCase):
     def test_persist_curve_false_skips_ui_snapshot(self):
@@ -216,7 +215,6 @@ class TestPersistLastPortfolioBacktest(unittest.TestCase):
             )
             self.assertTrue(out2.get("success"))
             save_ui.assert_called()
-
 
 class TestStartPortfolioBacktestJob(unittest.TestCase):
     def test_start_job_returns_background_and_finishes(self):

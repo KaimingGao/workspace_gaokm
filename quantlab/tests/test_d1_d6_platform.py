@@ -48,7 +48,6 @@ class TestD1ObservationJobs(unittest.TestCase):
         self.assertEqual(a.get()["status"], "done")
         self.assertEqual(paper_job.name, "paper")
 
-
 class TestD2Memory(unittest.TestCase):
     def test_memory_roundtrip(self):
         with tempfile.TemporaryDirectory() as td:
@@ -93,7 +92,6 @@ class TestD2Memory(unittest.TestCase):
             with open(env_path, encoding="utf-8") as f:
                 self.assertIn("DASHSCOPE_MODEL=qwen-max", f.read())
 
-
 class TestD3Decision(unittest.TestCase):
     def test_decision_record_persist(self):
         with tempfile.TemporaryDirectory() as td:
@@ -124,7 +122,6 @@ class TestD3Decision(unittest.TestCase):
             listed2 = list_decisions(limit=10, path=path)
             self.assertEqual(listed2["count"], 0)
 
-
 class TestD4Feedback(unittest.TestCase):
     def test_feedback_suggest_drawdown(self):
         out = suggest_config_feedback(backtest_metrics={"max_drawdown_pct": 15, "win_rate_pct": 40})
@@ -133,7 +130,6 @@ class TestD4Feedback(unittest.TestCase):
         self.assertTrue(out["patch"])
         self.assertIn("scoring", out["patch"])
         self.assertIn("min_predicted_score", out["patch"]["scoring"])
-
 
 class TestD6Prefill(unittest.TestCase):
     def test_prefill_export(self):
@@ -148,7 +144,6 @@ class TestD6Prefill(unittest.TestCase):
         bundle = export_prefill_bundle(rows, fmt="csv")
         self.assertIn("csv", bundle)
         self.assertIn("非交易指令通道", bundle["disclaimer"])
-
 
 if __name__ == "__main__":
     unittest.main()

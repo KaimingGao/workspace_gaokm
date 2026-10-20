@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from datetime import date, timedelta
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bar(dkey: str, hm: str, close: float, open_px: float | None = None, volume: float = 1000):
@@ -25,7 +19,6 @@ def _bar(dkey: str, hm: str, close: float, open_px: float | None = None, volume:
         "volume": volume,
     }
 
-
 def _times_am_pm():
     out = []
     for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
@@ -33,7 +26,6 @@ def _times_am_pm():
     for total in range(13 * 60, 15 * 60 + 1, 5):
         out.append(f"{total // 60:02d}:{total % 60:02d}")
     return out
-
 
 class SessionClockTests(unittest.TestCase):
     def test_add_session_minutes_lunch_and_close(self):
@@ -199,7 +191,6 @@ class SessionClockTests(unittest.TestCase):
         self.assertEqual(DEFAULT_T90_TRAIN_TAU_GRID[-1], "11:00")
         self.assertNotIn("11:30", DEFAULT_T90_TRAIN_TAU_GRID)
         self.assertNotIn("13:05", DEFAULT_T90_TRAIN_TAU_GRID)
-
 
 class RelabelT90Tests(unittest.TestCase):
     def test_y_t90_pct_geometry(self):
@@ -392,7 +383,6 @@ class RelabelT90Tests(unittest.TestCase):
         self.assertFalse(any(m.get("tau_plus_90") == "15:00" for m in metas))
         self.assertLess(elapsed, 6.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 
-
 class T90RidgeFitTests(unittest.TestCase):
     def test_fit_report_runs_on_synthetic(self):
         from core.research.horizon_ridge import (
@@ -496,7 +486,6 @@ class T90RidgeFitTests(unittest.TestCase):
         self.assertIsNotNone(expl)
         self.assertEqual(expl.get("head"), "t90")
         self.assertAlmostEqual(float(expl.get("total")), 1.1, places=5)
-
 
 class T90GateTests(unittest.TestCase):
     def test_t90_enter_keys_dropped(self):
@@ -633,7 +622,6 @@ class T90GateTests(unittest.TestCase):
         self.assertEqual(started["n"], 1)
         self.assertEqual(snap.get("id"), job_id)
         self.assertTrue((snap.get("result") or {}).get("success"))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.t0.intraday import (
     PHASE_AFTER_LEG1,
     PHASE_DONE,
     PHASE_IDLE,
-    REBALANCE_T0_BLOCK_SELL_THEN_BUY,
     REBALANCE_T0_BLOCK_BUY_THEN_SELL,
+    REBALANCE_T0_BLOCK_SELL_THEN_BUY,
     open_t0_leg_rebalance_block,
 )
 
@@ -50,7 +44,6 @@ class TestHoldingT0IntradayStatus(unittest.TestCase):
 
         self.assertIsNone(holding_t0_intraday_status({"phase": "idle"}))
 
-
 class TestOpenT0LegRebalanceBlock(unittest.TestCase):
     def test_buy_then_sell_after_leg1_blocks(self):
         st = {
@@ -75,7 +68,6 @@ class TestOpenT0LegRebalanceBlock(unittest.TestCase):
     def test_done_allows_rebalance(self):
         st = {"phase": PHASE_DONE, "direction": "sell_then_buy", "legs_written": 2}
         self.assertIsNone(open_t0_leg_rebalance_block(st))
-
 
 if __name__ == "__main__":
     unittest.main()

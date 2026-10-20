@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import math
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bars(n: int = 80, start: float = 10.0):
@@ -37,7 +32,6 @@ def _bars(n: int = 80, start: float = 10.0):
         px = c
     return out
 
-
 def _bars_gapped(n: int = 80, start: float = 10.0):
     from datetime import date, timedelta
 
@@ -60,7 +54,6 @@ def _bars_gapped(n: int = 80, start: float = 10.0):
         )
         px = c
     return out
-
 
 class TestCoPanel(unittest.TestCase):
     def test_co_panel_label_is_fwd_close_open(self):
@@ -199,7 +192,6 @@ class TestCoPanel(unittest.TestCase):
         self.assertNotIn("ret_open_to_tau", keys)
         self.assertAlmostEqual(float(expl["total"]), 0.6)
 
-
     def test_build_features_parses_yuan_open(self):
         from core.research.co_panel import build_co_features_from_quote_bars
 
@@ -280,7 +272,6 @@ class TestCoPanel(unittest.TestCase):
             persist_co_model,
             predict_co_from_features,
         )
-
         from core.research.holdout import calendar_dates_from_stock_bars
 
         stock_bars = [
@@ -343,7 +334,6 @@ class TestCoPanel(unittest.TestCase):
                 )
                 self.assertIsNotNone(yhat)
 
-
 class TestCoScoreAttach(unittest.TestCase):
     def test_apply_co_fields(self):
         from core.signal.dual_score.co import apply_co_score_fields
@@ -380,8 +370,8 @@ class TestCoScoreAttach(unittest.TestCase):
     def test_load_co_model_falls_back_to_last_report(self):
         from core.research.co_ridge import (
             fit_co_ridge_report,
-            load_co_model,
             load_co_last_report,
+            load_co_model,
             save_co_last_report,
         )
 
@@ -461,20 +451,19 @@ class TestCoScoreAttach(unittest.TestCase):
             "stock_code": "600183",
             "features_tau": {"gap_vs_sector": -0.4076, "theme_day": 0.0},
         }
-        with patch("core.research.co_ridge.predict_co_from_features", side_effect=_pred):
-            with patch(
-                "core.research.co_ridge.load_co_model",
-                return_value={"return_model": {"intercept": -0.12, "coefficients": {}}},
-            ):
-                attach_co_score_pit(
-                    item,
-                    quote={
-                        "date": bars[-1]["date"],
-                        "open": bars[-1]["open"],
-                        "price_raw": bars[-1]["close"],
-                    },
-                    bars=bars,
-                )
+        with patch("core.research.co_ridge.predict_co_from_features", side_effect=_pred), patch(
+            "core.research.co_ridge.load_co_model",
+            return_value={"return_model": {"intercept": -0.12, "coefficients": {}}},
+        ):
+            attach_co_score_pit(
+                item,
+                quote={
+                    "date": bars[-1]["date"],
+                    "open": bars[-1]["open"],
+                    "price_raw": bars[-1]["close"],
+                },
+                bars=bars,
+            )
         self.assertEqual(captured["feats"].get("gap_vs_sector"), -0.4076)
         self.assertAlmostEqual(float(item.get("y_co")), -0.256)
 
@@ -582,16 +571,14 @@ class TestCoScoreAttach(unittest.TestCase):
             {"date": "2026-01-01", "open": 98.0, "close": 99.0, "high": 100.0, "low": 97.0},
             {"date": "2026-01-02", "open": 99.0, "close": 100.0, "high": 101.0, "low": 98.0},
         ]
-        with patch("core.data.facade.get_bars", return_value={"bars": bars}):
-            with patch(
-                "core.research.co_ridge.predict_co_from_features",
-                return_value=-0.33,
-            ):
-                with patch(
-                    "core.research.co_ridge.load_co_model",
-                    return_value={"coef": {}, "return_model": {"y_spec": {}}},
-                ):
-                    hydrate_holding_co_fields(row)
+        with patch("core.data.facade.get_bars", return_value={"bars": bars}), patch(
+            "core.research.co_ridge.predict_co_from_features",
+            return_value=-0.33,
+        ), patch(
+            "core.research.co_ridge.load_co_model",
+            return_value={"coef": {}, "return_model": {"y_spec": {}}},
+        ):
+            hydrate_holding_co_fields(row)
         self.assertAlmostEqual(float(row.get("predicted_score_on")), -0.33)
 
     def test_co_panel_can_disable_alpha_oo(self):
@@ -626,7 +613,6 @@ class TestCoScoreAttach(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertTrue(report.get("include_alpha_oo"))
         self.assertGreater(int(report.get("n_alpha_oo_features") or 0), 0)
-
 
 class TestCoRidgeJob(unittest.TestCase):
     def test_start_co_ridge_job_returns_background(self):
@@ -692,7 +678,6 @@ class TestCoRidgeJob(unittest.TestCase):
         self.assertFalse(out.get("success"))
         self.assertTrue(out.get("orphaned"))
         save_last.assert_not_called()
-
 
 class TestTauRidgeJob(unittest.TestCase):
     def test_start_tau_ridge_job_returns_background(self):
@@ -769,7 +754,6 @@ class TestTauRidgeJob(unittest.TestCase):
         self.assertFalse(out.get("success"))
         self.assertTrue(out.get("orphaned"))
         save_last.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main()

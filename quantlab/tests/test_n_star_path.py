@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestP1QualityGate(unittest.TestCase):
@@ -53,8 +48,9 @@ class TestP1QualityGate(unittest.TestCase):
         self.assertIsNone(item.get("score"))
 
     def test_score_stock_passes_good_bars(self):
-        from core.signal.score_stock import score_stock
         from datetime import datetime, timedelta
+
+        from core.signal.score_stock import score_stock
 
         today = datetime.now().date()
         bars = [
@@ -98,8 +94,8 @@ class TestP1QualityGate(unittest.TestCase):
         self.assertEqual(out["signal_item"]["heuristic_score"], 60.0)
 
     def test_manifest_has_adjust_policy(self):
-        from core.run_manifest import build_run_manifest
         from core.data.facade import DEFAULT_ADJUST_POLICY
+        from core.run_manifest import build_run_manifest
 
         m = build_run_manifest(kind="test", cost_model="simple_cn")
         self.assertEqual(m["adjust_policy"], DEFAULT_ADJUST_POLICY)
@@ -200,7 +196,6 @@ class TestP1QualityGate(unittest.TestCase):
         self.assertTrue(out.get("folds"))
         self.assertGreaterEqual(len(out["folds"]), 1)
 
-
 class TestN1DataService(unittest.TestCase):
     def test_get_bars_shape(self):
         from core.data.facade import get_bars
@@ -232,7 +227,6 @@ class TestN1DataService(unittest.TestCase):
         self.assertIn("data_quality", m)
         self.assertEqual(m["data_quality"]["fallback_count"], 0)
 
-
 class TestN2FactorAndMl(unittest.TestCase):
     def test_alt_sentiment_registered_and_skippable(self):
         from core.signal.factors.meta.registry import compute_configured_factors, registered_factor_names
@@ -257,7 +251,6 @@ class TestN2FactorAndMl(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = write_artifact(os.path.join(td, "artifact.json"), art)
             self.assertTrue(os.path.isfile(path))
-
 
 class TestN3PortfolioRisk(unittest.TestCase):
     def test_optimize_weights_respects_sector_cap(self):
@@ -376,7 +369,6 @@ class TestN3PortfolioRisk(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertTrue(any("行业" in b for b in out["blocks"]))
 
-
 class TestN4OosReport(unittest.TestCase):
     def test_attach_robustness(self):
         from core.backtest.oos_report import attach_robustness_fields
@@ -402,7 +394,6 @@ class TestN4OosReport(unittest.TestCase):
         self.assertTrue(body.apply_costs)
         self.assertFalse(hasattr(body, "include_wf_slices"))
         self.assertEqual(body.lookback, 10)
-
 
 class TestN5Monitor(unittest.TestCase):
     def test_health_warn_on_target_dd(self):
@@ -459,7 +450,6 @@ class TestN5Monitor(unittest.TestCase):
         ]
         ic_out = estimate_composite_ic(bars, horizon_days=3, min_history=20, max_points=20)
         self.assertIn("sample_count", ic_out)
-
 
 class TestP0OpsReportAndRiskBlock(unittest.TestCase):
     def test_build_ops_report_five_keys(self):
@@ -561,7 +551,6 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         types = [e.get("type") for e in paper.get("operation_log") or []]
         self.assertIn("risk_block", types)
 
-
 class TestP2PaperOpsLoop(unittest.TestCase):
     def test_feedback_from_monitor_alerts(self):
         from core.feedback_suggest import suggest_config_feedback
@@ -580,7 +569,6 @@ class TestP2PaperOpsLoop(unittest.TestCase):
         self.assertIn("patch", out)
         self.assertFalse(out.get("auto_apply"))
 
-
     def test_run_schedule_paper_daily_kind(self):
         from core.schedule_jobs import run_schedule
 
@@ -598,7 +586,6 @@ class TestP2PaperOpsLoop(unittest.TestCase):
         mocked.assert_called_once()
         self.assertTrue(out.get("ok"))
         self.assertEqual(out.get("kind"), "paper_daily")
-
 
 if __name__ == "__main__":
     unittest.main()

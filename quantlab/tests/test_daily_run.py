@@ -1,11 +1,6 @@
 import os
-import sys
 import tempfile
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from services.daily_service import DailyRunService
 from services.eval_service import EvalService
@@ -33,14 +28,12 @@ class TestDailyService(unittest.TestCase):
         paper_step = next(s for s in out["steps"] if s["name"] == "paper")
         self.assertEqual(paper_step.get("code"), "paper_not_initialized")
 
-
 class TestDailyRunCli(unittest.TestCase):
     def test_cli_eval_mock(self):
         from research import daily_run
 
         code = daily_run.main(["--eval-mock"])
         self.assertEqual(code, 0)
-
 
 if __name__ == "__main__":
     unittest.main()

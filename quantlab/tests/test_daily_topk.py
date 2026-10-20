@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.backtest.legacy.topk_backtest import backtest_topk_equal_weight
 from core.backtest.legacy.topk_risk import (
@@ -18,7 +12,7 @@ from core.backtest.legacy.topk_risk import (
     _weighted_port_return,
 )
 from quant.research.portfolio_data import summarize_portfolio_backtest
-from tests.test_p10_quant import _aligned_bars
+from tests.conftest import _aligned_bars
 
 
 class TestCashAwarePortReturn(unittest.TestCase):
@@ -37,14 +31,13 @@ class TestCashAwarePortReturn(unittest.TestCase):
         self.assertAlmostEqual(full, 10.0, places=2)
         self.assertAlmostEqual(cash, 7.5, places=2)
 
-
 class TestDailyTopkDefaults(unittest.TestCase):
     def test_daily_bt_option_defaults_align_replay(self):
         from quant.research.portfolio_data import (
-            DAILY_BT_UI_LOOKBACK,
             DAILY_BT_UI_FUSE_ENTER,
             DAILY_BT_UI_FUSE_STRONG,
             DAILY_BT_UI_FUSION_W_CO,
+            DAILY_BT_UI_LOOKBACK,
             daily_bt_option_defaults,
             resolve_daily_replay_kwargs,
         )
@@ -79,7 +72,6 @@ class TestDailyTopkDefaults(unittest.TestCase):
 
         got = resolve_daily_replay_kwargs(lookback=10)
         self.assertEqual(got["lookback"], 10)
-
 
 class TestStopShadow(unittest.TestCase):
     def test_clips_leg_when_close_hits_stop(self):
@@ -141,7 +133,6 @@ class TestStopShadow(unittest.TestCase):
         self.assertEqual(exit_d, "2026-01-03")
         self.assertAlmostEqual(exit_px, 96.0)
         self.assertAlmostEqual(ret, -4.0, places=1)
-
 
 class TestTopkParamsDisclose(unittest.TestCase):
     def test_cash_aware_and_stop_shadow(self):
@@ -260,7 +251,6 @@ class TestTopkParamsDisclose(unittest.TestCase):
         self.assertEqual(kw.get("fusion_w_co"), 0.5)
         self.assertAlmostEqual(float(kw.get("fuse_enter") or 0), 0.015)
         self.assertAlmostEqual(float(kw.get("fuse_strong") or 0), 0.03)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,5 @@ class ZTcAliasTests(unittest.TestCase):
         via_canon = _predict_rows(old_fit, [{"z_τc_gap_pct": 1.5}])
         self.assertAlmostEqual(float(via_canon[0]), 3.0, places=5)
 
-
 if __name__ == "__main__":
     unittest.main()

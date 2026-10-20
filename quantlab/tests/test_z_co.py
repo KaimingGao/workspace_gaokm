@@ -72,6 +72,5 @@ class ZCoAliasTests(unittest.TestCase):
         self.assertTrue(all(k.startswith("z_co_") for k in CO_Z_FEATURES))
         self.assertFalse(any(k.startswith("z_co_") for k in CO_Z_LEGACY))
 
-
 if __name__ == "__main__":
     unittest.main()

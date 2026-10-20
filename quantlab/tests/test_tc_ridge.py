@@ -3,14 +3,7 @@
 from __future__ import annotations
 
 import inspect
-import os
-import sys
 import unittest
-from datetime import date, timedelta
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
@@ -25,7 +18,6 @@ def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
         "volume": 1000,
     }
 
-
 def _times_am_pm():
     out = []
     for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
@@ -34,7 +26,6 @@ def _times_am_pm():
         out.append(f"{total // 60:02d}:{total % 60:02d}")
     return out
 
-
 class YRPctTests(unittest.TestCase):
     def test_y_r_pct_matches_geometry(self):
         from core.research.tau_panel import y_r_pct
@@ -42,7 +33,6 @@ class YRPctTests(unittest.TestCase):
         self.assertAlmostEqual(y_r_pct(69.20, 68.12), (68.12 / 69.20 - 1.0) * 100.0, places=6)
         self.assertIsNone(y_r_pct(0, 68.12))
         self.assertIsNone(y_r_pct(69.20, None))
-
 
 class YRDisplayOnlyTests(unittest.TestCase):
     def test_scores_from_item_passes_y_r(self):
@@ -78,7 +68,6 @@ class YRDisplayOnlyTests(unittest.TestCase):
         src2 = inspect.getsource(close_band.blend_y_tw_from_scores)
         self.assertNotIn("y_r", src2)
 
-
 class TestTcFiniteLabels(unittest.TestCase):
     def test_ic_and_sign_hit_drop_nan_labels(self):
         from core.research.tc_ridge import _ic, _oos_sign_buckets, _residual_var, _sign_hit
@@ -98,7 +87,6 @@ class TestTcFiniteLabels(unittest.TestCase):
         )
         buckets = _oos_sign_buckets([1.0] * 6, [1.0, 1.0, 1.0, 1.0, 1.0, float("nan")])
         self.assertEqual(buckets.get("n_valid"), 5)
-
 
 if __name__ == "__main__":
     unittest.main()

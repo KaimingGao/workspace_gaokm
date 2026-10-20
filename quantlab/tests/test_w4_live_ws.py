@@ -3,14 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestLiveWs(unittest.TestCase):
@@ -35,12 +29,11 @@ class TestLiveWs(unittest.TestCase):
             with patch(
                 "quant.ops.daily_health.build_daily_health",
                 return_value={"ok": True, "issues": [], "warnings": []},
+            ), patch(
+                "web.audit_timeline.read_alerts_last",
+                return_value={"success": True, "empty": True, "alert_count": 0},
             ):
-                with patch(
-                    "web.audit_timeline.read_alerts_last",
-                    return_value={"success": True, "empty": True, "alert_count": 0},
-                ):
-                    snap = live_ws._snapshot()
+                snap = live_ws._snapshot()
         self.assertEqual(snap["type"], "snapshot")
         self.assertIsNotNone(snap.get("paper"))
         self.assertEqual(snap["paper"]["equity"], 1_000_000)
@@ -49,6 +42,7 @@ class TestLiveWs(unittest.TestCase):
     def test_ws_connect(self):
         try:
             from fastapi.testclient import TestClient
+
             from web.app import app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -71,7 +65,6 @@ class TestLiveWs(unittest.TestCase):
                 raw2 = ws.receive_text()
                 data2 = json.loads(raw2)
                 self.assertEqual(data2.get("type"), "snapshot")
-
 
 if __name__ == "__main__":
     unittest.main()

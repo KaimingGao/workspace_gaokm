@@ -1,11 +1,6 @@
 import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from evals.mock_context import rising_bars
 from quant.research.factor_ols import (
@@ -14,12 +9,10 @@ from quant.research.factor_ols import (
     fit_factor_ols_from_panel,
 )
 from quant.services.quant_interpret import build_rule_based_interpret, compact_quant_report
-
-
+from tests.conftest import ROOT
 
 # alpha_oo 抬窗后研究面板需 ≥90 根，才够 MIN_CLUSTER_OBS / OLS 样本
 _OLS_BARS_N = 100
-
 
 class TestFactorOlsPool(unittest.TestCase):
     def test_pooled_report_stacks_two_stocks(self):
@@ -83,6 +76,7 @@ class TestFactorOlsPool(unittest.TestCase):
     def test_api_factor_ols_mocked(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
             import web.deps as deps
         except ImportError:
@@ -115,6 +109,7 @@ class TestFactorOlsPool(unittest.TestCase):
     def test_api_factor_ols_pool_mocked(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
             import web.deps as deps
         except ImportError:
@@ -209,7 +204,6 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertNotIn("renderCrossSection", shell_js)
         self.assertIn("fillExprCodeSelect", cluster_js)
         self.assertIn("fillExprCodeSelect", shell_js)
-
 
 if __name__ == "__main__":
     unittest.main()

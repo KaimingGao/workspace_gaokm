@@ -20,7 +20,6 @@ class TestAlphaExcess(unittest.TestCase):
         self.assertIsNotNone(legs["alpha_leg_approx_pct"])
         self.assertIsNotNone(legs["beta_leg_approx_pct"])
 
-
 class TestIcContract(unittest.TestCase):
     def test_primary_banner(self):
         from core.signal.ic_contract import PRIMARY_IC_KIND, annotate_ic_block, ic_contract_banner
@@ -30,7 +29,6 @@ class TestIcContract(unittest.TestCase):
         row = annotate_ic_block({"ic": 0.05}, kind="chrono_pearson", primary=False)
         self.assertFalse(row["is_primary_ic"])
         self.assertEqual(row["ic_kind"], "chrono_pearson")
-
 
 class TestYhatResidual(unittest.TestCase):
     def test_sector_demean(self):
@@ -49,7 +47,6 @@ class TestYhatResidual(unittest.TestCase):
         # 单票行业不残差
         self.assertAlmostEqual(by["c"], 1.0)
 
-
 class TestYSpecExcess(unittest.TestCase):
     def test_build_and_apply(self):
         from core.research.beta_accuracy import apply_excess_to_forward_return, build_y_spec
@@ -65,7 +62,6 @@ class TestYSpecExcess(unittest.TestCase):
             apply_excess_to_forward_return(3.0, None, excess_mode="index")
         )
 
-
 class TestPartitionLossIcKind(unittest.TestCase):
     def test_chrono_label(self):
         from quant.research.partition_loss import _metrics_from_pred_act
@@ -76,7 +72,6 @@ class TestPartitionLossIcKind(unittest.TestCase):
         self.assertTrue(m["ok"])
         self.assertEqual(m.get("ic_kind"), "chrono_pearson")
         self.assertFalse(m.get("is_primary_ic"))
-
 
 class TestYhatResidualShadow(unittest.TestCase):
     def test_compare_overlap(self):
@@ -93,7 +88,6 @@ class TestYhatResidualShadow(unittest.TestCase):
         self.assertIn("jaccard_topk", out["compare"])
         self.assertEqual(len(out["arms"]["yhat_residual_off"]["codes"]), 2)
 
-
 class TestBtExcessAttach(unittest.TestCase):
     def test_compare_arms_excess(self):
         from core.research.bt_excess_attach import compare_arms_excess
@@ -103,7 +97,6 @@ class TestBtExcessAttach(unittest.TestCase):
             {"excess_pct": 2.5},
         )
         self.assertEqual(cmp["delta_excess_pp"], 1.5)
-
 
 class TestReportExportLegs(unittest.TestCase):
     def test_markdown_includes_legs(self):
@@ -134,7 +127,6 @@ class TestReportExportLegs(unittest.TestCase):
         blob = "\n".join(lines)
         self.assertIn("收益分账", blob)
         self.assertIn("α腿", blob)
-
 
 if __name__ == "__main__":
     unittest.main()

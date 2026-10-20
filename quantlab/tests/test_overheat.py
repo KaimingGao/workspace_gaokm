@@ -1,12 +1,6 @@
 """过热因子与标注单测。"""
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.signal.factors.meta.registry import registered_factor_names
 from core.signal.factors.meta.taxonomy import classify_factor
@@ -16,7 +10,7 @@ from core.signal.overheat_gate import (
     evaluate_overheat_gate,
 )
 from core.signal.scorer import score_bars
-from tests.test_signal import _overheated_bars
+from tests.conftest import _overheated_bars
 
 
 class TestOverheatFactor(unittest.TestCase):
@@ -92,7 +86,6 @@ class TestOverheatFactor(unittest.TestCase):
         self.assertFalse(item.get("hard_reject"))
         self.assertTrue(item.get("mom_chase_risk"))
         self.assertFalse(item.get("paper_hard_reject"))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 
@@ -183,7 +182,6 @@ class TestFundamentalsPit(unittest.TestCase):
         self.assertEqual(s["missing_as_of"], 1)
         self.assertTrue(s["fundamentals_pit_partial"])
 
-
 class TestImpactCost(unittest.TestCase):
     def test_impact_positive_with_volume(self):
         from core.backtest.costs import estimate_impact_cost, get_cost_breakdown
@@ -199,7 +197,6 @@ class TestImpactCost(unittest.TestCase):
         from core.backtest.costs import estimate_impact_cost
 
         self.assertEqual(estimate_impact_cost(1000, 0), 0.0)
-
 
 class TestSourceAudit(unittest.TestCase):
     def test_audit_empty_codes(self):
@@ -220,7 +217,6 @@ class TestSourceAudit(unittest.TestCase):
             out = attach_source_audit({"success": True}, codes=["600519"])
         self.assertIn("source_audit", out)
         self.assertEqual(out["source_audit"]["status"], "ok")
-
 
 if __name__ == "__main__":
     unittest.main()

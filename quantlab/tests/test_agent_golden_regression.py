@@ -1,20 +1,12 @@
 """Agent / golden 计数与提示（原 P55）。"""
 
 import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from agent.prompts import QUANT_HINT, SYSTEM_PROMPT
 from evals.run_checklist import load_cases
 from services.eval_service import EvalService
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import ROOT
 
 # --- test_p55_quant.py::TestP55AgentGoldenRegression ---
 
@@ -50,7 +42,6 @@ class TestP55AgentGoldenRegression(unittest.TestCase):
         with open(os.path.join(scripts_dir, "agent_regression_quant.sh"), encoding="utf-8") as f:
             text = f.read()
             self.assertIn("9 quant_* cases", text)
-
 
 if __name__ == "__main__":
     unittest.main()

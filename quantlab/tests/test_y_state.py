@@ -7,7 +7,7 @@ import unittest
 
 class TestYState(unittest.TestCase):
     def test_conflict_check(self):
-        from core.signal.y_state import build_y_state, CHECK_CONFLICT
+        from core.signal.y_state import CHECK_CONFLICT, build_y_state
 
         st = build_y_state(
             {
@@ -27,7 +27,7 @@ class TestYState(unittest.TestCase):
         self.assertEqual(st["eod_trust"], 0.0)
 
     def test_ok_when_aligned(self):
-        from core.signal.y_state import build_y_state, CHECK_OK
+        from core.signal.y_state import CHECK_OK, build_y_state
 
         st = build_y_state(
             {
@@ -44,7 +44,7 @@ class TestYState(unittest.TestCase):
         self.assertAlmostEqual(st["eod_trust"], 1.0)
 
     def test_missing_tau(self):
-        from core.signal.y_state import build_y_state, CHECK_MISSING_TAU, buy_passes_y_check
+        from core.signal.y_state import CHECK_MISSING_TAU, build_y_state, buy_passes_y_check
 
         item = {
             "predicted_score": 1.0,
@@ -71,7 +71,7 @@ class TestYState(unittest.TestCase):
         self.assertTrue(ok)
 
     def test_eod_next_skips_hard_conflict(self):
-        from core.signal.y_state import build_y_state, CHECK_OK
+        from core.signal.y_state import CHECK_OK, build_y_state
 
         st = build_y_state(
             {

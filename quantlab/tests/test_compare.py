@@ -1,12 +1,6 @@
 import json
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from skills.compare.handler import CompareHandler
 
@@ -62,7 +56,6 @@ class TestCompare(unittest.TestCase):
         parsed = json.loads(raw)
         self.assertTrue(parsed["success"])
         self.assertEqual(parsed["count"], 2)
-
 
 if __name__ == "__main__":
     unittest.main()

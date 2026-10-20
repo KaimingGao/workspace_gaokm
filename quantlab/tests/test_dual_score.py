@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestDualScoreFields(unittest.TestCase):
@@ -355,8 +349,9 @@ class TestDualScoreFields(unittest.TestCase):
         )
 
     def test_rescore_tau_stamps_tip_from_cs_z(self):
-        from core.signal.cross_section_rescore import _rescore_tau
         from unittest import mock
+
+        from core.signal.cross_section_rescore import _rescore_tau
 
         doc = {
             "return_model": {
@@ -1121,7 +1116,6 @@ class TestDualScoreFields(unittest.TestCase):
                 import core.signal.config as cfg_mod
 
                 cfg_mod._cached = None
-
 
 class TestPromoteOosCompareRetired(unittest.TestCase):
     def test_cluster_oos_labels_package_gone(self):

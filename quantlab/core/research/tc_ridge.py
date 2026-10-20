@@ -391,6 +391,7 @@ def fit_tau_ridge_report(
             "stock_count": packed.get("stock_count"),
             "tau": packed.get("tau"),
             "tau_grid": packed.get("tau_grid"),
+            "minute_attached": packed.get("minute_attached"),
         }
 
     tau_key = packed["tau_key"]
@@ -538,6 +539,7 @@ def fit_tau_ridge_report(
     }
     attach_holdout_meta(report, split_meta)
     report["cross_section_zscore"] = use_cs
+    report["minute_attached"] = packed.get("minute_attached")
     report["promote_gate"] = tau_promote_gate(report)
     return report
 

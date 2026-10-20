@@ -10,6 +10,8 @@ from core.signal.factors.alpha_tc import (
     ALPHA_TC_MIN_BARS,
     ALPHA_TC_PANEL_WINDOW,
     ALPHA_TC_RAW_PREFIX,
+    _gap_fields,
+    _yk_fields,
     inject_raw_atc,
     is_alpha_tc_raw_key,
     ohlcv_from_bars,
@@ -17,34 +19,9 @@ from core.signal.factors.alpha_tc import (
     raw_atc_open_columns,
     raw_atc_tau_columns,
     score_alpha_tc,
-    _gap_fields,
-    _yk_fields,
 )
 from core.signal.factors.meta.registry import compute_factor, registered_factor_names
-
-
-def _synth_bars(n: int, seed: int = 42) -> list:
-    rng = np.random.default_rng(seed)
-    bars = []
-    c = 10.0
-    for i in range(n):
-        o = c * (1.0 + float(rng.normal(0, 0.005)))
-        h = max(o, c) * (1.0 + abs(float(rng.normal(0, 0.01))))
-        l = min(o, c) * (1.0 - abs(float(rng.normal(0, 0.01))))
-        c = c * (1.0 + float(rng.normal(0, 0.015)))
-        v = float(rng.integers(1000, 10000))
-        bars.append(
-            {
-                "trade_date": f"2024{(i % 12) + 1:02d}{(i % 28) + 1:02d}",
-                "date": f"2024-{(i % 12) + 1:02d}-{(i % 28) + 1:02d}",
-                "open": o,
-                "high": h,
-                "low": l,
-                "close": c,
-                "volume": v,
-            }
-        )
-    return bars
+from tests.conftest import _dated_bars_and_minutes, _synth_bars, _unique_bars
 
 
 def _synth_minute_prefix(
@@ -82,11 +59,9 @@ def _synth_minute_prefix(
         px = c
     return bars
 
-
 def test_alpha_tc_field_count():
     assert len(ALPHA_TC_FIELD_NAMES) == 224
     assert len(set(ALPHA_TC_FIELD_NAMES)) == 224
-
 
 def test_alpha_tc_key_fields_listed():
     assert "GAP" in ALPHA_TC_FIELD_NAMES
@@ -100,7 +75,6 @@ def test_alpha_tc_key_fields_listed():
     assert "RANGE_PCT" in ALPHA_TC_FIELD_NAMES
     assert "MOM3_C" in ALPHA_TC_FIELD_NAMES
 
-
 def test_alpha_tc_all_fields_present_tau_open():
     bars = _synth_bars(80)
     score, meta = score_alpha_tc(bars, tau_hm="open")
@@ -111,23 +85,19 @@ def test_alpha_tc_all_fields_present_tau_open():
         assert name in meta, f"missing field: {name}"
         assert math.isfinite(meta[name]), f"non-finite: {name}={meta[name]}"
 
-
 def test_alpha_tc_insufficient_history():
     score, meta = score_alpha_tc(_synth_bars(30))
     assert score == 50.0
     assert meta.get("omit_sub_score") is True
     assert meta.get("alpha_tc_insufficient_history") is True
 
-
 def test_alpha_tc_min_bars():
     assert ALPHA_TC_MIN_BARS == 61
-
 
 def test_alpha_tc_yk_formula():
     fields = _yk_fields(close=11.0, open_=10.0, high=12.0, low=9.0)
     assert abs(fields["YKMID"] - 0.1) < 1e-9
     assert abs(fields["YBODY"] - 0.1) < 1e-9
-
 
 def test_alpha_tc_gap_close0_anchored_on_price_tau():
     open_arr = np.array([9.0, 10.0, 11.5], dtype=np.float64)
@@ -158,7 +128,6 @@ def test_alpha_tc_gap_close0_anchored_on_price_tau():
     assert abs(fields["OPEN0"] - 11.5 / 11.8) < 1e-9
     assert abs(fields["TAU_IN_YRANGE"] - (11.8 - 9.0) / (12.0 - 9.0)) < 1e-9
     assert abs(fields["TAU_IN_PREFIX"] - (11.8 - 11.0) / (12.0 - 11.0)) < 1e-9
-
 
 def test_alpha_tc_flat_prev_bar_no_eps_blowup():
     """昨 H=L / 无前缀振幅时位置类不得用 1e-12 放大。"""
@@ -191,7 +160,6 @@ def test_alpha_tc_flat_prev_bar_no_eps_blowup():
     yk = _yk_fields(close=10.0, open_=10.0, high=10.0, low=10.0)
     assert yk["YKMID2"] == 0.0
 
-
 def test_alpha_tc_with_minute_prefix_formulas():
     bars = _synth_bars(80)
     hist = bars[:-1]
@@ -220,7 +188,6 @@ def test_alpha_tc_with_minute_prefix_formulas():
     for name in ALPHA_TC_FIELD_NAMES:
         assert math.isfinite(meta[name]), f"non-finite: {name}={meta[name]}"
 
-
 def test_alpha_tc_mom3_c_matches_close_momentum():
     from core.signal.factors.alpha_tc import _lag_fields
 
@@ -243,14 +210,12 @@ def test_alpha_tc_mom3_c_matches_close_momentum():
     assert abs(float(lag["MOM3_C"]) - expected_mom3) < 1e-6
     assert abs(float(lag["TC_LAG1"]) - expected_tc1) < 1e-6
 
-
 def test_raw_atc_from_bars_helper():
     assert raw_atc_from_bars(_synth_bars(30)) == {}
     out = raw_atc_from_bars(_synth_bars(80))
     assert len(out) >= 200
     assert all(is_alpha_tc_raw_key(k) for k in out)
     assert all(k.startswith(ALPHA_TC_RAW_PREFIX) for k in out)
-
 
 def test_raw_atc_with_open_t():
     bars = _synth_bars(80)
@@ -262,18 +227,6 @@ def test_raw_atc_with_open_t():
     assert math.isfinite(out[f"{ALPHA_TC_RAW_PREFIX}RET_OT"])
     # τ=open → RET_OT ≈ 0
     assert abs(out[f"{ALPHA_TC_RAW_PREFIX}RET_OT"]) < 1e-12
-
-
-def _unique_bars(n: int, seed: int = 7) -> list:
-    bars = _synth_bars(n, seed=seed)
-    for i, bar in enumerate(bars):
-        day = 20000 + i
-        # 20000+i 不是合法日历，只用来保证决策日唯一
-        text = f"{day:05d}"
-        bar["date"] = text
-        bar["trade_date"] = text
-    return bars
-
 
 def _assert_open_columns_match(bars: list, *, hist: int = ALPHA_TC_PANEL_WINDOW) -> None:
     packed = ohlcv_from_bars(bars)
@@ -300,11 +253,9 @@ def _assert_open_columns_match(bars: list, *, hist: int = ALPHA_TC_PANEL_WINDOW)
             diff = abs(got[key] - float(exp))
             assert diff <= 1e-9, (i, key, got[key], exp, diff)
 
-
 def test_open_columns_match_inject_short_and_long():
     for n in (80, 400, 1000):
         _assert_open_columns_match(_unique_bars(n, seed=n))
-
 
 def test_open_columns_zero_yesterday_open_omits_keys():
     bars = _unique_bars(90, seed=3)
@@ -325,12 +276,10 @@ def test_open_columns_zero_yesterday_open_omits_keys():
     )
     assert ref == {}
 
-
 def test_open_columns_zero_volume_matches_inject():
     bars = _unique_bars(90, seed=5)
     bars[80]["volume"] = 0.0
     _assert_open_columns_match(bars)
-
 
 def test_collect_open_panel_uses_columns():
     from core.research.tau_panel import collect_tau_open_panel
@@ -363,7 +312,6 @@ def test_collect_open_panel_uses_columns():
         for key, exp in ref.items():
             assert abs(got[key] - float(exp)) <= 1e-9
 
-
 def test_collect_keep_dates_matches_full_slice():
     from core.research.tau_panel import collect_tau_open_panel
 
@@ -381,7 +329,6 @@ def test_collect_keep_dates_matches_full_slice():
         assert got.keys() == exp.keys()
         for key in got:
             assert abs(float(got[key]) - float(exp[key])) <= 1e-9
-
 
 def test_open_block_matches_dict_rows_including_dropped_day():
     """列直写矩阵与逐格抄 dict 同值。中间丢掉一天时下标仍对齐。"""
@@ -415,7 +362,6 @@ def test_open_block_matches_dict_rows_including_dropped_day():
     assert got.shape == expect.shape
     assert np.allclose(got, expect, equal_nan=True, rtol=0, atol=0)
 
-
 def test_label_lag_skips_future_and_accepts_long_keys():
     from core.research.tau_panel import label_lag_features
 
@@ -439,7 +385,6 @@ def test_label_lag_skips_future_and_accepts_long_keys():
     assert long["tau_lag1"] == 0.8
     assert long["tau_ma5"] == 0.8
 
-
 def test_open_columns_reject_bad_shape():
     bars = _unique_bars(80, seed=19)
     packed = ohlcv_from_bars(bars)
@@ -450,7 +395,6 @@ def test_open_columns_reject_bad_shape():
     assert raw_atc_open_columns(open_[:-1], high, low, close, volume, hist=hist) == {}
     assert raw_atc_open_columns(open_, high, low, close, ["x"] * len(close), hist=hist) == {}
 
-
 def test_nondict_bar_does_not_abort_open_panel():
     from core.research.tau_panel import collect_tau_open_panel
 
@@ -460,7 +404,6 @@ def test_nondict_bar_does_not_abort_open_panel():
     assert dates
     assert all(day != "" for day in dates)
     assert any(is_alpha_tc_raw_key(k) for k in xs[-1])
-
 
 def test_short_columns_fall_back_to_inject():
     from unittest import mock
@@ -495,35 +438,6 @@ def test_short_columns_fall_back_to_inject():
     assert set(got) == set(ref)
     for key, exp in ref.items():
         assert abs(got[key] - float(exp)) <= 1e-9
-
-
-def _dated_bars_and_minutes(n: int, *, seed: int = 3):
-    from datetime import date, timedelta
-
-    bars = _unique_bars(n, seed=seed)
-    start = date(2020, 1, 2)
-    minutes = []
-    clocks = ("09:35", "09:40", "09:45", "09:50", "09:55", "10:00", "10:30", "11:00")
-    for i, bar in enumerate(bars):
-        day = (start + timedelta(days=i)).isoformat()
-        bar["date"] = day
-        bar["trade_date"] = day
-        px = float(bar["open"])
-        for k, hm in enumerate(clocks):
-            px = px * (1.0 + (0.001 if (i + k) % 2 == 0 else -0.0004))
-            minutes.append(
-                {
-                    "date": day,
-                    "datetime": f"{day} {hm}:00",
-                    "open": px,
-                    "high": px * 1.002,
-                    "low": px * 0.998,
-                    "close": px * (1.0 + 0.0003 * ((k % 3) - 1)),
-                    "volume": 200.0 + 10 * k + i,
-                }
-            )
-    return bars, minutes
-
 
 def test_minute_columns_match_inject_and_ath():
     from core.research.tau_panel import collect_tau_intraday_panel
@@ -589,7 +503,6 @@ def test_minute_columns_match_inject_and_ath():
         for key, exp in exp_ath.items():
             assert abs(got_ath[key] - exp) <= 1e-9, (day, key, got_ath[key], exp)
 
-
 def _assert_minute_row_matches_inject(bars, minutes, xs, dates, *, clock: str) -> None:
     from core.research.tau_panel import price_at_tau_from_minutes
 
@@ -619,7 +532,6 @@ def _assert_minute_row_matches_inject(bars, minutes, xs, dates, *, clock: str) -
         checked += 1
     assert checked > 0
 
-
 def test_blank_minute_column_row_falls_back():
     from unittest import mock
 
@@ -644,7 +556,6 @@ def test_blank_minute_column_row_falls_back():
             bars, minutes, tau_hm="10:00", include_alpha_tc=True
         )
     _assert_minute_row_matches_inject(bars, minutes, xs, dates, clock="10:00")
-
 
 def test_one_bad_prefix_does_not_drop_other_days():
     from unittest import mock
@@ -673,7 +584,6 @@ def test_one_bad_prefix_does_not_drop_other_days():
     by_date = {d: row for d, row in zip(dates, xs)}
     assert any(is_alpha_tc_raw_key(k) for k in by_date[good[-1]])
 
-
 def test_bad_prefix_field_keeps_other_columns():
     bars = _unique_bars(80, seed=43)
     packed = ohlcv_from_bars(bars)
@@ -700,7 +610,6 @@ def test_bad_prefix_field_keeps_other_columns():
     got = cols[f"{ALPHA_TC_RAW_PREFIX}RANGE_PCT"]
     assert got.shape == (m,)
     assert np.all(got == 0.0)
-
 
 def test_ath_copy_failure_still_writes_row():
     from unittest import mock
@@ -749,7 +658,6 @@ def test_ath_copy_failure_still_writes_row():
     got = {k: float(v) for k, v in row.items() if str(k).startswith("raw_ath_")}
     exp = {k: float(v) for k, v in ath.items() if str(k).startswith("raw_ath_")}
     assert set(got) == set(exp)
-
 
 def test_bad_minute_clock_keeps_other_clocks():
     from unittest import mock
@@ -810,7 +718,6 @@ def test_bad_minute_clock_keeps_other_clocks():
     assert dates == [day]
     assert [m.get("tau") for m in metas] == ["09:30"]
 
-
 def test_bad_horizon_keeps_row_and_other_heads():
     from unittest import mock
 
@@ -866,7 +773,6 @@ def test_bad_horizon_keeps_row_and_other_heads():
     assert metas[0]["price_tau45"] == 10.2
     assert metas[0]["tau"] == "10:00"
 
-
 def test_bad_minute_bar_does_not_drop_day():
     from unittest import mock
 
@@ -914,7 +820,6 @@ def test_bad_minute_bar_does_not_drop_day():
     assert dates == [day]
     assert metas[0]["tau"] == "10:00"
 
-
 def test_tau_compact_skips_failed_fold():
     from unittest import mock
 
@@ -957,7 +862,6 @@ def test_tau_compact_skips_failed_fold():
     assert n_stocks == 1
     assert len(ys) == 4
 
-
 def test_tau_compact_skips_failed_stock():
     from unittest import mock
 
@@ -991,6 +895,75 @@ def test_tau_compact_skips_failed_stock():
     assert len(ys) == 4
 
 
+def test_tau_compact_batch_attaches_minutes_not_full_pool():
+    """无预挂分钟时，峰值挂载数 ≤ _TAU_POOL_BATCH，结束后全部 pop。"""
+    from unittest import mock
+
+    import numpy as np
+
+    from core.research.panel_matrix import _TAU_POOL_BATCH, collect_tau_compact
+
+    n_stocks = _TAU_POOL_BATCH + 16
+    items = [
+        {"code": f"{i:06d}", "bars": [{"date": "2024-01-02"}] * 20}
+        for i in range(n_stocks)
+    ]
+    peak = {"n": 0}
+    load_calls = {"n": 0}
+
+    def _load(_mkt, code, _period="5", **_kw):
+        load_calls["n"] += 1
+        return ([{"datetime": "2024-01-02 10:00:00", "close": 10.0}], {"code": code})
+
+    def _job(item, *_args, **_kwargs):
+        attached = sum(
+            1
+            for it in items
+            if isinstance(it, dict)
+            and isinstance(it.get("minute_bars"), list)
+            and it.get("minute_bars")
+        )
+        peak["n"] = max(peak["n"], attached)
+        if isinstance(item, dict):
+            item.pop("minute_bars", None)
+        return (
+            item.get("code"),
+            np.zeros((4, 1), dtype=np.float64),
+            [0.1, 0.1, 0.1, 0.1],
+            ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"],
+            [{}, {}, {}, {}],
+            [{}, {}, {}, {}],
+        )
+
+    stats: dict = {}
+    with mock.patch(
+        "core.research.materialize.coverage.enforce_consumer_coverage",
+        return_value=None,
+    ), mock.patch(
+        "core.store.load_minute_cache",
+        side_effect=_load,
+    ), mock.patch(
+        "core.research.panel_matrix._tau_stock_job",
+        side_effect=_job,
+    ):
+        _x, _names, ys, _dates, _metas, n_ok = collect_tau_compact(
+            items,
+            ["gap_pct"],
+            tau_hm="10:00",
+            workers=1,
+            include_alpha_tc=False,
+            stats_out=stats,
+        )
+
+    assert n_ok == n_stocks
+    assert len(ys) == 4 * n_stocks
+    assert load_calls["n"] == n_stocks
+    assert peak["n"] <= _TAU_POOL_BATCH
+    assert peak["n"] >= 1
+    assert int(stats.get("minute_attached") or 0) == n_stocks
+    assert all(not (it.get("minute_bars") or []) for it in items)
+
+
 def test_unparseable_bar_falls_back_to_inject():
     from core.research.tau_panel import collect_tau_open_panel
 
@@ -1019,7 +992,6 @@ def test_unparseable_bar_falls_back_to_inject():
             if is_alpha_tc_raw_key(k)
         }
         assert set(got) == set(ref), (i, set(got) ^ set(ref))
-
 
 def test_alpha_tc_registered():
     assert "alpha_tc" in registered_factor_names()

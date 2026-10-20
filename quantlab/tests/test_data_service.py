@@ -6,20 +6,12 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import tempfile
 import threading
 import unittest
 from datetime import datetime, timedelta
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-
 # ---------- helpers (来自 encapsulate) ----------
-
 
 def _fresh_bars(n: int = 80):
     start = datetime.now() - timedelta(days=n + 5)
@@ -38,7 +30,6 @@ def _fresh_bars(n: int = 80):
         )
     return out
 
-
 class _FakeBars:
     def __init__(self, bars=None, source="akshare_cn_daily:qfq"):
         self.bars = bars if bars is not None else _fresh_bars()
@@ -46,7 +37,6 @@ class _FakeBars:
 
     def fetch_daily(self, code, **kw):
         return (list(self.bars), self.source)
-
 
 def _ports_with_bars(bars_port):
     from core.data.ports import MarketPorts, default_ports
@@ -63,9 +53,7 @@ def _ports_with_bars(bars_port):
         snapshots=base.snapshots,
     )
 
-
 # ---------- helpers (来自 reinforce) ----------
-
 
 def _bars(n=20, start=None):
     start = start or (datetime.now() - timedelta(days=n + 2))
@@ -84,11 +72,9 @@ def _bars(n=20, start=None):
         )
     return out
 
-
 # ============================================================
 # 原 test_data_service_encapsulate.py
 # ============================================================
-
 
 class TestTypedBarsResult(unittest.TestCase):
     def test_service_returns_bars_result_and_as_dict(self):
@@ -120,7 +106,6 @@ class TestTypedBarsResult(unittest.TestCase):
         self.assertFalse(r.production_ok)
         self.assertTrue(r.pit.rejected_quote_fallback)
 
-
 class TestFacadeCompat(unittest.TestCase):
     def tearDown(self):
         from core.data.service import set_default_service
@@ -129,8 +114,8 @@ class TestFacadeCompat(unittest.TestCase):
 
     def test_facade_get_bars_returns_dict(self):
         from core.data import MarketDataService
-        from core.data.service import set_default_service
         from core.data.facade import get_bars
+        from core.data.service import set_default_service
 
         set_default_service(MarketDataService(_ports_with_bars(_FakeBars())))
         pack = get_bars("600519", limit=60)
@@ -152,7 +137,6 @@ class TestFacadeCompat(unittest.TestCase):
         self.assertEqual(reason, "")
         self.assertEqual(normalize_adjust_policy(None), DEFAULT_ADJUST_POLICY)
         self.assertEqual(infer_adjust("akshare_cn_daily:qfq"), DEFAULT_ADJUST_POLICY)
-
 
 class TestDataEnvelope(unittest.TestCase):
     def test_quote_envelope_flattens(self):
@@ -213,7 +197,6 @@ class TestDataEnvelope(unittest.TestCase):
         self.assertFalse(env.production_ok)
         self.assertEqual(env.data_source, "mem_cache")
 
-
 class TestResearchInjectAndBatch(unittest.TestCase):
     def tearDown(self):
         from core.data.service import set_default_service, set_research_service
@@ -231,10 +214,11 @@ class TestResearchInjectAndBatch(unittest.TestCase):
         self.assertEqual(r.data_source, "rejected_quote_fallback")
 
     def test_facade_get_bars_batch(self):
-        from core.data import MarketDataService
-        from core.data.service import set_default_service
-        from core.data.facade import get_bars_batch
         from unittest.mock import patch
+
+        from core.data import MarketDataService
+        from core.data.facade import get_bars_batch
+        from core.data.service import set_default_service
 
         set_default_service(MarketDataService(_ports_with_bars(_FakeBars())))
         with patch("core.ports.market.batch_map", side_effect=lambda fn, items, **kw: [fn(c, **kw) for c in items]):
@@ -242,7 +226,6 @@ class TestResearchInjectAndBatch(unittest.TestCase):
         self.assertEqual(len(packs), 2)
         self.assertTrue(all(isinstance(p, dict) for p in packs))
         self.assertTrue(packs[0].get("production_ok"))
-
 
 class TestSectorCoverageEmpty(unittest.TestCase):
     def test_empty_universe_coverage_none(self):
@@ -252,10 +235,10 @@ class TestSectorCoverageEmpty(unittest.TestCase):
         self.assertIsNone(cov["coverage"])
         self.assertTrue(cov.get("empty_universe"))
 
-
 class TestScoreStockViaDs(unittest.TestCase):
     def test_fetch_daily_bars_offline_then_pool(self):
         from unittest.mock import patch
+
         from core.signal.score_stock import _fetch_bars_isolated
 
         fresh = _fresh_bars(40)
@@ -272,6 +255,7 @@ class TestScoreStockViaDs(unittest.TestCase):
 
     def test_fetch_daily_bars_pool_on_miss(self):
         from unittest.mock import patch
+
         from core.signal.score_stock import _fetch_bars_isolated
 
         empty = {"bars": [], "data_source": "empty", "production_ok": False}
@@ -290,6 +274,7 @@ class TestScoreStockViaDs(unittest.TestCase):
 
     def test_fetch_daily_bars_offline_only_skips_pool(self):
         from unittest.mock import patch
+
         from core.signal.score_stock import _fetch_bars_isolated
 
         empty = {"bars": [], "data_source": "empty", "production_ok": False}
@@ -302,7 +287,6 @@ class TestScoreStockViaDs(unittest.TestCase):
         m_batch.assert_not_called()
         self.assertEqual(bars, [])
         self.assertEqual(src, "empty")
-
 
 class TestMetrics(unittest.TestCase):
     def tearDown(self):
@@ -323,10 +307,10 @@ class TestMetrics(unittest.TestCase):
         snap = metrics_snapshot()
         self.assertGreaterEqual(snap.get("bars_ok", 0), 1)
 
-
 class TestPortfolioResolveOffline(unittest.TestCase):
     def test_offline_resolve_skips_quote(self):
         from unittest.mock import patch
+
         from core.research.portfolio_bars import _resolve_symbol
 
         with patch("core.data.facade.get_quote") as m_q:
@@ -336,12 +320,12 @@ class TestPortfolioResolveOffline(unittest.TestCase):
 
     def test_six_digit_no_network(self):
         from unittest.mock import patch
+
         from core.research.portfolio_bars import _resolve_symbol
 
         with patch("core.data.facade.get_quote") as m_q:
             self.assertEqual(_resolve_symbol("600519", allow_live=True), "600519")
         m_q.assert_not_called()
-
 
 class TestLazyDataPackage(unittest.TestCase):
     def test_lazy_getattr_bars_result(self):
@@ -352,10 +336,10 @@ class TestLazyDataPackage(unittest.TestCase):
         br = data_pkg.BarsResult
         self.assertTrue(callable(br) or isinstance(br, type))
 
-
 class TestIndexBars(unittest.TestCase):
     def test_get_index_bars_envelope(self):
         from unittest.mock import patch
+
         from core.data import MarketDataService
 
         fake_bars = _fresh_bars(30)
@@ -370,7 +354,6 @@ class TestIndexBars(unittest.TestCase):
         d = r.as_dict()
         self.assertEqual(d.get("kind"), "index_bars")
         self.assertTrue(d.get("ok"))
-
 
 class TestBatchRespectsInjectedPorts(unittest.TestCase):
     def tearDown(self):
@@ -401,7 +384,6 @@ class TestBatchRespectsInjectedPorts(unittest.TestCase):
         self.assertEqual(packs[0].get("data_source"), "rejected_quote_fallback")
         self.assertEqual(packs[0].get("bars"), [])
 
-
 class TestMinuteEmptyOk(unittest.TestCase):
     def test_empty_minute_not_ok(self):
         from core.data import MarketDataService
@@ -427,11 +409,9 @@ class TestMinuteEmptyOk(unittest.TestCase):
         self.assertEqual(env.gate_reason, "minute_empty")
         self.assertFalse(env.as_dict().get("success"))
 
-
 # ============================================================
 # 原 test_data_service_reinforce.py
 # ============================================================
-
 
 class TestStoreLockMerge(unittest.TestCase):
     def setUp(self):
@@ -485,7 +465,6 @@ class TestStoreLockMerge(unittest.TestCase):
         self.assertEqual(q["level"], "empty")
         self.assertTrue(q.get("pseudo_dates"))
 
-
 class TestSectorBoardSplit(unittest.TestCase):
     def test_unmapped_is_not_board(self):
         from core.data.policy import UNMAPPED_SECTOR
@@ -494,7 +473,6 @@ class TestSectorBoardSplit(unittest.TestCase):
         self.assertEqual(_sector_for("600519", {}), UNMAPPED_SECTOR)
         self.assertEqual(_board_for("600519"), "主板沪")
         self.assertEqual(_sector_for("300750", {"300750": "新能源"}), "新能源")
-
 
 class TestRejectQuoteFallback(unittest.TestCase):
     def test_get_bars_reject(self):
@@ -515,11 +493,11 @@ class TestRejectQuoteFallback(unittest.TestCase):
         self.assertTrue(pack["fallback"])
         self.assertFalse(pack["production_ok"])
 
-
 class TestAnnMissingPolicy(unittest.TestCase):
     def test_zero_weight_clears_metrics(self):
-        from core.fundamentals_pit import resolve_fundamentals_for_score
         from unittest.mock import patch
+
+        from core.fundamentals_pit import resolve_fundamentals_for_score
 
         hist = [
             {
@@ -543,7 +521,6 @@ class TestAnnMissingPolicy(unittest.TestCase):
         self.assertIsNone(out.get("metrics"))
         self.assertTrue(out.get("ann_missing"))
 
-
 class TestDataPolicyImports(unittest.TestCase):
     def test_constants(self):
         from core.data import policy as p
@@ -552,7 +529,6 @@ class TestDataPolicyImports(unittest.TestCase):
         self.assertEqual(FUNDAMENTALS_CACHE_HOURS, p.FUNDAMENTALS_CACHE_HOURS)
         self.assertEqual(NEWS_CACHE_HOURS, p.NEWS_CACHE_HOURS)
         self.assertGreater(p.QFQ_LONG_GAP_DAYS, 0)
-
 
 class TestBoardLabelScrub(unittest.TestCase):
     def test_board_in_map_counts_unmapped(self):
@@ -570,8 +546,7 @@ class TestBoardLabelScrub(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from core.sector_map_sync import scrub_board_labels_from_sector_map, save_sector_map
-        from core.portfolio_optimize import load_sector_map
+        from core.sector_map_sync import save_sector_map, scrub_board_labels_from_sector_map
 
         td = tempfile.mkdtemp()
         path = str(Path(td) / "sector_map.json")
@@ -583,7 +558,6 @@ class TestBoardLabelScrub(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             left = json.load(f)
         self.assertEqual(left, {"600519": "白酒"})
-
 
 class TestSpotIndustryEnrich(unittest.TestCase):
     def test_normalize_industry(self):
@@ -645,7 +619,6 @@ class TestSpotIndustryEnrich(unittest.TestCase):
         self.assertEqual(left["300750"], "电池")
         self.assertEqual(left["000001"], "银行")
 
-
 class TestSectorCoverageRiskGate(unittest.TestCase):
     def test_require_sector_map_blocks(self):
         from core.risk.checks import check_account_risk
@@ -678,7 +651,6 @@ class TestSectorCoverageRiskGate(unittest.TestCase):
         out = check_account_risk(paper, summary, risk=risk)
         self.assertFalse(out["ok"])
         self.assertIn("sector_map_thin", out["block_codes"])
-
 
 if __name__ == "__main__":
     unittest.main()

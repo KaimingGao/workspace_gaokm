@@ -1,11 +1,6 @@
 import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 import web.deps as deps  # noqa: E402
 
@@ -15,6 +10,7 @@ class TestWebApi(unittest.TestCase):
     def setUpClass(cls):
         try:
             from fastapi.testclient import TestClient
+
             from web.app import app
         except ImportError:
             cls.client = None
@@ -40,7 +36,7 @@ class TestWebApi(unittest.TestCase):
         if self.client is None:
             self.skipTest("fastapi not installed")
         from unittest.mock import MagicMock
-        import web.app as web_app
+
         import web.deps as deps
 
         agent = MagicMock()
@@ -112,7 +108,6 @@ class TestWebApi(unittest.TestCase):
     def test_quant_weight_suggest_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_out = {
             "success": True,
@@ -138,7 +133,6 @@ class TestWebApi(unittest.TestCase):
     def test_quant_portfolio_backtest_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_out = {
             "success": True,
@@ -285,7 +279,6 @@ class TestWebApi(unittest.TestCase):
     def test_quant_threshold_suggest_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_out = {
             "success": True,
@@ -328,7 +321,6 @@ class TestWebApi(unittest.TestCase):
     def test_quant_interpret_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_out = {
             "success": True,
@@ -346,7 +338,6 @@ class TestWebApi(unittest.TestCase):
     def test_quant_export_html_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_out = {
             "success": True,
@@ -362,7 +353,6 @@ class TestWebApi(unittest.TestCase):
     def test_quant_export_markdown_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_out = {
             "success": True,
@@ -379,7 +369,6 @@ class TestWebApi(unittest.TestCase):
     def test_paper_rebalance_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_out = {
             "ok": True,
@@ -404,7 +393,6 @@ class TestWebApi(unittest.TestCase):
         import tempfile
 
         from services.paper_service import PaperService
-        import web.app as web_app
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "paper.json")
@@ -421,7 +409,6 @@ class TestWebApi(unittest.TestCase):
         import tempfile
 
         from services.paper_service import PaperService
-        import web.app as web_app
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "paper.json")
@@ -442,7 +429,6 @@ class TestWebApi(unittest.TestCase):
         import tempfile
 
         from services.paper_service import PaperService
-        import web.app as web_app
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "paper.json")
@@ -468,7 +454,6 @@ class TestWebApi(unittest.TestCase):
         import tempfile
 
         from services.paper_service import PaperService
-        import web.app as web_app
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "paper.json")
@@ -574,7 +559,6 @@ class TestWebApi(unittest.TestCase):
     def test_evals_run_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_report = {
             "ok": True,
@@ -598,7 +582,7 @@ class TestWebApi(unittest.TestCase):
         if self.client is None:
             self.skipTest("fastapi not installed")
         import tempfile
-        import web.app as web_app
+
         from services.eval_service import EvalService
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -620,7 +604,6 @@ class TestWebApi(unittest.TestCase):
     def test_daily_run_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
-        import web.app as web_app
 
         mock_out = {
             "ok": True,
@@ -637,7 +620,6 @@ class TestWebApi(unittest.TestCase):
             )
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["ok"])
-
 
 if __name__ == "__main__":
     unittest.main()

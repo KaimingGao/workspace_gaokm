@@ -41,11 +41,9 @@ def _synth_bars(n: int, seed: int = 42) -> list:
         )
     return bars
 
-
 def test_alpha_th_field_count():
     assert len(ALPHA_TH_FIELD_NAMES) == 63
     assert len(set(ALPHA_TH_FIELD_NAMES)) == 63
-
 
 def test_alpha_th_feat_labels_cover_fields():
     from core.signal.factors.alpha_th import ATH_FEAT_LABELS, ath_raw_key
@@ -60,7 +58,6 @@ def test_alpha_th_feat_labels_cover_fields():
     assert factor_label("raw_ath_NEAR_UPLIMIT") == "距涨停"
     assert factor_label("raw_ath_CLOSE0") == "τ价/昨收"
 
-
 def test_alpha_th_key_fields_listed():
     assert "GAP" in ALPHA_TH_FIELD_NAMES
     assert "CLOSE0" in ALPHA_TH_FIELD_NAMES
@@ -73,7 +70,6 @@ def test_alpha_th_key_fields_listed():
     assert "PROC5" not in ALPHA_TH_FIELD_NAMES
     assert "TC_LAG1" not in ALPHA_TH_FIELD_NAMES
 
-
 def test_alpha_th_fit_features_per_head():
     for head in ("t30", "t45", "t60", "t75", "t90"):
         feats = alpha_th_fit_features_for_head(head)
@@ -83,7 +79,6 @@ def test_alpha_th_fit_features_per_head():
         num = head[1:]
         assert ath_raw_key(f"RET_LAST_{num}") in feats
         assert ath_raw_key("RET_LAST_H") in feats
-
 
 def test_raw_ath_from_bars_helper():
     assert raw_ath_from_bars(_synth_bars(10)) == {}
@@ -99,7 +94,6 @@ def test_raw_ath_from_bars_helper():
     assert not any(k.startswith(f"{ALPHA_TH_RAW_PREFIX}PROC") for k in out)
     assert ath_raw_key("TC_LAG1") not in out
 
-
 def test_inject_promotes_seq_and_head_alias():
     dest: dict = {
         "ret_last_30m": 1.2,
@@ -114,13 +108,11 @@ def test_inject_promotes_seq_and_head_alias():
     assert dest[ath_raw_key("H_LAG1")] == -0.5
     assert dest[ath_raw_key("H_MA5")] == 0.1
 
-
 def test_promote_ath_head_aliases_t60():
     row = {"ret_last_60m": 2.0, "t60_lag1": 0.4, "t60_ma5": 0.2}
     promote_ath_head_aliases(row, "t60")
     assert row[ath_raw_key("RET_LAST_H")] == 2.0
     assert row[ath_raw_key("H_LAG1")] == 0.4
-
 
 def test_score_alpha_th_omit():
     bars = _synth_bars(40)
@@ -132,10 +124,8 @@ def test_score_alpha_th_omit():
     assert meta.get("alpha_th_anchor") == "price_tau"
     assert "GAP" in meta
 
-
 def test_alpha_th_min_bars():
     assert ALPHA_TH_MIN_BARS == 22
-
 
 def test_alpha_th_registered():
     assert "alpha_th" in registered_factor_names()
@@ -148,7 +138,6 @@ def test_alpha_th_registered():
     assert score == 50.0
     assert meta.get("omit_sub_score") is True
 
-
 def test_alpha_th_report_meta():
     from core.signal.factors.alpha_th import alpha_th_report_meta
 
@@ -158,7 +147,6 @@ def test_alpha_th_report_meta():
     assert m["feature_pack_formula"] == "z_τh_* ∪ raw_ath_*"
     assert m["include_alpha_th"] is True
     assert m["n_alpha_th_features"] == 43
-
 
 def test_horizon_config_includes_ath():
     from core.research.horizon_ridge import _horizon_ridge_config
@@ -176,7 +164,6 @@ def test_horizon_config_includes_ath():
         str(k).startswith("z_τh_") or str(k).startswith("raw_ath_")
         for k in cfg["z_features"]
     )
-
 
 def test_inject_raw_ath_live_before_predict():
     from core.t0.score_policy import _inject_raw_ath_live

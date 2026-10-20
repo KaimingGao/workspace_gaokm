@@ -1,21 +1,13 @@
 """Quant 任务目录同步（原 P57）。"""
 
+import json
 import os
-import sys
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-import json
 from agent.prompts import QUANT_HINT, QUANT_TASK_ENUM, QUANT_TASK_ROUTES, SYSTEM_PROMPT
 from agent.routing import infer_quant_task, prepare_tool_params
 from quant.skill.engine import AVAILABLE_TASKS
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import ROOT
 
 # --- test_p57_quant.py::TestP57QuantTaskCatalog ---
 
@@ -53,7 +45,6 @@ class TestP57QuantTaskCatalog(unittest.TestCase):
             self.assertEqual(infer_quant_task(question), task, msg=question)
             params = prepare_tool_params("quant", {}, question)
             self.assertEqual(params.get("task"), task, msg=question)
-
 
 if __name__ == "__main__":
     unittest.main()

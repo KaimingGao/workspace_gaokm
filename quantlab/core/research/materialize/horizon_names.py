@@ -114,10 +114,15 @@ def _name_list(cube_or_names: Sequence[str] | object) -> List[str]:
     return []
 
 
+# 早盘钟 raw_ath_* / 部分 z_τh_* 常为 NaN（不足窗长），立方组矩阵会丢掉全空列。
+# 验收用半数覆盖，避免「L1 有列名、L2 全被 slim_reject」假失败。
+HORIZON_COVER_FRAC = 0.5
+
+
 def names_cover_horizon(
     cube_or_names: Sequence[str] | object,
     *,
-    min_frac: float = 0.25,
+    min_frac: float = HORIZON_COVER_FRAC,
     need: Sequence[str] | None = None,
 ) -> bool:
     """Cube.names 或 name 列表是否足够覆盖窗头列。"""
@@ -147,6 +152,7 @@ def names_cover_horizon(
 
 
 __all__ = [
+    "HORIZON_COVER_FRAC",
     "horizon_l1_feature_names",
     "horizon_cube_required_names",
     "minute_horizon_required_names",

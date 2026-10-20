@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from datetime import datetime
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestInspectFactorAnomaly(unittest.TestCase):
@@ -192,7 +186,6 @@ class TestInspectFactorAnomaly(unittest.TestCase):
         self.assertTrue(out["fatal_eod"])
         self.assertEqual(out["gate_reason"], "factor_anomaly:missing:sub_scores")
 
-
 class TestStampWindowFactorAnomaly(unittest.TestCase):
     def test_stamp_drops_y_oo_fuse_when_tau_fatal(self):
         from core.signal.yhat_windows import stamp_window_scores
@@ -208,7 +201,6 @@ class TestStampWindowFactorAnomaly(unittest.TestCase):
         self.assertIsNone(stamped.get("y_τc"))
         self.assertIsNone(stamped.get("y_oo_fuse"))
         self.assertAlmostEqual(stamped.get("y_oo"), 1.0)
-
 
 class TestScoreStockFactorAnomaly(unittest.TestCase):
     def _bars(self, last="2026-09-16", n=20):
@@ -265,7 +257,6 @@ class TestScoreStockFactorAnomaly(unittest.TestCase):
         self.assertIn("factor_anomaly:missing:open_t", str(item.get("gate_reason") or ""))
         self.assertEqual((item.get("factor_anomaly") or {}).get("gate_reason"), "factor_anomaly:missing:open_t")
 
-
 class TestComputeFactorExceptionOmit(unittest.TestCase):
     def test_one_factor_crash_does_not_abort(self):
         from core.signal.factors.meta import registry as reg
@@ -288,7 +279,6 @@ class TestComputeFactorExceptionOmit(unittest.TestCase):
         self.assertNotIn("momentum", subs)
         self.assertIn("volatility", subs)
         self.assertIn("momentum_compute_error", meta)
-
 
 if __name__ == "__main__":
     unittest.main()

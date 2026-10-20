@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest import mock
 
 import numpy as np
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestFeatureLake(unittest.TestCase):
@@ -227,14 +222,12 @@ class TestFeatureLake(unittest.TestCase):
             )
         )
 
-
 class TestFeatureRegistry(unittest.TestCase):
     def test_universe_hash_order_invariant(self) -> None:
         from core.research.feature_registry import universe_hash
 
         self.assertEqual(universe_hash(["b", "a"]), universe_hash(["a", "b"]))
         self.assertNotEqual(universe_hash(["a"]), universe_hash(["a", "b"]))
-
 
 if __name__ == "__main__":
     unittest.main()

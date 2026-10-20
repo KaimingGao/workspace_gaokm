@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 
 import numpy as np
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestRebalanceScoreBackend(unittest.TestCase):
@@ -37,8 +31,8 @@ class TestRebalanceScoreBackend(unittest.TestCase):
         except ImportError:
             self.skipTest("lightgbm not installed")
 
-        from core.research.horizon_tree import pack_tree_return_model, predict_tree_return
         from core.research.horizon_lgb import _fit_lightgbm
+        from core.research.horizon_tree import pack_tree_return_model, predict_tree_return
 
         rng = np.random.default_rng(0)
         x = rng.normal(size=(40, 2))
@@ -89,7 +83,6 @@ class TestRebalanceScoreBackend(unittest.TestCase):
         self.assertNotIn("tree_return_model", out)
         self.assertTrue(out["backtest_hook"])
         self.assertFalse(out["live_hook"])
-
 
 if __name__ == "__main__":
     unittest.main()

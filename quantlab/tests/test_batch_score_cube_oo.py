@@ -3,13 +3,8 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestBatchScoreCubeOo(unittest.TestCase):
@@ -72,7 +67,6 @@ class TestBatchScoreCubeOo(unittest.TestCase):
         )
         self.assertIn("x", feats)
         self.assertIn("z_oo_mom", feats["x"])
-
 
 if __name__ == "__main__":
     unittest.main()

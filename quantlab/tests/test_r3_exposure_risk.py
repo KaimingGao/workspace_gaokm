@@ -81,7 +81,6 @@ class TestExposureMatrix(unittest.TestCase):
         self.assertTrue(any(i["code"] == "max_sector" for i in out["block_items"]))
         self.assertTrue(out["exposure"]["over_limit_sectors"])
 
-
 class TestClipBuyRiskBudget(unittest.TestCase):
     def test_clip_and_skip_by_sector(self):
         from core.risk.budget import clip_buy_to_risk_budget
@@ -116,7 +115,6 @@ class TestClipBuyRiskBudget(unittest.TestCase):
         self.assertTrue(skip["skipped"])
         self.assertEqual(skip["shares"], 0)
         self.assertIn("行业", skip["reason"])
-
 
 class TestRiskBlockEffectiveness(unittest.TestCase):
     def test_summarize_by_code_and_rates(self):
@@ -157,7 +155,6 @@ class TestRiskBlockEffectiveness(unittest.TestCase):
         self.assertAlmostEqual(out["false_block_rate"], 0.5)
         self.assertTrue(out["by_day"])
         self.assertEqual(out["status"], "ok")
-
 
 if __name__ == "__main__":
     unittest.main()

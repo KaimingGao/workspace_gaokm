@@ -1,23 +1,17 @@
 import os
-import sys
-import json
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
+from agent.routing import infer_quant_task
 from core.t0.backtest import backtest_t0_on_bars
 from core.t0.config import DEFAULT_T0_RULES, load_t0_rules
 from core.t0.rules import simulate_t0_day, simulate_t0_on_holdings
 from quant.skill.engine import AVAILABLE_TASKS, QuantEngine
-from agent.routing import infer_quant_task
+from tests.conftest import ROOT
 
 
 def _bar(date, o, h, l, c):
     return {"date": date, "open": o, "high": h, "low": l, "close": c, "volume": 1000}
-
 
 def _mins(date, points):
     """points: list of (hhmm, open, high, low, close)."""
@@ -36,7 +30,6 @@ def _mins(date, points):
         )
     return out
 
-
 def _ytw_heads(up=True):
     p = 0.8 if up else 0.2
     return {
@@ -52,7 +45,6 @@ def _ytw_heads(up=True):
         "y_t90": p,
     }
 
-
 def _scores_flat():
     """无窗头 → 缺 ŷ_τw 不开轮。需方向时用 _scores_r。"""
     return {
@@ -63,12 +55,10 @@ def _scores_flat():
         "y_path": 0.05,
     }
 
-
 def _scores_r(sign):
     """ŷ_τw 符号选向：>0 正T，<0 反T。"""
     s = float(sign)
     return {**_scores_flat(), "y_tau": s, "y_tau_oc": s, **_ytw_heads(up=s >= 0)}
-
 
 def _mins_hl(date=None, o=100, high=105, low=98, close=101, bar=None):
     """反T：首根阴线 + 负 ŷ_τw → leg1 卖；午后更低下探，15:00 回补。"""
@@ -91,7 +81,6 @@ def _mins_hl(date=None, o=100, high=105, low=98, close=101, bar=None):
         ],
     )
 
-
 def _mins_lh(date=None, o=100, high=105, low=96, close=101, bar=None):
     """正T：全程阳线 + 正 ŷ_τw → leg1 买；午后冲高，15:00 可回补。"""
     if isinstance(bar, dict):
@@ -112,7 +101,6 @@ def _mins_lh(date=None, o=100, high=105, low=96, close=101, bar=None):
             (1500, max(close, up + 0.15), high, low, max(close, up + 0.15)),
         ],
     )
-
 
 def _rules(**kwargs):
     """单测默认 first_touch；关中点追价以免干扰路径用例。"""
@@ -161,7 +149,6 @@ def _rules(**kwargs):
             base["min_range_pct_buy_then_sell"] = kwargs["min_range_pct"]
     return base
 
-
 def _rules_path(**kwargs):
     """路径/追价用例：关 τ 出场价闸（配置 skip=False → 闸关）。"""
     return _rules(
@@ -169,7 +156,6 @@ def _rules_path(**kwargs):
         y_tau_exit_price_skip_sell_then_buy=False,
         **kwargs,
     )
-
 
 class TestT0Core(unittest.TestCase):
     def test_default_fill_mode_trigger(self):
@@ -206,7 +192,6 @@ class TestT0Core(unittest.TestCase):
             resolve_score_as_of(hist_bars=[], day_bar={"date": "2026-01-11"}),
             "2026-01-11",
         )
-
 
     def test_unsuffixed_must_cover_is_ignored(self):
         """无后缀 must_cover 不再改分侧默认。"""
@@ -765,8 +750,6 @@ class TestT0Core(unittest.TestCase):
         minute_bars=_mins_hl(bar=bar))
         self.assertGreaterEqual(opt["pnl"], trg["pnl"])
 
-
-
     def test_no_trigger_when_range_ok_but_levels_miss(self):
         """缺 ŷ_τw 即使日振幅够也不开 leg1。"""
         bar = _bar("2026-01-10", 100, 105, 98.5, 100)
@@ -984,7 +967,6 @@ class TestT0Core(unittest.TestCase):
             row = next(d for d in sample if d.get("trades"))
             self.assertIn("sell_price", row)
 
-
     def test_backtest_eval_window_decoupled_from_score_warmup(self):
         from datetime import date, timedelta
 
@@ -1040,7 +1022,6 @@ class TestT0Core(unittest.TestCase):
             )
         self.assertEqual(captured[-1], 9)
 
-
     def test_backtest_resolve_defaults_dual_y(self):
         from core.execution import resolve_t0_rules, strip_execution_meta
 
@@ -1049,7 +1030,6 @@ class TestT0Core(unittest.TestCase):
         )
         self.assertEqual(cfg.get("direction"), "dual_y")
         self.assertEqual(cfg.get("path_mode"), "first_touch")
-
 
     def test_minute_first_touch_covers_after_sell(self):
         bar = _bar("2024-01-03", 100, 105, 97, 100)
@@ -1211,7 +1191,6 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(float(out.get("exposure_pnl") or 0), exp_last, places=2)
         self.assertNotAlmostEqual(exp_last, exp_daily, places=2)
 
-
     def test_sell_then_buy_abandons_cover_when_buyback_misses(self):
         """反T：卖出后买不回 → 放弃回补（减仓落袋），不收盘强买。"""
         bar = _bar("2024-01-03", 100, 105, 99, 100)
@@ -1286,11 +1265,6 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(buys[0].get("leg_kind"), "pm_chase")
         self.assertIn("14:30", str(buys[0].get("at") or ""))
         self.assertEqual(out.get("range_mode"), "close_band")
-
-
-
-
-
 
     def test_tau_exit_price_signed_bounds(self):
         """第二腿：正T卖价>bound / 反T买价<bound。"""
@@ -1398,7 +1372,7 @@ class TestT0Core(unittest.TestCase):
     def test_reverse_t_bias_algebraic_signed(self):
         """反T价偏代数可正可负；默认负偏压低 bound。"""
         from core.t0.config import load_t0_rules
-        from core.t0.minute_path import tau_exit_bound_px, _tau_price_gate_bias
+        from core.t0.minute_path import _tau_price_gate_bias, tau_exit_bound_px
 
         d = load_t0_rules({"y_tau_exit_price_bias_sell_then_buy": -1.0})
         self.assertAlmostEqual(d["y_tau_exit_price_bias_sell_then_buy"], -1.0)
@@ -1655,7 +1629,6 @@ class TestT0Core(unittest.TestCase):
             _norm_trades(setup.get("trades")),
             (day_out.get("trades"), setup.get("trades")),
         )
-
 
     def test_require_minute_rejects_daily_only(self):
         bars = [_bar(f"2024-01-{i+1:02d}", 100, 106, 96, 101) for i in range(5)]
@@ -2128,7 +2101,6 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("task"), "t0_backtest")
 
-
 class TestDualYDirection(unittest.TestCase):
     def test_load_dual_y_alias(self):
         cfg = load_t0_rules({"direction": "yhat"})
@@ -2224,8 +2196,8 @@ class TestDualYDirection(unittest.TestCase):
         import inspect
 
         from core.t0.score_policy import (
-            T0_PAPER_DAILY_BAR_LIMIT,
             _EOD_FACTOR_BAR_LIMIT,
+            T0_PAPER_DAILY_BAR_LIMIT,
         )
         from services import paper_trades as pt
 
@@ -2884,8 +2856,8 @@ class TestDualYDirection(unittest.TestCase):
         set_t0_cs_universe_codes(live)
         self.assertEqual(current_t0_cs_universe_codes(), live)
         self.assertEqual(peer_codes_for_sector_ret()[:2], live[:2])
-        from core.watching.store import WATCHING_MAX_SIZE
         from core.t0.score_policy import t0_cs_universe_cap
+        from core.watching.store import WATCHING_MAX_SIZE
 
         self.assertEqual(t0_cs_universe_cap(), WATCHING_MAX_SIZE)
         many = [f"{i:06d}" for i in range(30)]
@@ -3240,7 +3212,6 @@ class TestDualYDirection(unittest.TestCase):
         self.assertNotIn("trigger_scale", strong)
         self.assertNotIn("sell_trigger_pct", strong)
 
-
     def test_load_y_tau_map_alias(self):
         from core.t0.config import load_t0_rules
 
@@ -3288,7 +3259,6 @@ class TestDualYDirection(unittest.TestCase):
         self.assertAlmostEqual(float(scores.get("y_nowcast")), -0.40, places=2)
         self.assertIsNone(scores.get("y_nc"))
         self.assertIsNone(scores.get("y_nc_oc"))
-
 
 class TestT0Viz(unittest.TestCase):
     def test_cover_completed_treats_intentional_abandon(self):
@@ -4209,6 +4179,7 @@ class TestT0Viz(unittest.TestCase):
     def test_walk_t0_skip_row_path_mode_uses_cfg_not_day_rules(self):
         """跳过日明细 path_mode 回退 cfg，不引用未定义的 day_rules。"""
         import inspect
+
         from core.t0 import backtest as bt
 
         src = inspect.getsource(bt._walk_t0)
@@ -4383,12 +4354,11 @@ class TestT0Viz(unittest.TestCase):
         self.assertNotIn("compare", report["viz"])
         self.assertEqual(report["viz"]["summary"]["participate_rate_pct"], 12.5)
 
-
-
 class TestT0Api(unittest.TestCase):
     def test_t0_backtest_api_mocked(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
             import web.deps as deps
         except ImportError:
@@ -4420,6 +4390,7 @@ class TestT0Api(unittest.TestCase):
     def test_t0_backtest_api_defaults_to_job(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
             import web.deps as deps
         except ImportError:
@@ -4444,7 +4415,7 @@ class TestT0Api(unittest.TestCase):
 
     def test_index_has_t0_controls(self):
         follow = os.path.join(ROOT, "web", "static", "partials", "follow_panel.html")
-        with open(follow, "r", encoding="utf-8") as f:
+        with open(follow, encoding="utf-8") as f:
             text = f.read()
         self.assertNotIn("paper-t0-backtest", text)
         self.assertNotIn("paper-t0-metrics", text)
@@ -4484,7 +4455,7 @@ class TestT0Api(unittest.TestCase):
 
     def test_replay_has_t0_backtest_controls(self):
         path = os.path.join(ROOT, "web", "static", "partials", "replay_panel.html")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             text = f.read()
         self.assertIn("paper-t0-backtest", text)
         self.assertIn("paper-t0-metrics", text)
@@ -4498,7 +4469,6 @@ class TestT0Api(unittest.TestCase):
         self.assertIn("replay-t0-matrix", text)
         self.assertIn("dual_y", text)
         self.assertIn("paper-path-matrix-form", text)
-
 
 class TestT0HoldingsVirtualSizing(unittest.TestCase):
     def test_align_daily_bars_to_minute_drops_uncovered(self):
@@ -4822,7 +4792,7 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
             {"date": "2026-07-03", "close": 12},
         ]
         short = [{"datetime": "2026-07-01 09:35:00"} for _ in range(10)]
-        full = [{"datetime": f"2026-07-02 14:55:00"}] + [
+        full = [{"datetime": "2026-07-02 14:55:00"}] + [
             {"datetime": "2026-07-02 09:35:00"} for _ in range(45)
         ]
         # 故意把末根放到列表末尾供 complete 检测
@@ -4884,7 +4854,6 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertIn("600519", out)
         self.assertTrue(seen[0].get("offline_ok"))
         self.assertTrue(seen[0].get("offline_only"))
-
 
 class TestIntradaySkipLogic(unittest.TestCase):
     def test_should_process_skips_done_without_new_bar(self):
@@ -5105,6 +5074,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
 
     def test_process_holding_tplus1_zero_sellable_locks(self):
         from unittest.mock import patch
+
         from core.t0.intraday import PHASE_SKIPPED, process_holding_intraday
 
         bar = _bar("2026-01-10", 99, 103, 97, 101)
@@ -5191,6 +5161,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
 
     def test_intraday_skips_stale_morning_leg1_on_first_tick(self):
         from unittest.mock import patch
+
         from core.t0.intraday import PHASE_IDLE, process_holding_intraday
 
         bar = _bar("2026-09-10", 25.92, 25.96, 25.64, 25.70)
@@ -5264,6 +5235,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
 
     def test_intraday_applies_leg1_on_current_bar(self):
         from unittest.mock import patch
+
         from core.t0.intraday import PHASE_AFTER_LEG1, process_holding_intraday
 
         bar = _bar("2026-09-10", 25.92, 25.96, 25.64, 25.70)
@@ -5337,6 +5309,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
 
     def test_intraday_gap_does_not_replay_missed_bars(self):
         from unittest.mock import patch
+
         from core.t0.intraday import PHASE_AFTER_LEG1, process_holding_intraday
 
         bar = _bar("2026-09-10", 25.92, 25.96, 25.64, 25.70)
@@ -5718,7 +5691,6 @@ class TestIntradaySkipLogic(unittest.TestCase):
         self.assertTrue(locked["score_locked"])
         self.assertIn("无成交腿", locked["reason"])
 
-
 class TestT0AutoWorker(unittest.TestCase):
     def test_worker_tick_waits_outside_session(self):
         from core.t0.auto_worker import T0AutoWorker
@@ -5744,6 +5716,7 @@ class TestT0AutoWorker(unittest.TestCase):
 
     def test_set_worker_starts_and_stops(self):
         import tempfile
+
         from core.t0.auto_worker import t0_auto_worker
         from services.paper_service import PaperService
 
@@ -5773,12 +5746,12 @@ class TestT0AutoWorker(unittest.TestCase):
                 )
                 self.assertFalse(paper["rules"]["t0_auto"]["enabled"])
 
-
 class TestT0AutoLastRunDetail(unittest.TestCase):
     def test_last_run_stores_compact_results(self):
         import tempfile
-        from services.paper_trades import _compact_t0_result_rows, _write_t0_auto_last_run
+
         from core.paper import load_paper, save_paper
+        from services.paper_trades import _compact_t0_result_rows, _write_t0_auto_last_run
 
         sample = [
             {
@@ -6068,6 +6041,7 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
 
     def test_hydrate_last_run_from_intraday_snapshot(self):
         from unittest.mock import patch
+
         from services.paper_trades import _hydrate_t0_last_run_display
 
         lr = {
@@ -6189,8 +6163,9 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
 
     def test_last_run_skipped_without_write(self):
         import tempfile
-        from services.paper_trades import _write_t0_auto_last_run
+
         from core.paper import load_paper, save_paper
+        from services.paper_trades import _write_t0_auto_last_run
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "paper.json")
@@ -6210,8 +6185,9 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
 
     def test_last_run_from_flat_trades_when_results_empty(self):
         import tempfile
-        from services.paper_trades import _write_t0_auto_last_run
+
         from core.paper import load_paper, save_paper
+        from services.paper_trades import _write_t0_auto_last_run
 
         legs = [
             {
@@ -6245,10 +6221,10 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
             self.assertEqual(row["stock_code"], "600519")
             self.assertEqual(len(row.get("trades") or []), 1)
 
-
 class TestDeleteT0Records(unittest.TestCase):
     def test_delete_voids_roundtrip_and_restores_sellable(self):
         import tempfile
+
         from core.paper import load_paper, save_paper
         from core.paper.tplus1 import sellable_shares
         from services.paper_service import PaperService
@@ -6393,6 +6369,7 @@ class TestDeleteT0Records(unittest.TestCase):
 
     def test_delete_only_last_run_keeps_other_code(self):
         import tempfile
+
         from core.paper import load_paper, save_paper
         from services.paper_service import PaperService
 
@@ -6476,11 +6453,11 @@ class TestDeleteT0Records(unittest.TestCase):
                 )
             )
 
-
 class TestClearT0Intraday(unittest.TestCase):
     def test_clear_skips_legs_unless_force(self):
         import json
         import tempfile
+
         from core.t0 import intraday as intraday_mod
         from services.paper_service import PaperService
 
@@ -6514,7 +6491,6 @@ class TestClearT0Intraday(unittest.TestCase):
                 left2 = json.load(open(state_path, encoding="utf-8"))
                 self.assertEqual(left2.get("stocks") or {}, {})
 
-
 class TestT0PreviewMinuteRefresh(unittest.TestCase):
     """手动预演：会话日 5m 停在午前时须 use_cache=False 补拉。"""
 
@@ -6522,6 +6498,7 @@ class TestT0PreviewMinuteRefresh(unittest.TestCase):
         import json
         import tempfile
         from datetime import datetime
+
         from services.paper_trades import PaperTradesMixin
 
         day = "2026-09-01"
@@ -6654,7 +6631,6 @@ class TestT0PreviewMinuteRefresh(unittest.TestCase):
                 os.unlink(path)
             except OSError:
                 pass
-
 
 if __name__ == "__main__":
     unittest.main()

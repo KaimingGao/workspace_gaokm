@@ -61,7 +61,6 @@ class MaterializeTcBarsTests(unittest.TestCase):
         self.assertFalse(row["ok"])
         self.assertFalse(row["tc_rank"]["ok"])
 
-
 class MaterializeCatalogTests(unittest.TestCase):
     def test_catalog_has_p0_families(self):
         from core.research.materialize import catalog_payload
@@ -100,7 +99,6 @@ class MaterializeCatalogTests(unittest.TestCase):
         names = horizon_l1_feature_names()
         self.assertGreaterEqual(len(names), 4)
 
-
 class MaterializeFlagsTests(unittest.TestCase):
     def test_require_day_cube_env(self):
         from core.research.materialize import flags as fl
@@ -116,7 +114,6 @@ class MaterializeFlagsTests(unittest.TestCase):
                 os.environ.pop("QUANTLAB_MATERIALIZE_REQUIRE_CUBE", None)
             else:
                 os.environ["QUANTLAB_MATERIALIZE_REQUIRE_CUBE"] = old
-
 
 class MaterializeOrchestrateTests(unittest.TestCase):
     def test_run_materialize_short_codes(self):
@@ -307,7 +304,7 @@ class MaterializeOrchestrateTests(unittest.TestCase):
                 do_l1_tau_grid=True,
                 do_l2=True,
                 dates=["2026-01-02"],
-                clocks=["open"],  # schema 默认；纯 τ 轨应剥掉 open
+                clocks=["open"],  # UI 占位；纯 τ 轨应扩成 open + suggested τ 钟
             )
         self.assertTrue(out.get("ok"), out)
         self.assertTrue(out.get("do_l1_tau_grid"))
@@ -315,10 +312,9 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         kwargs = l2_fn.call_args.kwargs
         self.assertTrue(kwargs.get("require_horizon_names"))
         clks = list(kwargs.get("clocks") or [])
-        self.assertNotIn("open", clks)
+        self.assertIn("open", clks)
         self.assertIn("10:30", clks)
         self.assertIn("11:00", clks)
-
 
 class MaterializeRequireCubeWarmupTests(unittest.TestCase):
     def test_warmup_skips_ensure_when_require_cube(self):
@@ -351,7 +347,6 @@ class MaterializeRequireCubeWarmupTests(unittest.TestCase):
             else:
                 os.environ["QUANTLAB_MATERIALIZE_REQUIRE_CUBE"] = old
 
-
 class MaterializePackageExportTests(unittest.TestCase):
     def test_public_exports(self):
         from core.research import materialize as m
@@ -367,7 +362,6 @@ class MaterializePackageExportTests(unittest.TestCase):
             "names_cover_horizon",
         ):
             self.assertTrue(callable(getattr(m, name, None)), name)
-
 
 class PreferCubeHelpersTests(unittest.TestCase):
     def test_cs_z_matrix_prefer_cube_uses_flag(self):
@@ -394,7 +388,6 @@ class PreferCubeHelpersTests(unittest.TestCase):
             z = cs_z_matrix_prefer_cube(x, ["f1"], ["2026-01-02", "2026-01-02"])
         self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
         self.assertAlmostEqual(float(z[1, 0]), 3.0, places=5)
-
 
 class CubeZPerClockTests(unittest.TestCase):
     def test_date_tau_loads_matching_clock(self):
@@ -538,7 +531,6 @@ class CubeZPerClockTests(unittest.TestCase):
         self.assertIn("f2", meta.get("missing_names") or [])
         self.assertNotIn("raw_ath_x", meta.get("missing_names") or [])
 
-
 class NamesCoverHorizonTests(unittest.TestCase):
     def test_slim_rejected(self):
         from core.research.materialize.horizon_names import names_cover_horizon
@@ -547,7 +539,6 @@ class NamesCoverHorizonTests(unittest.TestCase):
             names = ["gap", "gap_pct"]
 
         self.assertFalse(names_cover_horizon(_Slim()))
-
 
 class HorizonL1StitchTests(unittest.TestCase):
     def test_try_stitch_l1_tau_panel(self):
@@ -591,7 +582,6 @@ class HorizonL1StitchTests(unittest.TestCase):
         self.assertEqual(len(panel["xs"]), 8)  # 4 days × 2 clocks
         self.assertEqual(panel["metas"][0].get("tau"), "10:30")
         self.assertTrue(panel.get("minute_bars"))
-
 
 class MaterializeL2UniverseHashTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -1019,6 +1009,67 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         self.assertGreaterEqual(len(days), 2)
         self.assertLessEqual(len(days), 1500)
 
+    def test_clock_reaches_lake_does_not_scale_calendar(self) -> None:
+        """探针票数可外推；交易日跨度不可 ×(池/探针)，否则 192 日会被判覆盖不足。"""
+        from core.research.materialize.l1_jobs import _clock_reaches_lake
+
+        row = {"n_stocks": 798, "n_dates": 192}
+        # 旧 bug：span_days = 192 * (800/24) ≈ 6400 → need_days≈3200 → 误杀
+        self.assertFalse(_clock_reaches_lake(row, n_eligible=800, n_days=6400))
+        self.assertTrue(_clock_reaches_lake(row, n_eligible=800, n_days=192))
+
+    def test_l2_clock_reaches_days_rejects_empty_build(self) -> None:
+        from core.research.materialize.l2_jobs import _clock_reaches_days
+
+        self.assertFalse(
+            _clock_reaches_days({"cubes_hit": 0, "cubes_built": 0}, n_days=50, lake_frac=0.5)
+        )
+        self.assertTrue(
+            _clock_reaches_days({"cubes_hit": 10, "cubes_built": 20}, n_days=50, lake_frac=0.5)
+        )
+
+    def test_tau_grid_lake_uses_unscaled_span(self) -> None:
+        from core.research.materialize.l1_jobs import materialize_l1_tau_grid
+        from core.research.panel_matrix import _TAU_POOL_BATCH
+
+        n = max(48, int(_TAU_POOL_BATCH) * 2)
+        codes = [f"{i:06d}" for i in range(n)]
+        days = [f"2026-01-{d:02d}" for d in range(1, 29)]  # 28 个日历日当探针跨度
+
+        def _items(cs, lookback=0):
+            bars = {c: [{"date": d, "close": 1.0} for d in days] for c in cs}
+            return (bars, [], [])
+
+        def _mins(packs):
+            for row in packs:
+                row["minute_bars"] = [{"date": d} for d in days]
+            return len(packs)
+
+        def _collect(packs, *_a, **_k):
+            return {
+                "minute_attached": len(packs),
+                "by_clock": {
+                    "09:35": {
+                        "ok": True,
+                        "n_stocks": len(packs),
+                        "n_dates": len(days),
+                        "n_rows": len(packs) * len(days),
+                    }
+                },
+            }
+
+        with mock.patch(
+            "core.research.materialize.l1_jobs._stock_bar_items", side_effect=_items
+        ), mock.patch(
+            "core.research.materialize.l1_jobs._attach_minute_bars", side_effect=_mins
+        ), mock.patch(
+            "core.research.panel_matrix.collect_tau_grid_panels", side_effect=_collect
+        ):
+            out = materialize_l1_tau_grid(codes, clocks=["09:35"])
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out.get("lake_span_days"), len(days))
+        self.assertTrue(out["by_clock"]["09:35"].get("ok"))
+
     def test_tau_grid_cancel_is_not_success(self) -> None:
         from core.research.materialize.l1_jobs import materialize_l1_tau_grid
 
@@ -1056,7 +1107,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
             )
         self.assertFalse(out.get("ok"))
         self.assertIn("bars down", str(out.get("error")))
-
 
 class CubeBatchFillTests(unittest.TestCase):
     def test_chunk_opens_each_family_once(self) -> None:
@@ -1437,7 +1487,6 @@ class CubeBatchFillTests(unittest.TestCase):
         self.assertEqual(cube_new.universe_hash, cube_old.universe_hash)
         self.assertEqual(cube_new.clock, cube_old.clock)
 
-
 class MinuteL2ShareTests(unittest.TestCase):
     def _rows(self, codes, dates):
         return {
@@ -1704,7 +1753,6 @@ class MinuteL2ShareTests(unittest.TestCase):
         self.assertGreaterEqual(int(out["by_clock"]["10:30"]["cubes_built"]), 1)
         self.assertEqual(ensure.call_args.kwargs.get("clock"), "10:30")
 
-
 class TauGridPanelTests(unittest.TestCase):
     def test_one_pass_writes_each_clock_family(self) -> None:
         from core.research.panel_matrix import collect_tau_grid_panels
@@ -1833,7 +1881,7 @@ class TauGridPanelTests(unittest.TestCase):
             _tc_matrix_seed_names,
             collect_tau_grid_panels,
         )
-        from tests.test_alpha_tc import _dated_bars_and_minutes
+        from tests.conftest import _dated_bars_and_minutes
 
         bars, minutes = _dated_bars_and_minutes(80)
         names = _tc_matrix_seed_names(
@@ -1987,7 +2035,7 @@ class TauGridPanelTests(unittest.TestCase):
             _minute_clocks_atc_items,
             _scan_one_minute_clock_atc,
         )
-        from tests.test_alpha_tc import _dated_bars_and_minutes
+        from tests.conftest import _dated_bars_and_minutes
 
         bars, minutes = _dated_bars_and_minutes(80)
         by_day = _index_minute_bars_by_date(minutes)
@@ -2053,7 +2101,6 @@ class TauGridPanelTests(unittest.TestCase):
         self.assertGreaterEqual(out["by_clock"]["09:35"]["n_stocks"], 4)
         self.assertGreaterEqual(out["by_clock"]["10:00"]["n_stocks"], 4)
         self.assertTrue(all("minute_bars" not in it for it in items))
-
 
 if __name__ == "__main__":
     unittest.main()

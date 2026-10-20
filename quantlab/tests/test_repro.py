@@ -1,15 +1,11 @@
 import json
 import os
-import sys
 import tempfile
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-from evals.repro import run_repro_case, stable_fingerprint
 from core.paper import init_from_example, load_paper, mark_to_market, save_paper
+from evals.repro import run_repro_case, stable_fingerprint
+from tests.conftest import ROOT
 
 
 class TestReproEvals(unittest.TestCase):
@@ -38,12 +34,11 @@ class TestReproEvals(unittest.TestCase):
 
     def test_fixtures_file_all_pass(self):
         path = os.path.join(ROOT, "evals", "repro_fixtures.json")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             cases = json.load(f)["cases"]
         for case in cases:
             r = run_repro_case(case)
             self.assertTrue(r.get("ok"), f"{case.get('id')}: {r}")
-
 
 class TestPaperAccount(unittest.TestCase):
     def test_init_and_mark(self):
@@ -69,7 +64,6 @@ class TestPaperAccount(unittest.TestCase):
             summary = mark_to_market(paper)
         self.assertGreater(summary["equity"], summary["cash"])
         save_paper(paper, path)
-
 
 if __name__ == "__main__":
     unittest.main()

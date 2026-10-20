@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 
 import numpy as np
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestDayCube(unittest.TestCase):
@@ -50,8 +45,8 @@ class TestDayCube(unittest.TestCase):
         need = list(open_cube_required_names())
         self.assertGreaterEqual(len(need), 3)
         full = {
-            "a": {name: 1.0 for name in need},
-            "b": {name: 2.0 for name in need},
+            "a": dict.fromkeys(need, 1.0),
+            "b": dict.fromkeys(need, 2.0),
         }
         cube = build_day_cube("2024-07-02", full, names=need, clock="open")
         self.assertTrue(save_day_cube(cube))
@@ -350,7 +345,6 @@ class TestDayCube(unittest.TestCase):
         ) as oo2:
             rescore_fitted_cross_section([item], score_codes={"000001"}, day_cube=None)
         oo2.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main()

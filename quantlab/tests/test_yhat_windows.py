@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bars():
@@ -18,7 +12,6 @@ def _bars():
         {"date": "2026-01-03", "open": 11.0, "close": 10.9},
         {"date": "2026-01-04", "open": 11.2, "close": 11.5},
     ]
-
 
 class ForwardOoTests(unittest.TestCase):
     def test_forward_oo_uses_open(self):
@@ -40,7 +33,6 @@ class ForwardOoTests(unittest.TestCase):
         self.assertAlmostEqual(quote["open_raw"], 11.0)
         self.assertAlmostEqual(quote["prev_close"], 10.8)
         self.assertAlmostEqual(quote["change_raw"], (11.0 / 10.8 - 1.0) * 100.0, places=4)
-
 
 class PcGeometryTests(unittest.TestCase):
     def test_y_r_pct_is_close_over_price(self):
@@ -81,8 +73,7 @@ class PcGeometryTests(unittest.TestCase):
         self.assertNotIn("y_pc", out)
 
     def test_write_y_tc_hat_without_formula_stamps_new_τc(self):
-        from core.signal.yhat_windows import write_y_tc_hat
-        from core.signal.yhat_windows import pick_y_τc
+        from core.signal.yhat_windows import pick_y_τc, write_y_tc_hat
 
         dest = {}
         write_y_tc_hat(dest, -0.8)
@@ -103,8 +94,7 @@ class PcGeometryTests(unittest.TestCase):
         self.assertAlmostEqual(pick_y_τc({**item, "y_τc": 1.5}), 1.5, places=6)
 
     def test_write_y_tc_hat_legacy_formula_inverts(self):
-        from core.signal.yhat_windows import write_y_tc_hat
-        from core.signal.yhat_windows import invert_price_over_close, pick_y_τc
+        from core.signal.yhat_windows import invert_price_over_close, pick_y_τc, write_y_tc_hat
 
         dest = {}
         write_y_tc_hat(dest, 1.0, formula="price[τ]/close[T]-1")
@@ -135,7 +125,6 @@ class PcGeometryTests(unittest.TestCase):
         )
         self.assertAlmostEqual(sc.get("y_τc"), -0.7, places=6)
         self.assertAlmostEqual(sc.get("y_r"), -0.7, places=6)
-
 
 class StampRemainingYtcTests(unittest.TestCase):
     def test_stamp_remaining_goes_negative_when_price_above_hat(self):
@@ -190,7 +179,6 @@ class StampRemainingYtcTests(unittest.TestCase):
         self.assertAlmostEqual(sc.get("r_hat"), 1.4, places=6)
         self.assertIsNone(sc.get("remaining_oc"))
         self.assertAlmostEqual(sc.get("y_r"), 1.4, places=6)
-
 
 class StampPrimaryTests(unittest.TestCase):
     def test_apply_co_writes_y_co(self):
@@ -307,7 +295,7 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertNotIn("ranking", rem)
 
     def test_remaining_ranking_deducts_open_to_price_tau(self):
-        from core.signal.yhat_windows import y_oo_fuse_pct, remaining_y_oo_fuse_pct
+        from core.signal.yhat_windows import remaining_y_oo_fuse_pct, y_oo_fuse_pct
 
         fused = y_oo_fuse_pct({"y_oo": 2.0, "y_τc": 2.0})
         self.assertAlmostEqual(fused, 2.0, places=6)
@@ -341,7 +329,6 @@ class StampPrimaryTests(unittest.TestCase):
             realized_oo,
             places=6,
         )
-
 
 class ResidualFusionTests(unittest.TestCase):
     def test_remaining_maps_oc_to_price_tau(self):
@@ -388,7 +375,6 @@ class ResidualFusionTests(unittest.TestCase):
         w_tc, w_oc = residual_weights_from_cfg({"residual_w_τc": 0.7, "residual_w_oc": 0.3})
         self.assertAlmostEqual(w_tc, 0.7, places=6)
         self.assertAlmostEqual(w_oc, 0.3, places=6)
-
 
 if __name__ == "__main__":
     unittest.main()

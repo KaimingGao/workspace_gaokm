@@ -2,27 +2,21 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from core.signal.config import DEFAULT_SIGNAL_CONFIG, load_signal_config
+from core.signal.factors.alt_sentiment import score_alt_sentiment
+from core.signal.factors.amihud import score_amihud
+from core.signal.factors.dividend import score_dividend
+from core.signal.factors.earnings_yield import score_earnings_yield
+from core.signal.factors.growth import score_growth
+from core.signal.factors.idio_momentum import score_idio_momentum
 from core.signal.factors.meta.corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
 from core.signal.factors.meta.registry import (
     compute_configured_factors,
     list_factors,
     registered_factor_names,
 )
-from core.signal.factors.amihud import score_amihud
-from core.signal.factors.alt_sentiment import score_alt_sentiment
-from core.signal.factors.dividend import score_dividend
-from core.signal.factors.earnings_yield import score_earnings_yield
-from core.signal.factors.growth import score_growth
-from core.signal.factors.idio_momentum import score_idio_momentum
 from core.signal.factors.money_flow import score_money_flow
 from core.signal.factors.quality import score_quality
 from core.signal.factors.size import score_size
@@ -30,8 +24,7 @@ from core.signal.fundamentals_bridge import normalize_fundamentals_metrics
 from core.signal.neutralize import apply_cross_section_neutralization
 from core.signal.scorer import score_bars
 from core.signal.weight_suggest import suggest_weights_from_ic
-from tests.test_signal import _rising_bars
-
+from tests.conftest import _rising_bars
 
 NEW_FACTORS = (
     "size",
@@ -42,7 +35,6 @@ NEW_FACTORS = (
     "amihud",
     "idio_momentum",
 )
-
 
 class TestV21FactorThicken(unittest.TestCase):
     def test_registry_includes_new_factors(self):
@@ -177,11 +169,11 @@ class TestV21FactorThicken(unittest.TestCase):
 
     def test_bar_factors_omit_on_empty(self):
         from core.signal.factors.liquidity import score_liquidity
-        from core.signal.factors.volume_price import score_volume_price
         from core.signal.factors.ma_slope import score_ma_slope
-        from core.signal.factors.weekly_confirm import score_weekly_confirmation
-        from core.signal.factors.technical_pattern import score_technical_pattern
         from core.signal.factors.reversal import score_reversal
+        from core.signal.factors.technical_pattern import score_technical_pattern
+        from core.signal.factors.volume_price import score_volume_price
+        from core.signal.factors.weekly_confirm import score_weekly_confirmation
 
         for fn, kwargs in [
             (score_liquidity, {"bars": []}),
@@ -240,7 +232,7 @@ class TestV21FactorThicken(unittest.TestCase):
         }
         subs, contribs, meta = compute_configured_factors(
             bars,
-            weights={k: 0.1 for k in NEW_FACTORS},
+            weights=dict.fromkeys(NEW_FACTORS, 0.1),
             fundamentals=fund,
             index_bars=bars,
             sentiment={"label": "neutral"},
@@ -325,7 +317,6 @@ class TestV21FactorThicken(unittest.TestCase):
         by = {r["name"]: r for r in rows}
         for fac in NEW_FACTORS:
             self.assertTrue(by[fac].get("description"))
-
 
 if __name__ == "__main__":
     unittest.main()

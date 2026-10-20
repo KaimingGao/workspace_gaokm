@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
 
 
 class TestSelectForceTrimCodes(unittest.TestCase):
@@ -25,14 +24,12 @@ class TestSelectForceTrimCodes(unittest.TestCase):
         )
         self.assertEqual(out, ["M2", "M1"])
 
-
 class TestScoreUniversePrefilter(unittest.TestCase):
     def test_cluster_select_score_universe_retired(self):
         """select_score_universe 随 core.signal.cluster.rank 删除。"""
         import importlib.util
 
         self.assertIsNone(importlib.util.find_spec("core.signal.cluster"))
-
 
 class TestEodResolveNoBlendFallback(unittest.TestCase):
     def test_score_matching_blend_is_not_eod(self):
@@ -91,7 +88,6 @@ class TestEodResolveNoBlendFallback(unittest.TestCase):
         self.assertAlmostEqual(_yhat_from_row(item), 12.5)
         self.assertIsNone(_yhat_from_row({"score": 55.0}))
 
-
 class TestOptimizeEligibilityUsesEod(unittest.TestCase):
     def test_low_blend_high_eod_still_gets_weight(self):
         from core.portfolio_optimize import optimize_weights
@@ -130,7 +126,6 @@ class TestOptimizeEligibilityUsesEod(unittest.TestCase):
         self.assertIn("A", weights, msg="EOD≥floor 即使 blend<floor 也应入目标仓")
         self.assertIn("B", weights)
 
-
 class TestTurnoverBudgetClip(unittest.TestCase):
     def test_clips_to_remaining_buy_budget(self):
         from core.paper.rebalance import clip_shares_to_turnover_budget
@@ -162,7 +157,6 @@ class TestTurnoverBudgetClip(unittest.TestCase):
             max_turnover_pct=2.0,
         )
         self.assertEqual(sh, 0)
-
 
 if __name__ == "__main__":
     unittest.main()

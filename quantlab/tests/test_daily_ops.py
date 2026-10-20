@@ -1,36 +1,25 @@
 """日报 preset / health / 信号配置 / CI preset（合并原 P16–P22 / P69）。"""
 
-import os
-import sys
-import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 import json
+import os
 import tempfile
-from unittest.mock import patch
+import unittest
+from unittest.mock import MagicMock, patch
+
+from core.signal.config import read_signal_config_file
+from core.watching.health import check_watching_health
+from evals.preset_check import check_daily_presets
+from evals.run_preset_check import main as run_preset_check_main
+from quant.ops.daily_health import build_daily_health
 from quant.ops.daily_presets import list_daily_presets, resolve_daily_preset
+from quant.services.quant_service import QuantService
+from quant.services.signal_config_preview import build_config_diff_preview, export_config_diff_bundle
+from quant.skill.engine import QuantEngine
+from research.daily_check import check_daily_last_run
+from research.daily_check import main as daily_check_main
 from services.daily_service import DailyRunService
 from services.eval_service import EvalService
-from quant.services.quant_service import QuantService
-from unittest.mock import MagicMock, patch
-from core.watching.health import check_watching_health
-from quant.ops.daily_health import build_daily_health
-from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
-from quant.skill.engine import QuantEngine
-from evals.run_checklist import load_cases, run_skills
-from research.daily_check import check_daily_last_run, main as daily_check_main
-from core.signal.config import read_signal_config_file
-from quant.services.signal_config_preview import build_config_diff_preview
-from evals.preset_check import check_daily_presets
-from quant.services.signal_config_preview import build_config_diff_preview, export_config_diff_bundle
-from evals.run_preset_check import main as run_preset_check_main
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import ROOT
 
 # --- test_p16_quant.py::TestDailyPresets ---
 
@@ -91,7 +80,6 @@ class TestDailyWebPresets(unittest.TestCase):
         from fastapi.testclient import TestClient
 
         import web.app as web_app
-        import web.deps as deps
 
         client = TestClient(web_app.app)
         res = client.get("/api/daily/presets")
@@ -601,7 +589,6 @@ class TestP69DailyAutoExportPreview(unittest.TestCase):
         for name in ("quant", "quant_paper", "full"):
             self.assertTrue(DAILY_PRESETS[name].get("export_quant_report"))
         self.assertFalse(DAILY_PRESETS["advisor"].get("export_quant_report"))
-
 
 if __name__ == "__main__":
     unittest.main()

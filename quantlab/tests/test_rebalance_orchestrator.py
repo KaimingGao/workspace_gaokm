@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.paper.rebalance.orchestrator import (  # noqa: E402
     resolve_rebalance_mode,
@@ -21,7 +15,6 @@ class TestResolveRebalanceMode(unittest.TestCase):
     def test_always_holding_rules(self):
         paper = {"rules": {}}
         self.assertEqual(resolve_rebalance_mode(paper), "holding_rules")
-
 
 class TestRunPaperRebalanceRouting(unittest.TestCase):
     def test_holding_rules_delegates_to_daily_cycle(self):
@@ -45,7 +38,6 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             run_paper_rebalance(paper, mode="cluster_book")  # type: ignore[arg-type]
         self.assertIn("rank_lots", str(ctx.exception))
-
 
 if __name__ == "__main__":
     unittest.main()

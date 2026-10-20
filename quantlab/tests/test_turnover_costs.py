@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.backtest.costs import (
     DEFAULT_COSTS,
@@ -126,7 +120,6 @@ class TestTurnoverCosts(unittest.TestCase):
         if len(trades) >= 2:
             naive = round_trip_cost_pct() * len(trades)
             self.assertLess(float(params["turnover_cost_sum_pct"]), naive)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,12 +1,6 @@
 """Agent 量化提示 / 路由（合并原 P76/P83/P88）。"""
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from agent.prompts import (
     MODEL_POLICY_HINT,
@@ -54,7 +48,6 @@ class TestAgentQuantHints(unittest.TestCase):
         self.assertIn("factor_ols", AVAILABLE_TASKS)
         tasks = [t for t, _ in QUANT_TASK_ROUTES]
         self.assertIn("factor_ols", tasks)
-
 
 if __name__ == "__main__":
     unittest.main()

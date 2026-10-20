@@ -3,17 +3,12 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
 
 import numpy as np
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _has_lightgbm() -> bool:
@@ -23,7 +18,6 @@ def _has_lightgbm() -> bool:
         return True
     except ImportError:
         return False
-
 
 def _pack_day(date_s, codes, xs, ys):
     names = list(xs[0].keys()) if xs else []
@@ -35,7 +29,6 @@ def _pack_day(date_s, codes, xs, ys):
         dtype=np.float64,
     )
     return {"date": date_s, "codes": codes, "ys": ys, "X": X, "names": names}
-
 
 def _synth_days(n_days: int = 40, n_names: int = 24, seed: int = 0):
     """特征与 y 正相关的合成截面日。"""
@@ -68,7 +61,6 @@ def _synth_days(n_days: int = 40, n_names: int = 24, seed: int = 0):
         d += 1
     return days
 
-
 class TestOoRankUniverse(unittest.TestCase):
     def test_resolve_full_watching(self):
         from core.research.oo_rank_panel import resolve_oo_rank_universe
@@ -81,7 +73,6 @@ class TestOoRankUniverse(unittest.TestCase):
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("universe_source"), "watching")
         self.assertEqual(len(out.get("codes") or []), 12)
-
 
 class TestOoRankCompactPanel(unittest.TestCase):
     def test_group_day_matrices_keeps_views_no_xs(self):
@@ -97,7 +88,6 @@ class TestOoRankCompactPanel(unittest.TestCase):
         self.assertEqual(days[0]["X"].shape, (4, 2))
         self.assertEqual(list(days[0]["codes"]), ["a", "b", "c", "d"])
         self.assertEqual(days[1]["date"], "2024-01-03")
-
 
 class TestOoRankNdcg(unittest.TestCase):
     def test_ndcg_perfect_ranking_equals_one(self):
@@ -122,7 +112,6 @@ class TestOoRankNdcg(unittest.TestCase):
         from core.research.oo_rank_lambdarank import _ndcg_at_k
 
         self.assertIsNone(_ndcg_at_k([1.0], [1.0], k=10))
-
 
 class TestNanLabelRank(unittest.TestCase):
     def test_slice_drops_nan_before_rank(self):
@@ -216,7 +205,6 @@ class TestNanLabelRank(unittest.TestCase):
         self.assertEqual(fit.get("sample_count"), 24)
         self.assertEqual(fit.get("n_rank_rows_dropped"), 7)
 
-
 def _synth_varying_pool_days(seed: int = 0):
     """每日池大小不一（22~55），专门复现 LightGBM LambdaRank label 映射 bug。
 
@@ -246,7 +234,6 @@ def _synth_varying_pool_days(seed: int = 0):
         day += timedelta(days=1)
     return days
 
-
 class TestOoRankVaryingPool(unittest.TestCase):
     """回归测试：日池大小不齐时 LambdaRank 不应崩在 label 映射。"""
 
@@ -268,8 +255,6 @@ class TestOoRankVaryingPool(unittest.TestCase):
         self.assertTrue(fit.get("success"), fit)
         self.assertEqual(fit.get("n_groups"), len(days))
         self.assertNotIn("n_pair_days", fit)
-
-
 
 class TestOoRankRidgeBaseline(unittest.TestCase):
     def test_oos_scores_ridge_coefficients(self):
@@ -321,7 +306,6 @@ class TestOoRankRidgeBaseline(unittest.TestCase):
             select_oo_rank_backend(None, {"ndcg_at_k": 0.7, "success": True}),
             "ridge",
         )
-
 
 class TestOoRankFit(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
@@ -480,8 +464,8 @@ class TestOoRankFit(unittest.TestCase):
     def test_marked_ridge_backend_scores(self):
         """已标注 backend=ridge 的 oo_rank 包可打分编名次。"""
         from core.research.oo_rank_lambdarank import (
-            apply_oo_rank_scores,
             _resolve_oo_rank_fit,
+            apply_oo_rank_scores,
             predict_oo_rank_from_features,
         )
 
@@ -826,7 +810,6 @@ class TestOoRankFit(unittest.TestCase):
                     2.0,
                 )
 
-
 class TestOoRankReport(unittest.TestCase):
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_apply_batch_writes_hats(self):
@@ -900,7 +883,6 @@ class TestOoRankReport(unittest.TestCase):
         self.assertGreater(int(report.get("n_features") or 0), 0)
         self.assertNotIn("feature_mode", report.get("oos") or {})
         self.assertTrue(report.get("fitted_at"))
-
 
 class TestOoRankFittedAt(unittest.TestCase):
     def test_save_and_persist_stamp_fitted_at(self):
@@ -992,7 +974,6 @@ class TestOoRankFittedAt(unittest.TestCase):
             self.assertEqual(doc.get("model_role"), "live")
             self.assertEqual(doc.get("promoted_from"), "research")
             self.assertTrue(doc.get("promoted_at"))
-
 
     def test_get_model_merges_backends_from_last_report(self):
         """落盘包无 backends 时，同窗 last_report 补 Ridge 供因子表 β 列。"""
@@ -1159,7 +1140,6 @@ class TestOoRankFittedAt(unittest.TestCase):
             self.assertFalse(missing.get("exists"))
             self.assertFalse(missing.get("last_report_exists"))
 
-
 class TestOoRankPersistSkipsRefit(unittest.TestCase):
     def test_persist_writes_last_report_without_refit(self):
         from quant.services.quant_service import QuantService
@@ -1230,7 +1210,6 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
         self.assertFalse(out.get("success"))
         self.assertIn("请先点拟合", str(out.get("error") or ""))
 
-
 class TestRankCrossSectionZ(unittest.TestCase):
     def test_ridge_z_uses_the_same_rows_as_the_loss(self):
         from core.research.oo_rank_lambdarank import _fit_ridge_baseline
@@ -1264,7 +1243,6 @@ class TestRankCrossSectionZ(unittest.TestCase):
         self.assertLess(abs(beta_all), 0.2, pooled.get("coefficients"))
         self.assertNotIn("loss_rows", pooled)
         self.assertNotIn("zscore_rows", pooled)
-
 
 if __name__ == "__main__":
     unittest.main()

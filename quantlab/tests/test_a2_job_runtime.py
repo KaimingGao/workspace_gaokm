@@ -2,14 +2,9 @@
 
 import json
 import os
-import sys
 import tempfile
 import time
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.job_progress import JobProgress, JobRegistry
 
@@ -238,7 +233,6 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertEqual((res.get("bars_refresh") or {}).get("gap_count"), 10)
         self.assertNotIn("status", res)
         self.assertNotIn("rebalance_report", res)
-
 
 if __name__ == "__main__":
     unittest.main()

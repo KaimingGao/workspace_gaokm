@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestRebalanceTracks(unittest.TestCase):
@@ -163,13 +157,12 @@ class TestRebalanceTracks(unittest.TestCase):
         self.assertTrue(sell4)
         self.assertEqual(track4, "predicted")
 
-
 class TestScaleNotNumericRange(unittest.TestCase):
     def test_chi_next_yhat_not_heuristic(self):
         from core.signal.rebalance_tracks import (
             heuristic_score_value,
-            table_yhat_score_value,
             hold_decision_for_item,
+            table_yhat_score_value,
         )
 
         item = {
@@ -206,7 +199,6 @@ class TestScaleNotNumericRange(unittest.TestCase):
         self.assertEqual(track, "predicted")
         self.assertAlmostEqual(sc, 21.0)
         self.assertAlmostEqual(floor, -1.0)
-
 
 if __name__ == "__main__":
     unittest.main()

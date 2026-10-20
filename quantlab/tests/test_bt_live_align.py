@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestBacktestDefaultsAlign(unittest.TestCase):
@@ -25,7 +19,6 @@ class TestBacktestDefaultsAlign(unittest.TestCase):
         self.assertEqual(d["max_positions"], int(risk["max_positions"]))
         self.assertTrue(d["exclude_st"])
         self.assertIn("weight_mode", risk)
-
 
 class TestAllocateNoRenorm(unittest.TestCase):
     def test_score_budget_keeps_cash(self):
@@ -55,7 +48,6 @@ class TestAllocateNoRenorm(unittest.TestCase):
         ret = _weighted_port_return(legs, {"A": 25.0, "B": 25.0})
         self.assertAlmostEqual(ret, 2.0, places=4)
 
-
 class TestForceTrimSellable(unittest.TestCase):
     def test_skips_blocked_picks_next(self):
         from core.paper.rebalance import select_force_trim_codes_sellable
@@ -82,7 +74,6 @@ class TestForceTrimSellable(unittest.TestCase):
         self.assertEqual(len(blocked), 1)
         self.assertEqual(blocked[0]["stock_code"], "600001")
 
-
 class TestHysteresisTracks(unittest.TestCase):
     def test_hold_clamped_to_buy(self):
         from core.signal.rebalance_tracks import predicted_floors
@@ -96,7 +87,6 @@ class TestHysteresisTracks(unittest.TestCase):
         self.assertEqual(buy, 1.0)
         self.assertEqual(hold, 1.0)
 
-
 class TestInteractionNoFakeNeutral(unittest.TestCase):
     def test_missing_factors_no_bonus(self):
         from core.signal.scorer import _interaction_bonus
@@ -107,7 +97,6 @@ class TestInteractionNoFakeNeutral(unittest.TestCase):
         self.assertGreater(
             _interaction_bonus({"momentum": 80, "volume_price": 80}), 0.0
         )
-
 
 class TestDualScoreHeadMeta(unittest.TestCase):
     def test_single_head_tag(self):
@@ -134,7 +123,6 @@ class TestDualScoreHeadMeta(unittest.TestCase):
         self.assertEqual(out.get("dual_score_head"), "single_oo")
         self.assertTrue(out.get("dual_score_single_head"))
 
-
 class TestStableRank(unittest.TestCase):
     def test_code_breaks_ties(self):
         from core.signal.rank_stable import stable_rank_key
@@ -143,12 +131,11 @@ class TestStableRank(unittest.TestCase):
         rows.sort(key=lambda x: stable_rank_key(x[1], x[0]))
         self.assertEqual([r[0] for r in rows], ["C", "A", "B"])
 
-
 class TestOosGateSymmetry(unittest.TestCase):
     def test_predicted_floor_not_zero(self):
         from core.signal.weight_oos_gate import (
-            _predicted_oos_floor,
             _heuristic_oos_floor,
+            _predicted_oos_floor,
             _shared_oos_backtest_kwargs,
         )
 
@@ -157,7 +144,6 @@ class TestOosGateSymmetry(unittest.TestCase):
         shared = _shared_oos_backtest_kwargs(top_k=3, horizon_days=3)
         self.assertFalse(shared["apply_tau_buy_gate"])
         self.assertEqual(shared["weight_mode"], "equal")
-
 
 class TestRegimeBlend(unittest.TestCase):
     def test_near_threshold_blends(self):

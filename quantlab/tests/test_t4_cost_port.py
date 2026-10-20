@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestT4CostPort(unittest.TestCase):
@@ -82,7 +76,6 @@ class TestT4CostPort(unittest.TestCase):
         out = path_cost_port_aligned()
         self.assertTrue(out["ok"])
         self.assertEqual(out["id"], "cost_port_aligned")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -55,6 +55,5 @@ class TestHorizonCompact(unittest.TestCase):
         self.assertIsNone(bars[0].get("minute_bars"))
         self.assertEqual(bars[0].get("code"), "A")
 
-
 if __name__ == "__main__":
     unittest.main()

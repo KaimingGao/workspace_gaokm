@@ -3,10 +3,6 @@ import sys
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from adapters.market.history import fetch_daily_bars, resolve_market_code
 
 
@@ -164,7 +160,6 @@ class TestHistoryResolve(unittest.TestCase):
             check_required(bundled, ["success", "stocks"], min_items=2),
             [],
         )
-
 
 class TestQfqReplace(unittest.TestCase):
     def setUp(self):
@@ -327,7 +322,6 @@ class TestQfqReplace(unittest.TestCase):
         got = self._load()
         self.assertEqual(got[0]["date"], existing[0]["date"])
         self.assertAlmostEqual(got[-1]["close"], bumped["close"])
-
 
 if __name__ == "__main__":
     unittest.main()

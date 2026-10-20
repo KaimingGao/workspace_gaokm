@@ -1,13 +1,7 @@
 """A3：BacktestService 信封与 topk 权重拆分。"""
 
-import os
-import sys
 import unittest
 from datetime import datetime, timedelta
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.backtest.topk_weights import allocate_topk_weights, vol_from_window
 from core.backtest.types import BacktestResult
@@ -32,7 +26,6 @@ def _bars(n=40, start_px=10.0):
             }
         )
     return out
-
 
 class TestA3BacktestService(unittest.TestCase):
     def test_envelope_from_topk(self):
@@ -132,7 +125,6 @@ class TestA3BacktestService(unittest.TestCase):
         self.assertEqual((out.get("params") or {}).get("engine"), "oos_topk_curve")
         self.assertGreaterEqual(len(out.get("equity_curve") or []), 2)
         self.assertIn("total_return_pct", out.get("metrics") or {})
-
 
 if __name__ == "__main__":
     unittest.main()

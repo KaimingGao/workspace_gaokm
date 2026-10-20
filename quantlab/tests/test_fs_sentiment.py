@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from core.signal.config import load_signal_config, signal_config_overlay
 from core.signal.factors.meta.collinearity import trend_family_collinearity
 from core.signal.return_score import ReturnScoreModel
-from core.signal.scorer import score_bars
 from core.signal.score_stock import score_stock
+from core.signal.scorer import score_bars
 
 
 def _bars(n: int = 40):
@@ -35,7 +30,6 @@ def _bars(n: int = 40):
             }
         )
     return out
-
 
 class TestFsSentimentGate(unittest.TestCase):
     def test_default_gate_skips_alt_sentiment_in_score_bars(self):
@@ -121,7 +115,6 @@ class TestFsSentimentGate(unittest.TestCase):
         self.assertFalse(item.get("sentiment_include_in_score"))
         self.assertFalse(item.get("alt_sentiment_in_yhat"))
 
-
 class TestFsFactorPanelYhatKeys(unittest.TestCase):
     def test_required_keys_computed_even_if_weight_zero(self):
         bars = _bars()
@@ -137,7 +130,6 @@ class TestFsFactorPanelYhatKeys(unittest.TestCase):
             required_factor_keys=["momentum"],
         )
         self.assertIn("momentum", out.get("sub_scores") or {})
-
 
 class TestFsSentimentAsOf(unittest.TestCase):
     def test_history_and_as_of(self):
@@ -175,7 +167,6 @@ class TestFsSentimentAsOf(unittest.TestCase):
                     int((asof.get("sentiment") or {}).get("n_titles") or 0),
                 )
 
-
 class TestFsCollinearity(unittest.TestCase):
     def test_trend_family_high_corr(self):
         rows = [
@@ -192,7 +183,6 @@ class TestFsCollinearity(unittest.TestCase):
         self.assertTrue(out.get("success"))
         pairs = out.get("high_corr_pairs") or []
         self.assertTrue(any({p["a"], p["b"]} == {"momentum", "ma_slope"} for p in pairs))
-
 
 class TestFsLlmWall(unittest.TestCase):
     def test_analysis_not_in_sub_scores(self):
@@ -229,7 +219,6 @@ class TestFsLlmWall(unittest.TestCase):
         for k, v in (out.get("sub_scores") or {}).items():
             self.assertNotEqual(k, "analysis")
             self.assertIsInstance(v, (int, float))
-
 
 class TestFsRiskHints(unittest.TestCase):
     def test_bearish_risk_hint(self):
@@ -284,7 +273,6 @@ class TestFsRiskHints(unittest.TestCase):
             )
         hints = (out.get("signal_item") or {}).get("risk_hints") or []
         self.assertTrue(any(h.get("kind") == "sentiment_bearish" for h in hints))
-
 
 if __name__ == "__main__":
     unittest.main()

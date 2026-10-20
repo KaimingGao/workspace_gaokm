@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import unittest
 
 
@@ -21,7 +18,6 @@ class TestSectorMapCoverage(unittest.TestCase):
         )
         self.assertEqual(cov["mapped"], 6)
         self.assertIn("999999", cov["missing"])
-
 
 class TestRiskBlockAnnotate(unittest.TestCase):
     def test_annotate_and_effectiveness(self):
@@ -52,7 +48,6 @@ class TestRiskBlockAnnotate(unittest.TestCase):
         out = summarize_risk_blocks(paper["operation_log"])
         self.assertEqual(out["labeled_count"], 2)
         self.assertAlmostEqual(out["effectiveness_rate"], 0.5)
-
 
 class TestRiskParityLite(unittest.TestCase):
     def test_equal_when_no_vol(self):
@@ -90,7 +85,6 @@ class TestRiskParityLite(unittest.TestCase):
             max_positions=5,
         )
         self.assertGreater(w["A"], w["B"])
-
 
 if __name__ == "__main__":
     unittest.main()

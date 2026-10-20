@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class HorizonProbHelpersTests(unittest.TestCase):
@@ -127,7 +121,7 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertTrue(all(p is not None for p in preds))
 
     def test_stamp_horizon_explain_adds_p_up(self):
-        from core.research.horizon_prob import stamp_horizon_explain, sigmoid
+        from core.research.horizon_prob import sigmoid, stamp_horizon_explain
 
         expl = stamp_horizon_explain(
             {"intercept": -0.12, "total": -0.248, "terms": []},
@@ -148,7 +142,6 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertAlmostEqual(float(load_t0_rules({"y_tw_vote_margin": 25})["y_tw_vote_margin"]), 20.0)
         ignored = load_t0_rules({"y_τw_vote_margin": 3.5})
         self.assertAlmostEqual(float(ignored["y_tw_vote_margin"]), 5.0)
-
 
 if __name__ == "__main__":
     unittest.main()

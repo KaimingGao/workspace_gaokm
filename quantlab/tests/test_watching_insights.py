@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import Mock, patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestWatchingInsights(unittest.TestCase):
@@ -141,7 +135,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(item["excess_label"], "RS66")
 
     def test_insights_covers_full_watchlist_up_to_hard_cap(self):
-        from core.watching.insights import build_watching_insights, _INSIGHT_HARD_CAP
+        from core.watching.insights import _INSIGHT_HARD_CAP, build_watching_insights
 
         codes = [f"{i:06d}" for i in range(1, 101)]
 
@@ -449,7 +443,6 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertTrue(gb.call_args.kwargs.get("offline_only"))
         gq.assert_not_called()
 
-
 class TestHoldingScoresCausalRebalance(unittest.TestCase):
     def test_compute_holding_scores_uses_causal_rebalance(self):
         """交易执行持仓表算分走 09:30–10:00 调仓因果前缀。"""
@@ -489,7 +482,6 @@ class TestHoldingScoresCausalRebalance(unittest.TestCase):
         ):
             mixin._compute_holding_scores(paper, summary)
         self.assertIs(captured.get("use_minute_tau"), True)
-
 
 class TestLiveRankSnapshot(unittest.TestCase):
     def test_today_snapshot_fills_holding_ranks(self):
@@ -557,7 +549,6 @@ class TestLiveRankSnapshot(unittest.TestCase):
                     stamp_live_ranks(rows)
                 lake.assert_called_once()
         self.assertIsNone(rows[0].get("y_oo_rank"))
-
 
 if __name__ == "__main__":
     unittest.main()

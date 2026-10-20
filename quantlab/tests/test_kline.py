@@ -1,16 +1,10 @@
 import json
-import os
-import sys
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from adapters.kline.analyzer import describe_candle, summarize_bars
-from skills.kline.handler import KlineHandler
 from adapters.market.history import resolve_market_code
+from skills.kline.handler import KlineHandler
 
 
 def _bear_bars():
@@ -26,7 +20,6 @@ def _bear_bars():
             "volume": 2000,
         },
     ]
-
 
 class TestKlineAnalyzer(unittest.TestCase):
     def test_describe_yin(self):
@@ -44,7 +37,6 @@ class TestKlineAnalyzer(unittest.TestCase):
         self.assertEqual(resolve_market_code("快手")[0], "HK")
         self.assertEqual(resolve_market_code("01024")[0], "HK")
         self.assertEqual(resolve_market_code("600519")[0], "CN")
-
 
 class TestKlineHandler(unittest.TestCase):
     def test_execute_mocked(self):
@@ -92,7 +84,6 @@ class TestKlineHandler(unittest.TestCase):
         self.assertEqual(data["data_source"], "quote_fallback")
         self.assertEqual(data["depth"], "intraday_proxy")
         self.assertTrue(data.get("latest_tags") or data.get("summary"))
-
 
 if __name__ == "__main__":
     unittest.main()

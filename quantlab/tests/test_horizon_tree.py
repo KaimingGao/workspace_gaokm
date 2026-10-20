@@ -2,15 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
-import tempfile
 import unittest
-from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestHorizonTree(unittest.TestCase):
@@ -176,11 +168,11 @@ class TestHorizonTree(unittest.TestCase):
         self.assertEqual(item["formula_terms_tau"].get("model_role"), "ridge")
 
     def test_collapsed_stump_is_not_a_return_forecast(self):
+        from core.research.horizon_lgb import lgb_best_iteration_collapsed
         from core.research.horizon_tree import (
             predict_tree_return,
             tree_return_model_collapsed,
         )
-        from core.research.horizon_lgb import lgb_best_iteration_collapsed
 
         self.assertTrue(lgb_best_iteration_collapsed(1))
         self.assertFalse(lgb_best_iteration_collapsed(40))
@@ -210,7 +202,6 @@ class TestHorizonTree(unittest.TestCase):
         first = report["fitted_at"]
         stamp_tree_fitted_at(report)
         self.assertEqual(report["fitted_at"], first)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,6 @@ def _bar(hm: str, close: float) -> dict:
         "close": close,
     }
 
-
 class TestLabelPriceExact(unittest.TestCase):
     def test_missing_tau_bar_drops_denominator(self):
         from core.research.tau_panel import (
@@ -54,7 +53,6 @@ class TestLabelPriceExact(unittest.TestCase):
         self.assertEqual(T75_LABEL_OFFSETS, (70, 75, 80))
         self.assertEqual(T90_LABEL_OFFSETS, (85, 90, 95))
 
-
 class TestHorizonAbstain(unittest.TestCase):
     def test_cube_must_cover_every_model_name(self):
         from core.t0 import score_policy as sp
@@ -80,7 +78,6 @@ class TestHorizonAbstain(unittest.TestCase):
         self.assertEqual(done["raw_ath_GAP"], 0.0)
         self.assertEqual(done["gap_pct"], 1.2)
         self.assertEqual(done["ret_open_to_tau"], 0.7)
-
 
 if __name__ == "__main__":
     unittest.main()

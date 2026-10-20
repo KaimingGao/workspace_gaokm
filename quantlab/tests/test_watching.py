@@ -1,13 +1,8 @@
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.signal.cross_section import rank_cross_section
 from core.signal.factors.meta.registry import list_factors, run_factor_experiment
@@ -20,7 +15,7 @@ from core.watching.store import (
     watchlist_origins_for,
     write_watching,
 )
-from tests.test_signal import _rising_bars
+from tests.conftest import _rising_bars
 
 
 class TestWatching(unittest.TestCase):
@@ -376,7 +371,6 @@ class TestWatching(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sync_paper_watchlist(paper_path, codes=[])
 
-
 class TestP9Quant(unittest.TestCase):
     def test_cross_section_with_codes(self):
         fake_item = {
@@ -419,7 +413,6 @@ class TestP9Quant(unittest.TestCase):
         self.assertTrue(report["success"])
         self.assertGreaterEqual(len(report["factors"]), 8)
 
-
 class TestWatchingQuotesApi(unittest.TestCase):
     def test_placeholder_shape(self):
         from web.routers.watching import _quotes_placeholder
@@ -453,7 +446,6 @@ class TestWatchingQuotesApi(unittest.TestCase):
         self.assertIn("超时", body.get("note") or "")
         self.assertEqual(body["items"][0]["stock_code"], "600519")
         self.assertFalse(body["items"][0]["ok"])
-
 
 class TestWatchingMaxSizeApi(unittest.TestCase):
     def test_post_max_size(self):
@@ -490,7 +482,6 @@ class TestWatchingMaxSizeApi(unittest.TestCase):
         client = TestClient(web_app.app)
         r = client.post("/api/watching/max-size", json={"max_size": 1001})
         self.assertEqual(r.status_code, 422)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest import mock
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bars(n: int = 80):
@@ -30,7 +24,6 @@ def _bars(n: int = 80):
         )
         px = c
     return out
-
 
 class TestDeferCsPredict(unittest.TestCase):
     def test_defer_skips_yhat_keeps_features(self) -> None:
@@ -101,7 +94,6 @@ class TestDeferCsPredict(unittest.TestCase):
         self.assertEqual(item.get("return_model_source"), "deferred_cs")
         self.assertTrue(isinstance(item.get("sub_scores"), dict) and item["sub_scores"])
         self.assertTrue(isinstance(item.get("features_tau"), dict))
-
 
 if __name__ == "__main__":
     unittest.main()

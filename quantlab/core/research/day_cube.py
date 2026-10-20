@@ -389,6 +389,7 @@ def day_cube_status(
             return "thin"
         try:
             from core.research.materialize.horizon_names import (
+                HORIZON_COVER_FRAC,
                 minute_horizon_required_names,
                 names_cover_horizon,
                 open_cube_required_names,
@@ -398,7 +399,9 @@ def day_cube_status(
                 required = open_cube_required_names()
             else:
                 required = minute_horizon_required_names()
-            if not names_cover_horizon(stored, min_frac=1.0, need=required):
+            if not names_cover_horizon(
+                stored, min_frac=HORIZON_COVER_FRAC, need=required
+            ):
                 return "thin"
         except Exception:  # noqa: BLE001
             return "thin"
@@ -415,14 +418,20 @@ def attach_slim(
     clock: str = "open",
     slim: Dict[str, Any],
 ) -> bool:
-    """把 τ 池等字段并进已有立方的 slim，不改 ``X_raw`` / μ/σ。"""
-    cube = load_day_cube(date, codes, clock=clock)
+    """把 τ 池等字段并进已有立方的 slim，不改 ``X_raw`` / μ/σ。
+
+    不写入 ``_MEMORY``：物化扫千日时若 remember，会把整窗立方堆到十几 GB。
+    """
+    cube = load_day_cube(date, codes, clock=clock, remember=False)
     if cube is None or not isinstance(slim, dict) or not slim:
         return False
     merged = dict(cube.slim or {})
     merged.update(slim)
     cube.slim = merged
-    return bool(save_day_cube(cube))
+    ok = bool(save_day_cube(cube))
+    # 落盘后丢掉引用，避免调用方循环里隐式堆积
+    del cube
+    return ok
 
 
 def load_day_cube(

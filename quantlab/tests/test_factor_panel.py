@@ -1,19 +1,9 @@
 """因子面板（原 P48）。"""
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.signal.config import load_signal_config
 from core.signal.factors.meta.panel import build_factor_panel, build_factor_panel_rows
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 # --- test_p48_quant.py::TestP48FactorPanel ---
 
@@ -62,6 +52,7 @@ class TestP48FactorPanelApi(unittest.TestCase):
     def test_factor_panel_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -77,6 +68,7 @@ class TestP48FactorPanelApi(unittest.TestCase):
     def test_factors_api_returns_panel_shape(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -87,7 +79,6 @@ class TestP48FactorPanelApi(unittest.TestCase):
         data = res.json()
         self.assertTrue(data["success"])
         self.assertGreaterEqual(len(data.get("rows") or []), 8)
-
 
 if __name__ == "__main__":
     unittest.main()

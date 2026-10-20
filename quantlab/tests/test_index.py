@@ -1,13 +1,7 @@
-import os
-import sys
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-from adapters.index.engine import build_relative, _pct
+from adapters.index.engine import _pct, build_relative
 from skills.index.handler import IndexHandler
 
 
@@ -26,7 +20,6 @@ def _bars(start=100.0, steps=None):
             }
         )
     return out
-
 
 class TestIndex(unittest.TestCase):
     def test_pct(self):
@@ -58,7 +51,6 @@ class TestIndex(unittest.TestCase):
     def test_handler_missing(self):
         out = IndexHandler().execute({"parameters": {}})
         self.assertIn("stock_code", out)
-
 
 if __name__ == "__main__":
     unittest.main()

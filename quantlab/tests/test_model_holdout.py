@@ -287,7 +287,6 @@ class TestHoldoutSplit(unittest.TestCase):
             self.assertEqual(current_scoring_model_role(), MODEL_ROLE_RESEARCH)
         self.assertEqual(current_scoring_model_role(), MODEL_ROLE_LIVE)
 
-
 class TestTauRoleLoad(unittest.TestCase):
     def test_load_tau_research_does_not_fallback_to_live(self):
         from core.research import tc_ridge as tr
@@ -311,7 +310,6 @@ class TestTauRoleLoad(unittest.TestCase):
                 self.assertIsNone(research)
             finally:
                 tr.tau_model_path = orig  # type: ignore[method-assign]
-
 
 class TestTauDeskPrefersHoldout(unittest.TestCase):
     def test_desk_key_changes_with_holdout_not_sample_count(self):
@@ -378,7 +376,6 @@ class TestTauDeskPrefersHoldout(unittest.TestCase):
         self.assertAlmostEqual(
             float((doc2.get("return_model") or {}).get("intercept") or 0), 0.047
         )
-
 
 if __name__ == "__main__":
     unittest.main()

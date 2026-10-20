@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _signal_item(**extra):
@@ -24,7 +19,6 @@ def _signal_item(**extra):
     }
     base.update(extra)
     return base
-
 
 class TestWatchingMatrixPreview(unittest.TestCase):
     def setUp(self):
@@ -653,7 +647,6 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             except OSError:
                 pass
 
-
 class TestApplyLegOpenCost(unittest.TestCase):
     def test_buy_open_date_carries_to_add_and_sell(self):
         from core.paper.rebalance.watching_matrix import _apply_one_leg
@@ -777,7 +770,6 @@ class TestApplyLegOpenCost(unittest.TestCase):
         self.assertIsNone(err, err)
         self.assertEqual(sell["score_formula_terms"]["total"], 1.2)
         self.assertEqual(sell["formula_terms_tau"]["total"], 0.8)
-
 
 class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
     def test_mark_predictability_tier_exits(self):
@@ -960,7 +952,6 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         self.assertNotIn("y_fuse", payload)
         self.assertIsNone(payload.get("y_trade"))
 
-
 class TestReplayTradableGate(unittest.TestCase):
     def test_stamp_keeps_scored_names_but_blocks_trades(self):
         from core.backtest.paper_replay import _stamp_tradable_hard_reject
@@ -976,7 +967,6 @@ class TestReplayTradableGate(unittest.TestCase):
         self.assertFalse(scored[0].get("hard_reject"))
         self.assertTrue(scored[1].get("hard_reject"))
         self.assertEqual(scored[1].get("reject_reason"), "可预测性非A档")
-
 
 class TestWatchingPoolZRow(unittest.TestCase):
     def test_target_outside_pool_uses_peer_moments(self):
@@ -1058,7 +1048,6 @@ class TestWatchingPoolZRow(unittest.TestCase):
         self.assertEqual(called.get("n"), 1)
         self.assertEqual(item.get("y_oo"), 0.42)
         sp.clear_score_model_cache()
-
 
 class TestQuotePxLiveFill(unittest.TestCase):
     def setUp(self):
@@ -1167,7 +1156,6 @@ class TestQuotePxLiveFill(unittest.TestCase):
         self.assertFalse(any(seen))
         self.assertAlmostEqual(float(out["buy_trades"][0]["price"]), 10.05)
         self.assertAlmostEqual(float(paper["holdings"][0]["cost"]), 10.05)
-
 
 if __name__ == "__main__":
     unittest.main()

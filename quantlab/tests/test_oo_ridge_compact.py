@@ -4,15 +4,10 @@ from __future__ import annotations
 
 import math
 import os
-import sys
 import tempfile
 import unittest
 
 import numpy as np
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestOoRidgeCompact(unittest.TestCase):
@@ -286,7 +281,6 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertEqual(dates, [])
         self.assertTrue(names)
 
-
 class TestOoFiniteLabels(unittest.TestCase):
     def test_ic_and_sign_hit_drop_nan_labels(self) -> None:
         from core.research.oo_ridge import _oo_ic, _oo_sign_hit
@@ -311,7 +305,6 @@ class TestOoFiniteLabels(unittest.TestCase):
         self.assertTrue(math.isnan(as_float("bad")))
         self.assertTrue(math.isnan(as_float(float("inf"))))
         self.assertFalse(finite_xy(1.0, float("inf")))
-
 
 if __name__ == "__main__":
     unittest.main()

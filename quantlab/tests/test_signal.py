@@ -2,49 +2,9 @@ import os
 import sys
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from adapters.market.history import bars_from_quote_fallback, normalize_bars
 from core.signal.scorer import rank_candidates, score_bars
-
-
-def _rising_bars():
-    # 温和上涨 + 放量
-    base = 100.0
-    bars = []
-    for i in range(15):
-        close = base + i * 0.4
-        bars.append(
-            {
-                "date": f"2026-01-{i+1:02d}",
-                "open": close - 0.2,
-                "high": close + 0.5,
-                "low": close - 0.5,
-                "close": close,
-                "volume": 1000 + i * 50,
-            }
-        )
-    return bars
-
-
-def _overheated_bars():
-    bars = []
-    price = 100.0
-    for i in range(10):
-        price *= 1.06  # 暴涨
-        bars.append(
-            {
-                "date": f"d{i}",
-                "open": price * 0.99,
-                "high": price * 1.02,
-                "low": price * 0.98,
-                "close": price,
-                "volume": 2000,
-            }
-        )
-    return bars
+from tests.conftest import _overheated_bars, _rising_bars
 
 
 class TestSignalScorer(unittest.TestCase):
@@ -80,7 +40,6 @@ class TestSignalScorer(unittest.TestCase):
         ranked = rank_candidates(items, limit=5, min_score=50)
         self.assertEqual(len(ranked), 1)
         self.assertEqual(ranked[0]["score"], 80)
-
 
 class TestSignalHandler(unittest.TestCase):
     def test_execute_with_codes_mocked(self):
@@ -125,7 +84,6 @@ class TestSignalHandler(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertGreaterEqual(data["count"], 1)
         self.assertIn("不保证收益", data["note"])
-
 
 if __name__ == "__main__":
     unittest.main()

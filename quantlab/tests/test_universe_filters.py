@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.backtest.universe_filters import filter_universe_bars
 
@@ -43,7 +37,6 @@ class TestUniverseFiltersSt(unittest.TestCase):
             gq.assert_not_called()
         self.assertIn("000002", kept)
         self.assertEqual(dropped, [])
-
 
 if __name__ == "__main__":
     unittest.main()

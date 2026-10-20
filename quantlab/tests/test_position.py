@@ -1,12 +1,7 @@
 import json
 import os
-import sys
 import tempfile
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from skills.position.engine import PositionEngine, evaluate_holding, load_rules
 
@@ -171,7 +166,6 @@ class TestPositionRules(unittest.TestCase):
         result = engine.advise({"paper_path": "/tmp/not-exists-paper-xyz.json"})
         self.assertFalse(result["success"])
         self.assertIn("模拟账户", result["error"])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -99,7 +99,7 @@ export function installMinuteUi(q) {
   function setMinuteButtonsDisabled(disabled) {
     if (btn) btn.disabled = !!disabled;
     if (topupBtn) topupBtn.disabled = !!disabled;
-    // 物化按钮由 Ready 门控；刷新进行中禁用，结束后按 Ready 恢复
+    // 物化按钮：刷新进行中禁用，结束后按观察池门控恢复
     if (disabled) {
       if (matBtn) matBtn.disabled = true;
     } else if (!matBusy) {
@@ -521,17 +521,15 @@ export function installMinuteUi(q) {
   function updateTauMaterializeReady(data) {
     const total = Number(data?.universe_count) || 0;
     const okN = Number(data?.cached_ok) || 0;
-    const frac = total > 0 ? okN / total : 0;
-    // coverage_ok 或 Ready≥50% 才开闸（避免空仓误点）
+    // 不再卡 Ready%：本地 5m 不够时由后端报错（「本地 5m 不足」等）
     if (total < 2) {
       lastReady = { ok: false, reason: "观察池不足，无法物化 τ" };
-    } else if (data?.coverage_ok || frac >= 0.5) {
-      lastReady = { ok: true, reason: "" };
     } else {
-      lastReady = {
-        ok: false,
-        reason: `须先分钟 Ready（当前 ${okN}/${total} · 请增量补齐（L0）/强更 5m（L0））`,
-      };
+      const tip =
+        okN < 2
+          ? `提示：分钟 Ready ${okN}/${total}，物化可能因本地 5m 不足失败`
+          : "";
+      lastReady = { ok: true, reason: tip };
     }
     try {
       matUi.refresh();

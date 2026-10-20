@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.t0.config import load_t0_rules, t0_slots_enabled
 from core.t0.rules import simulate_t0_day
@@ -16,7 +10,6 @@ from core.t0.rules import simulate_t0_day
 
 def _bar(date, o, h, l, c):
     return {"date": date, "open": o, "high": h, "low": l, "close": c, "volume": 1000}
-
 
 def _am_mins(date, n, *, px):
     """从 09:35 起 n 根 5m；px(i, hm) → (o,h,l,c)。"""
@@ -40,7 +33,6 @@ def _am_mins(date, n, *, px):
             h += 1
             m -= 60
     return out
-
 
 def _slot_rules(**kwargs):
     base = {
@@ -78,7 +70,6 @@ def _slot_rules(**kwargs):
     base.update(kwargs)
     return base
 
-
 def _px_bts_confirm_then_rally(i, hm):
     """正T：前缀 ŷ_τw≥门槛开第一腿；其后冲高卖第二腿。"""
     if i < 5:
@@ -89,7 +80,6 @@ def _px_bts_confirm_then_rally(i, hm):
         return (99.5, 104.0, 99.0, 103.0)
     return (99.0, 100.0, 98.8, 99.5)
 
-
 def _px_stb_confirm_then_drop(i, hm):
     """反T：前缀上冲；10:00 确认根收阴开第一腿；其后下探回补。"""
     if i < 5:
@@ -99,7 +89,6 @@ def _px_stb_confirm_then_drop(i, hm):
     if i >= 8:
         return (99.5, 100.0, 96.0, 97.0)
     return (100.0, 100.5, 99.5, 100.2)
-
 
 class TestT0Slots(unittest.TestCase):
     def test_default_four_slots_until_1130(self):
@@ -508,8 +497,9 @@ class TestT0Slots(unittest.TestCase):
 
     def test_backtest_all_miss_day_keeps_portrait_scores(self):
         """多轮均未成交时，日级仍须保留因果 ŷ 画像。"""
-        from core.t0.backtest import backtest_t0_on_bars
         from unittest import mock
+
+        from core.t0.backtest import backtest_t0_on_bars
 
         date = "2026-03-02"
         bar = _bar(date, 100, 100.5, 99.5, 100.2)
@@ -567,7 +557,6 @@ class TestT0Slots(unittest.TestCase):
         extra = _slot_meta_extra({"id": "s2", "hm": "10:30"})
         self.assertEqual(extra["t0_slot"], "s2")
         self.assertEqual(extra["t0_slot_hm"], "10:30")
-
 
     def test_settle_drops_later_round_keeps_first_buy(self):
         """正T三轮回补超过可卖时，丢掉最后一轮，09:40 第一笔留下。"""
@@ -670,7 +659,6 @@ class TestT0Slots(unittest.TestCase):
         self.assertGreaterEqual(len(filled), 1, rows)
         self.assertGreaterEqual(len(blocked), 1, rows)
         self.assertLessEqual(int(out.get("bought_qty") or 0), 200, out)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,6 @@ from core.signal.minute_tau_feats import (
     attach_ret_vs_sector,
     attach_sector_ret_cs_if_missing,
     clear_minute_tau_pack_keys,
-    clear_sector_ret_cache,
     extract_minute_tau_pack,
     sector_ret_median,
 )
@@ -39,7 +38,6 @@ def _bars(day: str = "2026-08-28"):
             }
         )
     return out
-
 
 class TestMinuteTauPack(unittest.TestCase):
     def test_extract_small_pack_core_keys(self):
@@ -1095,7 +1093,6 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertEqual(metas[-1].get("open"), 10.0)
         self.assertEqual(metas[-1].get("close_minute"), 10.12)
 
-
     def test_merge_minute_tau_pack_into_feats(self):
         from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
 
@@ -1751,8 +1748,8 @@ class TestMinuteTauPack(unittest.TestCase):
     def test_merge_minute_pack_attaches_sibling_cs(self):
         from unittest.mock import patch
 
-        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
         from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
 
         day = "2026-08-28"
         mins = _bars(day) + [
@@ -1976,7 +1973,6 @@ class TestMinuteTauPack(unittest.TestCase):
         finally:
             m.clear_sector_ret_cache()
 
-
 class TestMinuteTauPacksSharePrefix(unittest.TestCase):
     def _session(self):
         rows = _bars()
@@ -2073,7 +2069,6 @@ class TestMinuteTauPacksSharePrefix(unittest.TestCase):
         self.assertEqual(got["09:35"], early)
         self.assertEqual(got["10:30"], late)
         self.assertEqual(got["10:00"], {})
-
 
 if __name__ == "__main__":
     unittest.main()

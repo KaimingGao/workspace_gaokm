@@ -326,6 +326,5 @@ class HorizonCsZLiveTests(unittest.TestCase):
         self.assertLess(float(z["raw_ath_CLOSE0"]), 2.0)
         self.assertNotAlmostEqual(float(z["raw_ath_CLOSE0"]), 1.02, places=2)
 
-
 if __name__ == "__main__":
     unittest.main()

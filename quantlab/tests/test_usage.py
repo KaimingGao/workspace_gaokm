@@ -1,11 +1,9 @@
 import os
-import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+import requests
 
 from agent.llm_client import (
     LLMClient,
@@ -17,8 +15,6 @@ from agent.llm_client import (
     parse_usage,
     resolve_llm_model,
 )
-from unittest.mock import patch
-import requests
 
 
 class TestUsage(unittest.TestCase):
@@ -114,7 +110,6 @@ class TestUsage(unittest.TestCase):
         with patch.object(c, "_test_connection", return_value=None):
             self.assertTrue(c.is_available())
             self.assertTrue(c._available)
-
 
 if __name__ == "__main__":
     unittest.main()

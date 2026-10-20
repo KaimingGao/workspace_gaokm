@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.backtest.pool_ic import compute_pool_cross_section_ic
 from core.backtest.topk_benchmark import build_topk_benchmark_summary
-from core.backtest.universe_filters import filter_universe_bars, _is_st_name
+from core.backtest.universe_filters import _is_st_name, filter_universe_bars
 
 
 def _synth_bars(n: int = 80, start: float = 10.0, drift: float = 0.01) -> list:
@@ -41,7 +35,6 @@ def _synth_bars(n: int = 80, start: float = 10.0, drift: float = 0.01) -> list:
         out.append(b)
     return out[:n]
 
-
 class TestUniverseFilters(unittest.TestCase):
     def test_st_name(self):
         self.assertTrue(_is_st_name("ST示例"))
@@ -59,7 +52,6 @@ class TestUniverseFilters(unittest.TestCase):
         self.assertNotIn("600001", kept)
         self.assertEqual(meta["dropped_count"], 1)
         self.assertTrue(any(d["stock_code"] == "600001" for d in dropped))
-
 
 class TestBenchmarkFlat(unittest.TestCase):
     def test_excess_equals_strategy_when_bench_flat(self):
@@ -154,7 +146,6 @@ class TestBenchmarkFlat(unittest.TestCase):
         self.assertEqual(meta.get("label"), "观察池A档等权")
         self.assertEqual(meta.get("n_used"), 2)
 
-
 class TestAmountFilter(unittest.TestCase):
     def test_pctile_drops_thin(self):
         rich = _synth_bars(40)
@@ -170,7 +161,6 @@ class TestAmountFilter(unittest.TestCase):
         self.assertIn("R", kept)
         self.assertTrue(any(d["stock_code"] == "T" for d in dropped) or "T" not in kept)
         self.assertEqual(meta["min_avg_amount_pctile"], 50)
-
 
 class TestPromoteHintsShape(unittest.TestCase):
     def test_hint_dict_shape(self):
@@ -202,7 +192,6 @@ class TestPromoteHintsShape(unittest.TestCase):
         self.assertEqual(clamp(24), 24)
         self.assertEqual(clamp(200), 168)
 
-
 class TestPoolIcSmoke(unittest.TestCase):
     def test_too_few_names(self):
         out = compute_pool_cross_section_ic({"A": _synth_bars(30)})
@@ -220,7 +209,6 @@ class TestPoolIcSmoke(unittest.TestCase):
         self.assertIn("ic_rolling_tail", out)
         self.assertIn("positive_ic_days", out)
         self.assertGreaterEqual(len(out["ic_series_tail"]), 3)
-
 
 class TestSimTradeRowHeuristicKw(unittest.TestCase):
     def test_sim_trade_row_accepts_heuristic_score(self):
@@ -251,7 +239,6 @@ class TestSimTradeRowHeuristicKw(unittest.TestCase):
         )
         self.assertAlmostEqual(float(row["heuristic_score"]), 57.2)
         self.assertNotIn("not_a_real_field", row)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import ROOT
 
 
 def _yhat_item(**extra):
@@ -28,7 +24,6 @@ def _yhat_item(**extra):
     row.update(extra)
     return row
 
-
 def _score_stock_ok(item=None):
     it = item if item is not None else _yhat_item()
     return {
@@ -39,7 +34,6 @@ def _score_stock_ok(item=None):
         "quality_gate": bool(it.get("quality_gate")),
         "cluster_mode": it.get("cluster_mode") or "active",
     }
-
 
 class TestScoreGate(unittest.TestCase):
     def test_yhat_allows_production(self):
@@ -93,7 +87,6 @@ class TestScoreGate(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(reason, "score_fetch_failed")
 
-
 class TestScoreResult(unittest.TestCase):
     def test_from_score_stock_yhat(self):
         from core.signal.types import ScoreResult
@@ -138,7 +131,6 @@ class TestScoreResult(unittest.TestCase):
         self.assertFalse(r.production_ok)
         self.assertEqual(r.stock_code, "600519")
 
-
 class TestBookResult(unittest.TestCase):
     def test_all_yhat_production_ok(self):
         from core.signal.types import BookResult
@@ -177,7 +169,6 @@ class TestBookResult(unittest.TestCase):
 
         b = BookResult.from_rank({"success": True, "book": []})
         self.assertTrue(b.production_ok)
-
 
 class TestSignalServiceWrap(unittest.TestCase):
     def tearDown(self):
@@ -354,7 +345,6 @@ class TestSignalServiceWrap(unittest.TestCase):
         ok, _ = allows_production_yhat(_yhat_item())
         self.assertTrue(ok)
 
-
 class TestMainCallersUseService(unittest.TestCase):
     def test_orchestrator_imports_service(self):
         from pathlib import Path
@@ -415,7 +405,6 @@ class TestMainCallersUseService(unittest.TestCase):
         text = Path(ROOT, "adapters/signal/engine.py").read_text(encoding="utf-8")
         self.assertIn("get_default_signal_service", text)
         self.assertNotIn("from core.signal.score_stock import score_stock", text)
-
 
 class TestMetricsAndBookStamp(unittest.TestCase):
     def tearDown(self):
@@ -502,8 +491,6 @@ class TestMetricsAndBookStamp(unittest.TestCase):
             ResearchSignalService().rank_cross_section(["600519"], limit=5)
         self.assertTrue(mocked.call_args.kwargs.get("bypass_quality_gate"))
 
-
-
 class TestProductionBuyGate(unittest.TestCase):
     def test_paper_rebalance_checks_production_yhat(self):
         from pathlib import Path
@@ -539,7 +526,6 @@ class TestProductionBuyGate(unittest.TestCase):
         self.assertFalse(
             Path(ROOT, "scripts/restore_cluster_active_v54.py").exists()
         )
-
 
 if __name__ == "__main__":
     unittest.main()

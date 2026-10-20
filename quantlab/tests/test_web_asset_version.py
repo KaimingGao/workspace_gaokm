@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from tests.conftest import ROOT
 
 
 class TestAssetVersionInjection(unittest.TestCase):
@@ -36,7 +33,6 @@ class TestAssetVersionInjection(unittest.TestCase):
         self.assertIn(f'window.__ASSET_V__ = "{ASSET_V}"', tool)
         self.assertIn(f"app.js?v={ASSET_V}", tool)
         self.assertNotIn("{{ASSET_V}}", tool)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -36,11 +36,9 @@ from core.signal.factors.tail_anomaly import score_tail_anomaly
 from core.signal.minute_prefetch import prefetch_minute_bars
 from core.signal.regime import assess_regime
 
-
 # ============================================================
 # 原 test_market_context.py
 # ============================================================
-
 
 class TestMarketContext(unittest.TestCase):
     def test_cross_market_prior_tech_drag(self):
@@ -149,11 +147,9 @@ class TestMarketContext(unittest.TestCase):
         self.assertIn("cross_market_prior", priors)
         self.assertIn("market_sentiment_prior", priors)
 
-
 # ============================================================
 # 原 test_market_context_enhancements.py
 # ============================================================
-
 
 class TestMarketContextEnhancements(unittest.TestCase):
     def test_concept_graph_membership(self):
@@ -268,11 +264,9 @@ class TestMarketContextEnhancements(unittest.TestCase):
         self.assertTrue(overlay.get("deferred_to_cross_market_prior"))
         self.assertFalse(overlay.get("applied"))
 
-
 # ============================================================
 # 原 test_market_context_merge.py
 # ============================================================
-
 
 class TestMarketContextMerge(unittest.TestCase):
     def test_merge_macro_keeps_prior_series(self):
@@ -310,11 +304,9 @@ class TestMarketContextMerge(unittest.TestCase):
         self.assertGreater(out["liquidity_drain_ratio"], 3.0)
         self.assertTrue(out["extreme_ipo_day"])
 
-
 # ============================================================
 # 原 test_market_context_round2.py
 # ============================================================
-
 
 class TestMarketContextRound2(unittest.TestCase):
     def test_concept_graph_cache_roundtrip(self):
@@ -371,11 +363,9 @@ class TestMarketContextRound2(unittest.TestCase):
         out = prefetch_minute_bars([], fetch_if_missing=False)
         self.assertTrue(out.get("ok"))
 
-
 # ============================================================
 # 原 test_market_context_round3.py
 # ============================================================
-
 
 class TestMarketContextRound3(unittest.TestCase):
     def test_summarize_market_context(self):
@@ -449,7 +439,6 @@ class TestMarketContextRound3(unittest.TestCase):
         s = facts_summary(facts)
         self.assertIn("market_context", s)
         self.assertTrue(s["market_prior"]["active"])
-
 
 if __name__ == "__main__":
     unittest.main()

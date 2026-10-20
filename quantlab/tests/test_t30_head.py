@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from datetime import date, timedelta
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bar(dkey: str, hm: str, close: float, open_px: float | None = None, volume: float = 1000):
@@ -25,7 +19,6 @@ def _bar(dkey: str, hm: str, close: float, open_px: float | None = None, volume:
         "volume": volume,
     }
 
-
 def _times_am_pm():
     out = []
     for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
@@ -33,7 +26,6 @@ def _times_am_pm():
     for total in range(13 * 60, 15 * 60 + 1, 5):
         out.append(f"{total // 60:02d}:{total % 60:02d}")
     return out
-
 
 class SessionClockTests(unittest.TestCase):
     def test_add_session_minutes_lunch_and_close(self):
@@ -198,7 +190,6 @@ class SessionClockTests(unittest.TestCase):
         self.assertEqual(DEFAULT_T30_TRAIN_TAU_GRID[-1], "11:00")
         self.assertNotIn("11:30", DEFAULT_T30_TRAIN_TAU_GRID)
         self.assertNotIn("13:05", DEFAULT_T30_TRAIN_TAU_GRID)
-
 
 class RelabelT30Tests(unittest.TestCase):
     def test_y_t30_pct_geometry(self):
@@ -391,7 +382,6 @@ class RelabelT30Tests(unittest.TestCase):
         )
         self.assertLess(elapsed, 6.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 
-
 class T30RidgeFitTests(unittest.TestCase):
     def test_fit_report_runs_on_synthetic(self):
         from core.research.horizon_ridge import (
@@ -532,7 +522,6 @@ class T30RidgeFitTests(unittest.TestCase):
             float(expl.get("p_up")), 1.0 / (1.0 + math.exp(-1.1)), places=5
         )
 
-
 class T30GateTests(unittest.TestCase):
     def test_t30_enter_keys_dropped(self):
         from core.t0.config import load_t0_rules
@@ -648,7 +637,6 @@ class T30GateTests(unittest.TestCase):
         self.assertFalse(out.get("success"))
         self.assertTrue(out.get("orphaned"))
         save_last.assert_not_called()
-
 
 class TTwGateTests(unittest.TestCase):
     def test_close_band_y_tw_skip_reason(self):
@@ -824,7 +812,6 @@ class TTwGateTests(unittest.TestCase):
         }
         d_ok, _ = bar_ytw_pick_direction(23.4, 23.5, strong_down, stale)
         self.assertEqual(d_ok, "sell_then_buy")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -95,6 +95,5 @@ class TestWatchingLoadFast(unittest.TestCase):
         mtm.assert_not_called()
         scores.assert_not_called()
 
-
 if __name__ == "__main__":
     unittest.main()

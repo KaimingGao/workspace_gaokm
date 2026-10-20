@@ -3,12 +3,7 @@
 from __future__ import annotations
 
 import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestYhatGeom(unittest.TestCase):
@@ -232,7 +227,6 @@ class TestYhatGeom(unittest.TestCase):
         w = item.get("dual_score_weights") or {}
         self.assertIn(w.get("eod_prior_var_src"), ("eod_residual_var", "cluster_holdout_rmse2", "default"))
         self.assertEqual(w.get("w_oo"), w.get("w_eod"))
-
 
 if __name__ == "__main__":
     unittest.main()

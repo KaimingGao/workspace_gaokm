@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from datetime import datetime
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestSessionPit(unittest.TestCase):
@@ -93,8 +87,8 @@ class TestSessionPit(unittest.TestCase):
         """簿上昨晚 eod_next，次日盘中应翻回 intraday。"""
         from unittest.mock import patch
 
-        from core.signal.session_pit import refresh_dual_score_window
         from core.signal.dual_score import align_trade_score_fields
+        from core.signal.session_pit import refresh_dual_score_window
 
         item = {
             "predicted_score": 1.2,
@@ -308,7 +302,6 @@ class TestSessionPit(unittest.TestCase):
         self.assertIsNone(got["gap_pct"])
         self.assertAlmostEqual(got["prev_close"], 10.2)
 
-
 class TestEodNextFusion(unittest.TestCase):
     def test_fuse_intraday_false_strips_tau_from_trade(self):
         from core.signal.dual_score import apply_tau_score_fields, rank_key_for_item
@@ -431,8 +424,9 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
 
     def test_rank_key_recomputes_stale_eod_next_blend(self):
+        from datetime import timedelta, timezone
         from unittest.mock import patch
-        from datetime import timezone, timedelta
+
         from core.signal.dual_score import (
             align_trade_score_fields,
             decision_score_for_item,
@@ -477,8 +471,9 @@ class TestEodNextFusion(unittest.TestCase):
             self.assertEqual(src["score"], 0.542957)
 
     def test_align_trade_score_fields_repairs_stale_eod_next_blend(self):
+        from datetime import timedelta, timezone
         from unittest.mock import patch
-        from datetime import timezone, timedelta
+
         from core.signal.dual_score import align_trade_score_fields
 
         cn = timezone(timedelta(hours=8))
@@ -595,8 +590,8 @@ class TestEodNextFusion(unittest.TestCase):
 
     def test_offline_yesterday_quote_fuses_tau_next_session(self):
         """数据中心 offline 昨收 quote：次日盘中 ŷ_trade 须融 τ，不得单头「单」。"""
-        from core.signal.session_pit import prepare_eod_bars
         from core.signal.dual_score import apply_tau_score_fields
+        from core.signal.session_pit import prepare_eod_bars
 
         bars = [{"date": "2026-09-07", "open": 10.0, "close": 10.2}]
         quote = {"date": "2026-09-07", "open": 10.0}
@@ -740,7 +735,6 @@ class TestEodNextFusion(unittest.TestCase):
         feats = out.get("features_tau") or {}
         self.assertAlmostEqual(float(feats.get("gap_pct")), 0.49, places=2)
         self.assertAlmostEqual(float(out.get("gap_pct")), 0.49, places=2)
-
 
 if __name__ == "__main__":
     unittest.main()

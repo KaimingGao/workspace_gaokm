@@ -35,6 +35,5 @@ class TestQuantActions(unittest.TestCase):
     def test_portfolio_mixin_alias(self):
         self.assertIs(QuantPortfolioMixin, QuantReplayMixin)
 
-
 if __name__ == "__main__":
     unittest.main()

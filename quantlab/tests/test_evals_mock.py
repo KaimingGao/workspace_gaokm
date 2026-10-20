@@ -1,12 +1,6 @@
 """Golden checklist 全量离线 mock 回归。"""
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from evals.run_checklist import check_routing_expect, load_cases, run_skills
 
@@ -41,7 +35,6 @@ class TestEvalsMock(unittest.TestCase):
         result = run["skill_runs"][0]["result"]
         self.assertTrue(result.get("success"))
         self.assertIn("results", result)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestScoringHorizon(unittest.TestCase):
@@ -43,7 +37,6 @@ class TestScoringHorizon(unittest.TestCase):
 
         self.assertIsNone(importlib.util.find_spec("core.signal.cluster"))
 
-
 class TestOosFailedExclude(unittest.TestCase):
     def test_cluster_oos_exclude_helpers_retired(self):
         """oos_failed_cluster_labels / filter_primary / codes_in_oos_failed 已删。"""
@@ -62,7 +55,6 @@ class TestOosFailedExclude(unittest.TestCase):
             0.85,
             places=5,
         )
-
 
 class TestEventPrior(unittest.TestCase):
     def test_gap_and_soft_hold(self):
@@ -127,7 +119,6 @@ class TestEventPrior(unittest.TestCase):
             config={"event_prior": {"mode": "off"}},
         )
         self.assertFalse(should_soft_hold_for_low_score(prior))
-
 
 if __name__ == "__main__":
     unittest.main()

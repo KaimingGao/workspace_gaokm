@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bar(dkey: str, hm: str, close: float, open_px: float | None = None, volume: float = 1000):
@@ -23,7 +17,6 @@ def _bar(dkey: str, hm: str, close: float, open_px: float | None = None, volume:
         "close": round(close, 4),
         "volume": volume,
     }
-
 
 class SessionClockT45T75Tests(unittest.TestCase):
     def test_add_session_minutes_45_and_75(self):
@@ -230,7 +223,6 @@ class SessionClockT45T75Tests(unittest.TestCase):
         self.assertEqual(lunch75_hm, "13:45")
         self.assertAlmostEqual(float(lunch75_px), 10.0, places=6)
 
-
 class YtwFiveHeadTests(unittest.TestCase):
     def test_blend_five_heads_and_defaults(self):
         from core.t0.close_band import blend_y_tw, close_band_y_tw_skip_reason
@@ -284,7 +276,6 @@ class YtwFiveHeadTests(unittest.TestCase):
         )
         self.assertIsNotNone(skip)
         self.assertIn("ŷ_τw=+5", skip)
-
 
 class T45T75GateTests(unittest.TestCase):
     def test_t45_t75_enter_keys_dropped(self):
@@ -391,7 +382,6 @@ class T45T75GateTests(unittest.TestCase):
             self.assertAlmostEqual(float(r.get("y_tw")), float(expect), places=6)
             self.assertIn(f"ŷ_τw={shown}", skip)
 
-
 class T75RidgeUniverseGateTests(unittest.TestCase):
     def test_fit_requires_two_research_codes(self):
         from unittest.mock import patch
@@ -446,7 +436,6 @@ class T75RidgeUniverseGateTests(unittest.TestCase):
         self.assertEqual(persist.call_args.kwargs.get("role"), "research")
         self.assertTrue(out.get("from_last_report"))
         self.assertTrue((out.get("persisted") or {}).get("success"))
-
 
 if __name__ == "__main__":
     unittest.main()

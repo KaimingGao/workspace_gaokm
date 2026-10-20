@@ -1,12 +1,6 @@
 import json
-import os
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from adapters.news.engine import (
     _JSONP_CB,
@@ -74,9 +68,8 @@ class TestNews(unittest.TestCase):
         with patch(
             "adapters.news.engine.requests.get",
             side_effect=requests_timeout(),
-        ):
-            with self.assertRaises(Exception) as ctx:
-                fetch_news_rows("300750", timeout=2)
+        ), self.assertRaises(Exception) as ctx:
+            fetch_news_rows("300750", timeout=2)
         msg = str(ctx.exception).lower()
         self.assertTrue("timeout" in msg or "timed out" in msg)
 
@@ -84,12 +77,10 @@ class TestNews(unittest.TestCase):
         out = NewsHandler().execute({"parameters": {}})
         self.assertIn("stock_code", json.loads(out).get("error", out))
 
-
 def requests_timeout():
     import requests
 
     return requests.exceptions.Timeout("timed out")
-
 
 if __name__ == "__main__":
     unittest.main()

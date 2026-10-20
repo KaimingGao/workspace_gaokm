@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bars(n: int = 40, start: float = 10.0, seed: int = 0):
@@ -33,7 +28,6 @@ def _bars(n: int = 40, start: float = 10.0, seed: int = 0):
         px = c
     return out
 
-
 def _date_maps(stock_bars):
     out = {}
     for code, bars in stock_bars.items():
@@ -43,7 +37,6 @@ def _date_maps(stock_bars):
             dm[d] = b
         out[code] = dm
     return out
-
 
 class TestReplayScoreCache(unittest.TestCase):
     def setUp(self) -> None:
@@ -460,7 +453,6 @@ class TestReplayScoreCache(unittest.TestCase):
         clear_content_fp_memo()
         c = _file_content_fp(path)
         self.assertNotEqual(a, c)
-
 
 if __name__ == "__main__":
     unittest.main()

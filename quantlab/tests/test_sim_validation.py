@@ -4,22 +4,17 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
+from adapters.market.history import normalize_bars
 from core.bar_fields import bar_amount
 from core.sentiment import score_headlines
 from core.sentiment_prior import build_sentiment_prior
 from core.signal.config import signal_config_overlay
 from core.signal.factors.amihud import score_amihud
 from core.signal.factors.liquidity import turnover_proxy
-from adapters.market.history import normalize_bars
 
 
 class TestAmountNormalize(unittest.TestCase):
@@ -70,7 +65,6 @@ class TestAmountNormalize(unittest.TestCase):
         self.assertNotEqual(score, 50.0)
         self.assertEqual(turnover_proxy(bars[-1]), 1e8)
 
-
 class TestValidationHygiene(unittest.TestCase):
     def test_hygiene_report(self):
         from core import validation_universe as vu
@@ -119,7 +113,6 @@ class TestValidationHygiene(unittest.TestCase):
             loaded = vu.load_validation_universe(path=path)
             self.assertEqual(loaded["exclude_codes"], [])
             self.assertEqual(loaded["include_only"], ["600000"])
-
 
 class TestSentimentDegradedPrior(unittest.TestCase):
     def test_degraded_skips_gate(self):
@@ -189,7 +182,6 @@ class TestSentimentDegradedPrior(unittest.TestCase):
                 self.assertEqual(panel["covered"], 1)
                 self.assertEqual(panel["missing_count"], 1)
 
-
 class TestScheduleValidationPrepare(unittest.TestCase):
     def test_resolve_warmup_prefers_universe(self):
         from core.schedule_jobs import _resolve_warmup_codes
@@ -220,7 +212,6 @@ class TestScheduleValidationPrepare(unittest.TestCase):
             )
         self.assertTrue(out.get("ok"))
         self.assertEqual(out.get("kind"), "validation_prepare")
-
 
 if __name__ == "__main__":
     unittest.main()

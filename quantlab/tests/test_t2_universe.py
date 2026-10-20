@@ -20,22 +20,20 @@ class TestResolveReplayCandidates(unittest.TestCase):
         with patch(
             "core.watching.store.read_watching",
             return_value={"watchlist": ["A", "B", "C"]},
+        ), patch(
+            "core.validation_universe.load_validation_universe",
+            return_value={
+                "exclude_codes": ["B"],
+                "include_only": [],
+                "version": 1,
+                "note": "",
+            },
         ):
-            with patch(
-                "core.validation_universe.load_validation_universe",
-                return_value={
-                    "exclude_codes": ["B"],
-                    "include_only": [],
-                    "version": 1,
-                    "note": "",
-                },
-            ):
-                out = resolve_replay_candidates(None)
+            out = resolve_replay_candidates(None)
         self.assertEqual(out["codes"], ["A", "B", "C"])
         self.assertEqual(out["source"], "watching")
         self.assertEqual(out["watching_count"], 3)
         self.assertEqual(out["excluded"], [])
-
 
 if __name__ == "__main__":
     unittest.main()

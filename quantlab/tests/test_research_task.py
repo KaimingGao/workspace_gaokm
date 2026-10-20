@@ -1,14 +1,8 @@
 """研究任务装配：记录步骤、训练窗标记、头注册表。"""
 
-import os
 import shutil
-import sys
 import tempfile
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core import experiment_tracker as et
 from core.research.factor_ols_fit import _zscore_complete_panel
@@ -46,7 +40,6 @@ class _Probe:
     @records_experiment("task_fail")
     def run_fail(self):
         return {"success": False, "error": "样本不足"}
-
 
 class TestResearchTask(unittest.TestCase):
     def setUp(self):
@@ -126,7 +119,6 @@ class TestResearchTask(unittest.TestCase):
         mixed = train + [{"f": 100.0}] * 4
         _, mixed_means, _ = _zscore_complete_panel(mixed, ["f"])
         self.assertTrue(research_zscore_leaks(train_means["f"], mixed_means["f"]))
-
 
 if __name__ == "__main__":
     unittest.main()

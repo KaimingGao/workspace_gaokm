@@ -263,6 +263,63 @@ _CO_POOL_BATCH = 24
 _TAU_POOL_BATCH = 24
 
 
+def attach_minute_bars_slice(
+    items: Sequence[Dict[str, Any]],
+    start: int = 0,
+    end: Optional[int] = None,
+    *,
+    period: str = "5",
+) -> int:
+    """给 ``items[start:end]`` 按需挂本地分钟线；已有 ``minute_bars`` 的跳过。
+
+    返回本切片新挂上的票数。用于把峰值压在一批（``_TAU_POOL_BATCH``）而非整池。
+    """
+    if not items:
+        return 0
+    lo = max(0, int(start))
+    hi = len(items) if end is None else min(len(items), int(end))
+    if hi <= lo:
+        return 0
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import load_minute_cache
+    except Exception:  # noqa: BLE001
+        return 0
+    n = 0
+    for i in range(lo, hi):
+        row = items[i]
+        if not isinstance(row, dict):
+            continue
+        existing = row.get("minute_bars")
+        if isinstance(existing, list) and existing:
+            continue
+        code = str(row.get("stock_code") or row.get("code") or "").strip()
+        if not code:
+            continue
+        try:
+            mkt, pure = resolve_market_code(code)
+            packed = load_minute_cache(
+                mkt or "CN",
+                pure or code,
+                period,
+                min_bars=1,
+                ignore_age=True,
+            )
+        except Exception:  # noqa: BLE001
+            packed = None
+        mb = None
+        if isinstance(packed, tuple) and packed:
+            mb = packed[0]
+        elif isinstance(packed, dict):
+            mb = packed.get("bars") or packed.get("minute_bars")
+        elif isinstance(packed, list):
+            mb = packed
+        if isinstance(mb, list) and mb:
+            row["minute_bars"] = mb
+            n += 1
+    return n
+
+
 def _tc_matrix_seed_names(
     names: Sequence[str],
     *,
@@ -761,8 +818,9 @@ def collect_tau_grid_panels(
 ) -> Dict[str, Any]:
     """分钟网格：每只股票只扫一遍缺失的钟，按钟写 ``tc_HHMM``。
 
-    返回 ``by_clock`` 计数。不把 18 个钟的矩阵留在父进程。
+    返回 ``by_clock`` 计数与 ``minute_attached``。不把 18 个钟的矩阵留在父进程。
     工人是进程池（绕过 GIL）；不足 4 只或 ``workers<=1`` 仍串行。
+    每批前按需挂 5m、算完 pop（峰值≈一批而非整池）。
     """
     from concurrent.futures import FIRST_COMPLETED, wait
 
@@ -799,6 +857,7 @@ def collect_tau_grid_panels(
     }
     processed = 0
     cancelled = False
+    minute_attached = 0
 
     def _tick() -> None:
         nonlocal processed
@@ -1014,6 +1073,7 @@ def collect_tau_grid_panels(
         start = 0
         while start < n_jobs and not cancelled:
             end = min(n_jobs, start + _TAU_POOL_BATCH)
+            minute_attached += attach_minute_bars_slice(items, start, end)
             _run_batch(start, end)
             start = end
     report_clocks: Dict[str, Dict[str, Any]] = {}
@@ -1032,7 +1092,11 @@ def collect_tau_grid_panels(
         if not row["ok"]:
             row["error"] = "sparse"
         report_clocks[clock] = row
-    return {"cancelled": cancelled, "by_clock": report_clocks}
+    return {
+        "cancelled": cancelled,
+        "by_clock": report_clocks,
+        "minute_attached": int(minute_attached),
+    }
 
 
 def collect_tau_compact(
@@ -1049,6 +1113,7 @@ def collect_tau_compact(
     workers: Optional[int] = None,
     cache_head: str = "tc",
     progress_cb: Optional[Any] = None,
+    stats_out: Optional[Dict[str, Any]] = None,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
 
@@ -1056,6 +1121,8 @@ def collect_tau_compact(
     ``include_alpha_th``：写穿窗头列（H 轨 ``tc_HHMM``）。
     单票任务内折 float64 + slim（对齐 ŷ_co），写穿 L1。
     并行：默认/硬顶 4 线程（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
+    分钟路径：每批前按需 ``attach_minute_bars_slice``，算完 pop（峰值≈一批）。
+    ``stats_out``：可选，写入 ``minute_attached``（本轮新挂载票数）。
     ``progress_cb(done, total, message)``：可选，供 job 槽刷新进度。
     """
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -1091,6 +1158,7 @@ def collect_tau_compact(
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
     processed = 0
+    minute_attached = 0
 
     def _tick() -> None:
         nonlocal processed
@@ -1228,6 +1296,8 @@ def collect_tau_compact(
         start = 0
         while start < n_jobs:
             end = min(n_jobs, start + _TAU_POOL_BATCH)
+            if use_minute:
+                minute_attached += attach_minute_bars_slice(items, start, end)
             _run_batch(start, end)
             start = end
 
@@ -1245,6 +1315,8 @@ def collect_tau_compact(
         head=head,
         n_stocks=n_stocks,
     )
+    if isinstance(stats_out, dict):
+        stats_out["minute_attached"] = int(minute_attached)
     return X, out_names, ys_out, dates_out, metas_out, n_stocks
 
 

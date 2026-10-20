@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from datetime import datetime
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestMinuteStatus(unittest.TestCase):
@@ -213,6 +207,7 @@ class TestMinuteStatus(unittest.TestCase):
 
     def test_expected_minute_asof_before_open(self):
         from datetime import datetime
+
         from quant.research.minute_status import expected_minute_asof
 
         # 交易日开盘前 → 上一交易日
@@ -484,7 +479,6 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["tau"]["neg"], 1)
         self.assertNotIn("path", out)
         self.assertNotIn("joint", out)
-
 
 if __name__ == "__main__":
     unittest.main()

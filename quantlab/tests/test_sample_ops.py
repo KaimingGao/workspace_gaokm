@@ -52,10 +52,9 @@ class TestTtmCyclePairing(unittest.TestCase):
         self.assertEqual(out["pair_counts"]["idea_to_backtest"], 2)
         self.assertEqual(out["median_idea_to_paper_hours"], 12.0)
 
-
 class TestSampleOps(unittest.TestCase):
     def test_seed_ttm_and_status(self):
-        from core.sample_ops import sample_status, seed_ttm_cycles
+        from core.sample_ops import seed_ttm_cycles
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "ttm.jsonl")
@@ -119,7 +118,6 @@ class TestSampleOps(unittest.TestCase):
         out = densify_paper_snapshots(paper, target_days=25)
         self.assertTrue(out["changed"])
         self.assertGreaterEqual(len(paper["snapshots"]), 25)
-
 
 if __name__ == "__main__":
     unittest.main()

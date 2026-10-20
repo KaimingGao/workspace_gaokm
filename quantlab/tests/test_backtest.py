@@ -1,11 +1,5 @@
 import json
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.backtest.engine import backtest_signal_on_bars
 from core.backtest.strategies import list_strategies, run_strategy_backtest
@@ -28,7 +22,6 @@ def _rising_bars(n=40, start=100.0, step=0.5):
             }
         )
     return bars
-
 
 class TestBacktestEngine(unittest.TestCase):
     def test_backtest_rising_series_produces_trades(self):
@@ -118,7 +111,6 @@ class TestBacktestEngine(unittest.TestCase):
         self.assertEqual(data["strategy"], "short_conservative")
         self.assertEqual(len(data["results"]), 1)
         self.assertTrue(data["results"][0]["success"])
-
 
 if __name__ == "__main__":
     unittest.main()

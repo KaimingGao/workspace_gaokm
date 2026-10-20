@@ -23,7 +23,6 @@ class MaterializeRequiredPickleTest(unittest.TestCase):
         self.assertEqual(back.payload.get("families"), ["oo_rank"])
         self.assertIn("日线物化", str(back))
 
-
 class InvalidateDecisionTest(unittest.TestCase):
     def test_only_when_fingerprint_changes(self) -> None:
         from core.research.materialize.coverage import l1_invalidate_decision
@@ -32,7 +31,6 @@ class InvalidateDecisionTest(unittest.TestCase):
         self.assertTrue(l1_invalidate_decision("", "abc"))
         self.assertFalse(l1_invalidate_decision("abc", "abc"))
         self.assertTrue(l1_invalidate_decision("abc", "zzz"))
-
 
 class ConsumerCoverageTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -245,9 +243,8 @@ class ConsumerCoverageTest(unittest.TestCase):
             ("000001", [{"date": "2099-01-04"}, {"date": "2099-01-05"}]),
             ("000002", [{"date": "2099-01-04"}, {"date": "2099-01-05"}]),
         ]
-        with materialized_consumer():
-            with self.assertRaises(MaterializeRequired) as ctx:
-                enforce_consumer_coverage(items, families=["oo"], clocks=["open"])
+        with materialized_consumer(), self.assertRaises(MaterializeRequired) as ctx:
+            enforce_consumer_coverage(items, families=["oo"], clocks=["open"])
         payload = ctx.exception.to_dict()
         self.assertEqual(payload.get("error_code"), "materialize_required")
         self.assertIn("物化", str(payload.get("error") or ""))
@@ -294,9 +291,8 @@ class ConsumerCoverageTest(unittest.TestCase):
         ), patch(
             "core.paper.rebalance.watching_matrix._watching_codes",
             return_value=(["000001", "000002"], {}),
-        ):
-            with materialized_consumer():
-                out = build_watching_insights(["000001", "000002"])
+        ), materialized_consumer():
+            out = build_watching_insights(["000001", "000002"])
         self.assertEqual(out.get("error_code"), "materialize_required")
         self.assertIn("物化", str(out.get("error") or ""))
         self.assertEqual(out.get("items"), [])
@@ -307,10 +303,9 @@ class ConsumerCoverageTest(unittest.TestCase):
         from core.paper.rebalance.watching_matrix import _score_pool
         from core.research.materialize.consumer import MaterializeRequired, materialized_consumer
 
-        with patch("core.research.day_cube.day_cube_status", return_value="miss"):
-            with materialized_consumer():
-                with self.assertRaises(MaterializeRequired) as ctx:
-                    _score_pool(["000001", "000002"], offline_only=True, use_minute_tau=False)
+        with patch("core.research.day_cube.day_cube_status", return_value="miss"), materialized_consumer():
+            with self.assertRaises(MaterializeRequired) as ctx:
+                _score_pool(["000001", "000002"], offline_only=True, use_minute_tau=False)
         payload = ctx.exception.to_dict()
         self.assertEqual(payload.get("error_code"), "materialize_required")
         self.assertIn("日线物化", str(payload.get("error") or ""))
@@ -331,7 +326,6 @@ class ConsumerCoverageTest(unittest.TestCase):
         for day in days:
             wd = datetime.strptime(day, "%Y-%m-%d").weekday()
             self.assertLess(wd, 5)
-
 
 if __name__ == "__main__":
     unittest.main()

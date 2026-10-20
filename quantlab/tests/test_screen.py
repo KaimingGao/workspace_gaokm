@@ -1,11 +1,6 @@
 import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from adapters.screen.engine import StockScreener, filter_stocks
 
@@ -19,7 +14,6 @@ def _sample_rows():
         {"代码": "300750", "名称": "宁德时代", "最新价": 180.0, "涨跌幅": 3.0, "市盈率-动态": 22.0, "市净率": 4.0},
         {"代码": "000002", "名称": "ST示例", "最新价": 2.0, "涨跌幅": 5.0, "市盈率-动态": 3.0, "市净率": 0.5},
     ]
-
 
 class TestScreenFilter(unittest.TestCase):
     def test_bank_pe_filter(self):
@@ -70,6 +64,7 @@ class TestScreenFilter(unittest.TestCase):
 
     def test_fetch_a_spot_disk_fallback(self):
         import tempfile
+
         from adapters.screen import engine as screen_engine
 
         screen_engine.clear_spot_cache()
@@ -90,7 +85,6 @@ class TestScreenFilter(unittest.TestCase):
                 self.assertEqual(len(got), len(rows))
                 self.assertEqual(screen_engine.fetch_a_spot.last_source, "disk_cache")
         screen_engine.clear_spot_cache()
-
 
 if __name__ == "__main__":
     unittest.main()

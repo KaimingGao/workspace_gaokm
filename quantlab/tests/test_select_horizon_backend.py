@@ -3,12 +3,7 @@
 from __future__ import annotations
 
 import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class SelectHorizonBackendTests(unittest.TestCase):
@@ -125,7 +120,6 @@ class SelectHorizonBackendTests(unittest.TestCase):
         self.assertTrue(gate.get("ok"), gate)
         self.assertAlmostEqual(float(gate["auc"]), 0.61)
 
-
 class HorizonDualMergeTests(unittest.TestCase):
     def test_backend_pack_and_doc_backend(self):
         from core.research.horizon_ridge import _backend_pack_from_report, _doc_backend
@@ -188,7 +182,6 @@ class HorizonDualMergeTests(unittest.TestCase):
             (out.get("return_model") or {}).get("feature_names"), ["gap_pct"]
         )
 
-
 def _has_lightgbm() -> bool:
     try:
         import lightgbm  # noqa: F401
@@ -196,7 +189,6 @@ def _has_lightgbm() -> bool:
         return True
     except ImportError:
         return False
-
 
 def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
     o = open_px if open_px is not None else close
@@ -210,7 +202,6 @@ def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
         "volume": 1000,
     }
 
-
 def _times_am_pm():
     out = []
     for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
@@ -218,7 +209,6 @@ def _times_am_pm():
     for total in range(13 * 60, 15 * 60 + 1, 5):
         out.append(f"{total // 60:02d}:{total % 60:02d}")
     return out
-
 
 def _stock(code: str, start: float, n_days: int = 40):
     from datetime import date, timedelta
@@ -254,7 +244,6 @@ def _stock(code: str, start: float, n_days: int = 40):
             i += 1
         day = day + timedelta(days=1)
     return {"code": code, "bars": daily, "minute_bars": minutes}
-
 
 class HorizonDualFitTests(unittest.TestCase):
     def test_dual_falls_back_ridge_when_tree_fails(self):
@@ -561,7 +550,6 @@ class HorizonDualFitTests(unittest.TestCase):
         self.assertIn("tree", oos)
         self.assertIsInstance((backends["ridge"] or {}).get("return_model"), dict)
         self.assertIsInstance((backends["tree"] or {}).get("return_model"), dict)
-
 
 if __name__ == "__main__":
     unittest.main()

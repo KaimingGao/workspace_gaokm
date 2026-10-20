@@ -110,6 +110,5 @@ class ZThAliasTests(unittest.TestCase):
             self.assertIn("z_τh_gap_pct", zf)
             self.assertIn("z_τh_tau_lag1", zf)
 
-
 if __name__ == "__main__":
     unittest.main()

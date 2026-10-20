@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _stb_cfg(**extra):
@@ -22,7 +16,6 @@ def _stb_cfg(**extra):
     base.update(extra)
     return base
 
-
 def _bts_cfg(**extra):
     base = {
         "t0_ratio": 1.0,
@@ -33,7 +26,6 @@ def _bts_cfg(**extra):
     }
     base.update(extra)
     return base
-
 
 class TestT0Costs(unittest.TestCase):
     def test_simple_cn_pnl_matches_cash_delta(self):
@@ -449,7 +441,6 @@ class TestT0Costs(unittest.TestCase):
         self.assertGreater(int(row.get("sold_qty") or 0), 0, row)
         self.assertEqual(int(row.get("covered_qty") or 0), 0, row)
         self.assertGreater(int(row.get("uncovered_qty") or 0), 0, row)
-
 
 if __name__ == "__main__":
     unittest.main()

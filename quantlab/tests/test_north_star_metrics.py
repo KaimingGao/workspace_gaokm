@@ -167,6 +167,7 @@ class TestNorthStarMetrics(unittest.TestCase):
     def test_north_star_api_route(self):
         try:
             from fastapi.testclient import TestClient
+
             from web.app import app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -227,7 +228,6 @@ class TestNorthStarMetrics(unittest.TestCase):
         }
         cached = {"ok": True, "paper_risk": {"rolling_sharpe": 1.5}}
         self.assertTrue(north_star_cache_usable(paper, cached))
-
 
 if __name__ == "__main__":
     unittest.main()

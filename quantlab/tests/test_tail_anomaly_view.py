@@ -147,6 +147,7 @@ class TestTailAnomalyView(unittest.TestCase):
 
     def test_session_day_needs_refresh_stale_morning(self):
         from datetime import datetime
+
         from core.signal.tail_anomaly_view import _session_day_needs_refresh
 
         day = "2026-08-31"
@@ -190,8 +191,8 @@ class TestTailAnomalyView(unittest.TestCase):
         self.assertFalse(need2)
 
     def test_build_minute_tail_refreshes_incomplete_session_day(self):
-        from core.store import save_minute_cache
         from core.signal import tail_anomaly_view as tav
+        from core.store import save_minute_cache
 
         day = "2026-08-31"
         with tempfile.TemporaryDirectory() as td:
@@ -245,7 +246,6 @@ class TestTailAnomalyView(unittest.TestCase):
             self.assertGreaterEqual(len(out.get("day_bars") or []), 6)
             self.assertAlmostEqual(out["day_bars"][-1]["close"], 4.3, places=4)
             os.environ.pop("QUANTLAB_STORE_DIR", None)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
@@ -26,7 +21,6 @@ def _bar(dkey: str, hm: str, close: float, open_px: float | None = None):
         "volume": 1000,
     }
 
-
 def _times_am_pm():
     out = []
     for total in range(9 * 60 + 30, 11 * 60 + 30 + 1, 5):
@@ -34,7 +28,6 @@ def _times_am_pm():
     for total in range(13 * 60, 15 * 60 + 1, 5):
         out.append(f"{total // 60:02d}:{total % 60:02d}")
     return out
-
 
 def _stock(code: str, start: float, n_days: int = 40):
     d0 = date(2025, 6, 2)
@@ -69,8 +62,6 @@ def _stock(code: str, start: float, n_days: int = 40):
         day = day + timedelta(days=1)
     return {"code": code, "bars": daily, "minute_bars": minutes}
 
-
-
 def _has_lightgbm() -> bool:
     try:
         import lightgbm  # noqa: F401
@@ -78,13 +69,11 @@ def _has_lightgbm() -> bool:
     except ImportError:
         return False
 
-
-
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestT30Tree(unittest.TestCase):
     def test_defaults_and_schema(self):
-        from core.research.horizon_tree import _horizon_tree_config
         from core.research.horizon_lgb import DEFAULT_N_ESTIMATORS
+        from core.research.horizon_tree import _horizon_tree_config
 
         cfg = _horizon_tree_config("t30")
         self.assertEqual(DEFAULT_N_ESTIMATORS, 300)
@@ -219,7 +208,6 @@ class TestT30Tree(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("tau"), "10:30")
 
-
     def test_tree_z_matches_ridge_no_path_shape(self):
         from core.research.horizon_ridge import _horizon_ridge_config
         from core.research.horizon_tree import _horizon_tree_config
@@ -231,7 +219,6 @@ class TestT30Tree(unittest.TestCase):
         for k in TAU_HORIZON_TREE_SHAPE_FEATURES:
             self.assertNotIn(k, ridge_z)
             self.assertNotIn(k, tree_z)
-
 
 if __name__ == "__main__":
     unittest.main()

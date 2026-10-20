@@ -88,6 +88,5 @@ class TestBarIdentity(unittest.TestCase):
         self.assertIn("600519", kept)
         self.assertEqual(dropped, [])
 
-
 if __name__ == "__main__":
     unittest.main()

@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
+from core.signal.cross_section_batch import score_and_rank_watching
 from core.signal.return_score import (
     ReturnScoreModel,
     apply_predicted_scores,
     clamp_rank_mode,
     rank_by_predicted_score,
 )
-from core.signal.cross_section_batch import score_and_rank_watching
 
 
 class TestReturnScoreModel(unittest.TestCase):
@@ -211,7 +205,6 @@ class TestReturnScoreModel(unittest.TestCase):
                 },
             )
             load_m.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main()

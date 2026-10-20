@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestAuditTimeline(unittest.TestCase):
@@ -91,6 +86,7 @@ class TestAuditTimeline(unittest.TestCase):
     def test_routes(self):
         try:
             from fastapi.testclient import TestClient
+
             from web.app import app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -120,7 +116,6 @@ class TestAuditTimeline(unittest.TestCase):
             r3 = client.post("/api/audit/timeline/clear")
         self.assertEqual(r3.status_code, 200, r3.text)
         self.assertEqual(r3.json().get("decisions_cleared"), 3)
-
 
 if __name__ == "__main__":
     unittest.main()

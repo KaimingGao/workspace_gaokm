@@ -1,10 +1,4 @@
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from agent.contracts import BaseSkillHandler, SkillHandler
 from agent.registry import (
@@ -35,7 +29,6 @@ class TestRegistry(unittest.TestCase):
         tools = load_tool_definitions()
         validate_registry(handlers, tools)
         self.assertEqual(len(tools), len(TOOL_NAMES))
-
 
 if __name__ == "__main__":
     unittest.main()

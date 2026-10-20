@@ -11,6 +11,8 @@ from core.signal.factors.alpha_oo import (
     ALPHA_OO_MIN_BARS,
     ALPHA_OO_RAW_PREFIX,
     Z_OO_DROP_WHEN_AOO_CORE,
+    _gap_fields,
+    _yk_fields,
     alpha_oo_ridge_raw_names,
     apply_aoo_core_ridge_policy,
     expand_ridge_feature_names,
@@ -18,8 +20,6 @@ from core.signal.factors.alpha_oo import (
     is_alpha_oo_ridge_raw_key,
     raw_aoo_from_bars,
     score_alpha_oo,
-    _gap_fields,
-    _yk_fields,
 )
 from core.signal.factors.meta.registry import compute_factor, registered_factor_names
 
@@ -46,7 +46,6 @@ def _synth_bars(n: int, seed: int = 42) -> list:
         )
     return bars
 
-
 def test_alpha_oo_field_count():
     assert len(ALPHA_OO_FIELD_NAMES) == 206
     assert len(set(ALPHA_OO_FIELD_NAMES)) == 206
@@ -58,7 +57,6 @@ def test_alpha_oo_field_count():
     assert "OC_LAG1" not in ALPHA_OO_CORE_FIELD_NAMES  # ≡ YKMID
     assert "REV1_O" not in ALPHA_OO_CORE_FIELD_NAMES  # ≡ −OO_LAG1
 
-
 def test_alpha_oo_key_fields_listed():
     assert "GAP" in ALPHA_OO_FIELD_NAMES
     assert "CLOSE0" in ALPHA_OO_FIELD_NAMES
@@ -68,15 +66,14 @@ def test_alpha_oo_key_fields_listed():
     assert "YRANGE_PCT" in ALPHA_OO_FIELD_NAMES
     assert "MOM3_C" in ALPHA_OO_FIELD_NAMES
 
-
 def test_aoo_core_ridge_policy():
     from core.signal.factors.alpha_oo import drop_aoo_overlap_z_oo
 
     assert is_alpha_oo_ridge_raw_key(f"{ALPHA_OO_RAW_PREFIX}GAP")
     assert not is_alpha_oo_ridge_raw_key(f"{ALPHA_OO_RAW_PREFIX}OROC5")
-    assert Z_OO_DROP_WHEN_AOO_CORE == frozenset(
+    assert frozenset(
         {"momentum", "gap_risk", "overheat"}
-    )
+    ) == Z_OO_DROP_WHEN_AOO_CORE
     names = [
         "z_oo_momentum",
         "z_oo_value",
@@ -101,7 +98,6 @@ def test_aoo_core_ridge_policy():
     assert f"{ALPHA_OO_RAW_PREFIX}OROC5" in kept
     assert "z_oo_value" in kept
 
-
 def test_expand_ridge_feature_names_defaults_to_full_union():
     xs = [
         {
@@ -125,7 +121,6 @@ def test_expand_ridge_feature_names_defaults_to_full_union():
     assert "z_oo_momentum" not in core
     assert f"{ALPHA_OO_RAW_PREFIX}GAP" in core
 
-
 def test_alpha_oo_all_fields_present():
     bars = _synth_bars(80)
     score, meta = score_alpha_oo(bars)
@@ -136,23 +131,19 @@ def test_alpha_oo_all_fields_present():
         assert name in meta, f"missing field: {name}"
         assert math.isfinite(meta[name]), f"non-finite: {name}={meta[name]}"
 
-
 def test_alpha_oo_insufficient_history():
     score, meta = score_alpha_oo(_synth_bars(30))
     assert score == 50.0
     assert meta.get("omit_sub_score") is True
     assert meta.get("alpha_oo_insufficient_history") is True
 
-
 def test_alpha_oo_min_bars():
     assert ALPHA_OO_MIN_BARS == 61
-
 
 def test_alpha_oo_yk_formula():
     fields = _yk_fields(close=11.0, open_=10.0, high=12.0, low=9.0)
     assert abs(fields["YKMID"] - 0.1) < 1e-9
     assert abs(fields["YBODY"] - 0.1) < 1e-9
-
 
 def test_alpha_oo_gap_close0():
     open_arr = np.array([9.0, 10.0, 11.5], dtype=np.float64)
@@ -168,7 +159,6 @@ def test_alpha_oo_gap_close0():
     # 昨振幅 (H−L)/C
     assert abs(fields["YRANGE_PCT"] - (12.0 - 9.0) / 11.0) < 1e-9
     assert abs(fields["OPEN_IN_YRANGE"] - (11.5 - 9.0) / (12.0 - 9.0)) < 1e-9
-
 
 def test_alpha_oo_flat_prev_bar_no_eps_blowup():
     """昨 H=L 时 OPEN_IN_YRANGE / GAP_VS_YRANGE 不得用 1e-12 当分母放大到 ~1e12。"""
@@ -188,7 +178,6 @@ def test_alpha_oo_flat_prev_bar_no_eps_blowup():
     yk = _yk_fields(close=10.0, open_=10.0, high=10.0, low=10.0)
     assert yk["YKMID2"] == 0.0
     assert yk["YUPPER_SHARE"] == 0.0
-
 
 def test_alpha_oo_mom3_c_matches_close_momentum():
     """MOM3_C = close[T−1]/close[T−4]−1（比例）。"""
@@ -216,14 +205,12 @@ def test_alpha_oo_mom3_c_matches_close_momentum():
     assert lag["MOM3_C"] is not None
     assert abs(float(lag["MOM3_C"]) - expected) < 1e-6
 
-
 def test_raw_aoo_from_bars_helper():
     assert raw_aoo_from_bars(_synth_bars(30)) == {}
     out = raw_aoo_from_bars(_synth_bars(80))
     assert len(out) >= 200
     assert all(is_alpha_oo_raw_key(k) for k in out)
     assert all(k.startswith(ALPHA_OO_RAW_PREFIX) for k in out)
-
 
 def test_raw_aoo_with_open_t():
     bars = _synth_bars(80)
@@ -232,7 +219,6 @@ def test_raw_aoo_with_open_t():
     out = raw_aoo_from_bars(hist, open_t=open_t)
     assert f"{ALPHA_OO_RAW_PREFIX}GAP" in out
     assert math.isfinite(out[f"{ALPHA_OO_RAW_PREFIX}OROC5"])
-
 
 def test_alpha_oo_registered():
     assert "alpha_oo" in registered_factor_names()

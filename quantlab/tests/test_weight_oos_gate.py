@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.signal.config import load_signal_config, signal_config_overlay
 from core.signal.return_score import resolve_research_rank_mode
 from core.signal.weight_oos_gate import (
     OOS_PRODUCT_SEMANTICS,
     evaluate_research_oos,
-    evaluate_weight_suggestion_oos,
 )
 from core.signal.weight_suggest import format_weight_config_diff
 
@@ -31,12 +24,10 @@ class TestSignalConfigOverlay(unittest.TestCase):
         again = load_signal_config()
         self.assertAlmostEqual(float(again["weights"]["momentum"]), mom0)
 
-
 class TestResearchRankMode(unittest.TestCase):
     def test_resolve_allows_heuristic(self):
         self.assertEqual(resolve_research_rank_mode("heuristic"), "heuristic_score")
         self.assertEqual(resolve_research_rank_mode("predicted_score"), "predicted_score")
-
 
 class TestWeightOosGate(unittest.TestCase):
     def test_gate_pass_when_research_oos_better(self):
@@ -224,7 +215,6 @@ class TestWeightOosGate(unittest.TestCase):
         )
         self.assertTrue(allowed["passed"])
         self.assertEqual(allowed["reason"], "oos_not_worse_is_gap")
-
 
 if __name__ == "__main__":
     unittest.main()

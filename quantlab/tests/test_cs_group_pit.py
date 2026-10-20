@@ -55,7 +55,6 @@ class CsGroupKeyTests(unittest.TestCase):
         )
         self.assertEqual(g, ["2026-01-02|09:35", "2026-01-02|10:30"])
 
-
 class PrefixLightPathTests(unittest.TestCase):
     def test_light_skips_resolve_when_open_snap(self):
         from unittest import mock
@@ -95,7 +94,6 @@ class PrefixLightPathTests(unittest.TestCase):
                 include_tau_horizons=True,
             )
         self.assertEqual(out.get("_score_source"), "prefix_light")
-
 
 if __name__ == "__main__":
     unittest.main()

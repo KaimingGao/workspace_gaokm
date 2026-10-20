@@ -1,45 +1,20 @@
 """Eval / golden / quant 路由（合并原 P15 / P23–P26 / P31·routing / P36–P38 + 相关 golden）。"""
 
 import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from io import StringIO
+from unittest.mock import patch
 
 from agent.prompts import QUANT_HINT
 from agent.routing import build_user_hints, infer_quant_task, is_quant_question, prepare_tool_params
-from evals.run_checklist import check_routing_expect, load_cases, run_skills
-from quant.services.quant_report_export import export_quant_report, render_quant_report_html
-import json
-import tempfile
-from unittest.mock import MagicMock, patch
-from core.watching.health import check_watching_health
-from quant.ops.daily_health import build_daily_health
-from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
-from quant.services.quant_service import QuantService
-from quant.skill.engine import QuantEngine
-from unittest.mock import patch
-from evals.run_checklist import load_cases, run_skills
-from research.daily_check import check_daily_last_run, main as daily_check_main
-from quant.services.signal_config_preview import build_config_diff_preview
-from agent.routing import infer_quant_task, prepare_tool_params
-from quant.ops.daily_presets import list_daily_presets
-from quant.skill.engine import AVAILABLE_TASKS, QuantEngine
 from evals.run_agent_check import main as run_agent_check_main
-from quant.services.portfolio_quant_bridge import build_portfolio_quant_bridge
-from services.eval_service import EvalService
-from evals.run_checklist import load_cases
+from evals.run_checklist import check_routing_expect, filter_quant_cases, load_cases, run_skills
+from evals.run_checklist import main as checklist_main
+from quant.ops.daily_presets import list_daily_presets
 from quant.ops.eval_routing_map import build_eval_routing_map
-from quant.services.quant_report_index import list_quant_reports
-import importlib
-from io import StringIO
-from evals.run_checklist import filter_quant_cases, load_cases, main as checklist_main
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from quant.services.portfolio_quant_bridge import build_portfolio_quant_bridge
+from quant.skill.engine import AVAILABLE_TASKS, QuantEngine
+from services.eval_service import EvalService
 
 # --- test_p15_quant.py::TestQuantRouting ---
 
@@ -202,8 +177,8 @@ class TestP24WebBridgeApi(unittest.TestCase):
     def test_portfolio_quant_bridge_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
-            import web.deps as deps
         except ImportError:
             self.skipTest("fastapi not installed")
 
@@ -248,6 +223,7 @@ class TestP25EvalsApi(unittest.TestCase):
     def test_evals_summary_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -260,6 +236,7 @@ class TestP25EvalsApi(unittest.TestCase):
     def test_evals_presets_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -271,6 +248,7 @@ class TestP25EvalsApi(unittest.TestCase):
     def test_evals_run_with_presets(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -310,8 +288,8 @@ class TestP26Api(unittest.TestCase):
     def test_evals_routing_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
-            import web.deps as deps
         except ImportError:
             self.skipTest("fastapi not installed")
 
@@ -453,6 +431,7 @@ class TestP38EvalsApiQuantOnly(unittest.TestCase):
     def test_evals_run_quant_only_api(self):
         try:
             from fastapi.testclient import TestClient
+
             import web.app as web_app
         except ImportError:
             self.skipTest("fastapi not installed")
@@ -475,7 +454,6 @@ class TestP38EvalsApiQuantOnly(unittest.TestCase):
     def test_summary_web_quant_ci_command(self):
         summary = EvalService().summary()
         self.assertIn("web_quant_ci", summary["ci_commands"])
-
 
 if __name__ == "__main__":
     unittest.main()

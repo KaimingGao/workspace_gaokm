@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestValuationEnrich(unittest.TestCase):
@@ -140,7 +134,6 @@ class TestValuationEnrich(unittest.TestCase):
         self.assertEqual(out["roe"], 0.9)
         self.assertEqual(out["profit_growth"], 0.36)
 
-
 class TestCsIcRequireAll(unittest.TestCase):
     def test_score_window_forwards_required_keys(self):
         from core.signal.cross_section_batch import score_window_as_item
@@ -175,7 +168,6 @@ class TestCsIcRequireAll(unittest.TestCase):
                 ["momentum", "amihud", "value"],
             )
 
-
 class TestPanelIcFactorNames(unittest.TestCase):
     def test_includes_fundamentals_beyond_cluster_union(self):
         """panel_ic_factor_names 随 factor_ols_clusters 删除；用 panel resolve 验证。"""
@@ -189,7 +181,6 @@ class TestPanelIcFactorNames(unittest.TestCase):
         self.assertIn("value", names)
         self.assertIn("quality", names)
         self.assertIn("dividend", names)
-
 
 if __name__ == "__main__":
     unittest.main()

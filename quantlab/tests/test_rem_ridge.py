@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 def _bars(n: int = 40, start: float = 10.0):
@@ -35,7 +30,6 @@ def _bars(n: int = 40, start: float = 10.0):
         )
         px = c
     return out
-
 
 class TestRemPanel(unittest.TestCase):
     def test_open_panel_shapes(self):
@@ -107,7 +101,6 @@ class TestRemPanel(unittest.TestCase):
         self.assertIsNotNone(q)
         self.assertIsNotNone(n)
         self.assertGreater(q, n)
-
 
 class TestRemRidgeFit(unittest.TestCase):
     def test_gap_pct_stays_when_not_constant(self):
@@ -330,9 +323,9 @@ class TestRemRidgeFit(unittest.TestCase):
 
     def test_persist_uses_last_report_without_refit(self):
         from core.research.tc_ridge import (
+            load_tau_last_report,
             persist_tau_model,
             save_tau_last_report,
-            load_tau_last_report,
         )
 
         dummy = {
@@ -374,7 +367,6 @@ class TestRemRidgeFit(unittest.TestCase):
                     0.1,
                 )
 
-
 class TestSentimentBullish(unittest.TestCase):
     def test_bullish_soft_hold(self):
         from core.sentiment_prior import (
@@ -396,7 +388,6 @@ class TestSentimentBullish(unittest.TestCase):
         )
         self.assertTrue(prior.get("bullish_theme"))
         self.assertFalse(should_soft_hold_from_sentiment(prior))
-
 
 class TestEventBreadth(unittest.TestCase):
     def test_sector_breadth_helper(self):
@@ -486,7 +477,6 @@ class TestEventBreadth(unittest.TestCase):
         # gaps ≈ 2%, 0%, 3% → 2/3 hit trigger
         self.assertIsNotNone(out.get("breadth"))
         self.assertGreaterEqual(float(out["breadth"]), 0.3)
-
 
 class TauLagFeatureTests(unittest.TestCase):
     def test_lag1_and_ma5_are_pit(self):
@@ -601,7 +591,6 @@ class TauLagFeatureTests(unittest.TestCase):
         feats = attach_tau_lag_features({}, hist_bars=hist, asof_date=d2)
         self.assertNotIn("yest_gap", feats)
         self.assertNotIn("tau_std5", feats)
-
 
 if __name__ == "__main__":
     unittest.main()

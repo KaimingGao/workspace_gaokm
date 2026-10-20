@@ -109,12 +109,12 @@ class TestLastT0BacktestStore(unittest.TestCase):
         self.assertFalse(pack["ok"])
         self.assertIsNone(pack["result"])
 
-
 class TestLastT0BacktestApi(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         try:
             from fastapi.testclient import TestClient
+
             from web.app import app
         except ImportError:
             cls.client = None
@@ -155,7 +155,6 @@ class TestLastT0BacktestApi(unittest.TestCase):
         self.assertFalse(data["empty"])
         self.assertTrue(data["result"]["success"])
         self.assertEqual(data["result"]["t0_pnl_total"], 8.0)
-
 
 class TestPersistLastT0Backtest(unittest.TestCase):
     def test_success_saves_snapshot(self):
@@ -225,7 +224,6 @@ class TestPersistLastT0Backtest(unittest.TestCase):
         self.assertIs(run.call_args.kwargs.get("paper"), paper)
         self.assertTrue(out.get("success"))
 
-
 class TestStartT0BacktestJob(unittest.TestCase):
     def test_start_job_returns_background_and_finishes(self):
         import time
@@ -294,7 +292,6 @@ class TestStartT0BacktestJob(unittest.TestCase):
             if owned and snap.get("id") == owned and snap.get("status") == "running":
                 t0_backtest_job.force_fail("test cleanup")
 
-
 class TestFillT0VizStockNames(unittest.TestCase):
     def test_fills_empty_point_names(self):
         from quant.research.t0_backtest import _fill_t0_viz_stock_names
@@ -309,7 +306,6 @@ class TestFillT0VizStockNames(unittest.TestCase):
         self.assertEqual(viz["cumulative_pnl"][0]["stock_name"], "长电科技")
         self.assertEqual(viz["y_tau_scatter"][0]["stock_name"], "长电科技")
         self.assertEqual(viz["stock_contrib"][0]["stock_name"], "长电科技")
-
 
 class TestPortfolioFailReasonKept(unittest.TestCase):
     def test_slim_keeps_materialize_error(self):
@@ -329,7 +325,6 @@ class TestPortfolioFailReasonKept(unittest.TestCase):
         self.assertEqual(slim["error_code"], "materialize_required")
         self.assertEqual(slim["hint"], "日线物化")
         self.assertNotIn("problems", slim)
-
 
 if __name__ == "__main__":
     unittest.main()

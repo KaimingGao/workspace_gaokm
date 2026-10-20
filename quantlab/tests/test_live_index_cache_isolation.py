@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-import os
-import sys
 import time
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 
 class TestLiveIndexCacheIsolation(unittest.TestCase):
     def test_offline_skips_live_poisoned_cache(self):
-        from core.signal import live_features as lf
         from core.ports.market import default_benchmark
+        from core.signal import live_features as lf
 
         bench = str(default_benchmark("CN") or "").strip() or "sh000300"
         fake = [
@@ -48,7 +42,6 @@ class TestLiveIndexCacheIsolation(unittest.TestCase):
         peek_off = lf.peek_cached_index_bars(market="CN", allow_live_origin=False)
         self.assertFalse(peek_off.get("ok"))
         self.assertEqual(len(peek_off.get("bars") or []), 0)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,4 @@
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from agent.prompts import BUY_QUESTION_HINT, POSITION_BASE_HINT, POSITION_HINT
 from agent.routing import (
@@ -61,7 +55,6 @@ class TestRouting(unittest.TestCase):
         out = enrich_tool_result("advise", raw)
         self.assertIn("【规则引擎结论】", out)
         self.assertIn("建议观望（暂不买入）", out)
-
 
 if __name__ == "__main__":
     unittest.main()

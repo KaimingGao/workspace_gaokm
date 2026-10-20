@@ -1,22 +1,14 @@
 """基本面 IC 实验（原 P50）。"""
 
-import os
-import sys
 import unittest
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from core.signal.config import load_signal_config
 from core.signal.factors.meta.registry import run_factor_experiment
 from core.signal.factors.value import score_value
 from quant.research.factor_report import compute_factor_ic_report
-from tests.test_signal import _rising_bars
+from tests.conftest import _rising_bars
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+
 def _long_bars(n: int = 35):
     bars = _rising_bars()
     while len(bars) < n:
@@ -80,7 +72,6 @@ class TestP50FundamentalsIcExperiment(unittest.TestCase):
         self.assertEqual(reason, "constant")
         _, reason = pearson_with_reason([1, 2, 3], [5, 5, 5])
         self.assertEqual(reason, "flat")
-
 
 if __name__ == "__main__":
     unittest.main()

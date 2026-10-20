@@ -30,7 +30,6 @@ class TestBrinsonAttribution(unittest.TestCase):
         self.assertTrue(out["factor_proxy"]["ok"])
         self.assertIsNotNone(out["factor_proxy"]["score_spread_pct"])
 
-
 class TestRegimeBuckets(unittest.TestCase):
     def test_buckets_from_trades(self):
         from core.backtest.oos_report import regime_buckets_from_trades
@@ -49,7 +48,6 @@ class TestRegimeBuckets(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertGreaterEqual(out["tagged_trades"], 1)
         self.assertTrue(out["buckets"])
-
 
 class TestMacroRegimeOverlay(unittest.TestCase):
     def test_macro_enrichment_on_buckets(self):
@@ -100,7 +98,6 @@ class TestMacroRegimeOverlay(unittest.TestCase):
             self.assertEqual(summary["macro_dates"], 2)
         finally:
             mh.load_macro_history_index = orig
-
 
 class TestSignalFillAndExport(unittest.TestCase):
     def test_export_markdown_contains_sections(self):
@@ -193,7 +190,6 @@ class TestSignalFillAndExport(unittest.TestCase):
         self.assertIn("KPI", exp["content"])
         self.assertIn("portfolio_backtest_report.md", exp["filename"])
         self.assertIn("分数口径", exp["content"])
-
 
 if __name__ == "__main__":
     unittest.main()

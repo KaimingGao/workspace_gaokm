@@ -1,22 +1,26 @@
 """因子表达式 DSL 与表达式因子注册表测试。"""
 
 import math
-import os
-import sys
 import unittest
 
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 from core.signal.factors.expr import (
-    DSL_EXAMPLES, _BarsCtx, _eval, cross_section_rank_ic, eval_expr, eval_expr_cross_section,
-    eval_expr_series, parse_expr,
+    DSL_EXAMPLES,
+    _BarsCtx,
+    _eval,
+    cross_section_rank_ic,
+    eval_expr,
+    eval_expr_cross_section,
+    eval_expr_series,
+    parse_expr,
 )
 from core.signal.factors.meta.registry import (
-    compute_factor, list_expr_factors, register_expr_factor, registered_factor_names, unregister_expr_factor,
+    compute_factor,
+    list_expr_factors,
+    register_expr_factor,
+    registered_factor_names,
+    unregister_expr_factor,
 )
 
 
@@ -31,7 +35,6 @@ def _make_bars(n=30, seed=42):
             "close": base, "volume": 1e6 * (1 + rng.rand()),
         })
     return bars
-
 
 class TestDSLCore(unittest.TestCase):
     def test_field_and_ref(self):
@@ -161,7 +164,6 @@ class TestDSLCore(unittest.TestCase):
         self.assertGreater(res["cs_ic_path"][-1]["value"], 0.99)
         self.assertAlmostEqual(res["cs_positive_rate"], 1.0)
 
-
 class TestExprFactorRegistry(unittest.TestCase):
     def test_register_and_compute(self):
         register_expr_factor("test_expr_roc5", "ROC($close, 5)", label="5日收益")
@@ -186,7 +188,6 @@ class TestExprFactorRegistry(unittest.TestCase):
         self.assertTrue(unregister_expr_factor("test_tmp"))
         names = [f["name"] for f in list_expr_factors()]
         self.assertNotIn("test_tmp", names)
-
 
 if __name__ == "__main__":
     unittest.main()

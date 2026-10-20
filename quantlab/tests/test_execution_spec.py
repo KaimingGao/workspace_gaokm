@@ -270,7 +270,6 @@ class TestExecutionResolve(unittest.TestCase):
 
     def test_public_view_drops_t0_bar_oc_gate(self):
         from core.execution import (
-            apply_execution_patch_to_paper,
             execution_public_view,
             resolve_effective_execution,
             validate_execution_patch,
@@ -746,7 +745,6 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertEqual(out.get("coupling_skip_count"), 1)
         self.assertTrue(out["results"][0].get("coupling_skip"))
-
 
 if __name__ == "__main__":
     unittest.main()
