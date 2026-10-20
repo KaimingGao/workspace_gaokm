@@ -224,9 +224,9 @@ def buy_gate_for_item(
         else predicted_floors(cfg)[0]
     )
     try:
-        from core.signal.dual_score import eod_gate_score_for_item
+        from core.signal.dual_score import oo_gate_score_for_item
 
-        gate = eod_gate_score_for_item(item)
+        gate = oo_gate_score_for_item(item)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         gate = item.get("predicted_score")
     try:

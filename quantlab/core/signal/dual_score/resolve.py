@@ -39,10 +39,6 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     "theme_w_tau_boost": 1.25,
     # variance：EOD 侧残差方差代理（百分点²）；τ 侧优先用 τ OOS
     "eod_residual_var": 1.0,
-    # 研究影子：ŷ_cascade = ŷ_oo_rem + (ŷ_τ − α)；不进主排序
-    "enable_cascade_shadow": True,
-    # A2：刷簿时同池按 ŷ_τ 另写影子簿（不进 execution）
-    "enable_tau_shadow_book": False,
     # 有本地分钟缓存时附加 ret_open_to_tau（默认关；开后仍不拉网）
     "enable_minute_tau": False,
     # 高维 Y(τ)：校验 / 展示 / 过滤（不改 predicted_score 语义）
@@ -94,7 +90,6 @@ def _dual_patch_from_config(config: Optional[dict]) -> Dict[str, Any]:
         "min_predicted_score_tau_relax",
         "tau_freeze_breakglass",
         "tau",
-        "enable_tau_shadow_book",
         "w_mode",
         "y_state",
     )
@@ -120,6 +115,8 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     y_spec_patch = patch.pop("y_spec", None)
     y_state_patch = patch.pop("y_state", None)
     patch.pop("nowcast", None)
+    patch.pop("enable_cascade_shadow", None)
+    patch.pop("enable_tau_shadow_book", None)
     patch_has_w_oo = "w_oo" in patch
     patch_has_w_eod = "w_eod" in patch
     raw.update(patch)
@@ -187,12 +184,12 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         raw["w_tau"] = float(raw["w_tau"] if raw.get("w_tau") is not None else 0.5)
     except (TypeError, ValueError):
         raw["w_tau"] = 0.5
-    raw["enable_tau_shadow_book"] = bool(raw.get("enable_tau_shadow_book", False))
-    raw["enable_cascade_shadow"] = bool(raw.get("enable_cascade_shadow", True))
     raw["enable_minute_tau"] = bool(raw.get("enable_minute_tau", False))
     raw.pop("minute_tau_hm", None)
     raw.pop("minute_tau_grid", None)
     raw.pop("nowcast", None)
+    raw.pop("enable_cascade_shadow", None)
+    raw.pop("enable_tau_shadow_book", None)
     w_mode = str(raw.get("w_mode") or "fixed").strip().lower()
     if w_mode not in ("fixed", "theme_boost", "variance"):
         w_mode = "fixed"
@@ -223,30 +220,6 @@ def is_heuristic_score_scale(item: Optional[dict]) -> bool:
     if str(item.get("score_scale") or "") == "heuristic_0_100":
         return True
     return str(item.get("return_model_source") or "") == "oos_failed_heuristic"
-
-
-def dual_track_score_fields(item: Optional[dict]) -> Dict[str, Any]:
-    """heuristic（0–100）与 predicted/组·全局 ŷ% 双轨字段，刷簿/观察摘要共用。
-
-    互不覆盖：失败组降级时 predicted 可空，但 ``score_cluster`` 仍保留组 ŷ 对照。
-    """
-    if not isinstance(item, dict):
-        return {}
-    out: Dict[str, Any] = {}
-    for k in (
-        "heuristic_score",
-        "predicted_score",
-        "predicted_score_oo",
-        "predicted_score_eod",
-        "score_cluster",
-        "score_global",
-        "delta_vs_global",
-        "score_scale",
-        "return_model_source",
-    ):
-        if item.get(k) is not None:
-            out[k] = item.get(k)
-    return out
 
 
 def _yhat_pct_field(item: dict, *keys: str) -> Optional[float]:
@@ -322,9 +295,6 @@ def resolve_predicted_score_oo(item: Optional[dict]) -> Optional[float]:
     return score_f
 
 
-resolve_predicted_score_eod = resolve_predicted_score_oo  # 遗留别名，统一用 resolve_predicted_score_oo
-
-
 def resolve_predicted_score_tau(item: Optional[dict]) -> Optional[float]:
     """ŷ_τc（price(τ)→close，含时钟对齐）。缺主字段时读旧行 y_tau / score_rem。"""
     if not isinstance(item, dict):
@@ -364,10 +334,6 @@ def resolve_predicted_score_oo_rem(item: Optional[dict]) -> Optional[float]:
         except (TypeError, ValueError):
             continue
     return None
-
-
-# 遗留别名
-resolve_predicted_score_eod_rem = resolve_predicted_score_oo_rem
 
 
 def compute_predicted_score_blend(
@@ -785,8 +751,4 @@ def oo_gate_score_for_item(
     """入簿 / 买卖 oo 门槛用分：始终原始 ŷ_oo。"""
     _ = config
     return resolve_predicted_score_oo(item)
-
-
-# 遗留别名
-eod_gate_score_for_item = oo_gate_score_for_item
 

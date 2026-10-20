@@ -95,7 +95,7 @@ flowchart LR
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
 | **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_oo / ŷ_τ / ŷ_co / ŷ_hl · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论)；生产主排序 = **ŷ_oo**；τ/HL 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
-| **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · `wf_slices` · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
+| **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见；`wf_slices` 已移除 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
 | **旁路解释** | 把估计讲给人听 | Agent / Skills / prompts | 只能 **引用** `stance_label`，不得改写数字 |
 
@@ -272,7 +272,7 @@ flowchart LR
 | 2 | **数据清洗与预处理** | 完整 **PIT**、复权策略参数化、公司行为、日历对齐、质量分级进生产门禁 | 日线 as_of 切条；`quality` 门禁；`adjust_policy` 进 manifest；基本面标明非 PIT | **部分 ~58%** | `normalize` · `allows_production_score` · `data_pit` · `pit_report`；财务 PIT 深度 / 停牌对齐见 [pro-core DC](archive/pro-core-strengthen.md) | 拟合（防未来函数） |
 | 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **回归 ŷ**（当前 OLS/Ridge）；IC / weight_suggest 遗留；`heuristic_score` 仅 OOS 基线；NN **仅研究轨** | **线性 ŷ ~70%** | `ReturnScoreModel` · 分组 β · 横截面；健康门/衰减见 [pro-core FM](archive/pro-core-strengthen.md)；NN 不上生产 `score` | Velocity · 收益质量 |
 | 4 | **组合优化与风控** | QP/风险预算求解；单票/行业/风格暴露；VaR/限额实时；成本与冲击进目标函数 | 分数风险预算 + `risk_parity_lite` + 暴露矩阵 + 单票/行业硬拦；行业 map 覆盖与预算告警；纸面止损/回撤熔断 | **部分 ~68%** | `optimize_weights` · `risk/budget` · `check_account_risk` · `exposure`；风格进目标/动态限额见 [pro-core RK](archive/pro-core-strengthen.md)；仍缺完整 QP / 实时 VaR | 收益质量 · 风控底线 |
-| 5 | **历史回测验证** | 组合级事件驱动；T+1/涨跌停/冲击；WF/OOS/多 regime；Brinson/因子归因 | 共用 `score_bars`；成本对照；WF/OOS/regime；撮合近似（板别涨跌停 + 跌停延后卖）；个股/行业/选股超额归因 | **较强 ~80%** | `backtest` · `matching` · `attribution` · `wf_slices`；非交易所级仿真 | 拟合 · 收益质量诊断 |
+| 5 | **历史回测验证** | 组合级事件驱动；T+1/涨跌停/冲击；OOS/多 regime；Brinson/因子归因 | 共用 `score_bars`；成本对照；OOS/regime；撮合近似（板别涨跌停 + 跌停延后卖）；个股/行业/选股超额归因 | **较强 ~80%** | `backtest` · `matching` · `attribution`；非交易所级仿真 | 拟合 · 收益质量诊断 |
 | 6 | **部署与迭代** | OMS/券商 API；实时监控与自动风控；衰减触发再训练/调仓流水线 | **纸面准实盘（策略验证）**：日更调度、滚动 IC、告警出站、人审 promote；**现行不接 OMS** | **模拟 ~52%** | `paper_daily` · `strategy_monitor` · `alert_outbound`；N6 = 验证成熟后另立项 | 纸面收益 · 拟合闭环 |
 
 ### 专业 vs 本仓库：一句话对照
@@ -401,7 +401,7 @@ flowchart LR
 | optimize 进调仓建议 | **已落地** | `last_optimize` / `target_weights` 进 ops_report 与日更/横截面；新开仓受目标仓上限 |
 | StrategySpec 限额 | **已落地** | `StrategySpec.risk` / `paper.rules` 调仓前门禁；只读暴露在仪表盘，策略中心不挂审计折叠 |
 | 成本对照 zero vs simple_cn | **已落地** | `cost_compare` 附于组合回测响应与指标卡 |
-| Walk-forward 切片 | **已落地** | `rolling_walk_forward_slices` · `wf_slices` 附于组合回测；回溯页折表 |
+| Walk-forward 切片 | **已移除** | 曾挂 `wf_slices`；无生产调用，模块与 UI 已删 |
 | IC 一键导出 · weight_suggest | **已落地** | 研究枢纽只读 IC / 权重 diff（策略页入口已下线，不写盘） |
 
 ### P2 落地状态（2026-07）
@@ -764,7 +764,7 @@ data/*.json   → 配置与账本落盘
 ŷ_oo 主轴不变；事件先验 + open→close 的 **ŷ_τ 头**能力定义与阶段表（P0–R3）见专文：  
 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
 
-**契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通；A2 影子簿 + 复盘页 ŷ_τ 验收条已接。未做：**A3** 主轴切换（须影子簿达标）、分钟 τ 默认 live、分组重跑并成功 promote。见
+**契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通；A2 影子簿路径已移除。未做：**A3** 主轴切换、分钟 τ 默认 live、分组重跑并成功 promote。见
 [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级) · [quant.md · ŷ 全链路 §2.5](quant.md#predicted_scoreŷ全链路)。
 
 ### P4.1 已落地：`backtest` Skill
@@ -1137,7 +1137,7 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 |------|------|------|
 | **清洗** | 复权策略写入 manifest；bars 质量 level 门禁（差数据不进生产 score）；PIT 最小约定文档化 | **门禁+manifest+PIT 文档已落地** |
 | **组合** | `optimize_weights` 默认进策略调仓建议；行业 map 覆盖观察池；限额进 StrategySpec UI | **目标权重+限额只读 UI 已落地** |
-| **回测** | Walk-forward 最小切片；成本敏感对照（zero vs simple_cn）；OOS 失败时报告标红 | **已落地**（OOS 标红 · 成本对照 · `wf_slices`） |
+| **回测** | 成本敏感对照（zero vs simple_cn）；OOS 失败时报告标红 | **已落地**（OOS 标红 · 成本对照；`wf_slices` 已移除） |
 | **因子** | IC 实验室一键导出；`weight_suggest` 只读 diff 在研究枢纽；情绪因子默认仍 0 | **已落地**（研究枢纽分析/导出；情绪默认 0） |
 
 #### P2 · 准实盘稳态（已完成）

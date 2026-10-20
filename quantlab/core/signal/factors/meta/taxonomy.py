@@ -35,7 +35,6 @@ FAMILY_ORDER: Dict[str, int] = {fid: i for i, (fid, _, _) in enumerate(FAMILY_ME
 EXTRA_FAMILY: Dict[str, str] = {
     "reversal": "reversal",
     "alt_sentiment": "sentiment",
-    "llm_sentiment": "sentiment",
     "alpha_oo": "pv_derived",
     "alpha_tc": "pv_derived",
     "alpha_th": "pv_derived",

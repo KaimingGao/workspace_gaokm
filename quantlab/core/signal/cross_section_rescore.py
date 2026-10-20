@@ -25,8 +25,6 @@ UNSCORED_HEAD_KEYS = (
     "predicted_score_oo",
     "predicted_score_oo_rank",
     "predicted_score_rem",
-    "predicted_score_tau_cascade",
-    "predicted_score_tau_delta",
     "predicted_score_τc",
     "predicted_score_tc_rank",
     "score",
@@ -197,8 +195,6 @@ _TAU_HEAD_KEYS = (
     "score_formula_terms_tau",
     "factor_coefficients_tau",
     "y_tau_raw",
-    "predicted_score_tau_cascade",
-    "predicted_score_tau_delta",
     "predicted_score_rem",
     "score_rem",
 )

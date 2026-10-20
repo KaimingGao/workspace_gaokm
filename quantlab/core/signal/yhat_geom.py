@@ -278,6 +278,3 @@ def resolve_oo_prior_var(
         return _as_var(cfg_var, 1.0), "eod_residual_var"
     return 1.0, "default"
 
-
-# 旧名
-resolve_eod_prior_var = resolve_oo_prior_var

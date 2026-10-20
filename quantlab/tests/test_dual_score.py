@@ -16,8 +16,7 @@ class TestDualScoreFields(unittest.TestCase):
             gap_pct=2.5,
             feats={"gap_pct": 2.5, "theme_day": 1.0, "momentum": 60.0},
             event_prior={"theme": True},
-            residual_delta=False,
-            config={
+                        config={
                 "dual_score": {
                     "fusion_mode": "blend",
                     "tau": "open",
@@ -330,8 +329,7 @@ class TestDualScoreFields(unittest.TestCase):
             feats=raw,
             explain_feats=z_row,
             rem_model_doc=doc,
-            residual_delta=False,
-            config={"dual_score": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"}},
+                        config={"dual_score": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"}},
         )
         # features_tau 仍落 raw
         self.assertAlmostEqual(item["features_tau"]["raw_atc_YKLEN"], 0.03, places=5)
@@ -405,7 +403,7 @@ class TestDualScoreFields(unittest.TestCase):
     def test_eod_remaining_and_residual_stack(self):
         from core.signal.dual_score import (
             apply_tau_score_fields,
-            eod_remaining_at_tau,
+            oo_remaining_at_tau,
             fuse_remaining_heads,
             realized_t1_to_tau_pct,
         )
@@ -416,7 +414,7 @@ class TestDualScoreFields(unittest.TestCase):
             ((1.01 * 1.01) - 1.0) * 100.0,
             places=5,
         )
-        rem = eod_remaining_at_tau(2.0, 1.0)
+        rem = oo_remaining_at_tau(2.0, 1.0)
         self.assertAlmostEqual(rem, ((1.02 / 1.01) - 1.0) * 100.0, places=5)
         self.assertAlmostEqual(
             fuse_remaining_heads(rem, 0.3), (rem + 0.3) / 2.0, places=5
@@ -428,8 +426,7 @@ class TestDualScoreFields(unittest.TestCase):
             rem_yhat=0.3,
             gap_pct=1.0,
             feats={"gap_pct": 1.0},
-            residual_delta=False,
-            config={
+                        config={
                 "dual_score": {
                     "w_eod": 0.5,
                     "w_tau": 0.5,
@@ -439,7 +436,7 @@ class TestDualScoreFields(unittest.TestCase):
         )
         self.assertAlmostEqual(item["realized_t1_to_tau"], 1.0, places=5)
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
-        self.assertIsNone(item.get("predicted_score_tau_delta"))
+        self.assertNotIn("predicted_score_tau_delta", item)
         self.assertNotIn("predicted_score_tau", item)
         self.assertNotIn("y_tau", item)
         self.assertAlmostEqual(item["y_τc"], 0.3, places=5)
@@ -672,7 +669,7 @@ class TestDualScoreFields(unittest.TestCase):
         }
         item = {"predicted_score": 1.0, "score": 1.0}
         apply_tau_score_fields(
-            item, rem_yhat=0.2, gap_pct=0.0, feats={}, config=cfg, residual_delta=False
+            item, rem_yhat=0.2, gap_pct=0.0, feats={}, config=cfg
         )
         self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.0, places=5)
         self.assertNotIn("predicted_score_tau", item)
@@ -782,7 +779,7 @@ class TestDualScoreFields(unittest.TestCase):
         """闸/决策分始终 raw；陈旧校准字段不参与。"""
         from core.signal.dual_score import (
             decision_score_for_item,
-            eod_gate_score_for_item,
+            oo_gate_score_for_item,
         )
 
         item = {
@@ -795,7 +792,7 @@ class TestDualScoreFields(unittest.TestCase):
             "predicted_score_cal": 1.0,
             "score_calibration_applied": True,
         }
-        self.assertAlmostEqual(eod_gate_score_for_item(item), 2.0, places=5)
+        self.assertAlmostEqual(oo_gate_score_for_item(item), 2.0, places=5)
         # decision = fuse 现算 = fuse(ŷ_oo=2.0, ŷ_τc=0.5) = 1.25（不受 calibration 影响）
         self.assertAlmostEqual(decision_score_for_item(item), 1.25, places=5)
 
@@ -808,8 +805,7 @@ class TestDualScoreFields(unittest.TestCase):
             rem_yhat=-1.0,
             gap_pct=1.0,
             feats={},
-            residual_delta=False,
-            config={
+                        config={
                 "dual_score": {
                     "w_eod": 0.5,
                     "w_tau": 0.5,
@@ -820,7 +816,7 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertNotIn("predicted_score_tau", item)
         self.assertNotIn("y_tau", item)
         self.assertAlmostEqual(item["y_τc"], -1.0, places=5)
-        self.assertIsNone(item.get("predicted_score_tau_delta"))
+        self.assertNotIn("predicted_score_tau_delta", item)
         rem = ((1.02 / 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
         self.assertNotIn("predicted_score_tau", item)
@@ -855,8 +851,7 @@ class TestDualScoreFields(unittest.TestCase):
             gap_pct=1.0,
             feats={},
             config=flat,
-            residual_delta=False,
-        )
+                    )
         rem = ((1.02 / 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
         self.assertNotIn("predicted_score_tau", item)
@@ -927,39 +922,6 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(float(out.get("fusion_w_oc")), 0.2)
         self.assertAlmostEqual(float(out.get("y_oo_fuse")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
 
-    def test_tau_shadow_book_reranks(self):
-        from core.signal.dual_score import build_tau_shadow_book, compare_book_overlap
-
-        eligible = [
-            {
-                "stock_code": "A",
-                "score": 2.0,
-                "predicted_score": 2.0,
-                "predicted_score_tau": 0.1,
-            },
-            {
-                "stock_code": "B",
-                "score": 1.5,
-                "predicted_score": 1.5,
-                "predicted_score_tau": 0.9,
-            },
-            {
-                "stock_code": "C",
-                "score": 1.2,
-                "predicted_score": 1.2,
-                "predicted_score_tau": 0.5,
-            },
-        ]
-        eod = eligible[:2]  # A, B by EOD
-        tau_book, meta = build_tau_shadow_book(
-            eligible, max_names=2, oo_book=eod
-        )
-        self.assertEqual([r["stock_code"] for r in tau_book], ["B", "C"])
-        self.assertEqual(tau_book[0]["rank_key"], "predicted_score_tau")
-        self.assertEqual(meta["vs_eod_book"]["overlap"], 1)
-        ov = compare_book_overlap(eod, tau_book)
-        self.assertEqual(ov["only_eod"], ["A"])
-        self.assertEqual(ov["only_tau"], ["C"])
 
     def test_features_tau_includes_ret_open(self):
         from core.signal.dual_score import apply_tau_score_fields
@@ -972,8 +934,7 @@ class TestDualScoreFields(unittest.TestCase):
             feats={"gap_pct": 1.0, "ret_open_to_tau": 0.8},
             as_of_tau="2026-08-14T09:45:00+08:00",
             y_spec_override={"tau": "09:45", "formula": "close[T]/price[09:45]-1"},
-            residual_delta=False,
-        )
+                    )
         self.assertEqual(item["as_of_tau"], "2026-08-14T09:45:00+08:00")
         self.assertEqual(item["features_tau"].get("ret_open_to_tau"), 0.8)
         self.assertEqual(item["y_spec_tau"].get("tau"), "09:45")
@@ -992,8 +953,7 @@ class TestDualScoreFields(unittest.TestCase):
                 "gap_vs_sector": 0.3,
                 "momentum": 50.0,
             },
-            residual_delta=False,
-        )
+                    )
         self.assertEqual(item["features_tau"].get("gap_atr"), 0.8)
         self.assertEqual(item["features_tau"].get("gap_vs_sector"), 0.3)
         self.assertEqual(item["features_tau"].get("z_τc_gap_atr"), 0.8)
@@ -1016,12 +976,11 @@ class TestDualScoreFields(unittest.TestCase):
                 "tau_ma5": 0.11,
                 "momentum": 50.0,
             },
-            residual_delta=False,
-        )
+                    )
         self.assertAlmostEqual(item["features_tau"].get("tau_lag1"), 0.42)
         self.assertAlmostEqual(item["features_tau"].get("tau_ma5"), 0.11)
         self.assertNotIn("momentum", item["features_tau"])
-        self.assertIsNotNone(item.get("predicted_score_tau_cascade"))
+        self.assertNotIn("predicted_score_tau_cascade", item)
 
     def test_merge_tau_features_prefers_base_keeps_prior(self):
         from core.signal.dual_score import merge_tau_features

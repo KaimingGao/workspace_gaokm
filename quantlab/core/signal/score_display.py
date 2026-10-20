@@ -171,7 +171,7 @@ def annotate_score_gate(
 ) -> Dict[str, Any]:
     """返回 min_score / below_min_score，供观察表与持仓表展示。
 
-    有 ``item`` 时门槛对比用 ``eod_gate_score_for_item``（原始 ŷ_oo），
+    有 ``item`` 时门槛对比用 ``oo_gate_score_for_item``（原始 ŷ_oo），
     与建簿 / 预演买入门槛同源；否则回退传入的 ``score``。
     """
     if min_score is not None:
@@ -182,8 +182,8 @@ def annotate_score_gate(
     if isinstance(item, dict):
         try:
             from core.signal.dual_score import (
-                eod_gate_score_for_item,
                 is_heuristic_score_scale,
+                oo_gate_score_for_item,
             )
 
             if is_heuristic_score_scale(item):
@@ -193,7 +193,7 @@ def annotate_score_gate(
                     "below_min_score": False,
                     "gate_score": None,
                 }
-            sc = eod_gate_score_for_item(item)
+            sc = oo_gate_score_for_item(item)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             sc = None
     if sc is None:

@@ -293,7 +293,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 |--|----------|----------------------|
 | **问什么** | 该不该**买/持/卖**、截面排第几 | 已有底仓今天 **正 T 还是反 T**、值不值得动 |
 | **ŷ_trade** | **排序键** / 持有对比（`rank_key_for_item`） | **不参与**选腿（仅复盘旁注） |
-| **ŷ_oo** | **买入地板**（`min_predicted_score` / `eod_gate_score_for_item`；旧名 ŷ_oo） | **不参与**选腿 |
+| **ŷ_oo** | **买入地板**（`min_predicted_score` / `oo_gate_score_for_item`） | **不参与**选腿 |
 | **ŷ_τw** | 不参与调仓排序 | **选向+金额**：五窗相对中位点（默认 50%）符号和；≥入场正T、≤−入场反T |
 | **之后** | 换仓、权重、风控 | **触发根收盘**开第一腿；第二腿无预设目标，靠止损 / 锁赢 / 追价 / EOD（调仓无此步） |
 
@@ -1060,14 +1060,14 @@ C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scal
 | F0 / F1 / F2 把 ŷ_oo 与 ŷ_τ 直接加权 | **已退役**（窗口不同） |
 | 残差叠加 ŷ_oo_rem+Δ | **已退役**（Δ 与 ŷ_τ 不是同一对象） |
 | **正交加权（现网）** | 候选 := ŷ_oo≥floor；排序 := ŷ_trade=w·ŷ_oo+w·(缺口∘ŷ_τ)；另过 τ 闸 | **`fusion_mode=blend`** |
-| A2 影子簿 | 同池按 ŷ_τ 另写 `cluster_book_tau_shadow.json`；jaccard/spearman vs ŷ_oo | **已落地**（`enable_tau_shadow_book`，默认开；不驱动买入） |
-| A2 验收 | 账本 `*.tau_shadow.json` + `realized_tau`；HTTP `/tau-shadow` **已 stub** | **库保留 · 枢纽条已下线** |
+| A2 影子簿 | 同池按 ŷ_τ 另写影子簿 | **已移除**（未接线；不再写 `cluster_book_tau_shadow.json`） |
+| A2 验收 | 账本 / HTTP `/tau-shadow` | **已移除** |
 | P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
 | P0 alpha_τc | ŷ_τc 特征包 **alpha_τc := z_τc_* ∪ raw_atc_***（产品固定完整包，无开关；拟合列 `z_τc_*`+`raw_atc_*`，Z 裸名别名，报告挂 `feature_pack`；schema `tau_ridge_v15`） | **已落地** |
 | P0 alpha_τh | ŷ_τ30…90 特征包 **alpha_τh := z_τh_* ∪ raw_ath_***（轻量 GAP/YK + 短窗/会话升格 + 本头 `H_*`；schema `t{N}_ridge_v4`；live `score_policy` 注入） | **已落地** |
 | P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
-| P2 融合补强 | `w_mode=theme_boost\|variance`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
+| P2 融合补强 | `w_mode=theme_boost\|variance` | **已落地**（默认 `w_mode=fixed`；cascade 影子列已移除） |
 | **Nowcast / Kalman** | 顺序滤波对照层 | **已退役**（不再写 `predicted_score_nowcast`；`w_mode=kalman`→`fixed`） |
 | **校准层 g(ŷ)** | `score_calibration.py` **已删除**；HTTP / UI / overlay 均下线 | **已删除** |
 | **Alpha/IC 补强** | 超额分账 · 主 IC=截面 Spearman · yhat/残差 y 研究开关 | **已接线**（见 [alpha-ic-strengthen.md](archive/alpha-ic-strengthen.md)；`yhat_residual`/`excess_mode` 默认关） |
@@ -1180,7 +1180,7 @@ flowchart LR
 - 原链路：单票 OLS β → 聚类成组 → 组池 `return_model` → promote → live `cluster_weights_*`；含 auto-k、贪心换组、拟合档 A/B/C、分池簿。
 - 现替代：日线/分钟走 `/api/quant/bars` / `/api/quant/minute` 刷新；ŷ 走非分组 `factor_ols` / dual_score / τ。
 
-相关实现（**均已删除 / 410**）：~~`factor_ols_clusters.py`~~ · ~~`core/signal/cluster/*`~~ · ~~`cluster_greedy_refine`~~ · ~~`cluster_wf_audit`~~ · ~~`cluster_panels`~~ · ~~`web/schemas/cluster.py`~~。残留只读：`partition_loss._metrics_from_pred_act`（IC 探针）· `return_score.py`（非分组 ŷ）· `yhat_viz` 直方图。
+相关实现（**均已删除 / 410**）：~~`factor_ols_clusters.py`~~ · ~~`core/signal/cluster/*`~~ · ~~`cluster_greedy_refine`~~ · ~~`cluster_wf_audit`~~ · ~~`cluster_panels`~~ · ~~`web/schemas/cluster.py`~~ · ~~`quant.research.partition_loss`~~。IC 探针见 `core.signal.ic_contract.metrics_from_pred_act`；另有 `return_score.py`（非分组 ŷ）· `yhat_viz` 直方图。
 
 ---
 
@@ -1233,8 +1233,7 @@ score_stock(code) 续——
 |------|----|------|
 | `predicted_score_eod` / `predicted_score_oo` / `y_oo` | = `predicted_score` | ŷ_oo 原值（旧键 EOD） |
 | `predicted_score_eod_rem` | (1+ŷ_oo)/(1+缺口)−1 | 派生对照（y_state）；**不进** ŷ_trade |
-| `predicted_score_tau_delta` | 旧残差头 Δ | 仅兼容；现网 τ 头直接出 ŷ_τ |
-| `predicted_score_tau` | ŷ_τ 头 | close[T]/open[T]−1 |
+| `predicted_score_tau` | ŷ_τ 头 | close[T]/open[T]−1（旧 `predicted_score_tau_delta` / cascade 列已移除） |
 | `score_rem` / `predicted_score_rem` | = ŷ_τ | **已废弃写入语义**；仍双写/可读，等同 `predicted_score_tau` |
 | `as_of_tau` | `"open"` 或 `"09:45"` | τ 时刻 |
 | `y_spec_tau` | `{formula, tau, unit, note}` | τ 标签规范 |
@@ -1363,14 +1362,9 @@ score_stock(code) 续——
 | `y_tau < min_predicted_score_tau` | 拦截（"ŷ_τ=X.XXX% < min_predicted_score_tau(Y)"）；**冻结降级**：候选池无人过基线且 `tau_freeze_breakglass` 时临时用 `min_predicted_score_tau_relax`（预演标「τ 试验档」） |
 | `y_tau ≥ min_predicted_score_tau` | 放行 |
 
-### 4.5 A2 影子簿（同池 ŷ_τ 重排对照）
+### 4.5 A2 影子簿
 
-刷簿时**额外**写 `cluster_book_tau_shadow.json`（不驱动 execution / 纸面买入）：
-
-- 同 ŷ_oo 入池集合（eligible），按 `predicted_score_tau` 降序截断 → tau_shadow_book
-- 缺失 ŷ_τ 的票排末尾，计入 `missing_tau_count`
-- 与 ŷ_oo 主簿对照：`jaccard`（代码重叠）、`spearman_shared`（共享代码秩相关）、`only_eod` / `only_tau`
-- 验收：库函数 `build_tau_shadow_review`（枢纽条 / HTTP 已下线）
+**已移除**（从未接到 live 刷簿；`enable_tau_shadow_book` / `build_tau_shadow_book` 已删）。
 
 ---
 

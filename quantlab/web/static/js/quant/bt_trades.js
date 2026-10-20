@@ -1077,7 +1077,6 @@ function buildSimTradeRow(r, i, deps) {
     "y_τc": r["y_τc"] != null ? r["y_τc"] : r.y_oc,
     predicted_score_blend: blendRaw != null ? blendRaw : blendScore,
     predicted_score_eod_rem: eodRem,
-    predicted_score_tau_delta: r.predicted_score_tau_delta,
     dual_score_window: r.dual_score_window || null,
     predicted_score_eod: eodScore,
     realized_t1_to_tau: realized,

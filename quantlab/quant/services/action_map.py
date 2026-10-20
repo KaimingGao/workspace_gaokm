@@ -80,7 +80,7 @@ ACTIONS: List[Dict[str, Any]] = [
             "/api/portfolio/quant-bridge",
         ],
         "services": [
-            "quant.services.quant_service_compare.QuantCompareMixin",
+            "quant.services.quant_service_ops.QuantOpsMixin.build_portfolio_bridge",
             "quant.services.portfolio_quant_bridge",
         ],
         "core": ["core.paper", "core.watching.store"],

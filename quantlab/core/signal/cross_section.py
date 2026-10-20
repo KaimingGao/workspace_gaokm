@@ -122,8 +122,8 @@ def rank_cross_section(
             from core.signal.dual_score import (
                 attach_dual_score_bulk,
                 buy_passes_tau_gate,
-                eod_gate_score_for_item,
                 get_dual_score_cfg,
+                oo_gate_score_for_item,
                 rank_key_for_item,
             )
             _ds_cfg = get_dual_score_cfg(scoring_cfg.get("dual_score") if isinstance(scoring_cfg, dict) else None)
@@ -137,7 +137,7 @@ def rank_cross_section(
             for it in scored_items:
                 if it.get("hard_reject"):
                     continue
-                eod_s = eod_gate_score_for_item(it)
+                eod_s = oo_gate_score_for_item(it)
                 if eod_s is None:
                     continue
                 if min_pred_f is not None and eod_s < min_pred_f:

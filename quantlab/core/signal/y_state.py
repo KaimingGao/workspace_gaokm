@@ -336,13 +336,13 @@ def build_y_state(
     it = item if isinstance(item, dict) else {}
     from core.signal.dual_score import (
         rank_key_for_item,
-        resolve_predicted_score_eod,
-        resolve_predicted_score_eod_rem,
+        resolve_predicted_score_oo,
+        resolve_predicted_score_oo_rem,
         resolve_predicted_score_tau,
     )
 
-    eod = resolve_predicted_score_eod(it)
-    eod_rem = resolve_predicted_score_eod_rem(it)
+    eod = resolve_predicted_score_oo(it)
+    eod_rem = resolve_predicted_score_oo_rem(it)
     if eod_rem is None:
         eod_rem = eod
     y_tau = resolve_predicted_score_tau(it)

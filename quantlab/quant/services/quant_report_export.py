@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 # 章节标题（MD / HTML / TOC 同源）
 CROSS_SECTION_TITLE = "横截面 ŷ（predicted_score）"
+# 仅渲染历史日报附录；不再新写 weight_suggest 进选股路径
 WEIGHT_SUGGEST_TITLE = "权重建议（遗留诊断）"
 PORTFOLIO_BT_SECTION_TITLE = "历史回测摘要"
 SCORING_DEFAULT_NOTE = (
@@ -1083,15 +1084,6 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         lines.append("- 宇宙过滤：剔 ST")
     if req.get("min_avg_amount_pctile") is not None:
         lines.append(f"- 宇宙过滤：成交额≥池内 {req.get('min_avg_amount_pctile')}% 分位")
-
-    wf = ps.get("wf_slices") or {}
-    if wf.get("ok") or wf.get("folds"):
-        pos = wf.get("positive_test_folds")
-        meas = wf.get("measured_test_folds")
-        pos_s = f" · 正窗 {pos}/{meas}" if pos is not None and meas is not None else ""
-        lines.append(
-            f"- Walk-forward：均收益 {wf.get('mean_test_return_pct')}%{pos_s}"
-        )
 
     regime = ps.get("regime_summary") or {}
     if regime.get("ok"):

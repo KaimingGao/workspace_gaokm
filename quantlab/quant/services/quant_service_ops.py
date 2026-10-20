@@ -1,7 +1,4 @@
-"""QuantService · watching(②) / 日报 / 导出 / 解读 / 运维（P94 拆分）。
-
-持仓联动 ``build_portfolio_bridge`` 已迁至 QuantCompareMixin（③）。
-"""
+"""QuantService · watching(②) / 日报 / 导出 / 解读 / 运维 / 持仓联动摘要（P94 拆分）。"""
 
 
 import json
@@ -16,6 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class QuantOpsMixin:
+    def build_portfolio_bridge(self, *, include_stance: bool = False) -> Dict[str, Any]:
+        """③ 联动：模拟持仓 ↔ watching / quant 状态（不下单、不做不公平对照）。"""
+        from quant.services.portfolio_quant_bridge import build_portfolio_quant_bridge
+
+        return build_portfolio_quant_bridge(include_stance=include_stance)
+
     def read_watching(self) -> Dict[str, Any]:
         """观察名单骨架：只读本地文件，不打 akshare / 不跑信号扫描。
 

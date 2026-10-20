@@ -41,7 +41,6 @@ def build_validation_pack(
             "pit_report",
             "oos_summary",
             "regime_summary",
-            "wf_slices",
             "attribution",
             "signal_fill_sample",
             "data_quality",

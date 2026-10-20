@@ -35,8 +35,18 @@ def _is_allowlisted(path: str) -> bool:
 
 
 def _iter_py_files(root: str) -> Iterable[str]:
+    skip_dirs = {
+        "__pycache__",
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "data",
+        "store",
+        "site-packages",
+    }
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in {"__pycache__", ".git", "data", "store"}]
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
         for name in filenames:
             if name.endswith(".py"):
                 yield os.path.join(dirpath, name)

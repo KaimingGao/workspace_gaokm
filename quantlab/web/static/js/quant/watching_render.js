@@ -415,7 +415,6 @@ export function watchingScoreDetail(it) {
     score: it && it.score != null ? it.score : it && it.predicted_score,
     predicted_score_blend: it && it.predicted_score_blend,
     predicted_score_eod_rem: it && it.predicted_score_eod_rem,
-    predicted_score_tau_delta: it && it.predicted_score_tau_delta,
     dual_score_window: (it && it.dual_score_window) || null,
     eod_feature_as_of: (it && it.eod_feature_as_of) || null,
     trade_day: (it && it.trade_day) || null,

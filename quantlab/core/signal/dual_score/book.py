@@ -162,8 +162,6 @@ def dual_score_book_fields(
         "predicted_score_oo": work.get("predicted_score_oo", work.get("y_oo")),
         "predicted_score_eod_rem": work.get("predicted_score_eod_rem"),
         "y_tau": work.get("y_τc"),
-        "predicted_score_tau_delta": work.get("predicted_score_tau_delta"),
-        "predicted_score_tau_cascade": work.get("predicted_score_tau_cascade"),
         "predicted_score_blend": work.get("predicted_score_blend"),
         "predicted_score_blend_tau_cc": work.get("predicted_score_blend_tau_cc"),
         "predicted_score_blend_vs": work.get("predicted_score_blend_vs"),

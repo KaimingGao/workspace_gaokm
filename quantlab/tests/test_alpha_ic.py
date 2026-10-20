@@ -64,11 +64,11 @@ class TestYSpecExcess(unittest.TestCase):
 
 class TestPartitionLossIcKind(unittest.TestCase):
     def test_chrono_label(self):
-        from quant.research.partition_loss import _metrics_from_pred_act
+        from core.signal.ic_contract import metrics_from_pred_act
 
         preds = list(range(10))
         acts = [p + 0.1 for p in preds]
-        m = _metrics_from_pred_act(preds, acts, holdout_ratio=0.3, n_full=10)
+        m = metrics_from_pred_act(preds, acts, holdout_ratio=0.3, n_full=10)
         self.assertTrue(m["ok"])
         self.assertEqual(m.get("ic_kind"), "chrono_pearson")
         self.assertFalse(m.get("is_primary_ic"))

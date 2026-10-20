@@ -90,8 +90,6 @@
     "w_mode": "fixed",
     "theme_w_tau_boost": 1.25,
     "eod_residual_var": 1.0,
-    "enable_cascade_shadow": true,
-    "enable_tau_shadow_book": false,
     "enable_minute_tau": true,
     "y_state": {
       "enabled": true,

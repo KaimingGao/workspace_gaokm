@@ -22,8 +22,6 @@ def read_dual_score_public() -> Dict[str, Any]:
         "w_mode": cfg.get("w_mode"),
         "theme_w_tau_boost": cfg.get("theme_w_tau_boost"),
         "eod_residual_var": cfg.get("eod_residual_var"),
-        "enable_cascade_shadow": bool(cfg.get("enable_cascade_shadow")),
-        "enable_tau_shadow_book": bool(cfg.get("enable_tau_shadow_book")),
         "enable_minute_tau": bool(cfg.get("enable_minute_tau")),
         "y_spec": cfg.get("y_spec"),
         "note": (
@@ -48,7 +46,7 @@ def save_dual_score(
 ) -> Dict[str, Any]:
     """人审写入 ``signal_config.dual_score``；清缓存。"""
     from core.signal.config import get_signal_config_path, load_signal_config
-    from core.signal.dual_score import normalize_fusion_mode
+    from core.signal.dual_score.fusion import normalize_fusion_mode
 
     path = get_signal_config_path()
     raw: Dict[str, Any] = {}
@@ -105,6 +103,8 @@ def save_dual_score(
     dual.pop("minute_tau_hm", None)
     dual.pop("minute_tau_grid", None)
     dual.pop("nowcast", None)
+    dual.pop("enable_cascade_shadow", None)
+    dual.pop("enable_tau_shadow_book", None)
 
     raw["dual_score"] = dual
     atomic_write_json(path, raw)

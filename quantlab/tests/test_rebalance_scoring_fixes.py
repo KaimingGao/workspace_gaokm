@@ -34,8 +34,8 @@ class TestScoreUniversePrefilter(unittest.TestCase):
 class TestEodResolveNoBlendFallback(unittest.TestCase):
     def test_score_matching_blend_is_not_eod(self):
         from core.signal.dual_score import (
-            eod_gate_score_for_item,
-            resolve_predicted_score_eod,
+            oo_gate_score_for_item,
+            resolve_predicted_score_oo,
         )
 
         item = {
@@ -43,22 +43,22 @@ class TestEodResolveNoBlendFallback(unittest.TestCase):
             "predicted_score_blend": 0.525,
             "predicted_score_tau": 0.35,
         }
-        self.assertIsNone(resolve_predicted_score_eod(item))
-        self.assertIsNone(eod_gate_score_for_item(item))
+        self.assertIsNone(resolve_predicted_score_oo(item))
+        self.assertIsNone(oo_gate_score_for_item(item))
 
     def test_heuristic_score_with_tau_still_gates(self):
         """仅有 0–100 ``score`` 时不得当作 ŷ_oo（避免 OOS 失败票漏进 Top）。"""
-        from core.signal.dual_score import resolve_predicted_score_eod
+        from core.signal.dual_score import resolve_predicted_score_oo
 
         self.assertIsNone(
-            resolve_predicted_score_eod({"score": 72.0, "predicted_score_tau": 1.0})
+            resolve_predicted_score_oo({"score": 72.0, "predicted_score_tau": 1.0})
         )
 
     def test_explicit_eod_wins_over_blend_score(self):
-        from core.signal.dual_score import resolve_predicted_score_eod
+        from core.signal.dual_score import resolve_predicted_score_oo
 
         self.assertAlmostEqual(
-            resolve_predicted_score_eod(
+            resolve_predicted_score_oo(
                 {
                     "score": 0.525,
                     "predicted_score_blend": 0.525,
@@ -71,7 +71,7 @@ class TestEodResolveNoBlendFallback(unittest.TestCase):
 
     def test_yhat_pct_ge_10_with_scale_is_not_heuristic(self):
         """涨停板 ŷ%≥10 且标明 predicted_yhat 时，回退 score 不得丢 ŷ_oo。"""
-        from core.signal.dual_score import resolve_predicted_score_eod
+        from core.signal.dual_score import resolve_predicted_score_oo
         from core.signal.score_display import looks_like_legacy_heuristic_score
 
         item = {
@@ -79,9 +79,9 @@ class TestEodResolveNoBlendFallback(unittest.TestCase):
             "score_scale": "predicted_yhat",
         }
         self.assertFalse(looks_like_legacy_heuristic_score(12.5, item=item))
-        self.assertAlmostEqual(resolve_predicted_score_eod(item), 12.5)
+        self.assertAlmostEqual(resolve_predicted_score_oo(item), 12.5)
         # 未标明尺的大数仍按遗留 0–100 拒绝
-        self.assertIsNone(resolve_predicted_score_eod({"score": 12.5}))
+        self.assertIsNone(resolve_predicted_score_oo({"score": 12.5}))
         from quant.services.quant_report_export import _fmt_yhat, _yhat_from_row
 
         self.assertEqual(_fmt_yhat(12.5), "12.500%")

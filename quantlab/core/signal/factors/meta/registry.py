@@ -17,7 +17,6 @@ from core.signal.factors.gap_risk import score_gap_risk
 from core.signal.factors.growth import score_growth
 from core.signal.factors.idio_momentum import score_idio_momentum
 from core.signal.factors.liquidity import score_liquidity
-from core.signal.factors.llm_sentiment import score_llm_sentiment
 from core.signal.factors.ma_slope import score_ma_slope
 from core.signal.factors.momentum import pct_change, score_momentum
 from core.signal.factors.money_flow import score_money_flow
@@ -114,10 +113,6 @@ def _compute_alt_sentiment(bars, *, sentiment=None, **_kw):
     return score_alt_sentiment(bars, sentiment=sentiment)
 
 
-def _compute_llm_sentiment(bars, *, llm_sentiment=None, **_kw):
-    return score_llm_sentiment(bars, llm_sentiment=llm_sentiment)
-
-
 def _compute_gap_risk(bars, **_kw):
     return score_gap_risk(bars)
 
@@ -181,7 +176,7 @@ def _compute_alpha_tc(
     tau_hm=None,
     **_kw,
 ):
-    """τ 锚 alpha_tc：≤T−1 + 今开 + ≤τ 分钟（PIT）。现网 ŷ_τc 不吃此包。"""
+    """τ 锚 alpha_tc：≤T−1 + 今开 + ≤τ 分钟（PIT）。现网 ŷ_τc = z_τc_* ∪ raw_atc_*。"""
     return score_alpha_tc(
         bars,
         quote=quote,
@@ -289,12 +284,6 @@ _register(
     "舆情/情绪快照偏置：无舆情中性 50；偏多抬分、偏空压分。",
 )
 _register(
-    "llm_sentiment",
-    "LLM舆情",
-    _compute_llm_sentiment,
-    "Qwen LLM 对新闻标题+正文语义打分（研究轨/prior_only）：不进生产 ŷ；与规则舆情对照。",
-)
-_register(
     "gap_risk",
     "跳空风险",
     _compute_gap_risk,
@@ -367,7 +356,7 @@ _register(
     "τ→收因子集",
     _compute_alpha_tc,
     "alpha_tc（~224）：隔夜/τ 位置 + 昨 K + 收盘序列滚动 + 量/TC 滞后 + ≤τ 前缀路径；"
-    " price[τ] 锚 PIT。sub_score 不加权；离线对照，现网 ŷ_τc 不吃此包。",
+    " price[τ] 锚 PIT。sub_score 不加权；入模 / 现网 ŷ_τc = z_τc_* ∪ raw_atc_*。",
 )
 _register(
     "alpha_th",
@@ -515,7 +504,6 @@ def compute_configured_factors(
     last_change: Optional[float] = None,
     fundamentals: Optional[dict] = None,
     sentiment: Optional[dict] = None,
-    llm_sentiment: Optional[dict] = None,
     money_flow: Optional[dict] = None,
     required_keys: Optional[Sequence[str]] = None,
     skip_factors: Optional[Sequence[str]] = None,
@@ -568,7 +556,6 @@ def compute_configured_factors(
         # 可选因子：权≈0 且非 required 时可跳过
         if abs(w) < 1e-12 and name_fac not in required and name_fac in (
             "alt_sentiment",
-            "llm_sentiment",
             "money_flow",
             "tail_anomaly",
         ):
@@ -583,7 +570,6 @@ def compute_configured_factors(
                 last_change=last_change,
                 fundamentals=fundamentals,
                 sentiment=sentiment,
-                llm_sentiment=llm_sentiment,
                 money_flow=money_flow,
                 stock_code=code,
                 stock_name=name,

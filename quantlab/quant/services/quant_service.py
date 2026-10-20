@@ -3,7 +3,6 @@
 文档称 Application Service，不是 Domain Facade；向下调 DS/SS/BS 与 PaperService。
 """
 
-from quant.services.quant_service_compare import QuantCompareMixin
 from quant.services.quant_service_config import QuantConfigMixin
 from quant.services.quant_service_factors import QuantFactorMixin
 from quant.services.quant_service_follow import QuantFollowMixin
@@ -15,7 +14,6 @@ class QuantService(
     QuantConfigMixin,
     QuantFollowMixin,
     QuantReplayMixin,
-    QuantCompareMixin,
     QuantFactorMixin,
     QuantOpsMixin,
 ):
@@ -25,7 +23,7 @@ class QuantService(
 
     - ① 模拟：``QuantFollowMixin`` + ``PaperService``
     - ② 回溯：``QuantReplayMixin`` + watching / cross-section
-    - ③ 联动：``QuantCompareMixin``
+    - ③ 联动：``QuantOpsMixin.build_portfolio_bridge``
     - 进阶：config / factors(IC·OLS) / ops(日报·导出)
     """
 

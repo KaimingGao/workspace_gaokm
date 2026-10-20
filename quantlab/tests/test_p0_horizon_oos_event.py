@@ -45,13 +45,13 @@ class TestOosFailedExclude(unittest.TestCase):
         self.assertIsNone(importlib.util.find_spec("core.signal.cluster"))
 
     def test_resolve_eod_rejects_heuristic_score_fallback(self):
-        from core.signal.dual_score import resolve_predicted_score_eod
+        from core.signal.dual_score import resolve_predicted_score_oo
 
         self.assertIsNone(
-            resolve_predicted_score_eod({"score": 75.7, "predicted_score": None})
+            resolve_predicted_score_oo({"score": 75.7, "predicted_score": None})
         )
         self.assertAlmostEqual(
-            float(resolve_predicted_score_eod({"predicted_score": 0.85}) or 0),
+            float(resolve_predicted_score_oo({"predicted_score": 0.85}) or 0),
             0.85,
             places=5,
         )

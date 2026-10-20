@@ -228,7 +228,7 @@ def build_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, A
 
 def _bars_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
     from core.job_progress import bars_refresh_job
-    from quant.research.cluster_refresh_job_snapshot import public_refresh_job_snapshot
+    from core.job_progress import public_refresh_job_snapshot
 
     return public_refresh_job_snapshot(
         bars_refresh_job,

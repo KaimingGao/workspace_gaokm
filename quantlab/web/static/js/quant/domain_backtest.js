@@ -1151,11 +1151,12 @@ export function installBacktest(q) {
   }
 
   function renderPortfolioBacktestResult(data) {
+    const wfHost = document.getElementById("quant-wf-slices");
+    if (wfHost) wfHost.innerHTML = "";
     if (!data || !data.success) {
       applyReplayOverviewKpis(null);
       renderMetricCards(els.quantBtMetrics, []);
       renderRobustnessPanel(null);
-      renderWfSlices(null);
       renderCostAssumptions(null);
       renderAttributionTables(null);
       renderRegimeBuckets(null);
@@ -1191,7 +1192,6 @@ export function installBacktest(q) {
     }
     renderMetricCards(els.quantBtMetrics, buildPortfolioBacktestCards(data));
     renderRobustnessPanel(data);
-    renderWfSlices(data.wf_slices);
     renderCostAssumptions(data.cost_assumptions);
     renderAttributionTables(data.attribution);
     renderRegimeBuckets(data.regime_buckets, data.macro_context_summary);
@@ -1328,62 +1328,6 @@ export function installBacktest(q) {
 
   function renderT0BacktestResult(data) {
     paintReplayT0(data);
-  }
-
-  function renderWfSlices(wf) {
-    const host = document.getElementById("quant-wf-slices");
-    if (!host) return;
-    if (!wf) {
-      host.innerHTML = "";
-      return;
-    }
-    if (!wf.ok && !(wf.folds || []).length) {
-      host.innerHTML = `<p class="quant-trades-caption">Walk-forward：${escapeHtml(wf.reason || "不可用")}</p>`;
-      return;
-    }
-    const folds = wf.folds || [];
-    const mean = wf.mean_test_return_pct;
-    const pos = wf.positive_test_folds;
-    const meas = wf.measured_test_folds;
-    const head =
-      `<p class="quant-trades-caption">Walk-forward ${folds.length} 折` +
-      (mean != null ? ` · 测试段均收益 ${Number(mean).toFixed(2)}%` : "") +
-      (pos != null && meas != null ? ` · 正窗 ${pos}/${meas}` : "") +
-      (wf.fail_folds ? ` · 失败 ${wf.fail_folds}` : "") +
-      `</p>`;
-    if (!folds.length) {
-      host.innerHTML = head;
-      return;
-    }
-    host.innerHTML =
-      head +
-      researchGridHtml(
-        [
-          { id: "fold", label: "折", widthPct: 8, num: true, center: true },
-          { id: "range", label: "测试段", flex: true },
-          { id: "ret", label: "测试收益", widthPct: 14, num: true },
-          { id: "dd", label: "窗口回撤", widthPct: 14, num: true },
-          { id: "trades", label: "交易", widthPct: 10, num: true },
-          { id: "status", label: "状态", widthPct: 14, center: true },
-        ],
-        folds.map((f) => {
-          const ret = f.test_return_pct;
-          return {
-            fold: String(f.fold ?? "—"),
-            range: `${f.test_start_date || "—"} → ${f.test_end_date || "—"}`,
-            retText: ret != null ? `${Number(ret).toFixed(2)}%` : "—",
-            retCls: metricClass(ret),
-            dd:
-              f.max_drawdown_pct != null ? `${Number(f.max_drawdown_pct).toFixed(2)}%` : "—",
-            trades: String(f.trade_count ?? "—"),
-            status: f.ok ? "ok" : f.reason || "失败",
-          };
-        }),
-        (col, d) => {
-          if (col.id === "ret") return metricCell(d.retText, d.retCls);
-          return escapeHtml(d[col.id] ?? "—");
-        }
-      );
   }
 
   function paintPortfolioBacktestFail(failText) {
@@ -2403,7 +2347,6 @@ export function installBacktest(q) {
     renderScoreIc,
     renderSignalFillTable,
     renderT0BacktestResult,
-    renderWfSlices,
     runPortfolioBacktest,
     setBtTradesCaption,
     setQuantBtBusy,

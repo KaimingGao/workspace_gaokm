@@ -22,7 +22,7 @@
 | **P0** | 纸面北极星 `benchmark_excess` · `alpha_beta_legs`；跟盘 KPI 显示超额/IR | `core/alpha_excess.py` · `north_star.build_north_star_report` |
 | **P0+** | OOS 门禁附 `delta_excess_pp`；TopK `attach_benchmark_excess` | `bt_excess_attach` · `weight_oos_gate` |
 | **P0++** | 回测导出强制「收益分账」；replay/中性化臂挂 `alpha_beta_legs`；OOS tip 显示 Δ超额 | `quant_report_export` · `quant_service_replay` · ols/suggest UI |
-| **P1** | `ic_contract`；截面 IC 主字段改 Spearman；组 holdout IC 标 `chrono_pearson` | `ic_contract` · `factor_cs_ic` · `partition_loss` · `cluster_oos` |
+| **P1** | `ic_contract`；截面 IC 主字段改 Spearman；组 holdout IC 标 `chrono_pearson` | `ic_contract`（含 `metrics_from_pred_act`）· `factor_cs_ic` · `cluster_oos` |
 | **P2a** | 启发式中性化接 industry/size；`yhat_residual` 可选 | `cross_section.yhat_residual`（默认 false） |
 | **P2a+** | ŷ 残差影子 API + 复盘「ŷ残差对照」 | `POST /api/quant/yhat-residual/shadow` |
 | **P2b** | `y_spec.excess_mode=index`；面板 `excess_mode=` | 研究臂 |

@@ -596,7 +596,6 @@ export function createFactorIcUi(deps) {
     weekly_confirm: "周线确认",
     ma_slope: "均线斜率",
     alt_sentiment: "舆情",
-    llm_sentiment: "LLM舆情",
     gap_risk: "跳空风险",
     size: "规模",
     earnings_yield: "盈利收益率",

@@ -152,50 +152,6 @@ class TestP1QualityGate(unittest.TestCase):
                 self.assertEqual(f.test_start, folds[i - 1].test_end)
         self.assertEqual(folds[-1].test_end, 120)
 
-    def test_portfolio_wf_slices_smoke(self):
-        from quant.research.wf_slices import run_portfolio_wf_slices
-
-        def _bars(code, n=90, start=10.0):
-            out = []
-            p = start
-            for i in range(n):
-                p *= 1.002
-                out.append(
-                    {
-                        "date": f"2025-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}",
-                        "open": p,
-                        "high": p * 1.01,
-                        "low": p * 0.99,
-                        "close": p,
-                        "volume": 1000,
-                    }
-                )
-            return out
-
-        stock_bars = {
-            "AAA": _bars("AAA", 90, 10),
-            "BBB": _bars("BBB", 90, 20),
-            "CCC": _bars("CCC", 90, 15),
-        }
-        with patch(
-            "core.backtest.topk_probe.run_oos_topk_curve",
-            side_effect=lambda bars, **kw: {
-                "success": True,
-                "metrics": {
-                    "total_return_pct": 5.0,
-                    "max_drawdown_pct": 2.0,
-                    "trade_count": 3,
-                },
-                "equity_curve": [
-                    {"date": b["date"], "equity": 100 + i}
-                    for i, b in enumerate(list(bars.values())[0])
-                ],
-            },
-        ):
-            out = run_portfolio_wf_slices(stock_bars, n_splits=3, min_train=30, min_test=10)
-        self.assertTrue(out.get("folds"))
-        self.assertGreaterEqual(len(out["folds"]), 1)
-
 class TestN1DataService(unittest.TestCase):
     def test_get_bars_shape(self):
         from core.data.facade import get_bars

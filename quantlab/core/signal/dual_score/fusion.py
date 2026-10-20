@@ -1,4 +1,4 @@
-"""双层 ŷ：融合算术（缺口抬升、加权、cascade）。"""
+"""双层 ŷ：融合算术（缺口抬升、加权）。"""
 
 from __future__ import annotations
 
@@ -28,12 +28,11 @@ def realized_t1_to_tau_pct(
     """昨收→τ 已实现 %。开盘 τ 即缺口；更晚再复合 open→τ。"""
     if gap_pct is None and ret_open_to_tau is None:
         return None
-    try:
-        g = 0.0 if gap_pct is None else float(gap_pct)
-        r = 0.0 if ret_open_to_tau is None else float(ret_open_to_tau)
-    except (TypeError, ValueError):
-        return None
-    return round(((1.0 + g / 100.0) * (1.0 + r / 100.0) - 1.0) * 100.0, 6)
+    out = compound_pct(
+        0.0 if gap_pct is None else gap_pct,
+        0.0 if ret_open_to_tau is None else ret_open_to_tau,
+    )
+    return None if out is None else round(float(out), 6)
 
 
 def oo_remaining_at_tau(
@@ -45,10 +44,6 @@ def oo_remaining_at_tau(
     实现见 ``yhat_geom.remaining_at_tau``。
     """
     return remaining_at_tau(y_oo, realized_pct)
-
-
-# 遗留别名
-eod_remaining_at_tau = oo_remaining_at_tau
 
 
 def _as_float(v: Any) -> Optional[float]:
@@ -83,26 +78,10 @@ def fuse_remaining_heads(
     两套模型独立训练、互不依赖；只在决策时用权重合成。
     单头降级时调用方应读 ``fuse_remaining_heads_meta`` 或检查返回旁路标记。
     """
-    a = _as_float(left)
-    b = _as_float(right)
-    if a is None and b is None:
-        return None
-    if a is None:
-        return round(b, 6)  # type: ignore[arg-type]
-    if b is None:
-        return round(a, 6)
-    try:
-        we = float(w_oo)
-    except (TypeError, ValueError):
-        we = 0.5
-    try:
-        wt = float(w_tau)
-    except (TypeError, ValueError):
-        wt = 0.5
-    s = we + wt
-    if abs(s) < 1e-12:
-        we, wt, s = 0.5, 0.5, 1.0
-    return round((we * a + wt * b) / s, 6)
+    from core.signal.yhat_windows import fuse_pct
+
+    out = fuse_pct(left, right, w_left=w_oo, w_right=w_tau)
+    return None if out is None else round(float(out), 6)
 
 
 def item_gap_pct(item: Optional[dict]) -> Optional[float]:
@@ -443,22 +422,4 @@ def resolve_fusion_weights(
     if abs(s) < 1e-12:
         return 0.5, 0.5, note
     return we / s, wt / s, note
-
-
-def cascade_tau_shadow(
-    oo_rem: Optional[float],
-    y_tau: Optional[float],
-    *,
-    rem_intercept: Optional[float] = None,
-) -> Optional[float]:
-    """研究影子：ŷ_cascade = ŷ_oo_rem + (ŷ_τ − α)。α 缺省按 0。"""
-    a = _as_float(oo_rem)
-    b = _as_float(y_tau)
-    if a is None or b is None:
-        return None
-    try:
-        alpha = 0.0 if rem_intercept is None else float(rem_intercept)
-    except (TypeError, ValueError):
-        alpha = 0.0
-    return round(a + (b - alpha), 6)
 

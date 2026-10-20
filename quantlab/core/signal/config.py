@@ -89,8 +89,6 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "w_mode": "fixed",  # fixed | theme_boost | variance
         "theme_w_tau_boost": 1.25,
         "eod_residual_var": 1.0,
-        "enable_cascade_shadow": True,
-        "enable_tau_shadow_book": False,
         "enable_minute_tau": False,
     },
     # stance 门槛按收益分 ŷ%（百分点）

@@ -415,11 +415,11 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertGreater(float(rejected.get("score") or 0), 0)
 
     def test_default_still_maps_remaining(self):
-        from core.signal.dual_score import apply_tau_score_fields, eod_remaining_at_tau
+        from core.signal.dual_score import apply_tau_score_fields, oo_remaining_at_tau
 
         item = {"predicted_score": 2.0}
         apply_tau_score_fields(item, rem_yhat=0.3, gap_pct=1.0, feats={"gap_pct": 1.0})
-        rem = eod_remaining_at_tau(2.0, 1.0)
+        rem = oo_remaining_at_tau(2.0, 1.0)
         self.assertEqual(item["dual_score_window"], "intraday")
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
 

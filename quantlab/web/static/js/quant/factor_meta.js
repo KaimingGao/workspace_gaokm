@@ -27,7 +27,7 @@ const FAMILY_MEMBERS = {
   risk: ["volatility", "gap_risk", "tail_anomaly", "overheat"],
   residual: ["relative_strength", "idio_momentum", "size"],
   reversal: ["reversal"],
-  sentiment: ["alt_sentiment", "llm_sentiment"],
+  sentiment: ["alt_sentiment"],
   pv_derived: ["alpha_oo", "alpha_tc", "alpha_th"],
 };
 
@@ -50,11 +50,6 @@ const SOURCE_OVERRIDE = {
     status: "prior_only",
     label: "旁路",
     note: "无历史 news 面板；不进 ŷ；仅 sentiment.prior 旁路",
-  },
-  llm_sentiment: {
-    status: "prior_only",
-    label: "旁路",
-    note: "Qwen LLM 舆情（研究轨）；不进 ŷ；仅作 alt_sentiment 研究对照",
   },
 };
 

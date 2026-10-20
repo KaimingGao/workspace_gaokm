@@ -7,14 +7,14 @@ import unittest
 
 
 class TestYhatGeom(unittest.TestCase):
-    def test_remaining_at_tau_matches_eod_helper(self):
-        from core.signal.dual_score import eod_remaining_at_tau
+    def test_remaining_at_tau_matches_oo_helper(self):
+        from core.signal.dual_score import oo_remaining_at_tau
         from core.signal.yhat_geom import remaining_at_tau
 
         self.assertAlmostEqual(remaining_at_tau(2.0, None), 2.0)
         self.assertAlmostEqual(remaining_at_tau(2.0, 0.0), 2.0)
         mapped = remaining_at_tau(2.0, 1.0)
-        self.assertAlmostEqual(mapped, eod_remaining_at_tau(2.0, 1.0))
+        self.assertAlmostEqual(mapped, oo_remaining_at_tau(2.0, 1.0))
         self.assertLess(mapped, 2.0)
 
     def test_compound_pct(self):
@@ -84,7 +84,7 @@ class TestYhatGeom(unittest.TestCase):
         )
 
     def test_resolve_oo_prior_var_prefers_cluster_rmse(self):
-        from core.signal.yhat_geom import resolve_eod_prior_var, resolve_oo_prior_var
+        from core.signal.yhat_geom import resolve_oo_prior_var
 
         ve, src = resolve_oo_prior_var(
             cfg_var=1.0,
@@ -93,7 +93,7 @@ class TestYhatGeom(unittest.TestCase):
         )
         self.assertAlmostEqual(ve, 0.25)
         self.assertEqual(src, "cluster_holdout_rmse2")
-        ve2, src2 = resolve_eod_prior_var(
+        ve2, src2 = resolve_oo_prior_var(
             cfg_var=1.0,
             prior_var=2.0,
             cluster_report={"k_selection": {"mean_holdout_rmse": 0.5}},
@@ -152,7 +152,13 @@ class TestYhatGeom(unittest.TestCase):
         self.assertNotIn("predicted_score_nowcast", item)
         self.assertNotIn("y_nowcast", item)
         blend = item["predicted_score_blend"]
-        self.assertAlmostEqual(rank_key_for_item(item), blend)
+        self.assertAlmostEqual(blend, 1.001, places=3)
+        # 排序键优先 y_oo_fuse（τ→open[T+1]），与昨收口径 ŷ_trade 不同
+        from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
+
+        fuse = y_oo_fuse_pct_of(item)
+        self.assertIsNotNone(fuse)
+        self.assertAlmostEqual(rank_key_for_item(item), float(fuse))
 
     def test_apply_tau_aligns_oc_rem_at_minute(self):
         from core.signal.dual_score import apply_tau_score_fields

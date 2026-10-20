@@ -667,7 +667,6 @@ function renderRebalanceReport(
       y_state: r.y_state,
       predicted_score_blend: r.predicted_score_blend,
       predicted_score_eod_rem: r.predicted_score_eod_rem,
-      predicted_score_tau_delta: r.predicted_score_tau_delta,
       dual_score_window: r.dual_score_window || null,
       eod_feature_as_of: r.eod_feature_as_of || null,
       trade_day: r.trade_day || null,

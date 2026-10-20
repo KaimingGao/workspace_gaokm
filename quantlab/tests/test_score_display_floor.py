@@ -77,7 +77,7 @@ class TestSelectionFloor(unittest.TestCase):
             "core.signal.config.load_signal_config",
             return_value={"scoring": {"min_predicted_score": 0.35}},
         ), patch(
-            "core.signal.dual_score.eod_gate_score_for_item",
+            "core.signal.dual_score.oo_gate_score_for_item",
             return_value=1.5,
         ):
             gate = annotate_score_gate(1.5, min_score=0.35, item=item)

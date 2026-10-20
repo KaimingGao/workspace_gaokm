@@ -428,7 +428,7 @@ def build_minute_status(
 
 def _minute_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
     from core.job_progress import minute_refresh_job
-    from quant.research.cluster_refresh_job_snapshot import public_refresh_job_snapshot
+    from core.job_progress import public_refresh_job_snapshot
 
     return public_refresh_job_snapshot(
         minute_refresh_job,

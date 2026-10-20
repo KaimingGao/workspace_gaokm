@@ -442,13 +442,6 @@ export function buildPortfolioBacktestSummaryText(data) {
           ? ` · 冲击≈${Number(cc.avg_impact_bps).toFixed(1)}bps`
           : "")
       : "";
-  const wf = data.wf_slices || {};
-  const wfNote =
-    wf.ok && wf.mean_test_return_pct != null
-      ? ` · WF均收益 ${Number(wf.mean_test_return_pct).toFixed(2)}%`
-      : wf.reason
-        ? ` · WF ${wf.reason}`
-        : "";
   const attr = data.attribution || {};
   const attrNote =
     attr.ok && attr.selection_excess_pct != null
@@ -539,7 +532,7 @@ export function buildPortfolioBacktestSummaryText(data) {
       : "") +
     ` · 交易日 ${data.params?.trade_days ?? data.params?.common_dates ?? "—"} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
-    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${icNote}${benchNote}${sessNote}`;
+    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${icNote}${benchNote}${sessNote}`;
   return { text, warn: !!oosFailed };
 }
 
@@ -805,19 +798,11 @@ export function createBtResultRenderers(deps) {
       return;
     }
     const oos = data.oos_summary || {};
-    const wf = data.wf_slices || {};
     const regime = data.regime_summary || {};
     const oosFailed = oos.ok === false || oos.failed === true;
     const isRet = oos.is_return_pct != null ? `${Number(oos.is_return_pct).toFixed(2)}%` : "—";
     const oosRet = oos.oos_return_pct != null ? `${Number(oos.oos_return_pct).toFixed(2)}%` : "—";
     const oosCls = oosFailed ? "down" : "";
-    const wfMean =
-      wf.mean_test_return_pct != null ? `${Number(wf.mean_test_return_pct).toFixed(2)}%` : "—";
-    const wfPos =
-      wf.positive_test_folds != null && wf.measured_test_folds != null
-        ? `${wf.positive_test_folds}/${wf.measured_test_folds}`
-        : "—";
-    const foldN = (wf.folds || []).length || wf.fold_count || "—";
     const regimeLabel = regime.regime || (regime.ok === false ? regime.reason || "—" : "—");
     const mcs = data.macro_context_summary || {};
     const macroKpi =
@@ -826,21 +811,15 @@ export function createBtResultRenderers(deps) {
             mcs.avg_overseas_tech_1d_pct
           )}">${esc(fmt(mcs.avg_overseas_tech_1d_pct))}</span></div>`
         : "";
-    const note =
-      oosFailed
-        ? oos.reason || "OOS 未过闸：样本内好看不等于样本外有效"
-        : wf.ok === false && wf.reason
-          ? `WF：${wf.reason}`
-          : "按权益曲线切分 OOS · WF 为扩展窗测试折；网格扫描默认跳过 WF";
+    const note = oosFailed
+      ? oos.reason || "OOS 未过闸：样本内好看不等于样本外有效"
+      : "按权益曲线切分 OOS；Walk-forward 切片已移除";
     el.innerHTML =
       `<div class="quant-validation-block">` +
-      `<p class="quant-trades-caption">稳健性 · OOS / Walk-forward</p>` +
+      `<p class="quant-trades-caption">稳健性 · OOS</p>` +
       `<div class="quant-validation-strip" aria-label="稳健性 KPI">` +
       `<div class="quant-validation-kpi"><span class="k">样本内</span><span class="v">${esc(isRet)}</span></div>` +
       `<div class="quant-validation-kpi"><span class="k">OOS</span><span class="v ${oosCls}">${esc(oosRet)}</span></div>` +
-      `<div class="quant-validation-kpi"><span class="k">WF均收益</span><span class="v">${esc(wfMean)}</span></div>` +
-      `<div class="quant-validation-kpi"><span class="k">WF正窗</span><span class="v">${esc(String(wfPos))}</span></div>` +
-      `<div class="quant-validation-kpi"><span class="k">WF折</span><span class="v">${esc(String(foldN))}</span></div>` +
       `<div class="quant-validation-kpi"><span class="k">Regime</span><span class="v">${esc(String(regimeLabel))}</span></div>` +
       macroKpi +
       `</div>` +

@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 from core.signal.dual_score.fusion import (
     _as_float,
-    cascade_tau_shadow,
     fuse_remaining_heads_meta,
     merge_tau_features,
     oo_remaining_at_tau,
@@ -107,7 +106,6 @@ def apply_tau_score_fields(
     as_of_tau: Optional[str] = None,
     y_spec_override: Optional[Dict[str, Any]] = None,
     rem_model_doc: Optional[Dict[str, Any]] = None,
-    residual_delta: Optional[bool] = None,
     fuse_intraday: bool = True,
     y_source: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -117,7 +115,6 @@ def apply_tau_score_fields(
     时钟对齐后的数写入 y_τc；原始模型头留在 y_tau_raw。
     ŷ_trade = w·ŷ_oo + w·lift(ŷ_τ)。open→close 标签 lift=缺口∘ŷ_τ；τ→close 标签 lift=缺口∘ret_open_to_tau∘ŷ_τ。
     ŷ_oo_rem 只作派生对照，不进融合。
-    ``residual_delta`` 已废弃，忽略。
     ``fuse_intraday=False``（ŷ_oo 已换到下一周期）：τ 不进主排序融合。
     收盘后同一周期仍 fuse：用的是钉在 ≤10:00 的 ŷ_τc 估计。
 
@@ -125,7 +122,6 @@ def apply_tau_score_fields(
     ``predict_tau_from_features`` 相同的日截面 z 行；缺省则用 ``feats`` 合并结果
     （非截面 / 旧路径）。``features_tau`` 落盘仍用 raw 快照。
     """
-    _ = residual_delta
     cfg = get_dual_score_cfg(config)
     tau = str(cfg.get("tau") or "open")
     y_spec = dict(cfg.get("y_spec") or DEFAULT_DUAL_SCORE["y_spec"])
@@ -177,26 +173,10 @@ def apply_tau_score_fields(
         cfg_var=cfg.get("eod_residual_var"),
     )
 
-    rem_intercept = None
-    try:
-        doc = rem_model_doc if isinstance(rem_model_doc, dict) else {}
-        rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
-        if isinstance(rm, dict) and rm.get("intercept") is not None:
-            rem_intercept = float(rm.get("intercept"))
-    except (TypeError, ValueError):
-        rem_intercept = None
-    cascade = None
-    if fuse and cfg.get("enable_cascade_shadow", True):
-        cascade = cascade_tau_shadow(
-            oo_rem, y_tau, rem_intercept=rem_intercept
-        )
-
     if y_oo is not None:
         signal_item["y_oo"] = y_oo
         signal_item["predicted_score_oo"] = y_oo
     signal_item["predicted_score_eod_rem"] = oo_rem
-    signal_item["predicted_score_tau_delta"] = None
-    signal_item["predicted_score_tau_cascade"] = cascade
     signal_item["realized_t1_to_tau"] = realized
     # 时钟对齐后的 price(τ)→close 只写入 y_τc。原始头在 y_tau_raw。
     signal_item.pop("predicted_score_tau", None)
@@ -261,14 +241,12 @@ def apply_tau_score_fields(
     else:
         formula_terms_tau = dict(formula_terms_tau)
     formula_terms_tau["oo_remaining"] = oo_rem
-    formula_terms_tau["eod_remaining"] = oo_rem  # 遗留键
     formula_terms_tau["y_oo"] = y_oo
     formula_terms_tau["y_tau"] = y_tau
     formula_terms_tau["y_τc"] = y_tau
     formula_terms_tau["y_tau_raw"] = y_tau_raw
     formula_terms_tau["y_tau_cc"] = signal_item.get("predicted_score_blend_tau_cc")
     formula_terms_tau["trade"] = trade
-    formula_terms_tau["cascade"] = cascade
     formula_terms_tau["rem_oc"] = rem_label_is_open_to_close(rem_model_doc)
     formula_terms_tau["head"] = (
         "tau_oc" if rem_label_is_open_to_close(rem_model_doc) else "tau_rem"
@@ -293,6 +271,8 @@ def apply_tau_score_fields(
         "nowcast_path",
         "y_nowcast",
         "y_nc",
+        "predicted_score_tau_delta",
+        "predicted_score_tau_cascade",
     ):
         signal_item.pop(_dead, None)
     w_mode = str(cfg.get("w_mode") or "fixed").strip().lower()
