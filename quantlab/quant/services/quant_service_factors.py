@@ -1814,7 +1814,7 @@ class QuantFactorMixin:
         progress_cb: Optional[Any] = None,
         job_alive_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """泛化 ŷ_τ horizon：同窗双训 Ridge+Tree，AUC 择优。horizon ∈ {t30…t90}。只读本地 5m 缓存。
+        """泛化 ŷ_τ horizon：同窗双训 LightGBM + Ridge，AUC 择优。horizon ∈ {t30…t90}。只读本地 5m 缓存。
 
         ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
         方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
@@ -2118,7 +2118,7 @@ class QuantFactorMixin:
         compact = prepared["compact"]
         calendar = take_calendar_and_release(stock_bars)
 
-        _progress(n_codes, n_codes, f"ŷ_τ{hn} Ridge+Tree 双训…")
+        _progress(n_codes, n_codes, f"ŷ_τ{hn} LightGBM + Ridge 双训…")
         report = fit_horizon_dual_report(
             horizon,
             stock_bars,

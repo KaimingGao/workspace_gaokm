@@ -6,6 +6,7 @@
 
 
 import logging
+import math
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -1734,6 +1735,259 @@ def attach_cross_section_breadth(
 
         out.append({**p, "xs": xs, "metas": metas, "dates": dates})
     return out
+
+
+# L2 组 Cube 时补写的截面裸名（与 attach_cross_section_breadth 对齐）
+DAY_MATRIX_CS_KEYS: Tuple[str, ...] = (
+    "sector_gap_breadth",
+    "theme_day",
+    "gap_vs_sector",
+    "sector_ret_to_tau",
+    "ret_vs_sector",
+)
+
+
+def _matrix_pick_col(
+    names: Sequence[str],
+    x: Any,
+    *candidates: str,
+) -> Optional[Any]:
+    """按候选名取一日截面列；优先有有限值的列。"""
+    import numpy as np
+
+    pos = {str(n): j for j, n in enumerate(names)}
+    arr = np.asarray(x, dtype=np.float64)
+    if arr.ndim != 2:
+        return None
+    for name in candidates:
+        j = pos.get(str(name))
+        if j is None:
+            continue
+        col = arr[:, int(j)]
+        if bool(np.isfinite(col).any()):
+            return col
+    return None
+
+
+# open / co 入模截面（无分钟板块收益）
+DAY_MATRIX_CS_OPEN_KEYS: Tuple[str, ...] = (
+    "sector_gap_breadth",
+    "theme_day",
+    "gap_vs_sector",
+)
+
+
+def enrich_day_matrix_cross_section(
+    codes: Sequence[str],
+    names: Sequence[str],
+    x: Any,
+    *,
+    clock: str = "open",
+    gap_trigger_pct: float = 2.0,
+    sector_map: Optional[Dict[str, str]] = None,
+) -> Tuple[List[str], Any, List[str]]:
+    """一日截面矩阵补 ``DAY_MATRIX_CS_KEYS``，口径同 ``attach_cross_section_breadth``。
+
+    源列：``gap_pct`` / ``ret_open_to_tau``（裸名或 ``z_τh_*`` / ``z_τc_*`` / ``z_co_*``）。
+    写出裸名后镜像 ``z_τh_*`` / ``z_τc_*``；开盘截面三列另镜像 ``z_co_*``。
+    缺 ``gap_pct`` 源或内部异常则**原样返回**（不抛）。返回 ``(names, X, added_bare_keys)``。
+    ``clock`` 仅作诊断/扩展保留，口径与面板一致不按钟分支。
+    """
+    import numpy as np
+
+    name_list = [str(n) for n in (names or [])]
+    code_list = [str(c).strip() for c in (codes or [])]
+    try:
+        arr = np.asarray(x, dtype=np.float64)
+    except (TypeError, ValueError):
+        return name_list, np.asarray(x) if x is not None else np.zeros((0, 0)), []
+    if arr.ndim != 2 or arr.shape[0] != len(code_list) or arr.shape[1] != len(name_list):
+        return name_list, arr, []
+    if len(code_list) < 2:
+        return name_list, arr, []
+
+    try:
+        return _enrich_day_matrix_cross_section_body(
+            code_list,
+            name_list,
+            arr,
+            gap_trigger_pct=gap_trigger_pct,
+            sector_map=sector_map,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "enrich_day_matrix_cross_section failed clock=%s n=%s",
+            clock,
+            len(code_list),
+            exc_info=True,
+        )
+        return name_list, arr, []
+
+
+def _enrich_day_matrix_cross_section_body(
+    code_list: List[str],
+    name_list: List[str],
+    arr: Any,
+    *,
+    gap_trigger_pct: float,
+    sector_map: Optional[Dict[str, str]],
+) -> Tuple[List[str], Any, List[str]]:
+    import numpy as np
+
+    from core.signal.factors.z_co import Z_CO_PREFIX
+    from core.signal.factors.z_tc import Z_TC_PREFIX
+    from core.signal.factors.z_th import Z_TH_PREFIX
+
+    gap_col = _matrix_pick_col(
+        name_list,
+        arr,
+        "gap_pct",
+        f"{Z_TH_PREFIX}gap_pct",
+        f"{Z_TC_PREFIX}gap_pct",
+        f"{Z_CO_PREFIX}gap_pct",
+    )
+    if gap_col is None:
+        return name_list, arr, []
+
+    ret_col = _matrix_pick_col(
+        name_list,
+        arr,
+        "ret_open_to_tau",
+        f"{Z_TH_PREFIX}ret_open_to_tau",
+        f"{Z_TC_PREFIX}ret_open_to_tau",
+    )
+
+    gaps_map: Dict[str, Optional[float]] = {}
+    gap_vals: List[float] = []
+    for i, code in enumerate(code_list):
+        g = float(gap_col[i]) if np.isfinite(gap_col[i]) else None
+        if code:
+            gaps_map[code] = g
+        if g is not None:
+            gap_vals.append(g)
+    if len(gap_vals) < 2:
+        return name_list, arr, []
+
+    try:
+        trigger = float(gap_trigger_pct)
+    except (TypeError, ValueError):
+        trigger = 2.0
+    if not math.isfinite(trigger) or trigger < 0:
+        trigger = 2.0
+
+    hit = sum(1 for g in gap_vals if abs(float(g)) >= trigger)
+    breadth = round(hit / len(gap_vals), 4)
+    from core.research.tau_theme import resolve_theme_day
+
+    theme_day = int(
+        resolve_theme_day(
+            sector_breadth=breadth,
+            pool_gaps=gap_vals,
+            gap_trigger_pct=trigger,
+        )
+    )
+    sm = sector_map
+    if sm is None:
+        try:
+            from core.portfolio_optimize import load_sector_map
+
+            sm = load_sector_map() or {}
+        except Exception:  # noqa: BLE001
+            sm = {}
+    try:
+        ref_by_code = sector_gap_reference_by_code(gaps_map, sector_map=sm)
+    except Exception:  # noqa: BLE001
+        logger.debug("sector_gap_reference_by_code failed", exc_info=True)
+        ref_by_code = {}
+
+    sret: Optional[float] = None
+    if ret_col is not None:
+        rets = [
+            float(ret_col[i])
+            for i in range(len(code_list))
+            if np.isfinite(ret_col[i])
+        ]
+        sret = _finite_median(rets)
+
+    n = len(code_list)
+    breadth_col = np.full(n, np.nan, dtype=np.float64)
+    theme_col = np.full(n, np.nan, dtype=np.float64)
+    gap_vs_col = np.full(n, np.nan, dtype=np.float64)
+    sret_col = np.full(n, np.nan, dtype=np.float64)
+    rvs_col = np.full(n, np.nan, dtype=np.float64)
+
+    for i, code in enumerate(code_list):
+        if not np.isfinite(gap_col[i]):
+            continue
+        gap_i = float(gap_col[i])
+        try:
+            th_row = int(
+                resolve_theme_day(
+                    gap_pct=gap_i,
+                    sector_breadth=breadth,
+                    pool_gaps=gap_vals,
+                    gap_trigger_pct=trigger,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            th_row = 0
+        th = 1 if th_row else theme_day
+        breadth_col[i] = breadth
+        theme_col[i] = float(th)
+        rel = gap_vs_sector_value(gap_i, ref_by_code.get(code) if code else None)
+        if rel is not None:
+            gap_vs_col[i] = float(rel)
+        if sret is not None:
+            sret_col[i] = round(float(sret), 6)
+            if ret_col is not None and np.isfinite(ret_col[i]):
+                rvs_col[i] = round(float(ret_col[i]) - float(sret), 6)
+
+    bare_cols = {
+        "sector_gap_breadth": breadth_col,
+        "theme_day": theme_col,
+        "gap_vs_sector": gap_vs_col,
+        "sector_ret_to_tau": sret_col,
+        "ret_vs_sector": rvs_col,
+    }
+    if sret is None:
+        bare_cols.pop("sector_ret_to_tau", None)
+        bare_cols.pop("ret_vs_sector", None)
+
+    added: List[str] = []
+    out_names = list(name_list)
+    pos = {str(n): j for j, n in enumerate(out_names)}
+    blocks = [arr[:, j] for j in range(arr.shape[1])]
+
+    def _upsert(name: str, col: Any) -> None:
+        nonlocal blocks
+        col_arr = np.asarray(col, dtype=np.float64).reshape(-1)
+        if col_arr.size != n or not bool(np.isfinite(col_arr).any()):
+            return
+        j = pos.get(name)
+        if j is None:
+            pos[name] = len(out_names)
+            out_names.append(name)
+            blocks.append(col_arr)
+            added.append(name)
+        else:
+            blocks[j] = col_arr
+            if name not in added:
+                added.append(name)
+
+    for bare, col in bare_cols.items():
+        _upsert(bare, col)
+        _upsert(f"{Z_TH_PREFIX}{bare}", col)
+        _upsert(f"{Z_TC_PREFIX}{bare}", col)
+        if bare in DAY_MATRIX_CS_OPEN_KEYS:
+            _upsert(f"{Z_CO_PREFIX}{bare}", col)
+
+    if not added:
+        return name_list, arr, []
+    out_x = np.column_stack(blocks)
+    if out_x.ndim != 2 or out_x.shape[0] != n or out_x.shape[1] != len(out_names):
+        return name_list, arr, []
+    added_bare = [k for k in DAY_MATRIX_CS_KEYS if k in added]
+    return out_names, out_x, added_bare
 
 
 def theme_sample_weights(

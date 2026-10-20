@@ -122,20 +122,57 @@ def _format_l2_miss_error(meta: Optional[Mapping[str, Any]], *, default_clock: s
     return "请先物化 L2：" + base + note
 
 
+def _cube_mu_sd_for_name(
+    name: str,
+    mu_map: Mapping[str, float],
+    sd_map: Mapping[str, float],
+) -> Tuple[Optional[float], Optional[float]]:
+    """Cube μ/σ 查找：精确名 → 裸名 / z_τh / z_τc / z_co 别名。"""
+    key = str(name or "")
+    if key in mu_map:
+        return mu_map.get(key), sd_map.get(key)
+    try:
+        from core.signal.factors.z_co import to_legacy_key as co_legacy
+        from core.signal.factors.z_co import to_z_co_key
+        from core.signal.factors.z_tc import to_z_tc_key
+        from core.signal.factors.z_th import to_legacy_key, to_z_th_key
+    except Exception:  # noqa: BLE001
+        return None, None
+    bare = str(to_legacy_key(key) or "").strip()
+    if not bare or bare == key:
+        bare = str(co_legacy(key) or key).strip()
+    for cand in (bare, to_z_th_key(bare), to_z_tc_key(bare), to_z_co_key(bare)):
+        c = str(cand or "").strip()
+        if c and c in mu_map:
+            return mu_map.get(c), sd_map.get(c)
+    return None, None
+
+
 def _apply_bucket_matrix_cs(
     out: np.ndarray,
     idxs: Sequence[int],
     *,
     min_names: int,
     eps: float,
+    cols: Optional[Sequence[int]] = None,
 ) -> None:
-    """单组桶内截面 z（缺 L2 时的有多少用多少回退）。"""
-    ix = np.asarray(list(idxs), dtype=np.int64)
+    """单组桶内截面 z（缺 L2 日 / 缺列时的有多少用多少回退）。"""
+    if out is None or getattr(out, "ndim", 0) != 2:
+        return
+    n_rows = int(out.shape[0])
+    ix = np.asarray(
+        [int(i) for i in idxs if 0 <= int(i) < n_rows],
+        dtype=np.int64,
+    )
     if ix.size == 0:
         return
     need = max(1, int(min_names))
-    p = int(out.shape[1]) if out.ndim == 2 else 0
-    for j in range(p):
+    p = int(out.shape[1])
+    if cols is None:
+        col_js = range(p)
+    else:
+        col_js = [int(j) for j in cols if 0 <= int(j) < p]
+    for j in col_js:
         col = out[ix, j]
         finite = np.isfinite(col)
         m = int(finite.sum())
@@ -173,7 +210,8 @@ def apply_day_cube_mu_sigma_matrix(
     ``fallback_open`` 时再试 ``open``。``fallback_open=None`` 时：含 ``date|τ``
     默认关（禁静默 open），纯日期默认开。
 
-    **有多少用多少**：部分日缺 Cube 时，已命中日用 L2，缺日用桶内截面 z，不整单失败；
+    **有多少用多少**：部分日缺 Cube 时，已命中日用 L2，缺日用桶内截面 z；
+    Cube 缺列（旧盘 / 半窗）同桶内 z，并尝试裸名与 ``z_τh_*``/``z_τc_*``/``z_co_*`` 别名；
     **仅当该钟全日无 Cube**（hit=0）才 ``ok=False``（促物化）。
     """
     from core.research.day_cube import enabled, load_day_cube
@@ -212,6 +250,8 @@ def apply_day_cube_mu_sigma_matrix(
     open_fb = 0
     need = max(1, int(min_names))
     miss_buckets: List[Tuple[str, str, List[int]]] = []
+    missing_col_seen: List[str] = []
+    missing_col_set: set = set()
     for (day, clk), idxs in buckets.items():
         cube = None
         try:
@@ -229,41 +269,60 @@ def apply_day_cube_mu_sigma_matrix(
             miss += 1
             miss_buckets.append((day, clk, list(idxs)))
             continue
+        cube_names = list(getattr(cube, "names", None) or [])
+        try:
+            z_mean = np.asarray(getattr(cube, "z_mean", None), dtype=np.float64).reshape(
+                -1
+            )
+            z_std = np.asarray(getattr(cube, "z_std", None), dtype=np.float64).reshape(
+                -1
+            )
+        except (TypeError, ValueError):
+            z_mean = np.zeros(0, dtype=np.float64)
+            z_std = np.zeros(0, dtype=np.float64)
+        width = min(len(cube_names), int(z_mean.size), int(z_std.size))
+        if width < 1:
+            miss += 1
+            miss_buckets.append((day, clk, list(idxs)))
+            continue
         hit += 1
-        mu_map = {str(n): float(cube.z_mean[j]) for j, n in enumerate(cube.names)}
-        sd_map = {str(n): float(cube.z_std[j]) for j, n in enumerate(cube.names)}
-        missing = [
-            str(name)
-            for name in name_list
-            if str(name) not in mu_map and not str(name).startswith("raw_ath_")
-        ]
-        if missing:
-            shown = ",".join(missing[:12])
-            return None, {
-                "ok": False,
-                "error": f"cube 缺列 {shown}",
-                "missing_names": missing[:32],
-                "date": day,
-                "clock": clk,
-                "hit_days": hit,
-                "miss_days": miss,
-                "fallback_open": allow_open_fb,
-            }
-        ix = np.asarray(idxs, dtype=np.int64)
+        mu_map = {str(cube_names[j]): float(z_mean[j]) for j in range(width)}
+        sd_map = {str(cube_names[j]): float(z_std[j]) for j in range(width)}
+        # 旧 Cube / 半窗缺截面列：该列桶内 z（新 L2 已 enrich 进 Cube）
+        ix = np.asarray(
+            [int(i) for i in idxs if 0 <= int(i) < n],
+            dtype=np.int64,
+        )
+        if ix.size == 0:
+            continue
+        matrix_js: List[int] = []
         for j, name in enumerate(name_list):
-            mu = mu_map.get(name)
-            sd = sd_map.get(name)
+            if str(name).startswith("raw_ath_"):
+                matrix_js.append(j)
+                continue
+            mu, sd = _cube_mu_sd_for_name(str(name), mu_map, sd_map)
+            if mu is None:
+                matrix_js.append(j)
+                key = str(name)
+                if key not in missing_col_set:
+                    missing_col_set.add(key)
+                    missing_col_seen.append(key)
+                continue
             col = out[ix, j]
             finite = np.isfinite(col)
             m = int(finite.sum())
-            if m < need or mu is None or (not math.isfinite(mu)):
+            if m < need or (not math.isfinite(float(mu))):
                 if m:
                     out[ix[finite], j] = 0.0
                 continue
-            if sd is None or (not math.isfinite(sd)) or sd <= eps:
+            if sd is None or (not math.isfinite(float(sd))) or float(sd) <= eps:
                 out[ix[finite], j] = 0.0
                 continue
             out[ix[finite], j] = (col[finite] - float(mu)) / float(sd)
+        if matrix_js:
+            _apply_bucket_matrix_cs(
+                out, idxs, min_names=need, eps=eps, cols=matrix_js
+            )
 
     if hit == 0:
         day0, clk0, _idxs0 = miss_buckets[0] if miss_buckets else ("", clock, [])
@@ -285,6 +344,7 @@ def apply_day_cube_mu_sigma_matrix(
         "hit_days": hit,
         "miss_days": miss,
         "matrix_fallback_days": miss,
+        "matrix_fallback_cols": missing_col_seen[:32],
         "open_fallback": open_fb,
         "fallback_open": allow_open_fb,
         "clock": clock,

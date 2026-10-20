@@ -37,6 +37,54 @@ def _emit(cb: ProgressCb, cur: int, tot: int, msg: str) -> None:
         logger.debug("cube batch progress failed", exc_info=True)
 
 
+def _maybe_enrich_day_cs(
+    kept: Sequence[str],
+    names: Sequence[str],
+    matrix: Any,
+    *,
+    day: str,
+    clock: str,
+) -> tuple:
+    """组 Cube 前补截面列；失败或形变不合法时退回原矩阵。"""
+    import numpy as np
+
+    name_list = list(names)
+    try:
+        from core.research.tau_panel import enrich_day_matrix_cross_section
+
+        new_names, new_mat, _added = enrich_day_matrix_cross_section(
+            kept, name_list, matrix, clock=clock
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "cube CS enrich failed day=%s clock=%s; using aligned matrix",
+            day,
+            clock,
+            exc_info=True,
+        )
+        return name_list, matrix
+    try:
+        arr = np.asarray(new_mat, dtype=np.float64)
+    except (TypeError, ValueError):
+        return name_list, matrix
+    if (
+        not isinstance(new_names, (list, tuple))
+        or arr.ndim != 2
+        or arr.shape[0] != len(kept)
+        or arr.shape[1] != len(new_names)
+    ):
+        logger.warning(
+            "cube CS enrich shape reject day=%s clock=%s kept=%s names=%s shape=%s",
+            day,
+            clock,
+            len(kept),
+            len(new_names) if isinstance(new_names, (list, tuple)) else "?",
+            getattr(arr, "shape", None),
+        )
+        return name_list, matrix
+    return list(new_names), arr
+
+
 def _keep_cube(
     cube: Any,
     *,
@@ -425,6 +473,8 @@ def _write_vectorized_days(
             stats["days_skipped"] += 1
             continue
         kept, names, matrix = aligned
+        clk = str(clock or "").strip() or "open"
+        names, matrix = _maybe_enrich_day_cs(kept, names, matrix, day=day, clock=clk)
         try:
             cube = ensure_day_cube_for_items(
                 [],

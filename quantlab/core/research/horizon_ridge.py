@@ -184,7 +184,7 @@ def horizon_realized_pct(head: str, price_tau: Any, price_tau_n: Any) -> Optiona
 
 
 # ---------------------------------------------------------------------------
-# 面板：enrich → float64 紧凑矩阵；双训 Ridge/Tree 共用一份
+# 面板：enrich → float64 紧凑矩阵；双训 LightGBM + Ridge 共用一份
 # ---------------------------------------------------------------------------
 
 
@@ -580,7 +580,7 @@ def fit_horizon_ridge_report(
         "feature_pack_formula": pack_meta["feature_pack_formula"],
         "note": (
             f"X = alpha_τh（z_τh_* ∪ raw_ath_*）；短窗/会话/本头 H_* 在 raw_ath_*；"
-            f"Tree/Ridge 同 X。"
+            f"LightGBM/Ridge 同 X。"
             f"ŷ_τ{num}=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 fuse。"
         ),
     }
@@ -678,10 +678,10 @@ def fit_horizon_dual_report(
     compact_panel: Optional[Dict[str, Any]] = None,
     calendar_dates: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """同窗双训 Ridge + Tree（**串行**：先 Ridge 再 Tree）；Holdout AUC 择优（打平→ridge）。
+    """同窗双训 LightGBM + Ridge（**串行**：先 Ridge 再 LightGBM）；Holdout AUC 择优（打平→ridge）。
 
     产出 ``backends`` / ``recommended_backend``；顶层 ``return_model`` 为胜出侧。
-    Tree / Ridge 同 X（alpha_τh）。面板只建一次（或传入 ``enriched_panels`` /
+    LightGBM / Ridge 同 X（alpha_τh）。面板只建一次（或传入 ``enriched_panels`` /
     ``compact_panel``），折 float64 后共用；分钟线与日线 ``bars`` 在抽日历后释放。
     """
     from core.research.horizon_compact import (
@@ -884,9 +884,9 @@ def fit_horizon_dual_report(
                 else ridge_rep.get("feature_importance")
             ),
             "note": (
-                f"ŷ_τ{num} 同窗双训 Ridge+Tree；Holdout AUC 择优"
+                f"ŷ_τ{num} 同窗双训 LightGBM + Ridge；Holdout AUC 择优"
                 f"（打平→ridge）→ recommended={recommended}。"
-                "特征包 alpha_τh=z_τh_*∪raw_ath_*；Tree/Ridge 同 X。"
+                "特征包 alpha_τh=z_τh_*∪raw_ath_*；LightGBM/Ridge 同 X。"
                 "进 ŷ_τw 投票；不进 fuse。"
             ),
         }

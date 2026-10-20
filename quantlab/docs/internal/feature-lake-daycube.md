@@ -134,7 +134,7 @@ API 要点：
 | `slim` | τ 池字段：`pool_gaps`、`sector_gap_breadth`、`gaps_by_code`、`ref_by_code` 等 |
 | `clock` | `open` / `eod` / `tau_HHMM` |
 
-进程内 `_MEMORY` 缓存当日 cube。open 的 τ 池字段由物化 `attach_slim` 并进已有立方，不改 `X_raw`。旧的 `persist_tau_pool_as_cubes` 会用只有 `gap_pct` 的矩阵盖掉特征立方，已删除。列数不足 2 的旧文件在覆盖检查里算缺失。
+进程内 `_MEMORY` 缓存当日 cube。open 的 τ 池字段由物化 `attach_slim` 并进已有立方的 `slim`（不改 μ/σ）。组 Cube 时 `enrich_day_matrix_cross_section` 用当日 `gap_pct` / `ret_open_to_tau` 补截面列（`sector_gap_breadth` / `theme_day` / `gap_vs_sector` 等）进 `X_raw` 与 μ/σ，并镜像 `z_τh_*` / `z_τc_*` / `z_co_*`。旧的 `persist_tau_pool_as_cubes` 会用只有 `gap_pct` 的矩阵盖掉特征立方，已删除。列数不足 2 的旧文件在覆盖检查里算缺失。
 
 **宇宙键**：`universe_hash` 用本次请求的完整代码名单（观察池），不用「当天有特征行的子集」。缺行代码不进 `X_raw` / μ/σ。读写不一致时立方 miss。说明与 2026-10-19 的 800/798 分叉见 [daycube-universe-key.md](./daycube-universe-key.md)。
 
@@ -501,8 +501,8 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 |----|------|
 | 构建输入 | 该日该钟 L1 行 → `ensure_day_cube_for_items(..., clock=τ, universe_codes=请求的完整名单)`。哈希不随缺行缩小 |
 | `names` | 必须覆盖窗头入模列（拒 slim gap-only；与现 prefix CS-z 拒 slim 一致） |
-| 物化 | `clocks = ["open"] + suggested_tau_clocks`；缺 L1 跳过并计数 `days_skipped` |
-| 拟合读 | `cs_z_*_prefer_cube`：`date|τ` → `load_day_cube(day, clock=τ)`；miss → **不**默默用 open 当主成功（可配置 `fallback_open`，窗头默认 **关** 或打标 `open_fallback`） |
+| 物化 | `clocks = ["open"] + suggested_tau_clocks`；缺 L1 跳过并计数 `days_skipped`；`align` 后矩阵 CS enrich 再算 μ/σ |
+| 拟合读 | `cs_z_*_prefer_cube`：`date|τ` → `load_day_cube(day, clock=τ)`；miss → **不**默默用 open 当主成功（可配置 `fallback_open`，窗头默认 **关** 或打标 `open_fallback`）；旧 Cube 缺列 → 该列桶内 z |
 
 > 窗头与 ŷ_τc(open) 分流：open Cube 继续服务 oo/τc(open)/co；**τ≠open 的窗头以按钟 Cube 为准。**
 
@@ -511,7 +511,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 ```text
 日线齐 → 分钟齐（5m Ready）
   → H1 物化 L1 τ 网格（观察池 × 训练钟 × tc_HHMM，列=τc∪窗头）
-  → H2 物化 L2 按钟（读 L1 → Cube，拒 slim）
+  → H2 物化 L2 按钟（读 L1 → align → CS enrich → Cube，拒 slim）
   → H3 窗头拟合：L1 hit 则 stack(date|τ) → prefer_cube(z) → dual fit → promote
          miss 行 → 5m 现算 + 写穿 L1（增量）
   → H4 live/T0/BT：前缀特征 → Cube(clock=τ) z → load t30…t90 模型
@@ -522,7 +522,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 |------|------|------|
 | **H0** | 契约：`horizon_l1_feature_names` / catalog `tau_grid` | ✅ |
 | **H1** | `materialize_l1_tau_grid` + API `do_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
-| **H2** | L2 `require_horizon_names`；分钟线物化按 `suggested_tau_clocks` 写按钟 Cube | ✅ |
+| **H2** | L2 `require_horizon_names`；按钟 Cube + 矩阵 CS enrich（open/分钟） | ✅ |
 | **H3** | `date\|τ` 禁静默 open；窗头 `build_tau` 优先 stitch L1，relabel 分钟补标签 | ✅ |
 | **H4** | live `_cs_z_horizon_feats`：τ 覆盖失败不静默 open → leave-one-in；hit 打 debug | ✅ |
 | **H5** | §10.1b 窗头分支；`test_materialize_l1l2` / JS guards；UI 色调；Job stale 90min | ✅ |

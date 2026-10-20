@@ -1,6 +1,6 @@
 """ŷ_τ* 面板紧凑化：enrich 后折 float64，对齐 y_oo / collect_tau_compact。
 
-双训 Ridge+Tree 共用一份 ``HorizonCompact``，避免两次 ``_stack_panels`` +
+双训 LightGBM + Ridge 共用一份 ``HorizonCompact``，避免两次 ``_stack_panels`` +
 胖 dict 行常驻；日线 ``bars`` 在抽出日历后即可释放。
 """
 

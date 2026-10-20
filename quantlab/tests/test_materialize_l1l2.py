@@ -549,7 +549,8 @@ class CubeZPerClockTests(unittest.TestCase):
         self.assertAlmostEqual(float(z[2, 0]), -1.0, places=5)
         self.assertAlmostEqual(float(z[3, 0]), 1.0, places=5)
 
-    def test_missing_model_column_is_not_zero(self):
+    def test_missing_model_column_matrix_fallback(self):
+        """Cube 缺列（如截面广度 z_τh_sector_*）→ 桶内 z，不整单失败。"""
         import numpy as np
 
         from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
@@ -571,10 +572,15 @@ class CubeZPerClockTests(unittest.TestCase):
             z, meta = apply_day_cube_mu_sigma_matrix(
                 x, ["f1", "f2", "raw_ath_x"], ["2026-01-02", "2026-01-02"]
             )
-        self.assertIsNone(z)
-        self.assertFalse(meta.get("ok"))
-        self.assertIn("f2", meta.get("missing_names") or [])
-        self.assertNotIn("raw_ath_x", meta.get("missing_names") or [])
+        self.assertTrue(meta.get("ok"), meta)
+        self.assertIsNotNone(z)
+        self.assertIn("f2", meta.get("matrix_fallback_cols") or [])
+        # f1 用 Cube：(1-0)/1=1；(3-0)/1=3
+        self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
+        self.assertAlmostEqual(float(z[1, 0]), 3.0, places=5)
+        # f2 桶内 μ=3 σ=1 → -1 / +1
+        self.assertAlmostEqual(float(z[0, 1]), -1.0, places=5)
+        self.assertAlmostEqual(float(z[1, 1]), 1.0, places=5)
 
 class NamesCoverHorizonTests(unittest.TestCase):
     def test_slim_rejected(self):
@@ -1145,6 +1151,297 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
             )
         self.assertFalse(out.get("ok"))
         self.assertIn("bars down", str(out.get("error")))
+
+class DayMatrixCsEnrichTests(unittest.TestCase):
+    def test_matrix_matches_panel_breadth(self) -> None:
+        from core.research.tau_panel import (
+            attach_cross_section_breadth,
+            enrich_day_matrix_cross_section,
+        )
+
+        day = "2026-01-05"
+        rows = [
+            ("000001", 3.0, 2.0),
+            ("000002", 1.0, 0.5),
+            ("000003", 0.5, -1.0),
+            ("600519", 4.0, 1.5),
+        ]
+        sm = {
+            "000001": "银行",
+            "000002": "银行",
+            "000003": "银行",
+            "600519": "白酒",
+        }
+        panels = []
+        for code, gap, rot in rows:
+            panels.append(
+                {
+                    "code": code,
+                    "xs": [{"gap_pct": gap, "ret_open_to_tau": rot}],
+                    "ys": [0.0],
+                    "dates": [day],
+                    "metas": [
+                        {
+                            "date": day,
+                            "stock_code": code,
+                            "tau": "09:35",
+                            "gap_pct": gap,
+                        }
+                    ],
+                }
+            )
+        enriched = attach_cross_section_breadth(
+            panels, gap_trigger_pct=2.0, sector_map=sm
+        )
+        codes = [r[0] for r in rows]
+        names = ["gap_pct", "ret_open_to_tau"]
+        x = np.asarray([[r[1], r[2]] for r in rows], dtype=np.float64)
+        out_names, out_x, added = enrich_day_matrix_cross_section(
+            codes, names, x, clock="09:35", gap_trigger_pct=2.0, sector_map=sm
+        )
+        self.assertIn("sector_gap_breadth", added)
+        self.assertIn("z_τh_sector_gap_breadth", out_names)
+        pos = {n: j for j, n in enumerate(out_names)}
+        for i, p in enumerate(enriched):
+            xs0 = p["xs"][0]
+            for key in (
+                "sector_gap_breadth",
+                "theme_day",
+                "gap_vs_sector",
+                "sector_ret_to_tau",
+                "ret_vs_sector",
+            ):
+                j = pos[key]
+                self.assertAlmostEqual(
+                    float(out_x[i, j]),
+                    float(xs0[key]),
+                    places=5,
+                    msg=f"{codes[i]} {key}",
+                )
+
+    def test_missing_gap_source_is_noop(self) -> None:
+        from core.research.tau_panel import enrich_day_matrix_cross_section
+
+        names = ["ret_open_to_tau"]
+        x = np.asarray([[1.0], [2.0], [3.0]], dtype=np.float64)
+        out_names, out_x, added = enrich_day_matrix_cross_section(
+            ["000001", "000002", "000003"], names, x, clock="09:35"
+        )
+        self.assertEqual(added, [])
+        self.assertEqual(out_names, names)
+        self.assertEqual(out_x.shape, x.shape)
+
+    def test_vectorized_l2_enriches_cs_into_aligned(self) -> None:
+        from core.research.materialize.cube_batch import build_day_cubes_from_lake
+
+        day = "2024-06-03"
+        codes = ["000001", "000002", "000003"]
+
+        def _slice(family, codes_in, dates, progress_cb=None, cancel_cb=None):
+            out = {}
+            for i, code in enumerate(codes_in):
+                if str(family).startswith("tc"):
+                    feats = {
+                        "gap_pct": float(1.0 + i),
+                        "ret_open_to_tau": float(0.5 * i - 0.2),
+                        "z_τh_gap_pct": float(1.0 + i),
+                        "z_τh_ret_open_to_tau": float(0.5 * i - 0.2),
+                    }
+                elif family == "oo":
+                    feats = {"gap_pct": float(1.0 + i)}
+                else:
+                    feats = {"ret_oc": 0.1}
+                names = list(feats)
+                out[code] = (
+                    names,
+                    {
+                        str(d)[:10]: np.asarray(
+                            [float(feats[n]) for n in names], dtype=np.float64
+                        )
+                        for d in dates
+                    },
+                )
+            return out
+
+        captured = {}
+
+        def _ensure(*_a, **kw):
+            aligned = kw.get("aligned")
+            if aligned is not None:
+                captured["names"] = list(aligned[1])
+            return mock.Mock(names=list(aligned[1]) if aligned else ["x"])
+
+        with mock.patch(
+            "core.research.feature_lake.slice_stock_panels", side_effect=_slice
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items", side_effect=_ensure
+        ), mock.patch(
+            "core.research.materialize.cube_batch._keep_cube", return_value=True
+        ):
+            stats = build_day_cubes_from_lake(
+                codes,
+                [day],
+                family_oo="oo",
+                family_tc="tc_0935",
+                family_co="co",
+                clock="09:35",
+                universe_codes=codes,
+                min_items=2,
+                require_tc_day=True,
+                swallow_ensure_errors=True,
+            )
+        self.assertEqual(stats["cubes_built"], 1)
+        got = set(captured.get("names") or [])
+        for key in (
+            "z_τh_sector_gap_breadth",
+            "z_τh_theme_day",
+            "z_τh_gap_vs_sector",
+            "z_τh_sector_ret_to_tau",
+            "z_τh_ret_vs_sector",
+            "z_τc_sector_gap_breadth",
+            "z_co_sector_gap_breadth",
+        ):
+            self.assertIn(key, got, msg=key)
+
+    def test_open_clock_enriches_tc_and_co_cs(self) -> None:
+        """open Cube：τc/co 入模截面进 names（含 z_co_*）。"""
+        from core.research.materialize.cube_batch import build_day_cubes_from_lake
+
+        day = "2024-06-03"
+        codes = ["000001", "000002", "000003"]
+
+        def _slice(family, codes_in, dates, progress_cb=None, cancel_cb=None):
+            out = {}
+            for i, code in enumerate(codes_in):
+                feats = {"gap_pct": float(2.0 + i), "z_co_gap_pct": float(2.0 + i)}
+                names = list(feats)
+                out[code] = (
+                    names,
+                    {
+                        str(d)[:10]: np.asarray(
+                            [float(feats[n]) for n in names], dtype=np.float64
+                        )
+                        for d in dates
+                    },
+                )
+            return out
+
+        captured = {}
+
+        def _ensure(*_a, **kw):
+            aligned = kw.get("aligned")
+            if aligned is not None:
+                captured["names"] = list(aligned[1])
+            return mock.Mock(names=list(aligned[1]) if aligned else ["x"])
+
+        with mock.patch(
+            "core.research.feature_lake.slice_stock_panels", side_effect=_slice
+        ), mock.patch(
+            "core.research.batch_score.ensure_day_cube_for_items", side_effect=_ensure
+        ), mock.patch(
+            "core.research.materialize.cube_batch._keep_cube", return_value=True
+        ):
+            stats = build_day_cubes_from_lake(
+                codes,
+                [day],
+                family_oo="oo",
+                family_tc="tc",
+                family_co="co",
+                clock="open",
+                universe_codes=codes,
+                min_items=2,
+                require_oo_item=True,
+            )
+        self.assertEqual(stats["cubes_built"], 1)
+        got = set(captured.get("names") or [])
+        for key in (
+            "z_τc_sector_gap_breadth",
+            "z_τc_theme_day",
+            "z_τc_gap_vs_sector",
+            "z_co_sector_gap_breadth",
+            "z_co_theme_day",
+            "z_co_gap_vs_sector",
+        ):
+            self.assertIn(key, got, msg=key)
+        # open 无 ret_open_to_tau 源 → 不硬塞板块收益列
+        self.assertNotIn("z_τc_sector_ret_to_tau", got)
+
+    def test_enrich_mirrors_z_co_open_keys(self) -> None:
+        from core.research.tau_panel import enrich_day_matrix_cross_section
+
+        codes = ["000001", "000002", "000003"]
+        names = ["gap_pct"]
+        x = np.asarray([[3.0], [1.0], [0.5]], dtype=np.float64)
+        out_names, _out_x, added = enrich_day_matrix_cross_section(
+            codes, names, x, clock="open"
+        )
+        self.assertIn("sector_gap_breadth", added)
+        for key in (
+            "z_co_sector_gap_breadth",
+            "z_co_theme_day",
+            "z_co_gap_vs_sector",
+            "z_τc_sector_gap_breadth",
+        ):
+            self.assertIn(key, out_names, msg=key)
+        self.assertNotIn("z_co_sector_ret_to_tau", out_names)
+
+    def test_enrich_bad_shape_and_trigger_are_safe(self) -> None:
+        from core.research.tau_panel import enrich_day_matrix_cross_section
+
+        names1, _x1, added1 = enrich_day_matrix_cross_section(
+            ["000001"], ["gap_pct"], np.asarray([[1.0]]), clock="open"
+        )
+        self.assertEqual(added1, [])
+        self.assertEqual(names1, ["gap_pct"])
+
+        _names2, out_x, added2 = enrich_day_matrix_cross_section(
+            ["000001", "000002"],
+            ["gap_pct"],
+            np.asarray([[1.0], [2.0]]),
+            gap_trigger_pct=float("nan"),
+        )
+        self.assertIn("sector_gap_breadth", added2)
+        self.assertEqual(out_x.shape[0], 2)
+
+        # 行列错配 → 原样
+        _names3, x3, added3 = enrich_day_matrix_cross_section(
+            ["000001", "000002"],
+            ["gap_pct", "extra"],
+            np.asarray([[1.0], [2.0]]),
+        )
+        self.assertEqual(added3, [])
+        self.assertEqual(x3.shape, (2, 1))
+
+    def test_cube_z_alias_lookup_uses_bare_name(self) -> None:
+        """拟合要 z_τh_*、Cube 只有裸名时仍能命中 μ/σ。"""
+        from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
+
+        class _Cube:
+            names = ["gap_pct", "sector_gap_breadth"]
+            z_mean = np.array([1.0, 0.5])
+            z_std = np.array([1.0, 2.0])
+
+        x = np.array([[3.0, 2.5], [5.0, 4.5]], dtype=np.float64)
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=_Cube()
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            z, meta = apply_day_cube_mu_sigma_matrix(
+                x,
+                ["z_τh_gap_pct", "z_τh_sector_gap_breadth"],
+                ["2026-01-02", "2026-01-02"],
+            )
+        self.assertTrue(meta.get("ok"), meta)
+        self.assertIsNotNone(z)
+        # (3-1)/1=2；(2.5-0.5)/2=1
+        self.assertAlmostEqual(float(z[0, 0]), 2.0, places=5)
+        self.assertAlmostEqual(float(z[0, 1]), 1.0, places=5)
+        self.assertEqual(meta.get("matrix_fallback_cols") or [], [])
+
 
 class CubeBatchFillTests(unittest.TestCase):
     def test_chunk_opens_each_family_once(self) -> None:

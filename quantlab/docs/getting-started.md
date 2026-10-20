@@ -163,7 +163,7 @@ WEB_PORT=8001 python3 run_web.py
 | **ŷ_τc** | Holdout `20`，训练窗 `120` | 成交钟到收盘的副轴；要用上一步的 5 分钟 K |
 | **ŷ_co** | Holdout `20`，训练窗 `600` | 隔夜缺口，会叠进调仓打分 |
 
-三张都点完「启用研究」再往下。ŷ_τ30…90 默认折着；拟合即同窗双训 Ridge+Tree，启用研究按 Holdout AUC 择优（打平→Ridge）。
+三张都点完「启用研究」再往下。ŷ_τ30…90 默认折着；拟合即同窗双训 LightGBM + Ridge，启用研究按 Holdout AUC 择优（打平→Ridge）。
 
 **ŷ_oo_rank / ŷ_τc_rank**（排在 ŷ_co 后面）可稍后启用：截面名次进成交明细；过 fuse 门槛后买序看 oo_rank；`/replay`「rank 入场」看 `max(oo_rank, τc_rank)`。第一次上手可以不拟合这两张。
 

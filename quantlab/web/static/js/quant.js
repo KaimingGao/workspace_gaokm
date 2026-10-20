@@ -3121,7 +3121,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ30 双训 Ridge+Tree · Holdout AUC 择优…",
+        : "ŷ_τ30 双训 LightGBM + Ridge · Holdout AUC 择优…",
       busy: true,
     });
     try {
@@ -3320,7 +3320,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ45 双训 Ridge+Tree · Holdout AUC 择优…",
+        : "ŷ_τ45 双训 LightGBM + Ridge · Holdout AUC 择优…",
       busy: true,
     });
     try {
@@ -3518,7 +3518,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ60 双训 Ridge+Tree · Holdout AUC 择优…",
+        : "ŷ_τ60 双训 LightGBM + Ridge · Holdout AUC 择优…",
       busy: true,
     });
     try {
@@ -3716,7 +3716,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ75 双训 Ridge+Tree · Holdout AUC 择优…",
+        : "ŷ_τ75 双训 LightGBM + Ridge · Holdout AUC 择优…",
       busy: true,
     });
     try {
@@ -3914,7 +3914,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ90 双训 Ridge+Tree · Holdout AUC 择优…",
+        : "ŷ_τ90 双训 LightGBM + Ridge · Holdout AUC 择优…",
       busy: true,
     });
     try {
