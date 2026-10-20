@@ -845,6 +845,33 @@ class TestMinuteTauPack(unittest.TestCase):
         bad = resolve_tau_train_prefix(tau_end_hm="11:30")
         self.assertIn("error", bad)
 
+    def test_resolve_horizon_train_prefix_no_open(self):
+        from core.signal.minute_tau_grid import (
+            HORIZON_TAU_START_HM,
+            resolve_horizon_train_prefix,
+            sanitize_horizon_tau_grid,
+        )
+
+        bumped = resolve_horizon_train_prefix(tau_end_hm="09:30")
+        self.assertFalse(bumped.get("zero_prefix"))
+        self.assertTrue(bumped.get("use_minute"))
+        self.assertEqual(bumped.get("tau_end_hm"), HORIZON_TAU_START_HM)
+        self.assertEqual(bumped.get("tau_grid")[0], "09:35")
+        self.assertEqual(bumped.get("tau_grid")[-1], "09:35")
+
+        mid = resolve_horizon_train_prefix(tau_end_hm="10:00")
+        self.assertEqual(mid.get("tau_grid")[0], "09:35")
+        self.assertEqual(mid.get("tau_grid")[-1], "10:00")
+        self.assertNotIn("09:30", mid.get("tau_grid") or [])
+
+        cleaned = sanitize_horizon_tau_grid(
+            ["open", "09:30", "09:35", "09:35", "10:00", "0930"]
+        )
+        self.assertEqual(cleaned, ["09:35", "10:00"])
+        only_open = sanitize_horizon_tau_grid(["open", "09:30"])
+        self.assertEqual(only_open[0], "09:35")
+        self.assertNotIn("09:30", only_open)
+
     def test_format_shared_tau_formula_compact(self):
         from core.signal.minute_tau_grid import (
             DEFAULT_MINUTE_TAU_GRID,

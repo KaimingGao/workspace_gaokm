@@ -3314,11 +3314,21 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('id="quant-fit-tau-end-tc_tree"', panel)
         self.assertIn("quant-tau-end-slider", panel)
         self.assertIn("quant-tau-end-range", css)
-        self.assertIn('value="18"', panel)
-        # τc 默认 09:30（value=0）；τ* 默认 11:00（value=18）
+        self.assertIn('value="18"', panel)  # τc 11:00 tick
+        self.assertIn('value="17"', panel)  # τ* 11:00（09:35…11:00 共 18 档）
+        self.assertIn('id="quant-fit-tau-end-ticks-hz"', panel)
+        self.assertIn('list="quant-fit-tau-end-ticks-hz"', panel)
+        self.assertIn("formatHorizonFitErrorMessage", js)
+        self.assertIn("isHorizonMaterializeFail", js)
+        self.assertIn("双训中止 · 请先", js)
+        # τc 默认 09:30（value=0）；τ* 默认 11:00（value=17）
         self.assertRegex(
             panel,
             r'id="quant-fit-tau-end-tc"[\s\S]{0,200}?value="0"',
+        )
+        self.assertRegex(
+            panel,
+            r'id="quant-fit-tau-end-t30"[\s\S]{0,200}?max="17"',
         )
         self.assertIn('DEFAULT_TAU_END_HM_TC = "09:30"', params_js)
         self.assertIn('DEFAULT_TAU_END_HM_HORIZON = "11:00"', params_js)

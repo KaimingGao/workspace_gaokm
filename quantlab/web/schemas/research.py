@@ -257,8 +257,8 @@ class T30RidgeRequest(_CrossSectionZscore):
     tau_end_hm: Optional[str] = Field(
         default=None,
         description=(
-            "训练前缀终点 09:30…11:00（每 5m）；"
-            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+            "训练前缀终点 09:35…11:00（每 5m）；"
+            "网格自 09:35 至该钟共享 β（仅分钟；09:30 上抬）；缺省满格至 11:00"
         ),
         max_length=8,
     )
@@ -312,8 +312,8 @@ class T45RidgeRequest(_CrossSectionZscore):
     tau_end_hm: Optional[str] = Field(
         default=None,
         description=(
-            "训练前缀终点 09:30…11:00（每 5m）；"
-            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+            "训练前缀终点 09:35…11:00（每 5m）；"
+            "网格自 09:35 至该钟共享 β（仅分钟；09:30 上抬）；缺省满格至 11:00"
         ),
         max_length=8,
     )
@@ -367,8 +367,8 @@ class T60RidgeRequest(_CrossSectionZscore):
     tau_end_hm: Optional[str] = Field(
         default=None,
         description=(
-            "训练前缀终点 09:30…11:00（每 5m）；"
-            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+            "训练前缀终点 09:35…11:00（每 5m）；"
+            "网格自 09:35 至该钟共享 β（仅分钟；09:30 上抬）；缺省满格至 11:00"
         ),
         max_length=8,
     )
@@ -422,8 +422,8 @@ class T75RidgeRequest(_CrossSectionZscore):
     tau_end_hm: Optional[str] = Field(
         default=None,
         description=(
-            "训练前缀终点 09:30…11:00（每 5m）；"
-            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+            "训练前缀终点 09:35…11:00（每 5m）；"
+            "网格自 09:35 至该钟共享 β（仅分钟；09:30 上抬）；缺省满格至 11:00"
         ),
         max_length=8,
     )
@@ -542,8 +542,8 @@ class T90RidgeRequest(_CrossSectionZscore):
     tau_end_hm: Optional[str] = Field(
         default=None,
         description=(
-            "训练前缀终点 09:30…11:00（每 5m）；"
-            "网格自 09:30 至该钟共享 β；缺省满格至 11:00"
+            "训练前缀终点 09:35…11:00（每 5m）；"
+            "网格自 09:35 至该钟共享 β（仅分钟；09:30 上抬）；缺省满格至 11:00"
         ),
         max_length=8,
     )

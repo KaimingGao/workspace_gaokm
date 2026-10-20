@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 
 def _hm_to_clock_minutes(hm: str) -> Optional[int]:
@@ -187,8 +187,12 @@ def minute_tau_grid_5m_range(
         return []
     out: List[str] = []
     if include_open:
+        # 开盘点 + 之后每 step 一根（含 end）
         out.append(_clock_minutes_to_hm(start))
-    t = start + step
+        t = start + step
+    else:
+        # 纯分钟网格：自 start 起含两端（窗头 09:35…end）
+        t = start
     while t <= end:
         out.append(_clock_minutes_to_hm(t))
         t += step
@@ -344,15 +348,184 @@ REBALANCE_TAU_CAP_HM = "10:00"
 LIVE_PREFIX_CAUSAL_REBALANCE = "causal_rebalance"
 TRAIN_TAU_END_HM = _t0_leg1_end_hm()
 
-# 早盘 leg1：09:30 开盘 Z + 每 5m 至做 T 扫描止（共享 β）
+# 早盘 leg1 / ŷ_τc：09:30 开盘 Z + 每 5m 至做 T 扫描止（共享 β）
 DEFAULT_T0_TRAIN_TAU_GRID_5M: tuple = tuple(
     minute_tau_grid_5m_range("09:30", TRAIN_TAU_END_HM, include_open=True)
 )
-# 研究枢纽默认：与做 T v6 leg1 窗口对齐
+# 研究枢纽默认：与做 T v6 leg1 窗口对齐（含 09:30 开盘点）
 DEFAULT_MINUTE_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
-# ŷ_τ30/45/60/75/90：与 ŷ_τc 同窗，决策钟只覆盖 09:30…11:00（标签仍向前看 N 分钟，可跨午休）
-DEFAULT_T30_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
-DEFAULT_T45_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
-DEFAULT_T60_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
-DEFAULT_T75_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
-DEFAULT_T90_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
+
+# ŷ_τ30…90：仅分钟钟，自 09:35 起；不读日线 open Cube（与 ŷ_τc 开盘点分离）
+HORIZON_TAU_START_HM = "09:35"
+_OPENISH_CLOCKS = frozenset({"open", "09:30", "0930"})
+DEFAULT_HORIZON_TRAIN_TAU_GRID_5M: tuple = tuple(
+    minute_tau_grid_5m_range(
+        HORIZON_TAU_START_HM, TRAIN_TAU_END_HM, include_open=False
+    )
+)
+DEFAULT_T30_TRAIN_TAU_GRID: tuple = DEFAULT_HORIZON_TRAIN_TAU_GRID_5M
+DEFAULT_T45_TRAIN_TAU_GRID: tuple = DEFAULT_HORIZON_TRAIN_TAU_GRID_5M
+DEFAULT_T60_TRAIN_TAU_GRID: tuple = DEFAULT_HORIZON_TRAIN_TAU_GRID_5M
+DEFAULT_T75_TRAIN_TAU_GRID: tuple = DEFAULT_HORIZON_TRAIN_TAU_GRID_5M
+DEFAULT_T90_TRAIN_TAU_GRID: tuple = DEFAULT_HORIZON_TRAIN_TAU_GRID_5M
+
+
+def is_openish_clock(hm: Any) -> bool:
+    """开盘 / 09:30 等价键（窗头网格应剔除）。"""
+    s = str(hm or "").strip().replace("：", ":").lower()
+    if not s:
+        return False
+    if s in _OPENISH_CLOCKS:
+        return True
+    if ":" not in s and len(s) == 4 and s.isdigit():
+        s = f"{s[:2]}:{s[2:]}"
+    return s[:5] in _OPENISH_CLOCKS or s[:5] == "09:30"
+
+
+def train_horizon_tau_end_choices() -> List[str]:
+    """窗头前缀终点：09:35…11:00 每 5m（不含 09:30 / open）。"""
+    return minute_tau_grid_5m_range(
+        HORIZON_TAU_START_HM, TRAIN_TAU_END_MAX_HM, include_open=False
+    )
+
+
+def normalize_horizon_tau_end_hm(
+    raw: Optional[str],
+    *,
+    default: Optional[str] = None,
+) -> Optional[str]:
+    """窗头 ``tau_end_hm``；``09:30`` / ``open`` 上抬为 ``09:35``。"""
+    s = str(raw or "").strip().replace("：", ":")
+    if not s:
+        return default
+    if is_openish_clock(s):
+        return HORIZON_TAU_START_HM
+    if ":" not in s and len(s) == 4 and s.isdigit():
+        s = f"{s[:2]}:{s[2:]}"
+    if len(s) >= 5:
+        s = s[:5]
+    allowed = set(train_horizon_tau_end_choices())
+    if s in allowed:
+        return s
+    if s == TRAIN_TAU_START_HM:
+        return HORIZON_TAU_START_HM
+    return default
+
+
+def sanitize_horizon_tau_grid(
+    grid: Optional[Sequence[Any]],
+    *,
+    fallback: Optional[Sequence[str]] = None,
+) -> List[str]:
+    """窗头 τ 网格：剔除 open/09:30、规范 HH:MM、去重保序；空则回落默认。"""
+    out: List[str] = []
+    seen = set()
+    for raw in grid or ():
+        s = str(raw or "").strip().replace("：", ":")
+        if not s or is_openish_clock(s):
+            continue
+        if ":" not in s and len(s) == 4 and s.isdigit():
+            s = f"{s[:2]}:{s[2:]}"
+        hm = normalize_horizon_tau_end_hm(s)
+        if not hm or is_openish_clock(hm) or hm in seen:
+            continue
+        seen.add(hm)
+        out.append(hm)
+    if out:
+        return out
+    fb = list(fallback) if fallback is not None else list(DEFAULT_HORIZON_TRAIN_TAU_GRID_5M)
+    if not fb:
+        return [HORIZON_TAU_START_HM]
+    # 回落再扫一遍；仍空则硬保底 09:35
+    nested: List[str] = []
+    seen_fb = set()
+    for raw in fb:
+        s = str(raw or "").strip()
+        if not s or is_openish_clock(s):
+            continue
+        hm = normalize_horizon_tau_end_hm(s)
+        if not hm or hm in seen_fb:
+            continue
+        seen_fb.add(hm)
+        nested.append(hm)
+    return nested or [HORIZON_TAU_START_HM]
+
+
+def resolve_horizon_train_prefix(
+    *,
+    tau_end_hm: Optional[str] = None,
+    tau_hm: Optional[str] = None,
+    enable_minute_tau: bool = True,
+) -> dict:
+    """解析 ŷ_τ30…90 训练前缀窗（仅分钟，无 0 前缀）。
+
+    返回 ``tau_hm`` / ``tau_grid`` / ``tau_end_hm`` / ``use_minute`` /
+    ``zero_prefix=False``。``09:30`` / ``open`` 上抬为 ``09:35``。
+    """
+    if not enable_minute_tau:
+        return {
+            "error": "ŷ_τ* 须启用分钟前缀（自 09:35）；不支持关闭分钟",
+        }
+    raw_end = str(tau_end_hm).strip() if tau_end_hm is not None else ""
+    if raw_end:
+        end = normalize_horizon_tau_end_hm(raw_end)
+        if end is None:
+            return {
+                "error": (
+                    f"tau_end_hm 须为 09:35…11:00 的 5m 档，收到 {raw_end!r}"
+                ),
+            }
+        grid = sanitize_horizon_tau_grid(
+            minute_tau_grid_5m_range(
+                HORIZON_TAU_START_HM, end, include_open=False
+            )
+        )
+        if not grid:
+            return {"error": f"窗头 τ 网格为空（end={end!r}）"}
+        return {
+            "tau_hm": end,
+            "tau_grid": grid,
+            "tau_end_hm": end,
+            "use_minute": True,
+            "zero_prefix": False,
+        }
+
+    if tau_hm is not None:
+        key = str(tau_hm or "").strip() or HORIZON_TAU_START_HM
+        end = normalize_horizon_tau_end_hm(key, default=None)
+        if end is None:
+            end_default = str(TRAIN_TAU_END_HM or TRAIN_TAU_END_MAX_HM)[:5]
+            end = (
+                normalize_horizon_tau_end_hm(
+                    end_default, default=TRAIN_TAU_END_MAX_HM
+                )
+                or TRAIN_TAU_END_MAX_HM
+            )
+        grid = sanitize_horizon_tau_grid(
+            minute_tau_grid_5m_range(
+                HORIZON_TAU_START_HM, end, include_open=False
+            )
+        )
+        if not grid:
+            return {"error": f"窗头 τ 网格为空（end={end!r}）"}
+        return {
+            "tau_hm": end,
+            "tau_grid": grid,
+            "tau_end_hm": end,
+            "use_minute": True,
+            "zero_prefix": False,
+        }
+
+    end_default = str(TRAIN_TAU_END_HM or TRAIN_TAU_END_MAX_HM)[:5]
+    end_default = (
+        normalize_horizon_tau_end_hm(end_default, default=TRAIN_TAU_END_MAX_HM)
+        or TRAIN_TAU_END_MAX_HM
+    )
+    grid = sanitize_horizon_tau_grid(DEFAULT_HORIZON_TRAIN_TAU_GRID_5M)
+    return {
+        "tau_hm": end_default,
+        "tau_grid": grid,
+        "tau_end_hm": end_default,
+        "use_minute": True,
+        "zero_prefix": False,
+    }

@@ -304,7 +304,7 @@ class MaterializeOrchestrateTests(unittest.TestCase):
                 do_l1_tau_grid=True,
                 do_l2=True,
                 dates=["2026-01-02"],
-                clocks=["open"],  # UI 占位；纯 τ 轨应扩成 open + suggested τ 钟
+                clocks=["open"],  # UI 占位；纯 τ 轨扩成 suggested τ（不含 open）
             )
         self.assertTrue(out.get("ok"), out)
         self.assertTrue(out.get("do_l1_tau_grid"))
@@ -312,7 +312,7 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         kwargs = l2_fn.call_args.kwargs
         self.assertTrue(kwargs.get("require_horizon_names"))
         clks = list(kwargs.get("clocks") or [])
-        self.assertIn("open", clks)
+        self.assertNotIn("open", clks)
         self.assertIn("10:30", clks)
         self.assertIn("11:00", clks)
 
@@ -618,6 +618,9 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         with mock.patch(
             "core.research.day_cube.load_day_cube", return_value=None
         ), mock.patch(
+            "core.research.materialize.horizon_names.names_cover_horizon",
+            return_value=True,
+        ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
@@ -911,8 +914,14 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         seen = []
 
         def _build(codes, days, **kwargs):
-            seen.append((list(days), kwargs.get("chunk_days")))
-            return {"cubes_built": 0, "days_skipped": 0, "slim_reject": 0}
+            day_list = list(days)
+            seen.append((day_list, kwargs.get("chunk_days")))
+            # 覆盖闸按 hit+built 计；mock 须回报建成数
+            return {
+                "cubes_built": len(day_list),
+                "days_skipped": 0,
+                "slim_reject": 0,
+            }
 
         dates = [f"2024-01-{day:02d}" for day in range(1, 22)]
         with mock.patch(
@@ -927,7 +936,8 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
                 clocks=["09:35"],
             )
         self.assertTrue(out.get("ok"), out)
-        self.assertEqual(seen, [(dates, None)])
+        # 近端优先：一次扫完整窗
+        self.assertEqual(seen, [(list(reversed(dates)), None)])
 
     def test_auto_minute_window_skips_days_without_bars(self) -> None:
         from core.research.materialize.l2_jobs import materialize_l2
@@ -954,7 +964,9 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         self.assertTrue(out.get("ok"), out)
         self.assertEqual(out.get("minute_days"), 5)
         self.assertEqual(out.get("minute_span"), "2024-06-01→2024-06-05")
-        self.assertEqual(seen, covered + covered)
+        # L2 烘立方近端优先（新→旧）；两钟各扫一遍
+        near_first = list(reversed(covered))
+        self.assertEqual(seen, near_first + near_first)
         self.assertEqual(out["by_clock"]["09:35"]["cubes_hit"], 5)
         self.assertEqual(out["by_clock"]["10:30"]["cubes_hit"], 5)
 
@@ -1490,6 +1502,9 @@ class MinuteL2ShareTests(unittest.TestCase):
         with mock.patch(
             "core.research.day_cube.load_day_cube", return_value=None
         ), mock.patch(
+            "core.research.materialize.horizon_names.names_cover_horizon",
+            return_value=True,
+        ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
         ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
@@ -1521,6 +1536,9 @@ class MinuteL2ShareTests(unittest.TestCase):
         dates = [f"2024-01-{day:02d}" for day in range(1, 25)]
         with mock.patch(
             "core.research.day_cube.load_day_cube", return_value=None
+        ), mock.patch(
+            "core.research.materialize.horizon_names.names_cover_horizon",
+            return_value=True,
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
         ), mock.patch(
@@ -1646,12 +1664,17 @@ class MinuteL2ShareTests(unittest.TestCase):
 
         calls = []
 
-        def _build(*_args, **kwargs):
+        def _build(_codes, days, **kwargs):
             clock = str(kwargs.get("clock"))
             calls.append(clock)
             if clock == "09:35" and calls.count("09:35") == 1:
                 raise RuntimeError("disk")
-            return {"cubes_built": 1, "days_skipped": 0, "slim_reject": 0}
+            day_list = list(days)
+            return {
+                "cubes_built": len(day_list),
+                "days_skipped": 0,
+                "slim_reject": 0,
+            }
 
         def _slice(family, codes, dates, progress_cb=None, cancel_cb=None):
             return self._rows(codes, dates)

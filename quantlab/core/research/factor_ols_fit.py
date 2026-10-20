@@ -560,8 +560,11 @@ def fit_factor_ols_from_panel(
             if dates_c is not None and len(dates_c) == len(xs_c):
                 try:
                     from core.research.materialize.cube_z import cs_z_dicts_prefer_cube
+                    from core.research.materialize.consumer import MaterializeRequired
 
                     xs_fit = cs_z_dicts_prefer_cube(xs_c, active, dates_c)
+                except MaterializeRequired:
+                    raise
                 except Exception:  # noqa: BLE001
                     logger.debug("ols day_cube z failed", exc_info=True)
                     xs_fit = cross_section_zscore_dicts(xs_c, active, dates_c)

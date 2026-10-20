@@ -1816,8 +1816,8 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """泛化 ŷ_τ horizon：同窗双训 Ridge+Tree，AUC 择优。horizon ∈ {t30…t90}。只读本地 5m 缓存。
 
-        ``tau_end_hm``：训练前缀终点 09:30…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）；
-        09:30=只训开盘一点（仍需分钟标签）。
+        ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
+        方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
         ``progress_cb(cur, tot, msg)``：job 槽刷新（流式建面板 + 截面/双训阶段）。
         ``job_alive_cb()``：False 时跳过 ``save_ridge_last_report``（槽已被接替/取消）。
         """
@@ -1831,7 +1831,10 @@ class QuantFactorMixin:
             ridge_model_path,
             save_ridge_last_report,
         )
-        from core.signal.minute_tau_grid import resolve_tau_train_prefix
+        from core.signal.minute_tau_grid import (
+            resolve_horizon_train_prefix,
+            sanitize_horizon_tau_grid,
+        )
 
         hn = horizon[1:]
         task = f"{horizon}_ridge"
@@ -1894,7 +1897,7 @@ class QuantFactorMixin:
             }
 
         period = str(minute_period or "5").strip() or "5"
-        prefix = resolve_tau_train_prefix(
+        prefix = resolve_horizon_train_prefix(
             tau_end_hm=tau_end_hm,
             tau_hm=tau_hm,
             enable_minute_tau=True,
@@ -1906,15 +1909,16 @@ class QuantFactorMixin:
                 "task": task,
             }
         resolved_end = str(prefix.get("tau_end_hm") or "11:00")[:5]
-        # ŷ_τ* 标签依赖分钟：09:30 不退化为 OC，只训开盘一点
-        if prefix.get("zero_prefix"):
-            tau_key = "09:30"
-            tau_grid = ["09:30"]
-            zero_prefix = True
-        else:
-            tau_key = str(prefix.get("tau_hm") or resolved_end)
-            tau_grid = prefix.get("tau_grid")
-            zero_prefix = False
+        # 窗头无 0 前缀；网格自 09:35（误传 open/09:30 会被剥掉）
+        tau_key = str(prefix.get("tau_hm") or resolved_end)
+        tau_grid = sanitize_horizon_tau_grid(prefix.get("tau_grid"))
+        if not tau_grid:
+            return {
+                "success": False,
+                "error": "窗头 τ 网格为空（须 09:35…11:00）；请检查前缀滑条",
+                "task": task,
+            }
+        zero_prefix = False
 
         from core.research.horizon_ridge import enrich_horizon_raw_panels
         from core.research.tc_ridge_compact import (

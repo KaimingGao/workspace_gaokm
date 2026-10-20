@@ -765,11 +765,58 @@ export function initQuant(ctx) {
     return "";
   }
 
+  /** 拟合失败文案：物化缺立方时附 hint（请先分钟线物化）。 */
+  function formatHorizonFitErrorMessage(data, gateNote = "", httpFallback = "") {
+    const src = data && typeof data === "object" ? data : {};
+    const err =
+      (src.persisted && src.persisted.error) ||
+      src.detail ||
+      src.error ||
+      httpFallback ||
+      "";
+    const hint = String(src.hint || "").trim();
+    const code = String(src.error_code || "").trim();
+    const errStr = String(err || "");
+    const needHint =
+      !!hint &&
+      (code === "materialize_required" || /请先物化/.test(errStr));
+    return errStr + (needHint ? ` · 请先${hint}` : "") + String(gateNote || "");
+  }
+
+  function isHorizonMaterializeFail(data) {
+    const src = data && typeof data === "object" ? data : {};
+    const code = String(src.error_code || "").trim();
+    const err = String(src.error || src.tree_error || "");
+    return code === "materialize_required" || /请先物化/.test(err);
+  }
+
   /** ŷ_τ30…90：LightGBM vs Ridge Holdout 对照（择优看 AUC）。 */
   function renderHorizonOosCompare(data, resultId) {
     const box = document.getElementById(resultId);
     if (!box) return false;
     if (!data || data.success === false) {
+      const code = String((data && data.error_code) || "").trim();
+      const errRaw = String(
+        (data && (data.error || data.tree_error)) || ""
+      ).trim();
+      if (
+        data &&
+        (code === "materialize_required" || /请先物化/.test(errRaw))
+      ) {
+        const hint = String((data && data.hint) || "分钟线物化").trim();
+        const short =
+          errRaw.length > 72 ? `${errRaw.slice(0, 72)}…` : errRaw;
+        box.innerHTML =
+          `<div class="quant-oos-compare" aria-label="物化缺失">` +
+          `<div class="quant-oos-compare-meta">` +
+          `<span class="quant-oos-compare-meta-chip"${
+            errRaw ? ` title="${escapeHtml(errRaw)}"` : ""
+          }>双训中止 · 请先${escapeHtml(hint)}${
+            short ? ` · ${escapeHtml(short)}` : ""
+          }</span>` +
+          `</div></div>`;
+        return true;
+      }
       box.innerHTML = "";
       return false;
     }
@@ -940,15 +987,27 @@ export function initQuant(ctx) {
       }</small></span>` +
       `</div>` +
       `</div>`;
-    const treeErrRaw = String(data.tree_error || "").trim();
+    const matHint = String(data.hint || "").trim();
+    const matCode = String(data.error_code || "").trim();
+    const treeErrRaw = String(
+      data.tree_error || (matCode === "materialize_required" ? data.error : "") || ""
+    ).trim();
     const treeErrShort =
       treeErrRaw.length > 72 ? `${treeErrRaw.slice(0, 72)}…` : treeErrRaw;
+    const matChip =
+      matCode === "materialize_required" || /请先物化|cube miss/.test(treeErrRaw)
+        ? matHint || "分钟线物化"
+        : "";
     const treeFailNote = treeFailed
       ? `<div class="quant-oos-compare-meta" aria-label="LightGBM 失败">` +
         `<span class="quant-oos-compare-meta-chip"${
           treeErrRaw ? ` title="${escapeHtml(treeErrRaw)}"` : ""
         }>LightGBM 未出数${
-          treeErrShort ? ` · ${escapeHtml(treeErrShort)}` : " · 请重新拟合"
+          matChip
+            ? ` · 请先${escapeHtml(matChip)}`
+            : treeErrShort
+              ? ` · ${escapeHtml(treeErrShort)}`
+              : " · 请重新拟合"
         }</span>` +
         `</div>`
       : "";
@@ -3110,11 +3169,12 @@ export function initQuant(ctx) {
         renderRemStatus(sum, {
           state: "error",
           chip: persistFailChip(err),
-          message: String(err) + gateNote,
+          message: formatHorizonFitErrorMessage(data, gateNote, `HTTP ${res.status}`),
           error: true,
         });
         if (!persistFailed) {
-          clearT30ResultBox();
+          if (isHorizonMaterializeFail(data)) renderT30FitSummary(data);
+          else clearT30ResultBox();
           renderT30CoefTable(null);
         }
         syncT30PersistBtn(gate, { hasReport: true });
@@ -3308,11 +3368,12 @@ export function initQuant(ctx) {
         renderRemStatus(sum, {
           state: "error",
           chip: persistFailChip(err),
-          message: String(err) + gateNote,
+          message: formatHorizonFitErrorMessage(data, gateNote, `HTTP ${res.status}`),
           error: true,
         });
         if (!persistFailed) {
-          clearT45ResultBox();
+          if (isHorizonMaterializeFail(data)) renderT45FitSummary(data);
+          else clearT45ResultBox();
           renderT45CoefTable(null);
         }
         syncT45PersistBtn(gate, { hasReport: true });
@@ -3505,11 +3566,12 @@ export function initQuant(ctx) {
         renderRemStatus(sum, {
           state: "error",
           chip: persistFailChip(err),
-          message: String(err) + gateNote,
+          message: formatHorizonFitErrorMessage(data, gateNote, `HTTP ${res.status}`),
           error: true,
         });
         if (!persistFailed) {
-          clearT60ResultBox();
+          if (isHorizonMaterializeFail(data)) renderT60FitSummary(data);
+          else clearT60ResultBox();
           renderT60CoefTable(null);
         }
         syncT60PersistBtn(gate, { hasReport: true });
@@ -3702,11 +3764,12 @@ export function initQuant(ctx) {
         renderRemStatus(sum, {
           state: "error",
           chip: persistFailChip(err),
-          message: String(err) + gateNote,
+          message: formatHorizonFitErrorMessage(data, gateNote, `HTTP ${res.status}`),
           error: true,
         });
         if (!persistFailed) {
-          clearT75ResultBox();
+          if (isHorizonMaterializeFail(data)) renderT75FitSummary(data);
+          else clearT75ResultBox();
           renderT75CoefTable(null);
         }
         syncT75PersistBtn(gate, { hasReport: true });
@@ -3899,11 +3962,12 @@ export function initQuant(ctx) {
         renderRemStatus(sum, {
           state: "error",
           chip: persistFailChip(err),
-          message: String(err) + gateNote,
+          message: formatHorizonFitErrorMessage(data, gateNote, `HTTP ${res.status}`),
           error: true,
         });
         if (!persistFailed) {
-          clearT90ResultBox();
+          if (isHorizonMaterializeFail(data)) renderT90FitSummary(data);
+          else clearT90ResultBox();
           renderT90CoefTable(null);
         }
         syncT90PersistBtn(gate, { hasReport: true });

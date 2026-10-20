@@ -148,16 +148,18 @@ class SessionClockT45T75Tests(unittest.TestCase):
         self.assertAlmostEqual(out[0]["ys"][0], 2.0)
         self.assertAlmostEqual(out[0]["metas"][0]["y_τ45"], 2.0)
 
-    def test_t45_t75_grids_match_yc_window(self):
+    def test_t45_t75_grids_minute_only_from_0935(self):
         from core.signal.minute_tau_grid import (
-            DEFAULT_T0_TRAIN_TAU_GRID_5M,
+            DEFAULT_HORIZON_TRAIN_TAU_GRID_5M,
             DEFAULT_T45_TRAIN_TAU_GRID,
             DEFAULT_T75_TRAIN_TAU_GRID,
         )
 
-        self.assertEqual(DEFAULT_T45_TRAIN_TAU_GRID, DEFAULT_T0_TRAIN_TAU_GRID_5M)
-        self.assertEqual(DEFAULT_T75_TRAIN_TAU_GRID, DEFAULT_T0_TRAIN_TAU_GRID_5M)
+        self.assertEqual(DEFAULT_T45_TRAIN_TAU_GRID, DEFAULT_HORIZON_TRAIN_TAU_GRID_5M)
+        self.assertEqual(DEFAULT_T75_TRAIN_TAU_GRID, DEFAULT_HORIZON_TRAIN_TAU_GRID_5M)
+        self.assertEqual(DEFAULT_T45_TRAIN_TAU_GRID[0], "09:35")
         self.assertEqual(DEFAULT_T45_TRAIN_TAU_GRID[-1], "11:00")
+        self.assertNotIn("09:30", DEFAULT_T45_TRAIN_TAU_GRID)
         self.assertNotIn("11:30", DEFAULT_T45_TRAIN_TAU_GRID)
         self.assertNotIn("13:40", DEFAULT_T75_TRAIN_TAU_GRID)
 

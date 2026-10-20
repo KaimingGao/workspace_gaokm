@@ -93,7 +93,7 @@ def _run_materialize(
     t0 = time.perf_counter()
     fams = normalize_families(families) if do_l1 else []
     clks = normalize_clocks(clocks) if do_l2 else []
-    # τ 网格 L2 时钟契约：见 cover_policy.resolve_tau_l2_clocks（须含 open）
+    # τ 网格 L2 时钟契约：见 cover_policy.resolve_tau_l2_clocks（仅分钟钟，不含 open）
     if do_l1_tau_grid and do_l2:
         from core.research.materialize.cover_policy import resolve_tau_l2_clocks
 

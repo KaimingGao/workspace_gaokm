@@ -564,6 +564,13 @@
             <option value="12" label="10:30"></option>
             <option value="18" label="11:00"></option>
           </datalist>
+          <!-- ŷ_τ*：09:35…11:00 共 18 档，index 0..17（与 τc 的 0..18 分离） -->
+          <datalist id="quant-fit-tau-end-ticks-hz">
+            <option value="0" label="09:35"></option>
+            <option value="5" label="10:00"></option>
+            <option value="11" label="10:30"></option>
+            <option value="17" label="11:00"></option>
+          </datalist>
           <label
             class="quant-inline-check"
             title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"
@@ -792,25 +799,25 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_τ30 拟合参数">
           <label
             class="quant-tau-end-slider"
-            title="ŷ_τ* 训练前缀终点 09:30…11:00（每 5m）。网格自 09:30 至该钟共享 β；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
+            title="ŷ_τ* 训练前缀终点 09:35…11:00（每 5m）。网格自 09:35 至该钟共享 β（仅分钟钟，不依赖日线 open）；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
           >
             <span class="quant-tau-end-slider-lab">前缀</span>
             <span class="quant-tau-end-scale">
-              <span class="quant-tau-end-bound" aria-hidden="true">09:30</span>
+              <span class="quant-tau-end-bound" aria-hidden="true">09:35</span>
               <input
                 id="quant-fit-tau-end-t30"
                 class="quant-tau-end-range"
                 type="range"
                 min="0"
-                max="18"
+                max="17"
                 step="1"
-                value="18"
-                list="quant-fit-tau-end-ticks"
+                value="17"
+                list="quant-fit-tau-end-ticks-hz"
                 aria-valuemin="0"
-                aria-valuemax="18"
-                aria-valuenow="18"
+                aria-valuemax="17"
+                aria-valuenow="17"
                 aria-valuetext="11:00"
-                aria-label="ŷ_τ30 训练前缀终点 09:30 至 11:00"
+                aria-label="ŷ_τ30 训练前缀终点 09:35 至 11:00"
               />
               <span class="quant-tau-end-bound" aria-hidden="true">11:00</span>
             </span>
@@ -874,25 +881,25 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_τ45 拟合参数">
           <label
             class="quant-tau-end-slider"
-            title="ŷ_τ* 训练前缀终点 09:30…11:00（每 5m）。网格自 09:30 至该钟共享 β；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
+            title="ŷ_τ* 训练前缀终点 09:35…11:00（每 5m）。网格自 09:35 至该钟共享 β（仅分钟钟，不依赖日线 open）；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
           >
             <span class="quant-tau-end-slider-lab">前缀</span>
             <span class="quant-tau-end-scale">
-              <span class="quant-tau-end-bound" aria-hidden="true">09:30</span>
+              <span class="quant-tau-end-bound" aria-hidden="true">09:35</span>
               <input
                 id="quant-fit-tau-end-t45"
                 class="quant-tau-end-range"
                 type="range"
                 min="0"
-                max="18"
+                max="17"
                 step="1"
-                value="18"
-                list="quant-fit-tau-end-ticks"
+                value="17"
+                list="quant-fit-tau-end-ticks-hz"
                 aria-valuemin="0"
-                aria-valuemax="18"
-                aria-valuenow="18"
+                aria-valuemax="17"
+                aria-valuenow="17"
                 aria-valuetext="11:00"
-                aria-label="ŷ_τ45 训练前缀终点 09:30 至 11:00"
+                aria-label="ŷ_τ45 训练前缀终点 09:35 至 11:00"
               />
               <span class="quant-tau-end-bound" aria-hidden="true">11:00</span>
             </span>
@@ -956,25 +963,25 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_τ60 拟合参数">
           <label
             class="quant-tau-end-slider"
-            title="ŷ_τ* 训练前缀终点 09:30…11:00（每 5m）。网格自 09:30 至该钟共享 β；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
+            title="ŷ_τ* 训练前缀终点 09:35…11:00（每 5m）。网格自 09:35 至该钟共享 β（仅分钟钟，不依赖日线 open）；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
           >
             <span class="quant-tau-end-slider-lab">前缀</span>
             <span class="quant-tau-end-scale">
-              <span class="quant-tau-end-bound" aria-hidden="true">09:30</span>
+              <span class="quant-tau-end-bound" aria-hidden="true">09:35</span>
               <input
                 id="quant-fit-tau-end-t60"
                 class="quant-tau-end-range"
                 type="range"
                 min="0"
-                max="18"
+                max="17"
                 step="1"
-                value="18"
-                list="quant-fit-tau-end-ticks"
+                value="17"
+                list="quant-fit-tau-end-ticks-hz"
                 aria-valuemin="0"
-                aria-valuemax="18"
-                aria-valuenow="18"
+                aria-valuemax="17"
+                aria-valuenow="17"
                 aria-valuetext="11:00"
-                aria-label="ŷ_τ60 训练前缀终点 09:30 至 11:00"
+                aria-label="ŷ_τ60 训练前缀终点 09:35 至 11:00"
               />
               <span class="quant-tau-end-bound" aria-hidden="true">11:00</span>
             </span>
@@ -1038,25 +1045,25 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_τ75 拟合参数">
           <label
             class="quant-tau-end-slider"
-            title="ŷ_τ* 训练前缀终点 09:30…11:00（每 5m）。网格自 09:30 至该钟共享 β；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
+            title="ŷ_τ* 训练前缀终点 09:35…11:00（每 5m）。网格自 09:35 至该钟共享 β（仅分钟钟，不依赖日线 open）；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
           >
             <span class="quant-tau-end-slider-lab">前缀</span>
             <span class="quant-tau-end-scale">
-              <span class="quant-tau-end-bound" aria-hidden="true">09:30</span>
+              <span class="quant-tau-end-bound" aria-hidden="true">09:35</span>
               <input
                 id="quant-fit-tau-end-t75"
                 class="quant-tau-end-range"
                 type="range"
                 min="0"
-                max="18"
+                max="17"
                 step="1"
-                value="18"
-                list="quant-fit-tau-end-ticks"
+                value="17"
+                list="quant-fit-tau-end-ticks-hz"
                 aria-valuemin="0"
-                aria-valuemax="18"
-                aria-valuenow="18"
+                aria-valuemax="17"
+                aria-valuenow="17"
                 aria-valuetext="11:00"
-                aria-label="ŷ_τ75 训练前缀终点 09:30 至 11:00"
+                aria-label="ŷ_τ75 训练前缀终点 09:35 至 11:00"
               />
               <span class="quant-tau-end-bound" aria-hidden="true">11:00</span>
             </span>
@@ -1120,25 +1127,25 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_τ90 拟合参数">
           <label
             class="quant-tau-end-slider"
-            title="ŷ_τ* 训练前缀终点 09:30…11:00（每 5m）。网格自 09:30 至该钟共享 β；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
+            title="ŷ_τ* 训练前缀终点 09:35…11:00（每 5m）。网格自 09:35 至该钟共享 β（仅分钟钟，不依赖日线 open）；τ30…τ90 共用本滑条，与 ŷ_τc 独立。无拟合记录默认 11:00；刷新后恢复为 τ* 组最新拟合前缀。"
           >
             <span class="quant-tau-end-slider-lab">前缀</span>
             <span class="quant-tau-end-scale">
-              <span class="quant-tau-end-bound" aria-hidden="true">09:30</span>
+              <span class="quant-tau-end-bound" aria-hidden="true">09:35</span>
               <input
                 id="quant-fit-tau-end-t90"
                 class="quant-tau-end-range"
                 type="range"
                 min="0"
-                max="18"
+                max="17"
                 step="1"
-                value="18"
-                list="quant-fit-tau-end-ticks"
+                value="17"
+                list="quant-fit-tau-end-ticks-hz"
                 aria-valuemin="0"
-                aria-valuemax="18"
-                aria-valuenow="18"
+                aria-valuemax="17"
+                aria-valuenow="17"
                 aria-valuetext="11:00"
-                aria-label="ŷ_τ90 训练前缀终点 09:30 至 11:00"
+                aria-label="ŷ_τ90 训练前缀终点 09:35 至 11:00"
               />
               <span class="quant-tau-end-bound" aria-hidden="true">11:00</span>
             </span>

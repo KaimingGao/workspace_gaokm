@@ -394,14 +394,12 @@ def _relabel_tau_panels_as_horizon(
             day_i = str(m.get("date") or dates_in[i] or "")[:10]
             tau_i = str(m.get("tau") or "").strip()
             mb = p.get("minute_bars")
-            # 非开盘钟不信已落盘的宽松分母，每次用精确 τ 根重算。
-            open_clock = is_open_minute_clock(tau_i)
+            # 有分钟线：用精确 τ 根重算（L1 stitch 可能缺/宽分母）。
+            # 无分钟线：信任 collect 已写入的 price_tau（面板不常驻 5m）。
             if mb and tau_i and len(day_i) >= 10:
                 px_tau = label_price_at_tau(mb, trade_date=day_i, tau_hm=tau_i)
-            elif open_clock:
-                px_tau = m.get("price_tau")
             else:
-                px_tau = None
+                px_tau = m.get("price_tau")
             if pxN is None and mb and tau_i and len(day_i) >= 10:
                 tauN_hm, pxN = price_at_horizon_mean_session(
                     mb,

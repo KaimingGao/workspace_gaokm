@@ -109,7 +109,7 @@ class CoverPolicyUnitTests(unittest.TestCase):
         self.assertFalse(_clock_reaches_lake(row, n_eligible=800, n_days=6400))
         self.assertTrue(_clock_reaches_lake(row, n_eligible=800, n_days=192))
 
-    def test_tau_l2_clocks_keep_open(self) -> None:
+    def test_tau_l2_clocks_minute_only_no_open(self) -> None:
         from core.research.materialize.cover_policy import resolve_tau_l2_clocks
 
         clks = resolve_tau_l2_clocks(
@@ -117,7 +117,7 @@ class CoverPolicyUnitTests(unittest.TestCase):
             do_l1=False,
             suggested=["09:35", "10:30", "11:00"],
         )
-        self.assertIn("open", clks)
+        self.assertNotIn("open", clks)
         self.assertIn("09:35", clks)
         self.assertIn("11:00", clks)
 
@@ -126,8 +126,9 @@ class CoverPolicyUnitTests(unittest.TestCase):
             do_l1=False,
             suggested=["09:35", "10:30"],
         )
-        self.assertEqual(clks2[0], "open")
-        self.assertIn("09:35", clks2)
+        self.assertNotIn("open", clks2)
+        self.assertEqual(clks2[0], "09:35")
+        self.assertIn("10:30", clks2)
 
     def test_l2_empty_build_fails_cover(self) -> None:
         from core.research.materialize.cover_policy import LAKE_COVER_FRAC
@@ -173,7 +174,7 @@ class CoverPolicyUnitTests(unittest.TestCase):
         )
         self.assertFalse(names_cover_horizon(kept, min_frac=1.0, need=need))
 
-    def test_run_materialize_tau_wires_open_into_l2(self) -> None:
+    def test_run_materialize_tau_l2_minute_only_no_open(self) -> None:
         from core.research.materialize import run_materialize
 
         with mock.patch(
@@ -197,8 +198,9 @@ class CoverPolicyUnitTests(unittest.TestCase):
             )
         self.assertTrue(out.get("ok"), out)
         clks = list(l2.call_args.kwargs.get("clocks") or [])
-        self.assertIn("open", clks)
+        self.assertNotIn("open", clks)
         self.assertIn("09:35", clks)
+        self.assertIn("10:30", clks)
 
     def test_t0_coverage_gap_ok_when_cubes_present(self) -> None:
         from quant.research.t0_backtest import _t0_coverage_gap

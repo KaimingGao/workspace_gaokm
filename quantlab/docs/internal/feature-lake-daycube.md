@@ -466,7 +466,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 |----|------|
 | 拟合分组 | `date|τ` PIT；窗头优先 stitch L1，miss 才全量 5m |
 | L1 | open `tc` + 分钟线「物化 L1/L2」写 `tc_HHMM`（τc∪窗头列） |
-| L2 | 日线物化 open；分钟线物化按钟（`require_horizon_names`）；`date|τ` 禁静默 open |
+| L2 | 日线物化 open；分钟线物化按钟（`require_horizon_names`，**不含 open**）；窗头网格自 09:35；`date|τ` 禁静默 open |
 | live | `_cs_z_horizon_feats`：τ Cube 覆盖失败 → 同钟 L1，再 leave-one-in（不读 open）。键协议见 [daycube-universe-key.md](./daycube-universe-key.md) |
 | 物化 UI | 日线 open · 分钟线 τ（Ready 门控；仅手动） |
 
@@ -475,7 +475,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 1. **CS 组** = `(trade_date, τ)`，键 `YYYY-MM-DD|HH:MM`（开盘→仅日期 / `open`）。  
 2. **μ/σ 宇宙** = 训练 watching / live `watching∪holdings`（与现 DayCube `universe_hash` 一致）。  
 3. **禁止**同日跨 τ 混组；禁止用「未来钟」同伴分钟占位进 μ/σ（已有 strip / leave-one-in 纪律保留）。  
-4. **L2 主键** = `(date, universe_hash, clock)`，`clock∈{open}∪{HHMM}`；窗头 **主读 `clock=τ`**，禁止把 open 当主口径（miss → 矩阵 CS-z，不静默 open）。  
+4. **L2 主键** = `(date, universe_hash, clock)`，`clock∈{open}∪{HHMM}`；窗头 **主读 `clock=τ`（≥09:35）**，禁止把 open 当主口径；产品消费下 miss → `materialize_required`（双训整单失败，提示分钟线物化）。  
 5. **五头共享特征行、分头标签**：同一 `(code, date, τ)` 特征只存一份；`y_t30…y_t90` 为可选多标签列（或拟合时现算标签、湖只存 X）。
 
 ### 13.3 存储设计

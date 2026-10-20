@@ -7,7 +7,7 @@
 消费方           L1                              L2 钟                         日期窗
 --------------  -------------------------------  ----------------------------  --------------------
 做 T 回测        oo/tc/co + 决策钟 tc_HHMM         open + ≤leg1 的 suggested τ   回看 ∩ 5m 够格日
-分钟 τ 物化      tc_HHMM 网格                      **必须含 open** + suggested τ  5m 够格日（近端优先）
+分钟 τ 物化      tc_HHMM 网格（自 09:35）           **仅** suggested τ（不含 open）  5m 够格日（近端优先）
 日线物化         oo/tc/co                          open                          交易日回看（近端优先）
 
 门槛
@@ -243,25 +243,29 @@ def resolve_tau_l2_clocks(
     do_l1: bool,
     suggested: Sequence[str] | None = None,
 ) -> List[str]:
-    """纯 τ 物化 L2 时钟：保留 open，并并入 suggested τ 网格。"""
+    """纯 τ 物化 L2 时钟：仅分钟钟（suggested τ），**不含 open**。
+
+    ``do_l1`` 保留参数以兼容旧调用；日线 open 由日线物化卡单独写。
+    """
     from core.research.materialize.catalog import normalize_clocks, suggested_tau_clocks
 
+    _ = do_l1  # 兼容签名；不再向 τ L2 强塞 open
     clks = normalize_clocks(clocks)
     sug = [
         str(c).strip()
         for c in (suggested if suggested is not None else suggested_tau_clocks())
         if str(c or "").strip()
     ]
-    if not do_l1:
-        has_tau = any(
-            str(c).lower() not in ("open", "09:30", "0930") for c in clks
-        )
-        if not has_tau:
-            clks = ["open", *list(sug)]
-        elif "open" not in clks and "09:30" not in clks:
-            clks = ["open", *clks]
+    # 去掉 open / 09:30：窗头只吃分钟钟 Cube
+    clks = [
+        c
+        for c in clks
+        if str(c).lower() not in ("open", "09:30", "0930")
+    ]
+    if not clks:
+        clks = list(sug)
     for c in sug:
-        if c not in clks:
+        if c not in clks and str(c).lower() not in ("open", "09:30", "0930"):
             clks.append(c)
     return list(clks)
 

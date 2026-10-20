@@ -180,15 +180,16 @@ class SessionClockTests(unittest.TestCase):
         self.assertAlmostEqual(out[1]["xs"][0]["ret_last_60m_vs_sector"], 1.0, places=6)
         self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_60m"], 3.0, places=6)
 
-    def test_t60_grid_matches_yc_window(self):
+    def test_t60_grid_minute_only_from_0935(self):
         from core.signal.minute_tau_grid import (
-            DEFAULT_T0_TRAIN_TAU_GRID_5M,
+            DEFAULT_HORIZON_TRAIN_TAU_GRID_5M,
             DEFAULT_T60_TRAIN_TAU_GRID,
         )
 
-        self.assertEqual(DEFAULT_T60_TRAIN_TAU_GRID, DEFAULT_T0_TRAIN_TAU_GRID_5M)
-        self.assertEqual(DEFAULT_T60_TRAIN_TAU_GRID[0], "09:30")
+        self.assertEqual(DEFAULT_T60_TRAIN_TAU_GRID, DEFAULT_HORIZON_TRAIN_TAU_GRID_5M)
+        self.assertEqual(DEFAULT_T60_TRAIN_TAU_GRID[0], "09:35")
         self.assertEqual(DEFAULT_T60_TRAIN_TAU_GRID[-1], "11:00")
+        self.assertNotIn("09:30", DEFAULT_T60_TRAIN_TAU_GRID)
         self.assertNotIn("11:30", DEFAULT_T60_TRAIN_TAU_GRID)
         self.assertNotIn("13:05", DEFAULT_T60_TRAIN_TAU_GRID)
 
@@ -421,7 +422,7 @@ class T60RidgeFitTests(unittest.TestCase):
             "t60",
             [{"code": "600000", "bars": daily, "minute_bars": minutes}],
             ridge_lambda=1.0,
-            tau_grid=["09:30", "09:50", "11:00"],
+            tau_grid=["09:35", "09:50", "11:00"],
             holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), msg=report)

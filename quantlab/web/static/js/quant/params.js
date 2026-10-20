@@ -60,7 +60,7 @@ const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
   RANK_Z_UNIV_A_HEADS.map((h) => [h, `quant_fit_z_univ_a_${h}`])
 );
 
-/** ŷ_τc 与 ŷ_τ* 前缀滑条分开；网格同为 09:30…11:00（含 0 前缀）。 */
+/** ŷ_τc：09:30…11:00（含 0 前缀）；ŷ_τ*：09:35…11:00（方案 B，仅分钟）。 */
 const TAU_END_TC_HEADS = ["tc"];
 const TAU_END_HORIZON_HEADS = ["t30", "t45", "t60", "t75", "t90"];
 const TAU_END_FIT_HEADS = [...TAU_END_TC_HEADS, ...TAU_END_HORIZON_HEADS];
@@ -73,7 +73,7 @@ const DEFAULT_TAU_END_HM_TC = "09:30";
 const DEFAULT_TAU_END_HM_HORIZON = "11:00";
 /** clamp / 做 T 回测等无组上下文时的回落（保持 11:00）。 */
 const DEFAULT_TAU_END_HM = DEFAULT_TAU_END_HM_HORIZON;
-/** 与研究台 / 做 T 回测前缀滑条同网格。 */
+/** ŷ_τc / 做 T 回测：含 09:30 开盘点。 */
 export const TAU_END_CLOCKS = (() => {
   const out = [];
   let total = 9 * 60 + 30;
@@ -86,6 +86,8 @@ export const TAU_END_CLOCKS = (() => {
   }
   return out;
 })();
+/** ŷ_τ30…90：自 09:35 起，不读日线 open。 */
+export const TAU_END_CLOCKS_HORIZON = TAU_END_CLOCKS.filter((c) => c !== "09:30");
 
 function tauEndGroup(headOrGroup) {
   const h = String(headOrGroup || "")
@@ -109,13 +111,18 @@ function tauEndStorageKey(group) {
   return group === "tc" ? TAU_END_STORAGE_KEY_TC : TAU_END_STORAGE_KEY_HZ;
 }
 
-function tauEndDefaultIdx(group) {
-  const hm = tauEndDefault(group);
-  const i = TAU_END_CLOCKS.indexOf(hm);
-  return i >= 0 ? i : group === "tc" ? 0 : TAU_END_CLOCKS.length - 1;
+function tauEndClocks(group) {
+  return group === "tc" ? TAU_END_CLOCKS : TAU_END_CLOCKS_HORIZON;
 }
 
-/** 规范前缀终点 HH:MM（须在 TAU_END_CLOCKS）；非法回落 fallback。 */
+function tauEndDefaultIdx(group) {
+  const clocks = tauEndClocks(group);
+  const hm = tauEndDefault(group);
+  const i = clocks.indexOf(hm);
+  return i >= 0 ? i : group === "tc" ? 0 : clocks.length - 1;
+}
+
+/** 规范前缀终点 HH:MM（须在 TAU_END_CLOCKS）；非法回落 fallback。做 T / τc 用。 */
 export function clampTauEndHm(raw, fallback = DEFAULT_TAU_END_HM) {
   const s = String(raw || "")
     .trim()
@@ -124,6 +131,27 @@ export function clampTauEndHm(raw, fallback = DEFAULT_TAU_END_HM) {
   if (TAU_END_CLOCKS.includes(s)) return s;
   const fb = String(fallback || DEFAULT_TAU_END_HM).slice(0, 5);
   return TAU_END_CLOCKS.includes(fb) ? fb : DEFAULT_TAU_END_HM;
+}
+
+/** 窗头前缀：09:30/open 上抬 09:35。 */
+function clampHorizonTauEndHm(raw, fallback = DEFAULT_TAU_END_HM_HORIZON) {
+  let s = String(raw || "")
+    .trim()
+    .replace("：", ":")
+    .slice(0, 5);
+  if (s === "09:30" || s.toLowerCase() === "open") s = "09:35";
+  if (TAU_END_CLOCKS_HORIZON.includes(s)) return s;
+  const fb = String(fallback || DEFAULT_TAU_END_HM_HORIZON).slice(0, 5);
+  const fb2 = fb === "09:30" ? "09:35" : fb;
+  return TAU_END_CLOCKS_HORIZON.includes(fb2)
+    ? fb2
+    : DEFAULT_TAU_END_HM_HORIZON;
+}
+
+function clampTauEndHmForGroup(raw, group) {
+  return group === "tc"
+    ? clampTauEndHm(raw, DEFAULT_TAU_END_HM_TC)
+    : clampHorizonTauEndHm(raw, DEFAULT_TAU_END_HM_HORIZON);
 }
 
 function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
@@ -593,21 +621,28 @@ export function createResearchParams(opts = {}) {
   }
 
   function tauEndIndex(hm, group = "horizon") {
+    const clocks = tauEndClocks(group);
     const fb = tauEndDefault(group);
-    const s = String(hm || "").trim().slice(0, 5);
-    const i = TAU_END_CLOCKS.indexOf(s);
-    return i >= 0 ? i : TAU_END_CLOCKS.indexOf(fb);
+    const s = clampTauEndHmForGroup(hm, group);
+    const i = clocks.indexOf(s);
+    return i >= 0 ? i : clocks.indexOf(fb);
   }
 
   function _paintTauEndSlider(el, hm, group = "horizon") {
     if (!el) return;
-    const clock = clampTauEndHm(hm, tauEndDefault(group));
+    const clocks = tauEndClocks(group);
+    const clock = clampTauEndHmForGroup(hm, group);
     const idx = tauEndIndex(clock, group);
+    el.max = String(Math.max(0, clocks.length - 1));
+    el.setAttribute("aria-valuemax", el.max);
     el.value = String(idx);
     el.setAttribute("aria-valuenow", String(idx));
     el.setAttribute("aria-valuetext", clock);
     const lab = el.closest(".quant-tau-end-slider");
-    if (lab) lab.classList.toggle("is-zero-prefix", clock === "09:30");
+    // 仅 τc 有 0 前缀；窗头自 09:35 起
+    if (lab) lab.classList.toggle("is-zero-prefix", group === "tc" && clock === "09:30");
+    const bound0 = lab && lab.querySelector(".quant-tau-end-bound");
+    if (bound0 && group === "horizon") bound0.textContent = "09:35";
     const outId = el.id ? `${el.id}-val` : "";
     const out = outId ? document.getElementById(outId) : null;
     if (out) {
@@ -624,7 +659,7 @@ export function createResearchParams(opts = {}) {
       if (!saved && g === "horizon") {
         saved = localStorage.getItem(TAU_END_STORAGE_KEY_LEGACY);
       }
-      if (saved) return clampTauEndHm(saved, fb);
+      if (saved) return clampTauEndHmForGroup(saved, g);
     } catch (_) {}
     return fb;
   }
@@ -633,6 +668,7 @@ export function createResearchParams(opts = {}) {
   function readTauEndHm(headOrGroup) {
     const group = tauEndGroup(headOrGroup);
     const heads = tauEndHeads(group);
+    const clocks = tauEndClocks(group);
     const fb = tauEndDefault(group);
     const fbIdx = tauEndDefaultIdx(group);
     let el = null;
@@ -646,15 +682,15 @@ export function createResearchParams(opts = {}) {
       const idx = Math.max(
         0,
         Math.min(
-          TAU_END_CLOCKS.length - 1,
+          clocks.length - 1,
           Math.round(Number.isFinite(raw) ? raw : fbIdx)
         )
       );
-      hm = TAU_END_CLOCKS[idx] || fb;
+      hm = clocks[idx] || fb;
     } else {
       hm = readStoredTauEndHm(group);
     }
-    hm = clampTauEndHm(hm, fb);
+    hm = clampTauEndHmForGroup(hm, group);
     // 拟合读数只同步本组滑条，不写 storage（storage 仅用户拖动时写入）
     for (const head of heads) {
       _paintTauEndSlider(
@@ -671,7 +707,7 @@ export function createResearchParams(opts = {}) {
     return { tau_end_hm: readTauEndHm(head) };
   }
 
-  /** 卡头摘要：前缀11:00；τc 在 09:30 显示 0前缀·OC，τ* 显示前缀09:30。 */
+  /** 卡头摘要：前缀11:00；τc 在 09:30 显示 0前缀·OC，τ* 自 09:35。 */
   function formatTauEndBit(data, opts) {
     const src = data && typeof data === "object" ? data : {};
     const ySpec = src.y_spec && typeof src.y_spec === "object" ? src.y_spec : {};
@@ -685,15 +721,19 @@ export function createResearchParams(opts = {}) {
     if (!hm && (src.zero_prefix || ySpec.zero_prefix)) hm = "09:30";
     if (!hm && (src.tau === "open" || ySpec.tau === "open")) hm = "09:30";
     hm = String(hm || "").trim().slice(0, 5);
+    if (forHorizon) {
+      if (hm === "09:30" || hm.toLowerCase() === "open") hm = "09:35";
+      if (!hm || !TAU_END_CLOCKS_HORIZON.includes(hm)) return "";
+      return `前缀${hm}`;
+    }
     if (!hm || !TAU_END_CLOCKS.includes(hm)) return "";
-    if (hm === "09:30" && !forHorizon) return "0前缀·OC";
+    if (hm === "09:30") return "0前缀·OC";
     return `前缀${hm}`;
   }
 
   function applyTauEndHm(hm, opts) {
     const group = tauEndGroup((opts && (opts.head || opts.group)) || "horizon");
-    const fb = tauEndDefault(group);
-    const clock = clampTauEndHm(hm, fb);
+    const clock = clampTauEndHmForGroup(hm, group);
     const persist = !opts || opts.persist !== false;
     if (persist) {
       try {
@@ -711,7 +751,9 @@ export function createResearchParams(opts = {}) {
   }
 
   /** 从模型 / last_report 取训练前缀钟；无则 ""。 */
-  function pickTauEndHmFromReport(data) {
+  function pickTauEndHmFromReport(data, headOrGroup) {
+    const group = tauEndGroup(headOrGroup || "horizon");
+    const clocks = tauEndClocks(group);
     const src = data && typeof data === "object" ? data : {};
     const last =
       src.last_report && typeof src.last_report === "object" ? src.last_report : null;
@@ -729,11 +771,14 @@ export function createResearchParams(opts = {}) {
       lastYs.tau_end_hm,
     ];
     for (const c of candidates) {
-      const s = String(c || "")
+      let s = String(c || "")
         .trim()
         .replace("：", ":")
         .slice(0, 5);
-      if (TAU_END_CLOCKS.includes(s)) return s;
+      if (group === "horizon" && (s === "09:30" || s.toLowerCase() === "open")) {
+        s = "09:35";
+      }
+      if (clocks.includes(s)) return s;
     }
     return "";
   }
@@ -756,7 +801,7 @@ export function createResearchParams(opts = {}) {
 
   function restoreTauEndFromFitReport(data, head) {
     const group = tauEndGroup(head);
-    const hm = pickTauEndHmFromReport(data);
+    const hm = pickTauEndHmFromReport(data, head);
     if (!hm) return null;
     const ts = pickTauEndStamp(data);
     if (ts < _tauEndRestoreBestTs[group]) return null;
@@ -768,6 +813,7 @@ export function createResearchParams(opts = {}) {
     // 先画各组 localStorage / 默认；各头 /model 预填后再按组内最新拟合覆盖
     for (const group of ["tc", "horizon"]) {
       const hm = readStoredTauEndHm(group);
+      const clocks = tauEndClocks(group);
       for (const head of tauEndHeads(group)) {
         const el = document.getElementById(`quant-fit-tau-end-${head}`);
         if (!el) continue;
@@ -781,11 +827,11 @@ export function createResearchParams(opts = {}) {
           const idx = Math.max(
             0,
             Math.min(
-              TAU_END_CLOCKS.length - 1,
+              clocks.length - 1,
               Math.round(Number.isFinite(raw) ? raw : fbIdx)
             )
           );
-          applyTauEndHm(TAU_END_CLOCKS[idx] || fb, { persist: true, group });
+          applyTauEndHm(clocks[idx] || fb, { persist: true, group });
         };
         el.addEventListener("input", sync);
         el.addEventListener("change", sync);

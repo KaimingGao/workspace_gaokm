@@ -4,7 +4,7 @@
 通过 ``head`` 参数（"t30"/"t45"/"t60"/"t75"/"t90"）区分。
 
 盘中写 y_τ{num}=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 fuse。
-决策钟只覆盖 09:30…11:00（与 ŷ_τc 对齐）；窗外不训、不预。
+训练决策钟 09:35…11:00（仅分钟钟；与 ŷ_τc 的 09:30 开盘点分离）；窗外不训、不预。
 Ridge / LightGBM 同用 alpha_τh = z_τh_* ∪ raw_ath_*（不含 OC 路径形状）。
 """
 
@@ -39,7 +39,11 @@ from core.signal.factors.z_th import (
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 from core.signal.minute_tau_grid import (
     DEFAULT_T0_TRAIN_TAU_GRID_5M,
+    HORIZON_TAU_START_HM,
     format_shared_tau_formula,
+    is_openish_clock,
+    normalize_horizon_tau_end_hm,
+    sanitize_horizon_tau_grid,
 )
 
 HORIZON_RIDGE_HEADS = ("t30", "t45", "t60", "t75", "t90")
@@ -191,15 +195,75 @@ def _resolve_horizon_clocks(
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Tuple[str, List[str], Any]:
     cfg = _horizon_ridge_config(head)
-    live_hm = str(tau_hm or "10:30").strip() or "10:30"
-    if live_hm.lower() in ("", "open"):
-        live_hm = "10:30"
-    grid = (
-        list(tau_grid)
-        if tau_grid is not None
-        else list(cfg["train_tau_grid"])
+    raw_live = str(tau_hm or "").strip() or HORIZON_TAU_START_HM
+    live_hm = (
+        normalize_horizon_tau_end_hm(raw_live, default=HORIZON_TAU_START_HM)
+        or HORIZON_TAU_START_HM
     )
+    if is_openish_clock(raw_live):
+        live_hm = HORIZON_TAU_START_HM
+    grid = sanitize_horizon_tau_grid(
+        tau_grid if tau_grid is not None else cfg.get("train_tau_grid"),
+        fallback=list(cfg.get("train_tau_grid") or ()) or None,
+    )
+    if live_hm not in grid and grid:
+        # 终点钟须落在网格内；否则抬到网格末档
+        live_hm = str(grid[-1])
     return live_hm, grid, cfg
+
+
+def _is_materialize_tree_fail(tree_rep: Any) -> bool:
+    """仅认明确的物化契约；避免普通 tree 报错误伤整单。"""
+    if not isinstance(tree_rep, dict) or tree_rep.get("success"):
+        return False
+    if tree_rep.get("error_code") == "materialize_required":
+        return True
+    err = str(tree_rep.get("error") or "")
+    # 正式文案：请先物化 L2：…；裸 "cube miss"  alone 不抬成整单失败
+    return "请先物化" in err or "materialize_required" in err
+
+
+def _dual_materialize_fail_report(
+    ridge_rep: Dict[str, Any],
+    *,
+    error: str,
+    hint: str = "分钟线物化",
+    layer: str = "l2",
+    clocks: Any = None,
+    error_code: str = "materialize_required",
+) -> Dict[str, Any]:
+    """窗头缺分钟 L2：整单失败（禁止 Ridge 假成功 + LightGBM 空）。"""
+    oos_ridge = ridge_rep.get("oos") if isinstance(ridge_rep.get("oos"), dict) else {}
+    ridge_rm = ridge_rep.get("return_model")
+    out = dict(ridge_rep)
+    out.update(
+        {
+            "success": False,
+            "ok": False,
+            "error_code": str(error_code or "materialize_required"),
+            "error": error,
+            "hint": hint or "分钟线物化",
+            "layer": layer or "l2",
+            "clocks": clocks,
+            "tree_success": False,
+            "tree_error": error,
+            "ridge_oos": oos_ridge,
+            "recommended_backend": "ridge",
+            "backend": "ridge",
+            "backends": (
+                {
+                    "ridge": {
+                        "return_model": ridge_rm,
+                        "return_model_research": ridge_rep.get("return_model_research")
+                        or ridge_rm,
+                    }
+                }
+                if isinstance(ridge_rm, dict)
+                else {}
+            ),
+        }
+    )
+    return out
 
 
 def prepare_horizon_compact(
@@ -688,9 +752,21 @@ def fit_horizon_dual_report(
     if subsample is not None:
         tree_kw["subsample"] = subsample
 
+    from core.research.materialize.consumer import MaterializeRequired
+
     tree_rep: Dict[str, Any]
     try:
         tree_rep = fit_horizon_tree_report(head, stock_bars, **tree_kw)
+    except MaterializeRequired as exc:
+        payload = exc.to_dict()
+        return _dual_materialize_fail_report(
+            ridge_rep,
+            error=str(payload.get("error") or exc),
+            hint=str(payload.get("hint") or "分钟线物化"),
+            layer=str(payload.get("layer") or "l2"),
+            clocks=payload.get("clocks"),
+            error_code=str(payload.get("error_code") or "materialize_required"),
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("%s dual tree fit failed: %s", head, exc, exc_info=True)
         tree_rep = {"success": False, "error": str(exc)}
@@ -707,6 +783,24 @@ def fit_horizon_dual_report(
     # tree 失败时 ridge_oos 可能仍在
     if not oos_tree and isinstance(tree_rep, dict):
         oos_tree = {}
+
+    if _is_materialize_tree_fail(tree_rep):
+        tree_err = str(tree_rep.get("error") or "请先物化 L2")
+        tree_hint = (
+            str(tree_rep.get("hint") or "").strip()
+            if isinstance(tree_rep, dict)
+            else ""
+        )
+        return _dual_materialize_fail_report(
+            ridge_rep,
+            error=tree_err,
+            hint=tree_hint or "分钟线物化",
+            layer=str((tree_rep or {}).get("layer") or "l2"),
+            clocks=tree_rep.get("clocks") if isinstance(tree_rep, dict) else None,
+            error_code=str(
+                (tree_rep or {}).get("error_code") or "materialize_required"
+            ),
+        )
 
     recommended = select_horizon_backend(
         oos_tree if tree_rep.get("success") else None,

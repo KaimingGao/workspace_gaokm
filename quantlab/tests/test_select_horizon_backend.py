@@ -266,13 +266,100 @@ class HorizonDualFitTests(unittest.TestCase):
                 stock_bars,
                 ridge_lambda=1.0,
                 holdout_trading_days=8,
-                tau_grid=["09:30", "09:50", "10:30", "11:15"],
+                tau_grid=["09:35", "09:50", "10:30", "11:00"],
             )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("recommended_backend"), "ridge")
         self.assertFalse(report.get("tree_success"))
         self.assertIn("ridge", report.get("backends") or {})
         self.assertNotIn("tree", report.get("backends") or {})
+
+    def test_dual_fails_whole_job_on_tree_materialize_required(self):
+        from unittest.mock import patch
+
+        from core.research.horizon_ridge import fit_horizon_dual_report
+        from core.research.materialize.consumer import MaterializeRequired
+
+        stock_bars = [
+            _stock("A", 10.0),
+            _stock("B", 12.0),
+            _stock("C", 8.0),
+            _stock("D", 15.0),
+        ]
+
+        def _boom(*_a, **_k):
+            raise MaterializeRequired(
+                {
+                    "error": "请先物化 L2：cube miss 2026-03-26|09:35",
+                    "hint": "分钟线物化",
+                    "layer": "l2",
+                    "clocks": ["09:35"],
+                }
+            )
+
+        with patch(
+            "core.research.horizon_tree.fit_horizon_tree_report",
+            side_effect=_boom,
+        ):
+            report = fit_horizon_dual_report(
+                "t30",
+                stock_bars,
+                ridge_lambda=1.0,
+                holdout_trading_days=8,
+                tau_grid=["09:35", "09:50", "10:30", "11:00"],
+            )
+        self.assertFalse(report.get("success"), report)
+        self.assertEqual(report.get("error_code"), "materialize_required")
+        self.assertIn("分钟线物化", str(report.get("hint") or ""))
+        self.assertFalse(report.get("tree_success"))
+        self.assertIn("请先物化", str(report.get("error") or report.get("tree_error") or ""))
+
+    def test_dual_does_not_treat_bare_cube_miss_string_as_materialize(self):
+        """裸 'cube miss' 文案不得误伤整单（须 error_code / 请先物化）。"""
+        from unittest.mock import patch
+
+        from core.research.horizon_ridge import (
+            _is_materialize_tree_fail,
+            fit_horizon_dual_report,
+        )
+
+        self.assertFalse(
+            _is_materialize_tree_fail(
+                {"success": False, "error": "internal cube miss while packing"}
+            )
+        )
+        self.assertTrue(
+            _is_materialize_tree_fail(
+                {
+                    "success": False,
+                    "error": "请先物化 L2：cube miss 2026-03-26|09:35",
+                }
+            )
+        )
+
+        stock_bars = [
+            _stock("A", 10.0),
+            _stock("B", 12.0),
+            _stock("C", 8.0),
+            _stock("D", 15.0),
+        ]
+        with patch(
+            "core.research.horizon_tree.fit_horizon_tree_report",
+            return_value={
+                "success": False,
+                "error": "worker cube miss while packing batches",
+            },
+        ):
+            report = fit_horizon_dual_report(
+                "t30",
+                stock_bars,
+                ridge_lambda=1.0,
+                holdout_trading_days=8,
+                tau_grid=["09:35", "09:50", "10:30", "11:00"],
+            )
+        self.assertTrue(report.get("success"), report.get("error"))
+        self.assertNotEqual(report.get("error_code"), "materialize_required")
+        self.assertEqual(report.get("recommended_backend"), "ridge")
 
     def test_dual_keeps_tree_gain_when_ridge_wins(self):
         from unittest.mock import patch
@@ -305,7 +392,7 @@ class HorizonDualFitTests(unittest.TestCase):
                 stock_bars,
                 ridge_lambda=1.0,
                 holdout_trading_days=8,
-                tau_grid=["09:30", "09:50", "10:30", "11:15"],
+                tau_grid=["09:35", "09:50", "10:30", "11:00"],
             )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("recommended_backend"), "ridge")
@@ -327,7 +414,7 @@ class HorizonDualFitTests(unittest.TestCase):
             _stock("C", 8.0),
             _stock("D", 15.0),
         ]
-        grid = ["09:30", "09:50", "10:30", "11:15"]
+        grid = ["09:35", "09:50", "10:30", "11:00"]
         raw_acc = []
         for it in stock_bars:
             chunk = build_tau_panels_from_bars(
@@ -382,7 +469,7 @@ class HorizonDualFitTests(unittest.TestCase):
             it["bars"],
             it["minute_bars"],
             tau_hm="10:30",
-            tau_grid=["09:30", "10:00", "10:30"],
+            tau_grid=["09:35", "10:00", "10:30"],
             min_history=12,
             stock_code="A",
             include_alpha_th=True,
@@ -406,7 +493,7 @@ class HorizonDualFitTests(unittest.TestCase):
                 _stock("F", 9.0),
             ]
 
-        grid = ["09:30", "09:50", "10:30", "11:00"]
+        grid = ["09:35", "09:50", "10:30", "11:00"]
         kw = dict(
             min_history=12,
             gap_trigger_pct=2.0,
@@ -505,7 +592,7 @@ class HorizonDualFitTests(unittest.TestCase):
                 stock_bars,
                 ridge_lambda=1.0,
                 holdout_trading_days=8,
-                tau_grid=["09:30", "09:50", "10:30", "11:15"],
+                tau_grid=["09:35", "09:50", "10:30", "11:00"],
             )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertTrue(seen["ridge_compact"])
@@ -537,7 +624,7 @@ class HorizonDualFitTests(unittest.TestCase):
             ridge_lambda=1.0,
             holdout_trading_days=8,
             n_estimators=20,
-            tau_grid=["09:30", "09:50", "10:30", "11:15"],
+            tau_grid=["09:35", "09:50", "10:30", "11:00"],
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertIn(report.get("recommended_backend"), ("ridge", "tree"))

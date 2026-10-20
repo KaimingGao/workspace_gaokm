@@ -102,7 +102,7 @@ class TestT60Tree(unittest.TestCase):
             backend="lightgbm",
             holdout_trading_days=8,
             n_estimators=20,
-            tau_grid=["09:30", "09:50", "10:30", "11:00"],
+            tau_grid=["09:35", "09:50", "10:30", "11:00"],
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "t60_tree")
@@ -172,7 +172,7 @@ class TestT60Tree(unittest.TestCase):
                 )
                 self.assertIsNone(load_ridge_model("t60"))
 
-    def test_open_tau_coerced_to_1030(self):
+    def test_open_tau_coerced_to_0935(self):
         from core.research.horizon_tree import fit_horizon_tree_report
 
         report = fit_horizon_tree_report(
@@ -181,11 +181,11 @@ class TestT60Tree(unittest.TestCase):
             backend="lightgbm",
             n_estimators=8,
             tau_hm="open",
-            tau_grid=["09:30", "10:30", "11:00"],
+            tau_grid=["09:35", "10:30", "11:00"],
             holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertEqual(report.get("tau"), "10:30")
+        self.assertEqual(report.get("tau"), "09:35")
 
 if __name__ == "__main__":
     unittest.main()

@@ -334,8 +334,11 @@ def predict_p_up_rows(
                     xs_use = xs
                 try:
                     from core.research.materialize.cube_z import cs_z_dicts_prefer_cube
+                    from core.research.materialize.consumer import MaterializeRequired
 
                     rows = cs_z_dicts_prefer_cube(xs_use, names, row_dates)
+                except MaterializeRequired:
+                    raise
                 except Exception:  # noqa: BLE001
                     rows = cross_section_zscore_dicts(xs_use, names, row_dates)
     logits = _predict_rows(fit, rows, impute_missing=impute_missing)
@@ -677,8 +680,11 @@ def fit_logistic_ridge_from_panel(
         # IRLS 与推理同口径：先日截面 z，再按 μ=0/σ=1 入模
         try:
             from core.research.materialize.cube_z import cs_z_dicts_prefer_cube
+            from core.research.materialize.consumer import MaterializeRequired
 
             xs_irls = cs_z_dicts_prefer_cube(xs, active, row_dates)
+        except MaterializeRequired:
+            raise
         except Exception:  # noqa: BLE001
             xs_irls = cross_section_zscore_dicts(xs, active, row_dates)
     rows_x: List[List[float]] = []

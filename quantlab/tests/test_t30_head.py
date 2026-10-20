@@ -179,15 +179,18 @@ class SessionClockTests(unittest.TestCase):
         self.assertAlmostEqual(out[1]["xs"][0]["ret_last_30m_vs_sector"], 1.0, places=6)
         self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_30m"], 3.0, places=6)
 
-    def test_t30_grid_matches_yc_window(self):
+    def test_t30_grid_minute_only_from_0935(self):
         from core.signal.minute_tau_grid import (
+            DEFAULT_HORIZON_TRAIN_TAU_GRID_5M,
             DEFAULT_T0_TRAIN_TAU_GRID_5M,
             DEFAULT_T30_TRAIN_TAU_GRID,
         )
 
-        self.assertEqual(DEFAULT_T30_TRAIN_TAU_GRID, DEFAULT_T0_TRAIN_TAU_GRID_5M)
-        self.assertEqual(DEFAULT_T30_TRAIN_TAU_GRID[0], "09:30")
+        self.assertEqual(DEFAULT_T30_TRAIN_TAU_GRID, DEFAULT_HORIZON_TRAIN_TAU_GRID_5M)
+        self.assertEqual(DEFAULT_T30_TRAIN_TAU_GRID[0], "09:35")
         self.assertEqual(DEFAULT_T30_TRAIN_TAU_GRID[-1], "11:00")
+        self.assertNotIn("09:30", DEFAULT_T30_TRAIN_TAU_GRID)
+        self.assertEqual(DEFAULT_T0_TRAIN_TAU_GRID_5M[0], "09:30")
         self.assertNotIn("11:30", DEFAULT_T30_TRAIN_TAU_GRID)
         self.assertNotIn("13:05", DEFAULT_T30_TRAIN_TAU_GRID)
 
@@ -374,7 +377,9 @@ class RelabelT30Tests(unittest.TestCase):
         elapsed = time.perf_counter() - t0
         self.assertGreater(len(ys), 100)
         taus = {m.get("tau") for m in metas}
-        self.assertIn("09:30", taus)
+        # ŷ_τ30 训练网格自 09:35（不含开盘 09:30）
+        self.assertNotIn("09:30", taus)
+        self.assertIn("09:35", taus)
         self.assertIn("11:00", taus)
         self.assertFalse(any(str(t or "") > "11:00" for t in taus))
         self.assertTrue(
@@ -422,7 +427,7 @@ class T30RidgeFitTests(unittest.TestCase):
             "t30",
             [{"code": "600000", "bars": daily, "minute_bars": minutes}],
             ridge_lambda=1.0,
-            tau_grid=["09:30", "09:50", "11:15"],
+            tau_grid=["09:35", "09:50", "11:00"],
             holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), msg=report)

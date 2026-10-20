@@ -50,6 +50,32 @@ def _groups_have_tau_clock(groups: Sequence[Any]) -> bool:
     return False
 
 
+def _l2_materialize_hint(
+    groups: Sequence[Any],
+    *,
+    default_clock: str = "open",
+) -> Tuple[str, List[str]]:
+    """消费缺 L2 时的提示：有分钟钟 → 分钟线物化；否则日线物化。"""
+    clocks: List[str] = []
+    seen = set()
+    for g in groups or []:
+        _day, clk = _day_clock_from_group(g, default_clock=default_clock)
+        c = str(clk or "open").strip() or "open"
+        if c not in seen:
+            seen.add(c)
+            clocks.append(c)
+    if not clocks:
+        clocks = [str(default_clock or "open")]
+    minute = [
+        c
+        for c in clocks
+        if str(c).lower() not in ("open", "09:30", "0930")
+    ]
+    if minute:
+        return "分钟线物化", minute
+    return "日线物化", clocks
+
+
 def apply_day_cube_mu_sigma_matrix(
     x: np.ndarray,
     names: Sequence[str],
@@ -196,13 +222,14 @@ def cs_z_matrix_prefer_cube(
             if z is not None and meta.get("ok"):
                 return np.where(np.isfinite(z), z, 0.0)
             if read_only:
+                hint, clks = _l2_materialize_hint(groups, default_clock=clock)
                 raise MaterializeRequired(
                     {
                         "error_code": "materialize_required",
                         "error": "请先物化 L2：" + str((meta or {}).get("error") or "截面立方缺失"),
                         "layer": "l2",
-                        "hint": "日线物化",
-                        "clocks": [str(clock or "open")],
+                        "hint": hint,
+                        "clocks": clks,
                     }
                 )
     except MaterializeRequired:
@@ -210,12 +237,14 @@ def cs_z_matrix_prefer_cube(
     except Exception:  # noqa: BLE001
         logger.debug("cs_z_matrix_prefer_cube cube path failed", exc_info=True)
         if read_only:
+            hint, clks = _l2_materialize_hint(groups, default_clock=clock)
             raise MaterializeRequired(
                 {
                     "error_code": "materialize_required",
                     "error": "请先物化 L2：截面立方读取失败",
                     "layer": "l2",
-                    "hint": "日线物化",
+                    "hint": hint,
+                    "clocks": clks,
                 }
             )
     z = cross_section_zscore_matrix(x, groups)
@@ -246,13 +275,14 @@ def cs_z_dicts_prefer_cube(
             if out is not None and meta.get("ok"):
                 return out
             if read_only:
+                hint, clks = _l2_materialize_hint(groups, default_clock=clock)
                 raise MaterializeRequired(
                     {
                         "error_code": "materialize_required",
                         "error": "请先物化 L2：" + str((meta or {}).get("error") or "截面立方缺失"),
                         "layer": "l2",
-                        "hint": "日线物化",
-                        "clocks": [str(clock or "open")],
+                        "hint": hint,
+                        "clocks": clks,
                     }
                 )
     except MaterializeRequired:
@@ -260,12 +290,14 @@ def cs_z_dicts_prefer_cube(
     except Exception:  # noqa: BLE001
         logger.debug("cs_z_dicts_prefer_cube cube path failed", exc_info=True)
         if read_only:
+            hint, clks = _l2_materialize_hint(groups, default_clock=clock)
             raise MaterializeRequired(
                 {
                     "error_code": "materialize_required",
                     "error": "请先物化 L2：截面立方读取失败",
                     "layer": "l2",
-                    "hint": "日线物化",
+                    "hint": hint,
+                    "clocks": clks,
                 }
             )
     return cross_section_zscore_dicts(rows, names, groups)

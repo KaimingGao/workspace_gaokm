@@ -588,8 +588,11 @@ def _fit_ridge_oos(
             if names:
                 try:
                     from core.research.materialize.cube_z import cs_z_dicts_prefer_cube
+                    from core.research.materialize.consumer import MaterializeRequired
 
                     rows_te = cs_z_dicts_prefer_cube(xs_te, names, dates_te)
+                except MaterializeRequired:
+                    raise
                 except Exception:  # noqa: BLE001
                     rows_te = cross_section_zscore_dicts(xs_te, names, dates_te)
     preds_dm = _predict_rows(fit, rows_te) if xs_te else []
