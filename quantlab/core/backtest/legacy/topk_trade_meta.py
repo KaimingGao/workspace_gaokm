@@ -125,7 +125,6 @@ def _score_factor_weight_meta(
     body = _fmt_factor_weights(gw)
     note = "全局展示权" + (f"：{body}" if body else "")
     return {
-        "cluster_label": None,
         "score_weight_source": "global",
         "factor_weights": gw,
         "factor_weights_note": note,
@@ -259,7 +258,6 @@ def _sim_trade_row(
     port_return_pct: Optional[float] = None,
     port_gross_return_pct: Optional[float] = None,
     port_cost_pct: Optional[float] = None,
-    cluster_label: Optional[str] = None,
     score_weight_source: Optional[str] = None,
     factor_weights: Optional[Dict[str, Any]] = None,
     factor_weights_note: Optional[str] = None,
@@ -316,7 +314,6 @@ def _sim_trade_row(
         "port_return_pct": port_return_pct,
         "port_gross_return_pct": port_gross_return_pct,
         "port_cost_pct": port_cost_pct,
-        "cluster_label": cluster_label,
         "score_weight_source": score_weight_source,
         "factor_weights": factor_weights or {},
         "factor_weights_note": factor_weights_note or "",

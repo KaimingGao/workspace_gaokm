@@ -159,7 +159,7 @@ class TestTopkParamsDisclose(unittest.TestCase):
         self.assertTrue(params.get("apply_costs"))
         self.assertTrue(params.get("stop_applied"))
         self.assertIn("stop_legs_clipped", params)
-        self.assertIn("oos_fail_excluded_models", params)
+        self.assertNotIn("cluster_return_models", params)
         shadow = result.get("stop_shadow") or {}
         self.assertIn("ok", shadow)
 

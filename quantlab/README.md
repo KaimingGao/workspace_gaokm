@@ -34,11 +34,11 @@ Web 主路径见 [docs/quant-ui.md](docs/quant-ui.md)（含 Web 契约与升级�
 
 | 环节 | 含义 | 代码落点 |
 |------|------|----------|
-| **数据** | 行情 / 日线 / 基本面 / 舆情 / 配置 | `core/ports` · `skills/*` · `data/*.json` |
+| **数据** | 行情 / 日线 / 5m / 基本面 / 舆情；**L1 Feature Lake · L2 DayCube** | `core/ports` · `store` · `core/research/materialize` · `data/*.json` |
 | **信号** | `hard_reject` + 因子子分（启发式 `score` 仅对照） | `score_stock` → `score_bars` |
-| **因子** | 动量 / 量价 / … 子分特征 | `core/signal/factors` · `signal_config.json` |
-| **模型** | ŷ（`predicted_score`；组 β / Ridge） | `ReturnScoreModel` · 双层 ŷ_oo+ŷ_τ |
-| **动作** | 观察展示 · 人建仓 · 规则调仓 · 回溯 | watching / paper / backtest |
+| **因子** | 动量 / 量价 / … 子分特征；截面 z（PIT） | `core/signal/factors` · `signal_config.json` |
+| **模型** | ŷ：日线 ŷ_oo / ŷ_co · 分钟 ŷ_τc · 窗头 ŷ_τ30…90→ŷ_τw | `horizon_*` · `*_ridge` · 双层 fuse（调仓） |
+| **动作** | 观察展示 · 人建仓 · 规则调仓 · 做 T · 回溯 | watching / paper / t0 / backtest |
 
 **两条轨**：量化主轴算数字；AI 旁路只编排与解释（不得改写 `score` / `stance_label`）。  
 **北极星**（纸面夏普/卡玛 × TTM × 回测–纸面拟合）与 **能力地图**（收集→清洗→因子→组合风控→回测→纸面迭代）见 **[docs/design-spine.md](docs/design-spine.md)**。
@@ -87,10 +87,18 @@ Input (State) → Policy (Model) → Action (Tool) → Reward (Feedback) → Upd
 | 能力 | 示例 |
 |------|------|
 | 信号 / 策略 | 评分、买卖倾向、规则调仓（`core/signal` · `advise` · 模拟调仓） |
-| 回测 / 模拟 | Web **回溯**；Web **模拟**（假钱账本 · 出处标记 · 成本模型） |
+| 研究台 ŷ | ŷ_oo / ŷ_τc / ŷ_co；ŷ_τ30…90 **同窗双训 LightGBM + Ridge**（Holdout AUC 择优）；做 T 用 ŷ_τw |
+| 物化 L1/L2 | 日线/分钟 **Feature Lake + DayCube**；产品拟合/回测只读，缺覆盖返回 `materialize_required` |
+| 回测 / 模拟 | Web **回溯**（调仓 · 做 T）；Web **模拟**（假钱账本 · 出处标记 · 成本模型） |
 | 观察 | Web **观察**（名单 + 现价 / 涨跌 + 舆情；建仓入口） |
 | AI 辅助 | 自然语言问价/对比/分析；Agent 编排 Skills |
 | 其它 Skills | 选股、K 线、基本面、同行、强弱、资讯、持仓规则 |
+
+**ŷ 与截面口径（现行）**
+
+- **调仓**：ŷ_oo 主排序 + fuse（ŷ_τc / ŷ_co）；分组 OLS / 组 β **已退役**。
+- **做 T**：纯 ŷ_τw（五窗 ŷ_τ30…90 相对中位点投票）定方向与金额；训练网格 **09:35…11:00**（分钟 L2），live 可含 09:30。
+- **CS-z**：拟合与 live 均为 **`date|τ` PIT**（同日多钟不混组）；禁止按日混钟当生产口径。细节见 [docs/t0-logic.md](docs/t0-logic.md)、[docs/quant.md · ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路)、[docs/internal/feature-lake-daycube.md](docs/internal/feature-lake-daycube.md)。
 
 ---
 
@@ -112,9 +120,9 @@ quantlab/
 │   ├── backtest/               # 历史回测引擎
 │   ├── paper/                  # 模拟账本 · exec · cycle · rebalance
 │   ├── watching/               # 观察池
-│   ├── t0/ · risk/ · research/ # T+0 · 风控 · 研究模型
+│   ├── t0/ · risk/ · research/ # T+0 · 风控 · ŷ / 物化（materialize L1/L2）
 │   ├── advise.py · stance.py   # 规则引擎买卖结论 / 倾向
-│   └── store.py                # 日线缓存
+│   └── store.py                # 日线 / 分钟缓存入口
 ├── adapters/                   # 出站 I/O（经 adapters.bind 注入 ports）
 ├── skills/                     # Agent 工具层（handler + shim；注册 13 个）
 │   ├── quote/ compare/ screen/ signal/
@@ -198,7 +206,7 @@ class Agent:
 
 - **输入**：quote + signal + kline + peer + index
 - **输出**：`stance_label`（买入/观望/减仓/止损）+ `facts` + `invalidation`（失效条件）
-- **设计**：`compute_buy_stance` 只吃 **ŷ**（`predicted_score`）；无 ŷ 则「信息不足」。启发式加权 `score` 仅研究对照，不驱动倾向。LLM 只引用 `stance_label`，不改写 ŷ
+- **设计**：`compute_buy_stance` 只吃 **ŷ**（主字段多为 ŷ_oo / `predicted_score`）；无 ŷ 则「信息不足」。启发式加权 `score` 仅研究对照，不驱动倾向。LLM 只引用 `stance_label`，不改写 ŷ
 
 ---
 
@@ -226,7 +234,7 @@ bash scripts/setup_quant.sh   # watching.json 不存在时，从 watching.exampl
 python3 run_web.py            # → http://127.0.0.1:8000
 ```
 
-第一次回测建议先按 [getting-started.md](docs/getting-started.md) 写成 3 只，在研究枢纽拉数并拟合后再跑。直接用模板整池，拉数和拟合都会很久。行情、观察、回测、模拟账户不依赖 API key。Web 侧栏：**研究枢纽 · 历史回测**。
+第一次回测建议先按 [getting-started.md](docs/getting-started.md) 写成 3 只，在研究枢纽 **拉日线 / 5m →（窗头需要时）物化 L1/L2 → 拟合并启用研究套** 后再跑。直接用模板整池，拉数、物化和拟合都会很久；满池双训内存压力大，宜单任务跑、勿与整池分钟预热并行。行情、观察、回测、模拟账户不依赖 API key。Web 侧栏：**研究枢纽 · 历史回测**。
 
 不想连外网、也不配 key 时，先跑离线校验：
 
@@ -256,8 +264,10 @@ python3 -c "from skills.quote.handler import QuoteHandler; print(QuoteHandler().
 |------|------|--------|------|
 | 观察名单 | `data/watching.example.json` | `setup_quant.sh` 调用 `watching_run.py --init` | 复制为 `data/watching.json` |
 | 纸面账户 | 脚本内置 | 同上，`paper_run.py --init` | `data/paper.json` |
-| 日线行情 | `akshare` | 评分 / 回测时写入缓存 | `core/store.py`；`python3 research/daily_run.py --preset quant` 可刷新 |
-| 5 分钟 K 线 | 东财 / 新浪 | 做 T 回测时按需拉取 | 缺失则当日跳过 |
+| 日线行情 | `akshare` | 研究枢纽增量补齐 / preset | `core/store.py`；`python3 research/daily_run.py --preset quant` |
+| 5 分钟 K 线 | 东财 / 新浪 | 研究枢纽增量补齐；做 T / τ 拟合依赖 | Ready 后才物化分钟 L2；缺日则跳过 |
+| L1 Feature Lake | 物化 Job | 研究枢纽「物化」/ `POST /api/quant/materialize` | `data/cache/feature_lake/`；按股×日 raw |
+| L2 DayCube | 物化 Job | 同上（日线 open + 分钟 τ 钟） | `data/cache/day_cubes/`；截面 μ/σ，键含 `universe_hash` |
 
 只初始化观察名单：
 
@@ -305,14 +315,16 @@ Web 主路径：**对话** · **观察** · **模拟** · **回溯**。说明见
 
 | 文档 | 说明 |
 |------|------|
+| [docs/getting-started.md](docs/getting-started.md) | **手把手**：小观察池 · 拉数 · 拟合 · 第一次调仓回测 |
 | [docs/architecture.md](docs/architecture.md) | **架构总览**：架构图、分层模块、目录结构、技术栈、数据/策略/风控各层 |
 | [docs/design-spine.md](docs/design-spine.md) | 产品核心设计主轴：因果链、北极星、能力地图、实现路径、两条轨、决策链路 |
-| [docs/quant.md](docs/quant.md) | 量化层：入门概念 + score_bars/stance/回测/纸面原理 + 运维 preset & cron；含 [ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路) |
+| [docs/quant.md](docs/quant.md) | 量化层：入门概念 + score_bars/stance/回测/纸面原理 + 运维；含 [ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路) |
 | [docs/quant-ui.md](docs/quant-ui.md) | Web：说明书 + UI 契约与验收 + W0–W5 升级方案 |
 | [docs/development.md](docs/development.md) | 开发手册：环境安装 + 单测/evals/扩展约定 + 各 Skill 详解 |
 | [docs/product-intro.md](docs/product-intro.md) | 产品概览与核心能力 |
 | [docs/rebalance-logic.md](docs/rebalance-logic.md) | 调仓逻辑说明 |
-| [docs/t0-logic.md](docs/t0-logic.md) | 做T（T0）逻辑说明 |
+| [docs/t0-logic.md](docs/t0-logic.md) | 做 T：纯 ŷ_τw 选向/金额 · 窗头 ŷ_τ30…90 |
+| [docs/internal/feature-lake-daycube.md](docs/internal/feature-lake-daycube.md) | L1/L2 物化 · 消费只读 · CS-z `date\|τ` PIT（实现细节） |
 
 完整索引与历史归档：[docs/README.md](docs/README.md)
 

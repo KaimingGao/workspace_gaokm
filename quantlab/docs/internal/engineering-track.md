@@ -85,7 +85,7 @@ Canonical Job API：`GET /api/jobs/{name}` · `POST /api/jobs/{name}/cancel`（`
 | `persistence` 门面统一路径与 atomic IO | 把 paper/watching/config 全体迁库 |
 | prior 归 `market/priors` | 改 prior 产品语义 / 默认开关 |
 
-**公共 API 冻结（B1 全程不得改签名）**：`backtest_paper_replay`、`load_replay_minute_bars`、`clamp_replay_*`、`replay_fill_px` / `replay_sell_fill_px`、`day_stock_legs`、`accumulate_day_contrib` / `finalize_stock_contrib`、`rescore_replay_y_τc_at_clock`、`scores_from_topk_precomputed`。`core/backtest/paper_replay.py` 保留为 re-export 门面。
+**公共 API 冻结（B1 全程不得改签名）**：`backtest_paper_replay`、`load_replay_minute_bars`、`clamp_replay_*`、`replay_fill_px` / `replay_sell_fill_px`、`day_stock_legs`、`accumulate_day_contrib` / `finalize_stock_contrib`、`rescore_replay_y_τc_at_clock`。`core/backtest/paper_replay.py` 保留为 re-export 门面。已删：`scores_from_topk_precomputed`（无产品调用）、`REPLAY_LOT_*`（`REPLAY_AMOUNT_*` 别名）。
 
 ### B 轨阶段状态
 

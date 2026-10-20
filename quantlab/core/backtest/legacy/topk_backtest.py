@@ -469,7 +469,6 @@ def backtest_topk_equal_weight(
                 score_reasons = list(tip.get("score_reasons") or [])
                 score_raw = tip.get("score_raw")
                 tip_kw = {
-                    "cluster_label": tip.get("cluster_label"),
                     "score_weight_source": tip.get("score_weight_source"),
                     "factor_weights": tip.get("factor_weights") or {},
                     "factor_weights_note": tip.get("factor_weights_note") or "",
@@ -537,9 +536,8 @@ def backtest_topk_equal_weight(
                     rs_f, item=scored_item
                 ):
                     heu_rank = rs_f
-                    rank_score = tip_kw.get("predicted_score") or scored_item.get(
-                        "score_cluster"
-                    )
+                    # 启发式排序分另存；表列 score 只留 ŷ（分组 score_cluster 已退役）
+                    rank_score = tip_kw.get("predicted_score")
                     try:
                         if rank_score is not None:
                             rank_score = float(rank_score)
@@ -766,7 +764,6 @@ def backtest_topk_equal_weight(
                         "score_formula_terms": tip_kw.get("score_formula_terms"),
                         "factor_coefficients": tip_kw.get("factor_coefficients") or {},
                         "return_model_source": tip_kw.get("return_model_source") or "",
-                        "cluster_label": tip_kw.get("cluster_label"),
                         "score_weight_source": tip_kw.get("score_weight_source"),
                         "factor_weights": tip_kw.get("factor_weights") or {},
                         "factor_weights_note": tip_kw.get("factor_weights_note") or "",
@@ -914,7 +911,6 @@ def backtest_topk_equal_weight(
                         port_return_pct=port_ret_r,
                         port_gross_return_pct=gross_ret_r,
                         port_cost_pct=cost_pct_r,
-                        cluster_label=leg.get("cluster_label"),
                         score_weight_source=leg.get("score_weight_source"),
                         factor_weights=leg.get("factor_weights") or {},
                         factor_weights_note=leg.get("factor_weights_note") or "",
@@ -1045,9 +1041,6 @@ def backtest_topk_equal_weight(
             "return_model_source": (
                 "walk_forward" if resolved_rank_mode == "predicted_score" else None
             ),
-            "cluster_return_models": 0,
-            "cluster_return_models_raw": 0,
-            "oos_fail_excluded_models": 0,
             "cash_aware_weights": True,
             "sector_coverage": sector_map_coverage(
                 list(stock_bars.keys()), sector_map=smap

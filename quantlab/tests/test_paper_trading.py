@@ -1002,27 +1002,6 @@ class TestTopkEngineTag(unittest.TestCase):
         self.assertEqual(result.get("params", {}).get("engine"), "topk_research")
         self.assertIn("paper_replay", str(result.get("note") or ""))
 
-class TestScoresFromTopk(unittest.TestCase):
-    def test_convert_picks(self):
-        from core.backtest.paper_replay import scores_from_topk_precomputed
-
-        pre = {
-            "2026-03-10": {
-                "picks": [("600519", 1.5), ("600036", 1.2)],
-                "items_by_code": {
-                    "600519": {
-                        "stock_code": "600519",
-                        "predicted_score_eod": 1.5,
-                        "score_scale": "predicted_yhat",
-                    }
-                },
-            }
-        }
-        out = scores_from_topk_precomputed(pre, top_k=1)
-        self.assertEqual(len(out["2026-03-10"]), 1)
-        self.assertEqual(out["2026-03-10"][0]["stock_code"], "600519")
-        self.assertEqual(out["2026-03-10"][0]["score_source"], "topk_precomputed")
-
 class TestOpenDayYhat(unittest.TestCase):
     def test_drop_unscored_heads_keeps_features(self):
         from core.signal.cross_section_rescore import drop_unscored_heads

@@ -66,8 +66,6 @@ from core.backtest.replay_fill import (
     REPLAY_INITIAL_CASH,
     REPLAY_INITIAL_CASH_MAX,
     REPLAY_INITIAL_CASH_MIN,
-    REPLAY_LOT_BASE,
-    REPLAY_LOT_STRONG,
     _apply_price_space_plan_skips,
     _clamp_fill_clock,
     _load_replay_price_space_cfg,
@@ -1123,40 +1121,4 @@ def backtest_paper_replay(
         "paper": paper,
         "note": note,
     }
-
-
-def scores_from_topk_precomputed(
-    precomputed_ranks: Dict[str, Any],
-    *,
-    top_k: int,
-) -> Dict[str, List[dict]]:
-    """把 Top-K ``precomputed_ranks`` 转成纸面调仓 y_oo_fuse 行。"""
-    top_k = max(1, int(top_k or 1))
-    out: Dict[str, List[dict]] = {}
-    for day, pack in (precomputed_ranks or {}).items():
-        if not isinstance(pack, dict):
-            continue
-        picks = list(pack.get("picks") or [])[:top_k]
-        items_by = pack.get("items_by_code") or {}
-        rows: List[dict] = []
-        for code, score in picks:
-            c = str(code or "").strip()
-            if not c:
-                continue
-            base = dict(items_by.get(c) or {})
-            base["stock_code"] = c
-            try:
-                sc = float(score)
-            except (TypeError, ValueError):
-                sc = None
-            if sc is not None:
-                base.setdefault("predicted_score", sc)
-                base.setdefault("predicted_score_blend", sc)
-                base.setdefault("score", sc)
-            base.setdefault("score_scale", "predicted_yhat")
-            base.setdefault("dual_score_window", "eod_next")
-            base["score_source"] = "topk_precomputed"
-            rows.append(base)
-        out[str(day)] = rows
-    return out
 
