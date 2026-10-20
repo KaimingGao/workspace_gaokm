@@ -335,9 +335,6 @@ def _materialize_oo_rank(
     }
 
 
-_LAKE_FRAC = 0.5
-
-
 def _eligible_minute_span(packs: Sequence[dict]) -> tuple:
     """有分钟线的股票数，以及这些分钟线覆盖的交易日数。"""
     days = set()
@@ -359,15 +356,17 @@ def _eligible_minute_span(packs: Sequence[dict]) -> tuple:
 
 
 def _clock_reaches_lake(row: dict, *, n_eligible: int, n_days: int) -> bool:
-    """单钟写入股票数和天数都达到现有 lake_frac（0.5）。"""
+    """单钟写入股票数和天数都达到 ``LAKE_COVER_FRAC``。"""
+    from core.research.materialize.cover_policy import cover_reaches
+
     try:
         stocks = int(row.get("n_stocks") or 0)
         dates = int(row.get("n_dates") or 0)
     except (TypeError, ValueError):
         return False
-    need_stocks = max(2, int(max(n_eligible, 0) * _LAKE_FRAC + 0.999))
-    need_days = max(1, int(max(n_days, 1) * _LAKE_FRAC + 0.999))
-    return stocks >= need_stocks and dates >= need_days
+    return cover_reaches(stocks, n_eligible, minimum=2) and cover_reaches(
+        dates, n_days, minimum=1
+    )
 
 
 def _attach_minute_bars(packs: List[dict]) -> int:

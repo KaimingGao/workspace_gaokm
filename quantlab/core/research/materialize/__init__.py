@@ -8,6 +8,14 @@ from core.research.materialize.cube_z import (
     cs_z_matrix_prefer_cube,
 )
 from core.research.materialize.flags import fit_use_day_cube, require_day_cube
+from core.research.materialize.cover_policy import (
+    HORIZON_COVER_FRAC,
+    LAKE_COVER_FRAC,
+    cover_need,
+    cover_reaches,
+    format_cube_cover_error,
+    resolve_tau_l2_clocks,
+)
 from core.research.materialize.horizon_names import (
     horizon_cube_required_names,
     horizon_l1_feature_names,
@@ -32,4 +40,10 @@ __all__ = [
     "horizon_l1_feature_names",
     "horizon_cube_required_names",
     "names_cover_horizon",
+    "LAKE_COVER_FRAC",
+    "HORIZON_COVER_FRAC",
+    "cover_need",
+    "cover_reaches",
+    "format_cube_cover_error",
+    "resolve_tau_l2_clocks",
 ]

@@ -93,23 +93,11 @@ def _run_materialize(
     t0 = time.perf_counter()
     fams = normalize_families(families) if do_l1 else []
     clks = normalize_clocks(clocks) if do_l2 else []
-    # τ 网格：并入 suggested。做 T 回测要 open + 决策钟立方；纯 τ 轨也保留 open，
-    # L2 在未指定 dates 时仍只盖本地 5m 够格日（见 l2_jobs clip_minute_store）。
+    # τ 网格 L2 时钟契约：见 cover_policy.resolve_tau_l2_clocks（须含 open）
     if do_l1_tau_grid and do_l2:
-        sug = suggested_tau_clocks()
-        if not do_l1:
-            # UI 可能只传 open 占位；换成 open + τ 钟，避免只物化开盘、漏分钟钟
-            has_tau = any(
-                str(c).lower() not in ("open", "09:30", "0930") for c in clks
-            )
-            if not has_tau:
-                clks = ["open", *list(sug)]
-            else:
-                if "open" not in clks and "09:30" not in clks:
-                    clks = ["open", *clks]
-        for c in sug:
-            if c not in clks:
-                clks.append(c)
+        from core.research.materialize.cover_policy import resolve_tau_l2_clocks
+
+        clks = resolve_tau_l2_clocks(clks, do_l1=bool(do_l1))
     code_list = resolve_materialize_codes(
         codes=codes, watching_limit=watching_limit
     )

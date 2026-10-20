@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from core.research.materialize.catalog import normalize_clocks
+from core.research.materialize.cover_policy import LAKE_COVER_FRAC
 
 logger = logging.getLogger(__name__)
 
@@ -107,13 +108,40 @@ def _attach_open_slim(codes: Sequence[str], days: Sequence[str]) -> int:
 
 
 def _clock_reaches_days(row: dict, *, n_days: int, lake_frac: float) -> bool:
-    """单钟 hit+built 达到湖覆盖门槛（与 L1 τ 网格同口径 0.5）。"""
+    """单钟 hit+built 达到 ``LAKE_COVER_FRAC``（与 L1 τ / 消费同口径）。"""
+    from core.research.materialize.cover_policy import cover_reaches
+
     try:
         hit = int(row.get("cubes_hit") or 0) + int(row.get("cubes_built") or 0)
     except (TypeError, ValueError):
         hit = 0
-    need = max(1, int(max(n_days, 1) * float(lake_frac) + 0.999))
-    return hit >= need
+    return cover_reaches(hit, n_days, frac=lake_frac, minimum=1)
+
+
+def _mark_clock_cover_short(
+    report: Dict[str, Any],
+    row: dict,
+    clock: str,
+    *,
+    n_days: int,
+    lake_frac: float,
+) -> None:
+    """写入统一覆盖不足文案（含 need / slim_reject）。"""
+    from core.research.materialize.cover_policy import format_cube_cover_error
+
+    row["ok"] = False
+    row["error"] = row.get("error") or format_cube_cover_error(
+        clock,
+        hit=int(row.get("cubes_hit") or 0),
+        built=int(row.get("cubes_built") or 0),
+        n_days=n_days,
+        frac=lake_frac,
+        slim_reject=int(row.get("slim_reject") or 0),
+        skipped=int(row.get("days_skipped") or 0),
+    )
+    report["ok"] = False
+    if not report.get("error"):
+        report["error"] = row["error"]
 
 
 def _warmup_open_clock(
@@ -158,15 +186,9 @@ def _warmup_open_clock(
         **dict(warm or {}),
     }
     if days and not _clock_reaches_days(row, n_days=len(days), lake_frac=lake_frac):
-        row["ok"] = False
-        row["error"] = (
-            f"覆盖不足 hit+built="
-            f"{int(row.get('cubes_hit') or 0) + int(row.get('cubes_built') or 0)}"
-            f"/{len(days)}"
+        _mark_clock_cover_short(
+            report, row, clock, n_days=len(days), lake_frac=lake_frac
         )
-        report["ok"] = False
-        if not report.get("error"):
-            report["error"] = f"立方 {clock} {row['error']}"
     report["by_clock"][clock] = row
 
 
@@ -333,7 +355,7 @@ def _materialize_l2_with_minute(
     n_days = max(1, len(minute_days))
     fams = {str(clock): family_for_tc(tau_hm=str(clock)) for clock in minute_clocks}
     def _minute_horizon_ok(cube: Any) -> bool:
-        # 没有 names 属性的占位对象不当瘦立方。真立方（含 ndarray）有列才验全覆盖。
+        # 没有 names 属性的占位对象不当瘦立方；真立方按 HORIZON_COVER_FRAC 验窗头列。
         if not hasattr(cube, "names"):
             return True
         try:
@@ -520,16 +542,10 @@ def _materialize_l2_with_minute(
             if report.get("error") == "cancelled":
                 continue
             if not _clock_reaches_days(row, n_days=n_days, lake_frac=lake_frac):
-                row["ok"] = False
-                row["error"] = row.get("error") or (
-                    f"覆盖不足 hit+built="
-                    f"{int(row.get('cubes_hit') or 0) + int(row.get('cubes_built') or 0)}"
-                    f"/{n_days}"
+                _mark_clock_cover_short(
+                    report, row, key, n_days=n_days, lake_frac=lake_frac
                 )
                 report["by_clock"][key] = row
-                report["ok"] = False
-                if not report.get("error"):
-                    report["error"] = f"立方 {key} {row['error']}"
         return
 
     oo_s = None
@@ -596,15 +612,9 @@ def _materialize_l2_with_minute(
             if report.get("error") != "cancelled" and not _clock_reaches_days(
                 row, n_days=n_days, lake_frac=lake_frac
             ):
-                row["ok"] = False
-                row["error"] = row.get("error") or (
-                    f"覆盖不足 hit+built="
-                    f"{int(row.get('cubes_hit') or 0) + int(row.get('cubes_built') or 0)}"
-                    f"/{n_days}"
+                _mark_clock_cover_short(
+                    report, row, key, n_days=n_days, lake_frac=lake_frac
                 )
-                report["ok"] = False
-                if not report.get("error"):
-                    report["error"] = f"立方 {key} {row['error']}"
             _step_emit(step, 1, 1, label)
             continue
         clock_days: List[str] = []
@@ -709,16 +719,9 @@ def _materialize_l2_with_minute(
         if report.get("error") != "cancelled" and not _clock_reaches_days(
             row, n_days=n_days, lake_frac=lake_frac
         ):
-            hit = int(row.get("cubes_hit") or 0) + int(row.get("cubes_built") or 0)
-            slim = int(row.get("slim_reject") or 0)
-            row["ok"] = False
-            row["error"] = row.get("error") or (
-                f"覆盖不足 hit+built={hit}/{n_days}"
-                + (f" slim_reject={slim}" if slim else "")
+            _mark_clock_cover_short(
+                report, row, key, n_days=n_days, lake_frac=lake_frac
             )
-            report["ok"] = False
-            if not report.get("error"):
-                report["error"] = f"立方 {key} {row['error']}"
         tc_s = None
         if _cancelled(cancel_cb):
             _cancel_unwritten(clock_i)
@@ -735,12 +738,12 @@ def materialize_l2(
     use_trading_days: bool = False,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
-    min_lake_frac: float = 0.5,
+    min_lake_frac: float = LAKE_COVER_FRAC,
     require_horizon_names: bool = False,
 ) -> Dict[str, Any]:
     """Ensure DayCube for codes × dates × clocks（复用 warmup 逻辑）。
 
-    ``require_horizon_names``：兼容旧入参；分钟钟一律按窗头列全覆盖验收。
+    ``require_horizon_names``：兼容旧入参；分钟钟按 ``HORIZON_COVER_FRAC`` 验收窗头列。
     开盘钟仍走 warmup。分钟钟整窗 oo、co 各读一次，每个钟的 tc 只读一次。
     未指定 ``dates`` 时，只覆盖本地 5m 里达到截面人数的交易日，不按日线回看窗空跑。
     """
@@ -773,11 +776,13 @@ def materialize_l2(
     from core.research.materialize.progress import emit_scaled
 
     try:
-        lake_frac = float(min_lake_frac if min_lake_frac not in (None, "") else 0.5)
+        lake_frac = float(
+            min_lake_frac if min_lake_frac not in (None, "") else LAKE_COVER_FRAC
+        )
     except (TypeError, ValueError):
-        lake_frac = 0.5
+        lake_frac = float(LAKE_COVER_FRAC)
     if not (lake_frac > 0):
-        lake_frac = 0.5
+        lake_frac = float(LAKE_COVER_FRAC)
 
     n_clocks = max(1, len(clock_list))
     minute_clocks = [c for c in clock_list if str(c) != "open"]

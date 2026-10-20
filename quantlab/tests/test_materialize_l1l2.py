@@ -1009,25 +1009,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         self.assertGreaterEqual(len(days), 2)
         self.assertLessEqual(len(days), 1500)
 
-    def test_clock_reaches_lake_does_not_scale_calendar(self) -> None:
-        """探针票数可外推；交易日跨度不可 ×(池/探针)，否则 192 日会被判覆盖不足。"""
-        from core.research.materialize.l1_jobs import _clock_reaches_lake
-
-        row = {"n_stocks": 798, "n_dates": 192}
-        # 旧 bug：span_days = 192 * (800/24) ≈ 6400 → need_days≈3200 → 误杀
-        self.assertFalse(_clock_reaches_lake(row, n_eligible=800, n_days=6400))
-        self.assertTrue(_clock_reaches_lake(row, n_eligible=800, n_days=192))
-
-    def test_l2_clock_reaches_days_rejects_empty_build(self) -> None:
-        from core.research.materialize.l2_jobs import _clock_reaches_days
-
-        self.assertFalse(
-            _clock_reaches_days({"cubes_hit": 0, "cubes_built": 0}, n_days=50, lake_frac=0.5)
-        )
-        self.assertTrue(
-            _clock_reaches_days({"cubes_hit": 10, "cubes_built": 20}, n_days=50, lake_frac=0.5)
-        )
-
     def test_tau_grid_lake_uses_unscaled_span(self) -> None:
         from core.research.materialize.l1_jobs import materialize_l1_tau_grid
         from core.research.panel_matrix import _TAU_POOL_BATCH

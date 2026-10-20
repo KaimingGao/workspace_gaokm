@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import List, Sequence, Tuple
 
+from core.research.materialize.cover_policy import HORIZON_COVER_FRAC
+
 
 def horizon_l1_feature_names() -> List[str]:
     """物化 ``tc_HHMM`` 时写入的特征列（去重保序）。"""
@@ -112,11 +114,6 @@ def _name_list(cube_or_names: Sequence[str] | object) -> List[str]:
     if isinstance(cube_or_names, (list, tuple, set)):
         return [str(n) for n in cube_or_names if str(n or "").strip()]
     return []
-
-
-# 早盘钟 raw_ath_* / 部分 z_τh_* 常为 NaN（不足窗长），立方组矩阵会丢掉全空列。
-# 验收用半数覆盖，避免「L1 有列名、L2 全被 slim_reject」假失败。
-HORIZON_COVER_FRAC = 0.5
 
 
 def names_cover_horizon(

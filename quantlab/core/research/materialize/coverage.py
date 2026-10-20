@@ -1,4 +1,7 @@
-"""消费前检查 L1 日期与 L2 立方是否盖住请求窗。"""
+"""消费前检查 L1 日期与 L2 立方是否盖住请求窗。
+
+门槛与时钟契约见 ``cover_policy``（写入 / 消费共用）。
+"""
 
 from __future__ import annotations
 
@@ -7,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from core.research.materialize.consumer import MaterializeRequired, consumer_read_only, hint_for_family
+from core.research.materialize.cover_policy import LAKE_COVER_FRAC, cover_need
 
 _OPEN_FAMILIES = ("oo", "tc", "co", "oo_rank", "tc_rank")
 
@@ -145,7 +149,7 @@ def assess_coverage(
     *,
     families: Sequence[str],
     clocks: Sequence[str],
-    min_frac: float = 0.5,
+    min_frac: float = LAKE_COVER_FRAC,
     cube_codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """整日覆盖低于 ``min_frac``，或立方缺失 / 宇宙不符，则 ``ok`` 为假。
@@ -167,7 +171,7 @@ def assess_coverage(
     if len(code_list) < 2 or not day_list or (not fams and not clks):
         return {"ok": True, "success": True, "skipped": True}
 
-    need = max(2, int(len(code_list) * float(min_frac) + 0.999))
+    need = cover_need(len(code_list), frac=min_frac, minimum=2)
     problems: List[Dict[str, Any]] = []
     uh = universe_hash(cube_list)
 
@@ -275,7 +279,7 @@ def enforce_consumer_coverage(
     *,
     families: Sequence[str],
     clocks: Sequence[str],
-    min_frac: float = 0.5,
+    min_frac: float = LAKE_COVER_FRAC,
 ) -> None:
     """消费方在 collect 之前调用。未开只读则直接返回。"""
     if not consumer_read_only():
@@ -300,7 +304,7 @@ def replay_coverage_gap(
     *,
     score_from: int,
     fill_clock: str,
-    min_frac: float = 0.5,
+    min_frac: float = LAKE_COVER_FRAC,
 ) -> Optional[Dict[str, Any]]:
     """调仓回测开跑前的覆盖结果。只读未开或已齐时返回 None。"""
     if not consumer_read_only():
