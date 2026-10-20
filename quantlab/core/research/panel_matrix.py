@@ -856,6 +856,11 @@ def collect_tau_grid_panels(
         except Exception:  # noqa: BLE001
             return False
 
+    def _release_minutes(i: int) -> None:
+        item = items[i] if i < len(items) else None
+        if isinstance(item, dict):
+            item.pop("minute_bars", None)
+
     def _run_serial(start: int, end: int) -> None:
         nonlocal cancelled
         for i in range(start, end):
@@ -863,11 +868,7 @@ def collect_tau_grid_panels(
                 cancelled = True
                 return
             _fold(_safe(i))
-
-    def _release_minutes(i: int) -> None:
-        item = items[i] if i < len(items) else None
-        if isinstance(item, dict):
-            item.pop("minute_bars", None)
+            _release_minutes(i)
 
     def _run_batch(start: int, end: int) -> None:
         nonlocal cancelled
@@ -992,7 +993,10 @@ def collect_tau_grid_panels(
             if _stop():
                 cancelled = True
         finally:
-            pool.shutdown(wait=True, cancel_futures=False)
+            try:
+                pool.shutdown(wait=True, cancel_futures=False)
+            except TypeError:
+                pool.shutdown(wait=True)
 
     if n_jobs and clock_list:
         logger.info(

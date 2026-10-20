@@ -1193,9 +1193,24 @@ def _cube_covers_horizon_names(cube: Any, names: Sequence[str]) -> bool:
     """入模列必须都在立方里。缺一列就不把这份立方当截面命中。"""
     if cube is None:
         return False
-    cube_names = {str(n) for n in (getattr(cube, "names", None) or []) if str(n or "").strip()}
+    try:
+        from core.research.materialize.horizon_names import names_cover_horizon
+    except Exception:  # noqa: BLE001
+        names_cover_horizon = None  # type: ignore[assignment]
     need = [str(n).strip() for n in (names or []) if str(n or "").strip()]
-    if len(cube_names) < 3 or not need:
+    if not need:
+        return False
+    if names_cover_horizon is not None:
+        return bool(names_cover_horizon(cube, min_frac=1.0, need=need))
+    try:
+        cube_names = {
+            str(n)
+            for n in (getattr(cube, "names", None) or [])
+            if str(n or "").strip()
+        }
+    except TypeError:
+        return False
+    if len(cube_names) < 3:
         return False
     try:
         from core.signal.factors.z_th import to_legacy_key
@@ -1272,28 +1287,6 @@ def _finite_feat_count(rows: Sequence[dict], name: str) -> int:
         if math.isfinite(fv):
             n += 1
     return n
-
-
-def _impute_unzscored_raw_ath(
-    row: dict,
-    names: Sequence[str],
-    covered: Sequence[str],
-) -> dict:
-    """没进截面的 ``raw_ath_*`` 记 0（当天均值）。
-
-    价位比≈1、剩余分钟≈235 若原样进截面模型，logit 会被打到个位数概率。
-    稀疏的裸分钟键（如 ``ret_open_to_tau``）仍保留，避免各钟被压成同一个 z。
-    """
-    if not isinstance(row, dict):
-        return row
-    have = {str(n) for n in covered or []}
-    for raw in names or []:
-        key = str(raw or "")
-        if not key.startswith("raw_ath_") or key in have:
-            continue
-        if key in row:
-            row[key] = 0.0
-    return row
 
 
 def _tau_clock_peer_rows(date: str, tau_hm: str) -> List[dict]:
@@ -1567,6 +1560,13 @@ def _predict_horizon_hat(
     return float(y_hat), model, src if src in ("tree", "ridge") else "ridge"
 
 
+def _clear_horizon_hat(head: str, item: dict) -> None:
+    """弃权时清掉该行残留的 y_τ*。"""
+    from core.research.horizon_ridge import clear_y_hat
+
+    clear_y_hat(head, item)
+
+
 def _stamp_horizon_formula_terms(
     item: dict,
     feats: Optional[dict],
@@ -1578,6 +1578,8 @@ def _stamp_horizon_formula_terms(
     explain_ridge: Any = None,
 ) -> None:
     """Tree 用 pred_contrib 组成；Ridge 用线性拆解。合计对齐表列分数。"""
+    if not isinstance(feats, dict):
+        return
     expl = None
     if str(src or "").strip().lower() == "tree":
         try:
@@ -1761,9 +1763,7 @@ def _attach_y_t30_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
-            from core.research.horizon_ridge import clear_y_hat
-
-            clear_y_hat("t30", item)
+            _clear_horizon_hat("t30", item)
             return
         write_y_hat("t30", item, float(y_hat))
         if src:
@@ -1884,9 +1884,7 @@ def _attach_y_t45_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
-            from core.research.horizon_ridge import clear_y_hat
-
-            clear_y_hat("t45", item)
+            _clear_horizon_hat("t45", item)
             return
         write_y_hat("t45", item, float(y_hat))
         if src:
@@ -2007,9 +2005,7 @@ def _attach_y_t60_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
-            from core.research.horizon_ridge import clear_y_hat
-
-            clear_y_hat("t60", item)
+            _clear_horizon_hat("t60", item)
             return
         write_y_hat("t60", item, float(y_hat))
         if src:
@@ -2130,9 +2126,7 @@ def _attach_y_t75_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
-            from core.research.horizon_ridge import clear_y_hat
-
-            clear_y_hat("t75", item)
+            _clear_horizon_hat("t75", item)
             return
         write_y_hat("t75", item, float(y_hat))
         if src:
@@ -2253,9 +2247,7 @@ def _attach_y_t90_to_item(
             tau_hm=hm or "",
         )
         if y_hat is None:
-            from core.research.horizon_ridge import clear_y_hat
-
-            clear_y_hat("t90", item)
+            _clear_horizon_hat("t90", item)
             return
         write_y_hat("t90", item, float(y_hat))
         if src:

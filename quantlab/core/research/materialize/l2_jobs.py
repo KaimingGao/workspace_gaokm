@@ -236,7 +236,6 @@ def _materialize_l2_with_minute(
     minute_clocks: Sequence[str],
     *,
     lake_frac: float,
-    require_horizon_names: bool,
     clip_minute_store: bool,
     progress_cb: ProgressCb,
     cancel_cb: CancelCb,
@@ -644,7 +643,7 @@ def materialize_l2(
 ) -> Dict[str, Any]:
     """Ensure DayCube for codes × dates × clocks（复用 warmup 逻辑）。
 
-    ``require_horizon_names``：非 open 钟拒绝 slim / 缺窗头列的 Cube（H2）。
+    ``require_horizon_names``：兼容旧入参；分钟钟一律按窗头列全覆盖验收。
     开盘钟仍走 warmup。分钟钟整窗 oo、co 各读一次，每个钟的 tc 只读一次。
     未指定 ``dates`` 时，只覆盖本地 5m 里达到截面人数的交易日，不按日线回看窗空跑。
     """
@@ -656,13 +655,16 @@ def materialize_l2(
         use_trading_days=use_trading_days,
     )
     clock_list = normalize_clocks(clocks)
+    has_minute = any(
+        str(c).strip().lower() not in ("", "open", "09:30", "0930") for c in clock_list
+    )
     report: Dict[str, Any] = {
         "ok": True,
         "n_codes": len(code_list),
         "dates": day_list,
         "clocks": clock_list,
         "by_clock": {},
-        "require_horizon_names": bool(require_horizon_names),
+        "require_horizon_names": True if has_minute else bool(require_horizon_names),
         "elapsed_s": 0.0,
     }
     if len(code_list) < 2 or not day_list:
@@ -691,7 +693,6 @@ def materialize_l2(
                 clock_list,
                 minute_clocks,
                 lake_frac=lake_frac,
-                require_horizon_names=bool(require_horizon_names),
                 clip_minute_store=not explicit_dates,
                 progress_cb=progress_cb,
                 cancel_cb=cancel_cb,

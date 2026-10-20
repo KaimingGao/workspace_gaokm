@@ -1984,8 +1984,8 @@ class TauGridPanelTests(unittest.TestCase):
     def test_batch_atc_matches_each_clock(self) -> None:
         from core.research.tau_panel import (
             _index_minute_bars_by_date,
-            _minute_clock_atc_items,
             _minute_clocks_atc_items,
+            _scan_one_minute_clock_atc,
         )
         from tests.test_alpha_tc import _dated_bars_and_minutes
 
@@ -1995,7 +1995,7 @@ class TauGridPanelTests(unittest.TestCase):
         batch = _minute_clocks_atc_items(bars, by_day, hist=60, clocks=clocks)
         self.assertEqual(set(batch), set(clocks))
         for clock in clocks:
-            single = _minute_clock_atc_items(bars, by_day, hist=60, clock=clock)
+            single = _scan_one_minute_clock_atc(bars, by_day, hist=60, clock=clock)
             self.assertIsNotNone(single)
             got = {key: col for key, col in batch[clock]}
             expect = {key: col for key, col in single}

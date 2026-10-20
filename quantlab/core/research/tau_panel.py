@@ -1060,7 +1060,7 @@ def _copy_ath_gap_from_atc(row: dict) -> None:
             row[f"{ALPHA_TH_RAW_PREFIX}{bare}"] = num
 
 
-def _minute_clock_atc_items(
+def _scan_one_minute_clock_atc(
     bars: Sequence[dict],
     minutes_by_day: Mapping[str, Sequence[dict]],
     *,
@@ -1298,7 +1298,7 @@ def _minute_clocks_atc_items(
             out[clock] = items
     for clock in untimed:
         try:
-            items = _minute_clock_atc_items(
+            items = _scan_one_minute_clock_atc(
                 bars,
                 minutes_by_day,
                 hist=hist_n,
@@ -1310,6 +1310,26 @@ def _minute_clocks_atc_items(
         if items:
             out[clock] = items
     return out
+
+
+def _minute_clock_atc_items(
+    bars: Sequence[dict],
+    minutes_by_day: Mapping[str, Sequence[dict]],
+    *,
+    hist: int,
+    clock: str,
+) -> Optional[Tuple[Tuple[str, Any], ...]]:
+    """单钟入口。走批量路径，与网格多钟结果一致。"""
+    key = str(clock or "").strip()
+    if not key:
+        return None
+    batch = _minute_clocks_atc_items(
+        bars,
+        minutes_by_day,
+        hist=hist,
+        clocks=[key],
+    )
+    return batch.get(key)
 
 
 def collect_tau_open_panel(

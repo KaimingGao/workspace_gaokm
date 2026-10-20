@@ -126,24 +126,23 @@ def names_cover_horizon(
     got = set(_name_list(cube_or_names))
     if len(got) < 3:
         return False
-    if need is None:
-        required = horizon_cube_required_names()
-    else:
-        required = need
-    need_list = [str(n) for n in required if str(n or "").strip()]
-    need = need_list
-    if not need:
+    required = (
+        horizon_cube_required_names()
+        if need is None
+        else [str(n) for n in need if str(n or "").strip()]
+    )
+    if not required:
         return len(got) >= 3
     try:
         from core.signal.factors.z_th import to_legacy_key
     except Exception:  # noqa: BLE001
         to_legacy_key = lambda k: k  # type: ignore[assignment, misc]
     hit = 0
-    for key in need:
+    for key in required:
         bare = str(to_legacy_key(key) or key)
         if key in got or bare in got:
             hit += 1
-    thresh = max(3, int(len(need) * float(min_frac) + 0.999))
+    thresh = max(3, int(len(required) * float(min_frac) + 0.999))
     return hit >= thresh
 
 
