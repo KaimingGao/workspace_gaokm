@@ -285,26 +285,14 @@ def _y_track_gate(snaps: dict, add) -> None:
             action="检查 signal_config.scoring",
         )
 
-    try:
-        # 分组 live 健康闸已下线
-        add(
-            "y_track",
-            "yhat_live_health",
-            True,
-            "cluster_retired",
-            severity="soft",
-            action="分组打分已下线，跳过 live health",
-        )
-    except Exception as exc:
-        logger.exception('unexpected error in evaluate_maturity_gate')
-        add(
-            "y_track",
-            "yhat_live_health",
-            True,
-            f"cluster_retired（{exc}）",
-            severity="soft",
-            action="分组打分已下线",
-        )
+    add(
+        "y_track",
+        "yhat_live_health",
+        True,
+        "cluster_retired",
+        severity="soft",
+        action="分组打分已下线，跳过 live health",
+    )
 
     # Y5.2：纸面日更连续样本
     snap_count = int(snaps.get("count") or 0)
@@ -424,26 +412,14 @@ def _b_track_gate(fund: dict, add) -> None:
             severity="soft",
             action="检查 sample_ops / fundamentals store",
         )
-    try:
-        # 分组 promote/health 闸已下线
-        add(
-            "b_track",
-            "refit_discipline",
-            True,
-            "cluster_retired",
-            severity="soft",
-            action="分组打分已下线，跳过 refit/promote 闸",
-        )
-    except Exception as exc:
-        logger.exception('unexpected error in evaluate_maturity_gate')
-        add(
-            "b_track",
-            "refit_discipline",
-            True,
-            f"cluster_retired（{exc}）",
-            severity="soft",
-            action="分组打分已下线",
-        )
+    add(
+        "b_track",
+        "refit_discipline",
+        True,
+        "cluster_retired",
+        severity="soft",
+        action="分组打分已下线，跳过 refit/promote 闸",
+    )
 
 
 def _dc_fm_rk_gate(ss: dict, fund: dict, add) -> None:

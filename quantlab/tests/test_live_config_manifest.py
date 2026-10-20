@@ -17,7 +17,6 @@ class TestLiveConfigManifest(unittest.TestCase):
             live = os.path.join(td, "live")
             os.makedirs(live)
             signal = os.path.join(td, "signal_config.json")
-            weights = os.path.join(live, "cluster_weights_active.json")
             with open(signal, "w", encoding="utf-8") as f:
                 json.dump(
                     {
@@ -26,14 +25,7 @@ class TestLiveConfigManifest(unittest.TestCase):
                     },
                     f,
                 )
-            with open(weights, "w", encoding="utf-8") as f:
-                json.dump({"version": 2, "n_mapped_codes": 3, "promoted_at": "2026-08-05T00:00:00"}, f)
-
             with patch.dict(os.environ, {"QUANTLAB_SIGNAL_CONFIG": signal}), patch(
-                "core.paths.CLUSTER_WEIGHTS_ACTIVE_PATH", weights
-            ), patch(
-                "core.paths.CLUSTER_BOOK_ACTIVE_PATH", os.path.join(live, "book.json")
-            ), patch(
                 "core.paths.RETURN_SCORE_MODEL_ACTIVE_PATH", os.path.join(live, "rm.json")
             ), patch(
                 "core.paths.SIGNAL_CONFIG_PATH", signal
@@ -44,9 +36,10 @@ class TestLiveConfigManifest(unittest.TestCase):
             ):
                 m = build_live_config_manifest(note="test")
                 self.assertTrue(m["success"])
-                self.assertFalse(m["consistent"])
+                self.assertTrue(m["consistent"])
                 self.assertTrue(m.get("cluster_retired"))
-                self.assertTrue(any("cluster_retired" in a for a in m["alerts"]))
+                self.assertEqual(m["alerts"], [])
+                self.assertNotIn("cluster_weights_active", m["artifacts"])
 
     def test_write_manifest(self):
         from core.live_config_manifest import write_live_config_manifest
@@ -61,10 +54,6 @@ class TestLiveConfigManifest(unittest.TestCase):
                 "core.paths.LIVE_DIR", live
             ), patch(
                 "core.paths.SIGNAL_CONFIG_PATH", signal
-            ), patch(
-                "core.paths.CLUSTER_WEIGHTS_ACTIVE_PATH", os.path.join(live, "w.json")
-            ), patch(
-                "core.paths.CLUSTER_BOOK_ACTIVE_PATH", os.path.join(live, "b.json")
             ), patch(
                 "core.paths.RETURN_SCORE_MODEL_ACTIVE_PATH", os.path.join(live, "r.json")
             ), patch(

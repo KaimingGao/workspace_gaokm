@@ -36,12 +36,7 @@ EVALS_JOB_PATH = os.path.join(DATA_DIR, "evals_job.json")
 QUANT_DAILY_PATH = os.path.join(DATA_DIR, "quant_daily.json")
 QUANT_REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 LIVE_DIR = os.path.join(DATA_DIR, "live")
-# cluster_* 路径常量：分组已退役（cluster_retired）；保留供历史落盘/迁移只读，勿再写入新指针。
-# 以下 7 个常量/函数已确认零引用并删除：CLUSTER_WEIGHTS_DRAFT_PATH, CLUSTER_BOOK_TAU_SHADOW_PATH,
-# CLUSTER_BOOK_NOWCAST_SHADOW_PATH, CLUSTER_POINTER_PATH, PROMOTE_AUDIT_PATH,
-# CLUSTER_WEIGHTS_HISTORY_DIR, cluster_weights_versioned_path
-CLUSTER_WEIGHTS_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_weights_active.json")
-CLUSTER_BOOK_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_book_active.json")
+# 分组权重/簿指针已删除。下面两个只读历史报告，不再写入。
 # P1：分组全量报告缓存（历史；分组 OLS 已退役）
 CLUSTER_REPORT_CACHE_PATH = os.path.join(LIVE_DIR, "cluster_report_cache.json")
 # 最近一次成功分组（历史；分组 OLS 已退役）

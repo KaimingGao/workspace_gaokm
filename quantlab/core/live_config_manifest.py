@@ -68,21 +68,8 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
     )
     signal_path = get_signal_config_path()
 
-    _retired_art = {
-        "path": None,
-        "exists": False,
-        "sha1": None,
-        "mtime": None,
-        "bytes": None,
-        "retired": True,
-        "error": "cluster_retired",
-    }
     artifacts = {
         "signal_config": _file_fingerprint(signal_path),
-        "cluster_pointer": dict(_retired_art),
-        "cluster_weights_active": dict(_retired_art),
-        "cluster_weights_mirror": dict(_retired_art),
-        "cluster_book_active": dict(_retired_art),
         "return_score_model_active": _file_fingerprint(RETURN_SCORE_MODEL_ACTIVE_PATH),
         "predictability_tiers_last": _file_fingerprint(PREDICTABILITY_TIERS_LAST_PATH),
         "predictability_tiers_active": _file_fingerprint(PREDICTABILITY_TIERS_ACTIVE_PATH),
@@ -92,16 +79,13 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
 
     cfg = _read_json(signal_path) or {}
     cs = cfg.get("cluster_scoring") or {}
-    mode = "off"
+    mode = str(cs.get("mode") or "off").strip().lower() or "off"
     scoring = cfg.get("scoring") or {}
     paper = _read_json(PAPER_PATH) or {}
     paper_rules = paper.get("rules") if isinstance(paper.get("rules"), dict) else {}
 
-    alerts: List[str] = ["cluster_retired"]
-    if bool(cs.get("enabled")) or str(cs.get("mode") or "off").strip().lower() not in (
-        "",
-        "off",
-    ):
+    alerts: List[str] = []
+    if bool(cs.get("enabled")) or mode not in ("", "off"):
         alerts.append("signal_config.cluster_scoring 仍非 off（分组已退役，可清理）")
     if bool(paper_rules.get("cluster_mode")):
         alerts.append("paper.rules.cluster_mode 已无调仓含义（分组已退役）")
@@ -113,20 +97,16 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
         "note": str(note or "")[:300],
         "cluster_retired": True,
         "cluster_scoring_mode": mode,
-        "cluster_scoring_enabled": False,
+        "cluster_scoring_enabled": bool(cs.get("enabled")),
         "scoring": {
             "rank_mode": scoring.get("rank_mode") or "predicted_score",
             "min_predicted_score": scoring.get("min_predicted_score"),
             "min_hold_predicted_score": scoring.get("min_hold_predicted_score"),
         },
-        "cluster_weights_version": None,
-        "cluster_weights_promoted_at": None,
-        "n_mapped_codes": None,
-        "cluster_book_names": None,
         "paper_cluster_mode": bool(paper_rules.get("cluster_mode")),
         "artifacts": artifacts,
         "alerts": alerts,
-        "consistent": False,
+        "consistent": not alerts,
         "live_dir": LIVE_DIR,
     }
 

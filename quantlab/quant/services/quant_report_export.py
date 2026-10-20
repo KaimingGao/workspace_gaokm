@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 # 章节标题（MD / HTML / TOC 同源）
 CROSS_SECTION_TITLE = "横截面 ŷ（predicted_score）"
 WEIGHT_SUGGEST_TITLE = "权重建议（遗留诊断）"
-CLUSTER_LIVE_TITLE = "分组 live（组ŷ）"
 PORTFOLIO_BT_SECTION_TITLE = "历史回测摘要"
 SCORING_DEFAULT_NOTE = (
     "选股真源=predicted_score（ŷ）；heuristic 仅作研究 OOS 基线；过门≠自动 promote"
@@ -345,110 +344,11 @@ def _lines(title: str, rows: List[str]) -> List[str]:
     return out
 
 
-def build_cluster_live_export_section(cl: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """分组 live 组ŷ 状态 + OOS + 簿 Top + 组模型摘要。"""
-    if not cl or cl.get("mode") not in ("shadow", "active"):
-        return None
-    cov = cl.get("coverage")
-    cov_s = f"{round(float(cov) * 100)}%" if cov is not None else "—"
-    md_lines = [
-        f"- mode={cl.get('mode')} · version={cl.get('version')} · 覆盖 {cov_s}",
-        f"- 分池簿 {cl.get('book_names') or '—'} 只 · 龄 {cl.get('age_days') or '—'}d"
-        f" · 有模型组 {cl.get('n_groups_with_model') or '—'}",
-        f"- _{cl.get('note') or '组ŷ live；不写全局 weights；过门≠自动 promote'}_",
-    ]
-    oos = cl.get("oos_summary") if isinstance(cl.get("oos_summary"), dict) else {}
-    if oos:
-        md_lines.append(
-            f"- OOS（heuristic 基线 vs ŷ）：通过 {oos.get('pass_count', '—')} / "
-            f"失败 {oos.get('fail_count', '—')} / 跳过 {oos.get('skip_count', '—')} / "
-            f"未知 {oos.get('unknown_count', '—')}"
-        )
-        if oos.get("note"):
-            md_lines.append(f"- _{oos.get('note')}_")
-    book_top = cl.get("book_top") if isinstance(cl.get("book_top"), list) else []
-    if book_top:
-        md_lines.append("- **簿 Top ŷ**")
-        for i, row in enumerate(book_top[:8], 1):
-            name = row.get("stock_name") or row.get("stock_code") or "—"
-            lab = row.get("cluster_label") or "—"
-            md_lines.append(
-                f"  - {i}. {name} · ŷ {_fmt_yhat(row.get('score'))} · 组 {lab}"
-            )
-    groups = cl.get("group_models") if isinstance(cl.get("group_models"), list) else []
-    if groups:
-        md_lines.append("- **组 return_model**")
-        for g in groups[:12]:
-            oos_flag = (
-                "过门"
-                if g.get("oos_passed")
-                else ("跳过" if g.get("oos_skipped") else "未过/未知")
-            )
-            md_lines.append(
-                f"  - {g.get('label') or '—'} · 成员 {g.get('n_members') or 0} · "
-                f"β {g.get('n_coef') or 0} · n={g.get('sample_count') or '—'} · OOS {oos_flag}"
-            )
-    for a in (cl.get("alerts") or [])[:4]:
-        md_lines.append(f"- ⚠ {a}")
-
-    oos_html = ""
-    if oos:
-        oos_html = (
-            f"<p>OOS（heuristic vs ŷ）：通过 {oos.get('pass_count', '—')} / "
-            f"失败 {oos.get('fail_count', '—')} / 跳过 {oos.get('skip_count', '—')} / "
-            f"未知 {oos.get('unknown_count', '—')} · 过门≠自动 promote</p>"
-        )
-    book_html = ""
-    if book_top:
-        rows = "".join(
-            f"<tr><td>{i}</td><td>{r.get('stock_name') or r.get('stock_code') or '—'}</td>"
-            f"<td>{_fmt_yhat(r.get('score'))}</td>"
-            f"<td>{r.get('cluster_label') or '—'}</td></tr>"
-            for i, r in enumerate(book_top[:8], 1)
-        )
-        book_html = (
-            "<p><strong>簿 Top ŷ</strong></p>"
-            "<table><thead><tr><th>#</th><th>标的</th><th>ŷ</th><th>组</th></tr></thead>"
-            f"<tbody>{rows}</tbody></table>"
-        )
-    groups_html = ""
-    if groups:
-        grows = "".join(
-            "<tr>"
-            f"<td>{g.get('label') or '—'}</td>"
-            f"<td>{g.get('n_members') or 0}</td>"
-            f"<td>{g.get('n_coef') or 0}</td>"
-            f"<td>{g.get('sample_count') or '—'}</td>"
-            f"<td>{'过门' if g.get('oos_passed') else ('跳过' if g.get('oos_skipped') else '未过/未知')}</td>"
-            "</tr>"
-            for g in groups[:12]
-        )
-        groups_html = (
-            "<p><strong>组 return_model</strong></p>"
-            "<table><thead><tr><th>组</th><th>成员</th><th>β数</th><th>n</th><th>OOS</th></tr></thead>"
-            f"<tbody>{grows}</tbody></table>"
-        )
-    html_body = (
-        f"<p>mode={cl.get('mode')} · version={cl.get('version')} · 覆盖 {cov_s} · "
-        f"簿 {cl.get('book_names') or '—'} 只 · 有模型组 {cl.get('n_groups_with_model') or '—'}</p>"
-        f"<p class='meta'>{cl.get('note') or ''}</p>"
-        f"{oos_html}{book_html}{groups_html}"
-    )
-    return {
-        "title": CLUSTER_LIVE_TITLE,
-        "anchor": "cluster-live",
-        "markdown_lines": md_lines,
-        "html_body": html_body,
-    }
-
 
 def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
-    """导出目录：主叙事组ŷ → 横截面 → 历史回测；单票探针进附录。"""
+    """导出目录：横截面 → 历史回测；单票探针进附录。"""
     entries: List[tuple] = [("一页摘要", "一页摘要")]
 
-    cl = report.get("cluster_live") or {}
-    if cl and cl.get("mode") in ("shadow", "active"):
-        entries.append((CLUSTER_LIVE_TITLE, "cluster-live"))
     cs_section = build_cross_section_export_section(report.get("cross_section") or {})
     if cs_section:
         entries.append((cs_section["title"], cs_section["anchor"]))
@@ -479,36 +379,12 @@ def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
-    """量化日报一页摘要：组ŷ / 簿 / OOS / 横截面 / 历史回测优先。"""
+    """量化日报一页摘要：横截面与历史回测优先。"""
     bullets: List[str] = []
     scoring = _scoring_meta(report)
     bullets.append(
         f"选股真源：{scoring['rank_mode']}（ŷ）· {scoring['note']}"
     )
-
-    cl = report.get("cluster_live") or {}
-    if cl and cl.get("mode") in ("shadow", "active"):
-        cov = cl.get("coverage")
-        cov_s = f"{round(float(cov) * 100)}%" if cov is not None else "—"
-        bullets.append(
-            f"分组 live：mode={cl.get('mode')} · v{cl.get('version') or '—'} · "
-            f"覆盖 {cov_s} · 簿 {cl.get('book_names') or '—'} 只 · "
-            f"有模型组 {cl.get('n_groups_with_model') or '—'}"
-        )
-        oos = cl.get("oos_summary") if isinstance(cl.get("oos_summary"), dict) else {}
-        if oos:
-            bullets.append(
-                f"OOS（heuristic vs ŷ）：通过 {oos.get('pass_count', '—')} / "
-                f"失败 {oos.get('fail_count', '—')} / 跳过 {oos.get('skip_count', '—')} / "
-                f"未知 {oos.get('unknown_count', '—')} · 过门≠自动 promote"
-            )
-        book_top = cl.get("book_top") if isinstance(cl.get("book_top"), list) else []
-        if book_top:
-            tip = book_top[0]
-            bullets.append(
-                f"簿头：{tip.get('stock_name') or tip.get('stock_code') or '—'} · "
-                f"ŷ {_fmt_yhat(tip.get('score'))}"
-            )
 
     cs = report.get("cross_section") or {}
     if cs.get("success"):
@@ -616,7 +492,7 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
         "success": True,
         "bullet_count": len(bullets),
         "bullets": bullets,
-        "note": "一页摘要；主叙事=组ŷ/簿/OOS/横截面/历史回测；过门≠自动 promote。",
+        "note": "一页摘要；主叙事=横截面/历史回测。",
     }
 
 
@@ -639,15 +515,6 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
         )
         parts.append(f"> {summary.get('note')}")
         parts.append("")
-
-    # 主叙事
-    cl_section = build_cluster_live_export_section(report.get("cluster_live") or {})
-    if cl_section:
-        parts.extend(
-            [f"## {cl_section['title']}", ""]
-            + cl_section["markdown_lines"]
-            + [""]
-        )
 
     cs_section = build_cross_section_export_section(report.get("cross_section") or {})
     if cs_section:
@@ -810,14 +677,6 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
             f"<ul>{bullets}</ul><p class='meta'>{summary.get('note') or ''}</p>",
         )
 
-    # 主叙事
-    cl_section = build_cluster_live_export_section(report.get("cluster_live") or {})
-    if cl_section:
-        section(
-            cl_section["title"],
-            f'<div id="{cl_section["anchor"]}">{cl_section["html_body"]}</div>',
-        )
-
     cs_section = build_cross_section_export_section(report.get("cross_section") or {})
     if cs_section:
         section(cs_section["title"], cs_section["html_body"])
@@ -902,7 +761,7 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
   <h1>量化研究日报</h1>
   <p class="meta">生成时间 {ts}</p>
   {body}
-  <p class="foot">以上为量化研究摘要（选股真源=ŷ · 主叙事=组ŷ/簿/OOS/横截面/历史回测）；市场有风险，不保证收益，不代客下单。</p>
+  <p class="foot">以上为量化研究摘要（选股真源=ŷ · 主叙事=横截面/历史回测）；市场有风险，不保证收益，不代客下单。</p>
 </body>
 </html>"""
 

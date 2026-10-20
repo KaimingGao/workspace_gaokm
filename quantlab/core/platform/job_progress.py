@@ -384,7 +384,6 @@ class JobProgress:
                 "label": str(policy.get("label") or "任务"),
             }
             out["persisted"] = bool(self._persist_path)
-            # 分组 Job hydrate 已退役（cluster_retired）
             return out
 
     def policy(self) -> Dict[str, Any]:
