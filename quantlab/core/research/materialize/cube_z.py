@@ -76,6 +76,86 @@ def _l2_materialize_hint(
     return "日线物化", clocks
 
 
+def _cube_disk_span_note(clock: str) -> str:
+    """本地该钟已有 Cube 的日期跨度（便于区分「没物化」vs「物化窗短于 lookback」）。"""
+    try:
+        import os
+
+        from core.research.day_cube import _disk_paths  # noqa: PLC0415
+        from core.research.feature_registry import universe_hash
+
+        uh = universe_hash(universe_codes())
+        if not uh:
+            return ""
+        root = _disk_paths(uh, clock, "1970-01-01").get("dir") or ""
+        if not root or not os.path.isdir(root):
+            return ""
+
+        days = sorted(
+            {
+                name[:10]
+                for name in os.listdir(root)
+                if name.endswith(".npz") and len(name) >= 14
+            }
+        )
+        if not days:
+            return ""
+        if len(days) == 1:
+            return f"；本地 {clock} Cube 仅有 {days[0]}（n=1）"
+        return f"；本地 {clock} Cube 仅有 {days[0]}→{days[-1]}（n={len(days)}）"
+    except Exception:  # noqa: BLE001
+        logger.debug("cube disk span note failed", exc_info=True)
+        return ""
+
+
+def _format_l2_miss_error(meta: Optional[Mapping[str, Any]], *, default_clock: str) -> str:
+    base = str((meta or {}).get("error") or "截面立方缺失")
+    # cube miss YYYY-MM-DD|HH:MM → 附本地已有跨度
+    clk = str((meta or {}).get("clock") or "").strip()
+    if not clk and "cube miss" in base and "|" in base:
+        clk = base.rsplit("|", 1)[-1].strip()
+    if not clk:
+        clk = str(default_clock or "open")
+    note = _cube_disk_span_note(clk)
+    if note and "→" in note:
+        note += "；请先跑分钟线物化覆盖该窗，或确认宇宙键一致"
+    return "请先物化 L2：" + base + note
+
+
+def _apply_bucket_matrix_cs(
+    out: np.ndarray,
+    idxs: Sequence[int],
+    *,
+    min_names: int,
+    eps: float,
+) -> None:
+    """单组桶内截面 z（缺 L2 时的有多少用多少回退）。"""
+    ix = np.asarray(list(idxs), dtype=np.int64)
+    if ix.size == 0:
+        return
+    need = max(1, int(min_names))
+    p = int(out.shape[1]) if out.ndim == 2 else 0
+    for j in range(p):
+        col = out[ix, j]
+        finite = np.isfinite(col)
+        m = int(finite.sum())
+        if m < need:
+            if m:
+                out[ix[finite], j] = 0.0
+            continue
+        vals = col[finite]
+        mu = float(vals.mean())
+        var = float(np.mean((vals - mu) ** 2))
+        if (not math.isfinite(var)) or var <= eps:
+            out[ix[finite], j] = 0.0
+            continue
+        sd = math.sqrt(var)
+        if sd < 1e-12:
+            out[ix[finite], j] = 0.0
+        else:
+            out[ix[finite], j] = (vals - mu) / sd
+
+
 def apply_day_cube_mu_sigma_matrix(
     x: np.ndarray,
     names: Sequence[str],
@@ -91,7 +171,10 @@ def apply_day_cube_mu_sigma_matrix(
 
     分组可为纯日期或 ``date|τ``（PIT）。``date|τ`` 优先读该钟 Cube；miss 且
     ``fallback_open`` 时再试 ``open``。``fallback_open=None`` 时：含 ``date|τ``
-    默认关（禁静默 open），纯日期默认开。覆盖不足返回 ``(None, meta)``。
+    默认关（禁静默 open），纯日期默认开。
+
+    **有多少用多少**：部分日缺 Cube 时，已命中日用 L2，缺日用桶内截面 z，不整单失败；
+    **仅当该钟全日无 Cube**（hit=0）才 ``ok=False``（促物化）。
     """
     from core.research.day_cube import enabled, load_day_cube
 
@@ -128,6 +211,7 @@ def apply_day_cube_mu_sigma_matrix(
     miss = 0
     open_fb = 0
     need = max(1, int(min_names))
+    miss_buckets: List[Tuple[str, str, List[int]]] = []
     for (day, clk), idxs in buckets.items():
         cube = None
         try:
@@ -143,14 +227,8 @@ def apply_day_cube_mu_sigma_matrix(
                 open_fb += 1
         if cube is None:
             miss += 1
-            return None, {
-                "ok": False,
-                "error": f"cube miss {day}|{clk}",
-                "hit_days": hit,
-                "miss_days": miss,
-                "open_fallback": open_fb,
-                "fallback_open": allow_open_fb,
-            }
+            miss_buckets.append((day, clk, list(idxs)))
+            continue
         hit += 1
         mu_map = {str(n): float(cube.z_mean[j]) for j, n in enumerate(cube.names)}
         sd_map = {str(n): float(cube.z_std[j]) for j, n in enumerate(cube.names)}
@@ -187,10 +265,26 @@ def apply_day_cube_mu_sigma_matrix(
                 continue
             out[ix[finite], j] = (col[finite] - float(mu)) / float(sd)
 
+    if hit == 0:
+        day0, clk0, _idxs0 = miss_buckets[0] if miss_buckets else ("", clock, [])
+        return None, {
+            "ok": False,
+            "error": f"cube miss {day0}|{clk0}",
+            "hit_days": 0,
+            "miss_days": miss,
+            "open_fallback": open_fb,
+            "fallback_open": allow_open_fb,
+            "clock": clk0 or clock,
+        }
+
+    for _day, _clk, idxs in miss_buckets:
+        _apply_bucket_matrix_cs(out, idxs, min_names=need, eps=eps)
+
     return out, {
         "ok": True,
         "hit_days": hit,
         "miss_days": miss,
+        "matrix_fallback_days": miss,
         "open_fallback": open_fb,
         "fallback_open": allow_open_fb,
         "clock": clock,
@@ -226,7 +320,7 @@ def cs_z_matrix_prefer_cube(
                 raise MaterializeRequired(
                     {
                         "error_code": "materialize_required",
-                        "error": "请先物化 L2：" + str((meta or {}).get("error") or "截面立方缺失"),
+                        "error": _format_l2_miss_error(meta, default_clock=clock),
                         "layer": "l2",
                         "hint": hint,
                         "clocks": clks,
@@ -241,7 +335,8 @@ def cs_z_matrix_prefer_cube(
             raise MaterializeRequired(
                 {
                     "error_code": "materialize_required",
-                    "error": "请先物化 L2：截面立方读取失败",
+                    "error": "请先物化 L2：截面立方读取失败"
+                    + _cube_disk_span_note(str(clock or "open")),
                     "layer": "l2",
                     "hint": hint,
                     "clocks": clks,
@@ -279,7 +374,7 @@ def cs_z_dicts_prefer_cube(
                 raise MaterializeRequired(
                     {
                         "error_code": "materialize_required",
-                        "error": "请先物化 L2：" + str((meta or {}).get("error") or "截面立方缺失"),
+                        "error": _format_l2_miss_error(meta, default_clock=clock),
                         "layer": "l2",
                         "hint": hint,
                         "clocks": clks,
@@ -294,7 +389,8 @@ def cs_z_dicts_prefer_cube(
             raise MaterializeRequired(
                 {
                     "error_code": "materialize_required",
-                    "error": "请先物化 L2：截面立方读取失败",
+                    "error": "请先物化 L2：截面立方读取失败"
+                    + _cube_disk_span_note(str(clock or "open")),
                     "layer": "l2",
                     "hint": hint,
                     "clocks": clks,
@@ -313,7 +409,10 @@ def apply_day_cube_mu_sigma_dicts(
     min_names: int = 2,
     fallback_open: Optional[bool] = None,
 ) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
-    """dict 面板版：与 ``cross_section_zscore_dicts`` 同形；Cube miss → ``(None, meta)``。"""
+    """dict 面板版：与 ``cross_section_zscore_dicts`` 同形。
+
+    语义同 ``apply_day_cube_mu_sigma_matrix``：部分缺 Cube 桶内截面回退；全日无 Cube 才失败。
+    """
     from core.research.feature_standardize import mirror_z_alias_value
 
     keys = [str(n) for n in names]

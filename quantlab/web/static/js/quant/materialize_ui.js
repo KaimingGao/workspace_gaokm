@@ -69,7 +69,13 @@ function resultHeadBits(result, { tau = false } = {}) {
     const l1 = result?.l1 || {};
     if (l1.elapsed_s != null) bits.push(`L1 ${l1.elapsed_s}s`);
   }
-  const l2bit = summarizeL2((result?.l2 || {}).by_clock);
+  const l2 = result?.l2 || {};
+  // 分钟物化：明示 5m 够格窗，避免误以为已覆盖拟合 lookback 全长
+  if (tau && l2.minute_span) {
+    const n = l2.minute_days != null ? `·${l2.minute_days}日` : "";
+    bits.push(`5m窗 ${l2.minute_span}${n}`);
+  }
+  const l2bit = summarizeL2(l2.by_clock);
   if (l2bit) bits.push(l2bit);
   return bits;
 }

@@ -1504,9 +1504,14 @@ export function initQuant(ctx) {
 
   function horizonProbFitBits(data) {
     const oos = (data && data.oos) || {};
+    const span = data && data.minute_span ? String(data.minute_span) : "";
+    const nDays = data && data.minute_days != null ? Number(data.minute_days) : null;
     return [
       data && data.minute_codes_hit != null
         ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
+        : null,
+      span
+        ? `5m窗 ${span}${Number.isFinite(nDays) ? `·${nDays}日` : ""}`
         : null,
       ...ridgeFitNBits(data),
       oos.auc != null ? `OOS AUC ${Number(oos.auc).toFixed(3)}` : null,

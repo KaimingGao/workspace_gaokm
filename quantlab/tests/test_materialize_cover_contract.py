@@ -20,6 +20,23 @@ class CoverPolicyUnitTests(unittest.TestCase):
         self.assertFalse(cover_reaches(0, 50))
         self.assertTrue(cover_reaches(25, 50))
 
+    def test_filter_minute_bars_to_covered(self) -> None:
+        from core.research.materialize.cover_policy import (
+            filter_minute_bars_to_covered,
+        )
+
+        rows = [
+            {"date": "2026-03-27", "time": "09:35"},
+            {"date": "2026-08-04", "time": "09:35"},
+            {"date": "2026-08-05", "time": "10:00"},
+        ]
+        # None = 不裁（查询失败时保底）
+        self.assertEqual(len(filter_minute_bars_to_covered(rows, None)), 3)
+        got = filter_minute_bars_to_covered(
+            rows, {"2026-08-04", "2026-08-05"}
+        )
+        self.assertEqual([r["date"] for r in got], ["2026-08-04", "2026-08-05"])
+
     def test_scale_eligible_not_span(self) -> None:
         from core.research.materialize.cover_policy import (
             clamp_span_days,

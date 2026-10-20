@@ -8,6 +8,7 @@
 --------------  -------------------------------  ----------------------------  --------------------
 做 T 回测        oo/tc/co + 决策钟 tc_HHMM         open + ≤leg1 的 suggested τ   回看 ∩ 5m 够格日
 分钟 τ 物化      tc_HHMM 网格（自 09:35）           **仅** suggested τ（不含 open）  5m 够格日（近端优先）
+ŷ_τ* 拟合        —                                同物化 τ 钟                     lookback ∩ 5m 够格日（有多少用多少）
 日线物化         oo/tc/co                          open                          交易日回看（近端优先）
 
 门槛
@@ -20,7 +21,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 LAKE_COVER_FRAC = 0.5
 HORIZON_COVER_FRAC = LAKE_COVER_FRAC
@@ -63,6 +64,46 @@ def cover_reaches(
     except (TypeError, ValueError):
         got = 0
     return got >= cover_need(universe, frac=frac, minimum=minimum)
+
+
+def resolve_fit_minute_covered_dates(
+    codes: Sequence[str],
+    *,
+    period: str = "5",
+    lake_frac: float = LAKE_COVER_FRAC,
+) -> Optional[List[str]]:
+    """ŷ_τ* 拟合用宇宙级 5m 够格日（与分钟物化 L2 同门槛）。
+
+    新浪单次约 41 日、本地累积常 ~50 日（少票可更长）；lookback 只是上限，
+    实际训练日 = 本列表。查询失败返回 ``None``（调用方不裁，避免误空窗）。
+    """
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    if len(code_list) < 2:
+        return []
+    need = cover_need(len(code_list), frac=lake_frac, minimum=2)
+    try:
+        from core.store import list_minute_covered_dates
+
+        return list_minute_covered_dates(
+            code_list, min_codes=need, period=str(period or "5")
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def filter_minute_bars_to_covered(
+    minute_bars: Sequence[Any],
+    covered: Optional[Set[str]],
+) -> List[Any]:
+    """``covered is None`` 不裁；否则只留够格日上的 5m 根。"""
+    rows = list(minute_bars or [])
+    if covered is None:
+        return rows
+    return [
+        b
+        for b in rows
+        if isinstance(b, dict) and str(b.get("date") or "")[:10] in covered
+    ]
 
 
 def _as_int(value: Any, default: int = 0) -> int:

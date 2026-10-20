@@ -1818,6 +1818,8 @@ class QuantFactorMixin:
 
         ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
         方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
+        ``lookback`` 为日线上限；训练日裁到宇宙级 5m 够格日（新浪单次~41、累积常~50，
+        有多少用多少，与分钟物化窗对齐）。
         ``progress_cb(cur, tot, msg)``：job 槽刷新（流式建面板 + 截面/双训阶段）。
         ``job_alive_cb()``：False 时跳过 ``save_ridge_last_report``（槽已被接替/取消）。
         """
@@ -1830,6 +1832,10 @@ class QuantFactorMixin:
             persist_ridge_model,
             ridge_model_path,
             save_ridge_last_report,
+        )
+        from core.research.materialize.cover_policy import (
+            filter_minute_bars_to_covered,
+            resolve_fit_minute_covered_dates,
         )
         from core.signal.minute_tau_grid import (
             resolve_horizon_train_prefix,
@@ -1928,6 +1934,25 @@ class QuantFactorMixin:
         from core.ports.market import resolve_market_code
         from core.store import load_minute_cache
 
+        # 与分钟物化同口径：宇宙级 5m 够格日；lookback 只是上限
+        covered_list = resolve_fit_minute_covered_dates(codes, period=period)
+        if covered_list is not None and not covered_list:
+            return {
+                "success": False,
+                "error": (
+                    f"本地 5m 没有够格截面日（池 {len(codes)} 只 · period={period}）；"
+                    "请先「强更 5m（L0）」并累积后再拟合"
+                ),
+                "task": task,
+                "minute_period": period,
+                "minute_days": 0,
+                "lookback": lookback,
+            }
+        covered_set = set(covered_list) if covered_list is not None else None
+        minute_span = (
+            f"{covered_list[0]}→{covered_list[-1]}" if covered_list else None
+        )
+
         # 分批：读 5m → 并行建 raw → 立刻 pop 分钟线（峰值≈一批而非全池）
         stock_bars: List[Dict[str, Any]] = []
         raw_acc: List[Dict[str, Any]] = []
@@ -1938,11 +1963,13 @@ class QuantFactorMixin:
         grid_n = len(tau_grid) if isinstance(tau_grid, (list, tuple)) else 1
         label_heads = (horizon,)
         batch_n = max(4, int(TAU_PANEL_POOL_BATCH))
+        span_bit = f" · 5m窗{minute_span}" if minute_span else ""
         _progress(
             0,
             n_codes,
             f"ŷ_τ{hn} 建面板 0/{n_codes}"
-            + (f" · τ×{grid_n}" if grid_n > 1 else ""),
+            + (f" · τ×{grid_n}" if grid_n > 1 else "")
+            + span_bit,
         )
 
         scanned = 0
@@ -2014,6 +2041,7 @@ class QuantFactorMixin:
                     )
                     if packed:
                         mb, _meta = packed
+                        mb = filter_minute_bars_to_covered(mb, covered_set)
                         if mb:
                             item["minute_bars"] = mb
                             minute_hit += 1
@@ -2111,6 +2139,9 @@ class QuantFactorMixin:
         )
         report["lookback"] = lookback
         report["minute_period"] = period
+        if covered_list is not None:
+            report["minute_days"] = len(covered_list)
+            report["minute_span"] = minute_span
         report["tau_end_hm"] = resolved_end
         report["zero_prefix"] = bool(zero_prefix)
         y_spec = report.get("y_spec")

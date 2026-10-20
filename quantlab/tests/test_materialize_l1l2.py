@@ -504,6 +504,51 @@ class CubeZPerClockTests(unittest.TestCase):
         self.assertFalse(meta.get("fallback_open"))
         self.assertIn("cube miss", str(meta.get("error") or ""))
 
+    def test_partial_cube_miss_uses_matrix_fallback(self):
+        """5m 近端有 Cube、窗外缺日：有多少用多少，不整单失败。"""
+        import numpy as np
+
+        from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
+
+        class _Cube:
+            names = ["f1"]
+            z_mean = np.array([0.0])
+            z_std = np.array([1.0])
+
+        def _load(day, codes, clock="open"):
+            if str(day)[:10] == "2026-08-04" and str(clock) == "09:35":
+                return _Cube()
+            return None
+
+        # 两日各两行：有 Cube 的日用 L2；(x-0)/1；缺日桶内 z
+        x = np.array([[1.0], [3.0], [10.0], [30.0]], dtype=np.float64)
+        groups = [
+            "2026-08-04|09:35",
+            "2026-08-04|09:35",
+            "2026-03-27|09:35",
+            "2026-03-27|09:35",
+        ]
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            z, meta = apply_day_cube_mu_sigma_matrix(
+                x, ["f1"], groups, clock="open", fallback_open=False
+            )
+        self.assertTrue(meta.get("ok"), meta)
+        self.assertEqual(meta.get("hit_days"), 1)
+        self.assertEqual(meta.get("miss_days"), 1)
+        self.assertEqual(meta.get("matrix_fallback_days"), 1)
+        self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
+        self.assertAlmostEqual(float(z[1, 0]), 3.0, places=5)
+        # 桶内 μ=20 σ=10 → -1 / +1
+        self.assertAlmostEqual(float(z[2, 0]), -1.0, places=5)
+        self.assertAlmostEqual(float(z[3, 0]), 1.0, places=5)
+
     def test_missing_model_column_is_not_zero(self):
         import numpy as np
 
