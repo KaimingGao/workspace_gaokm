@@ -482,7 +482,7 @@ def _materialize_l1_tau_grid_body(
     eligible = scale_eligible_stocks(
         eligible_probe, probe_n=probe_n, pool_n=len(packs)
     )
-    span_days = clamp_span_days(int(span_probe or 0), 0)
+    span_days = int(span_probe or 0)
     for row in probe:
         if isinstance(row, dict):
             row.pop("minute_bars", None)

@@ -342,5 +342,24 @@ class TestChatArtifactsApi(unittest.TestCase):
         self.assertEqual(data["artifacts"][0]["tab"], "quant")
 
 
+class TestPageCssScope(unittest.TestCase):
+    def test_page_css_does_not_leak_typography_onto_body(self):
+        """页级字号、行高、圆角不得写到 body，否则切页时侧栏和顶栏会跟着变。"""
+        import re
+        from pathlib import Path
+
+        css_dir = Path(__file__).resolve().parents[1] / "web" / "static" / "css"
+        for name in ("quant", "replay", "follow", "strategy"):
+            css = (css_dir / f"{name}.css").read_text(encoding="utf-8")
+            for prop in ("font-size", "line-height", "--radius"):
+                self.assertIsNone(
+                    re.search(
+                        rf'body\[data-page="{name}"\]\s*\{{[^}}]*{re.escape(prop)}:',
+                        css,
+                    ),
+                    msg=f"{name}: {prop} leaked onto body",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
