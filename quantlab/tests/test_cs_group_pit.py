@@ -55,6 +55,55 @@ class CsGroupKeyTests(unittest.TestCase):
         )
         self.assertEqual(g, ["2026-01-02|09:35", "2026-01-02|10:30"])
 
+    def test_cs_groups_accepts_clock_alias(self):
+        from core.research.horizon_compact import cs_groups_from_dates_metas
+
+        g = cs_groups_from_dates_metas(
+            ["2026-01-02", "2026-01-02"],
+            [{"clock": "09:35"}, {"decision_hm": "10:30"}],
+        )
+        self.assertEqual(g, ["2026-01-02|09:35", "2026-01-02|10:30"])
+
+    def test_summarize_cs_groups_pit_vs_day(self):
+        from core.research.horizon_compact import summarize_cs_groups
+
+        pit = summarize_cs_groups(
+            ["2026-01-02|09:35", "2026-01-02|10:30", "2026-01-03|09:35"]
+        )
+        self.assertEqual(pit["mode"], "pit")
+        self.assertEqual(pit["n_unique"], 3)
+        self.assertEqual(pit["n_day_only"], 0)
+
+        day = summarize_cs_groups(["2026-01-02", "2026-01-02", "2026-01-03"])
+        self.assertEqual(day["mode"], "day")
+        self.assertEqual(day["n_unique"], 2)
+
+        mixed = summarize_cs_groups(["2026-01-02|09:35", "2026-01-02"])
+        self.assertEqual(mixed["mode"], "mixed")
+
+    def test_horizon_fit_groups_stay_pit_not_day_pooled(self):
+        """回归锁：同日多钟必须 date|τ，禁止截成仅日期（按日混钟不可 live）。"""
+        from core.research.horizon_compact import (
+            cs_groups_from_dates_metas,
+            summarize_cs_groups,
+        )
+
+        dates = ["2026-01-02"] * 4
+        metas = [
+            {"tau": "09:35"},
+            {"tau": "09:35"},
+            {"tau": "10:30"},
+            {"tau": "10:30"},
+        ]
+        groups = cs_groups_from_dates_metas(dates, metas)
+        audit = summarize_cs_groups(groups)
+        self.assertEqual(audit["mode"], "pit")
+        self.assertEqual(audit["n_unique"], 2)
+        self.assertTrue(all("|" in g for g in groups))
+        # 若误用 dates[:10] 会变成 1 个唯一组
+        self.assertNotEqual(len(set(d[:10] for d in dates)), audit["n_unique"])
+
+
 class PrefixLightPathTests(unittest.TestCase):
     def test_light_skips_resolve_when_open_snap(self):
         from unittest import mock

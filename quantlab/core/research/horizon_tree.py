@@ -742,12 +742,27 @@ def fit_horizon_tree_report(
     dates_tr = [dates[i] for i in train_idx]
     dates_te = [dates[i] for i in test_idx]
     try:
-        from core.research.horizon_compact import cs_groups_from_dates_metas
+        from core.research.horizon_compact import (
+            cs_groups_from_dates_metas,
+            summarize_cs_groups,
+        )
 
         groups_tr = cs_groups_from_dates_metas(dates_tr, metas_tr)
         groups_te = cs_groups_from_dates_metas(dates_te, metas_te)
-    except Exception:  # noqa: BLE001
-        groups_tr, groups_te = dates_tr, dates_te
+    except Exception as exc:  # noqa: BLE001
+        # 禁止退回纯日期混钟（与 live PIT 不一致，且会假抬 Holdout）
+        logger.exception("%s CS groups failed; refuse day-pooled fallback", h)
+        return {
+            "success": False,
+            "error": f"CS 分组失败（拒绝按日混钟回退）: {exc}",
+            "error_code": "cs_group_failed",
+            "task": f"{h}_tree",
+            "head": head_label,
+            "sample_count": len(ys),
+            "schema": schema,
+            "live_hook": False,
+            "backtest_hook": False,
+        }
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
@@ -875,6 +890,10 @@ def fit_horizon_tree_report(
             ys_spec["feature_pack_formula"] = pack_meta["feature_pack_formula"]
             return_model["y_spec"] = ys_spec
 
+    cs_z_audit = {
+        "train": summarize_cs_groups(groups_tr),
+        "test": summarize_cs_groups(groups_te),
+    }
     report: Dict[str, Any] = {
         "success": True,
         "task": f"{h}_tree",
@@ -887,6 +906,7 @@ def fit_horizon_tree_report(
         "tau_grid": list(grid),
         "target": target,
         "backend": engine,
+        "cs_z": cs_z_audit,
         **pack_meta,
         "hyperparams": hyper,
         "timing": {

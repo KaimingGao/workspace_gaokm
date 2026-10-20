@@ -430,6 +430,7 @@ def fit_horizon_ridge_report(
     from core.research.horizon_compact import (
         compact_subset,
         cs_groups_from_dates_metas,
+        summarize_cs_groups,
         feature_fill_rates_matrix,
     )
     from core.research.tau_panel import theme_sample_weights
@@ -507,12 +508,25 @@ def fit_horizon_ridge_report(
     )
     use_cs = bool(cross_section_zscore)
     # PIT：CS 组 = date|τ（同日多钟不混组）；Holdout 仍按交易日切折
+    # Live 亦须按钟；按日混钟会抬 Holdout，但不可上线（lookahead）。
     groups_tr = (
         cs_groups_from_dates_metas(dates_tr, metas_tr) if use_cs else None
     )
     groups_te = (
         cs_groups_from_dates_metas(dates_te, metas_te) if use_cs else None
     )
+    cs_z_audit = {
+        "train": summarize_cs_groups(groups_tr),
+        "test": summarize_cs_groups(groups_te),
+    }
+    if use_cs and (cs_z_audit["train"].get("mode") or "") in ("day", "mixed"):
+        logger.warning(
+            "%s CS groups not pure PIT train=%s test=%s "
+            "(day-pooled z is not live-safe)",
+            h,
+            cs_z_audit["train"],
+            cs_z_audit["test"],
+        )
     packed = train_eval_horizon_prob(
         xs_tr,
         ys_tr,
@@ -617,13 +631,16 @@ def fit_horizon_ridge_report(
         "dual_score_head": dual_score_head,
         "head_kind": "prob",
         "cross_section_zscore": use_cs,
+        "cs_z": cs_z_audit,
         "note": (
             f"ŷ_τ{num}=P(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1>0)。"
             "特征包 alpha_τh=z_τh_*∪raw_ath_*。"
+            "CS-z=date|τ PIT（与 live 同口径；按日混钟不可上线）。"
             "进 ŷ_τw 投票；个股旁路闸已下线。不进 fuse。"
         ),
         **pack_meta,
     }
+    oos["cs_z"] = cs_z_audit
     attach_holdout_meta(report, split_meta)
     report["backend"] = "ridge"
     report["recommended_backend"] = "ridge"

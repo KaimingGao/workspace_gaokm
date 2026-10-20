@@ -9,7 +9,8 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from core.research.materialize.consumer import MaterializeRequired, consumer_read_only, hint_for_family
+from core.research.materialize import consumer as _mat_consumer
+from core.research.materialize.consumer import MaterializeRequired, hint_for_family
 from core.research.materialize.cover_policy import LAKE_COVER_FRAC, cover_need
 
 _OPEN_FAMILIES = ("oo", "tc", "co", "oo_rank", "tc_rank")
@@ -282,7 +283,8 @@ def enforce_consumer_coverage(
     min_frac: float = LAKE_COVER_FRAC,
 ) -> None:
     """消费方在 collect 之前调用。未开只读则直接返回。"""
-    if not consumer_read_only():
+    # 经模块属性取开关：避免单测 patch consumer 时本模块绑死 MagicMock。
+    if not _mat_consumer.consumer_read_only():
         return
     codes, dates = _codes_dates(items)
     got = read_cube_codes()
@@ -307,7 +309,7 @@ def replay_coverage_gap(
     min_frac: float = LAKE_COVER_FRAC,
 ) -> Optional[Dict[str, Any]]:
     """调仓回测开跑前的覆盖结果。只读未开或已齐时返回 None。"""
-    if not consumer_read_only():
+    if not _mat_consumer.consumer_read_only():
         return None
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
 

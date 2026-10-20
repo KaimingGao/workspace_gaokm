@@ -153,9 +153,46 @@ def cs_groups_from_dates_metas(
     out: List[str] = []
     for i, d in enumerate(dates or []):
         meta = metas[i] if i < len(metas) and isinstance(metas[i], dict) else {}
-        tau = str(meta.get("tau") or meta.get("tau_hm") or "").strip()
+        tau = str(
+            meta.get("tau")
+            or meta.get("tau_hm")
+            or meta.get("clock")
+            or meta.get("decision_hm")
+            or ""
+        ).strip()
         out.append(cs_group_key(d, tau))
     return out
+
+
+def summarize_cs_groups(groups: Optional[Sequence[Any]]) -> Dict[str, Any]:
+    """审计拟合/OOS 截面分组：``pit``=含 ``date|τ``；``day``=仅日期混钟。
+
+    Live 必须走 PIT；按日混钟仅作对照，不可当生产口径。
+    """
+    rows = [str(g or "").strip() for g in (groups or [])]
+    n = len(rows)
+    if n <= 0:
+        return {
+            "mode": None,
+            "n_rows": 0,
+            "n_unique": 0,
+            "n_pit": 0,
+            "n_day_only": 0,
+            "pit_frac": None,
+        }
+    n_pit = sum(1 for g in rows if "|" in g)
+    n_day = n - n_pit
+    mode = "pit" if n_pit > 0 else "day"
+    if n_pit > 0 and n_day > 0:
+        mode = "mixed"
+    return {
+        "mode": mode,
+        "n_rows": n,
+        "n_unique": len(set(rows)),
+        "n_pit": n_pit,
+        "n_day_only": n_day,
+        "pit_frac": round(n_pit / float(n), 4),
+    }
 
 
 def feature_fill_rates_matrix(

@@ -220,13 +220,13 @@ class CoverPolicyUnitTests(unittest.TestCase):
         self.assertIn("10:30", clks)
 
     def test_t0_coverage_gap_ok_when_cubes_present(self) -> None:
+        from core.research.materialize.consumer import materialized_consumer
         from quant.research.t0_backtest import _t0_coverage_gap
 
         days = [f"2026-10-{d:02d}" for d in range(10, 20)]
-        with mock.patch(
-            "core.research.materialize.consumer.consumer_read_only",
-            return_value=True,
-        ), mock.patch(
+        # 用 contextvar，勿 patch consumer_read_only：coverage 若在 patch
+        # 期间首次 import，会把 MagicMock 绑死进模块命名空间。
+        with materialized_consumer(), mock.patch(
             "core.research.materialize.coverage.recent_trading_days",
             return_value=days,
         ), mock.patch(
@@ -248,6 +248,15 @@ class CoverPolicyUnitTests(unittest.TestCase):
         called_clocks = list(assess.call_args.kwargs.get("clocks") or [])
         self.assertIn("open", called_clocks)
         self.assertTrue(any(str(c).startswith("09:") for c in called_clocks))
+
+    def test_cover_contract_does_not_pollute_consumer_flag(self) -> None:
+        """回归：cover 单测不得把 coverage.consumer_read_only 留成 MagicMock。"""
+        from core.research.materialize import coverage as cov
+        from core.research.materialize.consumer import consumer_read_only
+
+        self.assertFalse(consumer_read_only())
+        self.assertTrue(callable(cov._mat_consumer.consumer_read_only))
+        self.assertFalse(cov._mat_consumer.consumer_read_only())
 
 
 if __name__ == "__main__":

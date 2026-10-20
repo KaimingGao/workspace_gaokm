@@ -355,7 +355,10 @@ def _materialize_l2_with_minute(
     n_days = max(1, len(minute_days))
     fams = {str(clock): family_for_tc(tau_hm=str(clock)) for clock in minute_clocks}
     def _minute_horizon_ok(cube: Any) -> bool:
-        # 没有 names 属性的占位对象不当瘦立方；真立方按 HORIZON_COVER_FRAC 验窗头列。
+        # 真 DayCube 必有 names；无该属性的探测桩视为「已存在」。
+        # names=[] 的空立方不当覆盖通过（须重建）。
+        if cube is None:
+            return False
         if not hasattr(cube, "names"):
             return True
         try:
@@ -535,10 +538,12 @@ def _materialize_l2_with_minute(
             want.append(day)
     want.sort(key=lambda day: order.get(day, 0))
     if not want:
+        reused = 0
         for clock in minute_clocks:
             key = str(clock)
             _fail_unread(key)
             row = report["by_clock"].get(key) or {}
+            reused += int(row.get("cubes_hit") or 0)
             if report.get("error") == "cancelled":
                 continue
             if not _clock_reaches_days(row, n_days=n_days, lake_frac=lake_frac):
@@ -546,6 +551,18 @@ def _materialize_l2_with_minute(
                     report, row, key, n_days=n_days, lake_frac=lake_frac
                 )
                 report["by_clock"][key] = row
+        report["l2_incremental"] = {
+            "pending_days": 0,
+            "cubes_reused": reused,
+            "note": "全部按钟 Cube 已命中覆盖门槛，未重建（旧盘缺列时需删立方或短窗 replace）",
+        }
+        if reused > 0:
+            logger.info(
+                "l2 minute incremental skip: reused=%s clocks=%s days=%s (no rebuild)",
+                reused,
+                len(minute_clocks),
+                n_days,
+            )
         return
 
     oo_s = None
@@ -695,20 +712,17 @@ def _materialize_l2_with_minute(
             row["cubes_built"] = int(row.get("cubes_built") or 0) + int(
                 stats.get("cubes_built") or 0
             )
-            if replace:
-                row["slim_reject"] = int(row.get("slim_reject") or 0) + int(
-                    stats.get("slim_reject") or 0
-                )
-                row["slim_reject"] = int(row.get("slim_reject") or 0) + int(
-                    stats.get("days_skipped") or 0
-                )
-                return
-            row["days_skipped"] = int(row.get("days_skipped") or 0) + int(
-                stats.get("days_skipped") or 0
-            )
+            # slim_reject / days_skipped 分计，勿把 skipped 并进 slim（诊断会偏）
             row["slim_reject"] = int(row.get("slim_reject") or 0) + int(
                 stats.get("slim_reject") or 0
             )
+            row["days_skipped"] = int(row.get("days_skipped") or 0) + int(
+                stats.get("days_skipped") or 0
+            )
+            if replace:
+                row["days_short_rebuild"] = int(row.get("days_short_rebuild") or 0) + int(
+                    stats.get("cubes_built") or 0
+                )
 
         filled = _fill(days_new, replace=False)
         if filled is not None:

@@ -352,6 +352,25 @@ def apply_day_cube_mu_sigma_matrix(
     }
 
 
+def _warn_cube_cs_soft(meta: Optional[Mapping[str, Any]], *, where: str) -> None:
+    """L2 soft-miss / open 回退写 WARNING，避免拟合侧静默吞掉。"""
+    if not isinstance(meta, dict):
+        return
+    miss = int(meta.get("miss_days") or meta.get("matrix_fallback_days") or 0)
+    open_fb = int(meta.get("open_fallback") or 0)
+    miss_cols = list(meta.get("matrix_fallback_cols") or [])[:8]
+    if miss <= 0 and open_fb <= 0 and not miss_cols:
+        return
+    logger.warning(
+        "%s soft CS: miss_days=%s open_fallback=%s miss_cols=%s hit=%s",
+        where,
+        miss,
+        open_fb,
+        miss_cols,
+        meta.get("hit_days"),
+    )
+
+
 def cs_z_matrix_prefer_cube(
     x: np.ndarray,
     names: Sequence[str],
@@ -366,14 +385,17 @@ def cs_z_matrix_prefer_cube(
     from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
 
     read_only = consumer_read_only()
+    want_cube = False
     try:
         from core.research.materialize.flags import fit_use_day_cube
 
-        if fit_use_day_cube() or read_only:
+        want_cube = bool(fit_use_day_cube() or read_only)
+        if want_cube:
             z, meta = apply_day_cube_mu_sigma_matrix(
                 x, names, groups, clock=clock, fallback_open=fallback_open
             )
             if z is not None and meta.get("ok"):
+                _warn_cube_cs_soft(meta, where="cs_z_matrix_prefer_cube")
                 return np.where(np.isfinite(z), z, 0.0)
             if read_only:
                 hint, clks = _l2_materialize_hint(groups, default_clock=clock)
@@ -386,6 +408,10 @@ def cs_z_matrix_prefer_cube(
                         "clocks": clks,
                     }
                 )
+            logger.warning(
+                "cs_z_matrix_prefer_cube: L2 unavailable (%s); matrix CS-z fallback",
+                (meta or {}).get("error") or "ok=False",
+            )
     except MaterializeRequired:
         raise
     except Exception:  # noqa: BLE001
@@ -401,6 +427,11 @@ def cs_z_matrix_prefer_cube(
                     "hint": hint,
                     "clocks": clks,
                 }
+            )
+        if want_cube:
+            logger.warning(
+                "cs_z_matrix_prefer_cube: cube path exception; matrix CS-z fallback",
+                exc_info=True,
             )
     z = cross_section_zscore_matrix(x, groups)
     return np.where(np.isfinite(z), z, 0.0)
@@ -420,14 +451,17 @@ def cs_z_dicts_prefer_cube(
     from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
 
     read_only = consumer_read_only()
+    want_cube = False
     try:
         from core.research.materialize.flags import fit_use_day_cube
 
-        if fit_use_day_cube() or read_only:
+        want_cube = bool(fit_use_day_cube() or read_only)
+        if want_cube:
             out, meta = apply_day_cube_mu_sigma_dicts(
                 rows, names, groups, clock=clock, fallback_open=fallback_open
             )
             if out is not None and meta.get("ok"):
+                _warn_cube_cs_soft(meta, where="cs_z_dicts_prefer_cube")
                 return out
             if read_only:
                 hint, clks = _l2_materialize_hint(groups, default_clock=clock)
@@ -440,6 +474,10 @@ def cs_z_dicts_prefer_cube(
                         "clocks": clks,
                     }
                 )
+            logger.warning(
+                "cs_z_dicts_prefer_cube: L2 unavailable (%s); matrix CS-z fallback",
+                (meta or {}).get("error") or "ok=False",
+            )
     except MaterializeRequired:
         raise
     except Exception:  # noqa: BLE001
@@ -455,6 +493,11 @@ def cs_z_dicts_prefer_cube(
                     "hint": hint,
                     "clocks": clks,
                 }
+            )
+        if want_cube:
+            logger.warning(
+                "cs_z_dicts_prefer_cube: cube path exception; matrix CS-z fallback",
+                exc_info=True,
             )
     return cross_section_zscore_dicts(rows, names, groups)
 
