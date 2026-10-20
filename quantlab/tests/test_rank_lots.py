@@ -570,6 +570,54 @@ class TestPlanRankLotDay(unittest.TestCase):
         )
         self.assertAlmostEqual(got_pref, expect_pref, places=5)
 
+    def test_prefix_miss_has_no_fuse_and_exits(self):
+        from core.backtest.replay_scoring import stamp_tau_prefix_misses
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day, y_oo_fuse_pct_of
+
+        rows = [
+            {
+                "stock_code": "600000",
+                "y_oo": 2.0,
+                "y_τc": 1.0,
+                "_score_source": "open",
+            },
+            {
+                "stock_code": "600519",
+                "y_oo": 1.0,
+                "y_τc": 0.4,
+                "_score_source": "prefix_causal",
+                "features_tau": {"ret_open_to_tau": 0.2},
+            },
+        ]
+        self.assertEqual(stamp_tau_prefix_misses(rows), 1)
+        self.assertTrue(rows[0].get("_tau_prefix_miss"))
+        self.assertNotIn("y_τc", rows[0])
+        self.assertIsNone(y_oo_fuse_pct_of(rows[0], _cfg(), open_px=10.0, price_tau=10.2))
+        self.assertFalse(rows[1].get("_tau_prefix_miss"))
+        self.assertAlmostEqual(float(rows[1]["y_τc"]), 0.4, places=6)
+
+        exited = plan_rank_lot_day(
+            scored=rows,
+            holdings=[{"stock_code": "600000", "shares": 100, "stock_name": "浦发"}],
+            cash=100_000,
+            prices={"600000": 10.0, "600519": 20.0},
+            opens={"600000": 10.0, "600519": 20.0},
+            cfg=_cfg(fuse_enter=0.0),
+        )
+        self.assertTrue(any("缺盘中" in str(s.get("reason") or "") for s in exited["sells"]))
+        self.assertFalse(any(b.get("stock_code") == "600000" for b in exited["buys"]))
+
+        fresh = plan_rank_lot_day(
+            scored=[dict(rows[0])],
+            holdings=[],
+            cash=100_000,
+            prices={"600000": 10.0},
+            opens={"600000": 10.0},
+            cfg=_cfg(fuse_enter=0.0),
+        )
+        self.assertEqual(fresh["buys"], [])
+        self.assertTrue(any(s.get("reason") == "缺盘中 ŷ_τc" for s in fresh["skips"]))
+
     def test_apply_prefix_accepts_open_fallback_with_feats(self):
         from core.backtest.paper_replay import _apply_prefix_oc
 

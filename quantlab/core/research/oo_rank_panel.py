@@ -16,7 +16,18 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from core.research.oos_finite import as_float
+
 logger = logging.getLogger(__name__)
+
+
+def label_float(value: Any) -> float:
+    """标签转 float。缺失、非数字、Inf 记 NaN。"""
+    return as_float(value)
+
+
+def label_floats(values: Optional[Sequence[Any]]) -> List[float]:
+    return [as_float(v) for v in (values or [])]
 
 
 def _day_matrix(day: Dict[str, Any]) -> Optional[Tuple[np.ndarray, List[str]]]:
@@ -566,7 +577,7 @@ def stack_day_panels(
         d = str(day.get("date") or "")[:10]
         packed = _day_matrix(day)
         day_codes = list(day.get("codes") or [])
-        day_ys = [float(v) for v in (day.get("ys") or [])]
+        day_ys = label_floats(day.get("ys"))
         if packed is not None:
             X, names = packed
             n = int(X.shape[0])
@@ -670,6 +681,8 @@ def resolve_oo_rank_universe(
 __all__ = [
     "build_oo_rank_day_panels",
     "group_day_matrices",
+    "label_float",
+    "label_floats",
     "resolve_oo_rank_universe",
     "stack_day_panels",
 ]

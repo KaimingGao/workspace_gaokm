@@ -22,6 +22,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
+from core.research.oos_finite import as_float, finite_pairs, finite_xy, n_label_nan
 from core.research.tau_panel import (
     TAU_LAG_FEAT_LABELS,
     T30_LAG_FEAT_LABELS,
@@ -57,11 +58,11 @@ def alpha_tc_report_meta(*, n_alpha_tc_features: int = 0) -> Dict[str, Any]:
     }
 
 def _ic(preds: List[Optional[float]], ys: List[float]) -> Optional[float]:
-    pairs = [(float(p), float(y)) for p, y in zip(preds, ys) if p is not None]
-    if len(pairs) < 5:
-        return None
     import math
 
+    pairs = finite_pairs(preds, ys)
+    if len(pairs) < 5:
+        return None
     n = len(pairs)
     mx = sum(p for p, _ in pairs) / n
     my = sum(y for _, y in pairs) / n
@@ -82,12 +83,13 @@ def _sign_hit(
     """方向命中率。默认跳过 |ŷ|<min_abs（百分收益弱信号）。
 
     强正则下 ŷ 常落在 0.05 以内；此时调用方应 ``min_abs=0`` 回退。
+    非有限标签不计 miss。
     """
     hits = 0
     n = 0
     thr = max(0.0, float(min_abs))
     for p, y in zip(preds, ys):
-        if p is None:
+        if not finite_xy(p, y):
             continue
         if thr > 0.0 and abs(float(p)) < thr:
             continue
@@ -116,7 +118,7 @@ def _oos_sign_buckets(
     n_valid = 0
     abs_ok: List[Tuple[float, bool]] = []
     for pred, y in zip(preds, ys):
-        if pred is None:
+        if not finite_xy(pred, y):
             continue
         n_valid += 1
         ok = (float(pred) > 0) == (float(y) > 0)
@@ -232,12 +234,9 @@ def _residual_var(
 ) -> Optional[float]:
     errs: List[float] = []
     for p, y in zip(preds, ys):
-        if p is None:
+        if not finite_xy(p, y):
             continue
-        try:
-            errs.append((float(y) - float(p)) ** 2)
-        except (TypeError, ValueError):
-            continue
+        errs.append((float(y) - float(p)) ** 2)
     if len(errs) < 5:
         return None
     return round(sum(errs) / float(len(errs)), 6)
@@ -258,7 +257,7 @@ def _oos_by_theme(
             if theme_flag is not None and th != int(theme_flag):
                 continue
             ps.append(p)
-            zs.append(float(y))
+            zs.append(as_float(y))
         return {
             "n": len(zs),
             "ic": _ic(ps, zs) if zs else None,
@@ -288,7 +287,7 @@ def _oos_by_tau(
         tau = str((m or {}).get("tau") or "open").strip() or "open"
         slot = buckets.setdefault(tau, {"ps": [], "zs": []})
         slot["ps"].append(p)
-        slot["zs"].append(float(y))
+        slot["zs"].append(as_float(y))
     out: Dict[str, Any] = {}
     for tau in sorted(buckets.keys()):
         ps = buckets[tau]["ps"]
@@ -423,6 +422,7 @@ def fit_tau_ridge_report(
     oos = {
         "n_train": len(ys_tr),
         "n_test": len(ys_te),
+        "n_label_nan": n_label_nan(ys_te),
         "n_valid": bucket_pack.get("n_valid"),
         "ic": _ic(preds_te, ys_te) if ys_te else None,
         "sign_hit": _sign_hit(preds_te, ys_te) if ys_te else None,

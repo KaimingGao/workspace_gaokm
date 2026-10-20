@@ -107,6 +107,7 @@ from core.backtest.replay_scoring import (
     mock_quote_from_bar,
     refresh_tau_heads_after_prefix,
     rescore_replay_y_τc_at_clock,  # 门面 re-export（单测 / 冻结 API；见 pyproject F401）
+    stamp_tau_prefix_misses,
 )
 from core.backtest.replay_sim_rows import (
     _DEBUG_SKIP_KEYS,
@@ -509,6 +510,7 @@ def backtest_paper_replay(
         "minute_skips": 0,
         "minute_fills": 0,
         "tau_prefix_rescored": 0,
+        "tau_prefix_miss": 0,
         "price_space_skips": 0,
         "price_space_mismatch_seen": 0,
         "sell_px_fallback": 0,
@@ -678,6 +680,9 @@ def backtest_paper_replay(
                 constraints["tau_prefix_rescored"] = int(
                     constraints.get("tau_prefix_rescored") or 0
                 ) + int(n_pref)
+                constraints["tau_prefix_miss"] = int(
+                    constraints.get("tau_prefix_miss") or 0
+                ) + int(stamp_tau_prefix_misses(scored))
             elif tc_rank_doc is not None:
                 # 09:30：名次应在开盘包/缓存；可交易集全缺时才补挂
                 scored = maybe_backfill_open_tc_rank(
@@ -1050,7 +1055,8 @@ def backtest_paper_replay(
     note = (
         f"引擎={ENGINE_ID}：每个交易日 y_oo_fuse={FORMULA_OO_FUSE}，{fill_note}；{oc_note}；"
         f"fuse 权 w_oo={w_oo:g} w_τc={w_τc:g} w_co={alpha:g}；未过入场则已持仓清仓；"
-        f"fuse 过入场（fuse入场={fuse_enter}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
+        f"fuse 过入场（fuse入场={fuse_enter}）后按 y_oo_rank 买，缺名次才按 fuse"
+        f"（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
     )

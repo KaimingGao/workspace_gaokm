@@ -85,6 +85,19 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertEqual(running["id"], jid)
         self.assertEqual(running["kind"], "a")
 
+    def test_lost_or_cancelled_stops_previous_owner(self):
+        slot = JobProgress(name="test-owner")
+        jid, _snap = slot.try_start(kind="a", message="跑")
+        self.assertFalse(slot.lost_or_cancelled(jid))
+        self.assertTrue(slot.request_cancel())
+        self.assertTrue(slot.lost_or_cancelled(jid))
+        slot.force_fail("stop")
+        self.assertTrue(slot.lost_or_cancelled(jid))
+        jid2, _snap2 = slot.try_start(kind="b", message="再开")
+        self.assertIsNotNone(jid2)
+        self.assertFalse(slot.lost_or_cancelled(jid2))
+        self.assertTrue(slot.lost_or_cancelled(jid))
+
     def test_materialize_allow_zero_progress(self):
         """物化宏步 current=0 但心跳新鲜时勿按零进展回收。"""
         slot = JobProgress(name="materialize-l1l2")

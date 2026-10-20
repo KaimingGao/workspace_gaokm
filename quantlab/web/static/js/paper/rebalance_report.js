@@ -1081,7 +1081,7 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τc · price(τ)→close">y_τc</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=(open[T+1]−price(τ))/open[T]">fuse</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=open[T+1]/price(τ)−1">fuse</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 过入场后作买序；与 τc_rank 共用 rank 入场">oo_rank</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序">τc_rank</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +

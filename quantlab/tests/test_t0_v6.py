@@ -441,7 +441,7 @@ class TestCloseBandCore(unittest.TestCase):
 
         cfg0 = load_t0_rules()
         self.assertNotIn("t0_ytw_prefix_confirm", cfg0)
-        self.assertAlmostEqual(float(cfg0["y_tw_midpoint"]), 47.0)
+        self.assertAlmostEqual(float(cfg0["y_tw_midpoint"]), 50.0)
         self.assertNotIn("t0_close_band_delta_pct", cfg0)
         self.assertNotIn("t0_y_τc_target_scale", cfg0)
 
@@ -455,8 +455,9 @@ class TestCloseBandCore(unittest.TestCase):
         d_off, _ = bar_ytw_pick_direction(100.0, 101.0, up, leftover)
         self.assertEqual(d_off, "buy_then_sell")
 
-        # 中位点 47%：0.48 弃权（|0.48-0.47|<5pp），0.53 投票 +
-        self.assertAlmostEqual(blend_y_tw(0.53, 0.53, 0.53, 0.53, 0.53), 5.0)
+        # 中位点 50%：|0.53−0.50|≤5pp 弃权；0.56 投票 +
+        self.assertAlmostEqual(blend_y_tw(0.56, 0.56, 0.56, 0.56, 0.56), 5.0)
+        self.assertAlmostEqual(blend_y_tw(0.53, 0.53, 0.53, 0.53, 0.53), 0.0)
         self.assertAlmostEqual(blend_y_tw(0.50, 0.50, 0.50, 0.50, 0.50), 0.0)
 
         # 纯 ŷ_τw：票数够即正T

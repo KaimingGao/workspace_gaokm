@@ -163,11 +163,7 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         self.assertIsNotNone(out)
 
     def test_day_scores_use_booster(self):
-        from core.research.oo_rank_lambdarank import (
-            _day_scores,
-            fit_lambdarank,
-            predict_oo_rank_from_features,
-        )
+        from core.research.oo_rank_lambdarank import _day_scores, fit_lambdarank
 
         days = _synth_days(30, 20, seed=4)
         fit = fit_lambdarank(
@@ -181,17 +177,20 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         self.assertTrue(fit.get("success"), fit.get("error"))
         day = days[-1]
         preds, _ys = _day_scores(day, fit)
-        names = list(day.get("names") or [])
-        X = day.get("X")
-        row = {
-            names[j]: float(X[0, j])
-            for j in range(len(names))
-            if X is not None and names
-        }
-        boost = predict_oo_rank_from_features(row, fit=fit)
+        from core.research.oo_rank_lambdarank import _z_day_cross_section
+
+        names = list((fit.get("coefficients") or {}).keys())
+        z = _z_day_cross_section(day, names)
+        self.assertIsNotNone(z)
+        z = np.where(np.isfinite(z), z, 0.0)
+        import base64
+
+        import lightgbm as lgb
+
+        text = base64.b64decode(str(fit.get("booster_b64") or "")).decode("utf-8")
+        raw = lgb.Booster(model_str=text).predict(z)
         self.assertIsNotNone(preds[0])
-        self.assertIsNotNone(boost)
-        self.assertAlmostEqual(float(preds[0]), float(boost), places=5)
+        self.assertAlmostEqual(float(preds[0]), round(float(raw[0]), 6), places=5)
 
 
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")

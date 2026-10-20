@@ -20,6 +20,8 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
+from core.research.oos_finite import as_float, finite_pairs
+from core.research.oo_rank_panel import label_floats
 
 Y_OO_RANK_HAT_KEYS = (
     "y_oo_rank",
@@ -533,6 +535,24 @@ def _z_day(
     return np.where(np.isfinite(raw), z, 0.0).astype(np.float64, copy=False)
 
 
+def _slice_finite_label_rows(
+    ys: Sequence[float], Z: np.ndarray
+) -> Tuple[List[float], np.ndarray, int]:
+    """丢掉非有限 y，并切掉 Z 的对应行。NaN 不编成名次。"""
+    n = len(ys)
+    if Z is None or int(getattr(Z, "ndim", 0)) != 2 or int(Z.shape[0]) != n:
+        empty = Z[:0] if isinstance(Z, np.ndarray) else np.zeros((0, 0))
+        return [], empty, n
+    parsed = [as_float(y) for y in ys]
+    keep = [i for i, y in enumerate(parsed) if math.isfinite(y)]
+    dropped = n - len(keep)
+    if not keep:
+        return [], Z[:0], dropped
+    if dropped == 0:
+        return parsed, Z, 0
+    return [parsed[i] for i in keep], Z[keep], dropped
+
+
 def _rank_labels(ys: Sequence[float]) -> List[int]:
     """日截面 ys → LambdaRank 整数标签 0..n-1（高 ys = 高 label）。"""
     n = len(ys)
@@ -589,7 +609,8 @@ def fit_lambdarank(
 ) -> Dict[str, Any]:
     """LightGBM LambdaRank：按日截面 group，优化 NDCG。
 
-    日截面 z 与损失用当天同一批行。
+    日截面 z 先按当天全行计算，再丢掉非有限 y 及对应 Z 行后才打标签。
+    剩下不足 4 行，或标签只剩一种，跳过该日。NaN 不编成最高名次。
 
     输出与推理共用：
     - ``coefficients``：feature importance (gain)，仅诊断
@@ -612,8 +633,9 @@ def fit_lambdarank(
     X_blocks: List[np.ndarray] = []
     y_blocks: List[List[int]] = []
     group_sizes: List[int] = []
+    n_rank_rows_dropped = 0
     for day in days:
-        ys = [float(v) for v in (day.get("ys") or [])]
+        ys = label_floats(day.get("ys"))
         Z = (
             _z_day_cross_section(day, names)
             if use_cs
@@ -623,6 +645,8 @@ def fit_lambdarank(
             Z = np.where(np.isfinite(Z), Z, 0.0)
         if Z is None or int(Z.shape[0]) != len(ys):
             continue
+        ys, Z, n_drop = _slice_finite_label_rows(ys, Z)
+        n_rank_rows_dropped += int(n_drop)
         if len(ys) < 4:
             continue
         labels = _rank_labels(ys)
@@ -638,12 +662,17 @@ def fit_lambdarank(
             "error": f"groups_insufficient n_days={n_groups}（需≥5）",
             "n_days": n_groups,
             "n_groups": n_groups,
+            "n_rank_rows_dropped": n_rank_rows_dropped,
         }
     X = np.vstack(X_blocks)
     y = np.asarray([lab for block in y_blocks for lab in block], dtype=np.int32)
     group = np.asarray(group_sizes, dtype=np.int32)
     if X.shape[0] != y.shape[0] or X.shape[0] != int(group.sum()):
-        return {"success": False, "error": "shape_mismatch"}
+        return {
+            "success": False,
+            "error": "shape_mismatch",
+            "n_rank_rows_dropped": n_rank_rows_dropped,
+        }
     lam = max(0.0, float(l2))
     # label_gain 须覆盖全部 label；默认指数表只有 31 项，日池>31 会崩。
     # 用线性 [0,1,2,…] 与 OOS NDCG（gain=rank）对齐。
@@ -672,7 +701,11 @@ def fit_lambdarank(
             num_boost_round=max(1, int(n_estimators)),
         )
     except Exception as exc:  # noqa: BLE001
-        return {"success": False, "error": f"lightgbm_fit_failed: {exc}"}
+        return {
+            "success": False,
+            "error": f"lightgbm_fit_failed: {exc}",
+            "n_rank_rows_dropped": n_rank_rows_dropped,
+        }
     # 序列化：lgb.Booster.save_model 只接受文件路径，用临时文件中转
     import tempfile
 
@@ -715,6 +748,7 @@ def fit_lambdarank(
         "ridge_lambda": lam,
         "sample_count": int(y.shape[0]),
         "n_groups": n_groups,
+        "n_rank_rows_dropped": n_rank_rows_dropped,
     }
     if use_cs:
         from core.research.feature_standardize import stamp_cross_section_zscore
@@ -1443,7 +1477,7 @@ def _predict_ridge_matrix(
 def _day_scores(
     day: Dict[str, Any], fit: Dict[str, Any]
 ) -> Tuple[List[Optional[float]], List[float]]:
-    ys = [float(v) for v in (day.get("ys") or [])]
+    ys = label_floats(day.get("ys"))
     if _is_ridge_linear(fit):
         return _predict_ridge_matrix(fit, day), ys
     packed = _day_X(day)
@@ -1471,11 +1505,7 @@ def _oos_day_metrics(
     n_scored = 0
     for day in days:
         preds, ys = _day_scores(day, fit)
-        pairs_py = []
-        for p, y in zip(preds, ys):
-            if p is None:
-                continue
-            pairs_py.append((float(p), float(y)))
+        pairs_py = finite_pairs(preds, ys)
         if len(pairs_py) < 5:
             continue
         n_scored += len(pairs_py)
@@ -1533,7 +1563,7 @@ def _fit_ridge_baseline(
     date_parts: List[str] = []
     for day in days or []:
         raw = _raw_day_aligned(day, names)
-        ys = [float(v) for v in (day.get("ys") or [])]
+        ys = label_floats(day.get("ys"))
         if raw is None or len(ys) != int(raw.shape[0]):
             continue
         blocks.append(raw)

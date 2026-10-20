@@ -110,7 +110,7 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_tw_enter_amount": 20_000.0,
     "y_tw_strong_amount": 40_000.0,
     "y_tw_vote_margin": 5.0,
-    "y_tw_midpoint": 47.0,
+    "y_tw_midpoint": 50.0,
     "horizon_prob_backend": "ridge",
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 0.0,

@@ -79,5 +79,26 @@ class YRDisplayOnlyTests(unittest.TestCase):
         self.assertNotIn("y_r", src2)
 
 
+class TestTcFiniteLabels(unittest.TestCase):
+    def test_ic_and_sign_hit_drop_nan_labels(self):
+        from core.research.tc_ridge import _ic, _oos_sign_buckets, _residual_var, _sign_hit
+
+        preds = [0.2, -0.4, 0.8, -0.3, 0.6, 1.1]
+        ys = [0.1, -0.2, 0.5, -0.4, 0.3, 0.9]
+        self.assertEqual(_ic(preds, ys), _ic(preds + [0.7], ys + [float("nan")]))
+        self.assertIsNone(_ic([1.0] * 5, [float("nan")] * 5))
+        self.assertAlmostEqual(
+            _sign_hit([1.0] * 6, [1.0, 1.0, 1.0, 1.0, 1.0, float("nan")]),
+            1.0,
+            places=4,
+        )
+        self.assertEqual(
+            _residual_var(preds, ys),
+            _residual_var(preds + [9.0], ys + [float("nan")]),
+        )
+        buckets = _oos_sign_buckets([1.0] * 6, [1.0, 1.0, 1.0, 1.0, 1.0, float("nan")])
+        self.assertEqual(buckets.get("n_valid"), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

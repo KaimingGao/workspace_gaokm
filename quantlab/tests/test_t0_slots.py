@@ -120,7 +120,7 @@ class TestT0Slots(unittest.TestCase):
         self.assertNotIn("t0_leg1_close_extreme", cfg)
         self.assertNotIn("t0_bar_oc_gate", cfg)
         self.assertNotIn("t0_ytw_prefix_confirm", cfg)
-        self.assertAlmostEqual(float(cfg.get("y_tw_midpoint") or 0), 47.0)
+        self.assertAlmostEqual(float(cfg.get("y_tw_midpoint") or 0), 50.0)
         self.assertNotIn("t0_close_band_delta_pct", cfg)
         self.assertNotIn("t0_y_τc_target_scale", cfg)
 

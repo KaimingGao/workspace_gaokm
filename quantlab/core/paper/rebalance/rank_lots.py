@@ -174,6 +174,8 @@ def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]
 
     入场缺 fuse 会拦；持仓缺 y_oo_fuse 不能假装过门槛续持。
     """
+    if isinstance(item, dict) and item.get("_tau_prefix_miss"):
+        return "缺盘中 ŷ_τc 清仓"
     if isinstance(item, dict) and item.get("hard_reject"):
         why = str(item.get("reject_reason") or "").strip()
         return why if why else "hard_reject 清仓"
@@ -625,6 +627,8 @@ def y_oo_fuse_pct_of(
     )
 
     if not isinstance(item, dict):
+        return None
+    if item.get("_tau_prefix_miss"):
         return None
     w_oo, w_τc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
@@ -1319,6 +1323,19 @@ def plan_rank_lot_day(
         rs = _rs_enter(code, rp)
         rs_disp = _rs_display(rp)
         dbg = _debug_scores(item, rp, rs_disp, **w_fields)
+        if item.get("_tau_prefix_miss"):
+            if not any(str(h.get("stock_code") or "") == code for h in held_rows):
+                skips.append(
+                    {
+                        "stock_code": code,
+                        "stock_name": _display_name(code, item.get("stock_name")),
+                        "side": "buy",
+                        "action": ACTION_SKIP,
+                        "reason": "缺盘中 ŷ_τc",
+                        **dbg,
+                    }
+                )
+            continue
         if item.get("hard_reject"):
             skips.append(
                 {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -254,6 +255,44 @@ class TestStartT0BacktestJob(unittest.TestCase):
                 time.sleep(0.05)
             self.assertEqual((snap or {}).get("status"), "done")
             self.assertTrue((snap.get("result") or {}).get("success"))
+
+    def test_second_start_reuses_slot_and_does_not_run_again(self):
+        import time
+
+        from core.job_progress import t0_backtest_job
+        from quant.services.quant_service import QuantService
+
+        svc = QuantService()
+        if t0_backtest_job.is_running():
+            self.skipTest("t0_backtest_job already running")
+        started = threading.Event()
+        release = threading.Event()
+        owned = ""
+
+        def _block(*_args, **_kwargs):
+            started.set()
+            self.assertTrue(release.wait(5))
+            return {"success": True, "t0_pnl_total": 0.0}
+
+        try:
+            with patch.object(svc, "run_t0_backtest", side_effect=_block) as run:
+                first = svc.start_t0_backtest_job(code="600183", lookback=10)
+                owned = str((first.get("job") or {}).get("id") or "")
+                self.assertTrue(started.wait(2))
+                second = svc.start_t0_backtest_job(code="600183", lookback=10)
+                self.assertTrue(second.get("reused"))
+                self.assertEqual(str((second.get("job") or {}).get("id") or ""), owned)
+                self.assertEqual(run.call_count, 1)
+        finally:
+            release.set()
+            for _ in range(40):
+                snap = t0_backtest_job.get()
+                if snap.get("id") != owned or snap.get("status") != "running":
+                    break
+                time.sleep(0.05)
+            snap = t0_backtest_job.get()
+            if owned and snap.get("id") == owned and snap.get("status") == "running":
+                t0_backtest_job.force_fail("test cleanup")
 
 
 class TestFillT0VizStockNames(unittest.TestCase):

@@ -806,7 +806,7 @@ function renderDayLegRows(details, nameByCode) {
   let html =
     `<div class="lw-hover-tip-legs">` +
     `<div class="lw-hover-tip-legs-h"><span>票</span>` +
-    `<span title="持有段：清仓=隔夜；新开=开→收；续持=昨收到今收">持有</span>` +
+    `<span title="持有段：清仓=昨收到成交价；新开=成交价→收；续持=昨收到今收">持有</span>` +
     `<span>贡献</span></div>`;
   for (const g of legs) {
     const ret = Number(g.ret_pct);
@@ -816,7 +816,7 @@ function renderDayLegRows(details, nameByCode) {
     const sold = Number(g.shares) === 0;
     const nameText = sold ? `${label} 清` : label;
     html +=
-      `<div class="lw-hover-tip-leg" title="${escTip(fullName || g.stock_code || "")}${sold ? " · 开盘清仓，涨跌仅隔夜" : ""}">` +
+      `<div class="lw-hover-tip-leg" title="${escTip(fullName || g.stock_code || "")}${sold ? " · 成交价清仓，涨跌仅到成交" : ""}">` +
       `<span class="lw-hover-tip-leg-n">${escTip(nameText)}</span>` +
       `<span class="lw-hover-tip-v ${retCls(ret)}">${fmtSignedPct(ret)}</span>` +
       `<span class="lw-hover-tip-v ${retCls(contrib)}">${fmtSignedPct(contrib)}</span>` +

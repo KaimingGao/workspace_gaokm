@@ -322,13 +322,14 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertLess(rem, fused)
         self.assertAlmostEqual(remaining_y_oo_fuse_pct(fused), fused, places=6)
 
-    def test_realized_ranking_is_next_open_minus_tau_over_open(self):
+    def test_realized_is_next_open_over_tau(self):
         from core.signal.yhat_windows import y_oo_fuse_realized_pct
 
         open_t, tau, nxt = 100.0, 100.5, 102.0
         realized_oo = (nxt / open_t - 1.0) * 100.0
         got = y_oo_fuse_realized_pct(realized_oo, open_px=open_t, price_tau=tau)
-        self.assertAlmostEqual(got, (nxt - tau) / open_t * 100.0, places=6)
+        self.assertAlmostEqual(got, (nxt / tau - 1.0) * 100.0, places=6)
+        self.assertNotAlmostEqual(got, (nxt - tau) / open_t * 100.0, places=3)
         self.assertIsNone(y_oo_fuse_realized_pct(None, open_px=open_t, price_tau=tau))
         self.assertAlmostEqual(
             y_oo_fuse_realized_pct(realized_oo, open_px=open_t),

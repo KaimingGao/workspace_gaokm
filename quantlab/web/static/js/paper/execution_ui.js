@@ -164,7 +164,7 @@ export function renderExecutionRulesHtml(execution) {
         const m = Number(t0.y_tw_vote_margin);
         const pp = Number.isFinite(m) ? m : 5;
         const mid = Number(t0.y_tw_midpoint);
-        const midLbl = Number.isFinite(mid) ? mid : 47;
+        const midLbl = Number.isFinite(mid) ? mid : 50;
         return `正T须 ŷ_τw≥入场，反T须 ŷ_τw≤−入场（|p−${midLbl}%|≤${pp}pp 不投票）。0 票在入场=0 时可通过。`;
       })()
     ) +
@@ -189,10 +189,10 @@ export function renderExecutionRulesHtml(execution) {
       "Y_τ*中位点%",
       (() => {
         const m = Number(t0.y_tw_midpoint);
-        if (!Number.isFinite(m)) return "47%";
+        if (!Number.isFinite(m)) return "50%";
         return `${m}%`;
       })(),
-      "ŷ_τ30/45/60/75/90 共用中位点。ŷ_τw=相对中位点的符号和。默认 47%。"
+      "ŷ_τ30/45/60/75/90 共用中位点。ŷ_τw=相对中位点的符号和。默认 50%。"
     ) +
     specKpi(
       "Y_τ*弃权%",
@@ -429,7 +429,7 @@ export function fillExecutionForm(root, execution) {
     "y_tw_midpoint",
     (() => {
       const n = Number(t0.y_tw_midpoint);
-      if (!Number.isFinite(n)) return 47;
+      if (!Number.isFinite(n)) return 50;
       return Math.max(1, Math.min(n, 99));
     })()
   );
@@ -497,7 +497,7 @@ export function collectExecutionForm(root) {
       return Math.max(enter, clampT0LotAmount(num("y_tw_strong_amount", 40000), 40000));
     })(),
     y_tw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 5), 20)),
-    y_tw_midpoint: Math.max(1, Math.min(num("y_tw_midpoint", 47), 99)),
+    y_tw_midpoint: Math.max(1, Math.min(num("y_tw_midpoint", 50), 99)),
     // ridge=跟启用套 backend（不强制 tree）；保存时顺带清掉旧 tree 覆盖
     horizon_prob_backend: "ridge",
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade", "13:00"),
@@ -1040,7 +1040,7 @@ export function collectT0BacktestBody(root, opts = {}) {
     })(),
     y_tw_midpoint: (() => {
       const n = Number(t0.y_tw_midpoint);
-      if (!Number.isFinite(n)) return 47;
+      if (!Number.isFinite(n)) return 50;
       return Math.max(1, Math.min(n, 99));
     })(),
     horizon_prob_backend: "ridge",

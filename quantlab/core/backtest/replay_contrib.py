@@ -201,9 +201,9 @@ def day_stock_legs(
     name_by_code: Optional[Dict[str, str]] = None,
     top: Optional[int] = DAY_LEG_TOP,
 ) -> Tuple[List[dict], int]:
-    """当日个股盈亏：隔夜段 open−昨收 + 当日段 close−open，贡献=盈亏/昨净值。
+    """当日个股盈亏：隔夜段 成交价−昨收 + 当日段 close−成交价，贡献=盈亏/昨净值。
 
-    ``ret_pct`` 是持有段，不是股票全日收盘涨跌：清仓只计隔夜，新开只计开→收。
+    ``open`` / ``fill`` 都是调仓成交价，不是日 K 开盘。清仓只计到成交价，新开只计成交价→收。
     停牌/缺当日 K：沿用昨收（或 snap ``mark_px``）盯市，盈亏记 0，避免漏出分票。
     ``top<=0`` 返回全日全部票（分票贡献汇总用）；净值悬停仍截 ``DAY_LEG_TOP``。
     """
@@ -271,6 +271,7 @@ def day_stock_legs(
             "contrib_pct": round(contrib, 4),
             "prev_close": round(prev_c_f, 4),
             "open": round(opn_f, 4),
+            "fill": round(opn_f, 4),
             "close": round(close_f, 4),
         }
         if stale_mark:

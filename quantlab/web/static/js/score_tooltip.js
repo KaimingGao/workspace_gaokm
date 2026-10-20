@@ -1362,8 +1362,8 @@ export function formatBlendScoreSection(raw) {
       ? ` · ${Number(wOo).toFixed(2)}×${fmtSigned(ooShown, 2)}+${Number(wOc).toFixed(2)}×${fmtSigned(rightN, 2)}`
       : "";
   const hint = isOc
-    ? `${wTxt}${arith} · 缺 y_spec：fuse−(price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]`
-    : `${wTxt}${arithTc} · ((ŷ_oo+1)/(1+rot)−1)+ŷ_τc∘ŷ_co；真实=(open[T+1]−price(τ))/open[T]`;
+    ? `${wTxt}${arith} · 缺 y_spec：fuse−(price(τ)/open−1)；真实=open[T+1]/price(τ)−1`
+    : `${wTxt}${arithTc} · ((ŷ_oo+1)/(1+rot)−1)+ŷ_τc∘ŷ_co；真实=open[T+1]/price(τ)−1`;
   const head =
     raw && raw.dual_score_head != null
       ? String(raw.dual_score_head)
@@ -1415,7 +1415,7 @@ export function formatBlendScoreSection(raw) {
     );
   }
   rows.push(
-    `<div class="score-layer-row"><span>真实 (open[T+1]−price(τ))/open[T]</span><span class="num ${
+    `<div class="score-layer-row"><span>真实 open[T+1]/price(τ)−1</span><span class="num ${
       rRank == null ? "" : signCls(rRank)
     }">${escapeText(rRank == null ? "—（待次日开）" : `${fmtSigned(rRank, 2)}%`)}</span></div>`
   );
@@ -2829,7 +2829,7 @@ export function createScoreTooltipController() {
           `<div class="score-hero-label">fuse</div>` +
           `<div class="score-hero-value ${signCls(ranked)}">${escapeText(val)}</div>` +
           `</div>` +
-          `<div class="score-hero-hint">w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=(open[T+1]−price(τ))/open[T]</div>` +
+          `<div class="score-hero-hint">w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=open[T+1]/price(τ)−1</div>` +
           `</div>`;
       }
       showCompactScoreTip(cell, blendHtml, { sticky });

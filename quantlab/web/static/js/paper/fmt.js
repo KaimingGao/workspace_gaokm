@@ -390,14 +390,14 @@ export const Y_T90_TITLE =
   "ŷ_τ90 · P(mean(price(τ⊕85/90/95))/price(τ)−1>0) · 做 T 进 ŷ_τw 票，不单独选向";
 export const T90_REALIZED_TITLE =
   "τ90实 · mean(price(τ⊕85/90/95))/price(τ)−1（与 ŷ_τ90 同标签）";
-/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−mid)；mid 默认 47%；近中位点弃权% 可配 */
+/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−mid)；mid 默认 50%；近中位点弃权% 可配 */
 export const HORIZON_VOTE_MARGIN_PP = 5;
 export const HORIZON_VOTE_MARGIN_PP_MAX = 20;
 export const HORIZON_VOTE_MARGIN = 0.05;
-export const HORIZON_VOTE_MIDPOINT_PP = 47;
+export const HORIZON_VOTE_MIDPOINT_PP = 50;
 export const HORIZON_VOTE_MIDPOINT_PP_MIN = 1;
 export const HORIZON_VOTE_MIDPOINT_PP_MAX = 99;
-export const HORIZON_VOTE_MIDPOINT = 0.47;
+export const HORIZON_VOTE_MIDPOINT = 0.5;
 export const Y_TW_TITLE =
   "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f=sign(p_up−中位点)，近中位点由弃权% 决定不投票 · 纯 ŷ_τw 选向/金额";
 export const TW_REALIZED_TITLE =
@@ -591,7 +591,7 @@ export function horizonVoteMidpoint(pp) {
   return Math.max(0.01, Math.min(n, 0.99));
 }
 
-/** 读做 T 表单中位点；无表单则默认 47%。 */
+/** 读做 T 表单中位点；无表单则默认 50%。 */
 export function readHorizonVoteMidpoint(root) {
   try {
     const doc = root || (typeof document !== "undefined" ? document : null);

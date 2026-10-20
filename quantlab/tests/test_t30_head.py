@@ -659,15 +659,15 @@ class TTwGateTests(unittest.TestCase):
         self.assertEqual(float(load_t0_rules({})["y_tw_enter"]), 2.0)
         self.assertNotIn("y_τc_strong", load_t0_rules({}))
         self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 5.0)
-        self.assertAlmostEqual(float(load_t0_rules({})["y_tw_midpoint"]), 47.0)
+        self.assertAlmostEqual(float(load_t0_rules({})["y_tw_midpoint"]), 50.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.2, 0.3), -1.0)
-        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55), 3.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.56), 3.0)
         self.assertAlmostEqual(
             blend_y_tw(0.8, 0.6, 0.55, cfg={"y_tw_vote_margin": 2}), 3.0
         )
         self.assertAlmostEqual(blend_y_tw(0.8, 0.51, 0.49), 1.0)
         self.assertAlmostEqual(blend_y_tw(0.51, 0.50, 0.49), 0.0)
-        self.assertAlmostEqual(blend_y_tw(0.53, 0.47, 0.52), 1.0)
+        self.assertAlmostEqual(blend_y_tw(0.56, 0.47, 0.52), 1.0)
         self.assertAlmostEqual(blend_y_tw(0.53, 0.47, 0.52, midpoint=0.5), 0.0)
         self.assertAlmostEqual(
             blend_y_tw(0.51, 0.50, 0.49, cfg={"y_tw_vote_margin": 0}, midpoint=0.5), 0.0

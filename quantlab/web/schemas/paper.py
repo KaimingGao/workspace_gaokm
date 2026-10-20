@@ -117,7 +117,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=1.0,
         le=99.0,
-        description="ŷ_τ30/45/60/75/90 共用中位点%；ŷ_τw=相对中位点符号和。默认 47",
+        description="ŷ_τ30/45/60/75/90 共用中位点%；ŷ_τw=相对中位点符号和。默认 50",
     )
     horizon_prob_backend: Optional[str] = Field(
         default=None,

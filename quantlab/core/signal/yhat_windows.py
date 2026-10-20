@@ -7,6 +7,7 @@
 现网 y_oo_fuse（UI 短名 fuse；τc，price(τ)→close 标签；行上有 y_spec_tau）：
   y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
   rot = price(τ)/open[T]−1；两项都在 τ→open[T+1]，不再整段减 rot
+  真实 = open[T+1]/price(τ)−1（09:30 成交价=今开时等于 ŷ_oo 的标签）
   缺 y_spec 的旧行仍走 open 基准融合再减 rot
 
 R̂_τ = residual = ŷ_τc = close[T]/price(τ)−1
@@ -547,10 +548,12 @@ def y_oo_fuse_realized_pct(
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Optional[float]:
-    """y_oo_fuse 真实（百分点）= realized_oo − (price(τ)/open−1)。
+    """y_oo_fuse 真实（百分点）= open[T+1]/price(τ)−1。
 
-    即 (open[T+1] − price(τ)) / open[T]。缺次日开则 None；缺开盘或 τ 价时
-    与预测一样不扣（真实=realized_oo）。
+    与预测同一空间：从成交价持有到次日开盘。``realized_oo`` 是
+    open[T+1]/open[T]−1，再按 rot=price(τ)/open−1 做几何剩余。
+    09:30 成交价=今开时与 ``realized_oo`` 相同。缺次日开则 None；
+    缺开盘或成交价时不换基准（真实=realized_oo）。
     """
     y = _f(realized_oo)
     if y is None:
@@ -558,7 +561,10 @@ def y_oo_fuse_realized_pct(
     rot = ret_open_to_tau_pct(open_px, price_tau)
     if rot is None:
         return round(float(y), 6)
-    return round(float(y) - float(rot), 6)
+    from core.signal.yhat_geom import remaining_at_tau
+
+    out = remaining_at_tau(y, rot)
+    return None if out is None else float(out)
 
 
 def residual_pct(

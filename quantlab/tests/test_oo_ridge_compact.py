@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import tempfile
@@ -284,6 +285,32 @@ class TestOoRidgeCompact(unittest.TestCase):
         self.assertEqual(int(y.shape[0]), 0)
         self.assertEqual(dates, [])
         self.assertTrue(names)
+
+
+class TestOoFiniteLabels(unittest.TestCase):
+    def test_ic_and_sign_hit_drop_nan_labels(self) -> None:
+        from core.research.oo_ridge import _oo_ic, _oo_sign_hit
+        from core.research.oos_finite import as_float, finite_xy, n_label_nan
+
+        preds = [0.2, -0.4, 0.8, -0.3, 0.6, 1.1]
+        ys = [0.1, -0.2, 0.5, -0.4, 0.3, 0.9]
+        ic = _oo_ic(preds, ys)
+        self.assertIsNotNone(ic)
+        self.assertEqual(ic, _oo_ic(preds + [0.7], ys + [float("nan")]))
+        self.assertIsNone(_oo_ic([1.0, 2.0, 3.0, 4.0, 5.0], [float("nan")] * 5))
+
+        hit_preds = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        self.assertAlmostEqual(
+            _oo_sign_hit(hit_preds, [1.0, 1.0, 1.0, 1.0, 1.0, float("nan")]),
+            1.0,
+            places=4,
+        )
+        self.assertEqual(n_label_nan([1.0, float("nan"), 2.0]), 1)
+        self.assertEqual(n_label_nan([1.0, 2.0]), 0)
+        self.assertTrue(math.isnan(as_float(None)))
+        self.assertTrue(math.isnan(as_float("bad")))
+        self.assertTrue(math.isnan(as_float(float("inf"))))
+        self.assertFalse(finite_xy(1.0, float("inf")))
 
 
 if __name__ == "__main__":

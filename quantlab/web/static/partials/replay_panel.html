@@ -104,7 +104,7 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-win">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">日净值&gt;0</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(fuse)=sign(真实fuse)；真实=(open[T+1]−price(τ))/open[T]；最后一个交易日无真实值不计；|fuse|&lt;0.05% 无方向；跳过不计">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(fuse)=sign(真实fuse)；真实=open[T+1]/price(τ)−1；最后一个交易日无真实值不计；|fuse|&lt;0.05% 无方向；跳过不计">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-hit">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(fuse)=sign(真实)</div>
@@ -440,7 +440,7 @@
                       </div>
                       <div
                         class="follow-path-matrix-box follow-path-matrix-box--pair"
-                        title="ŷ_τ30/45/60/75/90 共用中位点%（默认 47）。距中点不超过弃权百分点则不投票（默认 5；0=仅恰好中点弃权）。"
+                        title="ŷ_τ30/45/60/75/90 共用中位点%（默认 50）。距中点不超过弃权百分点则不投票（默认 5；0=仅恰好中点弃权）。"
                       >
                         <span class="follow-path-matrix-box-text">
                           <span class="follow-path-matrix-box-title">Y_τ*</span>
@@ -448,7 +448,7 @@
                         <div class="follow-path-matrix-box-pair">
                           <label class="follow-path-matrix-box-slot">
                             <span class="follow-path-matrix-box-slot-label">中点</span>
-                            <input type="number" name="y_tw_midpoint" min="1" max="99" step="0.5" value="47" aria-label="Y_τ*中点" />
+                            <input type="number" name="y_tw_midpoint" min="1" max="99" step="0.5" value="50" aria-label="Y_τ*中点" />
                           </label>
                           <label class="follow-path-matrix-box-slot">
                             <span class="follow-path-matrix-box-slot-label">弃权</span>

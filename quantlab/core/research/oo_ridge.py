@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+from core.research.oos_finite import as_float, finite_pairs, finite_xy, n_label_nan
 
 from core.io_atomic import atomic_write_json
 from core.paths import (
@@ -593,11 +596,10 @@ def return_model_status() -> Dict[str, Any]:
 
 
 def _oo_ic(preds: List[Optional[float]], ys: List[float]) -> Optional[float]:
-    pairs = [(float(p), float(y)) for p, y in zip(preds, ys) if p is not None]
+    """预测与标签都有限才进 OOS IC。尾部 NaN 不污染 Pearson。"""
+    pairs = finite_pairs(preds, ys)
     if len(pairs) < 5:
         return None
-    import math
-
     n = len(pairs)
     mx = sum(p for p, _ in pairs) / n
     my = sum(y for _, y in pairs) / n
@@ -613,7 +615,7 @@ def _oo_sign_hit(preds: List[Optional[float]], ys: List[float]) -> Optional[floa
     hits = 0
     n = 0
     for p, y in zip(preds, ys):
-        if p is None:
+        if not finite_xy(p, y):
             continue
         if abs(float(p)) < 0.05:
             continue
@@ -706,7 +708,7 @@ def fit_watching_return_model(
         label_horizon_days=int(horizon_days or 1),
         calendar_dates=sorted(cal_days),
     )
-    ys_te = [float(y_mat[i]) for i in test_idx]
+    ys_te = [as_float(y_mat[i]) for i in test_idx]
     use_cs = bool(cross_section_zscore)
     model, report = fit_oo_ridge_matrix(
         x_mat,
@@ -727,6 +729,7 @@ def fit_watching_return_model(
         "fit_end": split_meta.get("fit_end"),
         "eval_start": split_meta.get("eval_start"),
         "label_horizon_days": int(horizon_days or 1),
+        "n_label_nan": n_label_nan(ys_te),
     }
     if model is not None and ys_te:
         preds_te = predict_oo_matrix(

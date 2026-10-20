@@ -424,7 +424,7 @@ def fuse_hit_metrics(
 ) -> Tuple[Optional[float], int, int]:
     """成交腿 sign(y_oo_fuse)=sign(y_oo_fuse_realized)。
 
-    真实 y_oo_fuse = (open[T+1]−price(τ))/open[T]，最后一个交易日无次日开、不进分母。
+    真实 y_oo_fuse = open[T+1]/price(τ)−1，最后一个交易日无次日开、不进分母。
     跳过/持仓腿不计。返回 (命中率%, 有方向笔数, 命中笔数)。
     """
     last = str(last_day or "")[:10]

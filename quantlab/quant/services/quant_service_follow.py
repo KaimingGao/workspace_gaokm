@@ -136,25 +136,25 @@ class QuantFollowMixin:
         from core.job_progress import t0_backtest_job
 
         t0_backtest_job.reclaim_if_stale()
-        if t0_backtest_job.is_running():
-            return {
-                "ok": True,
-                "success": True,
-                "background": True,
-                "reused": True,
-                "job": t0_backtest_job.get(),
-            }
-
         if from_paper or codes is not None or not str(code or "").strip():
             holdings, _paper = self._t0_holdings_for_backtest(codes=codes, code=code)
             n_hold = max(1, len(holdings))
         else:
             n_hold = 1
-        job_id = t0_backtest_job.start(
+        # 原子开槽。is_running 与 start 分开时，连点会各起一条线程。
+        job_id, started_or_running = t0_backtest_job.try_start(
             kind="t0_backtest",
             total=n_hold,
             message="回测入队…",
         )
+        if job_id is None:
+            return {
+                "ok": True,
+                "success": True,
+                "background": True,
+                "reused": True,
+                "job": started_or_running or t0_backtest_job.get(),
+            }
 
         def _progress(cur: int = 0, tot: int = 0, msg: str = "") -> None:
             t0_backtest_job.update(
@@ -163,6 +163,10 @@ class QuantFollowMixin:
                 message=str(msg or "回测中…"),
                 job_id=job_id,
             )
+
+        def _stop() -> bool:
+            """本线程已不是槽主，或槽主被取消。槽被换掉后旧回测应停。"""
+            return bool(t0_backtest_job.lost_or_cancelled(job_id))
 
         def _worker() -> None:
             stop_hb = threading.Event()
@@ -177,7 +181,7 @@ class QuantFollowMixin:
             )
             hb.start()
             try:
-                if t0_backtest_job.is_cancel_requested():
+                if _stop():
                     t0_backtest_job.finish(error="已取消", job_id=job_id)
                     return
                 t0_backtest_job.update(
@@ -196,10 +200,10 @@ class QuantFollowMixin:
                     codes=codes,
                     use_minute=use_minute,
                     progress_cb=_progress,
-                    cancel_cb=t0_backtest_job.is_cancel_requested,
+                    cancel_cb=_stop,
                     score_model_role=score_model_role,
                 )
-                if t0_backtest_job.is_cancel_requested():
+                if _stop():
                     t0_backtest_job.finish(error="已取消", job_id=job_id)
                     return
                 if not isinstance(result, dict):

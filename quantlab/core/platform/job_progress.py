@@ -633,6 +633,15 @@ class JobProgress:
         with self._lock:
             return bool(self._job.get("cancel_requested"))
 
+    def lost_or_cancelled(self, job_id: str) -> bool:
+        """槽已换主、已结束，或本槽被取消。同一把锁里看，避免旧线程漏停。"""
+        with self._lock:
+            if str(self._job.get("id") or "") != str(job_id or ""):
+                return True
+            if self._job.get("status") != "running":
+                return True
+            return bool(self._job.get("cancel_requested"))
+
 
 class JobRegistry:
     """命名任务槽：paper / evals / schedule / generic。"""

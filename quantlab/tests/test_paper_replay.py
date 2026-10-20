@@ -244,7 +244,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertAlmostEqual(mid.get("realized_on"), (nxt_o / close_t - 1.0) * 100.0, places=3)
         self.assertAlmostEqual(mid.get("realized_oo"), (nxt_o / open_t - 1.0) * 100.0, places=3)
         px_tau = float(mid.get("rebalance_px") or mid.get("price") or open_t)
-        realized_fuse = (nxt_o - px_tau) / open_t * 100.0
+        realized_fuse = (nxt_o / px_tau - 1.0) * 100.0
         self.assertAlmostEqual(mid.get("y_oo_fuse_realized"), realized_fuse, places=3)
         self.assertAlmostEqual(
             mid.get("y_oo_fuse_realized"),  # 旧键双写
@@ -3112,6 +3112,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertNotIn("y_oc_prefix_clock", out["params"])
         self.assertEqual(int((out.get("constraints_hit") or {}).get("tau_prefix_rescored") or 0), 0)
+        self.assertEqual(int((out.get("constraints_hit") or {}).get("tau_prefix_miss") or 0), 0)
 
 
 class TestReplayalpha_ooAlign(unittest.TestCase):

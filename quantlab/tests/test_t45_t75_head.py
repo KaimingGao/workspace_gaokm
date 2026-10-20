@@ -248,12 +248,12 @@ class YtwFiveHeadTests(unittest.TestCase):
         self.assertNotIn("y_τc_strong", dropped)
         self.assertAlmostEqual(float(dropped.get("y_tw_strong") or 0), 3.0)
 
-        self.assertAlmostEqual(float(cfg["y_tw_midpoint"]), 47.0)
-        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55), 3.0)
+        self.assertAlmostEqual(float(cfg["y_tw_midpoint"]), 50.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.56), 3.0)
         self.assertAlmostEqual(
             blend_y_tw(0.8, 0.6, 0.55, cfg={"y_tw_vote_margin": 2}), 3.0
         )
-        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55, 0.7, 0.65), 5.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.56, 0.7, 0.65), 5.0)
         self.assertAlmostEqual(
             blend_y_tw(0.8, 0.6, 0.55, 0.7, 0.65, cfg={"y_tw_vote_margin": 2}), 5.0
         )

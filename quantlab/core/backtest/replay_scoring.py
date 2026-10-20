@@ -8,7 +8,8 @@
    ``maybe_backfill_open_tc_rank`` 补挂。oo_rank 不补（slim 已丢 ``sub_scores``）。
 3. **Prefix（fill_clock≠09:30）** — ``refresh_tau_heads_after_prefix``：只刷新
    ŷ_τc（及对照）并重挂 τc_rank（``zscore_codes``=可交易，避免 B/C 开盘特征混 z）；
-   ŷ_oo / oo_rank 冻结开盘信息集。
+   ŷ_oo / oo_rank 冻结开盘信息集。前缀没打上的票由
+   ``stamp_tau_prefix_misses`` 清掉开盘 ŷ_τc，不当成盘中预测。
 """
 
 from __future__ import annotations
@@ -827,6 +828,42 @@ def refresh_tau_heads_after_prefix(
     except Exception:  # noqa: BLE001
         logger.debug("attach y_tc_rank after prefix failed", exc_info=True)
     return items, n_pref
+
+
+def _prefix_tau_applied(item: dict) -> bool:
+    """该行的 ŷ_τc 已按成交钟前缀重算。"""
+    src = str(item.get("_score_source") or "")
+    feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+    if src == "prefix_causal":
+        return True
+    return bool(
+        src == "prefix_open_fallback"
+        and isinstance(feats, dict)
+        and feats.get("ret_open_to_tau") is not None
+        and (item.get("y_τc") is not None or item.get("predicted_score_τc") is not None)
+    )
+
+
+def stamp_tau_prefix_misses(items: Sequence[dict]) -> int:
+    """晚钟前缀没打上的票清掉开盘 ŷ_τc，禁止再用几何剩余假装盘中预测。
+
+    打上 ``_tau_prefix_miss``。调用方只在 fill_clock 晚于 09:30 时使用。
+    返回失败票数。
+    """
+    n = 0
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        if not str(it.get("stock_code") or "").strip():
+            continue
+        if _prefix_tau_applied(it):
+            it.pop("_tau_prefix_miss", None)
+            continue
+        for key in ("y_τc", "predicted_score_τc", "y_oo_fuse", "y_oo_fuse_score"):
+            it.pop(key, None)
+        it["_tau_prefix_miss"] = True
+        n += 1
+    return n
 
 
 def maybe_backfill_open_tc_rank(

@@ -86,10 +86,13 @@ def fit_co_ridge_report(
         or (len(ys_tr) + len(ys_te))
     )
 
+    from core.research.oos_finite import n_label_nan
+
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     oos = {
         "n_train": len(ys_tr),
         "n_test": len(ys_te),
+        "n_label_nan": n_label_nan(ys_te),
         "ic": _ic(preds_te, ys_te) if ys_te else None,
         "sign_hit": _sign_hit(preds_te, ys_te) if ys_te else None,
         "residual_var": _residual_var(preds_te, ys_te) if ys_te else None,

@@ -671,7 +671,7 @@ function buildLedgerTradeRow(r, i, deps) {
   const fuseTipCell = [
     fusePctVal != null ? `fuse ${fmtScore(fusePctVal, { signed: true })}` : "fuse —",
     rFuse != null
-      ? `真实 (open[T+1]−price(τ))/open[T] ${fmtScore(rFuse, { signed: true })}`
+      ? `真实 open[T+1]/price(τ)−1 ${fmtScore(rFuse, { signed: true })}`
       : "真实 —（待次日开）",
   ]
     .filter(Boolean)
@@ -1361,7 +1361,7 @@ export function btTradesCellHtml(col, d, deps) {
         d.realizedFuseCls,
         escapeHtml
       ),
-      d.fuseTipCell || "fuse = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 真实 (open[T+1]−price(τ))/open[T]",
+      d.fuseTipCell || "fuse = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 真实 open[T+1]/price(τ)−1",
       escapeHtml,
       "fuse",
       d.scoreDetail

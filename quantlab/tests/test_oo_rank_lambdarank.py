@@ -124,6 +124,99 @@ class TestOoRankNdcg(unittest.TestCase):
         self.assertIsNone(_ndcg_at_k([1.0], [1.0], k=10))
 
 
+class TestNanLabelRank(unittest.TestCase):
+    def test_slice_drops_nan_before_rank(self):
+        from core.research.oo_rank_lambdarank import (
+            _rank_labels,
+            _slice_finite_label_rows,
+        )
+
+        ys = [1.0, float("nan"), -2.0, 0.5, 3.0]
+        Z = np.arange(10, dtype=np.float64).reshape(5, 2)
+        kept_y, kept_z, n_drop = _slice_finite_label_rows(ys, Z)
+        self.assertEqual(n_drop, 1)
+        self.assertEqual(kept_y, [1.0, -2.0, 0.5, 3.0])
+        self.assertEqual(kept_z.shape, (4, 2))
+        self.assertEqual(_rank_labels(kept_y), [2, 0, 1, 3])
+
+        short_y, short_z, short_drop = _slice_finite_label_rows(
+            [1.0, float("nan"), -2.0, 0.5],
+            np.arange(8, dtype=np.float64).reshape(4, 2),
+        )
+        self.assertEqual(short_drop, 1)
+        self.assertEqual(len(short_y), 3)
+        self.assertEqual(short_z.shape[0], 3)
+        self.assertEqual(max(_rank_labels(short_y)), 2)
+        dirty_y, dirty_z, dirty_drop = _slice_finite_label_rows(
+            [1.0, None, -2.0, 0.5, "bad"],
+            np.arange(10, dtype=np.float64).reshape(5, 2),
+        )
+        self.assertEqual(dirty_drop, 2)
+        self.assertEqual(dirty_y, [1.0, -2.0, 0.5])
+        self.assertEqual(dirty_z.shape, (3, 2))
+        mismatch_y, _, mismatch_drop = _slice_finite_label_rows(
+            [1.0, 2.0], np.ones((1, 2))
+        )
+        self.assertEqual(mismatch_y, [])
+        self.assertEqual(mismatch_drop, 2)
+
+    def test_oos_skips_nan_day_and_matches_finite_ndcg(self):
+        from core.research.oo_rank_lambdarank import _ndcg_at_k, _oos_day_metrics
+
+        def _day(date_s, ys, preds):
+            return {"date": date_s, "ys": ys, "preds": preds}
+
+        clean = [
+            _day(f"2024-01-0{i + 2}", [float(k) for k in range(6)], [float(k) for k in range(6)])
+            for i in range(4)
+        ]
+        nan_day = _day("2024-01-08", [float("nan")] * 6, [float(k) for k in range(6)])
+        mixed_ys = [1.0, float("nan"), -2.0, 0.5, 3.0, 4.0, float("nan")]
+        mixed_preds = [0.0, 99.0, 1.0, 2.0, 3.0, 4.0, 100.0]
+
+        def _scores(day, _fit):
+            return list(day["preds"]), [float(v) for v in day["ys"]]
+
+        with patch(
+            "core.research.oo_rank_lambdarank._day_scores", side_effect=_scores
+        ):
+            out = _oos_day_metrics(clean + [nan_day], {}, topk_track=3, ndcg_k=3)
+            mixed = _oos_day_metrics(
+                [_day("2024-01-09", mixed_ys, mixed_preds)],
+                {},
+                topk_track=3,
+                ndcg_k=3,
+            )
+        self.assertEqual(out["n_days"], 4)
+        self.assertEqual(out["cs_ic"], 1.0)
+        self.assertTrue(np.isfinite(out["topk_mean_y_oo"]))
+        expect = _ndcg_at_k([0.0, 1.0, 2.0, 3.0, 4.0], [1.0, -2.0, 0.5, 3.0, 4.0], k=3)
+        self.assertAlmostEqual(mixed["ndcg_at_k"], expect, places=4)
+        self.assertTrue(np.isfinite(mixed["topk_mean_y_oo"]))
+
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
+    def test_fit_drops_nan_labels(self):
+        from core.research.oo_rank_lambdarank import fit_lambdarank
+
+        days = _synth_days(n_days=6, n_names=5, seed=1)
+        for day in days:
+            day["ys"][-1] = float("nan")
+        short = _synth_days(n_days=1, n_names=4, seed=2)
+        short[0]["ys"][1] = float("nan")
+        short[0]["date"] = "2024-06-03"
+        fit = fit_lambdarank(
+            days + short,
+            n_estimators=5,
+            max_depth=2,
+            min_child_samples=1,
+            subsample=1.0,
+        )
+        self.assertTrue(fit.get("success"), fit)
+        self.assertEqual(fit.get("n_groups"), 6)
+        self.assertEqual(fit.get("sample_count"), 24)
+        self.assertEqual(fit.get("n_rank_rows_dropped"), 7)
+
+
 def _synth_varying_pool_days(seed: int = 0):
     """每日池大小不一（22~55），专门复现 LightGBM LambdaRank label 映射 bug。
 
