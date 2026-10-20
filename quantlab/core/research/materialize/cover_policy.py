@@ -72,10 +72,10 @@ def resolve_fit_minute_covered_dates(
     period: str = "5",
     lake_frac: float = LAKE_COVER_FRAC,
 ) -> Optional[List[str]]:
-    """ŷ_τ* 拟合用宇宙级 5m 够格日（与分钟物化 L2 同门槛）。
+    """宇宙级 5m 够格日（与分钟物化 L2 同门槛）。
 
-    新浪单次约 41 日、本地累积常 ~50 日（少票可更长）；lookback 只是上限，
-    实际训练日 = 本列表。查询失败返回 ``None``（调用方不裁，避免误空窗）。
+    供报告 ``minute_days``/``minute_span`` 对照；ŷ_τ* **拟合不再按此裁单票 5m**
+    （单票本地有多少用多少，缺 L2 软回退）。查询失败返回 ``None``。
     """
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     if len(code_list) < 2:

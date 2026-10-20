@@ -1818,8 +1818,10 @@ class QuantFactorMixin:
 
         ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
         方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
-        ``lookback`` 为日线上限；训练日裁到宇宙级 5m 够格日（新浪单次~41、累积常~50，
-        有多少用多少，与分钟物化窗对齐）。
+        ``lookback`` 为日线上限；分钟线按**单票本地 5m**有多少用多少（不裁成宇宙
+        够格日交集，避免样本从 ~43 万掉到 ~40 万、Holdout 指标下滑）。缺 L2 日由
+        ``prefer_cube`` 软回退（桶内 z）。报告里的 ``minute_days``/``minute_span``
+        仍记宇宙够格窗，仅作对照。
         ``progress_cb(cur, tot, msg)``：job 槽刷新（流式建面板 + 截面/双训阶段）。
         ``job_alive_cb()``：False 时跳过 ``save_ridge_last_report``（槽已被接替/取消）。
         """
@@ -1834,7 +1836,6 @@ class QuantFactorMixin:
             save_ridge_last_report,
         )
         from core.research.materialize.cover_policy import (
-            filter_minute_bars_to_covered,
             resolve_fit_minute_covered_dates,
         )
         from core.signal.minute_tau_grid import (
@@ -1934,21 +1935,8 @@ class QuantFactorMixin:
         from core.ports.market import resolve_market_code
         from core.store import load_minute_cache
 
-        # 与分钟物化同口径：宇宙级 5m 够格日；lookback 只是上限
+        # 宇宙够格日仅诊断（与 L2 物化窗对照）；拟合不按此裁单票 5m
         covered_list = resolve_fit_minute_covered_dates(codes, period=period)
-        if covered_list is not None and not covered_list:
-            return {
-                "success": False,
-                "error": (
-                    f"本地 5m 没有够格截面日（池 {len(codes)} 只 · period={period}）；"
-                    "请先「强更 5m（L0）」并累积后再拟合"
-                ),
-                "task": task,
-                "minute_period": period,
-                "minute_days": 0,
-                "lookback": lookback,
-            }
-        covered_set = set(covered_list) if covered_list is not None else None
         minute_span = (
             f"{covered_list[0]}→{covered_list[-1]}" if covered_list else None
         )
@@ -2041,7 +2029,6 @@ class QuantFactorMixin:
                     )
                     if packed:
                         mb, _meta = packed
-                        mb = filter_minute_bars_to_covered(mb, covered_set)
                         if mb:
                             item["minute_bars"] = mb
                             minute_hit += 1
@@ -2139,6 +2126,7 @@ class QuantFactorMixin:
         )
         report["lookback"] = lookback
         report["minute_period"] = period
+        report["minute_fit_clip"] = "per_stock"
         if covered_list is not None:
             report["minute_days"] = len(covered_list)
             report["minute_span"] = minute_span
