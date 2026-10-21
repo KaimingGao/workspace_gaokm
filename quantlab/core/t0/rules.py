@@ -73,6 +73,48 @@ def atr_pct_from_bars(bars: Sequence[dict], window: int = 14) -> Optional[float]
     return round(sum(ranges) / len(ranges), 4)
 
 
+def atr_pct_series_before(
+    high: Sequence[float],
+    low: Sequence[float],
+    close: Sequence[float],
+    *,
+    window: int = 14,
+) -> List[Optional[float]]:
+    """对每个下标 ``i``，用 ``[:i]`` 末窗算 ATR%（与 ``atr_pct_from_bars(bars[:i])`` 同口径）。
+
+    ``out[i]`` 对应决策日索引 ``i``（窗口截止 T−1 = i−1）。长度与输入一致。
+    """
+    n = min(len(high), len(low), len(close))
+    min_n = min(max(2, int(window or 14)), 8)
+    w = max(min_n, int(window or 14))
+    out: List[Optional[float]] = [None] * n
+    if n < min_n + 1:
+        return out
+    ranges: List[Optional[float]] = [None] * n
+    for i in range(n):
+        try:
+            h = float(high[i])
+            lo = float(low[i])
+            c = float(close[i])
+        except (TypeError, ValueError):
+            continue
+        if h <= 0 or lo <= 0 or c <= 0 or h < lo:
+            continue
+        ranges[i] = (h - lo) / c * 100.0
+    for i in range(min_n, n):
+        # 与 atr_pct_from_bars(bars[:i], window) 一致：取 [:i] 的末 w 根里有效振幅的均值
+        start = max(0, i - w)
+        vals: List[float] = []
+        for j in range(start, i):
+            v = ranges[j]
+            if v is not None:
+                vals.append(v)
+        if len(vals) < min_n:
+            continue
+        out[i] = round(sum(vals) / len(vals), 4)
+    return out
+
+
 def _fill_sell(optimistic_high: float, sell_level: float, mode: str) -> float:
     if mode == "optimistic":
         return optimistic_high

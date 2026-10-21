@@ -63,11 +63,22 @@ def bind_materialize_writer(writer: bool = False, consumer: bool = False) -> Non
 
 
 def research_pool_init(writer: bool = False, consumer: bool = False) -> None:
-    """进程池启动：限制 BLAS，并绑上父进程采样的写入/只读。"""
+    """进程池启动：限制 BLAS，并绑上父进程采样的写入/只读。
+
+    写入工人打开 L2 stale defer：作废日期由 job ``drain_deferred_stale`` 带回父进程，
+    避免子进程看不到 ``l2_invalidation_batch`` 而每票扫盘。
+    """
     from core.research.oo_blas_limit import limit_blas_threads
 
     limit_blas_threads()
     bind_materialize_writer(writer, consumer)
+    if writer:
+        try:
+            from core.research.day_cube_gc import enable_stale_defer
+
+            enable_stale_defer()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @contextmanager

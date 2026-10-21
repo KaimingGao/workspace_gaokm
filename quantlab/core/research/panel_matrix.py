@@ -350,6 +350,69 @@ def _tc_matrix_seed_names(
     return out
 
 
+def _tau_stock_job_pooled(
+    payload: Tuple[Any, ...],
+) -> Tuple[
+    Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]],
+    Dict[str, Any],
+]:
+    """ProcessPool 入口：算完 drain L2 stale，交给父进程 note。"""
+    from core.research.day_cube_gc import drain_deferred_stale
+    from core.research.materialize.consumer import MaterializeRequired
+
+    item, col_names, slim_keys, kw = payload
+    pack = None
+    try:
+        pack = _tau_stock_job(
+            item,
+            col_names,
+            slim_keys,
+            **dict(kw or {}),
+        )
+    except MaterializeRequired:
+        drain_deferred_stale()
+        raise
+    except Exception:  # noqa: BLE001
+        code = ""
+        if isinstance(item, dict):
+            code = str(item.get("code") or item.get("stock_code") or "")
+        logger.warning("ŷ_τc 单票失败，已跳过 code=%s", code or "?", exc_info=True)
+        pack = None
+    return pack, drain_deferred_stale()
+
+
+def _co_stock_job_pooled(
+    payload: Tuple[Any, ...],
+) -> Tuple[
+    Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]],
+    Dict[str, Any],
+]:
+    """ProcessPool 入口：co 单票 + drain L2 stale。"""
+    from core.research.day_cube_gc import drain_deferred_stale
+    from core.research.materialize.consumer import MaterializeRequired
+
+    item, col_names, slim_keys, min_history, include_alpha_oo = payload
+    pack = None
+    try:
+        pack = _co_stock_job(
+            item,
+            col_names,
+            slim_keys,
+            min_history=int(min_history),
+            include_alpha_oo=bool(include_alpha_oo),
+        )
+    except MaterializeRequired:
+        drain_deferred_stale()
+        raise
+    except Exception:  # noqa: BLE001
+        code = ""
+        if isinstance(item, dict):
+            code = str(item.get("code") or item.get("stock_code") or "")
+        logger.warning("ŷ_co 单票失败，已跳过 code=%s", code or "?", exc_info=True)
+        pack = None
+    return pack, drain_deferred_stale()
+
+
 def _tau_stock_job(
     item: Dict[str, Any],
     col_names: Sequence[str],
@@ -684,6 +747,29 @@ def _write_tau_clock_block(
     return len(ys_l), dates_l
 
 
+def _tau_grid_stock_job_pooled(
+    payload: Tuple[Any, ...],
+) -> Tuple[Dict[str, Tuple[int, List[str]]], Dict[str, Any]]:
+    """ProcessPool 入口：网格单票 + drain L2 stale。"""
+    from core.research.day_cube_gc import drain_deferred_stale
+    from core.research.materialize.consumer import MaterializeRequired
+
+    item, col_names, clocks, kw = payload
+    out: Dict[str, Tuple[int, List[str]]] = {}
+    try:
+        out = _tau_grid_stock_job(item, col_names, clocks, **dict(kw or {}))
+    except MaterializeRequired:
+        drain_deferred_stale()
+        raise
+    except Exception:  # noqa: BLE001
+        code = ""
+        if isinstance(item, dict):
+            code = str(item.get("code") or item.get("stock_code") or "")
+        logger.warning("ŷ_τc 网格单票失败 code=%s", code or "?", exc_info=True)
+        out = {}
+    return out, drain_deferred_stale()
+
+
 def _tau_grid_stock_job(
     item: Dict[str, Any],
     col_names: Sequence[str],
@@ -879,6 +965,14 @@ def collect_tau_grid_panels(
             except Exception:  # noqa: BLE001
                 logger.debug("tau grid progress_cb failed", exc_info=True)
 
+    def _apply_stale(stale: Any) -> None:
+        try:
+            from core.research.day_cube_gc import apply_deferred_stale
+
+            apply_deferred_stale(stale if isinstance(stale, dict) else None)
+        except Exception:  # noqa: BLE001
+            logger.debug("tau grid apply stale failed", exc_info=True)
+
     def _fold(summary: Optional[Dict[str, Tuple[int, List[str]]]]) -> None:
         if not summary:
             _tick()
@@ -977,19 +1071,21 @@ def collect_tau_grid_panels(
 
         def _submit(i: int) -> None:
             fut = pool.submit(
-                _tau_grid_stock_job,
-                items[i],
-                col_names,
-                clock_list,
-                **job_kw,
+                _tau_grid_stock_job_pooled,
+                (items[i], list(col_names), list(clock_list), job_kw),
             )
             inflight[fut] = i
 
-        def _take(i: int, pack: Optional[Dict[str, Tuple[int, List[str]]]]) -> None:
+        def _take(
+            i: int,
+            pack: Optional[Dict[str, Tuple[int, List[str]]]],
+            stale: Optional[Dict[str, Any]] = None,
+        ) -> None:
             if i in done_idx:
                 return
             done_idx.add(i)
             _release_minutes(i)
+            _apply_stale(stale)
             _fold(pack)
 
         def _serial_rest() -> None:
@@ -999,7 +1095,7 @@ def collect_tau_grid_panels(
                 if _stop():
                     cancelled = True
                     return
-                _take(i, _safe(i))
+                _take(i, _safe(i), None)
 
         try:
             while next_i < end and len(inflight) < n_workers and not _stop():
@@ -1010,8 +1106,13 @@ def collect_tau_grid_panels(
                 broken = False
                 for fut in done:
                     i = inflight.pop(fut)
+                    stale: Optional[Dict[str, Any]] = None
                     try:
-                        pack = fut.result()
+                        raw = fut.result()
+                        if isinstance(raw, tuple) and len(raw) == 2:
+                            pack, stale = raw
+                        else:
+                            pack = raw  # type: ignore[assignment]
                     except MaterializeRequired:
                         raise
                     except BrokenProcessPool:
@@ -1027,22 +1128,28 @@ def collect_tau_grid_panels(
                             code or i,
                         )
                         pack = _safe(i)
-                    _take(i, pack)
+                        stale = None
+                    _take(i, pack, stale)
                 if broken:
                     logger.exception("tau grid process pool broken; finishing serial")
                     for fut in list(inflight):
                         i = inflight.pop(fut)
                         pack = None
+                        stale = None
                         if fut.done() and not fut.cancelled():
                             try:
-                                pack = fut.result()
+                                raw = fut.result()
+                                if isinstance(raw, tuple) and len(raw) == 2:
+                                    pack, stale = raw
+                                else:
+                                    pack = raw  # type: ignore[assignment]
                             except MaterializeRequired:
                                 raise
                             except Exception:  # noqa: BLE001
                                 pack = _safe(i)
                         else:
                             pack = _safe(i)
-                        _take(i, pack)
+                        _take(i, pack, stale)
                     _serial_rest()
                     break
                 if _stop():
@@ -1120,12 +1227,13 @@ def collect_tau_compact(
     现网默认 ``include_alpha_tc=True``（raw_atc_*）。
     ``include_alpha_th``：写穿窗头列（H 轨 ``tc_HHMM``）。
     单票任务内折 float64 + slim（对齐 ŷ_co），写穿 L1。
-    并行：默认/硬顶 4 线程（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
+    并行：默认/硬顶 4 **进程**（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
     分钟路径：每批前按需 ``attach_minute_bars_slice``，算完 pop（峰值≈一批）。
+    L2 stale 由工人 defer 回传，父进程写入 ``l2_invalidation_batch``。
     ``stats_out``：可选，写入 ``minute_attached``（本轮新挂载票数）。
     ``progress_cb(done, total, message)``：可选，供 job 槽刷新进度。
     """
-    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+    from concurrent.futures import ProcessPoolExecutor
 
     from core.research.tau_panel import normalize_minute_tau_grid
 
@@ -1203,20 +1311,20 @@ def collect_tau_compact(
         n_stocks += 1
         _tick()
 
+    def _job_kw() -> Dict[str, Any]:
+        return {
+            "use_minute": use_minute,
+            "tau_hm": str(tau_hm),
+            "grid": grid,
+            "min_history": min_history,
+            "include_alpha_tc": include_alpha_tc,
+            "include_alpha_th": include_alpha_th,
+            "cache_head": cache_head,
+        }
+
     def _safe_tau_job(i: int):
         try:
-            return _tau_stock_job(
-                items[i],
-                col_names,
-                slim_keys,
-                use_minute=use_minute,
-                tau_hm=str(tau_hm),
-                grid=grid,
-                min_history=min_history,
-                include_alpha_tc=include_alpha_tc,
-                include_alpha_th=include_alpha_th,
-                cache_head=cache_head,
-            )
+            return _tau_stock_job(items[i], col_names, slim_keys, **_job_kw())
         except Exception as exc:  # noqa: BLE001
             if isinstance(exc, MaterializeRequired):
                 raise
@@ -1235,12 +1343,21 @@ def collect_tau_compact(
                 raise
             logger.warning("ŷ_τc 单票折叠失败，已跳过", exc_info=True)
 
+    def _apply_stale(stale: Any) -> None:
+        try:
+            from core.research.day_cube_gc import apply_deferred_stale
+
+            apply_deferred_stale(stale if isinstance(stale, dict) else None)
+        except Exception:  # noqa: BLE001
+            logger.debug("tau compact apply stale failed", exc_info=True)
+
     def _run_serial(start: int, end: int) -> None:
         for i in range(start, end):
             _fold_one(_safe_tau_job(i))
             it = items[i]
             if isinstance(it, dict):
                 it.pop("bars", None)
+                it.pop("minute_bars", None)
 
     def _run_batch(start: int, end: int) -> None:
         if end <= start:
@@ -1248,37 +1365,69 @@ def collect_tau_compact(
         if n_workers <= 1 or (end - start) < 4:
             _run_serial(start, end)
             return
-        inflight: Dict[Any, int] = {}
-        next_i = start
-        from core.research.materialize.consumer import (
-            bind_materialize_writer,
-            context_initargs,
-        )
+        from core.research.materialize.consumer import context_initargs, research_pool_init
+        from core.research.materialize.pool import consume_process_batch
 
-        with ThreadPoolExecutor(
-            max_workers=n_workers,
-            initializer=bind_materialize_writer,
-            initargs=context_initargs(),
-        ) as pool:
+        results: List[Any] = [None] * (end - start)
+        kw = _job_kw()
+        col_l = list(col_names)
+        slim_l = list(slim_keys)
 
-            def _submit(i: int) -> None:
-                fut = pool.submit(_safe_tau_job, i)
-                inflight[fut] = i
+        def _submit(j: int):
+            i = start + j
+            return pool.submit(
+                _tau_stock_job_pooled,
+                (items[i], col_l, slim_l, kw),
+            )
 
-            while next_i < end and len(inflight) < n_workers:
-                _submit(next_i)
-                next_i += 1
-            while inflight:
-                done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
-                for fut in done:
-                    i = inflight.pop(fut)
-                    _fold_one(fut.result())
-                    it = items[i]
-                    if isinstance(it, dict):
-                        it.pop("bars", None)
-                while next_i < end and len(inflight) < n_workers:
-                    _submit(next_i)
-                    next_i += 1
+        def _run_one(j: int):
+            i = start + j
+            pack = _safe_tau_job(i)
+            return pack, {}
+
+        def _on_done(j: int) -> None:
+            i = start + j
+            raw = results[j]
+            pack, stale = (None, {}) if raw is None else raw
+            _apply_stale(stale)
+            _fold_one(pack)
+            it = items[i]
+            if isinstance(it, dict):
+                it.pop("bars", None)
+                it.pop("minute_bars", None)
+
+        try:
+            pool = ProcessPoolExecutor(
+                max_workers=n_workers,
+                initializer=research_pool_init,
+                initargs=context_initargs(),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("tau compact process pool unavailable; serial")
+            _run_serial(start, end)
+            return
+        def _label(j: int) -> str:
+            it = items[start + j] if start + j < len(items) else None
+            if isinstance(it, dict):
+                return str(it.get("code") or it.get("stock_code") or (start + j))
+            return str(start + j)
+
+        try:
+            consume_process_batch(
+                start=0,
+                end=end - start,
+                n_workers=n_workers,
+                results=results,
+                submit=_submit,
+                run_one=_run_one,
+                label=_label,
+                on_done=_on_done,
+            )
+        finally:
+            try:
+                pool.shutdown(wait=True, cancel_futures=True)
+            except Exception:  # noqa: BLE001
+                logger.exception("tau compact pool shutdown failed")
 
     if n_jobs:
         logger.info(
@@ -1559,7 +1708,7 @@ def _co_stock_job(
 
 
 def _resolve_co_workers(n_jobs: int, workers: Optional[int]) -> int:
-    """默认 4 线程（``CO_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
+    """默认 4 进程（``CO_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
 
     8GB 满池更紧时可 ``CO_RIDGE_WORKERS=2``。
     """
@@ -1577,9 +1726,9 @@ def _resolve_co_workers(n_jobs: int, workers: Optional[int]) -> int:
 
 
 def _resolve_tau_workers(n_jobs: int, workers: Optional[int]) -> int:
-    """默认 4 worker（``TAU_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
+    """默认 4 进程（``TAU_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
 
-    ``collect_tau_compact`` 用 ThreadPool；``build_tau_panels_from_bars`` 分钟路径用 ProcessPool。
+    ``collect_tau_compact`` / ``collect_tau_grid_panels`` 均走 ProcessPool。
     """
     if n_jobs <= 1:
         return 1
@@ -1626,11 +1775,12 @@ def collect_co_compact(
     """隔夜 ŷ_co 紧凑面板（8GB / 对齐 ŷ_oo）。
 
     - 单票任务内折 float64，只回传矩阵块 + 截面 slim 列
-    - 在途 ≤ worker（默认/上限 4），按 ``_CO_POOL_BATCH`` 批跑
+    - 在途 ≤ worker（默认/上限 4 **进程**），按 ``_CO_POOL_BATCH`` 批跑
     - 每只算完立刻 ``pop bars``，避免满池日线 + 因子双驻留
+    - L2 stale 由工人 defer 回传父进程
     - ``progress_cb(done, total, message)`` 可选，供 job 槽刷新进度
     """
-    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+    from concurrent.futures import ProcessPoolExecutor
 
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
     from core.research.lake_bridge import FAMILY_CO
@@ -1694,6 +1844,14 @@ def collect_co_compact(
         n_stocks += 1
         _tick()
 
+    def _apply_stale(stale: Any) -> None:
+        try:
+            from core.research.day_cube_gc import apply_deferred_stale
+
+            apply_deferred_stale(stale if isinstance(stale, dict) else None)
+        except Exception:  # noqa: BLE001
+            logger.debug("co compact apply stale failed", exc_info=True)
+
     def _run_serial(start: int, end: int) -> None:
         for i in range(start, end):
             _fold(
@@ -1713,42 +1871,71 @@ def collect_co_compact(
         if n_workers <= 1 or (end - start) < 4:
             _run_serial(start, end)
             return
-        inflight: Dict[Any, int] = {}
-        next_i = start
-        from core.research.materialize.consumer import (
-            bind_materialize_writer,
-            context_initargs,
-        )
+        from core.research.materialize.consumer import context_initargs, research_pool_init
+        from core.research.materialize.pool import consume_process_batch
 
-        with ThreadPoolExecutor(
-            max_workers=n_workers,
-            initializer=bind_materialize_writer,
-            initargs=context_initargs(),
-        ) as pool:
+        results: List[Any] = [None] * (end - start)
+        col_l = list(col_names)
+        slim_l = list(slim_keys)
 
-            def _submit(i: int) -> None:
-                fut = pool.submit(
-                    _co_stock_job,
-                    items[i],
-                    col_names,
-                    slim_keys,
-                    min_history=min_history,
-                    include_alpha_oo=include_alpha_oo,
-                )
-                inflight[fut] = i
+        def _submit(j: int):
+            i = start + j
+            return pool.submit(
+                _co_stock_job_pooled,
+                (items[i], col_l, slim_l, int(min_history), bool(include_alpha_oo)),
+            )
 
-            while next_i < end and len(inflight) < n_workers:
-                _submit(next_i)
-                next_i += 1
-            while inflight:
-                done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
-                for fut in done:
-                    i = inflight.pop(fut)
-                    _fold(fut.result())
-                    _drop_bars(i)
-                while next_i < end and len(inflight) < n_workers:
-                    _submit(next_i)
-                    next_i += 1
+        def _run_one(j: int):
+            i = start + j
+            pack = _co_stock_job(
+                items[i],
+                col_names,
+                slim_keys,
+                min_history=min_history,
+                include_alpha_oo=include_alpha_oo,
+            )
+            return pack, {}
+
+        def _on_done(j: int) -> None:
+            i = start + j
+            raw = results[j]
+            pack, stale = (None, {}) if raw is None else raw
+            _apply_stale(stale)
+            _fold(pack)
+            _drop_bars(i)
+
+        def _label(j: int) -> str:
+            it = items[start + j] if start + j < len(items) else None
+            if isinstance(it, dict):
+                return str(it.get("code") or it.get("stock_code") or (start + j))
+            return str(start + j)
+
+        try:
+            pool = ProcessPoolExecutor(
+                max_workers=n_workers,
+                initializer=research_pool_init,
+                initargs=context_initargs(),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("co compact process pool unavailable; serial")
+            _run_serial(start, end)
+            return
+        try:
+            consume_process_batch(
+                start=0,
+                end=end - start,
+                n_workers=n_workers,
+                results=results,
+                submit=_submit,
+                run_one=_run_one,
+                label=_label,
+                on_done=_on_done,
+            )
+        finally:
+            try:
+                pool.shutdown(wait=True, cancel_futures=True)
+            except Exception:  # noqa: BLE001
+                logger.exception("co compact pool shutdown failed")
 
     if n_jobs:
         logger.info(

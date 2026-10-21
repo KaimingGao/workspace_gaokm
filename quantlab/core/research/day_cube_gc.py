@@ -28,7 +28,40 @@ _BATCH: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVa
 )
 # 线程池不复制 contextvar；物化 batch 再挂一份进程内引用，工作线程也能只攒不删。
 _ACTIVE_BATCH: Optional[Dict[str, Any]] = None
+# 进程池工人：无父进程 _ACTIVE_BATCH，作废只攒在本地，由 job 带回父进程再 note。
+_STALE_DEFER = False
+_DEFERRED_STALE: Set[str] = set()
+_DEFERRED_ALL = False
 _LOCK = threading.Lock()
+
+
+def enable_stale_defer() -> None:
+    """进程池 initializer：本进程 note_stale 只攒不删，等 drain 回父进程。"""
+    global _STALE_DEFER, _DEFERRED_ALL
+    with _LOCK:
+        _STALE_DEFER = True
+        _DEFERRED_STALE.clear()
+        _DEFERRED_ALL = False
+
+
+def disable_stale_defer() -> None:
+    """单测或父进程复位；工人进程一般不调用。"""
+    global _STALE_DEFER, _DEFERRED_ALL
+    with _LOCK:
+        _STALE_DEFER = False
+        _DEFERRED_STALE.clear()
+        _DEFERRED_ALL = False
+
+
+def drain_deferred_stale() -> Dict[str, Any]:
+    """取出并清空本进程攒下的过期日。``all_dates`` 为 True 时父进程应 note_all_dates。"""
+    global _DEFERRED_ALL
+    with _LOCK:
+        dates = set(_DEFERRED_STALE)
+        _DEFERRED_STALE.clear()
+        all_dates = bool(_DEFERRED_ALL)
+        _DEFERRED_ALL = False
+    return {"dates": dates, "all_dates": all_dates}
 
 
 def _implicit_test_process() -> bool:
@@ -480,7 +513,11 @@ def _current_batch() -> Optional[Dict[str, Any]]:
 
 
 def note_stale_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, Any]:
-    """批次内只累积；批次外立即删。"""
+    """批次优先；否则进程池 defer 只攒；否则立即删。
+
+    父进程有 ``l2_invalidation_batch`` 时即使曾 enable defer 也进批次
+    （apply_deferred_stale 在父进程调用）。
+    """
     if not gc_enabled():
         return {"enabled": False, "dates_dropped": 0, "files_removed": 0}
     cleaned = _normalize_dates(dates)
@@ -491,6 +528,9 @@ def note_stale_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, Any]:
         if bucket is not None:
             bucket["dates"].update(cleaned)
             return {"batched": True, "dates": len(cleaned)}
+        if _STALE_DEFER:
+            _DEFERRED_STALE.update(cleaned)
+            return {"deferred": True, "dates": len(cleaned)}
     return drop_dates(cleaned)
 
 
@@ -503,7 +543,23 @@ def note_all_dates() -> Dict[str, Any]:
         if bucket is not None:
             bucket["all_dates"] = True
             return {"batched": True, "all_dates": True}
+        if _STALE_DEFER:
+            global _DEFERRED_ALL
+            _DEFERRED_ALL = True
+            return {"deferred": True, "all_dates": True}
     return drop_all_dates()
+
+
+def apply_deferred_stale(payload: Optional[Dict[str, Any]]) -> None:
+    """父进程把工人带回的 defer 结果写入当前 batch（或立即删）。"""
+    if not isinstance(payload, dict):
+        return
+    if payload.get("all_dates"):
+        note_all_dates()
+        return
+    dates = payload.get("dates") or ()
+    if dates:
+        note_stale_dates(dates)
 
 
 def _flush_bucket(bucket: Dict[str, Any]) -> Dict[str, int]:

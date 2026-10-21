@@ -31,7 +31,9 @@ class TestDayCubeGc(unittest.TestCase):
 
     def tearDown(self) -> None:
         from core.research.day_cube import clear_memory
+        from core.research.day_cube_gc import disable_stale_defer
 
+        disable_stale_defer()
         clear_memory()
         for key, value in self._prev.items():
             if value is None:
@@ -305,6 +307,35 @@ class TestDayCubeGc(unittest.TestCase):
         self.assertTrue(results)
         self.assertTrue(all(r.get("batched") for r in results))
         self.assertFalse(self._on_disk("2024-09-11", ["a", "b"], "open"))
+
+    def test_stale_defer_drains_to_parent_batch(self) -> None:
+        """进程池工人 defer 后，父进程 apply 进 batch，退出才删。"""
+        from core.research.day_cube_gc import (
+            apply_deferred_stale,
+            drain_deferred_stale,
+            enable_stale_defer,
+            l2_invalidation_batch,
+            note_stale_dates,
+        )
+
+        self._save("2024-09-12", ["a", "b"], "open")
+        enable_stale_defer()
+        try:
+            with mock.patch("core.research.day_cube_gc.os.unlink", wraps=os.unlink) as unlink:
+                noted = note_stale_dates(["2024-09-12"])
+                self.assertTrue(noted.get("deferred"))
+                self.assertEqual(unlink.call_count, 0)
+                payload = drain_deferred_stale()
+                self.assertIn("2024-09-12", payload.get("dates") or ())
+                with l2_invalidation_batch():
+                    apply_deferred_stale(payload)
+                    self.assertEqual(unlink.call_count, 0)
+                self.assertEqual(unlink.call_count, 2)
+        finally:
+            from core.research.day_cube_gc import disable_stale_defer
+
+            disable_stale_defer()
+        self.assertFalse(self._on_disk("2024-09-12", ["a", "b"], "open"))
 
     def test_drop_dates_listdir_skips_missing(self) -> None:
         from core.research.day_cube_gc import drop_dates
