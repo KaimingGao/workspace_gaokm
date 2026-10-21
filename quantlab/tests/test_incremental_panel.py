@@ -395,8 +395,8 @@ class TestIncrementalPanel(unittest.TestCase):
             FAMILY_OO_RANK,
             "601628",
             dates=dates,
-            X=np.asarray([[float(i)] for i in range(len(dates))]),
-            names=["f"],
+            X=np.asarray([[float(i), float(i) + 0.5] for i in range(len(dates))]),
+            names=["a", "b"],
             fingerprint=stored_fp,
             y=np.asarray([float(i) * 0.1 for i in range(len(dates))]),
             extra_meta=meta,
@@ -423,17 +423,65 @@ class TestIncrementalPanel(unittest.TestCase):
                         short,
                         family=FAMILY_OO_RANK,
                         spec_fp=_spec,
+                        names=["b", "a"],
                     )
                 except MaterializeRequired as exc:
                     self.fail(str(exc))
         self.assertIsNotNone(sliced)
         assert sliced is not None
-        _x, y, names, keep_dates = sliced
-        self.assertEqual(names, ["f"])
+        x, y, names, keep_dates = sliced
+        self.assertEqual(names, ["b", "a"])
+        self.assertEqual(float(x[0, 0]), float(x[0, 1]) + 0.5)
         short_days = {str(b["date"])[:10] for b in short}
         self.assertTrue(all(d in short_days for d in keep_dates))
         self.assertGreaterEqual(len(keep_dates), 4)
         self.assertEqual(int(y.shape[0]), len(keep_dates))
+
+    def test_slice_shorter_lookback_without_n_bars(self) -> None:
+        from unittest.mock import patch
+
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import (
+            stem_extra_meta,
+            try_slice_shorter_lookback,
+        )
+        from core.research.lake_bridge import FAMILY_OO
+        from core.research.panel_fingerprint import make_fingerprint
+
+        full = _bars(50, seed=6)
+        short = full[-30:]
+        meta = stem_extra_meta(full)
+        meta.pop("n_bars", None)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, ridge_core_only=0)
+        dates = [str(b["date"])[:10] for b in full[12:]]
+        write_stock_panel(
+            FAMILY_OO,
+            "000001",
+            dates=dates,
+            X=np.asarray([[float(i)] for i in range(len(dates))]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([0.1] * len(dates)),
+            extra_meta=meta,
+        )
+
+        def _spec(bars_fp: str) -> str:
+            return make_fingerprint(bars_fp=bars_fp, horizon=1, ridge_core_only=0)
+
+        with patch(
+            "core.research.incremental_panel._offline_daily_bars",
+            return_value=list(full),
+        ):
+            sliced = try_slice_shorter_lookback(
+                "000001",
+                short,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+                names=["f"],
+            )
+        self.assertIsNotNone(sliced)
+        assert sliced is not None
+        self.assertGreaterEqual(len(sliced[3]), 4)
 
     def test_oo_stock_job_incremental_tail(self) -> None:
         from core.research.feature_lake import load_stock_panel

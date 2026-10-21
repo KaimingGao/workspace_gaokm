@@ -580,16 +580,23 @@ def _tau_stock_job(
     if code and not use_minute:
         try:
             from core.research.incremental_panel import try_slice_shorter_lookback
+            from core.research.lake_bridge import FAMILY_TC
 
-            sliced = try_slice_shorter_lookback(
-                code,
-                bars,
-                family=l1_family,
-                spec_fp=_tau_open_spec,
-            )
-            if sliced is not None:
+            slice_families = [l1_family]
+            if rank_cache and l1_family != FAMILY_TC:
+                slice_families.append(FAMILY_TC)
+            for fam in slice_families:
+                sliced = try_slice_shorter_lookback(
+                    code,
+                    bars,
+                    family=fam,
+                    spec_fp=_tau_open_spec,
+                    names=col_names,
+                )
+                if sliced is None:
+                    continue
                 block, y_arr, _names, dates_l = sliced
-                if block.shape[1] == len(col_names) and len(dates_l) >= 4:
+                if list(_names) == list(col_names) and len(dates_l) >= 4:
                     ys_l = [float(y) for y in y_arr.tolist()]
                     slim = [{} for _ in dates_l]
                     metas_l = [{"date": d, "stock_code": code} for d in dates_l]
@@ -1711,10 +1718,11 @@ def _co_stock_job(
                 bars,
                 family=FAMILY_CO,
                 spec_fp=_co_spec,
+                names=col_names,
             )
             if sliced is not None:
-                block, y_arr, _n, dates_l = sliced
-                if block.shape[1] == len(col_names) and len(dates_l) >= 4:
+                block, y_arr, got_names, dates_l = sliced
+                if list(got_names) == list(col_names) and len(dates_l) >= 4:
                     ys_l = [float(y) for y in y_arr.tolist()]
                     slim = [{} for _ in dates_l]
                     metas_l = [{"date": d, "stock_code": code} for d in dates_l]

@@ -316,12 +316,39 @@ def _oo_rank_stock_job(
         from core.research.incremental_panel import try_slice_shorter_lookback
         from core.research.lake_bridge import FAMILY_OO_RANK
 
+        want_names = OoPanelMatrix().names
         sliced = try_slice_shorter_lookback(
             code_s,
             bars_l,
             family=FAMILY_OO_RANK,
             spec_fp=_rank_spec,
+            names=want_names,
         )
+        if sliced is None and _can_adopt_oo_panel(
+            eff_mh=eff_mh,
+            eff_mw=eff_mw,
+            excess_mode=excess,
+            respect_regime=regime,
+            index_bars=idx,
+            fundamentals=fundamentals,
+        ):
+            from core.research.lake_bridge import FAMILY_OO
+            from core.research.panel_fingerprint import make_fingerprint
+
+            def _oo_spec(bars_fp: str) -> str:
+                return make_fingerprint(
+                    bars_fp=bars_fp,
+                    horizon=horizon_i,
+                    ridge_core_only=0,
+                )
+
+            sliced = try_slice_shorter_lookback(
+                code_s,
+                bars_l,
+                family=FAMILY_OO,
+                spec_fp=_oo_spec,
+                names=want_names,
+            )
         if sliced is not None:
             x, y, names, dates_out = sliced
             if int(getattr(x, "shape", (0,))[0] or 0) > 0:

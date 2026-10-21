@@ -282,11 +282,13 @@ def _oo_stock_job(
             from core.research.incremental_panel import try_slice_shorter_lookback
             from core.research.lake_bridge import FAMILY_OO
 
+            want_names = OoPanelMatrix(ridge_core_only=core).names
             sliced = try_slice_shorter_lookback(
                 code_s,
                 bars_l,
                 family=FAMILY_OO,
                 spec_fp=_oo_spec,
+                names=want_names,
             )
             if sliced is not None and int(sliced[0].shape[0]) > 0:
                 return sliced

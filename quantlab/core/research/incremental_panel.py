@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 # 尾窗决策日重算上界（α_oo/α_τc 窗 + 余量）
 DEFAULT_TAIL_PAD = 80
+
+# 进程内短窗切长窗：同 code×limit 的离线日线只拉一次
+_offline_bars_local = threading.local()
 
 
 def stem_bars_fingerprint(bars: Sequence[dict]) -> str:
@@ -255,20 +259,111 @@ def stem_extra_meta(bars: Sequence[dict]) -> Dict[str, Any]:
 
 
 def _offline_daily_bars(code: str, limit: int) -> List[dict]:
-    """只读本地日线，供短窗相对长窗 L1 的后缀校验。"""
+    """只读本地日线，供短窗相对长窗 L1 的后缀校验。同线程按 code×limit 缓存。"""
+    need = max(2, int(limit or 2))
+    key = (str(code or "").strip(), need)
+    if not key[0]:
+        return []
+    cache = getattr(_offline_bars_local, "by_key", None)
+    if cache is None:
+        cache = {}
+        _offline_bars_local.by_key = cache
+    hit = cache.get(key)
+    if hit is not None:
+        return list(hit)
     try:
         from core.data.service import get_research_service
 
         bars, _ = get_research_service().bars_and_source(
-            str(code),
-            limit=max(2, int(limit)),
+            key[0],
+            limit=need,
             offline_ok=True,
             offline_only=True,
         )
     except Exception:  # noqa: BLE001
         logger.debug("offline daily bars failed code=%s", code, exc_info=True)
+        cache[key] = []
         return []
-    return [dict(b) for b in (bars or []) if isinstance(b, dict)]
+    out = [dict(b) for b in (bars or []) if isinstance(b, dict)]
+    cache[key] = out
+    return list(out)
+
+
+def _align_matrix_names(
+    x: np.ndarray,
+    got_names: Sequence[str],
+    want_names: Sequence[str],
+) -> Optional[np.ndarray]:
+    """把湖矩阵列对齐到当前面板列名；缺列则失败。"""
+    got = [str(n) for n in got_names]
+    want = [str(n) for n in want_names]
+    if not want:
+        return np.asarray(x, dtype=np.float64)
+    arr = np.asarray(x, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != len(got):
+        return None
+    if got == want:
+        return arr
+    idx = {n: i for i, n in enumerate(got)}
+    if any(n not in idx for n in want):
+        return None
+    return arr[:, [idx[n] for n in want]]
+
+
+def _resolve_lake_bar_series(
+    code: str,
+    stored_bars_fp: str,
+    *,
+    n_hint: int,
+    min_len: int,
+) -> List[dict]:
+    """从本地仓还原写入 L1 时的日线序列（允许仓比湖更长）。"""
+    from core.research.panel_fingerprint import bars_fingerprint, find_bars_suffix_start
+
+    target = str(stored_bars_fp or "").strip()
+    if not target or min_len < 2:
+        return []
+    try:
+        from core.data.policy import BARS_DAILY_LOOKBACK
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+        floor = int(BARS_DAILY_LOOKBACK) + int(ALPHA_OO_PANEL_WINDOW)
+    except Exception:  # noqa: BLE001
+        floor = max(1062, min_len + 62)
+    limits: List[int] = []
+    for raw in (n_hint, floor, min_len + 62, min_len + 400, min_len * 2):
+        try:
+            n = int(raw or 0)
+        except (TypeError, ValueError):
+            continue
+        if n >= min_len:
+            limits.append(n)
+    seen = set()
+    ordered: List[int] = []
+    for n in limits:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    for lim in ordered:
+        full = _offline_daily_bars(code, lim)
+        if len(full) < min_len:
+            continue
+        if bars_fingerprint(full) == target:
+            return full
+        if n_hint >= min_len and len(full) >= n_hint:
+            tail = full[-n_hint:]
+            if bars_fingerprint(tail) == target:
+                return tail
+        start = find_bars_suffix_start(
+            full,
+            target,
+            hint_lens=[n_hint] if n_hint >= min_len else None,
+        )
+        if start is not None and start > 0:
+            got = full[start:]
+            if len(got) >= min_len and bars_fingerprint(got) == target:
+                return got
+    return []
 
 
 def try_slice_shorter_lookback(
@@ -277,10 +372,13 @@ def try_slice_shorter_lookback(
     *,
     family: str,
     spec_fp: Callable[[str], str],
+    names: Optional[Sequence[str]] = None,
+    min_rows: int = 4,
 ) -> Optional[Tuple[np.ndarray, np.ndarray, List[str], List[str]]]:
     """物化长窗、拟合短窗：当前 bars 是湖序列真后缀时，切 L1 重叠决策日。
 
     只读切片，不重算。口径（horizon / 钟等）须与湖一致。
+    ``names`` 给定时按列名对齐；``min_rows`` 为最少决策日。
     """
     if not family or not code:
         return None
@@ -312,32 +410,51 @@ def try_slice_shorter_lookback(
     if fresh != stored_fp:
         return None
     seq = [b for b in (bars or []) if isinstance(b, dict)]
-    if len(seq) < 4:
+    need_rows = max(1, int(min_rows or 4))
+    if len(seq) < need_rows:
         return None
     try:
-        n_old = int(meta.get("n_bars") or 0)
+        n_hint = int(meta.get("n_bars") or 0)
     except (TypeError, ValueError):
-        n_old = 0
-    if n_old <= len(seq):
-        return None
-    if bar_end_date(seq) != str(meta.get("end_date") or "")[:10]:
+        n_hint = 0
+    meta_end = str(meta.get("end_date") or "")[:10]
+    seq_end = bar_end_date(seq)
+    if meta_end and seq_end and meta_end != seq_end:
         return None
     from core.research.panel_fingerprint import bars_fingerprint
 
-    full = _offline_daily_bars(code, n_old)
-    if len(full) < len(seq) or bars_fingerprint(full) != stored_bars:
+    lake_bars = _resolve_lake_bar_series(
+        code,
+        stored_bars,
+        n_hint=n_hint,
+        min_len=len(seq) + 1,
+    )
+    if len(lake_bars) <= len(seq):
         return None
-    if bars_fingerprint(full[-len(seq) :]) != bars_fingerprint(seq):
+    if bars_fingerprint(lake_bars[-len(seq) :]) != bars_fingerprint(seq):
         return None
     bar_days = {
         str(b.get("date") or b.get("trade_date") or "")[:10]
         for b in seq
         if len(str(b.get("date") or b.get("trade_date") or "")[:10]) >= 10
     }
-    idxs = [i for i, d in enumerate(old_dates) if d in bar_days]
-    if len(idxs) < 4:
+    # 只要 L1 决策日后缀整段落在短窗日历里（避免中间抽日）
+    k = len(old_dates)
+    while k > 0 and old_dates[k - 1] in bar_days:
+        k -= 1
+    idxs = list(range(k, len(old_dates)))
+    if len(idxs) < need_rows:
         return None
-    names = [str(n) for n in (prev.get("names") or [])]
+    if any(old_dates[i] not in bar_days for i in idxs):
+        return None
+    keep_dates = [old_dates[i] for i in idxs]
+    if not lake_row_covers_bar_end(keep_dates, seq, meta):
+        return None
+    got_names = [str(n) for n in (prev.get("names") or [])]
+    want = [str(n) for n in names] if names is not None else got_names
+    aligned = _align_matrix_names(old_x[np.asarray(idxs, dtype=np.int64)], got_names, want)
+    if aligned is None:
+        return None
     logger.debug(
         "l1 lookback slice family=%s code=%s lake_rows=%s keep=%s",
         family,
@@ -346,10 +463,10 @@ def try_slice_shorter_lookback(
         len(idxs),
     )
     return (
-        old_x[np.asarray(idxs, dtype=np.int64)],
+        aligned,
         old_y[np.asarray(idxs, dtype=np.int64)],
-        names,
-        [old_dates[i] for i in idxs],
+        want,
+        keep_dates,
     )
 
 
