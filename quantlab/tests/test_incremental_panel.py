@@ -364,6 +364,77 @@ class TestIncrementalPanel(unittest.TestCase):
             )
         )
 
+    def test_slice_shorter_lookback_keeps_overlap(self) -> None:
+        from unittest.mock import patch
+
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import (
+            stem_extra_meta,
+            try_slice_shorter_lookback,
+        )
+        from core.research.lake_bridge import FAMILY_OO_RANK
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
+        from core.research.panel_fingerprint import make_fingerprint
+
+        full = _bars(40, seed=5)
+        short = full[-25:]
+        meta = stem_extra_meta(full)
+        stored_fp = make_fingerprint(
+            bars_fp=meta["bars_fp"],
+            horizon=1,
+            min_history=62,
+            max_window=62,
+            excess_mode="none",
+            respect_regime=0,
+        )
+        dates = [str(b["date"])[:10] for b in full[10:]]
+        write_stock_panel(
+            FAMILY_OO_RANK,
+            "601628",
+            dates=dates,
+            X=np.asarray([[float(i)] for i in range(len(dates))]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([float(i) * 0.1 for i in range(len(dates))]),
+            extra_meta=meta,
+        )
+
+        def _spec(bars_fp: str) -> str:
+            return make_fingerprint(
+                bars_fp=bars_fp,
+                horizon=1,
+                min_history=62,
+                max_window=62,
+                excess_mode="none",
+                respect_regime=0,
+            )
+
+        with patch(
+            "core.research.incremental_panel._offline_daily_bars",
+            return_value=list(full),
+        ):
+            with materialized_consumer():
+                try:
+                    sliced = try_slice_shorter_lookback(
+                        "601628",
+                        short,
+                        family=FAMILY_OO_RANK,
+                        spec_fp=_spec,
+                    )
+                except MaterializeRequired as exc:
+                    self.fail(str(exc))
+        self.assertIsNotNone(sliced)
+        assert sliced is not None
+        _x, y, names, keep_dates = sliced
+        self.assertEqual(names, ["f"])
+        short_days = {str(b["date"])[:10] for b in short}
+        self.assertTrue(all(d in short_days for d in keep_dates))
+        self.assertGreaterEqual(len(keep_dates), 4)
+        self.assertEqual(int(y.shape[0]), len(keep_dates))
+
     def test_oo_stock_job_incremental_tail(self) -> None:
         from core.research.feature_lake import load_stock_panel
         from core.research.lake_bridge import FAMILY_OO

@@ -270,6 +270,29 @@ def _oo_stock_job(
                 names,
                 [],
             )
+
+        def _oo_spec(bars_fp: str) -> str:
+            return make_fingerprint(
+                bars_fp=bars_fp,
+                horizon=horizon_i,
+                ridge_core_only=int(core),
+            )
+
+        try:
+            from core.research.incremental_panel import try_slice_shorter_lookback
+            from core.research.lake_bridge import FAMILY_OO
+
+            sliced = try_slice_shorter_lookback(
+                code_s,
+                bars_l,
+                family=FAMILY_OO,
+                spec_fp=_oo_spec,
+            )
+            if sliced is not None and int(sliced[0].shape[0]) > 0:
+                return sliced
+        except Exception:  # noqa: BLE001
+            logger.debug("oo lookback slice failed code=%s", code_s, exc_info=True)
+
         raise_if_consumer_rebuild("oo", code_s)
         # 尾窗增量：stem 命中则只重算尾部决策日（读 L1 meta）
         x = y = None
@@ -278,7 +301,6 @@ def _oo_stock_job(
         try:
             from core.research.incremental_panel import try_incremental_merge
             from core.research.lake_bridge import FAMILY_OO
-            from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 
             def _oo_tail(keep_dates):
                 panel_t = OoPanelMatrix(ridge_core_only=core)
@@ -287,20 +309,13 @@ def _oo_stock_job(
                 )
                 return panel_t.finalize()
 
-            def _spec(bars_fp: str) -> str:
-                return make_fingerprint(
-                    bars_fp=bars_fp,
-                    horizon=horizon_i,
-                    ridge_core_only=int(core),
-                )
-
             merged = try_incremental_merge(
                 code_s,
                 bars_l,
                 pad=int(ALPHA_OO_PANEL_WINDOW) + max(5, horizon_i),
                 collect_tail=_oo_tail,
                 family=FAMILY_OO,
-                spec_fp=_spec,
+                spec_fp=_oo_spec,
             )
             if merged is not None:
                 x, y, names, dates = merged

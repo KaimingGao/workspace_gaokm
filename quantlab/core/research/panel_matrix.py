@@ -566,6 +566,38 @@ def _tau_stock_job(
                         return code, block, ys_l, dates_l, metas_l, slim
         except Exception:  # noqa: BLE001
             logger.debug("tau training cache load failed code=%s", code, exc_info=True)
+
+    def _tau_open_spec(bars_fp: str) -> str:
+        return make_fingerprint(
+            bars_fp=bars_fp,
+            tau_hm=str(tau_hm),
+            min_history=mh,
+            include_alpha_tc=int(atc),
+            include_alpha_th=int(ath),
+            use_minute=0,
+        )
+
+    if code and not use_minute:
+        try:
+            from core.research.incremental_panel import try_slice_shorter_lookback
+
+            sliced = try_slice_shorter_lookback(
+                code,
+                bars,
+                family=l1_family,
+                spec_fp=_tau_open_spec,
+            )
+            if sliced is not None:
+                block, y_arr, _names, dates_l = sliced
+                if block.shape[1] == len(col_names) and len(dates_l) >= 4:
+                    ys_l = [float(y) for y in y_arr.tolist()]
+                    slim = [{} for _ in dates_l]
+                    metas_l = [{"date": d, "stock_code": code} for d in dates_l]
+                    item.pop("minute_bars", None)
+                    return code, block, ys_l, dates_l, metas_l, slim
+        except Exception:  # noqa: BLE001
+            logger.debug("tau lookback slice failed code=%s", code, exc_info=True)
+
     from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild(l1_family, code)
@@ -602,23 +634,13 @@ def _tau_stock_job(
                     [str(d)[:10] for d in dates_t],
                 )
 
-            def _spec(bars_fp: str) -> str:
-                return make_fingerprint(
-                    bars_fp=bars_fp,
-                    tau_hm=str(tau_hm),
-                    min_history=mh,
-                    include_alpha_tc=int(atc),
-                    include_alpha_th=int(ath),
-                    use_minute=0,
-                )
-
             inc_hit = try_incremental_merge(
                 code,
                 bars,
                 pad=int(ALPHA_TC_PANEL_WINDOW) + 8,
                 collect_tail=_tail,
                 family=l1_family,
-                spec_fp=_spec,
+                spec_fp=_tau_open_spec,
             )
         except MaterializeRequired:
             raise
@@ -1672,6 +1694,34 @@ def _co_stock_job(
                     )
         except Exception:  # noqa: BLE001
             logger.debug("co training cache load failed code=%s", code, exc_info=True)
+
+    def _co_spec(bars_fp: str) -> str:
+        return make_fingerprint(
+            bars_fp=bars_fp,
+            min_history=mh,
+            include_alpha_oo=int(aoo),
+        )
+
+    if code:
+        try:
+            from core.research.incremental_panel import try_slice_shorter_lookback
+
+            sliced = try_slice_shorter_lookback(
+                code,
+                bars,
+                family=FAMILY_CO,
+                spec_fp=_co_spec,
+            )
+            if sliced is not None:
+                block, y_arr, _n, dates_l = sliced
+                if block.shape[1] == len(col_names) and len(dates_l) >= 4:
+                    ys_l = [float(y) for y in y_arr.tolist()]
+                    slim = [{} for _ in dates_l]
+                    metas_l = [{"date": d, "stock_code": code} for d in dates_l]
+                    return code, block, ys_l, dates_l, metas_l, slim
+        except Exception:  # noqa: BLE001
+            logger.debug("co lookback slice failed code=%s", code, exc_info=True)
+
     from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild(FAMILY_CO, code)
@@ -1703,20 +1753,13 @@ def _co_stock_job(
                     [str(d)[:10] for d in dates_t],
                 )
 
-            def _spec(bars_fp: str) -> str:
-                return make_fingerprint(
-                    bars_fp=bars_fp,
-                    min_history=mh,
-                    include_alpha_oo=int(aoo),
-                )
-
             inc = try_incremental_merge(
                 code,
                 bars,
                 pad=int(ALPHA_OO_PANEL_WINDOW) + 8,
                 collect_tail=_co_tail,
                 family=FAMILY_CO,
-                spec_fp=_spec,
+                spec_fp=_co_spec,
             )
             if inc is not None:
                 block, y_arr, _n, dates_l = inc

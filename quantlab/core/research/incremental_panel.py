@@ -254,6 +254,105 @@ def stem_extra_meta(bars: Sequence[dict]) -> Dict[str, Any]:
     }
 
 
+def _offline_daily_bars(code: str, limit: int) -> List[dict]:
+    """只读本地日线，供短窗相对长窗 L1 的后缀校验。"""
+    try:
+        from core.data.service import get_research_service
+
+        bars, _ = get_research_service().bars_and_source(
+            str(code),
+            limit=max(2, int(limit)),
+            offline_ok=True,
+            offline_only=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("offline daily bars failed code=%s", code, exc_info=True)
+        return []
+    return [dict(b) for b in (bars or []) if isinstance(b, dict)]
+
+
+def try_slice_shorter_lookback(
+    code: str,
+    bars: Sequence[dict],
+    *,
+    family: str,
+    spec_fp: Callable[[str], str],
+) -> Optional[Tuple[np.ndarray, np.ndarray, List[str], List[str]]]:
+    """物化长窗、拟合短窗：当前 bars 是湖序列真后缀时，切 L1 重叠决策日。
+
+    只读切片，不重算。口径（horizon / 钟等）须与湖一致。
+    """
+    if not family or not code:
+        return None
+    prev = load_l1_any(family, code)
+    if prev is None or prev.get("X") is None or prev.get("y") is None:
+        return None
+    old_x = np.asarray(prev["X"], dtype=np.float64)
+    old_y = np.asarray(prev["y"], dtype=np.float64)
+    old_dates = [str(d)[:10] for d in (prev.get("dates") or [])]
+    if (
+        old_x.ndim != 2
+        or old_y.ndim != 1
+        or old_x.shape[0] != old_y.shape[0]
+        or len(old_dates) != old_x.shape[0]
+    ):
+        return None
+    meta = prev.get("_meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    stored_fp = str(meta.get("fingerprint") or "")
+    stored_bars = str(meta.get("bars_fp") or "")
+    if not stored_fp or not stored_bars:
+        return None
+    try:
+        fresh = spec_fp(stored_bars)
+    except Exception:  # noqa: BLE001
+        logger.debug("slice lookback spec_fp failed code=%s", code, exc_info=True)
+        return None
+    if fresh != stored_fp:
+        return None
+    seq = [b for b in (bars or []) if isinstance(b, dict)]
+    if len(seq) < 4:
+        return None
+    try:
+        n_old = int(meta.get("n_bars") or 0)
+    except (TypeError, ValueError):
+        n_old = 0
+    if n_old <= len(seq):
+        return None
+    if bar_end_date(seq) != str(meta.get("end_date") or "")[:10]:
+        return None
+    from core.research.panel_fingerprint import bars_fingerprint
+
+    full = _offline_daily_bars(code, n_old)
+    if len(full) < len(seq) or bars_fingerprint(full) != stored_bars:
+        return None
+    if bars_fingerprint(full[-len(seq) :]) != bars_fingerprint(seq):
+        return None
+    bar_days = {
+        str(b.get("date") or b.get("trade_date") or "")[:10]
+        for b in seq
+        if len(str(b.get("date") or b.get("trade_date") or "")[:10]) >= 10
+    }
+    idxs = [i for i, d in enumerate(old_dates) if d in bar_days]
+    if len(idxs) < 4:
+        return None
+    names = [str(n) for n in (prev.get("names") or [])]
+    logger.debug(
+        "l1 lookback slice family=%s code=%s lake_rows=%s keep=%s",
+        family,
+        code,
+        len(old_dates),
+        len(idxs),
+    )
+    return (
+        old_x[np.asarray(idxs, dtype=np.int64)],
+        old_y[np.asarray(idxs, dtype=np.int64)],
+        names,
+        [old_dates[i] for i in idxs],
+    )
+
+
 def try_incremental_merge(
     code: str,
     bars: Sequence[dict],

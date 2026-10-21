@@ -299,6 +299,36 @@ def _oo_rank_stock_job(
                     "oo_rank adopt oo code=%s rows=%s", code_s, int(x.shape[0])
                 )
                 return code_s, x, y, names, dates_out
+
+    def _rank_spec(bars_fp: str) -> str:
+        from core.research.panel_fingerprint import make_fingerprint
+
+        return make_fingerprint(
+            bars_fp=bars_fp,
+            horizon=horizon_i,
+            min_history=int(eff_mh),
+            max_window=int(eff_mw),
+            excess_mode=excess,
+            respect_regime=int(regime),
+        )
+
+    try:
+        from core.research.incremental_panel import try_slice_shorter_lookback
+        from core.research.lake_bridge import FAMILY_OO_RANK
+
+        sliced = try_slice_shorter_lookback(
+            code_s,
+            bars_l,
+            family=FAMILY_OO_RANK,
+            spec_fp=_rank_spec,
+        )
+        if sliced is not None:
+            x, y, names, dates_out = sliced
+            if int(getattr(x, "shape", (0,))[0] or 0) > 0:
+                return code_s, x, y, names, dates_out
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_rank lookback slice failed for %s", code_s, exc_info=True)
+
     from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild("oo_rank", code_s)
@@ -329,25 +359,13 @@ def _oo_rank_stock_job(
             panel_t.add_stock_rows(xs_t, ys_t, dates_t)
             return panel_t.finalize()
 
-        def _spec(bars_fp: str) -> str:
-            from core.research.panel_fingerprint import make_fingerprint
-
-            return make_fingerprint(
-                bars_fp=bars_fp,
-                horizon=horizon_i,
-                min_history=int(eff_mh),
-                max_window=int(eff_mw),
-                excess_mode=excess,
-                respect_regime=int(regime),
-            )
-
         merged = try_incremental_merge(
             code_s,
             bars_l,
             pad=int(ALPHA_OO_PANEL_WINDOW) + max(5, horizon_i),
             collect_tail=_rank_tail,
             family=FAMILY_OO_RANK,
-            spec_fp=_spec,
+            spec_fp=_rank_spec,
         )
         if merged is not None:
             x, y, names, dates_out = merged
