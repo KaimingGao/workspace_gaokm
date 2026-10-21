@@ -2679,12 +2679,11 @@ class QuantFactorMixin:
         do_l1_tau_grid: bool = False,
         do_l2: bool = True,
         lookback: Optional[int] = None,
-        l2_lookback_days: int = 60,
         watching_limit: int = WATCHING_MAX_SIZE,
         progress_cb: Optional[Any] = None,
         cancel_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """同步物化 L1/L2（可选 τ 网格 L1）。"""
+        """同步物化 L1/L2（可选 τ 网格 L1）。L1 与 open L2 共用 ``lookback``。"""
         from core.data.policy import BARS_DAILY_LOOKBACK
         from core.research.materialize import run_materialize
 
@@ -2695,7 +2694,6 @@ class QuantFactorMixin:
             do_l1_tau_grid=bool(do_l1_tau_grid),
             do_l2=bool(do_l2),
             lookback=int(lookback or BARS_DAILY_LOOKBACK),
-            l2_lookback_days=int(l2_lookback_days or 60),
             watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
             progress_cb=progress_cb,
             cancel_cb=cancel_cb,
@@ -2710,7 +2708,6 @@ class QuantFactorMixin:
         do_l1_tau_grid: bool = False,
         do_l2: bool = True,
         lookback: Optional[int] = None,
-        l2_lookback_days: int = 60,
         watching_limit: int = WATCHING_MAX_SIZE,
     ) -> Dict[str, Any]:
         """后台 Job：物化 L1/L2；轮询 ``GET /api/jobs/materialize-l1l2``。"""
@@ -2829,7 +2826,6 @@ class QuantFactorMixin:
                     do_l1_tau_grid=do_l1_tau_grid,
                     do_l2=do_l2,
                     lookback=int(lookback or BARS_DAILY_LOOKBACK),
-                    l2_lookback_days=int(l2_lookback_days or 60),
                     watching_limit=watch_limit,
                     progress_cb=_pcb,
                     cancel_cb=_cancel,

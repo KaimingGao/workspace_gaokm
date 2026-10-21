@@ -61,7 +61,6 @@ def quant_materialize(body: MaterializeRequest) -> Dict[str, Any]:
         do_l1_tau_grid=bool(body.do_l1_tau_grid),
         do_l2=bool(body.do_l2),
         lookback=body.lookback,
-        l2_lookback_days=body.l2_lookback_days,
         watching_limit=body.watching_limit,
     )
     try:

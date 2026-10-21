@@ -473,8 +473,8 @@ class MaterializeRequest(BaseModel):
         default=BARS_DAILY_LOOKBACK,
         ge=FIT_LOOKBACK_MIN,
         le=FIT_LOOKBACK_MAX,
+        description="日线 L1 与 open L2 共用回看交易日；分钟钟 L2 用内部近端短窗",
     )
-    l2_lookback_days: int = Field(default=60, ge=5, le=400)
     watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     sync: bool = Field(
         default=False,

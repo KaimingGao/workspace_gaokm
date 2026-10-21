@@ -463,12 +463,14 @@ function installMaterializeRunner(q, cfg) {
   }
 
   async function postAndWait({ clocks, doL1, doL1TauGrid, doL2 }) {
+    // 唯一 lookback：日线 L1+open L2；分钟钟短窗由后端内部常量。
     const body = {
       families: ["oo", "tc", "co"],
       clocks: Array.isArray(clocks) && clocks.length ? clocks : ["open"],
       do_l1: !!doL1,
       do_l1_tau_grid: !!doL1TauGrid,
       do_l2: !!doL2,
+      lookback: 1000,
       sync: false,
     };
     let res = await postMaterializeOnce(body);

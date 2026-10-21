@@ -219,7 +219,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 | 入口 | 说明 |
 |------|------|
-| `POST /api/quant/materialize` | 后台 Job；`do_l1_tau_grid` 写 τ 网格 L1；轮询 `GET /api/jobs/materialize-l1l2` |
+| `POST /api/quant/materialize` | 后台 Job；`do_l1_tau_grid` 写 τ 网格 L1；轮询 `GET /api/jobs/materialize-l1l2`。入参只有一个 **`lookback`**（默认 1000）：日线 L1 与 open L2 共用；分钟钟 L2 用内部近端短窗（`L2_MINUTE_LOOKBACK=60`） |
 | `GET /api/quant/materialize/catalog` | family / clock / `suggested_tau_clocks` / `tau_grid` |
 | `core/research/materialize/run_materialize` | 同步编排（L1 → τ 网格 L1 → L2） |
 

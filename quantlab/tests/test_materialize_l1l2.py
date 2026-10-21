@@ -232,8 +232,23 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         self.assertTrue(out.get("ok"))
         self.assertEqual(out["l2"]["by_clock"]["open"]["cubes_hit"], 2)
 
-    def test_l2_lookback_prefers_l2_lookback_days(self):
-        """L2 窗用 l2_lookback_days，不被 L1 lookback=1000 盖掉。"""
+    def test_resolve_l2_lookback_one_knob(self):
+        """日线跟 lookback；分钟用内部短窗。无第二 lookback 入参。"""
+        from core.research.materialize.orchestrate import (
+            L2_MINUTE_LOOKBACK,
+            request_has_minute_clock,
+            resolve_l2_lookback,
+        )
+
+        self.assertEqual(resolve_l2_lookback(1000, minute=False), 1000)
+        self.assertEqual(resolve_l2_lookback(0, minute=False), 1000)  # BARS_DAILY_LOOKBACK
+        self.assertEqual(resolve_l2_lookback(1000, minute=True), L2_MINUTE_LOOKBACK)
+        self.assertFalse(request_has_minute_clock(["open"]))
+        self.assertTrue(request_has_minute_clock(["09:35"]))
+        self.assertTrue(request_has_minute_clock(["open"], do_l1_tau_grid=True))
+
+    def test_open_l2_shares_lookback(self):
+        """日线 open 立方跟 L1 lookback。"""
         from core.research.materialize import run_materialize
 
         with mock.patch(
@@ -249,10 +264,28 @@ class MaterializeOrchestrateTests(unittest.TestCase):
                 do_l2=True,
                 clocks=["open"],
                 lookback=1000,
-                l2_lookback_days=5,
             )
         self.assertTrue(out.get("ok"), out)
-        self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), 5)
+        self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), 1000)
+
+        with mock.patch(
+            "core.research.materialize.orchestrate.resolve_materialize_codes",
+            return_value=["000001", "000002"],
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l2",
+            return_value={"ok": True, "by_clock": {"09:35": {"ok": True}}},
+        ) as l2_fn:
+            from core.research.materialize.orchestrate import L2_MINUTE_LOOKBACK
+
+            out = run_materialize(
+                codes=["000001", "000002"],
+                do_l1=False,
+                do_l2=True,
+                clocks=["09:35"],
+                lookback=1000,
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), L2_MINUTE_LOOKBACK)
 
     def test_implicit_oo_rank_failure_keeps_p0_ok(self):
         """未显式请求 oo_rank 时，rank 失败不把 oo/tc/co 整次打失败。"""

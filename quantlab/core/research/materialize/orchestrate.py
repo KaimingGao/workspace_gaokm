@@ -23,6 +23,38 @@ ProgressCb = Optional[Callable[[int, int, str], None]]
 CancelCb = Optional[Callable[[], bool]]
 
 
+_OPEN_CLOCKS = frozenset({"", "open", "09:30", "0930"})
+# 分钟钟 L2 近端窗（新浪 5m≈41 交易日；Ready 默认 40）。不暴露第二 lookback 入参。
+L2_MINUTE_LOOKBACK = 60
+
+
+def resolve_l2_lookback(lookback: int, *, minute: bool) -> int:
+    """L2 交易日回看：日线跟 ``lookback``；分钟钟用内部 ``L2_MINUTE_LOOKBACK``。"""
+    if minute:
+        return max(2, min(1500, int(L2_MINUTE_LOOKBACK)))
+    try:
+        lb = int(lookback or 0)
+    except (TypeError, ValueError):
+        lb = 0
+    if lb <= 0:
+        lb = int(BARS_DAILY_LOOKBACK) if BARS_DAILY_LOOKBACK else 60
+    return max(2, min(1500, lb))
+
+
+def request_has_minute_clock(
+    clocks: Sequence[str] | None,
+    *,
+    do_l1_tau_grid: bool = False,
+) -> bool:
+    if do_l1_tau_grid:
+        return True
+    for raw in clocks or []:
+        key = str(raw or "").strip().lower()
+        if key not in _OPEN_CLOCKS:
+            return True
+    return False
+
+
 def _emit(cb: ProgressCb, cur: int, tot: int, msg: str) -> None:
     if not cb:
         return
@@ -83,7 +115,6 @@ def _run_materialize(
     do_l2: bool = True,
     do_l1_tau_grid: bool = False,
     lookback: int = BARS_DAILY_LOOKBACK,
-    l2_lookback_days: int = 60,
     watching_limit: int = WATCHING_MAX_SIZE,
     horizon_days: int = 1,
     progress_cb: ProgressCb = None,
@@ -193,21 +224,17 @@ def _run_materialize(
         def _pcb2(c: int, t: int, m: str = "") -> None:
             _emit(progress_cb, c, t, m or "L2…")
 
-        # L2 窗用 l2_lookback_days，避免被 L1 的 lookback=1000 盖成整窗重写。
-        try:
-            l2_lb = int(l2_lookback_days)
-        except (TypeError, ValueError):
-            l2_lb = 0
-        if l2_lb <= 0:
-            try:
-                l2_lb = int(lookback or 60)
-            except (TypeError, ValueError):
-                l2_lb = 60
+        l2_lb = resolve_l2_lookback(
+            int(lookback or 0),
+            minute=request_has_minute_clock(
+                clks, do_l1_tau_grid=bool(do_l1_tau_grid)
+            ),
+        )
         out["l2"] = materialize_l2(
             code_list,
             dates=dates,
             clocks=clks,
-            lookback_days=max(2, min(1500, l2_lb)),
+            lookback_days=l2_lb,
             use_trading_days=not dates,
             progress_cb=_pcb2,
             cancel_cb=cancel_cb,
@@ -267,7 +294,6 @@ def run_materialize(
     do_l2: bool = True,
     do_l1_tau_grid: bool = False,
     lookback: int = BARS_DAILY_LOOKBACK,
-    l2_lookback_days: int = 60,
     watching_limit: int = WATCHING_MAX_SIZE,
     horizon_days: int = 1,
     progress_cb: ProgressCb = None,
@@ -286,7 +312,6 @@ def run_materialize(
             do_l2=do_l2,
             do_l1_tau_grid=do_l1_tau_grid,
             lookback=lookback,
-            l2_lookback_days=l2_lookback_days,
             watching_limit=watching_limit,
             horizon_days=horizon_days,
             progress_cb=progress_cb,
@@ -296,6 +321,9 @@ def run_materialize(
 
 __all__ = [
     "catalog_payload",
+    "L2_MINUTE_LOOKBACK",
+    "resolve_l2_lookback",
+    "request_has_minute_clock",
     "resolve_materialize_codes",
     "run_materialize",
 ]
