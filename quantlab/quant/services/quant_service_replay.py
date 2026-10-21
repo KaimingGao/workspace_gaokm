@@ -829,6 +829,7 @@ class QuantReplayMixin:
                     ),
                 )
             except MaterializeRequired as exc:
+                logger.warning("y_oo fit blocked: %s", exc)
                 return exc.to_dict()
 
     def promote_return_score_model(

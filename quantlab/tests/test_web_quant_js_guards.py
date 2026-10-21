@@ -3513,6 +3513,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
             'id="quant-co-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合"',
             panel,
         )
+        self.assertIn(
+            'id="quant-return-model-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合"',
+            panel,
+        )
         self.assertIn("读取研究 / 执行 / 上次拟合…", js)
         self.assertIn('on("quant-tau-ridge-status"', js)
         self.assertNotIn("label_demean", suggest)
@@ -3523,16 +3527,26 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("data.return_model", suggest)
         self.assertIn("holdout_trading_days", suggest)
         self.assertIn("oos: data.oos", suggest.replace("\r\n", "\n"))
-        # ŷ_oo 拟合后状态条：用草稿 saved_at 刷「拟合」时间；justFitted 仅当次
+        # ŷ_oo 卡头与 ŷ_τc / ŷ_co 同口径：拟合/研究/执行时间；失败留在卡头，不被状态刷新盖掉
         self.assertIn("fittedAt", suggest)
         self.assertIn("draft.saved_at", suggest)
-        self.assertIn("refreshReturnModelStatus({ justFitted: true })", suggest)
-        self.assertIn("草稿已更新", suggest)
+        self.assertIn("paintRidgeEnableStatus", suggest)
+        self.assertIn("omitTauEndBit: true", suggest)
+        self.assertIn("formatHorizonFitErrorMessage", suggest)
+        self.assertIn("data.success === false", suggest)
+        suggest_nl = suggest.replace("\r\n", "\n")
+        self.assertLess(
+            suggest_nl.find("data.success === false"),
+            suggest_nl.find("refreshReturnModelStatus({ justFitted: true })"),
+        )
+        self.assertIn("草稿已更新 · 可启用研究（验证后再晋级执行）", suggest)
         self.assertIn("function ooFitBusyHint", suggest)
-        self.assertIn("拉观察池日线 · 全程约 12–15 分钟", suggest)
-        self.assertIn("堆叠日线因子面板 · 全程约 12–15 分钟", suggest)
-        self.assertIn("Ridge / OLS + Holdout · 全程约 12–15 分钟", suggest)
-        self.assertIn("超过 15 分钟仍可能在算，请勿重复点", suggest)
+        self.assertIn("ŷ_oo… ${fmtOoFitSec(s)} · ${ooFitBusyHint(s)}", suggest)
+        self.assertIn("排队 / 读日线或分钟缓存", suggest)
+        self.assertIn("组因子面板（满池数百只可能十余分钟）", suggest)
+        self.assertIn("Ridge + Holdout OOS（满池 600 只常需半小时级）", suggest)
+        self.assertIn("超过 40 分钟仍可能在算，请勿重复点", suggest)
+        self.assertNotIn("拉观察池日线 · 全程约 12–15 分钟", suggest)
         # 拟合进度 / 成败只写卡头 #quant-ols-summary，不刷页顶 #quant-meta
         self.assertIn("状态只写 ŷ_oo 卡头", suggest)
         self.assertNotIn("setQuantMeta(`ŷ_oo ${msg}`", suggest)

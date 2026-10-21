@@ -319,6 +319,56 @@ export function installSuggest(q) {
     });
   }
 
+  /** 状态接口 → ŷ_τc / ŷ_co 同一套卡头字段（拟合 / 研究 / 执行）。 */
+  function ooRidgeStatusPayload(data) {
+    const src = data && typeof data === "object" ? data : {};
+    const draft = src.draft && typeof src.draft === "object" ? src.draft : {};
+    const active = src.active && typeof src.active === "object" ? src.active : {};
+    const research =
+      src.research && typeof src.research === "object" ? src.research : {};
+    const liveOn = !!active.exists;
+    const researchOn = !!research.exists;
+    const draftOn = !!draft.exists;
+    return {
+      ...src,
+      exists: liveOn || researchOn || draftOn,
+      live_model_present: liveOn,
+      research_exists: researchOn,
+      last_report_exists: draftOn,
+      shadow: draftOn && !liveOn && !researchOn,
+      fitted_at: draft.fitted_at || draft.saved_at || null,
+      research_fitted_at:
+        research.fitted_at || research.source_saved_at || research.promoted_at || null,
+      research_promoted_at: research.promoted_at || null,
+      live_fitted_at:
+        active.fitted_at || active.source_saved_at || active.promoted_at || null,
+      live_promoted_at: active.promoted_at || null,
+    };
+  }
+
+  function paintOoLikeRidge(data, extra = {}) {
+    const paint = q.paintRidgeEnableStatus;
+    if (typeof paint !== "function") {
+      paintOoStatus(extra);
+      return;
+    }
+    paint(els.quantOlsSummary, ooRidgeStatusPayload(data), {
+      omitTauEndBit: true,
+      idleMessage: "拟合后看系数 · 再启用研究/执行",
+      ...extra,
+    });
+  }
+
+  function ooFitErrorMessage(data, httpFallback) {
+    if (typeof q.formatHorizonFitErrorMessage === "function") {
+      return q.formatHorizonFitErrorMessage(data, "", httpFallback || "拟合失败");
+    }
+    return formatApiDetail(
+      data && (data.detail || data.error),
+      httpFallback || "拟合失败"
+    );
+  }
+
   function _setOoPromoteEnabled(draftExists) {
     for (const id of [
       "quant-return-model-promote",
@@ -340,45 +390,21 @@ export function installSuggest(q) {
             if (resultEl) resultEl.innerHTML = "";
           };
     if (!data || !data.success) {
+      const detail = ooFitErrorMessage(data, "拟合失败");
       paintOoStatus({
         state: "error",
         chip: "失败",
-        message: formatApiDetail(data && data.error, "拟合失败"),
+        message: detail,
         error: true,
       });
       if (resultEl) {
-        resultEl.innerHTML = `<p class="watching-table-empty">${escapeHtml(
-          formatApiDetail(data && data.error, "拟合失败")
-        )}</p>`;
+        resultEl.innerHTML = `<p class="watching-table-empty">${escapeHtml(detail)}</p>`;
       }
       if (paintCoef) await paintCoef(null);
       return;
     }
-    const ols = data.ols || {};
-    const nCoef = Object.keys((data.model || {}).coefficients || {}).length;
     const draftOk = !!(data.draft && data.draft.success);
-    const fittedAt =
-      (data.draft && data.draft.saved_at) ||
-      data.fitted_at ||
-      data.saved_at ||
-      null;
-    const csZBit =
-      typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(data) : "";
-    const line =
-      `${data.stock_count ?? "—"} 只 · n=${data.sample_count ?? "—"}` +
-      ` · R²=${ols.r_squared ?? "—"} · β ${nCoef} 项` +
-      (Number(ols.ridge_lambda) > 0 ? ` · Ridge λ=${ols.ridge_lambda}` : " · OLS") +
-      (csZBit ? ` · ${csZBit}` : "");
-    paintOoStatus({
-      state: "ok",
-      chip: "已拟合",
-      message: draftOk
-        ? `草稿已存 · ${line}`
-        : `已拟合 · ${line}`,
-      fittedAt,
-      liveOn: false,
-      researchOn: draftOk,
-    });
+    const ols = data.ols || {};
     state.lastReturnModelFit = data;
     syncOverviewOo(data.oos || {});
     /* 与 ŷ_τc 一致：成功路径只刷系数表，不另挂 fingerprint 摘要块 */
@@ -436,9 +462,7 @@ export function installSuggest(q) {
         if (paintCoef) await paintCoef(null);
         return data;
       }
-      const active = data.active || {};
       const draft = data.draft || {};
-      const research = data.research || {};
       const oos = _ooOosFromStatus(data);
       syncOverviewOo(oos);
       _setOoPromoteEnabled(!!draft.exists);
@@ -450,90 +474,30 @@ export function installSuggest(q) {
         lastFit.fitted_at ||
         lastFit.saved_at ||
         null;
-      const liveOn = !!active.exists;
-      const researchOn = !!research.exists;
-      const csZBit =
-        typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(data) : "";
-      const withCsZ = (msg) =>
-        csZBit && msg && !String(msg).includes(csZBit)
-          ? `${csZBit} · ${msg}`
-          : csZBit || msg || "";
-      // 仅拟合成功当次：chip=已拟合；后续「状态」/启用走落盘套芯片，时间仍用草稿 saved_at
+      const liveOn = !!(data.active && data.active.exists);
+      const researchOn = !!(data.research && data.research.exists);
+      // 与 ŷ_co 同一句：刚拟合只提示草稿；落盘态交给拟合/研究/执行时间
+      const extra = {
+        justFitted: justFittedOnce,
+        fittedAt,
+      };
       if (justFittedOnce) {
-        const fitOls = lastFit.ols || {};
-        const nCoef = Object.keys((lastFit.model || {}).coefficients || {}).length;
-        const fitBits = [
-          lastFit.stock_count != null ? `${lastFit.stock_count} 只` : "",
-          lastFit.sample_count != null ? `n=${lastFit.sample_count}` : "",
-          fitOls.r_squared != null ? `R²=${fitOls.r_squared}` : "",
-          nCoef ? `β ${nCoef} 项` : "",
-        ].filter(Boolean);
-        const fitHint = draft.exists
-          ? liveOn || researchOn
-            ? "草稿已更新 · 可启用研究"
-            : "草稿已存 · 可启用研究"
-          : "已拟合";
-        paintOoStatus({
-          state: "ok",
-          chip: "已拟合",
-          message: withCsZ(
-            fitBits.length ? `${fitHint} · ${fitBits.join(" · ")}` : fitHint
-          ),
-          fittedAt,
-          researchAt: research.fitted_at || research.source_saved_at || null,
-          liveAt: active.fitted_at || active.source_saved_at || null,
-          liveOn,
-          researchOn: researchOn || !!draft.exists,
-        });
-        if (clearResult) clearResult();
-        if (paintCoef) {
-          // 刚拟合：优先画本次草稿模型（新列名/新 β），勿被旧执行套 return_model 盖住
-          const rm =
-            lastFit.model ||
-            (lastFit.return_model ? lastFit.return_model : null) ||
-            data.return_model;
-          await paintCoef(rm, { oos });
-        }
-        return data;
+        extra.message =
+          draft.exists && (liveOn || researchOn)
+            ? "草稿已更新 · 可启用研究（验证后再晋级执行）"
+            : draft.exists
+              ? "草稿已存 · 可启用研究（验证后再晋级执行）"
+              : "已拟合";
       }
-      if (liveOn || researchOn) {
-        let chip = "待命";
-        if (liveOn && researchOn) chip = "研究+执行";
-        else if (researchOn) chip = "仅研究";
-        else chip = "仅执行";
-        paintOoStatus({
-          state: "ok",
-          chip,
-          message: withCsZ(liveOn ? "已落盘" : "研究套已落盘 · 执行未写"),
-          fittedAt,
-          researchAt: research.fitted_at || research.source_saved_at || null,
-          liveAt: active.fitted_at || active.source_saved_at || null,
-          liveOn,
-          researchOn,
-        });
-      } else if (draft.exists) {
-        paintOoStatus({
-          state: "ok",
-          chip: "仅研究",
-          message: withCsZ("有草稿 · 尚未启用研究"),
-          fittedAt,
-          researchAt: null,
-          liveAt: null,
-          liveOn: false,
-          researchOn: true,
-        });
-      } else {
-        paintOoStatus({
-          state: "idle",
-          chip: "待命",
-          message: withCsZ("拟合后看系数 · 再启用研究/执行"),
-          liveOn: false,
-          researchOn: false,
-        });
-      }
-      if (clearResult) clearResult();
+      paintOoLikeRidge(data, extra);
+      if (justFittedOnce && clearResult) clearResult();
       if (paintCoef) {
-        await paintCoef(data.return_model || null, { oos });
+        const rm = justFittedOnce
+          ? lastFit.model ||
+            (lastFit.return_model ? lastFit.return_model : null) ||
+            data.return_model
+          : data.return_model || null;
+        await paintCoef(rm, { oos });
       }
       return data;
     } catch (err) {
@@ -558,11 +522,11 @@ export function installSuggest(q) {
 
   function ooFitBusyHint(sec) {
     const s = Number(sec) || 0;
-    // 满池 300 只：日线缓存命中约数秒；面板约 2.3 秒/只 ≈ 12 分钟；Ridge 在其后。
-    if (s < 30) return "拉观察池日线 · 全程约 12–15 分钟";
-    if (s < 720) return "堆叠日线因子面板 · 全程约 12–15 分钟";
-    if (s < 900) return "Ridge / OLS + Holdout · 全程约 12–15 分钟";
-    return "仍在拟合 · 满池面板很大，超过 15 分钟仍可能在算，请勿重复点";
+    // 与 ŷ_τc / ŷ_co 的 ridgeFitBusyHint 同句，避免 y_oo 自己一套倒计时文案
+    if (s < 8) return "排队 / 读日线或分钟缓存";
+    if (s < 90) return "组因子面板（满池数百只可能十余分钟）";
+    if (s < 20 * 60) return "Ridge + Holdout OOS（满池 600 只常需半小时级）";
+    return "仍在拟合 · 满池面板很大，超过 40 分钟仍可能在算，请勿重复点";
   }
 
   async function runReturnModelFit() {
@@ -576,7 +540,7 @@ export function installSuggest(q) {
     };
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${ooFitBusyHint(s)} · 已 ${fmtOoFitSec(s)}`;
+      const msg = `ŷ_oo… ${fmtOoFitSec(s)} · ${ooFitBusyHint(s)}`;
       // 状态只写 ŷ_oo 卡头，不刷页顶 #quant-meta（与 ŷ_τc 等头一致）
       paintOoStatus({
         state: "busy",
@@ -612,10 +576,14 @@ export function installSuggest(q) {
         data = null;
       }
       stopBusy();
-      if (!res.ok) {
-        const detail = formatApiDetail(
-          data && (data.detail || data.error),
-          res.status === 404 ? "接口未找到：请重启 Web" : `HTTP ${res.status}`
+      if (!res.ok || !data || data.success === false) {
+        const detail = ooFitErrorMessage(
+          data,
+          !res.ok
+            ? res.status === 404
+              ? "接口未找到：请重启 Web"
+              : `HTTP ${res.status}`
+            : "拟合失败"
         );
         paintOoStatus({
           state: "error",
@@ -623,13 +591,25 @@ export function installSuggest(q) {
           message: detail,
           error: true,
         });
+        const resultEl = document.getElementById("quant-oo-result");
+        if (resultEl) {
+          resultEl.innerHTML = `<p class="watching-table-empty">${escapeHtml(
+            detail
+          )}</p>`;
+        }
+        if (typeof q.renderOoCoefTable === "function") {
+          await q.renderOoCoefTable(null);
+        }
         return;
       }
       await renderReturnModelFit(data);
       await refreshReturnModelStatus({ justFitted: true });
     } catch (err) {
       stopBusy();
-      const detail = String((err && err.message) || err || "拟合中断");
+      const detail =
+        typeof q.describeNetworkFetchError === "function"
+          ? q.describeNetworkFetchError(err)
+          : String((err && err.message) || err || "拟合中断");
       paintOoStatus({
         state: "error",
         chip: "失败",

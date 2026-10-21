@@ -1278,6 +1278,44 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
         self.assertEqual(out.get("minute_days"), 0)
         self.assertEqual(out["by_clock"]["09:35"]["error"], "本地 5m 没有够格的交易日")
 
+    def test_resolve_dates_prefers_cached_bars(self) -> None:
+        from unittest.mock import patch
+
+        from core.research.materialize.l2_jobs import _resolve_dates
+
+        pooled = ["2022-08-31", "2022-09-01", "2026-10-21"]
+        with patch(
+            "core.research.materialize.coverage.recent_pool_bar_dates",
+            return_value=pooled,
+        ):
+            days = _resolve_dates(
+                None,
+                lookback_days=3,
+                use_trading_days=True,
+                codes=["000001", "000002"],
+            )
+        self.assertEqual(days, pooled)
+
+    def test_resolve_dates_falls_back_when_pool_empty(self) -> None:
+        from unittest.mock import patch
+
+        from core.research.materialize.l2_jobs import _resolve_dates
+
+        with patch(
+            "core.research.materialize.coverage.recent_pool_bar_dates",
+            return_value=[],
+        ), patch(
+            "core.research.materialize.coverage.recent_trading_days",
+            return_value=["2024-01-02", "2024-01-03"],
+        ):
+            days = _resolve_dates(
+                None,
+                lookback_days=2,
+                use_trading_days=True,
+                codes=["000001", "000002"],
+            )
+        self.assertEqual(days, ["2024-01-02", "2024-01-03"])
+
     def test_bad_lookback_still_resolves_dates(self) -> None:
         from core.research.materialize.l2_jobs import _resolve_dates
 

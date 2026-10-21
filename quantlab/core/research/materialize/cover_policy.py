@@ -9,7 +9,7 @@
 做 T 回测        决策钟 tc_HHMM（不硬要 oo）         ≤leg1 的 suggested τ（不含 open） 回看 ∩ 5m 够格日
 分钟 τ 物化      tc_HHMM 网格（自 09:35）           **仅** suggested τ（不含 open）  5m 够格日（近端优先）
 ŷ_τ* 拟合        —                                同物化 τ 钟                     lookback ∩ 5m 够格日（有多少用多少）
-调仓 / 日线物化  oo/tc/co                          open                          交易日回看（近端优先）
+调仓 / 日线物化  oo/tc/co                          open                          本地日线够格日（近端优先；日历只作回退）
 
 门槛
 ----

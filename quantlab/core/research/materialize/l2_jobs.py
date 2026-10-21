@@ -39,6 +39,7 @@ def _resolve_dates(
     *,
     lookback_days: int,
     use_trading_days: bool = False,
+    codes: Sequence[str] | None = None,
 ) -> List[str]:
     explicit = sorted(
         {str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10}
@@ -51,8 +52,14 @@ def _resolve_dates(
         n = 60
     n = max(2, min(1500, n))
     if use_trading_days:
-        from core.research.materialize.coverage import recent_trading_days
+        from core.research.materialize.coverage import (
+            recent_pool_bar_dates,
+            recent_trading_days,
+        )
 
+        pooled = recent_pool_bar_dates(n, list(codes or []))
+        if len(pooled) >= 2:
+            return pooled
         return recent_trading_days(n)
     # 日历日回退：消费方有交易日过滤；周末立方会被跳过
     today = datetime.now().date()
@@ -792,6 +799,7 @@ def materialize_l2(
         dates,
         lookback_days=lookback_days,
         use_trading_days=use_trading_days,
+        codes=code_list,
     )
     clock_list = normalize_clocks(clocks)
     has_minute = any(

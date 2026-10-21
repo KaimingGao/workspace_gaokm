@@ -980,6 +980,66 @@ def covered_minute_dates(
     return sorted(day for day, n in counts.items() if n >= need)
 
 
+def covered_daily_dates(
+    pairs: Sequence[Tuple[str, str]],
+    *,
+    min_codes: int,
+    store_dir: str,
+    adjust_policy: Optional[str] = "qfq",
+) -> List[str]:
+    """本地日线里、至少 ``min_codes`` 只有 K 线的交易日。
+
+    节假日日历会把休市日算进回看，物化窗口就会比真实成交日短一截。
+    日线立方按这里的日期对齐拟合。
+    """
+    grouped: Dict[str, List[str]] = {}
+    seen = set()
+    for market, code in pairs or []:
+        mkt = str(market or "").strip().upper()
+        code_s = str(code or "").strip()
+        if not mkt or not code_s:
+            continue
+        key = (mkt, code_s)
+        if key in seen:
+            continue
+        seen.add(key)
+        grouped.setdefault(mkt, []).append(code_s)
+    if not grouped:
+        return []
+    policy = str(adjust_policy or "").strip().lower()
+    need = max(1, int(min_codes or 1))
+    conn = get_read_conn(store_dir)
+    counts: Dict[str, int] = {}
+    batch = 400
+    for mkt, codes in grouped.items():
+        for start in range(0, len(codes), batch):
+            chunk = codes[start : start + batch]
+            marks = ",".join("?" * len(chunk))
+            if policy:
+                sql = f"""
+                SELECT date AS d, COUNT(DISTINCT code) AS n
+                FROM daily_bars
+                WHERE market=? AND adjust_policy=? AND code IN ({marks})
+                GROUP BY date
+                """
+                params: Tuple[Any, ...] = (mkt, policy, *chunk)
+            else:
+                sql = f"""
+                SELECT date AS d, COUNT(DISTINCT code) AS n
+                FROM daily_bars
+                WHERE market=? AND code IN ({marks})
+                GROUP BY date
+                """
+                params = (mkt, *chunk)
+            rows = conn.execute(sql, params).fetchall()
+            for row in rows:
+                day = str(row["d"] or "")[:10]
+                if len(day) < 10:
+                    continue
+                counts[day] = int(counts.get(day) or 0) + int(row["n"] or 0)
+    return sorted(day for day, n in counts.items() if n >= need)
+
+
 def load_minute_span_snapshot(
     market: str,
     code: str,

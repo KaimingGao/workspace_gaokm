@@ -284,6 +284,45 @@ class ConsumerCoverageTest(unittest.TestCase):
             )
         self.assertEqual(seen.get("day"), "2024-01-04")
 
+    def test_coverage_drops_pad_boundary_day(self) -> None:
+        """加载 = lookback + 垫窗时，可算日多出的最早一天不要求立方。"""
+        from unittest.mock import patch
+
+        from core.research.materialize.consumer import materialized_consumer
+        from core.research.materialize.coverage import enforce_consumer_coverage
+
+        days = [
+            "2024-01-02",
+            "2024-01-03",
+            "2024-01-04",
+            "2024-01-05",
+            "2024-01-08",
+        ]
+        items = [(code, [{"date": day} for day in days]) for code in ("a", "b")]
+        seen = []
+
+        def _dates(_fam, _code):
+            return set(days)
+
+        def _status(day, _codes, clock="open"):
+            seen.append(day)
+            return "ok"
+
+        with materialized_consumer(), patch(
+            "core.research.feature_lake.load_stock_dates", side_effect=_dates
+        ), patch(
+            "core.research.day_cube.day_cube_status", side_effect=_status
+        ), patch(
+            "core.research.materialize.coverage._other_hash_days", return_value=set()
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes", return_value=[]
+        ):
+            enforce_consumer_coverage(
+                items, families=["oo"], clocks=["open"], min_history=3
+            )
+        # 5 根、垫窗 3 → 训练日 2；可算日是后 3 天，再丢掉最早的边界日
+        self.assertEqual(seen, ["2024-01-05", "2024-01-08"])
+
     def test_coverage_error_keeps_each_span(self) -> None:
         from core.research.materialize.coverage import _coverage_error_bits
 

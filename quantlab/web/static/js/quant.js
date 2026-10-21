@@ -579,6 +579,7 @@ export function initQuant(ctx) {
     });
     return painted;
   }
+  q.paintRidgeEnableStatus = paintRidgeEnableStatus;
 
 
   async function renderCoCoefTable(rm, opts = {}) {
@@ -779,9 +780,11 @@ export function initQuant(ctx) {
     const errStr = String(err || "");
     const needHint =
       !!hint &&
+      !errStr.includes(hint) &&
       (code === "materialize_required" || /请先物化/.test(errStr));
     return errStr + (needHint ? ` · 请先${hint}` : "") + String(gateNote || "");
   }
+  q.formatHorizonFitErrorMessage = formatHorizonFitErrorMessage;
 
   function isHorizonMaterializeFail(data) {
     const src = data && typeof data === "object" ? data : {};
@@ -2513,11 +2516,6 @@ export function initQuant(ctx) {
       });
     } finally {
       if (btn) btn.disabled = false;
-      try {
-        await suggest.refreshReturnModelStatus();
-      } catch (_) {
-        /* ignore */
-      }
     }
   });
 
@@ -2536,16 +2534,17 @@ export function initQuant(ctx) {
       });
     } finally {
       if (btn) btn.disabled = false;
-      try {
-        await suggest.refreshReturnModelStatus();
-      } catch (_) {
-        /* ignore */
-      }
     }
   });
 
   on("quant-return-model-status", "click", async (e) => {
     e.preventDefault();
+    renderRemStatus(els.quantOlsSummary, {
+      state: "busy",
+      chip: "读取中",
+      message: "读取研究 / 执行 / 上次拟合…",
+      busy: true,
+    });
     try {
       await suggest.refreshReturnModelStatus();
     } catch (err) {
@@ -3030,6 +3029,7 @@ export function initQuant(ctx) {
     }
     return msg;
   }
+  q.describeNetworkFetchError = describeNetworkFetchError;
 
   function fmtRidgeJobSec(ms) {
     const s = Math.max(1, Math.round(Number(ms) / 1000));

@@ -37,6 +37,39 @@ def recent_trading_days(n: int, *, end: str = "") -> List[str]:
     return sorted(out)
 
 
+def recent_pool_bar_dates(
+    n: int,
+    codes: Sequence[str],
+    *,
+    min_frac: float = LAKE_COVER_FRAC,
+) -> List[str]:
+    """最近 ``n`` 个真实成交日（本地日线里达到截面人数的日期）。
+
+    日历回看会把未录入的休市日算进去，窗口起点偏晚，拟合却按 K 线要更早的立方。
+    查不到仓时返回空列表，调用方再退回日历。
+    """
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    if len(code_list) < 2:
+        return []
+    try:
+        need_n = max(2, min(1500, int(n or 1)))
+    except (TypeError, ValueError):
+        need_n = 2
+    need_names = cover_need(len(code_list), frac=min_frac, minimum=2)
+    try:
+        from core.store import list_daily_covered_dates
+
+        days = list_daily_covered_dates(code_list, min_codes=need_names)
+    except Exception:  # noqa: BLE001
+        return []
+    if not days:
+        return []
+    days = sorted({str(d)[:10] for d in days if len(str(d or "")[:10]) >= 10})
+    if len(days) > need_n:
+        days = days[-need_n:]
+    return days
+
+
 def l1_invalidate_decision(stored_bars_fp: Optional[str], current_bars_fp: str) -> bool:
     """无湖不删；有湖但没有价量指纹，或指纹变了，才删 L1。"""
     if stored_bars_fp is None:
@@ -111,6 +144,27 @@ def scorable_bar_dates(
             counts[day] = counts.get(day, 0) + 1
     dates = sorted(day for day, n in counts.items() if n >= need)
     return codes, dates
+
+
+def _loaded_lookback(items: Sequence[Any], min_history: int) -> int:
+    """满历史序列去掉垫窗后的训练日数。垫窗边界多出来的一天不要求立方。"""
+    longest = 0
+    for _code, bars in _iter_code_bars(items):
+        seen = set()
+        n = 0
+        for bar in bars or []:
+            if not isinstance(bar, dict):
+                continue
+            day = str(bar.get("date") or bar.get("trade_date") or "")[:10]
+            if len(day) >= 10 and day not in seen:
+                seen.add(day)
+                n += 1
+        if n > longest:
+            longest = n
+    hist = max(1, int(min_history or 1))
+    if longest <= hist:
+        return 0
+    return longest - hist
 
 
 def _other_hash_days(clock: str, universe_hash: str) -> Set[str]:
@@ -412,6 +466,10 @@ def enforce_consumer_coverage(
     codes, dates = scorable_bar_dates(
         items, min_history=min_history, min_names=need
     )
+    # 加载长度 = lookback + 垫窗，可算日会多出垫窗边界那一天。
+    keep = _loaded_lookback(items, min_history)
+    if keep and len(dates) > keep:
+        dates = dates[-keep:]
     got = read_cube_codes()
     report = assess_coverage(
         codes,

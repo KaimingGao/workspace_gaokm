@@ -1105,6 +1105,44 @@ def list_minute_covered_dates(
         return None
 
 
+def list_daily_covered_dates(
+    codes: Sequence[str],
+    *,
+    min_codes: int,
+    store_dir: Optional[str] = None,
+) -> Optional[List[str]]:
+    """宇宙里至少 ``min_codes`` 只有日线的交易日。失败返回 ``None``。"""
+    if bars_backend() != "sqlite":
+        return None
+    base = store_dir or get_store_dir()
+    try:
+        from core import store_bars_sqlite as sq
+        from core.market.symbols import resolve_market_code
+    except Exception:  # noqa: BLE001
+        logger.debug("daily covered dates import failed", exc_info=True)
+        return None
+    pairs: List[Tuple[str, str]] = []
+    for raw in codes or []:
+        try:
+            market, pure = resolve_market_code(str(raw or ""))
+        except Exception:  # noqa: BLE001
+            logger.debug("daily covered dates resolve failed code=%s", raw, exc_info=True)
+            continue
+        if market and pure:
+            pairs.append((str(market), str(pure)))
+    if len(pairs) < 2:
+        return []
+    try:
+        return sq.covered_daily_dates(
+            pairs,
+            min_codes=int(min_codes or 1),
+            store_dir=base,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("daily covered dates query failed", exc_info=True)
+        return None
+
+
 def load_minute_span_snapshot(
     market: str,
     code: str,
