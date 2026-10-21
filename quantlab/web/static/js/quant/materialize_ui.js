@@ -9,6 +9,7 @@ import {
   unwrapJobSnap,
   setDeskStatusTone,
 } from "./cluster_job_ui.js";
+import { BARS_DAILY_LOOKBACK } from "./params.js";
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -463,14 +464,14 @@ function installMaterializeRunner(q, cfg) {
   }
 
   async function postAndWait({ clocks, doL1, doL1TauGrid, doL2 }) {
-    // 唯一 lookback：日线 L1+open L2；分钟钟短窗由后端内部常量。
+    // 唯一 lookback：日线 L1+open L2（与日 K 仓同常量）；分钟钟短窗由后端内部常量。
     const body = {
       families: ["oo", "tc", "co"],
       clocks: Array.isArray(clocks) && clocks.length ? clocks : ["open"],
       do_l1: !!doL1,
       do_l1_tau_grid: !!doL1TauGrid,
       do_l2: !!doL2,
-      lookback: 1000,
+      lookback: BARS_DAILY_LOOKBACK,
       sync: false,
     };
     let res = await postMaterializeOnce(body);

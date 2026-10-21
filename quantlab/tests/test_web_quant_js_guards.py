@@ -1003,6 +1003,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("doL1 = false", mat_js)
         self.assertIn("doL1TauGrid = true", mat_js)
         self.assertNotIn("includeTauGridEnabled", mat_js)
+        # 日线物化 lookback 与日 K 仓同一常量，禁止字面 1000
+        self.assertIn("BARS_DAILY_LOOKBACK", mat_js)
+        self.assertIn("lookback: BARS_DAILY_LOOKBACK", mat_js)
+        self.assertNotIn("lookback: 1000", mat_js)
         # q 上只有 apiFetch（无 fetchJson）；误用会导致 install 静默跳过、按钮无反应
         self.assertIn("q.apiFetch", mat_js)
         self.assertNotIn("q.fetchJson", mat_js)
