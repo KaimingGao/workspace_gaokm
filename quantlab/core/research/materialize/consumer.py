@@ -72,13 +72,16 @@ def research_pool_init(writer: bool = False, consumer: bool = False) -> None:
 
     limit_blas_threads()
     bind_materialize_writer(writer, consumer)
-    if writer:
-        try:
-            from core.research.day_cube_gc import enable_stale_defer
+    try:
+        from core.research.day_cube_gc import disable_stale_defer, enable_stale_defer
 
+        if writer:
             enable_stale_defer()
-        except Exception:  # noqa: BLE001
-            pass
+        else:
+            # 只读工人或复用进程：清掉可能残留的 defer，避免吞掉作废
+            disable_stale_defer()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @contextmanager

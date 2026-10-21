@@ -1455,41 +1455,48 @@ def collect_tau_open_panel(
         except Exception:  # noqa: BLE001
             logger.debug("tau open raw_atc columns failed", exc_info=True)
             atc_items = None
-    # 整列预计算 ATR% / lag，避免日环反复扫窗
+    # 整列预计算 ATR% / lag，避免日环反复扫窗。
+    # max_window < GAP_ATR_WINDOW 时前缀 ATR 与 hist 截断不一致，改逐日。
     atr_series: List[Optional[float]] = [None] * n
     lag1_series: List[Optional[float]] = [None] * n
     ma5_series: List[Optional[float]] = [None] * n
-    try:
-        from core.t0.rules import atr_pct_series_before
+    use_atr_series = int(max_window) >= int(GAP_ATR_WINDOW)
+    use_lag_series = False
+    if use_atr_series:
+        try:
+            from core.t0.rules import atr_pct_series_before
 
-        highs: List[float] = []
-        lows: List[float] = []
-        closes: List[float] = []
-        for b in bars:
-            if not isinstance(b, dict):
-                highs.append(0.0)
-                lows.append(0.0)
-                closes.append(0.0)
-                continue
-            try:
-                highs.append(float(b.get("high") or 0))
-                lows.append(float(b.get("low") or 0))
-                closes.append(float(b.get("close") or 0))
-            except (TypeError, ValueError):
-                highs.append(0.0)
-                lows.append(0.0)
-                closes.append(0.0)
-        atr_series = atr_pct_series_before(
-            highs, lows, closes, window=int(GAP_ATR_WINDOW)
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug("tau open atr series failed", exc_info=True)
+            highs: List[float] = []
+            lows: List[float] = []
+            closes: List[float] = []
+            for b in bars:
+                if not isinstance(b, dict):
+                    highs.append(0.0)
+                    lows.append(0.0)
+                    closes.append(0.0)
+                    continue
+                try:
+                    highs.append(float(b.get("high") or 0))
+                    lows.append(float(b.get("low") or 0))
+                    closes.append(float(b.get("close") or 0))
+                except (TypeError, ValueError):
+                    highs.append(0.0)
+                    lows.append(0.0)
+                    closes.append(0.0)
+            atr_series = atr_pct_series_before(
+                highs, lows, closes, window=int(GAP_ATR_WINDOW)
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau open atr series failed", exc_info=True)
+            use_atr_series = False
     try:
         lag1_series, ma5_series = tau_lag_series_for_open(
             bars, tau_map, window=int(LABEL_LAG_WINDOW), hist_pad=int(max_window)
         )
+        use_lag_series = len(lag1_series) == n and len(ma5_series) == n
     except Exception:  # noqa: BLE001
         logger.debug("tau open lag series failed", exc_info=True)
+        use_lag_series = False
     # i = index of day T；需要 i-1 有昨收。一根坏 K 线只丢掉这一天。
     atc_index: Optional[List[int]] = None
     if atc_out is not None:
@@ -1525,18 +1532,19 @@ def collect_tau_open_panel(
             window = bars[max(0, i - max_window) : i]
             if len(window) < min_history:
                 continue
-            atr = atr_series[i] if i < len(atr_series) else None
             gap_atr_v: Optional[float] = None
-            if atr is not None and float(atr) >= 1e-6:
-                try:
-                    gv = float(gap) / float(atr)
-                    cap = float(GAP_ATR_CLIP)
-                    if cap > 0:
-                        gv = max(-cap, min(cap, gv))
-                    gap_atr_v = round(gv, 4)
-                except (TypeError, ValueError):
-                    gap_atr_v = None
-            else:
+            if use_atr_series and i < len(atr_series):
+                atr = atr_series[i]
+                if atr is not None and float(atr) >= 1e-6:
+                    try:
+                        gv = float(gap) / float(atr)
+                        cap = float(GAP_ATR_CLIP)
+                        if cap > 0:
+                            gv = max(-cap, min(cap, gv))
+                        gap_atr_v = round(gv, 4)
+                    except (TypeError, ValueError):
+                        gap_atr_v = None
+            if gap_atr_v is None:
                 gap_atr_v = gap_atr_from_hist(gap, window)
             row: Dict[str, Optional[float]] = {
                 "gap_pct": float(gap),
@@ -1544,9 +1552,9 @@ def collect_tau_open_panel(
                 "gap_atr": gap_atr_v,
                 "yclose_loc": yclose_loc_from_prev(b_prev, o),
             }
-            if i < len(lag1_series) and lag1_series[i] is not None:
+            if use_lag_series:
                 row["tau_lag1"] = lag1_series[i]
-                row["tau_ma5"] = ma5_series[i] if i < len(ma5_series) else None
+                row["tau_ma5"] = ma5_series[i]
             else:
                 lags = tau_lag_features(
                     hist_bars=window,

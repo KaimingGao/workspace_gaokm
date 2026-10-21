@@ -350,6 +350,16 @@ def _tc_matrix_seed_names(
     return out
 
 
+def _split_pool_job_result(
+    raw: Any,
+) -> Tuple[Any, Dict[str, Any]]:
+    """解析工人返回值 ``(pack, stale_payload)``；畸形时当无 stale。"""
+    if isinstance(raw, tuple) and len(raw) == 2:
+        pack, stale = raw
+        return pack, stale if isinstance(stale, dict) else {}
+    return raw, {}
+
+
 def _tau_stock_job_pooled(
     payload: Tuple[Any, ...],
 ) -> Tuple[
@@ -357,10 +367,12 @@ def _tau_stock_job_pooled(
     Dict[str, Any],
 ]:
     """ProcessPool 入口：算完 drain L2 stale，交给父进程 note。"""
-    from core.research.day_cube_gc import drain_deferred_stale
+    from core.research.day_cube_gc import attach_deferred_to_exc, drain_deferred_stale
     from core.research.materialize.consumer import MaterializeRequired
 
-    item, col_names, slim_keys, kw = payload
+    if not isinstance(payload, (tuple, list)) or len(payload) < 4:
+        return None, drain_deferred_stale()
+    item, col_names, slim_keys, kw = payload[0], payload[1], payload[2], payload[3]
     pack = None
     try:
         pack = _tau_stock_job(
@@ -369,8 +381,8 @@ def _tau_stock_job_pooled(
             slim_keys,
             **dict(kw or {}),
         )
-    except MaterializeRequired:
-        drain_deferred_stale()
+    except MaterializeRequired as exc:
+        attach_deferred_to_exc(exc, drain_deferred_stale())
         raise
     except Exception:  # noqa: BLE001
         code = ""
@@ -388,10 +400,18 @@ def _co_stock_job_pooled(
     Dict[str, Any],
 ]:
     """ProcessPool 入口：co 单票 + drain L2 stale。"""
-    from core.research.day_cube_gc import drain_deferred_stale
+    from core.research.day_cube_gc import attach_deferred_to_exc, drain_deferred_stale
     from core.research.materialize.consumer import MaterializeRequired
 
-    item, col_names, slim_keys, min_history, include_alpha_oo = payload
+    if not isinstance(payload, (tuple, list)) or len(payload) < 5:
+        return None, drain_deferred_stale()
+    item, col_names, slim_keys, min_history, include_alpha_oo = (
+        payload[0],
+        payload[1],
+        payload[2],
+        payload[3],
+        payload[4],
+    )
     pack = None
     try:
         pack = _co_stock_job(
@@ -401,8 +421,8 @@ def _co_stock_job_pooled(
             min_history=int(min_history),
             include_alpha_oo=bool(include_alpha_oo),
         )
-    except MaterializeRequired:
-        drain_deferred_stale()
+    except MaterializeRequired as exc:
+        attach_deferred_to_exc(exc, drain_deferred_stale())
         raise
     except Exception:  # noqa: BLE001
         code = ""
@@ -751,15 +771,17 @@ def _tau_grid_stock_job_pooled(
     payload: Tuple[Any, ...],
 ) -> Tuple[Dict[str, Tuple[int, List[str]]], Dict[str, Any]]:
     """ProcessPool 入口：网格单票 + drain L2 stale。"""
-    from core.research.day_cube_gc import drain_deferred_stale
+    from core.research.day_cube_gc import attach_deferred_to_exc, drain_deferred_stale
     from core.research.materialize.consumer import MaterializeRequired
 
-    item, col_names, clocks, kw = payload
+    if not isinstance(payload, (tuple, list)) or len(payload) < 4:
+        return {}, drain_deferred_stale()
+    item, col_names, clocks, kw = payload[0], payload[1], payload[2], payload[3]
     out: Dict[str, Tuple[int, List[str]]] = {}
     try:
         out = _tau_grid_stock_job(item, col_names, clocks, **dict(kw or {}))
-    except MaterializeRequired:
-        drain_deferred_stale()
+    except MaterializeRequired as exc:
+        attach_deferred_to_exc(exc, drain_deferred_stale())
         raise
     except Exception:  # noqa: BLE001
         code = ""
@@ -1108,12 +1130,17 @@ def collect_tau_grid_panels(
                     i = inflight.pop(fut)
                     stale: Optional[Dict[str, Any]] = None
                     try:
-                        raw = fut.result()
-                        if isinstance(raw, tuple) and len(raw) == 2:
-                            pack, stale = raw
-                        else:
-                            pack = raw  # type: ignore[assignment]
-                    except MaterializeRequired:
+                        pack, stale = _split_pool_job_result(fut.result())
+                    except MaterializeRequired as exc:
+                        try:
+                            from core.research.day_cube_gc import apply_stale_from_exc
+
+                            apply_stale_from_exc(exc)
+                        except Exception:  # noqa: BLE001
+                            logger.debug(
+                                "tau grid apply stale from exc failed",
+                                exc_info=True,
+                            )
                         raise
                     except BrokenProcessPool:
                         broken = True
@@ -1138,12 +1165,19 @@ def collect_tau_grid_panels(
                         stale = None
                         if fut.done() and not fut.cancelled():
                             try:
-                                raw = fut.result()
-                                if isinstance(raw, tuple) and len(raw) == 2:
-                                    pack, stale = raw
-                                else:
-                                    pack = raw  # type: ignore[assignment]
-                            except MaterializeRequired:
+                                pack, stale = _split_pool_job_result(fut.result())
+                            except MaterializeRequired as exc:
+                                try:
+                                    from core.research.day_cube_gc import (
+                                        apply_stale_from_exc,
+                                    )
+
+                                    apply_stale_from_exc(exc)
+                                except Exception:  # noqa: BLE001
+                                    logger.debug(
+                                        "tau grid apply stale from exc failed",
+                                        exc_info=True,
+                                    )
                                 raise
                             except Exception:  # noqa: BLE001
                                 pack = _safe(i)
@@ -1387,14 +1421,19 @@ def collect_tau_compact(
 
         def _on_done(j: int) -> None:
             i = start + j
-            raw = results[j]
-            pack, stale = (None, {}) if raw is None else raw
+            pack, stale = _split_pool_job_result(results[j])
             _apply_stale(stale)
             _fold_one(pack)
             it = items[i]
             if isinstance(it, dict):
                 it.pop("bars", None)
                 it.pop("minute_bars", None)
+
+        def _label(j: int) -> str:
+            it = items[start + j] if start + j < len(items) else None
+            if isinstance(it, dict):
+                return str(it.get("code") or it.get("stock_code") or (start + j))
+            return str(start + j)
 
         try:
             pool = ProcessPoolExecutor(
@@ -1406,12 +1445,6 @@ def collect_tau_compact(
             logger.exception("tau compact process pool unavailable; serial")
             _run_serial(start, end)
             return
-        def _label(j: int) -> str:
-            it = items[start + j] if start + j < len(items) else None
-            if isinstance(it, dict):
-                return str(it.get("code") or it.get("stock_code") or (start + j))
-            return str(start + j)
-
         try:
             consume_process_batch(
                 start=0,
@@ -1423,6 +1456,14 @@ def collect_tau_compact(
                 label=_label,
                 on_done=_on_done,
             )
+        except MaterializeRequired as exc:
+            try:
+                from core.research.day_cube_gc import apply_stale_from_exc
+
+                apply_stale_from_exc(exc)
+            except Exception:  # noqa: BLE001
+                logger.debug("tau compact apply stale from exc failed", exc_info=True)
+            raise
         finally:
             try:
                 pool.shutdown(wait=True, cancel_futures=True)
@@ -1871,7 +1912,11 @@ def collect_co_compact(
         if n_workers <= 1 or (end - start) < 4:
             _run_serial(start, end)
             return
-        from core.research.materialize.consumer import context_initargs, research_pool_init
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            context_initargs,
+            research_pool_init,
+        )
         from core.research.materialize.pool import consume_process_batch
 
         results: List[Any] = [None] * (end - start)
@@ -1898,8 +1943,7 @@ def collect_co_compact(
 
         def _on_done(j: int) -> None:
             i = start + j
-            raw = results[j]
-            pack, stale = (None, {}) if raw is None else raw
+            pack, stale = _split_pool_job_result(results[j])
             _apply_stale(stale)
             _fold(pack)
             _drop_bars(i)
@@ -1931,6 +1975,14 @@ def collect_co_compact(
                 label=_label,
                 on_done=_on_done,
             )
+        except MaterializeRequired as exc:
+            try:
+                from core.research.day_cube_gc import apply_stale_from_exc
+
+                apply_stale_from_exc(exc)
+            except Exception:  # noqa: BLE001
+                logger.debug("co compact apply stale from exc failed", exc_info=True)
+            raise
         finally:
             try:
                 pool.shutdown(wait=True, cancel_futures=True)

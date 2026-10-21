@@ -554,12 +554,41 @@ def apply_deferred_stale(payload: Optional[Dict[str, Any]]) -> None:
     """父进程把工人带回的 defer 结果写入当前 batch（或立即删）。"""
     if not isinstance(payload, dict):
         return
-    if payload.get("all_dates"):
-        note_all_dates()
+    try:
+        if payload.get("all_dates"):
+            note_all_dates()
+            return
+        dates = payload.get("dates") or ()
+        if dates:
+            note_stale_dates(dates)
+    except Exception:  # noqa: BLE001
+        logger.warning("apply deferred l2 stale failed", exc_info=True)
+
+
+def apply_stale_from_exc(exc: BaseException) -> None:
+    """``MaterializeRequired.payload['_deferred_l2_stale']`` 在抛出前由工人塞入。"""
+    payload = getattr(exc, "payload", None)
+    if not isinstance(payload, dict):
         return
-    dates = payload.get("dates") or ()
-    if dates:
-        note_stale_dates(dates)
+    deferred = payload.get("_deferred_l2_stale")
+    if deferred:
+        apply_deferred_stale(deferred if isinstance(deferred, dict) else None)
+
+
+def attach_deferred_to_exc(exc: BaseException, deferred: Optional[Dict[str, Any]]) -> None:
+    """把 drain 结果挂到可 pickle 的 ``MaterializeRequired.payload`` 上。"""
+    if not isinstance(deferred, dict):
+        return
+    if not (deferred.get("dates") or deferred.get("all_dates")):
+        return
+    payload = getattr(exc, "payload", None)
+    if not isinstance(payload, dict):
+        return
+    dates = deferred.get("dates") or ()
+    payload["_deferred_l2_stale"] = {
+        "dates": sorted(str(d)[:10] for d in dates if str(d or "").strip()),
+        "all_dates": bool(deferred.get("all_dates")),
+    }
 
 
 def _flush_bucket(bucket: Dict[str, Any]) -> Dict[str, int]:
@@ -581,12 +610,14 @@ def l2_invalidation_batch() -> Iterator[Dict[str, Any]]:
 
     同时写入 ``_ACTIVE_BATCH``，供 ThreadPool 工作线程 ``note_stale_dates`` 攒批
     （contextvar 不会随 ``ThreadPoolExecutor`` 复制到子线程）。
+    外层进入时关闭本进程 stale defer，避免父进程误把 note 攒进 defer 桶。
     """
     global _ACTIVE_BATCH
     outer = _current_batch()
     if outer is not None:
         yield outer
         return
+    disable_stale_defer()
     bucket: Dict[str, Any] = {
         "dates": set(),
         "all_dates": False,

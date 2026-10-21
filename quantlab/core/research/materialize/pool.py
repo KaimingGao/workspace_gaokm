@@ -90,7 +90,13 @@ def consume_process_batch(
                 i = inflight.pop(fut)
                 try:
                     _store(i, fut.result())
-                except MaterializeRequired:
+                except MaterializeRequired as exc:
+                    try:
+                        from core.research.day_cube_gc import apply_stale_from_exc
+
+                        apply_stale_from_exc(exc)
+                    except Exception:  # noqa: BLE001
+                        logger.debug("apply stale from MaterializeRequired failed", exc_info=True)
                     raise
                 except BrokenProcessPool:
                     logger.exception(

@@ -337,6 +337,46 @@ class TestDayCubeGc(unittest.TestCase):
             disable_stale_defer()
         self.assertFalse(self._on_disk("2024-09-12", ["a", "b"], "open"))
 
+    def test_batch_entry_clears_stale_defer(self) -> None:
+        """外层 l2_invalidation_batch 进入时关掉父进程 defer，避免 note 进错桶。"""
+        from core.research.day_cube_gc import (
+            enable_stale_defer,
+            l2_invalidation_batch,
+            note_stale_dates,
+        )
+
+        self._save("2024-09-13", ["a", "b"], "open")
+        enable_stale_defer()
+        with mock.patch("core.research.day_cube_gc.os.unlink", wraps=os.unlink) as unlink:
+            with l2_invalidation_batch():
+                out = note_stale_dates(["2024-09-13"])
+                self.assertTrue(out.get("batched"))
+                self.assertFalse(out.get("deferred"))
+                self.assertEqual(unlink.call_count, 0)
+            self.assertEqual(unlink.call_count, 2)
+        self.assertFalse(self._on_disk("2024-09-13", ["a", "b"], "open"))
+
+    def test_attach_deferred_on_materialize_required(self) -> None:
+        from core.research.day_cube_gc import (
+            apply_stale_from_exc,
+            attach_deferred_to_exc,
+            l2_invalidation_batch,
+        )
+        from core.research.materialize.consumer import MaterializeRequired
+
+        self._save("2024-09-14", ["a", "b"], "open")
+        exc = MaterializeRequired({"error": "need materialize"})
+        attach_deferred_to_exc(
+            exc, {"dates": {"2024-09-14"}, "all_dates": False}
+        )
+        self.assertIn("2024-09-14", exc.payload["_deferred_l2_stale"]["dates"])
+        with mock.patch("core.research.day_cube_gc.os.unlink", wraps=os.unlink) as unlink:
+            with l2_invalidation_batch():
+                apply_stale_from_exc(exc)
+                self.assertEqual(unlink.call_count, 0)
+            self.assertEqual(unlink.call_count, 2)
+        self.assertFalse(self._on_disk("2024-09-14", ["a", "b"], "open"))
+
     def test_drop_dates_listdir_skips_missing(self) -> None:
         from core.research.day_cube_gc import drop_dates
 
