@@ -415,7 +415,7 @@ def build_tau_panels_from_bars(
         for i in range(start, end):
             raw_slots[i] = _build_one_tau_panel(items[i], **kw)
             done_n += 1
-            if done_n == 1 or done_n % 8 == 0 or done_n >= n_jobs:
+            if done_n == 1 or done_n % 2 == 0 or done_n >= n_jobs:
                 _emit(done_n)
 
     def _run_batch(start: int, end: int) -> None:
@@ -475,7 +475,7 @@ def build_tau_panels_from_bars(
                         raw_slots[i] = _build_one_tau_panel(items[i], **kw)
                     items[i].pop("minute_bars", None)
                     done_n += 1
-                    if done_n == 1 or done_n % 8 == 0 or done_n >= n_jobs:
+                    if done_n == 1 or done_n % 2 == 0 or done_n >= n_jobs:
                         _emit(done_n)
                 if pool_broken:
                     logger.exception(
@@ -500,7 +500,7 @@ def build_tau_panels_from_bars(
                         raw_slots[j] = _build_one_tau_panel(items[j], **kw)
                         items[j].pop("minute_bars", None)
                         done_n += 1
-                        if done_n == 1 or done_n % 8 == 0 or done_n >= n_jobs:
+                        if done_n == 1 or done_n % 2 == 0 or done_n >= n_jobs:
                             _emit(done_n)
                     return
                 while next_i < end and len(inflight) < n_workers:

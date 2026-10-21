@@ -25,7 +25,7 @@
 ### 1.2 目标
 
 1. **一次物化、三处消费**：训练 / 回测 / live 读同一套 L1 特征行与 L2 日截面统计。  
-2. **增量优先**：日线 topup 只追加末几根时，只重算尾窗决策日，禁止常态「整票推倒」。  
+2. **增量优先**：日线 topup 只追加末几根时只重算尾窗；lookback 变长且旧窗是新 bars 后缀时只补更早日期；禁止常态「整票推倒」。  
 3. **单遍截面 ŷ**：池齐后用 DayCube μ/σ 打 z 再 predict；调仓扫池可先只抽特征。  
 4. **口径可审计**：截面宇宙绑 `universe_hash`；主头 / `zscore_universe=pool` 时 tier / `tradable_codes` 只挡写分与开仓、不缩小 z 池；排序头 `tier_a` 先缩 A 再算 z（见 oo/tc_rank）。  
 5. **可回滚**：环境变量关断即回旧路径，无需删库。
@@ -153,24 +153,28 @@ API 要点：
 
 ## 4. 增量与失效
 
-### 4.1 尾窗增量（`incremental_panel.py`）
+### 4.1 尾窗增量与历史前缀（`incremental_panel.py`）
 
 panel meta 额外写入：
 
 - `bars_fp`：当前全窗 bars 指纹  
 - `stem_fp`：去掉末根后的指纹  
 - `end_date`：末根日期  
+- `n_bars`：写入时 bars 根数（后缀匹配提示）
 
-判定 `tail_append_days`：
+判定顺序：`tail_append_days` → 不成再 `history_extend_prefix_bars`：
 
 | 情况 | 返回 | 行为 |
 |------|------|------|
-| `fingerprint(bars[:-1]) == meta.bars_fp` | k=1（可推广到 ≤16） | 尾窗 `keep_dates` 重算 + merge |
+| `fingerprint(bars[:-k]) == meta.bars_fp` | k≤16 | 尾窗 `keep_dates` 重算 + merge |
 | `fingerprint(bars[:-1]) == meta.stem_fp` | 0 | 仅改末根，同样修尾 |
-| 中间根变化 / 复权 | `None` | 全量 collect |
+| `fingerprint(bars[i:]) == meta.bars_fp` 且 `i>0` | 前缀根数 | 只算更早决策日（+接合 pad）再 overlay merge |
+| 中间根变化 / 复权 / 口径变 | `None` | 全量 collect |
 
 已接线：**oo / τc(open) / co / oo_rank**。  
 `collect_*` 支持 `keep_dates`（oo 原有；τc open / co 已补）。
+
+`write_stock_panel`：若盘上已有更长且同末日的真后缀面板，拒绝用短窗覆盖（防 lookback 误缩写穿）。
 
 ### 4.2 bars topup 失效与 L2 回收
 
@@ -179,6 +183,8 @@ panel meta 额外写入：
 删 L1 之前先读出该票各 family 的日期。这些日期在当前 schema 的每个宇宙、每个钟上的立方一并删除（`.npz` 与 `.meta.json`），并清掉进程内立方缓存。某个 family 读失败时，已经读到的日期照样作废；一个日期都读不到时，当前 schema 下的立方全部作废。schema 不符或缺少 meta 时仍从 ``.npz`` 读日期。删除只碰立方根目录里面的 `YYYY-MM-DD` 文件，符号链接只摘掉链接本身。
 
 只有物化写入里的 L1 写穿（`write_stock_panel` / `upsert_tail`）会在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。回测和拟合不写生产湖，也不拆立方。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时删一次盘，接着跑的 L2 会把缺的日期建回来。
+
+**线程池**：`ThreadPoolExecutor` 不复制 contextvar。批次除 `_BATCH` 外再挂进程内 `_ACTIVE_BATCH`，工作线程 `note_stale_dates` 只攒不删。`drop_dates` 对大批日期先 `listdir` 再 `unlink`（缺失直接跳过，不做双 `lstat`）。
 
 冷目录回收 `prune_cold` 发生在 `invalidate_l1_many` 之后，以及 `materialize_l2` 成功结束之后。保留观察池读取名单和拟合名单的 `universe_hash`；这次物化若用了另一份不少于 2 只的 `codes`，该哈希也保留到本轮结束。其余宇宙目录，以及 `v{FEATURE_SCHEMA}` 以外的版本目录，整棵删除。观察池或拟合名单读取抛错、或两边都不足 2 只时，不回收冷目录。任务取消或 L2 未成功时不回收。作废指定日期只丢掉这些日期的进程内立方。
 
@@ -428,7 +434,8 @@ rm -rf data/cache/feature_lake data/cache/day_cubes
 
 - 调仓与训练 ŷ 不一致：检查是否同 `universe_hash`、是否 `cross_section` 模型、是否误关 `BATCH_SCORE`、是否只开了 `FIT_USE_DAY_CUBE` 未重拟合。  
 - 回测未命中 L1：看日志 `replay open day lake hits=… miss=…`；确认 family 与决策日对齐。  
-- 增量未触发：中间 bar 被复权改写 → 预期全量；看 meta 是否有 `bars_fp`/`stem_fp`（旧分片无 stem 时需先全量写一次）。  
+- 增量未触发：中间 bar 被复权改写 → 预期全量；看 meta 是否有 `bars_fp`/`stem_fp`/`n_bars`（旧分片无 stem 时需先全量写一次）。短窗→长窗应走历史前缀；若仍全量，核对末日是否一致、旧 `bars_fp` 是否为新 bars 后缀。
+- 物化仍每票扫盘作废：确认在 `l2_invalidation_batch` 内，且进程已加载含 `_ACTIVE_BATCH` 的版本（线程池不复制 contextvar）。  
 - 拟合 Cube miss 全回退矩阵：先物化 open（及所需 τ 钟）；确认 `QUANTLAB_DAY_CUBE` 未关、宇宙 hash 与 watching 一致。
 
 ### 10.4 磁盘

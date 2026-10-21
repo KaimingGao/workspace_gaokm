@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import Any, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 # 特征注册 / collect_* 语义变更时人工 +1 → 全池 fingerprint miss
 # v2：τc 改为矩阵+slim；v3：指纹覆盖窗内每一根价量
@@ -42,6 +42,72 @@ def bars_fingerprint(
     if mb:
         parts.extend(_minute_bar_crumb(b) for b in mb)
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def find_bars_suffix_start(
+    bars: Optional[Sequence[dict]],
+    old_fp: str,
+    *,
+    hint_lens: Optional[Sequence[int]] = None,
+) -> Optional[int]:
+    """若 ``old_fp`` 等于 ``bars[i:]`` 的指纹且 ``i>0``，返回 ``i``（前面多出来的历史根数）。
+
+    先试 ``hint_lens`` / 常见 lookback，再全扫。带分钟线的窗口不走后缀扩展。
+    """
+    target = str(old_fp or "").strip()
+    if not target:
+        return None
+    seq = [b for b in (bars or []) if isinstance(b, dict)]
+    n = len(seq)
+    if n < 3:
+        return None
+    crumbs = [_daily_bar_crumb(b) for b in seq]
+
+    def _fp_from(i: int) -> str:
+        if i >= n:
+            return hashlib.sha1(b"empty").hexdigest()[:16]
+        return hashlib.sha1("|".join(crumbs[i:]).encode("utf-8")).hexdigest()[:16]
+
+    tried = set()
+    candidates: List[int] = []
+    for raw in hint_lens or ():
+        try:
+            L = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if L > 0:
+            candidates.append(L)
+    candidates.extend(
+        [
+            60,
+            61,
+            62,
+            63,
+            80,
+            120,
+            250,
+            500,
+            750,
+            999,
+            1000,
+            1001,
+            n - 1,
+        ]
+    )
+    for L in candidates:
+        if L < 2 or L >= n or L in tried:
+            continue
+        tried.add(L)
+        i = n - L
+        if i > 0 and _fp_from(i) == target:
+            return i
+    for i in range(1, n - 1):
+        L = n - i
+        if L in tried:
+            continue
+        if _fp_from(i) == target:
+            return i
+    return None
 
 
 def make_fingerprint(*, bars_fp: str, **kwargs: Any) -> str:

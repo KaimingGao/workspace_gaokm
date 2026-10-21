@@ -272,6 +272,37 @@ class TestDayCubeGc(unittest.TestCase):
         self.assertEqual(unlink.call_count, 2)
         self.assertFalse(self._on_disk("2024-09-01", ["a", "b"], "open"))
 
+    def test_batch_visible_to_thread_pool_workers(self) -> None:
+        """ThreadPool 看不到 contextvar；_ACTIVE_BATCH 须让工作线程只攒不删。"""
+        from concurrent.futures import ThreadPoolExecutor
+
+        from core.research.day_cube_gc import l2_invalidation_batch, note_stale_dates
+
+        self._save("2024-09-11", ["a", "b"], "open")
+        results = []
+
+        def _note(_i: int) -> None:
+            results.append(note_stale_dates(["2024-09-11"]))
+
+        with mock.patch("core.research.day_cube_gc.os.unlink", wraps=os.unlink) as unlink:
+            with l2_invalidation_batch():
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    list(pool.map(_note, range(40)))
+            self.assertEqual(unlink.call_count, 2)
+        self.assertTrue(results)
+        self.assertTrue(all(r.get("batched") for r in results))
+        self.assertFalse(self._on_disk("2024-09-11", ["a", "b"], "open"))
+
+    def test_drop_dates_listdir_skips_missing(self) -> None:
+        from core.research.day_cube_gc import drop_dates
+
+        self._save("2024-09-20", ["a", "b"], "open")
+        # 大批日期走 listdir 索引；绝大多数不存在，不应炸
+        days = [f"2020-01-{i:02d}" for i in range(1, 32)] + ["2024-09-20"]
+        out = drop_dates(days)
+        self.assertGreaterEqual(out["files_removed"], 1)
+        self.assertFalse(self._on_disk("2024-09-20", ["a", "b"], "open"))
+
     def test_gc_off_keeps_files(self) -> None:
         from core.research.day_cube_gc import drop_dates
 

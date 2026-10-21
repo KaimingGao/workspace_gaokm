@@ -867,7 +867,7 @@ def collect_tau_grid_panels(
         if (
             processed == 1
             or processed >= n_jobs
-            or processed % 8 == 0
+            or processed % 2 == 0
             or processed % _TAU_POOL_BATCH == 0
         ):
             try:
@@ -1168,7 +1168,7 @@ def collect_tau_compact(
         if (
             processed == 1
             or processed >= n_jobs
-            or processed % 8 == 0
+            or processed % 2 == 0
             or processed % _TAU_POOL_BATCH == 0
         ):
             try:
@@ -1659,7 +1659,7 @@ def collect_co_compact(
         if (
             processed == 1
             or processed >= n_jobs
-            or processed % 8 == 0
+            or processed % 2 == 0
             or processed % _CO_POOL_BATCH == 0
         ):
             try:

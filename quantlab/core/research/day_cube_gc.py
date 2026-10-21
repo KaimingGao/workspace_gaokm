@@ -26,6 +26,8 @@ _BATCH: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVa
     "l2_drop_batch",
     default=None,
 )
+# 线程池不复制 contextvar；物化 batch 再挂一份进程内引用，工作线程也能只攒不删。
+_ACTIVE_BATCH: Optional[Dict[str, Any]] = None
 _LOCK = threading.Lock()
 
 
@@ -168,21 +170,15 @@ def _date_from_filename(name: str) -> Optional[str]:
 
 
 def _unlink_file(path: str) -> bool:
-    if os.path.islink(path):
-        try:
-            os.unlink(path)
-            return True
-        except OSError:
-            logger.warning("day cube gc unlink link failed %s", path, exc_info=True)
-            return False
-    if not os.path.isfile(path):
-        return False
+    """直接 unlink；缺失视为已无。避免先 islink/isfile 的双 lstat。"""
     try:
         os.unlink(path)
+        return True
+    except FileNotFoundError:
+        return False
     except OSError:
         logger.warning("day cube gc unlink failed %s", path, exc_info=True)
         return False
-    return True
 
 
 def _remove_old_tmp(clock_dir: str) -> None:
@@ -300,7 +296,10 @@ def _remove_tree(path: str, root: str) -> bool:
 
 
 def drop_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, int]:
-    """删当前 schema 下这些日期的立方。同一天在每个宇宙、每个钟各删一次。"""
+    """删当前 schema 下这些日期的立方。同一天在每个宇宙、每个钟各删一次。
+
+    日期很多时先 ``listdir`` 再删，避免对不存在路径发起海量 syscall。
+    """
     if not gc_enabled():
         return {"dates_dropped": 0, "files_removed": 0}
     wanted = _normalize_dates(dates)
@@ -309,9 +308,20 @@ def drop_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, int]:
     schema_root = os.path.join(_cube_root(), _schema_name())
     removed_days: Set[str] = set()
     files = 0
+    use_index = len(wanted) >= 32
     for clock_dir in _clock_dirs(schema_root):
+        present: Optional[Set[str]] = None
+        if use_index:
+            try:
+                present = set(os.listdir(clock_dir))
+            except OSError:
+                logger.warning("day cube gc listdir failed %s", clock_dir, exc_info=True)
+                present = set()
         for day in wanted:
             for suffix in (".npz", ".meta.json"):
+                name = day + suffix
+                if present is not None and name not in present:
+                    continue
                 path = _cube_file(clock_dir, day, suffix)
                 if path and _unlink_file(path):
                     files += 1
@@ -461,6 +471,14 @@ def prune_cold(
     }
 
 
+def _current_batch() -> Optional[Dict[str, Any]]:
+    """contextvar 优先，否则用进程内 ``_ACTIVE_BATCH``（线程池可见）。"""
+    bucket = _BATCH.get()
+    if bucket is not None:
+        return bucket
+    return _ACTIVE_BATCH
+
+
 def note_stale_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, Any]:
     """批次内只累积；批次外立即删。"""
     if not gc_enabled():
@@ -469,7 +487,7 @@ def note_stale_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, Any]:
     if not cleaned:
         return {"dates_dropped": 0, "files_removed": 0}
     with _LOCK:
-        bucket = _BATCH.get()
+        bucket = _current_batch()
         if bucket is not None:
             bucket["dates"].update(cleaned)
             return {"batched": True, "dates": len(cleaned)}
@@ -481,7 +499,7 @@ def note_all_dates() -> Dict[str, Any]:
     if not gc_enabled():
         return {"enabled": False, "dates_dropped": 0, "files_removed": 0}
     with _LOCK:
-        bucket = _BATCH.get()
+        bucket = _current_batch()
         if bucket is not None:
             bucket["all_dates"] = True
             return {"batched": True, "all_dates": True}
@@ -503,8 +521,13 @@ def _flush_bucket(bucket: Dict[str, Any]) -> Dict[str, int]:
 
 @contextmanager
 def l2_invalidation_batch() -> Iterator[Dict[str, Any]]:
-    """物化整段 L1 时合并日期，退出时删一次盘。嵌套调用交给外层 flush。"""
-    outer = _BATCH.get()
+    """物化整段 L1 时合并日期，退出时删一次盘。嵌套调用交给外层 flush。
+
+    同时写入 ``_ACTIVE_BATCH``，供 ThreadPool 工作线程 ``note_stale_dates`` 攒批
+    （contextvar 不会随 ``ThreadPoolExecutor`` 复制到子线程）。
+    """
+    global _ACTIVE_BATCH
+    outer = _current_batch()
     if outer is not None:
         yield outer
         return
@@ -515,6 +538,8 @@ def l2_invalidation_batch() -> Iterator[Dict[str, Any]]:
         "files_removed": 0,
     }
     token = _BATCH.set(bucket)
+    with _LOCK:
+        _ACTIVE_BATCH = bucket
     try:
         yield bucket
     finally:
@@ -531,5 +556,8 @@ def l2_invalidation_batch() -> Iterator[Dict[str, Any]]:
             logger.warning("l2 invalidation flush failed", exc_info=True)
             stats = {"dates_dropped": 0, "files_removed": 0}
         finally:
+            with _LOCK:
+                if _ACTIVE_BATCH is bucket:
+                    _ACTIVE_BATCH = None
             _BATCH.reset(token)
         bucket.update(stats)

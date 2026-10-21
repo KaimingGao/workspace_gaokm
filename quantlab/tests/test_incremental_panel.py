@@ -134,6 +134,99 @@ class TestIncrementalPanel(unittest.TestCase):
         np.testing.assert_allclose(y, [0.1, 0.2, 3.0, 4.0])
         self.assertEqual(names, ["f"])
 
+    def test_merge_matrix_rows_keep_after(self) -> None:
+        from core.research.incremental_panel import merge_matrix_rows
+
+        old_X = np.asarray([[1.0], [2.0], [3.0], [4.0]])
+        old_y = np.asarray([0.1, 0.2, 0.3, 0.4])
+        new_X = np.asarray([[10.0], [20.0], [30.0]])
+        new_y = np.asarray([1.0, 2.0, 3.0])
+        X, y, _names, dates = merge_matrix_rows(
+            old_X,
+            old_y,
+            ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
+            ["f"],
+            new_X,
+            new_y,
+            ["2023-12-30", "2023-12-31", "2024-01-01"],
+            ["f"],
+            keep_after="2024-01-01",
+        )
+        self.assertEqual(
+            dates,
+            ["2023-12-30", "2023-12-31", "2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
+        )
+        np.testing.assert_allclose(X.ravel(), [10.0, 20.0, 30.0, 2.0, 3.0, 4.0])
+        np.testing.assert_allclose(y, [1.0, 2.0, 3.0, 0.2, 0.3, 0.4])
+
+    def test_history_extend_merges_prefix(self) -> None:
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import stem_extra_meta, try_incremental_merge
+        from core.research.lake_bridge import FAMILY_OO
+        from core.research.panel_fingerprint import make_fingerprint
+
+        short = _bars(40)
+        meta = stem_extra_meta(short)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1)
+        old_dates = [str(b["date"])[:10] for b in short[-10:]]
+        write_stock_panel(
+            FAMILY_OO,
+            "000001",
+            dates=old_dates,
+            X=np.asarray([[float(i)] for i in range(len(old_dates))]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([0.01 * i for i in range(len(old_dates))]),
+            extra_meta=meta,
+        )
+        # 前面多 20 根：旧 bars 是新 bars 的后缀
+        prefix = []
+        for i in range(20):
+            prefix.append(
+                {
+                    "date": f"2023-12-{(i % 28) + 1:02d}",
+                    "open": 8.0 + i * 0.01,
+                    "high": 8.1 + i * 0.01,
+                    "low": 7.9 + i * 0.01,
+                    "close": 8.05 + i * 0.01,
+                    "volume": 500_000 + i,
+                }
+            )
+        longer = prefix + list(short)
+        seen = []
+
+        def _tail(keep):
+            seen.append(list(keep))
+            # 只交回 keep 里相对旧首日更早的几天
+            early = [d for d in keep if d < old_dates[0]][:3]
+            if not early:
+                early = [keep[0]]
+            return (
+                np.asarray([[100.0 + i] for i in range(len(early))]),
+                np.asarray([1.0 + i * 0.1 for i in range(len(early))]),
+                ["f"],
+                early,
+            )
+
+        def _spec(bars_fp: str) -> str:
+            return make_fingerprint(bars_fp=bars_fp, horizon=1)
+
+        merged = try_incremental_merge(
+            "000001",
+            longer,
+            pad=4,
+            collect_tail=_tail,
+            family=FAMILY_OO,
+            spec_fp=_spec,
+        )
+        self.assertIsNotNone(merged)
+        assert merged is not None
+        _x, _y, _names, dates = merged
+        self.assertTrue(seen)
+        self.assertLess(dates[0], old_dates[0])
+        self.assertEqual(dates[-1], old_dates[-1])
+        self.assertGreater(len(dates), len(old_dates))
+
     def test_fingerprint_mismatch_skips_merge(self) -> None:
         from core.research.feature_lake import write_stock_panel
         from core.research.incremental_panel import stem_extra_meta, try_incremental_merge
@@ -305,14 +398,16 @@ class TestIncrementalPanel(unittest.TestCase):
     def test_oo_stock_job_incremental_tail(self) -> None:
         from core.research.feature_lake import load_stock_panel
         from core.research.lake_bridge import FAMILY_OO
+        from core.research.materialize.consumer import materialize_writer
         from core.research.oo_ridge_compact import _oo_stock_job
         from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
 
         bars = _bars(90, seed=3)
         code = "600123"
         horizon = 1
-        # 全量写一次 → L1（不再双写 panel）
-        x0, y0, names0, dates0 = _oo_stock_job((code, bars, horizon, False))
+        # 全量写一次 → L1（sync 仅在物化写入上下文落盘）
+        with materialize_writer():
+            x0, y0, names0, dates0 = _oo_stock_job((code, bars, horizon, False))
         self.assertGreater(len(dates0), 10)
         fp0 = make_fingerprint(
             bars_fp=bars_fingerprint(bars),
@@ -336,7 +431,8 @@ class TestIncrementalPanel(unittest.TestCase):
                 "volume": 3_000_000,
             }
         )
-        x1, y1, names1, dates1 = _oo_stock_job((code, bars2, horizon, False))
+        with materialize_writer():
+            x1, y1, names1, dates1 = _oo_stock_job((code, bars2, horizon, False))
         self.assertEqual(names0, names1)
         self.assertGreaterEqual(len(dates1), len(dates0))
         self.assertTrue(set(dates0).issubset(set(dates1)) or dates1[-1] >= dates0[-1])

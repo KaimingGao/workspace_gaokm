@@ -193,6 +193,18 @@ def _note_l2_stale(
         logger.warning("note l2 stale dates failed", exc_info=True)
 
 
+def _is_shorter_suffix_panel(
+    old_dates: Sequence[str],
+    new_dates: Sequence[str],
+) -> bool:
+    """新面板是旧面板的真后缀（同末日、更短窗）→ 禁止短窗盖长窗。"""
+    old = [str(d)[:10] for d in old_dates if len(str(d)[:10]) >= 10]
+    new = [str(d)[:10] for d in new_dates if len(str(d)[:10]) >= 10]
+    if not old or not new or len(new) >= len(old):
+        return False
+    return old[-len(new) :] == new
+
+
 def write_stock_panel(
     family: str,
     code: str,
@@ -207,6 +219,7 @@ def write_stock_panel(
     """整票覆盖写入。行数必须与 dates 对齐。
 
     ``extra_meta`` 可带 ``bars_fp`` / ``stem_fp`` / ``end_date``（尾窗增量）。
+    若盘上已有更长且同后缀的面板，拒绝用短窗覆盖（返回 True，保留长窗）。
     """
     if not enabled() or not code:
         return False
@@ -223,14 +236,26 @@ def write_stock_panel(
             return False
     paths = _paths(family, code)
     track_l2 = _l2_tracking()
-    old_meta = _read_json(paths["meta"]) if track_l2 else None
+    old_meta = _read_json(paths["meta"])
     old_pack = None
     old_dates: Optional[Set[str]] = None
-    if track_l2 and not _lake_identity_same(old_meta, fingerprint, extra_meta):
-        if isinstance(old_meta, dict):
-            old_pack = load_stock_panel(family, code, fingerprint=None)
-        if old_pack is None:
-            _, old_dates = peek_stock_dates(family, code)
+    identity_same = _lake_identity_same(old_meta, fingerprint, extra_meta)
+    need_old = (track_l2 and not identity_same) or bool(old_meta)
+    if need_old and isinstance(old_meta, dict):
+        old_pack = load_stock_panel(family, code, fingerprint=None)
+    if old_pack is not None:
+        prev_dates = [str(d)[:10] for d in (old_pack.get("dates") or [])]
+        if _is_shorter_suffix_panel(prev_dates, date_list):
+            logger.info(
+                "feature lake keep longer panel family=%s code=%s old_rows=%s new_rows=%s",
+                family,
+                code,
+                len(prev_dates),
+                len(date_list),
+            )
+            return True
+    if track_l2 and not identity_same and old_pack is None:
+        _, old_dates = peek_stock_dates(family, code)
     os.makedirs(paths["dir"], exist_ok=True)
     try:
         payload: Dict[str, Any] = {

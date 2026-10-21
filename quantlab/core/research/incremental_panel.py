@@ -1,6 +1,7 @@
-"""面板尾窗增量：仅末根（或末几根）变化时，用 keep_dates 重算并 merge。
+"""面板尾窗 / 历史前缀增量：末根变化修尾；更长 lookback 只补更早日期。
 
 典型路径：日线 topup 只追加 1 日 → stem_fp 不变 → 只重算尾部决策日。
+短窗湖 + 更长 bars 且旧窗是新 bars 的后缀 → 只重算更早决策日并 merge。
 中间复权改写会使 stem miss → 全量重算（与 invalidate_l1 一致）。
 """
 
@@ -126,10 +127,17 @@ def merge_matrix_rows(
     new_dates: Sequence[str],
     new_names: Sequence[str],
     *,
-    keep_from: str,
+    keep_from: str = "",
+    keep_after: str = "",
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
-    """保留 ``date < keep_from`` 的旧行，再拼新块（按日去重，新覆盖旧）。"""
-    cut = str(keep_from or "")[:10]
+    """按日 merge：新块覆盖旧行。
+
+    - ``keep_from``：保留 ``date < keep_from`` 的旧行（尾窗追加）。
+    - ``keep_after``：保留 ``date > keep_after`` 的旧行（历史前缀扩展）。
+    两者都空则旧行全保留后再被新块覆盖。
+    """
+    cut_from = str(keep_from or "")[:10]
+    cut_after = str(keep_after or "")[:10]
     name_list = [str(n) for n in new_names] if new_names else [str(n) for n in old_names]
     old_name_list = [str(n) for n in old_names]
 
@@ -150,7 +158,9 @@ def merge_matrix_rows(
     ox = _align(old_X, old_name_list)
     for i, d in enumerate(old_dates):
         ds = str(d)[:10]
-        if cut and ds >= cut:
+        if cut_from and ds >= cut_from:
+            continue
+        if cut_after and ds <= cut_after:
             continue
         if i < ox.shape[0]:
             by_x[ds] = ox[i]
@@ -174,6 +184,57 @@ def merge_matrix_rows(
     return X_m, y_m, name_list, ordered
 
 
+def history_extend_prefix_bars(
+    bars: Sequence[dict],
+    meta: Optional[Dict[str, Any]],
+) -> Optional[int]:
+    """旧 ``bars_fp`` 是新 bars 的真后缀时，返回前面多出的根数；否则 None。"""
+    if not isinstance(meta, dict):
+        return None
+    old_full = str(meta.get("bars_fp") or "")
+    if not old_full:
+        return None
+    end = str(meta.get("end_date") or "")[:10]
+    if end and bar_end_date(bars) != end:
+        return None
+    hints: List[int] = []
+    for key in ("n_bars", "n_rows"):
+        try:
+            v = int(meta.get(key) or 0)
+        except (TypeError, ValueError):
+            v = 0
+        if v > 0:
+            hints.append(v)
+            for pad in (1, 2, 5, 10, 20, 40, 61, 80, 100, 120):
+                hints.append(v + pad)
+    from core.research.panel_fingerprint import find_bars_suffix_start
+
+    return find_bars_suffix_start(bars, old_full, hint_lens=hints)
+
+
+def history_keep_dates(
+    old_dates: Sequence[str],
+    bars: Sequence[dict],
+    *,
+    pad: int = DEFAULT_TAIL_PAD,
+) -> List[str]:
+    """历史扩展要重算的决策日：新前缀 + 切入旧窗的 pad 根。"""
+    old_first = str(old_dates[0])[:10] if old_dates else ""
+    bar_dates = [
+        str(b.get("date") or b.get("trade_date") or "")[:10]
+        for b in (bars or [])
+        if isinstance(b, dict)
+    ]
+    bar_dates = [d for d in bar_dates if len(d) >= 10]
+    if not bar_dates:
+        return []
+    if old_first and old_first in bar_dates:
+        idx = bar_dates.index(old_first)
+        end = min(len(bar_dates), idx + max(1, int(pad)) + 1)
+        return list(dict.fromkeys(bar_dates[:end]))
+    return list(dict.fromkeys(bar_dates))
+
+
 def lake_row_covers_bar_end(
     dates: Sequence[str],
     bars: Sequence[dict],
@@ -189,16 +250,18 @@ def lake_row_covers_bar_end(
     return str((meta or {}).get("scored_through") or "")[:10] == end
 
 
-def stem_extra_meta(bars: Sequence[dict]) -> Dict[str, str]:
-    """写入 bars_fp / stem_fp / end_date / scored_through，供下次增量判断。"""
+def stem_extra_meta(bars: Sequence[dict]) -> Dict[str, Any]:
+    """写入 bars_fp / stem_fp / end_date / scored_through / n_bars，供下次增量判断。"""
     from core.research.panel_fingerprint import bars_fingerprint
 
-    end = bar_end_date(bars)
+    seq = [b for b in (bars or []) if isinstance(b, dict)]
+    end = bar_end_date(seq)
     return {
-        "bars_fp": bars_fingerprint(bars),
-        "stem_fp": stem_bars_fingerprint(bars),
+        "bars_fp": bars_fingerprint(seq),
+        "stem_fp": stem_bars_fingerprint(seq),
         "end_date": end,
         "scored_through": end,
+        "n_bars": int(len(seq)),
     }
 
 
@@ -212,11 +275,11 @@ def try_incremental_merge(
     max_new: int = 16,
     spec_fp: Callable[[str], str],
 ) -> Optional[Tuple[np.ndarray, np.ndarray, List[str], List[str]]]:
-    """尾部追加/改末根时调用 ``collect_tail(keep_dates)`` 并与 L1 旧矩阵 merge；否则 None。
+    """尾部追加或历史前缀扩展时 ``collect_tail(keep_dates)`` 并与 L1 旧矩阵 merge；否则 None。
 
     ``spec_fp`` 接收湖里的旧 ``bars_fp``，按本次口径重算指纹。
-    重算结果与已存指纹不同（超额、更长窗口、换钟）则整票重算。
-    日线只是追加时，旧 ``bars_fp`` 重算仍等于已存指纹，尾窗继续。
+    口径变了（换钟 / schema 等）则整票重算。更长 lookback 且旧窗是新 bars
+    后缀时走历史扩展，不再整票推倒。
     """
     if not family:
         return None
@@ -239,6 +302,12 @@ def try_incremental_merge(
         logger.debug("incremental lake shape mismatch code=%s", code)
         return None
     meta = prev.get("_meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    # load 时 meta 可能缺 n_rows；用面板行数作后缀长度提示
+    if "n_rows" not in meta:
+        meta = dict(meta)
+        meta["n_rows"] = int(old_x.shape[0])
     stored_fp = str(meta.get("fingerprint") or "")
     stored_bars = str(meta.get("bars_fp") or "")
     try:
@@ -250,12 +319,22 @@ def try_incremental_merge(
         return None
     if not stored_bars or fresh != stored_fp:
         return None
-    n_new = tail_append_days(bars, prev.get("_meta"), max_new=max_new)
-    if n_new is None:
-        return None
-    # 新增越多，尾窗 pad 略放大
-    eff_pad = int(pad) + max(0, int(n_new) - 1) * 2
-    keep = tail_keep_dates(old_dates, bars, pad=eff_pad)
+    n_new = tail_append_days(bars, meta, max_new=max_new)
+    mode = "tail"
+    keep: List[str] = []
+    keep_from = ""
+    if n_new is not None:
+        eff_pad = int(pad) + max(0, int(n_new) - 1) * 2
+        keep = tail_keep_dates(old_dates, bars, pad=eff_pad)
+        if keep:
+            keep_from = min(keep)
+    else:
+        prefix_n = history_extend_prefix_bars(bars, meta)
+        if prefix_n is None or int(prefix_n) <= 0:
+            return None
+        mode = "history"
+        keep = history_keep_dates(old_dates, bars, pad=int(pad))
+        # 历史扩展：旧行全留，新块按日覆盖（前缀 + 接合 pad）；不砍掉未重算的旧日
     if not keep:
         return None
     try:
@@ -263,18 +342,23 @@ def try_incremental_merge(
     except MaterializeRequired:
         raise
     except Exception:  # noqa: BLE001
-        logger.debug("incremental collect_tail failed code=%s", code, exc_info=True)
+        logger.debug(
+            "incremental collect_tail failed code=%s mode=%s",
+            code,
+            mode,
+            exc_info=True,
+        )
         return None
     if nx is None or int(getattr(nx, "shape", (0,))[0] or 0) <= 0:
-        # 尾窗无新决策日：直接返回旧矩阵（仍会用新 fp 重写）
-        return old_x, old_y, list(prev.get("names") or []), old_dates
+        if mode == "tail":
+            return old_x, old_y, list(prev.get("names") or []), old_dates
+        return None
     nx = np.asarray(nx, dtype=np.float64)
     ny = np.asarray(ny, dtype=np.float64)
     ndates = [str(d)[:10] for d in (ndates or [])]
     if nx.ndim != 2 or ny.ndim != 1 or nx.shape[0] != ny.shape[0] or len(ndates) != nx.shape[0]:
-        logger.debug("incremental tail shape mismatch code=%s", code)
+        logger.debug("incremental tail shape mismatch code=%s mode=%s", code, mode)
         return None
-    keep_from = min(keep)
     return merge_matrix_rows(
         old_x,
         old_y,

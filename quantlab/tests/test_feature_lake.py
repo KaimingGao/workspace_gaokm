@@ -70,6 +70,39 @@ class TestFeatureLake(unittest.TestCase):
         self.assertIsNone(load_stock_panel("oo", "600001", fingerprint="bbb"))
         self.assertIsNotNone(load_stock_panel("oo", "600001", fingerprint="aaa"))
 
+    def test_refuse_shorter_suffix_overwrite(self) -> None:
+        from core.research.feature_lake import load_stock_panel, write_stock_panel
+
+        long_dates = [f"2024-01-{d:02d}" for d in range(1, 11)]
+        write_stock_panel(
+            "tc",
+            "000010",
+            dates=long_dates,
+            X=np.asarray([[float(i)] for i in range(10)]),
+            names=["f"],
+            fingerprint="long-fp",
+            y=np.asarray([0.1 * i for i in range(10)]),
+            extra_meta={"bars_fp": "long-bars", "end_date": long_dates[-1]},
+        )
+        short_dates = long_dates[-4:]
+        ok = write_stock_panel(
+            "tc",
+            "000010",
+            dates=short_dates,
+            X=np.asarray([[99.0], [99.0], [99.0], [99.0]]),
+            names=["f"],
+            fingerprint="short-fp",
+            y=np.asarray([9.0, 9.0, 9.0, 9.0]),
+            extra_meta={"bars_fp": "short-bars", "end_date": short_dates[-1]},
+        )
+        self.assertTrue(ok)
+        hit = load_stock_panel("tc", "000010", fingerprint=None)
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertEqual(hit["dates"], long_dates)
+        self.assertEqual(hit.get("_meta", {}).get("fingerprint"), "long-fp")
+        np.testing.assert_allclose(hit["X"].ravel()[0], 0.0)
+
     def test_load_day_rows(self) -> None:
         from core.research.feature_lake import load_day_rows, write_stock_panel
 
