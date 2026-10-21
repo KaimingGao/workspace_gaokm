@@ -235,7 +235,6 @@ def _run_materialize(
             dates=dates,
             clocks=clks,
             lookback_days=l2_lb,
-            use_trading_days=not dates,
             progress_cb=_pcb2,
             cancel_cb=cancel_cb,
             require_horizon_names=bool(do_l1_tau_grid),

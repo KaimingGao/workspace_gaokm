@@ -202,6 +202,30 @@ class TestAssembleUsesL1(unittest.TestCase):
             assert pack_rank2 is not None
             np.testing.assert_allclose(pack_rank[1], pack_rank2[1])
 
+    def test_short_tc_series_skips_without_l1(self) -> None:
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
+        from core.research.panel_matrix import _tau_stock_job
+
+        bars = _bars__panel_fingerprint(57, 10.0, 3)
+        with materialized_consumer():
+            try:
+                pack = _tau_stock_job(
+                    {"code": "688825", "bars": bars},
+                    ["gap_pct"],
+                    (),
+                    use_minute=False,
+                    tau_hm="open",
+                    grid=None,
+                    min_history=12,
+                    include_alpha_tc=True,
+                )
+            except MaterializeRequired as exc:
+                self.fail(str(exc))
+        self.assertIsNone(pack)
+
 
 # --- from test_panel_matrix.py ---
 def _bars__panel_matrix(n: int = 40, start: float = 10.0, seed: int = 0):

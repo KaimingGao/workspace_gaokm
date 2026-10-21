@@ -92,21 +92,14 @@ def _iter_code_bars(items: Sequence[Any]):
         yield code, bars
 
 
-def _codes_dates(items: Sequence[Any]) -> Tuple[List[str], List[str]]:
+def _codes(items: Sequence[Any]) -> List[str]:
     codes: List[str] = []
     seen = set()
-    days: Set[str] = set()
-    for code, bars in _iter_code_bars(items):
+    for code, _bars in _iter_code_bars(items):
         if code and code not in seen:
             seen.add(code)
             codes.append(code)
-        for bar in bars or []:
-            if not isinstance(bar, dict):
-                continue
-            day = str(bar.get("date") or bar.get("trade_date") or "")[:10]
-            if len(day) >= 10:
-                days.add(day)
-    return codes, sorted(days)
+    return codes
 
 
 def scorable_bar_dates(
@@ -461,7 +454,7 @@ def enforce_consumer_coverage(
     # 经模块属性取开关：避免单测 patch consumer 时本模块绑死 MagicMock。
     if not _mat_consumer.consumer_read_only():
         return
-    code_probe, _all_dates = _codes_dates(items)
+    code_probe = _codes(items)
     need = cover_need(len(code_probe), frac=min_frac, minimum=2)
     codes, dates = scorable_bar_dates(
         items, min_history=min_history, min_names=need

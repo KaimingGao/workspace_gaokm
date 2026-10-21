@@ -3540,12 +3540,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
             suggest_nl.find("refreshReturnModelStatus({ justFitted: true })"),
         )
         self.assertIn("草稿已更新 · 可启用研究（验证后再晋级执行）", suggest)
-        self.assertIn("function ooFitBusyHint", suggest)
-        self.assertIn("ŷ_oo… ${fmtOoFitSec(s)} · ${ooFitBusyHint(s)}", suggest)
-        self.assertIn("排队 / 读日线或分钟缓存", suggest)
-        self.assertIn("组因子面板（满池数百只可能十余分钟）", suggest)
-        self.assertIn("Ridge + Holdout OOS（满池 600 只常需半小时级）", suggest)
-        self.assertIn("超过 40 分钟仍可能在算，请勿重复点", suggest)
+        self.assertNotIn("function ooFitBusyHint", suggest)
+        self.assertIn("ŷ_oo… ${fmtOoFitSec(s)} · ${q.ridgeFitBusyHint(s)}", suggest)
+        self.assertIn("function ridgeFitBusyHint", js)
+        self.assertIn("q.ridgeFitBusyHint = ridgeFitBusyHint", js)
+        self.assertIn("排队 / 读日线或分钟缓存", js)
+        self.assertNotIn("排队 / 读日线或分钟缓存", suggest)
         self.assertNotIn("拉观察池日线 · 全程约 12–15 分钟", suggest)
         # 拟合进度 / 成败只写卡头 #quant-ols-summary，不刷页顶 #quant-meta
         self.assertIn("状态只写 ŷ_oo 卡头", suggest)

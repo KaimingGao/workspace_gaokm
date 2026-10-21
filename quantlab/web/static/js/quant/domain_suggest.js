@@ -347,12 +347,7 @@ export function installSuggest(q) {
   }
 
   function paintOoLikeRidge(data, extra = {}) {
-    const paint = q.paintRidgeEnableStatus;
-    if (typeof paint !== "function") {
-      paintOoStatus(extra);
-      return;
-    }
-    paint(els.quantOlsSummary, ooRidgeStatusPayload(data), {
+    q.paintRidgeEnableStatus(els.quantOlsSummary, ooRidgeStatusPayload(data), {
       omitTauEndBit: true,
       idleMessage: "拟合后看系数 · 再启用研究/执行",
       ...extra,
@@ -360,13 +355,7 @@ export function installSuggest(q) {
   }
 
   function ooFitErrorMessage(data, httpFallback) {
-    if (typeof q.formatHorizonFitErrorMessage === "function") {
-      return q.formatHorizonFitErrorMessage(data, "", httpFallback || "拟合失败");
-    }
-    return formatApiDetail(
-      data && (data.detail || data.error),
-      httpFallback || "拟合失败"
-    );
+    return q.formatHorizonFitErrorMessage(data, "", httpFallback || "拟合失败");
   }
 
   function _setOoPromoteEnabled(draftExists) {
@@ -389,20 +378,6 @@ export function installSuggest(q) {
         : () => {
             if (resultEl) resultEl.innerHTML = "";
           };
-    if (!data || !data.success) {
-      const detail = ooFitErrorMessage(data, "拟合失败");
-      paintOoStatus({
-        state: "error",
-        chip: "失败",
-        message: detail,
-        error: true,
-      });
-      if (resultEl) {
-        resultEl.innerHTML = `<p class="watching-table-empty">${escapeHtml(detail)}</p>`;
-      }
-      if (paintCoef) await paintCoef(null);
-      return;
-    }
     const draftOk = !!(data.draft && data.draft.success);
     const ols = data.ols || {};
     state.lastReturnModelFit = data;
@@ -520,15 +495,6 @@ export function installSuggest(q) {
     return `${m}分${String(s).padStart(2, "0")}秒`;
   }
 
-  function ooFitBusyHint(sec) {
-    const s = Number(sec) || 0;
-    // 与 ŷ_τc / ŷ_co 的 ridgeFitBusyHint 同句，避免 y_oo 自己一套倒计时文案
-    if (s < 8) return "排队 / 读日线或分钟缓存";
-    if (s < 90) return "组因子面板（满池数百只可能十余分钟）";
-    if (s < 20 * 60) return "Ridge + Holdout OOS（满池 600 只常需半小时级）";
-    return "仍在拟合 · 满池面板很大，超过 40 分钟仍可能在算，请勿重复点";
-  }
-
   async function runReturnModelFit() {
     const t0 = Date.now();
     let busyTimer = null;
@@ -540,7 +506,7 @@ export function installSuggest(q) {
     };
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `ŷ_oo… ${fmtOoFitSec(s)} · ${ooFitBusyHint(s)}`;
+      const msg = `ŷ_oo… ${fmtOoFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
       // 状态只写 ŷ_oo 卡头，不刷页顶 #quant-meta（与 ŷ_τc 等头一致）
       paintOoStatus({
         state: "busy",
@@ -672,15 +638,6 @@ export function installSuggest(q) {
       });
       return;
     }
-    paintOoStatus({
-      state: "ok",
-      chip: role === "research" ? "仅研究" : "仅执行",
-      message: `已写入${roleLabel}`,
-      researchAt: role === "research" ? data.promoted_at || null : null,
-      liveAt: role === "live" ? data.promoted_at || null : null,
-      liveOn: role === "live",
-      researchOn: role === "research",
-    });
     await refreshReturnModelStatus();
   }
 

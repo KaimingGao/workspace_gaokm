@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from core.research.materialize.catalog import normalize_clocks
@@ -38,9 +37,9 @@ def _resolve_dates(
     dates: Sequence[str] | None,
     *,
     lookback_days: int,
-    use_trading_days: bool = False,
     codes: Sequence[str] | None = None,
 ) -> List[str]:
+    """未指定日期时跟本地够格成交日；仓读不到再退交易日日历。"""
     explicit = sorted(
         {str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10}
     )
@@ -51,22 +50,15 @@ def _resolve_dates(
     except (TypeError, ValueError):
         n = 60
     n = max(2, min(1500, n))
-    if use_trading_days:
-        from core.research.materialize.coverage import (
-            recent_pool_bar_dates,
-            recent_trading_days,
-        )
+    from core.research.materialize.coverage import (
+        recent_pool_bar_dates,
+        recent_trading_days,
+    )
 
-        pooled = recent_pool_bar_dates(n, list(codes or []))
-        if len(pooled) >= 2:
-            return pooled
-        return recent_trading_days(n)
-    # 日历日回退：消费方有交易日过滤；周末立方会被跳过
-    today = datetime.now().date()
-    out: List[str] = []
-    for i in range(n):
-        out.append((today - timedelta(days=i)).isoformat())
-    return sorted(set(out))
+    pooled = recent_pool_bar_dates(n, list(codes or []))
+    if len(pooled) >= 2:
+        return pooled
+    return recent_trading_days(n)
 
 
 def _attach_open_slim(codes: Sequence[str], days: Sequence[str]) -> int:
@@ -781,7 +773,6 @@ def materialize_l2(
     dates: Sequence[str] | None = None,
     clocks: Sequence[str] | None = None,
     lookback_days: int = 60,
-    use_trading_days: bool = False,
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
     min_lake_frac: float = LAKE_COVER_FRAC,
@@ -798,7 +789,6 @@ def materialize_l2(
     day_list = _resolve_dates(
         dates,
         lookback_days=lookback_days,
-        use_trading_days=use_trading_days,
         codes=code_list,
     )
     clock_list = normalize_clocks(clocks)

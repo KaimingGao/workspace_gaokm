@@ -462,7 +462,20 @@ def _tau_stock_job(
         return None
     code = str(item.get("code") or item.get("stock_code") or "").strip()
     bars = list(item.get("bars") or [])
-    if len(bars) < int(min_history) + 2:
+    # 开了 alpha_tc 后决策日从垫窗起算；凑不满 4 行的次新没有 L1 也不该打断整池。
+    floor = int(min_history) + 2
+    if include_alpha_tc or include_alpha_th:
+        need_hist = int(min_history)
+        if include_alpha_tc:
+            from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
+
+            need_hist = max(need_hist, int(ALPHA_TC_PANEL_WINDOW))
+        if include_alpha_th:
+            from core.signal.factors.alpha_th import ALPHA_TH_PANEL_WINDOW
+
+            need_hist = max(need_hist, int(ALPHA_TH_PANEL_WINDOW))
+        floor = max(floor, need_hist + 4)
+    if len(bars) < floor:
         item.pop("minute_bars", None)
         return None
     mh = int(min_history)

@@ -3046,6 +3046,7 @@ export function initQuant(ctx) {
     if (s < 20 * 60) return "Ridge + Holdout OOS（满池 600 只常需半小时级）";
     return "仍在拟合 · 满池面板很大，超过 40 分钟仍可能在算，请勿重复点";
   }
+  q.ridgeFitBusyHint = ridgeFitBusyHint;
 
   async function pollRidgeJobUntilDone(jobName, { jobId, sumEl, label } = {}) {
     const pollStarted = Date.now();

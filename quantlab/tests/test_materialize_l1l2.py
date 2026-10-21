@@ -1291,7 +1291,6 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
             days = _resolve_dates(
                 None,
                 lookback_days=3,
-                use_trading_days=True,
                 codes=["000001", "000002"],
             )
         self.assertEqual(days, pooled)
@@ -1311,15 +1310,24 @@ class MaterializeL2UniverseHashTests(unittest.TestCase):
             days = _resolve_dates(
                 None,
                 lookback_days=2,
-                use_trading_days=True,
                 codes=["000001", "000002"],
             )
         self.assertEqual(days, ["2024-01-02", "2024-01-03"])
 
-    def test_bad_lookback_still_resolves_dates(self) -> None:
+    def test_bad_lookback_falls_back_to_trading_days(self) -> None:
+        from unittest.mock import patch
+
         from core.research.materialize.l2_jobs import _resolve_dates
 
-        days = _resolve_dates(None, lookback_days="nope", use_trading_days=False)
+        with patch(
+            "core.research.materialize.coverage.recent_pool_bar_dates",
+            return_value=[],
+        ):
+            days = _resolve_dates(
+                None,
+                lookback_days="nope",
+                codes=["000001", "000002"],
+            )
         self.assertGreaterEqual(len(days), 2)
         self.assertLessEqual(len(days), 1500)
 
