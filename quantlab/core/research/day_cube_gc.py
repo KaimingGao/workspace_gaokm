@@ -26,9 +26,7 @@ _BATCH: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVa
     "l2_drop_batch",
     default=None,
 )
-# 线程池不复制 contextvar；物化 batch 再挂一份进程内引用，工作线程也能只攒不删。
-_ACTIVE_BATCH: Optional[Dict[str, Any]] = None
-# 进程池工人：无父进程 _ACTIVE_BATCH，作废只攒在本地，由 job 带回父进程再 note。
+# 进程池工人：看不到父进程 ``_BATCH``，作废只攒本地，由 job 带回再 note。
 _STALE_DEFER = False
 _DEFERRED_STALE: Set[str] = set()
 _DEFERRED_ALL = False
@@ -505,11 +503,7 @@ def prune_cold(
 
 
 def _current_batch() -> Optional[Dict[str, Any]]:
-    """contextvar 优先，否则用进程内 ``_ACTIVE_BATCH``（线程池可见）。"""
-    bucket = _BATCH.get()
-    if bucket is not None:
-        return bucket
-    return _ACTIVE_BATCH
+    return _BATCH.get()
 
 
 def note_stale_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, Any]:
@@ -608,11 +602,10 @@ def _flush_bucket(bucket: Dict[str, Any]) -> Dict[str, int]:
 def l2_invalidation_batch() -> Iterator[Dict[str, Any]]:
     """物化整段 L1 时合并日期，退出时删一次盘。嵌套调用交给外层 flush。
 
-    同时写入 ``_ACTIVE_BATCH``，供 ThreadPool 工作线程 ``note_stale_dates`` 攒批
-    （contextvar 不会随 ``ThreadPoolExecutor`` 复制到子线程）。
     外层进入时关闭本进程 stale defer，避免父进程误把 note 攒进 defer 桶。
+    L1 冷路径已走 ProcessPool：工人用 defer / ``_deferred_l2_stale`` 回传，
+    不再依赖线程池可见的进程内 batch 镜像。
     """
-    global _ACTIVE_BATCH
     outer = _current_batch()
     if outer is not None:
         yield outer
@@ -625,26 +618,14 @@ def l2_invalidation_batch() -> Iterator[Dict[str, Any]]:
         "files_removed": 0,
     }
     token = _BATCH.set(bucket)
-    with _LOCK:
-        _ACTIVE_BATCH = bucket
     try:
         yield bucket
     finally:
         try:
             stats = _flush_bucket(bucket)
-            extra = _flush_bucket(bucket)
-            stats["dates_dropped"] = int(stats.get("dates_dropped") or 0) + int(
-                extra.get("dates_dropped") or 0
-            )
-            stats["files_removed"] = int(stats.get("files_removed") or 0) + int(
-                extra.get("files_removed") or 0
-            )
         except Exception:  # noqa: BLE001
             logger.warning("l2 invalidation flush failed", exc_info=True)
             stats = {"dates_dropped": 0, "files_removed": 0}
         finally:
-            with _LOCK:
-                if _ACTIVE_BATCH is bucket:
-                    _ACTIVE_BATCH = None
             _BATCH.reset(token)
         bucket.update(stats)

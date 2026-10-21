@@ -219,7 +219,7 @@ def write_stock_panel(
 ) -> bool:
     """整票覆盖写入。行数必须与 dates 对齐。
 
-    ``extra_meta`` 可带 ``bars_fp`` / ``stem_fp`` / ``end_date``（尾窗增量）。
+    ``extra_meta`` 可带 ``bars_fp`` / ``stem_fp`` / ``end_date`` / ``n_bars``（增量）。
     若盘上已有更长且同后缀的面板，拒绝用短窗覆盖（返回 True，保留长窗）。
     """
     if not enabled() or not code:

@@ -1456,14 +1456,6 @@ def collect_tau_compact(
                 label=_label,
                 on_done=_on_done,
             )
-        except MaterializeRequired as exc:
-            try:
-                from core.research.day_cube_gc import apply_stale_from_exc
-
-                apply_stale_from_exc(exc)
-            except Exception:  # noqa: BLE001
-                logger.debug("tau compact apply stale from exc failed", exc_info=True)
-            raise
         finally:
             try:
                 pool.shutdown(wait=True, cancel_futures=True)
@@ -1912,11 +1904,7 @@ def collect_co_compact(
         if n_workers <= 1 or (end - start) < 4:
             _run_serial(start, end)
             return
-        from core.research.materialize.consumer import (
-            MaterializeRequired,
-            context_initargs,
-            research_pool_init,
-        )
+        from core.research.materialize.consumer import context_initargs, research_pool_init
         from core.research.materialize.pool import consume_process_batch
 
         results: List[Any] = [None] * (end - start)
@@ -1975,14 +1963,6 @@ def collect_co_compact(
                 label=_label,
                 on_done=_on_done,
             )
-        except MaterializeRequired as exc:
-            try:
-                from core.research.day_cube_gc import apply_stale_from_exc
-
-                apply_stale_from_exc(exc)
-            except Exception:  # noqa: BLE001
-                logger.debug("co compact apply stale from exc failed", exc_info=True)
-            raise
         finally:
             try:
                 pool.shutdown(wait=True, cancel_futures=True)

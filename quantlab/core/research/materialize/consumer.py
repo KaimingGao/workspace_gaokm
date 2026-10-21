@@ -9,11 +9,10 @@ from __future__ import annotations
 import contextvars
 import functools
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, Tuple
 
 # 请求级标记。不用进程级环境变量：并发的回测/做 T 会把只读打到物化线程上。
-# 3.10 的线程池、以及 spawn 出来的进程池，都不复制 contextvar，要在 initializer 再绑一次。
-# L2 作废批次另见 day_cube_gc._ACTIVE_BATCH（同样因线程池不复制 contextvar）。
+# spawn 进程池不复制 contextvar，要在 initializer 再绑一次；L2 stale 用 day_cube_gc defer。
 _writer: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "quantlab_materialize_writer",
     default=False,

@@ -1,4 +1,4 @@
-"""尾窗增量：stem 命中、merge、keep_dates。"""
+"""L1 增量：尾窗 append、历史前缀扩展、stem 命中与 merge。"""
 
 from __future__ import annotations
 

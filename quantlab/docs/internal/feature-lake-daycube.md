@@ -183,7 +183,7 @@ panel meta 额外写入：
 
 只有物化写入里的 L1 写穿（`write_stock_panel`）会在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。回测和拟合不写生产湖，也不拆立方。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时删一次盘，接着跑的 L2 会把缺的日期建回来。
 
-**并行与作废**：日线 `tc`/`co` 与 τ 网格冷路径走 **ProcessPool**（与 oo 对齐，绕过 GIL）。`ThreadPool`/`ProcessPool` 都不复制 contextvar。批次除 `_BATCH` 外再挂 `_ACTIVE_BATCH`（线程可见）；外层 `l2_invalidation_batch` 进入时关掉本进程 defer，避免父进程 note 进错桶。进程工人另开 stale **defer**：正常返回 `(pack, stale)`；`MaterializeRequired` 则把 drain 结果挂到 `payload['_deferred_l2_stale']`，父进程 `apply_stale_from_exc` 再 `note`。`drop_dates` 对大批日期先 `listdir` 再 `unlink`。
+**并行与作废**：日线 `tc`/`co`/`oo` 与 τ 网格冷路径走 **ProcessPool**（绕过 GIL）。spawn 不复制 contextvar。外层 `l2_invalidation_batch` 用 `_BATCH` 攒批，进入时关掉本进程 defer。进程工人 stale **defer**：正常返回 `(pack, stale)`；`MaterializeRequired` 则挂到 `payload['_deferred_l2_stale']`，父进程 `apply_stale_from_exc` 再 `note`。`drop_dates` 对大批日期先 `listdir` 再 `unlink`。
 
 冷目录回收 `prune_cold` 发生在 `invalidate_l1_many` 之后，以及 `materialize_l2` 成功结束之后。保留观察池读取名单和拟合名单的 `universe_hash`；这次物化若用了另一份不少于 2 只的 `codes`，该哈希也保留到本轮结束。其余宇宙目录，以及 `v{FEATURE_SCHEMA}` 以外的版本目录，整棵删除。观察池或拟合名单读取抛错、或两边都不足 2 只时，不回收冷目录。任务取消或 L2 未成功时不回收。作废指定日期只丢掉这些日期的进程内立方。
 
@@ -434,7 +434,7 @@ rm -rf data/cache/feature_lake data/cache/day_cubes
 - 调仓与训练 ŷ 不一致：检查是否同 `universe_hash`、是否 `cross_section` 模型、是否误关 `BATCH_SCORE`、是否只开了 `FIT_USE_DAY_CUBE` 未重拟合。  
 - 回测未命中 L1：看日志 `replay open day lake hits=… miss=…`；确认 family 与决策日对齐。  
 - 增量未触发：中间 bar 被复权改写 → 预期全量；看 meta 是否有 `bars_fp`/`stem_fp`/`n_bars`（旧分片无 stem 时需先全量写一次）。短窗→长窗应走历史前缀；若仍全量，核对末日是否一致、旧 `bars_fp` 是否为新 bars 后缀。
-- 物化仍每票扫盘作废：确认在 `l2_invalidation_batch` 内，且进程已加载含 `_ACTIVE_BATCH` / defer→`_deferred_l2_stale` 的版本（线程池不复制 contextvar；`MaterializeRequired` 须由父进程 `apply_stale_from_exc`）。  
+- 物化仍每票扫盘作废：确认在 `l2_invalidation_batch` 内，且进程工人 defer→父进程 `apply_deferred_stale` / `apply_stale_from_exc`（`MaterializeRequired` 挂 `_deferred_l2_stale`）。  
 - 拟合 Cube miss 全回退矩阵：先物化 open（及所需 τ 钟）；确认 `QUANTLAB_DAY_CUBE` 未关、宇宙 hash 与 watching 一致。
 
 ### 10.4 磁盘

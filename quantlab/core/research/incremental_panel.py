@@ -293,10 +293,6 @@ def try_incremental_merge(
     meta = prev.get("_meta") or {}
     if not isinstance(meta, dict):
         meta = {}
-    # load 时 meta 可能缺 n_rows；用面板行数作后缀长度提示
-    if "n_rows" not in meta:
-        meta = dict(meta)
-        meta["n_rows"] = int(old_x.shape[0])
     stored_fp = str(meta.get("fingerprint") or "")
     stored_bars = str(meta.get("bars_fp") or "")
     try:
