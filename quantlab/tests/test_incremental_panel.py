@@ -49,11 +49,7 @@ class TestIncrementalPanel(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_stem_detects_tail_append(self) -> None:
-        from core.research.incremental_panel import (
-            is_pure_tail_append,
-            stem_extra_meta,
-            tail_append_days,
-        )
+        from core.research.incremental_panel import stem_extra_meta, tail_append_days
 
         bars = _bars(40)
         meta = stem_extra_meta(bars)
@@ -68,7 +64,6 @@ class TestIncrementalPanel(unittest.TestCase):
                 "volume": 2_000_000,
             }
         )
-        self.assertTrue(is_pure_tail_append(extended, meta))
         self.assertEqual(tail_append_days(extended, meta), 1)
         # 多日追加
         extended2 = list(extended)
@@ -94,7 +89,6 @@ class TestIncrementalPanel(unittest.TestCase):
         mid[10]["close"] = float(mid[10]["close"]) + 5.0
         mid.append(extended[-1])
         self.assertIsNone(tail_append_days(mid, meta))
-        self.assertFalse(is_pure_tail_append(mid, meta))
 
     def test_lake_row_covers_bar_end(self) -> None:
         from core.research.incremental_panel import lake_row_covers_bar_end
@@ -133,31 +127,6 @@ class TestIncrementalPanel(unittest.TestCase):
         np.testing.assert_allclose(X.ravel(), [1.0, 2.0, 30.0, 40.0])
         np.testing.assert_allclose(y, [0.1, 0.2, 3.0, 4.0])
         self.assertEqual(names, ["f"])
-
-    def test_merge_matrix_rows_keep_after(self) -> None:
-        from core.research.incremental_panel import merge_matrix_rows
-
-        old_X = np.asarray([[1.0], [2.0], [3.0], [4.0]])
-        old_y = np.asarray([0.1, 0.2, 0.3, 0.4])
-        new_X = np.asarray([[10.0], [20.0], [30.0]])
-        new_y = np.asarray([1.0, 2.0, 3.0])
-        X, y, _names, dates = merge_matrix_rows(
-            old_X,
-            old_y,
-            ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
-            ["f"],
-            new_X,
-            new_y,
-            ["2023-12-30", "2023-12-31", "2024-01-01"],
-            ["f"],
-            keep_after="2024-01-01",
-        )
-        self.assertEqual(
-            dates,
-            ["2023-12-30", "2023-12-31", "2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
-        )
-        np.testing.assert_allclose(X.ravel(), [10.0, 20.0, 30.0, 2.0, 3.0, 4.0])
-        np.testing.assert_allclose(y, [1.0, 2.0, 3.0, 0.2, 0.3, 0.4])
 
     def test_history_extend_merges_prefix(self) -> None:
         from core.research.feature_lake import write_stock_panel

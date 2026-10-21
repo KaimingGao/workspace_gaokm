@@ -52,7 +52,7 @@ def find_bars_suffix_start(
 ) -> Optional[int]:
     """若 ``old_fp`` 等于 ``bars[i:]`` 的指纹且 ``i>0``，返回 ``i``（前面多出来的历史根数）。
 
-    先试 ``hint_lens`` / 常见 lookback，再全扫。带分钟线的窗口不走后缀扩展。
+    先试 ``hint_lens`` / 常见 lookback，再全扫。分钟路径由调用方跳过历史扩展。
     """
     target = str(old_fp or "").strip()
     if not target:

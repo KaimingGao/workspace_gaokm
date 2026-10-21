@@ -51,11 +51,6 @@ def load_l1_any(family: str, code: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def is_pure_tail_append(bars: Sequence[dict], meta: Optional[Dict[str, Any]]) -> bool:
-    """仅末根变化：追加一日（prefix=旧全量）或改写末根（prefix=旧 stem）。"""
-    return tail_append_days(bars, meta) is not None
-
-
 def tail_append_days(
     bars: Sequence[dict],
     meta: Optional[Dict[str, Any]],
@@ -128,16 +123,13 @@ def merge_matrix_rows(
     new_names: Sequence[str],
     *,
     keep_from: str = "",
-    keep_after: str = "",
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
     """按日 merge：新块覆盖旧行。
 
-    - ``keep_from``：保留 ``date < keep_from`` 的旧行（尾窗追加）。
-    - ``keep_after``：保留 ``date > keep_after`` 的旧行（历史前缀扩展）。
-    两者都空则旧行全保留后再被新块覆盖。
+    ``keep_from`` 非空时只保留 ``date < keep_from`` 的旧行（尾窗追加）；
+    为空则旧行全留，再被新块按日覆盖（历史前缀扩展）。
     """
-    cut_from = str(keep_from or "")[:10]
-    cut_after = str(keep_after or "")[:10]
+    cut = str(keep_from or "")[:10]
     name_list = [str(n) for n in new_names] if new_names else [str(n) for n in old_names]
     old_name_list = [str(n) for n in old_names]
 
@@ -158,9 +150,7 @@ def merge_matrix_rows(
     ox = _align(old_X, old_name_list)
     for i, d in enumerate(old_dates):
         ds = str(d)[:10]
-        if cut_from and ds >= cut_from:
-            continue
-        if cut_after and ds <= cut_after:
+        if cut and ds >= cut:
             continue
         if i < ox.shape[0]:
             by_x[ds] = ox[i]
@@ -198,15 +188,14 @@ def history_extend_prefix_bars(
     if end and bar_end_date(bars) != end:
         return None
     hints: List[int] = []
-    for key in ("n_bars", "n_rows"):
-        try:
-            v = int(meta.get(key) or 0)
-        except (TypeError, ValueError):
-            v = 0
-        if v > 0:
-            hints.append(v)
-            for pad in (1, 2, 5, 10, 20, 40, 61, 80, 100, 120):
-                hints.append(v + pad)
+    try:
+        n_bars = int(meta.get("n_bars") or 0)
+    except (TypeError, ValueError):
+        n_bars = 0
+    if n_bars > 0:
+        hints.append(n_bars)
+        for pad in (1, 2, 5, 10, 20, 40, 61, 80, 100, 120):
+            hints.append(n_bars + pad)
     from core.research.panel_fingerprint import find_bars_suffix_start
 
     return find_bars_suffix_start(bars, old_full, hint_lens=hints)

@@ -457,7 +457,7 @@ def _tau_stock_job(
     from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild(l1_family, code)
-    # 开盘 τ：仅末根变化时尾窗增量（分钟路径仍全量）
+    # 开盘 τ：尾窗追加或历史前缀扩展（分钟路径仍全量）
     inc_hit = None
     if code and not use_minute:
         try:

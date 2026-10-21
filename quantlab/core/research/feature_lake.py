@@ -5,8 +5,9 @@
     {FEATURE_LAKE_DIR}/v{SCHEMA}/{family}/{code}.npz
     {FEATURE_LAKE_DIR}/v{SCHEMA}/{family}/{code}.meta.json
 
-``X[i]`` 对应 ``dates[i]``。fingerprint 含 bars + registry；miss 则整票重写。
-尾窗增量：``upsert_tail`` 按日 merge，保留未变日期行。
+``X[i]`` 对应 ``dates[i]``。fingerprint 含 bars + registry。
+热路径：内存 ``merge_matrix_rows`` 后 ``write_stock_panel`` 整票覆盖；
+指纹命中跳过，尾窗/历史前缀只重算再 merge。短窗真后缀不覆盖更长面板。
 指纹或 ``bars_fp`` 变化时，把改过的日期交给 L2 回收。
 
 开关：``QUANTLAB_FEATURE_LAKE=0`` 绕过。
@@ -376,73 +377,6 @@ def load_stock_panel(
     if y is not None:
         out["y"] = y
     return out
-
-
-def upsert_tail(
-    family: str,
-    code: str,
-    *,
-    dates: Sequence[str],
-    X: np.ndarray,
-    names: Sequence[str],
-    fingerprint: str,
-    y: Optional[np.ndarray] = None,
-    keep_from: Optional[str] = None,
-) -> bool:
-    """按日 merge：``keep_from`` 之前的旧行保留，其后用新块覆盖。
-
-    ``keep_from`` 为空时等价于 ``write_stock_panel``。
-    """
-    if not enabled() or not code:
-        return False
-    date_list = [str(d)[:10] for d in dates]
-    x_new = np.asarray(X, dtype=np.float64)
-    if x_new.ndim != 2 or x_new.shape[0] != len(date_list):
-        return False
-    y_new = None
-    if y is not None:
-        y_new = np.asarray(y, dtype=np.float64)
-        if y_new.shape[0] != len(date_list):
-            return False
-    cut = str(keep_from or "")[:10]
-    if not cut:
-        return write_stock_panel(
-            family, code, dates=date_list, X=x_new, names=names, fingerprint=fingerprint, y=y_new
-        )
-    prev = load_stock_panel(family, code, fingerprint=None)
-    if prev is None:
-        return write_stock_panel(
-            family, code, dates=date_list, X=x_new, names=names, fingerprint=fingerprint, y=y_new
-        )
-    old_names = list(prev.get("names") or [])
-    name_list = [str(n) for n in names]
-    if old_names and old_names != name_list:
-        return write_stock_panel(
-            family, code, dates=date_list, X=x_new, names=names, fingerprint=fingerprint, y=y_new
-        )
-    old_X = np.asarray(prev["X"], dtype=np.float64)
-    old_dates = list(prev["dates"])
-    old_y = prev.get("y")
-    keep_idx = [i for i, d in enumerate(old_dates) if d < cut]
-    # rebuild in date order from keep + new
-    by_date_x: Dict[str, np.ndarray] = {}
-    by_date_y: Dict[str, float] = {}
-    for i in keep_idx:
-        by_date_x[old_dates[i]] = old_X[i]
-        if old_y is not None:
-            by_date_y[old_dates[i]] = float(np.asarray(old_y)[i])
-    for i, d in enumerate(date_list):
-        by_date_x[d] = x_new[i]
-        if y_new is not None:
-            by_date_y[d] = float(y_new[i])
-    ordered = sorted(by_date_x.keys())
-    X_m = np.vstack([by_date_x[d] for d in ordered])
-    y_m = None
-    if y_new is not None or old_y is not None:
-        y_m = np.asarray([by_date_y.get(d, np.nan) for d in ordered], dtype=np.float64)
-    return write_stock_panel(
-        family, code, dates=ordered, X=X_m, names=name_list, fingerprint=fingerprint, y=y_m
-    )
 
 
 def finite_feature_dict(names: Sequence[str], row: Any) -> Dict[str, float]:

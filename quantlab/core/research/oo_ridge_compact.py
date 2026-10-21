@@ -214,7 +214,7 @@ def _oo_stock_job(
     兼容 3 元组 ``(code, bars, horizon)`` 与 4 元组 ``(..., ridge_core_only)``：
     父进程未重启、子进程已加载新代码时，旧 3 元组不再炸 unpack。
     L1 fingerprint 命中则跳过 ``collect_oo_panel``；
-    仅末根变化时走尾窗增量 keep_dates + merge。
+    尾窗追加或历史前缀扩展时 keep_dates + merge。
     """
     from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
     from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint

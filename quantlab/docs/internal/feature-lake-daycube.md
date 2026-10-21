@@ -110,8 +110,7 @@ L2  DayCube          date × universe_id × clock
 
 API 要点：
 
-- `write_stock_panel` / `load_stock_panel` / `sync_from_matrix`  
-- `upsert_tail`：按日 merge（`keep_from` 之前保留）  
+- `write_stock_panel` / `load_stock_panel` / `sync_from_matrix`：整票覆盖写穿（热路径先内存 `merge_matrix_rows`）  
 - `load_day_rows(family, codes, date)`：多票同日特征 dict  
 - `invalidate_code`：bars 变更后强制 miss  
 
@@ -182,7 +181,7 @@ panel meta 额外写入：
 
 删 L1 之前先读出该票各 family 的日期。这些日期在当前 schema 的每个宇宙、每个钟上的立方一并删除（`.npz` 与 `.meta.json`），并清掉进程内立方缓存。某个 family 读失败时，已经读到的日期照样作废；一个日期都读不到时，当前 schema 下的立方全部作废。schema 不符或缺少 meta 时仍从 ``.npz`` 读日期。删除只碰立方根目录里面的 `YYYY-MM-DD` 文件，符号链接只摘掉链接本身。
 
-只有物化写入里的 L1 写穿（`write_stock_panel` / `upsert_tail`）会在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。回测和拟合不写生产湖，也不拆立方。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时删一次盘，接着跑的 L2 会把缺的日期建回来。
+只有物化写入里的 L1 写穿（`write_stock_panel`）会在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。回测和拟合不写生产湖，也不拆立方。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时删一次盘，接着跑的 L2 会把缺的日期建回来。
 
 **线程池**：`ThreadPoolExecutor` 不复制 contextvar。批次除 `_BATCH` 外再挂进程内 `_ACTIVE_BATCH`，工作线程 `note_stale_dates` 只攒不删。`drop_dates` 对大批日期先 `listdir` 再 `unlink`（缺失直接跳过，不做双 `lstat`）。
 
@@ -345,7 +344,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 | 文件 | 覆盖 |
 |------|------|
-| `tests/test_feature_lake.py` | L1 写读 / miss / upsert_tail |
+| `tests/test_feature_lake.py` | L1 写读 / miss / merge 后写穿 |
 | `tests/test_day_cube.py` | L2 z 对齐 / tau slim / 宇宙 miss |
 | `tests/test_incremental_panel.py` | stem / 多日追加 / oo 增量 / lake hydrate |
 | `tests/test_batch_score_cube_oo.py` | OO cube z ≡ standardize |

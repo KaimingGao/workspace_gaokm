@@ -212,8 +212,9 @@ class TestFeatureLake(unittest.TestCase):
         self.assertEqual(feats, {"a": 1.0, "c": 3.0})
         self.assertEqual(finite_feature_dict(["a"], None), {})
 
-    def test_upsert_tail_keeps_prefix(self) -> None:
-        from core.research.feature_lake import load_stock_panel, upsert_tail, write_stock_panel
+    def test_merge_then_write_keeps_prefix(self) -> None:
+        from core.research.feature_lake import load_stock_panel, write_stock_panel
+        from core.research.incremental_panel import merge_matrix_rows
 
         write_stock_panel(
             "co",
@@ -222,15 +223,27 @@ class TestFeatureLake(unittest.TestCase):
             X=np.asarray([[1.0], [2.0], [3.0]]),
             names=["x"],
             fingerprint="old",
+            y=np.asarray([0.1, 0.2, 0.3]),
         )
-        ok = upsert_tail(
+        X_m, y_m, names_m, dates_m = merge_matrix_rows(
+            np.asarray([[1.0], [2.0], [3.0]]),
+            np.asarray([0.1, 0.2, 0.3]),
+            ["2024-03-01", "2024-03-02", "2024-03-03"],
+            ["x"],
+            np.asarray([[30.0], [40.0]]),
+            np.asarray([3.0, 4.0]),
+            ["2024-03-03", "2024-03-04"],
+            ["x"],
+            keep_from="2024-03-03",
+        )
+        ok = write_stock_panel(
             "co",
             "300001",
-            dates=["2024-03-03", "2024-03-04"],
-            X=np.asarray([[30.0], [40.0]]),
-            names=["x"],
+            dates=dates_m,
+            X=X_m,
+            names=names_m,
             fingerprint="new",
-            keep_from="2024-03-03",
+            y=y_m,
         )
         self.assertTrue(ok)
         hit = load_stock_panel("co", "300001", fingerprint="new")

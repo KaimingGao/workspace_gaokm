@@ -283,7 +283,7 @@ def _materialize_oo_rank(
     horizon_days: int,
     progress_cb: ProgressCb,
 ) -> Dict[str, Any]:
-    """oo_rank：默认同口径读 oo 的 L1；超额或更长窗口才现算并写穿。"""
+    """oo_rank：默认同口径读 oo 的 L1；超额或无法复用 oo 指纹时才现算并写穿。"""
     from core.research.oo_rank_panel import build_oo_rank_day_panels
 
     t0 = time.perf_counter()

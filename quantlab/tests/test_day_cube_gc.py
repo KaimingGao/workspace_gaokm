@@ -142,8 +142,10 @@ class TestDayCubeGc(unittest.TestCase):
         self.assertFalse(self._on_disk("2024-08-01", ["000001", "000002"], "open"))
         self.assertFalse(self._on_disk("2024-08-02", ["000009", "000010"], "tau_1400"))
 
-    def test_tail_upsert_drops_only_changed_dates(self) -> None:
-        from core.research.feature_lake import upsert_tail, write_stock_panel
+    def test_tail_rewrite_drops_only_changed_dates(self) -> None:
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import merge_matrix_rows
+        from core.research.materialize.consumer import materialize_writer
 
         codes = ["000001", "000002"]
         write_stock_panel(
@@ -153,21 +155,32 @@ class TestDayCubeGc(unittest.TestCase):
             X=np.asarray([[1.0], [2.0], [3.0]]),
             names=["x"],
             fingerprint="old",
+            y=np.asarray([0.1, 0.2, 0.3]),
             extra_meta={"bars_fp": "b0"},
         )
         for day in ("2024-03-01", "2024-03-02", "2024-03-03", "2024-03-04"):
             self._save(day, codes, "open")
-        from core.research.materialize.consumer import materialize_writer
-
+        X_m, y_m, names_m, dates_m = merge_matrix_rows(
+            np.asarray([[1.0], [2.0], [3.0]]),
+            np.asarray([0.1, 0.2, 0.3]),
+            ["2024-03-01", "2024-03-02", "2024-03-03"],
+            ["x"],
+            np.asarray([[30.0], [40.0]]),
+            np.asarray([3.0, 4.0]),
+            ["2024-03-03", "2024-03-04"],
+            ["x"],
+            keep_from="2024-03-03",
+        )
         with materialize_writer():
-            ok = upsert_tail(
+            ok = write_stock_panel(
                 "co",
                 "000001",
-                dates=["2024-03-03", "2024-03-04"],
-                X=np.asarray([[30.0], [40.0]]),
-                names=["x"],
+                dates=dates_m,
+                X=X_m,
+                names=names_m,
                 fingerprint="new",
-                keep_from="2024-03-03",
+                y=y_m,
+                extra_meta={"bars_fp": "b1"},
             )
         self.assertTrue(ok)
         self.assertTrue(self._on_disk("2024-03-01", codes, "open"))

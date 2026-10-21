@@ -5,7 +5,7 @@
 建面板走 ŷ_oo 的 compact 矩阵（逐只折进 float64，丢掉行 dict）；
 默认 4 进程（与 ``OO_RIDGE_WORKERS`` / ``_resolve_workers`` 同口径）。
 默认口径（绝对收益、全注册因子、窗口不超过 alpha_oo 抬窗）直接读 L1 ``oo/``，
-不重算。超额收益或更长窗口才单独 collect。
+不重算。超额收益或无法复用 oo 指纹时才单独 collect。
 不进 y_oo_fuse；过入场后作买序；可选 oo_rank_max 入场闸。
 """
 
