@@ -4,6 +4,7 @@
 留在瘦 dict 里。alpha_oo 原始列不再在全池 dict 里停留。
 ŷ_co 对齐 ŷ_oo：单票任务内折矩阵、在途≤4、批大小 24、算完 pop bars（8GB）。
 Ridge 口径与 ``fit_factor_ols_from_panel`` 对齐：√w + keep_all；拟合用完整行。
+入模前丢掉 SUMP/SUMN（及 V 对）恒等冗余，只留 SUMD/VSUMD（L1 算子仍算全，供树模型）。
 ``cross_section_zscore=True``（默认）且有决策日 → 当天截面 z；``False`` → 训练窗
 全局 μ/σ。截面模型预测缺测填 z=0。
 """
@@ -2249,6 +2250,7 @@ def _prepare_complete_matrix(
         "dropped_sparse": [],
         "dropped_constant": [],
         "dropped_for_coverage": [],
+        "dropped_sum_identity": [],
     }
     if n_raw < 4 or X.shape[1] == 0:
         return None, None, [], list(names), meta
@@ -2256,8 +2258,18 @@ def _prepare_complete_matrix(
     finite = np.isfinite(X)
     y_finite = np.isfinite(np.asarray(y, dtype=np.float64))
     min_obs = max(8, min(n_raw // 4, 40))
+    from core.signal.factors.sum_identity import (
+        drop_redundant_sum_share_names,
+        prep_meta_excluded,
+    )
+
+    name_list = [str(n) for n in names]
+    kept_names, dropped_id = drop_redundant_sum_share_names(name_list)
+    meta["dropped_sum_identity"] = list(dropped_id)
+    index = {n: i for i, n in enumerate(name_list)}
     candidates: List[str] = []
-    for j, name in enumerate(names):
+    for name in kept_names:
+        j = index[name]
         n_obs = int(finite[:, j].sum())
         if n_obs < min_obs:
             meta["dropped_sparse"].append(name)
@@ -2272,7 +2284,6 @@ def _prepare_complete_matrix(
         return None, None, [], list(names), meta
 
     active = list(candidates)
-    index = {str(n): i for i, n in enumerate(names)}
     while active:
         cols = [index[n] for n in active]
         mask = finite[:, cols].all(axis=1) & y_finite
@@ -2301,11 +2312,7 @@ def _prepare_complete_matrix(
                 break
             continue
 
-        excluded = (
-            list(meta["dropped_sparse"])
-            + list(meta["dropped_constant"])
-            + list(meta["dropped_for_coverage"])
-        )
+        excluded = prep_meta_excluded(meta)
         meta["complete_row_indices"] = [int(i) for i in rows_idx]
         meta["complete_sample_count"] = n
         meta["active_feature_count"] = len(active)
@@ -2313,12 +2320,7 @@ def _prepare_complete_matrix(
         y_c = np.ascontiguousarray(y[rows_idx])
         return x_c, y_c, active, excluded, meta
 
-    excluded = (
-        list(meta["dropped_sparse"])
-        + list(meta["dropped_constant"])
-        + list(meta["dropped_for_coverage"])
-    )
-    return None, None, [], excluded, meta
+    return None, None, [], prep_meta_excluded(meta), meta
 
 
 def fit_keepall_ridge_matrix(
@@ -2437,8 +2439,7 @@ def fit_keepall_ridge_matrix(
                 coef_map: Dict[str, Optional[float]] = {
                     name: round(float(beta[i + 1]), 6) for i, name in enumerate(active)
                 }
-                for name in excluded:
-                    coef_map[name] = None
+                from core.signal.factors.sum_identity import omit_redundant_from_coef_map
                 from core.research.factor_ols_fit import clamp_ridge_lambda
 
                 lam = clamp_ridge_lambda(ridge_lambda, 0.0)
@@ -2454,7 +2455,7 @@ def fit_keepall_ridge_matrix(
                 out = {
                     "success": True,
                     "intercept": round(float(beta[0]), 6),
-                    "coefficients": coef_map,
+                    "coefficients": omit_redundant_from_coef_map(coef_map, excluded),
                     "active_features": list(active),
                     "excluded_features": list(excluded),
                     "zscore_means": {k: round(v, 4) for k, v in z_means.items()},
@@ -2514,11 +2515,12 @@ def predict_ridge_matrix(
             x_arr = np.where(np.isfinite(x_arr), x_arr, 0.0)
         means = {}
         stds = {}
-    active = [
-        n
-        for n in (fit.get("active_features") or list(coefs.keys()))
-        if coefs.get(n) is not None
-    ]
+    from core.signal.factors.sum_identity import filter_predict_active_names
+
+    active = filter_predict_active_names(
+        fit.get("active_features") or list(coefs.keys()),
+        coefs,
+    )
     if x_arr.ndim != 2 or x_arr.shape[0] == 0 or not active:
         return []
     index = {str(n): i for i, n in enumerate(names)}

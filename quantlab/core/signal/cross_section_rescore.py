@@ -137,12 +137,22 @@ def _active_names(model: Optional[dict]) -> List[str]:
         return []
     names = model.get("feature_names")
     if isinstance(names, list) and names:
-        return [str(n) for n in names if n]
-    active = model.get("active_features")
-    if isinstance(active, list) and active:
-        return [str(n) for n in active if n]
-    coefs = model.get("coefficients") if isinstance(model.get("coefficients"), dict) else {}
-    return [str(k) for k, v in coefs.items() if v is not None]
+        raw = [str(n) for n in names if n]
+    else:
+        active = model.get("active_features")
+        if isinstance(active, list) and active:
+            raw = [str(n) for n in active if n]
+        else:
+            coefs = (
+                model.get("coefficients")
+                if isinstance(model.get("coefficients"), dict)
+                else {}
+            )
+            raw = [str(k) for k, v in coefs.items() if v is not None]
+    from core.signal.factors.sum_identity import filter_predict_active_names
+
+    coefs = model.get("coefficients") if isinstance(model.get("coefficients"), dict) else None
+    return filter_predict_active_names(raw, coefs)
 
 
 def _rescore_oo_ridge(
@@ -257,18 +267,21 @@ def _rescore_tau(
     except Exception:  # noqa: BLE001
         logger.debug("tau rescore stamp failed", exc_info=True)
     z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
+    yhats: List[Optional[float]] = []
     for slot, z_row, raw in zip(slots, z_rows, raws):
         item = items[slot]
         code = str(item.get("stock_code") or "").strip()
         if allow is not None and code not in allow:
             for key in _TAU_HEAD_KEYS:
                 item.pop(key, None)
+            yhats.append(None)
             continue
         try:
             yhat = predict_tau_from_features(z_row, model_doc=ridge_doc)
-        except Exception:  # noqa: BLE001
-            logger.debug("tau rescore predict failed", exc_info=True)
-            continue
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("tau rescore predict failed")
+            raise RuntimeError(f"tau 截面 rescore predict 失败: {exc}") from exc
+        yhats.append(yhat)
         fuse = str(item.get("dual_score_window") or "") != "eod_next"
         apply_tau_score_fields(
             item,
@@ -281,6 +294,17 @@ def _rescore_tau(
             rem_model_doc=ridge_doc,
             fuse_intraday=fuse,
             y_source="ridge",
+        )
+    from core.signal.factors.sum_identity import cs_batch_preds_look_collapsed
+
+    intercept = float((rm or {}).get("intercept") or 0.0)
+    if cs_batch_preds_look_collapsed(yhats, intercept=intercept):
+        for slot in slots:
+            item = items[slot]
+            for key in _TAU_HEAD_KEYS:
+                item.pop(key, None)
+        raise RuntimeError(
+            "tau 截面 rescore 拒绝：批 ŷ 塌缩远离 intercept（疑似 raw×β）"
         )
 
 

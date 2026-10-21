@@ -425,42 +425,53 @@ class QuantReplayMixin:
 
         role = normalize_backtest_model_role(score_model_role)
         _emit(f"逐日调仓 {clock} · {int(effective_lookback)} 日（开盘分可复用磁盘缓存）…")
-        from core.research.materialize.consumer import materialized_consumer
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
 
-        with materialized_consumer():
-            result = backtest_paper_replay(
-                stock_bars,
-                top_k=universe_n,
-                cost_model="simple_cn" if apply_costs else "zero",
-                yhat_horizon_days=1,
-                lookback=int(effective_lookback),
-                initial_cash=cash,
-                cash_floor=REPLAY_CASH_FLOOR,
-                fusion_w_co=fusion_w_co,
-                fusion_w_oo=w_oo,
-                fusion_w_oc=w_τc,
-                fuse_enter=enter,
-                fuse_strong=strong,
-                y_oo_gt0=bool(y_oo_gt0),
-                y_τc_gt0=bool(y_τc_gt0),
-                oo_rank_max=oo_rank_max,
-                oo_rank_top_frac=oo_rank_top_frac,
-                fill_clock=clock,
-                minute_bars_by_code=minute_bars,
-                lot_base_amount=lot_base_n,
-                lot_strong_amount=lot_strong_n,
-                price_space_cfg=(
-                    None if price_space_gate is None else {"price_space_gate": gate_on}
-                ),
-                progress_cb=progress_cb,
-                cancel_cb=cancel_cb,
-                score_model_role=role,
-                score_backend=backend,
-                tradable_codes=tradable_codes,
-                tradable_reject_reason=str(
-                    fit_meta.get("tradable_reject_reason") or tradable_reject_reason
-                ),
-            )
+        try:
+            with materialized_consumer():
+                result = backtest_paper_replay(
+                    stock_bars,
+                    top_k=universe_n,
+                    cost_model="simple_cn" if apply_costs else "zero",
+                    yhat_horizon_days=1,
+                    lookback=int(effective_lookback),
+                    initial_cash=cash,
+                    cash_floor=REPLAY_CASH_FLOOR,
+                    fusion_w_co=fusion_w_co,
+                    fusion_w_oo=w_oo,
+                    fusion_w_oc=w_τc,
+                    fuse_enter=enter,
+                    fuse_strong=strong,
+                    y_oo_gt0=bool(y_oo_gt0),
+                    y_τc_gt0=bool(y_τc_gt0),
+                    oo_rank_max=oo_rank_max,
+                    oo_rank_top_frac=oo_rank_top_frac,
+                    fill_clock=clock,
+                    minute_bars_by_code=minute_bars,
+                    lot_base_amount=lot_base_n,
+                    lot_strong_amount=lot_strong_n,
+                    price_space_cfg=(
+                        None if price_space_gate is None else {"price_space_gate": gate_on}
+                    ),
+                    progress_cb=progress_cb,
+                    cancel_cb=cancel_cb,
+                    score_model_role=role,
+                    score_backend=backend,
+                    tradable_codes=tradable_codes,
+                    tradable_reject_reason=str(
+                        fit_meta.get("tradable_reject_reason") or tradable_reject_reason
+                    ),
+                )
+        except MaterializeRequired as exc:
+            # 预期缺口：交给前端物化提示，不当成 worker 崩溃
+            logger.warning("portfolio backtest blocked: %s", exc)
+            payload = exc.to_dict()
+            payload.setdefault("success", False)
+            payload.setdefault("ok", False)
+            return payload
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
         result["minute_meta"] = minute_meta
@@ -792,6 +803,20 @@ class QuantReplayMixin:
                 )
                 portfolio_backtest_job.finish(result=result, job_id=job_id)
             except Exception as e:
+                try:
+                    from core.research.materialize.consumer import MaterializeRequired
+
+                    if isinstance(e, MaterializeRequired):
+                        logger.warning("portfolio backtest blocked: %s", e)
+                        payload = e.to_dict()
+                        portfolio_backtest_job.finish(
+                            error=str(payload.get("error") or e),
+                            result=payload,
+                            job_id=job_id,
+                        )
+                        return
+                except Exception:  # noqa: BLE001
+                    pass
                 logger.exception("unexpected error in portfolio backtest worker")
                 portfolio_backtest_job.finish(error=str(e), job_id=job_id)
             finally:

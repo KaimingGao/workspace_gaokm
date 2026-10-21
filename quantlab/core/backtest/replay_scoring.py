@@ -430,6 +430,7 @@ def _attach_open_yhat_heads(
             enabled as batch_score_enabled,
             rescore_fitted_cross_section_batched,
         )
+        from core.research.materialize.consumer import MaterializeRequired
         from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
         day_key = ""
@@ -438,6 +439,21 @@ def _attach_open_yhat_heads(
                 day_key = str(it.get("as_of") or it.get("date") or "")[:10]
                 if len(day_key) >= 10:
                     break
+        # L2 目录键必须是完整观察池（与物化 / assess_coverage 同）；
+        # score_codes 可能是分档子集，不能拿去 universe_hash。
+        cube_codes = None
+        try:
+            from core.research.materialize.coverage import read_cube_codes
+
+            cube_codes = read_cube_codes() or None
+        except Exception:  # noqa: BLE001
+            cube_codes = None
+        if not cube_codes:
+            cube_codes = [
+                str(it.get("stock_code") or "").strip()
+                for it in items
+                if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
+            ] or None
         if batch_score_enabled():
             rescore_fitted_cross_section_batched(
                 items,
@@ -445,11 +461,18 @@ def _attach_open_yhat_heads(
                 date=day_key or None,
                 clock="open",
                 persist_cube=True,
+                universe_codes=cube_codes,
             )
         else:
             rescore_fitted_cross_section(items, score_codes=score_codes)
-    except Exception:  # noqa: BLE001
-        logger.debug("replay cross-section rescore failed", exc_info=True)
+    except MaterializeRequired:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # 截面 τ 单票路径已跳过 raw 预测；此处失败则 ŷ_τc 会空/错，禁止静默继续
+        logger.exception("replay cross-section rescore failed")
+        raise RuntimeError(
+            f"replay 截面 rescore 失败（禁止 raw×β 落盘）: {exc}"
+        ) from exc
     # ŷ_τc_rank：须在 features_tau 挂好之后；与 oo_rank 同槽，一并进开盘缓存。
     try:
         from core.research.tc_rank import apply_tc_rank_scores, load_tc_rank_model

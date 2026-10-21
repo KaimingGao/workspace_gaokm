@@ -219,11 +219,17 @@ def score_and_rank_watching(
                     rem_model_doc=rem_doc,
                 )
             try:
+                from core.research.materialize.consumer import MaterializeRequired
                 from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
                 rescore_fitted_cross_section(items)
-            except Exception:  # noqa: BLE001
-                logger.debug("score_and_rank cross-section rescore failed", exc_info=True)
+            except MaterializeRequired:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("score_and_rank cross-section rescore failed")
+                raise RuntimeError(
+                    f"score_and_rank 截面 rescore 失败（禁止 raw×β）: {exc}"
+                ) from exc
             meta["dual_score"] = {
                 "fusion_mode": dual_cfg.get("fusion_mode"),
                 "w_eod": dual_cfg.get("w_eod"),

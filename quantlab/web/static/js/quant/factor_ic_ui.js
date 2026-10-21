@@ -31,8 +31,12 @@ export function createFactorIcUi(deps) {
     ((name, label, fallbackDescription) =>
       factorNameCellHtml(name, label, fallbackDescription));
 
-  function fmtEmptyCell() {
-    return `<span class="quant-cell-empty">—</span>`;
+  function fmtEmptyCell(title) {
+    const tip =
+      title != null && String(title).trim()
+        ? ` title="${esc(String(title).trim())}"`
+        : "";
+    return `<span class="quant-cell-empty"${tip}>—</span>`;
   }
 
   function _tauClocksFromYSpec(formula, ySpec) {
@@ -848,46 +852,42 @@ export function createFactorIcUi(deps) {
       }
       return n;
     };
+    const remKindForName = (name) => {
+      const bare = remBareName(name);
+      if (histLagExtra.has(name) || histLagExtra.has(bare)) return "历史";
+      if (isPath) {
+        if (remMinuteExtra.has(name) || remMinuteExtra.has(bare)) return "分钟";
+        if (
+          pathExtra.has(name) ||
+          pathExtra.has(bare) ||
+          remOpenExtra.has(name) ||
+          remOpenExtra.has(bare)
+        )
+          return "开盘";
+        return "其它";
+      }
+      if (isCo) {
+        if (onOpenExtra.has(name) || onOpenExtra.has(bare)) return "开盘";
+        if (onPathExtra.has(name) || onPathExtra.has(bare)) return "路径";
+        return "其它";
+      }
+      if (
+        name.startsWith("raw_ath_") ||
+        name.startsWith("raw_atc_") ||
+        name.startsWith("raw_aoo_")
+      )
+        return "衍生";
+      if (remMinuteExtra.has(name) || remMinuteExtra.has(bare)) return "分钟";
+      if (remOpenExtra.has(name) || remOpenExtra.has(bare)) return "开盘";
+      if (name.startsWith("z_τh_") || name.startsWith("z_τc_")) return "开盘";
+      return "日线";
+    };
     let rows = canonActive
       .map((name) => {
         const ols = pickNamedNum(coefs, name);
         if (ols == null) return null;
         const mu = pickNamedNum(means, name);
         const sd = pickNamedNum(stds, name);
-        const bare = remBareName(name);
-        let kind;
-        if (histLagExtra.has(name) || histLagExtra.has(bare)) {
-          kind = "历史";
-        } else if (isPath) {
-          if (remMinuteExtra.has(name) || remMinuteExtra.has(bare)) kind = "分钟";
-          else if (
-            pathExtra.has(name) ||
-            pathExtra.has(bare) ||
-            remOpenExtra.has(name) ||
-            remOpenExtra.has(bare)
-          )
-            kind = "开盘";
-          else kind = "其它";
-        } else if (isCo) {
-          if (histLagExtra.has(name) || histLagExtra.has(bare)) kind = "历史";
-          else if (onOpenExtra.has(name) || onOpenExtra.has(bare)) kind = "开盘";
-          else if (onPathExtra.has(name) || onPathExtra.has(bare)) kind = "路径";
-          else kind = "其它";
-        } else if (
-          name.startsWith("raw_ath_") ||
-          name.startsWith("raw_atc_") ||
-          name.startsWith("raw_aoo_")
-        ) {
-          kind = "衍生";
-        } else if (remMinuteExtra.has(name) || remMinuteExtra.has(bare)) {
-          kind = "分钟";
-        } else if (remOpenExtra.has(name) || remOpenExtra.has(bare)) {
-          kind = "开盘";
-        } else if (name.startsWith("z_τh_") || name.startsWith("z_τc_")) {
-          kind = "开盘";
-        } else {
-          kind = "日线";
-        }
         return {
           name,
           label:
@@ -896,7 +896,7 @@ export function createFactorIcUi(deps) {
               : remFactorDisplayLabel(name, featLabels),
           ols,
           abs: Math.abs(ols),
-          kind,
+          kind: remKindForName(name),
           mu,
           sd,
           scanHot: Math.abs(ols) >= 0.05,
@@ -928,27 +928,46 @@ export function createFactorIcUi(deps) {
       }
     }
     const hasOoGain = isDual && Object.keys(gainByKey).length > 0;
+    // Ridge 滤掉的恒等对（SUMP/SUMN 等）仍可能有树/LambdaRank gain：补行，β 空缺
+    if (hasOoGain) {
+      const have = new Set(rows.map((r) => r.name));
+      for (const [k, gShare0] of Object.entries(gainByKey)) {
+        if (have.has(k) || !(gShare0 > 0)) continue;
+        rows.push({
+          name: k,
+          label: remFactorDisplayLabel(k, featLabels),
+          ols: null,
+          abs: 0,
+          kind: remKindForName(k),
+          mu: pickNamedNum(means, k),
+          sd: pickNamedNum(stds, k),
+          scanHot: false,
+          gainOnly: true,
+          gainShare: gShare0,
+        });
+        have.add(k);
+      }
+    }
+    const pickGain = (name) => {
+      if (gainByKey[name] != null) return gainByKey[name];
+      const bare = remBareName(name);
+      if (bare && bare !== name && gainByKey[bare] != null) return gainByKey[bare];
+      return isHorizon ? 0 : null;
+    };
     rows = rows
-      .map((r) => {
-        let gShare = null;
-        if (hasOoGain) {
-          if (gainByKey[r.name] != null) gShare = gainByKey[r.name];
-          else {
-            const bare = remBareName(r.name);
-            if (bare && bare !== r.name && gainByKey[bare] != null) {
-              gShare = gainByKey[bare];
-            } else if (isHorizon) {
-              gShare = 0;
-            }
-          }
-        }
-        return {
-          ...r,
-          share: (r.abs / absSum) * 100,
-          gainShare: gShare,
-        };
-      })
-      .sort((a, b) => b.abs - a.abs)
+      .map((r) => ({
+        ...r,
+        share: (r.abs / absSum) * 100,
+        gainShare: hasOoGain
+          ? r.gainShare != null
+            ? r.gainShare
+            : pickGain(r.name)
+          : null,
+      }))
+      .sort(
+        (a, b) =>
+          b.abs - a.abs || (b.gainShare || 0) - (a.gainShare || 0)
+      )
       .map((r, i) => ({ ...r, rank: i + 1 }));
     if (!rows.length) {
       return `<p class="sub">暂无 ${yhatTag} 入模因子</p>`;
@@ -1419,6 +1438,13 @@ export function createFactorIcUi(deps) {
     };
 
     const betaCell = (r) => {
+      if (r.ols == null || !Number.isFinite(Number(r.ols))) {
+        return fmtEmptyCell(
+          r.gainOnly
+            ? "Ridge 未入模（恒等份额对已滤）；左侧 gain% 为 LambdaRank/树贡献"
+            : "无 β"
+        );
+      }
       const tip = isOoRankGain
         ? `gain=${r.ols.toFixed(4)}：LambdaRank 分裂增益份额（非 Ridge β）`
         : isHorizon

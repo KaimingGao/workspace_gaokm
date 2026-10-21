@@ -114,13 +114,32 @@ def _predict_rows(
     means = fit.get("zscore_means") or fit.get("z_means") or {}
     stds = fit.get("zscore_stds") or fit.get("z_stds") or {}
     cs = is_cross_section_zscore(fit)
-    active = [
-        n
-        for n in (fit.get("active_features") or coefs.keys())
-        if coefs.get(n) is not None
-    ]
+    # 旧模若仍带 SUMP/SUMN 系数，预测时丢弃（只留 SUMD）；防护 fail-closed
+    from core.signal.factors.sum_identity import (
+        coef_names_for_raw_identity,
+        cs_batch_preds_look_collapsed,
+        filter_predict_active_names,
+        row_has_raw_sum_share_identity,
+    )
+
+    active = filter_predict_active_names(
+        fit.get("active_features") or coefs.keys(),
+        coefs,
+    )
+    identity_names = coef_names_for_raw_identity(coefs)
     out: List[Optional[float]] = []
     for row in xs:
+        # 截面模型假定入模列已是日截面 z。未入模的 SUMP/SUMN 仍留在行上，不据此拒预测。
+        if cs and row_has_raw_sum_share_identity(
+            row,
+            relevant_names=identity_names,
+        ):
+            logger.error(
+                "τ CS predict refused: raw SUMP+SUMN identity "
+                "(need day cross-section z before predict)"
+            )
+            out.append(None)
+            continue
         pred = intercept
         ok = True
         for name in active:
@@ -150,6 +169,16 @@ def _predict_rows(
                         z = (fv - mu) / sd
             pred += float(coefs.get(name) or 0.0) * z
         out.append(round(pred, 6) if ok else None)
+    # 批预测塌缩成远离 intercept 的近常数 → 多半漏做截面 Z（与 SUMP 垄断同形）
+    if cs and cs_batch_preds_look_collapsed(out, intercept=intercept):
+        logger.error(
+            "τ CS predict refused: collapsed batch mean far from intercept "
+            "(need day cross-section z before predict)"
+        )
+        raise RuntimeError(
+            "τ CS predict refused: collapsed batch far from intercept "
+            "(need day cross-section z before predict)"
+        )
     return out
 
 

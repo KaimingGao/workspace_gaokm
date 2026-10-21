@@ -689,18 +689,37 @@ export function initQuant(ctx) {
     }
     const be =
       data.backends && typeof data.backends === "object" ? data.backends : {};
+    const packs = [];
     const lr =
       (be.lambdarank && typeof be.lambdarank === "object" && be.lambdarank) ||
       null;
-    const pack =
-      (lr && lr.return_model_research) || (lr && lr.return_model) || null;
-    const coefs = pack && pack.coefficients;
-    if (!coefs || typeof coefs !== "object") return null;
+    if (lr) {
+      if (lr.return_model_research) packs.push(lr.return_model_research);
+      if (lr.return_model) packs.push(lr.return_model);
+    }
+    // backends 缺嵌套时：顶层 LambdaRank 包也作增益来源
+    for (const top of [data.return_model_research, data.return_model]) {
+      if (!top || typeof top !== "object") continue;
+      const be0 = String(top.backend || "").trim().toLowerCase();
+      const sol0 = String(top.solver || "").trim().toLowerCase();
+      if (be0 === "lambdarank" || sol0 === "lambdarank" || top.booster_b64) {
+        packs.push(top);
+      }
+    }
     const out = [];
-    for (const [key, share] of Object.entries(coefs)) {
-      const n = Number(share);
-      if (!key || !Number.isFinite(n)) continue;
-      out.push({ key: String(key), share: n });
+    const seen = new Set();
+    for (const pack of packs) {
+      const coefs = pack && pack.coefficients;
+      if (!coefs || typeof coefs !== "object") continue;
+      for (const [key, share] of Object.entries(coefs)) {
+        const k = String(key || "").trim();
+        if (!k || seen.has(k)) continue;
+        const n = Number(share);
+        if (!Number.isFinite(n)) continue;
+        seen.add(k);
+        out.push({ key: k, share: n });
+      }
+      if (out.length) break;
     }
     return out.length ? out : null;
   }

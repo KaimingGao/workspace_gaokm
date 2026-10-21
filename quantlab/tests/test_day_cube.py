@@ -262,8 +262,8 @@ class TestDayCube(unittest.TestCase):
             load_day_cube("2026-10-16", ["000001", "000002"], clock="0935")
         )
 
-    def test_batched_rescore_uses_score_codes_as_universe_hash(self) -> None:
-        """batched 落盘键跟 score_codes，不跟当日有行子集。"""
+    def test_batched_rescore_universe_not_score_codes(self) -> None:
+        """L2 键跟完整观察池；分档 score_codes 不得改哈希。"""
         from unittest.mock import patch
 
         from core.research.batch_score import rescore_fitted_cross_section_batched
@@ -271,6 +271,7 @@ class TestDayCube(unittest.TestCase):
         from core.research.feature_registry import universe_hash
 
         full = ["000001", "000002", "001232"]
+        tradable = ["000001", "000002"]  # 分档子集
         items = [
             {
                 "stock_code": "000001",
@@ -289,7 +290,8 @@ class TestDayCube(unittest.TestCase):
         ):
             rescore_fitted_cross_section_batched(
                 items,
-                score_codes=full,
+                score_codes=tradable,
+                universe_codes=full,
                 date="2026-10-16",
                 clock="0935",
                 persist_cube=True,
@@ -299,7 +301,10 @@ class TestDayCube(unittest.TestCase):
         self.assertIsNotNone(hit)
         assert hit is not None
         self.assertEqual(hit.universe_hash, universe_hash(full))
+        self.assertNotEqual(hit.universe_hash, universe_hash(tradable))
         self.assertEqual(hit.codes, ["000001", "000002"])
+        # 子集键读不到完整池立方
+        self.assertIsNone(load_day_cube("2026-10-16", tradable, clock="0935"))
 
     def test_rescore_single_item_with_day_cube(self) -> None:
         """有 DayCube 时允许单票 rescore（μ/σ 信 cube）。"""
@@ -345,6 +350,37 @@ class TestDayCube(unittest.TestCase):
         ) as oo2:
             rescore_fitted_cross_section([item], score_codes={"000001"}, day_cube=None)
         oo2.assert_not_called()
+
+    def test_apply_cube_z_alias_pair_not_double_z(self) -> None:
+        """裸名+z_co_* 双写时只 z 一次，避免 tip 出现 |z|≈6~7。"""
+        from core.research.day_cube import DayCube, apply_cube_z_to_dicts
+        from core.signal.factors.z_co import stamp_z_co_aliases
+
+        names = ["yest_close_loc", "z_co_yest_close_loc", "raw_aoo_YCLOSE_LOC"]
+        # 三票截面：目标票 raw=0.2 → z=(0.2-0.5)/0.1 = -3
+        X = np.asarray(
+            [[0.2, 0.2, 0.2], [0.5, 0.5, 0.5], [0.8, 0.8, 0.8]],
+            dtype=np.float64,
+        )
+        mu = np.asarray([0.5, 0.5, 0.5], dtype=np.float64)
+        sd = np.asarray([0.1, 0.1, 0.1], dtype=np.float64)
+        cube = DayCube(
+            date="2024-01-02",
+            codes=["a", "b", "c"],
+            names=names,
+            X_raw=X,
+            z_mean=mu,
+            z_std=sd,
+            universe_hash="test",
+            clock="open",
+        )
+        row = stamp_z_co_aliases(
+            {"yest_close_loc": 0.2, "raw_aoo_YCLOSE_LOC": 0.2}
+        )
+        self.assertEqual(row.get("z_co_yest_close_loc"), 0.2)
+        out = apply_cube_z_to_dicts([row], ["a"], cube)[0]
+        for k in ("yest_close_loc", "z_co_yest_close_loc", "raw_aoo_YCLOSE_LOC"):
+            self.assertAlmostEqual(float(out[k]), -3.0, places=6)
 
 if __name__ == "__main__":
     unittest.main()

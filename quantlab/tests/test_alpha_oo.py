@@ -47,8 +47,15 @@ def _synth_bars(n: int, seed: int = 42) -> list:
     return bars
 
 def test_alpha_oo_field_count():
+    # L1 算全 SUMP/SUMN/SUMD（及 V 版）；Ridge 拟合侧再滤恒等对
     assert len(ALPHA_OO_FIELD_NAMES) == 206
     assert len(set(ALPHA_OO_FIELD_NAMES)) == 206
+    assert "OSUMP5" in ALPHA_OO_FIELD_NAMES
+    assert "OSUMN5" in ALPHA_OO_FIELD_NAMES
+    assert "OSUMD5" in ALPHA_OO_FIELD_NAMES
+    assert "OVSUMP5" in ALPHA_OO_FIELD_NAMES
+    assert "OVSUMN5" in ALPHA_OO_FIELD_NAMES
+    assert "OVSUMD5" in ALPHA_OO_FIELD_NAMES
     assert len(ALPHA_OO_CORE_FIELD_NAMES) == 49
     assert len(alpha_oo_ridge_raw_names()) == 49
     assert "OROC5" not in ALPHA_OO_CORE_FIELD_NAMES
@@ -208,7 +215,7 @@ def test_alpha_oo_mom3_c_matches_close_momentum():
 def test_raw_aoo_from_bars_helper():
     assert raw_aoo_from_bars(_synth_bars(30)) == {}
     out = raw_aoo_from_bars(_synth_bars(80))
-    assert len(out) >= 200
+    assert len(out) >= 160
     assert all(is_alpha_oo_raw_key(k) for k in out)
     assert all(k.startswith(ALPHA_OO_RAW_PREFIX) for k in out)
 

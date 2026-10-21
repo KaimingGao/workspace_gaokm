@@ -726,7 +726,8 @@ def _score_pool_from_lake(
             date=day,
             clock=clock,
             persist=False,
-            universe_codes=codes,
+            # 与 assess_coverage 同键：完整观察池，不是当日有行子集
+            universe_codes=cube_codes or codes,
         )
         if cube is None:
             hint = "分钟线物化" if clock != "open" else "日线物化"
@@ -898,15 +899,30 @@ def _score_pool(
                     clock = f"tau_{datetime.now().strftime('%H%M')}"
                 except Exception:  # noqa: BLE001
                     clock = "tau_live"
+            # L2 键用完整观察池；score_codes 可能是分档子集
+            uh = None
+            try:
+                from core.research.materialize.coverage import read_cube_codes
+
+                uh = read_cube_codes() or None
+            except Exception:  # noqa: BLE001
+                uh = None
             rescore_fitted_cross_section_batched(
-                scored, score_codes=score_codes, clock=clock, persist_cube=False
+                scored,
+                score_codes=score_codes,
+                clock=clock,
+                persist_cube=False,
+                universe_codes=uh or list(pool),
             )
         else:
             rescore_fitted_cross_section(scored, score_codes=score_codes)
     except MaterializeRequired:
         raise
-    except Exception:  # noqa: BLE001
-        logger.debug("watching_matrix cross-section rescore failed", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("watching_matrix cross-section rescore failed")
+        raise RuntimeError(
+            f"watching_matrix 截面 rescore 失败（禁止 raw×β）: {exc}"
+        ) from exc
 
     logger.info(
         "watching_matrix score_pool n=%s scored=%s rejected=%s workers=%s "

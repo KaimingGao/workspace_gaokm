@@ -605,19 +605,25 @@ def apply_cube_z_to_dicts(
     codes: Sequence[str],
     cube: DayCube,
 ) -> List[dict]:
-    """用 cube μ/σ 对特征 dict 列表做 z（与行 codes 对齐）。"""
+    """用 cube μ/σ 对特征 dict 列表做 z（与行 codes 对齐）。
+
+    必须从冻结的 raw 快照读值：``stamp_z_co_aliases`` 等会裸名↔canon 双写，
+    ``mirror_z_alias_value`` 写回一侧后若再按另一侧键用已更新的 src 算 z，
+    会把 z 再套一层 μ/σ（tip 里 z≈−6~−7 的典型来源）。
+    """
     out: List[dict] = []
     name_set = set(cube.names)
     mu_map = {n: float(cube.z_mean[j]) for j, n in enumerate(cube.names)}
     sd_map = {n: float(cube.z_std[j]) for j, n in enumerate(cube.names)}
-    for i, row in enumerate(rows):
+    for row in rows:
         src = dict(row) if isinstance(row, Mapping) else {}
-        code = str(codes[i] if i < len(codes) else "").strip()
-        # 即使 code 不在 cube.codes，仍用当日 μ/σ（与整池 z 一致）
-        for name in list(src.keys()):
+        # 冻结 raw：避免 mirror 裸名↔canon 后二次 (z−μ)/σ
+        raw_snap = dict(src)
+        # codes 仅对齐调用方行序；即使不在 cube.codes 仍用当日 μ/σ
+        for name in list(raw_snap.keys()):
             if name not in name_set:
                 continue
-            v = src.get(name)
+            v = raw_snap.get(name)
             try:
                 fv = float(v)
             except (TypeError, ValueError):

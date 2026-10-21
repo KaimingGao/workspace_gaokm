@@ -202,6 +202,31 @@ def ensure_day_cube_for_items(
     )
 
 
+def _resolve_cube_universe_codes(
+    items: Sequence[dict],
+    *,
+    universe_codes: Optional[Sequence[str]] = None,
+) -> Optional[List[str]]:
+    """L2 目录键：完整观察池优先；禁止用分档 score_codes 当哈希。"""
+    if universe_codes is not None:
+        out = [str(c or "").strip() for c in universe_codes if str(c or "").strip()]
+        return out or None
+    try:
+        from core.research.materialize.coverage import read_cube_codes
+
+        pool = read_cube_codes()
+        if pool:
+            return list(pool)
+    except Exception:  # noqa: BLE001
+        pass
+    from_items = [
+        str(it.get("stock_code") or "").strip()
+        for it in items
+        if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
+    ]
+    return from_items or None
+
+
 def rescore_fitted_cross_section_batched(
     items: Sequence[dict],
     *,
@@ -213,12 +238,13 @@ def rescore_fitted_cross_section_batched(
 ) -> List[dict]:
     """构建 DayCube 后单遍 rescore（τ/co 直接用 cube μ/σ；cube 落盘供 live/T0）。
 
-    ``universe_codes`` 优先；未传时用 ``score_codes`` 做哈希键（与观察池读键对齐）。
+    ``universe_codes`` = L2 目录键（完整观察池）。未传时读 ``read_cube_codes()``，
+    再退回 items 里的代码。``score_codes`` 只决定写谁的 ŷ，**不**参与哈希。
     """
     from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
     cube = None
-    uh = universe_codes if universe_codes is not None else score_codes
+    uh = _resolve_cube_universe_codes(items, universe_codes=universe_codes)
     if enabled() and len([it for it in items if isinstance(it, dict)]) >= 2:
         try:
             cube = ensure_day_cube_for_items(

@@ -369,11 +369,17 @@ def attach_dual_score_bulk(
             # 单票失败不影响整体（attach失败时回退原item，cross_section仍能用predicted_score老路）
             out.append(dict(it) if isinstance(it, dict) else it)
     try:
+        from core.research.materialize.consumer import MaterializeRequired
         from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
         rescore_fitted_cross_section(out)
-    except Exception:  # noqa: BLE001
-        logger.debug("dual_score bulk cross-section rescore failed", exc_info=True)
+    except MaterializeRequired:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dual_score bulk cross-section rescore failed")
+        raise RuntimeError(
+            f"dual_score 截面 rescore 失败（禁止 raw×β）: {exc}"
+        ) from exc
     return out
 
 
@@ -702,15 +708,22 @@ def attach_dual_score_pit(
         from core.signal.minute_tau_feats import stamp_open_clock_minute_z
 
         stamp_open_clock_minute_z(feats)
-    # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
+    # 只传 τ 头特征；勿塞全日线 sub_scores（训练未用，易误导）。
+    # 截面 τ 模型禁止单票 raw×β（SUMP+SUMN≡1 会把全体 ŷ 抬成 ~+6）；
+    # ŷ 必须等池级 rescore_fitted_cross_section / DayCube μσ 后再写。
     rem_yhat = None
     y_src = ""
     try:
+        from core.research.feature_standardize import is_cross_section_zscore
         from core.research.tc_ridge import predict_tau_from_features
 
-        rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)
-        if rem_yhat is not None:
-            y_src = "ridge"
+        cs_tau = bool(
+            rem_model_doc is not None and is_cross_section_zscore(rem_model_doc)
+        )
+        if not cs_tau:
+            rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)
+            if rem_yhat is not None:
+                y_src = "ridge"
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         rem_yhat = None
         y_src = ""

@@ -7,6 +7,7 @@
 
 
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 from dataclasses import asdict, dataclass, field
@@ -44,9 +45,31 @@ class ReturnScoreModel:
         subs = sub_scores or {}
         if not self.coefficients:
             return None
+        from core.signal.factors.sum_identity import (
+            coef_names_for_raw_identity,
+            filter_predict_active_names,
+            finite_coef,
+            row_has_raw_sum_share_identity,
+        )
+
+        # 截面模型：入模列仍是 raw 份额才拒。面板上未入模的 SUMP/SUMN 不算。
+        from core.research.feature_standardize import is_cross_section_zscore
+
+        if is_cross_section_zscore(self) and row_has_raw_sum_share_identity(
+            subs,
+            relevant_names=coef_names_for_raw_identity(self.coefficients),
+        ):
+            return None
+
+        active = filter_predict_active_names(
+            self.coefficients.keys(), self.coefficients
+        )
         total = float(self.intercept)
         used = 0
-        for name, beta in self.coefficients.items():
+        for name in active:
+            b = finite_coef(self.coefficients.get(name))
+            if b is None:
+                continue
             raw = feature_get(subs, name)
             if raw is None:
                 continue
@@ -54,13 +77,15 @@ class ReturnScoreModel:
                 x = float(raw)
             except (TypeError, ValueError):
                 continue
+            if not math.isfinite(x):
+                continue
             if self._uses_frozen_z():
                 mu = float(self.z_means.get(name) or 0.0)
                 sd = float(self.z_stds.get(name) or 1.0)
                 if sd < 1e-12:
                     sd = 1.0
                 x = (x - mu) / sd
-            total += float(beta) * x
+            total += b * x
             used += 1
         if used == 0:
             return None
@@ -76,15 +101,37 @@ class ReturnScoreModel:
         subs = sub_scores or {}
         if not self.coefficients:
             return None
+        from core.signal.factors.sum_identity import (
+            coef_names_for_raw_identity,
+            filter_predict_active_names,
+            finite_coef,
+            row_has_raw_sum_share_identity,
+        )
+        from core.research.feature_standardize import is_cross_section_zscore
+
+        if is_cross_section_zscore(self) and row_has_raw_sum_share_identity(
+            subs,
+            relevant_names=coef_names_for_raw_identity(self.coefficients),
+        ):
+            return None
+
+        active = filter_predict_active_names(
+            self.coefficients.keys(), self.coefficients
+        )
         terms: List[Dict[str, Any]] = []
         total = float(self.intercept)
-        for name, beta in self.coefficients.items():
+        for name in active:
+            b = finite_coef(self.coefficients.get(name))
+            if b is None:
+                continue
             raw = feature_get(subs, name)
             if raw is None:
                 continue
             try:
                 x = float(raw)
             except (TypeError, ValueError):
+                continue
+            if not math.isfinite(x):
                 continue
             z = x
             if self._uses_frozen_z():
@@ -93,7 +140,7 @@ class ReturnScoreModel:
                 if sd < 1e-12:
                     sd = 1.0
                 z = (x - mu) / sd
-            contrib = float(beta) * z
+            contrib = b * z
             total += contrib
             terms.append(
                 {

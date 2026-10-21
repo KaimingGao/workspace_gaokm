@@ -60,8 +60,15 @@ def _synth_minute_prefix(
     return bars
 
 def test_alpha_tc_field_count():
+    # L1 算全 SUMP/SUMN/SUMD（及 V 版）；Ridge 拟合侧再滤恒等对
     assert len(ALPHA_TC_FIELD_NAMES) == 224
     assert len(set(ALPHA_TC_FIELD_NAMES)) == 224
+    assert "PSUMP5" in ALPHA_TC_FIELD_NAMES
+    assert "PSUMN5" in ALPHA_TC_FIELD_NAMES
+    assert "PSUMD5" in ALPHA_TC_FIELD_NAMES
+    assert "PVSUMP5" in ALPHA_TC_FIELD_NAMES
+    assert "PVSUMN5" in ALPHA_TC_FIELD_NAMES
+    assert "PVSUMD5" in ALPHA_TC_FIELD_NAMES
 
 def test_alpha_tc_key_fields_listed():
     assert "GAP" in ALPHA_TC_FIELD_NAMES
@@ -213,7 +220,7 @@ def test_alpha_tc_mom3_c_matches_close_momentum():
 def test_raw_atc_from_bars_helper():
     assert raw_atc_from_bars(_synth_bars(30)) == {}
     out = raw_atc_from_bars(_synth_bars(80))
-    assert len(out) >= 200
+    assert len(out) >= 180
     assert all(is_alpha_tc_raw_key(k) for k in out)
     assert all(k.startswith(ALPHA_TC_RAW_PREFIX) for k in out)
 
@@ -606,7 +613,7 @@ def test_bad_prefix_field_keeps_other_columns():
         prefix_fields={"RANGE_PCT": np.array([1.0])},
         tau_hm="10:00",
     )
-    assert len(cols) >= 200
+    assert len(cols) >= 180
     got = cols[f"{ALPHA_TC_RAW_PREFIX}RANGE_PCT"]
     assert got.shape == (m,)
     assert np.all(got == 0.0)

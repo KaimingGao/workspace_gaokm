@@ -143,6 +143,8 @@ def _prepare_complete_panel(
     """挑选可用因子与完整行：允许多因子缺测，优先保留覆盖好的因子。
 
     剔除缺测过多的列和真常数（max−min≤eps）。不按原始标准差设下限。
+    另丢掉 SUMP/SUMN（及 V 对）恒等冗余，只留 SUMD/VSUMD（Ridge 路径；
+    LightGBM/LambdaRank 不经此函数，L1 仍算全份额对）。
     ``impute_keys``：这些列缺测按观测均值填后再挑完整行（标准化后 z=0），
     与 live 缺键填均值对齐；未列出的列仍缺则整行丢掉。
     """
@@ -152,6 +154,7 @@ def _prepare_complete_panel(
         "dropped_sparse": [],
         "dropped_constant": [],
         "dropped_for_coverage": [],
+        "dropped_sum_identity": [],
         "imputed_keys": [],
     }
     impute_set = {str(n) for n in (impute_keys or []) if n}
@@ -164,8 +167,17 @@ def _prepare_complete_panel(
 
     # 缺测门槛封顶，避免短面板把列剔光
     min_obs = max(8, min(n_raw // 4, 40))
+    from core.signal.factors.sum_identity import (
+        drop_redundant_sum_share_names,
+        prep_meta_excluded,
+    )
+
+    kept_names, dropped_id = drop_redundant_sum_share_names(
+        [str(n) for n in feature_names]
+    )
+    meta["dropped_sum_identity"] = list(dropped_id)
     candidates: List[str] = []
-    for name in feature_names:
+    for name in kept_names:
         vals = [float(row[name]) for row in xs if row.get(name) is not None]
         if len(vals) < min_obs:
             meta["dropped_sparse"].append(name)
@@ -216,22 +228,13 @@ def _prepare_complete_panel(
 
         xs_c = [{name: float(xs[i][name]) for name in active} for i in rows_idx]
         ys_c = [float(ys[i]) for i in rows_idx]
-        excluded = (
-            list(meta["dropped_sparse"])
-            + list(meta["dropped_constant"])
-            + list(meta["dropped_for_coverage"])
-        )
+        excluded = prep_meta_excluded(meta)
         meta["complete_row_indices"] = list(rows_idx)
         meta["complete_sample_count"] = len(rows_idx)
         meta["active_feature_count"] = len(active)
         return xs_c, ys_c, active, excluded, meta
 
-    excluded = (
-        list(meta["dropped_sparse"])
-        + list(meta["dropped_constant"])
-        + list(meta["dropped_for_coverage"])
-    )
-    return None, None, [], excluded, meta
+    return None, None, [], prep_meta_excluded(meta), meta
 
 
 def _qr_solve_np(x: np.ndarray, y: np.ndarray) -> Optional[np.ndarray]:
@@ -426,12 +429,11 @@ def _ols_with_intercept(
         name: round(float(fit["beta"][i + 1]), 6)
         for i, name in enumerate(final_active)
     }
-    for name in all_excluded:
-        coef_map[name] = None
+    from core.signal.factors.sum_identity import omit_redundant_from_coef_map
 
     return {
         "intercept": fit["intercept"],
-        "coefficients": coef_map,
+        "coefficients": omit_redundant_from_coef_map(coef_map, all_excluded),
         "active_features": final_active,
         "excluded_features": all_excluded,
         "r_squared": fit["r_squared"],
@@ -598,6 +600,7 @@ def fit_factor_ols_from_panel(
             "sparse": prep_meta.get("dropped_sparse") or [],
             "constant": prep_meta.get("dropped_constant") or [],
             "coverage": prep_meta.get("dropped_for_coverage") or [],
+            "sum_identity": prep_meta.get("dropped_sum_identity") or [],
             "collinear_policy": prep_meta.get("dropped_collinear_policy") or [],
         },
         min_names=min_names_gate,

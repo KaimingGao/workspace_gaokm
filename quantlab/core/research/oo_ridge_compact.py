@@ -732,6 +732,7 @@ def _prepare_matrix(
         "dropped_sparse": [],
         "dropped_constant": [],
         "dropped_for_coverage": [],
+        "dropped_sum_identity": [],
     }
     feature_names = [str(n) for n in names]
     if n_raw < 4:
@@ -739,8 +740,15 @@ def _prepare_matrix(
 
     min_obs = max(8, min(n_raw // 4, 40))
     name_j = {n: i for i, n in enumerate(feature_names)}
+    from core.signal.factors.sum_identity import (
+        drop_redundant_sum_share_names,
+        prep_meta_excluded,
+    )
+
+    kept_names, dropped_id = drop_redundant_sum_share_names(feature_names)
+    meta["dropped_sum_identity"] = list(dropped_id)
     candidates: List[str] = []
-    for name in feature_names:
+    for name in kept_names:
         n_obs, vmax, vmin = _column_finite_stats(_take_column(x, row_pos, name_j[name]))
         if n_obs < min_obs:
             meta["dropped_sparse"].append(name)
@@ -789,22 +797,13 @@ def _prepare_matrix(
 
         x_c = np.ascontiguousarray(sub[rows_idx], dtype=np.float64)
         y_c = np.ascontiguousarray(y[rows_idx], dtype=np.float64)
-        excluded = (
-            list(meta["dropped_sparse"])
-            + list(meta["dropped_constant"])
-            + list(meta["dropped_for_coverage"])
-        )
+        excluded = prep_meta_excluded(meta)
         meta["complete_sample_count"] = n
         meta["active_feature_count"] = len(active)
         meta["complete_row_indices"] = [int(i) for i in rows_idx.tolist()]
         return x_c, y_c, active, excluded, meta
 
-    excluded = (
-        list(meta["dropped_sparse"])
-        + list(meta["dropped_constant"])
-        + list(meta["dropped_for_coverage"])
-    )
-    return None, None, [], excluded, meta
+    return None, None, [], prep_meta_excluded(meta), meta
 
 
 def _zscore_matrix(
@@ -918,11 +917,11 @@ def _ols_matrix(
     coef_map: Dict[str, Optional[float]] = {
         name: round(float(fit["beta"][i + 1]), 6) for i, name in enumerate(final_active)
     }
-    for name in all_excluded:
-        coef_map[name] = None
+    from core.signal.factors.sum_identity import omit_redundant_from_coef_map
+
     return {
         "intercept": fit["intercept"],
-        "coefficients": coef_map,
+        "coefficients": omit_redundant_from_coef_map(coef_map, all_excluded),
         "active_features": final_active,
         "excluded_features": all_excluded,
         "r_squared": fit["r_squared"],

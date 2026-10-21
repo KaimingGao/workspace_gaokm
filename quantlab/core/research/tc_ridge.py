@@ -843,12 +843,22 @@ def explain_tau_prediction(
         cs = str(fit.get("zscore_scope") or doc.get("zscore_scope") or "") == (
             "cross_section"
         )
-    active = [
-        n
-        for n in (fit.get("active_features") or coefs.keys())
-        if coefs.get(n) is not None
-    ]
+    from core.signal.factors.sum_identity import (
+        coef_names_for_raw_identity,
+        filter_predict_active_names,
+        row_has_raw_sum_share_identity,
+    )
+
+    active = filter_predict_active_names(
+        fit.get("active_features") or coefs.keys(),
+        coefs,
+    )
     row = features or {}
+    if cs and row_has_raw_sum_share_identity(
+        row,
+        relevant_names=coef_names_for_raw_identity(coefs),
+    ):
+        return None
     try:
         from core.signal.factors.meta.registry import factor_label
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
