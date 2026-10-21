@@ -309,14 +309,7 @@ export function installSuggest(q) {
   }
 
   function paintOoStatus(opts) {
-    const render = q.renderRemStatus;
-    if (typeof render === "function") {
-      render(els.quantOlsSummary, opts);
-      return;
-    }
-    setBusyText(els.quantOlsSummary, opts.message || opts.chip || "", {
-      busy: !!opts.busy,
-    });
+    q.renderRemStatus(els.quantOlsSummary, opts);
   }
 
   /** 状态接口 → ŷ_τc / ŷ_co 同一套卡头字段（拟合 / 研究 / 执行）。 */
@@ -352,10 +345,6 @@ export function installSuggest(q) {
       idleMessage: "拟合后看系数 · 再启用研究/执行",
       ...extra,
     });
-  }
-
-  function ooFitErrorMessage(data, httpFallback) {
-    return q.formatHorizonFitErrorMessage(data, "", httpFallback || "拟合失败");
   }
 
   function _setOoPromoteEnabled(draftExists) {
@@ -487,14 +476,6 @@ export function installSuggest(q) {
     }
   }
 
-  function fmtOoFitSec(sec) {
-    const n = Math.max(0, Math.round(Number(sec) || 0));
-    if (n < 60) return `${n}s`;
-    const m = Math.floor(n / 60);
-    const s = n % 60;
-    return `${m}分${String(s).padStart(2, "0")}秒`;
-  }
-
   async function runReturnModelFit() {
     const t0 = Date.now();
     let busyTimer = null;
@@ -506,7 +487,7 @@ export function installSuggest(q) {
     };
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `ŷ_oo… ${fmtOoFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
+      const msg = `ŷ_oo… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}`;
       // 状态只写 ŷ_oo 卡头，不刷页顶 #quant-meta（与 ŷ_τc 等头一致）
       paintOoStatus({
         state: "busy",
@@ -543,8 +524,9 @@ export function installSuggest(q) {
       }
       stopBusy();
       if (!res.ok || !data || data.success === false) {
-        const detail = ooFitErrorMessage(
+        const detail = q.formatHorizonFitErrorMessage(
           data,
+          "",
           !res.ok
             ? res.status === 404
               ? "接口未找到：请重启 Web"
@@ -572,14 +554,10 @@ export function installSuggest(q) {
       await refreshReturnModelStatus({ justFitted: true });
     } catch (err) {
       stopBusy();
-      const detail =
-        typeof q.describeNetworkFetchError === "function"
-          ? q.describeNetworkFetchError(err)
-          : String((err && err.message) || err || "拟合中断");
       paintOoStatus({
         state: "error",
         chip: "失败",
-        message: detail,
+        message: q.describeNetworkFetchError(err),
         error: true,
       });
     } finally {

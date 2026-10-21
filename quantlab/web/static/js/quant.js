@@ -3031,12 +3031,17 @@ export function initQuant(ctx) {
   }
   q.describeNetworkFetchError = describeNetworkFetchError;
 
-  function fmtRidgeJobSec(ms) {
-    const s = Math.max(1, Math.round(Number(ms) / 1000));
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    const r = s % 60;
+  function fmtRidgeFitSec(sec) {
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    if (n < 60) return `${n}s`;
+    const m = Math.floor(n / 60);
+    const r = n % 60;
     return `${m}分${String(r).padStart(2, "0")}秒`;
+  }
+  q.fmtRidgeFitSec = fmtRidgeFitSec;
+
+  function fmtRidgeJobSec(ms) {
+    return fmtRidgeFitSec(Math.max(1, Number(ms) / 1000));
   }
 
   function ridgeFitBusyHint(elapsedSec) {

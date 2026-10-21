@@ -207,9 +207,13 @@ class TestAssembleUsesL1(unittest.TestCase):
             MaterializeRequired,
             materialized_consumer,
         )
-        from core.research.panel_matrix import _tau_stock_job
+        from core.research.panel_matrix import _tau_bar_floor, _tau_grid_stock_job, _tau_stock_job
 
         bars = _bars__panel_fingerprint(57, 10.0, 3)
+        self.assertGreater(
+            _tau_bar_floor(12, include_alpha_tc=True),
+            len(bars),
+        )
         with materialized_consumer():
             try:
                 pack = _tau_stock_job(
@@ -222,9 +226,36 @@ class TestAssembleUsesL1(unittest.TestCase):
                     min_history=12,
                     include_alpha_tc=True,
                 )
+                grid = _tau_grid_stock_job(
+                    {"code": "688825", "bars": list(bars), "minute_bars": []},
+                    ["gap_pct"],
+                    ["09:35"],
+                    min_history=12,
+                    include_alpha_tc=True,
+                    include_alpha_th=False,
+                )
             except MaterializeRequired as exc:
                 self.fail(str(exc))
         self.assertIsNone(pack)
+        self.assertEqual(grid, {})
+
+    def test_short_oo_series_skips_without_l1(self) -> None:
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
+        from core.research.oo_ridge_compact import _oo_stock_job
+
+        bars = _bars__panel_fingerprint(57, 10.0, 4)
+        with materialized_consumer():
+            try:
+                x, y, names, dates = _oo_stock_job(("688825", bars, 1, False))
+            except MaterializeRequired as exc:
+                self.fail(str(exc))
+        self.assertEqual(int(y.shape[0]), 0)
+        self.assertEqual(dates, [])
+        self.assertGreater(len(names), 0)
+        self.assertEqual(int(x.shape[0]), 0)
 
 
 # --- from test_panel_matrix.py ---

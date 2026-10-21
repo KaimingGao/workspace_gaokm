@@ -340,7 +340,7 @@ def _materialize_l2_with_minute(
             logger.info("l2 minute window skipped: %s", minute_note)
         else:
             logger.info(
-                "l2 minute window %s days %s (calendar %s)",
+                "l2 minute window %s days %s (lookback %s)",
                 len(minute_days),
                 report["minute_span"],
                 len(day_list),

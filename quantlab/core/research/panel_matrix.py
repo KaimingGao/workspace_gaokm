@@ -433,6 +433,31 @@ def _co_stock_job_pooled(
     return pack, drain_deferred_stale()
 
 
+def _tau_bar_floor(
+    min_history: int,
+    *,
+    include_alpha_tc: bool = False,
+    include_alpha_th: bool = False,
+) -> int:
+    """凑不满这么多根日线的票，开了 alpha 后也形不成 4 个决策日。
+
+    次新没有 L1 时直接跳过，不要 ``raise_if_consumer_rebuild`` 打断整池。
+    """
+    floor = int(min_history) + 2
+    if not (include_alpha_tc or include_alpha_th):
+        return floor
+    need_hist = int(min_history)
+    if include_alpha_tc:
+        from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
+
+        need_hist = max(need_hist, int(ALPHA_TC_PANEL_WINDOW))
+    if include_alpha_th:
+        from core.signal.factors.alpha_th import ALPHA_TH_PANEL_WINDOW
+
+        need_hist = max(need_hist, int(ALPHA_TH_PANEL_WINDOW))
+    return max(floor, need_hist + 4)
+
+
 def _tau_stock_job(
     item: Dict[str, Any],
     col_names: Sequence[str],
@@ -462,20 +487,11 @@ def _tau_stock_job(
         return None
     code = str(item.get("code") or item.get("stock_code") or "").strip()
     bars = list(item.get("bars") or [])
-    # 开了 alpha_tc 后决策日从垫窗起算；凑不满 4 行的次新没有 L1 也不该打断整池。
-    floor = int(min_history) + 2
-    if include_alpha_tc or include_alpha_th:
-        need_hist = int(min_history)
-        if include_alpha_tc:
-            from core.signal.factors.alpha_tc import ALPHA_TC_PANEL_WINDOW
-
-            need_hist = max(need_hist, int(ALPHA_TC_PANEL_WINDOW))
-        if include_alpha_th:
-            from core.signal.factors.alpha_th import ALPHA_TH_PANEL_WINDOW
-
-            need_hist = max(need_hist, int(ALPHA_TH_PANEL_WINDOW))
-        floor = max(floor, need_hist + 4)
-    if len(bars) < floor:
+    if len(bars) < _tau_bar_floor(
+        min_history,
+        include_alpha_tc=include_alpha_tc,
+        include_alpha_th=include_alpha_th,
+    ):
         item.pop("minute_bars", None)
         return None
     mh = int(min_history)
@@ -826,7 +842,11 @@ def _tau_grid_stock_job(
     bars = list(item.get("bars") or [])
     minute = list(item.get("minute_bars") or [])
     item.pop("minute_bars", None)
-    if len(bars) < int(min_history) + 2:
+    if len(bars) < _tau_bar_floor(
+        min_history,
+        include_alpha_tc=include_alpha_tc,
+        include_alpha_th=include_alpha_th,
+    ):
         return out
     missing: List[str] = []
     fps: Dict[str, str] = {}
@@ -1610,7 +1630,13 @@ def _co_stock_job(
         return None
     code = str(item.get("code") or item.get("stock_code") or "").strip()
     bars = list(item.get("bars") or [])
-    if len(bars) < int(min_history) + 3:
+    floor = int(min_history) + 3
+    if include_alpha_oo:
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+        # collect_co 决策日起点 bump 到垫窗；凑不满 4 行的次新直接跳过。
+        floor = max(floor, int(ALPHA_OO_PANEL_WINDOW) + 3)
+    if len(bars) < floor:
         return None
     mh = int(min_history)
     aoo = bool(include_alpha_oo)

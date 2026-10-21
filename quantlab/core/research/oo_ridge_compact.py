@@ -259,6 +259,17 @@ def _oo_stock_job(
                 )
         except Exception:  # noqa: BLE001
             logger.debug("oo training cache load failed code=%s", code_s, exc_info=True)
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+        # 次新凑不满垫窗+horizon：没有可训行；勿因缺 L1 打断整池。
+        if len(bars_l) < int(ALPHA_OO_PANEL_WINDOW) + max(1, horizon_i):
+            names = OoPanelMatrix(ridge_core_only=core).names
+            return (
+                np.zeros((0, len(names)), dtype=np.float64),
+                np.zeros((0,), dtype=np.float64),
+                names,
+                [],
+            )
         raise_if_consumer_rebuild("oo", code_s)
         # 尾窗增量：stem 命中则只重算尾部决策日（读 L1 meta）
         x = y = None

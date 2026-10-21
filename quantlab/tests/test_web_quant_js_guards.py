@@ -3541,9 +3541,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertIn("草稿已更新 · 可启用研究（验证后再晋级执行）", suggest)
         self.assertNotIn("function ooFitBusyHint", suggest)
-        self.assertIn("ŷ_oo… ${fmtOoFitSec(s)} · ${q.ridgeFitBusyHint(s)}", suggest)
+        self.assertNotIn("function fmtOoFitSec", suggest)
+        self.assertNotIn("function ooFitErrorMessage", suggest)
+        self.assertIn(
+          "ŷ_oo… ${q.fmtRidgeFitSec(s)} · ${q.ridgeFitBusyHint(s)}",
+          suggest,
+        )
         self.assertIn("function ridgeFitBusyHint", js)
         self.assertIn("q.ridgeFitBusyHint = ridgeFitBusyHint", js)
+        self.assertIn("q.fmtRidgeFitSec = fmtRidgeFitSec", js)
+        self.assertIn("q.renderRemStatus(els.quantOlsSummary, opts)", suggest)
         self.assertIn("排队 / 读日线或分钟缓存", js)
         self.assertNotIn("排队 / 读日线或分钟缓存", suggest)
         self.assertNotIn("拉观察池日线 · 全程约 12–15 分钟", suggest)
