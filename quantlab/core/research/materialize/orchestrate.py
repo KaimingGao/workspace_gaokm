@@ -15,7 +15,7 @@ from core.research.materialize.catalog import (
 )
 from core.research.materialize.l1_jobs import materialize_l1, materialize_l1_tau_grid
 from core.research.materialize.l2_jobs import materialize_l2
-from core.watching.store import MODEL_FIT_MAX_SIZE, WATCHING_MAX_SIZE
+from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def _run_materialize(
     if do_l1_tau_grid and do_l2:
         from core.research.materialize.cover_policy import resolve_tau_l2_clocks
 
-        clks = resolve_tau_l2_clocks(clks, do_l1=bool(do_l1))
+        clks = resolve_tau_l2_clocks(clks)
     code_list = resolve_materialize_codes(
         codes=codes, watching_limit=watching_limit
     )
@@ -116,6 +116,9 @@ def _run_materialize(
     }
     if len(code_list) < 2:
         out["error"] = "观察池/宇宙不足 2 只"
+        from core.research.materialize.track import build_materialize_track
+
+        out["track"] = build_materialize_track(out)
         return out
 
     steps = (1 if do_l1 else 0) + (1 if do_l1_tau_grid else 0) + (1 if do_l2 else 0)
@@ -131,10 +134,19 @@ def _run_materialize(
 
     tot_steps = max(1, steps)
 
+    def _finish_early(error: str) -> Dict[str, Any]:
+        from core.research.materialize.track import build_materialize_track
+
+        out["error"] = error
+        out["elapsed_s"] = round(time.perf_counter() - t0, 2)
+        out["ok"] = False
+        out["success"] = False
+        out["track"] = build_materialize_track(out)
+        return out
+
     if do_l1:
         if _cancelled():
-            out["error"] = "cancelled"
-            return out
+            return _finish_early("cancelled")
         _emit(progress_cb, step, tot_steps, "物化 L1…")
 
         def _pcb(c: int, t: int, m: str = "") -> None:
@@ -154,9 +166,7 @@ def _run_materialize(
 
     if do_l1_tau_grid:
         if _cancelled():
-            out["error"] = "cancelled"
-            out["elapsed_s"] = round(time.perf_counter() - t0, 2)
-            return out
+            return _finish_early("cancelled")
         _emit(progress_cb, step, tot_steps, "物化 L1 τ 网格…")
 
         def _pcb_tau(c: int, t: int, m: str = "") -> None:
@@ -177,19 +187,27 @@ def _run_materialize(
 
     if do_l2:
         if _cancelled():
-            out["error"] = "cancelled"
-            out["elapsed_s"] = round(time.perf_counter() - t0, 2)
-            return out
+            return _finish_early("cancelled")
         _emit(progress_cb, step, tot_steps, "物化 L2…")
 
         def _pcb2(c: int, t: int, m: str = "") -> None:
             _emit(progress_cb, c, t, m or "L2…")
 
+        # L2 窗用 l2_lookback_days，避免被 L1 的 lookback=1000 盖成整窗重写。
+        try:
+            l2_lb = int(l2_lookback_days)
+        except (TypeError, ValueError):
+            l2_lb = 0
+        if l2_lb <= 0:
+            try:
+                l2_lb = int(lookback or 60)
+            except (TypeError, ValueError):
+                l2_lb = 60
         out["l2"] = materialize_l2(
             code_list,
             dates=dates,
             clocks=clks,
-            lookback_days=int(lookback or l2_lookback_days or 60),
+            lookback_days=max(2, min(1500, l2_lb)),
             use_trading_days=not dates,
             progress_cb=_pcb2,
             cancel_cb=cancel_cb,
@@ -222,15 +240,19 @@ def _run_materialize(
         out["error"] = "materialize failed: " + ",".join(errs)
         if detail:
             out["error"] = f"{out['error']} · {detail}"
+    from core.research.materialize.track import build_materialize_track
+
+    out["track"] = build_materialize_track(out)
     _emit(progress_cb, tot_steps, tot_steps, f"物化完成 · {out['elapsed_s']}s")
     logger.info(
-        "materialize done ok=%s codes=%s l1=%s tau_grid=%s l2=%s elapsed=%.1fs",
+        "materialize done ok=%s codes=%s l1=%s tau_grid=%s l2=%s elapsed=%.1fs track=%s",
         out["ok"],
         len(code_list),
         do_l1,
         do_l1_tau_grid,
         do_l2,
         out["elapsed_s"],
+        (out.get("track") or {}).get("headline") or "",
     )
     return out
 
@@ -276,5 +298,4 @@ __all__ = [
     "catalog_payload",
     "resolve_materialize_codes",
     "run_materialize",
-    "MODEL_FIT_MAX_SIZE",
 ]

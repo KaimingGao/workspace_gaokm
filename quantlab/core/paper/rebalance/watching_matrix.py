@@ -267,13 +267,33 @@ def _feature_overlap_ok(sample: dict, names: Sequence[str]) -> bool:
     return hit >= max(4, int(0.4 * len(cols)))
 
 
-def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
-    """用当日 Feature Lake 的 oo_rank / tc_rank 行编观察池名次，写回 focus。
+def _live_rank_asof(items: Optional[Sequence[dict]] = None) -> str:
+    """Live 名次日：优先行上 ``lake_score_day`` / ``as_of``，否则 ŷ_oo 周期日。"""
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        day = str(it.get("lake_score_day") or it.get("as_of") or "")[:10]
+        if len(day) >= 10:
+            return day
+    try:
+        from core.signal.session_pit import oo_cycle_date
 
-    只补 focus 上还没有的键。特征与模型对不上、或湖覆盖不够，则跳过该头。
-    """
+        day = str(oo_cycle_date() or "")[:10]
+        if len(day) >= 10:
+            return day
+    except Exception:  # noqa: BLE001
+        logger.debug("live rank asof oo_cycle_date failed", exc_info=True)
     from datetime import date
 
+    return date.today().isoformat()
+
+
+def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
+    """用 Feature Lake 的 oo_rank / tc_rank 行编观察池名次，写回 focus。
+
+    日界与湖出分一致（``lake_score_day`` / 周期日候选）。只补 focus 上还没有的键。
+    特征与模型对不上、或湖覆盖不够，则跳过该头。
+    """
     from core.research.feature_lake import load_day_rows
     from core.research.lake_bridge import FAMILY_OO_RANK, FAMILY_TC_RANK
 
@@ -287,9 +307,20 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
     codes, _meta = _watching_codes(include_held=held)
     if len(codes) < 2:
         return
-    day = date.today().isoformat()
-    oo_rows = load_day_rows(FAMILY_OO_RANK, codes, day)
-    tc_rows = load_day_rows(FAMILY_TC_RANK, codes, day)
+    cycle = _live_rank_asof(focus)
+    oo_rows: Dict[str, Any] = {}
+    tc_rows: Dict[str, Any] = {}
+    day = ""
+    for cand in _lake_score_day_candidates(cycle) or [cycle]:
+        oo_try = load_day_rows(FAMILY_OO_RANK, codes, cand) or {}
+        tc_try = load_day_rows(FAMILY_TC_RANK, codes, cand) or {}
+        if _lake_cover_ok(len(oo_try), len(codes)) or _lake_cover_ok(
+            len(tc_try), len(codes)
+        ):
+            oo_rows, tc_rows, day = oo_try, tc_try, cand
+            break
+    if not day:
+        return
     oo_ok = _lake_cover_ok(len(oo_rows), len(codes))
     tc_ok = _lake_cover_ok(len(tc_rows), len(codes))
     if oo_ok:
@@ -358,17 +389,23 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
 
 
 def stamp_live_ranks(focus: Sequence[dict]) -> None:
-    """给已打分的持仓行补当日 oo_rank / τc_rank。
+    """给已打分的持仓行补 oo_rank / τc_rank。
 
-    先用今天调仓写下的快照（与预演/落账同一截面）。缺的名字再试 Feature Lake。
+    先用同周期日调仓快照（与预演/落账同一截面）。缺的名字再试 Feature Lake。
     两侧都没有则留空，表上显示 —。
     """
-    from datetime import date
-
     rows = [it for it in focus or [] if isinstance(it, dict)]
     if not rows:
         return
-    snap = load_live_rank_snapshot(as_of=date.today().isoformat())
+    asof = _live_rank_asof(rows)
+    snap = load_live_rank_snapshot(as_of=asof)
+    if not snap:
+        for cand in _lake_score_day_candidates(asof):
+            if cand == asof:
+                continue
+            snap = load_live_rank_snapshot(as_of=cand)
+            if snap:
+                break
     if snap:
         for it in rows:
             src = snap.get(str(it.get("stock_code") or "").strip())
@@ -504,7 +541,10 @@ def score_session_from_lake(
     *,
     paper: Optional[dict] = None,
 ) -> Tuple[List[dict], List[dict]]:
-    """观察池并上 ``codes``，读会话日 L1 与同钟 L2。缺覆盖抛 ``MaterializeRequired``。"""
+    """观察池并上 ``codes``，读 ŷ_oo 周期日 L1 与同钟 L2（缺覆盖可回退上一交易日）。
+
+    缺覆盖抛 ``MaterializeRequired``。
+    """
     from datetime import datetime
 
     held = [str(c).strip() for c in codes if str(c or "").strip()]
@@ -537,6 +577,94 @@ def _consumer_score_clock(use_minute_tau: Optional[bool], tau_clock: Optional[st
     return "open" if clock == "open" else clock
 
 
+def _lake_score_day_candidates(cycle_day: str) -> List[str]:
+    """出分日候选：周期日 → 完整日线 as-of → 上一交易日（去重保序）。"""
+    out: List[str] = []
+    seen = set()
+
+    def _add(raw: Any) -> None:
+        day = str(raw or "")[:10]
+        if len(day) < 10 or day in seen:
+            return
+        seen.add(day)
+        out.append(day)
+
+    _add(cycle_day)
+    try:
+        from core.market.calendar import expected_latest_daily_bar_date
+
+        _add(expected_latest_daily_bar_date())
+    except Exception:  # noqa: BLE001
+        logger.debug("lake score candidates: expected_latest failed", exc_info=True)
+    try:
+        from core.market.calendar import prev_trading_day
+
+        if cycle_day:
+            _add(prev_trading_day(cycle_day))
+    except Exception:  # noqa: BLE001
+        logger.debug("lake score candidates: prev_trading_day failed", exc_info=True)
+    return out
+
+
+def _resolve_lake_score_day(
+    codes: Sequence[str],
+    *,
+    families: Sequence[str],
+    clock: str,
+    cube_codes: Optional[Sequence[str]] = None,
+) -> Tuple[str, Dict[str, Any], Optional[str]]:
+    """选有 L1/L2 覆盖的出分日；全缺则返回最后一次覆盖报告。
+
+    Returns:
+        (day, coverage_report, fallback_from_cycle_or_None)
+    """
+    from core.research.materialize.coverage import assess_coverage
+    from core.signal.session_pit import oo_cycle_date
+
+    cycle_day = str(oo_cycle_date() or "")[:10]
+    candidates = _lake_score_day_candidates(cycle_day)
+    cube_arg = list(cube_codes) if cube_codes is not None and len(cube_codes) >= 2 else None
+    last_report: Dict[str, Any] = {
+        "ok": False,
+        "error_code": "materialize_required",
+        "error": "无 ŷ_oo 周期日" if not cycle_day else "请先日线物化 L1/L2",
+        "hint": "日线物化",
+    }
+    for day in candidates:
+        try:
+            report = assess_coverage(
+                codes,
+                [day],
+                families=list(families),
+                clocks=[clock],
+                cube_codes=cube_arg,
+            )
+        except Exception as exc:  # noqa: BLE001 — 覆盖检查异常当缺覆盖，试下一候选
+            logger.warning("assess_coverage failed day=%s: %s", day, exc, exc_info=True)
+            last_report = {
+                "ok": False,
+                "error_code": "materialize_required",
+                "error": f"覆盖检查失败（{day}）：{exc}",
+                "hint": "日线物化",
+            }
+            continue
+        last_report = report if isinstance(report, dict) else last_report
+        if report.get("ok"):
+            fallback_from = cycle_day if day != cycle_day else None
+            if fallback_from:
+                logger.info(
+                    "lake score day fallback cycle=%s -> %s (open L1/L2 未齐)",
+                    cycle_day,
+                    day,
+                )
+            return day, report, fallback_from
+    if isinstance(last_report, dict):
+        last_report = dict(last_report)
+        last_report.setdefault("tried_days", list(candidates))
+        last_report.setdefault("cycle_day", cycle_day or None)
+    return cycle_day or "", last_report, None
+
+
 def _score_pool_from_lake(
     pool: Sequence[str],
     *,
@@ -544,28 +672,30 @@ def _score_pool_from_lake(
     score_codes: Optional[Collection[str]] = None,
     tau_clock: Optional[str] = None,
 ) -> Tuple[List[dict], List[dict]]:
-    """调仓出分只读当日 L1，截面 μ/σ 只读已有 L2。缺覆盖则要求先物化。"""
-    from core.market.calendar import resolve_session_date
+    """调仓出分只读 ŷ_oo 周期日 L1，截面 μ/σ 只读已有 L2。缺覆盖则要求先物化。
+
+    日界与 ``oo_cycle_date`` 对齐。盘中日线/open 湖常仍停在上一交易日
+    （``expected_latest_daily_bar_date`` 15:05 前不滚今日），此时回退读昨收
+    周期日，避免数据中心 ŷ 列整表空白。
+    """
     from core.research.batch_score import ensure_day_cube_for_items
     from core.research.feature_lake import load_day_rows
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, family_for_tc
     from core.research.lake_replay import assemble_item_from_lake_rows
     from core.research.materialize.consumer import MaterializeRequired
-    from core.research.materialize.coverage import assess_coverage, read_cube_codes
+    from core.research.materialize.coverage import read_cube_codes
     from core.signal.cross_section_rescore import rescore_fitted_cross_section
 
     codes = [str(c or "").strip() for c in pool if str(c or "").strip()]
-    day = str(resolve_session_date() or "")[:10]
     clock = _consumer_score_clock(use_minute_tau, tau_clock)
     fam_tc = family_for_tc(tau_hm="open" if clock == "open" else clock)
     families = [FAMILY_OO, fam_tc, FAMILY_CO]
     cube_codes = read_cube_codes()
-    report = assess_coverage(
+    day, report, fallback_from = _resolve_lake_score_day(
         codes,
-        [day],
         families=families,
-        clocks=[clock],
-        cube_codes=cube_codes if len(cube_codes) >= 2 else None,
+        clock=clock,
+        cube_codes=cube_codes,
     )
     if not report.get("ok"):
         raise MaterializeRequired(report)
@@ -586,6 +716,9 @@ def _score_pool_from_lake(
         if item is None:
             rejected.append({"stock_code": code, "reason": f"L1 缺 {day}"})
             continue
+        item["lake_score_day"] = day
+        if fallback_from:
+            item["lake_score_fallback_from"] = fallback_from
         scored.append(item)
     if len(scored) >= 2:
         cube = ensure_day_cube_for_items(
@@ -605,6 +738,8 @@ def _score_pool_from_lake(
                     "hint": hint,
                     "clocks": [clock],
                     "families": families,
+                    "cycle_day": fallback_from or day,
+                    "tried_days": [day],
                 }
             )
         rescore_fitted_cross_section(scored, score_codes=score_codes, day_cube=cube)
@@ -1299,9 +1434,7 @@ def simulate_watching_matrix_preview(
     _attach_oo_rank_scores(scored, score_codes=score_codes)
     _attach_tc_rank_scores(scored, score_codes=score_codes)
     try:
-        from datetime import date as _date
-
-        save_live_rank_snapshot(scored, as_of=_date.today().isoformat())
+        save_live_rank_snapshot(scored, as_of=_live_rank_asof(scored))
     except Exception:  # noqa: BLE001
         logger.debug("save live rank snapshot failed", exc_info=True)
     try:

@@ -6,10 +6,10 @@
 ========
 消费方           L1                              L2 钟                         日期窗
 --------------  -------------------------------  ----------------------------  --------------------
-做 T 回测        oo/tc/co + 决策钟 tc_HHMM         open + ≤leg1 的 suggested τ   回看 ∩ 5m 够格日
+做 T 回测        决策钟 tc_HHMM（不硬要 oo）         ≤leg1 的 suggested τ（不含 open） 回看 ∩ 5m 够格日
 分钟 τ 物化      tc_HHMM 网格（自 09:35）           **仅** suggested τ（不含 open）  5m 够格日（近端优先）
 ŷ_τ* 拟合        —                                同物化 τ 钟                     lookback ∩ 5m 够格日（有多少用多少）
-日线物化         oo/tc/co                          open                          交易日回看（近端优先）
+调仓 / 日线物化  oo/tc/co                          open                          交易日回看（近端优先）
 
 门槛
 ----
@@ -281,16 +281,14 @@ def first_nested_error(*parts: Optional[Dict[str, Any]]) -> str:
 def resolve_tau_l2_clocks(
     clocks: Sequence[str] | None,
     *,
-    do_l1: bool,
     suggested: Sequence[str] | None = None,
 ) -> List[str]:
     """纯 τ 物化 L2 时钟：仅分钟钟（suggested τ），**不含 open**。
 
-    ``do_l1`` 保留参数以兼容旧调用；日线 open 由日线物化卡单独写。
+    日线 open 由日线物化卡单独写，不经此函数。
     """
     from core.research.materialize.catalog import normalize_clocks, suggested_tau_clocks
 
-    _ = do_l1  # 兼容签名；不再向 τ L2 强塞 open
     clks = normalize_clocks(clocks)
     sug = [
         str(c).strip()

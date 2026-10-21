@@ -55,12 +55,11 @@ def _insight_cache_stamp() -> str:
         logger.debug("insight cache stamp asof failed", exc_info=True)
     sess = ""
     try:
-        from core.market.calendar import resolve_session_date
-        from core.signal.session_pit import shanghai_now
+        from core.signal.session_pit import oo_cycle_date
 
-        sess = str(resolve_session_date(now=shanghai_now()) or "")
+        sess = str(oo_cycle_date() or "")
     except Exception:  # noqa: BLE001
-        logger.debug("insight cache stamp session failed", exc_info=True)
+        logger.debug("insight cache stamp cycle day failed", exc_info=True)
     # 分组权重指针已退役；缓存戳不再依赖 cluster weights mtime
     ver = "cluster_retired"
     bars_gen = ""
@@ -764,6 +763,13 @@ def _insight_one(
         out["sub_scores"] = item.get("sub_scores") or {}
         out["score_formula_terms"] = item.get("score_formula_terms")
         asof_eod = item.get("eod_feature_as_of")
+        # 湖出分日 / 回退标记（盘中今日 L1 未齐时可读昨收周期）
+        lake_day = str(item.get("lake_score_day") or item.get("as_of") or "")[:10]
+        if len(lake_day) >= 10:
+            out["lake_score_day"] = lake_day
+        fb = str(item.get("lake_score_fallback_from") or "")[:10]
+        if len(fb) >= 10:
+            out["lake_score_fallback_from"] = fb
         _sanitize_heuristic_yhat_fields(out, item)
         try:
             if not _is_heuristic_score_scale(out):
@@ -773,14 +779,19 @@ def _insight_one(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             pass
         tau_asof = str(out.get("as_of_tau") or item.get("as_of_tau") or "")[:10]
-        sess = ""
-        try:
-            from core.market.calendar import resolve_session_date
-            from core.signal.session_pit import shanghai_now
+        sess = str(
+            out.get("lake_score_day")
+            or item.get("lake_score_day")
+            or item.get("as_of")
+            or ""
+        )[:10]
+        if len(sess) < 10:
+            try:
+                from core.signal.session_pit import oo_cycle_date
 
-            sess = str(resolve_session_date(now=shanghai_now()) or "")[:10]
-        except Exception:  # noqa: BLE001
-            logger.debug("insight session date failed", exc_info=True)
+                sess = str(oo_cycle_date() or "")[:10]
+            except Exception:  # noqa: BLE001
+                logger.debug("insight cycle day failed", exc_info=True)
         tau_stale = bool(sess and len(tau_asof) >= 10 and tau_asof < sess)
         if (
             not _is_heuristic_score_scale(out)

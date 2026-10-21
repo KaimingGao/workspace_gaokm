@@ -318,6 +318,117 @@ class ConsumerCoverageTest(unittest.TestCase):
         self.assertEqual(_consumer_score_clock(True, "10:00"), "1000")
         self.assertEqual(_consumer_score_clock(True, "09:30"), "open")
 
+    def test_score_pool_from_lake_uses_oo_cycle_date(self) -> None:
+        """出分按候选日试覆盖；全缺才 materialize_required。"""
+        from unittest.mock import patch
+
+        from core.paper.rebalance.watching_matrix import _score_pool_from_lake
+        from core.research.materialize.consumer import MaterializeRequired
+
+        seen: list = []
+
+        def _fake_assess(codes, days, **kwargs):  # noqa: ANN001
+            seen.extend(list(days or []))
+            return {
+                "ok": False,
+                "error_code": "materialize_required",
+                "error": "请先日线物化 L1/L2",
+                "hint": "日线物化",
+            }
+
+        with patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-10-20"
+        ), patch(
+            "core.market.calendar.expected_latest_daily_bar_date",
+            return_value="2026-10-20",
+        ), patch(
+            "core.market.calendar.prev_trading_day", return_value="2026-10-19"
+        ), patch(
+            "core.research.materialize.coverage.assess_coverage", side_effect=_fake_assess
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes", return_value=[]
+        ):
+            with self.assertRaises(MaterializeRequired) as ctx:
+                _score_pool_from_lake(
+                    ["300750", "002594"],
+                    use_minute_tau=False,
+                    tau_clock="03:00",
+                )
+        self.assertEqual(seen, ["2026-10-20", "2026-10-19"])
+        self.assertEqual(
+            (ctx.exception.to_dict() or {}).get("tried_days"),
+            ["2026-10-20", "2026-10-19"],
+        )
+
+    def test_score_pool_from_lake_falls_back_to_prev_day(self) -> None:
+        """盘中周期日=今日但 open 湖未齐时，回退上一交易日出分。"""
+        from unittest.mock import patch
+
+        from core.paper.rebalance.watching_matrix import _score_pool_from_lake
+
+        def _fake_assess(codes, days, **kwargs):  # noqa: ANN001
+            day = (days or [""])[0]
+            if day == "2026-10-20":
+                return {"ok": True, "success": True}
+            return {
+                "ok": False,
+                "error_code": "materialize_required",
+                "error": f"缺 {day}",
+                "hint": "日线物化",
+            }
+
+        def _assemble(code, day, **kwargs):  # noqa: ANN001
+            return {"stock_code": code, "as_of": day}
+
+        with patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-10-21"
+        ), patch(
+            "core.market.calendar.expected_latest_daily_bar_date",
+            return_value="2026-10-20",
+        ), patch(
+            "core.market.calendar.prev_trading_day", return_value="2026-10-20"
+        ), patch(
+            "core.research.materialize.coverage.assess_coverage", side_effect=_fake_assess
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes", return_value=["a", "b"]
+        ), patch(
+            "core.research.feature_lake.load_day_rows", return_value={}
+        ), patch(
+            "core.research.lake_replay.assemble_item_from_lake_rows",
+            side_effect=_assemble,
+        ), patch(
+            "core.research.batch_score.ensure_day_cube_for_items", return_value=object()
+        ), patch(
+            "core.signal.cross_section_rescore.rescore_fitted_cross_section"
+        ):
+            scored, rejected = _score_pool_from_lake(
+                ["300750", "002594"],
+                use_minute_tau=False,
+                tau_clock="11:00",
+            )
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(scored), 2)
+        self.assertTrue(all(it.get("lake_score_day") == "2026-10-20" for it in scored))
+        self.assertTrue(
+            all(it.get("lake_score_fallback_from") == "2026-10-21" for it in scored)
+        )
+
+    def test_lake_score_day_candidates_dedupe(self) -> None:
+        from unittest.mock import patch
+
+        from core.paper.rebalance.watching_matrix import _lake_score_day_candidates
+
+        with patch(
+            "core.market.calendar.expected_latest_daily_bar_date",
+            return_value="2026-10-20",
+        ), patch(
+            "core.market.calendar.prev_trading_day", return_value="2026-10-20"
+        ):
+            self.assertEqual(
+                _lake_score_day_candidates("2026-10-21"),
+                ["2026-10-21", "2026-10-20"],
+            )
+
     def test_recent_trading_days_are_weekdays(self) -> None:
         from core.research.materialize.coverage import recent_trading_days
 

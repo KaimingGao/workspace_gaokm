@@ -57,7 +57,18 @@ function summarizeL2(byClock) {
   return `L2 ${n}钟 hit ${hit}/built ${built}`;
 }
 
+/** 优先用后端 track.headline；旧 result 无 track 时回退拼句。 */
 function resultHeadBits(result, { tau = false } = {}) {
+  const track = result?.track;
+  if (track && typeof track === "object") {
+    const bits = [];
+    if (track.headline) bits.push(String(track.headline));
+    else bits.push(tau ? "物化完成（τ）" : "物化完成");
+    if (track.steps_ok) bits.push(`步骤 ${track.steps_ok}`);
+    if (track.schema != null) bits.push(`schema v${track.schema}`);
+    if (track.codes_n != null) bits.push(`${track.codes_n} 只`);
+    return bits;
+  }
   const bits = [tau ? "物化完成（τ）" : "物化完成"];
   if (result?.elapsed_s != null) bits.push(`${result.elapsed_s}s`);
   if (tau) {
@@ -78,6 +89,23 @@ function resultHeadBits(result, { tau = false } = {}) {
   const l2bit = summarizeL2(l2.by_clock);
   if (l2bit) bits.push(l2bit);
   return bits;
+}
+
+function trackStageHint(result, { tau = false } = {}) {
+  const stages = result?.track?.stages;
+  if (!Array.isArray(stages) || !stages.length) {
+    return tau ? "τ 网格 L1 + 按钟 Cube" : "open L1 + open Cube";
+  }
+  return stages
+    .filter((s) => s && s.status !== "skip")
+    .map((s) => {
+      const id = String(s.id || "");
+      const st = String(s.status || "");
+      const el = s.elapsed_s != null ? `${s.elapsed_s}s` : "";
+      const mark = st === "fail" ? "FAIL" : st === "ok" ? "ok" : st;
+      return [id, mark, el].filter(Boolean).join(" ");
+    })
+    .join(" → ");
 }
 
 async function resolveSuggestedTauClocks(apiFetch) {
@@ -225,6 +253,7 @@ function installMaterializeRunner(q, cfg) {
 
   function paintDone(job, result) {
     const bits = resultHeadBits(result, { tau });
+    const stageHint = trackStageHint(result, { tau });
     setDeskStatusTone([strip, card], "warn");
     paintClusterJobPanel(progressEl, {
       phase: tau ? "物化完成（τ）" : "物化完成",
@@ -232,7 +261,7 @@ function installMaterializeRunner(q, cfg) {
       esc,
       mode: "done",
       tone: "warn",
-      hint: bits.slice(1).join(" · ") || (tau ? "τ 网格 L1 + 按钟 Cube" : "open L1 + open Cube"),
+      hint: [stageHint, bits.slice(1).join(" · ")].filter(Boolean).join(" · "),
     });
   }
 

@@ -753,16 +753,67 @@ def run_t0_backtest_for_code(
     return report
 
 
+def _t0_hm_key(raw: Any) -> str:
+    """可比对的 HHMM；open/非法 → 空串。"""
+    from core.research.lake_bridge import normalize_tau_clock
+
+    clk = normalize_tau_clock(str(raw or ""))
+    if clk == "open" or len(clk) != 4 or not clk.isdigit():
+        return ""
+    return clk
+
+
+def _t0_hm_display(hhmm: str) -> str:
+    key = str(hhmm or "")
+    if len(key) == 4 and key.isdigit():
+        return f"{key[:2]}:{key[2:]}"
+    return str(hhmm or "").strip()[:5]
+
+
+def _t0_minute_decision_clocks(cfg: Optional[dict]) -> List[str]:
+    """做 T 决策钟：suggested_tau ∩ ≤ last_leg1_hm；不含 open/09:30。
+
+    统一成 ``HH:MM``，避免 ``0935`` 与 ``09:35`` 字典序误比。
+    """
+    from core.research.materialize.catalog import suggested_tau_clocks
+    from core.t0.config import normalize_t0_last_leg1_hm
+
+    rules = cfg if isinstance(cfg, dict) else {}
+    try:
+        last_hm = normalize_t0_last_leg1_hm(rules.get("t0_last_leg1_hm"))
+    except Exception:  # noqa: BLE001
+        last_hm = "11:00"
+    last_key = _t0_hm_key(last_hm) or "1100"
+    out: List[str] = []
+    seen: set = set()
+    try:
+        grid = list(suggested_tau_clocks() or [])
+    except Exception:  # noqa: BLE001
+        grid = []
+    for hm in grid:
+        key = _t0_hm_key(hm)
+        if not key or key in seen:
+            continue
+        if key > last_key:
+            continue
+        seen.add(key)
+        out.append(_t0_hm_display(key))
+    return out
+
+
 def _t0_coverage_gap(
     pool_codes: Sequence[str],
     lookback: int,
     cfg: Optional[dict],
 ) -> Optional[Dict[str, Any]]:
-    """产品只读路径：开盘立方 + 截止钟以内、且本地有 5m 的决策钟。"""
+    """产品只读路径：截止钟以内、且本地有 5m 的决策钟（仅 τ，不硬要 oo/open）。"""
     from core.research.materialize.consumer import consumer_read_only
 
     codes = [str(c).strip() for c in (pool_codes or []) if str(c or "").strip()]
-    if not consumer_read_only():
+    try:
+        if not consumer_read_only():
+            return None
+    except Exception:  # noqa: BLE001
         return None
     if len(codes) < 2:
         return {
@@ -771,8 +822,7 @@ def _t0_coverage_gap(
             "error": "观察池不足 2 只，无法做截面",
             "task": "t0_backtest",
         }
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
-    from core.research.materialize.catalog import suggested_tau_clocks
+    from core.research.lake_bridge import family_for_tc
     from core.research.materialize.cover_policy import LAKE_COVER_FRAC, cover_need
     from core.research.materialize.coverage import (
         assess_coverage,
@@ -780,50 +830,103 @@ def _t0_coverage_gap(
         recent_trading_days,
     )
     from core.store import list_minute_covered_dates
-    from core.t0.config import normalize_t0_last_leg1_hm
 
-    rules = cfg if isinstance(cfg, dict) else {}
-    last_hm = normalize_t0_last_leg1_hm(rules.get("t0_last_leg1_hm"))
-    minute_clocks = []
-    for hm in suggested_tau_clocks() or []:
-        text = str(hm or "").strip()[:5]
-        if not text or text in ("09:30", "open"):
-            continue
-        if text <= str(last_hm or "11:00")[:5]:
-            minute_clocks.append(text)
-    eval_days = recent_trading_days(max(10, int(lookback or 30)))
+    minute_clocks = _t0_minute_decision_clocks(cfg)
+    if not minute_clocks:
+        return {
+            "success": False,
+            "ok": False,
+            "error": "无有效做 T 决策钟（请检查 τ 网格 / t0_last_leg1_hm）",
+            "task": "t0_backtest",
+            "hint": "分钟线物化",
+        }
+    try:
+        lb = int(lookback or 30)
+    except (TypeError, ValueError):
+        lb = 30
+    lb = max(10, min(1500, lb))
+    try:
+        eval_days = recent_trading_days(lb)
+    except Exception:  # noqa: BLE001
+        return {
+            "success": False,
+            "ok": False,
+            "error": "无法解析回测交易日窗",
+            "task": "t0_backtest",
+            "hint": "分钟线物化",
+        }
     need_codes = cover_need(len(codes), frac=LAKE_COVER_FRAC, minimum=2)
-    minute_days = list_minute_covered_dates(codes, min_codes=need_codes, period="5")
+    try:
+        minute_days = list_minute_covered_dates(
+            codes, min_codes=need_codes, period="5"
+        )
+    except Exception:  # noqa: BLE001
+        minute_days = None
     if minute_days is None:
-        day_list = list(eval_days)
-        clocks = ["open"]
-        families = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
-    else:
-        have = {str(d)[:10] for d in minute_days}
-        day_list = [d for d in eval_days if str(d)[:10] in have]
-        clocks = ["open", *minute_clocks]
-        families = [FAMILY_OO, FAMILY_TC, FAMILY_CO] + [
-            family_for_tc(tau_hm=hm) for hm in minute_clocks
-        ]
-    if not day_list:
         return {
             "success": False,
             "ok": False,
             "error": "回测窗内没有足够的 5 分钟覆盖日",
             "task": "t0_backtest",
+            "hint": "分钟线物化",
         }
-    cube_codes = read_cube_codes()
-    gap = assess_coverage(
-        codes,
-        day_list,
-        families=families,
-        clocks=clocks,
-        cube_codes=cube_codes if len(cube_codes) >= 2 else None,
-    )
+    have = {str(d)[:10] for d in minute_days if len(str(d or "")[:10]) >= 10}
+    day_list = [d for d in eval_days if str(d)[:10] in have]
+    families: List[str] = []
+    seen_fam: set = set()
+    for hm in minute_clocks:
+        try:
+            fam = family_for_tc(tau_hm=hm)
+        except Exception:  # noqa: BLE001
+            continue
+        if not fam or fam in seen_fam:
+            continue
+        seen_fam.add(fam)
+        families.append(fam)
+    clocks = list(minute_clocks)
+    if not day_list or not families:
+        return {
+            "success": False,
+            "ok": False,
+            "error": "回测窗内没有足够的 5 分钟覆盖日",
+            "task": "t0_backtest",
+            "hint": "分钟线物化",
+        }
+    try:
+        cube_codes = read_cube_codes()
+    except Exception:  # noqa: BLE001
+        cube_codes = []
+    try:
+        gap = assess_coverage(
+            codes,
+            day_list,
+            families=families,
+            clocks=clocks,
+            cube_codes=cube_codes if len(cube_codes) >= 2 else None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "success": False,
+            "ok": False,
+            "error": f"覆盖检查失败：{exc}",
+            "task": "t0_backtest",
+            "hint": "分钟线物化",
+            "error_code": "materialize_required",
+        }
+    if not isinstance(gap, dict):
+        return {
+            "success": False,
+            "ok": False,
+            "error": "覆盖检查返回异常",
+            "task": "t0_backtest",
+            "hint": "分钟线物化",
+        }
     if gap.get("ok"):
         return None
+    gap = dict(gap)
     gap["task"] = "t0_backtest"
     gap["success"] = False
+    gap.setdefault("error_code", "materialize_required")
     return gap
 
 
@@ -987,11 +1090,13 @@ def run_t0_backtest_for_holdings(
         if eval_lb > 0 and len(eval_dates) > eval_lb:
             eval_dates = eval_dates[-int(eval_lb) :]
         t_warm = time.time()
+        minute_clocks = _t0_minute_decision_clocks(cfg)
         warm = warmup_watching_day_cubes(
             pool_codes,
             eval_dates,
             progress_cb=_pool_progress,
             cancel_cb=_cancelled,
+            clocks=minute_clocks or None,
         )
         logger.info(
             "t0 holdings bt day_cube warmup %s elapsed=%.1fs remain=%.1fs",

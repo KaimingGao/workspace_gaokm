@@ -30,6 +30,7 @@ from core.research.materialize.orchestrate import (
     resolve_materialize_codes,
     run_materialize,
 )
+from core.research.materialize.track import build_materialize_track
 
 __all__ = [
     "catalog_payload",
@@ -38,6 +39,7 @@ __all__ = [
     "fit_use_day_cube",
     "resolve_materialize_codes",
     "run_materialize",
+    "build_materialize_track",
     "apply_day_cube_mu_sigma_matrix",
     "apply_day_cube_mu_sigma_dicts",
     "cs_z_matrix_prefer_cube",

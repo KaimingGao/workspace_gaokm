@@ -61,6 +61,90 @@ class MaterializeTcBarsTests(unittest.TestCase):
         self.assertFalse(row["ok"])
         self.assertFalse(row["tc_rank"]["ok"])
 
+class MaterializeTrackTests(unittest.TestCase):
+    def test_open_track_headline_and_deps(self):
+        from core.research.materialize.track import build_materialize_track
+
+        track = build_materialize_track(
+            {
+                "ok": True,
+                "do_l1": True,
+                "do_l1_tau_grid": False,
+                "do_l2": True,
+                "codes_n": 800,
+                "elapsed_s": 62.5,
+                "l1": {
+                    "ok": True,
+                    "elapsed_s": 40.0,
+                    "n_codes": 800,
+                    "families": ["oo", "tc", "co"],
+                    "by_family": {
+                        "oo": {"ok": True, "elapsed_s": 12.0, "n_stocks": 800},
+                        "tc": {"ok": True, "elapsed_s": 18.0, "n_stocks": 800},
+                        "co": {"ok": True, "elapsed_s": 10.0, "n_stocks": 800},
+                    },
+                },
+                "l2": {
+                    "ok": True,
+                    "elapsed_s": 22.0,
+                    "dates": ["2024-01-02"] * 60,
+                    "clocks": ["open"],
+                    "clocks_ok": 1,
+                    "by_clock": {
+                        "open": {
+                            "ok": True,
+                            "cubes_hit": 58,
+                            "cubes_built": 2,
+                            "slim_days": 60,
+                        }
+                    },
+                },
+            }
+        )
+        self.assertEqual(track["id"], "materialize_open")
+        self.assertEqual(track["steps_ok"], "2/2")
+        self.assertIn("日线物化", track["headline"])
+        self.assertIn("hit 58/built 2", track["headline"])
+        self.assertEqual(track["stages"][0]["depends_on"], ["l0_daily_bars"])
+        self.assertEqual(track["stages"][1]["depends_on"], ["l1_open"])
+        self.assertEqual(
+            track["stages"][0]["metrics"]["families_ok"],
+            ["oo", "tc", "co"],
+        )
+
+    def test_tau_track_marks_minute_deps(self):
+        from core.research.materialize.track import build_materialize_track
+
+        track = build_materialize_track(
+            {
+                "ok": False,
+                "do_l1": False,
+                "do_l1_tau_grid": True,
+                "do_l2": True,
+                "elapsed_s": 10.0,
+                "error": "materialize failed: l1_tau_grid",
+                "l1_tau_grid": {
+                    "ok": False,
+                    "elapsed_s": 9.0,
+                    "clocks": ["09:35", "09:40"],
+                    "clocks_ok": 0,
+                    "error": "本地 5m 不足",
+                },
+                "l2": None,
+            }
+        )
+        self.assertEqual(track["id"], "materialize_tau")
+        self.assertFalse(track["ok"])
+        self.assertEqual(track["steps_ok"], "0/2")
+        self.assertEqual(
+            track["stages"][0]["depends_on"],
+            ["l0_daily_bars", "l0_minute_5m"],
+        )
+        self.assertEqual(track["stages"][0]["status"], "fail")
+        self.assertEqual(track["stages"][1]["status"], "fail")
+        self.assertIn("FAIL", track["headline"])
+
+
 class MaterializeCatalogTests(unittest.TestCase):
     def test_catalog_has_p0_families(self):
         from core.research.materialize import catalog_payload
@@ -148,6 +232,90 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         self.assertTrue(out.get("ok"))
         self.assertEqual(out["l2"]["by_clock"]["open"]["cubes_hit"], 2)
 
+    def test_l2_lookback_prefers_l2_lookback_days(self):
+        """L2 窗用 l2_lookback_days，不被 L1 lookback=1000 盖掉。"""
+        from core.research.materialize import run_materialize
+
+        with mock.patch(
+            "core.research.materialize.orchestrate.resolve_materialize_codes",
+            return_value=["000001", "000002"],
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l2",
+            return_value={"ok": True, "by_clock": {"open": {"ok": True}}},
+        ) as l2_fn:
+            out = run_materialize(
+                codes=["000001", "000002"],
+                do_l1=False,
+                do_l2=True,
+                clocks=["open"],
+                lookback=1000,
+                l2_lookback_days=5,
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), 5)
+
+    def test_implicit_oo_rank_failure_keeps_p0_ok(self):
+        """未显式请求 oo_rank 时，rank 失败不把 oo/tc/co 整次打失败。"""
+        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_OO_RANK, FAMILY_TC
+        from core.research.materialize.l1_jobs import _materialize_l1_body
+
+        def _ok_fam(*_a, **_k):
+            return {"ok": True, "n": 2}
+
+        with mock.patch(
+            "core.research.materialize.l1_jobs._materialize_oo", side_effect=_ok_fam
+        ), mock.patch(
+            "core.research.materialize.l1_jobs._materialize_tc", side_effect=_ok_fam
+        ), mock.patch(
+            "core.research.materialize.l1_jobs._materialize_co", side_effect=_ok_fam
+        ), mock.patch(
+            "core.research.materialize.l1_jobs._materialize_oo_rank",
+            return_value={"ok": False, "error": "rank boom"},
+        ):
+            out = _materialize_l1_body(
+                [FAMILY_OO, FAMILY_TC, FAMILY_CO],
+                ["000001", "000002"],
+                lookback=10,
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertTrue(out.get("oo_rank_optional_failed"))
+        self.assertTrue((out["by_family"].get(FAMILY_OO) or {}).get("ok"))
+        self.assertFalse((out["by_family"].get(FAMILY_OO_RANK) or {}).get("ok"))
+
+    def test_implicit_oo_rank_cancel_keeps_p0_ok(self):
+        """可选 oo_rank 进行中取消：P0 已齐则 L1 仍成功。"""
+        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.materialize.l1_jobs import _materialize_l1_body
+
+        def _ok_fam(*_a, **_k):
+            return {"ok": True, "n": 2}
+
+        calls = {"n": 0}
+
+        def _cancel() -> bool:
+            # 顺序 oo→tc→co→oo_rank：第 4 次检查进入可选 rank
+            calls["n"] += 1
+            return calls["n"] >= 4
+
+        with mock.patch(
+            "core.research.materialize.l1_jobs._materialize_oo", side_effect=_ok_fam
+        ), mock.patch(
+            "core.research.materialize.l1_jobs._materialize_tc", side_effect=_ok_fam
+        ), mock.patch(
+            "core.research.materialize.l1_jobs._materialize_co", side_effect=_ok_fam
+        ), mock.patch(
+            "core.research.materialize.l1_jobs._materialize_oo_rank",
+            side_effect=AssertionError("oo_rank should not run after cancel"),
+        ):
+            out = _materialize_l1_body(
+                [FAMILY_OO, FAMILY_TC, FAMILY_CO],
+                ["000001", "000002"],
+                lookback=10,
+                cancel_cb=_cancel,
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertIn("optional oo_rank", str(out.get("note") or ""))
+
     def test_orchestrate_forwards_nested_progress(self):
         """子阶段的 done/total 要送到 Job；阶段边界仍是 1/2。"""
         from core.research.materialize import run_materialize
@@ -191,6 +359,17 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         self.assertIn((1, 2, "L1 完成"), events)
         self.assertIn((50, 800, "L2：日线 50/800"), events)
         self.assertTrue(any(e[0] == 2 and e[1] == 2 and "物化完成" in e[2] for e in events))
+        track = out.get("track") or {}
+        self.assertEqual(track.get("id"), "materialize_open")
+        self.assertTrue(track.get("ok"))
+        self.assertEqual(track.get("steps_ok"), "2/2")
+        self.assertIn("headline", track)
+        stage_ids = [s.get("id") for s in (track.get("stages") or [])]
+        self.assertEqual(stage_ids, ["l1_open", "l2_open"])
+        self.assertEqual(
+            (track["stages"][0].get("depends_on") or []),
+            ["l0_daily_bars"],
+        )
 
     def test_fold_keeps_macro_total_and_moves_pct(self):
         from core.research.materialize.progress import fold_materialize_progress
@@ -355,6 +534,7 @@ class MaterializePackageExportTests(unittest.TestCase):
             "catalog_payload",
             "fit_use_day_cube",
             "run_materialize",
+            "build_materialize_track",
             "cs_z_matrix_prefer_cube",
             "cs_z_dicts_prefer_cube",
             "apply_day_cube_mu_sigma_matrix",
@@ -2041,7 +2221,7 @@ class MinuteL2ShareTests(unittest.TestCase):
         self.assertEqual(calls.count("10:30"), 1)
         self.assertEqual(calls.count("09:35"), 1)
 
-    def test_oo_slice_error_fails_clocks_that_still_need_cubes(self) -> None:
+    def test_oo_slice_error_continues_tc_only(self) -> None:
         from core.research.materialize.l2_jobs import materialize_l2
 
         def _slice(family, codes, dates, progress_cb=None, cancel_cb=None):
@@ -2054,19 +2234,28 @@ class MinuteL2ShareTests(unittest.TestCase):
         ), mock.patch(
             "core.research.feature_lake.slice_stock_panels", side_effect=_slice
         ), mock.patch(
+            "core.research.materialize.horizon_names.names_cover_horizon",
+            return_value=True,
+        ), mock.patch(
             "core.research.batch_score.ensure_day_cube_for_items",
+            return_value=mock.Mock(names=["raw_ath_x"]),
         ) as ensure:
             out = materialize_l2(
                 ["000001", "000002"],
                 dates=["2026-10-16"],
                 clocks=["09:35", "10:30"],
             )
-        self.assertFalse(out.get("ok"))
-        self.assertEqual(out.get("error"), "oo io")
-        self.assertEqual(out["by_clock"]["09:35"]["error"], "oo io")
-        self.assertEqual(out["by_clock"]["10:30"]["error"], "oo io")
-        self.assertEqual(out["by_clock"]["09:35"]["days_skipped"], 1)
-        ensure.assert_not_called()
+        self.assertNotEqual(out.get("error"), "oo io")
+        self.assertNotEqual(out["by_clock"]["09:35"].get("error"), "oo io")
+        self.assertNotEqual(out["by_clock"]["10:30"].get("error"), "oo io")
+        self.assertTrue(ensure.called)
+        # require_oo_item=False path
+        for call in ensure.call_args_list:
+            kwargs = call.kwargs if call.kwargs else {}
+            # ensure_day_cube_for_items may be called via cube_batch; clock must be minute
+            clock = kwargs.get("clock")
+            if clock is not None:
+                self.assertIn(str(clock), ("09:35", "10:30"))
 
     def test_tc_slice_error_leaves_the_other_clock_running(self) -> None:
         from core.research.materialize.l2_jobs import materialize_l2

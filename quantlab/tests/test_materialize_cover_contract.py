@@ -131,7 +131,6 @@ class CoverPolicyUnitTests(unittest.TestCase):
 
         clks = resolve_tau_l2_clocks(
             ["open"],
-            do_l1=False,
             suggested=["09:35", "10:30", "11:00"],
         )
         self.assertNotIn("open", clks)
@@ -140,7 +139,6 @@ class CoverPolicyUnitTests(unittest.TestCase):
 
         clks2 = resolve_tau_l2_clocks(
             ["09:35"],
-            do_l1=False,
             suggested=["09:35", "10:30"],
         )
         self.assertNotIn("open", clks2)
@@ -246,8 +244,171 @@ class CoverPolicyUnitTests(unittest.TestCase):
             )
         self.assertIsNone(gap)
         called_clocks = list(assess.call_args.kwargs.get("clocks") or [])
-        self.assertIn("open", called_clocks)
+        self.assertNotIn("open", called_clocks)
         self.assertTrue(any(str(c).startswith("09:") for c in called_clocks))
+        fams = list(assess.call_args.kwargs.get("families") or [])
+        self.assertTrue(fams)
+        self.assertTrue(all(str(f).startswith("tc_") for f in fams))
+        self.assertNotIn("oo", fams)
+
+    def test_t0_coverage_gap_ignores_missing_oo(self) -> None:
+        """仅缺 oo 时做 T 闸不拦（τ 齐即可）。"""
+        from core.research.materialize.consumer import materialized_consumer
+        from quant.research.t0_backtest import _t0_coverage_gap
+
+        days = [f"2026-10-{d:02d}" for d in range(10, 20)]
+
+        def _assess(codes, day_list, *, families, clocks, cube_codes=None):
+            self.assertNotIn("oo", list(families or []))
+            self.assertNotIn("open", list(clocks or []))
+            return {"ok": True, "success": True}
+
+        with materialized_consumer(), mock.patch(
+            "core.research.materialize.coverage.recent_trading_days",
+            return_value=days,
+        ), mock.patch(
+            "core.store.list_minute_covered_dates",
+            return_value=days,
+        ), mock.patch(
+            "core.research.materialize.coverage.read_cube_codes",
+            return_value=["a", "b", "c", "d"],
+        ), mock.patch(
+            "core.research.materialize.coverage.assess_coverage",
+            side_effect=_assess,
+        ):
+            gap = _t0_coverage_gap(
+                ["a", "b", "c", "d"],
+                10,
+                {"t0_last_leg1_hm": "11:00"},
+            )
+        self.assertIsNone(gap)
+
+    def test_assess_coverage_minute_only_request(self) -> None:
+        from unittest.mock import patch
+
+        from core.research.materialize.coverage import assess_coverage
+
+        days = ["2099-01-04", "2099-01-05"]
+
+        def _dates(fam, code):
+            return set(days) if str(fam).startswith("tc_") else set()
+
+        with patch(
+            "core.research.day_cube.day_cube_status", return_value="miss"
+        ), patch(
+            "core.research.feature_lake.load_stock_dates", side_effect=_dates
+        ), patch(
+            "core.research.materialize.coverage._other_hash_days", return_value=set()
+        ):
+            report = assess_coverage(
+                ["a", "b", "c", "d"],
+                days,
+                families=["tc_0935"],
+                clocks=["09:35"],
+            )
+        self.assertFalse(report.get("ok"))
+        self.assertEqual(report.get("hint"), "分钟线物化")
+        req = report.get("request") or {}
+        self.assertFalse(req.get("do_l1"))
+        self.assertTrue(req.get("do_l1_tau_grid"))
+        self.assertEqual(list(req.get("families") or []), [])
+        self.assertIn("09:35", list(req.get("clocks") or []))
+
+    def test_assess_coverage_open_only_request(self) -> None:
+        from unittest.mock import patch
+
+        from core.research.materialize.coverage import assess_coverage
+
+        days = ["2099-01-04", "2099-01-05"]
+
+        with patch(
+            "core.research.day_cube.day_cube_status", return_value="miss"
+        ), patch(
+            "core.research.feature_lake.load_stock_dates", return_value=set()
+        ), patch(
+            "core.research.materialize.coverage._other_hash_days", return_value=set()
+        ):
+            report = assess_coverage(
+                ["a", "b", "c", "d"],
+                days,
+                families=["oo", "tc", "co"],
+                clocks=["open"],
+            )
+        self.assertFalse(report.get("ok"))
+        self.assertEqual(report.get("hint"), "日线物化")
+        req = report.get("request") or {}
+        self.assertTrue(req.get("do_l1"))
+        self.assertFalse(req.get("do_l1_tau_grid"))
+        self.assertIn("oo", list(req.get("families") or []))
+        self.assertEqual(list(req.get("clocks") or []), ["open"])
+
+    def test_assess_coverage_day_cube_status_error_counts_miss(self) -> None:
+        """day_cube_status 抛错时记 miss，不整段崩掉。"""
+        from unittest.mock import patch
+
+        from core.research.materialize.coverage import assess_coverage
+
+        days = ["2099-02-03"]
+        with patch(
+            "core.research.day_cube.day_cube_status",
+            side_effect=RuntimeError("io"),
+        ), patch(
+            "core.research.feature_lake.load_stock_dates",
+            return_value=set(days),
+        ), patch(
+            "core.research.materialize.coverage._other_hash_days", return_value=set()
+        ):
+            report = assess_coverage(
+                ["a", "b", "c", "d"],
+                days,
+                families=["tc_0935"],
+                clocks=["09:35"],
+            )
+        self.assertFalse(report.get("ok"))
+        self.assertEqual(report.get("hint"), "分钟线物化")
+        self.assertTrue((report.get("request") or {}).get("do_l1_tau_grid"))
+
+    def test_t0_decision_clocks_normalize_hhmm(self) -> None:
+        """0935 与 09:35 同口径，且不超过 last_leg1。"""
+        from quant.research.t0_backtest import _t0_minute_decision_clocks
+
+        with mock.patch(
+            "core.research.materialize.catalog.suggested_tau_clocks",
+            return_value=["0935", "10:30", "11:30"],
+        ):
+            clks = _t0_minute_decision_clocks({"t0_last_leg1_hm": "11:00"})
+        self.assertIn("09:35", clks)
+        self.assertIn("10:30", clks)
+        self.assertNotIn("11:30", clks)
+        self.assertNotIn("0935", clks)
+
+    def test_t0_coverage_gap_assess_exception_soft_fails(self) -> None:
+        from core.research.materialize.consumer import materialized_consumer
+        from quant.research.t0_backtest import _t0_coverage_gap
+
+        days = [f"2026-10-{d:02d}" for d in range(10, 20)]
+        with materialized_consumer(), mock.patch(
+            "core.research.materialize.coverage.recent_trading_days",
+            return_value=days,
+        ), mock.patch(
+            "core.store.list_minute_covered_dates",
+            return_value=days,
+        ), mock.patch(
+            "core.research.materialize.coverage.read_cube_codes",
+            return_value=["a", "b", "c", "d"],
+        ), mock.patch(
+            "core.research.materialize.coverage.assess_coverage",
+            side_effect=RuntimeError("boom"),
+        ):
+            gap = _t0_coverage_gap(
+                ["a", "b", "c", "d"],
+                10,
+                {"t0_last_leg1_hm": "11:00"},
+            )
+        self.assertIsNotNone(gap)
+        self.assertFalse(gap.get("success"))
+        self.assertIn("覆盖检查失败", str(gap.get("error") or ""))
+        self.assertEqual(gap.get("hint"), "分钟线物化")
 
     def test_cover_contract_does_not_pollute_consumer_flag(self) -> None:
         """回归：cover 单测不得把 coverage.consumer_read_only 留成 MagicMock。"""

@@ -224,7 +224,7 @@ bars.db
 
 **尾窗增量**（`incremental_panel.py`）：L1 meta 存 `bars_fp` / `stem_fp`；末根改写或追加 ≤16 根时，oo/τc/co/oo_rank 用 `keep_dates` 重算尾部再 merge。中间复权改写仍全量。
 
-**回测 L1 hydrate**（`lake_replay.py`）：`paper_replay` 启动时 `prefetch_l1_coverage`（dates 索引 + 整票 panel 内存；`fill_clock≠09:30` 额外预热 `tc_HHMM`）；日循环按日切片灌 `sub_scores` / `features_tau` / `features_co`。**须有 oo 行才当命中**。产品消费开关打开时，缺 oo 只记 miss，由开跑前的覆盖检查返回物化提示。开关关闭时缺 oo 才切窗重算。分钟 τ 写 L1 用 `tc_HHMM`（与开盘 `tc` 分目录）。成交价仍读日 K / 分钟 K。
+**回测 L1 hydrate**（`lake_replay.py`）：`paper_replay`（调仓）启动时 `prefetch_l1_coverage`（dates 索引 + 整票 panel 内存；`fill_clock≠09:30` 额外预热 `tc_HHMM`）；日循环按日切片灌 `sub_scores` / `features_tau` / `features_co`。**调仓须有 oo 行才当命中**（ŷ_oo / oo_rank）。产品消费开关打开时，缺 oo 只记 miss，由开跑前的覆盖检查返回**日线物化**提示。开关关闭时缺 oo 才切窗重算。做 T 覆盖闸只硬要 `tc_HHMM` + 同钟 Cube（见 `cover_policy`）。分钟 τ 写 L1 用 `tc_HHMM`（与开盘 `tc` 分目录）。成交价仍读日 K / 分钟 K。
 
 **单遍 rescore**：`batch_score` 建 DayCube（含 `sub_scores`）后，ŷ_oo / τ / co 均用 cube μ/σ 打 z 再 predict。
 

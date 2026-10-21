@@ -565,54 +565,65 @@ def _materialize_l2_with_minute(
             )
         return
 
-    oo_s = None
-    co_s = None
+    # 分钟钟主依赖 tc_HHMM；oo/co 可空（空 dict ≠ None/取消）
+    oo_s: Dict[str, tuple] = {}
+    co_s: Dict[str, tuple] = {}
 
     def _read_prog(done: int, n: int, fam: str) -> None:
         _step_emit(open_steps, done, max(1, n), f"L2 读 {fam} {done}/{n}")
 
     try:
-        oo_s = slice_stock_panels(
+        oo_got = slice_stock_panels(
             FAMILY_OO,
             code_list,
             want,
             progress_cb=lambda done, n: _read_prog(done, n, "oo"),
             cancel_cb=cancel_cb,
         )
-        if oo_s is not None:
-            co_s = slice_stock_panels(
-                FAMILY_CO,
-                code_list,
-                want,
-                progress_cb=lambda done, n: _read_prog(done, n, "co"),
-                cancel_cb=cancel_cb,
-            )
-        if oo_s is None or co_s is None:
+        if oo_got is None:
             for clock in minute_clocks:
                 key = str(clock)
                 if pending.get(key) or short.get(key):
                     _mark_cancelled(key)
             return
+        oo_s = oo_got if isinstance(oo_got, dict) else {}
+        co_got = slice_stock_panels(
+            FAMILY_CO,
+            code_list,
+            want,
+            progress_cb=lambda done, n: _read_prog(done, n, "co"),
+            cancel_cb=cancel_cb,
+        )
+        if co_got is None:
+            for clock in minute_clocks:
+                key = str(clock)
+                if pending.get(key) or short.get(key):
+                    _mark_cancelled(key)
+            return
+        co_s = co_got if isinstance(co_got, dict) else {}
+        if not oo_s or not co_s:
+            logger.info(
+                "minute L2 without oo/co panels (tc-only cubes) days=%s..%s oo=%s co=%s",
+                want[0],
+                want[-1],
+                len(oo_s) if isinstance(oo_s, dict) else 0,
+                len(co_s) if isinstance(co_s, dict) else 0,
+            )
     except Exception as exc:  # noqa: BLE001
+        # oo/co 读失败不取消分钟钟：以空 panel 继续，靠每钟 tc
         logger.warning(
-            "l2 shared slice failed days=%s..%s",
+            "l2 shared oo/co slice failed; continuing tc-only days=%s..%s: %s",
             want[0],
             want[-1],
-            exc_info=True,
+            exc,
         )
-        note = str(exc).strip() or "L1 读取失败"
-        report["ok"] = False
-        report["error"] = note
-        for clock in minute_clocks:
-            key = str(clock)
-            missed = len(pending.get(key) or []) + len(short.get(key) or [])
-            row = report["by_clock"].get(key)
-            if row is None or not missed:
-                continue
-            row["ok"] = False
-            row["error"] = note
-            row["days_skipped"] = int(row.get("days_skipped") or 0) + missed
-        return
+        logger.debug("l2 shared slice failed", exc_info=True)
+        oo_s = {}
+        co_s = {}
+    if not isinstance(oo_s, dict):
+        oo_s = {}
+    if not isinstance(co_s, dict):
+        co_s = {}
 
     for clock_i, clock in enumerate(minute_clocks):
         if _cancelled(cancel_cb):
@@ -662,6 +673,19 @@ def _materialize_l2_with_minute(
         if tc_s is None:
             _cancel_unwritten(clock_i)
             break
+        # 空 dict：仍进 build（require_tc_day 会跳日 / 覆盖闸收口）；仅记日志
+        if isinstance(tc_s, dict) and not tc_s:
+            logger.warning(
+                "l2 tc panel empty clock=%s days=%s; build will skip/cover-fail",
+                key,
+                len(clock_days),
+            )
+        elif not isinstance(tc_s, dict):
+            logger.warning(
+                "l2 tc slice non-dict clock=%s type=%s; continuing",
+                key,
+                type(tc_s).__name__,
+            )
 
         def _fill_prog(
             done: int,
@@ -687,6 +711,7 @@ def _materialize_l2_with_minute(
                     universe_codes=code_list,
                     min_items=need,
                     require_tc_day=True,
+                    require_oo_item=False,
                     horizon_ok=horizon_ok,
                     progress_cb=_fill_prog,
                     cancel_cb=cancel_cb,

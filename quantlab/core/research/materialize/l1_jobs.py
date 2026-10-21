@@ -576,17 +576,12 @@ def _materialize_l1_tau_grid_body(
 
 
 def _order_l1_families(families: Sequence[str]) -> List[str]:
-    """含 oo 时把 oo_rank 排在 oo 后面，进度分母包含这一步。默认同口径只读 oo 的 L1。"""
+    """含 oo 时把 oo_rank 放到队尾（P0 先齐，可选 rank 失败/取消不拖垮主族）。"""
     items = [str(f) for f in families]
     if FAMILY_OO not in items:
-        return items
-    items = [f for f in items if f != FAMILY_OO_RANK]
-    out: List[str] = []
-    for fam in items:
-        out.append(fam)
-        if fam == FAMILY_OO:
-            out.append(FAMILY_OO_RANK)
-    return out
+        return [f for f in items if f != FAMILY_OO_RANK] or items
+    core = [f for f in items if f != FAMILY_OO_RANK]
+    return core + [FAMILY_OO_RANK]
 
 
 def materialize_l1(
@@ -625,6 +620,7 @@ def _materialize_l1_body(
     implicit_rank = FAMILY_OO in requested and FAMILY_OO_RANK not in requested
     fams = _order_l1_families(requested)
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    p0_requested = [f for f in requested if f != FAMILY_OO_RANK]
     report: Dict[str, Any] = {
         "ok": True,
         "families": fams,
@@ -638,8 +634,22 @@ def _materialize_l1_body(
         return report
     t0 = time.perf_counter()
     n = len(fams)
+
+    def _p0_ok() -> bool:
+        if not p0_requested:
+            return False
+        return all(
+            bool((report["by_family"].get(f) or {}).get("ok")) for f in p0_requested
+        )
+
     for i, fam in enumerate(fams):
         if _cancelled(cancel_cb):
+            # 显式未要 oo_rank：P0 已齐时取消只跳过可选 rank，不把整次 L1 打失败
+            # （否则日线物化卡在 oo_rank 加载日线时一取消，oo/tc/co 成果也算失败）。
+            if fam == FAMILY_OO_RANK and implicit_rank and _p0_ok():
+                report["note"] = "cancelled during optional oo_rank"
+                logger.info("L1 cancel during optional oo_rank; P0 kept")
+                break
             report["ok"] = False
             report["error"] = "cancelled"
             break
@@ -687,7 +697,14 @@ def _materialize_l1_body(
             }
         report["by_family"][fam] = row
         if not row.get("ok"):
-            report["ok"] = False
+            if fam == FAMILY_OO_RANK and implicit_rank and _p0_ok():
+                report["oo_rank_optional_failed"] = True
+                logger.warning(
+                    "optional oo_rank failed after P0 ok: %s",
+                    row.get("error") or "unknown",
+                )
+            else:
+                report["ok"] = False
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
     from core.research.materialize.progress import STEP_SCALE
 

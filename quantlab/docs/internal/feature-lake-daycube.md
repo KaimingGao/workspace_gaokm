@@ -192,11 +192,17 @@ panel meta 额外写入：
 
 ```text
 日线更新 → 日线「物化 L1/L2」（oo/tc/co/oo_rank/tc_rank · open Cube + slim）
-分钟 Ready → 分钟线「物化 L1/L2」（tc_HHMM 网格 · 按钟 Cube）
-  → 拟合 / 调仓回测 / 做 T / 调仓出分：只读 L1 与 L2
+分钟 Ready → 分钟线「物化 L1/L2」（tc_HHMM 网格 · 按钟 Cube；oo/co 可空）
+  → 调仓回测 / ŷ_oo 拟合 / 出分：硬要 oo + open
+  → 做 T 回测 / 盘中 ŷ_τw（≥09:35）：硬要 tc_HHMM + 同钟 Cube
 ```
 
-产品入口（研究枢纽拟合、历史回测、做 T 回测、调仓出分）打开 ``QUANTLAB_MATERIALIZE_CONSUMER``。缺 L1 日期或 L2 立方时返回 ``error_code=materialize_required``，文案指向日线物化或分钟线物化。特征与截面 μ/σ 只读已写好的 L1/L2。价量指纹未变的增量不删 L1。L2 默认窗与日线 ``lookback`` 同一段交易日。单测与脚本不设该开关时仍可现算。调仓出分读会话日的 L1（开盘钟 ``oo/tc/co``，更晚的成交钟再加 ``tc_HHMM``）和同钟 L2。
+| 入口 | 覆盖硬依赖 | 缺覆盖提示 |
+|------|------------|------------|
+| 做 T 回测 | `tc_HHMM` + 分钟钟 L2 | 分钟线物化 |
+| 调仓回测 / 出分 / ŷ_oo | oo/tc/co + open L2 | 日线物化 |
+
+产品入口打开 ``QUANTLAB_MATERIALIZE_CONSUMER``。缺覆盖返回 ``materialize_required``；``request`` 按缺口分流（仅 τ → ``do_l1_tau_grid``；仅 open → ``do_l1``）。特征与截面 μ/σ 只读已写好的 L1/L2。分钟 L2 生产允许空 oo/co panel（空 dict ≠ 取消）。调仓出分读会话日 L1（开盘 ``oo/tc/co``，更晚再加 ``tc_HHMM``）和同钟 L2。
 
 L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读日线或分钟线的只有这三件事：
 
@@ -475,7 +481,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 1. **CS 组** = `(trade_date, τ)`，键 `YYYY-MM-DD|HH:MM`（开盘→仅日期 / `open`）。  
 2. **μ/σ 宇宙** = 训练 watching / live `watching∪holdings`（与现 DayCube `universe_hash` 一致）。  
 3. **禁止**同日跨 τ 混组；禁止用「未来钟」同伴分钟占位进 μ/σ（已有 strip / leave-one-in 纪律保留）。  
-4. **L2 主键** = `(date, universe_hash, clock)`，`clock∈{open}∪{HHMM}`；窗头 **主读 `clock=τ`（≥09:35）**，禁止把 open 当主口径；产品消费下 miss → `materialize_required`（双训整单失败，提示分钟线物化）。  
+4. **L2 主键** = `(date, universe_hash, clock)`，`clock∈{open}∪{HHMM}`；窗头 **主读 `clock=τ`（≥09:35）**，禁止把 open 当主口径；产品消费下 miss → `materialize_required`（做 T 提示分钟线物化；调仓提示日线物化）。  
 5. **五头共享特征行、分头标签**：同一 `(code, date, τ)` 特征只存一份；`y_t30…y_t90` 为可选多标签列（或拟合时现算标签、湖只存 X）。
 
 ### 13.3 存储设计
@@ -543,6 +549,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | waitMinuteJob | 增量 **60min** / 强更 5m **120min** 为软上限（勿再用 30min）；心跳不足 90s 则继续轮询，硬上限 **8h**；心跳停了且已过软上限 → WAIT + 刷新接管（勿标 FAIL）；页加载 `syncJobSlot` 可挂接 |
 | open↔τ 同槽 | 对侧 running 时 POST 返回 `conflict`；UI **等待对侧结束再自动重试一次**（勿硬 FAIL） |
 | 进度 | 宏步骤钉 `step/tot_steps`；子阶段只改 message；UI 隐藏 total>8 的票级微进度；失败文案用 `--danger` |
+| **Track** | `result.track`（`build_materialize_track`）：`id`/`label`/`ok`/`elapsed_s`/`steps_ok`/`schema`/`headline` + `stages[]`（`id`/`status`/`elapsed_s`/`depends_on`/`metrics`）；Job 落盘与状态条优先展示 `headline` 与阶段链 |
 | 失败配色 | 增量/强更失败：蓝族 + 红字；物化失败：黄族 + 红字 |
 | 耗时参考 | 日线 open L1+L2 · 池≈800：约 **5–8 min**；τ 网格首轮（18 钟 L1+L2）可到 **数小时**；L1 指纹增量后会快很多；L2 宇宙键对齐后同池再跑可命中跳过（见 [daycube-universe-key.md](./daycube-universe-key.md)）；强更 5m · 800 票约 **30 min**（4 并发 · 开工间隔 2s；已 Ready 跳过） |
 | 无自动物化 | 日线/分钟线均手动；无 auto-materialize 勾选 |

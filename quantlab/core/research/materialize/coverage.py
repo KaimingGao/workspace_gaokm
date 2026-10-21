@@ -179,7 +179,10 @@ def assess_coverage(
     for fam in fams:
         have = []
         for code in code_list:
-            ds = load_stock_dates(fam, code)
+            try:
+                ds = load_stock_dates(fam, code)
+            except Exception:  # noqa: BLE001
+                ds = None
             if ds:
                 have.append(ds)
         missing = [day for day in day_list if sum(1 for ds in have if day in ds) < need]
@@ -196,12 +199,18 @@ def assess_coverage(
             )
 
     for clk in clks:
-        foreign = _other_hash_days(clk, uh)
+        try:
+            foreign = _other_hash_days(clk, uh)
+        except Exception:  # noqa: BLE001
+            foreign = set()
         missing_days: List[str] = []
         universe = False
         thin = False
         for day in day_list:
-            status = day_cube_status(day, cube_list, clock=clk)
+            try:
+                status = day_cube_status(day, cube_list, clock=clk)
+            except Exception:  # noqa: BLE001
+                status = "miss"
             if status == "ok":
                 continue
             if status == "universe" or day in foreign:
@@ -232,25 +241,90 @@ def assess_coverage(
             "universe_hash": uh,
         }
 
-    minute = any(
-        (p.get("family") and hint_for_family(str(p.get("family"))) == "分钟线物化")
-        or (p.get("clock") and str(p.get("clock")) not in ("open", "09:30", "0930"))
-        for p in problems
-    )
-    universe_changed = any(p.get("universe_changed") for p in problems)
+    def _is_open_clock(raw: Any) -> bool:
+        return str(raw or "").strip().lower() in ("open", "09:30", "0930")
+
+    def _problem_is_minute(problem: Dict[str, Any]) -> bool:
+        fam = problem.get("family")
+        if fam and hint_for_family(str(fam)) == "分钟线物化":
+            return True
+        clk = problem.get("clock")
+        if clk and not _is_open_clock(clk):
+            return True
+        return False
+
+    def _problem_is_open(problem: Dict[str, Any]) -> bool:
+        fam = problem.get("family")
+        if fam and hint_for_family(str(fam)) == "日线物化":
+            return True
+        clk = problem.get("clock")
+        if clk and _is_open_clock(clk):
+            return True
+        return False
+
+    has_minute = any(_problem_is_minute(p) for p in problems)
+    has_open = any(_problem_is_open(p) for p in problems)
+    # 无法归类的缺口当混合处理，避免 request 空参
+    if problems and not has_minute and not has_open:
+        has_open = True
+        has_minute = True
+    universe_changed = any(bool(p.get("universe_changed")) for p in problems)
+
+    def _dedupe_clocks(raw: Any) -> List[str]:
+        out: List[str] = []
+        seen: Set[str] = set()
+        for item in raw or []:
+            key = str(item or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(key)
+        return out
+
     if universe_changed:
         hint = "日线物化"
         lead = "观察池已变，请按当前池重跑日线物化"
-    elif minute:
+        do_l1, do_tau = True, False
+        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_FAMILIES[:3])
+        req_clks = ["open"]
+    elif has_minute and not has_open:
         hint = "分钟线物化"
         lead = "请先分钟线物化 L1/L2"
-    else:
+        do_l1, do_tau = False, True
+        req_fams = []
+        req_clks = _dedupe_clocks(
+            [c for c in clks if c and not _is_open_clock(c)]
+            or [
+                p.get("clock")
+                for p in problems
+                if p.get("clock") and not _is_open_clock(p.get("clock"))
+            ]
+        )
+    elif has_open and not has_minute:
         hint = "日线物化"
         lead = "请先日线物化 L1/L2"
+        do_l1, do_tau = True, False
+        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_FAMILIES[:3])
+        req_clks = ["open"]
+    else:
+        # 混缺：一键参数两阶段都开
+        hint = "分钟线物化"
+        lead = "请先物化 L1/L2（日线 open + 分钟 τ）"
+        do_l1, do_tau = True, True
+        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_FAMILIES[:3])
+        req_clks = _dedupe_clocks(clks) or ["open"]
     error = lead
     detail = _coverage_error_bits(problems)
     if detail:
         error = f"{lead}：{detail}"
+    if do_l1 and not do_tau:
+        req_clks = ["open"]
+    elif do_tau and not do_l1 and not req_clks:
+        req_clks = _dedupe_clocks(
+            p.get("clock")
+            for p in problems
+            if p.get("clock") and not _is_open_clock(p.get("clock"))
+        )
     return {
         "ok": False,
         "success": False,
@@ -266,11 +340,11 @@ def assess_coverage(
         "n_codes": len(code_list),
         "n_dates": len(day_list),
         "request": {
-            "do_l1": True,
+            "do_l1": bool(do_l1),
             "do_l2": True,
-            "do_l1_tau_grid": bool(minute),
-            "families": [f for f in fams if f in _OPEN_FAMILIES],
-            "clocks": clks or ["open"],
+            "do_l1_tau_grid": bool(do_tau),
+            "families": list(req_fams),
+            "clocks": list(req_clks),
         },
     }
 

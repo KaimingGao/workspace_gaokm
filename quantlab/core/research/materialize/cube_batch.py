@@ -606,43 +606,59 @@ def build_day_cubes_from_lake(
                 f"{label} {anchor}/{total} · 读 L1 {fam} {done}/{n}",
             )
 
+        def _as_panel(raw: Any) -> Optional[Dict[str, tuple]]:
+            """None=取消；明确脏类型当空 panel；其余 mapping 原样交给下游。"""
+            if raw is None:
+                return None
+            if isinstance(raw, dict):
+                return raw  # type: ignore[return-value]
+            if isinstance(raw, (str, bytes, list, tuple, set, int, float, bool)):
+                return {}
+            # MagicMock / 自定义 mapping：保持引用
+            return raw  # type: ignore[return-value]
+
         try:
             if shared_oo is not None:
-                oo_s = shared_oo
+                oo_s = _as_panel(shared_oo) or {}
             else:
-                oo_s = slice_stock_panels(
+                oo_got = slice_stock_panels(
                     family_oo,
                     code_list,
                     chunk,
                     progress_cb=lambda d, n: _read_prog(d, n, "oo"),
                     cancel_cb=cancel_cb,
                 )
-            if oo_s is None:
-                tc_s = None
-            elif shared_tc is not None:
-                tc_s = shared_tc
+                if oo_got is None:
+                    return stats  # 取消
+                oo_s = _as_panel(oo_got) or {}
+            if shared_tc is not None:
+                tc_s = _as_panel(shared_tc)
+                if tc_s is None:
+                    return stats
             else:
-                tc_s = slice_stock_panels(
+                tc_got = slice_stock_panels(
                     family_tc,
                     code_list,
                     chunk,
                     progress_cb=lambda d, n: _read_prog(d, n, "tc"),
                     cancel_cb=cancel_cb,
                 )
-            if shared_co is not None and tc_s is not None:
-                co_s = shared_co
+                if tc_got is None:
+                    return stats  # 取消
+                tc_s = _as_panel(tc_got)
+            if shared_co is not None:
+                co_s = _as_panel(shared_co) or {}
             else:
-                co_s = (
-                    slice_stock_panels(
-                        family_co,
-                        code_list,
-                        chunk,
-                        progress_cb=lambda d, n: _read_prog(d, n, "co"),
-                        cancel_cb=cancel_cb,
-                    )
-                    if tc_s is not None
-                    else None
+                co_got = slice_stock_panels(
+                    family_co,
+                    code_list,
+                    chunk,
+                    progress_cb=lambda d, n: _read_prog(d, n, "co"),
+                    cancel_cb=cancel_cb,
                 )
+                if co_got is None:
+                    return stats  # 取消
+                co_s = _as_panel(co_got) or {}
         except Exception:  # noqa: BLE001
             logger.warning(
                 "cube batch slice failed clock=%s days=%s..%s",
@@ -653,8 +669,19 @@ def build_day_cubes_from_lake(
             logger.debug("cube batch slice failed", exc_info=True)
             stats["days_skipped"] += len(chunk)
             continue
-        if oo_s is None or tc_s is None or co_s is None:
+        # 空 dict 表示该族无行（允许 tc-only）；None 仅表示取消（上面已 return）
+        if oo_s is None:
+            oo_s = {}
+        if co_s is None:
+            co_s = {}
+        if tc_s is None:
             return stats
+        if require_oo_item and not oo_s:
+            stats["days_skipped"] += len(chunk)
+            continue
+        if require_tc_day and not tc_s:
+            stats["days_skipped"] += len(chunk)
+            continue
         try:
             if on_items is None and plan is not None:
                 if _write_vectorized_days(
