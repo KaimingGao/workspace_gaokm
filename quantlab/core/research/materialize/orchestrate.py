@@ -37,7 +37,7 @@ def resolve_l2_lookback(lookback: int, *, minute: bool) -> int:
     except (TypeError, ValueError):
         lb = 0
     if lb <= 0:
-        lb = int(BARS_DAILY_LOOKBACK) if BARS_DAILY_LOOKBACK else 60
+        lb = int(BARS_DAILY_LOOKBACK)
     return max(2, min(1500, lb))
 
 

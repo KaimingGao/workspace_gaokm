@@ -939,10 +939,13 @@ def collect_tau_grid_panels(
     clock_list = [str(c).strip() for c in (clocks or []) if str(c or "").strip()]
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
     if clock_list and items:
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
         enforce_consumer_coverage(
             items,
             families=[family_for_tc(tau_hm=clock) for clock in clock_list],
             clocks=clock_list,
+            min_history=int(ALPHA_OO_PANEL_WINDOW),
         )
     col_names = _tc_matrix_seed_names(
         names,
@@ -1287,7 +1290,14 @@ def collect_tau_compact(
         rank=str(cache_head or "tc") == "tc_rank",
     )
     tau_clock = "open" if str(tau_hm or "open").strip().lower() in ("", "open", "09:30", "0930") else str(tau_hm)
-    enforce_consumer_coverage(items, families=[tau_family], clocks=[tau_clock])
+    from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+    enforce_consumer_coverage(
+        items,
+        families=[tau_family],
+        clocks=[tau_clock],
+        min_history=int(ALPHA_OO_PANEL_WINDOW),
+    )
     n_jobs = len(items)
     n_workers = _resolve_tau_workers(n_jobs, workers)
     col_names = _tc_matrix_seed_names(
@@ -1818,8 +1828,14 @@ def collect_co_compact(
     items = [it for it in (stock_bars or []) if isinstance(it, dict)]
     from core.research.lake_bridge import FAMILY_CO
     from core.research.materialize.coverage import enforce_consumer_coverage
+    from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 
-    enforce_consumer_coverage(items, families=[FAMILY_CO], clocks=["open"])
+    enforce_consumer_coverage(
+        items,
+        families=[FAMILY_CO],
+        clocks=["open"],
+        min_history=int(ALPHA_OO_PANEL_WINDOW),
+    )
     n_jobs = len(items)
     n_workers = _resolve_co_workers(n_jobs, workers)
     col_names = _co_matrix_seed_names(names, include_alpha_oo=include_alpha_oo)

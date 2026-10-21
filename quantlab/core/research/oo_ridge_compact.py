@@ -623,8 +623,15 @@ def assemble_oo_panels(
     """
     seq = list(items)
     from core.research.materialize.coverage import enforce_consumer_coverage
+    from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 
-    enforce_consumer_coverage(seq, families=["oo"], clocks=["open"])
+    # 垫窗只供特征，不要求这些日子已物化；截面人数不够的早期日同样跳过。
+    enforce_consumer_coverage(
+        seq,
+        families=["oo"],
+        clocks=["open"],
+        min_history=int(ALPHA_OO_PANEL_WINDOW),
+    )
     n_workers = _resolve_workers(len(seq), workers)
     core = bool(ridge_core_only)
     def _tick(done: int) -> None:

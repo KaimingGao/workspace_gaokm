@@ -46,10 +46,7 @@ def l1_invalidate_decision(stored_bars_fp: Optional[str], current_bars_fp: str) 
     return str(stored_bars_fp) != str(current_bars_fp or "")
 
 
-def _codes_dates(items: Sequence[Any]) -> Tuple[List[str], List[str]]:
-    codes: List[str] = []
-    seen = set()
-    days: Set[str] = set()
+def _iter_code_bars(items: Sequence[Any]):
     for raw in items or []:
         if isinstance(raw, (tuple, list)) and raw:
             code = str(raw[0] or "").strip()
@@ -59,6 +56,14 @@ def _codes_dates(items: Sequence[Any]) -> Tuple[List[str], List[str]]:
             bars = raw.get("bars") or []
         else:
             continue
+        yield code, bars
+
+
+def _codes_dates(items: Sequence[Any]) -> Tuple[List[str], List[str]]:
+    codes: List[str] = []
+    seen = set()
+    days: Set[str] = set()
+    for code, bars in _iter_code_bars(items):
         if code and code not in seen:
             seen.add(code)
             codes.append(code)
@@ -69,6 +74,43 @@ def _codes_dates(items: Sequence[Any]) -> Tuple[List[str], List[str]]:
             if len(day) >= 10:
                 days.add(day)
     return codes, sorted(days)
+
+
+def scorable_bar_dates(
+    items: Sequence[Any],
+    *,
+    min_history: int = 1,
+    min_names: int = 2,
+) -> Tuple[List[str], List[str]]:
+    """只留下能形成截面的决策日。
+
+    一只票要先凑满 ``min_history`` 根 K 线，这一天才算它的可算日
+    （垫窗用来算特征，本身不是训练行）。当天可算的票数不到 ``min_names``
+    的日子（次新、停牌、只出现在少数长历史里）不进覆盖检查。
+    """
+    codes: List[str] = []
+    seen = set()
+    hist = max(1, int(min_history or 1))
+    need = max(1, int(min_names or 1))
+    counts: Dict[str, int] = {}
+    for code, bars in _iter_code_bars(items):
+        if code and code not in seen:
+            seen.add(code)
+            codes.append(code)
+        ordered: List[str] = []
+        got = set()
+        for bar in bars or []:
+            if not isinstance(bar, dict):
+                continue
+            day = str(bar.get("date") or bar.get("trade_date") or "")[:10]
+            if len(day) >= 10 and day not in got:
+                got.add(day)
+                ordered.append(day)
+        ordered.sort()
+        for day in ordered[hist - 1 :]:
+            counts[day] = counts.get(day, 0) + 1
+    dates = sorted(day for day, n in counts.items() if n >= need)
+    return codes, dates
 
 
 def _other_hash_days(clock: str, universe_hash: str) -> Set[str]:
@@ -355,12 +397,21 @@ def enforce_consumer_coverage(
     families: Sequence[str],
     clocks: Sequence[str],
     min_frac: float = LAKE_COVER_FRAC,
+    min_history: int = 1,
 ) -> None:
-    """消费方在 collect 之前调用。未开只读则直接返回。"""
+    """消费方在 collect 之前调用。未开只读则直接返回。
+
+    ``min_history``：特征垫窗。日线 ŷ 传入 alpha_oo 窗长，避免把
+    lookback 之前的垫根、以及凑不满截面的早期交易日当成缺口。
+    """
     # 经模块属性取开关：避免单测 patch consumer 时本模块绑死 MagicMock。
     if not _mat_consumer.consumer_read_only():
         return
-    codes, dates = _codes_dates(items)
+    code_probe, _all_dates = _codes_dates(items)
+    need = cover_need(len(code_probe), frac=min_frac, minimum=2)
+    codes, dates = scorable_bar_dates(
+        items, min_history=min_history, min_names=need
+    )
     got = read_cube_codes()
     report = assess_coverage(
         codes,

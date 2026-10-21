@@ -245,7 +245,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 ### 5.1 训练（Fit）
 
-产品拟合打开消费开关后：L1 指纹命中则用湖里的 X 和 y；未命中返回 ``materialize_required``，不 collect、不写湖、不冷建立方。截面 z 在消费开关或 ``FIT_USE_DAY_CUBE`` 打开时读 L2。
+产品拟合打开消费开关后：L1 指纹命中则用湖里的 X 和 y；未命中返回 ``materialize_required``，不 collect、不写湖、不冷建立方。截面 z 在消费开关或 ``FIT_USE_DAY_CUBE`` 打开时读 L2。覆盖检查用 ``scorable_bar_dates``：跳过特征垫窗（``min_history``≈``ALPHA_OO_PANEL_WINDOW``）和凑不满截面人数的早期日，避免把 lookback 之前的垫根误报成缺日。
 
 不设该开关时（单测、脚本）仍走下面的旧路径：指纹命中返回；尾窗 ``keep_dates`` merge；全量 collect 后写 L1，oo 再物化 DayCube。
 

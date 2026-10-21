@@ -346,7 +346,6 @@ export function installSuggest(q) {
         message: formatApiDetail(data && data.error, "拟合失败"),
         error: true,
       });
-      setQuantMeta(formatApiDetail(data && data.error, "ŷ_oo 拟合失败"), { error: true });
       if (resultEl) {
         resultEl.innerHTML = `<p class="watching-table-empty">${escapeHtml(
           formatApiDetail(data && data.error, "拟合失败")
@@ -363,16 +362,6 @@ export function installSuggest(q) {
       data.fitted_at ||
       data.saved_at ||
       null;
-    paintOoStatus({
-      state: "ok",
-      chip: "已拟合",
-      message: draftOk
-        ? "草稿已存 · 可启用研究（验证后再晋级执行）"
-        : "已拟合 · 草稿未落盘",
-      fittedAt,
-      liveOn: false,
-      researchOn: draftOk,
-    });
     const csZBit =
       typeof formatCrossSectionZBit === "function" ? formatCrossSectionZBit(data) : "";
     const line =
@@ -380,7 +369,16 @@ export function installSuggest(q) {
       ` · R²=${ols.r_squared ?? "—"} · β ${nCoef} 项` +
       (Number(ols.ridge_lambda) > 0 ? ` · Ridge λ=${ols.ridge_lambda}` : " · OLS") +
       (csZBit ? ` · ${csZBit}` : "");
-    setQuantMeta(`ŷ_oo · ${line}`);
+    paintOoStatus({
+      state: "ok",
+      chip: "已拟合",
+      message: draftOk
+        ? `草稿已存 · ${line}`
+        : `已拟合 · ${line}`,
+      fittedAt,
+      liveOn: false,
+      researchOn: draftOk,
+    });
     state.lastReturnModelFit = data;
     syncOverviewOo(data.oos || {});
     /* 与 ŷ_τc 一致：成功路径只刷系数表，不另挂 fingerprint 摘要块 */
@@ -462,15 +460,24 @@ export function installSuggest(q) {
           : csZBit || msg || "";
       // 仅拟合成功当次：chip=已拟合；后续「状态」/启用走落盘套芯片，时间仍用草稿 saved_at
       if (justFittedOnce) {
+        const fitOls = lastFit.ols || {};
+        const nCoef = Object.keys((lastFit.model || {}).coefficients || {}).length;
+        const fitBits = [
+          lastFit.stock_count != null ? `${lastFit.stock_count} 只` : "",
+          lastFit.sample_count != null ? `n=${lastFit.sample_count}` : "",
+          fitOls.r_squared != null ? `R²=${fitOls.r_squared}` : "",
+          nCoef ? `β ${nCoef} 项` : "",
+        ].filter(Boolean);
+        const fitHint = draft.exists
+          ? liveOn || researchOn
+            ? "草稿已更新 · 可启用研究"
+            : "草稿已存 · 可启用研究"
+          : "已拟合";
         paintOoStatus({
           state: "ok",
           chip: "已拟合",
           message: withCsZ(
-            draft.exists
-              ? liveOn || researchOn
-                ? "草稿已更新 · 可启用研究（验证后再晋级执行）"
-                : "草稿已存 · 可启用研究（验证后再晋级执行）"
-              : "已拟合"
+            fitBits.length ? `${fitHint} · ${fitBits.join(" · ")}` : fitHint
           ),
           fittedAt,
           researchAt: research.fitted_at || research.source_saved_at || null,
@@ -570,13 +577,13 @@ export function installSuggest(q) {
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
       const msg = `${ooFitBusyHint(s)} · 已 ${fmtOoFitSec(s)}`;
+      // 状态只写 ŷ_oo 卡头，不刷页顶 #quant-meta（与 ŷ_τc 等头一致）
       paintOoStatus({
         state: "busy",
         chip: "拟合中",
         message: msg,
         busy: true,
       });
-      setQuantMeta(`ŷ_oo ${msg}`, { busy: true });
     };
     tick();
     busyTimer = setInterval(tick, 1000);
@@ -616,7 +623,6 @@ export function installSuggest(q) {
           message: detail,
           error: true,
         });
-        setQuantMeta(`ŷ_oo 失败 · ${detail}`, { error: true });
         return;
       }
       await renderReturnModelFit(data);
@@ -630,7 +636,6 @@ export function installSuggest(q) {
         message: detail,
         error: true,
       });
-      setQuantMeta(`ŷ_oo 失败 · ${detail}`, { error: true });
     } finally {
       stopBusy();
     }
@@ -685,7 +690,6 @@ export function installSuggest(q) {
         message: msg,
         error: true,
       });
-      setQuantMeta(msg, { error: true });
       return;
     }
     paintOoStatus({
@@ -697,7 +701,6 @@ export function installSuggest(q) {
       liveOn: role === "live",
       researchOn: role === "research",
     });
-    setQuantMeta(`ŷ_oo 已启用${roleLabel}`);
     await refreshReturnModelStatus();
   }
 

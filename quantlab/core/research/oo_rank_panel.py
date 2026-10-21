@@ -432,11 +432,13 @@ def build_oo_rank_day_panels(
     )
 
     from core.research.materialize.coverage import enforce_consumer_coverage
+    from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 
     enforce_consumer_coverage(
         list(stock_bars or []),
         families=["oo_rank"],
         clocks=["open"],
+        min_history=int(ALPHA_OO_PANEL_WINDOW),
     )
     jobs: List[Tuple[Any, ...]] = []
     for item in stock_bars or []:

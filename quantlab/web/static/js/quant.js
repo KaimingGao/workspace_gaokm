@@ -2486,7 +2486,12 @@ export function initQuant(ctx) {
     try {
       await suggest.runReturnModelFit();
     } catch (err) {
-      setQuantMeta(String(err.message || err), { error: true });
+      renderRemStatus(els.quantOlsSummary, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -2500,7 +2505,12 @@ export function initQuant(ctx) {
     try {
       await suggest.runReturnModelPromote(role);
     } catch (err) {
-      setQuantMeta(String(err.message || err), { error: true });
+      renderRemStatus(els.quantOlsSummary, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
     } finally {
       if (btn) btn.disabled = false;
       try {
@@ -2518,7 +2528,12 @@ export function initQuant(ctx) {
     try {
       await suggest.runReturnModelPromote("research");
     } catch (err) {
-      setQuantMeta(String(err.message || err), { error: true });
+      renderRemStatus(els.quantOlsSummary, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
     } finally {
       if (btn) btn.disabled = false;
       try {
@@ -2534,7 +2549,12 @@ export function initQuant(ctx) {
     try {
       await suggest.refreshReturnModelStatus();
     } catch (err) {
-      setQuantMeta(String(err.message || err), { error: true });
+      renderRemStatus(els.quantOlsSummary, {
+        state: "error",
+        chip: "状态",
+        message: String(err.message || err),
+        error: true,
+      });
     }
   });
 

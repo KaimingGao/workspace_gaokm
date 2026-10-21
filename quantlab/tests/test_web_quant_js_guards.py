@@ -3529,6 +3529,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("堆叠日线因子面板 · 全程约 12–15 分钟", suggest)
         self.assertIn("Ridge / OLS + Holdout · 全程约 12–15 分钟", suggest)
         self.assertIn("超过 15 分钟仍可能在算，请勿重复点", suggest)
+        # 拟合进度 / 成败只写卡头 #quant-ols-summary，不刷页顶 #quant-meta
+        self.assertIn("状态只写 ŷ_oo 卡头", suggest)
+        self.assertNotIn("setQuantMeta(`ŷ_oo ${msg}`", suggest)
+        self.assertNotIn("setQuantMeta(`ŷ_oo · ${line}`)", suggest)
         self.assertNotIn("观察池堆叠 Ridge / OLS", suggest)
         self.assertNotIn(
             "justFitted && !active.exists && !research.exists",
