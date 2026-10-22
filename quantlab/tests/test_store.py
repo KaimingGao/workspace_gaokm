@@ -15,6 +15,7 @@ from core.store import (
     load_daily_cache_many,
     load_minute_cache,
     merge_minute_bars_by_time,
+    merge_save_daily_cache,
     save_daily_cache,
     save_minute_cache,
 )
@@ -399,6 +400,75 @@ class _StoreBackendMixin:
         self.assertEqual(len(lb), 8)
         self.assertEqual(lb[0]["date"], bars[0]["date"])
         self.assertAlmostEqual(lb[-1]["close"], 99.0)
+
+    def test_merge_save_keeps_overlap_close(self):
+        bars = _sample_bars(6)
+        save_daily_cache(
+            "CN",
+            "600522",
+            bars,
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        old_close = float(bars[-1]["close"])
+        bumped = dict(bars[-1])
+        bumped["close"] = old_close + 7.0
+        nxt = dict(bars[-1])
+        nxt["date"] = (
+            datetime.strptime(bars[-1]["date"], "%Y-%m-%d") + timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+        nxt["close"] = old_close + 1.0
+        nxt["open"] = nxt["close"]
+        nxt["high"] = nxt["close"] + 0.2
+        nxt["low"] = nxt["close"] - 0.2
+        nxt["volume"] = 42
+        merge_save_daily_cache(
+            "CN",
+            "600522",
+            [bumped, nxt],
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        loaded = load_daily_cache(
+            "CN", "600522", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        self.assertIsNotNone(loaded)
+        lb, _meta = loaded
+        self.assertEqual(len(lb), 7)
+        self.assertAlmostEqual(float(lb[-2]["close"]), old_close)
+        self.assertEqual(lb[-1]["date"], nxt["date"])
+        self.assertAlmostEqual(float(lb[-1]["close"]), float(nxt["close"]))
+
+    def test_merge_save_noop_when_no_new_days(self):
+        bars = _sample_bars(4)
+        save_daily_cache(
+            "CN",
+            "600523",
+            bars,
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        loaded0 = load_daily_cache(
+            "CN", "600523", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        fetched0 = str((loaded0[1] or {}).get("fetched_at") or "")
+        bumped = dict(bars[-1])
+        bumped["close"] = float(bars[-1]["close"]) + 3.0
+        merge_save_daily_cache(
+            "CN",
+            "600523",
+            [bumped],
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        loaded = load_daily_cache(
+            "CN", "600523", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        self.assertIsNotNone(loaded)
+        lb, meta = loaded
+        self.assertEqual(len(lb), 4)
+        self.assertAlmostEqual(float(lb[-1]["close"]), float(bars[-1]["close"]))
+        self.assertEqual(str(meta.get("fetched_at") or ""), fetched0)
 
     def test_incomplete_daily_and_empty_do_not_wipe(self):
         bars = _sample_bars(4)

@@ -39,6 +39,16 @@ class TestMergeBars(unittest.TestCase):
         self.assertEqual(m[1]["close"], 2)
         self.assertEqual(m[2]["close"], 3)
 
+    def test_merge_prefer_existing_fills_incomplete_local(self):
+        from core.store import merge_bars_by_date
+
+        a = [{"date": "2024-01-02", "close": 2}]
+        b = [_daily("2024-01-02", 2.5), _daily("2024-01-03", 3)]
+        m = merge_bars_by_date(a, b, prefer="existing")
+        self.assertEqual([x["date"] for x in m], ["2024-01-02", "2024-01-03"])
+        self.assertEqual(m[0]["close"], 2.5)
+        self.assertEqual(m[0]["open"], 2.5)
+
     def test_incomplete_incoming_does_not_replace(self):
         from core.store import merge_bars_by_date
 

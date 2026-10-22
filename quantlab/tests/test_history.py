@@ -458,6 +458,13 @@ class TestQfqReplace(unittest.TestCase):
         self.assertAlmostEqual(got[-1]["close"], old_close)
         self.assertEqual(len(got), len(existing))
 
+    def test_incomplete_overlap_does_not_trigger_qfq_rebase(self):
+        from adapters.market.history import qfq_overlap_rebased
+
+        existing = self._seed()
+        thin = {"date": existing[-1]["date"], "close": float(existing[-1]["close"]) + 9.0}
+        self.assertFalse(qfq_overlap_rebased(existing, [thin]))
+
     def test_raw_payload_does_not_enter_qfq_series(self):
         import sqlite3
 

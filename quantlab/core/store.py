@@ -145,8 +145,8 @@ def merge_bars_by_date(
     """按 date 合并日线；升序。
 
     ``prefer="incoming"``：同日以后到为准（``save_daily_cache`` 默认）。
-    ``prefer="existing"``：同日保留本地（``merge_save`` 非 replace / 日线增量）。
-    缺开高低收或成交量的新根丢掉，不新插入。
+    ``prefer="existing"``：同日保留完整本地根（``merge_save`` 非 replace / 日线增量）；
+    本地同日残缺时仍可用完整远端补上。缺开高低收或成交量的新根丢掉，不新插入。
     """
     keep_local = str(prefer or "incoming").strip().lower() == "existing"
     by_date: Dict[str, dict] = {}
@@ -162,7 +162,7 @@ def merge_bars_by_date(
         d = str(b.get("date") or "").strip()
         if not d or not daily_bar_complete(b):
             continue
-        if keep_local and d in by_date:
+        if keep_local and d in by_date and daily_bar_complete(by_date[d]):
             continue
         by_date[d] = b
     return [by_date[k] for k in sorted(by_date.keys())]
@@ -762,6 +762,20 @@ def merge_save_daily_cache(
         merged = merge_bars_by_date(
             existing, list(incoming or []), prefer="existing"
         )
+        locked_dates = {
+            str(b.get("date") or "").strip()[:10]
+            for b in existing
+            if isinstance(b, dict)
+            and daily_bar_complete(b)
+            and str(b.get("date") or "").strip()
+        }
+        has_new = any(
+            str((b or {}).get("date") or "").strip()[:10] not in locked_dates
+            for b in merged
+        )
+        # 无缺日且无残缺补全时不落盘：避免无意义改写与 fetched_at 抖动
+        if not has_new:
+            return path, merged
         _write_daily_payload(
             path,
             market=market,

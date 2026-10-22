@@ -167,10 +167,12 @@ def _ohlc_rebased(old: dict, new: dict) -> bool:
 
 def qfq_overlap_rebased(existing: List[dict], incoming: List[dict]) -> bool:
     """本地末根与远端同一天的价位对不上，视为前复权锚变了。找不到同一天则否。"""
+    from core.store import daily_bar_complete
+
     if not existing or not incoming:
         return False
     last = existing[-1] if isinstance(existing[-1], dict) else None
-    if not last:
+    if not last or not daily_bar_complete(last):
         return False
     day = _normalize_ymd(str(last.get("date") or ""))
     if not day:
@@ -178,8 +180,12 @@ def qfq_overlap_rebased(existing: List[dict], incoming: List[dict]) -> bool:
     for bar in incoming:
         if not isinstance(bar, dict):
             continue
-        if _normalize_ymd(str(bar.get("date") or "")) == day:
-            return _ohlc_rebased(last, bar)
+        if _normalize_ymd(str(bar.get("date") or "")) != day:
+            continue
+        # 残缺重叠日不当作重锚，避免误升格整窗替换
+        if not daily_bar_complete(bar):
+            return False
+        return _ohlc_rebased(last, bar)
     return False
 
 
@@ -704,7 +710,12 @@ def fetch_daily_bars(
                     replace=replace,
                 )
             except OSError:
-                pass
+                logger.exception(
+                    "merge_save_daily_cache failed market=%s code=%s replace=%s",
+                    market,
+                    code,
+                    replace,
+                )
 
         trimmed = bars[-limit:] if limit and bars and len(bars) > limit else (bars or [])
         return trimmed, src

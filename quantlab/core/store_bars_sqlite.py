@@ -642,12 +642,30 @@ def merge_save_daily(
         existing, meta = loaded
         if str(meta.get("adjust_policy") or "qfq") != policy:
             existing = []
+    from core.store import daily_bar_complete
+
     # 非 replace：只补本地没有的日期，不改存量（与日线增量口径一致）
     merged = merge_bars_by_date(existing, list(incoming or []), prefer="existing")
+    # 完整日跳过写；残缺日仍可被完整远端补上
+    locked_dates = {
+        str(b.get("date") or "").strip()[:10]
+        for b in existing
+        if isinstance(b, dict)
+        and daily_bar_complete(b)
+        and str(b.get("date") or "").strip()
+    }
+    new_bars = [
+        b
+        for b in merged
+        if str((b or {}).get("date") or "").strip()[:10] not in locked_dates
+    ]
+    path = db_path(store_dir)
+    if not new_bars:
+        return path, merged
     path = save_daily(
         market,
         code,
-        merged,
+        new_bars,
         data_source=data_source,
         stock_code=stock_code,
         store_dir=store_dir,
