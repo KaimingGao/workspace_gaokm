@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from contextlib import nullcontext
 from unittest.mock import patch
 
 from adapters.market.history import fetch_daily_bars, resolve_market_code
@@ -106,7 +107,7 @@ class TestHistoryResolve(unittest.TestCase):
         self.assertEqual(len(out), 7)
         self.assertTrue(str(src).startswith("cache"))
 
-    def test_fetch_a_daily_falls_back_to_sina(self):
+    def test_fetch_a_daily_uses_sina_qfq(self):
         from types import ModuleType
 
         from adapters.market.history import fetch_a_daily_bars
@@ -136,18 +137,146 @@ class TestHistoryResolve(unittest.TestCase):
 
         fake = ModuleType("akshare")
 
-        def _hist(**kwargs):
-            raise RuntimeError("hist down")
+        seen = {}
 
-        def _daily(symbol=None, **kwargs):
+        def _hist(**kwargs):
+            raise AssertionError("eastmoney hist should not be called")
+
+        def _daily(symbol=None, adjust="", **kwargs):
+            seen["adjust"] = adjust
+            seen["symbol"] = symbol
             return _DF()
 
         fake.stock_zh_a_hist = _hist
         fake.stock_zh_a_daily = _daily
-        with patch.dict(sys.modules, {"akshare": fake}):
-            bars = fetch_a_daily_bars("300750", limit=10)
+        with patch(
+            "adapters.market.history.sina_daily_slot",
+            return_value=nullcontext(),
+        ), patch.dict(sys.modules, {"akshare": fake}):
+            bars, got = fetch_a_daily_bars("300750", limit=10)
+        self.assertEqual(got, "qfq")
+        self.assertEqual(seen.get("adjust"), "qfq")
+        self.assertEqual(seen.get("symbol"), "sz300750")
         self.assertEqual(len(bars), 2)
         self.assertEqual(bars[-1]["close"], 104.0)
+
+    def test_qfq_does_not_accept_unadjusted_fallback(self):
+        from types import ModuleType
+
+        from adapters.market.history import fetch_a_daily_bars
+
+        class _DF:
+            empty = False
+
+            def to_dict(self, orient="records"):
+                return [
+                    {
+                        "date": "2026-01-02",
+                        "open": 1,
+                        "high": 1,
+                        "low": 1,
+                        "close": 1,
+                        "volume": 1,
+                    }
+                ]
+
+        fake = ModuleType("akshare")
+
+        def _hist(**kwargs):
+            raise RuntimeError("hist down")
+
+        def _daily(symbol=None, adjust="", **kwargs):
+            if adjust == "qfq":
+                raise RuntimeError("qfq down")
+            return _DF()
+
+        fake.stock_zh_a_hist = _hist
+        fake.stock_zh_a_daily = _daily
+        with patch(
+            "adapters.market.history.sina_daily_slot",
+            return_value=nullcontext(),
+        ), patch.dict(sys.modules, {"akshare": fake}):
+            bars, got = fetch_a_daily_bars("300750", limit=10, adjust="qfq")
+        self.assertEqual(bars, [])
+        self.assertEqual(got, "")
+
+    def test_hk_daily_uses_sina_only(self):
+        from types import ModuleType
+
+        from adapters.market.history import fetch_hk_daily_bars
+
+        class _DF:
+            empty = False
+
+            def to_dict(self, orient="records"):
+                return [
+                    {
+                        "date": "2026-01-02",
+                        "open": 1,
+                        "high": 1,
+                        "low": 1,
+                        "close": 1,
+                        "volume": 1,
+                    }
+                ]
+
+        seen = {}
+        fake = ModuleType("akshare")
+
+        def _em(**kwargs):
+            raise AssertionError("eastmoney hk hist should not be called")
+
+        def _daily(symbol=None, adjust=""):
+            seen["symbol"] = symbol
+            seen["adjust"] = adjust
+            return _DF()
+
+        fake.stock_hk_hist = _em
+        fake.stock_hk_hist_em = _em
+        fake.stock_hk_daily = _daily
+        with patch.dict(sys.modules, {"akshare": fake}):
+            bars = fetch_hk_daily_bars("700", limit=5)
+        self.assertEqual(seen.get("symbol"), "00700")
+        self.assertEqual(seen.get("adjust"), "")
+        self.assertEqual(len(bars), 1)
+
+    def test_a_index_uses_sina_only(self):
+        from types import ModuleType
+
+        from adapters.market.index_bars import fetch_index_bars
+
+        class _DF:
+            empty = False
+
+            def to_dict(self, orient="records"):
+                return [
+                    {
+                        "date": "2026-01-02",
+                        "open": 1,
+                        "high": 2,
+                        "low": 1,
+                        "close": 1.5,
+                        "volume": 10,
+                    }
+                ] * 3
+
+        seen = {}
+        fake = ModuleType("akshare")
+
+        def _em(**kwargs):
+            raise AssertionError("eastmoney index should not be called")
+
+        def _sina(symbol=None):
+            seen["symbol"] = symbol
+            return _DF()
+
+        fake.index_zh_a_hist = _em
+        fake.stock_zh_index_daily = _sina
+        with patch.dict(sys.modules, {"akshare": fake}):
+            bars, label = fetch_index_bars("hs300", limit=2)
+        self.assertEqual(seen.get("symbol"), "sh000300")
+        self.assertEqual(label, "沪深300")
+        self.assertEqual(len(bars), 2)
 
     def test_eval_required_paths_use_stocks(self):
         from evals.extract import check_required
@@ -322,6 +451,38 @@ class TestQfqReplace(unittest.TestCase):
         got = self._load()
         self.assertEqual(got[0]["date"], existing[0]["date"])
         self.assertAlmostEqual(got[-1]["close"], bumped["close"])
+
+    def test_raw_payload_does_not_enter_qfq_series(self):
+        import sqlite3
+
+        from core.store_bars_sqlite import db_path
+
+        existing = self._seed(adjust="qfq")
+        raw_bar = dict(existing[-1])
+        raw_bar["close"] = float(raw_bar["close"]) + 8.0
+
+        def _fake(code, limit=30, adjust="qfq", start_date=None):
+            return [raw_bar], "raw"
+
+        with patch("adapters.market.history.fetch_a_daily_bars", side_effect=_fake):
+            out, src = fetch_daily_bars(
+                "600519", limit=10, cache_max_age_hours=0, incremental=True
+            )
+        self.assertEqual(src, "cache:stale")
+        self.assertAlmostEqual(out[-1]["close"], existing[-1]["close"])
+        got = self._load()
+        self.assertAlmostEqual(got[-1]["close"], existing[-1]["close"])
+        conn = sqlite3.connect(db_path(self.tmp))
+        try:
+            rows = conn.execute(
+                "SELECT adjust_policy, data_source FROM daily_cache_meta WHERE code=?",
+                ("600519",),
+            ).fetchall()
+        finally:
+            conn.close()
+        by_policy = {policy: source for policy, source in rows}
+        self.assertEqual(by_policy.get("qfq"), "akshare_cn_daily")
+        self.assertEqual(by_policy.get("raw"), "akshare_cn_daily:raw")
 
 if __name__ == "__main__":
     unittest.main()

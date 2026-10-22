@@ -1,4 +1,4 @@
-"""日线数据获取：A 股 / 港股 / 美股，多接口重试；失败可用 quote 退化。"""
+"""日线数据获取：A 股 / 港股走新浪；美股走 hist；失败可用 quote 退化。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from core.market import register_symbol_resolver, resolve_market_code
 from core.numbers import to_float as _to_float
 from core.store import load_daily_cache, merge_save_daily_cache
 from adapters.market.quote_api import StockAPI
+from adapters.market.sina_pace import sina_daily_slot
 
 register_symbol_resolver(StockAPI.resolve_symbol)
 
@@ -200,16 +201,47 @@ def series_covers_for_replace(
     return len(incoming) >= 0.9 * need
 
 
+def _adjust_label(adj: str) -> str:
+    """接口 adjust 参数 → 缓存复权键。空串是未复权。"""
+    raw = str(adj or "").strip().lower()
+    if raw in ("", "none", "unadjusted"):
+        return "raw"
+    if raw in ("qfq", "hfq", "raw"):
+        return raw
+    return "qfq"
+
+
+def _bars_and_adjust(result: Any, requested: str) -> Tuple[List[dict], str]:
+    """兼容旧的「只返回 bars」。元组第二项才是实际复权。"""
+    if (
+        isinstance(result, tuple)
+        and len(result) == 2
+        and isinstance(result[0], list)
+        and isinstance(result[1], str)
+    ):
+        bars = list(result[0] or [])
+        got = _adjust_label(result[1]) if bars else ""
+        if bars and got not in ("qfq", "raw", "hfq"):
+            got = requested
+        return bars, got
+    bars = list(result or [])
+    return bars, (requested if bars else "")
+
+
 def fetch_a_daily_bars(
     code: str,
     limit: int = 30,
     *,
     adjust: str = "qfq",
     start_date: Optional[str] = None,
-) -> List[dict]:
+) -> Tuple[List[dict], str]:
     """
-    拉取 A 股日线。code 可为 600519 / sh600519。
-    adjust: qfq | raw | hfq（hfq 不可用时回退 qfq）。
+    拉取 A 股日线。code 可为 600519 / sh600519。只走新浪 ``stock_zh_a_daily``。
+    真正打远端前先占新浪日线名额：同时最多 2 只，两次开工至少隔 1 秒。
+    返回 (bars, actual_adjust)。actual_adjust 为 qfq | raw | hfq，空结果为 ""。
+
+    adjust: qfq | raw | hfq。请求什么复权就只传什么，不会改拉未复权再冒充。
+    hfq 失败时再试一次 qfq，返回值里的 actual_adjust 为 qfq。
     start_date: 可选 YYYYMMDD / YYYY-MM-DD；给定则缩小请求窗口（增量补缺）。
     """
     from core.data.ak_lock import import_akshare
@@ -237,70 +269,54 @@ def fetch_a_daily_bars(
     policy = str(adjust or "qfq").strip().lower()
     if policy in ("none", "unadjusted", ""):
         policy = "raw"
+    # 只走新浪。qfq / raw 不改口。hfq 失败再试 qfq，由返回值标明实际复权。
     if policy == "hfq":
-        adjust_order = ("hfq", "qfq", "")
+        adjust_order = ("hfq", "qfq")
     elif policy == "raw":
         adjust_order = ("",)
     else:
-        adjust_order = ("qfq", "")
+        policy = "qfq"
+        adjust_order = ("qfq",)
 
-    attempts: List[Tuple[str, Callable[[], Any]]] = []
-
-    for adj in adjust_order:
-        def _hist(a=adj):
-            return ak.stock_zh_a_hist(
-                symbol=raw,
-                period="daily",
-                start_date=start_s,
-                end_date=end_s,
-                adjust=a,
-            )
-
-        attempts.append((f"stock_zh_a_hist:{adj or 'none'}", _hist))
-
-    # 新浪：需要 sh/sz 前缀
     daily_fn = getattr(ak, "stock_zh_a_daily", None)
+    attempts: List[Tuple[str, str, Callable[[], Any]]] = []
     if daily_fn:
-        for sym in (f"{prefix}{raw}", raw):
-            def _daily(s=sym):
-                try:
-                    return daily_fn(symbol=s)
-                except TypeError:
-                    return daily_fn(s)
+        for adj in adjust_order:
+            got = _adjust_label(adj)
+            # 新浪要 sh/sz 前缀；adjust 必须传下去，默认参数是未复权
+            for sym in (f"{prefix}{raw}", raw):
 
-            attempts.append((f"stock_zh_a_daily:{sym}", _daily))
+                def _daily(s=sym, a=adj, fn=daily_fn):
+                    try:
+                        return fn(
+                            symbol=s,
+                            start_date=start_s,
+                            end_date=end_s,
+                            adjust=a,
+                        )
+                    except TypeError:
+                        return fn(symbol=s, adjust=a)
 
-    # 腾讯等备用（若本机 akshare 版本提供）
-    for fn_name in ("stock_zh_a_hist_tx", "stock_zh_a_hist_em"):
-        fn = getattr(ak, fn_name, None)
-        if not fn:
-            continue
+                attempts.append((f"stock_zh_a_daily:{sym}:{got}", got, _daily))
 
-        def _alt(f=fn, name=fn_name):
-            try:
-                return f(symbol=raw, start_date=start_s, end_date=end_s)
-            except TypeError:
-                try:
-                    return f(symbol=raw)
-                except TypeError:
-                    return f(raw)
-
-        attempts.append((fn_name, _alt))
+    if not attempts:
+        return [], ""
 
     errors: List[str] = []
-    for label, call in attempts:
-        try:
-            df = call()
-            bars = _df_to_bars(df, limit)
-            if bars:
-                return bars
-        except Exception as e:
-            errors.append(f"{label}: {e}")
-            continue
+    with sina_daily_slot():
+        for label, got, call in attempts:
+            try:
+                df = call()
+                bars = _df_to_bars(df, limit)
+                if bars:
+                    return bars, got
+            except Exception as e:
+                errors.append(f"{label}: {e}")
+                continue
 
     if errors:
         fetch_a_daily_bars.last_errors = errors[-6:]  # type: ignore[attr-defined]
-    return []
+    return [], ""
 
 
 def fetch_hk_daily_bars(
@@ -310,9 +326,8 @@ def fetch_hk_daily_bars(
     start_date: Optional[str] = None,
 ) -> List[dict]:
     """
-    拉取港股日线。多符号形态 + 多接口重试。
-    start_date：可选，缩小增量窗口。
-    注意：单次接口异常应 continue，不要整段中断。
+    拉取港股日线。只走新浪 ``stock_hk_daily``。
+    start_date：可选，缩小增量窗口。新浪接口不吃日期，拉回后按 limit 截断。
     """
     from core.data.ak_lock import import_akshare
 
@@ -330,50 +345,30 @@ def fetch_hk_daily_bars(
         if form and form not in candidates:
             candidates.append(form)
 
-    end = datetime.now()
     start_s = _normalize_ymd(start_date)
-    if not start_s:
-        start = end - timedelta(days=max(120, limit * 4))
-        start_s = start.strftime("%Y%m%d")
-    end_s = end.strftime("%Y%m%d")
-
+    daily_fn = getattr(ak, "stock_hk_daily", None)
     attempts: List[Tuple[str, Callable[[], Any]]] = []
-
-    def _add_hist(symbol: str, adjust: str) -> None:
-        def _call(sym=symbol, adj=adjust):
-            return ak.stock_hk_hist(
-                symbol=sym,
-                period="daily",
-                start_date=start_s,
-                end_date=end_s,
-                adjust=adj,
-            )
-
-        attempts.append((f"stock_hk_hist:{symbol}:{adjust or 'none'}", _call))
-
-    for sym in candidates:
-        _add_hist(sym, "")
-        _add_hist(sym, "qfq")
-
-    # 东方财富港股日线（若存在）
-    for fn_name in ("stock_hk_hist_em", "stock_hk_daily"):
-        fn = getattr(ak, fn_name, None)
-        if not fn:
-            continue
+    if daily_fn:
         for sym in candidates:
-            def _call(f=fn, s=sym, name=fn_name):
-                try:
-                    return f(symbol=s)
-                except TypeError:
-                    return f(s)
+            for adj in ("", "qfq"):
+                def _call(s=sym, a=adj, fn=daily_fn):
+                    return fn(symbol=s, adjust=a)
 
-            attempts.append((f"{fn_name}:{sym}", _call))
+                attempts.append((f"stock_hk_daily:{sym}:{adj or 'none'}", _call))
 
     errors: List[str] = []
     for label, call in attempts:
         try:
             df = call()
-            bars = _df_to_bars(df, limit)
+            bars = _df_to_bars(df, 0)
+            if start_s:
+                bars = [
+                    b
+                    for b in bars
+                    if (_normalize_ymd(str(b.get("date") or "")) or "") >= start_s
+                ]
+            if limit and len(bars) > limit:
+                bars = bars[-int(limit) :]
             if bars:
                 return bars
         except Exception as e:
@@ -593,12 +588,16 @@ def fetch_daily_bars(
             )
             return list(trimmed or []), "cache:stale"
 
+        got_policy = policy
         try:
             if market == "CN":
-                bars = fetch_a_daily_bars(
-                    code, limit=fetch_limit, adjust=policy, start_date=gap_start
+                bars, got_policy = _bars_and_adjust(
+                    fetch_a_daily_bars(
+                        code, limit=fetch_limit, adjust=policy, start_date=gap_start
+                    ),
+                    policy,
                 )
-                src = f"akshare_cn_daily:{policy}" if bars else "empty"
+                src = f"akshare_cn_daily:{got_policy}" if bars else "empty"
             elif market == "HK":
                 bars = fetch_hk_daily_bars(code, limit=fetch_limit, start_date=gap_start)
                 src = "akshare_hk_daily" if bars else "empty"
@@ -609,6 +608,36 @@ def fetch_daily_bars(
                 return [], "empty"
         except Exception:
             logger.exception('unexpected error in fetch_daily_bars')
+            if existing:
+                return _stale_existing()
+            return [], "empty"
+
+        # 实际复权与请求不一致：不并进请求的那条序列。sqlite 另键留下真实复权。
+        if market == "CN" and bars and got_policy != policy:
+            from core.store import bars_backend
+
+            if use_cache and not disable_cache and bars_backend() == "sqlite":
+                try:
+                    merge_save_daily_cache(
+                        market,
+                        code,
+                        bars,
+                        data_source=src,
+                        stock_code=code,
+                        adjust_policy=got_policy,
+                        replace=False,
+                    )
+                except OSError:
+                    logger.exception(
+                        "save mismatched adjust %s %s as %s", market, code, got_policy
+                    )
+            logger.info(
+                "daily adjust mismatch market=%s code=%s requested=%s got=%s",
+                market,
+                code,
+                policy,
+                got_policy,
+            )
             if existing:
                 return _stale_existing()
             return [], "empty"
@@ -629,10 +658,15 @@ def fetch_daily_bars(
                 code,
             )
             try:
-                bars = fetch_a_daily_bars(
-                    code, limit=full_limit, adjust=policy, start_date=None
+                bars, got_policy = _bars_and_adjust(
+                    fetch_a_daily_bars(
+                        code, limit=full_limit, adjust=policy, start_date=None
+                    ),
+                    policy,
                 )
-                src = f"akshare_cn_daily:{policy}" if bars else "empty"
+                if got_policy != policy:
+                    return _stale_existing()
+                src = f"akshare_cn_daily:{got_policy}" if bars else "empty"
             except Exception:
                 logger.exception("qfq rebase refetch failed %s %s", market, code)
                 return _stale_existing()

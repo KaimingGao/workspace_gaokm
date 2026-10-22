@@ -27,10 +27,15 @@ DAILY_BARS_MAX_KEEP = 1200
 # 5m 全日约 48 根；12000 ≈ 250 交易日，供 path 150d 回看
 MINUTE_BARS_MAX_KEEP = 12000
 # 远端分钟拉取后休眠；降低反爬封 IP 风险（单票 / 增量，在子进程内）
-MINUTE_FETCH_DELAY_SEC = 20.0
+MINUTE_FETCH_DELAY_SEC = 10.0
 MINUTE_FETCH_DELAY_MAX_SEC = 30.0
-# 强更：父进程按此间隔开工，多只重叠在飞；不在子进程里再睡 20s
+# 强更：父进程按此间隔开工，多只重叠在飞；不在子进程里再睡增量间隔
 MINUTE_WARMUP_WORKERS = 4
+# 新浪日线：同时在途上限，以及两次开工的最小间隔。一次前复权内部还有多次 HTTP。
+SINA_DAILY_MAX_INFLIGHT = 2
+SINA_DAILY_PACE_SEC = 1.0
+# 进程被杀掉后，超过此时长的在途名额收回，避免闸门被占死
+SINA_DAILY_SLOT_STALE_SEC = 180.0
 MINUTE_WARMUP_PACE_SEC = 2.0
 MINUTE_WARMUP_PACE_MAX_SEC = 30.0
 # 观察池 5m 强更/增量：整票子进程隔离超时（新浪近端）
@@ -74,6 +79,26 @@ def is_board_label(label: str | None) -> bool:
     if s.startswith("板别:") or s.startswith("板别："):
         return True
     return False
+
+
+def sina_daily_max_inflight() -> int:
+    """新浪日线同时在途的股票数。``QUANTLAB_SINA_DAILY_MAX_INFLIGHT`` 可覆盖，上限 8。"""
+    raw = os.environ.get("QUANTLAB_SINA_DAILY_MAX_INFLIGHT", str(SINA_DAILY_MAX_INFLIGHT))
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        v = int(SINA_DAILY_MAX_INFLIGHT)
+    return max(1, min(v, 8))
+
+
+def sina_daily_pace_sec() -> float:
+    """新浪日线两次开工的最小间隔（秒）。``QUANTLAB_SINA_DAILY_PACE_SEC`` 可覆盖。"""
+    raw = os.environ.get("QUANTLAB_SINA_DAILY_PACE_SEC", str(SINA_DAILY_PACE_SEC))
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = float(SINA_DAILY_PACE_SEC)
+    return max(0.0, min(v, 30.0))
 
 
 def minute_fetch_delay_sec() -> float:

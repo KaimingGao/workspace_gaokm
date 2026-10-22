@@ -223,7 +223,18 @@ def build_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, A
         "lag_distribution": lag_distribution,
         "forced_marker": marker if marker else None,
         "refresh_job": _bars_refresh_job_snapshot(),
+        "bars_diff": _bars_refresh_diff_snapshot(),
     }
+
+
+def _bars_refresh_diff_snapshot() -> Optional[Dict[str, Any]]:
+    try:
+        from quant.research.bars_diff import read_bars_refresh_diff
+
+        return read_bars_refresh_diff()
+    except Exception:  # noqa: BLE001
+        logger.debug("bars diff snapshot for status failed", exc_info=True)
+        return None
 
 
 def _bars_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
@@ -321,6 +332,14 @@ def refresh_bars_only(
                 tail_codes.append(code)
 
     need = full_codes + tail_codes
+    before_series = None
+    try:
+        from quant.research.bars_diff import load_cn_qfq_series
+
+        before_series = load_cn_qfq_series(codes)
+    except Exception:  # noqa: BLE001
+        logger.exception("bars diff snapshot failed")
+        before_series = None
     remote_n = 0
     failed_n = 0
     chunk = 32
@@ -454,6 +473,33 @@ def refresh_bars_only(
                     os.remove(BARS_FORCED_SESSION_PATH)
         except Exception:  # noqa: BLE001
             logger.debug("clear forced bars marker on failure skipped", exc_info=True)
+    if before_series is not None:
+        try:
+            from quant.research.bars_diff import (
+                diff_daily_series,
+                load_cn_qfq_series,
+                write_bars_refresh_diff,
+            )
+
+            after_series = load_cn_qfq_series(codes)
+            if after_series is not None:
+                diff = diff_daily_series(
+                    before_series,
+                    after_series,
+                    mode=mode_s,
+                    universe_count=n_codes,
+                )
+                write_bars_refresh_diff(diff)
+                bars_refresh["diff"] = {
+                    "headline": diff.get("headline"),
+                    "price_count": diff.get("price_count"),
+                    "volume_count": diff.get("volume_count"),
+                    "tail_count": diff.get("tail_count"),
+                    "unchanged_count": diff.get("unchanged_count"),
+                    "compared": diff.get("compared"),
+                }
+        except Exception:  # noqa: BLE001
+            logger.exception("bars diff compare failed")
     status = build_bars_status(watching_limit=limit)
     return {
         "success": True,

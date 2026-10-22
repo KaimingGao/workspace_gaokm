@@ -86,6 +86,8 @@ load_portfolio_stock_bars
 
 - `cache_max_age_hours=0`：本地条数够也不能短路返回，必须再走增量计划。
 - 每批 32 只。`timeout=60` 停在进程池 `AkPool.map` 上，不会传进 `get_bars`。
+- 真正打新浪前占日线名额：同时最多 2 只，两次开工至少隔 1 秒（`QUANTLAB_SINA_DAILY_MAX_INFLIGHT` / `QUANTLAB_SINA_DAILY_PACE_SEC`）。缓存命中不占名额。一次前复权在 AkShare 里还会连打多次 HTTP。
+- 写入前抽出观察池前复权的收盘和成交量，写完再比。摘要在研究枢纽日线区「上次写入差异」，并落在 `data/live/bars_refresh_diff.json`。价变是重叠日收盘移动；量纲是成交量中位倍数离开 0.67–1.5；只补尾是重叠日没动、只多了末尾日期。
 - 单例研究服务走 `research_bars_pack_worker` 进程池，避开主进程的 AkShare 锁。
 - 研究服务默认 `reject_quote_fallback=True`。腾讯现价压出来的假日线会被清空。
 
@@ -108,7 +110,7 @@ load_portfolio_stock_bars
 
 同票进入远端前持 `code_refresh_lock`（进程内），并再读一次本地，避免并发穿透重复拉。远端异常且本地还有线时，返回 `cache:stale`。
 
-A 股远端是 AkShare `stock_zh_a_hist`。`qfq` 失败再试不复权；`hfq` 不可用时回退 `qfq`。请求窗口在未给 `start_date` 时约为 `limit * 4` 个日历日。
+A 股远端只走新浪 `stock_zh_a_daily`。`qfq` 只传 `adjust=qfq`；失败则空，不把未复权写入 `qfq` 键。`hfq` 失败后再试 `qfq`，按 `qfq` 另键落盘，不并进 `hfq` 序列。请求窗口在未给 `start_date` 时约为 `limit * 4` 个日历日。
 
 合并规则 `merge_bars_by_date`：同日以后到为准。新根缺开、高、低、收或成交量则丢掉，不覆盖已有同日，也不新插入。成交量为 0 算齐。
 
@@ -123,7 +125,7 @@ A 股远端是 AkShare `stock_zh_a_hist`。`qfq` 失败再试不复权；`hfq` �
 | `full` | 只走新浪。本地已 Ready 则跳过 |
 | `topup` | 已对齐跳过；跨度够补近端；缺仓或短仓也走新浪 |
 
-Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 小时。新浪 5 分钟窗口约 41 个交易日。拉完默认睡 20 秒。单票超时 45 秒。
+Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 小时。新浪 5 分钟窗口约 41 个交易日。拉完默认睡 10 秒。单票超时 45 秒。
 
 落盘用 `merge_minute_bars_by_time`，默认按交易日整段替换。新的一天必须盖住本地该日已有的时刻，更短、缺头、缺尾的新包整日放弃。
 
@@ -297,7 +299,9 @@ bars.db
 | `QUANTLAB_DAY_CUBE` | 开 | `0` 关闭 L2 DayCube 落盘 |
 | `QUANTLAB_DAY_CUBE_DIR` | `paths.DAY_CUBE_DIR` | L2 根目录 |
 | `QUANTLAB_BATCH_SCORE` | 开 | `0` 调仓/回测仍走旧双遍 rescore（不建 cube） |
-| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 单票 / 增量：新浪拉取后间隔，上限 30 |
+| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `10` | 单票 / 增量：新浪拉取后间隔，上限 30 |
+| `QUANTLAB_SINA_DAILY_MAX_INFLIGHT` | `2` | 日线打新浪时同时在途的股票数，上限 8 |
+| `QUANTLAB_SINA_DAILY_PACE_SEC` | `1` | 日线两次开工的最小间隔（秒），上限 30 |
 | `QUANTLAB_MINUTE_WARMUP_WORKERS` | `4` | 强更并发，上限 4 |
 | `QUANTLAB_MINUTE_WARMUP_PACE_SEC` | `2` | 强更开工间隔（秒），上限 30 |
 | `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 已 Ready 则不打远端 |

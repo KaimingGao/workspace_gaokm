@@ -37,7 +37,7 @@ def _fill_t0_viz_stock_names(viz: Any, *, stock_code: str, stock_name: Optional[
             if name and not str(row.get("stock_name") or "").strip():
                 row["stock_name"] = name
 
-# 仅「本地无分钟缓存」才打远端；东财偶发挂死，回测走新浪近端并设短超时。
+# 仅「本地无分钟缓存」才打远端；回测走新浪近端并设短超时。
 _MINUTE_FETCH_TIMEOUT_SEC = 12.0
 # A股全日约 48 根 5m；≥40 或末根≥14:55 视为齐窗（缺尾缓存会触发补拉）
 _MINUTE_SESSION_MIN_BARS = 40
@@ -216,7 +216,7 @@ def _call_with_timeout(fn: Callable[[], _T], timeout_sec: float) -> _T:
 def _local_minute_by_date(
     code: str, period: str
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
-    """回测优先读本地分钟缓存（忽略 TTL）。历史 5m 不必等东财刷新。"""
+    """回测优先读本地分钟缓存（忽略 TTL）。历史 5m 不必等新浪刷新。"""
     try:
         from adapters.market.history import resolve_market_code
         from adapters.market.minute_history import _load_stale_minute, group_minute_bars_by_date
@@ -249,7 +249,7 @@ def _fetch_minute_by_date(
     """返回 (minute_by_date, meta)；失败则 ({}, meta)。
 
     先用本地缓存（含过期）。无缓存、或历史日明显缺尾（如只到午前）时短超时补拉；
-    跳过东财，避免 ak_lock 挂死把整次「做T回测」拖过前端 300s abort。
+    只打新浪近端，避免远端挂死把整次「做T回测」拖过前端 300s abort。
     """
     by_date, meta = _local_minute_by_date(code, period)
     truncated = bool(by_date) and _local_has_truncated_history(by_date)
@@ -573,7 +573,7 @@ def run_t0_backtest_for_code(
         quote = _quote_for_backtest(code)
     sym = quote.get("stock_code") if quote.get("success") else code
     fetch_n = eval_lb + warmup + 5
-    # 回测只读本地日线（含过期缓存）；缺缓存时快速失败，勿打东财拖死整批
+    # 回测只读本地日线（含过期缓存）；缺缓存时快速失败，不打新浪拖死整批
     bars_all, src = fetch_daily_bars(
         str(sym), limit=fetch_n, offline_ok=True, offline_only=True
     )

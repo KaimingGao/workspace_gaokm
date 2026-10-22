@@ -68,7 +68,7 @@ def load_replay_minute_bars(
     period: str = "5",
     max_workers: int = 8,
 ) -> Tuple[Dict[str, Dict[str, List[dict]]], Dict[str, Any]]:
-    """观察池 5m：先本地仓，缺则短超时补拉（跳过东财，避免拖死整次回测）。"""
+    """观察池 5m：先本地仓，缺则短超时补拉新浪，避免拖死整次回测。"""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     cleaned = [str(c).strip() for c in (codes or []) if str(c or "").strip()]

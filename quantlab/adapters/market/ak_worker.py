@@ -54,7 +54,10 @@ def _worker_fetch_a_daily(code: str, limit: int, adjust: str = "qfq") -> List[di
     try:
         from adapters.market.history import fetch_a_daily_bars
 
-        return fetch_a_daily_bars(code, limit=limit, adjust=adjust)
+        packed = fetch_a_daily_bars(code, limit=limit, adjust=adjust)
+        if isinstance(packed, tuple):
+            return list(packed[0] or [])
+        return list(packed or [])
     except Exception:
         logger.warning("ak_worker a_daily %s failed", code, exc_info=True)
         return []

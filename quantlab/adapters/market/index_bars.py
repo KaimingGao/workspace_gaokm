@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
 from adapters.market.history import normalize_bars
@@ -63,77 +62,34 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
         bars, src = _fetch_us_etf(label, limit=limit)
         return bars, label or src
 
-    end = datetime.now()
-    start = end - timedelta(days=max(90, limit * 3))
     bars: List[dict] = []
 
     if symbol.startswith(("sh", "sz")):
-        # 新浪优先：东财 index_zh_a_hist 需先拉全量 code map，易 RemoteDisconnected
-        code = symbol[2:]
-        sources = (
-            ("stock_zh_index_daily", {"symbol": symbol}),
-            (
-                "index_zh_a_hist",
-                {
-                    "symbol": code,
-                    "period": "daily",
-                    "start_date": start.strftime("%Y%m%d"),
-                    "end_date": end.strftime("%Y%m%d"),
-                },
-            ),
-        )
-        for fn_name, kwargs in sources:
-            fn = getattr(ak, fn_name, None)
-            if not fn:
-                logger.debug("index api missing: %s", fn_name)
-                continue
+        # A 股指数只走新浪 stock_zh_index_daily。
+        fn = getattr(ak, "stock_zh_index_daily", None)
+        if fn:
             try:
-                df = fn(**kwargs)
+                df = fn(symbol=symbol)
                 bars = normalize_bars(
                     df.to_dict(orient="records") if hasattr(df, "to_dict") else list(df)
                 )
-                if bars:
-                    break
             except Exception as e:
-                logger.warning(
-                    "index fetch fallback %s %s: %s", fn_name, symbol, e
-                )
-                continue
+                logger.warning("sina index daily %s: %s", symbol, e)
+                bars = []
     else:
-        for fn_name in (
-            "stock_hk_index_daily_sina",
-            "stock_hk_index_daily_em",
-            "stock_hk_index_spot_em",
-            "index_global_hist_em",
-        ):
-            fn = getattr(ak, fn_name, None)
-            if not fn:
-                continue
-            for sym in ("HSI", "hsi", "恒生指数", "HSIhk"):
+        fn = getattr(ak, "stock_hk_index_daily_sina", None)
+        if fn:
+            for sym in ("HSI", "hsi"):
                 try:
-                    try:
-                        df = fn(symbol=sym)
-                    except TypeError:
-                        try:
-                            df = fn(
-                                symbol=sym,
-                                start_date=start.strftime("%Y%m%d"),
-                                end_date=end.strftime("%Y%m%d"),
-                            )
-                        except TypeError:
-                            df = fn()
+                    df = fn(symbol=sym)
                     bars = normalize_bars(
                         df.to_dict(orient="records") if hasattr(df, "to_dict") else list(df)
                     )
                     if bars and len(bars) >= 3:
                         break
                 except Exception as e:
-                    logger.warning(
-                        "index fetch fallback %s %s: %s", fn_name, sym, e
-                    )
-                    continue
-            if bars and len(bars) >= 3:
-                break
+                    logger.warning("sina hk index %s: %s", sym, e)
+                    bars = []
 
     if bars:
         if limit:

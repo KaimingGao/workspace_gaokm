@@ -26,7 +26,7 @@
 
 | 模块 | 成熟目标 | 当前落地 | 主要入口 |
 |------|----------|----------|----------|
-| **采集** | 定时多源 ETL | **按需 + 观察池预热**：腾讯现价 + AkShare 日线；5 分钟线只走新浪；`bars_warmup` / `minute_warmup` / `fundamentals_warmup` / `spot_refresh` | `DataService` · `schedule_jobs` · Skills 实现 |
+| **采集** | 定时多源 ETL | **按需 + 观察池预热**：腾讯现价；A 股日线 / 5 分钟 / A 股·港股指数只走新浪；`bars_warmup` / `minute_warmup` / `fundamentals_warmup` / `spot_refresh` | `DataService` · `schedule_jobs` · Skills 实现 |
 | **清洗** | 复权一致、日历对齐、PIT | **薄清洗**：`normalize_bars`；日线 as_of；财务/资讯标明 **non_pit snapshot** | `history.normalize_bars` · `data_pit` |
 | **存储** | 时序库 / 仓 | **JSON**：日线增量合并 · `fundamentals/` · `news/` 快照；无全市场仓 | `core/store.py` → `data/store/` |
 | **服务** | 稳定 `get_price` | **DataService**：领域包 `core/data`（`MarketDataService` / Ports / 信封）+ 薄门面 `facade.py`（dict 兼容） | `core/data/` · `core/data/facade.py` · `core/ports` |
@@ -95,7 +95,7 @@ flowchart LR
 
 做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **adapters 层**，单票读口经 `core.ports.market.fetch_minute_bars`；观察池 **强更 / 增量补齐** 直调 `fetch_a_minute_bars_isolated`（子进程超时 kill），**不**在业务里直连数据源。
 
-**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。写入窗 **`BARS_DAILY_LOOKBACK=1000`** 个交易日（再垫 alpha_oo）；仓裁剪 **`DAILY_BARS_MAX_KEEP=1200`**（须 ≥ 拉取条数）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（差别在跳过条件；新浪窗口都固定，合并进本地、不截断）。均走 **子进程隔离**。本地仓表/路径与日 K 不同。
+**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。写入窗 **`BARS_DAILY_LOOKBACK=1000`** 个交易日（再垫 alpha_oo）；仓裁剪 **`DAILY_BARS_MAX_KEEP=1200`**（须 ≥ 拉取条数）。打新浪前占名额：同时最多 2 只，两次开工至少隔 1 秒（`QUANTLAB_SINA_DAILY_MAX_INFLIGHT` / `QUANTLAB_SINA_DAILY_PACE_SEC`）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（差别在跳过条件；新浪窗口都固定，合并进本地、不截断）。均走 **子进程隔离**。本地仓表/路径与日 K 不同。
 
 ### 分层与入口
 
@@ -140,7 +140,7 @@ flowchart TD
 | 接口 | `ak.stock_zh_a_minute` |
 | 深度 | datalen=1970（约 41 交易日）；不按回看天数切片 |
 | 复权 | `adjust=""`（不复权） |
-| 频控 | 单票 / 增量：拉取后 sleep 20s。强更：4 并发，父进程开工间隔 2s，子进程内不再睡 |
+| 频控 | 单票 / 增量：拉取后 sleep 10s。强更：4 并发，父进程开工间隔 2s，子进程内不再睡 |
 
 然后 merge：**同日整段以后到源为准**（`merge_minute_bars_by_time` 默认 `lock_calendar_day`）。
 
@@ -153,19 +153,21 @@ flowchart TD
 | Web 量化台 · **增量补齐 5m** | 同 Job · `mode=topup`：也只走新浪 |
 | 状态 | `GET /api/quant/minute/status`（Ready 近 40 交易日无缺等）· `GET /api/jobs/minute-refresh` |
 
-子进程内只打新浪。增量拉完睡 **20s**。强更 **4** 并发、开工间隔 **2s**（`throttle=False`，避免 20s 睡进 45s 超时）。单票超时 **45s** 后 kill 并继续下一只。**已 Ready** 则跳过远端。
+子进程内只打新浪。增量拉完睡 **10s**。强更 **4** 并发、开工间隔 **2s**（`throttle=False`，避免增量间隔睡进 45s 超时）。单票超时 **45s** 后 kill 并继续下一只。**已 Ready** 则跳过远端。
 
-### 环境变量（分钟）
+### 环境变量（分钟 / 日线新浪闸）
 
 | 变量 | 默认 | 含义 |
 |------|------|------|
 | `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 本地已 Ready 则跳过远端拉取 |
 | `QUANTLAB_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 闸：最近这么多个交易日无缺 |
 | `QUANTLAB_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 闸：`fetched_at` 超过则重拉 |
-| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `20` | 单票 / 增量：新浪拉取后间隔（秒） |
+| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `10` | 单票 / 增量：新浪拉取后间隔（秒） |
 | `QUANTLAB_MINUTE_WARMUP_WORKERS` | `4` | 强更并发，上限 4 |
 | `QUANTLAB_MINUTE_WARMUP_PACE_SEC` | `2` | 强更两次开工的最小间隔（秒） |
 | `QUANTLAB_MINUTE_ISOLATED_TIMEOUT_SEC` | `45` | 观察池强更/增量单票子进程超时；`0` 关闭隔离 |
+| `QUANTLAB_SINA_DAILY_MAX_INFLIGHT` | `2` | 日线打新浪时同时在途的股票数，上限 8 |
+| `QUANTLAB_SINA_DAILY_PACE_SEC` | `1` | 日线两次开工的最小间隔（秒） |
 | `QUANTLAB_AK_LOCK_TIMEOUT_SEC` | `90` | 主进程等 `ak_lock` 上限；`0`=无限等 |
 | `QUANTLAB_BARS_BACKEND` | `sqlite` | 分钟与日线共用 bars 后端 |
 

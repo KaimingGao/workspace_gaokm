@@ -36,6 +36,14 @@ export function installBarsUi(q) {
   const contextStrip = document.getElementById("quant-bars-context-strip");
   const progressEl = document.getElementById("quant-bars-progress");
   const footEl = document.getElementById("quant-bars-foot");
+  const diffMeta = document.getElementById("quant-bars-diff-meta");
+  const diffPrice = document.getElementById("quant-bars-diff-price");
+  const diffVolume = document.getElementById("quant-bars-diff-volume");
+  const diffTail = document.getElementById("quant-bars-diff-tail");
+  const diffSame = document.getElementById("quant-bars-diff-same");
+  const diffRows = document.getElementById("quant-bars-diff-rows");
+  const diffNote = document.getElementById("quant-bars-diff-note");
+  const diffKpis = document.getElementById("quant-bars-diff-kpis");
   const kpiHost = document.getElementById("quant-bars-kpis");
   const barsCard = document.querySelector(".quant-bars-card");
   const barsBody = document.querySelector(".quant-bars-body");
@@ -277,6 +285,12 @@ export function installBarsUi(q) {
     const sum = job?.result_summary || job?.result?.bars_refresh || {};
     const head = [isTopupSummary(sum) ? "增量完成" : "强更完成"];
     if (sum.remote_count != null) head.push(`远端 ${sum.remote_count}/${sum.total ?? "—"}`);
+    const diff = sum.diff;
+    if (diff && diff.price_count != null) {
+      head.push(`价变 ${diff.price_count}`);
+      head.push(`量纲 ${diff.volume_count ?? 0}`);
+      head.push(`只补尾 ${diff.tail_count ?? 0}`);
+    }
     const updated = Number(job?.updated_at);
     if (updated > 0) head.push(fmtAgeSec(Date.now() / 1000 - updated));
     msgEl.textContent = head.join(" · ");
@@ -653,6 +667,104 @@ export function installBarsUi(q) {
     }
   }
 
+  const DIFF_TAGS = {
+    price: "价变",
+    volume: "量纲",
+    tail: "只补尾",
+    unchanged: "未改",
+    new: "新写入",
+    gone: "缺失",
+  };
+
+  function fmtCloseRel(rel) {
+    const n = Number(rel);
+    if (!Number.isFinite(n)) return "—";
+    const pct = n * 100;
+    if (pct >= 1) return `${pct.toFixed(2)}%`;
+    return `${pct.toFixed(3)}%`;
+  }
+
+  function fmtVolRatio(ratio) {
+    const n = Number(ratio);
+    if (!Number.isFinite(n) || n <= 0) return "—";
+    if (n >= 10) return String(Math.round(n));
+    return n.toFixed(2);
+  }
+
+  function setDiffKpi(key, state) {
+    if (!diffKpis) return;
+    const card = diffKpis.querySelector(`[data-bars-diff="${key}"]`);
+    if (!card) return;
+    card.classList.remove("is-bad", "is-mid", "is-empty");
+    card.classList.add(state || "is-empty");
+  }
+
+  function renderBarsDiff(diff) {
+    const emptyNote = "点增量补齐或强更后，这里对比写入前后的收盘和成交量。";
+    if (!diff || !diff.headline) {
+      if (diffMeta) diffMeta.textContent = "还没有对比";
+      if (diffPrice) diffPrice.textContent = "—";
+      if (diffVolume) diffVolume.textContent = "—";
+      if (diffTail) diffTail.textContent = "—";
+      if (diffSame) diffSame.textContent = "—";
+      setDiffKpi("price", "is-empty");
+      setDiffKpi("volume", "is-empty");
+      setDiffKpi("tail", "is-empty");
+      setDiffKpi("same", "is-empty");
+      if (diffRows) diffRows.innerHTML = "";
+      if (diffNote) diffNote.textContent = emptyNote;
+      return;
+    }
+    const priceN = Number(diff.price_count) || 0;
+    const volumeN = Number(diff.volume_count) || 0;
+    const tailN = Number(diff.tail_count) || 0;
+    const sameN = Number(diff.unchanged_count) || 0;
+    const when = diff.saved_at ? String(diff.saved_at).replace("T", " ").slice(0, 16) : "";
+    if (diffMeta) {
+      diffMeta.textContent = when ? `${diff.headline} · ${when}` : diff.headline;
+    }
+    if (diffPrice) diffPrice.textContent = String(priceN);
+    if (diffVolume) diffVolume.textContent = String(volumeN);
+    if (diffTail) diffTail.textContent = String(tailN);
+    if (diffSame) diffSame.textContent = String(sameN);
+    setDiffKpi("price", priceN > 0 ? "is-bad" : "is-mid");
+    setDiffKpi("volume", volumeN > 0 ? "is-bad" : "is-mid");
+    setDiffKpi("tail", tailN > 0 ? "is-mid" : "is-empty");
+    setDiffKpi("same", sameN > 0 ? "is-mid" : "is-empty");
+    if (diffNote) diffNote.textContent = diff.note || emptyNote;
+    if (!diffRows) return;
+    const rows = Array.isArray(diff.rows) ? diff.rows : [];
+    if (!rows.length) {
+      diffRows.innerHTML = "";
+      return;
+    }
+    const head =
+      `<div class="quant-bars-diff-row is-head">` +
+      `<span>代码</span><span>重叠日</span><span>收盘最大相对差</span><span>成交量比</span><span>标记</span>` +
+      `</div>`;
+    const body = rows
+      .map((row) => {
+        const tags = (Array.isArray(row.tags) ? row.tags : [])
+          .map((tag) => {
+            const label = DIFF_TAGS[tag] || tag;
+            const tone = tag === "price" || tag === "volume" || tag === "gone" ? "is-bad" : "is-warn";
+            return `<span class="quant-bars-badge ${tone}">${esc(label)}</span>`;
+          })
+          .join(" ");
+        return (
+          `<div class="quant-bars-diff-row">` +
+          `<span>${esc(row.code || "—")}</span>` +
+          `<span>${esc(row.overlap_days ?? "—")}</span>` +
+          `<span>${esc(fmtCloseRel(row.max_close_rel))}</span>` +
+          `<span>${esc(fmtVolRatio(row.vol_ratio))}</span>` +
+          `<span class="quant-bars-diff-tags">${tags}</span>` +
+          `</div>`
+        );
+      })
+      .join("");
+    diffRows.innerHTML = head + body;
+  }
+
   function renderKpis(data) {
     const total = Number(data.universe_count) || 0;
     const at = Number(data.at_expected) || 0;
@@ -690,6 +802,7 @@ export function installBarsUi(q) {
       renderContextStrip(null);
       renderCoverageBar({ universe_count: 0, at_expected: 0, stale: 0, missing: 0 });
       renderDistribution({ date_distribution: [], missing: 0 });
+      renderBarsDiff(null);
       if (footEl) footEl.innerHTML = "";
       return;
     }
@@ -702,6 +815,7 @@ export function installBarsUi(q) {
     }
     renderCoverageBar(data);
     renderDistribution(data);
+    renderBarsDiff(data.bars_diff);
     renderFoot(data);
   }
 

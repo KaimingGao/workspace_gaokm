@@ -62,7 +62,7 @@ function resolveVerdict(data) {
     return {
       tone: "warn",
       label: "分钟不足",
-      hint: `缺 5m ${missing}/${evalDays} 日；请先分钟预热（东财失败时仅本地缓存）。有缓存票会自动对齐分钟窗口`,
+      hint: `缺 5m ${missing}/${evalDays} 日；请先分钟预热（新浪失败时仅本地缓存）。有缓存票会自动对齐分钟窗口`,
     };
   }
   if (!trades) {

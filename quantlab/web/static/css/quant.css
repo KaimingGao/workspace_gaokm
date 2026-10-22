@@ -5738,6 +5738,53 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   letter-spacing: -0.02em;
 }
 
+.quant-bars-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quant-bars-diff-note {
+  margin: 0;
+  font-size: var(--q-fs-caption, 0.75rem);
+  color: var(--ink-3);
+  line-height: 1.45;
+}
+
+.quant-bars-diff-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-bars-diff-row {
+  display: grid;
+  grid-template-columns: 5.4rem 4.2rem minmax(6.5rem, 1fr) 5.2rem minmax(7rem, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  padding: 5px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  color: var(--ink-2);
+  min-width: 28rem;
+}
+
+.quant-bars-diff-row.is-head {
+  border-top: none;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+
+.quant-bars-diff-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .quant-bars-viz-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

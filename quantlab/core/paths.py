@@ -45,6 +45,8 @@ CLUSTER_LAST_REPORT_PATH = os.path.join(LIVE_DIR, "cluster_last_report.json")
 BARS_FORCED_SESSION_PATH = os.path.join(
     LIVE_DIR, "bars_forced_session.json"
 )
+# 最近一次日线写入相对上一份仓的差异（研究枢纽日线区）
+BARS_REFRESH_DIFF_PATH = os.path.join(LIVE_DIR, "bars_refresh_diff.json")
 # H3：promote / 改 mode 后的 live 配置指纹；读写须按当时的 LIVE_DIR 拼接
 LIVE_CONFIG_MANIFEST_PATH = os.path.join(LIVE_DIR, "live_config_manifest.json")
 # 调仓 10:00 板块截面：T 开→T+1 开周期内只写一次，下午补仓不得改 10:00 中位

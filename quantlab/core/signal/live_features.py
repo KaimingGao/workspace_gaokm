@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 _INDEX_CACHE: Dict[str, Tuple[float, List[dict], str, str]] = {}
 _INDEX_LOCK = threading.Lock()
 _INDEX_TTL_SEC = 300.0
-_INDEX_NEG_TTL_SEC = 60.0  # 失败也短缓存，避免观察池 N× 重复打东财
+_INDEX_NEG_TTL_SEC = 60.0  # 失败也短缓存，避免观察池 N× 重复打新浪指数
 
 
 def _index_cache_get(

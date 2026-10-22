@@ -264,8 +264,8 @@ python3 -c "from skills.quote.handler import QuoteHandler; print(QuoteHandler().
 |------|------|--------|------|
 | 观察名单 | `data/watching.example.json` | `setup_quant.sh` 调用 `watching_run.py --init` | 复制为 `data/watching.json` |
 | 纸面账户 | 脚本内置 | 同上，`paper_run.py --init` | `data/paper.json` |
-| 日线行情 | `akshare` | 研究枢纽增量补齐 / preset | `core/store.py`；`python3 research/daily_run.py --preset quant` |
-| 5 分钟 K 线 | 东财 / 新浪 | 研究枢纽增量补齐；做 T / τ 拟合依赖 | Ready 后才物化分钟 L2；缺日则跳过 |
+| 日线行情 | 新浪 `stock_zh_a_daily` | 研究枢纽增量补齐 / preset | `core/store.py`；`python3 research/daily_run.py --preset quant` |
+| 5 分钟 K 线 | 新浪 `stock_zh_a_minute` | 研究枢纽增量补齐；做 T / τ 拟合依赖 | Ready 后才物化分钟 L2；缺日则跳过 |
 | L1 Feature Lake | 物化 Job | 研究枢纽「物化」/ `POST /api/quant/materialize` | `data/cache/feature_lake/`；按股×日 raw；做 T 硬要 `tc_HHMM`，调仓硬要 oo/tc/co |
 | L2 DayCube | 物化 Job | 同上（日线 open + 分钟 τ 钟） | `data/cache/day_cubes/`；截面 μ/σ；分钟钟可空 oo/co（tc-only） |
 

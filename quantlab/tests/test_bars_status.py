@@ -8,6 +8,17 @@ from unittest.mock import patch
 
 
 class TestBarsStatus(unittest.TestCase):
+    def setUp(self) -> None:
+        # 刷新测试不扫真实日线仓，也不把对比结果写进 live。
+        self._diff_snap = patch(
+            "quant.research.bars_diff.load_cn_qfq_series",
+            return_value=None,
+        )
+        self._diff_snap.start()
+
+    def tearDown(self) -> None:
+        self._diff_snap.stop()
+
     def test_keep_covers_fetch_window(self):
         from core.data.policy import BARS_DAILY_LOOKBACK, DAILY_BARS_MAX_KEEP
         from quant.research.bars_status import bars_daily_fetch_limit
