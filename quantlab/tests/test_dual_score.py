@@ -243,6 +243,145 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIn("sector_gap_breadth", by_key)
         self.assertNotIn("note", by_key["loc_hl"])
 
+    def test_ensure_formula_terms_tau_keeps_column_when_lake_row_is_raw(self):
+        """未入模的开盘→τ 留在湖行上时，不得用 raw 价位比重拆盖掉表列。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import ensure_formula_terms_tau
+
+        rem_doc = {
+            "zscore_scope": "cross_section",
+            "model_role": "live",
+            "return_model": {
+                "intercept": 0.085,
+                "zscore_scope": "cross_section",
+                "coefficients": {
+                    "raw_atc_PMA20": 0.774,
+                    "raw_atc_CLOSE0": 0.119,
+                },
+                "active_features": ["raw_atc_PMA20", "raw_atc_CLOSE0"],
+            },
+        }
+        item = {
+            "stock_code": "000001",
+            "date": "2026-10-22",
+            "y_τc": 0.32,
+            "formula_terms_tau": {
+                "intercept": 0.085,
+                "total": 0.32,
+                "terms": [
+                    {
+                        "key": "raw_atc_PMA20",
+                        "beta": 0.774,
+                        "z": 0.2,
+                        "contrib": 0.155,
+                    },
+                    {
+                        "key": "raw_atc_CLOSE0",
+                        "beta": 0.119,
+                        "z": 0.67,
+                        "contrib": 0.08,
+                    },
+                ],
+            },
+            "features_tau": {
+                "raw_atc_PMA20": 1.04,
+                "raw_atc_CLOSE0": 1.0,
+                "ret_open_to_tau": 0.0,
+            },
+        }
+        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
+            expl = ensure_formula_terms_tau(item)
+        self.assertIsNotNone(expl)
+        self.assertAlmostEqual(float(expl["total"]), 0.32, places=3)
+        by_key = {t["key"]: t for t in expl["terms"]}
+        self.assertAlmostEqual(float(by_key["raw_atc_PMA20"]["z"]), 0.2, places=3)
+        self.assertAlmostEqual(float(by_key["raw_atc_CLOSE0"]["z"]), 0.67, places=3)
+
+    def test_ensure_formula_terms_tau_skips_raw_when_cs_z_missing(self):
+        """模型含开盘→τ、但组不出截面 z 时，不把 raw≈1 乘 β。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import ensure_formula_terms_tau
+
+        rem_doc = {
+            "zscore_scope": "cross_section",
+            "return_model": {
+                "intercept": 0.085,
+                "zscore_scope": "cross_section",
+                "coefficients": {
+                    "raw_atc_CLOSE0": 0.5,
+                    "ret_open_to_tau": -0.2,
+                },
+                "active_features": ["raw_atc_CLOSE0", "ret_open_to_tau"],
+            },
+        }
+        item = {
+            "stock_code": "000001",
+            "date": "2026-10-22",
+            "y_τc": 0.32,
+            "formula_terms_tau": {
+                "intercept": 0.085,
+                "total": 0.32,
+                "terms": [
+                    {
+                        "key": "raw_atc_CLOSE0",
+                        "beta": 0.5,
+                        "z": 0.47,
+                        "contrib": 0.235,
+                    }
+                ],
+            },
+            "features_tau": {"raw_atc_CLOSE0": 1.0, "ret_open_to_tau": 0.0},
+        }
+        with patch(
+            "core.research.tc_ridge.load_tau_model", return_value=rem_doc
+        ), patch(
+            "core.t0.score_policy._tau_feature_row_for_refresh", return_value=None
+        ):
+            expl = ensure_formula_terms_tau(item)
+        self.assertIsNotNone(expl)
+        self.assertAlmostEqual(float(expl["total"]), 0.32, places=3)
+        by_key = {t["key"]: t for t in expl["terms"]}
+        self.assertAlmostEqual(float(by_key["raw_atc_CLOSE0"]["z"]), 0.47, places=3)
+        self.assertNotIn("ret_open_to_tau", by_key)
+
+    def test_ensure_formula_terms_tau_rebuilds_from_saved_z(self):
+        """已落盘的 raw 组成对不上表列时，用预测当时的截面 z 重拆。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import ensure_formula_terms_tau
+
+        rem_doc = {
+            "zscore_scope": "cross_section",
+            "return_model": {
+                "intercept": 0.085,
+                "zscore_scope": "cross_section",
+                "coefficients": {"raw_atc_CLOSE0": 0.5},
+                "active_features": ["raw_atc_CLOSE0"],
+            },
+        }
+        item = {
+            "stock_code": "000001",
+            "date": "2026-10-22",
+            "y_τc": 0.32,
+            "features_tau": {"raw_atc_CLOSE0": 1.0, "ret_open_to_tau": 0.0},
+            "features_tau_z": {"raw_atc_CLOSE0": 0.47},
+            "formula_terms_tau": {
+                "intercept": 0.085,
+                "total": 0.585,
+                "terms": [
+                    {"key": "raw_atc_CLOSE0", "beta": 0.5, "z": 1.0, "contrib": 0.5}
+                ],
+            },
+        }
+        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
+            expl = ensure_formula_terms_tau(item)
+        self.assertIsNotNone(expl)
+        by_key = {t["key"]: t for t in expl["terms"]}
+        self.assertAlmostEqual(float(by_key["raw_atc_CLOSE0"]["z"]), 0.47, places=3)
+        self.assertAlmostEqual(float(expl["total"]), 0.085 + 0.5 * 0.47, places=3)
+
     def test_explain_tau_prediction_lists_missing_keys(self):
         from core.research.tc_ridge import explain_tau_prediction
 
@@ -345,6 +484,46 @@ class TestDualScoreFields(unittest.TestCase):
             (item.get("formula_terms_tau") or {}).get("zscore_scope"),
             "cross_section",
         )
+        self.assertAlmostEqual(item["features_tau_z"]["raw_atc_YVWAP0"], 0.1, places=5)
+
+    def test_apply_tau_cs_without_z_keeps_pool_tip(self):
+        """观察池补 τ 不再用 raw 价位比重拆，盖掉已经和表列对齐的组成。"""
+        from core.signal.dual_score import apply_tau_score_fields
+
+        doc = {
+            "return_model": {
+                "intercept": 0.085,
+                "coefficients": {"raw_atc_YVWAP0": -0.531, "raw_atc_CLOSE0": 0.119},
+                "active_features": ["raw_atc_YVWAP0", "raw_atc_CLOSE0"],
+                "zscore_scope": "cross_section",
+            },
+            "zscore_scope": "cross_section",
+        }
+        item = {
+            "predicted_score": 0.2,
+            "y_τc": 0.32,
+            "features_tau": {"raw_atc_YVWAP0": 1.0, "raw_atc_CLOSE0": 1.0, "ret_open_to_tau": 0.0},
+            "formula_terms_tau": {
+                "intercept": 0.085,
+                "total": 0.32,
+                "terms": [
+                    {"key": "raw_atc_YVWAP0", "beta": -0.531, "z": -0.4, "contrib": 0.212},
+                    {"key": "raw_atc_CLOSE0", "beta": 0.119, "z": 0.2, "contrib": 0.024},
+                ],
+            },
+        }
+        apply_tau_score_fields(
+            item,
+            rem_yhat=None,
+            gap_pct=0.0,
+            feats=item["features_tau"],
+            rem_model_doc=doc,
+            config={"dual_score": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"}},
+        )
+        by_key = {t["key"]: t for t in item["formula_terms_tau"]["terms"]}
+        self.assertAlmostEqual(float(by_key["raw_atc_YVWAP0"]["z"]), -0.4, places=3)
+        self.assertAlmostEqual(float(item["formula_terms_tau"]["total"]), 0.32, places=3)
+        self.assertAlmostEqual(float(item["y_τc"]), 0.32, places=3)
 
     def test_rescore_tau_stamps_tip_from_cs_z(self):
         from unittest import mock

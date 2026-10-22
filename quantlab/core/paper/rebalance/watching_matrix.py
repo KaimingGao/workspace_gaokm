@@ -606,6 +606,23 @@ def _lake_score_day_candidates(cycle_day: str) -> List[str]:
     return out
 
 
+def _report_l2_gap_only(report: Dict[str, Any]) -> bool:
+    """L1 族已齐，缺口只在截面立方（观察池变或未落盘）。"""
+    if not isinstance(report, dict) or report.get("ok"):
+        return False
+    problems = report.get("problems")
+    if not isinstance(problems, list) or not problems:
+        return False
+    for problem in problems:
+        if not isinstance(problem, dict):
+            return False
+        if problem.get("family") or str(problem.get("layer") or "") == "l1":
+            return False
+        if str(problem.get("layer") or "") != "l2" and not problem.get("clock"):
+            return False
+    return True
+
+
 def _resolve_lake_score_day(
     codes: Sequence[str],
     *,
@@ -649,9 +666,17 @@ def _resolve_lake_score_day(
             }
             continue
         last_report = report if isinstance(report, dict) else last_report
-        if report.get("ok"):
+        l2_gap = _report_l2_gap_only(report)
+        if report.get("ok") or l2_gap:
             fallback_from = cycle_day if day != cycle_day else None
-            if fallback_from:
+            if l2_gap:
+                report = dict(report)
+                report["l2_gap_only"] = True
+                logger.info(
+                    "lake score day %s L1 ok, cube gap (pool μ/σ)",
+                    day,
+                )
+            elif fallback_from:
                 logger.info(
                     "lake score day fallback cycle=%s -> %s (open L1/L2 未齐)",
                     cycle_day,
@@ -672,11 +697,11 @@ def _score_pool_from_lake(
     score_codes: Optional[Collection[str]] = None,
     tau_clock: Optional[str] = None,
 ) -> Tuple[List[dict], List[dict]]:
-    """调仓出分只读 ŷ_oo 周期日 L1，截面 μ/σ 只读已有 L2。缺覆盖则要求先物化。
+    """调仓出分只读 ŷ_oo 周期日 L1。截面立方在则用其 μ/σ；只缺立方时用池内 μ/σ。
 
     日界与 ``oo_cycle_date`` 对齐。盘中日线/open 湖常仍停在上一交易日
     （``expected_latest_daily_bar_date`` 15:05 前不滚今日），此时回退读昨收
-    周期日，避免数据中心 ŷ 列整表空白。
+    周期日。观察池变更导致 open 立方哈希对不上时，不把数据中心 ŷ 列整表清空。
     """
     from core.research.batch_score import ensure_day_cube_for_items
     from core.research.feature_lake import load_day_rows
@@ -697,7 +722,8 @@ def _score_pool_from_lake(
         clock=clock,
         cube_codes=cube_codes,
     )
-    if not report.get("ok"):
+    l2_gap = bool(report.get("l2_gap_only"))
+    if not report.get("ok") and not l2_gap:
         raise MaterializeRequired(report)
 
     oo_m = load_day_rows(FAMILY_OO, codes, day) or {}
@@ -729,6 +755,17 @@ def _score_pool_from_lake(
             # 与 assess_coverage 同键：完整观察池，不是当日有行子集
             universe_codes=cube_codes or codes,
         )
+        if cube is None and l2_gap:
+            logger.info(
+                "lake score cube gap day=%s clock=%s n=%s; μ/σ from L1 pool",
+                day,
+                clock,
+                len(scored),
+            )
+            rescore_fitted_cross_section(
+                scored, score_codes=score_codes, day_cube=None
+            )
+            return scored, rejected
         if cube is None:
             hint = "分钟线物化" if clock != "open" else "日线物化"
             raise MaterializeRequired(

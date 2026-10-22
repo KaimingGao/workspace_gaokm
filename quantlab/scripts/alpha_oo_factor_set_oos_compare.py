@@ -50,12 +50,24 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--max-names", type=int, default=300)
     p.add_argument("--train-days", type=int, default=160)
     p.add_argument("--holdout-days", type=int, default=20)
+    p.add_argument(
+        "--lookback",
+        type=int,
+        default=0,
+        help="bars lookback; 0=auto from train+holdout",
+    )
     p.add_argument("--ridge-lambda", type=float, default=1.0)
     p.add_argument("--horizon-days", type=int, default=1)
     p.add_argument(
         "--min-history",
         type=int,
         default=int(ALPHA_OO_MIN_BARS),
+    )
+    p.add_argument(
+        "--modes",
+        type=str,
+        default="",
+        help="comma modes; default=all",
     )
     return p.parse_args()
 
@@ -327,7 +339,8 @@ def main() -> int:
     train_days = max(20, int(args.train_days))
     holdout_days = max(5, int(args.holdout_days))
     window_days = train_days + holdout_days
-    lookback = max(window_days + 40, int(args.min_history) + window_days)
+    auto_lb = max(window_days + 40, int(args.min_history) + window_days)
+    lookback = max(int(args.lookback or 0), auto_lb)
 
     t0 = time.time()
     print(
@@ -370,8 +383,14 @@ def main() -> int:
         print("ERROR: calendar too short for requested split")
         return 1
 
+    want: Optional[set] = None
+    if str(args.modes or "").strip():
+        want = {a.strip() for a in str(args.modes).split(",") if a.strip()}
+
     results: List[Dict[str, Any]] = []
     for mode, label in SCENARIOS:
+        if want is not None and mode not in want:
+            continue
         feats = _select_feature_names(names, mode=mode)
         print(f"\nfitting {mode}: {len(feats)} columns …")
         r = fit_holdout(

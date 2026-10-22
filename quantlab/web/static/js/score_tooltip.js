@@ -474,9 +474,20 @@ function formatCompactTauTip(raw) {
         : null;
   let yTo = pickTauToPct(raw);
   if (yTo == null && fit != null && rot != null) yTo = remainingAtTauPct(fit, rot);
-  const hint =
-    !hasTerms && (yTo != null || rot != null)
-      ? `τ=${escapeText(tau)} · 本槽未跑 τc Ridge · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
+  const explTau =
+    raw && (raw.formula_terms_tau || raw.score_formula_terms_tau);
+  const totRaw = explTau && explTau.total != null ? Number(explTau.total) : NaN;
+  const formulaMismatch =
+    hasTerms &&
+    fit != null &&
+    Number.isFinite(totRaw) &&
+    Math.abs(totRaw - Number(fit)) > 0.02;
+  const hint = !hasTerms && (yTo != null || rot != null)
+    ? `τ=${escapeText(tau)} · 本槽未跑 τc Ridge · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
+    : formulaMismatch
+      ? `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(
+          String(ySpec)
+        )} · 组成合计 ${escapeText(`${fmtSigned(totRaw, 3)}%`)} 与表列不一致`
       : `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · α+Σβ·z`;
   return (
     `<div class="score-layer score-layer-eod">` +
@@ -1612,6 +1623,17 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       )
       .slice(0, factorCap);
   }
+  const shownContrib = terms.reduce((sum, t) => {
+    const c = Number(t && t.contrib);
+    return sum + (Number.isFinite(c) ? c : 0);
+  }, 0);
+  const interceptN = Number(expl && expl.intercept);
+  const totalN = Number(expl && expl.total);
+  const omittedContrib =
+    Number.isFinite(totalN) && Number.isFinite(interceptN)
+      ? totalN - interceptN - shownContrib
+      : 0;
+  const showRest = !treeTable && Math.abs(omittedContrib) > 5e-4;
   const totalLabel =
     key === "tau" || key === "r"
       ? "合计 ŷ_τc"
@@ -1680,7 +1702,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。研究/执行两槽同一份 Holdout 前训 β（版本前后）；回测默认研究套，live 用执行套。"
       : isHorizonProb
         ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 默认执行槽；须「启用研究」再「启用执行」晋级后 live 才用新 β。缺特征按均值填（z=0）不占表。"
-        : "β×z = 贡献";
+        : showRest
+          ? "β×z = 贡献。合计为全部入模因子；表内只列贡献最大的项，其余并入「其余因子」。"
+          : "β×z = 贡献";
   const missingN = Number(expl && expl.missing_n);
   const missKeys = Array.isArray(expl && expl.missing_keys)
     ? expl.missing_keys.filter(Boolean).slice(0, 8)
@@ -1750,6 +1774,15 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       ? `<td class="num">—</td><td class="num">—</td>`
       : `<td class="num">—</td>`
     : `<td class="num">—</td><td class="num">—</td>`;
+  const restRow = showRest
+    ? `<tr class="score-ft-rest">` +
+      `<td class="score-ft-name">其余因子</td>` +
+      pad +
+      `<td class="num ${signCls(omittedContrib)}">${escapeText(
+        fmtSigned(omittedContrib, 3)
+      )}</td>` +
+      `</tr>`
+    : "";
   const alignedRow = showAligned
     ? `<tr class="score-ft-total">` +
       `<td class="score-ft-name">表列 ŷ_τc</td>` +
@@ -1772,6 +1805,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     `<td class="num ${signCls(expl.intercept)}">${escapeText(interceptCell)}</td>` +
     `</tr>` +
     rows +
+    restRow +
     `<tr class="score-ft-total">` +
     `<td class="score-ft-name">${escapeText(totalLabel)}</td>` +
     pad +

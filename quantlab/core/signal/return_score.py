@@ -146,7 +146,7 @@ class ReturnScoreModel:
                 {
                     "key": str(name),
                     "label": factor_label(name),
-                    "beta": round(float(beta), 6),
+                    "beta": round(float(b), 6),
                     "z": round(float(z), 4),
                     "contrib": round(float(contrib), 6),
                 }

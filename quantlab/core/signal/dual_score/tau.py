@@ -222,11 +222,27 @@ def apply_tau_score_fields(
     if event_prior is not None:
         signal_item["event_prior"] = event_prior
     formula_terms_tau = None
-    explain_row = (
-        dict(explain_feats)
-        if isinstance(explain_feats, dict) and explain_feats
-        else feats_merged
-    )
+    has_explain_z = isinstance(explain_feats, dict) and bool(explain_feats)
+    cs_model = False
+    if has_explain_z:
+        signal_item["features_tau_z"] = {
+            str(k): v
+            for k, v in explain_feats.items()
+            if v is not None and v != ""
+        }
+        explain_row: Optional[Dict[str, Any]] = dict(explain_feats)
+    else:
+        try:
+            from core.research.feature_standardize import is_cross_section_zscore
+
+            cs_model = bool(
+                rem_model_doc is not None and is_cross_section_zscore(rem_model_doc)
+            )
+        except Exception:  # noqa: BLE001
+            cs_model = False
+        # 截面 β 不能乘 features_tau 里的 raw 价位比。观察池补 τ 时没有 z 行就保留原组成。
+        explain_row = None if cs_model else (dict(feats_merged) if feats_merged else None)
+    prior_terms = signal_item.get("formula_terms_tau")
     if explain_row:
         try:
             from core.research.tc_ridge import explain_tau_prediction
@@ -236,8 +252,13 @@ def apply_tau_score_fields(
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             formula_terms_tau = None
-    if not isinstance(formula_terms_tau, dict):
-        formula_terms_tau = {}
+    if not isinstance(formula_terms_tau, dict) or not formula_terms_tau.get("terms"):
+        if isinstance(prior_terms, dict) and prior_terms.get("terms"):
+            formula_terms_tau = dict(prior_terms)
+        elif not isinstance(formula_terms_tau, dict):
+            formula_terms_tau = {}
+        else:
+            formula_terms_tau = dict(formula_terms_tau)
     else:
         formula_terms_tau = dict(formula_terms_tau)
     formula_terms_tau["oo_remaining"] = oo_rem
@@ -897,6 +918,83 @@ def format_tau_formula_string(expl: Optional[Dict[str, Any]]) -> str:
     return f"ŷ_τ = α{alpha:+.3f} + {body} = {total:.3f}%"
 
 
+def _tau_active_feature_names() -> Optional[set]:
+    """当前 τ 模型入模名。加载失败返回 None（调用方保持旧的「小包键都要重拆」）。"""
+    try:
+        from core.research.tc_ridge import load_tau_model
+        from core.signal.factors.sum_identity import filter_predict_active_names
+
+        doc = load_tau_model() or {}
+        rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else {}
+        coefs = rm.get("coefficients") if isinstance(rm.get("coefficients"), dict) else {}
+        names = filter_predict_active_names(
+            rm.get("active_features") or list(coefs.keys()),
+            coefs,
+        )
+        return {str(n) for n in names if str(n or "")}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _column_y_tc(item: Optional[dict]) -> Optional[float]:
+    if not isinstance(item, dict):
+        return None
+    for key in ("y_τc", "predicted_score_τc", "y_τc_ridge"):
+        raw = item.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _terms_match_column(expl: Optional[dict], item: Optional[dict], *, tol: float = 0.02) -> bool:
+    """没有表列可对照时视为吻合。有表列时合计须与 y_τc 同口径。"""
+    y = _column_y_tc(item)
+    if y is None or not isinstance(expl, dict) or expl.get("total") is None:
+        return True
+    try:
+        return abs(float(expl.get("total")) - y) <= tol
+    except (TypeError, ValueError):
+        return False
+
+
+def _prefer_terms_matching_column(
+    existing: Optional[dict],
+    rebuilt: Optional[dict],
+    item: Optional[dict],
+) -> Optional[dict]:
+    """重拆合计离表列更远时留下原组成。
+
+    持仓 tip 的表列是截面 z 上的 ŷ_τc。features_tau 仍是 raw 价位比；
+    用 raw×β 重拆会把 CLOSE0 / YOPEN0 等 ≈1 的列当成 z，合计对不上表列。
+    """
+    if not isinstance(rebuilt, dict):
+        return existing if isinstance(existing, dict) else None
+    y = _column_y_tc(item)
+    if y is None:
+        return rebuilt
+    try:
+        new_err = abs(float(rebuilt.get("total")) - y)
+    except (TypeError, ValueError):
+        return rebuilt
+    has_old = isinstance(existing, dict) and bool(existing.get("terms"))
+    if not has_old:
+        # 没有可对照的原组成时，拒绝明显对不上表列的拆解（raw×β）
+        if new_err > 0.05:
+            return None
+        return rebuilt
+    try:
+        old_err = abs(float(existing.get("total")) - y)
+    except (TypeError, ValueError):
+        return rebuilt
+    if old_err + 0.02 < new_err:
+        return existing
+    return rebuilt
+
+
 def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
     """保证 tip 有 ŷ_τ 组成：有 Z 实值时重拆；勿沿用「全缺特征」旧戳。"""
     if not isinstance(item, dict):
@@ -978,8 +1076,14 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
                 return True
         return has_z and not z_in_terms
 
+    active_names = _tau_active_feature_names()
+
     def _stale_missing_pack(expl: Optional[dict]) -> bool:
-        """features_tau 已有开盘→τ / 分钟小包，组成表仍缺这些键 → 须重拆。"""
+        """features_tau 已有、且当前模型入模的小包键，组成表仍缺 → 须重拆。
+
+        未入模的 ret_open_to_tau 等会留在湖行上。拿它们逼重拆时，
+        截面模型若组不出 z 行，就会用 raw 价位比 ×β，合计偏离表列。
+        """
         if not isinstance(expl, dict):
             return False
         keys = {
@@ -1002,6 +1106,8 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             "up_extent",
             "down_extent",
         )
+        if active_names is not None:
+            pack_keys = tuple(k for k in pack_keys if k in active_names)
         return any(feats.get(k) is not None and k not in keys for k in pack_keys)
 
     if (
@@ -1010,6 +1116,7 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         and existing["terms"]
         and not _stale_imputed_z(existing)
         and not _stale_missing_pack(existing)
+        and _terms_match_column(existing, item)
     ):
         return existing
 
@@ -1021,17 +1128,20 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         try:
             from core.research.tc_ridge import explain_tau_prediction
 
-            expl = explain_tau_prediction(
-                tau_explain_feats_row(item, feats), model_doc=None
-            )
-            if expl is not None:
-                return expl
+            row = tau_explain_feats_row(item, feats)
+            # 截面模型组不出 z 行时 row 为空。对空行 explain 会把缺特征填成 z=0，
+            # 合计塌到截距，盖掉已经和表列对齐的组成。
+            if row:
+                expl = explain_tau_prediction(row, model_doc=None)
+                if expl is not None:
+                    return _prefer_terms_matching_column(existing, expl, item)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             pass
     if (
         isinstance(existing, dict)
         and isinstance(existing.get("terms"), list)
         and existing["terms"]
+        and _terms_match_column(existing, item)
     ):
         return existing
     return None
@@ -1045,6 +1155,9 @@ def tau_explain_feats_row(
     base = dict(feats) if isinstance(feats, dict) else {}
     if not isinstance(item, dict):
         return base
+    saved_z = item.get("features_tau_z")
+    if isinstance(saved_z, dict) and saved_z:
+        return dict(saved_z)
     try:
         from core.research.feature_standardize import is_cross_section_zscore
         from core.research.tc_ridge import load_tau_model
@@ -1077,7 +1190,8 @@ def tau_explain_feats_row(
             return z_row
     except Exception:  # noqa: BLE001
         logger.debug("tau explain CS-z row failed", exc_info=True)
-    return base
+    # 截面 β 只能乘日截面 z。池缓存 / 立方都没有时不要把 raw 价位比（≈1）当 z。
+    return {}
 
 
 # 旧私名：外部曾 import；保留别名一版

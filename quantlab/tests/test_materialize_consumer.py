@@ -204,11 +204,76 @@ class ConsumerCoverageTest(unittest.TestCase):
                 return_value=["a", "b", "c"],
             ):
                 gap = replay_coverage_gap(
-                    bars, days, score_from=0, fill_clock="09:30"
+                    bars,
+                    days,
+                    score_from=0,
+                    fill_clock="09:30",
+                    as_of="2099-01-05",
                 )
         finally:
             bind_materialize_writer(False, False)
         self.assertIsNone(gap)
+
+    def test_clip_replay_score_dates_drops_after_as_of(self) -> None:
+        from core.research.materialize.coverage import clip_replay_score_dates
+
+        out = clip_replay_score_dates(
+            ["2026-10-20", "2026-10-21", "2026-10-22"],
+            as_of="2026-10-21",
+        )
+        self.assertEqual(out, ["2026-10-20", "2026-10-21"])
+
+    def test_replay_gap_ignores_incomplete_session_day(self) -> None:
+        """盘中会话日未齐时，覆盖闸不把该日算进硬缺。"""
+        from unittest.mock import patch
+
+        from core.research.materialize.consumer import bind_materialize_writer
+        from core.research.materialize.coverage import replay_coverage_gap
+
+        complete = ["2026-10-20", "2026-10-21"]
+        days = complete + ["2026-10-22"]
+        bars = {code: [{"date": day} for day in days] for code in ("a", "b")}
+
+        def _status(_day, codes, clock="open"):
+            return "ok" if len(list(codes)) == 3 else "miss"
+
+        def _dates(_fam, _code):
+            # 湖只盖到完整 as-of；会话日故意缺
+            return set(complete)
+
+        bind_materialize_writer(False, True)
+        try:
+            with patch(
+                "core.research.day_cube.day_cube_status", side_effect=_status
+            ), patch(
+                "core.research.feature_lake.load_stock_dates", side_effect=_dates
+            ), patch(
+                "core.research.materialize.coverage._other_hash_days", return_value=set()
+            ), patch(
+                "core.research.materialize.cube_z.universe_codes",
+                return_value=["a", "b", "c"],
+            ):
+                gap = replay_coverage_gap(
+                    bars,
+                    days,
+                    score_from=0,
+                    fill_clock="09:30",
+                    as_of="2026-10-21",
+                )
+                # 若不截断，10-22 缺湖应报缺口
+                gap_hard = replay_coverage_gap(
+                    bars,
+                    days,
+                    score_from=0,
+                    fill_clock="09:30",
+                    as_of="2026-10-22",
+                )
+        finally:
+            bind_materialize_writer(False, False)
+        self.assertIsNone(gap)
+        self.assertIsNotNone(gap_hard)
+        self.assertEqual(gap_hard.get("error_code"), "materialize_required")
+        self.assertIn("2026-10-22", str(gap_hard.get("error") or ""))
 
     def test_scorable_dates_drop_warmup_and_thin_names(self) -> None:
         from core.research.materialize.coverage import scorable_bar_dates
@@ -525,6 +590,88 @@ class ConsumerCoverageTest(unittest.TestCase):
         self.assertTrue(
             all(it.get("lake_score_fallback_from") == "2026-10-21" for it in scored)
         )
+
+    def test_score_pool_from_lake_rescues_l2_universe_gap(self) -> None:
+        """L1 已齐、立方因观察池变缺时，用池内 μ/σ 出分，不整表空白。"""
+        from unittest.mock import patch
+
+        from core.paper.rebalance.watching_matrix import _score_pool_from_lake
+
+        def _fake_assess(codes, days, **kwargs):  # noqa: ANN001
+            day = (days or [""])[0]
+            if day == "2026-10-21":
+                return {
+                    "ok": False,
+                    "error_code": "materialize_required",
+                    "error": "观察池已变",
+                    "problems": [
+                        {
+                            "layer": "l2",
+                            "clock": "open",
+                            "universe_changed": True,
+                            "n_days": 1,
+                            "date_from": day,
+                            "date_to": day,
+                        }
+                    ],
+                }
+            return {
+                "ok": False,
+                "error_code": "materialize_required",
+                "error": f"缺 {day}",
+                "problems": [
+                    {
+                        "layer": "l1",
+                        "family": "oo",
+                        "n_days": 1,
+                        "date_from": day,
+                        "date_to": day,
+                    }
+                ],
+            }
+
+        def _assemble(code, day, **kwargs):  # noqa: ANN001
+            return {"stock_code": code, "as_of": day}
+
+        seen: dict = {}
+
+        def _rescore(items, score_codes=None, day_cube=None):  # noqa: ANN001
+            seen["cube"] = day_cube
+            seen["n"] = len(items)
+            return items
+
+        with patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-10-22"
+        ), patch(
+            "core.market.calendar.expected_latest_daily_bar_date",
+            return_value="2026-10-21",
+        ), patch(
+            "core.market.calendar.prev_trading_day", return_value="2026-10-21"
+        ), patch(
+            "core.research.materialize.coverage.assess_coverage", side_effect=_fake_assess
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes", return_value=["a", "b"]
+        ), patch(
+            "core.research.feature_lake.load_day_rows", return_value={}
+        ), patch(
+            "core.research.lake_replay.assemble_item_from_lake_rows",
+            side_effect=_assemble,
+        ), patch(
+            "core.research.batch_score.ensure_day_cube_for_items", return_value=None
+        ), patch(
+            "core.signal.cross_section_rescore.rescore_fitted_cross_section",
+            side_effect=_rescore,
+        ):
+            scored, rejected = _score_pool_from_lake(
+                ["300750", "002594"],
+                use_minute_tau=False,
+                tau_clock="09:30",
+            )
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(scored), 2)
+        self.assertIsNone(seen.get("cube"))
+        self.assertEqual(seen.get("n"), 2)
+        self.assertTrue(all(it.get("lake_score_day") == "2026-10-21" for it in scored))
 
     def test_lake_score_day_candidates_dedupe(self) -> None:
         from unittest.mock import patch

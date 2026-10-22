@@ -476,6 +476,31 @@ def enforce_consumer_coverage(
         raise MaterializeRequired(report)
 
 
+def clip_replay_score_dates(
+    dates: Sequence[str],
+    *,
+    as_of: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> List[str]:
+    """评分窗截到完整日线 as-of（15:05 前不含未完成会话日）。
+
+    盘中 overlay / 半池今日 K 会把会话日塞进日历；消费闸若仍硬要该日
+    oo/tc/co+open，物化永远凑不齐整池。与 live 出分候选回退同口径。
+    """
+    day_list = [str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10]
+    end = str(as_of or "")[:10]
+    if len(end) < 10:
+        try:
+            from core.market.calendar import expected_latest_daily_bar_date
+
+            end = str(expected_latest_daily_bar_date(now=now) or "")[:10]
+        except Exception:  # noqa: BLE001
+            end = ""
+    if len(end) < 10:
+        return day_list
+    return [d for d in day_list if d <= end]
+
+
 def replay_coverage_gap(
     stock_bars: Dict[str, Any],
     dates: Sequence[str],
@@ -483,8 +508,14 @@ def replay_coverage_gap(
     score_from: int,
     fill_clock: str,
     min_frac: float = LAKE_COVER_FRAC,
+    as_of: Optional[str] = None,
+    now: Optional[datetime] = None,
 ) -> Optional[Dict[str, Any]]:
-    """调仓回测开跑前的覆盖结果。只读未开或已齐时返回 None。"""
+    """调仓回测开跑前的覆盖结果。只读未开或已齐时返回 None。
+
+    评分日截到 ``expected_latest_daily_bar_date``（可 ``as_of``/``now`` 覆盖），
+    避免盘中未完成会话日被当成硬缺。
+    """
     if not _mat_consumer.consumer_read_only():
         return None
     from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
@@ -492,7 +523,13 @@ def replay_coverage_gap(
     codes = [str(c).strip() for c in (stock_bars or {}) if str(c).strip()]
     day_list = [str(d)[:10] for d in (dates or [])]
     start = max(0, int(score_from or 0))
-    scored = [d for d in day_list[start:] if len(d) >= 10]
+    scored = clip_replay_score_dates(
+        [d for d in day_list[start:] if len(d) >= 10],
+        as_of=as_of,
+        now=now,
+    )
+    if not scored:
+        return None
     fams = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
     clks = ["open"]
     clock = str(fill_clock or "09:30")[:5]

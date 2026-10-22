@@ -82,10 +82,22 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--max-names", type=int, default=300)
     p.add_argument("--train-days", type=int, default=160)
     p.add_argument("--holdout-days", type=int, default=20)
+    p.add_argument(
+        "--lookback",
+        type=int,
+        default=0,
+        help="bars lookback; 0=auto from train+holdout",
+    )
     p.add_argument("--ridge-lambda", type=float, default=1.0)
     p.add_argument("--gap-trigger", type=float, default=2.0)
     p.add_argument("--theme-boost", type=float, default=1.5)
     p.add_argument("--min-history", type=int, default=int(ALPHA_TC_MIN_BARS))
+    p.add_argument(
+        "--tau-hm",
+        type=str,
+        default="open",
+        help="panel clock: open or HH:MM (e.g. 10:00); needs L1/minutes",
+    )
     p.add_argument(
         "--arms",
         type=str,
@@ -140,18 +152,23 @@ def _filter_last_calendar_days(
     )
 
 
-def _z_open_names(col_names: Sequence[str]) -> List[str]:
+def _z_fit_names(
+    col_names: Sequence[str],
+    *,
+    include_minute_z: bool = False,
+) -> List[str]:
     from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
 
     have = set(col_names)
-    return [
-        k
-        for k in TAU_Z_FEATURES
-        if k not in TAU_FIT_DROP_ALIASES
-        and k not in Z_TC_MINUTE_KEYS
-        and k not in MINUTE_TAU_ALL_KEYS
-        and k in have
-    ]
+    out: List[str] = []
+    for k in TAU_Z_FEATURES:
+        if k in TAU_FIT_DROP_ALIASES or k not in have:
+            continue
+        is_min = k in Z_TC_MINUTE_KEYS or k in MINUTE_TAU_ALL_KEYS
+        if is_min and not include_minute_z:
+            continue
+        out.append(k)
+    return out
 
 
 def _finite_names(
@@ -414,16 +431,18 @@ def main() -> int:
     train_days = max(20, int(args.train_days))
     holdout_days = max(5, int(args.holdout_days))
     window_days = train_days + holdout_days
-    lookback = max(window_days + 40, int(args.min_history) + window_days)
+    auto_lb = max(window_days + 40, int(args.min_history) + window_days)
+    lookback = max(int(args.lookback or 0), auto_lb)
 
     want: Optional[set] = None
     if str(args.arms or "").strip():
         want = {a.strip() for a in str(args.arms).split(",") if a.strip()}
 
+    tau_hm = str(args.tau_hm or "open").strip() or "open"
     t0 = time.time()
     print(
         f"load watching ≤{args.max_names}, lookback={lookback}, "
-        f"window={train_days}+{holdout_days} (no persist)"
+        f"window={train_days}+{holdout_days}, tau={tau_hm} (no persist)"
     )
     stock_bars = load_stock_bars(args.max_names, lookback)
     print(f"loaded {len(stock_bars)} stocks ({time.time() - t0:.1f}s)")
@@ -433,22 +452,30 @@ def main() -> int:
 
     from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
 
+    # open：只种开盘 Z（分钟键恒中性）；非 open：种全量 TAU_Z（含分钟小包）
+    use_minute_z = tau_hm.lower() not in ("", "open", "09:30", "0930")
     z_names = [
         k
         for k in TAU_Z_FEATURES
         if k not in TAU_FIT_DROP_ALIASES
-        and k not in Z_TC_MINUTE_KEYS
-        and k not in MINUTE_TAU_ALL_KEYS
+        and (
+            use_minute_z
+            or (
+                k not in Z_TC_MINUTE_KEYS
+                and k not in MINUTE_TAU_ALL_KEYS
+            )
+        )
     ]
     cal_all = calendar_dates_from_stock_bars(stock_bars)
 
     t1 = time.time()
-    print("\nbuilding panel once (include raw_atc_*) …")
+    print(f"\nbuilding panel once (include raw_atc_*, tau={tau_hm}) …")
     X, names, ys, dates, metas, n_stocks = collect_tau_compact(
         stock_bars,
         z_names,
         min_history=int(args.min_history),
         gap_trigger_pct=float(args.gap_trigger),
+        tau_hm=tau_hm,
         include_alpha_tc=True,
         head="y_tc_ablate",
     )
@@ -474,7 +501,7 @@ def main() -> int:
         holdout_trading_days=holdout_days,
         calendar_dates=cal,
     )
-    z_base = _z_open_names(names)
+    z_base = _z_fit_names(names, include_minute_z=use_minute_z)
     atc_base = _finite_names(
         X, names, train_idx, pred=is_alpha_tc_raw_key
     )

@@ -31,11 +31,14 @@ _INSIGHT_HARD_CAP = WATCHING_MAX_SIZE + 20
 _INSIGHT_MEMO_LOCK = threading.Lock()
 _INSIGHT_MEMO: Dict[str, Tuple[float, str, Dict[str, Any]]] = {}
 _INSIGHT_MEMO_TTL = 900.0
+# 整池 L1 出分：页面按 20/40 只分批拉 insights，不能每批重算 800 只
+_LAKE_SCORE_MEMO: Dict[str, Tuple[float, Dict[str, dict]]] = {}
 
 
 def reset_insight_memo() -> None:
     with _INSIGHT_MEMO_LOCK:
         _INSIGHT_MEMO.clear()
+        _LAKE_SCORE_MEMO.clear()
 
 
 def _insight_cache_stamp() -> str:
@@ -87,6 +90,40 @@ def _insight_cache_stamp() -> str:
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp fusion failed", exc_info=True)
     return f"{win}|{asof}|{sess}|{ver}|{bars_gen}|rk{fusion}|causal_rebal"
+
+
+def _watching_pool_token() -> str:
+    """观察池文件变更后丢掉整池 ŷ 缓存。"""
+    try:
+        from core.paths import WATCHING_PATH
+
+        if WATCHING_PATH and os.path.isfile(WATCHING_PATH):
+            return str(int(os.path.getmtime(WATCHING_PATH)))
+    except Exception:  # noqa: BLE001
+        logger.debug("watching pool token failed", exc_info=True)
+    return ""
+
+
+def _cached_lake_scores(paper_ctx: Any) -> Dict[str, dict]:
+    """整池只读 L1 出分，同一会话戳内复用。"""
+    from core.paper.rebalance.watching_matrix import score_session_from_lake
+
+    key = f"{_insight_cache_stamp()}|{_watching_pool_token()}"
+    now = time.monotonic()
+    with _INSIGHT_MEMO_LOCK:
+        hit = _LAKE_SCORE_MEMO.get(key)
+        if hit and now < hit[0]:
+            return hit[1]
+    scored_rows, _rejected = score_session_from_lake([], paper=paper_ctx)
+    lake_by = {
+        str(it.get("stock_code") or "").strip(): it
+        for it in scored_rows
+        if str(it.get("stock_code") or "").strip()
+    }
+    with _INSIGHT_MEMO_LOCK:
+        _LAKE_SCORE_MEMO.clear()
+        _LAKE_SCORE_MEMO[key] = (now + _INSIGHT_MEMO_TTL, lake_by)
+    return lake_by
 
 
 def _memo_get(code: str, stamp: str) -> Optional[Dict[str, Any]]:
@@ -924,21 +961,14 @@ def build_watching_insights(
     from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
 
     if consumer_read_only():
-        from core.paper.rebalance.watching_matrix import score_session_from_lake
-
         try:
-            scored_rows, _rejected = score_session_from_lake(cleaned, paper=paper_ctx)
+            lake_by = _cached_lake_scores(paper_ctx)
         except MaterializeRequired as exc:
             body = exc.to_dict()
             body["count"] = 0
             body["items"] = []
             body["offline_only"] = use_offline
             return body
-        lake_by = {
-            str(it.get("stock_code") or "").strip(): it
-            for it in scored_rows
-            if str(it.get("stock_code") or "").strip()
-        }
 
     stamp = _insight_cache_stamp()
     missing: List[str] = []

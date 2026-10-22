@@ -295,6 +295,34 @@ def backtest_paper_replay(
     )
     if session_day and session_day not in dates:
         dates = sorted(dates + [session_day])
+    # 消费只读：评分日历截到完整日线 as-of，避免盘中半池今日 K / overlay
+    # 把未完成会话日送进 L1/L2 硬闸（与 live 出分回退同口径）。
+    if scores_by_date is None:
+        try:
+            from core.market.calendar import expected_latest_daily_bar_date
+            from core.research.materialize.consumer import consumer_read_only
+            from core.research.materialize.coverage import clip_replay_score_dates
+
+            if consumer_read_only():
+                as_of = str(
+                    expected_latest_daily_bar_date(now=session_now) or ""
+                )[:10]
+                clipped = clip_replay_score_dates(
+                    dates, as_of=as_of, now=session_now
+                )
+                if len(clipped) < len(dates):
+                    logger.info(
+                        "replay calendar clip after as_of=%s (%s -> %s days)",
+                        as_of or "—",
+                        len(dates),
+                        len(clipped),
+                    )
+                    dates = clipped
+                    if session_day and as_of and session_day > as_of:
+                        session_day = None
+                        n_overlay = 0
+        except Exception:  # noqa: BLE001
+            logger.debug("replay calendar as_of clip failed", exc_info=True)
     n = len(dates)
     if lookback is not None:
         score_from = max(1, int(trade_start))
@@ -310,6 +338,7 @@ def backtest_paper_replay(
             dates,
             score_from=score_from,
             fill_clock=clock,
+            now=session_now,
         )
         if gap is not None:
             return gap
