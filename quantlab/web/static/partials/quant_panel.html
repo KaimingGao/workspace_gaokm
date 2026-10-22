@@ -337,36 +337,41 @@
             ></div>
           </div>
         </div>
-        <section class="quant-bars-diff" id="quant-bars-diff" aria-label="日线写入差异">
-          <div class="quant-bars-viz-head">
-            <span class="quant-bars-viz-title">上次写入差异</span>
+        <details class="quant-bars-diff" id="quant-bars-diff" aria-label="日线写入差异">
+          <summary class="quant-bars-diff-sum">
+            <span class="quant-bars-diff-sum-main">
+              <span class="quant-bars-viz-title">上次写入差异</span>
+              <span class="quant-bars-diff-chips" id="quant-bars-diff-chips" aria-hidden="true"></span>
+            </span>
             <span class="quant-bars-viz-meta" id="quant-bars-diff-meta">还没有对比</span>
+          </summary>
+          <div class="quant-bars-diff-panel">
+            <div class="quant-bars-kpi-row" id="quant-bars-diff-kpis" aria-label="日线差异指标">
+              <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="price" title="重叠日收盘绝对差超过 0.01，或相对差超过 0.01%">
+                <span class="quant-pro-kpi-label">价变</span>
+                <span class="quant-pro-kpi-value" id="quant-bars-diff-price">—</span>
+                <span class="quant-pro-kpi-sub">收盘移动</span>
+              </div>
+              <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="volume" title="重叠日成交量中位倍数离开 0.67–1.5，常见于手和股">
+                <span class="quant-pro-kpi-label">量纲</span>
+                <span class="quant-pro-kpi-value" id="quant-bars-diff-volume">—</span>
+                <span class="quant-pro-kpi-sub">成交量倍数</span>
+              </div>
+              <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="tail" title="重叠日收盘和成交量没动，只多了末尾日期">
+                <span class="quant-pro-kpi-label">只补尾</span>
+                <span class="quant-pro-kpi-value" id="quant-bars-diff-tail">—</span>
+                <span class="quant-pro-kpi-sub">历史段未动</span>
+              </div>
+              <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="same" title="重叠日收盘和成交量都在阈值内">
+                <span class="quant-pro-kpi-label">未改</span>
+                <span class="quant-pro-kpi-value" id="quant-bars-diff-same">—</span>
+                <span class="quant-pro-kpi-sub">价和量都在阈值内</span>
+              </div>
+            </div>
+            <div class="quant-bars-diff-table" id="quant-bars-diff-rows" role="table" aria-label="差异最大的票"></div>
+            <p class="quant-bars-diff-note" id="quant-bars-diff-note">点增量补齐或强更后，这里对比写入前后的收盘和成交量。</p>
           </div>
-          <div class="quant-bars-kpi-row" id="quant-bars-diff-kpis" aria-label="日线差异指标">
-            <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="price" title="重叠日收盘绝对差超过 0.01，或相对差超过 0.01%">
-              <span class="quant-pro-kpi-label">价变</span>
-              <span class="quant-pro-kpi-value" id="quant-bars-diff-price">—</span>
-              <span class="quant-pro-kpi-sub">收盘移动</span>
-            </div>
-            <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="volume" title="重叠日成交量中位倍数离开 0.67–1.5，常见于手和股">
-              <span class="quant-pro-kpi-label">量纲</span>
-              <span class="quant-pro-kpi-value" id="quant-bars-diff-volume">—</span>
-              <span class="quant-pro-kpi-sub">成交量倍数</span>
-            </div>
-            <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="tail" title="重叠日收盘和成交量没动，只多了末尾日期">
-              <span class="quant-pro-kpi-label">只补尾</span>
-              <span class="quant-pro-kpi-value" id="quant-bars-diff-tail">—</span>
-              <span class="quant-pro-kpi-sub">历史段未动</span>
-            </div>
-            <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="same" title="重叠日收盘和成交量都在阈值内">
-              <span class="quant-pro-kpi-label">未改</span>
-              <span class="quant-pro-kpi-value" id="quant-bars-diff-same">—</span>
-              <span class="quant-pro-kpi-sub">价和量都在阈值内</span>
-            </div>
-          </div>
-          <div class="quant-bars-diff-table" id="quant-bars-diff-rows"></div>
-          <p class="quant-bars-diff-note" id="quant-bars-diff-note">点增量补齐或强更后，这里对比写入前后的收盘和成交量。</p>
-        </section>
+        </details>
         <footer class="quant-bars-foot" id="quant-bars-foot" aria-label="日线仓元数据"></footer>
         <details class="quant-integrity" id="quant-daily-integrity">
           <summary class="quant-integrity-sum">
@@ -409,7 +414,7 @@
           <button type="button" id="quant-minute-topup" class="dialog-btn primary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐（L0）
           </button>
-          <button type="button" id="quant-minute-refresh" class="dialog-btn primary" title="写入 5m 仓（整窗重拉 · 只走新浪 · 单票子进程≤45s）。新浪约 41 个交易日，不复权。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
+          <button type="button" id="quant-minute-refresh" class="dialog-btn primary" title="写入 5m 仓（强更 · 只走新浪 · 单票子进程≤45s）。新浪约 41 个交易日，不复权；同时刻覆盖。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
             强更 5m（L0）
           </button>
           <button type="button" id="quant-minute-materialize-run" class="dialog-btn warn" title="按训练网格写 tc_HHMM L1（须 5m Ready）并物化按钟 L2。不训模型、不出 ŷ。" disabled>

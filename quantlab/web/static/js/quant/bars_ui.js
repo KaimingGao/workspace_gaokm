@@ -37,6 +37,7 @@ export function installBarsUi(q) {
   const progressEl = document.getElementById("quant-bars-progress");
   const footEl = document.getElementById("quant-bars-foot");
   const diffMeta = document.getElementById("quant-bars-diff-meta");
+  const diffChips = document.getElementById("quant-bars-diff-chips");
   const diffPrice = document.getElementById("quant-bars-diff-price");
   const diffVolume = document.getElementById("quant-bars-diff-volume");
   const diffTail = document.getElementById("quant-bars-diff-tail");
@@ -630,7 +631,6 @@ export function installBarsUi(q) {
       return;
     }
     const backend = backendLabel(data.bars_backend);
-    const fields = (data.bar_fields || ["open", "high", "low", "close", "volume"]).join("/");
     const marker = data.forced_marker || {};
     const remote =
       marker.remote_count != null && marker.total != null
@@ -643,8 +643,6 @@ export function installBarsUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Rule</span><span class="quant-bars-foot-v">交易日 15:05 前 as-of → 上一交易日</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Force</span><span class="quant-bars-foot-v">${esc(remote)}${marker.saved_at ? ` · ${esc(fmtUtcShort(marker.saved_at))} UTC` : ""}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐（L0） / 强更日 K（L0） · ≠ 刷新名单 · ≠ 5m</span></div>
-      <div class="quant-bars-foot-item quant-bars-foot-item--nowrap"><span class="quant-bars-foot-k">Fields</span><span class="quant-bars-foot-v">${esc(fields)} · 下游 ŷ_oo / OLS</span></div>
     </div>`;
   }
 
@@ -687,8 +685,23 @@ export function installBarsUi(q) {
   function fmtVolRatio(ratio) {
     const n = Number(ratio);
     if (!Number.isFinite(n) || n <= 0) return "—";
-    if (n >= 10) return String(Math.round(n));
-    return n.toFixed(2);
+    if (n >= 10) return `×${Math.round(n)}`;
+    if (n <= 0.1) return `×${n.toFixed(2)}`;
+    return `×${n.toFixed(2)}`;
+  }
+
+  function closeRelBarPct(rel, scale) {
+    const n = Number(rel);
+    if (!Number.isFinite(n) || n <= 0 || !(scale > 0)) return 0;
+    return Math.max(3, Math.min(100, (100 * n) / scale));
+  }
+
+  function volRatioBarPct(ratio) {
+    const n = Number(ratio);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    // 相对 1 的偏离：1→约 8%，10×→~55%，100×→满格
+    const dist = Math.abs(Math.log10(n));
+    return Math.max(n > 0.67 && n < 1.5 ? 8 : 14, Math.min(100, 8 + dist * 46));
   }
 
   function setDiffKpi(key, state) {
@@ -699,10 +712,31 @@ export function installBarsUi(q) {
     card.classList.add(state || "is-empty");
   }
 
+  function renderDiffChips({ priceN, volumeN, tailN, sameN, hasDiff }) {
+    if (!diffChips) return;
+    if (!hasDiff) {
+      diffChips.innerHTML = "";
+      return;
+    }
+    const bits = [
+      { key: "价变", n: priceN, alert: priceN > 0 },
+      { key: "量纲", n: volumeN, alert: volumeN > 0 },
+      { key: "只补尾", n: tailN, alert: false },
+      { key: "未改", n: sameN, alert: false, ok: sameN > 0 && priceN === 0 && volumeN === 0 },
+    ];
+    diffChips.innerHTML = bits
+      .map((bit) => {
+        const cls = bit.alert ? " is-alert" : bit.ok ? " is-ok" : "";
+        return `<span class="quant-bars-diff-chip${cls}">${esc(bit.key)} <strong>${bit.n}</strong></span>`;
+      })
+      .join("");
+  }
+
   function renderBarsDiff(diff) {
     const emptyNote = "点增量补齐或强更后，这里对比写入前后的收盘和成交量。";
     if (!diff || !diff.headline) {
       if (diffMeta) diffMeta.textContent = "还没有对比";
+      renderDiffChips({ priceN: 0, volumeN: 0, tailN: 0, sameN: 0, hasDiff: false });
       if (diffPrice) diffPrice.textContent = "—";
       if (diffVolume) diffVolume.textContent = "—";
       if (diffTail) diffTail.textContent = "—";
@@ -719,10 +753,16 @@ export function installBarsUi(q) {
     const volumeN = Number(diff.volume_count) || 0;
     const tailN = Number(diff.tail_count) || 0;
     const sameN = Number(diff.unchanged_count) || 0;
+    const modeLabel = String(diff.mode) === "full" ? "强更" : "增量";
     const when = diff.saved_at ? String(diff.saved_at).replace("T", " ").slice(0, 16) : "";
+    const compared = Number(diff.compared) || 0;
     if (diffMeta) {
-      diffMeta.textContent = when ? `${diff.headline} · ${when}` : diff.headline;
+      const parts = [modeLabel];
+      if (compared > 0) parts.push(`比较 ${compared} 只`);
+      if (when) parts.push(when);
+      diffMeta.textContent = parts.join(" · ");
     }
+    renderDiffChips({ priceN, volumeN, tailN, sameN, hasDiff: true });
     if (diffPrice) diffPrice.textContent = String(priceN);
     if (diffVolume) diffVolume.textContent = String(volumeN);
     if (diffTail) diffTail.textContent = String(tailN);
@@ -735,28 +775,49 @@ export function installBarsUi(q) {
     if (!diffRows) return;
     const rows = Array.isArray(diff.rows) ? diff.rows : [];
     if (!rows.length) {
-      diffRows.innerHTML = "";
+      diffRows.innerHTML =
+        `<div class="quant-bars-viz-empty">无逐票差异（重叠日价和量都在阈值内）</div>`;
       return;
     }
+    const scale = Math.max(
+      Number(diff.worst_close_rel) || 0,
+      ...rows.map((row) => Number(row.max_close_rel) || 0),
+      0.01
+    );
     const head =
-      `<div class="quant-bars-diff-row is-head">` +
+      `<div class="quant-bars-diff-row is-head" role="row">` +
       `<span>代码</span><span>重叠日</span><span>收盘最大相对差</span><span>成交量比</span><span>标记</span>` +
       `</div>`;
     const body = rows
       .map((row) => {
-        const tags = (Array.isArray(row.tags) ? row.tags : [])
+        const tagsList = Array.isArray(row.tags) ? row.tags : [];
+        const alert = tagsList.includes("price") || tagsList.includes("volume") || tagsList.includes("gone");
+        const rel = Number(row.max_close_rel) || 0;
+        const ratio = Number(row.vol_ratio);
+        const volOff = Number.isFinite(ratio) && ratio > 0 && (ratio >= 1.5 || ratio <= 1 / 1.5);
+        const tags = tagsList
           .map((tag) => {
             const label = DIFF_TAGS[tag] || tag;
             const tone = tag === "price" || tag === "volume" || tag === "gone" ? "is-bad" : "is-warn";
             return `<span class="quant-bars-badge ${tone}">${esc(label)}</span>`;
           })
-          .join(" ");
+          .join("");
+        const relW = closeRelBarPct(rel, scale).toFixed(1);
+        const volW = volRatioBarPct(ratio).toFixed(1);
+        const volCls = volOff ? "is-vol" : "is-ok";
+        const volValCls = volOff ? "" : " is-muted";
         return (
-          `<div class="quant-bars-diff-row">` +
-          `<span>${esc(row.code || "—")}</span>` +
+          `<div class="quant-bars-diff-row${alert ? " is-alert" : ""}" role="row">` +
+          `<span class="quant-bars-diff-code">${esc(row.code || "—")}</span>` +
           `<span>${esc(row.overlap_days ?? "—")}</span>` +
-          `<span>${esc(fmtCloseRel(row.max_close_rel))}</span>` +
-          `<span>${esc(fmtVolRatio(row.vol_ratio))}</span>` +
+          `<span class="quant-bars-diff-metric" title="相对本表最大差缩放">` +
+          `<span class="quant-bars-diff-meter is-price"><i style="width:${relW}%"></i></span>` +
+          `<span class="quant-bars-diff-val">${esc(fmtCloseRel(rel))}</span>` +
+          `</span>` +
+          `<span class="quant-bars-diff-metric" title="相对 1 的对数偏离">` +
+          `<span class="quant-bars-diff-meter ${volCls}"><i style="width:${volW}%"></i></span>` +
+          `<span class="quant-bars-diff-val${volValCls}">${esc(fmtVolRatio(ratio))}</span>` +
+          `</span>` +
           `<span class="quant-bars-diff-tags">${tags}</span>` +
           `</div>`
         );

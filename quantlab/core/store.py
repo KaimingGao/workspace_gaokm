@@ -144,9 +144,9 @@ def merge_bars_by_date(
 ) -> List[dict]:
     """按 date 合并日线；升序。
 
-    ``prefer="incoming"``：同日以后到为准（强更整窗合并时用）。
-    ``prefer="existing"``：同日保留本地（增量只补新日期，不改已有日）。
-    缺开高低收或成交量的新根丢掉，不覆盖已有同日，也不新插入。
+    ``prefer="incoming"``：同日以后到为准（``save_daily_cache`` 默认）。
+    ``prefer="existing"``：同日保留本地（``merge_save`` 非 replace / 日线增量）。
+    缺开高低收或成交量的新根丢掉，不新插入。
     """
     keep_local = str(prefer or "incoming").strip().lower() == "existing"
     by_date: Dict[str, dict] = {}
@@ -689,7 +689,8 @@ def save_daily_cache(
             except (OSError, json.JSONDecodeError) as e:
                 _note_io_error(f"merge_load_daily:{path}", e)
                 existing = []
-        merged = merge_bars_by_date(existing, incoming)
+        # 同日覆盖、没带到的日期留着（与 merge_save 增量只补缺日不同）
+        merged = merge_bars_by_date(existing, incoming, prefer="incoming")
         return _write_daily_payload(
             path,
             market=market,
@@ -714,7 +715,8 @@ def merge_save_daily_cache(
 ) -> Tuple[str, List[dict]]:
     """持锁读盘 → 按 date 合并 → 裁剪 → 写回（DS-R0 防丢更新）。
 
-    ``replace=True``：整段换成 incoming，不保留更早的旧价。
+    ``replace=True``：整段换成 incoming，覆盖该复权键存量。
+    ``replace=False``：只补本地没有的日期，已有日不动。
     """
     base = store_dir or get_store_dir()
     if bars_backend() == "sqlite":
@@ -757,7 +759,9 @@ def merge_save_daily_cache(
             except (OSError, json.JSONDecodeError) as e:
                 _note_io_error(f"merge_load_daily:{path}", e)
                 existing = []
-        merged = merge_bars_by_date(existing, list(incoming or []))
+        merged = merge_bars_by_date(
+            existing, list(incoming or []), prefer="existing"
+        )
         _write_daily_payload(
             path,
             market=market,

@@ -5739,9 +5739,111 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
 }
 
 .quant-bars-diff {
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: var(--surface);
+}
+
+.quant-bars-diff-sum {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: 8px 10px;
+}
+
+.quant-bars-diff-sum::-webkit-details-marker,
+.quant-bars-diff-sum::marker {
+  display: none;
+}
+
+.quant-bars-diff-sum::before {
+  content: "▸";
+  flex: 0 0 auto;
+  color: var(--ink-3);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  margin-right: -4px;
+}
+
+.quant-bars-diff[open] > .quant-bars-diff-sum::before {
+  content: "▾";
+}
+
+.quant-bars-diff-sum-main {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.quant-bars-diff-sum .quant-bars-viz-title {
+  margin: 0;
+}
+
+.quant-bars-diff-sum .quant-bars-viz-meta {
+  margin: 0;
+  text-align: right;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.quant-bars-diff-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.quant-bars-diff-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--q-fs-micro, 0.68rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  background: color-mix(in srgb, var(--line) 18%, var(--surface));
+}
+
+.quant-bars-diff-chip strong {
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.quant-bars-diff-chip.is-alert {
+  color: var(--danger, #ef4444);
+  border-color: color-mix(in srgb, var(--danger, #ef4444) 35%, var(--line));
+  background: color-mix(in srgb, var(--danger, #ef4444) 8%, var(--surface));
+}
+
+.quant-bars-diff-chip.is-alert strong {
+  color: var(--danger, #ef4444);
+}
+
+.quant-bars-diff-chip.is-ok {
+  color: var(--ink-2);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.quant-bars-diff-panel {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 0 10px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  padding-top: 10px;
 }
 
 .quant-bars-diff-note {
@@ -5760,29 +5862,91 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   font-family: var(--font-mono);
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 94%, var(--line));
 }
 
 .quant-bars-diff-row {
   display: grid;
-  grid-template-columns: 5.4rem 4.2rem minmax(6.5rem, 1fr) 5.2rem minmax(7rem, 1.2fr);
-  gap: 8px;
+  grid-template-columns: 4.6rem 3.6rem minmax(9.5rem, 1.4fr) minmax(6.5rem, 0.9fr) minmax(6.5rem, 1fr);
+  gap: 8px 10px;
   align-items: center;
-  padding: 5px 10px;
+  padding: 6px 10px;
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   color: var(--ink-2);
-  min-width: 28rem;
+  min-width: 32rem;
 }
 
 .quant-bars-diff-row.is-head {
   border-top: none;
   color: var(--ink-3);
   letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.66rem;
+  background: color-mix(in srgb, var(--line) 22%, var(--surface));
+}
+
+.quant-bars-diff-row.is-alert {
+  background: color-mix(in srgb, var(--danger, #ef4444) 4%, transparent);
+}
+
+.quant-bars-diff-code {
+  font-weight: 650;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.quant-bars-diff-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.quant-bars-diff-meter {
+  height: 8px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+  overflow: hidden;
+  min-width: 2.5rem;
+}
+
+.quant-bars-diff-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 55%, var(--ink-3));
+  max-width: 100%;
+}
+
+.quant-bars-diff-meter.is-price > i {
+  background: color-mix(in srgb, var(--danger, #ef4444) 72%, var(--surface));
+}
+
+.quant-bars-diff-meter.is-vol > i {
+  background: color-mix(in srgb, var(--warn, #b45309) 75%, var(--surface));
+}
+
+.quant-bars-diff-meter.is-ok > i {
+  background: color-mix(in srgb, var(--accent) 45%, var(--ink-3));
+}
+
+.quant-bars-diff-val {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--ink);
+  min-width: 3.4rem;
+}
+
+.quant-bars-diff-val.is-muted {
+  color: var(--ink-3);
 }
 
 .quant-bars-diff-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  justify-content: flex-end;
 }
 
 .quant-bars-viz-grid {

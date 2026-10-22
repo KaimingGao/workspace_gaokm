@@ -129,7 +129,7 @@ def _incremental_remote_plan(
     need = max(1, int(limit or 30))
     # 缺口补上后仍凑不够 limit → 需要更早历史，走整窗
     thin = len(existing) < max(5, need - max(gap_days, 3))
-    # 长缺口 + 前复权：整窗重拉，避免分红后历史价与本地旧段错位
+    # 长缺口 + 前复权：整窗替换，避免分红后历史价与本地旧段错位
     from core.data.policy import QFQ_LONG_GAP_DAYS
 
     long_qfq_gap = (

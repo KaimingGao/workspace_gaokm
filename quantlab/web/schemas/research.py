@@ -444,7 +444,7 @@ class BarsRefreshRequest(BaseModel):
     watching_limit: int = Field(default=MODEL_FIT_MAX_SIZE, ge=3, le=MODEL_FIT_MAX_SIZE)
     mode: str = Field(
         default="topup",
-        description="topup=增量补齐到最新（短仓整窗重拉）；full=整窗强更（仓坏/复权兜底）",
+        description="topup=只补缺日（短仓/前复权重锚才整窗替换）；full=整窗覆盖存量（仓坏/复权兜底）",
     )
     sync: bool = Field(
         default=False,

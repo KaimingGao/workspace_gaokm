@@ -493,7 +493,6 @@ export function installMinuteUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Scope</span><span class="quant-bars-foot-v">watching · Limit ${esc(data.watching_limit ?? "—")}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready 近 ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日无缺</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐（L0） / 强更 5m（L0） · Ready→物化 L1/L2</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Labels</span><span class="quant-bars-foot-v">τ=分钟开→收% · 每票≤${esc(data.label_portrait?.max_days_per_code ?? 120)}d</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_τc / ŷ_τ* · 调仓 · 做T · tip</span></div>
     </div>`;
