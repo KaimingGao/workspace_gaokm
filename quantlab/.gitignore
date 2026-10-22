@@ -52,6 +52,7 @@ data/jobs/
 data/run_web.pid
 data/run_web.log
 data/run_manifests/
+data/run/
 data/strategy_promoted.json
 data/evals_last_run.json
 data/evals_job.json

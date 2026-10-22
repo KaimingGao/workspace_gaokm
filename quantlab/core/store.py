@@ -139,11 +139,16 @@ def daily_bar_complete(bar: dict) -> bool:
 def merge_bars_by_date(
     existing: List[dict],
     incoming: List[dict],
+    *,
+    prefer: str = "incoming",
 ) -> List[dict]:
-    """按 date 合并日线；同日以后到为准；升序。
+    """按 date 合并日线；升序。
 
+    ``prefer="incoming"``：同日以后到为准（强更整窗合并时用）。
+    ``prefer="existing"``：同日保留本地（增量只补新日期，不改已有日）。
     缺开高低收或成交量的新根丢掉，不覆盖已有同日，也不新插入。
     """
+    keep_local = str(prefer or "incoming").strip().lower() == "existing"
     by_date: Dict[str, dict] = {}
     for b in existing or []:
         if not isinstance(b, dict):
@@ -156,6 +161,8 @@ def merge_bars_by_date(
             continue
         d = str(b.get("date") or "").strip()
         if not d or not daily_bar_complete(b):
+            continue
+        if keep_local and d in by_date:
             continue
         by_date[d] = b
     return [by_date[k] for k in sorted(by_date.keys())]

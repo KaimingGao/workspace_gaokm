@@ -269,17 +269,17 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                写入口：日常<strong>增量补齐（L0）</strong>（窗 1000 个交易日：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉）·
-                全窗<strong>强更日 K（L0）</strong>（进程池整窗重拉；仓损坏 / 复权混用时用）· 调度 <code>bars_warmup</code>。
+                写入口：日常<strong>增量补齐（L0）</strong>（窗 1000 个交易日：末 bar 未齐只补新日期，已有日不动；本地太短或前复权重锚则整窗）·
+                全窗<strong>强更日 K（L0）</strong>（进程池整窗替换；仓损坏 / 复权混用时用）· 调度 <code>bars_warmup</code>。
                 日线齐后可<strong>物化 L1/L2</strong>（open）。写入后本区对比上一份仓的收盘和成交量。τ 轨见「分钟线」。
                 不是数据中心「刷新 watching」（那只改名单）。不写 5m、不算 ŷ。下游 ŷ_oo / OLS。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-bars-topup" class="dialog-btn primary" title="写入日 K 仓（增量 · 窗 1000 个交易日）：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-topup" class="dialog-btn primary" title="写入日 K 仓（增量 · 窗 1000 个交易日）：只补本地没有的日期，已有日不动；本地太短或前复权重锚则整窗。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
             增量补齐（L0）
           </button>
-          <button type="button" id="quant-bars-refresh" class="dialog-btn primary" title="写入日 K 仓（整窗重拉 · 窗 1000 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-bars-refresh" class="dialog-btn primary" title="写入日 K 仓（整窗替换 · 窗 1000 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
             强更日 K（L0）
           </button>
           <button type="button" id="quant-materialize-run" class="dialog-btn warn" title="日线后物化 open L1（oo/tc/co）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">

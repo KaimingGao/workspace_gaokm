@@ -95,7 +95,7 @@ flowchart LR
 
 做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **adapters 层**，单票读口经 `core.ports.market.fetch_minute_bars`；观察池 **强更 / 增量补齐** 直调 `fetch_a_minute_bars_isolated`（子进程超时 kill），**不**在业务里直连数据源。
 
-**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。写入窗 **`BARS_DAILY_LOOKBACK=1000`** 个交易日（再垫 alpha_oo）；仓裁剪 **`DAILY_BARS_MAX_KEEP=1200`**（须 ≥ 拉取条数）。打新浪前占名额：同时最多 2 只，两次开工至少隔 1 秒（`QUANTLAB_SINA_DAILY_MAX_INFLIGHT` / `QUANTLAB_SINA_DAILY_PACE_SEC`）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（差别在跳过条件；新浪窗口都固定，合并进本地、不截断）。均走 **子进程隔离**。本地仓表/路径与日 K 不同。
+**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` **只补新日期、已有日不动**；本地太短或前复权重锚则整窗）；兜底 **「强更日 K」**（同路径 · `incremental=False` **整窗替换**）。写入窗 **`BARS_DAILY_LOOKBACK=1000`** 个交易日（再垫 alpha_oo）；仓裁剪 **`DAILY_BARS_MAX_KEEP=1200`**（须 ≥ 拉取条数）。打新浪前占名额：同时最多 2 只，两次开工至少隔 1 秒（`QUANTLAB_SINA_DAILY_MAX_INFLIGHT` / `QUANTLAB_SINA_DAILY_PACE_SEC`）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（差别在跳过条件；新浪窗口都固定，同时刻覆盖）。均走 **子进程隔离**。本地仓表/路径与日 K 不同。
 
 ### 分层与入口
 

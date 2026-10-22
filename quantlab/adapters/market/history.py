@@ -680,7 +680,9 @@ def fetch_daily_bars(
                 return _stale_existing()
 
         if not replace and incremental and existing:
-            bars = merge_bars_by_date(existing, bars or [])
+            # 增量：只补本地没有的日期；已有日不动。强更走上面的 replace。
+            # 前复权重叠日对不上时已升格为整窗替换，不走这条。
+            bars = merge_bars_by_date(existing, bars or [], prefer="existing")
             if bars and src == "empty":
                 src = "cache:merged"
         if not replace and not bars and existing:

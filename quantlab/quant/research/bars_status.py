@@ -256,8 +256,8 @@ def refresh_bars_only(
 ) -> Dict[str, Any]:
     """仅更新观察池日线，不跑 OLS 分组。
 
-    ``mode=topup``：末 bar 未齐 as-of 的走缺口合并；本地条数短于拉取窗的整窗重拉。
-    ``mode=full``：全池整窗重拉（仓坏/复权问题兜底）。
+    ``mode=topup``：末 bar 未齐 as-of 的只补新日期（已有日不动）；本地太短或前复权重锚则整窗替换。
+    ``mode=full``：全池整窗替换（仓坏/复权问题兜底）。
     走进程池并行拉取，避免主进程 ak_lock 把 4 线程串成单通道后 360s 超时。
     """
     from quant.research.bars_daily import (

@@ -273,7 +273,7 @@ export function installBarsUi(q) {
         ? bits.join(" · ")
         : topup
           ? "只拉未齐 as-of · 进程池并行 · 单票 60s"
-          : "整窗重拉 · 进程池并行 · 单票 60s",
+          : "整窗替换 · 进程池并行 · 单票 60s",
     });
   }
 
@@ -339,7 +339,7 @@ export function installBarsUi(q) {
       tone: "primary",
       hint: topup
         ? "已齐 as-of 走本地 · 缺口进程池并行 · 单票 60s"
-        : "整窗重拉 · 进程池并行 · 单票 60s",
+        : "整窗替换 · 进程池并行 · 单票 60s",
       extraFacts: barsParsedFacts(parsed, pollStartedAt),
     });
   }

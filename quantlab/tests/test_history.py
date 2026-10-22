@@ -351,6 +351,7 @@ class TestQfqReplace(unittest.TestCase):
         from datetime import datetime, timedelta
 
         existing = self._seed()
+        old_vol = float(existing[-1]["volume"])
         overlap = dict(existing[-1])
         overlap["volume"] = 99999
         nxt = datetime.strptime(existing[-1]["date"], "%Y-%m-%d") + timedelta(days=1)
@@ -379,6 +380,8 @@ class TestQfqReplace(unittest.TestCase):
         self.assertEqual(got[0]["date"], existing[0]["date"])
         self.assertEqual(got[-1]["date"], newer["date"])
         self.assertEqual(len(got), len(existing) + 1)
+        # 增量不改已有日：重叠日成交量仍是本地旧值
+        self.assertEqual(float(got[-2]["volume"]), old_vol)
         self.assertTrue(out)
 
     def test_rebased_overlap_replaces_series(self):
@@ -430,8 +433,9 @@ class TestQfqReplace(unittest.TestCase):
 
     def test_raw_overlap_price_change_does_not_replace(self):
         existing = self._seed(adjust="raw")
+        old_close = float(existing[-1]["close"])
         bumped = dict(existing[-1])
-        bumped["close"] = float(bumped["close"]) + 5.0
+        bumped["close"] = old_close + 5.0
         calls = []
 
         def _fake(code, limit=30, adjust="qfq", start_date=None):
@@ -450,7 +454,9 @@ class TestQfqReplace(unittest.TestCase):
         self.assertIn("akshare", src)
         got = self._load()
         self.assertEqual(got[0]["date"], existing[0]["date"])
-        self.assertAlmostEqual(got[-1]["close"], bumped["close"])
+        # raw 不做前复权重锚升格；增量也不改已有日
+        self.assertAlmostEqual(got[-1]["close"], old_close)
+        self.assertEqual(len(got), len(existing))
 
     def test_raw_payload_does_not_enter_qfq_series(self):
         import sqlite3
