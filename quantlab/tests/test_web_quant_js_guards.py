@@ -2260,10 +2260,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("ŷ_τc_rank 组成", tip_js)
         self.assertIn("formula_terms_oo_rank", tip_js)
         self.assertIn("formula_terms_tc_rank", tip_js)
-        # LambdaRank tip 因子表 gain%（与研究枢纽同口径）
+        # LambdaRank tip 因子表 gain%（与枢纽同数；按本票 |贡献| 截 Top）
+        # 落盘已是百分数；勿再把 ≤1.5 当 0–1 份额（1.46% 会显示成 146%）
         self.assertIn("gain%", tip_js)
         self.assertIn("showGain", tip_js)
         self.assertIn("t.gain", tip_js)
+        self.assertNotIn("gainRaw <= 1.5", tip_js)
+        self.assertIn("其余因子", tip_js)
+        self.assertIn("未列出的贡献在「其余」。", tip_js)
+        self.assertIn("按本票 |贡献| Top24", tip_js)
+        ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
+        self.assertIn('isOoRankGain ? "gain%"', ic)
+        self.assertIn("与 tip / 成交拆解 gain% 同口径", ic)
         self.assertIn("function scoreModelSuiteLabel", tip_js)
         self.assertIn('return "研究套"', tip_js)
         self.assertIn("截距 α（研究套）", tip_js)

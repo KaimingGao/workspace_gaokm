@@ -2005,7 +2005,8 @@ a.dialog-btn[aria-disabled="true"] {
 
 .score-formula-table td.neg { color: #047857; font-weight: 600; }
 
-.score-formula-table tr.score-ft-alpha td {
+.score-formula-table tr.score-ft-alpha td,
+.score-formula-table tr.score-ft-rest td {
   color: #64748b;
 }
 

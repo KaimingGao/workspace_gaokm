@@ -1623,17 +1623,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       )
       .slice(0, factorCap);
   }
-  const shownContrib = terms.reduce((sum, t) => {
-    const c = Number(t && t.contrib);
-    return sum + (Number.isFinite(c) ? c : 0);
-  }, 0);
-  const interceptN = Number(expl && expl.intercept);
-  const totalN = Number(expl && expl.total);
-  const omittedContrib =
-    Number.isFinite(totalN) && Number.isFinite(interceptN)
-      ? totalN - interceptN - shownContrib
-      : 0;
-  const showRest = !treeTable && Math.abs(omittedContrib) > 5e-4;
   const totalLabel =
     key === "tau" || key === "r"
       ? "合计 ŷ_τc"
@@ -1651,6 +1640,25 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       (t) => t && t.gain != null && Number.isFinite(Number(t.gain))
     );
 
+  // 落盘 gain 已是百分数（1.46 = 1.46%）。再按 ≤1.5 当份额会把 1.x% 显示成 100%+。
+  const shown3 = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Number(n.toFixed(3)) : null;
+  };
+  const biasShown = shown3(expl.intercept);
+  const totalShown = shown3(expl.total);
+  let contribShown = 0;
+  for (const t of terms) {
+    if (t && t.gated) continue;
+    const c = shown3(t && t.contrib);
+    if (c != null) contribShown += c;
+  }
+  const restShown =
+    biasShown != null && totalShown != null
+      ? Number((totalShown - biasShown - contribShown).toFixed(3))
+      : 0;
+  const showRest = restShown !== 0;
+
   const rows = terms
     .map((t) => {
       const name = termFeatLabel(t, key);
@@ -1660,13 +1668,8 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       const beta = fmtSigned(t.beta, 3);
       const z = gated ? "—" : fmtSigned(t.z, 2);
       const contrib = gated ? "0" : fmtSigned(t.contrib, 3);
-      // tip 侧 stamp 多为 0–100；兼容份额≤1.5 的 0–1
       const gainRaw = t && t.gain != null ? Number(t.gain) : NaN;
-      const gainPct = Number.isFinite(gainRaw)
-        ? gainRaw <= 1.5
-          ? gainRaw * 100
-          : gainRaw
-        : NaN;
+      const gainPct = Number.isFinite(gainRaw) ? gainRaw : NaN;
       const gainCell =
         showGain
           ? Number.isFinite(gainPct)
@@ -1694,9 +1697,10 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const alpha = fmtSigned(expl.intercept, 3);
   const total = fmtSigned(expl.total, 3);
 
+  const restCaption = showRest ? "未列出的贡献在「其余」。" : "";
   const caption = treeTable
     ? showGain
-      ? "gain% = LambdaRank 分裂增益份额（与研究枢纽同口径）；偏置 + 各因子贡献 = 合计相对分。表内只列贡献最大的因子。"
+      ? "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计相对分。"
       : "偏置 + 各因子贡献 = 合计，与表列分数同口径。表内只列贡献最大的因子。"
     : key === "r"
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。研究/执行两槽同一份 Holdout 前训 β（版本前后）；回测默认研究套，live 用执行套。"
@@ -1778,9 +1782,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     ? `<tr class="score-ft-rest">` +
       `<td class="score-ft-name">其余因子</td>` +
       pad +
-      `<td class="num ${signCls(omittedContrib)}">${escapeText(
-        fmtSigned(omittedContrib, 3)
-      )}</td>` +
+      `<td class="num ${signCls(restShown)}">${escapeText(fmtSigned(restShown, 3))}</td>` +
       `</tr>`
     : "";
   const alignedRow = showAligned
@@ -1814,7 +1816,10 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     alignedRow +
     `</tbody></table>` +
     `<div class="score-formula-caption">${escapeText(
-      caption + (captionMiss ? ` ${captionMiss}` : "") + captionAligned
+      caption +
+        (restCaption ? ` ${restCaption}` : "") +
+        (captionMiss ? ` ${captionMiss}` : "") +
+        captionAligned
     )}</div>` +
     `</div>`
   );

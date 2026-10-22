@@ -1445,9 +1445,24 @@ export function createFactorIcUi(deps) {
             : "无 β"
         );
       }
-      const tip = isOoRankGain
-        ? `gain=${r.ols.toFixed(4)}：LambdaRank 分裂增益份额（非 Ridge β）`
-        : isHorizon
+      // LambdaRank：coefficients 为 0–1 份额；与 tip gain% / 成交拆解同口径显示百分数
+      if (isOoRankGain) {
+        const raw = Number(r.ols);
+        const pct =
+          Math.abs(raw) <= 1.5 ? Math.abs(raw) * 100 : Math.abs(raw);
+        const w = Math.max(2, Math.min(100, (pct / (maxAbs <= 1.5 ? maxAbs * 100 : maxAbs)) * 100));
+        return (
+          `<div class="quant-rem-share-cell" title="${esc(
+            `gain=${pct.toFixed(2)}%：LambdaRank 分裂增益份额（全特征归一化 Σ≈100%；与 tip gain% 同口径）`
+          )}">` +
+          `<div class="quant-rem-share-track" aria-hidden="true">` +
+          `<div class="quant-rem-share-fill is-gain" style="width:${w.toFixed(1)}%"></div>` +
+          `</div>` +
+          `<span class="quant-rem-share-num">${fmtGainPct(pct)}%</span>` +
+          `</div>`
+        );
+      }
+      const tip = isHorizon
         ? `β=${r.ols.toFixed(4)}：因子高 1σ → logit ${r.ols >= 0 ? "+" : ""}${r.ols.toFixed(3)}（p_up 随之升降）`
         : `β=${r.ols.toFixed(4)}：因子高 1σ → ${yhatTag} 约 ${r.ols >= 0 ? "+" : ""}${r.ols.toFixed(3)}pp`;
       return signedBarCell(r.ols, maxAbs, tip);
@@ -1616,12 +1631,12 @@ export function createFactorIcUi(deps) {
       ...(isDual ? gainCol : []),
       {
         id: "ols",
-        label: isOoRankGain ? "gain" : "β",
+        label: isOoRankGain ? "gain%" : "β",
         width: betaW,
         num: true,
         headClass: "is-case-keep",
         title: isOoRankGain
-          ? "LambdaRank 归一化分裂增益；条向右更长=贡献更大"
+          ? "LambdaRank 分裂增益份额（Σ≈100%）；与 tip / 成交拆解 gain% 同口径"
           : "标准化斜率：右正左负；数值叠在彩条靠右",
       },
       ...(isDual || isOoRank
