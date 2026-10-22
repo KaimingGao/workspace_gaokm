@@ -705,6 +705,19 @@ def _materialize_l1_body(
                 )
             else:
                 report["ok"] = False
+        # 一族做完就丢掉面板/立方缓存，避免 800×多 family 叠在同一进程把 web 拖死
+        try:
+            from core.research.day_cube import clear_memory
+
+            clear_memory()
+        except Exception:  # noqa: BLE001
+            logger.debug("clear day cube memory after %s failed", fam, exc_info=True)
+        try:
+            import gc
+
+            gc.collect()
+        except Exception:  # noqa: BLE001
+            pass
     report["elapsed_s"] = round(time.perf_counter() - t0, 2)
     from core.research.materialize.progress import STEP_SCALE
 

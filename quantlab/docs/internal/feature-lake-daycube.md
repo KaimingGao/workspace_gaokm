@@ -546,11 +546,11 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | `POST /api/quant/materialize` | 增 `do_l1_tau_grid: bool`；`clocks` 已支持；families 不变 |
 | catalog | `suggested_tau_clocks`；`flags`；说明「τ 网格 L1 须分钟 Ready」 |
 | Job 槽 `materialize-l1l2` | stale/stuck **5400s**；`allow_zero_progress`（宏步钉 current=0 不按零进展误杀）；`try_start` 原子开槽；L2 跳过整池 Feature Lake prefetch |
-| 日线卡 | 「物化 L1/L2」= open L1（oo/tc/co）+ open Cube |
-| 分钟线卡 | Ready 后「物化 L1/L2」= τ 网格 L1 + 按钟 Cube |
+| 日线卡 | 两块：L0 日 K 仓 + 物化卡「物化 L1/L2」= open L1（oo/tc/co）+ open Cube |
+| 分钟线卡 | 两块：L0 5m 仓 + 物化卡 Ready 后「物化 L1/L2」= τ 网格 L1 + 按钟 Cube |
 | τ 网格进度 | 文案 `L1 τ 网格 HH:MM（k/N）`：`N`=`suggested_tau_clocks` 钟数（默认 **18**=09:35…11:00 每 5m，不含 open/09:30）；Job `current/total` 仍钉宏步（如 0/2） |
-| 状态条 | 与增量/强更共用 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn） |
-| 刷新接管 | 页加载 **先** `resumeIfRunning`（设 matBusy/matSettled）**再** `refreshStatus`，未接管再 `syncJobSlot`；running 后台挂 wait；6h 内 failed 也画；coverage/`!ok` 不盖物化状态头；`clearJobPanels` 清 sticky |
+| 状态条 | L0 与物化各有 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn） |
+| 刷新接管 | 页加载 **先** `resumeIfRunning`（物化条）**再** `refreshStatus`（L0 覆盖），未接管再 `syncJobSlot`；running 后台挂 wait；6h 内 failed 也画；`clearJobPanels` 清 sticky |
 | waitJob | 见过本 id 后槽位被换 →「已被新任务替换」；前端等待 open **90min** / τ **150min**（勿再用 45min）；等满且槽仍 running → 提示刷新接管（勿标 FAIL） |
 | waitMinuteJob | 增量 **60min** / 强更 5m **120min** 为软上限（勿再用 30min）；心跳不足 90s 则继续轮询，硬上限 **8h**；心跳停了且已过软上限 → WAIT + 刷新接管（勿标 FAIL）；页加载 `syncJobSlot` 可挂接 |
 | open↔τ 同槽 | 对侧 running 时 POST 返回 `conflict`；UI **等待对侧结束再自动重试一次**（勿硬 FAIL） |

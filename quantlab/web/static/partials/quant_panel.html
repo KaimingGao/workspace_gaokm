@@ -250,29 +250,29 @@
     </div>
   </section>
 
-  <!-- 日线：观察池日 K 缓存（与 ŷ_oo 同级） -->
+  <!-- 日线：L0 日 K 仓 + 物化 open L1/L2（两块） -->
   <section class="dashboard-section quant-section" id="quant-section-bars" aria-labelledby="quant-section-bars-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        写入口：日常「增量补齐（L0）」· 全窗「强更日 K（L0）」· 调度 bars_warmup · ≠「刷新 watching」（只改名单）· 下游 ŷ_oo / OLS
+        两块：日 K 仓（增量补齐 / 强更日 K）· 物化 L1/L2（open）· 调度 bars_warmup · ≠「刷新 watching」· 下游 ŷ_oo / OLS
       </p>
     </header>
-    <div class="dashboard-card quant-pro-card quant-bars-card">
+    <div class="quant-bars-panels">
+    <div class="dashboard-card quant-pro-card quant-bars-card quant-bars-panel-l0" aria-label="日 K 仓">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-bars-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status is-busy" aria-live="polite">
           <span id="quant-bars-chip" class="quant-pro-status-chip" data-state="idle">—</span>
           <span id="quant-bars-msg" class="quant-desk-status-msg">加载覆盖…</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线操作">
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线 L0">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                写入口：日常<strong>增量补齐（L0）</strong>（窗 1000 个交易日：末 bar 未齐只补新日期，已有日不动；本地太短或前复权重锚则整窗）·
+                写日 K：日常<strong>增量补齐（L0）</strong>（窗 1000 个交易日：末 bar 未齐只补新日期，已有日不动；本地太短或前复权重锚则整窗）·
                 全窗<strong>强更日 K（L0）</strong>（进程池整窗替换；仓损坏 / 复权混用时用）· 调度 <code>bars_warmup</code>。
-                日线齐后可<strong>物化 L1/L2</strong>（open）。写入后本区对比上一份仓的收盘和成交量。τ 轨见「分钟线」。
-                不是数据中心「刷新 watching」（那只改名单）。不写 5m、不算 ŷ。下游 ŷ_oo / OLS。
+                写入后本区对比上一份仓的收盘和成交量。物化见下方板块。不是数据中心「刷新 watching」。不写 5m、不算 ŷ。
               </p>
             </div>
           </details>
@@ -282,13 +282,10 @@
           <button type="button" id="quant-bars-refresh" class="dialog-btn primary" title="写入日 K 仓（整窗替换 · 窗 1000 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
             强更日 K（L0）
           </button>
-          <button type="button" id="quant-materialize-run" class="dialog-btn warn" title="日线后物化 open L1（oo/tc/co）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">
-            物化 L1/L2
-          </button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-bars-body">
-        <div id="quant-bars-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="日 K / 物化进度"></div>
+        <div id="quant-bars-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="日 K 进度"></div>
         <div id="quant-bars-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
         <div class="quant-bars-kpi-row" id="quant-bars-kpis" aria-label="日线覆盖 KPI">
           <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-bars-kpi="align" title="末 bar ≥ 期望 as-of 的标的占比">
@@ -337,14 +334,10 @@
             ></div>
           </div>
         </div>
-        <details class="quant-bars-diff" id="quant-bars-diff" aria-label="日线写入差异">
-          <summary class="quant-bars-diff-sum">
-            <span class="quant-bars-diff-sum-main">
-              <span class="quant-bars-viz-title">上次写入差异</span>
-              <span class="quant-bars-diff-chips" id="quant-bars-diff-chips" aria-hidden="true"></span>
-            </span>
+        <section class="quant-bars-diff" id="quant-bars-diff" aria-label="日线写入差异">
+          <div class="quant-bars-diff-head">
             <span class="quant-bars-viz-meta" id="quant-bars-diff-meta">还没有对比</span>
-          </summary>
+          </div>
           <div class="quant-bars-diff-panel">
             <div class="quant-bars-kpi-row" id="quant-bars-diff-kpis" aria-label="日线差异指标">
               <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="price" title="重叠日收盘绝对差超过 0.01，或相对差超过 0.01%">
@@ -371,7 +364,7 @@
             <div class="quant-bars-diff-table" id="quant-bars-diff-rows" role="table" aria-label="差异最大的票"></div>
             <p class="quant-bars-diff-note" id="quant-bars-diff-note">点增量补齐或强更后，这里对比写入前后的收盘和成交量。</p>
           </div>
-        </details>
+        </section>
         <footer class="quant-bars-foot" id="quant-bars-foot" aria-label="日线仓元数据"></footer>
         <details class="quant-integrity" id="quant-daily-integrity">
           <summary class="quant-integrity-sum">
@@ -381,33 +374,59 @@
         </details>
       </div>
     </div>
+    <div class="dashboard-card quant-pro-card quant-bars-mat-card quant-bars-panel-l1" aria-label="日线物化 L1/L2">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-materialize-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
+          <span id="quant-materialize-chip" class="quant-pro-status-chip" data-state="idle">L1/L2</span>
+          <span id="quant-materialize-msg" class="quant-desk-status-msg">日 K 齐后物化 open（oo/tc/co + DayCube）</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线物化">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                日 K 齐后写 <strong>open L1</strong>（oo / tc / co）与 <strong>open DayCube（L2）</strong>，供 ŷ_oo / 调仓消费。
+                不改日 K、不算 ŷ；τ 网格与按钟 Cube 见「分钟线」物化。消费开关打开时缺覆盖会提示先跑本按钮。
+              </p>
+            </div>
+          </details>
+          <button type="button" id="quant-materialize-run" class="dialog-btn warn" title="日线后物化 open L1（oo/tc/co）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">
+            物化 L1/L2
+          </button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body quant-bars-body quant-bars-mat-body">
+        <div id="quant-materialize-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="日线物化进度"></div>
+        <p class="quant-bars-mat-note">写 Feature Lake open L1 与 open DayCube。不改日 K、不算 ŷ；τ 轨在「分钟线」物化。</p>
+      </div>
+    </div>
+    </div>
   </section>
 
-  <!-- 分钟线：观察池 5m 缓存（T0 回测）；可折叠，默认收起 -->
+  <!-- 分钟线：L0 5m 仓 + 物化 τ L1/L2（两块）；可折叠，默认收起 -->
   <section class="dashboard-section quant-section" id="quant-section-minute" aria-labelledby="quant-section-minute-title">
     <details class="quant-primary-fold">
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
         <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-          写入口：日常「增量补齐（L0）」· 全窗「强更 5m（L0）」· Ready 后「物化 L1/L2」（τ 网格）· 调度 minute_warmup · 标签画像（τ→close）· 下游 ŷ_τc / ŷ_τ* / 调仓 / 做T · Ready≠消费 as-of
+          两块：5m 仓（增量补齐 / 强更 5m）· 物化 L1/L2（τ 网格）· 调度 minute_warmup · 下游 ŷ_τc / 调仓 / 做T
         </p>
       </summary>
-    <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
+    <div class="quant-bars-panels">
+    <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card quant-bars-panel-l0" aria-label="5m 仓">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-minute-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status is-busy" aria-live="polite">
           <span id="quant-minute-chip" class="quant-pro-status-chip" data-state="idle">—</span>
           <span id="quant-minute-msg" class="quant-desk-status-msg">加载覆盖…</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线操作">
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线 L0">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                写入口：日常<strong>增量补齐（L0）</strong>（会话日齐窗且今日已拉才跳过；缺尾如只到 10:00 强制补拉）·
+                写 5m：日常<strong>增量补齐（L0）</strong>（会话日齐窗且今日已拉才跳过；缺尾如只到 10:00 强制补拉）·
                 全窗<strong>强更 5m（L0）</strong>（只走新浪，约 41 个交易日；单票子进程≤45s）。
-                Ready 后<strong>物化 L1/L2</strong>（训练网格 <code>tc_HHMM</code> + 按钟 Cube）。
-                调度 <code>minute_warmup</code>。Ready≠消费 as-of。不改日 K、不算 ŷ。
-                下游 ŷ_τc / ŷ_τ* / 调仓 / 做 T。
+                调度 <code>minute_warmup</code>。物化见下方板块。Ready≠消费 as-of。不改日 K、不算 ŷ。
               </p>
             </div>
           </details>
@@ -417,13 +436,10 @@
           <button type="button" id="quant-minute-refresh" class="dialog-btn primary" title="写入 5m 仓（强更 · 只走新浪 · 单票子进程≤45s）。新浪约 41 个交易日，不复权；同时刻覆盖。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
             强更 5m（L0）
           </button>
-          <button type="button" id="quant-minute-materialize-run" class="dialog-btn warn" title="按训练网格写 tc_HHMM L1（须 5m Ready）并物化按钟 L2。不训模型、不出 ŷ。" disabled>
-            物化 L1/L2
-          </button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-bars-body">
-        <div id="quant-minute-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="5m / 物化进度"></div>
+        <div id="quant-minute-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="5m 进度"></div>
         <div id="quant-minute-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
         <div class="quant-bars-kpi-row" id="quant-minute-kpis" aria-label="分钟覆盖 KPI">
           <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="最近 40 个交易日无缺（分钟 Ready）">
@@ -481,6 +497,33 @@
           <div id="quant-minute-integrity-body" class="quant-integrity-body" aria-live="polite">展开后读取本地 5 分钟 K。点一天看 48 根。</div>
         </details>
       </div>
+    </div>
+    <div class="dashboard-card quant-pro-card quant-minute-mat-card quant-bars-panel-l1" aria-label="分钟线物化 L1/L2">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-minute-materialize-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
+          <span id="quant-minute-materialize-chip" class="quant-pro-status-chip" data-state="idle">L1/L2</span>
+          <span id="quant-minute-materialize-msg" class="quant-desk-status-msg">5m Ready 后物化 τ 网格 + 按钟 Cube</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线物化">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                5m Ready 后写训练网格 <strong><code>tc_HHMM</code> L1</strong> 与<strong>按钟 DayCube（L2）</strong>，供 ŷ_τc / 做 T 消费。
+                不改 5m 仓、不算 ŷ；open 轨见「日线」物化。观察池不足时按钮会禁用。
+              </p>
+            </div>
+          </details>
+          <button type="button" id="quant-minute-materialize-run" class="dialog-btn warn" title="按训练网格写 tc_HHMM L1（须 5m Ready）并物化按钟 L2。不训模型、不出 ŷ。" disabled>
+            物化 L1/L2
+          </button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body quant-bars-body quant-bars-mat-body">
+        <div id="quant-minute-materialize-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="分钟线物化进度"></div>
+        <p class="quant-bars-mat-note">写训练网格 <code>tc_HHMM</code> L1 与按钟 DayCube。不改 5m 仓、不算 ŷ。</p>
+      </div>
+    </div>
     </div>
     </details>
   </section>

@@ -87,7 +87,7 @@ load_portfolio_stock_bars
 - `cache_max_age_hours=0`：本地条数够也不能短路返回，必须再走增量计划。
 - 每批 32 只。`timeout=60` 停在进程池 `AkPool.map` 上，不会传进 `get_bars`。
 - 真正打新浪前占日线名额：同时最多 2 只，两次开工至少隔 1 秒（`QUANTLAB_SINA_DAILY_MAX_INFLIGHT` / `QUANTLAB_SINA_DAILY_PACE_SEC`）。缓存命中不占名额。一次前复权在 AkShare 里还会连打多次 HTTP。
-- 写入前抽出观察池前复权的收盘和成交量，写完再比。摘要在研究枢纽日线区「上次写入差异」，并落在 `data/live/bars_refresh_diff.json`。价变是重叠日收盘移动；量纲是成交量中位倍数离开 0.67–1.5；只补尾是重叠日没动、只多了末尾日期。
+- 写入前抽出观察池前复权的收盘和成交量，写完再比。摘要在研究枢纽日线 L0 卡差异 KPI（价变 / 量纲 / 只补尾 / 未改），并落在 `data/live/bars_refresh_diff.json`。价变是重叠日收盘移动；量纲是成交量中位倍数离开 0.67–1.5；只补尾是重叠日没动、只多了末尾日期。
 - 单例研究服务走 `research_bars_pack_worker` 进程池，避开主进程的 AkShare 锁。
 - 研究服务默认 `reject_quote_fallback=True`。腾讯现价压出来的假日线会被清空。
 

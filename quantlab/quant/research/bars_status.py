@@ -500,6 +500,14 @@ def refresh_bars_only(
                 }
         except Exception:  # noqa: BLE001
             logger.exception("bars diff compare failed")
+    try:
+        from core.store import bars_backend
+        from core.store_bars_sqlite import checkpoint_bars_db
+
+        if bars_backend() == "sqlite":
+            bars_refresh["bars_wal"] = checkpoint_bars_db(mode="TRUNCATE")
+    except Exception:  # noqa: BLE001
+        logger.debug("bars wal checkpoint after refresh failed", exc_info=True)
     status = build_bars_status(watching_limit=limit)
     return {
         "success": True,

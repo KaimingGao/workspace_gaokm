@@ -37,7 +37,6 @@ export function installBarsUi(q) {
   const progressEl = document.getElementById("quant-bars-progress");
   const footEl = document.getElementById("quant-bars-foot");
   const diffMeta = document.getElementById("quant-bars-diff-meta");
-  const diffChips = document.getElementById("quant-bars-diff-chips");
   const diffPrice = document.getElementById("quant-bars-diff-price");
   const diffVolume = document.getElementById("quant-bars-diff-volume");
   const diffTail = document.getElementById("quant-bars-diff-tail");
@@ -46,9 +45,14 @@ export function installBarsUi(q) {
   const diffNote = document.getElementById("quant-bars-diff-note");
   const diffKpis = document.getElementById("quant-bars-diff-kpis");
   const kpiHost = document.getElementById("quant-bars-kpis");
-  const barsCard = document.querySelector(".quant-bars-card");
-  const barsBody = document.querySelector(".quant-bars-body");
+  const barsCard =
+    document.querySelector("#quant-section-bars .quant-bars-panel-l0") ||
+    document.querySelector(".quant-bars-card:not(.quant-minute-card)");
+  const barsBody = barsCard?.querySelector(".quant-bars-body");
   const barsStrip = document.getElementById("quant-bars-strip");
+  const matCard = document.querySelector(".quant-bars-mat-card");
+  const matBody = matCard?.querySelector(".quant-bars-mat-body");
+  const matStrip = document.getElementById("quant-materialize-strip");
 
   if (!chip || !msgEl || !btn) {
     return { refreshStatus: async () => {}, startRefresh: async () => {}, startTopup: async () => {} };
@@ -56,33 +60,30 @@ export function installBarsUi(q) {
 
   const matBtn = document.getElementById("quant-materialize-run");
   let matBusy = false;
-  let matSettled = false;
   const installMat =
     typeof q.installMaterializeUi === "function" ? q.installMaterializeUi : null;
   const matUi = installMat
     ? installMat(q, {
         onStart: () => {
-          matSettled = false;
           jobFailure = null;
           jobSuccess = null;
-          setDeskStatusTone([barsStrip, barsCard], "warn");
+          setDeskStatusTone([matStrip, matCard], "warn");
         },
         onBusy: (on) => {
           matBusy = !!on;
           if (on) {
-            setDeskStatusTone([barsStrip, barsCard], "warn");
-            barsCard?.classList.add("is-busy");
-            barsStrip?.classList.add("is-busy");
-            barsBody?.classList.add("is-busy");
+            setDeskStatusTone([matStrip, matCard], "warn");
+            matCard?.classList.add("is-busy");
+            matStrip?.classList.add("is-busy");
+            matBody?.classList.add("is-busy");
           }
         },
         onSettled: () => {
-          matSettled = true;
           matBusy = false;
-          setDeskStatusTone([barsStrip, barsCard], "warn");
-          barsCard?.classList.remove("is-busy");
-          barsStrip?.classList.remove("is-busy");
-          barsBody?.classList.remove("is-busy");
+          setDeskStatusTone([matStrip, matCard], "warn");
+          matCard?.classList.remove("is-busy");
+          matStrip?.classList.remove("is-busy");
+          matBody?.classList.remove("is-busy");
         },
       })
     : { refresh: () => {}, run: async () => {}, resumeIfRunning: async () => false };
@@ -109,7 +110,6 @@ export function installBarsUi(q) {
   function clearJobPanels() {
     jobFailure = null;
     jobSuccess = null;
-    matSettled = false;
   }
 
   function isTopupSummary(sum) {
@@ -347,13 +347,14 @@ export function installBarsUi(q) {
 
   function setBarsBusy(busy) {
     const on = !!busy;
-    barsCard?.classList.toggle("is-busy", on || matBusy);
-    barsStrip?.classList.toggle("is-busy", on || matBusy);
-    barsBody?.classList.toggle("is-busy", on || matBusy);
+    // 物化已独立板块：L0 busy 只跟日 K 任务，不被 matBusy 连带
+    barsCard?.classList.toggle("is-busy", on);
+    barsStrip?.classList.toggle("is-busy", on);
+    barsBody?.classList.toggle("is-busy", on);
     btn?.classList.toggle("is-busy", on);
     topupBtn?.classList.toggle("is-busy", on);
-    if (on && !matBusy) setDeskStatusTone([barsStrip, barsCard], "primary");
-    if (!on && !jobFailure && !jobSuccess && !matBusy && !matSettled) {
+    if (on) setDeskStatusTone([barsStrip, barsCard], "primary");
+    if (!on && !jobFailure && !jobSuccess) {
       clearProgressPanel();
       setDeskStatusTone([barsStrip, barsCard], null);
     }
@@ -712,31 +713,10 @@ export function installBarsUi(q) {
     card.classList.add(state || "is-empty");
   }
 
-  function renderDiffChips({ priceN, volumeN, tailN, sameN, hasDiff }) {
-    if (!diffChips) return;
-    if (!hasDiff) {
-      diffChips.innerHTML = "";
-      return;
-    }
-    const bits = [
-      { key: "价变", n: priceN, alert: priceN > 0 },
-      { key: "量纲", n: volumeN, alert: volumeN > 0 },
-      { key: "只补尾", n: tailN, alert: false },
-      { key: "未改", n: sameN, alert: false, ok: sameN > 0 && priceN === 0 && volumeN === 0 },
-    ];
-    diffChips.innerHTML = bits
-      .map((bit) => {
-        const cls = bit.alert ? " is-alert" : bit.ok ? " is-ok" : "";
-        return `<span class="quant-bars-diff-chip${cls}">${esc(bit.key)} <strong>${bit.n}</strong></span>`;
-      })
-      .join("");
-  }
-
   function renderBarsDiff(diff) {
     const emptyNote = "点增量补齐或强更后，这里对比写入前后的收盘和成交量。";
     if (!diff || !diff.headline) {
       if (diffMeta) diffMeta.textContent = "还没有对比";
-      renderDiffChips({ priceN: 0, volumeN: 0, tailN: 0, sameN: 0, hasDiff: false });
       if (diffPrice) diffPrice.textContent = "—";
       if (diffVolume) diffVolume.textContent = "—";
       if (diffTail) diffTail.textContent = "—";
@@ -762,7 +742,6 @@ export function installBarsUi(q) {
       if (when) parts.push(when);
       diffMeta.textContent = parts.join(" · ");
     }
-    renderDiffChips({ priceN, volumeN, tailN, sameN, hasDiff: true });
     if (diffPrice) diffPrice.textContent = String(priceN);
     if (diffVolume) diffVolume.textContent = String(volumeN);
     if (diffTail) diffTail.textContent = String(tailN);
@@ -854,7 +833,8 @@ export function installBarsUi(q) {
   }
 
   function paint(data, { skipHead = false } = {}) {
-    if (!skipHead && !jobFailure && !jobSuccess && !matBusy && !matSettled) {
+    // 物化不占用日 K 状态条：覆盖文案只避开本卡日 K 任务结果
+    if (!skipHead && !jobFailure && !jobSuccess) {
       const { state, chip: chipText, msg } = formatStatus(data);
       setProStatusChip(chip, state, chipText);
       msgEl.textContent = msg;
@@ -886,20 +866,20 @@ export function installBarsUi(q) {
       `/api/quant/bars/status?watching_limit=${encodeURIComponent(limit)}`
     );
     if (!ok) {
-      if (!matBusy && !matSettled) {
+      if (!jobFailure && !jobSuccess) {
         paint(null);
         msgEl.textContent = error || "读取日 K 状态失败";
         setProStatusChip(chip, "error", "ERR");
       }
-      if (!inflight && !matBusy) setBarsBusy(false);
+      if (!inflight) setBarsBusy(false);
       return null;
     }
     paint(data, {
-      skipHead: !!jobFailure || !!jobSuccess || matBusy || matSettled,
+      skipHead: !!jobFailure || !!jobSuccess,
     });
     if (jobFailure) applyJobFailure({ message: jobFailure.errText }, jobFailure.job);
     else if (jobSuccess) applyJobSuccess(jobSuccess.job);
-    else if (data.refresh_job && !matBusy && !matSettled) {
+    else if (data.refresh_job) {
       handleRefreshJob(data.refresh_job);
     }
     const jobSt = data.refresh_job && data.refresh_job.status;
@@ -907,8 +887,6 @@ export function installBarsUi(q) {
       !inflight &&
       !jobFailure &&
       !jobSuccess &&
-      !matBusy &&
-      !matSettled &&
       jobSt !== "running"
     ) {
       setBarsBusy(false);
@@ -944,8 +922,6 @@ export function installBarsUi(q) {
       }
       return job;
     }
-    // 物化终态占用状态条时，勿用日 K Job 终态盖掉
-    if (matBusy || matSettled) return job;
     if (st === "failed") {
       applyJobFailure(new Error(job.error || job.message || "日 K 更新失败"), job);
       return job;
@@ -1131,7 +1107,7 @@ export function installBarsUi(q) {
   (async () => {
     try {
       await awaitWatchingPoolLimitReady();
-      // 先接管物化（设 matBusy/matSettled），再 refreshStatus，避免 bars handleRefreshJob 抢条
+      // 物化与日 K 状态条已分立；先 resume 物化进度，再刷覆盖
       const matResumed =
         typeof matUi.resumeIfRunning === "function"
           ? await matUi.resumeIfRunning()

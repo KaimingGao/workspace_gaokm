@@ -670,15 +670,15 @@ function installMaterializeRunner(q, cfg) {
   return { refresh: gate, setReady: gate, run, resumeIfRunning };
 }
 
-/** 日线区：oo/tc/co + open L2。 */
+/** 日线区：oo/tc/co + open L2（独立板块）。 */
 export function installMaterializeUi(q, opts = {}) {
   return installMaterializeRunner(q, {
     btnId: "quant-materialize-run",
-    chipId: "quant-bars-chip",
-    msgId: "quant-bars-msg",
-    progressId: "quant-bars-progress",
-    stripId: "quant-bars-strip",
-    cardSel: ".quant-bars-card:not(.quant-minute-card)",
+    chipId: "quant-materialize-chip",
+    msgId: "quant-materialize-msg",
+    progressId: "quant-materialize-progress",
+    stripId: "quant-materialize-strip",
+    cardSel: ".quant-bars-mat-card",
     siblingBtnIds: ["quant-bars-topup", "quant-bars-refresh"],
     tau: false,
     onStart: opts.onStart,
@@ -688,17 +688,17 @@ export function installMaterializeUi(q, opts = {}) {
 }
 
 /**
- * 分钟线区：τ 网格 L1 + 按钟 L2。
+ * 分钟线区：τ 网格 L1 + 按钟 L2（独立板块）。
  * ``opts.isReady()`` → { ok, reason? }；仅观察池不足时禁用（不再卡 Ready%）。
  */
 export function installMinuteMaterializeUi(q, opts = {}) {
   return installMaterializeRunner(q, {
     btnId: "quant-minute-materialize-run",
-    chipId: "quant-minute-chip",
-    msgId: "quant-minute-msg",
-    progressId: "quant-minute-progress",
-    stripId: "quant-minute-strip",
-    cardSel: ".quant-minute-card",
+    chipId: "quant-minute-materialize-chip",
+    msgId: "quant-minute-materialize-msg",
+    progressId: "quant-minute-materialize-progress",
+    stripId: "quant-minute-materialize-strip",
+    cardSel: ".quant-minute-mat-card",
     siblingBtnIds: ["quant-minute-topup", "quant-minute-refresh"],
     tau: true,
     isReady: opts.isReady,

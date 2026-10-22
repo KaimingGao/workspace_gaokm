@@ -162,6 +162,65 @@ def get_read_conn(store_dir: str) -> sqlite3.Connection:
     return c
 
 
+def checkpoint_bars_db(
+    store_dir: Optional[str] = None,
+    *,
+    mode: str = "TRUNCATE",
+) -> Dict[str, Any]:
+    """把 WAL 合并回主库，缩小 ``bars.db-wal``。
+
+    日 K 强更 / 物化后若 WAL 胀到数 GB，读盘与内存压力会明显变大，容易把 web 拖死。
+    ``mode``：``PASSIVE`` / ``FULL`` / ``RESTART`` / ``TRUNCATE``（默认）。
+    """
+    base = store_dir or ""
+    if not base:
+        from core.store import get_store_dir
+
+        base = get_store_dir()
+    path = db_path(base)
+    if not os.path.isfile(path):
+        return {"ok": False, "reason": "missing"}
+    mode_u = str(mode or "TRUNCATE").strip().upper()
+    if mode_u not in ("PASSIVE", "FULL", "RESTART", "TRUNCATE"):
+        mode_u = "TRUNCATE"
+    wal_path = path + "-wal"
+    before = os.path.getsize(wal_path) if os.path.isfile(wal_path) else 0
+    with _write_lock:
+        conn = get_conn(base)
+        try:
+            row = conn.execute(f"PRAGMA wal_checkpoint({mode_u})").fetchone()
+        except sqlite3.Error as exc:
+            logger.warning("bars wal checkpoint failed: %s", exc)
+            return {
+                "ok": False,
+                "reason": str(exc),
+                "mode": mode_u,
+                "wal_bytes_before": before,
+            }
+    after = os.path.getsize(wal_path) if os.path.isfile(wal_path) else 0
+    busy = int(row[0]) if row else None
+    log_n = int(row[1]) if row and len(row) > 1 else None
+    ckpt = int(row[2]) if row and len(row) > 2 else None
+    logger.info(
+        "bars wal checkpoint mode=%s busy=%s log=%s ckpt=%s wal=%s→%s",
+        mode_u,
+        busy,
+        log_n,
+        ckpt,
+        before,
+        after,
+    )
+    return {
+        "ok": True,
+        "mode": mode_u,
+        "busy": busy,
+        "log": log_n,
+        "checkpointed": ckpt,
+        "wal_bytes_before": before,
+        "wal_bytes_after": after,
+    }
+
+
 def reset_conn_cache() -> None:
     """测试用：关闭并清空连接缓存。"""
     with _conn_guard:

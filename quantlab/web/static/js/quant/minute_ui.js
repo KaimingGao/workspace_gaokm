@@ -55,9 +55,14 @@ export function installMinuteUi(q) {
   const progressEl = document.getElementById("quant-minute-progress");
   const footEl = document.getElementById("quant-minute-foot");
   const kpiHost = document.getElementById("quant-minute-kpis");
-  const minuteCard = document.querySelector(".quant-minute-card");
+  const minuteCard =
+    document.querySelector("#quant-section-minute .quant-bars-panel-l0") ||
+    document.querySelector(".quant-minute-card");
   const minuteBody = minuteCard?.querySelector(".quant-bars-body");
   const minuteStrip = document.getElementById("quant-minute-strip");
+  const matCard = document.querySelector(".quant-minute-mat-card");
+  const matBody = matCard?.querySelector(".quant-bars-mat-body");
+  const matStrip = document.getElementById("quant-minute-materialize-strip");
 
   if (!chip || !msgEl) {
     return { refreshStatus: async () => {}, startRefresh: async () => {}, startTopup: async () => {} };
@@ -65,33 +70,30 @@ export function installMinuteUi(q) {
 
   let lastReady = { ok: false, reason: "加载分钟覆盖…" };
   let matBusy = false;
-  let matSettled = false;
   const matUi =
     typeof installMinuteMaterializeUi === "function"
       ? installMinuteMaterializeUi(q, {
           isReady: () => lastReady,
           onStart: () => {
-            matSettled = false;
             jobFailure = null;
             jobSuccess = null;
-            setDeskStatusTone([minuteStrip, minuteCard], "warn");
+            setDeskStatusTone([matStrip, matCard], "warn");
           },
           onBusy: (on) => {
             matBusy = !!on;
             if (on) {
-              setDeskStatusTone([minuteStrip, minuteCard], "warn");
-              minuteCard?.classList.add("is-busy");
-              minuteStrip?.classList.add("is-busy");
-              minuteBody?.classList.add("is-busy");
+              setDeskStatusTone([matStrip, matCard], "warn");
+              matCard?.classList.add("is-busy");
+              matStrip?.classList.add("is-busy");
+              matBody?.classList.add("is-busy");
             }
           },
           onSettled: () => {
-            matSettled = true;
             matBusy = false;
-            setDeskStatusTone([minuteStrip, minuteCard], "warn");
-            minuteCard?.classList.remove("is-busy");
-            minuteStrip?.classList.remove("is-busy");
-            minuteBody?.classList.remove("is-busy");
+            setDeskStatusTone([matStrip, matCard], "warn");
+            matCard?.classList.remove("is-busy");
+            matStrip?.classList.remove("is-busy");
+            matBody?.classList.remove("is-busy");
           },
         })
       : { refresh: () => {}, setReady: () => {}, run: async () => {} };
@@ -133,7 +135,6 @@ export function installMinuteUi(q) {
   function clearJobPanels() {
     jobFailure = null;
     jobSuccess = null;
-    matSettled = false;
   }
 
   function clearProgressPanel() {
@@ -264,13 +265,14 @@ export function installMinuteUi(q) {
 
   function setMinuteBusy(busy) {
     const onBusy = !!busy;
-    minuteCard?.classList.toggle("is-busy", onBusy || matBusy);
-    minuteStrip?.classList.toggle("is-busy", onBusy || matBusy);
-    minuteBody?.classList.toggle("is-busy", onBusy || matBusy);
+    // 物化已独立板块：5m busy 只跟分钟任务，不被 matBusy 连带
+    minuteCard?.classList.toggle("is-busy", onBusy);
+    minuteStrip?.classList.toggle("is-busy", onBusy);
+    minuteBody?.classList.toggle("is-busy", onBusy);
     btn?.classList.toggle("is-busy", onBusy);
     topupBtn?.classList.toggle("is-busy", onBusy);
-    if (onBusy && !matBusy) setDeskStatusTone([minuteStrip, minuteCard], "primary");
-    if (!onBusy && !jobFailure && !jobSuccess && !matBusy && !matSettled) {
+    if (onBusy) setDeskStatusTone([minuteStrip, minuteCard], "primary");
+    if (!onBusy && !jobFailure && !jobSuccess) {
       clearProgressPanel();
       setDeskStatusTone([minuteStrip, minuteCard], null);
     }
@@ -566,7 +568,8 @@ export function installMinuteUi(q) {
   }
 
   function paint(data, { skipHead = false } = {}) {
-    if (!skipHead && !jobFailure && !jobSuccess && !matBusy && !matSettled) {
+    // 物化不占用 5m 状态条：覆盖文案只避开本卡分钟任务结果
+    if (!skipHead && !jobFailure && !jobSuccess) {
       const { state, chip: chipText, msg } = formatStatus(data);
       setProStatusChip(chip, state, chipText);
       msgEl.textContent = msg;
@@ -610,7 +613,7 @@ export function installMinuteUi(q) {
   async function refreshStatus() {
     const limit = Math.min(BARS_WATCHING_LIMIT, readWatchingPoolLimit());
     const base = `/api/quant/minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}`;
-    if (!matBusy && !matSettled && !jobFailure && !jobSuccess && !inflight) {
+    if (!jobFailure && !jobSuccess && !inflight) {
       setDeskStatusTone([minuteStrip, minuteCard], "primary");
       setProStatusChip(chip, "busy", "LOAD");
       if (/加载覆盖|读取 5m|网络中断/.test(String(msgEl.textContent || ""))) {
@@ -624,25 +627,24 @@ export function installMinuteUi(q) {
       ({ ok, data, error } = await apiFetch(`${base}&include_label_portrait=0`));
     }
     if (!ok) {
-      // 物化占条时勿用 status ERR 盖掉 FAIL/进行中
-      if (!matBusy && !matSettled) {
+      if (!jobFailure && !jobSuccess) {
         labelPortraitPending = false;
         labelPortraitGen += 1;
         paint(null);
         msgEl.textContent = networkErrText(error);
         setProStatusChip(chip, "error", "ERR");
       }
-      if (!inflight && !matBusy) setMinuteBusy(false);
+      if (!inflight) setMinuteBusy(false);
       return null;
     }
     const gen = ++labelPortraitGen;
     labelPortraitPending = true;
     paint(data, {
-      skipHead: !!jobFailure || !!jobSuccess || matBusy || matSettled,
+      skipHead: !!jobFailure || !!jobSuccess,
     });
     if (jobFailure) applyJobFailure({ message: jobFailure.errText }, jobFailure.job);
     else if (jobSuccess) applyJobSuccess(jobSuccess.job);
-    else if (data.refresh_job && !matBusy && !matSettled) {
+    else if (data.refresh_job) {
       handleRefreshJob(data.refresh_job);
     }
     const jobSt = data.refresh_job && data.refresh_job.status;
@@ -650,8 +652,6 @@ export function installMinuteUi(q) {
       !inflight &&
       !jobFailure &&
       !jobSuccess &&
-      !matBusy &&
-      !matSettled &&
       jobSt !== "running"
     ) {
       setMinuteBusy(false);
@@ -703,8 +703,6 @@ export function installMinuteUi(q) {
       }
       return job;
     }
-    // τ 物化终态占用状态条时，勿用 5m Job 终态盖掉
-    if (matBusy || matSettled) return job;
     if (st === "failed") {
       applyJobFailure(new Error(job.error || job.message || "5m 强更失败"), job);
       return job;
@@ -922,7 +920,7 @@ export function installMinuteUi(q) {
       setProStatusChip(chip, "busy", "LOAD");
       msgEl.textContent = "读取 5m 覆盖…";
       await awaitWatchingPoolLimitReady();
-      // 先接管 τ 物化（设 matBusy/matSettled），再 refreshStatus，避免 5m handleRefreshJob 抢条
+      // 物化与 5m 状态条已分立；先 resume 物化进度，再刷覆盖
       const matResumed =
         typeof matUi.resumeIfRunning === "function"
           ? await matUi.resumeIfRunning()

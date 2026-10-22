@@ -4303,7 +4303,8 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   color: var(--accent);
 }
 
-.quant-page .quant-primary-fold > .dashboard-card.quant-pro-card {
+.quant-page .quant-primary-fold > .dashboard-card.quant-pro-card,
+.quant-page .quant-primary-fold > .quant-bars-panels {
   /* 与「日线」区段壳 gap:8px 同距；须压过 L2 卡 margin:0 */
   margin: 8px 0 0;
   min-width: 0;
@@ -5328,13 +5329,6 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   color: var(--accent);
 }
 
-.quant-bars-card[data-tone="warn"].is-busy #quant-materialize-run.is-busy:disabled,
-.quant-minute-card[data-tone="warn"].is-busy #quant-minute-materialize-run.is-busy:disabled {
-  animation: quant-pro-pulse 1.1s ease-in-out infinite;
-  border-color: color-mix(in srgb, var(--warn, #f59e0b) 50%, var(--line));
-  color: #fff;
-  background: var(--warn, #f59e0b) !important;
-}
 
 .quant-bars-body.is-busy {
   opacity: 0.92;
@@ -5738,6 +5732,34 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   letter-spacing: -0.02em;
 }
 
+/* 日线 / 分钟：L0 仓与物化 L1/L2 两块独立卡片 */
+.quant-bars-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.quant-bars-mat-note {
+  margin: 0;
+  font-size: var(--q-fs-caption, 0.75rem);
+  color: var(--ink-3);
+  line-height: 1.45;
+}
+
+.quant-bars-mat-card[data-tone="warn"]:not(.is-busy) .quant-desk-status-msg,
+.quant-minute-mat-card[data-tone="warn"]:not(.is-busy) .quant-desk-status-msg {
+  color: var(--warn, #b45309);
+}
+
+.quant-bars-mat-card[data-tone="warn"].is-busy #quant-materialize-run.is-busy:disabled,
+.quant-minute-mat-card[data-tone="warn"].is-busy #quant-minute-materialize-run.is-busy:disabled {
+  animation: quant-pro-pulse 1.1s ease-in-out infinite;
+  border-color: color-mix(in srgb, var(--warn, #f59e0b) 50%, var(--line));
+  color: #fff;
+  background: var(--warn, #f59e0b) !important;
+}
+
 .quant-bars-diff {
   margin: 0;
   padding: 0;
@@ -5746,95 +5768,19 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   background: var(--surface);
 }
 
-.quant-bars-diff-sum {
+.quant-bars-diff-head {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px 16px;
   flex-wrap: wrap;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
   padding: 8px 10px;
 }
 
-.quant-bars-diff-sum::-webkit-details-marker,
-.quant-bars-diff-sum::marker {
-  display: none;
-}
-
-.quant-bars-diff-sum::before {
-  content: "▸";
-  flex: 0 0 auto;
-  color: var(--ink-3);
-  font-size: 0.7rem;
-  line-height: 1.4;
-  margin-right: -4px;
-}
-
-.quant-bars-diff[open] > .quant-bars-diff-sum::before {
-  content: "▾";
-}
-
-.quant-bars-diff-sum-main {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  min-width: 0;
-}
-
-.quant-bars-diff-sum .quant-bars-viz-title {
-  margin: 0;
-}
-
-.quant-bars-diff-sum .quant-bars-viz-meta {
+.quant-bars-diff-head .quant-bars-viz-meta {
   margin: 0;
   text-align: right;
-  flex: 1 1 12rem;
   min-width: 0;
-}
-
-.quant-bars-diff-chips {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.quant-bars-diff-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 1px 6px;
-  border-radius: 2px;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  font-family: var(--font-mono);
-  font-size: var(--q-fs-micro, 0.68rem);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  color: var(--ink-3);
-  background: color-mix(in srgb, var(--line) 18%, var(--surface));
-}
-
-.quant-bars-diff-chip strong {
-  font-weight: 650;
-  color: var(--ink-2);
-}
-
-.quant-bars-diff-chip.is-alert {
-  color: var(--danger, #ef4444);
-  border-color: color-mix(in srgb, var(--danger, #ef4444) 35%, var(--line));
-  background: color-mix(in srgb, var(--danger, #ef4444) 8%, var(--surface));
-}
-
-.quant-bars-diff-chip.is-alert strong {
-  color: var(--danger, #ef4444);
-}
-
-.quant-bars-diff-chip.is-ok {
-  color: var(--ink-2);
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
-  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 
 .quant-bars-diff-panel {
@@ -6112,32 +6058,15 @@ body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .qua
   gap: 8px 12px;
 }
 
-.quant-bars-foot-item--nowrap {
-  grid-column: span 4;
-}
-
-.quant-bars-foot-item--nowrap .quant-bars-foot-v {
-  white-space: nowrap;
-  word-break: normal;
-}
-
 @media (max-width: 900px) {
   .quant-bars-foot-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .quant-bars-foot-item--nowrap {
-    grid-column: span 2;
   }
 }
 
 @media (max-width: 520px) {
   .quant-bars-foot-grid {
     grid-template-columns: 1fr;
-  }
-
-  .quant-bars-foot-item--nowrap {
-    grid-column: auto;
   }
 }
 
@@ -9117,7 +9046,8 @@ body[data-page="quant"] .quant-page .quant-primary-fold-sum {
 }
 
 /* 对齐「日线」：区段 gap 8px + 标题底 2px；压过 L2 `.quant-pro-card { margin:0 }` */
-body[data-page="quant"] .quant-page .quant-primary-fold > .dashboard-card.quant-pro-card {
+body[data-page="quant"] .quant-page .quant-primary-fold > .dashboard-card.quant-pro-card,
+body[data-page="quant"] .quant-page .quant-primary-fold > .quant-bars-panels {
   margin: 8px 0 0;
 }
 

@@ -873,4 +873,10 @@ def materialize_l2(
             report["gc"] = prune_cold(extra_codes=code_list)
         except Exception:  # noqa: BLE001
             logger.warning("day cube prune after l2 failed", exc_info=True)
+        try:
+            from core.store_bars_sqlite import checkpoint_bars_db
+
+            report["bars_wal"] = checkpoint_bars_db(mode="TRUNCATE")
+        except Exception:  # noqa: BLE001
+            logger.warning("bars wal checkpoint after l2 failed", exc_info=True)
     return report
