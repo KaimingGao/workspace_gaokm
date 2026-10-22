@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import contextmanager
 from datetime import date, timedelta
+from unittest.mock import patch
 
 import numpy as np
 
@@ -18,6 +20,30 @@ def _has_lightgbm() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _l2_as_batch_cs(x, names, groups, **_kw):
+    from core.research.feature_standardize import cross_section_zscore_matrix
+
+    z = cross_section_zscore_matrix(x, groups)
+    return np.where(np.isfinite(z), z, 0.0), {"ok": True}
+
+
+@contextmanager
+def _patch_rank_l2_as_batch():
+    def _all_days_have_cube(groups, **_kw):
+        n = len(groups or [])
+        return np.ones(n, dtype=bool), []
+
+    with patch(
+        "core.research.materialize.cube_z.apply_day_cube_mu_sigma_matrix",
+        side_effect=_l2_as_batch_cs,
+    ), patch(
+        "core.research.materialize.cube_z.groups_with_day_cube",
+        side_effect=_all_days_have_cube,
+    ):
+        yield
+
 
 def _pack_day(date_s, codes, xs, ys):
     names = list(xs[0].keys()) if xs else []
@@ -67,14 +93,15 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         from core.research.oo_rank_lambdarank import fit_lambdarank
 
         days = _synth_days(30, 20)
-        fit = fit_lambdarank(
-            days,
-            n_estimators=30,
-            max_depth=3,
-            learning_rate=0.08,
-            subsample=1.0,
-            min_child_samples=2,
-        )
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=30,
+                max_depth=3,
+                learning_rate=0.08,
+                subsample=1.0,
+                min_child_samples=2,
+            )
         self.assertTrue(fit.get("success"), fit.get("error"))
         self.assertEqual(fit.get("solver"), "lambdarank")
         self.assertIn("booster_b64", fit)
@@ -92,14 +119,15 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         )
 
         days = _synth_days(30, 20, seed=1)
-        fit = fit_lambdarank(
-            days,
-            n_estimators=40,
-            max_depth=3,
-            learning_rate=0.08,
-            subsample=1.0,
-            min_child_samples=2,
-        )
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=40,
+                max_depth=3,
+                learning_rate=0.08,
+                subsample=1.0,
+                min_child_samples=2,
+            )
         self.assertTrue(fit.get("success"), fit.get("error"))
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores
 
@@ -139,14 +167,15 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         )
 
         days = _synth_days(30, 20, seed=2)
-        fit = fit_lambdarank(
-            days,
-            n_estimators=30,
-            max_depth=3,
-            learning_rate=0.08,
-            subsample=1.0,
-            min_child_samples=2,
-        )
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=30,
+                max_depth=3,
+                learning_rate=0.08,
+                subsample=1.0,
+                min_child_samples=2,
+            )
         self.assertTrue(fit.get("success"), fit.get("error"))
         # 缺 volume_ratio
         out = predict_oo_rank_from_features({"mom3": 50.0}, fit=fit)
@@ -156,31 +185,32 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         from core.research.oo_rank_lambdarank import _day_scores, fit_lambdarank
 
         days = _synth_days(30, 20, seed=4)
-        fit = fit_lambdarank(
-            days,
-            n_estimators=30,
-            max_depth=3,
-            learning_rate=0.08,
-            subsample=1.0,
-            min_child_samples=2,
-        )
-        self.assertTrue(fit.get("success"), fit.get("error"))
-        day = days[-1]
-        preds, _ys = _day_scores(day, fit)
-        from core.research.oo_rank_lambdarank import _z_day_cross_section
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=30,
+                max_depth=3,
+                learning_rate=0.08,
+                subsample=1.0,
+                min_child_samples=2,
+            )
+            self.assertTrue(fit.get("success"), fit.get("error"))
+            day = days[-1]
+            preds, _ys = _day_scores(day, fit)
+            from core.research.oo_rank_lambdarank import _z_day_cross_section
 
-        names = list((fit.get("coefficients") or {}).keys())
-        z = _z_day_cross_section(day, names)
-        self.assertIsNotNone(z)
-        z = np.where(np.isfinite(z), z, 0.0)
-        import base64
+            names = list((fit.get("coefficients") or {}).keys())
+            z = _z_day_cross_section(day, names)
+            self.assertIsNotNone(z)
+            z = np.where(np.isfinite(z), z, 0.0)
+            import base64
 
-        import lightgbm as lgb
+            import lightgbm as lgb
 
-        text = base64.b64decode(str(fit.get("booster_b64") or "")).decode("utf-8")
-        raw = lgb.Booster(model_str=text).predict(z)
-        self.assertIsNotNone(preds[0])
-        self.assertAlmostEqual(float(preds[0]), round(float(raw[0]), 6), places=5)
+            text = base64.b64decode(str(fit.get("booster_b64") or "")).decode("utf-8")
+            raw = lgb.Booster(model_str=text).predict(z)
+            self.assertIsNotNone(preds[0])
+            self.assertAlmostEqual(float(preds[0]), round(float(raw[0]), 6), places=5)
 
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestOoRankReportLightgbmBackend(unittest.TestCase):
@@ -189,21 +219,22 @@ class TestOoRankReportLightgbmBackend(unittest.TestCase):
         from core.research.oo_rank_lambdarank import fit_oo_rank_report
 
         days = _synth_days(40, 24, seed=3)
-        report = fit_oo_rank_report(
-            [],  # stock_bars 空，用 day_panels
-            day_panels=days,
-            horizon_days=1,
-            min_names=8,
-            holdout_trading_days=8,
-            backend="lambdarank",
-            lightgbm_params={
-                "n_estimators": 20,
-                "max_depth": 3,
-                "learning_rate": 0.08,
-                "subsample": 1.0,
-                "min_child_samples": 2,
-            },
-        )
+        with _patch_rank_l2_as_batch():
+            report = fit_oo_rank_report(
+                [],  # stock_bars 空，用 day_panels
+                day_panels=days,
+                horizon_days=1,
+                min_names=8,
+                holdout_trading_days=8,
+                backend="lambdarank",
+                lightgbm_params={
+                    "n_estimators": 20,
+                    "max_depth": 3,
+                    "learning_rate": 0.08,
+                    "subsample": 1.0,
+                    "min_child_samples": 2,
+                },
+            )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("backend"), "lambdarank")
         self.assertIn(report.get("recommended_backend"), {"lambdarank", "ridge"})

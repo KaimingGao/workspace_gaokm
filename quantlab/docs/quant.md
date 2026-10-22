@@ -1281,10 +1281,10 @@ score_stock(code) 续——
 
 | | |
 |--|--|
-| 训练宇宙 | 默认 **整观察池**。卡头可勾选 **宇宙 A 档**：观察池∩枢纽 A 档（须先跑分档）；截面 z / 损失 / Holdout **同一批票**，落盘 `zscore_universe=tier_a` + `tier_codes` |
+| 训练宇宙 | 截面 z **恒整观察池**（与主头同哲学）。卡头可勾选 **训练 A 档**：损失 / Holdout 缩到观察池∩枢纽 A（须先跑分档）；落盘 `train_universe=tier_a` + `tier_codes`（`zscore_universe` 恒 `pool`） |
 | 训练窗 | 允许 **100～1000** 交易日；默认 **700** |
 | 训练 | `POST /api/quant/oo-rank` 拟合写 last report（双 backend）；人审「启用研究 / 启用执行」按 Holdout **NDCG@K** 自动落盘更强一侧（打平→LambdaRank），不重训 |
-| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 oo_rank。`oo_rank_max` 开则另须 `max(oo_rank, τc_rank) < max`。`zscore_universe=pool`：分档打开时主头仍整池 z，排序头 μ/σ 用整批、名次只写允许档；`tier_a`：排序头 **先缩 A 再算 z 与名次**（主头 ŷ_oo/τc/co 仍整池） |
+| 回测 / live | 加载已启用模型（无 backend 开关），打相对分再编名次写入 `y_oo_rank`；成交明细 **oo_rank** 列。过门槛后买序按 oo_rank。`oo_rank_max` 开则另须 `max(oo_rank, τc_rank) < max`。排序头截面 z **只吃全池 L2**（不进批现算；缺 Cube 跳过写分）。分档打开时名次只写允许档。旧落盘 `zscore_universe=tier_a` 只当训练 A 审计 |
 | OOS | **IC** / **ICIR** / **Rank IC** / TopK overlap / **NDCG@K** / TopK y_oo；LambdaRank vs Ridge 同窗对照 |
 
 实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_lambdarank.py`。加载仍兼容旧文件名 `oo_rank_pairwise_*.json`。
@@ -1297,7 +1297,7 @@ score_stock(code) 续——
 
 | | |
 |--|--|
-| 训练宇宙 | 与 ŷ_oo_rank 同：默认整池；勾选 **宇宙 A 档** → 观察池∩A，z/训/推锁死 |
+| 训练宇宙 | 与 ŷ_oo_rank 同：截面 z 恒整池；勾选 **训练 A 档** → 损失/Holdout 缩观察池∩A |
 | 训练窗 | 默认 **700**（100～1000） |
 | 训练 | `POST /api/quant/tc-rank` 拟合写 last report；「启用研究 / 启用执行」只落盘，不重训 |
 | 回测 / live | 按所选模型槽严格加载；缺槽不挂分。成交明细旁路名次；参与 max 入场闸。宇宙语义与 ŷ_oo_rank 相同 |
@@ -1395,7 +1395,7 @@ score_stock(code) 续——
 | 项 | 历史 paper_replay（本页 / 日报） | Live 纸面调仓 |
 |--|--|--|
 | 选股排序键 | **y_oo_fuse**（UI fuse）= w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 同左 |
-| 宇宙 | 主头 ŷ_oo/τc/co：**整观察池**进截面 z。排序头跟模型：`pool`=整池算 μ/σ；`tier_a`=先缩 A 再算 z 与名次。分档打开时 ŷ/名次只写允许档，档外不开仓（现金用完即止） | 同左。另加持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
+| 宇宙 | 主头与排序头：**整观察池**进截面 z。排序头 `train_universe=tier_a` 只影响拟合损失，不影响打分 μ/σ。分档打开时 ŷ/名次只写允许档，档外不开仓（现金用完即止） | 同左。另加持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
 | 模型 | 默认**研究套**（Holdout 前训 β）；表单「模型」可选**执行**对照 live 槽版本。所选槽缺失时该头不挂分，**不**静默换另一槽（ŷ_oo 研究档可回落草稿预览，仍不读执行套） | 执行套（研究槽晋级）；缺执行套不回落研究套 |
 | 金额 | 表单入场/强档金额；不够一手则跳过；单票≤强档×120%；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万）；同上单票上限 |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**成交钟**默认 09:30（可选至 10:00）。**09:30 用日 K 开盘、不读 5m**（本地首根标 09:35）；09:35–10:00 才加载分钟线。缺该钟：买入跳过、清仓回退其后～10:00 再回退日开盘；「日分价闸」要窗内分钟才生效（09:30 跳过加载后闸空跑；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |

@@ -334,38 +334,28 @@
             ></div>
           </div>
         </div>
-        <section class="quant-bars-diff" id="quant-bars-diff" aria-label="日线写入差异">
-          <div class="quant-bars-diff-head">
-            <span class="quant-bars-viz-meta" id="quant-bars-diff-meta">还没有对比</span>
+        <div class="quant-bars-kpi-row" id="quant-bars-diff-kpis" aria-label="日线差异指标">
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="price" title="重叠日收盘绝对差超过 0.01，或相对差超过 0.01%">
+            <span class="quant-pro-kpi-label">价变</span>
+            <span class="quant-pro-kpi-value" id="quant-bars-diff-price">—</span>
+            <span class="quant-pro-kpi-sub">收盘移动</span>
           </div>
-          <div class="quant-bars-diff-panel">
-            <div class="quant-bars-kpi-row" id="quant-bars-diff-kpis" aria-label="日线差异指标">
-              <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="price" title="重叠日收盘绝对差超过 0.01，或相对差超过 0.01%">
-                <span class="quant-pro-kpi-label">价变</span>
-                <span class="quant-pro-kpi-value" id="quant-bars-diff-price">—</span>
-                <span class="quant-pro-kpi-sub">收盘移动</span>
-              </div>
-              <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="volume" title="重叠日成交量中位倍数离开 0.67–1.5，常见于手和股">
-                <span class="quant-pro-kpi-label">量纲</span>
-                <span class="quant-pro-kpi-value" id="quant-bars-diff-volume">—</span>
-                <span class="quant-pro-kpi-sub">成交量倍数</span>
-              </div>
-              <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="tail" title="重叠日收盘和成交量没动，只多了末尾日期">
-                <span class="quant-pro-kpi-label">只补尾</span>
-                <span class="quant-pro-kpi-value" id="quant-bars-diff-tail">—</span>
-                <span class="quant-pro-kpi-sub">历史段未动</span>
-              </div>
-              <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="same" title="重叠日收盘和成交量都在阈值内">
-                <span class="quant-pro-kpi-label">未改</span>
-                <span class="quant-pro-kpi-value" id="quant-bars-diff-same">—</span>
-                <span class="quant-pro-kpi-sub">价和量都在阈值内</span>
-              </div>
-            </div>
-            <div class="quant-bars-diff-table" id="quant-bars-diff-rows" role="table" aria-label="差异最大的票"></div>
-            <p class="quant-bars-diff-note" id="quant-bars-diff-note">点增量补齐或强更后，这里对比写入前后的收盘和成交量。</p>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="volume" title="重叠日成交量中位倍数离开 0.67–1.5，常见于手和股">
+            <span class="quant-pro-kpi-label">量纲</span>
+            <span class="quant-pro-kpi-value" id="quant-bars-diff-volume">—</span>
+            <span class="quant-pro-kpi-sub">成交量倍数</span>
           </div>
-        </section>
-        <footer class="quant-bars-foot" id="quant-bars-foot" aria-label="日线仓元数据"></footer>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="tail" title="重叠日收盘和成交量没动，只多了末尾日期">
+            <span class="quant-pro-kpi-label">只补尾</span>
+            <span class="quant-pro-kpi-value" id="quant-bars-diff-tail">—</span>
+            <span class="quant-pro-kpi-sub">历史段未动</span>
+          </div>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card is-empty" data-bars-diff="same" title="重叠日收盘和成交量都在阈值内">
+            <span class="quant-pro-kpi-label">未改</span>
+            <span class="quant-pro-kpi-value" id="quant-bars-diff-same">—</span>
+            <span class="quant-pro-kpi-sub">价和量都在阈值内</span>
+          </div>
+        </div>
         <details class="quant-integrity" id="quant-daily-integrity">
           <summary class="quant-integrity-sum">
             <span id="quant-daily-integrity-label">完整度</span>
@@ -397,7 +387,6 @@
       </div>
       <div class="quant-pro-card-body quant-bars-body quant-bars-mat-body">
         <div id="quant-materialize-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="日线物化进度"></div>
-        <p class="quant-bars-mat-note">写 Feature Lake open L1 与 open DayCube。不改日 K、不算 ŷ；τ 轨在「分钟线」物化。</p>
       </div>
     </div>
     </div>
@@ -489,7 +478,6 @@
             ></div>
           </div>
         </div>
-        <footer class="quant-bars-foot" id="quant-minute-foot" aria-label="分钟仓元数据"></footer>
         <details class="quant-integrity" id="quant-minute-integrity">
           <summary class="quant-integrity-sum">
             <span id="quant-minute-integrity-label">完整度</span>
@@ -755,10 +743,10 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
           <label
             class="quant-inline-check"
-            title="勾选：截面 z、拟合与预测都只用观察池∩枢纽 A 档（须先跑「观察池分档」）。不勾选：整观察池。主头 ŷ_oo/τc/co 不受影响。落盘进模型后回测/live 跟模型。"
+            title="勾选：损失与 Holdout 只用观察池∩枢纽 A 档（须先跑「观察池分档」）。截面 z 仍用整观察池。不勾选：损失也用整池。主头 ŷ_oo/τc/co 不受影响。落盘 train_universe；回测/live 打分 z 恒全池。"
           >
             <input id="quant-fit-z-univ-a-oo_rank" type="checkbox" />
-            <span>宇宙 A 档</span>
+            <span>训练 A 档</span>
           </label>
           <label
             class="quant-inline-check"
@@ -816,10 +804,10 @@
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
           <label
             class="quant-inline-check"
-            title="勾选：截面 z、拟合与预测都只用观察池∩枢纽 A 档（须先跑「观察池分档」）。不勾选：整观察池。主头 ŷ_oo/τc/co 不受影响。落盘进模型后回测/live 跟模型。"
+            title="勾选：损失与 Holdout 只用观察池∩枢纽 A 档（须先跑「观察池分档」）。截面 z 仍用整观察池。不勾选：损失也用整池。主头 ŷ_oo/τc/co 不受影响。落盘 train_universe；回测/live 打分 z 恒全池。"
           >
             <input id="quant-fit-z-univ-a-tc_rank" type="checkbox" />
-            <span>宇宙 A 档</span>
+            <span>训练 A 档</span>
           </label>
           <label
             class="quant-inline-check"

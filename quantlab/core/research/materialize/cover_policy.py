@@ -75,7 +75,8 @@ def resolve_fit_minute_covered_dates(
     """宇宙级 5m 够格日（与分钟物化 L2 同门槛）。
 
     供报告 ``minute_days``/``minute_span`` 对照；ŷ_τ* **拟合不再按此裁单票 5m**
-    （单票本地有多少用多少，缺 L2 软回退）。查询失败返回 ``None``。
+    （单票本地有多少用多少；截面 z 仍须 L2，缺则 ``materialize_required``）。
+    查询失败返回 ``None``。
     """
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     if len(code_list) < 2:

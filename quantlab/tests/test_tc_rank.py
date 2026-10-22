@@ -25,6 +25,7 @@ class TestTcRank(unittest.TestCase):
             "intercept": 0.0,
             "coefficients": {"z_τc_gap_pct": 1.0},
             "feature_zscore": True,
+            # 全局 μ/σ（非截面）：不依赖 L2
             "zscore_means": {"z_τc_gap_pct": 0.0},
             "zscore_stds": {"z_τc_gap_pct": 1.0},
         }
@@ -58,7 +59,8 @@ class TestTcRank(unittest.TestCase):
         )
 
     def test_score_codes_z_full_pool_rank_only_allowed(self):
-        """features_tau 整批进 z；名次只落在允许档。"""
+        """L2 全池 μ/σ；名次只落在允许档。"""
+        from core.research.day_cube import build_day_cube
         from core.research.tc_rank import apply_tc_rank_scores
 
         ridge = {
@@ -76,17 +78,27 @@ class TestTcRank(unittest.TestCase):
             "zscore_stds": {},
         }
         items = [
-            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}, "y_oo_fuse": 0.1},
-            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}, "y_oo_fuse": 0.2},
+            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}, "y_oo_fuse": 0.1, "lake_score_day": "2024-05-01"},
+            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}, "y_oo_fuse": 0.2, "lake_score_day": "2024-05-01"},
             {
                 "stock_code": "B1",
                 "features_tau": {"z_τc_gap_pct": 1000.0},
                 "y_tc_rank": 3,
                 "y_oo_fuse": 0.3,
+                "lake_score_day": "2024-05-01",
             },
         ]
+        cube = build_day_cube(
+            "2024-05-01",
+            {it["stock_code"]: dict(it["features_tau"]) for it in items},
+            names=["z_τc_gap_pct"],
+            clock="open",
+        )
         apply_tc_rank_scores(
-            items, model_doc={"return_model": ridge}, score_codes=["A1", "A2"]
+            items,
+            model_doc={"return_model": ridge},
+            score_codes=["A1", "A2"],
+            day_cube=cube,
         )
         by = {it["stock_code"]: it for it in items}
         self.assertNotIn("y_tc_rank", by["B1"])
@@ -98,8 +110,9 @@ class TestTcRank(unittest.TestCase):
         self.assertLess(float(by["A2"]["y_tc_rank_score"]), 0.0)
         self.assertEqual(by["A2"]["y_oo_fuse"], 0.2)
 
-    def test_tier_a_z_ignores_out_of_universe_extremes(self):
-        """宇宙 A：B 不进 μ/σ，A2 相对分为正。"""
+    def test_legacy_tier_a_stamp_still_uses_full_pool_z(self):
+        """旧 zscore_universe=tier_a 不再缩 z：B 极值把 A2 相对分拉负。"""
+        from core.research.day_cube import build_day_cube
         from core.research.tc_rank import apply_tc_rank_scores
 
         ridge = {
@@ -113,31 +126,43 @@ class TestTcRank(unittest.TestCase):
             "feature_zscore": True,
             "zscore_scope": "cross_section",
             "zscore_universe": "tier_a",
+            "train_universe": "tier_a",
             "tier_codes": ["A1", "A2"],
             "zscore_means": {},
             "zscore_stds": {},
         }
         items = [
-            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}, "y_oo_fuse": 0.1},
-            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}, "y_oo_fuse": 0.2},
+            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}, "y_oo_fuse": 0.1, "lake_score_day": "2024-05-01"},
+            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}, "y_oo_fuse": 0.2, "lake_score_day": "2024-05-01"},
             {
                 "stock_code": "B1",
                 "features_tau": {"z_τc_gap_pct": 1000.0},
                 "y_tc_rank": 3,
                 "y_oo_fuse": 0.3,
+                "lake_score_day": "2024-05-01",
             },
         ]
+        cube = build_day_cube(
+            "2024-05-01",
+            {it["stock_code"]: dict(it["features_tau"]) for it in items},
+            names=["z_τc_gap_pct"],
+            clock="open",
+        )
         apply_tc_rank_scores(
-            items, model_doc={"return_model": ridge}, score_codes=["A1", "A2", "B1"]
+            items,
+            model_doc={"return_model": ridge},
+            score_codes=["A1", "A2"],
+            day_cube=cube,
         )
         by = {it["stock_code"]: it for it in items}
         self.assertNotIn("y_tc_rank", by["B1"])
         self.assertEqual(by["A2"]["y_tc_rank"], 1)
-        self.assertGreater(float(by["A2"]["y_tc_rank_score"]), 0.0)
+        self.assertLess(float(by["A2"]["y_tc_rank_score"]), 0.0)
         self.assertEqual(by["A2"]["y_oo_fuse"], 0.2)
 
-    def test_zscore_codes_excludes_stale_open_peers(self):
-        """前缀后 zscore_codes=可交易：B 开盘极值不进 pool μ/σ（与只对 A 算 z 同金标）。"""
+    def test_l2_cube_universe_controls_mu_sigma(self):
+        """全池 Cube vs A-only Cube：μ/σ 跟 Cube 宇宙，不再进批现算。"""
+        from core.research.day_cube import build_day_cube
         from core.research.tc_rank import apply_tc_rank_scores
 
         ridge = {
@@ -155,25 +180,40 @@ class TestTcRank(unittest.TestCase):
             "zscore_stds": {},
         }
         base = [
-            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}},
-            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}},
-            {"stock_code": "B1", "features_tau": {"z_τc_gap_pct": 1000.0}},
+            {"stock_code": "A1", "features_tau": {"z_τc_gap_pct": 0.0}, "lake_score_day": "2024-05-01"},
+            {"stock_code": "A2", "features_tau": {"z_τc_gap_pct": 10.0}, "lake_score_day": "2024-05-01"},
+            {"stock_code": "B1", "features_tau": {"z_τc_gap_pct": 1000.0}, "lake_score_day": "2024-05-01"},
         ]
+        cube_full = build_day_cube(
+            "2024-05-01",
+            {it["stock_code"]: dict(it["features_tau"]) for it in base},
+            names=["z_τc_gap_pct"],
+            clock="open",
+        )
         mixed = [dict(x) for x in base]
         apply_tc_rank_scores(
             mixed,
             model_doc={"return_model": ridge},
             score_codes=["A1", "A2"],
+            day_cube=cube_full,
         )
-        # 整池 z：B1=1000 拉高 μ，A2 相对分为负
         self.assertLess(float(mixed[1]["y_tc_rank_score"]), 0.0)
 
+        cube_a = build_day_cube(
+            "2024-05-01",
+            {
+                "A1": {"z_τc_gap_pct": 0.0},
+                "A2": {"z_τc_gap_pct": 10.0},
+            },
+            names=["z_τc_gap_pct"],
+            clock="open",
+        )
         locked = [dict(x) for x in base]
         apply_tc_rank_scores(
             locked,
             model_doc={"return_model": ridge},
             score_codes=["A1", "A2"],
-            zscore_codes=["A1", "A2"],
+            day_cube=cube_a,
         )
         by = {it["stock_code"]: it for it in locked}
         self.assertNotIn("y_tc_rank", by["B1"])

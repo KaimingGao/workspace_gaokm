@@ -12,9 +12,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 DEFAULT_FEATURE_ZSCORE = True
 ZSCORE_SCOPE_CROSS_SECTION = "cross_section"
-# 排序头（oo_rank / tc_rank）日截面 z 的股票宇宙；主头 ŷ_oo/τc/co 仍固定整池。
+# 排序头截面 z 恒用整观察池（与主头一致）。旧落盘 ``tier_a`` 仅作训练宇宙兼容读。
 ZSCORE_UNIVERSE_POOL = "pool"
-ZSCORE_UNIVERSE_TIER_A = "tier_a"
+ZSCORE_UNIVERSE_TIER_A = "tier_a"  # 历史别名；打分侧不再缩 z
+# 排序头训练/损失宇宙（可与 z 宇宙分离）
+TRAIN_UNIVERSE_POOL = "pool"
+TRAIN_UNIVERSE_TIER_A = "tier_a"
 
 
 def resolve_feature_zscore(
@@ -49,8 +52,7 @@ def annotate_feature_zscore(dest: dict, enabled: bool) -> dict:
 def normalize_score_codes(score_codes: Optional[Sequence[str]]) -> Optional[set]:
     """None 表示全员打分。名单非空时只给这些代码出 ŷ 和名次。
 
-    对主头 / ``zscore_universe=pool`` 的排序头：截面 z 仍用调用方传入的整批原始特征，
-    不随这份名单缩小。``zscore_universe=tier_a`` 的排序头会先按名单缩 z 宇宙。
+    主头与排序头：截面 z 都用调用方传入的整批原始特征，不随这份名单缩小。
     """
     if score_codes is None:
         return None
@@ -58,50 +60,100 @@ def normalize_score_codes(score_codes: Optional[Sequence[str]]) -> Optional[set]
 
 
 def normalize_zscore_universe(raw: Any) -> str:
-    """``pool``=整观察池；``tier_a``=枢纽 A 档。旧值 watching/day_panel → pool。"""
-    s = str(raw or "").strip().lower().replace("-", "_")
-    if s in ("tier_a", "tier", "a", "tiera"):
-        return ZSCORE_UNIVERSE_TIER_A
+    """截面 z 宇宙。现行恒为 ``pool``；读到旧 ``tier_a`` 仍归并成 pool（打分不再缩 z）。"""
+    _ = raw
     return ZSCORE_UNIVERSE_POOL
 
 
+def normalize_train_universe(raw: Any) -> str:
+    """训练/损失宇宙：``pool`` 或 ``tier_a``。"""
+    s = str(raw or "").strip().lower().replace("-", "_")
+    if s in ("tier_a", "tier", "a", "tiera"):
+        return TRAIN_UNIVERSE_TIER_A
+    return TRAIN_UNIVERSE_POOL
+
+
 def is_tier_a_zscore_universe(*sources: Any) -> bool:
-    """任一来源标记 ``zscore_universe=tier_a`` 即为 A 档宇宙。"""
+    """兼容旧名：现表示「训练宇宙是否 A」，不再表示缩 z。
+
+    优先读 ``train_universe``；否则回落旧 ``zscore_universe=tier_a``。
+    """
+    return is_tier_a_train_universe(*sources)
+
+
+def is_tier_a_train_universe(*sources: Any) -> bool:
+    """任一来源标记训练宇宙为 A 档。"""
     for src in sources:
         if src is None:
             continue
         if isinstance(src, Mapping):
-            if normalize_zscore_universe(src.get("zscore_universe")) == ZSCORE_UNIVERSE_TIER_A:
+            if "train_universe" in src:
+                if normalize_train_universe(src.get("train_universe")) == (
+                    TRAIN_UNIVERSE_TIER_A
+                ):
+                    return True
+                continue
+            # 旧落盘：zscore_universe=tier_a 曾绑 z+训；现只当训练 A 审计
+            if normalize_train_universe(src.get("zscore_universe")) == (
+                TRAIN_UNIVERSE_TIER_A
+            ):
                 return True
             hp = src.get("hyperparams")
-            if isinstance(hp, Mapping) and normalize_zscore_universe(
-                hp.get("zscore_universe")
-            ) == ZSCORE_UNIVERSE_TIER_A:
-                return True
+            if isinstance(hp, Mapping):
+                if "train_universe" in hp:
+                    if normalize_train_universe(hp.get("train_universe")) == (
+                        TRAIN_UNIVERSE_TIER_A
+                    ):
+                        return True
+                elif normalize_train_universe(hp.get("zscore_universe")) == (
+                    TRAIN_UNIVERSE_TIER_A
+                ):
+                    return True
             inner = src.get("return_model")
             if isinstance(inner, Mapping) and inner is not src:
-                if is_tier_a_zscore_universe(inner):
+                if is_tier_a_train_universe(inner):
                     return True
         else:
-            if normalize_zscore_universe(getattr(src, "zscore_universe", None)) == (
-                ZSCORE_UNIVERSE_TIER_A
-            ):
+            tu = getattr(src, "train_universe", None)
+            if tu is not None:
+                if normalize_train_universe(tu) == TRAIN_UNIVERSE_TIER_A:
+                    return True
+            elif normalize_train_universe(
+                getattr(src, "zscore_universe", None)
+            ) == TRAIN_UNIVERSE_TIER_A:
                 return True
     return False
 
 
 def stamp_zscore_universe(
     dest: dict,
+    universe: Any = ZSCORE_UNIVERSE_POOL,
+    *,
+    tier_codes: Optional[Sequence[str]] = None,
+    tier_meta: Optional[Mapping[str, Any]] = None,
+) -> dict:
+    """写入排序头截面 z 宇宙（恒 ``pool``）。``tier_*`` 留给 train 戳。"""
+    _ = universe
+    dest["zscore_universe"] = ZSCORE_UNIVERSE_POOL
+    dest.pop("zscore_universe_tiers", None)
+    return dest
+
+
+def stamp_train_universe(
+    dest: dict,
     universe: Any,
     *,
     tier_codes: Optional[Sequence[str]] = None,
     tier_meta: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    """写入排序头截面宇宙；``tier_a`` 时可带冻结的 A 代码名单。"""
-    uni = normalize_zscore_universe(universe)
-    dest["zscore_universe"] = uni
-    if uni == ZSCORE_UNIVERSE_TIER_A:
-        dest["zscore_universe_tiers"] = ["A"]
+    """写入排序头训练宇宙；``tier_a`` 时带冻结 A 名单。"""
+    uni = normalize_train_universe(universe)
+    dest["train_universe"] = uni
+    # 截面 z 与训练解耦后恒 pool
+    dest["zscore_universe"] = ZSCORE_UNIVERSE_POOL
+    dest.pop("zscore_universe_tiers", None)
+    if uni == TRAIN_UNIVERSE_TIER_A:
+        dest["train_universe_tiers"] = ["A"]
         codes = sorted(
             {str(c).strip() for c in (tier_codes or []) if str(c or "").strip()}
         )
@@ -119,7 +171,7 @@ def stamp_zscore_universe(
                 if k in tier_meta and tier_meta.get(k) is not None:
                     dest[k] = tier_meta.get(k)
     else:
-        dest.pop("zscore_universe_tiers", None)
+        dest.pop("train_universe_tiers", None)
     return dest
 
 

@@ -19,6 +19,37 @@ def _has_lightgbm() -> bool:
     except ImportError:
         return False
 
+
+def _l2_as_batch_cs(x, names, groups, **_kw):
+    """单测无真实 Cube 时：用批内截面 z 冒充 L2（合成日=全宇宙）。"""
+    from core.research.feature_standardize import cross_section_zscore_matrix
+
+    z = cross_section_zscore_matrix(x, groups)
+    return np.where(np.isfinite(z), z, 0.0), {"ok": True}
+
+
+def _patch_rank_l2_as_batch():
+    """冒充全池 L2：批内截面 z + 全日有 Cube（与 ŷ_oo align 同测径）。"""
+    from contextlib import contextmanager
+
+    def _all_days_have_cube(groups, **_kw):
+        n = len(groups or [])
+        return np.ones(n, dtype=bool), []
+
+    @contextmanager
+    def _ctx():
+        with patch(
+            "core.research.materialize.cube_z.apply_day_cube_mu_sigma_matrix",
+            side_effect=_l2_as_batch_cs,
+        ), patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            side_effect=_all_days_have_cube,
+        ):
+            yield
+
+    return _ctx()
+
+
 def _pack_day(date_s, codes, xs, ys):
     names = list(xs[0].keys()) if xs else []
     X = np.array(
@@ -193,13 +224,14 @@ class TestNanLabelRank(unittest.TestCase):
         short = _synth_days(n_days=1, n_names=4, seed=2)
         short[0]["ys"][1] = float("nan")
         short[0]["date"] = "2024-06-03"
-        fit = fit_lambdarank(
-            days + short,
-            n_estimators=5,
-            max_depth=2,
-            min_child_samples=1,
-            subsample=1.0,
-        )
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days + short,
+                n_estimators=5,
+                max_depth=2,
+                min_child_samples=1,
+                subsample=1.0,
+            )
         self.assertTrue(fit.get("success"), fit)
         self.assertEqual(fit.get("n_groups"), 6)
         self.assertEqual(fit.get("sample_count"), 24)
@@ -244,14 +276,15 @@ class TestOoRankVaryingPool(unittest.TestCase):
         days = _synth_varying_pool_days()
         max_label = max(len(d["ys"]) for d in days) - 1
         self.assertGreater(max_label, 31, "测试前提：必须复现 label>=31")
-        fit = fit_lambdarank(
-            days,
-            n_estimators=40,
-            max_depth=3,
-            learning_rate=0.08,
-            subsample=1.0,
-            min_child_samples=2,
-        )
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=40,
+                max_depth=3,
+                learning_rate=0.08,
+                subsample=1.0,
+                min_child_samples=2,
+            )
         self.assertTrue(fit.get("success"), fit)
         self.assertEqual(fit.get("n_groups"), len(days))
         self.assertNotIn("n_pair_days", fit)
@@ -262,9 +295,10 @@ class TestOoRankRidgeBaseline(unittest.TestCase):
 
         days = _synth_days(12, 8)
         names = ["mom3", "volume_ratio", "vol_penalty_score"]
-        ridge = _fit_ridge_baseline(days[:8], feature_names=names, ridge_lambda=1.0)
-        self.assertTrue(ridge.get("success"), ridge)
-        metrics = _oos_day_metrics(days[8:], ridge, topk_track=3, ndcg_k=3)
+        with _patch_rank_l2_as_batch():
+            ridge = _fit_ridge_baseline(days[:8], feature_names=names, ridge_lambda=1.0)
+            self.assertTrue(ridge.get("success"), ridge)
+            metrics = _oos_day_metrics(days[8:], ridge, topk_track=3, ndcg_k=3)
         self.assertGreater(int(metrics.get("n_days") or 0), 0, metrics)
         self.assertIsNotNone(metrics.get("spearman"))
         self.assertIsNotNone(metrics.get("cs_ic"))
@@ -323,7 +357,7 @@ class TestOoRankFit(unittest.TestCase):
         with patch(
             "core.research.oo_rank_panel.build_oo_rank_day_panels",
             side_effect=_fake_panels,
-        ):
+        ), _patch_rank_l2_as_batch():
             stock_bars = [{"code": "000001", "bars": [{"date": d["date"]} for d in days]}]
             report = fit_oo_rank_report(
                 stock_bars,
@@ -364,7 +398,7 @@ class TestOoRankFit(unittest.TestCase):
         with patch(
             "core.research.oo_rank_panel.build_oo_rank_day_panels",
             side_effect=_fake_panels,
-        ):
+        ), _patch_rank_l2_as_batch():
             track = compare_oo_rank_shadow_track(
                 stock_bars,
                 holdout_trading_days=8,
@@ -387,14 +421,15 @@ class TestOoRankFit(unittest.TestCase):
 
         self.assertIn("y_oo_rank", AUX_YHAT_KEYS)
         days = _synth_days(20, 16)
-        fit = fit_lambdarank(
-            days,
-            n_estimators=40,
-            max_depth=3,
-            learning_rate=0.08,
-            subsample=1.0,
-            min_child_samples=2,
-        )
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=40,
+                max_depth=3,
+                learning_rate=0.08,
+                subsample=1.0,
+                min_child_samples=2,
+            )
         self.assertTrue(fit.get("success"), fit)
         item = {
             "stock_code": "000001",
@@ -404,7 +439,8 @@ class TestOoRankFit(unittest.TestCase):
                 "vol_penalty_score": 40.0,
             },
         }
-        apply_oo_rank_scores([item], fit=fit)
+        with _patch_rank_l2_as_batch():
+            apply_oo_rank_scores([item], fit=fit)
         self.assertEqual(item.get("y_oo_rank"), 1)
         self.assertEqual(item.get("y_oo_rank_n"), 1)
         self.assertIsNotNone(item.get("y_oo_rank_score"))
@@ -508,7 +544,8 @@ class TestOoRankFit(unittest.TestCase):
         self.assertIn("contrib", terms0[0])
 
     def test_score_codes_keep_full_pool_z_and_rank_only_allowed(self):
-        """截面 z 吃整批；名次只编允许档。档外极值会把允许档的相对分拉到均值下方。"""
+        """L2 全池 μ/σ；名次只编允许档。档外极值会把允许档的相对分拉到均值下方。"""
+        from core.research.day_cube import build_day_cube
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores
 
         ridge = {
@@ -526,15 +563,24 @@ class TestOoRankFit(unittest.TestCase):
             "zscore_stds": {},
         }
         items = [
-            {"stock_code": "A1", "sub_scores": {"mom3": 0.0}},
-            {"stock_code": "A2", "sub_scores": {"mom3": 10.0}},
+            {"stock_code": "A1", "sub_scores": {"mom3": 0.0}, "lake_score_day": "2024-05-01"},
+            {"stock_code": "A2", "sub_scores": {"mom3": 10.0}, "lake_score_day": "2024-05-01"},
             {
                 "stock_code": "B1",
                 "sub_scores": {"mom3": 1000.0},
                 "y_oo_rank": 9,
+                "lake_score_day": "2024-05-01",
             },
         ]
-        apply_oo_rank_scores(items, fit=ridge, score_codes=["A1", "A2"])
+        cube = build_day_cube(
+            "2024-05-01",
+            {it["stock_code"]: dict(it["sub_scores"]) for it in items},
+            names=["mom3"],
+            clock="open",
+        )
+        apply_oo_rank_scores(
+            items, fit=ridge, score_codes=["A1", "A2"], day_cube=cube
+        )
         by = {it["stock_code"]: it for it in items}
         self.assertNotIn("y_oo_rank", by["B1"])
         self.assertNotIn("y_oo_rank_score", by["B1"])
@@ -544,8 +590,9 @@ class TestOoRankFit(unittest.TestCase):
         self.assertEqual(by["A2"]["y_oo_rank_n"], 2)
         self.assertLess(float(by["A2"]["y_oo_rank_score"]), 0.0)
 
-    def test_tier_a_z_ignores_out_of_universe_extremes(self):
-        """宇宙 A：先缩名单再算 z；B 极值不影响 A 内相对分。"""
+    def test_legacy_tier_a_stamp_still_uses_full_pool_z(self):
+        """旧 zscore_universe=tier_a 不再缩 z：B 极值把 A2 相对分拉到均值下。"""
+        from core.research.day_cube import build_day_cube
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores
 
         ridge = {
@@ -559,21 +606,30 @@ class TestOoRankFit(unittest.TestCase):
             "feature_zscore": True,
             "zscore_scope": "cross_section",
             "zscore_universe": "tier_a",
+            "train_universe": "tier_a",
             "tier_codes": ["A1", "A2"],
             "zscore_means": {},
             "zscore_stds": {},
         }
         items = [
-            {"stock_code": "A1", "sub_scores": {"mom3": 0.0}},
-            {"stock_code": "A2", "sub_scores": {"mom3": 10.0}},
-            {"stock_code": "B1", "sub_scores": {"mom3": 1000.0}, "y_oo_rank": 9},
+            {"stock_code": "A1", "sub_scores": {"mom3": 0.0}, "lake_score_day": "2024-05-01"},
+            {"stock_code": "A2", "sub_scores": {"mom3": 10.0}, "lake_score_day": "2024-05-01"},
+            {"stock_code": "B1", "sub_scores": {"mom3": 1000.0}, "y_oo_rank": 9, "lake_score_day": "2024-05-01"},
         ]
-        apply_oo_rank_scores(items, fit=ridge, score_codes=["A1", "A2", "B1"])
+        cube = build_day_cube(
+            "2024-05-01",
+            {it["stock_code"]: dict(it["sub_scores"]) for it in items},
+            names=["mom3"],
+            clock="open",
+        )
+        apply_oo_rank_scores(
+            items, fit=ridge, score_codes=["A1", "A2"], day_cube=cube
+        )
         by = {it["stock_code"]: it for it in items}
         self.assertNotIn("y_oo_rank", by["B1"])
         self.assertEqual(by["A2"]["y_oo_rank"], 1)
         self.assertEqual(by["A1"]["y_oo_rank"], 2)
-        self.assertGreater(float(by["A2"]["y_oo_rank_score"]), 0.0)
+        self.assertLess(float(by["A2"]["y_oo_rank_score"]), 0.0)
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_persist_research_sidecar(self):
@@ -585,14 +641,15 @@ class TestOoRankFit(unittest.TestCase):
         )
 
         days = _synth_days(25, 18)
-        fit = fit_lambdarank(
-            days,
-            n_estimators=40,
-            max_depth=3,
-            learning_rate=0.08,
-            subsample=1.0,
-            min_child_samples=2,
-        )
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=40,
+                max_depth=3,
+                learning_rate=0.08,
+                subsample=1.0,
+                min_child_samples=2,
+            )
         lambda_live = dict(fit, model_role="live", backend="lambdarank", target="oo_rank")
         lambda_research = dict(
             fit, model_role="research", backend="lambdarank", target="oo_rank"
@@ -820,14 +877,15 @@ class TestOoRankReport(unittest.TestCase):
         )
 
         days = _synth_days(20, 16)
-        fit = fit_lambdarank(
-            days,
-            n_estimators=40,
-            max_depth=3,
-            learning_rate=0.08,
-            subsample=1.0,
-            min_child_samples=2,
-        )
+        with _patch_rank_l2_as_batch():
+            fit = fit_lambdarank(
+                days,
+                n_estimators=40,
+                max_depth=3,
+                learning_rate=0.08,
+                subsample=1.0,
+                min_child_samples=2,
+            )
         self.assertTrue(fit.get("success"), fit)
         items = [
             {
@@ -840,7 +898,8 @@ class TestOoRankReport(unittest.TestCase):
             }
             for i in range(12)
         ]
-        apply_oo_rank_scores(items, fit=fit)
+        with _patch_rank_l2_as_batch():
+            apply_oo_rank_scores(items, fit=fit)
         ranks = [int(it["y_oo_rank"]) for it in items]
         self.assertEqual(sorted(ranks), list(range(1, 13)))
         self.assertTrue(all(it.get("y_oo_rank_score") is not None for it in items))
@@ -865,7 +924,7 @@ class TestOoRankReport(unittest.TestCase):
         with patch(
             "core.research.oo_rank_panel.build_oo_rank_day_panels",
             side_effect=_fake_panels,
-        ):
+        ), _patch_rank_l2_as_batch():
             stock_bars = [{"code": "000001", "bars": [{"date": d["date"]} for d in days]}]
             report = fit_oo_rank_report(
                 stock_bars,
@@ -1211,7 +1270,94 @@ class TestOoRankPersistSkipsRefit(unittest.TestCase):
         self.assertIn("请先点拟合", str(out.get("error") or ""))
 
 class TestRankCrossSectionZ(unittest.TestCase):
-    def test_ridge_z_uses_the_same_rows_as_the_loss(self):
+    def test_z_day_cross_section_uses_l2_api_only(self):
+        """拟合日截面只走 apply_day_cube_mu_sigma_matrix（不进批现算）。"""
+        from unittest import mock
+
+        from core.research.oo_rank_lambdarank import _z_day_cross_section
+
+        day = {
+            "date": "2024-06-03",
+            "codes": ["A", "B"],
+            "names": ["f0"],
+            "X": np.asarray([[1.0], [3.0]], dtype=np.float64),
+            "ys": [0.0, 1.0],
+        }
+        with mock.patch(
+            "core.research.materialize.cube_z.apply_day_cube_mu_sigma_matrix",
+            return_value=(
+                np.asarray([[-1.0], [1.0]], dtype=np.float64),
+                {"ok": True},
+            ),
+        ) as apply_l2:
+            z = _z_day_cross_section(day, ["f0"], clock="open")
+        self.assertIsNotNone(z)
+        apply_l2.assert_called_once()
+        _args, kwargs = apply_l2.call_args
+        self.assertEqual(list(_args[2]), ["2024-06-03", "2024-06-03"])
+        self.assertEqual(kwargs.get("clock"), "open")
+        # 全池 Cube：勿把当日面板 codes 传入（会换 universe hash → miss）
+        self.assertIsNone(kwargs.get("codes"))
+
+    def test_filter_days_with_l2_drops_partial_like_oo(self):
+        """部分日无 Cube：丢掉后继续；全日无才 MaterializeRequired。"""
+        from unittest import mock
+
+        from core.research.materialize.consumer import MaterializeRequired
+        from core.research.oo_rank_lambdarank import _filter_days_with_l2
+
+        days = [
+            {"date": "2022-08-15", "ys": [0.1]},
+            {"date": "2022-08-31", "ys": [0.2]},
+            {"date": "2022-09-01", "ys": [0.3]},
+        ]
+
+        def _mask(groups, **_kw):
+            out = []
+            miss = []
+            for g in groups:
+                day = str(g or "")[:10]
+                ok = day >= "2022-08-31"
+                out.append(ok)
+                if not ok:
+                    miss.append(f"{day}|open")
+            return np.asarray(out, dtype=bool), miss[:8]
+
+        with mock.patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            side_effect=_mask,
+        ):
+            kept = _filter_days_with_l2(days, clock="open")
+        self.assertEqual([d["date"] for d in kept], ["2022-08-31", "2022-09-01"])
+
+        with mock.patch(
+            "core.research.materialize.cube_z.groups_with_day_cube",
+            return_value=(np.zeros(3, dtype=bool), ["2022-08-15|open"]),
+        ), self.assertRaises(MaterializeRequired):
+            _filter_days_with_l2(days, clock="open")
+
+    def test_z_day_cross_section_miss_returns_none_not_raise(self):
+        """单日 cube miss：返回 None（拟合跳过），不抬 MaterializeRequired。"""
+        from unittest import mock
+
+        from core.research.materialize.consumer import materialized_consumer
+        from core.research.oo_rank_lambdarank import _z_day_cross_section
+
+        day = {
+            "date": "2022-08-15",
+            "codes": ["A", "B"],
+            "names": ["f0"],
+            "X": np.asarray([[1.0], [3.0]], dtype=np.float64),
+            "ys": [0.0, 1.0],
+        }
+        with materialized_consumer(), mock.patch(
+            "core.research.materialize.cube_z.apply_day_cube_mu_sigma_matrix",
+            return_value=(None, {"ok": False, "error": "cube miss 2022-08-15|open"}),
+        ):
+            z = _z_day_cross_section(day, ["f0"], clock="open")
+        self.assertIsNone(z)
+
+    def test_ridge_pool_z_washes_out_constant_day_signal(self):
         from core.research.oo_rank_lambdarank import _fit_ridge_baseline
 
         days = []
@@ -1235,14 +1381,45 @@ class TestRankCrossSectionZ(unittest.TestCase):
                     "X": np.asarray([[0.0], [10.0], [10.0]], dtype=np.float64),
                 }
             )
-        pooled = _fit_ridge_baseline(
-            days, feature_names=["f0"], cross_section_zscore=True
-        )
+        with _patch_rank_l2_as_batch():
+            pooled = _fit_ridge_baseline(
+                days, feature_names=["f0"], cross_section_zscore=True
+            )
         self.assertTrue(pooled.get("success"), pooled)
         beta_all = float((pooled.get("coefficients") or {}).get("f0") or 0.0)
         self.assertLess(abs(beta_all), 0.2, pooled.get("coefficients"))
         self.assertNotIn("loss_rows", pooled)
         self.assertNotIn("zscore_rows", pooled)
+
+    def test_train_codes_shrink_loss_keep_peer_z(self):
+        """train_codes 只过滤损失行；日截面 z 仍含池外同伴。"""
+        from core.research.feature_standardize import cross_section_zscore_matrix
+        from core.research.oo_rank_lambdarank import (
+            _keep_idx_for_codes,
+            _raw_day_aligned,
+            _take_rows,
+        )
+
+        day = {
+            "date": "2024-03-01",
+            "codes": ["A1", "A2", "B1"],
+            "ys": [0.1, 0.2, 0.0],
+            "names": ["f0"],
+            "X": np.asarray([[0.0], [10.0], [1000.0]], dtype=np.float64),
+        }
+        raw = _raw_day_aligned(day, ["f0"])
+        self.assertIsNotNone(raw)
+        z_all = cross_section_zscore_matrix(raw, ["d", "d", "d"])
+        # 全池 z：B1 极值 → A2 相对分为负
+        self.assertLess(float(z_all[1, 0]), 0.0)
+        keep = _keep_idx_for_codes(day, 3, {"A1", "A2"})
+        self.assertEqual(list(keep), [0, 1])
+        ys, z_kept = _take_rows(np.asarray(day["ys"]), z_all, keep)
+        self.assertEqual(len(ys), 2)
+        # 缩损失后仍保留「含 B 同伴」算出的 z，而非 A 内重算
+        self.assertLess(float(z_kept[1, 0]), 0.0)
+        z_a_only = cross_section_zscore_matrix(raw[[0, 1]], ["d", "d"])
+        self.assertGreater(float(z_a_only[1, 0]), 0.0)
 
 if __name__ == "__main__":
     unittest.main()

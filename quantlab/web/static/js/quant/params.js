@@ -54,7 +54,7 @@ const CS_ZSCORE_STORAGE_KEYS = Object.fromEntries(
   CS_Z_FIT_HEADS.map((h) => [h, `quant_fit_cs_z_${h}`])
 );
 
-/** 排序头：截面宇宙=A 档（oo_rank / tc_rank）。 */
+/** 排序头：训练宇宙=A 档（oo_rank / tc_rank；截面 z 仍全池）。 */
 const RANK_Z_UNIV_A_HEADS = ["oo_rank", "tc_rank"];
 const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
   RANK_Z_UNIV_A_HEADS.map((h) => [h, `quant_fit_z_univ_a_${h}`])
@@ -514,7 +514,7 @@ export function createResearchParams(opts = {}) {
     return document.getElementById(`quant-fit-z-univ-a-${h}`);
   }
 
-  /** 排序头「宇宙 A 档」勾选；默认关（整池）。 */
+  /** 排序头「训练 A 档」勾选；默认关（损失用整池）。截面 z 不受此开关影响。 */
   function readRankZUniverseTierA(head) {
     const h = String(head || "").trim().toLowerCase();
     if (!RANK_Z_UNIV_A_HEADS.includes(h)) return false;
@@ -538,7 +538,7 @@ export function createResearchParams(opts = {}) {
   function readRankZUniverseFitParams(head) {
     const h = String(head || "").trim().toLowerCase();
     if (!RANK_Z_UNIV_A_HEADS.includes(h)) return {};
-    return { zscore_universe_tier_a: readRankZUniverseTierA(h) };
+    return { train_universe_tier_a: readRankZUniverseTierA(h) };
   }
 
   /** 卡头摘要：日截面 / 全局 Z（Ridge return_model · Tree tree_return_model）。 */
@@ -578,14 +578,17 @@ export function createResearchParams(opts = {}) {
     }
     if (cs === undefined) return "";
     let bit = cs ? "日截面Z" : "全局Z";
-    const uniRaw =
+    const trainRaw =
+      src.train_universe ||
+      meta.train_universe ||
+      (src.return_model && src.return_model.train_universe) ||
       src.zscore_universe ||
       meta.zscore_universe ||
       (src.return_model && src.return_model.zscore_universe) ||
       "";
-    const uni = String(uniRaw || "").toLowerCase();
+    const uni = String(trainRaw || "").toLowerCase();
     if (uni === "tier_a" || uni === "tier" || uni === "a") {
-      bit = `${bit}·宇宙 A 档`;
+      bit = `${bit}·训练 A 档`;
     }
     return bit;
   }

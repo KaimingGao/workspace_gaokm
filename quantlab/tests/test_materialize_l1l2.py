@@ -165,7 +165,8 @@ class MaterializeCatalogTests(unittest.TestCase):
         self.assertNotIn("09:30", clocks)
         self.assertNotIn("open", clocks)
         self.assertIn("flags", doc)
-        self.assertIn("fit_use_day_cube", doc["flags"])
+        self.assertIn("require_day_cube", doc["flags"])
+        self.assertNotIn("fit_use_day_cube", doc["flags"])
         self.assertIn("tau_grid", doc)
         self.assertEqual(doc["tau_grid"].get("option"), "do_l1_tau_grid")
         self.assertTrue(doc["tau_grid"].get("requires_minute"))
@@ -240,8 +241,12 @@ class MaterializeOrchestrateTests(unittest.TestCase):
             resolve_l2_lookback,
         )
 
-        self.assertEqual(resolve_l2_lookback(1000, minute=False), 1000)
-        self.assertEqual(resolve_l2_lookback(0, minute=False), 1000)  # BARS_DAILY_LOOKBACK
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+        pad = max(35, int(ALPHA_OO_PANEL_WINDOW))
+        # 日线 +alpha_oo 垫窗：对齐拟合 lookback+pad
+        self.assertEqual(resolve_l2_lookback(1000, minute=False), 1000 + pad)
+        self.assertEqual(resolve_l2_lookback(0, minute=False), 1000 + pad)
         self.assertEqual(resolve_l2_lookback(1000, minute=True), L2_MINUTE_LOOKBACK)
         self.assertFalse(request_has_minute_clock(["open"]))
         self.assertTrue(request_has_minute_clock(["09:35"]))
@@ -265,8 +270,11 @@ class MaterializeOrchestrateTests(unittest.TestCase):
                 clocks=["open"],
                 lookback=1000,
             )
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+        pad = max(35, int(ALPHA_OO_PANEL_WINDOW))
         self.assertTrue(out.get("ok"), out)
-        self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), 1000)
+        self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), 1000 + pad)
 
         with mock.patch(
             "core.research.materialize.orchestrate.resolve_materialize_codes",
@@ -565,19 +573,23 @@ class MaterializePackageExportTests(unittest.TestCase):
 
         for name in (
             "catalog_payload",
-            "fit_use_day_cube",
+            "require_day_cube",
             "run_materialize",
             "build_materialize_track",
             "cs_z_matrix_prefer_cube",
             "cs_z_dicts_prefer_cube",
+            "align_fit_rows_to_l2",
+            "groups_with_day_cube",
             "apply_day_cube_mu_sigma_matrix",
             "horizon_l1_feature_names",
             "names_cover_horizon",
         ):
             self.assertTrue(callable(getattr(m, name, None)), name)
+        self.assertFalse(hasattr(m, "fit_use_day_cube"))
 
 class PreferCubeHelpersTests(unittest.TestCase):
-    def test_cs_z_matrix_prefer_cube_uses_flag(self):
+    def test_cs_z_matrix_prefer_cube_always_tries_l2(self):
+        """有 Cube 即吃 L2 μ/σ（恒走 L2，无开关）。"""
         import numpy as np
 
         from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
@@ -589,8 +601,6 @@ class PreferCubeHelpersTests(unittest.TestCase):
 
         x = np.array([[1.0], [3.0]], dtype=np.float64)
         with mock.patch(
-            "core.research.materialize.flags.fit_use_day_cube", return_value=True
-        ), mock.patch(
             "core.research.day_cube.enabled", return_value=True
         ), mock.patch(
             "core.research.day_cube.load_day_cube", return_value=_Cube()
@@ -601,6 +611,39 @@ class PreferCubeHelpersTests(unittest.TestCase):
             z = cs_z_matrix_prefer_cube(x, ["f1"], ["2026-01-02", "2026-01-02"])
         self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
         self.assertAlmostEqual(float(z[1, 0]), 3.0, places=5)
+
+    def test_align_fit_rows_drops_days_without_cube(self):
+        """单票 L1 早到日无池立方时丢掉，不整单 materialize_required。"""
+        import numpy as np
+
+        from core.research.materialize.cube_z import align_fit_rows_to_l2
+
+        class _Cube:
+            names = ["f1"]
+            z_mean = np.array([0.0])
+            z_std = np.array([1.0])
+
+        def _load(day, codes, clock="open"):
+            if str(day)[:10] == "2022-08-31":
+                return _Cube()
+            return None
+
+        x = np.array([[1.0], [2.0], [3.0]], dtype=np.float64)
+        y = np.array([0.1, 0.2, 0.3], dtype=np.float64)
+        dates = ["2022-08-23", "2022-08-31", "2022-08-31"]
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            x2, y2, d2, mask = align_fit_rows_to_l2(x, y, dates, clock="open")
+        self.assertEqual(list(mask), [False, True, True])
+        self.assertEqual(x2.shape[0], 2)
+        self.assertEqual(list(d2), ["2022-08-31", "2022-08-31"])
+        np.testing.assert_allclose(y2, [0.2, 0.3])
 
 class CubeZPerClockTests(unittest.TestCase):
     def test_date_tau_loads_matching_clock(self):
@@ -717,8 +760,8 @@ class CubeZPerClockTests(unittest.TestCase):
         self.assertFalse(meta.get("fallback_open"))
         self.assertIn("cube miss", str(meta.get("error") or ""))
 
-    def test_partial_cube_miss_uses_matrix_fallback(self):
-        """5m 近端有 Cube、窗外缺日：有多少用多少，不整单失败。"""
+    def test_partial_cube_miss_fails_without_matrix_fallback(self):
+        """部分日缺 Cube：整单失败，不再桶内现算。"""
         import numpy as np
 
         from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
@@ -733,7 +776,6 @@ class CubeZPerClockTests(unittest.TestCase):
                 return _Cube()
             return None
 
-        # 两日各两行：有 Cube 的日用 L2；(x-0)/1；缺日桶内 z
         x = np.array([[1.0], [3.0], [10.0], [30.0]], dtype=np.float64)
         groups = [
             "2026-08-04|09:35",
@@ -752,18 +794,14 @@ class CubeZPerClockTests(unittest.TestCase):
             z, meta = apply_day_cube_mu_sigma_matrix(
                 x, ["f1"], groups, clock="open", fallback_open=False
             )
-        self.assertTrue(meta.get("ok"), meta)
+        self.assertIsNone(z)
+        self.assertFalse(meta.get("ok"), meta)
         self.assertEqual(meta.get("hit_days"), 1)
         self.assertEqual(meta.get("miss_days"), 1)
-        self.assertEqual(meta.get("matrix_fallback_days"), 1)
-        self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
-        self.assertAlmostEqual(float(z[1, 0]), 3.0, places=5)
-        # 桶内 μ=20 σ=10 → -1 / +1
-        self.assertAlmostEqual(float(z[2, 0]), -1.0, places=5)
-        self.assertAlmostEqual(float(z[3, 0]), 1.0, places=5)
+        self.assertIn("cube miss", str(meta.get("error") or ""))
 
-    def test_missing_model_column_matrix_fallback(self):
-        """Cube 缺列（如截面广度 z_τh_sector_*）→ 桶内 z，不整单失败。"""
+    def test_missing_model_column_zeros_not_batch_cs(self):
+        """Cube 缺列：填 0，不进批现算；有 Cube μ/σ 的列照常。"""
         import numpy as np
 
         from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
@@ -787,13 +825,16 @@ class CubeZPerClockTests(unittest.TestCase):
             )
         self.assertTrue(meta.get("ok"), meta)
         self.assertIsNotNone(z)
-        self.assertIn("f2", meta.get("matrix_fallback_cols") or [])
+        self.assertIn("f2", meta.get("missing_cols") or meta.get("matrix_fallback_cols") or [])
         # f1 用 Cube：(1-0)/1=1；(3-0)/1=3
         self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
         self.assertAlmostEqual(float(z[1, 0]), 3.0, places=5)
-        # f2 桶内 μ=3 σ=1 → -1 / +1
-        self.assertAlmostEqual(float(z[0, 1]), -1.0, places=5)
-        self.assertAlmostEqual(float(z[1, 1]), 1.0, places=5)
+        # f2 缺列填 0
+        self.assertAlmostEqual(float(z[0, 1]), 0.0, places=5)
+        self.assertAlmostEqual(float(z[1, 1]), 0.0, places=5)
+        # raw_ath_x 在 Cube 内：(3-1)/1=2；(5-1)/1=4
+        self.assertAlmostEqual(float(z[0, 2]), 2.0, places=5)
+        self.assertAlmostEqual(float(z[1, 2]), 4.0, places=5)
 
 class NamesCoverHorizonTests(unittest.TestCase):
     def test_slim_rejected(self):

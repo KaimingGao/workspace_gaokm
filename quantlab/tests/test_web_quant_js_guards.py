@@ -2369,7 +2369,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("ŷ_oc@10:30", panel)
         self.assertNotIn("决策钟默认 10:30", panel)
         self.assertIn("ŷ_τc 因果前缀≤10:00", policy)
-        self.assertIn("ŷ_τc / ŷ_τ*", minute)
+        # 分钟脚注 Downstream 已收进面板文案；JS 不再硬编码 ŷ_τc / ŷ_τ*
+        self.assertNotIn("ŷ_τc / ŷ_τ*", minute)
         self.assertIn("下游 ŷ_τc", panel)
         self.assertIn("物化 L1/L2（τ 网格）", panel)
 
@@ -3388,7 +3389,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="quant-fit-cs-z-oo_rank"', panel)
         self.assertIn('id="quant-fit-z-univ-a-oo_rank"', panel)
         self.assertIn('id="quant-fit-z-univ-a-tc_rank"', panel)
-        self.assertIn("宇宙 A 档", panel)
+        self.assertIn("训练 A 档", panel)
+        self.assertNotIn("宇宙 A 档", panel)
         self.assertLess(
             panel.index('id="quant-fit-z-univ-a-oo_rank"'),
             panel.index('id="quant-fit-cs-z-oo_rank"'),
@@ -3397,7 +3399,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             panel.index('id="quant-fit-z-univ-a-tc_rank"'),
             panel.index('id="quant-fit-cs-z-tc_rank"'),
         )
-        self.assertIn("zscore_universe_tier_a", params_js)
+        self.assertIn("train_universe_tier_a", params_js)
         self.assertIn("readRankZUniverseFitParams", params_js)
         self.assertIn("readRankZUniverseTierA", params_js)
         self.assertNotIn("readRankZUniverseTiersA", params_js)

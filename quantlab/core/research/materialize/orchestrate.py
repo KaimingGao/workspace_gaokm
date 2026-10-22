@@ -28,8 +28,24 @@ _OPEN_CLOCKS = frozenset({"", "open", "09:30", "0930"})
 L2_MINUTE_LOOKBACK = 60
 
 
+def _daily_l2_pad() -> int:
+    """与 ``portfolio_bars`` / 拟合加载同口径：lookback 外再垫 alpha_oo 窗。"""
+    pad = 35
+    try:
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+        pad = max(pad, int(ALPHA_OO_PANEL_WINDOW))
+    except Exception:  # noqa: BLE001
+        logger.debug("daily L2 pad alpha_oo failed", exc_info=True)
+    return max(1, int(pad))
+
+
 def resolve_l2_lookback(lookback: int, *, minute: bool) -> int:
-    """L2 交易日回看：日线跟 ``lookback``；分钟钟用内部 ``L2_MINUTE_LOOKBACK``。"""
+    """L2 交易日回看：日线跟 ``lookback``；分钟钟用内部 ``L2_MINUTE_LOOKBACK``。
+
+    日线再垫 ``alpha_oo`` 窗（与拟合 ``lookback+pad`` 同长）：首个可算日可落在
+    垫窗内任一日，只 +1 仍会 ``cube miss``（例如本地已有 n=lookback+1 仍缺更早日）。
+    """
     if minute:
         return max(2, min(1500, int(L2_MINUTE_LOOKBACK)))
     try:
@@ -38,7 +54,7 @@ def resolve_l2_lookback(lookback: int, *, minute: bool) -> int:
         lb = 0
     if lb <= 0:
         lb = int(BARS_DAILY_LOOKBACK)
-    return max(2, min(1500, lb))
+    return max(2, min(1500, lb + _daily_l2_pad()))
 
 
 def request_has_minute_clock(

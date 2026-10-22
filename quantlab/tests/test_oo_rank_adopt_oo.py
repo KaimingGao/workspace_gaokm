@@ -264,9 +264,12 @@ class OoRankAdoptOoTests(unittest.TestCase):
             MaterializeRequired,
             materialized_consumer,
         )
-        from core.research.oo_rank_panel import build_oo_rank_day_panels
+        from core.research.oo_rank_panel import (
+            _oo_rank_min_bars,
+            build_oo_rank_day_panels,
+        )
 
-        bars = _bars(20)
+        bars = _bars(_oo_rank_min_bars(1))
         packs = [{"code": "000001", "bars": bars}, {"code": "000002", "bars": bars}]
         with materialized_consumer(), mock.patch(
             "core.research.materialize.coverage.enforce_consumer_coverage"
@@ -316,11 +319,12 @@ class OoRankAdoptOoTests(unittest.TestCase):
         from core.research.incremental_panel import stem_extra_meta
         from core.research.lake_bridge import FAMILY_OO_RANK
         from core.research.oo_rank_panel import (
+            _oo_rank_min_bars,
             _oo_rank_panel_fingerprint,
             _oo_rank_stock_job,
         )
 
-        bars = _bars(20)
+        bars = _bars(_oo_rank_min_bars(1))
         default_fp, _, _, _ = _oo_rank_panel_fingerprint(
             bars,
             horizon_days=1,
@@ -369,3 +373,18 @@ class OoRankAdoptOoTests(unittest.TestCase):
                     os.environ[key] = val
             tmp.cleanup()
         self.assertEqual(calls, [None])
+
+    def test_short_bars_skip_like_oo_without_materialize(self) -> None:
+        """次新日线 < ALPHA_OO_PANEL_WINDOW+h：与 ŷ_oo 一样跳过，不报物化。"""
+        from core.research.oo_rank_panel import _oo_rank_min_bars, _oo_rank_stock_job
+        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+        need = _oo_rank_min_bars(1)
+        self.assertEqual(need, int(ALPHA_OO_PANEL_WINDOW) + 1)
+        short = _bars(need - 1)
+        with mock.patch(
+            "core.research.materialize.consumer.raise_if_consumer_rebuild"
+        ) as raise_rebuild:
+            out = _oo_rank_stock_job(_job(short, min_history=12, max_window=30))
+        self.assertIsNone(out)
+        raise_rebuild.assert_not_called()

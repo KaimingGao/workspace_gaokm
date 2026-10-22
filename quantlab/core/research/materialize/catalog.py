@@ -78,7 +78,7 @@ def normalize_clocks(raw: Sequence[str] | None) -> List[str]:
 
 
 def catalog_payload() -> Dict[str, object]:
-    from core.research.materialize.flags import fit_use_day_cube, require_day_cube
+    from core.research.materialize.flags import require_day_cube
     from core.research.materialize.horizon_names import (
         horizon_cube_required_names,
         horizon_l1_feature_names,
@@ -107,12 +107,12 @@ def catalog_payload() -> Dict[str, object]:
             "note": "须本地 5m Ready；写 tc_HHMM（τc∪窗头列）后再物化按钟 L2",
         },
         "flags": {
-            "fit_use_day_cube": bool(fit_use_day_cube()),
             "require_day_cube": bool(require_day_cube()),
         },
         "note": (
             "L1=票级 raw；L2=日截面 μ/σ（不取代 L1）。"
-            "默认 L2 clock=open；τ 网格 L1 传 do_l1_tau_grid；"
+            "拟合/OOS 截面 z 只用 L2；默认 L2 clock=open；"
+            "τ 网格 L1 传 do_l1_tau_grid；"
             "按钟 L2 传 clocks=suggested_tau_clocks（须先有 tc_HHMM）。"
         ),
     }

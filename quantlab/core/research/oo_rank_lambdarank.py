@@ -13,7 +13,7 @@ import json
 import logging
 import math
 import os
-from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -507,16 +507,220 @@ def _raw_day_aligned(day: Dict[str, Any], feature_names: Sequence[str]) -> Optio
     return None
 
 
-def _z_day_cross_section(
-    day: Dict[str, Any], feature_names: Sequence[str]
-) -> Optional[np.ndarray]:
-    """当天截面 z-score。不使用其它交易日的均值和标准差。"""
-    from core.research.feature_standardize import cross_section_zscore_matrix
+def _filter_days_with_l2(
+    days: Sequence[Dict[str, Any]],
+    *,
+    clock: str = "open",
+) -> List[Dict[str, Any]]:
+    """与 ŷ_oo ``align_fit_rows_to_l2`` 同：丢掉无 Cube 日；全日无则报物化。"""
+    from core.research.materialize.consumer import MaterializeRequired
+    from core.research.materialize.cube_z import (
+        _format_l2_miss_error,
+        _l2_materialize_hint,
+        groups_with_day_cube,
+    )
 
+    day_list = [d for d in (days or []) if isinstance(d, dict)]
+    if not day_list:
+        return []
+    dates = [str(d.get("date") or "")[:10] for d in day_list]
+    mask, miss = groups_with_day_cube(dates, clock=str(clock or "open"))
+    n_keep = int(mask.sum())
+    n_drop = len(day_list) - n_keep
+    if n_keep == 0:
+        hint, clks = _l2_materialize_hint(dates, default_clock=clock)
+        raise MaterializeRequired(
+            {
+                "error_code": "materialize_required",
+                "error": _format_l2_miss_error(
+                    {
+                        "error": f"cube miss {miss[0]}" if miss else "截面立方缺失",
+                        "clock": clks[0] if clks else clock,
+                    },
+                    default_clock=str(clock or "open"),
+                ),
+                "layer": "l2",
+                "hint": hint,
+                "clocks": clks,
+            }
+        )
+    if n_drop > 0:
+        logger.warning(
+            "oo_rank fit drop %s/%s days without L2 (per-stock L1 earlier than pool cubes); miss e.g. %s",
+            n_drop,
+            len(day_list),
+            miss[:5],
+        )
+    return [d for d, ok in zip(day_list, mask) if ok]
+
+
+def _z_day_cross_section(
+    day: Dict[str, Any],
+    feature_names: Sequence[str],
+    *,
+    clock: str = "open",
+) -> Optional[np.ndarray]:
+    """当天截面 z：只用全池 L2 DayCube μ/σ，**不**进批现算。
+
+    缺 Cube 返回 ``None``（该日跳过），与 ŷ_oo ``align_fit_rows_to_l2`` 同口径：
+    单票 L1 可早于池立方，拟合丢掉无 Cube 日，不因一日 miss 整次失败。
+    打分写盘仍走 ``rank_cross_section_z_dicts``（缺 L2 才 ``MaterializeRequired``）。
+    """
     raw = _raw_day_aligned(day, feature_names)
     if raw is None or int(raw.shape[0]) == 0:
         return None
-    return cross_section_zscore_matrix(raw, ["d"] * int(raw.shape[0]))
+    n = int(raw.shape[0])
+    names = [str(n) for n in feature_names]
+    day_s = str((day or {}).get("date") or "")[:10]
+    if len(day_s) < 10:
+        return None
+    groups = [day_s] * n
+    from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
+    from core.research.materialize.consumer import MaterializeRequired
+
+    try:
+        # 与 ŷ_oo ``cs_z_matrix_prefer_cube`` 同：用全池 universe 读 Cube。
+        # 传入当日面板 codes 会换 hash，整池已物化的 open Cube 反而 miss。
+        z, meta = apply_day_cube_mu_sigma_matrix(
+            raw,
+            names,
+            groups,
+            clock=str(clock or "open"),
+            codes=None,
+        )
+    except MaterializeRequired:
+        # 拟合按日跳过；勿把单日 miss 抬成整次物化闸。
+        logger.debug("rank _z_day skip MaterializeRequired date=%s", day_s)
+        return None
+    except Exception:  # noqa: BLE001
+        logger.debug("rank _z_day L2 failed date=%s", day_s, exc_info=True)
+        return None
+    if z is not None and isinstance(meta, dict) and meta.get("ok"):
+        return np.where(np.isfinite(z), z, 0.0)
+    err = str((meta or {}).get("error") or "截面立方缺失")
+    logger.debug("rank _z_day skip no cube date=%s clock=%s err=%s", day_s, clock, err)
+    return None
+
+
+def _item_cs_group(it: Mapping[str, Any], *, fallback: str = "d") -> str:
+    """打分行上的截面分组日：lake_score_day / as_of / date。"""
+    for key in ("lake_score_day", "as_of", "date"):
+        day = str((it or {}).get(key) or "")[:10]
+        if len(day) >= 10:
+            return day
+    return str(fallback or "d")
+
+
+def rank_cross_section_z_dicts(
+    raw_rows: Sequence[Mapping[str, Any]],
+    names: Sequence[str],
+    groups: Sequence[Any],
+    *,
+    day_cube: Any = None,
+    codes: Optional[Sequence[str]] = None,
+    clock: str = "open",
+) -> Optional[List[dict]]:
+    """排序头截面 z：只用 ``day_cube`` / 全池 L2 μ/σ，**不**进批现算。
+
+    缺 L2 时：消费只读 → ``MaterializeRequired``；否则返回 ``None``（调用方跳过写分）。
+    """
+    name_list = [str(n) for n in names]
+    rows = [dict(r) for r in (raw_rows or [])]
+    if not rows:
+        return []
+    grp_list = list(groups) if groups is not None else ["d"] * len(rows)
+    if len(grp_list) != len(rows):
+        fill = str(grp_list[0] if grp_list else "d")
+        grp_list = [fill] * len(rows)
+    code_list = [str(c or "").strip() for c in (codes or [])]
+    if len(code_list) != len(rows):
+        code_list = [""] * len(rows)
+
+    if day_cube is not None:
+        try:
+            from core.research.day_cube import apply_cube_z_to_dicts
+
+            z_all = apply_cube_z_to_dicts(rows, code_list, day_cube)
+            out: List[dict] = []
+            for i in range(len(rows)):
+                src = z_all[i] if i < len(z_all) and isinstance(z_all[i], dict) else {}
+                out.append({k: src.get(k) for k in name_list})
+            return out
+        except Exception:  # noqa: BLE001
+            logger.debug("rank day_cube apply failed", exc_info=True)
+
+    from core.research.materialize.consumer import MaterializeRequired, consumer_read_only
+    from core.research.materialize.cube_z import apply_day_cube_mu_sigma_dicts
+
+    try:
+        # 读 Cube 用全池 universe（同 ŷ_oo）；勿用当日行 codes 换 hash。
+        z_rows, meta = apply_day_cube_mu_sigma_dicts(
+            rows,
+            name_list,
+            grp_list,
+            clock=str(clock or "open"),
+            codes=None,
+        )
+    except MaterializeRequired:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.debug("rank L2 dict z failed", exc_info=True)
+        meta = {"ok": False, "error": "cube read failed"}
+        z_rows = None
+    if z_rows is not None and isinstance(meta, dict) and meta.get("ok"):
+        return z_rows
+    if consumer_read_only():
+        err = str((meta or {}).get("error") or "截面立方缺失")
+        raise MaterializeRequired(
+            {
+                "error_code": "materialize_required",
+                "error": f"请先物化 L2：排序头 {err}",
+                "layer": "l2",
+                "hint": "日线物化",
+                "clocks": [str(clock or "open")],
+            }
+        )
+    return None
+
+
+def _normalize_code_allow(
+    train_codes: Optional[Collection[str]],
+) -> Optional[set]:
+    if train_codes is None:
+        return None
+    out = {str(c).strip() for c in train_codes if str(c or "").strip()}
+    return out or None
+
+
+def _keep_idx_for_codes(
+    day: Dict[str, Any],
+    n_rows: int,
+    allow: Optional[set],
+) -> Optional[List[int]]:
+    """``None`` = 保留全行；否则返回落在 ``allow`` 内的行下标。"""
+    if allow is None:
+        return None
+    codes = day.get("codes") if isinstance(day, dict) else None
+    if not isinstance(codes, (list, tuple)) or len(codes) != int(n_rows):
+        return []
+    return [
+        i
+        for i, c in enumerate(codes)
+        if str(c or "").strip() in allow
+    ]
+
+
+def _take_rows(
+    ys: Sequence[float],
+    Z: np.ndarray,
+    keep: Optional[List[int]],
+) -> Tuple[List[float], np.ndarray]:
+    if keep is None:
+        return list(ys), Z
+    if not keep:
+        empty = Z[:0] if isinstance(Z, np.ndarray) else np.zeros((0, 0))
+        return [], empty
+    return [ys[i] for i in keep], Z[np.asarray(keep, dtype=np.int64)]
 
 
 def _z_day(
@@ -606,10 +810,12 @@ def fit_lambdarank(
     min_child_samples: int = 20,
     l2: float = 1.0,
     cross_section_zscore: bool = True,
+    train_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
     """LightGBM LambdaRank：按日截面 group，优化 NDCG。
 
-    日截面 z 先按当天全行计算，再丢掉非有限 y 及对应 Z 行后才打标签。
+    日截面 z **先按当天全行**计算，再按 ``train_codes``（可选）缩损失行，
+    再丢掉非有限 y 及对应 Z 行后才打标签。
     剩下不足 4 行，或标签只剩一种，跳过该日。NaN 不编成最高名次。
 
     输出与推理共用：
@@ -626,8 +832,11 @@ def fit_lambdarank(
         return {"success": False, "error": "no_features"}
     p = len(names)
     use_cs = bool(cross_section_zscore)
+    allow = _normalize_code_allow(train_codes)
     means: Dict[str, float] = {}
     stds: Dict[str, float] = {}
+    if use_cs:
+        days = _filter_days_with_l2(days, clock="open")
     if not use_cs:
         means, stds = _global_z_stats(days, names)
     X_blocks: List[np.ndarray] = []
@@ -645,6 +854,11 @@ def fit_lambdarank(
             Z = np.where(np.isfinite(Z), Z, 0.0)
         if Z is None or int(Z.shape[0]) != len(ys):
             continue
+        n_full = len(ys)
+        keep = _keep_idx_for_codes(day, n_full, allow)
+        if keep is not None:
+            n_rank_rows_dropped += n_full - len(keep)
+        ys, Z = _take_rows(ys, Z, keep)
         ys, Z, n_drop = _slice_finite_label_rows(ys, Z)
         n_rank_rows_dropped += int(n_drop)
         if len(ys) < 4:
@@ -1257,19 +1471,18 @@ def apply_oo_rank_scores(
     fit: Optional[Dict[str, Any]] = None,
     assign_day_ranks: bool = True,
     score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
+    clock: str = "open",
 ) -> List[dict]:
     """就地写入 y_oo_rank；缺 sub_scores 则跳过。不改 y_oo_fuse；过入场后作买序。
 
-    特征按当天截面 z-score（与训练同口径）。
-    ``zscore_universe=pool``（默认）：μ/σ 用整批 items；``score_codes`` 只限制写分/名次。
-    ``zscore_universe=tier_a``：先缩到 A（模型 ``tier_codes`` ∩ ``score_codes``）再算 μ/σ 与名次。
+    截面 z 只用全池 L2（``day_cube`` / ``cs_z_*_prefer_cube``）；缺 Cube 不写分。
+    ``score_codes`` 只限制写分/名次；训练宇宙（A）不影响打分 z。
     默认 ``assign_day_ranks=True``：对有相对分的票编 1..n 名次（1=最高分）。
     同时写入 ``formula_terms_oo_rank`` 供成交明细 oo_rank tip。
     """
     from core.research.feature_standardize import (
-        cross_section_zscore_dicts,
         is_cross_section_zscore,
-        is_tier_a_zscore_universe,
         normalize_score_codes,
     )
 
@@ -1281,30 +1494,12 @@ def apply_oo_rank_scores(
     from core.signal.factors.z_oo import stamp_z_oo_aliases
 
     allow = normalize_score_codes(score_codes)
-    tier_a = is_tier_a_zscore_universe(model, doc, fit)
-    if tier_a:
-        model_codes = normalize_score_codes(
-            (model or {}).get("tier_codes")
-            if isinstance(model, dict)
-            else None
-        )
-        if model_codes is None and isinstance(doc, dict):
-            model_codes = normalize_score_codes(doc.get("tier_codes"))
-        if model_codes is not None:
-            allow = model_codes if allow is None else (allow & model_codes)
-        if allow is None:
-            return list(items)
 
     out = list(items)
     raw_rows: List[dict] = []
     slots: List[int] = []
     for i, it in enumerate(out):
         if not isinstance(it, dict):
-            continue
-        code = str(it.get("stock_code") or "").strip()
-        if tier_a and allow is not None and code not in allow:
-            for key in _OO_RANK_DROP:
-                it.pop(key, None)
             continue
         subs = it.get("sub_scores") or it.get("sub_scores_raw")
         if not isinstance(subs, dict):
@@ -1316,7 +1511,7 @@ def apply_oo_rank_scores(
     keep: List[int] = []
     for j, slot in enumerate(slots):
         code = str(out[slot].get("stock_code") or "").strip()
-        if (not tier_a) and allow is not None and code not in allow:
+        if allow is not None and code not in allow:
             for key in _OO_RANK_DROP:
                 out[slot].pop(key, None)
             continue
@@ -1327,8 +1522,19 @@ def apply_oo_rank_scores(
         names = list((model or {}).get("active_features") or (model or {}).get("coefficients") or [])
         if not names:
             names = list(raw_rows[0].keys())
-        # tier_a 时 raw_rows 已是 A；pool 时整批算 μ/σ，再只对 keep 写分
-        feat_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in names])
+        codes = [str(out[s].get("stock_code") or "").strip() for s in slots]
+        groups = [_item_cs_group(out[s]) for s in slots]
+        feat_rows = rank_cross_section_z_dicts(
+            raw_rows,
+            [str(n) for n in names],
+            groups,
+            day_cube=day_cube,
+            codes=codes,
+            clock=str(clock or "open"),
+        )
+        if feat_rows is None:
+            # 无 L2：不写分（禁止进批现算 / raw×β）
+            return out
         pred_rows = [feat_rows[j] for j in keep]
         pred_hats = _predict_oo_rank_rows(model, pred_rows, impute_missing=True) if pred_rows else []
         for j, hat in zip(keep, pred_hats):
@@ -1437,14 +1643,14 @@ def _predict_ridge_matrix(
         intercept = float(model.get("intercept") or 0.0)
     except (TypeError, ValueError):
         intercept = 0.0
-    from core.research.feature_standardize import (
-        cross_section_zscore_matrix,
-        is_cross_section_zscore,
-    )
+    from core.research.feature_standardize import is_cross_section_zscore
 
     feature_zscore = bool(model.get("feature_zscore", True))
     if is_cross_section_zscore(model):
-        raw = cross_section_zscore_matrix(raw, ["d"] * n)
+        z = _z_day_cross_section(day, names)
+        if z is None or int(z.shape[0]) != n:
+            return [None] * n
+        raw = np.where(np.isfinite(z), z, 0.0)
         feature_zscore = False
     total = np.full(n, intercept, dtype=np.float64)
     used = np.zeros(n, dtype=bool)
@@ -1493,10 +1699,12 @@ def _oos_day_metrics(
     *,
     topk_track: int,
     ndcg_k: int = DEFAULT_NDCG_K,
+    train_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
     from core.backtest.factor_cs_ic import _agg_ic_series
     from core.backtest.pool_ic import _pearson
 
+    allow = _normalize_code_allow(train_codes)
     spearman_days: List[float] = []
     pearson_days: List[float] = []
     overlap_days: List[float] = []
@@ -1505,6 +1713,21 @@ def _oos_day_metrics(
     n_scored = 0
     for day in days:
         preds, ys = _day_scores(day, fit)
+        if allow is not None:
+            codes = day.get("codes") if isinstance(day, dict) else None
+            if isinstance(codes, (list, tuple)) and len(codes) == len(preds):
+                preds = [
+                    p
+                    for p, c in zip(preds, codes)
+                    if str(c or "").strip() in allow
+                ]
+                ys = [
+                    y
+                    for y, c in zip(ys, codes)
+                    if str(c or "").strip() in allow
+                ]
+            else:
+                preds, ys = [], []
         pairs_py = finite_pairs(preds, ys)
         if len(pairs_py) < 5:
             continue
@@ -1555,18 +1778,41 @@ def _fit_ridge_baseline(
     feature_names: Sequence[str],
     ridge_lambda: float = 1.0,
     cross_section_zscore: bool = True,
+    train_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
-    """Ridge 基线。日截面 z 与损失用当天同一批行。"""
+    """Ridge 基线。日截面 z 用当天全行，损失可再缩到 ``train_codes``。"""
+    from core.research.feature_standardize import stamp_cross_section_zscore
+
     names = [str(n) for n in feature_names]
+    allow = _normalize_code_allow(train_codes)
+    use_cs = bool(cross_section_zscore)
+    means: Dict[str, float] = {}
+    stds: Dict[str, float] = {}
+    if use_cs:
+        days = _filter_days_with_l2(days, clock="open")
+    if not use_cs:
+        means, stds = _global_z_stats(days, names)
     blocks: List[np.ndarray] = []
     y_parts: List[np.ndarray] = []
     date_parts: List[str] = []
     for day in days or []:
-        raw = _raw_day_aligned(day, names)
         ys = label_floats(day.get("ys"))
-        if raw is None or len(ys) != int(raw.shape[0]):
+        if use_cs:
+            Z = _z_day_cross_section(day, names)
+        else:
+            raw = _raw_day_aligned(day, names)
+            if raw is None or len(ys) != int(raw.shape[0]):
+                continue
+            Z = _z_day(day, names, means, stds)
+        if Z is None or len(ys) != int(Z.shape[0]):
             continue
-        blocks.append(raw)
+        Z = np.where(np.isfinite(Z), Z, 0.0)
+        keep = _keep_idx_for_codes(day, len(ys), allow)
+        ys, Z = _take_rows(ys, Z, keep)
+        ys, Z, _n_drop = _slice_finite_label_rows(ys, Z)
+        if len(ys) < 1:
+            continue
+        blocks.append(Z)
         y_parts.append(np.asarray(ys, dtype=np.float64))
         day_s = str(day.get("date") or "")[:10]
         date_parts.extend([day_s] * len(ys))
@@ -1578,6 +1824,7 @@ def _fit_ridge_baseline(
         n_rows = int(y.shape[0])
         if n_rows < 20:
             return {"success": False, "error": f"ridge_n={n_rows}"}
+        # 已按日截面 z（或全局 z）；不再二次 CS
         _model, report = fit_oo_ridge_matrix(
             x,
             y,
@@ -1585,8 +1832,17 @@ def _fit_ridge_baseline(
             ridge_lambda=float(ridge_lambda),
             horizon_days=1,
             row_dates=date_parts,
-            cross_section_zscore=bool(cross_section_zscore),
+            cross_section_zscore=False,
         )
+        if use_cs and isinstance(report, dict) and report.get("success"):
+            stamp_cross_section_zscore(report)
+            model = report.get("return_model") or report.get("model")
+            if isinstance(model, dict):
+                stamp_cross_section_zscore(model)
+                model["zscore_means"] = {}
+                model["zscore_stds"] = {}
+                model["z_means"] = {}
+                model["z_stds"] = {}
         return report
     return {"success": False, "error": "ridge_n=0"}
 
@@ -1634,12 +1890,13 @@ def fit_oo_rank_report(
     backend: str = "auto",
     lightgbm_params: Optional[Dict[str, Any]] = None,
     cross_section_zscore: bool = True,
+    train_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_oo_rank：同窗 LambdaRank + Ridge，按 Holdout NDCG@K 推荐 backend。
 
     ``day_panels``：若已预计算日截面（矩阵 ``X`` 或 raw sub_score dict），可跳过建面板。
     特征与 ŷ_oo 同口径：原始 sub_score；``cross_section_zscore`` 控制日截面 / 全局 μ/σ。
-    日截面 z 与损失、Holdout 用同一天的同一批票。
+    日截面 z 用当天全池行；``train_codes`` 给定时损失与 Holdout 指标缩到该子集。
     默认建面板走 compact 矩阵（与 ŷ_oo 相同，逐只丢掉行 dict）。
 
     ``backend``：``"auto"``（默认，按 NDCG@K 选）/ ``"lambdarank"`` / ``"ridge"``。
@@ -1707,10 +1964,14 @@ def fit_oo_rank_report(
             "backend": force_backend,
         }
     use_cs = bool(cross_section_zscore)
-    lgb_kw: Dict[str, Any] = dict(l2=l2, cross_section_zscore=use_cs)
+    train_allow = _normalize_code_allow(train_codes)
+    lgb_kw: Dict[str, Any] = dict(
+        l2=l2, cross_section_zscore=use_cs, train_codes=train_allow
+    )
     if isinstance(lightgbm_params, dict) and lightgbm_params:
         lgb_kw.update(lightgbm_params)
         lgb_kw["cross_section_zscore"] = use_cs
+        lgb_kw["train_codes"] = train_allow
     fit_tr = fit_lambdarank(
         days_tr,
         feature_names=feat_names,
@@ -1731,11 +1992,13 @@ def fit_oo_rank_report(
         fit_tr,
         topk_track=topk_track,
         ndcg_k=ndcg_k,
+        train_codes=train_allow,
     )
     ridge_tr = _fit_ridge_baseline(
         days_tr,
         feature_names=feat_names,
         ridge_lambda=ridge_lambda,
+        train_codes=train_allow,
         cross_section_zscore=use_cs,
     )
     oos_ridge: Dict[str, Any] = {"success": bool(ridge_tr.get("success"))}
@@ -1746,6 +2009,7 @@ def fit_oo_rank_report(
                 ridge_tr,
                 topk_track=topk_track,
                 ndcg_k=ndcg_k,
+                train_codes=train_allow,
             )
         )
 
@@ -1916,17 +2180,31 @@ def stamp_rank_zscore_universe_meta(
     report: Dict[str, Any],
     *,
     zscore_universe: str = "pool",
+    train_universe: Optional[str] = None,
     tier_codes: Optional[Sequence[str]] = None,
     tier_meta: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """把截面宇宙写进报告与各 backend 的 return_model（训推同口径）。"""
-    from core.research.feature_standardize import stamp_zscore_universe
+    """把宇宙写进报告与各 backend 的 return_model。
+
+    截面 z 恒 ``pool``；``train_universe`` 为损失/Holdout 子集（默认跟旧
+    ``zscore_universe`` 参数，兼容「勾选 A」只训 A）。
+    """
+    from core.research.feature_standardize import (
+        ZSCORE_UNIVERSE_POOL,
+        normalize_train_universe,
+        stamp_train_universe,
+        stamp_zscore_universe,
+    )
 
     if not isinstance(report, dict):
         return report
-    stamp_zscore_universe(
+    train_u = normalize_train_universe(
+        train_universe if train_universe is not None else zscore_universe
+    )
+    stamp_zscore_universe(report, ZSCORE_UNIVERSE_POOL)
+    stamp_train_universe(
         report,
-        zscore_universe,
+        train_u,
         tier_codes=tier_codes,
         tier_meta=tier_meta,
     )
@@ -1945,9 +2223,10 @@ def stamp_rank_zscore_universe_meta(
                 if isinstance(m, dict):
                     targets.append(m)
     for m in targets:
-        stamp_zscore_universe(
+        stamp_zscore_universe(m, ZSCORE_UNIVERSE_POOL)
+        stamp_train_universe(
             m,
-            zscore_universe,
+            train_u,
             tier_codes=tier_codes,
             tier_meta=tier_meta,
         )
@@ -1966,6 +2245,7 @@ __all__ = [
     "Y_OO_RANK_HAT_KEYS",
     "Y_OO_RANK_LABEL_KEYS",
     "apply_oo_rank_scores",
+    "rank_cross_section_z_dicts",
     "stamp_rank_zscore_universe_meta",
     "assign_oo_rank_day_ranks",
     "compare_oo_rank_shadow_track",

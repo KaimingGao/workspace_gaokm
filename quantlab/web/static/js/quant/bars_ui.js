@@ -4,7 +4,6 @@ import {
   fmtAgeSec,
   jobTimings,
   paintClusterJobPanel,
-  formatClusterJobFootLine,
   jobStatusBadge,
   unwrapJobSnap,
   setDeskStatusTone,
@@ -35,14 +34,10 @@ export function installBarsUi(q) {
   const distMeta = document.getElementById("quant-bars-dist-meta");
   const contextStrip = document.getElementById("quant-bars-context-strip");
   const progressEl = document.getElementById("quant-bars-progress");
-  const footEl = document.getElementById("quant-bars-foot");
-  const diffMeta = document.getElementById("quant-bars-diff-meta");
   const diffPrice = document.getElementById("quant-bars-diff-price");
   const diffVolume = document.getElementById("quant-bars-diff-volume");
   const diffTail = document.getElementById("quant-bars-diff-tail");
   const diffSame = document.getElementById("quant-bars-diff-same");
-  const diffRows = document.getElementById("quant-bars-diff-rows");
-  const diffNote = document.getElementById("quant-bars-diff-note");
   const diffKpis = document.getElementById("quant-bars-diff-kpis");
   const kpiHost = document.getElementById("quant-bars-kpis");
   const barsCard =
@@ -625,28 +620,6 @@ export function installBarsUi(q) {
     });
   }
 
-  function renderFoot(data) {
-    if (!footEl) return;
-    if (!data || !data.success) {
-      footEl.innerHTML = "";
-      return;
-    }
-    const backend = backendLabel(data.bars_backend);
-    const marker = data.forced_marker || {};
-    const remote =
-      marker.remote_count != null && marker.total != null
-        ? `${marker.remote_count}/${marker.total} 远端`
-        : "—";
-    const jobLine = formatClusterJobFootLine(data.refresh_job || lastStatusJob);
-    footEl.innerHTML = `<div class="quant-bars-foot-grid">
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Store</span><span class="quant-bars-foot-v">${esc(backend)} · OHLCV</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Scope</span><span class="quant-bars-foot-v">watching · Limit ${esc(data.watching_limit ?? "—")}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Rule</span><span class="quant-bars-foot-v">交易日 15:05 前 as-of → 上一交易日</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Force</span><span class="quant-bars-foot-v">${esc(remote)}${marker.saved_at ? ` · ${esc(fmtUtcShort(marker.saved_at))} UTC` : ""}</span></div>
-    </div>`;
-  }
-
   function handleRefreshJob(job) {
     if (!job || !job.status || job.status === "idle") {
       lastStatusJob = null;
@@ -666,45 +639,6 @@ export function installBarsUi(q) {
     }
   }
 
-  const DIFF_TAGS = {
-    price: "价变",
-    volume: "量纲",
-    tail: "只补尾",
-    unchanged: "未改",
-    new: "新写入",
-    gone: "缺失",
-  };
-
-  function fmtCloseRel(rel) {
-    const n = Number(rel);
-    if (!Number.isFinite(n)) return "—";
-    const pct = n * 100;
-    if (pct >= 1) return `${pct.toFixed(2)}%`;
-    return `${pct.toFixed(3)}%`;
-  }
-
-  function fmtVolRatio(ratio) {
-    const n = Number(ratio);
-    if (!Number.isFinite(n) || n <= 0) return "—";
-    if (n >= 10) return `×${Math.round(n)}`;
-    if (n <= 0.1) return `×${n.toFixed(2)}`;
-    return `×${n.toFixed(2)}`;
-  }
-
-  function closeRelBarPct(rel, scale) {
-    const n = Number(rel);
-    if (!Number.isFinite(n) || n <= 0 || !(scale > 0)) return 0;
-    return Math.max(3, Math.min(100, (100 * n) / scale));
-  }
-
-  function volRatioBarPct(ratio) {
-    const n = Number(ratio);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    // 相对 1 的偏离：1→约 8%，10×→~55%，100×→满格
-    const dist = Math.abs(Math.log10(n));
-    return Math.max(n > 0.67 && n < 1.5 ? 8 : 14, Math.min(100, 8 + dist * 46));
-  }
-
   function setDiffKpi(key, state) {
     if (!diffKpis) return;
     const card = diffKpis.querySelector(`[data-bars-diff="${key}"]`);
@@ -714,9 +648,7 @@ export function installBarsUi(q) {
   }
 
   function renderBarsDiff(diff) {
-    const emptyNote = "点增量补齐或强更后，这里对比写入前后的收盘和成交量。";
     if (!diff || !diff.headline) {
-      if (diffMeta) diffMeta.textContent = "还没有对比";
       if (diffPrice) diffPrice.textContent = "—";
       if (diffVolume) diffVolume.textContent = "—";
       if (diffTail) diffTail.textContent = "—";
@@ -725,23 +657,12 @@ export function installBarsUi(q) {
       setDiffKpi("volume", "is-empty");
       setDiffKpi("tail", "is-empty");
       setDiffKpi("same", "is-empty");
-      if (diffRows) diffRows.innerHTML = "";
-      if (diffNote) diffNote.textContent = emptyNote;
       return;
     }
     const priceN = Number(diff.price_count) || 0;
     const volumeN = Number(diff.volume_count) || 0;
     const tailN = Number(diff.tail_count) || 0;
     const sameN = Number(diff.unchanged_count) || 0;
-    const modeLabel = String(diff.mode) === "full" ? "强更" : "增量";
-    const when = diff.saved_at ? String(diff.saved_at).replace("T", " ").slice(0, 16) : "";
-    const compared = Number(diff.compared) || 0;
-    if (diffMeta) {
-      const parts = [modeLabel];
-      if (compared > 0) parts.push(`比较 ${compared} 只`);
-      if (when) parts.push(when);
-      diffMeta.textContent = parts.join(" · ");
-    }
     if (diffPrice) diffPrice.textContent = String(priceN);
     if (diffVolume) diffVolume.textContent = String(volumeN);
     if (diffTail) diffTail.textContent = String(tailN);
@@ -750,59 +671,6 @@ export function installBarsUi(q) {
     setDiffKpi("volume", volumeN > 0 ? "is-bad" : "is-mid");
     setDiffKpi("tail", tailN > 0 ? "is-mid" : "is-empty");
     setDiffKpi("same", sameN > 0 ? "is-mid" : "is-empty");
-    if (diffNote) diffNote.textContent = diff.note || emptyNote;
-    if (!diffRows) return;
-    const rows = Array.isArray(diff.rows) ? diff.rows : [];
-    if (!rows.length) {
-      diffRows.innerHTML =
-        `<div class="quant-bars-viz-empty">无逐票差异（重叠日价和量都在阈值内）</div>`;
-      return;
-    }
-    const scale = Math.max(
-      Number(diff.worst_close_rel) || 0,
-      ...rows.map((row) => Number(row.max_close_rel) || 0),
-      0.01
-    );
-    const head =
-      `<div class="quant-bars-diff-row is-head" role="row">` +
-      `<span>代码</span><span>重叠日</span><span>收盘最大相对差</span><span>成交量比</span><span>标记</span>` +
-      `</div>`;
-    const body = rows
-      .map((row) => {
-        const tagsList = Array.isArray(row.tags) ? row.tags : [];
-        const alert = tagsList.includes("price") || tagsList.includes("volume") || tagsList.includes("gone");
-        const rel = Number(row.max_close_rel) || 0;
-        const ratio = Number(row.vol_ratio);
-        const volOff = Number.isFinite(ratio) && ratio > 0 && (ratio >= 1.5 || ratio <= 1 / 1.5);
-        const tags = tagsList
-          .map((tag) => {
-            const label = DIFF_TAGS[tag] || tag;
-            const tone = tag === "price" || tag === "volume" || tag === "gone" ? "is-bad" : "is-warn";
-            return `<span class="quant-bars-badge ${tone}">${esc(label)}</span>`;
-          })
-          .join("");
-        const relW = closeRelBarPct(rel, scale).toFixed(1);
-        const volW = volRatioBarPct(ratio).toFixed(1);
-        const volCls = volOff ? "is-vol" : "is-ok";
-        const volValCls = volOff ? "" : " is-muted";
-        return (
-          `<div class="quant-bars-diff-row${alert ? " is-alert" : ""}" role="row">` +
-          `<span class="quant-bars-diff-code">${esc(row.code || "—")}</span>` +
-          `<span>${esc(row.overlap_days ?? "—")}</span>` +
-          `<span class="quant-bars-diff-metric" title="相对本表最大差缩放">` +
-          `<span class="quant-bars-diff-meter is-price"><i style="width:${relW}%"></i></span>` +
-          `<span class="quant-bars-diff-val">${esc(fmtCloseRel(rel))}</span>` +
-          `</span>` +
-          `<span class="quant-bars-diff-metric" title="相对 1 的对数偏离">` +
-          `<span class="quant-bars-diff-meter ${volCls}"><i style="width:${volW}%"></i></span>` +
-          `<span class="quant-bars-diff-val${volValCls}">${esc(fmtVolRatio(ratio))}</span>` +
-          `</span>` +
-          `<span class="quant-bars-diff-tags">${tags}</span>` +
-          `</div>`
-        );
-      })
-      .join("");
-    diffRows.innerHTML = head + body;
   }
 
   function renderKpis(data) {
@@ -844,7 +712,6 @@ export function installBarsUi(q) {
       renderCoverageBar({ universe_count: 0, at_expected: 0, stale: 0, missing: 0 });
       renderDistribution({ date_distribution: [], missing: 0 });
       renderBarsDiff(null);
-      if (footEl) footEl.innerHTML = "";
       return;
     }
     renderContextStrip(data);
@@ -857,7 +724,6 @@ export function installBarsUi(q) {
     renderCoverageBar(data);
     renderDistribution(data);
     renderBarsDiff(data.bars_diff);
-    renderFoot(data);
   }
 
   async function refreshStatus() {

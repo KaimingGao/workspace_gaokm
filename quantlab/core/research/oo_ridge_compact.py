@@ -1053,23 +1053,32 @@ def fit_oo_ridge_matrix(
             dates_c = dates_for_complete_rows(
                 date_src, prep_meta.get("complete_row_indices") or []
             )
-            if (
-                use_cs
-                and dates_c is not None
-                and len(dates_c) == int(x_c.shape[0])
-            ):
-                from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
-
-                x_z = cs_z_matrix_prefer_cube(x_c, active, dates_c)
-                z_means, z_stds = {}, {}
-            else:
-                x_z, z_means, z_stds = _zscore_matrix(x_c, active)
             row_w = _align_row_weights(
                 sample_weights,
                 n_full=n_full,
                 row_pos=row_pos,
                 complete_idx=prep_meta.get("complete_row_indices"),
             )
+            if (
+                use_cs
+                and dates_c is not None
+                and len(dates_c) == int(x_c.shape[0])
+            ):
+                from core.research.materialize.cube_z import (
+                    align_fit_rows_to_l2,
+                    cs_z_matrix_prefer_cube,
+                )
+
+                # 单票 L1 可能早于池立方；先丢掉无 L2 日再打 z（禁止现算）。
+                x_c, y_c, dates_c, keep_mask = align_fit_rows_to_l2(
+                    x_c, y_c, dates_c, clock="open"
+                )
+                if row_w is not None and keep_mask is not None and not bool(keep_mask.all()):
+                    row_w = np.asarray(row_w, dtype=np.float64)[keep_mask]
+                x_z = cs_z_matrix_prefer_cube(x_c, active, dates_c)
+                z_means, z_stds = {}, {}
+            else:
+                x_z, z_means, z_stds = _zscore_matrix(x_c, active)
             fit = _ols_matrix(
                 x_z,
                 y_c,

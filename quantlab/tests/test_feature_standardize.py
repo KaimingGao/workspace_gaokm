@@ -74,8 +74,10 @@ class TestFeatureZscore(unittest.TestCase):
         self.assertIsNone(dates_for_complete_rows(["a"], [0, 1]))
 
     def test_prepare_lgb_features_cross_section(self):
+        """截面 z 走 L2 Cube μ/σ（不再进批现算）。"""
+        from unittest import mock
+
         from core.research.feature_standardize import (
-            cross_section_zscore_matrix,
             is_cross_section_zscore,
             stamp_cross_section_zscore,
         )
@@ -87,60 +89,101 @@ class TestFeatureZscore(unittest.TestCase):
             {"a": 100.0, "b": 12.0},
             {"a": 100.0, "b": 16.0},
         ]
-        dates = ["d1", "d1", "d2", "d2"]
-        x_tr, x_te, means, patch = prepare_lgb_features(
-            xs,
-            xs[:2],
-            ["a", "b"],
-            feature_zscore=True,
-            train_dates=dates,
-            test_dates=dates[:2],
-        )
+        dates = ["2026-01-02", "2026-01-02", "2026-01-03", "2026-01-03"]
+
+        class _Cube:
+            def __init__(self, mean, std):
+                self.names = ["a", "b"]
+                self.z_mean = np.asarray(mean, dtype=np.float64)
+                self.z_std = np.asarray(std, dtype=np.float64)
+
+        def _load(day, _codes, clock="open"):
+            d = str(day)[:10]
+            if d == "2026-01-02":
+                return _Cube([1.0, 12.0], [1.0, 2.0])
+            if d == "2026-01-03":
+                return _Cube([100.0, 14.0], [1e-15, 2.0])
+            return None
+
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            x_tr, x_te, means, patch = prepare_lgb_features(
+                xs,
+                xs[:2],
+                ["a", "b"],
+                feature_zscore=True,
+                train_dates=dates,
+                test_dates=dates[:2],
+            )
         self.assertTrue(patch.get("feature_zscore"))
         self.assertEqual(patch.get("zscore_scope"), "cross_section")
         self.assertTrue(is_cross_section_zscore(patch))
-        expect = cross_section_zscore_matrix(
-            np.asarray([[0.0, 10.0], [2.0, 14.0], [100.0, 12.0], [100.0, 16.0]]),
-            dates,
+        # d1：(0-1)/1=-1；(2-1)/1=1；(10-12)/2=-1；(14-12)/2=1
+        # d2：a 近零 σ → 0；b：(12-14)/2=-1；(16-14)/2=1
+        expect = np.asarray(
+            [[-1.0, -1.0], [1.0, 1.0], [0.0, -1.0], [0.0, 1.0]],
+            dtype=np.float64,
         )
-        expect = np.where(np.isfinite(expect), expect, 0.0)
         np.testing.assert_allclose(x_tr, expect, rtol=1e-6)
         np.testing.assert_allclose(means, [0.0, 0.0])
         self.assertEqual(x_te.shape, (2, 2))
+        np.testing.assert_allclose(x_te, expect[:2], rtol=1e-6)
         stamped = stamp_cross_section_zscore({})
         self.assertEqual(stamped.get("zscore_means"), {})
 
 class TestZscoreUniverse(unittest.TestCase):
     def test_normalize_aliases(self):
         from core.research.feature_standardize import (
+            TRAIN_UNIVERSE_POOL,
+            TRAIN_UNIVERSE_TIER_A,
             ZSCORE_UNIVERSE_POOL,
-            ZSCORE_UNIVERSE_TIER_A,
+            normalize_train_universe,
             normalize_zscore_universe,
         )
 
+        # 截面 z 恒 pool（含旧 tier_a 读入）
         self.assertEqual(normalize_zscore_universe(None), ZSCORE_UNIVERSE_POOL)
         self.assertEqual(normalize_zscore_universe("day_panel"), ZSCORE_UNIVERSE_POOL)
         self.assertEqual(normalize_zscore_universe("watching"), ZSCORE_UNIVERSE_POOL)
-        self.assertEqual(normalize_zscore_universe("tier_a"), ZSCORE_UNIVERSE_TIER_A)
-        self.assertEqual(normalize_zscore_universe("A"), ZSCORE_UNIVERSE_TIER_A)
+        self.assertEqual(normalize_zscore_universe("tier_a"), ZSCORE_UNIVERSE_POOL)
+        self.assertEqual(normalize_zscore_universe("A"), ZSCORE_UNIVERSE_POOL)
+        self.assertEqual(normalize_train_universe("tier_a"), TRAIN_UNIVERSE_TIER_A)
+        self.assertEqual(normalize_train_universe("A"), TRAIN_UNIVERSE_TIER_A)
+        self.assertEqual(normalize_train_universe("pool"), TRAIN_UNIVERSE_POOL)
 
     def test_stamp_and_detect(self):
         from core.research.feature_standardize import (
+            is_tier_a_train_universe,
             is_tier_a_zscore_universe,
+            stamp_train_universe,
             stamp_zscore_universe,
         )
 
         doc: dict = {}
-        stamp_zscore_universe(doc, "tier_a", tier_codes=["600519", "000001"])
-        self.assertEqual(doc["zscore_universe"], "tier_a")
-        self.assertEqual(doc["zscore_universe_tiers"], ["A"])
+        stamp_train_universe(doc, "tier_a", tier_codes=["600519", "000001"])
+        self.assertEqual(doc["zscore_universe"], "pool")
+        self.assertEqual(doc["train_universe"], "tier_a")
+        self.assertEqual(doc["train_universe_tiers"], ["A"])
         self.assertEqual(doc["tier_codes"], ["000001", "600519"])
-        self.assertTrue(is_tier_a_zscore_universe(doc))
-        self.assertTrue(is_tier_a_zscore_universe({"return_model": doc}))
+        self.assertTrue(is_tier_a_train_universe(doc))
+        self.assertTrue(is_tier_a_zscore_universe(doc))  # 旧名→训练 A
+        self.assertTrue(is_tier_a_train_universe({"return_model": doc}))
+        # 旧落盘仅 zscore_universe=tier_a 仍当训练 A
+        self.assertTrue(
+            is_tier_a_train_universe({"zscore_universe": "tier_a", "tier_codes": ["1"]})
+        )
         stamp_zscore_universe(doc, "pool")
         self.assertEqual(doc["zscore_universe"], "pool")
         self.assertNotIn("zscore_universe_tiers", doc)
-        self.assertFalse(is_tier_a_zscore_universe(doc))
+        stamp_train_universe(doc, "pool")
+        self.assertEqual(doc["train_universe"], "pool")
+        self.assertFalse(is_tier_a_train_universe(doc))
 
 if __name__ == "__main__":
     unittest.main()

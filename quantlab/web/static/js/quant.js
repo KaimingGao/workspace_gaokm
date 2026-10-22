@@ -2904,11 +2904,15 @@ export function initQuant(ctx) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        // 业务 error 优先；detail 可能是 fit 字典，勿 String(obj) → [object Object]
+        const err = formatApiDetail(
+          (data && (data.error || data.detail)) || `HTTP ${res.status}`,
+          "ŷ_oo_rank 失败"
+        );
         renderRemStatus(sum, {
           state: "error",
           chip: "失败",
-          message: String(err),
+          message: err,
           error: true,
         });
         clearOoRankResultBox();

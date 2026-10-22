@@ -4,7 +4,6 @@ import {
   fmtAgeSec,
   jobTimings,
   paintClusterJobPanel,
-  formatClusterJobFootLine,
   jobStatusBadge,
   unwrapJobSnap,
   setDeskStatusTone,
@@ -53,7 +52,6 @@ export function installMinuteUi(q) {
   const labelTauBody = document.getElementById("quant-minute-label-tau-body");
   const contextStrip = document.getElementById("quant-minute-context-strip");
   const progressEl = document.getElementById("quant-minute-progress");
-  const footEl = document.getElementById("quant-minute-foot");
   const kpiHost = document.getElementById("quant-minute-kpis");
   const minuteCard =
     document.querySelector("#quant-section-minute .quant-bars-panel-l0") ||
@@ -482,24 +480,6 @@ export function installMinuteUi(q) {
     });
   }
 
-  function renderFoot(data) {
-    if (!footEl) return;
-    if (!data || !data.success) {
-      footEl.innerHTML = "";
-      return;
-    }
-    const backend = backendLabel(data.bars_backend);
-    const jobLine = formatClusterJobFootLine(data.refresh_job || lastStatusJob);
-    footEl.innerHTML = `<div class="quant-bars-foot-grid">
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Store</span><span class="quant-bars-foot-v">${esc(backend)} · OHLCV 5m</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Scope</span><span class="quant-bars-foot-v">watching · Limit ${esc(data.watching_limit ?? "—")}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready 近 ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日无缺</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Labels</span><span class="quant-bars-foot-v">τ=分钟开→收% · 每票≤${esc(data.label_portrait?.max_days_per_code ?? 120)}d</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_τc / ŷ_τ* · 调仓 · 做T · tip</span></div>
-    </div>`;
-  }
-
   function handleRefreshJob(job) {
     if (!job || !job.status || job.status === "idle") {
       lastStatusJob = null;
@@ -578,7 +558,6 @@ export function installMinuteUi(q) {
       renderContextStrip(null);
       renderCoverageBar({ universe_count: 0, cached_ok: 0, short: 0, missing: 0, span_distribution: [] });
       renderLabelPortrait(null, { allowClear: true });
-      if (footEl) footEl.innerHTML = "";
       updateTauMaterializeReady(null);
       return;
     }
@@ -591,7 +570,6 @@ export function installMinuteUi(q) {
     }
     renderCoverageBar(data);
     renderLabelPortrait(data);
-    renderFoot(data);
   }
 
   async function refreshCoverageKpis() {
@@ -665,7 +643,6 @@ export function installMinuteUi(q) {
           return;
         }
         renderLabelPortrait(pdata);
-        renderFoot(pdata);
       })
       .catch(() => {
         if (gen !== labelPortraitGen) return;

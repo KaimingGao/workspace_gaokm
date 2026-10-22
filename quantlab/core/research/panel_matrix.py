@@ -2402,8 +2402,16 @@ def fit_keepall_ridge_matrix(
             and dates_c is not None
             and len(dates_c) == int(x_fit.shape[0])
         ):
-            from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
+            from core.research.materialize.cube_z import (
+                align_fit_rows_to_l2,
+                cs_z_matrix_prefer_cube,
+            )
 
+            x_fit, y_c, dates_c, _mask = align_fit_rows_to_l2(
+                x_fit, y_c, dates_c, clock="open"
+            )
+            if row_weights is not None and _mask is not None and not bool(_mask.all()):
+                row_weights = np.asarray(row_weights, dtype=np.float64)[_mask]
             x_fit = cs_z_matrix_prefer_cube(x_fit, active, dates_c)
             zscore_scope = "cross_section"
         elif feature_zscore:
@@ -2504,15 +2512,10 @@ def predict_ridge_matrix(
         and len(row_dates) == int(x_arr.shape[0])
     ):
         name_list = [str(n) for n in names]
-        try:
-            from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
+        from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
 
-            x_arr = cs_z_matrix_prefer_cube(x_arr, name_list, row_dates)
-        except Exception:  # noqa: BLE001
-            from core.research.feature_standardize import cross_section_zscore_matrix
-
-            x_arr = cross_section_zscore_matrix(x_arr, row_dates)
-            x_arr = np.where(np.isfinite(x_arr), x_arr, 0.0)
+        # 缺 L2 → MaterializeRequired；禁止退回进批现算。
+        x_arr = cs_z_matrix_prefer_cube(x_arr, name_list, row_dates)
         means = {}
         stds = {}
     from core.signal.factors.sum_identity import filter_predict_active_names

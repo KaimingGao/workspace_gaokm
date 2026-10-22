@@ -171,13 +171,24 @@ class OoRankRequest(_CrossSectionZscore):
         default=MODEL_FIT_MAX_SIZE,
         ge=8,
         le=MODEL_FIT_MAX_SIZE,
-        description=f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。未勾选宇宙 A 档时截面 z 与损失都用该池。",
+        description=(
+            f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。"
+            "截面 z 恒用该池；未勾选「训练 A 档」时损失也用该池。"
+        ),
+    )
+    train_universe_tier_a: bool = Field(
+        default=False,
+        description=(
+            "True=损失 / Holdout 缩到观察池∩枢纽 A 档（须先跑分档）；"
+            "截面 z 仍用整观察池。False=损失也用整池（默认）。"
+            "落盘 train_universe；回测/live 打分 z 恒全池，写分跟 score_codes/分档。"
+        ),
     )
     zscore_universe_tier_a: bool = Field(
         default=False,
         description=(
-            "True=截面 z / 拟合 / 推理宇宙改为观察池∩枢纽 A 档（须先跑分档）；"
-            "False=整观察池（默认）。落盘进模型，回测/live 跟模型，不另开开关。"
+            "旧名，等同 train_universe_tier_a。"
+            "任一为 True 即训练 A；截面 z 不再随此开关缩小。"
         ),
     )
     holdout_trading_days: int = Field(

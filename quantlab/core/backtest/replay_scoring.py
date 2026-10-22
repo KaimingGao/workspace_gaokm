@@ -821,8 +821,7 @@ def refresh_tau_heads_after_prefix(
 ) -> Tuple[List[dict], int]:
     """晚钟：前缀重算 ŷ_τc + 重挂 τc_rank（开盘 ŷ_oo / oo_rank 不动）。
 
-    τc_rank 的截面 z 缩到 ``score_codes``（可交易），避免未前缀 B/C 的开盘
-    ``features_tau`` 混进 pool μ/σ。返回 (行, 前缀成功数)。
+    τc_rank 只用该钟全池 L2 μ/σ（不进批现算）；缺 Cube 则跳过写分。
     """
     items, n_pref = rescore_replay_y_τc_at_clock(
         scored,
@@ -841,12 +840,37 @@ def refresh_tau_heads_after_prefix(
     try:
         from core.research.tc_rank import apply_tc_rank_scores
 
-        # 前缀后：写分与 z 宇宙都锁可交易集（混合钟修复）
+        day_s = ""
+        try:
+            day_s = str((dates or [])[int(day_i)] or "")[:10]
+        except Exception:  # noqa: BLE001
+            day_s = ""
+        cube = None
+        if day_s and len(day_s) >= 10:
+            try:
+                from core.research.day_cube import load_day_cube
+
+                peer_codes = [
+                    str(it.get("stock_code") or "").strip()
+                    for it in items
+                    if isinstance(it, dict)
+                    and str(it.get("stock_code") or "").strip()
+                ]
+                if len(peer_codes) >= 2:
+                    cube = load_day_cube(
+                        day_s, peer_codes, clock=str(clock or "open")
+                    )
+            except Exception:  # noqa: BLE001
+                logger.debug("prefix tc_rank load_day_cube failed", exc_info=True)
+            for it in items:
+                if isinstance(it, dict) and not it.get("lake_score_day"):
+                    it["lake_score_day"] = day_s
         apply_tc_rank_scores(
             items,
             model_doc=tc_rank_doc,
             score_codes=score_codes,
-            zscore_codes=score_codes,
+            day_cube=cube,
+            clock=str(clock or "open"),
         )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_tc_rank after prefix failed", exc_info=True)

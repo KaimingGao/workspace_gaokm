@@ -219,6 +219,13 @@ def _sync_oo_rank_lake(
     )
 
 
+def _oo_rank_min_bars(horizon_days: int) -> int:
+    """与 ŷ_oo 同：垫窗 + horizon；次新凑不满则跳过，勿报物化。"""
+    from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+    return int(ALPHA_OO_PANEL_WINDOW) + max(1, int(horizon_days))
+
+
 def _oo_rank_stock_job(
     job: Tuple[Any, ...],
 ) -> Optional[Tuple[str, np.ndarray, np.ndarray, List[str], List[str]]]:
@@ -356,6 +363,10 @@ def _oo_rank_stock_job(
     except Exception:  # noqa: BLE001
         logger.debug("oo_rank lookback slice failed for %s", code_s, exc_info=True)
 
+    # 与 oo_ridge_compact 一致：次新凑不满垫窗+horizon，勿因缺 L1 打断整池。
+    if len(bars_l) < _oo_rank_min_bars(horizon_i):
+        return None
+
     from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
 
     raise_if_consumer_rebuild("oo_rank", code_s)
@@ -492,6 +503,9 @@ def build_oo_rank_day_panels(
         code = str(item.get("code") or item.get("stock_code") or "").strip()
         bars = list(item.get("bars") or [])
         if not code or len(bars) < int(min_history) + int(horizon_days) + 1:
+            continue
+        # 与 ŷ_oo 同：短于 alpha_oo 垫窗的次新不进 job（无 L1 可训行）。
+        if len(bars) < _oo_rank_min_bars(int(horizon_days)):
             continue
         idx = index_bars if index_bars is not None else item.get("index_bars")
         jobs.append(
@@ -644,23 +658,28 @@ def stack_day_panels(
 def resolve_oo_rank_universe(
     *,
     zscore_universe: str = "pool",
+    train_universe: Optional[str] = None,
 ) -> Dict[str, Any]:
     """ŷ_oo_rank / ŷ_τc_rank 代码名单。
 
-    ``zscore_universe=pool``：整观察池（默认）。
-    ``zscore_universe=tier_a``：观察池 ∩ 枢纽 A 档；截面 z / 损失 / 名次同一批票。
+    参数名保留兼容：``tier_a`` 表示 **训练子集**（观察池∩A），不是缩截面 z。
+    ``pool``：整观察池（默认；截面 z 与未勾选训练 A 时的损失宇宙）。
+    ``train_universe`` 优先于 ``zscore_universe``。
     此处不截断（调用方再按 watching_limit 截）。
     """
     import hashlib
 
     from core.research.feature_standardize import (
-        ZSCORE_UNIVERSE_TIER_A,
-        normalize_zscore_universe,
+        TRAIN_UNIVERSE_POOL,
+        TRAIN_UNIVERSE_TIER_A,
+        ZSCORE_UNIVERSE_POOL,
+        normalize_train_universe,
     )
     from core.research_universe import resolve_model_fit_codes
     from core.watching.store import MODEL_FIT_MAX_SIZE
 
-    uni = normalize_zscore_universe(zscore_universe)
+    raw_uni = train_universe if train_universe is not None else zscore_universe
+    uni = normalize_train_universe(raw_uni)
     resolved = resolve_model_fit_codes(watching_limit=MODEL_FIT_MAX_SIZE)
     pool_n = int(resolved.get("watching_pool_size") or 0)
     if not resolved.get("ok", True):
@@ -670,7 +689,8 @@ def resolve_oo_rank_universe(
             "codes": [],
             "universe_source": resolved.get("source") or "watching",
             "watching_pool_size": pool_n,
-            "zscore_universe": uni,
+            "zscore_universe": ZSCORE_UNIVERSE_POOL,
+            "train_universe": uni,
         }
     codes = [str(c).strip() for c in (resolved.get("codes") or []) if str(c or "").strip()]
     out: Dict[str, Any] = {
@@ -678,9 +698,11 @@ def resolve_oo_rank_universe(
         "codes": codes,
         "universe_source": resolved.get("source") or "watching",
         "watching_pool_size": pool_n or len(codes),
-        "zscore_universe": uni,
+        "zscore_universe": ZSCORE_UNIVERSE_POOL,
+        "train_universe": uni,
     }
-    if uni != ZSCORE_UNIVERSE_TIER_A:
+    if uni != TRAIN_UNIVERSE_TIER_A:
+        out["train_universe"] = TRAIN_UNIVERSE_POOL
         return out
 
     from core.research.predictability_tiers import (
@@ -692,11 +714,12 @@ def resolve_oo_rank_universe(
     if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
         return {
             "success": False,
-            "error": "无枢纽分档报告；勾选「宇宙 A 档」前请先跑「观察池分档」",
+            "error": "无枢纽分档报告；勾选「训练 A 档」前请先跑「观察池分档」",
             "codes": [],
             "universe_source": "watching∩tier_a",
             "watching_pool_size": pool_n,
-            "zscore_universe": ZSCORE_UNIVERSE_TIER_A,
+            "zscore_universe": ZSCORE_UNIVERSE_POOL,
+            "train_universe": TRAIN_UNIVERSE_TIER_A,
         }
     keep = tier_code_set(tier_rep, ["A"])
     filtered = [c for c in codes if c in keep]
@@ -705,7 +728,8 @@ def resolve_oo_rank_universe(
         {
             "codes": filtered,
             "universe_source": "watching∩tier_a",
-            "zscore_universe": ZSCORE_UNIVERSE_TIER_A,
+            "zscore_universe": ZSCORE_UNIVERSE_POOL,
+            "train_universe": TRAIN_UNIVERSE_TIER_A,
             "tier_codes": sorted(keep),
             "n_tier_codes": len(keep),
             "n_codes": len(filtered),

@@ -179,10 +179,11 @@ def fit_tc_rank_report(
     ridge_lambda: float = 1.0,
     backend: str = "auto",
     cross_section_zscore: bool = True,
+    train_codes: Optional[Collection[str]] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_τc_rank。``stock_bars``: ``[{code, bars}, ...]``。不落盘。
 
-    日截面 z 与损失、Holdout 用同一天的同一批票。
+    日截面 z 用当天全池行；``train_codes`` 给定时损失与 Holdout 缩到该子集。
     """
     from core.research.holdout import (
         attach_holdout_meta,
@@ -279,11 +280,15 @@ def fit_tc_rank_report(
 
     kept_names = list(days_tr[0].get("names") or feat_names)
     use_cs = bool(cross_section_zscore)
+    train_allow = {
+        str(c).strip() for c in (train_codes or []) if str(c or "").strip()
+    } or None
     fit_tr = fit_lambdarank(
         days_tr,
         feature_names=kept_names,
         l2=float(l2),
         cross_section_zscore=use_cs,
+        train_codes=train_allow,
     )
     if not fit_tr.get("success"):
         return {
@@ -300,6 +305,7 @@ def fit_tc_rank_report(
             fit_tr,
             topk_track=topk_track,
             ndcg_k=ndcg_k,
+            train_codes=train_allow,
         )
     )
     ridge_tr = _fit_ridge_baseline(
@@ -307,6 +313,7 @@ def fit_tc_rank_report(
         feature_names=kept_names,
         ridge_lambda=float(ridge_lambda),
         cross_section_zscore=use_cs,
+        train_codes=train_allow,
     )
     oos_ridge: Dict[str, Any] = {"success": bool(ridge_tr.get("success"))}
     if ridge_tr.get("success"):
@@ -317,6 +324,7 @@ def fit_tc_rank_report(
                     ridge_tr,
                     topk_track=topk_track,
                     ndcg_k=ndcg_k,
+                    train_codes=train_allow,
                 )
             )
         )
@@ -584,63 +592,41 @@ def apply_tc_rank_scores(
     model_doc: Optional[Dict[str, Any]] = None,
     score_codes: Optional[Collection[str]] = None,
     zscore_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
+    clock: str = "open",
 ) -> List[dict]:
     """就地写入 y_tc_rank 当日截面名次。不改 y_oo_fuse / y_oo_rank / 买序。
 
-    特征取 ``features_tau``（z_τc_* ∪ raw_atc_*），与训练同口径做日截面 z。
-    ``zscore_universe=pool``：μ/σ 用整批（或 ``zscore_codes``）；``score_codes`` 只限制写分。
-    ``zscore_universe=tier_a``：先缩到 A 再算 μ/σ 与名次。
-    ``zscore_codes``：前缀刷新后传入可交易集，避免未前缀的 B/C 开盘特征混进 pool μ/σ。
-    缺模型或缺特征的行跳过。
+    特征取 ``features_tau``（z_τc_* ∪ raw_atc_*）。截面 z **只用**全池 L2
+    （``day_cube`` / 读盘 Cube μ/σ），不进批现算。``zscore_codes`` 保留兼容
+    （无 Cube 时忽略）。``score_codes`` 只限制写分。
     """
     from core.research.feature_standardize import (
-        cross_section_zscore_dicts,
         is_cross_section_zscore,
-        is_tier_a_zscore_universe,
         normalize_score_codes,
     )
     from core.research.oo_rank_lambdarank import (
         _explain_oo_rank_lambdarank_rows,
         _explain_oo_rank_ridge,
+        _item_cs_group,
         _oo_rank_feature_names,
         _oo_rank_use_booster,
         _oo_rank_use_ridge,
         _predict_oo_rank_rows,
+        rank_cross_section_z_dicts,
     )
 
     allow = normalize_score_codes(score_codes)
-    z_allow = normalize_score_codes(zscore_codes)
+    _ = zscore_codes  # 统一池 L2 后不再缩进批 μ/σ
     model = _resolve_tc_rank_fit(model_doc)
     out = list(items or [])
     if model is None:
         return out
-    tier_a = is_tier_a_zscore_universe(model, model_doc)
-    if tier_a:
-        model_codes = normalize_score_codes(
-            model.get("tier_codes") if isinstance(model, dict) else None
-        )
-        if model_codes is None and isinstance(model_doc, dict):
-            model_codes = normalize_score_codes(model_doc.get("tier_codes"))
-        if model_codes is not None:
-            allow = model_codes if allow is None else (allow & model_codes)
-        if allow is None:
-            return out
     names = _oo_rank_feature_names(model)
     raw_rows: List[dict] = []
     slots: List[int] = []
     for i, it in enumerate(out):
         if not isinstance(it, dict):
-            continue
-        code = str(it.get("stock_code") or "").strip()
-        if tier_a and allow is not None and code not in allow:
-            for key in _TC_RANK_DROP:
-                it.pop(key, None)
-            continue
-        # 显式 z 宇宙：未入集的行不进 μ/σ（前缀后避开混合钟）
-        if z_allow is not None and code not in z_allow:
-            if allow is not None and code not in allow:
-                for key in _TC_RANK_DROP:
-                    it.pop(key, None)
             continue
         feats = it.get("features_tau")
         if not isinstance(feats, dict) or not feats:
@@ -652,7 +638,7 @@ def apply_tc_rank_scores(
     keep: List[int] = []
     for j, slot in enumerate(slots):
         code = str(out[slot].get("stock_code") or "").strip()
-        if (not tier_a) and allow is not None and code not in allow:
+        if allow is not None and code not in allow:
             for key in _TC_RANK_DROP:
                 out[slot].pop(key, None)
             continue
@@ -667,7 +653,18 @@ def apply_tc_rank_scores(
         except Exception:  # noqa: BLE001
             pass
         z_names = names or list(raw_rows[0].keys())
-        feat_rows = cross_section_zscore_dicts(raw_rows, [str(n) for n in z_names])
+        codes = [str(out[s].get("stock_code") or "").strip() for s in slots]
+        groups = [_item_cs_group(out[s]) for s in slots]
+        feat_rows = rank_cross_section_z_dicts(
+            raw_rows,
+            [str(n) for n in z_names],
+            groups,
+            day_cube=day_cube,
+            codes=codes,
+            clock=str(clock or "open"),
+        )
+        if feat_rows is None:
+            return out
     pred_rows = [feat_rows[j] for j in keep]
     hats_keep = (
         _predict_oo_rank_rows(model, pred_rows, impute_missing=True) if pred_rows else []

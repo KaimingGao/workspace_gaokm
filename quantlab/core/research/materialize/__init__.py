@@ -2,12 +2,14 @@
 
 from core.research.materialize.catalog import catalog_payload, normalize_families
 from core.research.materialize.cube_z import (
+    align_fit_rows_to_l2,
     apply_day_cube_mu_sigma_dicts,
     apply_day_cube_mu_sigma_matrix,
     cs_z_dicts_prefer_cube,
     cs_z_matrix_prefer_cube,
+    groups_with_day_cube,
 )
-from core.research.materialize.flags import fit_use_day_cube, require_day_cube
+from core.research.materialize.flags import require_day_cube
 from core.research.materialize.cover_policy import (
     HORIZON_COVER_FRAC,
     LAKE_COVER_FRAC,
@@ -36,12 +38,13 @@ __all__ = [
     "catalog_payload",
     "normalize_families",
     "require_day_cube",
-    "fit_use_day_cube",
     "resolve_materialize_codes",
     "run_materialize",
     "build_materialize_track",
     "apply_day_cube_mu_sigma_matrix",
     "apply_day_cube_mu_sigma_dicts",
+    "align_fit_rows_to_l2",
+    "groups_with_day_cube",
     "cs_z_matrix_prefer_cube",
     "cs_z_dicts_prefer_cube",
     "horizon_l1_feature_names",

@@ -105,15 +105,51 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
     return codes, meta
 
 
+def _resolve_rank_day_cube(
+    items: Sequence[dict],
+    *,
+    day_cube: Any = None,
+    clock: str = "open",
+) -> Any:
+    """复用已建 Cube；否则按行上湖日尝试 ensure（与主头同全池键）。"""
+    if day_cube is not None:
+        return day_cube
+    rows = [it for it in (items or []) if isinstance(it, dict)]
+    if len(rows) < 2:
+        return None
+    try:
+        from core.research.batch_score import ensure_day_cube_for_items
+        from core.research.materialize.coverage import read_cube_codes
+
+        day = _live_rank_asof(rows)
+        uh = None
+        try:
+            uh = read_cube_codes() or None
+        except Exception:  # noqa: BLE001
+            uh = None
+        return ensure_day_cube_for_items(
+            rows,
+            date=day,
+            clock=str(clock or "open"),
+            persist=False,
+            universe_codes=uh,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("resolve rank day_cube failed", exc_info=True)
+        return None
+
+
 def _attach_oo_rank_scores(
     items: Sequence[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
+    clock: str = "open",
 ) -> None:
     """ŷ_oo_rank：有已启用模型则写入当日截面 1..n 名次；缺则跳过。不改 y_oo_fuse；过入场后作买序。
 
-    ``zscore_universe=pool``（默认）：截面 z 用整批；``score_codes`` 只限制写名次。
-    ``tier_a``：先缩到模型 A 名单再算 z 与名次（可再 ∩ ``score_codes``）。
+    截面 z 只用全池 L2；``score_codes`` 只限制写名次。
+    模型 ``train_universe=tier_a`` 不影响打分 μ/σ。
     """
     try:
         from core.research.oo_rank_lambdarank import apply_oo_rank_scores, load_oo_rank_model
@@ -121,8 +157,15 @@ def _attach_oo_rank_scores(
         # live 调仓只用执行套；缺则跳过，不静默换研究套。
         doc = load_oo_rank_model(prefer_research=False)
         if doc:
+            cube = _resolve_rank_day_cube(
+                items, day_cube=day_cube, clock=clock
+            )
             apply_oo_rank_scores(
-                list(items or []), model_doc=doc, score_codes=score_codes
+                list(items or []),
+                model_doc=doc,
+                score_codes=score_codes,
+                day_cube=cube,
+                clock=str(clock or "open"),
             )
     except Exception:  # noqa: BLE001
         logger.debug("attach live y_oo_rank failed", exc_info=True)
@@ -132,6 +175,8 @@ def _attach_tc_rank_scores(
     items: Sequence[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
+    day_cube: Any = None,
+    clock: str = "open",
 ) -> None:
     """ŷ_τc_rank：有执行套模型则写入当日截面名次；缺则跳过。宇宙语义同 oo_rank。"""
     try:
@@ -139,8 +184,15 @@ def _attach_tc_rank_scores(
 
         doc = load_tc_rank_model(prefer_research=False)
         if doc:
+            cube = _resolve_rank_day_cube(
+                items, day_cube=day_cube, clock=clock
+            )
             apply_tc_rank_scores(
-                list(items or []), model_doc=doc, score_codes=score_codes
+                list(items or []),
+                model_doc=doc,
+                score_codes=score_codes,
+                day_cube=cube,
+                clock=str(clock or "open"),
             )
     except Exception:  # noqa: BLE001
         logger.debug("attach live y_tc_rank failed", exc_info=True)
@@ -362,7 +414,7 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
         score_codes = None
     batch: List[dict] = []
     for code in codes:
-        row: Dict[str, Any] = {"stock_code": code}
+        row: Dict[str, Any] = {"stock_code": code, "lake_score_day": day}
         if oo_ok and isinstance(oo_rows.get(code), dict):
             row["sub_scores"] = dict(oo_rows[code])
         if tc_ok and isinstance(tc_rows.get(code), dict):
@@ -372,9 +424,9 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
     if len(batch) < 2:
         return
     if oo_ok:
-        _attach_oo_rank_scores(batch, score_codes=score_codes)
+        _attach_oo_rank_scores(batch, score_codes=score_codes, clock="open")
     if tc_ok:
-        _attach_tc_rank_scores(batch, score_codes=score_codes)
+        _attach_tc_rank_scores(batch, score_codes=score_codes, clock="open")
     by_code = {
         str(it.get("stock_code") or "").strip(): it
         for it in batch
@@ -1484,8 +1536,15 @@ def simulate_watching_matrix_preview(
             score_codes=score_codes,
             tau_clock=rl_cfg.get("live_fill_clock"),
         )
-    _attach_oo_rank_scores(scored, score_codes=score_codes)
-    _attach_tc_rank_scores(scored, score_codes=score_codes)
+    rank_clock = _consumer_score_clock(
+        use_minute_tau, rl_cfg.get("live_fill_clock")
+    )
+    _attach_oo_rank_scores(
+        scored, score_codes=score_codes, clock=rank_clock
+    )
+    _attach_tc_rank_scores(
+        scored, score_codes=score_codes, clock=rank_clock
+    )
     try:
         save_live_rank_snapshot(scored, as_of=_live_rank_asof(scored))
     except Exception:  # noqa: BLE001

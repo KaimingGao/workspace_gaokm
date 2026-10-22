@@ -17,8 +17,3 @@ def _truthy(raw: str, default: bool = False) -> bool:
 def require_day_cube() -> bool:
     """出分/回测：Cube miss 时禁止全池 bars 冷建（``QUANTLAB_MATERIALIZE_REQUIRE_CUBE``）。"""
     return _truthy(os.environ.get("QUANTLAB_MATERIALIZE_REQUIRE_CUBE", "0"), default=False)
-
-
-def fit_use_day_cube() -> bool:
-    """拟合日截面 z 优先读 L2 μ/σ（``QUANTLAB_FIT_USE_DAY_CUBE``；默认关）。"""
-    return _truthy(os.environ.get("QUANTLAB_FIT_USE_DAY_CUBE", "0"), default=False)

@@ -27,8 +27,8 @@
 1. **一次物化、三处消费**：训练 / 回测 / live 读同一套 L1 特征行与 L2 日截面统计。  
 2. **增量优先**：日线 topup 只追加末几根时只重算尾窗；lookback 变长且旧窗是新 bars 后缀时只补更早日期；禁止常态「整票推倒」。  
 3. **单遍截面 ŷ**：池齐后用 DayCube μ/σ 打 z 再 predict；调仓扫池可先只抽特征。  
-4. **口径可审计**：截面宇宙绑 `universe_hash`；主头 / `zscore_universe=pool` 时 tier / `tradable_codes` 只挡写分与开仓、不缩小 z 池；排序头 `tier_a` 先缩 A 再算 z（见 oo/tc_rank）。  
-5. **可回滚**：环境变量关断即回旧路径，无需删库。
+4. **口径可审计**：截面宇宙绑 `universe_hash`；主头与排序头截面 z 都用整观察池 L2 μ/σ，**均不进批现算**。缺 Cube：主头拟合/OOS → `materialize_required`；排序头跳过该日/不写分（消费只读同报物化）。tier / `tradable_codes` / `score_codes` 只挡写分与开仓；`train_universe=tier_a` 只缩拟合损失。  
+5. **缺覆盖可审计**：消费只读缺 L1/L2 → ``materialize_required``（须先物化）；关 ``QUANTLAB_MATERIALIZE_CONSUMER`` 仅供单测/脚本走旧现算，产品路径不依赖开关回退矩阵 CS-z。
 
 ### 1.3 非目标
 
@@ -227,7 +227,6 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 |----------|------|------|
 | `QUANTLAB_MATERIALIZE_CONSUMER` | 关 | 产品入口打开：缺 L1/L2 返回 ``materialize_required``，不现算特征、不冷建立方 |
 | `QUANTLAB_MATERIALIZE_REQUIRE_CUBE` | 关 | 更早的窄开关：出分/warmup 的 Cube miss 不 ensure。产品路径以消费开关为准 |
-| `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 消费开关关闭时，拟合/OOS 仍可单独打开以读 L2 |
 
 **PIT（ŷ_τ*）**：拟合 CS 分组键为 ``date|τ``（`feature_standardize.normalize_cs_group_key`），同日多钟不混组；LGB / Ridge / live `_cs_z_horizon_feats` 均走该键。`apply_day_cube_mu_sigma_matrix` 按组钟读 L2。改完须**重拟合**窗头五头。
 
@@ -235,7 +234,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 **按钟 L2 / τ 网格 L1**：分钟线 Ready 后点「物化 L1/L2」；`do_l1_tau_grid` + `suggested_tau_clocks`；无对应 L1 则跳过该日。
 
-**OOS 口径**：`predict_ridge_matrix` / `predict_p_up_rows` 在 `FIT_USE_DAY_CUBE=1` 时经 `cs_z_*_prefer_cube` 与训练同读 L2。
+**OOS 口径**：`predict_ridge_matrix` / `predict_p_up_rows` 经 `cs_z_*_prefer_cube` 与训练同读 L2（只用 Cube）。
 
 模块：`core/research/materialize/`（`catalog` / `l1_jobs` / `l2_jobs` / `cube_z` / `orchestrate`）。
 
@@ -245,7 +244,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 ### 5.1 训练（Fit）
 
-产品拟合打开消费开关后：L1 指纹命中则用湖里的 X 和 y；未命中返回 ``materialize_required``，不 collect、不写湖、不冷建立方。截面 z 在消费开关或 ``FIT_USE_DAY_CUBE`` 打开时读 L2。覆盖检查用 ``scorable_bar_dates``：跳过特征垫窗（``min_history``≈``ALPHA_OO_PANEL_WINDOW``）和凑不满截面人数的早期日，避免把 lookback 之前的垫根误报成缺日。
+产品拟合打开消费开关后：L1 指纹命中则用湖里的 X 和 y；未命中返回 ``materialize_required``，不 collect、不写湖、不冷建立方。截面 z 只用 L2（缺 Cube → ``materialize_required``）。覆盖检查用 ``scorable_bar_dates``：跳过特征垫窗（``min_history``≈``ALPHA_OO_PANEL_WINDOW``）和凑不满截面人数的早期日，避免把 lookback 之前的垫根误报成缺日。
 
 不设该开关时（单测、脚本）仍走下面的旧路径：指纹命中返回；尾窗 ``keep_dates`` merge；全量 collect 后写 L1，oo 再物化 DayCube。
 
@@ -298,7 +297,6 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | `QUANTLAB_DAY_CUBE_GC` | 开 | `0` 关闭 L2 日期作废与冷目录回收 |
 | `QUANTLAB_BATCH_SCORE` | 开 | `0`：不建 cube、调仓不 defer，走旧双遍 |
 | `QUANTLAB_MATERIALIZE_CONSUMER` | 关 | 产品入口打开后只读 L1/L2；缺覆盖返回 ``materialize_required`` |
-| `QUANTLAB_FIT_USE_DAY_CUBE` | 关 | 消费开关关闭时，拟合/OOS 仍可单独读 L2 |
 | `QUANTLAB_MATERIALIZE_REQUIRE_CUBE` | 关 | 更早的窄开关：Cube miss 不 ensure。产品路径以消费开关为准 |
 
 路径常量：`core/paths.py` → `FEATURE_LAKE_DIR` / `DAY_CUBE_DIR`。
@@ -374,10 +372,10 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | P11 | 停 panel 双写；stem meta 进 L1；增量只读 L1 | ✅ |
 | P12 | 抽出 `panel_fingerprint`；panel 磁盘 IO 退役 | ✅ |
 | 扫尾 | 删除 `panel_disk_cache` / `PANEL_CACHE_DIR`；去掉无用 `head_key` | ✅ |
-| M0 | 独立物化 Job + UI；`REQUIRE_CUBE` / `FIT_USE_DAY_CUBE` | ✅ |
+| M0 | 独立物化 Job + UI；`REQUIRE_CUBE` | ✅ |
 | M1 | PIT `date|τ`；prefix_light；扫槽 `prefix_snaps_by_hm` | ✅ |
 | M2 | oo/τc/co/ŷ_τ* 拟合读 L2；按钟 Cube（`date|τ`→clock；H3 起禁静默 open） | ✅ |
-| M3 | 按钟 L2 / OOS 与 `FIT_USE_DAY_CUBE` 同口径；τ UI 已迁分钟线 | ✅ |
+| M3 | 按钟 L2 / OOS 与训练同吃 L2；τ UI 已迁分钟线 | ✅ |
 | M4 | 拟合主路径统一 `cs_z_*_prefer_cube`（oo/τc/co/ŷ_τ*/LGB） | ✅ |
 | H0 | 契约：`horizon_names` / catalog `tau_grid` | ✅ |
 | H1 | `materialize_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
@@ -395,27 +393,18 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 首次拟合会写满 L1 +（oo）DayCube；第二次同宇宙应大量 hit L1。  
 回测要吃到 L1，需先跑过对应 family 的日线物化。拟合只读已有面板，不覆盖生产湖。
 
-### 10.1b L2 拟合口径切换（推荐顺序）
+### 10.1b L2 拟合口径（推荐顺序）
 
-改完 PIT / Cube / `FIT_USE_DAY_CUBE` 后按序做，避免旧 β 混新 z：
+拟合/OOS 截面 z **只用 L2**。按序做，避免旧 β 混新 z：
 
 1. **日线**：研究枢纽增量补齐（或强更）。  
 2. **分钟**：做 T / ŷ_τ* 须 5m Ready（增量或强更）。  
 3. **物化**（手动）  
    - **日线**「物化 L1/L2」：oo/tc/co + open L2；  
    - **分钟线** Ready 后「物化 L1/L2」：τ 网格 `tc_HHMM` + 按钟 Cube（Ready 不足禁用）。  
-4. **开开关**（进程级，改后重启 Web / worker）：
-
-```bash
-export QUANTLAB_FIT_USE_DAY_CUBE=1
-# 可选：Cube miss 禁止 bars 冷建
-# export QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1
-```
-
-5. **重拟合**：ŷ_oo → ŷ_τc / ŷ_co → 窗头 ŷ_τ30…τ90（及 LGB 影子头若在用）。  
+4. **可选**：`export QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1`（Cube miss 禁止 bars 冷建）。  
+5. **重拟合**：ŷ_oo → ŷ_τc / ŷ_co → 窗头 ŷ_τ30…τ90（及排序头）。  
 6. **回测**：做 T / 调仓 replay；tip 各钟不应塌常数；日志 `horizon cs-z cube hit … clock=τ`（非一律 open）。
-
-关回旧矩阵 CS-z：`unset QUANTLAB_FIT_USE_DAY_CUBE`（或 `=0`）后重拟合即可。
 
 ### 10.2 强制全量重算
 
@@ -431,7 +420,7 @@ rm -rf data/cache/feature_lake data/cache/day_cubes
 
 ### 10.3 口径漂移
 
-- 调仓与训练 ŷ 不一致：检查是否同 `universe_hash`、是否 `cross_section` 模型、是否误关 `BATCH_SCORE`、是否只开了 `FIT_USE_DAY_CUBE` 未重拟合。  
+- 调仓与训练 ŷ 不一致：检查是否同 `universe_hash`、是否 `cross_section` 模型、是否误关 `BATCH_SCORE`、是否物化后未重拟合。  
 - 回测未命中 L1：看日志 `replay open day lake hits=… miss=…`；确认 family 与决策日对齐。  
 - 增量未触发：中间 bar 被复权改写 → 预期全量；看 meta 是否有 `bars_fp`/`stem_fp`/`n_bars`（旧分片无 stem 时需先全量写一次）。短窗→长窗应走历史前缀；若仍全量，核对末日是否一致、旧 `bars_fp` 是否为新 bars 后缀。
 - 物化仍每票扫盘作废：确认在 `l2_invalidation_batch` 内，且进程工人 defer→父进程 `apply_deferred_stale` / `apply_stale_from_exc`（`MaterializeRequired` 挂 `_deferred_l2_stale`）。  
@@ -514,7 +503,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 构建输入 | 该日该钟 L1 行 → `ensure_day_cube_for_items(..., clock=τ, universe_codes=请求的完整名单)`。哈希不随缺行缩小 |
 | `names` | 必须覆盖窗头入模列（拒 slim gap-only；与现 prefix CS-z 拒 slim 一致） |
 | 物化 | `clocks = ["open"] + suggested_tau_clocks`；缺 L1 跳过并计数 `days_skipped`；`align` 后矩阵 CS enrich 再算 μ/σ |
-| 拟合读 | `cs_z_*_prefer_cube`：`date|τ` → `load_day_cube(day, clock=τ)`；miss → **不**默默用 open 当主成功（可配置 `fallback_open`，窗头默认 **关** 或打标 `open_fallback`）；旧 Cube 缺列 → 该列桶内 z |
+| 拟合读 | `cs_z_*_prefer_cube`：`date|τ` → `load_day_cube(day, clock=τ)`；任一日 miss → `materialize_required`（不进批现算）；缺列填 0 |
 
 > 窗头与 ŷ_τc(open) 分流：open Cube 继续服务 oo/τc(open)/co；**τ≠open 的窗头以按钟 Cube 为准。**
 
@@ -527,7 +516,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
   → H3 窗头拟合：L1 hit 则 stack(date|τ) → prefer_cube(z) → dual fit → promote
          miss 行 → 5m 现算 + 写穿 L1（增量）
   → H4 live/T0/BT：前缀特征 → Cube(clock=τ) z → load t30…t90 模型
-  → H5 开关与护栏：FIT_USE_DAY_CUBE=1；REQUIRE_CUBE 可选；单测 PIT+列覆盖
+  → H5 护栏：REQUIRE_CUBE 可选；单测 PIT+列覆盖
 ```
 
 | 阶段 | 内容 | 状态 |
@@ -561,15 +550,14 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 无自动物化 | 日线/分钟线均手动；无 auto-materialize 勾选 |
 | 前缀滑条 | **ŷ_τc** 独立（默认 09:30）；**ŷ_τ30…90** 共用（默认 11:00）；localStorage / 拟合恢复按组隔离 |
 | ŷ_τc 拟合进度 | `解析宇宙` → `拉日线` →（可选）`读5m` → `面板 k/N` → `截面广度` → `Ridge`；槽 `allow_zero_progress` |
-| 窗头拟合 Job | 进度区分 `L1 hit / 5m miss / Cube hit`；CS-z 读 L2 须 `FIT_USE_DAY_CUBE=1` |
+| 窗头拟合 Job | 进度区分 `L1 hit / 5m miss / Cube hit`；CS-z 只用 L2 |
 
 ### 13.6 运维顺序（窗头专用）
 
 1. 日线齐 → **分钟齐**（必须）。  
 2. 物化：open L1/L2（主头）→ **τ 网格 L1** → **τ 钟 L2**。  
-3. `export QUANTLAB_FIT_USE_DAY_CUBE=1`（重启）。  
-4. 重拟合 t30…t90（及 LGB）并 promote。  
-5. 做 T / 回测；日志确认 `clock=τ` Cube hit，而非一律 open_fallback。
+3. 重拟合 t30…t90（及 LGB / 排序头）并 promote。  
+4. 做 T / 回测；日志确认 `clock=τ` Cube hit，而非一律 open_fallback。
 
 ### 13.7 风险与回滚
 
@@ -579,7 +567,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 分钟变更失效面大 | 指纹含分钟前缀；topup 分钟后 `invalidate` 对应 `tc_HHMM` |
 | 列膨胀拖慢 Cube | `names` 白名单；slim 禁止用于窗头 z |
 | 口径漂移 | 窗头默认不 open_fallback；或报告 `zscore_clock_source` |
-| 回滚 | `FIT_USE_DAY_CUBE=0` → 矩阵 `date|τ` CS-z；物化开关不影响旧 5m 现算路径 |
+| 回滚 | 缺 L2 → ``materialize_required``（主头/排序头均不进批现算）；须先物化再拟合 |
 
 ### 13.8 明确不做（本轨）
 
@@ -589,4 +577,4 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 
 ---
 
-**一句话**：用 **L1 单票增量特征仓 + L2 截面 Cube** 取代「每次临时拼截面」——开盘头吃 **open**；ŷ_τ\* / 做 T 前缀吃 **按钟（分钟）L2**；训练写穿，回测/live 复用，开关可回滚。
+**一句话**：用 **L1 单票增量特征仓 + L2 截面 Cube** 取代「每次临时拼截面」——开盘头吃 **open**；ŷ_τ\* / 做 T 前缀吃 **按钟（分钟）L2**；训练写穿，回测/live 复用；缺 L2 报物化，不回退矩阵 CS-z。

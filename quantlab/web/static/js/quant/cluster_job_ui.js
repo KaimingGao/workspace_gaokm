@@ -90,39 +90,6 @@ function buildClusterJobFacts(job, { pollStartedAt } = {}) {
   return facts;
 }
 
-export function formatClusterJobFootLine(job) {
-  if (!job || !job.status || job.status === "idle") return "—";
-  const st = job.status;
-  const cur = Number(job.current);
-  const tot = Number(job.total);
-  const prog = cur > 0 && tot > 0 ? `${cur}/${tot}` : "";
-  const pct = Number(job.pct);
-  const pctTxt = Number.isFinite(pct) && pct > 0 ? `${Math.round(pct)}%` : "";
-  const updated = Number(job.updated_at);
-  const age = updated > 0 ? fmtAgeSec(Date.now() / 1000 - updated) : "";
-  if (st === "running") {
-    return ["进行中", prog, pctTxt, age].filter(Boolean).join(" · ");
-  }
-  if (st === "failed") {
-    const err = String(job.error || job.message || "失败").slice(0, 80);
-    return ["失败", prog, err, age].filter(Boolean).join(" · ");
-  }
-  if (st === "done") {
-    const sum = job.result_summary || {};
-    const bits = ["完成"];
-    if (sum.remote_count != null && sum.total != null) {
-      bits.push(`远端 ${sum.remote_count}/${sum.total}`);
-    }
-    if (sum.warmed != null && sum.total != null) {
-      bits.push(`预热 ${sum.warmed}/${sum.total}`);
-    }
-    if (sum.skipped_ready != null) bits.push(`跳过 Ready ${sum.skipped_ready}`);
-    if (age) bits.push(age);
-    return bits.join(" · ");
-  }
-  return String(job.message || st);
-}
-
 export function jobStatusBadge(job) {
   if (!job || job.status === "idle") return null;
   const st = job.status;
