@@ -373,6 +373,58 @@ def groups_with_day_cube(
     return mask, miss_seen
 
 
+def filter_rows_to_day_cube(
+    groups: Sequence[Any],
+    columns: Sequence[Sequence[Any]],
+    *,
+    clock: str = "open",
+    require_any: bool = True,
+) -> Tuple[List[Any], List[list], List[str]]:
+    """丢掉没有 L2 的 ``日期|钟`` 行。同一天的其他钟留下。
+
+    ``columns`` 与 ``groups`` 等长。一行都不剩且 ``require_any`` 时抛
+    ``MaterializeRequired``。返回 ``(groups_kept, columns_kept, miss_keys)``。
+    """
+    from core.research.materialize.consumer import MaterializeRequired
+
+    group_list = list(groups or [])
+    n = len(group_list)
+    cols = [list(col or []) for col in (columns or [])]
+    for col in cols:
+        if len(col) != n:
+            raise ValueError("filter_rows_to_day_cube column length != groups")
+    mask, miss = groups_with_day_cube(group_list, clock=clock)
+    keep = [i for i in range(n) if bool(mask[i])]
+    n_drop = n - len(keep)
+    if not keep and require_any:
+        hint, clks = _l2_materialize_hint(group_list, default_clock=clock)
+        raise MaterializeRequired(
+            {
+                "error_code": "materialize_required",
+                "error": _format_l2_miss_error(
+                    {
+                        "error": f"cube miss {miss[0]}" if miss else "截面立方缺失",
+                        "clock": clks[0] if clks else clock,
+                    },
+                    default_clock=clock,
+                ),
+                "layer": "l2",
+                "hint": hint,
+                "clocks": clks,
+            }
+        )
+    if n_drop > 0:
+        logger.warning(
+            "fit drop %s/%s rows without L2 day|clock; miss e.g. %s",
+            n_drop,
+            n,
+            miss[:5],
+        )
+    groups_kept = [group_list[i] for i in keep]
+    cols_kept = [[col[i] for i in keep] for col in cols]
+    return groups_kept, cols_kept, miss
+
+
 def align_fit_rows_to_l2(
     x: np.ndarray,
     y: np.ndarray,

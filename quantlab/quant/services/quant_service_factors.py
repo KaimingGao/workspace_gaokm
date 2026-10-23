@@ -1912,8 +1912,8 @@ class QuantFactorMixin:
         ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
         方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
         ``lookback`` 为日线上限；分钟线按**单票本地 5m**有多少用多少（不裁成宇宙
-        够格日交集，避免样本从 ~43 万掉到 ~40 万、Holdout 指标下滑）。截面 z
-        只用 L2；缺 Cube → ``materialize_required``。报告里的 ``minute_days``/
+        够格日交集）。截面 z 只用 L2；某一天的某一钟没有立方时丢掉这些行，
+        训练行全部没有立方才 ``materialize_required``。报告里的 ``minute_days``/
         ``minute_span`` 仍记宇宙够格窗，仅作对照。
         ``progress_cb(cur, tot, msg)``：job 槽刷新（流式建面板 + 截面/双训阶段）。
         ``job_alive_cb()``：False 时跳过 ``save_ridge_last_report``（槽已被接替/取消）。

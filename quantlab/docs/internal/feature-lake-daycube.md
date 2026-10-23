@@ -27,7 +27,7 @@
 1. **一次物化、三处消费**：训练 / 回测 / live 读同一套 L1 特征行与 L2 日截面统计。  
 2. **增量优先**：日线 topup 只追加末几根时只重算尾窗；lookback 变长且旧窗是新 bars 后缀时只补更早日期；禁止常态「整票推倒」。  
 3. **单遍截面 ŷ**：池齐后用 DayCube μ/σ 打 z 再 predict；调仓扫池可先只抽特征。  
-4. **口径可审计**：截面宇宙绑 `universe_hash`；主头与排序头截面 z 都用整观察池 L2 μ/σ，**均不进批现算**。缺 Cube：主头拟合/OOS → `materialize_required`；排序头跳过该日/不写分（消费只读同报物化）。tier / `tradable_codes` / `score_codes` 只挡写分与开仓；`train_universe=tier_a` 只缩拟合损失。  
+4. **口径可审计**：截面宇宙绑 `universe_hash`；主头与排序头截面 z 都用整观察池 L2 μ/σ，**均不进批现算**。缺 Cube：ŷ_τ* 丢掉该 `日期|钟` 的行，训练行全部没有才 `materialize_required`；其余主头拟合/OOS 任一日 miss → `materialize_required`；排序头跳过该日/不写分（消费只读同报物化）。tier / `tradable_codes` / `score_codes` 只挡写分与开仓；`train_universe=tier_a` 只缩拟合损失。  
 5. **缺覆盖可审计**：消费只读缺 L1/L2 → ``materialize_required``（须先物化）；关 ``QUANTLAB_MATERIALIZE_CONSUMER`` 仅供单测/脚本走旧现算，产品路径不依赖开关回退矩阵 CS-z。
 
 ### 1.3 非目标
@@ -244,7 +244,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 ### 5.1 训练（Fit）
 
-产品拟合打开消费开关后：L1 指纹命中则用湖里的 X 和 y；未命中返回 ``materialize_required``，不 collect、不写湖、不冷建立方。截面 z 只用 L2（缺 Cube → ``materialize_required``）。覆盖检查用 ``scorable_bar_dates``：跳过特征垫窗（``min_history``≈``ALPHA_OO_PANEL_WINDOW``）和凑不满截面人数的早期日，避免把 lookback 之前的垫根误报成缺日。
+产品拟合打开消费开关后：L1 指纹命中则用湖里的 X 和 y；未命中返回 ``materialize_required``，不 collect、不写湖、不冷建立方。截面 z 只用 L2。ŷ_τ* 缺的 ``日期|钟`` 整行丢掉，训练行全部没有才 ``materialize_required``；其余主头缺 Cube → ``materialize_required``。覆盖检查用 ``scorable_bar_dates``：跳过特征垫窗（``min_history``≈``ALPHA_OO_PANEL_WINDOW``）和凑不满截面人数的早期日，避免把 lookback 之前的垫根误报成缺日。
 
 不设该开关时（单测、脚本）仍走下面的旧路径：指纹命中返回；尾窗 ``keep_dates`` merge；全量 collect 后写 L1，oo 再物化 DayCube。
 
@@ -503,7 +503,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 构建输入 | 该日该钟 L1 行 → `ensure_day_cube_for_items(..., clock=τ, universe_codes=请求的完整名单)`。哈希不随缺行缩小 |
 | `names` | 必须覆盖窗头入模列（拒 slim gap-only；与现 prefix CS-z 拒 slim 一致） |
 | 物化 | `clocks = ["open"] + suggested_tau_clocks`；缺 L1 跳过并计数 `days_skipped`；`align` 后矩阵 CS enrich 再算 μ/σ |
-| 拟合读 | `cs_z_*_prefer_cube`：`date|τ` → `load_day_cube(day, clock=τ)`；任一日 miss → `materialize_required`（不进批现算）；缺列填 0 |
+| 拟合读 | `ŷ_τ*` 先按 `日期\|钟` 丢掉无立方行，再 `cs_z_*_prefer_cube`。一行都不剩才 `materialize_required`。`cs_z_*` 本身仍是任一组 miss 即失败（不进批现算）；缺列填 0 |
 
 > 窗头与 ŷ_τc(open) 分流：open Cube 继续服务 oo/τc(open)/co；**τ≠open 的窗头以按钟 Cube 为准。**
 
@@ -567,7 +567,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 分钟变更失效面大 | 指纹含分钟前缀；topup 分钟后 `invalidate` 对应 `tc_HHMM` |
 | 列膨胀拖慢 Cube | `names` 白名单；slim 禁止用于窗头 z |
 | 口径漂移 | 窗头默认不 open_fallback；或报告 `zscore_clock_source` |
-| 回滚 | 缺 L2 → ``materialize_required``（主头/排序头均不进批现算）；须先物化再拟合 |
+| 回滚 | 缺 L2 不进批现算。ŷ_τ* 丢掉该日期\|钟；其余主头整单 ``materialize_required``。须先物化再拟合 |
 
 ### 13.8 明确不做（本轨）
 

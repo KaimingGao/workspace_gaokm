@@ -8,7 +8,7 @@
 --------------  -------------------------------  ----------------------------  --------------------
 做 T 回测        决策钟 tc_HHMM（不硬要 oo）         ≤leg1 的 suggested τ（不含 open） 回看 ∩ 5m 够格日
 分钟 τ 物化      tc_HHMM 网格（自 09:35）           **仅** suggested τ（不含 open）  5m 够格日（近端优先）
-ŷ_τ* 拟合        —                                同物化 τ 钟                     lookback ∩ 5m 够格日（有多少用多少）
+ŷ_τ* 拟合        —                                同物化 τ 钟                     单票 5m 有多少用多少；无立方的日期|钟整行丢掉
 调仓 / 日线物化  oo/tc/co                          open                          本地日线够格日（近端优先；日历只作回退）
 
 门槛
@@ -75,7 +75,8 @@ def resolve_fit_minute_covered_dates(
     """宇宙级 5m 够格日（与分钟物化 L2 同门槛）。
 
     供报告 ``minute_days``/``minute_span`` 对照；ŷ_τ* **拟合不再按此裁单票 5m**
-    （单票本地有多少用多少；截面 z 仍须 L2，缺则 ``materialize_required``）。
+    （单票本地有多少用多少；截面 z 仍须 L2，缺的 ``日期|钟`` 整行丢掉，
+    训练行全部没有立方才 ``materialize_required``）。
     查询失败返回 ``None``。
     """
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]

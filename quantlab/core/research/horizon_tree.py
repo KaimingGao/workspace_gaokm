@@ -741,6 +741,7 @@ def fit_horizon_tree_report(
     metas_te = [metas[i] for i in test_idx]
     dates_tr = [dates[i] for i in train_idx]
     dates_te = [dates[i] for i in test_idx]
+    l2_rows_dropped: Dict[str, Any] = {"train": 0, "test": 0, "miss": []}
     try:
         from core.research.horizon_compact import (
             cs_groups_from_dates_metas,
@@ -749,7 +750,40 @@ def fit_horizon_tree_report(
 
         groups_tr = cs_groups_from_dates_metas(dates_tr, metas_tr)
         groups_te = cs_groups_from_dates_metas(dates_te, metas_te)
+        from core.research.materialize.cube_z import filter_rows_to_day_cube
+
+        n_tr, n_te = len(groups_tr), len(groups_te)
+        groups_tr, kept_tr, miss_tr = filter_rows_to_day_cube(
+            groups_tr,
+            [list(train_idx), ys_tr, metas_tr, dates_tr],
+            clock=live_hm,
+            require_any=True,
+        )
+        train_idx, ys_tr, metas_tr, dates_tr = kept_tr
+        groups_te, kept_te, miss_te = filter_rows_to_day_cube(
+            groups_te,
+            [list(test_idx), ys_te, metas_te, dates_te],
+            clock=live_hm,
+            require_any=False,
+        )
+        test_idx, ys_te, metas_te, dates_te = kept_te
+        miss_keys: List[str] = []
+        seen_miss = set()
+        for key in list(miss_tr) + list(miss_te):
+            if key in seen_miss:
+                continue
+            seen_miss.add(key)
+            miss_keys.append(key)
+        l2_rows_dropped = {
+            "train": n_tr - len(groups_tr),
+            "test": n_te - len(groups_te),
+            "miss": miss_keys[:8],
+        }
     except Exception as exc:  # noqa: BLE001
+        from core.research.materialize.consumer import MaterializeRequired
+
+        if isinstance(exc, MaterializeRequired):
+            raise
         # 禁止退回纯日期混钟（与 live PIT 不一致，且会假抬 Holdout）
         logger.exception("%s CS groups failed; refuse day-pooled fallback", h)
         return {
@@ -868,6 +902,7 @@ def fit_horizon_tree_report(
             "tau": live_hm,
             "tau_grid": list(grid),
             "target": target,
+            "l2_rows_dropped": l2_rows_dropped,
         }
     )
     oos_ridge["n_train"] = len(ys_tr)

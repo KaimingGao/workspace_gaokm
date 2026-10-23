@@ -501,11 +501,6 @@ def fit_horizon_ridge_report(
         compact, test_idx, names=feat_names
     )
 
-    weights = (
-        theme_sample_weights(metas_tr, theme_boost=theme_boost)
-        if use_theme_weights
-        else None
-    )
     use_cs = bool(cross_section_zscore)
     # PIT：CS 组 = date|τ（同日多钟不混组）；Holdout 仍按交易日切折
     # Live 亦须按钟；按日混钟会抬 Holdout，但不可上线（lookahead）。
@@ -514,6 +509,42 @@ def fit_horizon_ridge_report(
     )
     groups_te = (
         cs_groups_from_dates_metas(dates_te, metas_te) if use_cs else None
+    )
+    l2_rows_dropped = {"train": 0, "test": 0, "miss": []}
+    if use_cs and groups_tr is not None and groups_te is not None:
+        from core.research.materialize.cube_z import filter_rows_to_day_cube
+
+        n_tr, n_te = len(groups_tr), len(groups_te)
+        groups_tr, kept_tr, miss_tr = filter_rows_to_day_cube(
+            groups_tr,
+            [xs_tr, ys_tr, metas_tr, dates_tr],
+            clock=live_hm,
+            require_any=True,
+        )
+        xs_tr, ys_tr, metas_tr, dates_tr = kept_tr
+        groups_te, kept_te, miss_te = filter_rows_to_day_cube(
+            groups_te,
+            [xs_te, ys_te, metas_te, dates_te],
+            clock=live_hm,
+            require_any=False,
+        )
+        xs_te, ys_te, metas_te, dates_te = kept_te
+        miss_keys: List[str] = []
+        seen_miss = set()
+        for key in list(miss_tr) + list(miss_te):
+            if key in seen_miss:
+                continue
+            seen_miss.add(key)
+            miss_keys.append(key)
+        l2_rows_dropped = {
+            "train": n_tr - len(groups_tr),
+            "test": n_te - len(groups_te),
+            "miss": miss_keys[:8],
+        }
+    weights = (
+        theme_sample_weights(metas_tr, theme_boost=theme_boost)
+        if use_theme_weights
+        else None
     )
     cs_z_audit = {
         "train": summarize_cs_groups(groups_tr),
@@ -558,6 +589,7 @@ def fit_horizon_ridge_report(
             "tau": live_hm,
             "tau_grid": list(grid),
             "minute_tau_hm": live_hm,
+            "l2_rows_dropped": l2_rows_dropped,
         }
     )
     try:

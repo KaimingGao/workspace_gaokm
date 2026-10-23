@@ -645,6 +645,48 @@ class PreferCubeHelpersTests(unittest.TestCase):
         self.assertEqual(list(d2), ["2022-08-31", "2022-08-31"])
         np.testing.assert_allclose(y2, [0.2, 0.3])
 
+    def test_filter_rows_drops_only_missing_day_clock(self):
+        """同一天只丢掉没有立方的那一口钟，其他钟留下。全日都没有才报物化。"""
+        from core.research.materialize.consumer import MaterializeRequired
+        from core.research.materialize.cube_z import filter_rows_to_day_cube
+
+        class _Cube:
+            pass
+
+        def _load(day, codes, clock="open"):
+            key = (str(day)[:10], str(clock))
+            if key in {("2026-04-01", "09:40"), ("2026-08-03", "09:35")}:
+                return _Cube()
+            return None
+
+        groups = [
+            "2026-04-01|09:35",
+            "2026-04-01|09:40",
+            "2026-08-03|09:35",
+        ]
+        ys = [1.0, 2.0, 3.0]
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            kept_g, kept_cols, miss = filter_rows_to_day_cube(
+                groups, [ys], clock="09:35", require_any=True
+            )
+            with self.assertRaises(MaterializeRequired):
+                filter_rows_to_day_cube(
+                    ["2026-04-01|09:35"],
+                    [[9.0]],
+                    clock="09:35",
+                    require_any=True,
+                )
+        self.assertEqual(kept_g, ["2026-04-01|09:40", "2026-08-03|09:35"])
+        self.assertEqual(kept_cols[0], [2.0, 3.0])
+        self.assertEqual(miss, ["2026-04-01|09:35"])
+
 class CubeZPerClockTests(unittest.TestCase):
     def test_date_tau_loads_matching_clock(self):
         import numpy as np
