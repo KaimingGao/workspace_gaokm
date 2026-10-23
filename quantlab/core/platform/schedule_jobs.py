@@ -253,6 +253,55 @@ def run_bars_warmup(
         return {"ok": False, "error": str(e), "job": slot.get()}
 
 
+def format_minute_progress(
+    cur: int,
+    total: int,
+    *,
+    remote: int = 0,
+    skipped_today: Optional[int] = None,
+    skipped_aligned: Optional[int] = None,
+    skipped: Optional[int] = None,
+    timed_out: int = 0,
+    failed: int = 0,
+    workers: int = 0,
+    cap_sec: Optional[float] = None,
+    note: str = "",
+) -> str:
+    """分钟进度句，与日线 ``拉日线 N/M（远端 · 失败 · 已齐 · …）`` 同一括号计数。"""
+
+    def _n(v: Any, default: int = 0) -> int:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return int(default)
+
+    tot = max(1, _n(total, 1))
+    done = max(0, min(tot, _n(cur, 0)))
+    bits = [f"远端 {_n(remote)}"]
+    if skipped_today is not None:
+        bits.append(f"今日跳过 {_n(skipped_today)}")
+    if skipped_aligned is not None:
+        bits.append(f"对齐跳过 {_n(skipped_aligned)}")
+    if skipped is not None:
+        bits.append(f"跳过 {_n(skipped)}")
+    bits.append(f"超时 {_n(timed_out)}")
+    bits.append(f"失败 {_n(failed)}")
+    w = _n(workers)
+    if w > 0:
+        bits.append(f"{w} 并发")
+    try:
+        cap_n = int(float(cap_sec)) if cap_sec not in (None, "") else 0
+    except (TypeError, ValueError):
+        cap_n = 0
+    if cap_n > 0:
+        bits.append(f"上限 {cap_n}s")
+    line = f"拉5m {done}/{tot}（{' · '.join(bits)}）"
+    note_s = str(note or "").strip()
+    if note_s:
+        line += f" · {note_s}"
+    return line
+
+
 def _minute_warmup_core(
     *,
     codes: Optional[List[str]] = None,
@@ -291,17 +340,31 @@ def _minute_warmup_core(
     timed_out = 0
     errors: List[str] = []
     total = len(watch)
+    n_workers = 0
     pace_sec = minute_warmup_pace_sec()
     skip_if_ready = minute_warmup_skip_if_ready()
     ready_min_span = minute_warmup_ready_min_span_days()
     stale_h = minute_warmup_stale_hours()
     per_stock_timeout = minute_isolated_timeout_sec()
 
-    def _emit(cur: int, label: str) -> None:
+    def _emit(cur: int, note: str = "") -> None:
         if not progress_cb:
             return
         try:
-            progress_cb(cur, total, label)
+            progress_cb(
+                cur,
+                total,
+                format_minute_progress(
+                    cur,
+                    total,
+                    remote=max(0, warmed - skipped_ready),
+                    skipped=skipped_ready,
+                    timed_out=timed_out,
+                    failed=len(errors),
+                    workers=n_workers,
+                    note=note,
+                ),
+            )
         except Exception:  # noqa: BLE001 — best-effort 进度回调
             logger.debug("minute_warmup progress_cb failed", exc_info=True)
 
@@ -321,7 +384,7 @@ def _minute_warmup_core(
             if ready:
                 skipped_ready += 1
                 warmed += 1
-                _emit(skipped_ready, f"skip {code}")
+                _emit(skipped_ready)
                 continue
         to_fetch.append(code)
 
@@ -360,6 +423,7 @@ def _minute_warmup_core(
 
     if to_fetch:
         # 勿用 ``with ThreadPoolExecutor``：挂死任务 cancel 不掉，exit 会 wait=True 卡死 Job
+        _emit(done)
         pool = ThreadPoolExecutor(max_workers=n_workers)
         try:
             futs = {pool.submit(_fetch_one, code): code for code in to_fetch}
@@ -390,7 +454,7 @@ def _minute_warmup_core(
                         warmed += 1
                     elif err:
                         errors.append(f"{code}:{err}")
-                    _emit(done, code)
+                    _emit(done)
         finally:
             try:
                 pool.shutdown(wait=False, cancel_futures=True)

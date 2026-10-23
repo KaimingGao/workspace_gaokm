@@ -15,9 +15,19 @@ class TestMinuteStatus(unittest.TestCase):
 
         def _snap(code: str, *, period: str = "5"):
             if code == "600519":
-                return {"span_days": 95, "bar_count": 1000, "fetched_at": "2026-08-26T10:00:00"}
+                return {
+                    "span_days": 95,
+                    "bar_count": 1000,
+                    "fetched_at": "2026-08-26T10:00:00",
+                    "date_max": "2026-08-26",
+                }
             if code == "000001":
-                return {"span_days": 25, "bar_count": 200, "fetched_at": "2026-08-26T10:00:00"}
+                return {
+                    "span_days": 25,
+                    "bar_count": 200,
+                    "fetched_at": "2026-08-26T11:30:00",
+                    "date_max": "2026-08-25",
+                }
             return None
 
         with patch("core.watching.store.read_watching", return_value={"watchlist": watch}        ), patch(
@@ -36,6 +46,10 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertFalse(st["coverage_ok"])
         self.assertEqual(st["coverage_pct"], round(100 / 3, 1))
         self.assertEqual(st["minute_span_days_med"], 95)
+        self.assertEqual(st["last_bar_min"], "2026-08-25")
+        self.assertEqual(st["last_bar_max"], "2026-08-26")
+        self.assertEqual(st["last_fetched_at"], "2026-08-26T11:30:00")
+        self.assertTrue(st.get("expected_latest_bar"))
         self.assertEqual(
             st["span_distribution"],
             [
@@ -436,6 +450,68 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertEqual(out["mode"], "topup")
         top.assert_called_once()
         self.assertNotIn("topup_lookback_days", top.call_args.kwargs)
+
+    def test_progress_line_uses_daily_counter_shape(self):
+        """分钟进度句与日线一样：拉5m N/M（远端 · 跳过 · 失败 · 并发）。"""
+        from core.platform.schedule_jobs import format_minute_progress
+        from quant.research.minute_status import _minute_topup_core
+
+        line = format_minute_progress(
+            3,
+            10,
+            remote=2,
+            skipped_today=1,
+            skipped_aligned=4,
+            timed_out=0,
+            failed=1,
+            workers=4,
+            cap_sec=180,
+        )
+        self.assertTrue(line.startswith("拉5m 3/10（"))
+        for bit in ("远端 2", "今日跳过 1", "对齐跳过 4", "失败 1", "4 并发", "上限 180s"):
+            self.assertIn(bit, line)
+        # 坏计数不炸：夹到合法区间
+        bad = format_minute_progress("x", None, remote=None, workers="n", cap_sec="bad")
+        self.assertRegex(bad, r"^拉5m 0/1（")
+
+        seen = []
+
+        def _snap(code: str, *, period: str = "5"):
+            if code == "600519":
+                return {
+                    "span_days": 40,
+                    "date_max": "2026-08-28",
+                    "bar_count": 100,
+                    "session_complete": True,
+                }
+            return None
+
+        def _fetch(code, **kwargs):
+            return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
+
+        with patch(
+            "quant.research.minute_status.expected_minute_asof",
+            return_value="2026-08-28",
+        ), patch(
+            "quant.research.minute_status._minute_snapshot_for_code",
+            side_effect=_snap,
+        ), patch(
+            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            side_effect=_fetch,
+        ):
+            _minute_topup_core(
+                codes=["600519", "000001"],
+                workers=2,
+                progress_cb=lambda cur, total, label: seen.append(str(label)),
+            )
+        self.assertTrue(seen)
+        last = seen[-1]
+        self.assertRegex(last, r"^拉5m \d+/\d+（")
+        self.assertIn("远端", last)
+        self.assertIn("今日跳过", last)
+        self.assertIn("对齐跳过", last)
+        self.assertIn("失败", last)
+        self.assertIn("并发", last)
 
     def test_label_portrait_sign_counts(self):
         from quant.research.minute_status import build_minute_label_portrait

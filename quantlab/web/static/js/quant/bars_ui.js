@@ -1,12 +1,16 @@
 import { setProStatusChip, syncOverviewBarsCoverage } from "./factor_corr_ui.js";
 import {
-  fmtDuration,
-  fmtAgeSec,
-  jobTimings,
   paintClusterJobPanel,
   jobStatusBadge,
   unwrapJobSnap,
   setDeskStatusTone,
+  parseL0ProgressMessage,
+  l0PhaseLabel,
+  l0ParsedFacts,
+  l0RunningHead,
+  l0DoneHead,
+  l0CoverageFacts,
+  isJobHeartbeatStale,
 } from "./cluster_job_ui.js";
 import {
   BARS_DAILY_LOOKBACK,
@@ -100,6 +104,7 @@ export function installBarsUi(q) {
   let jobSuccess = null;
   let lastPolledJob = null;
   let lastStatusJob = null;
+  let lastCoverage = null;
   let activeMode = "topup";
 
   function clearJobPanels() {
@@ -122,119 +127,12 @@ export function installBarsUi(q) {
     return isTopupSummary(modeOrSum) ? "增量补齐（L0）" : "强更日 K（L0）";
   }
 
-  function parseBarsProgressMessage(raw) {
-    const msg = String(raw || "");
-    const out = {
-      raw: msg,
-      phase: "fetch",
-      done: null,
-      total: null,
-      remote: null,
-      cache: null,
-      failed: null,
-      elapsedSec: null,
-      remainSec: null,
-      workers: null,
-      capSec: null,
-      timedOut: /超时/.test(msg),
-    };
-    if (/排队|提交/.test(msg)) out.phase = "queue";
-    else if (/指数/.test(msg)) out.phase = "index";
-    else if (/超时收尾/.test(msg)) out.phase = "timeout";
-    else if (/已齐 as-of/.test(msg)) out.phase = "done";
-    else if (/完成|已对齐|Coverage/.test(msg) && !/拉日线/.test(msg)) out.phase = "done";
-    else if (/拉日线缺口/.test(msg)) out.phase = "gap";
-    else if (/拉日线\s*0\//.test(msg) && /上限|并发/.test(msg)) out.phase = "start";
-
-    const frac = msg.match(/(\d+)\s*\/\s*(\d+)/);
-    if (frac) {
-      out.done = Number(frac[1]);
-      out.total = Number(frac[2]);
-    }
-    const remote = msg.match(/远端\s*(\d+)/);
-    if (remote) out.remote = Number(remote[1]);
-    const cache = msg.match(/(?:缓存|已齐)\s*(\d+)/);
-    if (cache) out.cache = Number(cache[1]);
-    const failed = msg.match(/失败\s*(\d+)/);
-    if (failed) out.failed = Number(failed[1]);
-    const elapsed = msg.match(/(\d+)\s*s(?!\s*·)/) || msg.match(/·\s*(\d+)s/);
-    const elapsed2 = msg.match(/(\d+)s\s*·/);
-    if (elapsed2) out.elapsedSec = Number(elapsed2[1]);
-    else if (elapsed) out.elapsedSec = Number(elapsed[1]);
-    const remain = msg.match(/剩\s*(\d+)s/);
-    if (remain) out.remainSec = Number(remain[1]);
-    const workers = msg.match(/(\d+)\s*并发/);
-    if (workers) out.workers = Number(workers[1]);
-    const cap = msg.match(/上限\s*(\d+)s/);
-    if (cap) out.capSec = Number(cap[1]);
-    return out;
-  }
-
-  function phaseLabel(phase) {
-    switch (phase) {
-      case "queue":
-        return "排队";
-      case "index":
-        return "拉指数";
-      case "start":
-        return "启动";
-      case "gap":
-        return "补缺口";
-      case "timeout":
-        return "超时收尾";
-      case "done":
-        return "完成";
-      default:
-        return "拉日线";
-    }
-  }
-
   function clearProgressPanel() {
     if (!progressEl) return;
     progressEl.hidden = true;
     progressEl.innerHTML = "";
     progressEl.classList.remove("is-active", "is-warn", "is-done");
     delete progressEl.dataset.tone;
-  }
-
-  function barsParsedFacts(parsed, pollStartedAt) {
-    const wallSec = pollStartedAt ? (Date.now() - pollStartedAt) / 1000 : parsed.elapsedSec;
-    const elapsed = parsed.elapsedSec != null ? parsed.elapsedSec : wallSec;
-    let etaSec = null;
-    const done = parsed.done;
-    const total = parsed.total;
-    if (done > 0 && total > done && elapsed > 2) {
-      etaSec = (total - done) * (elapsed / done);
-    } else if (parsed.remainSec != null) {
-      etaSec = parsed.remainSec;
-    }
-    const remote = parsed.remote;
-    const cache =
-      parsed.cache != null
-        ? parsed.cache
-        : remote != null && done != null && parsed.phase !== "gap"
-          ? Math.max(0, done - remote)
-          : null;
-    const facts = [];
-    if (remote != null) facts.push(`远端 <strong>${remote}</strong>`);
-    // 0/N 启动瞬间 done=0 会算出「缓存命中 0」，像没吃到本地仓；有完成票再报
-    if (cache != null && Number(done) > 0) {
-      facts.push(
-        parsed.phase === "gap"
-          ? `已齐 <strong>${cache}</strong>`
-          : `缓存命中 <strong>${cache}</strong>`
-      );
-    }
-    if (parsed.failed != null && Number(parsed.failed) > 0) {
-      facts.push(`失败 <strong>${parsed.failed}</strong>`);
-    }
-    if (etaSec != null && parsed.phase !== "timeout") {
-      facts.push(`ETA <strong>~${fmtDuration(etaSec)}</strong>`);
-    }
-    if (parsed.remainSec != null) facts.push(`批上限剩 <strong>${fmtDuration(parsed.remainSec)}</strong>`);
-    if (parsed.workers != null) facts.push(`并发 <strong>${parsed.workers}</strong>`);
-    if (parsed.capSec != null) facts.push(`批上限 <strong>${fmtDuration(parsed.capSec)}</strong>`);
-    return facts;
   }
 
   function paintProgressFailed(job, errText) {
@@ -252,21 +150,17 @@ export function installBarsUi(q) {
 
   function paintProgressDone(job) {
     const sum = job?.result_summary || lastPolledJob?.result?.bars_refresh || {};
-    const bits = [];
-    if (sum.remote_count != null) bits.push(`远端 ${sum.remote_count}/${sum.total ?? "—"}`);
-    if (sum.gap_count != null) bits.push(`缺口 ${sum.gap_count}`);
-    if (sum.cache_count != null) bits.push(`已齐 ${sum.cache_count}`);
-    if (Number(sum.failed_count) > 0) bits.push(`失败 ${sum.failed_count}`);
+    const head = l0DoneHead(sum, "bars", lastCoverage, job);
     const topup = isTopupSummary(sum);
     setDeskStatusTone([barsStrip, barsCard], "primary");
     paintClusterJobPanel(progressEl, {
-      phase: topup ? "增量完成" : "强更完成",
+      phase: head[0],
       job,
       esc,
       mode: "done",
       tone: "primary",
-      hint: bits.length
-        ? bits.join(" · ")
+      hint: head.length > 1
+        ? head.slice(1).join(" · ")
         : topup
           ? "只拉未齐 as-of · 进程池并行 · 单票 60s"
           : "整窗替换 · 进程池并行 · 单票 60s",
@@ -279,17 +173,7 @@ export function installBarsUi(q) {
     setDeskStatusTone([barsStrip, barsCard], "primary");
     setProStatusChip(chip, "ok", "DONE");
     const sum = job?.result_summary || job?.result?.bars_refresh || {};
-    const head = [isTopupSummary(sum) ? "增量完成" : "强更完成"];
-    if (sum.remote_count != null) head.push(`远端 ${sum.remote_count}/${sum.total ?? "—"}`);
-    const diff = sum.diff;
-    if (diff && diff.price_count != null) {
-      head.push(`价变 ${diff.price_count}`);
-      head.push(`量纲 ${diff.volume_count ?? 0}`);
-      head.push(`只补尾 ${diff.tail_count ?? 0}`);
-    }
-    const updated = Number(job?.updated_at);
-    if (updated > 0) head.push(fmtAgeSec(Date.now() / 1000 - updated));
-    msgEl.textContent = head.join(" · ");
+    msgEl.textContent = l0DoneHead(sum, "bars", lastCoverage, job).join(" · ");
     paintProgressDone(job);
     barsCard?.classList.remove("is-busy");
     barsStrip?.classList.remove("is-busy");
@@ -301,11 +185,21 @@ export function installBarsUi(q) {
   function applyJobFailure(err, job) {
     jobSuccess = null;
     const errText = String((err && err.message) || err || "日 K 更新失败");
-    jobFailure = { errText, job: job || null };
+    const j = (err && err.job) || job || lastPolledJob || null;
+    // 前端等满但槽位仍 running：黄条提示接管，勿标 FAIL
+    if (err && err.stillRunning) {
+      jobFailure = null;
+      setDeskStatusTone([barsStrip, barsCard], "primary");
+      setProStatusChip(chip, "busy", "WAIT");
+      msgEl.textContent = errText;
+      setBarsBusy(true);
+      paintProgressPanel(j || { message: errText }, { pollStartedAt: Date.now() });
+      return;
+    }
+    jobFailure = { errText, job: j };
     setDeskStatusTone([barsStrip, barsCard], "primary");
     setProStatusChip(chip, "error", "FAIL");
     const head = ["更新失败"];
-    const j = jobFailure.job;
     if (j && j.current > 0 && j.total > 0) head.push(`${j.current}/${j.total}`);
     head.push(errText);
     msgEl.textContent = head.join(" · ");
@@ -324,10 +218,10 @@ export function installBarsUi(q) {
       isTopupSummary(job?.result_summary || job?.result?.bars_refresh);
     const defaultMsg = topup ? "增量补齐（L0）…" : "强更日 K（L0）…";
     const msg = job && (job.message || job.error) ? String(job.message || job.error) : defaultMsg;
-    const parsed = parseBarsProgressMessage(msg);
+    const parsed = parseL0ProgressMessage(msg);
     setDeskStatusTone([barsStrip, barsCard], "primary");
     paintClusterJobPanel(progressEl, {
-      phase: phaseLabel(parsed.phase),
+      phase: l0PhaseLabel(parsed.phase, "bars"),
       job,
       pollStartedAt,
       esc,
@@ -336,7 +230,7 @@ export function installBarsUi(q) {
       hint: topup
         ? "已齐 as-of 走本地 · 缺口进程池并行 · 单票 60s"
         : "整窗替换 · 进程池并行 · 单票 60s",
-      extraFacts: barsParsedFacts(parsed, pollStartedAt),
+      extraFacts: l0ParsedFacts(parsed),
     });
   }
 
@@ -385,13 +279,10 @@ export function installBarsUi(q) {
     const missing = data.missing ?? 0;
     const expected = data.expected_latest_bar || "—";
     const pct = total > 0 ? Math.round((1000 * at) / total) / 10 : 0;
-    const parts = [`Coverage ${pct}% (${at}/${total})`, `as-of ${expected}`];
+    const parts = [`Coverage ${pct}% (${at}/${total})`, ...l0CoverageFacts(data)];
     if (stale > 0) parts.push(`Stale ${stale}`);
     if (missing > 0) parts.push(`Missing ${missing}`);
-    const marker = data.forced_marker || {};
-    if (marker.session_date && marker.saved_at) {
-      parts.push(`Force sync ${fmtUtcShort(marker.saved_at)} UTC`);
-    } else if (data.needs_force_latest_bars) {
+    if (data.needs_force_latest_bars && !(data.forced_marker || {}).saved_at) {
       parts.push("本会话未强更");
     }
     let state = "ok";
@@ -503,6 +394,7 @@ export function installBarsUi(q) {
         <div><dt>Universe</dt><dd>watching · Limit ${esc(limit)} · ${total} 只</dd></div>
         <div><dt>As-of</dt><dd>${esc(expected)} · 会话 ${esc(session)}</dd></div>
         <div><dt>Span</dt><dd>${esc(spanText)}</dd></div>
+        <div><dt>Updated</dt><dd>${l0CoverageFacts(data).map((bit) => esc(bit)).join(" · ") || "—"}</dd></div>
       </dl>
       <div class="quant-bars-strip-badges">${badges.join("")}</div>
     </div>`;
@@ -631,7 +523,7 @@ export function installBarsUi(q) {
       return;
     }
     if (job.status === "failed") {
-      applyJobFailure(new Error(job.error || job.message || "日 K 强更失败"), job);
+      applyJobFailure(new Error(job.error || job.message || "日 K 更新失败"), job);
       return;
     }
     if (job.status === "done") {
@@ -701,6 +593,7 @@ export function installBarsUi(q) {
   }
 
   function paint(data, { skipHead = false } = {}) {
+    if (data && data.success) lastCoverage = data;
     // 物化不占用日 K 状态条：覆盖文案只避开本卡日 K 任务结果
     if (!skipHead && !jobFailure && !jobSuccess) {
       const { state, chip: chipText, msg } = formatStatus(data);
@@ -801,6 +694,8 @@ export function installBarsUi(q) {
 
   async function waitBarsJob(jobId, mode = activeMode) {
     const started = Date.now();
+    // 软上限：心跳仍新鲜则继续；心跳停了才退出。硬上限 45min。
+    // 前端等满时勿直接 FAIL——后台可能还在跑，提示刷新接管。
     const softCapMs = 12 * 60 * 1000;
     const absoluteCapMs = 45 * 60 * 1000;
     const heartbeatFreshSec = 90;
@@ -811,9 +706,18 @@ export function installBarsUi(q) {
       { pollStartedAt: started, mode }
     );
     while (Date.now() - started < absoluteCapMs) {
-      const { ok, data } = await apiFetch(
-        "/api/jobs/bars-refresh?progress=1"
-      );
+      let ok = false;
+      let data = null;
+      try {
+        ({ ok, data } = await apiFetch("/api/jobs/bars-refresh?progress=1"));
+      } catch (_) {
+        paintProgressPanel(
+          { message: "网络中断，重试 Job 心跳…", pct: 0 },
+          { pollStartedAt: started, mode }
+        );
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
       const job = unwrapJobSnap(data);
       if (!ok || !job) {
         paintProgressPanel(
@@ -845,34 +749,39 @@ export function installBarsUi(q) {
       if (st === "idle" && sawOwnJob) {
         throw new Error("日 K 任务已结束但未返回结果");
       }
-      const pct = Number(job.pct);
-      const line = job.message || `${waitLabel}…`;
-      const parsed = parseBarsProgressMessage(line);
-      const chipMap = {
-        queue: "QUEUE",
-        index: "INDEX",
-        start: "START",
-        timeout: "WRAP",
-        fetch: "SYNC",
-        done: "DONE",
-      };
-      setProStatusChip(chip, "busy", chipMap[parsed.phase] || "SYNC");
+      const view = l0RunningHead(job, { pollStartedAt: started });
+      setProStatusChip(chip, "busy", view.chip);
       setBarsBusy(true);
       paintProgressPanel(job, { pollStartedAt: started, mode });
-      const headBits = [line];
-      if (Number.isFinite(pct) && pct > 0) headBits.push(`${Math.round(pct)}%`);
-      if (parsed.elapsedSec != null) headBits.push(fmtDuration(parsed.elapsedSec));
-      else headBits.push(fmtDuration((Date.now() - started) / 1000));
-      const { heartbeat } = jobTimings(job, started);
-      if (heartbeat != null) headBits.push(`心跳 ${fmtDuration(heartbeat)}`);
-      if (parsed.remainSec != null) headBits.push(`剩 ${fmtDuration(parsed.remainSec)}`);
-      msgEl.textContent = headBits.join(" · ");
-      const updatedAt = Number(job.updated_at || 0);
-      const ageSec = updatedAt ? Date.now() / 1000 - updatedAt : 999;
-      if (Date.now() - started > softCapMs && ageSec > heartbeatFreshSec) {
-        throw new Error(`${waitLabel}超时（长时间无进度）`);
-      }
+      msgEl.textContent = view.text;
+      const pastSoft = Date.now() - started >= softCapMs;
+      if (pastSoft && isJobHeartbeatStale(job, heartbeatFreshSec)) break;
       await new Promise((r) => setTimeout(r, 500));
+    }
+    // 前端等满时后台可能仍在跑：勿误报「失败」
+    try {
+      const { ok, data } = await apiFetch("/api/jobs/bars-refresh?progress=1");
+      const job = unwrapJobSnap(data) || {};
+      const st = String(job.status || "").toLowerCase();
+      if (
+        jobId &&
+        job.id === jobId &&
+        (st === "running" || st === "done" || st === "success" || st === "finished")
+      ) {
+        if (st === "done" || st === "success" || st === "finished") {
+          paintProgressDone(job);
+          return job.result || { success: true };
+        }
+        lastPolledJob = job;
+        const err = new Error(
+          "前端等待已满，任务仍在后台运行；请刷新页面接管进度（勿重复开跑）"
+        );
+        err.stillRunning = true;
+        err.job = job;
+        throw err;
+      }
+    } catch (e) {
+      if (e && e.stillRunning) throw e;
     }
     throw new Error(`${waitLabel}超时`);
   }
@@ -926,12 +835,12 @@ export function installBarsUi(q) {
           throw new Error(result.error || `${label}失败`);
         }
         const br = (result && result.bars_refresh) || {};
-        if (br.remote_count != null) {
-          const doneLabel = isTopupSummary(br) ? "增量完成" : "强更完成";
-          msgEl.textContent = `${doneLabel} · 远端 ${br.remote_count}/${br.total ?? "—"} · 缓存 ${br.cache_count ?? "—"}`;
-        }
+        const jobForDone =
+          lastPolledJob && (lastPolledJob.result || lastPolledJob.result_summary)
+            ? lastPolledJob
+            : { result_summary: br, result: result || {}, updated_at: Date.now() / 1000 };
         clearJobPanels();
-        applyJobSuccess(lastPolledJob);
+        applyJobSuccess(jobForDone);
       } catch (err) {
         applyJobFailure(err, lastPolledJob);
         throw err;

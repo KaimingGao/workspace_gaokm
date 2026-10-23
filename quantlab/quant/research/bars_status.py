@@ -66,8 +66,9 @@ def expected_latest_daily_bar_date(*, now: Optional[datetime] = None) -> str:
     return _as_of(now=now)
 
 
-def _last_bar_date_for_code(code: str) -> Optional[str]:
-    """只读 meta.date_max，不拉全日线（覆盖状态热路径）。"""
+def _daily_cover_for_code(code: str) -> Dict[str, Optional[str]]:
+    """只读 meta 的末 bar 日和写入时间，不拉全日线。"""
+    empty: Dict[str, Optional[str]] = {"date_max": None, "fetched_at": None}
     try:
         from core.ports.market import resolve_market_code
         from core.store import peek_daily_cache_meta
@@ -75,10 +76,19 @@ def _last_bar_date_for_code(code: str) -> Optional[str]:
         market, sym = resolve_market_code(code)
         meta = peek_daily_cache_meta(market, sym)
         if not meta:
-            return None
-        return date_key(meta.get("date_max")) or None
+            return empty
+        fetched = str(meta.get("fetched_at") or "").strip()[:19] or None
+        return {
+            "date_max": date_key(meta.get("date_max")) or None,
+            "fetched_at": fetched,
+        }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        return None
+        return empty
+
+
+def _last_bar_date_for_code(code: str) -> Optional[str]:
+    """只读 meta.date_max，不拉全日线（覆盖状态热路径）。"""
+    return _daily_cover_for_code(code).get("date_max")
 
 
 def _cached_daily_bar_count(code: str) -> Optional[int]:
@@ -132,6 +142,7 @@ def build_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, A
     lag_counts: Dict[int, int] = {}
     last_min = ""
     last_max = ""
+    last_fetched = ""
 
     def _trading_lag(last: str, expect: str) -> int:
         if not last or not expect or last >= expect:
@@ -144,7 +155,11 @@ def build_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, A
         return n
 
     for code in codes:
-        lb = _last_bar_date_for_code(code)
+        cover = _daily_cover_for_code(code)
+        lb = cover.get("date_max")
+        fetched = str(cover.get("fetched_at") or "")
+        if fetched and fetched > last_fetched:
+            last_fetched = fetched
         if not lb:
             missing += 1
             lag_counts[-1] = lag_counts.get(-1, 0) + 1
@@ -208,6 +223,7 @@ def build_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, A
         "needs_force_latest_bars": bool(needs_force_latest_bars(session_date=session)),
         "last_bar_min": last_min or None,
         "last_bar_max": last_max or None,
+        "last_fetched_at": last_fetched or None,
         "last_bar_span_days": span_days,
         "last_bar_aligned": bool(
             coverage_ok
@@ -222,7 +238,7 @@ def build_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, A
         "date_distribution": [{"date": d, "count": c} for d, c in dist],
         "lag_distribution": lag_distribution,
         "forced_marker": marker if marker else None,
-        "refresh_job": _bars_refresh_job_snapshot(),
+        "refresh_job": _safe_bars_refresh_job_snapshot(),
         "bars_diff": _bars_refresh_diff_snapshot(),
     }
 
@@ -245,6 +261,14 @@ def _bars_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
         bars_refresh_job,
         result_summary_key="bars_refresh",
     )
+
+
+def _safe_bars_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
+    try:
+        return _bars_refresh_job_snapshot()
+    except Exception:  # noqa: BLE001 — 覆盖状态不因 Job 槽读失败整页空白
+        logger.debug("bars refresh job snapshot failed", exc_info=True)
+        return None
 
 
 def refresh_bars_only(

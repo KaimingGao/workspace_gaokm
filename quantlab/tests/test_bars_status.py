@@ -59,15 +59,18 @@ class TestBarsStatus(unittest.TestCase):
             "000001": [],
         }
 
-        def _last_bar(code: str):
+        def _cover(code: str):
             bars = bars_map.get(code) or []
             if not bars:
-                return None
-            return str(bars[-1].get("date") or "")[:10] or None
+                return {"date_max": None, "fetched_at": None}
+            return {
+                "date_max": str(bars[-1].get("date") or "")[:10] or None,
+                "fetched_at": "2026-08-25T16:10:00",
+            }
 
         with patch("core.watching.store.read_watching", return_value={"watchlist": watch}), patch(
-            "quant.research.bars_status._last_bar_date_for_code",
-            side_effect=_last_bar,
+            "quant.research.bars_status._daily_cover_for_code",
+            side_effect=_cover,
         ), patch(
             "quant.research.bars_status.expected_latest_daily_bar_date",
             return_value="2026-08-22",
@@ -90,6 +93,8 @@ class TestBarsStatus(unittest.TestCase):
         self.assertIn("bars_backend", st)
         self.assertIn("coverage_pct", st)
         self.assertEqual(st["coverage_pct"], 50.0)
+        self.assertEqual(st["last_bar_max"], "2026-08-22")
+        self.assertEqual(st["last_fetched_at"], "2026-08-25T16:10:00")
 
     def test_refresh_modes_delegate(self):
         from core.data.policy import BARS_DAILY_LOOKBACK, DAILY_BARS_MAX_KEEP
@@ -187,14 +192,13 @@ class TestBarsStatus(unittest.TestCase):
     def test_lag_distribution_buckets(self):
         from quant.research.bars_status import build_bars_status
 
-        def _last(code: str):
-            return {"600519": "2026-09-29", "000001": "2026-09-28", "300750": "2026-09-24"}.get(
-                code
-            )
+        def _cover(code: str):
+            day = {"600519": "2026-09-29", "000001": "2026-09-28", "300750": "2026-09-24"}.get(code)
+            return {"date_max": day, "fetched_at": "2026-09-29T15:40:00" if day else None}
 
         with patch("core.watching.store.read_watching", return_value={"watchlist": ["600519", "000001", "300750"]}), patch(
-            "quant.research.bars_status._last_bar_date_for_code",
-            side_effect=_last,
+            "quant.research.bars_status._daily_cover_for_code",
+            side_effect=_cover,
         ), patch(
             "quant.research.bars_status.expected_latest_daily_bar_date",
             return_value="2026-09-29",

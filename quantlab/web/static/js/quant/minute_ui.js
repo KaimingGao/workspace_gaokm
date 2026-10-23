@@ -1,12 +1,16 @@
 import { setProStatusChip, syncOverviewMinute } from "./factor_corr_ui.js";
 import {
-  fmtDuration,
-  fmtAgeSec,
-  jobTimings,
   paintClusterJobPanel,
   jobStatusBadge,
   unwrapJobSnap,
   setDeskStatusTone,
+  parseL0ProgressMessage,
+  l0PhaseLabel,
+  l0ParsedFacts,
+  l0RunningHead,
+  l0DoneHead,
+  l0CoverageFacts,
+  isJobHeartbeatStale,
 } from "./cluster_job_ui.js";
 import {
   BARS_WATCHING_LIMIT,
@@ -129,6 +133,7 @@ export function installMinuteUi(q) {
   let jobSuccess = null;
   let lastPolledJob = null;
   let lastStatusJob = null;
+  let lastCoverage = null;
 
   function clearJobPanels() {
     jobFailure = null;
@@ -146,7 +151,7 @@ export function installMinuteUi(q) {
   function paintProgressFailed(job, errText) {
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     paintClusterJobPanel(progressEl, {
-      phase: "强更失败",
+      phase: "更新失败",
       job,
       esc,
       mode: "fail",
@@ -166,33 +171,21 @@ export function installMinuteUi(q) {
 
   function paintProgressDone(job) {
     const sum = job?.result_summary || lastPolledJob?.result?.minute_warmup || {};
-    const bits = [];
-    if (sum.warmed != null) bits.push(`完成 ${sum.warmed}/${sum.total ?? "—"}`);
-    if (sum.skipped_today != null && Number(sum.skipped_today) > 0) {
-      bits.push(`今日跳过 ${sum.skipped_today}`);
-    }
-    if (sum.skipped_aligned != null) bits.push(`对齐跳过 ${sum.skipped_aligned}`);
-    else if (sum.skipped_ready != null) bits.push(`跳过 Ready ${sum.skipped_ready}`);
-    if (sum.topped != null) bits.push(`topup ${sum.topped}`);
-    if (sum.bootstrapped != null && Number(sum.bootstrapped) > 0) {
-      bits.push(`全窗 ${sum.bootstrapped}`);
-    }
-    if (Number(sum.timed_out) > 0) bits.push(`超时 ${sum.timed_out}`);
+    const head = l0DoneHead(sum, "minute", lastCoverage, job);
     const topup = isTopupSummary(sum);
     const hasTimeout = Number(sum.timed_out) > 0;
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     paintClusterJobPanel(progressEl, {
-      phase: topup ? "增量完成" : hasTimeout ? "强更完成（有超时）" : "强更完成",
+      phase: head[0],
       job,
       esc,
       mode: "done",
       tone: "primary",
-      hint:
-        bits.length
-          ? bits.join(" · ") + (hasTimeout ? " · 超时票已 skip，其余继续" : "")
-          : topup
-            ? `增量补齐（L0） · 今日已拉/末根对齐则跳过 · 缺尾补拉 · 新浪固定窗 · ${TOPUP_WORKERS} 并发`
-            : FULL_WARMUP_HINT,
+      hint: head.length > 1
+        ? head.slice(1).join(" · ") + (hasTimeout ? " · 超时票已 skip，其余继续" : "")
+        : topup
+          ? `增量补齐（L0） · 今日已拉/末根对齐则跳过 · 缺尾补拉 · 新浪固定窗 · ${TOPUP_WORKERS} 并发`
+          : FULL_WARMUP_HINT,
     });
   }
 
@@ -202,12 +195,7 @@ export function installMinuteUi(q) {
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     setProStatusChip(chip, "ok", "DONE");
     const sum = job?.result_summary || job?.result?.minute_warmup || {};
-    const topup = isTopupSummary(sum);
-    const head = [topup ? "增量完成" : "强更完成"];
-    if (sum.warmed != null) head.push(`${sum.warmed}/${sum.total ?? "—"}`);
-    const updated = Number(job?.updated_at);
-    if (updated > 0) head.push(fmtAgeSec(Date.now() / 1000 - updated));
-    msgEl.textContent = head.join(" · ");
+    msgEl.textContent = l0DoneHead(sum, "minute", lastCoverage, job).join(" · ");
     paintProgressDone(job);
     minuteCard?.classList.remove("is-busy");
     minuteStrip?.classList.remove("is-busy");
@@ -218,7 +206,7 @@ export function installMinuteUi(q) {
 
   function applyJobFailure(err, job) {
     jobSuccess = null;
-    const errText = String((err && err.message) || err || "5m 强更失败");
+    const errText = String((err && err.message) || err || "5m 更新失败");
     const j = (err && err.job) || job || lastPolledJob || null;
     // 前端等满但槽位仍 running：黄条提示接管，勿标 FAIL
     if (err && err.stillRunning) {
@@ -233,7 +221,7 @@ export function installMinuteUi(q) {
     jobFailure = { errText, job: j };
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     setProStatusChip(chip, "error", "FAIL");
-    const head = ["强更失败"];
+    const head = ["更新失败"];
     if (j && j.current > 0 && j.total > 0) head.push(`${j.current}/${j.total}`);
     head.push(errText);
     msgEl.textContent = head.join(" · ");
@@ -247,9 +235,12 @@ export function installMinuteUi(q) {
 
   function paintProgressPanel(job, { pollStartedAt, mode } = {}) {
     const topup = mode === "topup" || isTopupSummary(job?.result_summary || job?.result?.minute_warmup);
+    const defaultMsg = topup ? "增量补齐（L0）…" : "强更 5m（L0）…";
+    const msg = job && (job.message || job.error) ? String(job.message || job.error) : defaultMsg;
+    const parsed = parseL0ProgressMessage(msg);
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     paintClusterJobPanel(progressEl, {
-      phase: topup ? "增量补齐（L0）" : "预热 5m",
+      phase: l0PhaseLabel(parsed.phase, "minute"),
       job,
       pollStartedAt,
       tone: "primary",
@@ -258,6 +249,7 @@ export function installMinuteUi(q) {
       hint: topup
         ? `今日已拉且齐窗跳过 · 跨度≥20日且末根对齐跳过 · 缺尾补拉 · 新浪固定窗不截断 · ${TOPUP_WORKERS} 并发`
         : FULL_WARMUP_HINT_RUNNING,
+      extraFacts: l0ParsedFacts(parsed),
     });
   }
 
@@ -301,7 +293,7 @@ export function installMinuteUi(q) {
     const missing = data.missing ?? 0;
     const med = data.minute_span_days_med ?? 0;
     const pct = total > 0 ? Math.round((1000 * ok) / total) / 10 : 0;
-    const parts = [`Ready ${pct}% (${ok}/${total})`, `span med ${med}d`];
+    const parts = [`Ready ${pct}% (${ok}/${total})`, ...l0CoverageFacts(data), `span med ${med}d`];
     if (short > 0) parts.push(`Short ${short}`);
     if (missing > 0) parts.push(`Missing ${missing}`);
     let state = "ok";
@@ -383,6 +375,7 @@ export function installMinuteUi(q) {
         <div><dt>Universe</dt><dd>watching · Limit ${esc(limit)} · ${total} 只</dd></div>
         <div><dt>Lookback</dt><dd>新浪近端约 41 交易日 · Ready 近 ${esc(minSpan)} 交易日无缺 · 增量跳过跨度≥20日且末根对齐</dd></div>
         <div><dt>Span</dt><dd>med ${esc(data.minute_span_days_med ?? "—")}d · ${esc(data.minute_span_days_min ?? "—")}→${esc(data.minute_span_days_max ?? "—")}</dd></div>
+        <div><dt>Updated</dt><dd>${l0CoverageFacts(data).map((bit) => esc(bit)).join(" · ") || "—"}</dd></div>
       </dl>
       <div class="quant-bars-strip-badges">${badges.join("")}</div>
     </div>`;
@@ -491,7 +484,7 @@ export function installMinuteUi(q) {
       return;
     }
     if (job.status === "failed") {
-      applyJobFailure(new Error(job.error || job.message || "5m 强更失败"), job);
+      applyJobFailure(new Error(job.error || job.message || "5m 更新失败"), job);
       return;
     }
     if (job.status === "done") {
@@ -548,6 +541,7 @@ export function installMinuteUi(q) {
   }
 
   function paint(data, { skipHead = false } = {}) {
+    if (data && data.success) lastCoverage = data;
     // 物化不占用 5m 状态条：覆盖文案只避开本卡分钟任务结果
     if (!skipHead && !jobFailure && !jobSuccess) {
       const { state, chip: chipText, msg } = formatStatus(data);
@@ -681,7 +675,7 @@ export function installMinuteUi(q) {
       return job;
     }
     if (st === "failed") {
-      applyJobFailure(new Error(job.error || job.message || "5m 强更失败"), job);
+      applyJobFailure(new Error(job.error || job.message || "5m 更新失败"), job);
       return job;
     }
     if (st === "done") {
@@ -703,7 +697,18 @@ export function installMinuteUi(q) {
     const waitLabel = mode === "topup" ? "增量补齐（L0）" : "强更 5m（L0）";
     paintProgressPanel({ message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 }, { pollStartedAt: started, mode });
     while (Date.now() - started < hardCapMs) {
-      const { ok, data } = await apiFetch("/api/jobs/minute-refresh?progress=1");
+      let ok = false;
+      let data = null;
+      try {
+        ({ ok, data } = await apiFetch("/api/jobs/minute-refresh?progress=1"));
+      } catch (_) {
+        paintProgressPanel(
+          { message: "网络中断，重试 Job 心跳…", pct: 0 },
+          { pollStartedAt: started, mode }
+        );
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
       const job = unwrapJobSnap(data);
       if (!ok || !job) {
         paintProgressPanel(
@@ -731,26 +736,18 @@ export function installMinuteUi(q) {
         return job.result || { success: true };
       }
       if (st === "failed") {
-        throw new Error(job.error || job.message || "5m 强更失败");
+        throw new Error(job.error || job.message || `${waitLabel}失败`);
       }
       if (st === "idle" && sawOwnJob) {
         throw new Error("5m 任务已结束但未返回结果");
       }
-      const badge = jobStatusBadge(job);
-      setProStatusChip(chip, "busy", badge?.text || "SYNC");
+      const view = l0RunningHead(job, { pollStartedAt: started });
+      setProStatusChip(chip, "busy", view.chip);
       setMinuteBusy(true);
       paintProgressPanel(job, { pollStartedAt: started, mode });
-      const pct = Number(job.pct);
-      const line = job.message || `${waitLabel}…`;
-      const { heartbeat } = jobTimings(job, started);
-      const headBits = [line];
-      if (Number.isFinite(pct) && pct > 0) headBits.push(`${Math.round(pct)}%`);
-      headBits.push(fmtDuration((Date.now() - started) / 1000));
-      if (heartbeat != null) headBits.push(`心跳 ${fmtDuration(heartbeat)}`);
-      msgEl.textContent = headBits.join(" · ");
+      msgEl.textContent = view.text;
       const pastSoft = Date.now() - started >= softCapMs;
-      const heartbeatStale = heartbeat == null || heartbeat >= heartbeatFreshSec;
-      if (pastSoft && heartbeatStale) break;
+      if (pastSoft && isJobHeartbeatStale(job, heartbeatFreshSec)) break;
       pollN += 1;
       if (pollN % 6 === 0) refreshCoverageKpis().catch(() => {});
       await new Promise((r) => setTimeout(r, 500));
@@ -780,7 +777,7 @@ export function installMinuteUi(q) {
     } catch (e) {
       if (e && e.stillRunning) throw e;
     }
-    throw new Error("5m 强更超时");
+    throw new Error(`${waitLabel}超时`);
   }
 
   async function startRefresh(mode = "full") {
@@ -835,17 +832,12 @@ export function installMinuteUi(q) {
           throw new Error(result.error || `${label}失败`);
         }
         const mw = (result && result.minute_warmup) || {};
-        if (mw.warmed != null) {
-          const bits = [`${label}完成`, `${mw.warmed}/${mw.total ?? "—"}`];
-          if (mw.skipped_today != null && Number(mw.skipped_today) > 0) {
-            bits.push(`今日 ${mw.skipped_today}`);
-          }
-          if (mw.skipped_aligned != null) bits.push(`跳过 ${mw.skipped_aligned}`);
-          if (mw.topped != null) bits.push(`topup ${mw.topped}`);
-          msgEl.textContent = bits.join(" · ");
-        }
+        const jobForDone =
+          lastPolledJob && (lastPolledJob.result || lastPolledJob.result_summary)
+            ? lastPolledJob
+            : { result_summary: mw, result: result || {}, updated_at: Date.now() / 1000 };
         clearJobPanels();
-        applyJobSuccess(lastPolledJob || { result_summary: mw, result });
+        applyJobSuccess(jobForDone);
       } catch (err) {
         applyJobFailure(err, lastPolledJob);
         throw err;

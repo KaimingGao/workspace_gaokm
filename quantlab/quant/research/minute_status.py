@@ -342,12 +342,24 @@ def build_minute_status(
 
     now = datetime.now()
     stale_cutoff = now - timedelta(hours=max(1.0, float(stale_hours or 24.0)))
+    last_min = ""
+    last_max = ""
+    last_fetched = ""
 
     for code in codes:
         snap = _minute_snapshot_for_code(code, period=period_s)
         if not snap:
             missing += 1
             continue
+        fetched = str(snap.get("fetched_at") or "")[:19]
+        if fetched and fetched > last_fetched:
+            last_fetched = fetched
+        dmax = str(snap.get("date_max") or "")[:10]
+        if dmax:
+            if not last_min or dmax < last_min:
+                last_min = dmax
+            if not last_max or dmax > last_max:
+                last_max = dmax
         span = int(snap.get("span_days") or 0)
         spans.append(span)
         fetched_s = snap.get("fetched_at") or ""
@@ -415,6 +427,10 @@ def build_minute_status(
         "stale": stale,
         "coverage_ok": coverage_ok,
         "coverage_pct": round((100 * cached_ok) / total, 1) if total else 0.0,
+        "expected_latest_bar": _safe_expected_minute_asof(),
+        "last_bar_min": last_min or None,
+        "last_bar_max": last_max or None,
+        "last_fetched_at": last_fetched or None,
         "minute_span_days_med": med_span,
         "minute_span_days_min": spans_sorted[0] if spans_sorted else 0,
         "minute_span_days_max": spans_sorted[-1] if spans_sorted else 0,
@@ -422,8 +438,24 @@ def build_minute_status(
         "label_portrait": label_portrait,
         "bars_backend": backend,
         "note": "5m 分钟线本地仓；供 ŷ_τc / T0 回测 / tail_anomaly",
-        "refresh_job": _minute_refresh_job_snapshot(),
+        "refresh_job": _safe_minute_refresh_job_snapshot(),
     }
+
+
+def _safe_expected_minute_asof() -> Optional[str]:
+    try:
+        return expected_minute_asof() or None
+    except Exception:  # noqa: BLE001 — 覆盖状态热路径不因日历失败整页空白
+        logger.debug("expected_minute_asof failed", exc_info=True)
+        return None
+
+
+def _safe_minute_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
+    try:
+        return _minute_refresh_job_snapshot()
+    except Exception:  # noqa: BLE001
+        logger.debug("minute refresh job snapshot failed", exc_info=True)
+        return None
 
 
 def _minute_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
@@ -489,6 +521,7 @@ def _minute_topup_core(
     """
     from adapters.market.minute_history import fetch_a_minute_bars_isolated
     from core.data.policy import minute_isolated_timeout_sec
+    from core.platform.schedule_jobs import format_minute_progress
 
     watch = [str(c).strip() for c in (codes or []) if str(c).strip()]
     if not watch:
@@ -546,14 +579,27 @@ def _minute_topup_core(
     skipped_total = skipped_aligned + skipped_today
     warmed += skipped_total
     done = skipped_total
-    if progress_cb and skipped_total:
+
+    def _emit(cur: int, note: str = "") -> None:
+        if not progress_cb:
+            return
         try:
-            bits = []
-            if skipped_today:
-                bits.append(f"今日跳过 ×{skipped_today}")
-            if skipped_aligned:
-                bits.append(f"对齐跳过 ×{skipped_aligned}")
-            progress_cb(done, total, " · ".join(bits) or f"skip ×{skipped_total}")
+            progress_cb(
+                int(cur),
+                int(total),
+                format_minute_progress(
+                    cur,
+                    total,
+                    remote=topped + bootstrapped,
+                    skipped_today=skipped_today,
+                    skipped_aligned=skipped_aligned,
+                    timed_out=timed_out,
+                    failed=len(errors),
+                    workers=n_workers,
+                    cap_sec=batch_timeout or None,
+                    note=note,
+                ),
+            )
         except Exception:  # noqa: BLE001
             logger.debug("minute topup progress_cb failed", exc_info=True)
 
@@ -578,6 +624,7 @@ def _minute_topup_core(
         waves = max(1, (len(to_fetch) + n_workers - 1) // n_workers)
         batch_timeout = max(180.0, min(3600.0, per_stock_timeout * float(waves) + 60.0))
         t0 = time.time()
+        _emit(done)
         pool = ThreadPoolExecutor(max_workers=n_workers)
         try:
             futs = {
@@ -614,10 +661,7 @@ def _minute_topup_core(
                                 timed_out += 1
                             errors.append(f"{code}:{err}")
                         if progress_cb:
-                            try:
-                                progress_cb(done, total, f"{act} {code}")
-                            except Exception:  # noqa: BLE001
-                                logger.debug("minute topup progress_cb failed", exc_info=True)
+                            _emit(done)
             except FuturesTimeout:
                 for fut in list(pending):
                     code, _action = futs[fut]
@@ -625,25 +669,14 @@ def _minute_topup_core(
                     timed_out += 1
                     errors.append(f"{code}:batch_timeout")
                     done += 1
-                    if progress_cb:
-                        try:
-                            progress_cb(done, total, f"timeout {code}")
-                        except Exception:  # noqa: BLE001
-                            logger.debug("minute topup progress_cb failed", exc_info=True)
-                if progress_cb:
-                    try:
-                        progress_cb(
-                            done,
-                            total,
-                            f"超时收尾 {done}/{total} · 上限 {int(batch_timeout)}s",
-                        )
-                    except Exception:  # noqa: BLE001
-                        logger.debug("minute topup progress_cb failed", exc_info=True)
+                _emit(done, "超时收尾")
         finally:
             try:
                 pool.shutdown(wait=False, cancel_futures=True)
             except TypeError:
                 pool.shutdown(wait=False)
+    else:
+        _emit(done)
 
     return {
         "ok": warmed > 0 or total == 0,
@@ -705,9 +738,17 @@ def refresh_minute_only(
     def _on_progress(cur: int, total: int, code: str) -> None:
         if not progress_cb:
             return
-        label = "增量" if mode_s == "topup" else "预热"
+        text = str(code or "").strip()
+        if text.startswith("拉5m"):
+            msg = text
+        else:
+            kind = "增量" if mode_s == "topup" else "预热"
+            msg = (
+                f"拉5m {int(cur or 0)}/{int(total or n_codes)}"
+                f"（{kind} {text} · 远端 0 · 失败 0）"
+            )
         try:
-            progress_cb(f"{label} 5m {code} ({cur}/{total})", int(cur or 0), int(total or n_codes))
+            progress_cb(msg, int(cur or 0), int(total or n_codes))
         except Exception:  # noqa: BLE001 — best-effort 进度回调
             logger.debug("cluster minute refresh progress_cb failed", exc_info=True)
 
