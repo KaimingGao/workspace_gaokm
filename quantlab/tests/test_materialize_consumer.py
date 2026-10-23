@@ -275,6 +275,50 @@ class ConsumerCoverageTest(unittest.TestCase):
         self.assertEqual(gap_hard.get("error_code"), "materialize_required")
         self.assertIn("2026-10-22", str(gap_hard.get("error") or ""))
 
+    def test_replay_gap_skips_session_day_until_daily_bar_lands(self) -> None:
+        """15:05 后时钟 as-of 已是当天，本地日线还没有这根时不算硬缺。"""
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.research.materialize.consumer import bind_materialize_writer
+        from core.research.materialize.coverage import replay_coverage_gap
+
+        complete = ["2026-10-21", "2026-10-22"]
+        days = complete + ["2026-10-23"]
+        bars = {code: [{"date": day} for day in days] for code in ("a", "b")}
+        now = datetime(2026, 10, 23, 15, 48)
+
+        def _status(day, codes, clock="open"):
+            return "ok" if str(day)[:10] in complete else "miss"
+
+        def _dates(_fam, _code):
+            return set(complete)
+
+        bind_materialize_writer(False, True)
+        try:
+            with patch(
+                "core.research.day_cube.day_cube_status", side_effect=_status
+            ), patch(
+                "core.research.feature_lake.load_stock_dates", side_effect=_dates
+            ), patch(
+                "core.research.materialize.coverage._other_hash_days", return_value=set()
+            ), patch(
+                "core.research.materialize.cube_z.universe_codes",
+                return_value=["a", "b", "c"],
+            ), patch(
+                "core.store.list_daily_covered_dates", return_value=list(complete)
+            ):
+                gap = replay_coverage_gap(
+                    bars,
+                    days,
+                    score_from=0,
+                    fill_clock="09:30",
+                    now=now,
+                )
+        finally:
+            bind_materialize_writer(False, False)
+        self.assertIsNone(gap)
+
     def test_scorable_dates_drop_warmup_and_thin_names(self) -> None:
         from core.research.materialize.coverage import scorable_bar_dates
 

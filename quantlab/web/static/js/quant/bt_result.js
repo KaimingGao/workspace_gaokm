@@ -30,50 +30,55 @@ function _kpiPct(v, { signed = true } = {}) {
   return `${n >= 0 ? "+" : "-"}${body}%`;
 }
 
-/** |fuse| < 0.05% → 无方向，与后端 HIT_YHAT_EPS / score_ledger 同口径。 */
-const HIT_YHAT_EPS = 0.05;
-
-function _rowAsOfDay(r) {
-  return String(r.as_of || r.date || r.signal_date || "").slice(0, 10);
+function _legWantsUp(r) {
+  const action = String((r && (r.action || r.matrix_action)) || "").toLowerCase();
+  const side = String((r && r.side) || "").toLowerCase();
+  if (action === "open" || action === "add") return true;
+  if (action === "exit" || action === "reduce") return false;
+  if (side === "buy") return true;
+  if (side === "sell") return false;
+  return null;
 }
 
-function _replayLastDay(data) {
-  const params = data && data.params && typeof data.params === "object" ? data.params : {};
-  const end = String(params.end_date || "").slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(end)) return end;
-  const curve = Array.isArray(data && data.equity_curve) ? data.equity_curve : [];
-  for (let i = curve.length - 1; i >= 0; i -= 1) {
-    const d = String((curve[i] && curve[i].date) || "").slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-  }
-  return "";
+/** 今开 → 明开（百分点）= open[T+1] / open[T] − 1。缺次日开则 null。 */
+function _legOoRetPct(r) {
+  return _kpiNum(r.realized_oo);
 }
 
-function _fuseHitFromTrades(rows, { lastDay = "" } = {}) {
-  let hits = 0;
-  let n = 0;
-  const last = String(lastDay || "").slice(0, 10);
+function _decisionSignedRets(rows) {
+  const out = [];
   for (const r of rows || []) {
     if (!r || typeof r !== "object") continue;
     if (String(r.status || "") === "skipped" || String(r.status || "") === "held") continue;
-    if (last && _rowAsOfDay(r) === last) continue;
-    let yf = _kpiNum(r.y_oo_fuse);
-    if (yf == null) {
-      const rs = _kpiNum(r.y_oo_fuse_score);
-      if (rs != null) yf = rs * 100;
-    }
-    const real = _kpiNum(r.y_oo_fuse_realized);
-    if (yf == null || real == null) continue;
-    if (Math.abs(yf) < HIT_YHAT_EPS) continue;
-    if (Math.abs(real) < 1e-12) continue;
-    n += 1;
-    if ((yf > 0) === (real > 0)) hits += 1;
+    const wantsUp = _legWantsUp(r);
+    if (wantsUp == null) continue;
+    const ret = _legOoRetPct(r);
+    if (ret == null) continue;
+    out.push(wantsUp ? ret : -ret);
   }
+  return out;
+}
+
+function _fuseHitFromTrades(rows) {
+  const signed = _decisionSignedRets(rows);
+  const n = signed.length;
   if (n <= 0) return { hit_rate_pct: null, hit_n: 0, hit_hits: 0 };
+  const hits = signed.filter((v) => v > 1e-12).length;
   return {
     hit_rate_pct: Math.round((hits / n) * 1000) / 10,
     hit_n: n,
     hit_hits: hits,
+  };
+}
+
+function _decisionReturnFromTrades(rows) {
+  const signed = _decisionSignedRets(rows);
+  const n = signed.length;
+  if (n <= 0) return { decision_return_pct: null, decision_n: 0 };
+  const mean = signed.reduce((a, b) => a + b, 0) / n;
+  return {
+    decision_return_pct: Math.round(mean * 100) / 100,
+    decision_n: n,
   };
 }
 
@@ -88,15 +93,14 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
       return: blank("先跑回测"),
       excess: blank("相对基准"),
       dd: blank("历史 MaxDD"),
-      win: blank("日净值>0"),
-      hit: blank("sign(fuse)=sign(真实)"),
+      win: blank("等权 · 非净值"),
+      hit: blank("今开→明开"),
     };
   }
   const m =
     data.metrics && typeof data.metrics === "object" ? data.metrics : data;
   const bench = data.benchmark && typeof data.benchmark === "object" ? data.benchmark : {};
   const ret = m.total_return_pct;
-  const win = m.win_rate_pct;
   const dd = m.max_drawdown_pct;
   const excess = bench.ok ? bench.excess_pct : m.excess_pct;
   const legs =
@@ -107,22 +111,24 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
   const retN = _kpiNum(ret);
   const exN = _kpiNum(excess);
   const ddN = _kpiNum(dd);
-  const winN = _kpiNum(win);
-  const daysN = _kpiNum(m.day_count ?? (Array.isArray(data.equity_curve) ? data.equity_curve.length : null));
   let hitRate = _kpiNum(m.hit_rate_pct);
   let hitCount = _kpiNum(m.hit_n);
   let hitHits = _kpiNum(m.hit_hits);
   const tradeRows = data.sim_trades || data.trades || [];
-  const hasFuseReal = (Array.isArray(tradeRows) ? tradeRows : []).some(
-    (t) => t && Object.prototype.hasOwnProperty.call(t, "y_oo_fuse_realized")
-  );
-  if (hasFuseReal || hitRate == null || hitCount == null) {
-    const fb = _fuseHitFromTrades(tradeRows, {
-      lastDay: _replayLastDay(data),
-    });
-    if (hasFuseReal || hitRate == null) hitRate = _kpiNum(fb.hit_rate_pct);
-    if (hasFuseReal || hitCount == null) hitCount = _kpiNum(fb.hit_n);
-    if (hasFuseReal || hitHits == null) hitHits = _kpiNum(fb.hit_hits);
+  const fb = _fuseHitFromTrades(tradeRows);
+  const recounted = fb.hit_n > 0;
+  if (recounted || hitRate == null || hitCount == null) {
+    if (recounted || hitRate == null) hitRate = _kpiNum(fb.hit_rate_pct);
+    if (recounted || hitCount == null) hitCount = _kpiNum(fb.hit_n);
+    if (recounted || hitHits == null) hitHits = _kpiNum(fb.hit_hits);
+  }
+  let dec = _kpiNum(m.decision_return_pct);
+  let decN = _kpiNum(m.decision_n);
+  const db = _decisionReturnFromTrades(tradeRows);
+  const decRecounted = db.decision_n > 0;
+  if (decRecounted || dec == null || decN == null) {
+    if (decRecounted || dec == null) dec = _kpiNum(db.decision_return_pct);
+    if (decRecounted || decN == null) decN = _kpiNum(db.decision_n);
   }
   const excessSub =
     exN == null
@@ -130,13 +136,13 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
       : legs.beta_leg_approx_pct != null
         ? `超额 · β腿≈${Number(legs.beta_leg_approx_pct).toFixed(1)}%`
         : `相对 ${bench.benchmark_label || "基准"}`;
-  let hitSub = "sign(fuse)=sign(真实)";
+  let hitSub = "今开→明开";
   if (hitCount != null && hitCount > 0 && hitHits != null) {
     hitSub = `${hitHits}/${hitCount} 笔`;
   } else if (hitCount != null && hitCount > 0) {
     hitSub = `${hitCount} 笔`;
   } else if (hitRate == null) {
-    hitSub = "无方向成交";
+    hitSub = "无成交";
   }
   return {
     return: {
@@ -158,10 +164,10 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
       cls: ddN != null && ddN > 0 ? "down" : "",
     },
     win: {
-      value: winN == null ? "—" : `${winN.toFixed(1)}%`,
-      sub: daysN != null ? `${daysN} 日净值>0` : "日净值>0",
-      empty: winN == null,
-      cls: "",
+      value: _kpiPct(dec),
+      sub: decN != null && decN > 0 ? `${decN} 笔` : "无成交",
+      empty: dec == null,
+      cls: metricClass(dec),
     },
     hit: {
       value: hitRate == null ? "—" : `${hitRate.toFixed(1)}%`,

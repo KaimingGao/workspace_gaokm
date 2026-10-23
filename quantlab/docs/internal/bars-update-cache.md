@@ -54,7 +54,7 @@ load_portfolio_stock_bars
 
 入口是 `refresh_bars_only`。范围是观察池，上限由 `watching_pool_limit` 钳到文件里的 `max_size`，硬顶 `WATCHING_MAX_SIZE = 1000`。
 
-期望末根来自 `expected_latest_daily_bar_date`：交易日 15:05 之前仍算上一交易日；周末和假日用最近一个已过的交易日。不要用日历上的「今天」当缺口终点，否则周日会把周五已齐的仓全部打成远端。
+期望末根来自 `expected_latest_daily_bar_date`：交易日 15:05 之前仍算上一交易日；周末和假日用最近一个已过的交易日。不要用日历上的「今天」当缺口终点，否则周日会把周五已齐的仓全部打成远端。日线更新仍按这个时钟去拉当天。调仓回测的覆盖闸用 `complete_daily_as_of`：当天日线还没进本地仓时，评分窗停在已入库的末根，不把这一天算成 L1/L2 硬缺。
 
 拉取窗：
 

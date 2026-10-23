@@ -387,10 +387,6 @@ def stamp_r_tau_on_row(
     return row
 
 
-# |y_oo_fuse| < 0.05% → 无方向，与 score_ledger 同口径。
-HIT_YHAT_EPS = 0.05
-
-
 def _fnum(v: Any) -> Optional[float]:
     if v is None or v == "":
         return None
@@ -403,18 +399,50 @@ def _fnum(v: Any) -> Optional[float]:
     return n
 
 
-def _sign_hit_yf(yhat: Optional[float], realized: Optional[float]) -> Optional[bool]:
-    if yhat is None or realized is None:
-        return None
-    if abs(float(yhat)) < HIT_YHAT_EPS:
-        return None
-    if abs(float(realized)) < 1e-12:
-        return None
-    return (float(yhat) > 0) == (float(realized) > 0)
-
-
 def _row_as_of_day(row: dict) -> str:
     return str(row.get("as_of") or row.get("date") or row.get("signal_date") or "")[:10]
+
+
+def _leg_wants_up(row: dict) -> Optional[bool]:
+    """开/加要涨，清/减要跌。其它动作不进样本。"""
+    action = str(row.get("action") or row.get("matrix_action") or "").strip().lower()
+    side = str(row.get("side") or "").strip().lower()
+    if action in ("open", "add"):
+        return True
+    if action in ("exit", "reduce"):
+        return False
+    if side == "buy":
+        return True
+    if side == "sell":
+        return False
+    return None
+
+
+def _leg_oo_ret_pct(row: dict) -> Optional[float]:
+    """今开 → 明开（百分点）= open[T+1] / open[T] − 1。缺次日开则 None。"""
+    return _fnum(row.get("realized_oo"))
+
+
+def _decision_signed_rets(rows: Sequence[dict]) -> List[float]:
+    """命中率与决策收益共用样本。
+
+    开/加记今开→明开，清/减记相反数。平盘为 0，仍在样本里。
+    跳过、续持、没有次日开的腿不进列表。
+    """
+    out: List[float] = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("status") or "") in ("skipped", "held"):
+            continue
+        wants_up = _leg_wants_up(r)
+        if wants_up is None:
+            continue
+        ret = _leg_oo_ret_pct(r)
+        if ret is None:
+            continue
+        out.append(float(ret) if wants_up else -float(ret))
+    return out
 
 
 def fuse_hit_metrics(
@@ -422,37 +450,42 @@ def fuse_hit_metrics(
     *,
     last_day: Optional[str] = None,
 ) -> Tuple[Optional[float], int, int]:
-    """成交腿 sign(y_oo_fuse)=sign(y_oo_fuse_realized)。
+    """成交的今开→明开命中。
 
-    真实 y_oo_fuse = open[T+1]/price(τ)−1，最后一个交易日无次日开、不进分母。
-    跳过/持仓腿不计。返回 (命中率%, 有方向笔数, 命中笔数)。
+    样本 = 一笔成交。涨跌 = open[T+1] / open[T] − 1。
+    开仓、加仓：上涨命中；下跌或平盘未命中。
+    清仓、减仓：下跌命中；上涨或平盘未命中。
+    跳过、续持不计。没有次日开（窗口末日常见）不进分母。
+    ``last_day`` 保留兼容；是否计入只看 ``realized_oo`` 是否有值。
+    返回 (命中率%, 分母, 分子)。
     """
-    last = str(last_day or "")[:10]
-    hits = 0
-    n = 0
-    for r in rows or []:
-        if not isinstance(r, dict):
-            continue
-        if str(r.get("status") or "") in ("skipped", "held"):
-            continue
-        day = _row_as_of_day(r)
-        if last and day == last:
-            continue
-        yf = _fnum(r.get("y_oo_fuse"))
-        if yf is None:
-            rs = _fnum(r.get("y_oo_fuse_score"))
-            if rs is not None:
-                yf = float(rs) * 100.0
-        real = _fnum(r.get("y_oo_fuse_realized"))
-        hit = _sign_hit_yf(yf, real)
-        if hit is None:
-            continue
-        n += 1
-        if hit:
-            hits += 1
+    _ = last_day
+    signed = _decision_signed_rets(rows)
+    n = len(signed)
     if n <= 0:
         return None, 0, 0
+    hits = sum(1 for v in signed if v > 1e-12)
     return round(hits / n * 100.0, 1), n, hits
+
+
+def fuse_decision_return(
+    rows: Sequence[dict],
+    *,
+    last_day: Optional[str] = None,
+) -> Tuple[Optional[float], int]:
+    """成交的今开→明开决策收益（等权平均，百分点）。
+
+    样本与命中率相同。开仓、加仓记 +realized_oo；清仓、减仓记 −realized_oo。
+    平盘记 0，仍进分母。没有次日开不计。跳过、续持不计。
+    这是决策标签的等权均值，清仓之后的涨跌不进账户净值。
+    ``last_day`` 保留兼容。返回 (均值%, 笔数)。
+    """
+    _ = last_day
+    signed = _decision_signed_rets(rows)
+    n = len(signed)
+    if n <= 0:
+        return None, 0
+    return round(sum(signed) / n, 2), n
 
 
 def _bar_date_key(bar_or_date: Any) -> str:

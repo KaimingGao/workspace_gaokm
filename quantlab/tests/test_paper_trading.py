@@ -18,6 +18,7 @@ from core.backtest.paper_replay import (
     REPLAY_FUSE_STRONG,
     REPLAY_INITIAL_CASH,
     backtest_paper_replay,
+    fuse_decision_return,
     fuse_hit_metrics,
     mock_quote_from_bar,
     realized_yhat_windows,
@@ -290,7 +291,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             if str(t.get("as_of") or "")[:10] == last
             and str(t.get("status") or "") not in ("skipped", "held")
         ]
-        # 末日可因单票市值上限不再加仓（仅 held/skipped）；有成交腿时不得进命中分母。
+        # 末日没有次日开，y_oo_fuse_realized / realized_oo 为空，命中率不计入。
         if last_fills:
             self.assertTrue(all(t.get("y_oo_fuse_realized") is None for t in last_fills))
         else:
@@ -2722,41 +2723,56 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
             topk_mock.assert_not_called()
 
 class TestFuseHitMetrics(unittest.TestCase):
-    def test_sign_hit_uses_y_oo_fuse_primary(self):
+    def test_entry_up_and_exit_down(self):
+        """开/加上涨命中，清/减下跌命中。"""
         pct, n, hits = fuse_hit_metrics(
             [
-                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5},
-                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": -0.5},
-                {"y_oo_fuse": -1.0, "y_oo_fuse_realized": -0.2},
-            ]
-        )
-        self.assertEqual(n, 3)
-        self.assertEqual(hits, 2)
-        self.assertEqual(pct, round(2 / 3 * 100.0, 1))
-
-    def test_sign_hit_ignores_old_fuse_aliases(self):
-        """旧键 ranking / y_fuse / realized_ranking 不再计入命中。"""
-        pct, n, hits = fuse_hit_metrics(
-            [
-                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5},
-                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": -0.5},
-                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5, "status": "skipped"},
-                {"y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5, "status": "held"},
-                {"y_oo_fuse": 0.01, "y_oo_fuse_realized": 1.0},  # |yf|<eps 跳过
-                {"y_oo_fuse": -1.0, "y_oo_fuse_realized": -0.2},
-                {"y_oo_fuse_score": 0.02, "y_oo_fuse_realized": 1.0},
-                {"ranking": 1.2, "y_fuse": 1.2, "y_oo_fuse_realized": 0.5},
+                {"action": "open", "side": "buy", "realized_oo": 0.8},
+                {"action": "add", "side": "buy", "realized_oo": -1.2},
+                {"action": "exit", "side": "sell", "realized_oo": -2.7},
+                {"action": "reduce", "side": "sell", "realized_oo": 1.1},
             ]
         )
         self.assertEqual(n, 4)
-        self.assertEqual(hits, 3)
-        self.assertEqual(pct, 75.0)
+        self.assertEqual(hits, 2)
+        self.assertEqual(pct, 50.0)
+        dec, dec_n = fuse_decision_return(
+            [
+                {"action": "open", "side": "buy", "realized_oo": 0.8},
+                {"action": "add", "side": "buy", "realized_oo": -1.2},
+                {"action": "exit", "side": "sell", "realized_oo": -2.7},
+                {"action": "reduce", "side": "sell", "realized_oo": 1.1},
+            ]
+        )
+        self.assertEqual(dec_n, 4)
+        self.assertEqual(dec, 0.3)
 
-    def test_last_day_excluded_even_if_realized(self):
+    def test_skips_holds_and_missing_move(self):
         pct, n, hits = fuse_hit_metrics(
             [
-                {"as_of": "2026-03-10", "y_oo_fuse": 1.2, "y_oo_fuse_realized": 0.5},
-                {"as_of": "2026-03-11", "y_oo_fuse": 1.2, "y_oo_fuse_realized": -0.5},
+                {"action": "open", "side": "buy", "realized_oo": 1.0, "status": "skipped"},
+                {"action": "hold", "side": "hold", "realized_oo": 1.0, "status": "held"},
+                {"action": "open", "side": "buy", "realized_tau": 1.0},
+                {"ranking": 1.2, "y_oo_fuse_realized": 0.5},
+                {"action": "open", "side": "buy", "realized_oo": 1.0},
+            ]
+        )
+        self.assertEqual(pct, 100.0)
+        self.assertEqual(n, 1)
+        self.assertEqual(hits, 1)
+
+    def test_missing_next_open_is_dropped(self):
+        """只有当天收盘、没有明开的腿不进分母。有 realized_oo 的末日照计。"""
+        pct, n, hits = fuse_hit_metrics(
+            [
+                {"as_of": "2026-03-10", "action": "open", "side": "buy", "realized_tau": 1.0},
+                {
+                    "as_of": "2026-03-11",
+                    "action": "exit",
+                    "side": "sell",
+                    "realized_oo": -0.4,
+                    "realized_tau": 2.0,
+                },
             ],
             last_day="2026-03-11",
         )
@@ -2764,9 +2780,22 @@ class TestFuseHitMetrics(unittest.TestCase):
         self.assertEqual(hits, 1)
         self.assertEqual(pct, 100.0)
 
+    def test_flat_is_miss(self):
+        """平盘不是上涨也不是下跌，记未命中，仍进分母。"""
+        pct, n, hits = fuse_hit_metrics(
+            [
+                {"action": "open", "side": "buy", "realized_oo": 0.0},
+                {"action": "exit", "side": "sell", "realized_oo": 0.0},
+                {"side": "buy", "realized_oo": 1.0, "realized_tau": -3.0},
+            ]
+        )
+        self.assertEqual(n, 3)
+        self.assertEqual(hits, 1)
+        self.assertEqual(pct, round(1 / 3 * 100.0, 1))
+
     def test_empty_is_none(self):
         pct, n, hits = fuse_hit_metrics(
-            [{"status": "skipped", "y_oo_fuse": 2.0, "y_oo_fuse_realized": 1.0}]
+            [{"status": "skipped", "action": "open", "side": "buy", "realized_oo": 1.0}]
         )
         self.assertIsNone(pct)
         self.assertEqual(n, 0)

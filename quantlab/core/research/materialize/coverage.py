@@ -70,6 +70,42 @@ def recent_pool_bar_dates(
     return days
 
 
+def complete_daily_as_of(
+    codes: Sequence[str] | None = None,
+    *,
+    now: Optional[datetime] = None,
+    min_frac: float = LAKE_COVER_FRAC,
+) -> str:
+    """完整日线终点。
+
+    时钟在交易日 15:05 后会落到当天，供应商日线经常还没入库。
+    本地够格成交日更早时，覆盖闸停在末根，不把未入库的当天算成硬缺。
+    日线更新仍按时钟去拉当天；拉进仓之后这里自然前移。
+    """
+    from core.market.calendar import expected_latest_daily_bar_date
+
+    clock = str(expected_latest_daily_bar_date(now=now) or "")[:10]
+    code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    if len(code_list) < 2 or len(clock) < 10:
+        return clock
+    try:
+        from core.store import list_daily_covered_dates
+
+        need_names = cover_need(len(code_list), frac=min_frac, minimum=2)
+        days = list_daily_covered_dates(code_list, min_codes=need_names)
+    except Exception:  # noqa: BLE001
+        return clock
+    if not days:
+        return clock
+    local_days = [str(d)[:10] for d in days if len(str(d or "")[:10]) >= 10]
+    if not local_days:
+        return clock
+    local = max(local_days)
+    if local < clock:
+        return local
+    return clock
+
+
 def l1_invalidate_decision(stored_bars_fp: Optional[str], current_bars_fp: str) -> bool:
     """无湖不删；有湖但没有价量指纹，或指纹变了，才删 L1。"""
     if stored_bars_fp is None:
@@ -482,10 +518,12 @@ def clip_replay_score_dates(
     as_of: Optional[str] = None,
     now: Optional[datetime] = None,
 ) -> List[str]:
-    """评分窗截到完整日线 as-of（15:05 前不含未完成会话日）。
+    """评分窗截到完整日线 as-of。
 
     盘中 overlay / 半池今日 K 会把会话日塞进日历；消费闸若仍硬要该日
-    oo/tc/co+open，物化永远凑不齐整池。与 live 出分候选回退同口径。
+    oo/tc/co+open，物化永远凑不齐整池。未传 ``as_of`` 时用时钟终点
+    （15:05 前不含未完成会话日）。回测入口应传 ``complete_daily_as_of``，
+    当天日线还没入库时停在本地末根。
     """
     day_list = [str(d)[:10] for d in (dates or []) if len(str(d or "")[:10]) >= 10]
     end = str(as_of or "")[:10]
@@ -513,8 +551,8 @@ def replay_coverage_gap(
 ) -> Optional[Dict[str, Any]]:
     """调仓回测开跑前的覆盖结果。只读未开或已齐时返回 None。
 
-    评分日截到 ``expected_latest_daily_bar_date``（可 ``as_of``/``now`` 覆盖），
-    避免盘中未完成会话日被当成硬缺。
+    未传 ``as_of`` 时用 ``complete_daily_as_of``：时钟已到当天、本地还没有
+    这根日线时，不把当天算进硬缺。显式 ``as_of`` 仍按传入日截断。
     """
     if not _mat_consumer.consumer_read_only():
         return None
@@ -523,9 +561,12 @@ def replay_coverage_gap(
     codes = [str(c).strip() for c in (stock_bars or {}) if str(c).strip()]
     day_list = [str(d)[:10] for d in (dates or [])]
     start = max(0, int(score_from or 0))
+    end = str(as_of or "")[:10]
+    if len(end) < 10:
+        end = complete_daily_as_of(codes, now=now, min_frac=min_frac)
     scored = clip_replay_score_dates(
         [d for d in day_list[start:] if len(d) >= 10],
-        as_of=as_of,
+        as_of=end or None,
         now=now,
     )
     if not scored:

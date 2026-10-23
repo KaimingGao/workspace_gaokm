@@ -99,15 +99,15 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-dd">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-dd-sub">历史 MaxDD</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="win" title="净值日收益&gt;0 的交易日占比，不是成交方向命中">
-            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">胜率</div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="win" title="开仓/加仓记今开到明开，清仓/减仓记相反数。平盘记 0。没有次日开盘不计。跳过不计。等权平均，不是账户净值">
+            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">决策收益</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-win">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">日净值&gt;0</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">等权 · 非净值</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(fuse)=sign(真实fuse)；真实=open[T+1]/price(τ)−1；最后一个交易日无真实值不计；|fuse|&lt;0.05% 无方向；跳过不计">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="每笔成交看今开到明开。开仓/加仓上涨为命中，清仓/减仓下跌为命中。平盘记未命中。没有次日开盘不计。跳过不计">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-hit">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(fuse)=sign(真实)</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">今开→明开</div>
           </div>
         </div>
       </div>

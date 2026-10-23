@@ -110,7 +110,6 @@ from core.backtest.replay_scoring import (
 from core.backtest.replay_sim_rows import (
     _DEBUG_SKIP_KEYS,
     _REPLAY_TAU_HORIZON_KEYS,
-    HIT_YHAT_EPS,
     _bar_date_key,
     _copy_r_tau_pred,
     _default_paper,
@@ -125,11 +124,11 @@ from core.backtest.replay_sim_rows import (
     _pct_ret,
     _px,
     _row_as_of_day,
-    _sign_hit_yf,
     _sim_y_co,
     _sim_y_τc,
     _skip_to_sim,
     _strip_replay_tau_horizons,
+    fuse_decision_return,
     fuse_hit_metrics,
     realized_yhat_windows,
     stamp_r_tau_on_row,
@@ -295,18 +294,22 @@ def backtest_paper_replay(
     )
     if session_day and session_day not in dates:
         dates = sorted(dates + [session_day])
-    # 消费只读：评分日历截到完整日线 as-of，避免盘中半池今日 K / overlay
-    # 把未完成会话日送进 L1/L2 硬闸（与 live 出分回退同口径）。
+    # 消费只读：评分日历截到本地已入库的完整日线。15:05 后时钟会落到当天，
+    # 供应商日线还没进仓时停在末根，避免把未入库的会话日送进 L1/L2 硬闸。
+    as_of = None
     if scores_by_date is None:
         try:
-            from core.market.calendar import expected_latest_daily_bar_date
             from core.research.materialize.consumer import consumer_read_only
-            from core.research.materialize.coverage import clip_replay_score_dates
+            from core.research.materialize.coverage import (
+                clip_replay_score_dates,
+                complete_daily_as_of,
+            )
 
             if consumer_read_only():
-                as_of = str(
-                    expected_latest_daily_bar_date(now=session_now) or ""
-                )[:10]
+                as_of = complete_daily_as_of(
+                    [str(c).strip() for c in stock_bars if str(c).strip()],
+                    now=session_now,
+                )
                 clipped = clip_replay_score_dates(
                     dates, as_of=as_of, now=session_now
                 )
@@ -338,6 +341,7 @@ def backtest_paper_replay(
             dates,
             score_from=score_from,
             fill_clock=clock,
+            as_of=as_of,
             now=session_now,
         )
         if gap is not None:
@@ -1038,10 +1042,8 @@ def backtest_paper_replay(
         trades=ledger_trades,
         name_by_code=name_by_code,
     )
-    hit_pct, hit_n, hit_hits = fuse_hit_metrics(
-        sim_trades,
-        last_day=dates[-1] if dates else None,
-    )
+    hit_pct, hit_n, hit_hits = fuse_hit_metrics(sim_trades)
+    dec_pct, dec_n = fuse_decision_return(sim_trades)
     metrics["trade_count"] = len(ledger_trades)
     metrics["sim_trade_count"] = len(ledger_trades)
     metrics["skip_count"] = len(debug_skips)
@@ -1051,6 +1053,8 @@ def backtest_paper_replay(
     metrics["hit_rate_pct"] = hit_pct
     metrics["hit_n"] = hit_n
     metrics["hit_hits"] = hit_hits
+    metrics["decision_return_pct"] = dec_pct
+    metrics["decision_n"] = dec_n
     final_eq = float(equity_curve[-1]["equity"]) if equity_curve else float(initial_cash)
     total_ret = (final_eq / float(initial_cash) - 1.0) * 100.0 if initial_cash else 0.0
     metrics["total_return_pct"] = round(total_ret, 2)
