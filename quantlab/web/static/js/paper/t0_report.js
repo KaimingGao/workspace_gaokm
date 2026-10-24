@@ -144,7 +144,7 @@ export function buildT0MetricCards(data) {
       cls: paperMetricClass(data.avg_pnl_per_trade_day),
     },
     { label: "参与率", value: paperFmtPct(data.participate_rate_pct) },
-    { label: "胜率", value: paperFmtPct(data.win_rate_pct ?? data.t0_win_rate_pct) },
+    { label: "命中率", value: paperFmtPct(data.win_rate_pct ?? data.t0_win_rate_pct) },
     {
       label: "盈亏比",
       value:

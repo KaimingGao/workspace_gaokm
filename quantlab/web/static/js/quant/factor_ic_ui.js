@@ -1181,11 +1181,40 @@ export function createFactorIcUi(deps) {
       (useProbKpis && oos.auc != null && Number.isFinite(Number(oos.auc))
         ? kpi("AUC", Number(oos.auc).toFixed(3), "Holdout ROC-AUC；随机≈0.50，promote≥0.52")
         : "") +
-      (useProbKpis && oos.acc_at_50 != null && Number.isFinite(Number(oos.acc_at_50))
+      (useProbKpis &&
+      ((oos.acc_at_50 != null && Number.isFinite(Number(oos.acc_at_50))) ||
+        (oos.hit_rate != null && Number.isFinite(Number(oos.hit_rate))))
         ? kpi(
-            "acc@0.5",
-            `${(Number(oos.acc_at_50) * 100).toFixed(1)}%`,
-            "p_up>0.5 对窗收益>0"
+            "Acc@0.5",
+            `${(Number(oos.acc_at_50 != null ? oos.acc_at_50 : oos.hit_rate) * 100).toFixed(1)}%`,
+            "Acc@0.5：I(p_up≥0.5) 与 I(窗收益>0) 同号；与做 T 投票中点同口径"
+          )
+        : "") +
+      (useProbKpis &&
+      oos.precision_at_50 != null &&
+      Number.isFinite(Number(oos.precision_at_50))
+        ? kpi(
+            "Prec@0.5",
+            `${(Number(oos.precision_at_50) * 100).toFixed(1)}%`,
+            "Precision@0.5：报涨(p≥0.5)里真涨占比"
+          )
+        : "") +
+      (useProbKpis &&
+      oos.recall_at_50 != null &&
+      Number.isFinite(Number(oos.recall_at_50))
+        ? kpi(
+            "Rec@0.5",
+            `${(Number(oos.recall_at_50) * 100).toFixed(1)}%`,
+            "Recall@0.5：真涨里被报涨占比；p 整体偏低时接近 0"
+          )
+        : "") +
+      (useProbKpis &&
+      oos.pred_up_rate != null &&
+      Number.isFinite(Number(oos.pred_up_rate))
+        ? kpi(
+            "Pred≥0.5",
+            `${(Number(oos.pred_up_rate) * 100).toFixed(1)}%`,
+            "p_up≥0.5 占比；远低于基率说明概率压在中点下"
           )
         : "") +
       (useProbKpis && oos.brier != null && Number.isFinite(Number(oos.brier))

@@ -285,6 +285,10 @@ def log_loss(preds: Sequence[Optional[float]], ys_bin: Sequence[float]) -> Optio
 
 
 def acc_at_50(preds: Sequence[Optional[float]], ys_bin: Sequence[float]) -> Optional[float]:
+    """Acc@0.5：``I(p_up≥0.5)`` 与二值标签 ``I(y>0)`` 同号比例。
+
+    与做 T ŷ_τw 投票中点（mid=50%）同口径；AUC 高但本项≈基率时说明概率未校准。
+    """
     n = 0
     hit = 0
     for p, y in zip(preds, ys_bin):
@@ -298,6 +302,48 @@ def acc_at_50(preds: Sequence[Optional[float]], ys_bin: Sequence[float]) -> Opti
     if n < 5:
         return None
     return round(hit / float(n), 4)
+
+
+def precision_recall_at_50(
+    preds: Sequence[Optional[float]], ys_bin: Sequence[float]
+) -> Dict[str, Optional[float]]:
+    """阈值 0.5 的 Precision / Recall（正类=窗收益>0）。
+
+    - Precision@0.5：报涨（p≥0.5）里真涨占比；报涨极少时为 None
+    - Recall@0.5：真涨里被报涨占比；几乎从不报涨时 → 接近 0
+    - pred_up_rate：p≥0.5 占比（看概率是否压在 0.5 下）
+    """
+    tp = fp = fn = 0
+    n = 0
+    for p, y in zip(preds, ys_bin):
+        if p is None:
+            continue
+        n += 1
+        pred_up = float(p) >= 0.5
+        y_up = float(y) > 0.5
+        if pred_up and y_up:
+            tp += 1
+        elif pred_up and not y_up:
+            fp += 1
+        elif (not pred_up) and y_up:
+            fn += 1
+    if n < 5:
+        return {
+            "precision_at_50": None,
+            "recall_at_50": None,
+            "pred_up_rate": None,
+            "n_pred_up": 0,
+        }
+    n_pred_up = tp + fp
+    n_pos = tp + fn
+    prec = round(tp / float(n_pred_up), 4) if n_pred_up >= 5 else None
+    rec = round(tp / float(n_pos), 4) if n_pos >= 5 else None
+    return {
+        "precision_at_50": prec,
+        "recall_at_50": rec,
+        "pred_up_rate": round(n_pred_up / float(n), 4),
+        "n_pred_up": int(n_pred_up),
+    }
 
 
 def predict_p_up_rows(
@@ -366,11 +412,18 @@ def oos_prob_pack(
     auc = roc_auc(preds_p, ys_bin)
     brier = brier_score(preds_p, ys_bin)
     acc = acc_at_50(preds_p, ys_bin)
+    pr50 = precision_recall_at_50(preds_p, ys_bin)
     return {
         "n_valid": buckets.get("n_valid") if isinstance(buckets, dict) else None,
         "ic": _ic(preds_p, y_list) if y_list else None,
         "sign_hit": _sign_hit(margin, y_list) if y_list else None,
         "acc_at_50": acc,
+        # 对照表别名：与 Acc@0.5 / acc_at_50 同值
+        "hit_rate": acc,
+        "precision_at_50": pr50.get("precision_at_50"),
+        "recall_at_50": pr50.get("recall_at_50"),
+        "pred_up_rate": pr50.get("pred_up_rate"),
+        "n_pred_up": pr50.get("n_pred_up"),
         "auc": auc,
         "brier": brier,
         "logloss": log_loss(preds_p, ys_bin),
@@ -476,7 +529,7 @@ def resolve_horizon_oos_for_gate(report: Optional[Dict[str, Any]]) -> Dict[str, 
 
 
 def horizon_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """promote：OOS AUC / acc@0.5 / n_test。不再用 |ŷ|≥0.6。"""
+    """promote：OOS AUC / Acc@0.5（acc_at_50）/ n_test。不再用 |ŷ|≥0.6。"""
     oos = resolve_horizon_oos_for_gate(report)
     n = oos.get("n_valid")
     if n is None:
@@ -487,6 +540,8 @@ def horizon_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         n_i = 0
     auc = oos.get("auc")
     acc = oos.get("acc_at_50")
+    if acc is None:
+        acc = oos.get("hit_rate")
     if acc is None:
         acc = oos.get("sign_hit")
     try:

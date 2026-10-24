@@ -1798,8 +1798,8 @@ export function installBacktest(q) {
   function collectReplayT0BacktestBody() {
     const lbEl = document.getElementById("paper-t0-lookback");
     let lookback = Number(lbEl && lbEl.value);
-    if (!Number.isFinite(lookback) || lookback < 10) lookback = 10;
-    lookback = Math.min(60, Math.max(10, lookback));
+    if (!Number.isFinite(lookback) || lookback < 5) lookback = 10;
+    lookback = Math.min(60, Math.max(5, lookback));
     const t0Form = document.getElementById("paper-t0-form");
     const pack = t0Form ? collectExecutionForm(t0Form) : null;
     const t0 = (pack && pack.t0) || {};

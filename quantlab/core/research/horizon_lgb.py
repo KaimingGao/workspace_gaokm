@@ -391,6 +391,15 @@ def _delta_oos(boost: Dict[str, Any], ridge: Dict[str, Any]) -> Dict[str, Any]:
         "auc": _sub(boost.get("auc"), ridge.get("auc")),
         "brier": _sub(boost.get("brier"), ridge.get("brier")),
         "acc_at_50": _sub(boost.get("acc_at_50"), ridge.get("acc_at_50")),
+        "hit_rate": _sub(
+            boost.get("hit_rate", boost.get("acc_at_50")),
+            ridge.get("hit_rate", ridge.get("acc_at_50")),
+        ),
+        "precision_at_50": _sub(
+            boost.get("precision_at_50"), ridge.get("precision_at_50")
+        ),
+        "recall_at_50": _sub(boost.get("recall_at_50"), ridge.get("recall_at_50")),
+        "pred_up_rate": _sub(boost.get("pred_up_rate"), ridge.get("pred_up_rate")),
         "strong_sign_hit": _sub(b06_b, b06_r),
         "strong_bucket": strong_key,
         "open_sign_hit": _sub(open_b, open_r),

@@ -348,7 +348,7 @@
           title="评估窗：统计做T的交易日数（默认 10）。规则用下方表单（可先保存到交易执行）。"
         >
           <span class="quant-pro-field-label">窗口</span>
-          <input id="paper-t0-lookback" type="number" min="10" max="60" step="1" value="10" />
+          <input id="paper-t0-lookback" type="number" min="5" max="60" step="1" value="10" />
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-model-field"
@@ -378,7 +378,7 @@
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-t0-kpi-pnl-sub">含敞口</div>
           </div>
           <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="win">
-            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">胜率</div>
+            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-t0-kpi-win">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-t0-kpi-win-sub">做 T 日</div>
           </div>

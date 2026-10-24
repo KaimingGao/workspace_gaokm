@@ -668,7 +668,7 @@ def _walk_t0(
                     buy_then_sell_pnl += day_pnl
         sellable = shares  # 日末重置；不跟踪当日新买股的 T+1 冻结
 
-        # 胜率分母含已开仓日（含 pnl=0 的 abandon），避免只统计有已实现盈亏的子集
+        # 命中率分母含已开仓日（含 pnl=0 的 abandon），避免只统计有已实现盈亏的子集
         if sold > 0 or bought > 0:
             pnls.append(day_pnl)
         elif day_pnl:

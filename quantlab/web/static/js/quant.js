@@ -879,6 +879,18 @@ export function initQuant(ctx) {
       return x - y;
     }
     const dlt = data.delta_vs_ridge || {};
+    const treeHit =
+      tree.acc_at_50 != null
+        ? tree.acc_at_50
+        : tree.hit_rate != null
+          ? tree.hit_rate
+          : null;
+    const ridgeHit =
+      ridge.acc_at_50 != null
+        ? ridge.acc_at_50
+        : ridge.hit_rate != null
+          ? ridge.hit_rate
+          : null;
     const rows = [
       ["AUC", tree.auc, ridge.auc, delta(tree.auc, ridge.auc, dlt.auc), "Holdout ROC AUC（择优主指标）"],
       [
@@ -889,24 +901,53 @@ export function initQuant(ctx) {
         "越小越好；AUC 打平时作次级",
       ],
       [
-        "acc@0.5",
-        tree.acc_at_50 != null ? tree.acc_at_50 : tree.sign_hit,
-        ridge.acc_at_50 != null ? ridge.acc_at_50 : ridge.sign_hit,
-        delta(
-          tree.acc_at_50 != null ? tree.acc_at_50 : tree.sign_hit,
-          ridge.acc_at_50 != null ? ridge.acc_at_50 : ridge.sign_hit,
-          dlt.acc_at_50 != null ? dlt.acc_at_50 : dlt.sign_hit
-        ),
+        "Acc@0.5",
+        treeHit,
+        ridgeHit,
+        delta(treeHit, ridgeHit, dlt.acc_at_50 != null ? dlt.acc_at_50 : dlt.hit_rate),
+        "Acc@0.5：I(p_up≥0.5) 与 I(窗收益>0) 同号；与做 T ŷ_τw 投票中点同口径",
+        "pct",
+      ],
+      [
+        "Prec@0.5",
+        tree.precision_at_50,
+        ridge.precision_at_50,
+        delta(tree.precision_at_50, ridge.precision_at_50, dlt.precision_at_50),
+        "Precision@0.5：报涨(p≥0.5)里真涨占比；报涨样本过少为 —",
+        "pct",
+      ],
+      [
+        "Rec@0.5",
+        tree.recall_at_50,
+        ridge.recall_at_50,
+        delta(tree.recall_at_50, ridge.recall_at_50, dlt.recall_at_50),
+        "Recall@0.5：真涨里被报涨占比；p 整体<0.5 时会接近 0",
+        "pct",
+      ],
+      [
+        "Pred≥0.5",
+        tree.pred_up_rate,
+        ridge.pred_up_rate,
+        delta(tree.pred_up_rate, ridge.pred_up_rate, dlt.pred_up_rate),
+        "p_up≥0.5 占比；远低于基率说明概率压在中点下（Acc@0.5 仍可能≈多数类）",
+        "pct",
       ],
       ["IC", tree.ic, ridge.ic, delta(tree.ic, ridge.ic, dlt.ic)],
     ];
     let treeWins = 0;
     let rgWins = 0;
     const body = rows
-      .map(([lab, a, b, d, tip]) => {
+      .map(([lab, a, b, d, tip, fmt]) => {
         const dn = d == null || !Number.isFinite(Number(d)) ? null : Number(d);
         // Brier：越低越好，Δ=tree−ridge 为负则 tree 更好
         const lowerBetter = lab === "Brier";
+        const asPct = fmt === "pct";
+        const fmtCell = (v) =>
+          asPct
+            ? v == null || !Number.isFinite(Number(v))
+              ? "—"
+              : `${(Number(v) * 100).toFixed(1)}%`
+            : _fmtOoRankNum(v);
         if (dn != null) {
           if (lowerBetter) {
             if (dn < -1e-12) treeWins += 1;
@@ -933,12 +974,16 @@ export function initQuant(ctx) {
                 ? "num down"
                 : "num";
         const dTxt =
-          dn == null ? "—" : `${dn > 0 ? "+" : ""}${_fmtOoRankNum(dn)}`;
+          dn == null
+            ? "—"
+            : asPct
+              ? `${dn > 0 ? "+" : ""}${(dn * 100).toFixed(1)}pp`
+              : `${dn > 0 ? "+" : ""}${_fmtOoRankNum(dn)}`;
         const tipAttr = tip ? ` title="${escapeHtml(tip)}"` : "";
         return (
           `<tr><th scope="row"${tipAttr}>${lab}${_ooRankBarPair(a, b)}</th>` +
-          `<td class="${lrCls}">${_fmtOoRankNum(a)}</td>` +
-          `<td class="${rgCls}">${_fmtOoRankNum(b)}</td>` +
+          `<td class="${lrCls}">${fmtCell(a)}</td>` +
+          `<td class="${rgCls}">${fmtCell(b)}</td>` +
           `<td class="${dCls}">${dTxt}</td></tr>`
         );
       })
@@ -1537,8 +1582,8 @@ export function initQuant(ctx) {
         : null,
       ...ridgeFitNBits(data),
       oos.auc != null ? `OOS AUC ${Number(oos.auc).toFixed(3)}` : null,
-      oos.acc_at_50 != null
-        ? `acc@0.5 ${(Number(oos.acc_at_50) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
+      oos.acc_at_50 != null || oos.hit_rate != null
+        ? `Acc@0.5 ${(Number(oos.acc_at_50 != null ? oos.acc_at_50 : oos.hit_rate) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
         : oos.sign_hit != null
           ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
           : null,

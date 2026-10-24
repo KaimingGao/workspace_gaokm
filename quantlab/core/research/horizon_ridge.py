@@ -1152,7 +1152,12 @@ def persist_ridge_model(
     fitted_at = model_fit_id(report)
     rm = dict(rm)
     rm["model_role"] = MODEL_ROLE_RESEARCH
-    rm["backend"] = backend
+    # 包级 backend=ridge|tree（择优）；return_model.backend 是引擎名。
+    # 勿把 tree 写入引擎字段，否则 predict_tree_raw 只认 lightgbm 会整头空分。
+    if backend == "tree":
+        rm["backend"] = "lightgbm"
+    else:
+        rm["backend"] = "ridge"
     doc = {
         "success": True,
         "fitted_at": fitted_at,

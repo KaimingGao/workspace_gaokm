@@ -733,7 +733,23 @@ const HORIZON_COMPACT_SPEC = {
   },
 };
 
-/** ŷ_τ* 列 tip：P(窗收益>0)，不是幅度 Ridge。 */
+/** ŷ_τ* tip：启用套是 tree（LightGBM）还是 Ridge。 */
+function horizonTipBackendLabel(raw, head) {
+  const expl = formulaExpl(raw, head);
+  const role = String((expl && expl.model_role) || "").toLowerCase();
+  if (role === "tree" || role === "lightgbm" || role === "lgb") return "LightGBM";
+  const srcKeys = [
+    `y_τ${String(head || "").replace(/^t/, "")}_source`,
+    `y_${head}_source`,
+  ];
+  for (const k of srcKeys) {
+    const s = String((raw && raw[k]) || "").toLowerCase();
+    if (s === "tree" || s === "lightgbm" || s === "lgb") return "LightGBM";
+  }
+  return "logistic Ridge";
+}
+
+/** ŷ_τ* 列 tip：P(窗收益>0)；Ridge 或 LightGBM（pred_contrib）。 */
 function formatCompactHorizonProbTip(raw, head) {
   const spec = HORIZON_COMPACT_SPEC[head];
   if (!spec) return "";
@@ -802,8 +818,11 @@ function formatCompactHorizonProbTip(raw, head) {
       );
     }
   }
+  const backendLbl = horizonTipBackendLabel(raw, head);
+  const solverHint =
+    backendLbl === "LightGBM" ? "LightGBM · pred_contrib" : "logistic Ridge";
   const hint = hasTerms
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · logistic Ridge · 做 T 进 ŷ_τw 票`
+    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · ${escapeText(solverHint)} · 做 T 进 ŷ_τw 票`
     : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 进 ŷ_τw 票，不单独选向`;
   return (
     `<div class="score-layer score-layer-${spec.layer}">` +
@@ -1634,8 +1653,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "合计相对分"
             : "合计 ŷ_oo";
 
+  // oo_rank / ŷ_τ* LightGBM：落盘 gain 已是百分数（1.46 = 1.46%）
   const showGain =
-    isOoRank &&
+    (isOoRank || (treeTable && isHorizonProb)) &&
     terms.some(
       (t) => t && t.gain != null && Number.isFinite(Number(t.gain))
     );
@@ -1700,7 +1720,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const restCaption = showRest ? "未列出的贡献在「其余」。" : "";
   const caption = treeTable
     ? showGain
-      ? "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计相对分。"
+      ? isHorizonProb
+        ? "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计，与表列 p_up 同口径。"
+        : "gain% = 全模型分裂增益份额（与枢纽因子表同数）；本表按本票 |贡献| Top24，增益高但本票贡献小的因子可不在表内。偏置 + 各因子贡献 = 合计相对分。"
       : "偏置 + 各因子贡献 = 合计，与表列分数同口径。表内只列贡献最大的因子。"
     : key === "r"
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。研究/执行两槽同一份 Holdout 前训 β（版本前后）；回测默认研究套，live 用执行套。"

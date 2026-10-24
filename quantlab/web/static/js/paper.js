@@ -83,7 +83,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p3267";
+} from "./score_tooltip.js?v=p3310";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 

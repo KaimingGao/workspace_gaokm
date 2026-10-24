@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # 持仓做T回测：只用纸面股票池；仓位/本金用虚拟假设（与调仓回测默认本金对齐）
 T0_BT_DEFAULT_LOOKBACK = 10
+T0_BT_MIN_LOOKBACK = 5
 T0_BT_VIRTUAL_SHARES = 1_000.0
 T0_BT_VIRTUAL_CASH = 200_000.0
 
@@ -560,7 +561,7 @@ def run_t0_backtest_for_code(
         t0_cs_universe_codes,
     )
 
-    eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
+    eval_lb = max(T0_BT_MIN_LOOKBACK, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     warmup = int(T0_BACKTEST_SCORE_WARMUP)
     quote: Dict[str, Any]
     if skip_quote:
@@ -1041,7 +1042,7 @@ def run_t0_backtest_for_holdings(
     if gap is not None:
         return gap
     period_seed = str(cfg.get("minute_period") or "5")
-    eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
+    eval_lb = max(T0_BT_MIN_LOOKBACK, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
 
     def _pool_progress(_cur: int, _tot: int, msg: str) -> None:

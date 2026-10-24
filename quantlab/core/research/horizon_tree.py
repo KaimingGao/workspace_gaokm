@@ -271,6 +271,23 @@ def tree_return_model_collapsed(model_doc: Optional[Dict[str, Any]]) -> bool:
     return lgb_best_iteration_collapsed(hp.get("best_iteration"))
 
 
+def resolve_tree_engine(return_model: Optional[Dict[str, Any]]) -> Optional[str]:
+    """树引擎名（仅 lightgbm）。
+
+    包级择优 ``backend=tree`` ≠ 引擎名。晋级曾把 ``return_model.backend`` 误写成
+    ``tree``，推理若只认 ``lightgbm`` 会整头空分；此处把 tree/lgb/空+booster 归一。
+    """
+    rm = return_model if isinstance(return_model, dict) else {}
+    eng = str(rm.get("backend") or "").strip().lower()
+    if eng in ("lightgbm", "lgb"):
+        return "lightgbm"
+    if eng in ("tree", "") and isinstance(rm.get("booster"), dict):
+        return "lightgbm"
+    if eng == "tree":
+        return "lightgbm"
+    return None
+
+
 def predict_tree_raw(
     features: Optional[Dict[str, Any]],
     return_model: Optional[Dict[str, Any]],
@@ -289,7 +306,7 @@ def predict_tree_raw(
     except Exception:  # noqa: BLE001
         logger.debug("tree design matrix failed", exc_info=True)
         return None
-    eng = str(rm.get("backend") or "").strip().lower()
+    eng = resolve_tree_engine(rm)
     try:
         if eng != "lightgbm":
             return None
@@ -339,13 +356,78 @@ def _return_model_doc(return_model: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return rm
 
 
+def _horizon_gain_pct_by_key(*docs: Any) -> Dict[str, float]:
+    """模型分裂增益份额 → tip 用百分数（与 oo_rank / 枢纽因子表同口径）。
+
+    优先 ``feature_importance[].share``（0–1），否则 ``gain``；≤1.5 视为份额再 ×100。
+    """
+    out: Dict[str, float] = {}
+    for doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        candidates: List[Any] = [doc]
+        rm = doc.get("return_model")
+        if isinstance(rm, dict):
+            candidates.append(rm)
+        be = doc.get("backends") if isinstance(doc.get("backends"), dict) else {}
+        tree = be.get("tree") if isinstance(be, dict) else None
+        if isinstance(tree, dict):
+            candidates.append(tree)
+            trm = tree.get("return_model")
+            if isinstance(trm, dict):
+                candidates.append(trm)
+        for src in candidates:
+            if not isinstance(src, dict):
+                continue
+            fi = src.get("feature_importance")
+            if not isinstance(fi, list):
+                continue
+            for g in fi:
+                if not isinstance(g, dict):
+                    continue
+                k = str(g.get("key") or g.get("name") or "").strip()
+                if not k or k in out:
+                    continue
+                share = g.get("share")
+                if share is None:
+                    share = g.get("gain")
+                try:
+                    fv = float(share)
+                except (TypeError, ValueError):
+                    continue
+                if not math.isfinite(fv) or fv <= 0:
+                    continue
+                out[k] = fv * 100.0 if fv <= 1.5 else fv
+    return out
+
+
+def _stamp_gain_on_terms(
+    terms: Optional[List[Dict[str, Any]]],
+    *docs: Any,
+) -> None:
+    if not isinstance(terms, list) or not terms:
+        return
+    gains = _horizon_gain_pct_by_key(*docs)
+    if not gains:
+        return
+    for t in terms:
+        if not isinstance(t, dict):
+            continue
+        k = str(t.get("key") or "").strip()
+        if not k or t.get("gain") is not None:
+            continue
+        g = gains.get(k)
+        if g is not None:
+            t["gain"] = round(float(g), 2)
+
+
 def explain_tree_return(
     features: Optional[Dict[str, Any]],
     return_model: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
     """树预测的贡献拆解。偏置 + 各因子贡献 = total，与 ``predict_tree_return`` 同口径。
 
-    LightGBM 用 pred_contrib。
+    LightGBM 用 pred_contrib；有 ``feature_importance`` 时挂 gain% 便于 tip 回溯。
     """
     rm = _return_model_doc(return_model)
     names = [str(n) for n in (rm.get("feature_names") or []) if n]
@@ -358,7 +440,7 @@ def explain_tree_return(
     except Exception:  # noqa: BLE001
         logger.debug("tree explain matrix failed", exc_info=True)
         return None
-    eng = str(rm.get("backend") or "").strip().lower()
+    eng = resolve_tree_engine(rm)
     contrib_row = None
     try:
         if eng != "lightgbm":
@@ -403,6 +485,7 @@ def explain_tree_return(
         total = float(y_hat)
     terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0.0)))
     terms = terms[:24]
+    _stamp_gain_on_terms(terms, rm, return_model)
     return {
         "intercept": round(bias, 6),
         "terms": terms,
@@ -417,10 +500,13 @@ def tree_tip_formula(
     *,
     y_hat: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """tip 用的树组成。合计对齐 ``y_hat``（表列分数），缺拆解时仍写出合计。"""
+    """tip 用的树组成。合计对齐 ``y_hat``（表列分数），缺拆解时仍写出合计。
+
+    附带 LightGBM gain%（来自启用套 / return_model 的 feature_importance）。
+    """
     rm = _return_model_doc(model_doc)
     try:
-        expl = explain_tree_return(features, rm)
+        expl = explain_tree_return(features, model_doc if isinstance(model_doc, dict) else rm)
     except Exception:  # noqa: BLE001
         logger.debug("explain_tree_return failed", exc_info=True)
         expl = None
@@ -439,6 +525,10 @@ def tree_tip_formula(
                 out["total"] = round(float(y_hat), 6)
         except (TypeError, ValueError):
             pass
+    terms = out.get("terms")
+    if isinstance(terms, list):
+        out["terms"] = [dict(t) for t in terms if isinstance(t, dict)]
+        _stamp_gain_on_terms(out["terms"], model_doc, rm)
     return out
 
 

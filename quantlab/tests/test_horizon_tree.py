@@ -184,6 +184,70 @@ class TestHorizonTree(unittest.TestCase):
         self.assertTrue(tree_return_model_collapsed({"return_model": rm}))
         self.assertIsNone(predict_tree_return({"a": 1.0}, rm))
 
+    def test_resolve_tree_engine_accepts_pack_backend_tree(self):
+        from core.research.horizon_tree import resolve_tree_engine
+
+        self.assertEqual(resolve_tree_engine({"backend": "lightgbm"}), "lightgbm")
+        self.assertEqual(
+            resolve_tree_engine({"backend": "tree", "booster": {"format": "x"}}),
+            "lightgbm",
+        )
+        self.assertIsNone(resolve_tree_engine({"backend": "xgboost"}))
+
+    def test_horizon_gain_pct_and_stamp_on_tip_terms(self):
+        from core.research.horizon_tree import (
+            _horizon_gain_pct_by_key,
+            _stamp_gain_on_terms,
+            tree_tip_formula,
+        )
+
+        pack = {
+            "backend": "tree",
+            "feature_importance": [
+                {"key": "z_τh_gap_pct", "share": 0.25, "gain": 1.0},
+                {"key": "raw_ath_RET_LAST_30", "gain": 12.5},  # 已是百分数
+            ],
+            "return_model": {
+                "backend": "lightgbm",
+                "feature_names": ["z_τh_gap_pct"],
+                "booster": {},
+            },
+        }
+        gains = _horizon_gain_pct_by_key(pack)
+        self.assertAlmostEqual(gains["z_τh_gap_pct"], 25.0)
+        self.assertAlmostEqual(gains["raw_ath_RET_LAST_30"], 12.5)
+
+        terms = [{"key": "z_τh_gap_pct", "contrib": 0.1}, {"key": "other", "contrib": 0.01}]
+        _stamp_gain_on_terms(terms, pack)
+        self.assertAlmostEqual(terms[0]["gain"], 25.0)
+        self.assertNotIn("gain", terms[1])
+
+        # explain 失败时仍落盘空组成；有 terms 时补 gain
+        tip = tree_tip_formula({"z_τh_gap_pct": 1.0}, pack, y_hat=0.55)
+        self.assertEqual(tip.get("model_role"), "tree")
+        self.assertAlmostEqual(float(tip.get("total")), 0.55)
+
+    def test_predict_tree_raw_accepts_promoted_backend_tree(self):
+        """晋级误写 return_model.backend=tree 时仍应走 LightGBM 推理。"""
+        from unittest.mock import patch
+
+        import numpy as np
+
+        from core.research.horizon_tree import predict_tree_raw
+
+        rm = {
+            "feature_names": ["a"],
+            "backend": "tree",
+            "impute_means": {"a": 0.0},
+            "booster": {"format": "lightgbm_string", "payload_b64": "e30="},
+        }
+        with patch("core.research.horizon_tree._cached_booster", return_value=object()), patch(
+            "core.research.horizon_lgb._predict_lightgbm",
+            return_value=np.array([0.55]),
+        ):
+            y = predict_tree_raw({"a": 1.0}, rm)
+        self.assertAlmostEqual(float(y), 0.55)
+
     def test_stamp_tree_fitted_at_on_report_and_model(self):
         from core.research.horizon_tree import stamp_tree_fitted_at
 

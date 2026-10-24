@@ -181,6 +181,8 @@ class HorizonDualMergeTests(unittest.TestCase):
         self.assertEqual(
             (out.get("return_model") or {}).get("feature_names"), ["gap_pct"]
         )
+        # 包级择优=tree；引擎名必须仍是 lightgbm（勿写成 tree）
+        self.assertEqual((out.get("return_model") or {}).get("backend"), "lightgbm")
 
 def _has_lightgbm() -> bool:
     try:

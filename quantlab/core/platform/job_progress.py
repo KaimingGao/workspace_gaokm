@@ -240,6 +240,10 @@ class JobProgress:
                                 "auc",
                                 "brier",
                                 "acc_at_50",
+                                "hit_rate",
+                                "precision_at_50",
+                                "recall_at_50",
+                                "pred_up_rate",
                                 "n_test",
                                 "holdout_trading_days",
                             )

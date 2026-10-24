@@ -61,7 +61,7 @@ class T0BacktestRequest(BaseModel):
     code: Optional[str] = None
     codes: Optional[list] = None
     from_paper: bool = True
-    lookback: int = Field(default=10, ge=10, le=500)
+    lookback: int = Field(default=10, ge=5, le=500)
     score_model_role: str = Field(
         default="research",
         description="回测模型：research=研究槽（Holdout 前训 β，默认）；live=执行槽（由研究槽晋级的同一份 β）。",

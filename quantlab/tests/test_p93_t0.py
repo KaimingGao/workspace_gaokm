@@ -2591,6 +2591,42 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(keys, ["up_extent"])
         self.assertEqual(int(slim.get("missing_n") or 0), 1)
 
+    def test_slim_formula_terms_keeps_tree_gain_and_p_up(self):
+        """LightGBM tip 的 gain% / p_up 经 slim 后须保留，否则 tip 表不出 gain% 列。"""
+        from core.t0.score_policy import _slim_formula_terms
+
+        slim = _slim_formula_terms(
+            {
+                "intercept": 0.1,
+                "total": 0.35,
+                "p_up": 0.35,
+                "model_role": "tree",
+                "terms": [
+                    {
+                        "key": "z_τh_theme_day",
+                        "label": "主题日",
+                        "z": 1.2,
+                        "contrib": 0.2,
+                        "gain": 19.65,
+                    },
+                    {
+                        "key": "raw_ath_BELOW_YLOW",
+                        "label": "破昨低",
+                        "z": 0.5,
+                        "contrib": 0.05,
+                        "gain": 15.73,
+                    },
+                ],
+            },
+            limit=12,
+        )
+        self.assertEqual(slim.get("model_role"), "tree")
+        self.assertAlmostEqual(float(slim.get("p_up")), 0.35, places=6)
+        terms = slim.get("terms") or []
+        self.assertEqual(len(terms), 2)
+        self.assertAlmostEqual(float(terms[0]["gain"]), 19.65, places=2)
+        self.assertAlmostEqual(float(terms[1]["gain"]), 15.73, places=2)
+
     def test_compute_scores_passes_index_bars_for_rs(self):
         """缺指数时相对强弱会退回开盘涨跌；须传入 index_bars 与数据中心同源。"""
         from unittest.mock import patch

@@ -116,6 +116,10 @@ def _slim_formula_terms(
             "z": _f(t.get("z")),
             "contrib": _f(t.get("contrib")),
         }
+        # LightGBM tip：保留分裂增益份额（百分数），供 tip 表 gain% 列
+        gain = _f(t.get("gain"))
+        if gain is not None:
+            row["gain"] = gain
         if t.get("gated"):
             row["gated"] = True
         note = t.get("note")
@@ -148,6 +152,10 @@ def _slim_formula_terms(
         out["head"] = expl.get("head")
     if expl.get("model_role") is not None:
         out["model_role"] = expl.get("model_role")
+    if expl.get("p_up") is not None:
+        out["p_up"] = _f(expl.get("p_up"))
+    if expl.get("score_model_role") is not None:
+        out["score_model_role"] = expl.get("score_model_role")
     for meta_k in (
         "y_eod",
         "y_tau",

@@ -327,7 +327,7 @@ const T0_LOOKBACK_MIGRATE_KEY = "paper.t0.lookback.migrated_v3";
 const T0_LOOKBACK_MIGRATE_V4_KEY = "paper.t0.lookback.migrated_v4";
 
 function _clampLookback(n) {
-  return Math.max(10, Math.min(Math.round(Number(n)), 500));
+  return Math.max(5, Math.min(Math.round(Number(n)), 500));
 }
 
 /** 读表单回测窗并写入 localStorage；无有效值时返回 null。 */
