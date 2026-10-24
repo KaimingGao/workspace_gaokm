@@ -7,10 +7,13 @@ mid 默认 50%（ŷ_τ* 共用中位点）；|p_up−mid|≤y_tw_vote_margin（�
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from core.research.factor_ols_fit import (
     clamp_ridge_lambda,
@@ -825,6 +828,467 @@ def fit_logistic_ridge_from_panel(
     out["solver"] = "logistic_ridge"
     out["ridge_lambda"] = clamp_ridge_lambda(ridge_lambda, 1.0)
     return _stamp_prob_model(out)
+
+
+def _slice_feat_matrix(
+    X: Any,
+    col_names: Sequence[str],
+    feat_names: Sequence[str],
+    row_idx: Sequence[int],
+) -> Tuple[np.ndarray, List[str]]:
+    """从紧凑 ``X`` 按列名+行下标切片，避免 dict 物化。
+
+    越界行填 NaN 行（不抛）；缺列跳过。``X`` 非 2D 时返回空矩阵。
+    """
+    try:
+        arr = np.asarray(X, dtype=np.float64)
+    except (TypeError, ValueError):
+        return np.zeros((len(list(row_idx or [])), 0), dtype=np.float64), []
+    if arr.ndim != 2:
+        return np.zeros((len(list(row_idx or [])), 0), dtype=np.float64), []
+    name_index = {str(n): i for i, n in enumerate(col_names or [])}
+    cols: List[int] = []
+    used: List[str] = []
+    for n in feat_names or []:
+        j = name_index.get(str(n))
+        if j is None:
+            continue
+        if j < 0 or j >= int(arr.shape[1]):
+            continue
+        cols.append(j)
+        used.append(str(n))
+    n_req = len(list(row_idx or []))
+    if not used:
+        return np.zeros((n_req, 0), dtype=np.float64), []
+    if n_req == 0:
+        return np.zeros((0, len(used)), dtype=np.float64), used
+    n_rows = int(arr.shape[0])
+    out = np.full((n_req, len(used)), np.nan, dtype=np.float64)
+    for i, raw in enumerate(row_idx or []):
+        try:
+            ii = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if ii < 0 or ii >= n_rows:
+            continue
+        out[i, :] = arr[ii, cols]
+    return np.ascontiguousarray(out), used
+
+
+def _population_z_matrix(x: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """列总体 μ/σ 标准化；缺测先按列均值填。返回 ``(z, means, stds)``。"""
+    n_obs = np.sum(np.isfinite(x), axis=0).astype(np.float64)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        means = np.nanmean(x, axis=0)
+    means = np.where(np.isfinite(means), means, 0.0)
+    filled = np.where(np.isfinite(x), x, means)
+    centered = filled - means
+    with np.errstate(invalid="ignore", divide="ignore"):
+        var = np.mean(centered * centered, axis=0)
+    var = np.where(np.isfinite(var), var, 0.0)
+    stds = np.sqrt(var)
+    stds = np.where((n_obs > 0) & (var > 1e-12), stds, 1.0)
+    z = centered / stds
+    return z, means, stds
+
+
+def _drop_near_constant_cols(
+    x: np.ndarray, names: Sequence[str], *, eps: float = 1e-12
+) -> Tuple[np.ndarray, List[str]]:
+    keep: List[int] = []
+    kept_names: List[str] = []
+    for j, name in enumerate(names):
+        col = x[:, j]
+        finite = col[np.isfinite(col)]
+        if finite.size < 4:
+            continue
+        if float(np.max(finite) - np.min(finite)) <= eps:
+            continue
+        keep.append(j)
+        kept_names.append(str(name))
+    if not keep:
+        return np.zeros((x.shape[0], 0), dtype=np.float64), []
+    return np.ascontiguousarray(x[:, keep]), kept_names
+
+
+def fit_logistic_ridge_from_matrix(
+    X: np.ndarray,
+    ys_bin: Sequence[float],
+    feat_names: Sequence[str],
+    *,
+    ridge_lambda: float = 1.0,
+    sample_weights: Optional[Sequence[float]] = None,
+    row_groups: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
+    collinearity_policy: str = "drop_redundant",
+) -> Dict[str, Any]:
+    """矩阵 logistic Ridge（与 panel 路径同口径：CS-z → IRLS）。
+
+    供 horizon 紧凑 ``X`` 路径使用，跳过 ``List[dict]`` 物化。
+    ``MaterializeRequired`` 向上抛；其它异常降级为基率空模（不拖垮双训）。
+    """
+    from core.research.feature_standardize import stamp_cross_section_zscore
+    from core.research.materialize.consumer import MaterializeRequired
+
+    y = np.asarray(
+        [1.0 if _f(v) is not None and float(v) > 0.5 else 0.0 for v in ys_bin],
+        dtype=np.float64,
+    )
+    names = [str(n) for n in feat_names if n]
+    try:
+        x_raw = np.asarray(X, dtype=np.float64)
+    except (TypeError, ValueError):
+        return _empty_prob_fit(intercept=_logit_mean(y.tolist()), note="矩阵不可读")
+    if x_raw.ndim != 2 or x_raw.shape[0] != y.shape[0] or not names:
+        return _empty_prob_fit(intercept=_logit_mean(y.tolist()), note="矩阵维度异常")
+    if int(x_raw.shape[0]) < 8:
+        return _empty_prob_fit(intercept=_logit_mean(y.tolist()), note="训练样本过少")
+    if x_raw.shape[1] != len(names):
+        # 列数与名不对齐时按最短截断
+        p = min(int(x_raw.shape[1]), len(names))
+        logger.warning(
+            "horizon matrix cols!=names (%s vs %s); truncate to %s",
+            int(x_raw.shape[1]),
+            len(names),
+            p,
+        )
+        x_raw = x_raw[:, :p]
+        names = names[:p]
+
+    use_cs = bool(cross_section_zscore) and row_groups is not None
+    z_means: Dict[str, float] = {}
+    z_stds: Dict[str, float] = {}
+    groups_ok = (
+        use_cs
+        and row_groups is not None
+        and len(row_groups) == int(x_raw.shape[0])
+    )
+    if use_cs and not groups_ok:
+        logger.warning(
+            "horizon matrix CS groups len=%s != n=%s; fall back to train-window z",
+            len(row_groups or []),
+            int(x_raw.shape[0]),
+        )
+        use_cs = False
+    if groups_ok:
+        from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
+
+        try:
+            x_z = cs_z_matrix_prefer_cube(x_raw, names, list(row_groups or []))
+        except MaterializeRequired:
+            raise
+        except Exception:  # noqa: BLE001
+            from core.research.feature_standardize import cross_section_zscore_matrix
+
+            try:
+                x_z = cross_section_zscore_matrix(x_raw, list(row_groups or []))
+                x_z = np.where(np.isfinite(x_z), x_z, 0.0)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "horizon matrix CS-z failed; fall back to train-window z",
+                    exc_info=True,
+                )
+                x_z, mu, sd = _population_z_matrix(x_raw)
+                use_cs = False
+                z_means = {names[j]: float(mu[j]) for j in range(len(names))}
+                z_stds = {names[j]: float(sd[j]) for j in range(len(names))}
+    else:
+        use_cs = False
+        x_z, mu, sd = _population_z_matrix(x_raw)
+        z_means = {names[j]: float(mu[j]) for j in range(len(names))}
+        z_stds = {names[j]: float(sd[j]) for j in range(len(names))}
+
+    x_z, active = _drop_near_constant_cols(x_z, names)
+    if not active:
+        return _empty_prob_fit(intercept=_logit_mean(y.tolist()), note="Z 方差不足")
+
+    from core.research.beta_accuracy import apply_collinearity_on_columns
+
+    cols = {active[j]: x_z[:, j] for j in range(len(active))}
+    kept, _dropped, _meta = apply_collinearity_on_columns(
+        cols,
+        list(active),
+        y.tolist(),
+        policy=collinearity_policy,
+    )
+    if kept != list(active):
+        pos = {n: i for i, n in enumerate(active)}
+        idx = [pos[n] for n in kept if n in pos]
+        x_z = np.ascontiguousarray(x_z[:, idx])
+        active = list(kept)
+    if not active:
+        return _empty_prob_fit(intercept=_logit_mean(y.tolist()), note="共线剔除后无特征")
+
+    w = None
+    if sample_weights is not None:
+        try:
+            w = np.asarray(list(sample_weights), dtype=np.float64)
+        except (TypeError, ValueError):
+            w = None
+        if w is not None and w.shape[0] != y.shape[0]:
+            logger.warning(
+                "horizon matrix weights len=%s != n=%s; ignore weights",
+                int(w.shape[0]),
+                int(y.shape[0]),
+            )
+            w = None
+
+    ones = np.ones((x_z.shape[0], 1), dtype=np.float64)
+    design = np.concatenate([ones, x_z], axis=1)
+    # 线性概率 OLS 作 IRLS 初值；失败则用 logit 基率
+    lam = clamp_ridge_lambda(ridge_lambda, 1.0)
+    beta0 = np.zeros(design.shape[1], dtype=np.float64)
+    beta0[0] = _logit_mean(y.tolist())
+    try:
+        xtx = design.T @ design
+        if lam > 0 and design.shape[1] > 1:
+            for j in range(1, design.shape[1]):
+                xtx[j, j] += float(lam)
+        try:
+            beta0 = np.linalg.solve(xtx, design.T @ y)
+        except np.linalg.LinAlgError:
+            beta0 = np.linalg.lstsq(xtx, design.T @ y, rcond=None)[0]
+        if not np.all(np.isfinite(beta0)):
+            beta0 = np.zeros(design.shape[1], dtype=np.float64)
+            beta0[0] = _logit_mean(y.tolist())
+    except Exception:  # noqa: BLE001
+        logger.debug("horizon matrix OLS init failed", exc_info=True)
+    beta = _irls_logistic(
+        design,
+        y,
+        ridge_lambda=ridge_lambda,
+        sample_weights=w,
+        beta0=beta0,
+    )
+    if beta is None or not np.all(np.isfinite(beta)):
+        return _empty_prob_fit(
+            intercept=_logit_mean(y.tolist()), note="logistic IRLS 未收敛"
+        )
+
+    eta = np.clip(design @ beta, -LOGIT_CLIP, LOGIT_CLIP)
+    p = 1.0 / (1.0 + np.exp(-eta))
+    p = np.clip(p, HORIZON_P_CLIP, 1.0 - HORIZON_P_CLIP)
+    ll = float(np.sum(y * np.log(p) + (1.0 - y) * np.log(1.0 - p)))
+    pbar = float(np.mean(y))
+    pbar = max(HORIZON_P_CLIP, min(pbar, 1.0 - HORIZON_P_CLIP))
+    ll0 = float(np.sum(y * math.log(pbar) + (1.0 - y) * math.log(1.0 - pbar)))
+    pseudo_r2 = 1.0 - ll / ll0 if abs(ll0) > 1e-12 else None
+
+    coef_map = {name: round(float(beta[i + 1]), 6) for i, name in enumerate(active)}
+    out: Dict[str, Any] = {
+        "success": True,
+        "intercept": round(float(beta[0]), 6),
+        "coefficients": coef_map,
+        "active_features": list(active),
+        "excluded_features": [n for n in names if n not in set(active)],
+        "r_squared": round(pseudo_r2, 4) if pseudo_r2 is not None else None,
+        "pseudo_r2": round(pseudo_r2, 4) if pseudo_r2 is not None else None,
+        "solver": "logistic_ridge",
+        "ridge_lambda": clamp_ridge_lambda(ridge_lambda, 1.0),
+        "feature_zscore": True,
+        "zscore_means": z_means if not use_cs else {},
+        "zscore_stds": z_stds if not use_cs else {},
+        "y_spec": {"formula": "I(y>0)", "unit": "prob"},
+    }
+    if use_cs:
+        stamp_cross_section_zscore(out)
+    return _stamp_prob_model(out)
+
+
+def predict_p_up_matrix(
+    fit: Dict[str, Any],
+    X: np.ndarray,
+    feat_names: Sequence[str],
+    *,
+    row_groups: Optional[Sequence[str]] = None,
+) -> List[Optional[float]]:
+    """矩阵推理 p_up；截面 z 时 ``row_groups`` 与行对齐。"""
+    from core.research.feature_standardize import is_cross_section_zscore
+    from core.research.materialize.consumer import MaterializeRequired
+
+    def _base_rate(n: int) -> List[Optional[float]]:
+        p0 = sigmoid(float((fit or {}).get("intercept") or 0.0))
+        return [p0] * max(0, int(n))
+
+    try:
+        arr = np.asarray(X, dtype=np.float64)
+    except (TypeError, ValueError):
+        return []
+    n = int(arr.shape[0]) if arr.ndim == 2 else 0
+    if n == 0:
+        return []
+
+    active = [
+        str(n0)
+        for n0 in ((fit or {}).get("active_features") or [])
+        if ((fit or {}).get("coefficients") or {}).get(n0) is not None
+    ]
+    if not active:
+        return _base_rate(n)
+
+    name_index = {str(n0): i for i, n0 in enumerate(feat_names or [])}
+    cols = [name_index[n0] for n0 in active if n0 in name_index]
+    used = [n0 for n0 in active if n0 in name_index]
+    if not used or arr.ndim != 2:
+        return _base_rate(n)
+    # 跳过越界列
+    cols = [j for j in cols if 0 <= int(j) < int(arr.shape[1])]
+    used = used[: len(cols)]
+    if not used:
+        return _base_rate(n)
+
+    x_raw = np.ascontiguousarray(arr[:, cols])
+    use_cs = (
+        is_cross_section_zscore(fit)
+        and row_groups is not None
+        and len(row_groups) == x_raw.shape[0]
+    )
+    if use_cs:
+        from core.research.materialize.cube_z import cs_z_matrix_prefer_cube
+
+        try:
+            x_z = cs_z_matrix_prefer_cube(x_raw, used, list(row_groups))
+        except MaterializeRequired:
+            raise
+        except Exception:  # noqa: BLE001
+            from core.research.feature_standardize import cross_section_zscore_matrix
+
+            try:
+                x_z = cross_section_zscore_matrix(x_raw, list(row_groups))
+                x_z = np.where(np.isfinite(x_z), x_z, 0.0)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "predict_p_up_matrix CS-z failed; use raw/impute", exc_info=True
+                )
+                x_z = np.where(np.isfinite(x_raw), x_raw, 0.0)
+    else:
+        means_m = (fit or {}).get("zscore_means") or {}
+        stds_m = (fit or {}).get("zscore_stds") or {}
+        mu = np.array(
+            [float(means_m.get(n0, 0.0) or 0.0) for n0 in used], dtype=np.float64
+        )
+        sd = np.array(
+            [max(1e-9, float(stds_m.get(n0, 1.0) or 1.0)) for n0 in used],
+            dtype=np.float64,
+        )
+        filled = np.where(np.isfinite(x_raw), x_raw, mu)
+        x_z = (filled - mu) / sd
+
+    coefs = (fit or {}).get("coefficients") or {}
+    beta = np.array(
+        [float((fit or {}).get("intercept") or 0.0)]
+        + [float(coefs.get(n0) or 0.0) for n0 in used],
+        dtype=np.float64,
+    )
+    ones = np.ones((x_z.shape[0], 1), dtype=np.float64)
+    eta = np.clip(np.concatenate([ones, x_z], axis=1) @ beta, -LOGIT_CLIP, LOGIT_CLIP)
+    return [sigmoid(float(v)) for v in eta.tolist()]
+
+
+def train_eval_horizon_prob_matrix(
+    X: np.ndarray,
+    col_names: Sequence[str],
+    ys_tr_pct: Sequence[float],
+    ys_te_pct: Sequence[float],
+    metas_te: Sequence[dict],
+    train_idx: Sequence[int],
+    test_idx: Sequence[int],
+    *,
+    feat_names: List[str],
+    ridge_lambda: float,
+    weights: Optional[Sequence[float]],
+    groups_tr: Optional[Sequence[str]] = None,
+    groups_te: Optional[Sequence[str]] = None,
+    cross_section_zscore: bool = True,
+) -> Dict[str, Any]:
+    """Holdout 训/测（紧凑矩阵）；只训 Holdout 前一套 β。"""
+    y_mean_pct = (
+        sum(float(y) for y in ys_tr_pct) / float(len(ys_tr_pct)) if ys_tr_pct else 0.0
+    )
+    ys_tr_bin = binary_labels(ys_tr_pct)
+    use_cs = bool(cross_section_zscore)
+    n_tr = len(list(train_idx or []))
+    n_te = len(list(test_idx or []))
+    if len(ys_tr_pct) != n_tr:
+        logger.warning(
+            "train_eval matrix ys_tr=%s != train_idx=%s", len(ys_tr_pct), n_tr
+        )
+    if groups_tr is not None and len(groups_tr) != n_tr:
+        logger.warning(
+            "train_eval matrix groups_tr=%s != train_idx=%s; disable CS",
+            len(groups_tr),
+            n_tr,
+        )
+        groups_tr = None
+        use_cs = False
+    if groups_te is not None and len(groups_te) != n_te:
+        logger.warning(
+            "train_eval matrix groups_te=%s != test_idx=%s; drop te CS",
+            len(groups_te),
+            n_te,
+        )
+        groups_te = None
+    x_tr, used = _slice_feat_matrix(X, col_names, feat_names, train_idx)
+    x_te, used_te = _slice_feat_matrix(X, col_names, used or feat_names, test_idx)
+    if used_te and used and used_te != used:
+        # 列对齐：按 used 再切测集
+        x_te, _ = _slice_feat_matrix(X, col_names, used, test_idx)
+    fit = fit_logistic_ridge_from_matrix(
+        x_tr,
+        ys_tr_bin,
+        used or feat_names,
+        ridge_lambda=ridge_lambda,
+        sample_weights=weights,
+        row_groups=groups_tr if use_cs else None,
+        cross_section_zscore=use_cs,
+        collinearity_policy="drop_redundant",
+    )
+    preds_te = (
+        predict_p_up_matrix(
+            fit,
+            x_te,
+            used or feat_names,
+            row_groups=groups_te if use_cs else None,
+        )
+        if n_te
+        else []
+    )
+    # 预测长度与测试标签对齐（防 OOS 错位）
+    if len(preds_te) != len(ys_te_pct):
+        logger.warning(
+            "train_eval matrix preds=%s != ys_te=%s; pad/truncate",
+            len(preds_te),
+            len(ys_te_pct),
+        )
+        if len(preds_te) < len(ys_te_pct):
+            pad = sigmoid(float(fit.get("intercept") or 0.0))
+            preds_te = list(preds_te) + [pad] * (len(ys_te_pct) - len(preds_te))
+        else:
+            preds_te = list(preds_te)[: len(ys_te_pct)]
+    oos_core = oos_prob_pack(preds_te, ys_te_pct, metas_te) if ys_te_pct else {}
+    oos_core["y_label_mean"] = round(y_mean_pct, 6)
+    oos_core["y_up_rate_train"] = (
+        round(sum(ys_tr_bin) / float(len(ys_tr_bin)), 4) if ys_tr_bin else None
+    )
+
+    research = dict(fit)
+    research["model_role"] = "research"
+    research["y_label_mean"] = round(y_mean_pct, 6)
+    research["y_up_rate"] = (
+        round(sum(1.0 for y in ys_tr_pct if float(y) > 0.0) / float(len(ys_tr_pct)), 4)
+        if ys_tr_pct
+        else None
+    )
+    research = _stamp_prob_model(research)
+    model = dict(research)
+    return {
+        "fit": fit,
+        "preds_te": preds_te,
+        "oos_core": oos_core,
+        "model": model,
+        "research_model": research,
+        "y_label_mean": y_mean_pct,
+    }
 
 
 def train_eval_horizon_prob(

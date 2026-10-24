@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -48,6 +49,37 @@ DEFAULT_LEARNING_RATE = float(HORIZON_LGB["learning_rate"])
 DEFAULT_SUBSAMPLE = float(HORIZON_LGB["subsample"])
 # stump / 旧早停产物：best_iteration 过小则推理跳过
 MIN_USABLE_LGB_TREES = 8
+def _env_lgb_num_threads() -> Optional[int]:
+    raw = (
+        os.environ.get("HORIZON_LGB_NUM_THREADS")
+        or os.environ.get("LIGHTGBM_NUM_THREADS")
+        or ""
+    ).strip()
+    if not raw:
+        return None
+    try:
+        return max(1, min(32, int(raw)))
+    except (TypeError, ValueError):
+        return None
+
+
+# 训树阶段面板 ProcessPool 已释放；默认吃多核，顶 8 避免占满整机
+DEFAULT_LGB_NUM_THREADS = max(
+    1, min(8, int(_env_lgb_num_threads() or (os.cpu_count() or 1)))
+)
+
+
+def resolve_lgb_num_threads(preferred: Optional[int] = None) -> int:
+    """``preferred`` > 环境变量 > cpu 顶 8。非法值回落默认。"""
+    if preferred is not None:
+        try:
+            return max(1, min(32, int(preferred)))
+        except (TypeError, ValueError):
+            pass
+    env_n = _env_lgb_num_threads()
+    if env_n is not None:
+        return int(env_n)
+    return max(1, min(8, int(os.cpu_count() or 1)))
 
 
 def lgb_best_iteration_collapsed(best_iter: Any) -> bool:
@@ -421,7 +453,7 @@ def _fit_lightgbm(
     lambda_l1: Optional[float] = None,
     lambda_l2: Optional[float] = None,
     min_data_in_leaf: Optional[int] = None,
-    num_threads: int = 1,
+    num_threads: Optional[int] = None,
 ) -> Tuple[Any, np.ndarray]:
     import lightgbm as lgb
 
@@ -431,6 +463,7 @@ def _fit_lightgbm(
     # free_raw_data=True：Dataset 建完后释放传入缓冲，降低峰值内存
     dtrain = lgb.Dataset(x, label=y, weight=w, free_raw_data=True)
     leaves = int(HORIZON_LGB["num_leaves"] if num_leaves is None else num_leaves)
+    threads = resolve_lgb_num_threads(num_threads)
     params: Dict[str, Any] = {
         "objective": obj,
         "metric": ["binary_logloss" if is_binary else "l2"],
@@ -467,7 +500,7 @@ def _fit_lightgbm(
         ),
         "verbose": -1,
         "seed": 42,
-        "num_threads": max(1, int(num_threads)),
+        "num_threads": threads,
     }
     booster = lgb.train(
         params=params,

@@ -65,6 +65,73 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertIsNotNone(auc)
         self.assertGreater(float(auc), 0.8)
 
+    def test_logistic_matrix_path_separates(self):
+        import numpy as np
+
+        from core.research.horizon_prob import (
+            fit_logistic_ridge_from_matrix,
+            predict_p_up_matrix,
+            roc_auc,
+        )
+
+        z = np.linspace(-1.5, 1.5, 40)
+        X = np.column_stack([z, z * 0.4])
+        ys = [1.0 if v > 0 else 0.0 for v in z]
+        fit = fit_logistic_ridge_from_matrix(
+            X,
+            ys,
+            ["gap_pct", "feat_m"],
+            ridge_lambda=1.0,
+            cross_section_zscore=False,
+        )
+        self.assertTrue(fit.get("success"), fit)
+        preds = predict_p_up_matrix(fit, X, ["gap_pct", "feat_m"])
+        self.assertTrue(all(p is not None and 0.0 < p < 1.0 for p in preds))
+        auc = roc_auc(preds, ys)
+        self.assertIsNotNone(auc)
+        self.assertGreater(float(auc), 0.8)
+
+    def test_matrix_slice_tolerates_oob_and_bad_x(self):
+        import numpy as np
+
+        from core.research.horizon_prob import (
+            _slice_feat_matrix,
+            fit_logistic_ridge_from_matrix,
+            predict_p_up_matrix,
+        )
+
+        X = np.arange(12, dtype=np.float64).reshape(4, 3)
+        out, used = _slice_feat_matrix(
+            X, ["a", "b", "c"], ["a", "missing"], [0, 99, 2]
+        )
+        self.assertEqual(used, ["a"])
+        self.assertEqual(out.shape, (3, 1))
+        self.assertTrue(np.isfinite(out[0, 0]))
+        self.assertFalse(np.isfinite(out[1, 0]))  # OOB → NaN
+        empty, used2 = _slice_feat_matrix(None, ["a"], ["a"], [0])
+        self.assertEqual(empty.shape[1], 0)
+        self.assertEqual(used2, [])
+        # 过少样本 → 空模而非抛错
+        fit = fit_logistic_ridge_from_matrix(
+            X[:3],
+            [1.0, 0.0, 1.0],
+            ["a", "b", "c"],
+            cross_section_zscore=False,
+        )
+        self.assertTrue(fit.get("success"))
+        self.assertIn("过少", str(fit.get("note") or ""))
+        preds = predict_p_up_matrix(fit, X, ["a", "b", "c"])
+        self.assertEqual(len(preds), 4)
+
+    def test_resolve_lgb_num_threads_clamps(self):
+        from core.research.horizon_lgb import resolve_lgb_num_threads
+
+        self.assertEqual(resolve_lgb_num_threads(4), 4)
+        self.assertEqual(resolve_lgb_num_threads(0), 1)
+        self.assertEqual(resolve_lgb_num_threads(-3), 1)
+        self.assertEqual(resolve_lgb_num_threads(100), 32)
+        self.assertGreaterEqual(resolve_lgb_num_threads(None), 1)
+
     def test_lookback_impute_aligns_horizon_sample_count(self):
         """早盘缺近窗 / ret_last_5m 时仍留行，与预测 z=0 一致。"""
         from core.research.horizon_prob import (

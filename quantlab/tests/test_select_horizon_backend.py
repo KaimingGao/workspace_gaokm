@@ -215,7 +215,8 @@ def _times_am_pm():
 def _stock(code: str, start: float, n_days: int = 40):
     from datetime import date, timedelta
 
-    d0 = date(2025, 6, 2)
+    # 落在本地常见 L2 Cube 窗内（约 2026-03-31…），避免 dual 测例整单 MaterializeRequired
+    d0 = date(2026, 4, 1)
     daily = []
     minutes = []
     px = start
@@ -536,6 +537,7 @@ class HorizonDualFitTests(unittest.TestCase):
             "tree_n_minute": -1,
             "ridge_n_bars": -1,
             "tree_n_bars": -1,
+            "skip_ridge_baseline": None,
         }
 
         def _fake_ridge(head, bars, **kwargs):
@@ -569,6 +571,7 @@ class HorizonDualFitTests(unittest.TestCase):
             seen["tree_n_bars"] = sum(
                 1 for it in bars if isinstance(it, dict) and it.get("bars")
             )
+            seen["skip_ridge_baseline"] = bool(kwargs.get("skip_ridge_baseline"))
             return {
                 "success": True,
                 "oos": {"auc": 0.55, "brier": 0.24, "n_test": 40, "success": True},
@@ -599,6 +602,7 @@ class HorizonDualFitTests(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertTrue(seen["ridge_compact"])
         self.assertTrue(seen["tree_compact"])
+        self.assertTrue(seen["skip_ridge_baseline"])
         self.assertEqual(seen["ridge_n_minute"], 0)
         self.assertEqual(seen["tree_n_minute"], 0)
         self.assertEqual(seen["ridge_n_bars"], 0)

@@ -716,11 +716,15 @@ def fit_horizon_tree_report(
     enriched_panels: Optional[Sequence[Dict[str, Any]]] = None,
     compact_panel: Optional[Dict[str, Any]] = None,
     calendar_dates: Optional[Sequence[str]] = None,
+    skip_ridge_baseline: bool = False,
+    num_threads: Optional[int] = None,
 ) -> Dict[str, Any]:
     """按 head 拟合 horizon 树头 + Ridge OOS 对照。不写 live / 研究套模型。
 
     ``enriched_panels``：双训预建面板（入模前折 float64）。
     ``compact_panel``：已折好的紧凑矩阵（双训共用，优先）。
+    ``skip_ridge_baseline``：双训已训过 Ridge 时跳过树内重复 Ridge OOS。
+    ``num_threads``：LightGBM 线程；默认 ``resolve_lgb_num_threads()``。
     """
     import time
 
@@ -744,6 +748,7 @@ def fit_horizon_tree_report(
         _oos_pack,
         _predict_lightgbm,
         prepare_lgb_features_matrix,
+        resolve_lgb_num_threads,
         resolve_tree_backend,
     )
 
@@ -920,6 +925,7 @@ def fit_horizon_tree_report(
         w_tr = np.ones_like(y_tr)
 
     engine = resolve_tree_backend(backend)
+    lgb_threads = resolve_lgb_num_threads(num_threads)
     hyper = {
         **_horizon_lgb_hyper(),
         "n_estimators": int(n_estimators),
@@ -927,6 +933,7 @@ def fit_horizon_tree_report(
         "learning_rate": float(learning_rate),
         "subsample": float(subsample),
         "objective": "binary",
+        "num_threads": int(lgb_threads),
         **z_hyper,
     }
     gain = np.zeros(len(feat_names), dtype=np.float64)
@@ -942,6 +949,7 @@ def fit_horizon_tree_report(
         learning_rate=float(learning_rate),
         subsample=float(subsample),
         objective="binary",
+        num_threads=lgb_threads,
         **_lgb_train_kwargs(hyper),
     )
     tree_obj = model
@@ -960,25 +968,34 @@ def fit_horizon_tree_report(
     )
 
     t_ridge0 = time.perf_counter()
-    xs_tr, _, _, _ = compact_subset(compact, train_idx, names=ridge_feat_names)
-    xs_te, _, _, _ = compact_subset(compact, test_idx, names=ridge_feat_names)
-    _, ridge_preds = _fit_ridge_oos(
-        xs_tr,
-        ys_tr,
-        xs_te,
-        ys_te,
-        metas_tr,
-        ridge_feat_names,
-        ridge_lambda=ridge_lambda,
-        theme_boost=theme_boost,
-        use_theme_weights=use_theme_weights,
-        kind="prob",
-        dates_tr=groups_tr,
-        dates_te=groups_te,
-    )
+    ridge_preds: List[Optional[float]] = []
+    if skip_ridge_baseline:
+        # 双训：Ridge 腿已产出 OOS，树内不再 compact_subset + 重训
+        ridge_preds = [None] * len(ys_te)
+    else:
+        xs_tr, _, _, _ = compact_subset(compact, train_idx, names=ridge_feat_names)
+        xs_te, _, _, _ = compact_subset(compact, test_idx, names=ridge_feat_names)
+        _, ridge_preds = _fit_ridge_oos(
+            xs_tr,
+            ys_tr,
+            xs_te,
+            ys_te,
+            metas_tr,
+            ridge_feat_names,
+            ridge_lambda=ridge_lambda,
+            theme_boost=theme_boost,
+            use_theme_weights=use_theme_weights,
+            kind="prob",
+            dates_tr=groups_tr,
+            dates_te=groups_te,
+        )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=True, kind="prob")
-    oos_ridge = _oos_pack(ridge_preds, ys_te, metas_te, use_minute=True, kind="prob")
+    oos_ridge = (
+        {}
+        if skip_ridge_baseline
+        else _oos_pack(ridge_preds, ys_te, metas_te, use_minute=True, kind="prob")
+    )
     oos_boost.update(
         {
             "n_train": len(ys_tr),
@@ -995,10 +1012,11 @@ def fit_horizon_tree_report(
             "l2_rows_dropped": l2_rows_dropped,
         }
     )
-    oos_ridge["n_train"] = len(ys_tr)
-    oos_ridge["n_test"] = len(ys_te)
-    oos_ridge["holdout_trading_days"] = hold_n
-    oos_ridge["target"] = target
+    if oos_ridge:
+        oos_ridge["n_train"] = len(ys_tr)
+        oos_ridge["n_test"] = len(ys_te)
+        oos_ridge["holdout_trading_days"] = hold_n
+        oos_ridge["target"] = target
 
     from core.signal.factors.alpha_th import alpha_th_report_meta
 
@@ -1045,8 +1063,11 @@ def fit_horizon_tree_report(
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
         "oos": oos_boost,
-        "ridge_oos": oos_ridge,
-        "delta_vs_ridge": _delta_oos(oos_boost, oos_ridge),
+        "ridge_oos": oos_ridge or None,
+        "delta_vs_ridge": (
+            None if skip_ridge_baseline else _delta_oos(oos_boost, oos_ridge)
+        ),
+        "skip_ridge_baseline": bool(skip_ridge_baseline),
         "live_hook": False,
         "backtest_hook": True,
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},

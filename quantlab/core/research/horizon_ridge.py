@@ -23,7 +23,7 @@ from core.research.horizon_prob import (
     predict_p_up_rows,
     select_horizon_backend,
     stamp_horizon_explain,
-    train_eval_horizon_prob,
+    train_eval_horizon_prob_matrix,
 )
 from core.research.tc_ridge import (
     _theme_counts,
@@ -428,7 +428,6 @@ def fit_horizon_ridge_report(
     ``calendar_dates``：Holdout 共用日历；缺省从 ``stock_bars`` 抽（抽完不改 bars）。
     """
     from core.research.horizon_compact import (
-        compact_subset,
         cs_groups_from_dates_metas,
         summarize_cs_groups,
         feature_fill_rates_matrix,
@@ -494,12 +493,15 @@ def fit_horizon_ridge_report(
         calendar_dates=cal,
     )
     feat_names = [k for k in z_features if k not in Z_TH_FIT_DROP_ALIASES]
-    xs_tr, ys_tr, metas_tr, dates_tr = compact_subset(
-        compact, train_idx, names=feat_names
-    )
-    xs_te, ys_te, metas_te, dates_te = compact_subset(
-        compact, test_idx, names=feat_names
-    )
+    # 只切平行数组 + 行下标；X 保持稠密矩阵，避免 List[dict] 物化
+    ys_tr = [ys[i] for i in train_idx]
+    ys_te = [ys[i] for i in test_idx]
+    metas_tr = [metas[i] if i < len(metas) else {} for i in train_idx]
+    metas_te = [metas[i] if i < len(metas) else {} for i in test_idx]
+    dates_tr = [dates[i] if i < len(dates) else "" for i in train_idx]
+    dates_te = [dates[i] if i < len(dates) else "" for i in test_idx]
+    train_idx_f = list(train_idx)
+    test_idx_f = list(test_idx)
 
     use_cs = bool(cross_section_zscore)
     # PIT：CS 组 = date|τ（同日多钟不混组）；Holdout 仍按交易日切折
@@ -513,22 +515,42 @@ def fit_horizon_ridge_report(
     l2_rows_dropped = {"train": 0, "test": 0, "miss": []}
     if use_cs and groups_tr is not None and groups_te is not None:
         from core.research.materialize.cube_z import filter_rows_to_day_cube
+        from core.research.materialize.consumer import MaterializeRequired
 
         n_tr, n_te = len(groups_tr), len(groups_te)
-        groups_tr, kept_tr, miss_tr = filter_rows_to_day_cube(
-            groups_tr,
-            [xs_tr, ys_tr, metas_tr, dates_tr],
-            clock=live_hm,
-            require_any=True,
-        )
-        xs_tr, ys_tr, metas_tr, dates_tr = kept_tr
-        groups_te, kept_te, miss_te = filter_rows_to_day_cube(
-            groups_te,
-            [xs_te, ys_te, metas_te, dates_te],
-            clock=live_hm,
-            require_any=False,
-        )
-        xs_te, ys_te, metas_te, dates_te = kept_te
+        try:
+            groups_tr, kept_tr, miss_tr = filter_rows_to_day_cube(
+                groups_tr,
+                [train_idx_f, ys_tr, metas_tr, dates_tr],
+                clock=live_hm,
+                require_any=True,
+            )
+            train_idx_f, ys_tr, metas_tr, dates_tr = kept_tr
+            groups_te, kept_te, miss_te = filter_rows_to_day_cube(
+                groups_te,
+                [test_idx_f, ys_te, metas_te, dates_te],
+                clock=live_hm,
+                require_any=False,
+            )
+            test_idx_f, ys_te, metas_te, dates_te = kept_te
+        except MaterializeRequired as exc:
+            payload = exc.to_dict() if hasattr(exc, "to_dict") else {}
+            return {
+                "success": False,
+                "ok": False,
+                "error_code": str(
+                    payload.get("error_code") or "materialize_required"
+                ),
+                "error": str(payload.get("error") or exc),
+                "hint": str(payload.get("hint") or "分钟线物化"),
+                "layer": str(payload.get("layer") or "l2"),
+                "clocks": payload.get("clocks"),
+                "task": f"{h}_ridge",
+                "sample_count": len(ys),
+                "stock_count": stock_count,
+                "tau_grid": list(grid),
+                "minute_tau_hm": live_hm,
+            }
         miss_keys: List[str] = []
         seen_miss = set()
         for key in list(miss_tr) + list(miss_te):
@@ -540,6 +562,17 @@ def fit_horizon_ridge_report(
             "train": n_tr - len(groups_tr),
             "test": n_te - len(groups_te),
             "miss": miss_keys[:8],
+        }
+    if len(ys_tr) < 16 or len(ys_te) < 8:
+        return {
+            "success": False,
+            "error": f"Holdout 切分后样本不足 训={len(ys_tr)} 测={len(ys_te)}",
+            "task": f"{h}_ridge",
+            "sample_count": len(ys),
+            "stock_count": stock_count,
+            "tau_grid": list(grid),
+            "minute_tau_hm": live_hm,
+            "l2_rows_dropped": l2_rows_dropped,
         }
     weights = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -558,19 +591,84 @@ def fit_horizon_ridge_report(
             cs_z_audit["train"],
             cs_z_audit["test"],
         )
-    packed = train_eval_horizon_prob(
-        xs_tr,
-        ys_tr,
-        xs_te,
-        ys_te,
-        metas_te,
-        feat_names=feat_names,
-        ridge_lambda=ridge_lambda,
-        weights=weights,
-        dates_tr=groups_tr,
-        dates_te=groups_te,
-        cross_section_zscore=use_cs,
-    )
+    import numpy as np
+
+    from core.research.materialize.consumer import MaterializeRequired
+
+    x_mat = compact.get("X")
+    col_names = list(compact.get("names") or feat_names)
+    x_ok = False
+    try:
+        x_arr = np.asarray(x_mat) if x_mat is not None else None
+        x_ok = (
+            x_arr is not None
+            and x_arr.ndim == 2
+            and int(x_arr.shape[0]) > 0
+            and len(col_names) > 0
+        )
+    except Exception:  # noqa: BLE001
+        x_ok = False
+
+    try:
+        if x_ok:
+            packed = train_eval_horizon_prob_matrix(
+                x_mat,
+                col_names,
+                ys_tr,
+                ys_te,
+                metas_te,
+                train_idx_f,
+                test_idx_f,
+                feat_names=feat_names,
+                ridge_lambda=ridge_lambda,
+                weights=weights,
+                groups_tr=groups_tr,
+                groups_te=groups_te,
+                cross_section_zscore=use_cs,
+            )
+        else:
+            logger.warning(
+                "%s compact X missing/invalid; fall back to dict panel path", h
+            )
+            from core.research.horizon_compact import compact_subset
+            from core.research.horizon_prob import train_eval_horizon_prob
+
+            xs_tr, _, _, _ = compact_subset(
+                compact, train_idx_f, names=feat_names
+            )
+            xs_te, _, _, _ = compact_subset(
+                compact, test_idx_f, names=feat_names
+            )
+            packed = train_eval_horizon_prob(
+                xs_tr,
+                ys_tr,
+                xs_te,
+                ys_te,
+                metas_te,
+                feat_names=feat_names,
+                ridge_lambda=ridge_lambda,
+                weights=weights,
+                dates_tr=groups_tr,
+                dates_te=groups_te,
+                cross_section_zscore=use_cs,
+            )
+    except MaterializeRequired as exc:
+        payload = exc.to_dict() if hasattr(exc, "to_dict") else {}
+        return {
+            "success": False,
+            "ok": False,
+            "error_code": str(payload.get("error_code") or "materialize_required"),
+            "error": str(payload.get("error") or exc),
+            "hint": str(payload.get("hint") or "分钟线物化"),
+            "layer": str(payload.get("layer") or "l2"),
+            "clocks": payload.get("clocks"),
+            "task": f"{h}_ridge",
+            "sample_count": len(ys),
+            "stock_count": stock_count,
+            "tau_grid": list(grid),
+            "minute_tau_hm": live_hm,
+            "l2_rows_dropped": l2_rows_dropped,
+        }
     oos: Dict[str, Any] = dict(packed.get("oos_core") or {})
     oos.update(
         {
@@ -732,6 +830,7 @@ def fit_horizon_dual_report(
     产出 ``backends`` / ``recommended_backend``；顶层 ``return_model`` 为胜出侧。
     LightGBM / Ridge 同 X（alpha_τh）。面板只建一次（或传入 ``enriched_panels`` /
     ``compact_panel``），折 float64 后共用；分钟线与日线 ``bars`` 在抽日历后释放。
+    Ridge 走紧凑矩阵（无 dict 物化）；树腿 ``skip_ridge_baseline`` 复用本函数 Ridge OOS。
     """
     from core.research.horizon_compact import (
         release_stock_bar_payloads,
@@ -775,8 +874,32 @@ def fit_horizon_dual_report(
         compact_panel=compact,
         calendar_dates=cal,
     )
-    ridge_rep = fit_horizon_ridge_report(head, stock_bars, **ridge_kw)
+    from core.research.materialize.consumer import MaterializeRequired
+
+    try:
+        ridge_rep = fit_horizon_ridge_report(head, stock_bars, **ridge_kw)
+    except MaterializeRequired as exc:
+        payload = exc.to_dict() if hasattr(exc, "to_dict") else {}
+        h_fail = str(head or "t30").strip().lower() or "t30"
+        return {
+            "success": False,
+            "ok": False,
+            "error_code": str(payload.get("error_code") or "materialize_required"),
+            "error": str(payload.get("error") or exc),
+            "hint": str(payload.get("hint") or "分钟线物化"),
+            "layer": str(payload.get("layer") or "l2"),
+            "clocks": payload.get("clocks"),
+            "task": f"{h_fail}_ridge",
+            "tree_success": False,
+            "tree_error": str(payload.get("error") or exc),
+            "recommended_backend": "ridge",
+            "backend": "ridge",
+        }
     if not ridge_rep.get("success"):
+        # Ridge 腿已结构化失败（含 L2 miss）时直接返回，勿再起树
+        if not ridge_rep.get("tree_success") and ridge_rep.get("error_code"):
+            ridge_rep.setdefault("tree_success", False)
+            ridge_rep.setdefault("tree_error", ridge_rep.get("error"))
         return ridge_rep
 
     tree_kw: Dict[str, Any] = dict(
@@ -791,6 +914,8 @@ def fit_horizon_dual_report(
         backend="lightgbm",
         compact_panel=compact,
         calendar_dates=cal,
+        # Ridge 腿已训完并带 OOS；树内不再 dict 物化 + 重训对照 Ridge
+        skip_ridge_baseline=True,
     )
     if n_estimators is not None:
         tree_kw["n_estimators"] = n_estimators
@@ -800,8 +925,6 @@ def fit_horizon_dual_report(
         tree_kw["learning_rate"] = learning_rate
     if subsample is not None:
         tree_kw["subsample"] = subsample
-
-    from core.research.materialize.consumer import MaterializeRequired
 
     tree_rep: Dict[str, Any]
     try:
