@@ -104,7 +104,16 @@ def catalog_payload() -> Dict[str, object]:
             "n_feature_names": len(l1_names),
             "n_cube_required": len(horizon_cube_required_names()),
             "requires_minute": True,
-            "note": "须本地 5m Ready；写 tc_HHMM（τc∪窗头列）后再物化按钟 L2",
+            "bars_fp_scope": "daily",
+            "meta_prices": True,
+            "note": (
+                "须本地 5m Ready；写 tc_HHMM（τc∪窗头列，日线指纹 + M/price_tau*）"
+                "后再物化按钟 L2；ŷ_τ* 拟合优先 stitch L1，未命中回退 5m"
+            ),
+        },
+        "horizon_head_l1": {
+            "families": [f"hz_{h}" for h in ("t30", "t45", "t60", "t75", "t90")],
+            "note": "整头训练板（relabel 后 y）；拟合 write-through / 下次短路",
         },
         "flags": {
             "require_day_cube": bool(require_day_cube()),
@@ -113,6 +122,7 @@ def catalog_payload() -> Dict[str, object]:
             "L1=票级 raw；L2=日截面 μ/σ（不取代 L1）。"
             "拟合/OOS 截面 z 只用 L2；默认 L2 clock=open；"
             "τ 网格 L1 传 do_l1_tau_grid；"
-            "按钟 L2 传 clocks=suggested_tau_clocks（须先有 tc_HHMM）。"
+            "按钟 L2 传 clocks=suggested_tau_clocks（须先有 tc_HHMM）；"
+            "ŷ_τ* 建面板：hz_* → stitch tc_HHMM → 5m 回退。"
         ),
     }

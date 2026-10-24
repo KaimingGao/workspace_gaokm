@@ -216,10 +216,13 @@ def write_stock_panel(
     fingerprint: str,
     y: Optional[np.ndarray] = None,
     extra_meta: Optional[Dict[str, Any]] = None,
+    M: Optional[np.ndarray] = None,
+    m_names: Optional[Sequence[str]] = None,
 ) -> bool:
     """整票覆盖写入。行数必须与 dates 对齐。
 
     ``extra_meta`` 可带 ``bars_fp`` / ``stem_fp`` / ``end_date`` / ``n_bars``（增量）。
+    ``M`` / ``m_names``：可选行级 meta 数值（如 ``price_tau*``），不进特征 X / L2。
     若盘上已有更长且同后缀的面板，拒绝用短窗覆盖（返回 True，保留长窗）。
     """
     if not enabled() or not code:
@@ -235,6 +238,17 @@ def write_stock_panel(
         y_arr = np.asarray(y, dtype=np.float64)
         if y_arr.shape[0] != len(date_list):
             return False
+    m_arr = None
+    m_name_list: List[str] = []
+    if M is not None:
+        m_arr = np.asarray(M, dtype=np.float64)
+        m_name_list = [str(n) for n in (m_names or [])]
+        if m_arr.ndim != 2 or m_arr.shape[0] != len(date_list):
+            m_arr = None
+            m_name_list = []
+        elif m_name_list and m_arr.shape[1] != len(m_name_list):
+            m_arr = None
+            m_name_list = []
     paths = _paths(family, code)
     track_l2 = _l2_tracking()
     old_meta = _read_json(paths["meta"])
@@ -265,6 +279,8 @@ def write_stock_panel(
         }
         if y_arr is not None:
             payload["y"] = y_arr
+        if m_arr is not None:
+            payload["M"] = m_arr
         buf = io.BytesIO()
         np.savez_compressed(buf, **payload)
         _atomic_write_bytes(paths["npz"], buf.getvalue())
@@ -280,9 +296,22 @@ def write_stock_panel(
         "n_rows": int(x_arr.shape[0]),
         "n_cols": int(x_arr.shape[1]),
     }
+    if m_name_list:
+        meta["m_names"] = m_name_list
+        meta["m_cols"] = int(len(m_name_list))
     if isinstance(extra_meta, dict):
         for k, v in extra_meta.items():
-            if k in ("schema", "fingerprint", "code", "names", "n_rows", "n_cols", "family"):
+            if k in (
+                "schema",
+                "fingerprint",
+                "code",
+                "names",
+                "n_rows",
+                "n_cols",
+                "family",
+                "m_names",
+                "m_cols",
+            ):
                 continue
             meta[k] = v
     try:
@@ -365,6 +394,7 @@ def load_stock_panel(
             X = np.asarray(z["X"], dtype=np.float64)
             dates = [str(d) for d in z["dates"].tolist()]
             y = np.asarray(z["y"], dtype=np.float64) if "y" in z.files else None
+            M = np.asarray(z["M"], dtype=np.float64) if "M" in z.files else None
     except (OSError, ValueError, KeyError, EOFError) as exc:
         logger.debug("feature lake load failed %s: %s", paths["npz"], exc)
         return None
@@ -376,6 +406,8 @@ def load_stock_panel(
     out: Dict[str, Any] = {"X": X, "dates": dates, "names": names, "_meta": meta}
     if y is not None:
         out["y"] = y
+    if M is not None and M.ndim == 2 and int(M.shape[0]) == len(dates):
+        out["M"] = M
     return out
 
 
@@ -541,6 +573,8 @@ def sync_from_matrix(
     fingerprint: str,
     y: Optional[np.ndarray] = None,
     extra_meta: Optional[Dict[str, Any]] = None,
+    M: Optional[np.ndarray] = None,
+    m_names: Optional[Sequence[str]] = None,
 ) -> bool:
     """collect 写穿 L1 入口。"""
     return write_stock_panel(
@@ -552,4 +586,6 @@ def sync_from_matrix(
         fingerprint=fingerprint,
         y=y,
         extra_meta=extra_meta,
+        M=M,
+        m_names=m_names,
     )

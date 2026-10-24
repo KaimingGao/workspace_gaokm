@@ -325,18 +325,33 @@ def enrich_horizon_raw_panels(
     gap_trigger_pct: float = 2.0,
     already_breadth: bool = False,
 ) -> List[Dict[str, Any]]:
-    """对 raw 面板做截面广度（可选）+ relabel + stamp ``raw_ath_*``。"""
+    """对 raw 面板做截面广度（可选）+ relabel + stamp ``raw_ath_*``。
+
+    ``already_relabeled``（hz_* 命中）跳过 relabel，仍可参与截面广度。
+    """
     from core.research.tau_panel import attach_cross_section_breadth
 
     cfg = _horizon_ridge_config(head)
     h = cfg["head"]
     relabel_fn = cfg["relabel_fn"]
     raw_list = list(raw_panels or [])
+    pre_labeled = [
+        p for p in raw_list if isinstance(p, dict) and p.get("already_relabeled")
+    ]
+    need_label = [
+        p
+        for p in raw_list
+        if not (isinstance(p, dict) and p.get("already_relabeled"))
+    ]
     if not already_breadth:
-        raw_list = attach_cross_section_breadth(
-            raw_list, gap_trigger_pct=gap_trigger_pct
+        need_label = attach_cross_section_breadth(
+            need_label, gap_trigger_pct=gap_trigger_pct
         )
-    enriched = relabel_fn(raw_list)
+        if pre_labeled:
+            pre_labeled = attach_cross_section_breadth(
+                pre_labeled, gap_trigger_pct=gap_trigger_pct
+            )
+    enriched = list(relabel_fn(need_label)) + list(pre_labeled)
     # L1 stitch 为补标签暂留的分钟线，relabel 后即可丢
     for p in enriched:
         if isinstance(p, dict):

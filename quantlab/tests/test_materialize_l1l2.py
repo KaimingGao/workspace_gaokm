@@ -891,23 +891,48 @@ class HorizonL1StitchTests(unittest.TestCase):
     def test_try_stitch_l1_tau_panel(self):
         import numpy as np
 
+        from core.research.horizon_l1 import META_PX_KEYS, meta_price_matrix_from_rows
         from core.research.tc_ridge_compact import _try_stitch_l1_tau_panel
-
-        class _Hit:
-            pass
 
         X = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], dtype=np.float64)
         y = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float64)
         dates = ["2026-01-02", "2026-01-03", "2026-01-06", "2026-01-07"]
         names = ["f1", "f2"]
+        metas = []
+        for d in dates:
+            metas.append(
+                {
+                    "date": d,
+                    "tau": "10:30",
+                    "price_tau": 10.0,
+                    "price_tau30": 10.1,
+                    "price_tau45": 10.2,
+                    "price_tau60": 10.3,
+                    "price_tau75": 10.4,
+                    "price_tau90": 10.5,
+                }
+            )
+        M, m_names = meta_price_matrix_from_rows(metas)
 
         def _load(family, code, fp, names=None, require_y=True):
             return X, y, names or ["f1", "f2"], dates, "l1"
+
+        def _pack(family, code, fingerprint=None):
+            return {
+                "X": X,
+                "y": y,
+                "dates": dates,
+                "names": names,
+                "M": M,
+                "_meta": {"m_names": m_names},
+            }
 
         bars = [{"date": d, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1} for d in dates]
         bars += [{"date": "2026-01-08", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}] * 10
         with mock.patch(
             "core.research.lake_bridge.load_training_matrix", side_effect=_load
+        ), mock.patch(
+            "core.research.feature_lake.load_stock_panel", side_effect=_pack
         ), mock.patch(
             "core.research.materialize.horizon_names.horizon_l1_feature_names",
             return_value=names,
@@ -918,7 +943,7 @@ class HorizonL1StitchTests(unittest.TestCase):
             panel = _try_stitch_l1_tau_panel(
                 "000001",
                 bars,
-                [{"datetime": "2026-01-02 10:30:00", "close": 10.0}],
+                [],
                 ["10:30", "11:00"],
                 min_history=12,
                 include_alpha_tc=True,
@@ -928,7 +953,198 @@ class HorizonL1StitchTests(unittest.TestCase):
         self.assertTrue(panel.get("l1_stitched"))
         self.assertEqual(len(panel["xs"]), 8)  # 4 days × 2 clocks
         self.assertEqual(panel["metas"][0].get("tau"), "10:30")
-        self.assertTrue(panel.get("minute_bars"))
+        self.assertAlmostEqual(float(panel["metas"][0]["price_tau"]), 10.0)
+        self.assertNotIn("minute_bars", panel or {})
+        # 无 M → miss（逼重物化或 5m）
+        def _pack_no_m(family, code, fingerprint=None):
+            return {"X": X, "y": y, "dates": dates, "names": names, "_meta": {}}
+
+        with mock.patch(
+            "core.research.lake_bridge.load_training_matrix", side_effect=_load
+        ), mock.patch(
+            "core.research.feature_lake.load_stock_panel", side_effect=_pack_no_m
+        ), mock.patch(
+            "core.research.materialize.horizon_names.horizon_l1_feature_names",
+            return_value=names,
+        ), mock.patch(
+            "core.research.panel_matrix._tc_matrix_seed_names",
+            return_value=names,
+        ):
+            miss = _try_stitch_l1_tau_panel(
+                "000001",
+                bars,
+                [],
+                ["10:30"],
+                min_history=12,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+            )
+        self.assertIsNone(miss)
+        self.assertEqual(len(META_PX_KEYS), 6)
+
+    def test_meta_price_matrix_roundtrip(self):
+        from core.research.horizon_l1 import (
+            meta_price_matrix_from_rows,
+            metas_from_price_matrix,
+        )
+
+        metas = [
+            {
+                "date": "2026-04-01",
+                "tau": "10:30",
+                "price_tau": 12.5,
+                "price_tau60": 12.8,
+            }
+        ]
+        M, names = meta_price_matrix_from_rows(metas)
+        back = metas_from_price_matrix(
+            M, names, dates=["2026-04-01"], code="000001"
+        )
+        self.assertEqual(back[0].get("tau"), "10:30")
+        self.assertAlmostEqual(float(back[0]["price_tau"]), 12.5)
+        self.assertAlmostEqual(float(back[0]["price_tau60"]), 12.8)
+
+    def test_family_for_horizon(self):
+        from core.research.horizon_l1 import family_for_horizon, list_hz_l1_families
+        from core.research.lake_bridge import family_for_horizon as bridge_hz
+
+        self.assertEqual(family_for_horizon("t60"), "hz_t60")
+        self.assertEqual(bridge_hz("τ30"), "hz_t30")
+        self.assertEqual(len(list_hz_l1_families()), 5)
+
+    def test_probe_tau_grid_l1_coverage(self):
+        from core.research.horizon_l1 import probe_tau_grid_l1_coverage
+
+        with mock.patch(
+            "core.research.feature_lake.enabled", return_value=True
+        ), mock.patch(
+            "core.research.feature_lake.read_stock_meta",
+            side_effect=lambda fam, code: (
+                {"m_names": ["tau_hm", "price_tau", "price_tau30"]}
+                if str(fam).endswith("0935")
+                else None
+            ),
+        ):
+            cov = probe_tau_grid_l1_coverage(
+                ["000001", "000002"],
+                ["09:35", "10:30"],
+                sample_n=10,
+            )
+        self.assertEqual(cov["n_slots"], 4)
+        self.assertEqual(cov["with_meta"], 2)
+        self.assertAlmostEqual(cov["rate"], 0.5)
+        self.assertTrue(cov["cold"])
+        self.assertIn("物化", cov.get("hint") or "")
+
+    def test_horizon_fit_l1_stitch_skips_minute_cache(self):
+        """L1 stitch 全命中时不读 load_minute_cache。"""
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        dates = [f"2026-04-{d:02d}" for d in range(1, 20)]
+        bars = [
+            {
+                "date": d,
+                "open": 10.0,
+                "high": 10.2,
+                "low": 9.8,
+                "close": 10.1,
+                "volume": 1e5,
+            }
+            for d in dates
+        ]
+
+        def _stitch(code, bars_in, clocks, **kwargs):
+            n = 6
+            return {
+                "code": code,
+                "xs": [{"gap_pct": 1.0}] * n,
+                "ys": [0.01] * n,
+                "dates": dates[:n],
+                "metas": [
+                    {
+                        "date": dates[i],
+                        "tau": "09:35",
+                        "price_tau": 10.0,
+                        "price_tau30": 10.1,
+                        "l1_hit": True,
+                    }
+                    for i in range(n)
+                ],
+                "l1_stitched": True,
+            }
+
+        dual = {
+            "success": True,
+            "timing": {},
+            "y_spec": {},
+            "oos": {"auc": 0.55},
+        }
+        msgs = []
+        svc = QuantFactorMixin()
+        with mock.patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={
+                "ok": True,
+                "codes": ["000001", "000002"],
+                "source": "watching",
+            },
+        ), mock.patch(
+            "core.data.facade.bars_and_source",
+            return_value=(bars, "cache"),
+        ), mock.patch(
+            "core.research.materialize.cover_policy.resolve_fit_minute_covered_dates",
+            return_value=dates[:5],
+        ), mock.patch(
+            "core.research.horizon_l1.try_load_horizon_head_panel",
+            return_value=None,
+        ), mock.patch(
+            "core.research.horizon_l1.try_stitch_horizon_l1_panel",
+            side_effect=_stitch,
+        ), mock.patch(
+            "core.store.load_minute_cache",
+        ) as load_min, mock.patch(
+            "core.research.horizon_ridge.enrich_horizon_raw_panels",
+            side_effect=lambda h, raw, **kw: list(raw),
+        ), mock.patch(
+            "core.research.horizon_l1.sync_horizon_head_panel",
+            return_value=True,
+        ), mock.patch(
+            "core.research.horizon_ridge.prepare_horizon_compact",
+            return_value={
+                "compact": {"X": None},
+                "live_hm": "11:00",
+                "tau_grid": ["09:35", "10:00"],
+                "head": "t30",
+            },
+        ), mock.patch(
+            "core.research.horizon_ridge.fit_horizon_dual_report",
+            return_value=dict(dual),
+        ), mock.patch(
+            "core.research.horizon_ridge.save_ridge_last_report",
+        ), mock.patch(
+            "core.research.horizon_ridge.ridge_model_path",
+            return_value="/tmp/t30.json",
+        ), mock.patch(
+            "core.research.horizon_ridge.load_ridge_model",
+            return_value=None,
+        ), mock.patch(
+            "quant.services.quant_service_factors._attach_ridge_role_flags",
+            side_effect=lambda r, *a, **k: r,
+        ):
+            out = svc._run_horizon_ridge_experiment(
+                "t30",
+                watching_limit=2,
+                lookback=40,
+                tau_end_hm="10:00",
+                cross_section_zscore=False,
+                progress_cb=lambda c, t, m: msgs.append(str(m)),
+            )
+        load_min.assert_not_called()
+        self.assertTrue(out.get("success"))
+        self.assertEqual(out.get("l1_stitch_hit"), 2)
+        self.assertEqual(out.get("rebuild_5m"), 0)
+        self.assertGreaterEqual(float(out.get("l1_hit_rate") or 0), 0.99)
+        self.assertTrue(any("L1命中" in m for m in msgs))
 
 class MaterializeL2UniverseHashTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -2644,7 +2860,9 @@ class TauGridPanelTests(unittest.TestCase):
             self.assertEqual(gfp, sfp)
             self.assertTrue(np.allclose(gx, sx, equal_nan=True))
 
-    def test_fingerprint_hashes_minute_bars_once(self) -> None:
+    def test_fingerprint_daily_bars_once_ignores_minute(self) -> None:
+        """τ 网格 L1 日线指纹：忽略 minute；多钟共用一次 bars_fp。"""
+        from core.research.horizon_l1 import horizon_tau_bars_fp
         from core.research.panel_fingerprint import bars_fingerprint
         from core.research.panel_matrix import _tau_grid_clock_fp, _tau_grid_stock_job
 
@@ -2670,7 +2888,7 @@ class TauGridPanelTests(unittest.TestCase):
         with mock.patch(
             "core.research.panel_fingerprint.bars_fingerprint", side_effect=_wrap
         ):
-            shared = bars_fingerprint(bars, minute_bars=minutes)
+            shared = horizon_tau_bars_fp(bars)
             one = _tau_grid_clock_fp(
                 bars,
                 minutes,
@@ -2699,7 +2917,11 @@ class TauGridPanelTests(unittest.TestCase):
             )
         self.assertEqual(one, lone)
         self.assertNotEqual(one, two)
-        self.assertEqual(calls["n"], 1)
+        # shared + lone 各一次；带 bars_fp 的 one/two 不再哈希
+        self.assertEqual(calls["n"], 2)
+        # 日线指纹与含分钟指纹不同（旧 L1 会 miss）
+        with_minute = bars_fingerprint(bars, minute_bars=minutes)
+        self.assertNotEqual(shared, with_minute)
 
         hit = (
             np.ones((4, 1), dtype=np.float64),

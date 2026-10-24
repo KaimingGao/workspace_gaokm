@@ -1907,12 +1907,14 @@ class QuantFactorMixin:
         progress_cb: Optional[Any] = None,
         job_alive_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """泛化 ŷ_τ horizon：同窗双训 LightGBM + Ridge，AUC 择优。horizon ∈ {t30…t90}。只读本地 5m 缓存。
+        """泛化 ŷ_τ horizon：同窗双训 LightGBM + Ridge，AUC 择优。horizon ∈ {t30…t90}。
 
+        建面板 L1-first：``hz_*`` → stitch ``tc_HHMM``（日线指纹）→ 未命中再读本地 5m。
+        进度：``L1命中… · 5m回退…``；报告 ``timing.panel_s`` / ``l1_hit_rate``。
         ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
         方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
-        ``lookback`` 为日线上限；分钟线按**单票本地 5m**有多少用多少（不裁成宇宙
-        够格日交集）。截面 z 只用 L2；某一天的某一钟没有立方时丢掉这些行，
+        ``lookback`` 为日线上限；5m 回退按**单票本地缓存**有多少用多少。
+        截面 z 只用 L2；某一天的某一钟没有立方时丢掉这些行，
         训练行全部没有立方才 ``materialize_required``。报告里的 ``minute_days``/
         ``minute_span`` 仍记宇宙够格窗，仅作对照。
         ``progress_cb(cur, tot, msg)``：job 槽刷新（流式建面板 + 截面/双训阶段）。
@@ -2020,6 +2022,12 @@ class QuantFactorMixin:
             }
         zero_prefix = False
 
+        from core.research.horizon_l1 import (
+            probe_tau_grid_l1_coverage,
+            sync_horizon_head_panel,
+            try_load_horizon_head_panel,
+            try_stitch_horizon_l1_panel,
+        )
         from core.research.horizon_ridge import enrich_horizon_raw_panels
         from core.research.tc_ridge_compact import (
             TAU_PANEL_POOL_BATCH,
@@ -2027,6 +2035,7 @@ class QuantFactorMixin:
         )
         from core.ports.market import resolve_market_code
         from core.store import load_minute_cache
+        import time as _time
 
         # 宇宙够格日仅诊断（与 L2 物化窗对照）；拟合不按此裁单票 5m
         covered_list = resolve_fit_minute_covered_dates(codes, period=period)
@@ -2034,9 +2043,27 @@ class QuantFactorMixin:
             f"{covered_list[0]}→{covered_list[-1]}" if covered_list else None
         )
 
-        # 分批：读 5m → 并行建 raw → 立刻 pop 分钟线（峰值≈一批而非全池）
+        # P4：拟合前轻量覆盖探测（不阻塞；冷则提示先物化）
+        l1_tau_cov: Dict[str, Any] = {}
+        try:
+            l1_tau_cov = probe_tau_grid_l1_coverage(codes, tau_grid)
+        except Exception:  # noqa: BLE001
+            logger.debug("%s L1 coverage probe failed", horizon, exc_info=True)
+            l1_tau_cov = {}
+        if l1_tau_cov.get("hint"):
+            _progress(
+                0,
+                max(1, len(codes)),
+                f"ŷ_τ{hn} {l1_tau_cov.get('hint')}",
+            )
+
+        # L1-first：hz_* → stitch tc_HHMM → 5m 回退（分批 ProcessPool）
         stock_bars: List[Dict[str, Any]] = []
         raw_acc: List[Dict[str, Any]] = []
+        enriched_hz: List[Dict[str, Any]] = []
+        l1_head_hit = 0
+        l1_stitch_hit = 0
+        rebuild_5m = 0
         minute_hit = 0
         minute_codes_miss = 0
         min_hist = 12
@@ -2045,20 +2072,30 @@ class QuantFactorMixin:
         label_heads = (horizon,)
         batch_n = max(4, int(TAU_PANEL_POOL_BATCH))
         span_bit = f" · 5m窗{minute_span}" if minute_span else ""
-        _progress(
-            0,
-            n_codes,
-            f"ŷ_τ{hn} 建面板 0/{n_codes}"
-            + (f" · τ×{grid_n}" if grid_n > 1 else "")
-            + span_bit,
-        )
+        cov_bit = ""
+        if isinstance(l1_tau_cov.get("rate"), (int, float)):
+            tag = "冷" if l1_tau_cov.get("cold") else "热"
+            cov_bit = f" · L1{tag}{float(l1_tau_cov['rate']):.0%}"
+        panel_t0 = _time.perf_counter()
+
+        def _panel_msg(cur: int) -> str:
+            l1_n = int(l1_head_hit) + int(l1_stitch_hit)
+            return (
+                f"ŷ_τ{hn} 建面板 {cur}/{n_codes}"
+                + (f" · τ×{grid_n}" if grid_n > 1 else "")
+                + f" · L1命中{l1_n} · 5m回退{rebuild_5m}"
+                + cov_bit
+                + span_bit
+            )
+
+        _progress(0, n_codes, _panel_msg(0))
 
         scanned = 0
         batch_items: List[Dict[str, Any]] = []
         batch_end_scanned = 0
 
         def _flush_batch() -> bool:
-            nonlocal batch_items
+            nonlocal batch_items, rebuild_5m
             if not batch_items:
                 return True
             if not _job_alive():
@@ -2072,11 +2109,7 @@ class QuantFactorMixin:
                     n_codes,
                     max(0, end_scanned - n_batch) + max(0, int(done or 0)),
                 )
-                _progress(
-                    cur,
-                    n_codes,
-                    f"ŷ_τ{hn} 建面板 {cur}/{n_codes} · 命中{minute_hit}",
-                )
+                _progress(cur, n_codes, _panel_msg(cur))
 
             chunk = build_tau_panels_from_bars(
                 batch_items,
@@ -2090,14 +2123,11 @@ class QuantFactorMixin:
                 progress_cb=_cb,
             )
             raw_acc.extend(chunk)
+            rebuild_5m += len(batch_items)
             for it in batch_items:
                 it.pop("minute_bars", None)
             batch_items = []
-            _progress(
-                end_scanned,
-                n_codes,
-                f"ŷ_τ{hn} 建面板 {end_scanned}/{n_codes} · 命中{minute_hit}",
-            )
+            _progress(end_scanned, n_codes, _panel_msg(end_scanned))
             return True
 
         orphaned = False
@@ -2107,45 +2137,86 @@ class QuantFactorMixin:
                 break
             bars, _src = bars_and_source(code, limit=lookback + 40)
             scanned = i + 1
-            if bars:
-                daily_row: Dict[str, Any] = {"code": str(code), "bars": bars}
-                stock_bars.append(daily_row)
-                item: Dict[str, Any] = {"code": str(code), "bars": bars}
-                try:
-                    mkt, pure = resolve_market_code(str(code))
-                    packed = load_minute_cache(
-                        mkt or "CN",
-                        pure or str(code),
-                        period,
-                        min_bars=1,
-                        ignore_age=True,
-                    )
-                    if packed:
-                        mb, _meta = packed
-                        if mb:
-                            item["minute_bars"] = mb
-                            minute_hit += 1
-                            batch_items.append(item)
-                            batch_end_scanned = scanned
-                        else:
-                            minute_codes_miss += 1
+            if not bars:
+                if scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:
+                    _progress(scanned, n_codes, _panel_msg(scanned))
+                continue
+            code_s = str(code)
+            daily_row: Dict[str, Any] = {"code": code_s, "bars": bars}
+            stock_bars.append(daily_row)
+
+            # P2：整头 hz_* 已 relabel
+            try:
+                hz_hit = try_load_horizon_head_panel(
+                    horizon,
+                    code_s,
+                    bars,
+                    tau_grid,
+                    min_history=min_hist,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("%s hz load failed %s", horizon, code_s, exc_info=True)
+                hz_hit = None
+            if hz_hit is not None:
+                enriched_hz.append(hz_hit)
+                l1_head_hit += 1
+                if scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:
+                    _progress(scanned, n_codes, _panel_msg(scanned))
+                continue
+
+            # P1：按钟 stitch tc_HHMM（日线指纹；免读 5m）
+            try:
+                stitched = try_stitch_horizon_l1_panel(
+                    code_s,
+                    bars,
+                    tau_grid,
+                    min_history=min_hist,
+                    include_alpha_tc=True,
+                    include_alpha_th=True,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("%s L1 stitch failed %s", horizon, code_s, exc_info=True)
+                stitched = None
+            if stitched is not None:
+                raw_acc.append(stitched)
+                l1_stitch_hit += 1
+                if scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:
+                    _progress(scanned, n_codes, _panel_msg(scanned))
+                continue
+
+            # 回退：读本地 5m 现算
+            item: Dict[str, Any] = {"code": code_s, "bars": bars}
+            try:
+                mkt, pure = resolve_market_code(code_s)
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or code_s,
+                    period,
+                    min_bars=1,
+                    ignore_age=True,
+                )
+                if packed:
+                    mb, _meta = packed
+                    if mb:
+                        item["minute_bars"] = mb
+                        minute_hit += 1
+                        batch_items.append(item)
+                        batch_end_scanned = scanned
                     else:
                         minute_codes_miss += 1
-                except Exception:  # noqa: BLE001
-                    logger.debug(
-                        "%s ridge minute cache miss for %s", horizon, code, exc_info=True
-                    )
+                else:
                     minute_codes_miss += 1
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "%s ridge minute cache miss for %s", horizon, code, exc_info=True
+                )
+                minute_codes_miss += 1
             if len(batch_items) >= batch_n:
                 if not _flush_batch():
                     orphaned = True
                     break
             elif scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:
-                _progress(
-                    scanned,
-                    n_codes,
-                    f"ŷ_τ{hn} 建面板 {scanned}/{n_codes} · 命中{minute_hit}",
-                )
+                _progress(scanned, n_codes, _panel_msg(scanned))
         if not orphaned and not _flush_batch():
             orphaned = True
         if orphaned or not _job_alive():
@@ -2155,18 +2226,15 @@ class QuantFactorMixin:
                 "orphaned": True,
                 "task": task,
             }
-        _progress(
-            n_codes,
-            n_codes,
-            f"ŷ_τ{hn} 建面板 {n_codes}/{n_codes} · 命中{minute_hit}",
-        )
+        _progress(n_codes, n_codes, _panel_msg(n_codes))
 
-        if minute_hit < 1:
+        panel_ok = l1_head_hit + l1_stitch_hit + rebuild_5m
+        if panel_ok < 1:
             return {
                 "success": False,
                 "error": (
-                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
-                    "请先「强更 5m（L0）」，拟合不再拉远端"
+                    f"无可用面板（L1 未命中且无本地分钟缓存 period={period} · 池 {len(codes)} 只）；"
+                    "请先「分钟线物化 L1/L2」或「强更 5m（L0）」"
                 ),
                 "task": task,
                 "minute_period": period,
@@ -2174,6 +2242,9 @@ class QuantFactorMixin:
                 "watching_pool_size": len(codes),
                 "minute_cache_only": True,
                 "minute_codes_miss": minute_codes_miss,
+                "l1_head_hit": l1_head_hit,
+                "l1_stitch_hit": l1_stitch_hit,
+                "rebuild_5m": rebuild_5m,
             }
 
         _progress(n_codes, n_codes, f"ŷ_τ{hn} 截面广度+relabel…")
@@ -2184,6 +2255,36 @@ class QuantFactorMixin:
             already_breadth=False,
         )
         raw_acc.clear()
+        # P2 write-through：enrich 后写入 hz_*（仅 writer_active 时真正落盘）
+        for p in enriched:
+            if not isinstance(p, dict):
+                continue
+            code_p = str(p.get("code") or "")
+            bars_p = None
+            for sb in stock_bars:
+                if str(sb.get("code") or "") == code_p:
+                    bars_p = sb.get("bars")
+                    break
+            if not code_p or not bars_p:
+                continue
+            try:
+                sync_horizon_head_panel(
+                    horizon,
+                    code_p,
+                    p,
+                    bars_p,
+                    tau_grid,
+                    min_history=min_hist,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("%s hz sync failed %s", horizon, code_p, exc_info=True)
+        if enriched_hz:
+            enriched = list(enriched) + list(enriched_hz)
+            enriched_hz.clear()
+        panel_s = float(_time.perf_counter() - panel_t0)
+        l1_n = int(l1_head_hit) + int(l1_stitch_hit)
+        denom = max(1, l1_n + int(rebuild_5m))
+        l1_hit_rate = float(l1_n) / float(denom)
 
         _progress(n_codes, n_codes, f"ŷ_τ{hn} 折矩阵…")
         from core.research.horizon_compact import take_calendar_and_release
@@ -2217,6 +2318,21 @@ class QuantFactorMixin:
         report["watching_pool_size"] = int(
             resolved.get("watching_pool_size") or len(codes)
         )
+        timing = report.get("timing") if isinstance(report.get("timing"), dict) else {}
+        timing = dict(timing)
+        timing["panel_s"] = panel_s
+        timing["l1_hit_rate"] = l1_hit_rate
+        timing["l1_head_hit"] = int(l1_head_hit)
+        timing["l1_stitch_hit"] = int(l1_stitch_hit)
+        timing["rebuild_5m"] = int(rebuild_5m)
+        report["timing"] = timing
+        report["l1_head_hit"] = int(l1_head_hit)
+        report["l1_stitch_hit"] = int(l1_stitch_hit)
+        report["rebuild_5m"] = int(rebuild_5m)
+        report["l1_hit_rate"] = l1_hit_rate
+        if l1_tau_cov:
+            report["l1_tau_coverage"] = dict(l1_tau_cov)
+            timing["l1_tau_coverage_rate"] = float(l1_tau_cov.get("rate") or 0.0)
         report["lookback"] = lookback
         report["minute_period"] = period
         report["minute_fit_clip"] = "per_stock"

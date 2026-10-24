@@ -18,6 +18,19 @@ FAMILY_TC_RANK = "tc_rank"
 FAMILY_OO_RANK = "oo_rank"
 
 
+def family_for_horizon(head: str) -> str:
+    """ŷ_τ* 整头训练板：``hz_t30`` … ``hz_t90``。"""
+    from core.research.horizon_l1 import family_for_horizon as _hz
+
+    return _hz(head)
+
+
+def list_hz_l1_families() -> List[str]:
+    from core.research.horizon_l1 import list_hz_l1_families as _list
+
+    return _list()
+
+
 def normalize_tau_clock(tau_hm: str) -> str:
     """``open`` / ``0930`` / ``09:30`` → ``open``；其余 → ``HHMM`` 四位。"""
     s = str(tau_hm or "open").strip().lower()
@@ -142,10 +155,13 @@ def sync_panel_to_lake(
     fingerprint: str,
     y: Optional[Any] = None,
     extra_meta: Optional[Dict[str, Any]] = None,
+    M: Optional[Any] = None,
+    m_names: Optional[Sequence[str]] = None,
 ) -> bool:
     """物化写入才把矩阵落进 L1。失败不抛。
 
     回测和拟合只使用内存里的矩阵，不写生产湖。
+    ``M`` / ``m_names``：可选行级 meta（ŷ_τ* 的 price_tau*）。
     """
     try:
         from core.research.materialize.consumer import writer_active
@@ -161,6 +177,7 @@ def sync_panel_to_lake(
         if not lake.enabled():
             return False
         y_arr = None if y is None else np.asarray(y, dtype=np.float64)
+        m_arr = None if M is None else np.asarray(M, dtype=np.float64)
         return bool(
             lake.sync_from_matrix(
                 family,
@@ -171,6 +188,8 @@ def sync_panel_to_lake(
                 fingerprint=str(fingerprint),
                 y=y_arr,
                 extra_meta=extra_meta,
+                M=m_arr,
+                m_names=m_names,
             )
         )
     except Exception:  # noqa: BLE001
@@ -220,6 +239,7 @@ def invalidate_l1_for_code(code: str, *, families: Optional[Sequence[str]] = Non
                 FAMILY_CO,
                 FAMILY_OO_RANK,
                 *list_tc_l1_families(),
+                *list_hz_l1_families(),
             ]
     except Exception:  # noqa: BLE001
         logger.warning("l1 family list failed code=%s", code, exc_info=True)

@@ -212,97 +212,18 @@ def _try_stitch_l1_tau_panel(
     include_alpha_tc: bool,
     include_alpha_th: bool,
 ) -> Optional[Dict[str, Any]]:
-    """H3：按钟拼 L1 ``tc_HHMM`` 特征行（指纹与 materialize_l1_tau_grid 对齐）。
+    """H3：按钟拼 L1 ``tc_HHMM``（日线指纹；与 ``horizon_l1.try_stitch_horizon_l1_panel`` 同口径）。"""
+    from core.research.horizon_l1 import try_stitch_horizon_l1_panel
 
-    命中时保留 ``minute_bars`` 供 relabel 补 ``price_tau`` / 窗标签。
-    """
-    if not code or not clocks or len(bars) < int(min_history) + 2:
-        return None
-    try:
-        from core.research.lake_bridge import family_for_tc, load_training_matrix
-        from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
-        from core.research.panel_matrix import _tc_matrix_seed_names
-    except Exception:  # noqa: BLE001
-        return None
-
-    seed = list(TAU_Z_FEATURES)
-    if include_alpha_th:
-        try:
-            from core.research.materialize.horizon_names import horizon_l1_feature_names
-
-            seed = horizon_l1_feature_names()
-        except Exception:  # noqa: BLE001
-            pass
-    col_names = _tc_matrix_seed_names(
-        seed,
-        include_alpha_tc=bool(include_alpha_tc),
-        include_alpha_th=bool(include_alpha_th),
+    return try_stitch_horizon_l1_panel(
+        code,
+        bars,
+        clocks,
+        min_history=min_history,
+        include_alpha_tc=include_alpha_tc,
+        include_alpha_th=include_alpha_th,
+        minute_bars=minute_bars,
     )
-    fp_bars = bars_fingerprint(bars, minute_bars=minute_bars or None)
-    xs_all: List[dict] = []
-    ys_all: List[float] = []
-    dates_all: List[str] = []
-    metas_all: List[dict] = []
-    for hm in clocks:
-        clk = str(hm or "").strip()
-        if not clk or clk.lower() in ("open", "09:30", "0930"):
-            continue
-        fp = make_fingerprint(
-            bars_fp=fp_bars,
-            tau_hm=clk,
-            min_history=int(min_history),
-            include_alpha_tc=int(bool(include_alpha_tc)),
-            include_alpha_th=int(bool(include_alpha_th)),
-            use_minute=1,
-        )
-        fam = family_for_tc(tau_hm=clk)
-        try:
-            hit = load_training_matrix(
-                fam, code, fp, names=col_names, require_y=False
-            )
-        except Exception:  # noqa: BLE001
-            return None
-        if hit is None:
-            return None
-        X, y_arr, got_names, dates_l, _src = hit
-        if X is None or len(dates_l or []) < 2:
-            return None
-        names = [str(n) for n in (got_names or col_names)]
-        rows = _matrix_rows_to_dicts(X, names)
-        n = min(len(rows), len(dates_l))
-        if n < 2:
-            return None
-        y_list = []
-        if y_arr is not None:
-            try:
-                y_list = [float(v) for v in np.asarray(y_arr).reshape(-1).tolist()]
-            except Exception:  # noqa: BLE001
-                y_list = []
-        for i in range(n):
-            day = str(dates_l[i] or "")[:10]
-            xs_all.append(rows[i])
-            ys_all.append(float(y_list[i]) if i < len(y_list) else float("nan"))
-            dates_all.append(day)
-            metas_all.append(
-                {
-                    "date": day,
-                    "stock_code": code,
-                    "tau": clk,
-                    "l1_family": fam,
-                    "l1_hit": True,
-                }
-            )
-    if len(ys_all) < 4:
-        return None
-    return {
-        "code": code,
-        "xs": xs_all,
-        "ys": ys_all,
-        "dates": dates_all,
-        "metas": metas_all,
-        "minute_bars": list(minute_bars or []),
-        "l1_stitched": True,
-    }
 
 
 def _build_one_tau_panel(
@@ -324,7 +245,7 @@ def _build_one_tau_panel(
         return None
     if use_minute:
         clocks = list(grid) if grid else [str(tau_hm)]
-        # H3：窗头优先按钟 stitch L1（与 materialize_l1_tau_grid 同指纹）
+        # H3：窗头优先按钟 stitch L1（日线指纹；可无 minute_bars）
         if include_alpha_th and clocks:
             stitched = _try_stitch_l1_tau_panel(
                 code,
@@ -332,7 +253,6 @@ def _build_one_tau_panel(
                 list(item.get("minute_bars") or []),
                 clocks,
                 min_history=min_history,
-                # 与物化 Job 对齐，避免 fingerprint miss
                 include_alpha_tc=True,
                 include_alpha_th=True,
             )

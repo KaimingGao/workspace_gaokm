@@ -500,14 +500,26 @@ def _tau_stock_job(
     ath = bool(include_alpha_th)
     minute = list(item.get("minute_bars") or []) if use_minute else None
     rank_cache = str(cache_head or "tc") == "tc_rank"
-    fp = make_fingerprint(
-        bars_fp=bars_fingerprint(bars, minute_bars=minute),
-        tau_hm=str(tau_hm),
-        min_history=mh,
-        include_alpha_tc=int(atc),
-        include_alpha_th=int(ath),
-        use_minute=int(bool(use_minute)),
-    )
+    if use_minute:
+        # 与 τ 网格 / ŷ_τ* stitch 对齐：日线 bars_fp（不吃 5m）
+        from core.research.horizon_l1 import horizon_tau_clock_fingerprint
+
+        fp = horizon_tau_clock_fingerprint(
+            bars,
+            str(tau_hm),
+            min_history=mh,
+            include_alpha_tc=atc,
+            include_alpha_th=ath,
+        )
+    else:
+        fp = make_fingerprint(
+            bars_fp=bars_fingerprint(bars),
+            tau_hm=str(tau_hm),
+            min_history=mh,
+            include_alpha_tc=int(atc),
+            include_alpha_th=int(ath),
+            use_minute=0,
+        )
     from core.research.lake_bridge import family_for_tc
 
     l1_family = family_for_tc(tau_hm=str(tau_hm), rank=rank_cache)
@@ -730,6 +742,21 @@ def _tau_stock_job(
             from core.research.incremental_panel import stem_extra_meta
             from core.research.lake_bridge import sync_panel_to_lake
 
+            extra = stem_extra_meta(bars)
+            M = None
+            m_names = None
+            if use_minute and metas_l:
+                try:
+                    from core.research.horizon_l1 import meta_price_matrix_from_rows
+
+                    M, m_names = meta_price_matrix_from_rows(
+                        metas_l, clocks_hint=[str(tau_hm)]
+                    )
+                    if m_names:
+                        extra["m_names"] = list(m_names)
+                except Exception:  # noqa: BLE001
+                    logger.debug("tau meta M build failed code=%s", code, exc_info=True)
+                    M, m_names = None, None
             sync_panel_to_lake(
                 l1_family,
                 code,
@@ -738,7 +765,9 @@ def _tau_stock_job(
                 names=list(col_names),
                 fingerprint=fp,
                 y=np.asarray(ys_l, dtype=np.float64),
-                extra_meta=stem_extra_meta(bars),
+                extra_meta=extra,
+                M=M,
+                m_names=m_names,
             )
         except Exception:  # noqa: BLE001
             logger.debug("tau L1 sync failed code=%s", code, exc_info=True)
@@ -755,17 +784,17 @@ def _tau_grid_clock_fp(
     include_alpha_th: bool,
     bars_fp: Optional[str] = None,
 ) -> str:
-    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
+    """τ 网格 L1 指纹：日线 bars_fp（忽略 minute；与拟合 stitch 对齐）。"""
+    from core.research.horizon_l1 import horizon_tau_clock_fingerprint
 
-    if not bars_fp:
-        bars_fp = bars_fingerprint(bars, minute_bars=minute)
-    return make_fingerprint(
+    _ = minute  # 保留参数兼容旧调用；指纹不再吃 5m
+    return horizon_tau_clock_fingerprint(
+        bars,
+        clock,
+        min_history=min_history,
+        include_alpha_tc=include_alpha_tc,
+        include_alpha_th=include_alpha_th,
         bars_fp=bars_fp,
-        tau_hm=str(clock),
-        min_history=int(min_history),
-        include_alpha_tc=int(bool(include_alpha_tc)),
-        include_alpha_th=int(bool(include_alpha_th)),
-        use_minute=1,
     )
 
 
@@ -780,8 +809,12 @@ def _write_tau_clock_block(
     *,
     fingerprint: str,
     include_alpha_th: bool,
+    metas: Optional[Sequence[dict]] = None,
 ) -> Optional[Tuple[int, List[str]]]:
-    """一钟写穿 L1。不足 4 行不写。返回 (行数, 日期)。"""
+    """一钟写穿 L1。不足 4 行不写。返回 (行数, 日期)。
+
+    ``metas`` 可选：写入 ``M``（price_tau*），供 ŷ_τ* 拟合 stitch 后 relabel 免读 5m。
+    """
     from core.research.lake_bridge import family_for_tc, sync_panel_to_lake
     from core.signal.factors.z_tc import stamp_z_tc_rows
 
@@ -801,10 +834,30 @@ def _write_tau_clock_block(
     dates_l = [str(d)[:10] for d in dates]
     ys_l = [float(y) for y in ys]
     del xs
+    M = None
+    m_names: List[str] = []
+    if metas is not None:
+        try:
+            from core.research.horizon_l1 import meta_price_matrix_from_rows
+
+            meta_rows = []
+            for i, day in enumerate(dates_l):
+                m = metas[i] if i < len(metas) and isinstance(metas[i], dict) else {}
+                mm = dict(m)
+                mm.setdefault("tau", clock)
+                mm.setdefault("date", day)
+                meta_rows.append(mm)
+            M, m_names = meta_price_matrix_from_rows(meta_rows, clocks_hint=[clock])
+        except Exception:  # noqa: BLE001
+            logger.debug("tau grid meta M build failed clock=%s", clock, exc_info=True)
+            M, m_names = None, []
     if code:
         try:
             from core.research.incremental_panel import stem_extra_meta
 
+            extra = stem_extra_meta(bars)
+            if m_names:
+                extra["m_names"] = list(m_names)
             sync_panel_to_lake(
                 family_for_tc(tau_hm=str(clock)),
                 code,
@@ -813,7 +866,9 @@ def _write_tau_clock_block(
                 names=list(col_names),
                 fingerprint=fingerprint,
                 y=np.asarray(ys_l, dtype=np.float64),
-                extra_meta=stem_extra_meta(bars),
+                extra_meta=extra,
+                M=M,
+                m_names=m_names or None,
             )
         except Exception:  # noqa: BLE001
             logger.debug(
@@ -880,9 +935,10 @@ def _tau_grid_stock_job(
         return out
     missing: List[str] = []
     fps: Dict[str, str] = {}
-    from core.research.panel_fingerprint import bars_fingerprint
+    from core.research.horizon_l1 import horizon_tau_bars_fp
 
-    shared_fp = bars_fingerprint(bars, minute_bars=minute)
+    # 日线指纹：拟合 stitch 可不读 5m；旧含分钟的 L1 会 miss 直至重物化
+    shared_fp = horizon_tau_bars_fp(bars)
     for clock in clocks:
         fp = _tau_grid_clock_fp(
             bars,
@@ -940,12 +996,19 @@ def _tau_grid_stock_job(
         )
     finally:
         del minute
-    grouped: Dict[str, List[Tuple[dict, float, str]]] = {}
+    grouped: Dict[str, List[Tuple[dict, float, str, dict]]] = {}
     for row, y, day, meta in zip(xs, ys, dates, metas):
         clock = str((meta or {}).get("tau") or "")
         if clock not in fps:
             continue
-        grouped.setdefault(clock, []).append((row if isinstance(row, dict) else {}, float(y), str(day)))
+        grouped.setdefault(clock, []).append(
+            (
+                row if isinstance(row, dict) else {},
+                float(y),
+                str(day),
+                meta if isinstance(meta, dict) else {},
+            )
+        )
     del xs, ys, dates, metas
     for clock, packed in grouped.items():
         if clock not in missing:
@@ -961,6 +1024,7 @@ def _tau_grid_stock_job(
                 bars,
                 fingerprint=fps[clock],
                 include_alpha_th=include_alpha_th,
+                metas=[p[3] for p in packed],
             )
         except Exception:  # noqa: BLE001
             logger.warning(

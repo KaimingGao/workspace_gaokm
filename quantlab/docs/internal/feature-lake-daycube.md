@@ -100,13 +100,16 @@ L2  DayCube          date × universe_id × clock
 |--------|------|
 | `oo` | ŷ_oo compact collect |
 | `tc` / `tc_rank` | ŷ_τc 开盘（`tau_hm=open`） |
-| `tc_HHMM` / `tc_rank_HHMM` | ŷ_τc 分钟钟（如 `tc_1030`）；与开盘分目录，互不覆盖 |
+| `tc_HHMM` / `tc_rank_HHMM` | ŷ_τc / ŷ_τ* 分钟钟（如 `tc_1030`）；与开盘分目录，互不覆盖 |
+| `hz_t30`…`hz_t90` | ŷ_τ* 整头训练板（relabel 后 y；拟合 write-through） |
 | `co` | ŷ_co compact |
 | `oo_rank` | ŷ_oo_rank 面板 |
 
-`family_for_tc(tau_hm=, rank=)`（`lake_bridge`）生成上表名字；bars 失效时 `invalidate_l1_for_code` 会扫盘上全部 `tc*` family。
+`family_for_tc(tau_hm=, rank=)` / `family_for_horizon(head)`（`lake_bridge`）生成上表名字；bars 失效时 `invalidate_l1_for_code` 会扫盘上全部 `tc*` 与固定 `hz_*` family。
 
-载荷：`X[n,p]`、`dates[n]`、可选 `y[n]`；meta 含 `fingerprint`、`names`。
+载荷：`X[n,p]`、`dates[n]`、可选 `y[n]`；可选 `M[n,m]`（`price_tau*` 等行级 meta，不进 L2）；meta 含 `fingerprint`、`names`、`m_names`。
+
+**ŷ_τ* 拟合与 L1（H6）**：建面板优先 `hz_*` → 按钟 stitch `tc_HHMM`（日线 `bars_fp`，不吃 5m）→ 未命中再读本地分钟现算。进度文案：`L1命中… · 5m回退…`；开跑前抽样探测 `l1_tau_coverage`（冷则提示先物化，不阻断）。旧含分钟指纹、或无 `M` 的 τ 网格 L1 会 miss，须重跑「分钟线物化 L1/L2」。
 
 API 要点：
 
@@ -383,6 +386,8 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | H3 | 禁静默 open + 窗头 stitch L1（`_try_stitch_l1_tau_panel`） | ✅ |
 | H4 | live `_cs_z_horizon_feats`：τ Cube 覆盖失败 → leave-one-in | ✅ |
 | H5 | 测试 / §10.1b 窗头分支 / ASSET_V | ✅ |
+| H6 | ŷ_τ* 拟合 L1-first（进度 L1/5m + 日线 fp + `M`/price_tau*） | ✅ |
+| H7 | `hz_*` 整头板 load/sync + invalidate 覆盖 | ✅ |
 
 ---
 

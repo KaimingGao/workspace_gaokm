@@ -389,18 +389,22 @@ class RelabelT30Tests(unittest.TestCase):
 
 class T30RidgeFitTests(unittest.TestCase):
     def test_fit_report_runs_on_synthetic(self):
+        import os
+        from unittest import mock
+
         from core.research.horizon_ridge import (
             _horizon_ridge_config,
             fit_horizon_ridge_report,
         )
         T30_Z_FEATURES = _horizon_ridge_config("t30")["z_features"]
 
-        d0 = date(2025, 6, 2)
+        # 合成路径：关 L1 命中 + 关截面 z（免本地 Cube/湖污染）
+        d0 = date(2026, 4, 1)
         daily = []
         minutes = []
         px = 10.0
         times = _times_am_pm()
-        for i in range(45):
+        for i in range(90):
             day = d0 + timedelta(days=i)
             if day.weekday() >= 5:
                 continue
@@ -423,13 +427,19 @@ class T30RidgeFitTests(unittest.TestCase):
                 }
             )
             px = close
-        report = fit_horizon_ridge_report(
-            "t30",
-            [{"code": "600000", "bars": daily, "minute_bars": minutes}],
-            ridge_lambda=1.0,
-            tau_grid=["09:35", "09:50", "11:00"],
-            holdout_trading_days=5,
-        )
+        env = {
+            "QUANTLAB_FEATURE_LAKE": "0",
+            "QUANTLAB_DAY_CUBE": "0",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            report = fit_horizon_ridge_report(
+                "t30",
+                [{"code": "SYN_T30", "bars": daily, "minute_bars": minutes}],
+                ridge_lambda=1.0,
+                tau_grid=["09:35", "09:50", "11:00"],
+                holdout_trading_days=5,
+                cross_section_zscore=False,
+            )
         self.assertTrue(report.get("success"), msg=report)
         self.assertEqual(report.get("schema"), "t30_ridge_v4")
         self.assertEqual(
