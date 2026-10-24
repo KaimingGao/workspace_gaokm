@@ -38,7 +38,40 @@ def family_for_horizon(head: str) -> str:
 
 
 def list_hz_l1_families() -> List[str]:
-    return [family_for_horizon(h) for h in ("t30", "t45", "t60", "t75", "t90")]
+    """固定五头 + 盘上已有 ``hz_*``（失效扫全）。"""
+    fams = {family_for_horizon(h) for h in ("t30", "t45", "t60", "t75", "t90")}
+    try:
+        import os
+
+        from core.research.feature_lake import _root
+        from core.research.feature_registry import FEATURE_SCHEMA
+
+        root = os.path.join(_root(), f"v{FEATURE_SCHEMA}")
+        if os.path.isdir(root):
+            for name in os.listdir(root):
+                if str(name).startswith("hz_"):
+                    fams.add(str(name))
+    except Exception:  # noqa: BLE001
+        logger.debug("list_hz_l1_families scan failed", exc_info=True)
+    return sorted(fams)
+
+
+def _matrix_rows_to_dicts(X: Any, names: Sequence[str]) -> List[dict]:
+    """``X`` 行 → dict（避免依赖 ``tc_ridge_compact`` 造成环引用）。"""
+    out: List[dict] = []
+    arr = np.asarray(X, dtype=np.float64)
+    if arr.ndim != 2:
+        return out
+    for i in range(int(arr.shape[0])):
+        row: Dict[str, Any] = {}
+        for j, name in enumerate(names):
+            if j >= arr.shape[1]:
+                break
+            v = float(arr[i, j])
+            if v == v:  # finite
+                row[str(name)] = v
+        out.append(row)
+    return out
 
 
 def horizon_tau_bars_fp(bars: Sequence[dict]) -> str:
@@ -193,11 +226,14 @@ def try_stitch_horizon_l1_panel(
     if not code or not clocks or len(bars) < int(min_history) + 2:
         return None
     try:
-        from core.research.lake_bridge import family_for_tc, load_training_matrix
+        from core.research import feature_lake as lake
+        from core.research.lake_bridge import family_for_tc
         from core.research.panel_matrix import _tc_matrix_seed_names
         from core.research.materialize.horizon_names import horizon_l1_feature_names
         from core.yhat.keys import TAU_Z_FEATURES
     except Exception:  # noqa: BLE001
+        return None
+    if not lake.enabled():
         return None
 
     seed = horizon_l1_feature_names() if include_alpha_th else list(TAU_Z_FEATURES)
@@ -225,26 +261,19 @@ def try_stitch_horizon_l1_panel(
         )
         fam = family_for_tc(tau_hm=clk)
         try:
-            hit = load_training_matrix(
-                fam, code, fp, names=col_names, require_y=False
-            )
+            pack = lake.load_stock_panel(fam, code, fingerprint=fp)
         except Exception:  # noqa: BLE001
             return None
-        if hit is None:
-            return None
-        # load_training_matrix 返回 5 元组；扩展读 M 需走 feature_lake
-        from core.research import feature_lake as lake
-
-        pack = lake.load_stock_panel(fam, code, fingerprint=fp)
         if not pack:
+            return None
+        got_names = [str(n) for n in (pack.get("names") or [])]
+        if got_names and got_names != list(col_names):
             return None
         X = np.asarray(pack["X"], dtype=np.float64)
         dates_l = [str(d)[:10] for d in (pack.get("dates") or [])]
-        names = [str(n) for n in (pack.get("names") or col_names)]
+        names = got_names or list(col_names)
         if X.ndim != 2 or len(dates_l) < 2:
             return None
-        from core.research.tc_ridge_compact import _matrix_rows_to_dicts
-
         rows = _matrix_rows_to_dicts(X, names)
         n = min(len(rows), len(dates_l))
         if n < 2:
@@ -308,21 +337,29 @@ def try_load_horizon_head_panel(
     feat_names: Optional[Sequence[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """读整头 ``hz_*`` 训练板（已 relabel 的 y）。"""
-    from core.research.lake_bridge import load_training_matrix
+    from core.research import feature_lake as lake
 
+    if not lake.enabled() or not code:
+        return None
     fam = family_for_horizon(head)
     fp = horizon_head_fingerprint(
         bars, head, tau_grid, min_history=min_history
     )
-    hit = load_training_matrix(
-        fam, code, fp, names=feat_names, require_y=True
-    )
-    if hit is None:
+    pack = lake.load_stock_panel(fam, code, fingerprint=fp)
+    if not pack or pack.get("y") is None:
         return None
-    X, y, names, dates, _src = hit
-    from core.research import feature_lake as lake
-
-    pack = lake.load_stock_panel(fam, code, fingerprint=fp) or {}
+    X = np.asarray(pack["X"], dtype=np.float64)
+    y = np.asarray(pack["y"], dtype=np.float64)
+    dates = [str(d)[:10] for d in (pack.get("dates") or [])]
+    names = [str(n) for n in (pack.get("names") or [])]
+    if feat_names is not None:
+        want = [str(n) for n in feat_names]
+        if names and names != want:
+            return None
+        if not names:
+            names = want
+    if X.ndim != 2 or X.shape[0] != len(dates) or y.shape[0] != len(dates):
+        return None
     M = pack.get("M")
     m_names = list((pack.get("_meta") or {}).get("m_names") or [])
     metas = metas_from_price_matrix(
@@ -331,8 +368,6 @@ def try_load_horizon_head_panel(
         dates=dates,
         code=code,
     )
-    from core.research.tc_ridge_compact import _matrix_rows_to_dicts
-
     xs = _matrix_rows_to_dicts(X, names)
     n = min(len(xs), len(y), len(dates), len(metas))
     if n < 4:

@@ -383,7 +383,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | H0 | 契约：`horizon_names` / catalog `tau_grid` | ✅ |
 | H1 | `materialize_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
 | H2 | L2 按钟 `require_horizon_names` + UI 联动 | ✅ |
-| H3 | 禁静默 open + 窗头 stitch L1（`_try_stitch_l1_tau_panel`） | ✅ |
+| H3 | 禁静默 open + 窗头 stitch L1（`horizon_l1.try_stitch_horizon_l1_panel`） | ✅ |
 | H4 | live `_cs_z_horizon_feats`：τ Cube 覆盖失败 → leave-one-in | ✅ |
 | H5 | 测试 / §10.1b 窗头分支 / ASSET_V | ✅ |
 | H6 | ŷ_τ* 拟合 L1-first（进度 L1/5m + 日线 fp + `M`/price_tau*） | ✅ |

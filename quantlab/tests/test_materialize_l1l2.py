@@ -171,6 +171,10 @@ class MaterializeCatalogTests(unittest.TestCase):
         self.assertEqual(doc["tau_grid"].get("option"), "do_l1_tau_grid")
         self.assertTrue(doc["tau_grid"].get("requires_minute"))
         self.assertEqual(doc["tau_grid"].get("clocks"), clocks)
+        self.assertEqual(doc["tau_grid"].get("bars_fp_scope"), "daily")
+        self.assertTrue(doc["tau_grid"].get("meta_prices"))
+        hz = doc.get("horizon_head_l1") or {}
+        self.assertIn("hz_t30", hz.get("families") or [])
 
     def test_normalize_families_default_p0(self):
         from core.research.materialize.catalog import normalize_families
@@ -914,9 +918,6 @@ class HorizonL1StitchTests(unittest.TestCase):
             )
         M, m_names = meta_price_matrix_from_rows(metas)
 
-        def _load(family, code, fp, names=None, require_y=True):
-            return X, y, names or ["f1", "f2"], dates, "l1"
-
         def _pack(family, code, fingerprint=None):
             return {
                 "X": X,
@@ -930,7 +931,7 @@ class HorizonL1StitchTests(unittest.TestCase):
         bars = [{"date": d, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1} for d in dates]
         bars += [{"date": "2026-01-08", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}] * 10
         with mock.patch(
-            "core.research.lake_bridge.load_training_matrix", side_effect=_load
+            "core.research.feature_lake.enabled", return_value=True
         ), mock.patch(
             "core.research.feature_lake.load_stock_panel", side_effect=_pack
         ), mock.patch(
@@ -960,7 +961,7 @@ class HorizonL1StitchTests(unittest.TestCase):
             return {"X": X, "y": y, "dates": dates, "names": names, "_meta": {}}
 
         with mock.patch(
-            "core.research.lake_bridge.load_training_matrix", side_effect=_load
+            "core.research.feature_lake.enabled", return_value=True
         ), mock.patch(
             "core.research.feature_lake.load_stock_panel", side_effect=_pack_no_m
         ), mock.patch(
