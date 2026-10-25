@@ -65,13 +65,23 @@ def list_jobs() -> Dict[str, Any]:
 @router.get("/api/jobs/{name}")
 
 def get_job(name: str, progress: int = 0) -> Dict[str, Any]:
-    """``progress=1``：轮询轻量快照（去掉大 result），避免 3MB JSON 拖垮前端。"""
+    """``progress=1``：轮询轻量快照（去掉大 result），避免 3MB JSON 拖垮前端。
+
+    物化槽终态保留 track 摘要，并附上被挤掉的日线/分钟终态，供刷新后各自恢复。
+    """
+    from core.platform.job_progress import job_registry, materialize_progress_job
     from core.signal.score_display import json_safe
 
     out = deps.platform.get_job(name)
+    if name == "materialize-l1l2":
+        last = job_registry.slot(name).last_terminal_public()
+        if last:
+            out = {**out, "last_terminal": last}
     if progress and isinstance(out.get("job"), dict):
         job = dict(out["job"])
-        if job.get("result") is not None:
+        if name == "materialize-l1l2":
+            job = materialize_progress_job(job)
+        elif job.get("result") is not None:
             job["result"] = None
             job["result_omitted"] = True
         out = {**out, "job": job}

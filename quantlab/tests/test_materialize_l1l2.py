@@ -886,6 +886,51 @@ class CubeZPerClockTests(unittest.TestCase):
         self.assertAlmostEqual(float(z[0, 2]), 2.0, places=5)
         self.assertAlmostEqual(float(z[1, 2]), 4.0, places=5)
 
+    def test_head_lag_missing_from_cube_uses_bucket_z(self):
+        """本头滞后不在立方里：有截面差就现算 z；其它缺列仍填 0。"""
+        import numpy as np
+
+        from core.research.materialize.cube_z import apply_day_cube_mu_sigma_matrix
+
+        class _Cube:
+            names = ["f1"]
+            z_mean = np.array([0.0])
+            z_std = np.array([1.0])
+
+        # 两只股票同一日同一钟。H_LAG1 有差；H_MA5 常数；f2 缺列。
+        x = np.array(
+            [
+                [1.0, 1.0, 2.0, 9.0],
+                [3.0, 3.0, 2.0, 8.0],
+            ],
+            dtype=np.float64,
+        )
+        with mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=_Cube()
+        ), mock.patch(
+            "core.research.materialize.cube_z.universe_codes",
+            return_value=["000001", "000002"],
+        ):
+            z, meta = apply_day_cube_mu_sigma_matrix(
+                x,
+                ["f1", "raw_ath_H_LAG1", "raw_ath_H_MA5", "f2"],
+                ["2026-01-02|10:00", "2026-01-02|10:00"],
+                clock="10:00",
+                fallback_open=False,
+            )
+        self.assertTrue(meta.get("ok"), meta)
+        self.assertIsNotNone(z)
+        self.assertAlmostEqual(float(z[0, 1]), -1.0, places=5)
+        self.assertAlmostEqual(float(z[1, 1]), 1.0, places=5)
+        self.assertAlmostEqual(float(z[0, 2]), 0.0, places=5)
+        self.assertAlmostEqual(float(z[1, 2]), 0.0, places=5)
+        self.assertAlmostEqual(float(z[0, 3]), 0.0, places=5)
+        self.assertAlmostEqual(float(z[1, 3]), 0.0, places=5)
+        self.assertIn("f2", meta.get("missing_cols") or [])
+        self.assertNotIn("raw_ath_H_LAG1", meta.get("missing_cols") or [])
+
 class NamesCoverHorizonTests(unittest.TestCase):
     def test_slim_rejected(self):
         from core.research.materialize.horizon_names import names_cover_horizon
@@ -1442,6 +1487,36 @@ class HorizonL1StitchTests(unittest.TestCase):
         ram = physical_ram_bytes()
         self.assertGreater(rss, 1024 * 1024)
         self.assertLess(rss, ram)
+
+    def test_release_allocator_cache_drops_fit_day_cubes(self):
+        """拟合打 z 留下的日立方必须卸掉，下一头才量得到真实水位。"""
+        import numpy as np
+
+        from core.research.day_cube import DayCube, clear_memory, load_day_cube, remember
+        from core.research.feature_registry import universe_hash
+        from core.research.horizon_l1 import release_allocator_cache
+
+        codes = ["000001", "000002"]
+        clear_memory()
+        remember(
+            DayCube(
+                date="1900-01-01",
+                codes=list(codes),
+                names=["f1"],
+                X_raw=np.ones((2, 1), dtype=np.float64),
+                z_mean=np.zeros(1, dtype=np.float64),
+                z_std=np.ones(1, dtype=np.float64),
+                universe_hash=universe_hash(codes),
+                clock="1000",
+            )
+        )
+        self.assertIsNotNone(
+            load_day_cube("1900-01-01", codes, clock="10:00")
+        )
+        release_allocator_cache()
+        self.assertIsNone(
+            load_day_cube("1900-01-01", codes, clock="10:00")
+        )
 
     def test_stale_footprint_is_reread_after_releasing_pages(self):
         from core.research.horizon_l1 import (

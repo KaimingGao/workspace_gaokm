@@ -298,5 +298,102 @@ class TestA2JobRuntime(unittest.TestCase):
             ((res.get("l2") or {}).get("by_clock") or {}).get("09:35") or {},
         )
 
+    def test_open_terminal_survives_tau_start_and_reload(self):
+        """日线终态被分钟任务挤出槽位后，刷新仍能按 kind 取回。"""
+        path = os.path.join(tempfile.mkdtemp(), "materialize_l1l2.json")
+        slot = JobProgress(name="materialize-l1l2", persist_path=path)
+        jid = slot.start(kind="materialize_open", total=2, message="日线物化完成")
+        fat = {
+            "success": True,
+            "ok": True,
+            "task": "materialize_l1l2",
+            "do_l1": True,
+            "do_l1_tau_grid": False,
+            "do_l2": True,
+            "elapsed_s": 9.0,
+            "track": {
+                "id": "materialize_open",
+                "headline": "日线物化 · L1 3s · L2 6s hit 58/built 2",
+                "steps_ok": "2/2",
+                "schema": 1,
+                "codes_n": 160,
+                "stages": [{"id": "l1_open", "status": "ok", "elapsed_s": 3}],
+            },
+            "l1": {"ok": True, "elapsed_s": 3, "by_family": {"oo": list(range(20_000))}},
+            "l2": {
+                "ok": True,
+                "by_clock": {
+                    "open": {
+                        "ok": True,
+                        "cubes_hit": 58,
+                        "cubes_built": 2,
+                        "fat": list(range(20_000)),
+                    }
+                },
+            },
+        }
+        self.assertTrue(slot.finish(result=fat, job_id=jid))
+        tau_id, _snap = slot.try_start(
+            kind="materialize_tau", total=2, message="分钟 τ 物化"
+        )
+        self.assertIsNotNone(tau_id)
+        last = slot.last_terminal_public()
+        open_snap = last.get("materialize_open") or {}
+        self.assertEqual(open_snap.get("kind"), "materialize_open")
+        self.assertEqual(open_snap.get("status"), "done")
+        self.assertEqual(open_snap.get("id"), jid)
+        res = open_snap.get("result") or {}
+        self.assertEqual(
+            (res.get("track") or {}).get("headline"),
+            "日线物化 · L1 3s · L2 6s hit 58/built 2",
+        )
+        self.assertFalse(res.get("do_l1_tau_grid"))
+        self.assertEqual(
+            ((res.get("l2") or {}).get("by_clock") or {})
+            .get("open", {})
+            .get("cubes_hit"),
+            58,
+        )
+        self.assertNotIn("by_family", res.get("l1") or {})
+        self.assertEqual(slot.get().get("kind"), "materialize_tau")
+        self.assertEqual(slot.get().get("status"), "running")
+
+        again = JobProgress(name="materialize-l1l2", persist_path=path)
+        restored = again.last_terminal_public().get("materialize_open") or {}
+        self.assertEqual(
+            ((restored.get("result") or {}).get("track") or {}).get("headline"),
+            "日线物化 · L1 3s · L2 6s hit 58/built 2",
+        )
+        self.assertEqual(again.get().get("id"), tau_id)
+
+    def test_materialize_progress_keeps_terminal_track(self):
+        from core.job_progress import materialize_progress_job
+
+        viewed = materialize_progress_job(
+            {
+                "status": "done",
+                "kind": "materialize_open",
+                "result": {
+                    "success": True,
+                    "do_l1": True,
+                    "do_l1_tau_grid": False,
+                    "track": {"headline": "日线物化完成"},
+                    "l1": {"ok": True, "by_family": {"oo": list(range(100))}},
+                },
+            }
+        )
+        self.assertEqual(
+            (viewed.get("result") or {}).get("track", {}).get("headline"),
+            "日线物化完成",
+        )
+        self.assertNotIn("by_family", (viewed.get("result") or {}).get("l1") or {})
+        self.assertNotIn("result_omitted", viewed)
+        running = materialize_progress_job(
+            {"status": "running", "result": {"track": {"headline": "x"}}}
+        )
+        self.assertIsNone(running.get("result"))
+        self.assertTrue(running.get("result_omitted"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -108,6 +108,29 @@ def test_inject_promotes_seq_and_head_alias():
     assert dest[ath_raw_key("H_LAG1")] == -0.5
     assert dest[ath_raw_key("H_MA5")] == 0.1
 
+def test_already_relabeled_matrix_keeps_head_lags():
+    """hz_* 跳过整段 relabel 时，仍把同钟昨日 y 写成 raw_ath_H_LAG1。"""
+    from core.research.tau_panel import _HORIZON_SPECS, ensure_matrix_horizon_lags
+    from core.signal.factors.alpha_th import stamp_ath_on_panels
+
+    panel = {
+        "already_relabeled": True,
+        "X": np.array([[0.0], [0.0]], dtype=np.float64),
+        "x_names": ["raw_ath_RET_LAST_75"],
+        "xs": [],
+        "ys": [1.25, -0.4],
+        "dates": ["2026-10-13", "2026-10-14"],
+        "metas": [{"tau": "10:00"}, {"tau": "10:00"}],
+    }
+    ensure_matrix_horizon_lags(panel, _HORIZON_SPECS["t75"])
+    stamp_ath_on_panels([panel], "t75")
+    names = list(panel["x_names"])
+    col = panel["X"][:, names.index(ath_raw_key("H_LAG1"))]
+    assert names.index("t75_lag1") >= 0
+    assert not np.isfinite(col[0])
+    assert col[1] == np.float64(1.25)
+
+
 def test_promote_ath_head_aliases_t60():
     row = {"ret_last_60m": 2.0, "t60_lag1": 0.4, "t60_ma5": 0.2}
     promote_ath_head_aliases(row, "t60")

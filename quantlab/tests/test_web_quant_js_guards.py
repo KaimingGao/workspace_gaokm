@@ -1076,6 +1076,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("kindMatchesRunner", mat_js)
         self.assertIn("materialize_open", mat_js)
         self.assertIn("materialize_tau", mat_js)
+        self.assertIn("last_terminal", mat_js)
+        self.assertIn("archivedJobForRunner", mat_js)
         # 日线 / 分钟物化状态条互不抢：不再让 materialize_l1l2 两边都 resume
         self.assertIn('if (tau) return k === "materialize_tau"', mat_js)
         self.assertIn('return k === "materialize_open"', mat_js)

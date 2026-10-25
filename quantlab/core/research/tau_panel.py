@@ -373,6 +373,38 @@ def _attach_horizon_lags_to_panel(
     return panel
 
 
+def ensure_matrix_horizon_lags(panel: Dict[str, Any], spec: HorizonSpec) -> None:
+    """矩阵板补本头 ``tN_lag1`` / ``tN_ma5``。
+
+    已 relabel 的 ``hz_*`` 板不再走整段 relabel，滞后列会缺。
+    这里按该板自己的 y（PIT，同钟更早交易日）补上，再写回矩阵。
+    """
+    X = panel.get("X")
+    if X is None:
+        _attach_horizon_lags_to_panel(panel, spec)
+        return
+    arr = np.asarray(X, dtype=np.float64)
+    if arr.ndim != 2:
+        return
+    n = int(arr.shape[0])
+    xs = list(panel.get("xs") or [])
+    if len(xs) != n:
+        panel["xs"] = [{} for _ in range(n)]
+    _attach_horizon_lags_to_panel(panel, spec)
+    names = [str(nm) for nm in (panel.get("x_names") or [])]
+    kept = arr
+    for key in spec.lag_features:
+        vals = [
+            (row.get(key) if isinstance(row, dict) else None)
+            for row in (panel.get("xs") or [])
+        ]
+        kept, names = _upsert_matrix_column(kept, names, key, vals)
+    panel["X"] = kept
+    panel["x_names"] = names
+    panel["xs"] = []
+    panel.pop("_x_index", None)
+
+
 def _upsert_matrix_column(
     X: np.ndarray,
     names: Sequence[str],
@@ -488,16 +520,10 @@ def _relabel_tau_panels_as_horizon(
             else:
                 kept = X_arr[np.asarray(keep_idx, dtype=np.int64)]
             x_names = [str(n) for n in (p.get("x_names") or [])]
-            row["xs"] = xs
-            _attach_horizon_lags_to_panel(row, spec)
-            for key in spec.lag_features:
-                vals = [
-                    (r.get(key) if isinstance(r, dict) else None) for r in row["xs"]
-                ]
-                kept, x_names = _upsert_matrix_column(kept, x_names, key, vals)
             row["X"] = kept
             row["x_names"] = x_names
-            row["xs"] = []
+            row["xs"] = xs
+            ensure_matrix_horizon_lags(row, spec)
         else:
             _attach_horizon_lags_to_panel(row, spec)
         out.append(row)

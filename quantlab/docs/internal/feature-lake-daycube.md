@@ -508,9 +508,9 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 构建输入 | 该日该钟 L1 行 → `ensure_day_cube_for_items(..., clock=τ, universe_codes=请求的完整名单)`。哈希不随缺行缩小 |
 | `names` | 必须覆盖窗头入模列（拒 slim gap-only；与现 prefix CS-z 拒 slim 一致） |
 | 物化 | `clocks = ["open"] + suggested_tau_clocks`；缺 L1 跳过并计数 `days_skipped`；`align` 后矩阵 CS enrich 再算 μ/σ |
-| 拟合读 | `ŷ_τ*` 先按 `日期\|钟` 丢掉无立方行，再 `cs_z_*_prefer_cube`。一行都不剩才 `materialize_required`。`cs_z_*` 本身仍是任一组 miss 即失败（不进批现算）；缺列填 0 |
+| 拟合读 | `ŷ_τ*` 先按 `日期\|钟` 丢掉无立方行，再 `cs_z_*_prefer_cube`。一行都不剩才 `materialize_required`。`cs_z_*` 本身仍是任一组 miss 即失败（不进批现算）；缺列填 0。`raw_ath_H_LAG1` / `raw_ath_H_MA5` 拟合时才由本头标签算出，立方里没有，缺列时按当日该钟点截面现算 z |
 
-> 窗头与 ŷ_τc(open) 分流：open Cube 继续服务 oo/τc(open)/co；**τ≠open 的窗头以按钟 Cube 为准。**
+> 窗头与 ŷ_τc(open) 分流：open Cube 继续服务 oo/τc(open)/co；**τ≠open 的窗头以按钟 Cube 为准。** 每头拟合结束调用 `release_allocator_cache`：卸掉进程内日立方，再把空闲页还给系统，下一头不会被上一头的水位停掉。
 
 ### 13.4 管道改造
 

@@ -603,6 +603,17 @@ function installMaterializeRunner(q, cfg) {
     }
   }
 
+  /** 槽位被对侧占用时，用落盘的本侧终态（日线 / 分钟互不覆盖）。 */
+  function archivedJobForRunner(data) {
+    const bag = data && data.last_terminal;
+    if (!bag || typeof bag !== "object") return null;
+    const key = tau ? "materialize_tau" : "materialize_open";
+    const snap = bag[key];
+    if (!snap || typeof snap !== "object") return null;
+    if (!kindMatchesRunner(snap.kind, tau)) return null;
+    return snap;
+  }
+
   /** 刷新后恢复：running 接管；近期 done / failed 重画状态条（勿被日 K/5m 盖掉）。 */
   async function resumeIfRunning() {
     if (running || typeof apiFetch !== "function") return false;
@@ -612,9 +623,11 @@ function installMaterializeRunner(q, cfg) {
     } catch (_) {
       return false;
     }
-    const job = unwrapJobSnap(data) || {};
+    const live = unwrapJobSnap(data) || {};
+    const liveMatches = kindMatchesRunner(live.kind, tau);
+    const job = liveMatches ? live : archivedJobForRunner(data);
+    if (!job) return false;
     const st = String(job.status || "").toLowerCase();
-    if (!kindMatchesRunner(job.kind, tau)) return false;
 
     const updated = Number(job.updated_at || 0);
     const ageSec = updated > 0 ? Date.now() / 1000 - updated : 1e9;
@@ -659,7 +672,7 @@ function installMaterializeRunner(q, cfg) {
       return true;
     }
 
-    if (st !== "running") return false;
+    if (st !== "running" || !liveMatches) return false;
     lastPolledJob = job;
     beginRunUi(job.message || `接管${label}…`);
     const { chip: chipText } = phaseFromMessage(job.message);

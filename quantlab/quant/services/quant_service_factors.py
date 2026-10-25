@@ -2498,6 +2498,9 @@ class QuantFactorMixin:
             compact_panel=compact,
             calendar_dates=calendar,
         )
+        # 双训结束即可卸面板和日立方。任务标完成之前做，下一头不会撞上 5GB 水位。
+        del prepared, compact, enriched
+        _release_fit_panels()
         report["watching_limit"] = limit
         report["universe_source"] = resolved.get("source")
         report["watching_pool_size"] = int(

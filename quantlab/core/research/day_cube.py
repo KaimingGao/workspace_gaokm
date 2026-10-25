@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _ENV_DISABLE = "QUANTLAB_DAY_CUBE"
 
-# 进程内当日 cube（live 复用）
+# 进程内当日 cube（live 复用）。拟合结束由 release_allocator_cache 卸掉。
 _MEMORY: Dict[str, "DayCube"] = {}
 
 

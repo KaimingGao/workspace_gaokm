@@ -123,6 +123,82 @@ _DEFAULT_STALE_POLICY = {
     "stuck_start_sec": 240.0,
     "label": "任务",
 }
+_TERMINAL_JOB_STATUS = frozenset(
+    {"done", "failed", "error", "success", "finished"}
+)
+_MATERIALIZE_KINDS = frozenset(
+    {"materialize_open", "materialize_tau", "materialize_l1l2"}
+)
+
+
+def slim_materialize_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    """物化终态留给状态条：track / 模式位 / L2 计数。丢掉 by_family 等大明细。"""
+    track = result.get("track") if isinstance(result.get("track"), dict) else None
+    l1 = result.get("l1") if isinstance(result.get("l1"), dict) else {}
+    l1tau = (
+        result.get("l1_tau_grid")
+        if isinstance(result.get("l1_tau_grid"), dict)
+        else {}
+    )
+    l2 = result.get("l2") if isinstance(result.get("l2"), dict) else {}
+    by_clock = l2.get("by_clock") if isinstance(l2.get("by_clock"), dict) else {}
+    by_clock_slim: Dict[str, Any] = {}
+    for clk, row in by_clock.items():
+        if not isinstance(row, dict):
+            continue
+        by_clock_slim[str(clk)] = {
+            k: row[k]
+            for k in ("ok", "cubes_hit", "cubes_built", "days", "error")
+            if k in row
+        }
+    l1_slim = None
+    if l1:
+        l1_slim = {k: l1[k] for k in ("ok", "elapsed_s", "error") if k in l1}
+    l1tau_slim = None
+    if l1tau:
+        l1tau_slim = {
+            k: l1tau[k]
+            for k in ("ok", "elapsed_s", "clocks", "clocks_ok", "error")
+            if k in l1tau
+        }
+    l2_slim = None
+    if l2:
+        l2_slim = {
+            k: l2[k]
+            for k in ("ok", "elapsed_s", "minute_span", "minute_days", "error")
+            if k in l2
+        }
+        if by_clock_slim:
+            l2_slim["by_clock"] = by_clock_slim
+    return {
+        "success": result.get("success"),
+        "ok": bool(result.get("ok", result.get("success"))),
+        "persisted_truncated": True,
+        "task": result.get("task") or "materialize_l1l2",
+        "do_l1": result.get("do_l1"),
+        "do_l1_tau_grid": result.get("do_l1_tau_grid"),
+        "do_l2": result.get("do_l2"),
+        "schema": result.get("schema"),
+        "elapsed_s": result.get("elapsed_s"),
+        "track": track,
+        "l1": l1_slim,
+        "l1_tau_grid": l1tau_slim,
+        "l2": l2_slim,
+        "error": result.get("error"),
+    }
+
+
+def materialize_progress_job(job: Dict[str, Any]) -> Dict[str, Any]:
+    """``progress=1``：终态留物化摘要，进行中仍丢掉大 result。"""
+    out = dict(job)
+    res = out.get("result")
+    st = str(out.get("status") or "").lower()
+    if isinstance(res, dict) and st in _TERMINAL_JOB_STATUS:
+        out["result"] = slim_materialize_result(res)
+    elif res is not None:
+        out["result"] = None
+        out["result_omitted"] = True
+    return out
 
 
 class JobProgress:
@@ -136,6 +212,8 @@ class JobProgress:
         self._persist_path = persist_path
         self._lock = threading.Lock()
         self._job: Dict[str, Any] = self._idle()
+        # 日线 / 分钟物化共用一槽：被挤掉的终态留在这里，刷新后各自恢复。
+        self._last_terminal: Dict[str, Dict[str, Any]] = {}
         if persist_path:
             self._load()
 
@@ -177,6 +255,13 @@ class JobProgress:
             owner_alive = owner not in (None, "", 0) and _pid_alive(owner)
             interrupted = job.get("status") == "running" and not owner_alive
             self._job = job
+            last = data.get("last_terminal")
+            if isinstance(last, dict):
+                restored: Dict[str, Dict[str, Any]] = {}
+                for key, snap in last.items():
+                    if isinstance(snap, dict) and snap.get("kind"):
+                        restored[str(key)] = snap
+                self._last_terminal = restored
             if interrupted:
                 self._mark_interrupted_unlocked("任务因服务重启中断，请重试")
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
@@ -319,97 +404,7 @@ class JobProgress:
                         }
                     elif slot_name == "materialize-l1l2":
                         # 刷新后状态条要 track / 模式位；丢弃庞大 by_family 明细
-                        track = (
-                            result.get("track")
-                            if isinstance(result.get("track"), dict)
-                            else None
-                        )
-                        l1 = (
-                            result.get("l1")
-                            if isinstance(result.get("l1"), dict)
-                            else {}
-                        )
-                        l1tau = (
-                            result.get("l1_tau_grid")
-                            if isinstance(result.get("l1_tau_grid"), dict)
-                            else {}
-                        )
-                        l2 = (
-                            result.get("l2")
-                            if isinstance(result.get("l2"), dict)
-                            else {}
-                        )
-                        by_clock = (
-                            l2.get("by_clock")
-                            if isinstance(l2.get("by_clock"), dict)
-                            else {}
-                        )
-                        by_clock_slim: Dict[str, Any] = {}
-                        for clk, row in by_clock.items():
-                            if not isinstance(row, dict):
-                                continue
-                            by_clock_slim[str(clk)] = {
-                                k: row[k]
-                                for k in (
-                                    "ok",
-                                    "cubes_hit",
-                                    "cubes_built",
-                                    "days",
-                                    "error",
-                                )
-                                if k in row
-                            }
-                        l1_slim = None
-                        if l1:
-                            l1_slim = {
-                                k: l1[k]
-                                for k in ("ok", "elapsed_s", "error")
-                                if k in l1
-                            }
-                        l1tau_slim = None
-                        if l1tau:
-                            l1tau_slim = {
-                                k: l1tau[k]
-                                for k in (
-                                    "ok",
-                                    "elapsed_s",
-                                    "clocks",
-                                    "clocks_ok",
-                                    "error",
-                                )
-                                if k in l1tau
-                            }
-                        l2_slim = None
-                        if l2:
-                            l2_slim = {
-                                k: l2[k]
-                                for k in (
-                                    "ok",
-                                    "elapsed_s",
-                                    "minute_span",
-                                    "minute_days",
-                                    "error",
-                                )
-                                if k in l2
-                            }
-                            if by_clock_slim:
-                                l2_slim["by_clock"] = by_clock_slim
-                        payload["result"] = {
-                            "success": result.get("success"),
-                            "ok": bool(result.get("ok", result.get("success"))),
-                            "persisted_truncated": True,
-                            "task": result.get("task") or "materialize_l1l2",
-                            "do_l1": result.get("do_l1"),
-                            "do_l1_tau_grid": result.get("do_l1_tau_grid"),
-                            "do_l2": result.get("do_l2"),
-                            "schema": result.get("schema"),
-                            "elapsed_s": result.get("elapsed_s"),
-                            "track": track,
-                            "l1": l1_slim,
-                            "l1_tau_grid": l1tau_slim,
-                            "l2": l2_slim,
-                            "error": result.get("error"),
-                        }
+                        payload["result"] = slim_materialize_result(result)
                     elif slot_name == "chat":
                         reply = str(result.get("reply") or "")
                         if len(reply) > 2000:
@@ -465,9 +460,44 @@ class JobProgress:
                             or slot_name.replace("-", "_"),
                             "error": result.get("error"),
                         }
+            if self.name == "materialize-l1l2" and self._last_terminal:
+                payload["last_terminal"] = {
+                    k: dict(v) for k, v in self._last_terminal.items()
+                }
             atomic_write_json(path, payload)
         except OSError:
             logger.warning("job persist failed path=%s", path, exc_info=True)
+
+    def _archive_outgoing_unlocked(self) -> None:
+        """开新任务前，把刚结束的日线/分钟物化终态按 kind 留下。"""
+        if self.name != "materialize-l1l2":
+            return
+        job = self._job
+        kind = str(job.get("kind") or "")
+        st = str(job.get("status") or "").lower()
+        if kind not in _MATERIALIZE_KINDS or st not in _TERMINAL_JOB_STATUS:
+            return
+        snap: Dict[str, Any] = {
+            "id": job.get("id"),
+            "name": job.get("name") or self.name,
+            "kind": kind,
+            "status": job.get("status"),
+            "current": job.get("current"),
+            "total": job.get("total"),
+            "pct": job.get("pct"),
+            "message": job.get("message"),
+            "error": job.get("error"),
+            "started_at": job.get("started_at"),
+            "updated_at": job.get("updated_at"),
+        }
+        result = job.get("result")
+        if isinstance(result, dict):
+            snap["result"] = slim_materialize_result(result)
+        self._last_terminal[kind] = snap
+
+    def last_terminal_public(self) -> Dict[str, Any]:
+        with self._lock:
+            return {k: dict(v) for k, v in self._last_terminal.items()}
 
     def get(self) -> Dict[str, Any]:
         with self._lock:
@@ -498,6 +528,7 @@ class JobProgress:
         job_id = uuid.uuid4().hex[:12]
         now = time.time()
         with self._lock:
+            self._archive_outgoing_unlocked()
             self._job = {
                 "id": job_id,
                 "name": self.name,
@@ -525,6 +556,7 @@ class JobProgress:
         with self._lock:
             if self._job.get("status") == "running":
                 return None, dict(self._job)
+            self._archive_outgoing_unlocked()
             job_id = uuid.uuid4().hex[:12]
             self._job = {
                 "id": job_id,

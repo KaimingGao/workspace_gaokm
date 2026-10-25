@@ -354,13 +354,18 @@ def enrich_horizon_raw_panels(
 ) -> List[Dict[str, Any]]:
     """对 raw 面板做截面广度（可选）+ relabel + stamp ``raw_ath_*``。
 
-    ``already_relabeled``（hz_* 命中）跳过 relabel，仍可参与截面广度。
+    ``already_relabeled``（hz_* 命中）跳过 relabel，仍补本头滞后并参与截面广度。
     """
-    from core.research.tau_panel import attach_cross_section_breadth
+    from core.research.tau_panel import (
+        _HORIZON_SPECS,
+        attach_cross_section_breadth,
+        ensure_matrix_horizon_lags,
+    )
 
     cfg = _horizon_ridge_config(head)
     h = cfg["head"]
     relabel_fn = cfg["relabel_fn"]
+    spec = _HORIZON_SPECS[h]
     raw_list = list(raw_panels or [])
     pre_labeled = [
         p for p in raw_list if isinstance(p, dict) and p.get("already_relabeled")
@@ -379,10 +384,14 @@ def enrich_horizon_raw_panels(
                 pre_labeled, gap_trigger_pct=gap_trigger_pct
             )
     enriched = list(relabel_fn(need_label)) + list(pre_labeled)
-    # L1 stitch 为补标签暂留的分钟线，relabel 后即可丢
+    # L1 stitch 为补标签暂留的分钟线，relabel 后即可丢。
+    # relabel 已写过 tN_lag1；只有跳过 relabel 的 hz_* 要在这里补。
     for p in enriched:
-        if isinstance(p, dict):
-            p.pop("minute_bars", None)
+        if not isinstance(p, dict):
+            continue
+        p.pop("minute_bars", None)
+        if p.get("already_relabeled"):
+            ensure_matrix_horizon_lags(p, spec)
     try:
         from core.signal.factors.alpha_th import stamp_ath_on_panels
 

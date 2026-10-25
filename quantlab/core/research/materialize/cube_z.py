@@ -124,6 +124,42 @@ def _format_l2_miss_error(meta: Optional[Mapping[str, Any]], *, default_clock: s
     return "请先物化 L2：" + base + note
 
 
+# 拟合时由本头标签现算，日立方不会有这两列。缺列时在当日该钟点截面上 z，不填 0。
+_FIT_TIME_CS_Z = frozenset({"raw_ath_H_LAG1", "raw_ath_H_MA5"})
+
+
+def _zscore_bucket_column(
+    out: np.ndarray,
+    ix: np.ndarray,
+    j: int,
+    *,
+    eps: float,
+    need: int,
+) -> None:
+    """桶内现算 z。样本不够或几乎无波动则填 0。"""
+    col = out[ix, j]
+    finite = np.isfinite(col)
+    m = int(finite.sum())
+    if m < need:
+        if m:
+            out[ix[finite], j] = 0.0
+        return
+    vals = col[finite]
+    mu_v = float(vals.mean())
+    if not math.isfinite(mu_v):
+        out[ix[finite], j] = 0.0
+        return
+    var = float(np.mean((vals - mu_v) ** 2))
+    if (not math.isfinite(var)) or var <= 0.0:
+        out[ix[finite], j] = 0.0
+        return
+    sd_v = math.sqrt(var)
+    if (not math.isfinite(sd_v)) or sd_v <= eps:
+        out[ix[finite], j] = 0.0
+        return
+    out[ix[finite], j] = (vals - mu_v) / sd_v
+
+
 def _cube_mu_sd_for_name(
     name: str,
     mu_map: Mapping[str, float],
@@ -169,6 +205,7 @@ def apply_day_cube_mu_sigma_matrix(
 
     任一日缺 Cube → ``ok=False``。Cube 缺列：尝试裸名 /
     ``z_τh_*``/``z_τc_*``/``z_co_*`` 别名；仍无则该列填 0（不桶内现算）。
+    ``raw_ath_H_LAG1`` / ``raw_ath_H_MA5`` 不在立方里，缺列时按当日该钟点截面现算 z。
     """
     from core.research.day_cube import enabled, load_day_cube
 
@@ -254,6 +291,10 @@ def apply_day_cube_mu_sigma_matrix(
             mu, sd = _cube_mu_sd_for_name(str(name), mu_map, sd_map)
             if mu is None:
                 key = str(name)
+                if key in _FIT_TIME_CS_Z:
+                    # 本头滞后不在立方里；有截面差就现算，常数仍是 0
+                    _zscore_bucket_column(out, ix, j, eps=eps, need=need)
+                    continue
                 if key not in missing_col_set:
                     missing_col_set.add(key)
                     missing_col_seen.append(key)
