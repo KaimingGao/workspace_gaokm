@@ -96,7 +96,7 @@ function resolveVerdict(data) {
     };
   }
   if (Number.isFinite(net) && net < 0) {
-    return { tone: "neg", label: "亏损", hint: "净收益为负，建议对照跳过构成与成交明细" };
+    return { tone: "neg", label: "亏损", hint: "净收益为负，建议对照分票主因与成交明细" };
   }
   return { tone: "neutral", label: "观察", hint: "样本偏少，结论仅供参考" };
 }
@@ -187,15 +187,6 @@ export function buildT0MetricCards(data) {
   ];
 }
 
-function _hitTone(pct) {
-  if (pct == null || !Number.isFinite(Number(pct))) return "";
-  const p = Number(pct);
-  if (p >= 70) return "is-strong";
-  if (p >= 55) return "is-ok";
-  if (p >= 45) return "is-soft";
-  return "is-weak";
-}
-
 function _fillBarHtml(traded, total) {
   const n = Number(total) || 0;
   const t = Number(traded) || 0;
@@ -268,21 +259,6 @@ function buildPortraitSectionHtml(portrait, data) {
       : Number.isFinite(nAll)
         ? Math.max(0, nAll - nTr)
         : null;
-  const participate =
-    Number.isFinite(nAll) && nAll > 0 ? (nTr / nAll) * 100 : null;
-
-  const fmtHitParts = (pack) => {
-    if (!pack || pack.hit_rate_pct == null) {
-      return { primary: "—", sub: "", tone: "" };
-    }
-    const pct = Number(pack.hit_rate_pct);
-    const n = pack.n_judged;
-    return {
-      primary: `${pct.toFixed(1)}%`,
-      sub: n != null ? `n=${n}` : "",
-      tone: _hitTone(pct),
-    };
-  };
 
   const universe =
     `<div class="paper-t0-portrait-universe" title="全部回测日（含跳过）">` +
@@ -296,9 +272,6 @@ function buildPortraitSectionHtml(portrait, data) {
     `<span class="is-fill">成交 <b>${escapeText(String(nTr))}</b></span>` +
     (nSk != null
       ? `<span class="is-skip">跳过 <b>${escapeText(String(nSk))}</b></span>`
-      : "") +
-    (participate != null
-      ? `<span class="is-rate">参与 ${escapeText(participate.toFixed(1))}%</span>`
       : "") +
     `</div>` +
     _fillBarHtml(nTr, nAll) +
@@ -339,22 +312,11 @@ function buildPortraitSectionHtml(portrait, data) {
         ? `<p class="paper-t0-portrait-slots-warn">槽位 y_τw/y_τ30/y_τ45/y_τ60/y_τ75/y_τ90 ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
         : "";
 
-  const fmtHitCell = (pack) => {
-    const p = fmtHitParts(pack);
-    if (p.primary === "—") return `<span class="is-empty">—</span>`;
-    return (
-      `<span class="paper-t0-portrait-cell ${p.tone}">` +
-      `<b>${escapeText(p.primary)}</b>` +
-      (p.sub ? `<small>${escapeText(p.sub)}</small>` : "") +
-      `</span>`
-    );
-  };
-
   const slotTable =
     slotRows.length > 0
       ? `<div class="paper-t0-portrait-slots" title="${escapeText(
           (portrait.by_slot && portrait.by_slot.note) ||
-            "各钟 y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交" +
+            "各钟覆盖与成/跳；样本与日级对齐" +
               (endHm ? `；截止 ${endHm}` : "")
         )}">` +
         `<div class="paper-t0-portrait-slots-head">` +
@@ -371,29 +333,7 @@ function buildPortraitSectionHtml(portrait, data) {
         `<thead><tr>` +
         `<th>槽位</th>` +
         `<th title="有该钟扫描 ŷ / 与日级同样本；旧回测无 scan 则仅开轮钟有ŷ">覆盖</th>` +
-        `<th title="该钟成交 / 样本">成交</th>` +
-        `<th title="ŷ_τw 符号和 ↔ 五窗真实收益符号和">y_τw</th>` +
-        `<th title="ŷ_τ30 ↔ P(mean(price(τ⊕25/30/35))/price(τ)−1>0)">y_τ30</th>` +
-        `<th title="ŷ_τ45 ↔ P(mean(price(τ⊕40/45/50))/price(τ)−1>0)">y_τ45</th>` +
-        `<th title="ŷ_τ60 ↔ P(mean(price(τ⊕55/60/65))/price(τ)−1>0)">y_τ60</th>` +
-        `<th title="ŷ_τ75 ↔ P(mean(price(τ⊕70/75/80))/price(τ)−1>0)">y_τ75</th>` +
-        `<th title="ŷ_τ90 ↔ P(mean(price(τ⊕85/90/95))/price(τ)−1>0)">y_τ90</th>` +
-        `<th title="选向是否与 ŷ_τ30=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ30旁路</th>` +
-        `<th title="选向是否与 ŷ_τ45=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ45旁路</th>` +
-        `<th title="选向是否与 ŷ_τ60=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ60旁路</th>` +
-        `<th title="选向是否与 ŷ_τ75=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ75旁路</th>` +
-        `<th title="选向是否与 ŷ_τ90=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ90旁路</th>` +
-        `<th title="该钟已成交子集 · y_τw">成交y_τw</th>` +
-        `<th title="该钟已成交子集 · y_τ30">成交y_τ30</th>` +
-        `<th title="该钟已成交子集 · y_τ45">成交y_τ45</th>` +
-        `<th title="该钟已成交子集 · y_τ60">成交y_τ60</th>` +
-        `<th title="该钟已成交子集 · y_τ75">成交y_τ75</th>` +
-        `<th title="该钟已成交子集 · y_τ90">成交y_τ90</th>` +
-        `<th title="该钟已成交子集 · τ30旁路">成交τ30旁路</th>` +
-        `<th title="该钟已成交子集 · τ45旁路">成交τ45旁路</th>` +
-        `<th title="该钟已成交子集 · τ60旁路">成交τ60旁路</th>` +
-        `<th title="该钟已成交子集 · τ75旁路">成交τ75旁路</th>` +
-        `<th title="该钟已成交子集 · τ90旁路">成交τ90旁路</th>` +
+        `<th title="该钟成/跳：成交 / 样本">成交</th>` +
         `</tr></thead><tbody>` +
         slotRows
           .map((s) => {
@@ -401,7 +341,6 @@ function buildPortraitSectionHtml(portrait, data) {
             const nSlotTr = Number(s.n_traded) || 0;
             const nY = Number(s.n_with_yhat) || 0;
             const coverLow = nSlot > 0 && nY / nSlot < 0.25;
-            const traded = s.traded || {};
             return (
               `<tr class="${coverLow ? "is-cover-low" : ""}">` +
               `<td class="paper-t0-portrait-hm">${escapeText(s.hm)}</td>` +
@@ -419,28 +358,6 @@ function buildPortraitSectionHtml(portrait, data) {
               `</span>` +
               _fillBarHtml(nSlotTr, nSlot) +
               `</td>` +
-              `<td>${fmtHitCell(s.y_tw_hit)}</td>` +
-              `<td>${fmtHitCell(s.y_t30_hit)}</td>` +
-              `<td>${fmtHitCell(s.y_t45_hit)}</td>` +
-              `<td>${fmtHitCell(s.y_t60_hit)}</td>` +
-              `<td>${fmtHitCell(s.y_t75_hit)}</td>` +
-              `<td>${fmtHitCell(s.y_t90_hit)}</td>` +
-              `<td>${fmtHitCell(s.y_t30_band)}</td>` +
-              `<td>${fmtHitCell(s.y_t45_band)}</td>` +
-              `<td>${fmtHitCell(s.y_t60_band)}</td>` +
-              `<td>${fmtHitCell(s.y_t75_band)}</td>` +
-              `<td>${fmtHitCell(s.y_t90_band)}</td>` +
-              `<td>${fmtHitCell(traded.y_tw_hit)}</td>` +
-              `<td>${fmtHitCell(traded.y_t30_hit)}</td>` +
-              `<td>${fmtHitCell(traded.y_t45_hit)}</td>` +
-              `<td>${fmtHitCell(traded.y_t60_hit)}</td>` +
-              `<td>${fmtHitCell(traded.y_t75_hit)}</td>` +
-              `<td>${fmtHitCell(traded.y_t90_hit)}</td>` +
-              `<td>${fmtHitCell(traded.y_t30_band)}</td>` +
-              `<td>${fmtHitCell(traded.y_t45_band)}</td>` +
-              `<td>${fmtHitCell(traded.y_t60_band)}</td>` +
-              `<td>${fmtHitCell(traded.y_t75_band)}</td>` +
-              `<td>${fmtHitCell(traded.y_t90_band)}</td>` +
               `</tr>`
             );
           })
@@ -457,7 +374,7 @@ function buildPortraitSectionHtml(portrait, data) {
     `<section class="paper-t0-metric-section is-portrait">` +
     `<div class="paper-t0-portrait-head">` +
     `<h4 class="paper-t0-metric-section-title">回测样本画像</h4>` +
-    `<p class="paper-t0-portrait-lead">分槽位${endBit}：该钟扫描 ŷ vs 标签；成交=该钟是否开轮；时间槽与前缀滑条同一截止；y_τw=五窗符号和命中；τ30旁路=选向↔ŷ_τ30后30m同号；τ45旁路=选向↔ŷ_τ45后45m同号；τ75旁路=选向↔ŷ_τ75后75m同号；τ90旁路=选向↔ŷ_τ90后90m同号</p>` +
+    `<p class="paper-t0-portrait-lead">分槽位${endBit}：该钟是否有扫描 ŷ、是否开轮；时间槽与前缀滑条同一截止</p>` +
     `</div>` +
     universe +
     slotTable +

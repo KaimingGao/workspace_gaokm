@@ -493,7 +493,7 @@ score = 0.28×动量 + 0.20×量价 + … + 0.05×质量
 | **IC 不稳定** | 协变量漂移（covariate shift / 非平稳） |
 | **IR** = mean(IC) / std(IC) | 跨期信号信噪比 |
 
-`research/factor_report.py` / Web 因子 IC 面板用于 **权重建议**，但 **不自动写** `signal_config.json`——等价于 ML 里看 feature importance 后 **人工** 决定是否改生产配置。
+`quant/research/factor_report.py` / Web 因子 IC 面板用于 **权重建议**，但 **不自动写** `signal_config.json`——等价于 ML 里看 feature importance 后 **人工** 决定是否改生产配置。
 
 #### 回测 = 带时间约束的离线评估
 
@@ -502,7 +502,7 @@ Walk-forward（第三层）≈ **时间序列交叉验证**，而非 random K-fo
 | 普通 ML CV | 量化回测 |
 |-----------|---------|
 | 样本常假设 i.i.d. | 金融序列 **非平稳、自相关** |
-| 可 shuffle 验证集 | **必须按时间切**（见 `research/split.py` OOS） |
+| 可 shuffle 验证集 | **必须按时间切**（见 `core/research/split.py` OOS） |
 | accuracy / F1 | PnL、回撤、换手、成本 |
 | 过拟合 → 验证掉点 | 过拟合 → **回测很美、样本外很差** |
 
@@ -582,8 +582,8 @@ flowchart LR
 | 单票短线分 | `score_stock` · `ReturnScoreModel`（`score_bars`→sub_scores） | 特征 → 拟合线性 ŷ |
 | 观察池 Top N | `core/signal/cross_section.py` | 截面排序 / LTR |
 | 去市场共同因子 | `core/signal/neutralize.py` | 组内标准化 |
-| 因子有效性 | `research/factor_report.py` | feature–label 相关 / IC |
-| 样本外 | `research/split.py` | time-based holdout |
+| 因子有效性 | `quant/research/factor_report.py` | feature–label 相关 / IC |
+| 样本外 | `core/research/split.py` | time-based holdout |
 | 历史策略表现 | `core/backtest/engine.py` | offline eval / backtest |
 | 能否买入 | `core/stance.py` · `compute_buy_stance` | 阈值策略 / 动作空间 |
 | 纸面跟单 | `core/paper.py` | shadow deployment |
@@ -675,9 +675,9 @@ score_bars → sub_scores（特征）
 | 因子子模块 | `core/signal/factors/*` |
 | 市场门控 | `core/signal/regime.py` |
 | 成本模型 | `core/backtest/costs.py` |
-| IC 报告 | `research/factor_report.py` |
+| IC 报告 | `quant/research/factor_report.py` |
 | OLS 实验 | `quant/research/factor_ols.py` |
-| OOS 切分 | `research/split.py` |
+| OOS 切分 | `core/research/split.py` |
 | 报告导出预览 | `quant/services/quant_report_export.py` — Web daily 后自动 Markdown 导出预览 + TOC |
 | 规则 / LLM 解读 | `quant/services/quant_interpret.py` — `offline: true` → `source=rule_based` |
 
@@ -901,7 +901,7 @@ AI 只解读数字，**不得改写** `score` / `stance_label`。
 ```bash
 bash scripts/setup_quant.sh
 # 或
-python3 research/watching_run.py --init && python3 research/watching_run.py --refresh --sync-paper
+python3 research/watching_run.py --init && python3 research/watching_run.py --refresh
 python3 research/paper_run.py --init
 ```
 
@@ -1719,7 +1719,7 @@ bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord 
 手动导出：
 
 ```bash
-python3 research/quant_export_run.py --format html -o data/reports/manual.html
+python3 research/daily_run.py --quant-report --export-quant-report
 ```
 
 ---
@@ -1829,7 +1829,6 @@ bash scripts/setup_quant.sh
 ### Diff 导出包
 
 ```bash
-python3 research/signal_diff_export_run.py --fresh -o data/reports/signal_config_diff_bundle.json
 curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
 ```
 

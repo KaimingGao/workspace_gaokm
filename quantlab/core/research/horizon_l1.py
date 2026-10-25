@@ -7,9 +7,10 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -211,6 +212,324 @@ def metas_from_price_matrix(
     return out
 
 
+def _pack_shorter_lookback(
+    code: str,
+    bars: Sequence[dict],
+    *,
+    family: str,
+    spec_fp: Any,
+    names: Optional[Sequence[str]],
+    min_rows: int,
+) -> Optional[Dict[str, Any]]:
+    """精确指纹 miss 时，把物化长窗切成与当前日线重叠的后缀（含 ``M``）。"""
+    from core.research.incremental_panel import try_slice_shorter_lookback
+
+    try:
+        sliced = try_slice_shorter_lookback(
+            code,
+            bars,
+            family=family,
+            spec_fp=spec_fp,
+            names=names,
+            min_rows=int(min_rows),
+            with_m=True,
+            allow_end_lag=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "horizon shorter lookback failed code=%s family=%s",
+            code,
+            family,
+            exc_info=True,
+        )
+        return None
+    if not sliced or len(sliced) < 6:
+        return None
+    X, y_arr, got_names, dates_l, M, m_names = sliced
+    if y_arr is None:
+        return None
+    return {
+        "X": X,
+        "y": y_arr,
+        "names": [str(n) for n in (got_names or [])],
+        "dates": [str(d)[:10] for d in (dates_l or [])],
+        "M": M,
+        "_meta": {"m_names": [str(n) for n in (m_names or [])]},
+    }
+
+
+_SHARED_STR: Dict[str, str] = {}
+
+
+def share_str(value: Any) -> str:
+    """日期 / 钟点只留一份，避免每行各持一个相同字符串。"""
+    s = str(value or "")
+    hit = _SHARED_STR.get(s)
+    if hit is None:
+        _SHARED_STR[s] = s
+        return s
+    return hit
+
+
+def slim_price_meta(meta: Optional[dict], *, tau: str = "") -> Dict[str, Any]:
+    """矩阵路径的行元数据：只要钟点和价。训练用的主题列在广度阶段写进 X。"""
+    src = meta if isinstance(meta, dict) else {}
+    out: Dict[str, Any] = {}
+    clock = str(tau or src.get("tau") or "").strip()
+    if clock:
+        out["tau"] = share_str(clock)
+    for key in META_PX_KEYS:
+        raw = src.get(key)
+        if raw is None:
+            continue
+        try:
+            fv = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if fv == fv:
+            out[key] = fv
+    return out
+
+
+def process_rss_bytes() -> int:
+    """当前物理占用。读不到则 0。"""
+    import sys
+
+    if sys.platform == "darwin":
+        rss = _darwin_phys_footprint()
+        if rss > 0:
+            return rss
+    elif sys.platform.startswith("linux"):
+        rss = _linux_rss_bytes()
+        if rss > 0:
+            return rss
+    return _ps_rss_bytes()
+
+
+def _darwin_phys_footprint() -> int:
+    """当前 phys_footprint，和系统回收进程时看的是同一个数。"""
+    try:
+        import ctypes
+        import ctypes.util
+        import os
+
+        class _RusageInfoV0(ctypes.Structure):
+            _fields_ = [
+                ("ri_uuid", ctypes.c_uint8 * 16),
+                ("ri_user_time", ctypes.c_uint64),
+                ("ri_system_time", ctypes.c_uint64),
+                ("ri_pkg_idle_wkups", ctypes.c_uint64),
+                ("ri_interrupt_wkups", ctypes.c_uint64),
+                ("ri_pageins", ctypes.c_uint64),
+                ("ri_wired_size", ctypes.c_uint64),
+                ("ri_resident_size", ctypes.c_uint64),
+                ("ri_phys_footprint", ctypes.c_uint64),
+                ("ri_proc_start_abstime", ctypes.c_uint64),
+                ("ri_proc_exit_abstime", ctypes.c_uint64),
+                ("ri_child_user_time", ctypes.c_uint64),
+                ("ri_child_system_time", ctypes.c_uint64),
+                ("ri_child_pkg_idle_wkups", ctypes.c_uint64),
+                ("ri_child_interrupt_wkups", ctypes.c_uint64),
+                ("ri_child_pageins", ctypes.c_uint64),
+                ("ri_child_elapsed_abstime", ctypes.c_uint64),
+                ("ri_diskio_bytesread", ctypes.c_uint64),
+                ("ri_diskio_byteswritten", ctypes.c_uint64),
+            ]
+
+        libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+        fn = libc.proc_pid_rusage
+        fn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+        fn.restype = ctypes.c_int
+        info = _RusageInfoV0()
+        if fn(os.getpid(), 0, ctypes.byref(info)) != 0:
+            return 0
+        return int(info.ri_phys_footprint or info.ri_resident_size or 0)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _linux_rss_bytes() -> int:
+    try:
+        import os
+
+        with open("/proc/self/statm", encoding="ascii") as handle:
+            parts = handle.read().split()
+        if len(parts) < 2:
+            return 0
+        return int(parts[1]) * int(os.sysconf("SC_PAGE_SIZE"))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _ps_rss_bytes() -> int:
+    try:
+        import os
+        import subprocess
+
+        out = subprocess.check_output(
+            ["ps", "-o", "rss=", "-p", str(os.getpid())],
+            text=True,
+        )
+        return max(0, int(out.strip() or "0")) * 1024
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def physical_ram_bytes() -> int:
+    try:
+        import os
+
+        return int(os.sysconf("SC_PHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE"))
+    except Exception:  # noqa: BLE001
+        return 8 * 1024**3
+
+
+def release_allocator_cache() -> None:
+    """把已经没用的堆页还给系统。
+
+    上一头拟合结束后，数组引用没了，物理水位仍可能停在数 GB。
+    下一头若直接拿这个数做内存保护，会在还没建面板时就被停掉。
+    """
+    gc.collect()
+    try:
+        import sys
+
+        if sys.platform == "darwin":
+            _darwin_malloc_pressure_relief()
+        elif sys.platform.startswith("linux"):
+            _linux_malloc_trim()
+    except Exception:  # noqa: BLE001
+        logger.debug("release allocator cache failed", exc_info=True)
+
+
+def _darwin_malloc_pressure_relief() -> None:
+    import ctypes
+    import ctypes.util
+
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    fn = getattr(libc, "malloc_zone_pressure_relief", None)
+    if fn is None:
+        return
+    fn.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+    fn.restype = ctypes.c_size_t
+    fn(None, 0)
+
+
+def _linux_malloc_trim() -> None:
+    import ctypes
+
+    libc = ctypes.CDLL(None)
+    fn = getattr(libc, "malloc_trim", None)
+    if fn is None:
+        return
+    fn.argtypes = [ctypes.c_size_t]
+    fn.restype = ctypes.c_int
+    fn(0)
+
+
+def fit_memory_stop_reason(
+    *,
+    panel_bytes: int,
+    rss_bytes: int = 0,
+    ram_bytes: int = 0,
+) -> str:
+    """该停就返回给用户的原因；还能继续则空串。"""
+    ram = int(ram_bytes or 0)
+    rss = int(rss_bytes or 0)
+    panels = max(0, int(panel_bytes or 0))
+    if panels >= int(TAU_PANEL_BYTE_BUDGET):
+        return (
+            f"内存保护：面板数据已约 {panels / 1024**3:.1f} GB，"
+            "已停止以免网页进程被系统杀掉。请缩小研究池，或把窗头终点提前。"
+        )
+    if ram > 0 and rss > 0:
+        # 给系统和浏览器留一截，不把机器吃到被杀
+        ceiling = min(int(ram * 0.62), ram - int(1.2 * 1024**3))
+        if ceiling > 0 and rss >= ceiling:
+            return (
+                f"内存保护：进程已用约 {rss / 1024**3:.1f} GB / "
+                f"机器 {ram / 1024**3:.0f} GB，已停止以免网页进程被系统杀掉。"
+                "请缩小研究池，或把窗头终点提前。"
+            )
+    return ""
+
+
+def confirm_fit_memory_stop(
+    *,
+    panel_bytes: int,
+    rss_bytes: int,
+    ram_bytes: int,
+    reread_rss: Callable[[], int],
+) -> str:
+    """超水位时先归还空闲页再量一次。面板字节本身超预算则直接停。"""
+    reason = fit_memory_stop_reason(
+        panel_bytes=panel_bytes,
+        rss_bytes=rss_bytes,
+        ram_bytes=ram_bytes,
+    )
+    if not reason:
+        return ""
+    if int(panel_bytes or 0) >= int(TAU_PANEL_BYTE_BUDGET):
+        return reason
+    release_allocator_cache()
+    try:
+        rss2 = int(reread_rss() or 0)
+    except Exception:  # noqa: BLE001
+        logger.debug("reread rss failed", exc_info=True)
+        return reason
+    return fit_memory_stop_reason(
+        panel_bytes=panel_bytes,
+        rss_bytes=rss2,
+        ram_bytes=ram_bytes,
+    )
+
+
+def panel_payload_bytes(panel: Optional[dict]) -> int:
+    if not isinstance(panel, dict):
+        return 0
+    total = 0
+    X = panel.get("X")
+    if X is not None:
+        try:
+            total += int(np.asarray(X).nbytes)
+        except Exception:  # noqa: BLE001
+            pass
+    M = panel.get("M")
+    if M is not None:
+        try:
+            total += int(np.asarray(M).nbytes)
+        except Exception:  # noqa: BLE001
+            pass
+    # 瘦 meta：按行粗算，避免为了记账再走一遍对象图
+    n_meta = len(panel.get("metas") or [])
+    if n_meta:
+        total += n_meta * 240
+    n_xs = len(panel.get("xs") or [])
+    if n_xs and isinstance((panel.get("xs") or [None])[0], dict):
+        total += n_xs * max(64, 48 * len(panel["xs"][0]))
+    return total
+
+
+def project_feature_block(
+    X: np.ndarray,
+    src_names: Sequence[str],
+    keep_names: Sequence[str],
+) -> Tuple[np.ndarray, List[str]]:
+    """按列名抽出 ``keep_names``。缺列填 NaN，不建 dict 行。"""
+    arr = np.asarray(X, dtype=np.float64)
+    keep = [str(n) for n in keep_names if str(n)]
+    if arr.ndim != 2 or not keep:
+        return np.zeros((0, len(keep)), dtype=np.float64), keep
+    index = {str(n): i for i, n in enumerate(src_names or [])}
+    out = np.full((int(arr.shape[0]), len(keep)), np.nan, dtype=np.float64)
+    for j, name in enumerate(keep):
+        i = index.get(name)
+        if i is None or i >= arr.shape[1]:
+            continue
+        out[:, j] = arr[:, i]
+    return out, keep
+
+
 def try_stitch_horizon_l1_panel(
     code: str,
     bars: Sequence[dict],
@@ -220,10 +539,17 @@ def try_stitch_horizon_l1_panel(
     include_alpha_tc: bool = True,
     include_alpha_th: bool = True,
     minute_bars: Optional[Sequence[dict]] = None,
+    as_matrix: bool = False,
+    project_names: Optional[Sequence[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """按钟拼 ``tc_HHMM``；日线指纹命中则可不带 ``minute_bars``。
 
+    物化长窗、拟合短窗时切重叠决策日（含 ``M``）。末日相差时只留双方都有的日期，
+    这段 K 线必须仍是湖序列的真后缀。单钟损坏或列缺失则跳过该钟；命中钟数
+    低于一半整票 miss。口径变了或无 ``price_tau*`` 仍 miss。
     命中时 metas 带 ``price_tau*``（若物化写入了 ``M``），供 enrich/relabel。
+    ``as_matrix=True``：按钟竖叠 float64，可选 ``project_names`` 只留入模列，
+    不把每一格展开成 dict（8GB 上全池 dict 会把进程打死）。
     """
     if not code or not clocks or len(bars) < int(min_history) + 2:
         return None
@@ -244,15 +570,21 @@ def try_stitch_horizon_l1_panel(
         include_alpha_tc=bool(include_alpha_tc),
         include_alpha_th=bool(include_alpha_th),
     )
+    from core.research.incremental_panel import _align_matrix_names
+
     fp_bars = horizon_tau_bars_fp(bars)
     xs_all: List[dict] = []
     ys_all: List[float] = []
     dates_all: List[str] = []
     metas_all: List[dict] = []
+    clocks_req = 0
+    clocks_hit = 0
+    blocks: List[np.ndarray] = []
     for hm in clocks:
         clk = str(hm or "").strip()
         if not clk or clk.lower() in ("open", "09:30", "0930"):
             continue
+        clocks_req += 1
         fp = horizon_tau_clock_fingerprint(
             bars,
             clk,
@@ -262,24 +594,58 @@ def try_stitch_horizon_l1_panel(
             bars_fp=fp_bars,
         )
         fam = family_for_tc(tau_hm=clk)
+
+        def _spec(bars_fp: str, _clk: str = clk) -> str:
+            return horizon_tau_clock_fingerprint(
+                bars,
+                _clk,
+                min_history=min_history,
+                include_alpha_tc=include_alpha_tc,
+                include_alpha_th=include_alpha_th,
+                bars_fp=bars_fp,
+            )
+
         try:
             pack = lake.load_stock_panel(fam, code, fingerprint=fp)
         except Exception:  # noqa: BLE001
-            return None
+            logger.debug(
+                "tau stitch load failed code=%s clock=%s", code, clk, exc_info=True
+            )
+            pack = None
         if not pack:
-            return None
+            pack = _pack_shorter_lookback(
+                code,
+                bars,
+                family=fam,
+                spec_fp=_spec,
+                names=col_names,
+                min_rows=2,
+            )
+        if not pack:
+            logger.debug("tau stitch miss code=%s clock=%s", code, clk)
+            continue
         got_names = [str(n) for n in (pack.get("names") or [])]
-        if got_names and got_names != list(col_names):
-            return None
-        X = np.asarray(pack["X"], dtype=np.float64)
-        dates_l = [str(d)[:10] for d in (pack.get("dates") or [])]
+        try:
+            X = np.asarray(pack["X"], dtype=np.float64)
+        except (TypeError, ValueError):
+            continue
         names = got_names or list(col_names)
+        if got_names and got_names != list(col_names):
+            aligned = _align_matrix_names(X, got_names, col_names)
+            if aligned is None:
+                logger.debug("tau stitch cols mismatch code=%s clock=%s", code, clk)
+                continue
+            X = aligned
+            names = list(col_names)
+        dates_l = [str(d)[:10] for d in (pack.get("dates") or [])]
         if X.ndim != 2 or len(dates_l) < 2:
-            return None
-        rows = _matrix_rows_to_dicts(X, names)
-        n = min(len(rows), len(dates_l))
+            continue
+        n = min(int(X.shape[0]), len(dates_l))
         if n < 2:
-            return None
+            continue
+        rows = None if as_matrix else _matrix_rows_to_dicts(X, names)
+        if as_matrix:
+            blocks.append(np.ascontiguousarray(X[:n], dtype=np.float64))
         y_arr = pack.get("y")
         y_list: List[float] = []
         if y_arr is not None:
@@ -297,14 +663,32 @@ def try_stitch_horizon_l1_panel(
             default_tau=clk,
         )
         for i in range(n):
-            xs_all.append(rows[i])
+            if rows is not None:
+                xs_all.append(rows[i])
             ys_all.append(float(y_list[i]) if i < len(y_list) else float("nan"))
-            dates_all.append(dates_l[i])
-            meta = dict(metas_clock[i]) if i < len(metas_clock) else {}
-            meta["tau"] = clk  # 按钟 stitch：钟点以当前 family 为准
-            meta["l1_family"] = fam
-            meta["l1_hit"] = True
-            metas_all.append(meta)
+            src_meta = metas_clock[i] if i < len(metas_clock) else {}
+            if as_matrix:
+                dates_all.append(share_str(str(dates_l[i])[:10]))
+                # 钟点以当前 family 为准；账本字段不进每行
+                metas_all.append(slim_price_meta(src_meta, tau=clk))
+            else:
+                dates_all.append(dates_l[i])
+                meta = dict(src_meta)
+                meta["tau"] = clk
+                meta["l1_family"] = fam
+                meta["l1_hit"] = True
+                metas_all.append(meta)
+        clocks_hit += 1
+    if clocks_req < 1 or clocks_hit < 1:
+        return None
+    if (float(clocks_hit) / float(clocks_req)) < float(TAU_STITCH_MIN_CLOCK_FRAC):
+        logger.debug(
+            "tau stitch clock coverage low code=%s hit=%s req=%s",
+            code,
+            clocks_hit,
+            clocks_req,
+        )
+        return None
     if len(ys_all) < 4:
         return None
     # 无 M/price_tau* 的旧 L1 不能免读 5m → miss，逼重物化或回退
@@ -316,6 +700,20 @@ def try_stitch_horizon_l1_panel(
             priced += 1
     if priced < 4 and not minute_bars:
         return None
+    x_names: List[str] = []
+    X_out: Optional[np.ndarray] = None
+    if as_matrix:
+        if not blocks:
+            return None
+        X_cat = blocks[0] if len(blocks) == 1 else np.vstack(blocks)
+        del blocks
+        src_names = list(col_names)
+        if project_names:
+            X_out, x_names = project_feature_block(X_cat, src_names, project_names)
+        else:
+            X_out, x_names = np.asarray(X_cat, dtype=np.float64), src_names
+        del X_cat
+        xs_all = []
     out: Dict[str, Any] = {
         "code": code,
         "xs": xs_all,
@@ -323,7 +721,12 @@ def try_stitch_horizon_l1_panel(
         "dates": dates_all,
         "metas": metas_all,
         "l1_stitched": True,
+        "l1_clocks_hit": int(clocks_hit),
+        "l1_clocks_req": int(clocks_req),
     }
+    if X_out is not None:
+        out["X"] = X_out
+        out["x_names"] = x_names
     if minute_bars:
         out["minute_bars"] = list(minute_bars)
     return out
@@ -337,6 +740,8 @@ def try_load_horizon_head_panel(
     *,
     min_history: int = 12,
     feat_names: Optional[Sequence[str]] = None,
+    as_matrix: bool = False,
+    project_names: Optional[Sequence[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """读整头 ``hz_*`` 训练板（已 relabel 的 y）。"""
     from core.research import feature_lake as lake
@@ -347,7 +752,25 @@ def try_load_horizon_head_panel(
     fp = horizon_head_fingerprint(
         bars, head, tau_grid, min_history=min_history
     )
-    pack = lake.load_stock_panel(fam, code, fingerprint=fp)
+    try:
+        pack = lake.load_stock_panel(fam, code, fingerprint=fp)
+    except Exception:  # noqa: BLE001
+        logger.debug("hz load failed code=%s head=%s", code, head, exc_info=True)
+        pack = None
+    if not pack or pack.get("y") is None:
+        def _head_spec(bars_fp: str) -> str:
+            return horizon_head_fingerprint(
+                bars, head, tau_grid, min_history=min_history, bars_fp=bars_fp
+            )
+
+        pack = _pack_shorter_lookback(
+            code,
+            bars,
+            family=fam,
+            spec_fp=_head_spec,
+            names=feat_names,
+            min_rows=4,
+        )
     if not pack or pack.get("y") is None:
         return None
     X = np.asarray(pack["X"], dtype=np.float64)
@@ -357,8 +780,14 @@ def try_load_horizon_head_panel(
     if feat_names is not None:
         want = [str(n) for n in feat_names]
         if names and names != want:
-            return None
-        if not names:
+            from core.research.incremental_panel import _align_matrix_names
+
+            aligned = _align_matrix_names(X, names, want)
+            if aligned is None:
+                return None
+            X = aligned
+            names = want
+        elif not names:
             names = want
     if X.ndim != 2 or X.shape[0] != len(dates) or y.shape[0] != len(dates):
         return None
@@ -370,19 +799,33 @@ def try_load_horizon_head_panel(
         dates=dates,
         code=code,
     )
-    xs = _matrix_rows_to_dicts(X, names)
-    n = min(len(xs), len(y), len(dates), len(metas))
+    n = min(int(X.shape[0]), len(y), len(dates), len(metas))
     if n < 4:
         return None
-    return {
+    if as_matrix:
+        metas_out = [slim_price_meta(m) for m in metas[:n]]
+        dates_out = [share_str(str(dates[i])[:10]) for i in range(n)]
+    else:
+        metas_out = metas[:n]
+        dates_out = [str(dates[i])[:10] for i in range(n)]
+    out_head: Dict[str, Any] = {
         "code": code,
-        "xs": xs[:n],
         "ys": [float(y[i]) for i in range(n)],
-        "dates": [str(dates[i])[:10] for i in range(n)],
-        "metas": metas[:n],
+        "dates": dates_out,
+        "metas": metas_out,
         "l1_head_hit": True,
         "already_relabeled": True,
     }
+    if as_matrix:
+        keep = list(project_names or names)
+        block, keep_names = project_feature_block(X[:n], names, keep)
+        out_head["X"] = block
+        out_head["x_names"] = keep_names
+        out_head["xs"] = []
+        return out_head
+    xs = _matrix_rows_to_dicts(X[:n], names)
+    out_head["xs"] = xs
+    return out_head
 
 
 def sync_horizon_head_panel(
@@ -403,26 +846,38 @@ def sync_horizon_head_panel(
     ys = list(panel.get("ys") or [])
     dates = [str(d)[:10] for d in (panel.get("dates") or [])]
     metas = list(panel.get("metas") or [])
-    n = min(len(xs), len(ys), len(dates))
+    X_in = panel.get("X")
+    matrix = X_in is not None and not xs
+    if matrix:
+        X_arr = np.asarray(X_in, dtype=np.float64)
+        n = min(int(X_arr.shape[0]), len(ys), len(dates))
+    else:
+        X_arr = None
+        n = min(len(xs), len(ys), len(dates))
     if n < 4 or not code:
         return False
-    names = [str(n0) for n0 in (feat_names or [])]
-    if not names:
-        # 并集列名
-        seen = set()
-        for row in xs[:n]:
-            if not isinstance(row, dict):
-                continue
-            for k in row:
-                if k not in seen:
-                    seen.add(k)
-                    names.append(str(k))
-    from core.research.panel_matrix import _dict_rows_to_matrix
+    if matrix:
+        names = [str(n0) for n0 in (panel.get("x_names") or feat_names or [])]
+        X = np.asarray(X_arr[:n], dtype=np.float64)
+        if feat_names:
+            X, names = project_feature_block(X, names, feat_names)
+    else:
+        names = [str(n0) for n0 in (feat_names or [])]
+        if not names:
+            seen = set()
+            for row in xs[:n]:
+                if not isinstance(row, dict):
+                    continue
+                for k in row:
+                    if k not in seen:
+                        seen.add(k)
+                        names.append(str(k))
+        from core.research.panel_matrix import _dict_rows_to_matrix
 
-    X = _dict_rows_to_matrix(
-        [xs[i] if isinstance(xs[i], dict) else {} for i in range(n)],
-        names,
-    )
+        X = _dict_rows_to_matrix(
+            [xs[i] if isinstance(xs[i], dict) else {} for i in range(n)],
+            names,
+        )
     M, m_names = meta_price_matrix_from_rows(metas[:n])
     fp = horizon_head_fingerprint(
         bars, head, tau_grid, min_history=min_history
@@ -451,6 +906,10 @@ TAU_L1_COLD_RATE = 0.5
 TAU_L1_MIN_HIT_RATE = TAU_L1_COLD_RATE
 # 产品路径：连续啃 5m 达到该票数且命中率过低 → 提前阻断（防指纹热探测误放行）
 TAU_L1_EARLY_ABORT_MIN = 24
+# 单钟坏档跳过；命中钟数低于一半则整票不算 L1
+TAU_STITCH_MIN_CLOCK_FRAC = 0.5
+# 面板数据本身超过该字节数就停。800 只 × 18 钟的瘦矩阵大约 2.4GB，留到 3GB 再拦第二份拷贝
+TAU_PANEL_BYTE_BUDGET = int(3.0 * 1024**3)
 
 
 def tau_l1_coverage_blocks_fit(cov: Optional[Dict[str, Any]]) -> bool:

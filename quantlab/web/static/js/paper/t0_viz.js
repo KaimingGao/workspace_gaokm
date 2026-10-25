@@ -685,259 +685,6 @@ function wireDailyActivityHover(canvas) {
   });
 }
 
-/** 跳过构成 — CSS conic-gradient 环形（避免 canvas 填色在部分环境下糊成单色） */
-function buildSkipDonutMeta(categories) {
-  if (!categories || !categories.length) return null;
-  const total = categories.reduce((s, c) => s + Number(c.count || 0), 0) || 1;
-  const segments = [];
-  const stops = [];
-  let start = -Math.PI / 2;
-  let degAcc = 0;
-  categories.forEach((c) => {
-    const frac = Number(c.count || 0) / total;
-    if (frac <= 0) return;
-    const color = resolveSkipColor(c);
-    const a0 = start;
-    const a1 = start + frac * Math.PI * 2;
-    const d0 = degAcc;
-    degAcc += frac * 360;
-    stops.push(`${color} ${d0.toFixed(3)}deg ${degAcc.toFixed(3)}deg`);
-    segments.push({
-      id: c.id,
-      label: c.label || c.id,
-      count: Number(c.count || 0),
-      pct: c.pct != null ? c.pct : Math.round(frac * 1000) / 10,
-      color,
-      tip: skipCatTip(c.id, c.label),
-      a0,
-      a1,
-    });
-    start = a1;
-  });
-  if (!segments.length) return null;
-  return {
-    total,
-    top: categories[0],
-    segments,
-    gradient: `conic-gradient(from -90deg, ${stops.join(", ")})`,
-  };
-}
-
-function skipDonutChartHtml(categories) {
-  const meta = buildSkipDonutMeta(categories);
-  if (!meta) return "";
-  return (
-    `<div class="paper-t0-viz-skip-donut" data-viz="skip-donut" ` +
-    `style="background:${esc(meta.gradient)}" role="img" ` +
-    `aria-label="跳过构成 ${meta.total}">` +
-    `<div class="paper-t0-viz-skip-donut-core">` +
-    `<b data-role="skip-donut-total">${esc(String(meta.total))}</b>` +
-    `<span>跳过</span>` +
-    `</div></div>`
-  );
-}
-
-/** @deprecated canvas 路径保留给调试；正式渲染用 skipDonutChartHtml */
-function drawSkipDonut(canvas, categories) {
-  const meta = buildSkipDonutMeta(categories);
-  if (!canvas || !meta) return null;
-  const { w, h } = getChartSize(canvas);
-  const ctx = setupCanvas(canvas, w, h);
-  ctx.clearRect(0, 0, w, h);
-  const pad = 12;
-  const cx = w / 2;
-  const cy = h / 2;
-  const outerR = Math.min(w, h) / 2 - pad;
-  const innerR = outerR * 0.58;
-  meta.segments.forEach((seg) => {
-    ctx.beginPath();
-    ctx.arc(cx, cy, outerR, seg.a0, seg.a1);
-    ctx.arc(cx, cy, innerR, seg.a1, seg.a0, true);
-    ctx.closePath();
-    ctx.fillStyle = seg.color;
-    ctx.fill();
-  });
-  meta.cx = cx;
-  meta.cy = cy;
-  meta.outerR = outerR;
-  meta.innerR = innerR;
-  return meta;
-}
-
-/** 将弧度归一到 [0, 2π)，以 -π/2（12 点）为 0 */
-function skipDonutNormAngle(a) {
-  let x = a + Math.PI / 2;
-  x = ((x % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  return x;
-}
-
-function wireSkipDonutHover(el, meta) {
-  if (!el || !meta || !meta.segments || !meta.segments.length) return;
-  const box = el.closest(".paper-t0-viz-chart-box") || el.parentElement;
-  let tipEl = box && box.querySelector('[data-role="skip-hover-tip"]');
-  if (box && !tipEl) {
-    tipEl = document.createElement("div");
-    tipEl.className = "paper-t0-viz-skip-hover-tip";
-    tipEl.setAttribute("data-role", "skip-hover-tip");
-    tipEl.hidden = true;
-    box.appendChild(tipEl);
-  }
-
-  const syncGeom = () => {
-    const br = el.getBoundingClientRect();
-    meta._w = br.width;
-    meta._h = br.height;
-    meta.cx = br.width / 2;
-    meta.cy = br.height / 2;
-    meta.outerR = Math.min(br.width, br.height) / 2;
-    meta.innerR = meta.outerR * 0.58;
-  };
-  syncGeom();
-
-  const show = (seg, ev) => {
-    if (!tipEl) {
-      el.title = seg ? `${seg.label} ${seg.count}（${seg.pct}%）\n${seg.tip}` : "";
-      return;
-    }
-    if (!seg) {
-      tipEl.hidden = true;
-      tipEl.textContent = "";
-      el.style.cursor = "default";
-      if (box) box.classList.remove("is-skip-tip");
-      return;
-    }
-    tipEl.hidden = false;
-    if (box) box.classList.add("is-skip-tip");
-    tipEl.innerHTML =
-      `<strong>${esc(seg.label)}</strong>` +
-      `<span class="paper-t0-viz-skip-hover-meta">${esc(String(seg.count))} · ${esc(
-        String(seg.pct)
-      )}%</span>` +
-      `<p>${esc(seg.tip)}</p>`;
-    el.style.cursor = "pointer";
-    if (ev && box) {
-      const br = box.getBoundingClientRect();
-      const x = Math.min(Math.max(8, ev.clientX - br.left + 12), Math.max(8, br.width - 180));
-      const y = Math.min(Math.max(8, ev.clientY - br.top + 12), Math.max(8, br.height - 72));
-      tipEl.style.left = `${x}px`;
-      tipEl.style.top = `${y}px`;
-    }
-  };
-
-  el.onmousemove = (ev) => {
-    syncGeom();
-    const rect = el.getBoundingClientRect();
-    const lx = ev.clientX - rect.left;
-    const ly = ev.clientY - rect.top;
-    const dx = lx - meta.cx;
-    const dy = ly - meta.cy;
-    const r = Math.sqrt(dx * dx + dy * dy);
-    if (r < meta.innerR || r > meta.outerR) {
-      show(null);
-      return;
-    }
-    const t = skipDonutNormAngle(Math.atan2(dy, dx));
-    const seg = meta.segments.find((s) => {
-      const from = skipDonutNormAngle(s.a0);
-      const to = skipDonutNormAngle(s.a1);
-      if (to >= from) return t >= from && t <= to;
-      return t >= from || t <= to;
-    });
-    show(seg || null, ev);
-  };
-  el.onmouseleave = () => show(null);
-}
-
-function renderKpiRow(summary) {
-  const sm = summary || {};
-  const chips = [
-    [
-      "参与率",
-      sm.participate_rate_pct != null ? `${sm.participate_rate_pct}%` : null,
-      "成交日 / 可评估日",
-    ],
-    [
-      "ŷ覆盖",
-      sm.score_coverage_pct != null ? `${sm.score_coverage_pct}%` : null,
-      "有 ŷ_τw / 窗头快照的评估日占比",
-    ],
-    [
-      "往返率",
-      sm.cover_rate_pct != null ? `${sm.cover_rate_pct}%` : null,
-      "卖出回补或买入卖回完成比例",
-    ],
-    [
-      "信号跳过",
-      sm.signal_skip_rate_pct != null ? `${sm.signal_skip_rate_pct}%` : null,
-      "dual_y / 异号 / 幅度不足等信号层跳过占比",
-    ],
-    [
-      "τw命中",
-      sm.tw_pred_hit_rate_pct != null ? `${sm.tw_pred_hit_rate_pct}%` : null,
-      "ŷ_τw 符号和 vs 五窗真实收益符号和",
-    ],
-    [
-      "τ30命中",
-      sm.t30_pred_hit_rate_pct != null ? `${sm.t30_pred_hit_rate_pct}%` : null,
-      "ŷ_τ30=p_up>0.5 vs 窗收益>0",
-    ],
-    [
-      "τ30旁路",
-      sm.t30_band_hit_rate_pct != null ? `${sm.t30_band_hit_rate_pct}%` : null,
-      "选向与 ŷ_τ30=p_up 同号率（正T p_up≥0.5；选向同号对照）",
-    ],
-    [
-      "τ45命中",
-      sm.t45_pred_hit_rate_pct != null ? `${sm.t45_pred_hit_rate_pct}%` : null,
-      "ŷ_τ45=p_up>0.5 vs 窗收益>0",
-    ],
-    [
-      "τ45旁路",
-      sm.t45_band_hit_rate_pct != null ? `${sm.t45_band_hit_rate_pct}%` : null,
-      "选向与 ŷ_τ45=p_up 同号率（正T p_up≥0.5；选向同号对照）",
-    ],
-    [
-      "τ60命中",
-      sm.t60_pred_hit_rate_pct != null ? `${sm.t60_pred_hit_rate_pct}%` : null,
-      "ŷ_τ60=p_up>0.5 vs 窗收益>0",
-    ],
-    [
-      "τ60旁路",
-      sm.t60_band_hit_rate_pct != null ? `${sm.t60_band_hit_rate_pct}%` : null,
-      "选向与 ŷ_τ60=p_up 同号率（正T p_up≥0.5；选向同号对照）",
-    ],
-    [
-      "τ75命中",
-      sm.t75_pred_hit_rate_pct != null ? `${sm.t75_pred_hit_rate_pct}%` : null,
-      "ŷ_τ75=p_up>0.5 vs 窗收益>0",
-    ],
-    [
-      "τ75旁路",
-      sm.t75_band_hit_rate_pct != null ? `${sm.t75_band_hit_rate_pct}%` : null,
-      "选向与 ŷ_τ75=p_up 同号率（正T p_up≥0.5；选向同号对照）",
-    ],
-    [
-      "τ90命中",
-      sm.t90_pred_hit_rate_pct != null ? `${sm.t90_pred_hit_rate_pct}%` : null,
-      "ŷ_τ90=p_up>0.5 vs 窗收益>0",
-    ],
-    [
-      "τ90旁路",
-      sm.t90_band_hit_rate_pct != null ? `${sm.t90_band_hit_rate_pct}%` : null,
-      "选向与 ŷ_τ90=p_up 同号率（正T p_up≥0.5；选向同号对照）",
-    ],
-  ];
-  const html = chips
-    .filter(([, v]) => v != null)
-    .map(
-      ([k, v, tip]) =>
-        `<span class="paper-t0-viz-kpi has-tip" title="${esc(tip || "")}">` +
-        `<em>${esc(k)}</em><strong>${esc(v)}</strong></span>`
-    )
-    .join("");
-  return html ? `<div class="paper-t0-viz-kpis">${html}</div>` : "";
-}
-
 function legendChips(items) {
   if (!items.length) return "";
   return (
@@ -950,48 +697,6 @@ function legendChips(items) {
           (it.val != null ? `<b>${esc(String(it.val))}</b>` : "") +
           `</span>`
       )
-      .join("") +
-    `</div>`
-  );
-}
-
-function skipLegendHtml(categories, total) {
-  const max = Math.max(1, ...categories.map((c) => Number(c.count || 0)));
-  return (
-    `<div class="paper-t0-viz-skip-legend">` +
-    categories
-      .map((c) => {
-        const cnt = Number(c.count || 0);
-        const pct = c.pct != null ? c.pct : Math.round((cnt / total) * 1000) / 10;
-        const barW = Math.round((cnt / max) * 100);
-        const tip = skipCatTip(c.id, c.label);
-        const payload = {
-          kind: "legend",
-          skipDays: total,
-          breakdown: [
-            {
-              id: c.id,
-              label: c.label,
-              count: cnt,
-              pct,
-              color: resolveSkipColor(c),
-              tip,
-            },
-          ],
-        };
-        return (
-          `<div class="paper-t0-viz-skip-row has-tip" data-skip-tip="${esc(
-            JSON.stringify(payload)
-          )}" tabindex="0">` +
-          `<span class="paper-t0-viz-dot" style="background:${esc(resolveSkipColor(c))}"></span>` +
-          `<span class="paper-t0-viz-skip-label">${esc(c.label)}</span>` +
-          `<span class="paper-t0-viz-skip-bar"><i style="width:${barW}%;background:${esc(
-            resolveSkipColor(c)
-          )}"></i></span>` +
-          `<span class="paper-t0-viz-skip-val">${cnt} <em>${pct}%</em></span>` +
-          `</div>`
-        );
-      })
       .join("") +
     `</div>`
   );
@@ -1015,7 +720,7 @@ export function buildSkipTipHtml(payload) {
   const breakdown = Array.isArray(payload.breakdown) ? payload.breakdown : [];
   if (!breakdown.length) return "";
   const top = breakdown[0];
-  const kind = payload.kind === "legend" ? "跳过构成" : "分票 · 跳过主因";
+  const kind = "分票 · 跳过主因";
   const rows = breakdown
     .map((c, i) => {
       const color = resolveSkipColor(c);
@@ -1063,11 +768,8 @@ export function buildSkipTipHtml(payload) {
     `<span class="paper-t0-skip-tip-eyebrow">${esc(kind)}</span>` +
     `</header>` +
     `<p class="paper-t0-skip-tip-lead">` +
-    (payload.kind === "legend"
-      ? `本类 ${esc(String(top.count ?? 0))} 次` +
-        (top.pct != null ? ` · 占跳过 ${esc(String(top.pct))}%` : "")
-      : `跳过 ${esc(String(skipDays))} 日` +
-        (top.label ? ` · 主因 ${esc(top.label)}` : "")) +
+    `跳过 ${esc(String(skipDays))} 日` +
+    (top.label ? ` · 主因 ${esc(top.label)}` : "") +
     `</p>` +
     stack +
     `<div class="paper-t0-skip-tip-list">${rows}</div>` +
@@ -1335,7 +1037,7 @@ function renderContribSection(rows) {
         )}</span>`
       : "") +
     `</div>` +
-    `<p class="paper-t0-viz-contrib-hint">主因列=跳过构成 Top；悬停看结构化 tip · 多票虚拟仓独立计后合并</p>` +
+    `<p class="paper-t0-viz-contrib-hint">主因列=跳过次数最多的一类；悬停看结构化 tip · 多票虚拟仓独立计后合并</p>` +
     `</div>` +
     renderStockContrib(rows) +
     `</section>`
@@ -1376,7 +1078,6 @@ export function renderT0Viz(host, data) {
     return;
   }
   const viz = data.viz;
-  const sm = viz.summary || {};
   const hasContent =
     (viz.skip_categories && viz.skip_categories.length) ||
     (viz.cumulative_pnl && viz.cumulative_pnl.length) ||
@@ -1420,22 +1121,6 @@ export function renderT0Viz(host, data) {
     );
   }
 
-  if (viz.skip_categories && viz.skip_categories.length) {
-    const total = viz.skip_categories.reduce((s, c) => s + Number(c.count || 0), 0);
-    const top = viz.skip_categories[0];
-    cards.push(
-      vizCard(
-        "跳过构成",
-        `合计 ${total} ${viz.skip_scope === "slot" ? "轮" : "次"}` +
-          (top ? ` · 主因 ${top.label} ${top.pct ?? ""}%` : "") +
-          ` · 悬停扇区/图例看 tip`,
-        skipDonutChartHtml(viz.skip_categories),
-        skipLegendHtml(viz.skip_categories, total),
-        legendChips([{ color: THEME.otherSkip, label: viz.skip_scope === "slot" ? "按未成交轮次" : "按跳过原因" }])
-      )
-    );
-  }
-
   const topSkipLabel =
     viz.skip_categories && viz.skip_categories[0]
       ? `${viz.skip_categories[0].label} ${viz.skip_categories[0].pct ?? ""}%`
@@ -1458,7 +1143,6 @@ export function renderT0Viz(host, data) {
     `</span>` +
     `</div>` +
     `</div>` +
-    renderKpiRow(sm) +
     `<div class="paper-t0-viz-grid">${cards.join("")}</div>` +
     renderContribSection(viz.stock_contrib);
   stampStockFitTiers(host);
@@ -1502,23 +1186,6 @@ export function renderT0Viz(host, data) {
           `<span>其它 <b>${meta.sumOther}</b></span>`,
           `<span>${meta.days} 日窗口</span>`,
         ].join('<span class="sep">·</span>');
-      }
-    }
-
-    const skipDonut = host.querySelector('[data-viz="skip-donut"]');
-    if (skipDonut) {
-      const meta = buildSkipDonutMeta(viz.skip_categories);
-      if (meta) {
-        skipDonut.style.background = meta.gradient;
-        const totalEl = skipDonut.querySelector('[data-role="skip-donut-total"]');
-        if (totalEl) totalEl.textContent = String(meta.total);
-        wireSkipDonutHover(skipDonut, meta);
-      }
-    } else {
-      const skip = host.querySelector('canvas[data-viz="skip"]');
-      if (skip) {
-        const meta = drawSkipDonut(skip, viz.skip_categories);
-        wireSkipDonutHover(skip, meta);
       }
     }
 

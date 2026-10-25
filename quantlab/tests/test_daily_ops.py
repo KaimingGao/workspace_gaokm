@@ -464,21 +464,6 @@ class TestPresetCheck(unittest.TestCase):
         self.assertTrue(out["ok"], msg="; ".join(out.get("failures") or []))
         self.assertIn("quant_paper", out.get("checked") or [])
 
-# --- test_p21_quant.py::TestSignalDiffExportCli ---
-
-class TestSignalDiffExportCli(unittest.TestCase):
-    def test_cli_mocked(self):
-        from research import signal_diff_export_run
-
-        mock = {
-            "success": True,
-            "merged_patch": {"weights": {"momentum": 0.43}},
-        }
-        with patch("research.signal_diff_export_run.QuantService") as mock_cls:
-            mock_cls.return_value.export_config_diff_bundle.return_value = mock
-            code = signal_diff_export_run.main(["--fresh"])
-        self.assertEqual(code, 0)
-
 # --- test_p22_quant.py::TestQuantPaperDailyIntegration ---
 
 class TestQuantPaperDailyIntegration(unittest.TestCase):

@@ -89,6 +89,33 @@ def _horizon_ridge_config(head: str) -> Dict[str, Any]:
     }
 
 
+def horizon_panel_keep_names(head: str) -> List[str]:
+    """拟合常驻列：入模列 + 广度/升格要用的源列。不要把 300 多列字典摊开。"""
+    from core.research.panel_matrix import _breadth_keys
+    from core.research.tau_panel import _HORIZON_SPECS
+    from core.signal.factors.alpha_th import _FEAT_TO_ATH
+
+    cfg = _horizon_ridge_config(head)
+    spec = _HORIZON_SPECS[cfg["head"]]
+    out: List[str] = []
+    seen = set()
+    blobs = (
+        list(cfg["z_features"]),
+        list(_breadth_keys()),
+        list(_FEAT_TO_ATH.keys()),
+        list(spec.seq_features),
+        list(spec.lag_features),
+    )
+    for blob in blobs:
+        for name in blob:
+            key = str(name or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(key)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 字段读写：pick_y_hat / pick_y_label / write_y_hat
 # ---------------------------------------------------------------------------

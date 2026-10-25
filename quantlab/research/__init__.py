@@ -1,1 +1,1 @@
-"""量化研究层：回测、因子报告等（与 Agent Skills 解耦，供 backtest Skill 调用）。"""
+"""薄 CLI 入口：日常任务 / 纸面 / 观察池 / 回测（逻辑在 core 与 quant）。"""

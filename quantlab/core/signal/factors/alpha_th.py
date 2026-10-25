@@ -367,6 +367,53 @@ def promote_ath_head_aliases(dest: Optional[dict], head: str) -> dict:
     return out
 
 
+def _promote_ath_matrix(panel: Dict[str, Any], head: str) -> None:
+    """在 float64 块上把源列抄到 ``raw_ath_*``。源列缺测不覆盖已有值。"""
+    import numpy as np
+
+    X = panel.get("X")
+    if X is None:
+        return
+    arr = np.asarray(X, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[0] == 0:
+        return
+    names = [str(n) for n in (panel.get("x_names") or [])]
+    index = {n: i for i, n in enumerate(names)}
+    pairs: List[Tuple[str, str]] = [
+        (src, ath_raw_key(bare)) for src, bare in _FEAT_TO_ATH.items()
+    ]
+    mapping = _HEAD_PROMOTE.get(str(head or "").strip().lower()) or {}
+    for bare, src in mapping.items():
+        pairs.append((str(src), ath_raw_key(bare)))
+    missing = [dst for _src, dst in pairs if dst not in index]
+    # 去重且保序
+    seen_m = set()
+    missing_u = []
+    for name in missing:
+        if name not in seen_m:
+            seen_m.add(name)
+            missing_u.append(name)
+    if missing_u:
+        pad = np.full((int(arr.shape[0]), len(missing_u)), np.nan, dtype=np.float64)
+        arr = np.concatenate([arr, pad], axis=1)
+        for name in missing_u:
+            index[name] = len(names)
+            names.append(name)
+    for src, dst in pairs:
+        j_src = index.get(src)
+        j_dst = index.get(dst)
+        if j_src is None or j_dst is None:
+            continue
+        src_col = arr[:, j_src]
+        finite = np.isfinite(src_col)
+        if not np.any(finite):
+            continue
+        arr[finite, j_dst] = src_col[finite]
+    panel["X"] = arr
+    panel["x_names"] = names
+    panel.pop("_x_index", None)
+
+
 def stamp_ath_on_panels(
     panels: Sequence[Dict[str, Any]],
     head: str,
@@ -374,6 +421,9 @@ def stamp_ath_on_panels(
     """对已 relabel 的面板逐行补 ``raw_ath_H_*``。"""
     for panel in panels or []:
         if not isinstance(panel, dict):
+            continue
+        if panel.get("X") is not None and not (panel.get("xs") or []):
+            _promote_ath_matrix(panel, head)
             continue
         xs = panel.get("xs")
         if not isinstance(xs, list):

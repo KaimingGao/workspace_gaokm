@@ -437,6 +437,82 @@ class TestIncrementalPanel(unittest.TestCase):
         self.assertGreaterEqual(len(keep_dates), 4)
         self.assertEqual(int(y.shape[0]), len(keep_dates))
 
+    def test_slice_end_lag_keeps_overlap_and_drops_newer_rows(self) -> None:
+        """拟合末日早于湖：默认拒绝；允许时只留重叠后缀，不含湖里更新的一天。"""
+        from unittest.mock import patch
+
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import (
+            stem_extra_meta,
+            try_slice_shorter_lookback,
+        )
+        from core.research.lake_bridge import FAMILY_OO
+        from core.research.panel_fingerprint import make_fingerprint
+
+        full = _bars(36, seed=4)
+        behind = full[:-1]
+        short = behind[-18:]
+        meta = stem_extra_meta(full)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, ridge_core_only=0)
+        dates = [str(b["date"])[:10] for b in full]
+        write_stock_panel(
+            FAMILY_OO,
+            "000002",
+            dates=dates,
+            X=np.asarray([[float(i)] for i in range(len(dates))]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([0.2] * len(dates)),
+            extra_meta=meta,
+        )
+
+        def _spec(bars_fp: str) -> str:
+            return make_fingerprint(bars_fp=bars_fp, horizon=1, ridge_core_only=0)
+
+        with patch(
+            "core.research.incremental_panel._offline_daily_bars",
+            return_value=list(full),
+        ):
+            blocked = try_slice_shorter_lookback(
+                "000002",
+                short,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+                names=["f"],
+            )
+            sliced = try_slice_shorter_lookback(
+                "000002",
+                short,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+                names=["f"],
+                allow_end_lag=True,
+            )
+        self.assertIsNone(blocked)
+        self.assertIsNotNone(sliced)
+        assert sliced is not None
+        _x, _y, names, keep_dates = sliced
+        self.assertEqual(names, ["f"])
+        self.assertNotIn(dates[-1], keep_dates)
+        self.assertEqual(keep_dates[-1], str(short[-1]["date"])[:10])
+        self.assertGreaterEqual(len(keep_dates), 4)
+        # 中间一根被改过就不是真后缀
+        mutated = [dict(b) for b in short]
+        mutated[3]["close"] = float(mutated[3]["close"]) + 1.0
+        with patch(
+            "core.research.incremental_panel._offline_daily_bars",
+            return_value=list(full),
+        ):
+            dirty = try_slice_shorter_lookback(
+                "000002",
+                mutated,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+                names=["f"],
+                allow_end_lag=True,
+            )
+        self.assertIsNone(dirty)
+
     def test_slice_shorter_lookback_without_n_bars(self) -> None:
         from unittest.mock import patch
 

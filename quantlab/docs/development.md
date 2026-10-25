@@ -173,7 +173,6 @@ cd quantlab
 bash scripts/setup_quant.sh                              # watching + 纸面 init
 python3 research/daily_run.py --preset quant --json      # 每日量化
 python3 research/daily_run.py --preset quant_paper --json # 量化 + 纸面调仓
-python3 research/signal_diff_export_run.py --fresh       # 导出 diff 合并包
 python3 evals/run_checklist.py --mock --presets          # golden + preset 校验
 python3 run_web.py                                       # Web → 顶栏工具页
 ```
@@ -186,12 +185,10 @@ README 仅列最常用命令；以下脚本按需调用：
 |------|------|
 | `python3 research/watching_run.py --init` / `--refresh` / `--show` | 从 `watching.example.json` 生成 `watching.json`（已存在则拒绝覆盖）/ 按 `sources` 刷新（空 `sources` 只补名称）/ 查看 |
 | `python3 research/paper_run.py --init` / `--run` | 纸面账户初始化 / 运行 |
-| `python3 research/paper_rebalance_run.py --top-k 3 --json` | 纸面调仓（Top-K） |
 | `python3 research/cross_section_run.py --limit 10` | 横截面回测 |
 | `python3 research/t0_backtest_run.py --code 茅台 --json` | 底仓做T模拟 |
-| `python3 research/threshold_suggest_run.py --code 茅台 --json` | 阈值建议 |
-| `python3 research/factor_experiment.py --code 茅台` | 因子实验 |
-| `python3 research/quant_export_run.py --format html -o /tmp/quant_daily.html` | 量化报告导出 |
+| `python3 research/sample_ops_run.py status` / `ingest-history` | 样本运营：TTM / 财务 history / 快照覆盖 |
+| `python3 research/daily_run.py --quant-report --export-quant-report` | 量化报告导出 |
 | `bash scripts/daily_quant.sh && bash scripts/daily_check.sh` | 每日量化 + 校验 |
 | `bash scripts/ci_quant.sh` | 本地 CI 全量（单测 · repro · checklist · daily eval-mock） |
 

@@ -32,6 +32,21 @@ def stem_bars_fingerprint(bars: Sequence[dict]) -> str:
     return bars_fingerprint(seq[:-1])
 
 
+def _bars_on_or_before(bars: Sequence[dict], end: str) -> List[dict]:
+    """只留日期不晚于 ``end`` 的 K 线（保序）。``end`` 空则原样返回。"""
+    day = str(end or "")[:10]
+    if len(day) < 10:
+        return [b for b in (bars or []) if isinstance(b, dict)]
+    out: List[dict] = []
+    for b in bars or []:
+        if not isinstance(b, dict):
+            continue
+        d = str(b.get("date") or b.get("trade_date") or "")[:10]
+        if len(d) >= 10 and d <= day:
+            out.append(b)
+    return out
+
+
 def bar_end_date(bars: Sequence[dict]) -> str:
     seq = [b for b in (bars or []) if isinstance(b, dict)]
     if not seq:
@@ -374,14 +389,39 @@ def try_slice_shorter_lookback(
     spec_fp: Callable[[str], str],
     names: Optional[Sequence[str]] = None,
     min_rows: int = 4,
-) -> Optional[Tuple[np.ndarray, np.ndarray, List[str], List[str]]]:
+    with_m: bool = False,
+    allow_end_lag: bool = False,
+) -> Optional[Tuple]:
     """物化长窗、拟合短窗：当前 bars 是湖序列真后缀时，切 L1 重叠决策日。
 
     只读切片，不重算。口径（horizon / 钟等）须与湖一致。
     ``names`` 给定时按列名对齐；``min_rows`` 为最少决策日。
+    ``with_m=True`` 时多返回按同一行切开的 ``M`` 与 ``m_names``
+    （无价矩阵则为 ``None, []``）。
+    ``allow_end_lag=True``：拟合末日早于或晚于湖时，只留双方都有的日期，
+    且这段 K 线必须是湖序列在该末日上的真后缀。默认仍要求末日相同。
     """
     if not family or not code:
         return None
+    # 口径不符时先看 meta，避免为了拒绝去读整份 npz
+    try:
+        from core.research.feature_lake import read_stock_meta
+
+        preview = read_stock_meta(family, code) or {}
+    except Exception:  # noqa: BLE001
+        preview = {}
+    if isinstance(preview, dict):
+        pre_fp = str(preview.get("fingerprint") or "")
+        pre_bars = str(preview.get("bars_fp") or "")
+        if pre_fp and pre_bars:
+            try:
+                if spec_fp(pre_bars) != pre_fp:
+                    return None
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "slice lookback spec_fp failed code=%s", code, exc_info=True
+                )
+                return None
     prev = load_l1_any(family, code)
     if prev is None or prev.get("X") is None or prev.get("y") is None:
         return None
@@ -419,7 +459,8 @@ def try_slice_shorter_lookback(
         n_hint = 0
     meta_end = str(meta.get("end_date") or "")[:10]
     seq_end = bar_end_date(seq)
-    if meta_end and seq_end and meta_end != seq_end:
+    ends_differ = bool(meta_end and seq_end and meta_end != seq_end)
+    if ends_differ and not allow_end_lag:
         return None
     from core.research.panel_fingerprint import bars_fingerprint
 
@@ -429,26 +470,41 @@ def try_slice_shorter_lookback(
         n_hint=n_hint,
         min_len=len(seq) + 1,
     )
-    if len(lake_bars) <= len(seq):
+    seq_use = seq
+    lake_use = lake_bars
+    common_end = ""
+    if ends_differ and allow_end_lag:
+        common_end = min(meta_end, seq_end)
+        seq_use = _bars_on_or_before(seq, common_end)
+        lake_use = _bars_on_or_before(lake_bars, common_end)
+        if len(seq_use) < need_rows:
+            return None
+    if len(lake_use) < len(seq_use):
         return None
-    if bars_fingerprint(lake_bars[-len(seq) :]) != bars_fingerprint(seq):
+    if len(lake_use) == len(seq_use) and not (ends_differ and allow_end_lag):
+        return None
+    if bars_fingerprint(lake_use[-len(seq_use) :]) != bars_fingerprint(seq_use):
         return None
     bar_days = {
         str(b.get("date") or b.get("trade_date") or "")[:10]
-        for b in seq
+        for b in seq_use
         if len(str(b.get("date") or b.get("trade_date") or "")[:10]) >= 10
     }
-    # 只要 L1 决策日后缀整段落在短窗日历里（避免中间抽日）
-    k = len(old_dates)
+    # 先丢掉晚于共同末日的行，再取落在短窗里的连续后缀（避免中间抽日）
+    end_i = len(old_dates)
+    if common_end:
+        while end_i > 0 and old_dates[end_i - 1] > common_end:
+            end_i -= 1
+    k = end_i
     while k > 0 and old_dates[k - 1] in bar_days:
         k -= 1
-    idxs = list(range(k, len(old_dates)))
+    idxs = list(range(k, end_i))
     if len(idxs) < need_rows:
         return None
     if any(old_dates[i] not in bar_days for i in idxs):
         return None
     keep_dates = [old_dates[i] for i in idxs]
-    if not lake_row_covers_bar_end(keep_dates, seq, meta):
+    if not lake_row_covers_bar_end(keep_dates, seq_use, meta):
         return None
     got_names = [str(n) for n in (prev.get("names") or [])]
     want = [str(n) for n in names] if names is not None else got_names
@@ -462,12 +518,27 @@ def try_slice_shorter_lookback(
         len(old_dates),
         len(idxs),
     )
-    return (
+    row_idx = np.asarray(idxs, dtype=np.int64)
+    packed: Tuple = (
         aligned,
-        old_y[np.asarray(idxs, dtype=np.int64)],
+        old_y[row_idx],
         want,
         keep_dates,
     )
+    if not with_m:
+        return packed
+    m_names = [str(n) for n in (meta.get("m_names") or [])]
+    M_out = None
+    raw_m = prev.get("M")
+    if raw_m is not None:
+        Marr = np.asarray(raw_m, dtype=np.float64)
+        if Marr.ndim == 2 and int(Marr.shape[0]) == len(old_dates):
+            sliced_m = Marr[row_idx]
+            if not m_names or int(sliced_m.shape[1]) == len(m_names):
+                M_out = sliced_m
+            else:
+                m_names = []
+    return packed + (M_out, m_names)
 
 
 def try_incremental_merge(

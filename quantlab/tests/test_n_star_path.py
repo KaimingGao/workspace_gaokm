@@ -140,7 +140,7 @@ class TestP1QualityGate(unittest.TestCase):
         self.assertIn("max_sector_pct", r)
 
     def test_rolling_walk_forward_slices(self):
-        from research.split import rolling_walk_forward_slices
+        from core.research.split import rolling_walk_forward_slices
 
         folds = rolling_walk_forward_slices(120, n_splits=3, min_train=40, min_test=12)
         self.assertEqual(len(folds), 3)

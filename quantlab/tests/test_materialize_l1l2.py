@@ -987,6 +987,491 @@ class HorizonL1StitchTests(unittest.TestCase):
         self.assertIsNone(miss)
         self.assertEqual(len(META_PX_KEYS), 6)
 
+    def test_stitch_slices_shorter_fit_lookback(self):
+        """物化 长窗、拟合短窗：同末日真后缀切重叠日，并带上 price_tau*。"""
+        import tempfile
+        from unittest.mock import patch
+
+        from core.research.feature_lake import write_stock_panel
+        from core.research.horizon_l1 import (
+            horizon_tau_clock_fingerprint,
+            try_stitch_horizon_l1_panel,
+        )
+        from core.research.incremental_panel import stem_extra_meta
+        from core.research.lake_bridge import family_for_tc
+        from tests.test_incremental_panel import _bars
+
+        full = _bars(40, seed=3)
+        short = full[-16:]
+        clock = "10:30"
+        names = ["f1", "f2"]
+        dates = [str(b["date"])[:10] for b in full]
+        meta = stem_extra_meta(full)
+        fp = horizon_tau_clock_fingerprint(
+            full,
+            clock,
+            min_history=2,
+            include_alpha_tc=True,
+            include_alpha_th=True,
+            bars_fp=meta["bars_fp"],
+        )
+        X = np.asarray([[float(i), float(i) + 0.5] for i in range(len(dates))])
+        y = np.asarray([0.1] * len(dates))
+        M = np.column_stack(
+            [
+                np.full(len(dates), 1030.0),
+                np.full(len(dates), 10.0),
+                np.full(len(dates), 10.3),
+                np.full(len(dates), np.nan),
+                np.full(len(dates), np.nan),
+                np.full(len(dates), np.nan),
+                np.full(len(dates), np.nan),
+            ]
+        )
+        m_names = [
+            "tau_hm",
+            "price_tau",
+            "price_tau30",
+            "price_tau45",
+            "price_tau60",
+            "price_tau75",
+            "price_tau90",
+        ]
+        meta["m_names"] = list(m_names)
+        prev = {
+            "QUANTLAB_FEATURE_LAKE_DIR": os.environ.get("QUANTLAB_FEATURE_LAKE_DIR"),
+            "QUANTLAB_FEATURE_LAKE": os.environ.get("QUANTLAB_FEATURE_LAKE"),
+        }
+        tmp = tempfile.TemporaryDirectory()
+        os.environ["QUANTLAB_FEATURE_LAKE_DIR"] = tmp.name
+        os.environ["QUANTLAB_FEATURE_LAKE"] = "1"
+        try:
+            self.assertTrue(
+                write_stock_panel(
+                    family_for_tc(tau_hm=clock),
+                    "300750",
+                    dates=dates,
+                    X=X,
+                    names=names,
+                    fingerprint=fp,
+                    y=y,
+                    extra_meta=meta,
+                    M=M,
+                    m_names=m_names,
+                )
+            )
+            with patch(
+                "core.research.incremental_panel._offline_daily_bars",
+                return_value=list(full),
+            ), patch(
+                "core.research.materialize.horizon_names.horizon_l1_feature_names",
+                return_value=names,
+            ), patch(
+                "core.research.panel_matrix._tc_matrix_seed_names",
+                return_value=names,
+            ):
+                panel = try_stitch_horizon_l1_panel(
+                    "300750",
+                    short,
+                    [clock],
+                    min_history=2,
+                    include_alpha_tc=True,
+                    include_alpha_th=True,
+                )
+        finally:
+            for k, v in prev.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            tmp.cleanup()
+        self.assertIsNotNone(panel)
+        assert panel is not None
+        self.assertTrue(panel.get("l1_stitched"))
+        self.assertEqual(len(panel["xs"]), len(short))
+        self.assertEqual(panel["dates"][0], str(short[0]["date"])[:10])
+        self.assertAlmostEqual(float(panel["metas"][0]["price_tau"]), 10.0)
+        self.assertAlmostEqual(float(panel["metas"][0]["price_tau30"]), 10.3)
+        self.assertNotIn("minute_bars", panel)
+
+    def test_stitch_keeps_other_clock_when_one_fails(self):
+        """某一钟读盘失败时留下其余钟，命中过半仍算 L1。"""
+        import numpy as np
+
+        from core.research.horizon_l1 import try_stitch_horizon_l1_panel
+        from core.research.lake_bridge import family_for_tc
+
+        dates = ["2026-01-02", "2026-01-03", "2026-01-06", "2026-01-07"]
+        names = ["f1", "f2"]
+        X = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]])
+        y = np.array([0.1, 0.2, 0.3, 0.4])
+        M = np.column_stack(
+            [
+                np.full(4, 1030.0),
+                np.full(4, 10.0),
+                np.full(4, 10.2),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+            ]
+        )
+        m_names = [
+            "tau_hm",
+            "price_tau",
+            "price_tau30",
+            "price_tau45",
+            "price_tau60",
+            "price_tau75",
+            "price_tau90",
+        ]
+        bad = family_for_tc(tau_hm="11:00")
+
+        def _pack(family, code, fingerprint=None):
+            if str(family) == bad:
+                raise RuntimeError("bad npz")
+            return {
+                "X": X,
+                "y": y,
+                "dates": dates,
+                "names": names,
+                "M": M,
+                "_meta": {"m_names": m_names},
+            }
+
+        bars = [
+            {"date": d, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+            for d in dates
+        ]
+        bars += [
+            {"date": "2026-01-08", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+        ] * 12
+        with mock.patch(
+            "core.research.feature_lake.enabled", return_value=True
+        ), mock.patch(
+            "core.research.feature_lake.load_stock_panel", side_effect=_pack
+        ), mock.patch(
+            "core.research.materialize.horizon_names.horizon_l1_feature_names",
+            return_value=names,
+        ), mock.patch(
+            "core.research.panel_matrix._tc_matrix_seed_names",
+            return_value=names,
+        ):
+            panel = try_stitch_horizon_l1_panel(
+                "000001",
+                bars,
+                ["10:30", "11:00"],
+                min_history=2,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+            )
+        self.assertIsNotNone(panel)
+        assert panel is not None
+        self.assertEqual(panel.get("l1_clocks_hit"), 1)
+        self.assertEqual(panel.get("l1_clocks_req"), 2)
+        self.assertEqual(len(panel["xs"]), 4)
+        self.assertTrue(all(m.get("tau") == "10:30" for m in panel["metas"]))
+
+    def test_stitch_realigns_column_order(self):
+        import numpy as np
+
+        from core.research.horizon_l1 import try_stitch_horizon_l1_panel
+
+        dates = ["2026-01-02", "2026-01-03", "2026-01-06", "2026-01-07"]
+        # 湖里列序是 f2, f1；拟合要 f1, f2。值：f2=行号，f1=行号+10
+        X = np.array([[0.0, 10.0], [1.0, 11.0], [2.0, 12.0], [3.0, 13.0]])
+        y = np.array([0.1, 0.2, 0.3, 0.4])
+        M = np.column_stack(
+            [
+                np.full(4, 1030.0),
+                np.full(4, 9.0),
+                np.full(4, 9.5),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+            ]
+        )
+        m_names = [
+            "tau_hm",
+            "price_tau",
+            "price_tau30",
+            "price_tau45",
+            "price_tau60",
+            "price_tau75",
+            "price_tau90",
+        ]
+
+        def _pack(family, code, fingerprint=None):
+            return {
+                "X": X,
+                "y": y,
+                "dates": dates,
+                "names": ["f2", "f1"],
+                "M": M,
+                "_meta": {"m_names": m_names},
+            }
+
+        bars = [
+            {"date": d, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+            for d in dates
+        ]
+        bars += [
+            {"date": "2026-01-08", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+        ] * 12
+        with mock.patch(
+            "core.research.feature_lake.enabled", return_value=True
+        ), mock.patch(
+            "core.research.feature_lake.load_stock_panel", side_effect=_pack
+        ), mock.patch(
+            "core.research.materialize.horizon_names.horizon_l1_feature_names",
+            return_value=["f1", "f2"],
+        ), mock.patch(
+            "core.research.panel_matrix._tc_matrix_seed_names",
+            return_value=["f1", "f2"],
+        ):
+            panel = try_stitch_horizon_l1_panel(
+                "000001",
+                bars,
+                ["10:30"],
+                min_history=2,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+            )
+        self.assertIsNotNone(panel)
+        assert panel is not None
+        self.assertAlmostEqual(float(panel["xs"][0]["f1"]), 10.0)
+        self.assertAlmostEqual(float(panel["xs"][0]["f2"]), 0.0)
+        self.assertAlmostEqual(float(panel["xs"][3]["f1"]), 13.0)
+
+    def test_stitch_slice_allows_end_lag(self):
+        from core.research.horizon_l1 import try_stitch_horizon_l1_panel
+
+        seen = {}
+
+        def _slice(*_args, **kwargs):
+            seen["allow_end_lag"] = kwargs.get("allow_end_lag")
+            return None
+
+        names = ["f1"]
+        bars = [
+            {
+                "date": f"2026-01-{i:02d}",
+                "open": 1,
+                "high": 1,
+                "low": 1,
+                "close": 1,
+                "volume": 1,
+            }
+            for i in range(2, 22)
+        ]
+        with mock.patch(
+            "core.research.feature_lake.enabled", return_value=True
+        ), mock.patch(
+            "core.research.feature_lake.load_stock_panel", return_value=None
+        ), mock.patch(
+            "core.research.incremental_panel.try_slice_shorter_lookback",
+            side_effect=_slice,
+        ), mock.patch(
+            "core.research.materialize.horizon_names.horizon_l1_feature_names",
+            return_value=names,
+        ), mock.patch(
+            "core.research.panel_matrix._tc_matrix_seed_names",
+            return_value=names,
+        ):
+            panel = try_stitch_horizon_l1_panel(
+                "000001",
+                bars,
+                ["10:30"],
+                min_history=2,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+            )
+        self.assertIsNone(panel)
+        self.assertTrue(seen.get("allow_end_lag"))
+
+    def test_stitch_matrix_does_not_expand_dicts(self):
+        """全池拟合走 float64 块，不把每一列摊成 dict。"""
+        import numpy as np
+
+        from core.research.horizon_compact import fold_horizon_enriched
+        from core.research.horizon_l1 import try_stitch_horizon_l1_panel
+        from core.research.tau_panel import relabel_tau_panels_as_t30
+
+        dates = ["2026-01-02", "2026-01-03", "2026-01-06", "2026-01-07"]
+        names = ["f1", "gap_pct", "ret_last_30m"]
+        X = np.array(
+            [
+                [1.0, 2.0, 0.5],
+                [3.0, -1.0, 0.2],
+                [5.0, 4.0, -0.1],
+                [7.0, 0.0, 0.3],
+            ]
+        )
+        y = np.array([0.1, 0.2, 0.3, 0.4])
+        M = np.column_stack(
+            [
+                np.full(4, 1030.0),
+                np.full(4, 10.0),
+                np.full(4, 10.4),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+                np.full(4, np.nan),
+            ]
+        )
+        m_names = [
+            "tau_hm",
+            "price_tau",
+            "price_tau30",
+            "price_tau45",
+            "price_tau60",
+            "price_tau75",
+            "price_tau90",
+        ]
+
+        def _pack(family, code, fingerprint=None):
+            return {
+                "X": X,
+                "y": y,
+                "dates": dates,
+                "names": names,
+                "M": M,
+                "_meta": {"m_names": m_names},
+            }
+
+        bars = [
+            {"date": d, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+            for d in dates
+        ]
+        bars += [
+            {"date": "2026-01-08", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+        ] * 12
+        with mock.patch(
+            "core.research.feature_lake.enabled", return_value=True
+        ), mock.patch(
+            "core.research.feature_lake.load_stock_panel", side_effect=_pack
+        ), mock.patch(
+            "core.research.materialize.horizon_names.horizon_l1_feature_names",
+            return_value=names,
+        ), mock.patch(
+            "core.research.panel_matrix._tc_matrix_seed_names",
+            return_value=names,
+        ):
+            panel = try_stitch_horizon_l1_panel(
+                "000001",
+                bars,
+                ["10:30", "11:00"],
+                min_history=2,
+                include_alpha_tc=True,
+                include_alpha_th=True,
+                as_matrix=True,
+                project_names=["f1", "gap_pct", "ret_last_30m", "t30_lag1"],
+            )
+        self.assertIsNotNone(panel)
+        assert panel is not None
+        self.assertEqual(panel.get("xs"), [])
+        self.assertEqual(panel["X"].shape, (8, 4))
+        self.assertEqual(panel["x_names"][0], "f1")
+        self.assertEqual(panel["metas"][0].get("tau"), "10:30")
+        self.assertNotIn("l1_family", panel["metas"][0])
+        self.assertNotIn("stock_code", panel["metas"][0])
+        self.assertAlmostEqual(float(panel["metas"][0]["price_tau"]), 10.0)
+        labeled = relabel_tau_panels_as_t30([panel])
+        self.assertEqual(len(labeled), 1)
+        self.assertEqual(labeled[0].get("xs"), [])
+        self.assertEqual(labeled[0]["X"].shape[0], 8)
+        self.assertIn("t30_lag1", labeled[0]["x_names"])
+        compact = fold_horizon_enriched(labeled, ["f1", "gap_pct"], clear_panels=True)
+        self.assertEqual(compact["X"].shape, (8, 2))
+        self.assertAlmostEqual(float(compact["X"][0, 0]), 1.0)
+
+    def test_breadth_matrix_stamps_theme_on_slim_meta(self):
+        import numpy as np
+
+        from core.research.tau_panel import attach_cross_section_breadth
+
+        panel = {
+            "code": "000001",
+            "xs": [],
+            "X": np.array([[3.0, 1.0], [0.2, 0.4]], dtype=np.float64),
+            "x_names": ["gap_pct", "ret_open_to_tau"],
+            "ys": [0.1, 0.2],
+            "dates": ["2026-01-02", "2026-01-02"],
+            "metas": [
+                {"tau": "10:30", "price_tau": 10.0},
+                {"tau": "11:00", "price_tau": 10.1},
+            ],
+        }
+        out = attach_cross_section_breadth([panel], gap_trigger_pct=2.0)
+        self.assertEqual(out[0].get("xs"), [])
+        self.assertIn("theme_day", out[0]["x_names"])
+        self.assertIn("theme_day", out[0]["metas"][0])
+        self.assertIn("gap_pct", out[0]["metas"][0])
+
+    def test_memory_stop_before_the_process_is_killed(self):
+        from core.research.horizon_l1 import (
+            TAU_PANEL_BYTE_BUDGET,
+            fit_memory_stop_reason,
+        )
+
+        self.assertEqual(
+            fit_memory_stop_reason(panel_bytes=0, rss_bytes=0, ram_bytes=8 * 1024**3),
+            "",
+        )
+        self.assertIn(
+            "内存保护",
+            fit_memory_stop_reason(
+                panel_bytes=TAU_PANEL_BYTE_BUDGET,
+                rss_bytes=0,
+                ram_bytes=8 * 1024**3,
+            ),
+        )
+        # 8GB 机器上进程到大约 5GB 就停，给系统和浏览器留余量
+        self.assertIn(
+            "内存保护",
+            fit_memory_stop_reason(
+                panel_bytes=0,
+                rss_bytes=6 * 1024**3,
+                ram_bytes=8 * 1024**3,
+            ),
+        )
+        from core.research.horizon_l1 import physical_ram_bytes, process_rss_bytes
+
+        rss = process_rss_bytes()
+        ram = physical_ram_bytes()
+        self.assertGreater(rss, 1024 * 1024)
+        self.assertLess(rss, ram)
+
+    def test_stale_footprint_is_reread_after_releasing_pages(self):
+        from core.research.horizon_l1 import (
+            confirm_fit_memory_stop,
+            release_allocator_cache,
+        )
+
+        release_allocator_cache()
+        ram = 8 * 1024**3
+        # 上一头留下的水位：归还空闲页后再量，已经回到安全区就继续
+        self.assertEqual(
+            confirm_fit_memory_stop(
+                panel_bytes=0,
+                rss_bytes=6 * 1024**3,
+                ram_bytes=ram,
+                reread_rss=lambda: 1024**3,
+            ),
+            "",
+        )
+        # 归还之后进程仍撑满，才停
+        self.assertIn(
+            "内存保护",
+            confirm_fit_memory_stop(
+                panel_bytes=1024,
+                rss_bytes=6 * 1024**3,
+                ram_bytes=ram,
+                reread_rss=lambda: 6 * 1024**3,
+            ),
+        )
+
     def test_meta_price_matrix_roundtrip(self):
         from core.research.horizon_l1 import (
             meta_price_matrix_from_rows,

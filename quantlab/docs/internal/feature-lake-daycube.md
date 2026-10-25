@@ -109,7 +109,7 @@ L2  DayCube          date × universe_id × clock
 
 载荷：`X[n,p]`、`dates[n]`、可选 `y[n]`；可选 `M[n,m]`（`price_tau*` 等行级 meta，不进 L2）；meta 含 `fingerprint`、`names`、`m_names`。
 
-**ŷ_τ* 拟合与 L1（H6）**：建面板优先 `hz_*` → 按钟 stitch `tc_HHMM`（日线 `bars_fp`，不吃 5m）→ 未命中再读本地分钟现算。进度文案：`L1命中… · 5m回退…`。产品消费路径 **fail-closed**：`l1_tau_coverage` cold / 探测失败 / 湖关闭 → `materialize_required`；建面板实际 L1 命中 ≤50%（含指纹 miss 导致大面积 5m）提前或收尾阻断，避免热探测误放行后整池啃 5m。脚本/单测未开只读仍可回退。旧含分钟指纹、或无 `M` 的 τ 网格 L1 会 miss，须重跑「分钟线物化 L1/L2」。
+**ŷ_τ* 拟合与 L1（H6）**：建面板优先 `hz_*` → 按钟 stitch `tc_HHMM`（日线 `bars_fp`，不吃 5m）→ 未命中再读本地分钟现算。拟合窗与物化窗末日不同时，只留双方都有、且仍是湖序列真后缀的日期（含 `M`/`price_tau*`）。单钟损坏或列序不同则跳过该钟，命中钟数过半才算这只股票的 L1。进度文案：`L1命中… · 5m回退…`。入模列留在 float64 矩阵里。面板数据超过 3GB，或进程当前占用超过机器内存约六成时，任务停在「内存保护」并放掉已建面板。产品消费路径 **fail-closed**：`l1_tau_coverage` cold / 探测失败 / 湖关闭 → `materialize_required`；建面板实际 L1 命中 ≤50%（含指纹 miss 导致大面积 5m）提前或收尾阻断，避免热探测误放行后整池啃 5m。脚本/单测未开只读仍可回退。旧含分钟指纹、或无 `M` 的 τ 网格 L1 会 miss，须重跑「分钟线物化 L1/L2」。
 
 API 要点：
 

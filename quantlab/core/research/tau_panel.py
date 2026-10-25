@@ -9,6 +9,8 @@ import logging
 import math
 from dataclasses import dataclass
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 from statistics import median, stdev
 from typing import Any, Collection, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -371,6 +373,36 @@ def _attach_horizon_lags_to_panel(
     return panel
 
 
+def _upsert_matrix_column(
+    X: np.ndarray,
+    names: Sequence[str],
+    key: str,
+    values: Sequence[float],
+) -> Tuple[np.ndarray, List[str]]:
+    """把一列写进矩阵。已有列只覆盖有限值。"""
+    arr = np.asarray(X, dtype=np.float64)
+    cols = [str(n) for n in names]
+    index = {n: i for i, n in enumerate(cols)}
+    col = np.full((int(arr.shape[0]),), np.nan, dtype=np.float64)
+    for i, raw in enumerate(values):
+        if i >= col.shape[0]:
+            break
+        try:
+            fv = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if fv == fv:
+            col[i] = fv
+    j = index.get(str(key))
+    if j is None:
+        arr = np.concatenate([arr, col.reshape(-1, 1)], axis=1)
+        cols.append(str(key))
+        return arr, cols
+    finite = np.isfinite(col)
+    arr[finite, j] = col[finite]
+    return arr, cols
+
+
 def _relabel_tau_panels_as_horizon(
     enriched: Sequence[Dict[str, Any]],
     spec: HorizonSpec,
@@ -383,11 +415,19 @@ def _relabel_tau_panels_as_horizon(
         xs_in = list(p.get("xs") or [])
         dates_in = list(p.get("dates") or [])
         metas_in = list(p.get("metas") or [])
-        n = min(len(xs_in), len(dates_in), len(metas_in))
+        X_in = p.get("X")
+        matrix_mode = X_in is not None and not xs_in
+        if matrix_mode:
+            X_arr = np.asarray(X_in, dtype=np.float64)
+            n = min(int(X_arr.shape[0]), len(dates_in), len(metas_in))
+        else:
+            X_arr = None
+            n = min(len(xs_in), len(dates_in), len(metas_in))
         xs: List[Any] = []
         ys: List[float] = []
         dates: List[str] = []
         metas: List[Dict[str, Any]] = []
+        keep_idx: List[int] = []
         for i in range(n):
             m = metas_in[i] if isinstance(metas_in[i], dict) else {}
             pxN = m.get(spec.px_key)
@@ -411,7 +451,13 @@ def _relabel_tau_panels_as_horizon(
             yt = y_t30_pct(px_tau, pxN)
             if yt is None:
                 continue
-            row_x = dict(xs_in[i]) if isinstance(xs_in[i], dict) else {}
+            keep_idx.append(i)
+            if matrix_mode:
+                row_x = {}
+                meta = m if isinstance(m, dict) else {}
+            else:
+                row_x = dict(xs_in[i]) if isinstance(xs_in[i], dict) else {}
+                meta = dict(m)
             for k in spec.seq_features:
                 if k in spec.lag_features:
                     continue
@@ -420,7 +466,6 @@ def _relabel_tau_panels_as_horizon(
             xs.append(row_x)
             ys.append(float(yt))
             dates.append(dates_in[i])
-            meta = dict(m)
             if px_tau is not None:
                 meta["price_tau"] = px_tau
             meta[spec.y_key] = float(yt)
@@ -437,7 +482,24 @@ def _relabel_tau_panels_as_horizon(
         row["ys"] = ys
         row["dates"] = dates
         row["metas"] = metas
-        _attach_horizon_lags_to_panel(row, spec)
+        if matrix_mode and X_arr is not None and keep_idx:
+            if len(keep_idx) == n and n == int(X_arr.shape[0]):
+                kept = X_arr
+            else:
+                kept = X_arr[np.asarray(keep_idx, dtype=np.int64)]
+            x_names = [str(n) for n in (p.get("x_names") or [])]
+            row["xs"] = xs
+            _attach_horizon_lags_to_panel(row, spec)
+            for key in spec.lag_features:
+                vals = [
+                    (r.get(key) if isinstance(r, dict) else None) for r in row["xs"]
+                ]
+                kept, x_names = _upsert_matrix_column(kept, x_names, key, vals)
+            row["X"] = kept
+            row["x_names"] = x_names
+            row["xs"] = []
+        else:
+            _attach_horizon_lags_to_panel(row, spec)
         out.append(row)
     return out
 
@@ -1626,6 +1688,38 @@ def _optional_feat_float(v: Any) -> Optional[float]:
         return None
 
 
+def _feat_from_matrix(
+    X: Any,
+    index: Optional[Dict[str, int]],
+    i: int,
+    key: str,
+) -> Optional[float]:
+    if X is None or not index:
+        return None
+    j = index.get(str(key))
+    if j is None:
+        return None
+    arr = np.asarray(X)
+    if arr.ndim != 2 or i < 0 or i >= arr.shape[0] or j >= arr.shape[1]:
+        return None
+    try:
+        fv = float(arr[i, j])
+    except (TypeError, ValueError):
+        return None
+    if fv != fv:
+        return None
+    return fv
+
+
+def _matrix_index(panel: Dict[str, Any]) -> Dict[str, int]:
+    cached = panel.get("_x_index")
+    if isinstance(cached, dict) and cached:
+        return cached
+    index = {str(n): i for i, n in enumerate(panel.get("x_names") or [])}
+    panel["_x_index"] = index
+    return index
+
+
 def _row_or_meta_feat(
     xs_p: Sequence[dict], i: int, meta: dict, key: str
 ) -> Optional[float]:
@@ -1663,6 +1757,112 @@ def _write_sector_horizon_ret(
             meta[vs_key] = xs_row[vs_key]
 
 
+def _fill_breadth_matrix(
+    panel: Dict[str, Any],
+    *,
+    breadth_by_date: Dict[str, float],
+    theme_by_date: Dict[str, int],
+    gaps_by_date: Dict[str, List[float]],
+    ref_by_date: Dict[str, Dict[str, Optional[float]]],
+    sector_ret_by_date_tau: Dict[Tuple[str, str], Optional[float]],
+    sector_horizon_by_date_tau: Dict[str, Dict[Tuple[str, str], Optional[float]]],
+    gap_trigger_pct: float,
+) -> Dict[str, Any]:
+    """把截面广度写回 float64 块，不建逐行 dict。"""
+    X = np.asarray(panel.get("X"), dtype=np.float64)
+    names = [str(n) for n in (panel.get("x_names") or [])]
+    dates = list(panel.get("dates") or [])
+    metas = list(panel.get("metas") or [])
+    n = min(int(X.shape[0]), len(dates))
+    if n <= 0:
+        return panel
+    index = {name: i for i, name in enumerate(names)}
+    code_p = str(panel.get("code") or "").strip()
+    keys = [
+        "sector_gap_breadth",
+        "theme_day",
+        "gap_vs_sector",
+        "sector_ret_to_tau",
+        "ret_vs_sector",
+    ]
+    for _ret_key, sector_key, vs_key in HORIZON_SEQ_CS_SPECS:
+        keys.extend([sector_key, vs_key])
+    missing = [k for k in keys if k not in index]
+    if missing:
+        pad = np.full((int(X.shape[0]), len(missing)), np.nan, dtype=np.float64)
+        X = np.concatenate([X, pad], axis=1)
+        for k in missing:
+            index[k] = len(names)
+            names.append(k)
+    cols = {k: np.full(n, np.nan, dtype=np.float64) for k in keys}
+    from core.research.tau_theme import resolve_theme_day
+
+    trigger = float(gap_trigger_pct)
+    for i in range(n):
+        d = str(dates[i] or "")[:10]
+        meta_i = metas[i] if i < len(metas) and isinstance(metas[i], dict) else {}
+        code_i = str(meta_i.get("stock_code") or code_p or "").strip()
+        tau_k = str(meta_i.get("tau") or "open").strip() or "open"
+        b = breadth_by_date.get(d)
+        gap_i = _feat_from_matrix(X, index, i, "gap_pct")
+        if gap_i is None and meta_i.get("gap_pct") is not None:
+            try:
+                gap_i = float(meta_i.get("gap_pct"))
+            except (TypeError, ValueError):
+                gap_i = None
+        ref = (ref_by_date.get(d) or {}).get(code_i)
+        rel = gap_vs_sector_value(gap_i, ref)
+        th = int(
+            resolve_theme_day(
+                gap_pct=gap_i,
+                sector_breadth=b,
+                pool_gaps=gaps_by_date.get(d),
+                gap_trigger_pct=trigger,
+            )
+        )
+        if b is not None:
+            cols["sector_gap_breadth"][i] = float(b)
+        cols["theme_day"][i] = float(th)
+        if rel is not None:
+            cols["gap_vs_sector"][i] = float(rel)
+        sret = sector_ret_by_date_tau.get((d, tau_k))
+        if sret is not None:
+            cols["sector_ret_to_tau"][i] = round(float(sret), 6)
+            rot = _feat_from_matrix(X, index, i, "ret_open_to_tau")
+            if rot is not None:
+                cols["ret_vs_sector"][i] = round(float(rot) - float(sret), 6)
+        for ret_key, sector_key, vs_key in HORIZON_SEQ_CS_SPECS:
+            sret_h = sector_horizon_by_date_tau[ret_key].get((d, tau_k))
+            if sret_h is None:
+                continue
+            cols[sector_key][i] = round(float(sret_h), 6)
+            rv = _feat_from_matrix(X, index, i, ret_key)
+            if rv is not None:
+                cols[vs_key][i] = round(float(rv) - float(sret_h), 6)
+    for key, col in cols.items():
+        j = index[key]
+        finite = np.isfinite(col)
+        if np.any(finite):
+            X[:n, j] = np.where(finite, col, X[:n, j])
+    # 权重和主题报告读 meta，不读 X
+    for i in range(n):
+        if i >= len(metas) or not isinstance(metas[i], dict):
+            continue
+        th = cols["theme_day"][i]
+        if np.isfinite(th):
+            metas[i]["theme_day"] = int(th)
+        b = cols["sector_gap_breadth"][i]
+        if np.isfinite(b):
+            metas[i]["sector_gap_breadth"] = float(b)
+        gap_v = _feat_from_matrix(X, index, i, "gap_pct")
+        if gap_v is not None:
+            metas[i]["gap_pct"] = float(gap_v)
+    panel["X"] = X
+    panel["x_names"] = names
+    panel.pop("_x_index", None)
+    return panel
+
+
 def attach_cross_section_breadth(
     panels: Sequence[Dict[str, Any]],
     *,
@@ -1687,11 +1887,16 @@ def attach_cross_section_breadth(
     for p in panels:
         code_p = str(p.get("code") or "").strip()
         xs_p = list(p.get("xs") or [])
+        x_index = _matrix_index(p) if p.get("X") is not None else None
+        X_p = p.get("X")
         for i, m in enumerate(p.get("metas") or []):
             if not isinstance(m, dict):
                 continue
-            d = str(m.get("date") or "")[:10]
+            dates_p = p.get("dates") or []
+            d = str(m.get("date") or (dates_p[i] if i < len(dates_p) else "") or "")[:10]
             g = m.get("gap_pct")
+            if g is None:
+                g = _feat_from_matrix(X_p, x_index, i, "gap_pct")
             c = str(m.get("stock_code") or code_p or "").strip()
             tau_k = str(m.get("tau") or "open").strip() or "open"
             if not d or g is None:
@@ -1701,10 +1906,14 @@ def attach_cross_section_breadth(
                 seen_gap.add(gap_key)
                 by_date.setdefault(d, []).append((c, float(g)))
             rot = _row_or_meta_feat(xs_p, i, m, "ret_open_to_tau")
+            if rot is None:
+                rot = _feat_from_matrix(X_p, x_index, i, "ret_open_to_tau")
             if rot is not None:
                 ret_by_date_tau.setdefault((d, tau_k), []).append(rot)
             for ret_key, _sector_key, _vs_key in HORIZON_SEQ_CS_SPECS:
                 rv = _row_or_meta_feat(xs_p, i, m, ret_key)
+                if rv is None:
+                    rv = _feat_from_matrix(X_p, x_index, i, ret_key)
                 if rv is not None:
                     horizon_ret_by_date_tau[ret_key].setdefault((d, tau_k), []).append(
                         rv
@@ -1761,6 +1970,20 @@ def attach_cross_section_breadth(
 
     out: List[Dict[str, Any]] = []
     for p in panels:
+        if p.get("X") is not None and not (p.get("xs") or []):
+            out.append(
+                _fill_breadth_matrix(
+                    p,
+                    breadth_by_date=breadth_by_date,
+                    theme_by_date=theme_by_date,
+                    gaps_by_date=gaps_by_date,
+                    ref_by_date=ref_by_date,
+                    sector_ret_by_date_tau=sector_ret_by_date_tau,
+                    sector_horizon_by_date_tau=sector_horizon_by_date_tau,
+                    gap_trigger_pct=trigger,
+                )
+            )
+            continue
         code_p = str(p.get("code") or "").strip()
         xs = [dict(r) for r in (p.get("xs") or [])]
         metas = [dict(m) for m in (p.get("metas") or [])]

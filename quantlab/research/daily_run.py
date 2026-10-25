@@ -31,7 +31,6 @@ def main(argv=None) -> int:
     parser.add_argument("--quant-report", action="store_true", help="量化 IC + TopK 摘要报告")
     parser.add_argument("--watching-refresh", action="store_true", help="刷新 watching watchlist")
     parser.add_argument("--cross-section", action="store_true", help="横截面排序 Top N")
-    parser.add_argument("--sync-paper-watchlist", action="store_true", help="兼容空步骤（观察/仓位已分离）")
     parser.add_argument("--paper-rebalance", action="store_true", help="观察池 rank_lots 纸面调仓")
     parser.add_argument(
         "--export-quant-report",
@@ -51,7 +50,6 @@ def main(argv=None) -> int:
         "quant_report",
         "watching_refresh",
         "cross_section",
-        "sync_paper_watchlist",
         "paper_rebalance",
         "export_quant_report",
     ]

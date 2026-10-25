@@ -271,11 +271,26 @@ def _start_ridge_fit_job(
                 job_id=job_id,
             )
             slot.finish(result=result, job_id=job_id)
+        except MemoryError:
+            logger.exception("out of memory in %s worker", kind)
+            slot.finish(
+                error=(
+                    "内存保护：分配失败，已停止以免网页进程被系统杀掉。"
+                    "请缩小研究池，或缩短拟合窗口。"
+                ),
+                job_id=job_id,
+            )
         except Exception as e:
             logger.exception("unexpected error in %s worker", kind)
-            slot.finish(error=str(e), job_id=job_id)
+            slot.finish(error=str(e).strip() or "拟合失败", job_id=job_id)
         finally:
             stop_hb.set()
+            try:
+                from core.research.horizon_l1 import release_allocator_cache
+
+                release_allocator_cache()
+            except Exception:  # noqa: BLE001
+                logger.debug("%s release allocator cache failed", kind, exc_info=True)
 
     threading.Thread(target=_worker, name=f"{kind}-{job_id}", daemon=True).start()
     return {
@@ -1913,7 +1928,9 @@ class QuantFactorMixin:
         进度：``L1命中… · 5m回退…``；报告 ``timing.panel_s`` / ``l1_hit_rate``。
         产品消费路径（fail-closed）：开跑前 ``l1_tau_coverage`` cold / 探测失败 /
         湖关闭 → ``materialize_required``；建面板实际 L1 命中过低（含指纹 miss）
-        提前或收尾阻断，不整池啃 5m。
+        提前或收尾阻断，不整池啃 5m。面板数据超过 3GB，或进程当前占用超过
+        机器内存约六成时，任务停在「内存保护」并放掉已建面板。判定前先把
+        上一头拟合已归还的堆页交回系统，避免旧水位把下一头立刻停掉。
         ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
         方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
         ``lookback`` 为日线上限；5m 回退按**单票本地缓存**有多少用多少（仅热 L1 下
@@ -2033,21 +2050,30 @@ class QuantFactorMixin:
         from core.research.horizon_l1 import (
             TAU_L1_EARLY_ABORT_MIN,
             TAU_L1_MIN_HIT_RATE,
+            confirm_fit_memory_stop,
+            release_allocator_cache,
             materialize_required_tau_l1_payload,
+            panel_payload_bytes,
+            physical_ram_bytes,
             probe_tau_grid_l1_coverage,
+            process_rss_bytes,
             sync_horizon_head_panel,
             tau_l1_coverage_blocks_fit,
             tau_l1_hit_rate_too_low,
             try_load_horizon_head_panel,
             try_stitch_horizon_l1_panel,
         )
-        from core.research.horizon_ridge import enrich_horizon_raw_panels
+        from core.research.horizon_ridge import (
+            enrich_horizon_raw_panels,
+            horizon_panel_keep_names,
+        )
         from core.research.tc_ridge_compact import (
             TAU_PANEL_POOL_BATCH,
             build_tau_panels_from_bars,
         )
         from core.ports.market import resolve_market_code
         from core.store import load_minute_cache
+        import gc
         import time as _time
 
         # 宇宙够格日仅诊断（与 L2 物化窗对照）；拟合不按此裁单票 5m
@@ -2118,6 +2144,7 @@ class QuantFactorMixin:
         n_codes = max(1, len(codes))
         grid_n = len(tau_grid) if isinstance(tau_grid, (list, tuple)) else 1
         label_heads = (horizon,)
+        keep_names = horizon_panel_keep_names(horizon)
         batch_n = max(4, int(TAU_PANEL_POOL_BATCH))
         span_bit = f" · 5m窗{minute_span}" if minute_span else ""
         cov_bit = ""
@@ -2168,7 +2195,7 @@ class QuantFactorMixin:
             )
 
         def _flush_batch() -> bool:
-            nonlocal batch_items, rebuild_5m
+            nonlocal batch_items, rebuild_5m, memory_error
             if not batch_items:
                 return True
             if not _job_alive():
@@ -2185,20 +2212,28 @@ class QuantFactorMixin:
                 )
                 _progress(cur, n_codes, _panel_msg(cur))
 
-            chunk = build_tau_panels_from_bars(
-                batch_items,
-                min_history=min_hist,
-                gap_trigger_pct=gap_trigger_pct,
-                tau_hm=tau_key,
-                tau_grid=tau_grid,
-                include_alpha_th=True,
-                attach_breadth=False,
-                label_heads=label_heads,
-                progress_cb=_cb,
-                # 外层 hz/stitch 已 miss，勿在池内再读湖
-                skip_l1_stitch=True,
-            )
+            try:
+                chunk = build_tau_panels_from_bars(
+                    batch_items,
+                    min_history=min_hist,
+                    gap_trigger_pct=gap_trigger_pct,
+                    tau_hm=tau_key,
+                    tau_grid=tau_grid,
+                    include_alpha_th=True,
+                    attach_breadth=False,
+                    label_heads=label_heads,
+                    progress_cb=_cb,
+                    # 外层 hz/stitch 已 miss，勿在池内再读湖
+                    skip_l1_stitch=True,
+                )
+            except MemoryError:
+                memory_error = _oom_message()
+                batch_items = []
+                return True
             raw_acc.extend(chunk)
+            if _track_panels(chunk):
+                batch_items = []
+                return True
             rebuild_5m += len(batch_items)
             for it in batch_items:
                 it.pop("minute_bars", None)
@@ -2206,8 +2241,44 @@ class QuantFactorMixin:
             _progress(end_scanned, n_codes, _panel_msg(end_scanned))
             return True
 
+        ram_bytes = physical_ram_bytes()
+        panel_bytes = 0
+        memory_error = ""
+
+        def _release_fit_panels() -> None:
+            raw_acc.clear()
+            enriched_hz.clear()
+            stock_bars.clear()
+            batch_items.clear()
+            release_allocator_cache()
+
+        def _track_panels(panels: List[Any]) -> str:
+            nonlocal panel_bytes, memory_error
+            if memory_error:
+                return memory_error
+            for p in panels:
+                panel_bytes += panel_payload_bytes(p)
+            memory_error = confirm_fit_memory_stop(
+                panel_bytes=panel_bytes,
+                rss_bytes=process_rss_bytes(),
+                ram_bytes=ram_bytes,
+                reread_rss=process_rss_bytes,
+            )
+            return memory_error
+
+        def _oom_message() -> str:
+            return (
+                "内存保护：分配失败，已停止以免网页进程被系统杀掉。"
+                "请缩小研究池，或把窗头终点提前。"
+            )
+
+        release_allocator_cache()
         orphaned = False
         for i, code in enumerate(codes):
+            if memory_error:
+                break
+            if i and i % 40 == 0:
+                gc.collect()
             if not _job_alive():
                 orphaned = True
                 break
@@ -2229,13 +2300,20 @@ class QuantFactorMixin:
                     bars,
                     tau_grid,
                     min_history=min_hist,
+                    as_matrix=True,
+                    project_names=keep_names,
                 )
+            except MemoryError:
+                memory_error = _oom_message()
+                break
             except Exception:  # noqa: BLE001
                 logger.debug("%s hz load failed %s", horizon, code_s, exc_info=True)
                 hz_hit = None
             if hz_hit is not None:
                 enriched_hz.append(hz_hit)
                 l1_head_hit += 1
+                if _track_panels([hz_hit]):
+                    break
                 if scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:
                     _progress(scanned, n_codes, _panel_msg(scanned))
                 continue
@@ -2249,13 +2327,20 @@ class QuantFactorMixin:
                     min_history=min_hist,
                     include_alpha_tc=True,
                     include_alpha_th=True,
+                    as_matrix=True,
+                    project_names=keep_names,
                 )
+            except MemoryError:
+                memory_error = _oom_message()
+                break
             except Exception:  # noqa: BLE001
                 logger.debug("%s L1 stitch failed %s", horizon, code_s, exc_info=True)
                 stitched = None
             if stitched is not None:
                 raw_acc.append(stitched)
                 l1_stitch_hit += 1
+                if _track_panels([stitched]):
+                    break
                 if scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:
                     _progress(scanned, n_codes, _panel_msg(scanned))
                 continue
@@ -2282,6 +2367,9 @@ class QuantFactorMixin:
                         minute_codes_miss += 1
                 else:
                     minute_codes_miss += 1
+            except MemoryError:
+                memory_error = _oom_message()
+                break
             except Exception:  # noqa: BLE001
                 logger.debug(
                     "%s ridge minute cache miss for %s", horizon, code, exc_info=True
@@ -2296,8 +2384,16 @@ class QuantFactorMixin:
                     break
             elif scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:
                 _progress(scanned, n_codes, _panel_msg(scanned))
-        if not orphaned and not _flush_batch():
+        if not orphaned and not memory_error and not _flush_batch():
             orphaned = True
+        if memory_error:
+            _progress(scanned, n_codes, memory_error)
+            _release_fit_panels()
+            return {
+                "success": False,
+                "error": memory_error,
+                "task": task,
+            }
         if orphaned or not _job_alive():
             return {
                 "success": False,
@@ -2329,12 +2425,20 @@ class QuantFactorMixin:
             }
 
         _progress(n_codes, n_codes, f"ŷ_τ{hn} 截面广度+relabel…")
-        enriched = enrich_horizon_raw_panels(
-            horizon,
-            raw_acc,
-            gap_trigger_pct=gap_trigger_pct,
-            already_breadth=False,
-        )
+        try:
+            enriched = enrich_horizon_raw_panels(
+                horizon,
+                raw_acc,
+                gap_trigger_pct=gap_trigger_pct,
+                already_breadth=False,
+            )
+        except MemoryError:
+            _release_fit_panels()
+            return {
+                "success": False,
+                "error": _oom_message(),
+                "task": task,
+            }
         raw_acc.clear()
         # P2 write-through：enrich 后写入 hz_*（仅 writer_active 时真正落盘）
         for p in enriched:

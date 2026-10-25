@@ -9,7 +9,7 @@ from core.paper import init_from_example, load_paper, simulate_sells
 from core.signal.config import get_stance_thresholds, load_signal_config
 from core.signal.factors.relative_strength import excess_return_pct, score_relative_strength
 from core.signal.scorer import score_bars
-from research.split import time_series_split
+from core.research.split import time_series_split
 from tests.conftest import _overheated_bars, _rising_bars
 
 

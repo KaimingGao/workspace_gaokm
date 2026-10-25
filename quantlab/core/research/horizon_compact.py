@@ -16,6 +16,26 @@ from core.research.panel_matrix import PanelMatrix
 HorizonCompact = Dict[str, Any]
 
 
+def _project_to_names(
+    X: np.ndarray,
+    src_names: Sequence[str],
+    dst_names: Sequence[str],
+) -> np.ndarray:
+    """列名对齐。缺列 NaN。行数与 ``X`` 相同。"""
+    arr = np.asarray(X, dtype=np.float64)
+    dst = [str(n) for n in dst_names]
+    out = np.full((int(arr.shape[0]), len(dst)), np.nan, dtype=np.float64)
+    if arr.ndim != 2 or not dst:
+        return out
+    index = {str(n): i for i, n in enumerate(src_names)}
+    for j, name in enumerate(dst):
+        i = index.get(name)
+        if i is None or i >= arr.shape[1]:
+            continue
+        out[:, j] = arr[:, i]
+    return out
+
+
 def fold_horizon_enriched(
     enriched: Sequence[Dict[str, Any]],
     z_features: Sequence[str],
@@ -41,6 +61,29 @@ def fold_horizon_enriched(
         ys = p.get("ys") or []
         dates = p.get("dates") or []
         metas = p.get("metas") or []
+        X_in = p.get("X")
+        x_names = [str(n) for n in (p.get("x_names") or [])]
+        if X_in is not None and x_names and not xs:
+            arr = np.asarray(X_in, dtype=np.float64)
+            n = min(int(arr.shape[0]), len(ys), len(dates), len(metas))
+            if n <= 0:
+                if clear_panels:
+                    p.clear()
+                continue
+            block.append_block(_project_to_names(arr[:n], x_names, names))
+            for i in range(n):
+                try:
+                    yf = float(ys[i])
+                except (TypeError, ValueError):
+                    yf = float("nan")
+                ys_all.append(yf)
+                dates_all.append(str(dates[i] or "")[:10])
+                meta = metas[i]
+                metas_all.append(meta if isinstance(meta, dict) else {})
+            n_stocks += 1
+            if clear_panels:
+                p.clear()
+            continue
         n = min(len(xs), len(ys), len(dates), len(metas))
         if n <= 0:
             if clear_panels:
