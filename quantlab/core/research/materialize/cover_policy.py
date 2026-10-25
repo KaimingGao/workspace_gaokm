@@ -8,7 +8,7 @@
 --------------  -------------------------------  ----------------------------  --------------------
 做 T 回测        决策钟 tc_HHMM（不硬要 oo）         ≤leg1 的 suggested τ（不含 open） 回看 ∩ 5m 够格日
 分钟 τ 物化      tc_HHMM 网格（自 09:35）           **仅** suggested τ（不含 open）  5m 够格日（近端优先）
-ŷ_τ* 拟合        —                                同物化 τ 钟                     单票 5m 有多少用多少；无立方的日期|钟整行丢掉
+ŷ_τ* 拟合        tc_HHMM(+M) 优先；冷/低命中阻断      同物化 τ 钟                     个别票 5m；无立方的日期|钟整行丢掉
 调仓 / 日线物化  oo/tc/co                          open                          本地日线够格日（近端优先；日历只作回退）
 
 门槛
@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence
 
 LAKE_COVER_FRAC = 0.5
 HORIZON_COVER_FRAC = LAKE_COVER_FRAC
@@ -91,21 +91,6 @@ def resolve_fit_minute_covered_dates(
         )
     except Exception:  # noqa: BLE001
         return None
-
-
-def filter_minute_bars_to_covered(
-    minute_bars: Sequence[Any],
-    covered: Optional[Set[str]],
-) -> List[Any]:
-    """``covered is None`` 不裁；否则只留够格日上的 5m 根。"""
-    rows = list(minute_bars or [])
-    if covered is None:
-        return rows
-    return [
-        b
-        for b in rows
-        if isinstance(b, dict) and str(b.get("date") or "")[:10] in covered
-    ]
 
 
 def _as_int(value: Any, default: int = 0) -> int:

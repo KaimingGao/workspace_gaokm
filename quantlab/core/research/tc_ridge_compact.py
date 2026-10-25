@@ -236,8 +236,12 @@ def _build_one_tau_panel(
     include_alpha_tc: bool,
     include_alpha_th: bool,
     label_heads: Optional[Sequence[str]],
+    skip_l1_stitch: bool = False,
 ) -> Optional[Dict[str, Any]]:
-    """单票 raw 面板；结束后 pop ``minute_bars``（L1 stitch 时留给 relabel）。"""
+    """单票 raw 面板；结束后 pop ``minute_bars``（L1 stitch 时留给 relabel）。
+
+    ``skip_l1_stitch``：外层已试过 stitch 失败、专啃 5m 时跳过二次拼湖。
+    """
     code = str(item.get("code") or item.get("stock_code") or "").strip()
     bars = list(item.get("bars") or [])
     if len(bars) < min_history + 2:
@@ -246,7 +250,7 @@ def _build_one_tau_panel(
     if use_minute:
         clocks = list(grid) if grid else [str(tau_hm)]
         # H3：窗头优先按钟 stitch L1（日线指纹；可无 minute_bars）
-        if include_alpha_th and clocks:
+        if include_alpha_th and clocks and not skip_l1_stitch:
             stitched = _try_stitch_l1_tau_panel(
                 code,
                 bars,
@@ -306,6 +310,7 @@ def build_tau_panels_from_bars(
     label_heads: Optional[Sequence[str]] = None,
     workers: Optional[int] = None,
     progress_cb: ProgressCb = None,
+    skip_l1_stitch: bool = False,
 ) -> List[Dict[str, Any]]:
     """``stock_bars``: ``[{code, bars, minute_bars?, index_bars?, fundamentals?}, ...]``。
 
@@ -319,6 +324,7 @@ def build_tau_panels_from_bars(
     分钟路径下每只票 ``collect`` 完会 ``pop`` 掉该票 ``minute_bars``（meta 已带
     请求头的 ``price_tau{N}``），避免满池 5m 常驻到拟合结束。
     ``attach_breadth=False``：跳过截面广度（流式逐票攒 raw 时用，最后再挂一次）。
+    ``skip_l1_stitch``：外层已 stitch 失败时勿再读湖（服务层 5m 回退批）。
     """
     from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
     from concurrent.futures.process import BrokenProcessPool
@@ -356,6 +362,7 @@ def build_tau_panels_from_bars(
             include_alpha_tc=include_alpha_tc,
             include_alpha_th=include_alpha_th,
             label_heads=tuple(label_heads) if label_heads is not None else None,
+            skip_l1_stitch=bool(skip_l1_stitch),
         )
 
     def _run_serial(start: int, end: int) -> None:

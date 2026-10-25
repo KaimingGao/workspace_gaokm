@@ -234,5 +234,69 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertNotIn("status", res)
         self.assertNotIn("rebalance_report", res)
 
+    def test_materialize_large_result_keeps_track_for_ui_resume(self):
+        path = os.path.join(tempfile.mkdtemp(), "materialize_l1l2.json")
+        slot = JobProgress(name="materialize-l1l2", persist_path=path)
+        jid = slot.start(kind="materialize_tau", total=10, message="τ 物化")
+        fat = {
+            "success": True,
+            "ok": True,
+            "task": "materialize_l1l2",
+            "do_l1": False,
+            "do_l1_tau_grid": True,
+            "do_l2": True,
+            "schema": 1,
+            "elapsed_s": 12.5,
+            "track": {
+                "id": "materialize_tau",
+                "headline": "分钟 τ 物化完成",
+                "steps_ok": "2/2",
+                "schema": 1,
+                "codes_n": 800,
+                "stages": [{"id": "l1_tau", "status": "ok"}],
+            },
+            "l1_tau_grid": {
+                "ok": True,
+                "elapsed_s": 8.0,
+                "clocks": ["09:35", "11:00"],
+                "clocks_ok": 2,
+                "by_family": {"tc_0935": {"rows": list(range(30_000))}},
+            },
+            "l2": {
+                "ok": True,
+                "elapsed_s": 4.0,
+                "minute_span": "2026-01-01→2026-03-01",
+                "minute_days": 40,
+                "by_clock": {
+                    "09:35": {
+                        "ok": True,
+                        "cubes_hit": 40,
+                        "cubes_built": 0,
+                        "days": 40,
+                        "fat": list(range(30_000)),
+                    }
+                },
+            },
+        }
+        self.assertTrue(slot.finish(result=fat, job_id=jid))
+        with open(path, encoding="utf-8") as f:
+            on_disk = __import__("json").load(f)
+        res = on_disk.get("result") or {}
+        self.assertTrue(res.get("persisted_truncated"))
+        self.assertTrue(res.get("do_l1_tau_grid"))
+        self.assertEqual((res.get("track") or {}).get("headline"), "分钟 τ 物化完成")
+        self.assertEqual((res.get("l1_tau_grid") or {}).get("clocks_ok"), 2)
+        self.assertNotIn("by_family", res.get("l1_tau_grid") or {})
+        self.assertEqual(
+            ((res.get("l2") or {}).get("by_clock") or {})
+            .get("09:35", {})
+            .get("cubes_hit"),
+            40,
+        )
+        self.assertNotIn(
+            "fat",
+            ((res.get("l2") or {}).get("by_clock") or {}).get("09:35") or {},
+        )
+
 if __name__ == "__main__":
     unittest.main()

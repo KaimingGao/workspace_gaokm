@@ -1911,9 +1911,13 @@ class QuantFactorMixin:
 
         建面板 L1-first：``hz_*`` → stitch ``tc_HHMM``（日线指纹）→ 未命中再读本地 5m。
         进度：``L1命中… · 5m回退…``；报告 ``timing.panel_s`` / ``l1_hit_rate``。
+        产品消费路径（fail-closed）：开跑前 ``l1_tau_coverage`` cold / 探测失败 /
+        湖关闭 → ``materialize_required``；建面板实际 L1 命中过低（含指纹 miss）
+        提前或收尾阻断，不整池啃 5m。
         ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
         方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
-        ``lookback`` 为日线上限；5m 回退按**单票本地缓存**有多少用多少。
+        ``lookback`` 为日线上限；5m 回退按**单票本地缓存**有多少用多少（仅热 L1 下
+        个别票 miss 时）。
         截面 z 只用 L2；某一天的某一钟没有立方时丢掉这些行，
         训练行全部没有立方才 ``materialize_required``。报告里的 ``minute_days``/
         ``minute_span`` 仍记宇宙够格窗，仅作对照。
@@ -1929,6 +1933,10 @@ class QuantFactorMixin:
             persist_ridge_model,
             ridge_model_path,
             save_ridge_last_report,
+        )
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            consumer_read_only,
         )
         from core.research.materialize.cover_policy import (
             resolve_fit_minute_covered_dates,
@@ -2023,8 +2031,13 @@ class QuantFactorMixin:
         zero_prefix = False
 
         from core.research.horizon_l1 import (
+            TAU_L1_EARLY_ABORT_MIN,
+            TAU_L1_MIN_HIT_RATE,
+            materialize_required_tau_l1_payload,
             probe_tau_grid_l1_coverage,
             sync_horizon_head_panel,
+            tau_l1_coverage_blocks_fit,
+            tau_l1_hit_rate_too_low,
             try_load_horizon_head_panel,
             try_stitch_horizon_l1_panel,
         )
@@ -2043,19 +2056,54 @@ class QuantFactorMixin:
             f"{covered_list[0]}→{covered_list[-1]}" if covered_list else None
         )
 
-        # P4：拟合前轻量覆盖探测（不阻塞；冷则提示先物化）
+        def _block_tau_l1(
+            *,
+            reason: str,
+            cov: Optional[Dict[str, Any]] = None,
+            l1_head: int = 0,
+            l1_stitch: int = 0,
+            rebuild: int = 0,
+        ) -> None:
+            if not consumer_read_only():
+                return
+            raise MaterializeRequired(
+                materialize_required_tau_l1_payload(
+                    tau_grid=tau_grid,
+                    task=task,
+                    cov=cov if cov is not None else l1_tau_cov,
+                    reason=reason,
+                    l1_head_hit=l1_head,
+                    l1_stitch_hit=l1_stitch,
+                    rebuild_5m=rebuild,
+                )
+            )
+
+        # P4：拟合前轻量覆盖探测；产品只读路径 fail-closed（对齐 ŷ_oo）
         l1_tau_cov: Dict[str, Any] = {}
         try:
             l1_tau_cov = probe_tau_grid_l1_coverage(codes, tau_grid)
         except Exception:  # noqa: BLE001
             logger.debug("%s L1 coverage probe failed", horizon, exc_info=True)
-            l1_tau_cov = {}
+            l1_tau_cov = {
+                "rate": 0.0,
+                "cold": True,
+                "probe_ok": False,
+                "lake_enabled": True,
+                "hint": "τ 网格 L1 覆盖探测异常",
+            }
         if l1_tau_cov.get("hint"):
             _progress(
                 0,
                 max(1, len(codes)),
                 f"ŷ_τ{hn} {l1_tau_cov.get('hint')}",
             )
+        if tau_l1_coverage_blocks_fit(l1_tau_cov):
+            reason = "cold"
+            if l1_tau_cov.get("probe_ok") is False:
+                reason = "probe_failed"
+            elif l1_tau_cov.get("lake_enabled") is False:
+                reason = "lake_disabled"
+            _block_tau_l1(reason=reason, cov=l1_tau_cov)
 
         # L1-first：hz_* → stitch tc_HHMM → 5m 回退（分批 ProcessPool）
         stock_bars: List[Dict[str, Any]] = []
@@ -2094,6 +2142,31 @@ class QuantFactorMixin:
         batch_items: List[Dict[str, Any]] = []
         batch_end_scanned = 0
 
+        def _guard_low_l1_hit(*, early: bool) -> None:
+            """产品路径：实际 L1 命中过低则阻断（防热探测 + 指纹全 miss）。"""
+            if not consumer_read_only():
+                return
+            pending = len(batch_items)
+            # early：把待 flush 的 5m 票也计入 attempted，避免先跑完一整批再拦
+            rebuild_eff = int(rebuild_5m) + (pending if early else 0)
+            min_att = int(TAU_L1_EARLY_ABORT_MIN) if early else 1
+            if not tau_l1_hit_rate_too_low(
+                l1_head_hit=l1_head_hit,
+                l1_stitch_hit=l1_stitch_hit,
+                rebuild_5m=rebuild_eff,
+                min_attempted=min_att,
+                min_rate=float(TAU_L1_MIN_HIT_RATE),
+            ):
+                return
+            batch_items.clear()
+            _block_tau_l1(
+                reason="early_abort" if early else "low_hit",
+                cov=l1_tau_cov,
+                l1_head=l1_head_hit,
+                l1_stitch=l1_stitch_hit,
+                rebuild=rebuild_eff,
+            )
+
         def _flush_batch() -> bool:
             nonlocal batch_items, rebuild_5m
             if not batch_items:
@@ -2101,6 +2174,7 @@ class QuantFactorMixin:
             if not _job_alive():
                 batch_items = []
                 return False
+            _guard_low_l1_hit(early=True)
             end_scanned = batch_end_scanned
             n_batch = len(batch_items)
 
@@ -2121,6 +2195,8 @@ class QuantFactorMixin:
                 attach_breadth=False,
                 label_heads=label_heads,
                 progress_cb=_cb,
+                # 外层 hz/stitch 已 miss，勿在池内再读湖
+                skip_l1_stitch=True,
             )
             raw_acc.extend(chunk)
             rebuild_5m += len(batch_items)
@@ -2211,6 +2287,9 @@ class QuantFactorMixin:
                     "%s ridge minute cache miss for %s", horizon, code, exc_info=True
                 )
                 minute_codes_miss += 1
+            # 攒够 early 门槛且仍几乎全 5m → 先拦，不启动 ProcessPool
+            if len(batch_items) >= int(TAU_L1_EARLY_ABORT_MIN):
+                _guard_low_l1_hit(early=True)
             if len(batch_items) >= batch_n:
                 if not _flush_batch():
                     orphaned = True
@@ -2227,6 +2306,8 @@ class QuantFactorMixin:
                 "task": task,
             }
         _progress(n_codes, n_codes, _panel_msg(n_codes))
+        # 收尾闸：热探测但指纹大面积 miss → 阻断，不进截面广度（省内存）
+        _guard_low_l1_hit(early=False)
 
         panel_ok = l1_head_hit + l1_stitch_hit + rebuild_5m
         if panel_ok < 1:
@@ -2335,7 +2416,6 @@ class QuantFactorMixin:
             timing["l1_tau_coverage_rate"] = float(l1_tau_cov.get("rate") or 0.0)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_fit_clip"] = "per_stock"
         if covered_list is not None:
             report["minute_days"] = len(covered_list)
             report["minute_span"] = minute_span

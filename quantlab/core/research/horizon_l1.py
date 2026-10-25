@@ -1,6 +1,8 @@
 """ŷ_τ* L1 契约：按钟 ``tc_HHMM`` stitch + 可选整头 ``hz_*`` 训练板。
 
-对齐 ŷ_oo 的 fingerprint 命中路径：热路径优先读湖，未命中再回退 5m 现算。
+对齐 ŷ_oo 的 fingerprint 命中路径：热路径优先读湖。
+产品消费路径对 cold / 探测失败 / 实际命中过低 **fail-closed**
+（``materialize_required``）；脚本未开只读时个别票仍可回退 5m。
 """
 
 from __future__ import annotations
@@ -444,6 +446,111 @@ def sync_horizon_head_panel(
     )
 
 
+# 与 ŷ_oo 覆盖闸对齐：≤ 半仓价旁路视为冷；建面板实际命中同门槛
+TAU_L1_COLD_RATE = 0.5
+TAU_L1_MIN_HIT_RATE = TAU_L1_COLD_RATE
+# 产品路径：连续啃 5m 达到该票数且命中率过低 → 提前阻断（防指纹热探测误放行）
+TAU_L1_EARLY_ABORT_MIN = 24
+
+
+def tau_l1_coverage_blocks_fit(cov: Optional[Dict[str, Any]]) -> bool:
+    """产品拟合是否应因探测结果阻断（fail-closed）。
+
+    - 探测异常 / 空结果 / ``probe_ok=False``
+    - ``cold`` 或 Feature Lake 关闭
+    """
+    if not isinstance(cov, dict) or not cov:
+        return True
+    if cov.get("probe_ok") is False:
+        return True
+    if cov.get("lake_enabled") is False:
+        return True
+    if bool(cov.get("cold")):
+        return True
+    return False
+
+
+def tau_l1_hit_rate_too_low(
+    *,
+    l1_head_hit: int,
+    l1_stitch_hit: int,
+    rebuild_5m: int,
+    min_attempted: int = 1,
+    min_rate: float = TAU_L1_MIN_HIT_RATE,
+) -> bool:
+    """建面板实际 L1 命中是否过低（含指纹 miss 导致的大面积 5m）。"""
+    l1_n = max(0, int(l1_head_hit)) + max(0, int(l1_stitch_hit))
+    rebuild = max(0, int(rebuild_5m))
+    attempted = l1_n + rebuild
+    if attempted < max(1, int(min_attempted)):
+        return False
+    return (float(l1_n) / float(attempted)) <= float(min_rate)
+
+
+def materialize_required_tau_l1_payload(
+    *,
+    tau_grid: Sequence[str],
+    task: str = "",
+    cov: Optional[Dict[str, Any]] = None,
+    reason: str = "cold",
+    l1_head_hit: int = 0,
+    l1_stitch_hit: int = 0,
+    rebuild_5m: int = 0,
+) -> Dict[str, Any]:
+    """ŷ_τ* 缺可用 τ 网格 L1 时的 ``MaterializeRequired`` 载荷。"""
+    grid = [str(c).strip() for c in (tau_grid or []) if str(c or "").strip()]
+    cov_d = dict(cov or {})
+    rate = cov_d.get("rate")
+    try:
+        rate_f = float(rate) if rate is not None else None
+    except (TypeError, ValueError):
+        rate_f = None
+    l1_n = max(0, int(l1_head_hit)) + max(0, int(l1_stitch_hit))
+    rebuild = max(0, int(rebuild_5m))
+    attempted = l1_n + rebuild
+    hit_rate = (float(l1_n) / float(attempted)) if attempted else None
+    reason_s = str(reason or "cold").strip() or "cold"
+    if reason_s == "probe_failed":
+        error = "请先分钟线物化 L1/L2：τ 网格 L1 覆盖探测失败（fail-closed，未开 5m 回退）"
+    elif reason_s == "lake_disabled":
+        error = "请先分钟线物化 L1/L2：Feature Lake 未启用，无法 stitch τ 网格 L1"
+    elif reason_s in ("low_hit", "early_abort"):
+        pct = f"{hit_rate:.0%}" if hit_rate is not None else "?"
+        error = (
+            f"请先分钟线物化 L1/L2：建面板 L1 命中仅 {pct}"
+            f"（L1={l1_n} · 5m回退={rebuild}；指纹/价旁路不足）"
+        )
+    else:
+        pct = f"{rate_f:.0%}" if rate_f is not None else "?"
+        error = (
+            f"请先分钟线物化 L1/L2：τ 网格 L1 热覆盖约 {pct}"
+            "（缺 M/price_tau* 或分片不足，无法免读 5m）"
+        )
+    return {
+        "error_code": "materialize_required",
+        "error": error,
+        "hint": "分钟线物化",
+        "layer": "l1",
+        "families": ["tc"],
+        "clocks": list(grid),
+        "task": str(task or ""),
+        "reason": reason_s,
+        "l1_tau_coverage": cov_d,
+        "probe_hint": str(cov_d.get("hint") or "").strip(),
+        "l1_head_hit": int(l1_head_hit),
+        "l1_stitch_hit": int(l1_stitch_hit),
+        "rebuild_5m": int(rebuild_5m),
+        "l1_hit_rate": hit_rate,
+        "request": {
+            "do_l1": False,
+            "do_l2": True,
+            "do_l1_tau_grid": True,
+            "families": [],
+            "clocks": list(grid),
+        },
+    }
+
+
 def probe_tau_grid_l1_coverage(
     codes: Sequence[str],
     tau_grid: Sequence[str],
@@ -453,7 +560,7 @@ def probe_tau_grid_l1_coverage(
     """拟合前轻量探测：τ 网格 L1 是否具备 stitch 条件（有分片 + ``m_names``/price_tau）。
 
     不校验日线 fingerprint（那步交给热路径）；只读 meta，避免开 npz。
-    返回 ``{rate, present, with_meta, n_probed, n_slots, hint, cold}``。
+    返回 ``{rate, present, with_meta, n_probed, n_slots, hint, cold, probe_ok}``。
     """
     from core.research.feature_lake import enabled, read_stock_meta
     from core.research.lake_bridge import family_for_tc
@@ -465,6 +572,7 @@ def probe_tau_grid_l1_coverage(
         if str(c or "").strip()
         and str(c).strip().lower() not in ("open", "09:30", "0930")
     ]
+    lake_on = bool(enabled())
     out: Dict[str, Any] = {
         "rate": 0.0,
         "present": 0,
@@ -475,10 +583,13 @@ def probe_tau_grid_l1_coverage(
         "n_clocks": len(clocks),
         "hint": "",
         "cold": True,
-        "lake_enabled": bool(enabled()),
+        "lake_enabled": lake_on,
+        "probe_ok": True,
     }
-    if not enabled() or not code_list or not clocks:
-        out["hint"] = "Feature Lake 关闭或网格为空；建面板将走 5m"
+    if not lake_on or not code_list or not clocks:
+        out["hint"] = (
+            "Feature Lake 关闭或网格为空；产品拟合将阻断，请先分钟线物化 L1/L2"
+        )
         return out
     cap = max(1, min(int(sample_n or 40), len(code_list)))
     # 均匀抽样，避免只看池头
@@ -507,16 +618,17 @@ def probe_tau_grid_l1_coverage(
             ):
                 with_meta += 1
     rate = float(with_meta) / float(max(1, slots))
-    cold = rate <= 0.5
+    cold = rate <= float(TAU_L1_COLD_RATE)
     hint = ""
     if cold:
         hint = (
             f"τ 网格 L1 热覆盖约 {rate:.0%}（抽样 {len(sample)}×{len(clocks)}）；"
-            "建议先跑「分钟线物化 L1/L2」，否则建面板多走 5m"
+            "请先跑「分钟线物化 L1/L2」（产品拟合将阻断）"
         )
     elif rate < 0.9:
         hint = (
-            f"τ 网格 L1 部分就绪 {rate:.0%}；未命中票将回退 5m"
+            f"τ 网格 L1 部分就绪 {rate:.0%}；未命中票将回退 5m，"
+            "命中过低时产品路径会中止"
         )
     else:
         hint = f"τ 网格 L1 就绪约 {rate:.0%}（可免读 5m）"
@@ -529,6 +641,7 @@ def probe_tau_grid_l1_coverage(
             "n_slots": slots,
             "hint": hint,
             "cold": cold,
+            "probe_ok": True,
         }
     )
     return out

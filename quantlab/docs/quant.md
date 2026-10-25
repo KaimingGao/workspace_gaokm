@@ -1317,7 +1317,7 @@ score_stock(code) 续——
 | OOS | **AUC** / **Brier** / acc@0.5 / IC；Tree vs Ridge 同窗对照；晋级闸看胜出侧（AUC≥0.52 或 acc≥0.52，n≥80） |
 | 前缀滑条 | ŷ_τ* 共用一组（**09:35…11:00**，默认 **11:00**；仅分钟钟，靠分钟线物化 L2）；与 ŷ_τc 滑条（默认 **09:30** 开盘点）独立；缺分钟 L2 时双训整单失败（提示分钟线物化） |
 
-实现：`core/research/horizon_ridge.py`（`fit_horizon_dual_report` / `select_horizon_backend` / `prepare_horizon_compact`）· `horizon_compact.py` · `horizon_tree.py` · `horizon_lgb.py` · `alpha_th.py` · `z_th.py`。双训**只建一次面板并折 float64**，Ridge→Tree 串行共用 `compact_panel`（对齐 y_oo）；抽 Holdout 日历后释放日线 `bars`。服务层**分批**读本地 5m → `build_tau_panels_from_bars`（`label_heads` 只算本头窗价；分钟路径 **ProcessPool**，`TAU_RIDGE_WORKERS` 顶 4）→ 立刻 pop 分钟线 → `enrich_horizon_raw_panels` → 折矩阵；Job 槽经 `progress_cb` 报「建面板 n/N」/「折矩阵…」。研究枢纽无独立 tree 卡 / standalone tree API。
+实现：`core/research/horizon_ridge.py`（`fit_horizon_dual_report` / `select_horizon_backend` / `prepare_horizon_compact`）· `horizon_compact.py` · `horizon_l1.py` · `horizon_tree.py` · `horizon_lgb.py` · `alpha_th.py` · `z_th.py`。双训**只建一次面板并折 float64**，Ridge→Tree 串行共用 `compact_panel`（对齐 y_oo）；抽 Holdout 日历后释放日线 `bars`。服务层建面板 **L1-first**：`hz_*` → stitch `tc_HHMM`（须 `M`/`price_tau*`）→ 个别票再读本地 5m（`skip_l1_stitch` + ProcessPool，`TAU_RIDGE_WORKERS` 顶 4）。产品路径 **fail-closed**：`l1_tau_coverage` cold / 探测失败 / 实际 L1 命中过低 → `materialize_required`，不对整池静默啃 5m。Job 槽经 `progress_cb` 报「L1命中 / 5m回退」。研究枢纽无独立 tree 卡 / standalone tree API。
 
 ### 4.4 双层完整调用链
 

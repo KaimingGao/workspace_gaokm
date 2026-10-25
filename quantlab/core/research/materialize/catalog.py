@@ -108,7 +108,8 @@ def catalog_payload() -> Dict[str, object]:
             "meta_prices": True,
             "note": (
                 "须本地 5m Ready；写 tc_HHMM（τc∪窗头列，日线指纹 + M/price_tau*）"
-                "后再物化按钟 L2；ŷ_τ* 拟合优先 stitch L1，未命中回退 5m"
+                "后再物化按钟 L2；ŷ_τ* 拟合优先 stitch L1；产品路径 cold/"
+                "命中过低 → materialize_required（不对整池静默啃 5m）"
             ),
         },
         "horizon_head_l1": {
@@ -123,6 +124,7 @@ def catalog_payload() -> Dict[str, object]:
             "拟合/OOS 截面 z 只用 L2；默认 L2 clock=open；"
             "τ 网格 L1 传 do_l1_tau_grid；"
             "按钟 L2 传 clocks=suggested_tau_clocks（须先有 tc_HHMM）；"
-            "ŷ_τ* 建面板：hz_* → stitch tc_HHMM → 5m 回退。"
+            "ŷ_τ* 建面板：hz_* → stitch tc_HHMM；产品 fail-closed"
+            "（个别票仍可 5m，大面积 miss 阻断）。"
         ),
     }

@@ -432,6 +432,17 @@ def _rescore_horizons(
         _rescore_one_horizon(items, head, score_codes=score_codes, day_cube=day_cube)
 
 
+def _overlay_z(rows: Sequence[dict], parts: Sequence[dict]) -> List[dict]:
+    """把截面 z 写回原行，未参与的列保持原值。"""
+    out: List[dict] = []
+    for src, part in zip(rows, parts):
+        row = dict(src)
+        if isinstance(part, dict):
+            row.update(part)
+        out.append(row)
+    return out
+
+
 def _finite_name_count(rows: Sequence[dict], name: str) -> int:
     import math
 
@@ -508,19 +519,33 @@ def _rescore_one_horizon(
     except Exception:  # noqa: BLE001
         logger.debug("horizon rescore stamp failed head=%s", head, exc_info=True)
     from core.research.horizon_ridge import clear_y_hat
-    from core.t0.score_policy import _cube_covers_horizon_names, _finalize_cs_row
+    from core.t0.score_policy import _cube_matched_names, _finalize_cs_row
 
-    cube_ok = day_cube is not None and _cube_covers_horizon_names(day_cube, names)
-    if not cube_ok and len(raws) < 2:
+    matched = _cube_matched_names(day_cube, names) if day_cube is not None else []
+    if not matched and len(raws) < 2:
         for slot in slots:
             clear_y_hat(head, items[slot])
         return
-    if cube_ok:
-        z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
+    base = (
+        _overlay_z(raws, _z_rows(raws, matched, day_cube=day_cube, codes=codes))
+        if matched
+        else list(raws)
+    )
+    if matched and len(matched) == len(names):
+        z_rows = base
         covered = list(names)
     else:
-        covered = [n for n in names if _finite_name_count(raws, n) >= 2]
-        z_rows = _z_rows(raws, covered or list(names), day_cube=None, codes=codes)
+        locked = set(matched)
+        peer_names = [
+            n
+            for n in names
+            if n not in locked and _finite_name_count(base, n) >= 2
+        ]
+        if peer_names and len(base) >= 2:
+            z_rows = _overlay_z(base, _z_rows(base, peer_names, day_cube=None, codes=codes))
+        else:
+            z_rows = base
+        covered = list(matched) + peer_names
     be = _doc_backend(doc)
     for slot, z_row in zip(slots, z_rows):
         item = items[slot]

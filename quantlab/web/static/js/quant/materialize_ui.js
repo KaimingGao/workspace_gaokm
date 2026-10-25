@@ -603,7 +603,7 @@ function installMaterializeRunner(q, cfg) {
     }
   }
 
-  /** 刷新后接管 in-flight；近期失败也画出来（勿被日 K/5m done 盖掉）。 */
+  /** 刷新后恢复：running 接管；近期 done / failed 重画状态条（勿被日 K/5m 盖掉）。 */
   async function resumeIfRunning() {
     if (running || typeof apiFetch !== "function") return false;
     let data;
@@ -616,9 +616,10 @@ function installMaterializeRunner(q, cfg) {
     const st = String(job.status || "").toLowerCase();
     if (!kindMatchesRunner(job.kind, tau)) return false;
 
+    const updated = Number(job.updated_at || 0);
+    const ageSec = updated > 0 ? Date.now() / 1000 - updated : 1e9;
+
     if (st === "failed" || st === "error") {
-      const updated = Number(job.updated_at || 0);
-      const ageSec = updated > 0 ? Date.now() / 1000 - updated : 1e9;
       // 超过 6h 的旧失败不抢状态条
       if (ageSec > 6 * 3600) return false;
       lastPolledJob = job;
@@ -631,6 +632,29 @@ function installMaterializeRunner(q, cfg) {
       head.push(errText);
       msgEl.textContent = head.join(" · ");
       paintFail(job, errText);
+      if (onSettled) onSettled();
+      return true;
+    }
+
+    if (st === "done" || st === "success" || st === "finished") {
+      // 完成态保留 7 天，刷新后仍显示上次物化摘要
+      if (ageSec > 7 * 24 * 3600) return false;
+      const result = (job && job.result) || {};
+      // 有模式位时再校验（截断旧盘无 do_l1_tau_grid 则只靠 kind）
+      if (typeof result.do_l1_tau_grid === "boolean") {
+        if (!!result.do_l1_tau_grid !== !!tau) return false;
+      }
+      lastPolledJob = job;
+      if (onStart) onStart();
+      const ok =
+        result.success !== false &&
+        result.ok !== false &&
+        !String(job.error || result.error || "").trim();
+      applyDoneUi({
+        ok,
+        job,
+        error: String(job.error || result.error || "物化失败"),
+      });
       if (onSettled) onSettled();
       return true;
     }

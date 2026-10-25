@@ -109,7 +109,7 @@ L2  DayCube          date × universe_id × clock
 
 载荷：`X[n,p]`、`dates[n]`、可选 `y[n]`；可选 `M[n,m]`（`price_tau*` 等行级 meta，不进 L2）；meta 含 `fingerprint`、`names`、`m_names`。
 
-**ŷ_τ* 拟合与 L1（H6）**：建面板优先 `hz_*` → 按钟 stitch `tc_HHMM`（日线 `bars_fp`，不吃 5m）→ 未命中再读本地分钟现算。进度文案：`L1命中… · 5m回退…`；开跑前抽样探测 `l1_tau_coverage`（冷则提示先物化，不阻断）。旧含分钟指纹、或无 `M` 的 τ 网格 L1 会 miss，须重跑「分钟线物化 L1/L2」。
+**ŷ_τ* 拟合与 L1（H6）**：建面板优先 `hz_*` → 按钟 stitch `tc_HHMM`（日线 `bars_fp`，不吃 5m）→ 未命中再读本地分钟现算。进度文案：`L1命中… · 5m回退…`。产品消费路径 **fail-closed**：`l1_tau_coverage` cold / 探测失败 / 湖关闭 → `materialize_required`；建面板实际 L1 命中 ≤50%（含指纹 miss 导致大面积 5m）提前或收尾阻断，避免热探测误放行后整池啃 5m。脚本/单测未开只读仍可回退。旧含分钟指纹、或无 `M` 的 τ 网格 L1 会 miss，须重跑「分钟线物化 L1/L2」。
 
 API 要点：
 
@@ -384,9 +384,9 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | H1 | `materialize_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
 | H2 | L2 按钟 `require_horizon_names` + UI 联动 | ✅ |
 | H3 | 禁静默 open + 窗头 stitch L1（`horizon_l1.try_stitch_horizon_l1_panel`） | ✅ |
-| H4 | live `_cs_z_horizon_feats`：τ Cube 覆盖失败 → leave-one-in | ✅ |
+| H4 | live `_cs_z_horizon_feats`：τ Cube 有列先套 μ/σ，缺列再 leave-one-in | ✅ |
 | H5 | 测试 / §10.1b 窗头分支 / ASSET_V | ✅ |
-| H6 | ŷ_τ* 拟合 L1-first（进度 L1/5m + 日线 fp + `M`/price_tau*） | ✅ |
+| H6 | ŷ_τ* 拟合 L1-first（进度 L1/5m + 日线 fp + `M`/price_tau*；产品 cold/低命中 fail-closed） | ✅ |
 | H7 | `hz_*` 整头板 load/sync + invalidate 覆盖 | ✅ |
 
 ---
@@ -473,7 +473,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 拟合分组 | `date|τ` PIT；窗头优先 stitch L1，miss 才全量 5m |
 | L1 | open `tc` + 分钟线「物化 L1/L2」写 `tc_HHMM`（τc∪窗头列） |
 | L2 | 日线物化 open；分钟线物化按钟（`require_horizon_names`，**不含 open**）；窗头网格自 09:35；`date|τ` 禁静默 open |
-| live | `_cs_z_horizon_feats`：τ Cube 覆盖失败 → 同钟 L1，再 leave-one-in（不读 open）。键协议见 [daycube-universe-key.md](./daycube-universe-key.md) |
+| live | `_cs_z_horizon_feats`：τ Cube 有的列先套 μ/σ，缺列再同钟 L1 / leave-one-in（不读 open）。键协议见 [daycube-universe-key.md](./daycube-universe-key.md) |
 | 物化 UI | 日线 open · 分钟线 τ（Ready 门控；仅手动） |
 
 ### 13.2 口径契约（冻结）
@@ -530,7 +530,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | **H1** | `materialize_l1_tau_grid` + API `do_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
 | **H2** | L2 `require_horizon_names`；按钟 Cube + 矩阵 CS enrich（open/分钟） | ✅ |
 | **H3** | `date\|τ` 禁静默 open；窗头 `build_tau` 优先 stitch L1，relabel 分钟补标签 | ✅ |
-| **H4** | live `_cs_z_horizon_feats`：τ 覆盖失败不静默 open → leave-one-in；hit 打 debug | ✅ |
+| **H4** | live `_cs_z_horizon_feats`：τ 不静默 open；有列先套 μ/σ，缺列 leave-one-in | ✅ |
 | **H5** | §10.1b 窗头分支；`test_materialize_l1l2` / JS guards；UI 色调；Job stale 90min | ✅ |
 
 ### 13.5 API / UI
@@ -544,18 +544,18 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 分钟线卡 | 两块：L0 5m 仓 + 物化卡 Ready 后「物化 L1/L2」= τ 网格 L1 + 按钟 Cube |
 | τ 网格进度 | 文案 `L1 τ 网格 HH:MM（k/N）`：`N`=`suggested_tau_clocks` 钟数（默认 **18**=09:35…11:00 每 5m，不含 open/09:30）；Job `current/total` 仍钉宏步（如 0/2） |
 | 状态条 | L0 与物化各有 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn） |
-| 刷新接管 | 页加载 **先** `resumeIfRunning`（物化条）**再** `refreshStatus`（L0 覆盖），未接管再 `syncJobSlot`；running 后台挂 wait；6h 内 failed 也画；`clearJobPanels` 清 sticky |
+| 刷新接管 | 页加载 **先** `resumeIfRunning`（物化条）**再** `refreshStatus`（L0 覆盖），未接管再 `syncJobSlot`；**running** 后台挂 wait；**7 天内 done**（按 open/τ kind）与 **6h 内 failed** 重画状态条；`clearJobPanels` 清 sticky |
 | waitJob | 见过本 id 后槽位被换 →「已被新任务替换」；前端等待 open **90min** / τ **150min**（勿再用 45min）；等满且槽仍 running → 提示刷新接管（勿标 FAIL） |
 | waitMinuteJob | 增量 **60min** / 强更 5m **120min** 为软上限（勿再用 30min）；心跳不足 90s 则继续轮询，硬上限 **8h**；心跳停了且已过软上限 → WAIT + 刷新接管（勿标 FAIL）；页加载 `syncJobSlot` 可挂接 |
 | open↔τ 同槽 | 对侧 running 时 POST 返回 `conflict`；UI **等待对侧结束再自动重试一次**（勿硬 FAIL） |
 | 进度 | 宏步骤钉 `step/tot_steps`；子阶段只改 message；UI 隐藏 total>8 的票级微进度；失败文案用 `--danger` |
-| **Track** | `result.track`（`build_materialize_track`）：`id`/`label`/`ok`/`elapsed_s`/`steps_ok`/`schema`/`headline` + `stages[]`（`id`/`status`/`elapsed_s`/`depends_on`/`metrics`）；Job 落盘与状态条优先展示 `headline` 与阶段链 |
+| **Track** | `result.track`（`build_materialize_track`）：`id`/`label`/`ok`/`elapsed_s`/`steps_ok`/`schema`/`headline` + `stages[]`；大结果落盘截断时仍保留 `track` / `do_l1_tau_grid` / L2 摘要（供刷新重画），丢 `by_family` 等明细 |
 | 失败配色 | 增量/强更失败：蓝族 + 红字；物化失败：黄族 + 红字 |
 | 耗时参考 | 日线 open L1+L2 · 池≈800：约 **5–8 min**；τ 网格首轮（18 钟 L1+L2）可到 **数小时**；L1 指纹增量后会快很多；L2 宇宙键对齐后同池再跑可命中跳过（见 [daycube-universe-key.md](./daycube-universe-key.md)）；强更 5m · 800 票约 **30 min**（4 并发 · 开工间隔 2s；已 Ready 跳过） |
 | 无自动物化 | 日线/分钟线均手动；无 auto-materialize 勾选 |
 | 前缀滑条 | **ŷ_τc** 独立（默认 09:30）；**ŷ_τ30…90** 共用（默认 11:00）；localStorage / 拟合恢复按组隔离 |
 | ŷ_τc 拟合进度 | `解析宇宙` → `拉日线` →（可选）`读5m` → `面板 k/N` → `截面广度` → `Ridge`；槽 `allow_zero_progress` |
-| 窗头拟合 Job | 进度区分 `L1 hit / 5m miss / Cube hit`；CS-z 只用 L2 |
+| 窗头拟合 Job | 进度区分 `L1 hit / 5m miss / Cube hit`；CS-z 只用 L2；产品路径 `l1_tau_coverage` cold / 命中过低 → `materialize_required` |
 
 ### 13.6 运维顺序（窗头专用）
 
@@ -572,7 +572,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 分钟变更失效面大 | 指纹含分钟前缀；topup 分钟后 `invalidate` 对应 `tc_HHMM` |
 | 列膨胀拖慢 Cube | `names` 白名单；slim 禁止用于窗头 z |
 | 口径漂移 | 窗头默认不 open_fallback；或报告 `zscore_clock_source` |
-| 回滚 | 缺 L2 不进批现算。ŷ_τ* 丢掉该日期\|钟；其余主头整单 ``materialize_required``。须先物化再拟合 |
+| 回滚 | 缺 L2 不进批现算。ŷ_τ* 丢掉该日期\|钟；τ 网格 L1 cold/低命中与其余主头一样整单 ``materialize_required``。须先物化再拟合 |
 
 ### 13.8 明确不做（本轨）
 

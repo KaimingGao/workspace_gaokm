@@ -173,6 +173,10 @@ class MaterializeCatalogTests(unittest.TestCase):
         self.assertEqual(doc["tau_grid"].get("clocks"), clocks)
         self.assertEqual(doc["tau_grid"].get("bars_fp_scope"), "daily")
         self.assertTrue(doc["tau_grid"].get("meta_prices"))
+        note = str(doc["tau_grid"].get("note") or "")
+        self.assertIn("M/price_tau", note)
+        self.assertIn("materialize_required", note)
+        self.assertIn("fail-closed", str(doc.get("note") or ""))
         hz = doc.get("horizon_head_l1") or {}
         self.assertIn("hz_t30", hz.get("families") or [])
 
@@ -1035,7 +1039,199 @@ class HorizonL1StitchTests(unittest.TestCase):
         self.assertEqual(cov["with_meta"], 2)
         self.assertAlmostEqual(cov["rate"], 0.5)
         self.assertTrue(cov["cold"])
+        self.assertTrue(cov.get("probe_ok"))
         self.assertIn("物化", cov.get("hint") or "")
+
+    def test_tau_l1_coverage_helpers_fail_closed(self):
+        from core.research.horizon_l1 import (
+            tau_l1_coverage_blocks_fit,
+            tau_l1_hit_rate_too_low,
+        )
+
+        self.assertTrue(tau_l1_coverage_blocks_fit(None))
+        self.assertTrue(tau_l1_coverage_blocks_fit({}))
+        self.assertTrue(
+            tau_l1_coverage_blocks_fit({"cold": False, "probe_ok": False})
+        )
+        self.assertTrue(
+            tau_l1_coverage_blocks_fit(
+                {"cold": False, "probe_ok": True, "lake_enabled": False}
+            )
+        )
+        self.assertFalse(
+            tau_l1_coverage_blocks_fit(
+                {"cold": False, "probe_ok": True, "lake_enabled": True}
+            )
+        )
+        self.assertTrue(
+            tau_l1_hit_rate_too_low(
+                l1_head_hit=0, l1_stitch_hit=2, rebuild_5m=22, min_attempted=24
+            )
+        )
+        self.assertFalse(
+            tau_l1_hit_rate_too_low(
+                l1_head_hit=20, l1_stitch_hit=0, rebuild_5m=4, min_attempted=24
+            )
+        )
+
+    def test_horizon_fit_blocks_when_l1_tau_cold(self):
+        """产品只读路径：τ 网格 L1 cold → materialize_required，不啃 5m。"""
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        svc = QuantFactorMixin()
+        with mock.patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={
+                "ok": True,
+                "codes": ["000001", "000002"],
+                "source": "watching",
+            },
+        ), mock.patch(
+            "core.research.materialize.cover_policy.resolve_fit_minute_covered_dates",
+            return_value=["2026-04-01", "2026-04-02"],
+        ), mock.patch(
+            "core.research.horizon_l1.probe_tau_grid_l1_coverage",
+            return_value={
+                "rate": 0.0,
+                "present": 10,
+                "with_meta": 0,
+                "n_probed": 2,
+                "n_slots": 36,
+                "cold": True,
+                "probe_ok": True,
+                "hint": "τ 网格 L1 热覆盖约 0%；请先跑「分钟线物化 L1/L2」",
+                "lake_enabled": True,
+            },
+        ), mock.patch(
+            "core.store.load_minute_cache",
+        ) as load_min, mock.patch(
+            "core.research.tc_ridge_compact.build_tau_panels_from_bars",
+        ) as build_panels:
+            with self.assertRaises(MaterializeRequired) as ctx:
+                with materialized_consumer():
+                    svc._run_horizon_ridge_experiment(
+                        "t30",
+                        watching_limit=2,
+                        lookback=40,
+                        tau_end_hm="11:00",
+                        cross_section_zscore=False,
+                    )
+        payload = ctx.exception.to_dict()
+        self.assertEqual(payload.get("error_code"), "materialize_required")
+        self.assertEqual(payload.get("reason"), "cold")
+        self.assertIn("分钟线物化", str(payload.get("error") or ""))
+        self.assertEqual(payload.get("hint"), "分钟线物化")
+        self.assertTrue((payload.get("request") or {}).get("do_l1_tau_grid"))
+        load_min.assert_not_called()
+        build_panels.assert_not_called()
+
+    def test_horizon_fit_blocks_when_probe_raises(self):
+        """探测异常 → fail-closed，不静默啃 5m。"""
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        svc = QuantFactorMixin()
+        with mock.patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={
+                "ok": True,
+                "codes": ["000001", "000002"],
+                "source": "watching",
+            },
+        ), mock.patch(
+            "core.research.materialize.cover_policy.resolve_fit_minute_covered_dates",
+            return_value=["2026-04-01"],
+        ), mock.patch(
+            "core.research.horizon_l1.probe_tau_grid_l1_coverage",
+            side_effect=RuntimeError("boom"),
+        ), mock.patch(
+            "core.store.load_minute_cache",
+        ) as load_min:
+            with self.assertRaises(MaterializeRequired) as ctx:
+                with materialized_consumer():
+                    svc._run_horizon_ridge_experiment(
+                        "t30",
+                        watching_limit=2,
+                        lookback=40,
+                        tau_end_hm="11:00",
+                    )
+        self.assertEqual(ctx.exception.to_dict().get("reason"), "probe_failed")
+        load_min.assert_not_called()
+
+    def test_horizon_fit_early_aborts_on_fingerprint_miss(self):
+        """探测热但 stitch 全 miss：攒满 early 门槛后阻断，不启动 5m 池。"""
+        from core.research.materialize.consumer import (
+            MaterializeRequired,
+            materialized_consumer,
+        )
+        from quant.services.quant_service_factors import QuantFactorMixin
+
+        dates = [f"2026-04-{d:02d}" for d in range(1, 20)]
+        bars = [
+            {
+                "date": d,
+                "open": 10.0,
+                "high": 10.2,
+                "low": 9.8,
+                "close": 10.1,
+                "volume": 1e5,
+            }
+            for d in dates
+        ]
+        codes = [f"{i:06d}" for i in range(1, 30)]
+        svc = QuantFactorMixin()
+        with mock.patch(
+            "core.research_universe.resolve_model_fit_codes",
+            return_value={"ok": True, "codes": codes, "source": "watching"},
+        ), mock.patch(
+            "core.data.facade.bars_and_source",
+            return_value=(bars, "cache"),
+        ), mock.patch(
+            "core.research.materialize.cover_policy.resolve_fit_minute_covered_dates",
+            return_value=dates[:5],
+        ), mock.patch(
+            "core.research.horizon_l1.probe_tau_grid_l1_coverage",
+            return_value={
+                "rate": 0.95,
+                "present": 100,
+                "with_meta": 95,
+                "cold": False,
+                "probe_ok": True,
+                "lake_enabled": True,
+                "hint": "热",
+            },
+        ), mock.patch(
+            "core.research.horizon_l1.try_load_horizon_head_panel",
+            return_value=None,
+        ), mock.patch(
+            "core.research.horizon_l1.try_stitch_horizon_l1_panel",
+            return_value=None,
+        ), mock.patch(
+            "core.store.load_minute_cache",
+            return_value=([{"datetime": "2026-04-01 09:35"}], {}),
+        ), mock.patch(
+            "core.research.tc_ridge_compact.build_tau_panels_from_bars",
+        ) as build_panels:
+            with self.assertRaises(MaterializeRequired) as ctx:
+                with materialized_consumer():
+                    svc._run_horizon_ridge_experiment(
+                        "t30",
+                        watching_limit=len(codes),
+                        lookback=40,
+                        tau_end_hm="11:00",
+                        cross_section_zscore=False,
+                    )
+        payload = ctx.exception.to_dict()
+        self.assertEqual(payload.get("reason"), "early_abort")
+        self.assertGreaterEqual(int(payload.get("rebuild_5m") or 0), 24)
+        build_panels.assert_not_called()
 
     def test_horizon_fit_l1_stitch_skips_minute_cache(self):
         """L1 stitch 全命中时不读 load_minute_cache。"""
@@ -1095,6 +1291,16 @@ class HorizonL1StitchTests(unittest.TestCase):
         ), mock.patch(
             "core.research.materialize.cover_policy.resolve_fit_minute_covered_dates",
             return_value=dates[:5],
+        ), mock.patch(
+            "core.research.horizon_l1.probe_tau_grid_l1_coverage",
+            return_value={
+                "rate": 1.0,
+                "present": 4,
+                "with_meta": 4,
+                "cold": False,
+                "hint": "τ 网格 L1 就绪约 100%",
+                "lake_enabled": True,
+            },
         ), mock.patch(
             "core.research.horizon_l1.try_load_horizon_head_panel",
             return_value=None,

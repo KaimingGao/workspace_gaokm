@@ -326,5 +326,249 @@ class HorizonCsZLiveTests(unittest.TestCase):
         self.assertLess(float(z["raw_ath_CLOSE0"]), 2.0)
         self.assertNotAlmostEqual(float(z["raw_ath_CLOSE0"]), 1.02, places=2)
 
+    def test_partial_cube_zscores_theme_day_when_cover_incomplete(self):
+        """立方缺窗头列时，已有列仍套 μ/σ。theme_day 不得以 raw 0/1 进树。"""
+        from core.t0 import score_policy as sp
+
+        class _Cube:
+            names = ["z_τh_theme_day", "theme_day", "gap_pct"]
+            z_mean = [0.2, 0.2, 0.0]
+            z_std = [0.4, 0.4, 1.0]
+
+        doc = {
+            "backend": "ridge",
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "z_τh_theme_day": -1.0,
+                    "gap_pct": 0.1,
+                    "raw_ath_RET_LAST_30": 0.2,
+                },
+                "active_features": [
+                    "z_τh_theme_day",
+                    "gap_pct",
+                    "raw_ath_RET_LAST_30",
+                ],
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        peers = [
+            {
+                "stock_code": "A",
+                "features_tau": {"gap_pct": 0.0, "raw_ath_RET_LAST_30": 0.0},
+            },
+            {
+                "stock_code": "B",
+                "features_tau": {"gap_pct": 10.0, "raw_ath_RET_LAST_30": 0.0},
+            },
+            {
+                "stock_code": "C",
+                "features_tau": {"gap_pct": 2.0, "raw_ath_RET_LAST_30": 2.0},
+            },
+        ]
+        with mock.patch.object(sp, "_POOL_FEAT_CACHE", {"2026-10-23": peers}), mock.patch(
+            "core.research.horizon_ridge.load_ridge_model", return_value=doc
+        ), mock.patch(
+            "core.research.feature_standardize.is_cross_section_zscore",
+            return_value=True,
+        ), mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.t0.score_policy._watching_codes_for_z",
+            return_value=["A", "B", "C"],
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=_Cube()
+        ), mock.patch.object(
+            sp, "_tau_clock_peer_rows", return_value=peers
+        ):
+            z0 = sp._cs_z_horizon_feats(
+                {"theme_day": 0.0, "gap_pct": 2.0, "raw_ath_RET_LAST_30": 2.0},
+                head="t30",
+                trade_date="2026-10-23",
+                stock_code="C",
+                tau_hm="09:35",
+            )
+            z1 = sp._cs_z_horizon_feats(
+                {"theme_day": 1.0, "gap_pct": 2.0, "raw_ath_RET_LAST_30": 2.0},
+                head="t30",
+                trade_date="2026-10-23",
+                stock_code="C",
+                tau_hm="09:35",
+            )
+        # (0-0.2)/0.4 = -0.5；(1-0.2)/0.4 = 2.0。不是 raw 0/1。
+        self.assertAlmostEqual(float(z0["z_τh_theme_day"]), -0.5, places=5)
+        self.assertAlmostEqual(float(z1["z_τh_theme_day"]), 2.0, places=5)
+        # gap 走立方 μ=0 σ=1，不是同伴 z
+        self.assertAlmostEqual(float(z0["gap_pct"]), 2.0, places=5)
+        # 立方没有的 raw_ath 仍用同钟同伴
+        self.assertNotAlmostEqual(float(z0["raw_ath_RET_LAST_30"]), 2.0, places=2)
+
+    def test_no_cube_no_peers_does_not_keep_raw_theme_day(self):
+        """立方和同伴都没有主题日时记 0，不把 raw 1 送进树。"""
+        from core.t0 import score_policy as sp
+
+        doc = {
+            "backend": "ridge",
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {"z_τh_theme_day": -1.0, "gap_pct": 0.1},
+                "active_features": ["z_τh_theme_day", "gap_pct"],
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        peers = [
+            {"stock_code": "A", "features_tau": {"gap_pct": 0.0}},
+            {"stock_code": "C", "features_tau": {"gap_pct": 2.0}},
+        ]
+        with mock.patch.object(sp, "_POOL_FEAT_CACHE", {"2026-10-23": peers}), mock.patch(
+            "core.research.horizon_ridge.load_ridge_model", return_value=doc
+        ), mock.patch(
+            "core.research.feature_standardize.is_cross_section_zscore",
+            return_value=True,
+        ), mock.patch(
+            "core.research.day_cube.enabled", return_value=False
+        ), mock.patch.object(
+            sp, "_tau_clock_peer_rows", return_value=[]
+        ):
+            z = sp._cs_z_horizon_feats(
+                {"theme_day": 1.0, "gap_pct": 2.0},
+                head="t30",
+                trade_date="2026-10-23",
+                stock_code="C",
+                tau_hm="09:35",
+            )
+        self.assertEqual(float(z["z_τh_theme_day"]), 0.0)
+        self.assertEqual(float(z["theme_day"]), 0.0)
+        self.assertNotAlmostEqual(float(z["gap_pct"]), 2.0, places=2)
+
+    def test_cube_only_when_peers_missing(self):
+        """没有同伴时，立方已套上的列仍然出分，缺列记 0。"""
+        from core.t0 import score_policy as sp
+
+        class _Cube:
+            names = ["z_τh_theme_day", "theme_day", "gap_pct"]
+            z_mean = [0.2, 0.2, 0.0]
+            z_std = [0.4, 0.4, 1.0]
+
+        doc = {
+            "backend": "ridge",
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "z_τh_theme_day": -1.0,
+                    "gap_pct": 0.1,
+                    "raw_ath_RET_LAST_30": 0.2,
+                },
+                "active_features": [
+                    "z_τh_theme_day",
+                    "gap_pct",
+                    "raw_ath_RET_LAST_30",
+                ],
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        with mock.patch.object(sp, "_POOL_FEAT_CACHE", {"2026-10-23": []}), mock.patch(
+            "core.research.horizon_ridge.load_ridge_model", return_value=doc
+        ), mock.patch(
+            "core.research.feature_standardize.is_cross_section_zscore",
+            return_value=True,
+        ), mock.patch(
+            "core.research.day_cube.enabled", return_value=True
+        ), mock.patch(
+            "core.t0.score_policy._watching_codes_for_z",
+            return_value=["A", "C"],
+        ), mock.patch(
+            "core.research.day_cube.load_day_cube", return_value=_Cube()
+        ), mock.patch.object(
+            sp, "_tau_clock_peer_rows", return_value=[]
+        ):
+            z = sp._cs_z_horizon_feats(
+                {"theme_day": 0.0, "gap_pct": 2.0, "raw_ath_RET_LAST_30": 9.0},
+                head="t30",
+                trade_date="2026-10-23",
+                stock_code="C",
+                tau_hm="09:35",
+            )
+        self.assertIsNotNone(z)
+        self.assertAlmostEqual(float(z["z_τh_theme_day"]), -0.5, places=5)
+        self.assertAlmostEqual(float(z["theme_day"]), -0.5, places=5)
+        self.assertAlmostEqual(float(z["raw_ath_RET_LAST_30"]), 0.0, places=5)
+
+    def test_rescore_partial_cube_standardizes_theme_day(self):
+        from core.signal.cross_section_rescore import _rescore_one_horizon
+
+        class _Cube:
+            names = ["z_τh_theme_day", "theme_day", "gap_pct"]
+            z_mean = [0.2, 0.2, 0.0]
+            z_std = [0.4, 0.4, 1.0]
+            codes = ["A", "C"]
+
+        doc = {
+            "backend": "ridge",
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "z_τh_theme_day": -1.0,
+                    "gap_pct": 0.1,
+                    "raw_ath_RET_LAST_30": 0.2,
+                },
+                "active_features": [
+                    "z_τh_theme_day",
+                    "gap_pct",
+                    "raw_ath_RET_LAST_30",
+                ],
+                "feature_names": [
+                    "z_τh_theme_day",
+                    "gap_pct",
+                    "raw_ath_RET_LAST_30",
+                ],
+                "zscore_scope": "cross_section",
+                "feature_zscore": True,
+            },
+            "zscore_scope": "cross_section",
+        }
+        seen = {}
+
+        def _pred(head, feats, model_doc=None):
+            seen["theme"] = feats.get("z_τh_theme_day")
+            seen["bare"] = feats.get("theme_day")
+            seen["ath"] = feats.get("raw_ath_RET_LAST_30")
+            return 0.42
+
+        items = [
+            {
+                "stock_code": "C",
+                "features_tau": {
+                    "theme_day": 1.0,
+                    "gap_pct": 2.0,
+                    "raw_ath_RET_LAST_30": 5.0,
+                },
+            }
+        ]
+        with mock.patch(
+            "core.research.horizon_ridge.load_ridge_model", return_value=doc
+        ), mock.patch(
+            "core.research.feature_standardize.is_cross_section_zscore",
+            return_value=True,
+        ), mock.patch(
+            "core.research.horizon_ridge.predict_ridge_from_features", side_effect=_pred
+        ), mock.patch(
+            "core.research.horizon_ridge._doc_backend", return_value="ridge"
+        ), mock.patch(
+            "core.research.horizon_ridge.explain_ridge_prediction", return_value=None
+        ):
+            _rescore_one_horizon(items, "t30", day_cube=_Cube())
+        self.assertAlmostEqual(float(seen["theme"]), 2.0, places=5)
+        self.assertAlmostEqual(float(seen["bare"]), 2.0, places=5)
+        self.assertEqual(float(seen["ath"]), 0.0)
+        self.assertAlmostEqual(float(items[0]["y_τ30"]), 0.42, places=5)
+
+
 if __name__ == "__main__":
     unittest.main()

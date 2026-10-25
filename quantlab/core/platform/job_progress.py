@@ -317,6 +317,99 @@ class JobProgress:
                             "bars_refresh": br or None,
                             "error": result.get("error"),
                         }
+                    elif slot_name == "materialize-l1l2":
+                        # 刷新后状态条要 track / 模式位；丢弃庞大 by_family 明细
+                        track = (
+                            result.get("track")
+                            if isinstance(result.get("track"), dict)
+                            else None
+                        )
+                        l1 = (
+                            result.get("l1")
+                            if isinstance(result.get("l1"), dict)
+                            else {}
+                        )
+                        l1tau = (
+                            result.get("l1_tau_grid")
+                            if isinstance(result.get("l1_tau_grid"), dict)
+                            else {}
+                        )
+                        l2 = (
+                            result.get("l2")
+                            if isinstance(result.get("l2"), dict)
+                            else {}
+                        )
+                        by_clock = (
+                            l2.get("by_clock")
+                            if isinstance(l2.get("by_clock"), dict)
+                            else {}
+                        )
+                        by_clock_slim: Dict[str, Any] = {}
+                        for clk, row in by_clock.items():
+                            if not isinstance(row, dict):
+                                continue
+                            by_clock_slim[str(clk)] = {
+                                k: row[k]
+                                for k in (
+                                    "ok",
+                                    "cubes_hit",
+                                    "cubes_built",
+                                    "days",
+                                    "error",
+                                )
+                                if k in row
+                            }
+                        l1_slim = None
+                        if l1:
+                            l1_slim = {
+                                k: l1[k]
+                                for k in ("ok", "elapsed_s", "error")
+                                if k in l1
+                            }
+                        l1tau_slim = None
+                        if l1tau:
+                            l1tau_slim = {
+                                k: l1tau[k]
+                                for k in (
+                                    "ok",
+                                    "elapsed_s",
+                                    "clocks",
+                                    "clocks_ok",
+                                    "error",
+                                )
+                                if k in l1tau
+                            }
+                        l2_slim = None
+                        if l2:
+                            l2_slim = {
+                                k: l2[k]
+                                for k in (
+                                    "ok",
+                                    "elapsed_s",
+                                    "minute_span",
+                                    "minute_days",
+                                    "error",
+                                )
+                                if k in l2
+                            }
+                            if by_clock_slim:
+                                l2_slim["by_clock"] = by_clock_slim
+                        payload["result"] = {
+                            "success": result.get("success"),
+                            "ok": bool(result.get("ok", result.get("success"))),
+                            "persisted_truncated": True,
+                            "task": result.get("task") or "materialize_l1l2",
+                            "do_l1": result.get("do_l1"),
+                            "do_l1_tau_grid": result.get("do_l1_tau_grid"),
+                            "do_l2": result.get("do_l2"),
+                            "schema": result.get("schema"),
+                            "elapsed_s": result.get("elapsed_s"),
+                            "track": track,
+                            "l1": l1_slim,
+                            "l1_tau_grid": l1tau_slim,
+                            "l2": l2_slim,
+                            "error": result.get("error"),
+                        }
                     elif slot_name == "chat":
                         reply = str(result.get("reply") or "")
                         if len(reply) > 2000:

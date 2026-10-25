@@ -1197,51 +1197,89 @@ def _open_px_from_item(item: dict) -> Optional[float]:
     return _f(feats.get("open")) or _f(item.get("open"))
 
 
-def _cube_covers_horizon_names(cube: Any, names: Sequence[str]) -> bool:
-    """入模列必须都在立方里。缺一列就不把这份立方当截面命中。"""
+def _cube_matched_names(cube: Any, names: Sequence[str]) -> List[str]:
+    """入模列里，这份立方能给出 μ/σ 的那些（含裸名）。缺列不在此列。"""
     if cube is None:
-        return False
+        return []
     try:
-        from core.research.materialize.horizon_names import names_cover_horizon
-    except Exception:  # noqa: BLE001
-        names_cover_horizon = None  # type: ignore[assignment]
-    need = [str(n).strip() for n in (names or []) if str(n or "").strip()]
-    if not need:
-        return False
-    if names_cover_horizon is not None:
-        return bool(names_cover_horizon(cube, min_frac=1.0, need=need))
-    try:
-        cube_names = {
+        got = {
             str(n)
             for n in (getattr(cube, "names", None) or [])
             if str(n or "").strip()
         }
     except TypeError:
-        return False
-    if len(cube_names) < 3:
-        return False
+        return []
+    if len(got) < 3:
+        return []
     try:
         from core.signal.factors.z_th import to_legacy_key
     except Exception:  # noqa: BLE001
         to_legacy_key = lambda k: k  # type: ignore[assignment, misc]
-    for raw in need:
-        bare = str(to_legacy_key(raw) or raw)
-        if raw not in cube_names and bare not in cube_names:
-            return False
-    return True
+    out: List[str] = []
+    for raw in names or []:
+        key = str(raw or "").strip()
+        if not key:
+            continue
+        bare = str(to_legacy_key(key) or key)
+        if key in got or bare in got:
+            out.append(key)
+    return out
+
+
+def _cube_covers_horizon_names(cube: Any, names: Sequence[str]) -> bool:
+    """入模列是否都在立方里。缺列不算整表命中，已有列仍可单独套 μ/σ。"""
+    need = [str(n).strip() for n in (names or []) if str(n or "").strip()]
+    if cube is None or not need:
+        return False
+    return len(_cube_matched_names(cube, need)) == len(need)
+
+
+# 当日水平量：没做成截面 z 时记 0（拟合缺列同口径）。裸 0/1 会落在训练点之间。
+_CS_LEVEL_BARE = frozenset({"theme_day", "sector_gap_breadth"})
+_CS_LEVEL_PREFIXES = ("z_τh_", "z_τc_", "z_co_", "z_oo_", "z_th_")
+
+
+def _cs_level_bare(key: str) -> str:
+    name = str(key or "")
+    for prefix in _CS_LEVEL_PREFIXES:
+        if name.startswith(prefix):
+            return name[len(prefix) :]
+    return name
+
+
+def _sync_level_family(out: dict, key: str, value: float) -> None:
+    """裸名优先的 stamp 会把 raw 盖回 z_τh_*，水平量两侧一起写。"""
+    bare = _cs_level_bare(key)
+    if bare not in _CS_LEVEL_BARE:
+        out[key] = value
+        return
+    out[bare] = value
+    out[key] = value
+    for prefix in ("z_τh_", "z_τc_", "z_co_"):
+        out[f"{prefix}{bare}"] = value
 
 
 def _finalize_cs_row(row: dict, names: Sequence[str], covered: Sequence[str]) -> Optional[dict]:
-    """没进截面的 raw_ath_* 记 0。稀疏的非 ath 列保持原值，避免各钟被压成同一个 z。"""
+    """没进截面的 raw_ath_* 与主题日/广度记 0。稀疏分钟列保持原值。"""
     if not isinstance(row, dict):
         return None
     out = dict(row)
     have = {str(n) for n in covered or []}
     for raw in names or []:
         key = str(raw or "").strip()
-        if not key or key in have or not key.startswith("raw_ath_"):
+        if not key:
             continue
-        out[key] = 0.0
+        bare = _cs_level_bare(key)
+        if key in have:
+            if bare in _CS_LEVEL_BARE:
+                try:
+                    zval = float(out.get(key))
+                except (TypeError, ValueError):
+                    continue
+                _sync_level_family(out, key, zval)
+            continue
+        if key.startswith("raw_ath_") or bare in _CS_LEVEL_BARE:
+            _sync_level_family(out, key, 0.0)
     return out
 
 
@@ -1352,7 +1390,8 @@ def _cs_z_horizon_feats(
     """截面模型：用观察池同伴 μ/σ 把 raw 映成截面 z（对齐拟合）。非截面原样返回。
 
     ``tau_hm``：当前前缀钟。Cube 只读该钟；miss 不退回 open。
-    再试同钟 ``tc_HHMM`` L1 同伴（含 ``raw_ath_*``）；仍无分布的 ``raw_ath_*`` 记 0。
+    立方里有的列先套 μ/σ。整表盖住就不再用同伴。
+    缺的列走同钟 L1 / leave-one-in；仍无分布的 ``raw_ath_*`` 与主题日/广度记 0。
     """
     if not isinstance(feats, dict) or not feats:
         return feats
@@ -1387,7 +1426,8 @@ def _cs_z_horizon_feats(
     code = str(stock_code or "").strip()
     hm = str(tau_hm or "").strip()[:5]
     tau_only = bool(hm) and hm not in ("09:30", "0930", "open")
-    # H4：按钟 Cube 优先；τ 覆盖失败不静默 open，改同钟 L1 / leave-one-in
+    cube_locked: List[str] = []
+    # 按钟 Cube。整表盖住直接返回；只盖住一部分则先套这些列，缺列再走同伴。不读 open。
     try:
         from core.research.day_cube import apply_cube_z_to_dicts, enabled, load_day_cube
 
@@ -1402,31 +1442,62 @@ def _cs_z_horizon_feats(
             else:
                 clocks.append("open")
             seen_c = set()
+            full_cube = None
+            partial_cube = None
             for clk in clocks:
                 if not clk or clk in seen_c:
                     continue
                 seen_c.add(clk)
                 cube = load_day_cube(dkey, watching_codes, clock=clk)
-                if _cube_covers_horizon_names(cube, names):
-                    src = dict(feats)
-                    stamp_z_th_aliases(src)
-                    z_all = apply_cube_z_to_dicts([src], [code], cube)
-                    if z_all:
+                if cube is None:
+                    continue
+                if full_cube is None and _cube_covers_horizon_names(cube, names):
+                    full_cube = cube
+                    break
+                if partial_cube is None:
+                    partial_cube = cube
+            chosen = full_cube if full_cube is not None else partial_cube
+            if chosen is not None:
+                src = dict(feats)
+                stamp_z_th_aliases(src)
+                z_all = apply_cube_z_to_dicts([src], [code], chosen)
+                locked = _cube_matched_names(chosen, names)
+                if z_all and locked:
+                    feats = z_all[0]
+                    cube_locked = locked
+                    if len(locked) == len(names):
                         logger.debug(
-                            "horizon cs-z cube hit head=%s date=%s clock=%s",
+                            "horizon cs-z cube hit head=%s date=%s n=%s",
                             head,
                             dkey,
-                            clk,
+                            len(locked),
                         )
-                        return _finalize_cs_row(z_all[0], names, names)
+                        return _finalize_cs_row(feats, names, names)
+                    logger.debug(
+                        "horizon cs-z cube partial head=%s date=%s n=%s",
+                        head,
+                        dkey,
+                        len(locked),
+                    )
     except Exception:  # noqa: BLE001
         logger.debug("horizon cs-z day_cube failed", exc_info=True)
+    locked_set = set(cube_locked)
     # 开盘池没有同钟 raw_ath_*。Cube miss 时用 tc_HHMM L1 做 μ/σ。
     if tau_only:
         lake_peers = _tau_clock_peer_rows(dkey, hm)
         if len(lake_peers) >= 2:
             peers = lake_peers
     if len(peers) < 2:
+        # 立方已套过的列可以打分；其余 raw_ath / 主题日记 0，与拟合缺列一致。
+        if cube_locked:
+            logger.debug(
+                "horizon cs-z cube-only head=%s date=%s clock=%s n=%s",
+                head,
+                dkey,
+                hm,
+                len(cube_locked),
+            )
+            return _finalize_cs_row(feats, names, cube_locked)
         logger.debug(
             "horizon cs-z abstain head=%s date=%s clock=%s reason=peers",
             head,
@@ -1453,18 +1524,24 @@ def _cs_z_horizon_feats(
             stamp_z_th_aliases(copied)
             rows.append(copied)
         if len(rows) >= 2:
-            cs_names = [n for n in names if _finite_feat_count(rows, str(n)) >= 2]
+            # 立方已套过的列不再用同伴重算，否则 theme_day 的 μ/σ 会被冲掉
+            cs_names = [
+                n
+                for n in names
+                if n not in locked_set and _finite_feat_count(rows, str(n)) >= 2
+            ]
+            covered = list(cube_locked) + cs_names
             if cs_names:
                 # 同钟一组（开盘同伴的分钟列已剥，稀疏裸键保留）
                 gkey = cs_group_key(dkey, hm)
                 groups = [gkey] * len(rows)
                 z_rows = cross_section_zscore_dicts(rows, cs_names, groups)
                 row = z_rows[slot] if slot < len(z_rows) else dict(feats)
-                return _finalize_cs_row(row, names, cs_names)
+                return _finalize_cs_row(row, names, covered)
             return _finalize_cs_row(
                 rows[slot] if slot < len(rows) else dict(feats),
                 names,
-                (),
+                cube_locked,
             )
     # 池外：μ/σ 仅观察池，不把持仓并进截面
     peer_feats = []
@@ -1474,15 +1551,16 @@ def _cs_z_horizon_feats(
         ft = dict(p.get("features_tau") or {})
         _strip_peer_open_minute_placeholders(ft)
         peer_feats.append(ft)
+    peer_names = [n for n in names if n not in locked_set]
     return _finalize_cs_row(
         _z_row_against_peers(
             feats,
             peer_feats,
-            names,
+            peer_names,
             stamp=stamp_z_th_aliases,
         ),
         names,
-        names,
+        list(cube_locked) + peer_names,
     )
 
 

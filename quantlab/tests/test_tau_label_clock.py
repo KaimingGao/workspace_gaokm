@@ -79,5 +79,24 @@ class TestHorizonAbstain(unittest.TestCase):
         self.assertEqual(done["gap_pct"], 1.2)
         self.assertEqual(done["ret_open_to_tau"], 0.7)
 
+    def test_finalize_zeros_uncovered_theme_day(self):
+        from core.t0.score_policy import _finalize_cs_row
+
+        row = {
+            "theme_day": 1.0,
+            "z_τh_theme_day": 1.0,
+            "sector_gap_breadth": 0.4,
+            "ret_open_to_tau": 0.7,
+        }
+        done = _finalize_cs_row(
+            row,
+            ["z_τh_theme_day", "sector_gap_breadth", "ret_open_to_tau"],
+            ["ret_open_to_tau"],
+        )
+        self.assertEqual(done["z_τh_theme_day"], 0.0)
+        self.assertEqual(done["theme_day"], 0.0)
+        self.assertEqual(done["sector_gap_breadth"], 0.0)
+        self.assertEqual(done["ret_open_to_tau"], 0.7)
+
 if __name__ == "__main__":
     unittest.main()
