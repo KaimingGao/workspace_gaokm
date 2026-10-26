@@ -2,7 +2,7 @@
 
 import { yTauMapScoreTip } from "./execution_ui.js?v=p2594";
 import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2746";
-import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p3242";
+import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p3319";
 import {
   buildT0TradeTableHtml,
   expandSlotTradeDays,

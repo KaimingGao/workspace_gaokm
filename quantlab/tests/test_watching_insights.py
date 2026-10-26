@@ -61,6 +61,51 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIsNotNone(item["days_watched"])
         self.assertFalse(item["hard_reject"])
 
+    def test_lake_list_skips_per_code_bars(self):
+        """数据中心整池刷新：湖行投影，不按票读日线、不现场 score_stock。"""
+        from core.watching.insights import build_watching_insights, reset_insight_memo
+
+        reset_insight_memo()
+        lake = {
+            "600519": {
+                "stock_code": "600519",
+                "success": True,
+                "score": 1.2,
+                "predicted_score": 1.2,
+                "predicted_score_eod": 1.2,
+                "predicted_score_tau": 0.3,
+                "factors": {
+                    "volume_ratio": 1.1,
+                    "excess_return_pct": 0.4,
+                    "value_pe": 18.0,
+                    "value_pb": 4.0,
+                },
+                "sub_scores": {},
+            }
+        }
+        bars = Mock(side_effect=AssertionError("list path must not read bars"))
+        live = Mock(side_effect=AssertionError("list path must not score_stock"))
+        with patch(
+            "core.research.materialize.consumer.consumer_read_only",
+            return_value=True,
+        ), patch(
+            "core.watching.insights._cached_lake_scores",
+            return_value=lake,
+        ), patch(
+            "core.watching.insights._spot_valuation_map",
+            return_value={},
+        ), patch("core.data.facade.get_bars", bars), patch(
+            "core.signal.score_stock.score_stock", live
+        ):
+            out = build_watching_insights(["600519"], offline_only=True)
+        self.assertTrue(out["ok"])
+        item = out["items"][0]
+        self.assertEqual(item["stock_code"], "600519")
+        self.assertTrue(item.get("ok"))
+        self.assertEqual(item.get("excess_return_pct"), 0.4)
+        bars.assert_not_called()
+        live.assert_not_called()
+
     def test_insight_memo_skips_rescore(self):
         from core.watching.insights import build_watching_insights, reset_insight_memo
 

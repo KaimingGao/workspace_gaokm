@@ -73,7 +73,8 @@ _port_listener_pid() {
 _wait_ready() {
   local pid="$1"
   local i listener
-  for i in $(seq 1 30); do
+  # 冷启动要先 import web.app（本机约 7s+），6s 内杀进程会变成 Terminated: 15
+  for i in $(seq 1 60); do
     if ! _is_alive "$pid"; then
       return 1
     fi
@@ -83,7 +84,7 @@ _wait_ready() {
         return 0
       fi
     fi
-    sleep 0.2
+    sleep 1
   done
   return 1
 }

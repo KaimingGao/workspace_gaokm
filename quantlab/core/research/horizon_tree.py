@@ -903,6 +903,25 @@ def fit_horizon_tree_report(
             "live_hook": False,
             "backtest_hook": False,
         }
+    from core.research.horizon_compact import cs_pit_block_reason
+
+    pit_block = cs_pit_block_reason(groups_tr, groups_te)
+    if pit_block:
+        return {
+            "success": False,
+            "error": f"{h} {pit_block}",
+            "error_code": "cs_group_not_pit",
+            "task": f"{h}_tree",
+            "head": head_label,
+            "sample_count": len(ys),
+            "schema": schema,
+            "cs_z": {
+                "train": summarize_cs_groups(groups_tr),
+                "test": summarize_cs_groups(groups_te),
+            },
+            "live_hook": False,
+            "backtest_hook": False,
+        }
 
     x_tr, x_te, means, z_hyper = prepare_lgb_features_matrix(
         compact.get("X"),
@@ -1032,6 +1051,9 @@ def fit_horizon_tree_report(
             ys_spec["feature_pack"] = pack_meta["feature_pack"]
             ys_spec["feature_pack_formula"] = pack_meta["feature_pack_formula"]
             return_model["y_spec"] = ys_spec
+        from core.research.horizon_ridge import stamp_t30_feature_pack
+
+        stamp_t30_feature_pack(return_model)
 
     cs_z_audit = {
         "train": summarize_cs_groups(groups_tr),

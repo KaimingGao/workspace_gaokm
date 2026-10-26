@@ -742,6 +742,335 @@ def _resolve_lake_score_day(
     return cycle_day or "", last_report, None
 
 
+def _cube_family_feats(feats: Dict[str, float]) -> Tuple[dict, dict, dict]:
+    """立方列按模型前缀拆回 oo / τ / co。裸名不灌进去，避免别的族盖住 canon。"""
+    oo: Dict[str, float] = {}
+    tau: Dict[str, float] = {}
+    co: Dict[str, float] = {}
+    for key, val in feats.items():
+        if key.startswith("z_oo_") or key.startswith("raw_aoo_"):
+            oo[key] = val
+        if key.startswith("z_co_") or key.startswith("raw_aco_"):
+            co[key] = val
+        if key.startswith(("raw_atc_", "z_τc_", "z_tc_", "z_τh_")):
+            tau[key] = val
+    # ŷ_co 的活跃列主要是 raw_aoo_*，和 ŷ_oo 共用同一批立方值
+    if oo:
+        for key, val in oo.items():
+            if key.startswith("raw_aoo_"):
+                co[key] = val
+    return oo, tau, co
+
+
+def _items_from_day_cube(cube: Any, day: str) -> List[dict]:
+    """用当日立方的 ``X_raw`` 组装出分行，不再按票打开 L1 全历史。"""
+    import numpy as np
+
+    X = np.asarray(getattr(cube, "X_raw", None))
+    names = [str(n) for n in (getattr(cube, "names", None) or [])]
+    codes = list(getattr(cube, "codes", None) or [])
+    if X.ndim != 2 or not names or not codes:
+        return []
+    n = min(len(codes), int(X.shape[0]))
+    p = min(len(names), int(X.shape[1]))
+    items: List[dict] = []
+    for i in range(n):
+        code = str(codes[i] or "").strip()
+        if not code:
+            continue
+        row = X[i, :p]
+        finite = np.isfinite(row)
+        if not bool(finite.any()):
+            continue
+        feats = {names[j]: float(row[j]) for j in range(p) if bool(finite[j])}
+        oo, tau, co = _cube_family_feats(feats)
+        if not oo and not tau and not co:
+            continue
+        item: Dict[str, Any] = {
+            "stock_code": code,
+            "as_of": day,
+            "date": day,
+            "trade_date": day,
+            "success": True,
+            "_score_source": "day_cube",
+            "lake_score_day": day,
+        }
+        if oo:
+            item["sub_scores"] = oo
+        if tau:
+            item["features_tau"] = tau
+        if co:
+            item["features_co"] = co
+            item["features_on"] = dict(co)
+        gap = feats.get("gap_pct")
+        if gap is None:
+            gap = tau.get("gap_pct")
+        if gap is not None:
+            item["gap_pct"] = gap
+        items.append(item)
+    return items
+
+
+def _cube_z_matrix(cube: Any):
+    """当日 raw → 截面 z。缺测、μ 无效或 σ 过小记 0（预测里等于填当天均值）。"""
+    import numpy as np
+
+    X = np.asarray(getattr(cube, "X_raw", None), dtype=np.float64)
+    mu = np.asarray(getattr(cube, "z_mean", None), dtype=np.float64)
+    sd = np.asarray(getattr(cube, "z_std", None), dtype=np.float64)
+    if X.ndim != 2 or mu.shape[0] != X.shape[1] or sd.shape[0] != X.shape[1]:
+        return None
+    valid = np.isfinite(X) & np.isfinite(mu) & np.isfinite(sd) & (sd >= 1e-12)
+    Z = np.zeros(X.shape, dtype=np.float64)
+    np.subtract(X, mu, out=Z, where=valid)
+    np.divide(Z, sd, out=Z, where=valid)
+    return Z
+
+
+def _dot_head(
+    Z: Any,
+    names: Sequence[str],
+    coefficients: Dict[str, Any],
+    intercept: float,
+    active: Sequence[str],
+):
+    """ŷ = intercept + β·z。缺列当 z=0。"""
+    import numpy as np
+
+    index = {str(n): i for i, n in enumerate(names)}
+    cols: List[int] = []
+    betas: List[float] = []
+    for name in active:
+        j = index.get(str(name))
+        if j is None:
+            continue
+        try:
+            beta = float(coefficients.get(name))
+        except (TypeError, ValueError):
+            continue
+        if beta != beta:
+            continue
+        cols.append(j)
+        betas.append(beta)
+    if not cols:
+        return None
+    pred = float(intercept) + Z[:, cols] @ np.asarray(betas, dtype=np.float64)
+    return np.round(pred, 6)
+
+
+def _write_head(items: Sequence[dict], codes: Sequence[str], pred: Any, fields: Sequence[str], score_codes: Optional[Collection[str]]) -> None:
+    allow = None
+    if score_codes is not None:
+        allow = {str(c or "").strip() for c in score_codes if str(c or "").strip()}
+    index = {str(c or "").strip(): i for i, c in enumerate(codes)}
+    for it in items:
+        code = str(it.get("stock_code") or "").strip()
+        if allow is not None and code not in allow:
+            continue
+        i = index.get(code)
+        if i is None or i >= len(pred):
+            continue
+        val = float(pred[i])
+        if val != val:
+            continue
+        for key in fields:
+            it[key] = val
+
+
+def _stamp_cube_head_scores(
+    cube: Any,
+    items: List[dict],
+    *,
+    score_codes: Optional[Collection[str]] = None,
+) -> None:
+    """用立方矩阵点积写 ŷ_oo / ŷ_τc / ŷ_co / fuse，避免逐格 Python z-score。"""
+    from core.signal.factors.sum_identity import (
+        cs_batch_preds_look_collapsed,
+        filter_predict_active_names,
+    )
+
+    Z = _cube_z_matrix(cube)
+    names = [str(n) for n in (getattr(cube, "names", None) or [])]
+    codes = [str(c or "").strip() for c in (getattr(cube, "codes", None) or [])]
+    if Z is None or not names or not items:
+        return
+
+    def _refuse(head: str, pred: Any, intercept: float) -> None:
+        vals = [float(v) for v in pred]
+        if cs_batch_preds_look_collapsed(vals, intercept=intercept):
+            raise RuntimeError(f"{head} 截面出分拒绝：批 ŷ 塌缩远离 intercept")
+
+    try:
+        from core.research.oo_ridge import load_scoring_return_model
+
+        model, _meta = load_scoring_return_model()
+    except Exception:  # noqa: BLE001
+        logger.debug("cube oo model load failed", exc_info=True)
+        model = None
+    if model is not None and getattr(model, "coefficients", None):
+        active = filter_predict_active_names(model.coefficients.keys(), model.coefficients)
+        pred = _dot_head(Z, names, model.coefficients, float(model.intercept or 0.0), active)
+        if pred is not None:
+            _refuse("oo", pred, float(model.intercept or 0.0))
+            _write_head(
+                items,
+                codes,
+                pred,
+                ("y_oo", "predicted_score", "predicted_score_oo"),
+                score_codes,
+            )
+
+    try:
+        from core.research.tc_ridge import load_tau_model
+
+        doc = load_tau_model() or {}
+        rm = doc.get("return_model") if isinstance(doc, dict) else {}
+    except Exception:  # noqa: BLE001
+        logger.debug("cube tau model load failed", exc_info=True)
+        rm = {}
+    if isinstance(rm, dict) and rm.get("coefficients"):
+        active = filter_predict_active_names(
+            rm.get("active_features") or rm["coefficients"].keys(),
+            rm["coefficients"],
+        )
+        pred = _dot_head(Z, names, rm["coefficients"], float(rm.get("intercept") or 0.0), active)
+        if pred is not None:
+            _refuse("tau", pred, float(rm.get("intercept") or 0.0))
+            _write_head(
+                items,
+                codes,
+                pred,
+                ("y_τc", "predicted_score_τc", "y_tau_raw"),
+                score_codes,
+            )
+
+    try:
+        from core.research.co_ridge import load_co_model
+
+        doc = load_co_model() or {}
+        rm = doc.get("return_model") if isinstance(doc, dict) else {}
+    except Exception:  # noqa: BLE001
+        logger.debug("cube co model load failed", exc_info=True)
+        rm = {}
+    if isinstance(rm, dict) and rm.get("coefficients"):
+        active = filter_predict_active_names(
+            rm.get("active_features") or rm["coefficients"].keys(),
+            rm["coefficients"],
+        )
+        pred = _dot_head(Z, names, rm["coefficients"], float(rm.get("intercept") or 0.0), active)
+        if pred is not None:
+            _refuse("co", pred, float(rm.get("intercept") or 0.0))
+            _write_head(
+                items,
+                codes,
+                pred,
+                ("y_co", "predicted_score_co", "predicted_score_on"),
+                score_codes,
+            )
+
+    try:
+        from core.research.feature_standardize import is_cross_section_zscore
+        from core.research.horizon_ridge import _doc_backend, load_ridge_model, write_y_hat
+
+        for head in ("t30", "t45", "t60", "t75", "t90"):
+            doc = load_ridge_model(head)
+            if not doc or not is_cross_section_zscore(doc) or _doc_backend(doc) == "tree":
+                continue
+            rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
+            coefs = rm.get("coefficients") if isinstance(rm, dict) else None
+            if not isinstance(coefs, dict) or not coefs:
+                continue
+            active = filter_predict_active_names(
+                rm.get("active_features") or coefs.keys(),
+                coefs,
+            )
+            intercept = float(rm.get("intercept") or 0.0)
+            pred = _dot_head(Z, names, coefs, intercept, active)
+            if pred is None:
+                continue
+            _refuse(head, pred, intercept)
+            allow = None
+            if score_codes is not None:
+                allow = {str(c or "").strip() for c in score_codes if str(c or "").strip()}
+            index = {code: i for i, code in enumerate(codes)}
+            for it in items:
+                code = str(it.get("stock_code") or "").strip()
+                if allow is not None and code not in allow:
+                    continue
+                i = index.get(code)
+                if i is None:
+                    continue
+                write_y_hat(head, it, float(pred[i]))
+    except Exception:  # noqa: BLE001
+        logger.debug("cube horizon heads skipped", exc_info=True)
+
+    try:
+        from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+        from core.signal.yhat_windows import stamp_window_scores
+
+        cfg = get_path_matrix_cfg()
+        for it in items:
+            stamped = stamp_window_scores(it, cfg)
+            for key in ("y_oo_fuse", "y_oo", "y_τc", "y_co"):
+                if stamped.get(key) is not None:
+                    it[key] = stamped[key]
+    except Exception:  # noqa: BLE001
+        logger.debug("cube fuse stamp failed", exc_info=True)
+
+
+def _try_score_pool_from_cube(
+    codes: Sequence[str],
+    *,
+    clock: str,
+    cube_codes: Optional[Sequence[str]],
+    score_codes: Optional[Collection[str]],
+) -> Optional[Tuple[List[dict], List[dict]]]:
+    """宇宙立方已在盘上时直接出分。没有立方返回 None，调用方再走 L1。"""
+    from core.research.day_cube import load_day_cube, snap_clock_to_disk
+    from core.signal.session_pit import oo_cycle_date
+
+    lookup = [str(c or "").strip() for c in (cube_codes or []) if str(c or "").strip()]
+    if len(lookup) < 2:
+        lookup = [str(c or "").strip() for c in codes if str(c or "").strip()]
+    if len(lookup) < 2:
+        return None
+    clock_use = snap_clock_to_disk(lookup, clock)
+    if clock_use != clock:
+        logger.info("lake score clock %s -> %s (latest cube)", clock, clock_use)
+    cycle_day = str(oo_cycle_date() or "")[:10]
+    for day in _lake_score_day_candidates(cycle_day):
+        cube = load_day_cube(day, lookup, clock=clock_use)
+        if cube is None:
+            continue
+        scored_all = _items_from_day_cube(cube, day)
+        if len(scored_all) < 2:
+            continue
+        if cycle_day and day != cycle_day:
+            for it in scored_all:
+                it["lake_score_fallback_from"] = cycle_day
+        _stamp_cube_head_scores(cube, scored_all, score_codes=score_codes)
+        want = [c for c in codes if c]
+        want_set = set(want)
+        scored = (
+            [it for it in scored_all if it.get("stock_code") in want_set]
+            if want_set
+            else list(scored_all)
+        )
+        have = {str(it.get("stock_code") or "") for it in scored}
+        rejected = [
+            {"stock_code": c, "reason": f"L2 缺 {day}"} for c in want if c not in have
+        ]
+        logger.info(
+            "lake score from cube day=%s clock=%s n=%s rejected=%s",
+            day,
+            clock_use,
+            len(scored),
+            len(rejected),
+        )
+        return scored, rejected
+    return None
+
+
 def _score_pool_from_lake(
     pool: Sequence[str],
     *,
@@ -749,7 +1078,9 @@ def _score_pool_from_lake(
     score_codes: Optional[Collection[str]] = None,
     tau_clock: Optional[str] = None,
 ) -> Tuple[List[dict], List[dict]]:
-    """调仓出分只读 ŷ_oo 周期日 L1。截面立方在则用其 μ/σ；只缺立方时用池内 μ/σ。
+    """调仓出分。宇宙立方已落盘时用当日 ``X_raw``，不再按票打开 L1。
+
+    没有立方时才读 ŷ_oo 周期日 L1；截面立方在则用其 μ/σ，只缺立方时用池内 μ/σ。
 
     日界与 ``oo_cycle_date`` 对齐。盘中日线/open 湖常仍停在上一交易日
     （``expected_latest_daily_bar_date`` 15:05 前不滚今日），此时回退读昨收
@@ -765,9 +1096,17 @@ def _score_pool_from_lake(
 
     codes = [str(c or "").strip() for c in pool if str(c or "").strip()]
     clock = _consumer_score_clock(use_minute_tau, tau_clock)
+    cube_codes = read_cube_codes()
+    from_cube = _try_score_pool_from_cube(
+        codes,
+        clock=clock,
+        cube_codes=cube_codes,
+        score_codes=score_codes,
+    )
+    if from_cube is not None:
+        return from_cube
     fam_tc = family_for_tc(tau_hm="open" if clock == "open" else clock)
     families = [FAMILY_OO, fam_tc, FAMILY_CO]
-    cube_codes = read_cube_codes()
     day, report, fallback_from = _resolve_lake_score_day(
         codes,
         families=families,

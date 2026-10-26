@@ -246,6 +246,33 @@ export function mountVirtualTable(host, options = {}) {
       .join(" ");
   }
 
+  function visibleCodes() {
+    const rows = sortedRows();
+    if (!rows.length) return [];
+    const scrollTop = bodyEl.scrollTop || 0;
+    const viewH = bodyEl.clientHeight || 480;
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+    const end = Math.min(
+      rows.length,
+      Math.ceil((scrollTop + viewH) / rowHeight) + overscan
+    );
+    const codes = [];
+    for (let i = start; i < end; i++) {
+      const code = rows[i] && rows[i].code;
+      if (code) codes.push(String(code));
+    }
+    return codes;
+  }
+
+  let rangeTimer = 0;
+  function emitRange() {
+    if (rangeTimer) return;
+    rangeTimer = setTimeout(() => {
+      rangeTimer = 0;
+      emitter.emit("rangeChanged", visibleCodes());
+    }, 80);
+  }
+
   function paintBody() {
     const rows = sortedRows();
     if (!rows.length) {
@@ -295,6 +322,7 @@ export function mountVirtualTable(host, options = {}) {
   function publish(kind) {
     paintHead();
     paintBody();
+    emitRange();
     if (kind === "sort") {
       const s = sortState[0];
       emitter.emit("sortChanged", s ? [{ field: s.id, dir: s.desc ? "desc" : "asc" }] : []);
@@ -356,11 +384,21 @@ export function mountVirtualTable(host, options = {}) {
     publish("sort");
   });
 
-  bodyEl.addEventListener("scroll", () => paintBody(), { passive: true });
+  bodyEl.addEventListener(
+    "scroll",
+    () => {
+      paintBody();
+      emitRange();
+    },
+    { passive: true }
+  );
 
   let resizeObs = null;
   if (typeof ResizeObserver !== "undefined") {
-    resizeObs = new ResizeObserver(() => syncHeadScrollbarGutter());
+    resizeObs = new ResizeObserver(() => {
+      syncHeadScrollbarGutter();
+      emitRange();
+    });
     resizeObs.observe(bodyEl);
   } else {
     window.addEventListener("resize", syncHeadScrollbarGutter);
@@ -395,6 +433,7 @@ export function mountVirtualTable(host, options = {}) {
     },
     setRows,
     patchRows,
+    visibleCodes,
     setSort(sorters) {
       const s = Array.isArray(sorters) && sorters.length ? sorters[0] : null;
       sortState = !s || !s.column ? [] : [{ id: s.column, desc: s.dir !== "asc" }];
@@ -405,6 +444,10 @@ export function mountVirtualTable(host, options = {}) {
       publish("sort");
     },
     destroy() {
+      if (rangeTimer) {
+        clearTimeout(rangeTimer);
+        rangeTimer = 0;
+      }
       if (resizeObs) {
         try {
           resizeObs.disconnect();

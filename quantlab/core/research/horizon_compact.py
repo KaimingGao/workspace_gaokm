@@ -238,6 +238,21 @@ def summarize_cs_groups(groups: Optional[Sequence[Any]]) -> Dict[str, Any]:
     }
 
 
+def cs_pit_block_reason(
+    groups_tr: Optional[Sequence[Any]],
+    groups_te: Optional[Sequence[Any]],
+) -> Optional[str]:
+    """仅日期或混钟不可拟合。开盘钟会被收成仅日期，窗头行必须带 ``date|τ``。"""
+    bits: List[str] = []
+    for side, groups in (("训", groups_tr), ("测", groups_te)):
+        mode = summarize_cs_groups(groups).get("mode")
+        if mode in ("day", "mixed"):
+            bits.append(f"{side}={mode}")
+    if not bits:
+        return None
+    return "CS 分组为仅日期或混钟（" + "，".join(bits) + "），拒绝拟合"
+
+
 def feature_fill_rates_matrix(
     X: np.ndarray,
     names: Sequence[str],

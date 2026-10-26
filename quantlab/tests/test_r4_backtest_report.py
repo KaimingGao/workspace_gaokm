@@ -81,7 +81,7 @@ class TestMacroRegimeOverlay(unittest.TestCase):
             def load_macro_history_index():
                 return {"rows": list(macro_rows.values())}
 
-        import adapters.macro.history as mh
+        import core.research.macro_history as mh
 
         orig = mh.load_macro_history_index
         try:

@@ -1,8 +1,8 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js?v=p3242";
-import { repaintT0Portrait } from "../paper/t0_report.js?v=p3242";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p3319";
+import { repaintT0Portrait } from "../paper/t0_report.js?v=p3319";
 import { mergeScoringFloors } from "./scoring.js";
 import { watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";

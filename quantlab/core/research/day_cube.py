@@ -52,6 +52,39 @@ def _safe_clock(clock: str) -> str:
     return s
 
 
+def snap_clock_to_disk(codes: Sequence[str], clock: str) -> str:
+    """请求钟没有立方目录时，落到不晚于它的最近已落盘钟。
+
+    午盘 12:25 这类网格外时刻没有 ``1225`` 立方；继续按这个钟去扫 L1
+    会把整池日特征都打开。有 ``1100`` 就用 ``1100``，再没有才退回 ``open``。
+    """
+    clk = _safe_clock(clock)
+    if clk == "open":
+        return "open"
+    uh = universe_hash(codes)
+    root = os.path.join(_root(), f"v{FEATURE_SCHEMA}", uh)
+    if not os.path.isdir(root):
+        return clk
+    have: List[str] = []
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return clk
+    for name in names:
+        if name != "open" and not (len(name) == 4 and name.isdigit()):
+            continue
+        if os.path.isdir(os.path.join(root, name)):
+            have.append(name)
+    if clk in have:
+        return clk
+    earlier = [name for name in have if name.isdigit() and name <= clk]
+    if earlier:
+        return max(earlier)
+    if "open" in have:
+        return "open"
+    return clk
+
+
 @dataclass
 class DayCube:
     """单日截面块。"""

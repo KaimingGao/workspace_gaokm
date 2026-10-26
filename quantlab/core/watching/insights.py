@@ -33,12 +33,17 @@ _INSIGHT_MEMO: Dict[str, Tuple[float, str, Dict[str, Any]]] = {}
 _INSIGHT_MEMO_TTL = 900.0
 # 整池 L1 出分：页面按 20/40 只分批拉 insights，不能每批重算 800 只
 _LAKE_SCORE_MEMO: Dict[str, Tuple[float, Dict[str, dict]]] = {}
+# 同一戳的整池出分只跑一次；页面分批请求排队等这一份，不再各开一遍 L1
+_LAKE_SCORE_FLIGHT: Dict[str, threading.Event] = {}
 
 
 def reset_insight_memo() -> None:
     with _INSIGHT_MEMO_LOCK:
         _INSIGHT_MEMO.clear()
         _LAKE_SCORE_MEMO.clear()
+        for flight in _LAKE_SCORE_FLIGHT.values():
+            flight.set()
+        _LAKE_SCORE_FLIGHT.clear()
 
 
 def _insight_cache_stamp() -> str:
@@ -109,21 +114,37 @@ def _cached_lake_scores(paper_ctx: Any) -> Dict[str, dict]:
     from core.paper.rebalance.watching_matrix import score_session_from_lake
 
     key = f"{_insight_cache_stamp()}|{_watching_pool_token()}"
-    now = time.monotonic()
-    with _INSIGHT_MEMO_LOCK:
-        hit = _LAKE_SCORE_MEMO.get(key)
-        if hit and now < hit[0]:
-            return hit[1]
-    scored_rows, _rejected = score_session_from_lake([], paper=paper_ctx)
-    lake_by = {
-        str(it.get("stock_code") or "").strip(): it
-        for it in scored_rows
-        if str(it.get("stock_code") or "").strip()
-    }
-    with _INSIGHT_MEMO_LOCK:
-        _LAKE_SCORE_MEMO.clear()
-        _LAKE_SCORE_MEMO[key] = (now + _INSIGHT_MEMO_TTL, lake_by)
-    return lake_by
+    while True:
+        now = time.monotonic()
+        with _INSIGHT_MEMO_LOCK:
+            hit = _LAKE_SCORE_MEMO.get(key)
+            if hit and now < hit[0]:
+                return hit[1]
+            flight = _LAKE_SCORE_FLIGHT.get(key)
+            if flight is None:
+                flight = threading.Event()
+                _LAKE_SCORE_FLIGHT[key] = flight
+                owner = True
+            else:
+                owner = False
+        if not owner:
+            flight.wait(timeout=180.0)
+            continue
+        try:
+            scored_rows, _rejected = score_session_from_lake([], paper=paper_ctx)
+            lake_by = {
+                str(it.get("stock_code") or "").strip(): it
+                for it in scored_rows
+                if str(it.get("stock_code") or "").strip()
+            }
+            with _INSIGHT_MEMO_LOCK:
+                _LAKE_SCORE_MEMO.clear()
+                _LAKE_SCORE_MEMO[key] = (time.monotonic() + _INSIGHT_MEMO_TTL, lake_by)
+            return lake_by
+        finally:
+            with _INSIGHT_MEMO_LOCK:
+                _LAKE_SCORE_FLIGHT.pop(key, None)
+            flight.set()
 
 
 def _memo_get(code: str, stamp: str) -> Optional[Dict[str, Any]]:
@@ -241,6 +262,20 @@ def _fill_valuation_from_em(
         or (out[c].get("pe") is None and out[c].get("pb") is None)
     ]
     if not missing:
+        return
+    # 列表一次可带全池。缺很多时只读本地缓存，不再逐只打远端，否则评分响应被 PE/PB 拖过页面超时。
+    if len(missing) > 8:
+        try:
+            from core.valuation_em import read_valuation_cache
+        except Exception:  # noqa: BLE001
+            return
+        for code in missing:
+            cached = read_valuation_cache(code) or {}
+            pe = _f(cached.get("pe"))
+            pb = _f(cached.get("pb"))
+            if pe is None and pb is None:
+                continue
+            out[code] = {"pe": pe, "pb": pb}
         return
 
     def _one(code: str) -> tuple:
@@ -747,7 +782,8 @@ def _insight_one(
             )
         scored = result.as_dict()
         quote = (scored or {}).get("quote") or {}
-        if not quote:
+        # 湖出分列表：行情列另走 quotes。这里按票读日线会让每次刷新扫完整池。
+        if lake_item is None and not quote:
             quote, _bars = _insight_quote_bars(code, offline_only=use_offline)
         item = dict(result.item or {})
         o = _f((quote or {}).get("open_raw"))
@@ -830,7 +866,9 @@ def _insight_one(
             except Exception:  # noqa: BLE001
                 logger.debug("insight cycle day failed", exc_info=True)
         tau_stale = bool(sess and len(tau_asof) >= 10 and tau_asof < sess)
-        if (
+        if lake_item is not None:
+            _finalize_insight_trade_fields(out)
+        elif (
             not _is_heuristic_score_scale(out)
             and (out.get("predicted_score_eod_rem") is None or tau_stale)
         ):
@@ -907,8 +945,12 @@ def _insight_one(
             rs = _f((item.get("sub_scores") or {}).get("relative_strength"))
             if rs is not None:
                 out["excess_label"] = "RS" + str(int(round(rs)))
-        if out.get("volume_ratio") is None or (
-            out.get("excess_return_pct") is None and out.get("excess_label") is None
+        if lake_item is None and (
+            out.get("volume_ratio") is None
+            or (
+                out.get("excess_return_pct") is None
+                and out.get("excess_label") is None
+            )
         ):
             _enrich_book_insight_display_fields(out, code, item)
 
@@ -919,6 +961,74 @@ def _insight_one(
         logger.exception('unexpected error in _insight_one')
         out["error"] = str(e)
     _attach_oos_flag(out)
+    return out
+
+
+_LAKE_INSIGHT_KEYS = (
+    "y_oo",
+    "predicted_score_oo",
+    "predicted_score_eod",
+    "y_τc",
+    "predicted_score_τc",
+    "y_tau_raw",
+    "y_co",
+    "predicted_score_co",
+    "predicted_score_on",
+    "y_oo_fuse",
+    "lake_score_day",
+    "lake_score_fallback_from",
+    "fusion_w_oo",
+    "fusion_w_oc",
+    "fusion_w_co",
+)
+
+
+def _project_lake_insight(
+    code: str,
+    lake_item: Dict[str, Any],
+    *,
+    added_at: Optional[str] = None,
+    valuation: Optional[Dict[str, Optional[float]]] = None,
+) -> Dict[str, Any]:
+    """湖行已经有 ŷ。列表只拷这些列，不再逐票做 book / 公式。"""
+    out = _blank(code, added_at=added_at)
+    src = lake_item if isinstance(lake_item, dict) else {}
+    for key in _LAKE_INSIGHT_KEYS:
+        if src.get(key) is not None:
+            out[key] = src[key]
+    if out.get("predicted_score") is None and src.get("predicted_score") is not None:
+        out["predicted_score"] = src.get("predicted_score")
+    if out.get("y_oo") is not None:
+        out["predicted_score"] = out["y_oo"]
+    if out.get("y_oo_fuse") is not None:
+        out["score"] = out["y_oo_fuse"]
+    elif src.get("score") is not None:
+        out["score"] = src.get("score")
+    elif out.get("y_oo") is not None:
+        out["score"] = out["y_oo"]
+    factors = src.get("factors") if isinstance(src.get("factors"), dict) else {}
+    excess = _f(factors.get("excess_return_pct"))
+    if excess is not None:
+        out["excess_return_pct"] = excess
+    volr = _f(factors.get("volume_ratio") or factors.get("turnover_ratio"))
+    if volr is not None:
+        out["volume_ratio"] = volr
+    pe = _f((valuation or {}).get("pe"))
+    pb = _f((valuation or {}).get("pb"))
+    if pe is None:
+        pe = _f(factors.get("value_pe") or factors.get("pe"))
+    if pb is None:
+        pb = _f(factors.get("value_pb") or factors.get("pb"))
+    if pe is not None:
+        out["pe"] = round(pe, 1)
+    if pb is not None:
+        out["pb"] = round(pb, 2)
+    out["ok"] = any(
+        out.get(key) is not None
+        for key in ("y_oo", "y_τc", "y_co", "predicted_score", "score")
+    )
+    if not out["ok"]:
+        out["error"] = "暂无 ŷ"
     return out
 
 
@@ -974,6 +1084,7 @@ def build_watching_insights(
     missing: List[str] = []
     cached_n = 0
     if lake_by is not None:
+        # 整池只投影已缓存的湖行，不按票开线程、不读日线。
         for c in cleaned:
             if c not in lake_by:
                 items_by_code[c] = _blank(
@@ -982,7 +1093,20 @@ def build_watching_insights(
                     error="请先日线物化：L1 缺该日",
                 )
                 continue
-            missing.append(c)
+            hit = _memo_get(c, stamp)
+            if hit is not None:
+                items_by_code[c] = hit
+                cached_n += 1
+                continue
+            key = str(c).zfill(6) if str(c).isdigit() else str(c)
+            row = _project_lake_insight(
+                c,
+                lake_by.get(c) or {},
+                added_at=added.get(c) or added.get(str(c)),
+                valuation=valuation_by.get(key),
+            )
+            items_by_code[c] = row
+            _memo_put(c, stamp, row)
     else:
         for c in cleaned:
             hit = _memo_get(c, stamp)

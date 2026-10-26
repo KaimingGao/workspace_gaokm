@@ -105,7 +105,7 @@ class HorizonCsZLiveTests(unittest.TestCase):
         self.assertTrue(sp._cube_covers_horizon_names(_Full(), names))
 
     def test_cs_z_tau_skips_open_fallback(self):
-        """H4：有 τ 时 Cube 覆盖失败不静默读 open，改 leave-one-in。"""
+        """有 τ 且同钟同伴不足时，不用开盘池 μ/σ，直接弃权。"""
         from core.t0 import score_policy as sp
 
         doc = {
@@ -141,6 +141,8 @@ class HorizonCsZLiveTests(unittest.TestCase):
             return_value=["A", "B"],
         ), mock.patch(
             "core.research.day_cube.load_day_cube", side_effect=_load
+        ), mock.patch.object(
+            sp, "_tau_clock_peer_rows", return_value=[]
         ):
             z = sp._cs_z_horizon_feats(
                 {"gap_pct": 2.0},
@@ -149,7 +151,7 @@ class HorizonCsZLiveTests(unittest.TestCase):
                 stock_code="B",
                 tau_hm="10:30",
             )
-        self.assertAlmostEqual(float(z["gap_pct"]), 1.0, places=5)
+        self.assertIsNone(z)
         self.assertTrue(loads)
         self.assertNotIn("open", loads)
 
@@ -406,7 +408,7 @@ class HorizonCsZLiveTests(unittest.TestCase):
         self.assertNotAlmostEqual(float(z0["raw_ath_RET_LAST_30"]), 2.0, places=2)
 
     def test_no_cube_no_peers_does_not_keep_raw_theme_day(self):
-        """立方和同伴都没有主题日时记 0，不把 raw 1 送进树。"""
+        """无立方且无同钟同伴时弃权，不用开盘池把 gap 打成截面 z。"""
         from core.t0 import score_policy as sp
 
         doc = {
@@ -441,9 +443,7 @@ class HorizonCsZLiveTests(unittest.TestCase):
                 stock_code="C",
                 tau_hm="09:35",
             )
-        self.assertEqual(float(z["z_τh_theme_day"]), 0.0)
-        self.assertEqual(float(z["theme_day"]), 0.0)
-        self.assertNotAlmostEqual(float(z["gap_pct"]), 2.0, places=2)
+        self.assertIsNone(z)
 
     def test_cube_only_when_peers_missing(self):
         """没有同伴时，立方已套上的列仍然出分，缺列记 0。"""

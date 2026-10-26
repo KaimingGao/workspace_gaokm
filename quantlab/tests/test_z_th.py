@@ -90,15 +90,20 @@ class ZThAliasTests(unittest.TestCase):
         for head in ("t30", "t45", "t60", "t75", "t90"):
             cfg = _horizon_ridge_config(head)
             self.assertEqual(cfg["schema"], f"{head}_ridge_v4")
-            self.assertEqual(cfg["feature_pack_formula"], "z_τh_* ∪ raw_ath_*")
             zf = list(cfg["z_features"])
             self.assertTrue(zf)
+            self.assertEqual(
+                cfg["feature_pack_formula"],
+                "z_τh_* ∪ raw_ath_* ∪ z_τc path ∪ raw_atc 5/20",
+            )
             for k in zf:
                 self.assertTrue(
-                    str(k).startswith("z_τh_") or str(k).startswith("raw_ath_"),
+                    str(k).startswith("z_τh_")
+                    or str(k).startswith("raw_ath_")
+                    or str(k).startswith("z_τc_")
+                    or str(k).startswith("raw_atc_"),
                     msg=k,
                 )
-                self.assertFalse(str(k).startswith("z_τc_"), msg=k)
             # OC 形状按后缀丢（含 z_τh_range_pct）
             for bare in TAU_HORIZON_DROP_OC_SHAPE:
                 self.assertNotIn(bare, zf)

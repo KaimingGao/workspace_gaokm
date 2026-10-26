@@ -521,6 +521,8 @@ def _importance_rows(
     from core.signal.factors.alpha_th import ATH_FEAT_LABELS
     from core.signal.factors.z_th import z_th_feat_labels
 
+    from core.research.horizon_ridge import t30_extra_feat_labels
+
     labels = z_th_feat_labels(
         {
             **dict(MINUTE_TAU_FEAT_LABELS),
@@ -528,6 +530,7 @@ def _importance_rows(
             **dict(T30_LAG_FEAT_LABELS),
             **dict(T60_LAG_FEAT_LABELS),
             **dict(ATH_FEAT_LABELS),
+            **t30_extra_feat_labels(),
         }
     )
     total = float(np.sum(np.clip(gain, 0.0, None)))

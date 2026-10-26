@@ -174,19 +174,27 @@ def test_alpha_th_report_meta():
 def test_horizon_config_includes_ath():
     from core.research.horizon_ridge import _horizon_ridge_config
 
+    from core.research.horizon_ridge import T30_EXTRA_FIT_FEATURES
+
     cfg = _horizon_ridge_config("t30")
     assert cfg["schema"] == "t30_ridge_v4"
     assert cfg["feature_pack"] == "alpha_τh"
-    assert cfg["feature_pack_formula"] == "z_τh_* ∪ raw_ath_*"
+    assert cfg["feature_pack_formula"] == "z_τh_* ∪ raw_ath_* ∪ z_τc path ∪ raw_atc 5/20"
     ath = cfg["ath_features"]
     assert ath
     assert all(str(k).startswith("raw_ath_") for k in ath)
-    assert any(str(k).startswith("raw_ath_") for k in cfg["z_features"])
-    assert any(str(k).startswith("z_τh_") for k in cfg["z_features"])
-    assert all(
-        str(k).startswith("z_τh_") or str(k).startswith("raw_ath_")
-        for k in cfg["z_features"]
-    )
+    zf = list(cfg["z_features"])
+    assert any(str(k).startswith("raw_ath_") for k in zf)
+    assert any(str(k).startswith("z_τh_") for k in zf)
+    assert len(T30_EXTRA_FIT_FEATURES) == 45
+    assert len(zf) == 100
+    for name in T30_EXTRA_FIT_FEATURES:
+        assert name in zf
+    for head in ("t45", "t60", "t75", "t90"):
+        other = list(_horizon_ridge_config(head)["z_features"])
+        assert len(other) == 100
+        assert "z_τc_path_sign" in other
+        assert "raw_atc_PRANK5" in other
 
 def test_inject_raw_ath_live_before_predict():
     from core.t0.score_policy import _inject_raw_ath_live
@@ -223,6 +231,8 @@ def test_inject_raw_ath_live_before_predict():
     assert out.get("z_τh_gap_pct") == 1.5
     assert out.get("z_τh_tau_lag1") == 0.4
     assert item["features_tau"].get("z_τh_gap_pct") == 1.5
+
+
 def _calendar_hist(n: int, end: str, *, last: dict, prev: dict) -> list:
     """n 根日 K，末两根覆盖 OHLC。日期从 end 往前按自然日排。"""
     from datetime import date, timedelta

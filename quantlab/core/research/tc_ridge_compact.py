@@ -45,8 +45,9 @@ def feature_get(row: Optional[Dict[str, Any]], name: str) -> Any:
 
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
 TAU_FIT_DROP_ALIASES = Z_TC_FIT_DROP_ALIASES
-# ŷ_τ*（Ridge/Tree 同 X）不吃 OC 路径形状：HL/回撤/振幅在 30–90m 前瞻上共线对冲，
-# 易把 ŷ 压到训练均值。面板仍可算这些键，入模时剔除。
+# ŷ_τ*（Ridge/Tree 同 X）不吃 OC 路径形状的裸名 / z_τh_*：HL/回撤/振幅在 30–90m
+# 前瞻上共线对冲，易把 ŷ 压到训练均值。面板仍可算这些键，入模时剔除。
+# 五头另收同一小段 z_τc 路径列和 raw_atc 5/20 日滚动，见 T30_EXTRA_FIT_FEATURES。
 TAU_HORIZON_TREE_SHAPE_FEATURES = (
     "range_pct",
     "loc_hl",

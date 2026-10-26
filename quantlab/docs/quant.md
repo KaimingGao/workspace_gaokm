@@ -1307,7 +1307,7 @@ score_stock(code) 续——
 ### 4.3d ŷ_τ30…90（Ridge / Tree · 概率头）
 
 同窗双训：**logistic Ridge** 与 **LightGBM**（**串行**先 Ridge 再 Tree；同 X=alpha_τh；Holdout AUC 择优，打平→Ridge）。标签为窗收益符号 → `P(窗收益>0)`；进 ŷ_τw 投票；不进 fuse。研究枢纽区块说明与 ŷ_oo_rank 同壳：`P(窗收益>0) · 双 backend`。
-特征包 **alpha_τh := z_τh_* ∪ raw_ath_***（`z_th.py` + `alpha_th.py`；相对 `raw_atc_*` 砍全量 ROLL/TC_LAG/完整 PREFIX；保留 GAP/YK 轻量 + 短窗动量/会话升格 + 本头 `H_LAG1`/`H_MA5`；schema `t{N}_ridge_v4`；系数键变更需重拟合）。
+特征包 **alpha_τh := z_τh_* ∪ raw_ath_***（`z_th.py` + `alpha_th.py`；相对 `raw_atc_*` 砍全量 ROLL/TC_LAG/完整 PREFIX；保留 GAP/YK 轻量 + 短窗动量/会话升格 + 本头 `H_LAG1`/`H_MA5`；schema `t{N}_ridge_v4`；系数键变更需重拟合）。**y_τ30…90** 五头另加同一组 45 列（`T30_EXTRA_FIT_FEATURES`：7 列 `z_τc` 路径，以及 `raw_atc` 的 5/20 日滚动和 `TC_LAG1`）。因子表在该头下一次拟合落盘后才会列出新列。
 **启用研究**按 Holdout **AUC** 自动落盘更强一侧（AUC 打平比 **Brier**；再打平→**Ridge**）；**启用执行**=研究槽晋级（不重训、不改 backend）。落盘仍用 `t{N}_ridge_model*.json` 槽位，包内 `backend` / `backends` 标明 ridge|tree。研究套与执行套同一套 β（两槽版本前后）。
 
 | | |

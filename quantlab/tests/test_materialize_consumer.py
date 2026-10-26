@@ -733,6 +733,89 @@ class ConsumerCoverageTest(unittest.TestCase):
                 ["2026-10-21", "2026-10-20"],
             )
 
+    def test_score_pool_from_cube_skips_l1_panels(self) -> None:
+        """午盘钟点没有对应立方时，用最近已落盘立方出分，不打开 L1。"""
+        from unittest.mock import patch
+
+        import numpy as np
+
+        from core.paper.rebalance.watching_matrix import _score_pool_from_lake
+
+        class _Cube:
+            codes = ["300750", "002594"]
+            names = ["raw_aoo_GAP", "z_oo_volume_price", "raw_atc_x", "z_co_a"]
+            X_raw = np.array([[0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8]])
+
+        seen: dict = {}
+
+        def _load(day, codes, clock="open", **kwargs):  # noqa: ANN001
+            seen["day"] = day
+            seen["clock"] = clock
+            return _Cube() if day == "2026-10-23" else None
+
+        def _stamp(cube, items, score_codes=None):  # noqa: ANN001
+            seen["n"] = len(items)
+            seen["oo"] = set((items[0].get("sub_scores") or {}))
+            seen["tau"] = set((items[0].get("features_tau") or {}))
+            seen["co"] = set((items[0].get("features_co") or {}))
+            items[0]["y_oo"] = 1.2
+            items[1]["y_τc"] = 0.3
+
+        with patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-10-26"
+        ), patch(
+            "core.market.calendar.expected_latest_daily_bar_date",
+            return_value="2026-10-23",
+        ), patch(
+            "core.market.calendar.prev_trading_day", return_value="2026-10-23"
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes",
+            return_value=["300750", "002594"],
+        ), patch(
+            "core.research.day_cube.snap_clock_to_disk", return_value="1100"
+        ), patch(
+            "core.research.day_cube.load_day_cube", side_effect=_load
+        ), patch(
+            "core.research.feature_lake.load_day_rows",
+            side_effect=AssertionError("L1"),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._stamp_cube_head_scores",
+            side_effect=_stamp,
+        ):
+            scored, rejected = _score_pool_from_lake(
+                ["300750", "002594"],
+                use_minute_tau=True,
+                tau_clock="12:25",
+            )
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(scored), 2)
+        self.assertEqual(seen.get("clock"), "1100")
+        self.assertEqual(seen.get("day"), "2026-10-23")
+        self.assertEqual(scored[0].get("y_oo"), 1.2)
+        self.assertTrue(all(it.get("lake_score_fallback_from") == "2026-10-26" for it in scored))
+        self.assertIn("raw_aoo_GAP", seen["oo"])
+        self.assertNotIn("raw_atc_x", seen["oo"])
+        self.assertIn("raw_atc_x", seen["tau"])
+        self.assertNotIn("raw_aoo_GAP", seen["tau"])
+        self.assertIn("raw_aoo_GAP", seen["co"])
+        self.assertIn("z_co_a", seen["co"])
+
+    def test_snap_clock_to_latest_cube(self) -> None:
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        from core.research.day_cube import snap_clock_to_disk
+        from core.research.feature_registry import FEATURE_SCHEMA, universe_hash
+
+        codes = ["000001", "000002"]
+        with tempfile.TemporaryDirectory() as td:
+            base = os.path.join(td, f"v{FEATURE_SCHEMA}", universe_hash(codes), "1100")
+            os.makedirs(base)
+            with patch.dict(os.environ, {"QUANTLAB_DAY_CUBE_DIR": td}):
+                self.assertEqual(snap_clock_to_disk(codes, "1225"), "1100")
+                self.assertEqual(snap_clock_to_disk(codes, "open"), "open")
+
     def test_recent_trading_days_are_weekdays(self) -> None:
         from core.research.materialize.coverage import recent_trading_days
 

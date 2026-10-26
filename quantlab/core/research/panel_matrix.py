@@ -1392,7 +1392,8 @@ def collect_tau_compact(
     ``include_alpha_th``：写穿窗头列（H 轨 ``tc_HHMM``）。
     单票任务内折 float64 + slim（对齐 ŷ_co），写穿 L1。
     并行：默认/硬顶 4 **进程**（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
-    分钟路径：每批前按需 ``attach_minute_bars_slice``，算完 pop（峰值≈一批）。
+    一批全部算完后按下标折行，不按完成序，避免同一股票池两次拟合行序不同。
+    分钟路径：每批前按需 ``attach_minute_bars_slice``，折完 pop（峰值≈一批）。
     L2 stale 由工人 defer 回传，父进程写入 ``l2_invalidation_batch``。
     ``stats_out``：可选，写入 ``minute_attached``（本轮新挂载票数）。
     ``progress_cb(done, total, message)``：可选，供 job 槽刷新进度。
@@ -1557,14 +1558,9 @@ def collect_tau_compact(
             return pack, {}
 
         def _on_done(j: int) -> None:
-            i = start + j
-            pack, stale = _split_pool_job_result(results[j])
+            # 完成序只记 stale。折行放到整批按下标，行序才跟股票列表一致。
+            _pack, stale = _split_pool_job_result(results[j])
             _apply_stale(stale)
-            _fold_one(pack)
-            it = items[i]
-            if isinstance(it, dict):
-                it.pop("bars", None)
-                it.pop("minute_bars", None)
 
         def _label(j: int) -> str:
             it = items[start + j] if start + j < len(items) else None
@@ -1598,6 +1594,13 @@ def collect_tau_compact(
                 pool.shutdown(wait=True, cancel_futures=True)
             except Exception:  # noqa: BLE001
                 logger.exception("tau compact pool shutdown failed")
+        for j in range(end - start):
+            pack, _stale = _split_pool_job_result(results[j])
+            _fold_one(pack)
+            it = items[start + j]
+            if isinstance(it, dict):
+                it.pop("bars", None)
+                it.pop("minute_bars", None)
 
     if n_jobs:
         logger.info(

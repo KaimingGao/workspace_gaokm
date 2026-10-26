@@ -85,12 +85,14 @@ def _shared_oos_backtest_kwargs(
             "max_sector_pct": 40.0,
             "exclude_st": True,
         }
-    # OOS 对照固定 equal；轻量曲线引擎忽略成本/限额字段
+    # OOS 对照固定 equal；历史路径关 τ 闸；轻量曲线引擎忽略成本/限额字段
     _ = d, fundamentals_by_code
     return {
         "top_k": top_k,
         "horizon_days": horizon_days,
         "neutralize": False,
+        "apply_tau_buy_gate": False,
+        "weight_mode": "equal",
     }
 
 

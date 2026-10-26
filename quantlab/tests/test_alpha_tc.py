@@ -971,6 +971,66 @@ def test_tau_compact_batch_attaches_minutes_not_full_pool():
     assert all(not (it.get("minute_bars") or []) for it in items)
 
 
+def test_tau_compact_folds_in_stock_index_order():
+    """进程完成序相反时，矩阵行仍跟股票列表，不跟谁先返回。"""
+    from unittest import mock
+
+    import numpy as np
+
+    from core.research.panel_matrix import collect_tau_compact
+
+    n_stocks = 4
+    items = [{"code": f"{i:06d}", "bars": [{"date": "2024-01-02"}]} for i in range(n_stocks)]
+    done_order: list = []
+
+    def _consume(*, results, on_done, start, end, **_kwargs):
+        for j in range(end - 1, start - 1, -1):
+            results[j] = (
+                (
+                    f"{j:06d}",
+                    np.zeros((1, 1), dtype=np.float64),
+                    [float(j)],
+                    ["2024-01-02"],
+                    [{}],
+                    [{}],
+                ),
+                {},
+            )
+            done_order.append(j)
+            if on_done:
+                on_done(j)
+        return False
+
+    class _Pool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def shutdown(self, *args, **kwargs):
+            pass
+
+    with mock.patch(
+        "core.research.materialize.coverage.enforce_consumer_coverage",
+        return_value=None,
+    ), mock.patch(
+        "concurrent.futures.ProcessPoolExecutor",
+        _Pool,
+    ), mock.patch(
+        "core.research.materialize.pool.consume_process_batch",
+        side_effect=_consume,
+    ):
+        _x, _names, ys, _dates, _metas, n_ok = collect_tau_compact(
+            items,
+            ["gap_pct"],
+            tau_hm="open",
+            workers=4,
+            include_alpha_tc=False,
+        )
+
+    assert done_order == [3, 2, 1, 0]
+    assert n_ok == n_stocks
+    assert ys == [0.0, 1.0, 2.0, 3.0]
+
+
 def test_unparseable_bar_falls_back_to_inject():
     from core.research.tau_panel import collect_tau_open_panel
 

@@ -736,9 +736,9 @@ export function installWatching(q) {
     let timedOut = false;
     let cachedCount = 0;
     try {
-      // P2：首批 20 只快速回填，后续批 40 只复用连接
-      const FIRST_CHUNK = 20;
-      const chunkSize = 40;
+      // 湖投影不再按票读日线；大批一次返回，避免 20 次往返。
+      const FIRST_CHUNK = 400;
+      const chunkSize = 400;
       const totalChunks = Math.ceil(codes.length / chunkSize) || 1;
       let chunkIdx = 0;
       for (let i = 0; i < codes.length; ) {
@@ -837,50 +837,62 @@ export function installWatching(q) {
     }
   }
 
+  function watchingVisibleCodes() {
+    const grid = state.watchingGrid;
+    if (!grid || typeof grid.visibleCodes !== "function") return [];
+    return (grid.visibleCodes() || []).map((c) => String(c || "").trim()).filter(Boolean);
+  }
+
   async function fillWatchingQuotes() {
     if (state.watchingGrid && state.watchingGridReady) {
-      const codes = (state.watchingGrid.getData() || []).map((r) => r.code).filter(Boolean);
-      if (!codes.length) return;
-      // P2：分批加载——首批 20 只快速回填，剩余后台补齐
-      const FIRST_BATCH = 20;
-      const firstCodes = codes.slice(0, FIRST_BATCH);
-      const restCodes = codes.slice(FIRST_BATCH);
+      const poolN = (state.watchingGrid.getData() || []).length;
+      if (!poolN) return;
+      const gen = (state.watchingQuotesGen = (state.watchingQuotesGen || 0) + 1);
+      const quoted = new Set();
       let totalOk = 0;
       const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
       const applyQuoteBatch = (items) => {
+        const grid = state.watchingGrid;
+        if (!grid || typeof grid.getRow !== "function") return 0;
         const byCode = indexByWatchingCode(items || []);
         const patches = {};
-        codes.forEach((code) => {
-          const it = byCode[watchingCodeKey(code)] || {};
-          // 超时占位 ok:false 不回写，避免把已有现价/名称刷成「—」
-          if (!it.stock_code || !it.ok) return;
-          const row = state.watchingGrid.getRow(code);
-          if (!row) return;
-          const insight = (state.watchingInsightByCode || {})[watchingCodeKey(code)];
-          const quotePatch = buildWatchingQuoteGridPatch(it, row, parseWatchingVolume);
-          if (insight && insight.stock_code) {
-            const merged = withQuoteGap(insight, it);
-            const scorePatch = buildWatchingInsightsGridPatch(
-              merged,
-              { getData: () => ({ ...(row.getData() || {}), ...quotePatch }) },
-              insightDeps
-            );
-            patches[code] = { ...quotePatch, ...scorePatch };
-          } else {
-            patches[code] = quotePatch;
+        Object.keys(byCode).forEach((key) => {
+          try {
+            const it = byCode[key] || {};
+            // 超时占位 ok:false 不回写，避免把已有现价/名称刷成「—」
+            if (!it.stock_code || !it.ok) return;
+            const code = String(it.stock_code || key);
+            const row =
+              grid.getRow(code) || (key !== code ? grid.getRow(key) : null);
+            if (!row) return;
+            const rowCode = String((row.getData() && row.getData().code) || code);
+            const insight = (state.watchingInsightByCode || {})[watchingCodeKey(code)];
+            const quotePatch = buildWatchingQuoteGridPatch(it, row, parseWatchingVolume);
+            if (insight && insight.stock_code) {
+              const merged = withQuoteGap(insight, it);
+              const scorePatch = buildWatchingInsightsGridPatch(
+                merged,
+                { getData: () => ({ ...(row.getData() || {}), ...quotePatch }) },
+                insightDeps
+              );
+              patches[rowCode] = { ...quotePatch, ...scorePatch };
+            } else {
+              patches[rowCode] = quotePatch;
+            }
+          } catch (_) {
+            /* 单行失败不影响本批其余现价 */
           }
         });
-        if (typeof state.watchingGrid.patchRows === "function") {
-          state.watchingGrid.patchRows(patches);
+        if (typeof grid.patchRows === "function") {
+          grid.patchRows(patches);
         } else {
           Object.keys(patches).forEach((code) => {
-            const row = state.watchingGrid.getRow(code);
+            const row = grid.getRow(code);
             if (row) row.update(patches[code]);
           });
         }
-        return (items || []).filter((x) => x.ok).length;
+        return Object.keys(patches).length;
       };
-      setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
       const fetchQuoteBatch = async (codeList, timeoutMs) => {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -889,6 +901,7 @@ export function installWatching(q) {
             `/api/watching/quotes?codes=${encodeURIComponent(codeList.join(","))}`,
             { signal: ctrl.signal }
           );
+          clearTimeout(timer);
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.detail || res.statusText);
           return data;
@@ -896,21 +909,66 @@ export function installWatching(q) {
           clearTimeout(timer);
         }
       };
+      // 服务端整请求 12s 超时，一次塞几百只会整批变占位「—」。只拉屏内。
+      const QUOTE_CHUNK = 40;
+      const pull = async (codeList) => {
+        if (gen !== state.watchingQuotesGen) return 0;
+        const pending = (codeList || []).filter((c) => c && !quoted.has(c));
+        if (!pending.length) return 0;
+        let ok = 0;
+        for (let i = 0; i < pending.length; i += QUOTE_CHUNK) {
+          if (gen !== state.watchingQuotesGen) return ok;
+          const chunk = pending.slice(i, i + QUOTE_CHUNK);
+          let dataN = null;
+          try {
+            dataN = await fetchQuoteBatch(chunk, 15000);
+          } catch (_) {
+            try {
+              dataN = await fetchQuoteBatch(chunk, 15000);
+            } catch (_) {
+              dataN = null;
+            }
+          }
+          if (!dataN || gen !== state.watchingQuotesGen) continue;
+          const by = indexByWatchingCode(dataN.items || []);
+          ok += applyQuoteBatch(dataN.items || []);
+          chunk.forEach((c) => {
+            const it = by[watchingCodeKey(c)];
+            if (it && it.ok) quoted.add(c);
+          });
+        }
+        return ok;
+      };
+      const paintQuoteStatus = () => {
+        if (gen !== state.watchingQuotesGen) return;
+        if (totalOk === 0) {
+          setWatchingRefreshStatus("行情没拉到，请再刷新", {
+            error: true,
+            owner: "quotes",
+          });
+          return;
+        }
+        setWatchingRefreshStatus(
+          `行情已更新 · 屏内 ${totalOk} 只（池 ${poolN}，滚动继续加载）`,
+          { ok: true, owner: "quotes" }
+        );
+      };
+      setWatchingRefreshStatus("正在拉取屏内行情…", { busy: true, owner: "quotes" });
+      const seedCodes = () => {
+        const visible = watchingVisibleCodes();
+        if (visible.length) return visible;
+        return (state.watchingGrid.getData() || [])
+          .slice(0, 20)
+          .map((r) => String((r && r.code) || "").trim())
+          .filter(Boolean);
+      };
       try {
-        let data1;
-        try {
-          data1 = await fetchQuoteBatch(firstCodes, 15000);
-        } catch (_err) {
-          data1 = await fetchQuoteBatch(firstCodes, 12000);
+        totalOk += await pull(seedCodes());
+        if (!totalOk && gen === state.watchingQuotesGen) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          totalOk += await pull(seedCodes());
         }
-        totalOk += applyQuoteBatch(data1.items || []);
         sortWatchingTableRows();
-        if (restCodes.length) {
-          setWatchingRefreshStatus(
-            `行情 ${totalOk}/${codes.length} · 补齐剩余 ${restCodes.length} 只…`,
-            { busy: true, owner: "quotes" }
-          );
-        }
       } catch (err) {
         setWatchingRefreshStatus(buildWatchingQuotesErrorStatus(err), {
           error: true,
@@ -918,35 +976,17 @@ export function installWatching(q) {
         });
         return;
       }
-      // 剩余按 40 只一批。服务端整请求 12s 超时，一次塞几百只会整批变占位「—」。
-      const QUOTE_CHUNK = 40;
-      if (restCodes.length) {
-        for (let i = 0; i < restCodes.length; i += QUOTE_CHUNK) {
-          const chunk = restCodes.slice(i, i + QUOTE_CHUNK);
-          setWatchingRefreshStatus(
-            `行情 ${totalOk}/${codes.length} · 补齐 ${Math.min(i + chunk.length, restCodes.length)}/${restCodes.length}…`,
-            { busy: true, owner: "quotes" }
-          );
-          try {
-            const dataN = await fetchQuoteBatch(chunk, 15000);
-            totalOk += applyQuoteBatch(dataN.items || []);
-          } catch (_) {
-            /* 本批超时跳过，已回填行保留 */
-          }
-        }
-        sortWatchingTableRows();
-      }
-      if (totalOk === 0) {
-        setWatchingRefreshStatus("行情暂不可用，请稍后刷新", {
-          error: true,
-          owner: "quotes",
-        });
-      } else {
-        setWatchingRefreshStatus(buildWatchingQuotesStatusText(totalOk, codes.length), {
-          ok: true,
-          owner: "quotes",
+      if (typeof state.watchingGrid.on === "function") {
+        state.watchingGrid.on("rangeChanged", (codes) => {
+          pull(codes || watchingVisibleCodes()).then((n) => {
+            if (!n || gen !== state.watchingQuotesGen) return;
+            totalOk += n;
+            sortWatchingTableRows();
+            paintQuoteStatus();
+          });
         });
       }
+      paintQuoteStatus();
       return;
     }
     const watchTable = document.getElementById("watching-watchlist-table");
@@ -1018,26 +1058,44 @@ export function installWatching(q) {
 
   async function fillWatchingSentiment() {
     if (!state.watchingGrid || !state.watchingGridReady) return;
-    const codes = (state.watchingGrid.getData() || []).map((r) => r.code).filter(Boolean);
-    if (!codes.length) return;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 95000);
-    try {
-      const res = await fetch(
-        `/api/watching/sentiment?codes=${encodeURIComponent(codes.join(","))}&limit=3`,
-        { signal: ctrl.signal }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-      const byCode = indexByWatchingCode(data.items || []);
-      watchingSentimentByCode = byCode;
-      codes.forEach((code) => {
-        applySentimentToRow(code, byCode[watchingCodeKey(code)] || { ok: false, items: [] });
+    const gen = (state.watchingSentimentGen = (state.watchingSentimentGen || 0) + 1);
+    const done = new Set();
+    const pull = async (codeList) => {
+      if (gen !== state.watchingSentimentGen) return;
+      const pending = (codeList || []).filter((c) => c && !done.has(c));
+      if (!pending.length) return;
+      // 服务端单批上限 20；只问屏内，不把全池串行拉标题。
+      const chunk = pending.slice(0, 20);
+      chunk.forEach((c) => done.add(c));
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20000);
+      try {
+        const res = await fetch(
+          `/api/watching/sentiment?codes=${encodeURIComponent(chunk.join(","))}&limit=3`,
+          { signal: ctrl.signal }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (gen !== state.watchingSentimentGen) return;
+        if (!res.ok) return;
+        const byCode = indexByWatchingCode(data.items || []);
+        watchingSentimentByCode = { ...(watchingSentimentByCode || {}), ...byCode };
+        chunk.forEach((code) => {
+          applySentimentToRow(code, byCode[watchingCodeKey(code)] || { ok: false, items: [] });
+        });
+      } catch (_) {
+        // 填充失败时保持默认状态
+      } finally {
+        clearTimeout(timer);
+      }
+      if (pending.length > chunk.length) {
+        await pull(pending.slice(chunk.length));
+      }
+    };
+    await pull(watchingVisibleCodes());
+    if (typeof state.watchingGrid.on === "function") {
+      state.watchingGrid.on("rangeChanged", (codes) => {
+        pull(codes || watchingVisibleCodes()).catch(() => {});
       });
-    } catch (_) {
-      // 填充失败时保持默认状态
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -1325,7 +1383,7 @@ export function installWatching(q) {
     }
     if (wl.length) {
       // quotes 会接管忙碌条；先交还 panel owner
-      setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
+      setWatchingRefreshStatus("正在拉取屏内行情…", { busy: true, owner: "quotes" });
       // 行情优先；舆情徽章稍后补，避免与行情抢线程池导致前端 20s 超时
       fillWatchingQuotes()
         .catch(() => {})

@@ -5,7 +5,8 @@
 
 盘中写 y_τ{num}=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 fuse。
 训练决策钟 09:35…11:00（仅分钟钟；与 ŷ_τc 的 09:30 开盘点分离）；窗外不训、不预。
-Ridge / LightGBM 同用 alpha_τh = z_τh_* ∪ raw_ath_*（不含 OC 路径形状）。
+Ridge / LightGBM 同用 alpha_τh = z_τh_* ∪ raw_ath_*（不含 OC 路径形状的裸名）。
+五头另加 T30_EXTRA_FIT_FEATURES（z_τc 路径 + raw_atc 5/20 日）。
 """
 
 from __future__ import annotations
@@ -48,6 +49,124 @@ from core.signal.minute_tau_grid import (
 
 HORIZON_RIDGE_HEADS = ("t30", "t45", "t60", "t75", "t90")
 
+# 五头在 alpha_τh 上加的同一组 45 列。面板和日立方里已有。
+# y_τ30 离线双训 Holdout 有增益；y_τ45…90 用同一组，不另造列。
+# 路径用 z_τc_*，避免和「裸名 / z_τh_* 不入模」的剔除规则撞车。
+T30_EXTRA_FIT_FEATURES: Tuple[str, ...] = (
+    "z_τc_down_extent",
+    "z_τc_bounce_from_low",
+    "z_τc_range_pct",
+    "z_τc_loc_hl",
+    "z_τc_up_extent",
+    "z_τc_path_sign",
+    "z_τc_pullback_from_high",
+    "raw_atc_PSUMP20",
+    "raw_atc_PBETA20",
+    "raw_atc_PROC20",
+    "raw_atc_PRSV20",
+    "raw_atc_PCNTP20",
+    "raw_atc_PRANK20",
+    "raw_atc_PMA20",
+    "raw_atc_PSTD20",
+    "raw_atc_PRSQR20",
+    "raw_atc_PRESI20",
+    "raw_atc_PMAX20",
+    "raw_atc_PLOW20",
+    "raw_atc_PQTLU20",
+    "raw_atc_PQTLD20",
+    "raw_atc_PIMAX20",
+    "raw_atc_PIMIN20",
+    "raw_atc_PIMXD20",
+    "raw_atc_PCORR20",
+    "raw_atc_PCORD20",
+    "raw_atc_PCNTN20",
+    "raw_atc_PCNTD20",
+    "raw_atc_PSUMD20",
+    "raw_atc_PVSTD20",
+    "raw_atc_PWVMA20",
+    "raw_atc_PVSUMP20",
+    "raw_atc_PVMA20",
+    "raw_atc_PVROC20",
+    "raw_atc_PVRAMA20",
+    "raw_atc_PVSUMN20",
+    "raw_atc_PVSTD5",
+    "raw_atc_PROC5",
+    "raw_atc_PBETA5",
+    "raw_atc_PRANK5",
+    "raw_atc_PRSV5",
+    "raw_atc_PSUMP5",
+    "raw_atc_PWVMA5",
+    "raw_atc_PVMA5",
+    "raw_atc_TC_LAG1",
+)
+T30_FEATURE_PACK_FORMULA = "z_τh_* ∪ raw_ath_* ∪ z_τc path ∪ raw_atc 5/20"
+
+_T30_ATC_OP_LABEL = {
+    "PROC": "涨跌",
+    "PMA": "均价",
+    "PSTD": "波动",
+    "PBETA": "斜率",
+    "PRSQR": "拟合度",
+    "PRESI": "残差",
+    "PMAX": "最高",
+    "PLOW": "最低",
+    "PQTLU": "上分位",
+    "PQTLD": "下分位",
+    "PRANK": "分位",
+    "PRSV": "位置",
+    "PIMAX": "最高距今",
+    "PIMIN": "最低距今",
+    "PIMXD": "极值间距",
+    "PCORR": "量价相关",
+    "PCORD": "量价相关差",
+    "PCNTP": "上涨占比",
+    "PCNTN": "下跌占比",
+    "PCNTD": "涨跌差",
+    "PSUMP": "上涨量能",
+    "PSUMD": "涨跌量差",
+    "PVMA": "量均",
+    "PVSTD": "量波动",
+    "PWVMA": "量权波动",
+    "PVSUMP": "上涨量占比",
+    "PVSUMN": "下跌量占比",
+    "PVROC": "量变",
+    "PVRAMA": "量均比",
+}
+
+
+def t30_extra_feat_labels() -> Dict[str, str]:
+    """五头扩列的中文短标。路径与分钟 Z 同文案。"""
+    from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
+
+    out: Dict[str, str] = {}
+    for name in T30_EXTRA_FIT_FEATURES:
+        if name.startswith("z_τc_"):
+            bare = name[len("z_τc_") :]
+            out[name] = str(MINUTE_TAU_FEAT_LABELS.get(bare) or bare)
+            continue
+        if name == "raw_atc_TC_LAG1":
+            out[name] = "昨τ收益"
+            continue
+        bare = name[len("raw_atc_") :] if name.startswith("raw_atc_") else name
+        cut = len(bare)
+        while cut and bare[cut - 1].isdigit():
+            cut -= 1
+        op, win = bare[:cut], bare[cut:]
+        lab = _T30_ATC_OP_LABEL.get(op, op)
+        out[name] = f"{win}日{lab}" if win else lab
+    return out
+
+
+def stamp_t30_feature_pack(model: Dict[str, Any]) -> None:
+    """把扩列公式和短标写进模型。五头共用。"""
+    model["feature_pack_formula"] = T30_FEATURE_PACK_FORMULA
+    spec = model.get("y_spec")
+    if isinstance(spec, dict):
+        spec["feature_pack_formula"] = T30_FEATURE_PACK_FORMULA
+    labels = dict(model.get("feat_labels") or {})
+    labels.update(t30_extra_feat_labels())
+    model["feat_labels"] = labels
+
 _RIDGE_MODEL_CACHE: Dict[str, Tuple[Tuple[float, float], Optional[Dict[str, Any]]]] = {}
 
 
@@ -70,6 +189,11 @@ def _horizon_ridge_config(head: str) -> Dict[str, Any]:
 
     ath_features = tuple(alpha_th_fit_features_for_head(h))
     z_features = tuple(Z_TH_FIT_FEATURES) + ath_features
+    have = set(z_features)
+    z_features = z_features + tuple(
+        name for name in T30_EXTRA_FIT_FEATURES if name not in have
+    )
+    pack_formula = T30_FEATURE_PACK_FORMULA
     return {
         "head": h,
         "num": num,
@@ -85,7 +209,7 @@ def _horizon_ridge_config(head: str) -> Dict[str, Any]:
         "dual_score_head": f"y_{h}",
         "formula": f"mean(price[τ+{offsets[0]}m],price[τ+{offsets[1]}m],price[τ+{offsets[2]}m])/price[τ]-1",
         "feature_pack": "alpha_τh",
-        "feature_pack_formula": "z_τh_* ∪ raw_ath_*",
+        "feature_pack_formula": pack_formula,
     }
 
 
@@ -634,14 +758,23 @@ def fit_horizon_ridge_report(
         "train": summarize_cs_groups(groups_tr),
         "test": summarize_cs_groups(groups_te),
     }
-    if use_cs and (cs_z_audit["train"].get("mode") or "") in ("day", "mixed"):
-        logger.warning(
-            "%s CS groups not pure PIT train=%s test=%s "
-            "(day-pooled z is not live-safe)",
-            h,
-            cs_z_audit["train"],
-            cs_z_audit["test"],
-        )
+    if use_cs:
+        from core.research.horizon_compact import cs_pit_block_reason
+
+        pit_block = cs_pit_block_reason(groups_tr, groups_te)
+        if pit_block:
+            return {
+                "success": False,
+                "error": f"{h} {pit_block}",
+                "error_code": "cs_group_not_pit",
+                "task": f"{h}_ridge",
+                "sample_count": len(ys),
+                "stock_count": stock_count,
+                "tau_grid": list(grid),
+                "minute_tau_hm": live_hm,
+                "cs_z": cs_z_audit,
+                "l2_rows_dropped": l2_rows_dropped,
+            }
     import numpy as np
 
     from core.research.materialize.consumer import MaterializeRequired
@@ -774,8 +907,8 @@ def fit_horizon_ridge_report(
         "feature_pack": pack_meta["feature_pack"],
         "feature_pack_formula": pack_meta["feature_pack_formula"],
         "note": (
-            f"X = alpha_τh（z_τh_* ∪ raw_ath_*）；短窗/会话/本头 H_* 在 raw_ath_*；"
-            f"LightGBM/Ridge 同 X。"
+            "X = alpha_τh（z_τh_* ∪ raw_ath_* ∪ z_τc path ∪ raw_atc 5/20）"
+            "；短窗/会话/本头 H_* 在 raw_ath_*；LightGBM/Ridge 同 X。"
             f"ŷ_τ{num}=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 fuse。"
         ),
     }
@@ -796,6 +929,7 @@ def fit_horizon_ridge_report(
     model["head_kind"] = "prob"
     model["schema"] = schema
     model.update(pack_meta)
+    stamp_t30_feature_pack(model)
 
     report = {
         "success": True,
@@ -815,12 +949,13 @@ def fit_horizon_ridge_report(
         "cs_z": cs_z_audit,
         "note": (
             f"ŷ_τ{num}=P(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1>0)。"
-            "特征包 alpha_τh=z_τh_*∪raw_ath_*。"
+            "特征包 alpha_τh=z_τh_*∪raw_ath_* ∪ z_τc path ∪ raw_atc 5/20。"
             "CS-z=date|τ PIT（与 live 同口径；按日混钟不可上线）。"
             "进 ŷ_τw 投票；个股旁路闸已下线。不进 fuse。"
         ),
         **pack_meta,
     }
+    report["feature_pack_formula"] = T30_FEATURE_PACK_FORMULA
     oos["cs_z"] = cs_z_audit
     attach_holdout_meta(report, split_meta)
     report["backend"] = "ridge"
@@ -1109,8 +1244,8 @@ def fit_horizon_dual_report(
             "note": (
                 f"ŷ_τ{num} 同窗双训 LightGBM + Ridge；Holdout AUC 择优"
                 f"（打平→ridge）→ recommended={recommended}。"
-                "特征包 alpha_τh=z_τh_*∪raw_ath_*；LightGBM/Ridge 同 X。"
-                "进 ŷ_τw 投票；不进 fuse。"
+                "特征包 alpha_τh=z_τh_*∪raw_ath_* ∪ z_τc path ∪ raw_atc 5/20；"
+                "LightGBM/Ridge 同 X。进 ŷ_τw 投票；不进 fuse。"
             ),
         }
     )

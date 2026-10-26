@@ -1503,6 +1503,9 @@ def _cs_z_horizon_feats(
         lake_peers = _tau_clock_peer_rows(dkey, hm)
         if len(lake_peers) >= 2:
             peers = lake_peers
+        else:
+            # 同钟同伴不够时不用开盘池 μ/σ。立方已套的列保留，其余在下面记 0。
+            peers = []
     if len(peers) < 2:
         # 立方已套过的列可以打分；其余 raw_ath / 主题日记 0，与拟合缺列一致。
         if cube_locked:
@@ -1669,6 +1672,20 @@ def _clear_horizon_hat(head: str, item: dict) -> None:
     clear_y_hat(head, item)
 
 
+def _block_open_z_horizon(
+    item: dict,
+    feats: Optional[dict],
+    *,
+    allow_open_z: bool,
+    head: str,
+) -> bool:
+    """盘中没有分钟小包时清掉该头残留分，避免开盘锚冒充本钟。"""
+    if allow_open_z or _minute_pack_present(feats):
+        return False
+    _clear_horizon_hat(head, item)
+    return True
+
+
 def _stamp_horizon_formula_terms(
     item: dict,
     feats: Optional[dict],
@@ -1788,8 +1805,7 @@ def _attach_y_t30_to_item(
         feats = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
     if not feats:
         return
-    open_z_only = not _minute_pack_present(feats)
-    if open_z_only and not allow_open_z:
+    if _block_open_z_horizon(item, feats, allow_open_z=allow_open_z, head="t30"):
         return
     try:
         from core.research.horizon_ridge import (
@@ -1909,8 +1925,7 @@ def _attach_y_t45_to_item(
         feats = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
     if not feats:
         return
-    open_z_only = not _minute_pack_present(feats)
-    if open_z_only and not allow_open_z:
+    if _block_open_z_horizon(item, feats, allow_open_z=allow_open_z, head="t45"):
         return
     try:
         from core.research.horizon_ridge import (
@@ -2030,8 +2045,7 @@ def _attach_y_t60_to_item(
         feats = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
     if not feats:
         return
-    open_z_only = not _minute_pack_present(feats)
-    if open_z_only and not allow_open_z:
+    if _block_open_z_horizon(item, feats, allow_open_z=allow_open_z, head="t60"):
         return
     try:
         from core.research.horizon_ridge import (
@@ -2151,8 +2165,7 @@ def _attach_y_t75_to_item(
         feats = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
     if not feats:
         return
-    open_z_only = not _minute_pack_present(feats)
-    if open_z_only and not allow_open_z:
+    if _block_open_z_horizon(item, feats, allow_open_z=allow_open_z, head="t75"):
         return
     try:
         from core.research.horizon_ridge import (
@@ -2272,8 +2285,7 @@ def _attach_y_t90_to_item(
         feats = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
     if not feats:
         return
-    open_z_only = not _minute_pack_present(feats)
-    if open_z_only and not allow_open_z:
+    if _block_open_z_horizon(item, feats, allow_open_z=allow_open_z, head="t90"):
         return
     try:
         from core.research.horizon_ridge import (
@@ -2958,8 +2970,18 @@ def rescore_scores_at_fixed_prefix(
     if stamped_day:
         out.pop("day_bar", None)
     out.pop("_minute_prefix", None)
-    out["_score_source"] = src
-    out.pop("_minute_data_missing", None)
+    pack_feats = out.get("features_tau") if isinstance(out.get("features_tau"), dict) else {}
+    if _minute_pack_present(pack_feats):
+        out["_score_source"] = src
+        out.pop("_minute_data_missing", None)
+    else:
+        # 前缀在，但分钟小包没写上：清掉开盘锚的 ŷ_τ*，让这根被闸跳过。
+        for head in ("t30", "t45", "t60", "t75", "t90"):
+            _clear_horizon_hat(head, out)
+        out["_minute_data_missing"] = True
+        out["_score_source"] = "prefix_minute_missing"
+        out["y_hl_status"] = "minute_data_missing"
+        out["y_path_status"] = "minute_data_missing"
     if len(_PREFIX_RESCORE_CACHE) >= _PREFIX_RESCORE_CACHE_MAX:
         _PREFIX_RESCORE_CACHE.clear()
     _PREFIX_RESCORE_CACHE[cache_key] = out

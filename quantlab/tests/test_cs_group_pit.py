@@ -103,6 +103,23 @@ class CsGroupKeyTests(unittest.TestCase):
         # 若误用 dates[:10] 会变成 1 个唯一组
         self.assertNotEqual(len(set(d[:10] for d in dates)), audit["n_unique"])
 
+    def test_day_or_mixed_groups_block_fit(self):
+        from core.research.horizon_compact import cs_pit_block_reason
+
+        self.assertIsNone(
+            cs_pit_block_reason(
+                ["2026-01-02|09:35", "2026-01-02|10:30"],
+                ["2026-01-03|09:35"],
+            )
+        )
+        day = cs_pit_block_reason(["2026-01-02", "2026-01-03"], ["2026-01-04|09:35"])
+        self.assertIn("训=day", day or "")
+        mixed = cs_pit_block_reason(
+            ["2026-01-02|09:35", "2026-01-02"],
+            ["2026-01-03|10:30"],
+        )
+        self.assertIn("训=mixed", mixed or "")
+
 
 class PrefixLightPathTests(unittest.TestCase):
     def test_light_skips_resolve_when_open_snap(self):
@@ -126,10 +143,16 @@ class PrefixLightPathTests(unittest.TestCase):
                 "close": 10.1,
             }
         ]
+        def _inject(item, **_kwargs):
+            feats = dict(item.get("features_tau") or {})
+            feats["ret_open_to_tau"] = 0.2
+            item["features_tau"] = feats
+
+        sp._PREFIX_RESCORE_CACHE.clear()
         with mock.patch.object(
             sp, "resolve_scores_for_code", side_effect=AssertionError("should skip")
         ), mock.patch.object(sp, "_attach_y_path_to_item"), mock.patch.object(
-            sp, "_inject_minute_pack_from_prefix"
+            sp, "_inject_minute_pack_from_prefix", side_effect=_inject
         ), mock.patch.object(
             sp, "_refresh_tau_oc_from_feats"
         ), mock.patch.object(
@@ -143,6 +166,50 @@ class PrefixLightPathTests(unittest.TestCase):
                 include_tau_horizons=True,
             )
         self.assertEqual(out.get("_score_source"), "prefix_light")
+        self.assertNotIn("_minute_data_missing", out)
+
+    def test_missing_minute_pack_clears_open_horizon_hats(self):
+        from unittest import mock
+
+        from core.t0 import score_policy as sp
+
+        open_snap = {
+            "stock_code": "000001",
+            "y_tau": 0.1,
+            "predicted_score": 0.1,
+            "y_τ30": 0.8,
+            "y_t30": 0.8,
+            "predicted_score_t30": 0.8,
+            "features_tau": {"gap_pct": 1.0},
+        }
+        day = {"date": "2026-01-02", "open": 10.0, "close": 10.1}
+        mins = [
+            {
+                "datetime": "2026-01-02 09:35:00",
+                "open": 10.0,
+                "high": 10.2,
+                "low": 9.9,
+                "close": 10.1,
+            }
+        ]
+        sp._PREFIX_RESCORE_CACHE.clear()
+        with mock.patch.object(sp, "_attach_y_path_to_item"), mock.patch.object(
+            sp, "_inject_minute_pack_from_prefix"
+        ), mock.patch.object(sp, "_refresh_tau_oc_from_feats"), mock.patch.object(
+            sp, "scores_have_any", return_value=True
+        ):
+            out = sp.rescore_scores_at_fixed_prefix(
+                stock_code="000001",
+                minute_prefix=mins,
+                day_bar=day,
+                open_snap=open_snap,
+                include_tau_horizons=True,
+            )
+        self.assertTrue(out.get("_minute_data_missing"))
+        self.assertEqual(out.get("_score_source"), "prefix_minute_missing")
+        self.assertIsNone(out.get("y_τ30"))
+        self.assertIsNone(out.get("y_t30"))
+        self.assertIsNone(out.get("predicted_score_t30"))
 
 if __name__ == "__main__":
     unittest.main()
