@@ -1245,9 +1245,38 @@ def score_stock(
         try:
             from core.t0.score_policy import _attach_y_path_to_item
 
+            pit_hist = hist_for_atc if isinstance(hist_for_atc, list) else None
+            if pit_hist is None and isinstance(bars, list) and asof_for_atc:
+                try:
+                    from core.research.tau_panel import hist_bars_pit
+
+                    pit_hist = hist_bars_pit(bars, asof_date=asof_for_atc)
+                except Exception:  # noqa: BLE001
+                    logger.debug("score_stock pit hist failed for %s", code, exc_info=True)
+                    pit_hist = None
+            if not isinstance(signal_item.get("day_bar"), dict):
+                prev_px = open_t_info.get("prev_close")
+                if prev_px is None and pit_hist:
+                    try:
+                        prev_px = float((pit_hist[-1] or {}).get("close") or 0) or None
+                    except (TypeError, ValueError, IndexError):
+                        prev_px = None
+                stamped: dict = {}
+                if asof_for_atc:
+                    stamped["date"] = asof_for_atc
+                if open_for_atc is not None:
+                    stamped["open"] = open_for_atc
+                if prev_px is not None:
+                    stamped["prev_close"] = prev_px
+                if stamped:
+                    signal_item["day_bar"] = stamped
             _attach_y_path_to_item(
                 signal_item,
-                hist_bars=bars if isinstance(bars, list) else None,
+                hist_bars=(
+                    pit_hist
+                    if pit_hist is not None
+                    else (bars if isinstance(bars, list) else None)
+                ),
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             pass

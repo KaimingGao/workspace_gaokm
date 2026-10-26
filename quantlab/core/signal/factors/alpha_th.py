@@ -485,7 +485,12 @@ def _prepare_ath_pit_bars(
     Optional[float],
     Dict[str, Any],
 ]:
-    """短窗 PIT：hist≤T−1 + 今开合成根；门槛 ``ALPHA_TH_MIN_BARS``（非 alpha_tc 61）。"""
+    """短窗 PIT：hist≤T−1 + 今开合成根；门槛 ``ALPHA_TH_MIN_BARS``（非 alpha_tc 61）。
+
+    传入 ``open_t`` 时 hist 视为 ≤T−1，不剥末根。未传今开时的剥根规则见
+    ``pit_hist_when_open_missing``：末根不是本会话、或分钟根没有会话日，则
+    ``need_open``，不再把上一根日 K 当成今天。
+    """
     try:
         from core.signal.factors.alpha_tc import (
             _fpx,
@@ -499,14 +504,23 @@ def _prepare_ath_pit_bars(
         logger.debug("alpha_th import pit helpers failed", exc_info=True)
         return None, None, None, None, {"alpha_th_import_error": True}
 
+    from core.signal.session_pit import pit_hist_when_open_missing
+
     hist = [b for b in (bars or []) if isinstance(b, dict)]
     hm = _normalize_tau_hm(tau_hm)
     ot = resolve_open_t(open_t=open_t, quote=quote, bars=None)
     if ot is None and hist:
-        ot = _fpx(hist[-1].get("open"))
-        if ot is not None and len(hist) >= _MIN_BARS:
-            complete = list(hist[:-1])
-        else:
+        action, complete = pit_hist_when_open_missing(
+            hist,
+            quote=quote,
+            minute_bars=minute_bars,
+            min_bars=_MIN_BARS,
+        )
+        if action == "refuse":
+            return None, None, None, None, {"alpha_th_need_open": True}
+        if action == "peel":
+            ot = _fpx(hist[-1].get("open"))
+        if ot is None:
             complete = list(hist)
             ot = resolve_open_t(open_t=open_t, quote=quote, bars=hist)
     else:

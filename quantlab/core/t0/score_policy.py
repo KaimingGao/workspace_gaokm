@@ -1193,8 +1193,24 @@ def _open_px_from_item(item: dict) -> Optional[float]:
     v = _f(day.get("open"))
     if v is not None:
         return v
+    v = _f(item.get("open_t"))
+    if v is not None:
+        return v
     feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
     return _f(feats.get("open")) or _f(item.get("open"))
+
+
+def _ath_quote_from_item(item: dict, day_bar: dict) -> Optional[dict]:
+    """给 raw_ath 一个会话日。没有 day_bar.date 时用条目上的交易日，避免末根被当成今天。"""
+    quote = dict(day_bar) if day_bar else {}
+    if str(quote.get("date") or quote.get("trade_date") or "")[:10]:
+        return quote or None
+    for key in ("date", "as_of", "trade_date", "trade_day"):
+        day = str(item.get(key) or "")[:10]
+        if len(day) >= 10:
+            quote["date"] = day
+            return quote
+    return quote or None
 
 
 def _cube_matched_names(cube: Any, names: Sequence[str]) -> List[str]:
@@ -1734,6 +1750,7 @@ def _inject_raw_ath_live(
             price_tau=px_tau,
             minute_bars=_minute_prefix_from_item(item) or None,
             tau_hm=tau_hm,
+            quote=_ath_quote_from_item(item, day_bar),
             feats=out,
             head=head,
         )
@@ -2927,12 +2944,19 @@ def rescore_scores_at_fixed_prefix(
     out["_minute_prefix"] = prefix
     out["_score_prefix_hm"] = hm
     out["_score_prefix_bars"] = len(prefix)
+    # 分数对象没有 day_bar 时，raw_ath 会把 hist[-1]（T−1）当成今天。
+    stamped_day = False
+    if isinstance(day_bar, dict) and not isinstance(out.get("day_bar"), dict):
+        out["day_bar"] = day_bar
+        stamped_day = True
     _attach_y_path_to_item(
         out,
         hist_bars=hist_bars,
         allow_open_z=False,
         include_tau_horizons=include_tau_horizons,
     )
+    if stamped_day:
+        out.pop("day_bar", None)
     out.pop("_minute_prefix", None)
     out["_score_source"] = src
     out.pop("_minute_data_missing", None)
@@ -4698,6 +4722,8 @@ def compute_scores_from_bars(
             _refresh_tau_oc_from_feats(
                 item, hm=str(hm or "")[:5], trade_date=pit_day, force=True
             )
+        if isinstance(day, dict):
+            item["day_bar"] = day
         _attach_y_path_to_item(
             item, hist_bars=hist, include_tau_horizons=bool(include_tau_horizons)
         )

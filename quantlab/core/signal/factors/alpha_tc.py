@@ -841,12 +841,21 @@ def _prepare_tau_pit_bars(
     meta_flags: Dict[str, Any] = {}
     complete: List[dict]
 
-    # 与 aoo 相同：bars 末根可能已是当日（用其 open 当 open_t，hist=[:-1]）
+    # 末根只有在它就是本会话时才当今天。hist 已停在 T−1 时不剥，避免退一天。
     if ot is None and hist:
-        ot = _fpx(hist[-1].get("open"))
-        if ot is not None and len(hist) >= _MIN_BARS:
-            complete = list(hist[:-1])
-        else:
+        from core.signal.session_pit import pit_hist_when_open_missing
+
+        action, complete = pit_hist_when_open_missing(
+            hist,
+            quote=quote,
+            minute_bars=minute_bars,
+            min_bars=_MIN_BARS,
+        )
+        if action == "refuse":
+            return None, None, None, None, {"alpha_tc_need_open": True}, {}
+        if action == "peel":
+            ot = _fpx(hist[-1].get("open"))
+        if ot is None:
             complete = list(hist)
             ot = resolve_open_t(open_t=open_t, quote=quote, bars=hist)
     else:

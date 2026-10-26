@@ -223,3 +223,266 @@ def test_inject_raw_ath_live_before_predict():
     assert out.get("z_τh_gap_pct") == 1.5
     assert out.get("z_τh_tau_lag1") == 0.4
     assert item["features_tau"].get("z_τh_gap_pct") == 1.5
+def _calendar_hist(n: int, end: str, *, last: dict, prev: dict) -> list:
+    """n 根日 K，末两根覆盖 OHLC。日期从 end 往前按自然日排。"""
+    from datetime import date, timedelta
+
+    y, m, d = (int(x) for x in end.split("-"))
+    end_d = date(y, m, d)
+    bars = []
+    for i in range(n):
+        day = (end_d - timedelta(days=(n - 1 - i))).isoformat()
+        bar = {
+            "date": day,
+            "trade_date": day,
+            "open": 60.0,
+            "high": 61.0,
+            "low": 59.0,
+            "close": 60.0,
+            "volume": 1000.0,
+        }
+        if i == n - 2:
+            bar.update(prev)
+        if i == n - 1:
+            bar.update(last)
+        bar["date"] = str(bar.get("date") or day)[:10]
+        bar["trade_date"] = bar["date"]
+        bars.append(bar)
+    return bars
+
+
+def test_raw_ath_refuses_lagged_hist_when_session_is_later():
+    """hist 停在 T−1、分钟已是 T、没传今开：不出 GAP，不能退成上一交易日。"""
+    hist = _calendar_hist(
+        24,
+        "2026-10-09",
+        prev={
+            "date": "2026-10-08",
+            "open": 67.02,
+            "high": 68.18,
+            "low": 62.88,
+            "close": 64.50,
+        },
+        last={
+            "date": "2026-10-09",
+            "open": 63.54,
+            "high": 64.15,
+            "low": 58.60,
+            "close": 61.72,
+        },
+    )
+    lagged = 63.54 / 64.50 - 1.0
+    out = raw_ath_from_bars(
+        hist,
+        price_tau=60.69,
+        tau_hm="09:35",
+        minute_bars=[
+            {
+                "datetime": "2026-10-12 09:35:00",
+                "date": "2026-10-12",
+                "open": 61.38,
+                "high": 61.38,
+                "low": 60.38,
+                "close": 60.69,
+                "volume": 1.0,
+            }
+        ],
+    )
+    assert ath_raw_key("GAP") not in out
+    assert out.get(ath_raw_key("GAP")) != lagged
+
+
+def test_raw_ath_uses_today_open_not_previous_bar():
+    """航天 2026-10-12 09:35：GAP = 今开/昨收−1，现价未破昨低。"""
+    hist = _calendar_hist(
+        24,
+        "2026-10-09",
+        prev={
+            "date": "2026-10-08",
+            "open": 67.02,
+            "high": 68.18,
+            "low": 62.88,
+            "close": 64.50,
+        },
+        last={
+            "date": "2026-10-09",
+            "open": 63.54,
+            "high": 64.15,
+            "low": 58.60,
+            "close": 61.72,
+        },
+    )
+    out = raw_ath_from_bars(
+        hist,
+        open_t=61.38,
+        prev_close=61.72,
+        price_tau=60.69,
+        tau_hm="09:35",
+        minute_bars=[
+            {
+                "datetime": "2026-10-12 09:35:00",
+                "date": "2026-10-12",
+                "open": 61.38,
+                "high": 61.38,
+                "low": 60.38,
+                "close": 60.69,
+                "volume": 1.0,
+            }
+        ],
+    )
+    gap = 61.38 / 61.72 - 1.0
+    assert abs(out[ath_raw_key("GAP")] - gap) < 1e-12
+    assert abs(out[ath_raw_key("RET_OT")] - (60.69 / 61.38 - 1.0)) < 1e-12
+    assert out[ath_raw_key("BELOW_YLOW")] == 0.0
+    assert abs(out[ath_raw_key("YLOW0")] - (58.60 / 60.69)) < 1e-12
+
+
+def test_raw_ath_peels_last_bar_when_it_is_the_session():
+    """末根日期等于会话日、未传今开：剥末根，今开用这根的开盘。"""
+    hist = _calendar_hist(
+        24,
+        "2026-10-12",
+        prev={"date": "2026-10-09", "close": 61.72, "low": 58.60, "open": 63.54},
+        last={
+            "date": "2026-10-12",
+            "open": 61.38,
+            "high": 61.38,
+            "low": 50.0,
+            "close": 99.0,
+        },
+    )
+    out = raw_ath_from_bars(
+        hist,
+        price_tau=60.69,
+        tau_hm="09:35",
+        minute_bars=[{"date": "2026-10-12", "close": 60.69, "open": 61.38}],
+    )
+    assert abs(out[ath_raw_key("GAP")] - (61.38 / 61.72 - 1.0)) < 1e-12
+    assert out[ath_raw_key("BELOW_YLOW")] == 0.0
+
+
+def test_raw_ath_legacy_peel_without_session_date():
+    """没有分钟/quote 日期时，仍把 hist 末根当今天（调用方把当日 K 放在末尾）。"""
+    hist = _calendar_hist(
+        24,
+        "2026-10-12",
+        prev={"date": "2026-10-09", "close": 61.72, "low": 58.60},
+        last={"date": "2026-10-12", "open": 61.38, "close": 99.0, "low": 50.0},
+    )
+    out = raw_ath_from_bars(hist, price_tau=60.69, tau_hm="09:35")
+    assert abs(out[ath_raw_key("GAP")] - (61.38 / 61.72 - 1.0)) < 1e-12
+
+
+def test_prefix_rescore_stamps_day_bar_for_ath(monkeypatch):
+    from core.t0 import score_policy as sp
+
+    seen = {}
+
+    def _resolve(*_a, **_k):
+        return {
+            "y_tau": 0.1,
+            "stock_code": "002025",
+            "features_tau": {"gap_pct": 0.2},
+        }
+
+    def _attach(item, **kwargs):
+        seen["day_bar"] = dict(item.get("day_bar") or {})
+        seen["hist_date"] = str((kwargs.get("hist_bars") or [{}])[-1].get("date") or "")
+
+    monkeypatch.setattr(sp, "resolve_scores_for_code", _resolve)
+    monkeypatch.setattr(sp, "_attach_y_path_to_item", _attach)
+    sp._PREFIX_RESCORE_CACHE.clear()
+    day = {
+        "date": "2026-10-12",
+        "open": 61.38,
+        "prev_close": 61.72,
+        "low": 58.22,
+        "high": 61.38,
+        "close": 58.40,
+    }
+    hist = [{"date": "2026-10-09", "open": 63.54, "high": 64.15, "low": 58.60, "close": 61.72}]
+    prefix = [
+        {
+            "datetime": "2026-10-12 09:35:00",
+            "date": "2026-10-12",
+            "open": 61.38,
+            "high": 61.38,
+            "low": 60.38,
+            "close": 60.69,
+            "volume": 1.0,
+        }
+    ]
+    out = sp.rescore_scores_at_fixed_prefix(
+        stock_code="002025",
+        minute_prefix=prefix,
+        day_bar=day,
+        hist_bars=hist,
+        include_tau_horizons=True,
+    )
+    assert seen["day_bar"]["open"] == 61.38
+    assert seen["day_bar"]["date"] == "2026-10-12"
+    assert seen["hist_date"] == "2026-10-09"
+    assert "day_bar" not in out
+
+
+def test_raw_ath_refuses_undated_minute_prefix():
+    """有分钟根但读不出会话日：不剥末根。"""
+    hist = _calendar_hist(
+        24,
+        "2026-10-12",
+        prev={"date": "2026-10-09", "close": 61.72, "low": 58.60},
+        last={"date": "2026-10-12", "open": 61.38, "close": 99.0, "low": 50.0},
+    )
+    out = raw_ath_from_bars(
+        hist,
+        price_tau=60.69,
+        tau_hm="09:35",
+        minute_bars=[{"open": 61.38, "close": 60.69}],
+    )
+    assert ath_raw_key("GAP") not in out
+
+
+def test_inject_raw_ath_uses_item_open_and_trade_day():
+    """没有 day_bar 时，条目上的今开和交易日仍按 T 对齐，不退到上一根。"""
+    from core.t0.score_policy import _inject_raw_ath_live
+
+    hist = _calendar_hist(
+        24,
+        "2026-10-09",
+        prev={
+            "date": "2026-10-08",
+            "open": 67.02,
+            "high": 68.18,
+            "low": 62.88,
+            "close": 64.50,
+        },
+        last={
+            "date": "2026-10-09",
+            "open": 63.54,
+            "high": 64.15,
+            "low": 58.60,
+            "close": 61.72,
+        },
+    )
+    item = {
+        "trade_day": "2026-10-12",
+        "open_t": 61.38,
+        "stock_code": "002025",
+        "tau": "09:35",
+        "features_tau": {"price_tau": 60.69},
+    }
+    out = _inject_raw_ath_live(
+        dict(item["features_tau"]), item, "t30", tau_hm="09:35", hist_bars=hist
+    )
+    assert abs(out[ath_raw_key("GAP")] - (61.38 / 61.72 - 1.0)) < 1e-12
+    assert out[ath_raw_key("BELOW_YLOW")] == 0.0
+
+    bare = {
+        "trade_day": "2026-10-12",
+        "stock_code": "002025",
+        "features_tau": {"price_tau": 60.69},
+    }
+    missed = _inject_raw_ath_live(
+        dict(bare["features_tau"]), bare, "t30", tau_hm="09:35", hist_bars=hist
+    )
+    assert ath_raw_key("GAP") not in missed

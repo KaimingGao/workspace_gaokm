@@ -457,3 +457,70 @@ def quote_for_eod_score(
             out["open_raw"] = ox
             out["open"] = ox
     return out
+
+
+def bar_session_day(bar: Optional[dict]) -> str:
+    """日 K / 分钟根 / quote → ``YYYY-MM-DD``。没有日期则空串。"""
+    if not isinstance(bar, dict):
+        return ""
+    raw = str(
+        bar.get("trade_date") or bar.get("date") or bar.get("datetime") or ""
+    ).strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) >= 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return ""
+
+
+def explicit_session_day(
+    *,
+    quote: Optional[dict] = None,
+    minute_bars: Optional[Sequence[dict]] = None,
+) -> str:
+    """会话日只从 quote 或分钟根取，不用 hist 末根。"""
+    day = bar_session_day(quote)
+    if day:
+        return day
+    for bar in minute_bars or []:
+        day = bar_session_day(bar if isinstance(bar, dict) else None)
+        if day:
+            return day
+    return ""
+
+
+def pit_hist_when_open_missing(
+    hist: Sequence[dict],
+    *,
+    quote: Optional[dict] = None,
+    minute_bars: Optional[Sequence[dict]] = None,
+    min_bars: int,
+) -> Tuple[str, List[dict]]:
+    """今开缺失时，hist 末根能不能当成今天。
+
+    返回 ``(action, complete)``：
+
+    - ``peel``：末根就是本会话，或没有任何会话信息且没有分钟根（调用方把当日 K 放在末尾）。``complete`` 不含末根。
+    - ``keep``：根数不够，不剥。``complete`` 是原 hist。
+    - ``refuse``：末根早于会话日、末根没有日期、或已有分钟根但读不出会话日。禁止把上一根当成今天。
+    """
+    rows = [b for b in (hist or []) if isinstance(b, dict)]
+    session = explicit_session_day(quote=quote, minute_bars=minute_bars)
+    last_day = bar_session_day(rows[-1]) if rows else ""
+    has_minutes = any(isinstance(b, dict) for b in (minute_bars or []))
+    if session and last_day and last_day != session:
+        logger.debug(
+            "pit refuse peel: hist tail %s is not session %s", last_day, session
+        )
+        return "refuse", []
+    if session and not last_day:
+        logger.debug("pit refuse peel: session %s but hist tail has no date", session)
+        return "refuse", []
+    if has_minutes and not session:
+        logger.debug("pit refuse peel: minute prefix without a session date")
+        return "refuse", []
+    peel = len(rows) >= int(min_bars) and (
+        not session or not last_day or last_day == session
+    )
+    if peel and rows:
+        return "peel", list(rows[:-1])
+    return "keep", list(rows)

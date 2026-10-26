@@ -1000,6 +1000,29 @@ def test_unparseable_bar_falls_back_to_inject():
         }
         assert set(got) == set(ref), (i, set(got) ^ set(ref))
 
+def test_alpha_tc_refuses_lagged_hist_when_session_is_later():
+    bars = _synth_bars(80)
+    hist = bars[:-1]
+    hist[-1]["date"] = "2026-10-09"
+    hist[-1]["trade_date"] = "2026-10-09"
+    _score, meta = score_alpha_tc(
+        hist,
+        tau_hm="09:35",
+        minute_bars=[
+            {
+                "date": "2026-10-12",
+                "datetime": "2026-10-12 09:35:00",
+                "open": 10.0,
+                "high": 10.0,
+                "low": 10.0,
+                "close": 10.0,
+            }
+        ],
+    )
+    assert meta.get("alpha_tc_need_open") is True
+    assert "GAP" not in meta
+
+
 def test_alpha_tc_registered():
     assert "alpha_tc" in registered_factor_names()
     bars = _synth_bars(80)

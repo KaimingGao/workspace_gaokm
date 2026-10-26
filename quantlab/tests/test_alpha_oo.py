@@ -227,6 +227,24 @@ def test_raw_aoo_with_open_t():
     assert f"{ALPHA_OO_RAW_PREFIX}GAP" in out
     assert math.isfinite(out[f"{ALPHA_OO_RAW_PREFIX}OROC5"])
 
+def test_alpha_oo_refuses_when_quote_day_is_after_hist():
+    bars = _synth_bars(80)
+    bars[-1]["date"] = "2026-10-09"
+    bars[-1]["trade_date"] = "2026-10-09"
+    _score, meta = score_alpha_oo(bars, quote={"date": "2026-10-12"})
+    assert meta.get("alpha_oo_need_open") is True
+    assert "GAP" not in meta
+
+
+def test_alpha_oo_peels_when_quote_day_matches_last_bar():
+    bars = _synth_bars(80)
+    bars[-1]["date"] = "2026-10-12"
+    bars[-1]["trade_date"] = "2026-10-12"
+    _score, meta = score_alpha_oo(bars, quote={"date": "2026-10-12"})
+    assert meta.get("alpha_oo_need_open") is not True
+    assert "GAP" in meta
+
+
 def test_alpha_oo_registered():
     assert "alpha_oo" in registered_factor_names()
     bars = _synth_bars(80)

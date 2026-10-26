@@ -733,8 +733,15 @@ def _prepare_open_pit_bars(
     meta_flags: Dict[str, Any] = {}
 
     if ot is None and hist:
+        from core.signal.session_pit import pit_hist_when_open_missing
+
+        action, _ = pit_hist_when_open_missing(
+            hist, quote=quote, min_bars=_MIN_BARS
+        )
+        if action == "refuse":
+            return None, None, None, {"alpha_oo_need_open": True}
         ot = _fpx(hist[-1].get("open"))
-        if ot is not None and len(hist) >= _MIN_BARS:
+        if action == "peel" and ot is not None:
             complete = hist[:-1]
             pc = resolve_prev_close(
                 prev_close=prev_close, quote=quote, hist_complete=complete
