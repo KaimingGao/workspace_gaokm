@@ -9,7 +9,12 @@ import logging
 import os
 from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
 
-from core.paper.rebalance.rank_lots import AUX_YHAT_KEYS, tip_explain_fields
+from core.paper.rebalance.rank_lots import (
+    AUX_YHAT_KEYS,
+    _TAU_TIP_PIN,
+    _Y_HEAD_FACTOR_N,
+    tip_explain_fields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -827,19 +832,18 @@ def _cube_z_matrix(cube: Any):
     return Z
 
 
-def _dot_head(
-    Z: Any,
+def _active_beta_columns(
     names: Sequence[str],
     coefficients: Dict[str, Any],
-    intercept: float,
     active: Sequence[str],
 ):
-    """ŷ = intercept + β·z。缺列当 z=0。"""
+    """立方列与 β 对齐。缺列不进点积（等价 z=0）。"""
     import numpy as np
 
     index = {str(n): i for i, n in enumerate(names)}
     cols: List[int] = []
     betas: List[float] = []
+    keys: List[str] = []
     for name in active:
         j = index.get(str(name))
         if j is None:
@@ -852,10 +856,222 @@ def _dot_head(
             continue
         cols.append(j)
         betas.append(beta)
+        keys.append(str(name))
     if not cols:
         return None
-    pred = float(intercept) + Z[:, cols] @ np.asarray(betas, dtype=np.float64)
+    return cols, np.asarray(betas, dtype=np.float64), keys
+
+
+def _dot_head(
+    Z: Any,
+    names: Sequence[str],
+    coefficients: Dict[str, Any],
+    intercept: float,
+    active: Sequence[str],
+):
+    """ŷ = intercept + β·z。缺列当 z=0。"""
+    import numpy as np
+
+    aligned = _active_beta_columns(names, coefficients, active)
+    if aligned is None:
+        return None
+    cols, beta_arr, _keys = aligned
+    pred = float(intercept) + Z[:, cols] @ beta_arr
     return np.round(pred, 6)
+
+
+def _term_pinned(key: str, pin_keys: Sequence[str]) -> bool:
+    """裸名或 ``z_τc_gap_pct`` 这类前缀名都算钉住。"""
+    if key in pin_keys:
+        return True
+    return any(key.endswith("_" + pin) for pin in pin_keys if pin)
+
+
+def _topk_abs_index(abs_c: Any, k: int):
+    """每行 |贡献| 最大的 k 列，已按降序。"""
+    import numpy as np
+
+    _n, p = abs_c.shape
+    kk = min(int(k), p)
+    if kk <= 0:
+        return np.zeros((abs_c.shape[0], 0), dtype=int)
+    if kk < p:
+        part = np.argpartition(-abs_c, kth=kk - 1, axis=1)[:, :kk]
+        part_abs = np.take_along_axis(abs_c, part, axis=1)
+        order = np.argsort(-part_abs, axis=1)
+        return np.take_along_axis(part, order, axis=1)
+    return np.argsort(-abs_c, axis=1)
+
+
+def _term_col_index(abs_c: Any, keys: Sequence[str], pin_keys: Optional[Sequence[str]]):
+    """Top 因子列。钉住键占名额，贡献再小也留在表里。"""
+    import numpy as np
+
+    _n, p = abs_c.shape
+    limit = min(_Y_HEAD_FACTOR_N, p)
+    pins = [pin for pin in (pin_keys or []) if pin]
+    if not pins or p <= limit:
+        return _topk_abs_index(abs_c, limit)
+    pin_local = [j for j, key in enumerate(keys) if _term_pinned(key, pins)]
+    if not pin_local:
+        return _topk_abs_index(abs_c, limit)
+    pin_set = set(pin_local)
+    non = [j for j in range(p) if j not in pin_set]
+    budget = max(0, _Y_HEAD_FACTOR_N - len(pin_local))
+    pin_arr = np.asarray(pin_local, dtype=int)
+    if budget <= 0 or not non:
+        pin_abs = abs_c[:, pin_arr]
+        order = np.argsort(-pin_abs, axis=1)
+        return np.take_along_axis(np.broadcast_to(pin_arr, (abs_c.shape[0], len(pin_local))), order, axis=1)
+    non_arr = np.asarray(non, dtype=int)
+    top_local = _topk_abs_index(abs_c[:, non_arr], min(budget, len(non)))
+    top_non = non_arr[top_local]
+    pin_b = np.broadcast_to(pin_arr, (abs_c.shape[0], len(pin_local)))
+    combined = np.concatenate([top_non, pin_b], axis=1)
+    comb_abs = np.take_along_axis(abs_c, combined, axis=1)
+    order = np.argsort(-comb_abs, axis=1)
+    return np.take_along_axis(combined, order, axis=1)
+
+
+def _cube_tip_explains(
+    Z: Any,
+    names: Sequence[str],
+    coefficients: Dict[str, Any],
+    intercept: float,
+    active: Sequence[str],
+    pred: Any,
+    *,
+    row_ids: Sequence[int],
+    score_model_role: str = "",
+    total_key: str = "",
+    pin_keys: Optional[Sequence[str]] = None,
+) -> Dict[int, dict]:
+    """按立方 z 拆 β·z，每行只留 |贡献| 最大的因子，供股票表 tip。"""
+    import numpy as np
+
+    from core.signal.factors.meta.registry import factor_label
+
+    aligned = _active_beta_columns(names, coefficients, active)
+    if aligned is None:
+        return {}
+    cols, beta_arr, keys = aligned
+    Zc = np.asarray(Z[:, cols], dtype=np.float64)
+    contrib = Zc * beta_arr
+    abs_c = np.abs(contrib)
+    top = _term_col_index(abs_c, keys, pin_keys)
+    labels = {key: factor_label(key) for key in keys}
+    intercept_r = round(float(intercept), 6)
+    role = str(score_model_role or "").strip().lower()
+    pred_arr = np.asarray(pred, dtype=np.float64)
+    out: Dict[int, dict] = {}
+    for i in row_ids:
+        if i < 0 or i >= len(pred_arr) or i >= contrib.shape[0]:
+            continue
+        total = float(pred_arr[i])
+        if total != total:
+            continue
+        terms: List[dict] = []
+        for j in top[i]:
+            jj = int(j)
+            z = float(Zc[i, jj])
+            c = float(contrib[i, jj])
+            if z != z or c != c:
+                continue
+            key = keys[jj]
+            terms.append(
+                {
+                    "key": key,
+                    "label": labels.get(key) or key,
+                    "beta": round(float(beta_arr[jj]), 6),
+                    "z": round(z, 4),
+                    "contrib": round(c, 6),
+                }
+            )
+        if not terms:
+            continue
+        expl: Dict[str, Any] = {
+            "intercept": intercept_r,
+            "terms": terms,
+            "total": round(total, 6),
+        }
+        if role in {"research", "live"}:
+            expl["score_model_role"] = role
+        if total_key:
+            expl[total_key] = expl["total"]
+        out[i] = expl
+    return out
+
+
+def _attach_cube_formula(
+    items: Sequence[dict],
+    codes: Sequence[str],
+    Z: Any,
+    names: Sequence[str],
+    coefficients: Dict[str, Any],
+    intercept: float,
+    active: Sequence[str],
+    pred: Any,
+    fields: Sequence[str],
+    score_codes: Optional[Collection[str]],
+    explain_codes: Optional[Collection[str]],
+    *,
+    score_model_role: str = "",
+    total_key: str = "",
+    pin_keys: Optional[Sequence[str]] = None,
+    stamp_item_role: bool = False,
+) -> None:
+    """把立方点积的因子拆解写到出分行。``explain_codes`` 给定时只拆这些票。"""
+    allow = None
+    if score_codes is not None:
+        allow = {str(c or "").strip() for c in score_codes if str(c or "").strip()}
+    explain = None
+    if explain_codes is not None:
+        explain = {str(c or "").strip() for c in explain_codes if str(c or "").strip()}
+    index = {str(c or "").strip(): i for i, c in enumerate(codes)}
+    row_ids: List[int] = []
+    for it in items:
+        code = str(it.get("stock_code") or "").strip()
+        if allow is not None and code not in allow:
+            continue
+        if explain is not None and code not in explain:
+            continue
+        i = index.get(code)
+        if i is None:
+            continue
+        row_ids.append(i)
+    if not row_ids:
+        return
+    explains = _cube_tip_explains(
+        Z,
+        names,
+        coefficients,
+        intercept,
+        active,
+        pred,
+        row_ids=row_ids,
+        score_model_role=score_model_role,
+        total_key=total_key,
+        pin_keys=pin_keys,
+    )
+    if not explains:
+        return
+    role = str(score_model_role or "").strip().lower()
+    for it in items:
+        code = str(it.get("stock_code") or "").strip()
+        if allow is not None and code not in allow:
+            continue
+        if explain is not None and code not in explain:
+            continue
+        i = index.get(code)
+        if i is None:
+            continue
+        expl = explains.get(i)
+        if not expl:
+            continue
+        for key in fields:
+            it[key] = expl
+        if stamp_item_role and role in {"research", "live"}:
+            it["score_model_role"] = role
 
 
 def _write_head(items: Sequence[dict], codes: Sequence[str], pred: Any, fields: Sequence[str], score_codes: Optional[Collection[str]]) -> None:
@@ -882,8 +1098,9 @@ def _stamp_cube_head_scores(
     items: List[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
+    explain_codes: Optional[Collection[str]] = None,
 ) -> None:
-    """用立方矩阵点积写 ŷ_oo / ŷ_τc / ŷ_co / fuse，避免逐格 Python z-score。"""
+    """用立方矩阵点积写 ŷ_oo / ŷ_τc / ŷ_co / fuse，并附因子拆解供股票表 tip。"""
     from core.signal.factors.sum_identity import (
         cs_batch_preds_look_collapsed,
         filter_predict_active_names,
@@ -919,6 +1136,24 @@ def _stamp_cube_head_scores(
                 ("y_oo", "predicted_score", "predicted_score_oo"),
                 score_codes,
             )
+            try:
+                _attach_cube_formula(
+                    items,
+                    codes,
+                    Z,
+                    names,
+                    model.coefficients,
+                    float(model.intercept or 0.0),
+                    active,
+                    pred,
+                    ("score_formula_terms", "formula_terms"),
+                    score_codes,
+                    explain_codes,
+                    score_model_role=str(getattr(model, "model_role", "") or ""),
+                    stamp_item_role=True,
+                )
+            except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
+                logger.debug("cube oo formula terms skipped", exc_info=True)
 
     try:
         from core.research.tc_ridge import load_tau_model
@@ -943,6 +1178,30 @@ def _stamp_cube_head_scores(
                 ("y_τc", "predicted_score_τc", "y_tau_raw"),
                 score_codes,
             )
+            try:
+                tau_role = str(
+                    (doc.get("model_role") if isinstance(doc, dict) else "")
+                    or rm.get("model_role")
+                    or ""
+                )
+                _attach_cube_formula(
+                    items,
+                    codes,
+                    Z,
+                    names,
+                    rm["coefficients"],
+                    float(rm.get("intercept") or 0.0),
+                    active,
+                    pred,
+                    ("formula_terms_tau", "score_formula_terms_tau"),
+                    score_codes,
+                    explain_codes,
+                    score_model_role=tau_role,
+                    total_key="y_τc",
+                    pin_keys=_TAU_TIP_PIN,
+                )
+            except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
+                logger.debug("cube tau formula terms skipped", exc_info=True)
 
     try:
         from core.research.co_ridge import load_co_model
@@ -967,6 +1226,28 @@ def _stamp_cube_head_scores(
                 ("y_co", "predicted_score_co", "predicted_score_on"),
                 score_codes,
             )
+            try:
+                co_role = str(
+                    (doc.get("model_role") if isinstance(doc, dict) else "")
+                    or rm.get("model_role")
+                    or ""
+                )
+                _attach_cube_formula(
+                    items,
+                    codes,
+                    Z,
+                    names,
+                    rm["coefficients"],
+                    float(rm.get("intercept") or 0.0),
+                    active,
+                    pred,
+                    ("formula_terms_co", "score_formula_terms_co"),
+                    score_codes,
+                    explain_codes,
+                    score_model_role=co_role,
+                )
+            except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
+                logger.debug("cube co formula terms skipped", exc_info=True)
 
     try:
         from core.research.feature_standardize import is_cross_section_zscore
@@ -1048,7 +1329,12 @@ def _try_score_pool_from_cube(
         if cycle_day and day != cycle_day:
             for it in scored_all:
                 it["lake_score_fallback_from"] = cycle_day
-        _stamp_cube_head_scores(cube, scored_all, score_codes=score_codes)
+        _stamp_cube_head_scores(
+            cube,
+            scored_all,
+            score_codes=score_codes,
+            explain_codes=codes,
+        )
         want = [c for c in codes if c]
         want_set = set(want)
         scored = (

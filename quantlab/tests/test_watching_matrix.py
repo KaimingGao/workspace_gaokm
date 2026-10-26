@@ -1157,5 +1157,116 @@ class TestQuotePxLiveFill(unittest.TestCase):
         self.assertAlmostEqual(float(out["buy_trades"][0]["price"]), 10.05)
         self.assertAlmostEqual(float(paper["holdings"][0]["cost"]), 10.05)
 
+class TestCubeHeadFormula(unittest.TestCase):
+    def test_cube_stamp_keeps_factor_terms_for_tips(self):
+        import numpy as np
+
+        from core.paper.rebalance.watching_matrix import _stamp_cube_head_scores
+
+        class _Cube:
+            X_raw = np.array(
+                [[1.0, 4.0, 0.0], [0.0, 1.0, 3.0]],
+                dtype=float,
+            )
+            z_mean = np.zeros(3)
+            z_std = np.ones(3)
+            names = ["mom", "liq", "size"]
+            codes = ["600000", "600001"]
+
+        class _Oo:
+            coefficients = {"mom": 1.0, "liq": -0.5, "size": 0.1}
+            intercept = 0.2
+            model_role = "live"
+
+        tau_doc = {
+            "model_role": "live",
+            "return_model": {
+                "coefficients": {"mom": 2.0},
+                "intercept": 0.0,
+                "active_features": ["mom"],
+            },
+        }
+        items = [{"stock_code": "600000"}, {"stock_code": "600001"}]
+        with patch(
+            "core.research.oo_ridge.load_scoring_return_model",
+            return_value=(_Oo(), {}),
+        ), patch(
+            "core.research.tc_ridge.load_tau_model",
+            return_value=tau_doc,
+        ), patch(
+            "core.research.co_ridge.load_co_model",
+            return_value={},
+        ), patch(
+            "core.research.horizon_ridge.load_ridge_model",
+            return_value=None,
+        ), patch(
+            "core.paper.rebalance.path_matrix.get_path_matrix_cfg",
+            return_value={},
+        ), patch(
+            "core.signal.yhat_windows.stamp_window_scores",
+            return_value={},
+        ):
+            _stamp_cube_head_scores(
+                _Cube(),
+                items,
+                explain_codes=["600000"],
+            )
+
+        kept, skipped = items
+        self.assertAlmostEqual(kept["y_oo"], -0.8, places=6)
+        self.assertAlmostEqual(skipped["y_oo"], 0.0, places=6)
+        terms = kept["score_formula_terms"]["terms"]
+        self.assertEqual([t["key"] for t in terms], ["liq", "mom", "size"])
+        self.assertAlmostEqual(terms[0]["contrib"], -2.0, places=6)
+        self.assertAlmostEqual(kept["score_formula_terms"]["total"], kept["y_oo"], places=6)
+        self.assertEqual(kept["score_model_role"], "live")
+        self.assertIs(kept["formula_terms"], kept["score_formula_terms"])
+        self.assertAlmostEqual(kept["formula_terms_tau"]["total"], 2.0, places=6)
+        self.assertEqual(kept["formula_terms_tau"]["terms"][0]["key"], "mom")
+        self.assertAlmostEqual(kept["y_τc"], 2.0, places=6)
+        self.assertNotIn("score_formula_terms", skipped)
+        self.assertNotIn("formula_terms_tau", skipped)
+
+    def test_tau_tip_keeps_small_pinned_factor(self):
+        import numpy as np
+
+        from core.paper.rebalance.watching_matrix import _cube_tip_explains
+
+        n_feat = 30
+        names = [f"f{i:02d}" for i in range(n_feat)]
+        names[0] = "z_τc_gap_pct"
+        Z = np.ones((1, n_feat), dtype=float)
+        Z[0, 0] = 0.01
+        for i in range(1, n_feat):
+            Z[0, i] = float(i)
+        coefs = {name: 1.0 for name in names}
+        pred = np.array([float(Z.sum())])
+        pinned = _cube_tip_explains(
+            Z,
+            names,
+            coefs,
+            0.0,
+            names,
+            pred,
+            row_ids=[0],
+            pin_keys=("gap_pct",),
+        )
+        plain = _cube_tip_explains(
+            Z,
+            names,
+            coefs,
+            0.0,
+            names,
+            pred,
+            row_ids=[0],
+        )
+        pin_keys = [t["key"] for t in pinned[0]["terms"]]
+        plain_keys = [t["key"] for t in plain[0]["terms"]]
+        self.assertIn("z_τc_gap_pct", pin_keys)
+        self.assertNotIn("z_τc_gap_pct", plain_keys)
+        self.assertLessEqual(len(pin_keys), 24)
+        self.assertEqual(len(plain_keys), 24)
+
+
 if __name__ == "__main__":
     unittest.main()

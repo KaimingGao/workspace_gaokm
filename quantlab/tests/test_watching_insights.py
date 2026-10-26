@@ -106,6 +106,44 @@ class TestWatchingInsights(unittest.TestCase):
         bars.assert_not_called()
         live.assert_not_called()
 
+    def test_lake_projection_keeps_formula_terms(self):
+        """数据中心股票表 tip 要能画出因子，湖行投影不能把组成丢掉。"""
+        from core.watching.insights import _project_lake_insight
+
+        row = _project_lake_insight(
+            "600519",
+            {
+                "y_oo": 1.2,
+                "y_τc": 0.4,
+                "score_formula_terms": {
+                    "intercept": 0.1,
+                    "total": 1.2,
+                    "terms": [
+                        {
+                            "key": "momentum",
+                            "beta": 0.2,
+                            "z": 1.0,
+                            "contrib": 0.2,
+                        }
+                    ],
+                },
+                "formula_terms_tau": {
+                    "intercept": 0.0,
+                    "total": 0.4,
+                    "terms": [
+                        {
+                            "key": "gap_pct",
+                            "beta": 0.4,
+                            "z": 1.0,
+                            "contrib": 0.4,
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(row["score_formula_terms"]["terms"][0]["key"], "momentum")
+        self.assertEqual(row["formula_terms_tau"]["terms"][0]["key"], "gap_pct")
+
     def test_insight_memo_skips_rescore(self):
         from core.watching.insights import build_watching_insights, reset_insight_memo
 

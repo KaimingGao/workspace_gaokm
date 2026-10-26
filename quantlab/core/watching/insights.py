@@ -94,7 +94,7 @@ def _insight_cache_stamp() -> str:
         )
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp fusion failed", exc_info=True)
-    return f"{win}|{asof}|{sess}|{ver}|{bars_gen}|rk{fusion}|causal_rebal"
+    return f"{win}|{asof}|{sess}|{ver}|{bars_gen}|rk{fusion}|causal_rebal|tip_f"
 
 
 def _watching_pool_token() -> str:
@@ -968,12 +968,18 @@ def _project_lake_insight(
     added_at: Optional[str] = None,
     valuation: Optional[Dict[str, Optional[float]]] = None,
 ) -> Dict[str, Any]:
-    """湖行已经有 ŷ。列表只拷这些列，不再逐票做 book / 公式。"""
+    """湖行已经有 ŷ。列表拷这些列和 tip 因子组成，不再逐票做 book。"""
     out = _blank(code, added_at=added_at)
     src = lake_item if isinstance(lake_item, dict) else {}
     for key in _LAKE_INSIGHT_KEYS:
         if src.get(key) is not None:
             out[key] = src[key]
+    try:
+        from core.paper.rebalance.rank_lots import tip_explain_fields
+
+        out.update(tip_explain_fields(src))
+    except Exception:  # noqa: BLE001 — 组成缺失不挡表列 ŷ
+        logger.debug("lake insight tip fields skipped", exc_info=True)
     if out.get("predicted_score") is None and src.get("predicted_score") is not None:
         out["predicted_score"] = src.get("predicted_score")
     if out.get("y_oo") is not None:
