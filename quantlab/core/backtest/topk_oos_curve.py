@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
@@ -81,9 +82,40 @@ def _leg_forward_return(
         exit_px = float(ex.get("close") or 0)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(entry_px) or not math.isfinite(exit_px):
+        return None
     if entry_px <= 0 or exit_px <= 0:
         return None
-    return (exit_px / entry_px - 1.0) * 100.0
+    ret = (exit_px / entry_px - 1.0) * 100.0
+    if not math.isfinite(ret):
+        return None
+    return ret
+
+
+def oos_label_exit_index(signal_i: int, horizon_days: int) -> Optional[int]:
+    """信号日下标 → 持有期末收盘的日期下标。下标不是整数时返回 None。"""
+    try:
+        return int(signal_i) + 1 + int(horizon_days)
+    except (TypeError, ValueError):
+        return None
+
+
+def oos_label_ready(
+    signal_i: int,
+    decision_i: int,
+    horizon_days: int,
+    n_dates: int,
+) -> bool:
+    """平仓日已经落在决策日及以前，且仍在样本内。坏下标视为未就绪。"""
+    exit_idx = oos_label_exit_index(signal_i, horizon_days)
+    if exit_idx is None or exit_idx < 0:
+        return False
+    try:
+        decision = int(decision_i)
+        n = int(n_dates)
+    except (TypeError, ValueError):
+        return False
+    return exit_idx < n and exit_idx <= decision
 
 
 def run_oos_topk_curve(
@@ -209,16 +241,37 @@ def run_oos_topk_curve(
         if resolved_rank_mode == "predicted_score":
             still_pending: List[dict] = []
             for p in pending_signals:
-                j = int(p["signal_i"])
-                if j + horizon_days <= i and j + horizon_days < n:
-                    y = _close_return_pct(
-                        date_maps,
-                        str(p["code"]),
-                        str(p["signal_date"]),
-                        dates[j + horizon_days],
-                    )
+                if not isinstance(p, dict):
+                    continue
+                try:
+                    j = int(p["signal_i"])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                # 训练目标 = 次日开盘入 → 持有期末收盘出（与实际 leg 收益对齐）
+                # 平仓日未到不入库，避免用未来收盘拟合当天排序。
+                exit_idx = oos_label_exit_index(j, horizon_days)
+                if exit_idx is None or j < 0 or exit_idx < 0 or exit_idx >= n or j + 1 >= n:
+                    continue
+                if oos_label_ready(j, i, horizon_days, n):
+                    try:
+                        entry_date = dates[j + 1]
+                        exit_date = dates[exit_idx]
+                        y = _leg_forward_return(
+                            date_maps,
+                            str(p["code"]),
+                            entry_date,
+                            exit_date,
+                        )
+                    except Exception:  # noqa: BLE001 — 单条标签失败不中断曲线
+                        logger.debug("oos label failed code=%s j=%s", p.get("code"), j, exc_info=True)
+                        continue
                     subs = p.get("sub_scores") or {}
-                    if y is not None and subs:
+                    if (
+                        y is not None
+                        and math.isfinite(float(y))
+                        and isinstance(subs, dict)
+                        and subs
+                    ):
                         train_xs.append(dict(subs))
                         train_ys.append(float(y))
                 else:
@@ -334,6 +387,7 @@ def run_oos_topk_curve(
             "stock_count": len(stock_bars),
             "apply_costs": False,
             "apply_tau_buy_gate": False,
+            "limit_filter": False,
         },
         "metrics": metrics,
         "trade_count": len(trades),

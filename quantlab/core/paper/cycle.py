@@ -61,6 +61,39 @@ def run_daily_cycle(
 
     risk_gate, pre_summary = _check_pre_rebalance_risk(paper)
 
+    # --- 换手预算裁剪参数（传给 simulate_buys） ---
+    equity_before = None
+    try:
+        equity_before = float((pre_summary or {}).get("equity") or 0) or None
+    except Exception:  # noqa: BLE001
+        equity_before = None
+    if equity_before is None:
+        # pre_summary 里没有，自己算
+        try:
+            cash_now = float(paper.get("cash") or 0)
+            stock_val = sum(
+                float(h.get("market_value") or 0)
+                for h in (paper.get("holdings") or [])
+            )
+            if stock_val <= 0:
+                # holdings 里没 market_value，用 shares * cost 兜底
+                stock_val = sum(
+                    float(h.get("shares") or 0) * float(h.get("cost") or 0)
+                    for h in (paper.get("holdings") or [])
+                )
+            equity_before = cash_now + stock_val
+        except Exception:  # noqa: BLE001
+            equity_before = None
+    max_turnover_pct = None
+    raw_mto = (paper.get("rules") or {}).get(
+        "max_turnover_pct", (paper.get("rules") or {}).get("max_turnover")
+    )
+    if raw_mto is not None and raw_mto != "":
+        try:
+            max_turnover_pct = float(raw_mto)
+        except (TypeError, ValueError):
+            max_turnover_pct = None
+
     buys_blocked = False
     _p(len(holding_codes) + 1, grand, "减仓/卖出规则")
     sell_trades = simulate_sells(paper, pool)
@@ -75,7 +108,12 @@ def run_daily_cycle(
             _log_risk_block(paper, risk_gate)
         else:
             _p(len(holding_codes) + 2, grand, "加仓/买入…")
-            new_trades = simulate_buys(paper, pool)
+            new_trades = simulate_buys(
+                paper, pool,
+                equity_before=equity_before,
+                max_turnover_pct=max_turnover_pct,
+                cycle_sells=sell_trades,
+            )
     else:
         _p(len(holding_codes) + 2, grand, "跳过加仓")
     _p(len(holding_codes) + 3, grand, "更新净值…")

@@ -1518,6 +1518,98 @@ class HorizonL1StitchTests(unittest.TestCase):
             load_day_cube("1900-01-01", codes, clock="10:00")
         )
 
+    def test_release_allocator_cache_drops_minute_and_score_caches(self):
+        """整段 5m 和做 T 特征行也要卸，否则下一头按旧水位直接停。"""
+        from core.research.horizon_l1 import release_allocator_cache
+        from core.research.tau_panel import (
+            _MINUTE_BY_CODE,
+            _REALIZED_BY_CODE_HM,
+            clear_minute_lag_cache,
+        )
+        from core.signal.minute_tau_feats import _PEER_MINUTE_BARS, clear_peer_minute_bars
+        from core.t0.score_policy import (
+            _PEER_BARS_MEMO,
+            _POOL_FEAT_CACHE,
+            _TAU_LAKE_PEER_CACHE,
+            clear_score_model_cache,
+        )
+
+        _MINUTE_BY_CODE["000001"] = {"2026-01-01": [{"close": 1.0}]}
+        _REALIZED_BY_CODE_HM[("000001", "10:00", "t45")] = {"2026-01-01": 0.1}
+        _POOL_FEAT_CACHE["2026-01-01"] = [{"stock_code": "000001"}]
+        _TAU_LAKE_PEER_CACHE["2026-01-01|10:00"] = [{"stock_code": "000001"}]
+        _PEER_BARS_MEMO["k"] = {"000001": [{"close": 1.0}]}
+        _PEER_MINUTE_BARS["000001"] = [{"close": 1.0}]
+        try:
+            release_allocator_cache()
+            self.assertEqual(_MINUTE_BY_CODE, {})
+            self.assertEqual(_REALIZED_BY_CODE_HM, {})
+            self.assertEqual(_POOL_FEAT_CACHE, {})
+            self.assertEqual(_TAU_LAKE_PEER_CACHE, {})
+            self.assertEqual(_PEER_BARS_MEMO, {})
+            self.assertEqual(_PEER_MINUTE_BARS, {})
+        finally:
+            clear_minute_lag_cache()
+            clear_score_model_cache()
+            clear_peer_minute_bars()
+
+    def test_minute_lag_cache_keeps_only_recent_codes(self):
+        from core.research.tau_panel import (
+            _MINUTE_BY_CODE,
+            _MINUTE_BY_CODE_MAX,
+            _REALIZED_BY_CODE_HM,
+            _remember_minute_by_code,
+            clear_minute_lag_cache,
+        )
+
+        clear_minute_lag_cache()
+        try:
+            kept = ""
+            for i in range(int(_MINUTE_BY_CODE_MAX) + 2):
+                code = f"{i:06d}"
+                kept = code
+                _REALIZED_BY_CODE_HM[(code, "10:00", "t45")] = {"2026-01-02": 0.1}
+                _remember_minute_by_code(code, {"2026-01-02": [{"close": 1.0}]})
+            self.assertLessEqual(len(_MINUTE_BY_CODE), int(_MINUTE_BY_CODE_MAX))
+            self.assertIn(kept, _MINUTE_BY_CODE)
+            self.assertNotIn("000000", _MINUTE_BY_CODE)
+            self.assertNotIn(("000000", "10:00", "t45"), _REALIZED_BY_CODE_HM)
+            self.assertIn((kept, "10:00", "t45"), _REALIZED_BY_CODE_HM)
+        finally:
+            clear_minute_lag_cache()
+
+    def test_score_caches_drop_oldest_keys(self):
+        import datetime
+
+        from core.t0.score_policy import (
+            _POOL_FEAT_CACHE,
+            _POOL_FEAT_CACHE_MAX,
+            _remember_bounded,
+            clear_score_model_cache,
+            seed_watching_pool_feature_rows,
+        )
+
+        clear_score_model_cache()
+        try:
+            items = [
+                {"stock_code": "000001", "features_tau": {"gap_pct": 1.0}},
+                {"stock_code": "000002", "features_tau": {"gap_pct": 2.0}},
+            ]
+            base = datetime.date(2020, 1, 1)
+            last = ""
+            for i in range(int(_POOL_FEAT_CACHE_MAX) + 3):
+                last = (base + datetime.timedelta(days=i)).isoformat()
+                self.assertTrue(seed_watching_pool_feature_rows(last, items))
+            self.assertLessEqual(len(_POOL_FEAT_CACHE), int(_POOL_FEAT_CACHE_MAX))
+            self.assertIn(last, _POOL_FEAT_CACHE)
+            self.assertNotIn("2020-01-01", _POOL_FEAT_CACHE)
+            box: dict = {}
+            for i in range(5):
+                _remember_bounded(box, i, i, 2)
+            self.assertEqual(list(box), [3, 4])
+        finally:
+            clear_score_model_cache()
+
     def test_stale_footprint_is_reread_after_releasing_pages(self):
         from core.research.horizon_l1 import (
             confirm_fit_memory_stop,

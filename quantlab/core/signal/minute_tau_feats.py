@@ -1286,6 +1286,11 @@ def _write_rebalance_cs_disk(
     os.replace(tmp, path)
 
 
+def clear_peer_minute_bars() -> None:
+    """丢掉同伴整段 5m。截面中位钉住的结果留着，避免早盘中位被收尾冲掉。"""
+    _PEER_MINUTE_BARS.clear()
+
+
 def clear_sector_ret_cache() -> None:
     global _PEER_CODES_MEMO
     _SECTOR_RET_CACHE.clear()

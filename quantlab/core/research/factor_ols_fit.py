@@ -125,6 +125,21 @@ def _zscore_complete_panel(
     return xs_z, means, stds
 
 
+def _count_nonfinite_targets(ys: List[float], n_rows: int) -> int:
+    """目标不是有限数、或行下标超出 ys 的行数。"""
+    n = 0
+    for i in range(max(0, int(n_rows))):
+        if i >= len(ys):
+            n += 1
+            continue
+        try:
+            if not math.isfinite(float(ys[i])):
+                n += 1
+        except (TypeError, ValueError):
+            n += 1
+    return n
+
+
 def _prepare_complete_panel(
     xs: List[Dict[str, Optional[float]]],
     ys: List[float],
@@ -155,6 +170,7 @@ def _prepare_complete_panel(
         "dropped_constant": [],
         "dropped_for_coverage": [],
         "dropped_sum_identity": [],
+        "dropped_nonfinite_y": _count_nonfinite_targets(ys, len(xs)),
         "imputed_keys": [],
     }
     impute_set = {str(n) for n in (impute_keys or []) if n}
@@ -178,7 +194,18 @@ def _prepare_complete_panel(
     meta["dropped_sum_identity"] = list(dropped_id)
     candidates: List[str] = []
     for name in kept_names:
-        vals = [float(row[name]) for row in xs if row.get(name) is not None]
+        vals = []
+        for row in xs:
+            v = row.get(name)
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(fv):
+                continue
+            vals.append(fv)
         if len(vals) < min_obs:
             meta["dropped_sparse"].append(name)
             continue
@@ -191,18 +218,40 @@ def _prepare_complete_panel(
         return None, None, [], feature_names[:], meta
 
     active = list(candidates)
+
+    def _has_valid(row: dict, name: str) -> bool:
+        v = row.get(name)
+        if v is None:
+            return False
+        try:
+            return math.isfinite(float(v))
+        except (TypeError, ValueError):
+            return False
+
+    def _y_ok(i: int) -> bool:
+        if i < 0 or i >= len(ys):
+            return False
+        try:
+            return math.isfinite(float(ys[i]))
+        except (TypeError, ValueError):
+            return False
+
     while active:
         rows_idx = [
             i
             for i, row in enumerate(xs)
-            if all(row.get(name) is not None for name in active)
+            if _y_ok(i) and all(_has_valid(row, name) for name in active)
         ]
         n = len(rows_idx)
         p = len(active)
         if n < max(4, p + min_samples_over_p):
             miss = sorted(
                 (
-                    sum(1 for row in xs if row.get(name) is None),
+                    sum(
+                        1
+                        for i, row in enumerate(xs)
+                        if _y_ok(i) and not _has_valid(row, name)
+                    ),
                     name,
                 )
                 for name in active

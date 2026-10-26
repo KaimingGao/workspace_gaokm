@@ -3050,6 +3050,12 @@ class QuantFactorMixin:
                 bars_refresh_job.finish(error=str(e), job_id=job_id)
             finally:
                 stop_hb.set()
+                try:
+                    from core.research.horizon_l1 import release_allocator_cache
+
+                    release_allocator_cache()
+                except Exception:  # noqa: BLE001
+                    logger.debug("bars refresh release allocator cache failed", exc_info=True)
 
         threading.Thread(
             target=_worker, name=f"bars-{job_id}", daemon=True
@@ -3242,6 +3248,12 @@ class QuantFactorMixin:
                 materialize_job.finish(error=str(e), job_id=job_id)
             finally:
                 stop_hb.set()
+                try:
+                    from core.research.horizon_l1 import release_allocator_cache
+
+                    release_allocator_cache()
+                except Exception:  # noqa: BLE001
+                    logger.debug("materialize release allocator cache failed", exc_info=True)
 
         threading.Thread(
             target=_worker, name=f"mat-{job_id}", daemon=True
@@ -3380,6 +3392,12 @@ class QuantFactorMixin:
                 minute_refresh_job.finish(error=str(e), job_id=job_id)
             finally:
                 stop_hb.set()
+                try:
+                    from core.research.horizon_l1 import release_allocator_cache
+
+                    release_allocator_cache()
+                except Exception:  # noqa: BLE001
+                    logger.debug("minute refresh release allocator cache failed", exc_info=True)
 
         threading.Thread(
             target=_worker, name=f"minute-{job_id}", daemon=True

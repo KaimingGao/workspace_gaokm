@@ -28,10 +28,11 @@ def _prepare_scoring_window(
     *,
     max_window: int,
     data_mode: str,
-) -> Tuple[List[dict], str]:
+) -> Tuple[List[dict], str, int]:
     """P6.3：full 用完整窗口；quote_fallback 仅显式 data_mode 时模拟 live 降级。
 
     默认 full 路径拒绝伪日线（DS-R4）。
+    返回 (window, scoring_source, lookahead_bars)。
     """
     from core.data.pit import window_as_of
 
@@ -42,12 +43,13 @@ def _prepare_scoring_window(
 
         fb = bars_from_quote_fallback(quote)
         if fb:
-            return fb, "quote_fallback"
-    window, _meta = window_as_of(bars, index, max_window=max_window)
+            return fb, "quote_fallback", 0
+    window, meta = window_as_of(bars, index, max_window=max_window)
+    lookahead_bars = int(meta.get("lookahead_bars") or 0)
     # 防御：窗口内若混入伪日期则清空
     if any(str((b or {}).get("date") or "").lower() in ("d-1", "d0") for b in (window or [])):
-        return [], "rejected_quote_fallback"
-    return window, "full_daily"
+        return [], "rejected_quote_fallback", lookahead_bars
+    return window, "full_daily", lookahead_bars
 
 
 def period_return_pct(bars: List[dict]) -> Optional[float]:
@@ -287,20 +289,26 @@ def backtest_signal_on_bars(
     skipped_limit_exit = 0
     exit_deferred = 0
     pit_windows = 0
+    lookahead_violations = 0
+    from core.data.pit import count_lookahead_bars
+
     i = start_index
     while i < end_index:
-        window, scoring_source = _prepare_scoring_window(
+        window, scoring_source, lookahead_bars = _prepare_scoring_window(
             bars,
             i,
             max_window=max_window,
             data_mode=data_mode,
         )
         pit_windows += 1
+        lookahead_violations += lookahead_bars
         quote = _mock_quote_from_bars(bars, i)
         idx_slice = None
         if index_bars:
             wstart = max(0, i - max_window + 1)
             idx_slice = index_bars[wstart : i + 1]
+            as_of_i = str((bars[i] or {}).get("date") or "").strip()
+            lookahead_violations += count_lookahead_bars(idx_slice, as_of_i)
 
         scored = score_bars(
             window,
@@ -412,7 +420,7 @@ def backtest_signal_on_bars(
     pit = pit_report_for_backtest(
         as_of=as_of_sample,
         windows_checked=pit_windows,
-        lookahead_violations=0,
+        lookahead_violations=lookahead_violations,
         fundamentals_pit=False,
     )
 

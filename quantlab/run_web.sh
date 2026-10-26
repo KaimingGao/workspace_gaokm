@@ -23,6 +23,26 @@ _is_alive() {
   kill -0 "$pid" 2>/dev/null
 }
 
+# 父进程卡在 GC 里时，kill 它不会带走已经拉起的进程池。
+_descendants() {
+  local pid="$1" child kids
+  kids="$(pgrep -P "$pid" 2>/dev/null || true)"
+  for child in $kids; do
+    echo "$child"
+    _descendants "$child"
+  done
+}
+
+_signal_pids() {
+  local sig="$1"
+  shift
+  local pid
+  for pid in "$@"; do
+    [[ -n "${pid:-}" ]] || continue
+    kill "-${sig}" "$pid" 2>/dev/null || true
+  done
+}
+
 _pid_from_file() {
   if [[ -f "$PID_FILE" ]]; then
     tr -d '[:space:]' <"$PID_FILE"
@@ -142,10 +162,17 @@ start() {
 stop() {
   local pid listener
   if pid="$(_managed_pid)"; then
+    local kids
+    kids="$(_descendants "$pid")"
     kill "$pid" 2>/dev/null || true
+    # shellcheck disable=SC2086
+    [[ -z "${kids:-}" ]] || _signal_pids TERM $kids
     local i
     for i in $(seq 1 20); do
       if ! _is_alive "$pid"; then
+        # 父进程退出后子进程会被收养，必须按停之前记下的 pid 再杀一次。
+        # shellcheck disable=SC2086
+        [[ -z "${kids:-}" ]] || _signal_pids KILL $kids
         rm -f "$PID_FILE"
         echo "stopped pid=$pid"
         return 0
@@ -154,6 +181,8 @@ stop() {
     done
     echo "force kill pid=$pid" >&2
     kill -9 "$pid" 2>/dev/null || true
+    # shellcheck disable=SC2086
+    [[ -z "${kids:-}" ]] || _signal_pids KILL $kids
     rm -f "$PID_FILE"
     echo "stopped pid=$pid (killed)"
     return 0

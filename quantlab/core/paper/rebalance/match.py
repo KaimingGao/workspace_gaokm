@@ -143,7 +143,7 @@ def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict
         out: Dict[str, dict] = {}
         for c in uniq:
             q = got.get(c)
-            if isinstance(q, dict) and q.get("success") or isinstance(q, dict):
+            if isinstance(q, dict) and (q.get("success") or "success" not in q):
                 out[c] = q
         if len(out) >= max(1, len(uniq) // 2):
             return out

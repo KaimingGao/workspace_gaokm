@@ -12,6 +12,43 @@ def _bar_date(bar: dict) -> str:
     return str((bar or {}).get("date") or "").strip()
 
 
+def _iso_ord(value: str) -> Optional[Tuple[int, int, int]]:
+    """YYYY-MM-DD 或 YYYYMMDD → (y, m, d)。不是日历日则 None，避免字母日期用字符串比大小。"""
+    text = str(value or "").strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        year_s, month_s, day_s = text[:4], text[5:7], text[8:10]
+    elif len(text) >= 8 and text[:8].isdigit():
+        year_s, month_s, day_s = text[:4], text[4:6], text[6:8]
+    else:
+        return None
+    try:
+        year, month, day = int(year_s), int(month_s), int(day_s)
+    except ValueError:
+        return None
+    if year < 1900 or not (1 <= month <= 12) or not (1 <= day <= 31):
+        return None
+    return year, month, day
+
+
+def count_lookahead_bars(window: Sequence[dict], as_of: str) -> int:
+    """窗口内日期晚于决策日的 bar 数。
+
+    决策日为空、或任一侧不是日历日时不计。``d0`` 这类占位符不会因为字母序
+    大于 ``2024-01-01`` 而被当成前瞻。
+    """
+    cutoff = _iso_ord(as_of)
+    if cutoff is None:
+        return 0
+    n = 0
+    for bar in window or []:
+        if not isinstance(bar, dict):
+            continue
+        bar_ord = _iso_ord(_bar_date(bar))
+        if bar_ord is not None and bar_ord > cutoff:
+            n += 1
+    return n
+
+
 def bars_as_of(
     bars: Sequence[dict],
     as_of: str,
@@ -58,15 +95,24 @@ def window_as_of(
     start = max(0, int(as_of_index) - max(1, int(max_window or 30)) + 1)
     window = bars[start : int(as_of_index) + 1]
     as_of = _bar_date(bars[as_of_index])
-    # 校验：窗口内不得有 > as_of 的日期
-    lookahead = sum(1 for b in window if _bar_date(b) > as_of)
+    if not as_of:
+        return window, {
+            "ok": False,
+            "as_of": "",
+            "as_of_index": int(as_of_index),
+            "window_len": len(window),
+            "lookahead_bars": 0,
+            "pit": False,
+            "note": "决策日缺少 as_of，未把窗口内日期计为前瞻",
+        }
+    lookahead = count_lookahead_bars(window, as_of)
     meta = {
         "ok": lookahead == 0,
         "as_of": as_of,
         "as_of_index": int(as_of_index),
         "window_len": len(window),
         "lookahead_bars": lookahead,
-        "pit": True,
+        "pit": lookahead == 0,
         "note": "日线 as_of 切条；决策日只用当日及以前 bars。",
     }
     return window, meta
@@ -94,7 +140,7 @@ def pit_report_for_backtest(
 ) -> Dict[str, Any]:
     fm = fundamentals_meta or {}
     return {
-        "bars_pit": True,
+        "bars_pit": int(lookahead_violations or 0) == 0,
         "as_of_sample": as_of,
         "windows_checked": windows_checked,
         "lookahead_violations": lookahead_violations,

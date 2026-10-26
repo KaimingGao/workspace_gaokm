@@ -62,60 +62,68 @@ class QuantFollowMixin:
         v_cash = max(10_000.0, min(v_cash, 1.0e8))
         from core.research.materialize.consumer import materialized_consumer
 
-        with materialized_consumer():
-            if from_paper or codes is not None or not str(code or "").strip():
-                holdings, paper = self._t0_holdings_for_backtest(codes=codes, code=code)
-                out = run_t0_backtest_for_holdings(
-                    holdings,
-                    lookback=lookback,
-                    rules=rules,
-                    paper=paper if from_paper else None,
-                    use_minute=True,
-                    virtual_shares=v_shares,
-                    virtual_cash=v_cash,
-                    progress_cb=progress_cb,
-                    cancel_cb=cancel_cb,
-                    score_model_role=role,
+        try:
+            with materialized_consumer():
+                if from_paper or codes is not None or not str(code or "").strip():
+                    holdings, paper = self._t0_holdings_for_backtest(codes=codes, code=code)
+                    out = run_t0_backtest_for_holdings(
+                        holdings,
+                        lookback=lookback,
+                        rules=rules,
+                        paper=paper if from_paper else None,
+                        use_minute=True,
+                        virtual_shares=v_shares,
+                        virtual_cash=v_cash,
+                        progress_cb=progress_cb,
+                        cancel_cb=cancel_cb,
+                        score_model_role=role,
+                    )
+                else:
+                    if progress_cb:
+                        try:
+                            progress_cb(0, 1, f"回测 {code or '标的'}…")
+                        except Exception:  # noqa: BLE001
+                            logger.debug("t0 progress_cb failed", exc_info=True)
+                    _, paper = self._t0_holdings_for_backtest()
+                    out = run_t0_backtest_for_code(
+                        code,
+                        lookback=lookback,
+                        initial_shares=v_shares,
+                        initial_cash=v_cash,
+                        rules=rules,
+                        paper=paper,
+                        use_minute=True,
+                        progress_cb=progress_cb,
+                        score_model_role=role,
+                    )
+            if isinstance(out, dict) and out.get("success"):
+                out.setdefault(
+                    "request",
+                    {
+                        "lookback": lookback,
+                        "code": str(code or "").strip(),
+                        "from_paper": bool(from_paper),
+                        "codes": list(codes) if codes else None,
+                        "initial_shares": v_shares,
+                        "initial_cash": v_cash,
+                        "score_model_role": role,
+                    },
                 )
-            else:
-                if progress_cb:
-                    try:
-                        progress_cb(0, 1, f"回测 {code or '标的'}…")
-                    except Exception:  # noqa: BLE001
-                        logger.debug("t0 progress_cb failed", exc_info=True)
-                _, paper = self._t0_holdings_for_backtest()
-                out = run_t0_backtest_for_code(
-                    code,
-                    lookback=lookback,
-                    initial_shares=v_shares,
-                    initial_cash=v_cash,
-                    rules=rules,
-                    paper=paper,
-                    use_minute=True,
-                    progress_cb=progress_cb,
-                    score_model_role=role,
-                )
-        if isinstance(out, dict) and out.get("success"):
-            out.setdefault(
-                "request",
-                {
-                    "lookback": lookback,
-                    "code": str(code or "").strip(),
-                    "from_paper": bool(from_paper),
-                    "codes": list(codes) if codes else None,
-                    "initial_shares": v_shares,
-                    "initial_cash": v_cash,
-                    "score_model_role": role,
-                },
-            )
-            _attach_t0_scope_label(out, code=str(code or "").strip())
-            try:
-                from core.backtest_result_store import save_last_t0_backtest
+                _attach_t0_scope_label(out, code=str(code or "").strip())
+                try:
+                    from core.backtest_result_store import save_last_t0_backtest
 
-                save_last_t0_backtest(out)
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.warning("上次做 T 回测结果落盘失败", exc_info=True)
-        return out
+                    save_last_t0_backtest(out)
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.warning("上次做 T 回测结果落盘失败", exc_info=True)
+            return out
+        finally:
+            try:
+                from core.research.horizon_l1 import release_allocator_cache
+
+                release_allocator_cache()
+            except Exception:  # noqa: BLE001
+                logger.debug("t0 release allocator cache failed", exc_info=True)
 
     def start_t0_backtest_job(
         self,

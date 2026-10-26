@@ -15,7 +15,9 @@
     股数 = 金额/价 向下取整到一手；不够一手则跳过
   - 单票持仓市值上限 = lot_strong_amount × 120%；买后将超过则跳过（防单票过重）
   - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
-    强档买不下先试入场金额，再缩。live 另受组合持仓市值上限约束
+    强档买不下先试入场金额，再缩。live 另受组合持仓市值上限约束。
+    调用方传入 min_cash_pct 时，买腿另保留「调仓前净值 × 比例」；缺省不启用。
+    调用方传入 max_turnover_pct 时，买腿按本期卖出额裁剪；缺省不启用。
 """
 
 from __future__ import annotations
@@ -1061,7 +1063,10 @@ def _try_held_sell(
     fusion_w_oc: Optional[float] = None,
     fusion_w_co: Optional[float] = None,
 ) -> Tuple[Optional[dict], Optional[dict], float]:
-    """T+1 / 做 T 拦卖。返回 (sell, skip, cash_delta)。可卖部分一律记清仓。"""
+    """T+1 / 做 T 拦卖。返回 (sell, skip, cash_delta)。
+
+    ``sell_sh >= target_sh`` 记 exit；可卖股数更少时记 reduce，原因追加「T+1 部分可卖」。
+    """
     from core.paper.tplus1 import clip_sell_shares
 
     dbg = _debug_scores(
@@ -1108,14 +1113,15 @@ def _try_held_sell(
         }
         return None, skip, 0.0
     cash_delta = float(sell_sh) * float(px)
+    is_full_exit = float(sell_sh) >= float(target_sh)
     sell = {
         "side": "sell",
         "stock_code": code,
         "stock_name": name,
         "shares": float(sell_sh),
-        "action": ACTION_EXIT,
-        "matrix_action": ACTION_EXIT,
-        "reason": reason,
+        "action": ACTION_EXIT if is_full_exit else ACTION_REDUCE,
+        "matrix_action": ACTION_EXIT if is_full_exit else ACTION_REDUCE,
+        "reason": reason + (" · T+1 部分可卖" if not is_full_exit else ""),
         **dbg,
     }
     return sell, None, cash_delta
@@ -1182,12 +1188,17 @@ def plan_rank_lot_day(
     as_of: Optional[str] = None,
     sell_prices: Optional[Dict[str, float]] = None,
     opens: Optional[Dict[str, float]] = None,
+    max_turnover_pct: Optional[float] = None,
+    min_cash_pct: Optional[float] = None,
 ) -> Dict[str, Any]:
     """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。
 
     ``sell_prices`` 缺省等于 ``prices``。历史回测可只给清仓回退价、买入仍走严格钟。
     ``opens`` 为当日开盘；与 ``prices``（τ 成交价）一起把 y_oo_fuse 写成
     τc 几何剩余。缺 y_spec 的旧行才减 (price(τ)/open−1)；缺开盘则不扣。
+
+    ``max_turnover_pct`` 未传则不裁换手。``min_cash_pct`` 未传则买腿地板仍是
+    ``cfg["cash_floor"]``（元）；传入时地板为 max(现金地板, 调仓前净值 × 比例)。
     """
     fuse_enter = _cfg_fuse_threshold(cfg, "fuse_enter", DEFAULT_FUSE_ENTER)
     fuse_strong = _cfg_fuse_threshold(cfg, "fuse_strong", DEFAULT_FUSE_STRONG)
@@ -1265,16 +1276,46 @@ def plan_rank_lot_day(
 
     sells: List[dict] = []
     skips: List[dict] = []
-    cash_sim = float(cash or 0.0)
+    cash_sim = _f(cash) or 0.0
+    if cash_sim == float("inf"):
+        cash_sim = 0.0
+    equity_before_nav = cash_sim
+    for h in held_rows:
+        if not isinstance(h, dict):
+            continue
+        code_h = str(h.get("stock_code") or "").strip()
+        sh_h = _f(h.get("shares"))
+        px_h = _f(px_sell.get(code_h))
+        if px_h is None or px_h <= 0 or px_h == float("inf"):
+            px_h = _f(px_buy.get(code_h))
+        if (
+            sh_h is not None
+            and px_h is not None
+            and sh_h > 0
+            and px_h > 0
+            and sh_h != float("inf")
+            and px_h != float("inf")
+        ):
+            equity_before_nav += sh_h * px_h
+    spend_floor = cash_floor
+    if min_cash_pct is not None and equity_before_nav > 0:
+        try:
+            pct = float(min_cash_pct)
+        except (TypeError, ValueError):
+            pct = 0.0
+        if pct == pct and 0.0 < pct <= 0.95 and pct != float("inf"):
+            spend_floor = max(cash_floor, equity_before_nav * pct)
 
     for h in held_rows:
+        if not isinstance(h, dict):
+            continue
         code = str(h.get("stock_code") or "").strip()
         item = item_by.get(code) or {}
         rp = rp_by.get(code)
         rs = _rs_enter(code, rp)
         rs_disp = _rs_display(rp)
         name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
-        held_sh = float(h.get("shares") or 0)
+        held_sh = _f(h.get("shares")) or 0.0
         exit_why = held_exit_reason(item, rs)
         if not exit_why:
             skip_enter = rank_lot_enter_skip_reason(
@@ -1300,6 +1341,7 @@ def plan_rank_lot_day(
                 fusion_w_co=w_co,
             )
             if sell:
+                sell["amount"] = round(float(d_cash), 2)
                 cash_sim += d_cash
                 sells.append(sell)
             if skip:
@@ -1398,6 +1440,26 @@ def plan_rank_lot_day(
             px = _f(px_sell.get(code))
         if px is not None and px > 0 and sh > 0:
             mv_sim += float(sh) * float(px)
+    turnover_on = False
+    buy_budget_amt = None
+    sell_amt_turn = 0.0
+    buy_amt_so_far = 0.0
+    if max_turnover_pct is not None and equity_before_nav > 0:
+        try:
+            mto = float(max_turnover_pct)
+        except (TypeError, ValueError):
+            mto = None
+        if mto is not None and mto == mto and mto >= 0 and mto != float("inf"):
+            from core.paper.rebalance.turnover import resolve_buy_turnover_budget
+
+            sell_amt_turn, _, buy_budget_amt = resolve_buy_turnover_budget(
+                sell_trades=sells,
+                buy_trades=[],
+                equity_before=equity_before_nav,
+                max_turnover_pct=mto,
+            )
+            max_turnover_pct = mto
+            turnover_on = True
     buys: List[dict] = []
     rank_n = len(cand)
     for i, (rs, item, rp, _oo_rk) in enumerate(cand, start=1):
@@ -1423,7 +1485,7 @@ def plan_rank_lot_day(
         lots = shares_from_amount(amt, px, LOT_MIN)
         lot_kind = "strong" if is_strong else "base"
         need = float(lots) * float(px) if lots > 0 else 0.0
-        if lots > 0 and cash_sim - need < cash_floor - 1e-6 and is_strong:
+        if lots > 0 and cash_sim - need < spend_floor - 1e-6 and is_strong:
             amt = amount_base
             lots = shares_from_amount(amt, px, LOT_MIN)
             lot_kind = "base"
@@ -1443,12 +1505,12 @@ def plan_rank_lot_day(
             continue
         want = int(lots)
         clipped = clip_lot_to_cash(
-            lots, px, cash_sim, cash_floor, lot_min=LOT_MIN
+            lots, px, cash_sim, spend_floor, lot_min=LOT_MIN
         )
         if clipped <= 0:
             skip_reason = (
-                f"现金将低于地板 {cash_floor:.0f}"
-                if cash_floor > 0
+                f"现金将低于地板 {spend_floor:.0f}"
+                if spend_floor > 0
                 else "现金不足"
             )
             skips.append(
@@ -1470,6 +1532,44 @@ def plan_rank_lot_day(
             lots = clipped
             lot_kind = "clipped"
             need = float(lots) * float(px)
+        cash_short = int(lots) < want
+        turn_note = ""
+        if turnover_on and buy_budget_amt is not None:
+            from core.paper.rebalance.turnover import clip_shares_to_turnover_budget
+
+            before_to = int(lots)
+            clipped_to = clip_shares_to_turnover_budget(
+                shares=before_to,
+                fill_px=float(px),
+                buy_amt_so_far=buy_amt_so_far,
+                buy_budget_amt=buy_budget_amt,
+                sell_amt=sell_amt_turn,
+                equity_before=equity_before_nav,
+                max_turnover_pct=float(max_turnover_pct),
+            )
+            if clipped_to <= 0:
+                skips.append(
+                    {
+                        "stock_code": code,
+                        "stock_name": _display_name(code, item.get("stock_name")),
+                        "side": "buy",
+                        "shares": float(before_to),
+                        "price": float(px),
+                        "action": ACTION_SKIP,
+                        "reason": (
+                            f"换手预算不足（剩余≈{round(buy_budget_amt - buy_amt_so_far, 2)}，"
+                            f"上限 {max_turnover_pct}%）"
+                        ),
+                        **dbg,
+                        "lot_kind": lot_kind,
+                    }
+                )
+                continue
+            if clipped_to < before_to:
+                lots = clipped_to
+                lot_kind = "clipped"
+                need = float(lots) * float(px)
+                turn_note = f"（换手预算{before_to}→{lots}）"
         dbg["lot_kind"] = lot_kind
         held_mv = float(remain_sh.get(code) or 0) * float(px)
         if stock_cap > 0 and held_mv + need > stock_cap + 1e-6:
@@ -1520,11 +1620,15 @@ def plan_rank_lot_day(
                         if is_strong
                         else f"fuse={rs * 100.0:.3f}%>入场{fuse_enter * 100.0:g}% 买{lots}股"
                     )
-                    + (f"（现金不够{want}）" if lots < want else "")
+                    + (f"（现金不够{want}）" if cash_short else "")
+                    + turn_note
                 ),
+                "amount": round(float(lots) * float(px), 2),
                 **dbg,
             }
         )
+        if turnover_on:
+            buy_amt_so_far += float(lots) * float(px)
 
     y_oo_gt0, y_τc_gt0 = _y_gt0_flags(cfg)
     return {
@@ -1540,6 +1644,10 @@ def plan_rank_lot_day(
         "oo_rank_max": oo_rank_max_from_cfg(cfg),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(cfg),
         "cash_floor": cash_floor,
+        "spend_floor": spend_floor,
+        "min_cash_pct": min_cash_pct,
+        "max_turnover_pct": max_turnover_pct if turnover_on else None,
+        "equity_before": round(equity_before_nav, 2),
         "holdings_mv_cap": mv_cap,
         "holdings_mv_after_plan": round(mv_sim, 2),
         "stock_mv_cap": round(stock_cap, 2),

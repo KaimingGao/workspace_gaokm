@@ -819,7 +819,14 @@ def manual_sell(
     return trades
 
 
-def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
+def simulate_buys(
+    paper: dict,
+    pool: List[dict],
+    *,
+    equity_before: Optional[float] = None,
+    max_turnover_pct: Optional[float] = None,
+    cycle_sells: Optional[List[dict]] = None,
+) -> List[dict]:
     """按评分加仓：评分≥60分加仓50%，支持凯利公式+技术确认。
     
     加仓条件：
@@ -830,6 +837,10 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     新买入：
     - 评分 ≥ min_score
     - 自适应仓位管理
+
+    ``equity_before`` / ``max_turnover_pct`` 传入时启用换手预算裁剪：
+    调仓期双边换手不超过 max_turnover_pct%，卖优先、买腿按预算裁剪。
+    ``cycle_sells`` 只含本轮卖腿；不扫描 ``paper["trades"]`` 里的历史成交。
     """
     from core.signal.factors.adaptive import adaptive_thresholds, get_risk_controls
     from core.signal.factors.dynamic_position import get_full_position_plan
@@ -883,6 +894,21 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
 
     cash = float(paper.get("cash") or 0)
     new_positions_count = len(holdings)
+
+    # --- 换手预算裁剪（max_turnover_pct 配置时生效） ---
+    turnover_enabled = max_turnover_pct is not None and equity_before is not None
+    sell_amt_for_turnover = 0.0
+    buy_amt_so_far_for_turnover = 0.0
+    buy_budget_amt = None
+    if turnover_enabled:
+        from core.paper.rebalance.turnover import resolve_buy_turnover_budget
+
+        sell_amt_for_turnover, _, buy_budget_amt = resolve_buy_turnover_budget(
+            sell_trades=list(cycle_sells or []),
+            buy_trades=[],
+            equity_before=float(equity_before),
+            max_turnover_pct=float(max_turnover_pct),
+        )
 
     for item in pool:
         code = str(item.get("stock_code") or "")
@@ -1026,8 +1052,6 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                     pass
 
-            new_positions_count += 1
-
             # 计算仓位比例
             if use_adaptive_position:
                 position_ratio = adaptive_position_sizing(paper, score, rules)
@@ -1050,7 +1074,6 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             elif weights_pct:
                 # 有优化结果但不在目标仓：跳过新开（建议不买）
                 item["skip_reason"] = "不在 optimize_weights 目标仓"
-                new_positions_count -= 1
                 continue
 
             budget = cash * position_ratio
@@ -1059,18 +1082,49 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             shares = int(budget // price // 100) * 100
             if shares <= 0:
                 continue
+
+            # --- 换手预算裁剪（按含滑点的成交价，与记入 amount 的名义一致） ---
             fill_px = apply_fill_price(
                 "buy", float(price), model=cost_model, params=fee_params
             )
+            turnover_note = ""
+            if turnover_enabled and buy_budget_amt is not None:
+                from core.paper.rebalance.turnover import clip_shares_to_turnover_budget
+
+                raw_shares = shares
+                clipped = clip_shares_to_turnover_budget(
+                    shares=shares,
+                    fill_px=float(fill_px),
+                    buy_amt_so_far=buy_amt_so_far_for_turnover,
+                    buy_budget_amt=buy_budget_amt,
+                    sell_amt=sell_amt_for_turnover,
+                    equity_before=float(equity_before),
+                    max_turnover_pct=float(max_turnover_pct),
+                )
+                if clipped <= 0:
+                    item["skip_reason"] = (
+                        f"换手预算不足（剩余预算≈{round(buy_budget_amt - buy_amt_so_far_for_turnover, 2)}，"
+                        f"上限 {max_turnover_pct}%）"
+                    )
+                    continue
+                if clipped < raw_shares:
+                    turnover_note = f" · 换手预算：{raw_shares}→{clipped}股"
+                shares = clipped
+
             amount = round(shares * fill_px, 2)
             fee_info = calc_trade_fees(
                 "buy", amount, model=cost_model, params=fee_params
             )
             need = amount + float(fee_info.get("fees") or 0)
             if need > cash + 1e-6:
+                item["skip_reason"] = (
+                    f"现金不足（需{round(need, 2)}，可用{round(cash, 2)}）"
+                )
                 continue
 
             note = f"买入（评分{score:.1f}分）"
+            if turnover_note:
+                note += turnover_note
             if opt_w is not None:
                 note += f" · 目标仓{opt_w * 100:.1f}%"
 
@@ -1095,7 +1149,8 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
 
             paper.setdefault("trades", []).append(trade)
             trades.append(trade)
-            from core.paper.tplus1 import stamp_new_holding
+            if turnover_enabled:
+                buy_amt_so_far_for_turnover += float(trade.get("amount") or 0)
 
             row = {
                 "stock_code": code,
@@ -1105,9 +1160,12 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                 "bought_at": trade["ts"],
                 "origin": ORIGIN_STRATEGY,
             }
+            from core.paper.tplus1 import stamp_new_holding
+
             stamp_new_holding(row, ts=trade["ts"])
             holdings.append(row)
             held_codes[code] = holdings[-1]
+            new_positions_count += 1
             cash = round(cash + float(fee_info["net_cash_delta"]), 2)
 
     paper["holdings"] = holdings

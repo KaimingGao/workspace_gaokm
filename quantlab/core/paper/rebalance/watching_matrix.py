@@ -1948,6 +1948,16 @@ def simulate_watching_matrix_preview(
         if opx is not None and opx > 0:
             opens[code] = float(opx)
 
+    rules = paper.get("rules") if isinstance(paper.get("rules"), dict) else {}
+    raw_mto = rules.get("max_turnover_pct", rules.get("max_turnover"))
+    max_turnover_pct = None
+    if raw_mto is not None and raw_mto != "":
+        try:
+            max_turnover_pct = float(raw_mto)
+        except (TypeError, ValueError):
+            max_turnover_pct = None
+    from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
+
     plan = plan_rank_lot_day(
         scored=list(item_by_code.values()),
         holdings=list(paper.get("holdings") or []),
@@ -1955,6 +1965,8 @@ def simulate_watching_matrix_preview(
         prices=prices,
         opens=opens,
         cfg=rl_cfg,
+        max_turnover_pct=max_turnover_pct,
+        min_cash_pct=resolve_min_cash_pct(rules),
     )
     oos_excluded = sum(
         1

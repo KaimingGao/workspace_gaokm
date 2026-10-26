@@ -821,6 +821,15 @@ class QuantReplayMixin:
                 portfolio_backtest_job.finish(error=str(e), job_id=job_id)
             finally:
                 stop_hb.set()
+                try:
+                    from core.research.horizon_l1 import release_allocator_cache
+
+                    release_allocator_cache()
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "portfolio backtest release allocator cache failed",
+                        exc_info=True,
+                    )
 
         threading.Thread(
             target=_worker, name=f"portfolio-backtest-{job_id}", daemon=True

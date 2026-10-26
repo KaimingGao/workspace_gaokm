@@ -54,10 +54,14 @@ _PEER_BARS_MEMO_MAX = 4
 _ITEM_SINK: contextvars.ContextVar[Optional[List[dict]]] = contextvars.ContextVar(
     "t0_pool_item_sink", default=None
 )
-# date → 观察池原始特征行（不含持仓外的票）
+# date → 观察池原始特征行（不含持仓外的票）。按日封顶，避免长回测把每天的行都留下。
 _POOL_FEAT_CACHE: Dict[str, List[dict]] = {}
+_POOL_FEAT_CACHE_MAX = 24
 # date|HH:MM → 该钟 tc_HHMM L1 同伴行（含 raw_ath_*；Cube miss 时做截面 z）
 _TAU_LAKE_PEER_CACHE: Dict[str, List[dict]] = {}
+_TAU_LAKE_PEER_CACHE_MAX = 64
+# 单日 τ 截面缓存封顶：与特征行同一量级，多出来的日子丢掉最旧的。
+_TAU_XS_DAY_CACHE_MAX = 24
 # 同一交易日多根 5m 前缀重算时，EOD 因子窗不变；缓存避免每根重跑 score_window
 _EOD_ITEM_CACHE: Dict[tuple, dict] = {}
 _EOD_ITEM_CACHE_MAX = 256
@@ -66,6 +70,19 @@ _FUND_CACHE: Dict[str, Any] = {}
 # 同票同日前缀 ŷ：扫描 + 多轮引擎各走一遍，回测可复用
 _PREFIX_RESCORE_CACHE: Dict[tuple, dict] = {}
 _PREFIX_RESCORE_CACHE_MAX = 4096
+
+
+def _remember_bounded(cache: Dict[Any, Any], key: Any, value: Any, limit: int) -> None:
+    """按插入顺序只留最近若干条。刚写入的 key 留在队尾，不会被自己挤掉。"""
+    if key in cache:
+        cache.pop(key, None)
+    cache[key] = value
+    cap = max(1, int(limit))
+    while len(cache) > cap:
+        oldest = next(iter(cache))
+        if oldest == key:
+            break
+        cache.pop(oldest, None)
 
 
 def _f(x: Any) -> Optional[float]:
@@ -1363,7 +1380,7 @@ def _tau_clock_peer_rows(date: str, tau_hm: str) -> List[dict]:
         return cached
     codes = _watching_codes_for_z()
     if len(codes) < 2:
-        _TAU_LAKE_PEER_CACHE[ck] = []
+        _remember_bounded(_TAU_LAKE_PEER_CACHE, ck, [], _TAU_LAKE_PEER_CACHE_MAX)
         return []
     rows: List[dict] = []
     try:
@@ -1372,10 +1389,10 @@ def _tau_clock_peer_rows(date: str, tau_hm: str) -> List[dict]:
         from core.research.lake_replay import assemble_item_from_lake_rows
     except Exception:  # noqa: BLE001
         logger.debug("tau lake peer import failed", exc_info=True)
-        _TAU_LAKE_PEER_CACHE[ck] = []
+        _remember_bounded(_TAU_LAKE_PEER_CACHE, ck, [], _TAU_LAKE_PEER_CACHE_MAX)
         return []
     if not lake_on():
-        _TAU_LAKE_PEER_CACHE[ck] = []
+        _remember_bounded(_TAU_LAKE_PEER_CACHE, ck, [], _TAU_LAKE_PEER_CACHE_MAX)
         return []
     try:
         tc_m = load_day_rows(family_for_tc(tau_hm=hm), list(codes), dkey) or {}
@@ -1391,7 +1408,7 @@ def _tau_clock_peer_rows(date: str, tau_hm: str) -> List[dict]:
         if item is None:
             continue
         rows.append(_capture_feature_row(item, c))
-    _TAU_LAKE_PEER_CACHE[ck] = rows
+    _remember_bounded(_TAU_LAKE_PEER_CACHE, ck, rows, _TAU_LAKE_PEER_CACHE_MAX)
     return rows
 
 
@@ -3348,7 +3365,7 @@ def seed_watching_pool_feature_rows(date: str, items: Sequence[dict]) -> bool:
         rows.append(_capture_feature_row(it, code))
     if len(rows) < 2:
         return False
-    _POOL_FEAT_CACHE[dkey] = rows
+    _remember_bounded(_POOL_FEAT_CACHE, dkey, rows, _POOL_FEAT_CACHE_MAX)
     return True
 
 
@@ -3366,7 +3383,7 @@ def temporary_pool_feature_rows(date: str, items: Sequence[dict]) -> Iterator[No
         if prev is None:
             _POOL_FEAT_CACHE.pop(dkey, None)
         else:
-            _POOL_FEAT_CACHE[dkey] = prev
+            _remember_bounded(_POOL_FEAT_CACHE, dkey, prev, _POOL_FEAT_CACHE_MAX)
 
 
 def _peer_rows_from_feature_lake(date: str, codes: Sequence[str]) -> List[dict]:
@@ -3420,7 +3437,7 @@ def _peer_feature_rows(date: str) -> List[dict]:
         return cached
     codes = _watching_codes_for_z()
     if len(codes) < 2:
-        _POOL_FEAT_CACHE[dkey] = []
+        _remember_bounded(_POOL_FEAT_CACHE, dkey, [], _POOL_FEAT_CACHE_MAX)
         return []
     rows: List[dict] = []
     depth = _POOL_Z_DEPTH.set(int(_POOL_Z_DEPTH.get()) + 1)
@@ -3540,7 +3557,7 @@ def _peer_feature_rows(date: str) -> List[dict]:
     finally:
         _POOL_Z_REQUEST.reset(req)
         _POOL_Z_DEPTH.reset(depth)
-    _POOL_FEAT_CACHE[dkey] = rows
+    _remember_bounded(_POOL_FEAT_CACHE, dkey, rows, _POOL_FEAT_CACHE_MAX)
     return rows
 
 
@@ -3916,7 +3933,7 @@ def _tau_feature_row_for_refresh(item: dict, trade_date: str) -> Optional[dict]:
 
 
 def clear_score_model_cache() -> None:
-    """测试 / 热更模型后清空缓存。"""
+    """测试 / 热更模型 / 拟合收尾后清空缓存。"""
     global _CS_UNIVERSE_MEMO
     _MODEL_CACHE.clear()
     _TAU_XS_DAY_CACHE.clear()
@@ -3925,6 +3942,7 @@ def clear_score_model_cache() -> None:
     _PREFIX_RESCORE_CACHE.clear()
     _POOL_FEAT_CACHE.clear()
     _TAU_LAKE_PEER_CACHE.clear()
+    _PEER_BARS_MEMO.clear()
     _CS_UNIVERSE_MEMO = None
 
 
@@ -4162,7 +4180,7 @@ def seed_tau_cross_section_day(day_key: str, pool_day: Optional[dict]) -> None:
         return
     if pool_day.get("sector_gap_breadth") is None and not pool_day.get("pool_gaps"):
         return
-    _TAU_XS_DAY_CACHE[dkey] = dict(pool_day)
+    _remember_bounded(_TAU_XS_DAY_CACHE, dkey, dict(pool_day), _TAU_XS_DAY_CACHE_MAX)
 
 
 def _try_hydrate_tau_xs_from_day_cube(day_key: str, codes: Sequence[Any]) -> bool:
@@ -4179,7 +4197,7 @@ def _try_hydrate_tau_xs_from_day_cube(day_key: str, codes: Sequence[Any]) -> boo
         if isinstance(pool, dict) and (
             pool.get("sector_gap_breadth") is not None or pool.get("pool_gaps")
         ):
-            _TAU_XS_DAY_CACHE[dkey] = dict(pool)
+            _remember_bounded(_TAU_XS_DAY_CACHE, dkey, dict(pool), _TAU_XS_DAY_CACHE_MAX)
             return True
     except Exception:  # noqa: BLE001
         logger.debug("day_cube tau hydrate failed day=%s", dkey, exc_info=True)
@@ -4301,7 +4319,7 @@ def _tau_cross_section_kwargs(code: str, day_key: str) -> Dict[str, Any]:
             by_day = build_tau_pool_by_date(bars_map)
             pool = by_day.get(dkey) if isinstance(by_day.get(dkey), dict) else {}
             if pool:
-                _TAU_XS_DAY_CACHE[dkey] = pool
+                _remember_bounded(_TAU_XS_DAY_CACHE, dkey, pool, _TAU_XS_DAY_CACHE_MAX)
         except Exception:  # noqa: BLE001
             logger.debug("tau cross-section fallback failed for %s %s", raw, dkey, exc_info=True)
             pool = {}

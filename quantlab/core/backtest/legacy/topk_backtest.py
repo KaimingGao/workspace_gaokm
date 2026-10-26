@@ -16,6 +16,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
+from core.data.pit import count_lookahead_bars
 from core.backtest.topk_weights import WEIGHT_MODES
 from core.backtest.legacy.topk_risk import (
     _clip_leg_at_close_stop,
@@ -238,6 +239,7 @@ def backtest_topk_equal_weight(
     skipped_limit_exit = 0
     exit_deferred = 0
     pit_windows = 0
+    lookahead_violations = 0
     fund_resolves: List[dict] = []
     impact_cost_sum_bps = 0.0
     impact_legs = 0
@@ -311,6 +313,8 @@ def backtest_topk_equal_weight(
             for code in stock_bars:
                 window = _window_for_code(code, dates, date_maps, i, max_window)
                 pit_windows += 1
+                # 窗口按日期键对齐，正常日线这里为 0；只有 bar 上的日期晚于键才会计入。
+                lookahead_violations += count_lookahead_bars(window, signal_as_of)
                 if len(window) < 2:
                     continue
                 quote = _mock_quote_from_bars(window, len(window) - 1)
@@ -970,7 +974,13 @@ def backtest_topk_equal_weight(
     fund_map = fundamentals_by_code or {}
     if probe_lite:
         attribution = {}
-        pit = {"ok": True, "probe_lite": True}
+        pit = {
+            "ok": lookahead_violations == 0,
+            "probe_lite": True,
+            "lookahead_violations": lookahead_violations if pit_windows else None,
+            "windows_checked": pit_windows,
+            "bars_pit": (lookahead_violations == 0) if pit_windows else None,
+        }
         stop_shadow = {"ok": False, "reason": "probe_lite"}
     else:
         from core.backtest.attribution import attribute_portfolio_trades
@@ -983,7 +993,7 @@ def backtest_topk_equal_weight(
         pit = pit_report_for_backtest(
             as_of=as_of_sample,
             windows_checked=pit_windows,
-            lookahead_violations=0,
+            lookahead_violations=lookahead_violations,
             fundamentals_pit=bool(fund_pit_meta.get("fundamentals_pit")),
             fundamentals_meta=fund_pit_meta,
         )

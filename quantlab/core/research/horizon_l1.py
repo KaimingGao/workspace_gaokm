@@ -385,10 +385,10 @@ def physical_ram_bytes() -> int:
 
 
 def release_allocator_cache() -> None:
-    """丢掉拟合留下的日立方，再把空闲堆页还给系统。
+    """丢掉拟合和回测留在进程里的缓存，再把空闲堆页还给系统。
 
-    打 z 时每个「日期 + 钟点」的整张 ``X_raw`` 会留在进程里。
-    只 gc、不卸这块缓存的话，水位停在数 GB，下一头还没建面板就被内存保护停掉。
+    日立方、整段 5m、做 T 特征行都还挂在模块字典上。只 gc 的话这些页仍是脏的，
+    分配器交不回去，下一头还没建面板就被内存保护停掉。
     """
     try:
         from core.research.day_cube import clear_memory
@@ -396,6 +396,24 @@ def release_allocator_cache() -> None:
         clear_memory()
     except Exception:  # noqa: BLE001
         logger.debug("clear day cube memory failed", exc_info=True)
+    try:
+        from core.research.tau_panel import clear_minute_lag_cache
+
+        clear_minute_lag_cache()
+    except Exception:  # noqa: BLE001
+        logger.debug("clear minute lag cache failed", exc_info=True)
+    try:
+        from core.t0.score_policy import clear_score_model_cache
+
+        clear_score_model_cache()
+    except Exception:  # noqa: BLE001
+        logger.debug("clear score model cache failed", exc_info=True)
+    try:
+        from core.signal.minute_tau_feats import clear_peer_minute_bars
+
+        clear_peer_minute_bars()
+    except Exception:  # noqa: BLE001
+        logger.debug("clear peer minute bars failed", exc_info=True)
     gc.collect()
     try:
         import sys

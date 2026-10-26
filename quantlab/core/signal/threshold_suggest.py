@@ -122,7 +122,7 @@ def _build_yhat_series(
         return out
 
     for i in range(min_history - 1, max_i):
-        window, _src = _prepare_scoring_window(
+        window, _src, _la = _prepare_scoring_window(
             bars, i, max_window=max_window, data_mode="full"
         )
         quote = _mock_quote_from_bars(bars, i)

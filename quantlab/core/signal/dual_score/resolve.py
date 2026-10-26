@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
@@ -595,8 +596,25 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
         from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
 
         rk = y_oo_fuse_pct_of(item, cfg)
-        if rk is not None:
-            return float(rk)
+        try:
+            rk_f = float(rk) if rk is not None else None
+        except (TypeError, ValueError):
+            rk_f = None
+        if rk_f is not None and math.isfinite(rk_f):
+            # τ 侧没有 ŷ_τc / ŷ_co 时，现算融合会退化成纯 ŷ_oo。
+            # 这时用簿上已经写下的融合分，避免正的 ŷ_oo 盖住可能为负的 blend。
+            from core.signal.yhat_windows import pick_y_co, pick_y_τc
+
+            if pick_y_τc(item) is None and pick_y_co(item) is None:
+                stored_blend = item.get("predicted_score_blend")
+                try:
+                    if stored_blend is not None and stored_blend != "":
+                        sb = float(stored_blend)
+                        if math.isfinite(sb):
+                            return sb
+                except (TypeError, ValueError):
+                    pass
+            return rk_f
     except Exception:  # noqa: BLE001
         logger.debug("rank_key y_oo_fuse_pct_of failed", exc_info=True)
 
@@ -606,7 +624,7 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
         stored_f = float(stored) if stored is not None and stored != "" else None
     except (TypeError, ValueError):
         stored_f = None
-    if stored_f is not None:
+    if stored_f is not None and math.isfinite(stored_f):
         return stored_f
     try:
         b = compute_predicted_score_blend(item, config=config)

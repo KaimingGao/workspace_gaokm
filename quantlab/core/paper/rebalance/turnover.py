@@ -5,6 +5,23 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def _finite_nonneg(value: Any, default: float = 0.0) -> float:
+    """非负有限数。坏值、NaN、Inf、负数回到 default，避免换手公式把整笔调仓打崩。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number != number or number in (float("inf"), float("-inf")) or number < 0:
+        return default
+    return number
+
+
+def _trade_amount(trade: Any) -> float:
+    if not isinstance(trade, dict):
+        return 0.0
+    return _finite_nonneg(trade.get("amount"))
+
+
 def clip_shares_to_turnover_budget(
     *,
     shares: int,
@@ -18,23 +35,26 @@ def clip_shares_to_turnover_budget(
     """按剩余换手买入预算 + 双边总上限，手数向下取整到 100 股。
 
     半仓重试仍可能 > 剩余预算；先裁剪可成交部分，避免预算 residual 被永久跳过。
+    价格、净值、上限不是有限正数时返回 0，不抛。
     """
-    sh = int(shares or 0)
-    px = float(fill_px or 0.0)
-    eq = float(equity_before or 0.0)
-    if sh <= 0 or px <= 0 or eq <= 0:
+    try:
+        sh = int(float(shares or 0))
+    except (TypeError, ValueError):
         return 0
-    rem_buy = max(0.0, float(buy_budget_amt) - float(buy_amt_so_far))
+    px = _finite_nonneg(fill_px)
+    eq = _finite_nonneg(equity_before)
+    cap = _finite_nonneg(max_turnover_pct)
+    spent = _finite_nonneg(buy_amt_so_far)
+    sold = _finite_nonneg(sell_amt)
+    budget = _finite_nonneg(buy_budget_amt)
+    if sh <= 0 or px <= 0 or eq <= 0 or cap <= 0:
+        return 0
+    rem_buy = max(0.0, budget - spent)
     # 双边：(sell + buy_after)/2/equity*100 ≤ max_to
     # → buy_after ≤ 2*(max_to/100)*equity - sell
-    rem_total = max(
-        0.0,
-        2.0 * (float(max_turnover_pct) / 100.0) * eq
-        - float(sell_amt)
-        - float(buy_amt_so_far),
-    )
+    rem_total = max(0.0, 2.0 * (cap / 100.0) * eq - sold - spent)
     rem = min(rem_buy, rem_total)
-    if rem <= 0:
+    if rem <= 0 or rem != rem or rem == float("inf"):
         return 0
     max_sh = int(rem // px // 100) * 100
     return max(0, min(sh, max_sh))
@@ -50,11 +70,12 @@ def resolve_buy_turnover_budget(
     """买侧换手预算。返回 (sell_amt, buy_amt_so_far, buy_budget_amt)。
 
     单边 50% 给买；卖未用可溢出给买（上限再 50%）。卖腿本身不受此帽。
+    成交额缺字段或不是有限数时按 0，不中断本轮。
     """
-    sell_amt = sum(float(t.get("amount") or 0) for t in (sell_trades or []))
-    buy_amt_so_far = sum(float(t.get("amount") or 0) for t in (buy_trades or []))
-    eq = float(equity_before or 0.0)
-    _max_to = float(max_turnover_pct)
+    sell_amt = sum(_trade_amount(t) for t in (sell_trades or []))
+    buy_amt_so_far = sum(_trade_amount(t) for t in (buy_trades or []))
+    eq = _finite_nonneg(equity_before)
+    _max_to = _finite_nonneg(max_turnover_pct)
     _single_side_amt = (_max_to / 2.0) / 100.0 * eq
     _sell_excess = max(0.0, _single_side_amt - sell_amt)
     buy_budget_amt = _single_side_amt + min(_sell_excess, _single_side_amt)
@@ -69,9 +90,9 @@ def compute_turnover_stats(
     max_turnover_pct: Optional[float] = None,
 ) -> Dict[str, Any]:
     """双边换手：``(买额+卖额)/2/净值``；可选对照 ``max_turnover_pct`` 软上限。"""
-    sell_amount = round(sum(float(t.get("amount") or 0) for t in sell_trades or []), 2)
-    buy_amount = round(sum(float(t.get("amount") or 0) for t in buy_trades or []), 2)
-    eq = float(equity_before or 0)
+    sell_amount = round(sum(_trade_amount(t) for t in sell_trades or []), 2)
+    buy_amount = round(sum(_trade_amount(t) for t in buy_trades or []), 2)
+    eq = _finite_nonneg(equity_before)
     turnover_pct = (
         round((sell_amount + buy_amount) / 2.0 / eq * 100.0, 2) if eq > 0 else None
     )
@@ -80,6 +101,10 @@ def compute_turnover_stats(
         try:
             max_to = float(max_turnover_pct)
         except (TypeError, ValueError):
+            max_to = None
+        if max_to is not None and (
+            max_to != max_to or max_to in (float("inf"), float("-inf"))
+        ):
             max_to = None
     over = (
         turnover_pct is not None and max_to is not None and turnover_pct > max_to + 1e-9

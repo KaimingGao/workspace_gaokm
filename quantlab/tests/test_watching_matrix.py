@@ -544,7 +544,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         report = out.get("rebalance_report") or []
         self.assertEqual(len(report), 1)
         self.assertEqual(report[0].get("decision"), "跳过")
-        self.assertIn("现金不足", str(report[0].get("reason") or ""))
+        self.assertIn("现金将低于地板", str(report[0].get("reason") or ""))
         self.assertAlmostEqual(float(report[0].get("predicted_score_eod")), 1.8)
 
     def test_matrix_mode_service_confirm_writes(self):

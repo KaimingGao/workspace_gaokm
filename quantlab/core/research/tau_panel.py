@@ -843,6 +843,36 @@ def attach_t90_lags_to_panel(panel: Dict[str, Any]) -> Dict[str, Any]:
 
 _REALIZED_BY_CODE_HM: Dict[Tuple[str, str, str], Dict[str, float]] = {}
 _MINUTE_BY_CODE: Dict[str, Dict[str, List[dict]]] = {}
+# 整段 5m 是小 dict 堆出来的。拟合按票扫时只留最近几只，其余从磁盘再读。
+_MINUTE_BY_CODE_MAX = 4
+
+
+def clear_minute_lag_cache() -> None:
+    """丢掉滞后标签用的整段 5m。只进不出的话，网页进程水位一路往上抬。"""
+    _MINUTE_BY_CODE.clear()
+    _REALIZED_BY_CODE_HM.clear()
+
+
+def _drop_realized_for_code(code: str) -> None:
+    dead = [key for key in _REALIZED_BY_CODE_HM if key and key[0] == code]
+    for key in dead:
+        _REALIZED_BY_CODE_HM.pop(key, None)
+
+
+def _remember_minute_by_code(
+    code: str, by_date: Dict[str, List[dict]]
+) -> Dict[str, List[dict]]:
+    """把一只票的 5m 放到队尾，超出上限时丢掉最旧的票及其已算好的 y。"""
+    if code in _MINUTE_BY_CODE:
+        _MINUTE_BY_CODE.pop(code, None)
+    _MINUTE_BY_CODE[code] = by_date
+    while len(_MINUTE_BY_CODE) > int(_MINUTE_BY_CODE_MAX):
+        oldest = next(iter(_MINUTE_BY_CODE))
+        if oldest == code:
+            break
+        _MINUTE_BY_CODE.pop(oldest, None)
+        _drop_realized_for_code(oldest)
+    return by_date
 
 
 def _minute_by_date_for_lags(stock_code: str) -> Dict[str, List[dict]]:
@@ -851,7 +881,7 @@ def _minute_by_date_for_lags(stock_code: str) -> Dict[str, List[dict]]:
         return {}
     hit = _MINUTE_BY_CODE.get(code)
     if hit is not None:
-        return hit
+        return _remember_minute_by_code(code, hit)
     by_date: Dict[str, List[dict]] = {}
     try:
         from core.ports.market import resolve_market_code
@@ -870,8 +900,7 @@ def _minute_by_date_for_lags(stock_code: str) -> Dict[str, List[dict]]:
     except Exception:  # noqa: BLE001
         logger.debug("load realized horizon minutes failed", exc_info=True)
         by_date = {}
-    _MINUTE_BY_CODE[code] = by_date
-    return by_date
+    return _remember_minute_by_code(code, by_date)
 
 
 def _realized_horizon_by_date_for_clock(
