@@ -12,10 +12,26 @@ from core.t0.score_policy import (
 )
 
 
+def _finite_float(raw: Any, default: float) -> float:
+    """空、非数字、NaN、Inf 都回落到 default。"""
+    try:
+        if raw is None or raw == "":
+            v = float(default)
+        else:
+            v = float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+    if v != v or v == float("inf") or v == float("-inf"):
+        return float(default)
+    return v
+
+
 def _lot_floor(shares: float, lot: int) -> int:
-    if shares <= 0:
+    sh = _finite_float(shares, 0.0)
+    lot_i = int(_finite_float(lot, 0.0))
+    if lot_i <= 0 or sh <= 0:
         return 0
-    return int(shares // lot) * lot
+    return int(sh // lot_i) * lot_i
 
 
 def _t0_qty_lots(
@@ -29,12 +45,14 @@ def _t0_qty_lots(
     ``shares * t0_ratio`` 取整不足 1 手、但可卖 ≥1 手时，抬到 1 手——
     否则小仓（100～200 股 × 40%）会整段回测静默 0 成交。
     """
-    lot_i = max(int(lot or 0), 0)
-    if lot_i <= 0 or shares <= 0 or float(t0_ratio or 0) <= 0:
+    sh = _finite_float(shares, 0.0)
+    ratio = _finite_float(t0_ratio, 0.0)
+    lot_i = int(_finite_float(lot, 0.0))
+    if lot_i <= 0 or sh <= 0 or ratio <= 0:
         return 0
-    cap = float(shares if sellable is None else sellable)
-    cap = min(max(cap, 0.0), float(shares))
-    raw = float(shares) * float(t0_ratio)
+    cap = sh if sellable is None else _finite_float(sellable, 0.0)
+    cap = min(max(cap, 0.0), sh)
+    raw = sh * ratio
     qty = _lot_floor(min(cap, raw), lot_i)
     if qty <= 0 and cap >= lot_i and raw > 0:
         qty = lot_i

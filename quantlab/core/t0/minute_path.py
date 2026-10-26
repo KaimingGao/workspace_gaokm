@@ -18,6 +18,7 @@ from core.t0.costs import (
     t0_pnl_from_trades,
 )
 from core.t0.config import (
+    cfg_t0_direction,
     load_t0_rules,
     apply_side_exec_params,
     t0_dir_label,
@@ -26,6 +27,7 @@ from core.t0.rules import (
     _error_result,
     _fill_buy,
     _fill_sell,
+    _finite_float,
     _lot_floor,
     _ref_price,
     _skip_result,
@@ -1160,7 +1162,9 @@ def _first_touch_buy_then_sell(
     close = float(bar.get("close") or 0)
     sess_bars = session_bars if session_bars is not None else minute_bars
     sess_bar = session_bar if session_bar is not None else bar
-    t0_ratio = float(cfg["t0_ratio"])
+    t0_ratio = _finite_float(cfg.get("t0_ratio") if isinstance(cfg, dict) else None, 1.0)
+    if t0_ratio <= 0 or t0_ratio > 1.0:
+        t0_ratio = 1.0
     # 固定前缀：第一腿按确认根 close；预估可买手数用开盘价（不再用相对开盘买触发）
     afford_px = float(ref) if float(ref) > 0 else 0.0
     buy_level = afford_px  # 返回字段占位；gated 成交价用确认根 close
@@ -1884,32 +1888,35 @@ def simulate_t0_day_minute(
         except Exception:  # noqa: BLE001
             logger.debug("attach_eod_tau_realized failed", exc_info=True)
         # 画像：前 N 根因果 ŷ（与确认根选向同信息集）
-        try:
-            from core.t0.config import T0_LAST_LEG1_PREFIX_BARS
-            from core.t0.score_policy import attach_portrait_dual_scores
+        # 仅 dual_y/auto/signal 需算 sector 特征；固定方向（含正/反别名）跳过以避免 SQLite 阻塞
+        _need_portrait = cfg_t0_direction(cfg) in {"dual_y", "auto", "signal"}
+        if _need_portrait:
+            try:
+                from core.t0.config import T0_LAST_LEG1_PREFIX_BARS
+                from core.t0.score_policy import attach_portrait_dual_scores
 
-            n_pref = int(T0_LAST_LEG1_PREFIX_BARS)
-            # 优先确认根实际重算用的 N（双侧不一致时与决策同信息集）
-            if isinstance(score_snap, dict) and score_snap.get("_score_prefix_bars") is not None:
-                try:
-                    n_pref = int(score_snap.get("_score_prefix_bars"))
-                except (TypeError, ValueError):
-                    pass
-            elif isinstance(packed, dict) and packed.get("prefix_bars") is not None:
-                try:
-                    n_pref = int(packed.get("prefix_bars"))
-                except (TypeError, ValueError):
-                    pass
-            packed = attach_portrait_dual_scores(
-                packed,
-                score_snap,
-                minute_bars=mins,
-                day_bar=bar if isinstance(bar, dict) else None,
-                hist_bars=hist_bars,
-                prefix_bars=n_pref,
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("attach_portrait_dual_scores failed", exc_info=True)
+                n_pref = int(T0_LAST_LEG1_PREFIX_BARS)
+                # 优先确认根实际重算用的 N（双侧不一致时与决策同信息集）
+                if isinstance(score_snap, dict) and score_snap.get("_score_prefix_bars") is not None:
+                    try:
+                        n_pref = int(score_snap.get("_score_prefix_bars"))
+                    except (TypeError, ValueError):
+                        pass
+                elif isinstance(packed, dict) and packed.get("prefix_bars") is not None:
+                    try:
+                        n_pref = int(packed.get("prefix_bars"))
+                    except (TypeError, ValueError):
+                        pass
+                packed = attach_portrait_dual_scores(
+                    packed,
+                    score_snap,
+                    minute_bars=mins,
+                    day_bar=bar if isinstance(bar, dict) else None,
+                    hist_bars=hist_bars,
+                    prefix_bars=n_pref,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("attach_portrait_dual_scores failed", exc_info=True)
         return packed
 
 

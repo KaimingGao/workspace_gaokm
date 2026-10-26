@@ -496,7 +496,10 @@ class TestT0Slots(unittest.TestCase):
         self.assertAlmostEqual(float(sc["y_tau_portrait_oc"]), 0.7, places=3)
 
     def test_backtest_all_miss_day_keeps_portrait_scores(self):
-        """多轮均未成交时，日级仍须保留因果 ŷ 画像。"""
+        """多轮均未成交时，日级仍须保留因果 ŷ 画像。
+
+        用 dual_y：固定方向会跳过 close_band scan trace 和画像，测不到这条保留。
+        """
         from unittest import mock
 
         from core.t0.backtest import backtest_t0_on_bars
@@ -509,8 +512,9 @@ class TestT0Slots(unittest.TestCase):
 
         mins = _am_mins(date, 30, px=px)
         prev = _bar("2026-03-01", 99, 100, 98, 99.5)
+        # 用 dual_y 方向让 portrait + close_band scan trace 都正常跑
         rules = _slot_rules(
-            direction="buy_then_sell",
+            direction="dual_y",
             t0_close_band_delta_pct=10.0,
             y_enter_enabled=False,
             y_enter_alt_enabled=False,
@@ -546,8 +550,8 @@ class TestT0Slots(unittest.TestCase):
         days = [d for d in (report.get("days") or []) if str(d.get("date") or "") == date]
         self.assertTrue(days, report.get("days"))
         day0 = days[0]
-        self.assertTrue(day0.get("skipped"), day0)
         sc = day0.get("scores") or {}
+        # portrait_scores 必须保留（dual_y 方向 + score_snap 有因果信息）
         self.assertIsNotNone(sc.get("y_tau_portrait_oc"), sc)
         self.assertIsNone(sc.get("y_hl_portrait"), sc)
 
@@ -659,6 +663,98 @@ class TestT0Slots(unittest.TestCase):
         self.assertGreaterEqual(len(filled), 1, rows)
         self.assertGreaterEqual(len(blocked), 1, rows)
         self.assertLessEqual(int(out.get("bought_qty") or 0), 200, out)
+
+
+class TestT0InputGuards(unittest.TestCase):
+    def test_lot_floor_and_qty_reject_bad_numbers(self):
+        from core.t0.rules import _finite_float, _lot_floor, _t0_qty_lots
+
+        self.assertEqual(_lot_floor(250, 0), 0)
+        self.assertEqual(_lot_floor(float("nan"), 100), 0)
+        self.assertEqual(_t0_qty_lots(1000, "bad", 100, 1000), 0)
+        self.assertEqual(_t0_qty_lots(1000, float("nan"), 100, 1000), 0)
+        self.assertEqual(_finite_float("nan", 1.0), 1.0)
+
+    def test_direction_alias_is_fixed_without_defaulting_unknown(self):
+        from core.t0.config import cfg_t0_direction
+        from core.t0.slots import _build_close_band_scan_trace
+
+        self.assertEqual(cfg_t0_direction({"direction": "反T"}), "sell_then_buy")
+        self.assertEqual(cfg_t0_direction({"direction": "正"}), "buy_then_sell")
+        self.assertEqual(cfg_t0_direction({}), "")
+        self.assertEqual(cfg_t0_direction({"direction": "nope"}), "")
+        rows = _build_close_band_scan_trace(
+            minute_bars=[
+                {
+                    "datetime": "2026-03-02 09:35:00",
+                    "open": 10,
+                    "high": 10,
+                    "low": 10,
+                    "close": 10,
+                }
+            ],
+            bar={"date": "2026-03-02", "open": 10, "close": 10},
+            daily_bar=None,
+            cfg={"direction": "反T"},
+            score_snap=None,
+            stock_code="600519",
+            hist_bars=None,
+            tau_pool_day=None,
+        )
+        self.assertEqual(rows, [])
+
+    def test_bad_shares_and_ratio_do_not_raise(self):
+        from core.t0.minute_path import _first_touch_buy_then_sell
+        from core.t0.slots import simulate_t0_day_slots
+
+        skipped = simulate_t0_day_slots(
+            bar={"date": "2026-03-02", "open": 10, "close": 10},
+            minute_bars=[],
+            shares="nope",
+            cost="bad",
+            sellable_shares=None,
+            cfg={"t0_round_ratio": "nan", "t0_max_position_pct": "inf"},
+            cash="x",
+            stock_code="600519",
+            lot=0,
+            cost_model="none",
+            cost_params={},
+            atr_pct=None,
+            hist_bars=None,
+            score_snap=None,
+        )
+        self.assertTrue(skipped.get("skipped"), skipped)
+        self.assertIn("持仓无效", str(skipped.get("reason") or ""))
+
+        out = _first_touch_buy_then_sell(
+            minute_bars=[
+                {
+                    "datetime": "2026-03-02 09:35:00",
+                    "open": 10,
+                    "high": 10.2,
+                    "low": 9.8,
+                    "close": 10,
+                }
+            ],
+            bar={"date": "2026-03-02", "open": 10, "close": 10},
+            shares=1000,
+            cash=200000,
+            sellable_shares=1000,
+            ref=10,
+            lot=100,
+            fill_mode="trigger",
+            cfg={"t0_ratio": "bad", "t0_stop_pct_buy_then_sell": 0, "must_cover_same_day": False},
+            cost_model="none",
+            cost_params={},
+            stock_code="",
+            atr_pct=None,
+            range_pct=0,
+            leg1_gate_at=lambda _i: True,
+        )
+        buys = [t for t in (out.get("trades") or []) if str(t.get("side") or "").endswith("buy")]
+        self.assertTrue(buys, out)
+        self.assertEqual(int(buys[0].get("shares") or 0), 1000)
+
 
 if __name__ == "__main__":
     unittest.main()

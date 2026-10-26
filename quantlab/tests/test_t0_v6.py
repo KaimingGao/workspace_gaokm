@@ -1040,6 +1040,69 @@ class TestCloseBandCore(unittest.TestCase):
         )
 
 class TestCloseBandDayPath(unittest.TestCase):
+    def test_later_rounds_size_from_day_start_shares(self):
+        """第二轮仍按日初股数 × 比例。反T不因已卖出而缩小，正T不因已买入而放大。"""
+        closes = [99.4] + [100.0] * 8 + [99.0] + [100.0] * 20
+        mins = _mins(closes)
+        bar = {
+            "date": "2025-01-02",
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100,
+            "prev_close": 100,
+        }
+        cfg = _cfg(
+            {
+                "t0_round_ratio": 0.4,
+                "t0_max_position_pct": 1.0,
+                "t0_slots_max_rounds": 2,
+                "fill_mode": "trigger",
+                "t0_stop_pct_sell_then_buy": 0,
+                "t0_stop_pct_buy_then_sell": 0,
+                "must_cover_same_day_sell_then_buy": False,
+                "must_cover_same_day_buy_then_sell": False,
+                "t0_pm_degrade_sell_then_buy": "15:30",
+                "t0_pm_degrade_buy_then_sell": "15:30",
+            }
+        )
+        common = dict(
+            bar=bar,
+            minute_bars=mins,
+            shares=1000,
+            cost=100,
+            sellable_shares=1000,
+            cfg=cfg,
+            cash=200000,
+            stock_code="",
+            lot=100,
+            cost_model="none",
+            cost_params={},
+            atr_pct=None,
+            hist_bars=None,
+            defer_eod=True,
+        )
+
+        def _filled(out, field):
+            rows = [
+                r
+                for r in (out.get("t0_slot_results") or [])
+                if not r.get("skipped") and int(r.get(field) or 0) > 0
+            ]
+            return rows
+
+        stb = simulate_t0_day_slots(score_snap=_snap(-0.5), **common)
+        stb_rows = _filled(stb, "sold_qty")
+        self.assertGreaterEqual(len(stb_rows), 2, stb.get("t0_slot_results"))
+        self.assertEqual(int(stb_rows[0].get("sold_qty") or 0), 400, stb_rows[0])
+        self.assertEqual(int(stb_rows[1].get("sold_qty") or 0), 400, stb_rows[1])
+
+        bts = simulate_t0_day_slots(score_snap=_snap(0.5), **common)
+        bts_rows = _filled(bts, "bought_qty")
+        self.assertGreaterEqual(len(bts_rows), 2, bts.get("t0_slot_results"))
+        self.assertEqual(int(bts_rows[0].get("bought_qty") or 0), 400, bts_rows[0])
+        self.assertEqual(int(bts_rows[1].get("bought_qty") or 0), 400, bts_rows[1])
+
     def test_reverse_t_opens_and_covers(self):
         """阴线 + ŷ_τw<0 → 反T 现价卖；不预设买回价，靠回补完成第二腿。"""
         closes = [99.4] + [100.0] * 8 + [99.0] + [100.0] * 20

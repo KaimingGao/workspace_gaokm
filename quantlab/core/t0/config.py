@@ -63,6 +63,16 @@ def normalize_t0_direction(raw: Any, *, default: str = "dual_y") -> str:
     return default
 
 
+def cfg_t0_direction(cfg: Optional[dict]) -> str:
+    """读 direction 并归一别名。空或无法识别时返回空串，不默认成 dual_y。"""
+    if not isinstance(cfg, dict):
+        return ""
+    raw = cfg.get("direction")
+    if raw is None or str(raw).strip() == "":
+        return ""
+    return normalize_t0_direction(raw, default="")
+
+
 DEFAULT_T0_RULES: Dict[str, Any] = {
     "enabled": True,
     "t0_ratio": 1.0,
@@ -252,7 +262,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg = dict(DEFAULT_T0_RULES)
     ov = dict(override) if override else {}
     # 旧 C_τ / y_τc / residual 决策键：丢弃，不再进入规则（纯 ŷ_τw 选向）
-    for _legacy_k in (
+    _legacy_keys = (
         "t0_y_τc_target_scale",
         "t0_close_band_delta_pct",
         "y_τc_enter",
@@ -262,24 +272,13 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         "residual_w_τc",
         "residual_w_oc",
         "residual_w_mode",
-    ):
+    )
+    for _legacy_k in _legacy_keys:
         ov.pop(_legacy_k, None)
     override_keys = set(ov.keys())
     for k, v in ov.items():
         if v is not None:
             cfg[k] = v
-    for _legacy_k in (
-        "t0_y_τc_target_scale",
-        "t0_close_band_delta_pct",
-        "y_τc_enter",
-        "y_τc_strong",
-        "y_τc_enter_amount",
-        "y_τc_strong_amount",
-        "residual_w_τc",
-        "residual_w_oc",
-        "residual_w_mode",
-    ):
-        cfg.pop(_legacy_k, None)
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))

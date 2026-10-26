@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.t0.config import apply_side_exec_params
+from core.t0.config import apply_side_exec_params, cfg_t0_direction
 from core.t0.costs import t0_fees_total, t0_leg_cash_delta
 from core.t0.rules import (
+    _finite_float,
     _lot_floor,
     _skip_result,
 )
@@ -309,8 +310,8 @@ def attach_slot_fit_portrait_scores(
 ) -> dict:
     """槽位结果写入该钟因果 ŷ（与拟合 OOS.by_tau 同信息集）。
 
-    不论成交/跳过：只要分钟齐到 ``prefix_bars``，就补 ``y_tau_portrait_oc`` /
-    ``y_path_portrait``，供回测画像分槽命中率（全样本预估准确性）。
+    不论成交/跳过：只要分钟齐到 ``prefix_bars``，就补 ``y_tau_portrait_oc``，
+    供回测画像分槽命中率（全样本预估准确性）。
     """
     row = dict(out or {})
     prefix_n = int(slot.get("prefix_bars") or 0)
@@ -487,8 +488,6 @@ def _slot_public_scores(row: dict) -> dict:
             "y_τc",
             "predicted_score_τc",
             "y_tau_portrait_oc",
-            "y_hl_portrait",
-            "y_path_portrait",
         ):
             if feats.get(k) is not None:
                 slim[k] = feats[k]
@@ -862,6 +861,9 @@ def _build_close_band_scan_trace(
     """截止钟前每根 5m：OLHC + ŷ_τw / ŷ_τ30…（debug 展开用；跟 ``t0_last_leg1_hm``）。
 
     ``prefix_snaps_by_hm``：开轮扫描已算过的前缀 snap（hm→dict），命中则不再 rescore。
+
+    固定方向（sell_then_buy / buy_then_sell）直接返回空 trace——无需每根重算 ŷ_τw，
+    也避免 rescore_scores_at_fixed_prefix 触发 DB 查询阻塞。
     """
     from core.t0.close_band import (
         bar_close_band_pick_direction,
@@ -871,6 +873,10 @@ def _build_close_band_scan_trace(
     )
     from core.t0.config import T0_LAST_LEG1_HM
     from core.t0.score_policy import rescore_scores_at_fixed_prefix, resolve_fuse_intraday
+
+    # 固定方向不做 trace——不需要每根重算 ŷ_τw，避免 DB 依赖阻塞
+    if cfg_t0_direction(cfg) in {"sell_then_buy", "buy_then_sell"}:
+        return []
 
     mins = [b for b in (minute_bars or []) if isinstance(b, dict)]
     if not mins:
@@ -928,7 +934,6 @@ def _build_close_band_scan_trace(
             except Exception:  # noqa: BLE001
                 live_snap = {
                     **(dict(open_snap) if isinstance(open_snap, dict) else {}),
-                    "y_hl_status": "minute_data_missing",
                     "_minute_data_missing": True,
                 }
         elif code and is_open_hm and len(mins[: idx + 1]) >= 1:
@@ -952,7 +957,6 @@ def _build_close_band_scan_trace(
 
         band_meta: dict = {}
         y_tau = None
-        y_path = None
         y_r = None
         y_t30 = None
         y_t45 = None
@@ -971,8 +975,7 @@ def _build_close_band_scan_trace(
             isinstance(gate_snap, dict)
             and (
                 gate_snap.get("_minute_data_missing")
-                or str(gate_snap.get("y_hl_status") or gate_snap.get("y_path_status") or "").strip()
-                == "minute_data_missing"
+                or str(gate_snap.get("y_path_status") or "").strip() == "minute_data_missing"
             )
             and not is_open_hm
         )
@@ -1071,7 +1074,6 @@ def _build_close_band_scan_trace(
                 if band_meta.get("y_tw") is not None
                 else (blend_y_tw_from_scores(gate_snap, cfg) if gate_snap else None)
             ),
-            "y_hl": None,
             "y_r": y_r,
             "predicted_score_r": y_r,
             "y_r_hat": y_r,
@@ -1250,18 +1252,22 @@ def simulate_t0_day_slots(
     from core.t0.config import T0_LAST_LEG1_HM
     from core.t0.score_policy import rescore_scores_at_fixed_prefix, resolve_fuse_intraday
 
+    if not isinstance(cfg, dict):
+        cfg = {}
+    shares = _finite_float(shares, 0.0)
+    if shares <= 0:
+        return _skip_result(
+            reason="持仓无效，跳过",
+            shares=0,
+            bar=bar if isinstance(bar, dict) else None,
+        )
+        lot = max(int(_finite_float(lot, 100)), 1)
     mins = [b for b in (minute_bars or []) if isinstance(b, dict)]
-    sellable_cap = float(sellable_shares if sellable_shares is not None else shares)
-    sellable_cap = min(max(sellable_cap, 0.0), float(shares))
-    try:
-        round_ratio = float(cfg.get("t0_round_ratio") or 0.4)
-    except (TypeError, ValueError):
-        round_ratio = 0.4
+    sellable_cap = shares if sellable_shares is None else _finite_float(sellable_shares, shares)
+    sellable_cap = min(max(sellable_cap, 0.0), shares)
+    round_ratio = _finite_float(cfg.get("t0_round_ratio"), 0.4)
     round_ratio = max(0.05, min(round_ratio, 1.0))
-    try:
-        max_pos = float(cfg.get("t0_max_position_pct") or 1.0)
-    except (TypeError, ValueError):
-        max_pos = 1.0
+    max_pos = _finite_float(cfg.get("t0_max_position_pct"), 1.0)
     max_pos = max(0.05, min(max_pos, 1.0))
     max_rounds = _parse_max_rounds(cfg, max(1, int(round(max_pos / round_ratio))))
     last_hm = str(cfg.get("t0_last_leg1_hm") or T0_LAST_LEG1_HM)
@@ -1273,12 +1279,12 @@ def simulate_t0_day_slots(
         cfg,
         daily_bar=day_anchor if isinstance(day_anchor, dict) else None,
     )
-    open_px_m = space.get("minute_open") or float(cost or 0)
-    scale = float(space.get("scale") or 1.0)
-    ref = float(open_px_m or cost or 0)
+    open_px_m = _finite_float(space.get("minute_open"), 0.0) or _finite_float(cost, 0.0)
+    scale = _finite_float(space.get("scale"), 1.0)
+    ref = open_px_m
 
     outs: List[dict] = []
-    cash_now = float(cash or 0)
+    cash_now = _finite_float(cash, 0.0)
     shares_now = float(shares)
     sellable_now = float(sellable_cap)
     used_ratio = 0.0
@@ -1367,54 +1373,55 @@ def simulate_t0_day_slots(
             continue
 
         live_snap = open_snap
-        # 仅 09:30 允许无分钟、用开盘 Z；其后每根须前缀重算，缺小包=数据缺失
         hm_key = str(hm or "")[:5]
         is_open_hm = hm_key == "09:30"
-        if code and not is_open_hm:
-            try:
-                live_snap = rescore_scores_at_fixed_prefix(
-                    stock_code=code,
-                    minute_prefix=list(mins[: idx + 1]),
-                    day_bar=bar if isinstance(bar, dict) else None,
-                    hist_bars=hist_bars,
-                    tau_pool_day=tau_pool_day,
-                    fuse_intraday=resolve_fuse_intraday(cfg),
-                    open_snap=open_snap,
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("close-band rescore failed", exc_info=True)
-                live_snap = {
-                    **(dict(open_snap) if isinstance(open_snap, dict) else {}),
-                    "y_hl_status": "minute_data_missing",
-                    "_minute_data_missing": True,
-                    "_score_source": "prefix_minute_missing",
-                }
-        elif code and is_open_hm and idx >= 0 and len(mins[: idx + 1]) >= 1:
-            # 09:30 若已有该根分钟，仍优先因果重算；失败可退回开盘 Z
-            try:
-                scored = rescore_scores_at_fixed_prefix(
-                    stock_code=code,
-                    minute_prefix=list(mins[: idx + 1]),
-                    day_bar=bar if isinstance(bar, dict) else None,
-                    hist_bars=hist_bars,
-                    tau_pool_day=tau_pool_day,
-                    fuse_intraday=resolve_fuse_intraday(cfg),
-                    open_snap=open_snap,
-                )
-                if isinstance(scored, dict) and not scored.get("_minute_data_missing"):
-                    live_snap = scored
-            except Exception:  # noqa: BLE001
-                logger.debug("close-band open-bar rescore failed", exc_info=True)
-        if hm_key and isinstance(live_snap, dict):
-            prefix_snaps[hm_key] = live_snap
+        # 固定方向不做前缀 rescore——避免每根重算 ŷ_τw + DB 依赖阻塞
+        _dir_fixed = cfg_t0_direction(cfg) in {"sell_then_buy", "buy_then_sell"}
+        if not _dir_fixed:
+            # 仅 09:30 允许无分钟、用开盘 Z；其后每根须前缀重算，缺小包=数据缺失
+            if code and not is_open_hm:
+                try:
+                    live_snap = rescore_scores_at_fixed_prefix(
+                        stock_code=code,
+                        minute_prefix=list(mins[: idx + 1]),
+                        day_bar=bar if isinstance(bar, dict) else None,
+                        hist_bars=hist_bars,
+                        tau_pool_day=tau_pool_day,
+                        fuse_intraday=resolve_fuse_intraday(cfg),
+                        open_snap=open_snap,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("close-band rescore failed", exc_info=True)
+                    live_snap = {
+                        **(dict(open_snap) if isinstance(open_snap, dict) else {}),
+                        "_minute_data_missing": True,
+                        "_score_source": "prefix_minute_missing",
+                    }
+            elif code and is_open_hm and len(mins[: idx + 1]) >= 1:
+                # 09:30 若已有该根分钟，仍优先因果重算；失败可退回开盘 Z
+                try:
+                    scored = rescore_scores_at_fixed_prefix(
+                        stock_code=code,
+                        minute_prefix=list(mins[: idx + 1]),
+                        day_bar=bar if isinstance(bar, dict) else None,
+                        hist_bars=hist_bars,
+                        tau_pool_day=tau_pool_day,
+                        fuse_intraday=resolve_fuse_intraday(cfg),
+                        open_snap=open_snap,
+                    )
+                    if isinstance(scored, dict) and not scored.get("_minute_data_missing"):
+                        live_snap = scored
+                except Exception:  # noqa: BLE001
+                    logger.debug("close-band open-bar rescore failed", exc_info=True)
+            if hm_key and isinstance(live_snap, dict):
+                prefix_snaps[hm_key] = live_snap
 
         snap_for_gate = live_snap if isinstance(live_snap, dict) else open_snap
         if (
             isinstance(snap_for_gate, dict)
             and (
                 snap_for_gate.get("_minute_data_missing")
-                or str(snap_for_gate.get("y_hl_status") or snap_for_gate.get("y_path_status") or "").strip()
-                    == "minute_data_missing"
+                or str(snap_for_gate.get("y_path_status") or "").strip() == "minute_data_missing"
             )
             and not is_open_hm
         ):
@@ -1446,7 +1453,6 @@ def simulate_t0_day_slots(
         if want_shares is not None:
             remain_sh = float(_lot_floor(max(0.0, sellable_cap * remain), lot_i))
             slice_qty = min(float(want_shares), remain_sh)
-            slice_qty = min(slice_qty, float(_lot_floor(sellable_now, lot_i)))
             if slice_qty < lot_i:
                 break
             ratio = float(slice_qty) / float(sellable_cap) if sellable_cap > 0 else 0.0
@@ -1457,9 +1463,6 @@ def simulate_t0_day_slots(
             if ratio < 0.05:
                 break
             slice_qty = float(_lot_floor(sellable_cap * ratio, lot))
-            # 反T卖开受剩余可卖约束；正T 第二腿仍卖旧仓，开新轮前预扣已承诺回补额度
-            slice_qty = min(slice_qty, float(_lot_floor(sellable_now, lot)))
-        path_sellable = slice_qty if direction == "sell_then_buy" else sellable_now
         if direction == "buy_then_sell":
             remain_cover = float(
                 _lot_floor(max(0.0, float(sellable_cap) - cover_committed), lot)
@@ -1476,17 +1479,19 @@ def simulate_t0_day_slots(
                     )
                 continue
             path_sellable = remain_cover
-        if direction == "sell_then_buy" and slice_qty < lot:
+        elif slice_qty < lot:
             from core.t0.minute_path import _tplus1_skip_reason
 
             if not last_tplus1_skip:
                 last_tplus1_skip = _tplus1_skip_reason(
                     side="sell_then_buy",
                     shares=shares,
-                    sellable=sellable_now,
+                    sellable=sellable_cap,
                     lot=lot,
                 )
             continue
+        else:
+            path_sellable = slice_qty
 
         frozen = freeze_round(
             direction=direction,
@@ -1529,7 +1534,9 @@ def simulate_t0_day_slots(
             },
             minute_bars=mins,
             bar=bar,
-            shares=shares_now,
+            # 数量基数用日初股数。shares_now 已含前轮 leg1，再乘比例会把后续轮次越做越小（反T）或越大（正T）。
+            # 现金仍用已落账 cash_now；放不下的轮次由下面的试落账和 _merge_slot_day 丢掉。
+            shares=shares,
             cost=cost,
             sellable_shares=path_sellable,
             ratio=ratio,
