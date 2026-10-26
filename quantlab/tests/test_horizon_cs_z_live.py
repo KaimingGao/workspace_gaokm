@@ -125,7 +125,7 @@ class HorizonCsZLiveTests(unittest.TestCase):
         ]
         loads = []
 
-        def _load(day, codes, clock="open"):
+        def _load(day, codes, clock="open", **_kw):
             loads.append(str(clock))
             return None
 

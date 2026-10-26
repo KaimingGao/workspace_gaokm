@@ -248,12 +248,16 @@ def apply_day_cube_mu_sigma_matrix(
     for (day, clk), idxs in buckets.items():
         cube = None
         try:
-            cube = load_day_cube(day, univ, clock=clk)
+            cube = load_day_cube(
+                day, univ, clock=clk, remember=False, with_matrix=False
+            )
         except Exception:  # noqa: BLE001
             cube = None
         if cube is None and allow_open_fb and str(clk) != "open":
             try:
-                cube = load_day_cube(day, univ, clock="open")
+                cube = load_day_cube(
+                    day, univ, clock="open", remember=False, with_matrix=False
+                )
             except Exception:  # noqa: BLE001
                 cube = None
             if cube is not None:
@@ -400,9 +404,9 @@ def groups_with_day_cube(
         key = (day, clk)
         hit = cache.get(key)
         if hit is None:
-            cube = load_day_cube(day, univ, clock=clk)
+            cube = load_day_cube(day, univ, clock=clk, names_only=True)
             if cube is None and allow_open_fb and clk != "open":
-                cube = load_day_cube(day, univ, clock="open")
+                cube = load_day_cube(day, univ, clock="open", names_only=True)
             hit = cube is not None
             cache[key] = hit
             if not hit:

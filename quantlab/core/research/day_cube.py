@@ -474,11 +474,14 @@ def load_day_cube(
     clock: str = "open",
     remember: bool = True,
     names_only: bool = False,
+    with_matrix: bool = True,
 ) -> Optional[DayCube]:
     """按当前宇宙 hash 加载；宇宙不一致则 miss。
 
     ``remember=False`` 只把这一份交给调用方，不放进进程缓存。
     ``names_only`` 只读列名，不把 ``X_raw`` 解进内存，也不写入进程缓存。
+    ``with_matrix=False`` 只读 μ/σ 和列名（拟合截面 z 用），不读 ``X_raw``，
+    也不写入进程缓存。扫千日若 remember 整表，会把约 3MB×1000 天留在进程里。
     """
     day = str(date or "")[:10]
     uh = universe_hash(codes)
@@ -500,11 +503,15 @@ def load_day_cube(
     try:
         with np.load(paths["npz"], allow_pickle=False) as z:
             name_list = [str(n) for n in z["names"].tolist()]
-            if names_only:
+            if names_only or not with_matrix:
                 X = np.zeros((0, len(name_list)), dtype=np.float64)
-                mu = np.zeros(len(name_list), dtype=np.float64)
-                sd = np.zeros(len(name_list), dtype=np.float64)
-                code_list: List[str] = []
+                code_list = []
+                if names_only:
+                    mu = np.zeros(len(name_list), dtype=np.float64)
+                    sd = np.zeros(len(name_list), dtype=np.float64)
+                else:
+                    mu = np.asarray(z["z_mean"], dtype=np.float64)
+                    sd = np.asarray(z["z_std"], dtype=np.float64)
             else:
                 X = np.asarray(z["X_raw"], dtype=np.float64)
                 mu = np.asarray(z["z_mean"], dtype=np.float64)
@@ -524,7 +531,7 @@ def load_day_cube(
         clock=clk,
         slim=dict(meta.get("slim") or {}),
     )
-    if remember and not names_only:
+    if remember and not names_only and with_matrix:
         _MEMORY[mk] = cube
     return cube
 

@@ -106,6 +106,27 @@ class TestDayCube(unittest.TestCase):
         assert full is not None
         np.testing.assert_allclose(full.X_raw, cube.X_raw)
 
+    def test_with_matrix_false_skips_x_raw_and_cache(self) -> None:
+        from core.research import day_cube as dc
+
+        feats = {"x": {"g": 1.0, "h": 3.0}, "y": {"g": 2.0, "h": 4.0}}
+        cube = dc.build_day_cube("2024-06-04", feats, clock="open")
+        self.assertTrue(dc.save_day_cube(cube))
+        dc.clear_memory()
+        hit = dc.load_day_cube(
+            "2024-06-04",
+            ["x", "y"],
+            clock="open",
+            remember=True,
+            with_matrix=False,
+        )
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertEqual(int(hit.X_raw.shape[0]), 0)
+        np.testing.assert_allclose(hit.z_mean, cube.z_mean)
+        np.testing.assert_allclose(hit.z_std, cube.z_std)
+        self.assertEqual(dc._MEMORY, {})
+
     def test_load_remember_false_skips_process_cache(self) -> None:
         from core.research import day_cube as dc
 

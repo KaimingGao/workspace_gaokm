@@ -631,7 +631,10 @@ class PreferCubeHelpersTests(unittest.TestCase):
             z_mean = np.array([0.0])
             z_std = np.array([1.0])
 
-        def _load(day, codes, clock="open"):
+        flags = []
+
+        def _load(day, codes, clock="open", **_kw):
+            flags.append(dict(_kw))
             if str(day)[:10] == "2022-08-31":
                 return _Cube()
             return None
@@ -652,6 +655,8 @@ class PreferCubeHelpersTests(unittest.TestCase):
         self.assertEqual(x2.shape[0], 2)
         self.assertEqual(list(d2), ["2022-08-31", "2022-08-31"])
         np.testing.assert_allclose(y2, [0.2, 0.3])
+        self.assertTrue(flags)
+        self.assertTrue(all(kw.get("names_only") is True for kw in flags))
 
     def test_filter_rows_drops_only_missing_day_clock(self):
         """同一天只丢掉没有立方的那一口钟，其他钟留下。全日都没有才报物化。"""
@@ -661,7 +666,7 @@ class PreferCubeHelpersTests(unittest.TestCase):
         class _Cube:
             pass
 
-        def _load(day, codes, clock="open"):
+        def _load(day, codes, clock="open", **_kw):
             key = (str(day)[:10], str(clock))
             if key in {("2026-04-01", "09:40"), ("2026-08-03", "09:35")}:
                 return _Cube()
@@ -708,8 +713,8 @@ class CubeZPerClockTests(unittest.TestCase):
 
         loads = []
 
-        def _load(day, codes, clock="open"):
-            loads.append((str(day)[:10], str(clock)))
+        def _load(day, codes, clock="open", **_kw):
+            loads.append((str(day)[:10], str(clock), dict(_kw)))
             return _Cube()
 
         x = np.array([[3.0], [5.0], [7.0], [9.0]], dtype=np.float64)
@@ -735,9 +740,12 @@ class CubeZPerClockTests(unittest.TestCase):
         # (3-1)/2 = 1； (5-1)/2 = 2
         self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
         self.assertAlmostEqual(float(z[1, 0]), 2.0, places=5)
-        clocks = {c for _, c in loads}
+        clocks = {c for _, c, _kw in loads}
         self.assertIn("09:35", clocks)
         self.assertIn("10:30", clocks)
+        self.assertTrue(loads)
+        self.assertTrue(all(kw.get("with_matrix") is False for *_, kw in loads))
+        self.assertTrue(all(kw.get("remember") is False for *_, kw in loads))
 
     def test_clock_miss_falls_back_to_open(self):
         import numpy as np
@@ -749,7 +757,7 @@ class CubeZPerClockTests(unittest.TestCase):
             z_mean = np.array([0.0])
             z_std = np.array([1.0])
 
-        def _load(day, codes, clock="open"):
+        def _load(day, codes, clock="open", **_kw):
             if str(clock) == "open":
                 return _Cube()
             return None
@@ -785,7 +793,7 @@ class CubeZPerClockTests(unittest.TestCase):
             z_mean = np.array([0.0])
             z_std = np.array([1.0])
 
-        def _load(day, codes, clock="open"):
+        def _load(day, codes, clock="open", **_kw):
             if str(clock) == "open":
                 return _Cube()
             return None
@@ -821,7 +829,7 @@ class CubeZPerClockTests(unittest.TestCase):
             z_mean = np.array([0.0])
             z_std = np.array([1.0])
 
-        def _load(day, codes, clock="open"):
+        def _load(day, codes, clock="open", **_kw):
             if str(day)[:10] == "2026-08-04" and str(clock) == "09:35":
                 return _Cube()
             return None

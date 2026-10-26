@@ -879,7 +879,9 @@ def fit_lambdarank(
             "n_rank_rows_dropped": n_rank_rows_dropped,
         }
     X = np.vstack(X_blocks)
+    del X_blocks
     y = np.asarray([lab for block in y_blocks for lab in block], dtype=np.int32)
+    del y_blocks
     group = np.asarray(group_sizes, dtype=np.int32)
     if X.shape[0] != y.shape[0] or X.shape[0] != int(group.sum()):
         return {
@@ -895,6 +897,7 @@ def fit_lambdarank(
     try:
         # 原生 lgb.train（不依赖 sklearn），objective=lambdarank
         dtrain = lgb.Dataset(X, label=y, group=group)
+        del X
         booster = lgb.train(
             {
                 "objective": "lambdarank",
@@ -914,6 +917,7 @@ def fit_lambdarank(
             dtrain,
             num_boost_round=max(1, int(n_estimators)),
         )
+        del dtrain
     except Exception as exc:  # noqa: BLE001
         return {
             "success": False,
@@ -1820,7 +1824,9 @@ def _fit_ridge_baseline(
         from core.research.oo_ridge_compact import fit_oo_ridge_matrix
 
         x = np.vstack(blocks)
+        del blocks
         y = np.concatenate(y_parts)
+        del y_parts
         n_rows = int(y.shape[0])
         if n_rows < 20:
             return {"success": False, "error": f"ridge_n={n_rows}"}
@@ -1913,6 +1919,14 @@ def fit_oo_rank_report(
         resolve_ridge_split,
     )
     from core.research.oo_rank_panel import build_oo_rank_day_panels
+
+    # 与 ŷ_τc_rank 同：物化留下的整窗立方先卸掉，再进面板。
+    try:
+        from core.research.horizon_l1 import release_allocator_cache
+
+        release_allocator_cache()
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_rank release before panel failed", exc_info=True)
 
     if day_panels is not None:
         days = list(day_panels)

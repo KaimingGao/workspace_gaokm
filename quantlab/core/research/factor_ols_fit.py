@@ -287,20 +287,55 @@ def _prepare_complete_panel(
 
 
 def _qr_solve_np(x: np.ndarray, y: np.ndarray) -> Optional[np.ndarray]:
-    """最小二乘：X = QR（economy），解 R β = Qᵀ y；秩亏返回 None。"""
+    """最小二乘：Householder QR，解 R β = Qᵀ y；秩亏返回 None。
+
+    只把反射子作用到 y 上，不物化 Q。``np.linalg.qr`` 的 reduced Q 与 X 同形，
+    满池 ŷ_τc_rank（约 77 万 × 250）会再占一块同样大的矩阵，并在 dorgqr 里打满内存。
+    """
     if x.ndim != 2 or y.ndim != 1 or x.shape[0] != y.shape[0] or x.shape[1] < 1:
         return None
-    n, m = x.shape
-    q, r = np.linalg.qr(x, mode="reduced")
-    diag = np.abs(np.diag(r))
+    n, m = int(x.shape[0]), int(x.shape[1])
+    a = np.array(x, dtype=np.float64, order="C", copy=True)
+    b = np.array(np.asarray(y, dtype=np.float64).reshape(-1, 1), order="C", copy=True)
+    try:
+        from scipy.linalg.lapack import dgeqrf, dormqr
+    except Exception:  # noqa: BLE001
+        q, r = np.linalg.qr(a, mode="reduced")
+        diag = np.abs(np.diag(r))
+        if diag.size < m:
+            return None
+        scale = float(diag.max()) if diag.size else 0.0
+        tol = max(n, m) * np.finfo(np.float64).eps * max(scale, 1.0)
+        if float(diag.min()) <= tol:
+            return None
+        try:
+            beta = np.linalg.solve(r, q.T @ b[:, 0])
+        except np.linalg.LinAlgError:
+            return None
+        if not np.all(np.isfinite(beta)):
+            return None
+        return beta
+
+    qr, tau, _work, info = dgeqrf(a, overwrite_a=1)
+    if int(info) != 0 or tau.size < m:
+        return None
+    diag = np.abs(np.diag(qr[:m, :]))
     if diag.size < m:
         return None
     scale = float(diag.max()) if diag.size else 0.0
     tol = max(n, m) * np.finfo(np.float64).eps * max(scale, 1.0)
     if float(diag.min()) <= tol:
         return None
+    query = dormqr(b"L", b"T", qr, tau, b, -1, overwrite_c=0)
+    if int(query[-1]) != 0:
+        return None
+    lwork = max(1, int(np.asarray(query[1]).ravel()[0]))
+    cq, _work, info = dormqr(b"L", b"T", qr, tau, b, lwork, overwrite_c=1)
+    if int(info) != 0:
+        return None
+    r = np.triu(np.asarray(qr[:m, :], dtype=np.float64))
     try:
-        beta = np.linalg.solve(r, q.T @ y)
+        beta = np.linalg.solve(r, np.asarray(cq[:m, 0], dtype=np.float64))
     except np.linalg.LinAlgError:
         return None
     if not np.all(np.isfinite(beta)):

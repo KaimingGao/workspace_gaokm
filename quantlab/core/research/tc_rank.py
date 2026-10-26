@@ -121,27 +121,6 @@ def _relabel_metrics(raw: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _slice_days(
-    days: Sequence[Dict[str, Any]], feat_names: Sequence[str]
-) -> List[Dict[str, Any]]:
-    from core.research.panel_matrix import named_columns
-
-    out: List[Dict[str, Any]] = []
-    for day in days:
-        x = day.get("X")
-        names = day.get("names") or []
-        if not isinstance(x, np.ndarray):
-            continue
-        sliced, kept = named_columns(x, names, feat_names)
-        if not kept:
-            continue
-        row = dict(day)
-        row["X"] = sliced
-        row["names"] = kept
-        out.append(row)
-    return out
-
-
 def _stamp_model(
     model: Dict[str, Any],
     *,
@@ -203,6 +182,14 @@ def fit_tc_rank_report(
     from core.research.tc_ridge_compact import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
     from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
 
+    # 物化刚扫过的整窗立方还在进程缓存里。面板起来之前先卸掉。
+    try:
+        from core.research.horizon_l1 import release_allocator_cache
+
+        release_allocator_cache()
+    except Exception:  # noqa: BLE001
+        logger.debug("tc_rank release before panel failed", exc_info=True)
+
     bars = [it for it in (stock_bars or []) if isinstance(it, dict)]
     calendar = calendar_dates_from_stock_bars(bars)
     X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
@@ -245,17 +232,25 @@ def fit_tc_rank_report(
         str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
         for i in range(len(ys))
     ]
-    days_all = _slice_days(
-        group_day_matrices(
-            X,
-            np.asarray(ys, dtype=np.float64),
-            col_names,
-            dates,
-            codes_all,
-            min_names=min_names,
-        ),
-        feat_names,
+    # 列只切一次。按日重排后，每日 X 是同一块矩阵的视图；未排序的原矩阵随即丢掉。
+    col_index = {str(n): i for i, n in enumerate(col_names)}
+    cols = [col_index[n] for n in feat_names if n in col_index]
+    feat_names = [n for n in feat_names if n in col_index]
+    x_fit = (
+        np.ascontiguousarray(X[:, cols])
+        if cols
+        else np.zeros((int(X.shape[0]), 0), dtype=np.float64)
     )
+    y_arr = np.asarray(ys, dtype=np.float64)
+    days_all = group_day_matrices(
+        x_fit,
+        y_arr,
+        feat_names,
+        dates,
+        codes_all,
+        min_names=min_names,
+    )
+    del X, x_fit, y_arr, ys, dates, metas, codes_all, cols
     days_tr = [d for d in days_all if str(d.get("date") or "")[:10] in train_days]
     days_te = [d for d in days_all if str(d.get("date") or "")[:10] in test_days]
     if len(days_tr) < 5 or len(days_te) < 1:

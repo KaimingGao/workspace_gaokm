@@ -97,7 +97,7 @@ class TestFeatureZscore(unittest.TestCase):
                 self.z_mean = np.asarray(mean, dtype=np.float64)
                 self.z_std = np.asarray(std, dtype=np.float64)
 
-        def _load(day, _codes, clock="open"):
+        def _load(day, _codes, clock="open", **_kw):
             d = str(day)[:10]
             if d == "2026-01-02":
                 return _Cube([1.0, 12.0], [1.0, 2.0])

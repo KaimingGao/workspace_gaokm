@@ -1437,17 +1437,26 @@ class QuantFactorMixin:
             if not bars:
                 continue
             stock_bars.append({"code": str(code), "bars": bars})
-        report = fit_oo_rank_report(
-            stock_bars,
-            holdout_trading_days=holdout_trading_days,
-            topk_track=topk_track,
-            ndcg_k=ndcg_k,
-            l2=l2,
-            backend=backend or "auto",
-            persist=False,
-            cross_section_zscore=bool(cross_section_zscore),
-            train_codes=train_codes,
-        )
+        try:
+            report = fit_oo_rank_report(
+                stock_bars,
+                holdout_trading_days=holdout_trading_days,
+                topk_track=topk_track,
+                ndcg_k=ndcg_k,
+                l2=l2,
+                backend=backend or "auto",
+                persist=False,
+                cross_section_zscore=bool(cross_section_zscore),
+                train_codes=train_codes,
+            )
+        finally:
+            stock_bars.clear()
+            try:
+                from core.research.horizon_l1 import release_allocator_cache
+
+                release_allocator_cache()
+            except Exception:  # noqa: BLE001
+                logger.debug("oo_rank release after fit failed", exc_info=True)
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
         report["universe_source"] = pool_resolved.get("universe_source") or "watching"
@@ -1778,16 +1787,25 @@ class QuantFactorMixin:
             bars = loaded.get(str(code))
             if bars:
                 stock_bars.append({"code": str(code), "bars": bars})
-        report = fit_tc_rank_report(
-            stock_bars,
-            holdout_trading_days=holdout_trading_days,
-            topk_track=topk_track,
-            ndcg_k=ndcg_k,
-            l2=l2,
-            backend=backend or "auto",
-            cross_section_zscore=bool(cross_section_zscore),
-            train_codes=train_codes,
-        )
+        try:
+            report = fit_tc_rank_report(
+                stock_bars,
+                holdout_trading_days=holdout_trading_days,
+                topk_track=topk_track,
+                ndcg_k=ndcg_k,
+                l2=l2,
+                backend=backend or "auto",
+                cross_section_zscore=bool(cross_section_zscore),
+                train_codes=train_codes,
+            )
+        finally:
+            stock_bars.clear()
+            try:
+                from core.research.horizon_l1 import release_allocator_cache
+
+                release_allocator_cache()
+            except Exception:  # noqa: BLE001
+                logger.debug("tc_rank release after fit failed", exc_info=True)
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
         report["universe_source"] = pool_resolved.get("universe_source") or "watching"
