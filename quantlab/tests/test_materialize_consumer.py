@@ -554,7 +554,7 @@ class ConsumerCoverageTest(unittest.TestCase):
             return {
                 "ok": False,
                 "error_code": "materialize_required",
-                "error": "请先日线物化 L1/L2",
+                "error": "请先日线物化特征（L1/L2）",
                 "hint": "日线物化",
             }
 

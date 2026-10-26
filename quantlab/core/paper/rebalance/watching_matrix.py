@@ -696,7 +696,7 @@ def _resolve_lake_score_day(
     last_report: Dict[str, Any] = {
         "ok": False,
         "error_code": "materialize_required",
-        "error": "无 ŷ_oo 周期日" if not cycle_day else "请先日线物化 L1/L2",
+        "error": "无 ŷ_oo 周期日" if not cycle_day else "请先日线物化特征（L1/L2）",
         "hint": "日线物化",
     }
     for day in candidates:

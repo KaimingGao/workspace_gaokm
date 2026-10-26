@@ -31,7 +31,7 @@ function networkErrText(error, fallback = "读取 5m 状态失败") {
   return s || fallback;
 }
 
-/** 研究枢纽 · 观察池 5m 分钟覆盖 + 「增量补齐（L0）」/「强更 5m（L0）」/「物化 L1/L2」 */
+/** 研究枢纽 · 观察池 5m 分钟覆盖 + 「增量补齐（L0）」/「强更 5m（L0）」/「物化特征（L1/L2）」 */
 export function installMinuteUi(q) {
   const { on, apiFetch, escapeHtml } = q;
   const installMinuteMaterializeUi =

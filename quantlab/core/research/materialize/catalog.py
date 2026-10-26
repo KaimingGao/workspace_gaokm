@@ -28,7 +28,7 @@ FAMILY_LABELS: Dict[str, str] = {
 
 
 def suggested_tau_clocks() -> List[str]:
-    """做 T / ŷ_τ* 训练网格钟（不含 open）；供分钟线「物化 L1/L2」。"""
+    """做 T / ŷ_τ* 训练网格钟（不含 open）；供分钟线「物化特征（L1/L2）」。"""
     try:
         from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID
 

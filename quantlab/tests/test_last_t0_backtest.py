@@ -314,7 +314,7 @@ class TestPortfolioFailReasonKept(unittest.TestCase):
         raw = {
             "success": False,
             "error_code": "materialize_required",
-            "error": "请先日线物化 L1/L2：立方 open 缺 10 日",
+            "error": "请先日线物化特征（L1/L2）：立方 open 缺 10 日",
             "hint": "日线物化",
             "problems": [{"layer": "l2", "clock": "open"}],
             "loaded_stocks": ["600519"],

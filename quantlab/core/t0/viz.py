@@ -1399,13 +1399,6 @@ def _merge_score_portraits(
     return out
 
 
-def _merge_traded_score_portraits(
-    parts: Sequence[Optional[dict]],
-) -> Dict[str, Any]:
-    """兼容旧名。"""
-    return _merge_score_portraits(parts)
-
-
 def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
     """成交轮 ŷ_τc 符号 vs close[T]/price(τ)−1。KPI 键仍叫 tau_oc_hit_rate_pct。"""
     hit_n = 0

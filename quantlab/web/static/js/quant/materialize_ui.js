@@ -1,4 +1,4 @@
-/** 物化 L1/L2：日线区 open；分钟线区 τ 网格 / 按钟。状态条对齐日 K / 5m 强更。 */
+/** 物化特征（L1/L2）：日线区 open；分钟线区 τ 网格 / 按钟。状态条对齐日 K / 5m 强更。 */
 
 import { setProStatusChip } from "./factor_corr_ui.js";
 import {
@@ -276,8 +276,8 @@ function installMaterializeRunner(q, cfg) {
       tone: "warn",
       errText,
       hint: tau
-        ? "可再次点击「物化 L1/L2」"
-        : "可再次点击「物化 L1/L2」重试",
+        ? "可再次点击「物化特征（L1/L2）」"
+        : "可再次点击「物化特征（L1/L2）」重试",
     });
   }
 
@@ -289,7 +289,7 @@ function installMaterializeRunner(q, cfg) {
     const warn = String(st.reason || "").trim();
     btn.title = ok
       ? warn ||
-        "物化 L1/L2：训练网格 tc_HHMM + 按钟 Cube（依赖本地 5m）。不训模型、不出 ŷ。"
+        "物化特征（L1/L2）：训练网格 tc_HHMM + 按钟 Cube（依赖本地 5m）。不训模型、不出 ŷ。"
       : warn || "观察池不足，无法物化 τ";
   }
 

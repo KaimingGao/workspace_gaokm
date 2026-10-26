@@ -32,48 +32,12 @@ HORIZON_PROMOTE_MIN_N_TEST = 80
 HORIZON_PROMOTE_MIN_AUC = 0.52
 HORIZON_PROMOTE_MIN_ACC = 0.52
 HORIZON_P_CLIP = 1e-6
-HORIZON_ENTER_MAX = 0.7
 HORIZON_VOTE_MARGIN_PP = 5.0  # 默认弃权带宽（百分点）
 HORIZON_VOTE_MARGIN_PP_MAX = 20.0
 HORIZON_VOTE_MARGIN = 0.05  # = PP/100；|p_up−mid|≤此值不投票
 HORIZON_VOTE_MIDPOINT_PP = 50.0  # ŷ_τ* 共用中位点（百分点）
 HORIZON_VOTE_MIDPOINT = 0.50  # = PP/100
 LOGIT_CLIP = 30.0
-
-HORIZON_STRONG_KEYS = (
-    "y_t30_strong",
-    "y_τ30_strong",
-    "y_t45_strong",
-    "y_τ45_strong",
-    "y_t60_strong",
-    "y_τ60_strong",
-    "y_t75_strong",
-    "y_τ75_strong",
-    "y_t90_strong",
-    "y_τ90_strong",
-)
-HORIZON_ENTER_KEYS = (
-    "y_t30_enter",
-    "y_τ30_enter",
-    "y_t30_enter_alt",
-    "y_τ30_enter_alt",
-    "y_t45_enter",
-    "y_τ45_enter",
-    "y_t45_enter_alt",
-    "y_τ45_enter_alt",
-    "y_t60_enter",
-    "y_τ60_enter",
-    "y_t60_enter_alt",
-    "y_τ60_enter_alt",
-    "y_t75_enter",
-    "y_τ75_enter",
-    "y_t75_enter_alt",
-    "y_τ75_enter_alt",
-    "y_t90_enter",
-    "y_τ90_enter",
-    "y_t90_enter_alt",
-    "y_τ90_enter_alt",
-)
 
 
 def _f(v: Any) -> Optional[float]:
@@ -1350,28 +1314,3 @@ def train_eval_horizon_prob(
         "research_model": research,
         "y_label_mean": y_mean_pct,
     }
-
-
-def migrate_horizon_gate_cfg(cfg: Dict[str, Any]) -> None:
-    """旧幅度闸 → 概率闸。strong∈(0,1)→0；enter∈(0,0.5) 或 >0.7→0。"""
-    if not isinstance(cfg, dict):
-        return
-    for k in HORIZON_STRONG_KEYS:
-        v = _f(cfg.get(k))
-        if v is None:
-            continue
-        if 0.0 < float(v) < 1.0 - 1e-12:
-            cfg[k] = 0.0
-        else:
-            cfg[k] = 1.0 if float(v) >= 1.0 - 1e-12 else 0.0
-    for k in HORIZON_ENTER_KEYS:
-        v = _f(cfg.get(k))
-        if v is None:
-            continue
-        x = float(v)
-        if x <= 0.0:
-            cfg[k] = 0.0
-        elif x < 0.5 - 1e-12 or x > HORIZON_ENTER_MAX + 1e-12:
-            cfg[k] = 0.0
-        else:
-            cfg[k] = max(0.5, min(x, HORIZON_ENTER_MAX))

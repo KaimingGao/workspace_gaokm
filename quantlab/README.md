@@ -88,7 +88,7 @@ Input (State) → Policy (Model) → Action (Tool) → Reward (Feedback) → Upd
 |------|------|
 | 信号 / 策略 | 评分、买卖倾向、规则调仓（`core/signal` · `advise` · 模拟调仓） |
 | 研究台 ŷ | ŷ_oo / ŷ_τc / ŷ_co；ŷ_τ30…90 **同窗双训 LightGBM + Ridge**（Holdout AUC 择优）；做 T 用 ŷ_τw |
-| 物化 L1/L2 | 日线/分钟 **Feature Lake + DayCube**；产品拟合/回测只读，缺覆盖返回 `materialize_required` |
+| 物化特征（L1/L2） | 日线/分钟 **Feature Lake + DayCube**；产品拟合/回测只读，缺覆盖返回 `materialize_required` |
 | 回测 / 模拟 | Web **回溯**（调仓 · 做 T）；Web **模拟**（假钱账本 · 出处标记 · 成本模型） |
 | 观察 | Web **观察**（名单 + 现价 / 涨跌 + 舆情；建仓入口） |
 | AI 辅助 | 自然语言问价/对比/分析；Agent 编排 Skills |
@@ -234,7 +234,7 @@ bash scripts/setup_quant.sh   # watching.json 不存在时，从 watching.exampl
 python3 run_web.py            # → http://127.0.0.1:8000
 ```
 
-第一次回测建议先按 [getting-started.md](docs/getting-started.md) 写成 3 只，在研究枢纽 **拉日线 / 5m →（窗头需要时）物化 L1/L2 → 拟合并启用研究套** 后再跑。直接用模板整池，拉数、物化和拟合都会很久；满池双训内存压力大，宜单任务跑、勿与整池分钟预热并行。行情、观察、回测、模拟账户不依赖 API key。Web 侧栏：**研究枢纽 · 历史回测**。
+第一次回测建议先按 [getting-started.md](docs/getting-started.md) 写成 3 只，在研究枢纽 **拉日线 / 5m →（窗头需要时）物化特征（L1/L2） → 拟合并启用研究套** 后再跑。直接用模板整池，拉数、物化和拟合都会很久；满池双训内存压力大，宜单任务跑、勿与整池分钟预热并行。行情、观察、回测、模拟账户不依赖 API key。Web 侧栏：**研究枢纽 · 历史回测**。
 
 不想连外网、也不配 key 时，先跑离线校验：
 

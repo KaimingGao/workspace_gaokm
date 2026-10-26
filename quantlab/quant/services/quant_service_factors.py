@@ -2411,7 +2411,7 @@ class QuantFactorMixin:
                 "success": False,
                 "error": (
                     f"无可用面板（L1 未命中且无本地分钟缓存 period={period} · 池 {len(codes)} 只）；"
-                    "请先「分钟线物化 L1/L2」或「强更 5m（L0）」"
+                    "请先分钟线「物化特征（L1/L2）」或「强更 5m（L0）」"
                 ),
                 "task": task,
                 "minute_period": period,
@@ -3085,7 +3085,7 @@ class QuantFactorMixin:
         progress_cb: Optional[Any] = None,
         cancel_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """同步物化 L1/L2（可选 τ 网格 L1）。L1 与 open L2 共用 ``lookback``。"""
+        """同步物化特征（L1/L2）（可选 τ 网格 L1）。L1 与 open L2 共用 ``lookback``。"""
         from core.data.policy import BARS_DAILY_LOOKBACK
         from core.research.materialize import run_materialize
 
@@ -3112,7 +3112,7 @@ class QuantFactorMixin:
         lookback: Optional[int] = None,
         watching_limit: int = WATCHING_MAX_SIZE,
     ) -> Dict[str, Any]:
-        """后台 Job：物化 L1/L2；轮询 ``GET /api/jobs/materialize-l1l2``。"""
+        """后台 Job：物化特征（L1/L2）；轮询 ``GET /api/jobs/materialize-l1l2``。"""
         import threading
 
         from core.data.policy import BARS_DAILY_LOOKBACK

@@ -994,19 +994,19 @@ def materialize_required_tau_l1_payload(
     hit_rate = (float(l1_n) / float(attempted)) if attempted else None
     reason_s = str(reason or "cold").strip() or "cold"
     if reason_s == "probe_failed":
-        error = "请先分钟线物化 L1/L2：τ 网格 L1 覆盖探测失败（fail-closed，未开 5m 回退）"
+        error = "请先分钟线物化特征（L1/L2）：τ 网格 L1 覆盖探测失败（fail-closed，未开 5m 回退）"
     elif reason_s == "lake_disabled":
-        error = "请先分钟线物化 L1/L2：Feature Lake 未启用，无法 stitch τ 网格 L1"
+        error = "请先分钟线物化特征（L1/L2）：Feature Lake 未启用，无法 stitch τ 网格 L1"
     elif reason_s in ("low_hit", "early_abort"):
         pct = f"{hit_rate:.0%}" if hit_rate is not None else "?"
         error = (
-            f"请先分钟线物化 L1/L2：建面板 L1 命中仅 {pct}"
+            f"请先分钟线物化特征（L1/L2）：建面板 L1 命中仅 {pct}"
             f"（L1={l1_n} · 5m回退={rebuild}；指纹/价旁路不足）"
         )
     else:
         pct = f"{rate_f:.0%}" if rate_f is not None else "?"
         error = (
-            f"请先分钟线物化 L1/L2：τ 网格 L1 热覆盖约 {pct}"
+            f"请先分钟线物化特征（L1/L2）：τ 网格 L1 热覆盖约 {pct}"
             "（缺 M/price_tau* 或分片不足，无法免读 5m）"
         )
     return {
@@ -1071,7 +1071,7 @@ def probe_tau_grid_l1_coverage(
     }
     if not lake_on or not code_list or not clocks:
         out["hint"] = (
-            "Feature Lake 关闭或网格为空；产品拟合将阻断，请先分钟线物化 L1/L2"
+            "Feature Lake 关闭或网格为空；产品拟合将阻断，请先分钟线物化特征（L1/L2）"
         )
         return out
     cap = max(1, min(int(sample_n or 40), len(code_list)))
@@ -1106,7 +1106,7 @@ def probe_tau_grid_l1_coverage(
     if cold:
         hint = (
             f"τ 网格 L1 热覆盖约 {rate:.0%}（抽样 {len(sample)}×{len(clocks)}）；"
-            "请先跑「分钟线物化 L1/L2」（产品拟合将阻断）"
+            "请先跑「分钟线物化特征（L1/L2）」（产品拟合将阻断）"
         )
     elif rate < 0.9:
         hint = (

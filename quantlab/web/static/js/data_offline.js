@@ -2,8 +2,8 @@
  * 数据中心 / 交易执行共用：是否允许显式增量补齐写本地仓。
  *
  * localStorage ``quantlab.data_offline_only``：缺省 ``1``（仅本地仓）。
- * - 开（仅本地仓）：不触发增量补齐；ŷ 读已物化 L1/L2
- * - 关（可拉远端）：先走研究枢纽同源「增量补齐」写日K/5m；ŷ 读已物化 L1/L2
+ * - 开（仅本地仓）：不触发增量补齐；ŷ 读已物化特征
+ * - 关（可拉远端）：先走研究枢纽同源「增量补齐」写日K/5m；ŷ 读已物化特征
  *
  * ŷ 读取永远 ``offline_only=1``（见 offlineOnlyQuery）；禁止评分旁路拉网落盘。
  * 不含：观察名单维护、现价/浮盈行情、做T Worker 盯盘。
@@ -71,7 +71,7 @@ export function installDataOfflineToggle(input, opts = {}) {
 }
 
 /**
- * ŷ / insights / 持仓分 / 预演调仓：读已物化 L1/L2，不旁路拉网。
+ * ŷ / insights / 持仓分 / 预演调仓：读已物化特征，不旁路拉网。
  * 写仓请走 ``ensureWarehouseTopup``（可拉远端时）。
  */
 export function offlineOnlyQuery() {

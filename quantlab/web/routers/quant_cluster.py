@@ -53,7 +53,7 @@ def quant_materialize_catalog() -> Dict[str, Any]:
 
 @router.post("/api/quant/materialize")
 def quant_materialize(body: MaterializeRequest) -> Dict[str, Any]:
-    """独立物化 L1/L2；默认后台 Job（``GET /api/jobs/materialize-l1l2``）。"""
+    """独立物化特征（L1/L2）；默认后台 Job（``GET /api/jobs/materialize-l1l2``）。"""
     kwargs = dict(
         families=list(body.families or []),
         clocks=list(body.clocks or []),

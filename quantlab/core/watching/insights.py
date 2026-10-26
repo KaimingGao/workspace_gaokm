@@ -734,21 +734,6 @@ def _enrich_book_insight_display_fields(
         _apply_excess_label(out, None, item)
 
 
-class _LakeScoreView:
-    """L1 行经过截面重打分后，凑成 ``_insight_one`` 原来读的 result 形状。"""
-
-    def __init__(self, item: dict):
-        self.item = dict(item or {})
-        self.rank_key = self.item.get("score") or self.item.get("predicted_score")
-        self.predicted_score = self.item.get("predicted_score")
-        self.production_ok = True
-        self.gate_reason = None
-        self.scale = self.item.get("score_scale")
-
-    def as_dict(self) -> Dict[str, Any]:
-        return {"success": True, "signal_item": self.item, "quote": {}}
-
-
 def _insight_one(
     code: str,
     *,
@@ -756,9 +741,8 @@ def _insight_one(
     valuation: Optional[Dict[str, Optional[float]]] = None,
     paper_ctx: Optional[dict] = None,
     offline_only: bool = True,
-    lake_item: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """单票轻量摘要。产品路径传入 ``lake_item`` 时不再 ``score_one``。
+    """单票轻量摘要。产品列表走 ``_project_lake_insight``，这里只给消费开关关闭时用。
 
     表列 ŷ 为 09:30–10:00 调仓因果前缀（``use_minute_tau=True``）。
     """
@@ -767,23 +751,19 @@ def _insight_one(
     try:
         from core.signal.service import get_default_signal_service
 
-        if lake_item is not None:
-            result = _LakeScoreView(lake_item)
-        else:
-            # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
-            result = get_default_signal_service().score_one(
-                code,
-                horizon_days=_scoring_horizon_days(),
-                skip_fundamentals=True,
-                skip_sentiment=True,
-                offline_only=use_offline,
-                quote_timeout=5.0 if use_offline else 8.0,
-                use_minute_tau=True,
-            )
+        # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
+        result = get_default_signal_service().score_one(
+            code,
+            horizon_days=_scoring_horizon_days(),
+            skip_fundamentals=True,
+            skip_sentiment=True,
+            offline_only=use_offline,
+            quote_timeout=5.0 if use_offline else 8.0,
+            use_minute_tau=True,
+        )
         scored = result.as_dict()
         quote = (scored or {}).get("quote") or {}
-        # 湖出分列表：行情列另走 quotes。这里按票读日线会让每次刷新扫完整池。
-        if lake_item is None and not quote:
+        if not quote:
             quote, _bars = _insight_quote_bars(code, offline_only=use_offline)
         item = dict(result.item or {})
         o = _f((quote or {}).get("open_raw"))
@@ -866,9 +846,7 @@ def _insight_one(
             except Exception:  # noqa: BLE001
                 logger.debug("insight cycle day failed", exc_info=True)
         tau_stale = bool(sess and len(tau_asof) >= 10 and tau_asof < sess)
-        if lake_item is not None:
-            _finalize_insight_trade_fields(out)
-        elif (
+        if (
             not _is_heuristic_score_scale(out)
             and (out.get("predicted_score_eod_rem") is None or tau_stale)
         ):
@@ -945,7 +923,7 @@ def _insight_one(
             rs = _f((item.get("sub_scores") or {}).get("relative_strength"))
             if rs is not None:
                 out["excess_label"] = "RS" + str(int(round(rs)))
-        if lake_item is None and (
+        if (
             out.get("volume_ratio") is None
             or (
                 out.get("excess_return_pct") is None
@@ -1146,7 +1124,6 @@ def build_watching_insights(
                         valuation=valuation_by.get(key),
                         paper_ctx=paper_ctx,
                         offline_only=use_offline,
-                        lake_item=None if lake_by is None else lake_by.get(c),
                     )
                 ] = c
         try:

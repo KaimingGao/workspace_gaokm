@@ -1755,7 +1755,7 @@ class HorizonL1StitchTests(unittest.TestCase):
                 "n_slots": 36,
                 "cold": True,
                 "probe_ok": True,
-                "hint": "τ 网格 L1 热覆盖约 0%；请先跑「分钟线物化 L1/L2」",
+                "hint": "τ 网格 L1 热覆盖约 0%；请先跑分钟线「物化特征（L1/L2）」",
                 "lake_enabled": True,
             },
         ), mock.patch(

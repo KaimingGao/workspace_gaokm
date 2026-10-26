@@ -1082,20 +1082,6 @@ def resolve_direction_y_tau(scores: Optional[dict]) -> Optional[float]:
     return None
 
 
-def _tau_path_same_sign(
-    y_tau: Optional[float],
-    y_path: Optional[float],
-    *,
-    sign_eps: float = 1e-9,
-) -> bool:
-    """y_τ 与 y_hl 同号（均非零）。旧成交对照用。"""
-    if y_tau is None or y_path is None:
-        return False
-    if abs(float(y_tau)) <= sign_eps or abs(float(y_path)) <= sign_eps:
-        return False
-    return (float(y_tau) > 0) == (float(y_path) > 0)
-
-
 def _minute_pack_present(feats: Optional[dict]) -> bool:
     """features_tau 是否已含分钟小包（至少 ret_open_to_tau）。"""
     if not isinstance(feats, dict):

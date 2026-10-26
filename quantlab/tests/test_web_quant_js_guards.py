@@ -2415,7 +2415,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         # 分钟脚注 Downstream 已收进面板文案；JS 不再硬编码 ŷ_τc / ŷ_τ*
         self.assertNotIn("ŷ_τc / ŷ_τ*", minute)
         self.assertIn("下游 ŷ_τc", panel)
-        self.assertIn("物化 L1/L2（τ 网格）", panel)
+        self.assertIn("物化特征（L1/L2 · τ 网格）", panel)
+        self.assertIn("物化特征（L1/L2）", panel)
 
     def test_follow_panel_nc_terminology(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")

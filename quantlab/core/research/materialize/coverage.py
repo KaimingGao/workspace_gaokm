@@ -414,7 +414,7 @@ def assess_coverage(
         req_clks = ["open"]
     elif has_minute and not has_open:
         hint = "分钟线物化"
-        lead = "请先分钟线物化 L1/L2"
+        lead = "请先分钟线物化特征（L1/L2）"
         do_l1, do_tau = False, True
         req_fams = []
         req_clks = _dedupe_clocks(
@@ -427,14 +427,14 @@ def assess_coverage(
         )
     elif has_open and not has_minute:
         hint = "日线物化"
-        lead = "请先日线物化 L1/L2"
+        lead = "请先日线物化特征（L1/L2）"
         do_l1, do_tau = True, False
         req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_FAMILIES[:3])
         req_clks = ["open"]
     else:
         # 混缺：一键参数两阶段都开
         hint = "分钟线物化"
-        lead = "请先物化 L1/L2（日线 open + 分钟 τ）"
+        lead = "请先物化特征（L1/L2）（日线 open + 分钟 τ）"
         do_l1, do_tau = True, True
         req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_FAMILIES[:3])
         req_clks = _dedupe_clocks(clks) or ["open"]

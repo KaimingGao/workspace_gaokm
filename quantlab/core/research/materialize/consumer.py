@@ -100,7 +100,7 @@ class MaterializeRequired(Exception):
         self.payload.setdefault("error_code", "materialize_required")
         self.payload.setdefault("success", False)
         self.payload.setdefault("ok", False)
-        super().__init__(str(self.payload.get("error") or "请先物化 L1/L2"))
+        super().__init__(str(self.payload.get("error") or "请先物化特征（L1/L2）"))
 
     def __reduce__(self):
         # 进程池按 BaseException.args 还原。args 只剩错误文案，

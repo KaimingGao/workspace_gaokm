@@ -255,7 +255,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        两块：日 K 仓（增量补齐 / 强更日 K）· 物化 L1/L2（open）· 调度 bars_warmup · ≠「刷新 watching」· 下游 ŷ_oo / OLS
+        两块：日 K 仓（增量补齐 / 强更日 K）· 物化特征（L1/L2 · open）· 调度 bars_warmup · ≠「刷新 watching」· 下游 ŷ_oo / OLS
       </p>
     </header>
     <div class="quant-bars-panels">
@@ -364,7 +364,7 @@
         </details>
       </div>
     </div>
-    <div class="dashboard-card quant-pro-card quant-bars-mat-card quant-bars-panel-l1" aria-label="日线物化 L1/L2">
+    <div class="dashboard-card quant-pro-card quant-bars-mat-card quant-bars-panel-l1" aria-label="日线物化特征（L1/L2）">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-materialize-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
           <span id="quant-materialize-chip" class="quant-pro-status-chip" data-state="idle">L1/L2</span>
@@ -381,7 +381,7 @@
             </div>
           </details>
           <button type="button" id="quant-materialize-run" class="dialog-btn warn" title="日线后物化 open L1（oo/tc/co）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">
-            物化 L1/L2
+            物化特征（L1/L2）
           </button>
         </div>
       </div>
@@ -398,7 +398,7 @@
       <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
         <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
         <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-          两块：5m 仓（增量补齐 / 强更 5m）· 物化 L1/L2（τ 网格）· 调度 minute_warmup · 下游 ŷ_τc / 调仓 / 做T
+          两块：5m 仓（增量补齐 / 强更 5m）· 物化特征（L1/L2 · τ 网格）· 调度 minute_warmup · 下游 ŷ_τc / 调仓 / 做T
         </p>
       </summary>
     <div class="quant-bars-panels">
@@ -486,7 +486,7 @@
         </details>
       </div>
     </div>
-    <div class="dashboard-card quant-pro-card quant-minute-mat-card quant-bars-panel-l1" aria-label="分钟线物化 L1/L2">
+    <div class="dashboard-card quant-pro-card quant-minute-mat-card quant-bars-panel-l1" aria-label="分钟线物化特征（L1/L2）">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-minute-materialize-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
           <span id="quant-minute-materialize-chip" class="quant-pro-status-chip" data-state="idle">L1/L2</span>
@@ -503,7 +503,7 @@
             </div>
           </details>
           <button type="button" id="quant-minute-materialize-run" class="dialog-btn warn" title="按训练网格写 tc_HHMM L1（须 5m Ready）并物化按钟 L2。不训模型、不出 ŷ。" disabled>
-            物化 L1/L2
+            物化特征（L1/L2）
           </button>
         </div>
       </div>

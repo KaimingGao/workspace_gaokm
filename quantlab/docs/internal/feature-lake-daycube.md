@@ -109,7 +109,7 @@ L2  DayCube          date × universe_id × clock
 
 载荷：`X[n,p]`、`dates[n]`、可选 `y[n]`；可选 `M[n,m]`（`price_tau*` 等行级 meta，不进 L2）；meta 含 `fingerprint`、`names`、`m_names`。
 
-**ŷ_τ* 拟合与 L1（H6）**：建面板优先 `hz_*` → 按钟 stitch `tc_HHMM`（日线 `bars_fp`，不吃 5m）→ 未命中再读本地分钟现算。拟合窗与物化窗末日不同时，只留双方都有、且仍是湖序列真后缀的日期（含 `M`/`price_tau*`）。单钟损坏或列序不同则跳过该钟，命中钟数过半才算这只股票的 L1。进度文案：`L1命中… · 5m回退…`。入模列留在 float64 矩阵里。面板数据超过 3GB，或进程当前占用超过机器内存约六成时，任务停在「内存保护」并放掉已建面板。产品消费路径 **fail-closed**：`l1_tau_coverage` cold / 探测失败 / 湖关闭 → `materialize_required`；建面板实际 L1 命中 ≤50%（含指纹 miss 导致大面积 5m）提前或收尾阻断，避免热探测误放行后整池啃 5m。脚本/单测未开只读仍可回退。旧含分钟指纹、或无 `M` 的 τ 网格 L1 会 miss，须重跑「分钟线物化 L1/L2」。
+**ŷ_τ* 拟合与 L1（H6）**：建面板优先 `hz_*` → 按钟 stitch `tc_HHMM`（日线 `bars_fp`，不吃 5m）→ 未命中再读本地分钟现算。拟合窗与物化窗末日不同时，只留双方都有、且仍是湖序列真后缀的日期（含 `M`/`price_tau*`）。单钟损坏或列序不同则跳过该钟，命中钟数过半才算这只股票的 L1。进度文案：`L1命中… · 5m回退…`。入模列留在 float64 矩阵里。面板数据超过 3GB，或进程当前占用超过机器内存约六成时，任务停在「内存保护」并放掉已建面板。产品消费路径 **fail-closed**：`l1_tau_coverage` cold / 探测失败 / 湖关闭 → `materialize_required`；建面板实际 L1 命中 ≤50%（含指纹 miss 导致大面积 5m）提前或收尾阻断，避免热探测误放行后整池啃 5m。脚本/单测未开只读仍可回退。旧含分钟指纹、或无 `M` 的 τ 网格 L1 会 miss，须重跑「分钟线物化特征（L1/L2）」。
 
 API 要点：
 
@@ -199,8 +199,8 @@ panel meta 额外写入：
 **定位**：L1 = 票级 raw（+y）；L2 = 日截面增广（μ/σ、slim），**不取代 L1**。
 
 ```text
-日线更新 → 日线「物化 L1/L2」（oo/tc/co/oo_rank/tc_rank · open Cube + slim）
-分钟 Ready → 分钟线「物化 L1/L2」（tc_HHMM 网格 · 按钟 Cube；oo/co 可空）
+日线更新 → 日线「物化特征（L1/L2）」（oo/tc/co/oo_rank/tc_rank · open Cube + slim）
+分钟 Ready → 分钟线「物化特征（L1/L2）」（tc_HHMM 网格 · 按钟 Cube；oo/co 可空）
   → 调仓回测 / ŷ_oo 拟合 / 出分：硬要 oo + open
   → 做 T 回测 / 盘中 ŷ_τw（≥09:35）：硬要 tc_HHMM + 同钟 Cube
 ```
@@ -235,7 +235,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 **轻量前缀**：`rescore_scores_at_fixed_prefix` 在 `open_snap` 已有分时跳过整票 `resolve_scores_for_code`（`_score_source=prefix_light`），只注入分钟包并重算辅头。开轮与 `close_band_scan` 经 `prefix_snaps_by_hm` 复用同 hm 前缀，避免二算。
 
-**按钟 L2 / τ 网格 L1**：分钟线 Ready 后点「物化 L1/L2」；`do_l1_tau_grid` + `suggested_tau_clocks`；无对应 L1 则跳过该日。
+**按钟 L2 / τ 网格 L1**：分钟线 Ready 后点「物化特征（L1/L2）」；`do_l1_tau_grid` + `suggested_tau_clocks`；无对应 L1 则跳过该日。
 
 **OOS 口径**：`predict_ridge_matrix` / `predict_p_up_rows` 经 `cs_z_*_prefer_cube` 与训练同读 L2（只用 Cube）。
 
@@ -381,7 +381,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | M3 | 按钟 L2 / OOS 与训练同吃 L2；τ UI 已迁分钟线 | ✅ |
 | M4 | 拟合主路径统一 `cs_z_*_prefer_cube`（oo/τc/co/ŷ_τ*/LGB） | ✅ |
 | H0 | 契约：`horizon_names` / catalog `tau_grid` | ✅ |
-| H1 | `materialize_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
+| H1 | `materialize_l1_tau_grid`；分钟线「物化特征（L1/L2）」 | ✅ |
 | H2 | L2 按钟 `require_horizon_names` + UI 联动 | ✅ |
 | H3 | 禁静默 open + 窗头 stitch L1（`horizon_l1.try_stitch_horizon_l1_panel`） | ✅ |
 | H4 | live `_cs_z_horizon_feats`：τ Cube 有列先套 μ/σ，缺列再 leave-one-in | ✅ |
@@ -405,8 +405,8 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 1. **日线**：研究枢纽增量补齐（或强更）。  
 2. **分钟**：做 T / ŷ_τ* 须 5m Ready（增量或强更）。  
 3. **物化**（手动）  
-   - **日线**「物化 L1/L2」：oo/tc/co + open L2；  
-   - **分钟线** Ready 后「物化 L1/L2」：τ 网格 `tc_HHMM` + 按钟 Cube（Ready 不足禁用）。  
+   - **日线**「物化特征（L1/L2）」：oo/tc/co + open L2；  
+   - **分钟线** Ready 后「物化特征（L1/L2）」：τ 网格 `tc_HHMM` + 按钟 Cube（Ready 不足禁用）。  
 4. **可选**：`export QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1`（Cube miss 禁止 bars 冷建）。  
 5. **重拟合**：ŷ_oo → ŷ_τc / ŷ_co → 窗头 ŷ_τ30…τ90（及排序头）。  
 6. **回测**：做 T / 调仓 replay；tip 各钟不应塌常数；日志 `horizon cs-z cube hit … clock=τ`（非一律 open）。
@@ -471,7 +471,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 层 | 现状 |
 |----|------|
 | 拟合分组 | `date|τ` PIT；窗头优先 stitch L1，miss 才全量 5m |
-| L1 | open `tc` + 分钟线「物化 L1/L2」写 `tc_HHMM`（τc∪窗头列） |
+| L1 | open `tc` + 分钟线「物化特征（L1/L2）」写 `tc_HHMM`（τc∪窗头列） |
 | L2 | 日线物化 open；分钟线物化按钟（`require_horizon_names`，**不含 open**）；窗头网格自 09:35；`date|τ` 禁静默 open |
 | live | `_cs_z_horizon_feats`：τ Cube 有的列先套 μ/σ，缺列再同钟 L1 / leave-one-in（不读 open）。键协议见 [daycube-universe-key.md](./daycube-universe-key.md) |
 | 物化 UI | 日线 open · 分钟线 τ（Ready 门控；仅手动） |
@@ -527,7 +527,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | **H0** | 契约：`horizon_l1_feature_names` / catalog `tau_grid` | ✅ |
-| **H1** | `materialize_l1_tau_grid` + API `do_l1_tau_grid`；分钟线「物化 L1/L2」 | ✅ |
+| **H1** | `materialize_l1_tau_grid` + API `do_l1_tau_grid`；分钟线「物化特征（L1/L2）」 | ✅ |
 | **H2** | L2 `require_horizon_names`；按钟 Cube + 矩阵 CS enrich（open/分钟） | ✅ |
 | **H3** | `date\|τ` 禁静默 open；窗头 `build_tau` 优先 stitch L1，relabel 分钟补标签 | ✅ |
 | **H4** | live `_cs_z_horizon_feats`：τ 不静默 open；有列先套 μ/σ，缺列 leave-one-in | ✅ |
@@ -540,8 +540,8 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | `POST /api/quant/materialize` | 增 `do_l1_tau_grid: bool`；`clocks` 已支持；families 不变 |
 | catalog | `suggested_tau_clocks`；`flags`；说明「τ 网格 L1 须分钟 Ready」 |
 | Job 槽 `materialize-l1l2` | stale/stuck **5400s**；`allow_zero_progress`（宏步钉 current=0 不按零进展误杀）；`try_start` 原子开槽；L2 跳过整池 Feature Lake prefetch |
-| 日线卡 | 两块：L0 日 K 仓 + 物化卡「物化 L1/L2」= open L1（oo/tc/co）+ open Cube |
-| 分钟线卡 | 两块：L0 5m 仓 + 物化卡 Ready 后「物化 L1/L2」= τ 网格 L1 + 按钟 Cube |
+| 日线卡 | 两块：L0 日 K 仓 + 物化卡「物化特征（L1/L2）」= open L1（oo/tc/co）+ open Cube |
+| 分钟线卡 | 两块：L0 5m 仓 + 物化卡 Ready 后「物化特征（L1/L2）」= τ 网格 L1 + 按钟 Cube |
 | τ 网格进度 | 文案 `L1 τ 网格 HH:MM（k/N）`：`N`=`suggested_tau_clocks` 钟数（默认 **18**=09:35…11:00 每 5m，不含 open/09:30）；Job `current/total` 仍钉宏步（如 0/2） |
 | 状态条 | L0 与物化各有 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn） |
 | 刷新接管 | 页加载 **先** `resumeIfRunning`（物化条）**再** `refreshStatus`（L0 覆盖），未接管再 `syncJobSlot`；**running** 后台挂 wait；**7 天内 done**（按 open/τ kind）与 **6h 内 failed** 重画状态条；`clearJobPanels` 清 sticky |
