@@ -166,6 +166,9 @@ def replay_sell_fill_px(
 def _sell_fill_fallback_note(clock: str, src: str) -> str:
     if not src or src == "clock":
         return ""
+    # 09:30 成交钟故意不读 5m（首根标 09:35），日开盘就是成交价，不是缺分钟。
+    if src == "daily_open" and str(clock or "")[:5] == "09:30":
+        return ""
     if src == "daily_open":
         return f"缺{clock}回退日开盘"
     return f"缺{clock}回退{src}"

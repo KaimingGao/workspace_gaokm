@@ -279,21 +279,9 @@ class QuantReplayMixin:
             name_by_code: Dict[str, str] = {}
             if exclude_st:
                 try:
-                    from core.watching.store import read_watching
+                    from core.backtest.universe_filters import st_filter_name_map
 
-                    w = read_watching() or {}
-                    wl = list(w.get("watchlist") or [])
-                    names = list(w.get("watchlist_names") or [])
-                    for i, raw in enumerate(wl):
-                        code = str(raw or "").strip()
-                        digits = "".join(ch for ch in code if ch.isdigit())
-                        key = digits if len(digits) == 6 else code
-                        if not key:
-                            continue
-                        nm = str(names[i] if i < len(names) else "").strip()
-                        if nm:
-                            name_by_code[key] = nm
-                            name_by_code[code] = nm
+                    name_by_code = st_filter_name_map()
                 except Exception:  # noqa: BLE001
                     logger.debug(
                         "watching names for ST filter failed", exc_info=True

@@ -28,6 +28,33 @@ class TestUniverseFiltersSt(unittest.TestCase):
         self.assertFalse(meta.get("allow_live_names"))
         self.assertEqual(len(dropped), 1)
 
+    def test_empty_saved_name_uses_local_code_map_for_st(self):
+        watching = {
+            "watchlist": ["000610", "000001"],
+            "watchlist_names": ["", "平安银行"],
+        }
+        with patch(
+            "core.t0.intraday._load_a_code_name_map",
+            return_value={"000610": "*ST西旅", "000001": "平安银行"},
+        ):
+            from core.backtest.universe_filters import st_filter_name_map
+
+            names = st_filter_name_map(watching)
+        self.assertIn("ST", str(names.get("000610") or "").upper())
+        kept, dropped, meta = filter_universe_bars(
+            {
+                "000610": [{"date": "2026-01-01", "close": 10, "volume": 1}],
+                "000001": [{"date": "2026-01-01", "close": 10, "volume": 1}],
+            },
+            exclude_st=True,
+            name_by_code=names,
+            allow_live_names=False,
+        )
+        self.assertNotIn("000610", kept)
+        self.assertIn("000001", kept)
+        self.assertEqual(meta["dropped_count"], 1)
+        self.assertEqual(len(dropped), 1)
+
     def test_missing_name_kept_when_offline(self):
         bars = {"000002": [{"date": "2026-01-01", "close": 10, "volume": 1}]}
         with patch("core.data.facade.get_quote") as gq:

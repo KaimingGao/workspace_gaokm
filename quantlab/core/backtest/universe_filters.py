@@ -12,6 +12,35 @@ def _is_st_name(name: str) -> bool:
     return "ST" in n or "退" in str(name or "")
 
 
+def st_filter_name_map(watching: Optional[dict] = None) -> Dict[str, str]:
+    """剔 ST 用的代码→名称。
+
+    与成交行盖名同源：落盘名优先，空名用本地码表（``a_code_name``）补，不打行情。
+    只读 ``watchlist_names`` 平行数组会漏掉空槽，码表里已是 ``*ST`` 的票会进回测。
+    """
+    if watching is None:
+        from core.watching.store import read_watching
+
+        watching = read_watching() or {}
+    data = watching if isinstance(watching, dict) else {}
+    wl = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]
+    if not wl:
+        return {}
+    from core.watching.store import watchlist_names_for
+
+    names = watchlist_names_for(data, allow_live=False)
+    out: Dict[str, str] = {}
+    for i, raw in enumerate(wl):
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        key = digits if len(digits) == 6 else raw
+        nm = str(names[i] if i < len(names) else "").strip()
+        if not key or not nm:
+            continue
+        out[key] = nm
+        out[raw] = nm
+    return out
+
+
 def _avg_amount(bars: List[dict], *, tail: int = 20) -> Optional[float]:
     from core.bar_fields import bar_amount
 

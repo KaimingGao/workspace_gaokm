@@ -2240,6 +2240,13 @@ class TestReplayMinuteFill(unittest.TestCase):
         self.assertAlmostEqual(px3, 100.0)
         self.assertEqual(src3, "daily_open")
 
+    def test_0930_daily_open_is_not_labeled_as_missing_minute(self):
+        from core.backtest.replay_fill import _sell_fill_fallback_note
+
+        self.assertEqual(_sell_fill_fallback_note("09:30", "daily_open"), "")
+        self.assertIn("回退日开盘", _sell_fill_fallback_note("09:40", "daily_open"))
+        self.assertIn("回退09:45", _sell_fill_fallback_note("09:40", "09:45"))
+
     def test_engine_fills_at_935_close(self):
         stock_bars = {
             "600519": _bars__paper_replay(16, step=0.5),
