@@ -574,6 +574,16 @@ def rank_key_field(*, config: Optional[dict] = None) -> str:
     return "predicted_score_blend"
 
 
+def _finite_score(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
 def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) -> Optional[float]:
     """排序键：y_oo_fuse（τ→open[T+1] 基准）。
 
@@ -588,8 +598,8 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
     eod_next = str(item.get("dual_score_window") or "") == "eod_next"
 
     if eod_next:
-        # 收盘后：τ 侧剥离，只用 ŷ_oo
-        return resolve_predicted_score_oo(item)
+        # 收盘后：τ 侧剥离，只用有限的 ŷ_oo。NaN 不进排序。
+        return _finite_score(resolve_predicted_score_oo(item))
 
     # 盘中：优先用 y_oo_fuse（τ→open[T+1] 基准，现算）
     try:
@@ -628,13 +638,14 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
         return stored_f
     try:
         b = compute_predicted_score_blend(item, config=config)
-        if b is not None:
-            return float(b)
+        scored = _finite_score(b)
+        if scored is not None:
+            return scored
     except Exception:  # noqa: BLE001
         logger.debug("rank_key blend fallback failed", exc_info=True)
 
-    # 最终回退：ŷ_oo
-    return resolve_predicted_score_oo(item)
+    # 最终回退：有限的 ŷ_oo
+    return _finite_score(resolve_predicted_score_oo(item))
 
 
 def resolve_tau_buy_floor_for_pool(

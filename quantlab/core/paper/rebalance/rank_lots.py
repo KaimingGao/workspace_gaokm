@@ -1204,7 +1204,9 @@ def plan_rank_lot_day(
     fuse_strong = _cfg_fuse_threshold(cfg, "fuse_strong", DEFAULT_FUSE_STRONG)
     enter_cfg = cfg
     fuse_strong_eff = fuse_strong
-    cash_floor = float(cfg.get("cash_floor") or 0.0)
+    cash_floor = _f(cfg.get("cash_floor")) or 0.0
+    if cash_floor < 0 or cash_floor == float("inf"):
+        cash_floor = 0.0
     try:
         mv_cap = float(cfg.get("holdings_mv_cap") or 0.0)
     except (TypeError, ValueError):
@@ -1212,7 +1214,10 @@ def plan_rank_lot_day(
     if mv_cap != mv_cap:
         mv_cap = 0.0
     mv_cap = max(0.0, mv_cap)
-    top_k = max(1, int(cfg.get("top_k") or 15))
+    try:
+        top_k = max(1, int(float(cfg.get("top_k") or 15)))
+    except (TypeError, ValueError):
+        top_k = 15
     amount_base, amount_strong = _lot_amounts_from_cfg(cfg)
     stock_cap = stock_mv_cap_from_strong(amount_strong)
     from core.paper.sizing import shares_from_amount
@@ -1267,12 +1272,23 @@ def plan_rank_lot_day(
         code: _rp_of(code, item) for code, item in item_by.items()
     }
 
+    def _rs_ratio(rp: Optional[float]) -> Optional[float]:
+        if rp is None:
+            return None
+        try:
+            ratio = float(rp) / 100.0
+        except (TypeError, ValueError):
+            return None
+        if ratio != ratio or ratio in (float("inf"), float("-inf")):
+            return None
+        return ratio
+
     def _rs_enter(code: str, rp: Optional[float]) -> Optional[float]:
         _ = code
-        return None if rp is None else float(rp) / 100.0
+        return _rs_ratio(rp)
 
     def _rs_display(rp: Optional[float]) -> Optional[float]:
-        return None if rp is None else float(rp) / 100.0
+        return _rs_ratio(rp)
 
     sells: List[dict] = []
     skips: List[dict] = []
@@ -1408,13 +1424,16 @@ def plan_rank_lot_day(
         if rs is None:
             continue
         oo_rk, _ = _oo_rank_from_item(item)
-        cand.append((float(rs), item, rp, oo_rk))
+        oo_key = oo_rk if isinstance(oo_rk, (int, float)) and oo_rk == oo_rk else None
+        if oo_key is not None and oo_key in (float("inf"), float("-inf")):
+            oo_key = None
+        cand.append((float(rs), item, rp, oo_key))
     # 过门槛后买序：oo_rank 升序（1=最好）；缺 oo_rank 回退 y_oo_fuse 降序
     cand.sort(
         key=lambda t: (
             float(t[3]) if t[3] is not None else 1e18,
             -float(t[0]),
-            str(t[1].get("stock_code") or ""),
+            str((t[1] or {}).get("stock_code") or "") if isinstance(t[1], dict) else "",
         )
     )
     cand = cand[:top_k]
@@ -1424,15 +1443,24 @@ def plan_rank_lot_day(
         for h in held_rows
         if str(h.get("stock_code") or "").strip()
     }
-    sold_codes = {str(s.get("stock_code") or "") for s in sells}
+    sold_codes = {
+        str(s.get("stock_code") or "")
+        for s in sells
+        if isinstance(s, dict)
+    }
     remain_sh: Dict[str, float] = {}
     for h in held_rows:
         code = str(h.get("stock_code") or "").strip()
-        remain_sh[code] = float(h.get("shares") or 0)
+        remain_sh[code] = _f(h.get("shares")) or 0.0
     for s in sells:
+        if not isinstance(s, dict):
+            continue
         code = str(s.get("stock_code") or "").strip()
         if code:
-            remain_sh[code] = max(0.0, float(remain_sh.get(code) or 0) - float(s.get("shares") or 0))
+            remain_sh[code] = max(
+                0.0,
+                (_f(remain_sh.get(code)) or 0.0) - (_f(s.get("shares")) or 0.0),
+            )
     mv_sim = 0.0
     for code, sh in remain_sh.items():
         px = _f(px_buy.get(code))

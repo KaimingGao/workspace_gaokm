@@ -18,11 +18,15 @@ def rank_scored_items(
     score_key: str = "score",
 ) -> List[Tuple[str, float]]:
     picks: List[Tuple[str, float]] = []
-    for item in items:
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
         raw = item.get(score_key, item.get("score"))
         try:
             score = float(raw or 0)
         except (TypeError, ValueError):
+            continue
+        if score != score or score in (float("inf"), float("-inf")):
             continue
         if score >= min_score:
             code = str(item.get("stock_code") or "")
@@ -272,15 +276,27 @@ def score_and_rank_watching(
             logger.exception('unexpected error in score_and_rank_watching')
             meta["yhat_residual"] = {"applied": False, "reason": str(exc)}
 
-    has_preds = any(it.get("predicted_score") is not None for it in items)
+    has_preds = any(
+        isinstance(it, dict) and it.get("predicted_score") is not None
+        for it in items or []
+    )
     if not has_preds and return_model is None and not by_code:
         meta["predicted_score_fallback"] = "no_model"
         picks = []
     elif dual_cfg is not None:
-        floor = None if min_predicted_score is None else float(min_predicted_score)
+        try:
+            floor = None if min_predicted_score is None else float(min_predicted_score)
+        except (TypeError, ValueError):
+            floor = None
+        if floor is not None and (
+            floor != floor or floor in (float("inf"), float("-inf"))
+        ):
+            floor = None
         ranked: List[Tuple[str, float, float]] = []
         gated = 0
-        for it in items:
+        for it in items or []:
+            if not isinstance(it, dict):
+                continue
             code = str(it.get("stock_code") or "").strip()
             if not code:
                 continue
@@ -288,11 +304,20 @@ def score_and_rank_watching(
             oo_gate = oo_gate_score_for_item(it, config=cfg)
             if oo_gate is None:
                 oo_gate = oo_raw
-            if oo_gate is None:
+            try:
+                gate_f = float(oo_gate) if oo_gate is not None else None
+            except (TypeError, ValueError):
+                gate_f = None
+            if gate_f is None or gate_f != gate_f or gate_f in (float("inf"), float("-inf")):
                 continue
-            if floor is not None and float(oo_gate) < floor:
+            if floor is not None and gate_f < floor:
                 continue
-            oo_f = float(oo_raw if oo_raw is not None else oo_gate)
+            try:
+                oo_f = float(oo_raw if oo_raw is not None else gate_f)
+            except (TypeError, ValueError):
+                continue
+            if oo_f != oo_f or oo_f in (float("inf"), float("-inf")):
+                continue
             if apply_tau_buy_gate:
                 ok, _reason = buy_passes_tau_gate(it, config=cfg)
                 if not ok:
@@ -318,9 +343,15 @@ def score_and_rank_watching(
                 # 历史日线：ŷ_τ/blend 不可靠，排序只用 ŷ_oo
                 sort_key = oo_f
                 rk_name = "predicted_score_oo"
+            try:
+                sort_f = float(sort_key)
+            except (TypeError, ValueError):
+                continue
+            if sort_f != sort_f or sort_f in (float("inf"), float("-inf")):
+                continue
             it["rank_key"] = rk_name
             # picks 第二元始终是 ŷ_oo；第三元为实际排序键
-            ranked.append((code, oo_f, float(sort_key)))
+            ranked.append((code, oo_f, sort_f))
         ranked.sort(key=lambda x: (-float(x[2]), str(x[0])))
         picks = [(c, oo) for c, oo, _b in ranked]
         meta["dual_score_tau_gated"] = gated
@@ -342,8 +373,8 @@ def score_and_rank_watching(
 
     meta["items_by_code"] = {
         str(it.get("stock_code") or "").strip(): it
-        for it in items
-        if it.get("stock_code")
+        for it in items or []
+        if isinstance(it, dict) and it.get("stock_code")
     }
     return picks, meta
 

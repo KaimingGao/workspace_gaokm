@@ -115,6 +115,128 @@ class TestRobustInputs(unittest.TestCase):
             key = rank_key_for_item(item)
         self.assertAlmostEqual(float(key), -0.3)
 
+    def test_eod_next_nan_is_not_a_rank_key(self):
+        from core.signal.dual_score.resolve import rank_key_for_item
+
+        item = {
+            "dual_score_window": "eod_next",
+            "y_oo": float("nan"),
+            "predicted_score_blend": 1.2,
+        }
+        self.assertIsNone(rank_key_for_item(item))
+
+    def test_compact_cutoff_does_not_keep_later_iso_dates(self):
+        from core.data.pit import assert_window_pit, bars_as_of
+
+        bars = [
+            {"date": "2024-01-10", "close": 1},
+            {"date": "20240120", "close": 1},
+            {"date": "2024-02-01", "close": 1},
+            {"date": "d0", "close": 1},
+        ]
+        got = [b["date"] for b in bars_as_of(bars, "20240115")]
+        self.assertEqual(got, ["2024-01-10"])
+        slash = bars_as_of([{"date": "2024/01/12", "close": 1}], "2024-01-15")
+        self.assertEqual(len(slash), 1)
+        chk = assert_window_pit(
+            [{"date": "d0"}, {"date": "2024-12-31"}],
+            "2024-03-01",
+        )
+        self.assertEqual(chk["lookahead_bars"], 1)
+        self.assertTrue(chk["ok"] is False)
+
+    def test_missing_close_does_not_abort_quote(self):
+        from core.backtest.engine import _mock_quote_from_bars
+
+        quote = _mock_quote_from_bars(
+            [{"date": "2024-01-02", "close": 10}, {"date": "2024-01-03"}],
+            1,
+        )
+        self.assertEqual(quote["change_raw"], 0.0)
+        self.assertIsNone(quote["price_raw"])
+        self.assertFalse(quote["success"])
+
+    def test_bad_score_does_not_abort_later_buys(self):
+        from core.paper.exec import simulate_buys
+
+        paper = {
+            "cash": 100_000.0,
+            "holdings": ["junk", {"stock_code": "OLD", "shares": "abc"}],
+            "rules": {
+                "max_positions": "nope",
+                "position_pct": "bad",
+                "use_adaptive_position": False,
+                "use_technical_filter": False,
+            },
+            "cost_model": "zero",
+        }
+        pool = [
+            "not-an-item",
+            {"stock_code": "600000", "score": "n/a"},
+            {"stock_code": "600001", "score": 80},
+        ]
+
+        def _quote(code):
+            return {"success": True, "price_raw": 10.0, "stock_name": code}
+
+        with patch("core.paper.exec._query_quote", side_effect=_quote), patch(
+            "core.paper.exec._bars_and_source", return_value=([], "t")
+        ):
+            trades = simulate_buys(
+                paper,
+                pool,
+                equity_before="not-a-number",
+                max_turnover_pct=-5,
+            )
+        self.assertEqual([t["stock_code"] for t in trades], ["600001"])
+        self.assertEqual(pool[1]["skip_reason"], "评分无效")
+        self.assertIn("junk", paper["holdings"])
+        self.assertTrue(any(isinstance(h, dict) and h.get("stock_code") == "OLD" for h in paper["holdings"]))
+
+    def test_bad_curve_params_return_an_error_dict(self):
+        from core.backtest.topk_oos_curve import run_oos_topk_curve
+
+        out = run_oos_topk_curve(
+            {"600000": _bars(3)},
+            top_k="nope",
+            horizon_days="x",
+            return_model_ridge_lambda="nan",
+        )
+        self.assertFalse(out["success"])
+        self.assertIn("共同交易日", out["error"])
+
+    def test_bad_engine_params_do_not_raise(self):
+        from core.backtest.engine import backtest_signal_on_bars
+
+        out = backtest_signal_on_bars(
+            _bars(8),
+            horizon_days="nope",
+            min_score="bad",
+            min_history="z",
+            end_index="later",
+        )
+        self.assertFalse(out["success"])
+        self.assertIn("日线不足", out["error"])
+
+    def test_infinite_fuse_does_not_open(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        out = plan_rank_lot_day(
+            scored=[{"stock_code": "600000", "y_oo_fuse": float("inf")}],
+            holdings=[],
+            cash=12000,
+            prices={"600000": 10.0},
+            cfg={
+                "fuse_enter": 0.01,
+                "fuse_strong": 0.02,
+                "cash_floor": 0.0,
+                "holdings_mv_cap": 0.0,
+                "t0_sell_blocks": {},
+                "top_k": 5,
+            },
+        )
+        self.assertEqual(out["buys"], [])
+
 
 class TestOosLabelReady(unittest.TestCase):
     def test_label_waits_for_exit_close(self):

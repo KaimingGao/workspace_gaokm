@@ -8,17 +8,59 @@ import math
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def _as_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _as_float(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number):
+        return default
+    return number
+
+
+def _finite_px(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _positive_px(value: Any) -> Optional[float]:
+    number = _finite_px(value)
+    if number is None or number <= 0:
+        return None
+    return number
+
+
 def _mock_quote_from_bars(bars: List[dict], index: int) -> dict:
-    if index < 1:
-        change = 0.0
-    else:
-        c0 = bars[index - 1]["close"]
-        c1 = bars[index]["close"]
-        change = (c1 / c0 - 1.0) * 100.0 if c0 else 0.0
+    """缺收盘或收盘不是有限数时涨跌记 0，不让单根坏 K 线中断整段回测。"""
+    bar = bars[index] if bars and 0 <= index < len(bars) and isinstance(bars[index], dict) else {}
+    prev = (
+        bars[index - 1]
+        if bars and index >= 1 and isinstance(bars[index - 1], dict)
+        else {}
+    )
+    c1 = _finite_px(bar.get("close"))
+    c0 = _positive_px(prev.get("close"))
+    change = 0.0
+    if c0 is not None and c1 is not None:
+        change = (c1 / c0 - 1.0) * 100.0
+        if not math.isfinite(change):
+            change = 0.0
     return {
         "change_raw": round(change, 4),
-        "price_raw": bars[index]["close"],
-        "success": True,
+        "price_raw": c1,
+        "success": c1 is not None and c1 > 0,
     }
 
 
@@ -55,11 +97,14 @@ def _prepare_scoring_window(
 def period_return_pct(bars: List[dict]) -> Optional[float]:
     if not bars or len(bars) < 2:
         return None
-    start = bars[0].get("close")
-    end = bars[-1].get("close")
-    if not start:
+    start = _positive_px(bars[0].get("close") if isinstance(bars[0], dict) else None)
+    end = _finite_px(bars[-1].get("close") if isinstance(bars[-1], dict) else None)
+    if start is None or end is None:
         return None
-    return round((end / start - 1.0) * 100.0, 2)
+    ret = (end / start - 1.0) * 100.0
+    if not math.isfinite(ret):
+        return None
+    return round(ret, 2)
 
 
 def _date_index(bars: List[dict]) -> Dict[str, int]:
@@ -74,11 +119,16 @@ def _date_index(bars: List[dict]) -> Dict[str, int]:
 def _hold_return_pct(bars: List[dict], entry_idx: int, hold_days: int) -> Optional[float]:
     if entry_idx < 0 or entry_idx + hold_days >= len(bars):
         return None
-    entry = bars[entry_idx].get("close")
-    exit_p = bars[entry_idx + hold_days].get("close")
-    if not entry:
+    entry_bar = bars[entry_idx] if isinstance(bars[entry_idx], dict) else {}
+    exit_bar = bars[entry_idx + hold_days] if isinstance(bars[entry_idx + hold_days], dict) else {}
+    entry = _positive_px(entry_bar.get("close"))
+    exit_p = _finite_px(exit_bar.get("close"))
+    if entry is None or exit_p is None:
         return None
-    return round((exit_p / entry - 1.0) * 100.0, 2)
+    ret = (exit_p / entry - 1.0) * 100.0
+    if not math.isfinite(ret):
+        return None
+    return round(ret, 2)
 
 
 def _trade_metrics(
@@ -258,11 +308,11 @@ def backtest_signal_on_bars(
     from core.data.pit import pit_report_for_backtest
     from core.signal.scorer import score_bars
 
-    horizon_days = max(1, min(int(horizon_days or 3), 10))
-    min_score = float(min_score or 55.0)
-    min_history = max(5, int(min_history or 12))
-    max_window = max(10, int(max_window or 30))
-    defer_cap = max(0, int(exit_max_defer or 0))
+    horizon_days = max(1, min(_as_int(horizon_days or 3, 3), 10))
+    min_score = _as_float(min_score or 55.0, 55.0)
+    min_history = max(5, _as_int(min_history or 12, 12))
+    max_window = max(10, _as_int(max_window or 30, 30))
+    defer_cap = max(0, _as_int(exit_max_defer or 0, 0))
     if slippage_tier:
         cost_config = cost_config_for_slippage_tier(slippage_tier, base=cost_config)
 
@@ -276,10 +326,10 @@ def backtest_signal_on_bars(
             "bar_count": n,
         }
 
-    start_index = max(min_history - 1, int(start_index or 0))
+    start_index = max(min_history - 1, _as_int(start_index or 0, 0))
     # 留一根K线作为次日开盘 + 跌停延后缓冲
     max_entry_idx = n - horizon_days - 1 - defer_cap
-    end_index = int(end_index) if end_index is not None else max_entry_idx
+    end_index = max_entry_idx if end_index is None else _as_int(end_index, max_entry_idx)
     end_index = min(end_index, max_entry_idx)
 
     trades: List[dict] = []
@@ -307,27 +357,38 @@ def backtest_signal_on_bars(
         if index_bars:
             wstart = max(0, i - max_window + 1)
             idx_slice = index_bars[wstart : i + 1]
-            as_of_i = str((bars[i] or {}).get("date") or "").strip()
+            bar_i = bars[i] if isinstance(bars[i], dict) else {}
+            as_of_i = str(bar_i.get("date") or "").strip()
             lookahead_violations += count_lookahead_bars(idx_slice, as_of_i)
 
-        scored = score_bars(
-            window,
-            horizon_days=horizon_days,
-            quote=quote,
-            index_bars=idx_slice,
-        )
+        try:
+            scored = score_bars(
+                window,
+                horizon_days=horizon_days,
+                quote=quote,
+                index_bars=idx_slice,
+            )
+        except Exception:  # noqa: BLE001 — 单日打分失败不中断后续交易日
+            logger.debug("score_bars failed i=%s", i, exc_info=True)
+            i += 1
+            continue
+        if not isinstance(scored, dict):
+            i += 1
+            continue
+        score_v = _as_float(scored.get("score"), 0.0)
 
-        if not scored.get("hard_reject") and (scored.get("score") or 0) >= min_score:
+        if not scored.get("hard_reject") and score_v >= min_score:
             # 根据执行模式确定入场价
             if execution_mode == "next_open":
-                # 次日开盘价成交
-                entry_bar = bars[i + 1]
-                entry = entry_bar.get("open") or entry_bar["close"]
+                # 次日开盘价成交；缺开盘用收盘。价格不是有限正数则跳过，不中断后续交易日。
+                entry_bar = bars[i + 1] if isinstance(bars[i + 1], dict) else {}
+                entry = _positive_px(entry_bar.get("open")) or _positive_px(entry_bar.get("close"))
                 planned_exit_idx = i + 1 + horizon_days
                 match_idx = i + 1
             else:
                 # 当日收盘价成交（旧模式）
-                entry = bars[i]["close"]
+                entry_bar = bars[i] if isinstance(bars[i], dict) else {}
+                entry = _positive_px(entry_bar.get("close"))
                 planned_exit_idx = i + horizon_days
                 match_idx = i
 
@@ -357,15 +418,25 @@ def backtest_signal_on_bars(
             if exit_res.get("deferred"):
                 exit_deferred += 1
 
-            exit_idx = int(exit_res["exit_index"])
+            try:
+                exit_idx = int(exit_res["exit_index"])
+            except (TypeError, ValueError, KeyError):
+                i += 1
+                continue
+            if exit_idx < 0 or exit_idx >= n or not isinstance(bars[exit_idx], dict):
+                i += 1
+                continue
             exit_bar = bars[exit_idx]
-            exit_price = exit_bar["close"]
+            exit_price = _positive_px(exit_bar.get("close"))
 
-            if not entry or not exit_price:
+            if entry is None or exit_price is None:
                 i += 1
                 continue
 
             ret_pct = (exit_price / entry - 1.0) * 100.0
+            if not math.isfinite(ret_pct):
+                i += 1
+                continue
             gross_returns.append(ret_pct)
             net_ret = ret_pct
             if apply_costs:
@@ -374,7 +445,7 @@ def backtest_signal_on_bars(
                 net_ret = round(ret_pct - round_trip_cost_pct(cost_config), 4)
             returns.append(net_ret)
 
-            entry_date = bars[i + 1].get("date") if execution_mode == "next_open" else bars[i].get("date")
+            entry_date = entry_bar.get("date")
             exit_date = exit_bar.get("date")
             hold_days_actual = exit_idx - match_idx if execution_mode == "next_open" else exit_idx - i
 

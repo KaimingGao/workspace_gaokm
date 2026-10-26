@@ -847,15 +847,27 @@ def simulate_buys(
     from core.signal.factors.kelly import adaptive_position_sizing
     from core.signal.factors.technicals import check_technical_filters
 
-    rules = paper.get("rules") or {}
+    rules = paper.get("rules") if isinstance(paper.get("rules"), dict) else {}
     from core.signal.score_display import resolve_buy_floor
+
+    def _rule_num(key: str, default: float) -> float:
+        try:
+            number = float(rules.get(key) if rules.get(key) not in (None, "") else default)
+        except (TypeError, ValueError):
+            return default
+        if number != number or number in (float("inf"), float("-inf")):
+            return default
+        return number
 
     # 生产仅 ŷ：不用 0–100 的 min_score/加仓分档；入选靠池排序与 scoring 门槛
     base_min_score = resolve_buy_floor(paper)
     base_sell_score = float("-inf")
-    max_positions = int(rules.get("max_positions") or 5)
-    position_pct = float(rules.get("position_pct") or 0.15)
-    add_size_pct = float(rules.get("add_size_pct") or 0.5)  # 加仓比例50%
+    try:
+        max_positions = int(rules.get("max_positions") or 5)
+    except (TypeError, ValueError):
+        max_positions = 5
+    position_pct = _rule_num("position_pct", 0.15)
+    add_size_pct = _rule_num("add_size_pct", 0.5)  # 加仓比例50%
     cost_model = resolve_cost_model(paper)
     fee_params = cost_params(paper)
 
@@ -867,7 +879,7 @@ def simulate_buys(
 
     # 技术指标过滤（加仓时使用）
     use_technical_filter = rules.get("use_technical_filter", True)
-    min_technical_score = float(rules.get("min_technical_score") or 40.0)
+    min_technical_score = _rule_num("min_technical_score", 40.0)
 
     # 获取风控状态
     risk_controls = get_risk_controls(paper, rules)
@@ -886,17 +898,55 @@ def simulate_buys(
     if risk_controls.get("trading_allowed") is False:
         return []  # 暂停交易
 
-    max_positions = min(max_positions, risk_controls.get("max_positions", max_positions))
+    try:
+        risk_cap = int((risk_controls or {}).get("max_positions", max_positions))
+    except (TypeError, ValueError):
+        risk_cap = max_positions
+    max_positions = min(max_positions, risk_cap)
 
-    holdings = paper.get("holdings") or []
-    held_codes = {str(h.get("stock_code")): h for h in holdings}
+    # 在原列表上追加新仓，不把非字典行从账本里删掉。
+    holdings = paper.get("holdings")
+    if not isinstance(holdings, list):
+        holdings = []
+        paper["holdings"] = holdings
+    held_codes = {}
+    positioned = 0
+    for h in holdings:
+        if not isinstance(h, dict):
+            continue
+        code_h = str(h.get("stock_code") or "").strip()
+        if not code_h:
+            continue
+        held_codes[code_h] = h
+        positioned += 1
     trades: List[dict] = []
 
-    cash = float(paper.get("cash") or 0)
-    new_positions_count = len(holdings)
+    try:
+        cash = float(paper.get("cash") or 0)
+    except (TypeError, ValueError):
+        cash = 0.0
+    if cash != cash or cash in (float("inf"), float("-inf")):
+        cash = 0.0
+    new_positions_count = positioned
 
-    # --- 换手预算裁剪（max_turnover_pct 配置时生效） ---
-    turnover_enabled = max_turnover_pct is not None and equity_before is not None
+    # --- 换手预算裁剪（上限是有限非负数且净值 > 0 时生效；负数/NaN 不裁） ---
+    def _opt_finite(value: Any) -> Optional[float]:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if number != number or number in (float("inf"), float("-inf")):
+            return None
+        return number
+
+    equity_turn = _opt_finite(equity_before)
+    turnover_cap = _opt_finite(max_turnover_pct)
+    turnover_enabled = (
+        equity_turn is not None
+        and equity_turn > 0
+        and turnover_cap is not None
+        and turnover_cap >= 0
+    )
     sell_amt_for_turnover = 0.0
     buy_amt_so_far_for_turnover = 0.0
     buy_budget_amt = None
@@ -906,20 +956,26 @@ def simulate_buys(
         sell_amt_for_turnover, _, buy_budget_amt = resolve_buy_turnover_budget(
             sell_trades=list(cycle_sells or []),
             buy_trades=[],
-            equity_before=float(equity_before),
-            max_turnover_pct=float(max_turnover_pct),
+            equity_before=equity_turn,
+            max_turnover_pct=turnover_cap,
         )
 
-    for item in pool:
+    for item in pool or []:
+        if not isinstance(item, dict):
+            continue
         code = str(item.get("stock_code") or "")
         if not code:
             continue
         if item.get("hard_reject"):
             item["skip_reason"] = f"硬性拒绝：{item.get('reject_reason') or '未知原因'}"
             continue
-        score = item.get("score")
-        if score is None or float(score) < min_score:
-            item["skip_reason"] = f"评分{score}<{min_score:.1f}，不满足加仓阈值"
+        try:
+            score = float(item.get("score"))
+        except (TypeError, ValueError):
+            item["skip_reason"] = "评分无效"
+            continue
+        if score != score or score in (float("inf"), float("-inf")) or score < min_score:
+            item["skip_reason"] = f"评分{item.get('score')}<{min_score:.1f}，不满足加仓阈值"
             continue
 
         quote = _query_quote(code)
@@ -1057,13 +1113,29 @@ def simulate_buys(
                 position_ratio = adaptive_position_sizing(paper, score, rules)
             else:
                 position_ratio = position_pct
+            try:
+                position_ratio = float(position_ratio)
+            except (TypeError, ValueError):
+                position_ratio = position_pct
 
-            position_ratio = min(position_ratio, risk_controls.get("position_limit", 1.0))
+            try:
+                pos_lim = float((risk_controls or {}).get("position_limit", 1.0))
+            except (TypeError, ValueError):
+                pos_lim = 1.0
+            if pos_lim != pos_lim or pos_lim in (float("inf"), float("-inf")):
+                pos_lim = 1.0
+            position_ratio = min(position_ratio, pos_lim)
+            if (
+                position_ratio != position_ratio
+                or position_ratio in (float("inf"), float("-inf"))
+                or position_ratio < 0
+            ):
+                position_ratio = position_pct if position_pct > 0 else 0.0
 
             # P1：贪心目标权重上限（optimize_weights → last_optimize）
             opt_w = None
-            last_opt = paper.get("last_optimize") or {}
-            weights_pct = last_opt.get("weights_pct") or {}
+            last_opt = paper.get("last_optimize") if isinstance(paper.get("last_optimize"), dict) else {}
+            weights_pct = last_opt.get("weights_pct") if isinstance(last_opt.get("weights_pct"), dict) else {}
             if code in weights_pct:
                 try:
                     opt_w = float(weights_pct[code]) / 100.0
@@ -1077,7 +1149,7 @@ def simulate_buys(
                 continue
 
             budget = cash * position_ratio
-            if budget < price * 100:
+            if budget != budget or budget in (float("inf"), float("-inf")) or budget < price * 100:
                 continue
             shares = int(budget // price // 100) * 100
             if shares <= 0:
@@ -1094,12 +1166,12 @@ def simulate_buys(
                 raw_shares = shares
                 clipped = clip_shares_to_turnover_budget(
                     shares=shares,
-                    fill_px=float(fill_px),
+                    fill_px=fill_px,
                     buy_amt_so_far=buy_amt_so_far_for_turnover,
                     buy_budget_amt=buy_budget_amt,
                     sell_amt=sell_amt_for_turnover,
-                    equity_before=float(equity_before),
-                    max_turnover_pct=float(max_turnover_pct),
+                    equity_before=equity_turn,
+                    max_turnover_pct=turnover_cap,
                 )
                 if clipped <= 0:
                     item["skip_reason"] = (

@@ -5,6 +5,7 @@
 - 基本面/资讯：本模块不伪造历史；调用方须标明 non_pit。
 """
 
+from datetime import date
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
@@ -13,9 +14,9 @@ def _bar_date(bar: dict) -> str:
 
 
 def _iso_ord(value: str) -> Optional[Tuple[int, int, int]]:
-    """YYYY-MM-DD 或 YYYYMMDD → (y, m, d)。不是日历日则 None，避免字母日期用字符串比大小。"""
+    """YYYY-MM-DD、YYYY/MM/DD 或 YYYYMMDD → (y, m, d)。不是日历日则 None。"""
     text = str(value or "").strip()
-    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+    if len(text) >= 10 and text[4] in "-/" and text[7] == text[4]:
         year_s, month_s, day_s = text[:4], text[5:7], text[8:10]
     elif len(text) >= 8 and text[:8].isdigit():
         year_s, month_s, day_s = text[:4], text[4:6], text[6:8]
@@ -23,9 +24,10 @@ def _iso_ord(value: str) -> Optional[Tuple[int, int, int]]:
         return None
     try:
         year, month, day = int(year_s), int(month_s), int(day_s)
+        date(year, month, day)
     except ValueError:
         return None
-    if year < 1900 or not (1 <= month <= 12) or not (1 <= day <= 31):
+    if year < 1900:
         return None
     return year, month, day
 
@@ -55,21 +57,23 @@ def bars_as_of(
     *,
     inclusive: bool = True,
 ) -> List[dict]:
-    """返回 date <= as_of（inclusive）的 bars 副本（保序）。"""
-    cutoff = str(as_of or "").strip()
-    if not cutoff:
+    """返回日期不晚于 as_of 的 bars 副本（保序）。
+
+    两侧都按日历日比较。``YYYYMMDD`` 与 ``YYYY-MM-DD`` 混用时不再靠字母序，
+    避免 ``2024-12-31 <= 20240115`` 把未来日留在窗口里。解析不了的决策日不切条。
+    """
+    cutoff = _iso_ord(as_of)
+    if cutoff is None:
         return list(bars or [])
     out: List[dict] = []
     for b in bars or []:
-        d = _bar_date(b)
-        if not d:
+        if not isinstance(b, dict):
             continue
-        if inclusive:
-            if d <= cutoff:
-                out.append(b)
-        else:
-            if d < cutoff:
-                out.append(b)
+        bar_ord = _iso_ord(_bar_date(b))
+        if bar_ord is None:
+            continue
+        if bar_ord <= cutoff if inclusive else bar_ord < cutoff:
+            out.append(b)
     return out
 
 
@@ -119,12 +123,20 @@ def window_as_of(
 
 
 def assert_window_pit(window: Sequence[dict], as_of: str) -> Dict[str, Any]:
-    """检查窗口是否含未来 bar。"""
-    cutoff = str(as_of or "").strip()
-    future = [ _bar_date(b) for b in window if _bar_date(b) > cutoff ]
+    """检查窗口是否含未来 bar。只认日历日，与 ``count_lookahead_bars`` 同一把尺子。"""
+    cutoff = _iso_ord(as_of)
+    future: List[str] = []
+    if cutoff is not None:
+        for bar in window or []:
+            if not isinstance(bar, dict):
+                continue
+            text = _bar_date(bar)
+            bar_ord = _iso_ord(text)
+            if bar_ord is not None and bar_ord > cutoff:
+                future.append(text)
     return {
         "ok": len(future) == 0,
-        "as_of": cutoff,
+        "as_of": str(as_of or "").strip(),
         "lookahead_bars": len(future),
         "lookahead_dates": future[:5],
     }

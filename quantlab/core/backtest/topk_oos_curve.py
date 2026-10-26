@@ -15,9 +15,20 @@ from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
 logger = logging.getLogger(__name__)
 
 
+def _as_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
 def _bars_by_date(bars: List[dict]) -> Dict[str, dict]:
     out: Dict[str, dict] = {}
-    for b in bars or []:
+    if not isinstance(bars, (list, tuple)):
+        return out
+    for b in bars:
+        if not isinstance(b, dict):
+            continue
         d = str(b.get("date") or "").strip()
         if d:
             out[d] = b
@@ -166,12 +177,17 @@ def run_oos_topk_curve(
         if allow_heuristic_baseline
         else clamp_rank_mode(rank_mode)
     )
-    top_k = max(1, min(int(top_k or 3), 40))
-    horizon_days = max(1, min(int(horizon_days or 3), 10))
-    min_history = max(5, int(min_history or 12))
-    max_window = max(min_history, int(max_window or 30))
-    min_fit = max(8, int(return_model_min_samples or 24))
-    ridge_lam = float(return_model_ridge_lambda or 0.0)
+    top_k = max(1, min(_as_int(top_k or 3, 3), 40))
+    horizon_days = max(1, min(_as_int(horizon_days or 3, 3), 10))
+    min_history = max(5, _as_int(min_history or 12, 12))
+    max_window = max(min_history, _as_int(max_window or 30, 30))
+    min_fit = max(8, _as_int(return_model_min_samples or 24, 24))
+    try:
+        ridge_lam = float(return_model_ridge_lambda or 0.0)
+    except (TypeError, ValueError):
+        ridge_lam = 0.0
+    if not math.isfinite(ridge_lam) or ridge_lam < 0:
+        ridge_lam = 0.0
     use_neutral = False if neutralize is None else bool(neutralize)
 
     date_maps = {code: _bars_by_date(bars) for code, bars in stock_bars.items()}
@@ -325,7 +341,10 @@ def run_oos_topk_curve(
         exit_date = dates[i + 1 + horizon_days]
         leg_rets: List[float] = []
         legs: List[dict] = []
-        for code, score in selected:
+        for pick in selected:
+            if not isinstance(pick, (list, tuple)) or len(pick) < 2:
+                continue
+            code, score = pick[0], pick[1]
             ret = _leg_forward_return(date_maps, str(code), entry_date, exit_date)
             if ret is None:
                 continue

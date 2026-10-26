@@ -32,11 +32,21 @@ def resolve_min_cash_pct(rules: Optional[dict] = None) -> float:
     return pct
 
 
+def _num(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number != number or number in (float("inf"), float("-inf")):
+        return default
+    return number
+
+
 def cash_floor(equity: float, min_cash_pct: float) -> float:
-    """不可动用现金地板（元）。"""
-    return max(0.0, float(equity or 0.0) * float(min_cash_pct or 0.0))
+    """不可动用现金地板（元）。净值或比例不是有限数时地板为 0。"""
+    return max(0.0, _num(equity) * max(0.0, _num(min_cash_pct)))
 
 
 def spendable_cash(cash: float, equity: float, min_cash_pct: float) -> float:
     """调仓买腿可用现金 = 现金 − 净值×底仓比例（不低于 0）。"""
-    return max(0.0, float(cash or 0.0) - cash_floor(equity, min_cash_pct))
+    return max(0.0, _num(cash) - cash_floor(equity, min_cash_pct))

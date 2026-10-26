@@ -5,6 +5,24 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def _as_count(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _finite(value: Any, default: float = 0.0) -> float:
+    """有限数，负数保留。坏值、NaN、Inf 回到 default。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number != number or number in (float("inf"), float("-inf")):
+        return default
+    return number
+
+
 def _finite_nonneg(value: Any, default: float = 0.0) -> float:
     """非负有限数。坏值、NaN、Inf、负数回到 default，避免换手公式把整笔调仓打崩。"""
     try:
@@ -112,8 +130,8 @@ def compute_turnover_stats(
     return {
         "buy_amount": buy_amount,
         "sell_amount": sell_amount,
-        "buy_count": len(buy_trades or []),
-        "sell_count": len(sell_trades or []),
+        "buy_count": sum(1 for t in (buy_trades or []) if isinstance(t, dict)),
+        "sell_count": sum(1 for t in (sell_trades or []) if isinstance(t, dict)),
         "equity_before": round(eq, 2) if eq > 0 else None,
         "turnover_pct": turnover_pct,
         "max_turnover_pct": max_to,
@@ -148,23 +166,27 @@ def build_rebalance_cash_impact(
         equity_before=equity_before,
         max_turnover_pct=max_turnover_pct,
     )
-    cash_after = float((summary or {}).get("cash") or 0)
-    eq_after = float((summary or {}).get("equity") or equity_before or 0)
-    reserve_pct = (
-        float(min_cash_pct)
-        if min_cash_pct is not None
-        else resolve_min_cash_pct(None)
-    )
+    summary = summary if isinstance(summary, dict) else {}
+    cash_after = _finite(summary.get("cash"))
+    eq_after = _finite(summary.get("equity"), _finite(equity_before))
+    if min_cash_pct is None or min_cash_pct == "":
+        reserve_pct = resolve_min_cash_pct(None)
+    else:
+        reserve_pct = _finite(min_cash_pct, resolve_min_cash_pct(None))
+        if reserve_pct < 0:
+            reserve_pct = 0.0
+        if reserve_pct > 0.95:
+            reserve_pct = 0.95
     floor_after = cash_floor(eq_after, reserve_pct)
     return {
-        "cash_before": round(float(cash_before or 0), 2),
+        "cash_before": round(_finite(cash_before), 2),
         "buy_amount": turn["buy_amount"],
         "sell_amount": turn["sell_amount"],
         "net_cash_flow": round(turn["sell_amount"] - turn["buy_amount"], 2),
         "cash_after": round(cash_after, 2),
-        "position_count_before": int(position_count_before or 0),
-        "position_count_after": int((summary or {}).get("position_count") or 0),
-        "equity_after": (summary or {}).get("equity"),
+        "position_count_before": _as_count(position_count_before),
+        "position_count_after": _as_count(summary.get("position_count")),
+        "equity_after": summary.get("equity"),
         "equity_before": turn.get("equity_before"),
         "cost_model": cost_model,
         "turnover_pct": turn.get("turnover_pct"),
