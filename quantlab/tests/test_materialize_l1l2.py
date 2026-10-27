@@ -1561,6 +1561,28 @@ class HorizonL1StitchTests(unittest.TestCase):
             clear_score_model_cache()
             clear_peer_minute_bars()
 
+    def test_release_allocator_cache_drops_l1_packs(self):
+        """回测预热的整池 L1 必须卸掉，否则 800 只 × 三族大约 5 GB 一直占着。"""
+        import numpy as np
+
+        from core.research.horizon_l1 import release_allocator_cache
+        from core.research.lake_replay import _COVERAGE, _L1_PACKS, clear_coverage_cache
+
+        clear_coverage_cache()
+        _L1_PACKS["oo"] = {
+            "000001": {
+                "X": np.ones((4, 2), dtype=np.float64),
+                "dates": ["2020-01-02"] * 4,
+            }
+        }
+        _COVERAGE["oo"] = {"000001": {"2020-01-02"}}
+        try:
+            release_allocator_cache()
+            self.assertEqual(_L1_PACKS, {})
+            self.assertEqual(_COVERAGE, {})
+        finally:
+            clear_coverage_cache()
+
     def test_minute_lag_cache_keeps_only_recent_codes(self):
         from core.research.tau_panel import (
             _MINUTE_BY_CODE,

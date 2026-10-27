@@ -128,7 +128,7 @@ A 股远端只走新浪 `stock_zh_a_daily`。`qfq` 只传 `adjust=qfq`；失败�
 | `full` | 只走新浪。本地已 Ready 则跳过 |
 | `topup` | 已对齐跳过；跨度够补近端；缺仓或短仓也走新浪 |
 
-Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 小时。新浪 5 分钟窗口约 41 个交易日。拉完默认睡 10 秒。单票超时 45 秒。
+Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 小时。新浪 5 分钟窗口约 41 个交易日。批量增量和强更共用开工闸：同时 2 只、每 2 秒开工一只；空返回、超时或断连后本轮间隔按 2 倍拉长，最长 8 秒。单票直拉仍在拉完后睡 10 秒。单票超时 45 秒。
 
 落盘用 `merge_minute_bars_by_time`，默认按交易日整段替换。新的一天必须盖住本地该日已有的时刻，更短、缺头、缺尾的新包整日放弃。
 
@@ -302,11 +302,11 @@ bars.db
 | `QUANTLAB_DAY_CUBE` | 开 | `0` 关闭 L2 DayCube 落盘 |
 | `QUANTLAB_DAY_CUBE_DIR` | `paths.DAY_CUBE_DIR` | L2 根目录 |
 | `QUANTLAB_BATCH_SCORE` | 开 | `0` 调仓/回测仍走旧双遍 rescore（不建 cube） |
-| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `10` | 单票 / 增量：新浪拉取后间隔，上限 30 |
+| `QUANTLAB_MINUTE_FETCH_DELAY_SEC` | `10` | 单票直拉：新浪拉取后间隔，上限 30。批量不走这段 |
 | `QUANTLAB_SINA_DAILY_MAX_INFLIGHT` | `2` | 日线打新浪时同时在途的股票数，上限 8 |
 | `QUANTLAB_SINA_DAILY_PACE_SEC` | `1` | 日线两次开工的最小间隔（秒），上限 30 |
-| `QUANTLAB_MINUTE_WARMUP_WORKERS` | `4` | 强更并发，上限 4 |
-| `QUANTLAB_MINUTE_WARMUP_PACE_SEC` | `2` | 强更开工间隔（秒），上限 30 |
+| `QUANTLAB_MINUTE_WARMUP_WORKERS` | `2` | 批量分钟同时在途，上限 4 |
+| `QUANTLAB_MINUTE_WARMUP_PACE_SEC` | `2` | 增量与强更开工间隔（秒），上限 30 |
 | `QUANTLAB_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 已 Ready 则不打远端 |
 | `QUANTLAB_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 要求的连续交易日 |
 | `QUANTLAB_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 的 `fetched_at` 上限 |

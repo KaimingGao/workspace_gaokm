@@ -117,7 +117,7 @@ export function installMinuteUi(q) {
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
   const MIN_SPAN_DAYS = 40;
-  const WARMUP_WORKERS = 4;
+  const WARMUP_WORKERS = 2;
   const WARMUP_PACE_SEC = 2;
   const SINA_HINT = "stock_zh_a_minute（约1970根·5m）";
   const FULL_WARMUP_HINT =

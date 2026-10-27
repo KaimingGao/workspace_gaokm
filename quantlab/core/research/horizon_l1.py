@@ -387,7 +387,8 @@ def physical_ram_bytes() -> int:
 def release_allocator_cache() -> None:
     """丢掉拟合和回测留在进程里的缓存，再把空闲堆页还给系统。
 
-    日立方、整段 5m、做 T 特征行都还挂在模块字典上。只 gc 的话这些页仍是脏的，
+    日立方、整段 5m、做 T 特征行、回测预热的整池 L1 都还挂在模块字典上。
+    800 只 × oo/tc/co 的特征矩阵大约 5 GB。只 gc 的话这些页仍是脏的，
     分配器交不回去，下一头还没建面板就被内存保护停掉。
     """
     try:
@@ -396,6 +397,12 @@ def release_allocator_cache() -> None:
         clear_memory()
     except Exception:  # noqa: BLE001
         logger.debug("clear day cube memory failed", exc_info=True)
+    try:
+        from core.research.lake_replay import clear_coverage_cache
+
+        clear_coverage_cache()
+    except Exception:  # noqa: BLE001
+        logger.debug("clear l1 coverage cache failed", exc_info=True)
     try:
         from core.research.tau_panel import clear_minute_lag_cache
 

@@ -399,7 +399,7 @@ class TestMinuteStatus(unittest.TestCase):
             return None
 
         def _fetch(code, **kwargs):
-            calls.append(code)
+            calls.append((code, kwargs.get("throttle")))
             if code == "600519":
                 return [], {"error": "timeout (90s)", "timeout_sec": 90}
             return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
@@ -418,10 +418,13 @@ class TestMinuteStatus(unittest.TestCase):
                 codes=["600519", "000001", "300750"],
                 workers=2,
             )
-        self.assertEqual(set(calls), {"600519", "000001", "300750"})
+        self.assertEqual({code for code, _throttle in calls}, {"600519", "000001", "300750"})
+        self.assertTrue(all(throttle is False for _code, throttle in calls))
         self.assertEqual(out.get("timed_out"), 1)
         self.assertEqual(out.get("bootstrapped"), 2)
         self.assertTrue(out.get("isolated"))
+        self.assertTrue(out.get("pace_stretched"))
+        self.assertGreater(float(out.get("pace_sec") or 0), 1.0)
 
     def test_refresh_topup_mode_delegates(self):
         from quant.research.minute_status import refresh_minute_only

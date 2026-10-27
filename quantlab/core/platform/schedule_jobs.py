@@ -311,12 +311,13 @@ def _minute_warmup_core(
 ) -> Dict[str, Any]:
     """5 分钟线预热核心逻辑（无 job slot）。
 
-    只走新浪 ``stock_zh_a_minute``。Ready 跳过；其余多只并发，父进程按间隔开工。
+    只走新浪 ``stock_zh_a_minute``。Ready 跳过；其余匀速开工，同时在途由线程池封顶。
     单票子进程 + 超时 kill，挂死不占主进程 ak_lock。子进程内不再额外睡拉取间隔。
+    空返回、超时、断连后，本轮后续开工间隔拉长。
     """
-    import threading
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
+    from core.data.minute_pace import MinuteStartPace
     from core.ports.market import fetch_minute_bars_isolated
     from core.data.policy import (
         MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
@@ -392,21 +393,10 @@ def _minute_warmup_core(
     n_workers = (
         max(1, min(minute_warmup_workers(), len(to_fetch))) if to_fetch else 0
     )
-    pace_lock = threading.Lock()
-    pace_next = [0.0]
-
-    def _pace() -> None:
-        if pace_sec <= 0:
-            return
-        with pace_lock:
-            now = time.time()
-            wait_s = pace_next[0] - now
-            pace_next[0] = max(now, pace_next[0]) + pace_sec
-        if wait_s > 0:
-            time.sleep(wait_s)
+    pace = MinuteStartPace(pace_sec)
 
     def _fetch_one(code: str) -> tuple:
-        _pace()
+        pace.wait()
         try:
             bars, meta = fetch_minute_bars_isolated(
                 code,
@@ -418,8 +408,13 @@ def _minute_warmup_core(
             )
         except Exception as exc:  # noqa: BLE001 — 单票失败不拖整批
             logger.warning("minute_warmup failed %s: %s", code, exc)
-            return code, [], {"error": str(exc)[:120]}
-        return code, bars, meta or {}
+            err = str(exc)[:120]
+            pace.note_remote_failure(err)
+            return code, [], {"error": err}
+        meta = meta or {}
+        if not bars:
+            pace.note_remote_failure(str(meta.get("error") or "empty"))
+        return code, bars, meta
 
     if to_fetch:
         # 勿用 ``with ThreadPoolExecutor``：挂死任务 cancel 不掉，exit 会 wait=True 卡死 Job
@@ -473,13 +468,15 @@ def _minute_warmup_core(
         "ready_min_span_days": ready_min_span if skip_if_ready else None,
         "per_stock_timeout_sec": per_stock_timeout,
         "workers": n_workers,
-        "pace_sec": pace_sec,
+        "pace_sec": pace.pace_sec,
+        "pace_stretched": pace.stretched,
         "isolated": True,
         "errors": errors[:10],
         "note": (
             f"5 分钟线预热，只走新浪 stock_zh_a_minute · {n_workers} 并发 · "
-            f"开工间隔 {pace_sec:g}s。"
-            + f" 单票子进程上限 {per_stock_timeout:.0f}s（超时 kill，继续下一只）。"
+            f"开工间隔 {pace.base:g}s"
+            + (f"（失败后已拉长到 {pace.pace_sec:g}s）" if pace.stretched else "")
+            + f"。单票子进程上限 {per_stock_timeout:.0f}s（超时 kill，继续下一只）。"
         ),
     }
 

@@ -26,11 +26,12 @@ BARS_DAILY_LOOKBACK = 1000
 DAILY_BARS_MAX_KEEP = 1200
 # 5m 全日约 48 根；12000 ≈ 250 交易日，供 path 150d 回看
 MINUTE_BARS_MAX_KEEP = 12000
-# 远端分钟拉取后休眠；降低反爬封 IP 风险（单票 / 增量，在子进程内）
+# 单票直拉（非批量）远端成功后的间隔。批量增量/强更走开工闸，子进程里不再睡这段。
 MINUTE_FETCH_DELAY_SEC = 10.0
 MINUTE_FETCH_DELAY_MAX_SEC = 30.0
-# 强更：父进程按此间隔开工，多只重叠在飞；不在子进程里再睡增量间隔
-MINUTE_WARMUP_WORKERS = 4
+# 批量分钟：父进程匀速开工，同时在途少，避免一阵连发。失败后再拉长间隔。
+MINUTE_WARMUP_WORKERS = 2
+MINUTE_WARMUP_WORKERS_MAX = 4
 # 新浪日线：同时在途上限，以及两次开工的最小间隔。一次前复权内部还有多次 HTTP。
 SINA_DAILY_MAX_INFLIGHT = 2
 SINA_DAILY_PACE_SEC = 1.0
@@ -38,6 +39,9 @@ SINA_DAILY_PACE_SEC = 1.0
 SINA_DAILY_SLOT_STALE_SEC = 180.0
 MINUTE_WARMUP_PACE_SEC = 2.0
 MINUTE_WARMUP_PACE_MAX_SEC = 30.0
+# 空返回 / 超时 / 断连后，本轮后续开工间隔乘这个倍数，封顶见下一项。
+MINUTE_PACE_STRETCH = 2.0
+MINUTE_PACE_STRETCH_MAX_SEC = 8.0
 # 观察池 5m 强更/增量：整票子进程隔离超时（新浪近端）
 MINUTE_ISOLATED_TIMEOUT_SEC = 45.0
 MINUTE_ISOLATED_TIMEOUT_MAX_SEC = 180.0
@@ -112,17 +116,17 @@ def minute_fetch_delay_sec() -> float:
 
 
 def minute_warmup_workers() -> int:
-    """强更并发子进程数。``QUANTLAB_MINUTE_WARMUP_WORKERS`` 可覆盖，上限 4。"""
+    """批量分钟同时在途数。默认 2。``QUANTLAB_MINUTE_WARMUP_WORKERS`` 可覆盖，上限 4。"""
     raw = os.environ.get("QUANTLAB_MINUTE_WARMUP_WORKERS", str(MINUTE_WARMUP_WORKERS))
     try:
         v = int(raw)
     except (TypeError, ValueError):
         v = int(MINUTE_WARMUP_WORKERS)
-    return max(1, min(v, int(MINUTE_WARMUP_WORKERS)))
+    return max(1, min(v, int(MINUTE_WARMUP_WORKERS_MAX)))
 
 
 def minute_warmup_pace_sec() -> float:
-    """强更两次开工的最小间隔（秒）。``QUANTLAB_MINUTE_WARMUP_PACE_SEC`` 可覆盖。"""
+    """批量分钟两次开工的最小间隔（秒）。增量与强更共用。``QUANTLAB_MINUTE_WARMUP_PACE_SEC`` 可覆盖。"""
     raw = os.environ.get("QUANTLAB_MINUTE_WARMUP_PACE_SEC", str(MINUTE_WARMUP_PACE_SEC))
     try:
         v = float(raw)

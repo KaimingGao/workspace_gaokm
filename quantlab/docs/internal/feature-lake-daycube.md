@@ -551,7 +551,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 进度 | 宏步骤钉 `step/tot_steps`；子阶段只改 message；UI 隐藏 total>8 的票级微进度；失败文案用 `--danger` |
 | **Track** | `result.track`（`build_materialize_track`）：`id`/`label`/`ok`/`elapsed_s`/`steps_ok`/`schema`/`headline` + `stages[]`；大结果落盘截断时仍保留 `track` / `do_l1_tau_grid` / L2 摘要（供刷新重画），丢 `by_family` 等明细 |
 | 失败配色 | 增量/强更失败：蓝族 + 红字；物化失败：黄族 + 红字 |
-| 耗时参考 | 日线 open L1+L2 · 池≈800：约 **5–8 min**；τ 网格首轮（18 钟 L1+L2）可到 **数小时**；L1 指纹增量后会快很多；L2 宇宙键对齐后同池再跑可命中跳过（见 [daycube-universe-key.md](./daycube-universe-key.md)）；强更 5m · 800 票约 **30 min**（4 并发 · 开工间隔 2s；已 Ready 跳过） |
+| 耗时参考 | 日线 open L1+L2 · 池≈800：约 **5–8 min**；τ 网格首轮（18 钟 L1+L2）可到 **数小时**；L1 指纹增量后会快很多；L2 宇宙键对齐后同池再跑可命中跳过（见 [daycube-universe-key.md](./daycube-universe-key.md)）；强更 5m · 800 票约 **30 min**（2 并发 · 开工间隔 2s；已 Ready 跳过） |
 | 无自动物化 | 日线/分钟线均手动；无 auto-materialize 勾选 |
 | 前缀滑条 | **ŷ_τc** 独立（默认 09:30）；**ŷ_τ30…90** 共用（默认 11:00）；localStorage / 拟合恢复按组隔离 |
 | ŷ_τc 拟合进度 | `解析宇宙` → `拉日线` →（可选）`读5m` → `面板 k/N` → `截面广度` → `Ridge`；槽 `allow_zero_progress` |

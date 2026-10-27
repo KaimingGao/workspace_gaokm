@@ -22,7 +22,7 @@ DEFAULT_MINUTE_PERIOD = "5"
 DEFAULT_MIN_SPAN_DAYS = MINUTE_WARMUP_READY_MIN_SPAN_DAYS
 # 增量跳过闸：本地跨度 ≥ 此值且末根已对齐则不打新浪。不截断仓。
 DEFAULT_TOPUP_SPAN_DAYS = 20
-DEFAULT_TOPUP_WORKERS = 4
+DEFAULT_TOPUP_WORKERS = 2
 DEFAULT_LABEL_MAX_DAYS = 120
 # Span mix 累计档：有缓存标的按跨度同时计入更宽档（与 Ready 闸独立）
 SPAN_MIX_CUTS = (30, 40, 50)
@@ -516,11 +516,17 @@ def _minute_topup_core(
     跨度 ≥ ``min_span_days``（默认 20）且末根已对齐也跳过。该阈值不截断本地仓。
     新浪窗口固定（约 41 个交易日）。
 
-    远端走 ``fetch_a_minute_bars_isolated``：单票子进程超时 kill，不占主进程 ``ak_lock``，
-    避免增量补齐再卡死在「超时收尾」。
+    远端走 ``fetch_a_minute_bars_isolated``：单票子进程超时 kill，不占主进程 ``ak_lock``。
+    与强更共用开工闸（默认 2 秒一只、同时 2 只），子进程内不再睡 10 秒。
+    空返回、超时、断连后，本轮后续间隔拉长。
     """
     from adapters.market.minute_history import fetch_a_minute_bars_isolated
-    from core.data.policy import minute_isolated_timeout_sec
+    from core.data.minute_pace import MinuteStartPace
+    from core.data.policy import (
+        minute_isolated_timeout_sec,
+        minute_warmup_pace_sec,
+        minute_warmup_workers,
+    )
     from core.platform.schedule_jobs import format_minute_progress
 
     watch = [str(c).strip() for c in (codes or []) if str(c).strip()]
@@ -531,9 +537,11 @@ def _minute_topup_core(
     min_span = max(1, int(min_span_days or DEFAULT_TOPUP_SPAN_DAYS))
     expected = expected_minute_asof()
     now = datetime.now()
-    # 上限与默认一致（4）：孤立子进程超时多时，8 并发会叠出更多挂死 worker
-    n_workers = max(1, min(int(workers or DEFAULT_TOPUP_WORKERS), DEFAULT_TOPUP_WORKERS, len(watch)))
+    # 与强更同一在途上限。多出来的 worker 参数夹到这个上限，避免一阵连发。
+    worker_cap = minute_warmup_workers()
+    n_workers = max(1, min(int(workers or worker_cap), worker_cap, len(watch)))
     per_stock_timeout = minute_isolated_timeout_sec()
+    pace = MinuteStartPace(minute_warmup_pace_sec())
 
     skipped_aligned = 0
     skipped_today = 0
@@ -604,18 +612,26 @@ def _minute_topup_core(
             logger.debug("minute topup progress_cb failed", exc_info=True)
 
     def _fetch_one(code: str, action: str) -> Tuple[str, str, bool, Optional[str]]:
-        # 会话缺尾：跳过读仓强刷；其余增量仍用短 TTL 读短路
+        # 会话缺尾：跳过读仓强刷；其余增量仍用短 TTL 读短路。批量不在子进程里再睡 10 秒。
+        pace.wait()
         force = code in truncated_codes
-        bars, meta = fetch_a_minute_bars_isolated(
-            code,
-            timeout_sec=per_stock_timeout,
-            period=period_s,
-            use_cache=not force,
-            max_age_hours=0.01,
-        )
+        try:
+            bars, meta = fetch_a_minute_bars_isolated(
+                code,
+                timeout_sec=per_stock_timeout,
+                period=period_s,
+                use_cache=not force,
+                max_age_hours=0.01,
+                throttle=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            err = str(exc)[:80]
+            pace.note_remote_failure(err)
+            return code, action, False, err
         if bars:
             return code, action, True, None
         err = str((meta or {}).get("error") or "empty")
+        pace.note_remote_failure(err)
         return code, action, False, err
 
     if to_fetch:
@@ -695,10 +711,14 @@ def _minute_topup_core(
         "timed_out": timed_out,
         "isolated": True,
         "workers": n_workers,
+        "pace_sec": pace.pace_sec,
+        "pace_stretched": pace.stretched,
         "errors": errors[:10],
         "note": (
             f"增量补齐（L0） · 新浪固定窗 · 今日已拉且齐窗跳过 · 跨度≥{min_span}日且末根对齐跳过 · "
-            f"缺尾补拉 · 不截断本地仓 · 子进程隔离 · {n_workers} 并发"
+            f"缺尾补拉 · 不截断本地仓 · 子进程隔离 · {n_workers} 并发 · "
+            f"开工间隔 {pace.base:g}s"
+            + (f"（失败后已拉长到 {pace.pace_sec:g}s）" if pace.stretched else "")
             + (f" · 批上限 {int(batch_timeout)}s" if to_fetch else "")
         ),
     }
