@@ -21,6 +21,15 @@ function fmtPct(v, digits = 1) {
   return `${n.toFixed(digits)}%`;
 }
 
+export function fmtT0HitRate(data) {
+  const pct = paperFmtPct(data?.win_rate_pct ?? data?.t0_win_rate_pct);
+  const fill = Number(data?.t0_fill_n);
+  if (!Number.isFinite(fill) || fill <= 0) return pct;
+  const hit = Number(data?.t0_hit_n);
+  const hitN = Number.isFinite(hit) ? Math.round(hit) : 0;
+  return `${pct} · ${hitN}/${Math.round(fill)}`;
+}
+
 export function fmtT0DirDays(data) {
   const b = Number(data?.buy_then_sell_days) || 0;
   const s = Number(data?.sell_then_buy_days) || 0;
@@ -144,7 +153,7 @@ export function buildT0MetricCards(data) {
       cls: paperMetricClass(data.avg_pnl_per_trade_day),
     },
     { label: "参与率", value: paperFmtPct(data.participate_rate_pct) },
-    { label: "命中率", value: paperFmtPct(data.win_rate_pct ?? data.t0_win_rate_pct) },
+    { label: "命中率", value: fmtT0HitRate(data) },
     {
       label: "盈亏比",
       value:

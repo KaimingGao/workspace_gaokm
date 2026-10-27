@@ -131,6 +131,30 @@ def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def filled_round_pnls(day: Dict[str, Any]) -> List[float]:
+    """已开第一腿的做 T，每轮一个已实现 PnL（含 0）。未成交轮不进。
+
+    多轮日按槽位拆开，不把同日盈亏轧成一笔。无槽位明细时，当日开过仓算一轮。
+    """
+    rows = day.get("t0_slot_results")
+    if day.get("t0_slots_enabled") and isinstance(rows, list) and rows:
+        out: List[float] = []
+        for r in rows:
+            if not isinstance(r, dict) or r.get("skipped"):
+                continue
+            sold = int(r.get("sold_qty") or 0)
+            bought = int(r.get("bought_qty") or 0)
+            if sold <= 0 and bought <= 0:
+                continue
+            out.append(float(r.get("pnl") or 0))
+        return out
+    sold = int(day.get("sold_qty") or 0)
+    bought = int(day.get("bought_qty") or 0)
+    if sold > 0 or bought > 0:
+        return [float(day.get("pnl") or 0)]
+    return []
+
+
 def _slot_round_tally(day: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """多轮日：按槽位分向记账；缺槽位明细则回落单日口径。"""
     rows = day.get("t0_slot_results")
@@ -392,6 +416,7 @@ def _walk_t0(
 
     days: List[dict] = []
     pnls: List[float] = []
+    round_pnls: List[float] = []
     exposures: List[float] = []
     trade_count = 0
     cover_count = 0
@@ -668,11 +693,12 @@ def _walk_t0(
                     buy_then_sell_pnl += day_pnl
         sellable = shares  # 日末重置；不跟踪当日新买股的 T+1 冻结
 
-        # 命中率分母含已开仓日（含 pnl=0 的 abandon），避免只统计有已实现盈亏的子集
+        # 日盈亏仍供累计 PnL / 盈亏比。命中率另按成交轮计（含 pnl=0 的 abandon）。
         if sold > 0 or bought > 0:
             pnls.append(day_pnl)
         elif day_pnl:
             pnls.append(day_pnl)
+        round_pnls.extend(filled_round_pnls(day))
         if day.get("exposure_pnl"):
             exposures.append(float(day["exposure_pnl"]))
 
@@ -727,6 +753,8 @@ def _walk_t0(
 
     win = sum(1 for p in pnls if p > 0)
     loss = sum(1 for p in pnls if p < 0)
+    hit_n = sum(1 for p in round_pnls if p > 0)
+    fill_n = len(round_pnls)
     gross_win = sum(p for p in pnls if p > 0)
     gross_loss = sum(abs(p) for p in pnls if p < 0)
     profit_factor = (
@@ -787,7 +815,9 @@ def _walk_t0(
         "exposure_pnl_total": exposure_total,
         "t0_pnl_with_exposure": round(total_pnl + exposure_total, 2),
         "cost_model": _cost_model_name,
-        "t0_win_rate_pct": round(win / len(pnls) * 100.0, 2) if pnls else None,
+        "t0_win_rate_pct": round(hit_n / fill_n * 100.0, 2) if fill_n else None,
+        "t0_hit_n": hit_n,
+        "t0_fill_n": fill_n,
         "t0_win_days": win,
         "t0_loss_days": loss,
         "profit_factor": profit_factor,

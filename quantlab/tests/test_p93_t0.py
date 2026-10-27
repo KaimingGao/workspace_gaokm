@@ -4621,6 +4621,47 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertEqual(out["virtual_shares"], 2000)
         self.assertEqual(out["virtual_cash"], 300_000)
 
+    def test_holdings_hit_rate_uses_filled_rounds_including_flat(self):
+        from unittest.mock import patch
+
+        from quant.research import t0_backtest as m
+
+        fake = {
+            "success": True,
+            "stock_code": "600519",
+            "t0_pnl_total": 10.0,
+            "exposure_pnl_total": 0.0,
+            "t0_trade_days": 1,
+            "t0_cover_days": 1,
+            "skip_days": 0,
+            "signal_skip_days": 0,
+            "sell_then_buy_days": 1,
+            "buy_then_sell_days": 0,
+            "sell_then_buy_pnl": 10.0,
+            "buy_then_sell_pnl": 0.0,
+            "sell_then_buy_cover_days": 1,
+            "buy_then_sell_cover_days": 0,
+            "uncover_days": 0,
+            "minute_path_days": 1,
+            "missing_minute_days": 0,
+            "hold_mv_start": 50_000.0,
+            "t0_win_days": 1,
+            "t0_loss_days": 0,
+            "t0_hit_n": 1,
+            "t0_fill_n": 3,
+            "trade_days_sample": [],
+            "days": [],
+            "viz": None,
+        }
+        with patch.object(m, "run_t0_backtest_for_code", return_value=dict(fake)):
+            out = m.run_t0_backtest_for_holdings(
+                [{"stock_code": "600519", "stock_name": "茅台"}],
+                lookback=10,
+            )
+        self.assertEqual(out["t0_hit_n"], 1)
+        self.assertEqual(out["t0_fill_n"], 3)
+        self.assertAlmostEqual(float(out["t0_win_rate_pct"]), round(100.0 / 3.0, 2))
+
     def test_holdings_deadline_starts_before_tau_pool(self):
         import inspect
 

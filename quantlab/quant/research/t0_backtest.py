@@ -1250,7 +1250,17 @@ def run_t0_backtest_for_holdings(
     uncover_days = sum(int(x.get("uncover_days") or 0) for x in ok)
     win_days = sum(int(x.get("t0_win_days") or 0) for x in ok)
     loss_days = sum(int(x.get("t0_loss_days") or 0) for x in ok)
-    pnl_day_cnt = win_days + loss_days
+    hit_n = 0
+    fill_n = 0
+    for x in ok:
+        if "t0_fill_n" in x:
+            hit_n += int(x.get("t0_hit_n") or 0)
+            fill_n += int(x.get("t0_fill_n") or 0)
+        else:
+            # 旧单票报告没有成交轮计数：退回盈利日 /（盈利日+亏损日）
+            w = int(x.get("t0_win_days") or 0)
+            hit_n += w
+            fill_n += w + int(x.get("t0_loss_days") or 0)
 
 
     # 合并各票成交样本供 UI；最近按日 + 保留若干反T成交样本，避免「近一周全正T」误以为没有反T
@@ -1336,8 +1346,10 @@ def run_t0_backtest_for_holdings(
         "hold_mv_start": round(total_hold_mv, 2),
         "t0_win_days": win_days,
         "t0_loss_days": loss_days,
+        "t0_hit_n": hit_n,
+        "t0_fill_n": fill_n,
         "t0_win_rate_pct": (
-            round(win_days / pnl_day_cnt * 100.0, 2) if pnl_day_cnt else None
+            round(hit_n / fill_n * 100.0, 2) if fill_n else None
         ),
         "results": per,
         "days": trade_sample,

@@ -664,6 +664,30 @@ class TestT0Slots(unittest.TestCase):
         self.assertGreaterEqual(len(blocked), 1, rows)
         self.assertLessEqual(int(out.get("bought_qty") or 0), 200, out)
 
+    def test_hit_rate_counts_each_filled_round(self):
+        from core.t0.backtest import filled_round_pnls
+
+        day = {
+            "t0_slots_enabled": True,
+            "sold_qty": 100,
+            "bought_qty": 200,
+            "pnl": 5.0,
+            "t0_slot_results": [
+                {"skipped": False, "sold_qty": 100, "bought_qty": 0, "pnl": 10.0},
+                {"skipped": False, "sold_qty": 0, "bought_qty": 100, "pnl": -5.0},
+                {"skipped": False, "sold_qty": 0, "bought_qty": 100, "pnl": 0.0},
+                {"skipped": True, "sold_qty": 0, "bought_qty": 0, "pnl": 0.0},
+            ],
+        }
+        pnls = filled_round_pnls(day)
+        self.assertEqual(pnls, [10.0, -5.0, 0.0])
+        hits = sum(1 for p in pnls if p > 0)
+        self.assertEqual(hits, 1)
+        self.assertEqual(len(pnls), 3)
+        plain = {"sold_qty": 100, "bought_qty": 0, "pnl": 0.0}
+        self.assertEqual(filled_round_pnls(plain), [0.0])
+        self.assertEqual(filled_round_pnls({"sold_qty": 0, "pnl": 3.0}), [])
+
 
 class TestT0InputGuards(unittest.TestCase):
     def test_lot_floor_and_qty_reject_bad_numbers(self):

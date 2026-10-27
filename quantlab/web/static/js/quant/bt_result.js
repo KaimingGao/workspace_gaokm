@@ -229,7 +229,7 @@ function buildReplayT0Kpis(data) {
     return {
       return: blank("先跑回测"),
       pnl: blank("含敞口"),
-      win: blank("做 T 日"),
+      win: blank("成交笔"),
       cover: blank("完成往返率"),
     };
   }
@@ -237,12 +237,16 @@ function buildReplayT0Kpis(data) {
   const pnl = data.t0_pnl_with_exposure ?? data.t0_pnl_total;
   const win = data.win_rate_pct ?? data.t0_win_rate_pct;
   const cover = data.cover_rate_pct;
-  const days = data.t0_trade_days;
+  const hitN = _kpiNum(data.t0_hit_n);
+  const fillN = _kpiNum(data.t0_fill_n);
   const retN = _kpiNum(ret);
   const pnlN = _kpiNum(pnl);
   const winN = _kpiNum(win);
   const coverN = _kpiNum(cover);
-  const daysN = _kpiNum(days);
+  const winSub =
+    fillN != null && fillN > 0
+      ? `${Math.round(hitN == null ? 0 : hitN)}/${Math.round(fillN)} 笔`
+      : "成交笔";
   return {
     return: {
       value: _kpiPct(ret),
@@ -258,7 +262,7 @@ function buildReplayT0Kpis(data) {
     },
     win: {
       value: winN == null ? "—" : `${winN.toFixed(1)}%`,
-      sub: daysN != null ? `${daysN} 日` : "做 T 日",
+      sub: winSub,
       empty: winN == null,
       cls: "",
     },
