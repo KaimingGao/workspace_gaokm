@@ -134,6 +134,40 @@ export function installMinuteUi(q) {
   let lastPolledJob = null;
   let lastStatusJob = null;
   let lastCoverage = null;
+  let activeMode = "topup";
+
+  function hasWarmupFacts(sum) {
+    return !!(
+      sum &&
+      (sum.mode ||
+        sum.kind ||
+        sum.warmed != null ||
+        sum.topped != null ||
+        sum.skipped_aligned != null ||
+        sum.total != null)
+    );
+  }
+
+  /** 完成条摘要。空对象不算；轮询若没带 mode，用这次点击的模式，避免标成强更。 */
+  function minuteWarmup(job, mode) {
+    const candidates = [
+      job?.result_summary,
+      job?.result?.minute_warmup,
+      lastPolledJob?.result?.minute_warmup,
+      lastPolledJob?.result_summary,
+    ];
+    let sum = null;
+    for (const c of candidates) {
+      if (hasWarmupFacts(c)) {
+        sum = c;
+        break;
+      }
+    }
+    const modeS = mode === "topup" || mode === "full" ? mode : activeMode;
+    if (!sum) return modeS ? { mode: modeS } : {};
+    if (!sum.mode && modeS) return { ...sum, mode: modeS };
+    return sum;
+  }
 
   function clearJobPanels() {
     jobFailure = null;
@@ -169,8 +203,8 @@ export function installMinuteUi(q) {
     );
   }
 
-  function paintProgressDone(job) {
-    const sum = job?.result_summary || lastPolledJob?.result?.minute_warmup || {};
+  function paintProgressDone(job, mode) {
+    const sum = minuteWarmup(job, mode);
     const head = l0DoneHead(sum, "minute", lastCoverage, job);
     const topup = isTopupSummary(sum);
     const hasTimeout = Number(sum.timed_out) > 0;
@@ -189,14 +223,14 @@ export function installMinuteUi(q) {
     });
   }
 
-  function applyJobSuccess(job) {
+  function applyJobSuccess(job, mode) {
     jobSuccess = { job: job || null };
     jobFailure = null;
     setDeskStatusTone([minuteStrip, minuteCard], "primary");
     setProStatusChip(chip, "ok", "DONE");
-    const sum = job?.result_summary || job?.result?.minute_warmup || {};
+    const sum = minuteWarmup(job, mode);
     msgEl.textContent = l0DoneHead(sum, "minute", lastCoverage, job).join(" · ");
-    paintProgressDone(job);
+    paintProgressDone(job, mode);
     minuteCard?.classList.remove("is-busy");
     minuteStrip?.classList.remove("is-busy");
     minuteBody?.classList.remove("is-busy");
@@ -783,6 +817,7 @@ export function installMinuteUi(q) {
   async function startRefresh(mode = "full") {
     if (inflight) return inflight;
     const modeS = mode === "topup" ? "topup" : "full";
+    activeMode = modeS;
     const label = modeS === "topup" ? "增量补齐（L0）" : "强更 5m（L0）";
     inflight = (async () => {
       clearJobPanels();
@@ -831,13 +866,18 @@ export function installMinuteUi(q) {
         if (result && result.success === false) {
           throw new Error(result.error || `${label}失败`);
         }
-        const mw = (result && result.minute_warmup) || {};
-        const jobForDone =
-          lastPolledJob && (lastPolledJob.result || lastPolledJob.result_summary)
-            ? lastPolledJob
-            : { result_summary: mw, result: result || {}, updated_at: Date.now() / 1000 };
+        const mw = minuteWarmup({ result }, modeS);
+        const polled =
+          lastPolledJob && (lastPolledJob.id || lastPolledJob.message) ? lastPolledJob : null;
+        const jobForDone = polled
+          ? {
+              ...polled,
+              result: polled.result || result || null,
+              result_summary: mw,
+            }
+          : { result_summary: mw, result: result || {}, updated_at: Date.now() / 1000 };
         clearJobPanels();
-        applyJobSuccess(jobForDone);
+        applyJobSuccess(jobForDone, modeS);
       } catch (err) {
         applyJobFailure(err, lastPolledJob);
         throw err;

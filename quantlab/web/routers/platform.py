@@ -69,7 +69,11 @@ def get_job(name: str, progress: int = 0) -> Dict[str, Any]:
 
     物化槽终态保留 track 摘要，并附上被挤掉的日线/分钟终态，供刷新后各自恢复。
     """
-    from core.platform.job_progress import job_registry, materialize_progress_job
+    from core.platform.job_progress import (
+        job_registry,
+        materialize_progress_job,
+        refresh_progress_job,
+    )
     from core.signal.score_display import json_safe
 
     out = deps.platform.get_job(name)
@@ -81,6 +85,8 @@ def get_job(name: str, progress: int = 0) -> Dict[str, Any]:
         job = dict(out["job"])
         if name == "materialize-l1l2":
             job = materialize_progress_job(job)
+        elif name in ("minute-refresh", "bars-refresh"):
+            job = refresh_progress_job(job, name)
         elif job.get("result") is not None:
             job["result"] = None
             job["result_omitted"] = True

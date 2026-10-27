@@ -107,6 +107,40 @@ export function installBarsUi(q) {
   let lastCoverage = null;
   let activeMode = "topup";
 
+  function hasBarsFacts(sum) {
+    return !!(
+      sum &&
+      (sum.mode ||
+        sum.kind ||
+        sum.force_latest === true ||
+        sum.remote_count != null ||
+        sum.gap_count != null ||
+        sum.cache_count != null ||
+        sum.total != null)
+    );
+  }
+
+  /** 完成条摘要。空对象不算；轮询若没带 mode，用这次点击的模式。 */
+  function barsSummary(job, mode) {
+    const candidates = [
+      job?.result_summary,
+      job?.result?.bars_refresh,
+      lastPolledJob?.result?.bars_refresh,
+      lastPolledJob?.result_summary,
+    ];
+    let sum = null;
+    for (const c of candidates) {
+      if (hasBarsFacts(c)) {
+        sum = c;
+        break;
+      }
+    }
+    const modeS = mode === "topup" || mode === "full" ? mode : activeMode;
+    if (!sum) return modeS ? { mode: modeS } : {};
+    if (!sum.mode && modeS) return { ...sum, mode: modeS };
+    return sum;
+  }
+
   function clearJobPanels() {
     jobFailure = null;
     jobSuccess = null;
@@ -148,8 +182,8 @@ export function installBarsUi(q) {
     });
   }
 
-  function paintProgressDone(job) {
-    const sum = job?.result_summary || lastPolledJob?.result?.bars_refresh || {};
+  function paintProgressDone(job, mode) {
+    const sum = barsSummary(job, mode);
     const head = l0DoneHead(sum, "bars", lastCoverage, job);
     const topup = isTopupSummary(sum);
     setDeskStatusTone([barsStrip, barsCard], "primary");
@@ -167,14 +201,14 @@ export function installBarsUi(q) {
     });
   }
 
-  function applyJobSuccess(job) {
+  function applyJobSuccess(job, mode) {
     jobSuccess = { job: job || null };
     jobFailure = null;
     setDeskStatusTone([barsStrip, barsCard], "primary");
     setProStatusChip(chip, "ok", "DONE");
-    const sum = job?.result_summary || job?.result?.bars_refresh || {};
+    const sum = barsSummary(job, mode);
     msgEl.textContent = l0DoneHead(sum, "bars", lastCoverage, job).join(" · ");
-    paintProgressDone(job);
+    paintProgressDone(job, mode);
     barsCard?.classList.remove("is-busy");
     barsStrip?.classList.remove("is-busy");
     barsBody?.classList.remove("is-busy");
@@ -834,13 +868,18 @@ export function installBarsUi(q) {
         if (result && result.success === false) {
           throw new Error(result.error || `${label}失败`);
         }
-        const br = (result && result.bars_refresh) || {};
-        const jobForDone =
-          lastPolledJob && (lastPolledJob.result || lastPolledJob.result_summary)
-            ? lastPolledJob
-            : { result_summary: br, result: result || {}, updated_at: Date.now() / 1000 };
+        const br = barsSummary({ result }, modeS);
+        const polled =
+          lastPolledJob && (lastPolledJob.id || lastPolledJob.message) ? lastPolledJob : null;
+        const jobForDone = polled
+          ? {
+              ...polled,
+              result: polled.result || result || null,
+              result_summary: br,
+            }
+          : { result_summary: br, result: result || {}, updated_at: Date.now() / 1000 };
         clearJobPanels();
-        applyJobSuccess(jobForDone);
+        applyJobSuccess(jobForDone, modeS);
       } catch (err) {
         applyJobFailure(err, lastPolledJob);
         throw err;

@@ -188,6 +188,89 @@ def slim_materialize_result(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_MINUTE_WARMUP_KEYS = (
+    "ok",
+    "mode",
+    "kind",
+    "warmed",
+    "total",
+    "skipped_today",
+    "skipped_aligned",
+    "skipped_ready",
+    "topped",
+    "bootstrapped",
+    "timed_out",
+    "error",
+)
+_BARS_REFRESH_KEYS = (
+    "ok",
+    "mode",
+    "kind",
+    "force_latest",
+    "full_window",
+    "note",
+    "remote_count",
+    "total",
+    "cache_count",
+    "gap_count",
+    "failed_count",
+    "error",
+)
+_BARS_DIFF_KEYS = (
+    "headline",
+    "price_count",
+    "volume_count",
+    "tail_count",
+    "unchanged_count",
+    "compared",
+)
+
+
+def slim_minute_refresh_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    """分钟终态留给完成条：模式 + 跳过/补拉计数。丢掉 status 覆盖明细。"""
+    mw = (
+        result.get("minute_warmup")
+        if isinstance(result.get("minute_warmup"), dict)
+        else {}
+    )
+    mw_slim = {k: mw[k] for k in _MINUTE_WARMUP_KEYS if k in mw}
+    return {
+        "success": result.get("success"),
+        "ok": bool(result.get("success")),
+        "task": result.get("task") or "minute_refresh",
+        "mode": result.get("mode") or mw.get("mode"),
+        "watching_limit": result.get("watching_limit"),
+        "universe_count": result.get("universe_count"),
+        "period": result.get("period"),
+        "minute_warmup": mw_slim or None,
+        "error": result.get("error"),
+    }
+
+
+def slim_bars_refresh_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    """日线终态留给完成条：模式 + 缺口/已齐/差异计数。丢掉逐票明细。"""
+    br = (
+        result.get("bars_refresh")
+        if isinstance(result.get("bars_refresh"), dict)
+        else {}
+    )
+    br_slim = {k: br[k] for k in _BARS_REFRESH_KEYS if k in br}
+    diff = br.get("diff") if isinstance(br.get("diff"), dict) else None
+    if diff:
+        br_slim["diff"] = {k: diff[k] for k in _BARS_DIFF_KEYS if k in diff}
+    return {
+        "success": result.get("success"),
+        "ok": bool(result.get("success")),
+        "task": result.get("task") or "bars_refresh",
+        "mode": result.get("mode") or br.get("mode"),
+        "watching_limit": result.get("watching_limit"),
+        "universe_count": result.get("universe_count"),
+        "lookback": result.get("lookback"),
+        "bars_refresh": br_slim or None,
+        "error": result.get("error"),
+    }
+
+
 def materialize_progress_job(job: Dict[str, Any]) -> Dict[str, Any]:
     """``progress=1``：终态留物化摘要，进行中仍丢掉大 result。"""
     out = dict(job)
@@ -196,6 +279,29 @@ def materialize_progress_job(job: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(res, dict) and st in _TERMINAL_JOB_STATUS:
         out["result"] = slim_materialize_result(res)
     elif res is not None:
+        out["result"] = None
+        out["result_omitted"] = True
+    return out
+
+
+def refresh_progress_job(job: Dict[str, Any], slot_name: str) -> Dict[str, Any]:
+    """``progress=1``：日线/分钟终态留完成条摘要，进行中仍丢掉大 result。
+
+    轮询若把 result 整段置空，前端看不到 mode，增量完成会被标成「强更完成」。
+    """
+    out = dict(job)
+    res = out.get("result")
+    st = str(out.get("status") or "").lower()
+    if isinstance(res, dict) and st in _TERMINAL_JOB_STATUS:
+        if slot_name == "minute-refresh":
+            out["result"] = slim_minute_refresh_result(res)
+        elif slot_name == "bars-refresh":
+            out["result"] = slim_bars_refresh_result(res)
+        else:
+            out["result"] = None
+            out["result_omitted"] = True
+        return out
+    if res is not None:
         out["result"] = None
         out["result_omitted"] = True
     return out
@@ -349,59 +455,13 @@ class JobProgress:
                         }
                     elif slot_name == "minute-refresh":
                         # 丢弃庞大 status；保留 minute_warmup 摘要供 UI 完成态
-                        mw = (
-                            result.get("minute_warmup")
-                            if isinstance(result.get("minute_warmup"), dict)
-                            else {}
-                        )
-                        mw_slim = {
-                            k: mw[k]
-                            for k in (
-                                "ok",
-                                "mode",
-                                "kind",
-                                "warmed",
-                                "total",
-                                "skipped_today",
-                                "skipped_aligned",
-                                "skipped_ready",
-                                "topped",
-                                "bootstrapped",
-                                "timed_out",
-                                "error",
-                            )
-                            if k in mw
-                        }
-                        payload["result"] = {
-                            "success": result.get("success"),
-                            "ok": bool(result.get("success")),
-                            "persisted_truncated": True,
-                            "task": result.get("task") or "minute_refresh",
-                            "mode": result.get("mode"),
-                            "watching_limit": result.get("watching_limit"),
-                            "universe_count": result.get("universe_count"),
-                            "period": result.get("period"),
-                            "minute_warmup": mw_slim or None,
-                            "error": result.get("error"),
-                        }
+                        slim = slim_minute_refresh_result(result)
+                        slim["persisted_truncated"] = True
+                        payload["result"] = slim
                     elif slot_name == "bars-refresh":
-                        br = (
-                            result.get("bars_refresh")
-                            if isinstance(result.get("bars_refresh"), dict)
-                            else {}
-                        )
-                        payload["result"] = {
-                            "success": result.get("success"),
-                            "ok": bool(result.get("success")),
-                            "persisted_truncated": True,
-                            "task": result.get("task") or "bars_refresh",
-                            "mode": result.get("mode"),
-                            "watching_limit": result.get("watching_limit"),
-                            "universe_count": result.get("universe_count"),
-                            "lookback": result.get("lookback"),
-                            "bars_refresh": br or None,
-                            "error": result.get("error"),
-                        }
+                        slim = slim_bars_refresh_result(result)
+                        slim["persisted_truncated"] = True
+                        payload["result"] = slim
                     elif slot_name == "materialize-l1l2":
                         # 刷新后状态条要 track / 模式位；丢弃庞大 by_family 明细
                         payload["result"] = slim_materialize_result(result)

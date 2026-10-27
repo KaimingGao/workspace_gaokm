@@ -394,6 +394,72 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertIsNone(running.get("result"))
         self.assertTrue(running.get("result_omitted"))
 
+    def test_refresh_progress_keeps_topup_summary(self):
+        from core.job_progress import refresh_progress_job
+
+        viewed = refresh_progress_job(
+            {
+                "status": "done",
+                "message": "拉5m 2/2（对齐跳过 2）",
+                "result": {
+                    "success": True,
+                    "mode": "topup",
+                    "minute_warmup": {
+                        "ok": True,
+                        "mode": "topup",
+                        "kind": "minute_topup",
+                        "warmed": 2,
+                        "total": 2,
+                        "skipped_aligned": 2,
+                        "topped": 0,
+                    },
+                    "status": {"codes": ["x"] * 500},
+                },
+            },
+            "minute-refresh",
+        )
+        mw = (viewed.get("result") or {}).get("minute_warmup") or {}
+        self.assertEqual(mw.get("mode"), "topup")
+        self.assertEqual(mw.get("skipped_aligned"), 2)
+        self.assertNotIn("status", viewed.get("result") or {})
+        self.assertNotIn("result_omitted", viewed)
+        running = refresh_progress_job(
+            {"status": "running", "result": {"mode": "topup"}},
+            "minute-refresh",
+        )
+        self.assertIsNone(running.get("result"))
+        self.assertTrue(running.get("result_omitted"))
+
+        bars = refresh_progress_job(
+            {
+                "status": "done",
+                "result": {
+                    "success": True,
+                    "mode": "topup",
+                    "bars_refresh": {
+                        "mode": "topup",
+                        "total": 4,
+                        "cache_count": 4,
+                        "gap_count": 0,
+                        "diff": {
+                            "price_count": 1,
+                            "volume_count": 0,
+                            "tail_count": 0,
+                            "rows": list(range(100)),
+                        },
+                    },
+                    "status": {"rows": list(range(100))},
+                },
+            },
+            "bars-refresh",
+        )
+        br = (bars.get("result") or {}).get("bars_refresh") or {}
+        self.assertEqual(br.get("mode"), "topup")
+        self.assertEqual(br.get("cache_count"), 4)
+        self.assertEqual((br.get("diff") or {}).get("price_count"), 1)
+        self.assertNotIn("rows", br.get("diff") or {})
+        self.assertNotIn("status", bars.get("result") or {})
+
 
 if __name__ == "__main__":
     unittest.main()

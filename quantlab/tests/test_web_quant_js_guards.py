@@ -247,6 +247,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("applyJobFailure", minute_js)
         self.assertIn("syncJobSlot", minute_js)
         self.assertIn('mode === "topup" ? 60 : 120', minute_js)
+        self.assertIn("minuteWarmup", minute_js)
         self.assertIn("stillRunning", minute_js)
         self.assertIn("前端等待已满，任务仍在后台运行", minute_js)
         self.assertNotIn("30 * 60 * 1000", minute_js)
