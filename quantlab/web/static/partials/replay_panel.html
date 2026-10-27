@@ -360,10 +360,30 @@
             <option value="live" selected>执行</option>
           </select>
         </label>
-        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行槽（与手动预演同一套）。选研究则用研究槽版本。规则读下方表单；leg1 截止见前缀滑条。缺该日5m则跳过。">跑回测</button>
+        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：成交股票取候选池。默认执行槽（与手动预演同一套）。选研究则用研究槽版本。规则读下方表单；leg1 截止见前缀滑条。缺该日5m则跳过。">跑回测</button>
       </div>
     </header>
     <div id="replay-t0-fold-body" class="replay-t0-fold-body">
+    <div class="replay-t0-pool" id="replay-t0-pool" aria-label="做 T 回测候选池">
+      <div class="replay-t0-pool-bar">
+        <span class="replay-t0-pool-label">候选池</span>
+        <span class="replay-t0-pool-count" id="replay-t0-pool-count">0/8</span>
+        <div class="replay-t0-pool-search">
+          <input
+            id="replay-t0-pool-input"
+            type="search"
+            placeholder="代码 / 名称"
+            maxlength="16"
+            autocomplete="off"
+            aria-label="加入做 T 回测候选"
+            aria-controls="replay-t0-pool-results"
+            aria-autocomplete="list"
+          />
+          <div id="replay-t0-pool-results" class="replay-t0-pool-results" hidden role="listbox"></div>
+        </div>
+      </div>
+      <div class="replay-t0-pool-slots" id="replay-t0-pool-slots"></div>
+    </div>
     <div class="replay-overview-band" id="replay-t0-overview">
       <div class="dashboard-kpi-row quant-pro-overview-kpis replay-kpi-row" id="replay-t0-kpi-row" aria-label="做 T 回测 KPI">
         <div class="dashboard-kpi-row-body">

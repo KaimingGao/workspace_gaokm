@@ -14,11 +14,12 @@ from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT
 
 logger = logging.getLogger(__name__)
 
-# 持仓做T回测：只用纸面股票池；仓位/本金用虚拟假设（与调仓回测默认本金对齐）
+# 做T回测成交名单：纸面持仓，或页上手动候选池。仓位/本金用虚拟假设。
 T0_BT_DEFAULT_LOOKBACK = 10
 T0_BT_MIN_LOOKBACK = 5
 T0_BT_VIRTUAL_SHARES = 1_000.0
 T0_BT_VIRTUAL_CASH = 200_000.0
+T0_BT_MANUAL_POOL_MAX = 8
 
 
 def _fill_t0_viz_stock_names(viz: Any, *, stock_code: str, stock_name: Optional[str]) -> None:
@@ -944,13 +945,23 @@ def run_t0_backtest_for_holdings(
     progress_cb: Optional[Callable[..., None]] = None,
     cancel_cb: Optional[Callable[[], bool]] = None,
     score_model_role: Optional[str] = None,
+    manual_pool: bool = False,
 ) -> Dict[str, Any]:
-    """对持仓列表逐票回测并汇总（研究用，不改账本）。
+    """对名单逐票回测并汇总（研究用，不改账本）。
 
-    股票池取自纸面持仓；仓位/本金默认虚拟假设（每票 ``virtual_shares``、
-    账户本金 ``virtual_cash``，默认 1000 股 / 20 万）。累计收益比例 = 含敞口净 PnL / 本金。
+    ``manual_pool`` 时名单是页上手动候选池；否则取自纸面持仓。
+    仓位/本金默认虚拟假设（每票 ``virtual_shares``、账户本金 ``virtual_cash``，
+    默认 1000 股 / 20 万）。累计收益比例 = 含敞口净 PnL / 本金。
     """
     if not holdings:
+        if manual_pool:
+            return {
+                "success": False,
+                "error": "候选池为空，请先选择股票",
+                "task": "t0_backtest",
+                "manual_pool": True,
+                "note": f"在做 T 回测候选池加入股票（最多 {T0_BT_MANUAL_POOL_MAX} 只）",
+            }
         return {
             "success": False,
             "error": "无持仓可回测",
@@ -979,6 +990,7 @@ def run_t0_backtest_for_holdings(
                 progress_cb=progress_cb,
                 cancel_cb=cancel_cb,
                 score_model_role=requested,
+                manual_pool=manual_pool,
             )
 
     from core.execution import resolve_t0_rules, strip_execution_meta
@@ -1020,7 +1032,7 @@ def run_t0_backtest_for_holdings(
             return False
 
     _emit(0, n_hold, "准备回测…")
-    # 成交只走持仓。ŷ 板块中位宇宙=观察池∪持仓；截面 5m 只灌本地缓存（并行），
+    # 成交只走传入名单（候选池或持仓）。ŷ 板块中位宇宙=观察池∪持仓；截面 5m 只灌本地缓存（并行），
     # 避免数百票远端补拉拖死。持仓本票分钟仍在逐票回测里补拉。
     try:
         from core.signal.minute_tau_feats import clear_sector_ret_cache
@@ -1148,7 +1160,7 @@ def run_t0_backtest_for_holdings(
             }
             per.append(one)
             continue
-        # 只用纸面股票名单；股数/成本走虚拟仓（成本由日线开窗决定）
+        # 名单已在调用方定好（候选池或持仓）；股数/成本走虚拟仓（成本由日线开窗决定）
         t_one = time.time()
 
         def _one_progress(_cur: int, _tot: int, msg: str) -> None:
@@ -1217,8 +1229,12 @@ def run_t0_backtest_for_holdings(
                 break
         return {
             "success": False,
-            "error": "持仓回测均未成功" + (f"：{'；'.join(err_bits)}" if err_bits else ""),
+            "error": (
+                "候选池回测均未成功" if manual_pool else "持仓回测均未成功"
+            )
+            + (f"：{'；'.join(err_bits)}" if err_bits else ""),
             "task": "t0_backtest",
+            "manual_pool": bool(manual_pool),
             "from_holdings": True,
             "holding_count": len(holdings),
             "ok_count": 0,
@@ -1294,6 +1310,7 @@ def run_t0_backtest_for_holdings(
         "success": bool(ok),
         "task": "t0_backtest",
         "from_holdings": True,
+        "manual_pool": bool(manual_pool),
         "score_model_role": current_scoring_model_role(),
         "virtual_sizing": True,
         "virtual_shares": v_shares,
@@ -1331,11 +1348,12 @@ def run_t0_backtest_for_holdings(
         "use_minute": True,
         "rules": _rules_summary(cfg),
         "scope_label": (
-            f"纸面股票池 {len(ok)}/{len(holdings)} 只 · 虚拟每票{int(v_shares)}股"
+            f"{'候选池' if manual_pool else '纸面股票池'} {len(ok)}/{len(holdings)} 只 · 虚拟每票{int(v_shares)}股"
             f" · 本金{int(v_cash / 10000)}万"
         ),
         "note": (
-            "按纸面股票池回测；仓位/本金为虚拟假设"
+            ("按手动候选池回测" if manual_pool else "按纸面股票池回测")
+            + "；仓位/本金为虚拟假设"
             f"（每票 {int(v_shares)} 股 · 本金 {int(v_cash):,}）；"
             "仅 5m 第一触达（有分钟缓存时日线自动对齐覆盖窗口）；"
             f"direction={cfg.get('direction')} · path=first_touch；非实盘。"

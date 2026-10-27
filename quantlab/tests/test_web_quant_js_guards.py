@@ -3208,6 +3208,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("setReplayT0Progress", replay_js)
         self.assertNotIn("paper-t0-action-status", replay_js)
         self.assertIn("/api/quant/last-t0-backtest", replay_js)
+        self.assertIn("readReplayT0Pool", replay_js)
+        self.assertIn("请先在候选池加入股票（最多 ${T0_POOL_MAX} 只）", replay_js)
+        self.assertIn(
+            "codes: readReplayT0Pool().map((x) => ({ stock_code: x.code, stock_name: x.name }))",
+            replay_js,
+        )
         self.assertIn("readT0BtSizing", replay_js)
         self.assertIn("fillT0BtSizing", replay_js)
         self.assertIn("initial_shares: sizing.shares", replay_js)
@@ -3224,6 +3230,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertNotIn('btn.classList.add("is-busy")', replay_js)
         replay_html = self._read("web", "static", "partials", "replay_panel.html")
+        self.assertIn('id="replay-t0-pool"', replay_html)
+        self.assertIn('id="replay-t0-pool-input"', replay_html)
         self.assertIn("paper-t0-backtest", replay_html)
         self.assertIn(
             'id="paper-t0-lookback" type="number" min="5" max="60"',
@@ -4175,6 +4183,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         desk_js = self._read("web", "static", "js", "paper", "rebalance_desk.js")
         self.assertIn("今日盯盘状态", desk_js)
         self.assertIn("renderPaperRebalanceWorkerDesk", desk_js)
+        self.assertLess(desk_js.find(">时间<"), desk_js.find(">动作<"))
         self.assertIn(">成交<", desk_js)
         self.assertIn(">今开<", desk_js)
         self.assertIn(">金额<", desk_js)

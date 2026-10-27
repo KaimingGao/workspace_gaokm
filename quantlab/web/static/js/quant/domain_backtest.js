@@ -6,7 +6,7 @@ import { repaintT0Portrait } from "../paper/t0_report.js?v=p3319";
 import { mergeScoringFloors } from "./scoring.js";
 import { watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
-import { downloadBlob } from "../shared.js";
+import { downloadBlob, escapeHtml } from "../shared.js";
 import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js";
 import { initExecutionRuleForms } from "../paper/execution_forms.js";
 import { TAU_END_CLOCKS, clampTauEndHm } from "./params.js";
@@ -1795,6 +1795,226 @@ export function installBacktest(q) {
     });
   }
 
+  const T0_POOL_MAX = 8;
+  const T0_POOL_KEY = "replay.t0.pool";
+
+  function t0PoolCodeKey(raw) {
+    let s = String(raw || "").trim().toUpperCase();
+    if (s.includes(".")) s = s.split(".", 1)[0];
+    return s;
+  }
+
+  function readReplayT0Pool() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(T0_POOL_KEY) || "[]");
+      if (!Array.isArray(raw)) return [];
+      const out = [];
+      const seen = new Set();
+      raw.forEach((row) => {
+        const code = t0PoolCodeKey(row && (row.code || row.stock_code));
+        if (!code || seen.has(code) || out.length >= T0_POOL_MAX) return;
+        seen.add(code);
+        const name = String((row && (row.name || row.stock_name)) || "").trim();
+        out.push({ code, name });
+      });
+      return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function writeReplayT0Pool(pool) {
+    const next = (pool || []).slice(0, T0_POOL_MAX);
+    try {
+      localStorage.setItem(T0_POOL_KEY, JSON.stringify(next));
+    } catch (_) {
+      /* ignore */
+    }
+    paintReplayT0Pool(next);
+    return next;
+  }
+
+  function paintReplayT0Pool(pool) {
+    const list = pool || readReplayT0Pool();
+    const slots = document.getElementById("replay-t0-pool-slots");
+    const count = document.getElementById("replay-t0-pool-count");
+    if (count) count.textContent = `${list.length}/${T0_POOL_MAX}`;
+    if (slots) slots.setAttribute("aria-label", `候选 ${list.length}/${T0_POOL_MAX}`);
+    if (!slots) return;
+    const seats = [];
+    for (let i = 0; i < T0_POOL_MAX; i += 1) {
+      const idx = String(i + 1).padStart(2, "0");
+      const row = list[i];
+      if (!row) {
+        seats.push(
+          `<span class="replay-t0-pool-slot is-empty" aria-hidden="true">` +
+            `<span class="replay-t0-pool-slot-idx">${idx}</span>` +
+            `</span>`
+        );
+        continue;
+      }
+      const name = row.name || row.code;
+      seats.push(
+        `<span class="replay-t0-pool-slot" data-code="${escapeHtml(row.code)}" title="${escapeHtml(name)} ${escapeHtml(row.code)}">` +
+          `<span class="replay-t0-pool-slot-top">` +
+          `<span class="replay-t0-pool-slot-idx">${idx}</span>` +
+          `<span class="replay-t0-pool-slot-name">${escapeHtml(name)}</span>` +
+          `</span>` +
+          `<span class="replay-t0-pool-slot-code">${escapeHtml(row.code)}</span>` +
+          `<button type="button" class="replay-t0-pool-slot-x" data-code="${escapeHtml(row.code)}" aria-label="移出 ${escapeHtml(name)}">×</button>` +
+          `</span>`
+      );
+    }
+    slots.innerHTML = seats.join("");
+  }
+
+  function addReplayT0PoolItem(code, name) {
+    const key = t0PoolCodeKey(code);
+    if (!key) return readReplayT0Pool();
+    const pool = readReplayT0Pool();
+    if (pool.some((row) => row.code === key)) return pool;
+    if (pool.length >= T0_POOL_MAX) {
+      setReplayT0Progress({
+        busy: false,
+        error: true,
+        message: `候选池已满（${T0_POOL_MAX} 只）`,
+      });
+      return pool;
+    }
+    return writeReplayT0Pool(pool.concat([{ code: key, name: String(name || "").trim() }]));
+  }
+
+  function hideReplayT0PoolResults() {
+    const box = document.getElementById("replay-t0-pool-results");
+    if (!box) return;
+    box.hidden = true;
+    box.innerHTML = "";
+  }
+
+  let t0PoolSearchSeq = 0;
+  let t0PoolSearchTimer = null;
+
+  function paintReplayT0PoolResults(items, query) {
+    const box = document.getElementById("replay-t0-pool-results");
+    if (!box) return;
+    const list = Array.isArray(items) ? items : [];
+    box.hidden = false;
+    if (!list.length) {
+      box.innerHTML = `<p class="replay-t0-pool-empty">未找到「${escapeHtml(query || "")}」</p>`;
+      return;
+    }
+    const held = new Set(readReplayT0Pool().map((row) => row.code));
+    box.innerHTML = list
+      .map((it) => {
+        const code = t0PoolCodeKey(it.stock_code || it.code);
+        const name = String(it.stock_name || it.name || code);
+        if (!code) return "";
+        const taken = held.has(code);
+        return (
+          `<button type="button" class="replay-t0-pool-hit${taken ? " is-in" : ""}" role="option" data-code="${escapeHtml(code)}" data-name="${escapeHtml(name)}"${taken ? " disabled" : ""}>` +
+          `<span class="replay-t0-pool-hit-code">${escapeHtml(code)}</span>` +
+          `<span class="replay-t0-pool-hit-name">${escapeHtml(name)}</span>` +
+          `<span class="replay-t0-pool-hit-mark">${taken ? "已入" : ""}</span>` +
+          `</button>`
+        );
+      })
+      .join("");
+  }
+
+  async function runReplayT0PoolSearch(raw) {
+    const query = String(raw || "").trim();
+    const box = document.getElementById("replay-t0-pool-results");
+    if (!query) {
+      hideReplayT0PoolResults();
+      return;
+    }
+    const seq = ++t0PoolSearchSeq;
+    if (box && box.hidden) {
+      box.hidden = false;
+      box.innerHTML = `<p class="replay-t0-pool-empty">搜索中…</p>`;
+    }
+    try {
+      const res = await fetch(`/api/watching/search?q=${encodeURIComponent(query)}&limit=8`);
+      const data = await res.json().catch(() => ({}));
+      if (seq !== t0PoolSearchSeq) return;
+      if (!res.ok) throw new Error(data.detail || res.statusText || "搜索失败");
+      paintReplayT0PoolResults(data.items || [], query);
+    } catch (err) {
+      if (seq !== t0PoolSearchSeq) return;
+      if (box) {
+        box.hidden = false;
+        box.innerHTML = `<p class="replay-t0-pool-empty">${escapeHtml(String((err && err.message) || err || "搜索失败"))}</p>`;
+      }
+    }
+  }
+
+  function wireReplayT0Pool() {
+    const root = document.getElementById("replay-t0-pool");
+    const input = document.getElementById("replay-t0-pool-input");
+    if (!root || !input || root.dataset.wired === "1") return;
+    root.dataset.wired = "1";
+    paintReplayT0Pool(readReplayT0Pool());
+    root.addEventListener("click", (e) => {
+      const hit = e.target && e.target.closest && e.target.closest(".replay-t0-pool-hit:not(.is-in)");
+      if (hit) {
+        addReplayT0PoolItem(hit.getAttribute("data-code"), hit.getAttribute("data-name"));
+        input.value = "";
+        hideReplayT0PoolResults();
+        input.focus();
+        return;
+      }
+      const remove = e.target && e.target.closest && e.target.closest(".replay-t0-pool-slot-x");
+      if (!remove) return;
+      const code = t0PoolCodeKey(remove.getAttribute("data-code"));
+      writeReplayT0Pool(readReplayT0Pool().filter((row) => row.code !== code));
+    });
+    input.addEventListener("input", () => {
+      if (t0PoolSearchTimer) clearTimeout(t0PoolSearchTimer);
+      t0PoolSearchTimer = setTimeout(() => {
+        runReplayT0PoolSearch(input.value);
+      }, 180);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        hideReplayT0PoolResults();
+        return;
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const hits = [...root.querySelectorAll(".replay-t0-pool-hit:not(.is-in)")];
+        if (!hits.length) return;
+        e.preventDefault();
+        const cur = hits.findIndex((el) => el.classList.contains("is-active"));
+        const next =
+          e.key === "ArrowDown"
+            ? hits[cur < 0 ? 0 : (cur + 1) % hits.length]
+            : hits[cur <= 0 ? hits.length - 1 : cur - 1];
+        hits.forEach((el) => el.classList.toggle("is-active", el === next));
+        next.scrollIntoView({ block: "nearest" });
+        return;
+      }
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const first =
+        root.querySelector(".replay-t0-pool-hit.is-active") ||
+        root.querySelector(".replay-t0-pool-hit:not(.is-in)");
+      if (first) {
+        addReplayT0PoolItem(first.getAttribute("data-code"), first.getAttribute("data-name"));
+        input.value = "";
+        hideReplayT0PoolResults();
+        return;
+      }
+      const typed = t0PoolCodeKey(input.value);
+      if (/^\d{6}$/.test(typed)) {
+        addReplayT0PoolItem(typed, "");
+        input.value = "";
+        hideReplayT0PoolResults();
+      }
+    });
+    document.addEventListener("mousedown", (e) => {
+      if (!root.contains(e.target)) hideReplayT0PoolResults();
+    });
+  }
+
   function collectReplayT0BacktestBody() {
     const lbEl = document.getElementById("paper-t0-lookback");
     let lookback = Number(lbEl && lbEl.value);
@@ -1806,6 +2026,7 @@ export function installBacktest(q) {
     const sizing = readT0BtSizing(t0Form);
     return {
       from_paper: true,
+      codes: readReplayT0Pool().map((x) => ({ stock_code: x.code, stock_name: x.name })),
       lookback,
       use_minute: true,
       ...t0,
@@ -2149,7 +2370,7 @@ export function installBacktest(q) {
         const full = await fetch("/api/jobs/t0-backtest").then((res) => res.json().catch(() => ({})));
         return ((full && full.job) || job);
       }
-      const hint = job.message || "回测中（持仓·5m/选向）…";
+      const hint = job.message || "回测中（候选池·5m/选向）…";
       setReplayT0Progress({
         busy: true,
         message: `回测中… ${fmtT0JobSec(Date.now() - pollStarted)} · ${hint}`,
@@ -2204,6 +2425,14 @@ export function installBacktest(q) {
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
       if (btn.disabled) return;
+      if (!readReplayT0Pool().length) {
+        setReplayT0Progress({
+          busy: false,
+          error: true,
+          message: `请先在候选池加入股票（最多 ${T0_POOL_MAX} 只）`,
+        });
+        return;
+      }
       setReplayT0Progress({ busy: true, message: "回测入队…" });
       const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
       const timer =
@@ -2310,6 +2539,7 @@ export function installBacktest(q) {
 
   hydrateT0BtLastLeg1Slider();
   wireT0SectionFold();
+  wireReplayT0Pool();
   wirePaperT0Backtest();
   wireReplayFillClock();
   wireReplayPriceSpaceGate();

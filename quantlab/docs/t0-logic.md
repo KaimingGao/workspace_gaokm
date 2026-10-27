@@ -324,7 +324,7 @@ bound = ref × (1 + move_pct / 100)
 
 ### 9.5 虚拟仓与本金
 
-`/replay` 做 T 回测只用纸面股票名单；仓位/本金走表单「配置」：
+`/replay` 做 T 回测成交名单来自页上**候选池**（搜索加入，最多 8 只，记在浏览器本地，不跟纸面持仓对齐）。未传 `codes` 的 API 仍可回测整份持仓。仓位/本金走表单「配置」：
 
 - **Y_τw强金额** 默认 4 万；回测虚拟底仓=`最大轮数 × (强金额/价)`（`initial_shares` 由引擎按日价现算）
 - **本金** 默认 20 万（`initial_cash`），也是累计收益比例的分母
@@ -340,7 +340,7 @@ bound = ref × (1 + move_pct / 100)
 - live 盯盘与做 T 回测都把该宇宙的 5m 灌进同伴仓；持仓回测灌一次后复用，不清仓重灌
 - **回测截面灌仓只读本地 5m**（并行；缺仓/缺尾同伴票跳过，不远端补拉）。持仓本票仍可补拉。研究页先预热分钟线可提高截面覆盖
 - **日截面 Z**：回测 / live / 拟合同口径。同伴 raw 优先 **Feature Lake L1**（与拟合写穿同一行）；μ/σ 走 **DayCube L2** + `rescore_fitted_cross_section`（`score_codes` 只写持仓/本票，不缩小 z 池）。**DayCube 命中时单票 z+ŷ，不重建整池同伴**；做 T 持仓回测开跑 `warmup_watching_day_cubes(..., clocks=分钟钟)`（prefetch `tc_HHMM` + 按钟 ensure）。**禁止抽样/截断同伴池**。产品做 T 回测覆盖闸**只硬要** `tc_HHMM` + 同钟立方（不硬要 oo/open）；不够时 ``materialize_required`` → **分钟线物化**。调仓仍硬要 oo/tc/co + open。消费开关关闭时，Lake/cube miss 才并行 `compute_scores_from_bars`（`include_tau_horizons=False`，辅头 ŷ 不进 μ/σ）。前缀辅头 CS-z：cube 须覆盖窗头特征（拒 slim gap-only）；miss 时 leave-one-in **剥开盘同伴分钟占位**（`ret_open_to_tau=0` 等）。**独立物化**：日线 = open（调仓/拟合）；分钟 Ready 后 = τ 网格（做 T）；可空 oo/co 仍建按钟 Cube。`QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1` 时 miss 不冷建。**ŷ_τ* PIT**：拟合 CS 组=`date|τ`；前缀 live 传当前钟。**轻量前缀**：有开盘 snap 时 `prefix_light`（软依赖 oo/open，缺则全日缀、可能更慢）。详见 [feature-lake-daycube.md](internal/feature-lake-daycube.md) §4.5
-- 持仓只决定谁成交，不决定截面宽度
+- 成交名单（页上候选池；未传 codes 时才是整份持仓）只决定谁成交，不决定截面宽度
 
 权重仍分研究套 / 执行套；因子管子三路同一。
 

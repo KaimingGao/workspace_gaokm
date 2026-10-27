@@ -326,5 +326,95 @@ class TestPortfolioFailReasonKept(unittest.TestCase):
         self.assertEqual(slim["hint"], "日线物化")
         self.assertNotIn("problems", slim)
 
+class TestT0ManualPoolHoldings(unittest.TestCase):
+    def _svc(self):
+        from quant.services.quant_service import QuantService
+
+        return QuantService()
+
+    def test_codes_outside_paper_stay_in_pool(self):
+        paper = {
+            "holdings": [
+                {"stock_code": "600519", "stock_name": "贵州茅台", "shares": 100}
+            ]
+        }
+        svc = self._svc()
+        with patch("os.path.isfile", return_value=True), patch(
+            "core.paper.load_paper", return_value=paper
+        ):
+            holdings, got = svc._t0_holdings_for_backtest(
+                codes=[
+                    {"stock_code": "000001", "stock_name": "平安银行"},
+                    {"stock_code": "600519.SH", "stock_name": "忽略"},
+                    "000001",
+                ]
+            )
+        self.assertIs(got, paper)
+        self.assertEqual([h["stock_code"] for h in holdings], ["000001", "600519"])
+        self.assertEqual(holdings[0]["stock_name"], "平安银行")
+        self.assertEqual(holdings[1]["stock_name"], "贵州茅台")
+        self.assertEqual(holdings[1]["shares"], 100)
+
+    def test_empty_codes_is_empty_pool_not_all_holdings(self):
+        paper = {"holdings": [{"stock_code": "600519", "stock_name": "贵州茅台"}]}
+        svc = self._svc()
+        with patch("os.path.isfile", return_value=True), patch(
+            "core.paper.load_paper", return_value=paper
+        ):
+            holdings, _paper = svc._t0_holdings_for_backtest(codes=[])
+        self.assertEqual(holdings, [])
+
+    def test_codes_work_without_paper_file(self):
+        svc = self._svc()
+        with patch("os.path.isfile", return_value=False):
+            holdings, paper = svc._t0_holdings_for_backtest(
+                codes=[{"stock_code": "000001", "stock_name": "平安银行"}]
+            )
+        self.assertIsNone(paper)
+        self.assertEqual(
+            holdings, [{"stock_code": "000001", "stock_name": "平安银行"}]
+        )
+
+    def test_omit_codes_still_returns_paper_holdings(self):
+        paper = {"holdings": [{"stock_code": "600519", "stock_name": "贵州茅台"}]}
+        svc = self._svc()
+        with patch("os.path.isfile", return_value=True), patch(
+            "core.paper.load_paper", return_value=paper
+        ):
+            holdings, got = svc._t0_holdings_for_backtest()
+        self.assertIs(got, paper)
+        self.assertEqual(holdings, paper["holdings"])
+
+    def test_pool_capped_at_eight(self):
+        svc = self._svc()
+        codes = [f"{i:06d}" for i in range(1, 12)]
+        with patch("os.path.isfile", return_value=False):
+            holdings, _paper = svc._t0_holdings_for_backtest(codes=codes)
+        self.assertEqual(len(holdings), 8)
+        self.assertEqual(holdings[0]["stock_code"], "000001")
+        self.assertEqual(holdings[-1]["stock_code"], "000008")
+
+    def test_run_marks_manual_pool(self):
+        svc = self._svc()
+        with patch.object(
+            svc,
+            "_t0_holdings_for_backtest",
+            return_value=([{"stock_code": "000001", "stock_name": "平安银行"}], None),
+        ), patch(
+            "quant.research.t0_backtest.run_t0_backtest_for_holdings",
+            return_value={"success": True, "manual_pool": True, "ok_count": 1},
+        ) as run, patch(
+            "core.backtest_result_store.save_last_t0_backtest",
+        ):
+            out = svc.run_t0_backtest(
+                from_paper=True,
+                codes=[{"stock_code": "000001", "stock_name": "平安银行"}],
+                lookback=10,
+            )
+        self.assertTrue(out.get("success"))
+        self.assertTrue(run.call_args.kwargs.get("manual_pool"))
+        self.assertTrue(out["request"]["manual_pool"])
+
+
 if __name__ == "__main__":
     unittest.main()

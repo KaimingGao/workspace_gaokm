@@ -11029,6 +11029,20 @@ body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-stock {
   min-width: 9rem;
 }
 
+body[data-page="follow"] .paper-rb-desk-table {
+  width: max(100%, 74rem);
+  min-width: 74rem;
+}
+
+body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-time {
+  width: 4.2rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+  color: var(--ink-2, #475569);
+}
+
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-dir {
   width: 3.2rem;
   text-align: center;
@@ -11041,6 +11055,16 @@ body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-phase {
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-legs {
   width: 3.2rem;
+}
+
+body[data-page="follow"] .paper-rb-desk-table .paper-t0-col-legs {
+  width: 5rem;
+  min-width: 5rem;
+  padding-left: 6px;
+  padding-right: 6px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-rank {

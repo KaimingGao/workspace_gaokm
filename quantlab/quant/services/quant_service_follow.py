@@ -10,6 +10,9 @@ from typing import Any, Callable, Dict, Optional
 def _attach_t0_scope_label(out: Dict[str, Any], *, code: str = "") -> None:
     if not isinstance(out, dict) or not out.get("success"):
         return
+    # 手动候选池的文案已在引擎里写好（含虚拟股数 / 本金）
+    if out.get("manual_pool"):
+        return
     if out.get("from_holdings") and int(out.get("ok_count") or 0) > 1:
         out["scope_label"] = f"模拟持仓 {out.get('ok_count')} 只"
     elif out.get("from_holdings"):
@@ -48,6 +51,7 @@ class QuantFollowMixin:
         from core.research.holdout import normalize_backtest_model_role
 
         role = normalize_backtest_model_role(score_model_role)
+        manual_pool = codes is not None
 
         _ = use_minute
         try:
@@ -70,13 +74,14 @@ class QuantFollowMixin:
                         holdings,
                         lookback=lookback,
                         rules=rules,
-                        paper=paper if from_paper else None,
+                        paper=paper if from_paper or manual_pool else None,
                         use_minute=True,
                         virtual_shares=v_shares,
                         virtual_cash=v_cash,
                         progress_cb=progress_cb,
                         cancel_cb=cancel_cb,
                         score_model_role=role,
+                        manual_pool=manual_pool,
                     )
                 else:
                     if progress_cb:
@@ -103,6 +108,7 @@ class QuantFollowMixin:
                         "lookback": lookback,
                         "code": str(code or "").strip(),
                         "from_paper": bool(from_paper),
+                        "manual_pool": bool(manual_pool),
                         "codes": list(codes) if codes else None,
                         "initial_shares": v_shares,
                         "initial_cash": v_cash,
@@ -253,10 +259,17 @@ class QuantFollowMixin:
     def _t0_holdings_for_backtest(
         self, *, codes: Optional[list] = None, code: str = ""
     ) -> tuple:
+        """成交名单。
+
+        ``codes is None`` 且未指定单票：整份纸面持仓。
+        传入 ``codes``（含空列表）：按顺序做成交名单，不在持仓里的票补成虚拟行。
+        最多 ``T0_BT_MANUAL_POOL_MAX`` 只。纸面文件缺失时仍可只跑手动名单。
+        """
         import os
 
         from core.paper import load_paper
         from core.paths import PAPER_PATH
+        from quant.research.t0_backtest import T0_BT_MANUAL_POOL_MAX
 
         def _code_key(c: object) -> str:
             s = str(c or "").strip().upper()
@@ -264,25 +277,65 @@ class QuantFollowMixin:
                 s = s.split(".", 1)[0]
             return s
 
-        if not os.path.isfile(PAPER_PATH):
-            return [], None
-        paper = load_paper(PAPER_PATH)
-        holdings = list(paper.get("holdings") or [])
-        want: set = set()
-        if codes:
-            want = {str(c).strip() for c in codes if str(c).strip()}
+        paper = None
+        holdings: list = []
+        if os.path.isfile(PAPER_PATH):
+            paper = load_paper(PAPER_PATH)
+            holdings = list((paper or {}).get("holdings") or [])
+
+        want_raw = None
+        if codes is not None:
+            want_raw = list(codes)[: max(1, int(T0_BT_MANUAL_POOL_MAX))]
         elif str(code or "").strip():
-            want = {str(code).strip()}
-        if want:
-            want_keys = {_code_key(w) for w in want}
-            holdings = [
-                h
-                for h in holdings
-                if _code_key(h.get("stock_code")) in want_keys
-                or str(h.get("stock_name") or "").strip() in want
-                or any(
-                    w and w in str(h.get("stock_name") or "")
-                    for w in want
+            want_raw = [str(code).strip()]
+        if want_raw is None:
+            return holdings, paper
+
+        by_key: Dict[str, dict] = {}
+        by_name: Dict[str, dict] = {}
+        for h in holdings:
+            if not isinstance(h, dict):
+                continue
+            key = _code_key(h.get("stock_code"))
+            if key and key not in by_key:
+                by_key[key] = h
+            name = str(h.get("stock_name") or "").strip()
+            if name:
+                by_name.setdefault(name, h)
+
+        out: list = []
+        seen: set = set()
+        for raw in want_raw:
+            explicit_name = ""
+            token = raw
+            if isinstance(raw, dict):
+                token = (
+                    raw.get("stock_code")
+                    or raw.get("code")
+                    or raw.get("stock_name")
+                    or raw.get("name")
+                    or ""
                 )
-            ]
-        return holdings, paper
+                explicit_name = str(raw.get("stock_name") or raw.get("name") or "").strip()
+            token = str(token or "").strip()
+            if not token:
+                continue
+            key = _code_key(token)
+            dedupe = key or token
+            if dedupe in seen:
+                continue
+            seen.add(dedupe)
+            hit = by_key.get(key) or by_name.get(token)
+            if isinstance(hit, dict):
+                row = dict(hit)
+                if explicit_name and not str(row.get("stock_name") or "").strip():
+                    row["stock_name"] = explicit_name
+                out.append(row)
+                continue
+            out.append(
+                {
+                    "stock_code": key or token,
+                    "stock_name": explicit_name,
+                }
+            )
+        return out, paper

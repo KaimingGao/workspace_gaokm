@@ -122,6 +122,15 @@ function fmtHm(ts) {
   return m ? m[1] : "";
 }
 
+function timeCell(ts) {
+  const hm = fmtHm(ts);
+  const full = String(ts || "").trim();
+  const title = full ? `落账 ${full}` : "尚未落账";
+  return `<td class="num paper-rb-col-time" title="${escapeHtml(title)}">${escapeHtml(
+    hm || "—"
+  )}</td>`;
+}
+
 function rankDeskBit(raw, nRaw) {
   const y = Number(raw);
   const n = Number(nRaw);
@@ -255,6 +264,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
           String(r.phase || "watch")
         )}" data-code="${escapeHtml(String(r.stock_code || ""))}">` +
         stockCellHtml(r) +
+        timeCell(r.ts) +
         actionCell(r.action) +
         `<td class="paper-t0-col-phase">${phaseBadge(r.phase, locked)}</td>` +
         `<td class="num paper-t0-col-legs">${escapeHtml(fmtShares(r.shares))}</td>` +
@@ -321,6 +331,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<table class="quant-weight-table paper-t0-table paper-t0-desk-table paper-rb-desk-table">` +
     `<colgroup>` +
     `<col class="paper-t0-col-stock" />` +
+    `<col class="paper-rb-col-time" />` +
     `<col class="paper-t0-col-dir" />` +
     `<col class="paper-t0-col-phase" />` +
     `<col class="paper-t0-col-legs" />` +
@@ -336,6 +347,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `</colgroup>` +
     `<thead><tr>` +
     `<th scope="col" class="paper-t0-col-stock">标的</th>` +
+    `<th scope="col" class="num paper-rb-col-time" title="本笔落账时间">时间</th>` +
     `<th scope="col" class="paper-t0-col-dir">动作</th>` +
     `<th scope="col" class="paper-t0-col-phase">阶段</th>` +
     `<th scope="col" class="num paper-t0-col-legs" title="本笔股数">手数</th>` +
