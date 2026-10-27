@@ -636,6 +636,155 @@ def _assemble_parallel(
     return x, y, names, dates
 
 
+def _assemble_oo_released(
+    items: Sequence[Tuple[str, Sequence[dict]]],
+    horizon_days: int,
+    n_workers: int,
+    *,
+    ridge_core_only: bool,
+    progress_cb: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """物化专用：meta 命中不进子进程；未命中写穿 L1 后立刻丢掉矩阵。
+
+    不堆全池 ``X``，也不写 open 立方（那一步交给 L2，避免只有 oo 列的薄立方）。
+    """
+    from core.research.incremental_panel import meta_covers_bars
+    from core.research.lake_bridge import FAMILY_OO
+    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
+
+    core = bool(ridge_core_only)
+    horizon_i = int(horizon_days)
+    summary: Dict[str, Any] = {
+        "n_rows": 0,
+        "n_cols": 0,
+        "n_stocks": 0,
+        "hits": 0,
+        "names": [],
+        "dates": [],
+    }
+    date_set = set()
+    misses: List[Tuple[str, List[dict]]] = []
+    done_n = 0
+
+    def _tick() -> None:
+        nonlocal done_n
+        done_n += 1
+        if progress_cb:
+            progress_cb(done_n)
+
+    def _take(part: Any) -> None:
+        if not part or not isinstance(part, tuple) or len(part) < 4:
+            return
+        x, _y, names, dates = part
+        try:
+            rows = int(x.shape[0])
+            cols = int(x.shape[1]) if getattr(x, "ndim", 0) == 2 else 0
+        except (AttributeError, IndexError, TypeError):
+            return
+        summary["n_rows"] += rows
+        summary["n_cols"] = max(int(summary["n_cols"]), cols)
+        summary["n_stocks"] += 1
+        if names and not summary["names"]:
+            summary["names"] = list(names)
+        for raw in dates or []:
+            day = str(raw)[:10]
+            if len(day) >= 10:
+                date_set.add(day)
+
+    for code, bars in items:
+        bars_l = list(bars or [])
+        fp = make_fingerprint(
+            bars_fp=bars_fingerprint(bars_l),
+            horizon=horizon_i,
+            ridge_core_only=int(core),
+        )
+        hit = meta_covers_bars(FAMILY_OO, str(code), fp, bars_l)
+        if hit is not None:
+            summary["n_rows"] += int(hit["n_rows"])
+            summary["n_cols"] = max(int(summary["n_cols"]), int(hit["n_cols"]))
+            summary["n_stocks"] += 1
+            summary["hits"] += 1
+            for raw in bars_l:
+                if not isinstance(raw, dict):
+                    continue
+                day = str(raw.get("date") or raw.get("trade_date") or "")[:10]
+                if len(day) >= 10:
+                    date_set.add(day)
+            _tick()
+            continue
+        misses.append((str(code), bars_l))
+
+    if misses and n_workers > 1 and len(misses) >= 4:
+        from concurrent.futures import ProcessPoolExecutor
+
+        from core.research.materialize.consumer import context_initargs, research_pool_init
+
+        results: List[Any] = [None] * len(misses)
+        taken: set = set()
+
+        def _on_done(i: int) -> None:
+            if i in taken:
+                return
+            taken.add(i)
+            try:
+                _take(results[i])
+                _tick()
+            finally:
+                results[i] = None
+
+        from core.research.materialize.consumer import MaterializeRequired
+
+        pool = None
+        try:
+            pool = ProcessPoolExecutor(
+                max_workers=n_workers,
+                initializer=research_pool_init,
+                initargs=context_initargs(),
+            )
+            _drain_stock_batch(
+                pool,
+                misses,
+                horizon_i,
+                0,
+                len(misses),
+                results,
+                n_workers,
+                ridge_core_only=core,
+                on_done=_on_done,
+            )
+        except MaterializeRequired:
+            raise
+        except Exception:
+            logger.exception("oo release pool unavailable, using serial")
+            for i, (code, bars_l) in enumerate(misses):
+                if i in taken:
+                    continue
+                part = _oo_stock_job((code, bars_l, horizon_i, core))
+                _take(part)
+                _tick()
+        finally:
+            if pool is not None:
+                try:
+                    pool.shutdown(wait=True, cancel_futures=True)
+                except Exception:
+                    logger.exception("oo release pool shutdown failed")
+    else:
+        for code, bars_l in misses:
+            part = _oo_stock_job((code, bars_l, horizon_i, core))
+            _take(part)
+            _tick()
+    summary["dates"] = sorted(date_set)
+    logger.info(
+        "oo release rows=%s cols=%s stocks=%s hits=%s workers=%s",
+        summary["n_rows"],
+        summary["n_cols"],
+        summary["n_stocks"],
+        summary["hits"],
+        n_workers if len(misses) >= 4 else 1,
+    )
+    return summary
+
+
 def assemble_oo_panels(
     items: Sequence[Tuple[str, Sequence[dict]]],
     *,
@@ -643,11 +792,15 @@ def assemble_oo_panels(
     workers: Optional[int] = None,
     ridge_core_only: bool = False,
     progress_cb: Optional[Any] = None,
+    release_rows: bool = False,
+    stats_out: Optional[Dict[str, Any]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
     """按股票顺序堆叠。满池默认 4 子进程，在途任务不超过进程数。
 
     ``ridge_core_only=False``（默认）：面板 ``z_oo_* ∪ raw_aoo_*`` 全量；
     ``True`` 时只留 aoo_core + 去重叠 z_oo（消融）。
+    ``release_rows=True``：物化路径。不把全池矩阵留在父进程，也不写薄立方。
+    计数写入 ``stats_out``。
     """
     seq = list(items)
     from core.research.materialize.coverage import enforce_consumer_coverage
@@ -662,6 +815,7 @@ def assemble_oo_panels(
     )
     n_workers = _resolve_workers(len(seq), workers)
     core = bool(ridge_core_only)
+
     def _tick(done: int) -> None:
         if not callable(progress_cb):
             return
@@ -672,6 +826,24 @@ def assemble_oo_panels(
             progress_cb(done, total, f"L1 oo {done}/{total}")
         except Exception:  # noqa: BLE001
             logger.debug("oo assemble progress_cb failed", exc_info=True)
+
+    if release_rows:
+        summary = _assemble_oo_released(
+            seq,
+            int(horizon_days),
+            n_workers,
+            ridge_core_only=core,
+            progress_cb=_tick,
+        )
+        if isinstance(stats_out, dict):
+            stats_out.clear()
+            stats_out.update(summary)
+        return (
+            np.zeros((0, 1), dtype=np.float64),
+            np.zeros((0,), dtype=np.float64),
+            list(summary.get("names") or []),
+            list(summary.get("dates") or []),
+        )
 
     if n_workers <= 1:
         return _assemble_serial(

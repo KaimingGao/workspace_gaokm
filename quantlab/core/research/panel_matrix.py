@@ -1370,6 +1370,46 @@ def collect_tau_grid_panels(
     }
 
 
+def _release_pack(bucket: Dict[str, Any], pack: Any) -> None:
+    """物化计数。不把矩阵留在 bucket 里。"""
+    if not pack or not isinstance(pack, tuple) or len(pack) < 4:
+        return
+    arr = pack[1]
+    dates = pack[3]
+    try:
+        rows = int(getattr(arr, "shape", (0,))[0])
+        cols = int(arr.shape[1]) if getattr(arr, "ndim", 0) == 2 else 0
+    except (AttributeError, IndexError, TypeError):
+        return
+    bucket["n_rows"] = int(bucket.get("n_rows") or 0) + rows
+    bucket["n_cols"] = max(int(bucket.get("n_cols") or 0), cols)
+    bucket["n_stocks"] = int(bucket.get("n_stocks") or 0) + 1
+    found = bucket.setdefault("dates", set())
+    for raw in dates or []:
+        day = str(raw)[:10]
+        if len(day) >= 10:
+            found.add(day)
+
+
+def _meta_hit_for_width(
+    family: str,
+    code: str,
+    fingerprint: str,
+    bars: Sequence[dict],
+    *,
+    n_cols: int,
+) -> Optional[Dict[str, int]]:
+    """列宽和行数都够，才在父进程跳过。否则交给工人重算。"""
+    from core.research.incremental_panel import meta_covers_bars
+
+    hit = meta_covers_bars(family, code, fingerprint, bars)
+    if hit is None:
+        return None
+    if int(hit["n_cols"]) != int(n_cols) or int(hit["n_rows"]) < 4:
+        return None
+    return hit
+
+
 def collect_tau_compact(
     stock_bars: Sequence[Dict[str, Any]],
     names: Sequence[str],
@@ -1385,6 +1425,7 @@ def collect_tau_compact(
     cache_head: str = "tc",
     progress_cb: Optional[Any] = None,
     stats_out: Optional[Dict[str, Any]] = None,
+    release_rows: bool = False,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """逐股折成矩阵后再做截面广度。返回 (X, names, ys, dates, metas, n_stocks)。
 
@@ -1439,23 +1480,68 @@ def collect_tau_compact(
     n_stocks = 0
     processed = 0
     minute_attached = 0
+    n_all = len(items)
+    released: Dict[str, Any] = {
+        "n_rows": 0,
+        "n_cols": 0,
+        "n_stocks": 0,
+        "dates": set(),
+        "hits": 0,
+    }
+    drop_rows = bool(release_rows) and not use_minute
+    if drop_rows:
+        from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
+
+        kept_items: List[dict] = []
+        for it in items:
+            code = str(it.get("code") or it.get("stock_code") or "").strip()
+            bars = list(it.get("bars") or [])
+            fp = make_fingerprint(
+                bars_fp=bars_fingerprint(bars),
+                tau_hm=str(tau_hm),
+                min_history=int(min_history),
+                include_alpha_tc=int(bool(include_alpha_tc)),
+                include_alpha_th=int(bool(include_alpha_th)),
+                use_minute=0,
+            )
+            hit = _meta_hit_for_width(
+                tau_family, code, fp, bars, n_cols=len(col_names)
+            )
+            if hit is None:
+                kept_items.append(it)
+                continue
+            released["n_rows"] += int(hit["n_rows"])
+            released["n_cols"] = max(int(released["n_cols"]), int(hit["n_cols"]))
+            released["n_stocks"] += 1
+            released["hits"] += 1
+            for raw in bars:
+                if isinstance(raw, dict):
+                    day = str(raw.get("date") or raw.get("trade_date") or "")[:10]
+                    if len(day) >= 10:
+                        released["dates"].add(day)
+            it.pop("bars", None)
+            it.pop("minute_bars", None)
+        items = kept_items
+        n_jobs = len(items)
+        processed = int(released["hits"])
 
     def _tick() -> None:
         nonlocal processed
         processed += 1
         if not callable(progress_cb):
             return
+        shown_total = n_all if drop_rows else n_jobs
         if (
             processed == 1
-            or processed >= n_jobs
+            or processed >= shown_total
             or processed % 2 == 0
             or processed % _TAU_POOL_BATCH == 0
         ):
             try:
                 progress_cb(
                     processed,
-                    max(1, n_jobs),
-                    f"ŷ_τc 面板 {processed}/{n_jobs}",
+                    max(1, shown_total),
+                    f"ŷ_τc 面板 {processed}/{shown_total}",
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("tau compact progress_cb failed", exc_info=True)
@@ -1466,6 +1552,11 @@ def collect_tau_compact(
         ],
     ) -> None:
         nonlocal n_stocks
+        if drop_rows:
+            if pack:
+                _release_pack(released, pack)
+            _tick()
+            return
         if not pack:
             _tick()
             return
@@ -1559,8 +1650,17 @@ def collect_tau_compact(
 
         def _on_done(j: int) -> None:
             # 完成序只记 stale。折行放到整批按下标，行序才跟股票列表一致。
-            _pack, stale = _split_pool_job_result(results[j])
+            # 物化 release 立刻计数并丢掉矩阵，避免整池结果同时留在父进程。
+            pack, stale = _split_pool_job_result(results[j])
             _apply_stale(stale)
+            if not drop_rows:
+                return
+            _fold_one(pack)
+            results[j] = None
+            it = items[start + j] if start + j < len(items) else None
+            if isinstance(it, dict):
+                it.pop("bars", None)
+                it.pop("minute_bars", None)
 
         def _label(j: int) -> str:
             it = items[start + j] if start + j < len(items) else None
@@ -1594,13 +1694,14 @@ def collect_tau_compact(
                 pool.shutdown(wait=True, cancel_futures=True)
             except Exception:  # noqa: BLE001
                 logger.exception("tau compact pool shutdown failed")
-        for j in range(end - start):
-            pack, _stale = _split_pool_job_result(results[j])
-            _fold_one(pack)
-            it = items[start + j]
-            if isinstance(it, dict):
-                it.pop("bars", None)
-                it.pop("minute_bars", None)
+        if not drop_rows:
+            for j in range(end - start):
+                pack, _stale = _split_pool_job_result(results[j])
+                _fold_one(pack)
+                it = items[start + j]
+                if isinstance(it, dict):
+                    it.pop("bars", None)
+                    it.pop("minute_bars", None)
 
     if n_jobs:
         logger.info(
@@ -1616,8 +1717,10 @@ def collect_tau_compact(
             except Exception:  # noqa: BLE001
                 logger.debug("tau compact progress_cb failed", exc_info=True)
         start = 0
+        # 物化开盘：一族一个进程池。分钟仍按批挂 5m，避免整池分钟线同时进内存。
+        step = n_jobs if drop_rows else _TAU_POOL_BATCH
         while start < n_jobs:
-            end = min(n_jobs, start + _TAU_POOL_BATCH)
+            end = min(n_jobs, start + max(1, step))
             if use_minute:
                 minute_attached += attach_minute_bars_slice(items, start, end)
             _run_batch(start, end)
@@ -1628,6 +1731,26 @@ def collect_tau_compact(
             progress_cb(n_jobs, max(1, n_jobs), "ŷ_τc 截面广度…")
         except Exception:  # noqa: BLE001
             logger.debug("tau compact progress_cb failed", exc_info=True)
+
+    if drop_rows:
+        date_list = sorted(released.get("dates") or [])
+        cols = int(released.get("n_cols") or 0) or len(col_names) or 1
+        if isinstance(stats_out, dict):
+            stats_out["release_rows"] = True
+            stats_out["n_rows"] = int(released.get("n_rows") or 0)
+            stats_out["n_cols"] = int(cols)
+            stats_out["n_dates"] = len(date_list)
+            stats_out["n_stocks"] = int(released.get("n_stocks") or 0)
+            stats_out["hits"] = int(released.get("hits") or 0)
+            stats_out["minute_attached"] = int(minute_attached)
+        return (
+            np.zeros((0, int(cols)), dtype=np.float64),
+            list(col_names),
+            [],
+            date_list,
+            [],
+            int(released.get("n_stocks") or 0),
+        )
 
     X, out_names, ys_out, dates_out, metas_out = _finish_breadth(
         block,
@@ -1972,6 +2095,8 @@ def collect_co_compact(
     head: str = "y_co",
     workers: Optional[int] = None,
     progress_cb: Optional[Any] = None,
+    release_rows: bool = False,
+    stats_out: Optional[Dict[str, Any]] = None,
 ) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
     """隔夜 ŷ_co 紧凑面板（8GB / 对齐 ŷ_oo）。
 
@@ -2002,6 +2127,43 @@ def collect_co_compact(
     slim_panels: List[Dict[str, Any]] = []
     n_stocks = 0
     processed = 0
+    n_all = len(items)
+    released: Dict[str, Any] = {
+        "n_rows": 0,
+        "n_cols": 0,
+        "n_stocks": 0,
+        "dates": set(),
+        "hits": 0,
+    }
+    if release_rows:
+        from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
+
+        kept_items: List[dict] = []
+        for it in items:
+            code = str(it.get("code") or it.get("stock_code") or "").strip()
+            bars = list(it.get("bars") or [])
+            fp = make_fingerprint(
+                bars_fp=bars_fingerprint(bars),
+                min_history=int(min_history),
+                include_alpha_oo=int(bool(include_alpha_oo)),
+            )
+            hit = _meta_hit_for_width(FAMILY_CO, code, fp, bars, n_cols=len(col_names))
+            if hit is None:
+                kept_items.append(it)
+                continue
+            released["n_rows"] += int(hit["n_rows"])
+            released["n_cols"] = max(int(released["n_cols"]), int(hit["n_cols"]))
+            released["n_stocks"] += 1
+            released["hits"] += 1
+            for raw in bars:
+                if isinstance(raw, dict):
+                    day = str(raw.get("date") or raw.get("trade_date") or "")[:10]
+                    if len(day) >= 10:
+                        released["dates"].add(day)
+            it.pop("bars", None)
+        items = kept_items
+        n_jobs = len(items)
+        processed = int(released["hits"])
 
     def _drop_bars(i: int) -> None:
         it = items[i]
@@ -2013,17 +2175,18 @@ def collect_co_compact(
         processed += 1
         if not callable(progress_cb):
             return
+        shown_total = n_all if release_rows else n_jobs
         if (
             processed == 1
-            or processed >= n_jobs
+            or processed >= shown_total
             or processed % 2 == 0
             or processed % _CO_POOL_BATCH == 0
         ):
             try:
                 progress_cb(
                     processed,
-                    n_jobs,
-                    f"ŷ_co 面板 {processed}/{n_jobs}",
+                    max(1, shown_total),
+                    f"ŷ_co 面板 {processed}/{shown_total}",
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("co compact progress_cb failed", exc_info=True)
@@ -2034,6 +2197,11 @@ def collect_co_compact(
         ],
     ) -> None:
         nonlocal n_stocks
+        if release_rows:
+            if pack:
+                _release_pack(released, pack)
+            _tick()
+            return
         if not pack:
             _tick()
             return
@@ -2109,6 +2277,8 @@ def collect_co_compact(
             _apply_stale(stale)
             _fold(pack)
             _drop_bars(i)
+            if release_rows:
+                results[j] = None
 
         def _label(j: int) -> str:
             it = items[start + j] if start + j < len(items) else None
@@ -2156,8 +2326,9 @@ def collect_co_compact(
             except Exception:  # noqa: BLE001
                 logger.debug("co compact progress_cb failed", exc_info=True)
         start = 0
+        step = n_jobs if release_rows else _CO_POOL_BATCH
         while start < n_jobs:
-            end = min(n_jobs, start + _CO_POOL_BATCH)
+            end = min(n_jobs, start + max(1, step))
             _run_batch(start, end)
             start = end
 
@@ -2166,6 +2337,25 @@ def collect_co_compact(
             progress_cb(n_jobs, max(1, n_jobs), "ŷ_co 截面广度…")
         except Exception:  # noqa: BLE001
             logger.debug("co compact progress_cb failed", exc_info=True)
+
+    if release_rows:
+        date_list = sorted(released.get("dates") or [])
+        cols = int(released.get("n_cols") or 0) or len(col_names) or 1
+        if isinstance(stats_out, dict):
+            stats_out["release_rows"] = True
+            stats_out["n_rows"] = int(released.get("n_rows") or 0)
+            stats_out["n_cols"] = int(cols)
+            stats_out["n_dates"] = len(date_list)
+            stats_out["n_stocks"] = int(released.get("n_stocks") or 0)
+            stats_out["hits"] = int(released.get("hits") or 0)
+        return (
+            np.zeros((0, int(cols)), dtype=np.float64),
+            list(col_names),
+            [],
+            date_list,
+            [],
+            int(released.get("n_stocks") or 0),
+        )
 
     X, out_names, ys_out, dates_out, metas_out = _finish_breadth(
         block,

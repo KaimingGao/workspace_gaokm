@@ -258,6 +258,47 @@ def lake_row_covers_bar_end(
     return str((meta or {}).get("scored_through") or "")[:10] == end
 
 
+def meta_covers_bars(
+    family: str,
+    code: str,
+    fingerprint: str,
+    bars: Sequence[dict],
+) -> Optional[Dict[str, int]]:
+    """meta 里的指纹和价量指纹都盖住这批日线时，返回行数和列数。
+
+    不打开 npz。对不上、npz 不在、或缺 ``scored_through`` 时返回 None，调用方再进子进程。
+    读 meta 失败也返回 None，不让一只股票的坏文件打断整池。
+    """
+    try:
+        from core.research.feature_lake import panel_npz_exists, read_stock_meta
+
+        if not panel_npz_exists(family, code):
+            return None
+        meta = read_stock_meta(family, code)
+        if not isinstance(meta, dict):
+            return None
+        if str(meta.get("fingerprint") or "") != str(fingerprint or ""):
+            return None
+        want_bars = str(stem_extra_meta(bars).get("bars_fp") or "")
+        if not want_bars or str(meta.get("bars_fp") or "") != want_bars:
+            return None
+        if not lake_row_covers_bar_end([], bars, meta):
+            return None
+        rows = int(meta.get("n_rows") or 0)
+        cols = int(meta.get("n_cols") or 0)
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "meta cover check failed family=%s code=%s",
+            family,
+            code,
+            exc_info=True,
+        )
+        return None
+    if rows <= 0 or cols <= 0:
+        return None
+    return {"n_rows": rows, "n_cols": cols}
+
+
 def stem_extra_meta(bars: Sequence[dict]) -> Dict[str, Any]:
     """写入 bars_fp / stem_fp / end_date / scored_through / n_bars，供下次增量判断。"""
     from core.research.panel_fingerprint import bars_fingerprint

@@ -68,18 +68,36 @@ def _stock_bar_items(
     return stock_bars, list(failures or []), items
 
 
+def _items_from_bars(
+    codes: Sequence[str],
+    stock_bars: Dict[str, List[dict]],
+) -> List[Tuple[str, List[dict]]]:
+    items: List[Tuple[str, List[dict]]] = []
+    for code in codes:
+        bars = stock_bars.get(str(code)) or []
+        if isinstance(bars, list) and bars:
+            items.append((str(code), list(bars)))
+    return items
+
+
 def _materialize_oo(
     codes: Sequence[str],
     *,
     lookback: int,
     horizon_days: int,
     progress_cb: ProgressCb,
+    stock_bars: Optional[Dict[str, List[dict]]] = None,
+    failures: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     from core.research.oo_ridge_compact import assemble_oo_panels
 
     t0 = time.perf_counter()
-    _emit(progress_cb, 0, 1, "L1 oo：加载日线…")
-    _bars, failures, items = _stock_bar_items(codes, lookback=lookback)
+    if stock_bars is None:
+        _emit(progress_cb, 0, 1, "L1 oo：加载日线…")
+        _, failures, items = _stock_bar_items(codes, lookback=lookback)
+    else:
+        failures = list(failures or [])
+        items = _items_from_bars(codes, stock_bars)
     if len(items) < 2:
         return {
             "family": FAMILY_OO,
@@ -99,19 +117,25 @@ def _materialize_oo(
             message or f"L1 oo {int(done)}/{int(total)}",
         )
 
-    x_mat, y_mat, feat_names, all_dates = assemble_oo_panels(
+    summary: Dict[str, Any] = {}
+    _x_mat, _y_mat, feat_names, _dates = assemble_oo_panels(
         items,
         horizon_days=int(horizon_days),
         progress_cb=_pcb,
+        release_rows=True,
+        stats_out=summary,
     )
-    n_rows = int(getattr(x_mat, "shape", [0])[0] or 0)
+    n_rows = int(summary.get("n_rows") or 0)
+    n_features = int(summary.get("n_cols") or 0) or len(feat_names or [])
+    n_dates = len(summary.get("dates") or [])
     return {
         "family": FAMILY_OO,
         "ok": True,
         "n_stocks": len(items),
         "n_rows": n_rows,
-        "n_features": len(feat_names or []),
-        "n_dates": len(set(str(d)[:10] for d in (all_dates or []) if d)),
+        "n_features": n_features,
+        "n_dates": n_dates,
+        "hits": int(summary.get("hits") or 0),
         "elapsed_s": round(time.perf_counter() - t0, 2),
     }
 
@@ -121,15 +145,20 @@ def _materialize_tc(
     *,
     lookback: int,
     progress_cb: ProgressCb,
+    stock_bars: Optional[Dict[str, List[dict]]] = None,
+    failures: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     from core.research.panel_matrix import collect_tau_compact
     from core.yhat.keys import TAU_Z_FEATURES
 
     t0 = time.perf_counter()
-    _emit(progress_cb, 0, 1, "L1 tc：加载日线…")
-    stock_bars, failures, _items = _stock_bar_items(codes, lookback=lookback)
+    if stock_bars is None:
+        _emit(progress_cb, 0, 1, "L1 tc：加载日线…")
+        stock_bars, failures, _ = _stock_bar_items(codes, lookback=lookback)
+    else:
+        failures = list(failures or [])
     packs = [
-        {"stock_code": c, "code": c, "bars": stock_bars.get(c) or []}
+        {"stock_code": c, "code": c, "bars": list(stock_bars.get(c) or [])}
         for c in codes
         if stock_bars.get(c)
     ]
@@ -161,7 +190,8 @@ def _materialize_tc(
             message or f"L1 tc {int(done)}/{int(total)}",
         )
 
-    X, col_names, ys, dates, _metas, n_stocks = collect_tau_compact(
+    tc_stats: Dict[str, Any] = {}
+    _x, col_names, _ys, _dates, _metas, n_stocks = collect_tau_compact(
         packs,
         list(TAU_Z_FEATURES),
         tau_hm="open",
@@ -169,17 +199,23 @@ def _materialize_tc(
         head="y_tc",
         cache_head="tc",
         progress_cb=_pcb,
+        release_rows=True,
+        stats_out=tc_stats,
     )
     rank_row = _materialize_tc_rank(rank_packs, progress_cb=progress_cb)
     return {
         "family": FAMILY_TC,
         "ok": bool(rank_row.get("ok")),
-        "n_stocks": int(n_stocks),
-        "n_rows": len(ys or []),
-        "n_features": len(col_names or []),
-        "n_dates": len(set(str(d)[:10] for d in (dates or []) if d)),
+        "n_stocks": int(tc_stats.get("n_stocks") or n_stocks),
+        "n_rows": int(tc_stats.get("n_rows") or 0),
+        "n_features": int(tc_stats.get("n_cols") or 0) or len(col_names or []),
+        "n_dates": int(tc_stats.get("n_dates") or 0),
+        "hits": int(tc_stats.get("hits") or 0),
         "elapsed_s": round(time.perf_counter() - t0, 2),
-        "x_shape": list(getattr(X, "shape", []) or []),
+        "x_shape": [
+            int(tc_stats.get("n_rows") or 0),
+            int(tc_stats.get("n_cols") or 0) or len(col_names or []),
+        ],
         "tc_rank": rank_row,
     }
 
@@ -207,7 +243,8 @@ def _materialize_tc_rank(
         )
 
     try:
-        _x, _names, ys, _dates, _metas, n_stocks = collect_tau_compact(
+        rank_stats: Dict[str, Any] = {}
+        _x, _names, _ys, _dates, _metas, n_stocks = collect_tau_compact(
             packs,
             list(TAU_Z_FEATURES),
             tau_hm="open",
@@ -215,15 +252,20 @@ def _materialize_tc_rank(
             head="y_tc_rank",
             cache_head="tc_rank",
             progress_cb=_pcb,
+            release_rows=True,
+            stats_out=rank_stats,
         )
+        n_rows = int(rank_stats.get("n_rows") or 0)
+        n_stocks = int(rank_stats.get("n_stocks") or n_stocks)
     except Exception as exc:  # noqa: BLE001
         return {"family": "tc_rank", "ok": False, "error": str(exc)}
     return {
         "family": "tc_rank",
-        "ok": len(ys or []) > 0,
+        "ok": n_rows > 0,
         "n_stocks": int(n_stocks),
-        "n_rows": len(ys or []),
-        "error": None if ys else "empty tc_rank",
+        "n_rows": n_rows,
+        "hits": int(rank_stats.get("hits") or 0),
+        "error": None if n_rows > 0 else "empty tc_rank",
     }
 
 
@@ -232,15 +274,20 @@ def _materialize_co(
     *,
     lookback: int,
     progress_cb: ProgressCb,
+    stock_bars: Optional[Dict[str, List[dict]]] = None,
+    failures: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     from core.research.panel_matrix import collect_co_compact
     from core.yhat.keys import CO_Z_FEATURES
 
     t0 = time.perf_counter()
-    _emit(progress_cb, 0, 1, "L1 co：加载日线…")
-    stock_bars, failures, _items = _stock_bar_items(codes, lookback=lookback)
+    if stock_bars is None:
+        _emit(progress_cb, 0, 1, "L1 co：加载日线…")
+        stock_bars, failures, _ = _stock_bar_items(codes, lookback=lookback)
+    else:
+        failures = list(failures or [])
     packs = [
-        {"stock_code": c, "code": c, "bars": stock_bars.get(c) or []}
+        {"stock_code": c, "code": c, "bars": list(stock_bars.get(c) or [])}
         for c in codes
         if stock_bars.get(c)
     ]
@@ -257,22 +304,29 @@ def _materialize_co(
         _emit(progress_cb, done, total, message or f"L1 co：{done}/{total}")
 
     _emit(progress_cb, 0, 1, f"L1 co：collect_co_compact {len(packs)} 只…")
-    X, col_names, ys, dates, _metas, n_stocks = collect_co_compact(
+    co_stats: Dict[str, Any] = {}
+    _x, col_names, _ys, _dates, _metas, n_stocks = collect_co_compact(
         packs,
         list(CO_Z_FEATURES),
         include_alpha_oo=True,
         head="y_co",
         progress_cb=_pcb,
+        release_rows=True,
+        stats_out=co_stats,
     )
     return {
         "family": FAMILY_CO,
         "ok": True,
-        "n_stocks": int(n_stocks),
-        "n_rows": len(ys or []),
-        "n_features": len(col_names or []),
-        "n_dates": len(set(str(d)[:10] for d in (dates or []) if d)),
+        "n_stocks": int(co_stats.get("n_stocks") or n_stocks),
+        "n_rows": int(co_stats.get("n_rows") or 0),
+        "n_features": int(co_stats.get("n_cols") or 0) or len(col_names or []),
+        "n_dates": int(co_stats.get("n_dates") or 0),
+        "hits": int(co_stats.get("hits") or 0),
         "elapsed_s": round(time.perf_counter() - t0, 2),
-        "x_shape": list(getattr(X, "shape", []) or []),
+        "x_shape": [
+            int(co_stats.get("n_rows") or 0),
+            int(co_stats.get("n_cols") or 0) or len(col_names or []),
+        ],
     }
 
 
@@ -282,15 +336,20 @@ def _materialize_oo_rank(
     lookback: int,
     horizon_days: int,
     progress_cb: ProgressCb,
+    stock_bars: Optional[Dict[str, List[dict]]] = None,
+    failures: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """oo_rank：默认同口径读 oo 的 L1；超额或无法复用 oo 指纹时才现算并写穿。"""
     from core.research.oo_rank_panel import build_oo_rank_day_panels
 
     t0 = time.perf_counter()
-    _emit(progress_cb, 0, 1, "L1 oo_rank：加载日线…")
-    stock_bars, failures, _items = _stock_bar_items(codes, lookback=lookback)
+    if stock_bars is None:
+        _emit(progress_cb, 0, 1, "L1 oo_rank：加载日线…")
+        stock_bars, failures, _ = _stock_bar_items(codes, lookback=lookback)
+    else:
+        failures = list(failures or [])
     packs = [
-        {"stock_code": c, "code": c, "bars": stock_bars.get(c) or []}
+        {"stock_code": c, "code": c, "bars": list(stock_bars.get(c) or [])}
         for c in codes
         if stock_bars.get(c)
     ]
@@ -430,7 +489,7 @@ def _materialize_l1_tau_grid_body(
 
     _emit(progress_cb, 0, 1, "L1 τ 网格：加载日线…")
     try:
-        stock_bars, failures, _items = _stock_bar_items(code_list, lookback=lookback)
+        stock_bars, failures, _ = _stock_bar_items(code_list, lookback=lookback)
     except Exception as exc:  # noqa: BLE001
         logger.warning("l1 tau grid bars failed: %s", exc)
         logger.debug("l1 tau grid bars failed", exc_info=True)
@@ -634,6 +693,16 @@ def _materialize_l1_body(
         return report
     t0 = time.perf_counter()
     n = len(fams)
+    shared_bars: Optional[Dict[str, List[dict]]] = None
+    shared_failures: List[str] = []
+    if any(
+        fam in fams
+        for fam in (FAMILY_OO, FAMILY_TC, FAMILY_CO, FAMILY_OO_RANK)
+    ):
+        _emit(progress_cb, 0, max(1, n), "L1：加载日线…")
+        shared_bars, shared_failures, _ = _stock_bar_items(
+            code_list, lookback=lookback
+        )
 
     def _p0_ok() -> bool:
         if not p0_requested:
@@ -668,14 +737,24 @@ def _materialize_l1_body(
                     lookback=lookback,
                     horizon_days=horizon_days,
                     progress_cb=fam_cb,
+                    stock_bars=shared_bars,
+                    failures=shared_failures,
                 )
             elif fam == FAMILY_TC:
                 row = _materialize_tc(
-                    code_list, lookback=lookback, progress_cb=fam_cb
+                    code_list,
+                    lookback=lookback,
+                    progress_cb=fam_cb,
+                    stock_bars=shared_bars,
+                    failures=shared_failures,
                 )
             elif fam == FAMILY_CO:
                 row = _materialize_co(
-                    code_list, lookback=lookback, progress_cb=fam_cb
+                    code_list,
+                    lookback=lookback,
+                    progress_cb=fam_cb,
+                    stock_bars=shared_bars,
+                    failures=shared_failures,
                 )
             elif fam == FAMILY_OO_RANK:
                 row = _materialize_oo_rank(
@@ -683,6 +762,8 @@ def _materialize_l1_body(
                     lookback=lookback,
                     horizon_days=horizon_days,
                     progress_cb=fam_cb,
+                    stock_bars=shared_bars,
+                    failures=shared_failures,
                 )
             else:
                 row = {"family": fam, "ok": False, "error": "unknown family"}

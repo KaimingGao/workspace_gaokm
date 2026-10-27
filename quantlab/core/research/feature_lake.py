@@ -332,6 +332,13 @@ def write_stock_panel(
     return True
 
 
+def panel_npz_exists(family: str, code: str) -> bool:
+    """npz 还在盘上。不打开文件。meta 单独存在时不算。"""
+    if not code:
+        return False
+    return os.path.isfile(_paths(family, code)["npz"])
+
+
 def read_stock_meta(family: str, code: str) -> Optional[Dict[str, Any]]:
     """只读 meta（含 ``bars_fp``）。schema 不符或文件缺失则 None。"""
     if not enabled() or not code:

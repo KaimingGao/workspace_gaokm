@@ -165,6 +165,7 @@ def _warmup_open_clock(
             cancel_cb=cancel_cb,
             min_lake_frac=lake_frac,
             prefetch_l1=False,
+            seed_pool=False,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("l2 open warmup failed: %s", exc)
@@ -184,6 +185,15 @@ def _warmup_open_clock(
         "slim_days": slim_n,
         **dict(warm or {}),
     }
+    spill_err = str((warm or {}).get("error") or "").strip()
+    if spill_err:
+        row["ok"] = False
+        row["error"] = spill_err
+        report["ok"] = False
+        if not report.get("error"):
+            report["error"] = spill_err
+        report["by_clock"][clock] = row
+        return
     if days and not _clock_reaches_days(row, n_days=len(days), lake_frac=lake_frac):
         _mark_clock_cover_short(
             report, row, clock, n_days=len(days), lake_frac=lake_frac

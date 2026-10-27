@@ -3942,12 +3942,14 @@ def warmup_watching_day_cubes(
     prefetch_l1: bool = True,
     clocks: Optional[Sequence[str]] = None,
     l1_families: Optional[Sequence[str]] = None,
+    seed_pool: bool = True,
 ) -> Dict[str, int]:
     """prefetch L1 + 按日期块 ensure DayCube（命中则跳过）。
 
     ``clocks`` 默认 ``["open"]``（调仓/开盘预热）。做 T 传入分钟钟列表。
     ``QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1`` 或消费只读时 miss 不 ensure，只计 hit。
     ``prefetch_l1=False``：跳过整池 panel 预热。
+    ``seed_pool=False``：物化路径。三族各解开一次，向量化写立方，不填 24 日缓存。
     返回 ``prefetch_codes`` / ``cubes_hit`` / ``cubes_built`` / ``days``。
     """
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
@@ -3968,6 +3970,8 @@ def warmup_watching_day_cubes(
         "prefetch_codes": 0,
         "cubes_hit": 0,
         "cubes_built": 0,
+        "days_skipped": 0,
+        "slim_reject": 0,
         "days": len(day_list),
     }
     if len(code_list) < 2 or not day_list:
@@ -4072,6 +4076,35 @@ def warmup_watching_day_cubes(
     for clock in clock_list:
         is_open = str(clock) == "open"
         fam_tc = FAMILY_TC if is_open else family_for_tc(tau_hm=str(clock))
+        if not seed_pool:
+            from core.research.materialize.cube_spill import warmup_clock_from_spill
+
+            spilled = warmup_clock_from_spill(
+                code_list,
+                day_list,
+                clock=str(clock),
+                family_oo=FAMILY_OO,
+                family_tc=fam_tc,
+                family_co=FAMILY_CO,
+                min_items=need,
+                require_oo_item=bool(is_open),
+                require_tc_day=not is_open,
+                progress_cb=progress_cb,
+                cancel_cb=cancel_cb,
+                day_pos=day_pos,
+                n_days=n_days,
+            )
+            spilled = spilled if isinstance(spilled, dict) else {}
+            out["cubes_hit"] += int(spilled.get("cubes_hit") or 0)
+            out["cubes_built"] += int(spilled.get("cubes_built") or 0)
+            out["days_skipped"] += int(spilled.get("days_skipped") or 0)
+            out["slim_reject"] += int(spilled.get("slim_reject") or 0)
+            spill_err = str(spilled.get("error") or "").strip()
+            if spill_err:
+                out["error"] = spill_err
+            if _cancelled() or spill_err:
+                break
+            continue
         for chunk in day_chunks(day_list, CUBE_FILL_CHUNK_DAYS):
             if _cancelled():
                 break
