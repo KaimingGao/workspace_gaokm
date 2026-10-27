@@ -1084,6 +1084,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("onSettled", mat_js)
         self.assertIn("resumeIfRunning", mat_js)
         self.assertIn("完成态保留 7 天", mat_js)
+        # 物化状态条带绝对更新时间，对齐日 K / 5m「上次更新」
+        self.assertIn("fmtCoverageTime", mat_js)
+        self.assertIn("上次更新", mat_js)
+        self.assertNotIn("fmtAgeSec", mat_js)
         self.assertIn('st === "done"', mat_js)
         self.assertIn("applyDoneUi({", mat_js)
         self.assertIn("result.success !== false", mat_js)

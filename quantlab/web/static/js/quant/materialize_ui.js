@@ -3,7 +3,7 @@
 import { setProStatusChip } from "./factor_corr_ui.js";
 import {
   fmtDuration,
-  fmtAgeSec,
+  fmtCoverageTime,
   jobTimings,
   paintClusterJobPanel,
   unwrapJobSnap,
@@ -162,6 +162,14 @@ function jobFracText(job) {
   return "";
 }
 
+/** 终态状态条的写入时刻，对齐日 K / 5m 的「上次更新」。 */
+function updatedAtBit(job) {
+  const updated = Number(job?.updated_at);
+  if (!(updated > 0)) return "";
+  const when = fmtCoverageTime(updated);
+  return when ? `上次更新 ${when}` : "";
+}
+
 /**
  * @param {object} q
  * @param {{
@@ -252,8 +260,24 @@ function installMaterializeRunner(q, cfg) {
     });
   }
 
-  function paintDone(job, result) {
+  function doneHead(job, result) {
     const bits = resultHeadBits(result, { tau });
+    const when = updatedAtBit(job);
+    if (when) bits.push(when);
+    return bits;
+  }
+
+  function failHead(job, errText) {
+    const head = ["物化失败"];
+    const frac = jobFracText(job);
+    if (frac) head.push(frac);
+    if (errText) head.push(errText);
+    const when = updatedAtBit(job);
+    if (when) head.push(when);
+    return head.join(" · ");
+  }
+
+  function paintDone(job, result, bits) {
     const stageHint = trackStageHint(result, { tau });
     setDeskStatusTone([strip, card], "warn");
     paintClusterJobPanel(progressEl, {
@@ -264,6 +288,19 @@ function installMaterializeRunner(q, cfg) {
       tone: "warn",
       hint: [stageHint, bits.slice(1).join(" · ")].filter(Boolean).join(" · "),
     });
+  }
+
+  function showDone(job, result) {
+    const bits = doneHead(job, result);
+    setProStatusChip(chip, "ok", "DONE");
+    msgEl.textContent = bits.join(" · ");
+    paintDone(job, result, bits);
+  }
+
+  function showFail(job, errText) {
+    setProStatusChip(chip, "error", "FAIL");
+    msgEl.textContent = failHead(job, errText);
+    paintFail(job, errText);
   }
 
   function paintFail(job, errText) {
@@ -533,22 +570,10 @@ function installMaterializeRunner(q, cfg) {
         paintRunning(j || { message: errText }, { pollStartedAt: Date.now() });
         return;
       }
-      setProStatusChip(chip, "error", "FAIL");
-      const head = ["物化失败"];
-      const frac = jobFracText(j);
-      if (frac) head.push(frac);
-      head.push(errText);
-      msgEl.textContent = head.join(" · ");
-      paintFail(j, errText);
+      showFail(j, errText);
       return;
     }
-    const result = (done.job && done.job.result) || {};
-    const bits = resultHeadBits(result, { tau });
-    const updated = Number(done.job?.updated_at);
-    if (updated > 0) bits.push(fmtAgeSec(Date.now() / 1000 - updated));
-    setProStatusChip(chip, "ok", "DONE");
-    msgEl.textContent = bits.join(" · ");
-    paintDone(done.job, result);
+    showDone(done.job, (done.job && done.job.result) || {});
   }
 
   function beginRunUi(seedMsg) {
@@ -595,9 +620,7 @@ function installMaterializeRunner(q, cfg) {
       applyDoneUi(done);
     } catch (e) {
       const errText = String((e && e.message) || e || "物化异常");
-      setProStatusChip(chip, "error", "FAIL");
-      msgEl.textContent = ["物化失败", errText].join(" · ");
-      paintFail(lastPolledJob, errText);
+      showFail(lastPolledJob, errText);
     } finally {
       endRunUi();
     }
@@ -638,13 +661,7 @@ function installMaterializeRunner(q, cfg) {
       lastPolledJob = job;
       if (onStart) onStart();
       const errText = String(job.error || job.message || "物化失败");
-      setProStatusChip(chip, "error", "FAIL");
-      const head = ["物化失败"];
-      const frac = jobFracText(job);
-      if (frac) head.push(frac);
-      head.push(errText);
-      msgEl.textContent = head.join(" · ");
-      paintFail(job, errText);
+      showFail(job, errText);
       if (onSettled) onSettled();
       return true;
     }
@@ -685,9 +702,7 @@ function installMaterializeRunner(q, cfg) {
         applyDoneUi(done);
       } catch (e) {
         const errText = String((e && e.message) || e || "物化异常");
-        setProStatusChip(chip, "error", "FAIL");
-        msgEl.textContent = ["物化失败", errText].join(" · ");
-        paintFail(lastPolledJob, errText);
+        showFail(lastPolledJob, errText);
       } finally {
         endRunUi();
       }
