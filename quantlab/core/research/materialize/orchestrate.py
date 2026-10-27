@@ -71,6 +71,37 @@ def request_has_minute_clock(
     return False
 
 
+def _merge_l2(parts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """两次 L2（open 全日窗 + 分钟短窗）合成一份报告。"""
+    by_clock: Dict[str, Any] = {}
+    elapsed = 0.0
+    ok = True
+    error = ""
+    for part in parts:
+        if not isinstance(part, dict):
+            ok = False
+            continue
+        ok = ok and bool(part.get("ok"))
+        try:
+            elapsed += float(part.get("elapsed_s") or 0.0)
+        except (TypeError, ValueError):
+            pass
+        err = str(part.get("error") or "").strip()
+        if err and err != "cancelled" and not error:
+            error = err
+        rows = part.get("by_clock")
+        if isinstance(rows, dict):
+            by_clock.update(rows)
+    out: Dict[str, Any] = {
+        "ok": ok,
+        "by_clock": by_clock,
+        "elapsed_s": round(elapsed, 2),
+    }
+    if error:
+        out["error"] = error
+    return out
+
+
 def _emit(cb: ProgressCb, cur: int, tot: int, msg: str) -> None:
     if not cb:
         return
@@ -240,21 +271,46 @@ def _run_materialize(
         def _pcb2(c: int, t: int, m: str = "") -> None:
             _emit(progress_cb, c, t, m or "L2…")
 
-        l2_lb = resolve_l2_lookback(
-            int(lookback or 0),
-            minute=request_has_minute_clock(
-                clks, do_l1_tau_grid=bool(do_l1_tau_grid)
-            ),
-        )
-        out["l2"] = materialize_l2(
-            code_list,
-            dates=dates,
-            clocks=clks,
-            lookback_days=l2_lb,
-            progress_cb=_pcb2,
-            cancel_cb=cancel_cb,
-            require_horizon_names=bool(do_l1_tau_grid),
-        )
+        # 日线 L1 只拆了 open，分钟 L1 只拆了分钟钟。两条一起开时各建各的窗，
+        # 不能拿分钟短窗去补 open。
+        if do_l1 and do_l1_tau_grid:
+            open_lb = resolve_l2_lookback(int(lookback or 0), minute=False)
+            minute_lb = resolve_l2_lookback(int(lookback or 0), minute=True)
+            open_part = materialize_l2(
+                code_list,
+                dates=dates,
+                clocks=["open"],
+                lookback_days=open_lb,
+                progress_cb=_pcb2,
+                cancel_cb=cancel_cb,
+                require_horizon_names=False,
+            )
+            minute_part = materialize_l2(
+                code_list,
+                dates=dates,
+                clocks=clks,
+                lookback_days=minute_lb,
+                progress_cb=_pcb2,
+                cancel_cb=cancel_cb,
+                require_horizon_names=True,
+            )
+            out["l2"] = _merge_l2([open_part, minute_part])
+        else:
+            l2_lb = resolve_l2_lookback(
+                int(lookback or 0),
+                minute=request_has_minute_clock(
+                    clks, do_l1_tau_grid=bool(do_l1_tau_grid)
+                ),
+            )
+            out["l2"] = materialize_l2(
+                code_list,
+                dates=dates,
+                clocks=clks,
+                lookback_days=l2_lb,
+                progress_cb=_pcb2,
+                cancel_cb=cancel_cb,
+                require_horizon_names=bool(do_l1_tau_grid),
+            )
         step += 1
         _emit(progress_cb, step, tot_steps, "L2 完成")
 

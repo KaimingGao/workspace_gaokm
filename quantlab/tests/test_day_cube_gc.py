@@ -276,6 +276,52 @@ class TestDayCubeGc(unittest.TestCase):
         self.assertTrue(wrote)
         self.assertFalse(self._on_disk("2024-05-03", codes, "open"))
 
+    def test_batch_clock_does_not_drop_the_other_track(self) -> None:
+        """分钟钟作废不拆 open；open 作废不拆分钟钟；不传钟则两个都拆。"""
+        from core.research.day_cube import load_day_cube
+        from core.research.day_cube_gc import (
+            l2_invalidation_batch,
+            note_all_dates,
+            note_stale_dates,
+        )
+
+        codes = ["a", "b"]
+        self._save("2024-09-15", codes, "open")
+        self._save("2024-09-15", codes, "09:35")
+        opened = load_day_cube("2024-09-15", codes, clock="open")
+        self.assertIsNotNone(opened)
+        with l2_invalidation_batch(clocks=["09:35"]):
+            note_stale_dates(["2024-09-15"])
+        self.assertTrue(self._on_disk("2024-09-15", codes, "open"))
+        self.assertFalse(self._on_disk("2024-09-15", codes, "09:35"))
+        self.assertIs(load_day_cube("2024-09-15", codes, clock="open"), opened)
+
+        self._save("2024-09-16", codes, "open")
+        self._save("2024-09-16", codes, "09:35")
+        with l2_invalidation_batch(clocks=["09:30"]):
+            note_stale_dates(["2024-09-16"])
+        self.assertFalse(self._on_disk("2024-09-16", codes, "open"))
+        self.assertTrue(self._on_disk("2024-09-16", codes, "09:35"))
+
+        self._save("2024-09-18", codes, "open")
+        self._save("2024-09-18", codes, "10:00")
+        minute = load_day_cube("2024-09-18", codes, clock="10:00")
+        self.assertIsNotNone(minute)
+        with l2_invalidation_batch(clocks=["open"]):
+            note_all_dates()
+        self.assertFalse(self._on_disk("2024-09-18", codes, "open"))
+        self.assertFalse(self._on_disk("2024-09-15", codes, "open"))
+        self.assertTrue(self._on_disk("2024-09-18", codes, "10:00"))
+        self.assertTrue(self._on_disk("2024-09-16", codes, "09:35"))
+        self.assertIs(load_day_cube("2024-09-18", codes, clock="10:00"), minute)
+
+        self._save("2024-09-17", codes, "open")
+        self._save("2024-09-17", codes, "10:00")
+        with l2_invalidation_batch():
+            note_stale_dates(["2024-09-17"])
+        self.assertFalse(self._on_disk("2024-09-17", codes, "open"))
+        self.assertFalse(self._on_disk("2024-09-17", codes, "10:00"))
+
     def test_batch_unlinks_each_date_once(self) -> None:
         from core.research.day_cube_gc import l2_invalidation_batch, note_stale_dates
 

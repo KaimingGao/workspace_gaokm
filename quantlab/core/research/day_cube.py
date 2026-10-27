@@ -546,8 +546,15 @@ def clear_memory() -> None:
     _MEMORY.clear()
 
 
-def forget_dates(dates: Sequence[str]) -> int:
-    """丢掉这些交易日的进程内立方，其它日期留着。"""
+def forget_dates(
+    dates: Sequence[str],
+    *,
+    clocks: Optional[Sequence[str]] = None,
+) -> int:
+    """丢掉这些交易日的进程内立方，其它日期留着。
+
+    ``clocks`` 给定时只丢这些钟（``09:30`` 视为 open）。未给定则该日每个钟都丢。
+    """
     wanted: set = set()
     for raw in dates or ():
         day = str(raw or "").strip()[:10]
@@ -555,7 +562,40 @@ def forget_dates(dates: Sequence[str]) -> int:
             wanted.add(day)
     if not wanted:
         return 0
-    drop = [key for key in list(_MEMORY) if key.rpartition("|")[2] in wanted]
+    clock_keys: Optional[set] = None
+    if clocks is not None:
+        clock_keys = set()
+        for raw in clocks:
+            key = _safe_clock(str(raw or ""))
+            if key in {"0930", "930"}:
+                key = "open"
+            if key:
+                clock_keys.add(key)
+    drop = []
+    for key in list(_MEMORY):
+        _uh, clk, day = key.split("|", 2)
+        if day not in wanted:
+            continue
+        if clock_keys is not None and clk not in clock_keys:
+            continue
+        drop.append(key)
+    for key in drop:
+        _MEMORY.pop(key, None)
+    return len(drop)
+
+
+def forget_clocks(clocks: Sequence[str]) -> int:
+    """丢掉这些钟的全部进程内立方，其它钟留着。"""
+    clock_keys: set = set()
+    for raw in clocks or ():
+        key = _safe_clock(str(raw or ""))
+        if key in {"0930", "930"}:
+            key = "open"
+        if key:
+            clock_keys.add(key)
+    if not clock_keys:
+        return 0
+    drop = [key for key in list(_MEMORY) if key.split("|", 2)[1] in clock_keys]
     for key in drop:
         _MEMORY.pop(key, None)
     return len(drop)

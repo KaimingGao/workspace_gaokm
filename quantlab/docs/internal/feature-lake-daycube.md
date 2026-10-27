@@ -184,7 +184,7 @@ panel meta 额外写入：
 
 删 L1 之前先读出该票各 family 的日期。这些日期在当前 schema 的每个宇宙、每个钟上的立方一并删除（`.npz` 与 `.meta.json`），并清掉进程内立方缓存。某个 family 读失败时，已经读到的日期照样作废；一个日期都读不到时，当前 schema 下的立方全部作废。schema 不符或缺少 meta 时仍从 ``.npz`` 读日期。删除只碰立方根目录里面的 `YYYY-MM-DD` 文件，符号链接只摘掉链接本身。
 
-只有物化写入里的 L1 写穿（`write_stock_panel`）会在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。回测和拟合不写生产湖，也不拆立方。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时删一次盘，接着跑的 L2 会把缺的日期建回来。
+只有物化写入里的 L1 写穿（`write_stock_panel`）会在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。回测和拟合不写生产湖，也不拆立方。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时只删本任务会重建的钟：日线只删 open，分钟 τ 只删本次分钟钟，接着的 L2 把这些钟建回来。K 线失效不传钟，仍删每个钟。
 
 **并行与作废**：日线 `tc`/`co`/`oo` 与 τ 网格冷路径走 **ProcessPool**（绕过 GIL）。spawn 不复制 contextvar。外层 `l2_invalidation_batch` 用 `_BATCH` 攒批，进入时关掉本进程 defer。进程工人 stale **defer**：正常返回 `(pack, stale)`；`MaterializeRequired` 则挂到 `payload['_deferred_l2_stale']`，父进程 `apply_stale_from_exc` 再 `note`。`drop_dates` 对大批日期先 `listdir` 再 `unlink`。
 

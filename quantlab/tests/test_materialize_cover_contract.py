@@ -200,6 +200,77 @@ class CoverPolicyUnitTests(unittest.TestCase):
         self.assertIn("09:35", clks)
         self.assertIn("10:30", clks)
 
+    def test_run_materialize_mixed_rebuilds_open_and_minute(self) -> None:
+        """日线 L1 与分钟 L1 一起开时，L2 用日线窗补 open、用分钟窗补钟。"""
+        from core.research.materialize import run_materialize
+
+        with mock.patch(
+            "core.research.materialize.orchestrate.resolve_materialize_codes",
+            return_value=["000001", "000002"],
+        ), mock.patch(
+            "core.research.materialize.catalog.suggested_tau_clocks",
+            return_value=["09:35"],
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l1",
+            return_value={"ok": True},
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l1_tau_grid",
+            return_value={"ok": True, "clocks_ok": 1},
+        ), mock.patch(
+            "core.research.materialize.orchestrate.materialize_l2",
+            return_value={"ok": True, "by_clock": {}, "elapsed_s": 1.0},
+        ) as l2:
+            out = run_materialize(
+                do_l1=True,
+                do_l1_tau_grid=True,
+                do_l2=True,
+                clocks=["open"],
+                lookback=1000,
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(l2.call_count, 2)
+        open_kw = l2.call_args_list[0].kwargs
+        minute_kw = l2.call_args_list[1].kwargs
+        self.assertEqual(list(open_kw.get("clocks") or []), ["open"])
+        self.assertFalse(open_kw.get("require_horizon_names"))
+        self.assertGreater(int(open_kw.get("lookback_days") or 0), 60)
+        minute_clks = list(minute_kw.get("clocks") or [])
+        self.assertNotIn("open", minute_clks)
+        self.assertIn("09:35", minute_clks)
+        self.assertTrue(minute_kw.get("require_horizon_names"))
+        self.assertLessEqual(int(minute_kw.get("lookback_days") or 0), 60)
+
+    def test_l1_invalidation_batch_matches_the_track(self) -> None:
+        from core.research.materialize.l1_jobs import (
+            materialize_l1,
+            materialize_l1_tau_grid,
+        )
+
+        with mock.patch(
+            "core.research.day_cube_gc.l2_invalidation_batch"
+        ) as batch, mock.patch(
+            "core.research.materialize.l1_jobs._materialize_l1_body",
+            return_value={"ok": True},
+        ):
+            batch.return_value.__enter__.return_value = {}
+            batch.return_value.__exit__.return_value = False
+            materialize_l1(["oo"], ["000001", "000002"])
+        batch.assert_called_once_with(clocks=["open"])
+
+        with mock.patch(
+            "core.research.day_cube_gc.l2_invalidation_batch"
+        ) as batch, mock.patch(
+            "core.research.materialize.l1_jobs._materialize_l1_tau_grid_body",
+            return_value={"ok": True},
+        ):
+            batch.return_value.__enter__.return_value = {}
+            batch.return_value.__exit__.return_value = False
+            materialize_l1_tau_grid(
+                ["000001", "000002"],
+                clocks=["open", "09:35", "10:00"],
+            )
+        batch.assert_called_once_with(clocks=["09:35", "10:00"])
+
     def test_t0_coverage_gap_ok_when_cubes_present(self) -> None:
         from core.research.materialize.consumer import materialized_consumer
         from quant.research.t0_backtest import _t0_coverage_gap

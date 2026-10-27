@@ -438,6 +438,22 @@ def _attach_minute_bars(packs: List[dict]) -> int:
     return int(attach_minute_bars_slice(packs, 0, len(packs) if packs else 0))
 
 
+def _tau_grid_clocks(clocks: Sequence[str] | None) -> List[str]:
+    """分钟 τ 网格钟。未传时用建议网格。open / 09:30 不进这张表。"""
+    from core.research.materialize.catalog import suggested_tau_clocks
+
+    raw = clocks if clocks else suggested_tau_clocks()
+    out: List[str] = []
+    seen: set = set()
+    for item in raw or []:
+        key = str(item or "").strip()
+        if not key or key.lower() in ("open", "09:30", "0930") or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
 def materialize_l1_tau_grid(
     codes: Sequence[str],
     *,
@@ -446,10 +462,13 @@ def materialize_l1_tau_grid(
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
-    """H1：按训练网格写 ``tc_HHMM`` L1（τc∪窗头列）。须本地 5m。"""
+    """H1：按训练网格写 ``tc_HHMM`` L1（τc∪窗头列）。须本地 5m。
+
+    作废只落在这些分钟钟上。open 立方不读 ``tc_HHMM``，留着给日线物化。
+    """
     from core.research.day_cube_gc import l2_invalidation_batch
 
-    with l2_invalidation_batch():
+    with l2_invalidation_batch(clocks=_tau_grid_clocks(clocks)):
         return _materialize_l1_tau_grid_body(
             codes,
             lookback=lookback,
@@ -467,14 +486,12 @@ def _materialize_l1_tau_grid_body(
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
-    from core.research.materialize.catalog import suggested_tau_clocks
     from core.research.materialize.horizon_names import horizon_l1_feature_names
     from core.research.panel_matrix import collect_tau_grid_panels
 
     t0 = time.perf_counter()
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
-    clock_list = [str(c).strip() for c in (clocks or suggested_tau_clocks()) if str(c or "").strip()]
-    clock_list = [c for c in clock_list if c.lower() not in ("open", "09:30", "0930")]
+    clock_list = _tau_grid_clocks(clocks)
     report: Dict[str, Any] = {
         "ok": False,
         "n_codes": len(code_list),
@@ -652,10 +669,13 @@ def materialize_l1(
     progress_cb: ProgressCb = None,
     cancel_cb: CancelCb = None,
 ) -> Dict[str, Any]:
-    """按 family 物化 L1。返回 ``by_family`` 与汇总。"""
+    """按 family 物化 L1。返回 ``by_family`` 与汇总。
+
+    作废只落在 open。分钟钟立方由分钟线物化自己拆、自己建。
+    """
     from core.research.day_cube_gc import l2_invalidation_batch
 
-    with l2_invalidation_batch():
+    with l2_invalidation_batch(clocks=["open"]):
         return _materialize_l1_body(
             families,
             codes,

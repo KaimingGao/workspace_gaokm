@@ -275,6 +275,22 @@ def _clear_memory() -> None:
         logger.warning("day cube gc clear memory failed", exc_info=True)
 
 
+def _clock_names(clocks: Sequence[str] | None) -> Optional[Set[str]]:
+    """``None`` 表示每个钟。空序列表示一个钟都不碰。``09:30`` 视为 open。"""
+    if clocks is None:
+        return None
+    from core.research.day_cube import _safe_clock
+
+    out: Set[str] = set()
+    for raw in clocks:
+        key = _safe_clock(str(raw or ""))
+        if key in {"0930", "930"}:
+            key = "open"
+        if key:
+            out.add(key)
+    return out
+
+
 def _finish(
     files_removed: int,
     dates_dropped: int,
@@ -282,16 +298,28 @@ def _finish(
     clear: bool,
     schema_root: str,
     forget: Optional[Set[str]] = None,
+    forget_clocks: Optional[Set[str]] = None,
 ) -> Dict[str, int]:
     if files_removed:
         _remove_empty_dirs(schema_root)
     if clear:
         _clear_memory()
+    elif forget_clocks is not None and forget is None:
+        try:
+            from core.research.day_cube import forget_clocks as drop_memory_clocks
+
+            drop_memory_clocks(forget_clocks)
+        except Exception:  # noqa: BLE001
+            logger.warning("day cube gc forget clocks failed", exc_info=True)
+            _clear_memory()
     elif forget:
         try:
             from core.research.day_cube import forget_dates
 
-            forget_dates(forget)
+            forget_dates(
+                forget,
+                clocks=None if forget_clocks is None else forget_clocks,
+            )
         except Exception:  # noqa: BLE001
             logger.warning("day cube gc forget dates failed", exc_info=True)
             _clear_memory()
@@ -326,9 +354,15 @@ def _remove_tree(path: str, root: str) -> bool:
     return not os.path.exists(path)
 
 
-def drop_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, int]:
-    """删当前 schema 下这些日期的立方。同一天在每个宇宙、每个钟各删一次。
+def drop_dates(
+    dates: Sequence[str] | Set[str] | None,
+    *,
+    clocks: Sequence[str] | None = None,
+) -> Dict[str, int]:
+    """删当前 schema 下这些日期的立方。
 
+    ``clocks`` 缺省时同一天在每个宇宙、每个钟各删一次。给定时只删这些钟
+    （目录名与 ``_safe_clock`` 对齐，``09:30`` 视为 open）。
     日期很多时先 ``listdir`` 再删，避免对不存在路径发起海量 syscall。
     """
     if not gc_enabled():
@@ -336,11 +370,16 @@ def drop_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, int]:
     wanted = _normalize_dates(dates)
     if not wanted:
         return {"dates_dropped": 0, "files_removed": 0}
+    allowed = _clock_names(clocks)
+    if allowed is not None and not allowed:
+        return {"dates_dropped": 0, "files_removed": 0}
     schema_root = os.path.join(_cube_root(), _schema_name())
     removed_days: Set[str] = set()
     files = 0
     use_index = len(wanted) >= 32
     for clock_dir in _clock_dirs(schema_root):
+        if allowed is not None and os.path.basename(clock_dir) not in allowed:
+            continue
         present: Optional[Set[str]] = None
         if use_index:
             try:
@@ -363,17 +402,26 @@ def drop_dates(dates: Sequence[str] | Set[str] | None) -> Dict[str, int]:
         clear=False,
         schema_root=schema_root,
         forget=wanted,
+        forget_clocks=allowed,
     )
 
 
-def drop_all_dates() -> Dict[str, int]:
-    """当前 schema 下全部日期作废。L1 日期读不出来时用。"""
+def drop_all_dates(*, clocks: Sequence[str] | None = None) -> Dict[str, int]:
+    """当前 schema 下全部日期作废。L1 日期读不出来时用。
+
+    ``clocks`` 给定时只作废这些钟，其它钟的立方和进程内缓存留着。
+    """
     if not gc_enabled():
+        return {"dates_dropped": 0, "files_removed": 0}
+    allowed = _clock_names(clocks)
+    if allowed is not None and not allowed:
         return {"dates_dropped": 0, "files_removed": 0}
     schema_root = os.path.join(_cube_root(), _schema_name())
     removed_days: Set[str] = set()
     files = 0
     for clock_dir in _clock_dirs(schema_root):
+        if allowed is not None and os.path.basename(clock_dir) not in allowed:
+            continue
         try:
             names = os.listdir(clock_dir)
         except OSError:
@@ -389,7 +437,15 @@ def drop_all_dates() -> Dict[str, int]:
             if _unlink_file(path):
                 files += 1
                 removed_days.add(day)
-    return _finish(files, len(removed_days), clear=True, schema_root=schema_root)
+    if allowed is None:
+        return _finish(files, len(removed_days), clear=True, schema_root=schema_root)
+    return _finish(
+        files,
+        len(removed_days),
+        clear=False,
+        schema_root=schema_root,
+        forget_clocks=allowed,
+    )
 
 
 def resolve_keep_hashes(
@@ -589,18 +645,25 @@ def _flush_bucket(bucket: Dict[str, Any]) -> Dict[str, int]:
     with _LOCK:
         all_dates = bool(bucket.get("all_dates"))
         dates = set(bucket.get("dates") or ())
+        clocks = bucket.get("clocks")
         bucket["dates"] = set()
         bucket["all_dates"] = False
     if not gc_enabled():
         return {"dates_dropped": 0, "files_removed": 0}
     if all_dates:
-        return drop_all_dates()
-    return drop_dates(dates)
+        return drop_all_dates(clocks=clocks)
+    return drop_dates(dates, clocks=clocks)
 
 
 @contextmanager
-def l2_invalidation_batch() -> Iterator[Dict[str, Any]]:
+def l2_invalidation_batch(
+    clocks: Sequence[str] | None = None,
+) -> Iterator[Dict[str, Any]]:
     """物化整段 L1 时合并日期，退出时删一次盘。嵌套调用交给外层 flush。
+
+    ``clocks`` 缺省删每个钟（K 线失效）。日线物化传 ``["open"]``，
+    分钟 τ 物化传本次要写的分钟钟：只拆接着会重建的钟。
+    嵌套沿用外层钟范围，内层再传的钟不收窄、也不放大。
 
     外层进入时关闭本进程 stale defer，避免父进程误把 note 攒进 defer 桶。
     L1 冷路径已走 ProcessPool：工人用 defer / ``_deferred_l2_stale`` 回传，
@@ -616,6 +679,8 @@ def l2_invalidation_batch() -> Iterator[Dict[str, Any]]:
         "all_dates": False,
         "dates_dropped": 0,
         "files_removed": 0,
+        # None：每个钟。调用方传入的序列原样留给 ``_clock_names``。
+        "clocks": None if clocks is None else list(clocks),
     }
     token = _BATCH.set(bucket)
     try:
