@@ -595,6 +595,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("0.5*OO_F1", ru_js)
         self.assertIn("a_count", ru_js)
         self.assertIn("by_tier", ru_js)
+        self.assertIn('tier === "A" ? rows : rows.slice(0, maxShow)', ru_js)
+        self.assertIn('tier !== "A" && rows.length > maxShow', ru_js)
         self.assertNotIn("enterSuggestBit", ru_js)
         self.assertNotIn("入场 A", ru_js)
         self.assertNotIn("quant-ru-tier-enter", ru_js)
@@ -692,19 +694,24 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-ru-hit-bar", css)
         self.assertNotIn('return "is-a"', ru_js)
         self.assertIn('return Number(hitRate) * 100 + 1e-9 >= 50 ? "up" : "down"', ru_js)
+        rate_fn = ru_js.split("function rateCell", 1)[1].split("function fmtScore", 1)[0]
+        self.assertNotIn("hitTone", rate_fn)
+        f1_fn = ru_js.split("function f1PosCell", 1)[1].split("function wireF1Tips", 1)[0]
+        self.assertIn("hitTone(n)", f1_fn)
         self.assertNotIn("csValCls(n - 0.5)", ru_js)
         self.assertIn("buildF1RelScale", ru_js)
         self.assertIn("f1RelPct", ru_js)
         self.assertIn("f1RelBand", ru_js)
         self.assertIn("档内偏高", ru_js)
-        self.assertIn("本档 min-max", ru_js)
+        self.assertIn("≥50% 红", ru_js)
+        self.assertNotIn("本档 min-max", ru_js)
         self.assertNotIn("function f1Tone", ru_js)
+        self.assertNotIn("function f1RelTone", ru_js)
         self.assertNotIn("f1MeterHtml", ru_js)
         self.assertNotIn("f1TipBarRow", ru_js)
         self.assertIn("f1TipHtml", ru_js)
         self.assertIn("wireF1Tips", ru_js)
         self.assertIn("data-f1-tip", ru_js)
-        self.assertIn("f1RelTone", ru_js)
         self.assertIn("data-f1-tone=", ru_js)
         self.assertIn("--f1-sat:", ru_js)
         self.assertIn("quant-ru-f1-tip", ru_js)
@@ -716,6 +723,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("--f1-sat", css)
         self.assertIn('data-f1-tone="down"', css)
         self.assertIn(".quant-ru-f1-val.is-rel", css)
+        self.assertIn("td.quant-ru-f1-cell.up", css)
+        self.assertIn("td.quant-ru-f1-cell.down", css)
         # 分档表挂在 quant-weight-table-wrap 上，td 默认 ink，F1 着色须盖过
         self.assertIn(
             "body[data-page=\"quant\"] .quant-page .quant-weight-table-wrap td",
@@ -730,6 +739,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("recall_pos", ru_js)
         self.assertIn(">Rank_Score</th>", ru_js)
         self.assertNotIn(">Score</th>", ru_js)
+        self.assertIn(">RANK</th>", ru_js)
+        self.assertIn("rankCell(i + 1)", ru_js)
+        self.assertLess(ru_js.find(">标的</th>"), ru_js.find(">RANK</th>"))
+        self.assertLess(ru_js.find(">Rank_Score</th>"), ru_js.find(">RANK</th>"))
         self.assertIn(">收益</th>", ru_js)
         self.assertIn(">OO_R+</th>", ru_js)
         self.assertIn(">OO_F1</th>", ru_js)
@@ -749,7 +762,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(ru_js.find(">TC_F1</th>"), ru_js.find(">Rank_Score</th>"))
         self.assertRegex(
             ru_js,
-            r'retCell\(r\)\s*\+\s*condRetPosCell\(r,\s*"oo"\)\s*\+\s*rateCell\(r\.hit_rate[\s\S]*?rateCell\(r\.precision_pos[\s\S]*?rateCell\(r\.recall_pos[\s\S]*?f1PosCell\(r,\s*f1ScaleOo,\s*"oo"\)\s*\+\s*condRetPosCell\(r,\s*"tau"\)\s*\+\s*rateCell\(r\.hit_rate_tau[\s\S]*?rateCell\(\s*r\.precision_pos_tau[\s\S]*?rateCell\(r\.recall_pos_tau[\s\S]*?f1PosCell\(r,\s*f1ScaleTau,\s*"tau"\)\s*\+\s*scoreCell\(r\)',
+            r'stockCell\(r\)\s*\+\s*retCell\(r\)\s*\+\s*condRetPosCell\(r,\s*"oo"\)\s*\+\s*rateCell\(r\.hit_rate[\s\S]*?rateCell\(r\.precision_pos[\s\S]*?rateCell\(r\.recall_pos[\s\S]*?f1PosCell\(r,\s*f1ScaleOo,\s*"oo"\)\s*\+\s*condRetPosCell\(r,\s*"tau"\)\s*\+\s*rateCell\(r\.hit_rate_tau[\s\S]*?rateCell\(\s*r\.precision_pos_tau[\s\S]*?rateCell\(r\.recall_pos_tau[\s\S]*?f1PosCell\(r,\s*f1ScaleTau,\s*"tau"\)\s*\+\s*scoreCell\(r\)\s*\+\s*rankCell\(i \+ 1\)',
         )
         self.assertIn("tierMetaFor", ru_js)
         self.assertIn("quant-inline-num--frac", css)

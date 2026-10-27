@@ -403,20 +403,20 @@ export function installResearchUniverseUi(q) {
     );
   }
 
-  /** ≥50% 红 / <50% 绿；类名与收益列 up/down 对齐。 */
+  /** OO_F1 / TC_F1：≥50% 红 / <50% 绿；类名与收益列 up/down 对齐。 */
   function hitTone(hitRate) {
     if (hitRate == null || Number.isNaN(Number(hitRate))) return "is-empty";
     return Number(hitRate) * 100 + 1e-9 >= 50 ? "up" : "down";
   }
 
-  /** 比例列：仅百分数（无比例条 / 无样本 N）。 */
+  /** 比例列：仅百分数，不上红绿（OO_ACC / OO_P / OO_R / TC_*）。 */
   function rateCell(rate, title, headCls) {
-    const tone = hitTone(rate);
+    const missing = rate == null || Number.isNaN(Number(rate));
     return (
       `<td class="num quant-ru-rate-cell ${escapeHtml(headCls || "")}" title="${escapeHtml(
         title || ""
       )}">` +
-      `<span class="quant-ru-hit-val ${tone}">${fmtHit(rate)}</span>` +
+      `<span class="quant-ru-hit-val${missing ? " is-empty" : ""}">${fmtHit(rate)}</span>` +
       `</td>`
     );
   }
@@ -504,7 +504,8 @@ export function installResearchUniverseUi(q) {
   }
 
   /**
-   * 档内有效 F1 的 min/max，供相对着色（避免全池高分位票在 A 档「全红」）。
+   * 档内有效 F1 的 min/max，供悬浮卡「档内偏高 / 偏低」徽章。
+   * 单元格红绿不走这套：≥50% 红，低于 50% 绿。
    * key: f1_pos | f1_pos_tau
    * @returns {{ lo: number, hi: number } | null}
    */
@@ -547,21 +548,6 @@ export function installResearchUniverseUi(q) {
     return { tone: "is-mid", badge: "档内中位" };
   }
 
-  /**
-   * 深浅：中位贴 ink（浅/中性），两端再饱和到红/绿。
-   * 避免 color-mix(红,绿) 中间变成脏橄榄、看不出浅色。
-   * data-f1-tone=up|down；--f1-sat: 0%..100%（距中位越远越深）。
-   */
-  function f1RelTone(relPct) {
-    const p = Number(relPct);
-    if (!Number.isFinite(p)) return { tone: "", sat: "0%" };
-    const clamped = Math.max(0, Math.min(1, p));
-    return {
-      tone: clamped >= 0.5 ? "up" : "down",
-      sat: `${Math.round(Math.abs(clamped - 0.5) * 2 * 100)}%`,
-    };
-  }
-
   function f1TipHtml(pack) {
     const p = pack && typeof pack === "object" ? pack : {};
     const tone = String(p.tone || "is-empty");
@@ -600,7 +586,7 @@ export function installResearchUniverseUi(q) {
         ? `<dl class="quant-ru-f1-tip-defs">` +
           `<div><dt>精确率 P⁺</dt><dd><b>${escapeHtml(pTxt)}</b> · 看多且涨 / 看多</dd></div>` +
           `<div><dt>召回</dt><dd><b>${escapeHtml(rTxt)}</b> · 看多且涨 / 实际上涨日</dd></div>` +
-          `<div><dt>着色</dt><dd>本档相对：中位 ink · 偏高红 · 偏低绿${relBit ? ` · ${escapeHtml(relBit)}` : ""}</dd></div>` +
+          `<div><dt>着色</dt><dd>≥50% 红 · 低于 50% 绿${relBit ? ` · ${escapeHtml(relBit)}` : ""}</dd></div>` +
           `<div><dt>死区</dt><dd>与命中同 |ŷ|≥ε · |y|&gt;0</dd></div>` +
           `</dl>`
         : reason
@@ -612,10 +598,12 @@ export function installResearchUniverseUi(q) {
             `</dl>`;
     let heroTone = "";
     let heroStyle = "";
-    if (p.rel_pct != null && Number.isFinite(Number(p.rel_pct))) {
-      const rel = f1RelTone(Number(p.rel_pct));
-      heroTone = rel.tone ? ` data-f1-tone="${rel.tone}"` : "";
-      heroStyle = ` style="--f1-sat:${rel.sat}"`;
+    if (p.f1 != null && Number.isFinite(Number(p.f1))) {
+      const tone = hitTone(Number(p.f1));
+      if (tone === "up" || tone === "down") {
+        heroTone = ` data-f1-tone="${tone}"`;
+        heroStyle = ` style="--f1-sat:100%"`;
+      }
     }
     return (
       `<div class="quant-ru-f1-tip-inner">` +
@@ -712,12 +700,11 @@ export function installResearchUniverseUi(q) {
     const hasRel = relPct != null && Number.isFinite(relPct);
     const muted = !hasRel && text !== "—" ? " is-muted" : "";
     const tipAttr = escapeHtml(JSON.stringify(tipPack));
-    const rel = hasRel ? f1RelTone(relPct) : null;
-    const toneBit = rel && rel.tone ? ` data-f1-tone="${rel.tone}"` : "";
-    const styleBit = rel ? ` style="--f1-sat:${rel.sat}"` : "";
+    const tone = Number.isFinite(n) ? hitTone(n) : "";
+    const toneCls = tone === "up" || tone === "down" ? ` ${tone}` : "";
     const valCls = hasRel ? "is-rel" : "is-empty";
     return (
-      `<td class="num quant-ru-f1-cell ${valCls}${muted}" data-f1-tip="${tipAttr}"${toneBit}${styleBit}>` +
+      `<td class="num quant-ru-f1-cell ${valCls}${muted}${toneCls}" data-f1-tip="${tipAttr}">` +
       `<span class="quant-ru-f1-val ${valCls}">${text}</span>` +
       `</td>`
     );
@@ -737,6 +724,15 @@ export function installResearchUniverseUi(q) {
         }
       },
     });
+  }
+
+  /** 本档内序号：列表已按 Rank_Score 降序，从 1 起。 */
+  function rankCell(rank) {
+    const n = Number(rank);
+    const text = Number.isFinite(n) && n > 0 ? String(Math.round(n)) : "—";
+    return (
+      `<td class="num quant-ru-rank-cell" title="本档 Rank_Score 降序序号 ${text}">${text}</td>`
+    );
   }
 
   function stockCell(r) {
@@ -851,13 +847,14 @@ export function installResearchUniverseUi(q) {
       .map((tier) => {
         const meta = tierMeta[tier] || { label: tier, tip: "" };
         const rows = byTier[tier];
-        const slice = rows.slice(0, maxShow);
+        // A 档名额可到 2000，列表不截断；B/C 仍只展开前 maxShow
+        const slice = tier === "A" ? rows : rows.slice(0, maxShow);
         // 档内相对：A 档整体偏高时不再「全红」
         const f1ScaleOo = buildF1RelScale(rows, "f1_pos");
         const f1ScaleTau = buildF1RelScale(rows, "f1_pos_tau");
         const trs = slice
           .map(
-            (r) =>
+            (r, i) =>
               `<tr data-tier="${tier}">` +
               stockCell(r) +
               retCell(r) +
@@ -876,11 +873,12 @@ export function installResearchUniverseUi(q) {
               rateCell(r.recall_pos_tau, "TC_R：Holdout 前半 ŷ_τc 上涨召回", "is-tau") +
               f1PosCell(r, f1ScaleTau, "tau") +
               scoreCell(r) +
+              rankCell(i + 1) +
               `</tr>`
           )
           .join("");
         const more =
-          rows.length > maxShow
+          tier !== "A" && rows.length > maxShow
             ? `<p class="quant-ru-list-more">已显示 ${maxShow} / ${rows.length}</p>`
             : "";
         const body = rows.length
@@ -892,13 +890,14 @@ export function installResearchUniverseUi(q) {
                 <th class="num" title="OO_ACC：Holdout 前半 ŷ_oo 符号命中率；仅展示">OO_ACC</th>
                 <th class="num" title="OO_P：Holdout 前半 ŷ_oo 上涨精确率 P⁺；仅展示">OO_P</th>
                 <th class="num" title="OO_R：Holdout 前半 ŷ_oo 上涨召回；仅展示">OO_R</th>
-                <th class="num" title="OO_F1：Holdout 前半 ŷ_oo 上涨正类调和平均；着色=本档 min-max 相对深浅；进 Rank_Score；默认可作 A 档门槛">OO_F1</th>
+                <th class="num" title="OO_F1：Holdout 前半 ŷ_oo 上涨正类调和平均；着色=≥50% 红 / 低于 50% 绿；进 Rank_Score；默认可作 A 档门槛">OO_F1</th>
                 <th class="num" title="Holdout 前半 TC_R+=mean(y_τc|ŷ_τc&gt;ε)；勾选 TC_R+&gt;0 且有 ŷ_τc 研究套时进 A 档门槛">TC_R+</th>
                 <th class="num" title="TC_ACC：Holdout 前半 ŷ_τc 符号命中率；仅展示">TC_ACC</th>
                 <th class="num" title="TC_P：Holdout 前半 ŷ_τc 上涨精确率 P⁺；仅展示">TC_P</th>
                 <th class="num" title="TC_R：Holdout 前半 ŷ_τc 上涨召回；仅展示">TC_R</th>
-                <th class="num" title="TC_F1：Holdout 前半 ŷ_τc 上涨正类调和平均；进 Rank_Score；有 ŷ_τc 时默认可作 A 档门槛">TC_F1</th>
+                <th class="num" title="TC_F1：Holdout 前半 ŷ_τc 上涨正类调和平均；着色=≥50% 红 / 低于 50% 绿；进 Rank_Score；有 ŷ_τc 时默认可作 A 档门槛">TC_F1</th>
                 <th class="num" title="Rank_Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 研究套时 =OO_F1；缺一侧按 0）">Rank_Score</th>
+                <th class="num quant-ru-rank-cell" title="本档按 Rank_Score 降序的序号，从 1 起">RANK</th>
               </tr></thead>
               <tbody>${trs}</tbody>
             </table>${more}`

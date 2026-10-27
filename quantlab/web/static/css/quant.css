@@ -12013,19 +12013,26 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   background: color-mix(in srgb, var(--bg-1, var(--bg)) 55%, transparent);
 }
 
-/* 1 标的 · 2–13 数值列均分：收益 OO_R+ OO_ACC OO_P OO_R OO_F1 TC_R+ TC_ACC TC_P TC_R TC_F1 Rank_Score */
+/* 标的 · 12 数值列 · RANK：收益 OO_R+ OO_ACC OO_P OO_R OO_F1 TC_R+ TC_ACC TC_P TC_R TC_F1 Rank_Score */
 .quant-ru-col-stock {
-  width: 11.5%;
+  width: 10.8%;
   padding-left: 0.35rem;
 }
 
 .quant-ru-tier-grid th.num,
 .quant-ru-tier-grid td.num {
-  width: 7.375%;
+  width: 7.083%;
   text-align: right;
   font-variant-numeric: tabular-nums;
   padding-left: 0.18rem;
   padding-right: 0.22rem;
+}
+
+.quant-ru-tier-grid th.quant-ru-rank-cell,
+.quant-ru-tier-grid td.quant-ru-rank-cell {
+  width: 4.2%;
+  color: var(--ink-3, var(--ink-2));
+  font-weight: 600;
 }
 
 .quant-ru-tier-grid th:last-child,
@@ -12076,7 +12083,7 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   white-space: nowrap;
 }
 
-/* OO_F1 / TC_F1：档内相对深浅；须盖过 .quant-weight-table-wrap td { color: ink } */
+/* OO_F1 / TC_F1：≥50% 红 / 低于 50% 绿；须盖过 .quant-weight-table-wrap td { color: ink } */
 .quant-ru-f1-cell {
   min-width: 0;
   vertical-align: middle;
@@ -12122,6 +12129,16 @@ body[data-page="quant"]
     var(--quant-down, var(--color-down, #16a34a)) var(--f1-sat, 0%),
     var(--ink, #0f172a)
   );
+}
+
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.up,
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.up .quant-ru-f1-val {
+  color: var(--quant-up, var(--color-up, #dc2626));
+}
+
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.down,
+body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.down .quant-ru-f1-val {
+  color: var(--quant-down, var(--color-down, #16a34a));
 }
 
 body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell .quant-ru-f1-val.is-empty,
