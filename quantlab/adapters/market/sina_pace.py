@@ -144,15 +144,28 @@ def _release(path: str, token: str) -> None:
 
 
 @contextmanager
-def sina_daily_slot(*, gate_path: Optional[str] = None) -> Iterator[None]:
-    """占用一个新浪日线名额，离开时归还。拿不到名额就睡，不空转。"""
+def sina_daily_slot(
+    *,
+    gate_path: Optional[str] = None,
+    max_wait_sec: float = 120.0,
+) -> Iterator[None]:
+    """占用一个新浪日线名额，离开时归还。拿不到名额就睡，不空转。
+
+    max_wait_sec: 墙钟超时上限（默认 120s）；超时抛 RuntimeError，避免子进程池永久挂死。
+    """
     path = gate_path or sina_daily_gate_path()
     cap = sina_daily_max_inflight()
     pace = sina_daily_pace_sec()
     token = uuid.uuid4().hex
     pid = os.getpid()
     granted = False
+    start = time.monotonic()
     while not granted:
+        if time.monotonic() - start > max_wait_sec:
+            raise RuntimeError(
+                f"sina_daily_slot timed out after {max_wait_sec:.0f}s "
+                f"(cap={cap} pace={pace}s gate={path})"
+            )
         with path_lock(path, timeout_sec=30.0):
             now = time.time()
             state = _load_state(path)

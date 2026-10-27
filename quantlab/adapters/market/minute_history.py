@@ -27,8 +27,6 @@ from core.store import (
 )
 from adapters.market.history import resolve_market_code
 
-logging.basicConfig(level=logging.INFO)
-
 logger = logging.getLogger(__name__)
 
 MINUTE_PERIOD = "5"

@@ -7,12 +7,15 @@
 
 
 import json
+import logging
 import os
 import re
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from adapters.market.quote_api import StockAPI
+
+logger = logging.getLogger(__name__)
 
 # 进程内精简索引：(code, name)，避免每次扫原始现货大表字段
 _SPOT_PAIRS: Optional[List[Tuple[str, str]]] = None
@@ -190,10 +193,6 @@ def _save_code_name_disk(pairs: List[Tuple[str, str]]) -> None:
         logger.exception('unexpected error in _save_code_name_disk')
 
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 def _fetch_code_name_live() -> List[Tuple[str, str]]:
     from core.data.ak_lock import import_akshare
 

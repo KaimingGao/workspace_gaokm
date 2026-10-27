@@ -2,61 +2,50 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/) [![Docs](https://img.shields.io/badge/docs-docs%2FREADME-4D9BFF)](docs/README.md)
 
-**定位（现行边界）**：本地 **策略验证系统**——信号 · 策略 · 回测 · **模拟账户（纸面）** · 研究台；并融合 **AI** 做自然语言编排与解释。
+**定位**：本地 **策略验证系统**——信号 · 策略 · 回测 · **模拟账户（纸面）** · 研究台；并融合 **AI** 做自然语言编排与解释。
 
 | 做 | 不做（现行） |
 |----|------|
-| 观察名单、回测、纸面/模拟账本买卖与调仓 | **真实券商账户交易**、代客下单、OMS 实盘（推迟到策略验证成熟后） |
+| 观察名单、回测、纸面账本买卖与调仓 | **真实券商账户交易**、代客下单、OMS 实盘（推迟到策略验证成熟后，N6） |
 | 用真实行情做研究与模拟盯市 | 保证收益、持牌投顾 |
 
-产品主路径三件事（**观察 ≠ 模拟**）：
+对外称「模拟」；内部账本名 `paper`。观察名单（`watching`）和已有仓位的账本是两件事。
 
-1. **观察** — 维护观察名单，并从这里建仓进**模拟账户**  
-2. **模拟** — 已有仓位的假钱账本（加减仓 · 清仓 · 策略调仓；**非实盘**）  
-3. **回溯** — 组合级历史验证  
+**侧栏**（`/` → `/dashboard`；AI 在顶栏抽屉 ⌘K，不占侧栏）：
 
-用户常感知的两件事（纸面策略调仓 · 做 T 回测）**方向对、覆盖不全**；完整闭环与易漏能力见 **[docs/quant-ui.md · 用户心智与验证闭环](docs/quant-ui.md#用户心智与验证闭环)** / [design-spine 同节](docs/design-spine.md#用户心智与验证闭环现行)。
+| 页面 | 路径 | 做什么 |
+|------|------|--------|
+| 仪表盘 | `/dashboard` | 市场、纸面 KPI、净值；不下单、不改名单 |
+| 策略中心 | `/strategy` | M prior · 因子字典 |
+| 数据中心 | `/watching` | 观察名单、评分/倾向、建仓入口 |
+| 交易执行 | `/follow` | 纸面调仓 · 做 T（`/paper` 重定向到此） |
+| 历史回测 | `/replay` | 调仓回测 · 做 T 回测 |
+| 研究枢纽 | `/quant` | 拉数 · 物化特征 · 拟合 ŷ · 日报 |
+| 平台 | `/platform` | 调度 · 纸面日更 |
 
-贯穿原则：谁决定「买什么、买多少」，就归谁。人决定的走主路径；规则/策略决定的收进「进阶」，并在持仓上标出处。
+谁决定「买什么、买多少」，就归谁。人决定的走数据中心 / 交易执行；规则决定的标在持仓出处上。闭环与易漏能力见 [docs/quant-ui.md · 用户心智与验证闭环](docs/quant-ui.md#用户心智与验证闭环)。
 
-**产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作（[因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）；**现行** 数据 → 信号 → 因子 → 模型(ŷ) → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度（[产品北极星](docs/design-spine.md#产品北极星)）——六大模块是 [能力地图](docs/design-spine.md#能力地图六大模块)；**现行只收口研究台 + 模拟账户做策略验证**——见 **[docs/design-spine.md](docs/design-spine.md)**。实现节奏见 **[北极星实现规划 P0–P3](docs/design-spine.md#北极星实现规划p0p3)**。
+**产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作；**现行** 数据 → 信号 → 因子 → 模型(ŷ) → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度。见 **[docs/design-spine.md](docs/design-spine.md)**。
 
-架构一句话：**量化领域层（`core` 信号/回测/模拟）+ Skills 取数与规则 + AI Agent（意图理解 · 工具编排 · 研究话术）**。  
-Web 主路径见 [docs/quant-ui.md](docs/quant-ui.md)（含 Web 契约与升级方案）；**已收口加强验收**见 [docs/archive/pro-core-strengthen.md](docs/archive/pro-core-strengthen.md)（DC/FM/RK）；已收口历史轨见 [docs/archive/](docs/archive/)；历史节奏见 [docs/design-spine.md · 路线图](docs/design-spine.md#能力评估与升级规划路线图视角)。
+架构一句话：**领域层 `core`（DS / SS / BS + 信号 / 回测 / 纸面）+ `adapters` 出站取数 + Agent 编排 Skills**。分层与技术栈见 [docs/architecture.md](docs/architecture.md)；Web 契约见 [docs/quant-ui.md](docs/quant-ui.md)。
 
-> **现行仅限研究与模拟账户（策略验证）。不涉及真实账户交易。** 待策略验证成熟后再评估实盘。市场有风险，不保证收益，不代客下单。
+> **现行仅限研究与模拟账户（策略验证）。不涉及真实账户交易。** 市场有风险，不保证收益，不代客下单。
 
 ---
 
 ## 核心架构
 
-### 产品设计主轴（必读）
+### 产品设计主轴
 
 | 环节 | 含义 | 代码落点 |
 |------|------|----------|
-| **数据** | 行情 / 日线 / 5m / 基本面 / 舆情；**L1 Feature Lake · L2 DayCube** | `core/ports` · `store` · `core/research/materialize` · `data/*.json` |
-| **信号** | `hard_reject` + 因子子分（启发式 `score` 仅对照） | `score_stock` → `score_bars` |
-| **因子** | 动量 / 量价 / … 子分特征；截面 z（PIT） | `core/signal/factors` · `signal_config.json` |
-| **模型** | ŷ：日线 ŷ_oo / ŷ_co · 分钟 ŷ_τc · 窗头 ŷ_τ30…90→ŷ_τw | `horizon_*` · `*_ridge` · 双层 fuse（调仓） |
-| **动作** | 观察展示 · 人建仓 · 规则调仓 · 做 T · 回溯 | watching / paper / t0 / backtest |
+| **数据** | 行情 / 日线 / 5m / 基本面 / 舆情；**L1 Feature Lake · L2 DayCube** | `core/data`（DS）· `core/ports` · `adapters.bind` · `core/research/materialize` |
+| **信号** | `hard_reject` + 因子子分；生产打分经 SS | `core/signal_service` → `core/signal` |
+| **因子** | 动量 / 量价 / … 子分；截面 z（PIT，`date\|τ`） | `core/signal/factors` · `data/signal_config.json` |
+| **模型** | ŷ：日线 ŷ_oo / ŷ_co · 分钟 ŷ_τc · 窗头 ŷ_τ30…90→ŷ_τw | `core/yhat` · `core/research/horizon_*` · 双层 fuse（调仓） |
+| **动作** | 建仓 · 规则调仓 · 做 T · 回测 | `core/watching` · `core/paper` · `core/t0` · `core/backtest` |
 
-**两条轨**：量化主轴算数字；AI 旁路只编排与解释（不得改写 `score` / `stance_label`）。  
-**北极星**（纸面夏普/卡玛 × TTM × 回测–纸面拟合）与 **能力地图**（收集→清洗→因子→组合风控→回测→纸面迭代）见 **[docs/design-spine.md](docs/design-spine.md)**。
-
-### 控制论闭环
-
-剥离业务细节后，系统抽象为 **感知-决策-执行-反馈** 闭环（量化管线 + 可选 AI 编排）：
-
-```
-Input (State) → Policy (Model) → Action (Tool) → Reward (Feedback) → Update (Learning)
-```
-
-| 逻辑层 | 职责 | 代码落点 |
-|--------|------|---------|
-| **感知与交互** | 自然语言→意图；行情/财报→可计算结构 | Web/CLI + `skills/quote|fundamentals|news|…` |
-| **认知与推理** | 上下文、拆解子任务、解释信号与策略结果 | `agent/agent.py` + `prompts.py` + `llm_client.py` |
-| **规划与工具** | 高层目标→Skill 调用链 | `agent/registry` + `skills/*/tool_config.json` |
-| **评估与反馈** | 回测指标、模拟账本、回归校验 | `core/backtest` + 模拟账户（paper）+ `evals/` |
+量化主轴算数字；AI 旁路只编排与解释（不得改写 `score` / `stance_label`）。
 
 ### 工程分层
 
@@ -64,41 +53,41 @@ Input (State) → Policy (Model) → Action (Tool) → Reward (Feedback) → Upd
 ┌─────────────────────────────────────────────────────────────┐
 │  接入层    main.py / run_web.py / web/app.py + routers/     │
 ├─────────────────────────────────────────────────────────────┤
-│  应用服务  services/* · quant/services（Application Service） │
+│  应用服务  services/* · quant/services（QuantService）       │
 ├─────────────────────────────────────────────────────────────┤
-│  编排层    agent/agent.py · routing.py · registry        │
+│  编排层    agent/（agent · routing · registry · prompts）   │
 ├─────────────────────────────────────────────────────────────┤
-│  认知层    llm_client.py + prompts.py                       │
+│  工具层    skills/*/handler.py · quant/skill（薄包装）       │
 ├─────────────────────────────────────────────────────────────┤
-│  适配层    skills/*/handler.py（薄包装，委托 engine/core）   │
+│  领域层    core/  DS · SS · BS → signal / paper / backtest  │
+│            research · t0 · yhat · watching · risk           │
 ├─────────────────────────────────────────────────────────────┤
-│  领域层    core/（facts · advise · stance · store · t0）    │
+│  端口层    core/ports + adapters.bind（出站，无领域计算）    │
 ├─────────────────────────────────────────────────────────────┤
-│  数据层    adapters/market/ · AkShare · data/*.json           │
+│  数据层    adapters/market · AkShare · data/store（bars.db）│
 └─────────────────────────────────────────────────────────────┘
 ```
 
-技术栈明细（语言 · FastAPI · 前端 CDN · 存储 · 运维）见 **[docs/architecture.md · 技术栈](docs/architecture.md#技术栈)**。
+读行情走 **DS**（`core/data/facade`），打分走 **SS**（`core/signal_service`），回测信封走 **BS**（`core/backtest_service`）。产品回测主循环在 `core/backtest/paper_replay.py`。控制论闭环与技术栈见 [docs/architecture.md](docs/architecture.md)。
 
 ---
 
 ## 功能
 
-| 能力 | 示例 |
+| 能力 | 落点 |
 |------|------|
-| 信号 / 策略 | 评分、买卖倾向、规则调仓（`core/signal` · `advise` · 模拟调仓） |
-| 研究台 ŷ | ŷ_oo / ŷ_τc / ŷ_co；ŷ_τ30…90 **同窗双训 LightGBM + Ridge**（Holdout AUC 择优）；做 T 用 ŷ_τw |
-| 物化特征（L1/L2） | 日线/分钟 **Feature Lake + DayCube**；产品拟合/回测只读，缺覆盖返回 `materialize_required` |
-| 回测 / 模拟 | Web **回溯**（调仓 · 做 T）；Web **模拟**（假钱账本 · 出处标记 · 成本模型） |
-| 观察 | Web **观察**（名单 + 现价 / 涨跌 + 舆情；建仓入口） |
-| AI 辅助 | 自然语言问价/对比/分析；Agent 编排 Skills |
-| 其它 Skills | 选股、K 线、基本面、同行、强弱、资讯、持仓规则 |
+| 信号 / 倾向 | `core/signal` 打分；`core/advise` + `core/stance` 给出 `stance_label`（只吃 ŷ） |
+| 研究台 ŷ | ŷ_oo / ŷ_τc / ŷ_co；窗头 ŷ_τ30…90 **同窗双训 LightGBM + Ridge**（Holdout AUC 择优）；做 T 用 ŷ_τw |
+| 物化特征（L1/L2） | 日线/分钟 **Feature Lake + DayCube**；拟合与回测只读，缺覆盖返回 `materialize_required` |
+| 回测 / 模拟 | `/replay` 调仓 · 做 T；`/follow` 假钱账本、出处标记、成本模型 |
+| 观察 | `/watching` 名单 + 现价 / 涨跌 + 舆情；建仓进模拟账户 |
+| AI 辅助 | 顶栏抽屉：问价 / 对比 / 分析；Agent 编排 13 个 Skill |
 
-**ŷ 与截面口径（现行）**
+**ŷ 与截面口径**
 
-- **调仓**：ŷ_oo 主排序 + fuse（ŷ_τc / ŷ_co）；分组 OLS / 组 β **已退役**。
+- **调仓**：ŷ_oo 主排序 + fuse（ŷ_τc / ŷ_co），基准是 τ→open[T+1]。
 - **做 T**：纯 ŷ_τw（五窗 ŷ_τ30…90 相对中位点投票）定方向与金额；训练网格 **09:35…11:00**（分钟 L2），live 可含 09:30。
-- **CS-z**：拟合与 live 均为 **`date|τ` PIT**（同日多钟不混组）；禁止按日混钟当生产口径。细节见 [docs/t0-logic.md](docs/t0-logic.md)、[docs/quant.md · ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路)、[docs/internal/feature-lake-daycube.md](docs/internal/feature-lake-daycube.md)。
+- **CS-z**：拟合与 live 均为 **`date|τ` PIT**（同日多钟不混组）。细节见 [docs/t0-logic.md](docs/t0-logic.md)、[docs/quant.md · ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路)、[docs/internal/feature-lake-daycube.md](docs/internal/feature-lake-daycube.md)。
 
 ---
 
@@ -106,149 +95,100 @@ Input (State) → Policy (Model) → Action (Tool) → Reward (Feedback) → Upd
 
 ```
 quantlab/
-├── agent/                    # Agent 编排层
-│   ├── agent.py                # Agent（多轮对话 + 工具调度）
-│   ├── llm_client.py           # 通义千问 HTTP 客户端
-│   ├── prompts.py              # 系统提示词（角色、路由、合规）
-│   ├── registry.py             # Skill 单一注册表（13 个工具）
-│   ├── contracts.py            # 接口契约（Protocol + BaseSkillHandler）
-│   ├── routing.py              # 意图检测与参数增强
-│   └── artifacts.py            # 结构化产物生成
-├── core/                       # 领域层（无 LLM、无 HTTP）
-│   ├── data/ · ports/          # 读口 facade · 端口注入
-│   ├── signal/                 # 因子注册与评分
-│   ├── backtest/               # 历史回测引擎
-│   ├── paper/                  # 模拟账本 · exec · cycle · rebalance
-│   ├── watching/               # 观察池
-│   ├── t0/ · risk/ · research/ # T+0 · 风控 · ŷ / 物化（materialize L1/L2）
-│   ├── advise.py · stance.py   # 规则引擎买卖结论 / 倾向
-│   └── store.py                # 日线 / 分钟缓存入口
-├── adapters/                   # 出站 I/O（经 adapters.bind 注入 ports）
-├── skills/                     # Agent 工具层（handler + shim；注册 13 个）
-│   ├── quote/ compare/ screen/ signal/
-│   ├── kline/ fundamentals/ peer/ index/ news/
-│   ├── position/ advise/ backtest/
-│   └── quant/                  # tool_config；Handler 在 quant/skill/
-├── web/                        # Web 层（FastAPI）
-│   ├── app.py                  # FastAPI 入口
-│   ├── routers/                # chat / paper / quant* / watching / daily / …
-│   └── static/                 # 前端资源（HTML/CSS/JS）
-├── quant/                      # 量化研究台
-│   ├── services/               # QuantService
-│   ├── research/               # 研究脚本
-│   ├── ops/                    # 日更 preset · 健康检查
-│   └── skill/                  # Agent quant Handler
-├── services/                   # Application Service（纸面 / 观察 / 对话 / 日更）
-├── research/                   # 薄 CLI 入口
-├── scripts/                    # 日更 / 回归 / 对照脚本
-├── evals/ · tests/             # 黄金用例 · 单元测试
-├── data/                       # 配置与本地存储
-├── docs/                       # 文档（细目录见 architecture.md）
-├── main.py                     # CLI 入口
-└── run_web.py                  # Web 入口
+├── agent/                    # 意图 · 多轮工具调度 · prompts · LLM 客户端
+├── core/                     # 领域层（无 LLM、无 HTTP）
+│   ├── data/ · signal_service.py · backtest_service.py   # DS · SS · BS
+│   ├── ports/ · yhat/        # 出站契约 · ŷ 加载与指纹
+│   ├── signal/ · paper/ · backtest/   # 打分 · 账本 · replay
+│   ├── research/ · t0/ · watching/ · risk/ · market/
+│   └── persistence/ · platform/ · store.py   # Bars/JSON 门面；store 为缓存入口
+├── adapters/                 # 出站 I/O（经 adapters.bind 注入 ports）
+├── skills/                   # Agent 工具（handler；注册 13 个）
+├── quant/                    # 研究台：services · ops · research · skill
+├── services/                 # 应用服务（纸面 / 观察 / 对话 / 日更 / 平台）
+├── web/                      # FastAPI + static（侧栏七页 + AI 抽屉）
+├── research/ · scripts/      # 薄 CLI · 日更 / CI
+├── evals/ · tests/
+├── data/                     # watching / paper / signal_config · store/bars.db
+├── docs/
+├── main.py                   # CLI
+└── run_web.py                # Web
 ```
 
-分层与完整树见 [docs/architecture.md · 代码目录结构](docs/architecture.md#代码目录结构)。
+包职责与依赖纪律见 [core/README.md](core/README.md)。完整树见 [docs/architecture.md · 代码目录结构](docs/architecture.md#代码目录结构)。
 
 ---
 
 ## 关键组件
 
-### Agent（编排核心）
+### Agent
 
-[agent/agent.py](agent/agent.py) — 多轮对话 + 多工具调度：
+[agent/agent.py](agent/agent.py) 多轮对话，最多 5 轮工具调用：用户输入 → LLM 选工具 → Skill 执行 → 再生成回复，并强制追加免责声明。
 
-```python
-class Agent:
-    MAX_TOOL_ROUNDS = 5  # 最多5轮工具调用
-    
-    def chat(self, user_input: str) -> str:
-        # 1. 用户输入 → LLM（带全部工具定义）
-        # 2. LLM 返回 tool_calls → 执行对应 Skill
-        # 3. 工具结果 → 再次 LLM → 生成自然语言回复
-        # 4. 强制追加免责声明 + token 消耗统计
-```
-
-### Skill 注册表（单一事实源）
-
-[agent/registry.py](agent/registry.py) — 13 个工具：
+[agent/registry.py](agent/registry.py) 是工具名、Handler、`tool_config.json` 的单一事实源（13 个）：
 
 | 工具名 | 功能 |
 |--------|------|
 | `quote` | 实时行情 |
 | `compare` | 多股对比 |
-| `screen` | A股条件选股 |
+| `screen` | A 股条件选股 |
 | `signal` | 短线观察池（因子评分） |
 | `backtest` | signal 规则历史回测 |
-| `quant` | 量化研究台（15+子任务） |
-| `kline` | 日K形态摘要 |
-| `fundamentals` | 基本面分析 |
+| `quant` | 研究台（横截面、组合回测、因子、日报、做 T 回测等 task） |
+| `kline` | 日 K 形态摘要 |
+| `fundamentals` | 基本面 |
 | `peer` | 同行对比 |
 | `index` | 相对大盘超额 |
 | `news` | 资讯标题摘要 |
-| `position` | 持仓建议 |
-| `advise` | **规则引擎买卖结论**（核心） |
+| `position` | 持仓建议（默认读 `paper.json`） |
+| `advise` | 规则引擎买卖结论 |
 
-### Prompts（认知层行为说明书）
-
-[agent/prompts.py](agent/prompts.py) — 定义 AI 如何服务量化工作流（编排工具、解释结果、守合规红线）：
-
-**核心约束**：
-- **路由规则**：软引导（如持仓→`position`；「能否买入」→`advise`）
-- **深度分析模式（可选）**：仅当用户明确要求「深度分析 / 详细拆解 / 长文」时展开 700~1100 字结构；普通「能不能买」短答优先（引用 `advise.stance_label`）
-- **合规红线**：禁止保证收益、代客下单、内幕交易
-- **「是否买入」必答节**：必须逐字引用 `advise.stance_label`（规则引擎结论，非模型臆造）
-- **DISCLAIMER**：代码兜底强制追加（双保险）
+[agent/prompts.py](agent/prompts.py) 约束路由与合规：问「能不能买」必须逐字引用 `advise.stance_label`；只有用户明确要求「深度分析 / 详细拆解 / 长文」才展开长文。禁止保证收益、代客下单。
 
 ### 规则引擎（advise）
 
-[core/advise.py](core/advise.py) — 买入/观望/减仓的规则引擎：
-
-- **输入**：quote + signal + kline + peer + index
-- **输出**：`stance_label`（买入/观望/减仓/止损）+ `facts` + `invalidation`（失效条件）
-- **设计**：`compute_buy_stance` 只吃 **ŷ**（主字段多为 ŷ_oo / `predicted_score`）；无 ŷ 则「信息不足」。启发式加权 `score` 仅研究对照，不驱动倾向。LLM 只引用 `stance_label`，不改写 ŷ
+[core/advise.py](core/advise.py) 组装 facts，[core/stance.py](core/stance.py) 给出买入 / 观望等 `stance_label`。主分必须是 ŷ（`predicted_score`，多为 ŷ_oo）；没有 ŷ 则「信息不足」。启发式 `score` 只作研究对照，不驱动倾向。LLM 只引用 `stance_label`，不改写 ŷ。
 
 ---
 
 ## 设计原则
 
-0. **已发生 → 影响估计**：只用决策时点可见事实估计对股票/组合的影响；禁止未来函数与不可审计改分（见 [因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）  
-1. **事实与结论分离**：价格、评分、财务等数字只来自 Skill/`core` JSON；LLM 只组织解释与编排，不得编造数字  
-2. **工具即边界**：每个能力对应一个 `skills/<name>/` + `tool_config.json`  
-3. **可组合**：复杂问题靠多轮/多工具串联（如 `quote + kline + signal`）  
-4. **可降级**：日线失败时 `quote_fallback`，且须在回复中标明「日线不完整」  
-5. **深度分析模式（可选）**：仅明确要求「深度分析」等时展开多层长文；默认短答 + 引用规则结论  
-6. **风险披露**：代码兜底强制追加免责声明；模拟非实盘
+1. **已发生 → 影响估计**：只用决策时点可见事实；禁止未来函数与不可审计改分（[因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）
+2. **事实与结论分离**：价格、评分、财务只来自 Skill / `core` JSON；LLM 只编排和解释
+3. **工具即边界**：每个能力一个 `skills/<name>/` + `tool_config.json`（`quant` 的实现在 `quant/skill`）
+4. **可组合**：复杂问题靠多轮工具串联（如 `quote` + `kline` + `signal`）
+5. **可降级**：日线失败时标明「日线不完整」
+6. **风险披露**：代码兜底追加免责声明；模拟账户不是实盘
 
 ---
 
 ## 快速开始
 
-逐步操作（clone、虚拟环境、先放 3 只股票、在研究枢纽拉日线和分钟线、拟合并启用研究套、再跑调仓回测）见 **[docs/getting-started.md](docs/getting-started.md)**。下面是已经准备好环境时的命令摘要。需要 Python 3.10+。
+逐步操作（虚拟环境、先放 3 只股票、在研究枢纽拉日线和分钟线、物化特征、拟合并启用研究套、再跑调仓回测）见 **[docs/getting-started.md](docs/getting-started.md)**。下面是环境已经就绪时的命令。需要 Python 3.10+。
 
 ```bash
 cd quantlab
 python3 -m pip install -r requirements.txt
-cp .env.example .env          # 对话 / Agent 才需要；填 DASHSCOPE_API_KEY、DASHSCOPE_MODEL
-bash scripts/setup_quant.sh   # watching.json 不存在时，从 watching.example.json 复制（约 500 只）
-python3 run_web.py            # → http://127.0.0.1:8000
+cp .env.example .env          # 仅 AI 抽屉 / Agent 需要；填 DASHSCOPE_API_KEY、DASHSCOPE_MODEL
+bash scripts/setup_quant.sh   # watching.json / paper.json 不存在时初始化（观察名单约 500 只）
+python3 run_web.py            # → http://127.0.0.1:8000  （首页 /dashboard）
 ```
 
-第一次回测建议先按 [getting-started.md](docs/getting-started.md) 写成 3 只，在研究枢纽 **拉日线 / 5m →（窗头需要时）物化特征（L1/L2） → 拟合并启用研究套** 后再跑。直接用模板整池，拉数、物化和拟合都会很久；满池双训内存压力大，宜单任务跑、勿与整池分钟预热并行。行情、观察、回测、模拟账户不依赖 API key。Web 侧栏：**研究枢纽 · 历史回测**。
+第一次回测按 [getting-started.md](docs/getting-started.md) 先写成 3 只，在研究枢纽 **拉日线 / 5m → 物化特征（L1/L2）→ 拟合并启用研究套**，再到历史回测开跑。整池模板会把拉数、物化和拟合拖得很久；窗头双训内存压力大，宜单任务跑，不要和整池分钟预热并行。行情、观察、回测、模拟账户不依赖 API key。
 
-不想连外网、也不配 key 时，先跑离线校验：
+离线校验（不连外网、不配 key）：
 
 ```bash
 python3 evals/run_checklist.py --mock
 ```
 
-要验证日线回测（需外网）：
+日线回测（需外网）：
 
 ```bash
 python3 research/t0_backtest_run.py --code 茅台 --json
 ```
 
-完整选股 / 日线依赖 `akshare`。无 LLM 时可单独调 Skill：
+无 LLM 时可以直接调 Skill：
 
 ```bash
 python3 -c "from skills.quote.handler import QuoteHandler; print(QuoteHandler().execute({'parameters':{'stock_code':'茅台'}}))"
@@ -258,16 +198,16 @@ python3 -c "from skills.quote.handler import QuoteHandler; print(QuoteHandler().
 
 ## 数据准备
 
-量化研究与回测依赖行情缓存和两份本地 JSON。`data/watching.json`、`data/paper.json` 在 `.gitignore` 里，clone 下来没有，由 `setup_quant.sh` 生成。文件已存在时脚本会跳过，不会覆盖。
+量化研究与回测依赖行情缓存和两份本地 JSON。`data/watching.json`、`data/paper.json` 在 `.gitignore` 里，由 `setup_quant.sh` 生成。文件已存在时脚本会跳过，不会覆盖。
 
 | 数据 | 来源 | 初始化 | 说明 |
 |------|------|--------|------|
-| 观察名单 | `data/watching.example.json` | `setup_quant.sh` 调用 `watching_run.py --init` | 复制为 `data/watching.json` |
+| 观察名单 | `data/watching.example.json` | `setup_quant.sh` → `watching_run.py --init` | 运行时读写 `data/watching.json` |
 | 纸面账户 | 脚本内置 | 同上，`paper_run.py --init` | `data/paper.json` |
-| 日线行情 | 新浪 `stock_zh_a_daily` | 研究枢纽增量补齐 / preset | `core/store.py`；`python3 research/daily_run.py --preset quant` |
-| 5 分钟 K 线 | 新浪 `getKLineData`（不拉日线） | 研究枢纽增量补齐；做 T / τ 拟合依赖 | Ready 后才物化分钟 L2；缺日则跳过 |
-| L1 Feature Lake | 物化 Job | 研究枢纽「物化」/ `POST /api/quant/materialize` | `data/cache/feature_lake/`；按股×日 raw；做 T 硬要 `tc_HHMM`，调仓硬要 oo/tc/co |
-| L2 DayCube | 物化 Job | 同上（日线 open + 分钟 τ 钟） | `data/cache/day_cubes/`；截面 μ/σ；分钟钟可空 oo/co（tc-only） |
+| 日线 | 新浪 `stock_zh_a_daily` | 研究枢纽增量补齐 / preset | 默认 SQLite `data/store/bars.db`（`QUANTLAB_BARS_BACKEND=sqlite`） |
+| 5 分钟 K | 新浪 `getKLineData`（不拉日线） | 研究枢纽增量补齐 | Ready 后才物化分钟 L2 |
+| L1 Feature Lake | 物化 Job | 研究枢纽「物化特征」/ `POST /api/quant/materialize` | `data/cache/feature_lake/`；按股×日 raw |
+| L2 DayCube | 同上 | 日线 open + 分钟 τ | `data/cache/day_cubes/`；截面 μ/σ |
 
 只初始化观察名单：
 
@@ -276,21 +216,16 @@ python3 research/watching_run.py --init    # 已有 watching.json 会报错，�
 python3 research/watching_run.py --show
 ```
 
-### 观察名单（`watching.example.json`）
+仓库提交的是模板 `data/watching.example.json`（约 500 只，`sources` 为空）。改自己的池子时改 `data/watching.json`，或在数据中心 / 研究枢纽里改。
 
-仓库里提交的是模板 `data/watching.example.json`（约 500 只，`sources` 为空）。运行时只读写 `data/watching.json`。改自己的池子时改后者，或在 Web 观察页 / 量化面板里改；不要改 example。
-
-当前模板 `sources` 为空，表示**手动名单**：`python3 research/watching_run.py --refresh` 只补全名称，不改 `watchlist`。
-
-要让刷新按规则重算名单，在 `watching.json` 里写 `sources`（保存后需再 `--refresh` 或在页面点「刷新」）。上限是 `max_size`（最大 500）：
+`sources` 为空时，`python3 research/watching_run.py --refresh` 只补全名称，不改 `watchlist`。要按规则重算名单，在 `watching.json` 里写 `sources`（上限 `max_size`，最大 500），保存后再 `--refresh`：
 
 | `type` | 含义 | 示例 |
 |--------|------|------|
 | `static` | 固定代码或名称 | `{"type": "static", "codes": ["600519", "茅台"]}` |
-| `screen` | 按条件筛选后并入（需外网行情） | `{"type": "screen", "sector": "银行", "limit": 5}` |
+| `screen` | 按条件筛选后并入（需外网） | `{"type": "screen", "sector": "银行", "limit": 5}` |
 
-- 无外网时可走 `evals/run_checklist.py --mock` 做离线能力校验。
-- 数据源一览与字段说明见 [docs/development.md · 数据源一览](docs/development.md#数据源一览)。
+字段与数据源见 [docs/development.md · 数据源一览](docs/development.md#数据源一览)。K 线缓存见 [data/README.md](data/README.md)。
 
 ---
 
@@ -298,40 +233,35 @@ python3 research/watching_run.py --show
 
 ```bash
 python3 evals/run_checklist.py --mock             # 离线黄金用例（CI 同款）
-bash scripts/ci_quant.sh                          # 本地 CI 全量（回测 + 校验）
-python3 run_web.py                                # 启动 Web 面板
+bash scripts/ci_quant.sh                          # 本地 CI 全量
+python3 run_web.py                                # Web
+python3 -m unittest discover -s tests -v          # 单测
 ```
 
-- 单测：`python3 -m unittest discover -s tests -v`
-- 更多研究脚本（T0 回测、因子实验、纸面调仓、信号导出等）见 [docs/development.md](docs/development.md)。
-
-Web 主路径：**对话** · **观察** · **模拟** · **回溯**。说明见 [docs/quant-ui.md](docs/quant-ui.md)。
+研究脚本（T0 回测、因子实验、纸面调仓、信号导出）见 [docs/development.md](docs/development.md)。
 
 ---
 
 ## 文档
 
-详细说明已拆到 [`docs/`](docs/) 子目录（活跃文档如下，归档见 [docs/README.md](docs/README.md)）：
+活跃文档索引见 [docs/README.md](docs/README.md)。入口：
 
 | 文档 | 说明 |
 |------|------|
-| [docs/getting-started.md](docs/getting-started.md) | **手把手**：小观察池 · 拉数 · 拟合 · 第一次调仓回测 |
-| [docs/architecture.md](docs/architecture.md) | **架构总览**：架构图、分层模块、目录结构、技术栈、数据/策略/风控各层 |
-| [docs/design-spine.md](docs/design-spine.md) | 产品核心设计主轴：因果链、北极星、能力地图、实现路径、两条轨、决策链路 |
-| [docs/quant.md](docs/quant.md) | 量化层：入门概念 + score_bars/stance/回测/纸面原理 + 运维；含 [ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路) |
-| [docs/quant-ui.md](docs/quant-ui.md) | Web：说明书 + UI 契约与验收 + W0–W5 升级方案 |
-| [docs/development.md](docs/development.md) | 开发手册：环境安装 + 单测/evals/扩展约定 + 各 Skill 详解 |
-| [docs/product-intro.md](docs/product-intro.md) | 产品概览与核心能力 |
-| [docs/rebalance-logic.md](docs/rebalance-logic.md) | 调仓逻辑说明 |
-| [docs/t0-logic.md](docs/t0-logic.md) | 做 T：纯 ŷ_τw 选向/金额 · 窗头 ŷ_τ30…90 |
-| [docs/internal/feature-lake-daycube.md](docs/internal/feature-lake-daycube.md) | L1/L2 物化 · 消费只读 · CS-z `date\|τ` PIT（实现细节） |
+| [docs/getting-started.md](docs/getting-started.md) | 从 clone 到第一次调仓回测 |
+| [docs/architecture.md](docs/architecture.md) | 分层、端口、目录、技术栈 |
+| [docs/design-spine.md](docs/design-spine.md) | 因果链、北极星、能力地图、产品边界 |
+| [docs/quant.md](docs/quant.md) | ŷ 全链路、回测 / 纸面原理、运维 |
+| [docs/quant-ui.md](docs/quant-ui.md) | Web 说明书与 UI 契约 |
+| [docs/rebalance-logic.md](docs/rebalance-logic.md) | 调仓 |
+| [docs/t0-logic.md](docs/t0-logic.md) | 做 T（纯 ŷ_τw） |
+| [docs/development.md](docs/development.md) | 环境、测试、Skill |
+| [docs/internal/feature-lake-daycube.md](docs/internal/feature-lake-daycube.md) | L1/L2 物化与消费 |
 
-完整索引与历史归档：[docs/README.md](docs/README.md)
-
-各代码子目录均有 [`README.md`](agent/README.md) 说明职责与入口；覆盖见 `GET /api/readme-index`，在线浏览见 `GET /api/readme?dir=` 或 Web 量化面板运维区。
+各代码子目录有 `README.md`。在线索引：`GET /api/readme-index`；单篇：`GET /api/readme?dir=`。
 
 ---
 
 ## 合规
 
-本仓库是 **策略验证系统**（量化研究 + 模拟账户，融合 AI 编排），**非持牌投顾问诊、现行不涉及真实账户交易、不代客下单**；策略结论与模拟盈亏**不保证收益**。细则见 [docs/development.md#合规与风险说明](docs/development.md#合规与风险说明)。
+本仓库是 **策略验证系统**（量化研究 + 模拟账户，融合 AI 编排），**非持牌投顾问诊，现行不涉及真实账户交易、不代客下单**。策略结论与模拟盈亏**不保证收益**。细则见 [docs/development.md#合规与风险说明](docs/development.md#合规与风险说明)。

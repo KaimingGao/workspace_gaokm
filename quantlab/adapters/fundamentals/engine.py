@@ -71,8 +71,11 @@ def fetch_cn_valuation_latest(code: str) -> Dict[str, Any]:
             logger.exception('unexpected error in fetch_cn_valuation_latest')
 
     # 乐咕不可用 / 东财全表现货挂掉时：单票估值序列仍常可用
+    fn = getattr(ak, "stock_value_em", None)
+    if fn is None:
+        return {}
     try:
-        df = ak.stock_value_em(symbol=code)
+        df = fn(symbol=code)
         rows = _records(df)
         if not rows:
             return {}

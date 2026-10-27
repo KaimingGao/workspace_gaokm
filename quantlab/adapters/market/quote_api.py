@@ -122,8 +122,6 @@ class StockAPI:
 
         # 已带市场前缀
         if lower.startswith(("sh", "sz", "hk", "us")):
-            if lower.startswith("hk") and not code.lower().startswith("hk"):
-                return lower
             if lower.startswith("us"):
                 return "us" + code[2:].upper() if code[2:] else None
             return lower

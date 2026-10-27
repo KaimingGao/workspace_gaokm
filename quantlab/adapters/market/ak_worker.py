@@ -276,9 +276,8 @@ def reap_orphaned_pool_workers(*, dry_run: bool = False) -> int:
         if "multiprocessing.spawn" not in cmd and "resource_tracker" not in cmd:
             continue
         if sys.executable and sys.executable not in cmd and "python" not in cmd.lower():
-            # 允许 .venv/bin/python* 路径
-            if "/python" not in cmd:
-                continue
+            # 排除非 Python 进程：sys.executable 不在命令行里，且 cmd 里也没任何 python 子串
+            continue
         targets.append(pid)
 
     for pid in targets:

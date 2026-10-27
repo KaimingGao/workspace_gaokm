@@ -44,6 +44,13 @@ def _call_with_timeout(fn, *args, timeout: Optional[float] = None, **kwargs):
         except FuturesTimeoutError:
             logger.warning("macro fetch timeout after %.0fs: %s", lim, getattr(fn, "__name__", fn))
             return None
+        except Exception:
+            logger.warning(
+                "macro fetch raised in thread: %s",
+                getattr(fn, "__name__", fn),
+                exc_info=True,
+            )
+            return None
 
 
 # 符号别名 → ingest 键
