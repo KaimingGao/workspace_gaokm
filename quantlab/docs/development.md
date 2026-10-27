@@ -714,7 +714,7 @@ LLM 在「策略结论：是否买入」节**只能引用**上表对应的 `stan
 |----------------|------------|
 | 分析快手行情 | `advise(快手)`（内含 quote/kline/signal/peer/index） |
 | 是否可以买入 | 同上；「策略结论：是否买入」须逐字引用 `stance_label` |
-| （若已持有快手）减不减 | 另走 `position`，见上文 [position 节](#5-position--持仓建议含加减仓类问题) |
+| （若已持有快手）减不减 | 另走 `position`，见上文 [position 节](#5-position-持仓建议含加减仓类问题) |
 
 #### 典型工具链（路径 A：`python3 main.py`）
 

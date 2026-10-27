@@ -302,7 +302,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 - **不是**把调仓用过的 τ 再抄一遍赚第二遍 Alpha；是 **同一预测头、两种决策接口**（结构层 vs timing overlay）。
 - 做 T 默认 **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）**即时重算** ŷ_τ* → ŷ_τw，不读冻结账本；与调仓扫池 **公式同源**。历史调仓回测成交钟>09:30 时 ŷ_τc 用截至该钟的前缀重算；前缀打分后注入分钟小包/开→τ 截面，再按 `features_tau` **重拆**（组成表与表列同口径）。live 调仓 ŷ_τc 用因果末根 5m（≤10:00，`causal_rebalance`）。
 - 上午刚通过 τ 买入闸的票，下午做 T 仍会重算 ŷ_τw 问「今天怎么动底仓」；\|ŷ_τw\| 未过入场时 **0 成交** 也正常。
-- 归因应分开：调仓 PnL（`origin=strategy`）vs 做 T leg（`t0_batch`）。双层 ŷ 契约见 [§2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ) · 实现 `core/signal/dual_score/` · `core/t0/close_band.py`。
+- 归因应分开：调仓 PnL（`origin=strategy`）vs 做 T leg（`t0_batch`）。双层 ŷ 契约见 [§2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ) · 实现 `core/signal/dual_score/` · `core/t0/close_band.py`。
 
 **双层耦合（回测解读）**
 
@@ -506,7 +506,7 @@ Walk-forward（第三层）≈ **时间序列交叉验证**，而非 random K-fo
 | accuracy / F1 | PnL、回撤、换手、成本 |
 | 过拟合 → 验证掉点 | 过拟合 → **回测很美、样本外很差** |
 
-回测模拟的是 **策略 PnL 路径**，更接近 **offline policy evaluation**（强化学习术语），而非单纯「分类准确率」。Policy / Reward / Environment 与本仓库边界见 [architecture.md · RL 视角](component/rl.md#强化学习rl视角)。
+回测模拟的是 **策略 PnL 路径**，更接近 **offline policy evaluation**（强化学习术语），而非单纯「分类准确率」。Policy / Reward / Environment 与本仓库边界见 [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer)。
 
 #### stance / hard_reject = 决策层（非模型本体）
 
@@ -605,7 +605,7 @@ score_bars → sub_scores（特征）
 ŷ = α + Σ βᵢ · zᵢ     # ReturnScoreModel → predicted_score = 选股真源
 ```
 
-训练 / 打分 / 回测 / 纸面执行的时间口径与产物流转见 **[quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)**。
+训练 / 打分 / 回测 / 纸面执行的时间口径与产物流转见 **[quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路)**。
 
 | 层级 | 现在是什么 | 不是什么 |
 |------|------------|----------|
@@ -720,7 +720,7 @@ score_bars → sub_scores（特征）
 [← 文档索引](README.md) · **产品主轴**见 [design-spine.md](design-spine.md) · 面板怎么用见 [Web 说明书](quant-ui.md) · 原理见 [量化原理](#量化原理与实现逻辑)
 
 **产品聚焦**：① **观察**（长期名单）② **模拟**（假钱买卖）③ **回溯**（历史验证）——现行定位 = **策略验证**。  
-**本质**：根据已发生、可审计的事实，估计对股票/组合的影响——见 [design-spine · 因果链](design-spine.md#因果链已发生--影响估计--动作)。  
+**本质**：根据已发生、可审计的事实，估计对股票/组合的影响——见 [design-spine · 因果链](design-spine.md#因果链已发生-影响估计-动作)。  
 逻辑链：**数据 → 信号(`score_bars`) → 因子 → 倾向(`stance_label`) → 动作**；两条轨见 [design-spine.md](design-spine.md)。
 
 Web **主路径**：对话 · **观察** · **模拟** · **回溯**。纸面/策略/枢纽等仍有独立路由。  
@@ -914,8 +914,8 @@ python3 research/paper_run.py --init
 | [Web 说明书](quant-ui.md) | 五页说明书 |
 | [策略层说明](architecture.md) | 策略层与设计文档模板 |
 | [architecture.md · 风控层](component/risk.md#风控模型risk-layer) | 风控 · Alpha×Risk |
-| [architecture.md · RL 视角](component/rl.md#强化学习rl视角) | 强化学习视角（远期） |
-| [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment--alt-data) | 舆情 → 风险分（研究向） |
+| [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer) | 强化学习视角（远期） |
+| [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment-altdata) | 舆情 → 风险分（研究向） |
 | [量化原理](#量化原理与实现逻辑) | 量化原理 |
 | [architecture.md · 数据层](component/data.md#数据层data-layer) | 数据层与 PIT 边界 |
 | [architecture.md](architecture.md) | 系统架构 |
@@ -927,13 +927,13 @@ python3 research/paper_run.py --init
 
 ## predicted_score（ŷ）全链路
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 运维定时 [quant.md · 运维](quant.md#量化运维) · **盘中/实时增强** [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · **τ 契约与分组升级** [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级)
+[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 运维定时 [quant.md · 运维](quant.md#量化运维) · **盘中/实时增强** [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · **τ 契约与分组升级** [quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ)
 
 本文梳理 **训练 → 打分 → 回测 / 验证 → 纸面执行** 的同一套时间口径与产物流转。  
 目标：任何人看到页面上的「评分 / score / ŷ」，都能回答「它在预测什么、该和谁对账、会不会自动改 β」。
 
 > **实时 / 主题日**：ŷ_oo 主轴不变；开盘缺口与剩余收益头见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。  
-> **双层 predicted_score**：日线 ŷ_oo + 当日 ŷ_τ 并存、分标签对账、决策层融合；见下文 **§2.5** 与 [quant.md · τ 契约升级 §9](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级)。  
+> **双层 predicted_score**：日线 ŷ_oo + 当日 ŷ_τ 并存、分标签对账、决策层融合；见下文 **§2.5** 与 [quant.md · τ 契约升级 §9](quant.md#25-双层-predictedscoreŷoo-ŷτ)。  
 > **契约缺口与升级**：现网 = ŷ_oo 选股 + 卖出保护，尚未完整实现「给定 τ → ℱ_τ → ŷ(τ)」进买卖；升级顺序见同专文。
 
 ---
@@ -1009,7 +1009,7 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 
 **原则**：估 β、打 ŷ、回测持有期应使用**同一 \(h\)**；改持有期后需重拟合相关头并 promote，再谈 live 一致性。
 
-> **方法论**：日级趋势与做 T 方向采用 **多频率 · 多目标 · Ensemble/Bagging**，见 [design-spine · 预估方法论](design-spine.md#预估方法论)。
+> **方法论**：日级趋势与做 T 方向采用 **多频率 · 多目标 · Ensemble/Bagging**，见 [design-spine · 预估方法论](design-spine.md#预估方法论多频率-多目标-ensemble)。
 
 ### 2.5 双层 predicted_score（ŷ_oo + ŷ_τ）
 
@@ -1077,7 +1077,7 @@ C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scal
 
 **研究枢纽 UI（信息架构）**：主路径「ŷ_oo → IC 时序 → ŷ_τc → 交易执行」；IC 时序嵌在 ŷ_oo 卡内（跨组健康矩阵与一组一表之间）；ŷ_τc 为次级 CTA，不与「跑分组」并列主按钮；数据中心 / 交易执行表列 y_oo / y_τc / y_co / fuse（y_oo_fuse）。训练：`POST /api/quant/tc-ridge`（`/tau-ridge` 同入口）→ `tau_ridge_model.json`。账本复盘页、τ/nowcast 单日验收条、校准 g(ŷ)、`core/score_ledger/` 与复盘 HTTP **已删除**。`data/reports/score_ledger/` 历史 JSON 不删。
 
-建模、训练面板、OOS 与字段细节见 [quant.md · τ 契约升级 §9](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级)；盘中落地阶段见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。
+建模、训练面板、OOS 与字段细节见 [quant.md · τ 契约升级 §9](quant.md#25-双层-predictedscoreŷoo-ŷτ)；盘中落地阶段见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。
 
 ### 2.6 预估周期：\(y_{\mathrm{oo}}\) · \(y_\tau\) · \(y_{\mathrm{co}}\)
 
@@ -1546,7 +1546,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 
 - 目标：滚动夏普 / 卡玛，约束回撤与成本（与北极星分子同构）。  
 - 方法：网格 / 贝叶斯搜索 + walk-forward；或离线策略评估（IPS）——**先不要上在线 RL**。  
-- 与 [architecture.md · RL 视角](component/rl.md#强化学习rl视角) 一致：纸面是 Environment；今日 Policy 仍须可审计、人审 promote。
+- 与 [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer) 一致：纸面是 Environment；今日 Policy 仍须可审计、人审 promote。
 
 **L4 — 表示 / 模型升级（样本够再做）**
 
@@ -1605,7 +1605,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 日更 | `core/schedule_jobs.py` · [quant.md · 运维](quant.md#量化运维) |
 | 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名） |
 | 产品定位 | [design-spine.md](design-spine.md) · [quant.md · 入门概念](quant.md#量化入门概念) |
-| RL 边界 | [architecture.md · RL 视角](component/rl.md#强化学习rl视角) |
+| RL 边界 | [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer) |
 
 ---
 

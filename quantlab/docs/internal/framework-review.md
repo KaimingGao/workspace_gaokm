@@ -145,7 +145,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | 整体 | 研究台 + 纸面准实盘分层已理顺 |
 | 框架急债 | **O1–O9 / Y-S / F-C1–C3·H\* 已落地**；维持 ports 与 ŷ 单标尺 + live manifest 纪律 |
 | **A 轨（工程结构）** | **A0–A4 已落地**：契约冻结 → Bars SQLite → Job 运行时硬化 → BacktestService + 按用例拆巨石 → 前端稳态。SS-E1～E5 / FH0–FH5 已收口 |
-| **工程结构 B 轨** | **B0–B4 已落地**：拆 `paper_replay` + 去层倒置 → `yhat` 契约解环 → 持久化/prior 归位 → t0/root。见 [engineering-track.md · B 轨](engineering-track.md#b-轨--core-结构收口b0b4) · [core/README.md](../../core/README.md) |
+| **工程结构 B 轨** | **B0–B4 已落地**：拆 `paper_replay` + 去层倒置 → `yhat` 契约解环 → 持久化/prior 归位 → t0/root。见 [engineering-track.md · B 轨](engineering-track.md#b-轨-core-结构收口b0b4) · [core/README.md](../../core/README.md) |
 | 产品缺口 | 仍见 design-spine / quant.md ŷ 全链路（非本表） |
 | 体量债 | `quant.js` 已拆域 + 工厂；巨石按用例再切归 **A3/A4**（非为拆而拆） |
 

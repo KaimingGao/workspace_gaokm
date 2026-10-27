@@ -1,11 +1,11 @@
 # 产品核心设计主轴
 
-[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · **预估方法论**见 [§ 多频率 Ensemble](design-spine.md#预估方法论) · 因子/stance 细节见 [quant.md](quant.md) · ŷ 全链路见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路) · 盘中/实时增强见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · τ 契约与分组升级见 [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级) · Web 主路径见 [quant-ui.md](quant-ui.md)
+[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · **预估方法论**见 [§ 多频率 Ensemble](design-spine.md#预估方法论多频率-多目标-ensemble) · 因子/stance 细节见 [quant.md](quant.md) · ŷ 全链路见 [quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路) · 盘中/实时增强见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · τ 契约与分组升级见 [quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ) · Web 主路径见 [quant-ui.md](quant-ui.md)
 
 本文是产品的 **核心设计主轴**，分三层读：
 
-1. **本质与因果链**：已发生事实 → 影响估计 → 验证 → 动作（见 [因果链](#因果链已发生--影响估计--动作)）。  
-2. **预估方法论**：多频率 · 多目标 · Ensemble/Bagging（见 [预估方法论](#预估方法论)）——天级趋势与做 T 方向的分工与融合原则。  
+1. **本质与因果链**：已发生事实 → 影响估计 → 验证 → 动作（见 [因果链](#因果链已发生-影响估计-动作)）。  
+2. **预估方法论**：多频率 · 多目标 · Ensemble/Bagging（见 [预估方法论](#预估方法论多频率-多目标-ensemble)）——天级趋势与做 T 方向的分工与融合原则。  
 3. **现行实现主轴**：数据 → 信号 → 因子 → 倾向 → 动作；**量化主轴 + AI 旁路**两条轨（可复现、可验收）。  
 4. **北极星与能力地图**：北极星 = **策略落地为稳定风险调整收益的转化效率**（见 [产品北极星](#产品北极星)）；六大模块是支撑能力地图，不是北极星本身。**现行产品边界** = 研究台 + 模拟账户（**策略验证**）；真·实盘 OMS **暂不启动**，待策略在回测与纸面验证成熟后另立项（N6）。
 
@@ -93,7 +93,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` · **L1 Feature Lake / L2 DayCube**（训练·回测·live 共用截面物化） | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明；截面 μ/σ 绑 `universe_hash` |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_oo / ŷ_τ / ŷ_co / ŷ_hl · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论)；生产主排序 = **ŷ_oo**；τ/HL 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_oo / ŷ_τ / ŷ_co / ŷ_hl · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论多频率-多目标-ensemble)；生产主排序 = **ŷ_oo**；τ/HL 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见；`wf_slices` 已移除 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -154,7 +154,7 @@ flowchart LR
 | **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **纯 ŷ_τw** 选向与金额 | ≥入场正T、≤−入场反T；\|ŷ_τw\| 分档金额；旧 C_τ 破带已移除 | `core/t0/close_band.py` |
 | **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 无预设目标 | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
-详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ) · [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)。
+详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ) · [quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路)。
 
 ### Ensemble 在本仓库的具体形态
 
@@ -452,7 +452,7 @@ flowchart LR
 
 ## 北极星实现路径（N1–N6）
 
-在已落地的 **Q1–Q5** 之上推进能力地图六大模块（服务 [产品北极星](#产品北极星) 三项乘积）。子项目拆分口径见上文 [能力地图子项目拆分](#北极星子项目拆分)；详细验收与取舍见 [北极星实现路径 N1–N6](#北极星实现路径n1n6)。
+在已落地的 **Q1–Q5** 之上推进能力地图六大模块（服务 [产品北极星](#产品北极星) 三项乘积）。子项目拆分口径见上文 [能力地图子项目拆分](#能力地图子项目拆分)；详细验收与取舍见 [北极星实现路径 N1–N6](#北极星实现路径n1n6)。
 
 | 阶段 | 对应模块 | 本仓库动作 | 状态 |
 |------|----------|------------|------|
@@ -471,7 +471,7 @@ N2 ──offline──► research/ml artifact ──promote only──► N5
 
 **锁定取舍**：生产 Alpha 仍为 `score_bars` 线性加权；NN 不得直连生产 `score`；不接券商 OMS，N5 用纸面日更 + 监控代替「部署」。
 
-达成度细节见上文 [达成度评估（2026-07）](#达成度评估2026-07)；P0–P3 实现规划与下一程见 [北极星实现规划](#北极星实现规划p0p3)。
+达成度细节见上文 [达成度评估（2026-07）](#达成度评估202607)；P0–P3 实现规划与下一程见 [北极星实现规划](#北极星实现规划p0p3)。
 
 ---
 
@@ -500,7 +500,7 @@ N2 ──offline──► research/ml artifact ──promote only──► N5
 
 ## 逻辑链：数据 → 信号 → 因子 → 倾向 → 动作
 
-> 本节是因果链在工程上的展开。总览与模块对照见上文 [因果链：已发生 → 影响估计 → 动作](#因果链已发生--影响估计--动作)。
+> 本节是因果链在工程上的展开。总览与模块对照见上文 [因果链：已发生 → 影响估计 → 动作](#因果链已发生-影响估计-动作)。
 
 ### 1. 数据（感知输入）
 
@@ -655,7 +655,7 @@ data/*.json   → 配置与账本落盘
 
 ## 不可破的边界（验收时对照）
 
-1. **已发生才可进估计**：决策时点 \(t\) 只用当时可见事实；禁止未来函数（见 [因果链](#因果链已发生--影响估计--动作)）。  
+1. **已发生才可进估计**：决策时点 \(t\) 只用当时可见事实；禁止未来函数（见 [因果链](#因果链已发生-影响估计-动作)）。  
 2. **事实与结论分离**：价格、score、财务字段只来自 Skill / `core` JSON。  
 3. **LLM 不在数值链中**：不得编造或改写 `score` / `stance_label`。  
 4. **stance 是标签，不是订单**：纸面仓位由人或策略规则决定，并标记出处。  
@@ -711,14 +711,14 @@ data/*.json   → 配置与账本落盘
 | 基本面 `fundamentals` | A 股 PE/PB/ROE/增速等 | 中 |
 | 同行 `peer` | 预设同业组横向对比 | 中低 |
 | 相对强弱 `index` | 近 N 日相对沪深300/恒生超额 | 中 |
-| 资讯 `news` | 标题摘要（非全文研报） | 中低；数值化舆情见 [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment--alt-data) |
+| 资讯 `news` | 标题摘要（非全文研报） | 中低；数值化舆情见 [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment-altdata) |
 | 持仓 `position` | 文件/临时 holdings + 可配置规则 | 中 |
 | 解读/咨询 | prompt + 多工具串联 | 中 |
 | 产品形态 | CLI + Web | MVP |
 
 **已做得对的地方**：数据与话术分离；Skill 合约清晰；合规措辞；离线单测；P1～P3 核心能力已齐；**P4/P5 量化链路已落地**（因子 → 回测 → 纸面 → stance）。
 
-**主要缺口（相对产品北极星 / 策略验证阶段）**：能力地图上财务 PIT / 统一数仓仍弱；组合缺完整 QP；撮合非交易所级。**实盘/OMS 未接是有意推迟**（N6：策略验证成熟后再立项，不计入当前北极星分子）。路径内 P2++ / R0–R5 已补日线 PIT、行业预算、撮合近似、归因、出站告警、北极星仪表。能力地图粗估约 **~70%～78%**；详见 [design-spine · 产品北极星](design-spine.md#产品北极星) · [能力地图](design-spine.md#能力地图六大模块) · [达成度评估](design-spine.md#达成度评估2026-07)。
+**主要缺口（相对产品北极星 / 策略验证阶段）**：能力地图上财务 PIT / 统一数仓仍弱；组合缺完整 QP；撮合非交易所级。**实盘/OMS 未接是有意推迟**（N6：策略验证成熟后再立项，不计入当前北极星分子）。路径内 P2++ / R0–R5 已补日线 PIT、行业预算、撮合近似、归因、出站告警、北极星仪表。能力地图粗估约 **~70%～78%**；详见 [design-spine · 产品北极星](design-spine.md#产品北极星) · [能力地图](design-spine.md#能力地图六大模块) · [达成度评估](design-spine.md#达成度评估202607)。
 
 ---
 
@@ -765,13 +765,13 @@ data/*.json   → 配置与账本落盘
 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通；A2 影子簿路径已移除。未做：**A3** 主轴切换、分钟 τ 默认 live、分组重跑并成功 promote。见
-[quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级) · [quant.md · ŷ 全链路 §2.5](quant.md#predicted_scoreŷ全链路)。
+[quant.md · τ 契约升级](quant.md#25-双层-predictedscoreŷoo-ŷτ) · [quant.md · ŷ 全链路 §2.5](quant.md#predictedscoreŷ全链路)。
 
 ### P4.1 已落地：`backtest` Skill
 
 **目录**：`core/backtest/engine.py`（引擎） + `skills/backtest/`（Agent 工具）
 
-**策略 `short_conservative`**：Walk-forward 调用 `score_bars`（详见 [量化原理 · 第三层](quant.md#第三层历史回测walk-forward)）；分数 ≥ `min_score` 且非 `hard_reject` 时，模拟持有 `horizon_days` 日；输出胜率、均收益、累计收益、最大回撤、夏普近似。
+**策略 `short_conservative`**：Walk-forward 调用 `score_bars`（详见 [量化原理 · 第三层](quant.md#第三层历史回测walkforward)）；分数 ≥ `min_score` 且非 `hard_reject` 时，模拟持有 `horizon_days` 日；输出胜率、均收益、累计收益、最大回撤、夏普近似。
 
 **局限（须在回复中说明）**：未含手续费/滑点/涨跌停/T+1；与 live `signal` 的 `quote_fallback` 数据源可能不一致；**研究结果 ≠ 实盘建议**。
 
@@ -910,7 +910,7 @@ python3 research/daily_run.py --eval-agent --json
 ### P5.3 已落地：规则 stance + LLM 只解释
 
 **模块**：`core/stance.py`（`compute_buy_stance`）  
-**Skill**：`advise` — 委托 `core.advise.evaluate_buy_advice` → `core.facts` + stance。决策流程见 [量化原理 · 第二层](quant.md#第二层买卖-stancecompute_buy_stance--advise)。
+**Skill**：`advise` — 委托 `core.advise.evaluate_buy_advice` → `core.facts` + stance。决策流程见 [量化原理 · 第二层](quant.md#第二层买卖-stancecomputebuystance-advise)。
 
 | `stance_code` | `stance_label`（LLM 须逐字引用） |
 |---------------|----------------------------------|
@@ -1060,7 +1060,7 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 
 > 承接 [产品北极星](design-spine.md#产品北极星)（三项乘积）；能力地图对照见 [design-spine · 能力地图](design-spine.md#能力地图六大模块)（旧锚点 [专业系统满分画像](design-spine.md#专业系统北极星满分画像) 仍可用）。  
 > **产品定位**：现行 = **策略验证**（研究台 + 纸面）；暂不接实盘。  
-> **子项目拆分**：能力地图 **6** 模块 ↔ 工程 **N1–N6**；默认可交付 **N1–N5**；**N6 验证成熟后另立项**（见 [design-spine · 子项目拆分](design-spine.md#北极星子项目拆分)）。  
+> **子项目拆分**：能力地图 **6** 模块 ↔ 工程 **N1–N6**；默认可交付 **N1–N5**；**N6 验证成熟后另立项**（见 [design-spine · 子项目拆分](design-spine.md#能力地图子项目拆分)）。  
 > **底座**：Q1–Q5 已完成；R0–R5 已收口。继续加深验证可信度与样本。  
 > **锁定**：生产 Alpha = 线性 `score_bars`；NN 仅离线 artifact；**现行不接券商 OMS**。
 
@@ -1091,7 +1091,7 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 
 ### 达成度评估（2026-07）
 
-与 [design-spine · 达成度评估](design-spine.md#达成度评估2026-07) 同源，此处给路线图读者的摘要：
+与 [design-spine · 达成度评估](design-spine.md#达成度评估202607) 同源，此处给路线图读者的摘要：
 
 | 判断 | 状态 |
 |------|------|
@@ -1129,7 +1129,7 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 | N3 限额真验收 | 调仓路径强制 `check_account_risk`（单票+行业）；超限拦加仓并写 `risk_block` 日志；集成测 | 故意超行业上限被拦，且日志可查 | **已落地** |
 | N1 质量可见 | 调仓/回测/日更与 DecisionRecord 可查 `data_quality`；`fallback_count` 进 UI | 一次调仓能指出源、复权、是否 fallback | **已落地** |
 
-落点摘要另见 [design-spine · P0 落地状态](design-spine.md#p0-落地状态2026-07)。
+落点摘要另见 [design-spine · P0 落地状态](design-spine.md#p0-落地状态202607)。
 
 #### P1 · 加深模块（已完成）
 
@@ -1241,7 +1241,7 @@ N1 ──► N2 ──► N3 ──► N4 ──► N5 ──►（闸门）N6
 
 ### 成功画像（N5 结束）
 
-- 六大模块各自落点与成熟度可指着仓库说清（见 [达成度评估](design-spine.md#达成度评估2026-07)）。  
+- 六大模块各自落点与成熟度可指着仓库说清（见 [达成度评估](design-spine.md#达成度评估202607)）。  
 - 一次纸面日更可回答：数据质量、策略版本、成本、风控拦截、监控告警。  
 - 生产分仍可引用；NN 若存在只在研究轨。  
 
@@ -1251,7 +1251,7 @@ N1 ──► N2 ──► N3 ──► N4 ──► N5 ──►（闸门）N6
 
 ### 架构升级 D1–D6（骨架）
 
-对应 [architecture.md · 控制论闭环](architecture.md#控制论视角感知决策执行反馈闭环) 的工程补强；**不**开通实盘 OMS / 在线 RL（RL 概念映射见 [architecture.md · RL 视角](component/rl.md#强化学习rl视角)）。
+对应 [architecture.md · 控制论闭环](architecture.md#控制论视角感知决策执行反馈闭环) 的工程补强；**不**开通实盘 OMS / 在线 RL（RL 概念映射见 [architecture.md · RL 视角](component/rl.md#强化学习视角rl-layer)）。
 
 | 编号 | 方向 | 落点 | API |
 |------|------|------|-----|

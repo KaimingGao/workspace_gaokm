@@ -140,7 +140,7 @@ python3 run_web.py
 7. 确认后，表下 **建仓记录** 按日分组展示（名称 · 股数 · 价 · 金额），与模拟页交易记录同构；无历史流水时用当前持仓兜底
 
 建仓一律按现价假买、不打分，成交后在模拟页持仓标为 **手动**。  
-舆情细节见 [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment--alt-data)。
+舆情细节见 [architecture.md · 舆情层](component/risk.md#舆情与另类数据sentiment-altdata)。
 
 ### ③ 对话：解读与问答
 
@@ -241,7 +241,7 @@ python3 run_web.py
 **对照对象**：专业量化交易系统 Web UI / 功能设计（研究→回测→实盘 OMS→风控全链路；高密度、低延迟、可停靠分屏）  
 **本文用途**：把「机构交易终端满分画像」与本仓库 **研究台 + 模拟账户** 对照，区分 **边界外（不做）** / **边界内缺口（该补）** / **体验取向差异（改前先改契约）**。
 
-产品能力达成度见 [design-spine · 产品北极星](design-spine.md#产品北极星) · [能力地图](design-spine.md#能力地图六大模块) · [达成度评估](design-spine.md#达成度评估2026-07)。本文聚焦 **Web UI/UX 与前端能力面**。
+产品能力达成度见 [design-spine · 产品北极星](design-spine.md#产品北极星) · [能力地图](design-spine.md#能力地图六大模块) · [达成度评估](design-spine.md#达成度评估202607)。本文聚焦 **Web UI/UX 与前端能力面**。
 
 ---
 
@@ -716,7 +716,7 @@ OMS 级盘口布局仍禁止。
 - [ ] 硬刷新验证：观察 / 模拟 / 策略 / 回溯至少扫一眼  
 - [ ] 性能：主表未引入全量 DOM 大表；图窗口未无说明地超过 5y 预算  
 
-因果与产品边界见 [design-spine · 因果链](design-spine.md#因果链已发生--影响估计--动作)。
+因果与产品边界见 [design-spine · 因果链](design-spine.md#因果链已发生-影响估计-动作)。
 
 ---
 

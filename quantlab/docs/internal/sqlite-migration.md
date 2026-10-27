@@ -1,11 +1,11 @@
 ## 日线/分钟线缓存 SQLite 改造方案
 
-[← 文档索引](../README.md) · [架构总览](../architecture.md) · [工程结构轨](./engineering-track.md#工程结构轨a0a4)
+[← 文档索引](../README.md) · [架构总览](../architecture.md) · [工程结构轨](./engineering-track.md#工程结构轨a0a4-b0b4)
 
 > 状态：**已落地（A1）** · 双后端 `QUANTLAB_BARS_BACKEND=sqlite|json`（默认 sqlite）  
 > 范围：`core/store.py` + `core/store_bars_sqlite.py`；配置与账本保持 JSON  
 > 迁移：`python3 scripts/migrate_bars_to_sqlite.py [--dry-run]`（不删原 JSON）  
-> 工程轨：[§ 工程结构轨 A0–A4](./engineering-track.md#工程结构轨a0a4)
+> 工程轨：[§ 工程结构轨 A0–A4](./engineering-track.md#工程结构轨a0a4-b0b4)
 
 ## 一、背景与目标
 

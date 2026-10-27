@@ -1,6 +1,6 @@
 # 架构总览
 
-[← 文档索引](README.md) · 架构图与命名约定见下文；目录结构见 [§ 代码目录结构](#代码目录结构)；依赖边界见 [§ 六边形架构](#六边形架构ports--adapters)
+[← 文档索引](README.md) · 架构图与命名约定见下文；目录结构见 [§ 代码目录结构](#代码目录结构)；依赖边界见 [§ 六边形架构](#六边形架构ports-adapters)
 
 ### 定位
 
@@ -90,7 +90,7 @@ flowchart TB
 
 控制论四层回答「智能体如何闭环」；本节回答「**量化交易产品**如何分层、覆盖哪些能力、代码如何抽象」。与 [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角) 的能力画像对照阅读：下文 **已落地** 表示仓库内可用，**规划中** 表示目标形态而非现状。
 
-产品本质与模块级因果链（已发生 → 影响估计 → 验证 → 动作）见 **[design-spine · 因果链](design-spine.md#因果链已发生--影响估计--动作)**。
+产品本质与模块级因果链（已发生 → 影响估计 → 验证 → 动作）见 **[design-spine · 因果链](design-spine.md#因果链已发生-影响估计-动作)**。
 
 #### 1. 四层金字塔（数据 / 认知 / 决策 / 反馈）
 
@@ -113,7 +113,7 @@ flowchart TB
 | **数据感知** | 眼睛与耳朵：行情、财务、宏观、资讯等接入与清洗 | 感知层；数据层 + Skills | **已落地**：日线/现货、基本面、资讯标题等。弱：Tick 全量、宏观全集、社交舆情、完整研报 |
 | **认知推理** | 大脑：清洗、情感/事件理解、逻辑推演 | 认知层；LLM + prompts | **已落地**：NL 意图与策略结果解释。弱：显式「公司–行业–产业链」知识图谱 |
 | **决策执行** | 中枢：策略 + 风控 → 交易倾向信号 | 规划层 + 领域 `stance` / `position` | **已落地**：买入/观望/减仓等**建议倾向**、纸面与模拟做 T。**不做**：对接券商实盘下单 |
-| **反馈进化** | 自我迭代：结果回写策略 | 评估层 | **半闭环**：回测指标、纸面净值、黄金用例。弱：在线 RL 自动调参（概念见 [component/rl.md · RL 视角](component/rl.md#强化学习rl视角)） |
+| **反馈进化** | 自我迭代：结果回写策略 | 评估层 | **半闭环**：回测指标、纸面净值、黄金用例。弱：在线 RL 自动调参（概念见 [component/rl.md · RL 视角](component/rl.md#强化学习视角rl-layer)） |
 
 #### 2. 核心功能模块（盘前 → 盘后）
 
@@ -201,7 +201,7 @@ flowchart TB
 └─────────────────────────────────────────────────────────┘
 ```
 
-分层回答「从上到下谁调用谁」；**依赖方向**（领域不绑死行情源）见 [§ 六边形架构（Ports & Adapters）](#六边形架构ports--adapters)。
+分层回答「从上到下谁调用谁」；**依赖方向**（领域不绑死行情源）见 [§ 六边形架构（Ports & Adapters）](#六边形架构ports-adapters)。
 
 ### Service 命名约定
 
@@ -318,7 +318,7 @@ Skill / Service / 研究 CLI
 | **前端增强（CDN）** | Lightweight Charts · marked；局部 React 岛（非全站 SPA） |
 | **AI** | 通义千问（DashScope，OpenAI 兼容 HTTP）；自定义 `Agent` + Skills |
 | **行情 / 基本面** | 腾讯 qt（现价）· AkShare（日线/选股等）· pandas |
-| **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`QUANTLAB_BARS_BACKEND=sqlite\|json`）；见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型 · [internal/sqlite-migration.md · SQLite 改造](internal/sqlite-migration.md#日分钟线缓存-sqlite-改造方案) · [internal/engineering-track.md · 工程结构轨](internal/engineering-track.md#工程结构轨a0a4) |
+| **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`QUANTLAB_BARS_BACKEND=sqlite\|json`）；见 [component/data.md · 数据层](component/data.md#数据层data-layer) · 存储选型 · [internal/sqlite-migration.md · SQLite 改造](internal/sqlite-migration.md#日线分钟线缓存-sqlite-改造方案) · [internal/engineering-track.md · 工程结构轨](internal/engineering-track.md#工程结构轨a0a4-b0b4) |
 | **量化主轴** | Ridge β → **predicted_score（ŷ）** 选股；ML 旁路见 `research/ml/` |
 | **任务 / 运维** | 进程内 `POST /api/schedule/run` + shell cron / launchd；`unittest` + `evals` |
 | **部署形态** | 单机本地（默认 `127.0.0.1:8000`）；暂不接实盘 OMS |
@@ -382,8 +382,8 @@ Skill / Service / 研究 CLI
 数据层五模块（采集 / 清洗 / 存储 / 服务 / 监控）与本仓库对照、演进约定见 **[component/data.md · 数据层](component/data.md#数据层data-layer)**（含 § 数据层 · 存储选型）。
 策略层（选股择时 / 仓位 / 风控、输入输出、设计模板）见 **[component/strategy.md · 策略层](component/strategy.md#策略层strategy-layer)**。  
 风控模型（风险因子、Alpha×Risk、演进）见 **[component/risk.md · 风控层](component/risk.md#风控模型risk-layer)**。  
-强化学习视角（Policy/Reward ↔ 策略/风控；**未实现**在线 RL）见 **[component/rl.md · RL 视角](component/rl.md#强化学习rl视角)**。  
-舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[component/risk.md · 舆情层](component/risk.md#舆情与另类数据sentiment--alt-data)**。
+强化学习视角（Policy/Reward ↔ 策略/风控；**未实现**在线 RL）见 **[component/rl.md · RL 视角](component/rl.md#强化学习视角rl-layer)**。  
+舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[component/risk.md · 舆情层](component/risk.md#舆情与另类数据sentiment-altdata)**。
 
 **P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。历史 P 总览见 [quant-summary.md](archive/quant-summary.md)。
 
@@ -395,7 +395,7 @@ Skill / Service / 研究 CLI
 
 **命名约定**：产品对外统一称「模拟」/URL `/follow`；内部 canonical 仍为 `paper`（`paper.json`、`/api/paper`）。旧页 `/paper` 302 到 `/follow`。
 
-**领域端口**：见 [§ 六边形架构](#六边形架构ports--adapters)。行情与信号经 `core/ports/` 进入账本；默认适配器由 `adapters.bind` 注入，单测可 `set_adapter` 替换。上层业务读数优先走 `core.data.facade`。框架梳理见 [internal/framework-review.md](internal/framework-review.md)。
+**领域端口**：见 [§ 六边形架构](#六边形架构ports-adapters)。行情与信号经 `core/ports/` 进入账本；默认适配器由 `adapters.bind` 注入，单测可 `set_adapter` 替换。上层业务读数优先走 `core.data.facade`。框架梳理见 [internal/framework-review.md](internal/framework-review.md)。
 
 **成交成本**：`paper.cost_model` 为 `zero` 或 `simple_cn`。费率权威源为 **CostPort**（`core/backtest/cost_port.py`）：纸面 `core/paper/costs`、回测 `costs`、辅助 `TransactionCostCalculator` 同源；组合回测含成本为换手计费（`cost_mode=turnover`）。建仓预演、手动买卖与策略调仓共用纸面路径。
 
@@ -1097,7 +1097,7 @@ SKILL_SPECS = (
 | **SS** | `core/signal_service.py` | `core/signal/` | `score_one` · `rank_cross_section` |
 | **BS** | `core/backtest_service.py` | `core/backtest/` | `run_topk`（研究探针，≠ 产品 `/replay`） · `run_signal_backtest` |
 
-**端口与绑定**（模式说明见 [§ 六边形架构](#六边形架构ports--adapters)）：
+**端口与绑定**（模式说明见 [§ 六边形架构](#六边形架构ports-adapters)）：
 
 ```text
 DS → core/ports/market.py → adapters/bind.py → adapters/market/
@@ -1277,7 +1277,7 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
   Application Service 绕过 DS/SS/BS 直碰 store（读口由 DS 封装）
 ```
 
-依赖倒置细则见 [§ 六边形架构](#六边形架构ports--adapters)。
+依赖倒置细则见 [§ 六边形架构](#六边形架构ports-adapters)。
 
 ---
 
@@ -1447,7 +1447,7 @@ flowchart LR
 
 ### 新增数据源
 
-模式见 [§ 六边形架构](#六边形架构ports--adapters)：只加出站 adapter + 绑定，不改领域计算。
+模式见 [§ 六边形架构](#六边形架构ports-adapters)：只加出站 adapter + 绑定，不改领域计算。
 
 1. 在 `adapters/` 下新增拉取模块（如 `adapters/market/<source>.py`）。
 2. 实现 `core/ports/` 中对应 Port 接口（`fetch_*` 签名与现有一致）；若 DS 要类型化契约，同步 `core/data/ports.py` 的 `Protocol`。

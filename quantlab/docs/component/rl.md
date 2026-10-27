@@ -8,7 +8,7 @@ RL 追求的是 **最大化长期累积奖励**（赚得稳），不是单纯「
 本仓库 **未实现** 在线 RL / PyTorch TradingAgent。当前是 **规则 Policy + 规则 Risk**；回测与纸面可当作未来 RL 的 **离线环境**。  
 勿与投顾里的 **LLM `Agent`** 混淆：后者选 Skill、组织话术；RL Agent 学的是交易动作。
 
-架构已标明：反馈层是半闭环，**不是**在线 RL 自动调权（见 [本章 § 控制论视角](#架构总览) · [design-spine.md · 路线图](../design-spine.md#能力评估与升级规划路线图视角)）。
+架构已标明：反馈层是半闭环，**不是**在线 RL 自动调权（见 [架构总览](../architecture.md#架构总览) · [design-spine.md · 路线图](../design-spine.md#能力评估与升级规划路线图视角)）。
 
 ---
 

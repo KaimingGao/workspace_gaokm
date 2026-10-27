@@ -50,7 +50,7 @@
 - **双预测头**：`core/signal/dual_score/` 维护 ŷ_oo（主排序 / 入池地板）、ŷ_τc（调仓 fuse；做 T 不再估 C_τ）、ŷ_co（叠进 ŷ_τc）；调仓 fuse 与盘中 ŷ_trade 权重不同。
 - **质量门禁**：`production_ok` 过滤数据不完整 / 因子缺失；未通过降级为 heuristic 分。
 
-> 因子清单、双预测头公式、买入闸 / EOD gate 等细节见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路) 与 [quant.md · 双层 ŷ](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ)。
+> 因子清单、双预测头公式、买入闸 / EOD gate 等细节见 [quant.md · ŷ 全链路](quant.md#predictedscoreŷ全链路) 与 [quant.md · 双层 ŷ](quant.md#25-双层-predictedscoreŷoo-ŷτ)。
 
 ---
 

@@ -56,7 +56,7 @@ python3 scripts/migrate_bars_to_sqlite.py --dry-run
 | **A4** | 前端稳态 | **已落地**：`paper/job_poll` · `paper/north_star_ui` · `dashboard_api`；quant.js 根文件禁堆域注释 |
 
 Canonical Job API：`GET /api/jobs/{name}` · `POST /api/jobs/{name}/cancel`（`force=true` 立即释放槽）。  
-读口：Domain Facade — DS · SS · BS（`core/*_service`；文档见 [§ Service 命名约定](#service-命名约定)）· CostPort。
+读口：Domain Facade — DS · SS · BS（`core/*_service`；文档见 [§ Service 命名约定](../architecture.md#service-命名约定)）· CostPort。
 
 ## A2 · 进程隔离评估（结论）
 

@@ -122,13 +122,13 @@
 1. Risk 输出是 **意图与限额**，不是保证不亏。  
 2. 与 Alpha 一样：数字确定性计算，LLM 只解读。  
 3. **策略验证阶段**：在 **回测 + 纸面** 验证动态限额；待验证成熟后再谈真账户（N6）。  
-4. 与 RL 的关系（风控 → Reward 翻译；勿与 LLM Agent 混淆）见 [rl.md · RL 视角](./rl.md#强化学习rl视角)。
+4. 与 RL 的关系（风控 → Reward 翻译；勿与 LLM Agent 混淆）见 [rl.md · RL 视角](./rl.md#强化学习视角rl-layer)。
 
 ---
 
 ## 与策略设计模板的衔接
 
-填 [§ 策略层 · 风险控制](#策略层strategy-layer) 时，尽量写成可量化条目，例如：
+填 [§ 策略层 · 风险控制](./strategy.md#策略层strategy-layer) 时，尽量写成可量化条目，例如：
 
 - 单票上限 / 总仓上限（可写「基础值 + 高波折扣」）  
 - 止损 / 时间止损  
@@ -162,7 +162,7 @@ Alpha 条目（选股择时）与 Risk 条目分开写，避免「一个大 if�
 | 文档 | 内容 |
 |------|------|
 | [§ 策略层](./strategy.md#策略层strategy-layer) | 选股择时 / 仓位 / 风控在策略中的位置 |
-| [rl.md · RL 视角](./rl.md#强化学习rl视角) | 风控规则 → Reward；Policy/Env 映射 |
+| [rl.md · RL 视角](./rl.md#强化学习视角rl-layer) | 风控规则 → Reward；Policy/Env 映射 |
 | [quant.md](../quant.md) | score · stance · 纸面规则细节 |
 | [quant.md · 入门概念](../quant.md#量化入门概念) | 测试类型（风控要在回测/模拟里验） |
 | [design-spine.md · 路线图](../design-spine.md#能力评估与升级规划路线图视角) | 与专业系统差距 |
@@ -268,7 +268,7 @@ LLM ────────► 叙事（不进分）
 |------|------|
 | [本文件 · 风控层](#风控模型risk-layer) | 防守侧输入 |
 | [§ 策略层](./strategy.md#策略层strategy-layer) | ŷ 排序真源 |
-| [quant.md · ŷ 全链路](../quant.md#predicted_scoreŷ全链路) | ŷ 主链路（门禁与口径） |
+| [quant.md · ŷ 全链路](../quant.md#predictedscoreŷ全链路) | ŷ 主链路（门禁与口径） |
 | [design-spine.md](../design-spine.md) | 先可信再变厚 |
 
 ---

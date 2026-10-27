@@ -34,7 +34,7 @@
 | 产品北极星三项乘积 | 公式有；仪表部分可见、未成系统 KPI | **本规划第一优先级** |
 | Web 研究台 | W0–W5 已补图表/Dock/WS；缺 IDE / 真虚拟表 / 深度 Brinson UI | **跟随后端数据，不单独炫技** |
 
-详细对照：[design-spine · 达成度](../design-spine.md#达成度评估2026-07) · [quant-ui-gap](../quant-ui.md#web-ui-相对专业量化终端的差距分析) · 上一轮对话缺陷分级。
+详细对照：[design-spine · 达成度](../design-spine.md#达成度评估202607) · [quant-ui-gap](../quant-ui.md#web-ui-相对专业量化终端的差距分析) · 上一轮对话缺陷分级。
 
 ### 1.2 需求拷问（进本规划的门禁）
 
@@ -366,7 +366,7 @@ Web：优先消费 R0/R1 API；IDE/扫描 UI 跟 R2；Brinson 列跟 R4
 | R4 | **已落地** | 2026-07-29 | Brinson lite · 信号成交 · regime 分桶 · 报告导出 |
 | R5 | **主干已落地** | 2026-07-29 | 虚拟表 · holdings 拆分 · 性能预算 · core evals · 文档三联 |
 
-阶段完成后：勾选对应章节出门标准 → 更新本表 → 回写 [design-spine · 达成度](../design-spine.md#达成度评估2026-07) 一句。
+阶段完成后：勾选对应章节出门标准 → 更新本表 → 回写 [design-spine · 达成度](../design-spine.md#达成度评估202607) 一句。
 
 ---
 

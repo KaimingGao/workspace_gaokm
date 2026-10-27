@@ -111,7 +111,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
 | 执行模块接券商 | 回测引擎 / `core/paper.py` 模拟记账 |
 
 演进若引入 `StrategyBase`，仍应：**数字只来自确定性模块**；LLM 只解读，不改 `score` / `stance_label`。  
-与 RL Policy 的关系见 [rl.md · RL 视角](./rl.md#强化学习rl视角)（当前不训练神经网络策略）。
+与 RL Policy 的关系见 [rl.md · RL 视角](./rl.md#强化学习视角rl-layer)（当前不训练神经网络策略）。
 
 ---
 

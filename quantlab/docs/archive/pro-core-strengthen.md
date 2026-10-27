@@ -1,6 +1,6 @@
 # 专业核心三轨深化补强（DC / FM / RK）
 
-[← 文档索引](../README.md) · 产品主轴 [design-spine.md](../design-spine.md) · 已收口 B [beta-regression-strengthen.md](beta-regression-strengthen.md) · N6 [n6-live-gate.md](../design-spine.md#n6-真实盘准入备忘仅文档--无代码)
+[← 文档索引](../README.md) · 产品主轴 [design-spine.md](../design-spine.md) · 已收口 B [beta-regression-strengthen.md](beta-regression-strengthen.md) · N6 [n6-live-gate.md](../design-spine.md#n6-真实盘准入备忘仅文档-无代码)
 
 **规划日期**：2026-08-09 · **主干落地**：2026-08-09  
 **定位**：在 D/S/E/X/Y/B/C/P/EP 已收口之后，针对相对专业栈仍弱的三条路径内能力——**数据清洗加深（DC）· 因子模型硬化（FM）· 组合风控加深（RK）**——做可验收补强。  

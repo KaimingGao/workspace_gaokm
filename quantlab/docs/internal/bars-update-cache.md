@@ -64,7 +64,7 @@ load_portfolio_stock_bars
 | `ALPHA_OO_PANEL_WINDOW` | 62 | 特征垫窗（`_MIN_BARS + 1`，`_MIN_BARS = 61`） |
 | 实际拉取条数 | 1062 | `1000 + 62` |
 | `DAILY_BARS_MAX_KEEP` | 1200 | 落盘保留上限，必须 ≥ 拉取条数，否则齐窗会被当成短仓反复整窗替换 |
-| `QFQ_LONG_GAP_DAYS` | 40 | 前复权长缺口才整窗替换（见 [§ 8](#8-已知缝)） |
+| `QFQ_LONG_GAP_DAYS` | 40 | 前复权长缺口才整窗替换（见 [§ 8](#8-已落地的契约)） |
 
 ### 2.1 topup 与 full
 

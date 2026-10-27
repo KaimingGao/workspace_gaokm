@@ -1,6 +1,6 @@
 # 策略验证升级重构规划（V 轨）
 
-[← 文档索引](../README.md) · 差距依据 [§1](#1-差距结论--规划输入) · 产品边界 [design-spine · 产品边界](../design-spine.md#产品边界现行) · 已收口上一程 [upgrade-refactor-plan.md](upgrade-refactor-plan.md)（R0–R5） · Web 差距 [quant-ui-gap.md](../quant-ui.md#web-ui-相对专业量化终端的差距分析) · 数据/风控域 [data-layer.md](../component/data.md) · [risk-layer.md](../component/risk.md)
+[← 文档索引](../README.md) · 差距依据 [§1](#1-差距结论-规划输入) · 产品边界 [design-spine · 产品边界](../design-spine.md#产品边界现行) · 已收口上一程 [upgrade-refactor-plan.md](upgrade-refactor-plan.md)（R0–R5） · Web 差距 [quant-ui-gap.md](../quant-ui.md#web-ui-相对专业量化终端的差距分析) · 数据/风控域 [data-layer.md](../component/data.md) · [risk-layer.md](../component/risk.md)
 
 **规划日期**：2026-07-29  
 **基线**：R0–R5 主干 + 运营/样本收尾已落地；能力地图粗估 **~70%～78%**；北极星三项已仪表化。  
@@ -36,7 +36,7 @@
 | **B. 路径内不足** | 财务 PIT 深度、Alpha 厚度、组合求解、撮合诚实度、研究 IDE | **V 轨主战场** |
 | **C. 样本/运营债** | 空 fundamentals、未标注 outcome、真实日更薄 | **贯穿 V0 + 各阶段出门标准** |
 
-相对专业全栈粗估见 [design-spine · 达成度](../design-spine.md#达成度评估2026-07)。一句话：
+相对专业全栈粗估见 [design-spine · 达成度](../design-spine.md#达成度评估202607)。一句话：
 
 | 模块 | 粗估 | 相对专业的核心缺口（路径内） |
 |------|------|------------------------------|
@@ -371,7 +371,7 @@ V4（吞吐）可与 V2/V3 后半并行 ─────────────�
 | V4 | **主干已落地** | 2026-07-29 | validation_pack API · 真实/seeded TTM 分列 |
 | V5 | **主干已落地** | 2026-07-29 | maturity_gate API · n6-live-gate 备忘 · core paths 扩展 |
 
-阶段完成：勾出门标准 → 更新本表 → 回写 [design-spine · 达成度](../design-spine.md#达成度评估2026-07) 一句。
+阶段完成：勾出门标准 → 更新本表 → 回写 [design-spine · 达成度](../design-spine.md#达成度评估202607) 一句。
 
 ---
 
@@ -387,7 +387,7 @@ V4（吞吐）可与 V2/V3 后半并行 ─────────────�
 3. 策略页继续标注 risk_block outcome；日更替换 densified 快照  
 4. 查看 `GET /api/ops/maturity-gate`；未全绿前 **不立 N6**
 
-N6 备忘见 [n6-live-gate.md](../design-spine.md#n6-真实盘准入备忘仅文档--无代码)。
+N6 备忘见 [n6-live-gate.md](../design-spine.md#n6-真实盘准入备忘仅文档-无代码)。
 
 ---
 
