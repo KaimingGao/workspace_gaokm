@@ -273,14 +273,25 @@ export function mountVirtualTable(host, options = {}) {
     }, 80);
   }
 
+  let painting = false;
+  let paintedTop = 0;
+
+  function syncHeadScroll() {
+    const left = bodyEl.scrollLeft || 0;
+    if (headEl.scrollLeft !== left) headEl.scrollLeft = left;
+  }
+
   function paintBody() {
     const rows = sortedRows();
     if (!rows.length) {
       bodyEl.innerHTML = `<p class="watching-table-empty">${escapeHtml(emptyText)}</p>`;
+      paintedTop = bodyEl.scrollTop || 0;
+      syncHeadScroll();
       return;
     }
     const total = rows.length * rowHeight;
     const scrollTop = bodyEl.scrollTop || 0;
+    const scrollLeft = bodyEl.scrollLeft || 0;
     const viewH = bodyEl.clientHeight || 400;
     const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
     const end = Math.min(rows.length, Math.ceil((scrollTop + viewH) / rowHeight) + overscan);
@@ -314,8 +325,13 @@ export function mountVirtualTable(host, options = {}) {
         `</div>`;
     }
     html += `</div>`;
+    painting = true;
     bodyEl.innerHTML = html;
-    bodyEl.scrollTop = scrollTop;
+    if (scrollTop) bodyEl.scrollTop = scrollTop;
+    if (scrollLeft) bodyEl.scrollLeft = scrollLeft;
+    painting = false;
+    paintedTop = bodyEl.scrollTop || 0;
+    syncHeadScroll();
     syncHeadScrollbarGutter();
   }
 
@@ -387,6 +403,10 @@ export function mountVirtualTable(host, options = {}) {
   bodyEl.addEventListener(
     "scroll",
     () => {
+      if (painting) return;
+      syncHeadScroll();
+      const top = bodyEl.scrollTop || 0;
+      if (top === paintedTop) return;
       paintBody();
       emitRange();
     },

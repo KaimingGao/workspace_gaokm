@@ -50,43 +50,6 @@ function actionCell(action) {
   )}</span></td>`;
 }
 
-const ROW_PHASE_LABEL = {
-  watch: "监视",
-  wait: "监视",
-  idle: "监视",
-  running: "落账中",
-  done: "完成",
-  hold: "监视",
-  skip: "跳过",
-  missed: "跳过",
-  skipped: "跳过",
-};
-
-function phaseBadge(phase, locked) {
-  const ph = String(phase || "watch").toLowerCase();
-  const label = ROW_PHASE_LABEL[ph] || ph;
-  const cls =
-    locked || ph === "skip" || ph === "skipped" || ph === "missed"
-      ? "is-locked"
-      : ph === "done"
-        ? "is-done"
-        : ph === "running"
-          ? "is-after_leg1"
-          : "is-idle";
-  return `<span class="paper-t0-desk-phase ${cls}">${escapeHtml(label)}</span>`;
-}
-
-function classifyAction(action, locked) {
-  const a = String(action || "").toLowerCase();
-  if (locked || a === "skip") return { id: "locked", label: "跳过" };
-  if (a === "open") return { id: "armed", label: "开仓" };
-  if (a === "add") return { id: "armed", label: "加仓" };
-  if (a === "exit") return { id: "deadline", label: "清仓" };
-  if (a === "reduce") return { id: "deadline", label: "减仓" };
-  if (a === "hold") return { id: "watch", label: "持有" };
-  return { id: "watch", label: "监视" };
-}
-
 function fmtRank(rs, fusePct) {
   if (fusePct != null && fusePct !== "") {
     const p = Number(fusePct);
@@ -253,7 +216,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
       const note = String(r.reason || "").trim() || "—";
       const tip = reasonTitle(r) || note;
       const locked = r.phase === "skip" || r.phase === "missed" || r.phase === "skipped";
-      const cat = classifyAction(r.action, locked);
       const hm = fmtHm(r.ts);
       const anchor = fillAnchor(r);
       const pxTip = [hm, anchor, r.prev_close != null ? `昨收 ${fmtPx(r.prev_close)}` : ""]
@@ -266,7 +228,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         stockCellHtml(r) +
         timeCell(r.ts) +
         actionCell(r.action) +
-        `<td class="paper-t0-col-phase">${phaseBadge(r.phase, locked)}</td>` +
         `<td class="num paper-t0-col-legs">${escapeHtml(fmtShares(r.shares))}</td>` +
         `<td class="num paper-rb-col-px" title="${escapeHtml(pxTip)}">${escapeHtml(
           fmtPx(r.price)
@@ -278,11 +239,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         )}</td>` +
         rankDeskCell(r.y_oo_rank, r.y_oo_rank_n, "oo_rank") +
         rankDeskCell(r.y_tc_rank, r.y_tc_rank_n, "τc_rank") +
-        `<td class="paper-t0-col-cat">` +
-        `<span class="paper-t0-desk-cat is-${escapeHtml(cat.id)}">${escapeHtml(
-          cat.label
-        )}</span>` +
-        `</td>` +
         `<td class="paper-t0-col-reason" title="${escapeHtml(tip)}">` +
         `<span class="paper-t0-desk-reason">${escapeHtml(note)}</span>` +
         `</td>` +
@@ -333,7 +289,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<col class="paper-t0-col-stock" />` +
     `<col class="paper-rb-col-time" />` +
     `<col class="paper-t0-col-dir" />` +
-    `<col class="paper-t0-col-phase" />` +
     `<col class="paper-t0-col-legs" />` +
     `<col class="paper-rb-col-px" />` +
     `<col class="paper-rb-col-open" />` +
@@ -341,7 +296,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<col class="paper-t0-col-clock" />` +
     `<col class="paper-rb-col-rank" />` +
     `<col class="paper-rb-col-rank" />` +
-    `<col class="paper-t0-col-cat" />` +
     `<col class="paper-t0-col-reason" />` +
     `<col class="paper-t0-col-act" />` +
     `</colgroup>` +
@@ -349,7 +303,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<th scope="col" class="paper-t0-col-stock">标的</th>` +
     `<th scope="col" class="num paper-rb-col-time" title="本笔落账时间">时间</th>` +
     `<th scope="col" class="paper-t0-col-dir">动作</th>` +
-    `<th scope="col" class="paper-t0-col-phase">阶段</th>` +
     `<th scope="col" class="num paper-t0-col-legs" title="本笔股数">手数</th>` +
     `<th scope="col" class="num paper-rb-col-px" title="落账成交价">成交</th>` +
     `<th scope="col" class="num paper-rb-col-open" title="当日开盘价">今开</th>` +
@@ -357,7 +310,6 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `<th scope="col" class="num paper-t0-col-clock" title="当时 fuse">fuse</th>` +
     `<th scope="col" class="num paper-rb-col-rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 过入场后作买序">oo_rank</th>` +
     `<th scope="col" class="num paper-rb-col-rank" title="ŷ_τc_rank 当日截面名次 · 与 oo_rank 共用 rank 入场 · 不进 fuse / 不改买序">τc_rank</th>` +
-    `<th scope="col" class="paper-t0-col-cat">类别</th>` +
     `<th scope="col" class="paper-t0-col-reason">说明</th>` +
     `<th scope="col" class="paper-t0-col-act">操作</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>` +

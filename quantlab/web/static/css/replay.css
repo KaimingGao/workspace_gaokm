@@ -776,9 +776,9 @@ body[data-page="replay"] .replay-t0-pool {
   gap: 8px;
   min-width: 0;
   padding: 8px 10px 10px;
-  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border: 1px solid #e6dcc6;
   border-radius: 2px;
-  background: var(--surface);
+  background: #faf6ec;
 }
 
 body[data-page="replay"] .replay-t0-pool-bar {
@@ -823,11 +823,11 @@ body[data-page="replay"] .replay-t0-pool-slot {
   min-height: 46px;
   margin: 0;
   padding: 6px 16px 6px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
   border-radius: 2px;
   background:
-    linear-gradient(90deg, var(--accent) 0 2px, transparent 2px),
-    color-mix(in srgb, var(--accent-soft, var(--accent)) 55%, var(--surface));
+    linear-gradient(90deg, var(--accent) 0 3px, transparent 3px),
+    color-mix(in srgb, var(--accent) 7%, var(--surface));
   color: var(--ink);
 }
 
@@ -836,8 +836,8 @@ body[data-page="replay"] .replay-t0-pool-slot.is-empty {
   place-items: center;
   padding: 6px 4px;
   border-style: dashed;
-  border-color: color-mix(in srgb, var(--line) 90%, transparent);
-  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+  border-color: #d4c6ae;
+  background: transparent;
 }
 
 body[data-page="replay"] .replay-t0-pool-slot-top {
@@ -859,6 +859,7 @@ body[data-page="replay"] .replay-t0-pool-slot-idx {
 body[data-page="replay"] .replay-t0-pool-slot.is-empty .replay-t0-pool-slot-idx {
   font-size: 12px;
   font-weight: 650;
+  color: #8d7352;
 }
 
 body[data-page="replay"] .replay-t0-pool-slot-name {
@@ -922,9 +923,9 @@ body[data-page="replay"] .replay-t0-pool-search input {
   box-sizing: border-box;
   margin: 0;
   padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border: 1px solid #e0d5c2;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+  background: var(--surface);
   color: var(--ink);
   font-size: 12px;
 }
@@ -933,6 +934,23 @@ body[data-page="replay"] .replay-t0-pool-search input:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: var(--surface);
+}
+
+html[data-theme="dark"] body[data-page="replay"] .replay-t0-pool {
+  background: #2c2820;
+  border-color: #4a4336;
+}
+
+html[data-theme="dark"] body[data-page="replay"] .replay-t0-pool-search input {
+  border-color: #4a4336;
+}
+
+html[data-theme="dark"] body[data-page="replay"] .replay-t0-pool-slot.is-empty {
+  border-color: #5c5344;
+}
+
+html[data-theme="dark"] body[data-page="replay"] .replay-t0-pool-slot.is-empty .replay-t0-pool-slot-idx {
+  color: #d4c4a8;
 }
 
 body[data-page="replay"] .replay-t0-pool-results {

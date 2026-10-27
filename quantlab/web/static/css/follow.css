@@ -11030,8 +11030,8 @@ body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-stock {
 }
 
 body[data-page="follow"] .paper-rb-desk-table {
-  width: max(100%, 74rem);
-  min-width: 74rem;
+  width: max(100%, 66rem);
+  min-width: 66rem;
 }
 
 body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-time {
@@ -11046,6 +11046,21 @@ body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-time {
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-dir {
   width: 3.2rem;
   text-align: center;
+}
+
+body[data-page="follow"] .paper-rb-desk-table th.paper-t0-col-dir,
+body[data-page="follow"] .paper-rb-desk-table td.paper-t0-col-dir {
+  width: 3.2rem;
+  min-width: 3.2rem;
+  padding-left: 4px;
+  padding-right: 4px;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+body[data-page="follow"] .paper-rb-desk-table .paper-t0-desk-dir {
+  min-width: 1.35rem;
+  padding: 1px 4px;
 }
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-phase {

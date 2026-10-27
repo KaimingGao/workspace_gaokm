@@ -12,8 +12,9 @@ import {
   renderExecutionRulesHtml,
   renderRebalanceRulesHtml,
   applyLiveFillClockUi,
+  applyLiveT0PrefixUi,
   applyLiveFusionWeightsUi,
-} from "./execution_ui.js?v=p2893";
+} from "./execution_ui.js?v=p3338";
 
 async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
   const ac = new AbortController();
@@ -76,6 +77,8 @@ export function applyExecutionToUi(exec) {
       pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.1
     );
   }
+  const t0 = (exec && exec.t0) || {};
+  applyLiveT0PrefixUi(t0.t0_last_leg1_hm || "11:00");
 }
 
 /**

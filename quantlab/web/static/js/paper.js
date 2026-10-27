@@ -40,12 +40,15 @@ import {
   renderExecutionRulesHtml,
   normalizeExecutionView,
   collectLiveFillClockPatch,
+  collectLiveT0PrefixPatch,
   applyLiveFillClockUi,
+  applyLiveT0PrefixUi,
   applyLiveFusionWeightsForClock,
   syncLiveFusionWeightSliders,
   liveFillClockAt,
-} from "./paper/execution_ui.js?v=p2893";
-import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2893";
+  liveT0PrefixAt,
+} from "./paper/execution_ui.js?v=p3338";
+import { applyExecutionToUi } from "./paper/execution_forms.js?v=p3338";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p3226";
 import { downloadBlob } from "./shared.js";
 import {
@@ -53,7 +56,7 @@ import {
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js?v=p3319";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p3324";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p3336";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2746";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
@@ -3083,6 +3086,54 @@ export function initPaper(ctx) {
     paperLiveWOo.addEventListener("change", async () => {
       syncLiveFusionWeightSliders();
       await postLiveRankLotsPatch("follow live fuse 配重");
+    });
+  }
+
+  const paperT0LivePrefix = document.getElementById("paper-t0-live-prefix");
+  if (paperT0LivePrefix) {
+    const paintT0PrefixThumb = () => {
+      applyLiveT0PrefixUi(liveT0PrefixAt(paperT0LivePrefix.value), { force: true });
+    };
+    const postLiveT0Prefix = async () => {
+      const body = collectLiveT0PrefixPatch();
+      if (!body) return;
+      paperT0LivePrefix.disabled = true;
+      try {
+        const res = await fetch("/api/paper/execution", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, note: "follow live 做T前缀" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          const err = data.detail || data.errors || data.error || "保存失败";
+          const errEl = document.getElementById("paper-t0-worker-error");
+          if (errEl) {
+            errEl.hidden = false;
+            errEl.textContent = Array.isArray(err) ? err.join("; ") : String(err);
+          }
+          return;
+        }
+        const errEl = document.getElementById("paper-t0-worker-error");
+        if (errEl) {
+          errEl.hidden = true;
+          errEl.textContent = "";
+        }
+        if (data.execution) applyExecutionToUi(data.execution);
+      } catch (err) {
+        const errEl = document.getElementById("paper-t0-worker-error");
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = String(err.message || err);
+        }
+      } finally {
+        paperT0LivePrefix.disabled = false;
+      }
+    };
+    paperT0LivePrefix.addEventListener("input", paintT0PrefixThumb);
+    paperT0LivePrefix.addEventListener("change", async () => {
+      paintT0PrefixThumb();
+      await postLiveT0Prefix();
     });
   }
 

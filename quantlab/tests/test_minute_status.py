@@ -426,6 +426,30 @@ class TestMinuteStatus(unittest.TestCase):
         self.assertTrue(out.get("pace_stretched"))
         self.assertGreater(float(out.get("pace_sec") or 0), 1.0)
 
+    def test_topup_timeout_with_stale_bars_is_not_remote_success(self):
+        from quant.research.minute_status import _minute_topup_core
+
+        def _fetch(code, **kwargs):
+            return (
+                [{"date": "2026-08-28 10:00:00"}],
+                {"error": "timeout (45s)", "timeout_sec": 45, "from_cache": True},
+            )
+
+        with patch(
+            "quant.research.minute_status.expected_minute_asof",
+            return_value="2026-08-28",
+        ), patch(
+            "quant.research.minute_status._minute_snapshot_for_code",
+            return_value=None,
+        ), patch(
+            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            side_effect=_fetch,
+        ):
+            out = _minute_topup_core(codes=["600519"], workers=1)
+        self.assertEqual(out.get("timed_out"), 1)
+        self.assertEqual(out.get("bootstrapped"), 0)
+        self.assertEqual(out.get("warmed"), 0)
+
     def test_refresh_topup_mode_delegates(self):
         from quant.research.minute_status import refresh_minute_only
 

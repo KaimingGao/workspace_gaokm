@@ -1,14 +1,18 @@
-"""A 股 5 分钟线拉取（只走新浪 ``ak.stock_zh_a_minute``）。
+"""A 股 5 分钟线拉取（新浪 ``getKLineData``，不复权）。
 
-不复权，datalen=1970（约 41 个交易日）。做 T / ŷ_τc / 强更默认 period=5。
+不走 ``ak.stock_zh_a_minute``：那个函数在 ``adjust=""`` 时仍会先拉整段前复权日线，
+一只就要几十秒。这里只打分钟 JSON，datalen=1970（约 41 个交易日）。
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
+
+import requests
 
 from core.data.policy import (
     MINUTE_CACHE_HOURS,
@@ -28,6 +32,22 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MINUTE_PERIOD = "5"
+MINUTE_DATA_SOURCE = "sina:getKLineData"
+_SINA_MINUTE_URL = (
+    "https://quotes.sina.cn/cn/api/jsonp_v2.php/=/CN_MarketDataService.getKLineData"
+)
+_SINA_MINUTE_URL_FALLBACK = (
+    "https://quotes.sina.cn/cn/api/jsonp_v2.php/"
+    "var%20_{symbol}_{period}_1658852984203=/CN_MarketDataService.getKLineData"
+)
+_SINA_MINUTE_TIMEOUT_SEC = 15.0
+_SINA_MINUTE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://finance.sina.com.cn/",
+}
 
 
 def normalize_minute_bars(rows: List[dict]) -> List[dict]:
@@ -138,8 +158,8 @@ def _merge_save_minute_bars(
     return bars, meta
 
 
-def _ak_sina_symbol(bare: str) -> Optional[str]:
-    """6 位 A 股 → ``stock_zh_a_minute`` 的 sh/sz/bj 代码。"""
+def _sina_symbol(bare: str) -> Optional[str]:
+    """6 位 A 股 → 新浪分钟代码（sh/sz/bj）。"""
     code = str(bare or "").strip()
     if not code.isdigit() or len(code) != 6:
         return None
@@ -150,34 +170,68 @@ def _ak_sina_symbol(bare: str) -> Optional[str]:
     return f"sz{code}"
 
 
-def _fetch_sina_minute_bars(bare: str) -> Tuple[List[dict], Dict[str, Any]]:
-    """新浪 5 分钟。窗口由 akshare datalen 固定。"""
-    from core.data.ak_lock import import_akshare
+def _sina_minute_records(text: str) -> List[dict]:
+    """解开新浪 JSONP。失败抛错，交给调用方换备用地址。"""
+    raw = str(text or "")
+    parts = raw.split("=(", 1)
+    if len(parts) != 2:
+        raise ValueError("sina minute payload missing")
+    body = parts[1].split(");", 1)[0]
+    data = json.loads(body)
+    if not isinstance(data, list):
+        raise ValueError("sina minute payload not a list")
+    return [row for row in data if isinstance(row, dict)]
 
-    symbol = _ak_sina_symbol(bare)
+
+def _fetch_sina_minute_bars(bare: str) -> Tuple[List[dict], Dict[str, Any]]:
+    """新浪 5 分钟 JSON。不拉日线。窗口 datalen=1970。"""
+    symbol = _sina_symbol(bare)
     if not symbol:
         return [], {
             "data_source": "empty",
             "error": f"invalid bare code: {bare}",
         }
-    try:
-        ak = import_akshare()
-        df = ak.stock_zh_a_minute(symbol=symbol, period=MINUTE_PERIOD, adjust="")
-    except Exception as e:  # noqa: BLE001 — 远端失败则空返回
-        logger.info("stock_zh_a_minute failed %s period=%s: %s", bare, MINUTE_PERIOD, e)
+    params = {
+        "symbol": symbol,
+        "scale": MINUTE_PERIOD,
+        "ma": "no",
+        "datalen": "1970",
+    }
+    urls = (
+        _SINA_MINUTE_URL,
+        _SINA_MINUTE_URL_FALLBACK.format(symbol=symbol, period=MINUTE_PERIOD),
+    )
+    records: List[dict] = []
+    last_err = ""
+    for url in urls:
+        try:
+            resp = requests.get(
+                url,
+                params=params,
+                headers=_SINA_MINUTE_HEADERS,
+                timeout=_SINA_MINUTE_TIMEOUT_SEC,
+            )
+            resp.raise_for_status()
+            records = _sina_minute_records(resp.text)
+            last_err = ""
+            break
+        except Exception as exc:  # noqa: BLE001 — 主地址失败再试备用
+            last_err = str(exc)[:200]
+            records = []
+    if last_err and not records:
+        logger.info("sina minute failed %s period=%s: %s", bare, MINUTE_PERIOD, last_err)
         return [], {
             "data_source": "empty",
-            "error": str(e),
+            "error": last_err,
             "symbol": symbol,
             "period": MINUTE_PERIOD,
         }
-    records = df.to_dict(orient="records") if df is not None and hasattr(df, "to_dict") else []
     for row in records:
         if isinstance(row, dict) and row.get("day") and not row.get("datetime"):
             row["datetime"] = row.get("day")
     bars = normalize_minute_bars(records)
     meta: Dict[str, Any] = {
-        "data_source": "akshare:stock_zh_a_minute",
+        "data_source": MINUTE_DATA_SOURCE,
         "symbol": symbol,
         "period": MINUTE_PERIOD,
         "adjust": "",
@@ -270,7 +324,7 @@ def fetch_a_minute_bars(
                 "data_source": "empty",
                 "error": as_meta.get("error") or "no_minute_bars",
                 "period": period,
-                "hint": "stock_zh_a_minute 失败；可稍后重试",
+                "hint": "新浪 5 分钟失败；可稍后重试",
                 "sina_error": as_meta.get("error"),
             }
 
@@ -279,7 +333,7 @@ def fetch_a_minute_bars(
             bare,
             bars,
             period=period,
-            data_source=str(as_meta.get("data_source") or "akshare:stock_zh_a_minute"),
+            data_source=str(as_meta.get("data_source") or MINUTE_DATA_SOURCE),
             adjust_policy=None,
         )
         meta["sina"] = as_meta
@@ -308,8 +362,21 @@ def fetch_minute_bars(
     )
 
 
+def _minute_isolated_ack(
+    bars: Optional[List[dict]], meta: Optional[Dict[str, Any]]
+) -> Tuple[str, int, Dict[str, Any]]:
+    """队列只带回根数和状态。K 线已落盘，父进程不再收整段。"""
+    meta_out = dict(meta or {})
+    meta_out.pop("sina", None)
+    n = int(meta_out.get("bar_count") or len(bars or []))
+    meta_out["bar_count"] = n
+    if n > 0 and not meta_out.get("error"):
+        meta_out["ok"] = True
+    return "ok", n, meta_out
+
+
 def _child_fetch_a_minute_worker(payload: Dict[str, Any], out_queue: Any) -> None:
-    """子进程入口：拉分钟线并落盘；异常只回传 meta，不拖垮父进程。"""
+    """子进程入口：拉分钟线并落盘；队列只回根数和状态。"""
     try:
         raw = dict(payload or {})
         code = str(raw.pop("code") or "")
@@ -319,19 +386,52 @@ def _child_fetch_a_minute_worker(payload: Dict[str, Any], out_queue: Any) -> Non
             if k in raw
         }
         bars, meta = fetch_a_minute_bars(code, **kw)
-        out_queue.put(("ok", list(bars or []), dict(meta or {})))
+        out_queue.put(_minute_isolated_ack(bars, meta))
     except Exception as e:  # noqa: BLE001 — 子进程兜底
         out_queue.put(
             (
                 "err",
-                [],
+                0,
                 {
                     "data_source": "empty",
                     "error": str(e)[:200],
                     "period": MINUTE_PERIOD,
+                    "bar_count": 0,
                 },
             )
         )
+
+
+def _recv_child_queue(proc: Any, out_queue: Any, timeout: float) -> Tuple[Any, bool]:
+    """在子进程退出前把队列读完。返回 ``(item, timed_out)``。
+
+    先 ``join`` 再 ``get`` 时，结果大于管道缓冲会互等：子进程写不完就退不出。
+    """
+    from queue import Empty
+
+    deadline = time.monotonic() + max(1.0, float(timeout))
+    item = None
+    while item is None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            item = out_queue.get(timeout=min(0.5, remaining))
+        except Empty:
+            if not proc.is_alive():
+                try:
+                    item = out_queue.get(timeout=0.2)
+                except Empty:
+                    item = None
+                break
+    timed_out = item is None and proc.is_alive()
+    if timed_out:
+        proc.kill()
+    proc.join(5.0)
+    if proc.is_alive():
+        proc.kill()
+        proc.join(2.0)
+    return item, timed_out
 
 
 def fetch_a_minute_bars_isolated(
@@ -343,10 +443,11 @@ def fetch_a_minute_bars_isolated(
     max_age_hours: float = MINUTE_CACHE_HOURS,
     throttle: bool = True,
 ) -> Tuple[List[dict], Dict[str, Any]]:
-    """子进程拉 5 分钟线；超时 ``kill`` 子进程，不占主进程 ``ak_lock``。
+    """子进程拉 5 分钟线；超时 ``kill`` 子进程。只打 ``getKLineData``，不进 ``ak_lock``。
 
     供观察池强更 / schedule 预热：单票挂死时父进程可继续下一只。
-    ``timeout_sec<=0`` 时退回进程内直调（单测）。
+    队列只回根数。有数据时返回一行占位，调用方只看是否非空。
+    ``timeout_sec<=0`` 时退回进程内直调（单测），此时仍返回完整 K 线。
     """
     import multiprocessing as mp
 
@@ -377,10 +478,8 @@ def fetch_a_minute_bars_isolated(
         daemon=True,
     )
     proc.start()
-    proc.join(timeout=max(1.0, timeout))
-    if proc.is_alive():
-        proc.kill()
-        proc.join(5.0)
+    item, timed_out = _recv_child_queue(proc, out_queue, timeout)
+    if timed_out:
         logger.warning(
             "fetch_a_minute_bars_isolated timeout %s after %.0fs",
             code_s,
@@ -404,13 +503,18 @@ def fetch_a_minute_bars_isolated(
             "period": MINUTE_PERIOD,
             "timeout_sec": timeout,
         }
-    if out_queue.empty():
+    if not isinstance(item, tuple) or len(item) != 3:
         return [], {
             "data_source": "empty",
             "error": "minute child exited without result",
             "period": MINUTE_PERIOD,
         }
-    status, bars, meta = out_queue.get()
+    status, count, meta = item
+    meta_out = dict(meta or {})
     if status != "ok":
-        return list(bars or []), dict(meta or {})
-    return list(bars or []), dict(meta or {})
+        return [], meta_out
+    n = int(count or 0)
+    meta_out["bar_count"] = n
+    if n > 0:
+        return [{"bar_count": n}], meta_out
+    return [], meta_out

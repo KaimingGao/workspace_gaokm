@@ -119,7 +119,7 @@ export function installMinuteUi(q) {
   const MIN_SPAN_DAYS = 40;
   const WARMUP_WORKERS = 2;
   const WARMUP_PACE_SEC = 2;
-  const SINA_HINT = "stock_zh_a_minute（约1970根·5m）";
+  const SINA_HINT = "getKLineData（约1970根·5m，不拉日线）";
   const FULL_WARMUP_HINT =
     `${WARMUP_WORKERS} 并发 · 只走新浪 ${SINA_HINT} · 子进程单票≤45s（超时 kill 继续） · 开工间隔 ${WARMUP_PACE_SEC}s`;
   const FULL_WARMUP_HINT_RUNNING =

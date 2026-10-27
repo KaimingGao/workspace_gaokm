@@ -466,9 +466,56 @@
                 <div class="paper-t0-worker-title-block">
                   <span class="paper-t0-worker-kicker">Web Worker</span>
                   <strong class="paper-t0-worker-title">自动做 T 后台进程</strong>
-                  <span class="paper-t0-worker-sub">打开即 5m 盯盘 · 触达即落账 · 5 分钟轮询</span>
+                  <span class="paper-t0-worker-sub">前缀时间前开第一腿 · 触达即落账 · 5 分钟轮询</span>
                 </div>
                 <div class="paper-t0-worker-controls">
+                  <label
+                    class="paper-live-clock paper-t0-prefix-clock"
+                    title="自动做 T / 手动预演的第一腿截止钟。滑动选择 09:30–11:00（每 5 分钟）。与历史回测「前缀」分立，默认 11:00。截止后只收已开仓的第二腿。"
+                  >
+                    <span class="paper-live-clock-label">前缀时间</span>
+                    <span class="paper-live-clock-rail" aria-hidden="true">
+                      <span class="paper-live-clock-end">09:30</span>
+                      <input
+                        type="range"
+                        id="paper-t0-live-prefix"
+                        class="paper-live-clock-range"
+                        min="0"
+                        max="18"
+                        step="1"
+                        value="18"
+                        list="paper-t0-live-prefix-ticks"
+                        aria-valuemin="0"
+                        aria-valuemax="18"
+                        aria-valuenow="18"
+                        aria-valuetext="11:00"
+                        aria-label="前缀时间 09:30 至 11:00，间隔 5 分钟"
+                      />
+                      <span class="paper-live-clock-end">11:00</span>
+                    </span>
+                    <datalist id="paper-t0-live-prefix-ticks">
+                      <option value="0" label="09:30"></option>
+                      <option value="1" label="09:35"></option>
+                      <option value="2" label="09:40"></option>
+                      <option value="3" label="09:45"></option>
+                      <option value="4" label="09:50"></option>
+                      <option value="5" label="09:55"></option>
+                      <option value="6" label="10:00"></option>
+                      <option value="7" label="10:05"></option>
+                      <option value="8" label="10:10"></option>
+                      <option value="9" label="10:15"></option>
+                      <option value="10" label="10:20"></option>
+                      <option value="11" label="10:25"></option>
+                      <option value="12" label="10:30"></option>
+                      <option value="13" label="10:35"></option>
+                      <option value="14" label="10:40"></option>
+                      <option value="15" label="10:45"></option>
+                      <option value="16" label="10:50"></option>
+                      <option value="17" label="10:55"></option>
+                      <option value="18" label="11:00"></option>
+                    </datalist>
+                    <span class="paper-live-clock-value" id="paper-t0-live-prefix-value">11:00</span>
+                  </label>
                   <span
                     id="paper-t0-worker-badge"
                     class="paper-t0-worker-badge is-stopped"

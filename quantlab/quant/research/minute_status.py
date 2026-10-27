@@ -516,7 +516,7 @@ def _minute_topup_core(
     跨度 ≥ ``min_span_days``（默认 20）且末根已对齐也跳过。该阈值不截断本地仓。
     新浪窗口固定（约 41 个交易日）。
 
-    远端走 ``fetch_a_minute_bars_isolated``：单票子进程超时 kill，不占主进程 ``ak_lock``。
+    远端走 ``fetch_a_minute_bars_isolated``：单票子进程里落盘，队列只回根数，超时 kill。
     与强更共用开工闸（默认 2 秒一只、同时 2 只），子进程内不再睡 10 秒。
     空返回、超时、断连后，本轮后续间隔拉长。
     """
@@ -628,11 +628,13 @@ def _minute_topup_core(
             err = str(exc)[:80]
             pace.note_remote_failure(err)
             return code, action, False, err
-        if bars:
-            return code, action, True, None
-        err = str((meta or {}).get("error") or "empty")
-        pace.note_remote_failure(err)
-        return code, action, False, err
+        err = str((meta or {}).get("error") or "")
+        # 超时后可能带回旧仓。有 K 线也不能算这次远端成功。
+        if "timeout" in err.lower() or not bars:
+            err = err or "empty"
+            pace.note_remote_failure(err)
+            return code, action, False, err[:80]
+        return code, action, True, None
 
     if to_fetch:
         # 勿用 ``with ThreadPoolExecutor``：挂死任务 cancel 不掉，exit 会 wait=True 卡死 Job
@@ -715,7 +717,7 @@ def _minute_topup_core(
         "pace_stretched": pace.stretched,
         "errors": errors[:10],
         "note": (
-            f"增量补齐（L0） · 新浪固定窗 · 今日已拉且齐窗跳过 · 跨度≥{min_span}日且末根对齐跳过 · "
+            f"增量补齐（L0） · 新浪 5 分钟 JSON，不拉日线 · 今日已拉且齐窗跳过 · 跨度≥{min_span}日且末根对齐跳过 · "
             f"缺尾补拉 · 不截断本地仓 · 子进程隔离 · {n_workers} 并发 · "
             f"开工间隔 {pace.base:g}s"
             + (f"（失败后已拉长到 {pace.pace_sec:g}s）" if pace.stretched else "")

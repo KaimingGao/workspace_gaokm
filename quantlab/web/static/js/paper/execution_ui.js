@@ -133,6 +133,7 @@ export function renderExecutionRulesHtml(execution) {
   const notes = (execution.notes || []).slice(0, 2);
 
   const enabledLbl = t0.enabled === false ? "关" : "开";
+  const lastLeg1 = String(t0.t0_last_leg1_hm || "11:00").replace("：", ":").trim().slice(0, 5) || "11:00";
 
   return (
     `<div class="paper-t0-spec">` +
@@ -140,7 +141,7 @@ export function renderExecutionRulesHtml(execution) {
     `<h4 class="paper-t0-spec-head-title">生效规格</h4>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="核心参数">` +
     specKpi("启用", enabledLbl, "做 T overlay 总开关") +
-    specKpi("策略", "纯ŷ_τw", "09:30–11:00 每根5m：ŷ_τw≥入场正T、≤−入场反T；|ŷ_τw|过入场/强票分档金额；leg2无预设目标；11:00后不开leg1") +
+    specKpi("策略", "纯ŷ_τw", `09:30–${lastLeg1} 每根5m：ŷ_τw≥入场正T、≤−入场反T；|ŷ_τw|过入场/强票分档金额；leg2无预设目标；${lastLeg1}后不开leg1`) +
     specKpi(
       "选腿",
       (() => {
@@ -796,6 +797,73 @@ export function liveFillClockIndex(raw, fallback = "09:30") {
 export function liveFillClockAt(index) {
   const i = Math.max(0, Math.min(LIVE_FILL_CLOCKS.length - 1, Math.round(Number(index) || 0)));
   return LIVE_FILL_CLOCKS[i];
+}
+
+/** Live 做 T 第一腿前缀终点：09:30–11:00，每 5 分钟。默认 11:00，与回测滑条分立。 */
+export const LIVE_T0_PREFIX_CLOCKS = (() => {
+  const out = [];
+  let total = 9 * 60 + 30;
+  const end = 11 * 60;
+  while (total <= end) {
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+    total += 5;
+  }
+  return out;
+})();
+
+export function liveT0PrefixIndex(raw, fallback = "11:00") {
+  const clock = String(raw || fallback).replace("：", ":").trim().slice(0, 5);
+  const i = LIVE_T0_PREFIX_CLOCKS.indexOf(clock);
+  if (i >= 0) return i;
+  const fb = LIVE_T0_PREFIX_CLOCKS.indexOf(fallback);
+  return fb >= 0 ? fb : LIVE_T0_PREFIX_CLOCKS.length - 1;
+}
+
+export function liveT0PrefixAt(index) {
+  const i = Math.max(
+    0,
+    Math.min(LIVE_T0_PREFIX_CLOCKS.length - 1, Math.round(Number(index) || 0))
+  );
+  return LIVE_T0_PREFIX_CLOCKS[i];
+}
+
+export function readLiveT0Prefix() {
+  const el = document.getElementById("paper-t0-live-prefix");
+  if (!el) return null;
+  if (el.type === "range") return liveT0PrefixAt(el.value);
+  const v = String(el.value || "").replace("：", ":").trim().slice(0, 5);
+  return v || null;
+}
+
+/** 同步做 T 前缀滑条 / 当前钟；拖动中不抢焦点。 */
+export function applyLiveT0PrefixUi(raw, { force = false } = {}) {
+  const el = document.getElementById("paper-t0-live-prefix");
+  if (!el) return null;
+  if (!force && document.activeElement === el) return readLiveT0Prefix();
+  const clock = liveT0PrefixAt(liveT0PrefixIndex(raw));
+  const idx = liveT0PrefixIndex(clock);
+  if (el.type === "range") {
+    el.value = String(idx);
+    el.setAttribute("aria-valuenow", String(idx));
+    el.setAttribute("aria-valuetext", clock);
+  } else {
+    el.value = clock;
+  }
+  const valEl = document.getElementById("paper-t0-live-prefix-value");
+  if (valEl) valEl.textContent = clock;
+  return clock;
+}
+
+/** 仅收集 live 做 T 前缀截止钟；不改回测滑条。 */
+export function collectLiveT0PrefixPatch() {
+  const hm = readLiveT0Prefix();
+  if (!hm) return null;
+  return {
+    lock: true,
+    t0: { t0_last_leg1_hm: hm },
+  };
 }
 
 export function readLiveFillClock() {

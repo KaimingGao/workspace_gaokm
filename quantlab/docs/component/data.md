@@ -52,7 +52,7 @@ Agent / Skill / Research / 纸面
         │
         ├─ get_minute_bars / fetch_minute_bars
         │     ├─ load minute cache ─────► bars.db minute_bars 或 minute/**/*.json
-        │     └─ 5 分钟 ─────────────────► 只走新浪 ak.stock_zh_a_minute
+        │     └─ 5 分钟 ─────────────────► 只走新浪 getKLineData（不拉日线）
         │
         ├─ get_spot ───────────────────► AkShare 现货 → spot_a_em.json
         ├─ get_fundamentals ───────────► 快照缓存 data/store/fundamentals/
@@ -91,7 +91,7 @@ flowchart LR
 
 ---
 
-## 分钟线采集架构（AkShare）
+## 分钟线采集架构
 
 做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **adapters 层**，单票读口经 `core.ports.market.fetch_minute_bars`；观察池 **强更 / 增量补齐** 直调 `fetch_a_minute_bars_isolated`（子进程超时 kill），**不**在业务里直连数据源。
 
@@ -102,8 +102,8 @@ flowchart LR
 | 层 | 路径 | 职责 |
 |----|------|------|
 | **对外读口** | `core/ports/market.py` · `fetch_minute_bars` | 与日线 `get_bars` 并列；ports 由 `adapters.bind` 注入 |
-| **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 只走新浪 5m · merge · 落盘；`fetch_a_minute_bars_isolated` 子进程隔离 |
-| **新浪** | `_fetch_sina_minute_bars` | `ak.stock_zh_a_minute`；5 分钟唯一远端源 |
+| **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 只走新浪 5m · merge · 落盘；子进程队列只回根数 |
+| **新浪** | `_fetch_sina_minute_bars` | `getKLineData` 5 分钟 JSON；不走 akshare（那个函数会先拉前复权日线） |
 | **本地仓** | `core/store.py` · `store_bars_sqlite.py` | `load/save/merge_minute_cache`；默认 SQLite `minute_bars` |
 | **批量预热** | `core/schedule_jobs._minute_warmup_core` | 强更：Ready 跳过；与增量共用开工闸（默认 2 只在途、间隔 2s）；单票超时 kill |
 | **Web 增量/强更** | `quant/research/minute_status.py` | `GET …/status` · `POST …/refresh`（topup/full）· Job `minute-refresh` |
@@ -114,7 +114,7 @@ flowchart LR
 flowchart TD
   A[fetch_minute_bars] --> B{本地缓存未过期?}
   B -->|是| C[直接返回缓存]
-  B -->|否| ST[新浪 stock_zh_a_minute]
+  B -->|否| ST[新浪 getKLineData]
   ST --> STQ{新浪有数?}
   STQ -->|是| J[merge_minute_bars_by_time]
   STQ -->|否| K
@@ -137,7 +137,7 @@ flowchart TD
 
 | 项 | 约定 |
 |----|------|
-| 接口 | `ak.stock_zh_a_minute` |
+| 接口 | 新浪 `getKLineData`（不复权）。不调用 `ak.stock_zh_a_minute`，避免每只先拉整段前复权日线 |
 | 深度 | datalen=1970（约 41 交易日）；不按回看天数切片 |
 | 复权 | `adjust=""`（不复权） |
 | 频控 | 批量增量与强更：同时 2 只、开工间隔 2s，子进程内不再睡。空返回 / 超时 / 断连后本轮间隔 ×2，最长 8s。单票直拉仍在拉完后睡 10s |
@@ -153,7 +153,7 @@ flowchart TD
 | Web 量化台 · **增量补齐 5m** | 同 Job · `mode=topup`：也只走新浪 |
 | 状态 | `GET /api/quant/minute/status`（Ready 近 40 交易日无缺等）· `GET /api/jobs/minute-refresh` |
 
-子进程内只打新浪。增量与强更共用开工闸：同时 **2** 只、间隔 **2s**（`throttle=False`，10s 休眠不进 45s 超时）。空返回、超时或断连后，这一轮后续间隔按 2 倍拉长，最长 **8s**。单票超时 **45s** 后 kill 并继续下一只。**已 Ready** 则跳过远端。单票直拉仍在拉完后睡 **10s**。
+子进程内只打新浪，落盘后队列只回根数，不把整段 K 线交回父进程。增量与强更共用开工闸：同时 **2** 只、间隔 **2s**（`throttle=False`，10s 休眠不进 45s 超时）。空返回、超时或断连后，这一轮后续间隔按 2 倍拉长，最长 **8s**。单票超时 **45s** 后 kill 并继续下一只。**已 Ready** 则跳过远端。单票直拉仍在拉完后睡 **10s**。
 
 ### 环境变量（分钟 / 日线新浪闸）
 
@@ -310,7 +310,7 @@ flowchart TD
 | **DS-R3 ann_missing 门禁** | **已落地**：`ann_missing_policy`（默认 zero_weight）；DQ ratio→bad |
 | **DS-R4 拒 quote_fallback** | **已落地**：`reject_quote_fallback`；伪日期 quality=empty；offline 默认拒 |
 | **DS-R5 刷新锁/裁剪** | **已落地**：`code_refresh_lock`；日线/分钟 trim 上限 |
-| **分钟线** | **5 分钟只走新浪** `stock_zh_a_minute`。见 [§ 分钟线采集架构](#分钟线采集架构akshare) |
+| **分钟线** | **5 分钟只走新浪** `getKLineData`（不拉日线）。见 [§ 分钟线采集架构](#分钟线采集架构) |
 | **DS encapsulate** | **已落地**：`core/data/`（`BarsResult`/`DataEnvelope` · `MarketPorts` · `MarketDataService`/`ResearchDataService`）；`facade.py` 薄门面仍返回 dict |
 | **DS-E1 读口收口加深** | **已落地**：paper/threshold OOS/`portfolio_bars` 远端补数经 DS 且拒 fallback；`get_bars_batch` · `set_research_service`；spot `mem_cache` source；空宇宙 coverage=`None`；非 bars 信封显式 `production_ok` |
 | **DS-E2 评分读口 + 可观测** | **已落地**：`score_stock.fetch_daily_bars`→DS 缓存+`bars_pack_worker` 池；bars 空宇宙 coverage=`None`；`metrics_snapshot`；batch 默认 adjust；ledger/insights `resolve_market_code` 经 ports |

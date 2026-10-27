@@ -148,6 +148,34 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertTrue(view["t0"]["must_cover_same_day_buy_then_sell"])
         self.assertNotIn("must_cover_same_day", view["t0"])
 
+    def test_live_t0_prefix_patch_keeps_other_rules(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch({"t0": {"t0_last_leg1_hm": "09:40"}})
+        self.assertTrue(ok, errs)
+        self.assertEqual(norm["t0"]["t0_last_leg1_hm"], "09:40")
+        paper = {
+            "strategy_id": "short_conservative",
+            "rules": {"t0": {"y_tw_enter": 2.5}},
+        }
+        apply_execution_patch_to_paper(paper, norm)
+        self.assertEqual(paper["rules"]["t0"]["t0_last_leg1_hm"], "09:40")
+        self.assertEqual(paper["rules"]["t0"]["y_tw_enter"], 2.5)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertEqual(view["t0"]["t0_last_leg1_hm"], "09:40")
+        self.assertEqual(view["t0"]["y_tw_enter"], 2.5)
+        bare = execution_public_view(
+            resolve_effective_execution(strategy="short_conservative", channel="paper")
+        )
+        self.assertEqual(bare["t0"]["t0_last_leg1_hm"], "11:00")
+
     def test_public_view_rejects_residual_weights(self):
         from core.execution import (
             execution_public_view,

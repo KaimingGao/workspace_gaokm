@@ -95,7 +95,8 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tw_midpoint": 50.0,  # ŷ_τ30/45/60/75/90 共用中位点%
     # ŷ_τ*：ridge=跟启用套 backend（默认）；tree=遗留强制 backends.tree
     "horizon_prob_backend": "ridge",
-    # leg1 最晚钟（09:30…11:00）；live 默认 11:00；回测 UI 可缩到更早（默认 10:30）
+    # leg1 最晚钟（09:30…11:00）。live 默认 11:00，交易执行「前缀时间」可改；
+    # 回测工具条另存（默认 10:30），不写 live。
     "t0_last_leg1_hm": "11:00",
     # 日/分昨收错位门禁（|P_d/P_m−1| 超阈跳过）；开盘差已下线（0=关）
     "t0_price_space_gate": True,

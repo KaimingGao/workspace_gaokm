@@ -126,7 +126,7 @@ class T0BacktestRequest(BaseModel):
     t0_last_leg1_hm: Optional[str] = Field(
         default=None,
         max_length=8,
-        description="leg1 截止钟 HH:MM（09:30…11:00 每 5m）；其后只收第二腿。回测 UI 默认 10:30；缺省=11:00",
+        description="leg1 截止钟 HH:MM（09:30…11:00 每 5m）；其后只收第二腿。live「前缀时间」写入此键，缺省=11:00；回测滑条不写此键（默认 10:30）",
     )
     t0_price_space_gate: Optional[bool] = Field(
         default=None, description="日分价空间门禁：昨收差超阈跳过（开盘差已下线）"

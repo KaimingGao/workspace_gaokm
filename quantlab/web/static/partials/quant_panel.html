@@ -414,15 +414,15 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 写 5m：日常<strong>增量补齐（L0）</strong>（会话日齐窗且今日已拉才跳过；缺尾如只到 10:00 强制补拉）·
-                全窗<strong>强更 5m（L0）</strong>（只走新浪，约 41 个交易日；单票子进程≤45s）。
+                全窗<strong>强更 5m（L0）</strong>（只打新浪 5 分钟，不拉日线；约 41 个交易日；单票子进程≤45s）。
                 调度 <code>minute_warmup</code>。物化见下方板块。Ready≠消费 as-of。不改日 K、不算 ŷ。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-minute-topup" class="dialog-btn primary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
+          <button type="button" id="quant-minute-topup" class="dialog-btn primary" title="写入 5m 仓（增量 · 只打新浪 5 分钟，不拉日线）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐（L0）
           </button>
-          <button type="button" id="quant-minute-refresh" class="dialog-btn primary" title="写入 5m 仓（强更 · 只走新浪 · 单票子进程≤45s）。新浪约 41 个交易日，不复权；同时刻覆盖。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
+          <button type="button" id="quant-minute-refresh" class="dialog-btn primary" title="写入 5m 仓（强更 · 只打新浪 5 分钟，不拉日线 · 单票子进程≤45s）。约 41 个交易日，不复权；同时刻覆盖。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
             强更 5m（L0）
           </button>
         </div>

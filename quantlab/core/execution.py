@@ -83,6 +83,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "t0_slots_enabled",
         "t0_slots",
         "t0_slots_max_rounds",
+        "t0_last_leg1_hm",
     }
 )
 
@@ -658,6 +659,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "t0_slots_enabled": t0.get("t0_slots_enabled"),
             "t0_slots": t0.get("t0_slots"),
             "t0_slots_max_rounds": t0.get("t0_slots_max_rounds"),
+            "t0_last_leg1_hm": t0.get("t0_last_leg1_hm"),
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},

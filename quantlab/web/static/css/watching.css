@@ -449,16 +449,18 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_on .watc
   border-radius: var(--follow-radius);
   font-size: 0.78rem;
   box-shadow: none;
-  overflow-x: auto;
+  /* 横滑只发生在表体。外壳再滚会把表头的「开始 / 出处」滑出来，表体仍被裁在左边，两列空白。 */
+  overflow-x: hidden;
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-body {
-  overflow-x: visible;
+  overflow-x: auto;
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-head {
   background: var(--line-2);
   border-bottom: 1px solid var(--line);
+  overflow: hidden;
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-row {

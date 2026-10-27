@@ -311,8 +311,8 @@ def _minute_warmup_core(
 ) -> Dict[str, Any]:
     """5 分钟线预热核心逻辑（无 job slot）。
 
-    只走新浪 ``stock_zh_a_minute``。Ready 跳过；其余匀速开工，同时在途由线程池封顶。
-    单票子进程 + 超时 kill，挂死不占主进程 ak_lock。子进程内不再额外睡拉取间隔。
+    只打新浪 5 分钟 ``getKLineData``，不拉日线。Ready 跳过；其余匀速开工，同时在途由线程池封顶。
+    单票子进程里落盘，队列只回根数；超时 kill。子进程内不再额外睡拉取间隔。
     空返回、超时、断连后，本轮后续开工间隔拉长。
     """
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -438,14 +438,15 @@ def _minute_warmup_core(
                         logger.warning("minute_warmup failed %s: %s", code, exc)
                     done += 1
                     err = str((meta or {}).get("error") or "")
-                    if "timeout" in err.lower():
+                    timed_out_this = "timeout" in err.lower()
+                    if timed_out_this:
                         timed_out += 1
                         logger.warning(
                             "minute_warmup timeout %s after %.0fs",
                             code,
                             per_stock_timeout,
                         )
-                    if bars:
+                    if bars and not timed_out_this:
                         warmed += 1
                     elif err:
                         errors.append(f"{code}:{err}")
@@ -473,7 +474,7 @@ def _minute_warmup_core(
         "isolated": True,
         "errors": errors[:10],
         "note": (
-            f"5 分钟线预热，只走新浪 stock_zh_a_minute · {n_workers} 并发 · "
+            f"5 分钟线预热，只打新浪 getKLineData，不拉日线 · {n_workers} 并发 · "
             f"开工间隔 {pace.base:g}s"
             + (f"（失败后已拉长到 {pace.pace_sec:g}s）" if pace.stretched else "")
             + f"。单票子进程上限 {per_stock_timeout:.0f}s（超时 kill，继续下一只）。"
