@@ -10,7 +10,7 @@
 
 **ExecutionSpec（v1.1）**：`lifecycle.execution` 收编两类纸面动作——**结构层调仓**（持有什么、各占多少；ŷ_trade 排序 + ŷ_oo/ŷ_τ 买卖闸）与 **overlay 做 T**（底仓上 dual_y：y_τ 定方向 + 5m 往返 timing；不改变选股主线）。**ŷ_τ 模型共用、决策接口不同**，见 [quant.md · 策略调仓 vs 底仓做 T](../quant.md#策略调仓-vs-底仓做-t)。纸面 / 做 T 回测经 `core/execution.resolve_effective_execution` 合并  
 `DEFAULT → Spec → paper.rules → 请求 → channel runtime_defaults`，禁止入口各自硬编码 `direction` / `path_mode`。  
-Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · **历史回测**改调仓/做 T 规则表单；交易执行只读规格 + 预演/Worker · 策略晋升回显做 T 摘要。  
+Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · **历史回测**改调仓/做 T 规则表单；交易执行不展示调仓/做 T 规则条。手动调仓只复现 09:30 开盘预估分、不落账；做 T 只预演/落账 · Worker · 策略晋升回显做 T 摘要。  
 耦合：`coupling.t0_vs_stance` = `independent` | `skip_if_avoid` | `only_if_hold`（纸面预演按持仓 stance 跳过）。
 
 **自动做 T 落账（Web Worker）**：Follow 页 Worker = 本 Web 进程内后台线程，**5 分钟轮询 + 5m 盯盘**（与 K 线周期对齐；分钟线 `use_cache` TTL ≈5min，无新 bar 跳过打网；**振幅门禁按 5m 前缀 high/low 滚动**，不足则下根 K 重试；交易时段内触达即落账，不再日终整段回放）；开关写 `data/t0_auto_worker.json`，状态写 `data/t0_intraday_state.json`，并同步 `paper.rules.t0_auto.enabled`。  

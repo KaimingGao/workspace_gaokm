@@ -11874,7 +11874,7 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
 .quant-ru-tier-folds {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.36rem;
 }
 
 .quant-ru-tier-fold {
@@ -11887,13 +11887,18 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
 .quant-ru-tier-fold-sum {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
   padding: 0.42rem 0.6rem;
+  white-space: nowrap;
   cursor: pointer;
   list-style: none;
-  font-size: 0.78rem;
+  font-size: var(--q-fs-caption, 0.75rem);
   user-select: none;
   background: color-mix(in srgb, var(--bg-1, var(--bg)) 70%, transparent);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .quant-ru-tier-fold-sum::-webkit-details-marker {
@@ -11902,9 +11907,11 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
 
 .quant-ru-tier-fold-sum::before {
   content: "▸";
+  flex: 0 0 auto;
   color: var(--ink-3, var(--ink-2));
-  font-size: 0.7rem;
-  width: 0.75rem;
+  font-size: 0.68rem;
+  width: 0.7rem;
+  text-align: center;
 }
 
 .quant-ru-tier-fold[open] > .quant-ru-tier-fold-sum::before {
@@ -11912,45 +11919,107 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
 }
 
 .quant-ru-tier-label {
+  flex: 0 0 auto;
   color: var(--ink);
+  font-size: 0.78rem;
   font-weight: 550;
 }
 
 .quant-ru-tier-cs-wrap {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  margin-left: auto;
-  flex-wrap: wrap;
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 0.75rem;
+  min-width: max-content;
+  margin-left: auto;
+}
+
+.quant-ru-tier-board {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 0.28rem;
+  min-width: max-content;
+}
+
+.quant-ru-tier-cs-sep {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 1px;
+  margin: 0.12rem 0.85rem;
+  background: color-mix(in srgb, var(--line) 88%, var(--ink-3, #64748b));
+}
+
+.quant-ru-tier-cs-win {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.2rem;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--warn, #b45309) 35%, var(--line));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--warn, #b45309) 8%, var(--surface));
+  color: var(--warn, #b45309);
+  font-family: var(--font-mono);
+  font-size: var(--q-fs-micro);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.quant-ru-tier-cs-win.is-stale {
+  color: #9a6a18;
+  border-color: color-mix(in srgb, #c4922a 48%, var(--line));
+  background: color-mix(in srgb, #c4922a 14%, var(--bg-1, var(--bg)));
 }
 
 .quant-ru-tier-cs {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.45rem;
-  padding: 0 0.1rem;
-  white-space: nowrap;
-}
-
-.quant-ru-tier-cs + .quant-ru-tier-cs {
-  padding-left: 0.55rem;
-  margin-left: 0.15rem;
-  border-left: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  flex: 0 0 auto;
+  gap: 0.62rem;
 }
 
 .quant-ru-tier-cs-head {
-  color: var(--ink-3, var(--ink-2));
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
   font-size: 0.62rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  text-transform: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.quant-ru-tier-cs-head.is-oo {
+  color: var(--accent, #1890ff);
+  border-color: color-mix(in srgb, var(--accent, #1890ff) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent, #1890ff) 8%, var(--surface));
+}
+
+.quant-ru-tier-cs-head.is-tc {
+  color: #0f766e;
+  border-color: color-mix(in srgb, #0f766e 35%, var(--line));
+  background: color-mix(in srgb, #0f766e 8%, var(--surface));
+}
+
+html[data-theme="dark"] .quant-ru-tier-cs-head.is-tc {
+  color: #5eead4;
+  border-color: color-mix(in srgb, #5eead4 35%, var(--line));
+  background: color-mix(in srgb, #5eead4 10%, var(--surface));
 }
 
 .quant-ru-tier-cs-item {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.22rem;
+  flex: 0 0 auto;
+  gap: 0.28rem;
 }
 
 .quant-ru-tier-cs-lab {
@@ -11958,6 +12027,8 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   font-size: 0.64rem;
   font-weight: 500;
   letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .quant-ru-tier-cs-val {
@@ -11965,8 +12036,8 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   font-variant-numeric: tabular-nums;
   font-size: 0.74rem;
   font-weight: 650;
-  min-width: 2.4rem;
-  text-align: right;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .quant-ru-tier-cs-val.up {
@@ -12408,6 +12479,7 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.is
 
 .quant-ru-tier-badge {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   min-width: 1.35rem;
@@ -12415,7 +12487,7 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.is
   padding: 0 0.28rem;
   border-radius: 3px;
   font-weight: 700;
-  font-size: 0.7rem;
+  font-size: var(--q-fs-caption, 0.75rem);
   border: 1px solid transparent;
 }
 

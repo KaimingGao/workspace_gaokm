@@ -25,7 +25,6 @@ export function createRebalanceReportController(deps) {
     Y_ON_TITLE,
     isHeuristicScoreScale,
     renderOpsReport,
-    showValidateNext,
     formatWeightSourceNote,
     formatFactorWeightsSection,
     formatFormulaTermsSection,
@@ -103,11 +102,6 @@ function dismissRebalancePreview() {
   if (container) container.innerHTML = "";
   const chipsEl = document.getElementById("paper-rebalance-preview-chips");
   if (chipsEl) chipsEl.innerHTML = "";
-  const nextEl = document.getElementById("paper-validate-next");
-  if (nextEl) {
-    nextEl.hidden = true;
-    nextEl.innerHTML = "";
-  }
   if (typeof setFollowMatrixPreviewPending === "function") setFollowMatrixPreviewPending(false);
 }
 
@@ -187,8 +181,8 @@ function rebalancePrevCloseText(r) {
   return "—";
 }
 
-/** @type {{ key: "" | "oo_rank" | "tc_rank", desc: boolean }} */
-let _rankSort = { key: "", desc: false };
+/** @type {{ key: "" | "chg" | "fuse" | "oo_rank" | "tc_rank", desc: boolean }} */
+let _rankSort = { key: "fuse", desc: true };
 
 function rankSortValue(row, key) {
   const raw =
@@ -203,32 +197,34 @@ function rankSortValue(row, key) {
   return Number.isFinite(n) && n >= 1 ? n : null;
 }
 
+function reportSortValue(row, key) {
+  if (key === "chg") {
+    const n = Number(row && row.change_pct);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (key === "fuse") {
+    const n = Number(row && row.y_oo_fuse);
+    return Number.isFinite(n) ? n : null;
+  }
+  return rankSortValue(row, key);
+}
+
 function orderReportRows(rows) {
   const list = Array.isArray(rows) ? [...rows] : [];
-  if (_rankSort.key === "oo_rank" || _rankSort.key === "tc_rank") {
-    const key = _rankSort.key;
-    const dir = _rankSort.desc ? -1 : 1;
-    list.sort((a, b) => {
-      const av = rankSortValue(a, key);
-      const bv = rankSortValue(b, key);
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      return (av - bv) * dir;
-    });
-    return list;
-  }
+  const active =
+    _rankSort.key === "chg" ||
+    _rankSort.key === "fuse" ||
+    _rankSort.key === "oo_rank" ||
+    _rankSort.key === "tc_rank";
+  const key = active ? _rankSort.key : "fuse";
+  const dir = (active ? _rankSort.desc : true) ? -1 : 1;
   list.sort((a, b) => {
-    const fuseOf = (r) => {
-      const n = Number(r && r.y_oo_fuse);
-      return Number.isFinite(n) ? n : null;
-    };
-    const as = fuseOf(a);
-    const bs = fuseOf(b);
-    if (as == null && bs == null) return 0;
-    if (as == null) return 1;
-    if (bs == null) return -1;
-    return bs - as;
+    const av = reportSortValue(a, key);
+    const bv = reportSortValue(b, key);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return (av - bv) * dir;
   });
   return list;
 }
@@ -337,17 +333,10 @@ function renderRebalanceReport(
       cashEl.hidden = true;
       cashEl.innerHTML = "";
     }
-    const nextEl = document.getElementById("paper-validate-next");
-    if (nextEl) {
-      nextEl.hidden = true;
-      nextEl.innerHTML = "";
-    }
     renderOpsReport(null);
     paintRebalancePreviewChips();
     return;
   }
-
-  showValidateNext("rebalance");
 
   const sectionEl = document.getElementById("follow-fold-rebalance");
   if (sectionEl) {
@@ -686,8 +675,19 @@ function renderRebalanceReport(
       stock_code: r.stock_code || r.code || null,
       y_oo_fuse: r.y_oo_fuse,
       y_oo: r.y_oo,
+      "y_τc": r["y_τc"] != null ? r["y_τc"] : r.predicted_score_τc,
+      predicted_score_τc:
+        r.predicted_score_τc != null ? r.predicted_score_τc : r["y_τc"],
       y_oc: r.y_oc,
       y_co: r.y_co != null ? r.y_co : r.y_on,
+      horizon_mode: r.horizon_mode || null,
+      rem_y_spec: r.rem_y_spec || null,
+      y_τc_source: r["y_τc_source"] || null,
+      y_τc_ridge: r["y_τc_ridge"] != null ? r["y_τc_ridge"] : null,
+      day_open: r.day_open != null ? r.day_open : r.open,
+      open: r.open != null ? r.open : r.day_open,
+      rebalance_px: r.rebalance_px != null ? r.rebalance_px : r.price,
+      price: r.price != null ? r.price : r.rebalance_px,
       fusion_w_oo: r.fusion_w_oo,
       fusion_w_oc: r.fusion_w_oc,
       fusion_w_co: r.fusion_w_co,
@@ -1031,11 +1031,19 @@ function renderRebalanceReport(
     `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱">分档</div>` +
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
     `<div class="rebalance-th num" role="columnheader" title="当日开盘价">开盘</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
+    `<div class="rebalance-th num is-sortable${
+      _rankSort.key === "chg" ? " is-sorted" : ""
+    }" role="columnheader" tabindex="0" data-rank-sort="chg" title="相对昨收的当日涨跌幅 · 点击排序">涨跌${
+      _rankSort.key === "chg" ? (_rankSort.desc ? " ↓" : " ↑") : ""
+    }</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τc · price(τ)→close">y_τc</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=open[T+1]/price(τ)−1">fuse</div>` +
+    `<div class="rebalance-th num is-sortable${
+      _rankSort.key === "fuse" ? " is-sorted" : ""
+    }" role="columnheader" tabindex="0" data-rank-sort="fuse" title="fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=open[T+1]/price(τ)−1 · 点击排序">fuse${
+      _rankSort.key === "fuse" ? (_rankSort.desc ? " ↓" : " ↑") : ""
+    }</div>` +
     `<div class="rebalance-th num is-sortable${
       _rankSort.key === "oo_rank" ? " is-sorted" : ""
     }" role="columnheader" tabindex="0" data-rank-sort="oo_rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 点击排序 · 过入场后作买序；与 τc_rank 共用 rank 入场">oo_rank${
@@ -1052,9 +1060,12 @@ function renderRebalanceReport(
 
   container.querySelectorAll("[data-rank-sort]").forEach((el) => {
     const toggle = () => {
-      const key = el.getAttribute("data-rank-sort") === "tc_rank" ? "tc_rank" : "oo_rank";
+      const raw = el.getAttribute("data-rank-sort") || "";
+      const key =
+        raw === "chg" || raw === "fuse" || raw === "oo_rank" || raw === "tc_rank" ? raw : "";
+      if (!key) return;
       if (_rankSort.key === key) _rankSort.desc = !_rankSort.desc;
-      else _rankSort = { key, desc: false };
+      else _rankSort = { key, desc: key === "chg" || key === "fuse" };
       renderRebalanceReport(sourceRows, viewOpts);
     };
     el.addEventListener("click", (e) => {

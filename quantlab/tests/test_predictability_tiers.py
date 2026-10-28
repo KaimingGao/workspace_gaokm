@@ -353,8 +353,61 @@ class TestPredictabilityTiers(unittest.TestCase):
         out = summarize_tier_window_cs(acc, min_names=5, head="tau")
         self.assertEqual(out.get("head"), "tau")
         self.assertGreater(float(out["cs_rank_ic"]), 0.5)
+        self.assertIsNotNone(out.get("acc"))
+        self.assertIsNotNone(out.get("f1"))
         empty_oo = summarize_tier_window_cs(acc, min_names=5, head="oo")
         self.assertIsNone(empty_oo["cs_rank_ic"])
+        self.assertIsNone(empty_oo.get("acc"))
+        self.assertIsNone(empty_oo.get("f1"))
+
+    def test_tier_window_acc_f1_use_full_pairs(self):
+        """标题 ACC / F1 池化传入窗口的成对样本；死区日不计入。与截面最少票数无关。"""
+        from core.research.predictability_tiers import summarize_tier_window_cs
+
+        acc = {
+            "000001": {
+                "yhats": [0.2, 0.2, -0.2, 0.01],
+                "realized": [0.1, -0.1, -0.1, 0.2],
+                "pair_dates": ["d1", "d2", "d3", "d4"],
+            }
+        }
+        out = summarize_tier_window_cs(acc, min_names=5)
+        self.assertIsNone(out["cs_rank_ic"])
+        # 有效 3 日：两天符号对、一天看多看空。|ŷ|=0.01 死区剔除。
+        # tp=1 fp=1 fn=0 → P=0.5 R=1 F1=2/3
+        self.assertAlmostEqual(float(out["acc"]), round(2 / 3, 4))
+        self.assertAlmostEqual(float(out["f1"]), round(2 / 3, 4))
+        self.assertEqual(int(out["n_cls"]), 3)
+        only_b = summarize_tier_window_cs(acc, codes=["000002"], min_names=1)
+        self.assertIsNone(only_b.get("acc"))
+        self.assertEqual(int(only_b.get("n_cls") or 0), 0)
+
+    def test_tier_window_dates_are_second_half_only(self):
+        """传入后半日期时，前半成对样本不进 Rank IC / ACC。"""
+        from core.research.predictability_tiers import summarize_tier_window_cs
+
+        acc = {}
+        for i in range(6):
+            code = f"{i:06d}"
+            y = float(i) - 2.5
+            acc[code] = {
+                "yhats": [-y, -y, -y, y, y, y],
+                "realized": [y, y, y, y, y, y],
+                "pair_dates": ["d1", "d2", "d3", "d4", "d5", "d6"],
+            }
+        second = summarize_tier_window_cs(
+            acc, dates=["d4", "d5", "d6"], min_names=5
+        )
+        first = summarize_tier_window_cs(
+            acc, dates=["d1", "d2", "d3"], min_names=5
+        )
+        self.assertGreater(float(second["cs_rank_ic"]), 0.9)
+        self.assertLess(float(first["cs_rank_ic"]), -0.9)
+        self.assertAlmostEqual(float(second["acc"]), 1.0)
+        self.assertAlmostEqual(float(first["acc"]), 0.0)
+        empty = summarize_tier_window_cs(acc, dates=[], min_names=1)
+        self.assertIsNone(empty.get("acc"))
+        self.assertIsNone(empty.get("cs_rank_ic"))
 
     def test_watching_name_map_fills_gaps_offline(self):
         """落盘 names 半空时，用码表（a_code_name / spot）补齐，不依赖行情。"""
@@ -811,6 +864,8 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(split.get("n_test"), 10)
         self.assertEqual(split.get("tier_n"), 5)
         self.assertEqual(split["tier_dates"], dates[:5])
+        self.assertEqual(split["eval_dates"], dates[5:])
+        self.assertEqual(split.get("eval_n"), 5)
         self.assertNotIn("rank_dates", split)
         self.assertNotIn("rank_n", split)
         self.assertNotIn("n_ledger", split)
@@ -820,11 +875,20 @@ class TestPredictabilityTiers(unittest.TestCase):
         clipped = split_holdout_half_dates(long, holdout_n=10)
         self.assertEqual(clipped["test_days"], long[-10:])
         self.assertEqual(clipped["tier_dates"], long[-10:-5])
+        self.assertEqual(clipped["eval_dates"], long[-5:])
 
         odd = [f"2025-09-{d:02d}" for d in range(1, 10)]
         half_odd = split_holdout_half_dates(odd, holdout_n=20)
         self.assertEqual(half_odd.get("tier_n"), 4)
         self.assertEqual(half_odd["tier_dates"], odd[:4])
+        self.assertEqual(half_odd["eval_dates"], odd[4:])
+
+        from core.research.predictability_tiers import holdout_eval_dates
+
+        legacy = {"test_days": dates, "tier_dates": dates[:5]}
+        self.assertEqual(holdout_eval_dates(legacy), dates[5:])
+        self.assertEqual(holdout_eval_dates({"eval_dates": dates[5:]}), dates[5:])
+        self.assertEqual(holdout_eval_dates(None), [])
 
         rep = {
             "rows": [
@@ -1154,6 +1218,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 )
                 self.assertTrue(rep.get("success"), rep)
                 self.assertEqual(rep.get("protocol"), PROTOCOL_HOLDOUT_OOS)
+                self.assertEqual(rep.get("title_metric_window"), "holdout_second_half")
                 self.assertEqual(rep.get("source"), "oo_holdout_oos")
                 self.assertEqual(rep.get("holdout_n"), 10)
                 # fake accumulate 未改 source 时仍透传；真实路径为 oo_research_model

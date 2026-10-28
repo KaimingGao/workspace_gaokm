@@ -94,7 +94,7 @@ def _insight_cache_stamp() -> str:
         )
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp fusion failed", exc_info=True)
-    return f"{win}|{asof}|{sess}|{ver}|{bars_gen}|rk{fusion}|causal_rebal|tip_f"
+    return f"{win}|{asof}|{sess}|{ver}|{bars_gen}|rk{fusion}|causal_rebal|tip_fuse_w"
 
 
 def _watching_pool_token() -> str:
@@ -1089,6 +1089,10 @@ def build_watching_insights(
                 added_at=added.get(c) or added.get(str(c)),
                 valuation=valuation_by.get(key),
             )
+            # 湖行常只有 ŷ 头、没有策略权。fuse tip 的 w_oo / w_τc 必须跟调仓回测 rank_lots。
+            _stamp_insight_y_oo_fuse(row, paper_ctx)
+            if row.get("y_oo_fuse") is not None:
+                row["score"] = row["y_oo_fuse"]
             items_by_code[c] = row
             _memo_put(c, stamp, row)
     else:

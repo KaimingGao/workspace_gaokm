@@ -124,12 +124,12 @@
     </div>
   </section>
 
-  <!-- 观察池分档：命中看 Holdout 前半，指标与等权买持看整段 · live 跟随回测分档（z 整池 / ŷ 允许档） -->
+  <!-- 观察池分档：分组看 Holdout 前半，标题测试指标看后半，等权买持看整段 · live 跟随回测分档（z 整池 / ŷ 允许档） -->
   <section class="dashboard-section quant-section" id="quant-section-research-universe" aria-labelledby="quant-section-research-universe-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        研究套 ŷ_oo / ŷ_τc · 分档看 Holdout 前半 · 指标与等权买持看整段 · live 跟随回测「分档」（z 整池，ŷ/名次只写允许档）
+        研究套 ŷ_oo / ŷ_τc · 分档看 Holdout 前半 · 标题测试指标看后半 · 等权买持看整段 · live 跟随回测「分档」（z 整池，ŷ/名次只写允许档）
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -148,7 +148,7 @@
                 有<strong>研究套 ŷ_τc</strong>时同样取前半上涨正类 F1；缺则 Score = OO_F1。
                 定档：Score = 0.5*OO_F1 + 0.5*TC_F1（缺一侧按 0；两侧都缺则无 Score，归 C）。A 档另过 F1 门槛（默认 <strong>OO_F1 ≥ 20%</strong>、<strong>TC_F1 ≥ 20%</strong>，工具栏可改；无研究套 ŷ_τc 时不看 TC_F1）；可分别勾选 <strong>OO_R+&gt;0</strong> / <strong>TC_R+&gt;0</strong>（各独立须过线；无 ŷ_τc 研究套时 TC 不生效；默认皆勾选）。表列另报 OO_P / OO_R / OO_ACC 与 TC_P / TC_R / TC_ACC（仅展示）。
                 过门槛的按 Score 降序取 top <strong>A 数量</strong>→A（未过门槛不占 A 名额），接着 <strong>B 数量</strong>→B、其余→C（默认 100 / 300）。
-                各档标题报 ŷ_oo / ŷ_τc 在 Holdout <strong>整段</strong>上的日截面 Rank IC · IC · ICIR；本区 A/B/C KPI 平均收益率同样看整段（都不参与定档）。
+                各档标题报 ŷ_oo / ŷ_τc 在 Holdout <strong>后半</strong>（测试）上的日截面 Rank IC · IC · ICIR · ACC · F1；分组用前半。本区 A/B/C KPI 平均收益率仍看整段（都不参与定档）。表内 ACC / F1 仍只看前半。
                 调仓 live 跟随历史回测页「分档」勾选：截面 z 用整池，ŷ/名次与开仓只写允许档（掉出则清仓）；不勾则不过滤。
               </p>
             </div>
@@ -241,7 +241,7 @@
               </label>
             </span>
           </span>
-          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="用研究套 ŷ_oo（+ 有则 ŷ_τc）+ ŷ_oo 卡片 Holdout：前半算 Score，A 档另过 OO_F1 / TC_F1（可勾选 OO_R+&gt;0 / TC_R+&gt;0），整段算指标与等权买持（有研究套时短窗建面板）">观察池分档</button>
+          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="用研究套 ŷ_oo（+ 有则 ŷ_τc）+ ŷ_oo 卡片 Holdout：前半算 Score 并分组，A 档另过 OO_F1 / TC_F1（可勾选 OO_R+&gt;0 / TC_R+&gt;0），后半算标题测试指标，整段算等权买持（有研究套时短窗建面板）">观察池分档</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-ru-body">

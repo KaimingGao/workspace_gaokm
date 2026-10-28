@@ -106,6 +106,63 @@ class TestWatchingInsights(unittest.TestCase):
         bars.assert_not_called()
         live.assert_not_called()
 
+    def test_lake_list_fuse_weights_follow_strategy(self):
+        """数据中心 fuse tip 的 w_oo / w_τc 用调仓回测 rank_lots，不用 0.5/0.5 或缺省 0.6/0.4。"""
+        import os
+
+        from core.watching.insights import build_watching_insights, reset_insight_memo
+
+        reset_insight_memo()
+        paper = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {
+                            "fusion_w_oo": 0.2,
+                            "fusion_w_oc": 0.8,
+                            "fusion_w_co": 0.5,
+                        }
+                    }
+                }
+            }
+        }
+        lake = {
+            "600519": {
+                "stock_code": "600519",
+                "y_oo": 2.0,
+                "y_τc": 1.0,
+                "y_co": 0.0,
+                "score": 1.6,
+                "factors": {},
+            }
+        }
+        real_isfile = os.path.isfile
+
+        def _isfile(path):
+            if str(path).endswith("paper.json"):
+                return True
+            return real_isfile(path)
+
+        with patch(
+            "core.research.materialize.consumer.consumer_read_only",
+            return_value=True,
+        ), patch(
+            "core.watching.insights._cached_lake_scores",
+            return_value=lake,
+        ), patch(
+            "core.watching.insights._spot_valuation_map",
+            return_value={},
+        ), patch("core.paper.load_paper", return_value=paper), patch(
+            "os.path.isfile", side_effect=_isfile
+        ):
+            out = build_watching_insights(["600519"], offline_only=True)
+        item = out["items"][0]
+        self.assertAlmostEqual(float(item["fusion_w_oo"]), 0.2)
+        self.assertAlmostEqual(float(item["fusion_w_oc"]), 0.8)
+        self.assertAlmostEqual(float(item["fusion_w_co"]), 0.5)
+        self.assertAlmostEqual(float(item["y_oo_fuse"]), 0.2 * 2.0 + 0.8 * 1.0, places=4)
+        self.assertAlmostEqual(float(item["score"]), float(item["y_oo_fuse"]), places=4)
+
     def test_lake_projection_keeps_formula_terms(self):
         """数据中心股票表 tip 要能画出因子，湖行投影不能把组成丢掉。"""
         from core.watching.insights import _project_lake_insight

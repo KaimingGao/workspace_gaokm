@@ -413,7 +413,6 @@
       <div class="dashboard-card quant-pro-card follow-ops-card follow-rebalance-rules-card" id="follow-fold-rebalance">
         <div class="quant-pro-card-body follow-card-body">
           <input type="hidden" id="paper-strategy" value="short_conservative" />
-          <div id="paper-rebalance-rules" class="paper-t0-rules" aria-label="生效调仓规则"></div>
           <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-run">历史回测</a> 改。手动执行只复现 09:30 开盘预估分，不落账。</p>
           <div class="quant-actions-inline paper-t0-manual-actions follow-rebalance-exec-actions">
             <button type="button" id="paper-adjust" class="dialog-btn" title="手动执行：复现当日 09:30 开盘时刻的调仓预估分（开盘 Z，不用开盘后 5m）。不含开仓/加仓。不写入纸面账户，只作对照。">手动执行</button>
@@ -427,7 +426,6 @@
             aria-live="polite"
             aria-label="次日开盘挂单"
           ></div>
-          <p id="paper-validate-next" class="follow-validate-next" hidden></p>
           <div id="paper-rebalance-section" class="quant-weight-table-wrap" hidden>
             <details class="paper-t0-desk-fold paper-t0-preview-fold" open>
               <summary class="paper-t0-desk-fold-sum">
@@ -581,7 +579,6 @@
       </div>
       <div class="dashboard-card quant-pro-card follow-ops-card follow-ops-t0 follow-t0-rules-card" id="follow-fold-t0">
         <div class="quant-pro-card-body follow-card-body">
-            <div id="paper-t0-rules" class="paper-t0-rules" aria-label="生效做T规则"></div>
             <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-t0">历史回测 · 做 T 回测</a> 改；本页只预演/落账。</p>
             <div class="quant-actions-inline paper-t0-manual-actions">
               <button type="button" id="paper-t0-run" class="dialog-btn" title="手动预演今日做T：选向用当日会话ŷ快照；路径读5m仓（不足可现场拉）。不改账本。">

@@ -1,5 +1,5 @@
 /**
- * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=0.5*OO_F1+0.5*TC_F1 · A 档另过 OO_F1 / TC_F1（可勾选 OO_R+>0 / TC_R+>0）· 分档看 Holdout 前半，指标与等权买持看整段 → last。
+ * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=0.5*OO_F1+0.5*TC_F1 · A 档另过 OO_F1 / TC_F1（可勾选 OO_R+>0 / TC_R+>0）· 分档看 Holdout 前半，标题测试指标看后半，等权买持看整段 → last。
  * 有研究套时只拉 Holdout 附近本地日线建面板；live 档位跟随历史回测「分档」勾选。
  */
 import { createScoreTooltipController } from "../score_tooltip.js";
@@ -273,7 +273,16 @@ export function installResearchUniverseUi(q) {
 
   function fmtIc(v) {
     if (v == null || Number.isNaN(Number(v))) return "—";
-    return Number(v).toFixed(3);
+    const n = Number(v);
+    const body = Math.abs(n).toFixed(3);
+    if (n > 1e-12) return `+${body}`;
+    if (n < -1e-12) return `-${body}`;
+    return body;
+  }
+
+  function fmtPct1(v) {
+    if (v == null || Number.isNaN(Number(v))) return "—";
+    return `${(Number(v) * 100).toFixed(1)}%`;
   }
 
   function csPackOf(rep, tier, head) {
@@ -308,49 +317,91 @@ export function installResearchUniverseUi(q) {
     return `${sign}${n.toFixed(2)}%`;
   }
 
-  function csMetricsHtml(pack, tip, headLab) {
-    const items = [
-      ["RankIC", pack && pack.cs_rank_ic, fmtIc],
-      ["IC", pack && pack.cs_ic, fmtIc],
-      ["ICIR", pack && pack.cs_icir, fmtIc],
-    ];
-    const html = items
-      .map(
-        ([lab, raw, fmt]) =>
-          `<span class="quant-ru-tier-cs-item">` +
-          `<span class="quant-ru-tier-cs-lab">${escapeHtml(lab)}</span>` +
-          `<span class="quant-ru-tier-cs-val${csValCls(raw)}">${fmt(raw)}</span>` +
-          `</span>`
-      )
-      .join("");
-    const headBit = headLab
-      ? `<span class="quant-ru-tier-cs-head">${escapeHtml(headLab)}</span>`
-      : "";
+  /** F1：≥50% 红 / 低于 50% 绿，与表内 OO_F1 / TC_F1 同口径。ACC 不上色。 */
+  function f1TitleCls(v) {
+    const tone = hitTone(v);
+    return tone === "up" || tone === "down" ? ` ${tone}` : "";
+  }
+
+  /** 标题一行：指标名与数值并排。 */
+  const CS_COLS = [
+    ["RankIC", "cs_rank_ic", fmtIc, csValCls, "日截面 Rank IC（Spearman）"],
+    ["IC", "cs_ic", fmtIc, csValCls, "日截面 IC（Pearson）"],
+    ["ICIR", "cs_icir", fmtIc, csValCls, "日截面 ICIR"],
+    ["ACC", "acc", fmtPct1, () => "", "符号命中率。不上色"],
+    ["F1", "f1", fmtPct1, f1TitleCls, "上涨正类 F1。≥50% 红 / 低于 50% 绿"],
+  ];
+
+  function csShowTau(rep) {
+    const requireTau = !!(rep && rep.thresholds && rep.thresholds.require_tau);
+    if (requireTau) return true;
+    if (!(rep && rep.title_metric_window === "holdout_second_half")) return false;
+    return ["A", "B", "C"].some((tier) => {
+      const pack = csPackOf(rep, tier, "tau");
+      return !!(
+        pack &&
+        (pack.cs_rank_ic != null ||
+          pack.cs_ic != null ||
+          pack.cs_icir != null ||
+          pack.acc != null ||
+          pack.f1 != null)
+      );
+    });
+  }
+
+  function csHeadHtml(headLab, tip) {
+    const kind = headLab === "τc" ? "is-tc" : "is-oo";
     return (
-      `<span class="quant-ru-tier-cs" title="${escapeHtml(tip)}" aria-label="档内日截面">` +
-      headBit +
-      html +
+      `<span class="quant-ru-tier-cs-head ${kind}" title="${escapeHtml(tip)}">` +
+      `${escapeHtml(headLab)}` +
+      `</span>`
+    );
+  }
+
+  function csMetricsHtml(pack, tip, headLab) {
+    const cells = CS_COLS.map(([lab, key, fmt, clsOf, itemTip]) => {
+      const raw = pack ? pack[key] : null;
+      return (
+        `<span class="quant-ru-tier-cs-item" title="${escapeHtml(itemTip)}">` +
+        `<span class="quant-ru-tier-cs-lab">${escapeHtml(lab)}</span>` +
+        `<span class="quant-ru-tier-cs-val${clsOf(raw)}">${fmt(raw)}</span>` +
+        `</span>`
+      );
+    }).join("");
+    return (
+      `<span class="quant-ru-tier-cs" aria-label="${escapeHtml(headLab || "档内指标")}">` +
+      csHeadHtml(headLab, tip) +
+      cells +
       `</span>`
     );
   }
 
   function dualCsHtml(rep, tier) {
-    const ooTip = `Holdout 整段、${tier} 档内 Y_oo：Rank IC / IC / ICIR`;
+    const ready = !!(rep && rep.title_metric_window === "holdout_second_half");
+    const stale = ready ? "" : "；上次报告不是后半，请重跑观察池分档";
+    const ooTip =
+      `Holdout 后半（测试）、${tier} 档内 Y_oo：Rank IC / IC / ICIR / ACC / F1${stale}`;
     const tauTip =
-      `Holdout 整段、${tier} 档内 Y_τc 日截面：Rank IC / IC / ICIR`;
-    const requireTau = !!(rep && rep.thresholds && rep.thresholds.require_tau);
-    const ooPack = csPackOf(rep, tier, "oo");
-    const tauPack = csPackOf(rep, tier, "tau");
-    const showTau =
-      requireTau ||
-      (tauPack &&
-        (tauPack.cs_rank_ic != null ||
-          tauPack.cs_ic != null ||
-          tauPack.cs_icir != null));
+      `Holdout 后半（测试）、${tier} 档内 Y_τc：Rank IC / IC / ICIR / ACC / F1${stale}`;
+    const ooPack = ready ? csPackOf(rep, tier, "oo") : null;
+    const tauPack = ready ? csPackOf(rep, tier, "tau") : null;
+    const showTau = csShowTau(rep);
+    const win = ready ? "后半" : "旧";
+    const winTip = ready
+      ? "Holdout 后半（测试）"
+      : "上次报告不是后半，请重跑观察池分档";
     return (
       `<span class="quant-ru-tier-cs-wrap">` +
-      csMetricsHtml(ooPack, ooTip, "Y_oo") +
-      (showTau ? csMetricsHtml(tauPack, tauTip, "Y_τc") : "") +
+      `<span class="quant-ru-tier-cs-win${ready ? "" : " is-stale"}" title="${escapeHtml(
+        winTip
+      )}">${win}</span>` +
+      `<span class="quant-ru-tier-board" aria-label="档内测试指标">` +
+      csMetricsHtml(ooPack, ooTip, "oo") +
+      (showTau
+        ? `<span class="quant-ru-tier-cs-sep" aria-hidden="true"></span>` +
+          csMetricsHtml(tauPack, tauTip, "τc")
+        : "") +
+      `</span>` +
       `</span>`
     );
   }
@@ -828,7 +879,7 @@ export function installResearchUniverseUi(q) {
       `ŷ_oo Holdout OOS`,
       `Holdout${hold}日前半` +
         (tierN != null && Number.isFinite(Number(tierN)) ? ` · 窗${tierN}日` : "") +
-        ` · OO/TC F1·P·R·ACC 看前半 · 指标与等权买持看整段`,
+        ` · 表内 F1·P·R·ACC 看前半 · 标题 RankIC·IC·ICIR·ACC·F1 看后半 · 等权买持看整段`,
       scoreLab,
       `A档数量 ${aCount} · B档数量 ${bCount} · ${gateLab} · C 其余`,
       liveBit(),

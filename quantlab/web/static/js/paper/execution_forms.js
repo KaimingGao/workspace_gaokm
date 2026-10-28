@@ -1,4 +1,4 @@
-/** 调仓 / 做 T 规则表单：保存与回填。历史回测改规则，交易执行只读落地。 */
+/** 调仓 / 做 T 规则表单：保存与回填。历史回测改规则；交易执行不展示规则条。 */
 
 import {
   fillExecutionForm,
@@ -9,12 +9,10 @@ import {
   collectDualScorePatch,
   persistT0Lookback,
   renderExecutionDiffHtml,
-  renderExecutionRulesHtml,
-  renderRebalanceRulesHtml,
   applyLiveFillClockUi,
   applyLiveT0PrefixUi,
   applyLiveFusionWeightsUi,
-} from "./execution_ui.js?v=p3338";
+} from "./execution_ui.js?v=p3378";
 
 async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
   const ac = new AbortController();
@@ -52,10 +50,6 @@ async function loadDualScoreOntoForm(form) {
 }
 
 export function applyExecutionToUi(exec) {
-  const t0RulesEl = document.getElementById("paper-t0-rules");
-  if (t0RulesEl && exec) t0RulesEl.innerHTML = renderExecutionRulesHtml(exec);
-  const rbRulesEl = document.getElementById("paper-rebalance-rules");
-  if (rbRulesEl && exec) rbRulesEl.innerHTML = renderRebalanceRulesHtml(exec);
   const paperT0Form = document.getElementById("paper-t0-form");
   if (paperT0Form && exec) fillExecutionForm(paperT0Form, exec);
   const pathMatrixForm = document.getElementById("paper-path-matrix-form");

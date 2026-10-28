@@ -865,6 +865,8 @@ _TIP_EXPLAIN_KEYS = (
     "score_formula_terms_path",
     "y_spec_tau",
     "y_spec_co",
+    "horizon_mode",
+    "rem_y_spec",
     "as_of_tau",
     "score_formula",
     "factor_coefficients",

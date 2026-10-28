@@ -38,8 +38,6 @@ import {
 } from "./paper/holdings_ui.js?v=p3360";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 import {
-  renderExecutionRulesHtml,
-  normalizeExecutionView,
   collectLiveFillClockPatch,
   collectLiveT0PrefixPatch,
   applyLiveFillClockUi,
@@ -48,8 +46,8 @@ import {
   syncLiveFusionWeightSliders,
   liveFillClockAt,
   liveT0PrefixAt,
-} from "./paper/execution_ui.js?v=p3338";
-import { applyExecutionToUi } from "./paper/execution_forms.js?v=p3338";
+} from "./paper/execution_ui.js?v=p3378";
+import { applyExecutionToUi } from "./paper/execution_forms.js?v=p3378";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p3226";
 import { downloadBlob } from "./shared.js";
 import {
@@ -71,7 +69,7 @@ import {
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
 import { BARS_WATCHING_LIMIT } from "./quant/params.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3371";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3379";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
 import {
@@ -945,8 +943,6 @@ export function initPaper(ctx) {
     if (execution && execution.ok !== false) {
       applyExecutionToUi(execution);
     } else {
-      const t0RulesEl = document.getElementById("paper-t0-rules");
-      if (t0RulesEl) t0RulesEl.innerHTML = `<p class="quant-sub">加载 ExecutionSpec…</p>`;
       apiFetch("/api/paper/execution")
         .then(({ ok, data: exe }) => {
           if (!ok || !exe || exe.ok === false) {
@@ -1635,25 +1631,6 @@ export function initPaper(ctx) {
       if (switchEl) switchEl.disabled = false;
       if (panel) panel.classList.remove("is-busy");
     }
-  }
-
-  function showValidateNext(kind) {
-    const el = document.getElementById("paper-validate-next");
-    if (!el) return;
-    el.hidden = false;
-    if (kind === "t0") {
-      el.innerHTML =
-        `做 T 是<strong>底仓 overlay</strong>验证，不是独立选股。完整闭环：` +
-        `<a class="follow-hero-link" href="/replay">历史回测</a> · ` +
-        `<a class="follow-hero-link" href="/strategy">策略中心</a> · ` +
-        `<a class="follow-hero-link" href="#follow-north-star">北极星</a>`;
-      return;
-    }
-    el.innerHTML =
-      `纸面调仓是落地一步（非完整科学验证）。下一步：` +
-      `<a class="follow-hero-link" href="/replay">历史回测对照</a> · ` +
-      `先验去 <a class="follow-hero-link" href="/strategy">策略中心</a> · ` +
-      `看拟合 <a class="follow-hero-link" href="#follow-north-star">北极星</a>`;
   }
 
   let holdingsScoreEnrichPromise = null;
@@ -2518,7 +2495,6 @@ export function initPaper(ctx) {
       Y_ON_TITLE,
       isHeuristicScoreScale,
       renderOpsReport,
-      showValidateNext,
       formatWeightSourceNote,
       formatFactorWeightsSection,
       formatFormulaTermsSection,
@@ -2938,14 +2914,6 @@ export function initPaper(ctx) {
               : "") +
             ` · 确认后才会改账`
         );
-        if (data.execution) {
-          const t0RulesEl = document.getElementById("paper-t0-rules");
-          if (t0RulesEl) {
-            t0RulesEl.innerHTML = renderExecutionRulesHtml(
-              normalizeExecutionView(data.execution, data.rules)
-            );
-          }
-        }
         renderPaperT0Preview(data);
       } catch (err) {
         setT0ActionBusy(

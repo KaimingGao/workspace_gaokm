@@ -621,6 +621,7 @@ def score_session_from_lake(
         pool,
         use_minute_tau=live_rebalance_wants_minute_tau(clock),
         tau_clock=clock,
+        paper=paper,
     )
 
 
@@ -1093,12 +1094,37 @@ def _write_head(items: Sequence[dict], codes: Sequence[str], pred: Any, fields: 
             it[key] = val
 
 
+def _stamp_fusion_on_items(
+    items: Sequence[dict],
+    paper: Optional[dict] = None,
+) -> None:
+    """用策略 rank_lots 的 w_oo / w_τc / w_co 写 y_oo_fuse。
+
+    缺 paper 时才落到默认 0.6/0.4。数据中心 fuse tip 读这些键，必须和调仓回测同一套权。
+    """
+    from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+    from core.signal.yhat_windows import stamp_window_scores
+
+    cfg = get_path_matrix_cfg(paper=paper)
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        stamped = stamp_window_scores(it, cfg)
+        for key in ("y_oo_fuse", "y_oo", "y_τc", "y_co"):
+            if stamped.get(key) is not None:
+                it[key] = stamped[key]
+        it["fusion_w_oo"] = cfg.get("fusion_w_oo")
+        it["fusion_w_oc"] = cfg.get("fusion_w_oc")
+        it["fusion_w_co"] = cfg.get("fusion_w_co")
+
+
 def _stamp_cube_head_scores(
     cube: Any,
     items: List[dict],
     *,
     score_codes: Optional[Collection[str]] = None,
     explain_codes: Optional[Collection[str]] = None,
+    paper: Optional[dict] = None,
 ) -> None:
     """用立方矩阵点积写 ŷ_oo / ŷ_τc / ŷ_co / fuse，并附因子拆解供股票表 tip。"""
     from core.signal.factors.sum_identity import (
@@ -1286,15 +1312,7 @@ def _stamp_cube_head_scores(
         logger.debug("cube horizon heads skipped", exc_info=True)
 
     try:
-        from core.paper.rebalance.path_matrix import get_path_matrix_cfg
-        from core.signal.yhat_windows import stamp_window_scores
-
-        cfg = get_path_matrix_cfg()
-        for it in items:
-            stamped = stamp_window_scores(it, cfg)
-            for key in ("y_oo_fuse", "y_oo", "y_τc", "y_co"):
-                if stamped.get(key) is not None:
-                    it[key] = stamped[key]
+        _stamp_fusion_on_items(items, paper)
     except Exception:  # noqa: BLE001
         logger.debug("cube fuse stamp failed", exc_info=True)
 
@@ -1305,6 +1323,7 @@ def _try_score_pool_from_cube(
     clock: str,
     cube_codes: Optional[Sequence[str]],
     score_codes: Optional[Collection[str]],
+    paper: Optional[dict] = None,
 ) -> Optional[Tuple[List[dict], List[dict]]]:
     """宇宙立方已在盘上时直接出分。没有立方返回 None，调用方再走 L1。"""
     from core.research.day_cube import load_day_cube, snap_clock_to_disk
@@ -1334,6 +1353,7 @@ def _try_score_pool_from_cube(
             scored_all,
             score_codes=score_codes,
             explain_codes=codes,
+            paper=paper,
         )
         want = [c for c in codes if c]
         want_set = set(want)
@@ -1363,6 +1383,7 @@ def _score_pool_from_lake(
     use_minute_tau: Optional[bool] = None,
     score_codes: Optional[Collection[str]] = None,
     tau_clock: Optional[str] = None,
+    paper: Optional[dict] = None,
 ) -> Tuple[List[dict], List[dict]]:
     """调仓出分。宇宙立方已落盘时用当日 ``X_raw``，不再按票打开 L1。
 
@@ -1388,6 +1409,7 @@ def _score_pool_from_lake(
         clock=clock,
         cube_codes=cube_codes,
         score_codes=score_codes,
+        paper=paper,
     )
     if from_cube is not None:
         return from_cube
@@ -1442,6 +1464,7 @@ def _score_pool_from_lake(
             rescore_fitted_cross_section(
                 scored, score_codes=score_codes, day_cube=None
             )
+            _stamp_fusion_on_items(scored, paper)
             return scored, rejected
         if cube is None:
             hint = "分钟线物化" if clock != "open" else "日线物化"
@@ -1458,6 +1481,7 @@ def _score_pool_from_lake(
                 }
             )
         rescore_fitted_cross_section(scored, score_codes=score_codes, day_cube=cube)
+    _stamp_fusion_on_items(scored, paper)
     return scored, rejected
 
 
@@ -1469,6 +1493,7 @@ def _score_pool(
     use_minute_tau: Optional[bool] = None,
     score_codes: Optional[Collection[str]] = None,
     tau_clock: Optional[str] = None,
+    paper: Optional[dict] = None,
 ) -> Tuple[List[dict], List[dict]]:
     """观察池并行 score_stock。默认仅本地缓存；``offline_only=False`` 可补远端。
 
@@ -1493,6 +1518,7 @@ def _score_pool(
             use_minute_tau=use_minute_tau,
             score_codes=score_codes,
             tau_clock=tau_clock,
+            paper=paper,
         )
 
     use_offline = bool(offline_only)
@@ -2160,6 +2186,7 @@ def simulate_watching_matrix_preview(
                 use_minute_tau=use_minute_tau,
                 score_codes=score_codes,
                 tau_clock=score_clock,
+                paper=paper,
             )
     else:
         scored, rejected = _score_pool(
@@ -2169,6 +2196,7 @@ def simulate_watching_matrix_preview(
             use_minute_tau=use_minute_tau,
             score_codes=score_codes,
             tau_clock=score_clock,
+            paper=paper,
         )
     rank_clock = _consumer_score_clock(use_minute_tau, score_clock)
     _attach_oo_rank_scores(

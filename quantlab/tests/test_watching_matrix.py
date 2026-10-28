@@ -1180,10 +1180,17 @@ class TestCubeHeadFormula(unittest.TestCase):
 
         tau_doc = {
             "model_role": "live",
+            "horizon_mode": "tau_to_close",
             "return_model": {
                 "coefficients": {"mom": 2.0},
                 "intercept": 0.0,
                 "active_features": ["mom"],
+                "horizon_mode": "tau_to_close",
+                "y_spec": {
+                    "formula": "close[T]/price[τ]-1",
+                    "unit": "pct",
+                    "tau": "open",
+                },
             },
         }
         items = [{"stock_code": "600000"}, {"stock_code": "600001"}]
@@ -1224,8 +1231,37 @@ class TestCubeHeadFormula(unittest.TestCase):
         self.assertAlmostEqual(kept["formula_terms_tau"]["total"], 2.0, places=6)
         self.assertEqual(kept["formula_terms_tau"]["terms"][0]["key"], "mom")
         self.assertAlmostEqual(kept["y_τc"], 2.0, places=6)
+        # 模型标签不写回立方行：y_spec 会改 fuse 公式，live 与手动执行共用这条出分。
+        self.assertNotIn("y_spec_tau", kept)
+        self.assertNotIn("horizon_mode", kept)
         self.assertNotIn("score_formula_terms", skipped)
         self.assertNotIn("formula_terms_tau", skipped)
+
+    def test_cube_fusion_uses_strategy_weights(self):
+        """立方出分的 fuse 权跟策略 rank_lots，不落到默认 0.6/0.4。"""
+        from core.paper.rebalance.watching_matrix import _stamp_fusion_on_items
+
+        paper = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {
+                            "fusion_w_oo": 0.2,
+                            "fusion_w_oc": 0.8,
+                            "fusion_w_co": 0.5,
+                        }
+                    }
+                }
+            }
+        }
+        items = [{"stock_code": "600000", "y_oo": 2.0, "y_τc": 1.0, "y_co": 0.0}, "skip"]
+        _stamp_fusion_on_items(items, paper)
+        row = items[0]
+        self.assertAlmostEqual(float(row["fusion_w_oo"]), 0.2)
+        self.assertAlmostEqual(float(row["fusion_w_oc"]), 0.8)
+        self.assertAlmostEqual(float(row["fusion_w_co"]), 0.5)
+        self.assertAlmostEqual(float(row["y_oo_fuse"]), 0.2 * 2.0 + 0.8 * 1.0, places=4)
+        self.assertNotIn("y_spec_tau", row)
 
     def test_tau_tip_keeps_small_pinned_factor(self):
         import numpy as np

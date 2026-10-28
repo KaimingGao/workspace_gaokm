@@ -1,8 +1,9 @@
 """滚动可预测性票档：按 Holdout 前半上涨正类 F1 合成 Score 定档。
 
 用**已落盘研究套** ŷ_oo（``return_score_model_research.json``）打分，与日线实现标签按票聚合。
-分档用的命中率与 F1 只看 Holdout **前半**。截面 Rank IC / IC / ICIR 与档内平均收益看 Holdout **整段**。
-有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：命中与 F1 看前半，截面指标看整段：
+表内命中率与 F1 只看 Holdout **前半**（定档）。各档标题的 Rank IC / IC / ICIR / ACC / F1
+看 Holdout **后半**（测试）。档内平均收益仍看 Holdout **整段**。
+有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：表内命中与 F1 看前半，标题测试指标看后半：
 - hit_rate / hit_rate_tau = 前半符号命中率（表「OO_ACC」/「TC_ACC」；不进 Score / A 档）
 - n_valid / n_valid_tau = 前半有效决策日（表内不展示）
 - Score = 0.5*OO_F1 + 0.5*TC_F1（``f1_pos`` / ``f1_pos_tau``；缺一侧按 0；两侧都缺 → 无 Score）
@@ -11,7 +12,8 @@
   可选 **OO_R+ > 0** / **TC_R+ > 0**（``require_oo_r_pos`` / ``require_tc_r_pos``，默认皆开；勾选的各自独立须过线）
   （无 ŷ_τc 研究套时 TC_F1 / TC_R+ 门槛不生效）
 - 过门槛者按 Score 降序取 top ``a_count``→A（未过门槛不占 A 名额），接着 ``b_count``→B，其余→C（默认 100 / 300）；无 Score→C
-- 分档后另报各档在整段 Holdout 上的日截面 Rank IC / IC / ICIR；
+- 分档后另报各档在 Holdout **后半**上的日截面 Rank IC / IC / ICIR，
+  以及同窗池化的符号命中 ACC 与上涨正类 F1（测试指标，不参与定档）；
   档内「平均收益率」= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」）
 - 每票 ``mean_y_pos`` = Holdout **前半** mean(y_oo | ŷ_oo>ε)（分档表「OO_R+」；勾选时进 A 档门槛）
 - 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = Holdout **前半** ŷ_oo 上涨正类
@@ -702,7 +704,10 @@ def split_holdout_half_dates(
     *,
     holdout_n: int,
 ) -> Dict[str, Any]:
-    """Holdout 测试日升序，取最近 ``holdout_n`` 日中的前半作分档窗。后半不进分档。"""
+    """Holdout 测试日升序，取最近 ``holdout_n`` 日。
+
+    前半（天数向下取整）作分档窗；其余为后半测试窗，不进分档。
+    """
     h = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
     block = sorted({str(d).strip()[:10] for d in (test_days or []) if str(d or "").strip()[:10]})
     if len(block) > h:
@@ -716,11 +721,14 @@ def split_holdout_half_dates(
             "test_days": block,
             "tier_dates": [],
             "tier_n": 0,
+            "eval_dates": [],
+            "eval_n": 0,
         }
     mid = max(1, len(block) // 2)
     if mid >= len(block):
         mid = len(block) - 1
     tier_dates = block[:mid]
+    eval_dates = block[mid:]
     return {
         "ok": True,
         "holdout_n": h,
@@ -728,8 +736,33 @@ def split_holdout_half_dates(
         "test_days": block,
         "tier_dates": tier_dates,
         "tier_n": len(tier_dates),
+        "eval_dates": eval_dates,
+        "eval_n": len(eval_dates),
         "as_of_tier_last": tier_dates[-1] if tier_dates else None,
     }
+
+
+def holdout_eval_dates(half: Optional[dict]) -> List[str]:
+    """Holdout 后半测试日。优先 ``eval_dates``；否则用测试日去掉分档前半。"""
+    src = half if isinstance(half, dict) else {}
+    explicit = [
+        str(d).strip()[:10]
+        for d in (src.get("eval_dates") or [])
+        if str(d or "").strip()[:10]
+    ]
+    if explicit:
+        return explicit
+    test_days = [
+        str(d).strip()[:10]
+        for d in (src.get("test_days") or [])
+        if str(d or "").strip()[:10]
+    ]
+    tier = {
+        str(d).strip()[:10]
+        for d in (src.get("tier_dates") or [])
+        if str(d or "").strip()[:10]
+    }
+    return [d for d in test_days if d not in tier]
 
 
 def _resolve_pool_codes(
@@ -818,7 +851,9 @@ def _absorb_holdout_row(
     yhat_eps: float,
     metric_set: Optional[set] = None,
 ) -> None:
-    """前半记命中、OO_R+ 与 OO_F1 混淆计数；``metric_set`` 记 ŷ/实现（截面指标，默认同前半）。
+    """前半记命中、OO_R+ 与 OO_F1 混淆计数；``metric_set`` 记整段 ŷ/实现。
+
+    标题 Rank IC / IC / ICIR / ACC / F1 在汇总时再切后半，不在这里切。
 
     OO_R+ = mean(y_oo | ŷ_oo>ε)；
     OO_F1 正类=上涨，与命中同死区；只在 ``tier_set``（Holdout 前半）累计。
@@ -893,7 +928,7 @@ def _absorb_tau_holdout_row(
     tier_set: Optional[set] = None,
     metric_set: Optional[set] = None,
 ) -> None:
-    """前半记 ŷ_τc 命中、TC_R+ / TC_F1；整段 Holdout 写入成对序列（日截面 IC 用）。"""
+    """前半记 ŷ_τc 命中、TC_R+ / TC_F1；成对序列记整段，标题测试指标汇总时再切后半。"""
     d = str(date or "")[:10]
     code_s = str(code or "").strip()
     if not d or not code_s:
@@ -1131,6 +1166,8 @@ def accumulate_holdout_oos_by_code(
     use_research_model: bool = True,
 ) -> Dict[str, Any]:
     """用研究套 ŷ_oo（缺则 Holdout 前现训）按票聚合。命中只记前半；ŷ/实现记整段。
+
+    成对序列留整段，供标题测试指标再切后半；本函数不算出标题指标。
 
     有研究套：日线窗收成 Holdout+余量（``_score_panel_lookback``），只物化测试日特征行。
     截面模型按决策日对全体票 z-score 后再打分，打完即丢。
@@ -1493,16 +1530,59 @@ def tier_code_set(
     return out
 
 
+def _window_cls_metrics(
+    preds: Sequence[float],
+    ys: Sequence[float],
+    *,
+    yhat_eps: float = _YHAT_EPS,
+) -> Dict[str, Any]:
+    """给定成对样本上的符号命中 ACC 与上涨正类 F1。
+
+    死区与表内前半口径相同（``|ŷ|<ε`` 或 ``|y|≈0`` 不计入）。日期窗由调用方切开。
+    """
+    hits = 0
+    n_valid = 0
+    tp = 0
+    fp = 0
+    fn = 0
+    for yh, ry in zip(preds or [], ys or []):
+        hit = _sign_hit_pair(yh, ry, yhat_eps=yhat_eps)
+        if not isinstance(hit, bool):
+            continue
+        n_valid += 1
+        if hit:
+            hits += 1
+        if not (math.isfinite(float(yh)) and math.isfinite(float(ry))):
+            continue
+        pred_up = float(yh) > 0.0
+        act_up = float(ry) > 0.0
+        if pred_up and act_up:
+            tp += 1
+        elif pred_up and not act_up:
+            fp += 1
+        elif (not pred_up) and act_up:
+            fn += 1
+    f1, _precision, _recall = _f1_pos_from_counts(tp, fp, fn)
+    return {
+        "acc": round(hits / n_valid, 4) if n_valid > 0 else None,
+        "f1": f1,
+        "n_cls": int(n_valid),
+    }
+
+
 def summarize_tier_window_cs(
     acc: Dict[str, Dict[str, Any]],
     *,
     codes: Optional[Sequence[str]] = None,
+    dates: Optional[Sequence[str]] = None,
     min_names: int = 5,
     head: str = HEAD_OO,
 ) -> Dict[str, Any]:
-    """Holdout 整段日截面：Rank IC = Spearman 均值，ICIR = Pearson IC 的 mean/std。
+    """日截面 Rank IC / IC / ICIR，以及同窗池化 ACC / F1。
 
-    ``head=oo`` 用 ŷ_oo 成对；``head=tau`` 用 ŷ_τc 成对。不足 3 个有效日则 ICIR 为空。
+    ``head=oo`` 用 ŷ_oo 成对；``head=tau`` 用 ŷ_τc 成对。
+    ``dates`` 给定时只留这些决策日（标题测试指标传 Holdout 后半）；缺省用成对序列里的全部日期。
+    不足 3 个有效日则 ICIR 为空。ACC / F1 不看截面最少票数，有有效日即出。
     """
     from core.research.daily_cs_ic import summarize_daily_cs_ic
 
@@ -1514,6 +1594,9 @@ def summarize_tier_window_cs(
     allow = None
     if codes is not None:
         allow = {str(c).strip() for c in codes if str(c or "").strip()}
+    allow_dates = None
+    if dates is not None:
+        allow_dates = {str(d).strip()[:10] for d in dates if str(d or "").strip()[:10]}
     preds: List[float] = []
     ys: List[float] = []
     metas: List[dict] = []
@@ -1528,16 +1611,23 @@ def summarize_tier_window_cs(
         ds = list(slot.get(ds_key) or [])
         n = min(len(yh), len(ry), len(ds))
         for i in range(n):
+            day = str(ds[i])[:10]
+            if allow_dates is not None and day not in allow_dates:
+                continue
             preds.append(float(yh[i]))
             ys.append(float(ry[i]))
-            metas.append({"date": str(ds[i])[:10], "code": code_s})
+            metas.append({"date": day, "code": code_s})
     pack = summarize_daily_cs_ic(preds, ys, metas, min_names=min_names)
+    cls = _window_cls_metrics(preds, ys)
     return {
         "cs_rank_ic": pack.get("cs_rank_ic"),
         "cs_icir": pack.get("cs_icir"),
         "cs_ic": pack.get("cs_ic"),
         "cs_day_count": pack.get("cs_day_count"),
         "cs_min_names": pack.get("cs_min_names"),
+        "acc": cls.get("acc"),
+        "f1": cls.get("f1"),
+        "n_cls": cls.get("n_cls"),
         "head": "tau" if use_tau else "oo",
     }
 
@@ -1818,7 +1908,7 @@ def build_holdout_half_tiers(
     tau_a_hit: Optional[float] = None,
     **_legacy: Any,
 ) -> Dict[str, Any]:
-    """研究枢纽协议：研究套 ŷ_oo 按票分档。F1/命中看 Holdout 前半；截面指标与等权买持看整段。
+    """研究枢纽协议：研究套 ŷ_oo 按票分档。F1/命中看 Holdout 前半；标题测试指标看后半；等权买持看整段。
 
     Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 研究套则 Score = OO_F1；缺一侧按 0）。
     A 档另过 F1 门槛（``a_f1`` / ``tau_a_f1``，默认 20% / 20%）；
@@ -1912,9 +2002,10 @@ def build_holdout_half_tiers(
     n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
     stock_bars = packed.get("stock_bars") if isinstance(packed.get("stock_bars"), dict) else {}
     metric_dates = list(half.get("test_days") or []) or list(tier_dates)
+    eval_dates = holdout_eval_dates(half)
     attach_code_holdout_rets(rows, stock_bars, dates=metric_dates)
-    cs_pool = summarize_tier_window_cs(acc, head=HEAD_OO)
-    cs_pool_tau = summarize_tier_window_cs(acc, head=HEAD_TAU)
+    cs_pool = summarize_tier_window_cs(acc, dates=eval_dates, head=HEAD_OO)
+    cs_pool_tau = summarize_tier_window_cs(acc, dates=eval_dates, head=HEAD_TAU)
     cs_by_tier: Dict[str, Dict[str, Any]] = {}
     for tier in ("A", "B", "C"):
         tier_codes = [
@@ -1922,7 +2013,9 @@ def build_holdout_half_tiers(
             for r in rows
             if str(r.get("tier") or "") == tier
         ]
-        pack = summarize_tier_window_cs(acc, codes=tier_codes, head=HEAD_OO)
+        pack = summarize_tier_window_cs(
+            acc, codes=tier_codes, dates=eval_dates, head=HEAD_OO
+        )
         pack.update(
             summarize_tier_ew_hold(
                 stock_bars,
@@ -1939,6 +2032,7 @@ def build_holdout_half_tiers(
                 for r in rows
                 if str(r.get("tier") or "") == tier
             ],
+            dates=eval_dates,
             head=HEAD_TAU,
         )
         for tier in ("A", "B", "C")
@@ -2003,6 +2097,7 @@ def build_holdout_half_tiers(
         "model_meta": packed.get("model_meta"),
         "tau_meta": tau_meta,
         "counts": counts,
+        "title_metric_window": "holdout_second_half",
         "cs_rank_ic": cs_pool.get("cs_rank_ic"),
         "cs_icir": cs_pool.get("cs_icir"),
         "cs_ic": cs_pool.get("cs_ic"),
@@ -2025,7 +2120,7 @@ def build_holdout_half_tiers(
         },
         "note": (
             f"{src_note} · Holdout {int(half.get('holdout_n') or holdout_n or DEFAULT_HOLDOUT_N)} 日前半 {tier_n} 日分档"
-            f" · 截面指标与等权买持看整段 {int(half.get('n_test') or 0)} 日 · 面板 {panel_lb} 日"
+            f" · 标题测试指标看后半 {len(eval_dates)} 日 · 等权买持看整段 {int(half.get('n_test') or 0)} 日 · 面板 {panel_lb} 日"
             + (
                 f"（短窗；请求训练窗 {lookback_req}）"
                 if model_source == "oo_research_model" and lookback_req > panel_lb

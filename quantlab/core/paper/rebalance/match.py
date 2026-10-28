@@ -29,18 +29,50 @@ def quote_change_pct(quote: Optional[dict]) -> Optional[float]:
         return None
 
 
+def _report_session_day() -> str:
+    try:
+        from core.paper.rebalance.auto_worker import resolve_session
+
+        return str(resolve_session() or "")[:10]
+    except Exception:  # noqa: BLE001
+        logger.debug("rebalance report session failed", exc_info=True)
+        return ""
+
+
+def _day_open_from_quote(quote: Optional[dict], session: str) -> Optional[float]:
+    """行情今开。带 date 的昨 K 合成 open 丢掉；无 date 的实时 open（含「元」）保留。"""
+    if not isinstance(quote, dict) or not quote:
+        return None
+    day = str(session or "")[:10]
+    if len(day) < 10:
+        return None
+    try:
+        from core.signal.session_pit import resolve_open_t
+
+        opx = (resolve_open_t(quote, [], trade_day=day) or {}).get("open")
+        n = float(opx)
+    except (TypeError, ValueError):
+        return None
+    except Exception:  # noqa: BLE001
+        logger.debug("quote day_open failed", exc_info=True)
+        return None
+    return round(n, 4) if n > 0 else None
+
+
 def attach_change_pct_to_rebalance_report(
     report: List[dict],
     *,
     summary: Optional[dict] = None,
 ) -> List[dict]:
-    """给调仓报告行补 ``change_pct`` / ``price`` / ``prev_close``（相对昨收）。
+    """给调仓报告行补 ``change_pct`` / ``price`` / ``prev_close`` / ``day_open``。
 
     优先用 mark_to_market 持仓行；清仓/未入仓票再批量补行情。
+    今开来自行情（须为会话日）；缺再读今日日 K。不改已有 ``day_open``，不改 fuse。
     """
     rows = list(report or [])
     if not rows:
         return rows
+    session = _report_session_day()
     fields_by: Dict[str, dict] = {}
 
     def _merge(code: str, **kw) -> None:
@@ -88,6 +120,7 @@ def attach_change_pct_to_rebalance_report(
                 change_pct=chg,
                 price=price,
                 prev_close=prev,
+                day_open=_day_open_from_quote(q, session),
             )
 
     for r in rows:
@@ -108,6 +141,14 @@ def attach_change_pct_to_rebalance_report(
                 r["prev_close"] = round(float(f["prev_close"]), 4)
             except (TypeError, ValueError):
                 r["prev_close"] = f.get("prev_close")
+        if r.get("day_open") in (None, "") and f.get("day_open") is not None:
+            r["day_open"] = f.get("day_open")
+    try:
+        from core.paper.rebalance.desk import attach_day_open_to_desk_rows
+
+        attach_day_open_to_desk_rows(rows, session=session)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach day_open on rebalance report failed", exc_info=True)
     return rows
 
 

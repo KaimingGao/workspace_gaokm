@@ -812,6 +812,74 @@ class TestRebalanceDesk(unittest.TestCase):
             attach_day_open_to_desk_rows(rows, session="2026-09-21")
         self.assertIsNone(rows[0].get("day_open"))
 
+    def test_rebalance_report_stamps_formatted_quote_open(self):
+        from core.paper.rebalance.match import attach_change_pct_to_rebalance_report
+
+        rows = [{"stock_code": "000422", "y_oo_fuse": 0.41}]
+        with patch(
+            "core.paper.rebalance.auto_worker.resolve_session",
+            return_value="2026-10-28",
+        ), patch(
+            "core.paper.rebalance.match._batch_query_quotes",
+            return_value={
+                "000422": {
+                    "success": True,
+                    "price_raw": 10.14,
+                    "prev_close": 10.42,
+                    "change_raw": -2.69,
+                    "open": "10.20元",
+                }
+            },
+        ) as bq:
+            attach_change_pct_to_rebalance_report(rows, summary={})
+            bq.assert_called_once()
+        self.assertAlmostEqual(float(rows[0]["day_open"]), 10.20)
+        self.assertAlmostEqual(float(rows[0]["prev_close"]), 10.42)
+        self.assertAlmostEqual(float(rows[0]["change_pct"]), -2.69)
+        self.assertAlmostEqual(float(rows[0]["y_oo_fuse"]), 0.41)
+
+    def test_rebalance_report_keeps_existing_day_open(self):
+        from core.paper.rebalance.match import attach_change_pct_to_rebalance_report
+
+        rows = [{"stock_code": "000422", "day_open": 9.5}]
+        with patch(
+            "core.paper.rebalance.auto_worker.resolve_session",
+            return_value="2026-10-28",
+        ), patch(
+            "core.paper.rebalance.match._batch_query_quotes",
+            return_value={"000422": {"open": "10.20元", "prev_close": 10.42}},
+        ):
+            attach_change_pct_to_rebalance_report(rows, summary={})
+        self.assertAlmostEqual(float(rows[0]["day_open"]), 9.5)
+
+    def test_rebalance_report_open_rejects_yesterday_quote(self):
+        from core.paper.rebalance.match import attach_change_pct_to_rebalance_report
+
+        rows = [{"stock_code": "000422"}]
+        with patch(
+            "core.paper.rebalance.auto_worker.resolve_session",
+            return_value="2026-10-28",
+        ), patch(
+            "core.paper.rebalance.match._batch_query_quotes",
+            return_value={
+                "000422": {
+                    "date": "2026-10-27",
+                    "open": "9.00元",
+                    "prev_close": 10.42,
+                    "change_raw": -2.69,
+                    "price_raw": 10.14,
+                }
+            },
+        ), patch(
+            "core.data.facade.get_bars",
+            return_value={
+                "bars": [{"date": "2026-10-28", "open": 10.2, "close": 10.14}]
+            },
+        ):
+            attach_change_pct_to_rebalance_report(rows, summary={})
+        self.assertAlmostEqual(float(rows[0]["day_open"]), 10.2)
+        self.assertAlmostEqual(float(rows[0]["prev_close"]), 10.42)
+
     def test_holdings_placeholder_watch(self):
         from core.paper.rebalance.desk import desk_rows_from_holdings
 

@@ -299,9 +299,9 @@ def quant_research_universe_predictability_tiers(
         description="A 档另须 TC_R+>0（Holdout 前半 mean(y_τc|ŷ_τc>ε)；有 ŷ_τc 研究套时生效；默认开）",
     ),
 ) -> Dict[str, Any]:
-    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。F1/命中看 Holdout 前半；指标与等权买持看整段。
+    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。F1/命中看 Holdout 前半；标题测试指标看后半；等权买持看整段。
 
-    holdout: ŷ_oo 卡片 Holdout 交易日数（分档窗=升序前半；指标窗=整段）。
+    holdout: ŷ_oo 卡片 Holdout 交易日数（分档窗=升序前半；标题指标窗=后半）。
     定档：Score=0.5*OO_F1+0.5*TC_F1（无 τc 研究套则 Score=OO_F1；缺一侧按 0）。
     A 档另过 a_f1 / tau_a_f1（默认 20% / 20%）；可勾选 OO_R+>0 / TC_R+>0（各独立；无 τc 研究套时 TC 不生效）；未过门槛不占 A 名额。
     过门槛者 top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」与 F1 门槛）。
