@@ -511,6 +511,11 @@ class ConsumerCoverageTest(unittest.TestCase):
         with patch(
             "core.research.day_cube.day_cube_status", return_value="miss"
         ), patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), patch(
+            "core.paper.rebalance.watching_matrix._try_score_pool_from_open_pit",
+            return_value=None,
+        ), patch(
             "core.paper.rebalance.watching_matrix._watching_codes",
             return_value=(["000001", "000002"], {}),
         ), materialized_consumer():
@@ -525,13 +530,24 @@ class ConsumerCoverageTest(unittest.TestCase):
         from core.paper.rebalance.watching_matrix import _score_pool
         from core.research.materialize.consumer import MaterializeRequired, materialized_consumer
 
-        with patch("core.research.day_cube.day_cube_status", return_value="miss"), materialized_consumer():
+        with patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-10-28"
+        ), patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), patch(
+            "core.paper.rebalance.watching_matrix._try_score_pool_from_open_pit",
+            return_value=None,
+        ), materialized_consumer():
             with self.assertRaises(MaterializeRequired) as ctx:
-                _score_pool(["000001", "000002"], offline_only=True, use_minute_tau=False)
+                _score_pool(
+                    ["000001", "000002"],
+                    offline_only=True,
+                    use_minute_tau=False,
+                    refuse_day_fallback=True,
+                )
         payload = ctx.exception.to_dict()
-        self.assertEqual(payload.get("error_code"), "materialize_required")
-        self.assertIn("日线物化", str(payload.get("error") or ""))
-        self.assertIn("日线物化", str(payload.get("hint") or ""))
+        self.assertEqual(payload.get("error_code"), "open_pit_required")
+        self.assertIn("禁止", str(payload.get("error") or ""))
 
     def test_minute_clock_maps_to_grid(self) -> None:
         from core.paper.rebalance.watching_matrix import _consumer_score_clock
@@ -566,6 +582,11 @@ class ConsumerCoverageTest(unittest.TestCase):
         ), patch(
             "core.market.calendar.prev_trading_day", return_value="2026-10-19"
         ), patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), patch(
+            "core.paper.rebalance.watching_matrix._try_score_pool_from_open_pit",
+            return_value=None,
+        ), patch(
             "core.research.materialize.coverage.assess_coverage", side_effect=_fake_assess
         ), patch(
             "core.research.materialize.coverage.read_cube_codes", return_value=[]
@@ -583,7 +604,7 @@ class ConsumerCoverageTest(unittest.TestCase):
         )
 
     def test_score_pool_from_lake_falls_back_to_prev_day(self) -> None:
-        """盘中周期日=今日但 open 湖未齐时，回退上一交易日出分。"""
+        """仅浏览：open-pit 失败后可读昨收立方（带 fallback）；落账路径另测拒单。"""
         from unittest.mock import patch
 
         from core.paper.rebalance.watching_matrix import _score_pool_from_lake
@@ -610,6 +631,11 @@ class ConsumerCoverageTest(unittest.TestCase):
         ), patch(
             "core.market.calendar.prev_trading_day", return_value="2026-10-20"
         ), patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), patch(
+            "core.paper.rebalance.watching_matrix._try_score_pool_from_open_pit",
+            return_value=None,
+        ), patch(
             "core.research.materialize.coverage.assess_coverage", side_effect=_fake_assess
         ), patch(
             "core.research.materialize.coverage.read_cube_codes", return_value=["a", "b"]
@@ -623,10 +649,11 @@ class ConsumerCoverageTest(unittest.TestCase):
         ), patch(
             "core.signal.cross_section_rescore.rescore_fitted_cross_section"
         ):
-            scored, rejected = _score_pool_from_lake(
+            scored, rejected, _cube = _score_pool_from_lake(
                 ["300750", "002594"],
                 use_minute_tau=False,
                 tau_clock="11:00",
+                refuse_day_fallback=False,
             )
         self.assertEqual(rejected, [])
         self.assertEqual(len(scored), 2)
@@ -634,6 +661,32 @@ class ConsumerCoverageTest(unittest.TestCase):
         self.assertTrue(
             all(it.get("lake_score_fallback_from") == "2026-10-21" for it in scored)
         )
+
+    def test_score_pool_from_lake_refuse_fallback_blocks_commit(self) -> None:
+        """落账路径：会话日立方与 open-pit 皆缺 → 禁止回退昨日。"""
+        from unittest.mock import patch
+
+        from core.paper.rebalance.watching_matrix import _score_pool_from_lake
+        from core.research.materialize.consumer import MaterializeRequired
+
+        with patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-10-21"
+        ), patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), patch(
+            "core.paper.rebalance.watching_matrix._try_score_pool_from_open_pit",
+            return_value=None,
+        ), patch(
+            "core.research.materialize.coverage.read_cube_codes", return_value=["a", "b"]
+        ):
+            with self.assertRaises(MaterializeRequired) as ctx:
+                _score_pool_from_lake(
+                    ["300750", "002594"],
+                    use_minute_tau=False,
+                    tau_clock="09:30",
+                    refuse_day_fallback=True,
+                )
+        self.assertEqual(ctx.exception.to_dict().get("error_code"), "open_pit_required")
 
     def test_score_pool_from_lake_rescues_l2_universe_gap(self) -> None:
         """L1 已齐、立方因观察池变缺时，用池内 μ/σ 出分，不整表空白。"""
@@ -692,6 +745,11 @@ class ConsumerCoverageTest(unittest.TestCase):
         ), patch(
             "core.market.calendar.prev_trading_day", return_value="2026-10-21"
         ), patch(
+            "core.research.day_cube.load_day_cube", return_value=None
+        ), patch(
+            "core.paper.rebalance.watching_matrix._try_score_pool_from_open_pit",
+            return_value=None,
+        ), patch(
             "core.research.materialize.coverage.assess_coverage", side_effect=_fake_assess
         ), patch(
             "core.research.materialize.coverage.read_cube_codes", return_value=["a", "b"]
@@ -706,10 +764,11 @@ class ConsumerCoverageTest(unittest.TestCase):
             "core.signal.cross_section_rescore.rescore_fitted_cross_section",
             side_effect=_rescore,
         ):
-            scored, rejected = _score_pool_from_lake(
+            scored, rejected, _cube = _score_pool_from_lake(
                 ["300750", "002594"],
                 use_minute_tau=False,
                 tau_clock="09:30",
+                refuse_day_fallback=False,
             )
         self.assertEqual(rejected, [])
         self.assertEqual(len(scored), 2)
@@ -753,7 +812,7 @@ class ConsumerCoverageTest(unittest.TestCase):
             seen["clock"] = clock
             return _Cube() if day == "2026-10-23" else None
 
-        def _stamp(cube, items, score_codes=None):  # noqa: ANN001
+        def _stamp(cube, items, score_codes=None, **kwargs):  # noqa: ANN001
             seen["n"] = len(items)
             seen["oo"] = set((items[0].get("sub_scores") or {}))
             seen["tau"] = set((items[0].get("features_tau") or {}))
@@ -782,7 +841,7 @@ class ConsumerCoverageTest(unittest.TestCase):
             "core.paper.rebalance.watching_matrix._stamp_cube_head_scores",
             side_effect=_stamp,
         ):
-            scored, rejected = _score_pool_from_lake(
+            scored, rejected, _cube = _score_pool_from_lake(
                 ["300750", "002594"],
                 use_minute_tau=True,
                 tau_clock="12:25",

@@ -1,6 +1,9 @@
 """观察池实时算分 + rank_lots 预演/落账。
 
 手动路径：dry_run 预演 → 确认后同算法落账（改 paper 持仓/现金）。
+
+开盘钟消费路径：会话日 open 立方 → 否则 open-pit 今开截面；
+落账 ``refuse_day_fallback``，禁止用昨日立方下单。见 ``open_pit_score``。
 """
 
 from __future__ import annotations
@@ -116,7 +119,10 @@ def _resolve_rank_day_cube(
     day_cube: Any = None,
     clock: str = "open",
 ) -> Any:
-    """复用已建 Cube；否则按行上湖日尝试 ensure（与主头同全池键）。"""
+    """复用已建 Cube；否则按行上湖日 load（内存/盘），再 ensure。
+
+    优先显式 ``day_cube``（open-pit / 会话日立方），避免只靠 remember 键对齐。
+    """
     if day_cube is not None:
         return day_cube
     rows = [it for it in (items or []) if isinstance(it, dict)]
@@ -124,6 +130,7 @@ def _resolve_rank_day_cube(
         return None
     try:
         from core.research.batch_score import ensure_day_cube_for_items
+        from core.research.day_cube import load_day_cube
         from core.research.materialize.coverage import read_cube_codes
 
         day = _live_rank_asof(rows)
@@ -132,10 +139,20 @@ def _resolve_rank_day_cube(
             uh = read_cube_codes() or None
         except Exception:  # noqa: BLE001
             uh = None
+        lookup = list(uh) if uh else [
+            str(it.get("stock_code") or "").strip()
+            for it in rows
+            if str(it.get("stock_code") or "").strip()
+        ]
+        clk = str(clock or "open")
+        if len(day) >= 10 and len(lookup) >= 2:
+            hit = load_day_cube(day, lookup, clock=clk)
+            if hit is not None:
+                return hit
         return ensure_day_cube_for_items(
             rows,
             date=day,
-            clock=str(clock or "open"),
+            clock=clk,
             persist=False,
             universe_codes=uh,
         )
@@ -348,8 +365,8 @@ def _live_rank_asof(items: Optional[Sequence[dict]] = None) -> str:
 def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
     """用 Feature Lake 的 oo_rank / tc_rank 行编观察池名次，写回 focus。
 
-    日界与湖出分一致（``lake_score_day`` / 周期日候选）。只补 focus 上还没有的键。
-    特征与模型对不上、或湖覆盖不够，则跳过该头。
+    只用行上 / 周期日的**会话日**湖行；会话日不够则留空，禁止静默回退昨收名次。
+    只补 focus 上还没有的键。特征与模型对不上则跳过该头。
     """
     from core.research.feature_lake import load_day_rows
     from core.research.lake_bridge import FAMILY_OO_RANK, FAMILY_TC_RANK
@@ -364,19 +381,15 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
     codes, _meta = _watching_codes(include_held=held)
     if len(codes) < 2:
         return
-    cycle = _live_rank_asof(focus)
-    oo_rows: Dict[str, Any] = {}
-    tc_rows: Dict[str, Any] = {}
-    day = ""
-    for cand in _lake_score_day_candidates(cycle) or [cycle]:
-        oo_try = load_day_rows(FAMILY_OO_RANK, codes, cand) or {}
-        tc_try = load_day_rows(FAMILY_TC_RANK, codes, cand) or {}
-        if _lake_cover_ok(len(oo_try), len(codes)) or _lake_cover_ok(
-            len(tc_try), len(codes)
-        ):
-            oo_rows, tc_rows, day = oo_try, tc_try, cand
-            break
-    if not day:
+    day = _live_rank_asof(focus)
+    if len(day) < 10:
+        return
+    oo_rows = load_day_rows(FAMILY_OO_RANK, codes, day) or {}
+    tc_rows = load_day_rows(FAMILY_TC_RANK, codes, day) or {}
+    if not (
+        _lake_cover_ok(len(oo_rows), len(codes))
+        or _lake_cover_ok(len(tc_rows), len(codes))
+    ):
         return
     oo_ok = _lake_cover_ok(len(oo_rows), len(codes))
     tc_ok = _lake_cover_ok(len(tc_rows), len(codes))
@@ -448,21 +461,14 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
 def stamp_live_ranks(focus: Sequence[dict]) -> None:
     """给已打分的持仓行补 oo_rank / τc_rank。
 
-    先用同周期日调仓快照（与预演/落账同一截面）。缺的名字再试 Feature Lake。
-    两侧都没有则留空，表上显示 —。
+    先用**同一会话日**调仓快照；再试同一日 Feature Lake。
+    禁止回退到昨日快照/湖行（避免展示错日名次）。两侧都没有则留空（—）。
     """
     rows = [it for it in focus or [] if isinstance(it, dict)]
     if not rows:
         return
     asof = _live_rank_asof(rows)
-    snap = load_live_rank_snapshot(as_of=asof)
-    if not snap:
-        for cand in _lake_score_day_candidates(asof):
-            if cand == asof:
-                continue
-            snap = load_live_rank_snapshot(as_of=cand)
-            if snap:
-                break
+    snap = load_live_rank_snapshot(as_of=asof) if len(asof) >= 10 else None
     if snap:
         for it in rows:
             src = snap.get(str(it.get("stock_code") or "").strip())
@@ -617,12 +623,13 @@ def score_session_from_lake(
         clock = ""
     if len(clock) < 4:
         clock = datetime.now().strftime("%H:%M")
-    return _score_pool_from_lake(
+    scored, rejected, _cube = _score_pool_from_lake(
         pool,
         use_minute_tau=live_rebalance_wants_minute_tau(clock),
         tau_clock=clock,
         paper=paper,
     )
+    return scored, rejected
 
 
 def _consumer_score_clock(use_minute_tau: Optional[bool], tau_clock: Optional[str]) -> str:
@@ -636,7 +643,10 @@ def _consumer_score_clock(use_minute_tau: Optional[bool], tau_clock: Optional[st
 
 
 def _lake_score_day_candidates(cycle_day: str) -> List[str]:
-    """出分日候选：周期日 → 完整日线 as-of → 上一交易日（去重保序）。"""
+    """浏览 / L1 回退出分日候选（落账开盘钟不走这里）。
+
+    周期日 → 完整日线 as-of → 上一交易日（去重保序）。
+    """
     out: List[str] = []
     seen = set()
 
@@ -688,8 +698,9 @@ def _resolve_lake_score_day(
     clock: str,
     cube_codes: Optional[Sequence[str]] = None,
 ) -> Tuple[str, Dict[str, Any], Optional[str]]:
-    """选有 L1/L2 覆盖的出分日；全缺则返回最后一次覆盖报告。
+    """浏览路径：选有 L1/L2 覆盖的出分日（可回退昨收并带 fallback 标记）。
 
+    落账在会话日立方 / open-pit 失败后直接 ``MaterializeRequired``，不调用本函数。
     Returns:
         (day, coverage_report, fallback_from_cycle_or_None)
     """
@@ -736,7 +747,7 @@ def _resolve_lake_score_day(
                 )
             elif fallback_from:
                 logger.info(
-                    "lake score day fallback cycle=%s -> %s (open L1/L2 未齐)",
+                    "lake score browse fallback cycle=%s -> %s",
                     cycle_day,
                     day,
                 )
@@ -1317,6 +1328,77 @@ def _stamp_cube_head_scores(
         logger.debug("cube fuse stamp failed", exc_info=True)
 
 
+def _scored_has_lake_fallback(scored: Sequence[dict]) -> bool:
+    for it in scored or []:
+        if not isinstance(it, dict):
+            continue
+        fb = str(it.get("lake_score_fallback_from") or "")[:10]
+        if len(fb) >= 10:
+            return True
+    return False
+
+
+def _try_score_pool_from_cube_on_day(
+    codes: Sequence[str],
+    *,
+    day: str,
+    clock: str,
+    cube_codes: Optional[Sequence[str]],
+    score_codes: Optional[Collection[str]],
+    paper: Optional[dict] = None,
+    fallback_from: Optional[str] = None,
+    clock_use: Optional[str] = None,
+) -> Optional[Tuple[List[dict], List[dict], Any]]:
+    """指定日官方立方出分；没有立方返回 None。返回 ``(scored, rejected, cube)``。"""
+    from core.research.day_cube import load_day_cube
+
+    day_s = str(day or "")[:10]
+    if len(day_s) < 10:
+        return None
+    lookup = [str(c or "").strip() for c in (cube_codes or []) if str(c or "").strip()]
+    if len(lookup) < 2:
+        lookup = [str(c or "").strip() for c in codes if str(c or "").strip()]
+    if len(lookup) < 2:
+        return None
+    clk = str(clock_use or clock or "open")
+    cube = load_day_cube(day_s, lookup, clock=clk)
+    if cube is None:
+        return None
+    scored_all = _items_from_day_cube(cube, day_s)
+    if len(scored_all) < 2:
+        return None
+    fb = str(fallback_from or "")[:10]
+    if len(fb) >= 10 and fb != day_s:
+        for it in scored_all:
+            it["lake_score_fallback_from"] = fb
+    _stamp_cube_head_scores(
+        cube,
+        scored_all,
+        score_codes=score_codes,
+        explain_codes=codes,
+        paper=paper,
+    )
+    want = [c for c in codes if c]
+    want_set = set(want)
+    scored = (
+        [it for it in scored_all if it.get("stock_code") in want_set]
+        if want_set
+        else list(scored_all)
+    )
+    have = {str(it.get("stock_code") or "") for it in scored}
+    rejected = [
+        {"stock_code": c, "reason": f"L2 缺 {day_s}"} for c in want if c not in have
+    ]
+    logger.info(
+        "lake score from cube day=%s clock=%s n=%s rejected=%s",
+        day_s,
+        clk,
+        len(scored),
+        len(rejected),
+    )
+    return scored, rejected, cube
+
+
 def _try_score_pool_from_cube(
     codes: Sequence[str],
     *,
@@ -1324,9 +1406,11 @@ def _try_score_pool_from_cube(
     cube_codes: Optional[Sequence[str]],
     score_codes: Optional[Collection[str]],
     paper: Optional[dict] = None,
-) -> Optional[Tuple[List[dict], List[dict]]]:
-    """宇宙立方已在盘上时直接出分。没有立方返回 None，调用方再走 L1。"""
-    from core.research.day_cube import load_day_cube, snap_clock_to_disk
+    cycle_day_only: bool = False,
+    skip_days: Optional[Collection[str]] = None,
+) -> Optional[Tuple[List[dict], List[dict], Any]]:
+    """宇宙立方已在盘上时直接出分。没有立方返回 None，调用方再走 L1 / open-pit。"""
+    from core.research.day_cube import snap_clock_to_disk
     from core.signal.session_pit import oo_cycle_date
 
     lookup = [str(c or "").strip() for c in (cube_codes or []) if str(c or "").strip()]
@@ -1338,43 +1422,49 @@ def _try_score_pool_from_cube(
     if clock_use != clock:
         logger.info("lake score clock %s -> %s (latest cube)", clock, clock_use)
     cycle_day = str(oo_cycle_date() or "")[:10]
-    for day in _lake_score_day_candidates(cycle_day):
-        cube = load_day_cube(day, lookup, clock=clock_use)
-        if cube is None:
+    if cycle_day_only:
+        days = [cycle_day] if cycle_day else []
+    else:
+        days = _lake_score_day_candidates(cycle_day)
+    skip = {str(d or "")[:10] for d in (skip_days or []) if str(d or "").strip()}
+    for day in days:
+        if day in skip:
             continue
-        scored_all = _items_from_day_cube(cube, day)
-        if len(scored_all) < 2:
-            continue
-        if cycle_day and day != cycle_day:
-            for it in scored_all:
-                it["lake_score_fallback_from"] = cycle_day
-        _stamp_cube_head_scores(
-            cube,
-            scored_all,
+        fb = cycle_day if cycle_day and day != cycle_day else None
+        hit = _try_score_pool_from_cube_on_day(
+            codes,
+            day=day,
+            clock=clock,
+            cube_codes=lookup,
             score_codes=score_codes,
-            explain_codes=codes,
             paper=paper,
+            fallback_from=fb,
+            clock_use=clock_use,
         )
-        want = [c for c in codes if c]
-        want_set = set(want)
-        scored = (
-            [it for it in scored_all if it.get("stock_code") in want_set]
-            if want_set
-            else list(scored_all)
-        )
-        have = {str(it.get("stock_code") or "") for it in scored}
-        rejected = [
-            {"stock_code": c, "reason": f"L2 缺 {day}"} for c in want if c not in have
-        ]
-        logger.info(
-            "lake score from cube day=%s clock=%s n=%s rejected=%s",
-            day,
-            clock_use,
-            len(scored),
-            len(rejected),
-        )
-        return scored, rejected
+        if hit is not None:
+            return hit
     return None
+
+
+def _try_score_pool_from_open_pit(
+    codes: Sequence[str],
+    *,
+    cycle_day: str,
+    cube_codes: Optional[Sequence[str]],
+    score_codes: Optional[Collection[str]],
+    paper: Optional[dict] = None,
+) -> Optional[Tuple[List[dict], List[dict], Any]]:
+    """会话日官方 open 立方缺失：昨收日线 + 行情今开 → 内存截面。"""
+    from core.paper.rebalance.open_pit_score import score_open_pit_pool
+
+    return score_open_pit_pool(
+        codes,
+        cycle_day=cycle_day,
+        cube_codes=cube_codes,
+        score_codes=score_codes,
+        paper=paper,
+        stamp_heads=_stamp_cube_head_scores,
+    )
 
 
 def _score_pool_from_lake(
@@ -1384,14 +1474,15 @@ def _score_pool_from_lake(
     score_codes: Optional[Collection[str]] = None,
     tau_clock: Optional[str] = None,
     paper: Optional[dict] = None,
-) -> Tuple[List[dict], List[dict]]:
+    refuse_day_fallback: bool = False,
+) -> Tuple[List[dict], List[dict], Any]:
     """调仓出分。宇宙立方已落盘时用当日 ``X_raw``，不再按票打开 L1。
 
-    没有立方时才读 ŷ_oo 周期日 L1；截面立方在则用其 μ/σ，只缺立方时用池内 μ/σ。
+    开盘钟且会话日官方立方缺失时，优先 open-pit（昨收日线 + 行情今开）。
+    ``refuse_day_fallback=True``（live 落账）禁止昨日立方 / L1 回退出分。
 
-    日界与 ``oo_cycle_date`` 对齐。盘中日线/open 湖常仍停在上一交易日
-    （``expected_latest_daily_bar_date`` 15:05 前不滚今日），此时回退读昨收
-    周期日。观察池变更导致 open 立方哈希对不上时，不把数据中心 ŷ 列整表清空。
+    研究浏览仍可在 pit 失败后回退昨收周期日。
+    第三项为供 rank 头复用的 DayCube（可为 None）。
     """
     from core.research.batch_score import ensure_day_cube_for_items
     from core.research.feature_lake import load_day_rows
@@ -1400,16 +1491,68 @@ def _score_pool_from_lake(
     from core.research.materialize.consumer import MaterializeRequired
     from core.research.materialize.coverage import read_cube_codes
     from core.signal.cross_section_rescore import rescore_fitted_cross_section
+    from core.signal.session_pit import oo_cycle_date
 
     codes = [str(c or "").strip() for c in pool if str(c or "").strip()]
     clock = _consumer_score_clock(use_minute_tau, tau_clock)
     cube_codes = read_cube_codes()
+    cycle_day = str(oo_cycle_date() or "")[:10]
+
+    # 1) 会话日官方立方
+    if cycle_day:
+        session_cube = _try_score_pool_from_cube(
+            codes,
+            clock=clock,
+            cube_codes=cube_codes,
+            score_codes=score_codes,
+            paper=paper,
+            cycle_day_only=True,
+        )
+        if session_cube is not None:
+            return session_cube
+
+    # 2) 开盘钟：内存今开截面（不落盘）
+    if clock == "open" and cycle_day:
+        pit = _try_score_pool_from_open_pit(
+            codes,
+            cycle_day=cycle_day,
+            cube_codes=cube_codes or codes,
+            score_codes=score_codes,
+            paper=paper,
+        )
+        if pit is not None:
+            return pit
+
+    if refuse_day_fallback:
+        hint = (
+            "检查行情今开覆盖，或待日线物化写出当日 open 立方"
+            if clock == "open"
+            else ("分钟线物化" if clock != "open" else "日线物化")
+        )
+        raise MaterializeRequired(
+            {
+                "error_code": "open_pit_required" if clock == "open" else "materialize_required",
+                "error": (
+                    f"会话日 {cycle_day or '?'} 开盘截面不可用，禁止用昨日立方下单"
+                    if clock == "open"
+                    else f"会话日 {cycle_day or '?'} {clock} 截面不可用，禁止回退昨日下单"
+                ),
+                "layer": "l2",
+                "hint": hint,
+                "clocks": [clock],
+                "cycle_day": cycle_day or None,
+            }
+        )
+
+    # 3) 研究浏览：昨收等候选日立方 / L1（会话日已在步骤 1 试过，跳过）
     from_cube = _try_score_pool_from_cube(
         codes,
         clock=clock,
         cube_codes=cube_codes,
         score_codes=score_codes,
         paper=paper,
+        cycle_day_only=False,
+        skip_days=[cycle_day] if cycle_day else None,
     )
     if from_cube is not None:
         return from_cube
@@ -1445,8 +1588,9 @@ def _score_pool_from_lake(
         if fallback_from:
             item["lake_score_fallback_from"] = fallback_from
         scored.append(item)
+    day_cube: Any = None
     if len(scored) >= 2:
-        cube = ensure_day_cube_for_items(
+        day_cube = ensure_day_cube_for_items(
             scored,
             date=day,
             clock=clock,
@@ -1454,7 +1598,7 @@ def _score_pool_from_lake(
             # 与 assess_coverage 同键：完整观察池，不是当日有行子集
             universe_codes=cube_codes or codes,
         )
-        if cube is None and l2_gap:
+        if day_cube is None and l2_gap:
             logger.info(
                 "lake score cube gap day=%s clock=%s n=%s; μ/σ from L1 pool",
                 day,
@@ -1465,8 +1609,8 @@ def _score_pool_from_lake(
                 scored, score_codes=score_codes, day_cube=None
             )
             _stamp_fusion_on_items(scored, paper)
-            return scored, rejected
-        if cube is None:
+            return scored, rejected, None
+        if day_cube is None:
             hint = "分钟线物化" if clock != "open" else "日线物化"
             raise MaterializeRequired(
                 {
@@ -1480,9 +1624,9 @@ def _score_pool_from_lake(
                     "tried_days": [day],
                 }
             )
-        rescore_fitted_cross_section(scored, score_codes=score_codes, day_cube=cube)
+        rescore_fitted_cross_section(scored, score_codes=score_codes, day_cube=day_cube)
     _stamp_fusion_on_items(scored, paper)
-    return scored, rejected
+    return scored, rejected, day_cube
 
 
 def _score_pool(
@@ -1494,12 +1638,14 @@ def _score_pool(
     score_codes: Optional[Collection[str]] = None,
     tau_clock: Optional[str] = None,
     paper: Optional[dict] = None,
-) -> Tuple[List[dict], List[dict]]:
+    refuse_day_fallback: bool = False,
+) -> Tuple[List[dict], List[dict], Any]:
     """观察池并行 score_stock。默认仅本地缓存；``offline_only=False`` 可补远端。
 
     ``use_minute_tau=False``：开盘 Z，不拉当天 5m。
     ``score_codes`` 给定时，截面 z 用整池特征，ŷ 只写允许档。
-    产品调仓打开消费开关后改为只读 L1/L2。
+    产品调仓打开消费开关后走 lake / open-pit；落账 ``refuse_day_fallback``。
+    第三项为 DayCube（供 rank 显式复用；非消费现算路径常为 None）。
     """
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1511,7 +1657,7 @@ def _score_pool(
     rejected: List[dict] = []
     pool = [str(c or "").strip() for c in codes if str(c or "").strip()]
     if not pool:
-        return scored, rejected
+        return scored, rejected, None
     if consumer_read_only():
         return _score_pool_from_lake(
             pool,
@@ -1519,6 +1665,7 @@ def _score_pool(
             score_codes=score_codes,
             tau_clock=tau_clock,
             paper=paper,
+            refuse_day_fallback=bool(refuse_day_fallback),
         )
 
     use_offline = bool(offline_only)
@@ -1675,7 +1822,7 @@ def _score_pool(
         int(use_offline),
         int(defer_predict),
     )
-    return scored, rejected
+    return scored, rejected, None
 
 
 def _live_quote_dict(code: str) -> Optional[dict]:
@@ -2177,9 +2324,12 @@ def simulate_watching_matrix_preview(
         score_clock = rl_cfg.get("live_fill_clock")
     # ŷ / 日K 可只读本地仓；落账必须现价，否则成本会被写成昨收
     price_offline = bool(use_offline and dry_run)
+    # live 落账禁止昨日立方；预演仍可读 fallback（带标签）
+    refuse_fallback = bool(not dry_run)
+    score_day_cube: Any = None
     if _backend_ctx is not None:
         with _backend_ctx(score_backend):
-            scored, rejected = _score_pool(
+            scored, rejected, score_day_cube = _score_pool(
                 codes,
                 horizon_days=horizon,
                 offline_only=use_offline,
@@ -2187,9 +2337,10 @@ def simulate_watching_matrix_preview(
                 score_codes=score_codes,
                 tau_clock=score_clock,
                 paper=paper,
+                refuse_day_fallback=refuse_fallback,
             )
     else:
-        scored, rejected = _score_pool(
+        scored, rejected, score_day_cube = _score_pool(
             codes,
             horizon_days=horizon,
             offline_only=use_offline,
@@ -2197,13 +2348,31 @@ def simulate_watching_matrix_preview(
             score_codes=score_codes,
             tau_clock=score_clock,
             paper=paper,
+            refuse_day_fallback=refuse_fallback,
+        )
+    if refuse_fallback and _scored_has_lake_fallback(scored):
+        from core.research.materialize.consumer import MaterializeRequired
+
+        raise MaterializeRequired(
+            {
+                "error_code": "open_pit_required",
+                "error": "出分回退到非会话日，禁止落账",
+                "layer": "l2",
+                "hint": "检查行情今开覆盖或当日 open 立方",
+            }
         )
     rank_clock = _consumer_score_clock(use_minute_tau, score_clock)
     _attach_oo_rank_scores(
-        scored, score_codes=score_codes, clock=rank_clock
+        scored,
+        score_codes=score_codes,
+        day_cube=score_day_cube,
+        clock=rank_clock,
     )
     _attach_tc_rank_scores(
-        scored, score_codes=score_codes, clock=rank_clock
+        scored,
+        score_codes=score_codes,
+        day_cube=score_day_cube,
+        clock=rank_clock,
     )
     if not open_replay:
         try:

@@ -878,6 +878,11 @@ _TIP_EXPLAIN_KEYS = (
     "y_τc_source",
     "y_co_source",
     "score_model_role",
+    "eod_feature_as_of",
+    "lake_score_day",
+    "lake_score_fallback_from",
+    "_score_source",
+    "score_source",
 )
 
 

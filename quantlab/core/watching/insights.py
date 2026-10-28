@@ -816,13 +816,17 @@ def _insight_one(
         out["sub_scores"] = item.get("sub_scores") or {}
         out["score_formula_terms"] = item.get("score_formula_terms")
         asof_eod = item.get("eod_feature_as_of")
-        # 湖出分日 / 回退标记（盘中今日 L1 未齐时可读昨收周期）
+        # 湖出分日；浏览路径可能带 lake_score_fallback_from（落账禁用）
         lake_day = str(item.get("lake_score_day") or item.get("as_of") or "")[:10]
         if len(lake_day) >= 10:
             out["lake_score_day"] = lake_day
         fb = str(item.get("lake_score_fallback_from") or "")[:10]
         if len(fb) >= 10:
             out["lake_score_fallback_from"] = fb
+        src = str(item.get("_score_source") or item.get("score_source") or "").strip()
+        if src:
+            out["_score_source"] = src
+            out["score_source"] = src
         _sanitize_heuristic_yhat_fields(out, item)
         try:
             if not _is_heuristic_score_scale(out):
@@ -955,6 +959,9 @@ _LAKE_INSIGHT_KEYS = (
     "y_oo_fuse",
     "lake_score_day",
     "lake_score_fallback_from",
+    "_score_source",
+    "score_source",
+    "eod_feature_as_of",
     "fusion_w_oo",
     "fusion_w_oc",
     "fusion_w_co",

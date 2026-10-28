@@ -272,17 +272,34 @@ function formatEodAsOfHint(raw) {
   const tauDay = String((raw && (raw.as_of_tau || raw.rem_tau)) || "").slice(0, 10);
   const today = shanghaiDateKeyTip();
   const tradeDay = tipTradeDay(raw);
+  const scoreSrc = String(
+    (raw && (raw._score_source || raw.score_source)) || ""
+  ).trim();
+  const lakeDay = String((raw && raw.lake_score_day) || "").slice(0, 10);
+  const fbFrom = String((raw && raw.lake_score_fallback_from) || "").slice(0, 10);
   let which = "昨收完整K";
-  if (day && tauDay.length >= 10 && day === tauDay) {
+  if (scoreSrc === "open_pit") {
+    which = "今开截面";
+  } else if (fbFrom && lakeDay && fbFrom !== lakeDay) {
+    which = `因子日 ${lakeDay}（回退）`;
+  } else if (day && tauDay.length >= 10 && day === tauDay) {
     which = "盘中漏入今日K";
   } else if (day && today && day === today) {
     which = "盘中漏入今日K";
-  } else if (!day) {
+  } else if (!day && scoreSrc !== "day_cube") {
     which = "T−1 因子";
+  } else if (!day && scoreSrc === "day_cube") {
+    which = lakeDay && tradeDay && lakeDay === tradeDay ? "开盘立方" : "T−1 因子";
   }
   const tBit = tradeDay ? `T ${tradeDay}` : "T";
   let base = `${tBit} · ${which}`;
-  if (day && day !== tradeDay) {
+  if (scoreSrc === "open_pit") {
+    if (day && day !== tradeDay) {
+      base += ` · 昨收截止 ${day}`;
+    }
+  } else if (fbFrom && lakeDay && fbFrom !== lakeDay) {
+    base += ` · 会话 ${fbFrom}`;
+  } else if (day && day !== tradeDay) {
     base += ` · 因子截止 ${day}`;
   } else if (day && which === "盘中漏入今日K") {
     base += ` · 因子日 ${day}`;
