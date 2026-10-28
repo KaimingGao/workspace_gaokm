@@ -24,7 +24,7 @@
 研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score = OO_F1。
 有研究套时面板只拉 **Holdout + 因子暖窗**；无 ŷ_oo 研究套现训才用 ``lookback`` 全窗。
 
-默认池 = 观察池；可选 research_universe（pool=ledger 已废弃，等同 watching）。
+默认池 = 观察池；可选 research_universe（其它 pool 名，含已废弃的 ledger，等同 watching）。
 
 落盘：
 - ``predictability_tiers_last.json``：影子报告（研究枢纽）
@@ -46,14 +46,11 @@ from core.io_atomic import atomic_write_json
 
 SCHEMA = "predictability_tiers_v1"
 ACTIVE_SCHEMA = "predictability_tiers_active_v1"
-DEFAULT_MIN_N = 20  # 兼容旧调用；不再参与定档
 # Score 序截取：过 A 档 F1 门槛者 top a_count→A，接着 b_count→B，其余→C
 DEFAULT_A_COUNT = 100
 DEFAULT_B_COUNT = 300
 DEFAULT_A_F1 = 0.20  # A 档 OO_F1
 DEFAULT_TAU_A_F1 = 0.20  # A 档 TC_F1（有研究套时）
-DEFAULT_A_HIT = DEFAULT_A_F1  # 旧名兼容
-DEFAULT_TAU_A_HIT = DEFAULT_TAU_A_F1  # 旧名兼容
 DEFAULT_REQUIRE_OO_R_POS = True  # A 档可选 OO_R+>0
 DEFAULT_REQUIRE_TC_R_POS = True  # A 档可选 TC_R+>0（有 ŷ_τc 研究套时）
 A_COUNT_MIN = 1
@@ -78,8 +75,8 @@ def clamp_b_count(raw: Any, default: int = DEFAULT_B_COUNT) -> int:
     return max(B_COUNT_MIN, min(B_COUNT_MAX, n))
 
 
-def clamp_hit_rate(raw: Any, default: float = DEFAULT_A_F1) -> float:
-    """比例门槛，返回 0–1。``0.2`` 与 ``20`` 都是 20%（F1 / 旧命中率共用）。"""
+def clamp_f1_floor(raw: Any, default: float = DEFAULT_A_F1) -> float:
+    """F1 比例门槛，返回 0–1。``0.2`` 与 ``20`` 都是 20%。"""
     try:
         v = float(raw)
     except (TypeError, ValueError):
@@ -91,19 +88,13 @@ def clamp_hit_rate(raw: Any, default: float = DEFAULT_A_F1) -> float:
     return max(0.0, min(1.0, v))
 
 
-clamp_f1_floor = clamp_hit_rate
-
-
-def _meets_hit_floor(raw: Any, floor: float) -> bool:
-    """比例是否过线（≥）；缺/非有限 → 否。"""
+def _meets_f1_floor(raw: Any, floor: float) -> bool:
+    """F1 是否过线（≥）；缺/非有限 → 否。"""
     try:
         v = float(raw)
     except (TypeError, ValueError):
         return False
     return math.isfinite(v) and v + 1e-12 >= float(floor)
-
-
-_meets_f1_floor = _meets_hit_floor
 
 
 DEFAULT_LIVE_ALLOWED = ("A",)
@@ -120,7 +111,6 @@ HEAD_TAU = "tau"
 
 POOL_WATCHING = "watching"
 POOL_RESEARCH = "research_universe"
-POOL_LEDGER = "ledger"  # 废弃：解析为 watching
 DEFAULT_POOL = POOL_WATCHING
 
 PROTOCOL_HOLDOUT_OOS = "holdout_oos_half"
@@ -281,10 +271,10 @@ def promote_predictability_tiers_to_live(
         "counts": src.get("counts"),
         "head": src.get("head"),
         "head_label": src.get("head_label"),
-        "tier_n": src.get("tier_n") if src.get("tier_n") is not None else src.get("n_ledger_dates"),
+        "tier_n": src.get("tier_n"),
         "as_of_last": (
             src.get("as_of_tier_last")
-            or ((src.get("tier_dates") or src.get("ledger_dates") or [None])[-1])
+            or ((src.get("tier_dates") or [None])[-1])
         ),
         "report": src,
         "note": "live 随历史回测分档勾选：调仓按 allowed_tiers 过滤新开；持仓掉出允许档则清仓。不改 watching。",
@@ -359,7 +349,7 @@ def live_tier_status() -> Dict[str, Any]:
         "promoted_at": active.get("promoted_at"),
         "head_label": active.get("head_label"),
         "as_of_last": active.get("as_of_last"),
-        "tier_n": active.get("tier_n") if active.get("tier_n") is not None else active.get("n_ledger_dates"),
+        "tier_n": active.get("tier_n"),
     }
 
 
@@ -450,8 +440,6 @@ def assign_tiers_by_rank_score(
     tau_a_f1: Optional[float] = None,
     require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
     require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
-    a_hit: Optional[float] = None,
-    tau_a_hit: Optional[float] = None,
 ) -> None:
     """就地定档：Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 时 Score = OO_F1）。
 
@@ -463,12 +451,11 @@ def assign_tiers_by_rank_score(
       （缺/非有限/不过线不占 A；两侧勾选则须都过）。命中率（OO_ACC/TC_ACC）不进门槛
     - 过门槛者按 Score 降序取 top ``a_count``（默认 100）→ A；未过门槛不占 A 名额
     - 其余按 Score 接着 ``b_count``（默认 300）→ B；再其余 → C
-    - ``a_hit`` / ``tau_a_hit``：旧参数名，等同 ``a_f1`` / ``tau_a_f1``
     """
     n_a = clamp_a_count(a_count)
     n_b = clamp_b_count(b_count)
-    oo_raw = a_f1 if a_f1 is not None else a_hit
-    tau_raw = tau_a_f1 if tau_a_f1 is not None else tau_a_hit
+    oo_raw = a_f1
+    tau_raw = tau_a_f1
     oo_floor = clamp_f1_floor(
         DEFAULT_A_F1 if oo_raw is None else oo_raw, DEFAULT_A_F1
     )
@@ -542,42 +529,6 @@ def assign_tiers_by_rank_score(
             b_left -= 1
         else:
             r["tier"] = "C"
-
-
-def assign_tier(
-    hit_rate: Optional[float],
-    n_valid: int,
-    *,
-    hit_rate_tau: Optional[float] = None,
-    n_valid_tau: int = 0,
-    require_tau: bool = False,
-    **_legacy: Any,
-) -> str:
-    """单票兼容入口：有有效命中→B，否则→C。不按 F1 合成 Score。
-
-    正式分档请用 ``assign_tiers_by_rank_score``。
-    """
-    del _legacy
-    if max(0, int(n_valid or 0)) <= 0:
-        return "C"
-    if hit_rate is None:
-        return "C"
-    try:
-        if not math.isfinite(float(hit_rate)):
-            return "C"
-    except (TypeError, ValueError):
-        return "C"
-    if require_tau:
-        if max(0, int(n_valid_tau or 0)) <= 0:
-            return "C"
-        if hit_rate_tau is None:
-            return "C"
-        try:
-            if not math.isfinite(float(hit_rate_tau)):
-                return "C"
-        except (TypeError, ValueError):
-            return "C"
-    return "B"
 
 
 def _spearman_ic(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
@@ -1746,7 +1697,6 @@ def _rows_from_acc(
     pool_codes: Sequence[str],
     watch_set: set,
     pad_missing: bool,
-    min_n: int = DEFAULT_MIN_N,
     name_by: Optional[Dict[str, str]] = None,
     require_tau: bool = False,
     a_count: int = DEFAULT_A_COUNT,
@@ -1755,12 +1705,7 @@ def _rows_from_acc(
     tau_a_f1: float = DEFAULT_TAU_A_F1,
     require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
     require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
-    **_legacy: Any,
-) -> Tuple[List[Dict[str, Any]], Dict[str, int], int]:
-    if "a_hit" in _legacy and a_f1 == DEFAULT_A_F1:
-        a_f1 = _legacy.get("a_hit")
-    if "tau_a_hit" in _legacy and tau_a_f1 == DEFAULT_TAU_A_F1:
-        tau_a_f1 = _legacy.get("tau_a_hit")
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     name_by = name_by or {}
     if pad_missing and pool_codes:
         for c in pool_codes:
@@ -1790,7 +1735,6 @@ def _rows_from_acc(
                 }
 
     rows: List[Dict[str, Any]] = []
-    min_n_req = max(1, int(min_n or DEFAULT_MIN_N))
     for code, slot in acc.items():
         n_valid = int(slot.get("n_valid") or 0)
         hits = int(slot.get("hits") or 0)
@@ -1882,14 +1826,13 @@ def _rows_from_acc(
         )
 
     rows.sort(key=_sort_key)
-    return rows, counts, min_n_req
+    return rows, counts
 
 
 def build_holdout_half_tiers(
     holdout_n: int = DEFAULT_HOLDOUT_N,
     *,
     pool: str = DEFAULT_POOL,
-    min_n: int = DEFAULT_MIN_N,
     a_count: int = DEFAULT_A_COUNT,
     b_count: int = DEFAULT_B_COUNT,
     a_f1: Optional[float] = None,
@@ -1904,9 +1847,6 @@ def build_holdout_half_tiers(
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     use_research_model: bool = True,
-    a_hit: Optional[float] = None,
-    tau_a_hit: Optional[float] = None,
-    **_legacy: Any,
 ) -> Dict[str, Any]:
     """研究枢纽协议：研究套 ŷ_oo 按票分档。F1/命中看 Holdout 前半；标题测试指标看后半；等权买持看整段。
 
@@ -1920,13 +1860,11 @@ def build_holdout_half_tiers(
     live 档位跟随历史回测「分档」勾选。
     ``lookback``：仅无研究套现训时用的日线窗（对齐 ŷ_oo 卡训练窗）；
     有研究套时面板走 ``_score_panel_lookback`` 短窗。
-    ``a_hit`` / ``tau_a_hit`` / ``**_legacy``：旧参数名兼容（等同 F1 门槛；a_frac 等忽略）。
     """
-    del _legacy
     if a_f1 is None:
-        a_f1 = a_hit if a_hit is not None else DEFAULT_A_F1
+        a_f1 = DEFAULT_A_F1
     if tau_a_f1 is None:
-        tau_a_f1 = tau_a_hit if tau_a_hit is not None else DEFAULT_TAU_A_F1
+        tau_a_f1 = DEFAULT_TAU_A_F1
     head_n = _normalize_head(head)
     if head_n == HEAD_TAU:
         return {
@@ -1984,12 +1922,11 @@ def build_holdout_half_tiers(
     name_by = _watching_name_map(
         watching_codes if watching_codes is not None else list(watch_set or pool_codes)
     )
-    rows, counts, min_n_req = _rows_from_acc(
+    rows, counts = _rows_from_acc(
         acc,
         pool_codes=pool_codes,
         watch_set=watch_set,
         pad_missing=True,
-        min_n=min_n,
         name_by=name_by,
         require_tau=require_tau,
         a_count=n_a,
@@ -2065,7 +2002,6 @@ def build_holdout_half_tiers(
         "panel_mode": panel_mode or (
             "score_short" if model_source == "oo_research_model" else "refit_full"
         ),
-        "min_n": min_n_req,
         "thresholds": {
             "a_count": int(n_a),
             "b_count": int(n_b),
@@ -2079,7 +2015,6 @@ def build_holdout_half_tiers(
                 if require_tau
                 else "OO_F1"
             ),
-            "min_n": min_n_req,
         },
         "pool": pool_mode,
         "pool_source": pool_source,

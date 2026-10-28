@@ -827,7 +827,7 @@ export function installResearchUniverseUi(q) {
     }
     const thr = rep.thresholds || {};
     const hold = rep.holdout_n != null ? rep.holdout_n : "—";
-    const tierN = rep.tier_n != null ? rep.tier_n : rep.n_ledger_dates ?? "—";
+    const tierN = rep.tier_n != null ? rep.tier_n : "—";
     const aCount =
       thr.a_count != null && Number.isFinite(Number(thr.a_count))
         ? Math.round(Number(thr.a_count))
@@ -1079,7 +1079,7 @@ export function installResearchUniverseUi(q) {
           (tauAF1 / 100).toFixed(4)
         )}&require_oo_r_pos=${requireOoRPos ? "true" : "false"}&require_tc_r_pos=${
           requireTcRPos ? "true" : "false"
-        }&min_n=20&head=oo&pool=watching`;
+        }&head=oo&pool=watching`;
     const { ok, data, error } = await apiFetch(url);
     if (!ok || !data || data.success === false) {
       if (data && data.live) applyLive(data.live);

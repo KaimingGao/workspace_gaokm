@@ -837,21 +837,6 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(by2["better"]["tier"], "A")
         self.assertEqual(by2["oo"]["tier"], "B")
 
-    def test_assign_tier_compat(self):
-        from core.research.predictability_tiers import assign_tier
-
-        self.assertEqual(assign_tier(0.60, 10), "B")
-        self.assertEqual(assign_tier(None, 0), "C")
-        self.assertEqual(assign_tier(0.8, 0), "C")
-        self.assertEqual(
-            assign_tier(0.6, 10, hit_rate_tau=0.5, n_valid_tau=5, require_tau=True),
-            "B",
-        )
-        self.assertEqual(
-            assign_tier(0.6, 10, hit_rate_tau=None, n_valid_tau=0, require_tau=True),
-            "C",
-        )
-
     def test_split_holdout_half_dates(self):
         from core.research.predictability_tiers import (
             split_holdout_half_dates,
@@ -1007,7 +992,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 tier_set=tier,
                 metric_set=whole,
             )
-        rows, _counts, _min_n = _rows_from_acc(
+        rows, _counts = _rows_from_acc(
             acc,
             pool_codes=["000001"],
             watch_set={"000001"},
@@ -1052,7 +1037,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 tier_set=tier,
                 yhat_eps=0.05,
             )
-        rows, _counts, _min_n = _rows_from_acc(
+        rows, _counts = _rows_from_acc(
             acc,
             pool_codes=["000001"],
             watch_set={"000001"},
@@ -1209,7 +1194,6 @@ class TestPredictabilityTiers(unittest.TestCase):
                 rep = build_holdout_half_tiers(
                     10,
                     pool="watching",
-                    min_n=3,
                     head="oo",
                     persist=True,
                     a_count=1,
@@ -1252,6 +1236,8 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertAlmostEqual(float(thr.get("tau_a_f1")), 0.2)
                 self.assertNotIn("a_hit", thr)
                 self.assertNotIn("tau_a_hit", thr)
+                self.assertNotIn("min_n", thr)
+                self.assertNotIn("min_n", rep)
                 self.assertTrue(thr.get("require_oo_r_pos"))
                 self.assertTrue(thr.get("require_tc_r_pos"))
                 self.assertNotIn("require_r_pos", thr)
@@ -1386,7 +1372,6 @@ class TestPredictabilityTiers(unittest.TestCase):
         ):
             rep = build_holdout_half_tiers(
                 holdout_n=20,
-                min_n=5,
                 head="oo",
                 persist=False,
                 a_count=1,
@@ -1404,7 +1389,6 @@ class TestPredictabilityTiers(unittest.TestCase):
             ru = build_holdout_half_tiers(
                 holdout_n=20,
                 pool="research_universe",
-                min_n=5,
                 head="oo",
                 persist=False,
                 a_count=1,
@@ -1417,7 +1401,6 @@ class TestPredictabilityTiers(unittest.TestCase):
             led = build_holdout_half_tiers(
                 holdout_n=20,
                 pool="ledger",
-                min_n=5,
                 head="oo",
                 persist=False,
                 a_count=1,

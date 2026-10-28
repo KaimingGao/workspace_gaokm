@@ -268,7 +268,6 @@ def quant_research_universe_get(coverage: bool = False) -> Dict[str, Any]:
 
 def quant_research_universe_predictability_tiers(
     holdout: int = 20,
-    min_n: int = 20,
     head: str = "oo",
     pool: str = "watching",
     lookback: int = 120,
@@ -320,7 +319,6 @@ def quant_research_universe_predictability_tiers(
         rep = build_holdout_half_tiers(
             holdout_n=max(2, min(int(holdout or 20), 90)),
             pool=str(pool or "watching"),
-            min_n=max(1, min(int(min_n or 20), 60)),
             head=str(head or "oo"),
             lookback=max(100, min(int(lookback or 120), 1000)),
             a_count=clamp_a_count(a_count),
