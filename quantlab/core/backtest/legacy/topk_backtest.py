@@ -117,7 +117,6 @@ def backtest_topk_equal_weight(
     return_model_refit_every: int = 1,
     allow_heuristic_baseline: bool = False,
     apply_tau_buy_gate: bool = False,
-    exclude_oos_failed: bool = True,
     strategy_id: Optional[str] = None,
     precomputed_ranks: Optional[Dict[str, Any]] = None,
     probe_lite: bool = False,
@@ -410,7 +409,6 @@ def backtest_topk_equal_weight(
                 allow_heuristic_baseline=allow_heuristic_baseline
                 or resolved_rank_mode == "heuristic_score",
                 apply_tau_buy_gate=bool(apply_tau_buy_gate),
-                exclude_oos_failed=bool(exclude_oos_failed),
             )
             if resolved_rank_mode == "heuristic_score":
                 pred_rank_rebalances += 0

@@ -616,7 +616,6 @@ def suggest_stance_thresholds_from_watching_oos(
                     "stock_code": sym,
                     "data_source": src,
                     "best_wait": best_wait,
-                    "best_min_score": best_wait,  # 兼容旧字段名
                     "test_win_rate_pct": test_m.get("win_rate_pct"),
                     "test_trade_count": test_m.get("trade_count"),
                     "model_source": oos.get("model_source"),
@@ -688,9 +687,7 @@ def suggest_stance_thresholds_from_watching_oos(
         suggestion["watching_aggregate"] = {
             "stock_count": len(best_waits),
             "median_best_wait": median_best,
-            "median_best_min_score": median_best,
             "best_waits": best_waits,
-            "best_min_scores": best_waits,
             "per_stock": per_stock,
             "failures": failures,
             "score_scale": "predicted_yhat",

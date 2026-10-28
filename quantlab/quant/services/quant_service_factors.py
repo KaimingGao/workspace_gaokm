@@ -686,13 +686,11 @@ class QuantFactorMixin:
         *,
         watching_limit: int = 36,
         top_k: int = 10,
-        prefer_cluster_book: bool = False,
     ) -> Dict[str, Any]:
-        """ŷ 行业残差 on/off 影子对照（不写盘）。分池簿已停用。"""
+        """ŷ 行业残差 on/off 影子对照（不写盘）。"""
         from core.research.yhat_residual_shadow import compare_yhat_residual_shadow
         from core.watching.store import read_watching
 
-        _ = prefer_cluster_book
         items: List[Dict[str, Any]] = []
         source = "none"
         uni = read_watching()
@@ -1294,14 +1292,12 @@ class QuantFactorMixin:
         persist_role: str = "live",
         note: str = "",
         cross_section_zscore: bool = True,
-        zscore_universe_tier_a: bool = False,
-        train_universe_tier_a: Optional[bool] = None,
+        train_universe_tier_a: bool = False,
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge。
 
-        截面 z 恒用整观察池。``train_universe_tier_a``（或旧名
-        ``zscore_universe_tier_a``）为 True 时，损失 / Holdout 缩到观察池∩A
-        （须先跑枢纽分档）；打分仍全池 z。
+        截面 z 恒用整观察池。``train_universe_tier_a`` 为 True 时，损失 / Holdout
+        缩到观察池∩A（须先跑枢纽分档）；打分仍全池 z。
         成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max（与 τc_rank 取 max）入场闸。
         ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
         """
@@ -1359,11 +1355,7 @@ class QuantFactorMixin:
                 live_present=os.path.isfile(oo_rank_model_path()),
             )
 
-        train_a = (
-            bool(train_universe_tier_a)
-            if train_universe_tier_a is not None
-            else bool(zscore_universe_tier_a)
-        )
+        train_a = bool(train_universe_tier_a)
         # 截面 z / 建面板：恒全池
         pool_resolved = resolve_oo_rank_universe(train_universe=TRAIN_UNIVERSE_POOL)
         if not pool_resolved.get("success"):
@@ -1643,13 +1635,11 @@ class QuantFactorMixin:
         persist_role: str = "live",
         note: str = "",
         cross_section_zscore: bool = True,
-        zscore_universe_tier_a: bool = False,
-        train_universe_tier_a: Optional[bool] = None,
+        train_universe_tier_a: bool = False,
     ) -> Dict[str, Any]:
         """ŷ_τc_rank：同窗 LambdaRank + Ridge。
 
-        截面 z 恒用整观察池。``train_universe_tier_a``（或旧
-        ``zscore_universe_tier_a``）为 True 时损失 / Holdout 缩到 A。
+        截面 z 恒用整观察池。``train_universe_tier_a`` 为 True 时损失 / Holdout 缩到 A。
         启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。
         """
         from core.research.feature_standardize import (
@@ -1706,11 +1696,7 @@ class QuantFactorMixin:
                 live_present=os.path.isfile(tc_rank_model_path()),
             )
 
-        train_a = (
-            bool(train_universe_tier_a)
-            if train_universe_tier_a is not None
-            else bool(zscore_universe_tier_a)
-        )
+        train_a = bool(train_universe_tier_a)
         pool_resolved = resolve_oo_rank_universe(train_universe=TRAIN_UNIVERSE_POOL)
         if not pool_resolved.get("success"):
             return {

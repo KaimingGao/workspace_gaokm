@@ -3705,7 +3705,6 @@ def _predict_tau_from_row(item: dict, z_row: dict, raw_feats: dict) -> None:
         as_of_tau=item.get("as_of_tau"),
         rem_model_doc=ridge_doc,
         fuse_intraday=fuse,
-        y_source="ridge",
     )
 
 

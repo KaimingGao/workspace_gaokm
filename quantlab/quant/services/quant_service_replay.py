@@ -870,7 +870,3 @@ class QuantReplayMixin:
         from quant.research.portfolio_data import summarize_portfolio_backtest
 
         return summarize_portfolio_backtest(**kwargs)
-
-
-# 兼容旧名（P94 文档 / 外部引用）
-QuantPortfolioMixin = QuantReplayMixin

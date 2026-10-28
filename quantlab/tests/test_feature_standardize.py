@@ -160,7 +160,6 @@ class TestZscoreUniverse(unittest.TestCase):
     def test_stamp_and_detect(self):
         from core.research.feature_standardize import (
             is_tier_a_train_universe,
-            is_tier_a_zscore_universe,
             stamp_train_universe,
             stamp_zscore_universe,
         )
@@ -172,7 +171,6 @@ class TestZscoreUniverse(unittest.TestCase):
         self.assertEqual(doc["train_universe_tiers"], ["A"])
         self.assertEqual(doc["tier_codes"], ["000001", "600519"])
         self.assertTrue(is_tier_a_train_universe(doc))
-        self.assertTrue(is_tier_a_zscore_universe(doc))  # 旧名→训练 A
         self.assertTrue(is_tier_a_train_universe({"return_model": doc}))
         # 旧落盘仅 zscore_universe=tier_a 仍当训练 A
         self.assertTrue(

@@ -68,7 +68,3 @@ def active_return_model_payload(
         "z_stds": d.get("z_stds") or {},
         "feature_zscore": d.get("feature_zscore", True),
     }
-
-# 兼容旧名（services 再导出）
-_build_score_formula = build_score_formula
-_active_return_model_payload = active_return_model_payload

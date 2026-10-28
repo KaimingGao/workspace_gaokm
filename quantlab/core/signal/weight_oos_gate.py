@@ -240,9 +240,6 @@ def _compare_arms(
             "reason": "backtest_failed",
             "baseline": baseline_m,
             "research": research_m,
-            # 兼容旧字段名
-            "current": baseline_m,
-            "suggested": research_m,
             "stock_count": stock_count,
             "codes": codes,
             "note": "轻量 Top-K 曲线失败，跳过门禁判定。",
@@ -322,8 +319,6 @@ def _compare_arms(
         },
         "baseline": baseline_m,
         "research": research_m,
-        "current": baseline_m,
-        "suggested": research_m,
         "note": oos_semantics_note(oos_tol_pp=tol)
         + " 另附相对指数超额差（delta_excess_pp），与总收益 ΔOOS 分列。",
     }

@@ -49,7 +49,6 @@ def describe_processor_windows(report: Dict[str, Any]) -> Dict[str, Any]:
 
     样本外块若显式标明 model_role=live，视为用错了模型（OOS 应对 Holdout 前训 β）。
     未标明时，只要存在 return_model_research / return_model，就记为 research。
-    ``live_window`` 与 ``research_window`` 同值（兼容旧实验指标键）。
     """
     rpt = report or {}
     research = rpt.get("return_model_research")
@@ -66,7 +65,6 @@ def describe_processor_windows(report: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "ok": ok,
         "research_window": window,
-        "live_window": window,
         "oos_model_role": role,
         "fit_end": rpt.get("fit_end"),
         "eval_start": rpt.get("eval_start"),
@@ -112,7 +110,6 @@ def finish_research_run(
     )
     extra: Dict[str, Any] = {
         "research_window": windows.get("research_window"),
-        "live_window": windows.get("live_window"),
         "oos_model_role": windows.get("oos_model_role"),
         "oos_guard_ok": bool(windows.get("ok")),
     }

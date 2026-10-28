@@ -99,14 +99,9 @@ def save_return_model_draft(
     *,
     meta: Optional[Dict[str, Any]] = None,
     oos: Optional[Dict[str, Any]] = None,
-    research_model: Optional[Any] = None,
     research_ols: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """写入研究草稿 ``data/reports/last_return_score_model.json``。
-
-    只落一份 Holdout 前训 β；``research_model`` 形参已忽略（旧双 β API 兼容）。
-    """
-    del research_model  # 旧双 β 入参；系数一律来自 model
+    """写入研究草稿 ``data/reports/last_return_score_model.json``。只落一份 Holdout 前训 β。"""
     _ensure_dirs()
     blob = model.to_dict()
     if isinstance(blob, dict):
@@ -810,7 +805,5 @@ def fit_watching_return_model(
 # --- τ 风格别名（新代码优先用这些名字）---
 
 persist_oo_model = promote_return_model_draft
-load_oo_model = load_return_model
 oo_model_status = return_model_status
 fit_oo_ridge = fit_watching_return_model
-save_oo_model_draft = save_return_model_draft

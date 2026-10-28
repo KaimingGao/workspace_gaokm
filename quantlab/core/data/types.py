@@ -105,9 +105,6 @@ class BarsResult:
             "non_pit": self.non_pit,
         }
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self.as_dict().get(key, default)
-
 @dataclass
 
 class DataEnvelope:
@@ -127,7 +124,7 @@ class DataEnvelope:
     pit: Optional[Dict[str, Any]] = None
 
     def as_dict(self) -> Dict[str, Any]:
-        """展平为历史兼容 dict（payload 字段并入顶层）。"""
+        """展平为 dict（payload 字段并入顶层）。"""
         out = dict(self.data or {})
         out.setdefault("kind", self.kind)
         out.setdefault("ok", self.ok)
@@ -146,6 +143,3 @@ class DataEnvelope:
         if self.pit is not None:
             out.setdefault("pit", self.pit)
         return out
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return self.as_dict().get(key, default)

@@ -22,13 +22,6 @@ def build_data_quality_report(
     coverage: Dict[str, Any] = {}
     try:
         coverage = build_data_coverage(codes=code_list or None) or {}
-    except TypeError:
-        # 兼容无 codes 参数的旧签名
-        try:
-            coverage = build_data_coverage() or {}
-        except Exception as e:
-            logger.exception('unexpected error in build_data_quality_report')
-            coverage = {"ok": False, "error": str(e)}
     except Exception as e:
         logger.exception('unexpected error in build_data_quality_report')
         coverage = {"ok": False, "error": str(e)}

@@ -501,7 +501,6 @@ def run_t0_backtest_for_code(
     initial_cash: float = 0.0,
     rules: Optional[dict] = None,
     paper: Optional[dict] = None,
-    use_minute: bool = True,
     compare_no_t0: bool = True,
     tau_pool_by_date: Optional[Dict[str, Any]] = None,
     stock_name: Optional[str] = None,
@@ -526,7 +525,6 @@ def run_t0_backtest_for_code(
                 initial_cash=initial_cash,
                 rules=rules,
                 paper=paper,
-                use_minute=use_minute,
                 compare_no_t0=compare_no_t0,
                 tau_pool_by_date=tau_pool_by_date,
                 stock_name=stock_name,
@@ -536,8 +534,6 @@ def run_t0_backtest_for_code(
             )
 
     from core.data.facade import bars_and_source as fetch_daily_bars
-
-    _ = use_minute  # 日线模拟已删除；强制分钟
     tau_pool_given = isinstance(tau_pool_by_date, dict)
     reuse_cs = False
     if tau_pool_given:
@@ -938,8 +934,6 @@ def run_t0_backtest_for_holdings(
     lookback: int = T0_BT_DEFAULT_LOOKBACK,
     rules: Optional[dict] = None,
     paper: Optional[dict] = None,
-    cash: float = 0.0,
-    use_minute: bool = True,
     virtual_shares: float = T0_BT_VIRTUAL_SHARES,
     virtual_cash: float = T0_BT_VIRTUAL_CASH,
     progress_cb: Optional[Callable[..., None]] = None,
@@ -983,8 +977,6 @@ def run_t0_backtest_for_holdings(
                 lookback=lookback,
                 rules=rules,
                 paper=paper,
-                cash=cash,
-                use_minute=use_minute,
                 virtual_shares=virtual_shares,
                 virtual_cash=virtual_cash,
                 progress_cb=progress_cb,
@@ -996,7 +988,6 @@ def run_t0_backtest_for_holdings(
     from core.execution import resolve_t0_rules, strip_execution_meta
     from core.t0.viz import merge_t0_viz_payloads, summarize_skip_reason_label
 
-    _ = (use_minute, cash)
     req_rules = dict(rules or {})
     req_rules.setdefault("path_mode", "first_touch")
     resolved = resolve_t0_rules(
@@ -1174,7 +1165,6 @@ def run_t0_backtest_for_holdings(
             initial_cash=v_cash,
             rules=cfg,
             paper=paper,
-            use_minute=True,
             compare_no_t0=False,
             tau_pool_by_date=tau_pool,
             stock_name=h.get("stock_name"),

@@ -36,7 +36,6 @@ class QuantFollowMixin:
         rules: Optional[dict] = None,
         from_paper: bool = False,
         codes: Optional[list] = None,
-        use_minute: bool = True,
         progress_cb: Optional[Callable[..., None]] = None,
         cancel_cb: Optional[Callable[[], bool]] = None,
         score_model_role: Optional[str] = None,
@@ -53,7 +52,6 @@ class QuantFollowMixin:
         role = normalize_backtest_model_role(score_model_role)
         manual_pool = codes is not None
 
-        _ = use_minute
         try:
             v_shares = float(initial_shares if initial_shares is not None else T0_BT_VIRTUAL_SHARES)
         except (TypeError, ValueError):
@@ -75,7 +73,6 @@ class QuantFollowMixin:
                         lookback=lookback,
                         rules=rules,
                         paper=paper if from_paper or manual_pool else None,
-                        use_minute=True,
                         virtual_shares=v_shares,
                         virtual_cash=v_cash,
                         progress_cb=progress_cb,
@@ -97,7 +94,6 @@ class QuantFollowMixin:
                         initial_cash=v_cash,
                         rules=rules,
                         paper=paper,
-                        use_minute=True,
                         progress_cb=progress_cb,
                         score_model_role=role,
                     )
@@ -141,7 +137,6 @@ class QuantFollowMixin:
         rules: Optional[dict] = None,
         from_paper: bool = False,
         codes: Optional[list] = None,
-        use_minute: bool = True,
         score_model_role: Optional[str] = None,
     ) -> Dict[str, Any]:
         """后台做 T 回测；轮询 ``GET /api/jobs/t0-backtest``。"""
@@ -212,7 +207,6 @@ class QuantFollowMixin:
                     rules=rules,
                     from_paper=from_paper,
                     codes=codes,
-                    use_minute=use_minute,
                     progress_cb=_progress,
                     cancel_cb=_stop,
                     score_model_role=score_model_role,

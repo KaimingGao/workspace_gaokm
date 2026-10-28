@@ -338,9 +338,6 @@ def apply_day_cube_mu_sigma_matrix(
         "hit_days": hit,
         "miss_days": 0,
         "missing_cols": missing_col_seen[:32],
-        # 兼容旧审计字段名（现表示缺列填 0，不再桶内现算）
-        "matrix_fallback_days": 0,
-        "matrix_fallback_cols": missing_col_seen[:32],
         "open_fallback": open_fb,
         "fallback_open": allow_open_fb,
         "clock": clock,
@@ -353,9 +350,7 @@ def _warn_cube_cs_partial(meta: Optional[Mapping[str, Any]], *, where: str) -> N
     if not isinstance(meta, dict):
         return
     open_fb = int(meta.get("open_fallback") or 0)
-    miss_cols = list(
-        meta.get("missing_cols") or meta.get("matrix_fallback_cols") or []
-    )[:8]
+    miss_cols = list(meta.get("missing_cols") or [])[:8]
     if open_fb <= 0 and not miss_cols:
         return
     logger.warning(

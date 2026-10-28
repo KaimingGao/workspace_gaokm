@@ -2028,7 +2028,6 @@ export function installBacktest(q) {
       from_paper: true,
       codes: readReplayT0Pool().map((x) => ({ stock_code: x.code, stock_name: x.name })),
       lookback,
-      use_minute: true,
       ...t0,
       t0_last_leg1_hm: readT0BtLastLeg1Hm({ persist: true }),
       score_model_role: readScoreModelRole("paper-t0-score-model-role"),

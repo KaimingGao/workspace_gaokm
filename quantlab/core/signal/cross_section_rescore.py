@@ -293,7 +293,6 @@ def _rescore_tau(
             as_of_tau=item.get("as_of_tau"),
             rem_model_doc=ridge_doc,
             fuse_intraday=fuse,
-            y_source="ridge",
         )
     from core.signal.factors.sum_identity import cs_batch_preds_look_collapsed
 

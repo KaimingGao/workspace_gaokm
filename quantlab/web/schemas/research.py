@@ -184,13 +184,6 @@ class OoRankRequest(_CrossSectionZscore):
             "落盘 train_universe；回测/live 打分 z 恒全池，写分跟 score_codes/分档。"
         ),
     )
-    zscore_universe_tier_a: bool = Field(
-        default=False,
-        description=(
-            "旧名，等同 train_universe_tier_a。"
-            "任一为 True 即训练 A；截面 z 不再随此开关缩小。"
-        ),
-    )
     holdout_trading_days: int = Field(
         default=20,
         ge=1,
@@ -657,8 +650,5 @@ class YhatResidualShadowRequest(BaseModel):
 
     watching_limit: int = Field(default=36, ge=3, le=80)
     top_k: int = Field(default=10, ge=3, le=40)
-    prefer_cluster_book: bool = Field(
-        default=False, description="已停用：分池簿不再使用；一律 live 打分观察池"
-    )
 
 

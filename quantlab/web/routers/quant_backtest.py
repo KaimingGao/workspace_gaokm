@@ -96,7 +96,6 @@ def _t0_backtest_kwargs(body: T0BacktestRequest) -> Dict[str, Any]:
         "rules": rules,
         "from_paper": from_paper,
         "codes": body.codes,
-        "use_minute": True,
         "score_model_role": body.score_model_role,
     }
 

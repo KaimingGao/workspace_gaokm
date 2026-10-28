@@ -371,7 +371,7 @@ class TestPortfolioDailySummary(unittest.TestCase):
             "core.backtest.paper_replay.backtest_paper_replay",
             return_value=fake,
         ):
-            out = summarize_portfolio_backtest(codes=["600519", "600036"], min_score=40)
+            out = summarize_portfolio_backtest(codes=["600519", "600036"])
         self.assertTrue(out["success"])
         self.assertIn("total_return_pct", out)
         self.assertIn("equity_curve_tail", out)
@@ -1165,11 +1165,11 @@ class TestP94QuantServiceMixins(unittest.TestCase):
         from quant.services.quant_service_config import QuantConfigMixin
         from quant.services.quant_service_factors import QuantFactorMixin
         from quant.services.quant_service_ops import QuantOpsMixin
-        from quant.services.quant_service_replay import QuantPortfolioMixin
+        from quant.services.quant_service_replay import QuantReplayMixin
 
         self.assertTrue(issubclass(QuantService, QuantConfigMixin))
         self.assertTrue(issubclass(QuantService, QuantFactorMixin))
-        self.assertTrue(issubclass(QuantService, QuantPortfolioMixin))
+        self.assertTrue(issubclass(QuantService, QuantReplayMixin))
         self.assertTrue(issubclass(QuantService, QuantOpsMixin))
         qs = QuantService()
         for name in (

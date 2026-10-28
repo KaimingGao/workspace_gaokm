@@ -1,7 +1,7 @@
 """薄 DataService 门面（Domain Facade · DS）：上层唯一读窗口。
 
 委托 core.data.MarketDataService。文档称 Domain Facade，与 Application Service 不同层。
-历史兼容：本模块函数仍返回 dict（``.as_dict()``）。
+本模块函数返回 dict（``.as_dict()``）。
 类型化 API：``from core.data import MarketDataService, BarsResult``；
 便捷 dict API：``from core.data.facade import get_quote, get_bars``。
 """
@@ -63,7 +63,7 @@ def get_index_bars(code: str, *, limit: int = 120) -> Dict[str, Any]:
 
 
 def index_bars_and_source(code: str, *, limit: int = 120) -> Tuple[List[dict], str]:
-    """指数日线 + 来源标签（兼容旧 ``fetch_index_bars`` 二元组）。"""
+    """指数日线与来源标签。"""
     return get_default_service().index_bars_and_source(code, limit=limit)
 
 
@@ -95,7 +95,7 @@ def get_bars(
     offline_only: bool = False,
     reject_quote_fallback: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """返回 dict 信封（兼容旧调用）。类型化请用 ``MarketDataService.get_bars``。"""
+    """返回 dict 信封。类型化请用 ``MarketDataService.get_bars``。"""
     return get_default_service().get_bars(
         code,
         limit=limit,

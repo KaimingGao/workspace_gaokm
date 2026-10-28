@@ -121,27 +121,18 @@ def summarize_portfolio_backtest(
     *,
     codes: Optional[List[str]] = None,
     lookback: int = DAILY_BT_UI_LOOKBACK,
-    top_k: Optional[int] = None,
-    horizon_days: Optional[int] = None,
-    min_score: Optional[float] = None,
-    min_predicted_score: Optional[float] = None,
     apply_costs: Optional[bool] = None,
     fusion_w_co: Optional[float] = None,
     fuse_enter: Optional[float] = None,
     fuse_strong: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """日报历史回测摘要：与 /replay 同一引擎 paper_replay / rank_lots。
-
-    top_k / horizon_days / min_score 保留兼容签名，主路径不再截 Top-K 独立腿。
-    """
+    """日报历史回测摘要：与 /replay 同一引擎 paper_replay / rank_lots。"""
     from core.backtest.paper_replay import (
         REPLAY_CASH_FLOOR,
         REPLAY_INITIAL_CASH,
         backtest_paper_replay,
     )
     from core.watching.store import read_watching
-
-    _ = top_k, horizon_days, min_score, min_predicted_score
 
     candidates = list(codes or [])
     if not candidates:

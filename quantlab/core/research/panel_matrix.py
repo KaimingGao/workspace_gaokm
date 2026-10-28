@@ -776,7 +776,6 @@ def _tau_stock_job(
 
 def _tau_grid_clock_fp(
     bars: Sequence[dict],
-    minute: Optional[Sequence[dict]],
     clock: str,
     *,
     min_history: int,
@@ -784,10 +783,9 @@ def _tau_grid_clock_fp(
     include_alpha_th: bool,
     bars_fp: Optional[str] = None,
 ) -> str:
-    """τ 网格 L1 指纹：日线 bars_fp（忽略 minute；与拟合 stitch 对齐）。"""
+    """τ 网格 L1 指纹：日线 bars_fp，与拟合 stitch 对齐。"""
     from core.research.horizon_l1 import horizon_tau_clock_fingerprint
 
-    _ = minute  # 保留参数兼容旧调用；指纹不再吃 5m
     return horizon_tau_clock_fingerprint(
         bars,
         clock,
@@ -942,7 +940,6 @@ def _tau_grid_stock_job(
     for clock in clocks:
         fp = _tau_grid_clock_fp(
             bars,
-            minute,
             clock,
             min_history=min_history,
             include_alpha_tc=include_alpha_tc,

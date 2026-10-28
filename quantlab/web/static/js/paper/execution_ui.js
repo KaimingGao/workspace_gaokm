@@ -763,13 +763,11 @@ export function resolveT0BacktestScope(root, evt = {}) {
   if (wantOnly && !selectedCode) {
     return {
       onlySelected: false,
-      useMinute: true,
       error: "请先点击持仓表选中一只股票，或取消「仅选中」",
     };
   }
   return {
     onlySelected: wantOnly && !!selectedCode,
-    useMinute: true,
     error: null,
   };
 }
@@ -818,7 +816,7 @@ export function fillT0BtSizing(root, data) {
 
 /**
  * 做T回测请求体：直接读表单当前值（不必先点保存）。
- * @param {{ useMinute?: boolean, onlySelected?: boolean, selectedCode?: string }} opts
+ * @param {{ onlySelected?: boolean, selectedCode?: string }} opts
  */
 export function collectT0BacktestBody(root, opts = {}) {
   const patch = collectExecutionForm(root) || { t0: {} };
@@ -832,7 +830,6 @@ export function collectT0BacktestBody(root, opts = {}) {
   const body = {
     from_paper: true,
     lookback,
-    use_minute: true,
     t0_ratio: 1.0,
     fill_mode: "trigger",
     fill_mode_sell_then_buy: "trigger",

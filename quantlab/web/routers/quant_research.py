@@ -140,7 +140,6 @@ def quant_yhat_residual_shadow(body: YhatResidualShadowRequest) -> Dict[str, Any
         return deps.quant.run_yhat_residual_shadow(
             watching_limit=body.watching_limit,
             top_k=body.top_k,
-            prefer_cluster_book=body.prefer_cluster_book,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -206,8 +205,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
-            train_universe_tier_a=bool(body.train_universe_tier_a)
-            or bool(body.zscore_universe_tier_a),
+            train_universe_tier_a=bool(body.train_universe_tier_a),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -238,8 +236,7 @@ def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
-            train_universe_tier_a=bool(body.train_universe_tier_a)
-            or bool(body.zscore_universe_tier_a),
+            train_universe_tier_a=bool(body.train_universe_tier_a),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

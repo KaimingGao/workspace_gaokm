@@ -46,11 +46,8 @@ def score_and_rank_watching(
     return_model: Optional[Any] = None,
     return_models_by_code: Optional[Dict[str, Any]] = None,
     min_predicted_score: Optional[float] = None,
-    min_return_score: Optional[float] = None,  # 旧名
-    min_predicted_return: Optional[float] = None,  # 旧名
     allow_heuristic_baseline: bool = False,
     apply_tau_buy_gate: bool = True,
-    exclude_oos_failed: bool = True,
 ) -> Tuple[List[Tuple[str, float]], Dict[str, Any]]:
     """
     对一批已算出的 signal_item 形条目做截面中性化（可选）并排序。
@@ -59,7 +56,6 @@ def score_and_rank_watching(
     用 heuristic_score（人工线性加权 0–100）作对照基线臂。
     ``apply_tau_buy_gate=False``：历史/研究路径跳过 ŷ_τ 硬闸与分钟 PIT 挂载，
     并按 ŷ_oo 排序（不拿日线近似 ŷ_trade/blend 当选股键）。
-    ``exclude_oos_failed``：分组 OOS 已下线，保留入参兼容，不再过滤。
     """
     from core.signal.return_score import (
         apply_predicted_scores,
@@ -68,11 +64,6 @@ def score_and_rank_watching(
         rank_by_predicted_score,
         resolve_research_rank_mode,
     )
-
-    if min_predicted_score is None:
-        min_predicted_score = min_return_score
-    if min_predicted_score is None:
-        min_predicted_score = min_predicted_return
 
     cfg = config or load_signal_config()
     cs_cfg = cfg.get("cross_section") or {}
@@ -100,9 +91,6 @@ def score_and_rank_watching(
     meta: Dict[str, Any] = {
         "applied": False,
         "rank_mode": mode,
-        "oos_failed_blocked_codes": 0,
-        "oos_failed_excluded": 0,
-        "exclude_oos_failed_ignored": bool(exclude_oos_failed),
     }
     items = list(entries)
 
@@ -355,7 +343,6 @@ def score_and_rank_watching(
         ranked.sort(key=lambda x: (-float(x[2]), str(x[0])))
         picks = [(c, oo) for c, oo, _b in ranked]
         meta["dual_score_tau_gated"] = gated
-        meta["oos_failed_excluded"] = 0
         meta["rank_key"] = (
             "predicted_score_oo"
             if not apply_tau_buy_gate
@@ -369,7 +356,6 @@ def score_and_rank_watching(
         if not picks:
             meta["predicted_score_fallback"] = "empty_preds"
             picks = []
-        meta["oos_failed_excluded"] = 0
 
     meta["items_by_code"] = {
         str(it.get("stock_code") or "").strip(): it

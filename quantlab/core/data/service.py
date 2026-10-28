@@ -168,16 +168,6 @@ class MarketDataService:
                 use_cache=bool(use_cache),
                 max_age_hours=float(max_age_hours or MINUTE_CACHE_HOURS),
             )
-            if isinstance(packed, tuple) and len(packed) >= 2:
-                bars, meta = packed[0], packed[1]
-            else:
-                bars, meta = packed, {}
-        except TypeError:
-            packed = self.ports.minute.fetch_minute(raw)
-            if isinstance(packed, tuple) and len(packed) >= 2:
-                bars, meta = packed[0], packed[1]
-            else:
-                bars, meta = packed, {}
         except Exception as e:
             logger.exception('unexpected error in get_minute_bars')
             return DataEnvelope(
@@ -197,6 +187,10 @@ class MarketDataService:
                 production_ok=False,
                 gate_reason="minute_error",
             )
+        if isinstance(packed, tuple) and len(packed) >= 2:
+            bars, meta = packed[0], packed[1]
+        else:
+            bars, meta = packed, {}
         meta = meta if isinstance(meta, dict) else {}
         bar_list = list(bars or []) if not isinstance(bars, dict) else []
         ok = bool(bar_list)

@@ -73,14 +73,6 @@ def normalize_train_universe(raw: Any) -> str:
     return TRAIN_UNIVERSE_POOL
 
 
-def is_tier_a_zscore_universe(*sources: Any) -> bool:
-    """兼容旧名：现表示「训练宇宙是否 A」，不再表示缩 z。
-
-    优先读 ``train_universe``；否则回落旧 ``zscore_universe=tier_a``。
-    """
-    return is_tier_a_train_universe(*sources)
-
-
 def is_tier_a_train_universe(*sources: Any) -> bool:
     """任一来源标记训练宇宙为 A 档。"""
     for src in sources:

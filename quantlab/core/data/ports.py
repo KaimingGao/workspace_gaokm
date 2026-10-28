@@ -90,20 +90,16 @@ class _BarsAdapter:
     def fetch_daily(self, code: str, **kwargs: Any) -> Tuple[List[dict], str]:
         from core.ports.market import fetch_daily_bars
 
-        result = fetch_daily_bars(code, **kwargs)
-        if isinstance(result, tuple) and len(result) >= 2:
-            return list(result[0] or []), str(result[1] or "")
-        return list(result or []), "unknown"
+        bars, label = fetch_daily_bars(code, **kwargs)
+        return list(bars or []), str(label or "")
 
 
 class _IndexAdapter:
     def fetch_index(self, code: str, *, limit: int = 120) -> Tuple[List[dict], str]:
         from core.ports.market import fetch_index_bars
 
-        packed = fetch_index_bars(code, limit=int(limit or 120))
-        if isinstance(packed, tuple) and len(packed) >= 2:
-            return list(packed[0] or []), str(packed[1] or "index")
-        return list(packed or []), "index"
+        bars, label = fetch_index_bars(code, limit=int(limit or 120))
+        return list(bars or []), str(label or "index")
 
 
 class _MinuteAdapter:

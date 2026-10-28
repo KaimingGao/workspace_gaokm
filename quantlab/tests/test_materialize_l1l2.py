@@ -883,7 +883,7 @@ class CubeZPerClockTests(unittest.TestCase):
             )
         self.assertTrue(meta.get("ok"), meta)
         self.assertIsNotNone(z)
-        self.assertIn("f2", meta.get("missing_cols") or meta.get("matrix_fallback_cols") or [])
+        self.assertIn("f2", meta.get("missing_cols") or [])
         # f1 用 Cube：(1-0)/1=1；(3-0)/1=3
         self.assertAlmostEqual(float(z[0, 0]), 1.0, places=5)
         self.assertAlmostEqual(float(z[1, 0]), 3.0, places=5)
@@ -2887,7 +2887,7 @@ class DayMatrixCsEnrichTests(unittest.TestCase):
         # (3-1)/1=2；(2.5-0.5)/2=1
         self.assertAlmostEqual(float(z[0, 0]), 2.0, places=5)
         self.assertAlmostEqual(float(z[0, 1]), 1.0, places=5)
-        self.assertEqual(meta.get("matrix_fallback_cols") or [], [])
+        self.assertEqual(meta.get("missing_cols") or [], [])
 
 
 class CubeBatchFillTests(unittest.TestCase):
@@ -3780,7 +3780,6 @@ class TauGridPanelTests(unittest.TestCase):
             shared = horizon_tau_bars_fp(bars)
             one = _tau_grid_clock_fp(
                 bars,
-                minutes,
                 "09:35",
                 min_history=12,
                 include_alpha_tc=True,
@@ -3789,7 +3788,6 @@ class TauGridPanelTests(unittest.TestCase):
             )
             two = _tau_grid_clock_fp(
                 bars,
-                minutes,
                 "10:00",
                 min_history=12,
                 include_alpha_tc=True,
@@ -3798,7 +3796,6 @@ class TauGridPanelTests(unittest.TestCase):
             )
             lone = _tau_grid_clock_fp(
                 bars,
-                minutes,
                 "09:35",
                 min_history=12,
                 include_alpha_tc=True,

@@ -6,7 +6,7 @@ import unittest
 
 from quant.services.action_map import action_map
 from quant.services.quant_service import QuantService
-from quant.services.quant_service_replay import QuantPortfolioMixin, QuantReplayMixin
+from quant.services.quant_service_replay import QuantReplayMixin
 
 
 class TestQuantActions(unittest.TestCase):
@@ -31,9 +31,7 @@ class TestQuantActions(unittest.TestCase):
         self.assertTrue(callable(qs.build_portfolio_bridge))
         self.assertFalse(hasattr(qs, "run_paper_vs_portfolio"))
         self.assertEqual(qs.action_map()["actions"][0]["id"], "strategy")
-
-    def test_portfolio_mixin_alias(self):
-        self.assertIs(QuantPortfolioMixin, QuantReplayMixin)
+        self.assertTrue(issubclass(QuantService, QuantReplayMixin))
 
 if __name__ == "__main__":
     unittest.main()

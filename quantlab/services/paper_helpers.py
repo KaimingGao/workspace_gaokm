@@ -6,11 +6,9 @@
 from __future__ import annotations
 
 from core.signal.score_view import (
-    _build_score_formula,
-    build_score_formula,
-)
-from core.signal.score_view import (
     active_return_model_payload as _active_return_model_payload,
+    build_score_formula,
+    build_score_formula as _build_score_formula,
 )
 
 __all__ = [

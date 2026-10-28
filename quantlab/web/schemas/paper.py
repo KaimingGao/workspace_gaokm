@@ -86,7 +86,6 @@ class T0BacktestRequest(BaseModel):
     fill_mode_buy_then_sell: Optional[str] = Field(default=None, max_length=16)
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
-    use_minute: bool = True
     y_tw_enter: Optional[float] = Field(
         default=None,
         ge=0.0,

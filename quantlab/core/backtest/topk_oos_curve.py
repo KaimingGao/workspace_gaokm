@@ -329,7 +329,6 @@ def run_oos_topk_curve(
             allow_heuristic_baseline=allow_heuristic_baseline
             or resolved_rank_mode == "heuristic_score",
             apply_tau_buy_gate=False,
-            exclude_oos_failed=False,
         )
         selected = list(picks[:top_k])
         rebalance_idx += 1

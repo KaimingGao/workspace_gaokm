@@ -63,7 +63,7 @@ class TestResearchTask(unittest.TestCase):
         self.assertEqual(rec["metrics"]["oos_spearman"], 0.07)
         self.assertEqual(rec["metrics"]["fit_end"], "2024-06-01")
         self.assertEqual(rec["metrics"]["research_window"], "holdout_train")
-        self.assertEqual(rec["metrics"]["live_window"], "holdout_train")
+        self.assertNotIn("live_window", rec["metrics"])
         self.assertTrue(rec["metrics"]["oos_guard_ok"])
         self.assertEqual(rec["tags"]["fundamentals_pit"], "true")
         finish_research_run("task_probe", {"lookback": 9}, report)
