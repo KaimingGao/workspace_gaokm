@@ -628,8 +628,12 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: min(68vh, 860px);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-radius: var(--follow-radius);
   border-color: var(--line);
   background: var(--surface);
@@ -637,15 +641,19 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table {
-  /* 与 base.css 同步：股票 / 分档 / 昨收到 τc_rank */
-  --rebalance-cols: minmax(8.5rem, 1.25fr) 3.25rem repeat(9, minmax(5.75rem, 1fr));
-  min-width: 90rem;
+  /* 与 base.css 同步：股票 / 分档 / 昨收到 τc_rank；吃满容器无横向滚动 */
+  --rebalance-cols: minmax(0, 1.45fr) minmax(0, 0.42fr) repeat(9, minmax(0, 1fr));
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   font-size: 0.78rem;
 }
 
 .follow-page .rebalance-table-head,
 .follow-page .rebalance-row {
-  column-gap: 16px;
+  column-gap: 8px;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .follow-page .rebalance-table-head {
@@ -661,9 +669,10 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 
 .follow-page .rebalance-row > .num {
   font-size: 0.76rem;
-  padding-left: 6px;
-  padding-right: 6px;
-  overflow: visible;
+  padding-left: 4px;
+  padding-right: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -677,11 +686,12 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
   padding-right: 12px;
 }
 
-/* 预演调仓表：外层 wrap 不裁切末列，横向滚动交给 rebalance-table-scroll */
+/* 预演调仓表：外层与主表同宽，禁止横向滚动 */
 body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
 .follow-rebalance-card #paper-rebalance-report {
-  overflow-x: visible;
+  overflow-x: hidden;
   max-width: 100%;
+  min-width: 0;
 }
 
 .paper-ops-report {

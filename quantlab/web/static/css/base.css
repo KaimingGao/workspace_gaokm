@@ -1434,9 +1434,12 @@ a.dialog-btn[aria-disabled="true"] {
 
 .rebalance-table-scroll {
   width: 100%;
-  /* 与数据中心名单表体同高：框固定，行列在框内滑；表头 sticky */
+  max-width: 100%;
+  min-width: 0;
+  /* 与数据中心名单表体同高：框固定，纵向在框内滑；禁止横向滚动 */
   height: min(68vh, 860px);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1444,7 +1447,7 @@ a.dialog-btn[aria-disabled="true"] {
 }
 
 .rebalance-stock {
-  min-width: 6.5rem;
+  min-width: 0;
 }
 
 .rebalance-stock-name {
@@ -3653,8 +3656,11 @@ html[data-density="compact"] .table-pager {
 /* Rebalance preview — trading blotter denseness, aligned tracks */
 .rebalance-table-scroll {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: min(68vh, 860px);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--follow-radius, var(--r-lg, 8px));
   background: var(--surface);
@@ -3663,10 +3669,11 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-table {
-  /* 股票 / 分档 / 昨收到 τc_rank；横向溢出交给 scroll */
-  --rebalance-cols: minmax(8.5rem, 1.25fr) 3.25rem repeat(9, minmax(5.75rem, 1fr));
+  /* 股票 / 分档 / 昨收到 τc_rank；列宽吃满容器，禁止横向滚动 */
+  --rebalance-cols: minmax(0, 1.45fr) minmax(0, 0.42fr) repeat(9, minmax(0, 1fr));
   width: 100%;
-  min-width: 90rem;
+  max-width: 100%;
+  min-width: 0;
   font-size: 0.78rem;
   background: transparent;
 }
@@ -3677,8 +3684,10 @@ html[data-density="compact"] .table-pager {
   grid-template-columns: var(--rebalance-cols);
   align-items: center;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
-  column-gap: 16px;
+  column-gap: 8px;
 }
 
 .rebalance-table-head {
@@ -3710,10 +3719,10 @@ html[data-density="compact"] .table-pager {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   justify-self: stretch;
-  padding-left: 6px;
-  padding-right: 6px;
-  overflow: visible;
-  text-overflow: clip;
+  padding-left: 4px;
+  padding-right: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

@@ -1181,12 +1181,19 @@ class TestPredictabilityTiers(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             last_p = os.path.join(td, "predictability_tiers_last.json")
+            active_p = os.path.join(td, "predictability_tiers_active.json")
             with patch(
                 "core.research.predictability_tiers.accumulate_holdout_oos_by_code",
                 side_effect=_fake_accumulate,
             ), patch(
                 "core.research.predictability_tiers.predictability_tiers_last_path",
                 return_value=last_p,
+            ), patch(
+                "core.research.predictability_tiers.predictability_tiers_active_path",
+                return_value=active_p,
+            ), patch(
+                "core.live_config_manifest.write_live_config_manifest",
+                return_value={},
             ), patch(
                 "core.research.predictability_tiers._watching_name_map",
                 return_value={"000001": "平安银行", "000002": "万科A", "600000": "浦发银行"},
