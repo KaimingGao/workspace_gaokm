@@ -4,7 +4,7 @@ Live 窗跟 ``live_fill_clock``（启动时间，默认 09:30；可选 09:25）�
 窗起点=启动时间本身：09:25 集合竞价定开后即可算 fuse / 挂开盘单；09:30 起连续竞价现价；
 更晚要等对应 5m。过 10:00 不补跑。
 ≤09:30 的 ŷ_τc 走开盘 Z，不拉当天 5m（与回测成交钟 09:30 同口径）。
-手动预演 / 确认落账与 Worker 共用该窗口。
+手动执行是 09:30 开盘预估分复现，不走此窗口、不写账。
 开关与 last_run_session 持久化到 data/rebalance_auto_worker.json。
 
 轮询：窗内 ``TICK_INTERVAL_SEC``=30s，窗外 ``IDLE_TICK_INTERVAL_SEC``=60s。
@@ -373,7 +373,7 @@ class RebalanceAutoWorker:
         _save_state({"enabled": True})
         return {"ok": True, "worker": self.status(), "message": "已启动后台进程"}
 
-    def stop(self) -> Dict[str, Any]:
+    def stop(self, *, persist: bool = True) -> Dict[str, Any]:
         with self._lock:
             self._enabled = False
             self._stop.set()
@@ -382,7 +382,8 @@ class RebalanceAutoWorker:
             th.join(timeout=IDLE_TICK_INTERVAL_SEC + 5)
         with self._lock:
             self._thread = None
-        _save_state({"enabled": False})
+        if persist:
+            _save_state({"enabled": False})
         return {"ok": True, "worker": self.status(), "message": "已停止后台进程"}
 
     def set_enabled(self, enabled: bool) -> Dict[str, Any]:

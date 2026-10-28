@@ -1434,8 +1434,9 @@ a.dialog-btn[aria-disabled="true"] {
 
 .rebalance-table-scroll {
   width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
+  /* 与数据中心名单表体同高：框固定，行列在框内滑；表头 sticky */
+  height: min(68vh, 860px);
+  overflow: auto;
   -webkit-overflow-scrolling: touch;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1479,42 +1480,10 @@ a.dialog-btn[aria-disabled="true"] {
   margin-top: 2px;
 }
 
-.rebalance-shares {
-  white-space: nowrap;
-  color: var(--ink-2);
-}
-
-.rebalance-shares-arrow {
-  margin: 0 4px;
-  color: var(--ink-3);
-}
-
-.rebalance-shares-new {
-  font-weight: 650;
-  color: var(--ink);
-}
-
 .rebalance-chg {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.rebalance-change {
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.rebalance-up .rebalance-change {
-  color: #dc2626;
-}
-
-.rebalance-down .rebalance-change {
-  color: #059669;
-}
-
-.rebalance-sell .rebalance-change {
-  color: #dc2626;
 }
 
 .rebalance-hold {
@@ -1554,40 +1523,6 @@ a.dialog-btn[aria-disabled="true"] {
 
 .rebalance-score.score-na {
   color: #9ca3af;
-}
-
-.rebalance-decision-tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 0.68rem;
-  font-weight: 650;
-  text-align: center;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-
-.rebalance-decision-tag.up {
-  background: rgba(217, 119, 6, 0.1);
-  color: #b45309;
-  border-color: rgba(217, 119, 6, 0.22);
-}
-
-.rebalance-decision-tag.down {
-  background: rgba(5, 150, 105, 0.1);
-  color: #047857;
-  border-color: rgba(5, 150, 105, 0.22);
-}
-
-.rebalance-decision-tag.sell {
-  background: rgba(220, 38, 38, 0.08);
-  color: #b91c1c;
-  border-color: rgba(220, 38, 38, 0.2);
-}
-
-.rebalance-decision-tag.hold {
-  background: var(--line-2);
-  color: var(--ink-3);
 }
 
 .rebalance-row-expanded {
@@ -3718,8 +3653,8 @@ html[data-density="compact"] .table-pager {
 /* Rebalance preview — trading blotter denseness, aligned tracks */
 .rebalance-table-scroll {
   width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
+  height: min(68vh, 860px);
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--follow-radius, var(--r-lg, 8px));
   background: var(--surface);
@@ -3728,8 +3663,8 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-table {
-  /* 股票 / 决策加宽，中间价分列够放下 ±xx.xx%；横向溢出交给 scroll */
-  --rebalance-cols: minmax(8.5rem, 1.25fr) repeat(11, minmax(5.75rem, 1fr)) minmax(8.75rem, 1.2fr);
+  /* 股票 / 分档 / 昨收到 τc_rank；横向溢出交给 scroll */
+  --rebalance-cols: minmax(8.5rem, 1.25fr) 3.25rem repeat(9, minmax(5.75rem, 1fr));
   width: 100%;
   min-width: 90rem;
   font-size: 0.78rem;
@@ -3788,14 +3723,17 @@ html[data-density="compact"] .table-pager {
   justify-self: stretch;
 }
 
-.rebalance-th.rebalance-th-decision,
-.rebalance-decision {
-  text-align: right;
-  justify-self: stretch;
+.rebalance-th.is-sortable {
+  cursor: pointer;
+}
+
+.rebalance-th-tier,
+.rebalance-tier {
+  text-align: center;
+  justify-self: center;
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  overflow: visible;
+  justify-content: center;
 }
 
 .rebalance-row {
@@ -3930,56 +3868,6 @@ html[data-density="compact"] .table-pager {
   transform: rotate(90deg);
 }
 
-.rebalance-shares {
-  display: inline-flex;
-  justify-content: flex-end;
-  align-items: baseline;
-  gap: 0;
-  width: 100%;
-  white-space: nowrap;
-  color: var(--ink-2);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 11.5px;
-  line-height: 18px;
-}
-
-.rebalance-shares-old {
-  color: var(--ink-3);
-  font-weight: 500;
-}
-
-.rebalance-shares-arrow {
-  margin: 0 3px;
-  color: color-mix(in srgb, var(--ink-3) 70%, transparent);
-  flex: 0 0 auto;
-  font-size: 10px;
-}
-
-.rebalance-shares-new {
-  font-weight: 650;
-  color: var(--ink);
-}
-
-.rebalance-change {
-  font-weight: 650;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-}
-
-.rebalance-change.is-flat {
-  color: var(--ink-3);
-  font-weight: 500;
-}
-
-.rebalance-up .rebalance-change:not(.is-flat) { color: var(--color-up); }
-
-.rebalance-down .rebalance-change:not(.is-flat) { color: var(--color-down); }
-
-.rebalance-sell .rebalance-change:not(.is-flat) { color: var(--color-up); }
-
 /* 2px action rail — quieter than 3px pills */
 .rebalance-hold {
   background: transparent;
@@ -4012,64 +3900,6 @@ html[data-density="compact"] .table-pager {
 .rebalance-score.score-flat { color: var(--ink-2); }
 
 .rebalance-score.score-na { color: var(--ink-3); font-weight: 500; }
-
-.rebalance-decision {
-  min-width: 0;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  overflow: visible;
-}
-
-.rebalance-decision-tag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  max-width: none;
-  min-height: 20px;
-  padding: 1px 8px;
-  border-radius: 2px;
-  font-size: 10.5px;
-  line-height: 16px;
-  font-weight: 650;
-  text-align: center;
-  white-space: nowrap;
-  overflow: visible;
-  text-overflow: clip;
-  border: 1px solid transparent;
-  letter-spacing: 0.02em;
-  box-sizing: border-box;
-  flex-shrink: 0;
-}
-
-.rebalance-decision-tag.has-tip {
-  cursor: help;
-}
-
-.rebalance-decision-tag.up {
-  background: color-mix(in srgb, var(--gold) 12%, transparent);
-  color: #92400e;
-  border-color: color-mix(in srgb, var(--gold) 28%, transparent);
-}
-
-.rebalance-decision-tag.down {
-  background: color-mix(in srgb, var(--ok, var(--color-down)) 10%, transparent);
-  color: #065f46;
-  border-color: color-mix(in srgb, var(--ok, var(--color-down)) 22%, transparent);
-}
-
-.rebalance-decision-tag.sell {
-  background: color-mix(in srgb, var(--color-up) 10%, transparent);
-  color: #991b1b;
-  border-color: color-mix(in srgb, var(--color-up) 22%, transparent);
-}
-
-.rebalance-decision-tag.hold {
-  background: transparent;
-  color: var(--ink-3);
-  border-color: var(--line);
-  font-weight: 600;
-}
 
 .log-row {
   display: grid;

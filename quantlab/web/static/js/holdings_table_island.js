@@ -2,7 +2,7 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p2544";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p3360";
 import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2746";
 import {
   isSingleHeadItem,
@@ -11,6 +11,10 @@ import {
 } from "./quant/watching_insights_ui.js?v=p2544";
 import { formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
+import {
+  holdingFuseBelowEnter,
+  holdingFuseBelowTitle,
+} from "./paper/holdings_ui.js?v=p3358";
 import { holdingT0BadgeHtml } from "./paper/holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode, ensureFitTierMap } from "./quant/fit_tier_ui.js?v=p2261";
 
@@ -63,8 +67,7 @@ export function holdingToRow(
   const scoreEod = resolveEodScore(h);
   const scoreTau = resolveTauScore(h);
   const scoreOn = resolveOnScore(h);
-  const belowMin = !!h.below_min_score;
-  const minScore = h.min_score;
+  const belowMin = holdingFuseBelowEnter(h, score);
   const hardReject = !!h.hard_reject;
   const scoreBase = fmtTableScore(h, score);
   let scoreText =
@@ -90,7 +93,7 @@ export function holdingToRow(
       : singleHead
         ? `fuse 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
-        ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 fuse）· 悬停看详情`
+        ? holdingFuseBelowTitle(h)
         : FUSE_REBALANCE_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
@@ -119,8 +122,6 @@ export function holdingToRow(
     return `${sign}${n.toFixed(2)}%`;
   };
   const pnlText = fmtSignedPct(pnl);
-  const chg = h.change_pct;
-  const chgText = fmtSignedPct(chg);
   return {
     code,
     name,
@@ -136,7 +137,8 @@ export function holdingToRow(
       const n = resolveOpenPx(h);
       return n != null && Number.isFinite(n) ? n : null;
     })(),
-    costText: fmtPriceUnit(h.cost, h.unit, h.currency),
+    costText: fmtPriceUnit(h.cost, h.unit, h.currency, 2),
+    costExact: fmtPriceUnit(h.cost, h.unit, h.currency),
     mvText: fmtPriceUnit(h.market_value, h.unit, h.currency),
     marketValueNum: Number.isFinite(mv) ? mv : null,
     scoreText,
@@ -174,10 +176,6 @@ export function holdingToRow(
     tcRankNum: tcRank.num,
     tcRankTitle,
     scoreDetail: watchingScoreDetail(h),
-    chgText,
-    chgCls: metricCls(chg),
-    chgNum: chg != null && Number.isFinite(Number(chg)) ? Number(chg) : null,
-    changeAsof: h.change_asof || h.quote_as_of || h.as_of || null,
     pnlText,
     pnlCls: metricCls(pnl),
     pnlNum: pnl != null && Number.isFinite(Number(pnl)) ? Number(pnl) : null,
@@ -246,14 +244,6 @@ const COLS = [
   { id: "prev_close", label: "昨收", width: 78, num: true, title: "上一交易日收盘价" },
   { id: "open", label: "今开", width: 78, num: true, title: "今日开盘价" },
   { id: "price", label: "现价", width: 78, num: true, title: "最新成交价" },
-  {
-    id: "chg",
-    label: "涨跌",
-    width: 68,
-    num: true,
-    sortable: true,
-    title: "相对昨收的涨跌幅 %",
-  },
   {
     id: "score_eod",
     label: "y_oo",
@@ -387,7 +377,6 @@ function compare(id, a, b) {
   if (id === "oo_rank") return rankCmp(a.ooRankNum, b.ooRankNum);
   if (id === "tc_rank") return rankCmp(a.tcRankNum, b.tcRankNum);
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
-  if (id === "chg") return numCmp(Number(a.chgNum), Number(b.chgNum));
   if (id === "open") return numCmp(Number(a.openNum), Number(b.openNum));
   return numCmp(Number(a.marketValueNum), Number(b.marketValueNum));
 }
@@ -487,25 +476,9 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         const text = String(full).replace(/元$/u, "");
         return `<span class="paper-hold-open" title="${escapeHtml(full)}">${escapeHtml(text)}</span>`;
       }
-      if (col.id === "chg") {
-        const code = escapeHtml(d.code || "");
-        const asof = escapeHtml(String(d.changeAsof || "").slice(0, 10));
-        const name = escapeHtml(d.name || "");
-        const chgNum =
-          d.chgNum != null && Number.isFinite(Number(d.chgNum))
-            ? String(Number(d.chgNum))
-            : "";
-        return (
-          `<span class="paper-hold-chg has-tip ${escapeHtml(d.chgCls || "")}" ` +
-          `data-hold-chg-code="${code}" data-hold-chg-name="${name}" ` +
-          `data-hold-chg-asof="${asof}" data-hold-chg-num="${escapeHtml(chgNum)}" ` +
-          `data-hold-chg-tip="${code}" title="相对昨收 · 悬停看涨跌日5m K">${escapeHtml(
-            d.chgText || "—"
-          )}</span>`
-        );
-      }
       if (col.id === "cost") {
-        return `<span class="paper-hold-cost" title="持仓加权平均成本">${escapeHtml(
+        const exact = d.costExact || d.costText || "—";
+        return `<span class="paper-hold-cost" title="持仓加权平均成本 ${escapeHtml(exact)}">${escapeHtml(
           d.costText || "—"
         )}</span>`;
       }

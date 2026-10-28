@@ -222,6 +222,75 @@ class TestAutoRebalanceWindow(unittest.TestCase):
             except OSError:
                 pass
 
+    def test_open_replay_skips_window_and_drops_buys(self):
+        from services.paper_trades import PaperTradesMixin
+
+        paper = {
+            "strategy_id": "short_conservative",
+            "cash": 1_000_000,
+            "holdings": [],
+            "trades": [],
+            "snapshots": [],
+            "operation_log": [],
+            "updated_at": "2026-01-01T00:00:00",
+        }
+        simulated = {
+            "success": True,
+            "ok": True,
+            "mode": "watching_matrix",
+            "dry_run": False,
+            "matrix_mode": True,
+            "confirm_supported": True,
+            "sell_trades": [{"stock_code": "600887", "side": "sell", "shares": 100}],
+            "buy_trades": [{"stock_code": "000001", "side": "buy", "action": "open"}],
+            "rebalance_report": [
+                {"stock_code": "600887", "side": "sell", "decision": "卖出"},
+                {"stock_code": "000001", "side": "buy", "decision": "买入"},
+                {"stock_code": "000002", "decision": "加仓", "side": "buy"},
+            ],
+            "cash_impact": {"buy_amount": 1000, "sell_amount": 200, "net_cash": -800},
+            "note": "09:30 开盘复现 · 预估分 · 不含开仓/加仓 · 不写账",
+        }
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            path = tf.name
+        try:
+            import json
+
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            class _T(PaperTradesMixin):
+                pass
+
+            svc = _T()
+            svc.path = path
+            with patch(
+                "core.paper.rebalance.auto_worker.rebalance_window_gate",
+            ) as gate, patch(
+                "core.paper.rebalance.watching_matrix.simulate_watching_matrix_preview",
+                return_value=simulated,
+            ) as sim, patch(
+                "services.paper_trades.save_paper",
+            ) as save:
+                out = svc.rebalance(dry_run=False, open_replay=True)
+            gate.assert_not_called()
+            sim.assert_called_once()
+            self.assertTrue(sim.call_args.kwargs.get("open_replay"))
+            self.assertTrue(sim.call_args.kwargs.get("dry_run"))
+            save.assert_not_called()
+            self.assertTrue(out.get("dry_run"))
+            self.assertTrue(out.get("open_replay"))
+            self.assertFalse(out.get("confirm_supported"))
+            self.assertEqual(out.get("buy_trades"), [])
+            codes = [r.get("stock_code") for r in out.get("rebalance_report") or []]
+            self.assertEqual(codes, ["600887"])
+            self.assertEqual((out.get("cash_impact") or {}).get("buy_amount"), 0.0)
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
     def test_window_0930_to_1000(self):
         from core.paper.rebalance.auto_worker import (
             after_auto_rebalance_window,
@@ -501,6 +570,45 @@ class TestT0WorkerWaitsForRebalance(unittest.TestCase):
             inst.fill_pending.assert_called()
             inst.run_t0_intraday_tick.assert_not_called()
         self.assertIn("等待调仓", w.status()["last_tick_message"])
+
+
+class TestWorkerShutdownKeepsSwitch(unittest.TestCase):
+    def test_t0_stop_without_persist_leaves_flag(self):
+        from core.t0.auto_worker import T0AutoWorker, _load_enabled_flag
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "t0_auto_worker.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write('{"enabled": true}')
+            w = T0AutoWorker()
+            with patch("core.t0.auto_worker._worker_config_path", return_value=path):
+                w.stop(persist=False)
+                self.assertTrue(_load_enabled_flag())
+                w.stop()
+                self.assertFalse(_load_enabled_flag())
+
+    def test_rebalance_stop_without_persist_leaves_flag(self):
+        from core.paper.rebalance.auto_worker import (
+            RebalanceAutoWorker,
+            last_run_session,
+            load_enabled_flag,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "rebalance_auto_worker.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write('{"enabled": true, "last_run_session": "2026-10-27"}')
+            w = RebalanceAutoWorker()
+            with patch(
+                "core.paper.rebalance.auto_worker._worker_config_path",
+                return_value=path,
+            ):
+                w.stop(persist=False)
+                self.assertTrue(load_enabled_flag())
+                self.assertEqual(last_run_session(), "2026-10-27")
+                w.stop()
+                self.assertFalse(load_enabled_flag())
+
 
 class TestRebalanceDesk(unittest.TestCase):
     def test_rows_from_result_prefers_report(self):
@@ -824,6 +932,68 @@ class TestRebalanceDesk(unittest.TestCase):
         self.assertEqual(desk["rows"][0]["action"], "exit")
         self.assertEqual(desk["exit_count"], 1)
 
+    def test_trim_keeps_tier_rows_ahead_of_hard_reject(self):
+        from core.paper.rebalance.desk import desk_rows_from_result
+
+        report = [
+            {
+                "stock_code": f"{i:06d}",
+                "action": "skip",
+                "reason": "hard_reject",
+            }
+            for i in range(1, 91)
+        ]
+        report.extend(
+            {
+                "stock_code": f"6{i:05d}",
+                "action": "skip",
+                "reason": "fuse<入场 未过入场",
+            }
+            for i in range(90)
+        )
+        rows = desk_rows_from_result({"rebalance_report": report})
+        reasons = {str(r.get("reason") or "") for r in rows}
+        self.assertNotIn("hard_reject", reasons)
+        self.assertEqual(len(rows), 90)
+        self.assertTrue(all(str(r.get("stock_code") or "").startswith("6") for r in rows))
+
+    def test_cover_fills_missing_a_tier_names(self):
+        from core.paper.rebalance.desk import cover_allowed_tier_rows
+
+        with patch(
+            "core.paper.rebalance.desk._allowed_tier_directory",
+            return_value={"600000": "浦发", "000001": "平安", "600519": "茅台"},
+        ), patch(
+            "core.research.predictability_tiers.load_predictability_tiers_active",
+            return_value={"allowed_tiers": ["A"], "enabled": True},
+        ):
+            rows, covered = cover_allowed_tier_rows(
+                [
+                    {
+                        "stock_code": "000001",
+                        "stock_name": "平安银行",
+                        "action": "skip",
+                        "phase": "skip",
+                        "reason": "hard_reject",
+                    },
+                    {
+                        "stock_code": "600000",
+                        "stock_name": "浦发",
+                        "action": "open",
+                        "phase": "done",
+                        "reason": "买",
+                    },
+                ]
+            )
+        self.assertTrue(covered)
+        codes = [r["stock_code"] for r in rows]
+        self.assertEqual(codes, ["600000", "000001", "600519"])
+        self.assertEqual(rows[0]["action"], "open")
+        by = {r["stock_code"]: r for r in rows}
+        self.assertEqual(by["600519"]["action"], "watch")
+        self.assertEqual(by["600519"]["reason"], "A 档")
+        self.assertNotEqual(by["000001"]["reason"], "hard_reject")
+
 class TestFollowPanelWorkerMarkup(unittest.TestCase):
     def test_html_ids(self):
         path = os.path.join(ROOT, "web", "static", "partials", "follow_panel.html")
@@ -837,7 +1007,7 @@ class TestFollowPanelWorkerMarkup(unittest.TestCase):
         self.assertIn('id="follow-fold-rebalance-run"', text)
         self.assertIn("今日调仓盯盘状态", text)
         self.assertIn("自动调仓后台进程", text)
-        self.assertIn("本页只在启动时间～10:00 预演/落账", text)
+        self.assertIn("手动执行只复现 09:30 开盘预估分，不落账", text)
         self.assertIn('id="paper-live-fill-clock"', text)
         self.assertIn('type="range"', text)
         self.assertIn("paper-live-clock-range", text)
@@ -852,8 +1022,9 @@ class TestFollowPanelWorkerMarkup(unittest.TestCase):
             text.find('id="paper-rebalance-worker-badge"'),
             text.find('id="paper-rebalance-worker-enabled"'),
         )
-        self.assertIn("与自动调仓同一窗口", text)
-        self.assertIn("过点不补跑、不挂开盘单", text)
+        self.assertIn("不含开仓/加仓", text)
+        self.assertIn("过点不补跑", text)
+        self.assertNotIn("与自动调仓同一窗口", text)
         self.assertNotIn("收盘后挂次日开盘单", text)
         self.assertNotIn("09:30 口径", text)
         run_i = text.find('id="follow-fold-rebalance-run"')

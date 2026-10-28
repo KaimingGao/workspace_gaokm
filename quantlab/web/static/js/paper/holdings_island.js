@@ -60,7 +60,6 @@ export function createHoldingsIslandController(deps) {
           key === "score_tau" ||
           key === "score_on" ||
           key === "pnl" ||
-          key === "chg" ||
           key === "tier" ||
           key === "oo_rank" ||
           key === "tc_rank"

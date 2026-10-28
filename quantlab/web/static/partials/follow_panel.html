@@ -166,7 +166,6 @@
             </button>
             <span class="watching-toolbar-meta paper-trade-status follow-overview-fund-status" id="paper-fund-status" hidden aria-live="polite"></span>
           </div>
-          <div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub follow-north-star-sub" id="paper-fund-cash-text">尚未加载 · 初始化后显示现金余额</div>
         </div>
       </div>
       <div class="follow-ops-sub" id="paper-fund-log-card" hidden>
@@ -415,12 +414,9 @@
         <div class="quant-pro-card-body follow-card-body">
           <input type="hidden" id="paper-strategy" value="short_conservative" />
           <div id="paper-rebalance-rules" class="paper-t0-rules" aria-label="生效调仓规则"></div>
-          <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-run">历史回测</a> 改；本页只在启动时间～10:00 预演/落账。</p>
+          <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-run">历史回测</a> 改。手动执行只复现 09:30 开盘预估分，不落账。</p>
           <div class="quant-actions-inline paper-t0-manual-actions follow-rebalance-exec-actions">
-            <button type="button" id="paper-adjust" class="dialog-btn" title="手动预演：与自动调仓同一窗口（启动时间～10:00）。窗内 fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)，过 rank入场后按已保存入场/强档金额建仓或加仓；fuse&lt;0 或缺分清仓。确认落账时现价成交。未到点/过点不预演、不落账。">手动预演</button>
-            <button type="button" id="paper-rebalance-confirm" class="dialog-btn" hidden title="确认后按矩阵预演清单落账：仅在启动时间～10:00 现价成交一次；过点不补跑、不挂开盘单。">
-              确认落账
-            </button>
+            <button type="button" id="paper-adjust" class="dialog-btn" title="手动执行：复现当日 09:30 开盘时刻的调仓预估分（开盘 Z，不用开盘后 5m）。不含开仓/加仓。不写入纸面账户，只作对照。">手动执行</button>
             <span id="paper-path-matrix-status" class="quant-sub follow-holdings-load-status follow-ops-load-status" aria-live="polite"></span>
           </div>
           <div
@@ -435,7 +431,7 @@
           <div id="paper-rebalance-section" class="quant-weight-table-wrap" hidden>
             <details class="paper-t0-desk-fold paper-t0-preview-fold" open>
               <summary class="paper-t0-desk-fold-sum">
-                <span class="paper-t0-desk-fold-title">今日预演</span>
+                <span class="paper-t0-desk-fold-title">09:30 复现</span>
                 <span id="paper-rebalance-preview-chips" class="paper-t0-desk-chips"></span>
               </summary>
               <div class="paper-t0-desk-board">
@@ -443,7 +439,7 @@
                 <div id="paper-ops-report" class="paper-ops-report" hidden></div>
                 <div id="paper-rebalance-cash" class="paper-rebalance-cash" hidden></div>
                 <div id="paper-rebalance-report" class="quant-weight-table-wrap"></div>
-                <p class="paper-t0-desk-foot">预演不改账本 · 点「确认落账」后才写入 · fuse&lt;0 或缺分清仓</p>
+                <p class="paper-t0-desk-foot">09:30 开盘复现 · 不含开仓/加仓 · 不写账本</p>
               </div>
             </details>
           </div>

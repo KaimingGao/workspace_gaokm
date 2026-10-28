@@ -25,6 +25,10 @@ class PaperRebalanceRequest(BaseModel):
         default=False,
         description="true=仅预演不写 paper.json（交易执行页）",
     )
+    open_replay: bool = Field(
+        default=False,
+        description="true=复现当日 09:30 开盘预估分：开盘 Z、不含开仓/加仓、强制不写账",
+    )
     offline_only: bool = Field(
         default=True,
         description="true=日线/分钟/指数只用本地仓；UI 恒传 true（可拉远端先走增量补齐写仓）",

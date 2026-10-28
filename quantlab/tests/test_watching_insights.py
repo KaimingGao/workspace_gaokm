@@ -565,6 +565,9 @@ class TestHoldingScoresCausalRebalance(unittest.TestCase):
         ):
             mixin._compute_holding_scores(paper, summary)
         self.assertIs(captured.get("use_minute_tau"), True)
+        held = (summary.get("holdings") or [None])[0] or {}
+        self.assertIsInstance(held.get("fuse_enter_pct"), float)
+        self.assertGreater(held["fuse_enter_pct"], 0)
 
 class TestLiveRankSnapshot(unittest.TestCase):
     def test_today_snapshot_fills_holding_ranks(self):

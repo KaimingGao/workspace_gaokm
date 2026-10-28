@@ -139,7 +139,7 @@ class T0AutoWorker:
         _save_enabled_flag(True)
         return {"ok": True, "worker": self.status(), "message": "已启动后台进程"}
 
-    def stop(self) -> Dict[str, Any]:
+    def stop(self, *, persist: bool = True) -> Dict[str, Any]:
         with self._lock:
             self._enabled = False
             self._stop.set()
@@ -148,7 +148,8 @@ class T0AutoWorker:
             th.join(timeout=TICK_INTERVAL_SEC + 5)
         with self._lock:
             self._thread = None
-        _save_enabled_flag(False)
+        if persist:
+            _save_enabled_flag(False)
         return {"ok": True, "worker": self.status(), "message": "已停止后台进程"}
 
     def set_enabled(self, enabled: bool) -> Dict[str, Any]:

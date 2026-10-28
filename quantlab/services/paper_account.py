@@ -178,6 +178,18 @@ class PaperAccountMixin:
             except Exception:  # noqa: BLE001
                 log.debug("holding rank_cfg skipped", exc_info=True)
                 rank_cfg = None
+            enter_pct = None
+            if isinstance(rank_cfg, dict):
+                try:
+                    raw_enter = float(rank_cfg.get("fuse_enter"))
+                except (TypeError, ValueError):
+                    raw_enter = None
+                if (
+                    raw_enter is not None
+                    and raw_enter == raw_enter
+                    and raw_enter not in (float("inf"), float("-inf"))
+                ):
+                    enter_pct = round(raw_enter * 100.0, 4)
 
             def _pack_item(item: dict, *, cluster_mode=None) -> Dict[str, Any]:
                 return svc.pack_holding_row(
@@ -347,6 +359,8 @@ class PaperAccountMixin:
                         enriched["price_tau"] = p
                 except Exception:  # noqa: BLE001
                     log.debug("holding remaining y_oo_fuse skipped %s", code, exc_info=True)
+                if enter_pct is not None:
+                    enriched["fuse_enter_pct"] = enter_pct
                 enriched.pop("in_book", None)
                 t0_st = t0_by_code.get(code)
                 if t0_st:

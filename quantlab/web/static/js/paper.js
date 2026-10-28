@@ -23,7 +23,7 @@ import {
   loadHoldingsSort,
   persistHoldingsSort as persistHoldingsSortSaved,
   sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js?v=p3226";
+} from "./paper/holdings_sort.js?v=p3359";
 import {
   renderLineChart,
   loadLightweightCharts,
@@ -34,7 +34,8 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p3226";
+  holdActionHintText,
+} from "./paper/holdings_ui.js?v=p3360";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 import {
   renderExecutionRulesHtml,
@@ -56,12 +57,12 @@ import {
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js?v=p3319";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p3336";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p3370";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2746";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
-import { createHoldingsIslandController } from "./paper/holdings_island.js?v=p3226";
-import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p2088";
+import { createHoldingsIslandController } from "./paper/holdings_island.js?v=p3359";
+import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p3371";
 import {
   getDataOfflineOnly,
   installDataOfflineToggle,
@@ -70,7 +71,7 @@ import {
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
 import { BARS_WATCHING_LIMIT } from "./quant/params.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3226";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3371";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
 import {
@@ -301,6 +302,16 @@ export function initPaper(ctx) {
       if (cutBtn) cutBtn.dataset.shares = held;
       const input = bar.querySelector(".paper-hold-shares");
       if (input && document.activeElement !== input) input.value = "";
+      const hintNode = bar.querySelector(".paper-hold-action-hint");
+      if (hintNode) {
+        const heldRow = (
+          (lastAccountData && lastAccountData.summary && lastAccountData.summary.holdings) ||
+          []
+        ).find((h) => h && String(h.stock_code) === code);
+        hintNode.textContent = holdActionHintText(
+          heldRow || { shares: held }
+        );
+      }
     }
     const stockModeBtn = document.getElementById("paper-chart-stock-mode");
     if (stockModeBtn) {
@@ -501,6 +512,14 @@ export function initPaper(ctx) {
     return amount;
   }
 
+  function hideFundStatus() {
+    const el = document.getElementById("paper-fund-status");
+    if (!el) return;
+    el.textContent = "";
+    el.classList.remove("is-ok", "is-error");
+    el.hidden = true;
+  }
+
   const depositBtn = document.getElementById("paper-deposit");
   if (depositBtn && depositBtn.dataset.wired !== "1") {
     depositBtn.dataset.wired = "1";
@@ -508,9 +527,9 @@ export function initPaper(ctx) {
       e.preventDefault();
       const amount = readAdjustAmount();
       if (amount == null) return;
+      hideFundStatus();
       try {
-        setTradeStatus(`注资 ${amount.toLocaleString("zh-CN")} 中…`, { target: "paper-fund-status" });
-        await postPaperTrade("/api/paper/deposit", { amount }, "paper-fund-status");
+        await postPaperTrade("/api/paper/deposit", { amount }, false);
       } catch (err) {
         setTradeStatus(String(err.message || err), { error: true, target: "paper-fund-status" });
       }
@@ -524,9 +543,9 @@ export function initPaper(ctx) {
       e.preventDefault();
       const amount = readAdjustAmount();
       if (amount == null) return;
+      hideFundStatus();
       try {
-        setTradeStatus(`减资 ${amount.toLocaleString("zh-CN")} 中…`, { target: "paper-fund-status" });
-        await postPaperTrade("/api/paper/withdraw", { amount }, "paper-fund-status");
+        await postPaperTrade("/api/paper/withdraw", { amount }, false);
       } catch (err) {
         setTradeStatus(String(err.message || err), { error: true, target: "paper-fund-status" });
       }
@@ -541,11 +560,11 @@ export function initPaper(ctx) {
       if (!window.confirm("确认回零？持仓与现金保留；累计盈亏与今日收益均从当前净值/现价重新起算（当日不再相对昨收）。")) {
         return;
       }
+      hideFundStatus();
       try {
-        setTradeStatus("回零中…", { target: "paper-fund-status" });
         chartMode = "portfolio";
         chartStockCode = null;
-        await postPaperTrade("/api/paper/reset", {}, "paper-fund-status");
+        await postPaperTrade("/api/paper/reset", {}, false);
         showPortfolioChart();
       } catch (err) {
         setTradeStatus(String(err.message || err), { error: true, target: "paper-fund-status" });
@@ -711,14 +730,6 @@ export function initPaper(ctx) {
     setKpi("paper-kpi-dd",       ddVal,     "期间历史最大回撤",                     { cls: ddCls, empty: ddEmpty });
     setKpi("paper-kpi-today",    todayVal,  todaySub,                               { cls: todayCls, empty: todayVal === "—" });
 
-    const fundCash = document.getElementById("paper-fund-cash-text");
-    if (fundCash) {
-      fundCash.textContent =
-        s.cash != null && Number.isFinite(Number(s.cash))
-          ? `可用现金 ${cashTxt}`
-          : "尚未加载 · 初始化后显示现金余额";
-    }
-
     /* ── 路径 rail：默认高亮「3 调仓」；未初始化则「2 回测」── */
     document.querySelectorAll(".follow-path-step").forEach((st) => {
       const step = st.dataset.step;
@@ -735,9 +746,24 @@ export function initPaper(ctx) {
   }
 
   const scoreTips = createScoreTooltipController();
-  const hideScoreTooltip = () => scoreTips.hide();
-  const showScoreTooltip = (cell, opts) => scoreTips.show(cell, opts);
-  const showPlainTooltip = (anchor, text) => scoreTips.showPlain(anchor, text);
+
+  function fuseEnterPctOf(data) {
+    const timing = data && data.execution && data.execution.rebalance_timing;
+    const src = timing && (timing.rank_lots || timing.path_matrix);
+    const n = Number(src && src.fuse_enter);
+    if (!Number.isFinite(n)) return null;
+    return Math.round(n * 100 * 10000) / 10000;
+  }
+
+  function stampFuseEnter(rows, data) {
+    const enter = fuseEnterPctOf(data);
+    if (enter == null || !Array.isArray(rows)) return rows || [];
+    return rows.map((h) => {
+      if (!h || typeof h !== "object") return h;
+      if (Number.isFinite(Number(h.fuse_enter_pct))) return h;
+      return { ...h, fuse_enter_pct: enter };
+    });
+  }
 
   function sortHoldings(list) {
     return sortHoldingsRows(list, holdingsSortKey, holdingsSortDir);
@@ -862,7 +888,13 @@ export function initPaper(ctx) {
     if (!holdingsEl && !rulesEl) return;
 
     const summary = (data && data.summary) || {};
-    const holdings = sortHoldings(summary.holdings || []);
+    const holdings = sortHoldings(stampFuseEnter(summary.holdings || [], data));
+    if (lastAccountData && lastAccountData.summary) {
+      lastAccountData = {
+        ...lastAccountData,
+        summary: { ...lastAccountData.summary, holdings },
+      };
+    }
     if (holdingsEl) {
       if (!data || !data.initialized) {
         destroyHoldingsGrid();
@@ -1470,18 +1502,6 @@ export function initPaper(ctx) {
       ]);
       const autoData = await autoRes.json();
       const workerData = await workerRes.json();
-      if (!autoRes.ok) {
-        const errEl = document.getElementById("paper-t0-worker-error");
-        if (errEl && !quiet) {
-          errEl.hidden = false;
-          errEl.textContent = autoData.detail || autoData.error || "落账状态加载失败";
-        }
-      } else if (lastAccountData && autoData.t0_auto) {
-        lastAccountData.rules = lastAccountData.rules || {};
-        lastAccountData.rules.t0_auto = autoData.t0_auto;
-        renderT0LastRun(lastAccountData);
-        renderT0WorkerDetail(lastAccountData);
-      }
       if (!workerRes.ok) {
         const errEl = document.getElementById("paper-t0-worker-error");
         if (errEl && !quiet) {
@@ -1495,6 +1515,18 @@ export function initPaper(ctx) {
           document.getElementById("paper-t0-worker-desk"),
           workerData.intraday
         );
+      }
+      if (!autoRes.ok) {
+        const errEl = document.getElementById("paper-t0-worker-error");
+        if (errEl && !quiet) {
+          errEl.hidden = false;
+          errEl.textContent = autoData.detail || autoData.error || "落账状态加载失败";
+        }
+      } else if (lastAccountData && autoData.t0_auto) {
+        lastAccountData.rules = lastAccountData.rules || {};
+        lastAccountData.rules.t0_auto = autoData.t0_auto;
+        renderT0LastRun(lastAccountData);
+        renderT0WorkerDetail(lastAccountData);
       }
       return { auto: autoData, worker: workerData };
     } catch (err) {
@@ -1649,6 +1681,7 @@ export function initPaper(ctx) {
 
   async function applyHoldingsScorePack(holdings) {
     if (!lastAccountData || !Array.isArray(holdings)) return;
+    holdings = stampFuseEnter(holdings, lastAccountData);
     const sm = lastAccountData.summary || {};
     lastAccountData = {
       ...lastAccountData,
@@ -2109,7 +2142,10 @@ export function initPaper(ctx) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
     applyPaperData(data);
-    setTradeStatus(data.message || "完成", statusTarget ? { target: statusTarget } : {});
+    // false：调资成功不写自动出现、数秒后消失的状态行
+    if (statusTarget !== false) {
+      setTradeStatus(data.message || "完成", statusTarget ? { target: statusTarget } : {});
+    }
     // 加减仓 / 清仓后回写观察页「已持 / 未持」状态
     if (typeof ctx.reloadWatching === "function") {
       try {
@@ -2172,7 +2208,6 @@ export function initPaper(ctx) {
           key === "score_tau" ||
           key === "score_on" ||
           key === "pnl" ||
-          key === "chg" ||
           key === "tier"
         ) {
           if (holdingsSortKey === key) {
@@ -2496,8 +2531,6 @@ export function initPaper(ctx) {
       tailAnomalyDetailFields,
       overheatDetailFields,
       scoreTips,
-      showPlainTooltip,
-      hideScoreTooltip,
       metricCls,
       setFollowMatrixPreviewPending: (v) => {
         if (followClusterRef) followClusterRef.setFollowMatrixPreviewPending(v);
@@ -2726,48 +2759,12 @@ export function initPaper(ctx) {
       dismissRebalancePreview();
       e.preventDefault();
       try {
-        // 手动预演：观察池实时算分 + rank_lots（唯一调仓路径）
+        // 手动执行：09:30 开盘预估分复现，不含开仓/加仓，不写账
         await followClusterRef.runWatchingMatrixPreview();
       } catch (err) {
         setPaperMetaText(String(err.message || err));
       }
     });
-    }
-
-    const rebalanceConfirmBtn = document.getElementById("paper-rebalance-confirm");
-    if (rebalanceConfirmBtn) {
-      rebalanceConfirmBtn.addEventListener("click", async (e) => {
-        e.preventDefault();
-        if (rebalanceConfirmBtn.disabled) return;
-        rebalanceConfirmBtn.disabled = true;
-        try {
-          const matrixPending =
-            followClusterRef && followClusterRef.followMatrixPreviewPending;
-          if (matrixPending && followClusterRef.runWatchingMatrixPreview) {
-            if (
-              !window.confirm(
-                [
-                  "确认按观察池 rank_lots 落账？",
-                  "",
-                  "将按预演清单改写 paper.json 持仓与现金。",
-                  "确认时会重新算分与报价，清单可能与预演略有差异。",
-                  "此为纸面模拟，非实盘委托。",
-                ].join("\n")
-              )
-            ) {
-              rebalanceConfirmBtn.disabled = false;
-              return;
-            }
-            await followClusterRef.runWatchingMatrixPreview({ dryRun: false });
-          } else {
-            setPaperMetaText("请先点「手动预演」，再确认落账");
-            rebalanceConfirmBtn.disabled = false;
-          }
-        } catch (err) {
-          setPaperMetaText(String(err.message || err));
-          rebalanceConfirmBtn.disabled = false;
-        }
-      });
     }
 
     const paperDailyBtn = document.getElementById("paper-daily");

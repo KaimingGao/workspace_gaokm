@@ -2055,10 +2055,12 @@ def simulate_watching_matrix_preview(
     top_k: Optional[int] = None,
     dry_run: bool = True,
     offline_only: bool = True,
+    open_replay: bool = False,
 ) -> Dict[str, Any]:
     """观察池算分 + rank_lots（y_oo_fuse 融合 ŷ_oo / ŷ_τc / ŷ_co · 已保存金额换手）。
 
     默认 offline 只约束 ŷ；``dry_run=False`` 落账强制现价，避免成本写成昨收。
+    ``open_replay=True``：固定 09:30 开盘 Z 与开盘价，丢掉开仓/加仓，不写账。
     """
     from core.paper.ledger import mark_to_market
     from core.paper.rebalance.rank_lots import (
@@ -2138,8 +2140,15 @@ def simulate_watching_matrix_preview(
         logger.debug("get_scoring_horizon_days failed", exc_info=True)
         horizon = 1
     use_offline = bool(offline_only)
-    # ≤09:30 与回测 09:30 同口径：开盘 Z，不拉当天 5m。更晚的启动时间才吃前缀。
-    use_minute_tau = live_rebalance_wants_minute_tau(rl_cfg.get("live_fill_clock"))
+    # 手动执行固定复现 09:30 开盘信息集。自动路径仍跟启动时间。
+    if open_replay:
+        dry_run = True
+        use_minute_tau = False
+        score_clock = "09:30"
+    else:
+        # ≤09:30 与回测 09:30 同口径：开盘 Z，不拉当天 5m。更晚的启动时间才吃前缀。
+        use_minute_tau = live_rebalance_wants_minute_tau(rl_cfg.get("live_fill_clock"))
+        score_clock = rl_cfg.get("live_fill_clock")
     # ŷ / 日K 可只读本地仓；落账必须现价，否则成本会被写成昨收
     price_offline = bool(use_offline and dry_run)
     if _backend_ctx is not None:
@@ -2150,7 +2159,7 @@ def simulate_watching_matrix_preview(
                 offline_only=use_offline,
                 use_minute_tau=use_minute_tau,
                 score_codes=score_codes,
-                tau_clock=rl_cfg.get("live_fill_clock"),
+                tau_clock=score_clock,
             )
     else:
         scored, rejected = _score_pool(
@@ -2159,21 +2168,20 @@ def simulate_watching_matrix_preview(
             offline_only=use_offline,
             use_minute_tau=use_minute_tau,
             score_codes=score_codes,
-            tau_clock=rl_cfg.get("live_fill_clock"),
+            tau_clock=score_clock,
         )
-    rank_clock = _consumer_score_clock(
-        use_minute_tau, rl_cfg.get("live_fill_clock")
-    )
+    rank_clock = _consumer_score_clock(use_minute_tau, score_clock)
     _attach_oo_rank_scores(
         scored, score_codes=score_codes, clock=rank_clock
     )
     _attach_tc_rank_scores(
         scored, score_codes=score_codes, clock=rank_clock
     )
-    try:
-        save_live_rank_snapshot(scored, as_of=_live_rank_asof(scored))
-    except Exception:  # noqa: BLE001
-        logger.debug("save live rank snapshot failed", exc_info=True)
+    if not open_replay:
+        try:
+            save_live_rank_snapshot(scored, as_of=_live_rank_asof(scored))
+        except Exception:  # noqa: BLE001
+            logger.debug("save live rank snapshot failed", exc_info=True)
     try:
         from core.signal.cross_section_rescore import drop_unscored_heads
 
@@ -2233,6 +2241,9 @@ def simulate_watching_matrix_preview(
         opx = _quote_open_px(code, offline_only=price_offline)
         if opx is not None and opx > 0:
             opens[code] = float(opx)
+    if open_replay:
+        # 9:30 成交价=开盘价，fuse 的 rot 为 0，对照的是开盘预估而不是现价剩余。
+        prices = {c: float(px) for c, px in opens.items() if px and float(px) > 0}
 
     rules = paper.get("rules") if isinstance(paper.get("rules"), dict) else {}
     raw_mto = rules.get("max_turnover_pct", rules.get("max_turnover"))
@@ -2355,6 +2366,8 @@ def simulate_watching_matrix_preview(
         decisions.append({"stock_code": code, **leg})
 
     for leg in plan.get("buys") or []:
+        if open_replay:
+            continue
         code = str(leg.get("stock_code") or "")
         px = prices.get(code)
         if px is None:
@@ -2431,11 +2444,14 @@ def simulate_watching_matrix_preview(
         a = str(d.get("action") or "")
         by_action[a] = by_action.get(a, 0) + 1
 
-    note = (
-        "观察池 + rank_lots 预演（未写账）"
-        if dry_run
-        else "观察池 + rank_lots 落账"
-    )
+    if open_replay:
+        note = "09:30 开盘复现 · 预估分 · 不含开仓/加仓 · 不写账"
+    else:
+        note = (
+            "观察池 + rank_lots 预演（未写账）"
+            if dry_run
+            else "观察池 + rank_lots 落账"
+        )
     strategy_id = paper.get("strategy_id")
     strategy_label = None
     if strategy_id:
@@ -2501,20 +2517,25 @@ def simulate_watching_matrix_preview(
             "by_action": by_action,
         },
         "note": note,
+        "open_replay": bool(open_replay),
         "strategy_id": strategy_id,
         "strategy_label": strategy_label,
         "ops_report": {
             "strategy_id": strategy_id,
             "strategy_label": strategy_label,
             "note": (
-                "watching_matrix 预演"
-                if dry_run
-                else "watching_matrix 落账"
+                "09:30 开盘复现"
+                if open_replay
+                else (
+                    "watching_matrix 预演"
+                    if dry_run
+                    else "watching_matrix 落账"
+                )
             ),
             "matrix_by_action": by_action,
             "matrix_mode": "rank_lots",
         },
-        "confirm_supported": True,
+        "confirm_supported": not bool(open_replay),
     }
 
 

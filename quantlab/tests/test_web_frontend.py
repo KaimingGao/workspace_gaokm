@@ -192,8 +192,9 @@ class TestP95P96WebPages(unittest.TestCase):
         # 旧「横截面调仓」按钮 id；进阶区的 paper-rebalance-section / confirm 可以存在
         self.assertNotIn('id="paper-rebalance"', follow.text)
         self.assertIn("paper-rebalance-section", follow.text)
-        self.assertIn("paper-rebalance-confirm", follow.text)
+        self.assertNotIn('id="paper-rebalance-confirm"', follow.text)
         self.assertIn("paper-t0-preview-fold", follow.text)
+        self.assertIn("手动执行", follow.text)
         self.assertIn("手动预演", follow.text)
         self.assertNotIn("预演调仓", follow.text)
         self.assertNotIn("跑一日", follow.text)

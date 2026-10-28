@@ -73,6 +73,29 @@ function fmtPx(v) {
   return n >= 100 ? n.toFixed(2) : String(n);
 }
 
+function fmtFillPx(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return n.toFixed(2);
+}
+
+function isDeskSkip(r) {
+  const action = String((r && r.action) || "").toLowerCase();
+  const phase = String((r && r.phase) || "").toLowerCase();
+  return (
+    action === "skip" ||
+    phase === "skip" ||
+    phase === "skipped" ||
+    phase === "missed"
+  );
+}
+
+/** 明细只留已落账的清 / 开 / 加。 */
+function isDeskFill(r) {
+  const action = String((r && r.action) || "").toLowerCase();
+  return action === "exit" || action === "open" || action === "add";
+}
+
 function fmtAmt(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n === 0) return "—";
@@ -173,12 +196,12 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
   const prevFold = el.querySelector("details.paper-t0-desk-fold");
   const keepOpen = prevFold ? !!prevFold.open : false;
   const counts = desk.counts || {};
-  const n = Number(desk.universe_count || desk.rows.length || 0);
+  const covered = desk.rows.filter((r) => !isDeskSkip(r));
+  const rows = covered.filter((r) => isDeskFill(r));
+  const n = covered.length;
   const sess = desk.session_date || desk.state_session_date || "—";
-  const skipN = Number(counts.skip || 0);
   const chips =
-    deskChip("is-univ", "持仓", n) +
-    deskChip("is-locked", "跳过", skipN) +
+    deskChip("is-univ", String(desk.universe_label || "持仓"), n) +
     deskChip("is-idle", "监视", counts.watch) +
     deskChip("is-leg1", "开/加", desk.open_count) +
     deskChip("is-done", "完成", counts.done) +
@@ -189,7 +212,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     String(sess)
   )}</span>`;
 
-  if (!desk.rows.length) {
+  if (!rows.length) {
     el.innerHTML =
       `<details class="paper-t0-desk-fold"${openAttr}>` +
       `<summary class="paper-t0-desk-fold-sum">` +
@@ -211,7 +234,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         )}</p>`
       : "";
 
-  const body = desk.rows
+  const body = rows
     .map((r) => {
       const note = String(r.reason || "").trim() || "—";
       const tip = reasonTitle(r) || note;
@@ -230,7 +253,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         actionCell(r.action) +
         `<td class="num paper-t0-col-legs">${escapeHtml(fmtShares(r.shares))}</td>` +
         `<td class="num paper-rb-col-px" title="${escapeHtml(pxTip)}">${escapeHtml(
-          fmtPx(r.price)
+          fmtFillPx(r.price)
         )}</td>` +
         `<td class="num paper-rb-col-open">${escapeHtml(fmtPx(r.day_open))}</td>` +
         `<td class="num paper-rb-col-amt">${escapeHtml(fmtAmt(r.amount))}</td>` +

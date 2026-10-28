@@ -13,6 +13,8 @@ let _note = "";
 let _requireTau = false;
 let _aCount = 100;
 let _bCount = 300;
+/** @type {string[] | null} live 勾选的分档；null = 闸关，不过滤 */
+let _selectedTiers = null;
 
 function tierTip(t) {
   const scoreBit = _requireTau
@@ -32,6 +34,11 @@ export function predTierRank(tier) {
 export function getPredTier(code) {
   const c = String(code || "").trim();
   return c && _byCode[c] ? _byCode[c] : null;
+}
+
+/** 历史回测「分档」勾选并同步到 live 的档。闸关时返回 null。 */
+export function selectedPredTiers() {
+  return _selectedTiers ? _selectedTiers.slice() : null;
 }
 
 function fmtHit(v) {
@@ -157,6 +164,16 @@ function ingestPredTierReport(data) {
     _note = "尚无分档报告；请先在研究枢纽跑「观察池分档」";
   } else {
     _note = "";
+  }
+  const live = data && data.live;
+  const allow = live && Array.isArray(live.allowed_tiers) ? live.allowed_tiers : null;
+  if (live && live.enabled && allow && allow.length) {
+    _selectedTiers = allow
+      .map((t) => String(t || "").trim().toUpperCase())
+      .filter((t) => t === "A" || t === "B" || t === "C");
+    if (!_selectedTiers.length) _selectedTiers = null;
+  } else {
+    _selectedTiers = null;
   }
   return _byCode;
 }

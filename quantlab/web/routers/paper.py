@@ -256,6 +256,7 @@ def paper_rebalance(body: PaperRebalanceRequest) -> Dict[str, Any]:
                 dry_run=bool(body.dry_run),
                 strategy=body.strategy,
                 offline_only=bool(body.offline_only),
+                open_replay=bool(body.open_replay),
             )
         )
     except FileNotFoundError as e:

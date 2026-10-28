@@ -19,7 +19,7 @@ import {
   Y_OC_REBALANCE_TITLE,
   Y_ON_TITLE,
   FUSE_REBALANCE_TITLE,
-} from "./fmt.js?v=p2544";
+} from "./fmt.js?v=p3360";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2746";
 import {
@@ -50,6 +50,49 @@ const ORIGIN_HINT = {
   mixed: "手动建仓后被策略加过仓",
 };
 
+function trimEnterPct(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(4).replace(/0+$/u, "").replace(/\.$/u, "");
+}
+
+/** 表列 fuse 的 ↓：对照调仓 fuse 入场（百分点），不用建簿 ŷ_oo 门槛。 */
+export function holdingFuseBelowEnter(h, fuseScore) {
+  const enter = Number(h && h.fuse_enter_pct);
+  if (Number.isFinite(enter)) {
+    const n = Number(fuseScore);
+    return Number.isFinite(n) && n < enter;
+  }
+  return !!(h && h.below_min_score);
+}
+
+export function holdingFuseBelowTitle(h) {
+  const enter = Number(h && h.fuse_enter_pct);
+  if (Number.isFinite(enter)) {
+    return `低于 fuse 入场 ${trimEnterPct(enter)}% · 悬停看详情`;
+  }
+  return `低于ŷ_oo门槛 ${h && h.min_score != null ? h.min_score : "—"}（表列为 fuse）· 悬停看详情`;
+}
+
+/** 选中后的操作条说明。未选中时条本身隐藏。 */
+export function holdActionHintText(h) {
+  if (!h || typeof h !== "object") return "点行选中后在此加减仓";
+  const shares = Number(h.shares);
+  const sellable = Number(h.sellable_shares);
+  const locked = Number(h.locked_shares);
+  if (
+    Number.isFinite(shares) &&
+    shares > 0 &&
+    Number.isFinite(locked) &&
+    locked > 0 &&
+    Number.isFinite(sellable)
+  ) {
+    return `持仓 ${shares} 股 · 可卖 ${sellable} · T+1 锁定 ${locked}`;
+  }
+  if (Number.isFinite(shares) && shares > 0) return `持仓 ${shares} 股`;
+  return "在此加减仓";
+}
+
 function sentPlaceholderHtml(code) {
   const c = String(code || "").trim();
   return (
@@ -73,12 +116,13 @@ export function buildPaperHoldActionBarHtml({ selectedHoldCode, holdings }) {
   const actionName = selected ? selected.stock_name || selected.stock_code || "" : "";
   const actionCode = selected ? selected.stock_code || "" : "";
   const actionShares = selected ? selected.shares ?? "" : "";
+  const actionHint = selected ? holdActionHintText(selected) : "点行选中后在此加减仓";
   const actionBarHtml =
     `<div id="paper-hold-action-bar" class="paper-hold-action-bar"${actionHidden}>` +
     `<div class="paper-hold-action-info">` +
     `<strong class="paper-hold-action-name">${escapeText(actionName)}</strong>` +
     `<span class="paper-hold-action-code">${escapeText(actionCode)}</span>` +
-    `<span class="paper-hold-action-hint">点行选中后在此加减仓</span>` +
+    `<span class="paper-hold-action-hint">${escapeText(actionHint)}</span>` +
     `</div>` +
     `<div class="paper-hold-action-controls">` +
     `<input type="number" class="paper-hold-shares" min="100" step="100" placeholder="股数" ` +
@@ -134,8 +178,6 @@ export function buildPaperHoldingsTableHtml({
               ? "ŷ_τc_rank 当日截面名次 · 1=最高 · 与 oo_rank 共用 rank 入场 · 点击排序"
             : key === "pnl"
             ? "浮盈亏 = 现价 − 成本价（相对成本的浮动盈亏 %）· 点击排序"
-            : key === "chg"
-              ? "相对昨收的涨跌幅 % · 点击排序"
               : key === "tier"
                 ? "可预测性分档 A/B/C · 同档按 fuse 从高到低 · 点击排序"
               : "市值 = 现价 × 股数 · 点击排序";
@@ -160,7 +202,7 @@ export function buildPaperHoldingsTableHtml({
       const scoreEod = resolveEodScore(h);
       const scoreTau = resolveTauScore(h);
       const scoreOn = resolveOnScore(h);
-      const belowMin = !!h.below_min_score;
+      const belowMin = holdingFuseBelowEnter(h, score);
       const hardReject = !!h.hard_reject;
       const scoreBase = fmtTableScore(h, score);
       let scoreShown =
@@ -179,7 +221,7 @@ export function buildPaperHoldingsTableHtml({
           : singleHead
             ? `fuse 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
             : belowMin
-            ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 fuse）· 悬停看详情`
+            ? holdingFuseBelowTitle(h)
             : FUSE_REBALANCE_TITLE;
       const oosFailed =
         !!h.oos_failed ||
@@ -267,18 +309,6 @@ export function buildPaperHoldingsTableHtml({
           h.unit,
           h.currency
         )}</td>` +
-        `<td class="num paper-hold-chg has-tip ${metricCls(h.change_pct)}" ` +
-        `data-hold-chg-code="${escapeText(code)}" data-hold-chg-name="${escapeText(name)}" ` +
-        `data-hold-chg-asof="${escapeText(
-          String(h.change_asof || h.quote_as_of || h.as_of || "").slice(0, 10)
-        )}" data-hold-chg-num="${
-          h.change_pct != null && Number.isFinite(Number(h.change_pct))
-            ? escapeText(String(Number(h.change_pct)))
-            : ""
-        }" data-hold-chg-tip="${escapeText(code)}" ` +
-        `title="相对昨收 · 悬停看涨跌日5m K">${fmtPct(h.change_pct, {
-          signed: true,
-        })}</td>` +
         `<td class="num paper-hold-score watching-score-eod has-tip ${scoreCls(
           scoreEod
         )}" data-score-detail="${scoreDetailJson}" data-score-tip="eod" title="${escapeText(
@@ -308,11 +338,9 @@ export function buildPaperHoldingsTableHtml({
         `<td class="num paper-hold-score has-tip" data-score-detail="${scoreDetailJson}" data-score-tip="tc_rank" title="${escapeText(
           tcRankTitle
         )}">${escapeText(tcRank.text)}</td>` +
-        `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
-          h.cost,
-          h.unit,
-          h.currency
-        )}</td>` +
+        `<td class="num paper-hold-cost" title="持仓加权平均成本 ${escapeText(
+          fmtPriceUnit(h.cost, h.unit, h.currency)
+        )}">${fmtPriceUnit(h.cost, h.unit, h.currency, 2)}</td>` +
         `<td class="num paper-hold-mv">${fmtPriceUnit(
           h.market_value,
           h.unit,
@@ -344,7 +372,6 @@ export function buildPaperHoldingsTableHtml({
     `<th title="上一交易日收盘价">昨收</th>` +
     `<th title="今日开盘价">今开</th>` +
     `<th title="最新成交价">现价</th>` +
-    `${sortThHtml("涨跌", "chg")}` +
     `${sortThHtml("y_oo", "score_eod")}` +
     `${sortThHtml("y_τc", "score_tau")}` +
     `${sortThHtml("y_co", "score_on")}` +

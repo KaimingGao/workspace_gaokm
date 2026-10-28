@@ -7,11 +7,12 @@ export function fmtMoney(v) {
   return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
 }
 
-export function fmtPriceUnit(v, unit, currency) {
+export function fmtPriceUnit(v, unit, currency, digits) {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
-  return currency === "CNY" ? `${n}${unit || "元"}` : `${unit || ""}${n}`;
+  const shown = digits != null ? n.toFixed(digits) : String(n);
+  return currency === "CNY" ? `${shown}${unit || "元"}` : `${unit || ""}${shown}`;
 }
 
 export function escapeText(s) {

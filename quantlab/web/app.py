@@ -97,8 +97,9 @@ async def _app_lifespan(app: FastAPI):
         from core.paper.rebalance.auto_worker import rebalance_auto_worker
         from core.t0.auto_worker import t0_auto_worker
 
-        t0_auto_worker.stop()
-        rebalance_auto_worker.stop()
+        # 进程退出只停线程。stop() 默认会把开关写成关，下次启动就恢复不回来。
+        t0_auto_worker.stop(persist=False)
+        rebalance_auto_worker.stop(persist=False)
     except Exception:  # noqa: BLE001
         logger.debug("auto worker shutdown skipped", exc_info=True)
 

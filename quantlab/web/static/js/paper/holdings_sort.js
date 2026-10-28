@@ -26,7 +26,6 @@ export function loadHoldingsSort() {
         saved.key === "score_tau" ||
         saved.key === "score_on" ||
         saved.key === "pnl" ||
-        saved.key === "chg" ||
         saved.key === "tier" ||
         saved.key === "oo_rank" ||
         saved.key === "tc_rank")
@@ -107,9 +106,6 @@ export function sortHoldings(list, key, dir) {
     } else if (k === "pnl") {
       av = Number(a.pnl_pct);
       bv = Number(b.pnl_pct);
-    } else if (k === "chg") {
-      av = Number(a.change_pct);
-      bv = Number(b.change_pct);
     } else {
       av = Number(a.market_value ?? a.market_value_approx);
       bv = Number(b.market_value ?? b.market_value_approx);

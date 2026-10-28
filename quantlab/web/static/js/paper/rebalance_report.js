@@ -1,6 +1,11 @@
 /** Paper · 调仓预演报告渲染（从 paper.js 抽出）。 */
 
-import { fitTierBadgeForCode, ensureFitTierMap } from "../quant/fit_tier_ui.js?v=p2261";
+import {
+  ensurePredTierMap,
+  getPredTier,
+  predTierBadgeHtml,
+  selectedPredTiers,
+} from "../quant/pred_tier_ui.js?v=p3365";
 
 /**
  * @param {object} deps
@@ -33,8 +38,6 @@ export function createRebalanceReportController(deps) {
     tailAnomalyDetailFields,
     overheatDetailFields,
     scoreTips,
-    showPlainTooltip,
-    hideScoreTooltip,
     metricCls,
     setFollowMatrixPreviewPending,
   } = deps;
@@ -184,6 +187,63 @@ function rebalancePrevCloseText(r) {
   return "—";
 }
 
+/** @type {{ key: "" | "oo_rank" | "tc_rank", desc: boolean }} */
+let _rankSort = { key: "", desc: false };
+
+function rankSortValue(row, key) {
+  const raw =
+    key === "tc_rank"
+      ? row && row.y_tc_rank != null
+        ? row.y_tc_rank
+        : row && row.predicted_score_tc_rank
+      : row && row.y_oo_rank != null
+        ? row.y_oo_rank
+        : row && row.predicted_score_oo_rank;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
+function orderReportRows(rows) {
+  const list = Array.isArray(rows) ? [...rows] : [];
+  if (_rankSort.key === "oo_rank" || _rankSort.key === "tc_rank") {
+    const key = _rankSort.key;
+    const dir = _rankSort.desc ? -1 : 1;
+    list.sort((a, b) => {
+      const av = rankSortValue(a, key);
+      const bv = rankSortValue(b, key);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return (av - bv) * dir;
+    });
+    return list;
+  }
+  list.sort((a, b) => {
+    const fuseOf = (r) => {
+      const n = Number(r && r.y_oo_fuse);
+      return Number.isFinite(n) ? n : null;
+    };
+    const as = fuseOf(a);
+    const bs = fuseOf(b);
+    if (as == null && bs == null) return 0;
+    if (as == null) return 1;
+    if (bs == null) return -1;
+    return bs - as;
+  });
+  return list;
+}
+
+function filterSelectedTierRows(rows) {
+  const allow = selectedPredTiers();
+  if (!allow || !allow.length) return rows;
+  const set = new Set(allow);
+  return rows.filter((r) => {
+    const info = getPredTier(r && r.stock_code);
+    const tier = info ? String(info.tier || "").trim().toUpperCase() : "";
+    return set.has(tier);
+  });
+}
+
 function renderRebalanceReport(
   report,
   {
@@ -199,6 +259,7 @@ function renderRebalanceReport(
     emptyDetail = null,
     marketContext = null,
     matrixPreview = false,
+    tierFiltered = false,
   } = {}
 ) {
   const section = document.getElementById("paper-rebalance-section");
@@ -210,21 +271,25 @@ function renderRebalanceReport(
 
   if (opsReport) renderOpsReport(opsReport, { forceShow: true });
   else if (matrixPreview) renderOpsReport(null);
-  // 按 fuse 降序展示（无分排后）
-  report = Array.isArray(report)
-    ? [...report].sort((a, b) => {
-        const fuseOf = (r) => {
-          const n = Number(r && r.y_oo_fuse);
-          return Number.isFinite(n) ? n : null;
-        };
-        const as = fuseOf(a);
-        const bs = fuseOf(b);
-        if (as == null && bs == null) return 0;
-        if (as == null) return 1;
-        if (bs == null) return -1;
-        return bs - as;
-      })
-    : report;
+  const sourceRows = Array.isArray(report) ? report : [];
+  const viewOpts = {
+    preview,
+    cashImpact,
+    riskGate,
+    opsReport,
+    riskBudgetSkips,
+    dualScore,
+    emptyReason,
+    minScore,
+    fuseEnter,
+    emptyDetail,
+    marketContext,
+    matrixPreview,
+    tierFiltered,
+  };
+  const allowNow = selectedPredTiers();
+  const filteredNow = !!(allowNow && allowNow.length);
+  report = orderReportRows(filteredNow ? filterSelectedTierRows(sourceRows) : sourceRows);
   const isAlignedSkip = (s) => {
     const r = String((s && s.reason) || "");
     return (
@@ -831,47 +896,6 @@ function renderRebalanceReport(
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
-      const oldSh =
-        r.old_shares != null
-          ? Number(r.old_shares)
-          : r.shares_before != null
-            ? Number(r.shares_before)
-            : null;
-      const newSh =
-        r.new_shares != null
-          ? Number(r.new_shares)
-          : r.shares_after != null
-            ? Number(r.shares_after)
-            : null;
-      // 优先用股数差；避免 shares_change=0 却挡住 before/after 回算
-      let shChange = null;
-      if (
-        oldSh != null &&
-        newSh != null &&
-        Number.isFinite(oldSh) &&
-        Number.isFinite(newSh)
-      ) {
-        shChange = newSh - oldSh;
-      } else if (
-        r.shares_change != null &&
-        Number.isFinite(Number(r.shares_change))
-      ) {
-        shChange = Number(r.shares_change);
-      }
-      const changeText =
-        shChange == null || !Number.isFinite(shChange)
-          ? "—"
-          : shChange > 0
-            ? `+${Math.round(shChange)}`
-            : shChange < 0
-              ? `${Math.round(shChange)}`
-              : "0";
-      const changeCls =
-        shChange == null || !Number.isFinite(shChange) || shChange === 0
-          ? "is-flat"
-          : shChange > 0
-            ? "is-up"
-            : "is-down";
       const hasDetail = !!(
         r.factors ||
         r.factor_contrib ||
@@ -883,19 +907,7 @@ function renderRebalanceReport(
         ? '<span class="rebalance-expand-icon" aria-hidden="true">›</span>'
         : '<span class="rebalance-expand-icon is-empty" aria-hidden="true"></span>';
 
-      let decisionTagClass = "hold";
       const decision = String(r.decision || "");
-      if (decision.includes("加仓") || decision.includes("买入")) decisionTagClass = "up";
-      else if (decision.includes("减仓")) decisionTagClass = "down";
-      else if (
-        decision.includes("止损") ||
-        decision.includes("超时") ||
-        decision.includes("卖出")
-      )
-        decisionTagClass = "sell";
-
-      // 决策标签悬停 = 原因（不再单独占列）
-      let decisionTip = "";
       const reasonText = String(r.reason || "").trim();
       const isPrior =
         !!r.sentiment_prior ||
@@ -906,46 +918,6 @@ function renderRebalanceReport(
         reasonText.includes("market_prior") ||
         reasonText.includes("市场 prior") ||
         reasonText.includes("cross_market");
-      if (isPrior && (decision.includes("减仓") || decision.includes("卖出"))) {
-        decisionTip = reasonText
-          ? `${reasonText}（强看空先验 · 不改 ŷ）；点「确认落账」后才成交`
-          : "舆情先验 · 强看空缩仓（不改 ŷ）；点「确认落账」后才成交";
-      } else if (
-        isMarketPrior &&
-        (decision.includes("减仓") || decision.includes("卖出"))
-      ) {
-        decisionTip = reasonText
-          ? `${reasonText}（M prior 缩仓 · 不改 ŷ）；点「确认落账」后才成交`
-          : "市场 prior · M 层缩仓（不改 ŷ）；点「确认落账」后才成交";
-      } else if (decision.includes("止损卖出")) {
-        decisionTip = reasonText
-          ? `${reasonText}；点「确认落账」后才成交`
-          : "止损规则触发，预演清仓；点「确认落账」后才成交";
-      } else if (decision.includes("超时卖出")) {
-        decisionTip = reasonText
-          ? `${reasonText}；点「确认落账」后才成交`
-          : "持有超时且趋势向下，预演清仓；点「确认落账」后才成交";
-      } else if (decision.includes("跳过")) {
-        decisionTip = isMarketPrior
-          ? reasonText
-            ? `${reasonText}；点「确认落账」后仍不会新开仓`
-            : "市场 prior · 跳过新开仓；点「确认落账」后仍不会买入"
-          : isPrior
-          ? reasonText
-            ? `${reasonText}；点「确认落账」后仍不会新开仓`
-            : "舆情先验 · 跳过新开仓；点「确认落账」后仍不会买入"
-          : reasonText || "风险预算（单票/行业上限）未买入";
-      } else if (decision.includes("减仓")) {
-        decisionTip = reasonText
-          ? `${reasonText}；点「确认落账」后才成交`
-          : "预演减仓；点「确认落账」后才成交";
-      } else if (decision.includes("卖出")) {
-        decisionTip = reasonText
-          ? `${reasonText}；点「确认落账」后才成交`
-          : "策略调仓卖出：fuse<0 或缺分清仓；点「确认落账」后才成交";
-      } else if (reasonText) {
-        decisionTip = reasonText;
-      }
 
       const rawCode = String(r.stock_code || "").trim();
       const rawName = String(r.stock_name || "").trim();
@@ -958,7 +930,9 @@ function renderRebalanceReport(
       const chgText = fmtPct(chgPct, { signed: true });
       const chgCls = metricCls(chgPct);
       const prevCloseText = rebalancePrevCloseText(r);
-      const priceText = fmtRebalancePx(r.price);
+      const openRaw =
+        r.day_open != null && r.day_open !== "" ? r.day_open : r.open;
+      const openText = fmtRebalancePx(openRaw);
       const oosFailed =
         !!r.oos_failed ||
         !!r.oosFailed ||
@@ -993,7 +967,6 @@ function renderRebalanceReport(
         `<span class="rebalance-stock-main">` +
         `<span class="rebalance-stock-name">` +
         `<span class="rebalance-stock-name-text">${name}</span>` +
-        fitTierBadgeForCode(rawCode, { escapeHtml: escapeText }) +
         oosBadge +
         sentPriorBadge +
         marketPriorBadge +
@@ -1001,11 +974,15 @@ function renderRebalanceReport(
         `<span class="rebalance-stock-code">${code}</span>` +
         `</span>` +
         `</div>` +
+        `<div class="rebalance-tier" role="cell" data-code="${code}">${predTierBadgeHtml(
+          rawCode,
+          escapeText
+        )}</div>` +
         `<div class="num rebalance-prev-close" role="cell" title="上一交易日收盘价">${escapeText(
           prevCloseText
         )}</div>` +
-        `<div class="num rebalance-price" role="cell" title="最新成交价">${escapeText(
-          priceText
+        `<div class="num rebalance-open" role="cell" title="当日开盘价">${escapeText(
+          openText
         )}</div>` +
         `<div class="num rebalance-chg ${chgCls}" role="cell" title="相对昨收">${escapeText(
           chgText
@@ -1036,29 +1013,6 @@ function renderRebalanceReport(
         `<div class="num rebalance-score-tc-rank paper-hold-score has-tip" role="cell" ` +
         `data-score-detail="${tipDetailJson}" data-score-tip="tc_rank" ` +
         `title="${escapeText(tcRankTitle)}">${escapeText(tcRank.text)}</div>` +
-        `<div class="num rebalance-shares" role="cell">` +
-        `<span class="rebalance-shares-old">${escapeText(
-          String(
-            oldSh != null && Number.isFinite(oldSh)
-              ? Math.round(oldSh)
-              : "—"
-          )
-        )}</span>` +
-        `<span class="rebalance-shares-arrow">→</span>` +
-        `<span class="rebalance-shares-new">${escapeText(
-          String(
-            newSh != null && Number.isFinite(newSh)
-              ? Math.round(newSh)
-              : "—"
-          )
-        )}</span>` +
-        `</div>` +
-        `<div class="num rebalance-change ${changeCls}" role="cell">${escapeText(changeText)}</div>` +
-        `<div class="rebalance-decision" role="cell"><span class="rebalance-decision-tag ${decisionTagClass}` +
-        `${decisionTip ? " has-tip" : ""}"` +
-        `${
-          decisionTip ? ` data-tip="${escapeText(decisionTip)}"` : ""
-        }>${escapeText(decision || "—")}</span></div>` +
         `</div>` +
         (hasDetail
           ? `<div class="rebalance-detail-row" data-detail-for="${idx}" hidden>${buildScoreDetail(
@@ -1074,25 +1028,50 @@ function renderRebalanceReport(
     `<div class="rebalance-table" role="table">` +
     `<div class="rebalance-table-head" role="row">` +
     `<div class="rebalance-th" role="columnheader">股票</div>` +
+    `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱">分档</div>` +
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="最新成交价">现价</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="当日开盘价">开盘</div>` +
     `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τc · price(τ)→close">y_τc</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
     `<div class="rebalance-th num" role="columnheader" title="fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=open[T+1]/price(τ)−1">fuse</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 过入场后作买序；与 τc_rank 共用 rank 入场">oo_rank</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序">τc_rank</div>` +
-    `<div class="rebalance-th num" role="columnheader">股数</div>` +
-    `<div class="rebalance-th num" role="columnheader">变动</div>` +
-    `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +
+    `<div class="rebalance-th num is-sortable${
+      _rankSort.key === "oo_rank" ? " is-sorted" : ""
+    }" role="columnheader" tabindex="0" data-rank-sort="oo_rank" title="ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 点击排序 · 过入场后作买序；与 τc_rank 共用 rank 入场">oo_rank${
+      _rankSort.key === "oo_rank" ? (_rankSort.desc ? " ↓" : " ↑") : ""
+    }</div>` +
+    `<div class="rebalance-th num is-sortable${
+      _rankSort.key === "tc_rank" ? " is-sorted" : ""
+    }" role="columnheader" tabindex="0" data-rank-sort="tc_rank" title="ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 点击排序 · 与 oo_rank 共用 rank 入场；不进 fuse / 不改买序">τc_rank${
+      _rankSort.key === "tc_rank" ? (_rankSort.desc ? " ↓" : " ↑") : ""
+    }</div>` +
     `</div>` +
     `<div class="rebalance-table-body" role="rowgroup">${rows}</div>` +
     `</div></div>`;
 
+  container.querySelectorAll("[data-rank-sort]").forEach((el) => {
+    const toggle = () => {
+      const key = el.getAttribute("data-rank-sort") === "tc_rank" ? "tc_rank" : "oo_rank";
+      if (_rankSort.key === key) _rankSort.desc = !_rankSort.desc;
+      else _rankSort = { key, desc: false };
+      renderRebalanceReport(sourceRows, viewOpts);
+    };
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggle();
+    });
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      toggle();
+    });
+  });
+
   container.querySelectorAll(".rebalance-row[data-detail-idx]").forEach((tr) => {
     tr.addEventListener("click", (e) => {
-      if (e.target.closest("[data-score-detail], .rebalance-decision-tag[data-tip]")) {
+      if (e.target.closest("[data-score-detail]")) {
         return;
       }
       const idx = tr.dataset.detailIdx;
@@ -1111,19 +1090,19 @@ function renderRebalanceReport(
     });
   });
 
-  container.querySelectorAll(".rebalance-decision-tag[data-tip]").forEach((el) => {
-    el.addEventListener("mouseenter", (e) => {
-      e.stopPropagation();
-      showPlainTooltip(el, el.getAttribute("data-tip") || "");
-    });
-    el.addEventListener("mouseleave", () => hideScoreTooltip());
-    el.addEventListener("click", (e) => e.stopPropagation());
-  });
-
   scoreTips.bindHost(container, {
     scoreSelector: "[data-score-detail]",
   });
-  void ensureFitTierMap(container);
+  void ensurePredTierMap().then(() => {
+    if (!container.isConnected) return;
+    if (!filteredNow && !tierFiltered && selectedPredTiers()) {
+      renderRebalanceReport(sourceRows, { ...viewOpts, tierFiltered: true });
+      return;
+    }
+    container.querySelectorAll(".rebalance-tier[data-code]").forEach((el) => {
+      el.innerHTML = predTierBadgeHtml(el.getAttribute("data-code") || "", escapeText);
+    });
+  });
 
   paintRebalancePreviewChips({
     report,

@@ -638,6 +638,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table-scroll {
+  height: min(68vh, 860px);
+  overflow: auto;
   border-radius: var(--follow-radius);
   border-color: var(--line);
   background: var(--surface);
@@ -645,8 +647,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table {
-  /* 与 base.css 同步：股票/决策加宽，中间列加距 */
-  --rebalance-cols: minmax(8.5rem, 1.25fr) repeat(11, minmax(5.75rem, 1fr)) minmax(8.75rem, 1.2fr);
+  /* 与 base.css 同步：股票 / 分档 / 昨收到 τc_rank */
+  --rebalance-cols: minmax(8.5rem, 1.25fr) 3.25rem repeat(9, minmax(5.75rem, 1fr));
   min-width: 90rem;
   font-size: 0.78rem;
 }
@@ -683,18 +685,6 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 .follow-page .rebalance-table-head > :last-child,
 .follow-page .rebalance-row > :last-child {
   padding-right: 12px;
-}
-
-.follow-page .rebalance-th.rebalance-th-decision,
-.follow-page .rebalance-decision {
-  overflow: visible;
-}
-
-.follow-page .rebalance-decision-tag {
-  border-radius: 2px;
-  max-width: none;
-  overflow: visible;
-  flex-shrink: 0;
 }
 
 /* 预演调仓表：外层 wrap 不裁切末列，横向滚动交给 rebalance-table-scroll */
@@ -8283,10 +8273,6 @@ body[data-page="follow"] .paper-chart-mode:disabled {
 @media (max-width: 720px) {
   .follow-kpi-row .dashboard-kpi-row-body { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .follow-path-rail { width: 100% !important; }
-  body[data-page="follow"] .follow-overview-fund-cash {
-    margin-left: 0;
-    width: 100%;
-  }
 }
 
 @media (max-width: 520px) {
@@ -9416,11 +9402,6 @@ body[data-page="follow"] .follow-oos-band--inline .quant-oos-band-text {
     border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
   }
 
-  body[data-page="follow"] .follow-overview-fund-cash {
-    margin-left: 0;
-    width: 100%;
-  }
-
   body[data-page="follow"] .follow-path-step {
     padding: 6px 6px;
     font-size: 11px;
@@ -9729,15 +9710,6 @@ body[data-page="follow"] .follow-overview-fund .follow-reset {
   line-height: 22px;
   flex: 1 1 0;
   min-width: 0;
-}
-
-body[data-page="follow"] .follow-overview-fund-cash,
-body[data-page="follow"] .follow-overview-fund #paper-fund-cash-text {
-  margin-left: 0;
-  align-self: stretch;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 body[data-page="follow"] .follow-overview-fund-status {

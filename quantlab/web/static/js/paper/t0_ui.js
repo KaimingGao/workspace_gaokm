@@ -469,6 +469,27 @@ function workerLastRunToTableData(lastRun, execution) {
 
 const T0_TRADES_HOST_ID = "paper-t0-worker-trades";
 const T0_TRADES_SLOT_SEL = "[data-t0-trades-slot]";
+/** 今日盯盘会话；成交表只挂这一天，旧 last_run 不占位。 */
+let t0DeskSessionDate = "";
+
+function shanghaiCalendarDate() {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch (_) {
+    return "";
+  }
+}
+
+function t0WatchSessionDate(explicit) {
+  const pinned = String(explicit || t0DeskSessionDate || "").slice(0, 10);
+  if (pinned) return pinned;
+  return shanghaiCalendarDate();
+}
 
 function t0TradesHost() {
   return typeof document === "undefined" ? null : document.getElementById(T0_TRADES_HOST_ID);
@@ -499,8 +520,11 @@ function t0TradesVisible() {
   return !!(trades && !trades.hidden);
 }
 
-/** Worker 上次落账成交（嵌在「今日盯盘状态」里，不再单独折叠）。 */
-export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByCode } = {}) {
+/** 今日盯盘内的成交：只展示与盯盘会话同一天的落账，旧 session 不保留。 */
+export function renderPaperT0WorkerTrades(
+  el,
+  { t0Auto, execution, liveScoresByCode, sessionDate } = {}
+) {
   if (!el) return;
   const hide = () => {
     el.hidden = true;
@@ -516,11 +540,21 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
     hide();
     return;
   }
+  const today = t0WatchSessionDate(sessionDate);
+  const lrSess = String(lr.session_date || "").slice(0, 10);
+  if (today && lrSess && lrSess !== today) {
+    hide();
+    return;
+  }
   const data = {
     ...workerLastRunToTableData(lr, execution),
     liveScoresByCode: liveScoresByCode || null,
   };
-  const days = pickTradeDays(data);
+  const days = pickTradeDays(data).filter((d) => {
+    if (!today) return true;
+    const dSess = String((d && d.date) || lrSess || "").slice(0, 10);
+    return !dSess || dSess === today;
+  });
   if (!days.length) {
     hide();
     return;
@@ -741,6 +775,8 @@ function finishDeskRender(el, replaced) {
 /** 今日盘中盯盘状态（idle / skipped 锁死 / 已一腿 / 完成）；成交表嵌在同一 fold。 */
 export function renderPaperT0WorkerDesk(el, desk) {
   if (!el) return;
+  const sessPinned = String((desk && desk.session_date) || "").slice(0, 10);
+  if (sessPinned) t0DeskSessionDate = sessPinned;
   parkT0TradesHost(el);
   const hasDesk = !!(desk && Array.isArray(desk.rows));
   if (!hasDesk && !t0TradesVisible()) {

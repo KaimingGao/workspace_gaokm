@@ -1324,25 +1324,30 @@ class PaperTradesMixin:
         dry_run: bool = False,
         strategy: Optional[str] = None,
         offline_only: bool = True,
+        open_replay: bool = False,
     ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
 
         _ = strategy
+        # 09:30 开盘复现只出对照，任何情况下都不写账、不受 10:00 窗口限制。
+        if open_replay:
+            dry_run = True
 
         from core.paper.rebalance.watching_matrix import (
             simulate_watching_matrix_preview,
         )
 
         paper_ro = load_paper(self.path)
-        try:
-            from core.paper.rebalance.auto_worker import rebalance_window_gate
+        if not open_replay:
+            try:
+                from core.paper.rebalance.auto_worker import rebalance_window_gate
 
-            blocked = rebalance_window_gate(paper=paper_ro, dry_run=dry_run)
-            if blocked:
-                return blocked
-        except Exception:  # noqa: BLE001
-            logger.debug("rebalance fill_clock gate skipped", exc_info=True)
+                blocked = rebalance_window_gate(paper=paper_ro, dry_run=dry_run)
+                if blocked:
+                    return blocked
+            except Exception:  # noqa: BLE001
+                logger.debug("rebalance fill_clock gate skipped", exc_info=True)
         token0 = _paper_mutation_token(paper_ro)
         work = copy.deepcopy(paper_ro)
         holdings_before = copy.deepcopy(work.get("holdings") or [])
@@ -1360,6 +1365,7 @@ class PaperTradesMixin:
                     top_k=top_k,
                     dry_run=dry_run,
                     offline_only=bool(offline_only),
+                    open_replay=bool(open_replay),
                 )
         except MaterializeRequired as exc:
             body = exc.to_dict()
@@ -1423,6 +1429,33 @@ class PaperTradesMixin:
             base_out["staged"] = True
         if result.get("note"):
             base_out["note"] = result.get("note")
+
+        if open_replay:
+            report = [
+                r
+                for r in report
+                if str(r.get("side") or "") != "buy"
+                and "买入" not in str(r.get("decision") or "")
+                and "加仓" not in str(r.get("decision") or "")
+            ]
+            buy_trades = []
+            base_out["buy_trades"] = []
+            base_out["sell_trades"] = sell_trades
+            base_out["rebalance_report"] = report
+            base_out["confirm_supported"] = False
+            base_out["open_replay"] = True
+            base_out["dry_run"] = True
+            ci = base_out.get("cash_impact")
+            if isinstance(ci, dict):
+                sell_amt = float(ci.get("sell_amount") or 0)
+                ci = dict(ci)
+                ci["buy_amount"] = 0.0
+                ci["net_cash"] = round(sell_amt, 2)
+                base_out["cash_impact"] = ci
+            base_out["note"] = (
+                str(base_out.get("note") or "").strip()
+                or "09:30 开盘复现 · 预估分 · 不含开仓/加仓 · 不写账"
+            )
 
         if dry_run:
             if not base_out.get("note"):
