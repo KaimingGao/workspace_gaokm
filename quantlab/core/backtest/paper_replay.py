@@ -169,6 +169,7 @@ def backtest_paper_replay(
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
     oo_rank_max: Optional[int] = None,
+    oo_rank_strong_max: Optional[int] = None,
     oo_rank_top_frac: Optional[float] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
@@ -182,7 +183,7 @@ def backtest_paper_replay(
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank。
     ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单（分档内）。
     排序头 ``train_universe``（``tier_a`` / ``tier``，或旧 ``zscore_universe=tier_a``）只影响拟合损失，打分不再缩 z。
-    ``oo_rank_max`` 开则入场另须 max(y_oo_rank, y_τc_rank) < max（两侧都缺不拦）；否则可读旧 ``oo_rank_top_frac``。
+    ``oo_rank_max`` 开则未过强档时另须 max(y_oo_rank, y_τc_rank) < max（两侧都缺不拦）；否则可读旧 ``oo_rank_top_frac``。y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺省 100；0=关）。
     """
     from core.research.holdout import (
         current_scoring_model_role,
@@ -219,6 +220,7 @@ def backtest_paper_replay(
         coerce_fuse_threshold,
         get_rank_lot_cfg,
         oo_rank_max_from_cfg,
+        oo_rank_strong_max_from_cfg,
         oo_rank_top_frac_from_cfg,
         plan_rank_lot_day,
     )
@@ -487,6 +489,11 @@ def backtest_paper_replay(
         "oo_rank_max": oo_rank_max_from_cfg(
             {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
         ),
+        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(
+            {"oo_rank_strong_max": oo_rank_strong_max}
+            if oo_rank_strong_max is not None
+            else {}
+        ),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(
             {"oo_rank_top_frac": oo_rank_top_frac}
             if oo_rank_top_frac is not None
@@ -513,6 +520,7 @@ def backtest_paper_replay(
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
     rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
+    rl_cfg["oo_rank_strong_max"] = replay_lots.get("oo_rank_strong_max")
     rl_cfg["oo_rank_top_frac"] = replay_lots.get("oo_rank_top_frac")
     rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
@@ -1117,6 +1125,7 @@ def backtest_paper_replay(
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "oo_rank_max": rl_cfg.get("oo_rank_max"),
+            "oo_rank_strong_max": rl_cfg.get("oo_rank_strong_max"),
             "oo_rank_top_frac": rl_cfg.get("oo_rank_top_frac"),
             "fusion_w_co": alpha,
             "fusion_w_oo": w_oo,

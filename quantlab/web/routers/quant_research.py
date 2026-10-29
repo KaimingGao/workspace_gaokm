@@ -290,24 +290,25 @@ def quant_research_universe_predictability_tiers(
     ),
     require_oo_r_pos: bool = Query(
         True,
-        description="A 档另须 OO_R+>0（Holdout 前半 mean(y_oo|ŷ_oo>ε)；默认开）",
+        description="A 档另须 OO_R+>0（训练窗 mean(y_oo|ŷ_oo>ε)；默认开）",
     ),
     require_tc_r_pos: bool = Query(
         True,
-        description="A 档另须 TC_R+>0（Holdout 前半 mean(y_τc|ŷ_τc>ε)；有 ŷ_τc 研究套时生效；默认开）",
+        description="A 档另须 TC_R+>0（训练窗 mean(y_τc|ŷ_τc>ε)；有 ŷ_τc 研究套时生效；默认开）",
     ),
 ) -> Dict[str, Any]:
-    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。F1/命中看 Holdout 前半；标题测试指标看后半；等权买持看整段。
+    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。
 
-    holdout: ŷ_oo 卡片 Holdout 交易日数（分档窗=升序前半；标题指标窗=后半）。
+    F1/命中看 lookback 训练窗；标题测试指标与等权买持看 Holdout 整段。
+    holdout: ŷ_oo 卡片 Holdout 交易日数（评测窗）。
+    lookback: ŷ_oo 卡训练窗（定档样本；与拟合 lookback 对齐）。
     定档：Score=0.5*OO_F1+0.5*TC_F1（无 τc 研究套则 Score=OO_F1；缺一侧按 0）。
     A 档另过 a_f1 / tau_a_f1（默认 20% / 20%）；可勾选 OO_R+>0 / TC_R+>0（各独立；无 τc 研究套时 TC 不生效）；未过门槛不占 A 名额。
     过门槛者 top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」与 F1 门槛）。
-    lookback: 缺研究套现训时用的日线窗（与 ŷ_oo 训练窗对齐）；有研究套时只拉 Holdout+暖窗。
     回测天数由回测页 lookback 独立设置。
     """
     from core.research.predictability_tiers import (
-        build_holdout_half_tiers,
+        build_predictability_tiers,
         clamp_a_count,
         clamp_b_count,
         clamp_f1_floor,
@@ -315,7 +316,7 @@ def quant_research_universe_predictability_tiers(
     )
 
     try:
-        rep = build_holdout_half_tiers(
+        rep = build_predictability_tiers(
             holdout_n=max(2, min(int(holdout or 20), 90)),
             pool=str(pool or "watching"),
             head=str(head or "oo"),

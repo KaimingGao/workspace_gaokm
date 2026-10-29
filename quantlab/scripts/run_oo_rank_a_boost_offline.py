@@ -142,13 +142,13 @@ def _fit_arm(
 
 
 def main() -> None:
-    from core.data.facade import bars_and_source
     from core.research.holdout import (
         calendar_dates_from_stock_bars,
         resolve_ridge_split,
     )
     from core.research.oo_rank_lambdarank import _collect_feature_names
     from core.research.oo_rank_panel import build_oo_rank_day_panels
+    from core.research.portfolio_bars import load_portfolio_stock_bars
     from core.research.predictability_tiers import (
         load_predictability_tiers_last,
         tier_code_set,
@@ -188,14 +188,18 @@ def main() -> None:
         _log("ERROR: 截断后 A∩池 < 8，请加大 LIMIT 或降低截断")
         sys.exit(1)
 
+    loaded, _fail, _fund = load_portfolio_stock_bars(
+        pool,
+        lookback=lookback,
+        fetch_fundamentals=False,
+        offline_ok=True,
+    )
     stock_bars: List[Dict[str, Any]] = []
-    for i, code in enumerate(pool):
-        bars, _src = bars_and_source(code, limit=lookback + 40)
-        if not bars or len(bars) < 20:
+    for code in pool:
+        bars = loaded.get(str(code)) or []
+        if len(bars) < 20:
             continue
         stock_bars.append({"code": code, "bars": bars})
-        if (i + 1) % 40 == 0:
-            _log(f"  已加载 {i + 1}/{len(pool)} ...")
     _log(f"有效加载: {len(stock_bars)}")
     if len(stock_bars) < 8:
         _log("ERROR: 有效股票不足")

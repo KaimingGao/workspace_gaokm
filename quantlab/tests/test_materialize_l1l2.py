@@ -1873,8 +1873,12 @@ class HorizonL1StitchTests(unittest.TestCase):
             "core.research_universe.resolve_model_fit_codes",
             return_value={"ok": True, "codes": codes, "source": "watching"},
         ), mock.patch(
-            "core.data.facade.bars_and_source",
-            return_value=(bars, "cache"),
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
+            side_effect=lambda codes, **_kw: (
+                {str(c): list(bars) for c in codes},
+                [],
+                {},
+            ),
         ), mock.patch(
             "core.research.materialize.cover_policy.resolve_fit_minute_covered_dates",
             return_value=dates[:5],
@@ -1968,8 +1972,12 @@ class HorizonL1StitchTests(unittest.TestCase):
                 "source": "watching",
             },
         ), mock.patch(
-            "core.data.facade.bars_and_source",
-            return_value=(bars, "cache"),
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
+            side_effect=lambda codes, **_kw: (
+                {str(c): list(bars) for c in codes},
+                [],
+                {},
+            ),
         ), mock.patch(
             "core.research.materialize.cover_policy.resolve_fit_minute_covered_dates",
             return_value=dates[:5],

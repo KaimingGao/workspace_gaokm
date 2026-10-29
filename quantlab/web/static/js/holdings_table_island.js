@@ -222,7 +222,7 @@ const COLS = [
     defaultDir: "asc",
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
-    title: "可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 fuse 从高到低",
+    title: "可预测性分档（ŷ_oo 训练窗）：A 强 / B 中 / C 弱。同档内按 fuse 从高到低",
   },
   {
     id: "sent",

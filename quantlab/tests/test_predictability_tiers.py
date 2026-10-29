@@ -1,4 +1,4 @@
-"""滚动可预测性票档：ŷ_oo Holdout OOS 前半。"""
+"""滚动可预测性票档：ŷ_oo 训练窗定档 + Holdout 评测。"""
 
 from __future__ import annotations
 
@@ -9,16 +9,8 @@ from unittest.mock import patch
 
 
 class TestPredictabilityTiers(unittest.TestCase):
-    def test_score_panel_lookback_is_short(self):
-        from core.research.predictability_tiers import _score_panel_lookback
-
-        lb = _score_panel_lookback(20, 1)
-        self.assertGreaterEqual(lb, 40)
-        self.assertLessEqual(lb, 200)
-        self.assertLess(lb, 600)
-
-    def test_accumulate_uses_short_lookback_with_research_model(self):
-        """有研究套时不应按 ŷ_oo 全训练窗（600）拉面板。"""
+    def test_accumulate_uses_full_lookback_with_research_model(self):
+        """有研究套时也按 lookback 全窗拉日线（训练窗定档需要）。"""
         from core.research.predictability_tiers import accumulate_holdout_oos_by_code
         from core.signal.return_score import ReturnScoreModel
 
@@ -27,7 +19,6 @@ class TestPredictabilityTiers(unittest.TestCase):
         def _fake_load(codes, **kwargs):
             captured["lookback"] = kwargs.get("lookback")
             captured["n_codes"] = len(list(codes or []))
-            # 最少两只、短序列即可让后续早退或走完；这里返回空导致 early fail 也够断言 lookback
             return {}, ["no_bars"], {}
 
         research = ReturnScoreModel(
@@ -47,13 +38,12 @@ class TestPredictabilityTiers(unittest.TestCase):
                 use_research_model=True,
             )
         self.assertIn("lookback", captured)
-        self.assertLessEqual(int(captured["lookback"]), 200)
-        self.assertLess(int(captured["lookback"]), 600)
+        self.assertEqual(int(captured["lookback"]), 600)
         self.assertFalse(out.get("ok"))
         self.assertEqual(out.get("lookback_requested"), 600)
 
-    def test_research_model_keeps_only_holdout_dates(self):
-        """有研究套时特征行只建在 Holdout 测试日上。"""
+    def test_research_model_keeps_train_and_holdout_dates(self):
+        """有研究套时特征行覆盖训练窗∪Holdout（定档+评测）。"""
         from datetime import date, timedelta
 
         from core.research.predictability_tiers import accumulate_holdout_oos_by_code
@@ -91,11 +81,17 @@ class TestPredictabilityTiers(unittest.TestCase):
             "core.research.predictability_tiers._load_research_oo_model",
             return_value=(research, {"ok": True}),
         ), patch(
+            "core.research.predictability_tiers._lake_coverage_ok",
+            return_value=False,
+        ), patch(
             "core.research.portfolio_bars.load_portfolio_stock_bars",
             side_effect=_fake_load,
         ), patch(
             "core.research.oo_panel.collect_oo_panel",
             side_effect=_fake_collect,
+        ), patch(
+            "core.research.predictability_tiers._load_research_tau_model",
+            return_value=(None, {"ok": False, "reason": "skip"}),
         ):
             out = accumulate_holdout_oos_by_code(
                 ["000001", "000002"],
@@ -104,10 +100,16 @@ class TestPredictabilityTiers(unittest.TestCase):
                 use_research_model=True,
             )
         self.assertTrue(out.get("ok"), out)
+        all_days = {str(b["date"])[:10] for b in bars}
         last10 = {str(b["date"])[:10] for b in bars[-10:]}
-        self.assertEqual(seen.get("keep"), last10)
-        self.assertEqual(out.get("n_test"), 20)
-        self.assertIsNone(out.get("n_train"))
+        keep = seen.get("keep") or set()
+        self.assertTrue(last10.issubset(keep), keep)
+        self.assertGreater(len(keep - last10), 0)
+        self.assertTrue(keep.issubset(all_days))
+        self.assertEqual(
+            out.get("holdout_split", {}).get("selection_window"), "lookback_train"
+        )
+        self.assertGreater(int(out.get("n_train") or 0), 0)
 
     def test_research_model_zscores_same_day_before_predict(self):
         """截面 ŷ_oo 用当天全体票的 z，不用 0–100 原始分直接乘 β。"""
@@ -144,11 +146,17 @@ class TestPredictabilityTiers(unittest.TestCase):
             "core.research.predictability_tiers._load_research_oo_model",
             return_value=(research, {"ok": True}),
         ), patch(
+            "core.research.predictability_tiers._lake_coverage_ok",
+            return_value=False,
+        ), patch(
             "core.research.portfolio_bars.load_portfolio_stock_bars",
             side_effect=_fake_load,
         ), patch(
             "core.research.oo_panel.collect_oo_panel",
             side_effect=_fake_collect,
+        ), patch(
+            "core.research.predictability_tiers._load_research_tau_model",
+            return_value=(None, {"ok": False, "reason": "skip"}),
         ), patch(
             "core.research.predictability_tiers._score_tau_holdout_into_acc",
             return_value={"ok": False, "reason": "skip"},
@@ -246,7 +254,6 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "hit_rate": 0.7,
                     "n_valid": 9,
                     "n_days": 10,
-                    "ic": 0.12,
                     "realized_pct": 3.5,
                     "mean_y_pos": 0.4,
                     "n_y_pos": 5,
@@ -277,6 +284,8 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(rows[0]["f1_pos_tau"], 0.6)
         self.assertNotIn("yhats", rows[0])
         self.assertNotIn("realized", rows[0])
+        self.assertNotIn("ic", rows[0])
+        self.assertNotIn("hits", rows[0])
 
     def test_code_holdout_ret_pct(self):
         from core.research.predictability_tiers import (
@@ -361,7 +370,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertIsNone(empty_oo.get("f1"))
 
     def test_tier_window_acc_f1_use_full_pairs(self):
-        """标题 ACC / F1 池化传入窗口的成对样本；死区日不计入。与截面最少票数无关。"""
+        """标题 ACC / P / R / F1 池化传入窗口的成对样本；死区日不计入。与截面最少票数无关。"""
         from core.research.predictability_tiers import summarize_tier_window_cs
 
         acc = {
@@ -376,14 +385,16 @@ class TestPredictabilityTiers(unittest.TestCase):
         # 有效 3 日：两天符号对、一天看多看空。|ŷ|=0.01 死区剔除。
         # tp=1 fp=1 fn=0 → P=0.5 R=1 F1=2/3
         self.assertAlmostEqual(float(out["acc"]), round(2 / 3, 4))
+        self.assertAlmostEqual(float(out["precision"]), 0.5)
+        self.assertAlmostEqual(float(out["recall"]), 1.0)
         self.assertAlmostEqual(float(out["f1"]), round(2 / 3, 4))
         self.assertEqual(int(out["n_cls"]), 3)
         only_b = summarize_tier_window_cs(acc, codes=["000002"], min_names=1)
         self.assertIsNone(only_b.get("acc"))
         self.assertEqual(int(only_b.get("n_cls") or 0), 0)
 
-    def test_tier_window_dates_are_second_half_only(self):
-        """传入后半日期时，前半成对样本不进 Rank IC / ACC。"""
+    def test_tier_window_dates_filter_pairs(self):
+        """评测日窗外的成对样本不进 Rank IC / ACC。"""
         from core.research.predictability_tiers import summarize_tier_window_cs
 
         acc = {}
@@ -837,43 +848,43 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(by2["better"]["tier"], "A")
         self.assertEqual(by2["oo"]["tier"], "B")
 
-    def test_split_holdout_half_dates(self):
+    def test_build_lookback_holdout_split(self):
         from core.research.predictability_tiers import (
-            split_holdout_half_dates,
+            PROTOCOL_HOLDOUT_OOS,
+            TITLE_METRIC_WINDOW,
+            build_lookback_holdout_split,
+            holdout_eval_dates,
             tier_code_set,
         )
 
-        dates = [f"2025-08-{d:02d}" for d in range(1, 11)]
-        split = split_holdout_half_dates(dates, holdout_n=10)
+        self.assertEqual(PROTOCOL_HOLDOUT_OOS, "lookback_train_holdout_eval")
+        train = [f"2025-07-{d:02d}" for d in range(1, 11)]
+        test = [f"2025-08-{d:02d}" for d in range(1, 11)]
+        split = build_lookback_holdout_split(train, test, holdout_n=10)
         self.assertTrue(split.get("ok"), split)
-        self.assertEqual(split.get("n_test"), 10)
-        self.assertEqual(split.get("tier_n"), 5)
-        self.assertEqual(split["tier_dates"], dates[:5])
-        self.assertEqual(split["eval_dates"], dates[5:])
-        self.assertEqual(split.get("eval_n"), 5)
-        self.assertNotIn("rank_dates", split)
-        self.assertNotIn("rank_n", split)
-        self.assertNotIn("n_ledger", split)
-        self.assertNotIn("bt_dates", split)
-
-        long = [f"2025-07-{d:02d}" for d in range(1, 21)]
-        clipped = split_holdout_half_dates(long, holdout_n=10)
-        self.assertEqual(clipped["test_days"], long[-10:])
-        self.assertEqual(clipped["tier_dates"], long[-10:-5])
-        self.assertEqual(clipped["eval_dates"], long[-5:])
-
-        odd = [f"2025-09-{d:02d}" for d in range(1, 10)]
-        half_odd = split_holdout_half_dates(odd, holdout_n=20)
-        self.assertEqual(half_odd.get("tier_n"), 4)
-        self.assertEqual(half_odd["tier_dates"], odd[:4])
-        self.assertEqual(half_odd["eval_dates"], odd[4:])
-
-        from core.research.predictability_tiers import holdout_eval_dates
-
-        legacy = {"test_days": dates, "tier_dates": dates[:5]}
-        self.assertEqual(holdout_eval_dates(legacy), dates[5:])
-        self.assertEqual(holdout_eval_dates({"eval_dates": dates[5:]}), dates[5:])
+        self.assertEqual(split.get("tier_dates"), train)
+        self.assertEqual(split.get("eval_dates"), test)
+        self.assertEqual(split.get("test_days"), test)
+        self.assertEqual(split.get("selection_window"), "lookback_train")
+        self.assertEqual(split.get("title_metric_window"), TITLE_METRIC_WINDOW)
+        self.assertEqual(split.get("overlap_dropped"), [])
+        self.assertEqual(holdout_eval_dates(split), test)
+        self.assertEqual(holdout_eval_dates({"test_days": test}), test)
         self.assertEqual(holdout_eval_dates(None), [])
+
+        # 训练∩Holdout 重叠日只留评测窗
+        train_overlap = train + ["2025-08-01", "2025-08-02"]
+        split_ov = build_lookback_holdout_split(train_overlap, test, holdout_n=10)
+        self.assertTrue(split_ov.get("ok"), split_ov)
+        self.assertEqual(split_ov.get("tier_dates"), train)
+        self.assertEqual(split_ov.get("eval_dates"), test)
+        self.assertEqual(
+            split_ov.get("overlap_dropped"), ["2025-08-01", "2025-08-02"]
+        )
+        # 全重叠 → 训练窗空 → 失败
+        bad = build_lookback_holdout_split(test, test, holdout_n=10)
+        self.assertFalse(bad.get("ok"))
+        self.assertEqual(len(bad.get("overlap_dropped") or []), len(test))
 
         rep = {
             "rows": [
@@ -885,7 +896,116 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertIn("000001", keep)
         self.assertNotIn("000002", keep)
 
-    def test_metrics_use_full_holdout_hits_use_first_half(self):
+    def test_lake_rows_enough_and_strip_tau(self):
+        from core.research.predictability_tiers import (
+            _lake_rows_enough,
+            _strip_tau_from_acc,
+        )
+
+        self.assertFalse(_lake_rows_enough(0, n_codes=10, n_dates=20))
+        self.assertFalse(_lake_rows_enough(5, n_codes=10, n_dates=20))
+        self.assertTrue(_lake_rows_enough(60, n_codes=10, n_dates=20))
+        acc = {
+            "000001": {
+                "n_valid": 3,
+                "hits_tau": 2,
+                "n_valid_tau": 4,
+                "tau_yhats": [1.0],
+                "tau_realized": [0.5],
+                "tau_pair_dates": ["2025-01-01"],
+                "sum_y_pos_tau": 1.5,
+                "n_y_pos_tau": 2,
+                "tp_pos_tau": 1,
+                "fp_pos_tau": 0,
+                "fn_pos_tau": 1,
+            }
+        }
+        _strip_tau_from_acc(acc)
+        slot = acc["000001"]
+        self.assertEqual(slot["n_valid"], 3)
+        self.assertEqual(slot["hits_tau"], 0)
+        self.assertEqual(slot["n_valid_tau"], 0)
+        self.assertEqual(slot["tau_yhats"], [])
+        self.assertEqual(slot["sum_y_pos_tau"], 0.0)
+
+    def test_sparse_lake_falls_back_to_bars(self):
+        """湖打分过稀时清空半残面板并改走 bars。"""
+        from datetime import date, timedelta
+
+        from core.research.predictability_tiers import accumulate_holdout_oos_by_code
+        from core.signal.return_score import ReturnScoreModel
+
+        start = date(2024, 1, 2)
+        bars = []
+        for i in range(40):
+            d = (start + timedelta(days=i)).isoformat()
+            bars.append(
+                {"date": d, "open": 10.0, "close": 10.0, "high": 11.0, "low": 9.0}
+            )
+
+        def _fake_collect(code_bars, **kwargs):
+            keep = {str(d)[:10] for d in (kwargs.get("keep_dates") or [])}
+            use = [str(b["date"])[:10] for b in code_bars if str(b["date"])[:10] in keep]
+            return ([{"momentum": 1.0}] * len(use), [0.2] * len(use), use)
+
+        research = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"momentum": 1.0},
+            feature_zscore=False,
+        )
+
+        def _fake_load(codes, **kwargs):
+            return ({str(c): list(bars) for c in codes}, [], {})
+
+        def _fake_lake_score(acc, **kwargs):
+            # 写入半残行后返回过稀行数
+            from core.research.predictability_tiers import _absorb_holdout_row
+
+            _absorb_holdout_row(
+                acc,
+                code="000001",
+                date="2024-01-10",
+                pred=1.0,
+                y=0.2,
+                tier_set=kwargs["tier_set"],
+                metric_set=kwargs["metric_set"],
+                yhat_eps=kwargs["yhat_eps"],
+            )
+            return 1
+
+        with patch(
+            "core.research.predictability_tiers._load_research_oo_model",
+            return_value=(research, {"ok": True}),
+        ), patch(
+            "core.research.predictability_tiers._lake_coverage_ok",
+            return_value=True,
+        ), patch(
+            "core.research.predictability_tiers._score_lake_days_into_acc",
+            side_effect=_fake_lake_score,
+        ), patch(
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
+            side_effect=_fake_load,
+        ), patch(
+            "core.research.oo_panel.collect_oo_panel",
+            side_effect=_fake_collect,
+        ), patch(
+            "core.research.predictability_tiers._load_research_tau_model",
+            return_value=(None, {"ok": False, "reason": "skip"}),
+        ):
+            out = accumulate_holdout_oos_by_code(
+                ["000001", "000002"],
+                holdout_n=10,
+                lookback=600,
+                use_research_model=True,
+            )
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual(out.get("panel_mode"), "bars_lookback")
+        self.assertIn("000001", out.get("acc") or {})
+        self.assertIn("000002", out.get("acc") or {})
+        # bars 路径应覆盖两票；半残湖单票不得残留为唯一结果
+        self.assertGreaterEqual(len(out["acc"]), 2)
+
+    def test_metrics_use_holdout_hits_use_train_window(self):
         from core.research.predictability_tiers import (
             _absorb_holdout_row,
             _absorb_tau_holdout_row,
@@ -925,7 +1045,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(len(slot["pair_dates"]), 4)
         self.assertEqual(slot["n_valid_tau"], 2)
         self.assertEqual(len(slot["tau_realized"]), 4)
-        # OO_R+ 只计前半 ŷ>ε：d1/d2 的 y=2.0；后半 d3/d4 不进
+        # OO_R+ 只计定档窗 ŷ>ε：d1/d2 的 y=2.0；评测日 d3/d4 不进
         self.assertEqual(slot["n_y_pos"], 2)
         self.assertAlmostEqual(float(slot["sum_y_pos"]), 4.0)
         # TC_R+ / TC_F1 同窗：ŷ_τc 与 y 同口径
@@ -953,8 +1073,8 @@ class TestPredictabilityTiers(unittest.TestCase):
         # 000001: 99/100-1=-1%；000002: 55/50-1=+10%；等权 +4.5%
         self.assertAlmostEqual(ew["mean_realized_pct"], 4.5)
 
-    def test_mean_y_pos_only_first_half_when_yhat_positive(self):
-        """OO_R+：仅 Holdout 前半；ŷ>ε 进 OO_R+（不再累计空头条件收益）。"""
+    def test_mean_y_pos_only_tier_window_when_yhat_positive(self):
+        """OO_R+：仅定档窗（tier_set）；ŷ>ε 进 OO_R+（不再累计空头条件收益）。"""
         from core.research.predictability_tiers import (
             _absorb_holdout_row,
             _absorb_tau_holdout_row,
@@ -964,7 +1084,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         acc = {}
         tier = {"d1", "d2", "d3"}
         whole = {"d1", "d2", "d3", "d4"}
-        # d1: ŷ>0 y=+1；d2: ŷ<0 y=+3（不计 R+）；d3: ŷ>0 y=-0.5；d4 后半不计
+        # d1: ŷ>0 y=+1；d2: ŷ<0 y=+3（不计 R+）；d3: ŷ>0 y=-0.5；d4 评测窗不计
         samples = (
             ("d1", 1.0, 1.0),
             ("d2", -1.0, 3.0),
@@ -995,7 +1115,6 @@ class TestPredictabilityTiers(unittest.TestCase):
         rows, _counts = _rows_from_acc(
             acc,
             pool_codes=["000001"],
-            watch_set={"000001"},
             pad_missing=False,
             a_count=1,
             b_count=0,
@@ -1040,7 +1159,6 @@ class TestPredictabilityTiers(unittest.TestCase):
         rows, _counts = _rows_from_acc(
             acc,
             pool_codes=["000001"],
-            watch_set={"000001"},
             pad_missing=False,
             a_count=1,
             b_count=0,
@@ -1091,10 +1209,10 @@ class TestPredictabilityTiers(unittest.TestCase):
         # 齐窗终点 d3：全池 -4%，而非被 d4 单票 -50% 拖垮
         self.assertAlmostEqual(ew["mean_realized_pct"], -4.0)
 
-    def test_build_holdout_half_tiers_oos(self):
+    def test_build_predictability_tiers_oos(self):
         from core.research.predictability_tiers import (
             PROTOCOL_HOLDOUT_OOS,
-            build_holdout_half_tiers,
+            build_predictability_tiers,
             load_predictability_tiers_last,
             save_predictability_tiers_last,
             tier_code_set,
@@ -1164,13 +1282,22 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "tier_dates": list(tier_dates),
                     "tier_n": 10,
                     "test_days": list(tier_dates),
+                    "eval_dates": list(tier_dates),
+                    "eval_n": 10,
                     "as_of_tier_last": tier_dates[-1],
+                    "selection_window": "lookback_train",
+                    "title_metric_window": "holdout",
                 },
-                "split_meta": {"eval_start": "2025-08-01", "test_days": list(tier_dates)},
+                "split_meta": {
+                    "eval_start": "2025-08-01",
+                    "train_days": [f"2025-07-{d:02d}" for d in range(1, 21)],
+                    "test_days": list(tier_dates),
+                },
                 "n_train": 40,
                 "n_test": 20,
+                "panel_mode": "lookback_full",
                 "horizon_days": 1,
-                "source": "oo_holdout_oos",
+                "source": "oo_research_model",
                 "tau_meta": {"ok": True, "n_rows": 12, "path": "/tmp/tau_research.json"},
                 # 000001 +2%、000002 -1%（对齐回测等权买持 close 首尾）
                 "stock_bars": {
@@ -1198,7 +1325,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 "core.research.predictability_tiers._watching_name_map",
                 return_value={"000001": "平安银行", "000002": "万科A", "600000": "浦发银行"},
             ):
-                rep = build_holdout_half_tiers(
+                rep = build_predictability_tiers(
                     10,
                     pool="watching",
                     head="oo",
@@ -1209,8 +1336,11 @@ class TestPredictabilityTiers(unittest.TestCase):
                 )
                 self.assertTrue(rep.get("success"), rep)
                 self.assertEqual(rep.get("protocol"), PROTOCOL_HOLDOUT_OOS)
-                self.assertEqual(rep.get("title_metric_window"), "holdout_second_half")
-                self.assertEqual(rep.get("source"), "oo_holdout_oos")
+                self.assertEqual(rep.get("title_metric_window"), "holdout")
+                self.assertEqual(rep.get("selection_window"), "lookback_train")
+                self.assertEqual(rep.get("source"), "oo_research_model")
+                self.assertNotIn("live_hook", rep)
+                self.assertNotIn("ic", (rep.get("rows") or [{}])[0])
                 self.assertEqual(rep.get("holdout_n"), 10)
                 # fake accumulate 未改 source 时仍透传；真实路径为 oo_research_model
                 self.assertEqual(rep.get("tier_n"), 10)
@@ -1274,7 +1404,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                     loaded and loaded.get("protocol") == PROTOCOL_HOLDOUT_OOS
                 )
 
-                tau = build_holdout_half_tiers(10, head="tau", persist=False)
+                tau = build_predictability_tiers(10, head="tau", persist=False)
                 self.assertFalse(tau.get("success"))
 
     def test_load_research_oo_model_skips_active(self):
@@ -1307,7 +1437,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertFalse(meta2.get("ok"))
 
     def test_build_tiers_defaults_to_watching(self):
-        from core.research.predictability_tiers import build_holdout_half_tiers
+        from core.research.predictability_tiers import build_predictability_tiers
 
         tier_dates = [f"2025-06-{d:02d}" for d in range(1, 11)]
 
@@ -1353,13 +1483,19 @@ class TestPredictabilityTiers(unittest.TestCase):
                     "n_test": 20,
                     "tier_dates": list(tier_dates),
                     "tier_n": len(tier_dates),
+                    "test_days": list(tier_dates),
+                    "eval_dates": list(tier_dates),
+                    "eval_n": len(tier_dates),
                     "as_of_tier_last": tier_dates[-1],
+                    "selection_window": "lookback_train",
+                    "title_metric_window": "holdout",
                 },
                 "split_meta": {},
                 "n_train": 50,
                 "n_test": 20,
                 "horizon_days": 1,
                 "source": "oo_research_model",
+                "panel_mode": "lookback_full",
                 "model_meta": {"ok": True, "path": "/tmp/research.json"},
             }
 
@@ -1377,7 +1513,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             "core.watching.store.read_watching",
             return_value={"watchlist": ["000001", "000002", "000003", "600000"]},
         ):
-            rep = build_holdout_half_tiers(
+            rep = build_predictability_tiers(
                 holdout_n=20,
                 head="oo",
                 persist=False,
@@ -1393,7 +1529,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             self.assertEqual(by["000001"]["tier"], "A")
             self.assertEqual(by["000003"]["tier"], "C")
 
-            ru = build_holdout_half_tiers(
+            ru = build_predictability_tiers(
                 holdout_n=20,
                 pool="research_universe",
                 head="oo",
@@ -1405,7 +1541,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             self.assertIn("000099", ru_codes)
 
             # ledger 池已废弃 → watching
-            led = build_holdout_half_tiers(
+            led = build_predictability_tiers(
                 holdout_n=20,
                 pool="ledger",
                 head="oo",
@@ -1416,21 +1552,34 @@ class TestPredictabilityTiers(unittest.TestCase):
             self.assertEqual(led.get("pool"), "watching")
 
     def test_promote_and_live_filter(self):
+        from datetime import date
+
         from core.research.predictability_tiers import (
+            PROTOCOL_HOLDOUT_OOS,
+            TITLE_METRIC_WINDOW,
             clear_predictability_tiers_live,
             filter_codes_by_predictability_live,
             live_tier_status,
+            pool_codes_fingerprint,
             promote_predictability_tiers_to_live,
             save_predictability_tiers_last,
         )
 
+        pool = ["000001", "000002", "000003", "000099"]
+        today = date.today().isoformat()
         report = {
             "success": True,
+            "protocol": PROTOCOL_HOLDOUT_OOS,
+            "title_metric_window": TITLE_METRIC_WINDOW,
+            "holdout_n": 20,
             "counts": {"A": 1, "B": 1, "C": 1},
             "head": "oo",
             "head_label": "ŷ_oo",
             "tier_n": 20,
-            "tier_dates": ["2025-01-01", "2025-01-20"],
+            "tier_dates": ["2025-01-01", today],
+            "as_of_tier_last": today,
+            "as_of_eval_last": today,
+            "pool_codes_fp": pool_codes_fingerprint(pool),
             "rows": [
                 {"code": "000001", "tier": "A"},
                 {"code": "000002", "tier": "B"},
@@ -1458,10 +1607,11 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertEqual(st.get("allowed_tiers"), ["A"])
 
                 kept, meta = filter_codes_by_predictability_live(
-                    ["000001", "000002", "000003", "000099"],
+                    pool,
                     keep=["000003"],
                 )
                 self.assertTrue(meta.get("predictability_live"))
+                self.assertTrue(meta.get("gate_ok"))
                 self.assertIn("000001", kept)
                 self.assertNotIn("000002", kept)
                 self.assertIn("000003", kept)  # 持仓仍进打分，待硬清仓
@@ -1469,6 +1619,13 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertEqual(meta.get("force_exit_held"), ["000003"])
                 self.assertEqual(meta.get("n_force_exit_held"), 1)
                 self.assertEqual(meta.get("tradable_codes"), ["000001"])
+
+                # 池变了 → 闸拒绝
+                bad, meta_bad = filter_codes_by_predictability_live(
+                    pool + ["000088"], keep=[]
+                )
+                self.assertFalse(meta_bad.get("gate_ok"))
+                self.assertIn("不一致", str(meta_bad.get("gate_error") or ""))
 
                 clear_predictability_tiers_live()
                 st2 = live_tier_status()
@@ -1497,6 +1654,175 @@ class TestPredictabilityTiers(unittest.TestCase):
         ):
             fail = promote_predictability_tiers_to_live()
             self.assertFalse(fail.get("ok"))
+
+    def test_validate_predictability_tiers_report(self):
+        from datetime import date, timedelta
+
+        from core.research.predictability_tiers import (
+            PROTOCOL_HOLDOUT_OOS,
+            TITLE_METRIC_WINDOW,
+            pool_codes_fingerprint,
+            validate_predictability_tiers_report,
+        )
+
+        today = date.today()
+        codes = ["000001", "000002"]
+        base = {
+            "success": True,
+            "protocol": PROTOCOL_HOLDOUT_OOS,
+            "title_metric_window": TITLE_METRIC_WINDOW,
+            "holdout_n": 20,
+            "as_of_tier_last": (today - timedelta(days=25)).isoformat(),
+            "as_of_eval_last": today.isoformat(),
+            "pool_codes_fp": pool_codes_fingerprint(codes),
+        }
+        self.assertTrue(
+            validate_predictability_tiers_report(
+                base, holdout_n=20, pool_codes=codes
+            ).get("ok")
+        )
+        self.assertFalse(
+            validate_predictability_tiers_report(
+                {**base, "protocol": "holdout_oos_half"},
+                pool_codes=codes,
+            ).get("ok")
+        )
+        self.assertFalse(
+            validate_predictability_tiers_report(
+                base, holdout_n=40, pool_codes=codes
+            ).get("ok")
+        )
+        stale = {
+            **base,
+            "as_of_eval_last": (today - timedelta(days=30)).isoformat(),
+        }
+        self.assertFalse(
+            validate_predictability_tiers_report(stale, pool_codes=codes).get("ok")
+        )
+        no_fp = {k: v for k, v in base.items() if k != "pool_codes_fp"}
+        self.assertFalse(
+            validate_predictability_tiers_report(no_fp, pool_codes=codes).get("ok")
+        )
+        # 定档末日可早于 Holdout；新鲜度只看评测末日
+        train_old = {
+            **base,
+            "as_of_tier_last": (today - timedelta(days=25)).isoformat(),
+            "as_of_eval_last": today.isoformat(),
+        }
+        self.assertTrue(
+            validate_predictability_tiers_report(
+                train_old, pool_codes=codes
+            ).get("ok")
+        )
+        # 无 as_of_eval_last 时回落 holdout_split.eval_dates
+        via_split = {
+            k: v for k, v in base.items() if k != "as_of_eval_last"
+        }
+        via_split["holdout_split"] = {
+            "eval_dates": [(today - timedelta(days=1)).isoformat()]
+        }
+        self.assertTrue(
+            validate_predictability_tiers_report(
+                via_split, pool_codes=codes
+            ).get("ok")
+        )
+        # 禁止用定档末日冒充评测末日
+        tier_only = {
+            k: v for k, v in base.items() if k != "as_of_eval_last"
+        }
+        tier_only["as_of_tier_last"] = today.isoformat()
+        self.assertFalse(
+            validate_predictability_tiers_report(
+                tier_only, pool_codes=codes
+            ).get("ok")
+        )
+        # 缺协议 / 缺评测窗 → 拒绝
+        self.assertFalse(
+            validate_predictability_tiers_report(
+                {**base, "protocol": ""}, pool_codes=codes
+            ).get("ok")
+        )
+        self.assertFalse(
+            validate_predictability_tiers_report(
+                {**base, "title_metric_window": ""}, pool_codes=codes
+            ).get("ok")
+        )
+        # 请求 Holdout 但报告缺 holdout_n
+        no_hold = {k: v for k, v in base.items() if k != "holdout_n"}
+        self.assertFalse(
+            validate_predictability_tiers_report(
+                no_hold, holdout_n=20, pool_codes=codes
+            ).get("ok")
+        )
+        # 坏 holdout_n
+        self.assertFalse(
+            validate_predictability_tiers_report(
+                {**base, "holdout_n": "xx"}, pool_codes=codes
+            ).get("ok")
+        )
+        # 有指纹字段、无当前池 → 仍可通过（晋级路径）
+        self.assertTrue(
+            validate_predictability_tiers_report(base).get("ok")
+        )
+
+    def test_filter_fp_ignores_held_extra(self):
+        """指纹只对观察池；持仓并入票不致误杀。"""
+        from datetime import date
+
+        from core.research.predictability_tiers import (
+            PROTOCOL_HOLDOUT_OOS,
+            TITLE_METRIC_WINDOW,
+            filter_codes_by_predictability_live,
+            pool_codes_fingerprint,
+            promote_predictability_tiers_to_live,
+            save_predictability_tiers_last,
+        )
+
+        today = date.today().isoformat()
+        pool = ["000001", "000002"]
+        report = {
+            "success": True,
+            "protocol": PROTOCOL_HOLDOUT_OOS,
+            "title_metric_window": TITLE_METRIC_WINDOW,
+            "holdout_n": 20,
+            "as_of_tier_last": today,
+            "as_of_eval_last": today,
+            "pool_codes_fp": pool_codes_fingerprint(pool),
+            "counts": {"A": 1, "B": 1, "C": 0},
+            "rows": [
+                {"code": "000001", "tier": "A"},
+                {"code": "000002", "tier": "B"},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            last_p = os.path.join(td, "predictability_tiers_last.json")
+            active_p = os.path.join(td, "predictability_tiers_active.json")
+            with patch(
+                "core.research.predictability_tiers.predictability_tiers_last_path",
+                return_value=last_p,
+            ), patch(
+                "core.research.predictability_tiers.predictability_tiers_active_path",
+                return_value=active_p,
+            ), patch(
+                "core.live_config_manifest.write_live_config_manifest",
+                return_value={},
+            ):
+                save_predictability_tiers_last(report)
+                self.assertTrue(promote_predictability_tiers_to_live().get("ok"))
+                # 并入观察池外持仓 → 若用全量指纹会拒；显式 fp 池则过
+                uni = pool + ["600000"]
+                bad, meta_bad = filter_codes_by_predictability_live(
+                    uni, keep=["600000"]
+                )
+                self.assertFalse(meta_bad.get("gate_ok"))
+                self.assertIsNone(meta_bad.get("tradable_codes"))
+                kept, meta = filter_codes_by_predictability_live(
+                    uni, keep=["600000"], pool_codes_for_fp=pool
+                )
+                self.assertTrue(meta.get("gate_ok"))
+                self.assertIn("000001", kept)
+                self.assertIn("600000", kept)
+                self.assertEqual(meta.get("force_exit_held"), ["600000"])
 
 if __name__ == "__main__":
     unittest.main()

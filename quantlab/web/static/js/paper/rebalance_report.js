@@ -159,10 +159,12 @@ function emptyFloorHint({
 }
 
 function fmtRebalancePx(v) {
-  if (v == null || v === "") return "—";
-  const n = Number(v);
-  if (!Number.isFinite(n)) return String(v);
-  return `${n}元`;
+  const n = rebalancePxText(v);
+  if (n == null) {
+    if (v == null || v === "") return "—";
+    return String(v);
+  }
+  return `${n.toFixed(2)}元`;
 }
 
 function rebalancePxText(raw) {
@@ -170,6 +172,13 @@ function rebalancePxText(raw) {
   const n = Number(String(raw).replace(/,/g, "").replace(/元$/u, ""));
   if (!Number.isFinite(n)) return null;
   return n;
+}
+
+/** 开盘列与现价差价共用：优先当日开盘，缺则回退 open。 */
+function rebalanceOpenRaw(r) {
+  if (!r) return null;
+  if (r.day_open != null && r.day_open !== "") return r.day_open;
+  return r.open;
 }
 
 function rebalancePrevCloseText(r) {
@@ -186,10 +195,26 @@ function rebalancePrevCloseText(r) {
   return "—";
 }
 
-function rebalanceLastPxText(r) {
-  const n = rebalancePxText(r && r.price);
-  if (n == null) return "—";
-  return `${n.toFixed(2)}元`;
+/** 现价相对当日开盘：高于开盘红、低于开盘绿，文案为「xx.xx元（±y.yy%）」。 */
+function rebalanceLastPxView(r) {
+  const px = rebalancePxText(r && r.price);
+  if (px == null) return { text: "—", cls: "", title: "最新成交价" };
+  const open = rebalancePxText(rebalanceOpenRaw(r));
+  const pxShown = `${px.toFixed(2)}元`;
+  if (open == null || !(open > 0)) {
+    return { text: pxShown, cls: "", title: "最新成交价" };
+  }
+  const pct = ((px - open) / open) * 100;
+  const signed = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}`;
+  const flat = signed === "+0.00" || signed === "-0.00";
+  const pctLabel = flat ? "0.00" : signed;
+  return {
+    text: `${pxShown}（${pctLabel}%）`,
+    cls: flat ? "" : pct > 0 ? " is-up" : " is-down",
+    title: flat
+      ? "最新成交价 · 与开盘持平"
+      : `最新成交价 · 相对开盘 ${pctLabel}%`,
+  };
 }
 
 /** @type {{ key: "" | "px" | "fuse" | "oo_rank" | "tc_rank", desc: boolean }} */
@@ -940,11 +965,9 @@ function renderRebalanceReport(
         rawName && rawName !== rawCode ? rawName : rawName && !rawCode ? rawName : "—";
       const name = escapeText(nameLabel);
       const code = escapeText(rawCode);
-      const lastPxText = rebalanceLastPxText(r);
+      const lastPx = rebalanceLastPxView(r);
       const prevCloseText = rebalancePrevCloseText(r);
-      const openRaw =
-        r.day_open != null && r.day_open !== "" ? r.day_open : r.open;
-      const openText = fmtRebalancePx(openRaw);
+      const openText = fmtRebalancePx(rebalanceOpenRaw(r));
       const oosFailed =
         !!r.oos_failed ||
         !!r.oosFailed ||
@@ -996,9 +1019,9 @@ function renderRebalanceReport(
         `<div class="num rebalance-open" role="cell" title="当日开盘价">${escapeText(
           openText
         )}</div>` +
-        `<div class="num rebalance-px" role="cell" title="最新成交价">${escapeText(
-          lastPxText
-        )}</div>` +
+        `<div class="num rebalance-px${lastPx.cls}" role="cell" title="${escapeText(
+          lastPx.title
+        )}">${escapeText(lastPx.text)}</div>` +
         `<div class="num rebalance-score-eod paper-hold-score watching-score-eod has-tip ${scoreCls(
           scoreEod
         )}" role="cell" ` +
@@ -1040,12 +1063,12 @@ function renderRebalanceReport(
     `<div class="rebalance-table" role="table">` +
     `<div class="rebalance-table-head" role="row">` +
     `<div class="rebalance-th" role="columnheader">股票</div>` +
-    `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱">分档</div>` +
+    `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（ŷ_oo 训练窗）：A 强 / B 中 / C 弱">分档</div>` +
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
     `<div class="rebalance-th num" role="columnheader" title="当日开盘价">开盘</div>` +
     `<div class="rebalance-th num is-sortable${
       _rankSort.key === "px" ? " is-sorted" : ""
-    }" role="columnheader" tabindex="0" data-rank-sort="px" title="最新成交价 · 点击排序">现价${
+    }" role="columnheader" tabindex="0" data-rank-sort="px" title="最新成交价 · 相对开盘 · 点击排序">现价${
       _rankSort.key === "px" ? (_rankSort.desc ? " ↓" : " ↑") : ""
     }</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +

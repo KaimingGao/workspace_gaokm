@@ -462,6 +462,17 @@ export function installBacktest(q) {
         Number.isFinite(ooFrac) && ooFrac > 0 ? 10 : 0
       );
     }
+    if (Object.prototype.hasOwnProperty.call(req, "oo_rank_strong_max")) {
+      const ooStrong = Number(req.oo_rank_strong_max);
+      setName(
+        "pm_oo_rank_strong_max",
+        Number.isFinite(ooStrong) && ooStrong > 0
+          ? Math.max(1, Math.min(500, Math.round(ooStrong)))
+          : 0
+      );
+    } else {
+      setName("pm_oo_rank_strong_max", 100);
+    }
   }
 
   function readPredictabilityTiers() {
@@ -814,6 +825,10 @@ export function installBacktest(q) {
           lots.oo_rank_max != null && Number(lots.oo_rank_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_max))))
             : null;
+        const ooStrong =
+          lots.oo_rank_strong_max != null && Number(lots.oo_rank_strong_max) > 0
+            ? Math.max(1, Math.min(500, Math.round(Number(lots.oo_rank_strong_max))))
+            : 0;
         const enter = lots.fuse_enter;
         const strong =
           lots.fuse_strong != null ? lots.fuse_strong : enter;
@@ -823,6 +838,7 @@ export function installBacktest(q) {
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
           oo_rank_max: ooMax,
+          oo_rank_strong_max: ooStrong,
           oo_rank_top_frac: null,
         };
       }
@@ -832,6 +848,7 @@ export function installBacktest(q) {
       fuse_enter: enter,
       fuse_strong: enter,
       oo_rank_max: 10,
+      oo_rank_strong_max: 100,
       oo_rank_top_frac: null,
     };
   }
@@ -1478,6 +1495,7 @@ export function installBacktest(q) {
         y_oo_gt0,
         y_τc_gt0,
         oo_rank_max,
+        oo_rank_strong_max,
         initial_cash,
         fill_clock,
         lot_base_amount,
@@ -1542,6 +1560,10 @@ export function installBacktest(q) {
           oo_rank_max != null && Number(oo_rank_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_max))))
             : null,
+        oo_rank_strong_max:
+          oo_rank_strong_max != null && Number(oo_rank_strong_max) > 0
+            ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_strong_max))))
+            : 0,
         initial_cash,
         fill_clock,
         lot_base_amount,

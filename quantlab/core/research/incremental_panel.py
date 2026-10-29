@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 # 尾窗决策日重算上界（α_oo/α_τc 窗 + 余量）
 DEFAULT_TAIL_PAD = 80
+# 本地仓比 L1 多出来的尾部交易日。再多就当成日线已改写，不再当成「只追加了几天」。
+_LAKE_STORE_AHEAD_MAX = 16
 
 # 进程内短窗切长窗：同 code×limit 的离线日线只拉一次
 _offline_bars_local = threading.local()
@@ -366,6 +368,36 @@ def _align_matrix_names(
     return arr[:, [idx[n] for n in want]]
 
 
+def _series_matching_bars_fp(
+    seq: Sequence[dict],
+    target: str,
+    *,
+    n_hint: int,
+    min_len: int,
+) -> List[dict]:
+    """``seq`` 本身、其长度为 ``n_hint`` 的后缀、或更早的真后缀，命中 ``target`` 则返回那段。"""
+    from core.research.panel_fingerprint import bars_fingerprint, find_bars_suffix_start
+
+    if len(seq) < min_len:
+        return []
+    if bars_fingerprint(seq) == target:
+        return list(seq)
+    if n_hint >= min_len and len(seq) >= n_hint:
+        tail = list(seq[-n_hint:])
+        if bars_fingerprint(tail) == target:
+            return tail
+    start = find_bars_suffix_start(
+        seq,
+        target,
+        hint_lens=[n_hint] if n_hint >= min_len else None,
+    )
+    if start is not None and start > 0:
+        got = list(seq[start:])
+        if len(got) >= min_len and bars_fingerprint(got) == target:
+            return got
+    return []
+
+
 def _resolve_lake_bar_series(
     code: str,
     stored_bars_fp: str,
@@ -373,9 +405,11 @@ def _resolve_lake_bar_series(
     n_hint: int,
     min_len: int,
 ) -> List[dict]:
-    """从本地仓还原写入 L1 时的日线序列（允许仓比湖更长）。"""
-    from core.research.panel_fingerprint import bars_fingerprint, find_bars_suffix_start
+    """从本地仓还原写入 L1 时的日线序列。
 
+    仓可以比湖更长：前面多出来的历史，或湖末日之后新刷进来的交易日
+    （最多 ``_LAKE_STORE_AHEAD_MAX`` 根）。中间被改写则对不上。
+    """
     target = str(stored_bars_fp or "").strip()
     if not target or min_len < 2:
         return []
@@ -387,7 +421,8 @@ def _resolve_lake_bar_series(
     except Exception:  # noqa: BLE001
         floor = max(1062, min_len + 62)
     limits: List[int] = []
-    for raw in (n_hint, floor, min_len + 62, min_len + 400, min_len * 2):
+    ahead = int(n_hint) + int(_LAKE_STORE_AHEAD_MAX) if int(n_hint) > 0 else 0
+    for raw in (n_hint, ahead, floor, min_len + 62, min_len + 400, min_len * 2):
         try:
             n = int(raw or 0)
         except (TypeError, ValueError):
@@ -404,21 +439,25 @@ def _resolve_lake_bar_series(
         full = _offline_daily_bars(code, lim)
         if len(full) < min_len:
             continue
-        if bars_fingerprint(full) == target:
-            return full
-        if n_hint >= min_len and len(full) >= n_hint:
-            tail = full[-n_hint:]
-            if bars_fingerprint(tail) == target:
-                return tail
-        start = find_bars_suffix_start(
-            full,
-            target,
-            hint_lens=[n_hint] if n_hint >= min_len else None,
+        hit = _series_matching_bars_fp(
+            full, target, n_hint=n_hint, min_len=min_len
         )
-        if start is not None and start > 0:
-            got = full[start:]
-            if len(got) >= min_len and bars_fingerprint(got) == target:
-                return got
+        if hit:
+            return hit
+        # 只去掉尾部新日再对整段和 n_hint 后缀。这里不做全后缀扫描，
+        # 避免每只票把 O(n²) 的查找乘上十几次。
+        from core.research.panel_fingerprint import bars_fingerprint
+
+        for extra in range(1, int(_LAKE_STORE_AHEAD_MAX) + 1):
+            if len(full) - extra < min_len:
+                break
+            stem = full[:-extra]
+            if bars_fingerprint(stem) == target:
+                return list(stem)
+            if n_hint >= min_len and len(stem) >= n_hint:
+                tail = list(stem[-n_hint:])
+                if bars_fingerprint(tail) == target:
+                    return tail
     return []
 
 
@@ -505,11 +544,16 @@ def try_slice_shorter_lookback(
         return None
     from core.research.panel_fingerprint import bars_fingerprint
 
+    # 短窗：湖序列必须比当前窗更长。末日错开时拟合窗可能已经含上新日，
+    # 湖序列本身不比这窗更长，不能再用 len(seq)+1 把刚对上的前缀丢掉。
+    resolve_min = len(seq) + 1
+    if ends_differ and allow_end_lag:
+        resolve_min = max(need_rows, len(seq) - int(_LAKE_STORE_AHEAD_MAX))
     lake_bars = _resolve_lake_bar_series(
         code,
         stored_bars,
         n_hint=n_hint,
-        min_len=len(seq) + 1,
+        min_len=resolve_min,
     )
     seq_use = seq
     lake_use = lake_bars

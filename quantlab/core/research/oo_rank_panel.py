@@ -330,6 +330,7 @@ def _oo_rank_stock_job(
             family=FAMILY_OO_RANK,
             spec_fp=_rank_spec,
             names=want_names,
+            allow_end_lag=True,
         )
         if sliced is None and _can_adopt_oo_panel(
             eff_mh=eff_mh,
@@ -355,6 +356,7 @@ def _oo_rank_stock_job(
                 family=FAMILY_OO,
                 spec_fp=_oo_spec,
                 names=want_names,
+                allow_end_lag=True,
             )
         if sliced is not None:
             x, y, names, dates_out = sliced

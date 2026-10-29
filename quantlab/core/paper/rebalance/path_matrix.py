@@ -34,8 +34,10 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "residual_w_oc": 0.5,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
-    # None/≤0=关；正整数=须 max(y_oo_rank, y_τc_rank) < max（UI「rank 入场」默认 10）
+    # None/≤0=关；正整数=未过强档须 max(y_oo_rank, y_τc_rank) < max（UI 入场「rank · oo & τc」默认 10）
     "oo_rank_max": None,
+    # 缺键=100；≤0/None=关。fuse 过强档后改看这个名次
+    "oo_rank_strong_max": 100,
     # 旧相对比例闸；UI 已改绝对名次，API 仍认
     "oo_rank_top_frac": None,
     # 历史回测成交钟（/replay）；不驱动 live 自动调仓。
@@ -140,6 +142,7 @@ def get_path_matrix_cfg(
     try:
         from core.paper.rebalance.rank_lots import (
             oo_rank_max_from_cfg,
+            oo_rank_strong_max_from_cfg,
             oo_rank_top_frac_from_cfg,
         )
 
@@ -148,6 +151,10 @@ def get_path_matrix_cfg(
             out["oo_rank_max"] = oo_rank_max_from_cfg(raw)
         else:
             out["oo_rank_max"] = oo_rank_max_from_cfg(out)
+        if isinstance(raw, dict) and "oo_rank_strong_max" in raw:
+            out["oo_rank_strong_max"] = oo_rank_strong_max_from_cfg(raw)
+        else:
+            out["oo_rank_strong_max"] = oo_rank_strong_max_from_cfg(out)
         if isinstance(raw, dict) and "oo_rank_top_frac" in raw:
             out["oo_rank_top_frac"] = oo_rank_top_frac_from_cfg(raw)
         else:
@@ -155,6 +162,7 @@ def get_path_matrix_cfg(
     except Exception:  # noqa: BLE001
         logger.debug("oo_rank gate coerce failed", exc_info=True)
         out["oo_rank_max"] = None
+        out["oo_rank_strong_max"] = 100
         out["oo_rank_top_frac"] = None
 
     enter = _pick_fuse_threshold(raw, out, "fuse_enter", 0.001)

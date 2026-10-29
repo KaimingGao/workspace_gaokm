@@ -77,13 +77,19 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         ge=1,
         le=500,
-        description="开则入场另须 max(y_oo_rank, y_τc_rank) < max（UI「rank 入场」默认 10）；None/缺=关。两侧都缺不拦。",
+        description="未过强档时入场另须 max(y_oo_rank, y_τc_rank) < max（UI 入场 rank 默认 10）；None/缺=关。两侧都缺不拦。y_oo_fuse > fuse_strong 时改看 oo_rank_strong_max。",
+    )
+    oo_rank_strong_max: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=500,
+        description="fuse 过强档后另须 max(y_oo_rank, y_τc_rank) < max（UI 强档 rank 默认 100）。缺省=100；0=关。两侧都缺不拦。",
     )
     oo_rank_top_frac: Optional[float] = Field(
         default=None,
         gt=0.0,
         le=1.0,
-        description="旧相对名次闸：开则入场另须 max(y_oo_rank, y_τc_rank) < n·frac；与 oo_rank_max 并存时优先绝对 max。两侧都缺或不齐 n 不拦。",
+        description="旧相对名次闸：未过强档时入场另须 max(y_oo_rank, y_τc_rank) < n·frac；与 oo_rank_max 并存时优先绝对 max。两侧都缺或不齐 n 不拦。y_oo_fuse > fuse_strong 时改看 oo_rank_strong_max。",
     )
     initial_cash: float = Field(
         default=200_000.0,

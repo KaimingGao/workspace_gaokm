@@ -165,7 +165,7 @@ WEB_PORT=8001 python3 run_web.py
 
 三张都点完「启用研究」再往下。ŷ_τ30…90 默认折着；拟合即同窗双训 LightGBM + Ridge，启用研究按 Holdout AUC 择优（打平→Ridge）。
 
-**ŷ_oo_rank / ŷ_τc_rank**（排在 ŷ_co 后面）可稍后启用：截面名次进成交明细；过 fuse 门槛后买序看 oo_rank；`/replay`「rank 入场」看 `max(oo_rank, τc_rank)`。第一次上手可以不拟合这两张。
+**ŷ_oo_rank / ŷ_τc_rank**（排在 ŷ_co 后面）可稍后启用：截面名次进成交明细；过 fuse 门槛后买序看 oo_rank；`/replay` fuse「入场 / 强档」里的 **rank · oo & τc** 看 `max(oo_rank, τc_rank)`（入场默认 10，强档默认 100）。第一次上手可以不拟合这两张。
 
 「观察池分档」用的是刚刚启用的研究套 ŷ_oo。第一次回测可以不跑它：下一步会把分档勾选全部取消。
 

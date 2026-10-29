@@ -641,8 +641,8 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table {
-  /* 与 base.css 同步：股票 / 分档 / 昨收到 τc_rank；吃满容器无横向滚动 */
-  --rebalance-cols: minmax(0, 1.45fr) minmax(0, 0.42fr) repeat(9, minmax(0, 1fr));
+  /* 与 base.css 同步：股票 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数 */
+  --rebalance-cols: minmax(0, 1.28fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -8430,6 +8430,12 @@ body[data-page="follow"] .follow-path-matrix-body--row2, body[data-page="replay"
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+body[data-page="follow"] .follow-path-matrix-body--row2 > .follow-path-matrix-box--pair,
+body[data-page="replay"] .follow-path-matrix-body--row2 > .follow-path-matrix-box--pair {
+  align-self: start;
+  height: auto;
+}
+
 body[data-page="follow"] .follow-path-matrix-body--row3, body[data-page="replay"] .follow-path-matrix-body--row3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -8443,13 +8449,17 @@ body[data-page="follow"] .follow-path-matrix-body--row5, body[data-page="replay"
 }
 
 @media (max-width: 900px) {
+  body[data-page="follow"] .follow-path-matrix-body--row4,
+  body[data-page="replay"] .follow-path-matrix-body--row4,
   body[data-page="follow"] .follow-path-matrix-body--row5,
   body[data-page="replay"] .follow-path-matrix-body--row5 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 560px) {
+  body[data-page="follow"] .follow-path-matrix-body--row4,
+  body[data-page="replay"] .follow-path-matrix-body--row4,
   body[data-page="follow"] .follow-path-matrix-body--row5,
   body[data-page="replay"] .follow-path-matrix-body--row5 {
     grid-template-columns: repeat(2, minmax(0, 1fr));

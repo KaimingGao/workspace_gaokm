@@ -16,8 +16,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.data.facade import bars_and_source, index_bars_and_source
+from core.data.facade import index_bars_and_source
 from core.ports.market import default_benchmark
+from core.research.portfolio_bars import load_portfolio_stock_bars
+from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
 from core.watching.store import read_watching
 from core.research.oo_rank_lambdarank import compare_oo_rank_shadow_track
 from core.research.oo_rank_panel import build_oo_rank_day_panels
@@ -28,16 +30,20 @@ def load_pool(lookback: int = 250):
     pool = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
     print(f"观察池: {len(pool)} 只")
 
+    loaded, _fail, _fund = load_portfolio_stock_bars(
+        pool,
+        lookback=lookback,
+        fetch_fundamentals=False,
+        offline_ok=True,
+    )
     stock_bars = []
     skipped = 0
-    for i, code in enumerate(pool):
-        bars, _ = bars_and_source(code, limit=lookback + 40)
-        if not bars or len(bars) < 20:
+    for code in pool:
+        bars = loaded.get(str(code)) or []
+        if len(bars) < 20:
             skipped += 1
             continue
         stock_bars.append({"code": code, "bars": bars})
-        if (i + 1) % 40 == 0:
-            print(f"  已加载 {i+1}/{len(pool)} ...")
 
     print(f"有效加载: {len(stock_bars)} 只, 跳过: {skipped} 只")
     return stock_bars
@@ -46,7 +52,9 @@ def load_pool(lookback: int = 250):
 def load_index(lookback: int = 250):
     try:
         idx_code = default_benchmark("CN")
-        idx_bars, _ = index_bars_and_source(idx_code, limit=lookback + 40)
+        idx_bars, _ = index_bars_and_source(
+            idx_code, limit=lookback + int(ALPHA_OO_PANEL_WINDOW)
+        )
         print(f"指数基准: {idx_code}, bars={len(idx_bars or [])}")
         return idx_bars
     except Exception as e:

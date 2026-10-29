@@ -289,6 +289,7 @@ def _oo_stock_job(
                 family=FAMILY_OO,
                 spec_fp=_oo_spec,
                 names=want_names,
+                allow_end_lag=True,
             )
             if sliced is not None and int(sliced[0].shape[0]) > 0:
                 return sliced

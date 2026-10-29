@@ -605,6 +605,7 @@ def _tau_stock_job(
                     family=fam,
                     spec_fp=_tau_open_spec,
                     names=col_names,
+                    allow_end_lag=True,
                 )
                 if sliced is None:
                     continue
@@ -1907,6 +1908,7 @@ def _co_stock_job(
                 family=FAMILY_CO,
                 spec_fp=_co_spec,
                 names=col_names,
+                allow_end_lag=True,
             )
             if sliced is not None:
                 block, y_arr, got_names, dates_l = sliced

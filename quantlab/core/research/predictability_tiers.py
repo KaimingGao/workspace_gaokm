@@ -1,28 +1,28 @@
-"""滚动可预测性票档：按 Holdout 前半上涨正类 F1 合成 Score 定档。
+"""滚动可预测性票档：按 lookback **训练窗**上涨正类 F1 合成 Score 定档。
 
 用**已落盘研究套** ŷ_oo（``return_score_model_research.json``）打分，与日线实现标签按票聚合。
-表内命中率与 F1 只看 Holdout **前半**（定档）。各档标题的 Rank IC / IC / ICIR / ACC / F1
-看 Holdout **后半**（测试）。档内平均收益仍看 Holdout **整段**。
-有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：表内命中与 F1 看前半，标题测试指标看后半：
-- hit_rate / hit_rate_tau = 前半符号命中率（表「OO_ACC」/「TC_ACC」；不进 Score / A 档）
-- n_valid / n_valid_tau = 前半有效决策日（表内不展示）
+表内命中率与 F1 只看 lookback **训练日**（Holdout 前；定档）。各档标题的 Rank IC / IC / ICIR / ACC / F1
+与档内平均收益都看 Holdout **整段**（测试；不参与定档）。
+有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：表内命中与 F1 看训练窗，标题测试指标看 Holdout：
+- hit_rate / hit_rate_tau = 训练窗符号命中率（表「OO_ACC」/「TC_ACC」；不进 Score / A 档）
+- n_valid / n_valid_tau = 训练窗有效决策日（表内不展示）
 - Score = 0.5*OO_F1 + 0.5*TC_F1（``f1_pos`` / ``f1_pos_tau``；缺一侧按 0；两侧都缺 → 无 Score）
   无 ŷ_τc 研究套时 Score = OO_F1
 - A 档另过 F1 门槛（默认 OO_F1 ≥ 20%、有 ŷ_τc 研究套时 TC_F1 ≥ 20%；可配 ``a_f1`` / ``tau_a_f1``）；
   可选 **OO_R+ > 0** / **TC_R+ > 0**（``require_oo_r_pos`` / ``require_tc_r_pos``，默认皆开；勾选的各自独立须过线）
   （无 ŷ_τc 研究套时 TC_F1 / TC_R+ 门槛不生效）
 - 过门槛者按 Score 降序取 top ``a_count``→A（未过门槛不占 A 名额），接着 ``b_count``→B，其余→C（默认 100 / 300）；无 Score→C
-- 分档后另报各档在 Holdout **后半**上的日截面 Rank IC / IC / ICIR，
+- 分档后另报各档在 Holdout **整段**上的日截面 Rank IC / IC / ICIR，
   以及同窗池化的符号命中 ACC 与上涨正类 F1（测试指标，不参与定档）；
   档内「平均收益率」= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」）
-- 每票 ``mean_y_pos`` = Holdout **前半** mean(y_oo | ŷ_oo>ε)（分档表「OO_R+」；勾选时进 A 档门槛）
-- 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = Holdout **前半** ŷ_oo 上涨正类
+- 每票 ``mean_y_pos`` = 训练窗 mean(y_oo | ŷ_oo>ε)（分档表「OO_R+」；勾选时进 A 档门槛）
+- 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = 训练窗 ŷ_oo 上涨正类
   （表「OO_F1」进 Score 与 A 档；「OO_P」/「OO_R」仅展示）
 - 有 ŷ_τc 研究套时：``mean_y_pos_tau``（TC_R+）、``f1_pos_tau``（TC_F1，进 Score 与 A 档）、
   ``precision_pos_tau`` / ``recall_pos_tau``（TC_P / TC_R）同口径只换头
 
-研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套）；ŷ_τc 缺研究套则 Score = OO_F1。
-有研究套时面板只拉 **Holdout + 因子暖窗**；无 ŷ_oo 研究套现训才用 ``lookback`` 全窗。
+研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套），仍用训练日 in-sample ŷ 定档、Holdout 评测；
+ŷ_τc 缺研究套则 Score = OO_F1。面板拉 **lookback 全窗**（有研究套优先 Feature Lake 按日打分）。
 
 默认池 = 观察池；可选 research_universe（其它 pool 名，含已废弃的 ledger，等同 watching）。
 
@@ -104,8 +104,6 @@ DEFAULT_HORIZON_DAYS = 1
 DEFAULT_RIDGE_LAMBDA = 1.0
 _YHAT_EPS = 0.05
 # 票内 IC 最少成对点数
-_IC_MIN_PAIRS = 5
-
 HEAD_OO = "oo"
 HEAD_TAU = "tau"
 
@@ -113,18 +111,242 @@ POOL_WATCHING = "watching"
 POOL_RESEARCH = "research_universe"
 DEFAULT_POOL = POOL_WATCHING
 
-PROTOCOL_HOLDOUT_OOS = "holdout_oos_half"
+# 主协议：lookback 训练窗定档 + Holdout 整段评测
+PROTOCOL_HOLDOUT_OOS = "lookback_train_holdout_eval"
+TITLE_METRIC_WINDOW = "holdout"
+# 评测末日（Holdout 末）相对今天的最大日历日滞后（约 5 个交易日）
+DEFAULT_TIER_AS_OF_MAX_LAG_DAYS = 7
 
 
-def _score_panel_lookback(holdout_n: int, horizon_days: int = 1) -> int:
-    """有研究套时的日线窗：Holdout 测试段 + 余量（``load_portfolio_stock_bars`` 另加 alpha_oo pad）。
+def pool_codes_fingerprint(codes: Sequence[str]) -> str:
+    """观察池代码集短指纹（排序后 SHA1 前 16）。"""
+    import hashlib
 
-    分档只记 Holdout 前半，面板仍盖住整个 Holdout 测试段；不必按 ŷ_oo 训练窗（常 600）整池建面板。
+    cleaned = sorted({str(c).strip() for c in (codes or []) if str(c).strip()})
+    return hashlib.sha1(",".join(cleaned).encode("utf-8")).hexdigest()[:16]
+
+
+def _parse_holdout_n(raw: Any) -> Optional[int]:
+    """``holdout_n`` → 正整数；非法 → None。"""
+    if raw is None or raw is False or raw == "":
+        return None
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
+def _parse_iso_date(raw: Any):
+    """``YYYY-MM-DD`` → date；失败 → None。"""
+    from datetime import datetime
+
+    s = str(raw or "").strip()[:10]
+    if len(s) < 10:
+        return None, ""
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date(), s
+    except ValueError:
+        return None, s
+
+
+def validate_predictability_tiers_report(
+    report: Optional[Dict[str, Any]],
+    *,
+    holdout_n: Optional[int] = None,
+    pool_codes: Optional[Sequence[str]] = None,
+    as_of_max_lag_days: int = DEFAULT_TIER_AS_OF_MAX_LAG_DAYS,
+    require_pool_fp: bool = True,
+) -> Dict[str, Any]:
+    """回测 / live 套用分档前的硬校验。失败须重跑「观察池分档」。
+
+    协议 / 评测窗须显式且匹配；新鲜度只认评测末日（不用定档末日兜底）。
+    ``require_pool_fp``：报告须有 ``pool_codes_fp``；若再传 ``pool_codes`` 则比对指纹。
+    """
+    from datetime import date
+
+    if not isinstance(report, dict) or not report.get("success"):
+        return {
+            "ok": False,
+            "error": "无枢纽分档报告；请先在研究枢纽跑「观察池分档」",
+        }
+    protocol = str(report.get("protocol") or "").strip()
+    if protocol != PROTOCOL_HOLDOUT_OOS:
+        return {
+            "ok": False,
+            "error": (
+                f"分档报告协议缺失或过旧（{protocol or '空'}）；"
+                "请重跑「观察池分档」（训练窗定档 + Holdout 评测）"
+            ),
+            "protocol": protocol or None,
+        }
+    title_win = str(report.get("title_metric_window") or "").strip()
+    if title_win != TITLE_METRIC_WINDOW:
+        return {
+            "ok": False,
+            "error": (
+                f"分档报告评测窗缺失或过旧（{title_win or '空'}）；"
+                "请重跑「观察池分档」"
+            ),
+            "title_metric_window": title_win or None,
+        }
+
+    last_hold = _parse_holdout_n(report.get("holdout_n"))
+    if report.get("holdout_n") is not None and last_hold is None:
+        return {
+            "ok": False,
+            "error": "分档报告 holdout_n 无效；请重跑「观察池分档」",
+            "holdout_n": report.get("holdout_n"),
+        }
+    req = _parse_holdout_n(holdout_n) if holdout_n is not None else None
+    if holdout_n is not None and req is None:
+        return {
+            "ok": False,
+            "error": f"请求 Holdout={holdout_n!r} 无效",
+            "holdout_n_req": holdout_n,
+        }
+    if req is not None:
+        if last_hold is None:
+            return {
+                "ok": False,
+                "error": (
+                    f"ŷ_oo Holdout={req} 但分档报告无 holdout_n；"
+                    "请先在研究枢纽用当前 Holdout 重跑「观察池分档」。"
+                ),
+                "holdout_n_req": req,
+            }
+        if last_hold != req:
+            return {
+                "ok": False,
+                "error": (
+                    f"ŷ_oo Holdout={req} 与枢纽分档 Holdout={last_hold} 不一致；"
+                    "请先在研究枢纽用当前 Holdout 重跑「观察池分档」。"
+                ),
+                "holdout_n": last_hold,
+                "holdout_n_req": req,
+            }
+
+    # 新鲜度只认评测窗末日（Holdout 末）；禁止回落定档末日
+    hs = report.get("holdout_split") if isinstance(report.get("holdout_split"), dict) else {}
+    eval_days = list(hs.get("eval_dates") or hs.get("test_days") or [])
+    fresh_raw = report.get("as_of_eval_last") or (eval_days[-1] if eval_days else None)
+    fresh_d, fresh_s = _parse_iso_date(fresh_raw)
+    if fresh_d is None:
+        return {
+            "ok": False,
+            "error": "分档报告无评测末日；请重跑「观察池分档」",
+            "as_of_eval_last": fresh_s or None,
+        }
+    try:
+        max_lag = max(1, int(as_of_max_lag_days or DEFAULT_TIER_AS_OF_MAX_LAG_DAYS))
+    except (TypeError, ValueError):
+        max_lag = DEFAULT_TIER_AS_OF_MAX_LAG_DAYS
+    lag = (date.today() - fresh_d).days
+    if lag < -1:
+        return {
+            "ok": False,
+            "error": (
+                f"分档报告评测末日 {fresh_s} 晚于今天；请重跑「观察池分档」"
+            ),
+            "as_of_eval_last": fresh_s,
+            "as_of_lag_days": lag,
+        }
+    if lag > max_lag:
+        return {
+            "ok": False,
+            "error": (
+                f"分档报告评测末日 {fresh_s} 已滞后 {lag} 日"
+                f"（阈值 {max_lag}）；请重跑「观察池分档」"
+            ),
+            "as_of_eval_last": fresh_s,
+            "as_of_lag_days": lag,
+        }
+
+    fp_rep = str(report.get("pool_codes_fp") or "").strip()
+    if require_pool_fp:
+        if not fp_rep:
+            return {
+                "ok": False,
+                "error": "分档报告无池指纹；请重跑「观察池分档」",
+                "pool_codes_fp": None,
+            }
+        if pool_codes is not None:
+            fp_now = pool_codes_fingerprint(pool_codes)
+            if fp_rep != fp_now:
+                return {
+                    "ok": False,
+                    "error": (
+                        "分档报告观察池与当前池不一致；请重跑「观察池分档」"
+                    ),
+                    "pool_codes_fp": fp_rep,
+                    "pool_codes_fp_now": fp_now,
+                }
+    return {
+        "ok": True,
+        "protocol": protocol,
+        "title_metric_window": title_win,
+        "holdout_n": last_hold,
+        "as_of_eval_last": fresh_s,
+        "as_of_tier_last": report.get("as_of_tier_last"),
+        "pool_codes_fp": fp_rep or report.get("pool_codes_fp"),
+    }
+
+
+def build_lookback_holdout_split(
+    train_days: Sequence[str],
+    test_days: Sequence[str],
+    *,
+    holdout_n: int,
+) -> Dict[str, Any]:
+    """定档窗=训练日；评测窗=Holdout 整段。
+
+    若训练日与 Holdout 重叠，重叠日只留在评测窗（从训练窗剔除），避免定档泄漏。
     """
     h = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
-    hz = max(1, min(int(horizon_days or DEFAULT_HORIZON_DAYS), 10))
-    # 余量覆盖缺口日 / 切分边界；因子暖窗由 load 侧 alpha_oo pad 提供
-    return max(40, min(200, h + hz + 16))
+    train = sorted(
+        {str(d).strip()[:10] for d in (train_days or []) if str(d or "").strip()[:10]}
+    )
+    test = sorted(
+        {str(d).strip()[:10] for d in (test_days or []) if str(d or "").strip()[:10]}
+    )
+    overlap = sorted(set(train) & set(test))
+    if overlap:
+        drop = set(overlap)
+        train = [d for d in train if d not in drop]
+    empty = {
+        "ok": False,
+        "holdout_n": h,
+        "n_test": len(test),
+        "test_days": test,
+        "tier_dates": train,
+        "tier_n": len(train),
+        "eval_dates": test,
+        "eval_n": len(test),
+        "overlap_dropped": overlap,
+        "selection_window": "lookback_train",
+        "title_metric_window": TITLE_METRIC_WINDOW,
+    }
+    if len(test) < 1 or len(train) < 1:
+        empty["error"] = (
+            f"训练/Holdout 日不足（train={len(train)}, holdout={len(test)}"
+            + (f", overlap_dropped={len(overlap)}" if overlap else "")
+            + "）"
+        )
+        return empty
+    return {
+        "ok": True,
+        "holdout_n": h,
+        "n_test": len(test),
+        "test_days": test,
+        "tier_dates": train,
+        "tier_n": len(train),
+        "eval_dates": list(test),
+        "eval_n": len(test),
+        "overlap_dropped": overlap,
+        "as_of_tier_last": train[-1] if train else None,
+        "selection_window": "lookback_train",
+        "title_metric_window": TITLE_METRIC_WINDOW,
+    }
 
 
 def predictability_tiers_last_path() -> str:
@@ -145,14 +367,19 @@ def save_predictability_tiers_last(report: Dict[str, Any]) -> None:
     path = predictability_tiers_last_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
-    # live 已开时刷新报告内容，保留回测勾选的 allowed_tiers
+    # live 已开时刷新报告内容，保留回测勾选的 allowed_tiers（先硬校验再晋级）
     try:
         active = load_predictability_tiers_active()
         if active:
-            promote_predictability_tiers_to_live(
+            refreshed = promote_predictability_tiers_to_live(
                 report,
                 allowed_tiers=active.get("allowed_tiers") or DEFAULT_LIVE_ALLOWED,
             )
+            if not refreshed.get("ok"):
+                logger.warning(
+                    "skip refresh predictability_tiers active: %s",
+                    refreshed.get("error") or "validate failed",
+                )
     except Exception:  # noqa: BLE001
         logger.debug("refresh predictability_tiers active after last failed", exc_info=True)
 
@@ -167,7 +394,6 @@ _SLIM_ROW_KEYS = (
     "n_days",
     "hit_rate_tau",
     "n_valid_tau",
-    "ic",
     "realized_pct",
     "mean_y_pos",
     "n_y_pos",
@@ -248,7 +474,10 @@ def promote_predictability_tiers_to_live(
     *,
     allowed_tiers: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """把影子报告写入 active，调仓闸生效。缺省读 last。"""
+    """把影子报告写入 active，调仓闸生效。缺省读 last。
+
+    晋级前硬校验协议 / 评测窗 / 评测末日 / 池指纹字段（不对池快照，因枢纽跑档时才有全池）。
+    """
     from core.numbers import now_iso_utc
 
     src = report if isinstance(report, dict) else load_predictability_tiers_last()
@@ -257,6 +486,18 @@ def promote_predictability_tiers_to_live(
             "ok": False,
             "error": "无可用分档报告；请先跑「观察池分档」",
             "path": predictability_tiers_active_path(),
+        }
+    gate = validate_predictability_tiers_report(
+        src,
+        require_pool_fp=True,
+        pool_codes=None,
+    )
+    if not gate.get("ok"):
+        return {
+            "ok": False,
+            "error": gate.get("error") or "分档报告校验失败；请重跑「观察池分档」",
+            "path": predictability_tiers_active_path(),
+            "gate": gate,
         }
     allow = [
         str(t).strip().upper()
@@ -272,10 +513,9 @@ def promote_predictability_tiers_to_live(
         "head": src.get("head"),
         "head_label": src.get("head_label"),
         "tier_n": src.get("tier_n"),
-        "as_of_last": (
-            src.get("as_of_tier_last")
-            or ((src.get("tier_dates") or [None])[-1])
-        ),
+        "as_of_last": src.get("as_of_eval_last") or gate.get("as_of_eval_last"),
+        "as_of_eval_last": src.get("as_of_eval_last") or gate.get("as_of_eval_last"),
+        "pool_codes_fp": src.get("pool_codes_fp") or gate.get("pool_codes_fp"),
         "report": src,
         "note": "live 随历史回测分档勾选：调仓按 allowed_tiers 过滤新开；持仓掉出允许档则清仓。不改 watching。",
     }
@@ -357,12 +597,15 @@ def filter_codes_by_predictability_live(
     codes: Sequence[str],
     *,
     keep: Sequence[str] = (),
+    pool_codes_for_fp: Optional[Sequence[str]] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """Live 分档闸。无 active 时原样返回，``tradable_codes`` 为 None。
 
     有 active 时返回列表 = 允许档 ∪ ``keep``（持仓）；勿用它缩小截面 z。
     ``tradable_codes``：允许写 ŷ/名次并开仓（不含仅因持仓保留的掉档票）。
     掉出允许档的持仓在 ``force_exit_held``。
+    ``pool_codes_for_fp``：指纹比对用观察池（勿含仅因持仓并入的票）；缺省用 ``codes``。
+    闸失败时 ``tradable_codes=None``（与「允许集为空列表」区分）。
     """
     cleaned = [str(c).strip() for c in (codes or []) if str(c).strip()]
     keep_set = {str(c).strip() for c in (keep or []) if str(c).strip()}
@@ -385,7 +628,35 @@ def filter_codes_by_predictability_live(
         for t in (active.get("allowed_tiers") or DEFAULT_LIVE_ALLOWED)
         if str(t or "").strip()
     ] or list(DEFAULT_LIVE_ALLOWED)
-    allow_codes = tier_code_set(active.get("report"), allow)
+    report = active.get("report") if isinstance(active.get("report"), dict) else None
+    fp_codes = (
+        pool_codes_for_fp if pool_codes_for_fp is not None else cleaned
+    )
+    gate = validate_predictability_tiers_report(
+        report,
+        pool_codes=fp_codes,
+        require_pool_fp=True,
+    )
+    if not gate.get("ok"):
+        return cleaned, {
+            "predictability_live": True,
+            "unrestricted": False,
+            "gate_ok": False,
+            "gate_error": gate.get("error") or "分档报告校验失败",
+            "n_in": len(cleaned),
+            "n_kept": len(cleaned),
+            "n_dropped": 0,
+            "force_exit_held": [],
+            "n_force_exit_held": 0,
+            "allowed_tiers": allow,
+            "universe_fit_tiers": allow,
+            "tradable_codes": None,
+            "reason": "gate_rejected",
+            "promoted_at": active.get("promoted_at"),
+            "counts": active.get("counts"),
+            "gate": gate,
+        }
+    allow_codes = tier_code_set(report, allow)
     out: List[str] = []
     seen = set()
     dropped = 0
@@ -405,6 +676,7 @@ def filter_codes_by_predictability_live(
     return out, {
         "predictability_live": True,
         "unrestricted": False,
+        "gate_ok": True,
         "n_in": len(cleaned),
         "n_kept": len(out),
         "n_dropped": dropped,
@@ -416,6 +688,7 @@ def filter_codes_by_predictability_live(
         "reason": "predictability_active",
         "promoted_at": active.get("promoted_at"),
         "counts": active.get("counts"),
+        "gate": gate,
     }
 
 
@@ -509,11 +782,15 @@ def assign_tiers_by_rank_score(
                 return float("nan")
 
         if need_oo_r_pos:
-            oo_r = _r_pos("mean_y_pos")
+            oo_r = _r_pos("mean_y_pos_raw")
+            if not math.isfinite(oo_r):
+                oo_r = _r_pos("mean_y_pos")
             if not (math.isfinite(oo_r) and oo_r > 0.0):
                 return False
         if need_tc_r_pos:
-            tc_r = _r_pos("mean_y_pos_tau")
+            tc_r = _r_pos("mean_y_pos_tau_raw")
+            if not math.isfinite(tc_r):
+                tc_r = _r_pos("mean_y_pos_tau")
             if not (math.isfinite(tc_r) and tc_r > 0.0):
                 return False
         return True
@@ -529,29 +806,6 @@ def assign_tiers_by_rank_score(
             b_left -= 1
         else:
             r["tier"] = "C"
-
-
-def _spearman_ic(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
-    n = len(xs)
-    if n < _IC_MIN_PAIRS or n != len(ys):
-        return None
-
-    def _ranks(vals: Sequence[float]) -> List[float]:
-        order = sorted(range(n), key=lambda i: float(vals[i]))
-        ranks = [0.0] * n
-        for r, i in enumerate(order):
-            ranks[i] = float(r + 1)
-        return ranks
-
-    rx, ry = _ranks(xs), _ranks(ys)
-    mx = sum(rx) / n
-    my = sum(ry) / n
-    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
-    denx = sum((a - mx) ** 2 for a in rx) ** 0.5
-    deny = sum((b - my) ** 2 for b in ry) ** 0.5
-    if denx < 1e-12 or deny < 1e-12:
-        return None
-    return round(num / (denx * deny), 4)
 
 
 def _normalize_head(head: Optional[str]) -> str:
@@ -650,52 +904,9 @@ def _normalize_pool(pool: Optional[str]) -> str:
     return POOL_WATCHING
 
 
-def split_holdout_half_dates(
-    test_days: Sequence[str],
-    *,
-    holdout_n: int,
-) -> Dict[str, Any]:
-    """Holdout 测试日升序，取最近 ``holdout_n`` 日。
-
-    前半（天数向下取整）作分档窗；其余为后半测试窗，不进分档。
-    """
-    h = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
-    block = sorted({str(d).strip()[:10] for d in (test_days or []) if str(d or "").strip()[:10]})
-    if len(block) > h:
-        block = block[-h:]
-    if len(block) < 2:
-        return {
-            "ok": False,
-            "error": f"Holdout 测试日不足（有 {len(block)}，需≥2）",
-            "holdout_n": h,
-            "n_test": len(block),
-            "test_days": block,
-            "tier_dates": [],
-            "tier_n": 0,
-            "eval_dates": [],
-            "eval_n": 0,
-        }
-    mid = max(1, len(block) // 2)
-    if mid >= len(block):
-        mid = len(block) - 1
-    tier_dates = block[:mid]
-    eval_dates = block[mid:]
-    return {
-        "ok": True,
-        "holdout_n": h,
-        "n_test": len(block),
-        "test_days": block,
-        "tier_dates": tier_dates,
-        "tier_n": len(tier_dates),
-        "eval_dates": eval_dates,
-        "eval_n": len(eval_dates),
-        "as_of_tier_last": tier_dates[-1] if tier_dates else None,
-    }
-
-
-def holdout_eval_dates(half: Optional[dict]) -> List[str]:
-    """Holdout 后半测试日。优先 ``eval_dates``；否则用测试日去掉分档前半。"""
-    src = half if isinstance(half, dict) else {}
+def holdout_eval_dates(split: Optional[dict]) -> List[str]:
+    """Holdout 评测日：优先 ``eval_dates``，否则整段 ``test_days``。"""
+    src = split if isinstance(split, dict) else {}
     explicit = [
         str(d).strip()[:10]
         for d in (src.get("eval_dates") or [])
@@ -703,17 +914,11 @@ def holdout_eval_dates(half: Optional[dict]) -> List[str]:
     ]
     if explicit:
         return explicit
-    test_days = [
+    return [
         str(d).strip()[:10]
         for d in (src.get("test_days") or [])
         if str(d or "").strip()[:10]
     ]
-    tier = {
-        str(d).strip()[:10]
-        for d in (src.get("tier_dates") or [])
-        if str(d or "").strip()[:10]
-    }
-    return [d for d in test_days if d not in tier]
 
 
 def _resolve_pool_codes(
@@ -802,12 +1007,12 @@ def _absorb_holdout_row(
     yhat_eps: float,
     metric_set: Optional[set] = None,
 ) -> None:
-    """前半记命中、OO_R+ 与 OO_F1 混淆计数；``metric_set`` 记整段 ŷ/实现。
+    """``tier_set``（训练窗）记命中、OO_R+ 与 OO_F1；``metric_set``（Holdout）记 ŷ/实现成对。
 
-    标题 Rank IC / IC / ICIR / ACC / F1 在汇总时再切后半，不在这里切。
+    标题 Rank IC / IC / ICIR / ACC / F1 在汇总时按评测日切开，不在这里切。
 
     OO_R+ = mean(y_oo | ŷ_oo>ε)；
-    OO_F1 正类=上涨，与命中同死区；只在 ``tier_set``（Holdout 前半）累计。
+    OO_F1 正类=上涨，与命中同死区；只在 ``tier_set`` 累计。
     """
     d = str(date or "")[:10]
     code_s = str(code or "").strip()
@@ -857,7 +1062,7 @@ def _absorb_holdout_row(
                 elif (not pred_up) and act_up:
                     slot["fn_pos"] = int(slot.get("fn_pos") or 0) + 1
         slot["dates"].append(d)
-        # OO_R+：前半且 ŷ_oo>ε
+        # OO_R+：定档窗且 ŷ_oo>ε
         if math.isfinite(yh) and math.isfinite(ry) and yh > float(yhat_eps):
             slot["sum_y_pos"] = float(slot.get("sum_y_pos") or 0.0) + ry
             slot["n_y_pos"] = int(slot.get("n_y_pos") or 0) + 1
@@ -879,7 +1084,7 @@ def _absorb_tau_holdout_row(
     tier_set: Optional[set] = None,
     metric_set: Optional[set] = None,
 ) -> None:
-    """前半记 ŷ_τc 命中、TC_R+ / TC_F1；成对序列记整段，标题测试指标汇总时再切后半。"""
+    """``tier_set``（训练窗）记 ŷ_τc 命中、TC_R+ / TC_F1；成对序列记 ``metric_set``（Holdout）。"""
     d = str(date or "")[:10]
     code_s = str(code or "").strip()
     if not d or not code_s:
@@ -940,7 +1145,7 @@ def _absorb_tau_holdout_row(
                 slot["fp_pos_tau"] = int(slot.get("fp_pos_tau") or 0) + 1
             elif (not pred_up) and act_up:
                 slot["fn_pos_tau"] = int(slot.get("fn_pos_tau") or 0) + 1
-        # TC_R+：前半且 |ŷ_τc|>ε
+        # TC_R+：定档窗且 |ŷ_τc|>ε
         if math.isfinite(yh) and math.isfinite(ry) and yh > float(yhat_eps):
             slot["sum_y_pos_tau"] = float(slot.get("sum_y_pos_tau") or 0.0) + ry
             slot["n_y_pos_tau"] = int(slot.get("n_y_pos_tau") or 0) + 1
@@ -1039,7 +1244,7 @@ def _score_tau_holdout_into_acc(
     metric_set: Optional[set] = None,
     yhat_eps: float = _YHAT_EPS,
 ) -> Dict[str, Any]:
-    """研究套 ŷ_τc：命中看分档前半，成对序列看 Holdout 整段（τ=open，标签 close/open−1）。"""
+    """研究套 ŷ_τc：命中看训练窗定档日，成对序列看 Holdout（τ=open，标签 close/open−1）。"""
     keep = set(tier_set or ())
     if metric_set is not None:
         keep |= set(metric_set)
@@ -1090,20 +1295,269 @@ def _score_tau_holdout_into_acc(
             pending_dates.append(d)
             pending_xs.append(xs[i] if isinstance(xs[i], dict) else {})
             pending_ys.append(ys[i])
-    preds = _tau_predictions(doc, pending_xs, pending_dates)
+    try:
+        preds = _tau_predictions(doc, pending_xs, pending_dates)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("tau bars predict failed", exc_info=True)
+        return {
+            "ok": False,
+            "reason": "predict_failed",
+            "error": str(exc),
+            "n_rows": 0,
+            **meta,
+        }
+    if not isinstance(preds, (list, tuple)):
+        return {"ok": False, "reason": "predict_bad_shape", "n_rows": 0, **meta}
     tier_metric = set(metric_set) if metric_set is not None else set(tier_set or ())
-    for code, d, pred, y in zip(pending_codes, pending_dates, preds, pending_ys):
+    n_pair = min(
+        len(pending_codes), len(pending_dates), len(preds), len(pending_ys)
+    )
+    for i in range(n_pair):
         _absorb_tau_holdout_row(
             acc,
-            code=code,
-            date=d,
-            pred=pred,
-            y=y,
+            code=pending_codes[i],
+            date=pending_dates[i],
+            pred=preds[i],
+            y=pending_ys[i],
             yhat_eps=yhat_eps,
             tier_set=set(tier_set or ()),
             metric_set=tier_metric,
         )
-    return {**meta, "ok": True, "n_rows": len(preds)}
+    if n_pair < 1:
+        return {"ok": False, "reason": "empty_pairs", "n_rows": 0, **meta}
+    return {**meta, "ok": True, "n_rows": int(n_pair)}
+
+
+def _oo_y_by_code(
+    stock_bars: Dict[str, List[dict]],
+    *,
+    hz: int,
+) -> Dict[str, Dict[str, float]]:
+    from core.research.oo_panel import _forward_return
+
+    out: Dict[str, Dict[str, float]] = {}
+    h = max(1, int(hz))
+    for code, bars in (stock_bars or {}).items():
+        m: Dict[str, float] = {}
+        for i, b in enumerate(bars or []):
+            d = str((b or {}).get("date") or "")[:10]
+            if not d:
+                continue
+            fr = _forward_return(bars, i, h)
+            if fr is None:
+                continue
+            try:
+                y = float(fr)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(y):
+                m[d] = y
+        if m:
+            out[str(code)] = m
+    return out
+
+
+def _tau_y_by_code(stock_bars: Dict[str, List[dict]]) -> Dict[str, Dict[str, float]]:
+    out: Dict[str, Dict[str, float]] = {}
+    for code, bars in (stock_bars or {}).items():
+        m: Dict[str, float] = {}
+        for b in bars or []:
+            d = str((b or {}).get("date") or "")[:10]
+            if not d:
+                continue
+            try:
+                o = float(b.get("open"))
+                c = float(b.get("close"))
+            except (TypeError, ValueError):
+                continue
+            if not (math.isfinite(o) and math.isfinite(c)) or o == 0.0:
+                continue
+            m[d] = c / o - 1.0
+        if m:
+            out[str(code)] = m
+    return out
+
+
+def _lake_coverage_ok(family: str, codes: Sequence[str], min_ready: float = 0.5) -> bool:
+    try:
+        from core.research.feature_lake import read_stock_meta
+    except Exception:  # noqa: BLE001
+        return False
+    fam = str(family or "").strip()
+    if not fam:
+        return False
+    try:
+        floor = float(min_ready)
+    except (TypeError, ValueError):
+        floor = 0.5
+    if not math.isfinite(floor):
+        floor = 0.5
+    floor = max(0.0, min(1.0, floor))
+    total = 0
+    ready = 0
+    for raw in codes or []:
+        code = str(raw or "").strip()
+        if not code:
+            continue
+        total += 1
+        try:
+            meta = read_stock_meta(fam, code) or {}
+            n_rows = int(meta.get("n_rows") or 0)
+        except Exception:  # noqa: BLE001
+            continue
+        if n_rows >= 200:
+            ready += 1
+    if total < 2:
+        return False
+    return (ready / float(total)) + 1e-12 >= floor
+
+
+def _score_lake_days_into_acc(
+    acc: Dict[str, Dict[str, Any]],
+    *,
+    family: str,
+    codes: Sequence[str],
+    dates: Sequence[str],
+    y_by: Dict[str, Dict[str, float]],
+    predict_fn,
+    absorb_fn,
+    tier_set: set,
+    metric_set: set,
+    yhat_eps: float,
+) -> int:
+    """Feature Lake 一次 slice，按日截面打分写入 ``acc``。返回成对行数。
+
+    任何 slice / 预测异常都返回 0（调用方应清空 ``acc`` 再降级 bars）。
+    """
+    from collections import defaultdict
+
+    try:
+        from core.research.feature_lake import finite_feature_dict, slice_stock_panels
+    except Exception:  # noqa: BLE001
+        logger.debug("feature_lake import failed for tiers", exc_info=True)
+        return 0
+
+    want = [str(d)[:10] for d in dates if str(d or "").strip()[:10]]
+    if not want or not codes:
+        return 0
+    try:
+        sliced = slice_stock_panels(family, codes, want)
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "slice_stock_panels failed family=%s codes=%s",
+            family,
+            len(list(codes or [])),
+            exc_info=True,
+        )
+        return 0
+    if not sliced:
+        return 0
+    by_day: Dict[str, List[Tuple[str, Sequence[str], Any]]] = defaultdict(list)
+    for code, pack in sliced.items():
+        if not pack or len(pack) < 2:
+            continue
+        names, day_map = pack[0], pack[1]
+        if not isinstance(day_map, dict):
+            continue
+        for day, row in day_map.items():
+            by_day[str(day)[:10]].append((str(code), names, row))
+    del sliced
+    n_rows = 0
+    for day in want:
+        rows = by_day.pop(day, [])
+        if len(rows) < 2:
+            continue
+        day_codes: List[str] = []
+        day_xs: List[dict] = []
+        day_ys: List[float] = []
+        for code, names, row in rows:
+            ymap = y_by.get(code) or {}
+            if day not in ymap:
+                continue
+            try:
+                feats = finite_feature_dict(names, row)
+            except Exception:  # noqa: BLE001
+                continue
+            if not feats:
+                continue
+            day_codes.append(code)
+            day_xs.append(feats)
+            day_ys.append(float(ymap[day]))
+        if len(day_codes) < 2:
+            continue
+        try:
+            preds = predict_fn(day_xs, [day] * len(day_codes))
+        except Exception:  # noqa: BLE001
+            logger.debug("lake day predict failed date=%s", day, exc_info=True)
+            continue
+        if not isinstance(preds, (list, tuple)):
+            continue
+        n = min(len(day_codes), len(preds), len(day_ys))
+        for i in range(n):
+            absorb_fn(
+                acc,
+                code=day_codes[i],
+                date=day,
+                pred=preds[i],
+                y=day_ys[i],
+                tier_set=tier_set,
+                metric_set=metric_set,
+                yhat_eps=yhat_eps,
+            )
+            n_rows += 1
+    return n_rows
+
+
+def _count_tier_sample_codes(acc: Dict[str, Dict[str, Any]]) -> int:
+    n = 0
+    for slot in (acc or {}).values():
+        if not isinstance(slot, dict):
+            continue
+        if int(slot.get("n_valid") or 0) > 0:
+            n += 1
+    return n
+
+
+def _lake_rows_enough(
+    n_rows: int,
+    *,
+    n_codes: int,
+    n_dates: int,
+) -> bool:
+    """湖打分行数过稀则视为失败，避免半残面板定档。"""
+    if int(n_rows or 0) < 1:
+        return False
+    # 至少覆盖约 30% 的「票×日」下界，或绝对不少于 2 票×2 日量级
+    floor = max(8, int(0.3 * max(1, int(n_codes)) * max(1, min(int(n_dates), 40))))
+    return int(n_rows) >= floor
+
+
+_TAU_ACC_KEYS = (
+    "hits_tau",
+    "n_valid_tau",
+    "tau_yhats",
+    "tau_realized",
+    "tau_pair_dates",
+    "sum_y_pos_tau",
+    "n_y_pos_tau",
+    "tp_pos_tau",
+    "fp_pos_tau",
+    "fn_pos_tau",
+)
+
+
+def _strip_tau_from_acc(acc: Dict[str, Dict[str, Any]]) -> None:
+    """去掉半残湖写入的 τc 字段，避免 bars 回退时双计。"""
+    for slot in (acc or {}).values():
+        if not isinstance(slot, dict):
+            continue
+        for key in _TAU_ACC_KEYS:
+            if key in ("tau_yhats", "tau_realized", "tau_pair_dates"):
+                slot[key] = []
+            elif key.startswith("sum_"):
+                slot[key] = 0.0
+            else:
+                slot[key] = 0
 
 
 def accumulate_holdout_oos_by_code(
@@ -1116,13 +1570,10 @@ def accumulate_holdout_oos_by_code(
     yhat_eps: float = _YHAT_EPS,
     use_research_model: bool = True,
 ) -> Dict[str, Any]:
-    """用研究套 ŷ_oo（缺则 Holdout 前现训）按票聚合。命中只记前半；ŷ/实现记整段。
+    """用研究套 ŷ_oo（缺则 Holdout 前现训）按票聚合。
 
-    成对序列留整段，供标题测试指标再切后半；本函数不算出标题指标。
-
-    有研究套：日线窗收成 Holdout+余量（``_score_panel_lookback``），只物化测试日特征行。
-    截面模型按决策日对全体票 z-score 后再打分，打完即丢。
-    无研究套：仍用传入 ``lookback`` 全窗以便 Holdout 前现训。
+    命中 / F1 只记 **训练窗**；ŷ/实现成对记 **Holdout 整段**（供标题测试指标）。
+    面板拉 lookback 全窗；有研究套且 Feature Lake 覆盖够时按日流式打分。
 
     返回 ``ok`` / ``acc`` / ``tier_dates`` / ``split_meta`` 等。
     """
@@ -1146,10 +1597,11 @@ def accumulate_holdout_oos_by_code(
     h_req = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
     hz = max(1, min(int(horizon_days or DEFAULT_HORIZON_DAYS), 10))
     lookback_req = max(100, min(1000, int(lookback or DEFAULT_PANEL_LOOKBACK)))
+    panel_lb = lookback_req
 
     model_meta: Dict[str, Any] = {}
     research_model = None
-    model_source = "oo_holdout_oos_refit"
+    model_source = "oo_pre_holdout_refit"
     if use_research_model:
         research_model, model_meta = _load_research_oo_model()
         if research_model is not None:
@@ -1164,12 +1616,6 @@ def accumulate_holdout_oos_by_code(
                     mh,
                     hz,
                 )
-
-    # 有研究套只需评 Holdout → 短窗；现训才吃满训练窗
-    if research_model is not None:
-        panel_lb = _score_panel_lookback(h_req, hz)
-    else:
-        panel_lb = lookback_req
 
     stock_bars, failures, _fund = load_portfolio_stock_bars(
         use_codes,
@@ -1196,101 +1642,194 @@ def accumulate_holdout_oos_by_code(
         label_horizon_days=hz,
         calendar_dates=cal,
     )
-    test_days_meta = list(split_meta.get("test_days") or [])
-    if not test_days_meta or not _test_idx:
+    train_days_meta = [str(d)[:10] for d in (split_meta.get("train_days") or [])]
+    test_days_meta = [str(d)[:10] for d in (split_meta.get("test_days") or [])]
+    if not test_days_meta or not train_days_meta:
         return {
             "ok": False,
-            "error": "Holdout 切不出测试窗",
+            "error": "Holdout 切不出训练/测试窗",
             "split_meta": split_meta,
             "acc": {},
             "tier_dates": [],
             "lookback": panel_lb,
             "lookback_requested": lookback_req,
         }
-    half = split_holdout_half_dates(test_days_meta, holdout_n=h_req)
-    if not half.get("ok"):
+    split = build_lookback_holdout_split(
+        train_days_meta, test_days_meta, holdout_n=h_req
+    )
+    if not split.get("ok"):
         return {
             "ok": False,
-            "error": half.get("error") or "Holdout 切分失败",
-            "holdout_split": half,
+            "error": split.get("error") or "训练/Holdout 切分失败",
+            "holdout_split": split,
             "split_meta": split_meta,
             "acc": {},
             "tier_dates": [],
             "lookback": panel_lb,
             "lookback_requested": lookback_req,
         }
-    tier_set = set(half.get("tier_dates") or [])
-    metric_set = set(half.get("test_days") or []) or set(tier_set)
-    test_days = set(test_days_meta)
+    tier_set = set(split.get("tier_dates") or [])
+    metric_set = set(split.get("eval_dates") or split.get("test_days") or [])
+    keep_dates = tier_set | metric_set
     acc: Dict[str, Dict[str, Any]] = {}
     items = list(stock_bars.items())
     codes_used = [c for c, _ in items]
     stock_count = len(items)
     workers = max(1, min(8, len(items)))
-    n_train: Optional[int] = None
+    n_train: Optional[int] = len(train_days_meta)
     n_test = 0
+    panel_mode = "lookback_full"
+    scored_via_lake = False
 
     if research_model is not None:
-        # 只物化 Holdout 测试日。截面 z 要当天全体票一起算，特征行收回后再打分。
-        def _panel_holdout(code: str, bars: List[dict]) -> Tuple[str, list, list, list]:
-            xs, ys, dates = collect_oo_panel(
-                bars,
-                horizon_days=hz,
-                stock_code=code,
-                pit_fundamentals=False,
-                keep_dates=test_days,
-            )
-            return code, xs, ys, dates
+        try:
+            from core.research.lake_bridge import FAMILY_OO
+        except Exception:  # noqa: BLE001
+            FAMILY_OO = ""
+        keep_sorted = sorted(keep_dates)
+        if FAMILY_OO and _lake_coverage_ok(FAMILY_OO, codes_used):
+            try:
+                oo_y = _oo_y_by_code(stock_bars, hz=hz)
+                n_lake = _score_lake_days_into_acc(
+                    acc,
+                    family=FAMILY_OO,
+                    codes=codes_used,
+                    dates=keep_sorted,
+                    y_by=oo_y,
+                    predict_fn=lambda xs, ds: _oo_predictions(
+                        research_model, xs, ds
+                    ),
+                    absorb_fn=_absorb_holdout_row,
+                    tier_set=tier_set,
+                    metric_set=metric_set,
+                    yhat_eps=yhat_eps,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("lake OO score failed; fallback bars", exc_info=True)
+                acc.clear()
+                n_lake = 0
+            if _lake_rows_enough(
+                n_lake, n_codes=len(codes_used), n_dates=len(keep_sorted)
+            ) and _count_tier_sample_codes(acc) >= 2:
+                n_test = int(n_lake)
+                scored_via_lake = True
+                panel_mode = "lake_lookback"
+            else:
+                # 半残湖面板不得定档：清空后走 bars
+                if acc:
+                    logger.info(
+                        "predictability_tiers: lake OO sparse "
+                        "(rows=%s tier_codes=%s); fallback bars",
+                        n_lake,
+                        _count_tier_sample_codes(acc),
+                    )
+                acc.clear()
+                scored_via_lake = False
 
-        panels: List[Tuple[str, list, list, list]] = []
-        if workers == 1:
-            panels = [_panel_holdout(c, b) for c, b in items]
-        else:
-            panel_slots: List[Optional[Tuple[str, list, list, list]]] = [None] * len(items)
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futs = {
-                    pool.submit(_panel_holdout, c, b): i
-                    for i, (c, b) in enumerate(items)
+        if not scored_via_lake:
+            def _panel_keep(code: str, bars: List[dict]) -> Tuple[str, list, list, list]:
+                xs, ys, dates = collect_oo_panel(
+                    bars,
+                    horizon_days=hz,
+                    stock_code=code,
+                    pit_fundamentals=False,
+                    keep_dates=keep_dates,
+                )
+                return code, xs, ys, dates
+
+            panels: List[Tuple[str, list, list, list]] = []
+            if workers == 1:
+                for c, b in items:
+                    try:
+                        panels.append(_panel_keep(c, b))
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "collect_oo_panel failed code=%s", c, exc_info=True
+                        )
+            else:
+                panel_slots: List[Optional[Tuple[str, list, list, list]]] = [
+                    None
+                ] * len(items)
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futs = {
+                        pool.submit(_panel_keep, c, b): i
+                        for i, (c, b) in enumerate(items)
+                    }
+                    for fut in as_completed(futs):
+                        idx = futs[fut]
+                        try:
+                            panel_slots[idx] = fut.result()
+                        except Exception:  # noqa: BLE001
+                            logger.debug(
+                                "collect_oo_panel worker failed idx=%s",
+                                idx,
+                                exc_info=True,
+                            )
+                panels = [row for row in panel_slots if row is not None]
+            flat_codes: List[str] = []
+            flat_xs: List[dict] = []
+            flat_ys: List[Any] = []
+            flat_dates: List[str] = []
+            for code, xs, ys, dates in panels:
+                n = min(len(xs), len(ys), len(dates))
+                for i in range(n):
+                    flat_codes.append(code)
+                    flat_xs.append(xs[i] if isinstance(xs[i], dict) else {})
+                    flat_ys.append(ys[i])
+                    flat_dates.append(str(dates[i] or "")[:10])
+            del panels
+            if not flat_xs:
+                return {
+                    "ok": False,
+                    "error": "面板样本不足（0）",
+                    "acc": {},
+                    "tier_dates": [],
+                    "lookback": panel_lb,
+                    "lookback_requested": lookback_req,
+                    "holdout_split": split,
+                    "split_meta": split_meta,
                 }
-                for fut in as_completed(futs):
-                    panel_slots[futs[fut]] = fut.result()
-            panels = [row for row in panel_slots if row is not None]
-        del items
-        flat_codes: List[str] = []
-        flat_xs: List[dict] = []
-        flat_ys: List[Any] = []
-        flat_dates: List[str] = []
-        for code, xs, ys, dates in panels:
-            n = min(len(xs), len(ys), len(dates))
-            for i in range(n):
-                flat_codes.append(code)
-                flat_xs.append(xs[i] if isinstance(xs[i], dict) else {})
-                flat_ys.append(ys[i])
-                flat_dates.append(str(dates[i] or "")[:10])
-        del panels
-        preds = _oo_predictions(research_model, flat_xs, flat_dates)
-        n_test = len(preds)
-        for code, d, pred, y in zip(flat_codes, flat_dates, preds, flat_ys):
-            _absorb_holdout_row(
-                acc,
-                code=code,
-                date=d,
-                pred=pred,
-                y=y,
-                tier_set=tier_set,
-                metric_set=metric_set,
-                yhat_eps=yhat_eps,
-            )
-        del flat_xs, preds
-        if n_test < 1:
+            try:
+                preds = _oo_predictions(research_model, flat_xs, flat_dates)
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "ok": False,
+                    "error": f"ŷ_oo 打分失败：{exc}",
+                    "acc": {},
+                    "tier_dates": [],
+                    "lookback": panel_lb,
+                    "lookback_requested": lookback_req,
+                    "holdout_split": split,
+                    "split_meta": split_meta,
+                }
+            n_pair = min(len(flat_codes), len(preds), len(flat_ys), len(flat_dates))
+            n_test = n_pair
+            for i in range(n_pair):
+                _absorb_holdout_row(
+                    acc,
+                    code=flat_codes[i],
+                    date=flat_dates[i],
+                    pred=preds[i],
+                    y=flat_ys[i],
+                    tier_set=tier_set,
+                    metric_set=metric_set,
+                    yhat_eps=yhat_eps,
+                )
+            del flat_xs, preds
+            panel_mode = "bars_lookback"
+
+        if n_test < 1 or _count_tier_sample_codes(acc) < 2:
             return {
                 "ok": False,
-                "error": "面板样本不足（0）",
+                "error": (
+                    "训练窗有效样本不足"
+                    f"（打分行 {n_test}，有命中票 {_count_tier_sample_codes(acc)}）"
+                ),
                 "acc": {},
                 "tier_dates": [],
                 "lookback": panel_lb,
                 "lookback_requested": lookback_req,
-                "holdout_split": half,
+                "holdout_split": split,
                 "split_meta": split_meta,
             }
     else:
@@ -1338,31 +1877,34 @@ def accumulate_holdout_oos_by_code(
             label_horizon_days=hz,
             calendar_dates=cal,
         )
-        if not test_idx:
+        if not test_idx or not train_idx:
             return {
                 "ok": False,
-                "error": "Holdout 切不出测试窗",
+                "error": "Holdout 切不出训练/测试窗",
                 "split_meta": split_meta,
                 "acc": {},
                 "tier_dates": [],
                 "lookback": panel_lb,
                 "lookback_requested": lookback_req,
             }
-        test_days_meta = list(split_meta.get("test_days") or [])
-        half = split_holdout_half_dates(test_days_meta, holdout_n=h_req)
-        if not half.get("ok"):
+        train_days_meta = [str(d)[:10] for d in (split_meta.get("train_days") or [])]
+        test_days_meta = [str(d)[:10] for d in (split_meta.get("test_days") or [])]
+        split = build_lookback_holdout_split(
+            train_days_meta, test_days_meta, holdout_n=h_req
+        )
+        if not split.get("ok"):
             return {
                 "ok": False,
-                "error": half.get("error") or "Holdout 切分失败",
-                "holdout_split": half,
+                "error": split.get("error") or "训练/Holdout 切分失败",
+                "holdout_split": split,
                 "split_meta": split_meta,
                 "acc": {},
                 "tier_dates": [],
                 "lookback": panel_lb,
                 "lookback_requested": lookback_req,
             }
-        tier_set = set(half.get("tier_dates") or [])
-        metric_set = set(half.get("test_days") or []) or set(tier_set)
+        tier_set = set(split.get("tier_dates") or [])
+        metric_set = set(split.get("eval_dates") or split.get("test_days") or [])
         xs_tr = [all_xs[i] for i in train_idx]
         ys_tr = [all_ys[i] for i in train_idx]
         as_of = None
@@ -1394,21 +1936,24 @@ def accumulate_holdout_oos_by_code(
                 "lookback": panel_lb,
                 "lookback_requested": lookback_req,
             }
-        model_source = "oo_holdout_oos_refit"
+        model_source = "oo_pre_holdout_refit"
         model_meta = {
             "ok": True,
             "role": "refit_train",
             "path": None,
-            "fallback_from": model_meta.get("reason") if isinstance(model_meta, dict) else None,
+            "fallback_from": model_meta.get("reason")
+            if isinstance(model_meta, dict)
+            else None,
         }
         n_train = len(train_idx)
-        n_test = len(test_idx)
+        score_idx = list(train_idx) + list(test_idx)
+        n_test = len(score_idx)
         preds = _oo_predictions(
             research_model,
-            [all_xs[i] if isinstance(all_xs[i], dict) else {} for i in test_idx],
-            [all_dates[i] for i in test_idx],
+            [all_xs[i] if isinstance(all_xs[i], dict) else {} for i in score_idx],
+            [all_dates[i] for i in score_idx],
         )
-        for i, pred in zip(test_idx, preds):
+        for i, pred in zip(score_idx, preds):
             _absorb_holdout_row(
                 acc,
                 code=all_codes[i],
@@ -1420,21 +1965,76 @@ def accumulate_holdout_oos_by_code(
                 yhat_eps=yhat_eps,
             )
         del all_xs, all_ys, all_dates, all_codes, preds
+        panel_mode = "refit_lookback"
 
-    tau_meta = _score_tau_holdout_into_acc(
-        acc,
-        stock_bars,
-        tier_set=set(half.get("tier_dates") or []),
-        metric_set=set(half.get("test_days") or []) or set(half.get("tier_dates") or []),
-        yhat_eps=yhat_eps,
-    )
+    # ŷ_τc：优先 Feature Lake；否则 bars 面板
+    tau_meta: Dict[str, Any] = {"ok": False, "n_rows": 0}
+    tau_doc, tau_load = _load_research_tau_model()
+    if tau_doc is not None and bool(tau_load.get("ok", True)):
+        try:
+            from core.research.lake_bridge import family_for_tc
+
+            tc_family = family_for_tc(tau_hm="open")
+        except Exception:  # noqa: BLE001
+            tc_family = ""
+        tau_rows = 0
+        tau_dates = sorted(tier_set | metric_set)
+        if tc_family and _lake_coverage_ok(tc_family, codes_used):
+            try:
+                tau_y = _tau_y_by_code(stock_bars)
+                tau_rows = _score_lake_days_into_acc(
+                    acc,
+                    family=tc_family,
+                    codes=codes_used,
+                    dates=tau_dates,
+                    y_by=tau_y,
+                    predict_fn=lambda xs, ds: _tau_predictions(tau_doc, xs, ds),
+                    absorb_fn=_absorb_tau_holdout_row,
+                    tier_set=tier_set,
+                    metric_set=metric_set,
+                    yhat_eps=yhat_eps,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "lake TC score failed; fallback bars", exc_info=True
+                )
+                _strip_tau_from_acc(acc)
+                tau_rows = 0
+            if _lake_rows_enough(
+                tau_rows, n_codes=len(codes_used), n_dates=len(tau_dates)
+            ):
+                tau_meta = {
+                    **tau_load,
+                    "ok": True,
+                    "n_rows": int(tau_rows),
+                    "source": "tau_research_lake",
+                }
+            else:
+                if tau_rows > 0:
+                    logger.info(
+                        "predictability_tiers: lake TC sparse "
+                        "(rows=%s); fallback bars",
+                        tau_rows,
+                    )
+                _strip_tau_from_acc(acc)
+                tau_rows = 0
+        if not tau_meta.get("ok"):
+            tau_meta = _score_tau_holdout_into_acc(
+                acc,
+                stock_bars,
+                tier_set=tier_set,
+                metric_set=metric_set,
+                yhat_eps=yhat_eps,
+            )
+    else:
+        tau_meta = {**tau_load, "n_rows": 0}
 
     return {
         "ok": True,
         "acc": acc,
-        "tier_dates": list(half.get("tier_dates") or []),
-        "tier_n": int(half.get("tier_n") or 0),
-        "holdout_split": half,
+        "tier_dates": list(split.get("tier_dates") or []),
+        "tier_n": int(split.get("tier_n") or 0),
+        "holdout_split": split,
         "split_meta": split_meta,
         "n_train": n_train,
         "n_test": n_test,
@@ -1444,14 +2044,13 @@ def accumulate_holdout_oos_by_code(
         "horizon_days": hz,
         "lookback": panel_lb,
         "lookback_requested": lookback_req,
-        "panel_mode": "score_short" if model_source == "oo_research_model" else "refit_full",
+        "panel_mode": panel_mode,
         "ridge_lambda": float(
             ridge_lambda if ridge_lambda is not None else DEFAULT_RIDGE_LAMBDA
         ),
         "source": model_source,
         "model_meta": model_meta,
         "tau_meta": tau_meta,
-        # 仅进程内给档内等权买持用，不落盘报告
         "stock_bars": stock_bars,
     }
 
@@ -1487,9 +2086,9 @@ def _window_cls_metrics(
     *,
     yhat_eps: float = _YHAT_EPS,
 ) -> Dict[str, Any]:
-    """给定成对样本上的符号命中 ACC 与上涨正类 F1。
+    """给定成对样本上的符号命中 ACC 与上涨正类 P / R / F1。
 
-    死区与表内前半口径相同（``|ŷ|<ε`` 或 ``|y|≈0`` 不计入）。日期窗由调用方切开。
+    死区与表内定档窗口径相同（``|ŷ|<ε`` 或 ``|y|≈0`` 不计入）。日期窗由调用方切开。
     """
     hits = 0
     n_valid = 0
@@ -1513,9 +2112,11 @@ def _window_cls_metrics(
             fp += 1
         elif (not pred_up) and act_up:
             fn += 1
-    f1, _precision, _recall = _f1_pos_from_counts(tp, fp, fn)
+    f1, precision, recall = _f1_pos_from_counts(tp, fp, fn)
     return {
         "acc": round(hits / n_valid, 4) if n_valid > 0 else None,
+        "precision": precision,
+        "recall": recall,
         "f1": f1,
         "n_cls": int(n_valid),
     }
@@ -1529,11 +2130,11 @@ def summarize_tier_window_cs(
     min_names: int = 5,
     head: str = HEAD_OO,
 ) -> Dict[str, Any]:
-    """日截面 Rank IC / IC / ICIR，以及同窗池化 ACC / F1。
+    """日截面 Rank IC / IC / ICIR，以及同窗池化 ACC / P / R / F1。
 
     ``head=oo`` 用 ŷ_oo 成对；``head=tau`` 用 ŷ_τc 成对。
-    ``dates`` 给定时只留这些决策日（标题测试指标传 Holdout 后半）；缺省用成对序列里的全部日期。
-    不足 3 个有效日则 ICIR 为空。ACC / F1 不看截面最少票数，有有效日即出。
+    ``dates`` 给定时只留这些决策日（标题测试指标传 Holdout）；缺省用成对序列里的全部日期。
+    不足 3 个有效日则 ICIR 为空。ACC / P / R / F1 不看截面最少票数，有有效日即出。
     """
     from core.research.daily_cs_ic import summarize_daily_cs_ic
 
@@ -1577,6 +2178,8 @@ def summarize_tier_window_cs(
         "cs_day_count": pack.get("cs_day_count"),
         "cs_min_names": pack.get("cs_min_names"),
         "acc": cls.get("acc"),
+        "precision": cls.get("precision"),
+        "recall": cls.get("recall"),
         "f1": cls.get("f1"),
         "n_cls": cls.get("n_cls"),
         "head": "tau" if use_tau else "oo",
@@ -1695,7 +2298,6 @@ def _rows_from_acc(
     acc: Dict[str, Dict[str, Any]],
     *,
     pool_codes: Sequence[str],
-    watch_set: set,
     pad_missing: bool,
     name_by: Optional[Dict[str, str]] = None,
     require_tau: bool = False,
@@ -1746,8 +2348,10 @@ def _rows_from_acc(
         )
         n_y_pos = max(0, int(slot.get("n_y_pos") or 0))
         sum_y_pos = float(slot.get("sum_y_pos") or 0.0)
+        # 门槛用未 round 均值；展示仍四位小数
+        mean_y_pos_raw = (sum_y_pos / n_y_pos) if n_y_pos > 0 else None
         mean_y_pos = (
-            round(sum_y_pos / n_y_pos, 4) if n_y_pos > 0 else None
+            round(float(mean_y_pos_raw), 4) if mean_y_pos_raw is not None else None
         )
         f1_pos, precision_pos, recall_pos = _f1_pos_from_counts(
             int(slot.get("tp_pos") or 0),
@@ -1756,16 +2360,19 @@ def _rows_from_acc(
         )
         n_y_pos_tau = max(0, int(slot.get("n_y_pos_tau") or 0))
         sum_y_pos_tau = float(slot.get("sum_y_pos_tau") or 0.0)
+        mean_y_pos_tau_raw = (
+            (sum_y_pos_tau / n_y_pos_tau) if n_y_pos_tau > 0 else None
+        )
         mean_y_pos_tau = (
-            round(sum_y_pos_tau / n_y_pos_tau, 4) if n_y_pos_tau > 0 else None
+            round(float(mean_y_pos_tau_raw), 4)
+            if mean_y_pos_tau_raw is not None
+            else None
         )
         f1_pos_tau, precision_pos_tau, recall_pos_tau = _f1_pos_from_counts(
             int(slot.get("tp_pos_tau") or 0),
             int(slot.get("fp_pos_tau") or 0),
             int(slot.get("fn_pos_tau") or 0),
         )
-        ic = _spearman_ic(slot.get("yhats") or [], slot.get("realized") or [])
-        ds = list(slot.get("dates") or [])
         rows.append(
             {
                 "code": code,
@@ -1773,26 +2380,22 @@ def _rows_from_acc(
                 "tier": "C",
                 "score": None,
                 "hit_rate": hit_rate,
-                "hits": hits,
                 "n_valid": n_valid,
                 "n_days": int(slot.get("n_days") or 0),
                 "hit_rate_tau": hit_rate_tau,
-                "hits_tau": hits_tau,
                 "n_valid_tau": n_valid_tau,
                 "mean_y_pos": mean_y_pos,
+                "mean_y_pos_raw": mean_y_pos_raw,
                 "n_y_pos": n_y_pos,
                 "f1_pos": f1_pos,
                 "precision_pos": precision_pos,
                 "recall_pos": recall_pos,
                 "mean_y_pos_tau": mean_y_pos_tau,
+                "mean_y_pos_tau_raw": mean_y_pos_tau_raw,
                 "n_y_pos_tau": n_y_pos_tau,
                 "f1_pos_tau": f1_pos_tau,
                 "precision_pos_tau": precision_pos_tau,
                 "recall_pos_tau": recall_pos_tau,
-                "ic": ic,
-                "in_watching": code in watch_set,
-                "as_of_first": ds[0] if ds else None,
-                "as_of_last": ds[-1] if ds else None,
             }
         )
 
@@ -1829,7 +2432,7 @@ def _rows_from_acc(
     return rows, counts
 
 
-def build_holdout_half_tiers(
+def build_predictability_tiers(
     holdout_n: int = DEFAULT_HOLDOUT_N,
     *,
     pool: str = DEFAULT_POOL,
@@ -1848,18 +2451,17 @@ def build_holdout_half_tiers(
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     use_research_model: bool = True,
 ) -> Dict[str, Any]:
-    """研究枢纽协议：研究套 ŷ_oo 按票分档。F1/命中看 Holdout 前半；标题测试指标看后半；等权买持看整段。
+    """研究枢纽协议：研究套 ŷ_oo 按票分档。
+
+    F1/命中看 lookback **训练窗**；标题测试指标与等权买持看 Holdout **整段**。
 
     Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 研究套则 Score = OO_F1；缺一侧按 0）。
     A 档另过 F1 门槛（``a_f1`` / ``tau_a_f1``，默认 20% / 20%）；
     ``require_oo_r_pos`` / ``require_tc_r_pos``（默认皆开）时还须对应 R+>0
     （无 ŷ_τc 研究套时 TC 门槛不生效）。未过门槛不占 A 名额。
     过门槛者按 Score 降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
-    档内平均收益率 = Holdout 整段等权买持（对齐回测「观察池A档等权」）。
-    落盘 last；回测 / live：截面 z 不缩小，ŷ 与名次只写允许档，档外不开仓。回测天数独立。
-    live 档位跟随历史回测「分档」勾选。
-    ``lookback``：仅无研究套现训时用的日线窗（对齐 ŷ_oo 卡训练窗）；
-    有研究套时面板走 ``_score_panel_lookback`` 短窗。
+    落盘 last；回测 / live：截面 z 不缩小，ŷ 与名次只写允许档，档外不开仓。
+    ``lookback``：对齐 ŷ_oo 卡训练窗（定档样本）；``holdout_n``：评测窗。
     """
     if a_f1 is None:
         a_f1 = DEFAULT_A_F1
@@ -1869,7 +2471,7 @@ def build_holdout_half_tiers(
     if head_n == HEAD_TAU:
         return {
             "success": False,
-            "error": "观察池分档仅支持 ŷ_oo Holdout OOS（head=oo）",
+            "error": "观察池分档仅支持 ŷ_oo（head=oo；训练窗定档 + Holdout 评测）",
             "protocol": PROTOCOL_HOLDOUT_OOS,
         }
 
@@ -1904,7 +2506,7 @@ def build_holdout_half_tiers(
     if not packed.get("ok"):
         return {
             "success": False,
-            "error": packed.get("error") or "Holdout OOS 分档失败",
+            "error": packed.get("error") or "观察池分档失败",
             "protocol": PROTOCOL_HOLDOUT_OOS,
             "holdout_split": packed.get("holdout_split"),
             "split_meta": packed.get("split_meta"),
@@ -1915,7 +2517,7 @@ def build_holdout_half_tiers(
 
     acc = dict(packed.get("acc") or {})
     tier_dates = list(packed.get("tier_dates") or [])
-    half = packed.get("holdout_split") or {}
+    split = packed.get("holdout_split") or {}
     tier_n = int(packed.get("tier_n") or len(tier_dates))
     tau_meta = packed.get("tau_meta") if isinstance(packed.get("tau_meta"), dict) else {}
     require_tau = bool(tau_meta.get("ok"))
@@ -1925,7 +2527,6 @@ def build_holdout_half_tiers(
     rows, counts = _rows_from_acc(
         acc,
         pool_codes=pool_codes,
-        watch_set=watch_set,
         pad_missing=True,
         name_by=name_by,
         require_tau=require_tau,
@@ -1938,8 +2539,9 @@ def build_holdout_half_tiers(
     )
     n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
     stock_bars = packed.get("stock_bars") if isinstance(packed.get("stock_bars"), dict) else {}
-    metric_dates = list(half.get("test_days") or []) or list(tier_dates)
-    eval_dates = holdout_eval_dates(half)
+    # 等权买持与标题指标均看 Holdout 整段
+    eval_dates = holdout_eval_dates(split) or list(split.get("test_days") or [])
+    metric_dates = list(eval_dates)
     attach_code_holdout_rets(rows, stock_bars, dates=metric_dates)
     cs_pool = summarize_tier_window_cs(acc, dates=eval_dates, head=HEAD_OO)
     cs_pool_tau = summarize_tier_window_cs(acc, dates=eval_dates, head=HEAD_TAU)
@@ -1992,16 +2594,13 @@ def build_holdout_half_tiers(
         "success": True,
         "schema": SCHEMA,
         "task": "predictability_tiers",
-        "live_hook": False,
         "protocol": PROTOCOL_HOLDOUT_OOS,
         "source": model_source,
         "head": HEAD_OO,
         "head_label": "ŷ_oo",
         "lookback": panel_lb,
         "lookback_requested": lookback_req,
-        "panel_mode": panel_mode or (
-            "score_short" if model_source == "oo_research_model" else "refit_full"
-        ),
+        "panel_mode": panel_mode or "lookback_full",
         "thresholds": {
             "a_count": int(n_a),
             "b_count": int(n_b),
@@ -2019,12 +2618,14 @@ def build_holdout_half_tiers(
         "pool": pool_mode,
         "pool_source": pool_source,
         "pool_count": len(pool_codes),
+        "pool_codes_fp": pool_codes_fingerprint(pool_codes),
         "n_with_sample": n_with_sample,
         "tier_dates": tier_dates,
         "tier_n": tier_n,
-        "holdout_n": half.get("holdout_n") or max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90)),
-        "as_of_tier_last": half.get("as_of_tier_last"),
-        "holdout_split": half,
+        "holdout_n": split.get("holdout_n") or max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90)),
+        "as_of_tier_last": split.get("as_of_tier_last"),
+        "as_of_eval_last": (eval_dates[-1] if eval_dates else None),
+        "holdout_split": split,
         "split_meta": packed.get("split_meta"),
         "n_train": packed.get("n_train"),
         "n_test": packed.get("n_test"),
@@ -2032,7 +2633,8 @@ def build_holdout_half_tiers(
         "model_meta": packed.get("model_meta"),
         "tau_meta": tau_meta,
         "counts": counts,
-        "title_metric_window": "holdout_second_half",
+        "selection_window": str(split.get("selection_window") or "lookback_train"),
+        "title_metric_window": TITLE_METRIC_WINDOW,
         "cs_rank_ic": cs_pool.get("cs_rank_ic"),
         "cs_icir": cs_pool.get("cs_icir"),
         "cs_ic": cs_pool.get("cs_ic"),
@@ -2054,13 +2656,10 @@ def build_holdout_half_tiers(
             "source": resolved.get("source"),
         },
         "note": (
-            f"{src_note} · Holdout {int(half.get('holdout_n') or holdout_n or DEFAULT_HOLDOUT_N)} 日前半 {tier_n} 日分档"
-            f" · 标题测试指标看后半 {len(eval_dates)} 日 · 等权买持看整段 {int(half.get('n_test') or 0)} 日 · 面板 {panel_lb} 日"
-            + (
-                f"（短窗；请求训练窗 {lookback_req}）"
-                if model_source == "oo_research_model" and lookback_req > panel_lb
-                else ""
-            )
+            f"{src_note} · 训练窗 {tier_n} 日定档"
+            f" · Holdout {int(split.get('holdout_n') or holdout_n or DEFAULT_HOLDOUT_N)} 日"
+            f"（{len(eval_dates)} 日）评测标题指标与等权买持"
+            f" · 面板 {panel_lb} 日"
             + f"；{score_note}；A 须 OO_F1≥{oo_floor:.0%}"
             + (
                 f"、TC_F1≥{tau_floor:.0%}"
@@ -2078,5 +2677,5 @@ def build_holdout_half_tiers(
         try:
             save_predictability_tiers_last(rep)
         except Exception:  # noqa: BLE001
-            logger.debug("persist holdout_oos_half tiers failed", exc_info=True)
+            logger.debug("persist lookback_train_holdout_eval tiers failed", exc_info=True)
     return rep

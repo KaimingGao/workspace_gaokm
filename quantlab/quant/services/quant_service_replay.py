@@ -74,6 +74,7 @@ class QuantReplayMixin:
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
         oo_rank_max: Optional[int] = None,
+        oo_rank_strong_max: Optional[int] = None,
         oo_rank_top_frac: Optional[float] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
@@ -146,13 +147,14 @@ class QuantReplayMixin:
             from core.research.predictability_tiers import (
                 load_predictability_tiers_last,
                 tier_code_set,
+                validate_predictability_tiers_report,
             )
 
             tier_rep = load_predictability_tiers_last()
             if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
                 return {
                     "success": False,
-                    "error": "无枢纽分档报告；请先在研究枢纽跑「观察池分档」（Holdout 前半）",
+                    "error": "无枢纽分档报告；请先在研究枢纽跑「观察池分档」（训练窗定档）",
                     "universe": resolved,
                 }
             hold_n_req = (
@@ -160,16 +162,21 @@ class QuantReplayMixin:
                 if holdout_trading_days is not None
                 else None
             )
-            last_hold = tier_rep.get("holdout_n")
-            if hold_n_req is not None and last_hold is not None and int(last_hold) != int(hold_n_req):
+            gate = validate_predictability_tiers_report(
+                tier_rep,
+                holdout_n=hold_n_req,
+                pool_codes=candidates,
+                require_pool_fp=True,
+            )
+            if not gate.get("ok"):
                 return {
                     "success": False,
-                    "error": (
-                        f"ŷ_oo Holdout={hold_n_req} 与枢纽分档 Holdout={last_hold} 不一致；"
-                        "请先在研究枢纽用当前 Holdout 重跑「观察池分档」再回测。"
-                    ),
+                    "error": gate.get("error")
+                    or "分档报告校验失败；请重跑「观察池分档」",
                     "universe": resolved,
+                    "predictability_gate": gate,
                 }
+            last_hold = tier_rep.get("holdout_n")
             allowed = [
                 str(t).strip().upper()
                 for t in (predictability_tiers or ["A"])
@@ -208,6 +215,10 @@ class QuantReplayMixin:
                         "tier_n": tier_rep.get("tier_n") or len(tier_dates),
                         "tier_dates": tier_dates,
                         "as_of_tier_last": tier_rep.get("as_of_tier_last"),
+                        "as_of_eval_last": tier_rep.get("as_of_eval_last")
+                        or gate.get("as_of_eval_last"),
+                        "pool_codes_fp": tier_rep.get("pool_codes_fp")
+                        or gate.get("pool_codes_fp"),
                         "lookback": int(lookback),
                         "allowed_tiers": allowed,
                         "counts": (tier_rep.get("counts") if isinstance(tier_rep, dict) else None),
@@ -229,6 +240,10 @@ class QuantReplayMixin:
                 "lookback": effective_lookback,
                 "tier_dates": tier_dates,
                 "as_of_tier_last": tier_rep.get("as_of_tier_last"),
+                "as_of_eval_last": tier_rep.get("as_of_eval_last")
+                or gate.get("as_of_eval_last"),
+                "pool_codes_fp": tier_rep.get("pool_codes_fp")
+                or gate.get("pool_codes_fp"),
                 "allowed_tiers": allowed,
                 "head": tier_rep.get("head") or str(predictability_head or "oo"),
                 "counts": tier_rep.get("counts") if isinstance(tier_rep, dict) else None,
@@ -436,6 +451,7 @@ class QuantReplayMixin:
                     y_oo_gt0=bool(y_oo_gt0),
                     y_τc_gt0=bool(y_τc_gt0),
                     oo_rank_max=oo_rank_max,
+                    oo_rank_strong_max=oo_rank_strong_max,
                     oo_rank_top_frac=oo_rank_top_frac,
                     fill_clock=clock,
                     minute_bars_by_code=minute_bars,
@@ -498,6 +514,7 @@ class QuantReplayMixin:
             "y_oo_gt0": bool(y_oo_gt0),
             "y_τc_gt0": bool(y_τc_gt0),
             "oo_rank_max": oo_rank_max,
+            "oo_rank_strong_max": oo_rank_strong_max,
             "oo_rank_top_frac": oo_rank_top_frac,
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
@@ -514,12 +531,21 @@ class QuantReplayMixin:
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + (
-                    f"；oo_rank<{int(oo_rank_max)}"
+                    f"；oo_rank<{int(oo_rank_max)}（未过强档）"
                     if oo_rank_max is not None and int(oo_rank_max) > 0
                     else (
-                        f"；oo_rank<top{int(round(float(oo_rank_top_frac) * 100))}%"
+                        f"；oo_rank<top{int(round(float(oo_rank_top_frac) * 100))}%（未过强档）"
                         if oo_rank_top_frac is not None and float(oo_rank_top_frac) > 0
                         else ""
+                    )
+                )
+                + (
+                    f"；强档 rank<{int(oo_rank_strong_max)}"
+                    if oo_rank_strong_max is not None and int(oo_rank_strong_max) > 0
+                    else (
+                        "；强档 rank 关"
+                        if oo_rank_strong_max == 0
+                        else "；强档 rank<100"
                     )
                 )
                 + "；ŷ头=Ridge"

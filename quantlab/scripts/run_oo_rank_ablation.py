@@ -17,8 +17,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.data.facade import bars_and_source
 from core.research.oo_rank_panel import build_oo_rank_day_panels
+from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.oo_rank_lambdarank import compare_oo_rank_shadow_track
 from core.watching.store import read_watching
 
@@ -60,14 +60,18 @@ def main() -> None:
     limit = max(8, min(limit, len(pool)))
     _log(f"观察池: {len(pool)} · 用前 {limit} · lookback={lookback}")
 
+    loaded, _fail, _fund = load_portfolio_stock_bars(
+        pool[:limit],
+        lookback=lookback,
+        fetch_fundamentals=False,
+        offline_ok=True,
+    )
     stock_bars: List[Dict[str, Any]] = []
-    for i, code in enumerate(pool[:limit]):
-        bars, _src = bars_and_source(code, limit=lookback + 40)
-        if not bars or len(bars) < 20:
+    for code in pool[:limit]:
+        bars = loaded.get(str(code)) or []
+        if len(bars) < 20:
             continue
         stock_bars.append({"code": code, "bars": bars})
-        if (i + 1) % 20 == 0:
-            _log(f"  已加载 {i + 1}/{limit} ...")
 
     _log(f"有效加载: {len(stock_bars)}")
     if len(stock_bars) < 8:

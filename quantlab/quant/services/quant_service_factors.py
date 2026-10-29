@@ -1297,15 +1297,17 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge。
 
+        日线与 ŷ_oo / ŷ_τc / ŷ_co 同源（``load_portfolio_stock_bars``：
+        本地仓够长则不补远端，避免拟合时把当日 K 线刷进仓里）。
         截面 z 恒用整观察池。``train_tiers``（A/B/C 多选）非空时，损失 / Holdout
         缩到观察池∩这些档（须先跑枢纽分档）；打分仍全池 z。
         旧 ``train_universe_tier_a=True`` 等价 ``train_tiers=["A"]``。
         成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max（与 τc_rank 取 max）入场闸。
         ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
         """
-        from core.data.facade import bars_and_source
         from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_panel import resolve_rank_fit_plan
+        from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.research.oo_rank_lambdarank import (
             fit_oo_rank_report,
             load_oo_rank_last_report,
@@ -1369,12 +1371,17 @@ class QuantFactorMixin:
         train_meta = dict(plan.get("train_meta") or {})
         labels = list(plan.get("train_universe_tiers") or [])
 
+        loaded, _failures, _fund = load_portfolio_stock_bars(
+            codes,
+            lookback=int(lookback or 120),
+            fetch_fundamentals=False,
+            offline_ok=True,
+        )
         stock_bars: List[Dict[str, Any]] = []
         for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
+            bars = loaded.get(str(code))
+            if bars:
+                stock_bars.append({"code": str(code), "bars": bars})
         try:
             report = fit_oo_rank_report(
                 stock_bars,
@@ -1588,6 +1595,8 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_τc_rank：同窗 LambdaRank + Ridge。
 
+        日线与 ŷ_oo / ŷ_τc / ŷ_co 同源（``load_portfolio_stock_bars``：
+        本地仓够长则不补远端）。
         截面 z 恒用整观察池。``train_tiers`` 非空时损失 / Holdout 缩到观察池∩档；
         旧 ``train_universe_tier_a=True`` 等价 ``["A"]``。
         启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。
@@ -1835,6 +1844,7 @@ class QuantFactorMixin:
         上一头拟合已归还的堆页交回系统，避免旧水位把下一头立刻停掉。
         ``tau_end_hm``：训练前缀终点 09:35…11:00（ŷ_τ* 组滑条，与 ŷ_τc 独立；默认 11:00）。
         方案 B：窗头仅分钟钟，``09:30``/open 上抬为 09:35；不读日线 open Cube。
+        日线与 ŷ_oo / ŷ_τc 同源（``load_portfolio_stock_bars``：本地仓够长则不补远端）。
         ``lookback`` 为日线上限；5m 回退按**单票本地缓存**有多少用多少（仅热 L1 下
         个别票 miss 时）。
         截面 z 只用 L2；某一天的某一钟没有立方时丢掉这些行，
@@ -1843,7 +1853,6 @@ class QuantFactorMixin:
         ``progress_cb(cur, tot, msg)``：job 槽刷新（流式建面板 + 截面/双训阶段）。
         ``job_alive_cb()``：False 时跳过 ``save_ridge_last_report``（槽已被接替/取消）。
         """
-        from core.data.facade import bars_and_source
         from core.research.horizon_prob import horizon_promote_gate
         from core.research.horizon_ridge import (
             fit_horizon_dual_report,
@@ -2175,6 +2184,21 @@ class QuantFactorMixin:
             )
 
         release_allocator_cache()
+        if not _job_alive():
+            return {
+                "success": False,
+                "error": "任务已中断或被接替",
+                "orphaned": True,
+                "task": task,
+            }
+        from core.research.portfolio_bars import load_portfolio_stock_bars
+
+        loaded_bars, _bar_fail, _fund = load_portfolio_stock_bars(
+            codes,
+            lookback=int(lookback or 120),
+            fetch_fundamentals=False,
+            offline_ok=True,
+        )
         orphaned = False
         for i, code in enumerate(codes):
             if memory_error:
@@ -2184,7 +2208,7 @@ class QuantFactorMixin:
             if not _job_alive():
                 orphaned = True
                 break
-            bars, _src = bars_and_source(code, limit=lookback + 40)
+            bars = list(loaded_bars.get(str(code)) or [])
             scanned = i + 1
             if not bars:
                 if scanned == 1 or scanned % 8 == 0 or scanned >= n_codes:

@@ -348,7 +348,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 过入场后作买序；rank 入场与 τc_rank 共用门槛 max(oo,τc)<N（默认 10）",
+    title: "ŷ_oo_rank 当日观察池截面名次 · 1=相对分最高 · 悬停看因子组成 · 过入场后作买序；rank 入场与 τc_rank 共用门槛 max(oo,τc)<N（默认 10）；fuse 过强档改看强档 rank（默认 100）",
   },
   {
     id: "y_tc_rank",
@@ -357,7 +357,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.6rem",
     num: true,
     sortable: true,
-    title: "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场门槛；不进 fuse / 不改买序",
+    title: "ŷ_τc_rank 当日截面名次 · 1=相对分最高 · 悬停看因子组成 · 与 oo_rank 共用 rank 入场门槛；fuse 过强档改看强档 rank（默认 100）；不进 fuse / 不改买序",
   },
 ];
 

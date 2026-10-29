@@ -1638,9 +1638,11 @@ class TestEnterGates(unittest.TestCase):
     def test_oo_rank_max_blocks_when_rank_ge_max(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
+        # 未过强档才看 rank
+        cfg = self._cfg(oo_rank_max=10, fuse_strong=0.05)
         skip = rank_lot_enter_skip_reason(
             self._item(y_oo_rank=10),
-            self._cfg(oo_rank_max=10),
+            cfg,
             rs=0.02,
         )
         self.assertIsNotNone(skip)
@@ -1648,7 +1650,7 @@ class TestEnterGates(unittest.TestCase):
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(y_oo_rank=9),
-                self._cfg(oo_rank_max=10),
+                cfg,
                 rs=0.02,
             )
         )
@@ -1656,10 +1658,11 @@ class TestEnterGates(unittest.TestCase):
     def test_oo_rank_max_uses_max_of_oo_and_tc(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
+        cfg = self._cfg(oo_rank_max=10, fuse_strong=0.05)
         # oo 过得了，τc 较差 → max 拦
         skip = rank_lot_enter_skip_reason(
             self._item(y_oo_rank=3, y_tc_rank=12),
-            self._cfg(oo_rank_max=10),
+            cfg,
             rs=0.02,
         )
         self.assertIsNotNone(skip)
@@ -1669,14 +1672,14 @@ class TestEnterGates(unittest.TestCase):
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(y_oo_rank=3, y_tc_rank=9),
-                self._cfg(oo_rank_max=10),
+                cfg,
                 rs=0.02,
             )
         )
         # 仅 τc 也拦
         skip_tc = rank_lot_enter_skip_reason(
             self._item(y_tc_rank=10),
-            self._cfg(oo_rank_max=10),
+            cfg,
             rs=0.02,
         )
         self.assertIsNotNone(skip_tc)
@@ -1688,7 +1691,7 @@ class TestEnterGates(unittest.TestCase):
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(),
-                self._cfg(oo_rank_max=10),
+                self._cfg(oo_rank_max=10, fuse_strong=0.05),
                 rs=0.02,
             )
         )
@@ -1696,9 +1699,10 @@ class TestEnterGates(unittest.TestCase):
     def test_oo_rank_top_frac_blocks_when_rank_ge_half(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
+        cfg = self._cfg(oo_rank_top_frac=0.5, fuse_strong=0.05)
         skip = rank_lot_enter_skip_reason(
             self._item(y_oo_rank=20, y_oo_rank_n=40),
-            self._cfg(oo_rank_top_frac=0.5),
+            cfg,
             rs=0.02,
         )
         self.assertIsNotNone(skip)
@@ -1706,7 +1710,7 @@ class TestEnterGates(unittest.TestCase):
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(y_oo_rank=19, y_oo_rank_n=40),
-                self._cfg(oo_rank_top_frac=0.5),
+                cfg,
                 rs=0.02,
             )
         )
@@ -1718,7 +1722,7 @@ class TestEnterGates(unittest.TestCase):
             rank_lot_enter_skip_reason,
         )
 
-        cfg = self._cfg(oo_rank_max=10, oo_rank_top_frac=0.5)
+        cfg = self._cfg(oo_rank_max=10, oo_rank_top_frac=0.5, fuse_strong=0.05)
         self.assertEqual(oo_rank_max_from_cfg(cfg), 10)
         self.assertAlmostEqual(oo_rank_top_frac_from_cfg(cfg), 0.5)
         # 绝对闸优先：rank=15 相对 top50%(n=40) 过得了，但 ≥10 拦
@@ -1729,6 +1733,45 @@ class TestEnterGates(unittest.TestCase):
         )
         self.assertIsNotNone(skip)
         self.assertIn("≥10", skip)
+
+    def test_fuse_strong_ignores_rank_gate(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        item = self._item(y_oo_rank=40, y_tc_rank=40, y_oo_rank_n=40)
+        cfg = self._cfg(oo_rank_max=10, oo_rank_top_frac=0.5, fuse_strong=0.01)
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(item, cfg, rs=0.02)
+        )
+        # 缺强档 rank 键时默认 100：名次到 100 仍拦
+        blocked = rank_lot_enter_skip_reason(
+            self._item(y_oo_rank=100, y_tc_rank=40, y_oo_rank_n=120),
+            cfg,
+            rs=0.02,
+        )
+        self.assertIsNotNone(blocked)
+        self.assertIn("≥100", blocked or "")
+        # 显式 0 关掉强档 rank
+        open_cfg = dict(cfg)
+        open_cfg["oo_rank_strong_max"] = 0
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(y_oo_rank=100, y_tc_rank=40, y_oo_rank_n=120),
+                open_cfg,
+                rs=0.02,
+            )
+        )
+        # 等于强档仍看 rank（与强档手数同一比较：须 >）
+        skip_eq = rank_lot_enter_skip_reason(item, cfg, rs=0.01)
+        self.assertIsNotNone(skip_eq)
+        self.assertIn("≥10", skip_eq or "")
+        # 未过强档仍拦；y_oo>0 不因强档放行
+        skip_base = rank_lot_enter_skip_reason(
+            self._item(predicted_score=-0.05, y_oo_rank=1),
+            self._cfg(oo_rank_max=10, fuse_strong=0.01, y_oo_gt0=True),
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip_base)
+        self.assertIn("y_oo", skip_base or "")
 
 
 # --- from test_path_matrix.py ---
@@ -1811,6 +1854,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertFalse(lots.get("y_oo_gt0"))
         self.assertFalse(lots.get("y_τc_gt0"))
         self.assertIsNone(lots.get("oo_rank_max"))
+        self.assertEqual(int(lots.get("oo_rank_strong_max") or 0), 100)
         self.assertIsNone(lots.get("oo_rank_top_frac"))
         self.assertEqual(lots.get("fill_clock"), "09:30")
         self.assertEqual(int(lots.get("lot_base_amount") or 0), 10000)
@@ -1822,6 +1866,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(int(pm.get("lot_base_amount") or 0), 10000)
         self.assertEqual(int(pm.get("lot_strong_amount") or 0), 20000)
         self.assertIsNone(pm.get("oo_rank_max"))
+        self.assertEqual(int(pm.get("oo_rank_strong_max") or 0), 100)
         self.assertIsNone(pm.get("oo_rank_top_frac"))
 
     def test_save_rules_persists_oo_rank_max(self):

@@ -780,6 +780,7 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
                 "predicted_score": 2.0,
                 "y_τc": 1.0,
                 "y_oo_fuse": 1.5,
+                "reject_reason": "评分失败",
             }
         }
         _mark_predictability_tier_exits(
@@ -789,7 +790,10 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         )
         self.assertTrue(item_by["601318"].get("hard_reject"))
         self.assertTrue(item_by["601318"].get("predictability_tier_exit"))
-        self.assertEqual(item_by["601318"].get("reject_reason"), "可预测性非A档 清仓")
+        self.assertEqual(
+            item_by["601318"].get("reject_reason"),
+            "评分失败；可预测性非A档 清仓",
+        )
 
     def test_preview_force_exits_held_when_tier_drops_name(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
@@ -894,6 +898,26 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         self.assertFalse(item_by["000001"].get("hard_reject"))
         self.assertTrue(item_by["000002"].get("hard_reject"))
         self.assertIn("不开仓", item_by["000002"].get("reject_reason") or "")
+        # 闸失败 / tradable=None → 不误标全池
+        item_gate = {
+            "000001": {"stock_code": "000001"},
+            "000002": {"stock_code": "000002"},
+        }
+        _mark_predictability_tier_blocks(
+            item_gate,
+            tradable_codes=[],
+            allowed_tiers=["A"],
+            gate_ok=False,
+        )
+        self.assertFalse(item_gate["000001"].get("hard_reject"))
+        self.assertFalse(item_gate["000002"].get("hard_reject"))
+        _mark_predictability_tier_blocks(
+            item_gate,
+            tradable_codes=None,
+            allowed_tiers=["A"],
+            gate_ok=True,
+        )
+        self.assertFalse(item_gate["000001"].get("hard_reject"))
 
     def test_attach_oo_rank_passes_score_codes(self):
         """live 分档打开时，名次只编允许档；z 仍吃整批。"""

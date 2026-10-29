@@ -1,6 +1,6 @@
 /**
- * 观察池分档：研究套 ŷ_oo（+ 有则 ŷ_τc）· Score=0.5*OO_F1+0.5*TC_F1 · A 档另过 OO_F1 / TC_F1（可勾选 OO_R+>0 / TC_R+>0）· 分档看 Holdout 前半，标题测试指标看后半，等权买持看整段 → last。
- * 有研究套时只拉 Holdout 附近本地日线建面板；live 档位跟随历史回测「分档」勾选。
+ * 观察池分档：研究套 ŷ_oo · Holdout（+ 有则 ŷ_τc）· Score=0.5*OO_F1+0.5*TC_F1 · A 档另过 OO_F1 / TC_F1（可勾选 OO_R+>0 / TC_R+>0）· 分档看训练窗，标题测试指标与等权买持看 Holdout → last。
+ * 面板按 lookback 全窗（优先 Feature Lake）；live 档位跟随历史回测「分档」勾选。
  */
 import { createScoreTooltipController } from "../score_tooltip.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
@@ -329,13 +329,21 @@ export function installResearchUniverseUi(q) {
     ["IC", "cs_ic", fmtIc, csValCls, "日截面 IC（Pearson）"],
     ["ICIR", "cs_icir", fmtIc, csValCls, "日截面 ICIR"],
     ["ACC", "acc", fmtPct1, () => "", "符号命中率。不上色"],
+    ["P", "precision", fmtPct1, () => "", "上涨正类精确率 P⁺。不上色"],
+    ["R", "recall", fmtPct1, () => "", "上涨正类召回。不上色"],
     ["F1", "f1", fmtPct1, f1TitleCls, "上涨正类 F1。≥50% 红 / 低于 50% 绿"],
   ];
+
+  function reportMetricsReady(rep) {
+    if (!(rep && rep.title_metric_window === "holdout")) return false;
+    // 与后端 validate 对齐：协议须显式且为训练窗定档 + Holdout 评测
+    return String((rep && rep.protocol) || "").trim() === "lookback_train_holdout_eval";
+  }
 
   function csShowTau(rep) {
     const requireTau = !!(rep && rep.thresholds && rep.thresholds.require_tau);
     if (requireTau) return true;
-    if (!(rep && rep.title_metric_window === "holdout_second_half")) return false;
+    if (!reportMetricsReady(rep)) return false;
     return ["A", "B", "C"].some((tier) => {
       const pack = csPackOf(rep, tier, "tau");
       return !!(
@@ -344,6 +352,8 @@ export function installResearchUniverseUi(q) {
           pack.cs_ic != null ||
           pack.cs_icir != null ||
           pack.acc != null ||
+          pack.precision != null ||
+          pack.recall != null ||
           pack.f1 != null)
       );
     });
@@ -377,24 +387,17 @@ export function installResearchUniverseUi(q) {
   }
 
   function dualCsHtml(rep, tier) {
-    const ready = !!(rep && rep.title_metric_window === "holdout_second_half");
-    const stale = ready ? "" : "；上次报告不是后半，请重跑观察池分档";
+    const ready = reportMetricsReady(rep);
+    const stale = ready ? "" : "；上次报告协议/评测窗过旧，请重跑观察池分档";
     const ooTip =
-      `Holdout 后半（测试）、${tier} 档内 Y_oo：Rank IC / IC / ICIR / ACC / F1${stale}`;
+      `测试窗、${tier} 档内 Y_oo：Rank IC / IC / ICIR / ACC / P / R / F1${stale}`;
     const tauTip =
-      `Holdout 后半（测试）、${tier} 档内 Y_τc：Rank IC / IC / ICIR / ACC / F1${stale}`;
+      `测试窗、${tier} 档内 Y_τc：Rank IC / IC / ICIR / ACC / P / R / F1${stale}`;
     const ooPack = ready ? csPackOf(rep, tier, "oo") : null;
     const tauPack = ready ? csPackOf(rep, tier, "tau") : null;
     const showTau = csShowTau(rep);
-    const win = ready ? "后半" : "旧";
-    const winTip = ready
-      ? "Holdout 后半（测试）"
-      : "上次报告不是后半，请重跑观察池分档";
     return (
       `<span class="quant-ru-tier-cs-wrap">` +
-      `<span class="quant-ru-tier-cs-win${ready ? "" : " is-stale"}" title="${escapeHtml(
-        winTip
-      )}">${win}</span>` +
       `<span class="quant-ru-tier-board" aria-label="档内测试指标">` +
       csMetricsHtml(ooPack, ooTip, "oo") +
       (showTau
@@ -532,19 +535,19 @@ export function installResearchUniverseUi(q) {
     );
     if (Number.isFinite(n)) {
       tip =
-        `Holdout 前半 ${label}=${formula} ${fmtRetPct(n)}` +
+        `训练窗 ${label}=${formula} ${fmtRetPct(n)}` +
         (nSide > 0 ? ` · ${nSide} 日` : "") +
         (needThis ? ` · A 档须 ${label}>0` : "");
       text = fmtRetPct(n);
       cls = csValCls(n);
     } else if (nValid > 0) {
       tip =
-        `Holdout 前半无 ${yhat}>ε 日（${nValid} 个有效命中日均为看空）· 无法算 ${label}` +
+        `训练窗无 ${yhat}>ε 日（${nValid} 个有效命中日均为看空）· 无法算 ${label}` +
         (needThis ? " · 不过 A" : "");
       text = "无看多";
       cls = " is-muted";
     } else {
-      tip = `Holdout 前半无有效 ${yhat} 样本 · 无法算 ${label}`;
+      tip = `训练窗无有效 ${yhat} 样本 · 无法算 ${label}`;
       text = "—";
     }
     return (
@@ -619,7 +622,7 @@ export function installResearchUniverseUi(q) {
     const eyebrow =
       p.eyebrow != null
         ? String(p.eyebrow)
-        : "OO_F1 · Holdout 前半 · 正类=上涨";
+        : "OO_F1 · 训练窗 · 正类=上涨";
     const pTxt =
       p.precision != null && Number.isFinite(Number(p.precision))
         ? fmtHit(p.precision)
@@ -682,7 +685,7 @@ export function installResearchUniverseUi(q) {
     const rec = r && (isOo ? r.recall_pos : r.recall_pos_tau);
     const nPos = Number((r && (isOo ? r.n_y_pos : r.n_y_pos_tau)) || 0);
     const nValid = Number((r && (isOo ? r.n_valid : r.n_valid_tau)) || 0);
-    const eyebrow = `${label} · Holdout 前半 · 正类=上涨`;
+    const eyebrow = `${label} · 训练窗 · 正类=上涨`;
     let text;
     /** @type {Record<string, unknown>} */
     let tipPack;
@@ -826,8 +829,6 @@ export function installResearchUniverseUi(q) {
       return;
     }
     const thr = rep.thresholds || {};
-    const hold = rep.holdout_n != null ? rep.holdout_n : "—";
-    const tierN = rep.tier_n != null ? rep.tier_n : "—";
     const aCount =
       thr.a_count != null && Number.isFinite(Number(thr.a_count))
         ? Math.round(Number(thr.a_count))
@@ -866,26 +867,6 @@ export function installResearchUniverseUi(q) {
       requireOoRPos,
       requireTcRPos
     );
-    let gateLab = requireTau
-      ? `A档 OO_F1≥${aF1}% · TC_F1≥${tauAF1}%`
-      : `A档 OO_F1≥${aF1}%`;
-    if (requireOoRPos) gateLab += " · OO_R+>0";
-    if (requireTcRPos && requireTau) gateLab += " · TC_R+>0";
-    const scoreLab = requireTau
-      ? "Score=0.5*OO_F1+0.5*TC_F1"
-      : "Score=OO_F1";
-
-    const headNote = [
-      `ŷ_oo Holdout OOS`,
-      `Holdout${hold}日前半` +
-        (tierN != null && Number.isFinite(Number(tierN)) ? ` · 窗${tierN}日` : "") +
-        ` · 表内 F1·P·R·ACC 看前半 · 标题 RankIC·IC·ICIR·ACC·F1 看后半 · 等权买持看整段`,
-      scoreLab,
-      `A档数量 ${aCount} · B档数量 ${bCount} · ${gateLab} · C 其余`,
-      liveBit(),
-    ]
-      .filter(Boolean)
-      .join(" · ");
 
     const byTier = { A: [], B: [], C: [] };
     for (const r of rep.rows) {
@@ -910,18 +891,18 @@ export function installResearchUniverseUi(q) {
               stockCell(r) +
               retCell(r) +
               condRetPosCell(r, "oo") +
-              rateCell(r.hit_rate, "OO_ACC：Holdout 前半 ŷ_oo 符号命中率", "is-oo") +
-              rateCell(r.precision_pos, "OO_P：Holdout 前半 ŷ_oo 上涨精确率 P⁺", "is-oo") +
-              rateCell(r.recall_pos, "OO_R：Holdout 前半 ŷ_oo 上涨召回", "is-oo") +
+              rateCell(r.hit_rate, "OO_ACC：训练窗 ŷ_oo 符号命中率", "is-oo") +
+              rateCell(r.precision_pos, "OO_P：训练窗 ŷ_oo 上涨精确率 P⁺", "is-oo") +
+              rateCell(r.recall_pos, "OO_R：训练窗 ŷ_oo 上涨召回", "is-oo") +
               f1PosCell(r, f1ScaleOo, "oo") +
               condRetPosCell(r, "tau") +
-              rateCell(r.hit_rate_tau, "TC_ACC：Holdout 前半 ŷ_τc 符号命中率", "is-tau") +
+              rateCell(r.hit_rate_tau, "TC_ACC：训练窗 ŷ_τc 符号命中率", "is-tau") +
               rateCell(
                 r.precision_pos_tau,
-                "TC_P：Holdout 前半 ŷ_τc 上涨精确率 P⁺",
+                "TC_P：训练窗 ŷ_τc 上涨精确率 P⁺",
                 "is-tau"
               ) +
-              rateCell(r.recall_pos_tau, "TC_R：Holdout 前半 ŷ_τc 上涨召回", "is-tau") +
+              rateCell(r.recall_pos_tau, "TC_R：训练窗 ŷ_τc 上涨召回", "is-tau") +
               f1PosCell(r, f1ScaleTau, "tau") +
               scoreCell(r) +
               rankCell(i + 1) +
@@ -937,16 +918,16 @@ export function installResearchUniverseUi(q) {
               <thead><tr>
                 <th class="quant-ru-col-stock">标的</th>
                 <th class="num" title="Holdout 整段买持收益%（close 首尾，对齐档内平均收益率）">收益</th>
-                <th class="num" title="Holdout 前半 OO_R+=mean(y_oo|ŷ_oo&gt;ε)；模型看多日的平均实现收益；勾选 OO_R+&gt;0 时进 A 档门槛">OO_R+</th>
-                <th class="num" title="OO_ACC：Holdout 前半 ŷ_oo 符号命中率；仅展示">OO_ACC</th>
-                <th class="num" title="OO_P：Holdout 前半 ŷ_oo 上涨精确率 P⁺；仅展示">OO_P</th>
-                <th class="num" title="OO_R：Holdout 前半 ŷ_oo 上涨召回；仅展示">OO_R</th>
-                <th class="num" title="OO_F1：Holdout 前半 ŷ_oo 上涨正类调和平均；着色=≥50% 红 / 低于 50% 绿；进 Rank_Score；默认可作 A 档门槛">OO_F1</th>
-                <th class="num" title="Holdout 前半 TC_R+=mean(y_τc|ŷ_τc&gt;ε)；勾选 TC_R+&gt;0 且有 ŷ_τc 研究套时进 A 档门槛">TC_R+</th>
-                <th class="num" title="TC_ACC：Holdout 前半 ŷ_τc 符号命中率；仅展示">TC_ACC</th>
-                <th class="num" title="TC_P：Holdout 前半 ŷ_τc 上涨精确率 P⁺；仅展示">TC_P</th>
-                <th class="num" title="TC_R：Holdout 前半 ŷ_τc 上涨召回；仅展示">TC_R</th>
-                <th class="num" title="TC_F1：Holdout 前半 ŷ_τc 上涨正类调和平均；着色=≥50% 红 / 低于 50% 绿；进 Rank_Score；有 ŷ_τc 时默认可作 A 档门槛">TC_F1</th>
+                <th class="num" title="训练窗 OO_R+=mean(y_oo|ŷ_oo&gt;ε)；模型看多日的平均实现收益；勾选 OO_R+&gt;0 时进 A 档门槛">OO_R+</th>
+                <th class="num" title="OO_ACC：训练窗 ŷ_oo 符号命中率；仅展示">OO_ACC</th>
+                <th class="num" title="OO_P：训练窗 ŷ_oo 上涨精确率 P⁺；仅展示">OO_P</th>
+                <th class="num" title="OO_R：训练窗 ŷ_oo 上涨召回；仅展示">OO_R</th>
+                <th class="num" title="OO_F1：训练窗 ŷ_oo 上涨正类调和平均；着色=≥50% 红 / 低于 50% 绿；进 Rank_Score；默认可作 A 档门槛">OO_F1</th>
+                <th class="num" title="训练窗 TC_R+=mean(y_τc|ŷ_τc&gt;ε)；勾选 TC_R+&gt;0 且有 ŷ_τc 研究套时进 A 档门槛">TC_R+</th>
+                <th class="num" title="TC_ACC：训练窗 ŷ_τc 符号命中率；仅展示">TC_ACC</th>
+                <th class="num" title="TC_P：训练窗 ŷ_τc 上涨精确率 P⁺；仅展示">TC_P</th>
+                <th class="num" title="TC_R：训练窗 ŷ_τc 上涨召回；仅展示">TC_R</th>
+                <th class="num" title="TC_F1：训练窗 ŷ_τc 上涨正类调和平均；着色=≥50% 红 / 低于 50% 绿；进 Rank_Score；有 ŷ_τc 时默认可作 A 档门槛">TC_F1</th>
                 <th class="num" title="Rank_Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 研究套时 =OO_F1；缺一侧按 0）">Rank_Score</th>
                 <th class="num quant-ru-rank-cell" title="本档按 Rank_Score 降序的序号，从 1 起">RANK</th>
               </tr></thead>
@@ -998,7 +979,6 @@ export function installResearchUniverseUi(q) {
       ) +
       `</div>` +
       mixBarHtml(counts) +
-      `<p class="quant-ru-list-note">${escapeHtml(headNote)}</p>` +
       `<div class="quant-ru-tier-folds">${sections}</div>` +
       `</div>`;
     wireF1Tips(host);
@@ -1037,13 +1017,14 @@ export function installResearchUniverseUi(q) {
       const src =
         lastTiers.source === "oo_research_model"
           ? "研究套"
-          : lastTiers.source === "oo_holdout_oos_refit"
+          : lastTiers.source === "oo_pre_holdout_refit" ||
+              lastTiers.source === "oo_holdout_oos_refit"
             ? "现训"
             : "ŷ_oo";
       setStatus(
         "ok",
         liveStatus && liveStatus.enabled ? "live" : "已分档",
-        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ${src} · Holdout${hold}前半 · ${liveBit()}`
+        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ${src} · 训练窗定档 · Holdout${hold} · ${liveBit()}`
       );
     } else if (liveStatus && liveStatus.enabled) {
       setStatus("ok", "live", `${liveBit()} · 可先「观察池分档」刷新`);
@@ -1061,8 +1042,8 @@ export function installResearchUniverseUi(q) {
         "busy",
         useLast ? "读取中" : "分档中",
         useLast
-          ? "上次 Holdout OOS 分档…"
-          : `研究套 ŷ_oo · Holdout ${h} 日前半…`
+          ? "读取上次观察池分档…"
+          : `研究套 ŷ_oo · 训练窗定档 · Holdout ${h} 日评测…`
       );
     }
     const url = useLast

@@ -423,6 +423,11 @@ function _replayGateBits(data) {
   if (enterPct) bits.push(`fuse≥${enterPct}%`);
   const rank = p.oo_rank_max != null ? p.oo_rank_max : req.oo_rank_max;
   if (rank != null && Number(rank) > 0) bits.push(`rank<${Math.round(Number(rank))}`);
+  const strongRank =
+    p.oo_rank_strong_max != null ? p.oo_rank_strong_max : req.oo_rank_strong_max;
+  if (strongRank != null && Number(strongRank) > 0) {
+    bits.push(`强rank<${Math.round(Number(strongRank))}`);
+  }
   if (p.y_oo_gt0 === true || req.y_oo_gt0 === true) bits.push("ŷ_oo>0");
   if (p.y_τc_gt0 === true || req.y_τc_gt0 === true) bits.push("ŷ_τc>0");
   const pool = Number(p.stock_count);

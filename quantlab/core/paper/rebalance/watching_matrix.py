@@ -426,7 +426,17 @@ def _stamp_ranks_from_lake(focus: Sequence[dict]) -> None:
             tc_ok = False
     if not oo_ok and not tc_ok:
         return
-    _, fit_meta = _apply_universe_fit_tier_filter(codes, keep=held)
+    n_watch = int((_meta or {}).get("n_watch") or 0) if isinstance(_meta, dict) else 0
+    fp_codes = codes[:n_watch] if n_watch > 0 else codes
+    _, fit_meta = _apply_universe_fit_tier_filter(
+        codes, keep=held, pool_codes_for_fp=fp_codes
+    )
+    if fit_meta.get("gate_ok") is False:
+        logger.debug(
+            "stamp ranks skip: tier gate rejected (%s)",
+            fit_meta.get("gate_error") or "gate_ok=False",
+        )
+        return
     score_codes = fit_meta.get("tradable_codes")
     if not isinstance(score_codes, (list, tuple, set)):
         score_codes = None
@@ -491,16 +501,20 @@ def _apply_universe_fit_tier_filter(
     codes: Sequence[str],
     *,
     keep: Sequence[str] = (),
+    pool_codes_for_fp: Optional[Sequence[str]] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
     """可预测性分档 live 闸的元数据。
 
     截面 z 用调用方传入的整段观察池（调用方勿用返回列表缩小打分池）。
     ``tradable_codes``：允许写 ŷ/名次并开仓；``force_exit_held``：掉档持仓硬清仓。
-    无 active 时 ``tradable_codes`` 为 None（全员打分）。
+    无 active / 闸失败时 ``tradable_codes`` 为 None（全员打分 vs 禁止套用）。
+    ``pool_codes_for_fp``：指纹只对观察池（不含持仓并入票）。
     """
     from core.research.predictability_tiers import filter_codes_by_predictability_live
 
-    return filter_codes_by_predictability_live(codes, keep=keep)
+    return filter_codes_by_predictability_live(
+        codes, keep=keep, pool_codes_for_fp=pool_codes_for_fp
+    )
 
 
 def _mark_predictability_tier_exits(
@@ -525,8 +539,9 @@ def _mark_predictability_tier_exits(
         if not isinstance(item, dict):
             item = {"stock_code": code}
             item_by_code[code] = item
+        prev = str(item.get("reject_reason") or "").strip()
         item["hard_reject"] = True
-        item["reject_reason"] = why
+        item["reject_reason"] = f"{prev}；{why}" if prev and prev != why else why
         item["predictability_tier_exit"] = True
 
 
@@ -535,8 +550,15 @@ def _mark_predictability_tier_blocks(
     *,
     tradable_codes: Any,
     allowed_tiers: Sequence[str],
+    gate_ok: Any = True,
 ) -> None:
-    """不在允许档、且还没标清仓的名字：留在截面特征里（供 z），禁止新开。"""
+    """不在允许档、且还没标清仓的名字：留在截面特征里（供 z），禁止新开。
+
+    闸失败（``gate_ok is False``）或 ``tradable_codes is None`` 时不改行——
+    与「允许集为空」区分，避免误把全池标成硬拒绝。
+    """
+    if gate_ok is False:
+        return
     if not isinstance(tradable_codes, (list, tuple, set)):
         return
     allow = {str(c).strip() for c in tradable_codes if str(c).strip()}
@@ -549,8 +571,9 @@ def _mark_predictability_tier_blocks(
     for code, item in item_by_code.items():
         if not isinstance(item, dict) or code in allow or item.get("hard_reject"):
             continue
+        prev = str(item.get("reject_reason") or "").strip()
         item["hard_reject"] = True
-        item["reject_reason"] = why
+        item["reject_reason"] = f"{prev}；{why}" if prev and prev != why else why
         item["predictability_tier_block"] = True
 
 
@@ -2294,7 +2317,23 @@ def simulate_watching_matrix_preview(
             "empty_reason": "empty_book",
             "confirm_supported": True,
         }
-    _, fit_meta = _apply_universe_fit_tier_filter(codes, keep=held_codes)
+    n_watch = int(pool_meta.get("n_watch") or 0) if isinstance(pool_meta, dict) else 0
+    fp_codes = codes[:n_watch] if n_watch > 0 else codes
+    _, fit_meta = _apply_universe_fit_tier_filter(
+        codes, keep=held_codes, pool_codes_for_fp=fp_codes
+    )
+    if fit_meta.get("gate_ok") is False:
+        return {
+            "success": False,
+            "ok": False,
+            "mode": "watching_matrix",
+            "dry_run": bool(dry_run),
+            "matrix_mode": True,
+            "error": fit_meta.get("gate_error")
+            or "分档报告校验失败；请重跑「观察池分档」",
+            "fit_tiers": fit_meta,
+            "confirm_supported": True,
+        }
     score_codes = fit_meta.get("tradable_codes")
     if not isinstance(score_codes, (list, tuple, set)):
         score_codes = None
@@ -2428,6 +2467,7 @@ def simulate_watching_matrix_preview(
         item_by_code,
         tradable_codes=fit_meta.get("tradable_codes"),
         allowed_tiers=list(fit_meta.get("allowed_tiers") or []),
+        gate_ok=fit_meta.get("gate_ok", True),
     )
 
     prices: Dict[str, float] = {}

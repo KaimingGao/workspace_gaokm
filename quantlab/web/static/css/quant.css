@@ -12016,29 +12016,6 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   background: color-mix(in srgb, var(--line) 88%, var(--ink-3, #64748b));
 }
 
-.quant-ru-tier-cs-win {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  margin-left: 0.2rem;
-  padding: 2px 7px;
-  border: 1px solid color-mix(in srgb, var(--warn, #b45309) 35%, var(--line));
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--warn, #b45309) 8%, var(--surface));
-  color: var(--warn, #b45309);
-  font-family: var(--font-mono);
-  font-size: var(--q-fs-micro);
-  letter-spacing: 0.04em;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.quant-ru-tier-cs-win.is-stale {
-  color: #9a6a18;
-  border-color: color-mix(in srgb, #c4922a 48%, var(--line));
-  background: color-mix(in srgb, #c4922a 14%, var(--bg-1, var(--bg)));
-}
-
 .quant-ru-tier-cs {
   display: inline-flex;
   align-items: baseline;
@@ -12574,17 +12551,10 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.is
 }
 
 .quant-ru-list-empty,
-.quant-ru-list-more,
-.quant-ru-list-note {
+.quant-ru-list-more {
   margin: 0.25rem 0 0;
   font-size: 0.72rem;
   color: var(--ink-3, var(--ink-2));
-}
-
-.quant-ru-list-note {
-  margin: 0;
-  color: var(--ink-2);
-  line-height: 1.45;
 }
 
 @media (max-width: 720px) {

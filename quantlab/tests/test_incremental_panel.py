@@ -513,6 +513,129 @@ class TestIncrementalPanel(unittest.TestCase):
             )
         self.assertIsNone(dirty)
 
+    def test_slice_end_lag_when_store_appended_a_day(self) -> None:
+        """仓在湖末日之后多一根，前面还有更长历史：允许时切重叠段，不含新日。"""
+        from unittest.mock import patch
+
+        from core.research.feature_lake import write_stock_panel
+        from core.research.incremental_panel import (
+            stem_extra_meta,
+            try_slice_shorter_lookback,
+        )
+        from core.research.lake_bridge import FAMILY_OO
+        from core.research.panel_fingerprint import make_fingerprint
+
+        old = _bars(30, seed=4)
+        prefix = []
+        for i in range(8):
+            prefix.append(
+                {
+                    "date": f"2023-06-{i + 1:02d}",
+                    "open": 8.0 + i,
+                    "high": 8.2 + i,
+                    "low": 7.8 + i,
+                    "close": 8.1 + i,
+                    "volume": 500_000 + i,
+                }
+            )
+        newer = {
+            "date": "2025-06-01",
+            "open": 20.0,
+            "high": 20.4,
+            "low": 19.6,
+            "close": 20.2,
+            "volume": 3_000_000,
+        }
+        store = prefix + list(old) + [newer]
+        fit_bars = list(old[-18:]) + [newer]
+        meta = stem_extra_meta(old)
+        stored_fp = make_fingerprint(bars_fp=meta["bars_fp"], horizon=1, ridge_core_only=0)
+        dates = [str(b["date"])[:10] for b in old]
+        write_stock_panel(
+            FAMILY_OO,
+            "688506",
+            dates=dates,
+            X=np.asarray([[float(i)] for i in range(len(dates))]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([0.2] * len(dates)),
+            extra_meta=meta,
+        )
+
+        def _spec(bars_fp: str) -> str:
+            return make_fingerprint(bars_fp=bars_fp, horizon=1, ridge_core_only=0)
+
+        with patch(
+            "core.research.incremental_panel._offline_daily_bars",
+            return_value=list(store),
+        ):
+            blocked = try_slice_shorter_lookback(
+                "688506",
+                fit_bars,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+                names=["f"],
+            )
+            sliced = try_slice_shorter_lookback(
+                "688506",
+                fit_bars,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+                names=["f"],
+                allow_end_lag=True,
+            )
+        self.assertIsNone(blocked)
+        self.assertIsNotNone(sliced)
+        assert sliced is not None
+        _x, _y, names, keep_dates = sliced
+        self.assertEqual(names, ["f"])
+        self.assertNotIn("2025-06-01", keep_dates)
+        self.assertEqual(keep_dates[-1], str(old[-1]["date"])[:10])
+        self.assertGreaterEqual(len(keep_dates), 4)
+        mutated = [dict(b) for b in fit_bars]
+        mutated[3]["close"] = float(mutated[3]["close"]) + 1.0
+        with patch(
+            "core.research.incremental_panel._offline_daily_bars",
+            return_value=list(store),
+        ):
+            dirty = try_slice_shorter_lookback(
+                "688506",
+                mutated,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+                names=["f"],
+                allow_end_lag=True,
+            )
+        self.assertIsNone(dirty)
+        # 拟合窗和湖一样长，只是多含了新的一天（lookback 顶满 n_bars）。
+        full_fit = list(old) + [newer]
+        write_stock_panel(
+            FAMILY_OO,
+            "600519",
+            dates=dates,
+            X=np.asarray([[float(i)] for i in range(len(dates))]),
+            names=["f"],
+            fingerprint=stored_fp,
+            y=np.asarray([0.2] * len(dates)),
+            extra_meta=meta,
+        )
+        with patch(
+            "core.research.incremental_panel._offline_daily_bars",
+            return_value=list(store),
+        ):
+            topped = try_slice_shorter_lookback(
+                "600519",
+                full_fit,
+                family=FAMILY_OO,
+                spec_fp=_spec,
+                names=["f"],
+                allow_end_lag=True,
+            )
+        self.assertIsNotNone(topped)
+        assert topped is not None
+        self.assertNotIn("2025-06-01", topped[3])
+        self.assertEqual(topped[3][-1], str(old[-1]["date"])[:10])
+
     def test_slice_shorter_lookback_without_n_bars(self) -> None:
         from unittest.mock import patch
 

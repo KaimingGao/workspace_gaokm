@@ -367,6 +367,17 @@ export function fillPathMatrixForm(root, execution) {
       Number.isFinite(ooRankFrac) && ooRankFrac > 0 ? 10 : 0
     );
   }
+  if (Object.prototype.hasOwnProperty.call(pm, "oo_rank_strong_max")) {
+    const ooStrong = Number(pm.oo_rank_strong_max);
+    set(
+      "pm_oo_rank_strong_max",
+      Number.isFinite(ooStrong) && ooStrong > 0
+        ? Math.max(1, Math.min(500, Math.round(ooStrong)))
+        : 0
+    );
+  } else {
+    set("pm_oo_rank_strong_max", 100);
+  }
   const clamp01 = (v, fb) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return fb;
@@ -491,6 +502,11 @@ export function collectPathMatrixForm(root) {
     Number.isFinite(ooRankMaxRaw) && ooRankMaxRaw > 0
       ? Math.max(1, Math.min(500, Math.round(ooRankMaxRaw)))
       : null;
+  const ooRankStrongRaw = num("pm_oo_rank_strong_max", 100);
+  const ooRankStrong =
+    Number.isFinite(ooRankStrongRaw) && ooRankStrongRaw > 0
+      ? Math.max(1, Math.min(500, Math.round(ooRankStrongRaw)))
+      : 0;
   let lotBase = clampLotAmount(num("pm_lot_base_amount", 10000), 10000);
   let lotStrong = clampLotAmount(num("pm_lot_strong_amount", lotBase), lotBase);
   if (lotStrong < lotBase) lotStrong = lotBase;
@@ -502,6 +518,7 @@ export function collectPathMatrixForm(root) {
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
         oo_rank_max: ooRankMax,
+        oo_rank_strong_max: ooRankStrong,
         oo_rank_top_frac: null,
         fusion_w_co: Math.round(wCo * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),

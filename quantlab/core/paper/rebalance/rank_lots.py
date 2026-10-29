@@ -12,6 +12,7 @@
   - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
   - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
+    同一比较：过强档改看 oo_rank_strong_max（默认 100；≤0=关），不再用入场 oo_rank_max
     股数 = 金额/价 向下取整到一手；不够一手则跳过
   - 单票持仓市值上限 = lot_strong_amount × 120%；买后将超过则跳过（防单票过重）
   - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
@@ -194,7 +195,7 @@ def _cfg_fuse_threshold(cfg: Optional[dict], key: str, default: float) -> float:
     return coerce_fuse_threshold(d.get(key), default)
 
 def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
-    """绝对名次闸：开则须 max(y_oo_rank, y_τc_rank) < max（UI「rank 入场」默认 10）。
+    """绝对名次闸：开则须 max(y_oo_rank, y_τc_rank) < max（UI 入场「rank · oo & τc」默认 10）。
 
     None/≤0=关。两侧名次都缺不拦；仅一侧有则用该侧。
     """
@@ -213,8 +214,31 @@ def oo_rank_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
     return max(1, min(v, 500))
 
 
+DEFAULT_OO_RANK_STRONG_MAX = 100
+
+
+def oo_rank_strong_max_from_cfg(cfg: Optional[dict]) -> Optional[int]:
+    """强档名次闸：fuse 过强档后须 max(y_oo_rank, y_τc_rank) < max。
+
+    缺键=100。None/≤0=关。两侧名次都缺不拦；仅一侧有则用该侧。
+    """
+    d = cfg if isinstance(cfg, dict) else {}
+    if "oo_rank_strong_max" not in d:
+        return DEFAULT_OO_RANK_STRONG_MAX
+    raw = d.get("oo_rank_strong_max")
+    if raw in (None, "", False):
+        return None
+    try:
+        v = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return max(1, min(v, 500))
+
+
 def oo_rank_top_frac_from_cfg(cfg: Optional[dict]) -> Optional[float]:
-    """相对名次闸：开则须 max(y_oo_rank, y_τc_rank) < n·frac（旧 API；UI 已改绝对「rank 入场」）。
+    """相对名次闸：开则须 max(y_oo_rank, y_τc_rank) < n·frac（旧 API；UI 已改绝对名次）。
 
     None/≤0=关。仅读显式 ``oo_rank_top_frac``；不再把 ``oo_rank_max`` 迁成 0.5。
     """
@@ -304,19 +328,40 @@ def _entry_rank_from_item(
     return eff, n_pool, label
 
 
+def _fuse_strong_met(rs: Optional[float], cfg: Optional[dict]) -> bool:
+    """与强档手数同一比较：y_oo_fuse > fuse_strong。缺分或非数不算过强档。"""
+    if rs is None:
+        return False
+    try:
+        score = float(rs)
+    except (TypeError, ValueError):
+        return False
+    if score != score or score in (float("inf"), float("-inf")):
+        return False
+    strong = _cfg_fuse_threshold(cfg, "fuse_strong", DEFAULT_FUSE_STRONG)
+    return score > float(strong)
+
+
+def _oo_rank_abs_skip(item: Optional[dict], mx: Optional[int]) -> Optional[str]:
+    """绝对名次闸：max(oo_rank, τc_rank) ≥ mx 则拦。mx 空或两侧名次都缺不拦。"""
+    if mx is None:
+        return None
+    rank, _n, label = _entry_rank_from_item(item)
+    if rank is None:
+        return None
+    if float(rank) >= float(mx):
+        return f"{label}≥{int(mx)} 未过入场"
+    return None
+
+
 def _oo_rank_enter_skip(item: Optional[dict], cfg: Optional[dict]) -> Optional[str]:
-    """名次闸：优先绝对 ``oo_rank_max``，否则相对 ``oo_rank_top_frac``。
+    """未过强档的名次闸：优先绝对 ``oo_rank_max``，否则相对 ``oo_rank_top_frac``。
 
     绝对/相对均看 ``max(oo_rank, τc_rank)``；两侧都缺不拦。
     """
     mx = oo_rank_max_from_cfg(cfg)
     if mx is not None:
-        rank, _n, label = _entry_rank_from_item(item)
-        if rank is None:
-            return None
-        if float(rank) >= float(mx):
-            return f"{label}≥{int(mx)} 未过入场"
-        return None
+        return _oo_rank_abs_skip(item, mx)
     frac = oo_rank_top_frac_from_cfg(cfg)
     if frac is None:
         return None
@@ -339,7 +384,8 @@ def rank_lot_enter_skip_reason(
     """入场：y_oo_fuse ≥ fuse_enter；可选 y_oo>0 / y_τc>0。
 
     ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
-    过入场后可选 ``oo_rank_max``（须 max(y_oo_rank, y_τc_rank) < max）或旧键 ``oo_rank_top_frac``。
+    未过强档时可选 ``oo_rank_max``（须 max(y_oo_rank, y_τc_rank) < max）或旧键 ``oo_rank_top_frac``。
+    y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺键默认 100；≤0=关）。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oo, pick_y_τc
@@ -367,6 +413,8 @@ def rank_lot_enter_skip_reason(
     )
     if skip is not None:
         return skip
+    if _fuse_strong_met(rs, cfg_d):
+        return _oo_rank_abs_skip(item, oo_rank_strong_max_from_cfg(cfg_d))
     return _oo_rank_enter_skip(item, cfg_d)
 
 
@@ -542,6 +590,7 @@ def get_rank_lot_cfg(
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
         "oo_rank_max": oo_rank_max_from_cfg(pm),
+        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(pm),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
         "live_fill_clock": str(pm.get("live_fill_clock") or "09:30"),
@@ -700,7 +749,7 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    # ŷ_oo_rank：当日截面 1..n 名次；不进 y_oo_fuse；过入场后作买序；可选 oo_rank_max / oo_rank_top_frac 入场闸
+    # ŷ_oo_rank：当日截面 1..n 名次；不进 y_oo_fuse；过入场后作买序；未过强档看 oo_rank_max，过强档看 oo_rank_strong_max
     "y_oo_rank",
     "y_oo_rank_hat",
     "predicted_score_oo_rank",
@@ -708,7 +757,7 @@ AUX_YHAT_KEYS = (
     "y_oo_rank_n",
     "y_oo_rank_realized",
     "oo_rank_realized",
-    # ŷ_τc_rank：成交明细名次；不进 y_oo_fuse、不改买序；与 oo_rank 取 max 作入场闸。
+    # ŷ_τc_rank：成交明细名次；不进 y_oo_fuse、不改买序；与 oo_rank 取 max 作入场/强档名次闸。
     "y_tc_rank",
     "y_tc_rank_hat",
     "predicted_score_tc_rank",
@@ -1402,13 +1451,14 @@ def plan_rank_lot_day(
                 )
             continue
         if item.get("hard_reject"):
+            why = str(item.get("reject_reason") or "").strip() or "hard_reject"
             skips.append(
                 {
                     "stock_code": code,
                     "stock_name": _display_name(code, item.get("stock_name")),
                     "side": "buy",
                     "action": ACTION_SKIP,
-                    "reason": "hard_reject",
+                    "reason": why,
                     **dbg,
                 }
             )
@@ -1677,6 +1727,7 @@ def plan_rank_lot_day(
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
         "oo_rank_max": oo_rank_max_from_cfg(cfg),
+        "oo_rank_strong_max": oo_rank_strong_max_from_cfg(cfg),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(cfg),
         "cash_floor": cash_floor,
         "spend_floor": spend_floor,
@@ -1728,6 +1779,7 @@ __all__ = [
     "stock_mv_cap_from_strong",
     "rank_lot_enter_skip_reason",
     "oo_rank_max_from_cfg",
+    "oo_rank_strong_max_from_cfg",
     "oo_rank_top_frac_from_cfg",
     "y_oo_fuse_pct_of",
     "y_tau_of",
