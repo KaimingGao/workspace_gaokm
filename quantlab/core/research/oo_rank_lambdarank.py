@@ -1811,7 +1811,8 @@ def _fit_ridge_baseline(
         if Z is None or len(ys) != int(Z.shape[0]):
             continue
         Z = np.where(np.isfinite(Z), Z, 0.0)
-        keep = _keep_idx_for_codes(day, len(ys), allow)
+        n_full = len(ys)
+        keep = _keep_idx_for_codes(day, n_full, allow)
         ys, Z = _take_rows(ys, Z, keep)
         ys, Z, _n_drop = _slice_finite_label_rows(ys, Z)
         if len(ys) < 1:
@@ -2197,30 +2198,39 @@ def stamp_rank_zscore_universe_meta(
     train_universe: Optional[str] = None,
     tier_codes: Optional[Sequence[str]] = None,
     tier_meta: Optional[Dict[str, Any]] = None,
+    train_tiers: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """把宇宙写进报告与各 backend 的 return_model。
 
-    截面 z 恒 ``pool``；``train_universe`` 为损失/Holdout 子集（默认跟旧
-    ``zscore_universe`` 参数，兼容「勾选 A」只训 A）。
+    截面 z 恒 ``pool``；``train_universe`` / ``train_tiers`` 为损失/Holdout 子集。
     """
     from core.research.feature_standardize import (
         ZSCORE_UNIVERSE_POOL,
+        normalize_train_tiers,
         normalize_train_universe,
         stamp_train_universe,
         stamp_zscore_universe,
+        train_universe_token_for_tiers,
     )
 
     if not isinstance(report, dict):
         return report
-    train_u = normalize_train_universe(
-        train_universe if train_universe is not None else zscore_universe
-    )
+    labels = normalize_train_tiers(train_tiers)
+    if not labels and isinstance(tier_meta, dict):
+        labels = normalize_train_tiers(tier_meta.get("train_universe_tiers"))
+    if labels:
+        train_u = train_universe_token_for_tiers(labels)
+    else:
+        train_u = normalize_train_universe(
+            train_universe if train_universe is not None else zscore_universe
+        )
     stamp_zscore_universe(report, ZSCORE_UNIVERSE_POOL)
     stamp_train_universe(
         report,
         train_u,
         tier_codes=tier_codes,
         tier_meta=tier_meta,
+        tiers=labels or None,
     )
     targets: List[dict] = []
     for key in ("return_model", "return_model_research"):
@@ -2243,6 +2253,7 @@ def stamp_rank_zscore_universe_meta(
             train_u,
             tier_codes=tier_codes,
             tier_meta=tier_meta,
+            tiers=labels or None,
         )
     return report
 

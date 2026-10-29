@@ -206,6 +206,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
             train_universe_tier_a=bool(body.train_universe_tier_a),
+            train_tiers=list(body.train_tiers or []) or None,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -237,6 +238,7 @@ def quant_tc_rank(body: TcRankRequest) -> Dict[str, Any]:
             note=body.note,
             cross_section_zscore=bool(body.cross_section_zscore),
             train_universe_tier_a=bool(body.train_universe_tier_a),
+            train_tiers=list(body.train_tiers or []) or None,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

@@ -14,7 +14,6 @@ import {
 export function createRebalanceReportController(deps) {
   const {
     escapeText,
-    fmtPct,
     fmtTableScore,
     scoreCls,
     resolveEodScore,
@@ -37,7 +36,6 @@ export function createRebalanceReportController(deps) {
     tailAnomalyDetailFields,
     overheatDetailFields,
     scoreTips,
-    metricCls,
     setFollowMatrixPreviewPending,
   } = deps;
 
@@ -167,21 +165,34 @@ function fmtRebalancePx(v) {
   return `${n}元`;
 }
 
+function rebalancePxText(raw) {
+  if (raw == null || raw === "") return null;
+  const n = Number(String(raw).replace(/,/g, "").replace(/元$/u, ""));
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
 function rebalancePrevCloseText(r) {
   if (r.prev_close != null && r.prev_close !== "") {
-    const n = Number(r.prev_close);
-    if (Number.isFinite(n)) return `${n.toFixed(2)}元`;
+    const n = rebalancePxText(r.prev_close);
+    if (n != null) return `${n.toFixed(2)}元`;
     return String(r.prev_close);
   }
-  const px = Number(r.price);
+  const px = rebalancePxText(r.price);
   const chg = Number(r.change_pct);
-  if (Number.isFinite(px) && px > 0 && Number.isFinite(chg)) {
+  if (px != null && px > 0 && Number.isFinite(chg)) {
     return `${(px / (1 + chg / 100)).toFixed(2)}元`;
   }
   return "—";
 }
 
-/** @type {{ key: "" | "chg" | "fuse" | "oo_rank" | "tc_rank", desc: boolean }} */
+function rebalanceLastPxText(r) {
+  const n = rebalancePxText(r && r.price);
+  if (n == null) return "—";
+  return `${n.toFixed(2)}元`;
+}
+
+/** @type {{ key: "" | "px" | "fuse" | "oo_rank" | "tc_rank", desc: boolean }} */
 let _rankSort = { key: "fuse", desc: true };
 
 function rankSortValue(row, key) {
@@ -198,9 +209,8 @@ function rankSortValue(row, key) {
 }
 
 function reportSortValue(row, key) {
-  if (key === "chg") {
-    const n = Number(row && row.change_pct);
-    return Number.isFinite(n) ? n : null;
+  if (key === "px") {
+    return rebalancePxText(row && row.price);
   }
   if (key === "fuse") {
     const n = Number(row && row.y_oo_fuse);
@@ -212,7 +222,7 @@ function reportSortValue(row, key) {
 function orderReportRows(rows) {
   const list = Array.isArray(rows) ? [...rows] : [];
   const active =
-    _rankSort.key === "chg" ||
+    _rankSort.key === "px" ||
     _rankSort.key === "fuse" ||
     _rankSort.key === "oo_rank" ||
     _rankSort.key === "tc_rank";
@@ -930,9 +940,7 @@ function renderRebalanceReport(
         rawName && rawName !== rawCode ? rawName : rawName && !rawCode ? rawName : "—";
       const name = escapeText(nameLabel);
       const code = escapeText(rawCode);
-      const chgPct = r.change_pct;
-      const chgText = fmtPct(chgPct, { signed: true });
-      const chgCls = metricCls(chgPct);
+      const lastPxText = rebalanceLastPxText(r);
       const prevCloseText = rebalancePrevCloseText(r);
       const openRaw =
         r.day_open != null && r.day_open !== "" ? r.day_open : r.open;
@@ -988,8 +996,8 @@ function renderRebalanceReport(
         `<div class="num rebalance-open" role="cell" title="当日开盘价">${escapeText(
           openText
         )}</div>` +
-        `<div class="num rebalance-chg ${chgCls}" role="cell" title="相对昨收">${escapeText(
-          chgText
+        `<div class="num rebalance-px" role="cell" title="最新成交价">${escapeText(
+          lastPxText
         )}</div>` +
         `<div class="num rebalance-score-eod paper-hold-score watching-score-eod has-tip ${scoreCls(
           scoreEod
@@ -1036,9 +1044,9 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
     `<div class="rebalance-th num" role="columnheader" title="当日开盘价">开盘</div>` +
     `<div class="rebalance-th num is-sortable${
-      _rankSort.key === "chg" ? " is-sorted" : ""
-    }" role="columnheader" tabindex="0" data-rank-sort="chg" title="相对昨收的当日涨跌幅 · 点击排序">涨跌${
-      _rankSort.key === "chg" ? (_rankSort.desc ? " ↓" : " ↑") : ""
+      _rankSort.key === "px" ? " is-sorted" : ""
+    }" role="columnheader" tabindex="0" data-rank-sort="px" title="最新成交价 · 点击排序">现价${
+      _rankSort.key === "px" ? (_rankSort.desc ? " ↓" : " ↑") : ""
     }</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τc · price(τ)→close">y_τc</div>` +
@@ -1066,10 +1074,10 @@ function renderRebalanceReport(
     const toggle = () => {
       const raw = el.getAttribute("data-rank-sort") || "";
       const key =
-        raw === "chg" || raw === "fuse" || raw === "oo_rank" || raw === "tc_rank" ? raw : "";
+        raw === "px" || raw === "fuse" || raw === "oo_rank" || raw === "tc_rank" ? raw : "";
       if (!key) return;
       if (_rankSort.key === key) _rankSort.desc = !_rankSort.desc;
-      else _rankSort = { key, desc: key === "chg" || key === "fuse" };
+      else _rankSort = { key, desc: key === "px" || key === "fuse" };
       renderRebalanceReport(sourceRows, viewOpts);
     };
     el.addEventListener("click", (e) => {

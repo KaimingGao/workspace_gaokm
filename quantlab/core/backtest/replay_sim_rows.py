@@ -418,13 +418,24 @@ def _leg_wants_up(row: dict) -> Optional[bool]:
     return None
 
 
+def _leg_is_long(row: dict) -> bool:
+    """买 / 加 / 持仓 = 策略看多。清 / 减 / 跳过不算。"""
+    action = str(row.get("action") or row.get("matrix_action") or "").strip().lower()
+    side = str(row.get("side") or "").strip().lower()
+    if action in ("open", "add", "hold"):
+        return True
+    if action in ("exit", "reduce", "skip"):
+        return False
+    return side in ("buy", "hold")
+
+
 def _leg_oo_ret_pct(row: dict) -> Optional[float]:
     """今开 → 明开（百分点）= open[T+1] / open[T] − 1。缺次日开则 None。"""
     return _fnum(row.get("realized_oo"))
 
 
 def _decision_signed_rets(rows: Sequence[dict]) -> List[float]:
-    """命中率与决策收益共用样本。
+    """准确率与决策收益共用样本。
 
     开/加记今开→明开，清/减记相反数。平盘为 0，仍在样本里。
     跳过、续持、没有次日开的腿不进列表。
@@ -445,19 +456,19 @@ def _decision_signed_rets(rows: Sequence[dict]) -> List[float]:
     return out
 
 
-def fuse_hit_metrics(
+def fuse_accuracy_metrics(
     rows: Sequence[dict],
     *,
     last_day: Optional[str] = None,
 ) -> Tuple[Optional[float], int, int]:
-    """成交的今开→明开命中。
+    """成交的今开→明开准确率（方向对了没）。
 
     样本 = 一笔成交。涨跌 = open[T+1] / open[T] − 1。
     开仓、加仓：上涨命中；下跌或平盘未命中。
     清仓、减仓：下跌命中；上涨或平盘未命中。
     跳过、续持不计。没有次日开（窗口末日常见）不进分母。
     ``last_day`` 保留兼容；是否计入只看 ``realized_oo`` 是否有值。
-    返回 (命中率%, 分母, 分子)。
+    返回 (准确率%, 分母, 分子)。
     """
     _ = last_day
     signed = _decision_signed_rets(rows)
@@ -468,6 +479,38 @@ def fuse_hit_metrics(
     return round(hits / n * 100.0, 1), n, hits
 
 
+def fuse_hit_metrics(
+    rows: Sequence[dict],
+    *,
+    last_day: Optional[str] = None,
+) -> Tuple[Optional[float], int, int]:
+    """策略看多命中率：买 / 加 / 持仓中今开→明开为正的占比。
+
+    分母 = 开仓、加仓、续持且有次日开的腿（跳过不计；清仓 / 减仓不计）。
+    分子 = 其中 realized_oo > 0 的数量。平盘记未命中。
+    ``last_day`` 保留兼容。返回 (命中率%, 分母, 分子)。
+    """
+    _ = last_day
+    n = 0
+    hits = 0
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("status") or "") == "skipped":
+            continue
+        if not _leg_is_long(r):
+            continue
+        ret = _leg_oo_ret_pct(r)
+        if ret is None:
+            continue
+        n += 1
+        if float(ret) > 1e-12:
+            hits += 1
+    if n <= 0:
+        return None, 0, 0
+    return round(hits / n * 100.0, 1), n, hits
+
+
 def fuse_decision_return(
     rows: Sequence[dict],
     *,
@@ -475,7 +518,7 @@ def fuse_decision_return(
 ) -> Tuple[Optional[float], int]:
     """成交的今开→明开决策收益（等权平均，百分点）。
 
-    样本与命中率相同。开仓、加仓记 +realized_oo；清仓、减仓记 −realized_oo。
+    样本与准确率相同。开仓、加仓记 +realized_oo；清仓、减仓记 −realized_oo。
     平盘记 0，仍进分母。没有次日开不计。跳过、续持不计。
     这是决策标签的等权均值，清仓之后的涨跌不进账户净值。
     ``last_day`` 保留兼容。返回 (均值%, 笔数)。

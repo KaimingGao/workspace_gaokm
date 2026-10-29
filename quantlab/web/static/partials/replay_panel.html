@@ -104,10 +104,15 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-win">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">等权 · 非净值</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="每笔成交看今开到明开。开仓/加仓上涨为命中，清仓/减仓下跌为命中。平盘记未命中。没有次日开盘不计。跳过不计">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="acc" title="每笔成交看今开到明开。开仓/加仓上涨为命中，清仓/减仓下跌为命中。平盘记未命中。没有次日开盘不计。跳过不计">
+            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">准确率</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-acc">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-acc-sub">今开→明开</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="策略看多（买/加/持仓）的命中率。分母=有次日开的买加持仓腿，分子=今开到明开收益为正。平盘记未命中。跳过与清减不计">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-hit">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">今开→明开</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">看多 · 今开→明开</div>
           </div>
         </div>
       </div>

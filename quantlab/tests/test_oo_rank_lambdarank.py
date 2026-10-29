@@ -385,7 +385,7 @@ class TestOoRankFit(unittest.TestCase):
         self.assertIsNotNone(oos_ridge.get("ndcg_at_k"))
         model = report.get("return_model") or {}
         self.assertNotIn("shadow_only", model)
-        self.assertEqual(model.get("model_role"), "live")
+        self.assertEqual(model.get("model_role"), "research")
         self.assertEqual(model.get("backend"), report.get("backend"))
         self.assertTrue(report.get("fitted_at"))
         self.assertEqual(model.get("fitted_at"), report.get("fitted_at"))

@@ -156,6 +156,20 @@ class TestZscoreUniverse(unittest.TestCase):
         self.assertEqual(normalize_train_universe("tier_a"), TRAIN_UNIVERSE_TIER_A)
         self.assertEqual(normalize_train_universe("A"), TRAIN_UNIVERSE_TIER_A)
         self.assertEqual(normalize_train_universe("pool"), TRAIN_UNIVERSE_POOL)
+        self.assertEqual(normalize_train_universe("tier"), "tier")
+
+    def test_normalize_train_tiers(self):
+        from core.research.feature_standardize import (
+            normalize_train_tiers,
+            train_universe_token_for_tiers,
+        )
+
+        self.assertEqual(normalize_train_tiers(None), [])
+        self.assertEqual(normalize_train_tiers(["b", "A", "A"]), ["A", "B"])
+        self.assertEqual(normalize_train_tiers("A+C"), ["A", "C"])
+        self.assertEqual(train_universe_token_for_tiers(["A"]), "tier_a")
+        self.assertEqual(train_universe_token_for_tiers(["A", "B"]), "tier")
+        self.assertEqual(train_universe_token_for_tiers([]), "pool")
 
     def test_stamp_and_detect(self):
         from core.research.feature_standardize import (
@@ -176,6 +190,12 @@ class TestZscoreUniverse(unittest.TestCase):
         self.assertTrue(
             is_tier_a_train_universe({"zscore_universe": "tier_a", "tier_codes": ["1"]})
         )
+        stamp_train_universe(
+            doc, "tier", tiers=["A", "C"], tier_codes=["000001", "600519"]
+        )
+        self.assertEqual(doc["train_universe"], "tier")
+        self.assertEqual(doc["train_universe_tiers"], ["A", "C"])
+        self.assertTrue(is_tier_a_train_universe(doc))
         stamp_zscore_universe(doc, "pool")
         self.assertEqual(doc["zscore_universe"], "pool")
         self.assertNotIn("zscore_universe_tiers", doc)

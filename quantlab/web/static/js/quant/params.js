@@ -54,10 +54,15 @@ const CS_ZSCORE_STORAGE_KEYS = Object.fromEntries(
   CS_Z_FIT_HEADS.map((h) => [h, `quant_fit_cs_z_${h}`])
 );
 
-/** 排序头：训练宇宙=A 档（oo_rank / tc_rank；截面 z 仍全池）。 */
-const RANK_Z_UNIV_A_HEADS = ["oo_rank", "tc_rank"];
+/** 排序头：训练档 A/B/C 多选（oo_rank / tc_rank；截面 z 仍全池）。 */
+const RANK_TRAIN_TIER_HEADS = ["oo_rank", "tc_rank"];
+const RANK_TRAIN_TIER_LABELS = ["A", "B", "C"];
+const RANK_TRAIN_TIER_STORAGE_KEYS = Object.fromEntries(
+  RANK_TRAIN_TIER_HEADS.map((h) => [h, `quant_fit_train_tiers_${h}`])
+);
+/** 旧「训练 A 档」勾选 localStorage；迁移到 train_tiers=["A"]。 */
 const RANK_Z_UNIV_A_STORAGE_KEYS = Object.fromEntries(
-  RANK_Z_UNIV_A_HEADS.map((h) => [h, `quant_fit_z_univ_a_${h}`])
+  RANK_TRAIN_TIER_HEADS.map((h) => [h, `quant_fit_z_univ_a_${h}`])
 );
 
 /** ŷ_τc：09:30…11:00（含 0 前缀）；ŷ_τ*：09:35…11:00（方案 B，仅分钟）。 */
@@ -509,36 +514,122 @@ export function createResearchParams(opts = {}) {
     };
   }
 
-  function getFitZUnivAEl(head) {
+  function getFitTrainTiersRoot(head) {
     const h = String(head || "").trim().toLowerCase();
-    return document.getElementById(`quant-fit-z-univ-a-${h}`);
+    return document.getElementById(`quant-fit-train-tiers-${h}`);
   }
 
-  /** 排序头「训练 A 档」勾选；默认关（损失用整池）。截面 z 不受此开关影响。 */
-  function readRankZUniverseTierA(head) {
-    const h = String(head || "").trim().toLowerCase();
-    if (!RANK_Z_UNIV_A_HEADS.includes(h)) return false;
-    const el = getFitZUnivAEl(h);
-    const key = RANK_Z_UNIV_A_STORAGE_KEYS[h];
-    let on = false;
-    if (el) {
-      on = !!el.checked;
-    } else {
-      try {
-        if (localStorage.getItem(key) === "1") on = true;
-      } catch (_) {}
+  function normalizeRankTrainTiers(raw) {
+    const allow = new Set(RANK_TRAIN_TIER_LABELS);
+    const out = [];
+    const seen = new Set();
+    const push = (t) => {
+      const u = String(t || "")
+        .trim()
+        .toUpperCase();
+      if (allow.has(u) && !seen.has(u)) {
+        seen.add(u);
+        out.push(u);
+      }
+    };
+    if (Array.isArray(raw)) {
+      raw.forEach(push);
+    } else if (typeof raw === "string") {
+      String(raw)
+        .split(/[,+|/\s]+/)
+        .forEach(push);
     }
+    return out;
+  }
+
+  function formatRankTrainTiersLabel(tiers) {
+    const t = normalizeRankTrainTiers(tiers);
+    return t.length ? t.join("+") : "整池";
+  }
+
+  function paintRankTrainTiersSummary(root, tiers) {
+    if (!root) return;
+    const lab = root.querySelector("[data-tiers-label]");
+    if (lab) lab.textContent = formatRankTrainTiersLabel(tiers);
+  }
+
+  function applyRankTrainTiersToDom(root, tiers) {
+    if (!root) return;
+    const want = new Set(normalizeRankTrainTiers(tiers));
+    root
+      .querySelectorAll('.quant-fit-train-tiers-menu input[type="checkbox"]')
+      .forEach((inp) => {
+        inp.checked = want.has(String(inp.value || "").toUpperCase());
+      });
+    paintRankTrainTiersSummary(root, [...want]);
+  }
+
+  function readRankTrainTiersFromDom(root) {
+    if (!root) return [];
+    const out = [];
+    root
+      .querySelectorAll('.quant-fit-train-tiers-menu input[type="checkbox"]')
+      .forEach((inp) => {
+        if (inp.checked) out.push(String(inp.value || "").toUpperCase());
+      });
+    return normalizeRankTrainTiers(out);
+  }
+
+  function loadStoredRankTrainTiers(head) {
+    const h = String(head || "").trim().toLowerCase();
+    const key = RANK_TRAIN_TIER_STORAGE_KEYS[h];
     try {
-      localStorage.setItem(key, on ? "1" : "0");
+      const raw = localStorage.getItem(key);
+      if (raw != null && String(raw).trim() !== "") {
+        if (raw === "[]" || raw === "") return [];
+        try {
+          const parsed = JSON.parse(raw);
+          return normalizeRankTrainTiers(parsed);
+        } catch (_) {
+          return normalizeRankTrainTiers(raw);
+        }
+      }
+      // 迁移旧勾选「训练 A 档」
+      if (localStorage.getItem(RANK_Z_UNIV_A_STORAGE_KEYS[h]) === "1") {
+        return ["A"];
+      }
     } catch (_) {}
-    if (el) el.checked = on;
-    return on;
+    return [];
+  }
+
+  function persistRankTrainTiers(head, tiers) {
+    const h = String(head || "").trim().toLowerCase();
+    const key = RANK_TRAIN_TIER_STORAGE_KEYS[h];
+    const t = normalizeRankTrainTiers(tiers);
+    try {
+      localStorage.setItem(key, JSON.stringify(t));
+      // 清旧键，避免反复迁移
+      if (t.length === 1 && t[0] === "A") {
+        localStorage.setItem(RANK_Z_UNIV_A_STORAGE_KEYS[h], "1");
+      } else {
+        localStorage.setItem(RANK_Z_UNIV_A_STORAGE_KEYS[h], "0");
+      }
+    } catch (_) {}
+    return t;
+  }
+
+  /** 排序头训练档多选；空=整池。截面 z 不受影响。 */
+  function readRankTrainTiers(head) {
+    const h = String(head || "").trim().toLowerCase();
+    if (!RANK_TRAIN_TIER_HEADS.includes(h)) return [];
+    const root = getFitTrainTiersRoot(h);
+    let tiers = root ? readRankTrainTiersFromDom(root) : loadStoredRankTrainTiers(h);
+    tiers = persistRankTrainTiers(h, tiers);
+    if (root) {
+      applyRankTrainTiersToDom(root, tiers);
+    }
+    return tiers;
   }
 
   function readRankZUniverseFitParams(head) {
     const h = String(head || "").trim().toLowerCase();
-    if (!RANK_Z_UNIV_A_HEADS.includes(h)) return {};
-    return { train_universe_tier_a: readRankZUniverseTierA(h) };
+    if (!RANK_TRAIN_TIER_HEADS.includes(h)) return {};
+    return { train_tiers: readRankTrainTiers(h) };
   }
 
   /** 卡头摘要：日截面 / 全局 Z（Ridge return_model · Tree tree_return_model）。 */
@@ -578,37 +669,60 @@ export function createResearchParams(opts = {}) {
     }
     if (cs === undefined) return "";
     let bit = cs ? "日截面Z" : "全局Z";
-    const trainRaw =
-      src.train_universe ||
-      meta.train_universe ||
-      (src.return_model && src.return_model.train_universe) ||
-      src.zscore_universe ||
-      meta.zscore_universe ||
-      (src.return_model && src.return_model.zscore_universe) ||
-      "";
-    const uni = String(trainRaw || "").toLowerCase();
-    if (uni === "tier_a" || uni === "tier" || uni === "a") {
-      bit = `${bit}·训练 A 档`;
+    const rm =
+      (src.return_model && typeof src.return_model === "object" && src.return_model) ||
+      {};
+    const tiersRaw =
+      src.train_universe_tiers ||
+      meta.train_universe_tiers ||
+      rm.train_universe_tiers ||
+      null;
+    let tiers = normalizeRankTrainTiers(tiersRaw);
+    if (!tiers.length) {
+      const trainRaw =
+        src.train_universe ||
+        meta.train_universe ||
+        rm.train_universe ||
+        src.zscore_universe ||
+        meta.zscore_universe ||
+        rm.zscore_universe ||
+        "";
+      const uni = String(trainRaw || "").toLowerCase();
+      if (uni === "tier_a" || uni === "a") tiers = ["A"];
+      else if (uni === "tier" || uni === "tiers") {
+        return `${bit}·训练档`;
+      }
+    }
+    if (tiers.length) {
+      bit = `${bit}·训练${tiers.join("+")}`;
     }
     return bit;
   }
 
   function hydrateCrossSectionZParams() {
-    for (const head of RANK_Z_UNIV_A_HEADS) {
-      const el = getFitZUnivAEl(head);
-      if (!el) continue;
-      try {
-        if (localStorage.getItem(RANK_Z_UNIV_A_STORAGE_KEYS[head]) === "1") {
-          el.checked = true;
-        }
-      } catch (_) {}
-      el.addEventListener("change", () => {
-        try {
-          localStorage.setItem(
-            RANK_Z_UNIV_A_STORAGE_KEYS[head],
-            el.checked ? "1" : "0"
-          );
-        } catch (_) {}
+    for (const head of RANK_TRAIN_TIER_HEADS) {
+      const root = getFitTrainTiersRoot(head);
+      if (!root) continue;
+      const saved = loadStoredRankTrainTiers(head);
+      applyRankTrainTiersToDom(root, saved);
+      persistRankTrainTiers(head, saved);
+      if (root.dataset.wired === "1") continue;
+      root.dataset.wired = "1";
+      root
+        .querySelectorAll('.quant-fit-train-tiers-menu input[type="checkbox"]')
+        .forEach((inp) => {
+          inp.addEventListener("change", (ev) => {
+            ev.stopPropagation();
+            const tiers = readRankTrainTiersFromDom(root);
+            persistRankTrainTiers(head, tiers);
+            paintRankTrainTiersSummary(root, tiers);
+          });
+        });
+      document.addEventListener("click", (ev) => {
+        const dd = root.querySelector(".quant-fit-train-tiers-dd");
+        if (!dd || !dd.open) return;
+        if (dd.contains(ev.target)) return;
+        dd.open = false;
       });
     }
     for (const head of CS_Z_FIT_HEADS) {
@@ -859,7 +973,7 @@ export function createResearchParams(opts = {}) {
     hydrateFitLookbackDays,
     readCrossSectionZscore,
     readCrossSectionFitParams,
-    readRankZUniverseTierA,
+    readRankTrainTiers,
     readRankZUniverseFitParams,
     formatCrossSectionZBit,
     hydrateCrossSectionZParams,

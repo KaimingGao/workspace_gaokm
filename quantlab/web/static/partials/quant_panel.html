@@ -741,13 +741,23 @@
           <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
-          <label
-            class="quant-inline-check"
-            title="勾选：损失与 Holdout 只用观察池∩枢纽 A 档（须先跑「观察池分档」）。截面 z 仍用整观察池。不勾选：损失也用整池。主头 ŷ_oo/τc/co 不受影响。落盘 train_universe；回测/live 打分 z 恒全池。"
+          <span
+            class="quant-fit-train-tiers"
+            id="quant-fit-train-tiers-oo_rank"
+            title="多选 A/B/C：损失与 Holdout 缩到观察池∩所选档（须先跑「观察池分档」）。不选=整池。截面 z 仍用整观察池。主头 ŷ_oo/τc/co 不受影响。"
           >
-            <input id="quant-fit-z-univ-a-oo_rank" type="checkbox" />
-            <span>训练 A 档</span>
-          </label>
+            <span class="quant-inline-label">训练档</span>
+            <details class="quant-fit-train-tiers-dd">
+              <summary class="quant-fit-train-tiers-sum" aria-label="ŷ_oo_rank 训练档">
+                <span data-tiers-label>整池</span>
+              </summary>
+              <div class="quant-fit-train-tiers-menu" role="group">
+                <label><input type="checkbox" value="A" /> A</label>
+                <label><input type="checkbox" value="B" /> B</label>
+                <label><input type="checkbox" value="C" /> C</label>
+              </div>
+            </details>
+          </span>
           <label
             class="quant-inline-check"
             title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"
@@ -802,13 +812,23 @@
           <span class="quant-rem-status-msg">拟合后对照 NDCG@K · 启用自动选更强 backend</span>
         </div>
         <div class="quant-fit-params" role="group" aria-label="ŷ_τc_rank 拟合参数">
-          <label
-            class="quant-inline-check"
-            title="勾选：损失与 Holdout 只用观察池∩枢纽 A 档（须先跑「观察池分档」）。截面 z 仍用整观察池。不勾选：损失也用整池。主头 ŷ_oo/τc/co 不受影响。落盘 train_universe；回测/live 打分 z 恒全池。"
+          <span
+            class="quant-fit-train-tiers"
+            id="quant-fit-train-tiers-tc_rank"
+            title="多选 A/B/C：损失与 Holdout 缩到观察池∩所选档（须先跑「观察池分档」）。不选=整池。截面 z 仍用整观察池。主头 ŷ_oo/τc/co 不受影响。"
           >
-            <input id="quant-fit-z-univ-a-tc_rank" type="checkbox" />
-            <span>训练 A 档</span>
-          </label>
+            <span class="quant-inline-label">训练档</span>
+            <details class="quant-fit-train-tiers-dd">
+              <summary class="quant-fit-train-tiers-sum" aria-label="ŷ_τc_rank 训练档">
+                <span data-tiers-label>整池</span>
+              </summary>
+              <div class="quant-fit-train-tiers-menu" role="group">
+                <label><input type="checkbox" value="A" /> A</label>
+                <label><input type="checkbox" value="B" /> B</label>
+                <label><input type="checkbox" value="C" /> C</label>
+              </div>
+            </details>
+          </span>
           <label
             class="quant-inline-check"
             title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"

@@ -128,6 +128,7 @@ from core.backtest.replay_sim_rows import (
     _sim_y_τc,
     _skip_to_sim,
     _strip_replay_tau_horizons,
+    fuse_accuracy_metrics,
     fuse_decision_return,
     fuse_hit_metrics,
     realized_yhat_windows,
@@ -180,7 +181,7 @@ def backtest_paper_replay(
     ``score_backend`` 恒为 ridge（影子树头已下线）；传入 tree 会被忽略。
     ŷ_oo_rank 有模型时按当日截面编成 1..n 名次透传到成交行；过入场后买序按 oo_rank。
     ``tradable_codes`` 给定时：主头与排序头截面 z 仍用整池；ŷ 与名次只写这份名单（分档内）。
-    排序头 ``train_universe=tier_a``（或旧 ``zscore_universe=tier_a``）只影响拟合损失，打分不再缩 z。
+    排序头 ``train_universe``（``tier_a`` / ``tier``，或旧 ``zscore_universe=tier_a``）只影响拟合损失，打分不再缩 z。
     ``oo_rank_max`` 开则入场另须 max(y_oo_rank, y_τc_rank) < max（两侧都缺不拦）；否则可读旧 ``oo_rank_top_frac``。
     """
     from core.research.holdout import (
@@ -1042,6 +1043,7 @@ def backtest_paper_replay(
         trades=ledger_trades,
         name_by_code=name_by_code,
     )
+    acc_pct, acc_n, acc_hits = fuse_accuracy_metrics(sim_trades)
     hit_pct, hit_n, hit_hits = fuse_hit_metrics(sim_trades)
     dec_pct, dec_n = fuse_decision_return(sim_trades)
     metrics["trade_count"] = len(ledger_trades)
@@ -1050,6 +1052,9 @@ def backtest_paper_replay(
     metrics["hold_count"] = len(debug_holds)
     metrics["rebalance_days"] = constraints["rebalance_days"]
     metrics["day_count"] = len(day_returns)
+    metrics["accuracy_pct"] = acc_pct
+    metrics["accuracy_n"] = acc_n
+    metrics["accuracy_hits"] = acc_hits
     metrics["hit_rate_pct"] = hit_pct
     metrics["hit_n"] = hit_n
     metrics["hit_hits"] = hit_hits

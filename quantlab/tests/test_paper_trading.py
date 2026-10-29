@@ -19,6 +19,7 @@ from core.backtest.paper_replay import (
     REPLAY_INITIAL_CASH,
     backtest_paper_replay,
     fuse_decision_return,
+    fuse_accuracy_metrics,
     fuse_hit_metrics,
     mock_quote_from_bar,
     realized_yhat_windows,
@@ -291,7 +292,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             if str(t.get("as_of") or "")[:10] == last
             and str(t.get("status") or "") not in ("skipped", "held")
         ]
-        # 末日没有次日开，y_oo_fuse_realized / realized_oo 为空，命中率不计入。
+        # 末日没有次日开，y_oo_fuse_realized / realized_oo 为空，准确率/命中率不计入。
         if last_fills:
             self.assertTrue(all(t.get("y_oo_fuse_realized") is None for t in last_fills))
         else:
@@ -352,11 +353,16 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertIn("rank_lots", rt)
         self.assertAlmostEqual(float((rt.get("rank_lots") or {}).get("cash_floor") or 0), REPLAY_CASH_FLOOR)
         m = out.get("metrics") or {}
+        self.assertIn("accuracy_pct", m)
+        self.assertIn("accuracy_n", m)
+        self.assertIn("accuracy_hits", m)
         self.assertIn("hit_rate_pct", m)
         self.assertIn("hit_n", m)
         self.assertIn("hit_hits", m)
         self.assertIn("day_count", m)
+        self.assertGreaterEqual(int(m.get("accuracy_n") or 0), 1)
         self.assertGreaterEqual(int(m.get("hit_n") or 0), 1)
+        self.assertIsNotNone(m.get("accuracy_pct"))
         self.assertIsNotNone(m.get("hit_rate_pct"))
 
     def test_initial_cash_from_arg(self):
@@ -2729,10 +2735,10 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
             save.assert_called()
             topk_mock.assert_not_called()
 
-class TestFuseHitMetrics(unittest.TestCase):
+class TestFuseAccuracyMetrics(unittest.TestCase):
     def test_entry_up_and_exit_down(self):
         """开/加上涨命中，清/减下跌命中。"""
-        pct, n, hits = fuse_hit_metrics(
+        pct, n, hits = fuse_accuracy_metrics(
             [
                 {"action": "open", "side": "buy", "realized_oo": 0.8},
                 {"action": "add", "side": "buy", "realized_oo": -1.2},
@@ -2755,7 +2761,7 @@ class TestFuseHitMetrics(unittest.TestCase):
         self.assertEqual(dec, 0.3)
 
     def test_skips_holds_and_missing_move(self):
-        pct, n, hits = fuse_hit_metrics(
+        pct, n, hits = fuse_accuracy_metrics(
             [
                 {"action": "open", "side": "buy", "realized_oo": 1.0, "status": "skipped"},
                 {"action": "hold", "side": "hold", "realized_oo": 1.0, "status": "held"},
@@ -2770,7 +2776,7 @@ class TestFuseHitMetrics(unittest.TestCase):
 
     def test_missing_next_open_is_dropped(self):
         """只有当天收盘、没有明开的腿不进分母。有 realized_oo 的末日照计。"""
-        pct, n, hits = fuse_hit_metrics(
+        pct, n, hits = fuse_accuracy_metrics(
             [
                 {"as_of": "2026-03-10", "action": "open", "side": "buy", "realized_tau": 1.0},
                 {
@@ -2789,7 +2795,7 @@ class TestFuseHitMetrics(unittest.TestCase):
 
     def test_flat_is_miss(self):
         """平盘不是上涨也不是下跌，记未命中，仍进分母。"""
-        pct, n, hits = fuse_hit_metrics(
+        pct, n, hits = fuse_accuracy_metrics(
             [
                 {"action": "open", "side": "buy", "realized_oo": 0.0},
                 {"action": "exit", "side": "sell", "realized_oo": 0.0},
@@ -2801,8 +2807,47 @@ class TestFuseHitMetrics(unittest.TestCase):
         self.assertEqual(pct, round(1 / 3 * 100.0, 1))
 
     def test_empty_is_none(self):
-        pct, n, hits = fuse_hit_metrics(
+        pct, n, hits = fuse_accuracy_metrics(
             [{"status": "skipped", "action": "open", "side": "buy", "realized_oo": 1.0}]
+        )
+        self.assertIsNone(pct)
+        self.assertEqual(n, 0)
+        self.assertEqual(hits, 0)
+
+
+class TestFuseHitMetrics(unittest.TestCase):
+    """策略看多命中率：买/加/持仓中今开→明开为正。"""
+
+    def test_long_legs_only(self):
+        pct, n, hits = fuse_hit_metrics(
+            [
+                {"action": "open", "side": "buy", "realized_oo": 0.8},
+                {"action": "add", "side": "buy", "realized_oo": -1.2},
+                {"action": "hold", "side": "hold", "status": "held", "realized_oo": 0.5},
+                {"action": "exit", "side": "sell", "realized_oo": -2.7},
+                {"action": "reduce", "side": "sell", "realized_oo": 1.1},
+            ]
+        )
+        self.assertEqual(n, 3)
+        self.assertEqual(hits, 2)
+        self.assertEqual(pct, round(2 / 3 * 100.0, 1))
+
+    def test_skips_and_missing_oo(self):
+        pct, n, hits = fuse_hit_metrics(
+            [
+                {"action": "open", "side": "buy", "realized_oo": 1.0, "status": "skipped"},
+                {"action": "open", "side": "buy", "realized_tau": 1.0},
+                {"action": "hold", "side": "hold", "status": "held", "realized_oo": 0.0},
+                {"action": "open", "side": "buy", "realized_oo": 1.0},
+            ]
+        )
+        self.assertEqual(n, 2)
+        self.assertEqual(hits, 1)
+        self.assertEqual(pct, 50.0)
+
+    def test_empty_is_none(self):
+        pct, n, hits = fuse_hit_metrics(
+            [{"action": "exit", "side": "sell", "realized_oo": -1.0}]
         )
         self.assertIsNone(pct)
         self.assertEqual(n, 0)

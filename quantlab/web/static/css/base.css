@@ -1483,12 +1483,6 @@ a.dialog-btn[aria-disabled="true"] {
   margin-top: 2px;
 }
 
-.rebalance-chg {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 .rebalance-hold {
   background: transparent;
   box-shadow: inset 3px 0 0 transparent;
@@ -3759,17 +3753,6 @@ html[data-density="compact"] .table-pager {
   color: var(--ink);
   min-width: 0;
   box-sizing: border-box;
-}
-
-/* 涨跌列：须压过上方 cell 的 ink，A 股红涨绿跌 */
-.rebalance-row > .rebalance-chg.up {
-  color: var(--color-up, #f5222d);
-  font-weight: 600;
-}
-
-.rebalance-row > .rebalance-chg.down {
-  color: var(--color-down, #52c41a);
-  font-weight: 600;
 }
 
 .rebalance-table-head > :first-child,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from core.data.policy import BARS_DAILY_LOOKBACK
 from core.watching.store import MODEL_FIT_MAX_SIZE
@@ -173,15 +173,44 @@ class OoRankRequest(_CrossSectionZscore):
         le=MODEL_FIT_MAX_SIZE,
         description=(
             f"观察池截断（默认满池 {MODEL_FIT_MAX_SIZE}）。"
-            "截面 z 恒用该池；未勾选「训练 A 档」时损失也用该池。"
+            "截面 z 恒用该池；未选训练档时损失也用该池。"
         ),
     )
+    train_tiers: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "训练档多选：子集 of A/B/C。非空=损失/Holdout 缩到观察池∩这些档（须先跑分档）；"
+            "空/省略=整池。截面 z 仍整池。落盘 train_universe + train_universe_tiers。"
+        ),
+    )
+
+    @field_validator("train_tiers")
+    @classmethod
+    def _train_tiers(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("train_tiers 须为 A/B/C 列表")
+        from core.research.feature_standardize import (
+            TRAIN_TIER_LABELS,
+            normalize_train_tiers,
+        )
+
+        bad = [
+            str(item)
+            for item in value
+            if str(item or "").strip()
+            and str(item).strip().upper() not in TRAIN_TIER_LABELS
+        ]
+        if bad:
+            raise ValueError("训练档仅支持 A/B/C，收到 " + ",".join(bad))
+        labels = normalize_train_tiers(list(value))
+        return labels or None
     train_universe_tier_a: bool = Field(
         default=False,
         description=(
-            "True=损失 / Holdout 缩到观察池∩枢纽 A 档（须先跑分档）；"
-            "截面 z 仍用整观察池。False=损失也用整池（默认）。"
-            "落盘 train_universe；回测/live 打分 z 恒全池，写分跟 score_codes/分档。"
+            "兼容旧开关：True 且 train_tiers 空时等价 train_tiers=['A']。"
+            "新 UI 请用 train_tiers。"
         ),
     )
     holdout_trading_days: int = Field(

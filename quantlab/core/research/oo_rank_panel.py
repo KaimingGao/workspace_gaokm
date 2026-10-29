@@ -659,27 +659,42 @@ def resolve_oo_rank_universe(
     *,
     zscore_universe: str = "pool",
     train_universe: Optional[str] = None,
+    train_tiers: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """ŷ_oo_rank / ŷ_τc_rank 代码名单。
 
-    参数名保留兼容：``tier_a`` 表示 **训练子集**（观察池∩A），不是缩截面 z。
-    ``pool``：整观察池（默认；截面 z 与未勾选训练 A 时的损失宇宙）。
-    ``train_universe`` 优先于 ``zscore_universe``。
+    ``pool``：整观察池（默认；截面 z 与未选训练档时的损失宇宙）。
+    ``train_tiers``：``A``/``B``/``C`` 多选 → 损失子集=观察池∩这些档（须先跑分档）。
+    旧 ``train_universe=tier_a`` 等价 ``train_tiers=["A"]``。
     此处不截断（调用方再按 watching_limit 截）。
     """
     import hashlib
 
     from core.research.feature_standardize import (
         TRAIN_UNIVERSE_POOL,
+        TRAIN_UNIVERSE_TIER,
         TRAIN_UNIVERSE_TIER_A,
         ZSCORE_UNIVERSE_POOL,
+        normalize_train_tiers,
         normalize_train_universe,
+        train_universe_token_for_tiers,
     )
     from core.research_universe import resolve_model_fit_codes
     from core.watching.store import MODEL_FIT_MAX_SIZE
 
-    raw_uni = train_universe if train_universe is not None else zscore_universe
-    uni = normalize_train_universe(raw_uni)
+    labels = normalize_train_tiers(train_tiers)
+    if not labels:
+        raw_uni = train_universe if train_universe is not None else zscore_universe
+        uni_hint = normalize_train_universe(raw_uni)
+        if uni_hint == TRAIN_UNIVERSE_TIER_A:
+            labels = ["A"]
+        elif uni_hint == TRAIN_UNIVERSE_TIER:
+            labels = []
+    uni = (
+        train_universe_token_for_tiers(labels)
+        if labels
+        else TRAIN_UNIVERSE_POOL
+    )
     resolved = resolve_model_fit_codes(watching_limit=MODEL_FIT_MAX_SIZE)
     pool_n = int(resolved.get("watching_pool_size") or 0)
     if not resolved.get("ok", True):
@@ -691,6 +706,7 @@ def resolve_oo_rank_universe(
             "watching_pool_size": pool_n,
             "zscore_universe": ZSCORE_UNIVERSE_POOL,
             "train_universe": uni,
+            "train_universe_tiers": list(labels),
         }
     codes = [str(c).strip() for c in (resolved.get("codes") or []) if str(c or "").strip()]
     out: Dict[str, Any] = {
@@ -700,9 +716,11 @@ def resolve_oo_rank_universe(
         "watching_pool_size": pool_n or len(codes),
         "zscore_universe": ZSCORE_UNIVERSE_POOL,
         "train_universe": uni,
+        "train_universe_tiers": list(labels),
     }
-    if uni != TRAIN_UNIVERSE_TIER_A:
+    if not labels:
         out["train_universe"] = TRAIN_UNIVERSE_POOL
+        out["train_universe_tiers"] = []
         return out
 
     from core.research.predictability_tiers import (
@@ -710,26 +728,31 @@ def resolve_oo_rank_universe(
         tier_code_set,
     )
 
+    tier_label = "+".join(labels)
     tier_rep = load_predictability_tiers_last()
     if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
         return {
             "success": False,
-            "error": "无枢纽分档报告；勾选「训练 A 档」前请先跑「观察池分档」",
+            "error": f"无枢纽分档报告；选训练档 {tier_label} 前请先跑「观察池分档」",
             "codes": [],
-            "universe_source": "watching∩tier_a",
+            "universe_source": f"watching∩{tier_label}",
             "watching_pool_size": pool_n,
             "zscore_universe": ZSCORE_UNIVERSE_POOL,
-            "train_universe": TRAIN_UNIVERSE_TIER_A,
+            "train_universe": uni,
+            "train_universe_tiers": list(labels),
         }
-    keep = tier_code_set(tier_rep, ["A"])
+    keep = tier_code_set(tier_rep, labels)
     filtered = [c for c in codes if c in keep]
-    fp = hashlib.sha1(",".join(sorted(keep)).encode("utf-8")).hexdigest()[:12]
+    fp = hashlib.sha1(
+        f"{tier_label}|{','.join(sorted(keep))}".encode("utf-8")
+    ).hexdigest()[:12]
     out.update(
         {
             "codes": filtered,
-            "universe_source": "watching∩tier_a",
+            "universe_source": f"watching∩{tier_label}",
             "zscore_universe": ZSCORE_UNIVERSE_POOL,
-            "train_universe": TRAIN_UNIVERSE_TIER_A,
+            "train_universe": uni,
+            "train_universe_tiers": list(labels),
             "tier_codes": sorted(keep),
             "n_tier_codes": len(keep),
             "n_codes": len(filtered),
@@ -741,12 +764,128 @@ def resolve_oo_rank_universe(
         }
     )
     if len(filtered) < 8:
+        counts = tier_rep.get("counts") or {}
+        bits = "、".join(f"{t}={counts.get(t, 0)}" for t in labels)
         out["success"] = False
         out["error"] = (
-            f"A 档与观察池交集不足 8 只（当前 {len(filtered)}；"
-            f"枢纽 A={(tier_rep.get('counts') or {}).get('A', 0)}）"
+            f"训练档 {tier_label} 与观察池交集不足 8 只（当前 {len(filtered)}；枢纽 {bits}）"
         )
     return out
+
+
+def resolve_rank_fit_plan(
+    *,
+    watching_limit: int,
+    train_tiers: Optional[Sequence[str]] = None,
+    legacy_tier_a: bool = False,
+    task: str = "oo_rank",
+    min_names: int = 8,
+) -> Dict[str, Any]:
+    """排序头拟合宇宙：截面 z / 建面板用整池；损失名单按训练档裁。
+
+    ``train_tiers`` 优先。空且 ``legacy_tier_a`` 时等价 ``["A"]``。
+    成功时 ``train_codes is None`` 表示损失也用整池。
+    """
+    from core.research.feature_standardize import (
+        TRAIN_UNIVERSE_POOL,
+        ZSCORE_UNIVERSE_POOL,
+        normalize_train_tiers,
+        train_universe_token_for_tiers,
+    )
+    from core.watching.store import MODEL_FIT_MAX_SIZE
+
+    need = max(8, int(min_names or 8))
+    labels = normalize_train_tiers(train_tiers)
+    if not labels and bool(legacy_tier_a):
+        labels = ["A"]
+    pool_resolved = resolve_oo_rank_universe(train_universe=TRAIN_UNIVERSE_POOL)
+    if not pool_resolved.get("success"):
+        return {
+            "success": False,
+            "error": pool_resolved.get("error") or f"{task}_universe_failed",
+            "task": task,
+            "universe_source": pool_resolved.get("universe_source"),
+            "zscore_universe": ZSCORE_UNIVERSE_POOL,
+            "train_universe": TRAIN_UNIVERSE_POOL,
+            "train_universe_tiers": [],
+        }
+    codes = [str(c).strip() for c in (pool_resolved.get("codes") or []) if str(c).strip()]
+    cap = max(need, int(watching_limit or MODEL_FIT_MAX_SIZE))
+    if len(codes) > cap:
+        codes = codes[:cap]
+    pool_n = int(pool_resolved.get("watching_pool_size") or len(codes))
+    if len(codes) < need:
+        return {
+            "success": False,
+            "error": f"观察池至少 {need} 只才可跑 {task}（当前 {len(codes)}）",
+            "task": task,
+            "universe_source": pool_resolved.get("universe_source"),
+            "zscore_universe": ZSCORE_UNIVERSE_POOL,
+            "train_universe": TRAIN_UNIVERSE_POOL,
+            "n_codes": len(codes),
+        }
+    plan: Dict[str, Any] = {
+        "success": True,
+        "task": task,
+        "codes": codes,
+        "cap": cap,
+        "watching_pool_size": pool_n,
+        "universe_source": pool_resolved.get("universe_source") or "watching",
+        "zscore_universe": ZSCORE_UNIVERSE_POOL,
+        "train_universe": TRAIN_UNIVERSE_POOL,
+        "train_universe_tiers": list(labels),
+        "train_codes": None,
+        "train_meta": {},
+    }
+    if not labels:
+        return plan
+    train_u = train_universe_token_for_tiers(labels)
+    tier_resolved = resolve_oo_rank_universe(train_tiers=labels)
+    if not tier_resolved.get("success"):
+        return {
+            "success": False,
+            "error": tier_resolved.get("error") or f"{task}_train_tiers_failed",
+            "task": task,
+            "zscore_universe": ZSCORE_UNIVERSE_POOL,
+            "train_universe": train_u,
+            "train_universe_tiers": list(labels),
+        }
+    pool_set = set(codes)
+    train_codes = [c for c in (tier_resolved.get("codes") or []) if str(c) in pool_set]
+    if len(train_codes) < need:
+        return {
+            "success": False,
+            "error": (
+                f"训练档 {'+'.join(labels)} 与观察池交集不足 {need} 只"
+                f"（当前 {len(train_codes)}）"
+            ),
+            "task": task,
+            "zscore_universe": ZSCORE_UNIVERSE_POOL,
+            "train_universe": train_u,
+            "train_universe_tiers": list(labels),
+            "n_train_codes": len(train_codes),
+        }
+    meta = {
+        k: tier_resolved.get(k)
+        for k in (
+            "tier_codes",
+            "tier_as_of_last",
+            "holdout_n",
+            "tier_n",
+            "tier_fingerprint",
+        )
+        if tier_resolved.get(k) is not None
+    }
+    meta["train_universe_tiers"] = list(labels)
+    plan.update(
+        {
+            "train_universe": train_u,
+            "train_codes": train_codes,
+            "train_meta": meta,
+            "n_train_codes": len(train_codes),
+        }
+    )
+    return plan
 
 
 __all__ = [
@@ -755,5 +894,6 @@ __all__ = [
     "label_float",
     "label_floats",
     "resolve_oo_rank_universe",
+    "resolve_rank_fit_plan",
     "stack_day_panels",
 ]

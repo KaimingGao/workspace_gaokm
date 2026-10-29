@@ -5619,19 +5619,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   font-weight: 600;
 }
 
-/* 预演调仓 · 当日涨跌（同持仓表红绿） */
-.follow-page .rebalance-row > .rebalance-chg.up,
-body[data-page="follow"] .rebalance-row > .rebalance-chg.up {
-  color: var(--color-up, #c62828);
-  font-weight: 600;
-}
-
-.follow-page .rebalance-row > .rebalance-chg.down,
-body[data-page="follow"] .rebalance-row > .rebalance-chg.down {
-  color: var(--color-down, #2e7d32);
-  font-weight: 600;
-}
-
 .paper-exec-block {
   margin-top: 14px;
   padding-top: 12px;

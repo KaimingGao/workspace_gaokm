@@ -3,7 +3,7 @@
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.research.materialize.consumer import consume_materialized
 from core.research.task import records_experiment
@@ -1293,21 +1293,19 @@ class QuantFactorMixin:
         note: str = "",
         cross_section_zscore: bool = True,
         train_universe_tier_a: bool = False,
+        train_tiers: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge。
 
-        截面 z 恒用整观察池。``train_universe_tier_a`` 为 True 时，损失 / Holdout
-        缩到观察池∩A（须先跑枢纽分档）；打分仍全池 z。
+        截面 z 恒用整观察池。``train_tiers``（A/B/C 多选）非空时，损失 / Holdout
+        缩到观察池∩这些档（须先跑枢纽分档）；打分仍全池 z。
+        旧 ``train_universe_tier_a=True`` 等价 ``train_tiers=["A"]``。
         成交明细 oo_rank=1..n；不进 ranking 融合分；过入场后作买序；可选 oo_rank_max（与 τc_rank 取 max）入场闸。
         ``persist=True``：research=写入研究槽；live=研究槽晋级执行槽；按 Holdout NDCG@K 选 backend，不重训。
         """
         from core.data.facade import bars_and_source
-        from core.research.feature_standardize import (
-            TRAIN_UNIVERSE_POOL,
-            TRAIN_UNIVERSE_TIER_A,
-            ZSCORE_UNIVERSE_POOL,
-        )
-        from core.research.oo_rank_panel import resolve_oo_rank_universe
+        from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
+        from core.research.oo_rank_panel import resolve_rank_fit_plan
         from core.research.oo_rank_lambdarank import (
             fit_oo_rank_report,
             load_oo_rank_last_report,
@@ -1355,73 +1353,21 @@ class QuantFactorMixin:
                 live_present=os.path.isfile(oo_rank_model_path()),
             )
 
-        train_a = bool(train_universe_tier_a)
-        # 截面 z / 建面板：恒全池
-        pool_resolved = resolve_oo_rank_universe(train_universe=TRAIN_UNIVERSE_POOL)
-        if not pool_resolved.get("success"):
-            return {
-                "success": False,
-                "error": pool_resolved.get("error") or "oo_rank_universe_failed",
-                "task": "oo_rank",
-                "universe_source": pool_resolved.get("universe_source"),
-                "zscore_universe": ZSCORE_UNIVERSE_POOL,
-                "train_universe": TRAIN_UNIVERSE_POOL,
-            }
-        codes = list(pool_resolved.get("codes") or [])
-        cap = max(8, int(watching_limit or MODEL_FIT_MAX_SIZE))
-        if len(codes) > cap:
-            codes = codes[:cap]
-        pool_n = int(pool_resolved.get("watching_pool_size") or len(codes))
-        if len(codes) < 8:
-            return {
-                "success": False,
-                "error": f"观察池至少 8 只才可跑 oo_rank（当前 {len(codes)}）",
-                "task": "oo_rank",
-                "universe_source": pool_resolved.get("universe_source"),
-                "zscore_universe": ZSCORE_UNIVERSE_POOL,
-                "n_codes": len(codes),
-            }
-
-        train_codes = None
-        train_meta: Dict[str, Any] = {}
-        train_u = TRAIN_UNIVERSE_POOL
-        if train_a:
-            a_resolved = resolve_oo_rank_universe(train_universe=TRAIN_UNIVERSE_TIER_A)
-            if not a_resolved.get("success"):
-                return {
-                    "success": False,
-                    "error": a_resolved.get("error") or "oo_rank_train_A_failed",
-                    "task": "oo_rank",
-                    "zscore_universe": ZSCORE_UNIVERSE_POOL,
-                    "train_universe": TRAIN_UNIVERSE_TIER_A,
-                }
-            pool_set = set(codes)
-            train_codes = [
-                c for c in (a_resolved.get("codes") or []) if str(c) in pool_set
-            ]
-            if len(train_codes) < 8:
-                return {
-                    "success": False,
-                    "error": (
-                        f"训练 A 档与观察池交集不足 8 只（当前 {len(train_codes)}）"
-                    ),
-                    "task": "oo_rank",
-                    "zscore_universe": ZSCORE_UNIVERSE_POOL,
-                    "train_universe": TRAIN_UNIVERSE_TIER_A,
-                    "n_train_codes": len(train_codes),
-                }
-            train_u = TRAIN_UNIVERSE_TIER_A
-            train_meta = {
-                k: a_resolved.get(k)
-                for k in (
-                    "tier_codes",
-                    "tier_as_of_last",
-                    "holdout_n",
-                    "tier_n",
-                    "tier_fingerprint",
-                )
-                if a_resolved.get(k) is not None
-            }
+        plan = resolve_rank_fit_plan(
+            watching_limit=watching_limit,
+            train_tiers=train_tiers,
+            legacy_tier_a=train_universe_tier_a,
+            task="oo_rank",
+        )
+        if not plan.get("success"):
+            return plan
+        codes = list(plan.get("codes") or [])
+        cap = int(plan.get("cap") or watching_limit)
+        pool_n = int(plan.get("watching_pool_size") or len(codes))
+        train_codes = plan.get("train_codes")
+        train_u = str(plan.get("train_universe") or "pool")
+        train_meta = dict(plan.get("train_meta") or {})
+        labels = list(plan.get("train_universe_tiers") or [])
 
         stock_bars: List[Dict[str, Any]] = []
         for code in codes:
@@ -1451,7 +1397,7 @@ class QuantFactorMixin:
                 logger.debug("oo_rank release after fit failed", exc_info=True)
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
-        report["universe_source"] = pool_resolved.get("universe_source") or "watching"
+        report["universe_source"] = plan.get("universe_source") or "watching"
         report["n_codes"] = len(codes)
         report["lookback"] = lookback
         if train_codes is not None:
@@ -1460,6 +1406,7 @@ class QuantFactorMixin:
             report,
             zscore_universe=ZSCORE_UNIVERSE_POOL,
             train_universe=train_u,
+            train_tiers=labels or None,
             tier_codes=train_meta.get("tier_codes"),
             tier_meta={
                 k: train_meta.get(k)
@@ -1468,6 +1415,7 @@ class QuantFactorMixin:
                     "holdout_n",
                     "tier_n",
                     "tier_fingerprint",
+                    "train_universe_tiers",
                 )
                 if train_meta.get(k) is not None
             },
@@ -1636,19 +1584,17 @@ class QuantFactorMixin:
         note: str = "",
         cross_section_zscore: bool = True,
         train_universe_tier_a: bool = False,
+        train_tiers: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
         """ŷ_τc_rank：同窗 LambdaRank + Ridge。
 
-        截面 z 恒用整观察池。``train_universe_tier_a`` 为 True 时损失 / Holdout 缩到 A。
+        截面 z 恒用整观察池。``train_tiers`` 非空时损失 / Holdout 缩到观察池∩档；
+        旧 ``train_universe_tier_a=True`` 等价 ``["A"]``。
         启用只落盘；不改买序、不进 fuse；与 oo_rank 共用 rank 入场。
         """
-        from core.research.feature_standardize import (
-            TRAIN_UNIVERSE_POOL,
-            TRAIN_UNIVERSE_TIER_A,
-            ZSCORE_UNIVERSE_POOL,
-        )
+        from core.research.feature_standardize import ZSCORE_UNIVERSE_POOL
         from core.research.oo_rank_lambdarank import stamp_rank_zscore_universe_meta
-        from core.research.oo_rank_panel import resolve_oo_rank_universe
+        from core.research.oo_rank_panel import resolve_rank_fit_plan
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.research.tc_rank import (
             fit_tc_rank_report,
@@ -1696,71 +1642,21 @@ class QuantFactorMixin:
                 live_present=os.path.isfile(tc_rank_model_path()),
             )
 
-        train_a = bool(train_universe_tier_a)
-        pool_resolved = resolve_oo_rank_universe(train_universe=TRAIN_UNIVERSE_POOL)
-        if not pool_resolved.get("success"):
-            return {
-                "success": False,
-                "error": pool_resolved.get("error") or "tc_rank_universe_failed",
-                "task": "tc_rank",
-                "universe_source": pool_resolved.get("universe_source"),
-                "zscore_universe": ZSCORE_UNIVERSE_POOL,
-                "train_universe": TRAIN_UNIVERSE_POOL,
-            }
-        codes = list(pool_resolved.get("codes") or [])
-        cap = max(8, int(watching_limit or MODEL_FIT_MAX_SIZE))
-        if len(codes) > cap:
-            codes = codes[:cap]
-        pool_n = int(pool_resolved.get("watching_pool_size") or len(codes))
-        if len(codes) < 8:
-            return {
-                "success": False,
-                "error": f"观察池至少 8 只才可跑 tc_rank（当前 {len(codes)}）",
-                "task": "tc_rank",
-                "zscore_universe": ZSCORE_UNIVERSE_POOL,
-                "n_codes": len(codes),
-            }
-
-        train_codes = None
-        train_meta: Dict[str, Any] = {}
-        train_u = TRAIN_UNIVERSE_POOL
-        if train_a:
-            a_resolved = resolve_oo_rank_universe(train_universe=TRAIN_UNIVERSE_TIER_A)
-            if not a_resolved.get("success"):
-                return {
-                    "success": False,
-                    "error": a_resolved.get("error") or "tc_rank_train_A_failed",
-                    "task": "tc_rank",
-                    "zscore_universe": ZSCORE_UNIVERSE_POOL,
-                    "train_universe": TRAIN_UNIVERSE_TIER_A,
-                }
-            pool_set = set(codes)
-            train_codes = [
-                c for c in (a_resolved.get("codes") or []) if str(c) in pool_set
-            ]
-            if len(train_codes) < 8:
-                return {
-                    "success": False,
-                    "error": (
-                        f"训练 A 档与观察池交集不足 8 只（当前 {len(train_codes)}）"
-                    ),
-                    "task": "tc_rank",
-                    "zscore_universe": ZSCORE_UNIVERSE_POOL,
-                    "train_universe": TRAIN_UNIVERSE_TIER_A,
-                    "n_train_codes": len(train_codes),
-                }
-            train_u = TRAIN_UNIVERSE_TIER_A
-            train_meta = {
-                k: a_resolved.get(k)
-                for k in (
-                    "tier_codes",
-                    "tier_as_of_last",
-                    "holdout_n",
-                    "tier_n",
-                    "tier_fingerprint",
-                )
-                if a_resolved.get(k) is not None
-            }
+        plan = resolve_rank_fit_plan(
+            watching_limit=watching_limit,
+            train_tiers=train_tiers,
+            legacy_tier_a=train_universe_tier_a,
+            task="tc_rank",
+        )
+        if not plan.get("success"):
+            return plan
+        codes = list(plan.get("codes") or [])
+        cap = int(plan.get("cap") or watching_limit)
+        pool_n = int(plan.get("watching_pool_size") or len(codes))
+        train_codes = plan.get("train_codes")
+        train_u = str(plan.get("train_universe") or "pool")
+        train_meta = dict(plan.get("train_meta") or {})
+        labels = list(plan.get("train_universe_tiers") or [])
 
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
@@ -1794,7 +1690,7 @@ class QuantFactorMixin:
                 logger.debug("tc_rank release after fit failed", exc_info=True)
         report["watching_limit"] = cap
         report["watching_pool_size"] = pool_n
-        report["universe_source"] = pool_resolved.get("universe_source") or "watching"
+        report["universe_source"] = plan.get("universe_source") or "watching"
         report["n_codes"] = len(codes)
         report["lookback"] = lookback
         if train_codes is not None:
@@ -1803,6 +1699,7 @@ class QuantFactorMixin:
             report,
             zscore_universe=ZSCORE_UNIVERSE_POOL,
             train_universe=train_u,
+            train_tiers=labels or None,
             tier_codes=train_meta.get("tier_codes"),
             tier_meta={
                 k: train_meta.get(k)
@@ -1811,6 +1708,7 @@ class QuantFactorMixin:
                     "holdout_n",
                     "tier_n",
                     "tier_fingerprint",
+                    "train_universe_tiers",
                 )
                 if train_meta.get(k) is not None
             },

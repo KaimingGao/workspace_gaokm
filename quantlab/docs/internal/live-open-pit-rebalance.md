@@ -67,6 +67,7 @@
   ├─ 批量行情拿观察池今开（约 800 只，一条腾讯请求）
   ├─ 批量读每只最近 ~80 根日线（只用到 T−1）
   ├─ inject_raw_aoo / 开盘钟 raw_atc（无当日 5m）→ 原始特征
+  ├─ build_co_features_from_quote_bars → z_co_*（含 yest_close_loc）∪ raw_aoo_*
   ├─ 内存 DayCube：μ/σ + z → ŷ_oo / ŷ_τc(开盘 Z) / ŷ_co / oo_rank / τc_rank → fuse
   │
   ├─ 有效今开覆盖 < 门槛（默认 LAKE_COVER_FRAC=0.5）→ 失败，不写账，不退昨日
@@ -223,7 +224,7 @@ z = \frac{x-\mu}{\sigma},\quad
 
 | 主题 | 位置 |
 |------|------|
-| 今开截面构建 | `core/paper/rebalance/open_pit_score.py` |
+| 今开截面构建 | `core/paper/rebalance/open_pit_score.py`（含 `z_co_*` via `build_co_features_from_quote_bars`） |
 | 评分顺序 / 成交闸 / rank 传立方 | `watching_matrix._score_pool_from_lake` · `simulate_watching_matrix_preview` |
 | 持仓补名次（无昨日回退） | `watching_matrix.stamp_live_ranks` · `_stamp_ranks_from_lake` |
 | 消费只读 | `core/research/materialize/consumer.py` |

@@ -4115,6 +4115,70 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   min-height: 0;
 }
 
+/* 排序头：标签「训练档」在外，A/B/C 在下拉内多选 */
+.quant-page .quant-fit-train-tiers {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  white-space: nowrap;
+}
+.quant-page .quant-fit-train-tiers-dd {
+  position: relative;
+  margin: 0;
+}
+.quant-page .quant-fit-train-tiers-sum {
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  user-select: none;
+  white-space: nowrap;
+}
+.quant-page .quant-fit-train-tiers-sum::-webkit-details-marker {
+  display: none;
+}
+.quant-page .quant-fit-train-tiers-sum::after {
+  content: "▾";
+  margin-left: 4px;
+  opacity: 0.55;
+  font-size: 0.65rem;
+}
+.quant-page .quant-fit-train-tiers-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 2px);
+  left: 0;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-card, var(--surface));
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.quant-page .quant-fit-train-tiers-menu label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quant-page .quant-fit-train-tiers-menu input {
+  margin: 0;
+}
+
 .quant-page .quant-inline-label {
   display: inline-flex;
   align-items: center;

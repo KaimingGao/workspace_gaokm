@@ -60,7 +60,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
                 return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
             ), patch(
                 "core.paper.rebalance.watching_matrix._score_pool",
-                return_value=([_signal_item()], []),
+                return_value=([_signal_item()], [], None),
             ) as score, patch(
                 "core.paper.rebalance.watching_matrix._quote_px",
                 return_value=10.0,
@@ -102,7 +102,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([_signal_item()], []),
+            return_value=([_signal_item()], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=10.0,
@@ -165,7 +165,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([item], []),
+            return_value=([item], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=10.05,
@@ -202,7 +202,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([_signal_item()], []),
+            return_value=([_signal_item()], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=10.0,
@@ -242,7 +242,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([item], []),
+            return_value=([item], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=10.0,
@@ -293,7 +293,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             ),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([item], []),
+            return_value=([item], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=5.94,
@@ -369,7 +369,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             ),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([item], []),
+            return_value=([item], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=5.94,
@@ -431,8 +431,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             "core.paper.rebalance.watching_matrix._score_pool",
             return_value=(
                 [],
-                [{"stock_code": "601111", "reason": "日线数据不足"}],
-            ),
+                [{"stock_code": "601111", "reason": "日线数据不足"}], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=5.94,
@@ -489,7 +488,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             return_value=(["600000", "600001"], {"n_watch": 2, "n_total": 2}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([ok_item, oos_item], []),
+            return_value=([ok_item, oos_item], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=10.0,
@@ -527,7 +526,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([item], []),
+            return_value=([item], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=10.0,
@@ -853,8 +852,7 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
                         y_oo_fuse=1.5,
                     ),
                 ],
-                [],
-            ),
+                [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             return_value=10.0,
@@ -1133,7 +1131,7 @@ class TestQuotePxLiveFill(unittest.TestCase):
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
         ), patch(
             "core.paper.rebalance.watching_matrix._score_pool",
-            return_value=([_signal_item()], []),
+            return_value=([_signal_item()], [], None),
         ), patch(
             "core.paper.rebalance.watching_matrix._quote_px",
             side_effect=_px,

@@ -40,6 +40,15 @@ function _legWantsUp(r) {
   return null;
 }
 
+/** 买 / 加 / 持仓 = 策略看多。 */
+function _legIsLong(r) {
+  const action = String((r && (r.action || r.matrix_action)) || "").toLowerCase();
+  const side = String((r && r.side) || "").toLowerCase();
+  if (action === "open" || action === "add" || action === "hold") return true;
+  if (action === "exit" || action === "reduce" || action === "skip") return false;
+  return side === "buy" || side === "hold";
+}
+
 /** 今开 → 明开（百分点）= open[T+1] / open[T] − 1。缺次日开则 null。 */
 function _legOoRetPct(r) {
   return _kpiNum(r.realized_oo);
@@ -59,11 +68,32 @@ function _decisionSignedRets(rows) {
   return out;
 }
 
-function _fuseHitFromTrades(rows) {
+function _fuseAccuracyFromTrades(rows) {
   const signed = _decisionSignedRets(rows);
   const n = signed.length;
-  if (n <= 0) return { hit_rate_pct: null, hit_n: 0, hit_hits: 0 };
+  if (n <= 0) return { accuracy_pct: null, accuracy_n: 0, accuracy_hits: 0 };
   const hits = signed.filter((v) => v > 1e-12).length;
+  return {
+    accuracy_pct: Math.round((hits / n) * 1000) / 10,
+    accuracy_n: n,
+    accuracy_hits: hits,
+  };
+}
+
+/** 策略看多命中：买/加/持仓中今开→明开为正。 */
+function _fuseHitFromTrades(rows) {
+  let n = 0;
+  let hits = 0;
+  for (const r of rows || []) {
+    if (!r || typeof r !== "object") continue;
+    if (String(r.status || "") === "skipped") continue;
+    if (!_legIsLong(r)) continue;
+    const ret = _legOoRetPct(r);
+    if (ret == null) continue;
+    n += 1;
+    if (ret > 1e-12) hits += 1;
+  }
+  if (n <= 0) return { hit_rate_pct: null, hit_n: 0, hit_hits: 0 };
   return {
     hit_rate_pct: Math.round((hits / n) * 1000) / 10,
     hit_n: n,
@@ -94,7 +124,8 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
       excess: blank("相对基准"),
       dd: blank("历史 MaxDD"),
       win: blank("等权 · 非净值"),
-      hit: blank("今开→明开"),
+      acc: blank("今开→明开"),
+      hit: blank("看多 · 今开→明开"),
     };
   }
   const m =
@@ -111,16 +142,33 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
   const retN = _kpiNum(ret);
   const exN = _kpiNum(excess);
   const ddN = _kpiNum(dd);
-  let hitRate = _kpiNum(m.hit_rate_pct);
-  let hitCount = _kpiNum(m.hit_n);
-  let hitHits = _kpiNum(m.hit_hits);
   const tradeRows = data.sim_trades || data.trades || [];
+  // 旧落盘只有 hit_rate_*（实为方向准确率）；有 accuracy_* 才认 hit_rate_* 为看多命中。
+  const hasNewAcc = m.accuracy_pct != null || m.accuracy_n != null;
+  let accRate = _kpiNum(m.accuracy_pct);
+  let accCount = _kpiNum(m.accuracy_n);
+  let accHits = _kpiNum(m.accuracy_hits);
+  if (!hasNewAcc && accRate == null) {
+    accRate = _kpiNum(m.hit_rate_pct);
+    accCount = _kpiNum(m.hit_n);
+    accHits = _kpiNum(m.hit_hits);
+  }
+  const ab = _fuseAccuracyFromTrades(tradeRows);
+  const accRecounted = ab.accuracy_n > 0;
+  if (accRecounted || accRate == null || accCount == null) {
+    if (accRecounted || accRate == null) accRate = _kpiNum(ab.accuracy_pct);
+    if (accRecounted || accCount == null) accCount = _kpiNum(ab.accuracy_n);
+    if (accRecounted || accHits == null) accHits = _kpiNum(ab.accuracy_hits);
+  }
+  let hitRate = hasNewAcc ? _kpiNum(m.hit_rate_pct) : null;
+  let hitCount = hasNewAcc ? _kpiNum(m.hit_n) : null;
+  let hitHits = hasNewAcc ? _kpiNum(m.hit_hits) : null;
   const fb = _fuseHitFromTrades(tradeRows);
-  const recounted = fb.hit_n > 0;
-  if (recounted || hitRate == null || hitCount == null) {
-    if (recounted || hitRate == null) hitRate = _kpiNum(fb.hit_rate_pct);
-    if (recounted || hitCount == null) hitCount = _kpiNum(fb.hit_n);
-    if (recounted || hitHits == null) hitHits = _kpiNum(fb.hit_hits);
+  const hitRecounted = fb.hit_n > 0;
+  if (hitRecounted || hitRate == null || hitCount == null) {
+    if (hitRecounted || hitRate == null) hitRate = _kpiNum(fb.hit_rate_pct);
+    if (hitRecounted || hitCount == null) hitCount = _kpiNum(fb.hit_n);
+    if (hitRecounted || hitHits == null) hitHits = _kpiNum(fb.hit_hits);
   }
   let dec = _kpiNum(m.decision_return_pct);
   let decN = _kpiNum(m.decision_n);
@@ -136,13 +184,21 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
       : legs.beta_leg_approx_pct != null
         ? `超额 · β腿≈${Number(legs.beta_leg_approx_pct).toFixed(1)}%`
         : `相对 ${bench.benchmark_label || "基准"}`;
-  let hitSub = "今开→明开";
+  let accSub = "今开→明开";
+  if (accCount != null && accCount > 0 && accHits != null) {
+    accSub = `${accHits}/${accCount} 笔`;
+  } else if (accCount != null && accCount > 0) {
+    accSub = `${accCount} 笔`;
+  } else if (accRate == null) {
+    accSub = "无成交";
+  }
+  let hitSub = "看多 · 今开→明开";
   if (hitCount != null && hitCount > 0 && hitHits != null) {
     hitSub = `${hitHits}/${hitCount} 笔`;
   } else if (hitCount != null && hitCount > 0) {
     hitSub = `${hitCount} 笔`;
   } else if (hitRate == null) {
-    hitSub = "无成交";
+    hitSub = "无看多腿";
   }
   return {
     return: {
@@ -169,6 +225,12 @@ function buildReplayOverviewKpis(data, { source = "" } = {}) {
       empty: dec == null,
       cls: metricClass(dec),
     },
+    acc: {
+      value: accRate == null ? "—" : `${accRate.toFixed(1)}%`,
+      sub: accSub,
+      empty: accRate == null,
+      cls: "",
+    },
     hit: {
       value: hitRate == null ? "—" : `${hitRate.toFixed(1)}%`,
       sub: hitSub,
@@ -183,6 +245,7 @@ const _REPLAY_KPI_IDS = {
   excess: "replay-kpi-excess",
   dd: "replay-kpi-dd",
   win: "replay-kpi-win",
+  acc: "replay-kpi-acc",
   hit: "replay-kpi-hit",
 };
 

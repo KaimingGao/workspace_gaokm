@@ -41,8 +41,12 @@ class TestOpenPitScore(unittest.TestCase):
             "600887": _bars(70, last_day="2026-10-27"),
             "000001": _bars(70, last_day="2026-10-27"),
         }
-        # 昨收 / 今开
-        hist["600887"][-1]["close"] = 28.89
+        # 昨收 / 今开（高低与收盘同口径，避免 yest_close_loc 被 clamp）
+        prev = hist["600887"][-1]
+        prev["close"] = 28.89
+        prev["open"] = 28.80
+        prev["high"] = 29.10
+        prev["low"] = 28.50
         quotes = {
             "600887": {"success": True, "open": "29.06元", "prev_close": 28.89},
             "000001": {"success": True, "open": 11.0, "prev_close": 10.5},
@@ -69,6 +73,17 @@ class TestOpenPitScore(unittest.TestCase):
         close0 = (row.get("sub_scores") or {}).get("raw_aoo_CLOSE0")
         self.assertIsNotNone(close0)
         self.assertAlmostEqual(float(close0), 28.89 / 29.06, places=5)
+        co = row.get("features_co") or {}
+        self.assertIn("raw_aoo_GAP", co)
+        # 与训练同构：z_co_yest_close_loc 须在，否则与 YCLOSE_LOC 对消断裂
+        self.assertIn("z_co_yest_close_loc", co)
+        self.assertIn("yest_close_loc", co)
+        prev = hist["600887"][-1]
+        loc = (float(prev["close"]) - float(prev["low"])) / (
+            float(prev["high"]) - float(prev["low"])
+        )
+        self.assertAlmostEqual(float(co["yest_close_loc"]), loc, places=4)
+        self.assertAlmostEqual(float(co["z_co_yest_close_loc"]), loc, places=4)
 
     def test_cover_short_returns_not_ok(self) -> None:
         from core.paper.rebalance.open_pit_score import build_open_pit_feature_items

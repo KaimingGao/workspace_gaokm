@@ -27,7 +27,7 @@
 1. **一次物化、三处消费**：训练 / 回测 / live 读同一套 L1 特征行与 L2 日截面统计。  
 2. **增量优先**：日线 topup 只追加末几根时只重算尾窗；lookback 变长且旧窗是新 bars 后缀时只补更早日期；禁止常态「整票推倒」。  
 3. **单遍截面 ŷ**：池齐后用 DayCube μ/σ 打 z 再 predict；调仓扫池可先只抽特征。  
-4. **口径可审计**：截面宇宙绑 `universe_hash`；主头与排序头截面 z 都用整观察池 L2 μ/σ，**均不进批现算**。缺 Cube：ŷ_τ* 丢掉该 `日期|钟` 的行，训练行全部没有才 `materialize_required`；其余主头拟合/OOS 任一日 miss → `materialize_required`；排序头跳过该日/不写分（消费只读同报物化）。tier / `tradable_codes` / `score_codes` 只挡写分与开仓；`train_universe=tier_a` 只缩拟合损失。  
+4. **口径可审计**：截面宇宙绑 `universe_hash`；主头与排序头截面 z 都用整观察池 L2 μ/σ，**均不进批现算**。缺 Cube：ŷ_τ* 丢掉该 `日期|钟` 的行，训练行全部没有才 `materialize_required`；其余主头拟合/OOS 任一日 miss → `materialize_required`；排序头跳过该日/不写分（消费只读同报物化）。tier / `tradable_codes` / `score_codes` 只挡写分与开仓；`train_universe`（`tier_a` / `tier`）只缩拟合损失。  
 5. **缺覆盖可审计**：消费只读缺 L1/L2 → ``materialize_required``（须先物化）；关 ``QUANTLAB_MATERIALIZE_CONSUMER`` 仅供单测/脚本走旧现算，产品路径不依赖开关回退矩阵 CS-z。
 
 ### 1.3 非目标
