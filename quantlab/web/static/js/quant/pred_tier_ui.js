@@ -17,7 +17,7 @@ let _bCount = 300;
 let _selectedTiers = null;
 
 function tierTip(t) {
-  const scoreBit = "Score=定档窗猜涨技能";
+  const scoreBit = "Lift_Score=定档窗猜涨 lift";
   if (t === "A") return `A 强：${scoreBit} · top ${_aCount}`;
   if (t === "B") return `B 中：${scoreBit} · 接着 ${_bCount}`;
   if (t === "C") return `C 弱：${scoreBit} · 剩余或样本不足`;
@@ -60,7 +60,7 @@ export function predTierBadgeHtml(code, esc) {
       : "";
   const scoreBit =
     info.score != null && !Number.isNaN(Number(info.score))
-      ? `Score ${Number(info.score).toFixed(3)}`
+      ? `Lift_Score ${Number(info.score).toFixed(3)}`
       : "";
   const fmtCondRet = (v, nSide, label) => {
     if (v == null || Number.isNaN(Number(v))) return "";

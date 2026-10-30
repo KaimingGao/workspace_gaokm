@@ -271,7 +271,7 @@ def quant_research_universe_predictability_tiers(
     pool: str = "watching",
     lookback: int = 120,
     a_count: int = Query(
-        100, ge=1, le=2000, description="A 档：Score 序 top 数量（默认 100）"
+        100, ge=1, le=2000, description="A 档：Lift_Score 序 top 数量（默认 100）"
     ),
     b_count: int = Query(
         300, ge=0, le=5000, description="B 档：接着取的数量（默认 300；其余为 C）"
@@ -297,9 +297,9 @@ def quant_research_universe_predictability_tiers(
         description="A 档另须 TC_R+>0（训练窗 mean(y_τc|ŷ_τc>ε)；有 ŷ_τc 研究套时生效；默认开）",
     ),
 ) -> Dict[str, Any]:
-    """观察池分档：Holdout 前 60 日猜涨技能（说涨精度 − 上涨日比例），落盘 last。
+    """观察池分档：Holdout 前 60 日猜涨 lift（说涨精度 − 上涨日比例），落盘 last。
 
-    表内四头技能 + Rank_Score；档标题 Holdout Rank_Score 均值与等权买持看 Holdout。
+    表内四头 lift + Lift_Score；档标题 Holdout Lift_Score 均值与等权买持看 Holdout。
     holdout: ŷ_oo 卡片 Holdout 交易日数（评测窗，不参与定档）。
     lookback: 面板长度。定档模型只拟合定档窗之前，不覆盖研究套。
     a_f1 / tau_a_f1 / require_*_r_pos 仍接受，不再参与排队。

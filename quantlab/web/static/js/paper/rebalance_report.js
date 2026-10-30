@@ -1063,7 +1063,7 @@ function renderRebalanceReport(
     `<div class="rebalance-table" role="table">` +
     `<div class="rebalance-table-head" role="row">` +
     `<div class="rebalance-th" role="columnheader">股票</div>` +
-    `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（ŷ_oo 训练窗）：A 强 / B 中 / C 弱">分档</div>` +
+    `<div class="rebalance-th rebalance-th-tier" role="columnheader" title="可预测性分档（Holdout 前 60 日猜涨 lift）：A 强 / B 中 / C 弱">分档</div>` +
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
     `<div class="rebalance-th num" role="columnheader" title="当日开盘价">开盘</div>` +
     `<div class="rebalance-th num is-sortable${

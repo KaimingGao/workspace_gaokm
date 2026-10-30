@@ -552,8 +552,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(">OO_R+&gt;0</span>", panel)
         self.assertNotIn(">TC_R+&gt;0</span>", panel)
         self.assertIn("观察池分档", panel)
-        self.assertIn("定档窗 60 日猜涨技能", panel)
-        self.assertIn("标题 Holdout Rank_Score / 等权买持看 Holdout", panel)
+        self.assertIn("定档窗 60 日猜涨 lift ", panel)
+        self.assertIn("标题 Holdout Lift_Score / 等权买持看 Holdout", panel)
         self.assertNotIn("等权买持看整段", panel)
         self.assertNotIn("分档看 Holdout 前半", panel)
         self.assertNotIn("账本决策日", panel)
@@ -600,7 +600,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("a_count=", ru_js)
         self.assertIn("b_count=", ru_js)
         self.assertIn("readTierCounts", ru_js)
-        self.assertIn("猜涨技能", ru_js)
+        self.assertIn("猜涨 lift ", ru_js)
         self.assertIn("上涨日比例", ru_js)
         self.assertIn("predictability-tiers/progress", ru_js)
         self.assertNotIn("正在拟合定档用", ru_js)
@@ -619,7 +619,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("cs_by_tier_tau", ru_js)
         self.assertIn("cs_by_tier", ru_js)
         self.assertIn("tierScoreTitleHtml(rows)", ru_js)
-        self.assertIn("Holdout Rank_Score 均值", ru_js)
+        self.assertIn("Holdout Lift_Score 均值", ru_js)
         self.assertNotIn("function dualCsHtml", ru_js)
         self.assertNotIn("CS_COLS", ru_js)
         self.assertNotIn("csMetricsHtml", ru_js)
@@ -630,7 +630,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("按有效日加权", ru_js)
         self.assertNotIn("pack.acc", ru_js)
         self.assertNotIn("pack.f1", ru_js)
-        self.assertIn("tier60_quad_upskill_holdout_eval", ru_js)
+        self.assertIn("tier60_quad_uplift_holdout_eval", ru_js)
         self.assertIn("oo / oo_rank / τc / τc_rank", ru_js)
         self.assertIn("有样本头等权", ru_js)
         self.assertNotIn("Holdout 整段（测试）", ru_js)
@@ -710,7 +710,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('aria-label="A 档数量"', panel)
         self.assertIn("scoreCell", ru_js)
         self.assertNotIn("holdoutScoreCell", ru_js)
-        self.assertIn("headSkillCell", ru_js)
+        self.assertIn("headLiftCell", ru_js)
         self.assertIn("有样本头（精度 − 基准）等权", ru_js)
         self.assertNotIn("function retCell", ru_js)
         self.assertNotIn("quant-ru-ret-cell", css)
@@ -731,11 +731,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("createScoreTooltipController", ru_js)
         self.assertIn("realized_pct", ru_js)
         self.assertIn("score_holdout", ru_js)
-        self.assertIn("skill_${prefix}", ru_js)
+        self.assertIn("lift_${prefix}", ru_js)
         self.assertIn("预估高于当日截面中位数", ru_js)
         self.assertIn("0.05 个百分点", ru_js)
-        self.assertIn('headSkillCell(r, "oo_rank", "oo_rank")', ru_js)
-        self.assertIn(">Rank_Score</th>", ru_js)
+        self.assertIn('headLiftCell(r, "oo_rank", "oo_rank")', ru_js)
+        self.assertIn(">Lift_Score</th>", ru_js)
         self.assertNotIn(">Holdout Score</th>", ru_js)
         self.assertNotIn(">Holdout 收益</th>", ru_js)
         self.assertIn(">oo_rank</th>", ru_js)
@@ -746,7 +746,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("tierScoreTitleHtml", ru_js)
         self.assertIn("quant-ru-tier-score", ru_js)
         self.assertNotIn("quant-ru-tier-bar", ru_js)
-        self.assertIn("Holdout Rank_Score 均值", ru_js)
+        self.assertIn("Holdout Lift_Score 均值", ru_js)
         # KPI 用 counts；扫尾误删会卡在「加载上次分档…」
         self.assertIn("const counts = rep.counts", ru_js)
         self.assertIn("n_with_sample", ru_js)
@@ -759,20 +759,20 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "#quant-section-research-universe .quant-card-head--tools {\n  align-items: center;",
             css,
         )
-        self.assertIn("标题 Holdout Rank_Score", panel)
-        self.assertIn("档标题只留 Holdout Rank_Score 均值", panel)
-        # oo → oo_rank → τc → τc_rank → Rank_Score
+        self.assertIn("标题 Holdout Lift_Score", panel)
+        self.assertIn("档标题只留 Holdout Lift_Score 均值", panel)
+        # oo → oo_rank → τc → τc_rank → Lift_Score
         self.assertLess(ru_js.find(">oo</th>"), ru_js.find(">oo_rank</th>"))
         self.assertLess(ru_js.find(">oo_rank</th>"), ru_js.find(">τc</th>"))
         self.assertLess(ru_js.find(">τc</th>"), ru_js.find(">τc_rank</th>"))
-        self.assertLess(ru_js.find(">τc_rank</th>"), ru_js.find(">Rank_Score</th>"))
+        self.assertLess(ru_js.find(">τc_rank</th>"), ru_js.find(">Lift_Score</th>"))
         self.assertRegex(
             ru_js,
             r'stockCell\(r\)\s*\+\s*'
-            r'headSkillCell\(r,\s*"oo",\s*"oo"\)\s*\+\s*'
-            r'headSkillCell\(r,\s*"oo_rank",\s*"oo_rank"\)\s*\+\s*'
-            r'headSkillCell\(r,\s*"tc",\s*"τc"\)\s*\+\s*'
-            r'headSkillCell\(r,\s*"tc_rank",\s*"τc_rank"\)\s*\+\s*'
+            r'headLiftCell\(r,\s*"oo",\s*"oo"\)\s*\+\s*'
+            r'headLiftCell\(r,\s*"oo_rank",\s*"oo_rank"\)\s*\+\s*'
+            r'headLiftCell\(r,\s*"tc",\s*"τc"\)\s*\+\s*'
+            r'headLiftCell\(r,\s*"tc_rank",\s*"τc_rank"\)\s*\+\s*'
             r'scoreCell\(r\)',
         )
         self.assertIn("tierMetaFor", ru_js)
@@ -3603,7 +3603,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("短窗建面板", ru_js)
         self.assertNotIn("只拉 Holdout 附近", ru_js)
         self.assertIn("60 日", ru_js)
-        self.assertIn("猜涨技能", ru_js)
+        self.assertIn("猜涨 lift ", ru_js)
         self.assertNotIn("无研究套才吃训练窗", ru_js)
         self.assertIn("ŷ_oo 卡片 Holdout", panel)
         self.assertIn("Holdout+暖窗", panel)

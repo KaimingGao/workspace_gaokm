@@ -1209,7 +1209,7 @@ flowchart LR
 
 **调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90 已并入主卡双训（见 §4.3d）。
 
-**观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡）：Holdout 前 **60 个交易日**定档，与 Holdout、与拟合窗交界各空 **1 个交易日**。定档模型只拟合这 60 日之前，不覆盖研究套；交易打分仍用研究套。当场拟合 **oo / oo_rank / τc / τc_rank**（内存 Ridge）。收益头说涨 = 预估 > 0.05pp；排序头说涨 = 预估高于当日截面中位数。猜涨精度 = 说涨日里标签真正上涨的比例。技能 = 猜涨精度 − 该票定档窗上涨日比例；有样本头等权。收益大小不进分数。单头说涨少于 **8 次**不计入该头；oo_rank 失败则整次失败，其余头软跳过；都没有则归 C。按技能降序取 **top A 数量→A**、**接着 B 数量→B**、其余→C。默认 A=100、B=300。表内：四头技能 + Rank_Score；档标题只留 Holdout Rank_Score 均值；KPI 平均收益率看 Holdout 等权买持。落盘 `predictability_tiers_last.json`（协议 `tier60_quad_upskill_holdout_eval`）；`/replay` 勾选同步 live 闸。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹；旧协议报告会被拒绝，须重跑分档。
+**观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡）：Holdout 前 **60 个交易日**定档，与 Holdout、与拟合窗交界各空 **1 个交易日**。定档模型只拟合这 60 日之前，不覆盖研究套；交易打分仍用研究套。当场拟合 **oo / oo_rank / τc / τc_rank**（内存 Ridge）。收益头说涨 = 预估 > 0.05pp；排序头说涨 = 预估高于当日截面中位数。猜涨精度 = 说涨日里标签真正上涨的比例。lift = 猜涨精度 − 该票定档窗上涨日比例；有样本头等权。收益大小不进分数。单头说涨少于 **8 次**不计入该头；oo_rank 失败则整次失败，其余头软跳过；都没有则归 C。按 lift 降序取 **top A 数量→A**、**接着 B 数量→B**、其余→C。默认 A=100、B=300。表内：四头 lift + Lift_Score；档标题只留 Holdout Lift_Score 均值；KPI 平均收益率看 Holdout 等权买持。落盘 `predictability_tiers_last.json`（协议 `tier60_quad_uplift_holdout_eval`）；`/replay` 勾选同步 live 闸。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹；旧协议报告会被拒绝，须重跑分档。
 
 ### 4.2 τ 打分链（层 2 · 残差头挂载）
 

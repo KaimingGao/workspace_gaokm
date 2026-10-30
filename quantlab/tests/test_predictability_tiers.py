@@ -1,4 +1,4 @@
-"""滚动可预测性票档：Holdout 前 60 日猜涨技能定档 + Holdout 评测。"""
+"""滚动可预测性票档：Holdout 前 60 日猜涨 lift 定档 + Holdout 评测。"""
 
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertGreater(len(keep - last10), 0)
         self.assertTrue(keep.issubset(all_days))
         self.assertEqual(
-            out.get("holdout_split", {}).get("selection_window"), "tier60_quad_upskill"
+            out.get("holdout_split", {}).get("selection_window"), "tier60_quad_uplift"
         )
         self.assertGreater(int(out.get("n_train") or 0), 0)
 
@@ -861,7 +861,7 @@ class TestPredictabilityTiers(unittest.TestCase):
             tier_code_set,
         )
 
-        self.assertEqual(PROTOCOL_HOLDOUT_OOS, "tier60_quad_upskill_holdout_eval")
+        self.assertEqual(PROTOCOL_HOLDOUT_OOS, "tier60_quad_uplift_holdout_eval")
         from datetime import date, timedelta
 
         start = date(2025, 1, 2)
@@ -876,7 +876,7 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(split.get("fit_dates"), train[:-62])
         self.assertEqual(split.get("eval_dates"), test)
         self.assertEqual(split.get("test_days"), test)
-        self.assertEqual(split.get("selection_window"), "tier60_quad_upskill")
+        self.assertEqual(split.get("selection_window"), "tier60_quad_uplift")
         self.assertEqual(split.get("title_metric_window"), TITLE_METRIC_WINDOW)
         self.assertEqual(split.get("overlap_dropped"), [])
         self.assertEqual(holdout_eval_dates(split), test)
@@ -1005,11 +1005,11 @@ class TestPredictabilityTiers(unittest.TestCase):
         def pack(pred_y):
             return [("d", pred_y)]
 
-        # 8 次说涨全对，另外 8 日下跌且没说涨。精度 1，基准 0.5，技能 0.5。
+        # 8 次说涨全对，另外 8 日下跌且没说涨。精度 1，基准 0.5，lift 0.5。
         skilled = [("SK", 1.0, 1.0)] * 8 + [("SK", -1.0, -1.0)] * 8
-        # 同样的涨跌方向，收益放大。技能应与 SK 相同。
+        # 同样的涨跌方向，收益放大。lift 应与 SK 相同。
         loud = [("LOUD", 1.0, 20.0)] * 8 + [("LOUD", -1.0, -8.0)] * 8
-        # 天天说涨，一半上涨。技能约 0。
+        # 天天说涨，一半上涨。lift 约 0。
         always = [("ALW", 1.0, 1.0)] * 8 + [("ALW", 1.0, -1.0)] * 8
         # 说涨只有 3 次，不入队。
         short = [("SH", 1.0, 1.0)] * 3 + [("SH", -1.0, -1.0)] * 8
@@ -1027,8 +1027,8 @@ class TestPredictabilityTiers(unittest.TestCase):
             {"SK": {"lift": 0.0, "precision": 0.5, "base_rate": 0.5, "n_up": 8}},
         )
         self.assertAlmostEqual(combined["SK"]["score"], oo["SK"]["lift"] / 2.0)
-        self.assertAlmostEqual(combined["SK"]["skill_oo_rank"], oo["SK"]["lift"])
-        self.assertAlmostEqual(combined["SK"]["skill_tc_rank"], 0.0)
+        self.assertAlmostEqual(combined["SK"]["lift_oo_rank"], oo["SK"]["lift"])
+        self.assertAlmostEqual(combined["SK"]["lift_tc_rank"], 0.0)
         self.assertAlmostEqual(combined["LOUD"]["score"], oo["LOUD"]["lift"])
         from core.research.predictability_tiers import combine_head_lifts
 
@@ -1041,8 +1041,8 @@ class TestPredictabilityTiers(unittest.TestCase):
             }
         )
         self.assertAlmostEqual(quad["SK"]["score"], (0.4 + 0.2 + 0.0) / 3.0)
-        self.assertAlmostEqual(quad["SK"]["skill_oo"], 0.2)
-        self.assertNotIn("skill_tc", quad["SK"])
+        self.assertAlmostEqual(quad["SK"]["lift_oo"], 0.2)
+        self.assertNotIn("lift_tc", quad["SK"])
         rows = [{"code": code} for code in ("SK", "LOUD", "ALW", "SH")]
         assign_tiers_by_lift(rows, combined, a_count=1, b_count=1)
         by = {r["code"]: r for r in rows}
@@ -1051,9 +1051,9 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(by["ALW"]["tier"], "C")
         self.assertEqual(by["SH"]["tier"], "C")
         self.assertIsNone(by["SH"]["score"])
-        # combine 未入 tc 头时行上没有 skill_tc；有 tc_rank 时仍写 skill_tc_rank
-        self.assertNotIn("skill_tc", by["SK"])
-        self.assertAlmostEqual(by["SK"]["skill_tc_rank"], 0.0)
+        # combine 未入 tc 头时行上没有 lift_tc；有 tc_rank 时仍写 lift_tc_rank
+        self.assertNotIn("lift_tc", by["SK"])
+        self.assertAlmostEqual(by["SK"]["lift_tc_rank"], 0.0)
 
     def test_lake_rows_enough_and_strip_tau(self):
         from core.research.predictability_tiers import (
@@ -1456,15 +1456,15 @@ class TestPredictabilityTiers(unittest.TestCase):
                 "horizon_days": 1,
                 "source": "oo_research_model",
                 "tau_meta": {"ok": True, "n_rows": 12, "path": "/tmp/tau_research.json"},
-                "skill_by_code": {
+                "lift_by_code": {
                     "000001": {
                         "score": 1.0,
-                        "skill_oo_rank": 1.0,
+                        "lift_oo_rank": 1.0,
                         "n_up_oo_rank": 8,
                     },
                     "000002": {
                         "score": -1.0,
-                        "skill_oo_rank": -1.0,
+                        "lift_oo_rank": -1.0,
                         "n_up_oo_rank": 8,
                     },
                 },
@@ -1506,7 +1506,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertTrue(rep.get("success"), rep)
                 self.assertEqual(rep.get("protocol"), PROTOCOL_HOLDOUT_OOS)
                 self.assertEqual(rep.get("title_metric_window"), "holdout")
-                self.assertEqual(rep.get("selection_window"), "tier60_quad_upskill")
+                self.assertEqual(rep.get("selection_window"), "tier60_quad_uplift")
                 self.assertEqual(rep.get("source"), "oo_research_model")
                 self.assertNotIn("live_hook", rep)
                 self.assertNotIn("ic", (rep.get("rows") or [{}])[0])
@@ -1551,7 +1551,8 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertNotIn("r_pos_min", thr)
                 self.assertAlmostEqual(float(by["000001"]["mean_y_pos"]), 2.0)
                 self.assertAlmostEqual(float(by["000001"]["score"]), 1.0)
-                self.assertIn("猜涨技能", str(rep.get("note") or ""))
+                self.assertIn("猜涨 lift", str(rep.get("note") or ""))
+                self.assertIn("Lift_Score", str(rep.get("note") or ""))
                 self.assertIn("上涨日比例", str(rep.get("note") or ""))
                 self.assertIn("cs_by_tier_tau", rep)
                 self.assertIn("hit_rate_tau", by["000001"])
@@ -1663,19 +1664,19 @@ class TestPredictabilityTiers(unittest.TestCase):
                 "source": "oo_research_model",
                 "panel_mode": "lookback_full",
                 "model_meta": {"ok": True, "path": "/tmp/research.json"},
-                "skill_by_code": {
+                "lift_by_code": {
                     "000001": {
                         "score": 2.0,
-                        "skill_oo_rank": 2.0,
+                        "lift_oo_rank": 2.0,
                         "n_up_oo_rank": 8,
                     },
                     "000002": {
                         "score": 1.0,
-                        "skill_oo_rank": 1.0,
+                        "lift_oo_rank": 1.0,
                         "n_up_oo_rank": 8,
                     },
                 },
-                "skill_holdout_by_code": {
+                "lift_holdout_by_code": {
                     "000001": {"score": -0.4},
                     "000002": {"score": 0.8},
                 },

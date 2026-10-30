@@ -1,6 +1,6 @@
 /**
- * 观察池分档：Holdout 前 60 日四头猜涨技能等权（oo / oo_rank / τc / τc_rank）。
- * 表内：四头技能 / Rank_Score。档标题只留 Holdout Rank_Score 均值（标成 Rank_Score）。
+ * 观察池分档：Holdout 前 60 日四头猜涨 lift 等权（oo / oo_rank / τc / τc_rank）。
+ * 表内：四头 lift / Lift_Score。档标题只留 Holdout Lift_Score 均值。
  * 面板按 lookback 全窗（优先 Feature Lake）；live 档位跟随历史回测「分档」勾选。
  */
 import { createScoreTooltipController } from "../score_tooltip.js";
@@ -111,7 +111,7 @@ export function installResearchUniverseUi(q) {
 
   function tierMetaFor(aCount, bCount) {
     return {
-      A: { label: "强", tip: `猜涨技能降序 top ${aCount}` },
+      A: { label: "强", tip: `猜涨 lift 降序 top ${aCount}` },
       B: { label: "中", tip: `未进 A 后接着 ${bCount}` },
       C: { label: "弱", tip: "其余或说涨不足 8 次" },
     };
@@ -153,7 +153,7 @@ export function installResearchUniverseUi(q) {
 
   function tierHeadBit(rep) {
     const thr = (rep && rep.thresholds) || {};
-    const extra = (rep && rep.tier_skill) || {};
+    const extra = (rep && rep.tier_lift) || {};
     const heads = ["oo_rank"];
     if (thr.used_oo || extra.used_oo) heads.push("oo");
     if (thr.used_tc_rank || extra.used_tc_rank) heads.push("τc_rank");
@@ -214,7 +214,7 @@ export function installResearchUniverseUi(q) {
     return [
       `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0}`,
       tierSpanBit(rep),
-      `猜涨技能 = 说涨精度 − 上涨日比例 · 至少 ${minCalls} 次说涨`,
+      `猜涨 lift = 说涨精度 − 上涨日比例 · 至少 ${minCalls} 次说涨`,
       tierHeadBit(rep),
       holdoutSpanBit(rep),
       liveBit(),
@@ -310,7 +310,7 @@ export function installResearchUniverseUi(q) {
     );
   }
 
-  /** Rank_Score / 技能列悬浮卡。 */
+  /** Lift_Score / lift 列悬浮卡。 */
   function metricTipHtml(pack) {
     const p = pack && typeof pack === "object" ? pack : {};
     const eyebrow = p.eyebrow != null ? String(p.eyebrow) : "";
@@ -360,8 +360,8 @@ export function installResearchUniverseUi(q) {
     const missing = sc == null || Number.isNaN(Number(sc));
     const hero = fmtScore(sc);
     const parts = ["oo", "oo_rank", "tc", "tc_rank"]
-      .filter((p) => r && r[`skill_${p}`] != null && !Number.isNaN(Number(r[`skill_${p}`])))
-      .map((p) => fmtScore(r[`skill_${p}`]));
+      .filter((p) => r && r[`lift_${p}`] != null && !Number.isNaN(Number(r[`lift_${p}`])))
+      .map((p) => fmtScore(r[`lift_${p}`]));
     const defs = missing
       ? []
       : [
@@ -370,11 +370,11 @@ export function installResearchUniverseUi(q) {
         ].filter(Boolean);
     const tipPack = {
       ok: !missing,
-      eyebrow: "Rank_Score · 定档窗",
+      eyebrow: "Lift_Score · 定档窗",
       hero,
       badge: missing ? "无分数" : "定档用",
       defs,
-      reason: missing ? "说涨不足 8 次，或各头都没有技能" : "",
+      reason: missing ? "说涨不足 8 次，或各头都没有 lift" : "",
       foot: missing ? "无分数 → C" : "按此分降序取 A / B",
     };
     return (
@@ -386,11 +386,11 @@ export function installResearchUniverseUi(q) {
     );
   }
 
-  /** 单头定档窗技能列；tip 含精度 / 基准 / 说涨次数。 */
-  function headSkillCell(r, prefix, label) {
-    const skill = r && r[`skill_${prefix}`];
-    const missing = skill == null || Number.isNaN(Number(skill));
-    const hero = missing ? "—" : fmtScore(skill);
+  /** 单头定档窗 lift 列；tip 含精度 / 基准 / 说涨次数。 */
+  function headLiftCell(r, prefix, label) {
+    const liftVal = r && r[`lift_${prefix}`];
+    const missing = liftVal == null || Number.isNaN(Number(liftVal));
+    const hero = missing ? "—" : fmtScore(liftVal);
     const n = r && r[`n_up_${prefix}`];
     const isRankHead = prefix === "oo_rank" || prefix === "tc_rank";
     const callTip = isRankHead
@@ -399,7 +399,7 @@ export function installResearchUniverseUi(q) {
     const defs = missing
       ? []
       : [
-          ["技能", "说涨精度 − 上涨日比例"],
+          ["lift", "说涨精度 − 上涨日比例"],
           ["口径", callTip],
           ["精度", fmtHit(r[`precision_${prefix}`])],
           ["基准", fmtHit(r[`base_${prefix}`])],
@@ -412,12 +412,12 @@ export function installResearchUniverseUi(q) {
         ];
     const tipPack = {
       ok: !missing,
-      eyebrow: `${label} · 定档窗技能`,
+      eyebrow: `${label} · 定档窗 lift`,
       hero,
       badge: missing ? "未入分" : "进 Score",
       defs,
       reason: missing ? "说涨不足 8 次，或该头未拟合/软跳过" : "",
-      foot: "有样本头等权进 Rank_Score",
+      foot: "有样本头等权进 Lift_Score",
     };
     return (
       `<td class="num quant-ru-score-cell" data-metric-tip="${escapeHtml(
@@ -444,7 +444,7 @@ export function installResearchUniverseUi(q) {
     });
   }
 
-  /** 档内有 Holdout Rank_Score 的票，简单平均。无分数的不进分母。 */
+  /** 档内有 Holdout Lift_Score 的票，简单平均。无分数的不进分母。 */
   function tierMeanHoldoutScore(rows) {
     let sum = 0;
     let n = 0;
@@ -464,13 +464,13 @@ export function installResearchUniverseUi(q) {
     const { mean, n, seen } = tierMeanHoldoutScore(rows);
     const total = (rows || []).length;
     const tip = seen
-      ? `Holdout Rank_Score 均值（有分数 ${n}/${total}）。` +
-        "定档仍用表内 Rank_Score。猜涨技能 = 说涨精度 − 上涨日比例。" +
+      ? `Holdout Lift_Score 均值（有分数 ${n}/${total}）。` +
+        "定档仍用表内 Lift_Score。猜涨 lift = 说涨精度 − 上涨日比例。" +
         "说涨少于 8 次没有 Holdout 分数。收益大小不进分数"
-      : "这份报告没有 Holdout Rank_Score。再跑一次「观察池分档」后，这里是 Holdout 猜涨技能均值。定档仍用表内 Rank_Score";
+      : "这份报告没有 Holdout Lift_Score。再跑一次「观察池分档」后，这里是 Holdout 猜涨 lift 均值。定档仍用表内 Lift_Score";
     return (
       `<span class="quant-ru-tier-score" title="${escapeHtml(tip)}">` +
-      `<span class="quant-ru-tier-cs-lab">Rank_Score</span>` +
+      `<span class="quant-ru-tier-cs-lab">Lift_Score</span>` +
       `<span class="quant-ru-tier-cs-val${csValCls(mean)}">${fmtIc(mean)}</span>` +
       `</span>`
     );
@@ -563,10 +563,10 @@ export function installResearchUniverseUi(q) {
             (r) =>
               `<tr data-tier="${tier}">` +
               stockCell(r) +
-              headSkillCell(r, "oo", "oo") +
-              headSkillCell(r, "oo_rank", "oo_rank") +
-              headSkillCell(r, "tc", "τc") +
-              headSkillCell(r, "tc_rank", "τc_rank") +
+              headLiftCell(r, "oo", "oo") +
+              headLiftCell(r, "oo_rank", "oo_rank") +
+              headLiftCell(r, "tc", "τc") +
+              headLiftCell(r, "tc_rank", "τc_rank") +
               scoreCell(r) +
               `</tr>`
           )
@@ -579,11 +579,11 @@ export function installResearchUniverseUi(q) {
           ? `<table class="quant-ru-tier-grid">
               <thead><tr>
                 <th class="quant-ru-col-stock">标的</th>
-                <th class="num" title="定档窗 oo：说涨 = 预估 > 0.05pp；技能 = 说涨精度 − 上涨日比例；进 Rank_Score 等权">oo</th>
-                <th class="num" title="定档窗 oo_rank：说涨 = 预估高于当日截面中位数；技能 = 说涨精度 − 上涨日比例；进 Rank_Score 等权">oo_rank</th>
-                <th class="num" title="定档窗 τc：说涨 = 预估 > 0.05pp（与 τc_rank 同预估、不同口径）；进 Rank_Score 等权">τc</th>
-                <th class="num" title="定档窗 τc_rank：说涨 = 预估高于当日截面中位数；进 Rank_Score 等权">τc_rank</th>
-                <th class="num" title="Rank_Score = 有样本头技能等权。收益大小不进分数；按此分降序取 A / B">Rank_Score</th>
+                <th class="num" title="定档窗 oo：说涨 = 预估 > 0.05pp；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo</th>
+                <th class="num" title="定档窗 oo_rank：说涨 = 预估高于当日截面中位数；lift = 说涨精度 − 上涨日比例；进 Lift_Score 等权">oo_rank</th>
+                <th class="num" title="定档窗 τc：说涨 = 预估 > 0.05pp（与 τc_rank 同预估、不同口径）；进 Lift_Score 等权">τc</th>
+                <th class="num" title="定档窗 τc_rank：说涨 = 预估高于当日截面中位数；进 Lift_Score 等权">τc_rank</th>
+                <th class="num" title="Lift_Score = 有样本头 lift 等权。收益大小不进分数；按此分降序取 A / B">Lift_Score</th>
               </tr></thead>
               <tbody>${trs}</tbody>
             </table>${more}`
@@ -658,13 +658,13 @@ export function installResearchUniverseUi(q) {
     renderTierTable(lastTiers);
     if (lastTiers) {
       const stale =
-        String(lastTiers.protocol || "").trim() !== "tier60_quad_upskill_holdout_eval";
+        String(lastTiers.protocol || "").trim() !== "tier60_quad_uplift_holdout_eval";
       const mm = holdoutMismatch(lastTiers);
       if (stale || mm) {
         const bits = [];
         if (stale) {
           bits.push(
-            "这份报告不是四头猜涨技能定档。请再点「观察池分档」：当场拟合 oo / oo_rank / τc / τc_rank（不改研究套 ŷ_oo / ŷ_τc），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
+            "这份报告不是四头猜涨 lift 定档。请再点「观察池分档」：当场拟合 oo / oo_rank / τc / τc_rank（不改研究套 ŷ_oo / ŷ_τc），有样本头等权，用说涨精度减去上涨日比例重写 A/B/C"
           );
         }
         if (mm) {
