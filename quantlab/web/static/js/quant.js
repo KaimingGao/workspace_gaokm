@@ -144,7 +144,7 @@ export function initQuant(ctx) {
   } = factorMeta;
 
   const BT_SCOPE_LIVE =
-            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 入场/强档金额）。" +
+            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · 入场/强档金额）。" +
     "净值起点 100；成本按纸面成本模型。有效≠正确：先看超额/回撤，再解读累计收益。";
   const BT_SCOPE_FROZEN =
     "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」刷新当次结果。";

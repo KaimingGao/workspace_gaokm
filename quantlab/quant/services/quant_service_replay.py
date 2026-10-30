@@ -154,7 +154,7 @@ class QuantReplayMixin:
             if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
                 return {
                     "success": False,
-                    "error": "无枢纽分档报告；请先在研究枢纽跑「观察池分档」（训练窗定档）",
+                    "error": "无枢纽分档报告；请先在研究枢纽跑「观察池分档」（60 日猜涨技能定档）",
                     "universe": resolved,
                 }
             hold_n_req = (

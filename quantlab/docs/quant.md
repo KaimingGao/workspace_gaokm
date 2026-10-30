@@ -1209,7 +1209,7 @@ flowchart LR
 
 **调仓影子树头（ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree）**：已下线；调仓回测 ŷ头仅 Ridge。Horizon τ30…90 已并入主卡双训（见 §4.3d）。
 
-**观察池分档**（概览下「观察池分档」区；Holdout N / lookback 读 ŷ_oo 卡）：研究套 ŷ_oo 在 lookback **训练窗**按票打 A/B/C。定档 Score = **0.5*OO_F1 + 0.5*TC_F1**（训练窗上涨正类 F1；缺一侧按 0；无研究套 ŷ_τc 时 Score = OO_F1）。A 档另过 F1 门槛：默认 **OO_F1 ≥ 20%**、有研究套 ŷ_τc 时 **TC_F1 ≥ 20%**（工具栏可改，`a_f1` / `tau_a_f1`；0=关）。表列另报 **OO_P / OO_R / OO_ACC** 与 **TC_P / TC_R / TC_ACC**（仅展示；ACC=符号命中率）。过门槛者按 Score 降序取 **top A 数量→A**（未过门槛不占 A 名额），**接着 B 数量→B**、其余→C；无 Score（两侧 F1 都缺，或无 ŷ_τc 时缺 OO_F1）→C。默认 A=100、B=300（`a_count` / `b_count`）。不看单票 IC。面板拉 lookback 全窗（有 Feature Lake 时按日流式）；无研究套时 Holdout 前现训，仍用训练日定档。各档标题分别报 ŷ_oo / ŷ_τc 在 Holdout **整段**（测试）上的日截面 **Rank IC** / **IC** / **ICIR**，以及同窗池化的 **ACC**（符号命中）/ **F1**（上涨正类）。分组与表内 ACC / F1 只看训练窗。分档区 A/B/C 与有样本的**平均收益率**= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」；不参与定档；有样本按档内票数加权）。落盘 `predictability_tiers_last.json`；`/replay` 勾选同步 live 闸（截面 z 用整池，ŷ/名次与开仓只写允许档；勾满 A+B+C ≠ 关闸；报告外不新开；允许集外持仓 live 硬清仓）。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹，过期须重跑分档。
+**观察池分档**（概览下「观察池分档」区；Holdout N 读 ŷ_oo 卡）：Holdout 前 **60 个交易日**定档，与 Holdout、与拟合窗交界各空 **1 个交易日**。定档模型只拟合这 60 日之前，不覆盖研究套；交易打分仍用研究套。当场拟合 **oo / oo_rank / τc / τc_rank**（内存 Ridge）。收益头说涨 = 预估 > 0.05pp；排序头说涨 = 预估高于当日截面中位数。猜涨精度 = 说涨日里标签真正上涨的比例。技能 = 猜涨精度 − 该票定档窗上涨日比例；有样本头等权。收益大小不进分数。单头说涨少于 **8 次**不计入该头；oo_rank 失败则整次失败，其余头软跳过；都没有则归 C。按技能降序取 **top A 数量→A**、**接着 B 数量→B**、其余→C。默认 A=100、B=300。表内：四头技能 + Rank_Score；档标题只留 Holdout Rank_Score 均值；KPI 平均收益率看 Holdout 等权买持。落盘 `predictability_tiers_last.json`（协议 `tier60_quad_upskill_holdout_eval`）；`/replay` 勾选同步 live 闸。回测/live 校验协议、Holdout N、评测末日新鲜度与池指纹；旧协议报告会被拒绝，须重跑分档。
 
 ### 4.2 τ 打分链（层 2 · 残差头挂载）
 

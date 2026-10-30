@@ -345,7 +345,7 @@ export const Y_TAU_TITLE = Y_OC_TITLE;
 export const Y_OC_REBALANCE_TITLE =
   "ŷ_τc · 09:30–10:00 因果前缀 price(τ)→close[T]";
 export const FUSE_REBALANCE_TITLE =
-  "fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1]";
+  "fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · τ→open[T+1]";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =

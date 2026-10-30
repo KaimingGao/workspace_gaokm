@@ -2907,7 +2907,7 @@ export function createScoreTooltipController() {
           `<div class="score-hero-label">fuse</div>` +
           `<div class="score-hero-value ${signCls(ranked)}">${escapeText(val)}</div>` +
           `</div>` +
-          `<div class="score-hero-hint">w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=open[T+1]/price(τ)−1</div>` +
+          `<div class="score-hero-hint">fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co；真实=open[T+1]/price(τ)−1</div>` +
           `</div>`;
       }
       showCompactScoreTip(cell, blendHtml, { sticky });

@@ -297,14 +297,13 @@ def quant_research_universe_predictability_tiers(
         description="A 档另须 TC_R+>0（训练窗 mean(y_τc|ŷ_τc>ε)；有 ŷ_τc 研究套时生效；默认开）",
     ),
 ) -> Dict[str, Any]:
-    """观察池分档：研究套 ŷ_oo 按票打档，落盘 last。
+    """观察池分档：Holdout 前 60 日猜涨技能（说涨精度 − 上涨日比例），落盘 last。
 
-    F1/命中看 lookback 训练窗；标题测试指标与等权买持看 Holdout 整段。
-    holdout: ŷ_oo 卡片 Holdout 交易日数（评测窗）。
-    lookback: ŷ_oo 卡训练窗（定档样本；与拟合 lookback 对齐）。
-    定档：Score=0.5*OO_F1+0.5*TC_F1（无 τc 研究套则 Score=OO_F1；缺一侧按 0）。
-    A 档另过 a_f1 / tau_a_f1（默认 20% / 20%）；可勾选 OO_R+>0 / TC_R+>0（各独立；无 τc 研究套时 TC 不生效）；未过门槛不占 A 名额。
-    过门槛者 top a_count→A、接着 b_count→B、其余→C（UI「A/B 档数量」与 F1 门槛）。
+    表内四头技能 + Rank_Score；档标题 Rank_Score 均值与等权买持看 Holdout。
+    holdout: ŷ_oo 卡片 Holdout 交易日数（评测窗，不参与定档）。
+    lookback: 面板长度。定档模型只拟合定档窗之前，不覆盖研究套。
+    a_f1 / tau_a_f1 / require_*_r_pos 仍接受，不再参与排队。
+    有分数者 top a_count→A、接着 b_count→B、其余→C。
     回测天数由回测页 lookback 独立设置。
     """
     from core.research.predictability_tiers import (
@@ -334,6 +333,15 @@ def quant_research_universe_predictability_tiers(
         return rep
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+@router.get("/api/quant/research-universe/predictability-tiers/progress")
+
+def quant_research_universe_predictability_tiers_progress() -> Dict[str, Any]:
+    """分档进行到哪一步。长请求期间供状态条轮询。"""
+    from core.research.predictability_tiers import tier_progress_snapshot
+
+    return tier_progress_snapshot()
+
 
 @router.get("/api/quant/research-universe/predictability-tiers/last")
 

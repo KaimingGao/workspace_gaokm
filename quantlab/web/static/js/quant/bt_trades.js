@@ -312,7 +312,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "10rem",
     num: true,
     sortable: true,
-    title: "fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1] 基准",
+    title: "fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · τ→open[T+1] 基准",
   },
   {
     id: "y_oo",
@@ -1023,7 +1023,7 @@ function buildSimTradeRow(r, i, deps) {
       ? eodScore
       : blendRaw;
   const scoreColTitleBase = hasTau
-    ? "fuse = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 悬停看组成"
+    ? "fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · 悬停看组成"
     : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_oc · 关 τ 闸";
   const singleHead =
     r.dual_score_single_head === true ||
@@ -1360,7 +1360,7 @@ export function btTradesCellHtml(col, d, deps) {
         d.realizedFuseCls,
         escapeHtml
       ),
-      d.fuseTipCell || "fuse = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 真实 open[T+1]/price(τ)−1",
+      d.fuseTipCell || "fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · 真实 open[T+1]/price(τ)−1",
       escapeHtml,
       "fuse",
       d.scoreDetail

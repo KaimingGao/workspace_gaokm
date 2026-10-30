@@ -1,28 +1,17 @@
-"""滚动可预测性票档：按 lookback **训练窗**上涨正类 F1 合成 Score 定档。
+"""滚动可预测性票档：Holdout 前 60 个交易日的猜涨技能定档。
 
-用**已落盘研究套** ŷ_oo（``return_score_model_research.json``）打分，与日线实现标签按票聚合。
-表内命中率与 F1 只看 lookback **训练日**（Holdout 前；定档）。各档标题的 Rank IC / IC / ICIR / ACC / F1
-与档内平均收益都看 Holdout **整段**（测试；不参与定档）。
-有研究套 ŷ_τc（``tau_ridge_model_research.json``）时同样：表内命中与 F1 看训练窗，标题测试指标看 Holdout：
-- hit_rate / hit_rate_tau = 训练窗符号命中率（表「OO_ACC」/「TC_ACC」；不进 Score / A 档）
-- n_valid / n_valid_tau = 训练窗有效决策日（表内不展示）
-- Score = 0.5*OO_F1 + 0.5*TC_F1（``f1_pos`` / ``f1_pos_tau``；缺一侧按 0；两侧都缺 → 无 Score）
-  无 ŷ_τc 研究套时 Score = OO_F1
-- A 档另过 F1 门槛（默认 OO_F1 ≥ 20%、有 ŷ_τc 研究套时 TC_F1 ≥ 20%；可配 ``a_f1`` / ``tau_a_f1``）；
-  可选 **OO_R+ > 0** / **TC_R+ > 0**（``require_oo_r_pos`` / ``require_tc_r_pos``，默认皆开；勾选的各自独立须过线）
-  （无 ŷ_τc 研究套时 TC_F1 / TC_R+ 门槛不生效）
-- 过门槛者按 Score 降序取 top ``a_count``→A（未过门槛不占 A 名额），接着 ``b_count``→B，其余→C（默认 100 / 300）；无 Score→C
-- 分档后另报各档在 Holdout **整段**上的日截面 Rank IC / IC / ICIR，
-  以及同窗池化的符号命中 ACC 与上涨正类 F1（测试指标，不参与定档）；
-  档内「平均收益率」= Holdout 整段 **等权买持**（close，对齐回测「观察池A档等权」）
-- 每票 ``mean_y_pos`` = 训练窗 mean(y_oo | ŷ_oo>ε)（分档表「OO_R+」；勾选时进 A 档门槛）
-- 每票 ``f1_pos`` / ``precision_pos`` / ``recall_pos`` = 训练窗 ŷ_oo 上涨正类
-  （表「OO_F1」进 Score 与 A 档；「OO_P」/「OO_R」仅展示）
-- 有 ŷ_τc 研究套时：``mean_y_pos_tau``（TC_R+）、``f1_pos_tau``（TC_F1，进 Score 与 A 档）、
-  ``precision_pos_tau`` / ``recall_pos_tau``（TC_P / TC_R）同口径只换头
+定档模型只拟合这 60 日之前（交界再空 1 日），不覆盖研究套。交易打分仍用研究套。
+定档技能 = 当场拟合的 oo / oo_rank / τc / τc_rank 有样本头等权（猜涨精度 − 上涨日比例）。
+- 收益头 oo / τc：说涨 = 预估 > ε（默认 0.05pp）
+- 排序头 oo_rank / τc_rank：说涨 = 预估高于当日截面中位数（可与收益头同预估）
+- Score = 有样本头技能等权。收益大小不进分数。oo_rank 硬失败；其余头软跳过
+- 单头说涨少于 8 次的不计入该头。没有分数 → C
+- 有分数者按 Score 降序取 top ``a_count``→A，接着 ``b_count``→B，其余→C（默认 100 / 300）
+- 表内：四头技能 + Rank_Score；档标题只留 Holdout Rank_Score 均值
+- 档内 KPI「平均收益率」= Holdout 整段等权买持（close；无模型）
 
-研究套缺失时回退：ŷ_oo 在 Holdout 前现训（不读执行套），仍用训练日 in-sample ŷ 定档、Holdout 评测；
-ŷ_τc 缺研究套则 Score = OO_F1。面板拉 **lookback 全窗**（有研究套优先 Feature Lake 按日打分）。
+交易打分仍用已落盘研究套。定档用的 Ridge 只在内存里，不覆盖研究套或执行套。
+面板拉 lookback 全窗（有研究套优先 Feature Lake 按日打分）。
 
 默认池 = 观察池；可选 research_universe（其它 pool 名，含已废弃的 ledger，等同 watching）。
 
@@ -38,9 +27,38 @@ from __future__ import annotations
 import logging
 import math
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import threading
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
+
+_TIER_PROGRESS_LOCK = threading.Lock()
+_TIER_PROGRESS: Dict[str, Any] = {"running": False, "phase": "", "detail": ""}
+
+
+def set_tier_progress(phase: str, detail: str = "") -> None:
+    """分档进行到哪一步。页面轮询这一句，不把规则写进状态条。"""
+    with _TIER_PROGRESS_LOCK:
+        _TIER_PROGRESS["running"] = True
+        _TIER_PROGRESS["phase"] = str(phase or "").strip()
+        _TIER_PROGRESS["detail"] = str(detail or "").strip()
+
+
+def finish_tier_progress() -> None:
+    with _TIER_PROGRESS_LOCK:
+        _TIER_PROGRESS["running"] = False
+        _TIER_PROGRESS["phase"] = ""
+        _TIER_PROGRESS["detail"] = ""
+
+
+def tier_progress_snapshot() -> Dict[str, Any]:
+    with _TIER_PROGRESS_LOCK:
+        return {
+            "running": bool(_TIER_PROGRESS.get("running")),
+            "phase": str(_TIER_PROGRESS.get("phase") or ""),
+            "detail": str(_TIER_PROGRESS.get("detail") or ""),
+        }
+
 
 from core.io_atomic import atomic_write_json
 
@@ -111,9 +129,13 @@ POOL_WATCHING = "watching"
 POOL_RESEARCH = "research_universe"
 DEFAULT_POOL = POOL_WATCHING
 
-# 主协议：lookback 训练窗定档 + Holdout 整段评测
-PROTOCOL_HOLDOUT_OOS = "lookback_train_holdout_eval"
+# 主协议：Holdout 前 60 日猜涨技能定档 + Holdout 整段评测
+PROTOCOL_HOLDOUT_OOS = "tier60_quad_upskill_holdout_eval"
 TITLE_METRIC_WINDOW = "holdout"
+SELECTION_WINDOW = "tier60_quad_upskill"
+DEFAULT_TIER_WINDOW_DAYS = 60
+DEFAULT_TIER_EMBARGO_DAYS = 1
+DEFAULT_TIER_MIN_DAYS = 8
 # 评测末日（Holdout 末）相对今天的最大日历日滞后（约 5 个交易日）
 DEFAULT_TIER_AS_OF_MAX_LAG_DAYS = 7
 
@@ -176,7 +198,7 @@ def validate_predictability_tiers_report(
             "ok": False,
             "error": (
                 f"分档报告协议缺失或过旧（{protocol or '空'}）；"
-                "请重跑「观察池分档」（训练窗定档 + Holdout 评测）"
+                "请重跑「观察池分档」（60 日猜涨技能定档 + Holdout 评测）"
             ),
             "protocol": protocol or None,
         }
@@ -297,12 +319,25 @@ def build_lookback_holdout_split(
     test_days: Sequence[str],
     *,
     holdout_n: int,
+    tier_window_days: int = DEFAULT_TIER_WINDOW_DAYS,
+    embargo_days: int = DEFAULT_TIER_EMBARGO_DAYS,
 ) -> Dict[str, Any]:
-    """定档窗=训练日；评测窗=Holdout 整段。
+    """定档窗=Holdout 前 ``tier_window_days`` 个交易日；评测窗=Holdout 整段。
 
-    若训练日与 Holdout 重叠，重叠日只留在评测窗（从训练窗剔除），避免定档泄漏。
+    训练日与 Holdout 重叠的日子只留在评测窗。定档窗与评测窗、拟合窗与定档窗
+    交界各空 ``embargo_days`` 个交易日，避免次日开盘标签跨窗。
     """
     h = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
+    try:
+        tw = int(tier_window_days)
+    except (TypeError, ValueError):
+        tw = DEFAULT_TIER_WINDOW_DAYS
+    tw = max(5, min(tw, 250))
+    try:
+        emb = int(embargo_days)
+    except (TypeError, ValueError):
+        emb = DEFAULT_TIER_EMBARGO_DAYS
+    emb = max(0, min(emb, 5))
     train = sorted(
         {str(d).strip()[:10] for d in (train_days or []) if str(d or "").strip()[:10]}
     )
@@ -318,12 +353,16 @@ def build_lookback_holdout_split(
         "holdout_n": h,
         "n_test": len(test),
         "test_days": test,
-        "tier_dates": train,
-        "tier_n": len(train),
+        "tier_dates": [],
+        "tier_n": 0,
+        "fit_dates": [],
+        "fit_n": 0,
         "eval_dates": test,
         "eval_n": len(test),
         "overlap_dropped": overlap,
-        "selection_window": "lookback_train",
+        "embargo_days": emb,
+        "tier_window_days": tw,
+        "selection_window": SELECTION_WINDOW,
         "title_metric_window": TITLE_METRIC_WINDOW,
     }
     if len(test) < 1 or len(train) < 1:
@@ -333,18 +372,43 @@ def build_lookback_holdout_split(
             + "）"
         )
         return empty
+    body = list(train)
+    if emb and len(body) <= emb:
+        empty["error"] = f"训练日不够空出评测前 {emb} 日（train={len(body)}）"
+        return empty
+    embargo_before_test = body[-emb:] if emb else []
+    body = body[:-emb] if emb else body
+    if len(body) < tw + emb + 1:
+        empty["error"] = (
+            f"定档窗不足（需要 {tw} 日定档 + {emb} 日交界 + 拟合日，"
+            f"评测前还剩 {len(body)} 日）"
+        )
+        return empty
+    tier = body[-tw:]
+    rest = body[:-tw]
+    embargo_before_tier = rest[-emb:] if emb else []
+    fit = rest[:-emb] if emb else rest
+    if len(fit) < 1:
+        empty["error"] = "拟合窗为空"
+        return empty
     return {
         "ok": True,
         "holdout_n": h,
         "n_test": len(test),
         "test_days": test,
-        "tier_dates": train,
-        "tier_n": len(train),
+        "tier_dates": tier,
+        "tier_n": len(tier),
+        "fit_dates": fit,
+        "fit_n": len(fit),
+        "embargo_before_test": embargo_before_test,
+        "embargo_before_tier": embargo_before_tier,
         "eval_dates": list(test),
         "eval_n": len(test),
         "overlap_dropped": overlap,
-        "as_of_tier_last": train[-1] if train else None,
-        "selection_window": "lookback_train",
+        "embargo_days": emb,
+        "tier_window_days": tw,
+        "as_of_tier_last": tier[-1],
+        "selection_window": SELECTION_WINDOW,
         "title_metric_window": TITLE_METRIC_WINDOW,
     }
 
@@ -714,7 +778,9 @@ def assign_tiers_by_rank_score(
     require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
     require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
 ) -> None:
-    """就地定档：Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 时 Score = OO_F1）。
+    """遗留 F1 定档（仅测试保留）。现网用 ``assign_tiers_by_lift``。
+
+    Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 时 Score = OO_F1）。
 
     - 有 ŷ_τc（``require_tau``）：缺一侧 F1 按 0；两侧都缺 → 无 Score，档 C
     - 无 ŷ_τc：Score = OO_F1；缺 OO_F1 → C（TC_F1 不计入）
@@ -806,6 +872,831 @@ def assign_tiers_by_rank_score(
             b_left -= 1
         else:
             r["tier"] = "C"
+
+
+def attach_holdout_scores(
+    rows: Sequence[Dict[str, Any]],
+    combined: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """写入 Holdout 猜涨技能。不改档位，也不改定档用的 Rank_Score。"""
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("code") or "")
+        meta = combined.get(code) if code else None
+        r["score_holdout"] = None
+        if not isinstance(meta, dict) or meta.get("score") is None:
+            continue
+        try:
+            score = float(meta["score"])
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(score):
+            r["score_holdout"] = round(score, 6)
+
+
+_SKILL_HEAD_PREFIXES = ("oo_rank", "oo", "tc_rank", "tc")
+_SKILL_ROW_KEYS = tuple(
+    f"{kind}_{prefix}"
+    for prefix in _SKILL_HEAD_PREFIXES
+    for kind in ("skill", "precision", "base", "n_up")
+)
+
+
+def _normalize_call_mode(call_mode: Optional[str]) -> str:
+    mode = str(call_mode or "abs").strip().lower()
+    if mode in ("cs", "rank", "cs_rank", "median", "cross_section"):
+        return "cs"
+    return "abs"
+
+
+def up_precision_lift_by_code(
+    day_rows: Sequence[Tuple[str, Sequence[Tuple[str, Any, Any]]]],
+    *,
+    min_up_calls: int = DEFAULT_TIER_MIN_DAYS,
+    yhat_eps: float = _YHAT_EPS,
+    call_mode: str = "abs",
+) -> Dict[str, Dict[str, Any]]:
+    """猜涨技能 = P(次日涨 | 说涨) − P(次日涨)。
+
+    ``call_mode``:
+      - ``abs``：说涨 = 预估 > ε（收益头 oo / τc）
+      - ``cs``：说涨 = 预估 > 当日截面中位数（排序头 oo_rank / τc_rank）
+
+    同一套预估可出两套技能；说涨少于 ``min_up_calls`` 不入结果。收益大小不进分数。
+    上涨日比例用该票定档窗里所有有标签的日子，不限说涨日。
+    """
+    try:
+        need = int(min_up_calls)
+    except (TypeError, ValueError):
+        need = DEFAULT_TIER_MIN_DAYS
+    need = max(1, need)
+    mode = _normalize_call_mode(call_mode)
+    try:
+        eps = float(yhat_eps)
+    except (TypeError, ValueError):
+        eps = float(_YHAT_EPS)
+    if not math.isfinite(eps) or eps < 0.0:
+        eps = float(_YHAT_EPS)
+    labeled: Dict[str, int] = {}
+    up_days: Dict[str, int] = {}
+    calls: Dict[str, int] = {}
+    hits: Dict[str, int] = {}
+    for _date, rows in day_rows or []:
+        day_pts: List[Tuple[str, float, float]] = []
+        for code, score, y in rows or []:
+            try:
+                yy = float(y)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(yy):
+                continue
+            c = str(code or "").strip()
+            if not c:
+                continue
+            labeled[c] = labeled.get(c, 0) + 1
+            rose = yy > 1e-12
+            if rose:
+                up_days[c] = up_days.get(c, 0) + 1
+            try:
+                sc = float(score)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(sc):
+                continue
+            day_pts.append((c, sc, yy))
+        if not day_pts:
+            continue
+        if mode == "cs":
+            if len(day_pts) < 2:
+                continue
+            preds = sorted(sc for _c, sc, _yy in day_pts)
+            n_p = len(preds)
+            mid = n_p // 2
+            if n_p % 2 == 1:
+                med = float(preds[mid])
+            else:
+                med = 0.5 * (float(preds[mid - 1]) + float(preds[mid]))
+            for c, sc, yy in day_pts:
+                if sc <= med:
+                    continue
+                calls[c] = calls.get(c, 0) + 1
+                if yy > 1e-12:
+                    hits[c] = hits.get(c, 0) + 1
+        else:
+            for c, sc, yy in day_pts:
+                if sc <= eps:
+                    continue
+                calls[c] = calls.get(c, 0) + 1
+                if yy > 1e-12:
+                    hits[c] = hits.get(c, 0) + 1
+    out: Dict[str, Dict[str, Any]] = {}
+    for code, n_calls in calls.items():
+        n_lab = int(labeled.get(code) or 0)
+        if n_calls < need or n_lab < 1:
+            continue
+        precision = float(hits.get(code) or 0) / float(n_calls)
+        base = float(up_days.get(code) or 0) / float(n_lab)
+        out[code] = {
+            "lift": precision - base,
+            "precision": precision,
+            "base_rate": base,
+            "n_up": int(n_calls),
+            "n_labeled": n_lab,
+            "call_mode": mode,
+        }
+    return out
+
+
+def display_metrics_from_day_rows(
+    day_rows: Sequence[Tuple[str, Sequence[Tuple[str, Any, Any]]]],
+    *,
+    yhat_eps: float = _YHAT_EPS,
+) -> Dict[str, Dict[str, Any]]:
+    """定档窗排序头日预估 → 表内 R+ / ACC / P / R / F1（死区与 absorb 一致）。"""
+    try:
+        eps = float(yhat_eps)
+    except (TypeError, ValueError):
+        eps = float(_YHAT_EPS)
+    if not math.isfinite(eps) or eps < 0.0:
+        eps = float(_YHAT_EPS)
+    slots: Dict[str, Dict[str, Any]] = {}
+    for _date, rows in day_rows or []:
+        for code, pred, y in rows or []:
+            c = str(code or "").strip()
+            if not c:
+                continue
+            slot = slots.get(c)
+            if slot is None:
+                slot = {
+                    "hits": 0,
+                    "n_valid": 0,
+                    "n_days": 0,
+                    "sum_y_pos": 0.0,
+                    "n_y_pos": 0,
+                    "tp_pos": 0,
+                    "fp_pos": 0,
+                    "fn_pos": 0,
+                }
+                slots[c] = slot
+            slot["n_days"] = int(slot["n_days"]) + 1
+            hit = _sign_hit_pair(pred, y, yhat_eps=eps)
+            try:
+                yh = float(pred) if pred is not None else float("nan")
+                ry = float(y) if y is not None else float("nan")
+            except (TypeError, ValueError):
+                yh = float("nan")
+                ry = float("nan")
+            if isinstance(hit, bool):
+                slot["n_valid"] = int(slot["n_valid"]) + 1
+                if hit:
+                    slot["hits"] = int(slot["hits"]) + 1
+                if math.isfinite(yh) and math.isfinite(ry):
+                    pred_up = yh > 0.0
+                    act_up = ry > 0.0
+                    if pred_up and act_up:
+                        slot["tp_pos"] = int(slot["tp_pos"]) + 1
+                    elif pred_up and not act_up:
+                        slot["fp_pos"] = int(slot["fp_pos"]) + 1
+                    elif (not pred_up) and act_up:
+                        slot["fn_pos"] = int(slot["fn_pos"]) + 1
+            if math.isfinite(yh) and math.isfinite(ry) and yh > eps:
+                slot["sum_y_pos"] = float(slot["sum_y_pos"]) + ry
+                slot["n_y_pos"] = int(slot["n_y_pos"]) + 1
+    out: Dict[str, Dict[str, Any]] = {}
+    for code, slot in slots.items():
+        n_valid = int(slot.get("n_valid") or 0)
+        hits = int(slot.get("hits") or 0)
+        hit_rate = round(hits / n_valid, 4) if n_valid > 0 else None
+        n_y_pos = max(0, int(slot.get("n_y_pos") or 0))
+        sum_y_pos = float(slot.get("sum_y_pos") or 0.0)
+        mean_y_pos_raw = (sum_y_pos / n_y_pos) if n_y_pos > 0 else None
+        mean_y_pos = (
+            round(float(mean_y_pos_raw), 4) if mean_y_pos_raw is not None else None
+        )
+        f1_pos, precision_pos, recall_pos = _f1_pos_from_counts(
+            int(slot.get("tp_pos") or 0),
+            int(slot.get("fp_pos") or 0),
+            int(slot.get("fn_pos") or 0),
+        )
+        out[code] = {
+            "hit_rate": hit_rate,
+            "n_valid": n_valid,
+            "n_days": int(slot.get("n_days") or 0),
+            "mean_y_pos": mean_y_pos,
+            "mean_y_pos_raw": mean_y_pos_raw,
+            "n_y_pos": n_y_pos,
+            "f1_pos": f1_pos,
+            "precision_pos": precision_pos,
+            "recall_pos": recall_pos,
+        }
+    return out
+
+
+_OO_DISPLAY_KEYS = (
+    "hit_rate",
+    "n_valid",
+    "n_days",
+    "mean_y_pos",
+    "mean_y_pos_raw",
+    "n_y_pos",
+    "f1_pos",
+    "precision_pos",
+    "recall_pos",
+)
+_OO_DISPLAY_CLEAR = {
+    "hit_rate": None,
+    "n_valid": 0,
+    "n_days": 0,
+    "mean_y_pos": None,
+    "mean_y_pos_raw": None,
+    "n_y_pos": 0,
+    "f1_pos": None,
+    "precision_pos": None,
+    "recall_pos": None,
+}
+_TC_DISPLAY_CLEAR = {
+    "hit_rate_tau": None,
+    "n_valid_tau": 0,
+    "mean_y_pos_tau": None,
+    "mean_y_pos_tau_raw": None,
+    "n_y_pos_tau": 0,
+    "f1_pos_tau": None,
+    "precision_pos_tau": None,
+    "recall_pos_tau": None,
+}
+
+
+def attach_tier_head_display(
+    rows: Sequence[Dict[str, Any]],
+    oo_by: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    tc_by: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    *,
+    write_tc: bool = True,
+) -> None:
+    """用定档窗 oo_rank / τc_rank 覆盖表内展示列；不碰 Holdout 标题指标。"""
+    oo_map = oo_by if isinstance(oo_by, Mapping) else {}
+    tc_map = tc_by if isinstance(tc_by, Mapping) else {}
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("code") or "").strip()
+        oo = oo_map.get(code) if code else None
+        if isinstance(oo, dict):
+            for key in _OO_DISPLAY_KEYS:
+                if key in oo:
+                    r[key] = oo[key]
+        else:
+            r.update(_OO_DISPLAY_CLEAR)
+        if write_tc:
+            tc = tc_map.get(code) if code else None
+            if isinstance(tc, dict):
+                # display_metrics 产出无 _tau 后缀；映射到行字段
+                r["hit_rate_tau"] = tc.get("hit_rate")
+                r["n_valid_tau"] = int(tc.get("n_valid") or 0)
+                r["mean_y_pos_tau"] = tc.get("mean_y_pos")
+                r["mean_y_pos_tau_raw"] = tc.get("mean_y_pos_raw")
+                r["n_y_pos_tau"] = int(tc.get("n_y_pos") or 0)
+                r["f1_pos_tau"] = tc.get("f1_pos")
+                r["precision_pos_tau"] = tc.get("precision_pos")
+                r["recall_pos_tau"] = tc.get("recall_pos")
+            else:
+                r.update(_TC_DISPLAY_CLEAR)
+        else:
+            r.update(_TC_DISPLAY_CLEAR)
+
+
+def combine_head_lifts(
+    maps: Optional[Mapping[str, Mapping[str, Mapping[str, Any]]]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """有 lift 的头等权平均；都没有则不入结果。
+
+    ``maps`` 键用 ``oo_rank`` / ``oo`` / ``tc_rank`` / ``tc``（也可扩展）。
+    """
+    srcs: List[Tuple[str, Mapping[str, Mapping[str, Any]]]] = []
+    for prefix, raw in (maps or {}).items():
+        key = str(prefix or "").strip()
+        if not key or not isinstance(raw, Mapping):
+            continue
+        srcs.append((key, raw))
+    combined: Dict[str, Dict[str, Any]] = {}
+    if not srcs:
+        return combined
+    codes: set = set()
+    for _prefix, src in srcs:
+        codes |= set(src.keys())
+    for code in codes:
+        parts: List[float] = []
+        meta: Dict[str, Any] = {}
+        for prefix, src in srcs:
+            pack = src.get(code)
+            if not isinstance(pack, dict) or pack.get("lift") is None:
+                continue
+            try:
+                lift = float(pack["lift"])
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(lift):
+                continue
+            parts.append(lift)
+            meta[f"skill_{prefix}"] = round(lift, 6)
+            if pack.get("precision") is not None:
+                meta[f"precision_{prefix}"] = round(float(pack["precision"]), 6)
+            if pack.get("base_rate") is not None:
+                meta[f"base_{prefix}"] = round(float(pack["base_rate"]), 6)
+            if pack.get("n_up") is not None:
+                meta[f"n_up_{prefix}"] = int(pack["n_up"])
+        if not parts:
+            continue
+        meta["score"] = float(sum(parts) / len(parts))
+        combined[str(code)] = meta
+    return combined
+
+
+def combine_head_lift(
+    oo: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    tc: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """兼容旧双参：映射为 ``oo_rank`` / ``tc_rank`` 再等权。"""
+    return combine_head_lifts({"oo_rank": dict(oo or {}), "tc_rank": dict(tc or {})})
+
+
+def sort_rows_by_tier_score(rows: Sequence[Dict[str, Any]]) -> None:
+    """档内按 Rank_Score 降序。没有分数的排在该档最后。"""
+    tier_rank = {"A": 0, "B": 1, "C": 2}
+
+    def _key(r: Dict[str, Any]):
+        raw = r.get("score") if isinstance(r, dict) else None
+        try:
+            score = float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            score = None
+        if score is None or not math.isfinite(score):
+            score = None
+        return (
+            tier_rank.get(str((r or {}).get("tier") or "C"), 9),
+            -(score if score is not None else -1.0),
+            -int((r or {}).get("n_valid") or 0),
+            str((r or {}).get("code") or ""),
+        )
+
+    if isinstance(rows, list):
+        rows.sort(key=_key)
+
+
+def assign_tiers_by_lift(
+    rows: Sequence[Dict[str, Any]],
+    combined: Mapping[str, Mapping[str, Any]],
+    *,
+    a_count: int = DEFAULT_A_COUNT,
+    b_count: int = DEFAULT_B_COUNT,
+) -> None:
+    """按猜涨技能降序取 top ``a_count``→A、接着 ``b_count``→B，没有分数的进 C。"""
+    n_a = clamp_a_count(a_count)
+    n_b = clamp_b_count(b_count)
+    scored: List[Tuple[float, str, Dict[str, Any]]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("code") or "")
+        meta = combined.get(code) if code else None
+        r["tier"] = "C"
+        r["score"] = None
+        for key in _SKILL_ROW_KEYS:
+            r.pop(key, None)
+        if not isinstance(meta, dict) or meta.get("score") is None:
+            continue
+        try:
+            score = float(meta["score"])
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(score):
+            continue
+        r["score"] = round(score, 6)
+        for key in _SKILL_ROW_KEYS:
+            if meta.get(key) is not None:
+                r[key] = meta.get(key)
+        scored.append((score, code, r))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    a_left = n_a
+    b_left = n_b
+    for _score, _code, r in scored:
+        if a_left > 0:
+            r["tier"] = "A"
+            a_left -= 1
+        elif b_left > 0:
+            r["tier"] = "B"
+            b_left -= 1
+        else:
+            r["tier"] = "C"
+
+
+def _predict_rank_days(
+    model: Dict[str, Any],
+    days: Sequence[Dict[str, Any]],
+) -> List[Tuple[str, List[Tuple[str, Any, Any]]]]:
+    from core.research.oo_rank_lambdarank import _predict_ridge_matrix
+
+    out: List[Tuple[str, List[Tuple[str, Any, Any]]]] = []
+    for day in days or []:
+        if not isinstance(day, dict):
+            continue
+        codes = list(day.get("codes") or [])
+        ys = list(day.get("ys") or [])
+        preds = _predict_ridge_matrix(model, day)
+        rows: List[Tuple[str, Any, Any]] = []
+        for i, code in enumerate(codes):
+            y = ys[i] if i < len(ys) else None
+            pred = preds[i] if i < len(preds) else None
+            rows.append((str(code), pred, y))
+        out.append((str(day.get("date") or "")[:10], rows))
+    return out
+
+
+def _ridge_model_from_days(days: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    from core.research.oo_rank_lambdarank import _fit_ridge_baseline
+
+    names: List[str] = []
+    for day in days or []:
+        raw = day.get("names") if isinstance(day, dict) else None
+        if isinstance(raw, (list, tuple)) and raw:
+            names = [str(n) for n in raw]
+            break
+    if not names:
+        return {"success": False, "error": "定档模型没有特征名"}
+    report = _fit_ridge_baseline(
+        days,
+        feature_names=names,
+        ridge_lambda=1.0,
+        cross_section_zscore=True,
+    )
+    if not isinstance(report, dict) or not report.get("success"):
+        return report if isinstance(report, dict) else {"success": False, "error": "定档模型拟合失败"}
+    # Ridge 报告本身就是打分模型（coefficients / intercept），没有单独的 return_model。
+    if not isinstance(report.get("coefficients"), dict) or not report.get("coefficients"):
+        nested = report.get("return_model") or report.get("model")
+        if isinstance(nested, dict) and isinstance(nested.get("coefficients"), dict):
+            report = nested
+        else:
+            return {"success": False, "error": "定档模型没有系数"}
+    return {"success": True, "return_model": report}
+
+
+def _skill_from_panels(
+    panels: Sequence[Dict[str, Any]],
+    fit_dates: Sequence[str],
+    tier_dates: Sequence[str],
+    *,
+    eval_dates: Sequence[str] = (),
+    progress_phase: str = "",
+) -> Dict[str, Any]:
+    fit_set = {str(d)[:10] for d in fit_dates}
+    tier_set = {str(d)[:10] for d in tier_dates}
+    eval_set = {str(d)[:10] for d in eval_dates} - fit_set
+    fit_days = [
+        d for d in panels if str(d.get("date") or "")[:10] in fit_set
+    ]
+    tier_days = [
+        d for d in panels if str(d.get("date") or "")[:10] in tier_set
+    ]
+    eval_days = [
+        d for d in panels if str(d.get("date") or "")[:10] in eval_set
+    ]
+    if progress_phase:
+        set_tier_progress(progress_phase, "只在内存，不写研究套")
+    if len(fit_days) < 8 or len(tier_days) < 1:
+        return {
+            "ok": False,
+            "error": (
+                f"定档面板不足（拟合 {len(fit_days)} 日，定档 {len(tier_days)} 日）"
+            ),
+        }
+    report = _ridge_model_from_days(fit_days)
+    model = report.get("return_model") if isinstance(report, dict) else None
+    if not isinstance(model, dict):
+        return {
+            "ok": False,
+            "error": (report or {}).get("error") if isinstance(report, dict) else "定档模型拟合失败",
+        }
+    scored = _predict_rank_days(model, tier_days)
+    holdout_scored: List[Tuple[str, List[Tuple[str, Any, Any]]]] = []
+    if eval_days:
+        holdout_scored = _predict_rank_days(model, eval_days)
+    by_abs = up_precision_lift_by_code(scored, call_mode="abs")
+    by_cs = up_precision_lift_by_code(scored, call_mode="cs")
+    holdout_abs = (
+        up_precision_lift_by_code(holdout_scored, call_mode="abs")
+        if holdout_scored
+        else {}
+    )
+    holdout_cs = (
+        up_precision_lift_by_code(holdout_scored, call_mode="cs")
+        if holdout_scored
+        else {}
+    )
+    return {
+        "ok": True,
+        # 默认给排序头（cs）；收益头读 by_code_abs
+        "by_code": by_cs,
+        "by_code_abs": by_abs,
+        "by_code_cs": by_cs,
+        "holdout_by_code": holdout_cs,
+        "holdout_by_code_abs": holdout_abs,
+        "holdout_by_code_cs": holdout_cs,
+        "model": model,
+    }
+
+
+def _build_oo_return_day_panels(
+    items: Sequence[Dict[str, Any]],
+    *,
+    horizon_days: int = 1,
+) -> List[Dict[str, Any]]:
+    """研究套口径 oo 特征日截面（FAMILY_OO / assemble 路径），供内存 oo Ridge 定档。"""
+    import numpy as np
+
+    from core.research.materialize.coverage import enforce_consumer_coverage
+    from core.research.oo_rank_panel import group_day_matrices
+    from core.research.oo_ridge_compact import (
+        _oo_stock_job,
+        _stack_blocks,
+    )
+    from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
+
+    enforce_consumer_coverage(
+        list(items or []),
+        families=["oo"],
+        clocks=["open"],
+        min_history=int(ALPHA_OO_PANEL_WINDOW),
+    )
+    jobs: List[Tuple[str, Sequence[dict]]] = []
+    parts: List[Any] = []
+    codes_parts: List[List[str]] = []
+    horizon_i = max(1, int(horizon_days or 1))
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or item.get("stock_code") or "").strip()
+        bars = list(item.get("bars") or [])
+        if not code or not bars:
+            continue
+        jobs.append((code, bars))
+        x, y, names_i, dates = _oo_stock_job((code, bars, horizon_i, False))
+        parts.append((x, y, names_i, dates))
+        n_rows = int(getattr(x, "shape", (0,))[0] or 0)
+        codes_parts.append([code] * n_rows if n_rows > 0 else [])
+    if not parts:
+        return []
+    x_mat, y_mat, names, dates = _stack_blocks(parts, ridge_core_only=False)
+    codes_all: List[str] = []
+    for chunk in codes_parts:
+        codes_all.extend(chunk)
+    if int(x_mat.shape[0]) != len(codes_all):
+        # 对齐失败时退回空名，group 仍可按日切
+        codes_all = [""] * int(x_mat.shape[0])
+    if int(x_mat.shape[0]) == 0:
+        return []
+    return group_day_matrices(
+        np.ascontiguousarray(x_mat),
+        np.asarray(y_mat, dtype=np.float64),
+        names,
+        dates,
+        codes_all,
+        min_names=8,
+    )
+
+
+def _build_tau_day_panels_for_tier(
+    items: Sequence[Dict[str, Any]],
+    fit_dates: Sequence[str],
+    *,
+    head: str,
+    cache_head: str,
+) -> List[Dict[str, Any]]:
+    """τ 开盘钟日截面：``head`` 为 ``y_tc_rank`` 或 ``y_tc``。"""
+    import numpy as np
+
+    from core.research.oo_rank_panel import group_day_matrices
+    from core.research.panel_matrix import collect_tau_compact, raw_atc_finite
+    from core.research.tc_ridge_compact import TAU_FIT_DROP_ALIASES, TAU_Z_FEATURES
+    from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
+
+    X, col_names, ys, dates, metas, _n_stocks = collect_tau_compact(
+        list(items or []),
+        list(TAU_Z_FEATURES),
+        min_history=12,
+        tau_hm="open",
+        include_alpha_tc=True,
+        head=str(head),
+        cache_head=str(cache_head),
+    )
+    drop = set(Z_TC_MINUTE_KEYS) | set(TAU_FIT_DROP_ALIASES)
+    col_set = set(col_names)
+    feat_names = [k for k in TAU_Z_FEATURES if k not in drop and k in col_set]
+    seen = set(feat_names)
+    fit_set = {str(d)[:10] for d in fit_dates}
+    train_row_idx = [i for i, d in enumerate(dates) if str(d)[:10] in fit_set]
+    for key in raw_atc_finite(X, col_names, train_row_idx):
+        if key not in seen:
+            seen.add(key)
+            feat_names.append(key)
+    col_index = {str(n): i for i, n in enumerate(col_names)}
+    cols = [col_index[n] for n in feat_names if n in col_index]
+    feat_names = [n for n in feat_names if n in col_index]
+    x_fit = (
+        np.ascontiguousarray(X[:, cols])
+        if cols
+        else np.zeros((int(X.shape[0]), 0), dtype=np.float64)
+    )
+    codes_all = [
+        str((metas[i] or {}).get("stock_code") or "") if i < len(metas) else ""
+        for i in range(len(ys))
+    ]
+    return group_day_matrices(
+        x_fit,
+        np.asarray(ys, dtype=np.float64),
+        feat_names,
+        dates,
+        codes_all,
+        min_names=8,
+    )
+
+
+def collect_tier_skill(
+    stock_bars: Mapping[str, Sequence[dict]],
+    fit_dates: Sequence[str],
+    tier_dates: Sequence[str],
+    *,
+    eval_dates: Sequence[str] = (),
+    horizon_days: int = 1,
+) -> Dict[str, Any]:
+    """定档窗之前当场拟合 oo_rank / oo / τc_rank / τc，给定档窗打猜涨技能。
+
+    同一模型再打 Holdout，只供标题。不落盘、不覆盖研究套。
+    oo_rank 失败则整次失败；其余头失败软跳过并写 note。
+    """
+    items = [
+        {"code": str(code), "bars": list(bars or [])}
+        for code, bars in (stock_bars or {}).items()
+        if str(code or "").strip() and bars
+    ]
+    if len(items) < 2:
+        return {"ok": False, "error": "定档日线不足 2 只"}
+    try:
+        from core.research.horizon_l1 import release_allocator_cache
+
+        release_allocator_cache()
+    except Exception:  # noqa: BLE001
+        logger.debug("tier skill release cache failed", exc_info=True)
+    from core.research.oo_rank_panel import build_oo_rank_day_panels
+
+    horizon_i = max(1, int(horizon_days or 1))
+    set_tier_progress("准备 oo_rank", "只在内存，不写研究套")
+    try:
+        oo_rank_panels = build_oo_rank_day_panels(
+            items,
+            horizon_days=horizon_i,
+        )
+        oo_rank = _skill_from_panels(
+            oo_rank_panels,
+            fit_dates,
+            tier_dates,
+            eval_dates=eval_dates,
+            progress_phase="拟合 oo_rank",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tier oo_rank panel failed", exc_info=True)
+        return {"ok": False, "error": f"定档 oo_rank 面板失败：{exc}"}
+    if not oo_rank.get("ok"):
+        return oo_rank
+
+    # 收益头 oo：优先独立 oo 面板（abs 说涨）；失败则回退 oo_rank 同预估的 abs 技能
+    oo_map: Dict[str, Dict[str, Any]] = {}
+    oo_pack: Dict[str, Any] = {}
+    oo_note = ""
+    oo_holdout: Dict[str, Dict[str, Any]] = {}
+    set_tier_progress("准备 oo", "只在内存，不写研究套")
+    try:
+        oo_panels = _build_oo_return_day_panels(items, horizon_days=horizon_i)
+        oo_pack = _skill_from_panels(
+            oo_panels,
+            fit_dates,
+            tier_dates,
+            eval_dates=eval_dates,
+            progress_phase="拟合 oo",
+        )
+        if oo_pack.get("ok"):
+            oo_map = oo_pack.get("by_code_abs") or {}
+            oo_holdout = oo_pack.get("holdout_by_code_abs") or {}
+        else:
+            oo_note = str(oo_pack.get("error") or "oo 定档失败")
+    except Exception as exc:  # noqa: BLE001
+        logger.info("tier oo skill skipped: %s", exc)
+        oo_note = f"oo 未入定档：{exc}"
+    if not oo_map:
+        # 同预估、不同说涨口径：abs vs 截面中位数
+        oo_map = oo_rank.get("by_code_abs") or {}
+        oo_holdout = oo_rank.get("holdout_by_code_abs") or {}
+        if oo_map and not oo_note:
+            oo_note = "oo 回退 oo_rank 预估（abs 说涨）"
+
+    # 开盘钟：tc_rank L1 只拟合一次；τc_rank=截面说涨，τc=绝对阈值说涨（不再镜像同一技能）
+    tc_rank_map: Dict[str, Dict[str, Any]] = {}
+    tc_map: Dict[str, Dict[str, Any]] = {}
+    tc_rank_pack: Dict[str, Any] = {}
+    tc_rank_note = ""
+    tc_note = ""
+    tc_holdout_rank: Dict[str, Dict[str, Any]] = {}
+    tc_holdout_abs: Dict[str, Dict[str, Any]] = {}
+    set_tier_progress("准备 τc_rank / τc", "只在内存，不写研究套")
+    try:
+        tau_days = _build_tau_day_panels_for_tier(
+            items,
+            fit_dates,
+            head="y_tc_rank",
+            cache_head="tc_rank",
+        )
+        if not tau_days:
+            tau_days = _build_tau_day_panels_for_tier(
+                items,
+                fit_dates,
+                head="y_tc",
+                cache_head="tc",
+            )
+            if tau_days:
+                tc_note = "τc 回退 cache_head=tc 面板"
+        tc_rank_pack = _skill_from_panels(
+            tau_days,
+            fit_dates,
+            tier_dates,
+            eval_dates=eval_dates,
+            progress_phase="拟合 τc_rank / τc",
+        )
+        if tc_rank_pack.get("ok"):
+            tc_rank_map = tc_rank_pack.get("by_code_cs") or {}
+            tc_map = tc_rank_pack.get("by_code_abs") or {}
+            tc_holdout_rank = tc_rank_pack.get("holdout_by_code_cs") or {}
+            tc_holdout_abs = tc_rank_pack.get("holdout_by_code_abs") or {}
+            if not tc_note:
+                tc_note = "τc / τc_rank 同预估，说涨口径不同（abs / 截面中位）"
+        else:
+            tc_rank_note = str(tc_rank_pack.get("error") or "τc_rank 定档失败")
+            tc_note = tc_note or tc_rank_note
+    except Exception as exc:  # noqa: BLE001
+        logger.info("tier tc skill skipped: %s", exc)
+        tc_rank_note = f"τc_rank 未入定档：{exc}"
+        tc_note = tc_note or tc_rank_note
+
+    set_tier_progress("计算猜涨技能", "")
+    oo_rank_map = oo_rank.get("by_code_cs") or oo_rank.get("by_code") or {}
+    head_maps = {
+        "oo_rank": oo_rank_map,
+        "oo": oo_map,
+        "tc_rank": tc_rank_map,
+        "tc": tc_map,
+    }
+    combined = combine_head_lifts(head_maps)
+    if not combined:
+        return {"ok": False, "error": "定档窗内没有够 8 次说涨的样本"}
+    holdout_maps = {
+        "oo_rank": oo_rank.get("holdout_by_code_cs")
+        or oo_rank.get("holdout_by_code")
+        or {},
+        "oo": oo_holdout,
+        "tc_rank": tc_holdout_rank,
+        "tc": tc_holdout_abs,
+    }
+    holdout = combine_head_lifts(holdout_maps)
+    notes = [
+        n
+        for n in (oo_note, tc_rank_note, tc_note)
+        if n
+        and n
+        not in (
+            "τc / τc_rank 同预估，说涨口径不同（abs / 截面中位）",
+            "oo 回退 oo_rank 预估（abs 说涨）",
+        )
+    ]
+    return {
+        "ok": True,
+        "by_code": combined,
+        "holdout_by_code": holdout,
+        "n_codes": len(combined),
+        "oo_note": oo_note,
+        "tc_rank_note": tc_rank_note,
+        "tc_note": tc_note,
+        "notes": notes,
+        "used_oo": bool(oo_map),
+        "used_tc_rank": bool(tc_rank_map),
+        "used_tc": bool(tc_map),
+        "used_tau": bool(tc_rank_map) or bool(tc_map),
+        "call_modes": {
+            "oo": "abs",
+            "oo_rank": "cs",
+            "tc": "abs",
+            "tc_rank": "cs",
+        },
+    }
 
 
 def _normalize_head(head: Optional[str]) -> str:
@@ -1244,7 +2135,7 @@ def _score_tau_holdout_into_acc(
     metric_set: Optional[set] = None,
     yhat_eps: float = _YHAT_EPS,
 ) -> Dict[str, Any]:
-    """研究套 ŷ_τc：命中看训练窗定档日，成对序列看 Holdout（τ=open，标签 close/open−1）。"""
+    """研究套 ŷ_τc：命中看定档窗，成对序列看 Holdout（τ=open，标签 close/open−1）。"""
     keep = set(tier_set or ())
     if metric_set is not None:
         keep |= set(metric_set)
@@ -1569,10 +2460,12 @@ def accumulate_holdout_oos_by_code(
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     yhat_eps: float = _YHAT_EPS,
     use_research_model: bool = True,
+    tier_window_days: int = DEFAULT_TIER_WINDOW_DAYS,
+    embargo_days: int = DEFAULT_TIER_EMBARGO_DAYS,
 ) -> Dict[str, Any]:
     """用研究套 ŷ_oo（缺则 Holdout 前现训）按票聚合。
 
-    命中 / F1 只记 **训练窗**；ŷ/实现成对记 **Holdout 整段**（供标题测试指标）。
+    命中 / F1 只记 **定档窗**（展示）；ŷ/实现成对记 **Holdout 整段**（供标题测试指标）。
     面板拉 lookback 全窗；有研究套且 Feature Lake 覆盖够时按日流式打分。
 
     返回 ``ok`` / ``acc`` / ``tier_dates`` / ``split_meta`` 等。
@@ -1602,6 +2495,7 @@ def accumulate_holdout_oos_by_code(
     model_meta: Dict[str, Any] = {}
     research_model = None
     model_source = "oo_pre_holdout_refit"
+    set_tier_progress("读取研究套", "不改研究套 ŷ_oo / ŷ_τc")
     if use_research_model:
         research_model, model_meta = _load_research_oo_model()
         if research_model is not None:
@@ -1617,6 +2511,7 @@ def accumulate_holdout_oos_by_code(
                     hz,
                 )
 
+    set_tier_progress("读取日线", "不改研究套 ŷ_oo / ŷ_τc")
     stock_bars, failures, _fund = load_portfolio_stock_bars(
         use_codes,
         lookback=panel_lb,
@@ -1655,7 +2550,11 @@ def accumulate_holdout_oos_by_code(
             "lookback_requested": lookback_req,
         }
     split = build_lookback_holdout_split(
-        train_days_meta, test_days_meta, holdout_n=h_req
+        train_days_meta,
+        test_days_meta,
+        holdout_n=h_req,
+        tier_window_days=tier_window_days,
+        embargo_days=embargo_days,
     )
     if not split.get("ok"):
         return {
@@ -1681,6 +2580,7 @@ def accumulate_holdout_oos_by_code(
     panel_mode = "lookback_full"
     scored_via_lake = False
 
+    set_tier_progress("打分 ŷ_oo", "研究套，只读")
     if research_model is not None:
         try:
             from core.research.lake_bridge import FAMILY_OO
@@ -1890,7 +2790,11 @@ def accumulate_holdout_oos_by_code(
         train_days_meta = [str(d)[:10] for d in (split_meta.get("train_days") or [])]
         test_days_meta = [str(d)[:10] for d in (split_meta.get("test_days") or [])]
         split = build_lookback_holdout_split(
-            train_days_meta, test_days_meta, holdout_n=h_req
+            train_days_meta,
+            test_days_meta,
+            holdout_n=h_req,
+            tier_window_days=tier_window_days,
+            embargo_days=embargo_days,
         )
         if not split.get("ok"):
             return {
@@ -1968,6 +2872,7 @@ def accumulate_holdout_oos_by_code(
         panel_mode = "refit_lookback"
 
     # ŷ_τc：优先 Feature Lake；否则 bars 面板
+    set_tier_progress("打分 ŷ_τc", "研究套，只读")
     tau_meta: Dict[str, Any] = {"ok": False, "n_rows": 0}
     tau_doc, tau_load = _load_research_tau_model()
     if tau_doc is not None and bool(tau_load.get("ok", True)):
@@ -2300,13 +3205,6 @@ def _rows_from_acc(
     pool_codes: Sequence[str],
     pad_missing: bool,
     name_by: Optional[Dict[str, str]] = None,
-    require_tau: bool = False,
-    a_count: int = DEFAULT_A_COUNT,
-    b_count: int = DEFAULT_B_COUNT,
-    a_f1: float = DEFAULT_A_F1,
-    tau_a_f1: float = DEFAULT_TAU_A_F1,
-    require_oo_r_pos: bool = DEFAULT_REQUIRE_OO_R_POS,
-    require_tc_r_pos: bool = DEFAULT_REQUIRE_TC_R_POS,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     name_by = name_by or {}
     if pad_missing and pool_codes:
@@ -2399,36 +3297,10 @@ def _rows_from_acc(
             }
         )
 
-    assign_tiers_by_rank_score(
-        rows,
-        require_tau=bool(require_tau),
-        a_count=a_count,
-        b_count=b_count,
-        a_f1=a_f1,
-        tau_a_f1=tau_a_f1,
-        require_oo_r_pos=bool(require_oo_r_pos),
-        require_tc_r_pos=bool(require_tc_r_pos),
-    )
-    counts = {"A": 0, "B": 0, "C": 0}
+    # 档位由后续 assign_tiers_by_lift 按猜涨技能写入；此处仅搭行骨架
+    counts = {"A": 0, "B": 0, "C": len(rows)}
     for r in rows:
-        tier = str(r.get("tier") or "C")
-        if tier not in counts:
-            tier = "C"
-            r["tier"] = "C"
-        counts[tier] = int(counts.get(tier) or 0) + 1
-
-    tier_rank = {"A": 0, "B": 1, "C": 2}
-
-    def _sort_key(r: dict):
-        sc = r.get("score")
-        return (
-            tier_rank.get(str(r.get("tier") or "C"), 9),
-            -(float(sc) if sc is not None else -1.0),
-            -int(r.get("n_valid") or 0),
-            str(r.get("code") or ""),
-        )
-
-    rows.sort(key=_sort_key)
+        r["tier"] = "C"
     return rows, counts
 
 
@@ -2451,17 +3323,14 @@ def build_predictability_tiers(
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     use_research_model: bool = True,
 ) -> Dict[str, Any]:
-    """研究枢纽协议：研究套 ŷ_oo 按票分档。
+    """研究枢纽协议：Holdout 前 60 日猜涨技能分档。
 
-    F1/命中看 lookback **训练窗**；标题测试指标与等权买持看 Holdout **整段**。
-
-    Score = 0.5*OO_F1 + 0.5*TC_F1（无 ŷ_τc 研究套则 Score = OO_F1；缺一侧按 0）。
-    A 档另过 F1 门槛（``a_f1`` / ``tau_a_f1``，默认 20% / 20%）；
-    ``require_oo_r_pos`` / ``require_tc_r_pos``（默认皆开）时还须对应 R+>0
-    （无 ŷ_τc 研究套时 TC 门槛不生效）。未过门槛不占 A 名额。
-    过门槛者按 Score 降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
+    技能 = 说涨精度 − 该票上涨日比例（收益头 abs / 排序头截面中位）。
+    表内四头技能 + Rank_Score；档标题 Rank_Score 与等权买持看 Holdout。
+    ``a_f1`` / ``tau_a_f1`` / ``require_*_r_pos`` 仍接受，不再参与排队。
+    有分数者按技能降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
     落盘 last；回测 / live：截面 z 不缩小，ŷ 与名次只写允许档，档外不开仓。
-    ``lookback``：对齐 ŷ_oo 卡训练窗（定档样本）；``holdout_n``：评测窗。
+    ``lookback``：面板长度；``holdout_n``：评测窗。
     """
     if a_f1 is None:
         a_f1 = DEFAULT_A_F1
@@ -2471,7 +3340,7 @@ def build_predictability_tiers(
     if head_n == HEAD_TAU:
         return {
             "success": False,
-            "error": "观察池分档仅支持 ŷ_oo（head=oo；训练窗定档 + Holdout 评测）",
+            "error": "观察池分档仅支持 ŷ_oo（head=oo；60 日猜涨技能定档 + Holdout 评测）",
             "protocol": PROTOCOL_HOLDOUT_OOS,
         }
 
@@ -2483,10 +3352,6 @@ def build_predictability_tiers(
     pool_mode = _normalize_pool(pool) if codes is None else "explicit"
     n_a = clamp_a_count(a_count)
     n_b = clamp_b_count(b_count)
-    oo_floor = clamp_f1_floor(a_f1, DEFAULT_A_F1)
-    tau_floor = clamp_f1_floor(tau_a_f1, DEFAULT_TAU_A_F1)
-    need_oo_r_pos = bool(require_oo_r_pos)
-    need_tc_r_pos = bool(require_tc_r_pos)
     if len(pool_codes) < 2:
         return {
             "success": False,
@@ -2495,6 +3360,45 @@ def build_predictability_tiers(
             "pool": pool_mode,
         }
 
+    set_tier_progress("读取日线", "不改研究套 ŷ_oo / ŷ_τc")
+    try:
+        return _emit_predictability_tiers(
+            pool_codes=pool_codes,
+            pool_mode=pool_mode,
+            pool_source=pool_source,
+            resolved=resolved,
+            watch_set=watch_set,
+            watching_codes=watching_codes,
+            holdout_n=holdout_n,
+            lookback=lookback,
+            horizon_days=horizon_days,
+            ridge_lambda=ridge_lambda,
+            use_research_model=use_research_model,
+            n_a=n_a,
+            n_b=n_b,
+            persist=persist,
+        )
+    finally:
+        finish_tier_progress()
+
+
+def _emit_predictability_tiers(
+    *,
+    pool_codes,
+    pool_mode,
+    pool_source,
+    resolved,
+    watch_set,
+    watching_codes,
+    holdout_n,
+    lookback,
+    horizon_days,
+    ridge_lambda,
+    use_research_model,
+    n_a,
+    n_b,
+    persist,
+):
     packed = accumulate_holdout_oos_by_code(
         pool_codes,
         holdout_n=holdout_n,
@@ -2529,18 +3433,60 @@ def build_predictability_tiers(
         pool_codes=pool_codes,
         pad_missing=True,
         name_by=name_by,
-        require_tau=require_tau,
-        a_count=n_a,
-        b_count=n_b,
-        a_f1=oo_floor,
-        tau_a_f1=tau_floor,
-        require_oo_r_pos=need_oo_r_pos,
-        require_tc_r_pos=need_tc_r_pos,
     )
-    n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
     stock_bars = packed.get("stock_bars") if isinstance(packed.get("stock_bars"), dict) else {}
-    # 等权买持与标题指标均看 Holdout 整段
     eval_dates = holdout_eval_dates(split) or list(split.get("test_days") or [])
+    supplied = packed.get("skill_by_code")
+    if isinstance(supplied, dict):
+        combined = supplied
+        skill_meta = {
+            "ok": True,
+            "supplied": True,
+            "used_oo": False,
+            "used_tc_rank": False,
+            "used_tc": False,
+            "used_tau": False,
+            "oo_note": "",
+            "tc_rank_note": "",
+            "tc_note": "",
+        }
+        holdout_supplied = packed.get("skill_holdout_by_code")
+        holdout_combined = holdout_supplied if isinstance(holdout_supplied, dict) else {}
+    else:
+        fit_dates = list(split.get("fit_dates") or [])
+        skill_meta = collect_tier_skill(
+            stock_bars,
+            fit_dates,
+            tier_dates,
+            eval_dates=eval_dates,
+            horizon_days=int(packed.get("horizon_days") or horizon_days or 1),
+        )
+        if not skill_meta.get("ok"):
+            return {
+                "success": False,
+                "error": skill_meta.get("error") or "定档猜涨技能计算失败",
+                "protocol": PROTOCOL_HOLDOUT_OOS,
+                "holdout_split": split,
+                "split_meta": packed.get("split_meta"),
+                "model_meta": packed.get("model_meta"),
+                "tau_meta": tau_meta,
+            }
+        combined = skill_meta.get("by_code") if isinstance(skill_meta.get("by_code"), dict) else {}
+        holdout_raw = skill_meta.get("holdout_by_code")
+        holdout_combined = holdout_raw if isinstance(holdout_raw, dict) else {}
+    set_tier_progress("写入分档", "")
+    assign_tiers_by_lift(rows, combined, a_count=n_a, b_count=n_b)
+    attach_holdout_scores(rows, holdout_combined)
+    sort_rows_by_tier_score(rows)
+    n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
+    counts = {"A": 0, "B": 0, "C": 0}
+    for r in rows:
+        tier_name = str(r.get("tier") or "C")
+        if tier_name not in counts:
+            r["tier"] = "C"
+            tier_name = "C"
+        counts[tier_name] += 1
+    # 等权买持与标题指标均看 Holdout 整段
     metric_dates = list(eval_dates)
     attach_code_holdout_rets(rows, stock_bars, dates=metric_dates)
     cs_pool = summarize_tier_window_cs(acc, dates=eval_dates, head=HEAD_OO)
@@ -2585,11 +3531,30 @@ def build_predictability_tiers(
         if model_source == "oo_research_model"
         else "Holdout 前现训 ŷ_oo（无研究套）"
     )
-    score_note = (
-        "Score=0.5*OO_F1+0.5*TC_F1"
-        if require_tau
-        else "Score=OO_F1（无 ŷ_τc 研究套）"
-    )
+    heads_used = ["oo_rank"]
+    if skill_meta.get("used_oo"):
+        heads_used.append("oo")
+    if skill_meta.get("used_tc_rank"):
+        heads_used.append("τc_rank")
+    if skill_meta.get("used_tc"):
+        heads_used.append("τc")
+    if len(heads_used) > 1:
+        score_note = f"Score={' / '.join(heads_used)} 猜涨技能等权"
+    else:
+        score_note = "Score=oo_rank 猜涨技能"
+    skip_soft = {
+        "开盘 τc 与 τc_rank 同面板，计分只入一次",
+        "τc / τc_rank 同预估，说涨口径不同（abs / 截面中位）",
+        "oo 回退 oo_rank 预估（abs 说涨）",
+    }
+    soft_notes = [
+        str(skill_meta.get(k) or "").strip()
+        for k in ("oo_note", "tc_rank_note", "tc_note")
+        if str(skill_meta.get(k) or "").strip()
+        and str(skill_meta.get(k) or "").strip() not in skip_soft
+    ]
+    if soft_notes:
+        score_note = f"{score_note}（{'；'.join(soft_notes)}）"
     rep: Dict[str, Any] = {
         "success": True,
         "schema": SCHEMA,
@@ -2604,16 +3569,35 @@ def build_predictability_tiers(
         "thresholds": {
             "a_count": int(n_a),
             "b_count": int(n_b),
-            "a_f1": oo_floor,
-            "tau_a_f1": tau_floor,
             "require_tau": bool(require_tau),
-            "require_oo_r_pos": bool(need_oo_r_pos),
-            "require_tc_r_pos": bool(need_tc_r_pos),
-            "score": (
-                "0.5*OO_F1+0.5*TC_F1"
-                if require_tau
-                else "OO_F1"
+            "tier_window_days": int(
+                split.get("tier_window_days") or DEFAULT_TIER_WINDOW_DAYS
             ),
+            "embargo_days": int(split.get("embargo_days") or DEFAULT_TIER_EMBARGO_DAYS),
+            "min_up_calls": DEFAULT_TIER_MIN_DAYS,
+            "min_days": DEFAULT_TIER_MIN_DAYS,
+            "yhat_eps": _YHAT_EPS,
+            "score": "up_precision_lift_quad",
+            "used_oo": bool(skill_meta.get("used_oo")),
+            "used_tc_rank": bool(skill_meta.get("used_tc_rank")),
+            "used_tc": bool(skill_meta.get("used_tc")),
+            "used_tau": bool(skill_meta.get("used_tau")),
+        },
+        "tier_skill": {
+            "used_oo": bool(skill_meta.get("used_oo")),
+            "used_tc_rank": bool(skill_meta.get("used_tc_rank")),
+            "used_tc": bool(skill_meta.get("used_tc")),
+            "used_tau": bool(skill_meta.get("used_tau")),
+            "oo_note": str(skill_meta.get("oo_note") or ""),
+            "tc_rank_note": str(skill_meta.get("tc_rank_note") or ""),
+            "tc_note": str(skill_meta.get("tc_note") or ""),
+            "call_modes": skill_meta.get("call_modes")
+            or {
+                "oo": "abs",
+                "oo_rank": "cs",
+                "tc": "abs",
+                "tc_rank": "cs",
+            },
         },
         "pool": pool_mode,
         "pool_source": pool_source,
@@ -2633,7 +3617,7 @@ def build_predictability_tiers(
         "model_meta": packed.get("model_meta"),
         "tau_meta": tau_meta,
         "counts": counts,
-        "selection_window": str(split.get("selection_window") or "lookback_train"),
+        "selection_window": SELECTION_WINDOW,
         "title_metric_window": TITLE_METRIC_WINDOW,
         "cs_rank_ic": cs_pool.get("cs_rank_ic"),
         "cs_icir": cs_pool.get("cs_icir"),
@@ -2656,26 +3640,22 @@ def build_predictability_tiers(
             "source": resolved.get("source"),
         },
         "note": (
-            f"{src_note} · 训练窗 {tier_n} 日定档"
+            f"{src_note} · 定档窗 {tier_n} 日"
+            f"（Holdout 前 {int(split.get('tier_window_days') or DEFAULT_TIER_WINDOW_DAYS)} 日，"
+            f"交界空 {int(split.get('embargo_days') or DEFAULT_TIER_EMBARGO_DAYS)} 日）"
             f" · Holdout {int(split.get('holdout_n') or holdout_n or DEFAULT_HOLDOUT_N)} 日"
-            f"（{len(eval_dates)} 日）评测标题指标与等权买持"
+            f"（{len(eval_dates)} 日）评测标题 Rank_Score 与等权买持"
             f" · 面板 {panel_lb} 日"
-            + f"；{score_note}；A 须 OO_F1≥{oo_floor:.0%}"
-            + (
-                f"、TC_F1≥{tau_floor:.0%}"
-                if require_tau
-                else "（无 ŷ_τc 研究套，不看 TC_F1 门槛）"
-            )
-            + ("、OO_R+>0" if need_oo_r_pos else "")
-            + ("、TC_R+>0" if need_tc_r_pos and require_tau else "")
-            + f"；过门槛按 Score 降序 top {n_a}→A、接着 {n_b}→B、其余→C"
-            + "；落盘 last；live 档位跟随历史回测「分档」勾选；"
-            "回测天数用独立 lookback。"
+            f"；{score_note}；说涨至少 {DEFAULT_TIER_MIN_DAYS} 次才入队"
+            f"；技能 = 说涨精度 − 上涨日比例；按技能降序 top {n_a}→A、接着 {n_b}→B、其余→C"
+            "；技能 = 有样本头等权（oo / oo_rank / τc / τc_rank；abs / 截面中位）；"
+            "表内：四头技能 / Rank_Score；"
+            "落盘 last；live 档位跟随历史回测「分档」勾选；回测天数用独立 lookback。"
         ),
     }
     if persist:
         try:
             save_predictability_tiers_last(rep)
         except Exception:  # noqa: BLE001
-            logger.debug("persist lookback_train_holdout_eval tiers failed", exc_info=True)
+            logger.debug("persist tier60_quad_upskill_holdout_eval tiers failed", exc_info=True)
     return rep

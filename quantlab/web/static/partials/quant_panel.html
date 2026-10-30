@@ -124,12 +124,12 @@
     </div>
   </section>
 
-  <!-- 观察池分档：训练窗定档 · Holdout 评测/等权买持 · live 跟随回测分档（z 整池 / ŷ 允许档） -->
+  <!-- 观察池分档：Holdout 前 60 日猜涨技能定档 · Holdout 评测/等权买持 · live 跟随回测分档 -->
   <section class="dashboard-section quant-section" id="quant-section-research-universe" aria-labelledby="quant-section-research-universe-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        研究套 ŷ_oo / ŷ_τc · 分档看训练窗 · 标题测试指标与等权买持看 Holdout · live 跟随回测「分档」（z 整池，ŷ/名次只写允许档）
+        定档窗 60 日猜涨技能 · 标题 Rank_Score / 等权买持看 Holdout · live 跟随回测「分档」
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -143,17 +143,18 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡 <strong>lookback 训练窗</strong>上打分：F1 与命中都只取<strong>训练日</strong>（Holdout 前）。
-                面板拉训练窗全长（有 Feature Lake 时按日流式）。无研究套时 Holdout 前现训，仍用训练日 in-sample ŷ 定档。
-                有<strong>研究套 ŷ_τc</strong>时同样取训练窗上涨正类 F1；缺则 Score = OO_F1。
-                定档：Score = 0.5*OO_F1 + 0.5*TC_F1（缺一侧按 0；两侧都缺则无 Score，归 C）。A 档另过 F1 门槛（默认 <strong>OO_F1 ≥ 20%</strong>、<strong>TC_F1 ≥ 20%</strong>，工具栏可改；无研究套 ŷ_τc 时不看 TC_F1）；可分别勾选 <strong>OO_R+&gt;0</strong> / <strong>TC_R+&gt;0</strong>（各独立须过线；无 ŷ_τc 研究套时 TC 不生效；默认皆勾选）。表列另报 OO_P / OO_R / OO_ACC 与 TC_P / TC_R / TC_ACC（仅展示）。
-                过门槛的按 Score 降序取 top <strong>A 数量</strong>→A（未过门槛不占 A 名额），接着 <strong>B 数量</strong>→B、其余→C（默认 100 / 300）。
-                各档标题报 ŷ_oo / ŷ_τc 在 Holdout <strong>整段</strong>（测试）上的日截面 Rank IC · IC · ICIR · ACC · F1；本区 A/B/C KPI 平均收益率同看 Holdout（都不参与定档）。表内 ACC / F1 只看训练窗。
-                调仓 live 跟随历史回测页「分档」勾选：截面 z 用整池，ŷ/名次与开仓只写允许档（掉出则清仓）；不勾则不过滤。
+                定档窗是 Holdout 前 <strong>60 个交易日</strong>，与 Holdout、与拟合窗交界各空 <strong>1 个交易日</strong>。
+                定档模型只拟合这 60 日之前，不覆盖研究套。交易打分仍用研究套。
+                收益头 oo / τc：说涨 = 预估 &gt; 0.05 个百分点。排序头 oo_rank / τc_rank：说涨 = 预估高于当日截面中位数。
+                猜涨精度 = 说涨日里标签真正上涨的比例。技能 = 猜涨精度 − 这只票在定档窗里的<strong>上涨日比例</strong>；四头有样本等权。收益大小不进分数。
+                单头说涨少于 <strong>8 次</strong>不计入该头。当场拟合（不写研究套）；oo_rank 失败则整次失败；都没有则归 C。
+                按技能降序取 top <strong>A 数量</strong>→A，接着 <strong>B 数量</strong>→B、其余→C（默认 100 / 300）。
+                表内：四头技能 · Rank_Score；档标题只留 Rank_Score。
+                调仓 live 跟随历史回测页「分档」勾选。
               </p>
             </div>
           </details>
-          <span class="quant-ru-a-gate" role="group" aria-label="分档数量与 A 档门槛">
+          <span class="quant-ru-a-gate" role="group" aria-label="分档数量">
             <span class="quant-ru-gate-group">
               <span class="quant-ru-gate-k">数量</span>
               <label
@@ -189,59 +190,8 @@
                 />
               </label>
             </span>
-            <span class="quant-ru-gate-group">
-              <span class="quant-ru-gate-k">门槛</span>
-              <label
-                class="quant-inline-num quant-inline-num--frac"
-                title="A 档 OO_F1 门槛。默认 20（0～100）。未达到的不进 A，名额顺延。改完后需再点「观察池分档」。"
-              >
-                <span>OO_F1</span>
-                <input
-                  id="quant-ru-a-f1"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value="20"
-                  inputmode="numeric"
-                  aria-label="A 档 OO_F1"
-                />
-                <span class="quant-ru-a-gate-unit">%</span>
-              </label>
-              <label
-                class="quant-inline-num quant-inline-num--frac"
-                title="A 档 TC_F1 门槛。默认 20（0～100）。有研究套 ŷ_τc 时生效；未达到的不进 A。改完后需再点「观察池分档」。"
-              >
-                <span>TC_F1</span>
-                <input
-                  id="quant-ru-tau-a-f1"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value="20"
-                  inputmode="numeric"
-                  aria-label="A 档 TC_F1"
-                />
-                <span class="quant-ru-a-gate-unit">%</span>
-              </label>
-              <label
-                class="quant-inline-check quant-ru-r-pos-check"
-                title="勾选：A 档另须训练窗 OO_R+=mean(y_oo|ŷ_oo&gt;ε)&gt;0。无看多或 OO_R+≤0 不进 A，名额顺延。默认勾选。改完后需再点「观察池分档」。"
-              >
-                <input id="quant-ru-require-oo-r-pos" type="checkbox" checked aria-label="A 档须 OO_R+大于 0" />
-                <span>OO_R+&gt;0</span>
-              </label>
-              <label
-                class="quant-inline-check quant-ru-r-pos-check"
-                title="勾选：A 档另须训练窗 TC_R+=mean(y_τc|ŷ_τc&gt;ε)&gt;0。有研究套 ŷ_τc 时生效；无看多或 TC_R+≤0 不进 A。默认勾选。改完后需再点「观察池分档」。"
-              >
-                <input id="quant-ru-require-tc-r-pos" type="checkbox" checked aria-label="A 档须 TC_R+大于 0" />
-                <span>TC_R+&gt;0</span>
-              </label>
-            </span>
           </span>
-          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="用研究套 ŷ_oo（+ 有则 ŷ_τc）+ ŷ_oo 卡 lookback 训练窗算 Score 并分组，A 档另过 OO_F1 / TC_F1（可勾选 OO_R+&gt;0 / TC_R+&gt;0）；Holdout 整段算标题测试指标与等权买持">观察池分档</button>
+          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary quant-ru-run" title="用 Holdout 前 60 日的猜涨技能分档：说涨精度减去上涨日比例。定档模型不覆盖研究套。Holdout 整段只评测">观察池分档</button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-ru-body">

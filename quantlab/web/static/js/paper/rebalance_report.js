@@ -1076,7 +1076,7 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
     `<div class="rebalance-th num is-sortable${
       _rankSort.key === "fuse" ? " is-sorted" : ""
-    }" role="columnheader" tabindex="0" data-rank-sort="fuse" title="fuse · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=open[T+1]/price(τ)−1 · 点击排序">fuse${
+    }" role="columnheader" tabindex="0" data-rank-sort="fuse" title="fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co；真实=open[T+1]/price(τ)−1 · 点击排序">fuse${
       _rankSort.key === "fuse" ? (_rankSort.desc ? " ↓" : " ↑") : ""
     }</div>` +
     `<div class="rebalance-th num is-sortable${

@@ -17,12 +17,10 @@ let _bCount = 300;
 let _selectedTiers = null;
 
 function tierTip(t) {
-  const scoreBit = _requireTau
-    ? "Score=0.5*OO_F1+0.5*TC_F1"
-    : "Score=OO_F1";
+  const scoreBit = "Score=定档窗猜涨技能";
   if (t === "A") return `A 强：${scoreBit} · top ${_aCount}`;
   if (t === "B") return `B 中：${scoreBit} · 接着 ${_bCount}`;
-  if (t === "C") return `C 弱：${scoreBit} · 剩余或无有效样本`;
+  if (t === "C") return `C 弱：${scoreBit} · 剩余或样本不足`;
   return "";
 }
 

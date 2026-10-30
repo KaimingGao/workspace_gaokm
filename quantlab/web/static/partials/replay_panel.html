@@ -124,7 +124,7 @@
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
-                    <p class="follow-path-matrix-panel-note">fuse＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
+                    <p class="follow-path-matrix-panel-note">fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
                     <label class="follow-path-matrix-box" title="fuse 中 ŷ_oo 权重。取值 0.0～1.0；与 w_τc 一并归一化。默认 0.6。">
@@ -153,7 +153,7 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">fuse 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">fuse＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
+                    <p class="follow-path-matrix-panel-note">fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row2">
                     <div
@@ -296,7 +296,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 fill_clock 对全部观察池按 fuse＝w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) 调仓（rot=price(τ)/open−1，基准 τ→open[T+1]）；手数看上方入场/强档金额（按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%）。横轴为本次全部交易日。
+          每个交易日 fill_clock 对全部观察池按 fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co 调仓（引擎仍用 ŷ_oo 残差 + ŷ_τc∘ŷ_co 几何复合；基准 τ→open[T+1]）；手数看上方入场/强档金额（按成交价换算整手，不够一手则跳过；单票市值不超过强档×120%）。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>

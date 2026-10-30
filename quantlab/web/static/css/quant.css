@@ -7521,6 +7521,14 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
   min-height: 40px;
 }
 
+#quant-section-research-universe .quant-card-head--tools {
+  align-items: flex-start;
+}
+
+#quant-section-research-universe #quant-ru-msg {
+  white-space: normal;
+}
+
 .quant-page .quant-card-head-sub {
   font-size: var(--q-fs-caption, 0.75rem);
   color: var(--ink-3);
@@ -11759,28 +11767,6 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-pro-card-tools {
   white-space: nowrap;
 }
 
-.quant-ru-a-gate .quant-ru-r-pos-check {
-  gap: 0.3rem;
-  font-size: inherit;
-  font-weight: inherit;
-  color: inherit;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-/* 命中门槛数字后的第一个 R+ 勾选前加分隔 */
-.quant-ru-a-gate .quant-inline-num--frac + .quant-ru-r-pos-check {
-  margin-left: 2px;
-  padding-left: 9px;
-  border-left: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
-}
-
-.quant-ru-a-gate .quant-ru-r-pos-check input[type="checkbox"] {
-  width: 0.85rem;
-  height: 0.85rem;
-  flex-shrink: 0;
-}
-
 body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   min-height: 28px;
   padding: 4px 14px !important;
@@ -11960,9 +11946,7 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   font-size: var(--q-fs-caption, 0.75rem);
   user-select: none;
   background: color-mix(in srgb, var(--bg-1, var(--bg)) 70%, transparent);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
 
 .quant-ru-tier-fold-sum::-webkit-details-marker {
@@ -11989,79 +11973,15 @@ body[data-page="quant"] .quant-page .quant-ru-card .quant-ru-run.dialog-btn {
   font-weight: 550;
 }
 
-.quant-ru-tier-cs-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+.quant-ru-tier-score {
+  display: inline-flex;
+  align-items: baseline;
   flex: 0 0 auto;
-  gap: 0.75rem;
-  min-width: max-content;
+  gap: 0.28rem;
   margin-left: auto;
+  padding-right: 0.15rem;
 }
 
-.quant-ru-tier-board {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: nowrap;
-  justify-content: flex-end;
-  gap: 0.28rem;
-  min-width: max-content;
-}
-
-.quant-ru-tier-cs-sep {
-  flex: 0 0 auto;
-  align-self: stretch;
-  width: 1px;
-  margin: 0.12rem 0.85rem;
-  background: color-mix(in srgb, var(--line) 88%, var(--ink-3, #64748b));
-}
-
-.quant-ru-tier-cs {
-  display: inline-flex;
-  align-items: baseline;
-  flex: 0 0 auto;
-  gap: 0.62rem;
-}
-
-.quant-ru-tier-cs-head {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  align-self: center;
-  padding: 2px 7px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.quant-ru-tier-cs-head.is-oo {
-  color: var(--accent, #1890ff);
-  border-color: color-mix(in srgb, var(--accent, #1890ff) 35%, var(--line));
-  background: color-mix(in srgb, var(--accent, #1890ff) 8%, var(--surface));
-}
-
-.quant-ru-tier-cs-head.is-tc {
-  color: #0f766e;
-  border-color: color-mix(in srgb, #0f766e 35%, var(--line));
-  background: color-mix(in srgb, #0f766e 8%, var(--surface));
-}
-
-html[data-theme="dark"] .quant-ru-tier-cs-head.is-tc {
-  color: #5eead4;
-  border-color: color-mix(in srgb, #5eead4 35%, var(--line));
-  background: color-mix(in srgb, #5eead4 10%, var(--surface));
-}
-
-.quant-ru-tier-cs-item {
-  display: inline-flex;
-  align-items: baseline;
-  flex: 0 0 auto;
-  gap: 0.28rem;
-}
 
 .quant-ru-tier-cs-lab {
   color: var(--ink-3, var(--ink-2));
@@ -12125,26 +12045,19 @@ html[data-theme="dark"] .quant-ru-tier-cs-head.is-tc {
   background: color-mix(in srgb, var(--bg-1, var(--bg)) 55%, transparent);
 }
 
-/* 标的 · 12 数值列 · RANK：收益 OO_R+ OO_ACC OO_P OO_R OO_F1 TC_R+ TC_ACC TC_P TC_R TC_F1 Rank_Score */
+/* 标的 · 11 数值列：收益 OO_R+ OO_ACC OO_P OO_R OO_F1 TC_R+ TC_ACC TC_P TC_R TC_F1 Rank_Score */
 .quant-ru-col-stock {
-  width: 10.8%;
+  width: 12%;
   padding-left: 0.35rem;
 }
 
 .quant-ru-tier-grid th.num,
 .quant-ru-tier-grid td.num {
-  width: 7.083%;
+  width: 8%;
   text-align: right;
   font-variant-numeric: tabular-nums;
   padding-left: 0.18rem;
   padding-right: 0.22rem;
-}
-
-.quant-ru-tier-grid th.quant-ru-rank-cell,
-.quant-ru-tier-grid td.quant-ru-rank-cell {
-  width: 4.2%;
-  color: var(--ink-3, var(--ink-2));
-  font-weight: 600;
 }
 
 .quant-ru-tier-grid th:last-child,
@@ -12188,12 +12101,6 @@ html[data-theme="dark"] .quant-ru-tier-cs-head.is-tc {
   letter-spacing: 0.02em;
 }
 
-.quant-ru-ret-cell {
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
 
 /* OO_F1 / TC_F1：≥50% 红 / 低于 50% 绿；须盖过 .quant-weight-table-wrap td { color: ink } */
 .quant-ru-f1-cell {
@@ -12419,21 +12326,8 @@ body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-f1-cell.is-
 }
 
 /* 盖过 .quant-weight-table-wrap td { color: var(--ink) } */
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.up {
-  color: var(--quant-up, var(--color-up, #dc2626));
-}
 
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.down {
-  color: var(--quant-down, var(--color-down, #16a34a));
-}
 
-body[data-page="quant"] .quant-page .quant-ru-tier-table td.quant-ru-ret-cell.is-muted {
-  /* 无看多等占位：比 ink-3 再浅一档 */
-  color: color-mix(in srgb, var(--ink-3, #94a3b8) 52%, transparent);
-  font-weight: 500;
-  font-size: 0.72rem;
-  letter-spacing: 0.02em;
-}
 
 .quant-ru-hit-cell,
 .quant-ru-rate-cell {
