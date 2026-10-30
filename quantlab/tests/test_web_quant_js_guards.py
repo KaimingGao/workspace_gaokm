@@ -553,7 +553,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(">TC_R+&gt;0</span>", panel)
         self.assertIn("观察池分档", panel)
         self.assertIn("定档窗 60 日猜涨技能", panel)
-        self.assertIn("标题 Rank_Score / 等权买持看 Holdout", panel)
+        self.assertIn("标题 Holdout Rank_Score / 等权买持看 Holdout", panel)
         self.assertNotIn("等权买持看整段", panel)
         self.assertNotIn("分档看 Holdout 前半", panel)
         self.assertNotIn("账本决策日", panel)
@@ -747,6 +747,20 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-ru-tier-score", ru_js)
         self.assertNotIn("quant-ru-tier-bar", ru_js)
         self.assertIn("Holdout Rank_Score 均值", ru_js)
+        # KPI 用 counts；扫尾误删会卡在「加载上次分档…」
+        self.assertIn("const counts = rep.counts", ru_js)
+        self.assertIn("n_with_sample", ru_js)
+        self.assertIn("分档渲染失败", ru_js)
+        self.assertNotIn(
+            "#quant-section-research-universe .quant-card-head--tools {\n  align-items: flex-start;",
+            css,
+        )
+        self.assertIn(
+            "#quant-section-research-universe .quant-card-head--tools {\n  align-items: center;",
+            css,
+        )
+        self.assertIn("标题 Holdout Rank_Score", panel)
+        self.assertIn("档标题只留 Holdout Rank_Score 均值", panel)
         # oo → oo_rank → τc → τc_rank → Rank_Score
         self.assertLess(ru_js.find(">oo</th>"), ru_js.find(">oo_rank</th>"))
         self.assertLess(ru_js.find(">oo_rank</th>"), ru_js.find(">τc</th>"))

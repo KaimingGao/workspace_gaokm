@@ -1,6 +1,6 @@
 /**
  * 观察池分档：Holdout 前 60 日四头猜涨技能等权（oo / oo_rank / τc / τc_rank）。
- * 表内：四头技能 / Rank_Score。档标题只留 Rank_Score 均值。
+ * 表内：四头技能 / Rank_Score。档标题只留 Holdout Rank_Score 均值（标成 Rank_Score）。
  * 面板按 lookback 全窗（优先 Feature Lake）；live 档位跟随历史回测「分档」勾选。
  */
 import { createScoreTooltipController } from "../score_tooltip.js";
@@ -532,6 +532,14 @@ export function installResearchUniverseUi(q) {
       if (byTier[t]) byTier[t].push(r);
       else byTier.C.push(r);
     }
+    const counts = rep.counts || {
+      A: byTier.A.length,
+      B: byTier.B.length,
+      C: byTier.C.length,
+    };
+    const nSample = rep.n_with_sample != null ? rep.n_with_sample : "—";
+    const nPool =
+      rep.pool_count != null ? rep.pool_count : (rep.rows || []).length;
     const maxShow = 120;
     const sections = ["A", "B", "C"]
       .map((tier) => {
@@ -743,19 +751,24 @@ export function installResearchUniverseUi(q) {
       const { ok, data, error } = await apiFetch(url);
       if (!ok || !data || data.success === false) {
         if (data && data.live) applyLive(data.live);
-        if (!quiet) {
-          setStatus(
-            "error",
-            useLast ? "无上次" : "失败",
-            String(error || data?.note || data?.detail || data?.error || "分档失败")
-          );
-        }
+        setStatus(
+          "error",
+          useLast ? "无上次" : "失败",
+          String(error || data?.note || data?.detail || data?.error || "分档失败")
+        );
         if (!useLast) applyTiers(null);
         else if (data && data.live) applyTiers(null);
         return null;
       }
       applyTiers(data);
       return data;
+    } catch (err) {
+      setStatus(
+        "error",
+        "失败",
+        String((err && err.message) || err || "分档渲染失败")
+      );
+      return null;
     } finally {
       stopTierProgress();
     }

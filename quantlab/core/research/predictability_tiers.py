@@ -3326,7 +3326,7 @@ def build_predictability_tiers(
     """研究枢纽协议：Holdout 前 60 日猜涨技能分档。
 
     技能 = 说涨精度 − 该票上涨日比例（收益头 abs / 排序头截面中位）。
-    表内四头技能 + Rank_Score；档标题 Rank_Score 与等权买持看 Holdout。
+    表内四头技能 + Rank_Score；档标题 Holdout Rank_Score 与等权买持看 Holdout。
     ``a_f1`` / ``tau_a_f1`` / ``require_*_r_pos`` 仍接受，不再参与排队。
     有分数者按技能降序取 top ``a_count``→A、接着 ``b_count``→B、其余→C。
     落盘 last；回测 / live：截面 z 不缩小，ŷ 与名次只写允许档，档外不开仓。
@@ -3647,10 +3647,10 @@ def _emit_predictability_tiers(
             f"（{len(eval_dates)} 日）评测标题 Rank_Score 与等权买持"
             f" · 面板 {panel_lb} 日"
             f"；{score_note}；说涨至少 {DEFAULT_TIER_MIN_DAYS} 次才入队"
-            f"；技能 = 说涨精度 − 上涨日比例；按技能降序 top {n_a}→A、接着 {n_b}→B、其余→C"
-            "；技能 = 有样本头等权（oo / oo_rank / τc / τc_rank；abs / 截面中位）；"
-            "表内：四头技能 / Rank_Score；"
-            "落盘 last；live 档位跟随历史回测「分档」勾选；回测天数用独立 lookback。"
+            f"；技能 = 说涨精度 − 上涨日比例；有样本头等权（oo / oo_rank / τc / τc_rank；abs / 截面中位）"
+            f"；按技能降序 top {n_a}→A、接着 {n_b}→B、其余→C"
+            "；表内：四头技能 / Rank_Score；档标题 Holdout Rank_Score"
+            "；落盘 last；live 档位跟随历史回测「分档」勾选；回测天数用独立 lookback。"
         ),
     }
     if persist:

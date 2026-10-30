@@ -7522,11 +7522,19 @@ body[data-page="quant"] .quant-page .quant-bars-mat-card > .quant-bars-mat-body:
 }
 
 #quant-section-research-universe .quant-card-head--tools {
-  align-items: flex-start;
+  align-items: center;
+}
+
+#quant-section-research-universe #quant-ru-strip {
+  align-self: center;
+  min-height: 28px;
 }
 
 #quant-section-research-universe #quant-ru-msg {
   white-space: normal;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
 }
 
 .quant-page .quant-card-head-sub {

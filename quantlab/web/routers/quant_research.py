@@ -299,7 +299,7 @@ def quant_research_universe_predictability_tiers(
 ) -> Dict[str, Any]:
     """观察池分档：Holdout 前 60 日猜涨技能（说涨精度 − 上涨日比例），落盘 last。
 
-    表内四头技能 + Rank_Score；档标题 Rank_Score 均值与等权买持看 Holdout。
+    表内四头技能 + Rank_Score；档标题 Holdout Rank_Score 均值与等权买持看 Holdout。
     holdout: ŷ_oo 卡片 Holdout 交易日数（评测窗，不参与定档）。
     lookback: 面板长度。定档模型只拟合定档窗之前，不覆盖研究套。
     a_f1 / tau_a_f1 / require_*_r_pos 仍接受，不再参与排队。

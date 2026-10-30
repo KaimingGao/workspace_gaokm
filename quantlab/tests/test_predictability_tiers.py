@@ -1277,8 +1277,6 @@ class TestPredictabilityTiers(unittest.TestCase):
             acc,
             pool_codes=["000001"],
             pad_missing=False,
-            a_count=1,
-            b_count=0,
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["n_y_pos"], 2)
@@ -1321,8 +1319,6 @@ class TestPredictabilityTiers(unittest.TestCase):
             acc,
             pool_codes=["000001"],
             pad_missing=False,
-            a_count=1,
-            b_count=0,
         )
         self.assertIsNone(rows[0]["f1_pos"])
         self.assertIsNone(rows[0]["precision_pos"])
