@@ -43,7 +43,7 @@ export function applyExecutionToUi(exec) {
   if (pathMatrixForm && exec) {
     fillPathMatrixForm(pathMatrixForm, exec);
   } else if (exec) {
-    // Follow 页无 path_matrix 表单时仍回填启动时间 / live 权。
+    // 交易执行页无规则表单：只回填启动时间 / live 融合权。
     const timing = exec.rebalance_timing || {};
     const pm =
       (timing.rank_lots && typeof timing.rank_lots === "object" && timing.rank_lots) ||
