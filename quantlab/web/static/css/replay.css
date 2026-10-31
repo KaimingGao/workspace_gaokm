@@ -1108,8 +1108,7 @@ body[data-page="replay"] .follow-path-matrix-box input[type="text"]:focus {
   border-color: color-mix(in srgb, var(--pm-accent) 40%, #cbd5e1);
 }
 
-body[data-page="replay"] .follow-path-matrix-box--pair,
-body[data-page="replay"] .follow-path-matrix-box--solo {
+body[data-page="replay"] .follow-path-matrix-box--pair {
   cursor: default;
   grid-template-rows: auto auto;
 }
@@ -1281,10 +1280,6 @@ body[data-page="replay"] .follow-path-matrix-box-pair {
   align-items: end;
 }
 
-body[data-page="replay"] .follow-path-matrix-box--solo .follow-path-matrix-box-pair {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 body[data-page="replay"] .follow-path-matrix-box-slot {
   display: grid;
   gap: 2px;
@@ -1300,7 +1295,6 @@ body[data-page="replay"] .follow-path-matrix-box-slot-label {
 }
 
 body[data-page="replay"] .follow-path-matrix-box--pair input[type="number"],
-body[data-page="replay"] .follow-path-matrix-box--solo input[type="number"],
 body[data-page="replay"] .follow-path-matrix-box--pair input[type="text"] {
   min-width: 0;
   width: 100%;

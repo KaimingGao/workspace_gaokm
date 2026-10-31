@@ -30,7 +30,6 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "fusion_w_oo": 0.6,
     "fusion_w_oc": 0.4,
     "fusion_w_co": 1.0,
-    "fusion_w_pc": 0.5,
     "residual_w_oc": 0.5,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
@@ -198,7 +197,6 @@ def get_path_matrix_cfg(
         ("fusion_w_oo", 0.6, 0.0, 1.0),
         ("fusion_w_oc", 0.4, 0.0, 1.0),
         ("fusion_w_co", 1.0, 0.0, 10.0),
-        ("fusion_w_pc", 0.5, 0.0, 1.0),
         ("residual_w_oc", 0.5, 0.0, 1.0),
     ):
         try:

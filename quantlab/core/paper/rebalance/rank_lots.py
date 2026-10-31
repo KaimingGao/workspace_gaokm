@@ -597,7 +597,6 @@ def get_rank_lot_cfg(
         "top_k": k,
         "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
         "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
-        "fusion_w_pc": float(pm.get("fusion_w_pc") or 0.5),
         "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else DEFAULT_FUSION_W_CO),
         "lot_base_amount": lot_base_amount,
         "lot_strong_amount": lot_strong_amount,

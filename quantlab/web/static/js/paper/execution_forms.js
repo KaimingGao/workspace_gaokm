@@ -5,8 +5,6 @@ import {
   collectExecutionForm,
   fillPathMatrixForm,
   collectPathMatrixForm,
-  fillDualScoreForm,
-  collectDualScorePatch,
   persistT0Lookback,
   renderExecutionDiffHtml,
   applyLiveFillClockUi,
@@ -38,24 +36,12 @@ function isAbortError(err) {
   );
 }
 
-async function loadDualScoreOntoForm(form) {
-  if (!form) return;
-  try {
-    const res = await fetch("/api/signal/config/dual-score");
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data.dual_score) fillDualScoreForm(form, data.dual_score);
-  } catch (_) {
-    /* 缺接口时保留表单默认 */
-  }
-}
-
 export function applyExecutionToUi(exec) {
   const paperT0Form = document.getElementById("paper-t0-form");
   if (paperT0Form && exec) fillExecutionForm(paperT0Form, exec);
   const pathMatrixForm = document.getElementById("paper-path-matrix-form");
   if (pathMatrixForm && exec) {
     fillPathMatrixForm(pathMatrixForm, exec);
-    loadDualScoreOntoForm(pathMatrixForm);
   } else if (exec) {
     // Follow 页无 path_matrix 表单时仍回填启动时间 / live 权。
     const timing = exec.rebalance_timing || {};
@@ -137,7 +123,6 @@ export async function initExecutionRuleForms() {
   };
   async function savePathMatrix({ okMsg = "已保存" } = {}) {
     const body = collectPathMatrixForm(paperPathMatrixForm);
-    const dualPatch = collectDualScorePatch(paperPathMatrixForm);
     if (!body) return false;
     setPathMatrixBusy(true);
     setPathMatrixStatus("保存中…");
@@ -153,23 +138,6 @@ export async function initExecutionRuleForms() {
           { error: true }
         );
         return false;
-      }
-      if (dualPatch) {
-        const dualRes = await fetch("/api/signal/config/dual-score", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(dualPatch),
-        });
-        const dualData = await dualRes.json().catch(() => ({}));
-        if (!dualRes.ok || dualData.success === false) {
-          setPathMatrixStatus(
-            dualData.detail || dualData.error || "fuse 权已保存，dual_score 权重未写入",
-            { error: true }
-          );
-          applyExecutionToUi(data.execution);
-          return false;
-        }
-        fillDualScoreForm(paperPathMatrixForm, dualData.dual_score);
       }
       setPathMatrixStatus(okMsg);
       applyExecutionToUi(data.execution);

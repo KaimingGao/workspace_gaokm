@@ -172,31 +172,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "morph_vol_pctl": 0.9,
         "morph_a1_max": 0.0,
     },
-    # 旧键：读盘仍认；写入与 rank_lots 同步
-    "path_matrix": {
-        "enabled": True,
-        "mode": "rank_lots",
-        "fuse_enter": 0.001,
-        "fuse_strong": 0.001,
-        "cash_floor": 0.0,
-        "holdings_mv_cap": 150000.0,
-        "fusion_w_oo": 0.6,
-        "fusion_w_oc": 0.4,
-        "fusion_w_co": 1.0,
-        "y_oo_gt0": False,
-        "y_τc_gt0": False,
-        "oo_rank_max": None,
-        "oo_rank_strong_max": 100,
-        "oo_rank_top_frac": None,
-        "fill_clock": "09:30",
-        "live_fill_clock": "09:30",
-        "lot_base_amount": 10000.0,
-        "lot_strong_amount": 20000.0,
-        "morph_gate_enabled": False,
-        "morph_vol_pctl": 0.9,
-        "morph_a1_max": 0.0,
-    },
 }
+# 旧键：读盘仍认；写入与 rank_lots 同步
+DEFAULT_REBALANCE_TIMING["path_matrix"] = deepcopy(DEFAULT_REBALANCE_TIMING["rank_lots"])
 
 DEFAULT_EXECUTION: Dict[str, Any] = {
     "version": "1.0.0",

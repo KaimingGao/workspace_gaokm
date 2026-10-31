@@ -8328,10 +8328,6 @@ body[data-page="follow"] .follow-path-matrix-actions #paper-path-matrix-status:e
   display: none;
 }
 
-body[data-page="follow"] .follow-path-matrix-actions #paper-adjust, body[data-page="replay"] .follow-path-matrix-actions #paper-adjust {
-  font-weight: 700;
-}
-
 body[data-page="follow"] .follow-path-matrix-panels, body[data-page="replay"] .follow-path-matrix-panels {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 3fr) minmax(0, 4fr);
@@ -8488,11 +8484,6 @@ body[data-page="follow"] .follow-path-matrix-box:hover, body[data-page="replay"]
   border-color: #cbd5e1;
 }
 
-body[data-page="follow"] .follow-path-matrix-box--check:has(input:checked), body[data-page="replay"] .follow-path-matrix-box--check:has(input:checked) {
-  background: color-mix(in srgb, var(--pm-accent) 7%, #fff);
-  border-color: color-mix(in srgb, var(--pm-accent) 28%, #e2e8f0);
-}
-
 body[data-page="follow"] .follow-path-matrix-box-text, body[data-page="replay"] .follow-path-matrix-box-text {
   display: grid;
   gap: 1px;
@@ -8551,25 +8542,8 @@ body[data-page="replay"] .follow-path-matrix-box select:focus {
   border-color: color-mix(in srgb, var(--pm-accent) 40%, #cbd5e1);
 }
 
-body[data-page="follow"] .follow-path-matrix-box--check, body[data-page="replay"] .follow-path-matrix-box--check {
-  grid-template-rows: 1fr;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  column-gap: 8px;
-  cursor: pointer;
-}
-
-body[data-page="follow"] .follow-path-matrix-box--check input[type="checkbox"], body[data-page="replay"] .follow-path-matrix-box--check input[type="checkbox"] {
-  width: 0.95rem;
-  height: 0.95rem;
-  flex: 0 0 auto;
-  accent-color: var(--pm-accent);
-  justify-self: end;
-  align-self: center;
-}
-
-body[data-page="follow"] .follow-path-matrix-box:not(.follow-path-matrix-box--check) > input[type="checkbox"],
-body[data-page="replay"] .follow-path-matrix-box:not(.follow-path-matrix-box--check) > input[type="checkbox"] {
+body[data-page="follow"] .follow-path-matrix-box > input[type="checkbox"],
+body[data-page="replay"] .follow-path-matrix-box > input[type="checkbox"] {
   width: 0.95rem;
   height: 0.95rem;
   margin: 0.275rem 0;

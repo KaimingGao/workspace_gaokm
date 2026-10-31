@@ -324,7 +324,7 @@ function fusePctToScore(raw, fallbackPct = FUSE_PCT_DEFAULT) {
   return Math.round(Math.max(0, Math.min(0.1, score)) * 10000) / 10000;
 }
 
-/** 从 execution.rebalance_timing.path_matrix 填调仓表单。 */
+/** 从 execution.rebalance_timing.rank_lots（旧键 path_matrix）填调仓表单。 */
 export function fillPathMatrixForm(root, execution) {
   if (!root) return;
   const timing =
@@ -423,41 +423,7 @@ function _normWeightPair(a, b) {
   return { a: x / s, b: y / s };
 }
 
-/** 填 dual_score 一层权重（w_eod / w_tau；做 T ŷ_trade）。 */
-export function fillDualScoreForm(root, ds) {
-  if (!root || !ds) return;
-  const set = (name, val) => {
-    const el = root.querySelector(`[name="${name}"]`);
-    if (!el || val == null) return;
-    el.value = String(val);
-  };
-  set("pm_w_eod", ds.w_eod != null ? ds.w_eod : 0.5);
-  set("pm_w_tau", ds.w_tau != null ? ds.w_tau : 0.5);
-}
-
-/** 收集 dual_score 保存体；不改 τ 闸。 */
-export function collectDualScorePatch(root) {
-  if (!root) return null;
-  if (!root.querySelector('[name="pm_w_eod"]') && !root.querySelector('[name="pm_w_tau"]')) {
-    return null;
-  }
-  const num = (name, fallback) => {
-    const el = root.querySelector(`[name="${name}"]`);
-    if (!el || el.value === "") return fallback;
-    const n = Number(el.value);
-    return Number.isFinite(n) ? n : fallback;
-  };
-  const pair = _normWeightPair(num("pm_w_eod", 0.5), num("pm_w_tau", 0.5));
-  return {
-    fusion_mode: "blend",
-    w_eod: Math.round(pair.a * 1000) / 1000,
-    w_tau: Math.round(pair.b * 1000) / 1000,
-    w_mode: "fixed",
-    note: "follow rank_lots UI",
-  };
-}
-
-/** 收集 path_matrix 保存体（只改 rebalance_timing，不动 t0）。 */
+/** 收集 rank_lots / path_matrix 保存体（只改 rebalance_timing，不动 t0）。 */
 export function collectPathMatrixForm(root) {
   if (!root) return null;
   const num = (name, fallback) => {
