@@ -461,7 +461,6 @@ export function watchingScoreDetail(it) {
     below_min_score: !!(it && it.below_min_score),
     return_model_source: (it && it.return_model_source) || "",
     score_scale: (it && it.score_scale) || "",
-    heuristic_score: it && it.heuristic_score,
     factor_coefficients: coefs,
     sentiment_include_in_score: sentInc,
     sentiment_prior: (it && it.sentiment_prior) || null,

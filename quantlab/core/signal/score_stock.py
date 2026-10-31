@@ -250,7 +250,7 @@ def score_stock(
 
     （分组已退役）主分仅用全局 return_model ŷ；输出 ``cluster_mode`` 固定
     ``"off"``，``score_cluster`` / ``cluster_label`` / ``cluster_id`` /
-    ``cluster_version`` 恒为 None；``heuristic_score`` 双轨保留（互不覆盖）。
+    ``cluster_version`` 恒为 None。
     """
     defer_predict = bool(defer_cs_predict)
     if horizon_days is None:
@@ -737,14 +737,7 @@ def score_stock(
         global_model = None
         weight_source = "global_missing"
 
-    heuristic_score = None
-    try:
-        if scored.get("score") is not None and scored.get("score") != "":
-            heuristic_score = float(scored.get("score"))
-    except (TypeError, ValueError):
-        heuristic_score = None
-
-    # 主分 score：始终全局 ŷ% 量纲；heuristic_score 双轨保留，互不覆盖
+    # 主分 score：始终全局 ŷ% 量纲（规则 heuristic 总分已清理）
     primary_score = predicted_score
     delta = None
 
@@ -863,7 +856,6 @@ def score_stock(
         "price": quote.get("price"),
         "change": quote.get("change"),
         "score": primary_score,
-        "heuristic_score": heuristic_score,
         "predicted_score": predicted_score,
         "return_model_source": return_model_source,
         "score_scale": (

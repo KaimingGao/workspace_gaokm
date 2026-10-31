@@ -1,4 +1,4 @@
-"""Research OOS: heuristic baseline vs predicted_score arm."""
+"""Research OOS: predicted_score arm vs flat 0% baseline."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ class TestSignalConfigOverlay(unittest.TestCase):
         self.assertAlmostEqual(float(again["weights"]["momentum"]), mom0)
 
 class TestResearchRankMode(unittest.TestCase):
-    def test_resolve_allows_heuristic(self):
-        self.assertEqual(resolve_research_rank_mode("heuristic"), "heuristic_score")
+    def test_resolve_maps_heuristic_to_predicted(self):
+        self.assertEqual(resolve_research_rank_mode("heuristic"), "predicted_score")
         self.assertEqual(resolve_research_rank_mode("predicted_score"), "predicted_score")
 
 class TestWeightOosGate(unittest.TestCase):
@@ -40,28 +40,18 @@ class TestWeightOosGate(unittest.TestCase):
             return bars, [], {}
 
         def fake_bt(stock_bars, **kwargs):
-            mode = kwargs.get("rank_mode") or "predicted_score"
-            # 研究臂 ŷ 更优
-            if mode == "predicted_score":
-                curve = [
-                    {"date": "d1", "equity": 100},
-                    {"date": "d2", "equity": 105},
-                    {"date": "d3", "equity": 112},
-                    {"date": "d4", "equity": 120},
-                ]
-            else:
-                curve = [
-                    {"date": "d1", "equity": 100},
-                    {"date": "d2", "equity": 102},
-                    {"date": "d3", "equity": 101},
-                    {"date": "d4", "equity": 99},
-                ]
+            curve = [
+                {"date": "d1", "equity": 100},
+                {"date": "d2", "equity": 105},
+                {"date": "d3", "equity": 112},
+                {"date": "d4", "equity": 120},
+            ]
             return {
                 "success": True,
                 "metrics": {"total_return_pct": curve[-1]["equity"] - 100},
                 "equity_curve": curve,
-                "trades": [],
-                "params": {"rank_mode": mode},
+                "trades": [{"id": 1}],
+                "params": {"rank_mode": "predicted_score"},
             }
 
         model = {
@@ -90,9 +80,9 @@ class TestWeightOosGate(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertTrue(out["passed"])
         self.assertEqual(out["reason"], "oos_not_worse")
-        self.assertEqual(out["baseline_rank_mode"], "heuristic_score")
+        self.assertEqual(out["baseline_rank_mode"], "flat_zero")
         self.assertEqual(out["research_rank_mode"], "predicted_score")
-        self.assertIn("heuristic_score", OOS_PRODUCT_SEMANTICS)
+        self.assertIn("平坦 0%", OOS_PRODUCT_SEMANTICS)
 
     def test_gate_reuses_preloaded_stock_bars(self):
         """上游传入 bars 时不再二次 load_portfolio_stock_bars。"""

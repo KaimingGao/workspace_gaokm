@@ -1,16 +1,9 @@
-"""短线因子评分：动量 / 量价 / 相对强弱 / 波动 / 反转 / 流动性，输出 1～3 天观察池。
-
-v2 优化：
-- 因子交互项（动量×量价、反转×波动）
-- 非线性打分（Sigmoid压缩极端值）
-- 前置风控检查集成
-"""
+"""日线因子特征：算 sub_scores / 门禁；选股真源为 ŷ，不再产出规则综合分。"""
 
 
 import logging
 
 logger = logging.getLogger(__name__)
-import math
 from typing import Any, Dict, List, Optional
 
 from core.signal.config import get_rank_defaults, load_signal_config
@@ -18,131 +11,6 @@ from core.signal.factors.meta.registry import compute_configured_factors
 from core.signal.factors.momentum import pct_change
 from core.signal.factors.pre_trade import pre_trade_check
 from core.signal.regime import assess_regime
-
-
-def _sigmoid_score(raw_score: float) -> float:
-    """Sigmoid压缩：将线性分数压缩到更平滑的分布。"""
-    # 中心在50，宽度决定压缩程度
-    x = (raw_score - 50) / 15
-    return 100 / (1 + math.exp(-x))
-
-
-def _interaction_bonus(factor_scores: Dict[str, float]) -> float:
-    """
-    因子交互奖励。缺省因子不按 50 假中性参与（与 omit_sub_score 契约一致）。
-    """
-    bonus = 0.0
-
-    def _get(name: str) -> Optional[float]:
-        if name not in factor_scores:
-            return None
-        try:
-            return float(factor_scores[name])
-        except (TypeError, ValueError):
-            return None
-
-    mom = _get("momentum")
-    vp = _get("volume_price")
-    rev = _get("reversal")
-    vol = _get("volatility")
-    rs = _get("relative_strength")
-    tech = _get("technical_pattern")
-    weekly = _get("weekly_confirm")
-    ma_slope = _get("ma_slope")
-    qual = _get("quality")
-
-    # 动量 × 量价 交互
-    if mom is not None and vp is not None:
-        if mom > 65 and vp > 60:
-            bonus += 4.0
-        elif mom > 55 and vp > 55:
-            bonus += 2.0
-
-    # 技术形态 × 均线斜率
-    if tech is not None and ma_slope is not None:
-        if tech > 65 and ma_slope > 60:
-            bonus += 5.0
-        elif tech > 55 and ma_slope > 55:
-            bonus += 2.5
-
-    # 周线确认 × 动量
-    if weekly is not None and mom is not None:
-        if weekly > 65 and mom > 60:
-            bonus += 4.0
-        elif weekly > 55 and mom > 55:
-            bonus += 2.0
-
-    # 反转 × 波动
-    if rev is not None and vol is not None and rev > 65 and vol > 55:
-        bonus += 2.5
-
-    # 相对强弱 × 动量
-    if rs is not None and mom is not None and rs > 65 and mom > 60:
-        bonus += 3.0
-
-    # 质量 × 低波动（防守型）
-    if qual is not None and vol is not None and qual > 60 and vol > 55:
-        bonus += 1.5
-
-    # 多因子共振：仅统计实际存在的因子
-    present = [s for s in [mom, tech, weekly, ma_slope, vp] if s is not None]
-    bullish_count = sum(1 for s in present if s > 60)
-    if len(present) >= 4 and bullish_count >= 4:
-        bonus += 3.0
-
-    return bonus
-
-
-def _interaction_penalty(factor_scores: Dict[str, float]) -> float:
-    """
-    因子冲突惩罚。缺省因子不按 50 假中性参与。
-    """
-    penalty = 0.0
-
-    def _get(name: str) -> Optional[float]:
-        if name not in factor_scores:
-            return None
-        try:
-            return float(factor_scores[name])
-        except (TypeError, ValueError):
-            return None
-
-    mom = _get("momentum")
-    rev = _get("reversal")
-    vol = _get("volatility")
-    liq = _get("liquidity")
-    tech = _get("technical_pattern")
-    weekly = _get("weekly_confirm")
-    ma_slope = _get("ma_slope")
-    vp = _get("volume_price")
-
-    if mom is not None and rev is not None:
-        if mom > 60 and rev < 35:
-            penalty += 4.0
-        elif mom < 40 and rev > 60:
-            penalty += 2.5
-
-    if tech is not None and ma_slope is not None:
-        if tech < 35 and ma_slope < 40:
-            penalty += 4.0
-        elif tech < 45 and ma_slope < 45:
-            penalty += 2.0
-
-    if weekly is not None and mom is not None:
-        if weekly < 40 and mom > 60:
-            penalty += 3.0
-        elif weekly > 60 and mom < 40:
-            penalty += 2.0
-
-    if vol is not None and liq is not None and vol < 35 and liq < 40:
-        penalty += 3.0
-
-    present = [s for s in [mom, tech, weekly, ma_slope, vp] if s is not None]
-    bearish_count = sum(1 for s in present if s < 40)
-    if len(present) >= 4 and bearish_count >= 4:
-        penalty += 2.5
-
-    return penalty
 
 
 def score_bars(
@@ -161,7 +29,10 @@ def score_bars(
     stock_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    对单票日线打分。产出 sub_scores（ŷ 输入）；不产出规则综合分。
+    对单票日线算因子特征与硬门禁。
+
+    产出 ``sub_scores``（ŷ 输入）、``hard_reject``、``regime`` 元数据。
+    ``score`` 恒为 None（规则加权总分已清理）。
 
     ``required_factor_keys``：即使 weights 权为 0 也计算（ŷ β 同构）。
     ``skip_factors``：强制跳过（如舆情闸关时跳过 alt_sentiment）。
@@ -181,12 +52,15 @@ def score_bars(
 
     if not bars or len(bars) < min_bars:
         return {
-            "score": 0,
+            "score": None,
             "hard_reject": True,
             "reject_reason": "日线数据不足",
             "factors": {},
             "reasons": [],
             "invalidation": [],
+            "sub_scores": {},
+            "factor_contrib": {},
+            "regime": {},
         }
 
     mom3 = pct_change(bars, min(3, len(bars) - 1))
@@ -248,20 +122,13 @@ def score_bars(
         else:
             mom3_notes.append(f"{msg}（不硬拒，交给过热标注）")
 
-    # 前置风控检查
+    # 前置风控检查（仅留痕；不再扣规则总分）
     risk_config = cfg.get("pre_trade_risk", {})
     if risk_config and risk_config.get("enabled", True):
-        passed, risk_checks = pre_trade_check(bars, config=risk_config)
-        if not passed:
-            # 风控不通过，标记为低分但不硬拒绝
-            risk_penalty = 15.0
-        else:
-            risk_penalty = 0.0
+        _passed, risk_checks = pre_trade_check(bars, config=risk_config)
     else:
-        risk_penalty = 0.0
         risk_checks = {}
 
-    # 先评估市场状态，获取权重调整建议
     macro_ctx = None
     try:
         from core.market.context import load_market_context
@@ -270,37 +137,9 @@ def score_bars(
     except Exception:  # noqa: BLE001
         logger.debug("macro context load skipped", exc_info=True)
 
+    # regime 仅作元数据（仓位/UI）；不再改因子权或扣规则分
     regime_info = assess_regime(index_bars, cfg.get("regime"), macro=macro_ctx)
-
-    # 根据市场环境动态调整因子权重（因子择时）
-    adjusted_weights = dict(weights)
-    weight_adjustments = regime_info.get("adjustments", {}).get("weight_adjustments", {})
-
-    # 获取因子择时配置
-    enabled_factors = regime_info.get("adjustments", {}).get("enabled_factors", [])
-    disabled_factors = regime_info.get("adjustments", {}).get("disabled_factors", [])
-
-    # 应用因子择时：禁用的因子权重设为0
-    for factor in disabled_factors:
-        if factor in adjusted_weights:
-            adjusted_weights[factor] = 0.0
-
-    # 应用权重乘数调整
-    for factor_name, multiplier in weight_adjustments.items():
-        if factor_name in adjusted_weights:
-            adjusted_weights[factor_name] = weights[factor_name] * multiplier
-
-    # 只保留启用的因子（启发式权）；ŷ required keys 仍经 required_factor_keys 补算
-    if enabled_factors:
-        filtered_weights = {k: v for k, v in adjusted_weights.items() if k in enabled_factors}
-        adjusted_weights = filtered_weights
-
-    # 归一化权重，确保总和为1
-    total_weight = sum(adjusted_weights.values())
-    if total_weight > 0:
-        adjusted_weights = {k: v / total_weight for k, v in adjusted_weights.items()}
-    else:
-        adjusted_weights = dict(weights)
+    factor_weights = dict(weights)
 
     skip = list(skip_factors or [])
     # FS0：闸关或不传 sentiment 时不计算 alt_sentiment（避免中性 50 进 ŷ）
@@ -339,7 +178,7 @@ def score_bars(
 
     sub_scores, factor_contrib, factors = compute_configured_factors(
         bars,
-        weights=adjusted_weights,
+        weights=factor_weights,
         quote=quote,
         index_bars=index_bars,
         config=cfg,
@@ -354,36 +193,10 @@ def score_bars(
         macro=macro_ctx,
     )
 
-    # v2: 因子交互调整
-    interaction_bonus = _interaction_bonus(sub_scores)
-    interaction_penalty = _interaction_penalty(sub_scores)
-    interaction_adj = interaction_bonus - interaction_penalty
-
-    # v2: 非线性打分（先线性加总，再Sigmoid压缩）
-    raw_total = sum(factor_contrib.values()) + interaction_adj
-
-    # 基础分 + 交互调整
-    total = raw_total
-
-    # 应用市场状态惩罚
-    penalty = float(regime_info.get("score_penalty") or 0)
-    if penalty > 0:
-        total -= penalty
-
-    # 应用风控惩罚
-    if risk_penalty > 0:
-        total -= risk_penalty
-
-    # 舆情已并入 alt_sentiment 因子，不再硬编码加减分（V2.1）
-    # v2: 非线性打分 — Sigmoid 压缩极端值（线性加总 + 惩罚后应用）
-    total = _sigmoid_score(total)
-    total = round(max(0.0, min(100.0, total)), 1)
-
     if last_change is not None:
         factors["last_change"] = round(last_change, 2)
     factors["last_close"] = bars[-1]["close"]
 
-    # 风控检查结果
     if risk_checks:
         factors["risk_check"] = risk_checks
 
@@ -408,12 +221,6 @@ def score_bars(
     if factors.get("atr_pct") is not None:
         reasons.append(f"近5日波动(ATR%) {factors['atr_pct']:.2f}%")
 
-    # 交互相关的reason
-    if interaction_bonus > 0:
-        reasons.append(f"因子交互加分 +{interaction_bonus:.1f}")
-    if interaction_penalty > 0:
-        reasons.append(f"因子冲突扣分 -{interaction_penalty:.1f}")
-
     if regime_info.get("reason"):
         reasons.append(regime_info["reason"])
 
@@ -430,16 +237,8 @@ def score_bars(
     if horizon_days <= 2:
         invalidation.append("1～2 天窗口内若无法站稳均价/缺口，观望优于追涨")
 
-    contrib_out = dict(factor_contrib)
-    if penalty:
-        contrib_out["regime_penalty"] = round(-penalty, 2)
-    if interaction_adj != 0:
-        contrib_out["interaction_adj"] = round(interaction_adj, 2)
-    if risk_penalty > 0:
-        contrib_out["risk_penalty"] = round(-risk_penalty, 2)
-
     out = {
-        "score": total,
+        "score": None,
         "hard_reject": hard_reject,
         "reject_reason": reject_reason,
         "mom3_chase_risk": bool(
@@ -451,12 +250,8 @@ def score_bars(
         "reasons": reasons,
         "invalidation": invalidation,
         "sub_scores": sub_scores,
-        "factor_contrib": contrib_out,
+        "factor_contrib": dict(factor_contrib),
         "regime": regime_info,
-        "interaction": {
-            "bonus": round(interaction_bonus, 2),
-            "penalty": round(interaction_penalty, 2),
-        },
     }
     try:
         from core.signal.overheat_gate import annotate_item_overheat
@@ -474,7 +269,7 @@ def rank_candidates(
     min_score: float = 55.0,
     config: Optional[dict] = None,
 ) -> List[dict]:
-    """过滤硬拒绝与低分，按分数排序截断。"""
+    """过滤硬拒绝与低 ŷ，按 predicted_score（或 score）排序截断。"""
     cfg = config or load_signal_config()
     defaults = get_rank_defaults(cfg)
     from core.signal.score_display import resolve_buy_floor
@@ -487,14 +282,26 @@ def rank_candidates(
 
     limit = max(1, min(int(limit or 8), 15))
     floor = float(min_score)
+
+    def _rank_val(s: dict) -> float:
+        for k in ("predicted_score", "score"):
+            v = s.get(k)
+            if v is None or v == "":
+                continue
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+        return float("-inf")
+
     kept = [
         s
         for s in scored
-        if not s.get("hard_reject") and (s.get("score") or 0) >= floor
+        if not s.get("hard_reject") and _rank_val(s) >= floor
     ]
     kept.sort(
         key=lambda x: (
-            -(float(x.get("score") or 0)),
+            -_rank_val(x),
             str(x.get("stock_code") or ""),
         )
     )

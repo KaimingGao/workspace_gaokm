@@ -360,11 +360,6 @@ export function formatScoreHero(raw) {
     `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点） · ${escapeText(
       formatEodAsOfHint(raw)
     )} · 买入门槛` +
-    (raw &&
-    raw.heuristic_score != null &&
-    Number.isFinite(Number(raw.heuristic_score))
-      ? ` · heuristic对照 ${escapeText(fmtSigned(Number(raw.heuristic_score), 1))}`
-      : "") +
     `</div>` +
     gate +
     `</div>`
@@ -1529,14 +1524,10 @@ export function formatWeightSourceNote(raw) {
   if (rms === "oos_failed_global" || rms === "oos_failed_heuristic") {
     line =
       rms === "oos_failed_heuristic"
-        ? "OOS 失败组 · 表列=启发式(0–100) · 组 ŷ% 仅对照"
+        ? "OOS 失败组 · 启发式分已清理 · 组 ŷ% 仅对照"
         : "OOS 失败组 · 主分=全局 ŷ% · 组 ŷ% 仅对照";
     if (label) line += ` · ${label}`;
     if (ver) line += ` · ${ver}`;
-    const hs =
-      raw && raw.heuristic_score != null && Number.isFinite(Number(raw.heuristic_score))
-        ? Number(raw.heuristic_score)
-        : null;
     const sc =
       raw && raw.score_cluster != null && Number.isFinite(Number(raw.score_cluster))
         ? Number(raw.score_cluster)
@@ -1546,7 +1537,6 @@ export function formatWeightSourceNote(raw) {
         ? Number(raw.score_global)
         : null;
     const bitsDual = [];
-    if (hs != null) bitsDual.push(`heuristic ${fmtSigned(hs, 1)}`);
     if (sc != null) bitsDual.push(`组ŷ ${fmtSigned(sc, 3)}%`);
     if (sg != null) bitsDual.push(`全局ŷ ${fmtSigned(sg, 3)}%`);
     if (bitsDual.length) line += ` · ${bitsDual.join(" · ")}`;

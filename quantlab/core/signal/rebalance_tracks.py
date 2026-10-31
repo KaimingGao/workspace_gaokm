@@ -90,36 +90,16 @@ def _infer_item_scale(item: Optional[dict]) -> str:
 
 
 def heuristic_score_value(item: Optional[dict]) -> Optional[float]:
-    """读取 0–100 heuristic；不与 ŷ% ``score`` 混用。
-
-    优先 ``heuristic_score``。回退 ``score`` 时以 ``score_scale`` 为准；
-    未标明尺才用 |v|>20 识别旧脏行（创业板 ŷ≈20 不再误当 heuristic）。
-    """
+    """规则 heuristic 总分已清理；仅兼容读旧缓存字段 ``heuristic_score``。"""
     if not isinstance(item, dict):
         return None
-    for key in ("heuristic_score",):
-        v = item.get(key)
-        if v is None or v == "":
-            continue
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            continue
-    scale = _infer_item_scale(item)
-    if scale == "predicted_yhat":
-        return None
-    v = item.get("score")
+    v = item.get("heuristic_score")
     if v is None or v == "":
         return None
     try:
-        f = float(v)
+        return float(v)
     except (TypeError, ValueError):
         return None
-    if scale == "heuristic_0_100":
-        return f
-    if abs(f) > 20:
-        return f
-    return None
 
 
 def table_yhat_score_value(item: Optional[dict]) -> Optional[float]:

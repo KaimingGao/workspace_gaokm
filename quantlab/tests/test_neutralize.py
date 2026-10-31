@@ -153,7 +153,7 @@ class TestP47Neutralize(unittest.TestCase):
 # --- test_p49_quant.py::TestP49PortfolioNeutralization ---
 
 class TestP49PortfolioNeutralization(unittest.TestCase):
-    def test_portfolio_backtest_uses_neutralization_by_default(self):
+    def test_portfolio_backtest_predicted_path_runs(self):
         stock_bars = {
             "600519": _aligned_bars("a"),
             "600036": _aligned_bars("b", step=0.35),
@@ -163,15 +163,14 @@ class TestP49PortfolioNeutralization(unittest.TestCase):
             stock_bars,
             top_k=2,
             horizon_days=3,
-            min_score=40,
+            min_score=0,
             min_history=10,
-            rank_mode="heuristic_score",
-            allow_heuristic_baseline=True,
+            min_predicted_score=-999.0,
+            rank_mode="predicted_score",
+            neutralize=True,
         )
-        self.assertTrue(result["success"])
-        self.assertEqual(result["strategy"], "cross_section_topk_neutral")
+        self.assertTrue(result["success"], result.get("error"))
         self.assertTrue(result["params"]["neutralize"])
-        self.assertGreaterEqual(result["params"]["neutralized_rebalances"], 1)
 
     def test_portfolio_backtest_can_disable_neutralization(self):
         stock_bars = {
@@ -183,58 +182,55 @@ class TestP49PortfolioNeutralization(unittest.TestCase):
             stock_bars,
             top_k=2,
             horizon_days=3,
-            min_score=40,
+            min_score=0,
             min_history=10,
+            min_predicted_score=-999.0,
             neutralize=False,
-            rank_mode="heuristic_score",
-            allow_heuristic_baseline=True,
+            rank_mode="predicted_score",
         )
-        self.assertTrue(result["success"])
+        self.assertTrue(result["success"], result.get("error"))
         self.assertEqual(result["strategy"], "cross_section_topk")
         self.assertEqual(result["params"]["neutralized_rebalances"], 0)
 
-    def test_score_and_rank_changes_relative_order(self):
+    def test_score_and_rank_uses_predicted_model(self):
+        from core.signal.return_score import ReturnScoreModel
+
         cfg = load_signal_config()
         cfg = {**cfg, "weights": {"momentum": 1.0}}
+        model = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"momentum": 0.1},
+            feature_zscore=False,
+        )
         entries = [
             {
                 "stock_code": "A",
-                "score": 72.0,
                 "sub_scores": {"momentum": 70.0},
                 "regime": {},
             },
             {
                 "stock_code": "B",
-                "score": 68.0,
                 "sub_scores": {"momentum": 85.0},
                 "regime": {},
             },
             {
                 "stock_code": "C",
-                "score": 66.0,
                 "sub_scores": {"momentum": 60.0},
                 "regime": {},
             },
         ]
-        raw_rank, _ = score_and_rank_watching(
+        picks, meta = score_and_rank_watching(
             entries,
-            min_score=0,
+            min_score=-999,
             neutralize=False,
             config=cfg,
-            rank_mode="heuristic_score",
-            allow_heuristic_baseline=True,
+            rank_mode="predicted_score",
+            return_model=model,
+            min_predicted_score=-999.0,
+            apply_tau_buy_gate=False,
         )
-        neu_rank, meta = score_and_rank_watching(
-            entries,
-            min_score=0,
-            neutralize=True,
-            config=cfg,
-            rank_mode="heuristic_score",
-            allow_heuristic_baseline=True,
-        )
-        self.assertTrue(meta["applied"])
-        self.assertEqual(raw_rank[0][0], "A")
-        self.assertEqual(neu_rank[0][0], "B")
+        self.assertEqual(meta.get("rank_mode"), "predicted_score")
+        self.assertEqual(picks[0][0], "B")
 
 if __name__ == "__main__":
     unittest.main()

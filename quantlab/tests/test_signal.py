@@ -17,7 +17,8 @@ class TestSignalScorer(unittest.TestCase):
     def test_score_rising(self):
         result = score_bars(_rising_bars(), horizon_days=3, quote={"change_raw": 1.0})
         self.assertFalse(result["hard_reject"])
-        self.assertGreaterEqual(result["score"], 50)
+        self.assertIsNone(result["score"])  # 规则综合分已清理
+        self.assertTrue(result.get("sub_scores"))
         self.assertTrue(result["reasons"])
         self.assertTrue(result["invalidation"])
 

@@ -1002,8 +1002,8 @@ class TestTopkEngineTag(unittest.TestCase):
                 horizon_days=3,
                 min_score=0,
                 min_history=12,
-                allow_heuristic_baseline=True,
-                rank_mode="heuristic_score",
+                min_predicted_score=-999.0,
+                rank_mode="predicted_score",
             )
         self.assertTrue(result.get("success"), result.get("error"))
         self.assertEqual(result.get("params", {}).get("engine"), "topk_research")

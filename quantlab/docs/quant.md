@@ -614,7 +614,7 @@ score_bars → sub_scores（特征）
 | **stance** | 仍基于分数阈值 / 策略层 | 分类器直接输出「买/卖」 |
 | **promote** | 人审冻结 `return_model`；**不**自动写 `signal_config.weights` | 静默 overwrite 生产配置 |
 
-`score_bars` 仍算因子与 `sub_scores`（ŷ 输入）；其内部加权总分**不**再挂 `heuristic_score`，也不驱动选股。无模型时 `score` 为空。
+`score_bars` 只算因子与 `sub_scores`（ŷ 输入）及硬门禁；**不再**产出规则加权总分 / `heuristic_score`。无模型时主字段 `score` 为空。OOS 门禁为 ŷ 相对平坦 0%，不再跑 heuristic 基线臂。
 
 **仍刻意不做的**：GBDT / 神经网络 end-to-end 荐股；黑盒直接改 `stance_label`；自动写盘。原因未变——可解释、审计、PIT/数据质量、OOS 与成本约束。复杂模型须 eval 证明增量后再人审 artifact。
 
@@ -964,7 +964,7 @@ python3 research/paper_run.py --init
 | 盘中簿排序 `ŷ_trade` | `dual_score` blend：现网 **`w_oo=0, w_tau=1`** → 缺口∘ŷ_τ；收盘 `eod_next` 回到 ŷ_oo | 与调仓 rank_lots 不是同一套权 |
 | 调仓 / 纸面 y_oo_fuse（UI fuse） | `fusion_w_oo` / `fusion_w_oc`（回测表单默认 0.6 / 0.4；live Follow 单条滑条，改启动时间建议 0.9/0.1 或 0.1/0.9） | `dual_score.w_*` |
 
-`heuristic_score` 仅研究对照基线。层 2 **不得**覆盖层 1 字段且不改标签混对账。
+规则 `heuristic_score` 已清理。层 2 **不得**覆盖层 1 字段且不改标签混对账。
 
 ---
 

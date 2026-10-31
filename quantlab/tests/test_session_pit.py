@@ -410,9 +410,9 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertFalse(kept.get("hard_reject"))
         self.assertTrue(kept.get("sub_scores"))
         self.assertTrue(kept.get("mom3_chase_risk"))
-        # 硬拒路径也必须留下 sub_scores，不能掐死 ŷ
+        # 硬拒路径也必须留下 sub_scores，不能掐死 ŷ；规则总分已清理
         self.assertTrue(rejected.get("sub_scores"))
-        self.assertGreater(float(rejected.get("score") or 0), 0)
+        self.assertIsNone(rejected.get("score"))
 
     def test_default_still_maps_remaining(self):
         from core.signal.dual_score import apply_tau_score_fields, oo_remaining_at_tau

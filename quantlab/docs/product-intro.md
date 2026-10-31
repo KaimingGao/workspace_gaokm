@@ -46,7 +46,7 @@
 选股采用 **多因子横截面打分 + 双预测头融合**，输出候选股票排序。核心流程：观察池 → 逐股 `score_stock()`（取日线 → 因子计算 → `score_bars()` → `predicted_score`）→ 横截面排序（质量门禁 → Top N）。
 
 - **因子库**：`core/signal/factors/`（动量 / 量价 / 相对强弱 / 波动 / 反转 / 基本面 / 情绪 / 风险 / 流动性等）；元数据由 `factors/meta/` 管理。
-- **生产打分**：组 OLS/Ridge 的 ŷ%（非 0–100 规则加权）；`heuristic_score` 仅研究对照。
+- **生产打分**：组 OLS/Ridge 的 ŷ%（规则加权总分 / `heuristic_score` 已清理）。
 - **双预测头**：`core/signal/dual_score/` 维护 ŷ_oo（主排序 / 入池地板）、ŷ_τc（调仓 fuse；做 T 不再估 C_τ）、ŷ_co（叠进 ŷ_τc）；调仓 fuse 与盘中 ŷ_trade 权重不同。
 - **质量门禁**：`production_ok` 过滤数据不完整 / 因子缺失；未通过降级为 heuristic 分。
 

@@ -15,8 +15,7 @@ from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
 
 RANK_MODES = ("predicted_score",)
 DEFAULT_RANK_MODE = "predicted_score"
-# 研究 OOS 对照允许的排序键（生产 live 仍只认 predicted_score）
-RESEARCH_OOS_RANK_MODES = ("predicted_score", "heuristic_score")
+RESEARCH_OOS_RANK_MODES = ("predicted_score",)
 
 
 @dataclass
@@ -410,10 +409,8 @@ def clamp_rank_mode(mode: Optional[str] = None) -> str:
 
 
 def resolve_research_rank_mode(mode: Optional[str] = None) -> str:
-    """研究/OOS 回测：允许 heuristic_score 作对照基线，其余 → predicted_score。"""
-    m = (mode or "").strip().lower()
-    if m in ("heuristic", "heuristic_score", "rule", "rule_score"):
-        return "heuristic_score"
+    """研究/OOS 回测：仅 predicted_score（heuristic 基线已清理）。"""
+    _ = mode
     return "predicted_score"
 
 

@@ -1,19 +1,35 @@
-"""研究 OOS 门禁：heuristic_score 基线 vs predicted_score 研究臂（只读）。
+"""研究 OOS 门禁：predicted_score（ŷ）单臂相对「平坦 0%」对照（只读）。
 
 产品定位：
-- 基线：全局人工预定义线性加权（heuristic_score）
 - 研究臂：研究枢纽回归模型 → predicted_score（ŷ）
-- 目的：验证枢纽方案是否在样本外不劣于人工基线；过门 ≠ 自动 promote
+- 隐含基线：OOS 收益相对 0%（不持仓/现金），不再跑 heuristic 规则分臂
+- 目的：样本外 ŷ 曲线可评估且不显著劣于平坦；过门 ≠ 自动 promote
 """
 
 from typing import Any, Dict, List, Optional
 
 # 产品语义（UI / API note 同源）
 OOS_PRODUCT_SEMANTICS = (
-    "产品语义：heuristic_score（人工线性加权）= 研究对照基线；"
-    "predicted_score（研究枢纽回归 ŷ）= 选股实现方案。"
-    "研究枢纽用于寻找更优 ŷ，以提升回测收益与交易选股；过门≠自动 promote。"
+    "产品语义：predicted_score（研究枢纽回归 ŷ）= 选股实现方案；"
+    "OOS 对照隐含基线为平坦 0%（已移除 heuristic 规则分臂）。"
+    "研究枢纽用于寻找更优 ŷ；过门≠自动 promote。"
 )
+
+# 合成基线：不跑第二套回测，只作 ΔOOS 对照零点
+_FLAT_BASELINE_METRICS: Dict[str, Any] = {
+    "success": True,
+    "error": None,
+    "total_return_pct": 0.0,
+    "max_drawdown_pct": 0.0,
+    "win_rate_pct": None,
+    "trade_count": 1,
+    "oos": {"oos_return_pct": 0.0, "failed": False},
+    "rank_mode": "flat_zero",
+    "benchmark": {},
+    "excess_pct": None,
+    "ann_ir": None,
+    "alpha_beta_legs": {},
+}
 
 
 def oos_semantics_note(*, oos_tol_pp: float = 1.0) -> str:
@@ -21,7 +37,7 @@ def oos_semantics_note(*, oos_tol_pp: float = 1.0) -> str:
     tol = float(oos_tol_pp)
     return (
         "同一研究池轻量 Top-K 曲线（等权硬 TopK）：权益曲线后 30% 为 OOS。"
-        f"过门条件：研究臂（ŷ）OOS ≥ 基线（heuristic）OOS − {tol}pp，"
+        f"过门条件：研究臂（ŷ）OOS ≥ 0% − {tol}pp，"
         "且不新增 OOS 失败旗标。"
         + " "
         + OOS_PRODUCT_SEMANTICS
@@ -73,7 +89,7 @@ def _shared_oos_backtest_kwargs(
     horizon_days: int,
     fundamentals_by_code: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, Any]:
-    """两臂共用：成本、权重模式、限额、剔 ST，避免对照口径偏袒。"""
+    """研究臂：成本、权重模式、限额、剔 ST。"""
     try:
         from core.strategy import backtest_portfolio_defaults
 
@@ -85,7 +101,6 @@ def _shared_oos_backtest_kwargs(
             "max_sector_pct": 40.0,
             "exclude_st": True,
         }
-    # OOS 对照固定 equal；历史路径关 τ 闸；轻量曲线引擎忽略成本/限额字段
     _ = d, fundamentals_by_code
     return {
         "top_k": top_k,
@@ -108,23 +123,6 @@ def _clip_stock_bars_lookback(
     }
 
 
-def _heuristic_oos_floor(min_score: float) -> float:
-    """基线臂 0–100 门槛：显式参数优先，否则 tracks heuristic_buy_floor。"""
-    try:
-        ms = float(min_score)
-    except (TypeError, ValueError):
-        ms = 55.0
-    if ms > 0:
-        return ms
-    try:
-        from core.signal.rebalance_tracks import heuristic_floors
-
-        buy, _ = heuristic_floors()
-        return float(buy)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        return 55.0
-
-
 def _predicted_oos_floor() -> float:
     """研究臂 ŷ% 门槛：与生产 scoring.min_predicted_score 同源。"""
     try:
@@ -133,45 +131,6 @@ def _predicted_oos_floor() -> float:
         return float(resolve_buy_floor())
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         return 1.0
-
-
-def _run_topk_heuristic(
-    stock_bars: Dict[str, List[dict]],
-    weights: Dict[str, float],
-    *,
-    top_k: int,
-    horizon_days: int,
-    min_score: float,
-    fundamentals_by_code: Optional[Dict[str, dict]] = None,
-    progress_cb: Optional[Any] = None,
-    cancel_check: Optional[Any] = None,
-    neutralize: Optional[bool] = None,
-    lite: bool = False,
-) -> Dict[str, Any]:
-    """基线臂：全局人工权 → heuristic_score 排序。"""
-    from core.backtest.topk_probe import run_oos_topk_curve
-    from core.signal.config import signal_config_overlay
-
-    _ = fundamentals_by_code, lite
-    shared = _shared_oos_backtest_kwargs(
-        top_k=top_k,
-        horizon_days=horizon_days,
-        fundamentals_by_code=fundamentals_by_code,
-    )
-    if neutralize is not None:
-        shared["neutralize"] = bool(neutralize)
-    floor = _heuristic_oos_floor(min_score)
-    with signal_config_overlay({"weights": weights}):
-        return run_oos_topk_curve(
-            stock_bars,
-            min_score=floor,
-            rank_mode="heuristic_score",
-            allow_heuristic_baseline=True,
-            min_predicted_score=None,
-            progress_cb=progress_cb,
-            cancel_check=cancel_check,
-            **shared,
-        )
 
 
 def _run_topk_predicted(
@@ -187,11 +146,7 @@ def _run_topk_predicted(
     neutralize: Optional[bool] = None,
     lite: bool = False,
 ) -> Dict[str, Any]:
-    """研究臂：注入组/全局 return_model → predicted_score 排序。
-
-    与基线臂同宇宙/同 K/同持有期；ŷ 门槛用生产 buy floor（非 0）。
-    关闭 ŷ_τ 买入闸（与基线对称：历史日线无可靠 τ）。
-    """
+    """研究臂：注入组/全局 return_model → predicted_score 排序。"""
     from core.backtest.topk_probe import run_oos_topk_curve
 
     _ = fundamentals_by_code, lite
@@ -209,7 +164,7 @@ def _run_topk_predicted(
     )
     return run_oos_topk_curve(
         stock_bars,
-        min_score=0.0,  # predicted 路径不用 0–100 门
+        min_score=0.0,
         rank_mode="predicted_score",
         min_predicted_score=floor,
         return_model_ridge_lambda=float(ridge_lambda or 0.0),
@@ -266,7 +221,6 @@ def _compare_arms(
         else:
             reason = (research_m.get("oos") or {}).get("fail_reason") or "research_oos_failed"
     else:
-        # 无成交 / 曲线过短：样本不足，不算 α 失败
         res_oos_meta = research_m.get("oos") or {}
         skipped = True
         if int(research_m.get("trade_count") or 0) <= 0:
@@ -305,16 +259,16 @@ def _compare_arms(
         "horizon_days": horizon_days,
         "stock_count": stock_count,
         "codes": codes,
-        "baseline_rank_mode": "heuristic_score",
+        "baseline_rank_mode": "flat_zero",
         "research_rank_mode": "predicted_score",
         "gate_symmetry": {
-            "baseline_floor_scale": "heuristic_0_100",
+            "baseline_floor_scale": "flat_zero",
             "research_floor_scale": "predicted_pct",
             "apply_tau_buy_gate": False,
             "weight_mode": "equal",
             "note": (
-                "两臂同 top_k/持有期/等权轻量曲线；基线用 heuristic 门槛，"
-                "研究臂用生产 ŷ 门槛；历史路径均关 τ 闸。"
+                "研究臂轻量 Top-K；隐含基线 OOS=0%（已移除 heuristic 臂）；"
+                "历史路径关 τ 闸。"
             ),
         },
         "baseline": baseline_m,
@@ -348,22 +302,16 @@ def evaluate_research_oos(
     attach_excess: bool = True,
     fast_gate: bool = False,
 ) -> Dict[str, Any]:
-    """heuristic 基线 vs predicted（研究模型）同一宇宙 Top-K OOS 对照。
+    """ŷ 研究臂 Top-K OOS，相对平坦 0% 过门。
 
-    B5：``respect_regime=True``（默认）表示研究臂模型应按 regime 对齐因子集拟合；
-    本函数消费已拟合的 return_model，并在结果中戳记该约定。
-
-    ``stock_bars`` 若已由上游分组流水线拉好，直接复用，避免每组重复 IO。
-    ``rank_only``：两臂都不设买入门槛，只比组内 Top-K 排序（组 OOS 用；
-    避免生产 ŷ≥1% 把研究臂买成 0 笔再记失败）。
-    ``require_clean_is_oos``：False 时，ŷ 相对 heuristic 已过门则不再被
-    「自身 IS≫OOS」旗标否决（小组 Top-K 曲线噪声大）。
-    ``fast_gate``：关回测逐日财务 PIT / 行业中性 / 分钟 τ / 尾盘分钟仓；
-    日线截到 lookback；收盘成交、不计成本。``attach_excess=False`` 不拉指数。
+    ``baseline_weights`` / ``min_score`` 已忽略（兼容旧调用方）。
+    B5：``respect_regime`` 仅戳记约定（模型由上游拟合）。
     """
     from core.research.portfolio_bars import load_portfolio_stock_bars
-    from core.signal.config import load_signal_config, signal_config_overlay
+    from core.signal.config import signal_config_overlay
     from core.watching.store import read_watching
+
+    _ = baseline_weights, min_score
 
     if codes:
         use_codes = [str(c).strip() for c in codes if str(c).strip()]
@@ -431,27 +379,13 @@ def evaluate_research_oos(
             "stock_count": len(stock_bars),
         }
 
-    cfg = load_signal_config() or {}
-    base_w = dict(baseline_weights or cfg.get("weights") or {})
-    if not base_w:
-        return {
-            "ok": False,
-            "passed": False,
-            "skipped": True,
-            "reason": "no_baseline_weights",
-            "note": "无全局人工权重，无法跑 heuristic 基线。",
-            "stock_count": len(stock_bars),
-        }
-
     top_k_eff = max(1, min(int(top_k or 1), len(stock_bars)))
-    # 研究模型只覆盖本组 codes
     models_eff = {
         str(c): models[str(c)]
         for c in stock_bars
         if str(c) in models
     }
     if not models_eff:
-        # 允许同一模型广播到全部成员
         only = next(iter(models.values()), None)
         if only is not None:
             models_eff = {str(c): only for c in stock_bars}
@@ -465,13 +399,10 @@ def evaluate_research_oos(
                 "stock_count": len(stock_bars),
             }
 
-    heur_floor = 0.0 if rank_only else min_score
     pred_floor = -999.0 if rank_only else min_predicted_score
     neut = False if fast_gate else None
     if fast_gate:
         stock_bars = _clip_stock_bars_lookback(stock_bars, lookback)
-        base_w = dict(base_w)
-        base_w["tail_anomaly"] = 0.0
 
     def _emit(msg: str, cur: int = 0, tot: int = 1) -> None:
         if not progress_cb:
@@ -499,15 +430,15 @@ def evaluate_research_oos(
         else None
     )
     with signal_config_overlay(overlay):
-        _emit("基线", 0, 1)
-        base_bt = _run_topk_heuristic(
+        _emit("研究臂", 0, 1)
+        res_bt = _run_topk_predicted(
             stock_bars,
-            base_w,
             top_k=top_k_eff,
             horizon_days=horizon_days,
-            min_score=heur_floor,
+            ridge_lambda=ridge_lambda,
             fundamentals_by_code=fund_map or None,
-            progress_cb=_arm_cb("基线"),
+            min_predicted_score=pred_floor,
+            progress_cb=_arm_cb("研究臂"),
             cancel_check=cancel_check,
             neutralize=neut,
             lite=bool(fast_gate),
@@ -525,23 +456,9 @@ def evaluate_research_oos(
                     }
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                 pass
-        _emit("研究臂", 0, 1)
-        res_bt = _run_topk_predicted(
-            stock_bars,
-            top_k=top_k_eff,
-            horizon_days=horizon_days,
-            ridge_lambda=ridge_lambda,
-            fundamentals_by_code=fund_map or None,
-            min_predicted_score=pred_floor,
-            progress_cb=_arm_cb("研究臂"),
-            cancel_check=cancel_check,
-            neutralize=neut,
-            lite=bool(fast_gate),
-        )
+
     out = _compare_arms(
-        _metrics_from_backtest(
-            base_bt, stock_bars=stock_bars, attach_excess=bool(attach_excess)
-        ),
+        dict(_FLAT_BASELINE_METRICS),
         _metrics_from_backtest(
             res_bt, stock_bars=stock_bars, attach_excess=bool(attach_excess)
         ),
@@ -582,11 +499,8 @@ def evaluate_weight_suggestion_oos(
     ridge_lambda: float = 0.0,
     respect_regime: bool = True,
 ) -> Dict[str, Any]:
-    """兼容入口：优先走 heuristic vs predicted；无模型时跳过。
-
-    ``current_weights`` 用作 heuristic 基线权；``suggested_weights`` 已退役为选股权，
-    仅在未提供 ``research_models_by_code`` 时无法构成研究臂。
-    """
+    """兼容入口：有研究模型则跑 ŷ vs 平坦 0%；否则跳过。"""
+    _ = suggested_weights
     if research_models_by_code:
         return evaluate_research_oos(
             codes=codes,
@@ -608,8 +522,8 @@ def evaluate_weight_suggestion_oos(
         "skipped": True,
         "reason": "no_return_model",
         "note": (
-            "OOS 已改为 heuristic_score 基线 vs predicted_score 研究臂；"
-            "未提供 return_model，跳过（不再用建议权 overlay 当研究臂）。"
+            "OOS 为 predicted_score 相对平坦 0%；"
+            "未提供 return_model，跳过。"
             + " "
             + OOS_PRODUCT_SEMANTICS
         ),

@@ -263,8 +263,8 @@ class TestOosLabelReady(unittest.TestCase):
             horizon_days=2,
             min_history=8,
             min_score=-999,
-            rank_mode="heuristic_score",
-            allow_heuristic_baseline=True,
+            min_predicted_score=-999.0,
+            rank_mode="predicted_score",
         )
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertIs(out["params"].get("limit_filter"), False)

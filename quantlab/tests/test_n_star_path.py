@@ -89,9 +89,9 @@ class TestP1QualityGate(unittest.TestCase):
         ):
             out = score_stock("600519", quote=quote, skip_fundamentals=True)
         self.assertFalse(out.get("quality_gate"))
-        # 无 return_model 时主分 score 为 None；启发式分仍落 heuristic_score
+        # 无 return_model 时主分 score 为 None；heuristic 总分已清理
         self.assertIsNone(out["signal_item"]["score"])
-        self.assertEqual(out["signal_item"]["heuristic_score"], 60.0)
+        self.assertNotIn("heuristic_score", out["signal_item"])
 
     def test_manifest_has_adjust_policy(self):
         from core.data.facade import DEFAULT_ADJUST_POLICY
