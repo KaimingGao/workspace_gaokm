@@ -83,6 +83,29 @@ class MorphGateUnitTests(unittest.TestCase):
         self.assertIsNotNone(skip)
         self.assertIn("形态闸", skip or "")
 
+    def test_held_clear_skips_morph_gate(self):
+        """已持仓清仓判定不因形态闸触发（与 UI「不清仓」一致）。"""
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        item = {
+            "predicted_score": 2.0,
+            "y_τc": 1.0,
+            "morph_vol_p": 0.95,
+            "morph_a1": -0.02,
+        }
+        cfg = {
+            "fuse_enter": 0.0,
+            "morph_gate_enabled": True,
+            "morph_vol_pctl": 0.9,
+            "morph_a1_max": 0.0,
+        }
+        self.assertIsNotNone(
+            rank_lot_enter_skip_reason(item, cfg, rs=0.02, apply_morph_gate=True)
+        )
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(item, cfg, rs=0.02, apply_morph_gate=False)
+        )
+
     def test_execution_normalize_keeps_morph_gate(self):
         from core.execution import validate_execution_patch
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg

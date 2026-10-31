@@ -9,8 +9,8 @@
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_τc
   - 过入场（y_oo_fuse>fuse_enter）→ 按 oo_rank 升序（1=最好）开仓或加仓；
     缺 oo_rank 回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号
-  - 可选形态硬闸 morph_gate_*（默认关）：候选池 vol20 分位高且今开弱势 → 禁止新开/加仓
-  - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分）
+  - 可选形态硬闸 morph_gate_*（默认关）：候选池 vol20 分位高且今开弱势 → 禁止新开/加仓（已持仓不清仓）
+  - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸不触发清仓）
     缺分不能假装过门槛续持；无「持」动作
   - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
     同一比较：过强档改看 oo_rank_strong_max（默认 100；≤0=关），不再用入场 oo_rank_max
@@ -381,12 +381,14 @@ def rank_lot_enter_skip_reason(
     cfg: Optional[dict],
     *,
     rs: Optional[float],
+    apply_morph_gate: bool = True,
 ) -> Optional[str]:
     """入场：y_oo_fuse ≥ fuse_enter；可选 y_oo>0 / y_τc>0。
 
     ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺分不拦。
     未过强档时可选 ``oo_rank_max``（须 max(y_oo_rank, y_τc_rank) < max）或旧键 ``oo_rank_top_frac``。
     y_oo_fuse > fuse_strong 时改看 ``oo_rank_strong_max``（缺键默认 100；≤0=关）。
+    ``apply_morph_gate=False``：已持仓清仓判定用——形态闸只拦新开/加，不清仓。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oo, pick_y_τc
@@ -414,14 +416,15 @@ def rank_lot_enter_skip_reason(
     )
     if skip is not None:
         return skip
-    try:
-        from core.paper.rebalance.morph_gate import morph_gate_skip_reason
-    except Exception:  # noqa: BLE001
-        logger.debug("morph_gate import failed", exc_info=True)
-    else:
-        morph_skip = morph_gate_skip_reason(item, cfg_d)
-        if morph_skip is not None:
-            return morph_skip
+    if apply_morph_gate:
+        try:
+            from core.paper.rebalance.morph_gate import morph_gate_skip_reason
+        except Exception:  # noqa: BLE001
+            logger.debug("morph_gate import failed", exc_info=True)
+        else:
+            morph_skip = morph_gate_skip_reason(item, cfg_d)
+            if morph_skip is not None:
+                return morph_skip
     if _fuse_strong_met(rs, cfg_d):
         return _oo_rank_abs_skip(item, oo_rank_strong_max_from_cfg(cfg_d))
     return _oo_rank_enter_skip(item, cfg_d)
@@ -1437,8 +1440,9 @@ def plan_rank_lot_day(
         held_sh = _f(h.get("shares")) or 0.0
         exit_why = held_exit_reason(item, rs)
         if not exit_why:
+            # 形态闸只禁新开/加；清仓仍只看 fuse / y_gt0 / rank 等入场闸
             skip_enter = rank_lot_enter_skip_reason(
-                item, enter_cfg, rs=rs
+                item, enter_cfg, rs=rs, apply_morph_gate=False
             )
             if skip_enter:
                 exit_why = f"{skip_enter} 清仓"
