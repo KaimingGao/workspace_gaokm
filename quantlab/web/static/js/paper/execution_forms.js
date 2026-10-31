@@ -1,6 +1,7 @@
 /** 调仓 / 做 T 规则表单：保存与回填。历史回测改规则；交易执行不展示规则条。 */
 
-import {
+const _V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   fillExecutionForm,
   collectExecutionForm,
   fillPathMatrixForm,
@@ -10,7 +11,7 @@ import {
   applyLiveFillClockUi,
   applyLiveT0PrefixUi,
   applyLiveFusionWeightsUi,
-} from "./execution_ui.js?v=p3378";
+} = await import(`./execution_ui.js?v=${encodeURIComponent(_V)}`);
 
 async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
   const ac = new AbortController();

@@ -34,7 +34,9 @@ import {
   holdActionHintText,
 } from "./paper/holdings_ui.js?v=p3360";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
-import {
+const _EXEC_V =
+  (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   collectLiveFillClockPatch,
   collectLiveT0PrefixPatch,
   applyLiveFillClockUi,
@@ -43,8 +45,12 @@ import {
   syncLiveFusionWeightSliders,
   liveFillClockAt,
   liveT0PrefixAt,
-} from "./paper/execution_ui.js?v=p3378";
-import { applyExecutionToUi } from "./paper/execution_forms.js?v=p3378";
+} = await import(
+  `./paper/execution_ui.js?v=${encodeURIComponent(_EXEC_V)}`
+);
+const { applyExecutionToUi } = await import(
+  `./paper/execution_forms.js?v=${encodeURIComponent(_EXEC_V)}`
+);
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p3226";
 import { downloadBlob } from "./shared.js";
 import {

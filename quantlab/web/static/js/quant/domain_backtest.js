@@ -7,18 +7,20 @@ import { mergeScoringFloors } from "./scoring.js";
 import { watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob, escapeHtml } from "../shared.js";
-import {
+import { TAU_END_CLOCKS, clampTauEndHm } from "./params.js";
+
+const _V =
+  (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   collectPathMatrixForm,
   collectExecutionForm,
   readT0BtSizing,
   fillT0BtSizing,
   coerceCfgBool,
-} from "../paper/execution_ui.js";
-import { initExecutionRuleForms } from "../paper/execution_forms.js";
-import { TAU_END_CLOCKS, clampTauEndHm } from "./params.js";
-
-const _V =
-  (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+} = await import(`../paper/execution_ui.js?v=${encodeURIComponent(_V)}`);
+const { initExecutionRuleForms } = await import(
+  `../paper/execution_forms.js?v=${encodeURIComponent(_V)}`
+);
 const { mountVirtualTable } = await import(
   `../virtual_table.js?v=${encodeURIComponent(_V)}`
 );
