@@ -2,6 +2,17 @@
 
 import { escapeText } from "./fmt.js";
 
+/** 解析纸面/请求 bool；避免 ``!!"false"`` 误判为开。 */
+function coerceCfgBool(val, fallback = false) {
+  if (val == null) return !!fallback;
+  if (typeof val === "boolean") return val;
+  if (typeof val === "number") return Number.isFinite(val) ? val !== 0 : !!fallback;
+  const s = String(val).trim().toLowerCase();
+  if (["false", "0", "no", "off", "none", ""].includes(s)) return false;
+  if (["true", "1", "yes", "on"].includes(s)) return true;
+  return !!fallback;
+}
+
 function yTwEnterValue(t0) {
   const e = Number(t0?.y_tw_enter);
   if (Number.isFinite(e)) return Math.max(0, Math.min(e, 5));
@@ -352,14 +363,9 @@ export function fillPathMatrixForm(root, execution) {
     pm.fuse_strong != null ? pm.fuse_strong : enterScore;
   set("pm_fuse_enter", fuseScoreToPct(enterScore));
   set("pm_fuse_strong", fuseScoreToPct(strongScore));
-      const yOoGt0 = pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : false;
-  const yOcGt0 = pm.y_τc_gt0 != null ? !!pm.y_τc_gt0 : false;
-  set("pm_y_oo_gt0", yOoGt0);
-  set("pm_y_τc_gt0", yOcGt0);
-  set(
-    "pm_morph_gate",
-    pm.morph_gate_enabled != null ? !!pm.morph_gate_enabled : false
-  );
+  set("pm_y_oo_gt0", coerceCfgBool(pm.y_oo_gt0, false));
+  set("pm_y_τc_gt0", coerceCfgBool(pm.y_τc_gt0, false));
+  set("pm_morph_gate", coerceCfgBool(pm.morph_gate_enabled, false));
   const ooRankMax = Number(pm.oo_rank_max);
   if (Number.isFinite(ooRankMax) && ooRankMax > 0) {
     set("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooRankMax))));

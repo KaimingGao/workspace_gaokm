@@ -1367,6 +1367,7 @@ def plan_rank_lot_day(
                 list(item_by.values()),
                 opens=opens,
                 bars_by_code=bars_by,
+                as_of=str(as_of or "")[:10] or None,
             )
     except Exception:  # noqa: BLE001
         logger.debug("morph_gate stamp failed", exc_info=True)

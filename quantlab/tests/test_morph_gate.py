@@ -111,6 +111,74 @@ class MorphGateUnitTests(unittest.TestCase):
         cfg = get_rank_lot_cfg(paper)
         self.assertTrue(cfg.get("morph_gate_enabled"))
 
+    def test_string_false_does_not_enable(self):
+        from core.paper.rebalance.morph_gate import morph_gate_enabled
+
+        self.assertFalse(morph_gate_enabled({"morph_gate_enabled": "false"}))
+        self.assertFalse(morph_gate_enabled({"morph_gate_enabled": "0"}))
+        self.assertTrue(morph_gate_enabled({"morph_gate_enabled": "true"}))
+
+    def test_stamp_clears_stale_vol_p_when_pool_small(self):
+        from core.paper.rebalance.morph_gate import stamp_morph_cs_on_items
+
+        items = [
+            {"stock_code": "000001", "morph_vol_p": 0.99},
+            {"stock_code": "000002", "morph_vol_p": 0.95},
+        ]
+        stamp_morph_cs_on_items(
+            items,
+            metrics_by_code={
+                "000001": {"a1": -0.01, "vol20": 0.2},
+                "000002": {"a1": -0.02, "vol20": 0.3},
+            },
+        )
+        self.assertNotIn("morph_vol_p", items[0])
+        self.assertNotIn("morph_vol_p", items[1])
+        self.assertIn("morph_a1", items[0])
+
+    def test_stamp_dedupes_codes_for_percentile(self):
+        from core.paper.rebalance.morph_gate import stamp_morph_cs_on_items
+
+        items = [{"stock_code": f"{i:06d}"} for i in range(1, 9)]
+        items.append({"stock_code": "000001"})  # duplicate
+        metrics = {
+            f"{i:06d}": {"a1": -0.01, "vol20": float(i)} for i in range(1, 9)
+        }
+        stamp_morph_cs_on_items(items, metrics_by_code=metrics)
+        self.assertEqual(items[0]["morph_vol_p"], items[-1]["morph_vol_p"])
+
+    def test_skip_ignores_out_of_range_vol_p(self):
+        from core.paper.rebalance.morph_gate import morph_gate_skip_reason
+
+        cfg = {"morph_gate_enabled": True}
+        self.assertIsNone(
+            morph_gate_skip_reason({"morph_vol_p": 1.5, "morph_a1": -0.02}, cfg)
+        )
+
+    def test_try_stamp_tolerates_bad_factors(self):
+        from core.paper.rebalance.morph_gate import try_stamp_morph_from_opens
+
+        items = [
+            {"stock_code": "000001", "open": 10.0, "factors": ["not-a-dict"]},
+            {"stock_code": "000002", "open": 11.0, "prev_close": 10.0},
+        ]
+        n_a1, n_vp = try_stamp_morph_from_opens(items, opens={})
+        self.assertGreaterEqual(n_a1, 1)
+        self.assertEqual(n_vp, 0)
+
+    def test_metrics_from_bars_respects_as_of(self):
+        from core.paper.rebalance.morph_gate import metrics_from_bars
+
+        bars = [
+            {"date": "2026-10-20", "close": 10.0, "open": 9.9},
+            {"date": "2026-10-21", "close": 10.5, "open": 10.1},
+            {"date": "2026-10-22", "close": 12.0, "open": 11.0},  # 当日不应进昨收
+        ]
+        m = metrics_from_bars(bars, open_t=10.8, as_of="2026-10-22")
+        self.assertAlmostEqual(m["prev_close"], 10.5, places=5)
+        self.assertIsNotNone(m["a1"])
+        self.assertAlmostEqual(m["a1"], 10.8 / 10.5 - 1.0, places=5)
+
 
 if __name__ == "__main__":
     unittest.main()

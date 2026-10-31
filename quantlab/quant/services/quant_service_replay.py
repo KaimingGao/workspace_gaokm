@@ -383,6 +383,15 @@ class QuantReplayMixin:
         )
         clock = clamp_replay_fill_clock(fill_clock, REPLAY_FILL_CLOCK)
         gate_on = True if price_space_gate is None else bool(price_space_gate)
+        from core.t0.config import coerce_cfg_bool
+
+        y_oo_gt0_b = False if y_oo_gt0 is None else bool(coerce_cfg_bool(y_oo_gt0, False))
+        y_τc_gt0_b = False if y_τc_gt0 is None else bool(coerce_cfg_bool(y_τc_gt0, False))
+        morph_gate_b = (
+            False
+            if morph_gate_enabled is None
+            else bool(coerce_cfg_bool(morph_gate_enabled, False))
+        )
         minute_span = min(max(int(effective_lookback or 30) + 20, 15), 120)
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
@@ -449,9 +458,9 @@ class QuantReplayMixin:
                     fusion_w_oc=w_τc,
                     fuse_enter=enter,
                     fuse_strong=strong,
-                    y_oo_gt0=bool(y_oo_gt0),
-                    y_τc_gt0=bool(y_τc_gt0),
-                    morph_gate_enabled=bool(morph_gate_enabled),
+                    y_oo_gt0=y_oo_gt0_b,
+                    y_τc_gt0=y_τc_gt0_b,
+                    morph_gate_enabled=morph_gate_b,
                     oo_rank_max=oo_rank_max,
                     oo_rank_strong_max=oo_rank_strong_max,
                     oo_rank_top_frac=oo_rank_top_frac,
@@ -513,9 +522,9 @@ class QuantReplayMixin:
             "fusion_w_oc": w_τc,
             "fuse_enter": enter,
             "fuse_strong": strong,
-            "y_oo_gt0": bool(y_oo_gt0),
-            "y_τc_gt0": bool(y_τc_gt0),
-            "morph_gate_enabled": bool(morph_gate_enabled),
+            "y_oo_gt0": y_oo_gt0_b,
+            "y_τc_gt0": y_τc_gt0_b,
+            "morph_gate_enabled": morph_gate_b,
             "oo_rank_max": oo_rank_max,
             "oo_rank_strong_max": oo_rank_strong_max,
             "oo_rank_top_frac": oo_rank_top_frac,
