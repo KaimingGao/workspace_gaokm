@@ -788,7 +788,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     morph_vol_pctl_from_cfg,
                 )
                 from core.paper.rebalance.path_matrix import get_path_matrix_cfg
-                from core.t0.config import coerce_cfg_bool
 
                 pm = get_path_matrix_cfg({"rank_lots": pm_in})
                 # 整表校验后只回写补丁里出现的键，避免只改「启动时间」冲掉门槛/回测钟。
@@ -810,8 +809,9 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                         if pm.get("fusion_w_co") is not None
                         else 1.0
                     ),
-                    "y_oo_gt0": bool(coerce_cfg_bool(pm.get("y_oo_gt0"), False)),
-                    "y_τc_gt0": bool(coerce_cfg_bool(pm.get("y_τc_gt0"), False)),
+                    # get_path_matrix_cfg 已 coerce 闸开关
+                    "y_oo_gt0": bool(pm.get("y_oo_gt0")),
+                    "y_τc_gt0": bool(pm.get("y_τc_gt0")),
                     # None/≤0=关；正整数=未过强档须 max(y_oo_rank, y_τc_rank) < max（UI 入场 rank）。须进白名单。
                     "oo_rank_max": pm.get("oo_rank_max"),
                     # 过强档后的名次；缺键默认 100；≤0/None=关
@@ -826,9 +826,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                         pm.get("lot_strong_amount") or 20_000.0
                     ),
                     # 形态硬闸（默认关）；须进白名单，否则保存规则会冲掉勾选
-                    "morph_gate_enabled": bool(
-                        coerce_cfg_bool(pm.get("morph_gate_enabled"), False)
-                    ),
+                    "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
                     "morph_vol_pctl": float(morph_vol_pctl_from_cfg(pm)),
                     "morph_a1_max": float(morph_a1_max_from_cfg(pm)),
                 }

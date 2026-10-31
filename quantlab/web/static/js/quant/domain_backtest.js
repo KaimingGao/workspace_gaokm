@@ -7,7 +7,13 @@ import { mergeScoringFloors } from "./scoring.js";
 import { watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob, escapeHtml } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js";
+import {
+  collectPathMatrixForm,
+  collectExecutionForm,
+  readT0BtSizing,
+  fillT0BtSizing,
+  coerceCfgBool,
+} from "../paper/execution_ui.js";
 import { initExecutionRuleForms } from "../paper/execution_forms.js";
 import { TAU_END_CLOCKS, clampTauEndHm } from "./params.js";
 
@@ -445,19 +451,10 @@ export function installBacktest(q) {
     if (strongPct) {
       setName("pm_fuse_strong", strongPct);
     }
-    const coerceBool = (val, fallback) => {
-      if (val == null) return !!fallback;
-      if (typeof val === "boolean") return val;
-      if (typeof val === "number") return Number.isFinite(val) ? val !== 0 : !!fallback;
-      const s = String(val).trim().toLowerCase();
-      if (["false", "0", "no", "off", "none", ""].includes(s)) return false;
-      if (["true", "1", "yes", "on"].includes(s)) return true;
-      return !!fallback;
-    };
     const setChk = (name, val, fallback) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (!el || el.type !== "checkbox") return;
-      el.checked = coerceBool(val, fallback);
+      el.checked = coerceCfgBool(val, fallback);
     };
     setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
     setChk("pm_y_τc_gt0", req.y_τc_gt0, false);

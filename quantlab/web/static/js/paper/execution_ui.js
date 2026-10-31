@@ -3,7 +3,7 @@
 import { escapeText } from "./fmt.js";
 
 /** 解析纸面/请求 bool；避免 ``!!"false"`` 误判为开。 */
-function coerceCfgBool(val, fallback = false) {
+export function coerceCfgBool(val, fallback = false) {
   if (val == null) return !!fallback;
   if (typeof val === "boolean") return val;
   if (typeof val === "number") return Number.isFinite(val) ? val !== 0 : !!fallback;

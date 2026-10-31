@@ -17,18 +17,10 @@ _MIN_CS_N = 8
 
 
 def morph_gate_enabled(cfg: Optional[Mapping[str, Any]]) -> bool:
-    d = cfg if isinstance(cfg, Mapping) else {}
-    try:
-        from core.t0.config import coerce_cfg_bool
+    from core.t0.config import coerce_cfg_bool
 
-        return bool(coerce_cfg_bool(d.get("morph_gate_enabled"), False))
-    except Exception:  # noqa: BLE001
-        v = d.get("morph_gate_enabled")
-        if isinstance(v, bool):
-            return v
-        if isinstance(v, (int, float)):
-            return bool(v) and v == v
-        return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
+    d = cfg if isinstance(cfg, Mapping) else {}
+    return bool(coerce_cfg_bool(d.get("morph_gate_enabled"), False))
 
 
 def morph_vol_pctl_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = 0.9) -> float:
@@ -107,7 +99,7 @@ def a1_from_open_prev_close(open_t: Optional[float], prev_close: Optional[float]
 
 
 def _bar_date(b: Mapping[str, Any]) -> str:
-    return str((b or {}).get("date") or (b or {}).get("trade_date") or "")[:10]
+    return str(b.get("date") or b.get("trade_date") or "")[:10]
 
 
 def metrics_from_bars(
@@ -199,7 +191,7 @@ def stamp_morph_cs_on_items(
         import numpy as np
 
         arr = np.asarray(vols, dtype=float)
-        if arr.size != len(vols) or not np.isfinite(arr).all():
+        if not np.isfinite(arr).all():
             _clear_morph_vol_p(items)
             return
         order = arr.argsort().argsort().astype(float)

@@ -470,11 +470,6 @@ def backtest_paper_replay(
     gt0_τc = y_τc_gt0
     from core.t0.config import coerce_cfg_bool
 
-    def _gate_bool(raw: Any, default: bool = False) -> bool:
-        if raw is None:
-            return default
-        return bool(coerce_cfg_bool(raw, default))
-
     paper = _default_paper(
         initial_cash=initial_cash,
         top_k=top_k,
@@ -492,9 +487,13 @@ def backtest_paper_replay(
         "fusion_w_co": alpha,
         "fusion_w_oo": w_oo,
         "fusion_w_oc": w_τc,
-        "y_oo_gt0": _gate_bool(y_oo_gt0, False),
-        "y_τc_gt0": _gate_bool(gt0_τc, False),
-        "morph_gate_enabled": _gate_bool(morph_gate_enabled, False),
+        "y_oo_gt0": False if y_oo_gt0 is None else bool(coerce_cfg_bool(y_oo_gt0, False)),
+        "y_τc_gt0": False if gt0_τc is None else bool(coerce_cfg_bool(gt0_τc, False)),
+        "morph_gate_enabled": (
+            False
+            if morph_gate_enabled is None
+            else bool(coerce_cfg_bool(morph_gate_enabled, False))
+        ),
         "oo_rank_max": oo_rank_max_from_cfg(
             {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
         ),

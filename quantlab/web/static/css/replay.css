@@ -1149,9 +1149,6 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panels {
     grid-template-rows: auto;
     grid-template-areas: "mode rank other";
   }
-  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row4 {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
   body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -1209,10 +1206,6 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box {
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 {

@@ -416,12 +416,12 @@ def rank_lot_enter_skip_reason(
         return skip
     try:
         from core.paper.rebalance.morph_gate import morph_gate_skip_reason
-
+    except Exception:  # noqa: BLE001
+        logger.debug("morph_gate import failed", exc_info=True)
+    else:
         morph_skip = morph_gate_skip_reason(item, cfg_d)
         if morph_skip is not None:
             return morph_skip
-    except Exception:  # noqa: BLE001
-        logger.debug("morph_gate_skip_reason failed", exc_info=True)
     if _fuse_strong_met(rs, cfg_d):
         return _oo_rank_abs_skip(item, oo_rank_strong_max_from_cfg(cfg_d))
     return _oo_rank_enter_skip(item, cfg_d)
@@ -583,12 +583,6 @@ def get_rank_lot_cfg(
     else:
         k = pool_cap
     lot_base_amount, lot_strong_amount = _lot_amounts_from_cfg(pm)
-    from core.paper.rebalance.morph_gate import (
-        morph_a1_max_from_cfg,
-        morph_gate_enabled,
-        morph_vol_pctl_from_cfg,
-    )
-
     return {
         "fuse_enter": enter,
         "fuse_strong": strong,
@@ -603,9 +597,10 @@ def get_rank_lot_cfg(
         "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
-        "morph_gate_enabled": bool(morph_gate_enabled(pm)),
-        "morph_vol_pctl": morph_vol_pctl_from_cfg(pm),
-        "morph_a1_max": morph_a1_max_from_cfg(pm),
+        # morph_* 已在 get_path_matrix_cfg 里 coerce / clamp
+        "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
+        "morph_vol_pctl": float(pm.get("morph_vol_pctl") if pm.get("morph_vol_pctl") is not None else 0.9),
+        "morph_a1_max": float(pm.get("morph_a1_max") if pm.get("morph_a1_max") is not None else 0.0),
         "oo_rank_max": oo_rank_max_from_cfg(pm),
         "oo_rank_strong_max": oo_rank_strong_max_from_cfg(pm),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),
@@ -1338,10 +1333,10 @@ def plan_rank_lot_day(
 
         if morph_gate_enabled(cfg):
             bars_by: Dict[str, List[dict]] = {}
+            day_s = str(as_of or "")[:10]
             try:
                 from core.store import load_daily_cache
 
-                day_s = str(as_of or "")[:10]
                 for code in list(item_by.keys())[:800]:
                     try:
                         packed = load_daily_cache(
@@ -1350,15 +1345,7 @@ def plan_rank_lot_day(
                     except Exception:  # noqa: BLE001
                         continue
                     rows = list((packed or (None, None))[0] or []) if packed else []
-                    if not rows:
-                        continue
-                    if len(day_s) >= 10:
-                        rows = [
-                            b
-                            for b in rows
-                            if isinstance(b, dict)
-                            and str(b.get("date") or "")[:10] < day_s
-                        ]
+                    # 当日/之后的 K 由 try_stamp_morph_from_opens(as_of=) 过滤
                     if rows:
                         bars_by[code] = rows
             except Exception:  # noqa: BLE001
@@ -1367,7 +1354,7 @@ def plan_rank_lot_day(
                 list(item_by.values()),
                 opens=opens,
                 bars_by_code=bars_by,
-                as_of=str(as_of or "")[:10] or None,
+                as_of=day_s or None,
             )
     except Exception:  # noqa: BLE001
         logger.debug("morph_gate stamp failed", exc_info=True)
