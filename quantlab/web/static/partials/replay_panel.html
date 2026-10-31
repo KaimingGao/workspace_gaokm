@@ -213,10 +213,10 @@
                     <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
                     <p
                       class="follow-path-matrix-panel-note"
-                      title="本金 / 日分价闸只用于调仓回测。勾选则入场须 y&gt;0。未过门槛清仓。"
-                    >本金/日分价闸仅回测 · 勾选须 y&gt;0</p>
+                      title="本金 / 日分价闸只用于调仓回测。勾选则入场须 y&gt;0。形态闸：高波动+弱开盘禁止新开/加。未过门槛清仓（形态闸不清仓）。"
+                    >本金/日分价闸仅回测 · 勾选须 y&gt;0 / 形态闸</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row5">
                     <label
                       class="follow-path-matrix-box"
                       title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。"
@@ -256,6 +256,16 @@
                         <span class="follow-path-matrix-box-desc">入场闸</span>
                       </span>
                       <input type="checkbox" name="pm_y_τc_gt0" aria-label="y_τc 大于 0" />
+                    </label>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="开：候选池内近20日波动分位≥0.9 且今开弱于昨收（a1&lt;0）时禁止新开/加仓。缺数据不拦。已持仓不清仓。默认关。保存规则同步到交易执行自动调仓。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">形态闸</span>
+                        <span class="follow-path-matrix-box-desc">高波弱开</span>
+                      </span>
+                      <input type="checkbox" name="pm_morph_gate" aria-label="形态闸" />
                     </label>
                   </div>
                 </section>

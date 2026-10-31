@@ -73,6 +73,13 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         description="开=入场须 ŷ_τc>0；关=不看。缺分不拦。未过则已持仓清仓",
     )
+    morph_gate_enabled: bool = Field(
+        default=False,
+        description=(
+            "开=高波动分位+弱开盘时禁止新开/加仓（形态闸）；关=不看。"
+            "缺数据不拦；已持仓不清仓。默认关。"
+        ),
+    )
     oo_rank_max: Optional[int] = Field(
         default=None,
         ge=1,

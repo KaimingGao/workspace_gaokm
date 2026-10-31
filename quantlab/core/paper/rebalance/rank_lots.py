@@ -9,6 +9,7 @@
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_τc
   - 过入场（y_oo_fuse>fuse_enter）→ 按 oo_rank 升序（1=最好）开仓或加仓；
     缺 oo_rank 回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号
+  - 可选形态硬闸 morph_gate_*（默认关）：候选池 vol20 分位高且今开弱势 → 禁止新开/加仓
   - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
   - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
@@ -413,6 +414,14 @@ def rank_lot_enter_skip_reason(
     )
     if skip is not None:
         return skip
+    try:
+        from core.paper.rebalance.morph_gate import morph_gate_skip_reason
+
+        morph_skip = morph_gate_skip_reason(item, cfg_d)
+        if morph_skip is not None:
+            return morph_skip
+    except Exception:  # noqa: BLE001
+        logger.debug("morph_gate_skip_reason failed", exc_info=True)
     if _fuse_strong_met(rs, cfg_d):
         return _oo_rank_abs_skip(item, oo_rank_strong_max_from_cfg(cfg_d))
     return _oo_rank_enter_skip(item, cfg_d)
@@ -574,6 +583,12 @@ def get_rank_lot_cfg(
     else:
         k = pool_cap
     lot_base_amount, lot_strong_amount = _lot_amounts_from_cfg(pm)
+    from core.paper.rebalance.morph_gate import (
+        morph_a1_max_from_cfg,
+        morph_gate_enabled,
+        morph_vol_pctl_from_cfg,
+    )
+
     return {
         "fuse_enter": enter,
         "fuse_strong": strong,
@@ -589,6 +604,9 @@ def get_rank_lot_cfg(
         "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
+        "morph_gate_enabled": bool(morph_gate_enabled(pm)),
+        "morph_vol_pctl": morph_vol_pctl_from_cfg(pm),
+        "morph_a1_max": morph_a1_max_from_cfg(pm),
         "oo_rank_max": oo_rank_max_from_cfg(pm),
         "oo_rank_strong_max": oo_rank_strong_max_from_cfg(pm),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),
@@ -1311,6 +1329,48 @@ def plan_rank_lot_day(
         code = str(it.get("stock_code") or "").strip()
         if code:
             item_by[code] = it
+
+    # 形态硬闸：在候选池上戳 vol 分位 + a1（缺 bars 则 fail-open）
+    try:
+        from core.paper.rebalance.morph_gate import (
+            morph_gate_enabled,
+            try_stamp_morph_from_opens,
+        )
+
+        if morph_gate_enabled(cfg):
+            bars_by: Dict[str, List[dict]] = {}
+            try:
+                from core.store import load_daily_cache
+
+                day_s = str(as_of or "")[:10]
+                for code in list(item_by.keys())[:800]:
+                    try:
+                        packed = load_daily_cache(
+                            "CN", code, min_bars=30, ignore_age=True, max_bars=80
+                        )
+                    except Exception:  # noqa: BLE001
+                        continue
+                    rows = list((packed or (None, None))[0] or []) if packed else []
+                    if not rows:
+                        continue
+                    if len(day_s) >= 10:
+                        rows = [
+                            b
+                            for b in rows
+                            if isinstance(b, dict)
+                            and str(b.get("date") or "")[:10] < day_s
+                        ]
+                    if rows:
+                        bars_by[code] = rows
+            except Exception:  # noqa: BLE001
+                logger.debug("morph_gate load_daily_cache skipped", exc_info=True)
+            try_stamp_morph_from_opens(
+                list(item_by.values()),
+                opens=opens,
+                bars_by_code=bars_by,
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("morph_gate stamp failed", exc_info=True)
 
     held_rows: List[dict] = []
     for h in holdings or []:

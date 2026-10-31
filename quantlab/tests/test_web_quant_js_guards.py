@@ -1391,6 +1391,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_y_oo_oc_enabled"', replay)
         self.assertIn('name="pm_y_oo_gt0"', replay)
         self.assertIn('name="pm_y_τc_gt0"', replay)
+        self.assertIn('name="pm_morph_gate"', replay)
+        self.assertIn(">形态闸</span>", replay)
         self.assertIn('name="pm_oo_rank_max"', replay)
         oo_max_inp = replay[replay.find('name="pm_oo_rank_max"') :][
             : replay[replay.find('name="pm_oo_rank_max"') :].find("/>") + 2
@@ -4131,8 +4133,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_y_enter_enabled"', pm)
         self.assertNotIn('name="pm_y_enter_alt_enabled"', pm)
         self.assertNotIn("paper-t0-cfg-gates", pm)
-        self.assertIn("follow-path-matrix-body--row4", pm)
-        self.assertNotIn("follow-path-matrix-body--row5", pm)
+        self.assertIn("follow-path-matrix-body--row5", pm)
+        self.assertIn('name="pm_morph_gate"', pm)
         self.assertNotIn("follow-path-matrix-body--row4", t0)
         self.assertNotIn("follow-path-matrix-body--row5", t0)
         fuse = pm[pm.find('data-panel="rank"') : pm.find('data-panel="other"')]
@@ -4236,6 +4238,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("pm_y_oo_oc_enabled", exe_ui)
         self.assertNotIn("pm_y_oo_oc_enter", exe_ui)
         self.assertIn("pm_y_oo_gt0", exe_ui)
+        self.assertIn("pm_morph_gate", exe_ui)
+        self.assertIn("morph_gate_enabled", exe_ui)
         self.assertIn("pm_y_τc_gt0", exe_ui)
         self.assertIn("pm_oo_rank_max", exe_ui)
         self.assertIn("oo_rank_max", exe_ui)

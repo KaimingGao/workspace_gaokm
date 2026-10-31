@@ -168,6 +168,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
+        "morph_gate_enabled": False,
+        "morph_vol_pctl": 0.9,
+        "morph_a1_max": 0.0,
     },
     # 旧键：读盘仍认；写入与 rank_lots 同步
     "path_matrix": {
@@ -189,6 +192,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "live_fill_clock": "09:30",
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
+        "morph_gate_enabled": False,
+        "morph_vol_pctl": 0.9,
+        "morph_a1_max": 0.0,
     },
 }
 
@@ -835,6 +841,18 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "lot_base_amount": float(pm.get("lot_base_amount") or 10_000.0),
                     "lot_strong_amount": float(
                         pm.get("lot_strong_amount") or 20_000.0
+                    ),
+                    # 形态硬闸（默认关）；须进白名单，否则保存规则会冲掉勾选
+                    "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
+                    "morph_vol_pctl": float(
+                        pm.get("morph_vol_pctl")
+                        if pm.get("morph_vol_pctl") is not None
+                        else 0.9
+                    ),
+                    "morph_a1_max": float(
+                        pm.get("morph_a1_max")
+                        if pm.get("morph_a1_max") is not None
+                        else 0.0
                     ),
                 }
                 lots = {k: full[k] for k in full if k in pm_in}

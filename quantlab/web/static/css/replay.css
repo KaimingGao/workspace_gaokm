@@ -1114,44 +1114,120 @@ body[data-page="replay"] .follow-path-matrix-box--solo {
   grid-template-rows: auto auto;
 }
 
-/* 三栏铺满表单。列比 3:6:4，分数融合 3 格、入场/强档共 6 格、其他 4 格，输入同宽。
-   窄于最小列宽时横向滚动，避免 10000 / 200000 被截断。 */
+/* 三栏单行铺满：按格数 3:6:5 分宽，栏内等分，输入铺满格宽。 */
+body[data-page="replay"] #follow-path-matrix {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 body[data-page="replay"] #paper-path-matrix-form {
-  --pm-field-w: 4.6rem;
+  --pm-field-gap: 6px;
+  --pm-box-pad-x: 5px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panels {
-  grid-template-columns: minmax(0, 3fr) minmax(0, 6fr) minmax(0, 4fr);
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 6fr) minmax(0, 5fr);
+  grid-template-rows: auto;
+  grid-template-areas: "mode rank other";
   justify-content: stretch;
-  overflow-x: auto;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: visible;
+  box-sizing: border-box;
+}
+
+/* 压过 follow.css ≤900px 单列 / row5 折两列，保持三栏单行铺满 */
+@media (max-width: 900px) {
+  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panels {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 6fr) minmax(0, 5fr);
+    grid-template-rows: auto;
+    grid-template-areas: "mode rank other";
+  }
+  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="mode"],
+  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] {
+    border-right: 1px solid var(--pm-line);
+    border-bottom: 0;
+  }
+  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="other"] {
+    border-right: 0;
+    border-bottom: 0;
+  }
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel {
+  grid-row: auto;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="mode"] {
+  grid-area: mode;
+  border-right: 1px solid var(--pm-line);
+  border-bottom: 0;
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] {
+  grid-area: rank;
+  border-right: 1px solid var(--pm-line);
+  border-bottom: 0;
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="other"] {
+  grid-area: other;
+  border-right: 0;
+  border-bottom: 0;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body {
   padding: 8px;
-  gap: 6px;
+  gap: var(--pm-field-gap);
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: stretch;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box {
-  padding: 6px 5px;
+  padding: 6px var(--pm-box-pad-x);
   gap: 4px;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  box-sizing: border-box;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row3 {
-  grid-template-columns: repeat(3, minmax(var(--pm-field-w), 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row4 {
-  grid-template-columns: repeat(4, minmax(var(--pm-field-w), 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-/* 窄列里步进箭头会挡住 0.4 / 10000 */
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+/* 窄列里步进箭头会挡住数字；输入铺满格宽，跨栏同比例对齐 */
 body[data-page="replay"] #paper-path-matrix-form input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
   box-sizing: border-box;
   width: 100%;
-  min-width: var(--pm-field-w);
-  max-width: none;
+  min-width: 0;
+  max-width: 100%;
   padding-left: 0.15rem;
   padding-right: 0.15rem;
 }
@@ -1162,25 +1238,33 @@ body[data-page="replay"] #paper-path-matrix-form input[type="number"]::-webkit-i
   margin: 0;
 }
 
-/* 入场 / 强档各 3 列，与分数融合、本金同一输入宽度 */
+/* 入场 / 强档：两对并排，各 3 槽等分 */
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-content: stretch;
+  width: 100%;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row2 > .follow-path-matrix-box--pair {
   align-self: stretch;
   height: auto;
+  width: auto;
   min-width: 0;
-  grid-template-rows: 1fr auto;
+  max-width: none;
+  grid-template-rows: auto auto;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-box-pair {
-  grid-template-columns: repeat(3, minmax(var(--pm-field-w), 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--pm-field-gap);
+  width: 100%;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box-slot {
   grid-template-columns: minmax(0, 1fr);
+  width: auto;
   min-width: 0;
+  max-width: none;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box-slot-label {

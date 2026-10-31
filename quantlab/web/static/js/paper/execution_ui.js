@@ -356,6 +356,10 @@ export function fillPathMatrixForm(root, execution) {
   const yOcGt0 = pm.y_τc_gt0 != null ? !!pm.y_τc_gt0 : false;
   set("pm_y_oo_gt0", yOoGt0);
   set("pm_y_τc_gt0", yOcGt0);
+  set(
+    "pm_morph_gate",
+    pm.morph_gate_enabled != null ? !!pm.morph_gate_enabled : false
+  );
   const ooRankMax = Number(pm.oo_rank_max);
   if (Number.isFinite(ooRankMax) && ooRankMax > 0) {
     set("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooRankMax))));
@@ -497,6 +501,7 @@ export function collectPathMatrixForm(root) {
   }
   const yOoGt0 = chk("pm_y_oo_gt0", false);
   const yOcGt0 = chk("pm_y_τc_gt0", false);
+  const morphGate = chk("pm_morph_gate", false);
   const ooRankMaxRaw = num("pm_oo_rank_max", 10);
   const ooRankMax =
     Number.isFinite(ooRankMaxRaw) && ooRankMaxRaw > 0
@@ -517,6 +522,7 @@ export function collectPathMatrixForm(root) {
         fuse_strong: strong,
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
+        morph_gate_enabled: morphGate,
         oo_rank_max: ooRankMax,
         oo_rank_strong_max: ooRankStrong,
         oo_rank_top_frac: null,
