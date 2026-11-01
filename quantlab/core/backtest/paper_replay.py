@@ -169,10 +169,6 @@ def backtest_paper_replay(
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
     morph_gate_enabled: Optional[bool] = None,
-    morph_vol_pctl: Optional[float] = None,
-    morph_a1_max: Optional[float] = None,
-    morph_gap_max: Optional[float] = None,
-    morph_vol20_min: Optional[float] = None,
     oo_rank_max: Optional[int] = None,
     oo_rank_strong_max: Optional[int] = None,
     oo_rank_top_frac: Optional[float] = None,
@@ -498,10 +494,6 @@ def backtest_paper_replay(
             if morph_gate_enabled is None
             else bool(coerce_cfg_bool(morph_gate_enabled, False))
         ),
-        "morph_vol_pctl": morph_vol_pctl,
-        "morph_a1_max": morph_a1_max,
-        "morph_gap_max": morph_gap_max,
-        "morph_vol20_min": morph_vol20_min,
         "oo_rank_max": oo_rank_max_from_cfg(
             {"oo_rank_max": oo_rank_max} if oo_rank_max is not None else {}
         ),
@@ -536,17 +528,6 @@ def backtest_paper_replay(
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
     rl_cfg["morph_gate_enabled"] = bool(replay_lots["morph_gate_enabled"])
-    from core.paper.rebalance.morph_gate import (
-        morph_a1_max_from_cfg,
-        morph_gap_max_from_cfg,
-        morph_vol20_min_from_cfg,
-        morph_vol_pctl_from_cfg,
-    )
-
-    rl_cfg["morph_vol_pctl"] = morph_vol_pctl_from_cfg(replay_lots)
-    rl_cfg["morph_a1_max"] = morph_a1_max_from_cfg(replay_lots)
-    rl_cfg["morph_gap_max"] = morph_gap_max_from_cfg(replay_lots)
-    rl_cfg["morph_vol20_min"] = morph_vol20_min_from_cfg(replay_lots)
     rl_cfg["oo_rank_max"] = replay_lots.get("oo_rank_max")
     rl_cfg["oo_rank_strong_max"] = replay_lots.get("oo_rank_strong_max")
     rl_cfg["oo_rank_top_frac"] = replay_lots.get("oo_rank_top_frac")
@@ -1180,10 +1161,6 @@ def backtest_paper_replay(
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "morph_gate_enabled": bool(rl_cfg.get("morph_gate_enabled")),
-            "morph_vol_pctl": float(rl_cfg.get("morph_vol_pctl") if rl_cfg.get("morph_vol_pctl") is not None else 0.9),
-            "morph_a1_max": float(rl_cfg.get("morph_a1_max") if rl_cfg.get("morph_a1_max") is not None else 0.0),
-            "morph_gap_max": float(rl_cfg.get("morph_gap_max") if rl_cfg.get("morph_gap_max") is not None else 0.08),
-            "morph_vol20_min": float(rl_cfg.get("morph_vol20_min") if rl_cfg.get("morph_vol20_min") is not None else 0.0),
             "morph_stamp": (
                 {
                     "n_a1_sum": int(morph_stamp_agg.get("n_a1_sum") or 0),

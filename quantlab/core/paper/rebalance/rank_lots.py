@@ -601,14 +601,7 @@ def get_rank_lot_cfg(
         "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
-        # morph_* 门槛写死；get_path_matrix_cfg 已强制为产品常量
         "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
-        "morph_vol_pctl": float(pm.get("morph_vol_pctl") if pm.get("morph_vol_pctl") is not None else 0.9),
-        "morph_a1_max": float(pm.get("morph_a1_max") if pm.get("morph_a1_max") is not None else 0.0),
-        "morph_gap_max": float(pm.get("morph_gap_max") if pm.get("morph_gap_max") is not None else 0.08),
-        "morph_vol20_min": float(
-            pm.get("morph_vol20_min") if pm.get("morph_vol20_min") is not None else 0.0
-        ),
         "oo_rank_max": oo_rank_max_from_cfg(pm),
         "oo_rank_strong_max": oo_rank_strong_max_from_cfg(pm),
         "oo_rank_top_frac": oo_rank_top_frac_from_cfg(pm),

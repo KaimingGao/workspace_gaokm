@@ -847,11 +847,6 @@ export function installBacktest(q) {
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
           morph_gate_enabled: lots.morph_gate_enabled === true,
-          // 门槛写死（与 morph_gate.py / collectPathMatrixForm 一致）
-          morph_vol_pctl: 0.9,
-          morph_a1_max: 0.0,
-          morph_gap_max: 0.08,
-          morph_vol20_min: 0.0,
           oo_rank_max: ooMax,
           oo_rank_strong_max: ooStrong,
           oo_rank_top_frac: null,
@@ -866,10 +861,6 @@ export function installBacktest(q) {
       oo_rank_strong_max: 100,
       oo_rank_top_frac: null,
       morph_gate_enabled: false,
-      morph_vol_pctl: 0.9,
-      morph_a1_max: 0.0,
-      morph_gap_max: 0.08,
-      morph_vol20_min: 0.0,
     };
   }
 
@@ -1578,10 +1569,6 @@ export function installBacktest(q) {
         y_oo_gt0: y_oo_gt0 === true,
         y_τc_gt0: y_τc_gt0 === true,
         morph_gate_enabled: morph_gate_enabled === true,
-        morph_vol_pctl: 0.9,
-        morph_a1_max: 0.0,
-        morph_gap_max: 0.08,
-        morph_vol20_min: 0.0,
         oo_rank_max:
           oo_rank_max != null && Number(oo_rank_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_max))))

@@ -21,7 +21,6 @@ _MIN_CS_N = 8
 MORPH_VOL_PCTL = 0.9
 MORPH_A1_MAX = 0.0  # 高波腿：须 a1 < 0
 MORPH_GAP_MAX = 0.08  # 异常低开：a1 ≤ −8%
-MORPH_VOL20_MIN = 0.0  # 不用绝对 vol 地板
 
 
 def morph_gate_enabled(cfg: Optional[Mapping[str, Any]]) -> bool:
@@ -29,26 +28,6 @@ def morph_gate_enabled(cfg: Optional[Mapping[str, Any]]) -> bool:
 
     d = cfg if isinstance(cfg, Mapping) else {}
     return bool(coerce_cfg_bool(d.get("morph_gate_enabled"), False))
-
-
-def morph_vol_pctl_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = MORPH_VOL_PCTL) -> float:
-    del cfg, default
-    return float(MORPH_VOL_PCTL)
-
-
-def morph_a1_max_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = MORPH_A1_MAX) -> float:
-    del cfg, default
-    return float(MORPH_A1_MAX)
-
-
-def morph_gap_max_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = MORPH_GAP_MAX) -> float:
-    del cfg, default
-    return float(MORPH_GAP_MAX)
-
-
-def morph_vol20_min_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = MORPH_VOL20_MIN) -> float:
-    del cfg, default
-    return float(MORPH_VOL20_MIN)
 
 
 def _f(v: Any) -> Optional[float]:
@@ -312,16 +291,11 @@ def try_stamp_morph_from_opens(
 __all__ = [
     "MORPH_A1_MAX",
     "MORPH_GAP_MAX",
-    "MORPH_VOL20_MIN",
     "MORPH_VOL_PCTL",
     "a1_from_open_prev_close",
     "metrics_from_bars",
-    "morph_a1_max_from_cfg",
-    "morph_gap_max_from_cfg",
     "morph_gate_enabled",
     "morph_gate_skip_reason",
-    "morph_vol20_min_from_cfg",
-    "morph_vol_pctl_from_cfg",
     "stamp_morph_cs_on_items",
     "try_stamp_morph_from_opens",
     "vol20_ann_from_closes",

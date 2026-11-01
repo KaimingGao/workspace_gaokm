@@ -169,10 +169,6 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
         "morph_gate_enabled": False,
-        "morph_vol_pctl": 0.9,
-        "morph_a1_max": 0.0,
-        "morph_gap_max": 0.08,
-        "morph_vol20_min": 0.0,
     },
 }
 # 旧键：读盘仍认；写入与 rank_lots 同步
@@ -785,12 +781,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             pm_in = raw_timing.get("path_matrix")
         if isinstance(pm_in, dict):
             try:
-                from core.paper.rebalance.morph_gate import (
-                    morph_a1_max_from_cfg,
-                    morph_gap_max_from_cfg,
-                    morph_vol20_min_from_cfg,
-                    morph_vol_pctl_from_cfg,
-                )
                 from core.paper.rebalance.path_matrix import get_path_matrix_cfg
 
                 pm = get_path_matrix_cfg({"rank_lots": pm_in})
@@ -829,12 +819,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "lot_strong_amount": float(
                         pm.get("lot_strong_amount") or 20_000.0
                     ),
-                    # 形态硬闸（默认关）；须进白名单，否则保存规则会冲掉勾选
+                    # 形态硬闸（默认关）；门槛写死在 morph_gate，不入配置
                     "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
-                    "morph_vol_pctl": float(morph_vol_pctl_from_cfg(pm)),
-                    "morph_a1_max": float(morph_a1_max_from_cfg(pm)),
-                    "morph_gap_max": float(morph_gap_max_from_cfg(pm)),
-                    "morph_vol20_min": float(morph_vol20_min_from_cfg(pm)),
                 }
                 lots = {k: full[k] for k in full if k in pm_in}
                 lots["mode"] = "rank_lots"

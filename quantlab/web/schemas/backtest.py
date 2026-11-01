@@ -80,30 +80,6 @@ class PaperReplayBacktestRequest(BaseModel):
             "缺数据不拦；已持仓不清仓。默认关。"
         ),
     )
-    morph_vol_pctl: Optional[float] = Field(
-        default=None,
-        ge=0.5,
-        le=0.99,
-        description="已写死 0.9；入参忽略。",
-    )
-    morph_a1_max: Optional[float] = Field(
-        default=None,
-        ge=-0.2,
-        le=0.05,
-        description="已写死 0；入参忽略。",
-    )
-    morph_gap_max: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=0.15,
-        description="已写死 0.08（异常低开 −8%）；入参忽略。",
-    )
-    morph_vol20_min: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=5.0,
-        description="已写死 0（无绝对 vol 下限）；入参忽略。",
-    )
     oo_rank_max: Optional[int] = Field(
         default=None,
         ge=1,

@@ -9,7 +9,7 @@ class MorphGateUnitTests(unittest.TestCase):
     def test_skip_when_high_vol_and_weak_open(self):
         from core.paper.rebalance.morph_gate import morph_gate_skip_reason
 
-        cfg = {"morph_gate_enabled": True, "morph_vol_pctl": 0.9, "morph_a1_max": 0.0}
+        cfg = {"morph_gate_enabled": True}
         item = {"morph_vol_p": 0.95, "morph_a1": -0.02}
         skip = morph_gate_skip_reason(item, cfg)
         self.assertIsNotNone(skip)
@@ -34,7 +34,7 @@ class MorphGateUnitTests(unittest.TestCase):
     def test_no_skip_when_strong_open(self):
         from core.paper.rebalance.morph_gate import morph_gate_skip_reason
 
-        cfg = {"morph_gate_enabled": True, "morph_vol_pctl": 0.9, "morph_a1_max": 0.0}
+        cfg = {"morph_gate_enabled": True}
         self.assertIsNone(
             morph_gate_skip_reason({"morph_vol_p": 0.99, "morph_a1": 0.01}, cfg)
         )
@@ -111,8 +111,6 @@ class MorphGateUnitTests(unittest.TestCase):
             {
                 "fuse_enter": 0.0,
                 "morph_gate_enabled": True,
-                "morph_vol_pctl": 0.9,
-                "morph_a1_max": 0.0,
             },
             rs=0.02,
         )
@@ -132,8 +130,6 @@ class MorphGateUnitTests(unittest.TestCase):
         cfg = {
             "fuse_enter": 0.0,
             "morph_gate_enabled": True,
-            "morph_vol_pctl": 0.9,
-            "morph_a1_max": 0.0,
         }
         self.assertIsNotNone(
             rank_lot_enter_skip_reason(item, cfg, rs=0.02, apply_morph_gate=True)
@@ -169,6 +165,29 @@ class MorphGateUnitTests(unittest.TestCase):
         }
         cfg = get_rank_lot_cfg(paper)
         self.assertTrue(cfg.get("morph_gate_enabled"))
+        self.assertNotIn("morph_vol_pctl", cfg)
+        self.assertNotIn("morph_gap_max", cfg)
+
+    def test_path_matrix_strips_legacy_threshold_keys(self):
+        from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+
+        cfg = get_path_matrix_cfg(
+            {
+                "morph_gate_enabled": True,
+                "morph_vol_pctl": 0.99,
+                "morph_a1_max": 0.05,
+                "morph_gap_max": 0.03,
+                "morph_vol20_min": 0.5,
+            }
+        )
+        self.assertTrue(cfg.get("morph_gate_enabled"))
+        for k in (
+            "morph_vol_pctl",
+            "morph_a1_max",
+            "morph_gap_max",
+            "morph_vol20_min",
+        ):
+            self.assertNotIn(k, cfg)
 
     def test_string_false_does_not_enable(self):
         from core.paper.rebalance.morph_gate import morph_gate_enabled
@@ -300,7 +319,7 @@ class MorphGateUnitTests(unittest.TestCase):
 
         stamp_morph_cs_on_items(items, metrics_by_code=metrics)
         self.assertIn("morph_vol_p", items[0])
-        cfg = {"morph_gate_enabled": True, "morph_vol_pctl": 0.9, "morph_a1_max": 0.0}
+        cfg = {"morph_gate_enabled": True}
         skip = morph_gate_skip_reason(items[0], cfg)
         self.assertIsNotNone(skip)
         self.assertIn("形态闸", skip or "")
@@ -349,8 +368,6 @@ class MorphGateUnitTests(unittest.TestCase):
                 "fuse_enter": 0.0,
                 "fuse_strong": 0.0,
                 "morph_gate_enabled": True,
-                "morph_vol_pctl": 0.9,
-                "morph_a1_max": 0.0,
                 "lot_base_amount": 10_000,
                 "lot_strong_amount": 10_000,
                 "oo_rank_max": 100,

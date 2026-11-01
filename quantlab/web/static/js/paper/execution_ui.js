@@ -474,11 +474,6 @@ export function collectPathMatrixForm(root) {
   const yOoGt0 = chk("pm_y_oo_gt0", false);
   const yOcGt0 = chk("pm_y_τc_gt0", false);
   const morphGate = chk("pm_morph_gate", false);
-  // 形态闸门槛写死：高波弱开 vol_p≥0.9∧a1<0；异常低开 a1≤−8%
-  const morphVolPctl = 0.9;
-  const morphA1Max = 0.0;
-  const morphGapMax = 0.08;
-  const morphVol20Min = 0.0;
   const ooRankMaxRaw = num("pm_oo_rank_max", 10);
   const ooRankMax =
     Number.isFinite(ooRankMaxRaw) && ooRankMaxRaw > 0
@@ -500,10 +495,6 @@ export function collectPathMatrixForm(root) {
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
         morph_gate_enabled: morphGate,
-        morph_vol_pctl: morphVolPctl,
-        morph_a1_max: morphA1Max,
-        morph_gap_max: morphGapMax,
-        morph_vol20_min: morphVol20Min,
         oo_rank_max: ooRankMax,
         oo_rank_strong_max: ooRankStrong,
         oo_rank_top_frac: null,
