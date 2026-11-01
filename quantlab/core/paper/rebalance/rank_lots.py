@@ -9,8 +9,8 @@
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_τc
   - 过入场（y_oo_fuse>fuse_enter）→ 按 oo_rank 升序（1=最好）开仓或加仓；
     缺 oo_rank 回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号
-  - 可选形态硬闸 morph_gate_*（默认关）：高波弱开（vol_p/a1，可选 vol20_min）
-    或大幅低开（morph_gap_max>0 且 a1≤−gap）→ 禁止新开/加仓（已持仓不清仓）
+  - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.9 且 a1<0）
+    或异常低开（a1≤−8%）→ 禁止新开/加仓（已持仓不清仓）
   - 已持仓且未过入场、缺 y_oo_fuse、或 hard_reject → 清仓（T+1 可卖部分；形态闸不触发清仓）
     缺分不能假装过门槛续持；无「持」动作
   - y_oo_fuse > fuse_strong → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
@@ -601,11 +601,11 @@ def get_rank_lot_cfg(
         "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_τc_gt0": bool(y_τc_gt0),
-        # morph_* 已在 get_path_matrix_cfg 里 coerce / clamp
+        # morph_* 门槛写死；get_path_matrix_cfg 已强制为产品常量
         "morph_gate_enabled": bool(pm.get("morph_gate_enabled")),
         "morph_vol_pctl": float(pm.get("morph_vol_pctl") if pm.get("morph_vol_pctl") is not None else 0.9),
         "morph_a1_max": float(pm.get("morph_a1_max") if pm.get("morph_a1_max") is not None else 0.0),
-        "morph_gap_max": float(pm.get("morph_gap_max") if pm.get("morph_gap_max") is not None else 0.0),
+        "morph_gap_max": float(pm.get("morph_gap_max") if pm.get("morph_gap_max") is not None else 0.08),
         "morph_vol20_min": float(
             pm.get("morph_vol20_min") if pm.get("morph_vol20_min") is not None else 0.0
         ),

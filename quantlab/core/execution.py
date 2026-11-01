@@ -171,7 +171,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "morph_gate_enabled": False,
         "morph_vol_pctl": 0.9,
         "morph_a1_max": 0.0,
-        "morph_gap_max": 0.0,
+        "morph_gap_max": 0.08,
         "morph_vol20_min": 0.0,
     },
 }

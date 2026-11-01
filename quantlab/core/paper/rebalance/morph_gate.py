@@ -1,8 +1,8 @@
 """开盘形态硬闸（不进 ŷ）：禁止新开/加仓（已持仓不清仓）。
 
-默认总开关关。两腿 OR：
-  1) 大幅低开：a1 ≤ −morph_gap_max（gap_max>0 才开）
-  2) 高波弱开：vol_p ≥ pctl 且 a1 < a1_max；可选再合取 vol20 ≥ vol_min
+默认总开关关。门槛写死（不暴露 UI），两腿 OR：
+  1) 异常低开：a1 ≤ −8%
+  2) 高波弱开：候选池 vol20 分位 ≥ 0.9 且 a1 < 0（低开）
 9:25 可用：昨收、近 20 日收益波动、今开。缺分 fail-open。
 """
 
@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 _EPS = 1e-12
 _MIN_CS_N = 8
 
+# 产品写死门槛（cfg / UI 不再调）
+MORPH_VOL_PCTL = 0.9
+MORPH_A1_MAX = 0.0  # 高波腿：须 a1 < 0
+MORPH_GAP_MAX = 0.08  # 异常低开：a1 ≤ −8%
+MORPH_VOL20_MIN = 0.0  # 不用绝对 vol 地板
+
 
 def morph_gate_enabled(cfg: Optional[Mapping[str, Any]]) -> bool:
     from core.t0.config import coerce_cfg_bool
@@ -25,51 +31,24 @@ def morph_gate_enabled(cfg: Optional[Mapping[str, Any]]) -> bool:
     return bool(coerce_cfg_bool(d.get("morph_gate_enabled"), False))
 
 
-def morph_vol_pctl_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = 0.9) -> float:
-    d = cfg if isinstance(cfg, Mapping) else {}
-    try:
-        v = float(d.get("morph_vol_pctl", default))
-    except (TypeError, ValueError):
-        v = float(default)
-    if v != v or v in (float("inf"), float("-inf")):
-        v = float(default)
-    return max(0.5, min(v, 0.99))
+def morph_vol_pctl_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = MORPH_VOL_PCTL) -> float:
+    del cfg, default
+    return float(MORPH_VOL_PCTL)
 
 
-def morph_a1_max_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = 0.0) -> float:
-    """今开相对昨收（小数）。默认 0：须 a1 < 0（低开）才与高波动合取。"""
-    d = cfg if isinstance(cfg, Mapping) else {}
-    try:
-        v = float(d.get("morph_a1_max", default))
-    except (TypeError, ValueError):
-        v = float(default)
-    if v != v or v in (float("inf"), float("-inf")):
-        v = float(default)
-    return max(-0.2, min(v, 0.05))
+def morph_a1_max_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = MORPH_A1_MAX) -> float:
+    del cfg, default
+    return float(MORPH_A1_MAX)
 
 
-def morph_gap_max_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = 0.0) -> float:
-    """大幅低开阈值（正小数）。0=关；触发条件 a1 ≤ −gap_max。"""
-    d = cfg if isinstance(cfg, Mapping) else {}
-    try:
-        v = float(d.get("morph_gap_max", default))
-    except (TypeError, ValueError):
-        v = float(default)
-    if v != v or v in (float("inf"), float("-inf")):
-        v = float(default)
-    return max(0.0, min(v, 0.15))
+def morph_gap_max_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = MORPH_GAP_MAX) -> float:
+    del cfg, default
+    return float(MORPH_GAP_MAX)
 
 
-def morph_vol20_min_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = 0.0) -> float:
-    """高波腿绝对 vol20 下限。0=关；>0 时缺分或不达标则该腿 fail-open。"""
-    d = cfg if isinstance(cfg, Mapping) else {}
-    try:
-        v = float(d.get("morph_vol20_min", default))
-    except (TypeError, ValueError):
-        v = float(default)
-    if v != v or v in (float("inf"), float("-inf")):
-        v = float(default)
-    return max(0.0, min(v, 5.0))
+def morph_vol20_min_from_cfg(cfg: Optional[Mapping[str, Any]], default: float = MORPH_VOL20_MIN) -> float:
+    del cfg, default
+    return float(MORPH_VOL20_MIN)
 
 
 def _f(v: Any) -> Optional[float]:
@@ -250,7 +229,7 @@ def morph_gate_skip_reason(
 ) -> Optional[str]:
     """过闸返回中文原因；未启用/缺分/未触发/异常返回 None（fail-open）。
 
-    先判大幅低开腿（只需 a1）；再判高波弱开腿（需 a1+vol_p，可选 vol20_min）。
+    先判异常低开（a1≤−8%）；再判高波弱开（vol_p≥0.9 且 a1<0）。
     """
     try:
         if not morph_gate_enabled(cfg):
@@ -260,30 +239,18 @@ def morph_gate_skip_reason(
         a1 = _f(item.get("morph_a1"))
         if a1 is None:
             return None
-        gap_max = morph_gap_max_from_cfg(cfg)
-        if gap_max > 0.0 and a1 <= -gap_max + 1e-15:
-            return (
-                f"形态闸·大幅低开(a1={a1:.2%} ≤ −{gap_max:.2%})"
-            )
+        gap_max = MORPH_GAP_MAX
+        if a1 <= -gap_max + 1e-15:
+            return f"形态闸·异常低开(a1={a1:.2%} ≤ −{gap_max:.2%})"
         vol_p = _f(item.get("morph_vol_p"))
         if vol_p is None or not (0.0 <= vol_p <= 1.0 + 1e-9):
             return None
-        vol_min = morph_vol20_min_from_cfg(cfg)
-        if vol_min > 0.0:
-            vol20 = _f(item.get("morph_vol20"))
-            if vol20 is None or vol20 < vol_min:
-                return None
-        vp_thr = morph_vol_pctl_from_cfg(cfg)
-        a1_max = morph_a1_max_from_cfg(cfg)
+        vp_thr = MORPH_VOL_PCTL
+        a1_max = MORPH_A1_MAX
         if vol_p >= vp_thr and a1 < a1_max:
-            extra = (
-                f", vol20={_f(item.get('morph_vol20')):.3g}≥{vol_min:g}"
-                if vol_min > 0.0 and _f(item.get("morph_vol20")) is not None
-                else ""
-            )
             return (
-                f"形态闸·高波动弱开盘(vol_p={vol_p:.2f}≥{vp_thr:g}, "
-                f"a1={a1:.2%} < {a1_max:.2%}{extra})"
+                f"形态闸·高波弱开(vol_p={vol_p:.2f}≥{vp_thr:g}, "
+                f"a1={a1:.2%} < {a1_max:.2%})"
             )
         return None
     except Exception:  # noqa: BLE001
@@ -343,6 +310,10 @@ def try_stamp_morph_from_opens(
 
 
 __all__ = [
+    "MORPH_A1_MAX",
+    "MORPH_GAP_MAX",
+    "MORPH_VOL20_MIN",
+    "MORPH_VOL_PCTL",
     "a1_from_open_prev_close",
     "metrics_from_bars",
     "morph_a1_max_from_cfg",

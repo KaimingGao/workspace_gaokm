@@ -461,30 +461,6 @@ export function installBacktest(q) {
     setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
     setChk("pm_y_τc_gt0", req.y_τc_gt0, false);
     setChk("pm_morph_gate", req.morph_gate_enabled, false);
-    {
-      const vp = Number(req.morph_vol_pctl);
-      if (Number.isFinite(vp)) {
-        setName("pm_morph_vol_pctl", Math.max(0.5, Math.min(0.99, vp)));
-      }
-      const a1 = Number(req.morph_a1_max);
-      if (Number.isFinite(a1)) {
-        setName(
-          "pm_morph_a1_max",
-          Math.round(Math.max(-0.2, Math.min(0.05, a1)) * 1000) / 10
-        );
-      }
-      const gap = Number(req.morph_gap_max);
-      if (Number.isFinite(gap)) {
-        setName(
-          "pm_morph_gap_max",
-          Math.round(Math.max(0, Math.min(0.15, gap)) * 1000) / 10
-        );
-      }
-      const vmin = Number(req.morph_vol20_min);
-      if (Number.isFinite(vmin)) {
-        setName("pm_morph_vol20_min", Math.max(0, Math.min(5, vmin)));
-      }
-    }
     const ooMax = Number(req.oo_rank_max);
     if (Number.isFinite(ooMax) && ooMax > 0) {
       setName("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooMax))));
@@ -871,14 +847,11 @@ export function installBacktest(q) {
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_τc_gt0: lots.y_τc_gt0 === true,
           morph_gate_enabled: lots.morph_gate_enabled === true,
-          morph_vol_pctl:
-            lots.morph_vol_pctl != null ? Number(lots.morph_vol_pctl) : 0.9,
-          morph_a1_max:
-            lots.morph_a1_max != null ? Number(lots.morph_a1_max) : 0.0,
-          morph_gap_max:
-            lots.morph_gap_max != null ? Number(lots.morph_gap_max) : 0.0,
-          morph_vol20_min:
-            lots.morph_vol20_min != null ? Number(lots.morph_vol20_min) : 0.0,
+          // 门槛写死（与 morph_gate.py / collectPathMatrixForm 一致）
+          morph_vol_pctl: 0.9,
+          morph_a1_max: 0.0,
+          morph_gap_max: 0.08,
+          morph_vol20_min: 0.0,
           oo_rank_max: ooMax,
           oo_rank_strong_max: ooStrong,
           oo_rank_top_frac: null,
@@ -895,7 +868,7 @@ export function installBacktest(q) {
       morph_gate_enabled: false,
       morph_vol_pctl: 0.9,
       morph_a1_max: 0.0,
-      morph_gap_max: 0.0,
+      morph_gap_max: 0.08,
       morph_vol20_min: 0.0,
     };
   }
@@ -1542,10 +1515,6 @@ export function installBacktest(q) {
         y_oo_gt0,
         y_τc_gt0,
         morph_gate_enabled,
-        morph_vol_pctl,
-        morph_a1_max,
-        morph_gap_max,
-        morph_vol20_min,
         oo_rank_max,
         oo_rank_strong_max,
         initial_cash,
@@ -1609,22 +1578,10 @@ export function installBacktest(q) {
         y_oo_gt0: y_oo_gt0 === true,
         y_τc_gt0: y_τc_gt0 === true,
         morph_gate_enabled: morph_gate_enabled === true,
-        morph_vol_pctl:
-          morph_vol_pctl != null && Number.isFinite(Number(morph_vol_pctl))
-            ? Math.max(0.5, Math.min(0.99, Number(morph_vol_pctl)))
-            : 0.9,
-        morph_a1_max:
-          morph_a1_max != null && Number.isFinite(Number(morph_a1_max))
-            ? Math.max(-0.2, Math.min(0.05, Number(morph_a1_max)))
-            : 0.0,
-        morph_gap_max:
-          morph_gap_max != null && Number.isFinite(Number(morph_gap_max))
-            ? Math.max(0, Math.min(0.15, Number(morph_gap_max)))
-            : 0.0,
-        morph_vol20_min:
-          morph_vol20_min != null && Number.isFinite(Number(morph_vol20_min))
-            ? Math.max(0, Math.min(5, Number(morph_vol20_min)))
-            : 0.0,
+        morph_vol_pctl: 0.9,
+        morph_a1_max: 0.0,
+        morph_gap_max: 0.08,
+        morph_vol20_min: 0.0,
         oo_rank_max:
           oo_rank_max != null && Number(oo_rank_max) > 0
             ? Math.max(1, Math.min(500, Math.round(Number(oo_rank_max))))

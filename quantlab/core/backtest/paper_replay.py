@@ -1180,10 +1180,10 @@ def backtest_paper_replay(
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "morph_gate_enabled": bool(rl_cfg.get("morph_gate_enabled")),
-            "morph_vol_pctl": float(rl_cfg.get("morph_vol_pctl") or 0.9),
-            "morph_a1_max": float(rl_cfg.get("morph_a1_max") or 0.0),
-            "morph_gap_max": float(rl_cfg.get("morph_gap_max") or 0.0),
-            "morph_vol20_min": float(rl_cfg.get("morph_vol20_min") or 0.0),
+            "morph_vol_pctl": float(rl_cfg.get("morph_vol_pctl") if rl_cfg.get("morph_vol_pctl") is not None else 0.9),
+            "morph_a1_max": float(rl_cfg.get("morph_a1_max") if rl_cfg.get("morph_a1_max") is not None else 0.0),
+            "morph_gap_max": float(rl_cfg.get("morph_gap_max") if rl_cfg.get("morph_gap_max") is not None else 0.08),
+            "morph_vol20_min": float(rl_cfg.get("morph_vol20_min") if rl_cfg.get("morph_vol20_min") is not None else 0.0),
             "morph_stamp": (
                 {
                     "n_a1_sum": int(morph_stamp_agg.get("n_a1_sum") or 0),
