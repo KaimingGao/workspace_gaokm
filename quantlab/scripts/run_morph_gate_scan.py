@@ -1,4 +1,4 @@
-"""形态闸长窗开/关与参数网格扫描（不落盘默认；只出表）。
+"""形态闸开/关对照扫描（门槛写死，不扫参数网格）。
 
 用法::
 
@@ -8,10 +8,8 @@
 
   MORPH_SCAN_LOOKBACK   默认 120
   MORPH_SCAN_LIMIT      股票数上限，默认 40
-  MORPH_SCAN_QUICK      1=只跑关/开默认 + gap=3% 三组
 
 结果打印到 stdout，并写 data/reports/morph_gate_scan.json（若目录可写）。
-选参原则：回撤/尾部变好且换手不过度；默认 gap/vol_min 仍保持 0，除非本表明确更优。
 """
 
 from __future__ import annotations
@@ -19,9 +17,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from itertools import product
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -70,53 +67,12 @@ def _metrics(res: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _grid(quick: bool) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = [
+def _grid() -> List[Dict[str, Any]]:
+    # 门槛写死：只比关 vs 开（产品常量）
+    return [
         {"label": "off", "morph_gate_enabled": False},
-        {
-            "label": "on_default",
-            "morph_gate_enabled": True,
-            "morph_vol_pctl": 0.9,
-            "morph_a1_max": 0.0,
-            "morph_gap_max": 0.0,
-            "morph_vol20_min": 0.0,
-        },
+        {"label": "on", "morph_gate_enabled": True},
     ]
-    if quick:
-        rows.append(
-            {
-                "label": "on_gap3",
-                "morph_gate_enabled": True,
-                "morph_vol_pctl": 0.9,
-                "morph_a1_max": 0.0,
-                "morph_gap_max": 0.03,
-                "morph_vol20_min": 0.0,
-            }
-        )
-        return rows
-    for vp, a1 in product((0.85, 0.9, 0.95), (0.0, -0.01, -0.02)):
-        rows.append(
-            {
-                "label": f"hv_p{vp:g}_a{a1:g}",
-                "morph_gate_enabled": True,
-                "morph_vol_pctl": vp,
-                "morph_a1_max": a1,
-                "morph_gap_max": 0.0,
-                "morph_vol20_min": 0.0,
-            }
-        )
-    for gap in (0.02, 0.03, 0.05):
-        rows.append(
-            {
-                "label": f"gap_{int(gap * 100)}",
-                "morph_gate_enabled": True,
-                "morph_vol_pctl": 0.9,
-                "morph_a1_max": 0.0,
-                "morph_gap_max": gap,
-                "morph_vol20_min": 0.0,
-            }
-        )
-    return rows
 
 
 def main() -> int:
@@ -126,17 +82,11 @@ def main() -> int:
 
     lookback = int(os.environ.get("MORPH_SCAN_LOOKBACK", "120"))
     limit = int(os.environ.get("MORPH_SCAN_LIMIT", "40"))
-    quick = str(os.environ.get("MORPH_SCAN_QUICK", "1")).strip() not in (
-        "0",
-        "false",
-        "False",
-        "",
-    )
 
     uni = read_watching()
     pool = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
     limit = max(8, min(limit, len(pool) or limit))
-    _log(f"观察池 {len(pool)} · 用前 {limit} · lookback={lookback} · quick={quick}")
+    _log(f"观察池 {len(pool)} · 用前 {limit} · lookback={lookback}")
     if len(pool) < 8:
         _log("ERROR: 观察池不足 8")
         return 1
@@ -158,7 +108,7 @@ def main() -> int:
         return 1
 
     out_rows: List[Dict[str, Any]] = []
-    for spec in _grid(quick):
+    for spec in _grid():
         label = str(spec.pop("label"))
         _log(f"… {label}")
         try:
@@ -190,10 +140,9 @@ def main() -> int:
     payload = {
         "lookback": lookback,
         "n_codes": len(stock_bars),
-        "quick": quick,
         "note": (
-            "默认 morph_gap_max/morph_vol20_min 保持 0，除非本表相对 off 明确更优；"
-            "勿仅因单日 10-29 改默认。"
+            "门槛写死：高波弱开(vol_p≥0.9∧a1<0) OR 异常低开(a1≤−8%)；"
+            "本扫描只对照关/开。"
         ),
         "rows": out_rows,
     }
@@ -205,7 +154,6 @@ def main() -> int:
     except OSError as e:
         _log(f"写报告失败（忽略）: {e}")
 
-    # 简表
     _log("\nlabel\tret%\tdd%\tmorph_skips\tgap\thv")
     for r in out_rows:
         _log(

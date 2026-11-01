@@ -902,9 +902,9 @@ def backtest_paper_replay(
                     constraints["t1_blocks"] += 1
                 if "形态闸" in reason:
                     constraints["morph_skips"] += 1
-                    if "大幅低开" in reason:
+                    if "异常低开" in reason or "大幅低开" in reason:
                         constraints["morph_gap_skips"] += 1
-                    elif "高波动" in reason:
+                    elif "高波弱开" in reason or "高波动" in reason:
                         constraints["morph_hv_skips"] += 1
 
             applied = {"sell_trades": [], "buy_trades": [], "apply_skips": []}

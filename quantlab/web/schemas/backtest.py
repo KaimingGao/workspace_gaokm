@@ -76,7 +76,7 @@ class PaperReplayBacktestRequest(BaseModel):
     morph_gate_enabled: bool = Field(
         default=False,
         description=(
-            "开=形态闸总开关（高波弱开；可选大幅低开）；关=不看。"
+            "开=形态闸总开关；门槛写死：高波弱开(vol_p≥0.9∧a1<0) OR 异常低开(a1≤−8%)。"
             "缺数据不拦；已持仓不清仓。默认关。"
         ),
     )
@@ -84,25 +84,25 @@ class PaperReplayBacktestRequest(BaseModel):
         default=None,
         ge=0.5,
         le=0.99,
-        description="高波腿：候选池 vol20 分位阈值。缺省 0.9。",
+        description="已写死 0.9；入参忽略。",
     )
     morph_a1_max: Optional[float] = Field(
         default=None,
         ge=-0.2,
         le=0.05,
-        description="高波腿：须 a1 < 该值（小数）。缺省 0（须低开）。",
+        description="已写死 0；入参忽略。",
     )
     morph_gap_max: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=0.15,
-        description="大幅低开腿：a1 ≤ −该值则拦。0/缺省=关。",
+        description="已写死 0.08（异常低开 −8%）；入参忽略。",
     )
     morph_vol20_min: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=5.0,
-        description="高波腿绝对 vol20 下限。0/缺省=关。",
+        description="已写死 0（无绝对 vol 下限）；入参忽略。",
     )
     oo_rank_max: Optional[int] = Field(
         default=None,
