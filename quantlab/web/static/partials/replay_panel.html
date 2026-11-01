@@ -257,12 +257,17 @@
                       </span>
                       <input type="checkbox" name="pm_y_τc_gt0" aria-label="y_τc 大于 0" />
                     </label>
-                    <label
-                      class="follow-path-matrix-box"
-                      title="开：启用形态闸。写死两腿 OR——①高波弱开：池内 vol20 高位 10% 且低开；②异常低开：a1≤−8%。缺数据不拦。已持仓不清仓。默认关。保存规则同步到交易执行自动调仓。"
-                    >
+                    <label class="follow-path-matrix-box">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">形态闸</span>
+                        <span class="follow-path-matrix-box-title">
+                          形态闸
+                          <button
+                            type="button"
+                            class="follow-path-matrix-help"
+                            aria-label="形态闸说明"
+                            title="开：拦新开/加仓（已持仓不清仓）。两腿 OR——①高波弱开：池内近20日年化波动分位≥0.9 且今开相对昨收低开；②异常低开：今开/昨收−1 ≤ −8%。缺分不拦。门槛写死。默认关。保存同步到交易执行自动调仓。"
+                          >?</button>
+                        </span>
                         <span class="follow-path-matrix-box-desc">总开关</span>
                       </span>
                       <input type="checkbox" name="pm_morph_gate" aria-label="形态闸" />
