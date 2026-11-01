@@ -12,6 +12,9 @@ const {
   applyLiveT0PrefixUi,
   applyLiveFusionWeightsUi,
 } = await import(`./execution_ui.js?v=${encodeURIComponent(_V)}`);
+const { createScoreTooltipController } = await import(
+  `../score_tooltip.js?v=${encodeURIComponent(_V)}`
+);
 
 async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
   const ac = new AbortController();
@@ -114,6 +117,29 @@ export async function initExecutionRuleForms() {
         if (saveBtn) saveBtn.disabled = false;
       }
     });
+  }
+
+  if (paperPathMatrixForm && paperPathMatrixForm.dataset.morphTipWired !== "1") {
+    paperPathMatrixForm.dataset.morphTipWired = "1";
+    const morphTips = createScoreTooltipController();
+    morphTips.bindAttrTip(paperPathMatrixForm, {
+      selector: ".follow-path-matrix-morph-tip-btn[data-tip-html]",
+      className: "score-tooltip plain-hover-tip follow-path-matrix-morph-tip-pop",
+      wireKey: "morph-gate-tip",
+    });
+    // 点 ? 只弹说明，不带动外层 label 勾选
+    paperPathMatrixForm.addEventListener(
+      "click",
+      (e) => {
+        const btn = e.target && e.target.closest
+          ? e.target.closest(".follow-path-matrix-morph-tip-btn")
+          : null;
+        if (!btn || !paperPathMatrixForm.contains(btn)) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true
+    );
   }
 
   const paperPathMatrixSave = document.getElementById("paper-path-matrix-save");

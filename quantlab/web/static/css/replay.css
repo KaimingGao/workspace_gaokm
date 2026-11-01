@@ -1212,49 +1212,39 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-/* 形态闸：勾选框布局与同行一致；仅标题旁嵌 ?，正文浮层不挤占勾选位 */
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph .follow-path-matrix-box-title {
+/* 形态闸：? 贴标题旁；tips 走悬浮层，不改格子布局 */
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box-title:has(.follow-path-matrix-morph-tip-btn) {
   display: inline-flex;
   align-items: center;
   gap: 0.35em;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help {
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-tip-btn {
   display: inline-flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   margin: 0;
+  padding: 0;
   border: 0;
   background: transparent;
+  cursor: help;
+  line-height: 0;
   vertical-align: middle;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-pro-help-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  padding: 0;
-  list-style: none;
-  cursor: help;
+body[data-page="replay"] .follow-path-matrix-morph-tip-pop {
+  max-width: min(22rem, 78vw);
+  padding: 10px 12px;
+  font-size: 0.72rem;
+  line-height: 1.55;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-pro-help-summary::-webkit-details-marker {
-  display: none;
+body[data-page="replay"] .follow-path-matrix-morph-tip-pop p {
+  margin: 0 0 0.45em;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="other"] {
-  position: relative;
-}
-
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-help-body {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  margin-top: 6px;
-  z-index: 6;
-  border: 1px solid var(--line, #e2e8f0);
-  border-radius: var(--q-radius-sm, 6px);
-  background: var(--bg-card, #fff);
-  box-shadow: 0 8px 24px color-mix(in srgb, #0f172a 12%, transparent);
+body[data-page="replay"] .follow-path-matrix-morph-tip-pop p:last-child {
+  margin-bottom: 0;
 }
 
 /* 窄列里步进箭头会挡住数字；输入铺满格宽，跨栏同比例对齐 */
