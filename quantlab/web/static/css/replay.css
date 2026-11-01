@@ -1212,37 +1212,16 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.28em;
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help {
+  margin: 0 8px 8px;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-help {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 1.05em;
-  height: 1.05em;
-  margin: 0;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--ink-3, #64748b) 55%, transparent);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ink-3, #64748b);
-  font: inherit;
-  font-size: 0.72em;
-  font-weight: 700;
-  line-height: 1;
-  cursor: help;
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-pro-help-summary {
+  padding: 6px 10px;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-help:hover,
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-help:focus-visible {
-  border-color: var(--accent, #2563eb);
-  color: var(--accent, #2563eb);
-  outline: none;
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help[open] > .quant-help-body {
+  border-top: 1px dashed color-mix(in srgb, var(--accent, #2563eb) 22%, var(--line, #e2e8f0));
 }
 
 /* 窄列里步进箭头会挡住数字；输入铺满格宽，跨栏同比例对齐 */
