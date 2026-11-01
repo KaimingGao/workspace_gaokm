@@ -563,6 +563,14 @@ def backtest_paper_replay(
         "price_space_skips": 0,
         "price_space_mismatch_seen": 0,
         "sell_px_fallback": 0,
+        "morph_skips": 0,
+    }
+    morph_stamp_agg: Dict[str, Any] = {
+        "n_a1_sum": 0,
+        "n_vp_sum": 0,
+        "n_vp_max": 0,
+        "days": 0,
+        "bars_source": None,
     }
     tau_pool_by_date: Dict[str, Dict[str, Any]] = {}
     if scores_by_date is None:
@@ -822,7 +830,18 @@ def backtest_paper_replay(
                 opens=opens,
                 cfg=rl_cfg,
                 as_of=day,
+                bars_by_code=stock_bars,
             )
+            ms = plan.get("morph_stamp") if isinstance(plan.get("morph_stamp"), dict) else {}
+            if ms:
+                n_a1 = int(ms.get("n_a1") or 0)
+                n_vp = int(ms.get("n_vp") or 0)
+                morph_stamp_agg["n_a1_sum"] = int(morph_stamp_agg["n_a1_sum"]) + n_a1
+                morph_stamp_agg["n_vp_sum"] = int(morph_stamp_agg["n_vp_sum"]) + n_vp
+                morph_stamp_agg["n_vp_max"] = max(int(morph_stamp_agg["n_vp_max"]), n_vp)
+                morph_stamp_agg["days"] = int(morph_stamp_agg["days"]) + 1
+                if ms.get("bars_source"):
+                    morph_stamp_agg["bars_source"] = ms.get("bars_source")
             _apply_price_space_plan_skips(plan, mismatch_reason)
             for leg in plan.get("sells") or []:
                 if not isinstance(leg, dict):
@@ -858,8 +877,10 @@ def backtest_paper_replay(
                 reason = str(sk.get("reason") or "")
                 if "地板" in reason or "现金不足" in reason:
                     constraints["cash_floor_skips"] += 1
-                if "T+1" in str(sk.get("reason") or ""):
+                if "T+1" in reason:
                     constraints["t1_blocks"] += 1
+                if "形态闸" in reason:
+                    constraints["morph_skips"] += 1
 
             applied = {"sell_trades": [], "buy_trades": [], "apply_skips": []}
             if sell_trades or buy_trades:
@@ -1134,6 +1155,17 @@ def backtest_paper_replay(
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "morph_gate_enabled": bool(rl_cfg.get("morph_gate_enabled")),
+            "morph_stamp": (
+                {
+                    "n_a1_sum": int(morph_stamp_agg.get("n_a1_sum") or 0),
+                    "n_vp_sum": int(morph_stamp_agg.get("n_vp_sum") or 0),
+                    "n_vp_max": int(morph_stamp_agg.get("n_vp_max") or 0),
+                    "days": int(morph_stamp_agg.get("days") or 0),
+                    "bars_source": morph_stamp_agg.get("bars_source"),
+                }
+                if bool(rl_cfg.get("morph_gate_enabled"))
+                else None
+            ),
             "oo_rank_max": rl_cfg.get("oo_rank_max"),
             "oo_rank_strong_max": rl_cfg.get("oo_rank_strong_max"),
             "oo_rank_top_frac": rl_cfg.get("oo_rank_top_frac"),

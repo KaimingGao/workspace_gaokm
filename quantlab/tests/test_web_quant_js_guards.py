@@ -2088,6 +2088,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("hold_count", replay_py)
         self.assertIn("overlay_session_day_bars", replay_py)
         self.assertIn("session_overlay", replay_py)
+        # 形态闸回测须传 stock_bars，禁止只靠 cache 尾 80 根（深历史会 fail-open）
+        self.assertIn("bars_by_code=stock_bars", replay_py)
+        self.assertIn("morph_stamp", replay_py)
         self.assertNotIn("[-80:]", replay_py)
         self.assertNotIn("rebalance_logs[-40:]", replay_py)
 

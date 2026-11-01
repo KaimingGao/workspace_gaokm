@@ -82,7 +82,7 @@ def vol20_ann_from_closes(closes: Sequence[float]) -> Optional[float]:
     try:
         import numpy as np
 
-        return float(np.std(np.asarray(rets, dtype=float)) * math.sqrt(252.0))
+        return float(np.std(np.asarray(rets, dtype=float), ddof=1) * math.sqrt(252.0))
     except Exception:  # noqa: BLE001
         logger.debug("vol20_ann_from_closes numpy failed", exc_info=True)
         return None
@@ -98,8 +98,19 @@ def a1_from_open_prev_close(open_t: Optional[float], prev_close: Optional[float]
     return o / c - 1.0
 
 
+def _norm_day(raw: Any) -> str:
+    """统一成 YYYY-MM-DD（也认 YYYYMMDD）；比不过则空串。"""
+    s = str(raw or "").strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) >= 8:
+        return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
+    return s[:10] if len(s) >= 10 else s
+
+
 def _bar_date(b: Mapping[str, Any]) -> str:
-    return str(b.get("date") or b.get("trade_date") or "")[:10]
+    return _norm_day(b.get("date") or b.get("trade_date"))
 
 
 def metrics_from_bars(
@@ -108,15 +119,15 @@ def metrics_from_bars(
     open_t: Optional[float] = None,
     as_of: Optional[str] = None,
 ) -> Dict[str, Optional[float]]:
-    """bars 按日升序；open_t 为决策日开盘（可覆盖最后一根未完成 K）。
+    """bars 按日升序；open_t 为决策日开盘。
 
     若提供 as_of，只用 date < as_of 的收盘作昨收/波动，避免误吃当日 K。
+    缺 open_t 时 a1=None（fail-open），不回退昨 K 开盘。
     """
     if not bars:
         return {"a1": None, "vol20": None, "prev_close": None}
-    day = str(as_of or "")[:10]
+    day = _norm_day(as_of)
     closes: List[float] = []
-    last_bar: Optional[Mapping[str, Any]] = None
     for b in bars:
         if not isinstance(b, Mapping):
             continue
@@ -127,15 +138,11 @@ def metrics_from_bars(
         c = _f(b.get("close"))
         if c is not None and c > 0:
             closes.append(c)
-            last_bar = b
     if len(closes) < 2:
         return {"a1": None, "vol20": None, "prev_close": None}
     prev = closes[-1]
-    ot = _f(open_t)
-    if ot is None and last_bar is not None:
-        ot = _f(last_bar.get("open"))
     return {
-        "a1": a1_from_open_prev_close(ot, prev),
+        "a1": a1_from_open_prev_close(_f(open_t), prev),
         "vol20": vol20_ann_from_closes(closes),
         "prev_close": prev,
     }

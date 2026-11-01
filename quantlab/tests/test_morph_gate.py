@@ -202,6 +202,137 @@ class MorphGateUnitTests(unittest.TestCase):
         self.assertIsNotNone(m["a1"])
         self.assertAlmostEqual(m["a1"], 10.8 / 10.5 - 1.0, places=5)
 
+    def test_metrics_no_open_t_does_not_use_prev_open(self):
+        from core.paper.rebalance.morph_gate import metrics_from_bars
+
+        bars = []
+        px = 10.0
+        for i in range(1, 25):
+            day = f"2024-05-{i:02d}"
+            bars.append({"date": day, "open": px, "close": px * 1.01})
+            px *= 1.01
+        m = metrics_from_bars(bars, open_t=None, as_of="2024-05-22")
+        self.assertIsNotNone(m["prev_close"])
+        self.assertIsNone(m["a1"])
+        self.assertIsNotNone(m["vol20"])
+
+    def test_deep_history_as_of_with_explicit_bars(self):
+        """深历史 as_of + 显式 bars：vol/a1 可算，形态闸可拦（不依赖 cache 尾）。"""
+        from core.paper.rebalance.morph_gate import (
+            metrics_from_bars,
+            morph_gate_skip_reason,
+            stamp_morph_cs_on_items,
+        )
+
+        def _series(base: float, amp: float):
+            bars = []
+            px = base
+            for i in range(30):
+                day = f"2024-04-{i + 1:02d}"
+                o = px
+                c = px * (1.0 + amp * (0.5 if i % 2 == 0 else -0.5))
+                bars.append({"date": day, "open": o, "close": c})
+                px = c
+            return bars
+
+        # 高波动票 + 低波动同伴，凑满截面 ≥8
+        bars_by = {}
+        items = []
+        for i in range(1, 9):
+            code = f"{i:06d}"
+            amp = 0.08 if i == 1 else 0.005 * i
+            bars_by[code] = _series(10.0 + i, amp)
+            items.append({"stock_code": code})
+
+        as_of = "2024-04-25"
+        metrics = {}
+        opens = {}
+        for it in items:
+            code = it["stock_code"]
+            prev = None
+            for b in bars_by[code]:
+                if b["date"] < as_of:
+                    prev = b["close"]
+            # 000001 弱开；其余平开
+            open_t = (prev * 0.97) if code == "000001" else (prev * 1.01)
+            opens[code] = open_t
+            metrics[code] = metrics_from_bars(
+                bars_by[code], open_t=open_t, as_of=as_of
+            )
+            self.assertIsNotNone(metrics[code]["vol20"], code)
+            self.assertIsNotNone(metrics[code]["a1"], code)
+
+        stamp_morph_cs_on_items(items, metrics_by_code=metrics)
+        self.assertIn("morph_vol_p", items[0])
+        cfg = {"morph_gate_enabled": True, "morph_vol_pctl": 0.9, "morph_a1_max": 0.0}
+        skip = morph_gate_skip_reason(items[0], cfg)
+        self.assertIsNotNone(skip)
+        self.assertIn("形态闸", skip or "")
+
+    def test_plan_rank_lot_day_uses_bars_by_code(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        as_of = "2024-04-25"
+        bars_by = {}
+        scored = []
+        opens = {}
+        prices = {}
+        for i in range(1, 9):
+            code = f"{i:06d}"
+            bars = []
+            px = 10.0 + i
+            amp = 0.08 if i == 1 else 0.004 * i
+            for d in range(1, 31):
+                day = f"2024-04-{d:02d}"
+                o = px
+                c = px * (1.0 + amp * (0.5 if d % 2 == 0 else -0.5))
+                bars.append({"date": day, "open": o, "close": c})
+                px = c
+            bars_by[code] = bars
+            prev = [b["close"] for b in bars if b["date"] < as_of][-1]
+            open_t = prev * 0.96 if i == 1 else prev * 1.01
+            opens[code] = open_t
+            prices[code] = open_t
+            scored.append(
+                {
+                    "stock_code": code,
+                    "predicted_score": 2.0,
+                    "y_τc": 1.0,
+                    "y_oo_rank": i,
+                    "y_τc_rank": i,
+                }
+            )
+
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=200_000.0,
+            prices=prices,
+            opens=opens,
+            cfg={
+                "fuse_enter": 0.0,
+                "fuse_strong": 0.0,
+                "morph_gate_enabled": True,
+                "morph_vol_pctl": 0.9,
+                "morph_a1_max": 0.0,
+                "lot_base_amount": 10_000,
+                "lot_strong_amount": 10_000,
+                "oo_rank_max": 100,
+                "top_k": 15,
+            },
+            as_of=as_of,
+            bars_by_code=bars_by,
+        )
+        stamp = out.get("morph_stamp") or {}
+        self.assertEqual(stamp.get("bars_source"), "caller")
+        self.assertGreaterEqual(int(stamp.get("n_vp") or 0), 8)
+        morph_skips = [
+            s
+            for s in (out.get("skips") or [])
+            if "形态闸" in str(s.get("reason") or "")
+        ]
+        self.assertTrue(morph_skips, msg=f"skips={out.get('skips')}")
+
 
 if __name__ == "__main__":
     unittest.main()

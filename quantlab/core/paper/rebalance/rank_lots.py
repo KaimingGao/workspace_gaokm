@@ -25,7 +25,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -1261,12 +1261,16 @@ def plan_rank_lot_day(
     opens: Optional[Dict[str, float]] = None,
     max_turnover_pct: Optional[float] = None,
     min_cash_pct: Optional[float] = None,
+    bars_by_code: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
 ) -> Dict[str, Any]:
     """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。
 
     ``sell_prices`` 缺省等于 ``prices``。历史回测可只给清仓回退价、买入仍走严格钟。
     ``opens`` 为当日开盘；与 ``prices``（τ 成交价）一起把 y_oo_fuse 写成
     τc 几何剩余。缺 y_spec 的旧行才减 (price(τ)/open−1)；缺开盘则不扣。
+
+    ``bars_by_code``：形态闸日线；回测应传 ``stock_bars``。传入则只用它（按 as_of
+    切片），不再 ``load_daily_cache``。未传时 live 回退缓存尾 80 根。
 
     ``max_turnover_pct`` 未传则不裁换手。``min_cash_pct`` 未传则买腿地板仍是
     ``cfg["cash_floor"]``（元）；传入时地板为 max(现金地板, 调仓前净值 × 比例)。
@@ -1328,6 +1332,11 @@ def plan_rank_lot_day(
             item_by[code] = it
 
     # 形态硬闸：在候选池上戳 vol 分位 + a1（缺 bars 则 fail-open）
+    morph_stamp: Dict[str, Any] = {
+        "n_a1": 0,
+        "n_vp": 0,
+        "bars_source": "none",
+    }
     try:
         from core.paper.rebalance.morph_gate import (
             morph_gate_enabled,
@@ -1335,30 +1344,51 @@ def plan_rank_lot_day(
         )
 
         if morph_gate_enabled(cfg):
-            bars_by: Dict[str, List[dict]] = {}
             day_s = str(as_of or "")[:10]
-            try:
-                from core.store import load_daily_cache
-
+            bars_src = "none"
+            bars_by: Dict[str, Sequence[Mapping[str, Any]]] = {}
+            if isinstance(bars_by_code, Mapping) and bars_by_code:
+                # 回测：只用调用方 bars，避免 cache 尾 80 根导致深历史 as_of 滤空
                 for code in list(item_by.keys())[:800]:
-                    try:
-                        packed = load_daily_cache(
-                            "CN", code, min_bars=30, ignore_age=True, max_bars=80
-                        )
-                    except Exception:  # noqa: BLE001
-                        continue
-                    rows = list((packed or (None, None))[0] or []) if packed else []
-                    # 当日/之后的 K 由 try_stamp_morph_from_opens(as_of=) 过滤
+                    rows = bars_by_code.get(code)
                     if rows:
                         bars_by[code] = rows
-            except Exception:  # noqa: BLE001
-                logger.debug("morph_gate load_daily_cache skipped", exc_info=True)
-            try_stamp_morph_from_opens(
+                bars_src = "caller"
+            else:
+                try:
+                    from core.store import load_daily_cache
+
+                    for code in list(item_by.keys())[:800]:
+                        try:
+                            packed = load_daily_cache(
+                                "CN",
+                                code,
+                                min_bars=30,
+                                ignore_age=True,
+                                max_bars=80,
+                            )
+                        except Exception:  # noqa: BLE001
+                            continue
+                        rows = (
+                            list((packed or (None, None))[0] or []) if packed else []
+                        )
+                        if rows:
+                            bars_by[code] = rows
+                    if bars_by:
+                        bars_src = "cache"
+                except Exception:  # noqa: BLE001
+                    logger.debug("morph_gate load_daily_cache skipped", exc_info=True)
+            n_a1, n_vp = try_stamp_morph_from_opens(
                 list(item_by.values()),
                 opens=opens,
                 bars_by_code=bars_by,
                 as_of=day_s or None,
             )
+            morph_stamp = {
+                "n_a1": int(n_a1),
+                "n_vp": int(n_vp),
+                "bars_source": bars_src,
+            }
     except Exception:  # noqa: BLE001
         logger.debug("morph_gate stamp failed", exc_info=True)
 
@@ -1792,6 +1822,7 @@ def plan_rank_lot_day(
         "fusion_w_oc": w_τc,
         "fusion_w_co": w_co,
         "top_k": top_k,
+        "morph_stamp": morph_stamp,
     }
 
 
