@@ -277,18 +277,6 @@ def apply_tau_score_fields(
     signal_item["dual_score_head"] = head_meta.get("dual_score_head")
     signal_item["dual_score_single_head"] = bool(head_meta.get("single_head"))
     for _dead in (
-        "predicted_score_nowcast",
-        "nowcast_vs",
-        "nowcast_as_of",
-        "nowcast_revisions",
-        "nowcast_K",
-        "nowcast_P",
-        "nowcast_x_prior",
-        "nowcast_q",
-        "nowcast_q_note",
-        "nowcast_path",
-        "y_nowcast",
-        "y_nc",
         "predicted_score_tau_delta",
         "predicted_score_tau_cascade",
     ):
@@ -319,9 +307,7 @@ def apply_tau_score_fields(
                 signal_item["heuristic_score"] = float(hs)
         except (TypeError, ValueError):
             pass
-        yhat = signal_item.get("score_cluster")
-        if yhat is None:
-            yhat = signal_item.get("score_global")
+        yhat = signal_item.get("score_global")
         try:
             yhat_f = float(yhat) if yhat is not None and yhat != "" else None
         except (TypeError, ValueError):

@@ -375,7 +375,6 @@ def null_eod_heads(item: Optional[dict]) -> None:
         "predicted_score_oo",
         "y_oo",
         "score_global",
-        "score_cluster",
         "predicted_score_blend",
         "y_oo_fuse",
     ):

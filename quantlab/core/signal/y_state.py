@@ -121,19 +121,10 @@ def _f(v: Any) -> Optional[float]:
 
 
 def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[float], str]:
-    """不确定度：nowcast_P → τ OOS residual_var → eod_residual_var。"""
-    p = _f(item.get("nowcast_P"))
-    if p is not None and p >= 0:
-        # P 为方差
-        if p > 0:
-            return round(math.sqrt(p), 6), "nowcast_P"
-        return 0.0, "nowcast_P"
-    for k in ("nowcast_var", "y_sigma"):
-        s = _f(item.get(k))
-        if s is not None and s >= 0:
-            if k == "nowcast_var" and s > 0:
-                return round(math.sqrt(s), 6), k
-            return round(s, 6), k
+    """不确定度：item y_sigma → τ OOS residual_var → eod_residual_var。"""
+    s = _f(item.get("y_sigma"))
+    if s is not None and s >= 0:
+        return round(s, 6), "y_sigma"
     # τ 模型落盘 OOS
     try:
         from core.research.tc_ridge import load_tau_model
@@ -349,7 +340,6 @@ def build_y_state(
     trade = _f(it.get("predicted_score_blend"))
     if trade is None:
         trade = _f(rank_key_for_item(it, config=config))
-    nc = _f(it.get("predicted_score_nowcast"))
     head = it.get("dual_score_head")
     if not head and it.get("dual_score_single_head"):
         head = "single"
@@ -431,7 +421,6 @@ def build_y_state(
             "eod_rem": eod_rem,
             "tau": y_tau,
             "trade": trade,
-            "nowcast": nc,
             "head": head,
         },
         "disagree": disagree,

@@ -538,7 +538,7 @@ def backtest_topk_equal_weight(
                     rs_f, item=scored_item
                 ):
                     heu_rank = rs_f
-                    # 启发式排序分另存；表列 score 只留 ŷ（分组 score_cluster 已退役）
+                    # 启发式排序分另存；表列 score 只留 ŷ（分组分已退役）
                     rank_score = tip_kw.get("predicted_score")
                     try:
                         if rank_score is not None:

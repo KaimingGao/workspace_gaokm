@@ -1243,13 +1243,6 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   opacity: 0.72;
 }
 
-.paper-holdings-table .paper-hold-score.watching-score-nowcast,
-.paper-holdings-react-grid .paper-hold-score.watching-score-nowcast,
-.bt-trade-score.watching-score-nowcast {
-  font-weight: 500;
-  opacity: 0.82;
-}
-
 .paper-holdings-table td.num {
   text-align: right;
   white-space: nowrap;

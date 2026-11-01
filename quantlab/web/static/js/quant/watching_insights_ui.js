@@ -273,9 +273,7 @@ function buildWatchingYScoreCellHtml(
       ? "watching-score-tau"
       : skin === "on"
         ? "watching-score-on"
-        : skin === "nowcast"
-          ? "watching-score-nowcast"
-          : "watching-score-eod";
+        : "watching-score-eod";
   if (!detail) {
     return `<span class="watching-score-cell ${skinCls} paper-hold-score ${esc(cls)}">${esc(
       shown
@@ -337,14 +335,10 @@ export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, esc = escapeHtml)
 
 export function buildWatchingInsightsStatusText(okN, total, items, meta) {
   const srcSample = (items || []).find((x) => x && x.weight_source) || {};
-  const mode = srcSample.cluster_mode || "";
   const wsrc = String(srcSample.weight_source || "");
-  let scoreMode = "组ŷ";
-  if (wsrc.startsWith("cluster:")) scoreMode = `组ŷ · ${wsrc.slice("cluster:".length) || "组"}`;
-  else if (wsrc === "global+shadow") scoreMode = "对照中 · 映射就绪";
+  let scoreMode = "全局ŷ";
+  if (wsrc === "global+shadow") scoreMode = "对照中 · 映射就绪";
   else if (wsrc === "global_fallback") scoreMode = "未映射组（无ŷ）";
-  else if (mode === "active") scoreMode = "active · 组ŷ";
-  else if (mode === "shadow") scoreMode = "shadow · 组ŷ映射";
   const cached = Number(meta && meta.cachedCount);
   const cacheBit =
     Number.isFinite(cached) && cached > 0 ? ` · 缓存 ${cached}` : "";

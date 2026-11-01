@@ -38,7 +38,6 @@ class ScoreResult:
     scale: str
     production_ok: bool
     gate_reason: Optional[str]
-    cluster_mode: Optional[str] = None
     kind: str = "score"
 
     @classmethod
@@ -82,9 +81,6 @@ class ScoreResult:
             or item.get("stock_code")
             or ""
         ).strip()
-        mode = pack.get("cluster_mode")
-        if mode is None:
-            mode = item.get("cluster_mode")
         return cls(
             stock_code=code,
             success=success,
@@ -98,7 +94,6 @@ class ScoreResult:
             scale=scale,
             production_ok=prod_ok,
             gate_reason=reason or None,
-            cluster_mode=str(mode) if mode is not None else None,
         )
 
     def as_dict(self) -> Dict[str, Any]:
@@ -112,8 +107,6 @@ class ScoreResult:
         out["rank_key"] = self.rank_key
         if self.gate_reason is not None:
             out.setdefault("gate_reason", self.gate_reason)
-        if self.cluster_mode is not None:
-            out.setdefault("cluster_mode", self.cluster_mode)
         item = dict(self.item or {})
         if item:
             item.setdefault("score_scale", self.scale)

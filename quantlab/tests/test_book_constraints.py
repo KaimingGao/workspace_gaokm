@@ -170,6 +170,20 @@ class TestBookConstraints(unittest.TestCase):
         )
         self.assertEqual([b["stock_code"] for b in out["book"]], ["a", "b"])
 
+    def test_constraints_cfg_top_level_only(self):
+        from core.signal.book_constraints import get_book_constraints_cfg
+
+        top = get_book_constraints_cfg(
+            {"book_constraints": {"tau_fail_mode": "exclude"}}
+        )
+        self.assertEqual(top["tau_fail_mode"], "exclude")
+        self.assertEqual(top["max_names"], 40)
+        # cluster_scoring 已退役：只认顶层
+        nested_only = get_book_constraints_cfg(
+            {"cluster_scoring": {"book_constraints": {"tau_fail_mode": "off"}}}
+        )
+        self.assertEqual(nested_only["tau_fail_mode"], "defer")
+
 class TestPortfolioHealth(unittest.TestCase):
     def test_health_smoke(self):
         from core.risk.portfolio_health import build_portfolio_health

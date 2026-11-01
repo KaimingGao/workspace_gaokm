@@ -223,7 +223,7 @@ def _attach_open_yhat_heads(
     """开盘包唯一写头：heuristic→ŷ_oo；09:30 PIT ŷ_τc；ŷ_co；oo_rank；τc_rank。
 
     对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 y_oo_fuse。
-    调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。nowcast 已退役，不再写 y_nowcast。
+    调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。
     ``score_codes`` 给定时，截面 z 用整批特征，ŷ 与名次只写这份名单。
     产出进 ``save_day``；09:30 命中勿再挂 rank（见模块契约）。
     """
@@ -346,8 +346,6 @@ def _attach_open_yhat_heads(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("align_trade_score_fields failed", exc_info=True)
-        it.pop("predicted_score_nowcast", None)
-        it.pop("y_nowcast", None)
         it.pop("y_nc", None)
         if code:
             q = quotes.get(code) or {}

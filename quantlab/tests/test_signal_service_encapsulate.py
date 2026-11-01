@@ -32,7 +32,6 @@ def _score_stock_ok(item=None):
         "signal_item": it,
         "scored": {"score": it.get("score")},
         "quality_gate": bool(it.get("quality_gate")),
-        "cluster_mode": it.get("cluster_mode") or "active",
     }
 
 class TestScoreGate(unittest.TestCase):
@@ -259,13 +258,12 @@ class TestSignalServiceWrap(unittest.TestCase):
                 "heuristic_score": 70,
                 "score_scale": "heuristic_0_100",
                 "return_model_source": "oos_failed_heuristic",
-                "score_cluster": 0.3,
                 "predicted_score": None,
             }
         )
         self.assertEqual(row.get("score_scale"), "heuristic_0_100")
         self.assertFalse(row.get("production_ok"))
-        self.assertAlmostEqual(float(row.get("score_cluster")), 0.3)
+        self.assertNotIn("score_cluster", row)
 
     def test_pack_holding_row_stamps_y_oo_fuse_from_oo_tc(self):
         from core.signal.service import SignalService
@@ -400,7 +398,7 @@ class TestMainCallersUseService(unittest.TestCase):
     def test_skill_signal_imports_service(self):
         from pathlib import Path
 
-        shim = Path(ROOT, "skills/signal/engine.py").read_text(encoding="utf-8")
+        shim = Path(ROOT, "skills/signal/handler.py").read_text(encoding="utf-8")
         self.assertIn("adapters.signal.engine", shim)
         text = Path(ROOT, "adapters/signal/engine.py").read_text(encoding="utf-8")
         self.assertIn("get_default_signal_service", text)

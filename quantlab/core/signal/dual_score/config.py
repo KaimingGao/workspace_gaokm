@@ -102,7 +102,6 @@ def save_dual_score(
         dual["w_tau"] = 0.5
     dual.pop("minute_tau_hm", None)
     dual.pop("minute_tau_grid", None)
-    dual.pop("nowcast", None)
     dual.pop("enable_cascade_shadow", None)
     dual.pop("enable_tau_shadow_book", None)
 

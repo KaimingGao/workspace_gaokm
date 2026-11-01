@@ -50,10 +50,10 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | ŷ | 含义 | 调仓中的作用 |
 |----|------|-------------|
 | **y_oo_fuse**（UI fuse） | w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 调仓排序。rot=price(τ)/open[T]−1；基准 τ→open[T+1]；ŷ_τc 已是 τ→close；w_co 默认 1 |
-| **residual** | w_τc·ŷ_τc + w_oc·remaining(ŷ_oc) | 研究对照。做 T 主分是 ŷ_τw；旧 C_τ 破带已移除 |
+| **residual** | w_τc·ŷ_τc + w_oc·remaining(ŷ_oc) | 研究对照。做 T 主分是 ŷ_τw |
 | ŷ_co | 隔夜 close[T]→open[T+1] | 经 w_co 几何叠进 ŷ_τc；w_co=0 时不进 y_oo_fuse |
 
-历史回测成交明细列序为股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完时剩余按收盘市值计入卖出总额）/ **fuse** 预估(真实)（真实=open[T+1]/price(τ)−1）/ y_oo / y_τc / y_co / **rank**（ŷ_oo_rank 1..n）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90 / y_hl。缺模型/缺分显示 —。
+历史回测成交明细列序为股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完时剩余按收盘市值计入卖出总额）/ **fuse** 预估(真实)（真实=open[T+1]/price(τ)−1）/ y_oo / y_τc / y_co / **rank**（ŷ_oo_rank 1..n）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。缺模型/缺分显示 —。
 
 未过入场（含可选 y_oo>0 / y_τc>0 / 入场 rank；fuse>强档改看强档 rank）的已持仓 → **清仓**。过入场则开仓或加仓。当日打不上分（缺 y_oo_fuse）不能假装过门槛，按清仓处理。无「持」动作。
 
@@ -96,7 +96,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 6. 单票持仓市值上限 = `lot_strong_amount × 120%`（缺省 2.4 万）。买后该票市值将超过则跳过，防单票过重。
 7. 计划阶段现金只扣手数×成交价，不含佣金和滑点。落地时缩到一手后若 `amount+费用` 仍超出现金 → 该笔记 cash 跳过（apply_skips）。live 与回测同一路径。
 
-历史回测成交与 live 不同：ŷ_oo / oo_rank 仍是 **09:30 开盘信息集**。ŷ_τc 随所选 **回测时间** `fill_clock`：09:30 用开盘 Z（`use_minute_tau=False`）；09:35–10:00 走 `refresh_tau_heads_after_prefix`（截至该钟 5m 前缀重算 ŷ_τc，与做 T `rescore_scores_at_fixed_prefix` 同路径，并重挂 τc_rank；截面 z 缩到可交易集，避免未前缀 B/C 开盘特征混进 pool μ/σ）。前缀注入分钟小包/截面后按 `features_tau` 重拆 ŷ_τc，成交明细组成表与做 T 扫描该钟同口径。买卖价：`fill_clock=09:30` 时服务层**不读整池 5m**、用日 K 开盘（本地首根常标 09:35）；09:35–10:00 才加载分钟并用该档收盘。**买入**缺该根则跳过（`reason`＝无有效报价）。**清仓**缺该根则回退：该钟之后～10:00 下一根 → 09:30 / 日开盘（账上 `缺HH:MM回退…`；`constraints.sell_px_fallback`）。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺仓不当开盘锚；09:30 跳过加载后闸空跑）。**有窗口分钟时**复用做 T 日分价闸（`resolve_t0_price_space`）：共用框「日分价闸」默认开；**开盘差已下线**；`|日昨/分昨−1|` 超阈（默认 5%，跟做 T；0=关）则该票当日 skip（`price_space_mismatch`）；比的是昨收锚，**不是**成交价。关闸不拦，仍记错位次数。live 自动调仓窗口 = 已保存「启动时间」`live_fill_clock`～10:00（默认 09:30，与回测 `fill_clock` 分立）；≤09:30 不拉当天 5m 打分；到点后现价成交一次，ŷ_τc 用因果末根 5m（≤10:00），不走此闸。
+历史回测成交与 live 不同：ŷ_oo / oo_rank 仍是 **09:30 开盘信息集**。ŷ_τc 随所选 **回测时间** `fill_clock`：09:30 用开盘 Z（`use_minute_tau=False`）；09:35–10:00 走 `refresh_tau_heads_after_prefix`（截至该钟 5m 前缀重算 ŷ_τc，与做 T `rescore_scores_at_fixed_prefix` 同路径，并重挂 τc_rank；截面 z 缩到可交易集，避免未前缀 B/C 开盘特征混进 pool μ/σ）。前缀注入分钟小包/截面后按 `features_tau` 重拆 ŷ_τc，成交明细组成表与做 T 扫描该钟同口径。买卖价：`fill_clock=09:30` 时服务层**不读整池 5m**、用日 K 开盘（本地首根常标 09:35）；09:35–10:00 才加载分钟并用该档收盘。**买入**缺该根则跳过（`reason`＝无有效报价）。**清仓**缺该根则回退：该钟之后～10:00 下一根 → 09:30 / 日开盘（账上 `缺HH:MM回退…`；`constraints.sell_px_fallback`）。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺仓不当开盘锚；09:30 跳过加载后闸空跑）。**有窗口分钟时**复用做 T 日分价闸（`resolve_t0_price_space`）：共用框「日分价闸」默认开；`|日昨/分昨−1|` 超阈（默认 5%，跟做 T；0=关）则该票当日 skip（`price_space_mismatch`）；比的是昨收锚，**不是**成交价。关闸不拦，仍记错位次数。live 自动调仓窗口 = 已保存「启动时间」`live_fill_clock`～10:00（默认 09:30，与回测 `fill_clock` 分立）；≤09:30 不拉当天 5m 打分；到点后现价成交一次，ŷ_τc 用因果末根 5m（≤10:00），不走此闸。
 
 ### 4.2 关键参数
 
@@ -119,7 +119,7 @@ live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_
 | `holdings_mv_cap` | 150_000 | live 持仓市值上限；历史回测为 0 |
 | `fill_clock` | 09:30 | **仅历史回测**：成交钟 09:30–10:00；09:30 日开盘不读整池 5m；>09:30 加载分钟，ŷ_τc+τc_rank 走前缀刷新 |
 | `live_fill_clock` | 09:30 | **仅 live 自动调仓**：UI 称「启动时间」；可选 09:25–10:00；窗口起点～10:00；不跟回测 `fill_clock`。手动执行固定复现 09:30，不跟此钟。Follow 旁单条配重滑条（左 w_oo · 右 w_τc）；改钟建议：≤09:30 → `0.9/0.1`，>09:30 → `0.1/0.9`（可手调后落盘） |
-| `price_space_gate` | 开 | **仅历史回测**：共用框「日分价闸」。有分钟时 |日昨/分昨−1| 超阈则 skip（开盘差已下线）；阈跟做 T（默认 5%，0=关）。09:30 跳过读分钟时闸空跑。关则不拦，仍记错位次数 |
+| `price_space_gate` | 开 | **仅历史回测**：共用框「日分价闸」。有分钟时 |日昨/分昨−1| 超阈则 skip；阈跟做 T（默认 5%，0=关）。09:30 跳过读分钟时闸空跑。关则不拦，仍记错位次数 |
 | （加载） | — | 日线：`bars.db` 单连接批量 + `max_bars`；剔 ST 用观察池名、不 live 补名。开盘分：`replay_scores` v6 按日命中复用（含 oo/τc_rank；滑动窗 inputs_fp，见 quant.md） |
 
 配置键优先 `rebalance_timing.rank_lots`，仍认旧键 `path_matrix`。
@@ -210,7 +210,7 @@ Follow「策略调仓」运行卡与「做 T」同结构：进程面板 → 面�
 |------|---------------|------|
 | `max_positions` | 20 | 最大持仓数 |
 | `position_pct` | 0.15 | 单票目标仓位 |
-| `min_score` | 55 | 买入下限（heuristic） |
+| `min_score` | 55 | 买入下限 |
 | `min_hold_score` | 45 | 持有下限 |
 | `horizon_days` | 3 | 预期持有天数 |
 | `signal_limit` | 8 | 信号数量上限 |

@@ -74,7 +74,7 @@ python3 run_web.py
 | 顶栏 | 主路径：**对话 · 观察 · 策略 · 模拟 · 回溯**；进阶页仍有 `/paper`（→模拟）、`/quant` |
 | 会话 | 请求头 `X-Session-Id`（前端存 localStorage） |
 | 端口 | 环境变量 `WEB_HOST`（默认 127.0.0.1）、`WEB_PORT`（默认 8000） |
-| 热重载 | 默认 **关**（`WEB_RELOAD=0`）。开发改 py 时设 `WEB_RELOAD=1`；热重载会中断纸面后台任务，确认调仓时勿触发。纸面/分组/网格/对话 job 落盘 `data/jobs/*.json` |
+| 热重载 | 默认 **关**（`WEB_RELOAD=0`）。开发改 py 时设 `WEB_RELOAD=1`；热重载会中断纸面后台任务，确认调仓时勿触发。纸面/网格/对话 job 落盘 `data/jobs/*.json` |
 | 日线缓存后端 | `QUANTLAB_BARS_BACKEND=sqlite`（默认）或 `json`；见 [sqlite-migration](architecture.md) · [architecture-upgrade-a](architecture.md) |
 
 Web 与 CLI 共用同一套 `Agent` / Skills / prompts；仍需配置 `DASHSCOPE_*`。
@@ -192,7 +192,7 @@ README 仅列最常用命令；以下脚本按需调用：
 | `bash scripts/daily_quant.sh && bash scripts/daily_check.sh` | 每日量化 + 校验 |
 | `bash scripts/ci_quant.sh` | 本地 CI 全量（单测 · repro · checklist · daily eval-mock） |
 
-详见 [quant.md](quant.md)（入门概念 + 运维）· [quant-summary.md](archive/quant-summary.md)（P6～P33 总览）。
+详见 [quant.md](quant.md)（入门概念 + 运维）。
 
 ## 无 LLM 时直接测模块
 
@@ -271,7 +271,7 @@ python3 evals/run_repro.py
 
 本地量化 CI 同款：`bash scripts/ci_quant.sh`（单测 · import 审计 · repro · checklist · daily eval-mock）。
 
-**Web**：黄金用例校验面板已下线；跑 checklist / preset / routing 用下方 CLI 与 Eval API（不再从顶栏弹窗）。
+**Web**：跑 checklist / preset / routing 用下方 CLI 与 Eval API（不再从顶栏弹窗）。
 
 **Eval API**：
 
@@ -285,7 +285,7 @@ python3 evals/run_repro.py
 
 用例定义在 `evals/golden_cases.json`（**20 cases**，含量化 `quant_*`、`quant_factor_ols`、`quant_model_policy` 等）。校验原则：**数字以 Skills 为准；Agent 回复不得出现工具结果里没有的关键数字；买入类须含免责声明。**
 
-Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `POST /api/quant/interpret` · `{ "offline": true }` 规则解读。中性化对照导出专节已下线。
+Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `POST /api/quant/interpret` · `{ "offline": true }` 规则解读。
 
 生产决策为 **规则 score + stance**，未默认线性回归/复杂拟合模型；说明见 [quant.md](quant.md)。
 
@@ -312,7 +312,7 @@ Web 研究枢纽可查看子目录 README；无 LLM 时「AI 解读」可走 `PO
 - `quote_fallback` 短线评分信息量弱于完整日线，用 `data_source` 区分。
 - 名称映射表有限；未知中文名请改用代码。
 - `fundamentals` / `news` 以 A 股接口为主；港美覆盖弱于 A 股。
-- `peer` 为预设同业组，非自动行业聚类。
+- `peer` 为预设同业组。
 - 1～3 天信号胜率不稳定；策略结论仍须提示风险，不保证收益。
 - 完整自然语言路径强依赖通义千问（`DASHSCOPE_MODEL=qwen-plus`，可开联网搜索）。
 

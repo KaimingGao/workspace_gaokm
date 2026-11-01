@@ -30,7 +30,7 @@
 | **清洗** | 复权一致、日历对齐、PIT | **薄清洗**：`normalize_bars`；日线 as_of；财务/资讯标明 **non_pit snapshot** | `history.normalize_bars` · `data_pit` |
 | **存储** | 时序库 / 仓 | **JSON**：日线增量合并 · `fundamentals/` · `news/` 快照；无全市场仓 | `core/store.py` → `data/store/` |
 | **服务** | 稳定 `get_price` | **DataService**：领域包 `core/data`（`MarketDataService` / Ports / 信封）+ 薄门面 `facade.py`（dict 兼容） | `core/data/` · `core/data/facade.py` · `core/ports` |
-| **监控** | 覆盖率 + 告警 | **覆盖率**：`data_coverage`；warmup/日更出站；`quality` good/thin/empty | `core/data_coverage.py` · `alert_outbound` |
+| **监控** | 覆盖率 + 告警 | **覆盖率**：`coverage`；warmup/日更出站；`quality` good/thin/empty | `core/data/coverage.py` · `alert_outbound` |
 
 **刻意边界**（与 [architecture · 刻意不做](../architecture.md) 一致）：不先上全市场时序仓 / Tick；**DataService + 观察池增量** 已落地；财务 PIT / 多源对齐另规划。
 
@@ -250,8 +250,8 @@ flowchart TD
 | **模拟账户** | JSON | `data/paper.json` | 假钱账本（现金 · 持仓 · 成交）；非券商实盘 |
 | **观察池** | JSON | `data/watching.json` | 产品状态，非行情仓 |
 | **信号 / 规则配置** | JSON | `signal_config.json` · `position_rules.json` | 人审可改；晋升有备份约定 |
-| **日线 / 分钟线** | SQLite（默认）或 JSON | `data/store/bars.db` · 或 `daily|minute/**/*.json` | `QUANTLAB_BARS_BACKEND`；上层经 DataService / ports |
-| **基本面 / 资讯** | 按标的 JSON | `data/store/fundamentals|news/` | 快照 + PIT 面板；不进 bars.db |
+| **日线 / 分钟线** | SQLite（默认）或 JSON | `data/store/bars.db` · 或 `daily\|minute/**/*.json` | `QUANTLAB_BARS_BACKEND`；上层经 DataService / ports |
+| **基本面 / 资讯** | 按标的 JSON | `data/store/fundamentals\|news/` | 快照 + PIT 面板；不进 bars.db |
 | **决策 / TTM 事件** | JSONL 追加 | `decisions.jsonl` · `ttm_events.jsonl` | 流水审计，轻量追加写 |
 | **日报 / 告警** | JSON · MD | `quant_daily.json` · `reports/` · `alerts/` | 运行时产物 |
 | **回测快照** | JSON | `last_portfolio_backtest.json` · `last_t0_backtest.json` | 刷新恢复 KPI / 做 T 结果；不重跑 |
@@ -295,7 +295,7 @@ flowchart TD
 |----|------|
 | **M1.1 DataService 收口** | **已落地**：`get_quote/bars/fundamentals/news/spot`；quant/paper/research 经 DataService |
 | **ports adapter 注入** | **已落地**：`adapters.bind` → `core.ports.registry`；实现一律来自 `adapters.*`（skills 仅 shim） |
-| **M1.2 观察池覆盖率** | **已落地**：`data_coverage` · `bars_warmup` / `paper_daily` 汇总 + 出站 |
+| **M1.2 观察池覆盖率** | **已落地**：`core/data/coverage.py` · `bars_warmup` / `paper_daily` 汇总 + 出站 |
 | **M1.3 基本面/资讯快照缓存** | **已落地**：`data/store/fundamentals|news` · `non_pit` · `fundamentals_warmup` |
 | **M1.4 观察池日线增量** | **已落地**：`merge_bars_by_date` · `fetch_daily_bars(incremental=True)` |
 | 复权多策略 `qfq\|hfq\|raw` | **D2 已落地**：`get_bars(adjust=)` · 缓存 `adjust_policy` 防混用；hfq 不可用回退 |
@@ -303,7 +303,7 @@ flowchart TD
 | 交易日历 lite | **D3 已落地**：`core/market/calendar.py` |
 | DQ 中心 | **D4 已落地**：`GET /api/ops/data-quality` |
 | **DS-R0 日线缓存 path_lock** | **已落地**：`save_*` / `merge_save_daily_cache` / snapshot 写路径持锁 |
-| **DS-R1 TTL 一元化** | **已落地**：`core/data_policy.py`；store IO 计入 DQ `store_io` |
+| **DS-R1 TTL 一元化** | **已落地**：`core/data/policy.py`；store IO 计入 DQ `store_io` |
 | **DS-R2 行业≠板别** | **已落地**：`_sector_for`→未分类；`_board_for`/styles 仍板别 |
 | **DS-R2.1 清洗伪主题** | **已落地**：`is_board_label`；`scrub_board_labels_from_sector_map`；sync 不再写板别 |
 | **DS-R2.2 现货行业补全** | **已落地**：`enrich_sector_map_from_spot`；调度 `sector_map_enrich` / `spot_refresh` 串联；风控覆盖闸门 |
@@ -357,12 +357,12 @@ flowchart LR
 | **分钟拉取（新浪 5m）** | `adapters/market/minute_history.py` |
 | 日线缓存 R/W · quality | `core/store.py` |
 | **DataService（N1/M1）** | 门面 `core/data/facade.py`（模块函数 → dict）；领域 `core/data/`（`MarketDataService` · `BarsResult` · `MarketPorts`） |
-| TTL / 质量阈值 | `core/data_policy.py` |
+| TTL / 质量阈值 | `core/data/policy.py` |
 | 财务 PIT 面板 | `core/fundamentals_pit.py` |
 | 样本运营 / 验证宇宙 | `core/sample_ops.py` · `core/validation_universe.py` · `GET /api/ops/sample-status` |
 | 成熟闸门 | `core/maturity_gate.py` · `GET /api/ops/maturity-gate` · [design-spine.md · N6 准入](../design-spine.md#n6-真实盘准入备忘仅文档-无代码) |
-| 源一致性审计 | `core/data_consistency.py` |
-| 覆盖率 | `core/data_coverage.py` |
+| 源一致性审计 | `core/data/consistency.py` |
+| 覆盖率 | `core/data/coverage.py` |
 | 路径 | `core/paths.py`（`STORE_DIR`） |
 | 调度预热 | `core/schedule_jobs.py`（`bars_warmup` · `minute_warmup` · `spot_refresh` · `fundamentals_warmup`） |
 | 观察池分钟状态/强更 | `quant/research/minute_status.py` · `quant/services/quant_service_factors.py` |

@@ -6,14 +6,10 @@ import {
   escapeText,
   fusionWeightsFromItem,
   fusionWCoFromItem,
-  liftTauVsPrevClose,
-  nowcastOcPct,
   ocWithCoPct,
   pickYOcFitted,
   resolveEodScore,
   resolveGapPct,
-  resolveNowcastScore,
-  resolveNowcastCcScore,
   resolveOnScore,
   resolveTauLiftedScore,
   resolveTauScore,
@@ -35,8 +31,6 @@ import {
   readHorizonVoteMarginP,
   resolvePathScore,
   compoundPct,
-  Y_NC_TITLE,
-  Y_NC_OC_TITLE,
   Y_HL_TITLE,
 } from "./paper/fmt.js?v=p2544";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
@@ -322,10 +316,6 @@ export function formatScoreHero(raw) {
           : null;
     const hsTxt =
       hs == null || !Number.isFinite(hs) ? "—" : fmtSigned(hs, 1);
-    const cluster =
-      raw.score_cluster != null && Number.isFinite(Number(raw.score_cluster))
-        ? `${fmtSigned(Number(raw.score_cluster), 3)}%`
-        : "—";
     return (
       `<div class="score-layer score-layer-eod">` +
       `<div class="score-layer-head">` +
@@ -334,7 +324,7 @@ export function formatScoreHero(raw) {
       `</div>` +
       `<div class="score-hero-hint">OOS 失败组 · 主分=启发式 ${escapeText(
         hsTxt
-      )}（0–100）· 组 ŷ 对照 ${escapeText(cluster)} · 不当作收益%</div>` +
+      )}（0–100）· 不当作收益%</div>` +
       `</div>`
     );
   }
@@ -1190,181 +1180,6 @@ export function formatRemScoreSection(raw) {
   );
 }
 
-/** nowcast（nc）列 tip：对照昨收，不进决策。 */
-export function formatNowcastSection(raw) {
-  const ncN = resolveNowcastCcScore(raw);
-  if (ncN == null || !Number.isFinite(Number(ncN))) return "";
-  const yEod = resolveEodScore(raw);
-  const yt = resolveTau(raw);
-  const ytCc = liftTauVsPrevClose(raw, yt);
-  const k = raw && raw.nowcast_K != null ? Number(raw.nowcast_K) : null;
-  const q = raw && raw.nowcast_q != null ? Number(raw.nowcast_q) : null;
-  const asOf = raw && raw.nowcast_as_of ? String(raw.nowcast_as_of) : "";
-  const rows = [];
-  const eodN = yEod == null || yEod === "" ? null : Number(yEod);
-  const priorN =
-    raw && raw.nowcast_x_prior != null && Number.isFinite(Number(raw.nowcast_x_prior))
-      ? Number(raw.nowcast_x_prior)
-      : eodN;
-  const tCcN = ytCc == null || ytCc === "" ? null : Number(ytCc);
-  if (priorN != null && Number.isFinite(priorN)) {
-    rows.push(
-      `<div class="score-layer-row"><span>先验 ŷ_oo</span><span class="num ${signCls(
-        priorN
-      )}">${escapeText(`${fmtSigned(priorN, 2)}%`)}</span></div>`
-    );
-  }
-  if (tCcN != null && Number.isFinite(tCcN)) {
-    rows.push(
-      `<div class="score-layer-row"><span>ŷ_τc 昨收</span><span class="num ${signCls(
-        tCcN
-      )}">${escapeText(`${fmtSigned(tCcN, 2)}%`)}</span></div>`
-    );
-  }
-  if (k != null && Number.isFinite(k)) {
-    rows.push(
-      `<div class="score-layer-row"><span>K</span><span class="num">${escapeText(
-        k.toFixed(3)
-      )}</span></div>`
-    );
-  }
-  rows.push(
-    `<div class="score-layer-row score-layer-row-total"><span>ŷ_nowcast</span><span class="num ${signCls(
-      ncN
-    )}">${escapeText(`${fmtSigned(ncN, 2)}%`)}</span></div>`
-  );
-  const bits = ["nowcast = nc · 对照昨收 · 不进排序/闸/入簿"];
-  if (asOf) bits.push(`@${asOf}`);
-  if (q != null && Number.isFinite(q)) bits.push(`q=${q.toFixed(3)}`);
-  if (
-    priorN != null &&
-    Number.isFinite(priorN) &&
-    Math.abs(Number(ncN) - priorN) < 1e-4
-  ) {
-    bits.push("后验≈先验（未观测 ŷ_τc 或 K≈0）");
-  }
-  return (
-    `<div class="score-layer score-layer-nowcast is-on">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">nowcast（nc）· 昨收</div>` +
-    `<div class="score-hero-value ${signCls(ncN)}">${escapeText(
-      `${fmtSigned(ncN, 2)}%`
-    )}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${escapeText(bits.join(" · "))}</div>` +
-    `<div class="score-layer-compose">${rows.join("")}</div>` +
-    `</div>`
-  );
-}
-
-function resolveNcOcGate(raw) {
-  if (!raw || typeof raw !== "object") return false;
-  if (raw.y_nowcast_oc_gate != null) return raw.y_nowcast_oc_gate === true;
-  const rules = raw.rules && typeof raw.rules === "object" ? raw.rules : {};
-  return rules.y_nowcast_oc_gate === true;
-}
-
-function resolveNcOcEnter(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const rules = raw.rules && typeof raw.rules === "object" ? raw.rules : {};
-  const pick = (k) => {
-    const v = raw[k] != null && raw[k] !== "" ? raw[k] : rules[k];
-    if (v == null || v === "") return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
-  return pick("y_nc_strong") ?? pick("y_nowcast_enter");
-}
-
-function resolveNcOcValues(raw) {
-  const yNc = resolveNowcastCcScore(raw);
-  const gap = resolveGapPct(raw);
-  let oc =
-    raw && raw.y_nc_oc != null && Number.isFinite(Number(raw.y_nc_oc))
-      ? Number(raw.y_nc_oc)
-      : raw && raw.y_nowcast_oc != null && Number.isFinite(Number(raw.y_nowcast_oc))
-        ? Number(raw.y_nowcast_oc)
-        : null;
-  if (oc == null && yNc != null && gap != null) oc = nowcastOcPct(yNc, gap);
-  return { yNc, gap, oc };
-}
-
-/** nowcast oc 列：nc 映到 open→close。 */
-export function formatNcOcSection(raw) {
-  const { yNc, gap, oc } = resolveNcOcValues(raw);
-  if (oc == null && (yNc == null || gap == null)) return "";
-  const ocTxt = oc == null ? "—" : `${fmtSigned(oc, 2)}%`;
-  const ocGate = resolveNcOcGate(raw);
-  const compareLabel =
-    raw && raw.nowcast_compare_label
-      ? String(raw.nowcast_compare_label)
-      : ocGate
-        ? "y_nc_oc"
-        : "y_nc";
-  const yt = resolveTau(raw);
-  const ncEnter = resolveNcOcEnter(raw);
-  const rows = [];
-  if (yNc != null && Number.isFinite(yNc)) {
-    rows.push(
-      `<div class="score-layer-row"><span>nc（昨收）</span><span class="num ${signCls(
-        yNc
-      )}">${escapeText(`${fmtSigned(yNc, 2)}%`)}</span></div>`
-    );
-  }
-  if (gap != null && Number.isFinite(gap)) {
-    rows.push(
-      `<div class="score-layer-row"><span>gap（开盘缺口）</span><span class="num ${signCls(
-        gap
-      )}">${escapeText(`${fmtSigned(gap, 2)}%`)}</span></div>`
-    );
-  }
-  if (yNc != null && gap != null) {
-    rows.push(
-      `<div class="score-layer-row"><span>换算</span><span>(1+nc)/(1+gap)−1</span></div>`
-    );
-  }
-  rows.push(
-    `<div class="score-layer-row score-layer-row-total"><span>nowcast oc</span><span class="num ${signCls(
-      oc
-    )}">${escapeText(ocTxt)}</span></div>`
-  );
-  if (yt != null && Number.isFinite(Number(yt))) {
-    rows.push(
-      `<div class="score-layer-row"><span>y_τ（对照）</span><span class="num ${signCls(
-        yt
-      )}">${escapeText(`${fmtSigned(Number(yt), 2)}%`)}</span></div>`
-    );
-  }
-  const gateBits = [
-    ocGate ? "异号闸 OC=ON · 比 nowcast oc" : "异号闸 OC=OFF · 比 nc（oc 仅对照）",
-    "open→close",
-  ];
-  if (ncEnter != null) gateBits.push(`|nowcast|≥${ncEnter}% 才拦异号`);
-  if (yt != null && oc != null && ncEnter != null) {
-    const signConflict =
-      Math.abs(Number(yt)) >= 1e-9 &&
-      Math.abs(oc) >= ncEnter &&
-      (Number(yt) > 0) !== (oc > 0);
-    if (signConflict && ocGate) {
-      gateBits.push(`y_τ 与 ${compareLabel} 异号 → 跳过`);
-    } else if (signConflict && !ocGate) {
-      gateBits.push(`y_τ 与 nowcast oc 异号（闸仍看 nc）`);
-    } else if (ocGate) {
-      gateBits.push(`y_τ 与 ${compareLabel} 同号或未达门槛`);
-    }
-  }
-  return (
-    `<div class="score-layer score-layer-nowcast is-on">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">nowcast oc · open→close</div>` +
-    `<div class="score-hero-value ${signCls(oc)}">${escapeText(ocTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${escapeText(gateBits.join(" · "))}</div>` +
-    `<div class="score-layer-compose">${rows.join("")}</div>` +
-    `</div>`
-  );
-}
-
 /** fuse / y_oo_fuse 与表列同源：τc 为几何剩余；缺 y_spec 才整段减 rot。 */
 export function formatBlendScoreSection(raw) {
   const blend = resolveFuseScore(raw);
@@ -1513,49 +1328,27 @@ export function formatBlendScoreSection(raw) {
 
 export function formatWeightSourceNote(raw) {
   const src = String((raw && raw.weight_source) || "").trim();
-  const mode = String((raw && raw.cluster_mode) || "").trim();
   const rms = String((raw && raw.return_model_source) || "").trim();
-  const label = raw && raw.cluster_label ? String(raw.cluster_label) : "";
-  const ver =
-    raw && raw.cluster_version != null && raw.cluster_version !== ""
-      ? `v${raw.cluster_version}`
-      : "";
   let line = "全局收益分模型";
   if (rms === "oos_failed_global" || rms === "oos_failed_heuristic") {
     line =
       rms === "oos_failed_heuristic"
-        ? "OOS 失败组 · 启发式分已清理 · 组 ŷ% 仅对照"
-        : "OOS 失败组 · 主分=全局 ŷ% · 组 ŷ% 仅对照";
-    if (label) line += ` · ${label}`;
-    if (ver) line += ` · ${ver}`;
-    const sc =
-      raw && raw.score_cluster != null && Number.isFinite(Number(raw.score_cluster))
-        ? Number(raw.score_cluster)
-        : null;
+        ? "OOS 失败组 · 启发式分已清理"
+        : "OOS 失败组 · 主分=全局 ŷ%";
     const sg =
       raw && raw.score_global != null && Number.isFinite(Number(raw.score_global))
         ? Number(raw.score_global)
         : null;
-    const bitsDual = [];
-    if (sc != null) bitsDual.push(`组ŷ ${fmtSigned(sc, 3)}%`);
-    if (sg != null) bitsDual.push(`全局ŷ ${fmtSigned(sg, 3)}%`);
-    if (bitsDual.length) line += ` · ${bitsDual.join(" · ")}`;
+    if (sg != null) line += ` · 全局ŷ ${fmtSigned(sg, 3)}%`;
   } else if (rms === "cluster_group_beta" || src.startsWith("cluster:")) {
-    line = `分组因子系数 · ${
-      src.startsWith("cluster:") ? src.slice("cluster:".length) : label || "组"
-    }`;
-    if (ver) line += ` · ${ver}`;
+    line = "分组因子系数";
   } else if (src === "oos_failed_degrade") {
     line = "OOS 失败组 · 主分已降级";
-    if (label) line += `（${label}）`;
   } else if (src === "global+shadow") {
     line = "主分=全局 ŷ · 影子已算组 ŷ";
-    if (label) line += `（${label}）`;
   } else if (src === "global_fallback") {
     line = "全局收益分回退（未映射到分组）";
-  } else if (rms === "global" || src === "global" || !src) {
-    if (mode && mode !== "off") line = `全局收益分 · mode=${mode}`;
-  } else if (src) {
+  } else if (src && src !== "global") {
     line = src;
   }
 
@@ -2273,14 +2066,7 @@ export function formatFactorWeightsSection(raw, opts = {}) {
   );
   if (!keys.length) return "";
   const src = String((raw && raw.weight_source) || "").trim();
-  const label = raw && raw.cluster_label ? String(raw.cluster_label) : "";
-  const title = useCoefs
-    ? src.startsWith("cluster:") || label
-      ? `因子系数 β${label ? ` · ${label}` : ""}`
-      : "因子系数 β"
-    : src.startsWith("cluster:") || label
-      ? `展示权(|β|)${label ? ` · ${label}` : ""}`
-      : "展示权(|β|)";
+  const title = useCoefs ? "因子系数 β" : "展示权(|β|)";
   const rows = keys
     .slice(0, 12)
     .map((k) => {
@@ -2624,8 +2410,6 @@ export function createScoreTooltipController() {
     if (!cell) return "fuse";
     const tip = String(cell.dataset.scoreTip || "").trim().toLowerCase();
     if (tip === "eod") return "eod";
-    if (tip === "nowcast" || tip === "nc") return "nowcast";
-    if (tip === "nc_oc") return "nc_oc";
     if (tip === "tau" || tip === "rem") return "tau";
     if (tip === "r" || tip === "τc" || tip === "tc" || tip === "pc") return "r";
     if (tip === "t30" || tip === "τ30" || tip === "yt30") return "t30";
@@ -2641,7 +2425,6 @@ export function createScoreTooltipController() {
     if (tip === "oo_rank" || tip === "rank" || tip === "y_oo_rank") return "oo_rank";
     if (tip === "tc_rank" || tip === "y_tc_rank" || tip === "τc_rank") return "tc_rank";
     if (cell.classList.contains("watching-score-eod")) return "eod";
-    if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     if (cell.classList.contains("watching-score-tau")) return "tau";
     if (
       cell.classList.contains("paper-t0-col-yt30")
@@ -2724,58 +2507,6 @@ export function createScoreTooltipController() {
         formatFactorWeightsSection(raw),
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
-      return;
-    }
-
-    if (tipMode === "nowcast") {
-      let ncHtml = formatNowcastSection(raw);
-      if (!ncHtml) {
-        ncHtml =
-          `<div class="score-layer score-layer-nowcast is-shadow">` +
-          `<div class="score-layer-head">` +
-          `<div class="score-hero-label">nowcast（nc）</div>` +
-          `<div class="score-hero-value score-flat">—</div>` +
-          `</div>` +
-          `<div class="score-hero-hint">${escapeText(Y_NC_TITLE)}</div>` +
-          `</div>`;
-      }
-      const html = `<div class="score-detail">${ncHtml}</div>`;
-      hide();
-      const tip = document.createElement("div");
-      tip.className = "score-tooltip";
-      tip.innerHTML = html;
-      tip.setAttribute("role", "tooltip");
-      document.body.appendChild(tip);
-      tipEl = tip;
-      tipAnchor = cell;
-      place(tip, cell);
-      attachDismiss(tip, cell, { sticky });
-      return;
-    }
-
-    if (tipMode === "nc_oc") {
-      let ncOcHtml = formatNcOcSection(raw);
-      if (!ncOcHtml) {
-        ncOcHtml =
-          `<div class="score-layer score-layer-nowcast is-shadow">` +
-          `<div class="score-layer-head">` +
-          `<div class="score-hero-label">nowcast oc</div>` +
-          `<div class="score-hero-value score-flat">—</div>` +
-          `</div>` +
-          `<div class="score-hero-hint">${escapeText(Y_NC_OC_TITLE)} · 需 nc 与 gap</div>` +
-          `</div>`;
-      }
-      const html = `<div class="score-detail">${ncOcHtml}</div>`;
-      hide();
-      const tip = document.createElement("div");
-      tip.className = "score-tooltip";
-      tip.innerHTML = html;
-      tip.setAttribute("role", "tooltip");
-      document.body.appendChild(tip);
-      tipEl = tip;
-      tipAnchor = cell;
-      place(tip, cell);
-      attachDismiss(tip, cell, { sticky });
       return;
     }
 
@@ -2910,8 +2641,6 @@ export function createScoreTooltipController() {
     const rejectReason = raw.reject_reason || "";
     const hasWeight = !!(
       raw.weight_source ||
-      raw.cluster_mode ||
-      raw.cluster_label ||
       raw.return_model_source
     );
     const hasTerms =
@@ -2966,7 +2695,7 @@ export function createScoreTooltipController() {
       return;
 
     let html = '<div class="score-detail">';
-    // fuse 列：先融合组成，再拆 ŷ_τc / ŷ_oo（g 只在 eod 列，nowcast 只在 nowcast 列）
+    // fuse 列：先融合组成，再拆 ŷ_τc / ŷ_oo（g 只在 eod 列）
     html += formatBlendScoreSection(raw);
     html += formatRemScoreSection(raw);
     html += formatFormulaTermsSection(raw, { key: "tau" });

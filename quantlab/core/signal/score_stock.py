@@ -248,9 +248,7 @@ def score_stock(
     ``defer_cs_predict=True``：只落特征（sub_scores / features_tau / co），
     不写 ŷ_oo / ŷ_τ / ŷ_co；供 watching_matrix 先抽特征再 batch 截面 predict。
 
-    （分组已退役）主分仅用全局 return_model ŷ；输出 ``cluster_mode`` 固定
-    ``"off"``，``score_cluster`` / ``cluster_label`` / ``cluster_id`` /
-    ``cluster_version`` 恒为 None。
+    （分组已退役）主分仅用全局 return_model ŷ。
     """
     defer_predict = bool(defer_cs_predict)
     if horizon_days is None:
@@ -610,11 +608,7 @@ def score_stock(
     if fund_depth.get("fundamentals_depth") in ("hk_shallow", "us_shallow"):
         formula_warnings.append(f"fundamentals_depth:{fund_depth.get('fundamentals_depth')}")
 
-    mode = "off"
     weight_source = "global"
-    cluster_label = None
-    cluster_id = None
-    cluster_version = None
 
     # 仅全局 return_model：保证 ŷ β 所需 sub_scores 齐套（FS0）
     required_factor_keys: list = []
@@ -702,7 +696,6 @@ def score_stock(
 
     predicted_score = None
     score_global = None
-    score_cluster = None  # cluster scoring retired; key kept null for callers
     return_model_source = None
     active_model = None
     group_model = None
@@ -730,7 +723,6 @@ def score_stock(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         predicted_score = None
         score_global = None
-        score_cluster = None
         return_model_source = None
         active_model = None
         group_model = None
@@ -739,7 +731,6 @@ def score_stock(
 
     # 主分 score：始终全局 ŷ% 量纲（规则 heuristic 总分已清理）
     primary_score = predicted_score
-    delta = None
 
     return_model_payload = None
     score_formula = ""
@@ -880,14 +871,8 @@ def score_stock(
         "adjust_policy": DEFAULT_ADJUST_POLICY,
         "quality_gate": False,
         "horizon_days": horizon_days,
-        "cluster_mode": mode,
         "weight_source": weight_source,
-        "cluster_label": cluster_label,
-        "cluster_id": cluster_id,
-        "cluster_version": cluster_version,
         "score_global": score_global,
-        "score_cluster": score_cluster,
-        "delta_vs_global": delta,
         "return_model": return_model_payload,
         "factor_coefficients": factor_coefficients,
         "score_formula": score_formula or None,
@@ -1328,5 +1313,4 @@ def score_stock(
         "data_source": data_source,
         "data_quality": quality,
         "quality_gate": quality_gated,
-        "cluster_mode": mode,
     }

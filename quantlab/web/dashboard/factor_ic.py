@@ -141,7 +141,6 @@ def _ic_series_from_cluster_cache(lookback: int) -> Optional[Dict[str, Any]]:
     return {
         "ok": True,
         "source": "cluster_cs_ic",
-        "cluster_label": best.get("label"),
         "member_count": best.get("member_count"),
         "horizon_days": panel.get("horizon_days"),
         "factors": factors,

@@ -160,46 +160,24 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         # P2a：对 predicted 排序键做行业残差（默认关；影子/人审后开）
         "yhat_residual": False,
     },
-    # cluster_scoring：分组 live 已退役（cluster_retired）。保留键以免旧配置/UI 崩；
-    # 生产须 mode=off · enabled=false · universe_fit_tiers=A+B+C。勿再开 active/shadow。
-    "cluster_scoring": {
-        "enabled": False,
-        "mode": "off",
-        "top_n_per_group": 10,
+    # 建簿约束：可成交过滤 · 行业名额 · τ 闸 defer（与纸面 risk 同配置源）
+    "book_constraints": {
+        "enabled": True,
+        "filter_untradeable": True,
+        "enforce_sector_cap": True,
+        "tau_fail_mode": "defer",
         "max_names": 40,
-        "min_coverage": 0.5,
-        "max_age_days": 14,
-        "refit_max_age_days": 14,
-        "auto_demote_on_stale": False,
-        # FH0/Y1.4：OOS 失败率超过该值则禁止 active（默认 0.5）
-        "max_oos_fail_rate": 0.5,
-        # Y1.3：滚动 ŷ IC 低于此值时禁止 active（FS1 默认硬拦；force+审计可豁免）
-        "min_yhat_rolling_ic": 0.0,
-        "block_active_on_yhat_ic": True,
-        # Y3.3：行业 map 覆盖率低于此值 → 启用警告
-        "min_sector_map_coverage": 0.5,
-        # B1：相对 active 默认软提示（True）；False=恢复「不得差于 active」硬闸
-        "promote_allow_worse_oos_than_active": True,
-        # 观察池宇宙按拟合档过滤新开/加；分组下线后默认 A+B+C 不限制
-        "universe_fit_tiers": ["A", "B", "C"],
-        # 建簿约束：可成交过滤 · 行业名额 · τ 闸 defer（与纸面 risk 同配置源）
-        "book_constraints": {
-            "enabled": True,
-            "filter_untradeable": True,
-            "enforce_sector_cap": True,
-            "tau_fail_mode": "defer",
-        },
-        # 双轨调仓：predicted ŷ% + heuristic 0–100；按 OOS 是否通过分流
-        "rebalance_tracks": {
-            "enabled": True,
-            "oos_fail_policy": "exclude",
-            "predicted_buy_floor": None,
-            "predicted_hold_floor": None,
-            "heuristic_buy_floor": 55.0,
-            "heuristic_hold_floor": 45.0,
-            "heuristic_sleeve_max": 8,
-            "heuristic_apply_tau_gate": False,
-        },
+    },
+    # 双轨调仓：predicted ŷ% + heuristic 0–100；按 OOS 是否通过分流
+    "rebalance_tracks": {
+        "enabled": True,
+        "oos_fail_policy": "exclude",
+        "predicted_buy_floor": None,
+        "predicted_hold_floor": None,
+        "heuristic_buy_floor": 55.0,
+        "heuristic_hold_floor": 45.0,
+        "heuristic_sleeve_max": 8,
+        "heuristic_apply_tau_gate": False,
     },
     # P1：T 日事件先验（缺口/板块开盘）· 不进 ŷ，只影响调仓动作
     "event_prior": {
@@ -272,6 +250,32 @@ def _validate_scoring_floors(cfg: Dict[str, Any]) -> List[str]:
     return warnings
 
 
+def _migrate_legacy_signal_config(user: Dict[str, Any]) -> Dict[str, Any]:
+    """把旧配置里退役分组命名空间下的在用子块迁到顶层。
+
+    book_constraints / rebalance_tracks / max_names 仍被建簿与双轨调仓使用，
+    旧配置里它们挂在退役分组命名空间下；顶层已显式配置时以顶层为准。
+    迁移后不再保留该命名空间。
+    """
+    out = dict(user or {})
+    cs = out.get("cluster_scoring")
+    if not isinstance(cs, dict):
+        return out
+    cs = dict(cs)
+    for key in ("book_constraints", "rebalance_tracks"):
+        legacy = cs.pop(key, None)
+        if isinstance(legacy, dict):
+            top = out.get(key)
+            out[key] = {**legacy, **(top if isinstance(top, dict) else {})}
+    legacy_max = cs.pop("max_names", None)
+    if legacy_max is not None:
+        bc = dict(out.get("book_constraints") or {})
+        bc.setdefault("max_names", legacy_max)
+        out["book_constraints"] = bc
+    out.pop("cluster_scoring", None)
+    return out
+
+
 def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
     global _cached
     if _cached is not None and not reload:
@@ -282,13 +286,7 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:
             user = json.load(f)
-        cfg = _deep_merge(cfg, user)
-    # 遗留开关已退役：OOS 失败组固定剔主分/主簿
-    cs = cfg.get("cluster_scoring")
-    if isinstance(cs, dict) and "exclude_oos_failed_groups" in cs:
-        cs = dict(cs)
-        cs.pop("exclude_oos_failed_groups", None)
-        cfg["cluster_scoring"] = cs
+        cfg = _deep_merge(cfg, _migrate_legacy_signal_config(user))
     floor_warns = _validate_scoring_floors(cfg)
     if floor_warns:
         cfg.setdefault("_config_warnings", [])

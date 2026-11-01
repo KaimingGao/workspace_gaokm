@@ -115,7 +115,6 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     patch = _dual_patch_from_config(config)
     y_spec_patch = patch.pop("y_spec", None)
     y_state_patch = patch.pop("y_state", None)
-    patch.pop("nowcast", None)
     patch.pop("enable_cascade_shadow", None)
     patch.pop("enable_tau_shadow_book", None)
     patch_has_w_oo = "w_oo" in patch
@@ -188,7 +187,6 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     raw["enable_minute_tau"] = bool(raw.get("enable_minute_tau", False))
     raw.pop("minute_tau_hm", None)
     raw.pop("minute_tau_grid", None)
-    raw.pop("nowcast", None)
     raw.pop("enable_cascade_shadow", None)
     raw.pop("enable_tau_shadow_book", None)
     w_mode = str(raw.get("w_mode") or "fixed").strip().lower()
@@ -254,7 +252,6 @@ def resolve_predicted_score_oo(item: Optional[dict]) -> Optional[float]:
     if is_heuristic_score_scale(item):
         return _yhat_pct_field(
             item,
-            "score_cluster",
             "score_global",
             "y_oo",
             "predicted_score_oo",
@@ -443,9 +440,7 @@ def align_trade_score_fields(
             hs_f = None
         if hs_f is not None:
             item["heuristic_score"] = hs_f
-        yhat = item.get("score_cluster")
-        if yhat is None:
-            yhat = item.get("score_global")
+        yhat = item.get("score_global")
         try:
             yhat_f = float(yhat) if yhat is not None and yhat != "" else None
         except (TypeError, ValueError):

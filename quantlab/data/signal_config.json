@@ -177,40 +177,22 @@
     "size_buckets": 3,
     "yhat_residual": false
   },
-  "cluster_scoring": {
-    "mode": "off",
-    "enabled": false,
-    "top_n_per_group": 10,
-    "max_names": 40,
-    "max_age_days": 14,
-    "refit_max_age_days": 14,
-    "auto_demote_on_stale": false,
-    "max_oos_fail_rate": 0.5,
-    "min_yhat_rolling_ic": 0.0,
-    "block_active_on_yhat_ic": false,
-    "min_sector_map_coverage": 0.5,
-    "promote_allow_worse_oos_than_active": true,
-    "rebalance_tracks": {
-      "enabled": true,
-      "oos_fail_policy": "exclude",
-      "predicted_buy_floor": null,
-      "predicted_hold_floor": null,
-      "heuristic_buy_floor": 55.0,
-      "heuristic_hold_floor": 45.0,
-      "heuristic_sleeve_max": 0,
-      "heuristic_apply_tau_gate": false
-    },
-    "book_constraints": {
-      "enabled": true,
-      "filter_untradeable": true,
-      "enforce_sector_cap": true,
-      "tau_fail_mode": "defer"
-    },
-    "universe_fit_tiers": [
-      "A",
-      "B",
-      "C"
-    ]
+  "book_constraints": {
+    "enabled": true,
+    "filter_untradeable": true,
+    "enforce_sector_cap": true,
+    "tau_fail_mode": "defer",
+    "max_names": 40
+  },
+  "rebalance_tracks": {
+    "enabled": true,
+    "oos_fail_policy": "exclude",
+    "predicted_buy_floor": null,
+    "predicted_hold_floor": null,
+    "heuristic_buy_floor": 55.0,
+    "heuristic_hold_floor": 45.0,
+    "heuristic_sleeve_max": 0,
+    "heuristic_apply_tau_gate": false
   },
   "event_prior": {
     "mode": "gate",

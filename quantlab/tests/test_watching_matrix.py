@@ -137,7 +137,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertNotIn("ranking", report[0])
         self.assertNotIn("y_fuse", report[0])
         self.assertIsNone(report[0].get("y_trade"))
-        self.assertIsNone(report[0].get("y_nowcast"))
+        self.assertNotIn("y_nowcast", report[0])
         self.assertIsNone(report[0].get("y_tau"))
         self.assertIsNotNone(report[0].get("y_oo_fuse_score"))
         self.assertEqual(paper.get("cash"), 1_000_000)
@@ -480,7 +480,6 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             predicted_score_blend=5.0,
             y_path=3.0,
             predicted_score_path=3.0,
-            y_nowcast=2.0,
         )
         ok_item = _signal_item(stock_code="600000", y_path=2.5, predicted_score_path=2.5)
         with patch(
@@ -520,7 +519,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             "holdings": [],
             "rules": {"max_positions": 5, "position_pct": 0.2},
         }
-        item = _signal_item(y_trade=3.0, predicted_score_blend=3.0, y_nowcast=2.0)
+        item = _signal_item(y_trade=3.0, predicted_score_blend=3.0)
         with patch(
             "core.paper.rebalance.watching_matrix._watching_codes",
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),

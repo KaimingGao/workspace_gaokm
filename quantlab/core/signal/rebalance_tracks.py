@@ -37,10 +37,9 @@ def get_rebalance_tracks_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         cfg = config if isinstance(config, dict) else load_signal_config()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         cfg = config if isinstance(config, dict) else {}
-    cs = (cfg or {}).get("cluster_scoring") if isinstance(cfg, dict) else {}
-    if not isinstance(cs, dict):
-        cs = {}
-    raw = cs.get("rebalance_tracks") if isinstance(cs.get("rebalance_tracks"), dict) else {}
+    raw = (cfg or {}).get("rebalance_tracks") if isinstance(cfg, dict) else None
+    if not isinstance(raw, dict):
+        raw = {}
     out = dict(_DEFAULT_TRACKS)
     out.update({k: v for k, v in raw.items() if v is not None or k in raw})
     pol = str(out.get("oos_fail_policy") or POLICY_EXCLUDE).strip().lower()
@@ -103,11 +102,11 @@ def heuristic_score_value(item: Optional[dict]) -> Optional[float]:
 
 
 def table_yhat_score_value(item: Optional[dict]) -> Optional[float]:
-    """表列 / 簿 ``score`` 应用的 ŷ%：组 → 全局 → predicted → score。"""
+    """表列 / 簿 ``score`` 应用的 ŷ%：全局 → predicted → score。"""
     if not isinstance(item, dict):
         return None
     scale = _infer_item_scale(item)
-    for key in ("score_cluster", "score_global", "predicted_score_blend", "predicted_score"):
+    for key in ("score_global", "predicted_score_blend", "predicted_score"):
         v = item.get(key)
         if v is None or v == "":
             continue

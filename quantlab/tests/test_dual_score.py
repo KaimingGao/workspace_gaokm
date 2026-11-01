@@ -777,21 +777,21 @@ class TestDualScoreFields(unittest.TestCase):
         )
         self.assertAlmostEqual(float(out), 0.8, places=5)
 
-    def test_heuristic_keeps_cluster_yhat_for_rank(self):
+    def test_heuristic_uses_global_yhat_for_rank(self):
         from core.signal.dual_score import align_trade_score_fields, rank_key_for_item
 
         item = {
             "score_scale": "heuristic_0_100",
             "return_model_source": "oos_failed_heuristic",
             "heuristic_score": 62.0,
-            "score_cluster": 0.85,
             "score_global": 0.40,
         }
         align_trade_score_fields(item, write_score=True)
-        self.assertAlmostEqual(float(item["predicted_score_eod"]), 0.85, places=5)
-        self.assertAlmostEqual(float(rank_key_for_item(item)), 0.85, places=5)
+        self.assertAlmostEqual(float(item["predicted_score_eod"]), 0.40, places=5)
+        self.assertAlmostEqual(float(rank_key_for_item(item)), 0.40, places=5)
         self.assertEqual(item.get("score_scale"), "heuristic_0_100")
         self.assertAlmostEqual(float(item["heuristic_score"]), 62.0, places=5)
+        self.assertNotIn("score_cluster", item)
 
     def test_buy_gate_allows_missing_when_disabled(self):
         from core.signal.dual_score import buy_passes_tau_gate
@@ -1075,9 +1075,6 @@ class TestDualScoreFields(unittest.TestCase):
             "predicted_score_eod": 1.2,
             "predicted_score_tau": 0.8,
             "predicted_score_blend": 1.2,
-            "predicted_score_nowcast": 1.2,
-            "nowcast_as_of": "eod",
-            "nowcast_K": None,
             "gap_pct": 2.0,
             "dual_score_window": "eod_next",
             "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},

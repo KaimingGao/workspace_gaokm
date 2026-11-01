@@ -78,17 +78,7 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
     }
 
     cfg = _read_json(signal_path) or {}
-    cs = cfg.get("cluster_scoring") or {}
-    mode = str(cs.get("mode") or "off").strip().lower() or "off"
     scoring = cfg.get("scoring") or {}
-    paper = _read_json(PAPER_PATH) or {}
-    paper_rules = paper.get("rules") if isinstance(paper.get("rules"), dict) else {}
-
-    alerts: List[str] = []
-    if bool(cs.get("enabled")) or mode not in ("", "off"):
-        alerts.append("signal_config.cluster_scoring 仍非 off（分组已退役，可清理）")
-    if bool(paper_rules.get("cluster_mode")):
-        alerts.append("paper.rules.cluster_mode 已无调仓含义（分组已退役）")
 
     return {
         "success": True,
@@ -96,17 +86,14 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
         "built_at": now_iso_utc(),
         "note": str(note or "")[:300],
         "cluster_retired": True,
-        "cluster_scoring_mode": mode,
-        "cluster_scoring_enabled": bool(cs.get("enabled")),
         "scoring": {
             "rank_mode": scoring.get("rank_mode") or "predicted_score",
             "min_predicted_score": scoring.get("min_predicted_score"),
             "min_hold_predicted_score": scoring.get("min_hold_predicted_score"),
         },
-        "paper_cluster_mode": bool(paper_rules.get("cluster_mode")),
         "artifacts": artifacts,
-        "alerts": alerts,
-        "consistent": not alerts,
+        "alerts": [],
+        "consistent": True,
         "live_dir": LIVE_DIR,
     }
 

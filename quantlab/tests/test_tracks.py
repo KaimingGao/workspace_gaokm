@@ -898,8 +898,24 @@ class TestV1FitGapAndCosts(unittest.TestCase):
 
         out = optimize_weights(
             [
-                {"stock_code": "600036", "score": 70, "sector": "银行"},
-                {"stock_code": "601318", "score": 66, "sector": "保险"},
+                {
+                    "stock_code": "600036",
+                    "score": 70,
+                    "sector": "银行",
+                    "predicted_score": 1.0,
+                    "predicted_score_eod_rem": 1.0,
+                    "predicted_score_tau": 0.8,
+                    "predicted_score_blend": 0.9,
+                },
+                {
+                    "stock_code": "601318",
+                    "score": 66,
+                    "sector": "保险",
+                    "predicted_score": 0.8,
+                    "predicted_score_eod_rem": 0.8,
+                    "predicted_score_tau": 0.6,
+                    "predicted_score_blend": 0.7,
+                },
             ],
             weight_mode="qp_lite",
             apply_market_vol=False,
@@ -1359,16 +1375,11 @@ class TestY3StanceThresholds(unittest.TestCase):
         self.assertNotEqual(th["wait"], 55.0)
 
 class TestY1ClusterRetired(unittest.TestCase):
-    def test_cluster_scoring_defaults_retired_off(self):
-        """get_cluster_scoring_cfg 已删；DEFAULTS 仍保留 cluster_scoring=off。"""
+    def test_cluster_scoring_retired_from_defaults(self):
+        """分组打分已退役：默认配置不再含 cluster_scoring 命名空间。"""
         from core.signal.config import DEFAULT_SIGNAL_CONFIG
 
-        cs = DEFAULT_SIGNAL_CONFIG.get("cluster_scoring") or {}
-        self.assertFalse(bool(cs.get("enabled")))
-        self.assertEqual(str(cs.get("mode") or "").lower(), "off")
-        self.assertEqual(cs.get("max_oos_fail_rate"), 0.5)
-        self.assertIn("min_yhat_rolling_ic", cs)
-        self.assertIn("min_sector_map_coverage", cs)
+        self.assertNotIn("cluster_scoring", DEFAULT_SIGNAL_CONFIG)
 
 
 # --- from test_pro_core_track.py ---

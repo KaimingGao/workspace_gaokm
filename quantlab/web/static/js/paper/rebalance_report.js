@@ -788,11 +788,7 @@ function renderRebalanceReport(
       features_co: r.features_co || r.features_on || null,
       y_spec_co: r.y_spec_co || r.y_spec_on || null,
       weight_source: r.weight_source,
-      cluster_label: r.cluster_label,
-      cluster_mode: r.cluster_mode,
-      cluster_version: r.cluster_version,
       score_global: r.score_global,
-      score_cluster: r.score_cluster,
       return_model_source: r.return_model_source,
       factor_coefficients: r.factor_coefficients || {},
       reasons: r.reasons || [],
@@ -812,7 +808,6 @@ function renderRebalanceReport(
       !r.score_formula &&
       !r.hard_reject &&
       !r.weight_source &&
-      !r.cluster_label &&
       !r.return_model_source &&
       !(r.factor_coefficients && Object.keys(r.factor_coefficients || {}).length) &&
       !(r.score_formula_terms && (r.score_formula_terms.terms || []).length)

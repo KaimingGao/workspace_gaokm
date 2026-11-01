@@ -230,8 +230,8 @@ flowchart TB
 |------|------|----------|
 | **Facade（门面）** | 一领域封成单一稳定入口，业务只认门面 | DS `core/data/facade.py` · SS `core/signal_service.py` · BS `core/backtest_service.py` |
 | **Port & Adapter + DI**（六边形） | `core/ports/` 定出站契约，`adapters/` 供实现；`bind.py` 显式注入，测试可 `set_adapter` 替换 | `core/ports/{market,registry,signal}.py` · `core/data/ports.py` · `adapters/bind.py` |
-| **Strategy + Specification** | 同接口多实现；用 `StrategySpec` 数据对象描述策略（draft→staging→active），改策略即改数据 | `core/strategy.py` · `core/signal/factors/score_*.py` · `meta/spec.py` |
-| **Skill 体系：Protocol + Registry + Template Method** | `Protocol` 定接口 · 注册表按名查找 · 基类固定流程子类覆写 `handle`；替代继承树 | `agent/contracts.py` · `agent/registry.py` · `agent/skills/base.py` |
+| **Strategy + Specification** | 同接口多实现；用 `StrategySpec` 数据对象描述策略（draft→staging→active），改策略即改数据 | `core/strategy.py` · `core/signal/factors/score_*.py` |
+| **Skill 体系：Protocol + Registry + Template Method** | `Protocol` 定接口 · 注册表按名查找 · 基类固定流程子类覆写 `handle`；替代继承树 | `agent/contracts.py` · `agent/registry.py` |
 | **Repository（仓储）** | 封装持久化，领域层不直连介质 | `core/store.py`（JSON）· `core/store_bars_sqlite.py`（WAL）· `core/paper/ledger.py` |
 | **Observer / Event** | 解耦状态变更与通知，多订阅者 | WebSocket `/ws/live` · Job 进度事件 · LLM 流式回调 |
 
@@ -385,7 +385,7 @@ Skill / Service / 研究 CLI
 强化学习视角（Policy/Reward ↔ 策略/风控；**未实现**在线 RL）见 **[component/rl.md · RL 视角](component/rl.md#强化学习视角rl-layer)**。  
 舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[component/risk.md · 舆情层](component/risk.md#舆情与另类数据sentiment-altdata)**。
 
-**P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。历史 P 总览见 [quant-summary.md](archive/quant-summary.md)。
+**P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
@@ -990,7 +990,7 @@ SKILL_SPECS = (
 | `quant` | `web/routers/quant.py` | `/api/quant` 研究台主路由 |
 | `quant_config` | `web/routers/quant_config.py` | 信号/策略配置 |
 | `quant_research` | `web/routers/quant_research.py` | 因子/OLS/截面研究 |
-| `quant_cluster` | `web/routers/quant_cluster.py` | 日/分钟仓刷新（bars/minute）；分组 OLS/live 已退役（410） |
+| `quant_cluster` | `web/routers/quant_cluster.py` | 日/分钟仓刷新（bars/minute） |
 | `quant_backtest` | `web/routers/quant_backtest.py` | TopK/组合回测 |
 | `quant_dashboard` | `web/routers/quant_dashboard.py` | 研究台仪表盘 |
 | `evals` | `web/routers/evals.py` | Golden eval |
@@ -1038,7 +1038,6 @@ SKILL_SPECS = (
 | Compare | `quant_service_ops.py` · `build_portfolio_bridge` | ③ 持仓联动摘要 |
 | Factors | `quant_service_factors.py` | 因子面板、IC、OLS、截面 |
 | Ops | `quant_service_ops.py` | 日报、导出、解读、watching 运维 |
-| Portfolio | `quant_service_portfolio.py` | 组合回溯兼容入口 |
 | 报告 | `quant_report_export.py` · `quant_report_index.py` · `quant_interpret.py` | Markdown/HTML 导出、归档、LLM 解读 |
 | 桥接 | `portfolio_quant_bridge.py` · `signal_config_preview.py` · `action_map.py` | 持仓↔量化联动、配置 diff 预览、动作映射 |
 
@@ -1122,7 +1121,7 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 | `config.py` | `signal_config` 读写 |
 | `gate.py` | ŷ 生产门禁、scale 推断 |
 | `cross_section_batch.py` | 截面批量 |
-| `dual_score/` | 双层 ŷ：融合、解析、τ/co 头、簿字段、影子簿、人审配置 |
+| `dual_score/` | 双层 ŷ：融合、解析、τ/co 头、簿字段、人审配置 |
 
 #### 回测 `core/backtest/`
 
@@ -1215,7 +1214,7 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 | 目录 | 组成 | 功能 |
 |------|------|------|
 | `quant/services/` | 见 §3.2 | Application Service |
-| `quant/research/` | `factor_ols.py` · `bars_*` / `minute_*` · `portfolio_*.py` · `t0_backtest.py` | 因子 OLS、观察池日/分钟仓、组合对照（**分组 OLS 已退役**） |
+| `quant/research/` | `factor_ols.py` · `bars_*` / `minute_*` · `portfolio_*.py` · `t0_backtest.py` | 因子 OLS、观察池日/分钟仓、组合对照 |
 | `quant/ops/` | daily preset、健康检查 | 运维脚本支撑 |
 | `quant/skill/` | `engine.py` + handler | Agent `quant(task=...)` 引擎 |
 

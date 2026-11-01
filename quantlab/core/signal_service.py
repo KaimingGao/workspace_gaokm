@@ -59,11 +59,10 @@ def rank_cluster_pools(
 def pack_holding_row(
     item: Optional[dict],
     *,
-    cluster_mode: Any = None,
     rank_cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
     return get_default_signal_service().pack_holding_row(
-        item, cluster_mode=cluster_mode, rank_cfg=rank_cfg
+        item, rank_cfg=rank_cfg
     )
 
 

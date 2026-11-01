@@ -147,7 +147,6 @@ Ready 默认要求最近 40 个交易日无缺，且 `fetched_at` 未超过 24 �
 | `data/store/fundamentals/` | 财务快照 | 24 小时 |
 | `data/store/news/` | 舆情标题 | 6 小时；和快照分目录，避免互相覆盖 |
 | 现价内存 | 腾讯 quote | 60 秒；过期上限 30 分钟 |
-| 研究面板 | （已退役） | collect / 训练只写读 L1 Feature Lake；指纹见 `panel_fingerprint` |
 | 调仓打分 | `replay_score_cache` | 按开盘日输入指纹；只缓存 09:30 的打分，其它成交时刻命中后仍重算 |
 
 日线主键是 `(code, date, adjust_policy, market)`。写入是按日覆盖，不整段删除；这次没带到的日期留在库里，超过 1200 根再从最早的日期裁掉。

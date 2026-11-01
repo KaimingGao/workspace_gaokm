@@ -224,14 +224,8 @@ def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = 
         "volume_ratio": None,
         "pe": None,
         "pb": None,
-        # 与交易执行持仓分同源：score_stock 读 cluster_scoring
-        "cluster_mode": None,
         "weight_source": None,
-        "cluster_label": None,
-        "cluster_version": None,
         "score_global": None,
-        "score_cluster": None,
-        "delta_vs_global": None,
         "heuristic_score": None,
         "score_scale": None,
         "min_score": None,
@@ -382,14 +376,10 @@ def _sanitize_heuristic_yhat_fields(out: Dict[str, Any], item: Optional[dict] = 
             hs = cand
     if hs is not None:
         out["heuristic_score"] = hs
-    # 组/全局 ŷ 对照 → 表列 score + EOD/blend（与 align heuristic 分支一致）
-    if out.get("score_cluster") is None:
-        out["score_cluster"] = _f(src.get("score_cluster"))
+    # 全局 ŷ 对照 → 表列 score + EOD/blend（与 align heuristic 分支一致）
     if out.get("score_global") is None:
         out["score_global"] = _f(src.get("score_global"))
-    yhat = out.get("score_cluster")
-    if yhat is None:
-        yhat = out.get("score_global")
+    yhat = out.get("score_global")
     yhat_f = _f(yhat)
     if yhat_f is not None and abs(yhat_f) > 20:
         yhat_f = None
@@ -751,7 +741,7 @@ def _insight_one(
     try:
         from core.signal.service import get_default_signal_service
 
-        # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
+        # 持仓表列分同源
         result = get_default_signal_service().score_one(
             code,
             horizon_days=_scoring_horizon_days(),
@@ -786,10 +776,8 @@ def _insight_one(
         if out["score"] is None:
             out["score"] = _f(item.get("predicted_score_blend"))
         if out["score"] is None:
-            # 兼容：主分为空时回退组 ŷ / predicted（避免观察表全「—」）
+            # 兼容：主分为空时回退 predicted（避免观察表全「—」）
             out["score"] = _f(item.get("predicted_score"))
-        if out["score"] is None:
-            out["score"] = _f(item.get("score_cluster"))
         out["predicted_score"] = _f(result.predicted_score)
         if out["predicted_score"] is None:
             out["predicted_score"] = _f(item.get("predicted_score"))
@@ -802,13 +790,8 @@ def _insight_one(
         out["production_ok"] = bool(result.production_ok)
         if result.gate_reason:
             out["gate_reason"] = result.gate_reason
-        out["cluster_mode"] = item.get("cluster_mode") or scored.get("cluster_mode")
         out["weight_source"] = item.get("weight_source")
-        out["cluster_label"] = item.get("cluster_label")
-        out["cluster_version"] = item.get("cluster_version")
         out["score_global"] = _f(item.get("score_global"))
-        out["score_cluster"] = _f(item.get("score_cluster"))
-        out["delta_vs_global"] = _f(item.get("delta_vs_global"))
         out["return_model_source"] = item.get("return_model_source")
         out["score_scale"] = item.get("score_scale") or result.scale
         out["heuristic_score"] = _f(item.get("heuristic_score"))

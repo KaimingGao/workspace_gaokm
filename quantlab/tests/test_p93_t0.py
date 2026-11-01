@@ -50,8 +50,6 @@ def _scores_flat():
     return {
         "y_tau": 0.0,
         "y_trade": 0.0,
-        "y_nowcast": 0.0,
-        "nowcast_vs": "open",
         "y_path": 0.05,
     }
 
@@ -986,7 +984,6 @@ class TestT0Core(unittest.TestCase):
                 "y_tau": 0.35,
                 "y_trade": 0.4,
                 "y_on": 0.2,
-                "y_nowcast": None,
                 "y_check": None,
                 "eod_trust": None,
             }
@@ -2429,7 +2426,6 @@ class TestDualYDirection(unittest.TestCase):
                 "predicted_score_blend": 1.31,
                 "predicted_score_tau": 0.16,
                 "predicted_score_on": 0.75,
-                "predicted_score_nowcast": 2.75,
             }
         )
         self.assertAlmostEqual(sc["y_eod"], 3.29, places=4)
@@ -2446,7 +2442,6 @@ class TestDualYDirection(unittest.TestCase):
             "y_tau": -0.3,
             "y_trade": 0.8,
             "y_on": 0.5,
-            "y_nowcast": 1.0,
         }
         out = attach_day_scores({"skipped": True, "reason": "横盘"}, snap)
         self.assertTrue(out["skipped"])
@@ -3068,7 +3063,6 @@ class TestDualYDirection(unittest.TestCase):
                 "y_tau": 0.4 if (kw.get("pool_gaps") and len(kw.get("pool_gaps") or []) >= 2) else None,
                 "y_trade": 0.5,
                 "y_on": 0.1,
-                "y_nowcast": None,
                 "y_check": "ok",
                 "eod_trust": 1.0,
                 "_score_source": "compute",
@@ -3091,7 +3085,6 @@ class TestDualYDirection(unittest.TestCase):
             "y_tau": None,
             "y_trade": None,
             "y_on": None,
-            "y_nowcast": None,
             "y_check": None,
             "eod_trust": None,
         }
@@ -3133,7 +3126,6 @@ class TestDualYDirection(unittest.TestCase):
                 "y_tau": 0.8,
                 "y_trade": 0.4,
                 "y_on": 0.1,
-                "y_nowcast": None,
                 "y_check": "ok",
                 "eod_trust": 1.0,
                 "_score_source": "compute",
@@ -3281,18 +3273,17 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(acc["y_tau_enter"], 0.0)
 
     def test_nowcast_gate_is_retired(self):
-        """Kalman / y_nc 不再写入新分。"""
+        """Kalman / y_nc 不再写入新分；nowcast 字段已删。"""
         from core.t0.score_policy import scores_from_item
 
         scores = scores_from_item(
             {
                 "y_eod": 0.08,
                 "y_tau": 0.12,
-                "predicted_score_nowcast": -0.40,
                 "gap_pct": -6.23,
             }
         )
-        self.assertAlmostEqual(float(scores.get("y_nowcast")), -0.40, places=2)
+        self.assertNotIn("y_nowcast", scores)
         self.assertIsNone(scores.get("y_nc"))
         self.assertIsNone(scores.get("y_nc_oc"))
 
@@ -4183,7 +4174,7 @@ class TestT0Viz(unittest.TestCase):
         )
         self.assertEqual(
             classify_t0_skip_reason(
-                "dual_y：y_τ=0.450% 与 y_nowcast=-0.300% 异号跳过"
+                "dual_y：y_τ=0.450% 与 y_path=-0.300% 异号跳过"
             ),
             "other",
         )
@@ -5645,7 +5636,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
         self.assertTrue(_dual_y_threshold_skip("dual_y：y_path=10.000%≤15.0% 未过门槛"))
         self.assertTrue(_dual_y_threshold_skip("dual_y：|y_path|=1.1<30.0 横盘跳过"))
         self.assertTrue(_dual_y_threshold_skip("dual_y：|y_trade|=0.041%<0.1% 未过入场"))
-        self.assertTrue(_dual_y_threshold_skip("dual_y：y_τ=0.45% 与 y_nowcast=-0.3% 异号跳过"))
+        self.assertTrue(_dual_y_threshold_skip("dual_y：y_τ=0.45% 与 y_path=-0.3% 异号跳过"))
         self.assertFalse(_retryable_skip("stance=avoid 跳过做T"))
 
         # 旧版 dual_y 软锁（无 score_locked）可解锁一次重评

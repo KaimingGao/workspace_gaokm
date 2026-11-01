@@ -182,7 +182,7 @@ export const SKIP_CAT_TIP = {
   y_trade_weak:
     "历史口径：|ŷ_trade| 未过入场，融合分太弱不开仓。v6 选腿已下线该闸。",
   trade_tau_sign:
-    "强 trade/nc 与 τ 异号，或历史 τ↔nowcast 异号闸跳过。",
+    "强 trade/nc 与 τ 异号，或历史 τ↔nc 异号闸跳过。",
   conflict:
     "旧版 eod↔τ / y_check 冲突闸（已下线），历史回放可能仍出现。",
   amplitude:
@@ -459,7 +459,7 @@ function slotGateYTau(r, dayHost) {
   return slotYNum(cb, ["y_tau"]);
 }
 
-/** 本轮 ŷ_τ30/45/60/75/90 / ŷ_τw / ŷ_trade / ŷ_nowcast：扫描行优先，再槽位快照；不回退日级分。 */
+/** 本轮 ŷ_τ30/45/60/75/90 / ŷ_τw / ŷ_trade：扫描行优先，再槽位快照；不回退日级分。 */
 function slotYhat(r, dayHost) {
   const hm = String((r && r.hm) || "").trim().slice(0, 5);
   const scan = hm && dayHost ? scanRowForHm(dayHost, hm) : null;
@@ -500,9 +500,6 @@ function slotYhat(r, dayHost) {
   let yTrade =
     slotYNum(sc, ["y_trade", "predicted_score_blend", "decision_score"]) ??
     slotYNum(ft, ["y_trade"]);
-  let yNowcast =
-    slotYNum(sc, ["y_nowcast", "y_nc", "predicted_score_nowcast"]) ??
-    slotYNum(ft, ["y_nowcast", "y_nc"]);
   const reason = String((r && r.reason) || "");
   if (yTau == null) {
     const m = reason.match(/y_τ\s*=\s*(-?[\d.]+)/);
@@ -530,7 +527,6 @@ function slotYhat(r, dayHost) {
     y_t90: yT90,
     y_tw: storedTw ?? blendYtw(yT30, yT60, yT90, yT45, yT75, true),
     y_trade: yTrade,
-    y_nowcast: yNowcast,
   };
 }
 
@@ -712,12 +708,6 @@ function slotDayRow(d, r, rows) {
     if (slotScores.residual == null) slotScores.residual = rHat;
   }
   if (yhat.y_trade != null && slotScores.y_trade == null) slotScores.y_trade = yhat.y_trade;
-  if (yhat.y_nowcast != null) {
-    if (slotScores.y_nowcast == null) slotScores.y_nowcast = yhat.y_nowcast;
-    if (slotScores.predicted_score_nowcast == null) {
-      slotScores.predicted_score_nowcast = yhat.y_nowcast;
-    }
-  }
   return {
     ...d,
     t0_slot: sid,
@@ -782,7 +772,6 @@ function slotDayRow(d, r, rows) {
     residual: rHat,
     remaining_oc: rHat,
     y_trade: yhat.y_trade,
-    y_nowcast: yhat.y_nowcast,
     scores: slotScores,
     direction_features: slotFeats,
     trades: filled ? (slotTrades.length ? slotTrades : d.trades) : [],
@@ -892,7 +881,6 @@ function pickScoreNum(d, key) {
     d?.t0_slot_focus &&
     (key === "y_tau" ||
       key === "y_trade" ||
-      key === "y_nowcast" ||
       key === "predicted_score_r" ||
       key === "y_r_hat" ||
       key === "y_r" ||
@@ -2661,7 +2649,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       liveTips?.score_formula_terms_on ||
       liveTips?.formula_terms_on ||
       null,
-    cluster_label: scores.cluster_label || live?.cluster_label || "",
     weight_source: scores.weight_source || live?.weight_source || "",
     direction_reason: d.direction_reason || "",
     direction_score: d.direction_score,

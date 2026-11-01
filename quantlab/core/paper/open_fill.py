@@ -31,7 +31,6 @@ DEFAULT_TIMING: Dict[str, Any] = {
 
 _RESEARCH_KEYS = (
     "last_optimize",
-    "last_cluster_pool",
     "last_north_star",
     "signal_log",
 )

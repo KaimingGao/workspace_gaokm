@@ -83,7 +83,7 @@ def _heuristic_from_row(row: Optional[dict]) -> Optional[float]:
 
 
 def _yhat_from_row(row: Optional[dict]) -> Optional[float]:
-    """从簿/成交行取 ŷ%（优先 predicted / blend / cluster，拒收 heuristic）。"""
+    """从簿/成交行取 ŷ%（优先 predicted / blend，拒收 heuristic）。"""
     if not isinstance(row, dict):
         return None
     looks_like_legacy_heuristic_score = _legacy_heuristic_checker()
@@ -92,7 +92,6 @@ def _yhat_from_row(row: Optional[dict]) -> Optional[float]:
         "predicted_score_blend",
         "predicted_score",
         "predicted_score_eod",
-        "score_cluster",
         "score",
         "yhat",
     ):

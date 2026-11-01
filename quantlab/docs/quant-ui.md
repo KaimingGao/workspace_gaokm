@@ -4,7 +4,7 @@
 
 **产品定位**：本 Web 是 **策略验证台**——观察名单、回测、**模拟账户**交易与 AI 命令；**现行不涉及真实账户交易**，一切买卖只记在本地纸面账本（假钱），用于策略与流程验证。待验证成熟后再评估实盘（N6）。边界见 [design-spine · 产品边界](design-spine.md#产品边界现行)。
 
-**壳层**：侧栏六业务模块 + 顶栏「AI 助手」（⌘K）见 [quant-ui-refactor-plan.md](archive/quant-ui-refactor-plan.md)（壳层简史，已归档）。首页 `/` 重定向数据中心；**全屏对话 `/chat` 已下线**（→ `/watching`）。默认浅色，A 股红涨绿跌。升级落地进度见 **[§ 升级方案](#web-ui-全面优化升级方案)**。
+**壳层**：侧栏六业务模块 + 顶栏「AI 助手」（⌘K）见 quant-ui-refactor-plan（壳层简史）。首页 `/` 重定向数据中心；**全屏对话 `/chat` 302 → `/watching`**。默认浅色，A 股红涨绿跌。升级落地进度见 **[§ 升级方案](#web-ui-全面优化升级方案)**。
 
 图表：观察 / 仪表盘 / 模拟 / 回溯已接 **Lightweight Charts**（十字线 · MA）。回溯报告含成本假设与归因表；页内「回测怎么跑」折叠说明 lookback/horizon 日程；可跑 **参数扫描热力** 并 **导出研究包 / 回测报告**。策略页有策略卡晋升与因子字典；选股因子系数在研究枢纽。全局 **⌘⇧K** 命令面板跳转。顶栏 **告警铃**（可授权浏览器通知）。交易执行有 **产品北极星 KPI**（滚动夏普/卡玛 · 回测–纸面 Corr/TE · TTM；`GET /api/north-star`）；平台负责 **纸面日更调度**。LLM 模型在 **AI 抽屉**（⌘K）。接口失败时顶栏下有红色降级条。仪表盘净值可走 **React 岛**（CDN 失败自动回退）；观察页可 **表|图分屏**；全站 **`/ws/live` 实况** 推送纸面指标并轻量刷净值；顶栏可切 **紧凑密度**；观察/模拟主表为 **虚拟滚动**（预算 500 行；岛失败时回退分页）。
 
@@ -61,9 +61,9 @@ AI 只解读，**不得改写** `score` / `stance_label`。
 | `/strategy` **策略中心** | 先验旁路 | M prior（上）· Regime 只读（下）· 因子字典 |
 | `/quant` **研究枢纽** | 因子 · 运维 · 日报 | 侧栏主入口；不自动写生产配置 |
 | `/platform` **平台** | 调度 · 日更 | 纸面日更调度 · last-run / 告警 |
-| AI 抽屉（⌘K） | 解读 · 问答 · 命令 · LLM 模型 | 顶栏「AI 助手」；模型名在抽屉「设置」；Esc / ⌘K / 点遮罩关闭；**全屏 `/chat` 已下线** |
+| AI 抽屉（⌘K） | 解读 · 问答 · 命令 · LLM 模型 | 顶栏「AI 助手」；模型名在抽屉「设置」；Esc / ⌘K / 点遮罩关闭；**全屏 `/chat` 302 → `/watching`** |
 
-独立工具页：左侧六模块导航；顶栏为环境/时钟/状态。AI 入口仅为抽屉，不再提供全屏对话页。
+独立工具页：左侧六模块导航；顶栏为环境/时钟/状态。AI 入口仅为抽屉。
 
 ---
 
@@ -235,7 +235,7 @@ python3 run_web.py
 
 ## Web UI · 相对专业量化终端的差距分析
 
-[← 文档索引](README.md) · 说明书 [§ 说明书](#量化研究台说明书web) · 契约 [§ UI 契约](#web-ui-标准研究台) · **升级方案 [§ 升级方案](#web-ui-全面优化升级方案)** · 壳层简史 [quant-ui-refactor-plan.md](archive/quant-ui-refactor-plan.md) · 产品主轴 [design-spine.md](design-spine.md)
+[← 文档索引](README.md) · 说明书 [§ 说明书](#量化研究台说明书web) · 契约 [§ UI 契约](#web-ui-标准研究台) · **升级方案 [§ 升级方案](#web-ui-全面优化升级方案)** · 壳层简史 quant-ui-refactor-plan · 产品主轴 [design-spine.md](design-spine.md)
 
 **评估日期**：2026-07-29  
 **对照对象**：专业量化交易系统 Web UI / 功能设计（研究→回测→实盘 OMS→风控全链路；高密度、低延迟、可停靠分屏）  
@@ -259,9 +259,9 @@ python3 run_web.py
 1. **边界外** — 按 OMS/盘口打分接近 0 是预期，不是实现疏漏。  
 2. **边界内** — 研究/模拟 Web 体验仍偏「工具页」，离聚宽 / QuantConnect 级研究台还有一档。
 
-一句话：IA（观察 / 模拟 / 回溯 / 策略）与纸面闭环已成形；**W0–W5** + **R0–R5** 已补图表、报告、风控、虚拟表、北极星。路径内下一程见 **[strategy-validation-upgrade.md](archive/strategy-validation-upgrade.md)**（V0–V5）。OMS/盘口保持空白直至成熟闸门。
+一句话：IA（观察 / 模拟 / 回溯 / 策略）与纸面闭环已成形；**W0–W5** + **R0–R5** 已补图表、报告、风控、虚拟表、北极星。路径内下一程见 **strategy-validation-upgrade**（V0–V5）。OMS/盘口保持空白直至成熟闸门。
 
-> **进度注（2026-07-29）**：落地以 [§ 升级方案](#web-ui-全面优化升级方案)（W0–W5 ✅）、[upgrade-refactor-plan.md](archive/upgrade-refactor-plan.md)（R0–R5 ✅）与 **[strategy-validation-upgrade.md](archive/strategy-validation-upgrade.md)**（V0–V5 待开工）为准。
+> **进度注（2026-07-29）**：落地以 [§ 升级方案](#web-ui-全面优化升级方案)（W0–W5 ✅）、upgrade-refactor-plan（R0–R5 ✅）与 **strategy-validation-upgrade**（V0–V5 待开工）为准。
 
 ---
 
@@ -271,7 +271,6 @@ python3 run_web.py
 
 | 专业能力 | 本地现状 | 判断 |
 |----------|----------|------|
-| Monaco / 在线写策略 | **已退役**；选股权走研究枢纽 β，限额走策略卡 promote | 不再列为缺口 |
 | Notebook 探索 | 无 | 缺口 |
 | 数据字典 / API 插入 | 无；AI 旁路代偿一部分 | 缺口 |
 | 因子 / 策略规格 | `/strategy` 只读 IC/权重 + promote | 有骨架，偏「看卡」不是「写策略」 |
@@ -282,7 +281,6 @@ python3 run_web.py
 
 | 专业能力 | 本地现状 | 判断 |
 |----------|----------|------|
-| 参数网格 / 热力图 | 产品面已下线（lookback×K 属旧 TopK 探针） | 不提供 |
 | 年化 / 夏普 / 回撤 / 决策收益 / 准确率 / 命中率 | `/replay` 六卡 + 曲线（决策收益=今开→明开等权，开加记涨跌、清减记相反数；准确率=今开→明开，开涨/清跌；命中率=看多买加持仓中今开→明开为正） | 有 |
 | Brinson / 因子归因 | 简化选股超额，非完整 Brinson | **深度不够** |
 | Tick / 分钟逐笔回放 | 无；日线级成交样本 | 缺口（日线产品可接受） |
@@ -356,7 +354,7 @@ TWAP / VWAP、订单状态机、多账户矩阵、盘口下单 —— **全部�
 | Dockview / Golden Layout | 无 | 无专业分屏 |
 | Web Worker | 基本无 | 重计算易卡主线程 |
 
-[quant-ui-refactor-plan P2](archive/quant-ui-refactor-plan.md) 已写明 Monaco · Lightweight Charts · 可选 React · 实盘（边界外）——团队已知，尚未切刀。
+quant-ui-refactor-plan P2 已写明 Monaco · Lightweight Charts · 可选 React · 实盘（边界外）——团队已知，尚未切刀。
 
 ---
 
@@ -387,7 +385,7 @@ OMS / EMS、Algo 单、Level2、多账户、网关延迟监控、真·实盘—�
 5. **实时与降级** — ✅ Banner + `/ws/live` + last-known  
 6. **表格与 `paper.js` 工程债** — ✅ 虚拟表预算 + holdings 岛拆分（R5）  
 7. **回测–纸面拟合** — ✅ Corr/TE 北极星（R0）；样本持续积累  
-8. **Quant IDE** — Monaco 规格草稿 **已退役**；Notebook 仍缺；选股权 → 研究枢纽  
+8. **Quant IDE** — Notebook 仍缺；选股权 → 研究枢纽  
 
 ### C. 体验取向差异（改前先改契约）
 
@@ -402,11 +400,11 @@ OMS 级盘口布局仍禁止。
 |------|------|
 | [design-spine.md](design-spine.md) | [产品北极星](design-spine.md#产品北极星) · 能力地图与后端达成度 |
 | [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角) | N1–N6 / P0–P3 工程节奏 |
-| [upgrade-refactor-plan.md](archive/upgrade-refactor-plan.md) | **已收口** R0–R5 |
-| [strategy-validation-upgrade.md](archive/strategy-validation-upgrade.md) | **现行下一程** V0–V5（策略验证成熟度 · N6 闸门） |
+| upgrade-refactor-plan | **已收口** R0–R5 |
+| strategy-validation-upgrade | **现行下一程** V0–V5（策略验证成熟度 · N6 闸门） |
 | [§ UI 契约](#web-ui-标准研究台) | **现行**改 UI 契约（密度克制、白名单） |
 | [§ 升级方案](#web-ui-全面优化升级方案) | **怎么补**：W0–W4 工作流、验收、闸门、下一刀 |
-| [quant-ui-refactor-plan.md](archive/quant-ui-refactor-plan.md) | 壳 / AI 已完成简史 |
+| quant-ui-refactor-plan | 壳 / AI 已完成简史 |
 | **本文** | 相对专业交易终端的 **UI/功能差距与分级** |
 | [architecture.md · 框架梳理](architecture.md) | 代码分层与工程债（非 UI 竞品对照） |
 
@@ -449,9 +447,9 @@ OMS 级盘口布局仍禁止。
 
 ### 进阶（有路由，不进左侧主链）
 
-`/paper` · evals · usage。**AI 不占侧栏格**。全屏对话 `/chat` **已下线**（302 → `/watching`）；命令入口仅 AI 抽屉。
+`/paper` · evals · usage。**AI 不占侧栏格**。全屏对话 `/chat` 302 → `/watching`；命令入口仅 AI 抽屉。
 
-见 壳层简史（见 archive）。
+见 壳层简史。
 
 ### 落点裁决（加功能前先答）
 
@@ -485,13 +483,13 @@ OMS 级盘口布局仍禁止。
 | | 约定 |
 |--|------|
 | **唯一任务** | 管理已有仓位（**唯一**买卖/调仓/做 T **落账**入口；规则在 `/replay` 改） |
-| **主区必有** | 净值摘要 · 持仓表（含情绪徽章 · **oo_rank** / **τc_rank**，1=当日观察池最高）· 操作区（交易/资金/策略调仓预演；预演表按勾选分档、今日盯盘明细只列清/开/加、交易记录与评分明细同列）· 分组打分状态 · 调仓时可显「五问」ops |
+| **主区必有** | 净值摘要 · 持仓表（含情绪徽章 · **oo_rank** / **τc_rank**，1=当日观察池最高）· 操作区（交易/资金/策略调仓预演；预演表按勾选分档、今日盯盘明细只列清/开/加、交易记录与评分明细同列）· 调仓时可显「五问」ops |
 | **自动** | 加载后刷持仓并显示加载状态；情绪同源 `/api/watching/sentiment`（不写 config） |
 | **按需** | 持仓区「刷新」重拉账户 / 评分 / 情绪 |
 | **按需折叠** | 做 T · 对比 |
 | **禁止** | 开新仓（引导去观察）；把研究枢纽整页塞进来；在研究页写 paper |
 | **忙/空** | 调仓/日更按钮 busy；空持仓 →「去观察建仓」 |
-| **决策归属** | 手动加减仓 = 人；`mode=active` 时手动预演吃 live 组权簿；否则策略规则调仓 |
+| **决策归属** | 手动加减仓 = 人；预演吃 live ŷ 与策略规则调仓 |
 
 ### `/replay` 历史回测
 
@@ -513,22 +511,22 @@ OMS 级盘口布局仍禁止。
 
 #### 配置写盘边界
 
-- **选股真源**：研究枢纽 `ReturnScoreModel` / 分组 β → live promote
-- **策略限额**：StrategySpec / `paper.rules`（本页不再提供空壳 promote 按钮）
-- **ŷ 门槛**：观察页直方图只读 `scoring` 滞回；**不得**在策略页改 weights。y_trade / y_oo_fuse 权重与做 T 覆盖在 `/replay`（`POST /api/paper/execution`）；`/follow` 不展示调仓/做 T 规则条，做 T 只预演/落账
+- **选股真源**：研究枢纽 `ReturnScoreModel` → live promote
+- **策略限额**：StrategySpec / `paper.rules`
+- **ŷ 门槛**：观察页直方图只读 `scoring` 滞回；**不得**在策略页改 weights。y_oo_fuse 权重与做 T 覆盖在 `/replay`（`POST /api/paper/execution`）；`/follow` 不展示调仓/做 T 规则条，做 T 只预演/落账
 
 ### `/quant` 研究枢纽
 
 | | 约定 |
 |--|------|
 | **唯一任务** | 拟合各 ŷ 头（研究/执行套）→ **观察池分档** → **人审落地**（不写全局 weights） |
-| **主区必有** | **概览五卡**（观察池 · 分钟 Ready · ŷ_oo · ŷ_τ · 落地）· **观察池上限**（默认 300、最大 1000，写入 `watching.json`）· **观察池分档**（Holdout 前 60 日四头猜涨 lift：oo / oo_rank / τc / τc_rank · 说涨精度 − 上涨日比例 · 有样本头等权 · 至少 8 次说涨 · 工具栏只留 A/B 数量，默认 100/300 · 表内四头 lift + Lift_Score · 档标题 Holdout Lift_Score 均值 · KPI 平均收益率看 Holdout 等权买持 · 定档模型不覆盖研究套）· **落地条**（对照/启用 · 关闭/回滚/导出/刷新簿/建议重估）· 探针 · 各头卡头 **Holdout**（1～60，默认 20）· ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank / ŷ_τc_rank 卡头 **日截面 Z**（默认开；关 → 训练窗全局 μ/σ）· **ŷ_oo_rank**（同窗 LambdaRank+Ridge；Holdout 前训 + NDCG@K 选 backend；卡头「训练档」标签在外、下拉多选 A/B/C，不选=整池，截面 z 仍整池；启用研究→研究槽、启用执行=晋级；成交 oo_rank=1..n；过入场后作买序；入场闸在 `/replay` fuse「入场」卡，过强档改看「强档」卡 rank，与 τc_rank 共用）· **ŷ_τc_rank**（同协议，标签 price[τ]→close[T]；训练档同 oo_rank；启用只落盘；不进 fuse、不改买序；与 oo_rank 共用名次闸，过强档改看强档 rank）· **ŷ_τ30…90**（同壳 `P(窗收益>0) · 双 backend`；同窗 Ridge+LightGBM；Holdout AUC 择优，打平→Ridge；因子表 aria Ridge β + LightGBM gain；独立 tree 卡已移除；调仓 ŷ_oo/τc/co_tree 已下线） |
+| **主区必有** | **概览五卡**（观察池 · 分钟 Ready · ŷ_oo · ŷ_τ · 落地）· **观察池上限**（默认 300、最大 1000，写入 `watching.json`）· **观察池分档**（Holdout 前 60 日四头猜涨 lift：oo / oo_rank / τc / τc_rank · 说涨精度 − 上涨日比例 · 有样本头等权 · 至少 8 次说涨 · 工具栏只留 A/B 数量，默认 100/300 · 表内四头 lift + Lift_Score · 档标题 Holdout Lift_Score 均值 · KPI 平均收益率看 Holdout 等权买持 · 定档模型不覆盖研究套）· **落地条**（对照/启用 · 关闭/回滚/导出/刷新簿/建议重估）· 探针 · 各头卡头 **Holdout**（1～60，默认 20）· ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank / ŷ_τc_rank 卡头 **日截面 Z**（默认开；关 → 训练窗全局 μ/σ）· **ŷ_oo_rank**（同窗 LambdaRank+Ridge；Holdout 前训 + NDCG@K 选 backend；卡头「训练档」标签在外、下拉多选 A/B/C，不选=整池，截面 z 仍整池；启用研究→研究槽、启用执行=晋级；成交 oo_rank=1..n；过入场后作买序；入场闸在 `/replay` fuse「入场」卡，过强档改看「强档」卡 rank，与 τc_rank 共用）· **ŷ_τc_rank**（同协议，标签 price[τ]→close[T]；训练档同 oo_rank；启用只落盘；不进 fuse、不改买序；与 oo_rank 共用名次闸，过强档改看强档 rank）· **ŷ_τ30…90**（同壳 `P(窗收益>0) · 双 backend`；同窗 Ridge+LightGBM；Holdout AUC 择优，打平→Ridge；因子表 aria Ridge β + LightGBM gain） |
 | **数据仓** | **日线**「物化特征（L1/L2）」= open；**分钟线** Ready 后「物化特征（L1/L2）」= τ 网格（均手动）；两轨共享 Job 槽（open↔τ 冲突时 UI **等待对侧结束再自动重试**）；前端等待物化 open/τ **90/150min**、5m 强更软上限 **120min**（心跳新鲜则继续到 8h；心跳停了才刷新接管，勿 FAIL）；**刷新后**物化条恢复 running / 7 天内 done / 6h 内 failed（终态带上次更新时刻）；按钮/状态条 **蓝**=增量·强更、**黄**=物化；ŷ_τc / ŷ_τ* **前缀滑条分组**（默认 09:30 / 11:00） |
 | **按需折叠** | 全局对照（阈值/横截面）· 日报 |
-| **禁止** | 把各组权合并进 `signal_config.weights`；跨组统一总榜冒充分组；无健康门禁直接 active；**本页写 paper / 调仓** |
-| **落地两步** | ① `cluster-live/apply`（shadow）→ ② `mode=active`（门禁）；调仓经侧栏 `/follow` |
-| **日更** | `mode=active` 时组 ŷ 进观察池打分；调仓走 `/follow` 观察池 `rank_lots`；映射陈旧可自动降级 |
-| **决策归属** | 晋升/启用 = 研究页人审；**买卖/调仓确认 = 交易执行页**；自动 OLS 重聚类不自动 promote |
+| **禁止** | 把研究槽权合并进 `signal_config.weights`；无健康门禁直接启用执行；**本页写 paper / 调仓** |
+| **落地两步** | 调仓经侧栏 `/follow` |
+| **日更** | 调仓走 `/follow` 观察池 `rank_lots`；映射陈旧可自动降级 |
+| **决策归属** | 晋升/启用 = 研究页人审；**买卖/调仓确认 = 交易执行页** |
 
 ### `/platform` 平台
 
@@ -589,11 +587,11 @@ OMS 级盘口布局仍禁止。
 
 **一句话**：仪表盘是「纸面组合的报告封面」——报告块序 + 收益/质量分色 + 条带结构，把决策前置信息聚到一屏。
 
-### `/chat` 全屏对话（已下线）
+### `/chat` 全屏对话（302 → `/watching`）
 
 | | 约定 |
 |--|------|
-| **状态** | 路由 **302 → `/watching`**；入口已从侧栏/命令面板/AI 抽屉移除 |
+| **状态** | 路由 **302 → `/watching`** |
 | **替代** | 顶栏「AI 助手」· ⌘K 抽屉；`POST /api/chat` 仍服务抽屉 |
 | **禁止** | AI 改写 `score` / `stance_label` |
 
@@ -602,7 +600,7 @@ OMS 级盘口布局仍禁止。
 | 页 | 唯一任务 |
 |----|----------|
 | `/paper` | 假账初始化 / 高级配置（日常用模拟） |
-| `/quant` | 研究枢纽（分组·落地向导·探针·全局对照/日报） |
+| `/quant` | 研究枢纽（落地向导·探针·全局对照/日报） |
 | 平台面板 | 审计 · 调度（LLM 在 AI 抽屉） |
 
 ---
@@ -736,7 +734,7 @@ Cursor 规则：`.cursor/rules/quantlab-web-ui.mdc`（改 static 时自动带上
 
 ## Web UI · 全面优化升级方案
 
-[← 文档索引](README.md) · 差距依据 [§ 差距分析](#web-ui-相对专业量化终端的差距分析) · 现行契约 [§ UI 契约](#web-ui-标准研究台) · 壳层简史 壳层简史（archive） · 产品主轴 [design-spine.md](design-spine.md) · 工程节奏 [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角)
+[← 文档索引](README.md) · 差距依据 [§ 差距分析](#web-ui-相对专业量化终端的差距分析) · 现行契约 [§ UI 契约](#web-ui-标准研究台) · 壳层简史 · 产品主轴 [design-spine.md](design-spine.md) · 工程节奏 [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角)
 
 **规划日期**：2026-07-29  
 **目标画像**：把 Web 从「能用的研究工具页」升到 **聚宽 / QuantConnect 级研究台 + 纸面准实盘工作台**——不是 Bloomberg / 迅投级交易终端。  
@@ -923,7 +921,7 @@ W0 工程债与降级 UX  ──►  W1 图表+回测报告  ──►  W2 质�
 | ID | 项 | 说明 | 验收 |
 |----|----|------|------|
 | W3.1 | **Command Palette**（⌘⇧K 或扩 ⌘K 模式） | 跳转六模块 + 常用命令；与 AI 抽屉模式切换 | 键盘可达各主页 |
-| W3.2 | 策略规格只读「结构化编辑预览」 | ~~Monaco 草稿~~ → **已退役**；限额走策略卡，选股权走研究枢纽 | 不静默写 signal_config |
+| W3.2 | 策略规格只读「结构化编辑预览」 | 限额走策略卡，选股权走研究枢纽 | 不静默写 signal_config |
 | W3.3 | 参数扫描 MVP | Top-K / 窗口网格；结果表 + **热力简图**（可用 ECharts 或 canvas） | 至少 2 维参数；最优标出 |
 | W3.4 | 因子字典侧栏 | 因子名 → 定义（复用 factor-tip 数据）可插入到 AI 提问 | 悬停/点击一致 |
 | W3.5 | Notebook | **不做内嵌 Jupyter**；改为「导出研究包」（参数+结果 JSON）供本地 Notebook | 文档说明工作流 |
@@ -936,7 +934,7 @@ W0 工程债与降级 UX  ──►  W1 图表+回测报告  ──►  W2 质�
 ### 6.3 验收清单（W3 出门）
 
 - [x] 键盘可完成「打开回溯 → 跑网格 → 看热力」  
-- [x] Monaco 规格草稿路径已退役（选股权 → 研究枢纽）  
+- [x] 选股权 → 研究枢纽  
 
 ---
 
@@ -1020,10 +1018,10 @@ UI 阶段可先用现有字段；后端到位后加列，不阻塞 W1/W2 出门�
 |------|------|
 | [§ 差距分析](#web-ui-相对专业量化终端的差距分析) | **为什么缺**（对照专业终端） |
 | **本文** | **怎么补**（阶段、交付、验收、闸门） |
-| 壳层简史（archive） | 壳/AI 已完成简史；指向本文 |
+| 壳层简史 | 壳/AI 已完成简史；指向本文 |
 | [§ UI 契约](#web-ui-标准研究台) | 现行改法契约（W 阶段中增量修改） |
 | [design-spine.md · 路线图](design-spine.md#能力评估与升级规划路线图视角) | 后端 N1–N6 / P0–P3；与本文 §8 咬合 |
-| [upgrade-refactor-plan.md](archive/upgrade-refactor-plan.md) | 路径内下一程 R0–R5（KPI / PIT / 研究吞吐）；UI 跟随后端字段 |
+| upgrade-refactor-plan | 路径内下一程 R0–R5（KPI / PIT / 研究吞吐）；UI 跟随后端字段 |
 | [design-spine.md](design-spine.md) | [产品北极星](design-spine.md#产品北极星)（三项乘积）· 能力地图 |
 
 ---

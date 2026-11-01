@@ -82,8 +82,6 @@ export function yTauMapScoreTip(_mode, _enter = 0) {
   return "旗舰做T：09:30–11:00 每根5m，纯 ŷ_τw 选向（≥入场正T、≤−入场反T）；|ŷ_τw| 过入场用入场金额、过强票用强金额。leg2 无预设目标价（止损/锁赢/追价/收盘）。";
 }
 
-export { nowcastOcPct } from "./fmt.js";
-
 /** 回测窗不进 ExecutionSpec；用 localStorage 跨刷新记住。 */
 const T0_LOOKBACK_KEY = "paper.t0.lookback";
 const T0_LOOKBACK_MIGRATE_KEY = "paper.t0.lookback.migrated_v3";

@@ -51,7 +51,7 @@
 
 - **按 regime 调权重**：震荡市抬高波动因子；趋势市更盯行业暴露  
 - **非线性识别**：风险传导、隐性踩踏（ML 潜力，需数据与验证）  
-- **状态识别**：HMM / 聚类判牛熊高波，再切换限额表  
+- **状态识别**：按 regime / 波动状态判牛熊高波，再切换限额表  
 
 与 Alpha 一样：先有可解释因子与 OOS，再谈自动拟合；**不自动静默改生产限额**（与 `signal_config` 人工合并原则一致）。
 
@@ -150,7 +150,7 @@ Alpha 条目（选股择时）与 Risk 条目分开写，避免「一个大 if�
 | Regime 降分 | `core/signal/regime.py` |
 | hard_reject / invalidation | `core/signal/scorer.py` · `signal_config` |
 | 买卖降档 | `core/stance.py` |
-| 纸面止损与仓位 | `core/paper.py` · `paper.rules` |
+| 纸面止损与仓位 | `core/paper/` · `paper.rules` |
 | 真仓规则建议 | `core/position.py` · `position_rules.json` |
 | 回测回撤等指标 | `core/backtest/`（评估用，非实时风控） |
 | OOS / regime 报告（N4） | `core/backtest/oos_report.py` |

@@ -1158,12 +1158,10 @@ def _rebalance_report_from_legs(
                 "predicted_score_tau",
                 "predicted_score_path",
                 "predicted_score_on",
-                "predicted_score_nowcast",
                 "predicted_score_blend",
                 "y_trade",
                 "y_path",
                 "y_on",
-                "y_nowcast",
                 "y_nc",
                 "y_tau",
                 "y_oo_fuse",
@@ -1173,7 +1171,6 @@ def _rebalance_report_from_legs(
             ):
                 if rank_row.get(k) is None and src.get(k) is not None:
                     rank_row[k] = src.get(k)
-        label = rank_row.get("cluster_label")
         # 字段名与 paper_cycle / 交易执行页 renderRebalanceReport 对齐
         delta = n - o
         if not reason:
@@ -1215,19 +1212,10 @@ def _rebalance_report_from_legs(
             "shares_change": int(delta),
             "shares_before": o,
             "shares_after": n,
-            "cluster_label": label,
             "in_book": code in book_codes,
             "oos_failed": oos_failed,
-            "weight_source": rank_row.get("weight_source")
-            or (
-                f"cluster:{label}"
-                if label and decision != "卖出"
-                else None
-            ),
+            "weight_source": rank_row.get("weight_source"),
             "score_global": rank_row.get("score_global"),
-            "score_cluster": rank_row.get("score_cluster")
-            if rank_row.get("score_cluster") is not None
-            else rank_row.get("score"),
             "below_min_score": below,
             "hard_reject": hard_flag,
             "reject_reason": rank_row.get("reject_reason") or hard_by.get(code),
@@ -1253,8 +1241,6 @@ def _rebalance_report_from_legs(
                 "reasons",
                 "factor_coefficients",
                 "return_model_source",
-                "cluster_mode",
-                "cluster_version",
             ):
                 if src.get(k) is not None and row_out.get(k) is None:
                     row_out[k] = src.get(k)

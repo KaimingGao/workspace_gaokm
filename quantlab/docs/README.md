@@ -1,6 +1,6 @@
 # docs
 
-产品与工程文档。核心文档 + `component/` 组件文档 + `internal/` 内部实现文档 + `archive/` 历史归档。
+产品与工程文档。核心文档 + `component/` 组件文档 + `internal/` 内部实现文档。
 
 - [架构总览 · 子目录索引](architecture.md#子目录-readme-索引)
 
@@ -44,7 +44,3 @@
 | [Live 早开盘今开截面](internal/live-open-pit-rebalance.md) | live 开盘窗误用昨日立方的根因、open-pit 方案、z/耗时/行情频率与验收 |
 | [日线契约修补规划](internal/bars-update-plan.md) | 四处缝的改造顺序：记账、面板指纹、成交额列、前复权重叠日替换 |
 | [AkShare vs Tushare 日线对比](internal/akshare-tushare-daily-compare.md) | 本地日线仓与 Tushare daily 对齐审计（复权标签 / 量单位） |
-
-## 历史归档（archive/）
-
-已收口的 strengthen / upgrade / refactor 计划文档（R0–R5、V 轨、UI 简史等）。

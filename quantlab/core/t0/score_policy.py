@@ -179,7 +179,6 @@ def _slim_formula_terms(
         "y_tau_raw",
         "trade",
         "cascade",
-        "nowcast",
         "eod_remaining",
         "rem_oc",
     ):
@@ -583,7 +582,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         "dual_score_head",
         "predicted_score_eod_rem",
         "return_model_source",
-        "cluster_label",
         "weight_source",
         "y_spec_tau",
         "y_spec_τc",
@@ -592,12 +590,8 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         "y_spec_t30",
         "y_τc_ridge",
         "y_τc_source",
-        "nowcast_K",
-        "nowcast_vs",
-        "nowcast_as_of",
         "predicted_score_eod",
         "predicted_score_tau",
-        "predicted_score_nowcast",
     ):
         v = item.get(k)
         if v is None or v == "" or v == {}:
@@ -625,7 +619,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_on",
         "y_on_path",
         "y_co",
-        "y_nowcast",
         "predicted_score_r",
         "y_r_hat",
         "y_r",
@@ -707,7 +700,6 @@ def attach_day_scores(
             "y_on",
             "y_on_path",
             "y_co",
-            "y_nowcast",
             "predicted_score_r",
             "y_r_hat",
             "y_r",
@@ -804,7 +796,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             "y_tau": None,
             "y_trade": None,
             "y_co": None,
-            "y_nowcast": None,
             "y_check": None,
             "eod_trust": None,
         }
@@ -870,10 +861,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_on_path is None:
         y_on_path = _f(item.get("predicted_score_on_path"))
 
-    y_nowcast = _f(item.get("y_nowcast"))
-    if y_nowcast is None:
-        y_nowcast = _f(item.get("predicted_score_nowcast"))
-
     y_check = item.get("y_check")
     if y_check is not None:
         y_check = str(y_check)
@@ -884,7 +871,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_tau": y_tau,
         "y_trade": y_trade,
         "y_co": y_co,
-        "y_nowcast": y_nowcast,
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
@@ -1031,12 +1017,8 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if gap is not None:
         out["gap_pct"] = gap
     for k in (
-        "nowcast_K",
-        "nowcast_vs",
-        "nowcast_as_of",
         "predicted_score_eod",
         "predicted_score_tau",
-        "predicted_score_nowcast",
         "dual_score_weights",
         "dual_score_window",
         "as_of_tau",
@@ -3212,7 +3194,7 @@ def _enrich_quote_path_price(
 
 
 def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
-    """(tau_doc, cluster_models_by_code, global_return_model)。"""
+    """(tau_doc, return_models_by_code, global_return_model)。"""
     from core.research.holdout import current_scoring_model_role
 
     role = current_scoring_model_role()

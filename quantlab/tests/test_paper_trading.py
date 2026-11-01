@@ -1097,8 +1097,8 @@ class TestOpenDayYhat(unittest.TestCase):
         )
         self.assertAlmostEqual(float(out[0]["y_oo"]), 1.2, places=3)
         self.assertNotIn("y_trade", out[0])
-        self.assertIsNone(out[0].get("y_nowcast"))
-        self.assertIsNone(out[0].get("predicted_score_nowcast"))
+        self.assertNotIn("y_nowcast", out[0])
+        self.assertNotIn("predicted_score_nowcast", out[0])
         self.assertAlmostEqual(float(out[0].get("y_oo")), 1.2, places=3)
 
     def test_attach_open_heads_stamps_pool_cs_and_open_minute_z(self):
@@ -1224,7 +1224,7 @@ class TestOpenDayYhat(unittest.TestCase):
             self.assertIsNotNone(tau.get(key), key)
             self.assertAlmostEqual(float(co.get(key)), float(tau.get(key)), places=6, msg=key)
 
-    def test_attach_open_nowcast_missing_is_none_not_zero(self):
+    def test_attach_open_nowcast_fields_retired(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
 
         entries = [{"stock_code": "600519", "score": 55}]
@@ -1234,10 +1234,8 @@ class TestOpenDayYhat(unittest.TestCase):
             windows={},
             tau_model_doc={},
         )
-        yn = out[0].get("y_nowcast")
-        nc = out[0].get("predicted_score_nowcast")
-        self.assertIsNone(yn)
-        self.assertIsNone(nc)
+        self.assertNotIn("y_nowcast", out[0])
+        self.assertNotIn("predicted_score_nowcast", out[0])
 
     def test_attach_open_yhat_heads_calls_path_attach(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads

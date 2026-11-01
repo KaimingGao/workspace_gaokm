@@ -21,7 +21,6 @@ class TestLiveConfigManifest(unittest.TestCase):
                 json.dump(
                     {
                         "scoring": {"rank_mode": "predicted_score", "min_predicted_score": 1.0},
-                        "cluster_scoring": {"mode": "off", "enabled": False},
                     },
                     f,
                 )
@@ -40,6 +39,8 @@ class TestLiveConfigManifest(unittest.TestCase):
                 self.assertTrue(m.get("cluster_retired"))
                 self.assertEqual(m["alerts"], [])
                 self.assertNotIn("cluster_weights_active", m["artifacts"])
+                self.assertNotIn("cluster_scoring_mode", m)
+                self.assertNotIn("cluster_scoring_enabled", m)
 
     def test_write_manifest(self):
         from core.live_config_manifest import write_live_config_manifest
@@ -49,7 +50,7 @@ class TestLiveConfigManifest(unittest.TestCase):
             os.makedirs(live)
             signal = os.path.join(td, "signal_config.json")
             with open(signal, "w", encoding="utf-8") as f:
-                json.dump({"cluster_scoring": {"mode": "off"}, "scoring": {}}, f)
+                json.dump({"scoring": {}}, f)
             with patch.dict(os.environ, {"QUANTLAB_SIGNAL_CONFIG": signal}), patch(
                 "core.paths.LIVE_DIR", live
             ), patch(

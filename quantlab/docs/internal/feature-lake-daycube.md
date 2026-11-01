@@ -136,7 +136,7 @@ API 要点：
 | `slim` | τ 池字段：`pool_gaps`、`sector_gap_breadth`、`gaps_by_code`、`ref_by_code` 等 |
 | `clock` | `open` / `eod` / `tau_HHMM` |
 
-进程内 `_MEMORY` 缓存当日 cube。open 的 τ 池字段由物化 `attach_slim` 并进已有立方的 `slim`（不改 μ/σ）。组 Cube 时 `enrich_day_matrix_cross_section` 用当日 `gap_pct` / `ret_open_to_tau` 补截面列（`sector_gap_breadth` / `theme_day` / `gap_vs_sector` 等）进 `X_raw` 与 μ/σ，并镜像 `z_τh_*` / `z_τc_*` / `z_co_*`。旧的 `persist_tau_pool_as_cubes` 会用只有 `gap_pct` 的矩阵盖掉特征立方，已删除。列数不足 2 的旧文件在覆盖检查里算缺失。
+进程内 `_MEMORY` 缓存当日 cube。open 的 τ 池字段由物化 `attach_slim` 并进已有立方的 `slim`（不改 μ/σ）。组 Cube 时 `enrich_day_matrix_cross_section` 用当日 `gap_pct` / `ret_open_to_tau` 补截面列（`sector_gap_breadth` / `theme_day` / `gap_vs_sector` 等）进 `X_raw` 与 μ/σ，并镜像 `z_τh_*` / `z_τc_*` / `z_co_*`。列数不足 2 的旧文件在覆盖检查里算缺失。
 
 **宇宙键**：`universe_hash` 用本次请求的完整代码名单（观察池），不用「当天有特征行的子集」。缺行代码不进 `X_raw` / μ/σ。读写不一致时立方 miss。说明与 2026-10-19 的 800/798 分叉见 [daycube-universe-key.md](./daycube-universe-key.md)。
 
@@ -374,12 +374,12 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | 加深 | 尾窗增量（含多日）、OO 单遍 z、L1 prefetch、defer 调仓 | ✅ |
 | 扫尾 | 去掉未用 API / 合并 oo 增量入口 / 静默 except→debug | ✅ |
 | P6 | replay 暖路径：L1 进程缓存按日切片；**须 oo 行**才跳过 score_window；lake co 直用 | ✅ |
-| P7 | 分钟 τ L1 clock 分族（`tc_HHMM`）；命中路径省昨收窗（y_hl 已下线） | ✅ |
+| P7 | 分钟 τ L1 clock 分族（`tc_HHMM`）；命中路径省昨收窗 | ✅ |
 | P8 | replay `fill_clock≠09:30`：预热 `tc_HHMM`，前缀 ŷ_τc 优先 L1 hydrate | ✅ |
-| P9 | panel 退役过渡：miss → L1 同指纹回退 + 回填 panel（oo/τ/co/oo_rank） | ✅ |
+| P9 | panel → L1 过渡：miss → L1 同指纹回退 + 回填 panel（oo/τ/co/oo_rank） | ✅ |
 | P10 | 训练读 `load_training_matrix`：L1 优先（过渡期曾有 panel 二级） | ✅ |
 | P11 | 停 panel 双写；stem meta 进 L1；增量只读 L1 | ✅ |
-| P12 | 抽出 `panel_fingerprint`；panel 磁盘 IO 退役 | ✅ |
+| P12 | 抽出 `panel_fingerprint`；panel 磁盘 IO 停用 | ✅ |
 | 扫尾 | 删除 `panel_disk_cache` / `PANEL_CACHE_DIR`；去掉无用 `head_key` | ✅ |
 | M0 | 独立物化 Job + UI；`REQUIRE_CUBE` | ✅ |
 | M1 | PIT `date|τ`；prefix_light；扫槽 `prefix_snaps_by_hm` | ✅ |
@@ -451,7 +451,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 |------|------|------|
 | L1 存储 | npy/npz 按 code（非先上 Parquet） | 与现 panel 栈一致、迁移成本低；接口已抽象 |
 | 双宇宙 | live=`watching∪holdings`，训练=watching；cube 键含 hash | 避免小池偷用大池 μ/σ，也避免 live 为对齐扫 1000 票 |
-| panel 磁盘退役 | IO stub；指纹独立模块 | 避免双仓；旧 import 不炸 |
+| panel 磁盘 IO | IO stub；指纹独立模块 | 避免双仓；旧 import 不炸 |
 | defer 仅调仓池 | 单票 tip/持仓仍即时 ŷ | 单票无同伴，即时分仍有展示价值 |
 | 增量上限 16 根 | `tail_append_days(max_new=16)` | 覆盖常见 topup；更长缺口走全量更安全 |
 

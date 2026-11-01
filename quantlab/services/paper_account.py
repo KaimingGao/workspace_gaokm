@@ -191,10 +191,8 @@ class PaperAccountMixin:
                 ):
                     enter_pct = round(raw_enter * 100.0, 4)
 
-            def _pack_item(item: dict, *, cluster_mode=None) -> Dict[str, Any]:
-                return svc.pack_holding_row(
-                    item, cluster_mode=cluster_mode, rank_cfg=rank_cfg
-                )
+            def _pack_item(item: dict) -> Dict[str, Any]:
+                return svc.pack_holding_row(item, rank_cfg=rank_cfg)
 
             score_by_code: Dict[str, Any] = {}
             pending_scores: list = []
@@ -226,7 +224,7 @@ class PaperAccountMixin:
                     item = by_item.get(code)
                     if not isinstance(item, dict):
                         continue
-                    pending_scores.append((code, item, item.get("cluster_mode")))
+                    pending_scores.append((code, item))
             else:
                 # 串行 + 仅缓存：避免线程池在 Web 进程里叠请求卡死
                 for code in missing:
@@ -261,18 +259,16 @@ class PaperAccountMixin:
                         )
                     except Exception:  # noqa: BLE001
                         log.debug("align holding score failed %s", code, exc_info=True)
-                    pending_scores.append((code, item, raw.get("cluster_mode")))
+                    pending_scores.append((code, item))
             if pending_scores:
                 try:
                     from core.paper.rebalance.watching_matrix import stamp_live_ranks
 
-                    stamp_live_ranks([it for _c, it, _m in pending_scores])
+                    stamp_live_ranks([it for _c, it in pending_scores])
                 except Exception:  # noqa: BLE001
                     log.debug("stamp holding ranks failed", exc_info=True)
-            for code, item, cluster_mode in pending_scores:
-                score_by_code[code] = _pack_item(
-                    item, cluster_mode=cluster_mode
-                )
+            for code, item in pending_scores:
+                score_by_code[code] = _pack_item(item)
 
             # 持仓经济字段勿被评分包覆盖；其余与数据中心同源透传
             _HOLDING_KEEP = frozenset(

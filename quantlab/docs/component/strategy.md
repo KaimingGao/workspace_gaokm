@@ -16,7 +16,7 @@ Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · *
 **自动做 T 落账（Web Worker）**：Follow 页 Worker = 本 Web 进程内后台线程，**5 分钟轮询 + 5m 盯盘**（与 K 线周期对齐；分钟线 `use_cache` TTL ≈5min，无新 bar 跳过打网；**振幅门禁按 5m 前缀 high/low 滚动**，不足则下根 K 重试；交易时段内触达即落账，不再日终整段回放）；开关写 `data/t0_auto_worker.json`，状态写 `data/t0_intraday_state.json`，并同步 `paper.rules.t0_auto.enabled`。  
 API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/auto`（`last_run` 只读轮询）。  
 手动补跑：Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（不依赖 Worker）。`run_web.py` lifespan 启动时若 worker 开关为 ON 则自动 restore；进程退出 stop。  
-外部 cron 仍可用 `schedule_jobs.run_paper_t0`；`paper_daily` 链式触发需 `t0_auto.enabled` 且 `schedule=with_paper_daily`（UI 已移除 schedule 下拉，默认 `after_close`）。
+外部 cron 仍可用 `schedule_jobs.run_paper_t0`；`paper_daily` 链式触发需 `t0_auto.enabled` 且 `schedule=with_paper_daily`（UI 无 schedule 下拉，默认 `after_close`）。
 
 **自动调仓落账（Web Worker）**：Follow「策略调仓」运行卡与做 T 同结构（进程面板 → 面板外盯盘框）。每个交易日在已保存 **fill_clock～10:00** 现价成交一次（默认 09:30），过点不补跑。开关与 last_run / desk 写 `data/rebalance_auto_worker.json`。  
 API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落账前按持仓占位监视，落账后开/加/减/清/持；上次落账文案 `时间 · 自动|手动 · 卖 n · 买 n`。「手动执行」复现 09:30 开盘预估分（不含开仓/加仓、不写账），不受 fill_clock～10:00 窗口限制。自动 Worker 过点不补跑、不挂开盘单。做 T worker 在调仓未完成且仍在开盘窗内会等待。
@@ -108,7 +108,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
 | `class MyStrategy(StrategyBase)` + `on_bar` / `on_tick` | 无统一 Strategy 基类 |
 | 策略内算指标并下意图 | `score_bars(bars) → score`；`compute_buy_stance(...) → stance_*` |
 | 配置散落代码 | `data/signal_config.json` + `paper.rules` |
-| 执行模块接券商 | 回测引擎 / `core/paper.py` 模拟记账 |
+| 执行模块接券商 | 回测引擎 / `core/paper/` 模拟记账 |
 
 演进若引入 `StrategyBase`，仍应：**数字只来自确定性模块**；LLM 只解读，不改 `score` / `stance_label`。  
 与 RL Policy 的关系见 [rl.md · RL 视角](./rl.md#强化学习视角rl-layer)（当前不训练神经网络策略）。
@@ -214,7 +214,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
 | 配置加载 | `core/signal/config.py` · `data/signal_config.json` |
 | 买卖分档 | `core/stance.py` · `compute_buy_stance` |
 | 历史验证 | `core/backtest/engine.py` · Run Manifest |
-| 纸面规则执行 | `core/paper.py` |
+| 纸面规则执行 | `core/paper/` |
 | 账户风控 | `core/risk/checks.py` |
 | 持仓加减仓规则 | `data/position_rules.json` · `core/position.py`（真仓建议，≠ 纸面策略） |
 

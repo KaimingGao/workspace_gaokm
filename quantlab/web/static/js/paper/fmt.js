@@ -51,16 +51,6 @@ export function compoundPct(a, b) {
   return ((1 + fa / 100) * (1 + fb / 100) - 1) * 100;
 }
 
-/** nowcast oc：nc（昨收口径）→ open→close，与 y_τ 同窗口。 */
-export function nowcastOcPct(yNowcastCc, gapPct) {
-  const cc = Number(yNowcastCc);
-  const gap = Number(gapPct);
-  if (!Number.isFinite(cc) || !Number.isFinite(gap)) return null;
-  const denom = 1 + gap / 100;
-  if (Math.abs(denom) < 1e-9) return null;
-  return ((1 + cc / 100) / denom - 1) * 100;
-}
-
 export function resolveGapPct(it) {
   if (!it || typeof it !== "object") return null;
   // 优先 τ 特征包内缺口（与组成 / 打分瞬间同口径）；勿被 live 顶层 gap 漂移带偏
@@ -262,7 +252,6 @@ export function resolveFuseScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {
     for (const c of [
-      it.score_cluster,
       it.score_global,
       it.predicted_score_blend,
       it.predicted_score_eod_rem,
@@ -314,29 +303,6 @@ export function resolveYTradeScore(it) {
   return null;
 }
 
-/** leftover nowcast 簿字段（仅 fallback；刷簿不再写入）。 */
-function _nowcastFromBookField(it) {
-  const n = _numField(it.predicted_score_nowcast);
-  if (n == null || !_looksLikeYhatPct(n)) return null;
-  return n;
-}
-
-/** nowcast = nc：仅读 leftover，不再 Kalman 重算。 */
-export function resolveNowcastCcScore(it) {
-  if (!it || typeof it !== "object") return null;
-  if (isHeuristicScoreScale(it)) return null;
-  const persisted = _numField(it.y_nc);
-  if (persisted != null && _looksLikeYhatPct(persisted)) return persisted;
-  const yn = _numField(it.y_nowcast ?? it.y_nc);
-  if (yn != null && _looksLikeYhatPct(yn)) return yn;
-  return _nowcastFromBookField(it);
-}
-
-/** @deprecated 与 resolveNowcastCcScore 同源（nowcast = nc leftover）。 */
-export function resolveNowcastScore(it) {
-  return resolveNowcastCcScore(it);
-}
-
 export const Y_OO_TITLE = "ŷ_oo · open[T]→open[T+1]（%）";
 export const Y_EOD_TITLE = Y_OO_TITLE;
 export const Y_OC_TITLE = "ŷ_τc · price(τ)→close[T]（拟合原值；τ 闸同源）";
@@ -352,14 +318,6 @@ export const TAU_REALIZED_TITLE =
   "τc实 · close[T]/price(τ)−1（与 ŷ_τc 同标签）";
 export const Y_CO_TITLE = "ŷ_co · close[T]→open[T+1]（对照；不进 fuse / y_oo_fuse）";
 export const Y_ON_TITLE = Y_CO_TITLE;
-/** leftover nowcast = nc：旧簿对照昨收，不进主决策。 */
-export const Y_NC_TITLE =
-  "nowcast（nc）· leftover 对照昨收，不进决策";
-/** leftover nowcast oc：把 nc 映到 open→close（与 y_oc 同窗口）。 */
-export const Y_NC_OC_TITLE =
-  "nowcast oc · leftover nc 映到 open→close（异号闸 OC 开时对照 y_oc）";
-/** @deprecated 用 Y_NC_TITLE */
-export const Y_NOWCAST_TITLE = Y_NC_TITLE;
 
 /** ŷ_hl 已下线：旧行仍可读，新分不再写。 */
 export const Y_HL_TITLE = "ŷ_hl · 极值序 signed (H−L)/ref%";

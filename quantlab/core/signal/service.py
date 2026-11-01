@@ -139,7 +139,6 @@ class SignalService:
         self,
         item: Optional[dict],
         *,
-        cluster_mode: Any = None,
         rank_cfg: Optional[dict] = None,
     ) -> Dict[str, Any]:
         """持仓表列行：heuristic 不进表列 score；ŷ 走 decision_score。
@@ -159,9 +158,7 @@ class SignalService:
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             heu = str(packed.get("return_model_source") or "") == "oos_failed_heuristic"
         if heu:
-            table_score = packed.get("score_cluster")
-            if table_score is None:
-                table_score = packed.get("score_global")
+            table_score = packed.get("score_global")
             if table_score is None:
                 table_score = d_sc
         else:
@@ -184,11 +181,7 @@ class SignalService:
             "hard_reject": packed.get("hard_reject"),
             "reject_reason": packed.get("reject_reason"),
             "weight_source": packed.get("weight_source"),
-            "cluster_label": packed.get("cluster_label"),
-            "cluster_mode": packed.get("cluster_mode") or cluster_mode,
-            "cluster_version": packed.get("cluster_version"),
             "score_global": packed.get("score_global"),
-            "score_cluster": packed.get("score_cluster"),
             "return_model_source": packed.get("return_model_source"),
             "return_model": packed.get("return_model"),
             "score_scale": packed.get("score_scale")
@@ -232,7 +225,6 @@ class SignalService:
             if (
                 live_pred
                 or k.startswith("score_")
-                or k.startswith("nowcast_")
                 or k.startswith("dual_score_")
                 or live_y
                 or k in (

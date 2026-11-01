@@ -609,7 +609,7 @@ class TestCloseBandCore(unittest.TestCase):
             cost_params={},
             atr_pct=None,
             hist_bars=[],
-            score_snap={"y_tau": 0.0, "y_trade": 0.0, "y_nowcast": 0.0},
+            score_snap={"y_tau": 0.0, "y_trade": 0.0},
         )
         self.assertTrue(out.get("skipped"))
         self.assertIn("price_space_mismatch", str(out.get("reason") or ""))
@@ -742,7 +742,7 @@ class TestCloseBandCore(unittest.TestCase):
                 cost_params={},
                 atr_pct=None,
                 hist_bars=[],
-                score_snap={"y_tau": 1.0, "y_trade": 0.0, "y_nowcast": 0.0},
+                score_snap={"y_tau": 1.0, "y_trade": 0.0},
             )
         legs = [
             t
@@ -1333,9 +1333,7 @@ class TestCloseBandDayPath(unittest.TestCase):
         scores = {
             "y_tau": 1.0,
             "y_trade": 0.0,
-            "y_nowcast": 0.0,
             "y_path": 1.0,
-            "nowcast_vs": "open",
         }
         out = simulate_t0_day_slots(
             bar=bar,

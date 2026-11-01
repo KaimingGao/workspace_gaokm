@@ -14,20 +14,44 @@ class TestRebalanceTracks(unittest.TestCase):
         )
 
         for pol in ("exclude", "heuristic_sleeve", "predicted_degrade"):
-            cfg = get_rebalance_tracks_cfg(
-                {"cluster_scoring": {"rebalance_tracks": {"oos_fail_policy": pol}}}
-            )
-            self.assertEqual(
-                classify_oos_fail_book_path(
-                    {
-                        "return_model_source": "oos_failed_heuristic",
-                        "heuristic_score": 90.0,
-                    },
-                    tracks_cfg=cfg,
-                ),
-                "skip",
-            )
+            # cluster_scoring.rebalance_tracks 已退役：只认顶层
+            for cfg_in in (
+                {"rebalance_tracks": {"oos_fail_policy": pol}},
+            ):
+                cfg = get_rebalance_tracks_cfg(cfg_in)
+                self.assertEqual(
+                    classify_oos_fail_book_path(
+                        {
+                            "return_model_source": "oos_failed_heuristic",
+                            "heuristic_score": 90.0,
+                        },
+                        tracks_cfg=cfg,
+                    ),
+                    "skip",
+                )
         self.assertFalse(sleeve_policy_allows())
+
+    def test_legacy_cluster_config_migrated_to_top_level(self):
+        from core.signal.config import _migrate_legacy_signal_config
+
+        out = _migrate_legacy_signal_config(
+            {
+                "cluster_scoring": {
+                    "enabled": True,
+                    "mode": "active",
+                    "max_names": 50,
+                    "top_n_per_group": 10,
+                    "book_constraints": {"tau_fail_mode": "exclude"},
+                    "rebalance_tracks": {"oos_fail_policy": "heuristic_sleeve"},
+                }
+            }
+        )
+        self.assertEqual(out["book_constraints"]["tau_fail_mode"], "exclude")
+        self.assertEqual(out["book_constraints"]["max_names"], 50)
+        self.assertEqual(
+            out["rebalance_tracks"]["oos_fail_policy"], "heuristic_sleeve"
+        )
+        self.assertNotIn("cluster_scoring", out)
 
     def test_resolve_oos_status_always_pass(self):
         from core.signal.rebalance_tracks import OOS_PASS, resolve_oos_status
@@ -35,7 +59,6 @@ class TestRebalanceTracks(unittest.TestCase):
         self.assertEqual(
             resolve_oos_status(
                 {
-                    "cluster_label": "G_bad",
                     "return_model_source": "oos_failed_heuristic",
                     "oos_blocked": True,
                 }
@@ -87,7 +110,6 @@ class TestRebalanceTracks(unittest.TestCase):
 
         ok3, gate3, track3, reason3 = buy_gate_for_item(
             {
-                "cluster_label": "G_bad",
                 "oos_blocked": True,
                 "predicted_score": 1.2,
                 "predicted_score_eod": 1.2,
@@ -116,7 +138,6 @@ class TestRebalanceTracks(unittest.TestCase):
         sell2, sc2, floor2, track2 = hold_decision_for_item(
             {
                 "return_model_source": "oos_failed_global",
-                "cluster_label": "G_bad",
                 "heuristic_score": 50.0,
                 "predicted_score": 2.0,
                 "predicted_score_eod": 2.0,

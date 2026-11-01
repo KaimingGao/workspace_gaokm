@@ -87,17 +87,6 @@ class TestHysteresisTracks(unittest.TestCase):
         self.assertEqual(buy, 1.0)
         self.assertEqual(hold, 1.0)
 
-class TestInteractionNoFakeNeutral(unittest.TestCase):
-    def test_missing_factors_no_bonus(self):
-        from core.signal.scorer import _interaction_bonus
-
-        self.assertEqual(_interaction_bonus({}), 0.0)
-        # only momentum present → no mom×vp
-        self.assertEqual(_interaction_bonus({"momentum": 80}), 0.0)
-        self.assertGreater(
-            _interaction_bonus({"momentum": 80, "volume_price": 80}), 0.0
-        )
-
 class TestDualScoreHeadMeta(unittest.TestCase):
     def test_single_head_tag(self):
         from core.signal.dual_score import fuse_remaining_heads_meta
@@ -134,13 +123,11 @@ class TestStableRank(unittest.TestCase):
 class TestOosGateSymmetry(unittest.TestCase):
     def test_predicted_floor_not_zero(self):
         from core.signal.weight_oos_gate import (
-            _heuristic_oos_floor,
             _predicted_oos_floor,
             _shared_oos_backtest_kwargs,
         )
 
         self.assertGreater(_predicted_oos_floor(), 0.0)
-        self.assertGreaterEqual(_heuristic_oos_floor(55.0), 55.0)
         shared = _shared_oos_backtest_kwargs(top_k=3, horizon_days=3)
         self.assertFalse(shared["apply_tau_buy_gate"])
         self.assertEqual(shared["weight_mode"], "equal")

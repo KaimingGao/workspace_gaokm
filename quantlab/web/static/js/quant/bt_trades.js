@@ -88,9 +88,6 @@ export function flattenTradesToSimLegs(trades) {
         score: l.score,
         status: "filled",
         port_return_pct: t.return_pct,
-        cluster_label: l.cluster_label,
-        cluster_mode: l.cluster_mode,
-        cluster_version: l.cluster_version,
         score_weight_source: l.score_weight_source,
         factor_weights: l.factor_weights,
         factor_weights_note: l.factor_weights_note,
@@ -141,11 +138,7 @@ export function formatFactorWeightsNote(r) {
     .slice(0, 8)
     .map((k) => `${k} ${Number(fw[k]).toFixed(2)}`);
   const body = parts.join(" / ");
-  const label = r && r.cluster_label;
-  if (label) {
-    return `分组 ${label} 因子权重` + (body ? `：${body}` : "");
-  }
-  return "未入组 · 全局因子权重" + (body ? `：${body}` : "");
+  return "全局因子权重" + (body ? `：${body}` : "");
 }
 
 /**
@@ -166,7 +159,6 @@ export function buildSimTradesCsv(rows, nameByCode = {}) {
     "exit_price",
     "return_pct",
     "score",
-    "cluster_label",
     "factor_weights_note",
     "score_formula",
     "status",
@@ -188,7 +180,6 @@ export function buildSimTradesCsv(rows, nameByCode = {}) {
       r.exit_price ?? "",
       r.return_pct ?? "",
       r.score ?? "",
-      r.cluster_label || "",
       formatFactorWeightsNote(r),
       r.score_formula || "",
       r.status || "",
@@ -1106,11 +1097,7 @@ function buildSimTradeRow(r, i, deps) {
     hard_reject: !!r.hard_reject,
     reject_reason: r.reject_reason || "",
     weight_source: r.score_weight_source || r.weight_source || "",
-    cluster_label: r.cluster_label || "",
-    cluster_mode: r.cluster_mode || "",
-    cluster_version: r.cluster_version,
     score_global: r.score_global,
-    score_cluster: r.score_cluster,
     min_score: r.min_score,
     below_min_score: !!r.below_min_score,
     return_model_source: r.return_model_source || "",

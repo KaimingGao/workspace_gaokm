@@ -47,7 +47,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
         panel = self._read("web", "static", "partials", "quant_panel.html")
         self.assertIn('startsWith("raw_ath_")', ic)
-        self.assertIn('kind = "衍生"', ic)
+        # kind 改由 remKindForName 返回；派生包仍打 is-derived 图例
+        self.assertIn('return "衍生"', ic)
         self.assertIn("is-derived", ic)
         self.assertIn("alpha_τh", panel)
         self.assertIn("raw_ath_", ic)
@@ -83,7 +84,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("旧草稿双 β 对照", ic)
         self.assertNotIn("researchIntercept", ic)
         self.assertIn('"测 n"', ic)
-        self.assertIn('kind = "历史"', ic)
+        self.assertIn('return "历史"', ic)
         self.assertIn("PIT 历史真实标签（不含当日）", ic)
         self.assertIn("· 历史 ${histN}", ic)
         self.assertIn("未入模：", ic)
@@ -1392,7 +1393,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('name="pm_y_oo_gt0"', replay)
         self.assertIn('name="pm_y_τc_gt0"', replay)
         self.assertIn('name="pm_morph_gate"', replay)
-        self.assertIn(">形态闸</span>", replay)
+        # 形态闸说明改为标题旁「？」tip，旧独占 <span> 文案已下线
+        self.assertNotIn(">形态闸</span>", replay)
+        self.assertIn("follow-path-matrix-morph-tip-btn", replay)
         self.assertIn('name="pm_oo_rank_max"', replay)
         oo_max_inp = replay[replay.find('name="pm_oo_rank_max"') :][
             : replay[replay.find('name="pm_oo_rank_max"') :].find("/>") + 2
@@ -2204,11 +2207,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("nextMergedCellHtml", table_js)
         self.assertNotIn("y_use_next", table_js)
 
-    def test_score_tooltip_nc_oc_tip_mode(self):
+    def test_score_tooltip_nc_oc_tip_mode_removed(self):
         tip_js = self._read("web", "static", "js", "score_tooltip.js")
-        self.assertIn('tip === "nc_oc"', tip_js)
-        self.assertIn("formatNcOcSection", tip_js)
-        self.assertIn('tipMode === "nc_oc"', tip_js)
+        self.assertNotIn('tip === "nc_oc"', tip_js)
+        self.assertNotIn("formatNcOcSection", tip_js)
+        self.assertNotIn('tipMode === "nc_oc"', tip_js)
         self.assertNotIn('tip === "hl"', tip_js)
         self.assertNotIn("formatCompactHlTip", tip_js)
         self.assertNotIn('tipMode === "hl"', tip_js)
@@ -2283,13 +2286,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("predTierBadgeHtml", hold_ui)
         self.assertLess(hold_ui.find('sortThHtml("分档", "tier")'), hold_ui.find(">情绪</th>"))
 
-    def test_y_nc_resolve_helpers_remain_in_fmt(self):
+    def test_y_nc_resolve_helpers_removed_from_fmt(self):
         fmt_js = self._read("web", "static", "js", "paper", "fmt.js")
-        self.assertIn("resolveNowcastCcScore", fmt_js)
-        self.assertIn("resolveNowcastScore(it)", fmt_js)
-        self.assertIn("return resolveNowcastCcScore(it)", fmt_js)
-        self.assertIn("Y_NC_TITLE", fmt_js)
-        self.assertIn("Y_NC_OC_TITLE", fmt_js)
+        self.assertNotIn("resolveNowcastCcScore", fmt_js)
+        self.assertNotIn("resolveNowcastScore(it)", fmt_js)
+        self.assertNotIn("return resolveNowcastCcScore(it)", fmt_js)
+        self.assertNotIn("Y_NC_TITLE", fmt_js)
+        self.assertNotIn("Y_NC_OC_TITLE", fmt_js)
         self.assertIn("Y_HL_TITLE", fmt_js)
         self.assertNotIn("Y_CX_TITLE", fmt_js)
         self.assertNotIn("Y_COMPLEXITY_TITLE", fmt_js)
@@ -2322,7 +2325,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("R_HAT_TITLE", fmt_js)
         self.assertNotIn("Ĉ_τ/price(τ)−1", fmt_js)
         self.assertNotIn("与 Ĉ_τ 同目标", fmt_js)
-        self.assertIn("nowcast = nc", fmt_js)
+        self.assertNotIn("nowcast = nc", fmt_js)
         self.assertNotIn("reconstructNowcastPrevClose", fmt_js)
         self.assertIn("_pcFormulaIsLegacy", fmt_js)
         self.assertIn("_pcFormulaOf", fmt_js)
@@ -3610,8 +3613,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("60 日", ru_js)
         self.assertIn("猜涨 lift ", ru_js)
         self.assertNotIn("无研究套才吃训练窗", ru_js)
-        self.assertIn("ŷ_oo 卡片 Holdout", panel)
-        self.assertIn("Holdout+暖窗", panel)
+        self.assertIn("ŷ_oo 这张卡的 Holdout", panel)
+        # 研究套短窗「Holdout+暖窗」面板文案已下线：分档改在训练窗
+        self.assertNotIn("Holdout+暖窗", panel)
         self.assertNotIn("整池拉面板约需数分钟", ru_js)
         _tiers_py = self._read("core", "research", "predictability_tiers.py")
         self.assertIn("build_predictability_tiers", _tiers_py)
@@ -5375,8 +5379,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("stampFitTierBadges", ui)
         self.assertNotIn('fetch("/api/quant/cluster-live/fit-tiers")', ui)
         cluster = self._read("web", "routers", "quant_cluster.py")
-        self.assertIn('"/api/quant/cluster-live/fit-tiers"', cluster)
-        self.assertIn("cluster_retired", cluster)
+        # 分组 live fit-tiers 路由与 cluster_retired 占位已拆除
+        self.assertNotIn('"/api/quant/cluster-live/fit-tiers"', cluster)
+        self.assertNotIn("cluster_retired", cluster)
         watching = self._read("web", "static", "js", "watching_table_island.js")
         self.assertIn("fitTierBadgeForCode", watching)
         holdings = self._read("web", "static", "js", "holdings_table_island.js")

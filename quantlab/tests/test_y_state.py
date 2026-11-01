@@ -100,7 +100,7 @@ class TestYState(unittest.TestCase):
         self.assertIn("y_state", item)
         self.assertIsNotNone(item.get("y_disagree"))
 
-    def test_sigma_from_nowcast_P(self):
+    def test_sigma_from_y_sigma(self):
         from core.signal.y_state import build_y_state
 
         st = build_y_state(
@@ -110,12 +110,12 @@ class TestYState(unittest.TestCase):
                 "predicted_score_blend": 0.175,
                 "dual_score_head": "blend",
                 "dual_score_window": "intraday",
-                "nowcast_P": 2.25,  # variance → σ=1.5
+                "y_sigma": 1.5,
             },
             config={"y_state": {"disagree_warn": 99, "sigma_warn": 99}},
         )
         self.assertAlmostEqual(st["sigma_path"], 1.5, places=5)
-        self.assertEqual(st["sigma_src"], "nowcast_P")
+        self.assertEqual(st["sigma_src"], "y_sigma")
 
     def test_tau_to_close_oc_adj(self):
         from core.signal.y_state import build_y_state, resolve_tau_to_close_segment

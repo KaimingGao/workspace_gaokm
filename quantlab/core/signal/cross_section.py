@@ -83,7 +83,6 @@ def rank_cross_section(
     rank_mode = clamp_rank_mode(scoring_cfg.get("rank_mode"))
     rank_meta: Dict[str, Any] = {
         "rank_mode": rank_mode,
-        "cluster_mode": "off",
     }
     return_model, model_meta = load_scoring_return_model()
     if return_model is not None:

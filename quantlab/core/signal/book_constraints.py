@@ -11,6 +11,7 @@ DEFAULT_BOOK_CONSTRAINTS: Dict[str, Any] = {
     "enforce_sector_cap": True,
     # defer=τ 不过闸的排到 τ 通过票之后再装填；exclude=不进簿；off=不区分
     "tau_fail_mode": "defer",
+    "max_names": 40,
 }
 
 
@@ -20,7 +21,7 @@ def get_book_constraints_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         from core.signal.config import load_signal_config
 
         cfg = config if isinstance(config, dict) else load_signal_config()
-        raw = ((cfg or {}).get("cluster_scoring") or {}).get("book_constraints")
+        raw = (cfg or {}).get("book_constraints")
         if isinstance(raw, dict):
             out.update(raw)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -32,6 +33,10 @@ def get_book_constraints_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     out["enabled"] = bool(out.get("enabled", True))
     out["filter_untradeable"] = bool(out.get("filter_untradeable", True))
     out["enforce_sector_cap"] = bool(out.get("enforce_sector_cap", True))
+    try:
+        out["max_names"] = max(1, int(out.get("max_names") or 40))
+    except (TypeError, ValueError):
+        out["max_names"] = 40
     return out
 
 
@@ -75,11 +80,8 @@ def resolve_book_risk_limits(
         except (TypeError, ValueError):
             max_turnover_pct = None
     try:
-        from core.signal.config import load_signal_config
-
-        cs = (load_signal_config() or {}).get("cluster_scoring") or {}
-        if isinstance(cs, dict) and cs.get("max_names") is not None:
-            max_positions = max(max_positions, int(cs.get("max_names") or max_positions))
+        bc = get_book_constraints_cfg()
+        max_positions = max(max_positions, int(bc.get("max_names") or max_positions))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         pass
     return {

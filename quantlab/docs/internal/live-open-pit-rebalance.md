@@ -4,7 +4,7 @@
 
 > 状态：**已落地**（成交闸 + open-pit 出分 + tip + rank 显式传立方；回测未改）  
 > 范围：live 开盘窗（默认 `live_fill_clock`～10:00，可配 09:25）的矩阵调仓打分与下单闸  
-> 不覆盖：模型重训、回测 `_score_open_day` 改写、实盘 OMS、启动时间 &gt;09:30 的分钟钟现算
+> 不覆盖：模型重训、回测 `_score_open_day` 改写、实盘 OMS、启动时间 >09:30 的分钟钟现算
 
 ---
 
@@ -12,21 +12,13 @@
 
 ### 1.1 现象（2026-10-28 · 伊利股份 600887）
 
-| 时刻 | 界面会话日 T | 显示 ŷ_oo | 实际用的特征日 |
-|------|--------------|-----------|----------------|
-| 早约 09:32 live 调仓买入 | 2026-10-28 | +0.224% | **2026-10-27** 开盘立方 |
-| 晚日线物化后持仓刷新 | 2026-10-28 | −0.236% | **2026-10-28** 开盘立方 |
-
-β 未变；α 均为 +0.058。买卖闸按 fuse / ŷ_oo，早盘买入依据的是昨天立方上的分数。成交价 29.0187 来自当时现价 29.01（滑点 3bp），今开与日线开盘均为 **29.06**，不是早晚开盘价不一致。
+早约 09:32 live 调仓买入时，界面会话日 T=2026-10-28、显示 ŷ_oo **+0.224%**，实际用的是 **10-27** 开盘立方；晚间日线物化后持仓刷新改读 **10-28** 立方，显示 **−0.236%**。β 未变，α 均 +0.058；成交价 29.0187 来自当时现价 29.01（滑点 3bp），今开与日线开盘均为 29.06，不是早晚开盘价不一致。
 
 ### 1.2 根因（修复前）
 
-1. 开盘窗内当日官方开盘立方尚未物化（当日日线未入库）。  
-2. `_lake_score_day_candidates` 候选顺序为：会话日 → `expected_latest_daily_bar_date`（15:05 前 = 上一交易日）→ 再前一日。  
-3. 读到昨日立方后打上 `lake_score_fallback_from`，**仍返回分数**；自动调仓不读该标记，直接下单。  
-4. 昨日立方的 ŷ_oo 标签是 `open[T−1]→open[T]`。集合竞价给出今开后，这段收益**已经实现**，不是产品要估的 `open[T]→open[T+1]`。
-
-界面 tip「T−1 因子」在 `eod_feature_as_of` 为空时曾是默认文案，**不能**当作因子截止日的证明。两边都写 T=2026-10-28，是因为会话日是今天；早上真正的因子日是 10-27。
+- 开盘窗内当日官方开盘立方尚未物化（当日日线未入库）。
+- `_lake_score_day_candidates` 依次尝试会话日 → `expected_latest_daily_bar_date`（15:05 前 = 上一交易日）→ 再前一日；读到昨日立方后打 `lake_score_fallback_from` **仍返回分数**，自动调仓不读该标记直接下单。
+- 昨日立方的 ŷ_oo 标签是 `open[T−1]→open[T]`，集合竞价给出今开后这段收益**已实现**，不是产品要估的 `open[T]→open[T+1]`；界面 tip「T−1 因子」不能当作因子截止日的证明。
 
 ### 1.3 与回测的对比
 
@@ -42,12 +34,9 @@
 
 ## 2. 修复目标
 
-1. 开盘窗内决策日 = 会话日 T；ŷ_oo 预测 **今开 → 下一交易日开开**。  
-2. 特征 = **截至 T−1 的完整前复权日线** + **T 日行情今开**；截面 z 在观察池当场算。  
-3. 当日官方开盘立方已在盘上 → 直接用它（与晚间刷新同口径）。  
-4. 占位截面建不齐 → **拒绝本轮下单**，禁止再用昨日立方成交。  
-5. 占位结果 **不得** 写成官方 `open` L2 文件，以免晚上物化跳过当日。  
-6. 回测逻辑保持不变。
+- 开盘窗内决策日 = 会话日 T；ŷ_oo 预测 **今开 → 下一交易日开开**；特征 = **截至 T−1 的完整前复权日线** + **T 日行情今开**，截面 z 在观察池当场算。
+- 当日官方开盘立方已在盘上 → 直接用它（与晚间刷新同口径）；占位截面建不齐 → **拒绝本轮下单**，禁止再用昨日立方成交。
+- 占位结果 **不得** 写成官方 `open` L2 文件，以免晚上物化跳过当日；回测逻辑保持不变。
 
 ---
 
@@ -57,23 +46,12 @@
 
 ```text
 窗开且当天未跑
-  │
-  ├─ 有未完成隔夜挂单 → 本轮不算新分（现有规则）
-  │
-  ├─ 读会话日 T 的官方开盘立方
-  │     有 → 用官方 μ/σ 与 X，跳到 fuse / 下单
-  │     无 ↓
-  │
-  ├─ 批量行情拿观察池今开（约 800 只，一条腾讯请求）
-  ├─ 批量读每只最近 ~80 根日线（只用到 T−1）
-  ├─ inject_raw_aoo / 开盘钟 raw_atc（无当日 5m）→ 原始特征
-  ├─ build_co_features_from_quote_bars → z_co_*（含 yest_close_loc）∪ raw_aoo_*
-  ├─ 内存 DayCube：μ/σ + z → ŷ_oo / ŷ_τc(开盘 Z) / ŷ_co / oo_rank / τc_rank → fuse
-  │
+  ├─ 有未完成隔夜挂单 → 本轮不算新分；读会话日 T 官方开盘立方：有 → 用官方 μ/σ 与 X，跳到 fuse / 下单
+  ├─ 无 → 批量行情拿观察池今开（约 800 只，一条腾讯请求）→ 读每只最近 ~80 根日线（只用到 T−1）
+  ├─ inject_raw_aoo / 开盘钟 raw_atc；build_co_features_from_quote_bars → z_co_* ∪ raw_aoo_*
+  ├─ 内存 DayCube → ŷ_oo / ŷ_τc / ŷ_co / rank → fuse
   ├─ 有效今开覆盖 < 门槛（默认 LAKE_COVER_FRAC=0.5）→ 失败，不写账，不退昨日
-  │
-  └─ 覆盖够 → 现价成交（现有 fill；滑点等不变），成交记录保留下单时 ŷ
-        占位立方只在内存；不 persist 官方 open 文件
+  └─ 覆盖够 → 现价成交（现有 fill；滑点等不变），成交记录保留下单时 ŷ；占位立方只在内存
 ```
 
 ≤09:30：`use_minute_tau=False`，ŷ_τc 为开盘 Z，不拉当天 5 分钟线。名次、fuse、买卖闸沿用现有 `rank_lots`。
@@ -82,21 +60,13 @@
 
 ## 4. 9:25 之后如何算 z
 
-与现网 DayCube / `cross_section_zscore_matrix` 同一公式（总体标准差，除以有效只数 n，不是 n−1）：
-
-\[
-z = \frac{x-\mu}{\sigma},\quad
-\mu=\overline{x},\quad
-\sigma=\sqrt{\overline{(x-\mu)^2}}
-\]
+与现网 DayCube / `cross_section_zscore_matrix` 同一公式（总体标准差，除以有效只数 n，不是 n−1）：`z = (x−μ)/σ`，`μ = x̄`，`σ = sqrt(mean((x−μ)^2))`。
 
 规则：
 
-- 分组 = 会话日 T 的开盘截面（一组）。  
-- 每列只对有限值算 μ/σ；有效只数 &lt; 2 或 σ≈0 → 该列有效值 z=0。  
-- **缺今开的股票整行不进 μ/σ，也不进下单名单**；禁止用 0 填开盘价再进截面。  
-- ŷ_oo、开盘 Z 的 ŷ_τc、ŷ_co、相关 rank **共用同一套** 今开 raw 与 μ/σ，禁止「ŷ_oo 用今天、τ 还挂昨天」。  
-- 已冻结的 α、β 不变；贡献仍是 β×z。
+- 分组 = 会话日 T 的开盘截面（一组）；每列只对有限值算 μ/σ，有效只数 < 2 或 σ≈0 → 该列有效值 z=0。
+- **缺今开的股票整行不进 μ/σ，也不进下单名单**；禁止用 0 填开盘价再进截面。
+- ŷ_oo、开盘 Z 的 ŷ_τc、ŷ_co、相关 rank **共用同一套** 今开 raw 与 μ/σ，禁止「ŷ_oo 用今天、τ 还挂昨天」；冻结的 α、β 不变，贡献仍是 β×z。
 
 原始值 x：日线只到昨天，今开用行情开盘价接到决策占位 bar（高=低=收=今开，量用昨量）。例：伊利 `CLOSE0` = 昨收/今开 = 28.89/29.06；`YKSFT` / `YKLEN` 仍是昨天那根 K。
 
@@ -117,41 +87,15 @@ z = \frac{x-\mu}{\sigma},\quad
 
 ## 6. 耗时预期（本机实测量级）
 
-观察池约 798 只、一次成功路径：
+观察池约 798 只时，一次成功路径：腾讯批量今开 ~1.2 s（整池一条 URL）→ SQLite 读 80 根日线 ~0.4 s → 全池 430 列 raw 因子 ~1.4 s → 截面 z / 套 β / 定买卖 / 写账 <1 s；**合计约 3–5 s**，行情变慢时多半仍 <10 s。
 
-| 步骤 | 约耗时 |
-|------|--------|
-| 腾讯批量今开 | ~1.2 s（整池一条 URL） |
-| SQLite 读每只最近 80 根日线 | ~0.4 s |
-| 全池算开盘因子（约 430 列 raw） | ~1.4 s |
-| 截面 z、套 β、定买卖、写账 | &lt;1 s |
-| **合计** | **约 3–5 s**；行情变慢时多半仍 &lt;10 s |
-
-说明：
-
-- 行情单次超时 4 s，可再试一次，再东财批量回退。慢点在行情，不在 z。  
-- worker 窗内 30 s 一轮；真正开始可能再等不到 30 s，那是等待，不算在上表。  
-- 若官方开盘立方已在盘上，跳过行情与当场算因子，更快。
-
-历史对照：旧路径对整池逐票 `score_stock` 曾到数十分钟；只读昨日立方很快但错日。open-pit 介于二者之间：对、且秒级。
+行情单次超时 4 s，可再试一次后东财批量回退；慢点在行情，不在 z。worker 窗内 30 s 一轮，等待不计入；官方开盘立方已在盘上时跳过行情与当场算因子。历史对照：旧路径整池逐票 `score_stock` 曾到数十分钟，只读昨日立方很快但错日；open-pit 对且秒级。
 
 ---
 
 ## 7. 腾讯批量频率
 
-**正常一天成功调仓一次，不必再单独加限流。**
-
-已有机制：
-
-- 整池逗号拼接 **一次** HTTP，不是 800 次。  
-- 进程内行情缓存 TTL **60 s**；同轮打分今开与成交现价第二次命中缓存。  
-- 失败时可用过期缓存保底（最长约 30 min），再东财 ulist 整批回退；禁止串行逐票拖死线程池。
-
-需要守住的：
-
-1. 同一次 `rebalance` 内，打分用的 quotes **传给成交侧复用**，不要各拉一遍。  
-2. 开盘窗内反复失败时，缓存过期后约每 60 s 会再打一整池——可接受；不要拆很多小批，不要在失败路径退回逐只 `get_quote`。  
-3. 成功后 `already_ran_today` 挡掉当日重复。
+**正常一天成功调仓一次，不必再单独加限流。** 已有机制：整池逗号拼接 **一次** HTTP（不是 800 次）；进程内行情缓存 TTL **60 s**，同轮打分今开与成交现价第二次命中缓存；失败时可用过期缓存保底（最长约 30 min），再东财 ulist 整批回退，禁止串行逐票拖死线程池。需要守住的：同一次 `rebalance` 内，打分用的 quotes **传给成交侧复用**，不要各拉一遍；开盘窗内反复失败时，缓存过期后约每 60 s 再打一整池——可接受，不要拆很多小批，不要在失败路径退回逐只 `get_quote`；成功后 `already_ran_today` 挡掉当日重复。
 
 ---
 
@@ -159,21 +103,15 @@ z = \frac{x-\mu}{\sigma},\quad
 
 ### 8.1 解决什么
 
-- 不再用「已实现的昨开→今开」ŷ_oo 开仓。  
-- tip / `lake_score_day` 与真实因子日一致；占位截面标「T 当天 · 今开截面」。  
+- 不再用「已实现的昨开→今开」ŷ_oo 开仓；tip / `lake_score_day` 与真实因子日一致，占位截面标「T 当天 · 今开截面」。
 - 建不齐则拒单，去掉静默错日成交。
 
 ### 8.2 副作用 / 预期不一致
 
-| 项 | 行为 |
-|----|------|
-| 买卖名单 | 与错日 fallback 不同；伊利早盘那种「昨天立方 +0.22%」不会再出现 |
-| 回测 | **不变** |
-| 晚间官方立方 | 日线物化后持仓刷新改读官方；量能列、用到当日高低的列（OVMA / OIMAX 等）会相对早盘占位变动 |
-| 成交记录 | 保留下单当时的 ŷ；不因晚上刷新改写历史成交分 |
-| 开盘价一致时 | OMA / CLOSE0 / GAP / YKSFT / OO_MA 等与官方立方对齐 |
-| 研究浏览 | 可保留带明确标签的昨日 fallback；**执行路径不可** |
-| 测试 | `test_materialize_consumer` 等若断言「消费可读 fallback」，须拆成浏览 vs 成交 |
+- **买卖名单**：与昨日 fallback 不同，「昨天立方 +0.22%」不会再出现；**回测不变**。
+- **晚间官方立方**：日线物化后持仓刷新改读官方；量能列、用到当日高低的列（OVMA / OIMAX 等）相对早盘占位变动；成交记录保留当时 ŷ，不改写历史成交分。
+- **开盘价一致时**：OMA / CLOSE0 / GAP / YKSFT / OO_MA 等与官方立方对齐。
+- **研究浏览 / 测试**：可保留带明确标签的昨日 fallback，**执行路径不可**；`test_materialize_consumer` 等断言须拆成浏览 vs 成交。
 
 占位 bar 与收盘后真实日线 bar 的固有差（量、高低）应写在 tip/文档里，不要藏。
 
@@ -181,18 +119,8 @@ z = \frac{x-\mu}{\sigma},\quad
 
 ## 9. 打分顺序（实现契约）
 
-1. **官方开盘立方（会话日 T）存在** → `load_day_cube` + 既有 lake 路径；`lake_score_day=T`，无 `lake_score_fallback_from`。  
-2. **否则** → 内存 open-pit：  
-   - 宇宙 = `read_cube_codes()`（与 L2 键一致，约 800）；  
-   - bars ≤ T−1；今开 = `batch_get_quotes` + `resolve_open_t`（只要交易日今开，不用昨开冒充）；  
-   - `inject_raw_aoo` / 开盘钟 τc 特征；  
-   - `build_day_cube` + `remember`（不落盘）；返回 **cube 引用** 给调用方；  
-   - `_stamp_cube_head_scores` 写 ŷ_oo / ŷ_τc / ŷ_co / fuse；  
-   - 标记 `lake_score_day=T`，`_score_source=open_pit`，**不得**设 fallback；  
-   - simulate 把同一 `day_cube` **显式**传给 oo_rank / τc_rank。  
-3. **覆盖失败** → `rebalance(dry_run=False)` 失败；研究/dry_run 可另议。
-
-产品 `rebalance` 经 `materialized_consumer()` 时走 lake / open-pit，不重新打开整池 `score_stock` 写盘。
+1. **官方开盘立方（会话日 T）存在** → `load_day_cube` + 既有 lake 路径；`lake_score_day=T`，无 `lake_score_fallback_from`。
+2. **否则** → 内存 open-pit：宇宙 = `read_cube_codes()`（约 800）；bars ≤ T−1；今开 = `batch_get_quotes` + `resolve_open_t`（只要交易日今开）；`inject_raw_aoo` / 开盘钟 τc 特征；`build_day_cube` + `remember`（不落盘）返回 **cube 引用**；`_stamp_cube_head_scores` 写 ŷ_oo / ŷ_τc / ŷ_co / fuse；标记 `lake_score_day=T`、`_score_source=open_pit`，**不得**设 fallback；simulate 把同一 `day_cube` **显式**传给 oo_rank / τc_rank。**覆盖失败** → `rebalance(dry_run=False)` 失败；研究/dry_run 可另议。产品 `rebalance` 经 `materialized_consumer()` 时走 lake / open-pit，不重新打开整池 `score_stock` 写盘。
 
 ---
 
@@ -211,12 +139,7 @@ z = \frac{x-\mu}{\sigma},\quad
 
 ## 11. 落地顺序（已完成）
 
-1. ~~成交闸~~：`refuse_day_fallback` + fallback 二次拒单。  
-2. ~~open-pit~~：接入消费只读；返回 cube；不 persist。  
-3. ~~tip~~：`open_pit` / fallback 文案。  
-4. ~~单测~~：覆盖 / 闸 / 官方立方优先 / 不落盘 / 显式传 rank。  
-5. ~~rank 鲁棒~~：simulate 传 `day_cube`；持仓补名次禁昨日回退。  
-6. （可选未做）同轮 quotes 注入成交侧。
+已全部落地：成交闸（`refuse_day_fallback` + fallback 二次拒单）· open-pit（消费只读、返回 cube、不 persist）· tip 文案 · 单测（覆盖 / 闸 / 官方立方优先 / 不落盘 / 显式传 rank）· rank 鲁棒（simulate 传 `day_cube`，持仓补名次禁昨日回退）。可选未做：同轮 quotes 注入成交侧。
 
 ---
 
@@ -227,38 +150,21 @@ z = \frac{x-\mu}{\sigma},\quad
 | 今开截面构建 | `core/paper/rebalance/open_pit_score.py`（含 `z_co_*` via `build_co_features_from_quote_bars`） |
 | 评分顺序 / 成交闸 / rank 传立方 | `watching_matrix._score_pool_from_lake` · `simulate_watching_matrix_preview` |
 | 持仓补名次（无昨日回退） | `watching_matrix.stamp_live_ranks` · `_stamp_ranks_from_lake` |
-| 消费只读 | `core/research/materialize/consumer.py` |
-| 调仓入口 | `services/paper_trades.py` · `rebalance`；`auto_worker.py` |
+| 消费只读 / 调仓入口 | `core/research/materialize/consumer.py`；`services/paper_trades.py` · `rebalance` · `auto_worker.py` |
 | 开盘 PIT 拼接 | `alpha_oo.inject_raw_aoo` / `session_pit.resolve_open_t`；`alpha_tc.inject_raw_atc` |
 | 截面 z / DayCube | `feature_standardize.cross_section_zscore_matrix`；`day_cube._compute_mu_sigma` |
-| 观察池键 | `coverage.read_cube_codes` |
-| 行情批量与缓存 | `quote_api.StockAPI.batch_query`；`QUOTE_MEM_TTL_SECONDS=60` |
-| 回测开盘日（对照） | `lake_replay.score_open_day_entries`；`clip_replay_score_dates` |
-| tip | `web/static/js/score_tooltip.js` · `formatEodAsOfHint` |
+| 观察池键 / 行情批量 | `coverage.read_cube_codes`；`quote_api.StockAPI.batch_query` · `QUOTE_MEM_TTL_SECONDS=60` |
+| 回测开盘日（对照）/ tip | `lake_replay.score_open_day_entries` · `clip_replay_score_dates`；`score_tooltip.js` · `formatEodAsOfHint` |
 
 ---
 
 ## 13. 案例数据摘要（600887 · 2026-10-28）
 
-| 字段 | 值 |
-|------|-----|
-| 昨收 / 今开 / 收盘 | 28.89 / 29.06 / 28.69 |
-| 早盘成交 | 09:32 买 1700 @ 29.0187（现价 29.01 × 1.0003） |
-| 早盘 tip 合计 | +0.224% ← 10-27 立方 z |
-| 晚盘 tip 合计 | −0.236% ← 10-28 立方 z |
-| 10-28 立方 | n_codes=798，mtime 当晚物化；gaps 伊利 ≈ 29.06/28.89−1 |
-
-排查时已排除：行情今开 ≠ 日线开盘、复权改写伊利 10-27 z、用现价当开盘价进因子。
+昨收/今开/收盘 **28.89 / 29.06 / 28.69**；早盘 09:32 买 1700 @ **29.0187**（现价 29.01 × 1.0003）；早盘 tip **+0.224%** ← 10-27 立方 z，晚盘 tip **−0.236%** ← 10-28 立方 z；10-28 立方 `n_codes=798`、当晚物化，gaps 伊利 ≈ 29.06/28.89−1。排查时已排除：行情今开 ≠ 日线开盘、复权改写伊利 10-27 z、用现价当开盘价进因子。
 
 ---
 
 ## 14. 状态与下一步
 
-- 文档与方案：本文。  
-- 代码：已落地，并做 rank 鲁棒性加固。  
-  - `core/paper/rebalance/open_pit_score.py`：昨收日线 + 行情今开 → 内存截面（不落盘）；返回 cube 引用  
-  - `watching_matrix._score_pool_from_lake`：会话日立方 → open-pit →（浏览才）昨日回退；`refuse_day_fallback` 禁成交回退；第三项 DayCube 交给 rank  
-  - simulate：显式 `day_cube=` 传给 oo/τc rank；持仓补名次不再回退昨日快照/湖  
-  - tip：`formatEodAsOfHint` 识别 `open_pit` / fallback  
-  - 单测：`tests/test_open_pit_score.py` + `ConsumerCoverageTest` 闸断言  
+- 文档与方案：本文；代码已落地并做 rank 鲁棒性加固——`open_pit_score.py` 内存截面不落盘并返回 cube 引用；`_score_pool_from_lake` 按「会话日立方 → open-pit →（浏览才）昨日回退」出分，`refuse_day_fallback` 禁成交回退；simulate 显式 `day_cube=` 传给 oo/τc rank，持仓补名次不回退昨日；tip 识别 `open_pit` / fallback；单测 `tests/test_open_pit_score.py` + `ConsumerCoverageTest` 闸断言。
 - 下一步：开盘窗实盘观察一次；若需同轮 quotes 注入成交可再补。

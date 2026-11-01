@@ -131,7 +131,7 @@ function originLabelOf(l) {
     return source === "auto" ? "策略·自动" : "策略";
   }
   if (l.type === "rebalance") return "策略汇总";
-  if (meta.cluster_mode || meta.source === "research_hub") return "研究枢纽";
+  if (meta.source === "research_hub") return "研究枢纽";
   if (meta.matrix_mode) return "策略";
   if (l.type === "buy" || l.type === "sell") return "手动";
   return "";
@@ -231,10 +231,6 @@ function renderLogItem(l, { tradeCols = false } = {}) {
     const sellN = meta.sell_count != null ? Number(meta.sell_count) : NaN;
     const tradeN = meta.trade_count != null ? Number(meta.trade_count) : NaN;
     const strategy = String(meta.strategy || "").trim();
-    const ver =
-      meta.cluster_version != null && meta.cluster_version !== ""
-        ? `v${meta.cluster_version}`
-        : "";
     if (l.type === "t0_batch") {
       primary = String(l.detail || "做T汇总");
     } else {
@@ -248,7 +244,6 @@ function renderLogItem(l, { tradeCols = false } = {}) {
     if (Number.isFinite(tradeN) && l.type === "t0_batch") {
       secondaryParts.push(`${tradeN} 笔`);
     }
-    if (ver) secondaryParts.push(ver);
     if (strategy) secondaryParts.push(strategy);
     if (origin) secondaryParts.push(origin);
   } else if ((l.type === "buy" || l.type === "sell" || l.type === "sync_paper") && hasTradeBits) {
