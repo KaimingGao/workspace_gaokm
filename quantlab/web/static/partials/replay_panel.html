@@ -259,13 +259,55 @@
                     </label>
                     <label
                       class="follow-path-matrix-box"
-                      title="开：候选池内近20日波动分位≥0.9 且今开弱于昨收（a1&lt;0）时禁止新开/加仓。缺数据不拦。已持仓不清仓。默认关。保存规则同步到交易执行自动调仓。"
+                      title="开：启用形态闸（高波弱开；可选大幅低开）。缺数据不拦。已持仓不清仓。默认关。保存规则同步到交易执行自动调仓。阈值见下方。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">形态闸</span>
-                        <span class="follow-path-matrix-box-desc">高波弱开</span>
+                        <span class="follow-path-matrix-box-desc">总开关</span>
                       </span>
                       <input type="checkbox" name="pm_morph_gate" aria-label="形态闸" />
+                    </label>
+                  </div>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--morph-knobs" aria-label="形态闸阈值">
+                    <label
+                      class="follow-path-matrix-box"
+                      title="高波腿：候选池近20日年化波动分位阈值。默认 0.9。须总开关开才生效。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">vol 分位</span>
+                        <span class="follow-path-matrix-box-desc">0.5–0.99</span>
+                      </span>
+                      <input type="number" name="pm_morph_vol_pctl" min="0.5" max="0.99" step="0.01" value="0.9" aria-label="形态闸波动分位" />
+                    </label>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="高波腿：须 a1（今开/昨收−1）&lt; 该百分数。默认 0（须低开）。填 −1 表示 −1%。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">a1 上限</span>
+                        <span class="follow-path-matrix-box-desc">%</span>
+                      </span>
+                      <input type="number" name="pm_morph_a1_max" min="-20" max="5" step="0.1" value="0" aria-label="形态闸 a1 上限百分数" />
+                    </label>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="大幅低开腿：a1 ≤ −该百分数则拦新开/加。0=关。与高波腿 OR。不清仓。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">低开阈值</span>
+                        <span class="follow-path-matrix-box-desc">% · 0关</span>
+                      </span>
+                      <input type="number" name="pm_morph_gap_max" min="0" max="15" step="0.5" value="0" aria-label="形态闸大幅低开百分数" />
+                    </label>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="高波腿再要求绝对年化 vol20 ≥ 该值。0=关。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">vol 下限</span>
+                        <span class="follow-path-matrix-box-desc">绝对 · 0关</span>
+                      </span>
+                      <input type="number" name="pm_morph_vol20_min" min="0" max="5" step="0.05" value="0" aria-label="形态闸绝对波动下限" />
                     </label>
                   </div>
                 </section>

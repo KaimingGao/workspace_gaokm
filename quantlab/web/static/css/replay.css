@@ -1212,6 +1212,19 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--morph-knobs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--pm-line, #e2e8f0);
+}
+
+@media (max-width: 900px) {
+  body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--morph-knobs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* 窄列里步进箭头会挡住数字；输入铺满格宽，跨栏同比例对齐 */
 body[data-page="replay"] #paper-path-matrix-form input[type="number"] {
   -moz-appearance: textfield;

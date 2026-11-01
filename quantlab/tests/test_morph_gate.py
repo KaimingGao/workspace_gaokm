@@ -39,6 +39,64 @@ class MorphGateUnitTests(unittest.TestCase):
             morph_gate_skip_reason({"morph_vol_p": 0.99, "morph_a1": 0.01}, cfg)
         )
 
+    def test_gap_leg_alone_without_vol_p(self):
+        from core.paper.rebalance.morph_gate import morph_gate_skip_reason
+
+        cfg = {
+            "morph_gate_enabled": True,
+            "morph_gap_max": 0.03,
+            "morph_vol_pctl": 0.9,
+            "morph_a1_max": 0.0,
+        }
+        skip = morph_gate_skip_reason({"morph_a1": -0.05}, cfg)
+        self.assertIsNotNone(skip)
+        self.assertIn("大幅低开", skip or "")
+        # 未过 gap 且无 vol_p → 高波腿 fail-open
+        self.assertIsNone(morph_gate_skip_reason({"morph_a1": -0.01}, cfg))
+
+    def test_gap_max_zero_keeps_legacy_hv_only(self):
+        from core.paper.rebalance.morph_gate import morph_gate_skip_reason
+
+        cfg = {
+            "morph_gate_enabled": True,
+            "morph_gap_max": 0.0,
+            "morph_vol_pctl": 0.9,
+            "morph_a1_max": 0.0,
+        }
+        self.assertIsNone(
+            morph_gate_skip_reason({"morph_a1": -0.08}, cfg)  # 无 vol_p
+        )
+        self.assertIn(
+            "高波动",
+            morph_gate_skip_reason(
+                {"morph_a1": -0.02, "morph_vol_p": 0.95}, cfg
+            )
+            or "",
+        )
+
+    def test_vol20_min_fail_open_hv_leg(self):
+        from core.paper.rebalance.morph_gate import morph_gate_skip_reason
+
+        cfg = {
+            "morph_gate_enabled": True,
+            "morph_vol_pctl": 0.9,
+            "morph_a1_max": 0.0,
+            "morph_vol20_min": 0.5,
+        }
+        # 高分位弱开但绝对 vol 不够 → 高波腿不拦
+        self.assertIsNone(
+            morph_gate_skip_reason(
+                {"morph_a1": -0.02, "morph_vol_p": 0.95, "morph_vol20": 0.2},
+                cfg,
+            )
+        )
+        skip = morph_gate_skip_reason(
+            {"morph_a1": -0.02, "morph_vol_p": 0.95, "morph_vol20": 0.8},
+            cfg,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("高波动", skip or "")
+
     def test_stamp_cs_percentile(self):
         from core.paper.rebalance.morph_gate import stamp_morph_cs_on_items
 

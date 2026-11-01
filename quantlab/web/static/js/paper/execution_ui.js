@@ -366,6 +366,32 @@ export function fillPathMatrixForm(root, execution) {
   set("pm_y_oo_gt0", coerceCfgBool(pm.y_oo_gt0, false));
   set("pm_y_τc_gt0", coerceCfgBool(pm.y_τc_gt0, false));
   set("pm_morph_gate", coerceCfgBool(pm.morph_gate_enabled, false));
+  {
+    const vp = Number(pm.morph_vol_pctl);
+    set(
+      "pm_morph_vol_pctl",
+      Number.isFinite(vp) ? Math.max(0.5, Math.min(0.99, vp)) : 0.9
+    );
+    const a1 = Number(pm.morph_a1_max);
+    set(
+      "pm_morph_a1_max",
+      Number.isFinite(a1)
+        ? Math.round(Math.max(-0.2, Math.min(0.05, a1)) * 1000) / 10
+        : 0
+    );
+    const gap = Number(pm.morph_gap_max);
+    set(
+      "pm_morph_gap_max",
+      Number.isFinite(gap)
+        ? Math.round(Math.max(0, Math.min(0.15, gap)) * 1000) / 10
+        : 0
+    );
+    const vmin = Number(pm.morph_vol20_min);
+    set(
+      "pm_morph_vol20_min",
+      Number.isFinite(vmin) ? Math.max(0, Math.min(5, vmin)) : 0
+    );
+  }
   const ooRankMax = Number(pm.oo_rank_max);
   if (Number.isFinite(ooRankMax) && ooRankMax > 0) {
     set("pm_oo_rank_max", Math.max(0, Math.min(500, Math.round(ooRankMax))));
@@ -474,6 +500,21 @@ export function collectPathMatrixForm(root) {
   const yOoGt0 = chk("pm_y_oo_gt0", false);
   const yOcGt0 = chk("pm_y_τc_gt0", false);
   const morphGate = chk("pm_morph_gate", false);
+  let morphVolPctl = num("pm_morph_vol_pctl", 0.9);
+  if (!Number.isFinite(morphVolPctl)) morphVolPctl = 0.9;
+  morphVolPctl = Math.max(0.5, Math.min(0.99, morphVolPctl));
+  // UI 为百分数；引擎为小数
+  let morphA1MaxPct = num("pm_morph_a1_max", 0);
+  if (!Number.isFinite(morphA1MaxPct)) morphA1MaxPct = 0;
+  morphA1MaxPct = Math.max(-20, Math.min(5, morphA1MaxPct));
+  const morphA1Max = Math.round((morphA1MaxPct / 100) * 1e6) / 1e6;
+  let morphGapMaxPct = num("pm_morph_gap_max", 0);
+  if (!Number.isFinite(morphGapMaxPct)) morphGapMaxPct = 0;
+  morphGapMaxPct = Math.max(0, Math.min(15, morphGapMaxPct));
+  const morphGapMax = Math.round((morphGapMaxPct / 100) * 1e6) / 1e6;
+  let morphVol20Min = num("pm_morph_vol20_min", 0);
+  if (!Number.isFinite(morphVol20Min)) morphVol20Min = 0;
+  morphVol20Min = Math.max(0, Math.min(5, morphVol20Min));
   const ooRankMaxRaw = num("pm_oo_rank_max", 10);
   const ooRankMax =
     Number.isFinite(ooRankMaxRaw) && ooRankMaxRaw > 0
@@ -495,6 +536,10 @@ export function collectPathMatrixForm(root) {
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
         morph_gate_enabled: morphGate,
+        morph_vol_pctl: morphVolPctl,
+        morph_a1_max: morphA1Max,
+        morph_gap_max: morphGapMax,
+        morph_vol20_min: morphVol20Min,
         oo_rank_max: ooRankMax,
         oo_rank_strong_max: ooRankStrong,
         oo_rank_top_frac: null,

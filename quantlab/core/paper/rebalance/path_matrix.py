@@ -47,10 +47,12 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     # 手数：按金额/价换算整手，不够一手则跳过；保存规则写入交易执行。缺省 live 1万/2万。
     "lot_base_amount": 10_000.0,
     "lot_strong_amount": 20_000.0,
-    # 形态硬闸（默认关）：候选池内 vol20 分位≥阈值 且 今开/昨收−1 < a1_max → 禁止新开/加仓
+    # 形态硬闸（默认关）：高波弱开；可选大幅低开腿 / 绝对 vol 下限
     "morph_gate_enabled": False,
     "morph_vol_pctl": 0.9,
     "morph_a1_max": 0.0,
+    "morph_gap_max": 0.0,
+    "morph_vol20_min": 0.0,
 }
 
 
@@ -146,16 +148,22 @@ def get_path_matrix_cfg(
     try:
         from core.paper.rebalance.morph_gate import (
             morph_a1_max_from_cfg,
+            morph_gap_max_from_cfg,
+            morph_vol20_min_from_cfg,
             morph_vol_pctl_from_cfg,
         )
 
         src = raw if isinstance(raw, dict) else out
         out["morph_vol_pctl"] = morph_vol_pctl_from_cfg(src)
         out["morph_a1_max"] = morph_a1_max_from_cfg(src)
+        out["morph_gap_max"] = morph_gap_max_from_cfg(src)
+        out["morph_vol20_min"] = morph_vol20_min_from_cfg(src)
     except Exception:  # noqa: BLE001
         logger.debug("morph_gate coerce failed", exc_info=True)
         out["morph_vol_pctl"] = 0.9
         out["morph_a1_max"] = 0.0
+        out["morph_gap_max"] = 0.0
+        out["morph_vol20_min"] = 0.0
     try:
         from core.paper.rebalance.rank_lots import (
             oo_rank_max_from_cfg,
