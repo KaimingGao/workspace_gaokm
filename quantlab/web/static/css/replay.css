@@ -1212,16 +1212,63 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+/* 形态闸：? 贴在标题旁；展开时整格拉满行宽，正文落在折叠里 */
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph:has(.follow-path-matrix-morph-help[open]) {
+  grid-column: 1 / -1;
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph .follow-path-matrix-box-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph .follow-path-matrix-box-title > label {
+  cursor: pointer;
+}
+
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help {
-  margin: 0 8px 8px;
+  display: inline-flex;
+  flex-direction: column;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  vertical-align: middle;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-pro-help-summary {
-  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  list-style: none;
 }
 
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help[open] > .quant-help-body {
-  border-top: 1px dashed color-mix(in srgb, var(--accent, #2563eb) 22%, var(--line, #e2e8f0));
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-pro-help-summary::-webkit-details-marker {
+  display: none;
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-help-body {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  margin-top: 6px;
+  z-index: 6;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: var(--q-radius-sm, 6px);
+  background: var(--bg-card, #fff);
+  box-shadow: 0 8px 24px color-mix(in srgb, #0f172a 12%, transparent);
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="other"] {
+  position: relative;
 }
 
 /* 窄列里步进箭头会挡住数字；输入铺满格宽，跨栏同比例对齐 */

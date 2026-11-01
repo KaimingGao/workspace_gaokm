@@ -257,33 +257,37 @@
                       </span>
                       <input type="checkbox" name="pm_y_τc_gt0" aria-label="y_τc 大于 0" />
                     </label>
-                    <label
-                      class="follow-path-matrix-box"
-                      title="开：启用形态闸。详见下方「？ 形态闸」说明。"
-                    >
+                    <div class="follow-path-matrix-box follow-path-matrix-box--morph">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">形态闸</span>
+                        <span class="follow-path-matrix-box-title">
+                          <label for="pm-morph-gate-input">形态闸</label>
+                          <details class="quant-help-fold quant-pro-help-fold follow-path-matrix-morph-help">
+                            <summary class="quant-pro-help-summary" aria-label="形态闸说明">
+                              <span class="quant-pro-help-icon" aria-hidden="true">?</span>
+                            </summary>
+                            <div class="quant-help-body quant-pro-help-body">
+                              <p>
+                                开：禁止<strong>新开/加仓</strong>（已持仓<strong>不清仓</strong>）。默认关。
+                                门槛写死、UI 不调。缺分 fail-open（不拦）。保存规则同步到交易执行自动调仓。
+                              </p>
+                              <p>
+                                两腿 <strong>OR</strong>：
+                                ①<strong>高波弱开</strong>——候选池近 20 日年化波动分位 ≥ 0.9，且今开相对昨收低开（a1 &lt; 0）；
+                                ②<strong>异常低开</strong>——a1（今开/昨收−1）≤ −8%。
+                              </p>
+                            </div>
+                          </details>
+                        </span>
                         <span class="follow-path-matrix-box-desc">总开关</span>
                       </span>
-                      <input type="checkbox" name="pm_morph_gate" aria-label="形态闸" />
-                    </label>
-                  </div>
-                  <details class="quant-help-fold quant-pro-help-fold follow-path-matrix-morph-help">
-                    <summary class="quant-pro-help-summary">
-                      <span class="quant-pro-help-icon" aria-hidden="true">?</span> 形态闸
-                    </summary>
-                    <div class="quant-help-body quant-pro-help-body">
-                      <p>
-                        开：禁止<strong>新开/加仓</strong>（已持仓<strong>不清仓</strong>）。默认关。
-                        门槛写死、UI 不调。缺分 fail-open（不拦）。保存规则同步到交易执行自动调仓。
-                      </p>
-                      <p>
-                        两腿 <strong>OR</strong>：
-                        ①<strong>高波弱开</strong>——候选池近 20 日年化波动分位 ≥ 0.9，且今开相对昨收低开（a1 &lt; 0）；
-                        ②<strong>异常低开</strong>——a1（今开/昨收−1）≤ −8%。
-                      </p>
+                      <input
+                        id="pm-morph-gate-input"
+                        type="checkbox"
+                        name="pm_morph_gate"
+                        aria-label="形态闸"
+                      />
                     </div>
-                  </details>
+                  </div>
                 </section>
               </div>
               <div class="follow-path-matrix-footer" aria-label="调仓操作">
