@@ -386,6 +386,58 @@ class MorphGateUnitTests(unittest.TestCase):
         ]
         self.assertTrue(morph_skips, msg=f"skips={out.get('skips')}")
 
+    def test_metrics_unsorted_bars_and_yyyymmdd_as_of(self):
+        from core.paper.rebalance.morph_gate import metrics_from_bars
+
+        bars = [
+            {"date": "2026-10-22", "close": 12.0},
+            {"date": "2026-10-20", "close": 10.0},
+            {"date": "2026-10-21", "close": 10.5},
+        ]
+        m = metrics_from_bars(bars, open_t=10.8, as_of="20261022")
+        self.assertAlmostEqual(m["prev_close"], 10.5, places=5)
+        self.assertAlmostEqual(m["a1"], 10.8 / 10.5 - 1.0, places=5)
+
+    def test_dirty_a1_fail_open(self):
+        from core.paper.rebalance.morph_gate import morph_gate_skip_reason
+
+        cfg = {"morph_gate_enabled": True}
+        # |a1|>50% 视为脏数，两腿都不拦
+        self.assertIsNone(
+            morph_gate_skip_reason({"morph_a1": -0.9, "morph_vol_p": 0.99}, cfg)
+        )
+        self.assertIsNone(
+            morph_gate_skip_reason({"morph_a1": 0.9, "morph_vol_p": 0.99}, cfg)
+        )
+
+    def test_stamp_opens_int_keys_and_none_items(self):
+        from core.paper.rebalance.morph_gate import try_stamp_morph_from_opens
+
+        self.assertEqual(try_stamp_morph_from_opens(None, opens={1: 10.0}), (0, 0))
+        items = [{"stock_code": "000001", "prev_close": 10.0}]
+        n_a1, n_vp = try_stamp_morph_from_opens(items, opens={1: 9.5})
+        self.assertEqual(n_a1, 1)
+        self.assertEqual(n_vp, 0)
+        self.assertAlmostEqual(items[0]["morph_a1"], -0.05, places=5)
+
+    def test_bars_filtered_empty_falls_back_to_row_prev(self):
+        from core.paper.rebalance.morph_gate import try_stamp_morph_from_opens
+
+        # bars 全是 as_of 当日及以后 → 滤空，回退行内昨收
+        items = [{"stock_code": "000001", "prev_close": 10.0, "open": 9.0}]
+        bars = {"000001": [{"date": "2026-10-22", "close": 12.0}]}
+        n_a1, _ = try_stamp_morph_from_opens(
+            items, opens={"000001": 9.0}, bars_by_code=bars, as_of="2026-10-22"
+        )
+        self.assertEqual(n_a1, 1)
+        self.assertAlmostEqual(items[0]["morph_a1"], -0.1, places=5)
+
+    def test_enabled_bad_cfg_fail_closed_switch(self):
+        from core.paper.rebalance.morph_gate import morph_gate_enabled
+
+        self.assertFalse(morph_gate_enabled(None))
+        self.assertFalse(morph_gate_enabled("not-a-mapping"))  # type: ignore[arg-type]
+
 
 if __name__ == "__main__":
     unittest.main()

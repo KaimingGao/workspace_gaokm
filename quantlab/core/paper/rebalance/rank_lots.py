@@ -1342,16 +1342,22 @@ def plan_rank_lot_day(
         )
 
         if morph_gate_enabled(cfg):
-            day_s = str(as_of or "")[:10]
+            day_s = str(as_of or "").strip()
             bars_src = "none"
             bars_by: Dict[str, Sequence[Mapping[str, Any]]] = {}
             if isinstance(bars_by_code, Mapping) and bars_by_code:
                 # 回测：只用调用方 bars，避免 cache 尾 80 根导致深历史 as_of 滤空
                 for code in list(item_by.keys())[:800]:
                     rows = bars_by_code.get(code)
+                    if rows is None:
+                        # 键偶发非 str
+                        try:
+                            rows = bars_by_code.get(str(code).strip())
+                        except Exception:  # noqa: BLE001
+                            rows = None
                     if rows:
-                        bars_by[code] = rows
-                bars_src = "caller"
+                        bars_by[str(code).strip()] = rows
+                bars_src = "caller" if bars_by else "none"
             else:
                 try:
                     from core.store import load_daily_cache
