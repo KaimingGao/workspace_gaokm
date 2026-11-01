@@ -1212,26 +1212,11 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-body--row5 
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-/* 形态闸：? 贴在标题旁；展开时整格拉满行宽，正文落在折叠里 */
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-}
-
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph:has(.follow-path-matrix-morph-help[open]) {
-  grid-column: 1 / -1;
-}
-
+/* 形态闸：勾选框布局与同行一致；仅标题旁嵌 ?，正文浮层不挤占勾选位 */
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph .follow-path-matrix-box-title {
   display: inline-flex;
   align-items: center;
   gap: 0.35em;
-}
-
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-box--morph .follow-path-matrix-box-title > label {
-  cursor: pointer;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help {
@@ -1249,10 +1234,15 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help 
   gap: 0;
   padding: 0;
   list-style: none;
+  cursor: help;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-pro-help-summary::-webkit-details-marker {
   display: none;
+}
+
+body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="other"] {
+  position: relative;
 }
 
 body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help > .quant-help-body {
@@ -1265,10 +1255,6 @@ body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-morph-help 
   border-radius: var(--q-radius-sm, 6px);
   background: var(--bg-card, #fff);
   box-shadow: 0 8px 24px color-mix(in srgb, #0f172a 12%, transparent);
-}
-
-body[data-page="replay"] #paper-path-matrix-form .follow-path-matrix-panel[data-panel="other"] {
-  position: relative;
 }
 
 /* 窄列里步进箭头会挡住数字；输入铺满格宽，跨栏同比例对齐 */

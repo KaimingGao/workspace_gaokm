@@ -4267,7 +4267,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-help-body", replay)
         self.assertIn("异常低开", replay)
         self.assertIn("高波弱开", replay)
-        self.assertIn('for="pm-morph-gate-input"', replay)
         replay_css = self._read("web", "static", "css", "replay.css")
         follow_css = self._read("web", "static", "css", "follow.css")
         self.assertNotIn("morph-knobs", replay_css)
