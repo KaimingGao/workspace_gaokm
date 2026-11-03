@@ -25,7 +25,7 @@ import {
   applyWatchingNameEl,
 } from "./quant/names.js";
 import { createResearchParams } from "./quant/params.js";
-import { createFactorMetaCache } from "./quant/factor_meta.js";
+import { createFactorMetaCache } from "./quant/factor_meta.js?v=p3553";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installClusterProbe } from "./quant/domain_cluster.js";
@@ -147,7 +147,7 @@ export function initQuant(ctx) {
   } = factorMeta;
 
   const BT_SCOPE_LIVE =
-            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · 入场/强档金额）。" +
+            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · 开盘 rot=0，fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc · 入场/强档金额）。" +
     "净值起点 100；成本按纸面成本模型。有效≠正确：先看超额/回撤，再解读累计收益。";
   const BT_SCOPE_FROZEN =
     "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」刷新当次结果。";
@@ -583,24 +583,6 @@ export function initQuant(ctx) {
     return painted;
   }
   q.paintRidgeEnableStatus = paintRidgeEnableStatus;
-
-
-  async function renderCoCoefTable(rm, opts = {}) {
-    const host = document.getElementById("quant-co-coef-table");
-    if (!host) return;
-    try {
-      if (typeof q.ensureFactorMeta === "function") {
-        await q.ensureFactorMeta();
-      }
-    } catch (_) {
-      /* ignore */
-    }
-    const html =
-      typeof q.remCoefTableHtml === "function"
-        ? q.remCoefTableHtml(rm, { ...opts, head: "co" })
-        : "";
-    host.innerHTML = html || "";
-  }
 
 
   const OO_RANK_DESK = {
@@ -1968,28 +1950,6 @@ export function initQuant(ctx) {
     }
   })();
 
-  // 轻量预填 ŷ_co 状态
-  void (async () => {
-    try {
-      const res = await fetch("/api/quant/co-ridge/model");
-      const data = await res.json().catch(() => ({}));
-      const sum = document.getElementById("quant-co-summary");
-      if (!sum) return;
-      if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "拟合后看系数 · 再启用研究/执行",
-        });
-        await renderCoCoefTable(null);
-        return;
-      }
-      const oos = data.oos || {};
-      paintRidgeEnableStatus(sum, data);
-      await renderCoCoefTable(data.return_model || {}, { oos });
-    } catch (_) {
-      /* ignore */
-    }
-  })();
-
   // 轻量预填 ŷ_oo_rank 研究/执行状态
   void (async () => {
     try {
@@ -2776,106 +2736,6 @@ export function initQuant(ctx) {
     }
   }
 
-  async function runCoRidge({ persist = false, persistRole = "live" } = {}) {
-    const sum = document.getElementById("quant-co-summary");
-    const runBtn = document.getElementById("quant-co-ridge-run");
-    const roleLabel = persistRole === "research" ? "研究套" : "执行套";
-    if (runBtn) runBtn.disabled = true;
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: persist ? "写入中" : "拟合中",
-      message: persist
-        ? `写入上次拟合（${roleLabel}）…`
-        : "ŷ_co Ridge + 隔夜缺口面板…",
-      busy: true,
-    });
-    try {
-            const res = await fetch("/api/quant/co-ridge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lookback: readFitLookbackDays("co"),
-          watching_limit: readWatchingLimit(),
-          ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays("co"),
-          ...readCrossSectionFitParams("co"),
-          persist: !!persist,
-          persist_role: persistRole || "live",
-          note: persist ? `ui co promote ${persistRole}` : "",
-        }),
-      });
-      const posted = await res.json().catch(() => ({}));
-      const awaited = await awaitRidgeFitIfBackground(res, posted, {
-        persist: !!persist,
-        jobName: "co-ridge",
-        modelPath: "/api/quant/co-ridge/model",
-        sumEl: sum,
-        label: "ŷ_co",
-      });
-      const data = awaited.data || {};
-      const httpOk = awaited.httpOk;
-      if (!httpOk || !data.success) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-        renderRemStatus(sum, {
-          state: "error",
-          chip: "失败",
-          message: String(err),
-          error: true,
-        });
-        setQuantMeta(`ŷ_co 失败 · ${err}`, { error: true });
-        renderCoCoefTable(null);
-        return;
-      }
-      let status = data;
-      try {
-        const stRes = await fetch("/api/quant/co-ridge/model");
-        const stData = await stRes.json().catch(() => ({}));
-        if (stData && typeof stData === "object") {
-          status = { ...stData, ...data };
-        }
-      } catch (_) {}
-      const flags = ridgeDiskFlags(status, {
-        persistOk: !!persist,
-        persistRole,
-      });
-      let message;
-      if (persist) {
-        message = flags.liveOn
-          ? "已落盘"
-          : flags.researchOn
-            ? "研究套已落盘 · 执行未写"
-            : "";
-      } else {
-        message =
-          flags.liveOn || flags.researchOn
-            ? "草稿已更新 · 可启用研究（验证后再晋级执行）"
-            : "草稿已存 · 可启用研究（验证后再晋级执行）";
-      }
-      const oos = data.oos || status.oos || {};
-      // status 可能缺日截面 Z 字段；用本次 fit 的 data 补全摘要
-      paintRidgeEnableStatus(sum, { ...status, ...data }, {
-        persistOk: !!persist,
-        persistRole,
-        justFitted: !persist,
-        message,
-        fittedAt: data.fitted_at || status.fitted_at || null,
-      });
-      const rm = data.return_model || status.return_model || {};
-      await renderCoCoefTable(rm, { oos });
-    } catch (err) {
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-      setQuantMeta(`ŷ_co 失败 · ${err.message || err}`, { error: true });
-      throw err;
-    } finally {
-      if (runBtn) runBtn.disabled = false;
-    }
-  }
-
   let rankFitBusyTimer = null;
   let rankFitBusyGen = 0;
 
@@ -3126,7 +2986,7 @@ export function initQuant(ctx) {
 
   async function pollRidgeJobUntilDone(jobName, { jobId, sumEl, label } = {}) {
     const pollStarted = Date.now();
-    // 观察池扩到 500～600 后，ŷ_co / ŷ_τc 面板+Ridge 常超 40 分钟
+    // 观察池扩到 500～600 后，ŷ_τc 面板+Ridge 常超 40 分钟
     const absoluteCapMs = 90 * 60 * 1000;
     let netFailStreak = 0;
     let sawOwnJob = false;
@@ -4258,84 +4118,6 @@ export function initQuant(ctx) {
       });
     }
   }
-
-  on("quant-co-ridge-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await runCoRidge({ persist: false });
-    } catch (err) {
-      const sum = document.getElementById("quant-co-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-    }
-  });
-
-  on("quant-co-ridge-persist", "click", onCoPersistClick);
-  on("quant-co-ridge-persist-research", "click", onCoPersistClick);
-  async function onCoPersistClick(e) {
-    e.preventDefault();
-    const persistRole = (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
-    const target =
-      persistRole === "research"
-        ? "ŷ_co 研究套（报告→co_ridge_model_research.json，供历史回测）"
-        : "ŷ_co 执行套（研究槽晋级→co_ridge_model.json；须先启用研究）";
-    if (
-      !window.confirm(
-        persistRole === "research"
-          ? `将 on / ŷ_co 写入 ${target}？不改 ŷ_oo / ŷ_τc、不进主排序。`
-          : `将当前研究套 ŷ_co 晋级为执行套？不改 ŷ_oo / ŷ_τc、不进主排序。`
-      )
-    ) {
-      return;
-    }
-    try {
-      await runCoRidge({ persist: true, persistRole });
-    } catch (err) {
-      const sum = document.getElementById("quant-co-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-    }
-  }
-
-  on("quant-co-ridge-status", "click", async (e) => {
-    e.preventDefault();
-    const sum = document.getElementById("quant-co-summary");
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: "读取中",
-      message: "读取研究 / 执行 / 上次拟合…",
-      busy: true,
-    });
-    try {
-      const res = await fetch("/api/quant/co-ridge/model");
-      const data = await res.json().catch(() => ({}));
-      if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "拟合后看系数 · 再启用研究/执行",
-        });
-        await renderCoCoefTable(null);
-        return;
-      }
-      const oos = data.oos || {};
-      paintRidgeEnableStatus(sum, data);
-      await renderCoCoefTable(data.return_model || {}, { oos });
-    } catch (err) {
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-    }
-  });
 
   on("quant-oo-rank-run", "click", async (e) => {
     e.preventDefault();

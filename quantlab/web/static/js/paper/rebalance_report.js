@@ -18,10 +18,8 @@ export function createRebalanceReportController(deps) {
     scoreCls,
     resolveEodScore,
     resolveTauScore,
-    resolveOnScore,
     Y_EOD_TITLE,
     Y_TAU_TITLE,
-    Y_ON_TITLE,
     isHeuristicScoreScale,
     renderOpsReport,
     formatWeightSourceNote,
@@ -714,7 +712,6 @@ function renderRebalanceReport(
       predicted_score_τc:
         r.predicted_score_τc != null ? r.predicted_score_τc : r["y_τc"],
       y_oc: r.y_oc,
-      y_co: r.y_co != null ? r.y_co : r.y_on,
       horizon_mode: r.horizon_mode || null,
       rem_y_spec: r.rem_y_spec || null,
       y_τc_source: r["y_τc_source"] || null,
@@ -725,10 +722,8 @@ function renderRebalanceReport(
       price: r.price != null ? r.price : r.rebalance_px,
       fusion_w_oo: r.fusion_w_oo,
       fusion_w_oc: r.fusion_w_oc,
-      fusion_w_co: r.fusion_w_co,
       predicted_score_eod: r.predicted_score_eod,
       predicted_score_tau: r.predicted_score_tau,
-      predicted_score_on: r.predicted_score_on,
       y_oo_fuse_score: r.y_oo_fuse_score,
       y_oo_rank: r.y_oo_rank != null ? r.y_oo_rank : r.predicted_score_oo_rank,
       y_oo_rank_n: r.y_oo_rank_n,
@@ -780,13 +775,6 @@ function renderRebalanceReport(
       formula_terms_tau: r.formula_terms_tau || r.score_formula_terms_tau,
       score_formula_tau: r.score_formula_tau,
       factor_coefficients_tau: r.factor_coefficients_tau,
-      formula_terms_co:
-        r.formula_terms_co ||
-        r.score_formula_terms_co ||
-        r.formula_terms_on ||
-        r.score_formula_terms_on,
-      features_co: r.features_co || r.features_on || null,
-      y_spec_co: r.y_spec_co || r.y_spec_on || null,
       weight_source: r.weight_source,
       score_global: r.score_global,
       return_model_source: r.return_model_source,
@@ -933,10 +921,6 @@ function rankOrdinal(raw, nRaw) {
       const scoreTauShown =
         scoreTau != null ? fmtTableScore(r, scoreTau) : "—";
       const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_TAU_TITLE;
-      const scoreOn = resolveOnScore(r);
-      const scoreOnShown =
-        scoreOn != null ? fmtTableScore(r, scoreOn) : "—";
-      const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
       const fuseRaw = Number(r.y_oo_fuse);
       const scoreFuse = Number.isFinite(fuseRaw) ? fuseRaw : null;
       const scoreFuseShown =
@@ -1075,11 +1059,6 @@ function rankOrdinal(raw, nRaw) {
         )}" role="cell" ` +
         `data-score-detail="${tipDetailJson}" data-score-tip="tau" ` +
         `title="${escapeText(scoreTauTitle)}">${escapeText(scoreTauShown)}</div>` +
-        `<div class="num rebalance-score-on paper-hold-score watching-score-on has-tip ${scoreCls(
-          scoreOn
-        )}" role="cell" ` +
-        `data-score-detail="${tipDetailJson}" data-score-tip="on" ` +
-        `title="${escapeText(scoreOnTitle)}">${escapeText(scoreOnShown)}</div>` +
         `<div class="num rebalance-score-fuse rebalance-score paper-hold-score has-tip ${scoreCls(
           scoreFuse
         )}" role="cell" ` +
@@ -1117,10 +1096,9 @@ function rankOrdinal(raw, nRaw) {
     }</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τc · price(τ)→close">y_τc</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
     `<div class="rebalance-th num is-sortable${
       _rankSort.key === "fuse" ? " is-sorted" : ""
-    }" role="columnheader" tabindex="0" data-rank-sort="fuse" title="fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co；真实=open[T+1]/price(τ)−1 · 点击排序">fuse${
+    }" role="columnheader" tabindex="0" data-rank-sort="fuse" title="fuse = w_oo·ŷ_oo + w_τc·ŷ_τc；真实=open[T+1]/price(τ)−1 · 点击排序">fuse${
       _rankSort.key === "fuse" ? (_rankSort.desc ? " ↓" : " ↑") : ""
     }</div>` +
     `<div class="rebalance-th num is-sortable${

@@ -391,12 +391,6 @@ export function fillPathMatrixForm(root, execution) {
     if (!Number.isFinite(n)) return fb;
     return Math.max(0, Math.min(1, n));
   };
-  const clampWCo = (v, fb) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return fb;
-    return Math.max(0, Math.min(10, n));
-  };
-  set("pm_fusion_w_co", clampWCo(pm.fusion_w_co, 1));
   set("pm_fusion_w_oo", clamp01(pm.fusion_w_oo, 0.6));
   set("pm_fusion_w_nc", clamp01(pm.fusion_w_oc, 0.4));
   const clockEl = document.getElementById("quant-fill-clock");
@@ -457,7 +451,6 @@ export function collectPathMatrixForm(root) {
     if (!el) return fallback;
     return !!el.checked;
   };
-  const wCo = Math.max(0, Math.min(num("pm_fusion_w_co", 1), 10));
   const mvCap = 150000;
   let wOo = Math.max(0, Math.min(num("pm_fusion_w_oo", 0.6), 1));
   let wOc = Math.max(0, Math.min(numFirst(["pm_fusion_w_nc", "pm_fusion_w_oc"], 0.4), 1));
@@ -496,7 +489,6 @@ export function collectPathMatrixForm(root) {
         oo_rank_max: ooRankMax,
         oo_rank_strong_max: ooRankStrong,
         oo_rank_top_frac: null,
-        fusion_w_co: Math.round(wCo * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),
         fusion_w_oo: Math.round(wOo * 1000) / 1000,
         fusion_w_oc: Math.round(wOc * 1000) / 1000,

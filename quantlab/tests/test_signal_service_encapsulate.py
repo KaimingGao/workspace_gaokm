@@ -284,7 +284,7 @@ class TestSignalServiceWrap(unittest.TestCase):
                 "gap_pct": -3.73,
                 "dual_score_weights": {"w_eod": 0.0, "w_tau": 1.0},
             },
-            rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
+            rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2},
         )
         self.assertAlmostEqual(float(row.get("y_oo_fuse")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
         self.assertNotIn("y_oc", row)
@@ -306,31 +306,11 @@ class TestSignalServiceWrap(unittest.TestCase):
                 "day_open": 10.0,
                 "price": 10.2,
             },
-            rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
+            rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2},
         )
         fused = 0.8 * 2.30 + 0.2 * 5.69
         rot = (10.2 / 10.0 - 1.0) * 100.0
         self.assertAlmostEqual(float(row.get("y_oo_fuse")), fused - rot, places=4)
-
-    def test_pack_holding_row_keeps_on_features(self):
-        from core.signal.service import SignalService
-
-        row = SignalService().pack_holding_row(
-            {
-                "stock_code": "600183",
-                "predicted_score": 1.07,
-                "y_oo": 1.07,
-                "y_τc": -0.05,
-                "y_co": -0.256,
-                "predicted_score_on": -0.256,
-                "features_co": {"gap_vs_sector": -0.4076, "ret_oc": 2.3},
-                "formula_terms_co": {"total": -0.256, "terms": []},
-                "y_spec_co": {"formula": "open[T+1]/close[T]-1"},
-            },
-            rank_cfg={"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0},
-        )
-        self.assertEqual((row.get("features_co") or {}).get("gap_vs_sector"), -0.4076)
-        self.assertAlmostEqual(float(row.get("y_co")), -0.256)
 
     def test_gate_reexports(self):
         from core.signal_service import (

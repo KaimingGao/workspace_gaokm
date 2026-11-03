@@ -1011,14 +1011,12 @@ class TestCloseBandCore(unittest.TestCase):
                     "ret_vs_sector": -0.57,
                 },
                 "formula_terms_tau": {"intercept": 0.1, "terms": []},
-                "formula_terms_co": {"intercept": 9, "terms": [{"key": "gap_pct"}]},
                 "as_of_tau": "09:45",
             },
         )
         self.assertAlmostEqual(row["features_tau"]["ret_vs_sector"], -0.57, places=4)
         self.assertAlmostEqual(row["features_tau"]["sector_ret_to_tau"], -0.026, places=4)
         self.assertEqual(row.get("as_of_tau"), "09:45")
-        self.assertNotIn("formula_terms_co", row)
         self.assertNotIn("y_tau", row)
         later = {"hm": "10:40"}
         _attach_scan_row_tip_fields(

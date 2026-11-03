@@ -1121,7 +1121,7 @@ BS → core/backtest/service.py → engine · topk_probe / topk_oos_curve · top
 | `config.py` | `signal_config` 读写 |
 | `gate.py` | ŷ 生产门禁、scale 推断 |
 | `cross_section_batch.py` | 截面批量 |
-| `dual_score/` | 双层 ŷ：融合、解析、τ/co 头、簿字段、人审配置 |
+| `dual_score/` | 双层 ŷ：融合、解析、τ 头、簿字段、人审配置 |
 
 #### 回测 `core/backtest/`
 
@@ -1360,7 +1360,7 @@ quantlab/
 | 模拟账本 | `core/paper/`（`paper.json`）；对话 position 默认读此 |
 | 观察池 | `core/watching/`（候选宇宙；`watching.json`） |
 | 研究 CLI | `research/*.py` |
-| Job 轮询 | `GET /api/jobs/{name}`（纸面兼容 `/api/paper/job`；Ridge 长拟合：`t30-ridge`…`t90-ridge` · `co-ridge`） |
+| Job 轮询 | `GET /api/jobs/{name}`（纸面兼容 `/api/paper/job`；Ridge 长拟合：`t30-ridge`…`t90-ridge` · `tau-ridge`） |
 
 命名约定：产品「模拟」/ `/follow` = 内部 `paper`。详见 [internal/framework-review.md · 框架梳理](internal/framework-review.md#代码框架梳理与合理性分析) · [本章](#架构总览)（含 [§ 技术栈](#技术栈)）。
 

@@ -132,7 +132,6 @@ class TestInspectFactorAnomaly(unittest.TestCase):
             "predicted_score": 1.2,
             "y_oo": 1.2,
             "y_τc": 0.4,
-            "y_co": 0.3,
             "y_oo_fuse": 0.9,
             "score_rem": 0.4,
             "predicted_score_tau": 0.4,
@@ -194,7 +193,6 @@ class TestStampWindowFactorAnomaly(unittest.TestCase):
             "predicted_score": 1.0,
             "y_oo": 1.0,
             "y_τc": 0.5,
-            "y_co": 0.2,
             "factor_anomaly": {"fatal_tau": True, "fatal_eod": False, "issues": []},
         }
         stamped = stamp_window_scores(item)

@@ -158,7 +158,6 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "holdings_mv_cap": 150000.0,
         "fusion_w_oo": 0.6,
         "fusion_w_oc": 0.4,
-        "fusion_w_co": 1.0,
         "y_oo_gt0": False,
         "y_τc_gt0": False,
         "oo_rank_max": None,
@@ -798,11 +797,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     ),
                     "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
                     "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
-                    "fusion_w_co": float(
-                        pm.get("fusion_w_co")
-                        if pm.get("fusion_w_co") is not None
-                        else 1.0
-                    ),
                     # get_path_matrix_cfg 已 coerce 闸开关
                     "y_oo_gt0": bool(pm.get("y_oo_gt0")),
                     "y_τc_gt0": bool(pm.get("y_τc_gt0")),

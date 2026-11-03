@@ -858,7 +858,7 @@ def _topk_run_config_line(ps: Optional[dict] = None) -> str:
     if _portfolio_bt_engine(ps, params) == "paper_replay":
         bits = [
             "引擎=paper_replay/rank_lots",
-            f"w_co={params.get('fusion_w_co') if params.get('fusion_w_co') is not None else '—'}",
+            f"w_oo={params.get('fusion_w_oo') if params.get('fusion_w_oo') is not None else '—'}",
             f"Fuse入场={params.get('fuse_enter') if params.get('fuse_enter') is not None else '—'}",
             f"Fuse强={params.get('fuse_strong') if params.get('fuse_strong') is not None else '—'}",
         ]

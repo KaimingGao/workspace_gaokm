@@ -73,17 +73,7 @@ class TestOpenPitScore(unittest.TestCase):
         close0 = (row.get("sub_scores") or {}).get("raw_aoo_CLOSE0")
         self.assertIsNotNone(close0)
         self.assertAlmostEqual(float(close0), 28.89 / 29.06, places=5)
-        co = row.get("features_co") or {}
-        self.assertIn("raw_aoo_GAP", co)
-        # 与训练同构：z_co_yest_close_loc 须在，否则与 YCLOSE_LOC 对消断裂
-        self.assertIn("z_co_yest_close_loc", co)
-        self.assertIn("yest_close_loc", co)
-        prev = hist["600887"][-1]
-        loc = (float(prev["close"]) - float(prev["low"])) / (
-            float(prev["high"]) - float(prev["low"])
-        )
-        self.assertAlmostEqual(float(co["yest_close_loc"]), loc, places=4)
-        self.assertAlmostEqual(float(co["z_co_yest_close_loc"]), loc, places=4)
+        self.assertNotIn("features_on", row)
 
     def test_cover_short_returns_not_ok(self) -> None:
         from core.paper.rebalance.open_pit_score import build_open_pit_feature_items
@@ -117,7 +107,6 @@ class TestOpenPitScore(unittest.TestCase):
                 "stock_code": "600887",
                 "sub_scores": {"raw_aoo_GAP": 0.01, "raw_aoo_CLOSE0": 0.99},
                 "features_tau": {"raw_atc_x": 0.1},
-                "features_co": {"raw_aoo_GAP": 0.01},
                 "_score_source": "open_pit",
                 "lake_score_day": "2026-10-28",
             },
@@ -125,7 +114,6 @@ class TestOpenPitScore(unittest.TestCase):
                 "stock_code": "000001",
                 "sub_scores": {"raw_aoo_GAP": -0.01, "raw_aoo_CLOSE0": 1.01},
                 "features_tau": {"raw_atc_x": -0.1},
-                "features_co": {"raw_aoo_GAP": -0.01},
                 "_score_source": "open_pit",
                 "lake_score_day": "2026-10-28",
             },

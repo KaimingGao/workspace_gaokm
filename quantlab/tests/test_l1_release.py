@@ -314,19 +314,15 @@ class ReleaseRowsTests(unittest.TestCase):
             return_value={"ok": True, "family": "tc"},
         ) as tc, mock.patch.object(
             l1_jobs,
-            "_materialize_co",
-            return_value={"ok": True, "family": "co"},
-        ) as co, mock.patch.object(
-            l1_jobs,
             "_materialize_oo_rank",
             return_value={"ok": True, "family": "oo_rank"},
         ) as rank:
             report = l1_jobs._materialize_l1_body(
-                ["oo", "tc", "co"],
+                ["oo", "tc"],
                 ["000001", "000002"],
                 lookback=20,
             )
         self.assertTrue(report.get("ok"), report)
         loaded.assert_called_once()
-        for fn in (oo, tc, co, rank):
+        for fn in (oo, tc, rank):
             self.assertIs(fn.call_args.kwargs.get("stock_bars"), bars)

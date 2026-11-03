@@ -16,7 +16,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         js = self._read("web", "static", "js", "quant.js")
         export_js = self._read("web", "static", "js", "quant", "domain_export.js")
         self.assertNotIn("QUANT_EXPORT_PRESETS", js)
-        self.assertIn("本金默认 20 万 · fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · 入场/强档金额", js)
+        self.assertIn("本金默认 20 万 · 开盘 rot=0，fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc · 入场/强档金额", js)
         self.assertNotIn("现金地板 10 万", js)
         self.assertNotIn("初始 50 万 · y_fuse/y_on · 1000/2000 股", js)
         self.assertNotIn("初始 100 万 · 现金地板 50 万", js)
@@ -301,9 +301,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("/api/quant/cx-ridge", quant_js)
         self.assertNotIn("/api/quant/tpd-ridge", quant_js)
         self.assertNotIn("/api/quant/path-ridge", quant_js)
-        self.assertIn("/api/quant/co-ridge", quant_js)
         self.assertNotIn("/api/quant/on-ridge", quant_js)
-        self.assertIn("quant-co-ridge-run", panel)
         self.assertIn("/api/quant/oo-rank", quant_js)
         self.assertIn("quant-oo-rank-run", panel)
         self.assertIn("quant-oo-rank-persist-research", panel)
@@ -363,14 +361,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("messageHtml", quant_js)
         self.assertNotIn("quant-oos-compare-note", quant_js)
         self.assertNotIn("quant-tau-result", quant_js)
-        self.assertNotIn("quant-co-result", quant_js)
         self.assertNotIn("clearRemResultBox", quant_js)
-        self.assertNotIn("clearCoResultBox", quant_js)
         self.assertNotIn("sampleCount:", quant_js)
         self.assertNotIn('id="quant-tau-result"', panel)
-        self.assertNotIn('id="quant-co-result"', panel)
         self.assertNotIn("#quant-tau-result", self._read("web", "static", "css", "quant.css"))
-        self.assertNotIn("#quant-co-result", self._read("web", "static", "css", "quant.css"))
         self.assertNotIn(
             "sampleCount:",
             self._read("web", "static", "js", "quant", "domain_suggest.js"),
@@ -394,7 +388,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         factor_ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
         self.assertIn("isOoRankGain", factor_ic)
         self.assertIn("isOoRankRidge", factor_ic)
-        # ŷ_oo / τc / co / τ30… 因子表列宽与 ŷ_oo_rank 同壳
         self.assertIn('flexMin: "16rem"', factor_ic)
         self.assertIn("flexFr: 2,", factor_ic)
         self.assertIn("width: 88,", factor_ic)
@@ -484,15 +477,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("#quant-t30-result.quant-weight-table-wrap", css)
         self.assertIn("#quant-t90-result.quant-weight-table-wrap", css)
         self.assertIn("#quant-tc-rank-coef-table.quant-weight-table-wrap", css)
-        self.assertIn("#quant-co-coef-table.quant-weight-table-wrap", css)
         self.assertIn("#quant-oo-rank-result:empty", css)
         self.assertIn("#quant-tc-rank-result:empty", css)
         self.assertIn("#quant-t30-result:empty", css)
         self.assertIn("#quant-t90-result:empty", css)
         self.assertIn('aria-label="ŷ_oo 因子表"', panel)
         self.assertIn('aria-label="ŷ_τc 因子表"', panel)
-        self.assertIn('aria-label="ŷ_co 因子表"', panel)
-        self.assertIn("isOo || isTc || isCo || isHorizon", factor_ic)
+        self.assertIn("isOo || isTc || isHorizon", factor_ic)
         self.assertIn("${yhatTag} 因子表", factor_ic)
         self.assertIn("#quant-t30-coef-table.quant-weight-table-wrap", css)
         self.assertIn(".quant-secondary-fold", css)
@@ -837,7 +828,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("主字段 <code>y_τc</code>", panel)
         self.assertIn("/api/quant/t30-ridge", quant_js)
         self.assertIn('jobName: "t30-ridge"', quant_js)
-        self.assertIn('jobName: "co-ridge"', quant_js)
         self.assertIn("/api/quant/t60-ridge", quant_js)
         self.assertIn('jobName: "t60-ridge"', quant_js)
         self.assertNotIn('jobName: "tc-ridge"', quant_js)
@@ -909,7 +899,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">ŷ_oo</", panel)
         self.assertIn("open[T]→open[T+1]", panel)
         self.assertIn("price[τ]→close[T]", panel)
-        self.assertIn("close[T]→open[T+1]", panel)
+        self.assertNotIn("close[T]→open[T+1]", panel)
         self.assertNotIn("全局 Ridge / OLS · 主轴排序", panel)
         self.assertNotIn("τ→close Ridge · 副轴 / τ 闸", panel)
         self.assertNotIn("隔夜缺口 Ridge · 风控旁路", panel)
@@ -933,7 +923,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="quant-ols-summary"', panel)
         self.assertIn("quant-rem-status", panel)
         self.assertIn(">ŷ_τc</", panel)
-        self.assertIn(">ŷ_co</", panel)
         self.assertNotIn("quant-tc-tree-run", panel)
         self.assertNotIn("ŷ_τc_tree", panel)
         self.assertNotIn("quant-section-r-tree", panel)
@@ -982,7 +971,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("close→open LightGBM · 滑窗增量 · 不进 live", panel)
         self.assertNotIn('id="quant-oo-tree-qlib-lgb"', panel)
         self.assertNotIn('id="quant-tau-tree-qlib-lgb"', panel)
-        self.assertNotIn('id="quant-co-tree-qlib-lgb"', panel)
         self.assertNotIn("Qlib LGB 预设", panel)
         self.assertNotIn("quant-section-tau-tree", panel)
         self.assertNotIn('id="quant-tau-tree-alpha_oo"', panel)
@@ -990,15 +978,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("ŷ_oo_tree", panel)
         self.assertNotIn("quant-section-oo-tree", panel)
         self.assertNotIn('id="quant-oo-tree-alpha_oo"', panel)
-        self.assertNotIn("quant-co-tree-run", panel)
-        self.assertNotIn("ŷ_co_tree", panel)
-        self.assertNotIn("quant-section-co-tree", panel)
-        self.assertNotIn('id="quant-co-tree-alpha_oo"', panel)
         self.assertEqual(panel.find('id="quant-section-oo-tree"'), -1)
         self.assertEqual(panel.find('id="quant-section-tau-tree"'), -1)
-        self.assertEqual(panel.find('id="quant-section-co-tree"'), -1)
         self.assertNotIn("/api/quant/oo-tree", quant_js)
-        self.assertNotIn("/api/quant/co-tree", quant_js)
         self.assertNotIn("quant-tau-boost-run", panel)
         self.assertNotIn("/api/quant/tau-boost", quant_js)
         self.assertIn("tau_lag1", self._read("core", "research", "tau_panel.py"))
@@ -1324,15 +1306,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("开仓/加仓上涨为命中，清仓/减仓下跌为命中", replay)
         self.assertIn("策略看多（买/加/持仓）的命中率", replay)
         self.assertIn("没有次日开盘不计", replay)
-        self.assertIn("fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co", replay)
-        self.assertNotIn("ŷ_oo残", replay)
-        self.assertNotIn(
-            "fuse＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)",
+        self.assertIn(
+            "fuse = w_oo·ŷ_oo + w_τc·ŷ_τc",
             replay,
         )
+        self.assertNotIn("ŷ_oo残", replay)
         self.assertNotIn("分数仍是 09:30 开盘信息集", replay)
         self.assertIn("截至该钟的 5m 前缀重算", replay)
-        self.assertNotIn("ŷ_oc∘w_co·ŷ_co", replay)
         self.assertNotIn("sign(y_fuse)=sign(当日收/昨收−1)", replay)
         self.assertLess(replay.find('id="replay-kpi-win"'), replay.find('id="replay-kpi-acc"'))
         self.assertLess(replay.find('id="replay-kpi-acc"'), replay.find('id="replay-kpi-hit"'))
@@ -1406,7 +1386,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
             'name="pm_fusion_w_nc" min="0.0" max="1.0" step="0.05" value="0.4"',
             replay,
         )
-        self.assertIn('name="pm_fusion_w_co"', replay)
         self.assertNotIn('name="pm_y_on_alpha"', replay)
         self.assertIn('name="pm_fuse_enter"', replay)
         self.assertIn('name="pm_fuse_strong"', replay)
@@ -1469,8 +1448,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('slot-label">强阈值', replay)
         self.assertNotIn('slot-label">强档股数', replay)
         pm = replay[replay.find('id="paper-path-matrix-form"') : replay.find('id="paper-t0-form"')]
-        self.assertIn("分数融合", pm)
-        self.assertIn("fuse 门槛", pm)
+        self.assertIn("FUSE 权重", pm)
+        self.assertIn("FUSE 门槛", pm)
         self.assertIn(">其他</h4>", pm)
         self.assertNotIn("<legend>共用</legend>", pm)
         self.assertNotIn("<legend>门槛1</legend>", pm)
@@ -1689,8 +1668,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("rank_lots", bt_js)
         self.assertNotIn('engine: "paper_replay"', bt_js)
         self.assertNotIn("include_wf_slices", bt_js)
-        self.assertIn("fusion_w_co", bt_js)
-        self.assertIn("readFusionWCo", bt_js)
+        self.assertNotIn("readFusionWCo", bt_js)
         self.assertNotIn("y_on_alpha", bt_js)
         self.assertNotIn("readYOnAlpha", bt_js)
         self.assertIn("readInitialCash", bt_js)
@@ -1917,7 +1895,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(".bt-trade-side", trades_css)
         self.assertIn("realized_cc", trades_js)
         self.assertIn("realized_on", trades_js)
-        self.assertIn('id: "y_on"', trades_js)
+        self.assertNotIn('id: "y_on"', trades_js)
         self.assertIn('id: "y_tau"', trades_js)
         self.assertIn('label: "y_τc"', trades_js)
         self.assertNotIn('label: "R_τ"', trades_js)
@@ -1925,15 +1903,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("R_HAT_TITLE", trades_js)
         self.assertNotIn("R_REALIZED_TITLE", trades_js)
         self.assertIn('label: "y_oo"', trades_js)
-        self.assertIn('label: "y_co"', trades_js)
         self.assertIn("realized_tau", trades_js)
-        self.assertIn("fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · τ→open[T+1] 基准", trades_js)
-        self.assertNotIn("rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)", trades_js)
+        self.assertIn(
+            "fuse = w_oo·ŷ_oo + w_τc·ŷ_τc",
+            trades_js,
+        )
         self.assertNotIn("fuse − (price(τ)/open−1)", trades_js)
         self.assertIn("真实 次日开/今日开", trades_js)
         self.assertIn("真实 close/price(τ)−1", trades_js)
         self.assertIn("`τ=${fillClock}`", trades_js)
-        self.assertIn("真实 次日开/今日收", trades_js)
+        self.assertNotIn("真实 次日开/今日收", trades_js)
         self.assertIn("真实 —（待次日开）", trades_js)
         self.assertIn("realized_oo", trades_js)
         self.assertIn("y_oo_fuse_realized", trades_js)
@@ -1945,7 +1924,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id: "y_oo_fuse"', trades_js)
         self.assertIn("ŷ_oo ${fmtScore(yf, { signed: true })}", trades_js)
         self.assertIn("ŷ_τc ${fmtScore(ytau, { signed: true })}", trades_js)
-        self.assertIn("ŷ_co ${fmtScore(yo, { signed: true })}", trades_js)
         self.assertIn(
             "r.y_oo_fuse != null",
             trades_js,
@@ -1975,7 +1953,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("预估(真实)", trades_js)
         self.assertIn("Y_EOD_TITLE", trades_js)
         self.assertIn("Y_OC_REBALANCE_TITLE", trades_js)
-        self.assertIn("Y_ON_TITLE", trades_js)
+        self.assertNotIn("Y_ON_TITLE", trades_js)
         self.assertNotIn("Y_HL_TITLE", trades_js)
         self.assertIn('data-score-tip="${escapeHtml(', trades_js)
         self.assertIn('"eod"', trades_js)
@@ -2036,7 +2014,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(trades_js.find('id: "price"'), trades_js.find('id: "stock_ret"'))
         self.assertLess(trades_js.find('id: "stock_ret"'), trades_js.find('id: "y_oo_fuse"'))
         self.assertLess(trades_js.find('id: "y_oo_fuse"'), trades_js.find('id: "y_oo"'))
-        self.assertLess(trades_js.find('id: "y_on"'), trades_js.find('id: "y_oo_rank"'))
+        self.assertLess(trades_js.find('id: "y_tau"'), trades_js.find('id: "y_oo_rank"'))
         self.assertIn('id: "y_oo_rank"', trades_js)
         self.assertIn('label: "oo_rank",', trades_js)
         self.assertIn("过入场后作买序", trades_js)
@@ -2077,7 +2055,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("r.y_nowcast ??", trades_js)
         self.assertIn('"y_oo"', trades_js)
         self.assertIn('"y_oc"', trades_js)
-        self.assertIn('"y_co"', trades_js)
         self.assertNotIn('id: "y_t30"', trades_js)
         self.assertNotIn('id: "y_t60"', trades_js)
         self.assertNotIn('id: "y_t90"', trades_js)
@@ -2424,12 +2401,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('data-score-tip="fuse"', self._read("web", "static", "js", "watching_table_island.js"))
         self.assertNotIn('data-score-tip="trade"', self._read("web", "static", "js", "watching_table_island.js"))
         island = self._read("web", "static", "js", "watching_table_island.js")
-        self.assertLess(island.find('label: "y_co"'), island.find('label: "fuse"'))
+        self.assertLess(island.find('label: "y_τc"'), island.find('label: "fuse"'))
         self.assertIn('label: "y_τc"', island)
         render = self._read("web", "static", "js", "quant", "watching_render.js")
         self.assertIn(">y_τc</th>", render)
         self.assertLess(
-            render.find('title="ŷ_co · close[T]→open[T+1]">y_co</th>'),
+            render.find('title="${Y_OC_REBALANCE_TITLE}">y_τc</th>'),
             render.find('title="${FUSE_REBALANCE_TITLE}">fuse</th>'),
         )
         self.assertIn("fusion_w_oo: it && it.fusion_w_oo", render)
@@ -2465,7 +2442,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('data-score-tip="fuse"', bt_js)
         self.assertIn('"eod"', bt_js)
         self.assertIn('"tau"', bt_js)
-        self.assertIn('"on"', bt_js)
+        self.assertNotIn('"on"', bt_js)
         self.assertNotIn('"hl"', bt_js)
         self.assertNotIn('"rtau"', bt_js)
         insights = self._read("web", "static", "js", "quant", "watching_insights_ui.js")
@@ -2643,20 +2620,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("表列为 fuse", ui_js)
         self.assertNotIn("表列为 ŷ_trade", ui_js)
         self.assertLess(
-            ui_js.find('sortThHtml("y_oc", "score_tau")'),
-            ui_js.find('sortThHtml("y_co", "score_on")'),
-        )
-        self.assertLess(
-            ui_js.find('sortThHtml("y_co", "score_on")'),
+            ui_js.find('sortThHtml("y_τc", "score_tau")'),
             ui_js.find('sortThHtml("fuse", "score")'),
         )
         self.assertNotIn('sortThHtml("y_τc", "score_nowcast")', ui_js)
         self.assertLess(
             island_js.find('label: "y_τc"'),
-            island_js.find('label: "y_co"'),
-        )
-        self.assertLess(
-            island_js.find('label: "y_co"'),
             island_js.find('label: "fuse"'),
         )
         self.assertLess(
@@ -2776,7 +2745,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         render_js = self._read("web", "static", "js", "quant", "watching_render.js")
         self.assertIn("y_oo_source", render_js)
         self.assertIn('"y_τc_source"', render_js)
-        self.assertIn("y_co_source", render_js)
         self.assertIn("本槽未跑 τc Ridge", tip_js)
         self.assertIn("ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1", tip_js)
         self.assertIn("pickTauToPct", tip_js)
@@ -2854,7 +2822,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('!String(t.note || "").includes("缺特征")', tip_js)
         self.assertIn("另 ${missingN} 项缺特征未列出", tip_js)
         self.assertNotIn("yhat-contrib-bars", tip_js)
-        self.assertIn('key === "eod" || key === "tau" || key === "on" || key === "co"', tip_js)
+        self.assertIn('key === "eod" || key === "tau" || isOoRank', tip_js)
         self.assertIn("if (expl.missing_n != null) out.missing_n = expl.missing_n", wr)
         self.assertIn("p_up: expl.p_up != null ? expl.p_up : null", wr)
         self.assertIn("head_kind: expl.head_kind || null", wr)
@@ -3368,9 +3336,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-oo-tree-run", panel)
         self.assertNotIn("quant-oo-tree-result", panel)
         self.assertNotIn("quant-section-oo-tree", panel)
-        self.assertNotIn("quant-co-tree-run", panel)
-        self.assertNotIn("quant-co-tree-result", panel)
-        self.assertNotIn("quant-section-co-tree", panel)
         self.assertNotIn("已并入 ŷ_τ* 主卡 · 仅保留 API 对照", panel)
         self.assertNotIn("P(窗收益>0) · LightGBM · 影子对照 · 不进 live", panel)
         self.assertNotIn("LightGBM · 滑窗增量 · 不进 live", panel)
@@ -3379,7 +3344,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("/api/quant/tau-tree", js)
         self.assertNotIn("/api/quant/tc-tree", js)
         self.assertNotIn("/api/quant/oo-tree", js)
-        self.assertNotIn("/api/quant/co-tree", js)
         self.assertNotIn("runTauTree", js)
         self.assertNotIn("runOoTree", js)
         self.assertNotIn("runCoTree", js)
@@ -3449,12 +3413,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("启用执行", panel)
         self.assertIn("persist_role", js)
         self.assertIn("paintRidgeEnableStatus", js)
-        self.assertIn('jobName: "co-ridge"', js)
-        self.assertIn("ŷ_co Ridge + 隔夜缺口面板", js)
         self.assertNotIn("coFitBusyHint", js)
         self.assertNotIn("堆叠隔夜缺口面板", js)
         self.assertNotIn("ON Ridge + 时间 OOS", js)
-        self.assertIn("草稿已存 · 可启用研究（验证后再晋级执行）", js)
+        self.assertNotIn("草稿已存 · 可启用研究（验证后再晋级执行）", js)
         self.assertIn("研究+执行", js)
         self.assertIn("showChip", js)
         self.assertIn("metas.length === 0", js)
@@ -3474,22 +3436,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="quant-holdout-days"', panel)
         self.assertIn('id="quant-holdout-days" type="number" min="1" max="60" step="1" value="20"', panel)
         self.assertIn('id="quant-holdout-days-tc"', panel)
-        self.assertIn('id="quant-holdout-days-co"', panel)
         self.assertIn('id="quant-holdout-days-t30"', panel)
         self.assertNotIn('id="quant-holdout-days-oo_tree"', panel)
         self.assertIn('id="quant-fit-lookback-oo"', panel)
         self.assertIn('id="quant-fit-lookback-tc"', panel)
-        self.assertIn('id="quant-fit-lookback-co"', panel)
         self.assertNotIn('id="quant-fit-window-oo"', panel)
         self.assertNotIn('id="quant-fit-window-tc"', panel)
-        self.assertNotIn('id="quant-fit-window-co"', panel)
         # Tree 头：滑窗 / 步长（Ridge 卡无）
         self.assertNotIn('id="quant-fit-window-oo_tree"', panel)
         self.assertNotIn('id="quant-fit-window-tc_tree"', panel)
-        self.assertNotIn('id="quant-fit-window-co_tree"', panel)
         self.assertNotIn('id="quant-fit-step-oo_tree"', panel)
         self.assertNotIn('id="quant-fit-step-tc_tree"', panel)
-        self.assertNotIn('id="quant-fit-step-co_tree"', panel)
         self.assertNotIn("滑窗 init_model", panel)
         self.assertNotIn("LightGBM init_model 增量", panel)
         self.assertIn('id="quant-fit-cs-z-oo"', panel)
@@ -3545,7 +3502,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("forHorizon", params_js)
         self.assertIn('...readTauEndFitParams("tc")', js)
         self.assertIn('...readTauEndFitParams("t30")', js)
-        self.assertIn('id="quant-fit-cs-z-co"', panel)
         self.assertIn('id="quant-fit-cs-z-t30"', panel)
         self.assertIn('id="quant-fit-cs-z-t45"', panel)
         self.assertIn('id="quant-fit-cs-z-t60"', panel)
@@ -3579,7 +3535,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("omitTauEndBit", js)
         self.assertNotIn('id="quant-fit-cs-z-oo_tree"', panel)
         self.assertNotIn('id="quant-fit-cs-z-tc_tree"', panel)
-        self.assertNotIn('id="quant-fit-cs-z-co_tree"', panel)
         self.assertIn("日截面 Z", panel)
         # 日截面 Z 在 Holdout 左侧
         for _cs, _ho in (
@@ -3611,7 +3566,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(panel.index('id="quant-holdout-days"'), panel.index('id="quant-section-tau"'))
         self.assertGreater(panel.index('id="quant-holdout-days"'), panel.index('id="quant-section-factors"'))
         self.assertGreater(panel.index('id="quant-holdout-days-tc"'), panel.index('id="quant-section-tau"'))
-        self.assertGreater(panel.index('id="quant-holdout-days-co"'), panel.index('id="quant-section-co"'))
         self.assertIn("holdout_trading_days", js)
         self.assertIn("readHoldoutTradingDays", js)
         # 卡头 Holdout 是 1～60；排序头按输入值提交
@@ -3646,7 +3600,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("formatTreeSlideBit", js)
         self.assertNotIn('readCrossSectionFitParams("oo_tree")', js)
         self.assertNotIn('readCrossSectionFitParams("tc_tree")', js)
-        self.assertNotIn('readCrossSectionFitParams("co_tree")', js)
         self.assertNotIn("clampWindowDays", params_js)
         self.assertNotIn("DEFAULT_WINDOW_DAYS", params_js)
         self.assertNotIn("DEFAULT_STEP_DAYS", params_js)
@@ -3682,7 +3635,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         _cs_heads = params_js[params_js.index("CS_Z_FIT_HEADS") : params_js.index("CS_Z_FIT_HEADS") + 280]
         self.assertNotIn('"oo_tree"', _cs_heads)
         self.assertNotIn('"tc_tree"', _cs_heads)
-        self.assertNotIn('"co_tree"', _cs_heads)
         self.assertIn("cross_section_zscore", params_js)
         self.assertIn("FIT_PARAM_HEADS", params_js)
         self.assertIn("FIT_LOOKBACK_MIN = 100", params_js)
@@ -3705,9 +3657,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("readLabelDemean", js)
         self.assertNotIn("readRecencyDecay", js)
         self.assertIn('readHoldoutTradingDays("tc")', js)
-        self.assertIn('readHoldoutTradingDays("co")', js)
         self.assertIn('readCrossSectionFitParams("tc")', js)
-        self.assertIn('readCrossSectionFitParams("co")', js)
         self.assertIn('readCrossSectionFitParams("t30")', js)
         self.assertIn('readCrossSectionFitParams("oo_rank")', js)
         self.assertNotIn("label_demean", js)
@@ -3718,6 +3668,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("waitQuantOlsClustersJob", suggest)
         self.assertNotIn("/api/jobs/quant-ols-clusters", suggest)
         self.assertNotIn("runFactorOlsPoolSuggest", suggest)
+        self.assertIn("草稿已存 · 可启用研究（验证后再晋级执行）", suggest)
         self.assertIn("readHoldoutTradingDays", suggest)
         self.assertIn("readCrossSectionFitParams", suggest)
         self.assertIn("formatCrossSectionZBit", suggest)
@@ -3727,10 +3678,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("训练窗 / 日截面 Z 见左侧", panel)
         self.assertIn(
             'id="quant-tau-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合"',
-            panel,
-        )
-        self.assertIn(
-            'id="quant-co-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合"',
             panel,
         )
         self.assertIn(
@@ -3747,7 +3694,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("data.return_model", suggest)
         self.assertIn("holdout_trading_days", suggest)
         self.assertIn("oos: data.oos", suggest.replace("\r\n", "\n"))
-        # ŷ_oo 卡头与 ŷ_τc / ŷ_co 同口径：拟合/研究/执行时间；失败留在卡头，不被状态刷新盖掉
+        # ŷ_oo 卡头与 ŷ_τc 同口径：拟合/研究/执行时间；失败留在卡头，不被状态刷新盖掉
         self.assertIn("fittedAt", suggest)
         self.assertIn("draft.saved_at", suggest)
         self.assertIn("paintRidgeEnableStatus", suggest)
@@ -3847,7 +3794,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         for sid in (
             "quant-section-factors",
             "quant-section-tau",
-            "quant-section-co",
             "quant-section-oo-rank",
             "quant-section-tc-rank",
         ):
@@ -3870,7 +3816,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         order = [
             "quant-section-factors",
             "quant-section-tau",
-            "quant-section-co",
             "quant-section-oo-rank",
             "quant-section-tc-rank",
             "quant-section-t30",
@@ -3953,7 +3898,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
         self.assertIn('? "ŷ_τ90"', ic)
         self.assertIn('"ŷ_oo_rank 因子表"', ic)
-        self.assertIn("isOo || isTc || isCo || isHorizon", ic)
+        self.assertIn("isOo || isTc || isHorizon", ic)
+        self.assertNotIn("opts.head === \"co\"", ic)
         self.assertIn("${yhatTag} 因子表", ic)
         self.assertIn("标准化斜率：右正左负", ic)
         self.assertIn("Acc@0.5", ic)
@@ -4110,10 +4056,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">分钟线<", path)
         self.assertNotIn("ŷ_τc_tree", path)
         self.assertNotIn("ŷ_oo_tree", path)
-        self.assertNotIn("ŷ_co_tree", path)
         self.assertNotIn('href="#quant-section-tau-tree"', path)
         self.assertNotIn('href="#quant-section-oo-tree"', path)
-        self.assertNotIn('href="#quant-section-co-tree"', path)
 
     def test_follow_path_matrix_form(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
@@ -4226,8 +4170,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_w_eod"', replay)
         self.assertNotIn('name="pm_w_tau"', replay)
         self.assertNotIn("w_EOD", replay)
-        self.assertIn("分数融合", replay)
-        self.assertIn("fuse 门槛", replay)
+        self.assertIn("FUSE 权重", replay)
+        self.assertIn("FUSE 门槛", replay)
         self.assertIn(">其他</h4>", replay)
         self.assertIn("follow-path-matrix-body--row2", replay)
         pm = replay[replay.find('id="paper-path-matrix-form"') : replay.find('id="paper-t0-form"')]
@@ -4262,7 +4206,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_oo_rank_max"', pm[pm.find('data-panel="other"') :])
         self.assertNotIn('name="pm_oo_rank_strong_max"', pm[pm.find('data-panel="other"') :])
         self.assertIn("follow-path-matrix-body--row3", replay)
-        self.assertIn('name="pm_fusion_w_co"', replay)
         self.assertNotIn('name="pm_y_on_alpha"', replay)
         self.assertIn('name="pm_initial_cash"', replay)
         self.assertIn('name="pm_lot_base_amount"', replay)
@@ -4430,7 +4373,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("live 过强买 500 否则 200", exe_ui)
         self.assertIn("fusePctToScore", exe_ui)
         self.assertIn("fuseScoreToPct", exe_ui)
-        self.assertIn("pm_fusion_w_co", exe_ui)
         self.assertNotIn("pm_y_on_alpha", exe_ui)
         self.assertNotIn("pm_holdings_mv_cap", exe_ui)
         self.assertNotIn("fillDualScoreForm", exe_ui)
@@ -4553,15 +4495,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(">y_nc</div>", report)
         self.assertLess(
             report.find('title="ŷ_τc · price(τ)→close">y_τc</div>'),
-            report.find('title="ŷ_co · close→次日开">y_co</div>'),
+            report.find('data-rank-sort="fuse"'),
         )
         self.assertIn('"y_τc": r["y_τc"]', report)
         self.assertIn("predicted_score_τc", report)
         self.assertIn("horizon_mode: r.horizon_mode", report)
-        self.assertLess(
-            report.find('title="ŷ_co · close→次日开">y_co</div>'),
-            report.find('data-rank-sort="fuse"'),
-        )
         px_at = report.find('data-rank-sort="px"')
         fuse_at = report.find('data-rank-sort="fuse"')
         oo_rank_at = report.find('data-rank-sort="oo_rank"')
@@ -4587,7 +4525,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('title="ŷ_hl · 极值序">y_hl</div>', report)
         css = self._read("web", "static", "css", "base.css")
         self.assertIn(
-            "minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));",
+            "minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));",
             css,
         )
         self.assertIn(".rebalance-row > .rebalance-px.is-up", css)
@@ -4598,7 +4536,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(".rebalance-reason", css)
         follow_css = self._read("web", "static", "css", "follow.css")
         self.assertIn(
-            "minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));",
+            "minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));",
             follow_css,
         )
         self.assertNotIn("minmax(8.75rem, 1.2fr)", follow_css)

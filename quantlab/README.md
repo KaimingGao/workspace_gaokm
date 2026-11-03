@@ -42,7 +42,7 @@
 | **数据** | 行情 / 日线 / 5m / 基本面 / 舆情；**L1 Feature Lake · L2 DayCube** | `core/data`（DS）· `core/ports` · `adapters.bind` · `core/research/materialize` |
 | **信号** | `hard_reject` + 因子子分；生产打分经 SS | `core/signal_service` → `core/signal` |
 | **因子** | 动量 / 量价 / … 子分；截面 z（PIT，`date\|τ`） | `core/signal/factors` · `data/signal_config.json` |
-| **模型** | ŷ：日线 ŷ_oo / ŷ_co · 分钟 ŷ_τc · 窗头 ŷ_τ30…90→ŷ_τw | `core/yhat` · `core/research/horizon_*` · 双层 fuse（调仓） |
+| **模型** | ŷ：日线 ŷ_oo · 分钟 ŷ_τc · 窗头 ŷ_τ30…90→ŷ_τw | `core/yhat` · `core/research/horizon_*` · 双层 fuse（调仓） |
 | **动作** | 建仓 · 规则调仓 · 做 T · 回测 | `core/watching` · `core/paper` · `core/t0` · `core/backtest` |
 
 量化主轴算数字；AI 旁路只编排与解释（不得改写 `score` / `stance_label`）。
@@ -77,7 +77,7 @@
 | 能力 | 落点 |
 |------|------|
 | 信号 / 倾向 | `core/signal` 打分；`core/advise` + `core/stance` 给出 `stance_label`（只吃 ŷ） |
-| 研究台 ŷ | ŷ_oo / ŷ_τc / ŷ_co；窗头 ŷ_τ30…90 **同窗双训 LightGBM + Ridge**（Holdout AUC 择优）；做 T 用 ŷ_τw |
+| 研究台 ŷ | ŷ_oo / ŷ_τc；窗头 ŷ_τ30…90 **同窗双训 LightGBM + Ridge**（Holdout AUC 择优）；做 T 用 ŷ_τw |
 | 物化特征（L1/L2） | 日线/分钟 **Feature Lake + DayCube**；拟合与回测只读，缺覆盖返回 `materialize_required` |
 | 回测 / 模拟 | `/replay` 调仓 · 做 T；`/follow` 假钱账本、出处标记、成本模型 |
 | 观察 | `/watching` 名单 + 现价 / 涨跌 + 舆情；建仓进模拟账户 |
@@ -85,7 +85,7 @@
 
 **ŷ 与截面口径**
 
-- **调仓**：ŷ_oo 主排序 + fuse（ŷ_τc / ŷ_co），基准是 τ→open[T+1]。
+- **调仓**：ŷ_oo 主排序 + fuse（ŷ_oo 与 ŷ_τc），基准是 τ→open[T+1]。
 - **做 T**：纯 ŷ_τw（五窗 ŷ_τ30…90 相对中位点投票）定方向与金额；训练网格 **09:35…11:00**（分钟 L2），live 可含 09:30。
 - **CS-z**：拟合与 live 均为 **`date|τ` PIT**（同日多钟不混组）。细节见 [docs/t0-logic.md](docs/t0-logic.md)、[docs/quant.md · ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路)、[docs/internal/feature-lake-daycube.md](docs/internal/feature-lake-daycube.md)。
 

@@ -260,7 +260,6 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
         "y_τ90": _pick_keys("y_τ90", "y_t90", "y_t90_hat", "predicted_score_t90"),
         "y_t90_realized": _pick_keys("y_t90_realized", "t90_realized"),
         "r_hat": r_hat,
-        "y_co": _pick("y_co"),
         "gap_pct": gap,
     }
 
@@ -1835,7 +1834,6 @@ def build_t0_viz_payload(
                     "stock_name": name,
                     "y_τc": first_sc.get("y_τc"),
                     "gap_pct": first_sc.get("gap_pct"),
-                    "y_co": first_sc.get("y_co"),
                     "sold_qty": int(d.get("sold_qty") or 0),
                     "covered_qty": int(d.get("covered_qty") or 0),
                     "bought_qty": int(d.get("bought_qty") or 0),

@@ -15,7 +15,7 @@ const FACTOR_FAMILY_DEFS = [
   {
     id: "pv_derived",
     label: "量价衍生",
-    tip: "ŷ_oo 日线 z_oo_*∪raw_aoo_*；ŷ_τc=z_τc_*∪raw_atc_*；ŷ_τ*=z_τh_*∪raw_ath_*；ŷ_co=z_co_*∪raw_aoo_*；omit_sub_score，仅 raw 进模型",
+    tip: "ŷ_oo 日线 z_oo_*∪raw_aoo_*；ŷ_τc=z_τc_*∪raw_atc_*；ŷ_τ*=z_τh_*∪raw_ath_*；omit_sub_score，仅 raw 进模型",
   },
   { id: "other", label: "其他", tip: "未编入 factor_groups" },
 ];
@@ -38,7 +38,6 @@ const PREFIX_FAMILY = [
   { prefix: "z_oo_", family: "pv_derived" },
   { prefix: "z_τh_", family: "pv_derived" },
   { prefix: "z_τc_", family: "pv_derived" },
-  { prefix: "z_co_", family: "pv_derived" },
 ];
 const SOURCE_OVERRIDE = {
   money_flow: {
@@ -498,64 +497,6 @@ const TAU_FEAT_META = {
   },
 };
 
-/** ŷ_co 路径/开盘 Z 特征（不在因子注册表）。 */
-export const CO_FEAT_META = {
-  ret_oc: {
-    label: "昨开→昨收 %",
-    description:
-      "T-1 日已实现开→收收益（%）。开盘决策时刻画昨日 intraday 路径，用于估 open[T+1]/close[T]−1 隔夜缺口。",
-  },
-  ret_cc: {
-    label: "昨收→前收 %",
-    description:
-      "T-1 日收→收涨跌（%）。昨日已实现收→收，辅助 ŷ_co 看路径惯性。",
-  },
-  y_on_today: {
-    label: "今开/昨开 %",
-    description:
-      "T 日已实现 open/open[T−1]−1（%）。今开相对昨开，不是训练标签（标签为 open[T+1]/close[T]−1）。",
-  },
-  gap_pct: TAU_FEAT_META.gap_pct,
-  sector_gap_breadth: TAU_FEAT_META.sector_gap_breadth,
-  theme_day: TAU_FEAT_META.theme_day,
-  gap_atr: TAU_FEAT_META.gap_atr,
-  gap_vs_sector: TAU_FEAT_META.gap_vs_sector,
-  yclose_loc: {
-    label: "今开相对昨高低",
-    description:
-      "今开在昨高低中的位置 0–1。与 τ 头同源；刻画跳空落在昨路径的哪一段。",
-  },
-  yest_close_loc: {
-    label: "昨收位置",
-    description:
-      "昨收在昨高低中的位置 0–1。近高收盘常伴隔夜惯性；与 yclose_loc（今开相对昨高低）互补。",
-  },
-  yest_vol_ratio: {
-    label: "昨量/均量",
-    description: "昨成交量 / 此前均量。放量日隔夜更易消化消息；MA 不含昨日本身。",
-  },
-  dist_to_up_limit: {
-    label: "距涨停 %",
-    description:
-      "昨收到涨停剩余空间（百分点）。主板约 10、创业/科创约 20。近涨停隔夜惯性更强。",
-  },
-  yest_gap: {
-    label: "昨隔夜缺口 %",
-    description:
-      "open[T−1]/close[T−2]−1。上一跳隔夜，不是今日 gap_pct；用于隔夜自相关。",
-  },
-  on_ma5: {
-    label: "近5日隔夜缺口均 %",
-    description: "T−1 之前最多 5 个交易日真实隔夜缺口均值。不含今日 gap_pct。",
-  },
-};
-
-// ŷ_co Z canon：z_co_* ↔ 裸名同文案（与 Python z_co.py 对齐）
-for (const [leg, meta] of Object.entries({ ...CO_FEAT_META })) {
-  if (String(leg).startsWith("z_co_")) continue;
-  CO_FEAT_META[`z_co_${leg}`] = meta;
-}
-
 /**
  * @param {{ fetchImpl?: typeof fetch }} [opts]
  */
@@ -650,17 +591,6 @@ export function createFactorMetaCache(opts = {}) {
     return null;
   }
 
-  function onFeatMeta(name, label) {
-    const key = name != null ? String(name).trim() : "";
-    if (key && CO_FEAT_META[key]) return CO_FEAT_META[key];
-    const lab = label != null ? String(label).trim() : "";
-    if (!lab) return null;
-    for (const m of Object.values(CO_FEAT_META)) {
-      if (m && m.label === lab) return m;
-    }
-    return null;
-  }
-
   function factorDescription(name, label) {
     const meta =
       (name && factorMetaByName[name]) ||
@@ -669,8 +599,6 @@ export function createFactorMetaCache(opts = {}) {
       {};
     const fromApi = String(meta.description || "").trim();
     if (fromApi) return fromApi;
-    const on = onFeatMeta(name, label);
-    if (on && on.description) return String(on.description).trim();
     const tau = tauFeatMeta(name, label);
     return String((tau && tau.description) || "").trim();
   }

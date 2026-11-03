@@ -2,12 +2,12 @@
 
 ŷ_oo  open(T)→open(T+1)   主字段 y_oo / predicted_score_oo；别名 predicted_score
 ŷ_τc  price(τ)→close(T)   主字段 y_τc（含时钟对齐）。原始头在 y_tau_raw。τ=open 时等于 close/open−1。
-ŷ_co  close(T)→open(T+1)  主字段 y_co / predicted_score_co
 
-现网 y_oo_fuse（UI 短名 fuse；τc，price(τ)→close 标签；行上有 y_spec_tau）：
-  y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
-  rot = price(τ)/open[T]−1；两项都在 τ→open[T+1]，不再整段减 rot
-  真实 = open[T+1]/price(τ)−1（09:30 成交价=今开时等于 ŷ_oo 的标签）
+现网 y_oo_fuse（UI 短名 fuse）定义的是某一 τ 时刻的 fuse：
+  y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc
+  rot = price(τ)/open[T]−1，即该 τ 相对开盘的涨跌；两项都在 τ→open[T+1]
+  τ = 开盘时 rot = 0，简化为 y_oo_fuse = w_oo·ŷ_oo + w_τc·ŷ_τc
+  真实 = open[T+1]/price(τ)−1（开盘成交价=今开时等于 ŷ_oo 的标签）
   缺 y_spec 的旧行仍走 open 基准融合再减 rot
 
 R̂_τ = residual = ŷ_τc = close[T]/price(τ)−1
@@ -21,13 +21,10 @@ _PCT_ABS_MAX = 20.0
 
 FORMULA_OO = "open[T+1]/open[T]-1"
 FORMULA_OC = "close[T]/open[T]-1"
-FORMULA_CO = "open[T+1]/close[T]-1"
 FORMULA_TC = "close[T]/price[τ]-1"
 FORMULA_TC_LEGACY = "price[τ]/close[T]-1"
 FORMULA_TC_REMAINING = "remaining(open→close)=(1+ŷ)/(1+open→τ)−1"
-FORMULA_OO_FUSE = (
-    "w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)"
-)
+FORMULA_OO_FUSE = "w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc"
 FORMULA_RESIDUAL = "ŷ_τc = close[T]/price[τ]−1"
 Y_TC_SOURCE_REMAINING = "remaining_oc"
 Y_TC_SOURCE_RIDGE = "ridge"
@@ -317,10 +314,6 @@ def pit_oo_window_quote(
     return hist, quote
 
 
-def pick_y_co(item: Optional[dict]) -> Optional[float]:
-    return _first_pct(item, ("y_co", "predicted_score_co"))
-
-
 def ret_open_to_tau_of(item: Optional[dict]) -> Optional[float]:
     if not isinstance(item, dict):
         return None
@@ -367,23 +360,6 @@ def compound_pct(a: Optional[float], b: Optional[float]) -> Optional[float]:
     if fb is None:
         return float(fa)
     return ((1.0 + fa / 100.0) * (1.0 + fb / 100.0) - 1.0) * 100.0
-
-
-def oc_with_co(
-    y_τc: Optional[float],
-    y_co: Optional[float],
-    w_co: float = 0.0,
-) -> Optional[float]:
-    """((1+ŷ_τc/100)(1+w_co·ŷ_co/100)−1)×100。无 ŷ_τc 则 None；w_co=0 或缺 ŷ_co 则 ŷ_τc。"""
-    if y_τc is None:
-        return None
-    try:
-        wc = max(0.0, float(w_co or 0.0))
-    except (TypeError, ValueError):
-        wc = 0.0
-    if y_co is None or wc <= 1e-12:
-        return float(y_τc)
-    return compound_pct(y_τc, wc * float(y_co))
 
 
 def ret_open_to_tau_pct(
@@ -488,15 +464,15 @@ def y_oo_fuse_pct(
     *,
     w_oo: float = 0.5,
     w_τc: float = 0.5,
-    w_co: float = 0.0,
     rem_model_doc: Optional[dict] = None,
     ret_open_to_tau: Optional[float] = None,
 ) -> Optional[float]:
-    """调仓 y_oo_fuse（百分点），现网 τc。
+    """调仓 y_oo_fuse（百分点）：某一 τ 时刻的 fuse。
 
     行上 ``y_spec_tau`` 为 price(τ)→close 时：
-        y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
-        直接算在 τ→open[T+1]；ŷ_oo 用 remaining_at_tau，ŷ_τc 已是 τ→close。
+        y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc
+        rot = price(τ)/open[T]−1。ŷ_oo 用 remaining_at_tau，ŷ_τc 已是 τ→close。
+        τ = 开盘时 rot = 0，上式即 w_oo·ŷ_oo + w_τc·ŷ_τc。
 
     缺 y_spec 时退回 open 基准融合，由 ``remaining_y_oo_fuse_pct`` 再减 rot。
     ``rem_model_doc`` 优先于 item。
@@ -504,17 +480,14 @@ def y_oo_fuse_pct(
     from core.signal.yhat_geom import remaining_at_tau
 
     is_oc = tau_model_is_open_to_close(rem_model_doc if rem_model_doc is not None else item)
-    y_co = pick_y_co(item)
     if is_oc:
-        right = oc_with_co(pick_y_τc(item), y_co, w_co)
-        return fuse_pct(pick_y_oo(item), right, w_left=w_oo, w_right=w_τc)
+        return fuse_pct(pick_y_oo(item), pick_y_τc(item), w_left=w_oo, w_right=w_τc)
     y_tc = pick_y_τc(item)
     rot = _f(ret_open_to_tau)
     if rot is None:
         rot = ret_open_to_tau_of(item)
     y_oo_rem = remaining_at_tau(pick_y_oo(item), rot)
-    right = oc_with_co(y_tc, y_co, w_co)
-    return fuse_pct(y_oo_rem, right, w_left=w_oo, w_right=w_τc)
+    return fuse_pct(y_oo_rem, y_tc, w_left=w_oo, w_right=w_τc)
 
 
 def remaining_y_oo_fuse_pct(
@@ -621,15 +594,6 @@ def fusion_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
     return w_oo / s, w_τc / s
 
 
-def fusion_w_co_from_cfg(cfg: Optional[dict]) -> float:
-    """隔夜叠进 ŷ_τc 的系数 fusion_w_co。缺键为 0（不叠）。范围 0～10。"""
-    d = cfg if isinstance(cfg, dict) else {}
-    w = _f(d.get("fusion_w_co"))
-    if w is None:
-        return 0.0
-    return max(0.0, min(10.0, float(w)))
-
-
 def residual_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
     d = cfg if isinstance(cfg, dict) else {}
     w = _f(d.get("residual_w_τc"))
@@ -649,17 +613,15 @@ def residual_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
 def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dict[str, Optional[float]]:
     """抽 ŷ_oo / ŷ_τc + y_oo_fuse / residual（百分点）。"""
     w_oo, w_τc = fusion_weights_from_cfg(cfg)
-    w_co = fusion_w_co_from_cfg(cfg)
     w_res_τc, w_oc_r = residual_weights_from_cfg(cfg)
     y_oo = pick_y_oo(item)
     y_τc = pick_y_τc(item)
-    y_co = pick_y_co(item)
     is_oc = tau_model_is_open_to_close(item)
     o = fuse_open_px(item)
     p = fuse_price_tau(item)
     rot = ret_open_to_tau_pct(o, p)
     fuse = y_oo_fuse_pct(
-        item, w_oo=w_oo, w_τc=w_τc, w_co=w_co, ret_open_to_tau=rot
+        item, w_oo=w_oo, w_τc=w_τc, ret_open_to_tau=rot
     )
     fuse = remaining_y_oo_fuse_pct(
         fuse,
@@ -671,12 +633,10 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
     fa = item.get("factor_anomaly") if isinstance(item, dict) else None
     if isinstance(fa, dict) and fa.get("fatal_tau"):
         y_τc = None
-        y_co = None
         fuse = None
     return {
         "y_oo": y_oo,
         "y_τc": y_τc,
-        "y_co": y_co,
         "y_oo_fuse": fuse,
         "residual": residual,
         "r_hat": residual,
@@ -684,7 +644,6 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
 
 
 __all__ = [
-    "FORMULA_CO",
     "FORMULA_OC",
     "FORMULA_OO",
     "FORMULA_TC",
@@ -699,13 +658,10 @@ __all__ = [
     "fuse_open_px",
     "fuse_pct",
     "fuse_price_tau",
-    "fusion_w_co_from_cfg",
     "fusion_weights_from_cfg",
-    "oc_with_co",
     "invert_price_over_close",
     "pc_formula_is_legacy",
     "pc_formula_of",
-    "pick_y_co",
     "pick_y_oo",
     "pick_y_oo_fuse",
     "pick_y_τc",

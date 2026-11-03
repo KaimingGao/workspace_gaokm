@@ -74,7 +74,6 @@ class TestReplayScoreCache(unittest.TestCase):
                 "stock_code": "600000",
                 "y_oo": 0.01,
                 "y_τc": 0.02,
-                "y_co": 0.0,
                 "y_oo_rank": 1,
                 "y_tc_rank": 2,
                 "features": {"raw_aoo_x": 1.0},

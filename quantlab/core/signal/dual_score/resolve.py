@@ -582,7 +582,7 @@ def _finite_score(value: Any) -> Optional[float]:
 def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) -> Optional[float]:
     """排序键：y_oo_fuse（τ→open[T+1] 基准）。
 
-    盘中：y_oo_fuse = fuse(ŷ_oo_rem, oc_with_co(ŷ_τc, ŷ_co))；
+    盘中：y_oo_fuse = fuse(ŷ_oo_rem, ŷ_τc)；
     eod_next（收盘后）：τ 侧剥离，只用 ŷ_oo，避免旧簿上被今日已实现收益
     污染的分直接进入 T+1 前瞻决策。
     y_oo_fuse 算不出时回退 ŷ_trade（predicted_score_blend），再回退 ŷ_oo。
@@ -606,11 +606,11 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
         except (TypeError, ValueError):
             rk_f = None
         if rk_f is not None and math.isfinite(rk_f):
-            # τ 侧没有 ŷ_τc / ŷ_co 时，现算融合会退化成纯 ŷ_oo。
+            # τ 侧没有 ŷ_τc 时，现算融合会退化成纯 ŷ_oo。
             # 这时用簿上已经写下的融合分，避免正的 ŷ_oo 盖住可能为负的 blend。
-            from core.signal.yhat_windows import pick_y_co, pick_y_τc
+            from core.signal.yhat_windows import pick_y_τc
 
-            if pick_y_τc(item) is None and pick_y_co(item) is None:
+            if pick_y_τc(item) is None:
                 stored_blend = item.get("predicted_score_blend")
                 try:
                     if stored_blend is not None and stored_blend != "":

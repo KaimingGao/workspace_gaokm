@@ -13,7 +13,8 @@ from core.research.materialize import consumer as _mat_consumer
 from core.research.materialize.consumer import MaterializeRequired, hint_for_family
 from core.research.materialize.cover_policy import LAKE_COVER_FRAC, cover_need
 
-_OPEN_FAMILIES = ("oo", "tc", "co", "oo_rank", "tc_rank")
+_OPEN_FAMILIES = ("oo", "tc", "oo_rank", "tc_rank")
+_OPEN_DEFAULT = ("oo", "tc")
 
 
 def recent_trading_days(n: int, *, end: str = "") -> List[str]:
@@ -410,7 +411,7 @@ def assess_coverage(
         hint = "日线物化"
         lead = "观察池已变，请按当前池重跑日线物化"
         do_l1, do_tau = True, False
-        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_FAMILIES[:3])
+        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_DEFAULT)
         req_clks = ["open"]
     elif has_minute and not has_open:
         hint = "分钟线物化"
@@ -429,14 +430,14 @@ def assess_coverage(
         hint = "日线物化"
         lead = "请先日线物化特征（L1/L2）"
         do_l1, do_tau = True, False
-        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_FAMILIES[:3])
+        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_DEFAULT)
         req_clks = ["open"]
     else:
         # 混缺：一键参数两阶段都开
         hint = "分钟线物化"
         lead = "请先物化特征（L1/L2）（日线 open + 分钟 τ）"
         do_l1, do_tau = True, True
-        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_FAMILIES[:3])
+        req_fams = [f for f in fams if f in _OPEN_FAMILIES] or list(_OPEN_DEFAULT)
         req_clks = _dedupe_clocks(clks) or ["open"]
     error = lead
     detail = _coverage_error_bits(problems)
@@ -521,7 +522,7 @@ def clip_replay_score_dates(
     """评分窗截到完整日线 as-of。
 
     盘中 overlay / 半池今日 K 会把会话日塞进日历；消费闸若仍硬要该日
-    oo/tc/co+open，物化永远凑不齐整池。未传 ``as_of`` 时用时钟终点
+    oo/tc+open，物化永远凑不齐整池。未传 ``as_of`` 时用时钟终点
     （15:05 前不含未完成会话日）。回测入口应传 ``complete_daily_as_of``，
     当天日线还没入库时停在本地末根。
     """
@@ -556,7 +557,7 @@ def replay_coverage_gap(
     """
     if not _mat_consumer.consumer_read_only():
         return None
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
+    from core.research.lake_bridge import FAMILY_OO, FAMILY_TC, family_for_tc
 
     codes = [str(c).strip() for c in (stock_bars or {}) if str(c).strip()]
     day_list = [str(d)[:10] for d in (dates or [])]
@@ -571,7 +572,7 @@ def replay_coverage_gap(
     )
     if not scored:
         return None
-    fams = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
+    fams = [FAMILY_OO, FAMILY_TC]
     clks = ["open"]
     clock = str(fill_clock or "09:30")[:5]
     if clock not in ("", "09:30"):

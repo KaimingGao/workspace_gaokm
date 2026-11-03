@@ -6,7 +6,6 @@ from core.platform.job_progress import (  # noqa: F401
     JobRegistry,
     bars_refresh_job,
     chat_job,
-    co_ridge_job,
     job_registry,
     materialize_job,
     minute_refresh_job,

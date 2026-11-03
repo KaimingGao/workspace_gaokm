@@ -74,26 +74,17 @@ export function matchWatchlistSource(code, sourceDescs) {
   return "筛选";
 }
 
-/** y_oo / y_τc / y_co 三列 tip 同一因子条数。 */
+/** y_oo / y_τc tip 同一因子条数。 */
 const Y_HEAD_FACTOR_N = 24;
 
 export function watchingScoreDetail(it) {
-  // ŷ_oo / ŷ_τc / ŷ_co 放前：data-score-detail 过长时避免被截掉
+  // ŷ_oo / ŷ_τc 放前：data-score-detail 过长时避免被截掉
   const terms = slimFormulaTerms(
     (it && (it.score_formula_terms || it.formula_terms)) || null,
     Y_HEAD_FACTOR_N
   );
   const tauTerms = slimFormulaTerms(
     (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
-    Y_HEAD_FACTOR_N
-  );
-  const coTerms = slimFormulaTerms(
-    (it &&
-      (it.formula_terms_co ||
-        it.score_formula_terms_co ||
-        it.formula_terms_on ||
-        it.score_formula_terms_on)) ||
-      null,
     Y_HEAD_FACTOR_N
   );
   const ooRankTerms = slimFormulaTerms(
@@ -155,10 +146,8 @@ export function watchingScoreDetail(it) {
     price: it && it.price,
     y_oo: it && it.y_oo,
     y_oo_source: (it && it.y_oo_source) || null,
-    y_co_source: (it && it.y_co_source) || null,
     "y_τc_source": (it && it["y_τc_source"]) || null,
     y_oc: it && it.y_oc,
-    y_co: it && it.y_co,
     y_oo_rank: it && it.y_oo_rank,
     y_oo_rank_n: it && it.y_oo_rank_n,
     y_oo_rank_score: it && it.y_oo_rank_score,
@@ -181,14 +170,12 @@ export function watchingScoreDetail(it) {
     score_formula_terms: terms,
     formula_terms_tau: tauTerms,
     score_formula_terms_tau: tauTerms,
-    formula_terms_co: coTerms,
     formula_terms_oo_rank: ooRankTerms,
     score_formula_terms_oo_rank: ooRankTerms,
     formula_terms_tc_rank: tcRankTerms,
     score_formula_terms_tc_rank: tcRankTerms,
     fusion_w_oo: it && it.fusion_w_oo,
     fusion_w_oc: it && it.fusion_w_oc,
-    fusion_w_co: it && it.fusion_w_co,
     // ŷ_oc OC 靠前，防止 data-score-detail 截断后 tip 退化成剩余映射分
     y_tau_oc: yTauOc,
     predicted_score_tau_oc: yTauOc,
@@ -410,7 +397,6 @@ export function watchingScoreDetail(it) {
           : it.predicted_score_rem),
     gap_pct: gapPct,
     predicted_score_eod: it && it.predicted_score_eod,
-    predicted_score_on: it && it.predicted_score_on,
     predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
     score: it && it.score != null ? it.score : it && it.predicted_score,
     predicted_score_blend: it && it.predicted_score_blend,
@@ -434,8 +420,6 @@ export function watchingScoreDetail(it) {
     y_spec_tau: (it && it.y_spec_tau) || null,
     features_tau: (it && it.features_tau) || null,
     factor_coefficients_tau: coefsTau,
-    features_co: (it && (it.features_co || it.features_on)) || null,
-    y_spec_co: (it && (it.y_spec_co || it.y_spec_on)) || null,
     dual_score_fusion: (it && it.dual_score_fusion) || null,
     dual_score_weights: (it && it.dual_score_weights) || null,
     dual_score_head: (it && it.dual_score_head) || null,
@@ -747,13 +731,6 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
         )}" title="${escapeHtml(
           d.scoreTauTitle || "ŷ_oc"
         )}">${escapeHtml(String(d.scoreTau ?? "—"))}</td>` +
-        `<td class="num watching-col-num watching-score-cell watching-score-on paper-hold-score has-tip ${escapeHtml(
-          d.scoreOnCls || ""
-        )}" data-q="score_on" data-score-tip="on" data-score-detail="${escapeHtml(
-          d.scoreDetail || ""
-        )}" title="${escapeHtml(
-          d.scoreOnTitle || "ŷ_co"
-        )}">${escapeHtml(String(d.scoreOn ?? "—"))}</td>` +
         (() => {
           const singleHead = !!d.scoreSingleHead;
           const head = d.dualScoreHead || "";
@@ -811,7 +788,6 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tier
     `<th class="watching-col-num" title="相对昨收的涨跌幅（与 Y 列同一口径）">涨跌</th>` +
     `<th class="watching-col-num" title="ŷ_oo · open[T]→open[T+1]">y_oo</th>` +
     `<th class="watching-col-num" title="${Y_OC_REBALANCE_TITLE}">y_τc</th>` +
-    `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
     `<th class="watching-col-num" title="${FUSE_REBALANCE_TITLE}">fuse</th>` +
     `<th class="watching-col-num" title="近端个股收益 − 指数收益。缺指数对齐时显示 RS+相对强弱分，不是超额收益率">超额</th>` +
     `<th class="watching-col-num" title="成交量">量</th>` +
@@ -884,10 +860,6 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       scoreTauNum: null,
       scoreTauCls: "",
       scoreTauTitle: "暂无 ŷ_oc",
-      scoreOn: "…",
-      scoreOnNum: null,
-      scoreOnCls: "",
-      scoreOnTitle: "暂无 ŷ_co",
       stance: "…",
       excess: "…",
       excessNum: null,

@@ -137,7 +137,6 @@ class CubeSpillTests(unittest.TestCase):
                 clock="open",
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 min_items=2,
                 require_oo_item=True,
                 require_tc_day=False,
@@ -150,10 +149,9 @@ class CubeSpillTests(unittest.TestCase):
     def test_vectorized_cubes_match_item_path(self) -> None:
         from core.research.day_cube import clear_memory, load_day_cube
         from core.research.feature_lake import write_stock_panel
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
         from core.research.materialize.cube_batch import build_day_cubes_from_lake
         from core.research.materialize.cube_spill import open_lake_spill
-        from core.signal.factors.z_co import Z_CO_LEGACY_KEYS
         from core.signal.factors.z_oo import z_oo_legacy_keys
         from core.signal.factors.z_tc import Z_TC_LEGACY_OPEN
 
@@ -161,13 +159,11 @@ class CubeSpillTests(unittest.TestCase):
         days = _bars_days(30)
         oo_names = list(z_oo_legacy_keys())[:4]
         tc_names = list(Z_TC_LEGACY_OPEN)[:3]
-        co_names = list(Z_CO_LEGACY_KEYS)[:3]
         self.assertGreaterEqual(len(oo_names), 2)
         rng = np.random.default_rng(7)
         families = (
             (FAMILY_OO, oo_names),
             (FAMILY_TC, tc_names),
-            (FAMILY_CO, co_names),
         )
         for fam, names in families:
             width = len(names)
@@ -189,7 +185,6 @@ class CubeSpillTests(unittest.TestCase):
                 days,
                 family_oo=FAMILY_OO,
                 family_tc=FAMILY_TC,
-                family_co=FAMILY_CO,
                 clock="open",
                 universe_codes=codes,
                 min_items=2,
@@ -199,7 +194,6 @@ class CubeSpillTests(unittest.TestCase):
                 replace_existing=True,
                 shared_oo=None if shared is None else shared[0],
                 shared_tc=None if shared is None else shared[1],
-                shared_co=None if shared is None else shared[2],
             )
 
         item = _build(on_items=lambda _day, _items: None, shared=None)
@@ -217,12 +211,11 @@ class CubeSpillTests(unittest.TestCase):
             }
         clear_memory()
         with open_lake_spill() as spill:
-            for key, fam in (("oo", FAMILY_OO), ("tc", FAMILY_TC), ("co", FAMILY_CO)):
+            for key, fam in (("oo", FAMILY_OO), ("tc", FAMILY_TC)):
                 self.assertTrue(spill.write(key, fam, codes, days))
             shared = (
                 spill.read("oo", codes, days),
                 spill.read("tc", codes, days),
-                spill.read("co", codes, days),
             )
             vec = _build(on_items=None, shared=shared)
         self.assertEqual(int(vec.get("cubes_built") or 0), len(days), vec)
@@ -235,7 +228,7 @@ class CubeSpillTests(unittest.TestCase):
             "sector_ret_to_tau",
             "ret_vs_sector",
         ):
-            for prefix in ("", "z_τh_", "z_τc_", "z_co_"):
+            for prefix in ("", "z_τh_", "z_τc_"):
                 rewritten.add(prefix + bare)
         spilled = {}
         for day in days:
@@ -361,7 +354,6 @@ class SpillWarmupFlagTests(unittest.TestCase):
                 clock="open",
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 min_items=2,
                 require_oo_item=True,
                 require_tc_day=False,

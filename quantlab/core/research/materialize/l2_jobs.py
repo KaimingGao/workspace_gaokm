@@ -319,13 +319,13 @@ def _materialize_l2_with_minute(
     cancel_cb: CancelCb,
     emit_scaled: Callable[..., None],
 ) -> None:
-    """分钟钟：整窗 oo、co 各读一次，每个钟的 tc 只读一次，再按日写立方。
+    """分钟钟：整窗 oo 读一次，每个钟的 tc 只读一次，再按日写立方。
 
     ``clip_minute_store``：没人指定日期时，只覆盖本地 5m 够格的交易日。
     """
     from core.research.day_cube import load_day_cube
     from core.research.feature_lake import slice_stock_panels
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, family_for_tc
+    from core.research.lake_bridge import FAMILY_OO, family_for_tc
     from core.research.materialize.cube_batch import build_day_cubes_from_lake
     from core.research.materialize.horizon_names import (
         HORIZON_COVER_FRAC,
@@ -574,9 +574,8 @@ def _materialize_l2_with_minute(
             )
         return
 
-    # 分钟钟主依赖 tc_HHMM；oo/co 可空（空 dict ≠ None/取消）
+    # 分钟钟主依赖 tc_HHMM；oo 可空（空 dict ≠ None/取消）
     oo_s: Dict[str, tuple] = {}
-    co_s: Dict[str, tuple] = {}
 
     def _read_prog(done: int, n: int, fam: str) -> None:
         _step_emit(open_steps, done, max(1, n), f"L2 读 {fam} {done}/{n}")
@@ -596,43 +595,25 @@ def _materialize_l2_with_minute(
                     _mark_cancelled(key)
             return
         oo_s = oo_got if isinstance(oo_got, dict) else {}
-        co_got = slice_stock_panels(
-            FAMILY_CO,
-            code_list,
-            want,
-            progress_cb=lambda done, n: _read_prog(done, n, "co"),
-            cancel_cb=cancel_cb,
-        )
-        if co_got is None:
-            for clock in minute_clocks:
-                key = str(clock)
-                if pending.get(key) or short.get(key):
-                    _mark_cancelled(key)
-            return
-        co_s = co_got if isinstance(co_got, dict) else {}
-        if not oo_s or not co_s:
+        if not oo_s:
             logger.info(
-                "minute L2 without oo/co panels (tc-only cubes) days=%s..%s oo=%s co=%s",
+                "minute L2 without oo panels (tc-only cubes) days=%s..%s oo=%s",
                 want[0],
                 want[-1],
                 len(oo_s) if isinstance(oo_s, dict) else 0,
-                len(co_s) if isinstance(co_s, dict) else 0,
             )
     except Exception as exc:  # noqa: BLE001
-        # oo/co 读失败不取消分钟钟：以空 panel 继续，靠每钟 tc
+        # oo 读失败不取消分钟钟：以空 panel 继续，靠每钟 tc
         logger.warning(
-            "l2 shared oo/co slice failed; continuing tc-only days=%s..%s: %s",
+            "l2 shared oo slice failed; continuing tc-only days=%s..%s: %s",
             want[0],
             want[-1],
             exc,
         )
         logger.debug("l2 shared slice failed", exc_info=True)
         oo_s = {}
-        co_s = {}
     if not isinstance(oo_s, dict):
         oo_s = {}
-    if not isinstance(co_s, dict):
-        co_s = {}
 
     for clock_i, clock in enumerate(minute_clocks):
         if _cancelled(cancel_cb):
@@ -715,7 +696,6 @@ def _materialize_l2_with_minute(
                     days,
                     family_oo=FAMILY_OO,
                     family_tc=fams[key],
-                    family_co=FAMILY_CO,
                     clock=key,
                     universe_codes=code_list,
                     min_items=need,
@@ -730,7 +710,6 @@ def _materialize_l2_with_minute(
                     swallow_ensure_errors=True,
                     replace_existing=replace,
                     shared_oo=oo_s,
-                    shared_co=co_s,
                     shared_tc=tc_s,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -791,7 +770,7 @@ def materialize_l2(
     """Ensure DayCube for codes × dates × clocks（复用 warmup 逻辑）。
 
     ``require_horizon_names``：兼容旧入参；分钟钟按 ``HORIZON_COVER_FRAC`` 验收窗头列。
-    开盘钟仍走 warmup。分钟钟整窗 oo、co 各读一次，每个钟的 tc 只读一次。
+    开盘钟仍走 warmup。分钟钟整窗 oo 读一次，每个钟的 tc 只读一次。
     未指定 ``dates`` 时，只覆盖本地 5m 里达到截面人数的交易日，不按日线回看窗空跑。
     """
     explicit_dates = any(len(str(d or "")[:10]) >= 10 for d in (dates or []))

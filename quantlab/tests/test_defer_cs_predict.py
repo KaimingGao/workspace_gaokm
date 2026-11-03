@@ -71,9 +71,6 @@ class TestDeferCsPredict(unittest.TestCase):
         ), mock.patch(
             "core.research.tc_ridge.predict_tau_from_features",
             side_effect=AssertionError("defer 不应 predict_tau"),
-        ), mock.patch(
-            "core.research.co_ridge.predict_co_from_features",
-            side_effect=AssertionError("defer 不应 predict_co"),
         ):
             from core.signal.score_stock import score_stock
 

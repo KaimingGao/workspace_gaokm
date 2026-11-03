@@ -36,7 +36,6 @@ class TestDailyTopkDefaults(unittest.TestCase):
         from quant.research.portfolio_data import (
             DAILY_BT_UI_FUSE_ENTER,
             DAILY_BT_UI_FUSE_STRONG,
-            DAILY_BT_UI_FUSION_W_CO,
             DAILY_BT_UI_LOOKBACK,
             daily_bt_option_defaults,
             resolve_daily_replay_kwargs,
@@ -46,7 +45,6 @@ class TestDailyTopkDefaults(unittest.TestCase):
         opts = daily_bt_option_defaults()
         self.assertEqual(opts["engine"], "paper_replay")
         self.assertEqual(opts["lookback"], DAILY_BT_UI_LOOKBACK)
-        self.assertEqual(opts["fusion_w_co"], DAILY_BT_UI_FUSION_W_CO)
         self.assertAlmostEqual(opts["fuse_enter"], DAILY_BT_UI_FUSE_ENTER)
         self.assertAlmostEqual(opts["fuse_strong"], DAILY_BT_UI_FUSE_STRONG)
         self.assertEqual(opts["lookback"], d["lookback"])
@@ -59,10 +57,9 @@ class TestDailyTopkDefaults(unittest.TestCase):
         from quant.research.portfolio_data import resolve_daily_replay_kwargs
 
         got = resolve_daily_replay_kwargs(
-            lookback=60, fusion_w_co=0.4, fuse_enter=0.015, fuse_strong=0.03
+            lookback=60, fuse_enter=0.015, fuse_strong=0.03
         )
         self.assertEqual(got["lookback"], 60)
-        self.assertEqual(got["fusion_w_co"], 0.4)
         self.assertAlmostEqual(got["fuse_enter"], 0.015)
         self.assertAlmostEqual(got["fuse_strong"], 0.03)
         self.assertEqual(got["engine"], "paper_replay")
@@ -168,7 +165,6 @@ class TestTopkParamsDisclose(unittest.TestCase):
             "engine": "paper_replay",
             "fuse_enter": 0.012,
             "fuse_strong": 0.012,
-            "fusion_w_co": 0.0,
             "lookback": 30,
             "cost_model": "simple_cn",
         }
@@ -207,7 +203,6 @@ class TestTopkParamsDisclose(unittest.TestCase):
         self.assertEqual(out.get("cost_model"), "simple_cn")
         self.assertAlmostEqual(float(params.get("fuse_enter") or 0), 0.001)
         self.assertAlmostEqual(float(params.get("fuse_strong") or 0), 0.001)
-        self.assertEqual(float(params.get("fusion_w_co")), 0.0)
         self.assertIn("lookback", params)
         self.assertIn("research_next", out)
         self.assertIn("paper_replay", out.get("note") or "")
@@ -215,7 +210,6 @@ class TestTopkParamsDisclose(unittest.TestCase):
         kw = bt_mock.call_args.kwargs
         self.assertEqual(kw.get("top_k"), 2)
         self.assertEqual(kw.get("cost_model"), "simple_cn")
-        self.assertEqual(kw.get("fusion_w_co"), 0.0)
         self.assertAlmostEqual(float(kw.get("fuse_enter") or 0), 0.001)
         self.assertAlmostEqual(float(kw.get("fuse_strong") or 0), 0.001)
         self.assertEqual(kw.get("lookback"), 30)
@@ -231,12 +225,11 @@ class TestTopkParamsDisclose(unittest.TestCase):
         ), patch(
             "core.backtest.paper_replay.backtest_paper_replay",
             return_value=self._fake_replay(
-                fusion_w_co=0.5, fuse_enter=0.015, fuse_strong=0.03
+                fuse_enter=0.015, fuse_strong=0.03
             ),
         ) as bt_mock:
             out = summarize_portfolio_backtest(
                 codes=["600519", "600036"],
-                fusion_w_co=0.5,
                 fuse_enter=0.015,
                 fuse_strong=0.03,
                 lookback=30,
@@ -244,11 +237,9 @@ class TestTopkParamsDisclose(unittest.TestCase):
         self.assertTrue(out.get("success"), out.get("error"))
         params = out.get("params") or {}
         self.assertEqual(out.get("engine"), "paper_replay")
-        self.assertEqual(float(params.get("fusion_w_co")), 0.5)
         self.assertAlmostEqual(float(params.get("fuse_enter") or 0), 0.015)
         self.assertAlmostEqual(float(params.get("fuse_strong") or 0), 0.03)
         kw = bt_mock.call_args.kwargs
-        self.assertEqual(kw.get("fusion_w_co"), 0.5)
         self.assertAlmostEqual(float(kw.get("fuse_enter") or 0), 0.015)
         self.assertAlmostEqual(float(kw.get("fuse_strong") or 0), 0.03)
 

@@ -181,31 +181,19 @@ class StampRemainingYtcTests(unittest.TestCase):
         self.assertAlmostEqual(sc.get("y_r"), 1.4, places=6)
 
 class StampPrimaryTests(unittest.TestCase):
-    def test_apply_co_writes_y_co(self):
-        from core.signal.dual_score.co import apply_co_score_fields
+    def test_fuse_is_oo_and_tc(self):
+        from core.signal.yhat_windows import y_oo_fuse_pct
 
-        item = apply_co_score_fields({}, co_yhat=0.8)
-        self.assertAlmostEqual(item["y_co"], 0.8)
-        self.assertAlmostEqual(item["predicted_score_co"], 0.8)
-        self.assertNotIn("y_on", item)
-
-    def test_fuse_compounds_oc_with_co(self):
-        from core.signal.yhat_windows import oc_with_co, y_oo_fuse_pct
-
-        y_τc, y_co = 1.0, 1.0
-        right = oc_with_co(y_τc, y_co, 1.0)
-        self.assertAlmostEqual(right, ((1.01 * 1.01) - 1.0) * 100.0, places=6)
-        self.assertAlmostEqual(oc_with_co(1.0, 2.0, 0.0), 1.0)
-        item = {"y_oo": 2.0, "y_τc": 1.0, "y_co": 1.0}
+        item = {"y_oo": 2.0, "y_τc": 1.0}
         self.assertAlmostEqual(y_oo_fuse_pct(item), 1.5, places=6)
         self.assertAlmostEqual(
-            y_oo_fuse_pct(item, w_oo=0.5, w_τc=0.5, w_co=1.0),
-            0.5 * 2.0 + 0.5 * right,
+            y_oo_fuse_pct(item, w_oo=0.5, w_τc=0.5),
+            1.5,
             places=6,
         )
         self.assertAlmostEqual(
-            y_oo_fuse_pct(item, w_oo=0.0, w_τc=1.0, w_co=1.0),
-            right,
+            y_oo_fuse_pct(item, w_oo=0.0, w_τc=1.0),
+            1.0,
             places=6,
         )
 
@@ -223,7 +211,7 @@ class StampPrimaryTests(unittest.TestCase):
             },
             "features_tau": {"ret_open_to_tau": 0.0},
         }
-        self.assertAlmostEqual(y_oo_fuse_pct(item, w_oo=0.5, w_τc=0.5, w_co=0.0), 1.5, places=6)
+        self.assertAlmostEqual(y_oo_fuse_pct(item, w_oo=0.5, w_τc=0.5), 1.5, places=6)
 
     def test_apply_tau_writes_y_τc_as_the_same_yhat(self):
         from core.signal.dual_score import apply_tau_score_fields
@@ -267,7 +255,7 @@ class StampPrimaryTests(unittest.TestCase):
 
         self.assertEqual(
             FORMULA_OO_FUSE,
-            "w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)",
+            "w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc",
         )
 
     def test_pick_y_oo_ignores_y_fuse_as_oo(self):

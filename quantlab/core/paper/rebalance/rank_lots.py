@@ -4,9 +4,10 @@
   - 持有周期 = T 开盘 → T+1 开盘
   - ŷ_oo = open[T]→open[T+1]（现网 predicted_score）
   - ŷ_τc = close[T]/price(τ)−1。τ=open 时 price(τ)=open，等于 close/open−1。时钟对齐后是 y_tau
-  - y_oo_fuse（UI fuse）= w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
-    rot = price(τ)/open[T]−1；基准 τ→open[T+1]
-    w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_τc
+  - y_oo_fuse（UI fuse）是某一 τ 时刻的 fuse
+    = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc
+    rot = price(τ)/open[T]−1（该 τ 相对开盘的涨跌）；基准 τ→open[T+1]
+    τ = 开盘时 rot = 0，简化为 w_oo·ŷ_oo + w_τc·ŷ_τc
   - 过入场（y_oo_fuse>fuse_enter）→ 按 oo_rank 升序（1=最好）开仓或加仓；
     缺 oo_rank 回退 y_oo_fuse 降序；y_oo>0 / y_τc>0 看原始百分点符号
   - 可选形态硬闸（默认关，门槛写死）：高波弱开（vol_p≥0.9 且 a1<0）、
@@ -35,8 +36,6 @@ DEFAULT_FUSE_STRONG = 0.001
 DEFAULT_CASH_FLOOR = 0.0
 DEFAULT_HOLDINGS_MV_CAP = 150_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
-DEFAULT_FUSION_W_CO = 1.0
-FUSION_W_CO_MAX = 10.0
 LOT_AMOUNT_BASE = 10_000.0
 LOT_AMOUNT_STRONG = 20_000.0
 LOT_AMOUNT_MIN = 1_000.0
@@ -102,13 +101,6 @@ def coerce_fuse_threshold(raw: Any, default: float) -> float:
     if abs(v - 0.20) < 1e-6:
         return 0.02
     return v
-
-
-def clamp_fusion_w_co(raw: Any, default: float = DEFAULT_FUSION_W_CO) -> float:
-    v = _f(raw)
-    if v is None:
-        return float(default)
-    return max(0.0, min(float(v), FUSION_W_CO_MAX))
 
 
 def clamp_fusion_weight(raw: Any, default: float = 0.5) -> float:
@@ -437,16 +429,11 @@ def fuse_score_net(
     *,
     w_oo: float = 0.5,
     w_τc: float = 0.5,
-    w_co: float = 0.0,
-    y_co: Optional[float] = None,
 ) -> Optional[float]:
     """开盘基准融合：右侧是 ŷ_τc，百分点 → 净收益（÷100）。决策 fuse 走 y_oo_fuse_pct。"""
-    from core.signal.yhat_windows import fuse_pct, oc_with_co
+    from core.signal.yhat_windows import fuse_pct
 
-    wc = float(w_co or 0.0)
-    co = y_co
-    right = oc_with_co(y_τc, co, wc)
-    fused = fuse_pct(y_oo, right, w_left=w_oo, w_right=w_τc)
+    fused = fuse_pct(y_oo, y_τc, w_left=w_oo, w_right=w_τc)
     if fused is None:
         return None
     return float(fused) / 100.0
@@ -595,7 +582,6 @@ def get_rank_lot_cfg(
         "top_k": k,
         "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
         "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
-        "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else DEFAULT_FUSION_W_CO),
         "lot_base_amount": lot_base_amount,
         "lot_strong_amount": lot_strong_amount,
         "stock_mv_cap": stock_mv_cap_from_strong(lot_strong_amount),
@@ -681,7 +667,6 @@ def y_oo_fuse_pct_of(
     两头都抽不出时才回退显式 y_oo_fuse。
     """
     from core.signal.yhat_windows import (
-        fusion_w_co_from_cfg,
         fusion_weights_from_cfg,
         pick_y_oo_fuse,
         remaining_y_oo_fuse_pct,
@@ -695,7 +680,6 @@ def y_oo_fuse_pct_of(
     if item.get("_tau_prefix_miss"):
         return None
     w_oo, w_τc = fusion_weights_from_cfg(cfg)
-    w_co = fusion_w_co_from_cfg(cfg)
     is_oc = tau_model_is_open_to_close(item)
     o = _f(open_px)
     if o is None or o <= 0:
@@ -710,7 +694,7 @@ def y_oo_fuse_pct_of(
     if not is_oc and rot is not None:
         work = _align_open_tc_to_fill(item, rot=rot)
     fused = y_oo_fuse_pct(
-        work, w_oo=w_oo, w_τc=w_τc, w_co=w_co, ret_open_to_tau=rot
+        work, w_oo=w_oo, w_τc=w_τc, ret_open_to_tau=rot
     )
     if fused is None:
         fused = pick_y_oo_fuse(work)
@@ -917,8 +901,6 @@ _TIP_EXPLAIN_KEYS = (
     "formula_terms",
     "formula_terms_tau",
     "score_formula_terms_tau",
-    "formula_terms_co",
-    "score_formula_terms_co",
     "formula_terms_oo_rank",
     "score_formula_terms_oo_rank",
     "formula_terms_tc_rank",
@@ -926,7 +908,6 @@ _TIP_EXPLAIN_KEYS = (
     "formula_terms_path",
     "score_formula_terms_path",
     "y_spec_tau",
-    "y_spec_co",
     "horizon_mode",
     "rem_y_spec",
     "as_of_tau",
@@ -935,10 +916,8 @@ _TIP_EXPLAIN_KEYS = (
     "factor_coefficients_tau",
     "fusion_w_oo",
     "fusion_w_oc",
-    "fusion_w_co",
     "y_oo_source",
     "y_τc_source",
-    "y_co_source",
     "score_model_role",
     "eod_feature_as_of",
     "lake_score_day",
@@ -954,8 +933,6 @@ _TIP_FORMULA_KEYS = frozenset(
         "formula_terms",
         "formula_terms_tau",
         "score_formula_terms_tau",
-        "formula_terms_co",
-        "score_formula_terms_co",
         "formula_terms_oo_rank",
         "score_formula_terms_oo_rank",
         "formula_terms_tc_rank",
@@ -966,7 +943,7 @@ _TIP_FORMULA_KEYS = frozenset(
 )
 
 
-# y_oo / y_τc / y_co / y_oo_rank 四列 tip 同一因子条数
+# y_oo / y_τc / y_oo_rank tip 同一因子条数
 _Y_HEAD_FACTOR_N = 24
 _Y_HEAD_FORMULA_KEYS = frozenset(
     {
@@ -974,8 +951,6 @@ _Y_HEAD_FORMULA_KEYS = frozenset(
         "formula_terms",
         "formula_terms_tau",
         "score_formula_terms_tau",
-        "formula_terms_co",
-        "score_formula_terms_co",
         "formula_terms_oo_rank",
         "score_formula_terms_oo_rank",
         "formula_terms_tc_rank",
@@ -1055,7 +1030,6 @@ def _debug_scores(
 ) -> Dict[str, Any]:
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import (
-        pick_y_co,
         pick_y_oo_fuse,
         pick_y_τc,
         residual_pct,
@@ -1066,9 +1040,6 @@ def _debug_scores(
     y_τc = sc.get("y_τc")
     if y_τc is None:
         y_τc = pick_y_τc(item)
-    y_co = sc.get("y_co")
-    if y_co is None:
-        y_co = pick_y_co(item)
     fuse = fuse_pct if fuse_pct is not None else sc.get("y_oo_fuse")
     if fuse is None:
         fuse = pick_y_oo_fuse(sc, item)
@@ -1082,7 +1053,6 @@ def _debug_scores(
         r_hat = y_τc
     out: Dict[str, Any] = {
         "y_oo": y_oo,
-        "y_co": y_co,
         "y_τc": y_τc,
         "y_oo_fuse": fuse,
         "y_oo_fuse_score": rs,
@@ -1092,8 +1062,6 @@ def _debug_scores(
         "predicted_score": y_oo,
         "predicted_score_eod": y_oo,
     }
-    if y_co is not None:
-        out["predicted_score_co"] = y_co
     if y_τc is not None:
         out["predicted_score_tau"] = y_τc
     out.update(aux_yhat_fields(item))
@@ -1104,14 +1072,12 @@ def _debug_scores(
 
 def _fusion_weight_fields(cfg: Optional[dict]) -> Dict[str, float]:
     """写入成交/持有行，供 tip 与 rank_lots 决策权同套。"""
-    from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg
+    from core.signal.yhat_windows import fusion_weights_from_cfg
 
     w_oo, w_τc = fusion_weights_from_cfg(cfg)
-    w_co = fusion_w_co_from_cfg(cfg)
     return {
         "fusion_w_oo": w_oo,
         "fusion_w_oc": w_τc,
-        "fusion_w_co": w_co,
     }
 
 
@@ -1130,7 +1096,6 @@ def _try_held_sell(
     reason: str,
     fusion_w_oo: Optional[float] = None,
     fusion_w_oc: Optional[float] = None,
-    fusion_w_co: Optional[float] = None,
 ) -> Tuple[Optional[dict], Optional[dict], float]:
     """T+1 / 做 T 拦卖。返回 (sell, skip, cash_delta)。
 
@@ -1144,7 +1109,6 @@ def _try_held_sell(
         rs,
         fusion_w_oo=fusion_w_oo,
         fusion_w_oc=fusion_w_oc,
-        fusion_w_co=fusion_w_co,
     )
     t0_reason = str(t0_blocks.get(code) or "").strip()
     if t0_reason:
@@ -1265,7 +1229,7 @@ def plan_rank_lot_day(
 
     ``sell_prices`` 缺省等于 ``prices``。历史回测可只给清仓回退价、买入仍走严格钟。
     ``opens`` 为当日开盘；与 ``prices``（τ 成交价）一起把 y_oo_fuse 写成
-    τc 几何剩余。缺 y_spec 的旧行才减 (price(τ)/open−1)；缺开盘则不扣。
+    该 τ 的 fuse（开盘 rot=0 即加权和）。缺 y_spec 的旧行才减 (price(τ)/open−1)；缺开盘则不扣。
 
     ``bars_by_code``：形态闸日线；回测应传 ``stock_bars``。传入则只用它（按 as_of
     切片），不再 ``load_daily_cache``。未传时 live 回退缓存尾 80 根。
@@ -1306,10 +1270,9 @@ def plan_rank_lot_day(
             item["rebalance_px"] = p
         return y_oo_fuse_pct_of(item, cfg, open_px=o, price_tau=p)
 
-    from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg
+    from core.signal.yhat_windows import fusion_weights_from_cfg
 
     w_oo, w_τc = fusion_weights_from_cfg(cfg)
-    w_co = fusion_w_co_from_cfg(cfg)
     w_fields = _fusion_weight_fields(cfg)
     t0_blocks = cfg.get("t0_sell_blocks")
     if not isinstance(t0_blocks, dict):
@@ -1495,7 +1458,6 @@ def plan_rank_lot_day(
                 reason=exit_why,
                 fusion_w_oo=w_oo,
                 fusion_w_oc=w_τc,
-                fusion_w_co=w_co,
             )
             if sell:
                 sell["amount"] = round(float(d_cash), 2)
@@ -1824,7 +1786,6 @@ def plan_rank_lot_day(
         "stock_mv_cap": round(stock_cap, 2),
         "fusion_w_oo": w_oo,
         "fusion_w_oc": w_τc,
-        "fusion_w_co": w_co,
         "top_k": top_k,
         "morph_stamp": morph_stamp,
     }
@@ -1842,20 +1803,17 @@ __all__ = [
     "DEFAULT_INITIAL_CASH",
     "DEFAULT_FUSE_ENTER",
     "DEFAULT_FUSE_STRONG",
-    "DEFAULT_FUSION_W_CO",
     "LOT_AMOUNT_BASE",
     "LOT_AMOUNT_MAX",
     "LOT_AMOUNT_MIN",
     "LOT_AMOUNT_STRONG",
     "LOT_MIN",
     "STOCK_MV_CAP_MULT",
-    "FUSION_W_CO_MAX",
     "AUX_YHAT_KEYS",
     "aux_yhat_fields",
     "tip_explain_fields",
     "clip_lot_to_cash",
     "clamp_fusion_weight",
-    "clamp_fusion_w_co",
     "coerce_fuse_threshold",
     "fuse_score_net",
     "get_rank_lot_cfg",

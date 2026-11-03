@@ -84,9 +84,6 @@ def coefficients_fingerprint(
 def yhat_feature_pack_fingerprint() -> Dict[str, str]:
     """当前包内特征键清单指纹（便于诊断 signal/research 是否同键）。"""
     from core.yhat.keys import (
-        CO_LAG_FEATURES,
-        CO_Z_FEATURES,
-        CO_Z_LEGACY,
         TAU_LAG_FEATURES,
         TAU_Z_FEATURES,
     )
@@ -94,9 +91,6 @@ def yhat_feature_pack_fingerprint() -> Dict[str, str]:
     packs: Dict[str, Sequence[str]] = {
         "TAU_LAG_FEATURES": TAU_LAG_FEATURES,
         "TAU_Z_FEATURES": TAU_Z_FEATURES,
-        "CO_LAG_FEATURES": CO_LAG_FEATURES,
-        "CO_Z_FEATURES": CO_Z_FEATURES,
-        "CO_Z_LEGACY": CO_Z_LEGACY,
     }
     return {name: feature_keys_fingerprint(keys) for name, keys in packs.items()}
 

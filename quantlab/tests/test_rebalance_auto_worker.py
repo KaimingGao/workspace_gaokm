@@ -671,7 +671,6 @@ class TestRebalanceDesk(unittest.TestCase):
                         "y_oo_fuse_score": 0.02885,
                         "y_oo": 2.16,
                         "y_τc": 6.36,
-                        "y_co": -0.54,
                         "reason": "买500股",
                         "old_shares": 0,
                         "new_shares": 500,

@@ -7,20 +7,18 @@ import {
   resolveFuseScore,
   resolveEodScore,
   resolveTauScore,
-  resolveOnScore,
   Y_EOD_TITLE,
   Y_TAU_TITLE,
-  Y_ON_TITLE,
   scoreSeriesStats,
   isHeuristicScoreScale,
-} from "./paper/fmt.js?v=p2544";
+} from "./paper/fmt.js?v=p3540";
 import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
   loadHoldingsSort,
   persistHoldingsSort as persistHoldingsSortSaved,
   sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js?v=p3359";
+} from "./paper/holdings_sort.js?v=p3540";
 import {
   renderLineChart,
   loadLightweightCharts,
@@ -32,7 +30,7 @@ import {
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
   holdActionHintText,
-} from "./paper/holdings_ui.js?v=p3360";
+} from "./paper/holdings_ui.js?v=p3540";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 const _EXEC_V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -60,7 +58,7 @@ import {
 } from "./paper/t0_ui.js?v=p3319";
 import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p3527";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2746";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p3541";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
 import { createHoldingsIslandController } from "./paper/holdings_island.js?v=p3359";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p3371";
@@ -72,7 +70,7 @@ import {
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
 import { BARS_WATCHING_LIMIT } from "./quant/params.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3535";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p3540";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
 import {
@@ -88,7 +86,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p3310";
+} from "./score_tooltip.js?v=p3541";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -2186,7 +2184,6 @@ export function initPaper(ctx) {
           key === "score" ||
           key === "score_eod" ||
           key === "score_tau" ||
-          key === "score_on" ||
           key === "pnl" ||
           key === "tier"
         ) {
@@ -2491,10 +2488,8 @@ export function initPaper(ctx) {
       scoreCls,
       resolveEodScore,
       resolveTauScore,
-      resolveOnScore,
       Y_EOD_TITLE,
       Y_TAU_TITLE,
-      Y_ON_TITLE,
       isHeuristicScoreScale,
       renderOpsReport,
       formatWeightSourceNote,

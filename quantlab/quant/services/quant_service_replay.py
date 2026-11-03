@@ -66,7 +66,6 @@ class QuantReplayMixin:
         include_benchmark: bool = True,
         benchmark_code: str = "pool",
         persist_curve: bool = True,
-        fusion_w_co: float = 1.0,
         fusion_w_oo: Optional[float] = None,
         fusion_w_oc: Optional[float] = None,
         fuse_enter: Optional[float] = None,
@@ -360,13 +359,6 @@ class QuantReplayMixin:
         from core.signal.yhat_windows import FORMULA_OO_FUSE
 
         universe_n = len(stock_bars)
-        try:
-            alpha = float(fusion_w_co)
-        except (TypeError, ValueError):
-            alpha = 0.0
-        if alpha != alpha:
-            alpha = 0.0
-        fusion_w_co = max(0.0, min(10.0, alpha))
         raw_oo = fusion_w_oo
         raw_oc = fusion_w_oc
         w_oo = clamp_fusion_weight(raw_oo, REPLAY_FUSION_W_TRADE)
@@ -458,7 +450,6 @@ class QuantReplayMixin:
                     lookback=int(effective_lookback),
                     initial_cash=cash,
                     cash_floor=REPLAY_CASH_FLOOR,
-                    fusion_w_co=fusion_w_co,
                     fusion_w_oo=w_oo,
                     fusion_w_oc=w_τc,
                     fuse_enter=enter,
@@ -522,7 +513,6 @@ class QuantReplayMixin:
             "benchmark_code": str(benchmark_code or "pool"),
             "initial_cash": cash,
             "cash_floor": REPLAY_CASH_FLOOR,
-            "fusion_w_co": fusion_w_co,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,
             "fuse_enter": enter,
@@ -544,7 +534,7 @@ class QuantReplayMixin:
                 f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · fuse={FORMULA_OO_FUSE} · "
                 f"{lot_base_n:g}/{lot_strong_n:g} 元；"
                 f"w_oo={w_oo:g}；w_τc={w_τc:g}；"
-                f"w_co={fusion_w_co:g}；门槛1/2 入场；"
+                f"门槛1/2 入场；"
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + (
@@ -714,7 +704,6 @@ class QuantReplayMixin:
                     meta={
                         "lookback": lookback,
                         "fuse_enter": enter,
-                        "fusion_w_co": fusion_w_co,
                         "apply_costs": apply_costs,
                         "metrics": result.get("metrics") or {},
                     },

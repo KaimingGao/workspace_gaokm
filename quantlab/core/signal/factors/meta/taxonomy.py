@@ -21,7 +21,7 @@ FAMILY_META: Tuple[Tuple[str, str, str], ...] = (
         "pv_derived",
         "量价衍生",
         "ŷ_oo 日线 z_oo_*∪raw_aoo_*；ŷ_τc=z_τc_*∪raw_atc_*；"
-        "ŷ_τ*=z_τh_*∪raw_ath_*；ŷ_co=z_co_*∪raw_aoo_*；"
+        "ŷ_τ*=z_τh_*∪raw_ath_*；"
         "omit_sub_score，仅 raw 进模型",
     ),
     ("other", "其他", "未编入 factor_groups"),
@@ -48,7 +48,6 @@ PREFIX_FAMILY: Tuple[Tuple[str, str], ...] = (
     ("z_τh_", "pv_derived"),
     ("z_τc_", "pv_derived"),
     ("z_oo_", "pv_derived"),
-    ("z_co_", "pv_derived"),
 )
 
 SOURCE_LABELS: Dict[str, str] = {

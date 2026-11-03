@@ -1,4 +1,4 @@
-"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（y_oo_fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 按金额换算股数）。
+"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（y_oo_fuse=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·ŷ_τc · 按金额换算股数）。
 
 ŷ_oo 始终是 09:30 开盘信息集。ŷ_τc：09:30 成交钟用开盘 Z（``use_minute_tau=False``）；
 09:35–10:00 用 ``refresh_tau_heads_after_prefix``（5m 前缀 + 重挂 τc_rank；
@@ -125,7 +125,6 @@ from core.backtest.replay_sim_rows import (
     _pct_ret,
     _px,
     _row_as_of_day,
-    _sim_y_co,
     _sim_y_τc,
     _skip_to_sim,
     _strip_replay_tau_horizons,
@@ -173,7 +172,6 @@ def backtest_paper_replay(
     cash_floor: Optional[float] = None,
     fuse_enter: Optional[float] = None,
     fuse_strong: Optional[float] = None,
-    fusion_w_co: Optional[float] = None,
     fusion_w_oo: Optional[float] = None,
     fusion_w_oc: Optional[float] = None,
     include_session_day: bool = True,
@@ -232,8 +230,6 @@ def backtest_paper_replay(
             return backtest_paper_replay(stock_bars, **params)
     from core.backtest.engine import _trade_metrics
     from core.paper.rebalance.rank_lots import (
-        DEFAULT_FUSION_W_CO,
-        clamp_fusion_w_co,
         clamp_fusion_weight,
         coerce_fuse_threshold,
         get_rank_lot_cfg,
@@ -267,7 +263,6 @@ def backtest_paper_replay(
 
     # 先解析 ŷ 模型 → required_factor_keys / alpha_oo 抬窗，再铺日历垫特征窗
     global_model: Any = None
-    co_model_doc = None
     tau_model_doc = None
     required_factor_keys: List[str] = []
     if scores_by_date is None:
@@ -283,12 +278,6 @@ def backtest_paper_replay(
             )
         except Exception:  # noqa: BLE001
             logger.debug("replay alpha_oo window bump failed", exc_info=True)
-        try:
-            from core.research.co_ridge import load_co_model
-
-            co_model_doc = load_co_model()
-        except Exception:  # noqa: BLE001
-            logger.debug("load_co_model failed in paper_replay", exc_info=True)
         try:
             from core.research.tc_ridge import load_tau_model
 
@@ -455,9 +444,6 @@ def backtest_paper_replay(
         top_k = max(1, min(int(top_k or 1), cap))
     floor = float(REPLAY_CASH_FLOOR if cash_floor is None else cash_floor)
     initial_cash = clamp_replay_initial_cash(initial_cash)
-    alpha = clamp_fusion_w_co(
-        DEFAULT_FUSION_W_CO if fusion_w_co is None else fusion_w_co
-    )
     raw_oo = fusion_w_oo
     raw_oc = fusion_w_oc
     w_oo = clamp_fusion_weight(
@@ -501,7 +487,6 @@ def backtest_paper_replay(
         "fuse_strong": strong,
         "cash_floor": floor,
         "holdings_mv_cap": 0.0,
-        "fusion_w_co": alpha,
         "fusion_w_oo": w_oo,
         "fusion_w_oc": w_τc,
         "y_oo_gt0": False if y_oo_gt0 is None else bool(coerce_cfg_bool(y_oo_gt0, False)),
@@ -537,7 +522,6 @@ def backtest_paper_replay(
     rl_cfg["cash_floor"] = floor
     rl_cfg["lot_base_amount"] = lot_base_n
     rl_cfg["lot_strong_amount"] = lot_strong_n
-    rl_cfg["fusion_w_co"] = alpha
     rl_cfg["fusion_w_oo"] = w_oo
     rl_cfg["fusion_w_oc"] = w_τc
     rl_cfg["fuse_enter"] = enter
@@ -701,7 +685,6 @@ def backtest_paper_replay(
                     horizon_days=max(1, int(yhat_horizon_days or 1)),
                     cfg=cfg,
                     global_model=global_model,
-                    co_model_doc=co_model_doc,
                     tau_model_doc=tau_model_doc,
                     tau_pool_day=tau_pool_by_date.get(day) or {},
                     required_factor_keys=required_factor_keys or None,
@@ -1081,7 +1064,6 @@ def backtest_paper_replay(
             row["y_oo_fuse_realized"] = None
         row["fusion_w_oo"] = w_oo
         row["fusion_w_oc"] = w_τc
-        row["fusion_w_co"] = alpha
         row["fill_clock"] = clock
         # tip：open ≡ 09:30；缺钟或仍写 open 时显式落 fill_clock（如 09:30 / 09:50）。
         asof = str(row.get("as_of_tau") or row.get("rem_tau") or "").strip()
@@ -1149,7 +1131,7 @@ def backtest_paper_replay(
     fuse_enter = rl_cfg.get("fuse_enter")
     note = (
         f"引擎={ENGINE_ID}：每个交易日 y_oo_fuse={FORMULA_OO_FUSE}，{fill_note}；{oc_note}；"
-        f"fuse 权 w_oo={w_oo:g} w_τc={w_τc:g} w_co={alpha:g}；未过入场则已持仓清仓；"
+        f"fuse 权 w_oo={w_oo:g} w_τc={w_τc:g}；未过入场则已持仓清仓；"
         f"fuse 过入场（fuse入场={fuse_enter}）后按 y_oo_rank 买，缺名次才按 fuse"
         f"（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
@@ -1190,7 +1172,6 @@ def backtest_paper_replay(
             "oo_rank_max": rl_cfg.get("oo_rank_max"),
             "oo_rank_strong_max": rl_cfg.get("oo_rank_strong_max"),
             "oo_rank_top_frac": rl_cfg.get("oo_rank_top_frac"),
-            "fusion_w_co": alpha,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_τc,
             "lot_base_amount": float(rl_cfg.get("lot_base_amount") or REPLAY_AMOUNT_BASE),

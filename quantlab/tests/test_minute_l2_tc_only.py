@@ -1,4 +1,4 @@
-"""分钟 L2：无 oo/co 时仍可按 tc 建钟立方。"""
+"""分钟 L2：无 oo 时仍可按 tc 建钟立方。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest import mock
 
 
 class TestMinuteL2TcOnly(unittest.TestCase):
-    def test_build_day_cubes_accepts_empty_oo_co(self) -> None:
+    def test_build_day_cubes_accepts_empty_oo(self) -> None:
         from core.research.materialize.cube_batch import build_day_cubes_from_lake
 
         codes = ["000001", "000002", "000003", "000004"]
@@ -40,14 +40,12 @@ class TestMinuteL2TcOnly(unittest.TestCase):
                 days,
                 family_oo="oo",
                 family_tc="tc_0935",
-                family_co="co",
                 clock="09:35",
                 universe_codes=codes,
                 min_items=2,
                 require_tc_day=True,
                 require_oo_item=False,
                 shared_oo={},
-                shared_co={},
                 shared_tc=tc_s,
                 swallow_ensure_errors=True,
                 replace_existing=True,
@@ -70,14 +68,12 @@ class TestMinuteL2TcOnly(unittest.TestCase):
                 days,
                 family_oo="oo",
                 family_tc="tc_0935",
-                family_co="co",
                 clock="09:35",
                 universe_codes=codes,
                 min_items=2,
                 require_tc_day=True,
                 require_oo_item=False,
                 shared_oo={},
-                shared_co={},
                 shared_tc={},
                 swallow_ensure_errors=True,
             )
@@ -110,14 +106,12 @@ class TestMinuteL2TcOnly(unittest.TestCase):
                 days,
                 family_oo="oo",
                 family_tc="tc_0935",
-                family_co="co",
                 clock="09:35",
                 universe_codes=codes,
                 min_items=2,
                 require_tc_day=True,
                 require_oo_item=False,
                 shared_oo="bad",  # type: ignore[arg-type]
-                shared_co={},
                 shared_tc=tc_s,
                 swallow_ensure_errors=True,
                 replace_existing=True,

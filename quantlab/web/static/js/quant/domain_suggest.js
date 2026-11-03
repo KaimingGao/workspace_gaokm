@@ -312,7 +312,7 @@ export function installSuggest(q) {
     q.renderRemStatus(els.quantOlsSummary, opts);
   }
 
-  /** 状态接口 → ŷ_τc / ŷ_co 同一套卡头字段（拟合 / 研究 / 执行）。 */
+  /** 状态接口 → ŷ_τc 卡头字段（拟合 / 研究 / 执行）。 */
   function ooRidgeStatusPayload(data) {
     const src = data && typeof data === "object" ? data : {};
     const draft = src.draft && typeof src.draft === "object" ? src.draft : {};
@@ -440,7 +440,7 @@ export function installSuggest(q) {
         null;
       const liveOn = !!(data.active && data.active.exists);
       const researchOn = !!(data.research && data.research.exists);
-      // 与 ŷ_co 同一句：刚拟合只提示草稿；落盘态交给拟合/研究/执行时间
+      // 刚拟合只提示草稿；落盘态交给拟合/研究/执行时间
       const extra = {
         justFitted: justFittedOnce,
         fittedAt,

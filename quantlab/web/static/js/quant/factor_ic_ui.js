@@ -4,7 +4,7 @@
 import { escapeHtml } from "../shared.js";
 import { researchGridHtml, metricCell } from "./research_grid.js";
 import { metricClass } from "./bt_result.js";
-import { classifyFactor, isRemovedFactor, CO_FEAT_META } from "./factor_meta.js";
+import { classifyFactor, isRemovedFactor } from "./factor_meta.js?v=p3553";
 
 /**
  * @param {{
@@ -509,20 +509,6 @@ export function createFactorIcUi(deps) {
     dist_to_up_limit: "距涨停 %",
     yest_gap: "昨隔夜缺口 %",
     on_ma5: "近5日隔夜缺口均 %",
-    z_co_ret_oc: "昨开→昨收 %",
-    z_co_ret_cc: "昨收→前收 %",
-    z_co_y_on_today: "今开/昨开 %",
-    z_co_gap_pct: "跳空 %",
-    z_co_sector_gap_breadth: "同业缺口广度",
-    z_co_theme_day: "主题日",
-    z_co_gap_atr: "缺口 / ATR",
-    z_co_gap_vs_sector: "行业相对缺口",
-    z_co_yclose_loc: "今开相对昨高低",
-    z_co_yest_close_loc: "昨收位置",
-    z_co_yest_vol_ratio: "昨量/均量",
-    z_co_dist_to_up_limit: "距涨停 %",
-    z_co_yest_gap: "昨隔夜缺口 %",
-    z_co_on_ma5: "近5日隔夜缺口均 %",
     // ŷ_τ* alpha_τh / raw_ath_*（与 ATH_FEAT_LABELS 对齐；旧包无 feat_labels 时仍可读）
     raw_ath_GAP: "跳空 %",
     raw_ath_GAP_ABS: "|跳空| %",
@@ -647,15 +633,14 @@ export function createFactorIcUi(deps) {
   }
 
   /**
-   * ŷ_oo / ŷ_τc / ŷ_co / ŷ_τ30…90 / ŷ_oo_rank 因子表：入模因子；KPI + 双向 β 图（oo_rank 双训另含 gain%）。
+   * ŷ_oo / ŷ_τc / ŷ_τ30…90 / ŷ_oo_rank 因子表：入模因子；KPI + 双向 β 图（oo_rank 双训另含 gain%）。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "τc"|"tc"|"tau"|"oo"|"co"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank", topN?: number } } [opts]
+   * @param {{ oos?: object, head?: "τc"|"tc"|"tau"|"oo"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank", topN?: number } } [opts]
    *   ``topN`` 默认 10：表体只展 |β| TopN，其余进折叠。
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isOo = opts.head === "oo";
-    const isCo = opts.head === "co";
     const isTcRank = opts.head === "tc_rank";
     const isOoRank = opts.head === "oo_rank" || isTcRank;
     const _ooBe = String(rm.backend || "").trim().toLowerCase();
@@ -684,8 +669,6 @@ export function createFactorIcUi(deps) {
         ? "ŷ_τc_rank"
       : isOoRank
         ? "ŷ_oo_rank"
-        : isCo
-        ? "ŷ_co"
         : isT90
           ? "ŷ_τ90"
           : isT75
@@ -776,34 +759,6 @@ export function createFactorIcUi(deps) {
       "vol_up_share",
       "pullback_x_vol",
     ]);
-    const onPathExtra = new Set([
-      "ret_oc",
-      "ret_cc",
-      "y_on_today",
-      "yest_close_loc",
-      "yest_vol_ratio",
-      "z_co_ret_oc",
-      "z_co_ret_cc",
-      "z_co_y_on_today",
-      "z_co_yest_close_loc",
-      "z_co_yest_vol_ratio",
-    ]);
-    const onOpenExtra = new Set([
-      "gap_pct",
-      "sector_gap_breadth",
-      "theme_day",
-      "gap_atr",
-      "gap_vs_sector",
-      "yclose_loc",
-      "dist_to_up_limit",
-      "z_co_gap_pct",
-      "z_co_sector_gap_breadth",
-      "z_co_theme_day",
-      "z_co_gap_atr",
-      "z_co_gap_vs_sector",
-      "z_co_yclose_loc",
-      "z_co_dist_to_up_limit",
-    ]);
     const histLagExtra = new Set([
       "tau_lag1",
       "tau_ma5",
@@ -821,8 +776,6 @@ export function createFactorIcUi(deps) {
       "path_ma5",
       "yest_gap",
       "on_ma5",
-      "z_co_yest_gap",
-      "z_co_on_ma5",
     ]);
     const pathExtra = new Set([
       "gap_pct",
@@ -847,7 +800,7 @@ export function createFactorIcUi(deps) {
       rm.feat_labels && typeof rm.feat_labels === "object" ? rm.feat_labels : null;
     const remBareName = (name) => {
       const n = String(name || "");
-      for (const p of ["z_τh_", "z_τc_", "z_co_", "z_oo_"]) {
+      for (const p of ["z_τh_", "z_τc_", "z_oo_"]) {
         if (n.startsWith(p)) return n.slice(p.length);
       }
       return n;
@@ -864,11 +817,6 @@ export function createFactorIcUi(deps) {
           remOpenExtra.has(bare)
         )
           return "开盘";
-        return "其它";
-      }
-      if (isCo) {
-        if (onOpenExtra.has(name) || onOpenExtra.has(bare)) return "开盘";
-        if (onPathExtra.has(name) || onPathExtra.has(bare)) return "路径";
         return "其它";
       }
       if (
@@ -890,10 +838,7 @@ export function createFactorIcUi(deps) {
         const sd = pickNamedNum(stds, name);
         return {
           name,
-          label:
-            isCo && CO_FEAT_META[name] && CO_FEAT_META[name].label
-              ? CO_FEAT_META[name].label
-              : remFactorDisplayLabel(name, featLabels),
+          label: remFactorDisplayLabel(name, featLabels),
           ols,
           abs: Math.abs(ols),
           kind: remKindForName(name),
@@ -1000,8 +945,6 @@ export function createFactorIcUi(deps) {
           ? "rank(open[T]->open[T+1])"
         : isOo
           ? "open[T+1]/open[T]-1"
-        : isCo
-          ? "open[T+1]/close[T]-1"
           : isT90
             ? "mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]-1"
             : isT75
@@ -1101,7 +1044,7 @@ export function createFactorIcUi(deps) {
     const csIcTip = "对齐 Qlib IC：每日截面 Pearson 再对日平均";
     const csRankTip = "对齐 Qlib Rank IC：每日截面 Spearman 再对日平均";
 
-    // 样本 n / Holdout / 训·测：ŷ_oo / ŷ_τc / ŷ_co 挂表头；
+    // 样本 n / Holdout / 训·测：ŷ_oo / ŷ_τc 挂表头；
     // ŷ_oo_rank / ŷ_τ* 已在上方 OOS 对照板，此处不下
     const sampleKpis =
       isOoRank || isHorizon
@@ -1143,8 +1086,6 @@ export function createFactorIcUi(deps) {
           ? "path 模型摘要"
           : isOo
             ? "oo 模型摘要"
-            : isCo
-              ? "co 模型摘要"
               : isT90
                 ? "t90 模型摘要"
                 : isT75
@@ -1300,9 +1241,7 @@ export function createFactorIcUi(deps) {
         `${rows.length}`,
         isPath
           ? `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
-          : isCo
-            ? `路径 ${openN}`
-            : isHorizon
+          : isHorizon
               ? `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN} · 衍生 ${derivedN}`
               : `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
       ) +
@@ -1376,7 +1315,7 @@ export function createFactorIcUi(deps) {
     const yBase = (yDot >= 0 ? ySpec.slice(0, yDot) : ySpec).trim();
     const yGrid = yDot >= 0 ? ySpec.slice(yDot + 1).trim() : "";
     const specTau =
-      !isCo && byTauKeys.length > 1
+      byTauKeys.length > 1
         ? `<div class="quant-rem-coef-spec-tau" title="${esc(byTauFullTip)}">` +
           `<span class="quant-rem-coef-spec-k">OOS · τ</span>` +
           spark +
@@ -1427,8 +1366,6 @@ export function createFactorIcUi(deps) {
         ? `<span class="quant-rem-leg is-open">开盘</span>` +
           `<span class="quant-rem-leg is-minute">分钟</span>` +
           `<span class="quant-rem-leg is-eod">历史</span>`
-        : isCo
-          ? `<span class="quant-rem-leg is-open">路径</span>`
           : `<span class="quant-rem-leg is-open">开盘</span>` +
             `<span class="quant-rem-leg is-minute">分钟</span>` +
             `<span class="quant-rem-leg is-eod">历史</span>` +
@@ -1532,7 +1469,6 @@ export function createFactorIcUi(deps) {
         n.startsWith("z_τh_") ||
         n.startsWith("z_τc_") ||
         n.startsWith("z_oo_") ||
-        n.startsWith("z_co_") ||
         n.startsWith("raw_ath_") ||
         n.startsWith("raw_atc_") ||
         n.startsWith("raw_aoo_")
@@ -1556,9 +1492,6 @@ export function createFactorIcUi(deps) {
         : nm && shown !== nm
           ? `（${nm}）`
           : "";
-      if (isCo) {
-        return `${shown}${key}：T-1 路径 / 开盘 Z，用于估 open[T+1]/close[T]−1。正 β 表示该值偏高时 ŷ_co 更高。`;
-      }
       if (r.kind === "分钟") {
         return `${shown}${key}：≤τ 的 5m 路径摘要。正 β 表示该值偏高时 ${yhatTag} 更高。`;
       }
@@ -1635,9 +1568,7 @@ export function createFactorIcUi(deps) {
         center: true,
         title: isPath
           ? "开盘=缺口 Z；分钟=≤τ 前缀小包；历史=PIT 昨样本（不含当日）"
-          : isCo
-            ? "路径=T 日已实现 + 开盘 Z"
-            : isOoRank
+          : isOoRank
               ? "日线=开锚 alpha_oo / 注册因子"
               : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；历史=PIT 昨样本（不含当日）",
       },
@@ -1730,9 +1661,7 @@ export function createFactorIcUi(deps) {
               : r.kind === "衍生"
                 ? "is-derived"
                 : "is-eod";
-        const kindTip = isCo
-          ? "T 日路径 / 开盘 Z（ŷ_co 头）"
-          : r.kind === "分钟"
+        const kindTip = r.kind === "分钟"
             ? "≤τ 的 5m 路径摘要（分钟 τ）"
             : r.kind === "开盘"
               ? "开盘/截面特征"
@@ -1810,7 +1739,7 @@ export function createFactorIcUi(deps) {
         : hasOoGain || isDual
           ? "ŷ_oo_rank 因子表"
           : "ŷ_oo_rank Ridge 系数"
-      : isOo || isTc || isCo || isHorizon
+      : isOo || isTc || isHorizon
         ? `${yhatTag} 因子表`
         : useProbKpis
           ? `${yhatTag} 概率头`

@@ -93,7 +93,7 @@ class ReplayBatchOpenTests(unittest.TestCase):
     def test_foreign_slice_is_not_used(self) -> None:
         from core.backtest import replay_batch_open as mod
 
-        mod._HOLDER = mod._OpenSlice(["600000"], ["2026-10-29"], {}, {}, {})
+        mod._HOLDER = mod._OpenSlice(["600000"], ["2026-10-29"], {}, {})
         self.assertIsNone(
             score_open_day_from_slice(
                 "2026-10-29",
@@ -132,7 +132,7 @@ class ReplayBatchOpenTests(unittest.TestCase):
         names = inspect.signature(backtest_paper_replay).parameters
         self.assertIn("stock_bars", names)
         self.assertIn("tradable_codes", names)
-        mod._HOLDER = mod._OpenSlice(["600000"], ["2026-10-29"], {}, {}, {})
+        mod._HOLDER = mod._OpenSlice(["600000"], ["2026-10-29"], {}, {})
         out = backtest_paper_replay({})
         self.assertFalse(out.get("success"))
         self.assertIsNone(mod._HOLDER)

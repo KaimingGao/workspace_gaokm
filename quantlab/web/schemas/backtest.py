@@ -35,12 +35,6 @@ class PaperReplayBacktestRequest(BaseModel):
         default="pool",
         description="超额基准：pool/tier_a=观察池可预测性 A 档等权买持；或指数代码如 000300。",
     )
-    fusion_w_co: float = Field(
-        default=1.0,
-        ge=0.0,
-        le=10.0,
-        description="隔夜 ŷ_co 叠进 ŷ_τc 的系数；0=不叠",
-    )
     fusion_w_oo: Optional[float] = Field(
         default=None,
         ge=0.0,

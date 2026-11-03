@@ -320,25 +320,21 @@ def model_suite_fingerprint(
         logger.debug("replay score cache oo paths failed", exc_info=True)
 
     try:
-        from core.research.co_ridge import co_model_path
         from core.research.holdout import research_model_path
         from core.research.tc_ridge import tau_model_path
 
         live_tau = tau_model_path()
-        live_co = co_model_path()
         if role == "live":
-            paths.extend([live_tau, live_co])
+            paths.append(live_tau)
         else:
             paths.extend(
                 [
                     research_model_path(live_tau),
-                    research_model_path(live_co),
                     live_tau,
-                    live_co,
                 ]
             )
     except Exception:  # noqa: BLE001
-        logger.debug("replay score cache tau/co paths failed", exc_info=True)
+        logger.debug("replay score cache tau paths failed", exc_info=True)
 
     try:
         from core.research.holdout import research_model_path

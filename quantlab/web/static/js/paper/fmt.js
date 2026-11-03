@@ -105,14 +105,6 @@ export function fusionWeightsFromItem(it) {
   return { wOo: wOo / s, wOc: wOc / s };
 }
 
-/** 隔夜叠入 ŷ_τc 的系数；默认 0。 */
-export function fusionWCoFromItem(it) {
-  const d = it && typeof it === "object" ? it : {};
-  let w = _numField(d.fusion_w_co);
-  if (w == null) return 0;
-  return Math.max(0, Math.min(10, w));
-}
-
 function fusePct(left, right, wLeft, wRight) {
   const a = _numField(left);
   const b = _numField(right);
@@ -128,17 +120,6 @@ function fusePct(left, right, wLeft, wRight) {
   const s = wl + wr;
   if (s <= 1e-12) return 0.5 * a + 0.5 * b;
   return (wl * a + wr * b) / s;
-}
-
-/** ((1+ŷ_τc)(1+w_co·ŷ_co)−1)×100。w_co=0 或缺 ŷ_co 则 ŷ_τc。 */
-export function ocWithCoPct(yOc, yCo, wCo) {
-  const oc = _numField(yOc);
-  if (oc == null) return null;
-  const co = _numField(yCo);
-  let wc = Number(wCo);
-  if (!Number.isFinite(wc)) wc = 0;
-  if (co == null || wc <= 1e-12) return oc;
-  return compoundPct(oc, wc * co);
 }
 
 /** 拟合 ŷ_τc（price(τ)→close，含时钟对齐）。 */
@@ -218,30 +199,30 @@ export function remainingFusePct(fuse, openPx, priceTau) {
 }
 
 /** 融合分（调仓 y_oo_fuse / UI fuse，百分点）。
- *  OC 模型（open→close 标签）：fuse = w_oo·ŷ_oo + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；
+ *  OC 模型（open→close 标签）：fuse = w_oo·ŷ_oo + w_τc·ŷ_τc；
  *    表列再减 (price(τ)/open−1)（remainingFusePct）。
- *  τc 模型（price(τ)→close 标签）：fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；
- *    rot = price(τ)/open[T]−1；两项均在 τ→open[T+1] 基准，不再减 rot。 */
+ *  τc 模型（price(τ)→close 标签）是某一 τ 的 fuse：
+ *    fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc；
+ *    rot = price(τ)/open[T]−1（该 τ 相对开盘）。
+ *    τ = 开盘时 rot = 0，即 w_oo·ŷ_oo + w_τc·ŷ_τc。两项均在 τ→open[T+1]，不再减 rot。
+ */
 export function yOoFusePct(it) {
   if (!it || typeof it !== "object") return null;
   const oo = resolveEodScore(it);
   const oc = pickYOcFitted(it);
-  const co = resolveOnScore(it);
   const { wOo, wOc } = fusionWeightsFromItem(it);
-  const wCo = fusionWCoFromItem(it);
   const isOc = tauModelIsOpenToClose(it);
   if (isOc) {
-    const fused = fusePct(oo, ocWithCoPct(oc, co, wCo), wOo, wOc);
+    const fused = fusePct(oo, oc, wOo, wOc);
     return _looksLikeYhatPct(fused) ? fused : null;
   }
-  // τc：ŷ_oo 几何映到 τ→open[T+1]，再与 ŷ_τc 侧融合
+  // τc：ŷ_oo 几何映到 τ→open[T+1]，再与 ŷ_τc 融合
   const o = fuseOpenPx(it);
   const p = fusePriceTau(it);
   let rot = null;
   if (o != null && p != null && o > 0 && p > 0) rot = (p / o - 1) * 100;
   const ooRem = eodRemainingAtTau(oo, rot);
-  const right = ocWithCoPct(oc, co, wCo);
-  const fused = fusePct(ooRem, right, wOo, wOc);
+  const fused = fusePct(ooRem, oc, wOo, wOc);
   return _looksLikeYhatPct(fused) ? fused : null;
 }
 
@@ -311,14 +292,11 @@ export const Y_TAU_TITLE = Y_OC_TITLE;
 export const Y_OC_REBALANCE_TITLE =
   "ŷ_τc · 09:30–10:00 因果前缀 price(τ)→close[T]";
 export const FUSE_REBALANCE_TITLE =
-  "fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · τ→open[T+1]";
+  "fuse = w_oo·ŷ_oo + w_τc·ŷ_τc";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =
   "τc实 · close[T]/price(τ)−1（与 ŷ_τc 同标签）";
-export const Y_CO_TITLE = "ŷ_co · close[T]→open[T+1]（对照；不进 fuse / y_oo_fuse）";
-export const Y_ON_TITLE = Y_CO_TITLE;
-
 /** ŷ_hl 已下线：旧行仍可读，新分不再写。 */
 export const Y_HL_TITLE = "ŷ_hl · 极值序 signed (H−L)/ref%";
 /** @deprecated 用 Y_HL_TITLE */
@@ -402,20 +380,6 @@ export function fmtPathScore(v, opts = {}) {
   const digits = opts.digits ?? (Math.abs(n) < 1 ? 2 : 1);
   return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
 }
-
-/** ŷ_co：隔夜缺口对照头。`resolveOnScore` 为列 tip `on` 保留名。 */
-export function resolveCoScore(it) {
-  if (!it || typeof it !== "object") return null;
-  if (isHeuristicScoreScale(it)) return null;
-  for (const c of [it.y_co, it.predicted_score_co, it.predicted_score_on, it.y_on]) {
-    const n = _numField(c);
-    if (_looksLikeYhatPct(n)) return n;
-  }
-  return null;
-}
-
-/** 列 id `score_on` / tip `on` 入口；实现同 resolveCoScore。 */
-export const resolveOnScore = resolveCoScore;
 
 function _pcFormulaIsLegacy(formula) {
   const s = String(formula || "")

@@ -18,7 +18,6 @@ const {
   compoundPct,
   Y_EOD_TITLE,
   Y_OC_REBALANCE_TITLE,
-  Y_ON_TITLE,
 } = await import(`../paper/fmt.js?v=${encodeURIComponent(_V)}`);
 
 const BT_SIM_TRADE_COLS_BASE = [
@@ -303,7 +302,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "10rem",
     num: true,
     sortable: true,
-    title: "fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · τ→open[T+1] 基准",
+    title: "fuse = w_oo·ŷ_oo + w_τc·ŷ_τc",
   },
   {
     id: "y_oo",
@@ -322,15 +321,6 @@ export const BT_LEDGER_TRADE_COLS = [
     num: true,
     sortable: true,
     title: `${Y_OC_REBALANCE_TITLE} · 预估(真实)：close/price(τ)−1 · 对照，不进决策`,
-  },
-  {
-    id: "y_on",
-    label: "y_co",
-    widthPct: 11,
-    widthMin: "10rem",
-    num: true,
-    sortable: true,
-    title: `${Y_ON_TITLE} · 预估(真实)：次日开/今日收 · 对照，不进决策`,
   },
   {
     id: "y_oo_rank",
@@ -541,8 +531,7 @@ function _fusionFromReplayParams(params) {
   const p = params && typeof params === "object" ? params : {};
   const wOo = p.fusion_w_oo;
   const wOc = p.fusion_w_oc;
-  const wCo = p.fusion_w_co;
-  return { fusion_w_oo: wOo, fusion_w_oc: wOc, fusion_w_co: wCo };
+  return { fusion_w_oo: wOo, fusion_w_oc: wOc };
 }
 
 function _fillClockFromDeps(r, deps) {
@@ -567,7 +556,6 @@ function buildLedgerTradeRow(r, i, deps) {
     ...r,
     fusion_w_oo: r.fusion_w_oo != null ? r.fusion_w_oo : fw.fusion_w_oo,
     fusion_w_oc: r.fusion_w_oc != null ? r.fusion_w_oc : fw.fusion_w_oc,
-    fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : fw.fusion_w_co,
     fill_clock: r.fill_clock != null ? r.fill_clock : fillClock,
     as_of_tau:
       r.as_of_tau && String(r.as_of_tau).trim().toLowerCase() !== "open"
@@ -586,7 +574,6 @@ function buildLedgerTradeRow(r, i, deps) {
   const buy = side === "buy";
   const skipped = String(r.status || "") === "skipped";
   const yf = _numOrNull(r.y_oo != null ? r.y_oo : r.predicted_score_eod);
-  const yo = _numOrNull(r.y_co != null ? r.y_co : r.y_on);
   const ytau = _numOrNull(
     r["y_τc"] != null ? r["y_τc"] : r.predicted_score_τc
   );
@@ -617,12 +604,6 @@ function buildLedgerTradeRow(r, i, deps) {
   const ooTip = [
     yf != null ? `ŷ_oo ${fmtScore(yf, { signed: true })}` : "ŷ_oo —",
     rOo != null ? `真实 次日开/今日开 ${fmtScore(rOo, { signed: true })}` : "真实 —（待次日开）",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const onTip = [
-    yo != null ? `ŷ_co ${fmtScore(yo, { signed: true })}` : "ŷ_co —",
-    rOn != null ? `真实 次日开/今日收 ${fmtScore(rOn, { signed: true })}` : "真实 —（待次日开）",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -675,8 +656,6 @@ function buildLedgerTradeRow(r, i, deps) {
     y_oc: ytau,
     y_tau: ytau,
     predicted_score_tau: ytau != null ? ytau : r.predicted_score_tau,
-    y_co: yo,
-    predicted_score_on: yo != null ? yo : r.predicted_score_on,
     y_oo_fuse: fusePctVal != null ? fusePctVal : r.y_oo_fuse,
     y_oo_fuse_realized: rFuse,
     realized_oo: rOo,
@@ -715,9 +694,6 @@ function buildLedgerTradeRow(r, i, deps) {
     y_tauText: fmtScore(ytau, { signed: true }),
     y_tauCls: _scoreClsOf(scoreCls, ytau),
     y_tauTip: tauTip,
-    y_onNum: yo,
-    y_onText: fmtScore(yo, { signed: true }),
-    y_onCls: _scoreClsOf(scoreCls, yo),
     fuseNum: fusePctVal,
     fuseText: fusePctVal == null ? "—" : fmtScore(fusePctVal, { signed: true }),
     fuseCls: _scoreClsOf(scoreCls, fusePctVal),
@@ -729,7 +705,6 @@ function buildLedgerTradeRow(r, i, deps) {
     y_tc_rankNum: yTcRankDisp.text === "—" ? null : yTcRank,
     y_tc_rankText: yTcRankDisp.text,
     y_tc_rankTip: yTcRankDisp.tip,
-    y_onTip: onTip,
     scoreDetail,
     realizedOoNum: rOo,
     realizedOoText: rOo == null ? "" : fmtScore(rOo, { signed: true }),
@@ -885,7 +860,6 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "y_oo_fuse",
     "y_oo",
     "y_oc",
-    "y_co",
     "realized_cc",
     "realized_tau",
     "realized_on",
@@ -930,7 +904,6 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
           : "",
       r.y_oo ?? r.predicted_score ?? "",
       r.y_oc ?? r.y_tau ?? r.predicted_score_tau ?? "",
-      r.y_co ?? r.y_on ?? "",
       r.realized_cc ?? "",
       r.realized_tau ?? "",
       r.realized_on ?? "",
@@ -1014,7 +987,7 @@ function buildSimTradeRow(r, i, deps) {
       ? eodScore
       : blendRaw;
   const scoreColTitleBase = hasTau
-    ? "fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · 悬停看组成"
+    ? "fuse = w_oo·ŷ_oo + w_τc·ŷ_τc · 悬停看组成"
     : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_oc · 关 τ 闸";
   const singleHead =
     r.dual_score_single_head === true ||
@@ -1057,10 +1030,8 @@ function buildSimTradeRow(r, i, deps) {
     y_oo_fuse: r.y_oo_fuse,
     y_oo: r.y_oo != null ? r.y_oo : eodScore,
     y_oc: r.y_oc != null ? r.y_oc : r.y_tau_oc,
-    y_co: r.y_co != null ? r.y_co : r.y_on,
     fusion_w_oo: r.fusion_w_oo,
     fusion_w_oc: r.fusion_w_oc,
-    fusion_w_co: r.fusion_w_co,
     // tip ① 优先 predicted_score=ŷ_oo；表列展示用 blend
     score: eodScore != null ? eodScore : blendScore,
     predicted_score: eodScore != null ? eodScore : blendScore,
@@ -1163,7 +1134,6 @@ const BT_TRADES_NUM_KEYS = {
   stock_ret: "stockRetNum",
   y_oo: "y_ooNum",
   y_tau: "y_tauNum",
-  y_on: "y_onNum",
   y_oo_fuse: "fuseNum",
   y_oo_rank: "y_oo_rankNum",
   y_tc_rank: "y_tc_rankNum",
@@ -1329,15 +1299,6 @@ export function btTradesCellHtml(col, d, deps) {
       d.scoreDetail
     );
   }
-  if (col.id === "y_on") {
-    return _stackScoreHtml(
-      _optPredRealHtml(d.y_onText, d.y_onCls, d.realizedOnText, d.realizedOnCls, escapeHtml),
-      d.y_onTip || Y_ON_TITLE,
-      escapeHtml,
-      "on",
-      d.scoreDetail
-    );
-  }
   if (col.id === "y_oo_fuse") {
     return _stackScoreHtml(
       _optPredRealHtml(
@@ -1347,7 +1308,7 @@ export function btTradesCellHtml(col, d, deps) {
         d.realizedFuseCls,
         escapeHtml
       ),
-      d.fuseTipCell || "fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co · 真实 open[T+1]/price(τ)−1",
+      d.fuseTipCell || "fuse = w_oo·ŷ_oo + w_τc·ŷ_τc · 真实 open[T+1]/price(τ)−1",
       escapeHtml,
       "fuse",
       d.scoreDetail

@@ -217,7 +217,7 @@ class TestFeatureLake(unittest.TestCase):
         from core.research.incremental_panel import merge_matrix_rows
 
         write_stock_panel(
-            "co",
+            "zz",
             "300001",
             dates=["2024-03-01", "2024-03-02", "2024-03-03"],
             X=np.asarray([[1.0], [2.0], [3.0]]),
@@ -237,7 +237,7 @@ class TestFeatureLake(unittest.TestCase):
             keep_from="2024-03-03",
         )
         ok = write_stock_panel(
-            "co",
+            "zz",
             "300001",
             dates=dates_m,
             X=X_m,
@@ -246,7 +246,7 @@ class TestFeatureLake(unittest.TestCase):
             y=y_m,
         )
         self.assertTrue(ok)
-        hit = load_stock_panel("co", "300001", fingerprint="new")
+        hit = load_stock_panel("zz", "300001", fingerprint="new")
         self.assertIsNotNone(hit)
         assert hit is not None
         self.assertEqual(hit["dates"], ["2024-03-01", "2024-03-02", "2024-03-03", "2024-03-04"])

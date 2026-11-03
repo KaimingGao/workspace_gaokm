@@ -92,7 +92,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` · **L1 Feature Lake / L2 DayCube**（训练·回测·live 共用截面物化） | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明；截面 μ/σ 绑 `universe_hash` |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_oo / ŷ_τ / ŷ_co · **blend 融合** · `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论多频率-多目标-ensemble)；生产主排序 = **ŷ_oo**；τ 独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ)；LLM **不改**分 |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_oo / ŷ_τ · **blend 融合** · `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论多频率-多目标-ensemble)；生产主排序 = **ŷ_oo**；τ 独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predictedscoreŷoo-ŷτ)；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -135,7 +135,7 @@ flowchart LR
 | 轴 | 含义 | 目的 |
 |----|------|------|
 | **多频率** | 同一决策日同时使用 **日线因子**、**开盘/τ 时刻**、**5m 分钟路径** 等不同时间粒度的已发生信息 | 日级趋势看「隔夜→多日」；做 T 看「开盘→盘中触价顺序」 |
-| **多目标** | 不同 **标签 \(y\)** / 决策任务：oo 前瞻收益、τ 剩余收益、co 隔夜… | 避免用一个回归头同时充当排序、买入闸、定方向、触价 timing |
+| **多目标** | 不同 **标签 \(y\)** / 决策任务：oo 前瞻收益、τ 剩余收益 | 避免用一个回归头同时充当排序、买入闸、定方向、触价 timing |
 | **Ensemble** | 多模型输出 **正交融合**；弱信号降权、冲突否决 | 提升稳健性，而非堆更多同名因子 |
 
 ```text
@@ -149,7 +149,7 @@ flowchart LR
 
 | 任务 | 主要频率 | 主要目标头 | 融合 / 门控 | 代码落点 |
 |------|----------|------------|-------------|----------|
-| **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_oo**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_co** | **ŷ_trade** = blend(ŷ_oo, 缺口∘ŷ_τ)；过 ŷ_oo floor + τ 闸 | `dual_score/` · `paper_rebalance` |
+| **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_oo**（多日前瞻）· **ŷ_τ**（买入闸） | **ŷ_trade** = blend(ŷ_oo, 缺口∘ŷ_τ)；过 ŷ_oo floor + τ 闸 | `dual_score/` · `paper_rebalance` |
 | **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **纯 ŷ_τw** 选向与金额 | ≥入场正T、≤−入场反T；\|ŷ_τw\| 分档金额 | `core/t0/close_band.py` |
 | **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 无预设目标 | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
@@ -160,7 +160,7 @@ flowchart LR
 | 机制 | 类型 | 说明 |
 |------|------|------|
 | **ŷ_trade blend** | Ensemble（固定权融合） | `fusion_mode=blend`：盘中 \(w_{\mathrm{oo}}\cdot\hat y_{\mathrm{oo}}+w_{\tau}\cdot(\text{缺口}\circ\hat y_\tau)\)。现网 **`w_oo=0, w_tau=1`**；收盘后 `eod_next` 剥离当日 τ。调仓 rank_lots 另用 `fusion_w_oo/oc`（默认 0.6/0.4） |
-| **多 Ridge 头** | Multi-target（非堆叠单分） | `tc_ridge` · `co_ridge` 各自 artifact；**不**改主 β |
+| **多 Ridge 头** | Multi-target（非堆叠单分） | `tc_ridge` 独立 artifact；**不**改主 β |
 | **close_band 做 T** | 纯 ŷ_τw | 每根前缀估 ŷ_τ*→ŷ_τw；≥入场正T、≤−入场反T；金额看 \|ŷ_τw\|；leg2 无预设目标 |
 | **promote（人审）** | 新头工程化验收 | 新头先 OOS 对照 → **人审 promote** 才切换 live |
 

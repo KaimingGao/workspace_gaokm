@@ -122,7 +122,6 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "min_avg_amount_pctile": body.min_avg_amount_pctile,
         "include_benchmark": body.include_benchmark,
         "benchmark_code": body.benchmark_code,
-        "fusion_w_co": body.fusion_w_co,
         "fusion_w_oo": body.fusion_w_oo,
         "fusion_w_oc": body.fusion_w_oc,
         "fuse_enter": body.fuse_enter,

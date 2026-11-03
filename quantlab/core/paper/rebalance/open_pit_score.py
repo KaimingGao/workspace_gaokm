@@ -150,10 +150,8 @@ def _feature_item(
     quote: Optional[dict],
     open_source: Optional[str],
 ) -> Optional[dict]:
-    from core.research.co_panel import build_co_features_from_quote_bars
     from core.signal.factors.alpha_oo import inject_raw_aoo
     from core.signal.factors.alpha_tc import inject_raw_atc
-    from core.signal.factors.z_co import Z_CO_LEGACY_SET, stamp_z_co_aliases
 
     if len(hist) < _OPEN_PIT_MIN_HIST:
         return None
@@ -179,31 +177,6 @@ def _feature_item(
     tau = _finite_feat_map(feats, prefixes=("raw_atc_", "z_τc_", "z_tc_", "z_τh_"))
     if not oo and not tau:
         return None
-    # ŷ_co 训练行 = z_co_*（含 yest_close_loc 等）∪ raw_aoo_*。
-    # 缺 z_co_yest_close_loc 时，与 YKSFT2/YCLOSE_LOC 的对消断裂，隔夜分会炸到数个百分点。
-    co_row = build_co_features_from_quote_bars(
-        quote,
-        hist,
-        stock_code=code,
-        open_t=open_t,
-        prev_close=prev_close,
-        trade_date=cycle_day,
-        include_alpha_oo=False,
-    )
-    co = _finite_feat_map(
-        co_row if isinstance(co_row, dict) else {},
-        prefixes=("z_co_", "raw_aoo_"),
-        exact=Z_CO_LEGACY_SET,
-    )
-    for k, v in oo.items():
-        if str(k).startswith("raw_aoo_"):
-            co.setdefault(k, v)
-    stamp_z_co_aliases(co)
-    co = _finite_feat_map(
-        co,
-        prefixes=("z_co_", "raw_aoo_"),
-        exact=Z_CO_LEGACY_SET,
-    )
     eod_as_of = ""
     if hist:
         eod_as_of = str(hist[-1].get("date") or "")[:10]
@@ -227,9 +200,6 @@ def _feature_item(
         item["sub_scores"] = oo
     if tau:
         item["features_tau"] = tau
-    if co:
-        item["features_co"] = co
-        item["features_on"] = dict(co)
     return item
 
 

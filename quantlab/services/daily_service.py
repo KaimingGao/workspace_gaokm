@@ -54,7 +54,6 @@ class DailyRunService:
         paper_cross_section_rebalance: Optional[bool] = None,
         export_quant_report: Optional[bool] = None,
         lookback: Optional[int] = None,
-        fusion_w_co: Optional[float] = None,
         fuse_enter: Optional[float] = None,
         fuse_strong: Optional[float] = None,
     ) -> Dict[str, Any]:
@@ -287,7 +286,6 @@ class DailyRunService:
                 quant_report_payload = qs.build_daily_report(
                     include_cross_section=cross_section,
                     lookback=lookback,
-                    fusion_w_co=fusion_w_co,
                     fuse_enter=fuse_enter,
                     fuse_strong=fuse_strong,
                 )
@@ -298,7 +296,6 @@ class DailyRunService:
                     "path": path,
                     "factor_sample_count": (quant_report_payload.get("factor_ic") or {}).get("sample_count"),
                     "lookback": lookback,
-                    "fusion_w_co": fusion_w_co,
                     "fuse_enter": fuse_enter,
                     "fuse_strong": fuse_strong,
                 }

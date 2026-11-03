@@ -18,7 +18,6 @@ UNSCORED_HEAD_KEYS = (
     "predicted_score_blend",
     "predicted_score_blend_tau_cc",
     "predicted_score_blend_vs",
-    "predicted_score_co",
     "predicted_score_eod",
     "predicted_score_eod_rem",
     "predicted_score_on",
@@ -30,8 +29,6 @@ UNSCORED_HEAD_KEYS = (
     "score",
     "score_model_role",
     "score_rem",
-    "y_co",
-    "y_co_source",
     "y_oo",
     "y_oo_fuse",
     "y_oo_rank",
@@ -91,10 +88,10 @@ def rescore_fitted_cross_section(
     score_codes: Optional[Collection[str]] = None,
     day_cube: Any = None,
 ) -> List[dict]:
-    """就地刷新截面模型的 ŷ_oo / ŷ_τ / ŷ_co / ŷ_τ*。返回原列表。
+    """就地刷新截面模型的 ŷ_oo / ŷ_τ / ŷ_τ*。返回原列表。
 
     ``score_codes`` 给定时，μ/σ 仍用整批原始特征，只给名单内的代码写 ŷ。
-    ``day_cube`` 给定时，τ/co 用 cube 预计算 μ/σ 做 z（单遍，避免重复扫池）；
+    ``day_cube`` 给定时，τ 用 cube 预计算 μ/σ 做 z（单遍，避免重复扫池）；
     此时允许单票 items（μ/σ 只信 cube）。
     """
     rows = [it for it in items if isinstance(it, dict)]
@@ -104,7 +101,6 @@ def rescore_fitted_cross_section(
         return list(items)
     _rescore_oo_ridge(rows, score_codes=score_codes, day_cube=day_cube)
     _rescore_tau(rows, score_codes=score_codes, day_cube=day_cube)
-    _rescore_co(rows, score_codes=score_codes, day_cube=day_cube)
     _rescore_horizons(rows, score_codes=score_codes, day_cube=day_cube)
     return list(items)
 
@@ -209,19 +205,6 @@ _TAU_HEAD_KEYS = (
     "score_rem",
 )
 
-_CO_HEAD_KEYS = (
-    "y_co",
-    "predicted_score_co",
-    "y_co_source",
-    "formula_terms_co",
-    "score_formula_terms_co",
-    "factor_coefficients_co",
-    "predicted_score_on",
-    "formula_terms_on",
-    "score_formula_terms_on",
-)
-
-
 def _rescore_tau(
     items: List[dict],
     *,
@@ -304,73 +287,6 @@ def _rescore_tau(
                 item.pop(key, None)
         raise RuntimeError(
             "tau 截面 rescore 拒绝：批 ŷ 塌缩远离 intercept（疑似 raw×β）"
-        )
-
-
-def _rescore_co(
-    items: List[dict],
-    *,
-    score_codes: Optional[Collection[str]] = None,
-    day_cube: Any = None,
-) -> None:
-    raws = []
-    slots = []
-    codes = []
-    for i, it in enumerate(items):
-        feats = it.get("features_co") if isinstance(it.get("features_co"), dict) else it.get("features_on")
-        if isinstance(feats, dict) and feats:
-            raws.append(dict(feats))
-            slots.append(i)
-            codes.append(str(it.get("stock_code") or "").strip())
-    if not raws:
-        return
-    if len(raws) < 2 and not _day_cube_usable(day_cube):
-        return
-    try:
-        from core.research.co_ridge import load_co_model, predict_co_from_features
-        from core.research.feature_standardize import (
-            is_cross_section_zscore,
-            normalize_score_codes,
-        )
-        from core.signal.dual_score.co import apply_co_score_fields
-    except Exception:  # noqa: BLE001
-        logger.debug("co rescore import failed", exc_info=True)
-        return
-    ridge_doc = load_co_model()
-    if not is_cross_section_zscore(ridge_doc):
-        return
-    rm = ridge_doc.get("return_model") if isinstance(ridge_doc, dict) else {}
-    names = _active_names(rm if isinstance(rm, dict) else {})
-    if not names:
-        names = list(raws[0].keys())
-    allow = normalize_score_codes(score_codes)
-    try:
-        from core.signal.factors.z_co import stamp_z_co_aliases
-
-        for r in raws:
-            stamp_z_co_aliases(r)
-    except Exception:  # noqa: BLE001
-        logger.debug("co rescore stamp failed", exc_info=True)
-    z_rows = _z_rows(raws, names, day_cube=day_cube, codes=codes)
-    for slot, z_row, raw in zip(slots, z_rows, raws):
-        item = items[slot]
-        code = str(item.get("stock_code") or "").strip()
-        if allow is not None and code not in allow:
-            for key in _CO_HEAD_KEYS:
-                item.pop(key, None)
-            continue
-        try:
-            yhat = predict_co_from_features(z_row, model_doc=ridge_doc)
-        except Exception:  # noqa: BLE001
-            logger.debug("co rescore predict failed", exc_info=True)
-            continue
-        apply_co_score_fields(
-            item,
-            co_yhat=yhat,
-            feats=raw,
-            explain_feats=z_row,
-            co_model_doc=ridge_doc if isinstance(ridge_doc, dict) else None,
-            source="ridge",
         )
 
 

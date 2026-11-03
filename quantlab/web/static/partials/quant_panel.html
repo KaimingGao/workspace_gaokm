@@ -14,8 +14,6 @@
       →
       <a class="quant-hero-link" href="#quant-section-tau">ŷ_τc</a>
       →
-      <a class="quant-hero-link" href="#quant-section-co">ŷ_co</a>
-      →
       <a class="quant-hero-link" href="#quant-section-oo-rank">ŷ_oo_rank</a>
       →
       <a class="quant-hero-link" href="#quant-section-tc-rank">ŷ_τc_rank</a>
@@ -342,19 +340,19 @@
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-materialize-strip" class="quant-desk-status-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
           <span id="quant-materialize-chip" class="quant-pro-status-chip" data-state="idle">L1/L2</span>
-          <span id="quant-materialize-msg" class="quant-desk-status-msg">日 K 齐后物化 open（oo/tc/co + DayCube）</span>
+          <span id="quant-materialize-msg" class="quant-desk-status-msg">日 K 齐后物化 open（oo/tc + DayCube）</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线物化">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                日 K 齐后写 <strong>open L1</strong>（oo / tc / co）与 <strong>open DayCube（L2）</strong>，供 ŷ_oo / 调仓消费。
+                日 K 齐后写 <strong>open L1</strong>（oo / tc）与 <strong>open DayCube（L2）</strong>，供 ŷ_oo / 调仓消费。
                 不改日 K、不算 ŷ；τ 网格与按钟 Cube 见「分钟线」物化。消费开关打开时缺覆盖会提示先跑本按钮。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-materialize-run" class="dialog-btn warn" title="日线后物化 open L1（oo/tc/co）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">
+          <button type="button" id="quant-materialize-run" class="dialog-btn warn" title="日线后物化 open L1（oo/tc）+ open L2 DayCube。τ 网格/按钟见「分钟线」。不训模型、不出 ŷ。">
             物化特征（L1/L2）
           </button>
         </div>
@@ -649,58 +647,6 @@
     </details>
   </section>
 
-  <!-- ŷ_co：隔夜缺口；风控旁路，不进主排序 -->
-  <section class="dashboard-section quant-section" id="quant-section-co" aria-labelledby="quant-section-co-title">
-    <details class="quant-primary-fold" open>
-      <summary class="quant-primary-fold-sum dashboard-section-head quant-section-head">
-        <h3 id="quant-section-co-title" class="dashboard-section-title">ŷ_co</h3>
-        <p class="dashboard-section-desc quant-section-desc">close[T]→open[T+1]</p>
-      </summary>
-    <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
-        <div id="quant-co-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
-          <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
-        </div>
-        <div class="quant-fit-params" role="group" aria-label="ŷ_co 拟合参数">
-          <label
-            class="quant-inline-check"
-            title="勾选：按交易日截面标准化特征。不勾选：用训练样本内全局 μ/σ。"
-          >
-            <input id="quant-fit-cs-z-co" type="checkbox" checked />
-            <span>日截面 Z</span>
-          </label>
-          <label
-            class="quant-inline-num quant-inline-num--sm"
-            title="近 N 个交易日不进本头研究套训练。默认 20（1～60）。"
-          >
-            <span>Holdout</span>
-            <input id="quant-holdout-days-co" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_co Holdout 交易日数" />
-            <span aria-hidden="true">日</span>
-          </label>
-          <label
-            class="quant-inline-num"
-            title="ŷ_co 拟合日线训练窗（交易日）。默认 600（100～1000）。"
-          >
-            <span>训练窗</span>
-            <input id="quant-fit-lookback-co" type="number" min="100" max="1000" step="10" value="600" inputmode="numeric" aria-label="ŷ_co 训练样本天数" />
-            <span aria-hidden="true">日</span>
-          </label>
-        </div>
-        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_co 操作">
-          <button type="button" id="quant-co-ridge-run" class="dialog-btn primary" title="观察池拟合 co Ridge + 时间 OOS（训练窗 / 日截面 Z 见左侧，不写盘）">拟合</button>
-          <button type="button" id="quant-co-ridge-persist-research" class="dialog-btn warn" data-persist-role="research" title="报告 → co_ridge_model_research.json，供历史回测">启用研究</button>
-          <button type="button" id="quant-co-ridge-persist" class="dialog-btn warn" data-persist-role="live" title="研究槽 → live/co_ridge_model.json（晋级；须先启用研究）">启用执行</button>
-          <button type="button" id="quant-co-ridge-status" class="dialog-btn secondary" title="读取研究 / 执行 / 上次拟合">状态</button>
-        </div>
-      </div>
-      <div class="quant-pro-card-body">
-        <div id="quant-co-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_co 因子表"></div>
-      </div>
-    </div>
-    </details>
-  </section>
-
   <!-- ŷ_oo_rank：布局对齐 ŷ_oo / v2 · LambdaRank+Ridge 双训 · Holdout NDCG；入场闸在回测「其他」 -->
   <section class="dashboard-section quant-section" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
     <details class="quant-primary-fold" open>
@@ -718,7 +664,7 @@
           <span
             class="quant-fit-train-tiers"
             id="quant-fit-train-tiers-oo_rank"
-            title="多选 A/B/C：损失与 Holdout 缩到观察池∩所选档（须先跑「观察池分档」）。不选=整池。截面 z 仍用整观察池。主头 ŷ_oo/τc/co 不受影响。"
+            title="多选 A/B/C：损失与 Holdout 缩到观察池∩所选档（须先跑「观察池分档」）。不选=整池。截面 z 仍用整观察池。主头 ŷ_oo/τc 不受影响。"
           >
             <span class="quant-inline-label">训练档</span>
             <details class="quant-fit-train-tiers-dd">
@@ -789,7 +735,7 @@
           <span
             class="quant-fit-train-tiers"
             id="quant-fit-train-tiers-tc_rank"
-            title="多选 A/B/C：损失与 Holdout 缩到观察池∩所选档（须先跑「观察池分档」）。不选=整池。截面 z 仍用整观察池。主头 ŷ_oo/τc/co 不受影响。"
+            title="多选 A/B/C：损失与 Holdout 缩到观察池∩所选档（须先跑「观察池分档」）。不选=整池。截面 z 仍用整观察池。主头 ŷ_oo/τc 不受影响。"
           >
             <span class="quant-inline-label">训练档</span>
             <details class="quant-fit-train-tiers-dd">
@@ -1464,7 +1410,6 @@
             <select id="quant-experiments-model-type" style="font-size:12px;">
               <option value="">全部</option>
               <option value="tc_ridge">tc_ridge</option>
-              <option value="co_ridge">co_ridge</option>
               <option value="oo_rank">oo_rank</option>
               <option value="tc_rank">tc_rank</option>
               <option value="t30_ridge">t30_ridge（双训）</option>

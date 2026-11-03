@@ -67,7 +67,7 @@ L2  DayCube          date × universe_id × clock
 ### 2.2 不变式（契约）
 
 1. **CS μ/σ 宇宙** = watching（live/T0 再 ∪ holdings），上限 `WATCHING_MAX_SIZE`；`score_codes` / tier **不缩小 z 池**。  
-2. L1 行必须 **因果**：决策日 t 的特征不得含 t 收盘后信息（沿用 oo / τ / co 定义）。  
+2. L1 行必须 **因果**：决策日 t 的特征不得含 t 收盘后信息（沿用 oo / τ 定义）。  
 3. Cube 键 = `(FEATURE_SCHEMA, universe_hash, clock, date)`；宇宙不一致 → miss。  
 4. HTTP / 调仓请求路径 **禁止** 全宇宙 `collect_*`；只允许 hydrate miss 的少量票。  
 5. Cache 是加速，Store 是契约：fingerprint miss 应尽量「修尾」，不是无脑推倒。
@@ -102,7 +102,6 @@ L2  DayCube          date × universe_id × clock
 | `tc` / `tc_rank` | ŷ_τc 开盘（`tau_hm=open`） |
 | `tc_HHMM` / `tc_rank_HHMM` | ŷ_τc / ŷ_τ* 分钟钟（如 `tc_1030`）；与开盘分目录，互不覆盖 |
 | `hz_t30`…`hz_t90` | ŷ_τ* 整头训练板（relabel 后 y；拟合 write-through） |
-| `co` | ŷ_co compact |
 | `oo_rank` | ŷ_oo_rank 面板 |
 
 `family_for_tc(tau_hm=, rank=)` / `family_for_horizon(head)`（`lake_bridge`）生成上表名字；bars 失效时 `invalidate_l1_for_code` 会扫盘上全部 `tc*` 与固定 `hz_*` family。
@@ -136,7 +135,7 @@ API 要点：
 | `slim` | τ 池字段：`pool_gaps`、`sector_gap_breadth`、`gaps_by_code`、`ref_by_code` 等 |
 | `clock` | `open` / `eod` / `tau_HHMM` |
 
-进程内 `_MEMORY` 缓存当日 cube。open 的 τ 池字段由物化 `attach_slim` 并进已有立方的 `slim`（不改 μ/σ）。组 Cube 时 `enrich_day_matrix_cross_section` 用当日 `gap_pct` / `ret_open_to_tau` 补截面列（`sector_gap_breadth` / `theme_day` / `gap_vs_sector` 等）进 `X_raw` 与 μ/σ，并镜像 `z_τh_*` / `z_τc_*` / `z_co_*`。列数不足 2 的旧文件在覆盖检查里算缺失。
+进程内 `_MEMORY` 缓存当日 cube。open 的 τ 池字段由物化 `attach_slim` 并进已有立方的 `slim`（不改 μ/σ）。组 Cube 时 `enrich_day_matrix_cross_section` 用当日 `gap_pct` / `ret_open_to_tau` 补截面列（`sector_gap_breadth` / `theme_day` / `gap_vs_sector` 等）进 `X_raw` 与 μ/σ，并镜像 `z_τh_*` / `z_τc_*`。列数不足 2 的旧文件在覆盖检查里算缺失。
 
 **宇宙键**：`universe_hash` 用本次请求的完整代码名单（观察池），不用「当天有特征行的子集」。缺行代码不进 `X_raw` / μ/σ。读写不一致时立方 miss。说明与 2026-10-19 的 800/798 分叉见 [daycube-universe-key.md](./daycube-universe-key.md)。
 
@@ -173,8 +172,8 @@ panel meta 额外写入：
 | `fingerprint(bars[i:]) == meta.bars_fp` 且 `i>0` | 前缀根数 | 只算更早决策日（+接合 pad）再 overlay merge |
 | 中间根变化 / 复权 / 口径变 | `None` | 全量 collect |
 
-已接线：**oo / τc(open) / co / oo_rank**。  
-`collect_*` 支持 `keep_dates`（oo 原有；τc open / co 已补）。
+已接线：**oo / τc(open) / oo_rank**。  
+`collect_*` 支持 `keep_dates`（oo 原有；τc open 已补）。
 
 `write_stock_panel`：若盘上已有更长且同末日的真后缀面板，拒绝用短窗覆盖（防 lookback 误缩写穿）。
 
@@ -186,7 +185,7 @@ panel meta 额外写入：
 
 只有物化写入里的 L1 写穿（`write_stock_panel`）会在 `fingerprint` 或 `bars_fp` 相对旧 meta 有变化时，把特征行变了的日期交给同一套作废。两者都没变则不碰 L2。回测和拟合不写生产湖，也不拆立方。物化整段 L1 用 `l2_invalidation_batch` 把日期攒起来，结束时只删本任务会重建的钟：日线只删 open，分钟 τ 只删本次分钟钟，接着的 L2 把这些钟建回来。K 线失效不传钟，仍删每个钟。
 
-**并行与作废**：日线 `tc`/`co`/`oo` 与 τ 网格冷路径走 **ProcessPool**（绕过 GIL）。spawn 不复制 contextvar。外层 `l2_invalidation_batch` 用 `_BATCH` 攒批，进入时关掉本进程 defer。进程工人 stale **defer**：正常返回 `(pack, stale)`；`MaterializeRequired` 则挂到 `payload['_deferred_l2_stale']`，父进程 `apply_stale_from_exc` 再 `note`。`drop_dates` 对大批日期先 `listdir` 再 `unlink`。
+**并行与作废**：日线 `tc`/`oo` 与 τ 网格冷路径走 **ProcessPool**（绕过 GIL）。spawn 不复制 contextvar。外层 `l2_invalidation_batch` 用 `_BATCH` 攒批，进入时关掉本进程 defer。进程工人 stale **defer**：正常返回 `(pack, stale)`；`MaterializeRequired` 则挂到 `payload['_deferred_l2_stale']`，父进程 `apply_stale_from_exc` 再 `note`。`drop_dates` 对大批日期先 `listdir` 再 `unlink`。
 
 冷目录回收 `prune_cold` 发生在 `invalidate_l1_many` 之后，以及 `materialize_l2` 成功结束之后。保留观察池读取名单和拟合名单的 `universe_hash`；这次物化若用了另一份不少于 2 只的 `codes`，该哈希也保留到本轮结束。其余宇宙目录，以及 `v{FEATURE_SCHEMA}` 以外的版本目录，整棵删除。观察池或拟合名单读取抛错、或两边都不足 2 只时，不回收冷目录。任务取消或 L2 未成功时不回收。作废指定日期只丢掉这些日期的进程内立方。
 
@@ -199,8 +198,8 @@ panel meta 额外写入：
 **定位**：L1 = 票级 raw（+y）；L2 = 日截面增广（μ/σ、slim），**不取代 L1**。
 
 ```text
-日线更新 → 日线「物化特征（L1/L2）」（oo/tc/co/oo_rank/tc_rank · open Cube + slim）
-分钟 Ready → 分钟线「物化特征（L1/L2）」（tc_HHMM 网格 · 按钟 Cube；oo/co 可空）
+日线更新 → 日线「物化特征（L1/L2）」（oo/tc/oo_rank/tc_rank · open Cube + slim）
+分钟 Ready → 分钟线「物化特征（L1/L2）」（tc_HHMM 网格 · 按钟 Cube；oo 可空）
   → 调仓回测 / ŷ_oo 拟合 / 出分：硬要 oo + open
   → 做 T 回测 / 盘中 ŷ_τw（≥09:35）：硬要 tc_HHMM + 同钟 Cube
 ```
@@ -208,9 +207,9 @@ panel meta 额外写入：
 | 入口 | 覆盖硬依赖 | 缺覆盖提示 |
 |------|------------|------------|
 | 做 T 回测 | `tc_HHMM` + 分钟钟 L2 | 分钟线物化 |
-| 调仓回测 / 出分 / ŷ_oo | oo/tc/co + open L2 | 日线物化 |
+| 调仓回测 / 出分 / ŷ_oo | oo/tc + open L2 | 日线物化 |
 
-产品入口打开 ``QUANTLAB_MATERIALIZE_CONSUMER``。缺覆盖返回 ``materialize_required``；``request`` 按缺口分流（仅 τ → ``do_l1_tau_grid``；仅 open → ``do_l1``）。特征与截面 μ/σ 只读已写好的 L1/L2（开盘钟 live 缺当日 open 立方时例外：见下节 open-pit）。分钟 L2 生产允许空 oo/co panel（空 dict ≠ 取消）。调仓出分优先会话日同钟 L2；开盘钟可现场建今开截面。
+产品入口打开 ``QUANTLAB_MATERIALIZE_CONSUMER``。缺覆盖返回 ``materialize_required``；``request`` 按缺口分流（仅 τ → ``do_l1_tau_grid``；仅 open → ``do_l1``）。特征与截面 μ/σ 只读已写好的 L1/L2（开盘钟 live 缺当日 open 立方时例外：见下节 open-pit）。分钟 L2 生产允许空 oo panel（空 dict ≠ 取消）。调仓出分优先会话日同钟 L2；开盘钟可现场建今开截面。
 
 L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读日线或分钟线的只有这三件事：
 
@@ -262,7 +261,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 产品调仓（``PaperService.rebalance``）、数据中心观察摘要、持仓表 ŷ 打开消费开关：
 
 1. **会话日同钟官方立方**命中 → 读 L2 ``X_raw`` / μ/σ 出 ŷ 与 rank。  
-2. **开盘钟**且会话日 open 立方缺失 → **open-pit**（昨收日线 + 行情今开，内存立方不落盘）；ŷ_oo / ŷ_τc / ŷ_co / rank 同立方。落账禁止回退昨日立方。  
+2. **开盘钟**且会话日 open 立方缺失 → **open-pit**（昨收日线 + 行情今开，内存立方不落盘）；ŷ_oo / ŷ_τc / rank 同立方。落账禁止回退昨日立方。  
 3. 浏览 / 预演在 pit 仍失败时可带 ``lake_score_fallback_from`` 读昨收周期；持仓补名次**不再**回退昨日快照。  
 
 报价和落账价格另读行情或日线。观察摘要按整池宇宙哈希读立方。细节见 [live-open-pit-rebalance.md](./live-open-pit-rebalance.md)。
@@ -284,11 +283,11 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 
 模块：`core/research/batch_score.py` + `cross_section_rescore.py` + `return_score.py`
 
-1. `features_by_code_from_items`：合并 `sub_scores`、`features_tau`、`features_co`、`raw_*`  
+1. `features_by_code_from_items`：合并 `sub_scores`、`features_tau`、`raw_*`  
 2. `ensure_day_cube_for_items` → 落盘 + 内存  
 3. `rescore_fitted_cross_section(..., day_cube=)`：  
    - ŷ_oo：`apply_predicted_scores(..., day_cube=)`  
-   - ŷ_τ / ŷ_co：`apply_cube_z_to_dicts` 后 predict  
+   - ŷ_τ：`apply_cube_z_to_dicts` 后 predict  
    - 有可用 DayCube 时允许单票 items（T0 对齐快路径）
 
 与 `cross_section_zscore_dicts` 在同批 raw 上应对齐（单测覆盖）。
@@ -337,7 +336,7 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | 路径 | 文件 |
 |------|------|
 | oo collect | `oo_ridge_compact.py` |
-| τc / co collect | `panel_matrix.py` |
+| τc collect | `panel_matrix.py` |
 | oo_rank | `oo_rank_panel.py` |
 | ŷ_τ* / LGB | `horizon_ridge.py` · `horizon_prob.py` · `horizon_lgb.py` |
 | 回测 | `paper_replay.py` · `replay_scoring.py` |
@@ -366,26 +365,26 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | P0 | 契约：registry / lake / cube / paths / 开关 | ✅ |
-| P1 | L1 双写（oo/τc/co/oo_rank） | ✅ |
+| P1 | L1 双写（oo/τc/oo_rank） | ✅ |
 | P2 | 训练物化 DayCube；CS z 可吃 cube | ✅ |
 | P3 | paper_replay：tau cube + L1 hydrate + batch rescore | ✅ |
 | P4 | watching_matrix batch + defer_cs_predict | ✅ |
 | P5 | T0 / daily_cycle 读 cube slim | ✅ |
 | 加深 | 尾窗增量（含多日）、OO 单遍 z、L1 prefetch、defer 调仓 | ✅ |
 | 扫尾 | 去掉未用 API / 合并 oo 增量入口 / 静默 except→debug | ✅ |
-| P6 | replay 暖路径：L1 进程缓存按日切片；**须 oo 行**才跳过 score_window；lake co 直用 | ✅ |
+| P6 | replay 暖路径：L1 进程缓存按日切片；**须 oo 行**才跳过 score_window | ✅ |
 | P7 | 分钟 τ L1 clock 分族（`tc_HHMM`）；命中路径省昨收窗 | ✅ |
 | P8 | replay `fill_clock≠09:30`：预热 `tc_HHMM`，前缀 ŷ_τc 优先 L1 hydrate | ✅ |
-| P9 | panel → L1 过渡：miss → L1 同指纹回退 + 回填 panel（oo/τ/co/oo_rank） | ✅ |
+| P9 | panel → L1 过渡：miss → L1 同指纹回退 + 回填 panel（oo/τ/oo_rank） | ✅ |
 | P10 | 训练读 `load_training_matrix`：L1 优先（过渡期曾有 panel 二级） | ✅ |
 | P11 | 停 panel 双写；stem meta 进 L1；增量只读 L1 | ✅ |
 | P12 | 抽出 `panel_fingerprint`；panel 磁盘 IO 停用 | ✅ |
 | 扫尾 | 删除 `panel_disk_cache` / `PANEL_CACHE_DIR`；去掉无用 `head_key` | ✅ |
 | M0 | 独立物化 Job + UI；`REQUIRE_CUBE` | ✅ |
 | M1 | PIT `date|τ`；prefix_light；扫槽 `prefix_snaps_by_hm` | ✅ |
-| M2 | oo/τc/co/ŷ_τ* 拟合读 L2；按钟 Cube（`date|τ`→clock；H3 起禁静默 open） | ✅ |
+| M2 | oo/τc/ŷ_τ* 拟合读 L2；按钟 Cube（`date|τ`→clock；H3 起禁静默 open） | ✅ |
 | M3 | 按钟 L2 / OOS 与训练同吃 L2；τ UI 已迁分钟线 | ✅ |
-| M4 | 拟合主路径统一 `cs_z_*_prefer_cube`（oo/τc/co/ŷ_τ*/LGB） | ✅ |
+| M4 | 拟合主路径统一 `cs_z_*_prefer_cube`（oo/τc/ŷ_τ*/LGB） | ✅ |
 | H0 | 契约：`horizon_names` / catalog `tau_grid` | ✅ |
 | H1 | `materialize_l1_tau_grid`；分钟线「物化特征（L1/L2）」 | ✅ |
 | H2 | L2 按钟 `require_horizon_names` + UI 联动 | ✅ |
@@ -411,10 +410,10 @@ L1 存的是特征行和拟合标签 y，不存可成交价格。消费方仍读
 1. **日线**：研究枢纽增量补齐（或强更）。  
 2. **分钟**：做 T / ŷ_τ* 须 5m Ready（增量或强更）。  
 3. **物化**（手动）  
-   - **日线**「物化特征（L1/L2）」：oo/tc/co + open L2；  
+   - **日线**「物化特征（L1/L2）」：oo/tc + open L2；  
    - **分钟线** Ready 后「物化特征（L1/L2）」：τ 网格 `tc_HHMM` + 按钟 Cube（Ready 不足禁用）。  
 4. **可选**：`export QUANTLAB_MATERIALIZE_REQUIRE_CUBE=1`（Cube miss 禁止 bars 冷建）。  
-5. **重拟合**：ŷ_oo → ŷ_τc / ŷ_co → 窗头 ŷ_τ30…τ90（及排序头）。  
+5. **重拟合**：ŷ_oo → ŷ_τc → 窗头 ŷ_τ30…τ90（及排序头）。  
 6. **回测**：做 T / 调仓 replay；tip 各钟不应塌常数；日志 `horizon cs-z cube hit … clock=τ`（非一律 open）。
 
 ### 10.2 强制全量重算
@@ -516,7 +515,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | 物化 | `clocks = ["open"] + suggested_tau_clocks`；缺 L1 跳过并计数 `days_skipped`；`align` 后矩阵 CS enrich 再算 μ/σ |
 | 拟合读 | `ŷ_τ*` 先按 `日期\|钟` 丢掉无立方行，再 `cs_z_*_prefer_cube`。一行都不剩才 `materialize_required`。`cs_z_*` 本身仍是任一组 miss 即失败（不进批现算）；缺列填 0。`raw_ath_H_LAG1` / `raw_ath_H_MA5` 拟合时才由本头标签算出，立方里没有，缺列时按当日该钟点截面现算 z |
 
-> 窗头与 ŷ_τc(open) 分流：open Cube 继续服务 oo/τc(open)/co；**τ≠open 的窗头以按钟 Cube 为准。** 每头拟合结束调用 `release_allocator_cache`：卸掉进程内日立方，再把空闲页还给系统，下一头不会被上一头的水位停掉。
+> 窗头与 ŷ_τc(open) 分流：open Cube 继续服务 oo/τc(open)；**τ≠open 的窗头以按钟 Cube 为准。** 每头拟合结束调用 `release_allocator_cache`：卸掉进程内日立方，再把空闲页还给系统，下一头不会被上一头的水位停掉。
 
 ### 13.4 管道改造
 
@@ -546,7 +545,7 @@ L1/L2 按 schema 分目录。观察池名单变化后，旧 `universe_hash` 目�
 | `POST /api/quant/materialize` | 增 `do_l1_tau_grid: bool`；`clocks` 已支持；families 不变 |
 | catalog | `suggested_tau_clocks`；`flags`；说明「τ 网格 L1 须分钟 Ready」 |
 | Job 槽 `materialize-l1l2` | stale/stuck **5400s**；`allow_zero_progress`（宏步钉 current=0 不按零进展误杀）；`try_start` 原子开槽；L2 跳过整池 Feature Lake prefetch |
-| 日线卡 | 两块：L0 日 K 仓 + 物化卡「物化特征（L1/L2）」= open L1（oo/tc/co）+ open Cube |
+| 日线卡 | 两块：L0 日 K 仓 + 物化卡「物化特征（L1/L2）」= open L1（oo/tc）+ open Cube |
 | 分钟线卡 | 两块：L0 5m 仓 + 物化卡 Ready 后「物化特征（L1/L2）」= τ 网格 L1 + 按钟 Cube |
 | τ 网格进度 | 文案 `L1 τ 网格 HH:MM（k/N）`：`N`=`suggested_tau_clocks` 钟数（默认 **18**=09:35…11:00 每 5m，不含 open/09:30）；Job `current/total` 仍钉宏步（如 0/2） |
 | 状态条 | L0 与物化各有 chip+msg+progress；**蓝**=增量/强更，**黄**=物化（对齐按钮 primary/warn）；物化终态 msg 追加「上次更新 YYYY-MM-DD HH:MM」（`job.updated_at`） |

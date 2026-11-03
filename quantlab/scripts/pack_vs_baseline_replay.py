@@ -56,7 +56,7 @@ from core.signal.factors.alpha_tc import (
 from core.signal.factors.z_oo import is_z_oo_key
 from core.signal.factors.z_tc import Z_TC_MINUTE_KEYS
 from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
-from core.signal.yhat_windows import fuse_pct, oc_with_co
+from core.signal.yhat_windows import fuse_pct
 
 
 def _parse_args() -> argparse.Namespace:
@@ -70,7 +70,6 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--ridge-lambda", type=float, default=1.0)
     p.add_argument("--fusion-w-oo", type=float, default=0.6)
     p.add_argument("--fusion-w-oc", type=float, default=0.4)
-    p.add_argument("--fusion-w-co", type=float, default=1.0)
     p.add_argument("--initial-cash", type=float, default=200_000.0)
     p.add_argument("--theme-boost", type=float, default=1.5)
     return p.parse_args()
@@ -257,15 +256,13 @@ def _scores_by_date(
     *,
     w_oo: float,
     w_τc: float,
-    w_co: float,
 ) -> Dict[str, List[dict]]:
     keys = set(oo) | set(tc)
     by_day: Dict[str, List[dict]] = defaultdict(list)
     for day, code in sorted(keys):
         y_oo = oo.get((day, code))
         y_τc = tc.get((day, code))
-        right = oc_with_co(y_τc, None, float(w_co))
-        fused = fuse_pct(y_oo, right, w_left=w_oo, w_right=w_τc)
+        fused = fuse_pct(y_oo, y_τc, w_left=w_oo, w_right=w_τc)
         row: Dict[str, Any] = {"stock_code": code}
         if y_oo is not None:
             row["y_oo"] = float(y_oo)
@@ -332,13 +329,12 @@ def main() -> int:
     )
     w_oo = float(args.fusion_w_oo)
     w_τc = float(args.fusion_w_oc)
-    w_co = float(args.fusion_w_co)
 
     t0 = time.time()
     print(
         f"load ≤{args.max_names} lookback={lookback} "
         f"window={train_days}+{holdout_days} "
-        f"fuse={w_oo}/{w_τc} w_co={w_co} (no persist)"
+        f"fuse={w_oo}/{w_τc} (no persist)"
     )
     items = _load_items(args.max_names, lookback)
     print(f"loaded {len(items)} stocks ({time.time() - t0:.1f}s)")
@@ -475,10 +471,10 @@ def main() -> int:
     print(f"  optimal preds oo={len(oo_opt)} tc={len(tc_opt)}")
 
     scores_base = _scores_by_date(
-        oo_base, tc_base, w_oo=w_oo, w_τc=w_τc, w_co=w_co
+        oo_base, tc_base, w_oo=w_oo, w_τc=w_τc
     )
     scores_opt = _scores_by_date(
-        oo_opt, tc_opt, w_oo=w_oo, w_τc=w_τc, w_co=w_co
+        oo_opt, tc_opt, w_oo=w_oo, w_τc=w_τc
     )
     eval_days = sorted(set(scores_base) | set(scores_opt))
     print(f"\nreplay days={len(eval_days)} "
@@ -494,7 +490,6 @@ def main() -> int:
         fill_clock="09:30",
         fusion_w_oo=w_oo,
         fusion_w_oc=w_τc,
-        fusion_w_co=w_co,
         fuse_enter=0.001,
         fuse_strong=0.001,
         include_session_day=False,

@@ -42,13 +42,12 @@ def horizon_cube_required_names() -> Tuple[str, ...]:
 
 
 def open_cube_required_names() -> Tuple[str, ...]:
-    """日线 open 立方必须盖住的入模列：oo、开盘 τc、co。不含分钟键。"""
+    """日线 open 立方必须盖住的入模列：oo、开盘 τc。不含分钟键。"""
     from core.signal.factors.alpha_oo import (
         ALPHA_OO_FIELD_NAMES,
         ALPHA_OO_RAW_PREFIX,
         Z_OO_DROP_WHEN_AOO_CORE,
     )
-    from core.signal.factors.z_co import Z_CO_FIT_FEATURES
     from core.signal.factors.z_oo import Z_OO_SKIP_PACKS, to_z_oo_key, z_oo_legacy_keys
     from core.signal.factors.z_tc import Z_TC_FIT_FEATURES, Z_TC_MINUTE_KEYS
 
@@ -74,8 +73,6 @@ def open_cube_required_names() -> Tuple[str, ...]:
     for key in Z_TC_FIT_FEATURES:
         if key not in minute:
             _add(key)
-    for key in Z_CO_FIT_FEATURES:
-        _add(key)
     return tuple(need)
 
 

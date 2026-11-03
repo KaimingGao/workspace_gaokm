@@ -1,6 +1,6 @@
 """ŷ_oo 训练面板：y = open[T+h]/open[T]−1；特征 = 注册子因子 + raw_* / raw_aoo_*。
 
-决策在 T 开盘（PIT 窗不含当日收盘）。与 ``co_panel`` / ``tau_panel`` 并列；
+决策在 T 开盘（PIT 窗不含当日收盘）。与 ``tau_panel`` 并列；
 矩阵堆叠见 ``oo_ridge_compact.assemble_oo_panels``。
 """
 
@@ -132,7 +132,7 @@ def collect_oo_panel(
     excess_mode: str = "none",
     keep_dates: Optional[Collection[str]] = None,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str]]:
-    """单票 ŷ_oo 面板：对齐子因子与 open→open 前瞻收益（对齐 ``collect_co_panel``）。
+    """单票 ŷ_oo 面板：对齐子因子与 open→open 前瞻收益。
 
     返回 ``(xs, ys, decision_dates)``；dates 与 xs/ys 等长（YYYY-MM-DD），供日历切分 / WF。
 

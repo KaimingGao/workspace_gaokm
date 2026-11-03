@@ -57,10 +57,6 @@ export function renderPaperRulesHtml(data) {
       "rank",
       `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`,
     ]);
-    const alpha = pm.fusion_w_co != null ? Number(pm.fusion_w_co) : 0;
-    if (Number.isFinite(alpha)) {
-      chips.push(["w_co", Number(alpha).toFixed(alpha % 1 === 0 ? 0 : 1)]);
-    }
   }
   if (exe.effective_hash) {
     chips.push(["exec", String(exe.effective_hash).slice(0, 8)]);

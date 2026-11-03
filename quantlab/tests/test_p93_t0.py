@@ -2168,12 +2168,10 @@ class TestDualYDirection(unittest.TestCase):
                 "predicted_score_tau": 0.8,
             }
         )
-        self.assertAlmostEqual(sc["y_co"], 0.2)
         self.assertAlmostEqual(sc["y_on_path"], 3.5)
         packed = __import__(
             "core.t0.score_policy", fromlist=["pack_day_scores"]
         ).pack_day_scores(sc)
-        self.assertAlmostEqual(packed["y_co"], 0.2)
         self.assertAlmostEqual(packed["y_on_path"], 3.5)
 
     def test_eod_factor_bar_limit_matches_score_stock(self):
@@ -2285,28 +2283,6 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIn("build_tau_pool_watching_holdings", tick)
         self.assertIn("hydrate_cs_peer_minutes", tick)
 
-    def test_tip_fields_include_features_co(self):
-        from core.t0.score_policy import tip_fields_from_item
-
-        tip = tip_fields_from_item(
-            {
-                "features_co": {
-                    "ret_oc": -0.5,
-                    "ret_cc": -1.2,
-                    "gap_pct": -0.8,
-                    "noise": 1,
-                },
-                "formula_terms_co": {
-                    "intercept": 0.0,
-                    "total": -0.7,
-                    "terms": [{"key": "ret_oc", "contrib": -0.3}],
-                },
-            }
-        )
-        self.assertEqual(tip.get("features_co", {}).get("ret_oc"), -0.5)
-        self.assertNotIn("noise", tip.get("features_co") or {})
-        self.assertIsNotNone(tip.get("formula_terms_co"))
-
     def test_tip_fields_include_formula_terms_r(self):
         from core.t0.score_policy import tip_fields_from_item
 
@@ -2367,13 +2343,6 @@ class TestDualYDirection(unittest.TestCase):
         if scores_have_any(sc):
             self.assertIsNotNone(sc.get("y_eod") or sc.get("y_trade") or sc.get("y_tau"))
             self.assertEqual(sc.get("_score_source"), "compute")
-            feats_co = sc.get("features_co") or {}
-            path_feats = sc.get("features_co_path") or {}
-            # 开盘决策：ret_oc 取 T-1 已实现（昨开→昨收），非当日 close；决策与路径口径一致
-            if feats_co.get("ret_oc") is not None:
-                self.assertNotAlmostEqual(float(feats_co["ret_oc"]), 0.0, places=4)
-            if path_feats.get("ret_oc") is not None:
-                self.assertNotAlmostEqual(float(path_feats["ret_oc"]), 0.0, places=4)
             if sc.get("y_on_path") is not None and sc.get("y_on") is not None:
                 # 旁路路径价不得覆盖决策 y_on（二者可同可异，但字段须并存）
                 self.assertIn("y_on_path", sc)

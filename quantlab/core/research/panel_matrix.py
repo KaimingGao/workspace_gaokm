@@ -2,7 +2,7 @@
 
 截面广度仍要读缺口和路径收益，所以每只股票先写入矩阵，只把广度用到的十几列
 留在瘦 dict 里。alpha_oo 原始列不再在全池 dict 里停留。
-ŷ_co 对齐 ŷ_oo：单票任务内折矩阵、在途≤4、批大小 24、算完 pop bars（8GB）。
+单票任务内折矩阵、在途≤4、批大小 24、算完 pop bars（8GB）。
 Ridge 口径与 ``fit_factor_ols_from_panel`` 对齐：√w + keep_all；拟合用完整行。
 入模前丢掉 SUMP/SUMN（及 V 对）恒等冗余，只留 SUMD/VSUMD（L1 算子仍算全，供树模型）。
 ``cross_section_zscore=True``（默认）且有决策日 → 当天截面 z；``False`` → 训练窗
@@ -110,7 +110,7 @@ class PanelMatrix:
         self._chunks.append(block)
 
     def append_block(self, arr: np.ndarray) -> None:
-        """追加已按 ``self.names`` 对齐的 float64 块（ŷ_co 单票折矩阵后用）。"""
+        """追加已按 ``self.names`` 对齐的 float64 块。"""
         a = np.asarray(arr, dtype=np.float64)
         if a.ndim != 2 or a.shape[0] <= 0:
             return
@@ -178,14 +178,6 @@ def _write_breadth_columns(
             row_i += 1
 
 
-def _z_stamp_family(head: str) -> str:
-    """compact 面板 Z 前缀族：τ→z_τc_*，隔夜→z_co_*。"""
-    h = str(head or "").strip().lower()
-    if h.startswith("y_co") or h.startswith("co"):
-        return "co"
-    return "tc"
-
-
 def _finish_breadth(
     block: PanelMatrix,
     slim_panels: List[Dict[str, Any]],
@@ -200,30 +192,17 @@ def _finish_breadth(
     enriched = attach_cross_section_breadth(
         slim_panels, gap_trigger_pct=gap_trigger_pct
     )
-    z_family = _z_stamp_family(head)
     # 截面写回裸名后再镜像 canon，矩阵列与拟合键对齐
-    if z_family == "co":
-        from core.signal.factors.z_co import (
-            Z_CO_LEGACY_SET,
-            stamp_z_co_rows,
-            to_z_co_key,
-        )
+    from core.signal.factors.z_tc import (
+        Z_TC_LEGACY_SET,
+        stamp_z_tc_rows,
+        to_z_tc_key,
+    )
 
-        for panel in enriched:
-            stamp_z_co_rows(panel.get("xs") or [])
-        legacy_set = Z_CO_LEGACY_SET
-        to_canon = to_z_co_key
-    else:
-        from core.signal.factors.z_tc import (
-            Z_TC_LEGACY_SET,
-            stamp_z_tc_rows,
-            to_z_tc_key,
-        )
-
-        for panel in enriched:
-            stamp_z_tc_rows(panel.get("xs") or [])
-        legacy_set = Z_TC_LEGACY_SET
-        to_canon = to_z_tc_key
+    for panel in enriched:
+        stamp_z_tc_rows(panel.get("xs") or [])
+    legacy_set = Z_TC_LEGACY_SET
+    to_canon = to_z_tc_key
     write_keys = list(slim_keys)
     seen = set(write_keys)
     for k in slim_keys:
@@ -259,8 +238,7 @@ def _finish_breadth(
     return X, list(block.names), ys, dates, metas
 
 
-# 与 ŷ_oo 同批大小：每批结束后丢掉该批 bars，把峰值压在 8GB 内。
-_CO_POOL_BATCH = 24
+# 每批结束后丢掉该批 bars，把峰值压在 8GB 内。
 _TAU_POOL_BATCH = 24
 
 
@@ -327,7 +305,7 @@ def _tc_matrix_seed_names(
     include_alpha_tc: bool,
     include_alpha_th: bool = False,
 ) -> List[str]:
-    """预注册 raw_atc_* / 窗头列，与 ŷ_co 的 seed 策略对齐。"""
+    """预注册 raw_atc_* / 窗头列。"""
     out = [str(n) for n in names]
     seen = set(out)
     if include_alpha_tc:
@@ -390,46 +368,6 @@ def _tau_stock_job_pooled(
         if isinstance(item, dict):
             code = str(item.get("code") or item.get("stock_code") or "")
         logger.warning("ŷ_τc 单票失败，已跳过 code=%s", code or "?", exc_info=True)
-        pack = None
-    return pack, drain_deferred_stale()
-
-
-def _co_stock_job_pooled(
-    payload: Tuple[Any, ...],
-) -> Tuple[
-    Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]],
-    Dict[str, Any],
-]:
-    """ProcessPool 入口：co 单票 + drain L2 stale。"""
-    from core.research.day_cube_gc import attach_deferred_to_exc, drain_deferred_stale
-    from core.research.materialize.consumer import MaterializeRequired
-
-    if not isinstance(payload, (tuple, list)) or len(payload) < 5:
-        return None, drain_deferred_stale()
-    item, col_names, slim_keys, min_history, include_alpha_oo = (
-        payload[0],
-        payload[1],
-        payload[2],
-        payload[3],
-        payload[4],
-    )
-    pack = None
-    try:
-        pack = _co_stock_job(
-            item,
-            col_names,
-            slim_keys,
-            min_history=int(min_history),
-            include_alpha_oo=bool(include_alpha_oo),
-        )
-    except MaterializeRequired as exc:
-        attach_deferred_to_exc(exc, drain_deferred_stale())
-        raise
-    except Exception:  # noqa: BLE001
-        code = ""
-        if isinstance(item, dict):
-            code = str(item.get("code") or item.get("stock_code") or "")
-        logger.warning("ŷ_co 单票失败，已跳过 code=%s", code or "?", exc_info=True)
         pack = None
     return pack, drain_deferred_stale()
 
@@ -1429,7 +1367,7 @@ def collect_tau_compact(
 
     现网默认 ``include_alpha_tc=True``（raw_atc_*）。
     ``include_alpha_th``：写穿窗头列（H 轨 ``tc_HHMM``）。
-    单票任务内折 float64 + slim（对齐 ŷ_co），写穿 L1。
+    单票任务内折 float64 + slim，写穿 L1。
     并行：默认/硬顶 4 **进程**（``TAU_RIDGE_WORKERS``），批大小 ``_TAU_POOL_BATCH``。
     一批全部算完后按下标折行，不按完成序，避免同一股票池两次拟合行序不同。
     分钟路径：每批前按需 ``attach_minute_bars_slice``，折完 pop（峰值≈一批）。
@@ -1830,224 +1768,6 @@ def _assemble_tau_open_block(
     return block
 
 
-def _co_stock_job(
-    item: Dict[str, Any],
-    col_names: Sequence[str],
-    slim_keys: Sequence[str],
-    *,
-    min_history: int,
-    include_alpha_oo: bool,
-) -> Optional[Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]]:
-    """单票 ŷ_co：在任务内折成 float64 + slim，全量 dict 不回传（对齐 ŷ_oo）。"""
-    from core.research.co_panel import collect_co_panel
-    from core.research.lake_bridge import FAMILY_CO
-    from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
-    from core.signal.factors.z_co import stamp_z_co_rows
-
-    if not isinstance(item, dict):
-        return None
-    code = str(item.get("code") or item.get("stock_code") or "").strip()
-    bars = list(item.get("bars") or [])
-    floor = int(min_history) + 3
-    if include_alpha_oo:
-        from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
-
-        # collect_co 决策日起点 bump 到垫窗；凑不满 4 行的次新直接跳过。
-        floor = max(floor, int(ALPHA_OO_PANEL_WINDOW) + 3)
-    if len(bars) < floor:
-        return None
-    mh = int(min_history)
-    aoo = bool(include_alpha_oo)
-    fp = make_fingerprint(
-        bars_fp=bars_fingerprint(bars),
-        min_history=mh,
-        include_alpha_oo=int(aoo),
-    )
-    if code:
-        try:
-            from core.research.lake_bridge import load_training_matrix
-
-            hit = load_training_matrix(FAMILY_CO, code, fp, names=col_names)
-            if hit is not None:
-                block, y_arr, _names, dates_l, _src = hit
-                from core.research.feature_lake import read_stock_meta
-                from core.research.incremental_panel import lake_row_covers_bar_end
-
-                meta = read_stock_meta(FAMILY_CO, code)
-                covered = lake_row_covers_bar_end(dates_l, bars, meta)
-                if (
-                    covered
-                    and block.shape[1] == len(col_names)
-                    and len(dates_l) >= 4
-                ):
-                    ys_l = [float(y) for y in y_arr.tolist()]
-                    slim = [{} for _ in dates_l]
-                    metas_l = [{"date": d, "stock_code": code} for d in dates_l]
-                    return code, block, ys_l, dates_l, metas_l, slim
-                if not covered:
-                    logger.debug(
-                        "co lake misses bar end code=%s rows=%s", code, len(dates_l)
-                    )
-        except Exception:  # noqa: BLE001
-            logger.debug("co training cache load failed code=%s", code, exc_info=True)
-
-    def _co_spec(bars_fp: str) -> str:
-        return make_fingerprint(
-            bars_fp=bars_fp,
-            min_history=mh,
-            include_alpha_oo=int(aoo),
-        )
-
-    if code:
-        try:
-            from core.research.incremental_panel import try_slice_shorter_lookback
-
-            sliced = try_slice_shorter_lookback(
-                code,
-                bars,
-                family=FAMILY_CO,
-                spec_fp=_co_spec,
-                names=col_names,
-                allow_end_lag=True,
-            )
-            if sliced is not None:
-                block, y_arr, got_names, dates_l = sliced
-                if list(got_names) == list(col_names) and len(dates_l) >= 4:
-                    ys_l = [float(y) for y in y_arr.tolist()]
-                    slim = [{} for _ in dates_l]
-                    metas_l = [{"date": d, "stock_code": code} for d in dates_l]
-                    return code, block, ys_l, dates_l, metas_l, slim
-        except Exception:  # noqa: BLE001
-            logger.debug("co lookback slice failed code=%s", code, exc_info=True)
-
-    from core.research.materialize.consumer import MaterializeRequired, raise_if_consumer_rebuild
-
-    raise_if_consumer_rebuild(FAMILY_CO, code)
-    if code:
-        try:
-            from core.research.incremental_panel import try_incremental_merge
-            from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
-
-            def _co_tail(keep_dates):
-                xs_t, ys_t, dates_t, _metas_t = collect_co_panel(
-                    bars,
-                    min_history=min_history,
-                    stock_code=code,
-                    include_alpha_oo=include_alpha_oo,
-                    keep_dates=keep_dates,
-                )
-                if len(ys_t) < 1:
-                    return (
-                        np.zeros((0, len(col_names)), dtype=np.float64),
-                        np.zeros((0,), dtype=np.float64),
-                        list(col_names),
-                        [],
-                    )
-                stamp_z_co_rows(xs_t)
-                return (
-                    _dict_rows_to_matrix(xs_t, col_names),
-                    np.asarray([float(y) for y in ys_t], dtype=np.float64),
-                    list(col_names),
-                    [str(d)[:10] for d in dates_t],
-                )
-
-            inc = try_incremental_merge(
-                code,
-                bars,
-                pad=int(ALPHA_OO_PANEL_WINDOW) + 8,
-                collect_tail=_co_tail,
-                family=FAMILY_CO,
-                spec_fp=_co_spec,
-            )
-            if inc is not None:
-                block, y_arr, _n, dates_l = inc
-                ys_l = [float(y) for y in y_arr.tolist()]
-                slim = [{} for _ in dates_l]
-                metas_l = [{"date": d, "stock_code": code} for d in dates_l]
-                try:
-                    from core.research.incremental_panel import stem_extra_meta
-                    from core.research.lake_bridge import sync_panel_to_lake
-
-                    sync_panel_to_lake(
-                        FAMILY_CO,
-                        code,
-                        X=block,
-                        dates=dates_l,
-                        names=list(col_names),
-                        fingerprint=fp,
-                        y=np.asarray(ys_l, dtype=np.float64),
-                        extra_meta=stem_extra_meta(bars),
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.debug("co L1 sync (incremental) failed code=%s", code, exc_info=True)
-                return code, block, ys_l, dates_l, metas_l, slim
-        except MaterializeRequired:
-            raise
-        except Exception:  # noqa: BLE001
-            logger.debug("co incremental failed code=%s", code, exc_info=True)
-    from core.research.incremental_panel import stem_extra_meta
-
-    stem_meta = stem_extra_meta(bars)
-    xs, ys, dates, metas = collect_co_panel(
-        bars,
-        min_history=min_history,
-        stock_code=code,
-        include_alpha_oo=include_alpha_oo,
-    )
-    del bars
-    if len(ys) < 4:
-        return None
-    stamp_z_co_rows(xs)
-    slim = _slim_rows(xs, slim_keys)
-    block = _dict_rows_to_matrix(xs, col_names)
-    del xs
-    ys_l = [float(y) for y in ys]
-    dates_l = [str(d)[:10] for d in dates]
-    metas_l = list(metas)
-    if code:
-        try:
-            from core.research.lake_bridge import sync_panel_to_lake
-
-            sync_panel_to_lake(
-                FAMILY_CO,
-                code,
-                X=block,
-                dates=dates_l,
-                names=list(col_names),
-                fingerprint=fp,
-                y=np.asarray(ys_l, dtype=np.float64),
-                extra_meta=stem_meta,
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("co L1 sync failed code=%s", code, exc_info=True)
-    return (
-        code,
-        block,
-        ys_l,
-        dates_l,
-        metas_l,
-        slim,
-    )
-
-
-def _resolve_co_workers(n_jobs: int, workers: Optional[int]) -> int:
-    """默认 4 进程（``CO_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
-
-    8GB 满池更紧时可 ``CO_RIDGE_WORKERS=2``。
-    """
-    if n_jobs <= 1:
-        return 1
-    if workers is None:
-        if n_jobs < 4:
-            return 1
-        raw = os.environ.get("CO_RIDGE_WORKERS", "4")
-        try:
-            workers = int(raw)
-        except (TypeError, ValueError):
-            workers = 4
-    return min(max(1, int(workers)), n_jobs, 4)
-
-
 def _resolve_tau_workers(n_jobs: int, workers: Optional[int]) -> int:
     """默认 4 进程（``TAU_RIDGE_WORKERS`` 可覆盖；硬顶 4）。
 
@@ -2064,308 +1784,6 @@ def _resolve_tau_workers(n_jobs: int, workers: Optional[int]) -> int:
         except (TypeError, ValueError):
             workers = 4
     return min(max(1, int(workers)), n_jobs, 4)
-
-
-def _co_matrix_seed_names(
-    names: Sequence[str], *, include_alpha_oo: bool
-) -> List[str]:
-    """预注册 raw_aoo_*，避免逐票 widen 时反复拷贝已有 chunk。"""
-    out = [str(n) for n in names]
-    if not include_alpha_oo:
-        return out
-    seen = set(out)
-    from core.signal.factors.alpha_oo import ALPHA_OO_FIELD_NAMES, ALPHA_OO_RAW_PREFIX
-
-    for key in ALPHA_OO_FIELD_NAMES:
-        col = f"{ALPHA_OO_RAW_PREFIX}{key}"
-        if col not in seen:
-            seen.add(col)
-            out.append(col)
-    return out
-
-
-def collect_co_compact(
-    stock_bars: Sequence[Dict[str, Any]],
-    names: Sequence[str],
-    *,
-    min_history: int = 12,
-    gap_trigger_pct: float = 2.0,
-    include_alpha_oo: bool = True,
-    head: str = "y_co",
-    workers: Optional[int] = None,
-    progress_cb: Optional[Any] = None,
-    release_rows: bool = False,
-    stats_out: Optional[Dict[str, Any]] = None,
-) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
-    """隔夜 ŷ_co 紧凑面板（8GB / 对齐 ŷ_oo）。
-
-    - 单票任务内折 float64，只回传矩阵块 + 截面 slim 列
-    - 在途 ≤ worker（默认/上限 4 **进程**），按 ``_CO_POOL_BATCH`` 批跑
-    - 每只算完立刻 ``pop bars``，避免满池日线 + 因子双驻留
-    - L2 stale 由工人 defer 回传父进程
-    - ``progress_cb(done, total, message)`` 可选，供 job 槽刷新进度
-    """
-    from concurrent.futures import ProcessPoolExecutor
-
-    items = [it for it in (stock_bars or []) if isinstance(it, dict)]
-    from core.research.lake_bridge import FAMILY_CO
-    from core.research.materialize.coverage import enforce_consumer_coverage
-    from core.signal.factors.alpha_oo import ALPHA_OO_PANEL_WINDOW
-
-    enforce_consumer_coverage(
-        items,
-        families=[FAMILY_CO],
-        clocks=["open"],
-        min_history=int(ALPHA_OO_PANEL_WINDOW),
-    )
-    n_jobs = len(items)
-    n_workers = _resolve_co_workers(n_jobs, workers)
-    col_names = _co_matrix_seed_names(names, include_alpha_oo=include_alpha_oo)
-    block = PanelMatrix(col_names, widen_prefix="")
-    slim_keys = _breadth_keys()
-    slim_panels: List[Dict[str, Any]] = []
-    n_stocks = 0
-    processed = 0
-    n_all = len(items)
-    released: Dict[str, Any] = {
-        "n_rows": 0,
-        "n_cols": 0,
-        "n_stocks": 0,
-        "dates": set(),
-        "hits": 0,
-    }
-    if release_rows:
-        from core.research.panel_fingerprint import bars_fingerprint, make_fingerprint
-
-        kept_items: List[dict] = []
-        for it in items:
-            code = str(it.get("code") or it.get("stock_code") or "").strip()
-            bars = list(it.get("bars") or [])
-            fp = make_fingerprint(
-                bars_fp=bars_fingerprint(bars),
-                min_history=int(min_history),
-                include_alpha_oo=int(bool(include_alpha_oo)),
-            )
-            hit = _meta_hit_for_width(FAMILY_CO, code, fp, bars, n_cols=len(col_names))
-            if hit is None:
-                kept_items.append(it)
-                continue
-            released["n_rows"] += int(hit["n_rows"])
-            released["n_cols"] = max(int(released["n_cols"]), int(hit["n_cols"]))
-            released["n_stocks"] += 1
-            released["hits"] += 1
-            for raw in bars:
-                if isinstance(raw, dict):
-                    day = str(raw.get("date") or raw.get("trade_date") or "")[:10]
-                    if len(day) >= 10:
-                        released["dates"].add(day)
-            it.pop("bars", None)
-        items = kept_items
-        n_jobs = len(items)
-        processed = int(released["hits"])
-
-    def _drop_bars(i: int) -> None:
-        it = items[i]
-        if isinstance(it, dict):
-            it.pop("bars", None)
-
-    def _tick() -> None:
-        nonlocal processed
-        processed += 1
-        if not callable(progress_cb):
-            return
-        shown_total = n_all if release_rows else n_jobs
-        if (
-            processed == 1
-            or processed >= shown_total
-            or processed % 2 == 0
-            or processed % _CO_POOL_BATCH == 0
-        ):
-            try:
-                progress_cb(
-                    processed,
-                    max(1, shown_total),
-                    f"ŷ_co 面板 {processed}/{shown_total}",
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("co compact progress_cb failed", exc_info=True)
-
-    def _fold(
-        pack: Optional[
-            Tuple[str, np.ndarray, List[float], List[str], List[dict], List[dict]]
-        ],
-    ) -> None:
-        nonlocal n_stocks
-        if release_rows:
-            if pack:
-                _release_pack(released, pack)
-            _tick()
-            return
-        if not pack:
-            _tick()
-            return
-        code, arr, ys, dates, metas, slim = pack
-        block.append_block(arr)
-        slim_panels.append(
-            {
-                "code": code,
-                "xs": slim,
-                "ys": ys,
-                "dates": dates,
-                "metas": metas,
-            }
-        )
-        n_stocks += 1
-        _tick()
-
-    def _apply_stale(stale: Any) -> None:
-        try:
-            from core.research.day_cube_gc import apply_deferred_stale
-
-            apply_deferred_stale(stale if isinstance(stale, dict) else None)
-        except Exception:  # noqa: BLE001
-            logger.debug("co compact apply stale failed", exc_info=True)
-
-    def _run_serial(start: int, end: int) -> None:
-        for i in range(start, end):
-            _fold(
-                _co_stock_job(
-                    items[i],
-                    col_names,
-                    slim_keys,
-                    min_history=min_history,
-                    include_alpha_oo=include_alpha_oo,
-                )
-            )
-            _drop_bars(i)
-
-    def _run_batch(start: int, end: int) -> None:
-        if end <= start:
-            return
-        if n_workers <= 1 or (end - start) < 4:
-            _run_serial(start, end)
-            return
-        from core.research.materialize.consumer import context_initargs, research_pool_init
-        from core.research.materialize.pool import consume_process_batch
-
-        results: List[Any] = [None] * (end - start)
-        col_l = list(col_names)
-        slim_l = list(slim_keys)
-
-        def _submit(j: int):
-            i = start + j
-            return pool.submit(
-                _co_stock_job_pooled,
-                (items[i], col_l, slim_l, int(min_history), bool(include_alpha_oo)),
-            )
-
-        def _run_one(j: int):
-            i = start + j
-            pack = _co_stock_job(
-                items[i],
-                col_names,
-                slim_keys,
-                min_history=min_history,
-                include_alpha_oo=include_alpha_oo,
-            )
-            return pack, {}
-
-        def _on_done(j: int) -> None:
-            i = start + j
-            pack, stale = _split_pool_job_result(results[j])
-            _apply_stale(stale)
-            _fold(pack)
-            _drop_bars(i)
-            if release_rows:
-                results[j] = None
-
-        def _label(j: int) -> str:
-            it = items[start + j] if start + j < len(items) else None
-            if isinstance(it, dict):
-                return str(it.get("code") or it.get("stock_code") or (start + j))
-            return str(start + j)
-
-        try:
-            pool = ProcessPoolExecutor(
-                max_workers=n_workers,
-                initializer=research_pool_init,
-                initargs=context_initargs(),
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("co compact process pool unavailable; serial")
-            _run_serial(start, end)
-            return
-        try:
-            consume_process_batch(
-                start=0,
-                end=end - start,
-                n_workers=n_workers,
-                results=results,
-                submit=_submit,
-                run_one=_run_one,
-                label=_label,
-                on_done=_on_done,
-            )
-        finally:
-            try:
-                pool.shutdown(wait=True, cancel_futures=True)
-            except Exception:  # noqa: BLE001
-                logger.exception("co compact pool shutdown failed")
-
-    if n_jobs:
-        logger.info(
-            "co compact workers=%s stocks=%s batch=%s",
-            n_workers,
-            n_jobs,
-            _CO_POOL_BATCH,
-        )
-        if callable(progress_cb):
-            try:
-                progress_cb(0, n_jobs, f"ŷ_co 面板 0/{n_jobs}")
-            except Exception:  # noqa: BLE001
-                logger.debug("co compact progress_cb failed", exc_info=True)
-        start = 0
-        step = n_jobs if release_rows else _CO_POOL_BATCH
-        while start < n_jobs:
-            end = min(n_jobs, start + max(1, step))
-            _run_batch(start, end)
-            start = end
-
-    if callable(progress_cb):
-        try:
-            progress_cb(n_jobs, max(1, n_jobs), "ŷ_co 截面广度…")
-        except Exception:  # noqa: BLE001
-            logger.debug("co compact progress_cb failed", exc_info=True)
-
-    if release_rows:
-        date_list = sorted(released.get("dates") or [])
-        cols = int(released.get("n_cols") or 0) or len(col_names) or 1
-        if isinstance(stats_out, dict):
-            stats_out["release_rows"] = True
-            stats_out["n_rows"] = int(released.get("n_rows") or 0)
-            stats_out["n_cols"] = int(cols)
-            stats_out["n_dates"] = len(date_list)
-            stats_out["n_stocks"] = int(released.get("n_stocks") or 0)
-            stats_out["hits"] = int(released.get("hits") or 0)
-        return (
-            np.zeros((0, int(cols)), dtype=np.float64),
-            list(col_names),
-            [],
-            date_list,
-            [],
-            int(released.get("n_stocks") or 0),
-        )
-
-    X, out_names, ys_out, dates_out, metas_out = _finish_breadth(
-        block,
-        slim_panels,
-        gap_trigger_pct=gap_trigger_pct,
-        slim_keys=slim_keys,
-        head=head,
-        n_stocks=n_stocks,
-    )
-    slim_panels.clear()
-    return X, out_names, ys_out, dates_out, metas_out, n_stocks
 
 
 def named_columns(

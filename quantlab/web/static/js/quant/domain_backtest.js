@@ -356,7 +356,6 @@ export function installBacktest(q) {
     if (engine === "paper_replay" || p.fuse_enter != null) {
       const lb = p.lookback != null ? p.lookback : "—";
       const clock = p.fill_clock || "09:30";
-      const alpha = p.fusion_w_co != null ? p.fusion_w_co : "—";
       const wt = p.fusion_w_oo != null ? p.fusion_w_oo : "—";
       const wn = p.fusion_w_oc != null ? p.fusion_w_oc : "—";
       const lotB = p.lot_base_amount != null ? p.lot_base_amount : "—";
@@ -369,7 +368,7 @@ export function installBacktest(q) {
       const tierBit = predOn ? ` · 分档${predT}` : "";
       const psBit = p.price_space_gate === false ? " · 日分价关" : "";
       const role = String(p.score_model_role || "").toLowerCase() === "live" ? "执行" : "研究";
-      return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${role} · ${cost}`;
+      return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · 入场${enter}${tierBit}${psBit} · ${role} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
@@ -437,10 +436,6 @@ export function installBacktest(q) {
     }
     if (wOc != null) {
       setName("pm_fusion_w_nc", wOc);
-    }
-    if (req.fusion_w_co != null) {
-      const n = Number(req.fusion_w_co);
-      if (Number.isFinite(n)) setName("pm_fusion_w_co", Math.max(0, Math.min(10, n)));
     }
     const enterScore = req.fuse_enter;
     const strongScore =
@@ -781,16 +776,6 @@ export function installBacktest(q) {
     return !!el.checked;
   }
 
-  function readFusionWCo() {
-    const form = document.getElementById("paper-path-matrix-form");
-    const el = form && form.querySelector('[name="pm_fusion_w_co"]');
-    if (el && el.value !== "") {
-      const n = Number(el.value);
-      if (Number.isFinite(n)) return Math.max(0, Math.min(10, n));
-    }
-    return 1;
-  }
-
   function readFusionWeights() {
     const form = document.getElementById("paper-path-matrix-form");
     if (form) {
@@ -800,14 +785,12 @@ export function installBacktest(q) {
         return {
           fusion_w_oo: lots.fusion_w_oo,
           fusion_w_oc: lots.fusion_w_oc,
-          fusion_w_co: lots.fusion_w_co,
         };
       }
     }
     return {
       fusion_w_oo: 0.6,
       fusion_w_oc: 0.4,
-      fusion_w_co: 1,
     };
   }
 
@@ -989,7 +972,6 @@ export function installBacktest(q) {
       exclude_st: true,
       min_avg_amount_pctile: null,
       benchmark_code: "pool",
-      fusion_w_co: readFusionWCo(),
       initial_cash: readInitialCash(),
       fill_clock: readFillClock(),
       use_predictability_tiers: usePred,
@@ -1493,7 +1475,6 @@ export function installBacktest(q) {
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
-        fusion_w_co,
         fusion_w_oo,
         fusion_w_oc,
         fuse_enter,
@@ -1535,7 +1516,6 @@ export function installBacktest(q) {
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
-        fusion_w_co,
         fusion_w_oo,
         fusion_w_oc,
         fuse_enter: enterThresh,

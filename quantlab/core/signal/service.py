@@ -109,7 +109,7 @@ class SignalService:
     ) -> Dict[str, Any]:
         """仅双层 ŷ 透传字段（不整包翻写 signal_item，避免污染观察/持仓摘要）。
 
-        ``paper`` / ``rank_cfg``：数据中心与持仓共用 rank_lots 权（fusion_w_oo/oc/co）。
+        ``paper`` / ``rank_cfg``：数据中心与持仓共用 rank_lots 权（fusion_w_oo/oc）。
         """
         if not isinstance(item, dict) or not item:
             return {}
@@ -143,7 +143,7 @@ class SignalService:
     ) -> Dict[str, Any]:
         """持仓表列行：heuristic 不进表列 score；ŷ 走 decision_score。
 
-        ``rank_cfg`` 为 rank_lots 权（fusion_w_oo/oc/co）；缺则默认 0.5/0.5/0。
+        ``rank_cfg`` 为 rank_lots 权（fusion_w_oo/oc）；缺则默认 0.5/0.5。
         表列 y_oo_fuse（UI fuse）由 ŷ_oo/ŷ_τc 现算，不用 dual_score 缺口抬升的 ŷ_trade。
         """
         from core.signal.dual_score import (
@@ -198,7 +198,6 @@ class SignalService:
             live_y = k.startswith((
                 "y_oo",
                 "y_τ",
-                "y_co",
                 "y_tw",
                 "y_t30",
                 "y_t45",
@@ -212,7 +211,6 @@ class SignalService:
                 "predicted_score_eod",
                 "predicted_score_oo",
                 "predicted_score_τ",
-                "predicted_score_co",
                 "predicted_score_t30",
                 "predicted_score_t45",
                 "predicted_score_t60",
@@ -247,12 +245,8 @@ class SignalService:
                     "y_oo_fuse",
                     "fusion_w_oo",
                     "fusion_w_oc",
-                    "fusion_w_co",
-                    "features_co",
-                    "formula_terms_co",
                     "formula_terms_oo_rank",
                     "formula_terms_tc_rank",
-                    "y_spec_co",
                     "y_tc_rank",
                     "y_tc_rank_hat",
                     "y_tc_rank_n",
@@ -267,21 +261,18 @@ class SignalService:
 
             cfg = rank_cfg if isinstance(rank_cfg, dict) else get_path_matrix_cfg()
             stamped = stamp_window_scores(packed, cfg)
-            for k in ("y_oo", "y_co", "y_τc", "y_oo_fuse"):
+            for k in ("y_oo", "y_τc", "y_oo_fuse"):
                 if stamped.get(k) is not None:
                     out[k] = stamped[k]
             fa = packed.get("factor_anomaly") or out.get("factor_anomaly")
             if isinstance(fa, dict) and fa.get("fatal_tau"):
                 out["y_τc"] = None
                 out["predicted_score_τc"] = None
-                out["y_co"] = None
                 out["y_oo_fuse"] = None
             if cfg.get("fusion_w_oo") is not None:
                 out["fusion_w_oo"] = cfg.get("fusion_w_oo")
             if cfg.get("fusion_w_oc") is not None:
                 out["fusion_w_oc"] = cfg.get("fusion_w_oc")
-            if cfg.get("fusion_w_co") is not None:
-                out["fusion_w_co"] = cfg.get("fusion_w_co")
         except Exception:  # noqa: BLE001
             logger.debug("stamp holding y_oo_fuse failed", exc_info=True)
         sr = ScoreResult.from_score_stock(

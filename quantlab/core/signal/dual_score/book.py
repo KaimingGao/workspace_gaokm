@@ -17,9 +17,6 @@ from core.signal.dual_score.tau import (
     format_tau_formula_string,
     rem_factor_coefficients_public,
 )
-from core.signal.dual_score.co import ensure_formula_terms_co
-
-
 def dual_score_book_fields(
     item: Optional[dict],
     *,
@@ -91,7 +88,6 @@ def dual_score_book_fields(
             "mode": "blend",
         }
     formula_terms_tau = ensure_formula_terms_tau(work)
-    formula_terms_co = ensure_formula_terms_co(work)
     formula_terms_r = work.get("formula_terms_r") or work.get("score_formula_terms_r")
     if not (isinstance(formula_terms_r, dict) and formula_terms_r.get("terms")):
         try:
@@ -140,11 +136,8 @@ def dual_score_book_fields(
             work["y_oo_fuse"] = fuse
         if stamped.get("y_oo") is not None:
             work["y_oo"] = stamped.get("y_oo")
-        if stamped.get("y_co") is not None:
-            work["y_co"] = stamped.get("y_co")
         work["fusion_w_oo"] = cfg.get("fusion_w_oo")
         work["fusion_w_oc"] = cfg.get("fusion_w_oc")
-        work["fusion_w_co"] = cfg.get("fusion_w_co")
         fa = work.get("factor_anomaly")
         if isinstance(fa, dict) and fa.get("fatal_tau"):
             work["y_τc"] = None
@@ -152,7 +145,6 @@ def dual_score_book_fields(
             work["y_τc_ridge"] = None
             work["score_rem"] = None
             work["predicted_score_rem"] = None
-            work["y_co"] = None
             work["y_oo_fuse"] = None
     except Exception:  # noqa: BLE001
         logger.debug("stamp y_oo_fuse in book_fields failed", exc_info=True)
@@ -211,29 +203,9 @@ def dual_score_book_fields(
         "score_formula_terms_r": formula_terms_r
         or work.get("score_formula_terms_r")
         or work.get("formula_terms_r"),
-        "predicted_score_on": work.get("predicted_score_on")
-        if work.get("predicted_score_on") is not None
-        else work.get("y_co"),
-        "y_spec_co": work.get("y_spec_co") or work.get("y_spec_on"),
-        "features_co": work.get("features_co") or work.get("features_on"),
-        "formula_terms_co": formula_terms_co
-        or work.get("formula_terms_co")
-        or work.get("score_formula_terms_co")
-        or work.get("formula_terms_on")
-        or work.get("score_formula_terms_on"),
-        "score_formula_terms_co": formula_terms_co
-        or work.get("score_formula_terms_co")
-        or work.get("formula_terms_co")
-        or work.get("score_formula_terms_on")
-        or work.get("formula_terms_on"),
-        "score_formula_co": work.get("score_formula_co"),
-        "co_y_spec": work.get("co_y_spec"),
-        "dual_score_co_head": work.get("dual_score_co_head"),
         "y_oo_fuse": work.get("y_oo_fuse"),
         "y_oo": work.get("y_oo"),
-        "y_co": work.get("y_co"),
         "fusion_w_oo": work.get("fusion_w_oo"),
         "fusion_w_oc": work.get("fusion_w_oc"),
-        "fusion_w_co": work.get("fusion_w_co"),
     }
 

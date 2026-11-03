@@ -1,7 +1,7 @@
 """离线：最近 N 日 A 档 y_oo_fuse 预估日均 vs 真实 fuse 日均。
 
 口径（开盘 τ=open，rot=0）：
-  预估 fuse = w_oo·ŷ_oo + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
+  预估 fuse = w_oo·ŷ_oo + w_τc·ŷ_τc
   真实 fuse = open[T+1]/open[T]−1  （= 面板 y_oo；与 y_oo_fuse_realized 同）
 
 只读研究套 / 分档落盘；打印结果，不写库、不改配置。
@@ -94,8 +94,8 @@ def _load_a_codes() -> Tuple[Set[str], Dict[str, Any]]:
 
 
 def _fusion_cfg() -> Dict[str, float]:
-    """优先 paper 执行快照，否则默认 0.6/0.4/0.0。"""
-    from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg
+    """优先 paper 执行快照，否则默认 0.6/0.4。"""
+    from core.signal.yhat_windows import fusion_weights_from_cfg
 
     cfg: Dict[str, Any] = {}
     paper_path = os.path.join(ROOT, "data", "paper.json")
@@ -111,7 +111,7 @@ def _fusion_cfg() -> Dict[str, float]:
             ):
                 if not isinstance(blob, dict):
                     continue
-                for k in ("fusion_w_oo", "fusion_w_oc", "fusion_w_co"):
+                for k in ("fusion_w_oo", "fusion_w_oc"):
                     if blob.get(k) is not None:
                         cfg[k] = blob.get(k)
         except Exception:  # noqa: BLE001
@@ -121,8 +121,7 @@ def _fusion_cfg() -> Dict[str, float]:
     if "fusion_w_oc" not in cfg:
         cfg["fusion_w_oc"] = 0.4
     w_oo, w_tc = fusion_weights_from_cfg(cfg)
-    w_co = fusion_w_co_from_cfg(cfg)
-    return {"fusion_w_oo": w_oo, "fusion_w_oc": w_tc, "fusion_w_co": w_co}
+    return {"fusion_w_oo": w_oo, "fusion_w_oc": w_tc}
 
 
 def _load_pool(lookback: int, a_codes: Set[str]) -> List[dict]:
@@ -229,13 +228,12 @@ def main() -> int:
     weights = _fusion_cfg()
     w_oo = float(weights["fusion_w_oo"])
     w_tc = float(weights["fusion_w_oc"])
-    w_co = float(weights["fusion_w_co"])
-    _log(f"融合权 w_oo={w_oo:.3f}  w_τc={w_tc:.3f}  w_co={w_co:.3f}（开盘 rot=0）")
+    _log(f"融合权 w_oo={w_oo:.3f}  w_τc={w_tc:.3f}（开盘 rot=0）")
 
     from core.research.holdout import MODEL_ROLE_RESEARCH
     from core.research.oo_ridge import load_return_model
     from core.research.tc_ridge import load_tau_model
-    from core.signal.yhat_windows import fuse_pct, oc_with_co
+    from core.signal.yhat_windows import fuse_pct
 
     oo_model, oo_info = load_return_model(prefer_research=True)
     if oo_model is None:
@@ -246,13 +244,9 @@ def main() -> int:
         _log("缺研究套 ŷ_τc（tau_ridge_model_research）")
         return 1
     tau_fit = dict(tau_doc["return_model"])
-    # 离线首版只叠 ŷ_oo×ŷ_τc；ŷ_co 面板重，默认不建（等价 w_co=0）
-    if w_co > 1e-12:
-        _log(f"注意：配置 w_co={w_co:.3f}，本脚本离线跳过 ŷ_co（按 w_co=0 融合）")
-    w_co_eff = 0.0
     _log(
         f"ŷ_oo role={oo_info.get('model_role')} path={oo_info.get('path')}\n"
-        f"ŷ_τc research ok · ŷ_co=skip"
+        f"ŷ_τc research ok"
     )
 
     stock_bars = _load_pool(int(args.lookback), a_codes)
@@ -297,8 +291,6 @@ def main() -> int:
     )
     _log(f"  tc 日 {len(tc_days)} 股票 {n_stocks}")
 
-    co_by_day: Dict[str, Dict[str, float]] = {}
-
     _log("研究套打分…")
     oo_books = _score_oo_days(oo_days, oo_model)
     tc_books = _score_ridge_days(tc_days, tau_fit)
@@ -319,7 +311,6 @@ def main() -> int:
     for date in chosen:
         oo_map = oo_books[date]
         tc_map = tc_books[date]
-        co_map = co_by_day.get(date) or {}
         preds: List[float] = []
         reals: List[float] = []
         for code in a_codes:
@@ -327,9 +318,7 @@ def main() -> int:
                 continue
             y_oo_hat, y_oo_real = oo_map[code]
             y_tc_hat = tc_map[code]
-            y_co_hat = co_map.get(code)
-            right = oc_with_co(y_tc_hat, y_co_hat, w_co_eff)
-            fuse = fuse_pct(y_oo_hat, right, w_left=w_oo, w_right=w_tc)
+            fuse = fuse_pct(y_oo_hat, y_tc_hat, w_left=w_oo, w_right=w_tc)
             if fuse is None:
                 continue
             preds.append(float(fuse))
@@ -380,15 +369,13 @@ def main() -> int:
     for date, row in ((r["date"], r) for r in daily_rows):
         oo_map = oo_books[date]
         tc_map = tc_books[date]
-        co_map = co_by_day.get(date) or {}
         ps: List[float] = []
         rs: List[float] = []
         for code in a_codes:
             if code not in oo_map or code not in tc_map:
                 continue
             y_oo_hat, y_oo_real = oo_map[code]
-            right = oc_with_co(tc_map[code], co_map.get(code), w_co_eff)
-            fuse = fuse_pct(y_oo_hat, right, w_left=w_oo, w_right=w_tc)
+            fuse = fuse_pct(y_oo_hat, tc_map[code], w_left=w_oo, w_right=w_tc)
             if fuse is None:
                 continue
             ps.append(float(fuse))

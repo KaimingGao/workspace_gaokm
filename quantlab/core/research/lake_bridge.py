@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 # 与 panel head 对齐的 L1 family 名
 FAMILY_OO = "oo"
-FAMILY_CO = "co"
 FAMILY_TC = "tc"
 FAMILY_TC_RANK = "tc_rank"
 FAMILY_OO_RANK = "oo_rank"
@@ -236,14 +235,13 @@ def invalidate_l1_for_code(code: str, *, families: Optional[Sequence[str]] = Non
         else:
             fams = [
                 FAMILY_OO,
-                FAMILY_CO,
                 FAMILY_OO_RANK,
                 *list_tc_l1_families(),
                 *list_hz_l1_families(),
             ]
     except Exception:  # noqa: BLE001
         logger.warning("l1 family list failed code=%s", code, exc_info=True)
-        fams = [FAMILY_OO, FAMILY_CO, FAMILY_OO_RANK]
+        fams = [FAMILY_OO, FAMILY_OO_RANK]
     dates, had_shard, unreadable = _l1_dates_before_invalidate(code, fams)
     for fam in fams:
         try:

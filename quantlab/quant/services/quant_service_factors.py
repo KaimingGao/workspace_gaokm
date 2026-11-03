@@ -761,7 +761,7 @@ class QuantFactorMixin:
 
         默认用满观察池。``tau_end_hm`` 优先（09:30…11:00；09:30=0 前缀 open→close）；
         否则 ``tau_hm`` / ``dual_score.enable_minute_tau``（开则训至 11:00 网格）。
-        日线与 ŷ_oo / ŷ_co 同源（``load_portfolio_stock_bars``）。
+        日线与 ŷ_oo 同源（``load_portfolio_stock_bars``）。
         ``job_alive_cb()``：False 时跳过 ``save_tau_last_report``（槽已被接替/取消）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
@@ -1068,214 +1068,6 @@ class QuantFactorMixin:
             live_present=True,
         )
 
-    @records_experiment("co_ridge")
-    @consume_materialized
-    def run_co_ridge_experiment(
-        self,
-        *,
-        lookback: int = 600,
-        watching_limit: int = MODEL_FIT_MAX_SIZE,
-        ridge_lambda: float = 1.0,
-        gap_trigger_pct: float = 2.0,
-        theme_boost: float = 1.5,
-        persist: bool = False,
-        note: str = "",
-        persist_role: str = "live",
-        holdout_trading_days: int = 20,
-        cross_section_zscore: bool = True,
-        progress_cb: Optional[Any] = None,
-        job_alive_cb: Optional[Any] = None,
-    ) -> Dict[str, Any]:
-        """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。
-
-        日线与 ŷ_oo 同源（``load_portfolio_stock_bars``：lookback 外再垫 alpha_oo 窗），
-        决策日与 ŷ_oo 对齐。
-        ``job_alive_cb()``：False 时跳过 ``save_co_last_report``（槽已被接替/取消）。
-        """
-        from core.research.portfolio_bars import load_portfolio_stock_bars
-        from core.research.co_ridge import (
-            fit_co_ridge_report,
-            load_co_last_report,
-            load_co_model,
-            co_model_path,
-            persist_co_model,
-            save_co_last_report,
-        )
-
-        from core.watching.store import MODEL_FIT_MAX_SIZE
-
-        def _job_alive() -> bool:
-            if not callable(job_alive_cb):
-                return True
-            try:
-                return bool(job_alive_cb())
-            except Exception:  # noqa: BLE001
-                logger.debug("co_ridge job_alive_cb failed", exc_info=True)
-                return True
-
-        resolved = _resolve_fit_universe(
-            watching_limit=watching_limit,
-        )
-        if not resolved.get("ok", True):
-            return {
-                "success": False,
-                "error": resolved.get("error") or "拟合宇宙解析失败",
-                "task": "co_ridge",
-                "universe_source": resolved.get("source"),
-            }
-        codes = list(resolved.get("codes") or [])
-        limit = max(2, min(int(watching_limit or MODEL_FIT_MAX_SIZE), int(MODEL_FIT_MAX_SIZE)))
-        codes = codes[:limit]
-        if len(codes) < 2:
-            return {
-                "success": False,
-                "error": "研究池至少 2 只才可跑 co Ridge",
-                "task": "co_ridge",
-            }
-
-        if persist:
-            last = load_co_last_report()
-            if last:
-                saved = persist_co_model(
-                    last,
-                    note=note or "persist last co report",
-                    role=persist_role,
-                )
-                out = dict(last)
-                out["persisted"] = saved
-                out["from_last_report"] = True
-                if saved.get("promoted_at"):
-                    out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, co_model_path())
-
-        if callable(progress_cb):
-            try:
-                progress_cb(0, max(1, len(codes)), "ŷ_co 拉日线…")
-            except Exception:  # noqa: BLE001
-                pass
-        loaded, _failures, _fund = load_portfolio_stock_bars(
-            codes,
-            lookback=int(lookback or 600),
-            fetch_fundamentals=False,
-        )
-        stock_bars = [
-            {"code": str(code), "bars": bars}
-            for code, bars in loaded.items()
-            if bars
-        ]
-        report = fit_co_ridge_report(
-            stock_bars,
-            ridge_lambda=ridge_lambda,
-            gap_trigger_pct=gap_trigger_pct,
-            theme_boost=theme_boost,
-            holdout_trading_days=holdout_trading_days,
-            cross_section_zscore=bool(cross_section_zscore),
-            progress_cb=progress_cb,
-        )
-        report["watching_limit"] = limit
-        report["universe_source"] = resolved.get("source")
-        report["watching_pool_size"] = int(
-            resolved.get("watching_pool_size") or len(codes)
-        )
-        report["lookback"] = lookback
-        if not _job_alive():
-            report["success"] = False
-            report["error"] = "任务已中断或被接替"
-            report["orphaned"] = True
-            report["persisted"] = {"success": False, "skipped": True, "orphaned": True}
-            return _attach_ridge_role_flags(report, co_model_path())
-        if report.get("success"):
-            save_co_last_report(report)
-        if persist and report.get("success"):
-            saved = persist_co_model(
-                report, note=note or "api co-ridge persist", role=persist_role
-            )
-            report["persisted"] = saved
-            if saved.get("promoted_at"):
-                report["promoted_at"] = saved["promoted_at"]
-        else:
-            report["persisted"] = {"success": False, "skipped": True}
-            live = load_co_model()
-            report["live_model_present"] = bool(live)
-        return _attach_ridge_role_flags(report, co_model_path())
-
-    def start_co_ridge_job(
-        self,
-        *,
-        lookback: int = 600,
-        watching_limit: int = MODEL_FIT_MAX_SIZE,
-        ridge_lambda: float = 1.0,
-        gap_trigger_pct: float = 2.0,
-        theme_boost: float = 1.5,
-        note: str = "",
-        persist_role: str = "live",
-        holdout_trading_days: int = 20,
-        cross_section_zscore: bool = True,
-        **_ignored: Any,
-    ) -> Dict[str, Any]:
-        """后台 ŷ_co 拟合；轮询 ``GET /api/jobs/co-ridge``。不写盘。"""
-        from core.job_progress import co_ridge_job
-
-        kwargs = dict(
-            lookback=lookback,
-            watching_limit=watching_limit,
-            ridge_lambda=ridge_lambda,
-            gap_trigger_pct=gap_trigger_pct,
-            theme_boost=theme_boost,
-            persist=False,
-            note=note or "",
-            persist_role=persist_role,
-            holdout_trading_days=holdout_trading_days,
-            cross_section_zscore=bool(cross_section_zscore),
-        )
-        return _start_ridge_fit_job(
-            slot=co_ridge_job,
-            kind="co_ridge",
-            message="ŷ_co 拟合中…",
-            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
-            worker_fn=lambda progress_cb=None, job_alive_cb=None: self.run_co_ridge_experiment(
-                **kwargs,
-                progress_cb=progress_cb,
-                job_alive_cb=job_alive_cb,
-            ),
-        )
-
-    def get_co_ridge_model(self) -> Dict[str, Any]:
-        from core.research.co_ridge import (
-            load_co_last_report,
-            load_co_model,
-            co_model_path,
-        )
-
-        doc = load_co_model()
-        last = load_co_last_report()
-        live_file = os.path.isfile(co_model_path())
-        chosen, use_last = _select_ridge_desk_doc(doc, last)
-        if not chosen:
-            return _attach_ridge_role_flags(
-                {
-                    "success": False,
-                    "exists": False,
-                    "path": co_model_path(),
-                    "last_report_exists": bool(last),
-                    "note": "尚无 ŷ_co 模型；POST /api/quant/co-ridge persist=true",
-                },
-                co_model_path(),
-                live_present=False,
-            )
-        out = dict(chosen)
-        out.update(
-            {
-                "success": True,
-                "exists": True,
-                "path": co_model_path(),
-                "shadow": bool(use_last) or bool(chosen.get("_shadow")) or (not live_file),
-                "promoted": (not use_last) and live_file and not chosen.get("_shadow"),
-                "last_report_exists": bool(last),
-            }
-        )
-        return _attach_ridge_role_flags(out, co_model_path(), live_present=live_file)
-
     @records_experiment("oo_rank")
     @consume_materialized
     def run_oo_rank_experiment(
@@ -1297,7 +1089,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_oo_rank：同窗 LambdaRank + Ridge。
 
-        日线与 ŷ_oo / ŷ_τc / ŷ_co 同源（``load_portfolio_stock_bars``：
+        日线与 ŷ_oo / ŷ_τc 同源（``load_portfolio_stock_bars``：
         本地仓够长则不补远端，避免拟合时把当日 K 线刷进仓里）。
         截面 z 恒用整观察池。``train_tiers``（A/B/C 多选）非空时，损失 / Holdout
         缩到观察池∩这些档（须先跑枢纽分档）；打分仍全池 z。
@@ -1595,7 +1387,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ_τc_rank：同窗 LambdaRank + Ridge。
 
-        日线与 ŷ_oo / ŷ_τc / ŷ_co 同源（``load_portfolio_stock_bars``：
+        日线与 ŷ_oo / ŷ_τc 同源（``load_portfolio_stock_bars``：
         本地仓够长则不补远端）。
         截面 z 恒用整观察池。``train_tiers`` 非空时损失 / Holdout 缩到观察池∩档；
         旧 ``train_universe_tier_a=True`` 等价 ``["A"]``。

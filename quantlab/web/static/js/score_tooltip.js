@@ -5,12 +5,9 @@
 import {
   escapeText,
   fusionWeightsFromItem,
-  fusionWCoFromItem,
-  ocWithCoPct,
   pickYOcFitted,
   resolveEodScore,
   resolveGapPct,
-  resolveOnScore,
   resolveTauLiftedScore,
   resolveTauScore,
   fuseOpenPx,
@@ -32,9 +29,8 @@ import {
   resolvePathScore,
   compoundPct,
   Y_HL_TITLE,
-} from "./paper/fmt.js?v=p2544";
+} from "./paper/fmt.js?v=p3540";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
-import { CO_FEAT_META } from "./quant/factor_meta.js";
 
 const FACTOR_LABELS = {
   momentum: "动量",
@@ -367,9 +363,6 @@ function termFeatLabel(t, _key) {
 /** 悬停用中文名（有则附在 title；无则空）。 */
 function termFeatCnTitle(t, key) {
   const k = t && t.key;
-  if ((key === "on" || key === "co") && k && CO_FEAT_META[k] && CO_FEAT_META[k].label) {
-    return String(CO_FEAT_META[k].label);
-  }
   if (
     (key === "tau" ||
       key === "r" ||
@@ -456,7 +449,7 @@ function hasTauFormulaTerms(raw) {
   );
 }
 
-/** y_τc 列 tip：头卡与 y_oo / y_co 同构（短名 + 两位小数 + 一行口径）。 */
+/** y_τc 列 tip：头卡与 y_oo 同构（短名 + 两位小数 + 一行口径）。 */
 function formatCompactTauTip(raw) {
   const fit = resolveTauScore(raw);
   const val = fit == null ? "—" : `${fmtSigned(fit, 2)}%`;
@@ -1040,41 +1033,6 @@ function formatCompactTcRankTip(raw) {
   );
 }
 
-/** y_on 列：开盘决策口径旁路（勿与含当日 close 的 y_on_path 混读）。 */
-function formatCompactOnTip(raw) {
-  const on = resolveOnScore(raw);
-  const val = on == null ? "—" : `${fmtSigned(on, 2)}%`;
-  const ySpec =
-    (raw && raw.y_spec_co && raw.y_spec_co.formula) ||
-    (raw && raw.y_spec_on && raw.y_spec_on.formula) ||
-    (raw && raw.co_y_spec) ||
-    "open[T+1]/close[T]−1";
-  const pathOn =
-    raw && raw.y_on_path != null && Number.isFinite(Number(raw.y_on_path))
-      ? Number(raw.y_on_path)
-      : raw &&
-          raw.predicted_score_on_path != null &&
-          Number.isFinite(Number(raw.predicted_score_on_path))
-        ? Number(raw.predicted_score_on_path)
-        : null;
-  const pathLine =
-    pathOn == null
-      ? ""
-      : `<div class="score-hero-hint">复盘路径价 y_on_path=${escapeText(
-          `${fmtSigned(pathOn, 2)}%`
-        )}（可含当日 close · 不定向）</div>`;
-  return (
-    `<div class="score-layer score-layer-eod">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">y_co</div>` +
-    `<div class="score-hero-value ${signCls(on)}">${escapeText(val)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">ŷ_co · ${escapeText(String(ySpec))} · α+Σβ·z</div>` +
-    pathLine +
-    `</div>`
-  );
-}
-
 /** ŷ_τc：独立预估 price(τ)→close（与表列 / 组成合计同口径）。 */
 export function formatRemScoreSection(raw) {
   const rem = resolveTauScore(raw);
@@ -1180,22 +1138,17 @@ export function formatRemScoreSection(raw) {
   );
 }
 
-/** fuse / y_oo_fuse 与表列同源：τc 为几何剩余；缺 y_spec 才整段减 rot。 */
+/** fuse / y_oo_fuse 与表列同源：某一 τ 为 w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·ŷ_τc；开盘 rot=0。缺 y_spec 才整段减 rot。 */
 export function formatBlendScoreSection(raw) {
   const blend = resolveFuseScore(raw);
   const yEod = resolveEodScore(raw);
   const yt = pickYOcFitted(raw);
-  const yCo = resolveOnScore(raw);
   const { wOo, wOc } = fusionWeightsFromItem(raw);
-  const wCo = fusionWCoFromItem(raw);
-  const ocRight = ocWithCoPct(yt, yCo, wCo);
   const blendTxt = blend == null ? "—" : `${fmtSigned(blend, 2)}%`;
   const eodN = yEod == null || yEod === "" ? null : Number(yEod);
   const tN = yt == null || yt === "" ? null : Number(yt);
-  const coN = yCo == null || yCo === "" ? null : Number(yCo);
-  const rightN = ocRight == null || ocRight === "" ? null : Number(ocRight);
+  const rightN = tN;
   const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 2)}%`;
-  const coTxt = coN == null || !Number.isFinite(coN) ? "—" : `${fmtSigned(coN, 2)}%`;
   const wTxt = `w_oo=${Number(wOo).toFixed(2)} · w_τc=${Number(wOc).toFixed(2)}`;
   const arith =
     eodN != null && Number.isFinite(eodN) && rightN != null && Number.isFinite(rightN)
@@ -1220,7 +1173,7 @@ export function formatBlendScoreSection(raw) {
       : "";
   const hint = isOc
     ? `${wTxt}${arith} · 缺 y_spec：fuse−(price(τ)/open−1)；真实=open[T+1]/price(τ)−1`
-    : `${wTxt}${arithTc} · ((ŷ_oo+1)/(1+rot)−1)+ŷ_τc∘ŷ_co；真实=open[T+1]/price(τ)−1`;
+    : `${wTxt}${arithTc} · fuse = w_oo·ŷ_oo + w_τc·ŷ_τc；真实=open[T+1]/price(τ)−1`;
   const head =
     raw && raw.dual_score_head != null
       ? String(raw.dual_score_head)
@@ -1244,9 +1197,6 @@ export function formatBlendScoreSection(raw) {
     `<div class="score-layer-row"><span>ŷ_τc ×${Number(wOc).toFixed(2)}</span><span class="num ${signCls(
       tN
     )}">${escapeText(tTxt)}</span></div>`,
-    `<div class="score-layer-row"><span>ŷ_co</span><span class="num ${signCls(
-      coN
-    )}">${escapeText(coTxt)}${wCo > 1e-12 ? ` · ×${Number(wCo).toFixed(2)}` : " · 不进"}</span></div>`,
     `<div class="score-layer-row score-layer-row-total"><span>fuse</span><span class="num ${signCls(
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
@@ -1373,14 +1323,8 @@ function formulaExpl(raw, key) {
             ? raw && (raw.formula_terms_t60 || raw.score_formula_terms_t60)
             : key === "t75"
               ? raw && (raw.formula_terms_t75 || raw.score_formula_terms_t75)
-              : key === "t90"
+                : key === "t90"
                 ? raw && (raw.formula_terms_t90 || raw.score_formula_terms_t90)
-                : key === "on" || key === "co"
-                  ? raw &&
-                    (raw.formula_terms_co ||
-                      raw.score_formula_terms_co ||
-                      raw.formula_terms_on ||
-                      raw.score_formula_terms_on)
                   : key === "tc_rank"
                     ? raw &&
                       (raw.formula_terms_tc_rank ||
@@ -1419,8 +1363,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "ŷ_τ75 组成"
           : key === "t90"
             ? "ŷ_τ90 组成"
-          : key === "on" || key === "co"
-          ? "ŷ_co 组成"
           : key === "tc_rank"
             ? "ŷ_τc_rank 组成"
             : key === "oo_rank" || key === "rank"
@@ -1429,9 +1371,8 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const isHorizonProb =
     isHorizonProbKey(key) || String((expl && expl.head_kind) || "") === "prob";
   const isOoRank = key === "oo_rank" || key === "rank" || key === "tc_rank";
-  // y_oo / y_τc / y_co / oo_rank 与窗概率头同一条数，避免头卡长短不一
-  const yHead =
-    key === "eod" || key === "tau" || key === "on" || key === "co" || isOoRank;
+  // y_oo / y_τc / oo_rank 与窗概率头同一条数，避免头卡长短不一
+  const yHead = key === "eod" || key === "tau" || isOoRank;
   const factorCap = yHead || isHorizonProb ? 24 : terms.length;
   if (terms.length > factorCap) {
     terms = [...terms]
@@ -1447,8 +1388,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       ? "合计 ŷ_τc"
       : isHorizonProb
         ? `合计 logit → p_up`
-        : key === "on" || key === "co"
-          ? "合计 ŷ_co"
           : isOoRank
             ? "合计相对分"
             : "合计 ŷ_oo";
@@ -1552,8 +1491,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     key === "eod" ||
     key === "oo" ||
     key === "tau" ||
-    key === "on" ||
-    key === "co" ||
     isHorizonProb ||
     isOoRank;
   const alphaName = treeTable
@@ -2419,7 +2356,7 @@ export function createScoreTooltipController() {
     if (tip === "t90" || tip === "τ90" || tip === "yt90") return "t90";
     // ŷ_hl tip 已退役：hl/path/yhl 不再开组成 tip
     if (tip === "tw" || tip === "τw" || tip === "ytw") return "tw";
-    if (tip === "on" || tip === "co") return "on";
+    if (tip === "on") return "on";
     if (tip === "fuse" || tip === "y_oo_fuse" || tip === "trade" || tip === "score")
       return "fuse";
     if (tip === "oo_rank" || tip === "rank" || tip === "y_oo_rank") return "oo_rank";
@@ -2580,15 +2517,6 @@ export function createScoreTooltipController() {
       return;
     }
 
-    if (tipMode === "on" || tipMode === "co") {
-      const parts = [
-        formatCompactOnTip(raw),
-        formatFormulaTermsSection(raw, { key: "on" }),
-      ].filter(Boolean);
-      showCompactScoreTip(cell, parts.join(""), { sticky });
-      return;
-    }
-
     if (tipMode === "tc_rank") {
       const termsHtml = formatFormulaTermsSection(raw, { key: "tc_rank" });
       const parts = [
@@ -2628,7 +2556,7 @@ export function createScoreTooltipController() {
           `<div class="score-hero-label">fuse</div>` +
           `<div class="score-hero-value ${signCls(ranked)}">${escapeText(val)}</div>` +
           `</div>` +
-          `<div class="score-hero-hint">fuse＝w_oo·ŷ_oo + w_τc·ŷ_τc·ŷ_co；真实=open[T+1]/price(τ)−1</div>` +
+          `<div class="score-hero-hint">fuse = w_oo·ŷ_oo + w_τc·ŷ_τc；真实=open[T+1]/price(τ)−1</div>` +
           `</div>`;
       }
       showCompactScoreTip(cell, blendHtml, { sticky });

@@ -1,4 +1,4 @@
-"""调仓 ŷ_oo / ŷ_τc / ŷ_co 打分后端（仅 Ridge）。
+"""调仓 ŷ_oo / ŷ_τc 打分后端（仅 Ridge）。
 
 影子树头已下线；``normalize_rebalance_score_backend`` 恒为 ``ridge``。
 Horizon τ30…90 正式路径为启用套包内 ``backend``（研究枢纽 AUC 择优）；

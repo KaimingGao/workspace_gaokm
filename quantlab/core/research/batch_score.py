@@ -20,7 +20,7 @@ def enabled() -> bool:
 
 
 def _raw_feat_dict(item: Mapping[str, Any]) -> Dict[str, Any]:
-    """从 signal_item 抽出截面 raw 特征（sub_scores + τ/co + raw_*）。"""
+    """从 signal_item 抽出截面 raw 特征（sub_scores + τ + raw_*）。"""
     out: Dict[str, Any] = {}
     # ŷ_oo 截面 z 用 sub_scores（含 z_oo / raw_aoo）
     sub = item.get("sub_scores")
@@ -34,9 +34,6 @@ def _raw_feat_dict(item: Mapping[str, Any]) -> Dict[str, Any]:
             pass
     for key in (
         "features_tau",
-        "features_co",
-        "features_on",
-        "co_features",
         "factor_raw",
         "raw_features",
     ):
@@ -46,7 +43,7 @@ def _raw_feat_dict(item: Mapping[str, Any]) -> Dict[str, Any]:
     for k, v in item.items():
         if str(k).startswith("raw_") and v is not None:
             out[str(k)] = v
-    # τ / co / τ* 块合并后对齐裸名↔canon，避免 DayCube μ/σ 落在分叉列上
+    # τ / τ* 块合并后对齐裸名↔canon，避免 DayCube μ/σ 落在分叉列上
     try:
         from core.signal.factors.z_tc import stamp_z_tc_aliases
 
@@ -57,12 +54,6 @@ def _raw_feat_dict(item: Mapping[str, Any]) -> Dict[str, Any]:
         from core.signal.factors.z_th import stamp_z_th_aliases
 
         stamp_z_th_aliases(out)
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        from core.signal.factors.z_co import stamp_z_co_aliases
-
-        stamp_z_co_aliases(out)
     except Exception:  # noqa: BLE001
         pass
     return out
@@ -236,7 +227,7 @@ def rescore_fitted_cross_section_batched(
     persist_cube: bool = True,
     universe_codes: Optional[Sequence[str]] = None,
 ) -> List[dict]:
-    """构建 DayCube 后单遍 rescore（τ/co 直接用 cube μ/σ；cube 落盘供 live/T0）。
+    """构建 DayCube 后单遍 rescore（τ 直接用 cube μ/σ；cube 落盘供 live/T0）。
 
     ``universe_codes`` = L2 目录键（完整观察池）。未传时读 ``read_cube_codes()``，
     再退回 items 里的代码。``score_codes`` 只决定写谁的 ŷ，**不**参与哈希。

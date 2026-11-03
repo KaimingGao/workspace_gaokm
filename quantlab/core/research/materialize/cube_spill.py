@@ -283,7 +283,6 @@ def warmup_clock_from_spill(
     clock: str,
     family_oo: str,
     family_tc: str,
-    family_co: str,
     min_items: int,
     require_oo_item: bool,
     require_tc_day: bool,
@@ -292,7 +291,7 @@ def warmup_clock_from_spill(
     day_pos: Optional[Dict[str, int]] = None,
     n_days: int = 0,
 ) -> Dict[str, int]:
-    """先扫哪些日子缺立方，三族各解开一次，再按 80 天一块向量化落盘。
+    """先扫哪些日子缺立方，oo / tc 各解开一次，再按 80 天一块向量化落盘。
 
     不走逐票 item。返回 ``cubes_hit`` / ``cubes_built``。
     """
@@ -350,7 +349,6 @@ def warmup_clock_from_spill(
     families = (
         ("oo", family_oo),
         ("tc", family_tc),
-        ("co", family_co),
     )
     try:
         with open_lake_spill() as spill:
@@ -358,6 +356,8 @@ def warmup_clock_from_spill(
             for key, fam in families:
                 if _cancelled(cancel_cb):
                     return stats
+                if not str(fam or "").strip():
+                    continue
                 wrote = spill.write(
                     key,
                     fam,
@@ -376,14 +376,12 @@ def warmup_clock_from_spill(
                 refuse_resident_block(len(chunk), len(code_list), widths)
                 oo_s = spill.read("oo", code_list, chunk)
                 tc_s = spill.read("tc", code_list, chunk)
-                co_s = spill.read("co", code_list, chunk)
                 try:
                     filled = build_day_cubes_from_lake(
                         code_list,
                         chunk,
                         family_oo=family_oo,
                         family_tc=family_tc,
-                        family_co=family_co,
                         clock=clock,
                         universe_codes=code_list,
                         min_items=min_items,
@@ -399,12 +397,10 @@ def warmup_clock_from_spill(
                         replace_existing=True,
                         shared_oo=oo_s,
                         shared_tc=tc_s,
-                        shared_co=co_s,
                     )
                 finally:
                     oo_s = None
                     tc_s = None
-                    co_s = None
                 if not isinstance(filled, dict):
                     filled = {}
                 stats["cubes_built"] += int(filled.get("cubes_built") or 0)

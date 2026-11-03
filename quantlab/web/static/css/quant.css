@@ -4323,7 +4323,7 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   margin: 0;
 }
 
-/* ŷ_oo / ŷ_τc / ŷ_co：可折叠，默认展开。
+/* ŷ_oo / ŷ_τc：可折叠，默认展开。
    details 保持 UA 的 block，才能在收起时藏住卡片；flex 会拆掉这个行为。 */
 .quant-page .quant-primary-fold {
   margin: 0;
@@ -10480,7 +10480,6 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
 /* ŷ_* 因子表 / ŷ_oo·ŷ_oo_rank·ŷ_τc_rank·ŷ_τ* 结果宿主：清零 wrap margin（间隔靠 oos-compare 底边距 + card gap） */
 .quant-page #quant-oo-coef-table.quant-weight-table-wrap,
 .quant-page #quant-tau-coef-table.quant-weight-table-wrap,
-.quant-page #quant-co-coef-table.quant-weight-table-wrap,
 .quant-page #quant-oo-rank-coef-table.quant-weight-table-wrap,
 .quant-page #quant-tc-rank-coef-table.quant-weight-table-wrap,
 .quant-page #quant-t30-coef-table.quant-weight-table-wrap,

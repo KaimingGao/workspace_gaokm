@@ -77,11 +77,10 @@ class MaterializeTrackTests(unittest.TestCase):
                     "ok": True,
                     "elapsed_s": 40.0,
                     "n_codes": 800,
-                    "families": ["oo", "tc", "co"],
+                    "families": ["oo", "tc"],
                     "by_family": {
                         "oo": {"ok": True, "elapsed_s": 12.0, "n_stocks": 800},
                         "tc": {"ok": True, "elapsed_s": 18.0, "n_stocks": 800},
-                        "co": {"ok": True, "elapsed_s": 10.0, "n_stocks": 800},
                     },
                 },
                 "l2": {
@@ -109,7 +108,7 @@ class MaterializeTrackTests(unittest.TestCase):
         self.assertEqual(track["stages"][1]["depends_on"], ["l1_open"])
         self.assertEqual(
             track["stages"][0]["metrics"]["families_ok"],
-            ["oo", "tc", "co"],
+            ["oo", "tc"],
         )
 
     def test_tau_track_marks_minute_deps(self):
@@ -153,7 +152,6 @@ class MaterializeCatalogTests(unittest.TestCase):
         ids = {f["id"] for f in doc["families"]}
         self.assertIn("oo", ids)
         self.assertIn("tc", ids)
-        self.assertIn("co", ids)
         self.assertEqual(doc["clocks"], ["open"])
         self.assertIn("suggested_tau_clocks", doc)
         self.assertIsInstance(doc["suggested_tau_clocks"], list)
@@ -183,7 +181,8 @@ class MaterializeCatalogTests(unittest.TestCase):
     def test_normalize_families_default_p0(self):
         from core.research.materialize.catalog import normalize_families
 
-        self.assertEqual(normalize_families(None), ["oo", "tc", "co"])
+        self.assertEqual(normalize_families(None), ["oo", "tc"])
+        self.assertEqual(normalize_families(["oo", "tc", "zz"]), ["oo", "tc"])
         self.assertEqual(normalize_families(["tc", "oo", "nope"]), ["tc", "oo"])
 
     def test_horizon_l1_names_nonempty(self):
@@ -304,8 +303,8 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         self.assertEqual(l2_fn.call_args.kwargs.get("lookback_days"), L2_MINUTE_LOOKBACK)
 
     def test_implicit_oo_rank_failure_keeps_p0_ok(self):
-        """未显式请求 oo_rank 时，rank 失败不把 oo/tc/co 整次打失败。"""
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_OO_RANK, FAMILY_TC
+        """未显式请求 oo_rank 时，rank 失败不把 oo/tc 整次打失败。"""
+        from core.research.lake_bridge import FAMILY_OO, FAMILY_OO_RANK, FAMILY_TC
         from core.research.materialize.l1_jobs import _materialize_l1_body
 
         def _ok_fam(*_a, **_k):
@@ -316,13 +315,11 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         ), mock.patch(
             "core.research.materialize.l1_jobs._materialize_tc", side_effect=_ok_fam
         ), mock.patch(
-            "core.research.materialize.l1_jobs._materialize_co", side_effect=_ok_fam
-        ), mock.patch(
             "core.research.materialize.l1_jobs._materialize_oo_rank",
             return_value={"ok": False, "error": "rank boom"},
         ):
             out = _materialize_l1_body(
-                [FAMILY_OO, FAMILY_TC, FAMILY_CO],
+                [FAMILY_OO, FAMILY_TC, "zz"],
                 ["000001", "000002"],
                 lookback=10,
             )
@@ -333,7 +330,7 @@ class MaterializeOrchestrateTests(unittest.TestCase):
 
     def test_implicit_oo_rank_cancel_keeps_p0_ok(self):
         """可选 oo_rank 进行中取消：P0 已齐则 L1 仍成功。"""
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
         from core.research.materialize.l1_jobs import _materialize_l1_body
 
         def _ok_fam(*_a, **_k):
@@ -342,22 +339,20 @@ class MaterializeOrchestrateTests(unittest.TestCase):
         calls = {"n": 0}
 
         def _cancel() -> bool:
-            # 顺序 oo→tc→co→oo_rank：第 4 次检查进入可选 rank
+            # 顺序 oo→tc→oo_rank：第 3 次检查进入可选 rank
             calls["n"] += 1
-            return calls["n"] >= 4
+            return calls["n"] >= 3
 
         with mock.patch(
             "core.research.materialize.l1_jobs._materialize_oo", side_effect=_ok_fam
         ), mock.patch(
             "core.research.materialize.l1_jobs._materialize_tc", side_effect=_ok_fam
         ), mock.patch(
-            "core.research.materialize.l1_jobs._materialize_co", side_effect=_ok_fam
-        ), mock.patch(
             "core.research.materialize.l1_jobs._materialize_oo_rank",
             side_effect=AssertionError("oo_rank should not run after cancel"),
         ):
             out = _materialize_l1_body(
-                [FAMILY_OO, FAMILY_TC, FAMILY_CO],
+                [FAMILY_OO, FAMILY_TC, "zz"],
                 ["000001", "000002"],
                 lookback=10,
                 cancel_cb=_cancel,
@@ -2738,7 +2733,6 @@ class DayMatrixCsEnrichTests(unittest.TestCase):
                 [day],
                 family_oo="oo",
                 family_tc="tc_0935",
-                family_co="co",
                 clock="09:35",
                 universe_codes=codes,
                 min_items=2,
@@ -2754,12 +2748,11 @@ class DayMatrixCsEnrichTests(unittest.TestCase):
             "z_τh_sector_ret_to_tau",
             "z_τh_ret_vs_sector",
             "z_τc_sector_gap_breadth",
-            "z_co_sector_gap_breadth",
         ):
             self.assertIn(key, got, msg=key)
 
-    def test_open_clock_enriches_tc_and_co_cs(self) -> None:
-        """open Cube：τc/co 入模截面进 names（含 z_co_*）。"""
+    def test_open_clock_enriches_tc_cs(self) -> None:
+        """open Cube：τc 入模截面进 names。"""
         from core.research.materialize.cube_batch import build_day_cubes_from_lake
 
         day = "2024-06-03"
@@ -2768,7 +2761,7 @@ class DayMatrixCsEnrichTests(unittest.TestCase):
         def _slice(family, codes_in, dates, progress_cb=None, cancel_cb=None):
             out = {}
             for i, code in enumerate(codes_in):
-                feats = {"gap_pct": float(2.0 + i), "z_co_gap_pct": float(2.0 + i)}
+                feats = {"gap_pct": float(2.0 + i)}
                 names = list(feats)
                 out[code] = (
                     names,
@@ -2801,7 +2794,6 @@ class DayMatrixCsEnrichTests(unittest.TestCase):
                 [day],
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 clock="open",
                 universe_codes=codes,
                 min_items=2,
@@ -2813,15 +2805,12 @@ class DayMatrixCsEnrichTests(unittest.TestCase):
             "z_τc_sector_gap_breadth",
             "z_τc_theme_day",
             "z_τc_gap_vs_sector",
-            "z_co_sector_gap_breadth",
-            "z_co_theme_day",
-            "z_co_gap_vs_sector",
         ):
             self.assertIn(key, got, msg=key)
         # open 无 ret_open_to_tau 源 → 不硬塞板块收益列
         self.assertNotIn("z_τc_sector_ret_to_tau", got)
 
-    def test_enrich_mirrors_z_co_open_keys(self) -> None:
+    def test_enrich_mirrors_tc_open_keys(self) -> None:
         from core.research.tau_panel import enrich_day_matrix_cross_section
 
         codes = ["000001", "000002", "000003"]
@@ -2831,14 +2820,7 @@ class DayMatrixCsEnrichTests(unittest.TestCase):
             codes, names, x, clock="open"
         )
         self.assertIn("sector_gap_breadth", added)
-        for key in (
-            "z_co_sector_gap_breadth",
-            "z_co_theme_day",
-            "z_co_gap_vs_sector",
-            "z_τc_sector_gap_breadth",
-        ):
-            self.assertIn(key, out_names, msg=key)
-        self.assertNotIn("z_co_sector_ret_to_tau", out_names)
+        self.assertIn("z_τc_sector_gap_breadth", out_names)
 
     def test_enrich_bad_shape_and_trigger_are_safe(self) -> None:
         from core.research.tau_panel import enrich_day_matrix_cross_section
@@ -2926,7 +2908,6 @@ class CubeBatchFillTests(unittest.TestCase):
                 days,
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 clock="open",
                 universe_codes=["000001", "000002"],
                 min_items=2,
@@ -2934,7 +2915,7 @@ class CubeBatchFillTests(unittest.TestCase):
                 chunk_days=80,
             )
         self.assertEqual(stats["cubes_built"], 3)
-        self.assertEqual([fam for fam, _dates in seen], ["oo", "tc", "co"])
+        self.assertEqual([fam for fam, _dates in seen], ["oo", "tc"])
         self.assertEqual(seen[0][1], tuple(days))
         self.assertEqual(ensure.call_count, 3)
         self.assertEqual(
@@ -2969,7 +2950,6 @@ class CubeBatchFillTests(unittest.TestCase):
                 ["2024-01-02", "2024-01-03", "2024-01-04"],
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 clock="open",
                 universe_codes=["000001", "000002"],
                 min_items=2,
@@ -3008,7 +2988,6 @@ class CubeBatchFillTests(unittest.TestCase):
                 ["2024-01-02"],
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 clock="open",
                 universe_codes=["000001", "000002"],
                 min_items=2,
@@ -3046,7 +3025,6 @@ class CubeBatchFillTests(unittest.TestCase):
                 ["2024-01-02", "2024-01-03"],
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 clock="open",
                 universe_codes=["000001", "000002"],
                 min_items=2,
@@ -3081,7 +3059,6 @@ class CubeBatchFillTests(unittest.TestCase):
                 ["2024-01-02"],
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 clock="09:35",
                 universe_codes=["000001", "000002", "000003"],
                 min_items=2,
@@ -3131,7 +3108,6 @@ class CubeBatchFillTests(unittest.TestCase):
                 ["2024-01-02", "2024-01-03"],
                 family_oo="oo",
                 family_tc="tc",
-                family_co="co",
                 clock="09:35",
                 universe_codes=["000001", "000002"],
                 min_items=2,
@@ -3173,13 +3149,11 @@ class CubeBatchFillTests(unittest.TestCase):
                 ["2024-01-02"],
                 family_oo="oo",
                 family_tc="tc_0935",
-                family_co="co",
                 clock="09:35",
                 universe_codes=["000001", "000002"],
                 min_items=2,
                 require_tc_day=True,
                 shared_oo=shared,
-                shared_co=shared,
             )
         self.assertEqual(seen, ["tc_0935"])
         self.assertEqual(stats["cubes_built"], 1)
@@ -3203,13 +3177,6 @@ class CubeBatchFillTests(unittest.TestCase):
             "000002": {"gap_pct": 8.0, "raw_ath_x": 1.5},
             "000001": {"gap_pct": 9.0},
         }
-        co = {
-            "000002": {"ret_oc": 0.1},
-            "000001": {"ret_oc": 0.2},
-            "000003": {"ret_oc": 0.9},
-            "000004": {"ret_oc": 0.4},
-        }
-
         def _sliced(rows: dict) -> dict:
             out = {}
             for code, feats in rows.items():
@@ -3222,7 +3189,6 @@ class CubeBatchFillTests(unittest.TestCase):
 
         oo_names, oo_x = _stack_days(_sliced(oo), codes, [day])
         tc_names, tc_x = _stack_days(_sliced(tc), codes, [day])
-        co_names, co_x = _stack_days(_sliced(co), codes, [day])
         # 000001 的 raw_ath_x 是 NaN，不应写成有限值，列仍因 000002 保留。
         raw_j = tc_names.index("raw_ath_x")
         tc_x[codes.index("000001"), 0, raw_j] = np.nan
@@ -3232,8 +3198,6 @@ class CubeBatchFillTests(unittest.TestCase):
             oo_block=oo_x[:, 0, :],
             tc_names=tc_names,
             tc_block=tc_x[:, 0, :],
-            co_names=co_names,
-            co_block=co_x[:, 0, :],
             require_tc_day=True,
         )
         self.assertIsNotNone(aligned)
@@ -3253,11 +3217,10 @@ class CubeBatchFillTests(unittest.TestCase):
             t = dict(tc.get(code) or {})
             if code == "000001":
                 t.pop("raw_ath_x", None)
-            c = co.get(code)
             if not o and not t:
                 continue
             it = assemble_item_from_lake_rows(
-                code, day, oo=o, tc=t or None, co=c
+                code, day, oo=o, tc=t or None
             )
             if it is not None:
                 items.append(it)
@@ -3314,7 +3277,6 @@ class MinuteL2ShareTests(unittest.TestCase):
             )
         self.assertTrue(out.get("ok"), out)
         self.assertEqual(seen.count("oo"), 1)
-        self.assertEqual(seen.count("co"), 1)
         self.assertEqual(seen.count("tc_0935"), 1)
         self.assertEqual(seen.count("tc_1030"), 1)
         self.assertEqual(ensure.call_count, 2)
@@ -3349,10 +3311,9 @@ class MinuteL2ShareTests(unittest.TestCase):
             )
         self.assertTrue(out.get("ok"), out)
         self.assertEqual(seen.count(("oo", 24)), 1)
-        self.assertEqual(seen.count(("co", 24)), 1)
         self.assertEqual(seen.count(("tc_0935", 24)), 1)
         self.assertEqual(seen.count(("tc_1030", 24)), 1)
-        self.assertEqual(len(seen), 4)
+        self.assertEqual(len(seen), 3)
         self.assertEqual(ensure.call_count, 48)
 
     def test_ready_clocks_do_not_open_l1(self) -> None:
@@ -3419,7 +3380,6 @@ class MinuteL2ShareTests(unittest.TestCase):
             )
         self.assertTrue(out.get("ok"), out)
         self.assertEqual(seen.count("oo"), 1)
-        self.assertEqual(seen.count("co"), 1)
         self.assertEqual(seen.count("tc_0935"), 1)
         self.assertEqual(seen.count("tc_1030"), 1)
         flags = {

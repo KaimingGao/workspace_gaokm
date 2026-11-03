@@ -1,6 +1,6 @@
 /** Paper · 自动调仓今日盯盘状态（格式对齐做 T worker desk）。 */
 
-import { stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2746";
+import { stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p3541";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -169,10 +169,8 @@ function reasonTitle(r) {
   const bits = [];
   const yoo = fmtSignedPct(r.y_oo);
   const yoc = fmtSignedPct(r["y_τc"] != null ? r["y_τc"] : r.y_oc);
-  const yco = fmtSignedPct(r.y_co);
   if (yoo) bits.push(`y_oo ${yoo}`);
   if (yoc) bits.push(`y_τc ${yoc}`);
-  if (yco) bits.push(`y_co ${yco}`);
   const ooBit = rankDeskBit(r.y_oo_rank, r.y_oo_rank_n);
   const tcBit = rankDeskBit(r.y_tc_rank, r.y_tc_rank_n);
   if (ooBit) bits.push(`oo_rank ${ooBit}`);

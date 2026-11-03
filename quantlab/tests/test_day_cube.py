@@ -345,7 +345,6 @@ class TestDayCube(unittest.TestCase):
             "stock_code": "000001",
             "sub_scores": {"gap_pct": 1.0, "x": 0.1},
             "features_tau": {"gap_pct": 1.0, "x": 0.1},
-            "features_co": {"gap_pct": 1.0},
         }
         # 无模型时仍应走完单票路径（不因 len<2 提前 return）
         with patch(
@@ -353,8 +352,6 @@ class TestDayCube(unittest.TestCase):
         ) as oo, patch(
             "core.signal.cross_section_rescore._rescore_tau"
         ) as tau, patch(
-            "core.signal.cross_section_rescore._rescore_co"
-        ) as co, patch(
             "core.signal.cross_section_rescore._rescore_horizons"
         ) as hz:
             out = rescore_fitted_cross_section(
@@ -363,7 +360,6 @@ class TestDayCube(unittest.TestCase):
         self.assertEqual(len(out), 1)
         oo.assert_called_once()
         tau.assert_called_once()
-        co.assert_called_once()
         hz.assert_called_once()
         # 无 cube 时单票应直接跳过
         with patch(
@@ -371,37 +367,6 @@ class TestDayCube(unittest.TestCase):
         ) as oo2:
             rescore_fitted_cross_section([item], score_codes={"000001"}, day_cube=None)
         oo2.assert_not_called()
-
-    def test_apply_cube_z_alias_pair_not_double_z(self) -> None:
-        """裸名+z_co_* 双写时只 z 一次，避免 tip 出现 |z|≈6~7。"""
-        from core.research.day_cube import DayCube, apply_cube_z_to_dicts
-        from core.signal.factors.z_co import stamp_z_co_aliases
-
-        names = ["yest_close_loc", "z_co_yest_close_loc", "raw_aoo_YCLOSE_LOC"]
-        # 三票截面：目标票 raw=0.2 → z=(0.2-0.5)/0.1 = -3
-        X = np.asarray(
-            [[0.2, 0.2, 0.2], [0.5, 0.5, 0.5], [0.8, 0.8, 0.8]],
-            dtype=np.float64,
-        )
-        mu = np.asarray([0.5, 0.5, 0.5], dtype=np.float64)
-        sd = np.asarray([0.1, 0.1, 0.1], dtype=np.float64)
-        cube = DayCube(
-            date="2024-01-02",
-            codes=["a", "b", "c"],
-            names=names,
-            X_raw=X,
-            z_mean=mu,
-            z_std=sd,
-            universe_hash="test",
-            clock="open",
-        )
-        row = stamp_z_co_aliases(
-            {"yest_close_loc": 0.2, "raw_aoo_YCLOSE_LOC": 0.2}
-        )
-        self.assertEqual(row.get("z_co_yest_close_loc"), 0.2)
-        out = apply_cube_z_to_dicts([row], ["a"], cube)[0]
-        for k in ("yest_close_loc", "z_co_yest_close_loc", "raw_aoo_YCLOSE_LOC"):
-            self.assertAlmostEqual(float(out[k]), -3.0, places=6)
 
 if __name__ == "__main__":
     unittest.main()

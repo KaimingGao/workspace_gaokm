@@ -805,7 +805,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         ]
         self.assertFalse(stuck, stuck)
 
-    def test_sim_converters_copy_y_co(self):
+    def test_sim_converters_keep_y_oo(self):
         from core.backtest.paper_replay import (
             _hold_to_sim,
             _ledger_trades_to_sim,
@@ -829,7 +829,6 @@ class TestPaperReplayEngine(unittest.TestCase):
             ]
         )
         self.assertEqual(len(rows), 1)
-        self.assertAlmostEqual(float(rows[0]["y_co"]), 0.2)
         self.assertNotIn("y_on", rows[0])
         self.assertAlmostEqual(float(rows[0]["y_oo"]), 1.0)
 
@@ -837,13 +836,11 @@ class TestPaperReplayEngine(unittest.TestCase):
             {
                 "stock_code": "600000",
                 "reason": "现金不足",
-                "y_co": 0.3,
                 "y_oo": 1.1,
                 "y_oo_fuse": 0.8,
             },
             "2026-09-10",
         )
-        self.assertAlmostEqual(float(sk["y_co"]), 0.3)
         self.assertNotIn("y_on", sk)
 
         hold = _hold_to_sim(
@@ -851,7 +848,6 @@ class TestPaperReplayEngine(unittest.TestCase):
                 "stock_code": "600000",
                 "y_oo": 1.0,
                 "y_oc": 0.4,
-                "y_co": 0.25,
                 "y_oo_fuse": 0.9,
                 "y_oo_fuse_score": 0.009,
                 "reason": "fuse≥0% 持有",
@@ -861,7 +857,6 @@ class TestPaperReplayEngine(unittest.TestCase):
             date_maps={"600000": {"2026-09-10": {"open": 10.0, "close": 10.2}}},
             prices={"600000": 10.0},
         )
-        self.assertAlmostEqual(float(hold["y_co"]), 0.25)
         self.assertNotIn("y_on", hold)
 
         from core.backtest.paper_replay import _hold_src_for_code
@@ -934,11 +929,11 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertNotIn("y_hl", hold)
         self.assertEqual(hold["formula_terms_path"]["total"], 1.5)
 
-    def test_sim_trades_keep_y_co_from_ranking(self):
+    def test_sim_trades_drop_y_on_from_ranking(self):
         stock_bars = {"600519": _bars__paper_replay(16, step=0.5)}
         dates = [b["date"] for b in stock_bars["600519"]]
         scores = {
-            d: [{**_rank_row("600519", 2.0), "y_co": 0.35, "y_on": 0.35}]
+            d: [{**_rank_row("600519", 2.0), "y_on": 0.35}]
             for d in dates
         }
         with _offline_rebalance_patches():
@@ -954,7 +949,6 @@ class TestPaperReplayEngine(unittest.TestCase):
         filled = [s for s in (out.get("sim_trades") or []) if s.get("status") == "filled"]
         self.assertTrue(filled)
         for s in filled:
-            self.assertAlmostEqual(float(s.get("y_co")), 0.35, msg=s)
             self.assertNotIn("y_on", s, msg=s)
 
     def test_default_top_k_is_universe_size(self):
@@ -1182,7 +1176,7 @@ class TestOpenDayYhat(unittest.TestCase):
         self.assertIn("tau_elapsed_min", keys)
         self.assertIn("sector_gap_breadth", keys)
 
-    def test_attach_open_heads_copies_tau_cs_onto_co(self):
+    def test_attach_open_heads_keeps_tau_cs(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
 
         entries = [{"stock_code": "600519", "predicted_score": 0.2}]
@@ -1219,10 +1213,8 @@ class TestOpenDayYhat(unittest.TestCase):
             tau_pool_day=pool,
         )
         tau = out[0].get("features_tau") or {}
-        co = out[0].get("features_co") or {}
         for key in ("sector_gap_breadth", "theme_day", "gap_vs_sector"):
             self.assertIsNotNone(tau.get(key), key)
-            self.assertAlmostEqual(float(co.get(key)), float(tau.get(key)), places=6, msg=key)
 
     def test_attach_open_nowcast_fields_retired(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
@@ -1410,7 +1402,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         self.assertNotAlmostEqual(row["r_realized"], 0.0, places=2)
 
     def test_uses_stock_bar_after_window(self):
-        """覆盖率日历截在 T 时，仍用该票仓里的 T+1 开盘对账 ŷ_co。"""
+        """覆盖率日历截在 T 时，仍用该票仓里的 T+1 开盘对账。"""
         bars = _bars__paper_replay(5, step=0.5, start=100.0)
         all_dates = [b["date"] for b in bars]
         window = all_dates[:-1]
@@ -2968,7 +2960,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
             minute_maps={},
             max_window=12,
             day_i=10,
-            cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0},
+            cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5},
         )
         self.assertEqual(n, 0)
         self.assertAlmostEqual(float(out[0]["y_oc"]), 0.197, places=6)
@@ -2984,7 +2976,6 @@ class TestReplayPrefixYoc(unittest.TestCase):
             "predicted_score_eod": 0.8,
             "y_trade": 0.8,
             "y_oc": 0.197,
-            "y_co": 0.0,
         }
         live = {
             "_score_source": "prefix_causal",
@@ -2992,7 +2983,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
             "y_tau": -0.70,
             "predicted_score_tau": -0.70,
         }
-        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
+        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5}
         self.assertTrue(_apply_prefix_oc(item, live, cfg))
         self.assertAlmostEqual(float(item["y_oo"]), 0.8, places=6)
         self.assertAlmostEqual(float(item["y_τc"]), -0.70, places=6)
@@ -3008,7 +2999,6 @@ class TestReplayPrefixYoc(unittest.TestCase):
             "predicted_score_eod": 0.8,
             "y_trade": 0.8,
             "y_oc": 0.197,
-            "y_co": 0.0,
             "y_τ30": 0.05,
             "y_hl": 0.4,
         }
@@ -3022,7 +3012,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
             "y_τ90": 0.3,
             "y_hl": 1.5,
         }
-        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
+        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5}
         self.assertTrue(_apply_prefix_oc(item, live, cfg))
         self.assertNotIn("y_τ30", item)
         self.assertNotIn("y_τ60", item)
@@ -3052,7 +3042,6 @@ class TestReplayPrefixYoc(unittest.TestCase):
             "predicted_score": 0.5,
             "predicted_score_eod": 0.5,
             "y_oc": 0.197,
-            "y_co": 0.0,
         }
         live = {
             "_score_source": "prefix_causal",
@@ -3072,7 +3061,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
                 minute_maps={code: {day: prefix}},
                 max_window=30,
                 day_i=day_i,
-                cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0},
+                cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5},
             )
         self.assertEqual(n, 1)
         self.assertAlmostEqual(float(out[0]["y_τc"]), -0.70, places=6)
@@ -3141,7 +3130,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
             minute_maps=minute_maps,
             max_window=30,
             day_i=day_i,
-            cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0},
+            cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5},
         )
         self.assertGreaterEqual(n, 1)
         self.assertAlmostEqual(float(out[0]["y_τc"]), float(y_t0), places=6)

@@ -5,14 +5,13 @@ from __future__ import annotations
 from typing import Dict, List, Sequence, Tuple
 
 from core.research.lake_bridge import (
-    FAMILY_CO,
     FAMILY_OO,
     FAMILY_OO_RANK,
     FAMILY_TC,
 )
 
-# 对外可选 family（一键默认勾选 P0）
-P0_FAMILIES: Tuple[str, ...] = (FAMILY_OO, FAMILY_TC, FAMILY_CO)
+# 对外可选 family（一键默认勾选 P0）。
+P0_FAMILIES: Tuple[str, ...] = (FAMILY_OO, FAMILY_TC)
 P1_FAMILIES: Tuple[str, ...] = (FAMILY_OO_RANK,)
 
 ALL_FAMILIES: Tuple[str, ...] = P0_FAMILIES + P1_FAMILIES
@@ -22,7 +21,6 @@ DEFAULT_CLOCKS: Tuple[str, ...] = ("open",)
 FAMILY_LABELS: Dict[str, str] = {
     FAMILY_OO: "ŷ_oo",
     FAMILY_TC: "ŷ_τc(open)",
-    FAMILY_CO: "ŷ_co",
     FAMILY_OO_RANK: "ŷ_oo_rank",
 }
 

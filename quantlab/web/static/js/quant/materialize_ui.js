@@ -256,7 +256,7 @@ function installMaterializeRunner(q, cfg) {
         ? "日线 / 分钟物化共用任务槽；对侧结束后将自动继续"
         : tau
           ? "训练网格 tc_HHMM L1 + 按钟 L2 · 依赖本地 5m"
-          : "open L1（oo/tc/co）+ open L2 DayCube",
+          : "open L1（oo/tc）+ open L2 DayCube",
     });
   }
 
@@ -503,7 +503,7 @@ function installMaterializeRunner(q, cfg) {
   async function postAndWait({ clocks, doL1, doL1TauGrid, doL2 }) {
     // 唯一 lookback：日线 L1+open L2（与日 K 仓同常量）；分钟钟短窗由后端内部常量。
     const body = {
-      families: ["oo", "tc", "co"],
+      families: ["oo", "tc"],
       clocks: Array.isArray(clocks) && clocks.length ? clocks : ["open"],
       do_l1: !!doL1,
       do_l1_tau_grid: !!doL1TauGrid,
@@ -722,7 +722,7 @@ function installMaterializeRunner(q, cfg) {
   return { refresh: gate, setReady: gate, run, resumeIfRunning };
 }
 
-/** 日线区：oo/tc/co + open L2（独立板块）。 */
+/** 日线区：oo/tc + open L2（独立板块）。 */
 export function installMaterializeUi(q, opts = {}) {
   return installMaterializeRunner(q, {
     btnId: "quant-materialize-run",

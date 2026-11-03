@@ -209,7 +209,6 @@ def _attach_open_yhat_heads(
     quotes: Dict[str, dict],
     windows: Dict[str, List[dict]],
     global_model: Any = None,
-    co_model_doc: Any = None,
     tau_model_doc: Any = None,
     cfg: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
@@ -243,16 +242,6 @@ def _attach_open_yhat_heads(
         align_trade_score_fields = None  # type: ignore[assignment]
         attach_dual_score_pit = None  # type: ignore[assignment]
         logger.debug("dual_score import failed", exc_info=True)
-
-    try:
-        from core.research.co_panel import build_co_features_from_quote_bars
-        from core.research.co_ridge import predict_co_from_features
-        from core.signal.dual_score.co import apply_co_score_fields
-    except Exception:  # noqa: BLE001
-        build_co_features_from_quote_bars = None  # type: ignore[assignment]
-        predict_co_from_features = None  # type: ignore[assignment]
-        apply_co_score_fields = None  # type: ignore[assignment]
-        logger.debug("on-head imports failed", exc_info=True)
 
     try:
         from core.t0.score_policy import _attach_y_path_to_item
@@ -355,63 +344,6 @@ def _attach_open_yhat_heads(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("attach open y_hl failed for %s", code, exc_info=True)
-        if (
-            apply_co_score_fields is None
-            or build_co_features_from_quote_bars is None
-            or predict_co_from_features is None
-            or not code
-        ):
-            continue
-        quote = quotes.get(code) or {}
-        window = windows.get(code) or []
-        try:
-            from core.signal.dual_score.co import overlay_co_cross_section
-
-            tau_feats = (
-                it.get("features_tau")
-                if isinstance(it.get("features_tau"), dict)
-                else None
-            )
-            # L1 已灌 features_co：跳过 quote+bars 重建，只叠当日 τ 截面广度
-            lake_co = (
-                it.get("features_co")
-                if str(it.get("_score_source") or "") == "feature_lake"
-                and isinstance(it.get("features_co"), dict)
-                and it.get("features_co")
-                else None
-            )
-            if lake_co is not None:
-                co_feats = overlay_co_cross_section(dict(lake_co), tau_feats)
-            else:
-                gap = None
-                if quote:
-                    try:
-                        gap = float(quote.get("change_raw"))
-                    except (TypeError, ValueError):
-                        gap = None
-                co_feats = build_co_features_from_quote_bars(
-                    quote,
-                    window,
-                    gap_pct=gap,
-                    open_t=quote.get("open_raw") or quote.get("open"),
-                    prev_close=quote.get("prev_close") or quote.get("pre_close"),
-                    trade_date=quote.get("date") or quote.get("trade_date"),
-                )
-                if not co_feats:
-                    continue
-                co_feats = overlay_co_cross_section(co_feats, tau_feats)
-            co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
-            if co_yhat is not None:
-                it["y_co_source"] = "ridge"
-            apply_co_score_fields(
-                it,
-                co_yhat=co_yhat,
-                feats=co_feats,
-                co_model_doc=co_model_doc,
-                source="ridge" if co_yhat is not None else "",
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("attach y_co failed for %s", code, exc_info=True)
     try:
         from core.research.batch_score import (  # noqa: I001
             enabled as batch_score_enabled,
@@ -493,7 +425,6 @@ def _score_open_day(
     horizon_days: int,
     cfg: Optional[dict],
     global_model: Any = None,
-    co_model_doc: Any = None,
     tau_model_doc: Any = None,
     tau_pool_day: Optional[dict] = None,
     required_factor_keys: Optional[List[str]] = None,
@@ -580,7 +511,6 @@ def _score_open_day(
         quotes=quotes,
         windows=windows,
         global_model=global_model,
-        co_model_doc=co_model_doc,
         tau_model_doc=tau_model_doc,
         cfg=cfg,
         tau_pool_day=tau_pool_day,

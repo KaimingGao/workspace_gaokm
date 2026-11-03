@@ -306,7 +306,7 @@ def main() -> int:
     from core.research.panel_matrix import collect_tau_compact
     from core.research.tc_ridge import load_tau_model
     from core.research.tc_ridge_compact import TAU_Z_FEATURES
-    from core.signal.yhat_windows import fuse_pct, oc_with_co
+    from core.signal.yhat_windows import fuse_pct
 
     stock_bars = mean_m._load_pool(int(args.lookback), a_codes)
     if len(stock_bars) < 20:
@@ -448,7 +448,7 @@ def main() -> int:
                 y_oo, y_real = oo_books[date][code]
                 y_tc = float(tc_pred[date][code])
                 fuse = fuse_pct(
-                    y_oo, oc_with_co(y_tc, None, 0.0), w_left=w_oo, w_right=w_tc
+                    y_oo, y_tc, w_left=w_oo, w_right=w_tc
                 )
                 if fuse is None:
                     continue

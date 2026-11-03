@@ -16,13 +16,11 @@ from core.backtest.paper_replay import REPLAY_FUSE_ENTER, REPLAY_FUSE_STRONG
 
 # `/quant` 生成日报：历史回测对齐 /replay（rank_lots）；lookback 表单默认 30
 DAILY_BT_UI_LOOKBACK = 30
-DAILY_BT_UI_FUSION_W_CO = 0.0
 DAILY_BT_UI_FUSE_ENTER = REPLAY_FUSE_ENTER
 DAILY_BT_UI_FUSE_STRONG = REPLAY_FUSE_STRONG
 
 __all__ = [
     "DAILY_BT_UI_LOOKBACK",
-    "DAILY_BT_UI_FUSION_W_CO",
     "DAILY_BT_UI_FUSE_ENTER",
     "DAILY_BT_UI_FUSE_STRONG",
     "should_fetch_backtest_fundamentals",
@@ -38,24 +36,13 @@ def resolve_daily_replay_kwargs(
     *,
     lookback: Optional[int] = None,
     apply_costs: Optional[bool] = None,
-    fusion_w_co: Optional[float] = None,
     fuse_enter: Optional[float] = None,
     fuse_strong: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """日报历史回测：对齐 /replay paper_replay（w_co / fuse入场 / fuse强 / lookback）。"""
-    from core.paper.rebalance.rank_lots import (
-        clamp_fusion_w_co,
-        coerce_fuse_threshold,
-    )
+    """日报历史回测：对齐 /replay paper_replay（fuse入场 / fuse强 / lookback）。"""
+    from core.paper.rebalance.rank_lots import coerce_fuse_threshold
 
     costs = True if apply_costs is None else bool(apply_costs)
-    try:
-        alpha = float(DAILY_BT_UI_FUSION_W_CO if fusion_w_co is None else fusion_w_co)
-    except (TypeError, ValueError):
-        alpha = float(DAILY_BT_UI_FUSION_W_CO)
-    if alpha != alpha:
-        alpha = float(DAILY_BT_UI_FUSION_W_CO)
-    alpha = max(0.0, min(1.0, float(clamp_fusion_w_co(alpha))))
     enter = coerce_fuse_threshold(
         DAILY_BT_UI_FUSE_ENTER if fuse_enter is None else fuse_enter,
         DAILY_BT_UI_FUSE_ENTER,
@@ -73,7 +60,6 @@ def resolve_daily_replay_kwargs(
     return {
         "lookback": lb,
         "apply_costs": costs,
-        "fusion_w_co": alpha,
         "fuse_enter": enter,
         "fuse_strong": strong,
         "engine": "paper_replay",
@@ -89,7 +75,6 @@ def daily_bt_option_defaults() -> Dict[str, Any]:
     return {
         "engine": "paper_replay",
         "lookback": replay["lookback"],
-        "fusion_w_co": replay["fusion_w_co"],
         "fuse_enter": replay["fuse_enter"],
         "fuse_strong": replay["fuse_strong"],
         "apply_costs": True,
@@ -97,7 +82,7 @@ def daily_bt_option_defaults() -> Dict[str, Any]:
         "paper_horizon_days": int(d.get("horizon_days") or 1),
         "note": (
             "日报历史回测=paper_replay/rank_lots（对齐 /replay · 09:30 · 入场/强档金额）；"
-            "模块可改 w_co / Fuse入场 / Fuse强 / lookback；不写 signal_config；成本开"
+            "模块可改 Fuse入场 / Fuse强 / lookback；不写 signal_config；成本开"
         ),
     }
 
@@ -122,7 +107,6 @@ def summarize_portfolio_backtest(
     codes: Optional[List[str]] = None,
     lookback: int = DAILY_BT_UI_LOOKBACK,
     apply_costs: Optional[bool] = None,
-    fusion_w_co: Optional[float] = None,
     fuse_enter: Optional[float] = None,
     fuse_strong: Optional[float] = None,
 ) -> Dict[str, Any]:
@@ -149,7 +133,6 @@ def summarize_portfolio_backtest(
     replay = resolve_daily_replay_kwargs(
         lookback=lookback,
         apply_costs=apply_costs,
-        fusion_w_co=fusion_w_co,
         fuse_enter=fuse_enter,
         fuse_strong=fuse_strong,
     )
@@ -179,7 +162,6 @@ def summarize_portfolio_backtest(
             yhat_horizon_days=1,
             initial_cash=REPLAY_INITIAL_CASH,
             cash_floor=REPLAY_CASH_FLOOR,
-            fusion_w_co=replay["fusion_w_co"],
             fuse_enter=replay["fuse_enter"],
             fuse_strong=replay["fuse_strong"],
             lookback=int(replay["lookback"]),
@@ -197,7 +179,6 @@ def summarize_portfolio_backtest(
     params["lookback"] = int(replay["lookback"])
     params["fuse_enter"] = replay["fuse_enter"]
     params["fuse_strong"] = replay["fuse_strong"]
-    params["fusion_w_co"] = replay["fusion_w_co"]
     params["cost_model"] = "simple_cn" if replay["apply_costs"] else "zero"
 
     note_bits = []
@@ -208,7 +189,7 @@ def summarize_portfolio_backtest(
         )
     note_bits.append(
         "引擎=paper_replay：每个交易日 09:30 rank_lots"
-        f"（w_co={replay['fusion_w_co']:g}；入场={replay['fuse_enter']:g}；"
+        f"（入场={replay['fuse_enter']:g}；"
         f"强={replay['fuse_strong']:g}；宇宙={universe_n} 只）"
     )
     note_bits.append("对齐历史回测页 · 成本=" + ("开" if replay["apply_costs"] else "关"))

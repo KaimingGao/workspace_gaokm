@@ -101,7 +101,6 @@ def _compact_row(
     day_open: Any = None,
     y_oo: Any = None,
     y_τc: Any = None,
-    y_co: Any = None,
     y_oo_fuse: Any = None,
     old_shares: Any = None,
     new_shares: Any = None,
@@ -134,7 +133,7 @@ def _compact_row(
     day_o = _round_px(day_open)
     if day_o is not None:
         out["day_open"] = day_o
-    for key, raw in (("y_oo", y_oo), ("y_τc", y_τc), ("y_co", y_co), ("y_oo_fuse", y_oo_fuse)):
+    for key, raw in (("y_oo", y_oo), ("y_τc", y_τc), ("y_oo_fuse", y_oo_fuse)):
         v = _f(raw)
         if v is not None:
             out[key] = round(float(v), 6)
@@ -316,7 +315,6 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 day_open=r.get("day_open") if r.get("day_open") is not None else r.get("open"),
                 y_oo=r.get("y_oo"),
                 y_τc=r.get("y_τc"),
-                y_co=r.get("y_co"),
                 y_oo_fuse=r.get("y_oo_fuse"),
                 old_shares=r.get("old_shares"),
                 new_shares=r.get("new_shares"),
@@ -356,7 +354,6 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                     day_open=leg.get("day_open") if leg.get("day_open") is not None else leg.get("open"),
                     y_oo=leg.get("y_oo"),
                     y_τc=leg.get("y_τc"),
-                    y_co=leg.get("y_co"),
                     y_oo_fuse=leg.get("y_oo_fuse"),
                     old_shares=leg.get("old_shares"),
                     new_shares=leg.get("new_shares"),
@@ -382,7 +379,6 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 y_oo_fuse=s.get("y_oo_fuse"),
                 y_oo=s.get("y_oo"),
                 y_τc=s.get("y_τc"),
-                y_co=s.get("y_co"),
             ),
             s,
         )
@@ -422,7 +418,7 @@ def _overlay_fields(
         opx = _round_px(src.get("day_open") if src.get("day_open") is not None else src.get("open"))
         if opx is not None:
             row["day_open"] = opx
-    for key in ("y_oo", "y_τc", "y_co"):
+    for key in ("y_oo", "y_τc"):
         if row.get(key) is None and src.get(key) is not None:
             v = _f(src.get(key))
             if v is not None:
@@ -675,7 +671,6 @@ def save_last_desk(
                 day_open=r.get("day_open"),
                 y_oo=r.get("y_oo"),
                 y_τc=r.get("y_τc"),
-                y_co=r.get("y_co"),
                 y_oo_fuse=r.get("y_oo_fuse"),
                 old_shares=r.get("old_shares"),
                 new_shares=r.get("new_shares"),

@@ -61,7 +61,6 @@ class TestPanelFingerprint(unittest.TestCase):
 
     def test_head_keys_stable(self) -> None:
         from core.research.panel_fingerprint import (
-            co_head_key,
             make_fingerprint,
             oo_head_key,
             tc_head_key,
@@ -76,7 +75,6 @@ class TestPanelFingerprint(unittest.TestCase):
             oo_head_key(horizon_days=1, ridge_core_only=True),
         )
         self.assertIn("tc", tc_head_key(tau_hm="open", min_history=12, include_alpha_tc=False, use_minute=False))
-        self.assertIn("co", co_head_key(min_history=12, include_alpha_oo=True))
         a = make_fingerprint(bars_fp="z", horizon=1, ridge_core_only=0)
         b = make_fingerprint(bars_fp="z", ridge_core_only=0, horizon=1)
         self.assertEqual(a, b)
@@ -327,20 +325,22 @@ class TestCompactBreadth(unittest.TestCase):
         stock_bars_dict = [
             {"code": it["code"], "bars": list(it["bars"])} for it in stock_bars
         ]
-        X, names, ys, dates, metas, n_stocks = collect_tau_compact(
-            stock_bars,
-            list(TAU_Z_FEATURES),
-            include_alpha_tc=False,
-            gap_trigger_pct=0.5,
-            head="test",
-        )
-        xs, ys_d, dates_d, metas_d = _stack_panels(
-            build_tau_panels_from_bars(
-                stock_bars_dict,
+        # 本地湖里若已有 AAA/BBB/CCC 的 tc 分片，命中后不会带回 gap，主题日对不上。
+        with mock.patch.dict(os.environ, {"QUANTLAB_FEATURE_LAKE": "0"}):
+            X, names, ys, dates, metas, n_stocks = collect_tau_compact(
+                stock_bars,
+                list(TAU_Z_FEATURES),
                 include_alpha_tc=False,
                 gap_trigger_pct=0.5,
+                head="test",
             )
-        )
+            xs, ys_d, dates_d, metas_d = _stack_panels(
+                build_tau_panels_from_bars(
+                    stock_bars_dict,
+                    include_alpha_tc=False,
+                    gap_trigger_pct=0.5,
+                )
+            )
         self.assertGreaterEqual(n_stocks, 2)
         self.assertEqual(len(ys), len(ys_d))
         self.assertEqual(dates, [str(d)[:10] for d in dates_d])
@@ -361,68 +361,6 @@ class TestCompactBreadth(unittest.TestCase):
                     self.assertFalse(np.isfinite(got), canon)
                 else:
                     self.assertAlmostEqual(got, float(raw), places=6, msg=canon)
-
-class TestCoCompactBoundedFold(unittest.TestCase):
-    def test_workers_match_serial_multiset(self):
-        """并行有界折入与串行同样本集合（行序可因完成顺序不同）。"""
-        from core.research.co_panel import CO_Z_FEATURES
-        from core.research.panel_matrix import collect_co_compact
-
-        def _pool():
-            return [
-                {"code": "AAA", "bars": _bars__panel_matrix(80, 10, 0)},
-                {"code": "BBB", "bars": _bars__panel_matrix(80, 12, 1)},
-                {"code": "CCC", "bars": _bars__panel_matrix(80, 8, 2)},
-                {"code": "DDD", "bars": _bars__panel_matrix(80, 11, 3)},
-                {"code": "EEE", "bars": _bars__panel_matrix(80, 9, 4)},
-            ]
-
-        def _keys(ys, dates, metas):
-            out = []
-            for y, d, m in zip(ys, dates, metas):
-                code = str((m or {}).get("stock_code") or "")
-                out.append((code, str(d)[:10], round(float(y), 6)))
-            return sorted(out)
-
-        pool1 = _pool()
-        X1, _n1, ys1, dates1, metas1, n1 = collect_co_compact(
-            pool1,
-            list(CO_Z_FEATURES),
-            include_alpha_oo=True,
-            gap_trigger_pct=0.5,
-            workers=1,
-        )
-        # 8GB 路径：算完即丢 bars
-        self.assertTrue(all("bars" not in it for it in pool1))
-        pool2 = _pool()
-        X2, _n2, ys2, dates2, metas2, n2 = collect_co_compact(
-            pool2,
-            list(CO_Z_FEATURES),
-            include_alpha_oo=True,
-            gap_trigger_pct=0.5,
-            workers=2,
-        )
-        self.assertEqual(n1, n2)
-        self.assertEqual(len(ys1), len(ys2))
-        self.assertEqual(int(X1.shape[0]), len(ys1))
-        self.assertEqual(int(X2.shape[0]), len(ys2))
-        self.assertEqual(_keys(ys1, dates1, metas1), _keys(ys2, dates2, metas2))
-        self.assertGreater(int(X1.shape[1]), len(CO_Z_FEATURES))
-
-    def test_resolve_co_workers_caps_8gb(self):
-        from unittest.mock import patch
-
-        from core.research.panel_matrix import _resolve_co_workers, _resolve_tau_workers
-
-        with patch.dict(os.environ, {"CO_RIDGE_WORKERS": "4"}, clear=False):
-            self.assertEqual(_resolve_co_workers(800, None), 4)
-        # 硬顶 4：再高也会被压住
-        self.assertEqual(_resolve_co_workers(800, 8), 4)
-        self.assertEqual(_resolve_co_workers(2, None), 1)
-        with patch.dict(os.environ, {"TAU_RIDGE_WORKERS": "4"}, clear=False):
-            self.assertEqual(_resolve_tau_workers(800, None), 4)
-        self.assertEqual(_resolve_tau_workers(800, 8), 4)
-        self.assertEqual(_resolve_tau_workers(2, None), 1)
 
 class TestKeepallRidgeMatrix(unittest.TestCase):
     def test_matches_dict_ols_weights_missing_and_predict(self):

@@ -112,7 +112,6 @@ class TestT3WeightMode(unittest.TestCase):
         from web.schemas import PaperReplayBacktestRequest
 
         body = PaperReplayBacktestRequest()
-        self.assertEqual(body.fusion_w_co, 1.0)
         self.assertFalse(hasattr(body, "y_on_alpha"))
         self.assertFalse(hasattr(body, "fusion_w_trade"))
         self.assertFalse(hasattr(body, "fusion_w_nowcast"))
@@ -157,18 +156,6 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertNotIn("top_k", dumped)
         self.assertNotIn("horizon_days", dumped)
         self.assertNotIn("engine", dumped)
-
-    def test_portfolio_request_fusion_w_co_range(self):
-        from pydantic import ValidationError
-
-        from web.schemas import PaperReplayBacktestRequest
-
-        self.assertEqual(PaperReplayBacktestRequest(fusion_w_co=0.5).fusion_w_co, 0.5)
-        self.assertEqual(PaperReplayBacktestRequest(fusion_w_co=1).fusion_w_co, 1.0)
-        with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(fusion_w_co=10.1)
-        with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(fusion_w_co=-0.1)
 
     def test_portfolio_request_fusion_weights(self):
         from pydantic import ValidationError

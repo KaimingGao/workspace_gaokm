@@ -385,7 +385,7 @@ class CoverPolicyUnitTests(unittest.TestCase):
             report = assess_coverage(
                 ["a", "b", "c", "d"],
                 days,
-                families=["oo", "tc", "co"],
+                families=["oo", "tc"],
                 clocks=["open"],
             )
         self.assertFalse(report.get("ok"))

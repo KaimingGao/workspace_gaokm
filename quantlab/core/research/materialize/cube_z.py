@@ -165,21 +165,19 @@ def _cube_mu_sd_for_name(
     mu_map: Mapping[str, float],
     sd_map: Mapping[str, float],
 ) -> Tuple[Optional[float], Optional[float]]:
-    """Cube μ/σ 查找：精确名 → 裸名 / z_τh / z_τc / z_co 别名。"""
+    """Cube μ/σ 查找：精确名 → 裸名 / z_τh / z_τc 别名。"""
     key = str(name or "")
     if key in mu_map:
         return mu_map.get(key), sd_map.get(key)
     try:
-        from core.signal.factors.z_co import to_legacy_key as co_legacy
-        from core.signal.factors.z_co import to_z_co_key
         from core.signal.factors.z_tc import to_z_tc_key
         from core.signal.factors.z_th import to_legacy_key, to_z_th_key
     except Exception:  # noqa: BLE001
         return None, None
     bare = str(to_legacy_key(key) or "").strip()
     if not bare or bare == key:
-        bare = str(co_legacy(key) or key).strip()
-    for cand in (bare, to_z_th_key(bare), to_z_tc_key(bare), to_z_co_key(bare)):
+        bare = key
+    for cand in (bare, to_z_th_key(bare), to_z_tc_key(bare)):
         c = str(cand or "").strip()
         if c and c in mu_map:
             return mu_map.get(c), sd_map.get(c)
@@ -204,7 +202,7 @@ def apply_day_cube_mu_sigma_matrix(
     默认关（禁静默 open），纯日期默认开。
 
     任一日缺 Cube → ``ok=False``。Cube 缺列：尝试裸名 /
-    ``z_τh_*``/``z_τc_*``/``z_co_*`` 别名；仍无则该列填 0（不桶内现算）。
+    ``z_τh_*``/``z_τc_*`` 别名；仍无则该列填 0（不桶内现算）。
     ``raw_ath_H_LAG1`` / ``raw_ath_H_MA5`` 不在立方里，缺列时按当日该钟点截面现算 z。
     """
     from core.research.day_cube import enabled, load_day_cube

@@ -38,12 +38,6 @@ class DailyRunRequest(BaseModel):
     paper_cross_section_rebalance: Optional[bool] = None  # alias for paper_rebalance
     export_quant_report: Optional[bool] = None
     lookback: Optional[int] = Field(default=None, ge=10, le=500)
-    fusion_w_co: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=10.0,
-        description="隔夜 ŷ_co 叠进 ŷ_τc 的系数；对齐 /replay",
-    )
     fuse_enter: Optional[float] = Field(
         default=None,
         ge=0.0,

@@ -126,7 +126,6 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertIn("t30-ridge", names)
         self.assertIn("t60-ridge", names)
         self.assertIn("t90-ridge", names)
-        self.assertIn("co-ridge", names)
         self.assertIn("tau-ridge", names)
         self.assertNotIn("tc-ridge", names)
         self.assertIn("t0-backtest", names)
@@ -136,7 +135,6 @@ class TestA2JobRuntime(unittest.TestCase):
             "t30-ridge",
             "t60-ridge",
             "t90-ridge",
-            "co-ridge",
             "tau-ridge",
             "t0-backtest",
             "materialize-l1l2",

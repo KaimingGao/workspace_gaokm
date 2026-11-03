@@ -3,7 +3,7 @@
 PIT：``hist=≤T−1`` 完整日 + ``open_t``（今开）。标签对齐 open[T+1]/open[T]−1。
 单票可算；板块截面类不在此模块（留给面板 Z）。
 
-计算产出全量 ``raw_aoo_*``；**ŷ_oo / ŷ_co Ridge·Tree 入模默认
+计算产出全量 ``raw_aoo_*``；**ŷ_oo Ridge·Tree 入模默认
 ``z_oo_* ∪ raw_aoo_*``（全量）**。精简集 aoo_core=GAP+YK+LAG 仅供消融
 （``ridge_core_only=True`` / ``apply_aoo_core_ridge_policy``）。
 ŷ_τc 现网为 **alpha_τc := z_τc_* ∪ raw_atc_***；ŷ_τ* 为 **alpha_τh := z_τh_* ∪ raw_ath_***；均不吃本包。
@@ -161,7 +161,7 @@ def is_alpha_oo_raw_key(name: str) -> bool:
 
 
 def alpha_oo_ridge_raw_names() -> Tuple[str, ...]:
-    """ŷ_oo / ŷ_co 入模用的 ``raw_aoo_*``（GAP+YK+LAG）。"""
+    """ŷ_oo 入模用的 ``raw_aoo_*``（GAP+YK+LAG）。"""
     return tuple(f"{ALPHA_OO_RAW_PREFIX}{k}" for k in ALPHA_OO_CORE_FIELD_NAMES)
 
 

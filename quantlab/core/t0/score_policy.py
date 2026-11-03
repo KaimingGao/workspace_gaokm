@@ -329,17 +329,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     if coefs_tau:
         out["factor_coefficients_tau"] = coefs_tau
 
-    co_terms = _slim_formula_terms(
-        item.get("formula_terms_co")
-        or item.get("score_formula_terms_co")
-        or item.get("formula_terms_on")
-        or item.get("score_formula_terms_on"),
-        limit=24,
-    )
-    if co_terms and (co_terms.get("terms") or co_terms.get("total") is not None):
-        out["formula_terms_co"] = co_terms
-        out["score_formula_terms_co"] = co_terms
-
     r_terms = _slim_formula_terms(
         item.get("formula_terms_r") or item.get("score_formula_terms_r"),
         limit=12,
@@ -559,19 +548,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     if feats_tau:
         out["features_tau"] = feats_tau
 
-    try:
-        from core.signal.dual_score.co import features_co_snapshot
-
-        feats_co = features_co_snapshot(
-            item.get("features_co")
-            if isinstance(item.get("features_co"), dict)
-            else item.get("features_on")
-        )
-        if feats_co:
-            out["features_co"] = feats_co
-    except Exception:  # noqa: BLE001
-        logger.debug("features_co tip slim failed", exc_info=True)
-
     for k in (
         "gap_pct",
         "as_of_tau",
@@ -618,7 +594,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_oo_fuse",
         "y_on",
         "y_on_path",
-        "y_co",
         "predicted_score_r",
         "y_r_hat",
         "y_r",
@@ -666,15 +641,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
     src = score_snap.get("_score_source")
     if src:
         out["_score_source"] = src
-    try:
-        from core.signal.yhat_windows import pick_y_co
-
-        yco = pick_y_co(out) or pick_y_co(score_snap)
-        if yco is not None:
-            out["y_co"] = yco
-            out.pop("y_on", None)
-    except Exception:  # noqa: BLE001
-        logger.debug("pack_day_scores canonical y_co failed", exc_info=True)
     return out or None
 
 
@@ -699,7 +665,6 @@ def attach_day_scores(
             "y_trade",
             "y_on",
             "y_on_path",
-            "y_co",
             "predicted_score_r",
             "y_r_hat",
             "y_r",
@@ -795,7 +760,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             "y_eod": None,
             "y_tau": None,
             "y_trade": None,
-            "y_co": None,
             "y_check": None,
             "eod_trust": None,
         }
@@ -853,10 +817,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_trade is not None and abs(y_trade) > 20.0:
         y_trade = None
 
-    from core.signal.yhat_windows import pick_y_co
-
-    y_co = pick_y_co(item)
-
     y_on_path = _f(item.get("y_on_path"))
     if y_on_path is None:
         y_on_path = _f(item.get("predicted_score_on_path"))
@@ -870,7 +830,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_eod": y_eod,
         "y_tau": y_tau,
         "y_trade": y_trade,
-        "y_co": y_co,
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
@@ -878,7 +837,7 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         from core.signal.yhat_windows import stamp_window_scores
 
         _win = stamp_window_scores(item)
-        for k in ("y_oo", "y_τc", "y_co", "y_oo_fuse", "residual", "r_hat"):
+        for k in ("y_oo", "y_τc", "y_oo_fuse", "residual", "r_hat"):
             if _win.get(k) is not None:
                 out[k] = _win[k]
     except Exception:  # noqa: BLE001
@@ -1237,7 +1196,7 @@ def _cube_covers_horizon_names(cube: Any, names: Sequence[str]) -> bool:
 
 # 当日水平量：没做成截面 z 时记 0（拟合缺列同口径）。裸 0/1 会落在训练点之间。
 _CS_LEVEL_BARE = frozenset({"theme_day", "sector_gap_breadth"})
-_CS_LEVEL_PREFIXES = ("z_τh_", "z_τc_", "z_co_", "z_oo_", "z_th_")
+_CS_LEVEL_PREFIXES = ("z_τh_", "z_τc_", "z_oo_", "z_th_")
 
 
 def _cs_level_bare(key: str) -> str:
@@ -1256,7 +1215,7 @@ def _sync_level_family(out: dict, key: str, value: float) -> None:
         return
     out[bare] = value
     out[key] = value
-    for prefix in ("z_τh_", "z_τc_", "z_co_"):
+    for prefix in ("z_τh_", "z_τc_"):
         out[f"{prefix}{bare}"] = value
 
 
@@ -3076,7 +3035,7 @@ def scores_have_any(scores: Optional[dict]) -> bool:
         return False
     return any(
         _f(scores.get(k)) is not None
-        for k in ("y_eod", "y_tau", "y_trade", "y_co", "y_on")
+        for k in ("y_eod", "y_tau", "y_trade", "y_on")
     )
 
 
@@ -3113,9 +3072,9 @@ def _enrich_quote_path_price(
     *,
     code: str = "",
 ) -> Dict[str, Any]:
-    """为 ŷ_co 补路径现价（开→收 / 收→收）；不改 open / prev_close / change_raw。
+    """补路径现价（开→收 / 收→收）；不改 open / prev_close / change_raw。
 
-    开盘决策报价常把 ``price_raw=open``，会导致 ret_oc≈0、ŷ_co 与簿相反号。
+    开盘决策报价常把 ``price_raw=open``，会导致 ret_oc≈0。
     优先用当日已走出路径的 close；当日且日线仍平开时再拉现价对齐刷簿。
     """
     if not isinstance(quote, dict):
@@ -3302,12 +3261,10 @@ def _split_bars_on_date(
 
 def _capture_feature_row(item: dict, code: str) -> dict:
     tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-    co = item.get("features_co") if isinstance(item.get("features_co"), dict) else {}
     return {
         "stock_code": code,
         "sub_scores": dict(item.get("sub_scores") or {}),
         "features_tau": dict(tau),
-        "features_co": dict(co),
         "gap_pct": item.get("gap_pct"),
         "as_of_tau": item.get("as_of_tau"),
         "dual_score_window": item.get("dual_score_window"),
@@ -3361,7 +3318,7 @@ def _peer_rows_from_feature_lake(date: str, codes: Sequence[str]) -> List[dict]:
         return []
     try:
         from core.research.feature_lake import enabled as lake_on, load_day_rows
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
         from core.research.lake_replay import assemble_item_from_lake_rows
     except Exception:  # noqa: BLE001
         return []
@@ -3370,7 +3327,6 @@ def _peer_rows_from_feature_lake(date: str, codes: Sequence[str]) -> List[dict]:
     try:
         oo_m = load_day_rows(FAMILY_OO, list(codes), dkey) or {}
         tc_m = load_day_rows(FAMILY_TC, list(codes), dkey) or {}
-        co_m = load_day_rows(FAMILY_CO, list(codes), dkey) or {}
     except Exception:  # noqa: BLE001
         logger.debug("peer lake load_day_rows failed day=%s", dkey, exc_info=True)
         return []
@@ -3383,7 +3339,7 @@ def _peer_rows_from_feature_lake(date: str, codes: Sequence[str]) -> List[dict]:
         if not oo:
             continue
         item = assemble_item_from_lake_rows(
-            c, dkey, oo=oo, tc=tc_m.get(c), co=co_m.get(c)
+            c, dkey, oo=oo, tc=tc_m.get(c)
         )
         if item is None:
             continue
@@ -3603,13 +3559,13 @@ def _z_row_against_peers(
         def _write_z(zval: float) -> None:
             out[name] = zval
             # 与 cross_section_zscore_dicts 一致：z 同步到裸名，防 stamp 冲掉
-            for p in ("z_τh_", "z_τc_", "z_co_", "z_oo_"):
+            for p in ("z_τh_", "z_τc_", "z_oo_"):
                 if name.startswith(p):
                     bare = name[len(p) :]
                     if bare:
                         out[bare] = zval
                     return
-            for p in ("z_τh_", "z_τc_", "z_co_", "z_oo_"):
+            for p in ("z_τh_", "z_τc_", "z_oo_"):
                 canon = f"{p}{name}"
                 if canon in out:
                     out[canon] = zval
@@ -3694,7 +3650,6 @@ def _light_item_from_peer_row(row: dict, date: str) -> dict:
     """同伴特征行 → 轻量 signal_item（供 DayCube / rescore）。"""
     code = str(row.get("stock_code") or "").strip()
     dkey = str(date or "")[:10]
-    co = row.get("features_co") if isinstance(row.get("features_co"), dict) else {}
     out: Dict[str, Any] = {
         "stock_code": code,
         "as_of": dkey,
@@ -3702,14 +3657,11 @@ def _light_item_from_peer_row(row: dict, date: str) -> dict:
         "trade_date": dkey,
         "sub_scores": dict(row.get("sub_scores") or {}),
         "features_tau": dict(row.get("features_tau") or {}),
-        "features_co": dict(co),
         "gap_pct": row.get("gap_pct"),
         "as_of_tau": row.get("as_of_tau"),
         "dual_score_window": row.get("dual_score_window"),
         "success": True,
     }
-    if co:
-        out["features_on"] = dict(co)
     return out
 
 
@@ -3976,7 +3928,7 @@ def warmup_watching_day_cubes(
 
     if prefetch_l1:
         try:
-            from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
+            from core.research.lake_bridge import FAMILY_OO, FAMILY_TC, family_for_tc
             from core.research.lake_replay import prefetch_l1_coverage
 
             n_codes = max(1, len(code_list))
@@ -3990,7 +3942,7 @@ def warmup_watching_day_cubes(
                 fams = []
                 for c in clock_list:
                     if c == "open":
-                        fams.extend([FAMILY_OO, FAMILY_TC, FAMILY_CO])
+                        fams.extend([FAMILY_OO, FAMILY_TC])
                     else:
                         fams.append(family_for_tc(tau_hm=c))
                 # 去重保序
@@ -4003,7 +3955,7 @@ def warmup_watching_day_cubes(
                     uniq.append(f)
                 fams = uniq
             else:
-                fams = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
+                fams = [FAMILY_OO, FAMILY_TC]
             _emit("预热 Feature Lake…", 0, n_codes)
             stats = (
                 prefetch_l1_coverage(
@@ -4021,7 +3973,7 @@ def warmup_watching_day_cubes(
     try:
         from core.research.day_cube import enabled as cube_on, day_cube_status
         from core.research.feature_lake import enabled as lake_on
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
+        from core.research.lake_bridge import FAMILY_OO, FAMILY_TC, family_for_tc
     except Exception:  # noqa: BLE001
         logger.debug("warmup day_cube imports failed", exc_info=True)
         return out
@@ -4066,7 +4018,6 @@ def warmup_watching_day_cubes(
                 clock=str(clock),
                 family_oo=FAMILY_OO,
                 family_tc=fam_tc,
-                family_co=FAMILY_CO,
                 min_items=need,
                 require_oo_item=bool(is_open),
                 require_tc_day=not is_open,
@@ -4125,7 +4076,6 @@ def warmup_watching_day_cubes(
                         pending,
                         family_oo=FAMILY_OO,
                         family_tc=fam_tc,
-                        family_co=FAMILY_CO,
                         clock=clock,
                         universe_codes=code_list,
                         min_items=need,
@@ -4642,7 +4592,7 @@ def compute_scores_from_bars(
             from core.research.tau_panel import GAP_ATR_WINDOW
         except Exception:  # noqa: BLE001
             GAP_ATR_WINDOW = 14
-        # 开盘 PIT：τ / EOD / 决策用开盘 quote（price=open）；勿把当日 close 喂进 ŷ_co
+        # 开盘 PIT：τ / EOD / 决策用开盘 quote（price=open），不用当日 close
         # （否则表列 y_on≈当日 OC，与 τ实假相关）。
         dual_bars = list(hist[-max(int(GAP_ATR_WINDOW) + 6, 20) :])
         # 当日 bar 仅供 asof 对齐；hist_bars_pit 会剥掉 asof 日 K，不吃 T 振幅
@@ -4663,52 +4613,6 @@ def compute_scores_from_bars(
             minute_tau_hm=causal_hm if allow_minute else None,
             trade_day=pit_day if len(pit_day) >= 10 else None,
         )
-        # 复盘对照：路径价 ŷ_co（可含当日 close）写入旁路字段，不覆盖决策 y_on
-        try:
-            from core.signal.dual_score.co import attach_co_score_pit
-
-            q_path = _enrich_quote_path_price(dict(q or {}), day, code=raw)
-            open_on = item.get("predicted_score_on")
-            open_feats = (
-                dict(item.get("features_co") or {})
-                if isinstance(item.get("features_co"), dict)
-                else {}
-            )
-            open_terms = item.get("formula_terms_co")
-            open_src = item.get("y_co_source")
-            attach_co_score_pit(
-                item,
-                quote=q_path,
-                bars=dual_bars,
-                gap_pct=item.get("gap_pct"),
-                sector_gap_breadth=item.get("sector_gap_breadth"),
-                theme_day=(item.get("features_tau") or {}).get("theme_day")
-                if isinstance(item.get("features_tau"), dict)
-                else None,
-            )
-            path_on = item.get("predicted_score_on")
-            path_feats = item.get("features_co")
-            # 恢复开盘决策口径
-            item["predicted_score_on"] = open_on
-            if open_on is not None:
-                item["y_co"] = open_on
-                item["predicted_score_co"] = open_on
-            if open_src:
-                item["y_co_source"] = open_src
-            if open_feats:
-                item["features_co"] = open_feats
-            if isinstance(open_terms, dict):
-                item["formula_terms_co"] = open_terms
-                item["score_formula_terms_co"] = open_terms
-                item["formula_terms_on"] = open_terms
-                item["score_formula_terms_on"] = open_terms
-            if path_on is not None:
-                item["predicted_score_on_path"] = path_on
-                item["y_on_path"] = path_on
-            if isinstance(path_feats, dict) and path_feats:
-                item["features_co_path"] = dict(path_feats)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach path-enriched y_on failed", exc_info=True)
         # 即时算路径未走 score_stock，补 EOD 组成表供 tip 对照因子
         try:
             eod_model = None

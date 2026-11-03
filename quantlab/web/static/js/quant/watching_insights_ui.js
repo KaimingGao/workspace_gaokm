@@ -2,7 +2,7 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml } from "../shared.js";
-import { resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, FUSE_REBALANCE_TITLE } from "../paper/fmt.js";
+import { resolveFuseScore, resolveEodScore, resolveTauScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } from "../paper/fmt.js";
 import { withQuoteGap } from "./watching_quotes_ui.js";
 
 export function isOosFailedItem(it) {
@@ -94,7 +94,6 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreNum = resolveFuseScore(it);
   const scoreEodNum = resolveEodScore(it);
   const scoreTauNum = resolveTauScore(it);
-  const scoreOnNum = resolveOnScore(it);
   const belowMin = !!it.below_min_score;
   const singleHead = isSingleHeadItem(it);
   const yCheck = String(it.y_check || "");
@@ -105,7 +104,6 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     scoreBase === "—" ? "—" : belowMin ? `${scoreBase}↓` : scoreBase;
   const scoreEodText = fmtTableScore(it, scoreEodNum);
   const scoreTauText = fmtTableScore(it, scoreTauNum);
-  const scoreOnText = fmtTableScore(it, scoreOnNum);
   const scoreTitle = isHeuristicScoreScale(it)
     ? scoreNum != null
       ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
@@ -123,12 +121,10 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
           : FUSE_REBALANCE_TITLE;
   const scoreEodTitle = scoreEodNum == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
-  const scoreOnTitle = scoreOnNum == null ? "暂无 ŷ_co" : Y_ON_TITLE;
   return {
     scoreNum,
     scoreEodNum,
     scoreTauNum,
-    scoreOnNum,
     belowMin,
     singleHead,
     yCheck,
@@ -138,14 +134,11 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     scoreText,
     scoreEodText,
     scoreTauText,
-    scoreOnText,
     scoreTitle,
     scoreEodTitle,
     scoreTauTitle,
-    scoreOnTitle,
     scoreEodCls: scoreClsName(scoreEodNum),
     scoreTauCls: scoreClsName(scoreTauNum),
-    scoreOnCls: scoreClsName(scoreOnNum),
   };
 }
 
@@ -185,7 +178,7 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
   const { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail } = deps;
   const excess = formatWatchingExcess(scored);
   const excessTitle = formatWatchingExcessTitle(scored);
-  const { scoreNum, scoreEodNum, scoreTauNum, scoreOnNum, belowMin, singleHead, yCheck, yCheckFail, dualScoreHead, scoreDetail, scoreText, scoreEodText, scoreTauText, scoreOnText, scoreTitle, scoreEodTitle, scoreTauTitle, scoreOnTitle, scoreEodCls, scoreTauCls, scoreOnCls } =
+  const { scoreNum, scoreEodNum, scoreTauNum, belowMin, singleHead, yCheck, yCheckFail, dualScoreHead, scoreDetail, scoreText, scoreEodText, scoreTauText, scoreTitle, scoreEodTitle, scoreTauTitle, scoreEodCls, scoreTauCls } =
     buildWatchingScoreDisplay(scored, fmtScore, watchingScoreDetail);
   const volNum = it.volume != null ? parseWatchingVolume(it.volume) : NaN;
   return {
@@ -199,10 +192,6 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
     scoreTauNum,
     scoreTauCls,
     scoreTauTitle,
-    scoreOn: scoreOnText,
-    scoreOnNum,
-    scoreOnCls,
-    scoreOnTitle,
     scoreCls: `${scoreCls(scoreNum)}${singleHead ? " score-single-head" : ""}${
       yCheckFail ? " score-y-check-fail" : ""
     }`.trim(),
@@ -318,21 +307,6 @@ export function buildWatchingTauScoreCellHtml(disp, scoreClsFn, esc = escapeHtml
   );
 }
 
-export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, esc = escapeHtml) {
-  return buildWatchingYScoreCellHtml(
-    {
-      text: disp.scoreOnText,
-      num: disp.scoreOnNum,
-      title: disp.scoreOnTitle,
-      detail: disp.scoreDetail,
-      tip: "on",
-      skin: "on",
-    },
-    scoreClsFn,
-    esc
-  );
-}
-
 export function buildWatchingInsightsStatusText(okN, total, items, meta) {
   const srcSample = (items || []).find((x) => x && x.weight_source) || {};
   const wsrc = String(srcSample.weight_source || "");
@@ -356,7 +330,6 @@ export function buildWatchingInsightsGridErrorPatch(d) {
     score: row.score === "…" ? "—" : row.score,
     scoreEod: row.scoreEod === "…" ? "—" : row.scoreEod,
     scoreTau: row.scoreTau === "…" ? "—" : row.scoreTau,
-    scoreOn: row.scoreOn === "…" ? "—" : row.scoreOn,
     excess: row.excess === "…" ? "—" : row.excess,
     volr: row.volr === "…" ? "—" : row.volr,
     pe: row.pe === "…" ? "—" : row.pe,

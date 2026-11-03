@@ -128,14 +128,12 @@ class TestDailyWebPresets(unittest.TestCase):
                 json={
                     "preset": "quant",
                     "lookback": 30,
-                    "fusion_w_co": 0.5,
                     "fuse_enter": 0.01,
                     "fuse_strong": 0.03,
                 },
             )
         self.assertEqual(res.status_code, 200)
         self.assertEqual(run_mock.call_args.kwargs.get("lookback"), 30)
-        self.assertEqual(run_mock.call_args.kwargs.get("fusion_w_co"), 0.5)
         self.assertEqual(run_mock.call_args.kwargs.get("fuse_enter"), 0.01)
         self.assertEqual(run_mock.call_args.kwargs.get("fuse_strong"), 0.03)
 
@@ -179,7 +177,6 @@ class TestDailyWebPresets(unittest.TestCase):
         bt = data.get("bt_defaults") or {}
         self.assertEqual(bt.get("engine"), "paper_replay")
         self.assertEqual(bt.get("lookback"), 30)
-        self.assertEqual(float(bt.get("fusion_w_co")), 0.0)
         self.assertAlmostEqual(float(bt.get("fuse_enter") or 0), 0.001)
         self.assertAlmostEqual(float(bt.get("fuse_strong") or 0), 0.001)
         self.assertGreaterEqual(int(bt.get("paper_max_positions") or 0), 8)

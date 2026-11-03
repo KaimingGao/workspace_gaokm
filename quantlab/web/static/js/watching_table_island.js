@@ -30,7 +30,6 @@ function compare(id, a, b) {
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
   if (id === "score_eod") return numSortKey(a, "scoreEodNum") - numSortKey(b, "scoreEodNum");
   if (id === "score_tau") return numSortKey(a, "scoreTauNum") - numSortKey(b, "scoreTauNum");
-  if (id === "score_on") return numSortKey(a, "scoreOnNum") - numSortKey(b, "scoreOnNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
   if (id === "chg") return numSortKey(a, "chgNum") - numSortKey(b, "chgNum");
@@ -117,16 +116,6 @@ const COLS = [
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
     title: Y_OC_REBALANCE_TITLE,
-  },
-  {
-    id: "score_on",
-    label: "y_co",
-    width: 82,
-    num: true,
-    sortable: true,
-    headClass: "watching-col-y",
-    cellClass: "watching-col-y",
-    title: "ŷ_co · close[T]→open[T+1]（对照）",
   },
   {
     id: "score",
@@ -312,27 +301,12 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `${escapeHtml(text)}${badges.join("")}</span>`
         );
       }
-      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on") {
-        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on" };
-        const skinMap = { score_eod: "eod", score_tau: "tau", score_on: "on" };
-        const textKey =
-          col.id === "score_eod"
-            ? "scoreEod"
-            : col.id === "score_tau"
-              ? "scoreTau"
-              : "scoreOn";
-        const clsKey =
-          col.id === "score_eod"
-            ? "scoreEodCls"
-            : col.id === "score_tau"
-              ? "scoreTauCls"
-              : "scoreOnCls";
-        const titleKey =
-          col.id === "score_eod"
-            ? "scoreEodTitle"
-            : col.id === "score_tau"
-              ? "scoreTauTitle"
-              : "scoreOnTitle";
+      if (col.id === "score_eod" || col.id === "score_tau") {
+        const tipMap = { score_eod: "eod", score_tau: "tau" };
+        const skinMap = { score_eod: "eod", score_tau: "tau" };
+        const textKey = col.id === "score_eod" ? "scoreEod" : "scoreTau";
+        const clsKey = col.id === "score_eod" ? "scoreEodCls" : "scoreTauCls";
+        const titleKey = col.id === "score_eod" ? "scoreEodTitle" : "scoreTauTitle";
         const text = d[textKey] != null && d[textKey] !== "" ? String(d[textKey]) : "—";
         const detail = d.scoreDetail || "";
         const title = d[titleKey] || "";

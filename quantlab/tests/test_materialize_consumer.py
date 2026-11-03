@@ -802,8 +802,8 @@ class ConsumerCoverageTest(unittest.TestCase):
 
         class _Cube:
             codes = ["300750", "002594"]
-            names = ["raw_aoo_GAP", "z_oo_volume_price", "raw_atc_x", "z_co_a"]
-            X_raw = np.array([[0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8]])
+            names = ["raw_aoo_GAP", "z_oo_volume_price", "raw_atc_x"]
+            X_raw = np.array([[0.1, 0.2, 0.3], [0.5, 0.6, 0.7]])
 
         seen: dict = {}
 
@@ -816,7 +816,6 @@ class ConsumerCoverageTest(unittest.TestCase):
             seen["n"] = len(items)
             seen["oo"] = set((items[0].get("sub_scores") or {}))
             seen["tau"] = set((items[0].get("features_tau") or {}))
-            seen["co"] = set((items[0].get("features_co") or {}))
             items[0]["y_oo"] = 1.2
             items[1]["y_τc"] = 0.3
 
@@ -856,8 +855,6 @@ class ConsumerCoverageTest(unittest.TestCase):
         self.assertNotIn("raw_atc_x", seen["oo"])
         self.assertIn("raw_atc_x", seen["tau"])
         self.assertNotIn("raw_aoo_GAP", seen["tau"])
-        self.assertIn("raw_aoo_GAP", seen["co"])
-        self.assertIn("z_co_a", seen["co"])
 
     def test_snap_clock_to_latest_cube(self) -> None:
         import os

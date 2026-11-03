@@ -90,7 +90,7 @@ def _insight_cache_stamp() -> str:
         paper = load_paper(PAPER_PATH) if os.path.isfile(PAPER_PATH) else None
         cfg = get_path_matrix_cfg(paper=paper)
         fusion = (
-            f"{cfg.get('fusion_w_oo')},{cfg.get('fusion_w_oc')},{cfg.get('fusion_w_co')}"
+            f"{cfg.get('fusion_w_oo')},{cfg.get('fusion_w_oc')}"
         )
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp fusion failed", exc_info=True)
@@ -489,7 +489,7 @@ def _insight_quote_bars(
 def _stamp_insight_y_oo_fuse(
     out: Dict[str, Any], paper_ctx: Optional[dict] = None
 ) -> None:
-    """观察行 y_oo_fuse 与交易执行同权（τc 几何剩余）。"""
+    """观察行 y_oo_fuse 与交易执行同权（某一 τ 的 fuse；开盘 rot=0 即加权和）。"""
     if not isinstance(out, dict):
         return
     try:
@@ -502,12 +502,11 @@ def _stamp_insight_y_oo_fuse(
 
         cfg = get_path_matrix_cfg(paper=paper_ctx)
         stamped = stamp_window_scores(out, cfg)
-        for k in ("y_oo_fuse", "y_oo", "y_τc", "y_co"):
+        for k in ("y_oo_fuse", "y_oo", "y_τc"):
             if stamped.get(k) is not None:
                 out[k] = stamped[k]
         out["fusion_w_oo"] = cfg.get("fusion_w_oo")
         out["fusion_w_oc"] = cfg.get("fusion_w_oc")
-        out["fusion_w_co"] = cfg.get("fusion_w_co")
         o = fuse_open_px(out)
         p = fuse_price_tau(out)
         if o is not None:
@@ -936,9 +935,6 @@ _LAKE_INSIGHT_KEYS = (
     "y_τc",
     "predicted_score_τc",
     "y_tau_raw",
-    "y_co",
-    "predicted_score_co",
-    "predicted_score_on",
     "y_oo_fuse",
     "lake_score_day",
     "lake_score_fallback_from",
@@ -947,7 +943,6 @@ _LAKE_INSIGHT_KEYS = (
     "eod_feature_as_of",
     "fusion_w_oo",
     "fusion_w_oc",
-    "fusion_w_co",
 )
 
 
@@ -999,7 +994,7 @@ def _project_lake_insight(
         out["pb"] = round(pb, 2)
     out["ok"] = any(
         out.get(key) is not None
-        for key in ("y_oo", "y_τc", "y_co", "predicted_score", "score")
+        for key in ("y_oo", "y_τc", "predicted_score", "score")
     )
     if not out["ok"]:
         out["error"] = "暂无 ŷ"

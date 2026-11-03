@@ -92,17 +92,6 @@ def _merge_aux_yhat(row: dict, src: Optional[dict]) -> dict:
     return _strip_replay_tau_horizons(row)
 
 
-def _sim_y_co(src: Optional[dict]) -> Any:
-    """ŷ_co 主字段；旧账本隔夜分在 y_on，只投影到 y_co。"""
-    from core.signal.yhat_windows import pick_y_co
-
-    src = src if isinstance(src, dict) else {}
-    y_co = pick_y_co(src)
-    if y_co is None:
-        y_co = src.get("y_on")
-    return y_co
-
-
 def _sim_y_τc(src: Optional[dict]) -> Any:
     from core.signal.yhat_windows import pick_y_τc
 
@@ -125,7 +114,6 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "matrix_action": "skip",
         "y_oo_fuse": sk.get("y_oo_fuse"),
         "y_oo": sk.get("y_oo"),
-        "y_co": _sim_y_co(sk),
         "y_τc": _sim_y_τc(sk),
         "residual": sk.get("residual"),
         "r_hat": sk.get("r_hat"),
@@ -188,7 +176,6 @@ def _hold_to_sim(
         "matrix_action": "hold",
         "y_oo_fuse": yf,
         "y_oo": (plan_h or {}).get("y_oo"),
-        "y_co": _sim_y_co(plan_h),
         "y_τc": _sim_y_τc(plan_h),
         "residual": (plan_h or {}).get("residual"),
         "r_hat": (plan_h or {}).get("r_hat"),
@@ -276,7 +263,6 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "action": t.get("action") or t.get("matrix_action"),
             "y_oo_fuse": yf,
             "y_oo": t.get("y_oo"),
-            "y_co": _sim_y_co(t),
             "y_τc": _sim_y_τc(t),
             "residual": t.get("residual"),
             "r_hat": t.get("r_hat"),
@@ -547,7 +533,7 @@ def _next_bar_after(
     """T+1 日 K：先覆盖率日历下一根，缺则用该票自己更晚的一根。
 
     回测窗末日若仓里还有下一根（停牌后复牌、lookback 截在覆盖率日历前），
-    仍应对账 ŷ_oo / ŷ_co；不能只看 dates[i+1]。
+    仍应对账 ŷ_oo；不能只看 dates[i+1]。
     """
     d = str(day or "")[:10]
     if not d or not isinstance(dm, dict):

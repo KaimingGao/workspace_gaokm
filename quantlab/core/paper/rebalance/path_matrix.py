@@ -1,7 +1,8 @@
 """策略调仓配置（rank_lots）。
 
 Follow / 历史回测 / 自动调仓都走 ``rank_lots``。
-y_oo_fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)。w_co 默认 1。
+y_oo_fuse 是某一 τ 的 fuse：w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·ŷ_τc。
+rot = price(τ)/open[T]−1。τ = 开盘时 rot = 0，即 w_oo·ŷ_oo + w_τc·ŷ_τc。
 ŷ_trade / ŷ_nowcast / y_tau 已下线（τ 头只写 y_τc）。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。
@@ -15,7 +16,6 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 from core.signal.yhat_windows import (
-    fusion_w_co_from_cfg,
     fusion_weights_from_cfg,
     stamp_window_scores,
 )
@@ -29,7 +29,6 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "holdings_mv_cap": 150_000.0,
     "fusion_w_oo": 0.6,
     "fusion_w_oc": 0.4,
-    "fusion_w_co": 1.0,
     "residual_w_oc": 0.5,
     "y_oo_gt0": False,
     "y_τc_gt0": False,
@@ -147,6 +146,7 @@ def get_path_matrix_cfg(
         "morph_a1_max",
         "morph_gap_max",
         "morph_vol20_min",
+        "y_on_alpha",
     ):
         out.pop(_dead, None)
     try:
@@ -189,7 +189,6 @@ def get_path_matrix_cfg(
         ("holdings_mv_cap", 150_000.0, 0.0, 1.0e8),
         ("fusion_w_oo", 0.6, 0.0, 1.0),
         ("fusion_w_oc", 0.4, 0.0, 1.0),
-        ("fusion_w_co", 1.0, 0.0, 10.0),
         ("residual_w_oc", 0.5, 0.0, 1.0),
     ):
         try:
@@ -198,8 +197,6 @@ def get_path_matrix_cfg(
             out[key] = float(default)
     w_oo, w_τc = fusion_weights_from_cfg(out)
     out["fusion_w_oo"], out["fusion_w_oc"] = w_oo, w_τc
-    w_co = fusion_w_co_from_cfg(out)
-    out["fusion_w_co"] = w_co
     out["cash_floor"] = 0.0
     try:
         from core.backtest.paper_replay import (
@@ -242,7 +239,7 @@ def scores_from_rebalance_item(
     item: Optional[dict],
     cfg: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
-    """从调仓行抽出 ŷ_oo / ŷ_τc / ŷ_co 与 y_oo_fuse / residual。"""
+    """从调仓行抽出 ŷ_oo / ŷ_τc 与 y_oo_fuse / residual。"""
     return stamp_window_scores(item, cfg)
 
 

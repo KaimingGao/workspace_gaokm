@@ -151,7 +151,7 @@ class TestDayCubeGc(unittest.TestCase):
 
         codes = ["000001", "000002"]
         write_stock_panel(
-            "co",
+            "zz",
             "000001",
             dates=["2024-03-01", "2024-03-02", "2024-03-03"],
             X=np.asarray([[1.0], [2.0], [3.0]]),
@@ -175,7 +175,7 @@ class TestDayCubeGc(unittest.TestCase):
         )
         with materialize_writer():
             ok = write_stock_panel(
-                "co",
+                "zz",
                 "000001",
                 dates=dates_m,
                 X=X_m,

@@ -16,7 +16,6 @@ import {
   buildWatchingScoreCellHtml,
   buildWatchingCalScoreCellHtml,
   buildWatchingTauScoreCellHtml,
-  buildWatchingOnScoreCellHtml,
   buildWatchingInsightsStatusText,
   buildWatchingInsightsErrorStatus,
   buildWatchingInsightsGridErrorPatch,
@@ -61,7 +60,6 @@ const WATCHING_SORT_KEYS = new Set([
   "score",
   "score_eod",
   "score_tau",
-  "score_on",
   "excess",
   "vol",
 ]);
@@ -676,14 +674,6 @@ export function installWatching(q) {
           const scoreTauEl = tr.querySelector(`[data-q='score_tau']`);
           if (scoreTauEl) {
             scoreTauEl.innerHTML = buildWatchingTauScoreCellHtml(
-              disp,
-              scoreCls,
-              escapeHtml
-            );
-          }
-          const scoreOnEl = tr.querySelector(`[data-q='score_on']`);
-          if (scoreOnEl) {
-            scoreOnEl.innerHTML = buildWatchingOnScoreCellHtml(
               disp,
               scoreCls,
               escapeHtml
@@ -1742,7 +1732,6 @@ export function installWatching(q) {
         scoreCls: scoreCls(scoreNum),
         scoreEod: "…",
         scoreTau: "…",
-        scoreOn: "…",
         stance: "…",
         excess: "…",
         excessNum: null,

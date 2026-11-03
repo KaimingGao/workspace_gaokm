@@ -124,43 +124,6 @@ class TauRidgeRequest(BaseModel):
 
 
 
-class CoRidgeRequest(BaseModel):
-    """open[T+1]/close[T]-1 隔夜缺口 Ridge 拟合（风控旁路 ŷ_co）。"""
-
-    lookback: int = Field(default=600, ge=FIT_LOOKBACK_MIN, le=FIT_LOOKBACK_MAX)
-    watching_limit: int = Field(
-        default=MODEL_FIT_MAX_SIZE,
-        ge=2,
-        le=MODEL_FIT_MAX_SIZE,
-        description=f"观察池上限（默认满池 {MODEL_FIT_MAX_SIZE}）",
-    )
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
-    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
-    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
-    persist: bool = Field(
-        default=False,
-        description="True=人审写入模型文件（路径由 persist_role 决定）",
-    )
-    persist_role: str = Field(
-        default="live",
-        description="research=报告→研究槽；live=研究槽→执行槽（晋级）",
-    )
-    holdout_trading_days: int = Field(
-        default=20,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进训练（Holdout）；只训前段一套 β",
-    )
-
-    cross_section_zscore: bool = Field(
-        default=True,
-        description="True=日截面 z；False=训练样本内全局 μ/σ",
-    )
-    note: str = Field(default="", max_length=200)
-    sync: bool = Field(
-        default=False,
-        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/co-ridge",
-    )
 
 
 class OoRankRequest(_CrossSectionZscore):
@@ -489,8 +452,8 @@ class MaterializeRequest(BaseModel):
     """独立物化 L1 Feature Lake / L2 DayCube（不训模型、不出 ŷ）。"""
 
     families: List[str] = Field(
-        default_factory=lambda: ["oo", "tc", "co"],
-        description="L1 family：oo / tc / co / oo_rank",
+        default_factory=lambda: ["oo", "tc"],
+        description="L1 family：oo / tc / oo_rank",
     )
     clocks: List[str] = Field(
         default_factory=lambda: ["open"],

@@ -687,7 +687,7 @@ def apply_cube_z_to_dicts(
 ) -> List[dict]:
     """用 cube μ/σ 对特征 dict 列表做 z（与行 codes 对齐）。
 
-    必须从冻结的 raw 快照读值：``stamp_z_co_aliases`` 等会裸名↔canon 双写，
+    必须从冻结的 raw 快照读值：裸名↔canon 会双写，
     ``mirror_z_alias_value`` 写回一侧后若再按另一侧键用已更新的 src 算 z，
     会把 z 再套一层 μ/σ（tip 里 z≈−6~−7 的典型来源）。
     """

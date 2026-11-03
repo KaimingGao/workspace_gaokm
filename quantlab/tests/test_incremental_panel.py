@@ -752,7 +752,7 @@ class TestLakeReplay(unittest.TestCase):
 
     def _seed_l1(self) -> None:
         from core.research.feature_lake import write_stock_panel
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
 
         write_stock_panel(
             FAMILY_OO,
@@ -770,14 +770,6 @@ class TestLakeReplay(unittest.TestCase):
             names=["gap_pct"],
             fingerprint="t",
         )
-        write_stock_panel(
-            FAMILY_CO,
-            "000001",
-            dates=["2024-05-10"],
-            X=np.asarray([[0.1, 0.2]]),
-            names=["z_co_a", "raw_aco_b"],
-            fingerprint="t",
-        )
 
     def test_try_score_item_from_lake(self) -> None:
         from core.research.lake_replay import try_score_item_from_lake
@@ -793,7 +785,6 @@ class TestLakeReplay(unittest.TestCase):
         self.assertEqual(item["_score_source"], "feature_lake")
         self.assertIn("sub_scores", item)
         self.assertIn("features_tau", item)
-        self.assertIn("features_co", item)
         self.assertIsNone(try_score_item_from_lake("000001", "2024-05-11"))
 
     def test_prefetch_serves_day_without_reread(self) -> None:
@@ -809,7 +800,6 @@ class TestLakeReplay(unittest.TestCase):
         # 删盘后仍能从进程缓存灌行
         lake.invalidate_code("oo", "000001")
         lake.invalidate_code("tc", "000001")
-        lake.invalidate_code("co", "000001")
         item = try_score_item_from_lake("000001", "2024-05-10")
         self.assertIsNotNone(item)
         assert item is not None
@@ -887,11 +877,11 @@ class TestLakeReplay(unittest.TestCase):
         self.assertEqual(windows.get("000001"), [])
 
     def test_score_open_day_entries_tc_only_still_scores_window(self) -> None:
-        """仅 tc/co 有湖日、无 oo：不得当命中（否则无 sub_scores → ŷ_oo/oo_rank 空）。"""
+        """仅 tc 有湖日、无 oo：不得当命中（否则无 sub_scores → ŷ_oo/oo_rank 空）。"""
         from unittest.mock import MagicMock
 
         from core.research.feature_lake import write_stock_panel
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_TC
+        from core.research.lake_bridge import FAMILY_TC
         from core.research.lake_replay import prefetch_l1_coverage, score_open_day_entries
 
         write_stock_panel(
@@ -900,14 +890,6 @@ class TestLakeReplay(unittest.TestCase):
             dates=["2024-05-10"],
             X=np.asarray([[0.5]]),
             names=["gap_pct"],
-            fingerprint="t",
-        )
-        write_stock_panel(
-            FAMILY_CO,
-            "000001",
-            dates=["2024-05-10"],
-            X=np.asarray([[0.1]]),
-            names=["z_co_a"],
             fingerprint="t",
         )
         prefetch_l1_coverage(["000001"])

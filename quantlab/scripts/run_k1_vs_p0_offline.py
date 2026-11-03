@@ -136,7 +136,7 @@ def main() -> int:
     from core.research.oo_rank_panel import build_oo_rank_day_panels, group_day_matrices
     from core.research.panel_matrix import collect_tau_compact
     from core.research.tc_ridge_compact import TAU_Z_FEATURES
-    from core.signal.yhat_windows import fuse_pct, oc_with_co
+    from core.signal.yhat_windows import fuse_pct
     import numpy as np
 
     oo_model, info = load_return_model(prefer_research=True)
@@ -207,9 +207,7 @@ def main() -> int:
                 continue
             y_oo, y_real = oo_books[date][code]
             y_tc = float(tc_pred[date][code])
-            fuse = fuse_pct(
-                y_oo, oc_with_co(y_tc, None, 0.0), w_left=w_oo, w_right=w_tc
-            )
+            fuse = fuse_pct(y_oo, y_tc, w_left=w_oo, w_right=w_tc)
             if fuse is None:
                 continue
             oo_r = int(oo_rank_by[date][code]["rank_a"])

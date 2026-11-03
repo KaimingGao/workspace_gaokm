@@ -50,7 +50,6 @@ def daily_run(body: DailyRunRequest) -> Any:
             paper_cross_section_rebalance=body.paper_cross_section_rebalance,
             export_quant_report=body.export_quant_report,
             lookback=body.lookback,
-            fusion_w_co=body.fusion_w_co,
             fuse_enter=body.fuse_enter,
             fuse_strong=body.fuse_strong,
         )

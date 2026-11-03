@@ -414,7 +414,7 @@ def cross_section_zscore_matrix(
 
 
 # 截面 z 后把值同步到裸名/canon，避免后续 stamp_*（裸名优先）冲掉 z-score。
-_Z_ALIAS_PREFIXES = ("z_τh_", "z_τc_", "z_co_", "z_oo_")
+_Z_ALIAS_PREFIXES = ("z_τh_", "z_τc_", "z_oo_")
 
 
 def mirror_z_alias_value(row: Dict[str, Any], name: str, val: Any) -> None:

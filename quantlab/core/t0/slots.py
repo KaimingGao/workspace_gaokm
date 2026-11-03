@@ -445,7 +445,6 @@ def _slot_public_scores(row: dict) -> dict:
         slim = {}
         for k in (
             "y_tau",
-            "y_co",
             "predicted_score_r",
             "y_r_hat",
             "y_r",

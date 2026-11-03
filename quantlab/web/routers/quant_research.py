@@ -11,7 +11,6 @@ from web.schemas import (
     ExprEvalRequest,
     FactorExperimentRequest,
     FactorOlsPoolRequest,
-    CoRidgeRequest,
     OoRankRequest,
     TcRankRequest,
     T30RidgeRequest,
@@ -150,41 +149,6 @@ def quant_tau_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_τ 模型（主路径 tau_ridge_model.json；可读旧 rem 文件）。"""
     try:
         return deps.quant.get_tau_ridge_model()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.post("/api/quant/co-ridge")
-
-def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
-    """隔夜缺口 Ridge：open[T+1]/close[T]-1 + 时间 OOS；可选 persist 到 live。
-
-    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/co-ridge``。
-    """
-    kwargs = dict(
-        lookback=body.lookback,
-        watching_limit=body.watching_limit,
-        ridge_lambda=body.ridge_lambda,
-        gap_trigger_pct=body.gap_trigger_pct,
-        theme_boost=body.theme_boost,
-        persist=body.persist,
-        note=body.note,
-        persist_role=body.persist_role,
-        holdout_trading_days=body.holdout_trading_days,
-        cross_section_zscore=bool(body.cross_section_zscore),
-    )
-    try:
-        if body.persist or body.sync:
-            return deps.quant.run_co_ridge_experiment(**kwargs)
-        return deps.quant.start_co_ridge_job(**kwargs)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-@router.get("/api/quant/co-ridge/model")
-
-def quant_co_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_co 模型（主路径 co_ridge_model.json；可读旧 on 文件）。"""
-    try:
-        return deps.quant.get_co_ridge_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

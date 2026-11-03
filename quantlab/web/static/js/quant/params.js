@@ -8,7 +8,6 @@ const DEFAULT_HOLDOUT_TRADING_DAYS = 20;
 const FIT_PARAM_HEADS = [
   "oo",
   "tc",
-  "co",
   "t30",
   "t45",
   "t60",
@@ -20,7 +19,7 @@ const FIT_PARAM_HEADS = [
 
 function _defaultLookbackForHead(head) {
   if (head === "oo_rank" || head === "tc_rank") return 700;
-  return head === "oo" || head === "co" ? 600 : 120;
+  return head === "oo" ? 600 : 120;
 }
 
 /** 拟合用日线训练窗（交易日）；与回测「窗口」独立。 */
@@ -40,7 +39,6 @@ const FIT_LOOKBACK_MAX = 1000;
 const CS_Z_FIT_HEADS = [
   "oo",
   "tc",
-  "co",
   "t30",
   "t45",
   "t60",

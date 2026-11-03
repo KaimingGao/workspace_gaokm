@@ -35,7 +35,6 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
                     "stock_code": "600519",
                     "action": "buy",
                     "features_tau": {"raw_atc_YKMID": 1.0},
-                    "features_co": {"gap_pct": 0.1},
                     "factor_coefficients": {"momentum": 0.2},
                     "formula_terms": {
                         "total": 0.01,
@@ -86,7 +85,6 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
         self.assertEqual(len(result["sim_trades"]), 1)
         self.assertEqual(result["sim_trades"][0]["stock_code"], "600519")
         self.assertNotIn("features_tau", result["sim_trades"][0])
-        self.assertNotIn("features_co", result["sim_trades"][0])
         self.assertNotIn("factor_coefficients", result["sim_trades"][0])
         # 成交 tip 因子表：保留 capped 组成（与 tip_explain_fields 同帽）
         ft = result["sim_trades"][0].get("formula_terms") or {}

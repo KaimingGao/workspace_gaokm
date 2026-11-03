@@ -113,7 +113,7 @@ class MaterializeRequired(Exception):
 
 def hint_for_family(family: str) -> str:
     fam = str(family or "")
-    if fam in ("oo", "tc", "co", "oo_rank", "tc_rank"):
+    if fam in ("oo", "tc", "oo_rank", "tc_rank"):
         return "日线物化"
     return "分钟线物化"
 

@@ -2152,7 +2152,7 @@ def _matrix_pick_col(
     return None
 
 
-# open / co 入模截面（无分钟板块收益）
+# open 入模截面（无分钟板块收益）
 DAY_MATRIX_CS_OPEN_KEYS: Tuple[str, ...] = (
     "sector_gap_breadth",
     "theme_day",
@@ -2171,8 +2171,8 @@ def enrich_day_matrix_cross_section(
 ) -> Tuple[List[str], Any, List[str]]:
     """一日截面矩阵补 ``DAY_MATRIX_CS_KEYS``，口径同 ``attach_cross_section_breadth``。
 
-    源列：``gap_pct`` / ``ret_open_to_tau``（裸名或 ``z_τh_*`` / ``z_τc_*`` / ``z_co_*``）。
-    写出裸名后镜像 ``z_τh_*`` / ``z_τc_*``；开盘截面三列另镜像 ``z_co_*``。
+    源列：``gap_pct`` / ``ret_open_to_tau``（裸名或 ``z_τh_*`` / ``z_τc_*``）。
+    写出裸名后镜像 ``z_τh_*`` / ``z_τc_*``。
     缺 ``gap_pct`` 源或内部异常则**原样返回**（不抛）。返回 ``(names, X, added_bare_keys)``。
     ``clock`` 仅作诊断/扩展保留，口径与面板一致不按钟分支。
     """
@@ -2217,7 +2217,6 @@ def _enrich_day_matrix_cross_section_body(
 ) -> Tuple[List[str], Any, List[str]]:
     import numpy as np
 
-    from core.signal.factors.z_co import Z_CO_PREFIX
     from core.signal.factors.z_tc import Z_TC_PREFIX
     from core.signal.factors.z_th import Z_TH_PREFIX
 
@@ -2227,7 +2226,6 @@ def _enrich_day_matrix_cross_section_body(
         "gap_pct",
         f"{Z_TH_PREFIX}gap_pct",
         f"{Z_TC_PREFIX}gap_pct",
-        f"{Z_CO_PREFIX}gap_pct",
     )
     if gap_col is None:
         return name_list, arr, []
@@ -2361,8 +2359,6 @@ def _enrich_day_matrix_cross_section_body(
         _upsert(bare, col)
         _upsert(f"{Z_TH_PREFIX}{bare}", col)
         _upsert(f"{Z_TC_PREFIX}{bare}", col)
-        if bare in DAY_MATRIX_CS_OPEN_KEYS:
-            _upsert(f"{Z_CO_PREFIX}{bare}", col)
 
     if not added:
         return name_list, arr, []

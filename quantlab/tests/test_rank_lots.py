@@ -20,14 +20,13 @@ class TestRankingScore(unittest.TestCase):
         self.assertIsNone(fuse_score_net(None, None))
         self.assertLess(fuse_score_net(-0.2, 0.0), 0.0)
         self.assertGreater(fuse_score_net(-0.2, 1.0), 0.0)
-        right = ((1.01 * 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(
-            fuse_score_net(2.0, 1.0, y_co=1.0, w_co=1.0, w_oo=0.0, w_τc=1.0),
-            right / 100.0,
+            fuse_score_net(2.0, 1.0, w_oo=0.0, w_τc=1.0),
+            1.0 / 100.0,
         )
         self.assertAlmostEqual(
-            fuse_score_net(2.0, 1.0, y_co=1.0, w_co=1.0),
-            (0.5 * 2.0 + 0.5 * right) / 100.0,
+            fuse_score_net(2.0, 1.0),
+            (0.5 * 2.0 + 0.5 * 1.0) / 100.0,
         )
 
     def test_legacy_threshold_coerced_to_net(self):
@@ -237,7 +236,6 @@ class TestPlanRankLotDay(unittest.TestCase):
                 "stock_name": "分项",
                 "predicted_score": 2.0,
                 "y_τc": 1.0,
-                "y_co": 0.4,
             }
         ]
         out = plan_rank_lot_day(
@@ -251,7 +249,6 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["y_oo"]), 2.0)
         self.assertAlmostEqual(float(buy["y_τc"]), 1.0)
         self.assertNotIn("y_oc", buy)
-        self.assertAlmostEqual(float(buy["y_co"]), 0.4)
         self.assertNotIn("y_on", buy)
         self.assertAlmostEqual(float(buy["y_oo_fuse"]), 1.5)
         self.assertAlmostEqual(float(buy["y_oo_fuse"]), 1.5)  # 旧键双写
@@ -277,12 +274,11 @@ class TestPlanRankLotDay(unittest.TestCase):
             holdings=[],
             cash=1_000_000,
             prices={"600000": 10.0},
-            cfg=_cfg(fusion_w_oo=0.2, fusion_w_oc=0.8, fusion_w_co=1.0),
+            cfg=_cfg(fusion_w_oo=0.2, fusion_w_oc=0.8),
         )
         buy = out["buys"][0]
         self.assertAlmostEqual(float(buy["fusion_w_oo"]), 0.2)
         self.assertAlmostEqual(float(buy["fusion_w_oc"]), 0.8)
-        self.assertAlmostEqual(float(buy["fusion_w_co"]), 1.0)
 
     def test_stamps_aux_yhat_after_fuse(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
@@ -293,7 +289,6 @@ class TestPlanRankLotDay(unittest.TestCase):
                 "stock_name": "分项",
                 "predicted_score": 2.0,
                 "y_tau": 1.0,
-                "y_co": 0.4,
                 "y_τ30": 0.2,
                 "y_τ60": -0.1,
                 "y_τ90": 0.3,
@@ -325,11 +320,9 @@ class TestPlanRankLotDay(unittest.TestCase):
                 "stock_name": "分项",
                 "predicted_score": 2.0,
                 "y_tau": 1.0,
-                "y_co": 0.4,
                 "formula_terms_tau": {"total": 1.0, "terms": [{"key": "gap_pct", "contrib": 0.2}]},
                 "formula_terms_path": {"total": 1.5, "terms": [{"key": "range_pct", "contrib": 0.1}]},
                 "score_formula_terms": {"total": 2.0, "terms": [{"key": "momentum", "contrib": 0.3}]},
-                "formula_terms_co": {"total": 0.4, "terms": [{"key": "overnight", "contrib": 0.4}]},
             }
         ]
         out = plan_rank_lot_day(
@@ -343,7 +336,6 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(buy["formula_terms_tau"]["total"], 1.0)
         self.assertEqual(buy["formula_terms_path"]["total"], 1.5)
         self.assertEqual(buy["score_formula_terms"]["total"], 2.0)
-        self.assertEqual(buy["formula_terms_co"]["total"], 0.4)
 
     def test_tip_explain_fields_slims_terms(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields
@@ -352,7 +344,6 @@ class TestPlanRankLotDay(unittest.TestCase):
         out = tip_explain_fields(
             {
                 "score_formula_terms": {"total": 1.0, "terms": terms},
-                "formula_terms_co": {"total": 0.4, "terms": list(terms)},
                 "formula_terms_oo_rank": {
                     "total": 0.9,
                     "backend": "ridge",
@@ -361,10 +352,8 @@ class TestPlanRankLotDay(unittest.TestCase):
             }
         )
         slim = (out.get("score_formula_terms") or {}).get("terms") or []
-        co = (out.get("formula_terms_co") or {}).get("terms") or []
         oo_rank = (out.get("formula_terms_oo_rank") or {}).get("terms") or []
         self.assertEqual(len(slim), 24)
-        self.assertEqual(len(co), 24)
         self.assertEqual(len(oo_rank), 24)
         self.assertEqual(slim[0]["key"], "f29")
         self.assertEqual(out["formula_terms_oo_rank"]["backend"], "ridge")
@@ -376,13 +365,11 @@ class TestPlanRankLotDay(unittest.TestCase):
             {
                 "y_oo_source": "tree",
                 "y_τc_source": "tree",
-                "y_co_source": "ridge",
                 "score_formula_terms": {"total": 1.2, "terms": [{"key": "momentum", "contrib": 1.2}]},
             }
         )
         self.assertEqual(out.get("y_oo_source"), "tree")
         self.assertEqual(out.get("y_τc_source"), "tree")
-        self.assertEqual(out.get("y_co_source"), "ridge")
         self.assertEqual(out["score_formula_terms"]["total"], 1.2)
 
     def test_tip_explain_fields_keeps_tau_open_z(self):
@@ -463,17 +450,11 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["y_oo_fuse"]), 1.5)
         self.assertAlmostEqual(float(buy["y_oo_fuse"]), 1.5)
 
-    def test_y_oo_fuse_pct_of_uses_fusion_w_co(self):
+    def test_y_oo_fuse_ignores_y_on_alpha(self):
         from core.paper.rebalance.rank_lots import y_oo_fuse_pct_of
-        from core.signal.yhat_windows import oc_with_co
 
-        item = {"predicted_score": 2.0, "y_τc": 1.0, "y_co": 1.0}
+        item = {"predicted_score": 2.0, "y_τc": 1.0}
         self.assertAlmostEqual(y_oo_fuse_pct_of(item, _cfg()), 1.5)
-        right = oc_with_co(1.0, 1.0, 1.0)
-        self.assertAlmostEqual(
-            y_oo_fuse_pct_of(item, _cfg(fusion_w_co=1.0)),
-            0.5 * 2.0 + 0.5 * right,
-        )
         self.assertAlmostEqual(
             y_oo_fuse_pct_of(item, _cfg(y_on_alpha=1.0)),
             1.5,
@@ -535,7 +516,7 @@ class TestPlanRankLotDay(unittest.TestCase):
             },
             "features_tau": {"ret_open_to_tau": 0.0},
         }
-        cfg = _cfg(fusion_w_oo=0.5, fusion_w_oc=0.5, fusion_w_co=0.0)
+        cfg = _cfg(fusion_w_oo=0.5, fusion_w_oc=0.5)
         open_px, price_tau = 100.0, 101.0
         rot = ret_open_to_tau_pct(open_px, price_tau)
         y_oo_rem = remaining_at_tau(2.0, rot)
@@ -625,7 +606,7 @@ class TestPlanRankLotDay(unittest.TestCase):
             "y_τc": -0.5,
             "features_tau": {"ret_open_to_tau": 1.2},
         }
-        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
+        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5}
         self.assertTrue(_apply_prefix_oc(item, live, cfg))
         self.assertAlmostEqual(float(item["y_τc"]), -0.5, places=6)
         self.assertAlmostEqual(float(item["y_oo"]), 0.8, places=6)
@@ -1836,7 +1817,6 @@ class TestPathMatrix(unittest.TestCase):
         self.assertIn("fuse_enter", lots)
         self.assertIn("cash_floor", lots)
         self.assertAlmostEqual(float(lots.get("cash_floor")), 0.0)
-        self.assertEqual(lots.get("fusion_w_co"), 1.0)
         self.assertNotIn("y_on_alpha", lots)
         self.assertNotIn("fusion_w_trade", lots)
         self.assertNotIn("fusion_w_nowcast", lots)
@@ -1942,12 +1922,9 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(cfg0["lot_base_amount"], 10000)
         self.assertEqual(cfg0["lot_strong_amount"], 20000)
 
-    def test_old_y_on_alpha_does_not_fill_fusion_w_co(self):
+    def test_old_y_on_alpha_is_dropped(self):
         cfg = self._cfg(y_on_alpha=0.4)
-        self.assertAlmostEqual(cfg["fusion_w_co"], 1.0)
         self.assertNotIn("y_on_alpha", cfg)
-        cfg0 = self._cfg(fusion_w_co=0.4)
-        self.assertAlmostEqual(cfg0["fusion_w_co"], 0.4)
 
     def test_legacy_rank_thresholds_coerced_to_net(self):
         cfg = self._cfg(fuse_enter=1.01, fuse_strong=1.02)

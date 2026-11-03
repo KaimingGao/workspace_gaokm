@@ -245,8 +245,8 @@ def score_stock(
     ``use_minute_tau``：None=跟随 ``enable_minute_tau``（调仓因果末根 ≤10:00）；
     False=开盘 Z（回测 09:30、live 启动时间 ≤09:30），不读分钟仓、不拉 5m；
     True=强制并分钟小包（观察池 / 持仓表；live 启动时间 >09:30）。
-    ``defer_cs_predict=True``：只落特征（sub_scores / features_tau / co），
-    不写 ŷ_oo / ŷ_τ / ŷ_co；供 watching_matrix 先抽特征再 batch 截面 predict。
+    ``defer_cs_predict=True``：只落特征（sub_scores / features_tau），
+    不写 ŷ_oo / ŷ_τ；供 watching_matrix 先抽特征再 batch 截面 predict。
 
     （分组已退役）主分仅用全局 return_model ŷ。
     """
@@ -1185,40 +1185,6 @@ def score_stock(
             rem_model_doc=rem_model_doc,
             fuse_intraday=not bool(eod_pit.get("rolled_to_next")),
         )
-        try:
-            from core.research.co_panel import build_co_features_from_quote_bars
-            from core.research.co_ridge import load_co_model, predict_co_from_features
-            from core.signal.dual_score.co import (
-                apply_co_score_fields,
-                overlay_co_cross_section,
-            )
-
-            co_feats = build_co_features_from_quote_bars(
-                quote,
-                bars,
-                gap_pct=gap_v,
-                stock_code=code,
-                open_t=open_t_info.get("open"),
-                prev_close=open_t_info.get("prev_close"),
-                trade_date=open_t_info.get("trade_day"),
-            )
-            co_feats = overlay_co_cross_section(
-                co_feats,
-                feats,
-                sector_gap_breadth=sector_breadth,
-            )
-            co_model_doc = load_co_model()
-            co_yhat = None
-            if not defer_predict:
-                co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
-            apply_co_score_fields(
-                signal_item,
-                co_yhat=co_yhat,
-                feats=co_feats,
-                co_model_doc=co_model_doc,
-            )
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            pass
         try:
             from core.t0.score_policy import _attach_y_path_to_item
 

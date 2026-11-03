@@ -8,7 +8,6 @@ import {
   fmtTableScore,
   resolveYTradeScore,
   resolveEodScore,
-  resolveOnScore,
   Y_HL_TITLE,
   PATH_REALIZED_TITLE,
   fmtPathScore,
@@ -26,7 +25,7 @@ import {
   TW_REALIZED_TITLE,
   blendYtw,
   fmtYtwVote,
-} from "./fmt.js?v=p2512";
+} from "./fmt.js?v=p3540";
 import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2594";
 import {
   fitTierBadgeForCode,
@@ -2275,7 +2274,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   let yEod = pickScoreNum(d, "y_eod");
   let yTau = pickScoreNum(d, "y_tau");
   let yTrade = pickScoreNum(d, "y_trade");
-  let yOn = pickScoreNum(d, "y_on");
   let yR =
     pickScoreNum(d, "predicted_score_r") ??
     pickScoreNum(d, "y_r_hat") ??
@@ -2425,11 +2423,9 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       : null;
   const liveEod = slotSnapMode ? null : live ? resolveEodScore(live) : null;
   const liveTrade = slotSnapMode ? null : live ? resolveYTradeScore(live) : null;
-  const liveOn = slotSnapMode ? null : live ? resolveOnScore(live) : null;
   const dayEod = scores.predicted_score_eod ?? yEod;
   const dayTrade =
     scores.predicted_score_blend ?? scores.decision_score ?? scores.score ?? yTrade;
-  const dayOn = scores.predicted_score_on ?? yOn;
   const liveTips = slotSnapMode ? null : live;
   const filledFromLive =
     !slotSnapMode &&
@@ -2446,7 +2442,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     y_trade: slotSnapMode ? yTrade : scores.y_trade ?? yTrade,
     decision_score: slotSnapMode ? yTrade : dayTrade ?? scores.decision_score ?? liveTrade,
     score: slotSnapMode ? yTrade : dayTrade ?? scores.score ?? liveTrade,
-    predicted_score_on: dayOn ?? liveOn,
     predicted_score_r: slotSnapMode ? yR : scores.predicted_score_r ?? yR,
     y_r_hat: slotSnapMode ? yR : scores.y_r_hat ?? yR,
     y_r: slotSnapMode ? yR : scores.y_r ?? yR,
@@ -2629,26 +2624,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       liveTips?.formula_terms ||
       null,
     factor_coefficients: scores.factor_coefficients || live?.factor_coefficients || null,
-    formula_terms_co:
-      scores.formula_terms_co ||
-      scores.score_formula_terms_co ||
-      scores.formula_terms_on ||
-      scores.score_formula_terms_on ||
-      liveTips?.formula_terms_co ||
-      liveTips?.score_formula_terms_co ||
-      liveTips?.formula_terms_on ||
-      liveTips?.score_formula_terms_on ||
-      null,
-    score_formula_terms_co:
-      scores.score_formula_terms_co ||
-      scores.formula_terms_co ||
-      scores.score_formula_terms_on ||
-      scores.formula_terms_on ||
-      liveTips?.score_formula_terms_co ||
-      liveTips?.formula_terms_co ||
-      liveTips?.score_formula_terms_on ||
-      liveTips?.formula_terms_on ||
-      null,
     weight_source: scores.weight_source || live?.weight_source || "",
     direction_reason: d.direction_reason || "",
     direction_score: d.direction_score,

@@ -489,7 +489,7 @@ def return_model_status() -> Dict[str, Any]:
 
     return_model = None
     if display_raw:
-        # 草稿：系数表优先 Holdout 研究套 β（与因子 tip / τ·co 一致）；启用套仍读 model
+        # 草稿：系数表优先 Holdout 研究套 β（与因子 tip / τ 一致）；启用套仍读 model
         view = _draft_persist_view(display_raw)
         if display_role == "draft" and isinstance(view.get("return_model_research"), dict):
             return_model = dict(view["return_model_research"])

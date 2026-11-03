@@ -1,6 +1,6 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
-import { resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore } from "./fmt.js?v=p2544";
+import { resolveFuseScore, resolveEodScore, resolveTauScore } from "./fmt.js?v=p3540";
 import { getPredTier, predTierRank } from "../quant/pred_tier_ui.js?v=p2749";
 
 function rankNum(row, key, nKey, altKey) {
@@ -24,7 +24,6 @@ export function loadHoldingsSort() {
         saved.key === "score" ||
         saved.key === "score_eod" ||
         saved.key === "score_tau" ||
-        saved.key === "score_on" ||
         saved.key === "pnl" ||
         saved.key === "tier" ||
         saved.key === "oo_rank" ||
@@ -90,11 +89,6 @@ export function sortHoldings(list, key, dir) {
     } else if (k === "score_tau") {
       av = resolveTauScore(a);
       bv = resolveTauScore(b);
-      av = av == null ? NaN : av;
-      bv = bv == null ? NaN : bv;
-    } else if (k === "score_on") {
-      av = resolveOnScore(a);
-      bv = resolveOnScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
     } else if (k === "oo_rank") {

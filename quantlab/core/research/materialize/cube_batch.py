@@ -173,7 +173,6 @@ def _alias_plan() -> tuple:
     global _ALIAS_PLAN
     if _ALIAS_PLAN is not None:
         return _ALIAS_PLAN
-    from core.signal.factors.z_co import Z_CO_LEGACY_KEYS, Z_CO_PREFIX
     from core.signal.factors.z_oo import Z_OO_PREFIX, z_oo_legacy_keys
     from core.signal.factors.z_tc import Z_TC_LEGACY_KEYS, Z_TC_PREFIX
     from core.signal.factors.z_th import Z_TH_LEGACY_KEYS, Z_TH_PREFIX
@@ -183,8 +182,7 @@ def _alias_plan() -> tuple:
     th = tuple(
         (leg, f"{Z_TC_PREFIX}{leg}", f"{Z_TH_PREFIX}{leg}") for leg in Z_TH_LEGACY_KEYS
     )
-    co = tuple((leg, f"{Z_CO_PREFIX}{leg}") for leg in Z_CO_LEGACY_KEYS)
-    _ALIAS_PLAN = (oo, tc, th, co)
+    _ALIAS_PLAN = (oo, tc, th)
     return _ALIAS_PLAN
 
 
@@ -339,17 +337,15 @@ def align_day_matrix(
     oo_block: Any,
     tc_names: Sequence[str],
     tc_block: Any,
-    co_names: Sequence[str],
-    co_block: Any,
     require_oo_item: bool = False,
     require_tc_day: bool = False,
     plan: Optional[tuple] = None,
 ):
-    """一天的三族行合成立方矩阵。
+    """一天的 oo / tc 行合成立方矩阵。
 
     返回 ``(codes, names, X)``。当天没有 tc、或留下的票不足调用方门槛时返回 ``None``。
-    列顺序和别名与 items → ``build_day_cube`` 一致：先 oo 盖章，再盖 tc、co，然后 τc / τh / co。
-    只有 co、没有 oo 也没有 tc 的票不进矩阵。
+    列顺序和别名与 items → ``build_day_cube`` 一致：先 oo 盖章，再盖 tc，然后 τc / τh。
+    没有 oo 也没有 tc 的票不进矩阵。
     """
     import numpy as np
 
@@ -365,15 +361,13 @@ def align_day_matrix(
     if not bool(include.any()):
         return None
     rules = plan if plan is not None else _alias_plan()
-    oo_pairs, tc_pairs, th_pairs, co_pairs = rules
+    oo_pairs, tc_pairs, th_pairs = rules
     cols: Dict[str, Any] = {}
     _overlay(cols, n, oo_names, oo_block)
     _apply_pairs(cols, n, oo_pairs, kind="pair")
     _overlay(cols, n, tc_names, tc_block)
-    _overlay(cols, n, co_names, co_block)
     _apply_pairs(cols, n, tc_pairs, kind="pair")
     _apply_pairs(cols, n, th_pairs, kind="th")
-    _apply_pairs(cols, n, co_pairs, kind="pair")
     order = [i for i in range(n) if bool(include[i])]
     order.sort(key=lambda i: code_list[i])
     if len(order) < 2:
@@ -398,7 +392,6 @@ def _write_vectorized_days(
     code_list: Sequence[str],
     oo_s: Dict[str, tuple],
     tc_s: Dict[str, tuple],
-    co_s: Dict[str, tuple],
     clock: str,
     univ: Sequence[str],
     need: int,
@@ -422,7 +415,6 @@ def _write_vectorized_days(
     try:
         oo_names, oo_x = _stack_days(oo_s, code_list, chunk)
         tc_names, tc_x = _stack_days(tc_s, code_list, chunk)
-        co_names, co_x = _stack_days(co_s, code_list, chunk)
     except Exception:  # noqa: BLE001
         logger.warning(
             "cube batch stack failed clock=%s days=%s..%s",
@@ -457,8 +449,6 @@ def _write_vectorized_days(
                 oo_block=oo_x[:, offset, :],
                 tc_names=tc_names,
                 tc_block=tc_x[:, offset, :],
-                co_names=co_names,
-                co_block=co_x[:, offset, :],
                 require_oo_item=require_oo_item,
                 require_tc_day=require_tc_day,
                 plan=plan,
@@ -514,7 +504,6 @@ def build_day_cubes_from_lake(
     *,
     family_oo: str,
     family_tc: str,
-    family_co: str,
     clock: str,
     universe_codes: Sequence[str],
     min_items: int,
@@ -531,14 +520,13 @@ def build_day_cubes_from_lake(
     swallow_ensure_errors: bool = False,
     replace_existing: bool = False,
     shared_oo: Optional[Dict[str, tuple]] = None,
-    shared_co: Optional[Dict[str, tuple]] = None,
     shared_tc: Optional[Dict[str, tuple]] = None,
 ) -> Dict[str, int]:
     """为 ``days`` 写立方。返回 ``cubes_built`` / ``days_skipped`` / ``slim_reject``。
 
     ``require_oo_item``：开盘预热，没有 oo 行的票不进当天矩阵。
     ``require_tc_day``：分钟钟，当天没有任何 tc 行则整日跳过。
-    ``shared_oo`` / ``shared_tc`` / ``shared_co`` 已由调用方切开时不再读该族。
+    ``shared_oo`` / ``shared_tc`` 已由调用方切开时不再读该族。
     没有 ``on_items`` 时按矩阵落盘，别名与 items 路径一致。
     ``progress_index`` 是日期到全列表 1-based 位置，进度条按全列表走。
     """
@@ -596,7 +584,6 @@ def build_day_cubes_from_lake(
         anchor = _pos(chunk[0], 1)
         oo_s: Optional[Dict[str, tuple]] = None
         tc_s: Optional[Dict[str, tuple]] = None
-        co_s: Optional[Dict[str, tuple]] = None
 
         def _read_prog(done: int, n: int, fam: str = "") -> None:
             _emit(
@@ -646,19 +633,6 @@ def build_day_cubes_from_lake(
                 if tc_got is None:
                     return stats  # 取消
                 tc_s = _as_panel(tc_got)
-            if shared_co is not None:
-                co_s = _as_panel(shared_co) or {}
-            else:
-                co_got = slice_stock_panels(
-                    family_co,
-                    code_list,
-                    chunk,
-                    progress_cb=lambda d, n: _read_prog(d, n, "co"),
-                    cancel_cb=cancel_cb,
-                )
-                if co_got is None:
-                    return stats  # 取消
-                co_s = _as_panel(co_got) or {}
         except Exception:  # noqa: BLE001
             logger.warning(
                 "cube batch slice failed clock=%s days=%s..%s",
@@ -672,8 +646,6 @@ def build_day_cubes_from_lake(
         # 空 dict 表示该族无行（允许 tc-only）；None 仅表示取消（上面已 return）
         if oo_s is None:
             oo_s = {}
-        if co_s is None:
-            co_s = {}
         if tc_s is None:
             return stats
         if require_oo_item and not oo_s:
@@ -689,7 +661,6 @@ def build_day_cubes_from_lake(
                     code_list=code_list,
                     oo_s=oo_s,
                     tc_s=tc_s,
-                    co_s=co_s,
                     clock=clock,
                     univ=univ,
                     need=need,
@@ -719,7 +690,6 @@ def build_day_cubes_from_lake(
                 for code in code_list:
                     oo = _feats_for(oo_s, code, day)
                     tc = _feats_for(tc_s, code, day)
-                    co = _feats_for(co_s, code, day)
                     if tc:
                         any_tc = True
                     if require_oo_item:
@@ -728,9 +698,7 @@ def build_day_cubes_from_lake(
                     elif not oo and not tc:
                         continue
                     try:
-                        it = assemble_item_from_lake_rows(
-                            code, day, oo=oo, tc=tc, co=co
-                        )
+                        it = assemble_item_from_lake_rows(code, day, oo=oo, tc=tc)
                     except Exception:  # noqa: BLE001
                         logger.debug(
                             "cube batch assemble failed code=%s day=%s",
@@ -786,6 +754,5 @@ def build_day_cubes_from_lake(
         finally:
             oo_s = None
             tc_s = None
-            co_s = None
             forget_dates(chunk)
     return stats

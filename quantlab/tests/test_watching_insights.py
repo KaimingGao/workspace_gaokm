@@ -120,7 +120,6 @@ class TestWatchingInsights(unittest.TestCase):
                         "rank_lots": {
                             "fusion_w_oo": 0.2,
                             "fusion_w_oc": 0.8,
-                            "fusion_w_co": 0.5,
                         }
                     }
                 }
@@ -131,7 +130,6 @@ class TestWatchingInsights(unittest.TestCase):
                 "stock_code": "600519",
                 "y_oo": 2.0,
                 "y_τc": 1.0,
-                "y_co": 0.0,
                 "score": 1.6,
                 "factors": {},
             }
@@ -159,7 +157,6 @@ class TestWatchingInsights(unittest.TestCase):
         item = out["items"][0]
         self.assertAlmostEqual(float(item["fusion_w_oo"]), 0.2)
         self.assertAlmostEqual(float(item["fusion_w_oc"]), 0.8)
-        self.assertAlmostEqual(float(item["fusion_w_co"]), 0.5)
         self.assertAlmostEqual(float(item["y_oo_fuse"]), 0.2 * 2.0 + 0.8 * 1.0, places=4)
         self.assertAlmostEqual(float(item["score"]), float(item["y_oo_fuse"]), places=4)
 
@@ -482,7 +479,6 @@ class TestWatchingInsights(unittest.TestCase):
                         "rank_lots": {
                             "fusion_w_oo": 0.8,
                             "fusion_w_oc": 0.2,
-                            "fusion_w_co": 0.0,
                         }
                     }
                 }
@@ -524,7 +520,6 @@ class TestWatchingInsights(unittest.TestCase):
                         "rank_lots": {
                             "fusion_w_oo": 0.8,
                             "fusion_w_oc": 0.2,
-                            "fusion_w_co": 0.0,
                         }
                     }
                 }

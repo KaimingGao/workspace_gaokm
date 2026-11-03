@@ -1092,7 +1092,7 @@ class TestDualScoreFields(unittest.TestCase):
                 "y_oo": 2.30,
                 "y_τc": 5.69,
             },
-            rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
+            rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2},
         )
         self.assertAlmostEqual(float(out.get("fusion_w_oo")), 0.8)
         self.assertAlmostEqual(float(out.get("fusion_w_oc")), 0.2)

@@ -131,12 +131,6 @@ def oo_head_key(*, horizon_days: int, ridge_core_only: bool) -> str:
     return head_relpath("oo", f"h{int(horizon_days)}_core{1 if ridge_core_only else 0}")
 
 
-def co_head_key(*, min_history: int, include_alpha_oo: bool) -> str:
-    return head_relpath(
-        "co", f"mh{int(min_history)}_aoo{1 if include_alpha_oo else 0}"
-    )
-
-
 def _tau_cache_leaf(
     *,
     tau_hm: str,

@@ -131,7 +131,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
 
         expect_fuse = y_oo_fuse_pct_of(
             _signal_item(),
-            {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0},
+            {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4},
         )
         self.assertAlmostEqual(float(report[0].get("y_oo_fuse")), expect_fuse)
         self.assertNotIn("ranking", report[0])
@@ -156,7 +156,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             "cost_model": "zero",
         }
         item = _signal_item()
-        cfg = {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0}
+        cfg = {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4}
         fused = y_oo_fuse_pct_of(item, cfg)
         rot = (10.05 / 10.0 - 1.0) * 100.0
         expect = fused - rot
@@ -359,7 +359,6 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             predicted_score_tau=0.02,
             y_on=0.0,
             predicted_score_on=0.0,
-            y_co=0.0,
         )
         with patch(
             "core.paper.rebalance.watching_matrix._watching_codes",
@@ -725,10 +724,6 @@ class TestApplyLegOpenCost(unittest.TestCase):
                 "total": 0.8,
                 "terms": [{"key": "gap_pct", "contrib": 0.1}],
             },
-            "formula_terms_co": {
-                "total": 0.2,
-                "terms": [{"key": "overnight", "contrib": 0.2}],
-            },
             "formula_terms_path": {
                 "total": 1.5,
                 "terms": [{"key": "range_pct", "contrib": 0.3}],
@@ -750,7 +745,6 @@ class TestApplyLegOpenCost(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(buy["score_formula_terms"]["total"], 1.2)
         self.assertEqual(buy["formula_terms_tau"]["total"], 0.8)
-        self.assertEqual(buy["formula_terms_co"]["total"], 0.2)
         self.assertEqual(buy["formula_terms_path"]["total"], 1.5)
 
         sell, err = _apply_one_leg(
@@ -965,7 +959,7 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
             "predicted_score_blend": -3.65,
         }
         payload = _row_score_payload(
-            item, item, {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
+            item, item, {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5}
         )
         expect = 0.5 * 2.30 + 0.5 * 5.69
         self.assertAlmostEqual(float(payload["y_oo_fuse"]), expect)
@@ -1222,9 +1216,6 @@ class TestCubeHeadFormula(unittest.TestCase):
             "core.research.tc_ridge.load_tau_model",
             return_value=tau_doc,
         ), patch(
-            "core.research.co_ridge.load_co_model",
-            return_value={},
-        ), patch(
             "core.research.horizon_ridge.load_ridge_model",
             return_value=None,
         ), patch(
@@ -1269,18 +1260,16 @@ class TestCubeHeadFormula(unittest.TestCase):
                         "rank_lots": {
                             "fusion_w_oo": 0.2,
                             "fusion_w_oc": 0.8,
-                            "fusion_w_co": 0.5,
                         }
                     }
                 }
             }
         }
-        items = [{"stock_code": "600000", "y_oo": 2.0, "y_τc": 1.0, "y_co": 0.0}, "skip"]
+        items = [{"stock_code": "600000", "y_oo": 2.0, "y_τc": 1.0}, "skip"]
         _stamp_fusion_on_items(items, paper)
         row = items[0]
         self.assertAlmostEqual(float(row["fusion_w_oo"]), 0.2)
         self.assertAlmostEqual(float(row["fusion_w_oc"]), 0.8)
-        self.assertAlmostEqual(float(row["fusion_w_co"]), 0.5)
         self.assertAlmostEqual(float(row["y_oo_fuse"]), 0.2 * 2.0 + 0.8 * 1.0, places=4)
         self.assertNotIn("y_spec_tau", row)
 

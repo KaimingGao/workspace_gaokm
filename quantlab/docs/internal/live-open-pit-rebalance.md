@@ -48,8 +48,8 @@
 窗开且当天未跑
   ├─ 有未完成隔夜挂单 → 本轮不算新分；读会话日 T 官方开盘立方：有 → 用官方 μ/σ 与 X，跳到 fuse / 下单
   ├─ 无 → 批量行情拿观察池今开（约 800 只，一条腾讯请求）→ 读每只最近 ~80 根日线（只用到 T−1）
-  ├─ inject_raw_aoo / 开盘钟 raw_atc；build_co_features_from_quote_bars → z_co_* ∪ raw_aoo_*
-  ├─ 内存 DayCube → ŷ_oo / ŷ_τc / ŷ_co / rank → fuse
+  ├─ inject_raw_aoo / 开盘钟 raw_atc
+  ├─ 内存 DayCube → ŷ_oo / ŷ_τc / rank → fuse
   ├─ 有效今开覆盖 < 门槛（默认 LAKE_COVER_FRAC=0.5）→ 失败，不写账，不退昨日
   └─ 覆盖够 → 现价成交（现有 fill；滑点等不变），成交记录保留下单时 ŷ；占位立方只在内存
 ```
@@ -66,7 +66,7 @@
 
 - 分组 = 会话日 T 的开盘截面（一组）；每列只对有限值算 μ/σ，有效只数 < 2 或 σ≈0 → 该列有效值 z=0。
 - **缺今开的股票整行不进 μ/σ，也不进下单名单**；禁止用 0 填开盘价再进截面。
-- ŷ_oo、开盘 Z 的 ŷ_τc、ŷ_co、相关 rank **共用同一套** 今开 raw 与 μ/σ，禁止「ŷ_oo 用今天、τ 还挂昨天」；冻结的 α、β 不变，贡献仍是 β×z。
+- ŷ_oo、开盘 Z 的 ŷ_τc、相关 rank **共用同一套** 今开 raw 与 μ/σ，禁止「ŷ_oo 用今天、τ 还挂昨天」；冻结的 α、β 不变，贡献仍是 β×z。
 
 原始值 x：日线只到昨天，今开用行情开盘价接到决策占位 bar（高=低=收=今开，量用昨量）。例：伊利 `CLOSE0` = 昨收/今开 = 28.89/29.06；`YKSFT` / `YKLEN` 仍是昨天那根 K。
 
@@ -120,7 +120,7 @@
 ## 9. 打分顺序（实现契约）
 
 1. **官方开盘立方（会话日 T）存在** → `load_day_cube` + 既有 lake 路径；`lake_score_day=T`，无 `lake_score_fallback_from`。
-2. **否则** → 内存 open-pit：宇宙 = `read_cube_codes()`（约 800）；bars ≤ T−1；今开 = `batch_get_quotes` + `resolve_open_t`（只要交易日今开）；`inject_raw_aoo` / 开盘钟 τc 特征；`build_day_cube` + `remember`（不落盘）返回 **cube 引用**；`_stamp_cube_head_scores` 写 ŷ_oo / ŷ_τc / ŷ_co / fuse；标记 `lake_score_day=T`、`_score_source=open_pit`，**不得**设 fallback；simulate 把同一 `day_cube` **显式**传给 oo_rank / τc_rank。**覆盖失败** → `rebalance(dry_run=False)` 失败；研究/dry_run 可另议。产品 `rebalance` 经 `materialized_consumer()` 时走 lake / open-pit，不重新打开整池 `score_stock` 写盘。
+2. **否则** → 内存 open-pit：宇宙 = `read_cube_codes()`（约 800）；bars ≤ T−1；今开 = `batch_get_quotes` + `resolve_open_t`（只要交易日今开）；`inject_raw_aoo` / 开盘钟 τc 特征；`build_day_cube` + `remember`（不落盘）返回 **cube 引用**；`_stamp_cube_head_scores` 写 ŷ_oo / ŷ_τc / fuse；标记 `lake_score_day=T`、`_score_source=open_pit`，**不得**设 fallback；simulate 把同一 `day_cube` **显式**传给 oo_rank / τc_rank。**覆盖失败** → `rebalance(dry_run=False)` 失败；研究/dry_run 可另议。产品 `rebalance` 经 `materialized_consumer()` 时走 lake / open-pit，不重新打开整池 `score_stock` 写盘。
 
 ---
 
@@ -147,7 +147,7 @@
 
 | 主题 | 位置 |
 |------|------|
-| 今开截面构建 | `core/paper/rebalance/open_pit_score.py`（含 `z_co_*` via `build_co_features_from_quote_bars`） |
+| 今开截面构建 | `core/paper/rebalance/open_pit_score.py` |
 | 评分顺序 / 成交闸 / rank 传立方 | `watching_matrix._score_pool_from_lake` · `simulate_watching_matrix_preview` |
 | 持仓补名次（无昨日回退） | `watching_matrix.stamp_live_ranks` · `_stamp_ranks_from_lake` |
 | 消费只读 / 调仓入口 | `core/research/materialize/consumer.py`；`services/paper_trades.py` · `rebalance` · `auto_worker.py` |

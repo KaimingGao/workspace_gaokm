@@ -3664,7 +3664,7 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-table {
   /* 股票 / 动作 / 分档 / 昨收 / 开盘 / 现价(含相对开盘%) / 六列分数；吃满容器，禁止横向滚动 */
-  --rebalance-cols: minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(6, minmax(0, 0.88fr));
+  --rebalance-cols: minmax(0, 1.28fr) minmax(3.4rem, 0.5fr) minmax(0, 0.4fr) minmax(0, 0.78fr) minmax(0, 0.78fr) minmax(0, 1.78fr) repeat(5, minmax(0, 0.88fr));
   width: 100%;
   max-width: 100%;
   min-width: 0;

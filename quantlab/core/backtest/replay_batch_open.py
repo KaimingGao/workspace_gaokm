@@ -3,7 +3,7 @@
 按回测日期切片 L1，不把整段历史面板留在进程里。截面 z 用整池；
 ŷ 与名次只写 ``score_codes``。排序头仍读已有 L2 的 μ/σ，不在这里重拟合。
 切片不齐、排序立方读不到、或名次模型在但打不出来时，当日返回 None，调用方走逐日旧路径。
-本路径只写决策头（ŷ_oo / ŷ_τc / ŷ_co / 名次），不写因子组成表。
+本路径只写决策头（ŷ_oo / ŷ_τc / 名次），不写因子组成表。
 """
 
 from __future__ import annotations
@@ -42,16 +42,13 @@ class _OpenSlice:
         dates: List[str],
         oo: Dict[str, tuple],
         tc: Dict[str, tuple],
-        co: Dict[str, tuple],
     ) -> None:
         self.codes = codes
         self.dates = list(dates)
         self.oo = oo
         self.tc = tc
-        self.co = co
         self.oo_model: Any = None
         self.tau_doc: Any = None
-        self.co_doc: Any = None
         self.oo_rank: Optional[_RankModel] = None
         self.tc_rank: Optional[_RankModel] = None
         self._models_ready = False
@@ -71,7 +68,7 @@ def prepare_replay_features(
     cancel_cb: Optional[Callable[[], bool]] = None,
 ) -> None:
     """09:30 切回测日期的 L1。切不齐就退回整票预热。"""
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC, family_for_tc
+    from core.research.lake_bridge import FAMILY_OO, FAMILY_TC, family_for_tc
     from core.research.lake_replay import clear_coverage_cache, prefetch_l1_coverage
 
     clear_coverage_cache()
@@ -88,16 +85,15 @@ def prepare_replay_features(
             return
         if loaded is not None:
             logger.info(
-                "replay open batch slice codes=%s days=%s oo=%s tc=%s co=%s",
+                "replay open batch slice codes=%s days=%s oo=%s tc=%s",
                 len(code_list),
                 len(day_list),
                 len(loaded.oo),
                 len(loaded.tc),
-                len(loaded.co),
             )
             return
         logger.info("replay open batch slice unavailable; prefetch full panels")
-    fams = [FAMILY_OO, FAMILY_TC, FAMILY_CO]
+    fams = [FAMILY_OO, FAMILY_TC]
     if clock_hm not in ("", "09:30"):
         fams.append(family_for_tc(tau_hm=clock))
     prefetch_l1_coverage(code_list, families=fams)
@@ -137,7 +133,6 @@ def score_open_day_from_slice(
     if not _ensure_models(holder):
         return None
     tc_rows = _day_rows(holder.tc, day_s)
-    co_rows = _day_rows(holder.co, day_s)
     codes = [c for c in holder.codes if c in oo_rows]
     prev = ""
     if dates and 0 < int(day_i) < len(dates):
@@ -157,12 +152,9 @@ def score_open_day_from_slice(
         )
         for code in codes
     ]
-    co_raw = [_stamped(co_rows.get(c), _stamp_co) for c in codes]
-
     y_oo = _ridge_map(codes, oo_raw, holder.oo_model, allow, impute_all_missing=False, getter=_oo_get)
     y_tc = _ridge_map(codes, tc_raw, holder.tau_doc, allow, impute_all_missing=True, getter=_tc_get)
-    y_co = _ridge_map(codes, co_raw, holder.co_doc, allow, impute_all_missing=True, getter=_co_get)
-    if y_oo is None or y_tc is None or y_co is None:
+    if y_oo is None or y_tc is None:
         _note_once(holder, "ridge", "replay open batch ridge spec missing; legacy score")
         return None
 
@@ -181,7 +173,6 @@ def score_open_day_from_slice(
                 quote=quotes.get(code) or {},
                 y_oo=y_oo.get(code),
                 y_tc=y_tc.get(code),
-                y_co=y_co.get(code),
             )
         )
     _stamp_oo_ranks(items, oo_ranks)
@@ -375,7 +366,6 @@ def _decision_item(
     quote: Mapping[str, Any],
     y_oo: Optional[float],
     y_tc: Optional[float],
-    y_co: Optional[float],
 ) -> dict:
     item: Dict[str, Any] = {
         "stock_code": code,
@@ -399,10 +389,6 @@ def _decision_item(
         item["y_τc"] = y_tc
         item["predicted_score_τc"] = y_tc
         item["y_τc_source"] = "ridge"
-    if y_co is not None:
-        item["y_co"] = y_co
-        item["predicted_score_co"] = y_co
-        item["y_co_source"] = "ridge"
     return item
 
 
@@ -413,22 +399,22 @@ def _load_slice(
     cancel_cb: Optional[Callable[[], bool]],
 ) -> Optional[_OpenSlice]:
     from core.research.feature_lake import enabled, slice_stock_panels
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+    from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
 
     if not enabled() or not codes or not dates:
         return None
     packed = []
-    for fam in (FAMILY_OO, FAMILY_TC, FAMILY_CO):
+    for fam in (FAMILY_OO, FAMILY_TC):
         if _cancelled(cancel_cb):
             return None
         part = slice_stock_panels(fam, codes, dates, cancel_cb=cancel_cb)
         if part is None:
             return None
         packed.append(part)
-    oo, tc, co = packed
+    oo, tc = packed
     if len(oo) < _min_rows(len(codes)):
         return None
-    holder = _OpenSlice(list(codes), list(dates), oo, tc, co)
+    holder = _OpenSlice(list(codes), list(dates), oo, tc)
     global _HOLDER
     _HOLDER = holder
     return holder
@@ -439,7 +425,6 @@ def _ensure_models(holder: _OpenSlice) -> bool:
         return holder.oo_model is not None
     holder._models_ready = True
     try:
-        from core.research.co_ridge import load_co_model
         from core.research.feature_standardize import is_cross_section_zscore
         from core.research.oo_rank_lambdarank import load_oo_rank_model
         from core.research.oo_ridge import load_scoring_return_model
@@ -448,7 +433,6 @@ def _ensure_models(holder: _OpenSlice) -> bool:
 
         oo_model, _meta = load_scoring_return_model()
         tau_doc = load_tau_model()
-        co_doc = load_co_model()
         oo_rank = _load_rank(load_oo_rank_model)
         tc_rank = _load_rank(load_tc_rank_model)
     except Exception as exc:  # noqa: BLE001
@@ -459,7 +443,6 @@ def _ensure_models(holder: _OpenSlice) -> bool:
     if (
         not is_cross_section_zscore(oo_model)
         or not is_cross_section_zscore(tau_doc)
-        or not is_cross_section_zscore(co_doc)
     ):
         logger.info("replay open batch skip: ridge head is not cross-section z")
         return False
@@ -468,7 +451,6 @@ def _ensure_models(holder: _OpenSlice) -> bool:
         return False
     holder.oo_model = oo_model
     holder.tau_doc = tau_doc
-    holder.co_doc = co_doc
     holder.oo_rank = oo_rank
     holder.tc_rank = tc_rank
     return True
@@ -661,12 +643,6 @@ def _stamp_tc(row: Dict[str, Any]) -> None:
     stamp_z_tc_aliases(row)
 
 
-def _stamp_co(row: Dict[str, Any]) -> None:
-    from core.signal.factors.z_co import stamp_z_co_aliases
-
-    stamp_z_co_aliases(row)
-
-
 def _oo_get(row: Mapping[str, Any], name: str) -> Any:
     from core.signal.factors.z_oo import feature_get
 
@@ -675,12 +651,6 @@ def _oo_get(row: Mapping[str, Any], name: str) -> Any:
 
 def _tc_get(row: Mapping[str, Any], name: str) -> Any:
     from core.signal.factors.z_tc import feature_get
-
-    return feature_get(row, name)
-
-
-def _co_get(row: Mapping[str, Any], name: str) -> Any:
-    from core.signal.factors.z_co import feature_get
 
     return feature_get(row, name)
 

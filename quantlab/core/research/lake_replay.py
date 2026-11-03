@@ -42,11 +42,11 @@ def prefetch_l1_coverage(
     ``progress_cb(cur, tot, msg)`` 按票推进，避免 Job 槽 current=0 被误杀。
     """
     from core.research.feature_lake import enabled, load_stock_panel
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+    from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
 
     if not enabled():
         return {}
-    fams = list(families) if families else [FAMILY_OO, FAMILY_TC, FAMILY_CO]
+    fams = list(families) if families else [FAMILY_OO, FAMILY_TC]
     code_list = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     n_codes = max(1, len(code_list))
     stats: Dict[str, int] = {}
@@ -182,15 +182,14 @@ def _day_feats(family: str, code: str, day: str) -> Optional[Dict[str, float]]:
 def _lake_row_maps(
     codes: Sequence[str],
     day: str,
-) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
-    """一日内批量取 oo/tc/co。每族最多读盘一次。"""
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
+    """一日内批量取 oo/tc。每族最多读盘一次。"""
+    from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
 
     day_s = str(day or "")[:10]
     return (
         _family_day_map(FAMILY_OO, codes, day_s),
         _family_day_map(FAMILY_TC, codes, day_s),
-        _family_day_map(FAMILY_CO, codes, day_s),
     )
 
 
@@ -291,16 +290,15 @@ def assemble_item_from_lake_rows(
     *,
     oo: Optional[Dict[str, float]] = None,
     tc: Optional[Dict[str, float]] = None,
-    co: Optional[Dict[str, float]] = None,
     quote: Optional[dict] = None,
     window: Optional[Sequence[dict]] = None,
 ) -> Optional[dict]:
-    """用已取到的 L1 行组装轻量 signal_item；三族皆空则 None。"""
+    """用已取到的 L1 行组装轻量 signal_item。oo 与 tc 皆空则 None。"""
     day_s = str(day or "")[:10]
     code_s = str(code or "").strip()
     if len(day_s) < 10 or not code_s:
         return None
-    if not oo and not tc and not co:
+    if not oo and not tc:
         return None
     item: Dict[str, Any] = {
         "stock_code": code_s,
@@ -322,9 +320,6 @@ def assemble_item_from_lake_rows(
         item["features_tau"] = dict(tc)
         if "gap_pct" in tc:
             item["gap_pct"] = tc.get("gap_pct")
-    if co:
-        item["features_co"] = dict(co)
-        item["features_on"] = dict(co)
     if isinstance(quote, dict) and quote:
         item["quote"] = quote
         for k in ("price_raw", "price", "open", "open_raw", "prev_close", "change_pct"):
@@ -342,7 +337,7 @@ def try_score_item_from_lake(
     quote: Optional[dict] = None,
     window: Optional[Sequence[dict]] = None,
 ) -> Optional[dict]:
-    """若 L1 有该日 oo/tc/co 行，组装轻量 signal_item；否则 None。
+    """若 L1 有该日 oo/tc 行，组装轻量 signal_item；否则 None。
 
     仍附带 quote / 末窗价量，供涨跌停与 yhat 头使用。
     """
@@ -352,24 +347,21 @@ def try_score_item_from_lake(
         return None
     try:
         from core.research.feature_lake import enabled
-        from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+        from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
     except Exception:  # noqa: BLE001
         return None
     if not enabled():
         return None
-    # 预热索引：三族皆明确无该日 → 直接 miss，避免三次开盘 npz
     flags = [
         _coverage_has(FAMILY_OO, code_s, day_s),
         _coverage_has(FAMILY_TC, code_s, day_s),
-        _coverage_has(FAMILY_CO, code_s, day_s),
     ]
     if all(f is False for f in flags):
         return None
     oo = _day_feats(FAMILY_OO, code_s, day_s) if flags[0] is not False else None
     tc = _day_feats(FAMILY_TC, code_s, day_s) if flags[1] is not False else None
-    co = _day_feats(FAMILY_CO, code_s, day_s) if flags[2] is not False else None
     return assemble_item_from_lake_rows(
-        code_s, day_s, oo=oo, tc=tc, co=co, quote=quote, window=window
+        code_s, day_s, oo=oo, tc=tc, quote=quote, window=window
     )
 
 
@@ -391,7 +383,7 @@ def score_open_day_entries(
     coverage 已确认无该日 → 不切窗、不读盘；暖缓存命中 → 跳过 ``score_window_as_item``
     与昨收窗（开盘回测 y_hl 已下线；缺口/ŷ 头吃 quote + L1 特征）。
     """
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, FAMILY_TC
+    from core.research.lake_bridge import FAMILY_OO, FAMILY_TC
     from core.signal.cross_section_batch import score_window_as_item
 
     entries: List[dict] = []
@@ -407,7 +399,7 @@ def score_open_day_entries(
     codes = [str(c).strip() for c in stock_bars if str(c or "").strip()]
 
     # 一日批量切片（吃 prefetch 内存），避免 per-code 反复探盘
-    oo_m, tc_m, co_m = _lake_row_maps(codes, today)
+    oo_m, tc_m = _lake_row_maps(codes, today)
 
     for code in codes:
         dm = date_maps.get(code) or {}
@@ -423,19 +415,16 @@ def score_open_day_entries(
         flags = [
             _coverage_has(FAMILY_OO, code, today),
             _coverage_has(FAMILY_TC, code, today),
-            _coverage_has(FAMILY_CO, code, today),
         ]
-        # 预热后三族皆无该日 → 仍可能走切窗（L1 未写穿时的回退）
+        # 预热后两族皆无该日 → 仍可能走切窗（L1 未写穿时的回退）
         definite_miss = bool(flags) and all(f is False for f in flags)
         oo = oo_m.get(code) if flags[0] is not False else None
         tc = tc_m.get(code) if flags[1] is not False else None
-        co = co_m.get(code) if flags[2] is not False else None
         # 须有 oo 行才跳过切窗：ŷ_oo / oo_rank 依赖 sub_scores。
-        # 仅 tc/co 有湖日（oo 湖常慢一天）若当命中，会留下无 sub_scores 的条目，
-        # 末日记明细 y_oo / y_oo_rank 全空而 y_τc / τc_rank 仍在。
+        # 仅 tc 有湖日（oo 湖常慢一天）若当命中，会留下无 sub_scores 的条目。
         if not definite_miss and oo:
             item = assemble_item_from_lake_rows(
-                code, today, oo=oo, tc=tc, co=co, quote=quote, window=None
+                code, today, oo=oo, tc=tc, quote=quote, window=None
             )
             if item is not None:
                 hits += 1

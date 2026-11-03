@@ -2,13 +2,13 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p3360";
-import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2746";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveFuseScore, resolveEodScore, resolveTauScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, FUSE_REBALANCE_TITLE } from "./paper/fmt.js?v=p3540";
+import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p3540";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "./quant/watching_insights_ui.js?v=p2544";
+} from "./quant/watching_insights_ui.js?v=p3540";
 import { formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
 import {
@@ -66,7 +66,6 @@ export function holdingToRow(
   const score = resolveFuseScore(h);
   const scoreEod = resolveEodScore(h);
   const scoreTau = resolveTauScore(h);
-  const scoreOn = resolveOnScore(h);
   const belowMin = holdingFuseBelowEnter(h, score);
   const hardReject = !!h.hard_reject;
   const scoreBase = fmtTableScore(h, score);
@@ -75,7 +74,6 @@ export function holdingToRow(
   if (scoreText === "—" && hardReject) scoreText = "拒";
   const scoreEodText = fmtTableScore(h, scoreEod);
   const scoreTauText = fmtTableScore(h, scoreTau);
-  const scoreOnText = fmtTableScore(h, scoreOn);
   const origin = String(h.origin || "");
   const mv = Number(h.market_value ?? h.market_value_approx);
   const oosFailed =
@@ -97,7 +95,6 @@ export function holdingToRow(
         : FUSE_REBALANCE_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
-  const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
   const ooRank = rankOrdinal(
     h.y_oo_rank != null ? h.y_oo_rank : h.predicted_score_oo_rank,
     h.y_oo_rank_n
@@ -152,7 +149,6 @@ export function holdingToRow(
     dualScoreWindow: h.dual_score_window || null,
     dualScoreWeights: h.dual_score_weights || null,
     predictedScoreTau: h.y_tau ?? h["y_τc"] ?? h.score_rem ?? h.predicted_score_tau ?? null,
-    predictedScoreOn: h.predicted_score_on ?? null,
     yCheck: h.y_check || null,
     scoreEodText,
     scoreEodNum:
@@ -164,11 +160,6 @@ export function holdingToRow(
       scoreTau != null && Number.isFinite(Number(scoreTau)) ? Number(scoreTau) : null,
     scoreTauCls: scoreCls(scoreTau),
     scoreTauTitle,
-    scoreOnText,
-    scoreOnNum:
-      scoreOn != null && Number.isFinite(Number(scoreOn)) ? Number(scoreOn) : null,
-    scoreOnCls: scoreCls(scoreOn),
-    scoreOnTitle,
     ooRankText: ooRank.text,
     ooRankNum: ooRank.num,
     ooRankTitle,
@@ -263,16 +254,6 @@ const COLS = [
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
     title: Y_OC_REBALANCE_TITLE,
-  },
-  {
-    id: "score_on",
-    label: "y_co",
-    width: 82,
-    num: true,
-    sortable: true,
-    headClass: "watching-col-y",
-    cellClass: "watching-col-y",
-    title: Y_ON_TITLE,
   },
   {
     id: "score",
@@ -373,7 +354,6 @@ function compare(id, a, b) {
   if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
   if (id === "score_eod") return numCmp(Number(a.scoreEodNum), Number(b.scoreEodNum));
   if (id === "score_tau") return numCmp(Number(a.scoreTauNum), Number(b.scoreTauNum));
-  if (id === "score_on") return numCmp(Number(a.scoreOnNum), Number(b.scoreOnNum));
   if (id === "oo_rank") return rankCmp(a.ooRankNum, b.ooRankNum);
   if (id === "tc_rank") return rankCmp(a.tcRankNum, b.tcRankNum);
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
@@ -531,35 +511,18 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           )}">${escapeHtml(text || "—")}</span>`
         );
       }
-      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on") {
+      if (col.id === "score_eod" || col.id === "score_tau") {
         const tipMap = {
           score_eod: "eod",
           score_tau: "tau",
-          score_on: "on",
         };
         const skinMap = {
           score_eod: "eod",
           score_tau: "tau",
-          score_on: "on",
         };
-        const textKey =
-          col.id === "score_eod"
-            ? "scoreEodText"
-            : col.id === "score_tau"
-              ? "scoreTauText"
-              : "scoreOnText";
-        const clsKey =
-          col.id === "score_eod"
-            ? "scoreEodCls"
-            : col.id === "score_tau"
-              ? "scoreTauCls"
-              : "scoreOnCls";
-        const titleKey =
-          col.id === "score_eod"
-            ? "scoreEodTitle"
-            : col.id === "score_tau"
-              ? "scoreTauTitle"
-              : "scoreOnTitle";
+        const textKey = col.id === "score_eod" ? "scoreEodText" : "scoreTauText";
+        const clsKey = col.id === "score_eod" ? "scoreEodCls" : "scoreTauCls";
+        const titleKey = col.id === "score_eod" ? "scoreEodTitle" : "scoreTauTitle";
         const detail = d.scoreDetail || "";
         const title = d[titleKey] || "";
         const text = d[textKey] || "—";

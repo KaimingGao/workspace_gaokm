@@ -782,25 +782,16 @@ def _resolve_lake_score_day(
     return cycle_day or "", last_report, None
 
 
-def _cube_family_feats(feats: Dict[str, float]) -> Tuple[dict, dict, dict]:
-    """立方列按模型前缀拆回 oo / τ / co。裸名不灌进去，避免别的族盖住 canon。"""
+def _cube_family_feats(feats: Dict[str, float]) -> Tuple[dict, dict]:
+    """立方列按模型前缀拆回 oo / τ。裸名不灌进去，避免别的族盖住 canon。"""
     oo: Dict[str, float] = {}
     tau: Dict[str, float] = {}
-    co: Dict[str, float] = {}
     for key, val in feats.items():
         if key.startswith("z_oo_") or key.startswith("raw_aoo_"):
             oo[key] = val
-        if key.startswith("z_co_") or key.startswith("raw_aco_"):
-            co[key] = val
         if key.startswith(("raw_atc_", "z_τc_", "z_tc_", "z_τh_")):
             tau[key] = val
-    # ŷ_co = z_co_* ∪ raw_aoo_*；raw_aoo 与 ŷ_oo 共用立方列，z_co 不可省
-    # （缺 z_co_yest_close_loc 会对消断裂，隔夜 ŷ 炸尺度）
-    if oo:
-        for key, val in oo.items():
-            if key.startswith("raw_aoo_"):
-                co[key] = val
-    return oo, tau, co
+    return oo, tau
 
 
 def _items_from_day_cube(cube: Any, day: str) -> List[dict]:
@@ -824,8 +815,8 @@ def _items_from_day_cube(cube: Any, day: str) -> List[dict]:
         if not bool(finite.any()):
             continue
         feats = {names[j]: float(row[j]) for j in range(p) if bool(finite[j])}
-        oo, tau, co = _cube_family_feats(feats)
-        if not oo and not tau and not co:
+        oo, tau = _cube_family_feats(feats)
+        if not oo and not tau:
             continue
         item: Dict[str, Any] = {
             "stock_code": code,
@@ -840,9 +831,6 @@ def _items_from_day_cube(cube: Any, day: str) -> List[dict]:
             item["sub_scores"] = oo
         if tau:
             item["features_tau"] = tau
-        if co:
-            item["features_co"] = co
-            item["features_on"] = dict(co)
         gap = feats.get("gap_pct")
         if gap is None:
             gap = tau.get("gap_pct")
@@ -1133,7 +1121,7 @@ def _stamp_fusion_on_items(
     items: Sequence[dict],
     paper: Optional[dict] = None,
 ) -> None:
-    """用策略 rank_lots 的 w_oo / w_τc / w_co 写 y_oo_fuse。
+    """用策略 rank_lots 的 w_oo / w_τc 写 y_oo_fuse。
 
     缺 paper 时才落到默认 0.6/0.4。数据中心 fuse tip 读这些键，必须和调仓回测同一套权。
     """
@@ -1145,12 +1133,11 @@ def _stamp_fusion_on_items(
         if not isinstance(it, dict):
             continue
         stamped = stamp_window_scores(it, cfg)
-        for key in ("y_oo_fuse", "y_oo", "y_τc", "y_co"):
+        for key in ("y_oo_fuse", "y_oo", "y_τc"):
             if stamped.get(key) is not None:
                 it[key] = stamped[key]
         it["fusion_w_oo"] = cfg.get("fusion_w_oo")
         it["fusion_w_oc"] = cfg.get("fusion_w_oc")
-        it["fusion_w_co"] = cfg.get("fusion_w_co")
 
 
 def _stamp_cube_head_scores(
@@ -1161,7 +1148,7 @@ def _stamp_cube_head_scores(
     explain_codes: Optional[Collection[str]] = None,
     paper: Optional[dict] = None,
 ) -> None:
-    """用立方矩阵点积写 ŷ_oo / ŷ_τc / ŷ_co / fuse，并附因子拆解供股票表 tip。"""
+    """用立方矩阵点积写 ŷ_oo / ŷ_τc / fuse，并附因子拆解供股票表 tip。"""
     from core.signal.factors.sum_identity import (
         cs_batch_preds_look_collapsed,
         filter_predict_active_names,
@@ -1263,52 +1250,6 @@ def _stamp_cube_head_scores(
                 )
             except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
                 logger.debug("cube tau formula terms skipped", exc_info=True)
-
-    try:
-        from core.research.co_ridge import load_co_model
-
-        doc = load_co_model() or {}
-        rm = doc.get("return_model") if isinstance(doc, dict) else {}
-    except Exception:  # noqa: BLE001
-        logger.debug("cube co model load failed", exc_info=True)
-        rm = {}
-    if isinstance(rm, dict) and rm.get("coefficients"):
-        active = filter_predict_active_names(
-            rm.get("active_features") or rm["coefficients"].keys(),
-            rm["coefficients"],
-        )
-        pred = _dot_head(Z, names, rm["coefficients"], float(rm.get("intercept") or 0.0), active)
-        if pred is not None:
-            _refuse("co", pred, float(rm.get("intercept") or 0.0))
-            _write_head(
-                items,
-                codes,
-                pred,
-                ("y_co", "predicted_score_co", "predicted_score_on"),
-                score_codes,
-            )
-            try:
-                co_role = str(
-                    (doc.get("model_role") if isinstance(doc, dict) else "")
-                    or rm.get("model_role")
-                    or ""
-                )
-                _attach_cube_formula(
-                    items,
-                    codes,
-                    Z,
-                    names,
-                    rm["coefficients"],
-                    float(rm.get("intercept") or 0.0),
-                    active,
-                    pred,
-                    ("formula_terms_co", "score_formula_terms_co"),
-                    score_codes,
-                    explain_codes,
-                    score_model_role=co_role,
-                )
-            except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
-                logger.debug("cube co formula terms skipped", exc_info=True)
 
     try:
         from core.research.feature_standardize import is_cross_section_zscore
@@ -1510,7 +1451,7 @@ def _score_pool_from_lake(
     """
     from core.research.batch_score import ensure_day_cube_for_items
     from core.research.feature_lake import load_day_rows
-    from core.research.lake_bridge import FAMILY_CO, FAMILY_OO, family_for_tc
+    from core.research.lake_bridge import FAMILY_OO, family_for_tc
     from core.research.lake_replay import assemble_item_from_lake_rows
     from core.research.materialize.consumer import MaterializeRequired
     from core.research.materialize.coverage import read_cube_codes
@@ -1581,7 +1522,7 @@ def _score_pool_from_lake(
     if from_cube is not None:
         return from_cube
     fam_tc = family_for_tc(tau_hm="open" if clock == "open" else clock)
-    families = [FAMILY_OO, fam_tc, FAMILY_CO]
+    families = [FAMILY_OO, fam_tc]
     day, report, fallback_from = _resolve_lake_score_day(
         codes,
         families=families,
@@ -1594,7 +1535,6 @@ def _score_pool_from_lake(
 
     oo_m = load_day_rows(FAMILY_OO, codes, day) or {}
     tc_m = load_day_rows(fam_tc, codes, day) or {}
-    co_m = load_day_rows(FAMILY_CO, codes, day) or {}
     scored: List[dict] = []
     rejected: List[dict] = []
     for code in codes:
@@ -1603,7 +1543,6 @@ def _score_pool_from_lake(
             day,
             oo=oo_m.get(code),
             tc=tc_m.get(code),
-            co=co_m.get(code),
         )
         if item is None:
             rejected.append({"stock_code": code, "reason": f"L1 缺 {day}"})
@@ -1949,9 +1888,7 @@ _SCORE_PASSTHROUGH_KEYS = (
     "predicted_score_eod",
     "predicted_score_eod_rem",
     "predicted_score_tau",
-    "predicted_score_co",
     "y_oo",
-    "y_co",
     "y_τc",
     *AUX_YHAT_KEYS,
     "y_oo_fuse",
@@ -1968,17 +1905,13 @@ _SCORE_PASSTHROUGH_KEYS = (
 )
 
 
-def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> Dict[str, Any]:
+def _score_fields_for_report(item: dict) -> Dict[str, Any]:
     """透传 signal_item 打分字段，供前端 resolve*Score 解析表列。"""
     out: Dict[str, Any] = {}
     if isinstance(item, dict):
         for k in _SCORE_PASSTHROUGH_KEYS:
             if k in item and item.get(k) is not None:
                 out[k] = item.get(k)
-    yo = scores.get("y_co")
-    if yo is not None:
-        out["y_co"] = yo
-        out.setdefault("predicted_score_co", yo)
     return out
 
 
@@ -1990,18 +1923,14 @@ def _row_score_payload(
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """表列用 ŷ_oo / ŷ_τc / ŷ_co；y_oo_fuse（UI fuse）现算。"""
+    """表列用 ŷ_oo / ŷ_τc；y_oo_fuse（UI fuse）现算。"""
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.paper.rebalance.rank_lots import aux_yhat_fields, y_oo_fuse_pct_of
-    from core.signal.yhat_windows import pick_y_co
 
     item = item if isinstance(item, dict) else {}
     src = src if isinstance(src, dict) else {}
     sc = scores_from_rebalance_item(item, cfg)
-    yo = pick_y_co(src)
-    if yo is None:
-        yo = pick_y_co(item)
-    payload = _score_fields_for_report(item, {"y_co": yo})
+    payload = _score_fields_for_report(item)
     for k in ("y_oo", "y_τc", "y_oo_fuse", "residual"):
         if sc.get(k) is not None:
             payload[k] = sc.get(k)
@@ -2066,7 +1995,6 @@ def _apply_one_leg(
         for k in (
             "y_oo_fuse",
             "y_oo",
-            "y_co",
             "y_τc",
             "residual",
             "predicted_score_tau",
@@ -2254,7 +2182,7 @@ def simulate_watching_matrix_preview(
     offline_only: bool = True,
     open_replay: bool = False,
 ) -> Dict[str, Any]:
-    """观察池算分 + rank_lots（y_oo_fuse 融合 ŷ_oo / ŷ_τc / ŷ_co · 已保存金额换手）。
+    """观察池算分 + rank_lots（y_oo_fuse 融合 ŷ_oo / ŷ_τc · 已保存金额换手）。
 
     默认 offline 只约束 ŷ；``dry_run=False`` 落账强制现价，避免成本写成昨收。
     ``open_replay=True``：固定 09:30 开盘 Z 与开盘价，丢掉开仓/加仓，不写账。
@@ -2750,7 +2678,6 @@ def simulate_watching_matrix_preview(
                 "lot_strong_amount": rl_cfg.get("lot_strong_amount"),
                 "fusion_w_oo": rl_cfg.get("fusion_w_oo"),
                 "fusion_w_oc": rl_cfg.get("fusion_w_oc"),
-                "fusion_w_co": rl_cfg.get("fusion_w_co"),
             },
             "by_action": by_action,
         },

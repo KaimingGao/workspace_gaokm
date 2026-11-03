@@ -13,20 +13,18 @@ import {
   resolveFuseScore,
   resolveEodScore,
   resolveTauScore,
-  resolveOnScore,
   isHeuristicScoreScale,
   Y_EOD_TITLE,
   Y_OC_REBALANCE_TITLE,
-  Y_ON_TITLE,
   FUSE_REBALANCE_TITLE,
-} from "./fmt.js?v=p3360";
+} from "./fmt.js?v=p3540";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p2746";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p3540";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "../quant/watching_insights_ui.js?v=p2544";
+} from "../quant/watching_insights_ui.js?v=p3540";
 import { formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
@@ -170,8 +168,6 @@ export function buildPaperHoldingsTableHtml({
             ? `${Y_EOD_TITLE} · 点击排序`
             : key === "score_tau"
               ? `${Y_OC_REBALANCE_TITLE} · 点击排序`
-            : key === "score_on"
-              ? `${Y_ON_TITLE} · 点击排序`
             : key === "oo_rank"
               ? "ŷ_oo_rank 当日观察池截面名次 · 1=最高 · 点击排序"
             : key === "tc_rank"
@@ -201,7 +197,6 @@ export function buildPaperHoldingsTableHtml({
       const score = resolveFuseScore(h);
       const scoreEod = resolveEodScore(h);
       const scoreTau = resolveTauScore(h);
-      const scoreOn = resolveOnScore(h);
       const belowMin = holdingFuseBelowEnter(h, score);
       const hardReject = !!h.hard_reject;
       const scoreBase = fmtTableScore(h, score);
@@ -210,7 +205,6 @@ export function buildPaperHoldingsTableHtml({
       if (scoreShown === "—" && hardReject) scoreShown = "拒";
       const scoreEodShown = fmtTableScore(h, scoreEod);
       const scoreTauShown = fmtTableScore(h, scoreTau);
-      const scoreOnShown = fmtTableScore(h, scoreOn);
       const singleHead = isSingleHeadItem(h);
       const scoreTitle = hardReject
         ? String(h.reject_reason || "硬拒绝 · 无收益分")
@@ -234,7 +228,6 @@ export function buildPaperHoldingsTableHtml({
       const yCheckBadge = yCheckBadgeHtml(h, escapeText);
       const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
       const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
-      const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
       const ooRank = rankOrdinal(
         h.y_oo_rank != null ? h.y_oo_rank : h.predicted_score_oo_rank,
         h.y_oo_rank_n
@@ -319,11 +312,6 @@ export function buildPaperHoldingsTableHtml({
         )}" data-score-detail="${scoreDetailJson}" data-score-tip="tau" title="${escapeText(
           scoreTauTitle
         )}">${escapeText(scoreTauShown)}</td>` +
-        `<td class="num paper-hold-score watching-score-on has-tip ${scoreCls(
-          scoreOn
-        )}" data-score-detail="${scoreDetailJson}" data-score-tip="on" title="${escapeText(
-          scoreOnTitle
-        )}">${escapeText(scoreOnShown)}</td>` +
         `<td class="num paper-hold-score has-tip ${scoreCls(score)}${
           belowMin ? " score-below-min" : ""
         }${hardReject ? " score-reject" : ""}${
@@ -374,7 +362,6 @@ export function buildPaperHoldingsTableHtml({
     `<th title="最新成交价">现价</th>` +
     `${sortThHtml("y_oo", "score_eod")}` +
     `${sortThHtml("y_τc", "score_tau")}` +
-    `${sortThHtml("y_co", "score_on")}` +
     `${sortThHtml("fuse", "score")}` +
     `${sortThHtml("oo_rank", "oo_rank")}` +
     `${sortThHtml("τc_rank", "tc_rank")}` +
